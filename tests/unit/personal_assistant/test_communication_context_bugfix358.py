@@ -124,13 +124,19 @@ def test_group_participants_user_shows_user_id_key() -> None:
 # ─── prompts.py: 删除 "prefer stable IDs" 硬编码措辞 ─────────────────────
 
 def test_prompts_no_prefer_stable_ids_line() -> None:
-    """prompts.py 中不再包含 'prefer stable IDs (user_id / agent_id)' 措辞。"""
-    from agent.products.personal_assistant import prompts
+    """PA system prompt sections must not contain deprecated 'prefer stable IDs' wording.
 
-    # 该措辞是层级混淆的证据，bugfix-358 要求删除
-    assert "prefer stable IDs" not in prompts.PERSONAL_ASSISTANT_SYSTEM_PROMPT, (
-        "prompts.py must not contain deprecated 'prefer stable IDs' wording"
+    feat-385: prompts.py deleted (decision 11); verify invariant against PA_SECTIONS instead.
+    """
+    from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
+    from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
+
+    ctx = PromptContext(current_datetime="2026-01-01T00:00:00", cwd="/ws")
+    assembled = assemble_system_prompt(list(PA_SECTIONS), ctx)
+
+    assert "prefer stable IDs" not in assembled, (
+        "PA system prompt must not contain deprecated 'prefer stable IDs' wording"
     )
-    assert "user_id / agent_id" not in prompts.PERSONAL_ASSISTANT_SYSTEM_PROMPT, (
-        "prompts.py must not reference 'user_id / agent_id' as interchangeable IDs"
+    assert "user_id / agent_id" not in assembled, (
+        "PA system prompt must not reference 'user_id / agent_id' as interchangeable IDs"
     )

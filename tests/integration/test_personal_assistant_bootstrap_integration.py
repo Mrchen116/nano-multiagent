@@ -27,10 +27,10 @@ def test_bootstrap_personal_assistant_product_id(tmp_path: Path) -> None:
 
 
 def test_bootstrap_personal_assistant_resolved_system_prompt_non_empty(tmp_path: Path) -> None:
-    """Resolved system prompt must be non-empty for personal_assistant."""
+    """feat-385 decision 11: bootstrap PA uses segment assembly; resolved_system_prompt is ""."""
     resolved = bootstrap_product(profile=PERSONAL_ASSISTANT_PROFILE, repo_root=tmp_path)
-    assert resolved.resolved_system_prompt
-    assert len(resolved.resolved_system_prompt.strip()) > 0
+    assert resolved.resolved_system_prompt == ""
+    assert resolved.prompt_sections  # segment assembly path
 
 
 def test_bootstrap_personal_assistant_tool_registry_keeps_send_message_opt_in(tmp_path: Path) -> None:

@@ -38,16 +38,20 @@ def test_personal_assistant_profile_compat_skill_roots_include_current_skill_hom
     assert "~/.codex/skills" in roots
 
 
-def test_personal_assistant_profile_default_system_prompt_non_empty() -> None:
-    """personal_assistant profile must have a non-empty system prompt."""
-    assert PERSONAL_ASSISTANT_PROFILE.default_system_prompt is not None
-    assert len(PERSONAL_ASSISTANT_PROFILE.default_system_prompt.strip()) > 0
+def test_personal_assistant_profile_default_system_prompt_empty_for_segment_assembly() -> None:
+    """feat-385 decision 11: default_system_prompt is "" — segment assembly replaces f-string."""
+    assert PERSONAL_ASSISTANT_PROFILE.default_system_prompt == ""
+    # Verify PA has prompt_sections for segment-based assembly
+    assert PERSONAL_ASSISTANT_PROFILE.prompt_sections
 
 
 def test_personal_assistant_profile_system_prompt_not_coding() -> None:
-    """personal_assistant system prompt must not reference coding/code assistant semantics."""
-    prompt = (PERSONAL_ASSISTANT_PROFILE.default_system_prompt or "").lower()
-    # Must not describe itself as a coding assistant.
+    """personal_assistant segments must not reference coding/code assistant semantics."""
+    # feat-385: check against assembled segment content, not the deleted prompts.py
+    from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
+    from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
+    ctx = PromptContext(current_datetime="2026-01-01T00:00:00", cwd="/ws")
+    prompt = assemble_system_prompt(list(PA_SECTIONS), ctx).lower()
     assert "coding assistant" not in prompt
     assert "code assistant" not in prompt
 

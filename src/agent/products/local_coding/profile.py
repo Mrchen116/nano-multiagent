@@ -12,7 +12,6 @@ from .defaults import (
     WORKSPACE_CONFIG_DIRNAME,
 )
 from .hooks import DEFAULT_HOOK_MODULES
-from .prompts import LOCAL_CODING_SYSTEM_PROMPT
 from .prompt_sections import LC_SECTIONS
 from .toolsets import DEFAULT_TOOL_IDS, OPTIONAL_TOOL_IDS
 
@@ -20,7 +19,7 @@ LOCAL_CODING_PROFILE = ProductProfile(
     product_id="local_coding",
     display_name="Nano Coding CLI",
     config_namespace=CONFIG_NAMESPACE,
-    default_system_prompt=LOCAL_CODING_SYSTEM_PROMPT,
+    default_system_prompt="",  # decision 11: segment assembly replaces f-string template
     prompt_sections=LC_SECTIONS,
     default_tool_ids=list(DEFAULT_TOOL_IDS),
     optional_tool_ids=list(OPTIONAL_TOOL_IDS),

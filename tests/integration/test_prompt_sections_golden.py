@@ -30,10 +30,8 @@ from pathlib import Path
 import pytest
 
 from agent.core.agent.prompting import (
-    BACKGROUND_TASK_PROMPT_BLOCK,
     MEMORY_GUIDANCE,
     SKILLS_GUIDANCE,
-    build_system_prompt,
 )
 from agent.core.agent.prompt_sections.base import (
     PromptContext,
@@ -110,31 +108,9 @@ def _lc_sections(tools: tuple[ToolSpec, ...]):
     return all_sections, ctx
 
 
-# ---------------------------------------------------------------------------
-# Golden helpers — build old-style prompt for comparison
-# ---------------------------------------------------------------------------
-
-def _old_pa_prompt(tools, *, memory_block=None):
-    from agent.products.personal_assistant.prompts import PERSONAL_ASSISTANT_SYSTEM_PROMPT
-    return build_system_prompt(
-        system_prompt=PERSONAL_ASSISTANT_SYSTEM_PROMPT,
-        available_skills=(),
-        available_tools=tools,
-        current_datetime="2026-01-01T00:00:00",
-        current_working_directory=Path("/workspace"),
-        memory_block=memory_block,
-    )
-
-
-def _old_lc_prompt(tools):
-    from agent.core.agent.prompting import LOCAL_CODING_SYSTEM_PROMPT
-    return build_system_prompt(
-        system_prompt=LOCAL_CODING_SYSTEM_PROMPT,
-        available_skills=(),
-        available_tools=tools,
-        current_datetime="2026-01-01T00:00:00",
-        current_working_directory=Path("/workspace"),
-    )
+# feat-385: legacy golden helpers (_old_pa_prompt / _old_lc_prompt) removed.
+# The old f-string templates (prompts.py) are deleted; all content is now in
+# prompt_sections. Tests now only verify the new segment-assembled prompt.
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +118,9 @@ def _old_lc_prompt(tools):
 # ---------------------------------------------------------------------------
 
 def test_pa_golden_direct_no_memory_no_skill():
-    """New assembly equals legacy for direct chat without self-evolution tools."""
+    """Segment assembly for direct chat without self-evolution tools."""
     sections, ctx = _pa_sections(BASIC_PA_TOOLS)
     new_prompt = assemble_system_prompt(sections, ctx)
-    old_prompt = _old_pa_prompt(BASIC_PA_TOOLS)
 
     # Core identity present.
     assert "Nano Personal Assistant" in new_prompt

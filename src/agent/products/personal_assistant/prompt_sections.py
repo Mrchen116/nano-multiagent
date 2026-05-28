@@ -66,19 +66,11 @@ _PA_RUNTIME = PromptSection(
     cache_safe=True,
 )
 
-# Provenance: new — migrated verbatim from ## Memory block in prompts.py
-_PA_MEMORY_INTRO = PromptSection(
-    name="pa.memory_intro",
-    order=300,
-    render=lambda ctx: (
-        "## Memory\n"
-        "You have a persistent workspace with long-term memory.\n"
-        "- Write important facts, user preferences, and context to `MEMORY.md` "
-        "using the read tool to check existing content first.\n"
-        "- Memory persists across sessions — use it to remember things the user tells you."
-    ),
-    cache_safe=True,
-)
+# feat-385: pa.memory_intro deleted (decision 7).
+# core.memory_guidance (core_sections.py) is the replacement; it activates when
+# the memory tool is present and memory_curation is on. The old segment pointed
+# agents to <workspace>/MEMORY.md (read tool), which conflicts with the actual
+# MemoryTool write path at <memory_root>/MEMORY.md — kept here only as comment.
 
 # Provenance: new — migrated verbatim from ## Heartbeat block in prompts.py
 _PA_HEARTBEAT = PromptSection(
@@ -302,7 +294,6 @@ _PA_COMMUNICATION_CONTEXT = PromptSection(
 PA_SECTIONS: tuple[PromptSection, ...] = (
     _PA_IDENTITY,
     _PA_RUNTIME,
-    _PA_MEMORY_INTRO,
     _PA_HEARTBEAT,
     _PA_PLATFORM_POLICY,
     _PA_GUIDELINES,
