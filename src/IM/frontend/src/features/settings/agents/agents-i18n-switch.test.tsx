@@ -71,14 +71,14 @@ describe("agents pages i18n zh switch", () => {
             capabilities_updated_at: "2026-03-13T10:00:00Z",
             skills: [],
             tools: [],
-            model_options: ["codex_oauth:gpt-5.4"],
-            platform_default_model: "codex_oauth:gpt-5.4",
+            model_options: ["codex_oauth:gpt-5.5"],
+            platform_default_model: "codex_oauth:gpt-5.5",
             default_system_prompt: ""
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }
         );
       }
-      if (url === "/im/v1/agents/agent-zh-1/config") {
+      if (url === "/im/v1/agents/agent-zh-1/config?source=mirror") {
         return new Response(
           JSON.stringify({
             agent_id: "agent-zh-1",
@@ -89,7 +89,7 @@ describe("agents pages i18n zh switch", () => {
             skills: [],
             tool_allowlist: [],
             group_reply_policy: "MENTION",
-            default_model: "codex_oauth:gpt-5.4",
+            default_model: "codex_oauth:gpt-5.5",
             workspace_root: "/tmp/agent-zh-1",
             workspace_is_default: true,
             profile_version: 1,
@@ -143,8 +143,8 @@ describe("agents pages i18n zh switch", () => {
             capabilities_updated_at: "2026-03-13T10:00:00Z",
             skills: [],
             tools: [],
-            model_options: ["codex_oauth:gpt-5.4"],
-            platform_default_model: "codex_oauth:gpt-5.4",
+            model_options: ["codex_oauth:gpt-5.5"],
+            platform_default_model: "codex_oauth:gpt-5.5",
             default_system_prompt: ""
           }),
           { status: 200, headers: { "Content-Type": "application/json" } }

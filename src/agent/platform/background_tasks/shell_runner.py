@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import subprocess
 import threading
 import time
@@ -15,6 +16,13 @@ from agent.core.background_tasks.interfaces import (
     TaskCompletionCallback,
     TaskFailureCallback,
 )
+
+logger = logging.getLogger(__name__)
+
+# 进程退出后 pipe write 端关闭,pump 的 read() 几乎瞬间 EOF 退出。10s 是
+# 防御性硬保底,正常路径微秒级即可返回。超时不抛错(避免上层永久阻塞),只
+# 记 warning 让排障可见;此时输出文件可能截断,语义退化到修复前。
+_PUMP_JOIN_TIMEOUT_S = 10.0
 
 
 class ShellRunner(BackgroundBashRunner):
@@ -36,10 +44,10 @@ class ShellRunner(BackgroundBashRunner):
         on_complete: TaskCompletionCallback,
         on_fail: TaskFailureCallback,
     ) -> BackgroundTaskStopper:
-        if self._safety is not None:
-            enforce = getattr(self._safety, "enforce_command_policy", None)
-            if callable(enforce):
-                enforce(command, tool_name="bash", allow_unlisted=False)
+        # M6 D10: Policy single-point — already checked in BashTool.check_permissions
+        # via the auto_mode_gate hook. shell_runner trusts that decision.
+        # Any caller bypassing ToolRegistry must call bash_policy.check_command_policy
+        # directly (see bash_policy.py module docstring for the contract).
 
         process = subprocess.Popen(
             ["bash", "-c", command],
@@ -51,8 +59,22 @@ class ShellRunner(BackgroundBashRunner):
         with self._lock:
             self._processes[task_id] = process
 
-        self._start_pump(process.stdout, task_id, output, "stdout")
-        self._start_pump(process.stderr, task_id, output, "stderr")
+        pump_stdout = self._start_pump(process.stdout, task_id, output, "stdout")
+        pump_stderr = self._start_pump(process.stderr, task_id, output, "stderr")
+
+        def _drain_pumps() -> None:
+            # 进程退出 ≠ 输出就绪:pipe 缓冲区里的字节由 pump 线程异步落盘。
+            # callback 触发前必须 join,否则 foreground 调用方会在 pump 写完前
+            # 读到空文件(bugfix-354)。
+            for thread, label in ((pump_stdout, "stdout"), (pump_stderr, "stderr")):
+                thread.join(timeout=_PUMP_JOIN_TIMEOUT_S)
+                if thread.is_alive():
+                    logger.warning(
+                        "shell_runner pump join timed out task_id=%s stream=%s; "
+                        "output may be truncated",
+                        task_id,
+                        label,
+                    )
 
         def _monitor() -> None:
             start = time.monotonic()
@@ -61,19 +83,22 @@ class ShellRunner(BackgroundBashRunner):
             except subprocess.TimeoutExpired:
                 process.kill()
                 try:
-                    exit_code = process.wait(timeout=5.0)
+                    process.wait(timeout=5.0)
                 except subprocess.TimeoutExpired:
-                    exit_code = -9
-                on_fail(task_id=task_id, error=f"timed out after {timeout}s")
+                    pass
+                _drain_pumps()
                 with self._lock:
                     self._processes.pop(task_id, None)
+                on_fail(task_id=task_id, error=f"timed out after {timeout}s")
                 return
             except Exception as exc:
-                on_fail(task_id=task_id, error=str(exc))
+                _drain_pumps()
                 with self._lock:
                     self._processes.pop(task_id, None)
+                on_fail(task_id=task_id, error=str(exc))
                 return
 
+            _drain_pumps()
             duration_ms = int((time.monotonic() - start) * 1000)
             with self._lock:
                 self._processes.pop(task_id, None)
@@ -98,7 +123,7 @@ class ShellRunner(BackgroundBashRunner):
         task_id: str,
         output: BackgroundTaskOutput,
         label: str,
-    ) -> None:
+    ) -> threading.Thread:
         def _pump() -> None:
             buffer = ""
             try:
@@ -115,7 +140,9 @@ class ShellRunner(BackgroundBashRunner):
             except Exception:
                 pass
 
-        threading.Thread(target=_pump, daemon=True).start()
+        thread = threading.Thread(target=_pump, daemon=True)
+        thread.start()
+        return thread
 
     def _stop_task(self, task_id: str) -> None:
         with self._lock:

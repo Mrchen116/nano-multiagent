@@ -59,10 +59,11 @@ def test_group_chat_creates_one_relay_per_participant_agent(tmp_path: Path) -> N
         title="group",
         participant_ids=[alice.id, agent_a_user.id, agent_b_user.id],
     )
+    # bugfix-358: mention format is now inline tag
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
-        content="@agent-a please respond",
+        content='<mention type="agent" target_id="agent-a"/> please respond',
     )
 
     results = relay_service.enqueue_message_relay_all(
@@ -146,10 +147,11 @@ def test_group_relay_each_carries_mentioned_agent_ids(tmp_path: Path) -> None:
         title="group",
         participant_ids=[alice.id, agent_a_user.id, agent_b_user.id],
     )
+    # bugfix-358: mention 改为 inline tag 格式，旧式 @agent-id 文本不再路由
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
-        content="@agent-a please respond",
+        content='<mention type="agent" target_id="agent-a"/> please respond',
     )
 
     results = relay_service.enqueue_message_relay_all(

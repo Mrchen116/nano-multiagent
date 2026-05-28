@@ -51,7 +51,7 @@ class HookDescriptor(BaseModel):
     module_name: str | None = None
     file_path: str | None = None
     priority: int
-    timeout_ms: int
+    timeout_ms: int | None
 
 
 class HookListResponse(BaseModel):

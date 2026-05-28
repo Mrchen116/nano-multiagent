@@ -35,10 +35,19 @@ class HookEventType(StrEnum):
 
 
 class HookEventMode(StrEnum):
-    """Describe whether an event is observe-only or intercept-capable."""
+    """Describe whether an event is observe-only, intercept-capable, or background.
+
+    Three orthogonal dispatch modes:
+    - observe: blocking, read-only, subject to timeout_ms
+    - intercept: blocking, can rewrite/stop payload, subject to timeout_ms
+    - background: fire-and-forget via asyncio.create_task, no timeout, can fork conversation
+    """
 
     OBSERVE = "observe"
     INTERCEPT = "intercept"
+    # Fire-and-forget mode for long-running side-chains (e.g., self-improvement review).
+    # Handlers receive fork_conversation in their HookContext; dispatch does not await.
+    BACKGROUND = "background"
 
 
 INTERCEPT_EVENTS = frozenset(
@@ -64,17 +73,27 @@ HookStatus: TypeAlias = Literal["ok", "error", "timeout"]
 
 @dataclass(frozen=True, slots=True)
 class HookRegistration:
-    """Store normalized metadata for one registered hook handler."""
+    """Store normalized metadata for one registered hook handler.
+
+    timeout_ms may be ``None`` to indicate the hook self-manages its time
+    boundaries and must not be wrapped in ``asyncio.wait_for``. Use ``None``
+    only for security-critical hooks (e.g. auto_mode_gate) that legitimately
+    park waiting for user input — the framework's default fail-OPEN timeout
+    is incompatible with a security gate that cannot silently succeed.
+    """
 
     event: HookEventName
     handler: HookHandler
     priority: int = DEFAULT_HOOK_PRIORITY
-    timeout_ms: int = DEFAULT_HOOK_TIMEOUT_MS
+    timeout_ms: int | None = DEFAULT_HOOK_TIMEOUT_MS
     order: int = 0
     source: HookSource = "runtime"
     module_name: str | None = None
     file_path: Path | None = None
     hook_id: str = ""
+    # Dispatch mode for this registration. Defaults to OBSERVE.
+    # BACKGROUND registrations are handled fire-and-forget without timeout.
+    mode: HookEventMode = HookEventMode.OBSERVE
 
 
 @dataclass(frozen=True, slots=True)

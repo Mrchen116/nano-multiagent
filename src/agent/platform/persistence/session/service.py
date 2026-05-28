@@ -46,12 +46,21 @@ class SessionService:
         store: JsonlSessionStore | None = None,
         manager: SessionManager | None = None,
         profile: ProductProfile | None = None,
+        default_session_metadata: Mapping[str, Any] | None = None,
     ) -> None:
         if manager is not None:
             self._manager = manager
         else:
             active_store = store or _resolve_store(profile)
             self._manager = SessionManager(store=active_store)
+        # default_session_metadata is the bootstrap-resolved per-product baseline
+        # (e.g. self_evolution config from workspace config.yaml). It is merged
+        # under the caller-supplied metadata in create_session so callers can
+        # override individual top-level keys but unspecified keys still inherit
+        # the product default. Without this wire, the bootstrap output was a
+        # dead field — feat-349 self-evolution hook silently fell back to
+        # interval=10 defaults regardless of user config.
+        self._default_session_metadata: dict[str, Any] = dict(default_session_metadata or {})
 
     @property
     def manager(self) -> SessionManager:
@@ -71,13 +80,19 @@ class SessionService:
     ) -> Session:
         """Create a session via manager using typed domain fields."""
 
+        # Shallow merge at top level: default first, caller-supplied wins per key.
+        # Deep merge would require knowing each subsection's semantics; we don't —
+        # callers wanting per-subkey override should resolve it themselves.
+        merged_metadata: dict[str, Any] = dict(self._default_session_metadata)
+        if metadata:
+            merged_metadata.update(metadata)
         return self._manager.create_session(
             workspace_root=workspace_root,
             title=title,
             system_prompt=system_prompt,
             skills=skills,
             tool_allowlist=tool_allowlist,
-            metadata=metadata,
+            metadata=merged_metadata or None,
         )
 
     def get_session(

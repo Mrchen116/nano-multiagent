@@ -11,7 +11,7 @@ def _auth_headers(request_id: str) -> dict[str, str]:
 
 
 def test_capabilities_contract_shape() -> None:
-    client = TestClient(create_app(auth_token="test-token"))
+    client = TestClient(create_app())
 
     response = client.get("/v1/capabilities", headers=_auth_headers("req-cap-contract"))
 
@@ -39,10 +39,6 @@ def test_capabilities_contract_shape() -> None:
     assert set(model.keys()) == {
         "model",
         "default_base_url",
-        "supports_text",
-        "supports_image",
-        "supports_tools",
-        "supports_streaming",
     }
 
     assert isinstance(payload["tools"], list)
@@ -52,7 +48,7 @@ def test_capabilities_contract_shape() -> None:
 
 
 def test_openapi_contract_is_available_under_v1() -> None:
-    client = TestClient(create_app(auth_token="test-token"))
+    client = TestClient(create_app())
 
     response = client.get("/v1/openapi.json", headers=_auth_headers("req-openapi-contract"))
 

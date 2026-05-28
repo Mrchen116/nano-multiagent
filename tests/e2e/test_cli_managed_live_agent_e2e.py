@@ -53,7 +53,7 @@ def test_cli_managed_mode_can_complete_live_agent_turn(monkeypatch: pytest.Monke
         "--llm-provider",
         "anthropic",
         "--llm-model",
-        "codex_oauth:gpt-5.4",
+        "codex_oauth:gpt-5.5",
         "--llm-base-url",
         "http://127.0.0.1:4000",
     ]

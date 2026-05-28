@@ -12,6 +12,7 @@ from typing import Literal
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.client.kernel_api_client import KernelApiClient
 from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.gateway.background_session_events import BackgroundSessionEventSubscriber
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
@@ -58,6 +59,9 @@ class RelayLifecycleUpdate:
     error: str | None = None
     detail: Mapping[str, Any] | None = None
     usage: Mapping[str, int] | None = None
+    # Populated on "accepted" so downstream wiring (e.g. permission_response handler)
+    # can reverse-lookup kernel session from run_id without re-resolving binding.
+    kernel_session_id: str | None = None
 
 
 RelayLifecycleCallback = Callable[[InboundMessage, RelayLifecycleUpdate], Awaitable[None]]
@@ -105,6 +109,7 @@ class InboundPipeline:
         group_context_store: GroupContextStore | None = None,
         gateway_internal_port: int = _DEFAULT_GATEWAY_INTERNAL_PORT,
         kernel_event_observer: Callable[[Mapping[str, Any]], None] | None = None,
+        session_event_callback: Callable[[str, Mapping[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         self._kernel_client = kernel_client
         self._agents = {agent.agent_id: agent for agent in agents}
@@ -121,6 +126,12 @@ class InboundPipeline:
         # feat-340-M2: bootstrap wires this to an IM event_bridge consumer so the browser
         # sees live tool_call / token_usage events; default None keeps pipeline product-agnostic.
         self._kernel_event_observer = kernel_event_observer
+        # feat-349-M3: optional callback for session-level events (e.g. self_evolution_review)
+        # that arrive after the main per-turn SSE loop has terminated.  Caller wires this to
+        # send a system/meta notification to IM.  None keeps the pipeline IM-agnostic.
+        self._session_event_callback = session_event_callback
+        # Tracks active BackgroundSessionEventSubscribers by kernel_session_id.
+        self._bg_subscribers: dict[str, BackgroundSessionEventSubscriber] = {}
 
     async def handle_inbound(self, message: InboundMessage) -> PipelineResult | None:
         """Process one inbound message through route, session, queue, and reply steps.
@@ -209,13 +220,21 @@ class InboundPipeline:
                         agent_id=agent_id,
                         session_key=session_key,
                         run_id=run_id or None,
+                        kernel_session_id=binding.kernel_session_id,
                     ),
                 )
                 async def _on_other_event(event: Mapping[str, object]) -> None:
+                    event_name = event.get("event")
+                    # Handle session-level events (no origin, no run_id) such as
+                    # self_evolution_review published by background hooks during the turn.
+                    if event_name == "self_evolution_review":
+                        cb = self._session_event_callback
+                        if cb is not None:
+                            await cb(binding.kernel_session_id, event)
+                        return
                     origin = event.get("origin")
                     if origin == "user" or not origin:
                         return
-                    event_name = event.get("event")
                     if event_name == "assistant_message":
                         content = event.get("content")
                         if isinstance(content, str) and content.strip():
@@ -226,6 +245,13 @@ class InboundPipeline:
                     run_id=run_id,
                     anchor_sequence=anchor_sequence,
                     on_other=_on_other_event,
+                )
+                # Start a persistent background subscriber for this session so that
+                # self_evolution_review events published by background hooks (which run
+                # after the main turn's SSE loop terminates) still reach the PA gateway.
+                await self._ensure_background_subscriber(
+                    kernel_session_id=binding.kernel_session_id,
+                    last_sequence=anchor_sequence or 0,
                 )
                 await self._emit_relay_lifecycle(
                     message,
@@ -381,6 +407,13 @@ class InboundPipeline:
             session_metadata["skills"] = list(agent.skills)
         if agent.tool_allowlist:
             session_metadata["tool_allowlist"] = list(agent.tool_allowlist)
+        # feat-379-M2 R6: inject per-agent feature flags and custom prompt supplement
+        # into session metadata so the runtime can populate PromptContext.flags/vars.
+        # agent.features may be empty dict (no overrides); always inject so runtime
+        # can merge with FEATURE_REGISTRY default_on values.
+        session_metadata["agent_features"] = dict(agent.features)
+        if agent.custom_prompt:
+            session_metadata["agent_custom_prompt"] = agent.custom_prompt
         # SPEC §7: inject group chat routing context into session metadata so the
         # before_agent_start hook can append a communication context block.
         if message.is_group:
@@ -430,8 +463,6 @@ class InboundPipeline:
         policy = (agent_config.group_reply_policy or "MENTION").upper() if agent_config else "MENTION"
         if policy == "ALWAYS":
             return True
-        if metadata.get("background_context_only") is True:
-            return False
         # MENTION policy: check explicit mention metadata or plain-text @agent
         mentioned = metadata.get("mentioned_agent_ids")
         if isinstance(mentioned, list) and agent_id in mentioned:
@@ -551,6 +582,46 @@ class InboundPipeline:
         """Drop existing kernel-session bindings for one agent after config sync."""
         self._session_store.drop_agent(agent_id)
 
+    async def _ensure_background_subscriber(
+        self,
+        *,
+        kernel_session_id: str,
+        last_sequence: int,
+    ) -> None:
+        """Ensure one persistent background SSE subscriber is active for the session.
+
+        Called after each main turn completes so that session-level events (e.g.
+        self_evolution_review) published by background hooks after the main SSE loop
+        terminates are still received and forwarded to ``_session_event_callback``.
+
+        If a subscriber is already active for this session (from a previous turn) it
+        is left running — re-creation would lose events between turns.
+
+        Args:
+            kernel_session_id: Kernel session to subscribe to.
+            last_sequence: Last SSE sequence number seen by the main turn's loop,
+                used as ``after_sequence`` so the subscriber replays events missed
+                between turn termination and subscription start.
+        """
+        if self._session_event_callback is None:
+            return
+        if kernel_session_id in self._bg_subscribers:
+            return
+
+        cb = self._session_event_callback
+
+        async def _on_session_event(event: Mapping[str, Any]) -> None:
+            await cb(kernel_session_id, event)
+
+        subscriber = BackgroundSessionEventSubscriber(
+            kernel_client=self._kernel_client,
+            session_id=kernel_session_id,
+            on_event=_on_session_event,
+            after_sequence=last_sequence,
+        )
+        self._bg_subscribers[kernel_session_id] = subscriber
+        await subscriber.start()
+
     def _require_known_agent(self, agent_id: str) -> str:
         if agent_id not in self._agents:
             raise LookupError(f"unknown agent_id: {agent_id}")
@@ -601,12 +672,17 @@ class InboundPipeline:
                 status = event.get("status")
                 if status in _TERMINAL_RUN_STATUSES:
                     run_state = event
-                    if status != "completed":
-                        raise RuntimeError(self._extract_run_error(event, fallback_status=status))
+                    # bugfix-380: break instead of raising immediately so any
+                    # assistant_message event already in the SSE buffer gets consumed
+                    # before we exit. The raise happens below after the loop.
                     break
 
         if run_state is None:
             raise RuntimeError("stream ended without terminal run_status")
+
+        status = run_state.get("status")
+        if status != "completed":
+            raise RuntimeError(self._extract_run_error(run_state, fallback_status=str(status or "")))
 
         return run_state, reply_text
 

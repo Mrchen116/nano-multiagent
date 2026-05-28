@@ -6,6 +6,7 @@ from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
 from agent.core.runs.registry import RunsRegistry
 from agent.platform.http_api.sse import EventStreamHub
+from agent.platform.permissions.broker import PermissionBroker
 from agent.platform.persistence.session.service import SessionService
 from agent.platform.tools.registry import ToolRegistry
 
@@ -62,6 +63,28 @@ def get_runs_registry(request: Request) -> RunsRegistry:
 def get_event_stream_hub(request: Request) -> EventStreamHub:
     """Return SSE hub shared by session/global event streaming handlers."""
     return request.app.state.event_stream_hub  # type: ignore[no-any-return]
+
+
+def get_permission_broker(request: Request) -> PermissionBroker:
+    """Return the PermissionBroker from app state.
+
+    The broker is lazily accessible: it must be on app.state.permission_broker.
+    When not present (app bootstrapped without auto_mode_gate), raises a
+    runtime error — callers should not reach permission endpoints in that case.
+    """
+    broker = getattr(request.app.state, "permission_broker", None)
+    if broker is None:
+        raise RuntimeError("PermissionBroker not configured on app state")
+    return broker  # type: ignore[no-any-return]
+
+
+def get_prompt_sections(request: Request) -> list:
+    """Return prompt sections stored on app state for the preview endpoint.
+
+    Returns an empty list when no product profile was supplied at app creation;
+    CORE_SECTIONS + product sections are populated by bootstrap (M3/M4).
+    """
+    return getattr(request.app.state, "prompt_sections", [])  # type: ignore[no-any-return]
 
 
 def get_trace_id(request: Request) -> str:

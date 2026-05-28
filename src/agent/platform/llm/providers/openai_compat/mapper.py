@@ -26,9 +26,13 @@ class OpenAICompatMapper:
             payload["temperature"] = request.temperature
         if request.max_tokens is not None:
             payload["max_tokens"] = request.max_tokens
+        if request.stop_sequences:
+            payload["stop"] = list(request.stop_sequences)
         if request.tools:
             payload["tools"] = [self._map_tool_spec(spec) for spec in request.tools]
             payload["tool_choice"] = "auto"
+        if request.extra_body:
+            payload.update(request.extra_body)
         return payload
 
     def map_generate_response(self, payload: Mapping[str, Any]) -> LLMGenerateResponse:
@@ -78,6 +82,10 @@ class OpenAICompatMapper:
         if message.role == "assistant" and message.tool_calls:
             mapped["content"] = message.content or ""
             mapped["tool_calls"] = [self._map_tool_call(call) for call in message.tool_calls]
+            # Round-trip reasoning_content so providers like kimi K2.6 don't reject the request
+            # with "reasoning_content is missing in assistant tool call message".
+            if message.reasoning_content:
+                mapped["reasoning_content"] = message.reasoning_content
         elif message.role == "tool":
             mapped["content"] = _map_tool_content(message.content)
             if message.tool_call_id is None:

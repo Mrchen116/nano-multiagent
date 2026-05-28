@@ -3,6 +3,7 @@
 import json
 import time
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
@@ -114,8 +115,17 @@ class AgentLoop:
         current_working_directory_override: Path | None = None,
         session_file_state: SessionFileState | None = None,
         max_turns: int | None = None,
+        tool_execution_allowlist: tuple[str, ...] | None = None,
     ) -> AsyncIterator[Message]:
         """Stream one user turn until completion or terminal stop reason.
+
+        Args:
+            tool_execution_allowlist: When set (fork side-chain only), the
+                StreamingToolExecutor denies tool calls whose name is not in
+                this allowlist. ``None`` means no restriction — the main agent
+                path always passes ``None``. The full tool list is still sent
+                to the LLM (prefix-cache inheritance); only execution is
+                narrowed (feat-349 decision 6).
 
         Yields:
             Message objects as they are produced:
@@ -162,6 +172,11 @@ class AgentLoop:
             state.history_messages[-1].message_id if state.history_messages else None
         )
 
+        # bugfix-380 R3: track whether the loop exited cleanly so the finally block
+        # only dispatches turn_end on the success path. ModelError causes an early exit
+        # without setting this flag; runtime.py then dispatches turn_end(completed=False)
+        # after the error assistant_message so Gateway observer sees content before close.
+        _loop_succeeded = False
         try:
             with span("AgentLoop.run", session_id=state.session_id, turn_id=state.turn_id):
                 api_round_count = 0
@@ -177,6 +192,7 @@ class AgentLoop:
                                 "stop_reason": stop_reason,
                                 "usage": turn_usage,
                                 "completed": False,
+                                "tool_iterations": api_round_count - 1,
                             },
                         )
                         return
@@ -204,6 +220,7 @@ class AgentLoop:
                                     "stop_reason": stop_reason,
                                     "usage": turn_usage,
                                     "completed": False,
+                                    "tool_iterations": api_round_count - 1,
                                 },
                             )
                             return
@@ -212,8 +229,10 @@ class AgentLoop:
                         self._tool_registry,
                         hook_context=active_hook_ctx,
                         session_file_state=session_file_state,
+                        tool_execution_allowlist=tool_execution_allowlist,
                     ) if self._tool_registry is not None else None
                     iteration_tool_calls: list[ToolCall] = []
+                    early_tool_results: list[ToolResult] = []
                     finish_reason: str | None = None
                     latest_usage: TokenUsage | None = None
 
@@ -231,6 +250,10 @@ class AgentLoop:
                     )
 
                     last_assistant_msg_id: str | None = None
+                    # Shared group_id for all assistant streaming chunks in this LLM
+                    # call; all chunks belong to the same logical turn so their
+                    # tool_use blocks must restore as one unit after JSONL reload.
+                    turn_assistant_group_id: str | None = None
                     async for llm_msg in stream:
                         # Terminal metadata message: empty content with finish_reason
                         if llm_msg.content == "" and llm_msg.finish_reason is not None:
@@ -243,13 +266,17 @@ class AgentLoop:
                         )
 
                         assistant_msg_id = make_message_id()
+                        if turn_assistant_group_id is None:
+                            turn_assistant_group_id = assistant_msg_id
                         assistant_msg = Message(
                             message_id=assistant_msg_id,
                             parent_message_id=last_parent_id,
                             role="assistant",
                             content=llm_msg.content or "",
-                            group_id=assistant_msg_id,
+                            group_id=turn_assistant_group_id,
                             metadata=_assistant_metadata_from_tool_calls(normalized_calls),
+                            reasoning_content=llm_msg.reasoning_content,
+                            reasoning_signature=llm_msg.reasoning_signature,
                         )
                         last_assistant_msg_id = assistant_msg.message_id
                         last_parent_id = assistant_msg.message_id
@@ -263,6 +290,8 @@ class AgentLoop:
                                 role=llm_msg.role,
                                 content=llm_msg.content,
                                 tool_calls=_as_llm_tool_calls(normalized_calls),
+                                reasoning_content=llm_msg.reasoning_content,
+                                reasoning_signature=llm_msg.reasoning_signature,
                             ),
                         )
 
@@ -271,32 +300,46 @@ class AgentLoop:
                                 iteration_tool_calls.append(tc)
                                 all_tool_calls.append(tc)
                                 call_id_to_arguments[tc.call_id] = dict(tc.arguments)
-                                tool_hook_ctx = HookContext(
-                                    session_id=active_hook_ctx.session_id,
-                                    turn_id=active_hook_ctx.turn_id,
-                                    repo_root=active_hook_ctx.repo_root,
+                                # replace() derives from active_hook_ctx, preserving every
+                                # field (model_caller / permission_requester / …) and only
+                                # overriding what this tool dispatch changes. message_history
+                                # feeds the auto_mode_gate classifier the running conversation
+                                # so it can see the user's actual request text.
+                                tool_hook_ctx = replace(
+                                    active_hook_ctx,
                                     metadata={**dict(active_hook_ctx.metadata), "tool_call_id": tc.call_id},
-                                    model_caller=active_hook_ctx.model_caller,
-                                    session_event_publisher=active_hook_ctx.session_event_publisher,
+                                    message_history=tuple(llm_messages),
                                 )
                                 if executor is not None:
                                     executor.add_tool(tc, hook_context=tool_hook_ctx)
-                                await self._dispatch_tool_call_hook(tc, active_hook_ctx, run_id)
+                                # bugfix-367: observe "tool_call" 不再由 loop 触发。realtime_stream
+                                # 的 on_tool_call 现在通过 registry.execute 的 intercept dispatch
+                                # 在 auto_mode_gate 通过之后才触发；loop 在 gate park 时就发会
+                                # 让前端误显示 "运行中"。gate 拒绝时整条 dispatch 链 break，
+                                # tool_start 也不发，前端只在 tool_result 阶段渲染 ✕。
 
-                            # Yield completed results non-blocking
+                            # Collect early-completed results for UI but defer LLM
+                            # history appending until after the stream ends.
+                            # Appending tool_result messages mid-stream would split
+                            # parallel tool_use blocks across multiple assistant
+                            # messages, causing tool_call_id mismatches upstream
+                            # (bugfix-375 Issue #43).
                             if executor is not None:
                                 for result in executor.get_completed_results():
                                     all_tool_results.append(result)
                                     tool_msg = self._build_tool_result_message(result, parent_message_id=last_assistant_msg_id, group_id=last_assistant_msg_id)
                                     last_parent_id = tool_msg.message_id
                                     yield tool_msg
-                                    _append_llm_message(
-                                        llm_messages,
-                                        self._build_llm_tool_result_message(result),
-                                    )
+                                    early_tool_results.append(result)
                                     await self._dispatch_tool_result_hook(result, active_hook_ctx, run_id)
 
-                    # After stream ends, wait for remaining tools and yield
+                    # After stream ends, flush early results into LLM history in
+                    # order, then wait for any remaining tools.
+                    for result in early_tool_results:
+                        _append_llm_message(
+                            llm_messages,
+                            self._build_llm_tool_result_message(result),
+                        )
                     if executor is not None:
                         async for result in executor.get_remaining_results():
                             all_tool_results.append(result)
@@ -321,8 +364,14 @@ class AgentLoop:
                                 "stop_reason": stop_reason,
                                 "usage": turn_usage,
                                 "completed": True,
+                                # Expose api_round_count as tool_iterations for
+                                # the nudge counter signal flow (feat-349 decision 2).
+                                # runtime._run_locked reads this to update the
+                                # per-session tool_iterations milestone.
+                                "tool_iterations": api_round_count,
                             },
                         )
+                        _loop_succeeded = True
                         break
 
                     if self._tool_registry is None:
@@ -335,34 +384,40 @@ class AgentLoop:
                                 "stop_reason": stop_reason,
                                 "usage": turn_usage,
                                 "completed": True,
+                                "tool_iterations": api_round_count,
                             },
                         )
+                        _loop_succeeded = True
                         break
 
                     self._policies.ensure_tool_calls_allowed(tool_call_count=len(all_tool_calls))
         finally:
-            turn_end_payload: dict[str, Any] = {
-                "session_id": state.session_id,
-                "turn_id": state.turn_id,
-                "completed": True,
-            }
-            if run_id is not None:
-                turn_end_payload["run_id"] = run_id
-            if turn_usage is not None:
-                turn_end_payload["usage"] = {
-                    "prompt_tokens": turn_usage.prompt_tokens,
-                    "completion_tokens": turn_usage.completion_tokens,
-                    "total_tokens": turn_usage.total_tokens,
+            # Only dispatch turn_end on success. On ModelError the runtime.py except block
+            # dispatches turn_end(completed=False) after message_end so Gateway observer
+            # sees the error content before the bubble is locked (bugfix-380 R3).
+            if _loop_succeeded:
+                turn_end_payload: dict[str, Any] = {
+                    "session_id": state.session_id,
+                    "turn_id": state.turn_id,
+                    "completed": True,
                 }
-            if active_hook_ctx is not None:
-                cw = active_hook_ctx.metadata.get("context_window")
-                if isinstance(cw, int) and cw > 0:
-                    turn_end_payload["context_window"] = cw
-            await self._dispatch_observe_async(
-                "turn_end",
-                turn_end_payload,
-                active_hook_ctx,
-            )
+                if run_id is not None:
+                    turn_end_payload["run_id"] = run_id
+                if turn_usage is not None:
+                    turn_end_payload["usage"] = {
+                        "prompt_tokens": turn_usage.prompt_tokens,
+                        "completion_tokens": turn_usage.completion_tokens,
+                        "total_tokens": turn_usage.total_tokens,
+                    }
+                if active_hook_ctx is not None:
+                    cw = active_hook_ctx.metadata.get("context_window")
+                    if isinstance(cw, int) and cw > 0:
+                        turn_end_payload["context_window"] = cw
+                await self._dispatch_observe_async(
+                    "turn_end",
+                    turn_end_payload,
+                    active_hook_ctx,
+                )
 
     async def _dispatch_message_hooks(
         self,
@@ -411,48 +466,15 @@ class AgentLoop:
             hook_ctx,
         )
 
-    async def _dispatch_tool_call_hook(
-        self,
-        tool_call: ToolCall,
-        hook_ctx: HookContext,
-        run_id: str | None,
-    ) -> None:
-        tool_hook_ctx = HookContext(
-            session_id=hook_ctx.session_id,
-            turn_id=hook_ctx.turn_id,
-            repo_root=hook_ctx.repo_root,
-            metadata={**dict(hook_ctx.metadata), "tool_call_id": tool_call.call_id},
-            model_caller=hook_ctx.model_caller,
-            session_event_publisher=hook_ctx.session_event_publisher,
-        )
-        await self._dispatch_observe_async(
-            "tool_call",
-            _with_optional_run_id(
-                {
-                    "session_id": hook_ctx.session_id,
-                    "turn_id": hook_ctx.turn_id,
-                    "call_id": tool_call.call_id,
-                    "name": tool_call.name,
-                    "arguments": dict(tool_call.arguments),
-                },
-                run_id=run_id,
-            ),
-            tool_hook_ctx,
-        )
-
     async def _dispatch_tool_result_hook(
         self,
         result: ToolResult,
         hook_ctx: HookContext,
         run_id: str | None,
     ) -> None:
-        tool_hook_ctx = HookContext(
-            session_id=hook_ctx.session_id,
-            turn_id=hook_ctx.turn_id,
-            repo_root=hook_ctx.repo_root,
+        tool_hook_ctx = replace(
+            hook_ctx,
             metadata={**dict(hook_ctx.metadata), "tool_call_id": result.call_id},
-            model_caller=hook_ctx.model_caller,
-            session_event_publisher=hook_ctx.session_event_publisher,
         )
         await self._dispatch_observe_async(
             "tool_result",
@@ -727,24 +749,50 @@ def _append_llm_message(messages: list[LLMMessage], msg: LLMMessage) -> None:
         prev = messages[-1]
         merged_content = (prev.content or "") + (msg.content or "")
         merged_tool_calls = list(prev.tool_calls) + list(msg.tool_calls)
+        # Preserve reasoning_content and reasoning_signature from whichever side has
+        # them (prev takes precedence since it was produced in the same streaming chunk
+        # as the tool_calls).
+        merged_reasoning = prev.reasoning_content or msg.reasoning_content
+        merged_signature = prev.reasoning_signature or msg.reasoning_signature
         messages[-1] = LLMMessage(
             role="assistant",
             content=merged_content,
             tool_calls=tuple(merged_tool_calls),
+            reasoning_content=merged_reasoning,
+            reasoning_signature=merged_signature,
         )
     else:
         messages.append(msg)
 
 
 def _accumulate_usage(current: TokenUsage | None, update: TokenUsage | None) -> TokenUsage | None:
+    """Merge per-roundtrip LLM usage into a running turn-level summary.
+
+    Semantics within a single turn that contains tool calls (≥2 roundtrips):
+
+    - ``prompt_tokens`` is **replaced** by the latest value, not summed.  Each
+      roundtrip sends the same growing context window to the LLM; summing would
+      count that context N times and produce a physically meaningless number.
+      The last roundtrip's prompt_tokens reflects the true context footprint at
+      turn end and maps 1-to-1 to ``TokenUsage.context_used`` / the "已用上下文"
+      chip in the UI.
+
+    - ``completion_tokens`` is **summed**.  Every roundtrip generates distinct
+      new output tokens, so accumulation is correct.
+
+    - ``total_tokens`` is recomputed as ``update.prompt_tokens + accumulated
+      completion_tokens`` to stay in sync: total = context_used + output.
+    """
     if update is None:
         return current
     if current is None:
         return update
+    accumulated_completion = current.completion_tokens + update.completion_tokens
     return TokenUsage(
-        prompt_tokens=current.prompt_tokens + update.prompt_tokens,
-        completion_tokens=current.completion_tokens + update.completion_tokens,
-        total_tokens=current.total_tokens + update.total_tokens,
+        # Take the latest prompt snapshot, not a running sum — see docstring.
+        prompt_tokens=update.prompt_tokens,
+        completion_tokens=accumulated_completion,
+        total_tokens=update.prompt_tokens + accumulated_completion,
     )
 
 

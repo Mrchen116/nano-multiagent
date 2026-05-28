@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from agent import __version__
+from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
 from agent.core.errors import ModelError
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.model_registry import (
@@ -17,7 +18,7 @@ from agent.core.llm.model_registry import (
 from agent.platform.tools.registry import ToolRegistry
 
 from ..auth import require_bearer_auth
-from ..deps import APIError, get_agent_runtime, get_tool_registry
+from ..deps import APIError, get_agent_runtime, get_prompt_sections, get_tool_registry
 
 router = APIRouter()
 
@@ -151,10 +152,6 @@ def build_capabilities_payload(
             {
                 "model": metadata.model,
                 "default_base_url": metadata.default_base_url,
-                "supports_text": metadata.supports_text,
-                "supports_image": metadata.supports_image,
-                "supports_tools": metadata.supports_tools,
-                "supports_streaming": metadata.supports_streaming,
             }
             for metadata in list_provider_models(provider)
         ]
@@ -248,3 +245,116 @@ def _ensure_patch_request_is_valid(
             message="'api_key' cannot be set when 'clear_api_key' is true",
             retryable=False,
         )
+
+
+# ---------------------------------------------------------------------------
+# Prompt preview (feat-379-M2 R5)
+# ---------------------------------------------------------------------------
+
+
+class PromptPreviewRequest(BaseModel):
+    """Request body for the prompt preview endpoint.
+
+    Args:
+        features: Per-agent feature flags (key → bool).  Absent key defaults
+            to the FEATURE_REGISTRY default_on value.  Passed to PromptContext.flags.
+        custom_prompt: Optional user-supplied text appended as a supplement
+            segment.  Passed to PromptContext.vars["custom_prompt"].
+        tool_ids: Tool names to mark as active for this preview turn (determines
+            which tool-gated sections are included).
+        scenario: Conversation type hint ("direct" or "group").  Defaults to
+            "direct" so previews omit group-only segments.
+        workspace_root: Absolute workspace path for this agent.  Used as ctx.cwd
+            and as the root for skill discovery.  When absent, cwd falls back to
+            a placeholder indicating the value will be injected at runtime.
+        skill_ids: Skill names to resolve from workspace_root and include in
+            ctx.available_skills.  Unknown names are silently skipped.
+    """
+
+    features: dict[str, bool] = Field(default_factory=dict)
+    custom_prompt: str | None = None
+    tool_ids: list[str] = Field(default_factory=list)
+    scenario: str = "direct"
+    workspace_root: str | None = None
+    skill_ids: list[str] = Field(default_factory=list)
+
+
+class PromptPreviewResponse(BaseModel):
+    """Assembled system-prompt preview string (cache-stable segments only)."""
+
+    prompt: str
+    section_count: int
+
+
+@router.post(
+    "/v1/prompt-preview",
+    response_model=PromptPreviewResponse,
+    dependencies=[Depends(require_bearer_auth)],
+)
+def prompt_preview(
+    payload: PromptPreviewRequest,
+    sections: list = Depends(get_prompt_sections),
+    registry: ToolRegistry = Depends(get_tool_registry),
+) -> PromptPreviewResponse:
+    """Assemble a system-prompt preview for the given per-agent feature configuration.
+
+    Filters to cache_safe=True segments only so the preview is stable and free
+    from volatile turn data (memory block, live participant list).  This matches
+    what the IM settings page needs to show: the static portion of the prompt.
+
+    feat-383-M1: tool descriptions come from the real ToolRegistry; skills are
+    resolved from workspace_root; datetime uses a placeholder to signal runtime
+    injection; cwd uses workspace_root or a placeholder when not available.
+
+    Args:
+        payload: Feature flags, custom_prompt, active tool ids, workspace_root,
+            skill_ids, and scenario hint.
+        sections: PromptSection list from app.state (populated by bootstrap).
+        registry: ToolRegistry from app.state for real tool description lookup.
+
+    Returns:
+        PromptPreviewResponse with the assembled prompt and section count.
+    """
+    from pathlib import Path  # noqa: PLC0415
+
+    from agent.core.skills.discovery import resolve_available_skills  # noqa: PLC0415
+
+    # Use real tool objects from registry; silently skip ids not registered
+    # (mirrors runtime behaviour — unregistered tools are never exposed to agent).
+    available_tools = tuple(
+        t for t in (registry.get(tid) for tid in payload.tool_ids) if t is not None
+    )
+
+    # Resolve skills from workspace when available; empty when workspace unknown.
+    # skill_ids is always an explicit list (default_factory=list), so we treat
+    # it as the exact include set — never falls through to "load all skills".
+    if payload.workspace_root:
+        available_skills = resolve_available_skills(
+            workspace_root=Path(payload.workspace_root),
+            include_names=payload.skill_ids,
+        )
+    else:
+        available_skills = ()
+
+    # datetime is runtime-volatile; show placeholder so users see the field exists
+    # but understand it will be filled at runtime (spec Q3 / decision 4).
+    current_datetime = "<运行时注入：当前时间>"
+
+    # cwd is known when workspace_root is provided; otherwise show placeholder.
+    cwd = payload.workspace_root if payload.workspace_root else "<运行时注入：workspace 路径>"
+
+    ctx = PromptContext(
+        available_tools=available_tools,
+        available_skills=available_skills,
+        current_datetime=current_datetime,
+        cwd=cwd,
+        memory_block=None,  # volatile — excluded from preview
+        flags=payload.features,
+        scenario={"conversation_type": payload.scenario},
+        vars={"custom_prompt": payload.custom_prompt} if payload.custom_prompt else {},
+    )
+    # Preview shows only the cache-stable prefix; volatile segments (memory_block,
+    # communication_context) are excluded so the preview doesn't depend on runtime state.
+    stable_sections = [s for s in sections if getattr(s, "cache_safe", True)]
+    assembled = assemble_system_prompt(stable_sections, ctx)
+    return PromptPreviewResponse(prompt=assembled, section_count=len(stable_sections))

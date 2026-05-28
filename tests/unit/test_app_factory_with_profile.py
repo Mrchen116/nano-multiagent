@@ -110,6 +110,9 @@ def test_create_app_with_profile_exposes_runtime_config_resolver(tmp_path: Path)
 
 
 def test_create_app_with_profile_uses_resolver_skill_roots_over_legacy_codex(tmp_path: Path, monkeypatch) -> None:
+    # Skills are resolved dynamically via config_resolver at session time, not pre-loaded
+    # into _loop._available_skills at startup. Verify the resolver itself returns the
+    # workspace skill (not the legacy .codex path) by inspecting user_skill_roots().
     monkeypatch.setenv("CODEX_HOME", str(tmp_path / ".codex-home"))
     profile = _make_profile(tmp_path / ".testproduct-global")
     skill_root = tmp_path / ".testproduct" / "skills" / "resolver-skill"
@@ -128,7 +131,13 @@ def test_create_app_with_profile_uses_resolver_skill_roots_over_legacy_codex(tmp
     app = create_app(product_profile=profile, repo_root=tmp_path)
 
     runtime = app.state.agent_runtime
-    available_skills = getattr(runtime._loop, "_available_skills")
-    available_names = {skill.name for skill in available_skills}
-    assert "resolver-skill" in available_names
-    assert "legacy-skill" not in available_names
+    resolver = getattr(runtime, "_config_resolver", None)
+    assert resolver is not None, "runtime should have a config_resolver when product_profile is provided"
+    skill_roots = resolver.user_skill_roots()
+    # Resolver workspace root (.testproduct/skills) must appear before legacy .codex paths
+    workspace_skills = tmp_path / ".testproduct" / "skills"
+    legacy_codex_skills = tmp_path / ".codex" / "skills"
+    assert any(r == workspace_skills.resolve() for r in skill_roots), \
+        f"workspace skills dir {workspace_skills} not in roots: {skill_roots}"
+    assert not any(r == legacy_codex_skills.resolve() for r in skill_roots), \
+        f"legacy .codex skills dir {legacy_codex_skills} should not be in resolver roots: {skill_roots}"

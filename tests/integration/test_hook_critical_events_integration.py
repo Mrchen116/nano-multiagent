@@ -7,9 +7,9 @@ from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
 from agent.core.llm.interfaces import LLMGenerateRequest
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.platform.persistence.session.service import SessionService
 
 
 class _TimeoutLLM:
@@ -47,16 +47,16 @@ def test_shutdown_emits_session_shutdown_hook_on_app_close(tmp_path: Path) -> No
 
     hooks.on("session_shutdown", on_session_shutdown)
 
-    store = SQLiteSessionStore(db_path=tmp_path / "critical-session-shutdown.sqlite3")
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions-shutdown"))
     runtime = AgentRuntime(
-        session_manager=SessionManager(store=store),
+        session_manager=service.manager,
         llm_client=_TimeoutLLM(),
         model="mock-model",
         hook_runner=HookRunner(registry=hooks),
         repo_root=tmp_path,
     )
 
-    with TestClient(create_app(session_store=store, runtime=runtime, auth_token="test-token")) as client:
+    with TestClient(create_app(session_store=service.manager.store, runtime=runtime)) as client:
         created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-hook-critical-create"))
         assert created.status_code == 201
         session_id = created.json()["session_id"]
@@ -74,26 +74,26 @@ def test_async_timeout_emits_run_timeout_hook(tmp_path: Path) -> None:
 
     hooks.on("run_timeout", on_run_timeout)
 
-    store = SQLiteSessionStore(db_path=tmp_path / "critical-run-timeout.sqlite3")
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions-timeout"))
     runtime = AgentRuntime(
-        session_manager=SessionManager(store=store),
+        session_manager=service.manager,
         llm_client=_TimeoutLLM(),
         model="mock-model",
         hook_runner=HookRunner(registry=hooks),
         repo_root=tmp_path,
     )
 
-    with TestClient(create_app(session_store=store, runtime=runtime, auth_token="test-token")) as client:
+    with TestClient(create_app(session_store=service.manager.store, runtime=runtime)) as client:
         created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-hook-critical-timeout-create"))
         assert created.status_code == 201
         session_id = created.json()["session_id"]
 
         submitted = client.post(
-            f"/v1/sessions/{session_id}/messages:async",
+            f"/v1/sessions/{session_id}/messages",
             json={"parts": [{"type": "text", "text": "ping"}]},
             headers=_auth_headers("req-hook-critical-timeout-submit"),
         )
-        assert submitted.status_code == 202
+        assert submitted.status_code == 200
         run_id = submitted.json()["run_id"]
 
         terminal = _wait_for_terminal_run(client, run_id)

@@ -1,7 +1,14 @@
 from collections.abc import AsyncIterator
 from pathlib import Path
 
-from agent.core.agent.prompting import CODING_SYSTEM_PROMPT, DEFAULT_SYSTEM_PROMPT, build_prompt_messages
+from agent.core.agent.prompting import (
+    CODING_SYSTEM_PROMPT,
+    DEFAULT_SYSTEM_PROMPT,
+    MEMORY_GUIDANCE,
+    SKILLS_GUIDANCE,
+    build_prompt_messages,
+    build_system_prompt,
+)
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
 from agent.core.session.jsonl_store import JsonlSessionStore
@@ -148,3 +155,112 @@ async def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path
     assert "<RUNTIME_FILL:" not in system_prompt
     assert "Available tools:" in system_prompt
     assert "input_schema" not in system_prompt
+
+
+# ---------------------------------------------------------------------------
+# R2 tests: SKILLS_GUIDANCE / MEMORY_GUIDANCE constants + injection logic
+# ---------------------------------------------------------------------------
+
+
+def test_skills_guidance_constant_exists_and_mentions_skill_manage():
+    """SKILLS_GUIDANCE must exist and guide when to use skill_manage."""
+    assert SKILLS_GUIDANCE, "SKILLS_GUIDANCE must be non-empty"
+    assert "skill_manage" in SKILLS_GUIDANCE
+
+
+def test_memory_guidance_constant_exists_and_mentions_memory():
+    """MEMORY_GUIDANCE must exist and guide when to use memory tool."""
+    assert MEMORY_GUIDANCE, "MEMORY_GUIDANCE must be non-empty"
+    assert "memory" in MEMORY_GUIDANCE.lower()
+
+
+def test_build_system_prompt_injects_skills_guidance_when_skill_manage_in_tools():
+    """SKILLS_GUIDANCE is injected when skill_manage tool is in available_tools."""
+    tools = (
+        ToolSpec(name="skill_manage", description="Manage skills.", input_schema={}),
+        ToolSpec(name="read", description="Read a file.", input_schema={}),
+    )
+    result = build_system_prompt(
+        system_prompt=CODING_SYSTEM_PROMPT,
+        available_skills=(),
+        available_tools=tools,
+    )
+    assert SKILLS_GUIDANCE in result
+
+
+def test_build_system_prompt_no_skills_guidance_without_skill_manage():
+    """SKILLS_GUIDANCE is NOT injected when skill_manage is absent."""
+    tools = (
+        ToolSpec(name="read", description="Read a file.", input_schema={}),
+        ToolSpec(name="bash", description="Run bash.", input_schema={}),
+    )
+    result = build_system_prompt(
+        system_prompt=CODING_SYSTEM_PROMPT,
+        available_skills=(),
+        available_tools=tools,
+    )
+    assert SKILLS_GUIDANCE not in result
+
+
+def test_build_system_prompt_injects_memory_guidance_when_memory_in_tools():
+    """MEMORY_GUIDANCE is injected when memory tool is in available_tools."""
+    tools = (
+        ToolSpec(name="memory", description="Manage memory.", input_schema={}),
+        ToolSpec(name="read", description="Read a file.", input_schema={}),
+    )
+    result = build_system_prompt(
+        system_prompt=CODING_SYSTEM_PROMPT,
+        available_skills=(),
+        available_tools=tools,
+    )
+    assert MEMORY_GUIDANCE in result
+
+
+def test_build_system_prompt_no_memory_guidance_without_memory_tool():
+    """MEMORY_GUIDANCE is NOT injected when memory tool is absent."""
+    tools = (
+        ToolSpec(name="read", description="Read a file.", input_schema={}),
+    )
+    result = build_system_prompt(
+        system_prompt=CODING_SYSTEM_PROMPT,
+        available_skills=(),
+        available_tools=tools,
+    )
+    assert MEMORY_GUIDANCE not in result
+
+
+def test_build_system_prompt_injects_both_guidance_when_both_tools_present():
+    """Both SKILLS_GUIDANCE and MEMORY_GUIDANCE injected when both tools present."""
+    tools = (
+        ToolSpec(name="skill_manage", description="Manage skills.", input_schema={}),
+        ToolSpec(name="memory", description="Manage memory.", input_schema={}),
+        ToolSpec(name="read", description="Read a file.", input_schema={}),
+    )
+    result = build_system_prompt(
+        system_prompt=CODING_SYSTEM_PROMPT,
+        available_skills=(),
+        available_tools=tools,
+    )
+    assert SKILLS_GUIDANCE in result
+    assert MEMORY_GUIDANCE in result
+
+
+def test_build_system_prompt_injects_memory_block_when_provided():
+    """Memory block is injected verbatim when memory_block kwarg is supplied."""
+    fake_memory_block = "══════\nMEMORY (your personal notes) [0% — 0/2,200 chars]\n══════\n"
+    result = build_system_prompt(
+        system_prompt=CODING_SYSTEM_PROMPT,
+        available_skills=(),
+        memory_block=fake_memory_block,
+    )
+    assert fake_memory_block in result
+
+
+def test_build_system_prompt_no_memory_block_when_not_provided():
+    """No memory section injected when memory_block not supplied or None."""
+    result = build_system_prompt(
+        system_prompt=CODING_SYSTEM_PROMPT,
+        available_skills=(),
+        memory_block=None,
+    )
+    assert "MEMORY (your personal notes)" not in result

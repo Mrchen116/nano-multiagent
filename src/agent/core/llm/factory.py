@@ -8,9 +8,9 @@ import httpx
 from .interfaces import LLMClient
 from .retry import RetryingLLMClient
 from .model_registry import (
-    DEFAULT_PROVIDER,
     get_default_base_url,
     get_default_model,
+    get_default_provider,
     resolve_model_metadata,
 )
 from agent.platform.llm.providers.openai_compat.client import OpenAICompatClient
@@ -21,8 +21,8 @@ from agent.platform.llm.providers.anthropic.client import AnthropicClient
 class LLMFactoryConfig:
     """Collect provider configuration needed to build an LLM client."""
 
-    provider: str = DEFAULT_PROVIDER
-    model: str = "codex_oauth:gpt-5.4"
+    provider: str = "anthropic"
+    model: str = "codex_oauth:gpt-5.5"
     base_url: str = "http://127.0.0.1:4000"
     api_key: str | None = None
     timeout_seconds: float = 30.0
@@ -35,9 +35,19 @@ class LLMFactoryConfig:
             Parsed configuration with provider defaults applied.
         """
 
-        provider = os.getenv("NANO_MULTIAGENT_LLM_PROVIDER", DEFAULT_PROVIDER)
+        provider = os.getenv("NANO_MULTIAGENT_LLM_PROVIDER", get_default_provider())
         model = os.getenv("NANO_MULTIAGENT_LLM_MODEL", get_default_model(provider))
-        base_url = os.getenv("NANO_MULTIAGENT_LLM_BASE_URL", get_default_base_url(provider))
+        env_base_url = os.getenv("NANO_MULTIAGENT_LLM_BASE_URL")
+        config_base_url = get_default_base_url(provider)
+        if env_base_url is not None:
+            base_url = env_base_url
+        elif config_base_url is not None:
+            base_url = config_base_url
+        else:
+            raise ValueError(
+                f"base_url unset for provider {provider!r}: neither NANO_MULTIAGENT_LLM_BASE_URL"
+                " nor llm.providers[].base_url is configured"
+            )
         timeout_seconds = float(os.getenv("NANO_MULTIAGENT_LLM_TIMEOUT_SECONDS", "30"))
         api_key = os.getenv("NANO_MULTIAGENT_LLM_API_KEY")
         return cls(

@@ -119,6 +119,24 @@ class ConfigResolver:
                 base.append(resolved)
         return tuple(base)
 
+    def user_memory_root(self) -> Path | None:
+        """Return the absolute per-workspace memory directory, or ``None``.
+
+        Memory files (``MEMORY.md``, ``USER.md``) live under
+        ``<workspace_root>/<workspace_config_dirname>/memory/``.
+        Returns ``None`` when ``workspace_root`` or ``workspace_config_dirname``
+        is not configured — callers should skip memory injection in that case.
+
+        Returns:
+            ``<workspace_config_root>/memory`` when both workspace root and
+            dirname are configured; ``None`` otherwise.
+        """
+
+        ws_root = self.workspace_config_root()
+        if ws_root is None:
+            return None
+        return ws_root / "memory"
+
     # --- Internal helpers ---
 
     def _build_roots(self, subdir: str) -> tuple[Path, ...]:

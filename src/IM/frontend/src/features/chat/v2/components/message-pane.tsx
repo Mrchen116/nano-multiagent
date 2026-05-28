@@ -6,6 +6,7 @@ import { AttachmentDropzone } from "../../attachments/attachment-dropzone";
 import { uploadOneAttachment } from "../../attachments/use-attachment-upload";
 import {
   classifyConversationKind,
+  type Actor,
   type Attachment,
   type Conversation,
   type MentionCandidate,
@@ -13,8 +14,10 @@ import {
 } from "../chat-types";
 import { Avatar } from "./avatar";
 import { KindBadge } from "./kind-badge";
+import { parseMentions } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
 import { NodeChip } from "./node-chip";
+import { PermissionCard } from "./permission-card";
 import { TokenChip } from "./token-chip";
 import { ToolCallsPanel } from "./tool-calls-panel";
 
@@ -42,23 +45,59 @@ export interface MessagePaneProps {
 }
 
 const MENTION_RE = /@([^@\s]*)$/;
-// Matches any @word (completed mention) in the full draft text.
-const MENTION_HIGHLIGHT_RE = /@[\w一-龥][^\s@]*/g;
 
+/**
+ * Build the overlay mirror nodes for the composer textarea.
+ *
+ * bugfix-358 (composer): textarea 现在装可见形式 `@DisplayName`(不是 wire XML),
+ * 字符宽度与视觉一致, IME 输入框光标定位自然对齐。mirror 仅做 `@word` 高亮装饰。
+ * wire 转换(可见 → `<mention/>` XML)在 commit() send 前根据 draftMentions 状态完成。
+ */
 function buildMirrorNodes(text: string): React.ReactNode[] {
   const nodes: React.ReactNode[] = [];
+  const MENTION_HIGHLIGHT_RE = /@[\w一-龥][^\s@]*/g;
   let last = 0;
   let m: RegExpExecArray | null;
-  MENTION_HIGHLIGHT_RE.lastIndex = 0;
   while ((m = MENTION_HIGHLIGHT_RE.exec(text)) !== null) {
     if (m.index > last) nodes.push(text.slice(last, m.index));
     nodes.push(<mark key={m.index} className="chat-composer-mention-highlight">{m[0]}</mark>);
     last = m.index + m[0].length;
   }
   if (last < text.length) nodes.push(text.slice(last));
-  // Mirror needs a trailing newline token so the last line has correct height.
+  // Mirror needs a trailing zero-width space so the last line has correct height.
   nodes.push("​");
   return nodes;
+}
+
+/**
+ * One picker-originated mention range in the draft.
+ *
+ * bugfix-358 (composer): textarea 装可见 `@DisplayName` 文本, 此 state 跟踪每次 picker
+ * 选中产生的 mention 元数据。commit 时按 label 在 draft 里精确替换为 wire XML。
+ * 用户手敲删除 label 时, indexOf 找不到自然跳过——零清理逻辑。
+ */
+type DraftMention = {
+  label: string;       // e.g. "@架构" — visible text inserted into textarea
+  type: "agent" | "user";
+  target_id: string;
+};
+
+/**
+ * Reconstruct wire content from visible draft + picker-tracked mention metadata.
+ *
+ * 遍历每个 tracked mention,在 draft 中按 label 找第一处匹配替换为对应的 inline XML 标签。
+ * 同一 label 多次出现(用户连续选同一 agent): 每次循环替换第一处, 下一轮自然替换下一处。
+ * 用户已删除某 label: indexOf 返回 -1, 该项跳过——不会污染最终 wire 文本。
+ */
+function reconstructWireContent(draftText: string, mentions: DraftMention[]): string {
+  let wire = draftText;
+  for (const m of mentions) {
+    const pos = wire.indexOf(m.label);
+    if (pos === -1) continue;
+    const xml = `<mention type="${m.type}" target_id="${m.target_id}"/>`;
+    wire = wire.slice(0, pos) + xml + wire.slice(pos + m.label.length);
+  }
+  return wire;
 }
 
 /**
@@ -91,6 +130,7 @@ export function MessagePane({
 }: MessagePaneProps) {
   const { t } = useTranslation();
   const [draft, setDraft] = useState("");
+  const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [pending, setPending] = useState<Attachment[]>([]);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const mirrorRef = useRef<HTMLDivElement | null>(null);
@@ -108,8 +148,11 @@ export function MessagePane({
   function commit(text: string) {
     const trimmed = text.trim();
     if (!trimmed && pending.length === 0) return;
-    onSend(trimmed, pending);
+    // bugfix-358 (composer): textarea 装可见 `@DisplayName`, wire XML 在此处重建。
+    const wireContent = reconstructWireContent(trimmed, draftMentions);
+    onSend(wireContent, pending);
     setDraft("");
+    setDraftMentions([]);
     setPending([]);
   }
 
@@ -133,8 +176,13 @@ export function MessagePane({
 
   function handleMentionSelect(c: MentionCandidate) {
     if (!mentionMatch) return;
+    // bugfix-358 (composer): 插入可见形式 `@DisplayName` 而非 XML, 同时旁路记录
+    // mention 元数据 (label + target_id + type), commit 时统一替换为 wire XML。
+    // 这样 textarea 字符宽度 = 视觉宽度, IME / 光标 / 撤销栈全部自然对齐。
+    const label = `@${c.display_name}`;
     const before = draft.slice(0, draft.length - mentionMatch[0].length);
-    setDraft(`${before}@${c.display_name} `);
+    setDraft(`${before}${label} `);
+    setDraftMentions((prev) => [...prev, { label, type: "agent", target_id: c.agent_id }]);
     composerRef.current?.focus();
   }
 
@@ -178,7 +226,16 @@ export function MessagePane({
           <div className="chat-pane-header-meta">
             {!isMobile && (
               <span className="chat-pane-participants">
-                {conversation.participants.map((p) => p.display_name ?? p.id).join(" · ")}
+                {conversation.participants.map((p, i) => (
+                  <span
+                    key={p.id}
+                    className={p.is_stale ? "opacity-40" : undefined}
+                    title={p.is_stale ? "Offline — agent no longer advertised by its Gateway" : undefined}
+                  >
+                    {p.display_name ?? p.id}
+                    {i < conversation.participants.length - 1 ? " · " : ""}
+                  </span>
+                ))}
               </span>
             )}
             {kind === "direct-agent" && <NodeChip nodeName={nodeName ?? null} status={nodeStatus} />}
@@ -211,7 +268,14 @@ export function MessagePane({
             <p className="chat-pane-empty-sub">{t("chat.messagePane.emptySubtitle")}</p>
           </div>
         ) : (
-          messages.map((m) => <MessageBubble key={m.id} message={m} isMobile={isMobile} />)
+          messages.map((m) => (
+            <MessageBubble
+              key={m.id}
+              message={m}
+              isMobile={isMobile}
+              participants={conversation.participants}
+            />
+          ))
         )}
       </div>
 
@@ -280,7 +344,15 @@ export function MessagePane({
   );
 }
 
-function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boolean }) {
+function MessageBubble({
+  message,
+  isMobile,
+  participants,
+}: {
+  message: Message;
+  isMobile?: boolean;
+  participants?: Actor[];
+}) {
   const { t } = useTranslation();
   const isSystem = message.sender.type === "system";
   const isUser = message.sender.type === "user";
@@ -325,8 +397,8 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
         <div data-testid={`message-bubble-${message.id}`} className="chat-bubble-card">
           {message.content && (
             isUser
-              ? <div className="chat-bubble-content">{message.content}</div>
-              : <MarkdownContent content={message.content} />
+              ? <div className="chat-bubble-content">{renderInlineContent(message.content, participants)}</div>
+              : <MarkdownContent content={message.content} participants={participants} />
           )}
           {message.attachments && message.attachments.length > 0 && (
             <div className="chat-bubble-attachments">
@@ -342,6 +414,18 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
             <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
           )}
         </div>
+        {isAgent && (message.permission_requests ?? []).map((req) => (
+          // bugfix-367: 用 request_id 当 key —— 新 ask(不同 request_id)mount 成
+          // 新组件实例,内部 state 重新走 pending;旧 resolved 卡保留在原位。
+          // 历史"按了多少次同意"按时间顺序全可见。
+          <PermissionCard
+            key={req.request_id}
+            request={req}
+            conversationId={message.conversation_id}
+            messageId={message.id}
+            onResolved={() => {/* WS event will update the message status */}}
+          />
+        ))}
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
           {deliveryStatus === "running" && (
@@ -359,7 +443,13 @@ function MessageBubble({ message, isMobile }: { message: Message; isMobile?: boo
   );
 }
 
-function MarkdownContent({ content }: { content: string }) {
+function MarkdownContent({
+  content,
+  participants,
+}: {
+  content: string;
+  participants?: Actor[];
+}) {
   const blocks = content.split(/\n{2,}/);
   return (
     <div className="im-md">
@@ -370,16 +460,74 @@ function MarkdownContent({ content }: { content: string }) {
         }
         if (/^\s*[-*]\s+/m.test(block)) {
           const items = block.split("\n").filter(Boolean).map((line) => line.replace(/^\s*[-*]\s+/, ""));
-          return <ul key={idx}>{items.map((item, itemIdx) => <li key={itemIdx}>{renderInlineMarkdown(item)}</li>)}</ul>;
+          return (
+            <ul key={idx}>
+              {items.map((item, itemIdx) => (
+                <li key={itemIdx}>{renderInlineContent(item, participants)}</li>
+              ))}
+            </ul>
+          );
         }
         if (/^\s*\d+\.\s+/m.test(block)) {
           const items = block.split("\n").filter(Boolean).map((line) => line.replace(/^\s*\d+\.\s+/, ""));
-          return <ol key={idx}>{items.map((item, itemIdx) => <li key={itemIdx}>{renderInlineMarkdown(item)}</li>)}</ol>;
+          return (
+            <ol key={idx}>
+              {items.map((item, itemIdx) => (
+                <li key={itemIdx}>{renderInlineContent(item, participants)}</li>
+              ))}
+            </ol>
+          );
         }
-        return <p key={idx}>{renderInlineMarkdown(block)}</p>;
+        return <p key={idx}>{renderInlineContent(block, participants)}</p>;
       })}
     </div>
   );
+}
+
+/**
+ * Render a text segment that may contain inline mention tags and markdown emphasis.
+ * bugfix-358: <mention type="agent"|"user" target_id="X"/> tags are rendered as
+ * chip elements showing the current display_name from the participants dictionary.
+ */
+function renderInlineContent(
+  text: string,
+  participants?: Actor[],
+): React.ReactNode {
+  // Build a lookup map from wire ID to display_name for mention chip resolution.
+  const participantMap = new Map<string, string>();
+  if (participants) {
+    for (const p of participants) {
+      const displayName = p.display_name ?? p.id;
+      participantMap.set(p.id, displayName);
+    }
+  }
+
+  const segments = parseMentions(text);
+  // Fast path: no mention segments — fall back to markdown-only rendering.
+  if (segments.every((s) => s.kind === "text")) {
+    return renderInlineMarkdown(text);
+  }
+
+  return segments.map((seg, idx) => {
+    if (seg.kind === "mention") {
+      const displayName = participantMap.get(seg.target_id);
+      if (displayName) {
+        return (
+          <span key={idx} className="chat-mention-chip" data-target-id={seg.target_id}>
+            @{displayName}
+          </span>
+        );
+      }
+      // Unknown target_id: silent degradation — no raw tag shown
+      return (
+        <span key={idx} className="chat-mention-chip chat-mention-chip--unknown">
+          @unknown
+        </span>
+      );
+    }
+    // Text segment: apply inline markdown within it
+    return <React.Fragment key={idx}>{renderInlineMarkdown(seg.text)}</React.Fragment>;
+  });
 }
 
 function renderInlineMarkdown(text: string) {

@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 
 import json
 from dataclasses import replace
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
 from agent.core.errors import ModelError
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
+from agent.core.llm.model_registry import resolve_model_metadata
 from agent.core.types import TokenUsage
 from agent.platform.llm.providers.translator import LLMTranslator
 
@@ -50,6 +52,13 @@ class AnthropicClient(LLMClient):
         active_request = request
         if not active_request.model:
             active_request = replace(active_request, model=self._default_model)
+
+        metadata = resolve_model_metadata("anthropic", active_request.model)
+        if metadata.extra_request_body:
+            merged_extra = dict(metadata.extra_request_body)
+            if active_request.extra_body:
+                merged_extra.update(active_request.extra_body)
+            active_request = replace(active_request, extra_body=merged_extra)
 
         provider_request = self._translator.to_provider_request(active_request)
         headers = dict(provider_request.headers)
@@ -91,9 +100,34 @@ class AnthropicClient(LLMClient):
         content_blocks: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage: dict[str, Any] | None = None
+        # Thinking blocks arrive before tool_use blocks in the same assistant turn.
+        # One turn may carry several tool_use blocks sharing a single thinking block;
+        # the loop later splits them into separate assistant messages, each of which
+        # kimi K2.6 requires to carry the turn's reasoning_content — so attach it to
+        # every tool_use/text block in this stream, not just the first (bugfix-373).
+        # The thinking block also carries a cryptographic signature that must round-trip
+        # back unchanged; an empty signature causes the upstream to replay the same
+        # reasoning every turn and the agent loops forever (bugfix-375).
+        turn_reasoning: str | None = None
+        turn_signature: str | None = None
+        # Track whether the stream reached a proper terminal event or yielded content;
+        # used to detect truncated streams (bugfix-380).
+        got_terminal_event = False
+        yielded_content = False
 
         async for event in _iter_sse_events(response):
             event_type = event.get("type")
+
+            # bugfix-380: upstream error event — surface as ModelError immediately.
+            if event_type == "error":
+                error_obj = event.get("error") or {}
+                error_msg = error_obj.get("message") or str(error_obj) or "upstream error"
+                error_type = error_obj.get("type") or "error"
+                raise ModelError(
+                    f"anthropic: {error_msg}",
+                    details={"error_type": error_type, "raw": error_obj},
+                    retryable=False,
+                )
 
             if event_type == "content_block_start":
                 idx = event.get("index", 0)
@@ -110,8 +144,20 @@ class AnthropicClient(LLMClient):
             elif event_type == "content_block_stop":
                 idx = event.get("index", 0)
                 block = content_blocks.pop(idx, None)
-                if block is not None:
-                    yield _anthropic_block_to_llm_message(block)
+                if block is None:
+                    continue
+                if block.get("type") in {"thinking", "redacted_thinking"}:
+                    thinking_text = block.get("thinking", "")
+                    if thinking_text:
+                        turn_reasoning = (turn_reasoning or "") + thinking_text
+                    sig = block.get("signature", "")
+                    if sig:
+                        turn_signature = sig
+                    continue
+                yielded_content = True
+                yield _anthropic_block_to_llm_message(
+                    block, reasoning_content=turn_reasoning, reasoning_signature=turn_signature
+                )
 
             elif event_type == "message_delta":
                 delta = event.get("delta", {})
@@ -120,12 +166,22 @@ class AnthropicClient(LLMClient):
                 usage = event.get("usage")
 
             elif event_type == "message_stop":
+                got_terminal_event = True
                 yield LLMMessage(
                     role="assistant",
                     content="",
                     finish_reason=finish_reason,
                     usage=_parse_anthropic_usage(usage),
                 )
+
+        # bugfix-380: stream ended without message_stop and without yielded content —
+        # provider truncated the response (network drop, quota abort mid-stream, etc.).
+        if not got_terminal_event and not yielded_content:
+            raise ModelError(
+                "anthropic: stream ended without terminal event",
+                details={"finish_reason": finish_reason},
+                retryable=True,
+            )
 
     async def close(self) -> None:
         """Close underlying HTTP resources."""
@@ -142,10 +198,9 @@ class AnthropicClient(LLMClient):
 async def _iter_sse_events(response: httpx.Response) -> AsyncIterator[dict[str, Any]]:
     """Iterate over SSE data lines and yield parsed JSON events."""
 
-    buffer = ""
     async for line in response.aiter_lines():
-        if line.startswith("data: "):
-            data = line.removeprefix("data: ").strip()
+        if line.startswith("data:"):
+            data = line.removeprefix("data:").lstrip(" ")
             if data == "[DONE]":
                 continue
             try:
@@ -160,6 +215,12 @@ def _apply_anthropic_delta(block: dict[str, Any], delta: dict[str, Any]) -> None
     delta_type = delta.get("type")
     if delta_type == "text_delta":
         block["text"] = block.get("text", "") + delta.get("text", "")
+    elif delta_type == "thinking_delta":
+        block["thinking"] = block.get("thinking", "") + delta.get("thinking", "")
+    elif delta_type == "signature_delta":
+        # Accumulate the thinking block's cryptographic signature; must round-trip
+        # unchanged so the upstream recognises it as sealed history (bugfix-375).
+        block["signature"] = block.get("signature", "") + delta.get("signature", "")
     elif delta_type == "input_json_delta":
         existing = block.get("input", "")
         if isinstance(existing, dict):
@@ -167,7 +228,12 @@ def _apply_anthropic_delta(block: dict[str, Any], delta: dict[str, Any]) -> None
         block["input"] = existing + delta.get("partial_json", "")
 
 
-def _anthropic_block_to_llm_message(block: dict[str, Any]) -> LLMMessage:
+def _anthropic_block_to_llm_message(
+    block: dict[str, Any],
+    *,
+    reasoning_content: str | None = None,
+    reasoning_signature: str | None = None,
+) -> LLMMessage:
     """Convert one completed Anthropic content block into an LLMMessage."""
 
     block_type = block.get("type")
@@ -175,6 +241,8 @@ def _anthropic_block_to_llm_message(block: dict[str, Any]) -> LLMMessage:
         return LLMMessage(
             role="assistant",
             content=block.get("text", ""),
+            reasoning_content=reasoning_content,
+            reasoning_signature=reasoning_signature,
         )
     if block_type == "tool_use":
         raw_input = block.get("input", "")
@@ -197,8 +265,15 @@ def _anthropic_block_to_llm_message(block: dict[str, Any]) -> LLMMessage:
                     arguments=parsed_input,
                 ),
             ),
+            reasoning_content=reasoning_content,
+            reasoning_signature=reasoning_signature,
         )
-    return LLMMessage(role="assistant", content="")
+    return LLMMessage(
+        role="assistant",
+        content="",
+        reasoning_content=reasoning_content,
+        reasoning_signature=reasoning_signature,
+    )
 
 
 def _parse_anthropic_usage(payload: dict[str, Any] | None) -> TokenUsage | None:

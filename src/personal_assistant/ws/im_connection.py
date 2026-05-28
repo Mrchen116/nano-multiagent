@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.sync_client import ConfigSyncClient
-from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_runtime_capabilities
+from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_node_capabilities_payload, build_runtime_capabilities
 
 
 @dataclass(slots=True)
@@ -73,9 +73,19 @@ HeartbeatTrigger = Callable[[str, str], None]
 AgentConfigProvider = Callable[[str], Mapping[str, object] | None]
 AgentCreateHandler = Callable[[Mapping[str, object]], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None]
 AgentCapabilitiesProvider = Callable[[str, str], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None]
+# feat-379-M2 R5: (agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids) → preview dict | None
+# feat-383-M1: added skill_ids parameter so kernel can resolve real skill descriptions
+PromptPreviewProvider = Callable[
+    [str, str, dict, "str | None", list, str, list],
+    "Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None",
+]
 # Async callback that returns a fresh access token immediately before each connect attempt.
 # Returning None means "no token available"; the caller should fall back or proceed without auth.
 TokenGetter = Callable[[], Awaitable[str | None]]
+# Called when IM sends a node.streaming_delta kind=permission_response.
+# Payload keys: request_id, decision, message_id.  PA should POST the decision
+# to the agent inbound endpoint to unpark the auto_mode_gate hook.
+PermissionResponseHandler = Callable[[Mapping[str, object]], None]
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,7 +158,9 @@ class IMConnectionManager:
         agent_config_provider: AgentConfigProvider | None = None,
         agent_create_handler: AgentCreateHandler | None = None,
         agent_capabilities_provider: AgentCapabilitiesProvider | None = None,
+        prompt_preview_provider: PromptPreviewProvider | None = None,
         token_getter: TokenGetter | None = None,
+        permission_response_handler: PermissionResponseHandler | None = None,
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -160,6 +172,10 @@ class IMConnectionManager:
         self._agent_config_provider = agent_config_provider
         self._agent_create_handler = agent_create_handler
         self._agent_capabilities_provider = agent_capabilities_provider
+        # feat-379-M2 R5: provider for prompt preview; calls agent HTTP /v1/prompt-preview.
+        self._prompt_preview_provider = prompt_preview_provider
+        # Called when IM pushes a permission_response so PA can POST it to the agent.
+        self._permission_response_handler = permission_response_handler
         # token_getter is called on each connect attempt to supply a fresh access token.
         # When absent the static config.token is used (backwards-compatible behaviour).
         self._token_getter = token_getter
@@ -330,13 +346,16 @@ class IMConnectionManager:
             )
             return
         if message_type == "node.capabilities.resolve":
+            # feat-379-M7 (ISSUE-1): use build_node_capabilities_payload() which injects
+            # the FEATURE_REGISTRY projection so the agent-create page can render feature
+            # toggles (no per-agent context yet → all features available=True at node level).
             request_id = _require_text(body.get("request_id"), field_name="request_id")
             await self.send_json(
                 "node.capabilities",
                 {
                     "request_id": request_id,
                     "node_id": self._reporter.node_id,
-                    "capabilities": build_runtime_capabilities().as_payload(),
+                    "capabilities": build_node_capabilities_payload(),
                 },
             )
             return
@@ -357,6 +376,81 @@ class IMConnectionManager:
                     "capabilities": dict(capability_payload) if isinstance(capability_payload, Mapping) else {},
                 },
             )
+            return
+        if message_type == "agent.prompt.preview.request":
+            # feat-379-M2 R5: IM asked Gateway to assemble a prompt preview.
+            # Gateway calls agent HTTP /v1/prompt-preview and returns the result.
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            agent_id = _require_text(body.get("agent_id"), field_name="agent_id")
+            workspace_root = _require_text(body.get("workspace_root"), field_name="workspace_root")
+            features = body.get("features") or {}
+            if not isinstance(features, dict):
+                features = {}
+            custom_prompt_raw = body.get("custom_prompt")
+            custom_prompt = custom_prompt_raw if isinstance(custom_prompt_raw, str) else None
+            tool_ids_raw = body.get("tool_ids") or []
+            tool_ids = [t for t in tool_ids_raw if isinstance(t, str)] if isinstance(tool_ids_raw, list) else []
+            skill_ids_raw = body.get("skill_ids") or []
+            skill_ids = [s for s in skill_ids_raw if isinstance(s, str)] if isinstance(skill_ids_raw, list) else []
+            scenario_raw = body.get("scenario")
+            scenario = scenario_raw if isinstance(scenario_raw, str) else "direct"
+            preview_result: dict[str, object] = {}
+            if self._prompt_preview_provider is not None:
+                result = await _maybe_await(
+                    self._prompt_preview_provider(agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids)
+                )
+                if isinstance(result, Mapping):
+                    preview_result = dict(result)
+            await self.send_json(
+                "agent.prompt.preview",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "preview": preview_result,
+                },
+            )
+            return
+        if message_type == "node.prompt.preview.request":
+            # feat-379-M9 (決策 11): node-level preview — no agent_id needed.
+            # feat-383-M1: workspace_root and skill_ids now carried in the frame (IM derives workspace_root).
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            # workspace_root may be empty string when agent_id_hint was absent in the IM request.
+            node_workspace_root_raw = body.get("workspace_root")
+            node_workspace_root = node_workspace_root_raw if isinstance(node_workspace_root_raw, str) else ""
+            features = body.get("features") or {}
+            if not isinstance(features, dict):
+                features = {}
+            custom_prompt_raw = body.get("custom_prompt")
+            custom_prompt = custom_prompt_raw if isinstance(custom_prompt_raw, str) else None
+            tool_ids_raw = body.get("tool_ids") or []
+            tool_ids = [t for t in tool_ids_raw if isinstance(t, str)] if isinstance(tool_ids_raw, list) else []
+            skill_ids_raw = body.get("skill_ids") or []
+            skill_ids = [s for s in skill_ids_raw if isinstance(s, str)] if isinstance(skill_ids_raw, list) else []
+            scenario_raw = body.get("scenario")
+            scenario = scenario_raw if isinstance(scenario_raw, str) else "direct"
+            node_preview_result: dict[str, object] = {}
+            if self._prompt_preview_provider is not None:
+                result = await _maybe_await(
+                    self._prompt_preview_provider("", node_workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids)
+                )
+                if isinstance(result, Mapping):
+                    node_preview_result = dict(result)
+            await self.send_json(
+                "node.prompt.preview",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "preview": node_preview_result,
+                },
+            )
+            return
+        if message_type == "node.streaming_delta":
+            # IM → PA direction: currently only permission_response kind is routed here.
+            # Other kinds (turn_start, message_delta, …) are PA→IM only and would be
+            # unexpected inbound; they are safely ignored.
+            kind = body.get("kind")
+            if kind == "permission_response" and self._permission_response_handler is not None:
+                self._permission_response_handler(body)
             return
         raise ValueError(f"unsupported downstream message type: {message_type}")
 

@@ -16,6 +16,7 @@ class ActorPayload(BaseModel):
     type: str = Field(min_length=1)
     id: str = Field(min_length=1)
     display_name: str | None = None
+    is_stale: bool | None = None
 
 
 class CreateConversationRequest(BaseModel):
@@ -87,6 +88,7 @@ def to_conversation_response(conversation: Conversation) -> ConversationResponse
                 type=item.type,
                 id=item.id,
                 display_name=item.display_name,
+                is_stale=item.is_stale if item.type == "agent" and item.is_stale else None,
             )
             for item in conversation.participants
         ],

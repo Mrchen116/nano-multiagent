@@ -58,6 +58,7 @@ class Actor:
     id: str
     display_name: str | None = None
     user_id: str | None = None
+    is_stale: bool | None = None
 
     def __post_init__(self) -> None:
         if self.type not in {"user", "agent", "system"}:
@@ -116,6 +117,11 @@ class AgentProfile:
     default_model: str | None = None
     workspace_root: str | None = None
     profile_version: int = 1
+    is_stale: bool = False
+    # feat-379-M2: per-agent feature-flag overrides (keyed by FEATURE_REGISTRY key)
+    # and optional custom prompt supplement.  Absent keys inherit gateway defaults.
+    features: dict[str, bool] = field(default_factory=dict)
+    custom_prompt: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +232,11 @@ class Message:
     created_at: str = ""
     tool_calls: list[ToolCall] | None = None
     token_usage: TokenUsage | None = None
+    # bugfix-367: 同一 message 上的所有 permission ask 按时间顺序保留(list 而非 single
+    # dict)。同泡内 ask 不再覆盖前一次的 resolved 记录,UI 可以渲染历史"已允许 / 已拒绝"
+    # 小条 + 当前 pending 卡。每个元素 shape:
+    # {request_id, tool_name, tool_input, question, options, status, decision?}
+    permission_requests: list[dict[str, Any]] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if self.sender is None:

@@ -291,6 +291,33 @@ class JsonlSessionStore:
         )
         return tuple(p.stem for p in all_files[offset : offset + limit])
 
+    def list_session_ids_with_parents(
+        self,
+        *,
+        limit: int,
+        offset: int,
+        workspace_root: Path | None = None,
+    ) -> tuple[tuple[str, str | None], ...]:
+        """List (session_id, parent_session_id) pairs by most recent mtime.
+
+        Scoped to a single ``workspace_root`` (or ``data_dir`` when omitted and a
+        default base was configured), mirroring ``list_session_ids``.
+        """
+
+        base = self._resolve_base(workspace_root)
+        main_files = base.glob("sessions/*.jsonl")
+        subagent_files = base.glob("sessions/*/subagents/*.jsonl")
+        all_files = sorted(
+            (*main_files, *subagent_files),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        result = []
+        for p in all_files[offset : offset + limit]:
+            parent = self._infer_parent_from_path(p)
+            result.append((p.stem, parent))
+        return tuple(result)
+
     @property
     def writer(self) -> JsonlWriter:
         return self._writer
@@ -506,6 +533,8 @@ def _to_message(entry: dict[str, Any]) -> Message:
         group_id=entry.get("group_id"),
         tool_call_id=entry.get("tool_call_id"),
         metadata=_extract_message_metadata(entry),
+        reasoning_content=entry.get("reasoning_content") or None,
+        reasoning_signature=entry.get("reasoning_signature") or None,
     )
 
 
@@ -513,7 +542,7 @@ def _extract_message_metadata(entry: dict[str, Any]) -> dict[str, Any]:
     """Extract metadata fields from a JSONL turn entry."""
 
     meta: dict[str, Any] = {}
-    for key in ("is_meta", "is_compact_summary", "entrypoint"):
+    for key in ("is_meta", "is_compact_summary", "is_provider_error", "entrypoint"):
         if key in entry:
             meta[key] = entry[key]
     # tool_calls from assistant metadata

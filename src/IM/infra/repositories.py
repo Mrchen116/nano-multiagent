@@ -609,10 +609,14 @@ class ConversationRepository:
         """Convert one conversation row into a domain model with participants."""
         participant_rows = self._connection.execute(
             """
-            SELECT users.id, users.username, users.display_name
+            SELECT users.id, users.username, users.display_name,
+                   COALESCE(ap.is_stale, 0) AS is_stale
             FROM conversation_participants
             JOIN users ON users.id = conversation_participants.user_id
-            WHERE conversation_id = ?
+            LEFT JOIN agent_profiles ap
+                   ON ap.agent_id = SUBSTR(users.username, LENGTH('agent:') + 1)
+                  AND users.username LIKE 'agent:%'
+            WHERE conversation_participants.conversation_id = ?
             ORDER BY conversation_participants.rowid
             """,
             (row["id"],),
@@ -683,9 +687,11 @@ class ConversationRepository:
         user_id = str(row["id"])
         username = str(row["username"])
         display_name = str(row["display_name"]) if row["display_name"] is not None else None
+        keys = row.keys()
         if username.startswith("agent:"):
             agent_id = username[len("agent:") :].strip() or user_id
-            return Actor(type="agent", id=agent_id, display_name=display_name, user_id=user_id)
+            is_stale = bool(row["is_stale"]) if "is_stale" in keys else None
+            return Actor(type="agent", id=agent_id, display_name=display_name, user_id=user_id, is_stale=is_stale)
         return Actor(type="user", id=user_id, display_name=display_name, user_id=user_id)
 
     def _resolve_config_profile_version(self, *, owner_id: str, participant_ids: list[str]) -> int | None:
@@ -835,9 +841,11 @@ class MessageRepository:
             """,
             (conversation_id, resolved_sender_user_id),
         ).fetchone()
-        if participant_exists is None and str(sender_user["owner_id"]) != str(conversation_exists["owner_id"]):
-            raise ValueError("sender_user_id is outside conversation owner scope")
-
+        # System messages are server-originated and bypass the owner scope check;
+        # they can be injected into any conversation regardless of participant/owner alignment.
+        if sender_type != "system":
+            if participant_exists is None and str(sender_user["owner_id"]) != str(conversation_exists["owner_id"]):
+                raise ValueError("sender_user_id is outside conversation owner scope")
 
         if sender_type == "user" and participant_exists is None:
             raise ValueError("sender_user_id is not a participant of conversation")
@@ -1047,6 +1055,7 @@ class MessageRepository:
                 messages.created_at,
                 messages.tool_calls_json,
                 messages.token_usage_json,
+                messages.permission_request_json,
                 users.username AS sender_username,
                 users.display_name AS sender_display_name
             FROM messages
@@ -1110,6 +1119,7 @@ class MessageRepository:
                 messages.created_at,
                 messages.tool_calls_json,
                 messages.token_usage_json,
+                messages.permission_request_json,
                 users.username AS sender_username,
                 users.display_name AS sender_display_name
             FROM messages
@@ -1144,10 +1154,115 @@ class MessageRepository:
             merged = _upsert_message(merged, synthetic_message)
         return merged
 
+    def append_permission_request(
+        self,
+        *,
+        message_id: str,
+        permission_data: dict[str, object],
+    ) -> str:
+        """Append one permission_request dict to the message's list, dedup by request_id.
+
+        bugfix-367: 同一 message 上多次 ask 不再相互覆盖。同 request_id 的二次写入
+        视为 idempotent 替换(网络重传等);新 request_id 追加到 list 尾,以便 UI
+        按时间顺序渲染历史小条 + 当前 pending 卡。
+
+        Args:
+            message_id: Target message; must exist.
+            permission_data: Full permission request dict to append/replace. Caller
+                supplies ``status="pending"`` (and ``request_id``).
+
+        Returns:
+            The conversation_id of the target message (needed by the bridge).
+
+        Raises:
+            ValueError: When ``message_id`` does not exist or ``permission_data``
+                lacks ``request_id``.
+        """
+        request_id = permission_data.get("request_id")
+        if not isinstance(request_id, str) or not request_id:
+            raise ValueError("permission_data must include a non-empty request_id")
+
+        row = self._connection.execute(
+            "SELECT conversation_id, permission_request_json FROM messages WHERE id = ?",
+            (message_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"message_id not found: {message_id}")
+        existing = _load_permission_requests(row["permission_request_json"])
+        replaced = False
+        for index, entry in enumerate(existing):
+            if entry.get("request_id") == request_id:
+                existing[index] = dict(permission_data)
+                replaced = True
+                break
+        if not replaced:
+            existing.append(dict(permission_data))
+        with self._connection:
+            self._connection.execute(
+                "UPDATE messages SET permission_request_json = ? WHERE id = ?",
+                (json.dumps(existing), message_id),
+            )
+        return str(row["conversation_id"])
+
+    def update_permission_resolution(
+        self,
+        *,
+        message_id: str,
+        request_id: str,
+        decision: str,
+    ) -> str:
+        """Mark one specific permission_request entry as resolved within the list.
+
+        bugfix-367: list 化后 resolved 写入必须按 request_id 定位 —— 不再覆盖整列
+        (那会丢掉同泡内其他历史 ask)。未匹配到 request_id 时 raise,防止前端
+        reducer 状态机被静默放空。
+
+        Args:
+            message_id: Target message; must exist.
+            request_id: Stable identifier matching a pending request.
+            decision: User-chosen option id (e.g. ``"allow_once"``, ``"deny"``).
+
+        Returns:
+            The conversation_id of the target message.
+
+        Raises:
+            ValueError: When ``message_id`` does not exist or ``request_id`` is not
+                found in the message's permission_requests list.
+        """
+        row = self._connection.execute(
+            "SELECT conversation_id, permission_request_json FROM messages WHERE id = ?",
+            (message_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"message_id not found: {message_id}")
+        existing = _load_permission_requests(row["permission_request_json"])
+        target_index: int | None = None
+        for index, entry in enumerate(existing):
+            if entry.get("request_id") == request_id:
+                target_index = index
+                break
+        if target_index is None:
+            raise ValueError(
+                f"request_id {request_id!r} not found in permission_requests of message {message_id}"
+            )
+        existing[target_index] = {
+            **existing[target_index],
+            "status": "resolved",
+            "decision": decision,
+        }
+        with self._connection:
+            self._connection.execute(
+                "UPDATE messages SET permission_request_json = ? WHERE id = ?",
+                (json.dumps(existing), message_id),
+            )
+        return str(row["conversation_id"])
+
     def _message_from_row(self, row: sqlite3.Row) -> Message:
         """Convert one stored SQLite row into a Message domain model."""
         tool_calls_value = row["tool_calls_json"] if "tool_calls_json" in row.keys() else None
         token_usage_value = row["token_usage_json"] if "token_usage_json" in row.keys() else None
+        permission_request_value = row["permission_request_json"] if "permission_request_json" in row.keys() else None
+        permission_requests = _load_permission_requests(permission_request_value)
         return Message(
             id=row["id"],
             conversation_id=row["conversation_id"],
@@ -1167,6 +1282,7 @@ class MessageRepository:
             created_at=row["created_at"],
             tool_calls=_decode_tool_calls(tool_calls_value),
             token_usage=_decode_token_usage(token_usage_value),
+            permission_requests=permission_requests,
         )
 
     def _message_from_visible_event_row(self, row: sqlite3.Row) -> Message | None:
@@ -1180,6 +1296,26 @@ class MessageRepository:
             return None
         if not isinstance(payload, dict):
             return None
+        # bugfix-365: when the real `messages` row for this event is already an
+        # agent row in a terminal state (failed/completed), the synthetic mirror
+        # would just paint a second bubble for the same logical message — the
+        # watchdog path is the canonical case (writes `relay.failed` after flipping
+        # the real row to `failed`). Suppress the synthetic; the real row carries
+        # the detail text via the watchdog's content backfill in `relay_watchdog`.
+        # Scoping to `sender_type='agent'` preserves the legacy pattern where one
+        # *user* message_id fans out into multiple synthetic agent reply rows.
+        real_message_id = _optional_text(payload.get("message_id"))
+        if real_message_id is not None:
+            real_row = self._connection.execute(
+                "SELECT delivery_status, sender_type FROM messages WHERE id = ?",
+                (real_message_id,),
+            ).fetchone()
+            if (
+                real_row is not None
+                and str(real_row["sender_type"]) == "agent"
+                and str(real_row["delivery_status"]) in {"failed", "completed"}
+            ):
+                return None
         synthetic_message_id = _synthetic_message_id_from_event_payload(payload)
         if synthetic_message_id is None:
             return None
@@ -1321,7 +1457,8 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
-                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version
+                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
+                   is_stale, features_json, custom_prompt
             FROM agent_profiles
             ORDER BY created_at, rowid
             """
@@ -1340,11 +1477,13 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
-                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version
+                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
+                   ap.is_stale, ap.features_json, ap.custom_prompt
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
               AND ap.node_id != ''
+              AND ap.is_stale = 0
               AND (
                     (COALESCE(n.owner_id, '') = '' AND ap.owner_id = '')
                  OR (COALESCE(n.owner_id, '') != '' AND (ap.owner_id = '' OR ap.owner_id = n.owner_id))
@@ -1367,11 +1506,13 @@ class AgentProfileRepository:
         rows = self._connection.execute(
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
-                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version
+                   ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
+                   ap.is_stale, ap.features_json, ap.custom_prompt
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
               AND ap.node_id != ''
+              AND ap.is_stale = 0
               AND (
                     (ap.owner_id = ? AND COALESCE(n.owner_id, '') IN ('', ?))
                  OR (ap.owner_id = '' AND COALESCE(n.owner_id, '') = '')
@@ -1407,7 +1548,8 @@ class AgentProfileRepository:
         row = self._connection.execute(
             """
             SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
-                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version
+                   tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
+                   is_stale, features_json, custom_prompt
             FROM agent_profiles
             WHERE agent_id = ?
             """,
@@ -1431,19 +1573,28 @@ class AgentProfileRepository:
         default_model: str | None,
         workspace_root: str | None,
         node_id: str | None = None,
-    ) -> AgentProfile:
+        features: dict[str, bool] | None = None,
+        custom_prompt: str | None = None,
+    ) -> "AgentProfile":
         """Create or replace one seed profile without optimistic locking."""
         created_at = _utc_now()
         skills_json = _encode_json_list(skills)
         tool_allowlist_json = _encode_json_list(tool_allowlist)
+        # feat-379-M2: persist per-agent feature flags and custom prompt.
+        # feat-379-M6 (ISSUE-2): when features/custom_prompt are None (omitted by caller),
+        # keep whatever is already in the DB so Gateway re-registration on restart does not
+        # wipe user edits.  The ON CONFLICT clause uses COALESCE to fall back to the
+        # existing row value when the incoming JSON is the empty-object sentinel '{}' / NULL.
+        features_json = json.dumps(features, ensure_ascii=False) if features is not None else None
         with self._connection:
             self._connection.execute(
                 """
                 INSERT INTO agent_profiles(
                     agent_id, owner_id, node_id, display_name, description, system_prompt,
                     skills_json, tool_allowlist_json, group_reply_policy,
-                    default_model, workspace_root, profile_version, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    default_model, workspace_root, profile_version, created_at, updated_at,
+                    features_json, custom_prompt
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, '{}'), ?)
                 ON CONFLICT(agent_id) DO UPDATE SET
                     owner_id = excluded.owner_id,
                     node_id = excluded.node_id,
@@ -1455,7 +1606,19 @@ class AgentProfileRepository:
                     group_reply_policy = excluded.group_reply_policy,
                     default_model = excluded.default_model,
                     workspace_root = excluded.workspace_root,
-                    updated_at = excluded.updated_at
+                    updated_at = excluded.updated_at,
+                    is_stale = 0,
+                    staled_at = NULL,
+                    features_json = CASE
+                        WHEN excluded.features_json IS NOT NULL AND excluded.features_json != '{}'
+                        THEN excluded.features_json
+                        ELSE agent_profiles.features_json
+                    END,
+                    custom_prompt = CASE
+                        WHEN excluded.custom_prompt IS NOT NULL
+                        THEN excluded.custom_prompt
+                        ELSE agent_profiles.custom_prompt
+                    END
                 """,
                 (
                     agent_id,
@@ -1472,11 +1635,51 @@ class AgentProfileRepository:
                     1,
                     created_at,
                     created_at,
+                    features_json,
+                    custom_prompt,
                 ),
             )
         profile = self.get_profile(agent_id=agent_id)
         assert profile is not None
         return profile
+
+    def mark_stale_for_node(
+        self,
+        *,
+        node_id: str,
+        advertised_agent_ids: list[str],
+    ) -> int:
+        """Mark as stale any agent profile for this node not in the current advertise list.
+
+        Returns the count of rows newly marked stale. Safe to call repeatedly; rows
+        already stale are excluded from the count (is_stale=0 guard).
+        Empty advertised_agent_ids marks all profiles for this node as stale.
+        """
+        now = _utc_now()
+        if advertised_agent_ids:
+            placeholders = ",".join("?" * len(advertised_agent_ids))
+            params: list[object] = [now, node_id] + list(advertised_agent_ids)
+            cursor = self._connection.execute(
+                f"""
+                UPDATE agent_profiles
+                SET is_stale = 1, staled_at = ?
+                WHERE node_id = ?
+                  AND is_stale = 0
+                  AND agent_id NOT IN ({placeholders})
+                """,
+                params,
+            )
+        else:
+            cursor = self._connection.execute(
+                """
+                UPDATE agent_profiles
+                SET is_stale = 1, staled_at = ?
+                WHERE node_id = ?
+                  AND is_stale = 0
+                """,
+                (now, node_id),
+            )
+        return cursor.rowcount
 
     def update_profile(
         self,
@@ -1491,7 +1694,9 @@ class AgentProfileRepository:
         group_reply_policy: str,
         default_model: str | None,
         workspace_root: str | None,
-    ) -> AgentProfile:
+        features: dict[str, bool] | None = None,
+        custom_prompt: str | None = None,
+    ) -> "AgentProfile":
         """Update a profile with optimistic locking on profile_version."""
         current = self.get_profile(agent_id=agent_id)
         if current is None:
@@ -1500,6 +1705,9 @@ class AgentProfileRepository:
             raise AgentProfileVersionConflictError("profile_version conflict")
         updated_at = _utc_now()
         next_version = current.profile_version + 1
+        # feat-379-M2: persist per-agent feature flags and custom prompt
+        features_json = json.dumps(features if features is not None else dict(current.features), ensure_ascii=False)
+        resolved_custom_prompt = custom_prompt if custom_prompt is not None else current.custom_prompt
         with self._connection:
             self._connection.execute(
                 """
@@ -1513,7 +1721,9 @@ class AgentProfileRepository:
                     default_model = ?,
                     workspace_root = ?,
                     profile_version = ?,
-                    updated_at = ?
+                    updated_at = ?,
+                    features_json = ?,
+                    custom_prompt = ?
                 WHERE agent_id = ?
                 """,
                 (
@@ -1527,6 +1737,8 @@ class AgentProfileRepository:
                     workspace_root,
                     next_version,
                     updated_at,
+                    features_json,
+                    resolved_custom_prompt,
                     agent_id,
                 ),
             )
@@ -1542,8 +1754,22 @@ class AgentProfileRepository:
                 (owner_id, node_id),
             )
 
-    def _row_to_profile(self, row: sqlite3.Row) -> AgentProfile:
+    def _row_to_profile(self, row: sqlite3.Row) -> "AgentProfile":
         """Convert one storage row to a domain agent profile."""
+        keys = row.keys()
+        is_stale = bool(row["is_stale"]) if "is_stale" in keys else False
+        # feat-379-M2: decode per-agent feature flags (stored as JSON object)
+        raw_features = row["features_json"] if "features_json" in keys else None
+        if raw_features:
+            try:
+                decoded_features = json.loads(raw_features)
+                features = {k: bool(v) for k, v in decoded_features.items() if isinstance(k, str)} if isinstance(decoded_features, dict) else {}
+            except (ValueError, TypeError):
+                features = {}
+        else:
+            features = {}
+        custom_prompt_raw = row["custom_prompt"] if "custom_prompt" in keys else None
+        custom_prompt = custom_prompt_raw if isinstance(custom_prompt_raw, str) and custom_prompt_raw.strip() else None
         return AgentProfile(
             agent_id=row["agent_id"],
             owner_id=row["owner_id"],
@@ -1557,6 +1783,9 @@ class AgentProfileRepository:
             default_model=row["default_model"],
             workspace_root=row["workspace_root"],
             profile_version=int(row["profile_version"]),
+            is_stale=is_stale,
+            features=features,
+            custom_prompt=custom_prompt,
         )
 
 
@@ -2244,6 +2473,26 @@ def _tool_call_to_dict(tool_call: ToolCall) -> dict[str, object]:
 
 def _encode_tool_calls(tool_calls: list[ToolCall]) -> str:
     return json.dumps([_tool_call_to_dict(tc) for tc in tool_calls], ensure_ascii=True, separators=(",", ":"))
+
+
+def _load_permission_requests(raw_value: object) -> list[dict]:
+    """Parse permission_request_json (always list-shaped, bugfix-367).
+
+    开发态实现:列里必须存 list。坏数据(非 list / 解析失败)直接返回空 list,
+    呼叫方可以从干净基线开始重试。不做旧 dict 形态的兼容(参见 fix.md "修复"段
+    第二节:开发态,不做数据兼容)。
+    """
+    if raw_value is None:
+        return []
+    if not isinstance(raw_value, str) or not raw_value.strip():
+        return []
+    try:
+        parsed = json.loads(raw_value)
+    except (json.JSONDecodeError, TypeError):
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [dict(item) for item in parsed if isinstance(item, dict)]
 
 
 def _decode_tool_calls(value: object) -> list[ToolCall] | None:

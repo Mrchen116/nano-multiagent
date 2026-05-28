@@ -41,4 +41,51 @@ describe("MentionPicker", () => {
     await user.click(screen.getByRole("button", { name: /Coder/ }));
     expect(onSelect).toHaveBeenCalledWith(CANDIDATES[1]);
   });
+
+  // bugfix-358: handle column (@agent_id) is always shown so the user can verify
+  // the wire ID before sending; duplicate display_names are naturally disambiguated
+  // by two visible distinct handles.
+  describe("handle column always visible (bugfix-358)", () => {
+    const UNIQUE_NAMES: MentionCandidate[] = [
+      { agent_id: "a-alpha", display_name: "Alpha", initials: "AL", status: "online" },
+      { agent_id: "a-beta", display_name: "Beta", initials: "BE", status: "online" },
+    ];
+
+    const DUPLICATE_NAMES: MentionCandidate[] = [
+      { agent_id: "a-assistant-1", display_name: "助手", initials: "AS", status: "online" },
+      { agent_id: "a-assistant-2", display_name: "助手", initials: "AS", status: "online" },
+      { agent_id: "a-unique", display_name: "Unique", initials: "UN", status: "online" },
+    ];
+
+    it("renders a handle row for every candidate, even when display_names are unique", () => {
+      render(<MentionPicker candidates={UNIQUE_NAMES} query="" onSelect={() => {}} onClose={() => {}} />);
+      const handles = document.querySelectorAll(".chat-mention-picker-handle");
+      expect(handles).toHaveLength(UNIQUE_NAMES.length);
+      expect(handles[0].textContent).toBe("@a-alpha");
+      expect(handles[1].textContent).toBe("@a-beta");
+    });
+
+    it("renders a handle row for every candidate when duplicates exist, surfacing distinct agent_ids", () => {
+      render(<MentionPicker candidates={DUPLICATE_NAMES} query="" onSelect={() => {}} onClose={() => {}} />);
+      const handles = document.querySelectorAll(".chat-mention-picker-handle");
+      expect(handles).toHaveLength(DUPLICATE_NAMES.length);
+      const texts = Array.from(handles).map((el) => el.textContent);
+      expect(texts).toContain("@a-assistant-1");
+      expect(texts).toContain("@a-assistant-2");
+      expect(texts).toContain("@a-unique");
+    });
+
+    it("strips agent_ or agent- prefix from agent_id when rendering handle", () => {
+      const PREFIXED: MentionCandidate[] = [
+        { agent_id: "agent_legacy", display_name: "Legacy", initials: "LG", status: "online" },
+        { agent_id: "agent-modern", display_name: "Modern", initials: "MD", status: "online" },
+      ];
+      render(<MentionPicker candidates={PREFIXED} query="" onSelect={() => {}} onClose={() => {}} />);
+      const handles = Array.from(document.querySelectorAll(".chat-mention-picker-handle")).map(
+        (el) => el.textContent
+      );
+      expect(handles).toContain("@legacy");
+      expect(handles).toContain("@modern");
+    });
+  });
 });

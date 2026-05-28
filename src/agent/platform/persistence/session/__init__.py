@@ -1,12 +1,5 @@
-"""Canonical platform-owned session store interfaces and implementations."""
+"""Platform session service wiring."""
 
-from .base import LoadedSession, SessionStore
-from .jsonl_store import JsonlSessionStore
-from .sqlite_store import SQLiteSessionStore
+from .service import SessionService
 
-__all__ = [
-    "JsonlSessionStore",
-    "LoadedSession",
-    "SessionStore",
-    "SQLiteSessionStore",
-]
+__all__ = ["SessionService"]

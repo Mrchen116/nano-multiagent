@@ -24,6 +24,8 @@ from IM.api.ws.event_types import (
     EVENT_MESSAGE_COMPLETED,
     EVENT_MESSAGE_CREATED,
     EVENT_MESSAGE_DELTA,
+    EVENT_PERMISSION_REQUEST,
+    EVENT_PERMISSION_RESOLVED,
     EVENT_TOOL_CALL_COMPLETED,
     EVENT_TOOL_CALL_UPSERTED,
     build_message_completed_payload,
@@ -163,25 +165,107 @@ class EventBridge:
         message_id: str,
         final_content: str | None = None,
         token_usage: TokenUsage | None = None,
+        delivery_status: str = "completed",
     ) -> None:
         """Close the agent message with terminal content + optional token usage."""
         updated = self.message_repository.update_runtime_state(
             message_id=message_id,
             content_replace=final_content,
             token_usage=token_usage,
-            delivery_status="completed",
+            delivery_status=delivery_status,
         )
         self._emit(
             conversation_id=updated.conversation_id,
             message_id=message_id,
             event_type=EVENT_MESSAGE_COMPLETED,
-            delivery_status="completed",
+            delivery_status=delivery_status,
             payload=build_message_completed_payload(
                 conversation_id=updated.conversation_id,
                 message_id=message_id,
                 content=updated.content,
                 token_usage=token_usage,
             ),
+        )
+
+    def on_permission_request(
+        self,
+        *,
+        message_id: str,
+        permission_request: dict[str, object],
+    ) -> None:
+        """Persist a pending permission request and emit ``permission.request``.
+
+        Embeds ``status="pending"`` before writing so the frontend can distinguish
+        pending vs. resolved without an extra query.
+
+        Args:
+            message_id: Agent message that owns this request.
+            permission_request: Raw permission payload from the gateway (must contain
+                at minimum ``request_id`` and ``tool_name``).
+
+        Raises:
+            ValueError: When ``message_id`` does not exist.
+        """
+        # bugfix-367: append 而不是覆盖 —— 同一 message 上多次 ask 全部按时间顺序保留。
+        # 同 request_id 重复写入 idempotent(repository 内 dedup 替换)。
+        data = {**permission_request, "status": "pending"}
+        conversation_id = self.message_repository.append_permission_request(
+            message_id=message_id,
+            permission_data=data,
+        )
+        self._emit(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            event_type=EVENT_PERMISSION_REQUEST,
+            delivery_status="running",
+            payload={
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+                "event_type": EVENT_PERMISSION_REQUEST,
+                "permission_request": data,
+            },
+        )
+
+    def on_permission_resolved(
+        self,
+        *,
+        message_id: str,
+        request_id: str,
+        decision: str,
+    ) -> None:
+        """Mark a permission request resolved and emit ``permission.resolved``.
+
+        Reads the existing ``permission_request_json`` from the message and updates its
+        ``status`` and ``decision`` fields so the frontend can show the settled state
+        without re-fetching the full conversation.
+
+        Args:
+            message_id: Agent message that owns the request.
+            request_id: Stable identifier matching the pending request.
+            decision: User-chosen option id (e.g. ``"allow_once"``, ``"deny"``).
+
+        Raises:
+            ValueError: When ``message_id`` does not exist.
+        """
+        # bugfix-367: 按 request_id 在 list 中定位、就地改 status/decision,
+        # 不再覆盖整条 permission_request_json(那会丢同泡其他历史 ask)。
+        conversation_id = self.message_repository.update_permission_resolution(
+            message_id=message_id,
+            request_id=request_id,
+            decision=decision,
+        )
+        self._emit(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            event_type=EVENT_PERMISSION_RESOLVED,
+            delivery_status="running",
+            payload={
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+                "event_type": EVENT_PERMISSION_RESOLVED,
+                "request_id": request_id,
+                "decision": decision,
+            },
         )
 
     def _emit(

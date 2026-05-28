@@ -163,24 +163,26 @@ def test_mention_message_does_not_broadcast_to_non_target_agent_buffer(tmp_path:
     assert drained_a == [], f"agent-a buffer must not receive @agent-b relay's message, got: {drained_a}"
 
 
-def test_background_context_only_relay_buffers_agent_reply_for_peer(tmp_path: Path) -> None:
-    """Agent reply relays for peers should buffer and never execute.
+def test_peer_agent_reply_relay_buffers_when_self_not_mentioned(tmp_path: Path) -> None:
+    """Agent reply relays for non-mentioned peers should buffer and never execute.
 
-    IM may rebroadcast one agent's completed reply to other participant agents as
-    background-only relay context. Gateway must buffer that text for the target
-    peer without allocating a run.
+    bugfix-358: IM fans out one group relay per peer agent on delivery_receipt; no
+    background_context_only flag. Gateway decides trigger vs buffer from
+    mentioned_agent_ids + group_reply_policy alone. When self is not in
+    mentioned_agent_ids (MENTION policy default), pipeline buffers the message
+    into group_context_store without allocating a run.
     """
     agents = _two_agents(tmp_path)
     pipeline, store, kernel = _build_pipeline(tmp_path, agents=agents, default_agent_id="agent-a")
 
     peer_reply_for_a = InboundMessage(
         channel_name="web_relay",
-        text="Agent B: here is the answer",
+        text="here is the answer",
         external_user_id="agent-b-user",
         external_chat_id="conv-1",
         is_group=True,
         agent_id="agent-a",
-        metadata={"background_context_only": True, "source_agent_id": "agent-b", "mentioned_agent_ids": []},
+        metadata={"source_agent_id": "agent-b", "mentioned_agent_ids": []},
     )
     later_for_a = InboundMessage(
         channel_name="web_relay",
@@ -199,7 +201,7 @@ def test_background_context_only_relay_buffers_agent_reply_for_peer(tmp_path: Pa
     assert mention_result is not None
     assert mention_result.agent_id == "agent-a"
     # Since M246: each group message is prefixed with [sender_id] before being sent to the kernel.
-    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["[agent-b-user] Agent B: here is the answer", "[user-1] @agent-a continue"], "run_id": "run-1"}]
+    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["[agent-b-user] here is the answer", "[user-1] @agent-a continue"], "run_id": "run-1"}]
 
     buf_key_a = pipeline._group_buf_key_for_agent(peer_reply_for_a, "agent-a")
     assert store.drain(buf_key_a) == []

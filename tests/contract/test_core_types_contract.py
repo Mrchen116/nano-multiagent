@@ -10,7 +10,11 @@ def test_message_contract_fields_are_stable() -> None:
         "content",
         "name",
         "tool_call_id",
+        "parent_message_id",
+        "group_id",
         "metadata",
+        "reasoning_content",
+        "reasoning_signature",
     ]
 
 
@@ -20,6 +24,7 @@ def test_tool_contract_fields_are_stable() -> None:
         "description",
         "input_schema",
         "is_concurrency_safe",
+        "max_result_size_chars",
     ]
     assert [field.name for field in fields(ToolCall)] == [
         "call_id",
@@ -31,6 +36,9 @@ def test_tool_contract_fields_are_stable() -> None:
         "name",
         "output",
         "error",
+        "content",
+        "duration_ms",
+        "arguments",
     ]
 
 

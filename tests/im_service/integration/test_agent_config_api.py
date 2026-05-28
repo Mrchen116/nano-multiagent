@@ -47,21 +47,21 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
 
         list_resp = client.get("/im/v1/agents")
         assert list_resp.status_code == 200
-        assert list_resp.json() == [
-            {
-                "agent_id": "agent-1",
-                "owner_id": owner.owner_id,
-                "node_id": "node-1",
-                "display_name": "Alpha",
-                "description": "initial",
-                "profile_version": 1,
-                "default_model": "gpt-4.1",
-                "workspace_root": list_resp.json()[0]["workspace_root"],
-                "workspace_is_default": True,
-                "updated_at": list_resp.json()[0]["updated_at"],
-                "user_id": list_resp.json()[0]["user_id"],
-            }
-        ]
+        # Use subset assertion: node_status is runtime-derived and may change.
+        agent_row = list_resp.json()[0]
+        assert {k: agent_row[k] for k in (
+            "agent_id", "owner_id", "node_id", "display_name", "description",
+            "profile_version", "default_model", "workspace_is_default",
+        )} == {
+            "agent_id": "agent-1",
+            "owner_id": owner.owner_id,
+            "node_id": "node-1",
+            "display_name": "Alpha",
+            "description": "initial",
+            "profile_version": 1,
+            "default_model": "gpt-4.1",
+            "workspace_is_default": True,
+        }
         assert list_resp.json()[0]["user_id"] is not None
         assert list_resp.json()[0]["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
 
@@ -352,21 +352,21 @@ def test_agents_list_includes_fresh_runtime_profiles_before_bind(tmp_path: Path)
 
         response = client.get("/im/v1/agents")
         assert response.status_code == 200
-        assert response.json() == [
-            {
-                "agent_id": "agent-fresh",
-                "owner_id": "",
-                "node_id": "node-fresh",
-                "display_name": "Fresh Agent",
-                "description": "advertised by an unbound runtime",
-                "profile_version": 1,
-                "default_model": None,
-                "workspace_root": response.json()[0]["workspace_root"],
-                "workspace_is_default": True,
-                "updated_at": response.json()[0]["updated_at"],
-                "user_id": response.json()[0]["user_id"],
-            }
-        ]
+        # Use subset assertion: node_status is runtime-derived and may change.
+        agent_row = response.json()[0]
+        assert {k: agent_row[k] for k in (
+            "agent_id", "owner_id", "node_id", "display_name", "description",
+            "profile_version", "default_model", "workspace_is_default",
+        )} == {
+            "agent_id": "agent-fresh",
+            "owner_id": "",
+            "node_id": "node-fresh",
+            "display_name": "Fresh Agent",
+            "description": "advertised by an unbound runtime",
+            "profile_version": 1,
+            "default_model": None,
+            "workspace_is_default": True,
+        }
         assert response.json()[0]["workspace_root"].endswith("/nano-assistant/workspace/agent-fresh")
         assert response.json()[0]["user_id"] is not None
 
@@ -528,7 +528,7 @@ def test_node_capabilities_return_current_selectable_items(tmp_path: Path, monke
         return {
             "skills": ["plan", "playwright"],
             "tools": ["read", "bash"],
-            "models": ["moonshotAnthropic:kimi-k2.5", "codex_oauth:gpt-5.4"],
+            "models": ["kimiCoding:K2.6", "codex_oauth:gpt-5.5"],
         }
 
     from IM.ws.gateway_handler import GatewayHandler
@@ -546,4 +546,4 @@ def test_node_capabilities_return_current_selectable_items(tmp_path: Path, monke
     assert response.status_code == 200
     assert [item["name"] for item in response.json()["skills"]] == ["plan", "playwright"]
     assert [item["name"] for item in response.json()["tools"]] == ["read", "bash"]
-    assert response.json()["models"] == ["moonshotAnthropic:kimi-k2.5", "codex_oauth:gpt-5.4"]
+    assert response.json()["models"] == ["kimiCoding:K2.6", "codex_oauth:gpt-5.5"]

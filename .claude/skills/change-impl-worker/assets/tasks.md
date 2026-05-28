@@ -20,7 +20,13 @@ roadpoint = milestone 内最小可提交单位（一次 commit 或一次 worktre
 
 ## 测试策略
 
-<!-- 单元 / 集成 / e2e / 手测，每条说明怎么验。 -->
+<!-- 规范见 docs/TESTING_GUIDE.md。以下逐项必填（逼出"该不该写/写在哪/归谁"的决策）。 -->
+
+- 被测行为（来自退出标准）：<逐条列>
+- 已有测试在：`<file>`（扩展） / 无，新建 `<file>`，理由：___
+- 落层/目录/marker：tests/<unit|integration|contract|e2e>/ ，marker：<e2e|无>
+- 可选依赖 importorskip：<有，哪些> / 无
+- 本 milestone 产生的一次性验收证据（收尾删除，不进套件）：<列出> / 无
 
 <!--
 前端 UI milestone 额外填写；非前端可写 N/A。

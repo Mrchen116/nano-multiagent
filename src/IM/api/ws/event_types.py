@@ -30,6 +30,9 @@ EVENT_TOOL_CALL_UPSERTED = "tool_call.upserted"
 EVENT_TOOL_CALL_COMPLETED = "tool_call.completed"
 EVENT_NODE_STATUS_CHANGED = "node.status_changed"
 EVENT_AGENT_STATUS_CHANGED = "agent.status_changed"
+# feat-333-M2: permission ask flow — sent when agent awaits user decision and when resolved.
+EVENT_PERMISSION_REQUEST = "permission.request"
+EVENT_PERMISSION_RESOLVED = "permission.resolved"
 
 
 def tool_call_to_dict(tool_call: ToolCall) -> dict[str, Any]:

@@ -11,7 +11,8 @@ const apiMocks = vi.hoisted(() => ({
   createDirectChatByAgentUserIdMock: vi.fn(),
   listAgentsMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
-  navigateMock: vi.fn()
+  navigateMock: vi.fn(),
+  promptPreviewMock: vi.fn()
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -36,7 +37,8 @@ vi.mock("../../../hooks/use-is-mobile", () => ({
 vi.mock("./im-agent-config-api", () => ({
   getAgentDetailState: apiMocks.getAgentDetailStateMock,
   updateAgentConfig: apiMocks.updateAgentConfigMock,
-  listAgentSummaries: apiMocks.listAgentSummariesMock
+  listAgentSummaries: apiMocks.listAgentSummariesMock,
+  promptPreview: apiMocks.promptPreviewMock
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
@@ -65,6 +67,7 @@ afterEach(() => {
   apiMocks.listAgentsMock.mockReset();
   apiMocks.listAgentSummariesMock.mockReset();
   apiMocks.navigateMock.mockReset();
+  apiMocks.promptPreviewMock.mockReset();
 });
 
 // Default listAgentSummaries so the desktop rail (R12-bis-1) doesn't break tests.
@@ -88,7 +91,7 @@ describe("agent detail page", () => {
         skills: ["tdd-execution-worker"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
-        default_model: "codex_oauth:gpt-5.4",
+        default_model: "codex_oauth:gpt-5.5",
         workspace_root: "/tmp/agent-core-1",
         workspace_is_default: false,
         profile_version: 12,
@@ -105,8 +108,8 @@ describe("agent detail page", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [{ name: "tdd-execution-worker", description: "Execute TDD tasks" }],
         tools: [{ name: "read", description: "Read files" }],
-        model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
-        platform_default_model: "codex_oauth:gpt-5.4",
+        model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+        platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: "You are the personal_assistant default template."
       },
       owningNode: {
@@ -385,5 +388,292 @@ describe("agent detail page", () => {
     expect(tddBtn?.getAttribute("aria-pressed")).toBe("true");
     const reviewBtn = skillsPill?.querySelector('button[data-pill-name="review"]') as HTMLButtonElement | null;
     expect(reviewBtn?.getAttribute("aria-pressed")).toBe("false");
+  });
+});
+
+// feat-379-M3: Behavior card 重构 — features checkbox + custom_prompt + 折叠预览
+describe("feat-379-M3 Behavior card", () => {
+  function makeDetailState(
+    overrides: {
+      features?: Array<{ key: string; label_i18n: string; help_i18n: string; default_on: boolean; available: boolean; requires_tool?: string | null }>;
+      configFeatures?: Record<string, boolean>;
+      customPrompt?: string;
+    } = {}
+  ) {
+    return {
+      config: {
+        agent_id: "agent-core-1",
+        owner_id: "owner-1",
+        display_name: "Core Planner",
+        description: "",
+        system_prompt: "legacy prompt",
+        custom_prompt: overrides.customPrompt ?? "",
+        features: overrides.configFeatures ?? {},
+        skills: [],
+        tool_allowlist: overrides.features?.filter((f) => f.requires_tool).map((f) => f.requires_tool as string) ?? [],
+        group_reply_policy: "MENTION" as const,
+        default_model: null,
+        workspace_root: "/tmp",
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        updated_at: "2026-03-13T10:00:00Z"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [{ name: "memory", description: "Memory tool" }],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: "",
+        features: overrides.features ?? [
+          { key: "memory_curation", label_i18n: "记忆自进化", help_i18n: "让 agent 主动把偏好/事实写入长期记忆", default_on: true, available: true, requires_tool: "memory" },
+          { key: "skill_creation", label_i18n: "技能自进化", help_i18n: "复杂任务后自动沉淀/修补 skill", default_on: true, available: false, requires_tool: "skill_manage" }
+        ]
+      },
+      owningNode: null
+    };
+  }
+
+  beforeEach(() => {
+    apiMocks.listAgentSummariesMock.mockResolvedValue([
+      { agent_id: "agent-core-1", display_name: "Core Planner", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
+    ]);
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+  });
+
+  it("M3-R1: 不再显示 system_prompt textarea，改为 custom_prompt 和 features 区块", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    // 旧的 system_prompt textarea 不应存在
+    expect(screen.queryByLabelText("System Prompt")).toBeNull();
+    expect(screen.queryByLabelText(/System Prompt \*/)).toBeNull();
+
+    // 新的 custom_prompt textarea 应存在
+    expect(screen.getByLabelText(/Custom Instructions/i)).toBeInTheDocument();
+
+    // features 区块标题
+    expect(screen.getByText(/Features/i)).toBeInTheDocument();
+  });
+
+  it("M3-R1: features checkbox 按 capabilities.features 渲染，所有特性可勾选（feat-379-M9 决策12 删除 disabled）", async () => {
+    // feat-379-M9 (決策 12): disabled 态已删除 — 所有特性均可勾选，tool 联动是权威。
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    // memory_curation: available=true, default_on=true → 勾选可用
+    const memoryCheckbox = document.querySelector<HTMLInputElement>('[data-feature-key="memory_curation"]');
+    expect(memoryCheckbox, "memory_curation checkbox 应存在").not.toBeNull();
+    expect(memoryCheckbox?.disabled).toBe(false);
+
+    // skill_creation: available=false, 但 M9 后 disabled 已删除 → 同样可勾选
+    const skillCheckbox = document.querySelector<HTMLInputElement>('[data-feature-key="skill_creation"]');
+    expect(skillCheckbox, "skill_creation checkbox 应存在").not.toBeNull();
+    expect(skillCheckbox?.disabled).toBe(false);
+  });
+
+  it("M3-R1: 空 features 列表时不渲染 Features 区块", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState({ features: [] }));
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    // features 区块不应出现（无可用特性）
+    expect(document.querySelector("[data-testid='features-section']")).toBeNull();
+  });
+
+  it("M3-R1: custom_prompt 编辑后保存时 PATCH payload 包含 features 和 custom_prompt", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(
+      makeDetailState({ configFeatures: { memory_curation: true, skill_creation: true } })
+    );
+    apiMocks.updateAgentConfigMock.mockResolvedValue({
+      agent_id: "agent-core-1",
+      owner_id: "owner-1",
+      display_name: "Core Planner",
+      description: "",
+      system_prompt: "",
+      custom_prompt: "我是法律顾问",
+      features: { memory_curation: true, skill_creation: true },
+      skills: [],
+      tool_allowlist: ["memory", "skill_manage"],
+      group_reply_policy: "MENTION",
+      default_model: null,
+      workspace_root: "/tmp",
+      workspace_is_default: false,
+      profile_version: 2,
+      node_id: "node-1",
+      node_name: "MacBook",
+      node_status: "online",
+      updated_at: "2026-03-13T10:01:00Z"
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    const customTextarea = screen.getByLabelText(/Custom Instructions/i);
+    await user.clear(customTextarea);
+    await user.type(customTextarea, "我是法律顾问");
+
+    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
+        "agent-core-1",
+        expect.objectContaining({
+          custom_prompt: "我是法律顾问",
+          features: expect.any(Object)
+        })
+      );
+    });
+  });
+
+  it("M3-R1: 折叠预览区块初始收起，点击展开后 aria-expanded=true", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    // 折叠按钮应存在，初始 aria-expanded=false
+    const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
+    expect(previewToggle).toBeInTheDocument();
+    expect(previewToggle.getAttribute("aria-expanded")).toBe("false");
+
+    await userEvent.click(previewToggle);
+
+    expect(previewToggle.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("M3-R1: group_reply_policy select 保留在 Behavior card 中", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeDetailState());
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Core Planner" });
+
+    expect(screen.getByLabelText(/Group Reply Policy/i)).toBeInTheDocument();
+  });
+});
+
+// feat-379-M9: preview tool_ids 来自 draft.tool_allowlist（決策 14 删除 effectiveToolIds hack）
+// 根因回顾：M8 用 effectiveToolIds = union(capabilityFeatures.available.requires_tool, draft.tool_allowlist)
+// 绕过了 M8 缺陷；M9 R1 修复了 _build_tool_names()，capabilities.tools 现在含 memory，
+// 联动逻辑（决策 12）确保勾特性时工具自动进 allowlist，故直接用 draft.tool_allowlist 即正确。
+describe("feat-379-M9 preview tool_ids regression", () => {
+  const memoryCapFeature = {
+    key: "memory_curation",
+    label_i18n: "agents.features.memory_curation.label",
+    help_i18n: "agents.features.memory_curation.help",
+    default_on: true,
+    available: true,
+    requires_tool: "memory"
+  };
+
+  function makeStateWithMemoryInAllowlist() {
+    return {
+      config: {
+        agent_id: "agent-core-1",
+        owner_id: "owner-1",
+        display_name: "Mem Agent",
+        description: "",
+        system_prompt: "",
+        custom_prompt: "",
+        features: {},
+        skills: [],
+        // M9 後 tool_allowlist 含 memory（由联动逻辑加入）
+        tool_allowlist: ["memory"] as string[],
+        group_reply_policy: "MENTION" as const,
+        default_model: null,
+        workspace_root: "/tmp",
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        updated_at: "2026-03-13T10:00:00Z"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [{ name: "memory", description: "Memory tool" }],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: "",
+        features: [memoryCapFeature]
+      },
+      owningNode: null
+    };
+  }
+
+  beforeEach(() => {
+    apiMocks.listAgentSummariesMock.mockResolvedValue([
+      { agent_id: "agent-core-1", display_name: "Mem Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
+    ]);
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+  });
+
+  it("M9: preview 请求 tool_ids 直接来自 draft.tool_allowlist（決策 14 删除 effectiveToolIds）", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(makeStateWithMemoryInAllowlist());
+    apiMocks.promptPreviewMock.mockResolvedValue("## Preview\n\nMemory guidance here.");
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
+    await user.click(previewToggle);
+
+    await waitFor(() => {
+      expect(apiMocks.promptPreviewMock).toHaveBeenCalled();
+    });
+
+    const calls = apiMocks.promptPreviewMock.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    const body = lastCall[1] as { tool_ids?: string[] };
+    // tool_ids 来自 draft.tool_allowlist=["memory"]，不再从 capabilityFeatures 推断
+    expect(body.tool_ids, "tool_ids 应来自 draft.tool_allowlist").toContain("memory");
+  });
+
+  // feat-383-M1: preview 请求必须包含 skill_ids
+  it("feat-383-M1: preview 请求 skill_ids 来自 draft.skills", async () => {
+    const user = userEvent.setup();
+    const stateWithSkills = {
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        skills: ["code-review", "plan"] as string[],
+      }
+    };
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(stateWithSkills);
+    apiMocks.promptPreviewMock.mockResolvedValue("## Preview");
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
+    await user.click(previewToggle);
+
+    await waitFor(() => {
+      expect(apiMocks.promptPreviewMock).toHaveBeenCalled();
+    });
+
+    const calls = apiMocks.promptPreviewMock.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    const body = lastCall[1] as { skill_ids?: string[] };
+    expect(body.skill_ids, "skill_ids 必须来自 draft.skills").toEqual(
+      expect.arrayContaining(["code-review", "plan"])
+    );
   });
 });

@@ -10,6 +10,8 @@ from typing import Any
 
 import yaml
 
+from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+
 _DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
 _DEFAULT_KERNEL_ENTRYPOINT = "python -m uvicorn personal_assistant.kernel_app:app"
 _DEFAULT_KERNEL_HEALTH_PATH = "/v1/health"
@@ -21,18 +23,40 @@ _DEFAULT_SHUTDOWN_GRACE_SECONDS = 5.0
 _DEFAULT_POLL_INTERVAL_SECONDS = 0.25
 _DEFAULT_HEARTBEAT_TICK_INTERVAL_SECONDS = 30.0
 _DEFAULT_WORKSPACE_MEMORY_CONTENT = "# MEMORY\n\nUse this file for stable long-term notes shared across the agent workspace.\n"
+_DEFAULT_WORKSPACE_USER_CONTENT = "# USER PROFILE\n\nUse this file for stable notes about the user (preferences, context).\n"
 _DEFAULT_WORKSPACE_HEARTBEAT_CONTENT = (
     "# HEARTBEAT\n\n"
     "<!-- Add one schedule (interval/at/cron) and actionable checklist items when heartbeat automation is needed. -->\n"
 )
-DEFAULT_WORKSPACE_FILES: tuple[tuple[str, str], ...] = (
+
+# Memory files (MEMORY.md + USER.md) live under .nanoassistant/memory/ so that
+# MemoryStore can read/write them without path gymnastics (feat-349-M3).
+# HEARTBEAT.md stays at workspace root (heartbeat scheduler reads it there).
+_WORKSPACE_MEMORY_SUBDIR = ".nanoassistant/memory"
+
+DEFAULT_WORKSPACE_MEMORY_FILES: tuple[tuple[str, str], ...] = (
     ("MEMORY.md", _DEFAULT_WORKSPACE_MEMORY_CONTENT),
+    ("USER.md", _DEFAULT_WORKSPACE_USER_CONTENT),
+)
+DEFAULT_WORKSPACE_ROOT_FILES: tuple[tuple[str, str], ...] = (
     ("HEARTBEAT.md", _DEFAULT_WORKSPACE_HEARTBEAT_CONTENT),
+)
+
+# Retained for backward-compatibility with any external references; new code
+# should use DEFAULT_WORKSPACE_MEMORY_FILES + DEFAULT_WORKSPACE_ROOT_FILES.
+DEFAULT_WORKSPACE_FILES: tuple[tuple[str, str], ...] = (
+    *DEFAULT_WORKSPACE_MEMORY_FILES,
+    *DEFAULT_WORKSPACE_ROOT_FILES,
 )
 
 
 def ensure_workspace_defaults(workspace_root: Path) -> Path:
     """Create one agent workspace directory and seed default workspace files.
+
+    Memory files (``MEMORY.md``, ``USER.md``) are seeded under
+    ``<workspace_root>/.nanoassistant/memory/`` so that ``MemoryStore`` can
+    read/write them at its canonical path (feat-349-M3).
+    ``HEARTBEAT.md`` remains at the workspace root.
 
     Args:
         workspace_root: Workspace root that should contain stable MEMORY/HEARTBEAT files.
@@ -47,11 +71,23 @@ def ensure_workspace_defaults(workspace_root: Path) -> Path:
 
     resolved_root = workspace_root.expanduser().resolve()
     resolved_root.mkdir(parents=True, exist_ok=True)
-    for filename, default_content in DEFAULT_WORKSPACE_FILES:
+
+    # Seed memory files under the .nanoassistant/memory/ subdirectory.
+    memory_dir = resolved_root / _WORKSPACE_MEMORY_SUBDIR
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    for filename, default_content in DEFAULT_WORKSPACE_MEMORY_FILES:
+        file_path = memory_dir / filename
+        if file_path.exists():
+            continue
+        file_path.write_text(default_content, encoding="utf-8")
+
+    # Seed workspace-root files (HEARTBEAT.md).
+    for filename, default_content in DEFAULT_WORKSPACE_ROOT_FILES:
         file_path = resolved_root / filename
         if file_path.exists():
             continue
         file_path.write_text(default_content, encoding="utf-8")
+
     return resolved_root
 
 
@@ -83,6 +119,12 @@ class AgentWorkspaceConfig:
         system_prompt: Custom system prompt override for the agent.
         group_reply_policy: Reply policy in group conversations (e.g. "always", "mention_only").
         default_model: Default LLM model identifier for this agent.
+        features: Per-agent feature-flag overrides keyed by FEATURE_REGISTRY key.
+            Absent keys inherit the registry default_on value at session creation time.
+            See feat-379 decision 3 and FEATURE_REGISTRY in prompt_sections/feature_registry.py.
+        custom_prompt: Optional user-written text appended as the pa.user_custom segment
+            (order=800).  None or empty string means the segment is omitted entirely.
+            See feat-379 decision 5/6.
     """
 
     agent_id: str
@@ -93,6 +135,9 @@ class AgentWorkspaceConfig:
     system_prompt: str | None = None
     group_reply_policy: str | None = None
     default_model: str | None = None
+    # feat-379-M2: per-agent feature flags and custom prompt supplement
+    features: dict[str, bool] = field(default_factory=dict)
+    custom_prompt: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,6 +226,7 @@ class LocalConfig:
         kernel: Local kernel process and HTTP connectivity settings.
         heartbeat: Local heartbeat scheduler polling settings.
         im_service: Optional upstream IM service configuration.
+        llm: LLM registry configuration (required; no hardcoded fallback).
         source_path: Absolute file path used to load the config.
     """
 
@@ -190,6 +236,7 @@ class LocalConfig:
     kernel: KernelConfig
     heartbeat: HeartbeatConfig
     im_service: IMServiceConfig | None
+    llm: LLMConfigPayload
     source_path: Path
 
 
@@ -221,7 +268,8 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
         raise ValueError("config root must be a mapping")
 
     node = _parse_node_config(raw.get("node"))
-    agents = _parse_agents(raw.get("agents"))
+    llm = _parse_llm(raw.get("llm"))
+    agents = _parse_agents(raw.get("agents"), llm)
     channels = _parse_channels(raw.get("channels"))
     kernel = _parse_kernel(raw.get("kernel"))
     heartbeat = _parse_heartbeat(raw.get("heartbeat"))
@@ -233,6 +281,7 @@ def load_local_config(config_path: str | Path) -> LocalConfig:
         kernel=kernel,
         heartbeat=heartbeat,
         im_service=im_service,
+        llm=llm,
         source_path=source_path,
     )
 
@@ -280,6 +329,11 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             agent_dict["group_reply_policy"] = agent.group_reply_policy
         if agent.default_model is not None:
             agent_dict["default_model"] = agent.default_model
+        # feat-379-M2: only emit when non-empty to keep config.yaml readable
+        if agent.features:
+            agent_dict["features"] = dict(agent.features)
+        if agent.custom_prompt is not None:
+            agent_dict["custom_prompt"] = agent.custom_prompt
         agents_list.append(agent_dict)
     data["agents"] = agents_list
 
@@ -333,6 +387,26 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             im_dict["password"] = config.im_service.password
         data["im_service"] = im_dict
 
+    # LLM config
+    llm_dict: dict[str, Any] = {
+        "default_model": config.llm.default_model,
+        "providers": [
+            {
+                "name": p.name,
+                **({"base_url": p.base_url} if p.base_url is not None else {}),
+                "models": [
+                    {
+                        "name": m.name,
+                        **({"extra_request_body": m.extra_request_body} if m.extra_request_body is not None else {}),
+                    }
+                    for m in p.models
+                ],
+            }
+            for p in config.llm.providers
+        ],
+    }
+    data["llm"] = llm_dict
+
     dest = Path(config_path).expanduser().resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(yaml.safe_dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False), encoding="utf-8")
@@ -366,11 +440,63 @@ def _parse_node_config(payload: Any) -> NodeConfig:
     return NodeConfig(node_id=node_id, user_id=user_id)
 
 
-def _parse_agents(payload: Any) -> tuple[AgentWorkspaceConfig, ...]:
+def _parse_llm(payload: Any) -> LLMConfigPayload:
+    """Parse the required 'llm' section of a Gateway config.
+
+    Raises:
+        ValueError: When llm section is missing or malformed. No fallback — per design
+            decision 8: config without llm section must hard-fail at parse time.
+    """
+    if payload is None:
+        raise ValueError("config root must contain 'llm' section with default_model and providers")
+    if not isinstance(payload, dict):
+        raise ValueError("llm must be a mapping")
+    default_model = _require_non_empty_string(payload.get("default_model"), field_name="llm.default_model")
+    providers_raw = payload.get("providers")
+    if not isinstance(providers_raw, list):
+        raise ValueError("llm.providers must be a list")
+    providers: list[LLMProviderPayload] = []
+    for pi, pitem in enumerate(providers_raw):
+        if not isinstance(pitem, dict):
+            raise ValueError(f"llm.providers[{pi}] must be a mapping")
+        pname = _require_non_empty_string(pitem.get("name"), field_name=f"llm.providers[{pi}].name")
+        base_url = _optional_string(pitem.get("base_url"), field_name=f"llm.providers[{pi}].base_url")
+        models_raw = pitem.get("models")
+        if not isinstance(models_raw, list):
+            raise ValueError(f"llm.providers[{pi}].models must be a list")
+        models: list[LLMModelPayload] = []
+        for mi, mitem in enumerate(models_raw):
+            if not isinstance(mitem, dict):
+                raise ValueError(f"llm.providers[{pi}].models[{mi}] must be a mapping")
+            mname = _require_non_empty_string(mitem.get("name"), field_name=f"llm.providers[{pi}].models[{mi}].name")
+            extra_request_body = mitem.get("extra_request_body")
+            if extra_request_body is not None and not isinstance(extra_request_body, dict):
+                raise ValueError(f"llm.providers[{pi}].models[{mi}].extra_request_body must be a mapping")
+            models.append(LLMModelPayload(name=mname, extra_request_body=extra_request_body or None))
+        providers.append(LLMProviderPayload(name=pname, base_url=base_url, models=tuple(models)))
+
+    # Validate default_model exists in at least one provider
+    all_models = {m.name for p in providers for m in p.models}
+    if default_model not in all_models:
+        available = ", ".join(sorted(all_models)) or "(none)"
+        raise ValueError(
+            f"llm.default_model='{default_model}' not found in llm.providers (available: {available})"
+        )
+    return LLMConfigPayload(default_model=default_model, providers=tuple(providers))
+
+
+def _parse_agents(payload: Any, llm: LLMConfigPayload) -> tuple[AgentWorkspaceConfig, ...]:
     if not isinstance(payload, list):
         raise ValueError("agents must be a list")
     if not payload:
         raise ValueError("agents must contain at least one entry")
+
+    # Build set of all known model names for fast lookup
+    known_models: set[str] = {
+        m.name
+        for p in llm.providers
+        for m in p.models
+    }
 
     agents: list[AgentWorkspaceConfig] = []
     for index, item in enumerate(payload):
@@ -393,6 +519,14 @@ def _parse_agents(payload: Any) -> tuple[AgentWorkspaceConfig, ...]:
         system_prompt = _optional_string(item.get("system_prompt"), field_name=f"agents[{index}].system_prompt")
         group_reply_policy = _optional_string(item.get("group_reply_policy"), field_name=f"agents[{index}].group_reply_policy")
         default_model = _optional_string(item.get("default_model"), field_name=f"agents[{index}].default_model")
+        if default_model is not None and default_model not in known_models:
+            available = ", ".join(sorted(known_models))
+            raise ValueError(
+                f"agents[{index}].default_model='{default_model}' not found in llm.providers "
+                f"(available: {available})"
+            )
+        features = _parse_features(item.get("features"), field_name=f"agents[{index}].features")
+        custom_prompt = _optional_string(item.get("custom_prompt"), field_name=f"agents[{index}].custom_prompt")
         agents.append(
             AgentWorkspaceConfig(
                 agent_id=agent_id,
@@ -403,6 +537,8 @@ def _parse_agents(payload: Any) -> tuple[AgentWorkspaceConfig, ...]:
                 system_prompt=system_prompt,
                 group_reply_policy=group_reply_policy,
                 default_model=default_model,
+                features=features,
+                custom_prompt=custom_prompt,
             )
         )
     return tuple(agents)
@@ -568,3 +704,34 @@ def _parse_string_list(value: Any, *, field_name: str) -> tuple[str, ...]:
             raise ValueError(f"{field_name}[{i}] must be a non-empty string")
         result.append(entry.strip())
     return tuple(result)
+
+
+def _parse_features(value: Any, *, field_name: str) -> dict[str, bool]:
+    """Parse an optional YAML feature-flag mapping into a dict[str, bool].
+
+    Only bool values are accepted — YAML ``true``/``false`` map cleanly.  Any
+    non-bool value causes a hard error so misconfigured flags fail loudly
+    (feat-379 decision 3: no silent fallback for user-written config).
+
+    Args:
+        value: Raw YAML value (None, dict, or invalid).
+        field_name: Diagnostic label for error messages.
+
+    Returns:
+        Dict of feature key → bool, or empty dict when value is None.
+
+    Raises:
+        ValueError: When value is not a mapping or contains non-bool values.
+    """
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(f"{field_name} must be a mapping")
+    result: dict[str, bool] = {}
+    for k, v in value.items():
+        if not isinstance(k, str) or not k.strip():
+            raise ValueError(f"{field_name}: key must be a non-empty string, got {k!r}")
+        if not isinstance(v, bool):
+            raise ValueError(f"{field_name}.{k} must be a bool (true/false), got {v!r}")
+        result[k.strip()] = v
+    return result

@@ -1,4 +1,5 @@
 """Prompt assembly utilities for runtime/system/tool context injection."""
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -9,6 +10,34 @@ from agent.core.types import Message
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 from agent.core.skills.formatter import format_available_skills_section
 from agent.core.skills.registry import SkillMetadata
+
+# ---------------------------------------------------------------------------
+# Self-evolution guidance constants (hermes-reference §6)
+# Injected into the stable tier of the system prompt when the corresponding
+# tool is present in the session toolset.
+# ---------------------------------------------------------------------------
+
+SKILLS_GUIDANCE: str = (
+    "After completing a complex task (5+ tool calls), fixing a tricky error, "
+    "or discovering a non-trivial workflow, save the approach as a skill with "
+    "skill_manage so you can reuse it next time. "
+    "When using a skill and finding it outdated, incomplete, or wrong, "
+    "patch it immediately with skill_manage(action='patch') — don't wait to be asked. "
+    "Skills that aren't maintained become liabilities."
+)
+
+MEMORY_GUIDANCE: str = (
+    "You have persistent memory across sessions. "
+    "Save durable facts using the memory tool: user preferences, environment details, "
+    "tool quirks, and stable conventions. "
+    "Memory is injected into every turn, so keep it compact and focused on facts that "
+    "will still matter later. "
+    "Prioritize what reduces future user steering — the most valuable memory is one "
+    "that prevents the user from having to correct or remind you again. "
+    "Do NOT save task progress, session outcomes, completed-work logs, or temporary TODO "
+    "state to memory. "
+    "Write memories as declarative facts, not instructions to yourself."
+)
 
 LOCAL_CODING_SYSTEM_PROMPT = """You are an expert coding assistant operating inside a coding agent harness. You help users by reading files, executing commands, editing code, and writing new files.
 
@@ -62,6 +91,19 @@ def build_chat_messages(
     Returns:
         Ordered message tuple: history, then current user. No system message.
     """
+    # bugfix-380: filter out provider error messages before sending to LLM.
+    # These are synthetic assistant messages (is_provider_error=True) that were
+    # persisted for IM/CLI display but must not pollute the LLM's context window
+    # (mirrors CC isSyntheticApiErrorMessage / normalizeMessagesForAPI pattern).
+    history_messages = tuple(m for m in history_messages if not _is_provider_error(m))
+
+    # Coalesce assistant Message rows that share a group_id before converting.
+    # When parallel tool_use blocks stream in as separate LLM chunks, each chunk
+    # is persisted as its own JSONL row but all share the same group_id (set by
+    # loop.py). Without coalescing, build_chat_messages would emit separate
+    # assistant LLMMessages whose tool_use↔tool_result pairing breaks on reload.
+    history_messages = _coalesce_assistant_group(history_messages)
+
     messages: list[LLMMessage] = []
     for message in history_messages:
         metadata = dict(message.metadata)
@@ -72,6 +114,8 @@ def build_chat_messages(
                 name=message.name,
                 tool_call_id=message.tool_call_id or _extract_tool_call_id(metadata),
                 tool_calls=_extract_tool_calls(metadata),
+                reasoning_content=message.reasoning_content,
+                reasoning_signature=message.reasoning_signature,
             )
         )
     messages = _merge_adjacent_assistant(messages)
@@ -122,15 +166,25 @@ def build_system_prompt(
     available_tools: Sequence[ToolSpec] | None = None,
     current_datetime: datetime | str | None = None,
     current_working_directory: Path | None = None,
+    memory_block: str | None = None,
 ) -> str:
     """Render system prompt template with runtime placeholders.
 
+    When ``available_tools`` includes ``skill_manage``, ``SKILLS_GUIDANCE`` is
+    appended.  When ``memory`` is included, ``MEMORY_GUIDANCE`` is appended.
+    When ``memory_block`` is provided, the rendered MemoryStore block is
+    prepended before the background-task instructions.
+
     Args:
-        system_prompt: Template possibly containing `<RUNTIME_FILL:*` placeholders.
+        system_prompt: Template possibly containing ``<RUNTIME_FILL:*``
+            placeholders.
         available_skills: Skills displayed in skills section.
-        available_tools: Tool specs rendered into available tools section.
+        available_tools: Tool specs rendered into available tools section and
+            used to determine which guidance constants to inject.
         current_datetime: Optional timestamp override.
         current_working_directory: Optional cwd override.
+        memory_block: Pre-rendered MemoryStore block (volatile tier).  Injected
+            as-is when supplied; omitted when ``None``.
 
     Returns:
         Fully rendered system prompt text.
@@ -150,6 +204,23 @@ def build_system_prompt(
         result = with_runtime_fill
     else:
         result = f"{with_runtime_fill}\n\n{skills_section}"
+
+    # Inject self-evolution guidance constants for the stable tier.
+    # Only when the matching tool is in the session's active toolset.
+    tool_names: frozenset[str] = frozenset(
+        t.name for t in (available_tools or ())
+    )
+    guidance_parts: list[str] = []
+    if "memory" in tool_names:
+        guidance_parts.append(MEMORY_GUIDANCE)
+    if "skill_manage" in tool_names:
+        guidance_parts.append(SKILLS_GUIDANCE)
+    if guidance_parts:
+        result = f"{result}\n\n{' '.join(guidance_parts)}"
+
+    # Inject volatile memory block (MemoryStore snapshot) when provided.
+    if memory_block:
+        result = f"{result}\n\n{memory_block}"
 
     # Append background task handling instructions so the model knows how to
     # treat <task-notification> messages delivered from completed workers.
@@ -272,6 +343,51 @@ def _estimate_text_tokens(text: str) -> int:
     return max(1, (len(normalized) + 7) // 8)
 
 
+def _coalesce_assistant_group(messages: tuple[Message, ...]) -> tuple[Message, ...]:
+    """Merge assistant Message rows that share a group_id into one row.
+
+    Parallel tool_use blocks from a single LLM response stream as separate
+    Message rows but all carry the same group_id (set in loop.py). Without
+    coalescing, build_chat_messages emits separate assistant LLMMessages whose
+    tool_use↔tool_result pairing breaks when history is reloaded from JSONL.
+    """
+    if not messages:
+        return messages
+
+    from agent.core.types import ToolCall
+
+    result: list[Message] = []
+    # Map group_id → index in result for fast lookup of the canonical row.
+    assistant_group_index: dict[str, int] = {}
+
+    for msg in messages:
+        if msg.role == "assistant" and msg.group_id:
+            existing_idx = assistant_group_index.get(msg.group_id)
+            if existing_idx is not None:
+                prev = result[existing_idx]
+                # Merge tool_calls from both rows.
+                prev_calls = list(prev.metadata.get("tool_calls", []))
+                new_calls = list(msg.metadata.get("tool_calls", []))
+                merged_meta = {**dict(prev.metadata), "tool_calls": prev_calls + new_calls}
+                # replace() preserves prev's identity/structure fields and only
+                # overrides the merged ones; any field added to Message later is
+                # carried automatically instead of being silently dropped here.
+                result[existing_idx] = replace(
+                    prev,
+                    content=(prev.content or "") + (msg.content or ""),
+                    metadata=merged_meta,
+                    reasoning_content=prev.reasoning_content or msg.reasoning_content,
+                    reasoning_signature=prev.reasoning_signature or msg.reasoning_signature,
+                )
+            else:
+                assistant_group_index[msg.group_id] = len(result)
+                result.append(msg)
+        else:
+            result.append(msg)
+
+    return tuple(result)
+
+
 def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:
     """Merge adjacent assistant role messages into one (multi-content-blocks)."""
     result: list[LLMMessage] = []
@@ -285,7 +401,20 @@ def _merge_adjacent_assistant(messages: list[LLMMessage]) -> list[LLMMessage]:
                 content=merged_content,
                 tool_calls=merged_tool_calls,
                 tool_call_id=prev.tool_call_id,
+                # Preserve thinking block from the first message so providers that
+                # require reasoning round-trip (e.g. kimi K2.6) don't reject the turn.
+                reasoning_content=prev.reasoning_content or msg.reasoning_content,
+                reasoning_signature=prev.reasoning_signature or msg.reasoning_signature,
             )
         else:
             result.append(msg)
     return result
+
+
+def _is_provider_error(msg: Message) -> bool:
+    """Return True if the message was synthesized by the runtime to surface a provider error.
+
+    Such messages are persisted for IM/CLI display (bugfix-380) but must be stripped
+    from the LLM history to avoid polluting the model's context window.
+    """
+    return bool(msg.metadata.get("is_provider_error"))

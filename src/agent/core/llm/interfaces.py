@@ -27,6 +27,14 @@ class LLMMessage:
     tool_calls: tuple[LLMToolCall, ...] = ()
     finish_reason: str | None = None
     usage: TokenUsage | None = None
+    # Preserved for round-trip: providers with thinking enabled (e.g. kimi K2.6) require
+    # every assistant+tool_calls message to carry back its original reasoning_content,
+    # otherwise the follow-up request is rejected with "reasoning_content is missing".
+    reasoning_content: str | None = None
+    # Preserved for round-trip: Anthropic thinking blocks carry a cryptographic signature
+    # issued by the model ("I sealed this reasoning"). Returning an empty signature causes
+    # the upstream to replay the same reasoning segment every turn → infinite loop (bugfix-375).
+    reasoning_signature: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,8 +46,10 @@ class LLMGenerateRequest:
     messages: tuple[LLMMessage, ...]
     temperature: float | None = None
     max_tokens: int | None = None
+    stop_sequences: tuple[str, ...] = ()
     tools: tuple[ToolSpec, ...] = ()
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    extra_body: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

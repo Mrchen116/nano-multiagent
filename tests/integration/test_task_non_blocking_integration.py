@@ -1,27 +1,32 @@
+import asyncio
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.context import HookContext
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.hooks.registry import HookRegistry
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
 from agent.platform.http_api.app import create_app
 from agent.core.types import Message, TurnResult
-from agent.core.session.manager import SessionManager
-from agent.platform.persistence.session.sqlite_store import SQLiteSessionStore
+from agent.platform.persistence.session.service import SessionService
+from agent.platform.tools.builtins.task import TaskTool
+from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
+
+set_tool_safety_factory(ToolSafety)
+set_tool_safety_config_factory(ToolSafetyConfig)
 
 
 class _RecordingLLMClient:
     def __init__(self) -> None:
         self.requests: list[LLMGenerateRequest] = []
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+    async def generate(self, request: LLMGenerateRequest):  # noqa: ANN201
         self.requests.append(request)
-        return LLMGenerateResponse(
-            model=request.model,
-            message=LLMMessage(role="assistant", content="subagent-ok"),
-            finish_reason="stop",
-        )
+        yield LLMMessage(role="assistant", content="subagent-ok")
+        yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,8 +39,7 @@ class _RuntimeStub:
         self.created = 0
         self.run_calls: list[dict[str, object]] = []
 
-    async def create_session(self, *, title: str | None = None, metadata=None) -> _Session:
-        del title, metadata
+    async def create_session(self, *, workspace_root=None, title=None, system_prompt=None, skills=None, tool_allowlist=None, metadata=None) -> _Session:
         self.created += 1
         return _Session(session_id=f"sess_non_blocking_integration_{self.created}")
 
@@ -46,6 +50,10 @@ class _RuntimeStub:
         *,
         stream: bool = True,
         llm_session_id: str | None = None,
+        run_id: str | None = None,
+        controller=None,
+        parent_session_id: str | None = None,
+        origin=None,
     ) -> TurnResult:
         self.run_calls.append(
             {
@@ -64,7 +72,7 @@ class _RuntimeStub:
             stop_reason="completed",
         )
 
-    async def continue_turn(self, session_id: str, *, stream: bool = True, llm_session_id: str | None = None):  # noqa: ANN201
+    async def continue_turn(self, session_id: str, *, stream: bool = True, llm_session_id: str | None = None) -> TurnResult:
         del stream, llm_session_id
         return await self.run(session_id, [{"type": "text", "text": "continue"}], stream=False)
 
@@ -78,17 +86,20 @@ def _wait_for(predicate, *, timeout_seconds: float = 0.6) -> None:  # noqa: ANN0
     raise AssertionError("condition not met before timeout")
 
 
-def test_task_blocking_passes_parent_session_id_to_subagent_llm(tmp_path: Path) -> None:
-    store = SQLiteSessionStore(db_path=tmp_path / "task-pass-through.sqlite3")
+async def test_task_blocking_passes_parent_session_id_to_subagent_llm(tmp_path: Path) -> None:
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     llm_client = _RecordingLLMClient()
     runtime = AgentRuntime(
-        session_manager=SessionManager(store=store),
+        session_manager=service.manager,
         llm_client=llm_client,
         model="mock-model",
     )
-    app = create_app(runtime=runtime, session_store=store, repo_root=tmp_path)
+    # Use empty hook registry to avoid auto_mode_gate blocking the task tool.
+    app = create_app(runtime=runtime, session_store=service.manager.store, repo_root=tmp_path, hook_registry=HookRegistry())
+    task_tool = TaskTool(runtime=runtime)
+    app.state.tool_registry.register(task_tool)
 
-    result = app.state.tool_registry.execute(
+    result = await app.state.tool_registry.execute(
         "task",
         {
             "run_in_background": False,
@@ -100,29 +111,35 @@ def test_task_blocking_passes_parent_session_id_to_subagent_llm(tmp_path: Path) 
         hook_context=HookContext(session_id="sess_main_header", repo_root=tmp_path),
     )
 
-    assert result["result"].startswith("Task completed in ")
-    assert "<task_metadata>\nsession_id:" in result["result"]
-    assert "sess_main_header" not in result["result"]
+    # task tool now returns a structured object.
+    assert result["status"] == "completed"
+    assert "sessionId" in result
+    assert result["sessionId"] != "sess_main_header"  # subagent gets its own session
     assert llm_client.requests[0].session_id == "sess_main_header"
 
 
 def test_task_non_blocking_executes_on_same_node_and_returns_receipt(tmp_path: Path) -> None:
     runtime = _RuntimeStub()
-    app = create_app(runtime=runtime, repo_root=tmp_path)
+    app = create_app(runtime=runtime, repo_root=tmp_path, hook_registry=HookRegistry())
+    task_tool = TaskTool(runtime=runtime)
+    app.state.tool_registry.register(task_tool)
 
-    result = app.state.tool_registry.execute(
-        "task",
-        {
-            "run_in_background": True,
-            "load_skills": [],
-            "description": "delegate task",
-            "prompt": "run async",
-            "subagent_type": "oracle",
-        },
-        hook_context=HookContext(session_id="sess_main_non_blocking", repo_root=tmp_path),
+    result = asyncio.run(
+        app.state.tool_registry.execute(
+            "task",
+            {
+                "run_in_background": True,
+                "load_skills": [],
+                "description": "delegate task",
+                "prompt": "run async",
+                "subagent_type": "oracle",
+            },
+            hook_context=HookContext(session_id="sess_main_non_blocking", repo_root=tmp_path),
+        )
     )
 
-    assert result["result"].startswith("Background task launched.")
-    assert "Status: queued" in result["result"]
-    assert "<task_metadata>\nsession_id: sess_non_blocking_integration_1\n</task_metadata>" in result["result"]
+    # task tool now returns a structured object for background launches.
+    assert result["status"] == "async_launched"
+    assert result["sessionId"] == "sess_non_blocking_integration_1"
+    assert result["agent"] == "oracle"
     _wait_for(lambda: len(runtime.run_calls) == 1)

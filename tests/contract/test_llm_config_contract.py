@@ -11,7 +11,7 @@ def _auth_headers(request_id: str) -> dict[str, str]:
 
 
 def test_llm_config_get_contract_shape() -> None:
-    client = TestClient(create_app(auth_token="test-token"))
+    client = TestClient(create_app())
 
     response = client.get("/v1/llm-config", headers=_auth_headers("req-llm-config-get-contract"))
 
@@ -28,14 +28,14 @@ def test_llm_config_get_contract_shape() -> None:
 
 
 def test_llm_config_patch_contract_shape_and_runtime_effect() -> None:
-    client = TestClient(create_app(auth_token="test-token"))
+    client = TestClient(create_app())
 
     response = client.patch(
         "/v1/llm-config",
         headers=_auth_headers("req-llm-config-patch-contract"),
         json={
             "provider": "anthropic",
-            "model": "moonshotAnthropic:kimi-k2.5",
+            "model": "kimiCoding:K2.6",
         },
     )
 
@@ -45,17 +45,17 @@ def test_llm_config_patch_contract_shape_and_runtime_effect() -> None:
     payload = response.json()
     assert set(payload.keys()) == {"provider", "model", "base_url", "api_key", "timeout_seconds"}
     assert payload["provider"] == "anthropic"
-    assert payload["model"] == "moonshotAnthropic:kimi-k2.5"
+    assert payload["model"] == "kimiCoding:K2.6"
 
     capabilities = client.get("/v1/capabilities", headers=_auth_headers("req-cap-after-llm-config-contract"))
     assert capabilities.status_code == 200
     capabilities_payload = capabilities.json()
     assert capabilities_payload["llm"]["active_provider"] == "anthropic"
-    assert capabilities_payload["llm"]["active_model"] == "moonshotAnthropic:kimi-k2.5"
+    assert capabilities_payload["llm"]["active_model"] == "kimiCoding:K2.6"
 
 
 def test_llm_config_patch_error_contract_shape() -> None:
-    client = TestClient(create_app(auth_token="test-token"))
+    client = TestClient(create_app())
 
     response = client.patch("/v1/llm-config", headers=_auth_headers("req-llm-config-patch-error"), json={})
 

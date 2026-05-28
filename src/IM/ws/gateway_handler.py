@@ -103,6 +103,10 @@ class GatewayHandler:
         self._agent_create_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
         self._agent_capabilities_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
         self._node_capabilities_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
+        # feat-379-M2 R5: prompt-preview request→response futures
+        self._prompt_preview_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
+        # feat-379-M9 (決策 11): node-level prompt-preview — no per-agent workspace needed
+        self._node_prompt_preview_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
         self._ensure_agent_message_dispatch_table()
 
     async def serve(self, websocket: WebSocket) -> None:
@@ -154,10 +158,16 @@ class GatewayHandler:
             return await self._handle_agent_capabilities(payload=payload)
         if message_type == "node.capabilities":
             return await self._handle_node_capabilities(payload=payload)
+        if message_type == "agent.prompt.preview":
+            return await self._handle_prompt_preview(payload=payload)
+        if message_type == "node.prompt.preview":
+            return await self._handle_node_prompt_preview(payload=payload)
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
         if message_type == "node.streaming_delta":
             return await self._handle_streaming_delta(payload=payload)
+        if message_type == "node.system_message":
+            return await self._handle_system_message(payload=payload)
         return {
             "type": "error",
             "payload": {"code": "unsupported_message_type", "message": message_type},
@@ -200,6 +210,39 @@ class GatewayHandler:
             target_node_id=target_node_id,
             message_type="heartbeat.trigger",
             payload={"agent_id": agent_id, "reason": reason},
+        )
+
+    async def push_permission_response(
+        self,
+        *,
+        target_node_id: str,
+        message_id: str,
+        request_id: str,
+        decision: str,
+    ) -> bool:
+        """Push a permission_response frame to the gateway node hosting the parked run.
+
+        The PA side consumes this frame and forwards the decision to the agent inbound
+        endpoint so the parked hook can resume.
+
+        Args:
+            target_node_id: Node that owns the agent run awaiting the decision.
+            message_id: Agent message that embeds the permission request.
+            request_id: Stable permission request identifier.
+            decision: User-chosen option (e.g. ``"allow_once"``, ``"deny"``).
+
+        Returns:
+            ``True`` when the node was connected and the frame was sent.
+        """
+        return await self._push_downstream(
+            target_node_id=target_node_id,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "permission_response",
+                "message_id": message_id,
+                "request_id": request_id,
+                "decision": decision,
+            },
         )
 
     async def request_agent_config(
@@ -317,6 +360,107 @@ class GatewayHandler:
         finally:
             async with self._lock:
                 self._node_capabilities_waiters.pop(request_id, None)
+
+    async def request_prompt_preview(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        features: dict[str, bool],
+        custom_prompt: str | None,
+        tool_ids: list[str],
+        scenario: str,
+        skill_ids: list[str] | None = None,
+        timeout_seconds: float = 10.0,
+    ) -> dict[str, object] | None:
+        """Send an agent.prompt.preview.request frame and await the assembled result.
+
+        feat-379-M2 R5: IM proxy path — IM sends this request to the Gateway
+        which calls agent HTTP /v1/prompt-preview and returns the result.
+        feat-383-M1: skill_ids forwarded so Gateway→kernel can resolve real skills.
+
+        Returns:
+            Preview payload dict or None when the node is not connected or times out.
+        """
+        request_id = f"prompt-preview-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._prompt_preview_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="agent.prompt.preview.request",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                    "features": features,
+                    "custom_prompt": custom_prompt,
+                    "tool_ids": tool_ids,
+                    "skill_ids": skill_ids or [],
+                    "scenario": scenario,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._prompt_preview_waiters.pop(request_id, None)
+
+    async def request_node_prompt_preview(
+        self,
+        *,
+        target_node_id: str,
+        features: dict[str, bool],
+        custom_prompt: str | None,
+        tool_ids: list[str],
+        scenario: str,
+        workspace_root: str = "",
+        skill_ids: list[str] | None = None,
+        timeout_seconds: float = 10.0,
+    ) -> dict[str, object] | None:
+        """Send a node.prompt.preview.request frame and await the assembled result.
+
+        feat-379-M9 (決策 11): node-level preview path used by the agent-create page
+        before an agent exists.
+        feat-383-M1: workspace_root (IM-derived) and skill_ids are now forwarded so
+        the Gateway→kernel can resolve real workspace and skills.
+
+        Returns:
+            Preview payload dict or None when the node is not connected or times out.
+        """
+        request_id = f"node-prompt-preview-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._node_prompt_preview_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="node.prompt.preview.request",
+                payload={
+                    "request_id": request_id,
+                    "workspace_root": workspace_root,
+                    "features": features,
+                    "custom_prompt": custom_prompt,
+                    "tool_ids": tool_ids,
+                    "skill_ids": skill_ids or [],
+                    "scenario": scenario,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._node_prompt_preview_waiters.pop(request_id, None)
 
     async def disconnect(self, *, node_id: str) -> None:
         """Remove one node from the active connection map and broadcast offline if needed."""
@@ -492,6 +636,11 @@ class GatewayHandler:
                     runtime_workspace_root = existing.workspace_root or managed_workspace_root(agent_id)
                 if runtime_display_name == agent_id and agent_id.startswith("agent-"):
                     runtime_display_name = agent_id.replace("agent-", "", 1).replace("-", " ").title()
+                # feat-379-M6 (ISSUE-2): preserve features/custom_prompt from the existing
+                # DB row when re-registering. node.register only carries agent_ids, not
+                # per-agent config, so passing None would overwrite user edits with defaults.
+                runtime_features = existing.features if existing is not None else None
+                runtime_custom_prompt = existing.custom_prompt if existing is not None else None
                 profile_repository.upsert_profile(
                     agent_id=agent_id,
                     owner_id=owner_id,
@@ -503,11 +652,17 @@ class GatewayHandler:
                     group_reply_policy=runtime_group_reply_policy,
                     default_model=runtime_default_model,
                     workspace_root=runtime_workspace_root,
+                    features=runtime_features,
+                    custom_prompt=runtime_custom_prompt,
                 )
                 self._node_repository._connection.execute(
                     "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
                     (node_id, agent_id),
                 )
+            profile_repository.mark_stale_for_node(
+                node_id=node_id,
+                advertised_agent_ids=list(agents),
+            )
             self._node_repository._connection.commit()
             prior_status = prior_node.status if prior_node is not None else None
             if prior_status != node.status:
@@ -607,10 +762,25 @@ class GatewayHandler:
             message_id = _require_text(payload.get("message_id"), field_name="message_id")
             final_content = _optional_text(payload.get("final_content"))
             token_usage = _parse_token_usage(payload.get("token_usage"))
+            raw_ds = _optional_text(payload.get("delivery_status"))
+            # bugfix-380: delivery_status is optional (back-compat: absent → "completed");
+            # if provided it must be a known terminal value. Silent fallback was a
+            # regression trap — any new failure semantic added upstream (e.g. "cancelled"
+            # / "timeout") that wasn't whitelisted here would degrade back to the
+            # bugfix-380 pre-fix bug: empty bubble silently marked "completed".
+            if raw_ds is None:
+                ds = "completed"
+            elif raw_ds in {"completed", "failed"}:
+                ds = raw_ds
+            else:
+                raise ValueError(
+                    f"delivery_status must be 'completed' or 'failed' when provided, got {raw_ds!r}"
+                )
             self._event_bridge.on_message_completed(
                 message_id=message_id,
                 final_content=final_content,
                 token_usage=token_usage,
+                delivery_status=ds,
             )
 
         elif kind == "tool_call_upserted":
@@ -622,6 +792,36 @@ class GatewayHandler:
             message_id = _require_text(payload.get("message_id"), field_name="message_id")
             tc = _parse_tool_call(payload.get("tool_call"))
             self._event_bridge.on_tool_call_completed(message_id=message_id, tool_call=tc)
+
+        elif kind == "permission_request":
+            # PA → IM: agent is awaiting a user decision; EventBridge persists the pending
+            # request and fans out permission.request to connected browser clients.
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            permission_request = payload.get("permission_request")
+            if not isinstance(permission_request, dict):
+                raise ValueError("permission_request must be a dict")
+            self._event_bridge.on_permission_request(
+                message_id=message_id,
+                permission_request=permission_request,
+            )
+
+        elif kind == "permission_resolved":
+            # PA → IM: user's decision has been forwarded to the agent; update persisted
+            # status and notify browser clients so the card can settle.
+            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            request_id = _require_text(payload.get("request_id"), field_name="request_id")
+            decision = _require_text(payload.get("decision"), field_name="decision")
+            self._event_bridge.on_permission_resolved(
+                message_id=message_id,
+                request_id=request_id,
+                decision=decision,
+            )
+
+        elif kind == "permission_response":
+            # IM → PA direction: user's decision is forwarded to the agent kernel.
+            # Routing to the pending PA WS connection is handled elsewhere (REST endpoint
+            # + GatewayHandler.send_to_node); streaming_delta is only PA→IM.
+            pass
 
         return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind}}
 
@@ -698,7 +898,13 @@ class GatewayHandler:
             peer_agent_ids.append(agent_id)
         if not peer_agent_ids:
             return
-        context_text = f"{sender_display_name}: {detail.strip()}"
+
+        # bugfix-358: IM 在此处只做哑路由——给每个 peer agent 各扇出一份 group relay。
+        # 是否触发回复(MENTION gate)的判断完全交给 Gateway:Gateway 看 enqueue_message_relay
+        # 内部从 content 里 <mention type="agent" target_id="X"/> 标签解出的 mentioned_agent_ids,
+        # 自己 in 列表 → 触发;否则 buffer 进 group_context_store 当背景上下文(inbound_pipeline §3.1)。
+        # content 不在 IM 端预加 sender 前缀:Gateway pipeline 会按 _format_sender_text(sender_label, text)
+        # 自己拼 [sender] 前缀;IM 再加一遍会 double-prefix。
         synthetic_message = Message(
             id=task.message_id,
             conversation_id=task.conversation_id,
@@ -710,7 +916,7 @@ class GatewayHandler:
                 display_name=sender_display_name,
                 user_id=sender_user_id,
             ),
-            content=context_text,
+            content=detail.strip(),
             attachments=[],
             delivery_status="completed",
             created_at=task.updated_at,
@@ -726,11 +932,10 @@ class GatewayHandler:
             result = self._relay_service.enqueue_message_relay(
                 message=synthetic_message,
                 target_node_id=target_node_id,
-                idempotency_key=f"peer-context:{task.relay_task_id}:{peer_agent_id}",
+                idempotency_key=f"agent-reply:{task.relay_task_id}:{peer_agent_id}",
                 sender_user_id=sender_user_id,
                 conversation_type="group",
                 extra_metadata={
-                    "background_context_only": True,
                     "source_agent_id": source_agent_id,
                     "sender_display_name": sender_display_name,
                 },
@@ -823,6 +1028,54 @@ class GatewayHandler:
             "type": "ack",
             "payload": {
                 "message_type": "node.capabilities",
+                "request_id": request_id,
+                "node_id": node_id,
+            },
+        }
+
+    async def _handle_prompt_preview(self, *, payload: dict[str, object]) -> dict[str, object]:
+        """Resolve prompt-preview waiter when Gateway returns assembled preview text.
+
+        feat-379-M2 R5: Gateway calls agent HTTP /v1/prompt-preview and sends
+        ``agent.prompt.preview`` back with {request_id, node_id, preview}.
+        """
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        preview = payload.get("preview")
+        if not isinstance(preview, dict):
+            preview = {}
+        async with self._lock:
+            waiter = self._prompt_preview_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(dict(preview))
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "agent.prompt.preview",
+                "request_id": request_id,
+                "node_id": node_id,
+            },
+        }
+
+    async def _handle_node_prompt_preview(self, *, payload: dict[str, object]) -> dict[str, object]:
+        """Resolve node-level prompt-preview waiter when Gateway returns assembled preview.
+
+        feat-379-M9 (決策 11): Gateway sends ``node.prompt.preview`` in response to
+        ``node.prompt.preview.request``.  No per-agent context is required.
+        """
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        preview = payload.get("preview")
+        if not isinstance(preview, dict):
+            preview = {}
+        async with self._lock:
+            waiter = self._node_prompt_preview_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(dict(preview))
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.prompt.preview",
                 "request_id": request_id,
                 "node_id": node_id,
             },
@@ -968,6 +1221,66 @@ class GatewayHandler:
         if not normalized:
             raise ValueError("from_session_id must carry source agent id")
         return (normalized, dispatch_request_id)
+
+    async def _handle_system_message(self, *, payload: dict[str, object]) -> dict[str, object]:
+        """Persist one server-originated system notification into an IM conversation.
+
+        System messages are non-first-person notifications injected by the gateway
+        (e.g. self_evolution_review notifications).  They use ``sender_type='system'``
+        so the IM frontend can render them with a distinct visual style.
+
+        Args:
+            payload: Must include ``conversation_id`` (str) and ``text`` (str).
+
+        Returns:
+            Ack dict with ``message_id`` on success, or error dict on failure.
+        """
+        if self._conversation_repository is None or self._message_repository is None:
+            return {
+                "type": "error",
+                "payload": {
+                    "code": "gateway_not_configured",
+                    "message": "conversation_repository must be configured",
+                },
+            }
+
+        try:
+            conversation_id = _require_text(payload.get("conversation_id"), field_name="conversation_id").strip()
+            text = _require_text(payload.get("text"), field_name="text").strip()
+
+            # Resolve or lazily create the well-known system user.
+            # The system user has username='system'; its owner_id equals its own id.
+            system_user = (
+                self._user_repository.get_user_by_username(username="system")
+                if self._user_repository is not None
+                else None
+            )
+            if system_user is None and self._user_repository is not None:
+                system_user = self._user_repository.create_user(
+                    username="system",
+                    display_name="System",
+                )
+            if system_user is None:
+                return {
+                    "type": "error",
+                    "payload": {"code": "system_user_unavailable", "message": "could not resolve system user"},
+                }
+
+            message = self._message_repository.create_message(
+                conversation_id=conversation_id,
+                sender_user_id=system_user.id,
+                sender_type="system",
+                content=text,
+            )
+            return {
+                "type": "ack",
+                "payload": {"message_type": "node.system_message", "message_id": message.id},
+            }
+        except ValueError as exc:
+            return {
+                "type": "error",
+                "payload": {"code": "invalid_system_message", "message": str(exc)},
+            }
 
     def _ensure_agent_message_dispatch_table(self) -> None:
         if self._conversation_repository is None:

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
@@ -66,6 +67,7 @@ class AgentRuntime:
         system_prompt: str | None = None,
         config_resolver: ConfigResolverLike | None = None,
         default_tool_ids: list[str] | None = None,
+        permission_broker: Any | None = None,
     ) -> None:
         env_llm_config = LLMFactoryConfig.from_env()
         self._llm_config = LLMFactoryConfig(
@@ -87,6 +89,10 @@ class AgentRuntime:
             else ()
         )
         self._session_manager = session_manager
+        # PermissionBroker wired by platform layer (create_app). None in contexts that
+        # don't support the ask flow (unit tests, CI without interactive terminal).
+        # Stored here so _build_hook_context can inject permission_requester per call.
+        self._permission_broker = permission_broker
         # Product default tool ids used when no per-session tool_allowlist is set.
         # None means "all tools in registry" (platform default behavior).
         self._default_tool_ids = default_tool_ids
@@ -111,8 +117,21 @@ class AgentRuntime:
         self._compaction_planner = CompactionPlanner(
             min_kept_messages=self._compaction_settings.min_kept_messages
         )
+        # Use a dedicated fork with summary_model when configured so that
+        # the summarizer calls a separate model instead of the main agent model.
+        summary_model = self._compaction_settings.summary_model
+        if summary_model:
+            _summary_fork = AgentContextFork(
+                llm_client=active_llm_client,
+                model=summary_model,
+                policies=policies,
+                system_prompt=system_prompt,
+                current_working_directory=self._repo_root,
+            )
+        else:
+            _summary_fork = self._context_fork
         self._compaction_summarizer = CompactionSummarizer(
-            fork=self._context_fork,
+            fork=_summary_fork,
         )
         self._compaction_applier = CompactionApplier(session_manager=session_manager)
         self._loop = AgentLoop(
@@ -142,6 +161,7 @@ class AgentRuntime:
         controller: RunController | None = None,
         parent_session_id: str | None = None,
         workspace_root: Path | None = None,
+        origin: Any = None,
     ) -> TurnResult:
         """Execute one turn for an existing session.
 
@@ -155,6 +175,10 @@ class AgentRuntime:
                 locate the session JSONL on the first load of this process
                 lifetime; once the session is cached its config carries the
                 workspace_root for subsequent writes.
+            origin: RunOrigin enum value (or None) passed from RunsRegistry;
+                written into hook_metadata["run_origin"] so auto_mode_gate can
+                detect unattended contexts (heartbeat/cron) without re-importing
+                RunOrigin in core hooks.
 
         Returns:
             Turn result containing assistant output, tool calls/results, and stop reason.
@@ -179,6 +203,7 @@ class AgentRuntime:
                 controller=controller,
                 parent_session_id=parent_session_id,
                 workspace_root=workspace_root,
+                origin=origin,
             )
 
     async def _run_locked(
@@ -191,6 +216,7 @@ class AgentRuntime:
         controller: RunController | None = None,
         parent_session_id: str | None = None,
         workspace_root: Path | None = None,
+        origin: Any = None,
     ) -> TurnResult:
         """Internal run implementation (assumes session lock is held)."""
 
@@ -230,6 +256,11 @@ class AgentRuntime:
         hook_metadata["context_window"] = self._compaction_settings.context_window
         if isinstance(run_id, str) and run_id.strip():
             hook_metadata["run_id"] = run_id.strip()
+        # Thread RunRecord.origin through to hook_metadata so auto_mode_gate can
+        # detect unattended contexts (RunOrigin.HEARTBEAT etc.) without importing
+        # RunOrigin in core hooks. Use .value (string) for decoupling.
+        if origin is not None:
+            hook_metadata["run_origin"] = getattr(origin, "value", str(origin))
         hook_ctx = self._build_hook_context(session_id=session_id, turn_id=turn_id, metadata=hook_metadata)
 
         input_payload, handled = await self._dispatch_intercept(
@@ -320,6 +351,7 @@ class AgentRuntime:
             effective_input_parts = last_part
 
         all_messages: list[Message] = [user_msg]
+        _overflow_retried = False
         try:
             async for msg in self._execute_loop(
                 session_id=session_id,
@@ -362,22 +394,176 @@ class AgentRuntime:
                 else:
                     self._session_manager.writer.enqueue(path, entry)
             await self._session_manager.writer.flush_async()
-        except ModelError:
+        except ModelError as exc:
             await self._session_manager.writer.flush_async()
-            raise
+            # Attempt overflow recovery: compact then retry once.
+            if not _overflow_retried and _is_context_overflow_error(exc) and self._compaction_settings.enabled:
+                _overflow_retried = True
+                compact_result = await self._compact_session(
+                    session_id=session_id, reason=CompactionReason.OVERFLOW
+                )
+                if compact_result is not None:
+                    # Rebuild history from session store after compaction.
+                    reloaded = self._session_manager.list_turn_messages(session_id)
+                    history.clear()
+                    history.extend(reloaded)
+                    # user_msg was written before the overflow; it's in the reloaded history.
+                    # Rebuild loop_history excluding it, then re-run.
+                    retry_history = tuple(m for m in history if m.message_id != user_msg.message_id)
+                    all_messages = [user_msg]
+                    async for msg in self._execute_loop(
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        turn_count=turn_count,
+                        history=retry_history,
+                        input_parts=effective_input_parts,
+                        user_text=effective_user_text,
+                        user_message_id=user_msg.message_id,
+                        hook_ctx=hook_ctx,
+                        system_prompt_override=system_prompt_override,
+                        llm_session_id=llm_session_id,
+                        session_created_at=session_created_at,
+                        current_working_directory_override=session_workspace_root,
+                        available_skills_override=() if use_frozen_system_prompt else session_available_skills,
+                        available_tools_override=session_available_tools,
+                        controller=controller,
+                    ):
+                        if msg.role == "turn_meta":
+                            all_messages.append(msg)
+                            continue
+                        history.append(msg)
+                        all_messages.append(msg)
+                        if msg.metadata.get("is_compact_summary"):
+                            self._session_manager.writer.enqueue(path, {
+                                "type": "compact_boundary",
+                                "session_id": session_id,
+                                "timestamp": _utc_now_iso(),
+                                "summary_uuid": msg.message_id,
+                                "data": {
+                                    "reason": msg.metadata.get("compact_reason", "threshold"),
+                                    "restored_files": msg.metadata.get("restored_files", []),
+                                },
+                            })
+                        entry = _message_to_entry(msg, session_id)
+                        if msg.role == "tool":
+                            self._session_manager.writer.enqueue(path, entry)
+                            await self._session_manager.writer.flush_async()
+                        else:
+                            self._session_manager.writer.enqueue(path, entry)
+                    await self._session_manager.writer.flush_async()
+                else:
+                    raise
+            else:
+                # bugfix-380: synthesize a user-visible error assistant message before re-raising.
+                # This surfaces the upstream error in IM/CLI without changing the existing
+                # run_status=failed telemetry path (registry._mark_failed_async is triggered
+                # by the re-raised ModelError as before).
+                error_msg = _build_provider_error_message(
+                    exc,
+                    parent_message_id=user_msg.message_id,
+                )
+                history.append(error_msg)
+                self._session_manager.writer.enqueue(path, _message_to_entry(error_msg, session_id))
+                await self._session_manager.writer.flush_async()
+                # bugfix-380: run_id must be in message_end payload so realtime_stream hook
+                # can publish assistant_message SSE before run_status=failed arrives.
+                _error_run_id = hook_ctx.metadata.get("run_id") if hook_ctx else None
+                message_end_payload: dict[str, Any] = {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "message_id": error_msg.message_id,
+                    "content": error_msg.content,
+                    "role": "assistant",
+                }
+                if isinstance(_error_run_id, str) and _error_run_id.strip():
+                    message_end_payload["run_id"] = _error_run_id.strip()
+                await self._dispatch_observe(
+                    "message_end",
+                    message_end_payload,
+                    hook_ctx,
+                )
+                # bugfix-380 R3: dispatch turn_end(completed=False) AFTER message_end so
+                # Gateway observer locks the bubble only after seeing the error content.
+                # loop.py's finally skips turn_end on the failure path; runtime owns it here.
+                turn_end_run_id = _error_run_id
+                turn_end_payload: dict[str, Any] = {
+                    "session_id": session_id,
+                    "turn_id": turn_id,
+                    "completed": False,
+                }
+                if isinstance(turn_end_run_id, str) and turn_end_run_id.strip():
+                    turn_end_payload["run_id"] = turn_end_run_id.strip()
+                await self._dispatch_observe("turn_end", turn_end_payload, hook_ctx)
+                raise
 
         turn_result = build_turn_result(session_id, turn_id, all_messages)
 
-        await self._dispatch_observe(
-            "agent_end",
-            {
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "completed": turn_result.completed,
-                "stop_reason": turn_result.stop_reason,
-            },
-            hook_ctx,
-        )
+        # Extract tool_iterations from turn_meta for nudge counter signal flow.
+        # turn_meta is the last message in all_messages when present.
+        tool_iterations = 0
+        if all_messages:
+            last_msg = all_messages[-1]
+            if last_msg.role == "turn_meta":
+                tool_iterations = int(last_msg.metadata.get("tool_iterations", 0))
+
+        agent_end_payload = {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "completed": turn_result.completed,
+            "stop_reason": turn_result.stop_reason,
+            # Expose the tool_iterations milestone for background hook nudge logic.
+            "tool_iterations": tool_iterations,
+            "turn_count": turn_count,
+        }
+
+        await self._dispatch_observe("agent_end", agent_end_payload, hook_ctx)
+
+        # Dispatch background hooks with fork_conversation injected.
+        # Background hooks (e.g. self-improvement) fire after main turn completes.
+        # anti-recursion: fork_conversation is never available inside a fork side-chain
+        # because the side-chain runs via AgentContextFork which has no hook_runner
+        # with background registrations — but we also set fork_conversation=None when
+        # building contexts for fork side-chains as an explicit belt-and-suspenders guard.
+        if self._hook_runner is not None:
+            background_registrations = self._hook_runner.registry.background_handlers_for("agent_end")
+            if background_registrations:
+                from agent.core.agent.context_fork import make_fork_conversation
+
+                # Build fork_conversation using the current session's rendered state.
+                # We resolve the fork tools and system prompt from the session config.
+                fork_system_prompt: str | None = None
+                fork_active_tools: tuple[ToolSpec, ...] = ()
+                if session_id in self._session_configs:
+                    fork_config = self._session_configs[session_id]
+                    fork_active_skills = self._resolve_session_available_skills_from_config(fork_config)
+                    fork_active_tools = self._resolve_session_available_tools_from_config(fork_config)
+                    fork_system_prompt = build_system_prompt(
+                        system_prompt=fork_config.system_prompt or self._loop._system_prompt,
+                        available_skills=fork_active_skills,
+                        available_tools=fork_active_tools,
+                        current_working_directory=fork_config.workspace_root,
+                    )
+
+                messages_snapshot = list(history)
+                fork_fn = make_fork_conversation(
+                    context_fork=self._context_fork,
+                    rendered_system_prompt=fork_system_prompt or "",
+                    active_tools=fork_active_tools,
+                    messages_snapshot=messages_snapshot,
+                    session_id=session_id,
+                    tool_allowlist=(),  # caller (background hook) specifies allowlist
+                    # Inherit the turn's execution context (model_caller /
+                    # permission_requester) so hooks work inside the fork.
+                    parent_hook_ctx=hook_ctx,
+                )
+
+                # replace() derives from the turn's hook_ctx, preserving every field
+                # (model_caller / permission_requester / message_history) and only
+                # attaching fork_conversation. The hand-listed rebuild had been
+                # dropping permission_requester + message_history.
+                background_hook_ctx = replace(hook_ctx, fork_conversation=fork_fn)
+                self._hook_runner.dispatch_background("agent_end", agent_end_payload, background_hook_ctx)
+
         return turn_result
 
     async def compact(
@@ -503,9 +689,19 @@ class AgentRuntime:
         return self._llm_config
 
     def bind_tool_registry(self, tool_registry: ToolRegistryLike | None) -> None:
-        """Bind or unbind runtime tool registry."""
+        """Bind or unbind runtime tool registry.
 
+        Must propagate to _context_fork because in app.py the runtime is constructed
+        before the registry is available (tool_registry=None at __init__ time).
+        Without this, the fork side-chain runs with tool_registry=None and exits with
+        stop_reason='tool_registry_unavailable' after the LLM returns a tool_use call.
+
+        Also updates self._tool_registry so _build_hook_context can inject it into
+        HookContext metadata for auto_mode_gate (bugfix-355 Anchor C / Issue #1).
+        """
+        self._tool_registry = tool_registry
         self._loop.bind_tool_registry(tool_registry)
+        self._context_fork.bind_tool_registry(tool_registry)
 
     @property
     def hook_runner(self) -> HookRunner | None:
@@ -668,13 +864,18 @@ class AgentRuntime:
                 old_parent = msg.parent_message_id
                 new_parent = old_to_new_uuid.get(old_parent) if old_parent else None
 
-                new_msg = Message(
+                # replace() re-stamps only the fork-specific fields (new ids /
+                # parent chain / metadata) and preserves every other field —
+                # notably reasoning_content / reasoning_signature. A hand-listed
+                # Message(...) rebuild had been dropping the reasoning fields, so a
+                # forked thinking-enabled session lost its <thinking> blocks and the
+                # next turn was rejected upstream with "reasoning_content is missing"
+                # (same brittle pattern fixed in _strip_fork_conversation).
+                new_msg = replace(
+                    msg,
                     message_id=new_uuid,
-                    role=msg.role,
-                    content=msg.content,
                     parent_message_id=new_parent,
                     group_id=old_to_new_uuid.get(msg.group_id) if msg.group_id else None,
-                    tool_call_id=msg.tool_call_id,
                     metadata=dict(msg.metadata),
                 )
                 new_history.append(new_msg)
@@ -816,13 +1017,73 @@ class AgentRuntime:
                 registry=self._hook_runner.registry,
                 session_id=session_id,
             )
+
+        # Build permission_requester closure when broker is available.
+        # The closure captures the broker and session_event_publisher so
+        # auto_mode_gate can park (register future + emit SSE) without knowing
+        # whether the product is CLI or PA — the publisher routes to the right channel.
+        permission_requester = None
+        broker = self._permission_broker
+        resolved_metadata = dict(metadata or {})
+        if broker is not None:
+            run_id_for_broker = resolved_metadata.get("run_id")
+            publisher_for_broker = session_event_publisher
+
+            async def _permission_requester(req: Any) -> Any:
+                # Register the future before emitting the SSE event so the
+                # inbound endpoint can immediately resolve it if it arrives fast.
+                future = broker.register_request(req.id, run_id=run_id_for_broker)
+                if publisher_for_broker is not None:
+                    # Emit 'permission_request' SSE event — PA inbound_pipeline
+                    # already listens for this event name (see personal_assistant/main.py).
+                    publisher_for_broker("permission_request", {
+                        "run_id": run_id_for_broker,
+                        "request_id": req.id,
+                        "tool_name": req.tool_name,
+                        "tool_input": dict(req.tool_input) if hasattr(req, "tool_input") else {},
+                        "question": req.question if hasattr(req, "question") else "",
+                        "options": [
+                            {"id": o.id, "label": o.label, "description": o.description}
+                            for o in (req.options if hasattr(req, "options") else ())
+                        ],
+                    })
+                try:
+                    response = await future
+                finally:
+                    # Emit 'permission_resolved' SSE event so IM card updates to resolved state.
+                    if publisher_for_broker is not None and future.done() and not future.cancelled():
+                        try:
+                            result = future.result()
+                            publisher_for_broker("permission_resolved", {
+                                "run_id": run_id_for_broker,
+                                "request_id": req.id,
+                                "decision": getattr(result, "decision", "deny"),
+                            })
+                        except Exception:
+                            pass
+                return response
+
+            permission_requester = _permission_requester
+            # Also inject broker into metadata so auto_mode_gate can access deny-count
+            # and session-allowlist state (the hook reads metadata['permission_broker']).
+            resolved_metadata["permission_broker"] = broker
+
+        # Inject tool_registry into metadata so auto_mode_gate.on_tool_call can call
+        # tool.check_permissions (bugfix-355 Anchor C / Issue #1).
+        # Without this injection metadata.get("tool_registry") is always None, making
+        # the bypass-immune safety_check chain (W1) and WebFetch preapproved logic (S1)
+        # silently inactive even though tool.check_permissions is correctly implemented.
+        if self._tool_registry is not None:
+            resolved_metadata["tool_registry"] = self._tool_registry
+
         return HookContext(
             session_id=session_id,
             turn_id=turn_id,
             repo_root=self._repo_root,
-            metadata=dict(metadata or {}),
+            metadata=resolved_metadata,
             model_caller=self._call_hook_model,
             session_event_publisher=session_event_publisher,
+            permission_requester=permission_requester,
         )
 
     async def _call_hook_model(self, call: HookModelCall) -> HookModelResult:
@@ -843,7 +1104,11 @@ class AgentRuntime:
                     LLMMessage(role="system", content=call.system_prompt),
                     LLMMessage(role="user", content=call.user_prompt),
                 ),
+                temperature=call.temperature,
+                max_tokens=call.max_tokens,
+                stop_sequences=call.stop_sequences,
                 metadata=dict(call.metadata),
+                extra_body=dict(call.extra_body) if call.extra_body is not None else None,
             )
         )
 
@@ -990,8 +1255,9 @@ class AgentRuntime:
                 metadata={"is_compact_summary": True, "is_meta": True},
             )
             self._session_histories[session_id] = [summary_msg]
-            self._session_manager.writer.enqueue(path, _message_to_entry(summary_msg, session_id))
-
+            # compact_boundary must be written before summary turn so that
+            # JsonlSessionStore.load() (which keeps only turns after the latest
+            # compact_boundary) includes the summary turn in the replayed history.
             self._session_manager.writer.enqueue(path, {
                 "type": "compact_boundary",
                 "session_id": session_id,
@@ -999,6 +1265,7 @@ class AgentRuntime:
                 "summary_uuid": summary_msg.message_id,
                 "data": {"reason": reason.value, "restored_files": list(restored_files)},
             })
+            self._session_manager.writer.enqueue(path, _message_to_entry(summary_msg, session_id))
             await self._session_manager.writer.flush_async()
 
         # Use applier for backward-compatible result object.
@@ -1197,6 +1464,8 @@ def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
         entry["is_meta"] = True
     if meta.get("is_compact_summary"):
         entry["is_compact_summary"] = True
+    if meta.get("is_provider_error"):
+        entry["is_provider_error"] = True
     if meta.get("entrypoint"):
         entry["entrypoint"] = meta["entrypoint"]
     if meta.get("tool_calls"):
@@ -1207,11 +1476,42 @@ def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
         entry["tool_error"] = meta["tool_error"]
     if meta.get("tool_output") is not None:
         entry["tool_output"] = meta["tool_output"]
+    if msg.reasoning_content is not None:
+        entry["reasoning_content"] = msg.reasoning_content
+    if msg.reasoning_signature is not None:
+        entry["reasoning_signature"] = msg.reasoning_signature
     return entry
 
 
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
+
+
+# bugfix-380: maximum length for provider error text embedded in the assistant message content.
+_PROVIDER_ERROR_MAX_CHARS = 1024
+
+
+def _build_provider_error_message(
+    exc: ModelError,
+    *,
+    parent_message_id: str | None = None,
+) -> Message:
+    """Build a synthetic assistant Message that surfaces a provider error to the user.
+
+    The message is persisted with is_provider_error=True so build_chat_messages can
+    filter it out of the next LLM history (CC isSyntheticApiErrorMessage pattern).
+    """
+    raw_text = str(exc)
+    if len(raw_text) > _PROVIDER_ERROR_MAX_CHARS:
+        raw_text = raw_text[:_PROVIDER_ERROR_MAX_CHARS] + "…(truncated)"
+    content = f"⚠️ 模型调用失败:{raw_text}"
+    return Message(
+        message_id=make_message_id(),
+        parent_message_id=parent_message_id,
+        role="assistant",
+        content=content,
+        metadata={"is_provider_error": True},
+    )
 
 
 # _message_from_turn_entry and _read_file_slice migrated to break loop->runtime cycle.

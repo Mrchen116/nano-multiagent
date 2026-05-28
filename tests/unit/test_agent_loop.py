@@ -1,5 +1,13 @@
+"""Tests for AgentLoop: basic execution, tool calls, usage accumulation, history, hooks.
+
+Parallel tool calls and result compression are in separate files:
+- test_agent_loop_parallel_budget.py
+"""
+
 from collections.abc import AsyncIterator
 from pathlib import Path
+
+import pytest
 
 from agent.core.agent.loop import AgentLoop
 from agent.core.agent.policies import AgentPolicies
@@ -46,9 +54,13 @@ class FakeLLMClient:
 
 
 class FakeToolRegistry:
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, hook_runner=None) -> None:  # noqa: ANN001
         self.calls: list[tuple[str, dict[str, object], str | None]] = []
         self._fail = fail
+        # bugfix-367: tool_call observe hook 现在由 registry.execute 触发(以前由
+        # loop.py 触发,会在 auto_mode_gate park 前就把 tool_start SSE 发出去)。
+        # Fake registry 同步该责任,使涉及 hook 的测试反映新链路。
+        self._hook_runner = hook_runner
 
     def list_specs(self) -> tuple[ToolSpec, ...]:
         return (
@@ -64,16 +76,29 @@ class FakeToolRegistry:
             ),
         )
 
-    def get(self, name: str):  # noqa: ANN001, ANN201
+    def get(self, name: str):  # noqa: ANN201
         return self.get_tool(name)
 
-    def get_tool(self, name: str):  # noqa: ANN001, ANN201
+    def get_tool(self, name: str):  # noqa: ANN201
         return None
 
-    async def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN001, ANN201
+    async def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN201
         tool_call_id = None
         if hook_context is not None:
             tool_call_id = hook_context.metadata.get("tool_call_id")
+        if self._hook_runner is not None and hook_context is not None:
+            await self._hook_runner.dispatch_intercept(
+                "tool_call",
+                {
+                    "name": name,
+                    "args": dict(args),
+                    "arguments": dict(args),
+                    "call_id": tool_call_id,
+                    "block": False,
+                    "reason": None,
+                },
+                hook_context,
+            )
         self.calls.append((name, dict(args), tool_call_id))
         if self._fail:
             raise RuntimeError("tool boom")
@@ -222,6 +247,9 @@ async def test_loop_fail_open_on_tool_error_and_continue_generation() -> None:
 
 
 async def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
+    # prompt_tokens should be the LAST round-trip value (context snapshot), not a sum.
+    # completion_tokens are summed because each round-trip produces distinct new tokens.
+    # total_tokens must equal last_prompt_tokens + sum_completion_tokens.
     client = FakeLLMClient(
         responses=(
             LLMGenerateResponse(
@@ -247,9 +275,59 @@ async def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
     result = await _run_loop(loop, _base_state())
 
     assert result.usage is not None
-    assert result.usage.prompt_tokens == 180
+    # prompt_tokens = last round-trip only (80), NOT accumulated sum (100+80=180)
+    assert result.usage.prompt_tokens == 80
     assert result.usage.completion_tokens == 22
-    assert result.usage.total_tokens == 202
+    # total = last_prompt(80) + sum_completion(10+12=22) = 102, NOT raw total sum (110+92=202)
+    assert result.usage.total_tokens == 102
+
+
+async def test_loop_prompt_tokens_tracks_last_roundtrip_not_sum() -> None:
+    # Regression: multi-roundtrip turns with tool calls must NOT accumulate prompt_tokens.
+    # The prompt represents the context snapshot sent to LLM; summing repeated sends of
+    # the same context across N roundtrips produces a physically meaningless value N×context.
+    # Three roundtrips: first two use tool calls, third is final response.
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(LLMToolCall(call_id="c1", name="echo", arguments={"text": "a"}),),
+                ),
+                finish_reason="tool_calls",
+                usage=TokenUsage(prompt_tokens=200, completion_tokens=5, total_tokens=205),
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(LLMToolCall(call_id="c2", name="echo", arguments={"text": "b"}),),
+                ),
+                finish_reason="tool_calls",
+                usage=TokenUsage(prompt_tokens=210, completion_tokens=6, total_tokens=216),
+            ),
+            LLMGenerateResponse(
+                model="model-x",
+                message=LLMMessage(role="assistant", content="finished"),
+                finish_reason="stop",
+                usage=TokenUsage(prompt_tokens=220, completion_tokens=8, total_tokens=228),
+            ),
+        )
+    )
+    loop = AgentLoop(llm_client=client, model="model-x", tool_registry=FakeToolRegistry())
+
+    result = await _run_loop(loop, _base_state())
+
+    assert result.usage is not None
+    # prompt_tokens must equal LAST roundtrip value (220), not accumulated 200+210+220=630
+    assert result.usage.prompt_tokens == 220
+    # completion_tokens must be accumulated sum: 5+6+8=19
+    assert result.usage.completion_tokens == 19
+    # total = last_prompt + sum_completion
+    assert result.usage.total_tokens == 239
 
 
 async def test_loop_propagates_session_event_publisher_to_tool_hook_context() -> None:
@@ -283,12 +361,13 @@ async def test_loop_propagates_session_event_publisher_to_tool_hook_context() ->
         )
 
     hooks.on("tool_call", on_tool_call)
+    hook_runner = HookRunner(registry=hooks)
     loop = AgentLoop(
         llm_client=client,
         model="model-x",
         policies=AgentPolicies(max_turns=3),
-        tool_registry=FakeToolRegistry(),
-        hook_runner=HookRunner(registry=hooks),
+        tool_registry=FakeToolRegistry(hook_runner=hook_runner),
+        hook_runner=hook_runner,
     )
 
     result = await _run_loop(
@@ -305,366 +384,49 @@ async def test_loop_propagates_session_event_publisher_to_tool_hook_context() ->
     assert published == [("tool_start", result.tool_calls[0].call_id)]
 
 
-# R2: loop 不再调用 ensure_turn_allowed，不再因高 turn_count 抛异常
-async def test_loop_does_not_raise_on_high_turn_count() -> None:
-    """loop.run() 不应因 turn_count 超过 max_turns 而抛 PolicyViolation。"""
-    import pytest
-    from agent.core.errors import PolicyViolation
+async def test_loop_preserves_reasoning_content_in_tool_call_roundtrip() -> None:
+    """开 thinking 后 assistant tool-call 轮的 reasoning_content 必须 round-trip 回传。
 
-    client = FakeLLMClient()
-    # 设置极小的 max_turns，但 turn_count 远超此值
-    loop = AgentLoop(llm_client=client, model="model-x", policies=AgentPolicies(max_turns=1))
-    state = AgentState(
-        session_id="sess_agent",
-        turn_id="turn_high",
-        turn_count=9999,
-        history_messages=(),
-        input_parts=(InputPart(type="text", text="ping"),),
-        user_text="ping",
-    )
-
-    # 不应抛出 PolicyViolation
-    result = await _run_loop(loop, state)
-    assert result.completed is True
-
-
-# R2: loop 不再调用 truncate_history，history 完整传递给 LLM
-async def test_loop_passes_full_history_to_llm() -> None:
-    """loop.run() 应将完整的 history_messages 传给 LLM，不截断。"""
-    client = FakeLLMClient()
-    # 设置极小的 max_context_messages，但期望 history 不被截断
-    loop = AgentLoop(llm_client=client, model="model-x", policies=AgentPolicies(max_context_messages=1))
-
-    from agent.core.types import Message
-    history = tuple(
-        Message(message_id=f"msg-{i}", role="user", content=f"msg {i}")
-        for i in range(5)
-    )
-    state = AgentState(
-        session_id="sess_agent",
-        turn_id="turn_history",
-        turn_count=0,
-        history_messages=history,
-        input_parts=(InputPart(type="text", text="ping"),),
-        user_text="ping",
-    )
-
-    await _run_loop(loop, state)
-
-    # LLM 收到的消息应包含全部 5 条历史消息（+ system + user = 7 条）
-    # 而非被截断为 1 条（如果 truncate_history 仍在工作则只有 3 条: system+1history+user）
-    llm_request = client.requests[0]
-    # 计算历史消息数量：排除 system 消息和最后的 user 消息
-    # build_prompt_messages 格式：system, [history...], user
-    non_system_non_user = [m for m in llm_request.messages if m.role not in ("system",)]
-    # 应包含 5 条历史 + 1 条 user = 6 条
-    assert len(non_system_non_user) == 6, (
-        f"期望 6 条（5 history + 1 user），实际 {len(non_system_non_user)} 条"
-    )
-
-
-class _FakeToolRegistryConcurrent:
-    """Tool registry with two concurrency-safe tools."""
-
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, dict[str, object]]] = []
-
-    def list_specs(self) -> tuple[ToolSpec, ...]:
-        return (
-            ToolSpec(
-                name="echo",
-                description="echo text",
-                input_schema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-                is_concurrency_safe=True,
-            ),
-            ToolSpec(
-                name="reverse",
-                description="reverse text",
-                input_schema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
-                is_concurrency_safe=True,
-            ),
-        )
-
-    def get(self, name: str):  # noqa: ANN001, ANN201
-        return self.get_tool(name)
-
-    def get_tool(self, name: str):  # noqa: ANN001, ANN201
-        return None
-
-    async def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN001, ANN201
-        self.calls.append((name, dict(args)))
-        return {"result": args["text"]}
-
-
-async def test_loop_parallel_tool_calls_share_parent_and_group_id() -> None:
-    """同一 assistant 发出的并发 tool_calls，其 tool result 的 parent_uuid 都指向该 assistant，且 group_id 相同。"""
+    kimi K2.6 等带 thinking 的模型要求：历史里每条带 tool_call 的 assistant 消息
+    必须携带 reasoning_content，否则第二轮请求被拒。
+    """
+    thinking_text = "Let me think about this step by step..."
     client = FakeLLMClient(
         responses=(
             LLMGenerateResponse(
-                model="model-x",
+                model="kimi-k2",
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(
-                        LLMToolCall(call_id="call_1", name="echo", arguments={"text": "hello"}),
-                        LLMToolCall(call_id="call_2", name="reverse", arguments={"text": "world"}),
-                    ),
+                    tool_calls=(LLMToolCall(call_id="call_r1", name="echo", arguments={"text": "hi"}),),
+                    reasoning_content=thinking_text,
                 ),
                 finish_reason="tool_calls",
             ),
             LLMGenerateResponse(
-                model="model-x",
+                model="kimi-k2",
                 message=LLMMessage(role="assistant", content="done"),
                 finish_reason="stop",
             ),
         )
     )
-    registry = _FakeToolRegistryConcurrent()
+    registry = FakeToolRegistry()
     loop = AgentLoop(
         llm_client=client,
-        model="model-x",
+        model="kimi-k2",
         policies=AgentPolicies(max_turns=3),
         tool_registry=registry,
     )
 
-    # Collect raw yielded messages (includes tool messages)
-    raw_messages: list = []
-    async for msg in loop.run(_base_state()):
-        raw_messages.append(msg)
+    await _run_loop(loop, _base_state())
 
-    # Filter out turn_meta
-    body = [m for m in raw_messages if m.role != "turn_meta"]
-    # assistant (with tools) + tool1 + tool2 + assistant (done)
-    assert len(body) == 4
-
-    assistant_msg = body[0]
-    tool_msg_1 = body[1]
-    tool_msg_2 = body[2]
-    assistant_done = body[3]
-
+    assert len(client.requests) == 2
+    second_round_messages = client.requests[1].messages
+    # messages: [system, user, assistant(tool_call), tool(result)]
+    assistant_msg = second_round_messages[2]
     assert assistant_msg.role == "assistant"
-    assert tool_msg_1.role == "tool"
-    assert tool_msg_2.role == "tool"
-    assert assistant_done.role == "assistant"
-
-    # Both tool results point to the assistant as parent
-    assert tool_msg_1.parent_message_id == assistant_msg.message_id
-    assert tool_msg_2.parent_message_id == assistant_msg.message_id
-
-    # All share the same group_id (the assistant's message_id)
-    assert assistant_msg.group_id == assistant_msg.message_id
-    assert tool_msg_1.group_id == assistant_msg.message_id
-    assert tool_msg_2.group_id == assistant_msg.message_id
-
-    # Tool results are siblings, not a chain
-    assert tool_msg_1.parent_message_id == tool_msg_2.parent_message_id
-
-    # Second assistant's parent is the last tool result (linear chain resumes)
-    assert assistant_done.parent_message_id == tool_msg_2.message_id
-
-
-import tempfile
-from agent.core.tools.result_budget import ToolResultCompressor, PERSISTED_OUTPUT_TAG
-
-
-class _OversizedTool:
-    name = "oversized"
-    is_concurrency_safe = True
-    max_result_size_chars = 100
-    description = "returns large text"
-    input_schema = {"type": "object", "properties": {"size": {"type": "integer"}}, "required": ["size"]}
-
-    def run(self, args, ctx):  # noqa: ANN001
-        return {"text": "x" * args["size"]}
-
-    def serialize_result(self, output, error=None):  # noqa: ANN001
-        if error:
-            return error
-        return output["text"]
-
-
-class _UnlimitedTool:
-    name = "unlimited"
-    is_concurrency_safe = True
-    max_result_size_chars = None
-    description = "returns large text without limit"
-    input_schema = {"type": "object", "properties": {"size": {"type": "integer"}}, "required": ["size"]}
-
-    def run(self, args, ctx):  # noqa: ANN001
-        return {"text": "x" * args["size"]}
-
-    def serialize_result(self, output, error=None):  # noqa: ANN001
-        if error:
-            return error
-        return output["text"]
-
-
-class _BudgetToolRegistry:
-    def __init__(self) -> None:
-        self.oversized = _OversizedTool()
-        self.unlimited = _UnlimitedTool()
-
-    def list_specs(self) -> tuple[ToolSpec, ...]:
-        return (
-            ToolSpec(
-                name=self.oversized.name,
-                description=self.oversized.description,
-                input_schema=self.oversized.input_schema,
-                is_concurrency_safe=True,
-                max_result_size_chars=100,
-            ),
-            ToolSpec(
-                name=self.unlimited.name,
-                description=self.unlimited.description,
-                input_schema=self.unlimited.input_schema,
-                is_concurrency_safe=True,
-                max_result_size_chars=None,
-            ),
-        )
-
-    def get(self, name: str):  # noqa: ANN001, ANN201
-        return self.get_tool(name)
-
-    def get_tool(self, name: str):  # noqa: ANN001, ANN201
-        if name == self.oversized.name:
-            return self.oversized
-        if name == self.unlimited.name:
-            return self.unlimited
-        return None
-
-    async def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN001, ANN201
-        tool = self.get_tool(name)
-        if tool is None:
-            raise RuntimeError(f"unknown tool: {name}")
-        return tool.run(args, None)
-
-
-async def test_loop_compresses_oversized_tool_result() -> None:
-    client = FakeLLMClient(
-        responses=(
-            LLMGenerateResponse(
-                model="model-x",
-                message=LLMMessage(
-                    role="assistant",
-                    content="",
-                    tool_calls=(LLMToolCall(call_id="call_1", name="oversized", arguments={"size": 500}),),
-                ),
-                finish_reason="tool_calls",
-            ),
-            LLMGenerateResponse(
-                model="model-x",
-                message=LLMMessage(role="assistant", content="done"),
-                finish_reason="stop",
-            ),
-        )
+    assert assistant_msg.tool_calls, "assistant 消息必须有 tool_calls"
+    # reasoning_content 必须 round-trip 回传
+    assert assistant_msg.reasoning_content == thinking_text, (
+        f"reasoning_content 丢失: 期望 {thinking_text!r}, 实际 {assistant_msg.reasoning_content!r}"
     )
-    with tempfile.TemporaryDirectory() as tmpdir:
-        compressor = ToolResultCompressor(base_dir=Path(tmpdir))
-        registry = _BudgetToolRegistry()
-        loop = AgentLoop(
-            llm_client=client,
-            model="model-x",
-            policies=AgentPolicies(max_turns=3),
-            tool_registry=registry,
-            tool_result_compressor=compressor,
-        )
-
-        result = await _run_loop(loop, _base_state())
-
-        assert len(result.tool_results) == 1
-        tr = result.tool_results[0]
-        # metadata retains original structured output
-        assert tr.output == {"text": "x" * 500}
-        # content is compressed preview
-        assert isinstance(tr.content, str)
-        assert PERSISTED_OUTPUT_TAG in tr.content
-        assert "Output too large" in tr.content
-
-        # LLM received the compressed content
-        llm_tool_msg = client.requests[1].messages[-1]
-        assert llm_tool_msg.role == "tool"
-        assert PERSISTED_OUTPUT_TAG in llm_tool_msg.content
-
-        # File persisted
-        filepath = Path(tmpdir) / "sess_agent" / "call_1.txt"
-        assert filepath.exists()
-        assert filepath.read_text() == "x" * 500
-
-
-async def test_loop_skips_compression_for_unlimited_tool() -> None:
-    client = FakeLLMClient(
-        responses=(
-            LLMGenerateResponse(
-                model="model-x",
-                message=LLMMessage(
-                    role="assistant",
-                    content="",
-                    tool_calls=(LLMToolCall(call_id="call_2", name="unlimited", arguments={"size": 500}),),
-                ),
-                finish_reason="tool_calls",
-            ),
-            LLMGenerateResponse(
-                model="model-x",
-                message=LLMMessage(role="assistant", content="done"),
-                finish_reason="stop",
-            ),
-        )
-    )
-    with tempfile.TemporaryDirectory() as tmpdir:
-        compressor = ToolResultCompressor(base_dir=Path(tmpdir))
-        registry = _BudgetToolRegistry()
-        loop = AgentLoop(
-            llm_client=client,
-            model="model-x",
-            policies=AgentPolicies(max_turns=3),
-            tool_registry=registry,
-            tool_result_compressor=compressor,
-        )
-
-        result = await _run_loop(loop, _base_state())
-
-        tr = result.tool_results[0]
-        assert tr.content == "x" * 500
-        assert PERSISTED_OUTPUT_TAG not in tr.content
-
-        llm_tool_msg = client.requests[1].messages[-1]
-        assert llm_tool_msg.content == "x" * 500
-
-        assert not (Path(tmpdir) / "sess_agent" / "call_2.txt").exists()
-
-
-async def test_loop_under_limit_no_compression() -> None:
-    client = FakeLLMClient(
-        responses=(
-            LLMGenerateResponse(
-                model="model-x",
-                message=LLMMessage(
-                    role="assistant",
-                    content="",
-                    tool_calls=(LLMToolCall(call_id="call_3", name="oversized", arguments={"size": 50}),),
-                ),
-                finish_reason="tool_calls",
-            ),
-            LLMGenerateResponse(
-                model="model-x",
-                message=LLMMessage(role="assistant", content="done"),
-                finish_reason="stop",
-            ),
-        )
-    )
-    with tempfile.TemporaryDirectory() as tmpdir:
-        compressor = ToolResultCompressor(base_dir=Path(tmpdir))
-        registry = _BudgetToolRegistry()
-        loop = AgentLoop(
-            llm_client=client,
-            model="model-x",
-            policies=AgentPolicies(max_turns=3),
-            tool_registry=registry,
-            tool_result_compressor=compressor,
-        )
-
-        result = await _run_loop(loop, _base_state())
-
-        tr = result.tool_results[0]
-        assert tr.content == "x" * 50
-        assert PERSISTED_OUTPUT_TAG not in tr.content

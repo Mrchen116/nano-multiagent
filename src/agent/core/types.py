@@ -28,6 +28,11 @@ class Message:
     parent_message_id: str | None = None
     group_id: str | None = None
     metadata: Mapping[str, Any] = field(default_factory=dict)
+    # Preserved for round-trip with thinking-enabled providers (e.g. kimi K2.6).
+    # Must be written to JSONL and restored by build_chat_messages so cross-restart
+    # sessions don't receive "reasoning_content is missing" rejections.
+    reasoning_content: str | None = None
+    reasoning_signature: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

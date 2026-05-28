@@ -11,10 +11,11 @@ class _BlockingRuntime:
     def __init__(self) -> None:
         self.release = asyncio.Event()
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
         del session_id
         del parts
         del stream
+        del origin
         try:
             await asyncio.wait_for(self.release.wait(), timeout=1.0)
         except TimeoutError:
@@ -55,11 +56,11 @@ def test_run_cancel_contract_for_running_and_terminal_states() -> None:
     session_id = created.json()["session_id"]
 
     submitted = client.post(
-        f"/v1/sessions/{session_id}/messages:async",
+        f"/v1/sessions/{session_id}/messages",
         json={"parts": [{"type": "text", "text": "ping"}]},
         headers=_auth_headers("req-cancel-submit"),
     )
-    assert submitted.status_code == 202
+    assert submitted.status_code == 200
     run_id = submitted.json()["run_id"]
 
     _wait_for_running(client, run_id)

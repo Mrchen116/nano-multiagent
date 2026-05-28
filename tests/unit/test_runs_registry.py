@@ -15,9 +15,11 @@ class _RuntimeStub:
         self._fail = fail
         self._timeout = timeout
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None, origin=None):  # noqa: ANN001, ANN201
         del parts
         del stream
+        del origin
+        del workspace_root
         if self._timeout:
             raise TimeoutError("runtime timed out")
         if self._fail:
@@ -32,9 +34,11 @@ class _RuntimeStub:
 
 
 class _RuntimeWithUsageStub:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None, origin=None):  # noqa: ANN001, ANN201
         del parts
         del stream
+        del origin
+        del workspace_root
         return TurnResult(
             session_id=session_id,
             turn_id="turn_async_usage",
@@ -48,8 +52,8 @@ class _RuntimeWithUsageStub:
 class _RetryableModelErrorRuntime:
     """Runtime that raises a retryable ModelError, simulating loop-exhausted errors reaching registry."""
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None):  # noqa: ANN001, ANN201
-        del session_id, parts, stream, run_id
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None, origin=None):  # noqa: ANN001, ANN201
+        del session_id, parts, stream, run_id, origin, workspace_root
         # After M251 retry lives in loop; retryable errors that reach registry are terminal.
         raise ModelError("transient upstream blip", retryable=True)
 

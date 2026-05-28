@@ -171,11 +171,22 @@ class KernelApiClient:
         image_urls: list[dict[str, Any]] | None = None,
         priority: str = "next",
         workspace_root: str | None = None,
+        origin: str | None = None,
     ) -> dict[str, Any]:
         """POST /messages. Returns {run_id, anchor_sequence, injected, status}.
 
-        ``workspace_root`` is forwarded so the stateless kernel can locate the
-        session JSONL on first load; the gateway always knows it.
+        Args:
+            session_id: Target kernel session.
+            texts: One or more user message texts.
+            image_urls: Optional image attachments.
+            priority: Run scheduling priority ("next" or "now").
+            workspace_root: Forwarded so the stateless kernel can locate the
+                session JSONL on first load; the gateway always knows it.
+            origin: Optional run origin tag ("heartbeat", "user", …). When
+                provided it is forwarded to the kernel so ``auto_mode_gate``
+                can detect unattended context and skip blocking permission
+                requests — specifically ``RunOrigin.HEARTBEAT`` runs must not
+                park waiting for a user who is not present.
         """
         if not texts:
             raise ValueError("texts must contain at least one message")
@@ -195,6 +206,8 @@ class KernelApiClient:
             payload["workspace_root"] = _require_non_empty_string(
                 workspace_root, field_name="workspace_root"
             )
+        if origin is not None:
+            payload["origin"] = origin
         session = _require_non_empty_string(session_id, field_name="session_id")
         return self._request(
             "POST",
@@ -223,6 +236,7 @@ class KernelApiClient:
         async with httpx.AsyncClient(
             base_url=self._config.base_url,
             transport=self._async_transport,
+            trust_env=_should_trust_env(self._config.base_url),
         ) as client:
             async with client.stream(
                 "GET",
@@ -266,6 +280,60 @@ class KernelApiClient:
             )
         return self._request(
             "POST", f"/v1/sessions/{session}/interrupt", json=payload, require_auth=True
+        )
+
+    def submit_permission_decision(
+        self,
+        *,
+        session_id: str,
+        request_id: str,
+        decision: str,
+    ) -> dict[str, Any]:
+        """Resolve a parked auto_mode_gate permission request.
+
+        Unblocks the awaiting hook coroutine by posting the user's decision
+        to the kernel; required to complete the IM → PA → kernel decision
+        round-trip so the tool call can resume after Allow / Deny.
+        """
+        session = _require_non_empty_string(session_id, field_name="session_id")
+        request = _require_non_empty_string(request_id, field_name="request_id")
+        decision_clean = _require_non_empty_string(decision, field_name="decision")
+        return self._request(
+            "POST",
+            f"/v1/sessions/{session}/permissions/{request}",
+            json={"decision": decision_clean},
+            require_auth=True,
+        )
+
+    def prompt_preview(
+        self,
+        *,
+        features: dict[str, bool],
+        custom_prompt: str | None,
+        tool_ids: list[str],
+        scenario: str,
+        workspace_root: str | None = None,
+        skill_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Call agent HTTP /v1/prompt-preview and return the assembled prompt.
+
+        feat-379-M2 R5: used by Gateway to assemble a stable-prefix prompt
+        preview on behalf of IM frontend (via WS agent.prompt.preview.request).
+        feat-383-M1: workspace_root and skill_ids are forwarded so the kernel
+        can resolve real tool descriptions and skill content.
+        """
+        return self._request(
+            "POST",
+            "/v1/prompt-preview",
+            json={
+                "features": features,
+                "custom_prompt": custom_prompt,
+                "tool_ids": tool_ids,
+                "scenario": scenario,
+                "workspace_root": workspace_root,
+                "skill_ids": skill_ids or [],
+            },
+            require_auth=True,
         )
 
     def _request(

@@ -13,8 +13,8 @@ class _BlockingRuntime:
     def __init__(self) -> None:
         self.release = asyncio.Event()
 
-    async def run(self, session_id, parts, *, stream=True, run_id=None, controller=None):  # noqa: ANN001, ANN201
-        del session_id, parts, stream, run_id, controller
+    async def run(self, session_id, parts, *, stream=True, run_id=None, controller=None, origin=None):  # noqa: ANN001, ANN201
+        del session_id, parts, stream, run_id, controller, origin
         try:
             await asyncio.wait_for(self.release.wait(), timeout=1.0)
         except TimeoutError:
@@ -59,11 +59,11 @@ def test_interrupt_active_run_returns_interrupted_true_and_run_id(tmp_path: Path
     session_id = created.json()["session_id"]
 
     submitted = client.post(
-        f"/v1/sessions/{session_id}/messages:async",
+        f"/v1/sessions/{session_id}/messages",
         json={"parts": [{"type": "text", "text": "ping"}]},
         headers=_auth_headers("req-interrupt-submit"),
     )
-    assert submitted.status_code == 202
+    assert submitted.status_code == 200
     run_id = submitted.json()["run_id"]
 
     _wait_for_running(client, run_id)

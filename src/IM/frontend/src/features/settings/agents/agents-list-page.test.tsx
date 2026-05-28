@@ -36,7 +36,7 @@ const SAMPLE_AGENTS = [
     display_name: "Core Planner",
     description: "Milestone execution coordinator",
     profile_version: 12,
-    default_model: "codex_oauth:gpt-5.4",
+    default_model: "codex_oauth:gpt-5.5",
     workspace_root: "/Users/demo/nano-assistant/workspace/agent-core-1",
     workspace_is_default: true,
     node_id: "node-app-01",

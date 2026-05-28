@@ -13,7 +13,8 @@ function userMessage(id: string, content: string): Message {
     content,
     attachments: [],
     delivery_status: "completed",
-    created_at: "2026-01-01T00:00:00Z"
+    created_at: "2026-01-01T00:00:00Z",
+    permission_requests: []
   };
 }
 
@@ -134,5 +135,180 @@ describe("chat-stream-reducer", () => {
     };
     const next = applyWsEvent(state, ev);
     expect(next.messages).toHaveLength(0);
+  });
+
+  // bugfix-367: permission_requests 改为 list, 多次 ask 累积保留
+  it("bugfix-367: permission.request appends a new entry with pending status", () => {
+    const seed: Message = {
+      ...userMessage("m2", ""),
+      sender: { type: "agent", id: "agent-a" },
+      sender_type: "agent",
+      delivery_status: "running",
+      permission_requests: []
+    };
+    const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [seed] };
+    const ev: WsEvent = {
+      type: "permission.request",
+      conversation_id: "c1",
+      message_id: "m2",
+      permission_request: {
+        request_id: "req-1",
+        tool_name: "bash",
+        tool_input: { command: "rm -rf /tmp/foo" },
+        question: "Allow bash command?",
+        options: [
+          { id: "allow_once", label: "Allow once", description: "Run this time only" },
+          { id: "deny", label: "Deny", description: "Block this action" }
+        ],
+        status: "pending"
+      }
+    };
+    const next = applyWsEvent(state, ev);
+    const reqs = next.messages[0]!.permission_requests;
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]!.request_id).toBe("req-1");
+    expect(reqs[0]!.status).toBe("pending");
+    expect(reqs[0]!.tool_name).toBe("bash");
+  });
+
+  it("bugfix-367: second permission.request keeps the first as resolved history", () => {
+    // 第一次 ask 已经 resolved, 第二次 ask 不能把第一次抹掉。
+    const seed: Message = {
+      ...userMessage("m2", ""),
+      sender: { type: "agent", id: "agent-a" },
+      sender_type: "agent",
+      delivery_status: "running",
+      permission_requests: [
+        {
+          request_id: "req-1",
+          tool_name: "bash",
+          tool_input: { command: "rm a" },
+          question: "Allow bash?",
+          options: [],
+          status: "resolved",
+          decision: "allow_once"
+        }
+      ]
+    };
+    const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [seed] };
+    const ev: WsEvent = {
+      type: "permission.request",
+      conversation_id: "c1",
+      message_id: "m2",
+      permission_request: {
+        request_id: "req-2",
+        tool_name: "write",
+        tool_input: {},
+        question: "Allow write?",
+        options: [],
+        status: "pending"
+      }
+    };
+    const next = applyWsEvent(state, ev);
+    const reqs = next.messages[0]!.permission_requests;
+    expect(reqs).toHaveLength(2);
+    expect(reqs[0]!.request_id).toBe("req-1");
+    expect(reqs[0]!.status).toBe("resolved");
+    expect(reqs[1]!.request_id).toBe("req-2");
+    expect(reqs[1]!.status).toBe("pending");
+  });
+
+  it("bugfix-367: same request_id idempotent — replace in place, no duplicate", () => {
+    const seed: Message = {
+      ...userMessage("m2", ""),
+      sender: { type: "agent", id: "agent-a" },
+      sender_type: "agent",
+      delivery_status: "running",
+      permission_requests: [
+        {
+          request_id: "req-1",
+          tool_name: "bash",
+          tool_input: {},
+          question: "v1",
+          options: [],
+          status: "pending"
+        }
+      ]
+    };
+    const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [seed] };
+    const ev: WsEvent = {
+      type: "permission.request",
+      conversation_id: "c1",
+      message_id: "m2",
+      permission_request: {
+        request_id: "req-1",
+        tool_name: "bash",
+        tool_input: {},
+        question: "v2",
+        options: [],
+        status: "pending"
+      }
+    };
+    const next = applyWsEvent(state, ev);
+    const reqs = next.messages[0]!.permission_requests;
+    expect(reqs).toHaveLength(1);
+    expect(reqs[0]!.question).toBe("v2");
+  });
+
+  it("bugfix-367: permission.resolved updates only the entry matching request_id", () => {
+    const seed: Message = {
+      ...userMessage("m2", ""),
+      sender: { type: "agent", id: "agent-a" },
+      sender_type: "agent",
+      delivery_status: "running",
+      permission_requests: [
+        {
+          request_id: "req-a",
+          tool_name: "bash",
+          tool_input: {},
+          question: "Allow?",
+          options: [],
+          status: "pending"
+        },
+        {
+          request_id: "req-b",
+          tool_name: "write",
+          tool_input: {},
+          question: "Allow?",
+          options: [],
+          status: "pending"
+        }
+      ]
+    };
+    const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [seed] };
+    const ev: WsEvent = {
+      type: "permission.resolved",
+      conversation_id: "c1",
+      message_id: "m2",
+      request_id: "req-b",
+      decision: "deny"
+    };
+    const next = applyWsEvent(state, ev);
+    const reqs = next.messages[0]!.permission_requests;
+    expect(reqs).toHaveLength(2);
+    expect(reqs[0]!.request_id).toBe("req-a");
+    expect(reqs[0]!.status).toBe("pending");
+    expect(reqs[1]!.request_id).toBe("req-b");
+    expect(reqs[1]!.status).toBe("resolved");
+    expect(reqs[1]!.decision).toBe("deny");
+  });
+
+  it("bugfix-367: permission.request for unknown message is a no-op", () => {
+    const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [] };
+    const ev: WsEvent = {
+      type: "permission.request",
+      conversation_id: "c1",
+      message_id: "missing-msg",
+      permission_request: {
+        request_id: "req-2",
+        tool_name: "bash",
+        tool_input: {},
+        question: "Allow?",
+        options: [],
+        status: "pending"
+      }
+    };
+    const next = applyWsEvent(state, ev);
+    expect(next).toBe(state);
   });
 });

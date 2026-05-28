@@ -161,7 +161,8 @@ class RunsRegistry:
 
         normalized_parts = [dict(part) for part in parts]
         coro = self._run_worker_async(
-            run_id, session_id, normalized_parts, resolved_trace_id, workspace_root
+            run_id, session_id, normalized_parts, resolved_trace_id,
+            workspace_root=workspace_root, origin=origin,
         )
         asyncio.run_coroutine_threadsafe(coro, self._async_loop)
         return record
@@ -233,7 +234,9 @@ class RunsRegistry:
         session_id: str,
         parts: Sequence[Mapping[str, Any]],
         trace_id: str | None,
+        *,
         workspace_root: Path | None = None,
+        origin: RunOrigin = RunOrigin.USER,
     ) -> None:
         # Transient LLM retry is handled inside AgentLoop._generate_with_retry().
         # _run_worker executes the turn exactly once; any ModelError that reaches
@@ -266,6 +269,7 @@ class RunsRegistry:
                         run_id=run_id,
                         controller=controller,
                         workspace_root=workspace_root,
+                        origin=origin,
                     )
             except TimeoutError as exc:
                 await self._mark_timed_out_async(run_id, message=str(exc))

@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>bugfix-367 permission ask 交互 demo</title>
+<!--
+  视觉风格 = 现有 IM 前端（src/IM/frontend/src/styles/global.css）。
+  本 demo 只直接复制了与 .chat-bubble-* / .chat-tool-calls-* / .chat-tool-call-* /
+  .chat-permission-* 相关的现有 CSS（一字未改），加了一个最小布局壳。
+  实现时无需改这些样式 —— 只需按下面 § 标注的几处做行为变更。
+
+  本 demo 与现状的差异（只此而已）：
+    § A. PermissionCard 内新增 tool_input / description 渲染区，
+         用既有的 .chat-permission-cmd 样式（已存在但当前组件没用）。
+    § B. 用户决策完成后，才在 chat-bubble-card 内追加对应 tool_call
+         条目（现状是 ask 进行中就显示 running，本 demo 改为决策后才出现）。
+    § C. 同一 message 上可挂多张 PermissionCard，历史 resolved 卡片以
+         小条形式按时间顺序保留（现状是覆盖）。
+-->
+<style>
+/* ===== 复制自 global.css（设计 tokens） ===== */
+:root {
+  --im-bg: oklch(0.98 0.005 240);
+  --im-surface: oklch(1 0 0);
+  --im-surface-2: oklch(0.965 0.006 240);
+  --im-accent: oklch(0.52 0.14 180);
+  --im-accent-fg: oklch(0.99 0 0);
+  --im-text: oklch(0.21 0.012 240);
+  --im-text-muted: oklch(0.5 0.012 240);
+  --im-border: oklch(0.9 0.008 240);
+  --im-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --im-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+* { box-sizing: border-box; }
+html, body { background: var(--im-bg); color: var(--im-text); font-family: var(--im-font-sans); margin: 0; }
+button { font-family: inherit; }
+
+/* ===== Demo 自己的 layout 壳（只为 demo 服务，实现时无视） ===== */
+.demo-toolbar {
+  max-width: 760px;
+  margin: 18px auto 12px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.demo-toolbar button {
+  padding: 6px 12px;
+  border: 1px solid var(--im-border);
+  background: var(--im-surface);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.demo-toolbar button:hover { background: var(--im-surface-2); }
+.demo-legend { margin-left: auto; font-size: 12px; color: var(--im-text-muted); }
+.demo-notice {
+  max-width: 760px;
+  margin: 0 auto 12px;
+  padding: 10px 14px;
+  background: oklch(0.96 0.04 80);
+  border-left: 3px solid oklch(0.78 0.16 80);
+  border-radius: 6px;
+  font-size: 13px;
+  color: oklch(0.32 0.12 80);
+  line-height: 1.5;
+}
+.demo-chat {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+/* ===== 以下大段，整段从 src/IM/frontend/src/styles/global.css 复制，
+        一字未改。class 名与现有 React 组件 1:1。 ===== */
+
+.chat-bubble {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+  max-width: 72%;
+}
+.chat-bubble--user {
+  align-self: flex-end;
+  align-items: flex-end;
+  flex-direction: row-reverse;
+}
+.chat-bubble--agent {
+  align-self: flex-start;
+  align-items: flex-start;
+}
+.chat-bubble-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 4px;
+}
+.chat-bubble-sender {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--im-text-muted);
+}
+.chat-bubble-card {
+  background: oklch(0.91 0.007 240);
+  border: none;
+  border-radius: 1rem;
+  padding: 9px 13px;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.chat-bubble--user .chat-bubble-card {
+  background: var(--im-accent);
+  color: var(--im-accent-fg);
+  border-radius: 1rem 1rem 0.25rem 1rem;
+}
+.chat-bubble--agent .chat-bubble-card {
+  border-radius: 1rem 1rem 1rem 0.25rem;
+}
+.chat-bubble-content { white-space: pre-wrap; word-break: break-word; }
+
+.chat-avatar {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  color: white;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* tool-calls panel (chat-tool-calls-*) */
+.chat-tool-calls { margin-top: 0.5rem; }
+.chat-tool-calls-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: oklch(0.92 0.008 240);
+  border: 1px solid oklch(0.86 0.01 240);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: oklch(0.45 0.01 240);
+  transition: all 0.15s;
+}
+.chat-tool-calls-toggle:hover { background: oklch(0.88 0.008 240); }
+.chat-tool-calls-toggle--open {
+  background: oklch(0.18 0.02 240);
+  border-color: oklch(0.3 0.04 180);
+  color: oklch(0.75 0.1 180);
+}
+.chat-tool-calls-arrow { font-size: 0.65rem; }
+.chat-tool-calls-running-wrap { display: inline-flex; align-items: center; gap: 0.3rem; }
+.chat-tool-calls-pulse {
+  display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: oklch(0.7 0.18 60); animation: im-pulse 1.2s infinite;
+}
+@keyframes im-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+.chat-tool-calls-panel { margin-top: 0.5rem; animation: tool-panel-fade-in 0.2s ease; }
+@keyframes tool-panel-fade-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.chat-tool-calls-list {
+  list-style: none; padding: 0; margin: 0;
+  border-radius: 0.6rem; overflow: hidden;
+  background: oklch(0.13 0.015 240);
+  border: 1px solid oklch(0.22 0.02 240);
+  box-shadow: 0 4px 16px oklch(0.05 0.01 240 / 0.5);
+}
+.chat-tool-call-item { border-bottom: 1px solid oklch(0.25 0.01 240); }
+.chat-tool-call-item:last-child { border-bottom: 0; }
+.chat-tool-call-row {
+  display: flex; align-items: center; gap: 0.5rem;
+  width: 100%; padding: 0.45rem 0.85rem;
+  background: none; border: 0; cursor: pointer; text-align: left;
+  color: oklch(0.85 0.01 240); font-family: inherit; font-size: 0.78rem;
+  transition: background 0.1s;
+}
+.chat-tool-call-row:hover { background: oklch(0.16 0.015 240); }
+.chat-tool-call-row--running { color: oklch(0.7 0.18 60); }
+.chat-tool-call-row--completed { color: oklch(0.75 0.1 180); }
+.chat-tool-call-row--error { color: oklch(0.65 0.12 25); }
+.chat-tool-call-status-icon { font-size: 0.6rem; flex-shrink: 0; }
+.chat-tool-call-name {
+  flex: 1; font-family: var(--im-font-mono); font-size: 0.72rem;
+  color: oklch(0.9 0.05 180); font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-tool-call-duration { font-size: 0.7rem; color: oklch(0.55 0.01 240); font-family: var(--im-font-mono); flex-shrink: 0; }
+.chat-tool-call-arrow { font-size: 0.6rem; color: oklch(0.5 0.01 240); flex-shrink: 0; margin-left: 0.2rem; }
+.chat-tool-call-body { animation: tool-body-fade-in 0.2s ease; }
+@keyframes tool-body-fade-in {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.chat-tool-call-body-inner { padding: 0 0.85rem 0.6rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.chat-tool-call-section { display: flex; flex-direction: column; gap: 0.35rem; }
+.chat-tool-call-section-label {
+  font-size: 0.6rem; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: oklch(0.5 0.01 240);
+}
+.chat-tool-call-pre {
+  margin: 0; padding: 0.5rem 0.6rem; border-radius: 0.4rem;
+  background: oklch(0.09 0.01 240); color: oklch(0.8 0.04 180);
+  font-family: var(--im-font-mono); font-size: 0.72rem;
+  overflow-x: auto; line-height: 1.6;
+  white-space: pre-wrap; word-break: break-all;
+  max-height: 200px; overflow: auto;
+}
+
+/* permission card (chat-permission-*) */
+.chat-permission-card {
+  background: oklch(0.14 0.015 240);
+  border: 1px solid oklch(0.24 0.02 240);
+  border-radius: 0.6rem;
+  box-shadow: 0 4px 16px oklch(0.05 0.01 240 / 0.5);
+  padding: 11px 13px;
+  margin-top: 0.5rem;
+  max-width: 470px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+.chat-permission-card--resolved { opacity: 0.9; }
+.chat-permission-header { display: flex; align-items: center; gap: 7px; }
+.chat-permission-tool-name {
+  font-family: var(--im-font-mono); font-size: 0.78rem; font-weight: 600;
+  color: oklch(0.85 0.09 180);
+}
+.chat-permission-hint {
+  font-size: 0.66rem; font-weight: 700; letter-spacing: 0.05em;
+  text-transform: uppercase; color: oklch(0.7 0.13 80); margin-left: auto;
+}
+.chat-permission-question {
+  font-size: 0.84rem; line-height: 1.5; margin: 0; color: oklch(0.86 0.02 240);
+}
+.chat-permission-cmd {
+  font-family: var(--im-font-mono); font-size: 0.76rem;
+  background: oklch(0.09 0.01 240);
+  border: 1px solid oklch(0.22 0.015 240);
+  border-radius: 0.4rem;
+  padding: 5px 8px; color: oklch(0.8 0.04 180);
+  word-break: break-all; white-space: pre-wrap;
+  max-height: 180px; overflow: auto;
+  margin: 0;
+}
+.chat-permission-options { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 1px; }
+.chat-permission-btn {
+  border: 1px solid oklch(0.3 0.02 240); border-radius: 0.45rem;
+  padding: 5px 12px; font: inherit; font-size: 0.78rem; font-weight: 600;
+  background: oklch(0.2 0.015 240); color: oklch(0.82 0.01 240);
+  cursor: pointer; transition: all 0.12s;
+}
+.chat-permission-btn:hover:not(:disabled) { background: oklch(0.25 0.018 240); }
+.chat-permission-btn--primary {
+  background: var(--im-accent); color: var(--im-accent-fg); border-color: var(--im-accent);
+}
+.chat-permission-btn--danger {
+  color: oklch(0.72 0.14 25);
+  border-color: oklch(0.4 0.1 25);
+  background: oklch(0.18 0.02 25);
+}
+.chat-permission-resolved-label {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 0.78rem; font-weight: 600;
+  color: oklch(0.75 0.13 150);
+  font-family: var(--im-font-mono);
+}
+.chat-permission-resolved-label--deny { color: oklch(0.72 0.14 25); }
+
+/* ===== § A 新增样式：description 摘要小条（仅 bash/task/agent 工具 input 里有该字段）
+        极简追加，沿用现有 token，不引入新色板。 ===== */
+.chat-permission-desc {
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: oklch(0.86 0.02 240);
+  background: oklch(0.18 0.02 240);
+  border-left: 2px solid oklch(0.7 0.13 80);
+  padding: 5px 8px;
+  border-radius: 0.3rem;
+  margin: 0;
+}
+</style>
+</head>
+<body>
+  <div class="demo-toolbar">
+    <button id="reset">↻ 重置</button>
+    <button id="step">▶ 下一步</button>
+    <span class="demo-legend">点 ✓允许 / ✗拒绝 切换分支 · 「下一步」推进 agent</span>
+  </div>
+
+  <div class="demo-notice">
+    交互改动 3 处（其他全部沿用现有前端）：
+    <strong>§ A</strong> PermissionCard 内显示 description（如有，bash/task/agent）+ <code>chat-permission-cmd</code> 渲染原始参数；
+    <strong>§ B</strong> tool_call 行用户决策后才追加（允许 → running → completed；拒绝 → 直接 error）；
+    <strong>§ C</strong> 同一 message 多次 ask，resolved 卡片不被覆盖，按时间顺序堆叠。
+  </div>
+
+  <div class="demo-chat" id="chat"></div>
+
+<script>
+/* =====================================================================
+ * 与现有 React 组件 (message-pane.tsx / tool-calls-panel.tsx / permission-card.tsx)
+ * DOM 结构 1:1 对齐。class 名相同。仅在 § A / § B / § C 处与现状不同。
+ * ===================================================================== */
+
+const chat = document.getElementById("chat");
+
+const SCRIPT = [
+  { type: "user_msg", text: "删了 hello.py 再 write 进去一次" },
+  { type: "agent_bubble_open", text: "好的，我先删除 hello.py，然后用 write 重新创建。" },
+  {
+    type: "ask",
+    bubble: 0,
+    request_id: "req-1",
+    tool_name: "bash",
+    // bash 在 input_schema 里有 description 字段（src/agent/platform/tools/builtins/bash.py），LLM 会传。
+    tool_input: { command: "rm hello.py", description: "删除 hello.py", timeout: 5 },
+    question: "Agent 请求执行 bash，是否允许？",
+    // mock 完成后的输出（允许分支下，1.2s 后由 tool_end 写入）
+    mock_output: "removed 'hello.py'\n"
+  },
+  {
+    type: "ask",
+    bubble: 0,
+    request_id: "req-2",
+    tool_name: "write",
+    // write 的 input_schema 没有 description —— 演示无 description 时的回退。
+    tool_input: { path: "/workspace/hello.py", content: "print('hello, world')\n", mode: "overwrite" },
+    question: "Agent 请求写文件，是否允许？",
+    mock_output: { bytes_written: 24, path: "/workspace/hello.py" }
+  },
+  { type: "agent_final_text", bubble: 0, text: "完成。" }
+];
+
+let cursor = 0;
+const bubbles = [];
+
+function ts() {
+  const d = new Date();
+  return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;
+}
+
+function reset() {
+  chat.innerHTML = "";
+  cursor = 0;
+  bubbles.length = 0;
+  step();
+  step();
+}
+
+function step() {
+  if (cursor >= SCRIPT.length) return;
+  const ev = SCRIPT[cursor++];
+  switch (ev.type) {
+    case "user_msg": return renderUserMsg(ev.text);
+    case "agent_bubble_open": return openAgentBubble(ev.text);
+    case "ask": return renderAsk(ev);
+    case "agent_final_text": return appendBubbleText(ev.bubble, ev.text);
+  }
+}
+
+function renderUserMsg(text) {
+  const wrap = document.createElement("div");
+  wrap.className = "chat-bubble chat-bubble--user";
+  wrap.innerHTML = `
+    <div style="display:flex;flex-direction:column;min-width:0;align-items:flex-end;">
+      <div class="chat-bubble-card">
+        <div class="chat-bubble-content">${escapeHtml(text)}</div>
+      </div>
+      <div style="font-size:11px;color:var(--im-text-muted);margin-top:2px;">${ts()}</div>
+    </div>
+  `;
+  chat.appendChild(wrap);
+  scrollDown();
+}
+
+function openAgentBubble(text) {
+  const idx = bubbles.length;
+  const wrap = document.createElement("div");
+  wrap.className = "chat-bubble chat-bubble--agent";
+  wrap.innerHTML = `
+    <span class="chat-avatar" style="background:#8b5cf6;">架</span>
+    <div style="display:flex;flex-direction:column;min-width:0;">
+      <div class="chat-bubble-meta">
+        <span class="chat-bubble-sender" style="color:#8b5cf6;">架构</span>
+      </div>
+      <div class="chat-bubble-card" data-bubble="${idx}">
+        <div class="chat-bubble-content">${escapeHtml(text)}</div>
+        <!-- § B: tool_calls 容器初始为空，决策后才追加 .chat-tool-calls -->
+        <div class="tool-calls-host"></div>
+      </div>
+      <!-- § C: 同 message 的 permission 卡区，允许多张堆叠 -->
+      <div class="perm-host"></div>
+      <div style="font-size:11px;color:var(--im-text-muted);margin-top:2px;">${ts()}</div>
+    </div>
+  `;
+  chat.appendChild(wrap);
+  bubbles.push({
+    bubbleCard: wrap.querySelector(".chat-bubble-card"),
+    bubbleContent: wrap.querySelector(".chat-bubble-content"),
+    toolHost: wrap.querySelector(".tool-calls-host"),
+    permHost: wrap.querySelector(".perm-host"),
+    toolCalls: [],
+    toolsPanel: null
+  });
+  scrollDown();
+}
+
+function appendBubbleText(bubbleIdx, text) {
+  const b = bubbles[bubbleIdx];
+  if (!b) return;
+  const cur = b.bubbleContent.textContent;
+  b.bubbleContent.textContent = cur ? `${cur}\n${text}` : text;
+  scrollDown();
+}
+
+/* § A: PermissionCard with description + raw input ----------------- */
+function renderAsk(ev) {
+  const b = bubbles[ev.bubble];
+  if (!b) return;
+
+  const card = document.createElement("div");
+  card.className = "chat-permission-card";
+  card.dataset.requestId = ev.request_id;
+
+  const description = readDescription(ev.tool_input);
+  const rawInput = stripDescription(ev.tool_input);
+  const inputJson = JSON.stringify(rawInput, null, 2);
+
+  card.innerHTML = `
+    <div class="chat-permission-header">
+      <span aria-hidden="true">🔒</span>
+      <span class="chat-permission-tool-name">${escapeHtml(ev.tool_name)}</span>
+      <span class="chat-permission-hint">需要确认</span>
+    </div>
+    ${description ? `<p class="chat-permission-desc">${escapeHtml(description)}</p>` : ""}
+    <pre class="chat-permission-cmd">${escapeHtml(inputJson)}</pre>
+    <p class="chat-permission-question">${escapeHtml(ev.question)}</p>
+    <div class="chat-permission-options" role="group">
+      <button class="chat-permission-btn chat-permission-btn--primary" data-decision="allow_once">允许本次</button>
+      <button class="chat-permission-btn" data-decision="allow_session">允许本会话</button>
+      <button class="chat-permission-btn chat-permission-btn--danger" data-decision="deny">拒绝</button>
+    </div>
+  `;
+  b.permHost.appendChild(card);
+  card.querySelectorAll(".chat-permission-btn").forEach(btn =>
+    btn.addEventListener("click", () => resolveAsk(b, ev, btn.dataset.decision))
+  );
+  scrollDown();
+}
+
+/* § B + § C: decision → resolved-card-in-place + append tool_call --- */
+function resolveAsk(b, ev, decision) {
+  const card = b.permHost.querySelector(`[data-request-id="${ev.request_id}"]`);
+  if (!card) return;
+  const isDeny = decision === "deny";
+
+  // § C: 把 pending 卡换成 resolved 卡（保留同位置，历史不消失）
+  const resolved = document.createElement("div");
+  resolved.className = "chat-permission-card chat-permission-card--resolved";
+  const description = readDescription(ev.tool_input);
+  const summary = description || ev.tool_name;
+  resolved.innerHTML = `
+    <span class="chat-permission-resolved-label${isDeny ? " chat-permission-resolved-label--deny" : ""}">
+      ${isDeny ? "已拒绝" : "已允许"} · ${escapeHtml(ev.tool_name)}${description ? ` · ${escapeHtml(description)}` : ""}
+    </span>
+  `;
+  card.replaceWith(resolved);
+
+  // § B: 决策完成后才追加 tool_call 行（允许 → running → completed；拒绝 → 直接 error）
+  appendToolCall(b, ev, isDeny);
+  scrollDown();
+}
+
+function ensureToolsPanel(b) {
+  if (b.toolsPanel) return b.toolsPanel;
+  const wrap = document.createElement("div");
+  wrap.className = "chat-tool-calls";
+  wrap.innerHTML = `
+    <button type="button" class="chat-tool-calls-toggle chat-tool-calls-toggle--open" aria-expanded="true">
+      <span class="chat-tool-calls-arrow">▾</span>
+      <span class="chat-tool-calls-summary"></span>
+    </button>
+    <div class="chat-tool-calls-panel">
+      <ul class="chat-tool-calls-list"></ul>
+    </div>
+  `;
+  b.toolHost.appendChild(wrap);
+  b.toolsPanel = wrap;
+  const toggle = wrap.querySelector(".chat-tool-calls-toggle");
+  toggle.addEventListener("click", () => {
+    const open = toggle.classList.toggle("chat-tool-calls-toggle--open");
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    toggle.querySelector(".chat-tool-calls-arrow").textContent = open ? "▾" : "▸";
+    wrap.querySelector(".chat-tool-calls-panel").style.display = open ? "" : "none";
+  });
+  return wrap;
+}
+
+function appendToolCall(b, ev, isDeny) {
+  const panel = ensureToolsPanel(b);
+  const list = panel.querySelector(".chat-tool-calls-list");
+
+  const call = {
+    id: ev.request_id,
+    name: ev.tool_name,
+    status: isDeny ? "error" : "running",
+    input: stripDescription(ev.tool_input),
+    output: isDeny ? "permission denied — tool was not executed" : null,
+    duration_ms: isDeny ? 0 : null
+  };
+  b.toolCalls.push(call);
+
+  const li = document.createElement("li");
+  li.className = "chat-tool-call-item";
+  li.dataset.callId = call.id;
+  li.innerHTML = `
+    <button type="button" class="chat-tool-call-row chat-tool-call-row--${call.status}" aria-expanded="false">
+      <span class="chat-tool-call-status-icon" style="color:${statusColor(call.status)};">${statusIcon(call.status)}</span>
+      <span class="chat-tool-call-name">${escapeHtml(call.name)}</span>
+      <span class="chat-tool-call-duration"></span>
+      <span class="chat-tool-call-arrow">▸</span>
+    </button>
+    <div class="chat-tool-call-body" style="display:none;">
+      <div class="chat-tool-call-body-inner">
+        <div class="chat-tool-call-section">
+          <span class="chat-tool-call-section-label">INPUT</span>
+          <pre class="chat-tool-call-pre">${escapeHtml(JSON.stringify(call.input, null, 2))}</pre>
+        </div>
+        <div class="chat-tool-call-section js-output-section" style="${call.output != null ? "" : "display:none;"}">
+          <span class="chat-tool-call-section-label">OUTPUT</span>
+          <pre class="chat-tool-call-pre js-output-pre">${escapeHtml(formatOutput(call.output))}</pre>
+        </div>
+      </div>
+    </div>
+  `;
+  list.appendChild(li);
+  const row = li.querySelector(".chat-tool-call-row");
+  const body = li.querySelector(".chat-tool-call-body");
+  row.addEventListener("click", () => {
+    const open = body.style.display === "none";
+    body.style.display = open ? "" : "none";
+    row.setAttribute("aria-expanded", open ? "true" : "false");
+    row.querySelector(".chat-tool-call-arrow").textContent = open ? "▾" : "▸";
+  });
+
+  updatePanelSummary(b);
+
+  if (!isDeny) {
+    // 1.2s 后由 tool_end 事件 → row 变 completed + 写 duration + 填 OUTPUT
+    setTimeout(() => {
+      call.status = "completed";
+      call.duration_ms = 1200;
+      call.output = ev.mock_output ?? "(no output)";
+      row.className = `chat-tool-call-row chat-tool-call-row--completed`;
+      row.querySelector(".chat-tool-call-status-icon").style.color = statusColor("completed");
+      row.querySelector(".chat-tool-call-status-icon").textContent = statusIcon("completed");
+      row.querySelector(".chat-tool-call-duration").textContent = formatDuration(call.duration_ms);
+      const outSec = li.querySelector(".js-output-section");
+      const outPre = li.querySelector(".js-output-pre");
+      outPre.textContent = formatOutput(call.output);
+      outSec.style.display = "";
+      updatePanelSummary(b);
+    }, 1200);
+  }
+}
+
+function formatOutput(out) {
+  if (out == null) return "";
+  return typeof out === "string" ? out : JSON.stringify(out, null, 2);
+}
+
+function updatePanelSummary(b) {
+  if (!b.toolsPanel) return;
+  const calls = b.toolCalls;
+  const anyRunning = calls.some(c => c.status === "running");
+  const total = calls.reduce((s, c) => s + (c.duration_ms ?? 0), 0);
+  const label = b.toolsPanel.querySelector(".chat-tool-calls-summary");
+  const noun = calls.length === 1 ? "次工具调用" : "次工具调用";
+  if (anyRunning) {
+    label.innerHTML = `
+      <span class="chat-tool-calls-running-wrap">
+        <span class="chat-tool-calls-pulse"></span>
+        ${calls.length} ${noun} · 运行中
+      </span>`;
+  } else {
+    label.textContent = `${calls.length} ${noun} · ${formatDuration(total)}`;
+  }
+}
+
+function readDescription(input) {
+  if (!input || typeof input !== "object") return null;
+  const d = typeof input.description === "string" ? input.description.trim() : "";
+  return d || null;
+}
+function stripDescription(input) {
+  if (!input || typeof input !== "object") return input;
+  const { description, ...rest } = input;
+  return rest;
+}
+function statusColor(s) {
+  return s === "completed" ? "oklch(0.55 0.18 145)" :
+         s === "running"   ? "oklch(0.70 0.18 60)"  :
+                             "oklch(0.55 0.15 25)";
+}
+function statusIcon(s) {
+  return s === "running" ? "◌" : s === "completed" ? "●" : "✕";
+}
+function formatDuration(ms) {
+  if (ms < 1000) return `${ms}ms`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m ${rem.toFixed(0)}s` : `${m}m`;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c]));
+}
+function scrollDown() {
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+}
+
+document.getElementById("reset").addEventListener("click", reset);
+document.getElementById("step").addEventListener("click", step);
+
+reset();
+</script>
+</body>
+</html>

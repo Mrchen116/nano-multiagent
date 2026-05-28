@@ -194,11 +194,14 @@ class HeartbeatScheduler:
         if not session_id:
             raise RuntimeError("kernel session creation did not return session_id")
         message = _build_heartbeat_message(agent_id=agent.agent_id, due_at=due_at, instructions=instructions)
-        # The stateless kernel needs the session's workspace_root to locate its JSONL.
+        # The stateless kernel needs workspace_root to locate the session JSONL;
+        # origin=heartbeat lets auto_mode_gate detect unattended context and skip
+        # blocking permission requests that nobody is around to answer.
         run_payload = self._kernel_client.submit_message(
             session_id=session_id,
             texts=[message],
             workspace_root=str(agent.workspace_root),
+            origin="heartbeat",
         )
         run_id = str(run_payload.get("run_id", "")).strip()
         if not run_id:

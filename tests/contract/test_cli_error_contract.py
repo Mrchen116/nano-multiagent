@@ -16,9 +16,11 @@ class _ConnectionRefusedOnHealthClient:
 
 
 def test_cli_single_command_error_payload_contract_contains_layer() -> None:
+    # Trigger input-layer error: pass an unrecognised --mode value so the CLI
+    # fails before building a client (validates error payload shape).
     output = io.StringIO()
     exit_code = run_cli(
-        ["--mode", "remote", "--token", "test-token", "health"],
+        ["--mode", "remote", "health"],
         stdout=output,
         client_factory=lambda _: (_ for _ in ()).throw(AssertionError("should not build client")),
     )
@@ -41,8 +43,6 @@ def test_cli_single_command_network_error_payload_contract_contains_layer() -> N
             "remote",
             "--base-url",
             "http://127.0.0.1:8222",
-            "--token",
-            "test-token",
             "health",
         ],
         stdout=output,

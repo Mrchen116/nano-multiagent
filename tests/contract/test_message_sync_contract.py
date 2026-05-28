@@ -1,14 +1,16 @@
+import time
+
 from fastapi.testclient import TestClient
 
-from agent.core.errors import ModelError
 from agent.core.types import Message, TurnResult
 from agent.platform.http_api.app import create_app
 
 
 class StubRuntime:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None) -> TurnResult:  # noqa: ANN001
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None) -> TurnResult:  # noqa: ANN001
         del parts
         del stream
+        del origin
         return TurnResult(
             session_id=session_id,
             turn_id="turn_contract",
@@ -19,18 +21,11 @@ class StubRuntime:
 
 
 class MissingSessionRuntime:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None) -> TurnResult:  # noqa: ANN001
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None) -> TurnResult:  # noqa: ANN001
         del parts
         del stream
+        del origin
         raise ValueError(f"session does not exist: {session_id}")
-
-
-class ModelTimeoutRuntime:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None) -> TurnResult:  # noqa: ANN001
-        del session_id
-        del parts
-        del stream
-        raise ModelError("timed out waiting for upstream; root_cause=connect ETIMEDOUT", retryable=True)
 
 
 def _auth_headers(request_id: str) -> dict[str, str]:
@@ -40,7 +35,20 @@ def _auth_headers(request_id: str) -> dict[str, str]:
     }
 
 
-def test_sync_message_contract_returns_final_response() -> None:
+def _wait_for_terminal_run(client: TestClient, run_id: str, *, timeout_seconds: float = 2.0) -> dict:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        response = client.get(f"/v1/runs/{run_id}", headers=_auth_headers("req-runs-get"))
+        assert response.status_code == 200
+        payload = response.json()
+        if payload["status"] in {"completed", "failed", "cancelled"}:
+            return payload
+        time.sleep(0.01)
+    raise AssertionError("run did not reach terminal status before timeout")
+
+
+def test_submit_message_contract_returns_run_handle() -> None:
+    # POST /v1/sessions/{id}/messages returns an async run handle (not a sync TurnResult).
     client = TestClient(create_app(runtime=StubRuntime()))
     created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-message-create"))
     assert created.status_code == 201
@@ -48,24 +56,23 @@ def test_sync_message_contract_returns_final_response() -> None:
 
     response = client.post(
         f"/v1/sessions/{session_id}/messages",
-        json={"parts": [{"type": "text", "text": "ping"}], "stream": False},
+        json={"parts": [{"type": "text", "text": "ping"}]},
         headers=_auth_headers("req-message-sync"),
     )
 
     assert response.status_code == 200
     assert response.headers["x-request-id"] == "req-message-sync"
     payload = response.json()
-    assert set(payload.keys()) == {"session_id", "turn_id", "message", "completed", "stop_reason"}
-    assert payload["session_id"] == session_id
-    assert payload["turn_id"] == "turn_contract"
-    assert payload["completed"] is True
-    assert payload["stop_reason"] == "completed"
-    assert set(payload["message"].keys()) == {"message_id", "role", "content"}
-    assert payload["message"]["role"] == "assistant"
-    assert payload["message"]["content"] == "contract-ok"
+    assert set(payload.keys()) == {"run_id", "anchor_sequence", "injected", "status"}
+    assert isinstance(payload["run_id"], str)
+    assert payload["status"] in {"queued", "running"}
+
+    terminal = _wait_for_terminal_run(client, payload["run_id"])
+    assert terminal["status"] == "completed"
+    assert terminal["output_text"] == "contract-ok"
 
 
-def test_sync_message_not_found_uses_unified_error_with_trace_id() -> None:
+def test_submit_message_not_found_uses_unified_error_with_trace_id() -> None:
     client = TestClient(create_app(runtime=MissingSessionRuntime()))
 
     response = client.post(
@@ -82,23 +89,3 @@ def test_sync_message_not_found_uses_unified_error_with_trace_id() -> None:
     assert payload["error"]["retryable"] is False
     assert payload["error"]["trace_id"] == "req-message-missing"
     assert response.headers["x-request-id"] == "req-message-missing"
-
-
-def test_sync_message_model_timeout_maps_to_gateway_error() -> None:
-    client = TestClient(create_app(runtime=ModelTimeoutRuntime()))
-    created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-message-create-2"))
-    assert created.status_code == 201
-    session_id = created.json()["session_id"]
-
-    response = client.post(
-        f"/v1/sessions/{session_id}/messages",
-        json={"parts": [{"type": "text", "text": "ping"}], "stream": False},
-        headers=_auth_headers("req-message-model-timeout"),
-    )
-
-    assert response.status_code == 502
-    payload = response.json()["error"]
-    assert payload["code"] == "model_error"
-    assert payload["message"] == "timed out waiting for upstream; root_cause=connect ETIMEDOUT"
-    assert payload["retryable"] is True
-    assert payload["trace_id"] == "req-message-model-timeout"

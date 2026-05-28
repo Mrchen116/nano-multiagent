@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import "../../../../i18n";
-import type { Attachment, Conversation, MentionCandidate, Message } from "../chat-types";
+import type { Attachment, Conversation, MentionCandidate, Message, PermissionRequest } from "../chat-types";
 import { MessagePane } from "./message-pane";
 
 const DIRECT_CONV: Conversation = {
@@ -238,7 +238,10 @@ describe("MessagePane", () => {
     expect(screen.queryByRole("button", { name: /Planner/i })).not.toBeInTheDocument();
   });
 
-  it("inserts @AgentName when a mention candidate is clicked", async () => {
+  // bugfix-358 (composer): textarea 装可见形式 `@DisplayName`,wire XML 在 send 前重建。
+  // 这样光标 / IME / 撤销栈跟视觉字符宽度对齐(原 textarea 装 XML 时,IME 输入框
+  // 按 XML 字符长度定位,会飘到 chip 右侧远处)。
+  it("inserts visible @DisplayName text into textarea (not raw XML)", async () => {
     const user = userEvent.setup();
     render(
       <MessagePane
@@ -251,7 +254,158 @@ describe("MessagePane", () => {
     const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
     await user.type(composer, "ping @P");
     await user.click(await screen.findByRole("button", { name: /Planner/ }));
-    expect(composer.value).toBe("ping @Planner ");
+    // textarea 应该装可见形式 `@Planner`,不应含 wire XML 字符
+    expect(composer.value).toContain("@Planner");
+    expect(composer.value).not.toContain("<mention");
+    expect(composer.value).not.toContain('target_id="');
+  });
+
+  it("reconstructs wire <mention/> XML in onSend when picker-tracked label is present", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(
+      <MessagePane
+        conversation={GROUP_CONV}
+        messages={[]}
+        mentionCandidates={MENTION_CANDIDATES}
+        onSend={onSend}
+      />
+    );
+    const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(composer, "ping @P");
+    await user.click(await screen.findByRole("button", { name: /Planner/ }));
+    await user.type(composer, "hi");
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledTimes(1);
+    const sentText = onSend.mock.calls[0][0];
+    expect(sentText).toContain('<mention type="agent" target_id="a-planner"/>');
+    expect(sentText).not.toContain("@Planner");
+  });
+
+  it("drops a tracked mention from wire content when user deletes the @DisplayName label before send", async () => {
+    const user = userEvent.setup();
+    const onSend = vi.fn();
+    render(
+      <MessagePane
+        conversation={GROUP_CONV}
+        messages={[]}
+        mentionCandidates={MENTION_CANDIDATES}
+        onSend={onSend}
+      />
+    );
+    const composer = screen.getByRole("textbox") as HTMLTextAreaElement;
+    await user.type(composer, "@P");
+    await user.click(await screen.findByRole("button", { name: /Planner/ }));
+    // User regrets, removes whole `@Planner ` and types plain text instead
+    await user.clear(composer);
+    await user.type(composer, "never mind");
+    await user.keyboard("{Enter}");
+    expect(onSend).toHaveBeenCalledTimes(1);
+    expect(onSend.mock.calls[0][0]).toBe("never mind");
+    expect(onSend.mock.calls[0][0]).not.toContain("<mention");
+  });
+
+  // R4 C1: PermissionCard mount point — renders inline card when message has permission_request
+  describe("PermissionCard mount point (R4)", () => {
+    const PERM_REQUEST: PermissionRequest = {
+      request_id: "req-1",
+      tool_name: "bash",
+      tool_input: { command: "ls" },
+      question: "Allow bash to run this command?",
+      options: [
+        { id: "allow_once", label: "Allow once", description: "Allow this single action" },
+        { id: "deny", label: "Deny", description: "Block this action" },
+      ],
+      status: "pending",
+    };
+
+    const AGENT_MSG_WITH_PERM: Message = {
+      id: "m-perm",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "u1",
+      sender_type: "agent",
+      content: "",
+      attachments: [],
+      delivery_status: "running",
+      created_at: "2026-01-01T00:00:00Z",
+      permission_requests: [PERM_REQUEST],
+    };
+
+    it("renders PermissionCard inline when agent message has a permission_requests entry", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[AGENT_MSG_WITH_PERM]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.getByText(/Allow bash to run this command/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /allow once/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /deny/i })).toBeInTheDocument();
+    });
+
+    it("does not render PermissionCard when message has empty permission_requests list", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[{
+            ...AGENT_MSG_WITH_PERM,
+            id: "m-no-perm",
+            permission_requests: [],
+            content: "Regular reply",
+          }]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.queryByText(/Allow bash to run this command/i)).not.toBeInTheDocument();
+      expect(screen.getByText("Regular reply")).toBeInTheDocument();
+    });
+
+    it("renders resolved PermissionCard (no buttons) when entry status=resolved", () => {
+      const resolvedMsg: Message = {
+        ...AGENT_MSG_WITH_PERM,
+        id: "m-resolved",
+        permission_requests: [{ ...PERM_REQUEST, status: "resolved", decision: "allow_once" }],
+      };
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[resolvedMsg]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.getByTestId("permission-resolved")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
+    });
+
+    // bugfix-367: 同 message 多次 ask, 历史 resolved 卡保留, 同时新 pending 卡出现
+    it("renders both a resolved history card and a new pending card stacked under the same bubble", () => {
+      const msg: Message = {
+        ...AGENT_MSG_WITH_PERM,
+        id: "m-two-asks",
+        permission_requests: [
+          { ...PERM_REQUEST, request_id: "req-1", question: "Allow bash command #1?", status: "resolved", decision: "allow_once" },
+          { ...PERM_REQUEST, request_id: "req-2", tool_name: "write", question: "Allow write call #2?", status: "pending" },
+        ],
+      };
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[msg]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      // 历史已允许小条仍可见
+      expect(screen.getAllByTestId("permission-resolved")).toHaveLength(1);
+      // 当前 pending 的按钮组也可见
+      expect(screen.getByText(/Allow write call #2/i)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /allow once/i })).toBeInTheDocument();
+    });
   });
 
   // M19/R11-8: prototype `im-chat-page.jsx::MessagePaneView` 移动模式头部紧凑 —
@@ -462,6 +616,81 @@ describe("MessagePane", () => {
         />
       );
       expect(screen.queryByTestId(`message-token-chip-${TS_USER.id}`)).not.toBeInTheDocument();
+    });
+  });
+
+  // bugfix-358 R6: MessageBubble renders <mention/> inline tags as MentionChip nodes
+  describe("MessageBubble MentionChip rendering (bugfix-358)", () => {
+    const GROUP_CONV_WITH_PARTICIPANTS: Conversation = {
+      ...GROUP_CONV,
+      id: "c-group-mention",
+      participants: [
+        { type: "user", id: "u1", display_name: "You" },
+        { type: "agent", id: "a-planner", display_name: "Planner" },
+        { type: "agent", id: "a-coder", display_name: "Coder" },
+      ],
+    };
+
+    const AGENT_MSG_WITH_MENTION: Message = {
+      id: "m-mention",
+      conversation_id: "c-group-mention",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "a-planner",
+      sender_type: "agent",
+      content: '<mention type="agent" target_id="a-coder"/> 你怎么看？',
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:00Z",
+    };
+
+    it("renders mention tag as chip showing current display_name (not raw tag text)", () => {
+      render(
+        <MessagePane
+          conversation={GROUP_CONV_WITH_PARTICIPANTS}
+          messages={[AGENT_MSG_WITH_MENTION]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      // Should not show raw XML tag
+      expect(screen.queryByText(/<mention/)).not.toBeInTheDocument();
+      // Should show the display_name chip for the mentioned agent
+      expect(screen.getByText("@Coder")).toBeInTheDocument();
+    });
+
+    it("renders unknown target_id as fallback @unknown text", () => {
+      const msg: Message = {
+        ...AGENT_MSG_WITH_MENTION,
+        id: "m-unknown",
+        content: '<mention type="agent" target_id="nonexistent-agent"/> hello',
+      };
+      render(
+        <MessagePane
+          conversation={GROUP_CONV_WITH_PARTICIPANTS}
+          messages={[msg]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      // Unknown target: should degrade gracefully (not throw, not show raw tag)
+      expect(screen.queryByText(/<mention/)).not.toBeInTheDocument();
+    });
+
+    it("renders plain text content unchanged when no mention tags present", () => {
+      const msg: Message = {
+        ...AGENT_MSG_WITH_MENTION,
+        id: "m-plain",
+        content: "regular message without any mention",
+      };
+      render(
+        <MessagePane
+          conversation={GROUP_CONV_WITH_PARTICIPANTS}
+          messages={[msg]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(screen.getByText("regular message without any mention")).toBeInTheDocument();
     });
   });
 });

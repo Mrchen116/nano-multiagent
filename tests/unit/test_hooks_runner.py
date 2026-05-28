@@ -1,5 +1,8 @@
 import asyncio
 from pathlib import Path
+from typing import Any
+
+import pytest
 
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
@@ -151,3 +154,198 @@ def test_tool_call_block_short_circuits_following_handlers() -> None:
     assert result.stopped is True
     assert result.payload["block"] is True
     assert result.payload["reason"] == "policy"
+
+
+# ---------------------------------------------------------------------------
+# R3: HookContext extensions — message_history + permission_requester +
+#     request_permission (R3 of feat-333-M1)
+# ---------------------------------------------------------------------------
+
+class TestHookContextMessageHistory:
+    """message_history field: tuple of LLM messages for classifier transcript."""
+
+    def test_default_message_history_is_empty_tuple(self) -> None:
+        ctx = HookContext(session_id="s-mh-1")
+        assert ctx.message_history == ()
+
+    def test_message_history_stored_and_accessible(self) -> None:
+        msgs = (
+            {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "hi"},
+        )
+        ctx = HookContext(session_id="s-mh-2", message_history=msgs)
+        assert ctx.message_history == msgs
+
+    def test_message_history_coerced_to_tuple(self) -> None:
+        """Any sequence passed as message_history should be accessible as-is (tuple)."""
+        msgs = ({"role": "user", "content": "test"},)
+        ctx = HookContext(session_id="s-mh-3", message_history=msgs)
+        assert isinstance(ctx.message_history, tuple)
+        assert len(ctx.message_history) == 1
+
+
+class TestHookContextPermissionRequester:
+    """permission_requester field and request_permission method."""
+
+    @pytest.mark.asyncio
+    async def test_request_permission_without_requester_returns_deny(self) -> None:
+        """When no permission_requester is set, request_permission fail-closes to deny."""
+        from agent.platform.permissions.broker import PermissionRequest, PermissionOption
+
+        ctx = HookContext(session_id="s-pr-1")
+        req = PermissionRequest(
+            id="req-1",
+            tool_name="write",
+            tool_input={"file_path": "/tmp/f"},
+            question="Allow write?",
+            options=(
+                PermissionOption("allow_once", "Allow once", ""),
+                PermissionOption("deny", "Deny", ""),
+            ),
+        )
+        response = await ctx.request_permission(req)
+        assert response.decision == "deny"
+        assert "no permission channel" in response.reason
+
+    @pytest.mark.asyncio
+    async def test_request_permission_delegates_to_requester(self) -> None:
+        """When permission_requester is set, request_permission awaits it."""
+        from agent.platform.permissions.broker import (
+            PermissionRequest,
+            PermissionOption,
+            PermissionResponse,
+        )
+
+        async def allow_requester(req):
+            return PermissionResponse(decision="allow_once", request_id=req.id)
+
+        ctx = HookContext(session_id="s-pr-2", permission_requester=allow_requester)
+        req = PermissionRequest(
+            id="req-2",
+            tool_name="bash",
+            tool_input={"command": "ls"},
+            question="Allow ls?",
+            options=(PermissionOption("allow_once", "Allow once", ""),),
+        )
+        response = await ctx.request_permission(req)
+        assert response.decision == "allow_once"
+        assert response.request_id == "req-2"
+
+    def test_permission_requester_default_is_none(self) -> None:
+        ctx = HookContext(session_id="s-pr-3")
+        assert ctx.permission_requester is None
+
+
+class TestHookRunnerTimeoutNone:
+    """Hooks registered with timeout_ms=None are not wrapped in asyncio.wait_for."""
+
+    @pytest.mark.asyncio
+    async def test_timeout_none_hook_runs_without_cancellation(self) -> None:
+        """A hook with timeout_ms=None can run longer than the default timeout."""
+        registry = HookRegistry()
+        called = []
+
+        async def long_hook(event, ctx):
+            # Sleeps 20ms — would be cancelled under default 1500ms timeout IF
+            # the hook was registered with a very short timeout_ms. We just
+            # confirm it runs to completion when timeout_ms=None.
+            await asyncio.sleep(0.02)
+            called.append("done")
+            return None
+
+        registry.on("turn_start", long_hook, timeout_ms=None)
+        runner = HookRunner(registry=registry)
+        diagnostics = await runner.dispatch_observe(
+            "turn_start", {}, HookContext(session_id="s-tn-1")
+        )
+        assert called == ["done"]
+        assert diagnostics[0].status == "ok"
+
+    def test_registration_allows_none_timeout_ms(self) -> None:
+        registry = HookRegistry()
+
+        def noop(event, ctx):
+            return None
+
+        reg = registry.on("tool_call", noop, timeout_ms=None)
+        assert reg.timeout_ms is None
+
+
+def test_dispatch_observe_skips_intercept_mode_handlers() -> None:
+    """An INTERCEPT-mode handler must NOT execute during dispatch_observe.
+
+    Regression (bugfix-377): the auto_mode_gate classifier is dispatched for
+    "tool_call". "tool_call" is dispatched twice per tool — once as intercept
+    (where the block decision is honored, with the populated tool transcript)
+    and once as observe (for stream/metrics observers). Because handlers_for
+    ignored mode, the gate ALSO ran in the observe pass: it burned a model call
+    on a ctx with no message_history (empty <transcript> -> blind classify,
+    escalating to a second stage) and its result was discarded. Observe dispatch
+    must run only observe-mode handlers.
+    """
+    from agent.core.hooks.types import HookEventMode
+
+    registry = HookRegistry()
+    ran: list[str] = []
+
+    def observer(event, ctx):
+        del event, ctx
+        ran.append("observe")
+
+    def gate(event, ctx):
+        del event, ctx
+        ran.append("intercept")
+        return {"block": False}
+
+    registry.on("tool_call", observer, mode=HookEventMode.OBSERVE)
+    registry.on("tool_call", gate, mode=HookEventMode.INTERCEPT)
+    runner = HookRunner(registry=registry)
+
+    asyncio.run(runner.dispatch_observe("tool_call", {"name": "bash"}, _context("s-obs")))
+    assert ran == ["observe"], f"intercept handler must not run in observe dispatch, got {ran}"
+
+    # And the intercept handler DOES run during dispatch_intercept.
+    ran.clear()
+    asyncio.run(runner.dispatch_intercept("tool_call", {"name": "bash", "block": False}, _context("s-int")))
+    assert "intercept" in ran, "intercept handler must run in intercept dispatch"
+
+
+def test_strip_fork_conversation_preserves_message_history_and_permission_requester() -> None:
+    """_strip_fork_conversation must null ONLY fork_conversation, keeping every
+    other field — notably message_history and permission_requester.
+
+    Regression (bugfix-377): the manual rebuild in _strip_fork_conversation
+    copied a hand-listed subset of fields and silently dropped message_history
+    and permission_requester (added to HookContext later, on 2026-05-15, without
+    updating this rebuild). Result: any observe/intercept dispatch whose ctx
+    carried a fork_conversation reached the auto_mode_gate classifier with an
+    EMPTY transcript — the classifier ran blind and over-blocked — and lost the
+    PermissionBroker so request_permission fail-closed to deny.
+    """
+    from agent.core.hooks.runner import _strip_fork_conversation
+
+    sentinel_history = ("user-msg", "assistant-tool_use")
+
+    async def requester(req):
+        return None
+
+    async def make_fork(review_prompt, *, tool_allowlist, max_turns):
+        return None
+
+    ctx = HookContext(
+        session_id="sess-strip",
+        turn_id="turn-1",
+        message_history=sentinel_history,
+        permission_requester=requester,
+        fork_conversation=make_fork,
+    )
+
+    stripped = _strip_fork_conversation(ctx)
+
+    assert stripped.fork_conversation is None
+    assert stripped.message_history == sentinel_history, (
+        "message_history must survive fork_conversation stripping"
+    )
+    assert stripped.permission_requester is requester, (
+        "permission_requester must survive fork_conversation stripping"
+    )

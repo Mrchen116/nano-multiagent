@@ -12,7 +12,7 @@ from agent.core.types import Message, TurnResult
 class _RuntimeAbortedStub:
     """Runtime that simulates a run aborted by priority=now preemption."""
 
-    async def run(self, session_id, parts, *, stream=True, run_id=None, controller=None, workspace_root=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id, parts, *, stream=True, run_id=None, controller=None, workspace_root=None, origin=None):  # noqa: ANN001, ANN201
         del parts, stream, run_id, controller
         return TurnResult(
             session_id=session_id,

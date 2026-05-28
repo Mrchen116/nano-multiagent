@@ -1,3 +1,4 @@
+import asyncio
 from pathlib import Path
 
 import pytest
@@ -5,48 +6,29 @@ import pytest
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.errors import ToolError
 from agent.core.hooks.context import HookContext
+from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
 from agent.platform.hooks.loader import load_hooks_from_directories
 from agent.core.hooks.runner import HookRunner
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.core.session.store import LoadedSession, SessionStore
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.registry import ToolRegistry
+from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
-
-class InMemorySessionStore(SessionStore):
-    def __init__(self) -> None:
-        self.events: list[tuple[str, object]] = []
-        self.snapshots: dict[str, dict[str, object]] = {}
-
-    def append_event(self, session_id: str, entry: object) -> None:
-        self.events.append((session_id, entry))
-
-    def load_session(self, session_id: str) -> LoadedSession | None:
-        session_events = tuple(entry for sid, entry in self.events if sid == session_id)
-        if not session_events and session_id not in self.snapshots:
-            return None
-        return LoadedSession(
-            session_id=session_id,
-            events=session_events,
-            snapshot=self.snapshots.get(session_id),
-        )
-
-    def save_snapshot(self, session_id: str, snapshot: dict[str, object]) -> None:
-        self.snapshots[session_id] = snapshot
+set_tool_safety_factory(ToolSafety)
+set_tool_safety_config_factory(ToolSafetyConfig)
 
 
 class EchoLLMClient:
     def __init__(self) -> None:
         self.requests: list[LLMGenerateRequest] = []
 
-    def generate(self, request: LLMGenerateRequest) -> LLMGenerateResponse:
+    async def generate(self, request: LLMGenerateRequest):  # AsyncIterator[LLMMessage]
         self.requests.append(request)
-        return LLMGenerateResponse(
-            model=request.model,
-            message=LLMMessage(role="assistant", content=f"ack:{request.messages[-1].content}"),
-            finish_reason="stop",
-        )
+        # Yield assistant content, then terminal metadata with finish_reason.
+        yield LLMMessage(role="assistant", content=f"ack:{request.messages[-1].content}")
+        yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
 
 class EchoTool:
@@ -100,8 +82,7 @@ def setup(hooks):
     )
     assert len(loaded) == 2
 
-    store = InMemorySessionStore()
-    manager = SessionManager(store=store)
+    manager = SessionManager(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     session = manager.create_session(workspace_root=tmp_path)
     llm = EchoLLMClient()
     runtime = AgentRuntime(
@@ -119,11 +100,12 @@ def setup(hooks):
 
 
 def test_tool_registry_uses_loaded_hooks_for_block_and_rewrite(tmp_path: Path) -> None:
-    workspace_dir = tmp_path / ".nano" / "hooks"
-    workspace_dir.mkdir(parents=True, exist_ok=True)
-    (workspace_dir / "tool_rules.py").write_text(
-        """
-def setup(hooks):
+    # Use HookRegistry directly to avoid loading auto_mode_gate builtin
+    # (which would block 'echo' since it's not in SAFE_TOOL_ALLOWLIST).
+    from agent.core.hooks.registry import HookRegistry as _HookRegistry
+
+    hook_registry = _HookRegistry()
+
     async def on_tool_call(event, ctx):
         del ctx
         if event["name"] == "echo" and event["args"].get("text") == "blocked":
@@ -136,15 +118,9 @@ def setup(hooks):
             return {"content": {"text": f"rewritten:{event['output']['text']}"}}
         return None
 
-    hooks.on("tool_call", on_tool_call, priority=100)
-    hooks.on("tool_result", on_tool_result, priority=100)
-""".strip()
-        + "\n",
-        encoding="utf-8",
-    )
+    hook_registry.on("tool_call", on_tool_call, priority=100)
+    hook_registry.on("tool_result", on_tool_result, priority=100)
 
-    hook_registry, loaded = load_hooks_from_directories(repo_root=tmp_path, workspace_dir=workspace_dir)
-    assert any(item.source == "workspace" and item.file_path.name == "tool_rules.py" for item in loaded)
     runner = HookRunner(registry=hook_registry)
     tool_registry = ToolRegistry(
         context=ToolContext.create(repo_root=tmp_path),
@@ -153,15 +129,15 @@ def setup(hooks):
     tool_registry.register(EchoTool())
 
     with pytest.raises(ToolError, match="blocked by hook"):
-        tool_registry.execute(
+        asyncio.run(tool_registry.execute(
             "echo",
             {"text": "blocked"},
             hook_context=HookContext(session_id="sess_tool_block", repo_root=tmp_path),
-        )
+        ))
 
-    rewritten = tool_registry.execute(
+    rewritten = asyncio.run(tool_registry.execute(
         "echo",
         {"text": "ping"},
         hook_context=HookContext(session_id="sess_tool_rewrite", repo_root=tmp_path),
-    )
+    ))
     assert rewritten == {"text": "rewritten:ping"}

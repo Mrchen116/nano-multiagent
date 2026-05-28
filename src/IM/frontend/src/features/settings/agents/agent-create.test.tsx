@@ -8,6 +8,8 @@ const apiMocks = vi.hoisted(() => ({
   getNodeCreateStateMock: vi.fn(),
   createNodeAgentMock: vi.fn(),
   listNodesMock: vi.fn(),
+  promptPreviewMock: vi.fn(),
+  nodePromptPreviewMock: vi.fn(),
   navigateMock: vi.fn()
 }));
 
@@ -23,7 +25,9 @@ vi.mock("react-router-dom", async () => {
 vi.mock("./im-agent-config-api", () => ({
   getNodeCreateState: apiMocks.getNodeCreateStateMock,
   createNodeAgent: apiMocks.createNodeAgentMock,
-  listNodes: apiMocks.listNodesMock
+  listNodes: apiMocks.listNodesMock,
+  promptPreview: apiMocks.promptPreviewMock,
+  nodePromptPreview: apiMocks.nodePromptPreviewMock
 }));
 
 import { AgentCreatePage } from "./agent-create-page";
@@ -51,6 +55,8 @@ afterEach(() => {
   apiMocks.getNodeCreateStateMock.mockReset();
   apiMocks.createNodeAgentMock.mockReset();
   apiMocks.listNodesMock.mockReset();
+  apiMocks.promptPreviewMock.mockReset();
+  apiMocks.nodePromptPreviewMock.mockReset();
   apiMocks.navigateMock.mockReset();
 });
 
@@ -97,8 +103,8 @@ describe("agent create page (three-card)", () => {
           { name: "read", description: "Read files" },
           { name: "bash", description: "Run shell commands" }
         ],
-        model_options: ["codex_oauth:gpt-5.4", "moonshotAnthropic:kimi-k2.5"],
-        platform_default_model: "codex_oauth:gpt-5.4",
+        model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+        platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: "You are the personal_assistant default template."
       }
     });
@@ -111,7 +117,7 @@ describe("agent create page (three-card)", () => {
       skills: ["plan"],
       tool_allowlist: ["read"],
       group_reply_policy: "MENTION",
-      default_model: "moonshotAnthropic:kimi-k2.5",
+      default_model: "kimiCoding:K2.6",
       workspace_root: "/tmp/agent-new-workspace",
       workspace_is_default: false,
       profile_version: 1,
@@ -139,17 +145,17 @@ describe("agent create page (three-card)", () => {
     expect(screen.queryByText(/Workspace preview/i)).not.toBeInTheDocument();
 
     expect(screen.getByLabelText(/Owning Node/i)).toBeInTheDocument();
-    await waitFor(() => {
-      expect(screen.getByLabelText(/^System Prompt/)).toHaveValue("You are the personal_assistant default template.");
-    });
+    // feat-379-M5 (ISSUE-1): system_prompt no longer shown; Custom Instructions replaces it
+    expect(screen.queryByLabelText(/^System Prompt/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^Custom Instructions/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
     fireEvent.change(screen.getByLabelText("Description"), { target: { value: "runtime-created helper" } });
-    fireEvent.change(screen.getByLabelText(/^System Prompt/), { target: { value: "You are Agent New." } });
+    fireEvent.change(screen.getByLabelText(/^Custom Instructions/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /plan/i }));
     await user.click(screen.getByRole("button", { name: /read/i }));
-    await user.selectOptions(screen.getByLabelText("Default Model"), "moonshotAnthropic:kimi-k2.5");
+    await user.selectOptions(screen.getByLabelText("Default Model"), "kimiCoding:K2.6");
 
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
@@ -159,11 +165,14 @@ describe("agent create page (three-card)", () => {
         owner_id: "",
         display_name: "Agent New",
         description: "runtime-created helper",
-        system_prompt: "You are Agent New.",
+        // feat-379-M5 (ISSUE-1): system_prompt always blank; sections assembler owns it
+        system_prompt: "",
+        custom_prompt: "You are Agent New.",
+        features: {},
         skills: ["plan"],
         tool_allowlist: ["read"],
         group_reply_policy: "MENTION",
-        default_model: "moonshotAnthropic:kimi-k2.5",
+        default_model: "kimiCoding:K2.6",
         workspace_root: null
       });
     });
@@ -201,8 +210,8 @@ describe("agent create page (three-card)", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
         tools: [],
-        model_options: ["codex_oauth:gpt-5.4"],
-        platform_default_model: "codex_oauth:gpt-5.4",
+        model_options: ["codex_oauth:gpt-5.5"],
+        platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: ""
       }
     });
@@ -210,13 +219,12 @@ describe("agent create page (three-card)", () => {
     renderCreatePage();
 
     await screen.findByRole("heading", { name: /New agent/i });
-    const promptInput = screen.getByLabelText(/^System Prompt/);
-    fireEvent.change(promptInput, { target: { value: "" } });
+    // feat-379-M3: system_prompt is no longer required; submit with all fields blank
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     expect(await screen.findByText(/Agent ID is required/i)).toBeInTheDocument();
     expect(screen.getByText(/Display name is required/i)).toBeInTheDocument();
-    expect(screen.getByText(/System prompt is required/i)).toBeInTheDocument();
+    // system_prompt required check removed — segment system provides defaults (feat-379-M3)
     expect(apiMocks.createNodeAgentMock).not.toHaveBeenCalled();
     expect(apiMocks.navigateMock).not.toHaveBeenCalled();
   });
@@ -242,8 +250,8 @@ describe("agent create page (three-card)", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
         tools: [],
-        model_options: ["codex_oauth:gpt-5.4"],
-        platform_default_model: "codex_oauth:gpt-5.4",
+        model_options: ["codex_oauth:gpt-5.5"],
+        platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: ""
       }
     });
@@ -255,7 +263,8 @@ describe("agent create page (three-card)", () => {
 
     fireEvent.change(await screen.findByLabelText(/^Agent ID/), { target: { value: "agent-new" } });
     fireEvent.change(screen.getByLabelText(/^Display Name/), { target: { value: "Agent New" } });
-    fireEvent.change(screen.getByLabelText(/^System Prompt/), { target: { value: "You are Agent New." } });
+    // feat-379-M5 (ISSUE-1): Custom Instructions replaces System Prompt textarea
+    fireEvent.change(screen.getByLabelText(/^Custom Instructions/), { target: { value: "You are Agent New." } });
     await user.click(screen.getByRole("button", { name: /^Create agent$/i }));
 
     expect(await screen.findByText(/409.*agent already exists/i)).toBeInTheDocument();
@@ -282,8 +291,8 @@ describe("agent create page (three-card)", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
         tools: [],
-        model_options: ["codex_oauth:gpt-5.4"],
-        platform_default_model: "codex_oauth:gpt-5.4",
+        model_options: ["codex_oauth:gpt-5.5"],
+        platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: ""
       }
     });
@@ -293,5 +302,63 @@ describe("agent create page (three-card)", () => {
     const cancels = await screen.findAllByRole("link", { name: /^Cancel$/i });
     expect(cancels.length).toBeGreaterThanOrEqual(1);
     expect(cancels[0]).toHaveAttribute("href", "/settings/agents");
+  });
+});
+
+// feat-383-M1 R4: nodePromptPreview must include skill_ids and agent_id_hint
+describe("agent create page — preview fidelity (feat-383-M1)", () => {
+  function mockCreateState() {
+    apiMocks.getNodeCreateStateMock.mockResolvedValue({
+      node: {
+        node_id: "node-1",
+        owner_id: "owner-1",
+        node_name: "MacBook",
+        status: "online",
+        last_heartbeat_at: "2026-03-13T10:00:00Z",
+        agent_count: 0,
+        version: "1.0.0"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [
+          { name: "plan", description: "Plan work" },
+          { name: "review", description: "Review work" }
+        ],
+        tools: [
+          { name: "read", description: "Read files" }
+        ],
+        model_options: ["codex_oauth:gpt-5.5"],
+        platform_default_model: "codex_oauth:gpt-5.5",
+        default_system_prompt: "You are the personal_assistant default template."
+      }
+    });
+  }
+
+  it("nodePromptPreview 请求 skill_ids 来自 draft.skills", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    mockCreateState();
+    apiMocks.nodePromptPreviewMock.mockResolvedValue("## Preview");
+
+    renderCreatePage();
+    await screen.findByText(/Select a node/i);
+
+    // 打开预览
+    const previewToggle = await screen.findByRole("button", { name: /Preview full system prompt/i });
+    await user.click(previewToggle);
+
+    await waitFor(() => {
+      expect(apiMocks.nodePromptPreviewMock).toHaveBeenCalled();
+    });
+
+    // 初始状态没有选 skill，skill_ids 应为空
+    const calls = apiMocks.nodePromptPreviewMock.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    const body = lastCall[1] as { skill_ids?: string[]; agent_id_hint?: string };
+    // skill_ids 字段必须存在（即使为空数组）
+    expect(body).toHaveProperty("skill_ids");
   });
 });

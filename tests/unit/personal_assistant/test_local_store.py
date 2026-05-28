@@ -5,6 +5,25 @@ import pytest
 from personal_assistant.config.local_store import DEFAULT_LOCAL_KERNEL_TOKEN, default_local_config_path, load_local_config, save_local_config
 
 
+# Minimal llm: section required by all Gateway configs after refactor-382.
+_LLM_YAML = """\
+llm:
+  default_model: kimiCoding:K2.6
+  providers:
+    - name: anthropic
+      base_url: http://127.0.0.1:4000
+      models:
+        - name: kimiCoding:K2.6
+          extra_request_body:
+            thinking:
+              type: adaptive
+    - name: openai_compat
+      base_url: http://127.0.0.1:4000
+      models:
+        - name: codex_oauth:gpt-5.5
+"""
+
+
 def test_load_local_config_defaults_workspace_root_to_user_workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     home_dir = tmp_path / "home"
     monkeypatch.setenv("HOME", str(home_dir))
@@ -17,7 +36,7 @@ def test_load_local_config_defaults_workspace_root_to_user_workspace(tmp_path: P
                 "agents:",
                 "  - agent_id: assistant-a",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -26,9 +45,10 @@ def test_load_local_config_defaults_workspace_root_to_user_workspace(tmp_path: P
     expected_root = home_dir / "nano-assistant" / "workspace" / "assistant-a"
     assert config.agents[0].workspace_root == expected_root.resolve()
     assert expected_root.is_dir() is True
-    assert (expected_root / "MEMORY.md").is_file() is True
+    # MEMORY.md and USER.md seeded under .nanoassistant/memory/ (feat-349-M3 migration).
+    assert (expected_root / ".nanoassistant" / "memory" / "MEMORY.md").is_file() is True
     assert (expected_root / "HEARTBEAT.md").is_file() is True
-    assert (expected_root / "MEMORY.md").read_text(encoding="utf-8").strip()
+    assert (expected_root / ".nanoassistant" / "memory" / "MEMORY.md").read_text(encoding="utf-8").strip()
     assert (expected_root / "HEARTBEAT.md").read_text(encoding="utf-8").strip()
 
 
@@ -45,23 +65,25 @@ def test_load_local_config_backfills_default_workspace_files_for_explicit_root(t
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
     config = load_local_config(config_path)
 
     assert config.agents[0].workspace_root == workspace_root
-    assert (workspace_root / "MEMORY.md").is_file() is True
+    # MEMORY.md seeded under .nanoassistant/memory/ (feat-349-M3 migration).
+    assert (workspace_root / ".nanoassistant" / "memory" / "MEMORY.md").is_file() is True
     assert (workspace_root / "HEARTBEAT.md").is_file() is True
-
 
 
 def test_load_local_config_does_not_overwrite_existing_workspace_files(tmp_path: Path) -> None:
     config_path = tmp_path / "node-config.yaml"
     workspace_root = tmp_path / "agents" / "assistant-a"
     workspace_root.mkdir(parents=True)
-    memory_path = workspace_root / "MEMORY.md"
+    memory_dir = workspace_root / ".nanoassistant" / "memory"
+    memory_dir.mkdir(parents=True)
+    memory_path = memory_dir / "MEMORY.md"
     heartbeat_path = workspace_root / "HEARTBEAT.md"
     memory_path.write_text("existing memory\n", encoding="utf-8")
     heartbeat_path.write_text("interval: 1h\n\n- Existing heartbeat\n", encoding="utf-8")
@@ -74,7 +96,7 @@ def test_load_local_config_does_not_overwrite_existing_workspace_files(tmp_path:
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -96,7 +118,7 @@ def test_load_local_config_keeps_explicit_workspace_root_requirement(tmp_path: P
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {explicit_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -121,7 +143,7 @@ def test_load_local_config_reads_yaml_and_applies_defaults(tmp_path: Path) -> No
                 "kernel:",
                 "  base_url: http://127.0.0.1:8100",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -155,7 +177,7 @@ def test_load_local_config_preserves_multiple_seed_agents_in_order(tmp_path: Pat
                 f"    workspace_root: {beta_root}",
                 "    title: Beta",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -181,7 +203,7 @@ def test_load_local_config_uses_internal_kernel_base_url_default(tmp_path: Path)
                 "kernel:",
                 "  command: python -m agent.platform.http_api.app",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -205,7 +227,7 @@ def test_load_local_config_defaults_kernel_command_to_real_http_app_entrypoint(t
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -230,7 +252,7 @@ def test_load_local_config_defaults_kernel_token_for_local_gateway(tmp_path: Pat
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -254,7 +276,7 @@ def test_load_local_config_derives_kernel_base_url_from_local_command_port(tmp_p
                 "kernel:",
                 "  command: python -m uvicorn personal_assistant.kernel_app:app --host 127.0.0.1 --port 8123",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -274,7 +296,7 @@ def test_load_local_config_rejects_missing_agents(tmp_path: Path) -> None:
                 "  node_id: node-local",
                 "agents: []",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -294,7 +316,7 @@ def test_load_local_config_rejects_missing_workspace_root(tmp_path: Path) -> Non
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {missing_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -316,7 +338,7 @@ def test_parse_agents_defaults_new_fields_to_none(tmp_path: Path) -> None:
                 "  - agent_id: agent-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -352,9 +374,9 @@ def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
                 "      - Read",
                 "      - Write",
                 "    group_reply_policy: always",
-                "    default_model: gpt-4",
+                "    default_model: codex_oauth:gpt-5.5",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -365,7 +387,7 @@ def test_parse_agents_loads_extended_fields(tmp_path: Path) -> None:
     assert agent.skills == ("web_search", "code_review")
     assert agent.tool_allowlist == ("Read", "Write")
     assert agent.group_reply_policy == "always"
-    assert agent.default_model == "gpt-4"
+    assert agent.default_model == "codex_oauth:gpt-5.5"
 
 
 def test_save_local_config_round_trip(tmp_path: Path) -> None:
@@ -389,7 +411,7 @@ def test_save_local_config_round_trip(tmp_path: Path) -> None:
                 "    tool_allowlist:",
                 "      - Read",
                 "    group_reply_policy: always",
-                "    default_model: gpt-4",
+                "    default_model: codex_oauth:gpt-5.5",
                 "channels:",
                 "  - name: web_relay",
                 "    enabled: true",
@@ -399,7 +421,7 @@ def test_save_local_config_round_trip(tmp_path: Path) -> None:
                 "  url: wss://im.example.com",
                 "  token: secret-token",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -445,7 +467,7 @@ def test_save_local_config_creates_missing_parent_directories(tmp_path: Path) ->
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
     original = load_local_config(config_path)
@@ -483,7 +505,7 @@ def test_im_service_config_refresh_token_and_credentials_round_trip(tmp_path: Pa
                 "  username: nano",
                 "  password: nano1234",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -522,7 +544,7 @@ def test_im_service_config_optional_fields_default_to_none(tmp_path: Path) -> No
                 "  url: http://localhost:8011",
                 "  token: access-abc",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -532,6 +554,52 @@ def test_im_service_config_optional_fields_default_to_none(tmp_path: Path) -> No
     assert config.im_service.refresh_token is None
     assert config.im_service.username is None
     assert config.im_service.password is None
+
+
+# ---------------------------------------------------------------------------
+# R4 tests: ensure_workspace_defaults seed location migration (feat-349-M3)
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_workspace_defaults_seeds_memory_under_nanoassistant_memory(tmp_path: Path) -> None:
+    """MEMORY.md must be seeded at <workspace_root>/.nanoassistant/memory/MEMORY.md (MemoryStore path)."""
+    from personal_assistant.config.local_store import ensure_workspace_defaults
+
+    resolved = ensure_workspace_defaults(tmp_path)
+    memory_path = resolved / ".nanoassistant" / "memory" / "MEMORY.md"
+    assert memory_path.is_file(), f"Expected {memory_path} to exist"
+
+
+def test_ensure_workspace_defaults_seeds_user_under_nanoassistant_memory(tmp_path: Path) -> None:
+    """USER.md must be seeded at <workspace_root>/.nanoassistant/memory/USER.md."""
+    from personal_assistant.config.local_store import ensure_workspace_defaults
+
+    resolved = ensure_workspace_defaults(tmp_path)
+    user_path = resolved / ".nanoassistant" / "memory" / "USER.md"
+    assert user_path.is_file(), f"Expected {user_path} to exist"
+
+
+def test_ensure_workspace_defaults_seeds_heartbeat_at_workspace_root(tmp_path: Path) -> None:
+    """HEARTBEAT.md remains at workspace root (not under .nanoassistant/)."""
+    from personal_assistant.config.local_store import ensure_workspace_defaults
+
+    resolved = ensure_workspace_defaults(tmp_path)
+    heartbeat_path = resolved / "HEARTBEAT.md"
+    assert heartbeat_path.is_file(), f"Expected {heartbeat_path} to exist"
+
+
+def test_ensure_workspace_defaults_does_not_overwrite_existing_memory(tmp_path: Path) -> None:
+    """Existing MEMORY.md in new location is not overwritten."""
+    from personal_assistant.config.local_store import ensure_workspace_defaults
+
+    memory_dir = tmp_path / ".nanoassistant" / "memory"
+    memory_dir.mkdir(parents=True)
+    existing = memory_dir / "MEMORY.md"
+    existing.write_text("existing content\n", encoding="utf-8")
+
+    ensure_workspace_defaults(tmp_path)
+
+    assert existing.read_text(encoding="utf-8") == "existing content\n"
 
 
 def test_save_local_config_omits_none_fields(tmp_path: Path) -> None:
@@ -550,7 +618,7 @@ def test_save_local_config_omits_none_fields(tmp_path: Path) -> None:
                 "  - agent_id: agent-a",
                 f"    workspace_root: {workspace_root}",
             ]
-        ),
+        ) + "\n" + _LLM_YAML,
         encoding="utf-8",
     )
 
@@ -568,3 +636,186 @@ def test_save_local_config_omits_none_fields(tmp_path: Path) -> None:
     # Empty tuples should also be absent
     assert "skills" not in agent_raw
     assert "tool_allowlist" not in agent_raw
+
+
+# ---------------------------------------------------------------------------
+# feat-379-M2/R1: features + custom_prompt per-agent fields
+# ---------------------------------------------------------------------------
+
+def test_agent_workspace_config_has_features_field(tmp_path: Path) -> None:
+    """AgentWorkspaceConfig must expose a features mapping (feat-379 decision 3)."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+        ]) + "\n" + _LLM_YAML,
+        encoding="utf-8",
+    )
+    config = load_local_config(config_path)
+    # features must exist and default to empty mapping
+    assert hasattr(config.agents[0], "features")
+    assert dict(config.agents[0].features) == {}
+
+
+def test_agent_workspace_config_has_custom_prompt_field(tmp_path: Path) -> None:
+    """AgentWorkspaceConfig must expose custom_prompt (feat-379 decision 5)."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+        ]) + "\n" + _LLM_YAML,
+        encoding="utf-8",
+    )
+    config = load_local_config(config_path)
+    assert hasattr(config.agents[0], "custom_prompt")
+    assert config.agents[0].custom_prompt is None
+
+
+def test_load_features_from_yaml(tmp_path: Path) -> None:
+    """YAML features dict must be parsed into AgentWorkspaceConfig.features."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+            "    features:",
+            "      memory_curation: false",
+            "      skill_creation: true",
+        ]) + "\n" + _LLM_YAML,
+        encoding="utf-8",
+    )
+    config = load_local_config(config_path)
+    assert config.agents[0].features["memory_curation"] is False
+    assert config.agents[0].features["skill_creation"] is True
+
+
+def test_load_custom_prompt_from_yaml(tmp_path: Path) -> None:
+    """YAML custom_prompt string must be parsed into AgentWorkspaceConfig.custom_prompt."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+            "    custom_prompt: 你是我的私人法律顾问",
+        ]) + "\n" + _LLM_YAML,
+        encoding="utf-8",
+    )
+    config = load_local_config(config_path)
+    assert config.agents[0].custom_prompt == "你是我的私人法律顾问"
+
+
+def test_save_features_round_trip(tmp_path: Path) -> None:
+    """features must survive load → save → load round-trip."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+            "    features:",
+            "      memory_curation: false",
+        ]) + "\n" + _LLM_YAML,
+        encoding="utf-8",
+    )
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved.yaml"
+    save_local_config(original, saved_path)
+    reloaded = load_local_config(saved_path)
+    assert reloaded.agents[0].features["memory_curation"] is False
+
+
+def test_save_custom_prompt_round_trip(tmp_path: Path) -> None:
+    """custom_prompt must survive load → save → load round-trip."""
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+            "    custom_prompt: 你是我的私人法律顾问",
+        ]) + "\n" + _LLM_YAML,
+        encoding="utf-8",
+    )
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved.yaml"
+    save_local_config(original, saved_path)
+    reloaded = load_local_config(saved_path)
+    assert reloaded.agents[0].custom_prompt == "你是我的私人法律顾问"
+
+
+def test_save_omits_empty_features(tmp_path: Path) -> None:
+    """Empty features dict must not be written to YAML output."""
+    import yaml as _yaml
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+        ]) + "\n" + _LLM_YAML,
+        encoding="utf-8",
+    )
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved.yaml"
+    save_local_config(original, saved_path)
+    raw = _yaml.safe_load(saved_path.read_text(encoding="utf-8"))
+    assert "features" not in raw["agents"][0]
+
+
+def test_save_omits_none_custom_prompt(tmp_path: Path) -> None:
+    """None custom_prompt must not appear in serialized YAML."""
+    import yaml as _yaml
+
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n1",
+            "agents:",
+            f"  - agent_id: alpha",
+            f"    workspace_root: {workspace_root}",
+        ]) + "\n" + _LLM_YAML,
+        encoding="utf-8",
+    )
+    original = load_local_config(config_path)
+    saved_path = tmp_path / "saved.yaml"
+    save_local_config(original, saved_path)
+    raw = _yaml.safe_load(saved_path.read_text(encoding="utf-8"))
+    assert "custom_prompt" not in raw["agents"][0]

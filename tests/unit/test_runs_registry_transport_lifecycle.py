@@ -58,7 +58,7 @@ def test_two_runs_through_registry_reuse_async_client_transport(tmp_path: Path) 
     client = create_llm_client(
         config=LLMFactoryConfig(
             provider="openai_compat",
-            model="codex_oauth:gpt-5.4",
+            model="codex_oauth:gpt-5.5",
             base_url="http://127.0.0.1:4000",
         ),
         transport=httpx.MockTransport(handler),
@@ -66,7 +66,7 @@ def test_two_runs_through_registry_reuse_async_client_transport(tmp_path: Path) 
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=client,
-        model="codex_oauth:gpt-5.4",
+        model="codex_oauth:gpt-5.5",
     )
     registry = RunsRegistry(runtime=runtime, session_manager=manager)
 

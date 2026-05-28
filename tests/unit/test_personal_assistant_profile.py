@@ -53,11 +53,14 @@ def test_personal_assistant_profile_system_prompt_not_coding() -> None:
 
 
 def test_personal_assistant_profile_default_tool_ids() -> None:
-    """personal_assistant includes full set of default tools; send_message remains opt-in."""
+    """personal_assistant includes full set of default tools including self-evolution tools."""
     assert PERSONAL_ASSISTANT_PROFILE.default_tool_ids is not None
     tool_ids = set(PERSONAL_ASSISTANT_PROFILE.default_tool_ids)
     assert {"read", "write", "edit", "bash", "agent", "web_fetch", "web_search"} <= tool_ids
     assert "send_message" not in tool_ids
+    # Self-evolution tools (feat-349-M3 wiring).
+    assert "skill_manage" in tool_ids
+    assert "memory" in tool_ids
 
 
 def test_personal_assistant_profile_optional_tool_ids_include_send_message() -> None:
@@ -66,12 +69,14 @@ def test_personal_assistant_profile_optional_tool_ids_include_send_message() -> 
 
 
 def test_personal_assistant_profile_default_hook_modules_no_bash_risk_gate() -> None:
-    """personal_assistant hook modules must not include bash_risk_gate (no bash tool)."""
+    """personal_assistant hook modules must not include bash_risk_gate and must include self_improvement."""
     assert PERSONAL_ASSISTANT_PROFILE.default_hook_modules is not None
     modules = set(PERSONAL_ASSISTANT_PROFILE.default_hook_modules)
     assert "bash_risk_gate" not in modules
     assert "default_status" in modules
     assert "usage_metrics" in modules
+    # Self-improvement background hook (feat-349-M3 wiring).
+    assert "self_improvement" in modules
 
 
 def test_personal_assistant_profile_capabilities() -> None:

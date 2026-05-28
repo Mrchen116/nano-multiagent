@@ -85,11 +85,25 @@ class OpenAICompatClient(LLMClient):
         """Parse OpenAI-compatible SSE stream and yield LLMMessage."""
 
         text_buffer = ""
+        reasoning_buffer = ""
         tool_calls_buffer: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage: dict[str, Any] | None = None
+        # Track whether a finish_reason frame was received (bugfix-380).
+        got_terminal_event = False
 
         async for event in _iter_sse_events(response):
+            # bugfix-380: top-level {"error":{...}} frame — surface as ModelError.
+            if "error" in event and "choices" not in event:
+                error_obj = event["error"] if isinstance(event["error"], dict) else {}
+                error_msg = error_obj.get("message") or str(event["error"]) or "upstream error"
+                error_type = error_obj.get("type") or "error"
+                raise ModelError(
+                    f"openai_compat: {error_msg}",
+                    details={"error_type": error_type, "raw": error_obj},
+                    retryable=False,
+                )
+
             choice = _first_choice(event)
             if choice is None:
                 continue
@@ -103,19 +117,29 @@ class OpenAICompatClient(LLMClient):
                 if content:
                     text_buffer += str(content)
 
+            # Collect reasoning_content from providers like kimi K2.6 in thinking mode.
+            # This must be round-tripped back in subsequent requests or the upstream
+            # rejects with "reasoning_content is missing in assistant tool call message".
+            reasoning = delta.get("reasoning_content")
+            if reasoning:
+                reasoning_buffer += str(reasoning)
+
             if "tool_calls" in delta and isinstance(delta["tool_calls"], list):
                 for tc in delta["tool_calls"]:
                     if isinstance(tc, dict):
                         _accumulate_openai_tool_call(tool_calls_buffer, tc)
 
             if choice.get("finish_reason") is not None:
+                got_terminal_event = True
                 finish_reason = choice["finish_reason"]
                 usage = event.get("usage")
                 # Flush all accumulated content blocks
                 if text_buffer:
                     yield LLMMessage(role="assistant", content=text_buffer)
                     text_buffer = ""
-                for tc in _finalize_tool_calls(tool_calls_buffer):
+                accumulated_reasoning = reasoning_buffer or None
+                reasoning_buffer = ""
+                for tc in _finalize_tool_calls(tool_calls_buffer, reasoning_content=accumulated_reasoning):
                     yield tc
                 tool_calls_buffer.clear()
                 # Terminal metadata message
@@ -125,6 +149,15 @@ class OpenAICompatClient(LLMClient):
                     finish_reason=finish_reason,
                     usage=_parse_openai_usage(usage),
                 )
+
+        # bugfix-380: stream ended without finish_reason and without any content —
+        # provider truncated the response.
+        if not got_terminal_event and not text_buffer and not tool_calls_buffer:
+            raise ModelError(
+                "openai_compat: stream ended without terminal event",
+                details={"finish_reason": finish_reason},
+                retryable=True,
+            )
 
     async def close(self) -> None:
         """Close underlying HTTP resources."""
@@ -142,8 +175,8 @@ async def _iter_sse_events(response: httpx.Response) -> AsyncIterator[dict[str, 
     """Iterate over SSE data lines and yield parsed JSON events."""
 
     async for line in response.aiter_lines():
-        if line.startswith("data: "):
-            data = line.removeprefix("data: ").strip()
+        if line.startswith("data:"):
+            data = line.removeprefix("data:").lstrip(" ")
             if data == "[DONE]":
                 continue
             try:
@@ -181,11 +214,15 @@ def _accumulate_openai_tool_call(buffer: dict[int, dict[str, Any]], delta: dict[
         existing["type"] = delta["type"]
 
 
-def _finalize_tool_calls(buffer: dict[int, dict[str, Any]]) -> list[LLMMessage]:
+def _finalize_tool_calls(
+    buffer: dict[int, dict[str, Any]],
+    reasoning_content: str | None = None,
+) -> list[LLMMessage]:
     """Convert accumulated tool_call buffers into LLMMessage instances."""
 
     messages: list[LLMMessage] = []
-    for idx in sorted(buffer.keys()):
+    sorted_keys = sorted(buffer.keys())
+    for pos, idx in enumerate(sorted_keys):
         tc = buffer[idx]
         raw_arguments = tc.get("arguments", "")
         if isinstance(raw_arguments, str):
@@ -197,6 +234,9 @@ def _finalize_tool_calls(buffer: dict[int, dict[str, Any]]) -> list[LLMMessage]:
             parsed_arguments = dict(raw_arguments)
         else:
             parsed_arguments = {}
+        # Attach reasoning_content only to the first message; loop merges adjacent
+        # assistant messages and will preserve it via _append_llm_message.
+        msg_reasoning = reasoning_content if pos == 0 else None
         messages.append(
             LLMMessage(
                 role="assistant",
@@ -208,6 +248,7 @@ def _finalize_tool_calls(buffer: dict[int, dict[str, Any]]) -> list[LLMMessage]:
                         arguments=parsed_arguments,
                     ),
                 ),
+                reasoning_content=msg_reasoning,
             )
         )
     return messages

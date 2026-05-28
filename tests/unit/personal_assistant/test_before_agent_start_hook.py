@@ -1,14 +1,20 @@
-"""Unit tests for the personal_assistant before_agent_start hook (M232).
+"""Unit tests for the personal_assistant communication_context module (feat-379-M1).
 
-Tests verify that the hook appends the correct communication context block for
-group chats and a simplified version for direct chats, and is a no-op when
-conversation_type is absent.
+After M1, the before_agent_start hook no longer injects a system_prompt override.
+Group-chat communication context is now handled by the pa.communication_context
+segment (order=900, cache_safe=False) in the segment assembler.
+
+These tests verify:
+1. _build_communication_context_block helper still produces correct output
+   (it is reused by the pa.communication_context segment render function).
+2. The hook's setup() function does NOT register a before_agent_start handler
+   that returns a system_prompt key — prompt injection is retired.
 """
 
 from __future__ import annotations
 
 from agent.core.hooks.context import HookContext
-from agent.products.personal_assistant.hooks import _build_communication_context_block
+from agent.products.personal_assistant.prompt_sections import _build_communication_context_block
 
 
 def _make_ctx(*, conversation_type: str | None = None, participant_agent_ids: list[str] | None = None, agent_id: str | None = None) -> HookContext:
@@ -24,7 +30,7 @@ def _make_ctx(*, conversation_type: str | None = None, participant_agent_ids: li
 
 
 # ---------------------------------------------------------------------------
-# _build_communication_context_block helper tests
+# _build_communication_context_block helper tests (unchanged behaviour)
 # ---------------------------------------------------------------------------
 
 def test_build_context_block_group_contains_required_fields() -> None:
@@ -55,62 +61,52 @@ def test_build_context_block_direct_contains_agent_id_only() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Hook integration tests (via setup/dispatch simulation)
+# Hook retirement tests (feat-379-M1)
 # ---------------------------------------------------------------------------
 
-def _run_hook(payload: dict, ctx: HookContext) -> dict | None:
-    """Invoke the registered before_agent_start handler directly."""
+def test_hook_does_not_register_before_agent_start_after_m1() -> None:
+    """After M1, setup() must NOT register a before_agent_start handler.
+
+    Group-chat context is now provided by the pa.communication_context segment,
+    not by a hook that modifies the system_prompt override.
+    """
     from agent.core.hooks.registry import HookRegistry, HookAPI
     from agent.products.personal_assistant.hooks import setup
 
     registry = HookRegistry()
     setup(HookAPI(registry, source="product", module_name="pa_hooks", file_path=None))
     handlers = registry.handlers_for("before_agent_start")
-    assert handlers, "no before_agent_start handler registered"
-    # Use first registered handler (synchronous).
-    result = handlers[0].handler(payload, ctx)
-    return result  # type: ignore[return-value]
+    assert not handlers, (
+        "feat-379-M1: communication_context.setup() must not register "
+        "before_agent_start after prompt injection is retired"
+    )
 
 
-def test_hook_group_appends_context_block_to_none_base_prompt() -> None:
-    """When base system_prompt is None and conversation_type=group, hook returns a non-None system_prompt."""
-    ctx = _make_ctx(conversation_type="group", participant_agent_ids=["agent-a", "agent-b"], agent_id="agent-a")
-    result = _run_hook({"message": "hello", "system_prompt": None}, ctx)
+def test_hook_group_no_longer_injects_system_prompt() -> None:
+    """Verify that calling any registered before_agent_start handler (if present)
+    does NOT return a system_prompt key for group chat.
 
-    assert result is not None
-    assert "system_prompt" in result
-    assert result["system_prompt"] is not None
-    assert "[Communication Context]" in result["system_prompt"]
-    assert "group" in result["system_prompt"]
+    This is belt-and-suspenders: if the hook is somehow still registered, its
+    return value must not carry a system_prompt to prevent double-injection when
+    the segment assembler is also in use.
+    """
+    from agent.core.hooks.registry import HookRegistry, HookAPI
+    from agent.products.personal_assistant.hooks import setup
 
+    registry = HookRegistry()
+    setup(HookAPI(registry, source="product", module_name="pa_hooks", file_path=None))
+    handlers = registry.handlers_for("before_agent_start")
 
-def test_hook_group_appends_context_block_after_existing_prompt() -> None:
-    """When base system_prompt is provided, group context is appended after it."""
-    base = "You are a helpful assistant."
+    # No handlers expected after M1 retirement.
+    if not handlers:
+        return  # Pass: hook correctly removed.
+
     ctx = _make_ctx(conversation_type="group", participant_agent_ids=["agent-a"], agent_id="agent-a")
-    result = _run_hook({"message": "hi", "system_prompt": base}, ctx)
+    payload = {"message": "hello", "system_prompt": None}
+    result = handlers[0].handler(payload, ctx)
 
-    assert result is not None
-    sp = result["system_prompt"]
-    assert sp.startswith(base)
-    assert "[Communication Context]" in sp
-
-
-def test_hook_direct_appends_simplified_context() -> None:
-    """Direct-chat hook appends a simplified context block with agent_id."""
-    ctx = _make_ctx(conversation_type="direct", agent_id="agent-z")
-    result = _run_hook({"message": "hi", "system_prompt": None}, ctx)
-
-    assert result is not None
-    assert "system_prompt" in result
-    assert result["system_prompt"] is not None
-    assert "[Communication Context]" in result["system_prompt"]
-    assert "agent-z" in result["system_prompt"]
-
-
-def test_hook_no_conversation_type_returns_none() -> None:
-    """When ctx.metadata lacks conversation_type, hook returns None (safe no-op)."""
-    ctx = _make_ctx()  # no conversation_type
-    result = _run_hook({"message": "hi", "system_prompt": None}, ctx)
-
-    assert result is None
+    # If a handler is still present, it must not inject a system_prompt.
+    if result is not None:
+        assert "system_prompt" not in result or result.get("system_prompt") is None, (
+            "Hook must not return system_prompt after M1: use pa.communication_context segment"
+        )

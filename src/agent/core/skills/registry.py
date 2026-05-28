@@ -30,6 +30,14 @@ class SkillRegistry:
             self._cache = self._discover_skills()
         return self._cache
 
+    def invalidate_cache(self) -> None:
+        """Discard the discovery cache so the next list_skills() rescans the filesystem.
+
+        Called by SkillWriter after any write operation to ensure callers
+        always observe newly created or modified skills.
+        """
+        self._cache = None
+
     def _discover_skills(self) -> tuple[SkillMetadata, ...]:
         skills_by_name: dict[str, SkillMetadata] = {}
         for root in self._search_roots:

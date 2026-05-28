@@ -14,7 +14,11 @@ const KNOWN_TYPES = new Set([
   "message.delta",
   "message.completed",
   "tool_call.upserted",
-  "tool_call.completed"
+  "tool_call.completed",
+  // feat-333-M3/R1: permission ask flow — agent awaits user decision and resolution.
+  // Backend emits these from IM event_bridge.on_permission_request/on_permission_resolved.
+  "permission.request",
+  "permission.resolved"
 ]);
 
 function resolveWsUrl(token: string): string {

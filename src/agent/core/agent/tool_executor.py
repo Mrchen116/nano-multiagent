@@ -52,15 +52,31 @@ class StreamingToolExecutor:
         *,
         hook_context: Any | None = None,
         session_file_state: Any | None = None,
+        tool_execution_allowlist: tuple[str, ...] | None = None,
     ) -> None:
         self._queue: list[_QueuedTool] = []
         self._registry = tool_registry
         self._hook_context = hook_context
         self._session_file_state = session_file_state
+        # Execution-layer allowlist. When set (fork side-chain only), tool calls
+        # whose name is not in this set are denied with a synthetic error result
+        # and never reach registry.execute(). None means "no restriction" — the
+        # main agent path always passes None so its tool execution is unaffected.
+        self._tool_execution_allowlist = (
+            frozenset(tool_execution_allowlist)
+            if tool_execution_allowlist is not None
+            else None
+        )
         self._lock = asyncio.Lock()
         self._has_errored = False
         self._errored_tool_name = ""
         self._sibling_event = asyncio.Event()
+
+    def _is_execution_denied(self, tool_name: str) -> bool:
+        """Return True when the allowlist is active and excludes this tool name."""
+        if self._tool_execution_allowlist is None:
+            return False
+        return tool_name not in self._tool_execution_allowlist
 
     def add_tool(
         self, tool_call: ToolCall, *, hook_context: Any | None = None
@@ -117,6 +133,25 @@ class StreamingToolExecutor:
         try:
             if self._should_cancel(item):
                 item.result = self._synthetic_error(item, "cancelled by sibling bash error")
+                item.status = "completed"
+                item._event.set()
+                await self._process_queue()
+                return
+
+            # Execution-layer allowlist enforcement (fork side-chain only).
+            # Deny non-allowlisted tools with a synthetic error result — the call
+            # never reaches registry.execute(), so the tool has no side effects.
+            if self._is_execution_denied(item.tool_call.name):
+                item.result = ToolResult(
+                    call_id=item.tool_call.call_id,
+                    name=item.tool_call.name,
+                    output=None,
+                    error=(
+                        f"tool '{item.tool_call.name}' is not allowed in this "
+                        "background review context"
+                    ),
+                    arguments=dict(item.tool_call.arguments),
+                )
                 item.status = "completed"
                 item._event.set()
                 await self._process_queue()
@@ -181,8 +216,10 @@ class StreamingToolExecutor:
             if item.status == "completed":
                 item.status = "yielded"
                 results.append(item.result)
-            elif item.status == "executing" and not item.is_safe:
-                # Non-safe tool executing: subsequent results must wait.
+            elif item.status == "executing":
+                # Any executing tool (safe or not) blocks later results: the
+                # caller must see results in enqueue order so that tool_results
+                # sent to the LLM line up with the assistant's tool_use order.
                 break
         return results
 

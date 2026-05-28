@@ -17,6 +17,11 @@ export interface MentionPickerProps {
  * prototype's `name.toLowerCase().startsWith(query.toLowerCase())` behaviour.
  * Keyboard navigation (ArrowUp/ArrowDown/Enter) is supported so the user can
  * select without leaving the keyboard.
+ *
+ * bugfix-358: handle column (@agent_id) is always shown on every row so the
+ * user can verify the wire ID of the candidate they are about to select.
+ * Disambiguation under duplicate display_names is then a natural consequence
+ * of two distinct agent_ids being visible.
  */
 export function MentionPicker({ candidates, query, onSelect, onClose }: MentionPickerProps) {
   const { t } = useTranslation();

@@ -18,7 +18,7 @@ from contextlib import suppress
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 import httpx
 import websockets
@@ -27,6 +27,7 @@ from websockets.asyncio.client import ClientConnection
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.channels.web_relay_adapter import RelayDeduplicationStore, WebRelayAdapter
 from personal_assistant.client.kernel_api_client import KernelApiClient, KernelApiClientConfig
+from agent.core.llm.model_registry import init_model_registry
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     ChannelConfig,
@@ -284,6 +285,19 @@ class _IMConfigSyncClient:
                 else:
                     workspace_root = self._workspace_root_factory(agent_id)
                 workspace_root = ensure_workspace_defaults(workspace_root)
+                # feat-379-M2: parse per-agent features/custom_prompt from IM mirror payload
+                raw_features = payload.get("features")
+                synced_features = (
+                    {k: v for k, v in raw_features.items() if isinstance(k, str) and isinstance(v, bool)}
+                    if isinstance(raw_features, dict)
+                    else {}
+                )
+                synced_custom_prompt_val = payload.get("custom_prompt")
+                synced_custom_prompt = (
+                    synced_custom_prompt_val.strip()
+                    if isinstance(synced_custom_prompt_val, str) and synced_custom_prompt_val.strip()
+                    else None
+                )
                 agent_config = AgentWorkspaceConfig(
                     agent_id=agent_id,
                     workspace_root=workspace_root,
@@ -313,6 +327,8 @@ class _IMConfigSyncClient:
                         if isinstance(payload.get("default_model"), str) and payload.get("default_model").strip()
                         else None
                     ),
+                    features=synced_features,
+                    custom_prompt=synced_custom_prompt,
                 )
                 self._pipeline.register_agent(agent_config)
                 self._persist_agent_config(agent_config)
@@ -364,6 +380,15 @@ class _IMConfigSyncClient:
         group_reply_policy = grp.strip() if isinstance(grp, str) and grp.strip() else "MENTION"
         dm = agent_payload.get("default_model")
         default_model = dm.strip() if isinstance(dm, str) and dm.strip() else None
+        # feat-379-M2: per-agent features and custom_prompt from IM push payload
+        raw_features = agent_payload.get("features")
+        features = (
+            {k: v for k, v in raw_features.items() if isinstance(k, str) and isinstance(v, bool)}
+            if isinstance(raw_features, dict)
+            else {}
+        )
+        cp_val = agent_payload.get("custom_prompt")
+        custom_prompt = cp_val.strip() if isinstance(cp_val, str) and cp_val.strip() else None
         agent_config = AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=workspace_root,
@@ -373,6 +398,8 @@ class _IMConfigSyncClient:
             system_prompt=system_prompt,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
+            features=features,
+            custom_prompt=custom_prompt,
         )
         self._pipeline.register_agent(agent_config)
         self._persist_agent_config(agent_config)
@@ -388,6 +415,8 @@ class _IMConfigSyncClient:
             "group_reply_policy": group_reply_policy,
             "default_model": default_model,
             "workspace_root": str(workspace_root),
+            "features": features,
+            "custom_prompt": custom_prompt,
         }
 
     def close(self) -> None:
@@ -412,6 +441,7 @@ class _IMConfigSyncClient:
             kernel=self._local_config.kernel,
             heartbeat=self._local_config.heartbeat,
             im_service=self._local_config.im_service,
+            llm=self._local_config.llm,
             source_path=persist_path,
         )
         save_local_config(self._local_config, persist_path)
@@ -428,6 +458,9 @@ class _IMConfigSyncClient:
                 "group_reply_policy": agent.group_reply_policy or "manual",
                 "default_model": agent.default_model,
                 "workspace_root": str(agent.workspace_root),
+                # feat-379-M2: expose per-agent features/custom_prompt for capabilities reporting
+                "features": dict(agent.features),
+                "custom_prompt": agent.custom_prompt,
             }
             return payload
         return None
@@ -484,6 +517,7 @@ class _IMBootstrapClient:
         timeout_seconds: float = 5.0,
         monotonic: Monotonic = time.monotonic,
         sleep: Sleep = time.sleep,
+        token_getter: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         self._base_urls = _im_bootstrap_base_urls(base_url)
         self._base_headers = _im_http_headers(token)
@@ -497,6 +531,19 @@ class _IMBootstrapClient:
         self._feedback_sink = feedback_sink
         self._monotonic = monotonic
         self._sleep = sleep
+        self._token_getter = token_getter
+
+    def _refresh_token(self) -> None:
+        # bootstrap 跑在 asyncio.to_thread 工作线程里(main.py:894-896),无运行中 event
+        # loop,因此可以直接 asyncio.run 同步等异步 token_getter。fix bugfix-346 漏接
+        # bootstrap 路径导致 username/password 配置首次启动 401 的问题。
+        if self._token_getter is None:
+            return
+        token = asyncio.run(self._token_getter())
+        if token:
+            self._base_headers = _im_http_headers(token)
+            for client in self._clients.values():
+                client.headers.update(self._base_headers)
 
     def ensure_node_binding(self, *, node_id: str) -> str | None:
         """Open the bind URL when the upstream node still has no owner.
@@ -511,6 +558,7 @@ class _IMBootstrapClient:
             RuntimeError: When IM bootstrap APIs do not expose the registered node.
         """
 
+        self._refresh_token()
         owner_id, resolved_base_url = self._wait_for_owner(node_id=node_id)
         if owner_id:
             return None
@@ -525,6 +573,39 @@ class _IMBootstrapClient:
             ) from exc
         payload = response.json()
         bind_url = _require_text(payload.get("bind_url"), field_name="bind_url")
+
+        # refactor-381: when NANO_MULTIAGENT_AUTO_BIND=1 (or --auto-bind via CLI),
+        # confirm the binding programmatically instead of asking the operator to
+        # click a URL. Removes the worktree-e2e blocker where automation cannot
+        # complete the interactive bind step.
+        if os.environ.get("NANO_MULTIAGENT_AUTO_BIND") == "1":
+            bind_token = _extract_bind_token(bind_url)
+            if not bind_token:
+                raise GatewayStartupError(
+                    summary=f"node {node_id} auto-bind failed: bind_url missing token",
+                    next_step=f"Inspect {bind_url} or unset NANO_MULTIAGENT_AUTO_BIND.",
+                )
+            try:
+                confirm_resp = client.post(
+                    "/im/v1/bind",
+                    json={"action": "confirm", "bind_token": bind_token},
+                )
+                confirm_resp.raise_for_status()
+            except Exception as exc:  # noqa: BLE001
+                raise GatewayStartupError(
+                    summary=f"node {node_id} auto-bind confirm failed",
+                    next_step=(
+                        f"POST {resolved_base_url}/im/v1/bind with action=confirm + bind_token failed. "
+                        "Verify the IM Bearer token has confirm permission, then rerun."
+                    ),
+                ) from exc
+            self._feedback_sink(
+                "INFO",
+                f"node {node_id} auto-bound to IM",
+                f"NANO_MULTIAGENT_AUTO_BIND=1 confirmed bind for {resolved_base_url}.",
+            )
+            return None
+
         self._browser_opener(bind_url, new=2, autoraise=True)
         self._feedback_sink(
             "ACTION",
@@ -973,8 +1054,19 @@ def _load_runtime_config(
     if not isinstance(im_service_url_override, str) or not im_service_url_override.strip():
         return config
     override_url = im_service_url_override.strip()
-    override_token = config.im_service.token if config.im_service is not None else None
-    return replace(config, im_service=IMServiceConfig(url=override_url, token=override_token))
+    old_im = config.im_service
+    if old_im is None:
+        return replace(config, im_service=IMServiceConfig(url=override_url))
+    return replace(
+        config,
+        im_service=IMServiceConfig(
+            url=override_url,
+            token=old_im.token,
+            refresh_token=old_im.refresh_token,
+            username=old_im.username,
+            password=old_im.password,
+        ),
+    )
 
 
 def run_gateway(
@@ -999,6 +1091,7 @@ def run_gateway(
         load_config=resolved_factories.load_config,
         im_service_url_override=im_service_url_override,
     )
+    init_model_registry(config.llm)
     builder = resolved_factories.build_runtime or build_runtime
     runtime = builder(config)
     restore_signal_handlers = resolved_factories.install_signal_handlers or _install_default_signal_handlers(runtime)
@@ -1110,6 +1203,9 @@ def stop_gateway(
         except ProcessLookupError:
             _remove_gateway_pid(config)
             return f"STALE pid={pid} pid_file={_gateway_pid_path(config)}"
+        # bugfix-359: 顺手 killpg 把 kernel uvicorn 子进程一起带走;leader 进程已收过 SIGTERM,
+        # 多发一次无副作用,pgid 拿不到时静默吞掉。
+        _kill_process_tree(pid, signal.SIGTERM)
         deadline = time.monotonic() + config.kernel.shutdown_grace_seconds
         while time.monotonic() <= deadline:
             if not _pid_is_running(pid):
@@ -1117,6 +1213,7 @@ def stop_gateway(
                 return f"STOPPED pid={pid} pid_file={_gateway_pid_path(config)}"
             time.sleep(config.kernel.health_poll_interval_seconds)
         os.kill(pid, signal.SIGKILL)
+        _kill_process_tree(pid, signal.SIGKILL)
         _remove_gateway_pid(config)
         return f"STOPPED pid={pid} pid_file={_gateway_pid_path(config)} forced=true"
     if not _pid_is_running(state.pid):
@@ -1133,6 +1230,8 @@ def stop_gateway(
         if _healthcheck_reports_healthy(state.health_url):
             return f"STALE pid={state.pid} state={state_path} health_url={state.health_url} still_healthy=true"
         return f"STALE pid={state.pid} state={state_path}"
+    # bugfix-359: 顺手 killpg 把 kernel uvicorn 子进程一起带走。
+    _kill_process_tree(state.pid, signal.SIGTERM)
     deadline = time.monotonic() + config.kernel.shutdown_grace_seconds
     while time.monotonic() <= deadline:
         if not _pid_is_running(state.pid):
@@ -1150,6 +1249,7 @@ def stop_gateway(
             )
         time.sleep(config.kernel.health_poll_interval_seconds)
     os.kill(state.pid, signal.SIGKILL)
+    _kill_process_tree(state.pid, signal.SIGKILL)
     _remove_gateway_state(state_path)
     _remove_gateway_pid(config)
     forced = f"STOPPED pid={state.pid} state={state_path} forced=true"
@@ -1192,7 +1292,22 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             timeout_seconds=config.kernel.timeout_seconds,
         )
     )
-    process_manager = GatewayProcessManager(config=config.kernel, kernel_client=kernel_client)
+    _llm_config_json = config.llm.to_json()
+
+    def _spawn_kernel_with_llm_env(command: str) -> ProcessLike:
+        import copy
+        env = copy.copy(os.environ.copy())
+        env["NANO_MULTIAGENT_LLM_CONFIG_JSON"] = _llm_config_json
+        _kernel_log = Path("~/.nano-assistant/kernel.log").expanduser()
+        _kernel_log.parent.mkdir(parents=True, exist_ok=True)
+        _log_file = _kernel_log.open("ab")
+        return subprocess.Popen(shlex.split(command), stdout=_log_file, stderr=_log_file, env=env)
+
+    process_manager = GatewayProcessManager(
+        config=config.kernel,
+        kernel_client=kernel_client,
+        process_factory=_spawn_kernel_with_llm_env,
+    )
     runtime_dir = config.source_path.parent
     channel_registry = _build_channel_registry(
         config.channels,
@@ -1212,6 +1327,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     im_bootstrap_client: _IMBootstrapClient | None = None
     im_config_sync_client: _IMConfigSyncClient | None = None
     post_im_connect: Callable[[], None] | None = None
+    _run_context_store: dict[str, dict[str, str]] = {}
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
     # (NodeGateway-SPEC §4.2).  The kernel_client is injected below after construction
     # so that live session validation (GET /v1/sessions/{id}) is enabled at runtime.
@@ -1256,6 +1372,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             local_config=config,
             auth_client=_auth_client,
         )
+        _permission_response_handler = _build_permission_response_handler(
+            kernel_client=kernel_client,
+            run_context_store=_run_context_store,
+        )
         im_connection_manager = _build_im_connection_manager(
             config=config,
             relay_adapter=relay_adapter,
@@ -1263,18 +1383,34 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             heartbeat_runner=heartbeat_runner,
             sync_client=ConfigSyncClient(fetcher=im_config_sync_client.sync_agent),
             agent_config_provider=lambda agent_id: im_config_sync_client.current_agent_payload(agent_id=agent_id),
-            agent_capabilities_provider=lambda _agent_id, workspace_root: build_agent_capabilities_payload(
-                workspace_root=workspace_root
+            agent_capabilities_provider=lambda agent_id, workspace_root: build_agent_capabilities_payload(
+                workspace_root=workspace_root,
+                tool_allowlist=_resolve_agent_tool_allowlist(im_config_sync_client, agent_id),
+            ),
+            # feat-379-M2 R5: prompt_preview_provider calls agent HTTP /v1/prompt-preview
+            # so the IM frontend can display a preview of the assembled system prompt.
+            # feat-383-M1: lambda now forwards workspace_root and skill_ids so the kernel
+            # can resolve real tool descriptions and skill content.
+            prompt_preview_provider=lambda agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids: (  # noqa: ARG005
+                kernel_client.prompt_preview(
+                    features=features,
+                    custom_prompt=custom_prompt,
+                    tool_ids=tool_ids,
+                    scenario=scenario,
+                    workspace_root=workspace_root or None,
+                    skill_ids=list(skill_ids) if skill_ids else [],
+                )
             ),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
+            permission_response_handler=_permission_response_handler,
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
             token=config.im_service.token,
+            token_getter=_token_getter,
         )
         post_im_connect = lambda: im_bootstrap_client.ensure_node_binding(node_id=config.node.node_id)
-    _run_context_store: dict[str, dict[str, str]] = {}
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
@@ -1284,6 +1420,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         pipeline._kernel_event_observer = _build_kernel_event_observer(
             im_connection_manager_factory=lambda: im_connection_manager,
             run_context_store=_run_context_store,
+        )
+        # feat-349-M3: wire background session event callback so self_evolution_review
+        # events published by background hooks reach IM as system/meta messages.
+        pipeline._session_event_callback = _build_session_event_callback(
+            im_connection_manager_factory=lambda: im_connection_manager,
+            session_store=pipeline._session_store,
         )
     inbound_dispatcher = _InboundDispatcher(pipeline)
     closers: list[Callable[[], None]] = [kernel_client.close]
@@ -1325,6 +1467,15 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Keep the gateway attached to the current terminal for debugging and smoke tests",
     )
+    parser.add_argument(
+        "--auto-bind",
+        action="store_true",
+        help=(
+            "Automatically confirm the IM node binding instead of opening a browser URL. "
+            "Equivalent to setting NANO_MULTIAGENT_AUTO_BIND=1. "
+            "Intended for worktree e2e scripts where no human can click the bind URL."
+        ),
+    )
     subparsers = parser.add_subparsers(dest="command")
     stop_parser = subparsers.add_parser("stop", help="Stop the current background gateway for one config")
     stop_parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
@@ -1335,6 +1486,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     command = args.command or "start"
     resolved_config_path = str(Path(args.config).expanduser()) if args.config else str(default_local_config_path())
+    if getattr(args, "auto_bind", False):
+        os.environ["NANO_MULTIAGENT_AUTO_BIND"] = "1"
     try:
         if command == "stop":
             print(stop_gateway(config_path=resolved_config_path))
@@ -1490,8 +1643,10 @@ def _build_im_connection_manager(
     sync_client: ConfigSyncClient | None = None,
     agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
     agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
+    prompt_preview_provider: Callable[..., Any] | None = None,
     agent_create_handler: AgentCreateHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
+    permission_response_handler: Callable[[Mapping[str, object]], None] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -1504,10 +1659,61 @@ def _build_im_connection_manager(
         heartbeat_trigger=lambda _agent_id, _reason: heartbeat_runner.request_tick(),
         agent_config_provider=agent_config_provider,
         agent_capabilities_provider=agent_capabilities_provider,
+        prompt_preview_provider=prompt_preview_provider,
         agent_create_handler=agent_create_handler,
         token_getter=token_getter,
         connect=_connect_websocket,
+        permission_response_handler=permission_response_handler,
     )
+
+
+def _build_permission_response_handler(
+    *,
+    kernel_client: KernelAPIClient,
+    run_context_store: dict[str, dict[str, str]],
+) -> Callable[[Mapping[str, object]], None]:
+    """Build handler that routes IM permission_response frames to the kernel.
+
+    The frame carries ``request_id``, ``decision``, and the IM-side
+    ``message_id``. The kernel session is recovered by scanning
+    ``run_context_store`` for a matching ``message_id`` — the same store
+    already maintained by the kernel event observer.
+    """
+
+    def _handler(body: Mapping[str, object]) -> None:
+        request_id = str(body.get("request_id") or "").strip()
+        decision = str(body.get("decision") or "").strip()
+        message_id = str(body.get("message_id") or "").strip()
+        if not request_id or not decision:
+            return
+        kernel_session_id = ""
+        if message_id:
+            for ctx in run_context_store.values():
+                if ctx.get("message_id") == message_id:
+                    kernel_session_id = ctx.get("kernel_session_id") or ""
+                    break
+        # Fallback: if message_id lookup misses (e.g. ack not yet stored),
+        # use the only active kernel session when there's exactly one.
+        if not kernel_session_id:
+            distinct = {
+                ctx.get("kernel_session_id")
+                for ctx in run_context_store.values()
+                if ctx.get("kernel_session_id")
+            }
+            if len(distinct) == 1:
+                kernel_session_id = next(iter(distinct))  # type: ignore[assignment]
+        if not kernel_session_id:
+            return
+        try:
+            kernel_client.submit_permission_decision(
+                session_id=kernel_session_id,
+                request_id=request_id,
+                decision=decision,
+            )
+        except Exception:  # noqa: BLE001 — IM-bound side-effect; failure can't cascade
+            return
+
+    return _handler
 
 
 def _build_relay_lifecycle_callback(
@@ -1536,6 +1742,9 @@ def _build_relay_lifecycle_callback(
                     "conversation_id": conversation_id,
                     "message_id": "",  # filled by turn_start ack
                     "agent_id": agent_id_meta,
+                    # Stored so permission_response_handler can route the user's
+                    # decision back to the correct kernel session via reverse lookup.
+                    "kernel_session_id": update.kernel_session_id or "",
                 }
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
@@ -1770,8 +1979,14 @@ def _build_kernel_event_observer(
                 return _turn_start_then_delta()
 
         elif event_name == "turn_end":
-            # Finalize message with token_usage if present.
-            usage_raw = event.get("usage")
+            # bugfix-380 R3: completed=False = ModelError path.
+            # Send message_completed with delivery_status="failed" to finalize the bubble
+            # (error content was already sent via message_delta; final_content=None preserves it).
+            # completed=True = normal success path, delivery_status defaults to "completed".
+            turn_completed = event.get("completed") is not False
+
+            # Finalize message with token_usage if present (only on success path).
+            usage_raw = event.get("usage") if turn_completed else None
             token_usage_payload: dict[str, object] | None = None
             if isinstance(usage_raw, Mapping):
                 prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens")
@@ -1791,6 +2006,7 @@ def _build_kernel_event_observer(
                     "message_id": message_id,
                     "final_content": None,
                     "token_usage": token_usage_payload,
+                    "delivery_status": "completed" if turn_completed else "failed",
                     "run_id": run_id,
                 }))
 
@@ -1838,7 +2054,112 @@ def _build_kernel_event_observer(
                     "run_id": run_id,
                 }))
 
+        elif event_name == "permission_request":
+            # Agent auto_mode_gate is awaiting a user decision; forward to IM so the
+            # permission card can be rendered in the chat.  Only forwarded when we have
+            # a message_id (turn_start already acked) so IM can attach the card to the
+            # correct message row.  No message_id → card would be orphaned; skip.
+            if message_id:
+                request_id = str(event.get("request_id") or "").strip()
+                tool_name = str(event.get("tool_name") or "").strip()
+                tool_input = event.get("tool_input")
+                question = str(event.get("question") or "").strip()
+                options_raw = event.get("options")
+                options = list(options_raw) if isinstance(options_raw, list) else []
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "permission_request",
+                    "message_id": message_id,
+                    "permission_request": {
+                        "request_id": request_id,
+                        "tool_name": tool_name,
+                        "tool_input": dict(tool_input) if isinstance(tool_input, Mapping) else (tool_input or {}),
+                        "question": question,
+                        "options": options,
+                        "status": "pending",
+                    },
+                    "run_id": run_id,
+                }))
+
+        elif event_name == "permission_resolved":
+            # Agent resolved a permission request (hook resumed); update the IM card
+            # so the user sees the final decision.
+            if message_id:
+                request_id = str(event.get("request_id") or "").strip()
+                decision = str(event.get("decision") or "").strip()
+                loop.create_task(_send(manager, "node.streaming_delta", {
+                    "kind": "permission_resolved",
+                    "message_id": message_id,
+                    "request_id": request_id,
+                    "decision": decision,
+                    "run_id": run_id,
+                }))
+
     return observer
+
+
+def _build_session_event_callback(
+    *,
+    im_connection_manager_factory: Callable[[], "IMConnectionManager | None"],
+    session_store: "SessionBindingStore",
+) -> Callable[[str, Mapping[str, Any]], Awaitable[None]]:
+    """Build a session event callback that sends self_evolution_review as IM system messages.
+
+    When the background hook publishes ``self_evolution_review`` after a turn, this
+    callback is invoked with the kernel_session_id and the raw event payload.  It
+    resolves the conversation_id via the session binding store and sends a
+    ``node.system_message`` frame to IM so users see a non-first-person notification.
+
+    Args:
+        im_connection_manager_factory: Returns the live IM connection manager (may be None).
+        session_store: Gateway session binding store used to reverse-resolve conversation_id.
+
+    Returns:
+        Async callable ``(kernel_session_id, event) -> None``.
+    """
+
+    async def _callback(kernel_session_id: str, event: Mapping[str, Any]) -> None:
+        manager = im_connection_manager_factory()
+        if manager is None or not manager.connected:
+            return
+
+        event_name = event.get("event")
+        if event_name != "self_evolution_review":
+            return
+
+        # Resolve conversation_id from the session binding.
+        binding = session_store.find_by_kernel_session_id(kernel_session_id)
+        if binding is None:
+            return
+        conversation_id = binding.reply_context.target_chat_id
+        if not conversation_id:
+            return
+
+        # Format a human-readable system notification matching the CLI style.
+        data = event.get("data") or {}
+        if not isinstance(data, dict):
+            data = {}
+        reviewed_skills: bool = bool(data.get("reviewed_skills", False))
+        reviewed_memory: bool = bool(data.get("reviewed_memory", False))
+        if reviewed_skills and reviewed_memory:
+            subject = "skills + memory"
+        elif reviewed_skills:
+            subject = "skills"
+        elif reviewed_memory:
+            subject = "memory"
+        else:
+            subject = "self-evolution"
+        text = f"· background self-evolution review: {subject} updated"
+
+        try:
+            await manager.send_json("node.system_message", {
+                "conversation_id": conversation_id,
+                "text": text,
+            })
+        except Exception:  # noqa: BLE001
+            # Background notification delivery must never crash the gateway.
+            pass
+
+    return _callback
 
 
 def _build_heartbeat_product_reports(summary: HeartbeatTickSummary) -> list[dict[str, object]]:
@@ -1889,6 +2210,19 @@ def _default_heartbeat_state_path(config: LocalConfig) -> Path:
 
 def _default_gateway_log_path(config: LocalConfig) -> Path:
     return config.source_path.parent / "gateway.log"
+
+
+def _extract_bind_token(bind_url: str) -> str | None:
+    """Pull the ``token`` query parameter out of an IM bind URL.
+
+    refactor-381: used by ``_IMBootstrapClient.ensure_node_binding`` when
+    NANO_MULTIAGENT_AUTO_BIND=1 to programmatically confirm the binding.
+    """
+
+    parsed = urlparse(bind_url)
+    qs = parse_qs(parsed.query)
+    tokens = qs.get("token") or qs.get("bind_token") or []
+    return tokens[0] if tokens else None
 
 
 def _gateway_pid_path(config: LocalConfig) -> Path:
@@ -1973,6 +2307,31 @@ def _pid_is_running(pid: int) -> bool:
     return True
 
 
+def _resolve_agent_tool_allowlist(
+    sync_client: "_IMConfigSyncClient",
+    agent_id: str,
+) -> tuple[str, ...]:
+    """Return the tool_allowlist for an agent from the live local config snapshot.
+
+    Used when building the agent capabilities payload so feature toggle availability
+    can be evaluated against the current tool allowlist (feat-379 decision 7).
+
+    Args:
+        sync_client: The config sync client that holds the current LocalConfig.
+        agent_id: Agent whose tool_allowlist to look up.
+
+    Returns:
+        Tuple of allowed tool names; empty tuple when agent is not found.
+    """
+    payload = sync_client.current_agent_payload(agent_id=agent_id)
+    if payload is None:
+        return ()
+    raw = payload.get("tool_allowlist")
+    if not isinstance(raw, list):
+        return ()
+    return tuple(item for item in raw if isinstance(item, str))
+
+
 def _im_http_headers(token: str | None) -> dict[str, str]:
     headers = {"User-Agent": "nano-multiagent-gateway-bootstrap"}
     if token is not None:
@@ -2051,12 +2410,34 @@ def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) ->
     if process.poll() is not None:
         return
     process.terminate()
+    # bugfix-359: Gateway 启动用 start_new_session=True,kernel uvicorn 子进程在同一个 pgid 下。
+    # process.terminate() 只发给 Gateway pid,kernel 接不到。补一发 killpg 把整个会话带走;
+    # fake/mock ProcessLike 的 pid 拿不到 pgid 时 _kill_process_tree 静默吞掉。
+    _kill_process_tree(process.pid, signal.SIGTERM)
     try:
         process.wait(timeout=timeout_seconds)
     except (TimeoutError, subprocess.TimeoutExpired):
         process.kill()
+        _kill_process_tree(process.pid, signal.SIGKILL)
         with suppress(TimeoutError, subprocess.TimeoutExpired):
             process.wait(timeout=timeout_seconds)
+
+
+def _kill_process_tree(pid: int, sig: int) -> None:
+    """Send ``sig`` to the entire process group led by ``pid``; falls back to single pid.
+
+    Gateway 后台启动时 ``start_new_session=True``,kernel uvicorn 子进程在同一个 pgid 下。
+    killpg 是唯一能一次性把 Gateway + kernel + 任何其它 Gateway 派生的孙进程都带走的方式。
+    pgid 拿不到(进程刚消失)时静默吞掉,让上层走 wait 路径决定下一步。
+    """
+    try:
+        pgid = os.getpgid(pid)
+    except ProcessLookupError:
+        return
+    try:
+        os.killpg(pgid, sig)
+    except ProcessLookupError:
+        return
 
 
 def _install_default_signal_handlers(runtime: GatewayRuntimeLike) -> SignalHandlerInstaller:
