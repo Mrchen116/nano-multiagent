@@ -2,8 +2,10 @@
 
 ## Relations
 
-- Related: feat-379-system-prompt-sections（段式框架的引入者；本 unit 是它的完成与延伸）
-- Related: feat-383-prompt-preview-fidelity（基于段式框架做预览保真）
+- Depends on: bugfix-348 (PR #9) — bugfix-348 已建好 "workspace_root 调用方 per-request 透传" 基础链路 + 修了 session JSONL 隔离 bug;本 unit 在它建好的 hook_metadata 透传链路上加 `workspace_config_dirname` key + 修 MemoryTool 同类隔离 bug。**实施期等 bugfix-348 合并后启动**,避免改同一片代码 conflict
+- Related: feat-379-system-prompt-sections(段式框架的引入者;本 unit 是它的完成与延伸)
+- Related: feat-349-self-evolving-skills-memory(MemoryTool 引入者;本 unit 修复其 design.md L24 漏接的注入闭环)
+- Related: feat-383-prompt-preview-fidelity(基于段式框架做预览保真;本 unit 完成后预览与 runtime 真正一致)
 
 ## 原始需求
 
