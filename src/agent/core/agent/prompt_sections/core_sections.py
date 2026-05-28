@@ -30,13 +30,13 @@ ORDER_CORE_SYSTEM = 200
 ORDER_CORE_ACTIONS_CARE = 210
 ORDER_CORE_TOOL_RULES = 220
 ORDER_CORE_TONE_STYLE = 230
-ORDER_CORE_RUNTIME_TOOLS = 400
 ORDER_CORE_SKILLS_LISTING = 410
 ORDER_CORE_MEMORY_GUIDANCE = 500
 ORDER_CORE_SKILLS_GUIDANCE = 510
 ORDER_CORE_BACKGROUND_TASKS = 700
 ORDER_CORE_RUNTIME_FOOTER = 710
-ORDER_CORE_MEMORY_BLOCK = 950    # volatile — cache_safe=False
+ORDER_CORE_MEMORY_BLOCK = 950        # volatile — cache_safe=False
+ORDER_CORE_USER_PROFILE_BLOCK = 960  # volatile — cache_safe=False (decision 6)
 
 
 # ---------------------------------------------------------------------------
@@ -206,20 +206,6 @@ _CORE_TONE_STYLE = PromptSection(
 )
 
 
-def _render_runtime_tools(ctx: PromptContext) -> str:
-    tool_list = _format_tools(ctx.available_tools)
-    return f"## Available Tools\n{tool_list}"
-
-
-# Provenance: new — migrated from RUNTIME_FILL:AVAILABLE_TOOLS in prompts.py
-_CORE_RUNTIME_TOOLS = PromptSection(
-    name="core.runtime_tools",
-    order=ORDER_CORE_RUNTIME_TOOLS,
-    render=_render_runtime_tools,
-    cache_safe=True,
-)
-
-
 def _render_skills_listing(ctx: PromptContext) -> str | None:
     if not ctx.available_skills:
         return None
@@ -369,6 +355,26 @@ _CORE_MEMORY_BLOCK = PromptSection(
 )
 
 
+def _user_profile_block_enabled(ctx: PromptContext) -> bool:
+    return bool(ctx.user_profile_block)
+
+
+def _render_user_profile_block(ctx: PromptContext) -> str | None:
+    return ctx.user_profile_block  # Pre-rendered by MemoryStore; injected verbatim.
+
+
+# Provenance: new — hermes-adapted from agent/system_prompt.py:236-245
+#   (MemoryStore.format_for_system_prompt + USER.md branch); decision 6.
+#   Volatile (changes turn-to-turn) → cache_safe=False, order=960
+_CORE_USER_PROFILE_BLOCK = PromptSection(
+    name="core.user_profile_block",
+    order=ORDER_CORE_USER_PROFILE_BLOCK,
+    render=_render_user_profile_block,
+    enabled_when=_user_profile_block_enabled,
+    cache_safe=False,
+)
+
+
 # ---------------------------------------------------------------------------
 # Public export: ordered tuple of all core segments
 # ---------------------------------------------------------------------------
@@ -378,11 +384,11 @@ CORE_SECTIONS: tuple[PromptSection, ...] = (
     _CORE_ACTIONS_CARE,
     _CORE_TOOL_RULES,
     _CORE_TONE_STYLE,
-    _CORE_RUNTIME_TOOLS,
     _CORE_SKILLS_LISTING,
     _CORE_MEMORY_GUIDANCE,
     _CORE_SKILLS_GUIDANCE,
     _CORE_BACKGROUND_TASKS,
     _CORE_RUNTIME_FOOTER,
     _CORE_MEMORY_BLOCK,
+    _CORE_USER_PROFILE_BLOCK,
 )

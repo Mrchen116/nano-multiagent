@@ -151,9 +151,9 @@ def test_pa_golden_direct_no_memory_no_skill():
     assert "Nano Personal Assistant" in new_prompt
     assert "helpful personal assistant" in new_prompt
 
-    # Memory section present (always-on in PA).
-    assert "## Memory" in new_prompt
-    assert "MEMORY.md" in new_prompt
+    # feat-385: pa.memory_intro deleted — replaced by core.memory_guidance (injected only
+    # when memory tool is active). Direct check for the old "## Memory" / "MEMORY.md"
+    # header removed since that segment is gone.
 
     # Heartbeat present (always-on in PA).
     assert "## Heartbeat" in new_prompt
@@ -176,8 +176,9 @@ def test_pa_golden_direct_no_memory_no_skill():
     # No communication context (direct chat).
     assert "[Communication Context]" not in new_prompt
 
-    # Available tools section present.
-    assert "## Available Tools" in new_prompt or "Available Tools" in new_prompt
+    # feat-385: core.runtime_tools deleted — tools travel via API tools=[] channel only.
+    # The old "## Available Tools" section must NOT appear in the system prompt.
+    assert "## Available Tools" not in new_prompt
 
     # No user custom section.
     assert "# Custom Agent Instructions" not in new_prompt
