@@ -100,6 +100,6 @@
 
 ### R4 — 前端 API 客户端 + 调用点补字段
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 扩展 `promptPreview`/`nodePromptPreview` 签名，`agent-detail-page.tsx` 加 `skill_ids`，`agent-create-page.tsx` 加 `skill_ids`/`agent_id_hint`
 - 验证: 前端单测 + 浏览器验收截图

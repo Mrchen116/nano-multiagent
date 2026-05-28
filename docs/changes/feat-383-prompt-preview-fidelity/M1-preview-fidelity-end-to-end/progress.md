@@ -58,4 +58,33 @@
   - E2E/Regression: `test_agent_config_contract.py` 新增 3 个测试，全绿；既有 proxy test 更新 fake 签名
   - Visual/Interaction: N/A
 - Rollback: `git revert 54448c44`
-- Commits: C1=48273adb, C2=54448c44, C3=（本次）
+- Commits: C1=48273adb, C2=54448c44, C3=c8274c15
+- Next: R4（前端）
+
+## R4 — 前端 API 客户端 + 调用点补字段
+
+- Context: 前端 `promptPreview`/`nodePromptPreview` 签名缺 `skill_ids`/`agent_id_hint`，`agent-detail-page` 和 `agent-create-page` 没有传这两个字段，全链路前半段断路。
+- Decision:
+  1. `im-agent-config-api.ts` `promptPreview` 加 `skill_ids`；`nodePromptPreview` 加 `skill_ids`/`agent_id_hint`
+  2. `agent-detail-page.tsx` fetchPreview 加 `skill_ids: draft.skills`，依赖数组补 `draft.skills`
+  3. `agent-create-page.tsx` fetchPreview 加 `skill_ids: draft.skills`/`agent_id_hint: draft.agent_id`，依赖数组补两个新依赖
+- Rationale: `agent_id_hint` 未填时传 `undefined`（不传），IM 路由判空不 derive workspace，正确退化到占位符。
+- Evidence:
+  - Tests: `pytest -m 'not e2e' -q` — 2400 passed; frontend 2 test files — 18 passed
+  - Entry: 全链路 e2e（修补 Gateway kernel URL 后）验证通过
+  - Frontend State Matrix:
+    - default (agent-detail): 工具未勾选→`(none)`，勾选 read→真实描述 ✓
+    - datetime placeholder: `<运行时注入：当前时间>` ✓
+    - cwd agent-detail: 真实路径 `/Users/czj/nano-assistant/workspace/default-agent` ✓
+    - cwd agent-create 无 ID: `<运行时注入：workspace 路径>` ✓
+    - cwd agent-create 有 ID: 真实路径 `/Users/czj/nano-assistant/workspace/test-preview-agent` ✓
+  - Browser QA:
+    - agent-detail: `http://127.0.0.1:54208/settings/agents/default-agent`，勾选 read，预览显示真实描述+占位符+真实 cwd
+    - agent-create: `http://127.0.0.1:54208/settings/agents/new`，无 ID 看占位，填 ID 看真实 cwd
+    - console errors: 无；network failures: 无
+  - E2E/Regression: 前端 unit test 覆盖 skill_ids/agent_id_hint 透传；不适用独立 E2E 框架
+  - Visual/Interaction:
+    - `ACCEPTANCE/feat-383-r1-agent-detail-preview-1440.png`: `- read: Read the contents of a file...` (真实), datetime 占位, cwd 真实
+    - `ACCEPTANCE/feat-383-r1-agent-create-preview-1440.png`: cwd `test-preview-agent`, datetime 占位
+- Rollback: `git revert fc00feae`
+- Commits: C1=d8dc82a4, C2=fc00feae, C3=（本次）
