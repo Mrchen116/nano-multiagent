@@ -271,6 +271,7 @@ def test_agent_prompt_preview_proxy_contract(tmp_path: Path, monkeypatch: pytest
         custom_prompt,  # noqa: ARG001
         tool_ids: list,  # noqa: ARG001
         scenario: str,  # noqa: ARG001
+        skill_ids: list | None = None,  # noqa: ARG001
         timeout_seconds: float = 10.0,  # noqa: ARG001
     ) -> dict:
         return {"prompt": "You are a helpful assistant.", "section_count": 2}

@@ -399,12 +399,14 @@ class PromptPreviewRequest(BaseModel):
         custom_prompt: Optional user-supplied text supplement.
         tool_ids: Tool names to treat as active for the preview turn.
         scenario: Conversation type hint; defaults to ``direct``.
+        skill_ids: Skill names to resolve from workspace.  forwarded to kernel.
     """
 
     features: dict[str, bool] = Field(default_factory=dict)
     custom_prompt: str | None = None
     tool_ids: list[str] = Field(default_factory=list)
     scenario: str = "direct"
+    skill_ids: list[str] = Field(default_factory=list)
 
 
 class PromptPreviewResponse(BaseModel):
@@ -443,6 +445,7 @@ async def agent_prompt_preview(
         custom_prompt=payload.custom_prompt,
         tool_ids=payload.tool_ids,
         scenario=payload.scenario,
+        skill_ids=payload.skill_ids,
     )
     if result is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="target_node_id is not connected")

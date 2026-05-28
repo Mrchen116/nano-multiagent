@@ -8,7 +8,6 @@ from IM.api.routes.agents import (
     AgentConfigResponse,
     AllowlistOptionResponse,
     FeatureCapabilityResponse,
-    PromptPreviewRequest,
     PromptPreviewResponse,
     _coerce_feature_list,
     coerce_allowlist_options,
@@ -16,10 +15,32 @@ from IM.api.routes.agents import (
 )
 from IM.application.config_service import ConfigService
 from IM.application.node_service import NodeService
-from IM.domain.models import NodeStatus, User
+from IM.domain.models import NodeStatus, User, managed_workspace_root
 from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["nodes"])
+
+
+class NodePromptPreviewRequest(BaseModel):
+    """Request body for the node-scoped prompt-preview endpoint.
+
+    Args:
+        features: Per-agent feature flags (key → bool) to preview with.
+        custom_prompt: Optional user-supplied text supplement.
+        tool_ids: Tool names to treat as active for the preview turn.
+        scenario: Conversation type hint; defaults to ``direct``.
+        skill_ids: Skill names to resolve from workspace.  Forwarded to kernel.
+        agent_id_hint: Optional agent ID whose managed workspace_root will be
+            derived and forwarded to kernel.  When absent, workspace_root is
+            empty and the kernel uses its cwd placeholder.
+    """
+
+    features: dict[str, bool] = Field(default_factory=dict)
+    custom_prompt: str | None = None
+    tool_ids: list[str] = Field(default_factory=list)
+    scenario: str = "direct"
+    skill_ids: list[str] = Field(default_factory=list)
+    agent_id_hint: str | None = None
 
 
 class NodeResponse(BaseModel):
@@ -140,7 +161,7 @@ async def get_node_capabilities(
 @router.post("/im/v1/nodes/{node_id}/prompt-preview", response_model=PromptPreviewResponse)
 async def node_prompt_preview(
     node_id: str,
-    payload: PromptPreviewRequest,
+    payload: NodePromptPreviewRequest,
     user: User = Depends(current_user),
     service: NodeService = Depends(get_node_service),
     gateway_handler: GatewayHandler = Depends(get_gateway_handler),
@@ -148,17 +169,21 @@ async def node_prompt_preview(
     """Proxy a node-level prompt-preview request to the Gateway node (owner-scoped).
 
     feat-379-M9 (決策 11): Used by the agent-create page before an agent exists.
-    Unlike the per-agent endpoint, no agent_id or workspace_root is required — the
-    Gateway assembles the preview using its default kernel client.
+    feat-383-M1: workspace_root is derived from agent_id_hint on the IM side (decision 1);
+    skill_ids are forwarded so the kernel can resolve real skill descriptions.
     """
     if service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found")
+    # Derive workspace_root from agent_id_hint (IM owns this mapping per decision 1).
+    workspace_root = managed_workspace_root(payload.agent_id_hint) if payload.agent_id_hint else ""
     result = await gateway_handler.request_node_prompt_preview(
         target_node_id=node_id,
         features=payload.features,
         custom_prompt=payload.custom_prompt,
         tool_ids=payload.tool_ids,
         scenario=payload.scenario,
+        workspace_root=workspace_root,
+        skill_ids=payload.skill_ids,
     )
     if result is None:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="target_node_id is not connected")
