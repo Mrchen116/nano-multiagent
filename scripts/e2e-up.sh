@@ -77,17 +77,19 @@ if command -v yq >/dev/null 2>&1; then
   yq -i "
     .node.node_id = \"$NODE_ID\" |
     .im_service.url = \"http://127.0.0.1:$IM_PORT\" |
+    .kernel.base_url = \"http://127.0.0.1:$API_PORT\" |
     .agents[].workspace_root = \"$WORKSPACE_DIR/\" + .agents[].agent_id
   " "$WT_CFG"
 else
   # Fallback when yq is absent: use python.
-  WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" \
+  WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" API_PORT="$API_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" \
     python3 - <<'PY'
 import os, sys, yaml
 path = os.environ["WT_CFG_PY"]
 with open(path) as f: cfg = yaml.safe_load(f)
 cfg.setdefault("node", {})["node_id"] = os.environ["NODE_ID"]
 cfg.setdefault("im_service", {})["url"] = f"http://127.0.0.1:{os.environ['IM_PORT']}"
+cfg.setdefault("kernel", {})["base_url"] = f"http://127.0.0.1:{os.environ['API_PORT']}"
 wsd = os.environ["WORKSPACE_DIR"]
 for agent in cfg.get("agents", []):
     agent["workspace_root"] = os.path.join(wsd, agent["agent_id"])
@@ -210,6 +212,7 @@ export IM_URL=http://127.0.0.1:$IM_PORT
 export API_URL=http://127.0.0.1:$API_PORT
 export IM_JWT_SECRET=$JWT_SECRET
 export NODE_ID=$NODE_ID
+export VITE_IM_PROXY_TARGET=http://127.0.0.1:$IM_PORT
 EOF
 
 echo "e2e stack ready in $WT_ROOT"
