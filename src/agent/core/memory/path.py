@@ -19,8 +19,8 @@ def derive_memory_root(workspace_root: Path, workspace_config_dirname: str) -> P
 
     Args:
         workspace_root: Absolute path to the agent's workspace directory.
-        workspace_config_dirname: Product-specific config subdir name
-            (e.g. ".nanoassistant" for PA, ".nanocode" for LC).
+        workspace_config_dirname: Product-specific config subdir name from
+            product defaults.py (e.g. the value of WORKSPACE_CONFIG_DIRNAME constant).
 
     Returns:
         Path to the memory directory: <workspace_root>/<workspace_config_dirname>/memory/
