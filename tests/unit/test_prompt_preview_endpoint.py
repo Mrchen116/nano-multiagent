@@ -109,6 +109,8 @@ def test_prompt_preview_passes_features_to_context() -> None:
     ]
     app = create_app()
     app.state.prompt_sections = sections
+    # feat-383-M1: tool gate checks now require the tool to be in the registry.
+    app.state.tool_registry = _make_registry_with_tools(("read", "Read."), ("write", "Write."))
     with TestClient(app) as client:
         client.post(
             "/v1/prompt-preview",
@@ -127,7 +129,7 @@ def test_prompt_preview_passes_features_to_context() -> None:
     assert ctx.flags.get("skill_creation") is False
     assert ctx.vars.get("custom_prompt") == "Extra instructions."
     assert ctx.scenario.get("conversation_type") == "direct"
-    # tool stubs allow has_tool() checks
+    # has_tool() checks rely on tools being in registry (and thus in available_tools)
     assert ctx.has_tool("read")
     assert ctx.has_tool("write")
     assert not ctx.has_tool("nonexistent_tool")
@@ -147,6 +149,9 @@ def test_prompt_preview_memory_curation_gate_requires_tool_id() -> None:
 
     app = create_app()
     app.state.prompt_sections = list(CORE_SECTIONS)
+    # feat-383-M1: tool gate checks now require the tool to be in the registry;
+    # wire a registry that includes the memory tool so has_tool("memory") works.
+    app.state.tool_registry = _make_registry_with_tools(("memory", "Memory tool."))
     with TestClient(app) as client:
         # memory tool in tool_ids + memory_curation=True: guidance must appear
         resp_on = client.post(
