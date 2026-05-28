@@ -8,13 +8,13 @@
 
 ## 退出标准
 
-- [ ] `pytest tests/unit/test_global_routes_prompt_preview.py tests/contract/test_prompt_preview_runtime_parity.py tests/integration/test_prompt_sections_golden.py` 全绿
-- [ ] `pytest -m "not e2e"` 全绿（无回归）
-- [ ] `(cd src/IM/frontend && npm run test)` 全绿
-- [ ] Contract test 断言：preview HTTP 输出中占位符替换后与 runtime `build_system_prompt` 同 ctx 逐字相等
-- [ ] IM 单测覆盖 `agent_id_hint → managed_workspace_root` derive 路径
-- [ ] 前端单测覆盖 `draft.skills` 透传到 `promptPreview` / `nodePromptPreview` 调用 payload
-- [ ] 浏览器验收：agent-detail 和 agent-create 两个入口的工具/skill/cwd/时间四类字段所见即所得
+- [x] `pytest tests/unit/test_global_routes_prompt_preview.py tests/contract/test_prompt_preview_runtime_parity.py tests/integration/test_prompt_sections_golden.py` 全绿
+- [x] `pytest -m "not e2e"` 全绿（无回归）
+- [x] `(cd src/IM/frontend && npm run test)` 全绿
+- [x] Contract test 断言：preview HTTP 输出中占位符替换后与 runtime `build_system_prompt` 同 ctx 逐字相等
+- [x] IM 单测覆盖 `agent_id_hint → managed_workspace_root` derive 路径
+- [x] 前端单测覆盖 `draft.skills` 透传到 `promptPreview` / `nodePromptPreview` 调用 payload
+- [x] 浏览器验收：agent-detail 和 agent-create 两个入口的工具/skill/cwd/时间四类字段所见即所得
 
 ## 测试策略
 
