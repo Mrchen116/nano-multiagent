@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.memory.store import MemoryEntry, MemorySource, MemoryStore
+from agent.core.memory.path import derive_memory_root
 
 # Actions supported by this tool (design §4 interface)
 _SUPPORTED_ACTIONS = frozenset({"add", "replace", "remove"})
@@ -183,27 +184,28 @@ class MemoryTool:
     # ------------------------------------------------------------------
 
     def _resolve_memory_root(self, ctx: Any) -> Path:
-        """Resolve memory_root from context, falling back to cwd."""
+        """Resolve memory_root per-session from session_metadata (decision 9).
+
+        Production path: workspace_root + workspace_config_dirname from session_metadata,
+        derived via derive_memory_root (shared with runtime _ensure_memory_snapshot).
+        Test scaffold: _fixed_memory_root set at construction bypasses metadata lookup.
+        """
         if self._fixed_memory_root is not None:
             return self._fixed_memory_root
 
         metadata = getattr(ctx, "session_metadata", {}) or {}
-        raw = metadata.get("memory_root")
-        if raw:
-            return Path(str(raw))
+        workspace_root = metadata.get("workspace_root")
+        dirname = metadata.get("workspace_config_dirname")
+        if workspace_root and dirname:
+            return derive_memory_root(Path(str(workspace_root)), str(dirname))
 
-        # Fallback: derive from workspace_root in metadata if available
-        workspace_raw = metadata.get("workspace_root")
-        if workspace_raw:
-            # No namespace-aware resolver here; caller should inject memory_root directly.
-            # This fallback ensures tests without full bootstrap still work.
-            return Path(str(workspace_raw)) / ".nano" / "memory"
-
-        # Last resort: use cwd (tests and local contexts)
-        cwd = getattr(ctx, "cwd", None)
-        if cwd is not None:
-            return Path(cwd) / ".nano" / "memory"
-        return Path(".nano") / "memory"
+        # No silent fallback — missing keys indicate misconfigured bootstrap or test context.
+        raise RuntimeError(
+            "memory_root cannot be resolved: missing workspace_root or "
+            "workspace_config_dirname in session_metadata. "
+            "Ensure bootstrap injects workspace_config_dirname into default_session_metadata "
+            "and runtime injects workspace_root into hook_metadata per-turn."
+        )
 
     def _resolve_session_id(self, ctx: Any) -> str:
         """Extract session_id from context or return a placeholder."""

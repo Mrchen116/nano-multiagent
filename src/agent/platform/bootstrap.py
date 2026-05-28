@@ -153,7 +153,9 @@ def bootstrap_product(
         skill_manage_tool = SkillManageTool(skill_root=skill_root, registry=skill_registry)
         tool_registry.register(skill_manage_tool, replace=True)
 
-        memory_tool = MemoryTool(memory_root=memory_root)
+        # No fixed memory_root — memory_root is per-session, derived at runtime from
+        # workspace_root + workspace_config_dirname (decision 9 / per-workspace path governance).
+        memory_tool = MemoryTool()
         tool_registry.register(memory_tool, replace=True)
 
     # Read workspace config file for self_evolution settings.
@@ -165,6 +167,11 @@ def bootstrap_product(
             default_session_metadata["self_evolution"] = self_evo_config
         else:
             default_session_metadata["self_evolution"] = dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+
+    # Thread workspace_config_dirname into session metadata so runtime._ensure_memory_snapshot
+    # and MemoryTool._resolve_memory_root can derive memory_root per-session (decision 9 / 10).
+    if profile.workspace_config_dirname:
+        default_session_metadata["workspace_config_dirname"] = profile.workspace_config_dirname
 
     # Merge core segments with product-specific segments so /v1/prompt-preview
     # assembles the full stable prefix (identity, runtime, guidelines, etc.) plus

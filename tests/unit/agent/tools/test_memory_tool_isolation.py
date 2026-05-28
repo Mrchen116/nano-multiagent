@@ -81,7 +81,8 @@ def test_bootstrap_memory_tool_constructed_without_fixed_root() -> None:
     import inspect
     import ast
 
-    bootstrap_path = Path(__file__).parents[5] / "src" / "agent" / "platform" / "bootstrap.py"
+    import agent.platform.bootstrap as _bootstrap_module
+    bootstrap_path = Path(_bootstrap_module.__file__)
     source = bootstrap_path.read_text(encoding="utf-8")
     tree = ast.parse(source)
 
