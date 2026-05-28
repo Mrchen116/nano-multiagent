@@ -430,3 +430,43 @@ async def test_loop_preserves_reasoning_content_in_tool_call_roundtrip() -> None
     assert assistant_msg.reasoning_content == thinking_text, (
         f"reasoning_content 丢失: 期望 {thinking_text!r}, 实际 {assistant_msg.reasoning_content!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# W1 (feat-385-M2): AgentLoop on_compaction callback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_loop_accepts_on_compaction_callback_in_init() -> None:
+    """AgentLoop.__init__ must accept on_compaction parameter without error."""
+    called: list[str] = []
+
+    def _cb(session_id: str) -> None:
+        called.append(session_id)
+
+    client = FakeLLMClient()
+    loop = AgentLoop(
+        llm_client=client,
+        model="model-x",
+        on_compaction=_cb,
+    )
+    assert loop is not None
+
+
+@pytest.mark.asyncio
+async def test_loop_on_compaction_callback_not_called_without_compaction() -> None:
+    """on_compaction callback must NOT be called during a normal (non-compaction) turn."""
+    called: list[str] = []
+
+    def _cb(session_id: str) -> None:
+        called.append(session_id)
+
+    client = FakeLLMClient()
+    loop = AgentLoop(
+        llm_client=client,
+        model="model-x",
+        on_compaction=_cb,
+    )
+    await _run_loop(loop, _base_state())
+    assert called == [], "on_compaction must not fire when no compaction occurred"

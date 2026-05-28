@@ -241,3 +241,36 @@ def test_atomic_write_no_partial_file(memory_root: Path) -> None:
 def test_invalid_target_raises(store: MemoryStore) -> None:
     with pytest.raises((ValueError, KeyError)):
         store.add("unknown_target", _entry("x"))  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# R1.12  format_for_prompt returns None when no entries (feat-385-M2 I1)
+# ---------------------------------------------------------------------------
+
+
+def test_format_for_prompt_returns_none_when_empty_no_disk(store: MemoryStore) -> None:
+    """Empty store (no disk files, no entries) must return None, not a banner string."""
+    result = store.format_for_prompt("memory")
+    assert result is None, f"Expected None for empty memory, got: {result!r}"
+
+
+def test_format_for_prompt_returns_none_when_empty_memory_root_missing(tmp_path: Path) -> None:
+    """Store whose memory_root doesn't exist yet returns None for both targets."""
+    nonexistent_root = tmp_path / "no_such_dir"
+    store = MemoryStore(memory_root=nonexistent_root)
+    assert store.format_for_prompt("memory") is None
+    assert store.format_for_prompt("user") is None
+
+
+def test_format_for_prompt_returns_str_when_has_entries(store: MemoryStore) -> None:
+    """With entries, format_for_prompt returns a non-empty string."""
+    store.add("memory", _entry("a real fact"))
+    result = store.format_for_prompt("memory")
+    assert isinstance(result, str)
+    assert "a real fact" in result
+
+
+def test_format_for_prompt_user_returns_none_when_empty(store: MemoryStore) -> None:
+    """user target also returns None when no user entries."""
+    result = store.format_for_prompt("user")
+    assert result is None
