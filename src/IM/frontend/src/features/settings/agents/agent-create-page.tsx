@@ -126,7 +126,9 @@ function CreateBehaviorCard({
       const text = await nodePromptPreview(selectedNodeId, {
         features: effectiveFeatures,
         custom_prompt: draft.custom_prompt ?? "",
-        tool_ids: draft.tool_allowlist ?? []
+        tool_ids: draft.tool_allowlist ?? [],
+        skill_ids: draft.skills ?? [],
+        agent_id_hint: draft.agent_id || undefined
       });
       setPreviewText(text);
     } catch (err) {
@@ -134,7 +136,7 @@ function CreateBehaviorCard({
     } finally {
       setPreviewLoading(false);
     }
-  }, [selectedNodeId, effectiveFeatures, draft.custom_prompt, draft.tool_allowlist]);
+  }, [selectedNodeId, effectiveFeatures, draft.custom_prompt, draft.tool_allowlist, draft.skills, draft.agent_id]);
 
   useEffect(() => {
     if (!previewOpen) return;
@@ -142,7 +144,7 @@ function CreateBehaviorCard({
     previewTimer.current = setTimeout(() => { void fetchPreview(); }, 600);
     return () => { if (previewTimer.current) clearTimeout(previewTimer.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewOpen, draft.custom_prompt, draft.features, draft.tool_allowlist]);
+  }, [previewOpen, draft.custom_prompt, draft.features, draft.tool_allowlist, draft.skills, draft.agent_id]);
 
   function handlePreviewToggle() {
     if (!previewOpen) {
