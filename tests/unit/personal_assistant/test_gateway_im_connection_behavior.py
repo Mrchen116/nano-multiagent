@@ -412,3 +412,139 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp
         assert manager._pending_frames[0].message_type == "agent.message"  # noqa: SLF001
 
     asyncio.run(_exercise())
+
+
+# ---------------------------------------------------------------------------
+# feat-383-M1 R2: skill_ids + workspace_root transparent pass-through
+# ---------------------------------------------------------------------------
+
+
+def test_im_connection_agent_preview_passes_skill_ids_to_provider(tmp_path: Path) -> None:
+    """agent.prompt.preview.request handler must extract skill_ids and pass them to provider.
+
+    feat-383-M1: provider signature now includes skill_ids so the kernel can
+    resolve real skill descriptions.
+    """
+    provider_calls: list[dict] = []
+
+    async def _fake_provider(agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids=()):  # type: ignore[misc]
+        provider_calls.append({
+            "agent_id": agent_id,
+            "workspace_root": workspace_root,
+            "tool_ids": tool_ids,
+            "skill_ids": list(skill_ids),
+        })
+        return {"prompt": "preview", "section_count": 1}
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps({
+                "type": "agent.prompt.preview.request",
+                "payload": {
+                    "request_id": "req-1",
+                    "agent_id": "agent-x",
+                    "workspace_root": "/ws/agent-x",
+                    "features": {},
+                    "custom_prompt": None,
+                    "tool_ids": ["read"],
+                    "skill_ids": ["plan", "review"],
+                    "scenario": "direct",
+                },
+            }),
+        ]
+    )
+
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _: None)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        sync_client=ConfigSyncClient(),
+        heartbeat_trigger=lambda _a, _r: None,
+        agent_config_provider=None,
+        agent_capabilities_provider=None,
+        prompt_preview_provider=_fake_provider,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+
+    asyncio.run(_exercise())
+
+    assert len(provider_calls) == 1, "provider must have been called exactly once"
+    call = provider_calls[0]
+    assert call["agent_id"] == "agent-x"
+    assert call["workspace_root"] == "/ws/agent-x"
+    assert call["tool_ids"] == ["read"]
+    assert call["skill_ids"] == ["plan", "review"], (
+        f"skill_ids must be forwarded to provider, got: {call['skill_ids']}"
+    )
+
+
+def test_im_connection_node_preview_passes_workspace_root_and_skill_ids_to_provider(tmp_path: Path) -> None:
+    """node.prompt.preview.request handler must extract workspace_root + skill_ids and pass them to provider.
+
+    feat-383-M1: node-level preview now carries workspace_root (IM-derived) and
+    skill_ids; Gateway handler must forward both to the provider.
+    """
+    provider_calls: list[dict] = []
+
+    async def _fake_provider(agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids=()):  # type: ignore[misc]
+        provider_calls.append({
+            "agent_id": agent_id,
+            "workspace_root": workspace_root,
+            "tool_ids": tool_ids,
+            "skill_ids": list(skill_ids),
+        })
+        return {"prompt": "preview-node", "section_count": 1}
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps({
+                "type": "node.prompt.preview.request",
+                "payload": {
+                    "request_id": "req-node-1",
+                    "workspace_root": "/ws/new-agent",
+                    "features": {},
+                    "custom_prompt": None,
+                    "tool_ids": ["bash"],
+                    "skill_ids": ["code-review"],
+                    "scenario": "direct",
+                },
+            }),
+        ]
+    )
+
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _: None)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        sync_client=ConfigSyncClient(),
+        heartbeat_trigger=lambda _a, _r: None,
+        agent_config_provider=None,
+        agent_capabilities_provider=None,
+        prompt_preview_provider=_fake_provider,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+
+    asyncio.run(_exercise())
+
+    assert len(provider_calls) == 1, "provider must have been called exactly once"
+    call = provider_calls[0]
+    assert call["workspace_root"] == "/ws/new-agent", (
+        f"workspace_root must be forwarded from node preview frame, got: {call['workspace_root']}"
+    )
+    assert call["skill_ids"] == ["code-review"], (
+        f"skill_ids must be forwarded to provider, got: {call['skill_ids']}"
+    )
