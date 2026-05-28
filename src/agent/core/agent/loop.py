@@ -108,6 +108,7 @@ class AgentLoop:
         controller: RunController | None = None,
         hook_ctx: HookContext | None = None,
         system_prompt_override: str | None = None,
+        pre_rendered_system_prompt: str | None = None,
         available_skills_override: tuple[SkillMetadata, ...] | None = None,
         available_tools_override: tuple[ToolSpec, ...] | None = None,
         llm_session_id: str | None = None,
@@ -152,13 +153,17 @@ class AgentLoop:
 
         active_tools = self.active_tool_specs() if available_tools_override is None else available_tools_override
         active_skills = self._available_skills if available_skills_override is None else available_skills_override
-        rendered_system_prompt = build_system_prompt(
-            system_prompt=system_prompt_override or self._system_prompt,
-            available_skills=active_skills,
-            available_tools=active_tools,
-            current_datetime=session_created_at,
-            current_working_directory=current_working_directory_override or self._current_working_directory,
-        )
+        if pre_rendered_system_prompt is not None:
+            # Segment-assembled prompt already contains all guidance; bypass build_system_prompt.
+            rendered_system_prompt = pre_rendered_system_prompt
+        else:
+            rendered_system_prompt = build_system_prompt(
+                system_prompt=system_prompt_override or self._system_prompt,
+                available_skills=active_skills,
+                available_tools=active_tools,
+                current_datetime=session_created_at,
+                current_working_directory=current_working_directory_override or self._current_working_directory,
+            )
         llm_messages = list(build_chat_messages(
             history_messages=state.history_messages,
             user_text=state.user_text,
