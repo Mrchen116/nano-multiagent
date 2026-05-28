@@ -34,6 +34,8 @@ class PromptContext:
         cwd: Current working directory string for this session.
         memory_block: Pre-rendered MemoryStore snapshot, or None when absent.
             Volatile (changes turn to turn) — passed to cache_safe=False segment.
+        user_profile_block: Pre-rendered USER.md snapshot, or None when absent.
+            Volatile — passed to cache_safe=False segment (decision 6).
         flags: Per-agent feature flags (key → bool).  Missing key → False.
         scenario: Conversation-level metadata (conversation_type, participants,
             group_reply_policy, run_origin, …).  Read by gated segments.
@@ -45,6 +47,7 @@ class PromptContext:
     current_datetime: str = ""
     cwd: str = ""
     memory_block: str | None = None
+    user_profile_block: str | None = None    # decision 6: independent field + segment for USER.md
     flags: Mapping[str, bool] = field(default_factory=dict)
     scenario: Mapping[str, object] = field(default_factory=dict)
     vars: Mapping[str, str] = field(default_factory=dict)

@@ -32,6 +32,7 @@ def build_prompt_context_from_metadata(
     current_datetime: str,
     cwd: str,
     memory_block: str | None,
+    user_profile_block: str | None = None,
     flags: Mapping[str, bool],
     vars: Mapping[str, str] | None = None,
 ) -> PromptContext:
@@ -49,6 +50,7 @@ def build_prompt_context_from_metadata(
         current_datetime: Session-created-at ISO string.
         cwd: Current working directory string.
         memory_block: Pre-rendered MemoryStore snapshot or None.
+        user_profile_block: Pre-rendered USER.md snapshot or None (decision 6).
         flags: Per-agent feature flags (key → bool).
         vars: Freeform string vars (e.g. "custom_prompt").
 
@@ -71,6 +73,7 @@ def build_prompt_context_from_metadata(
         current_datetime=current_datetime,
         cwd=cwd,
         memory_block=memory_block,
+        user_profile_block=user_profile_block,
         flags=dict(flags),
         scenario=scenario,
         vars=dict(vars) if vars else {},
