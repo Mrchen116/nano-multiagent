@@ -371,12 +371,14 @@ class GatewayHandler:
         custom_prompt: str | None,
         tool_ids: list[str],
         scenario: str,
+        skill_ids: list[str] | None = None,
         timeout_seconds: float = 10.0,
     ) -> dict[str, object] | None:
         """Send an agent.prompt.preview.request frame and await the assembled result.
 
         feat-379-M2 R5: IM proxy path — IM sends this request to the Gateway
         which calls agent HTTP /v1/prompt-preview and returns the result.
+        feat-383-M1: skill_ids forwarded so Gateway→kernel can resolve real skills.
 
         Returns:
             Preview payload dict or None when the node is not connected or times out.
@@ -397,6 +399,7 @@ class GatewayHandler:
                     "features": features,
                     "custom_prompt": custom_prompt,
                     "tool_ids": tool_ids,
+                    "skill_ids": skill_ids or [],
                     "scenario": scenario,
                 },
             )
@@ -417,13 +420,16 @@ class GatewayHandler:
         custom_prompt: str | None,
         tool_ids: list[str],
         scenario: str,
+        workspace_root: str = "",
+        skill_ids: list[str] | None = None,
         timeout_seconds: float = 10.0,
     ) -> dict[str, object] | None:
         """Send a node.prompt.preview.request frame and await the assembled result.
 
         feat-379-M9 (決策 11): node-level preview path used by the agent-create page
-        before an agent exists.  Unlike request_prompt_preview, there is no agent_id
-        or workspace_root — the Gateway uses its default kernel to assemble the prompt.
+        before an agent exists.
+        feat-383-M1: workspace_root (IM-derived) and skill_ids are now forwarded so
+        the Gateway→kernel can resolve real workspace and skills.
 
         Returns:
             Preview payload dict or None when the node is not connected or times out.
@@ -439,9 +445,11 @@ class GatewayHandler:
                 message_type="node.prompt.preview.request",
                 payload={
                     "request_id": request_id,
+                    "workspace_root": workspace_root,
                     "features": features,
                     "custom_prompt": custom_prompt,
                     "tool_ids": tool_ids,
+                    "skill_ids": skill_ids or [],
                     "scenario": scenario,
                 },
             )

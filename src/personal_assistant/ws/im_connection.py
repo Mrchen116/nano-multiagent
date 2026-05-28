@@ -73,9 +73,10 @@ HeartbeatTrigger = Callable[[str, str], None]
 AgentConfigProvider = Callable[[str], Mapping[str, object] | None]
 AgentCreateHandler = Callable[[Mapping[str, object]], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None]
 AgentCapabilitiesProvider = Callable[[str, str], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None]
-# feat-379-M2 R5: (agent_id, workspace_root, features, custom_prompt, tool_ids, scenario) → preview dict | None
+# feat-379-M2 R5: (agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids) → preview dict | None
+# feat-383-M1: added skill_ids parameter so kernel can resolve real skill descriptions
 PromptPreviewProvider = Callable[
-    [str, str, dict, "str | None", list, str],
+    [str, str, dict, "str | None", list, str, list],
     "Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None",
 ]
 # Async callback that returns a fresh access token immediately before each connect attempt.
@@ -389,12 +390,14 @@ class IMConnectionManager:
             custom_prompt = custom_prompt_raw if isinstance(custom_prompt_raw, str) else None
             tool_ids_raw = body.get("tool_ids") or []
             tool_ids = [t for t in tool_ids_raw if isinstance(t, str)] if isinstance(tool_ids_raw, list) else []
+            skill_ids_raw = body.get("skill_ids") or []
+            skill_ids = [s for s in skill_ids_raw if isinstance(s, str)] if isinstance(skill_ids_raw, list) else []
             scenario_raw = body.get("scenario")
             scenario = scenario_raw if isinstance(scenario_raw, str) else "direct"
             preview_result: dict[str, object] = {}
             if self._prompt_preview_provider is not None:
                 result = await _maybe_await(
-                    self._prompt_preview_provider(agent_id, workspace_root, features, custom_prompt, tool_ids, scenario)
+                    self._prompt_preview_provider(agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids)
                 )
                 if isinstance(result, Mapping):
                     preview_result = dict(result)
@@ -408,9 +411,12 @@ class IMConnectionManager:
             )
             return
         if message_type == "node.prompt.preview.request":
-            # feat-379-M9 (決策 11): node-level preview — no agent_id/workspace_root needed.
-            # Uses the default kernel_client so the create page can preview before saving.
+            # feat-379-M9 (決策 11): node-level preview — no agent_id needed.
+            # feat-383-M1: workspace_root and skill_ids now carried in the frame (IM derives workspace_root).
             request_id = _require_text(body.get("request_id"), field_name="request_id")
+            # workspace_root may be empty string when agent_id_hint was absent in the IM request.
+            node_workspace_root_raw = body.get("workspace_root")
+            node_workspace_root = node_workspace_root_raw if isinstance(node_workspace_root_raw, str) else ""
             features = body.get("features") or {}
             if not isinstance(features, dict):
                 features = {}
@@ -418,14 +424,14 @@ class IMConnectionManager:
             custom_prompt = custom_prompt_raw if isinstance(custom_prompt_raw, str) else None
             tool_ids_raw = body.get("tool_ids") or []
             tool_ids = [t for t in tool_ids_raw if isinstance(t, str)] if isinstance(tool_ids_raw, list) else []
+            skill_ids_raw = body.get("skill_ids") or []
+            skill_ids = [s for s in skill_ids_raw if isinstance(s, str)] if isinstance(skill_ids_raw, list) else []
             scenario_raw = body.get("scenario")
             scenario = scenario_raw if isinstance(scenario_raw, str) else "direct"
             node_preview_result: dict[str, object] = {}
             if self._prompt_preview_provider is not None:
-                # Pass empty strings for agent_id/workspace_root; the provider lambda
-                # in main.py ignores them and calls kernel_client.prompt_preview directly.
                 result = await _maybe_await(
-                    self._prompt_preview_provider("", "", features, custom_prompt, tool_ids, scenario)
+                    self._prompt_preview_provider("", node_workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids)
                 )
                 if isinstance(result, Mapping):
                     node_preview_result = dict(result)

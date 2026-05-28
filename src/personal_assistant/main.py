@@ -1389,12 +1389,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             ),
             # feat-379-M2 R5: prompt_preview_provider calls agent HTTP /v1/prompt-preview
             # so the IM frontend can display a preview of the assembled system prompt.
-            prompt_preview_provider=lambda agent_id, workspace_root, features, custom_prompt, tool_ids, scenario: (  # noqa: ARG005
+            # feat-383-M1: lambda now forwards workspace_root and skill_ids so the kernel
+            # can resolve real tool descriptions and skill content.
+            prompt_preview_provider=lambda agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids: (  # noqa: ARG005
                 kernel_client.prompt_preview(
                     features=features,
                     custom_prompt=custom_prompt,
                     tool_ids=tool_ids,
                     scenario=scenario,
+                    workspace_root=workspace_root or None,
+                    skill_ids=list(skill_ids) if skill_ids else [],
                 )
             ),
             agent_create_handler=im_config_sync_client.handle_agent_create,

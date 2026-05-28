@@ -109,6 +109,8 @@ def test_prompt_preview_passes_features_to_context() -> None:
     ]
     app = create_app()
     app.state.prompt_sections = sections
+    # feat-383-M1: tool gate checks now require the tool to be in the registry.
+    app.state.tool_registry = _make_registry_with_tools(("read", "Read."), ("write", "Write."))
     with TestClient(app) as client:
         client.post(
             "/v1/prompt-preview",
@@ -127,7 +129,7 @@ def test_prompt_preview_passes_features_to_context() -> None:
     assert ctx.flags.get("skill_creation") is False
     assert ctx.vars.get("custom_prompt") == "Extra instructions."
     assert ctx.scenario.get("conversation_type") == "direct"
-    # tool stubs allow has_tool() checks
+    # has_tool() checks rely on tools being in registry (and thus in available_tools)
     assert ctx.has_tool("read")
     assert ctx.has_tool("write")
     assert not ctx.has_tool("nonexistent_tool")
@@ -147,6 +149,9 @@ def test_prompt_preview_memory_curation_gate_requires_tool_id() -> None:
 
     app = create_app()
     app.state.prompt_sections = list(CORE_SECTIONS)
+    # feat-383-M1: tool gate checks now require the tool to be in the registry;
+    # wire a registry that includes the memory tool so has_tool("memory") works.
+    app.state.tool_registry = _make_registry_with_tools(("memory", "Memory tool."))
     with TestClient(app) as client:
         # memory tool in tool_ids + memory_curation=True: guidance must appear
         resp_on = client.post(
@@ -189,3 +194,197 @@ def test_prompt_preview_endpoint_is_behind_bearer_auth_dependency() -> None:
         )
     # 200 = auth disabled (test mode) or 401 = auth enforced; 404 = route missing (fail).
     assert response.status_code in (200, 401), f"unexpected status {response.status_code}"
+
+
+# ---------------------------------------------------------------------------
+# feat-383-M1: preview fidelity — real tool descriptions, datetime/cwd placeholders
+# ---------------------------------------------------------------------------
+
+
+def _make_stub_tool(name: str, description: str = "") -> object:
+    """Create a minimal tool-like stub for wiring into ToolRegistry tests."""
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        name=name,
+        description=description,
+        input_schema={},
+        is_concurrency_safe=False,
+        max_result_size_chars=None,
+    )
+
+
+def _make_registry_with_tools(*tool_pairs: tuple[str, str]) -> object:
+    """Build a ToolRegistry containing tools given as (name, description) pairs."""
+    from pathlib import Path
+
+    from agent.core.tools.base import ToolContext
+    from agent.platform.tools.registry import ToolRegistry
+
+    ctx = ToolContext.create(repo_root=Path.cwd())
+    registry = ToolRegistry(context=ctx)
+    for name, desc in tool_pairs:
+        registry.register(_make_stub_tool(name, desc))
+    return registry
+
+
+def test_prompt_preview_accepts_workspace_root_and_skill_ids() -> None:
+    """New fields workspace_root and skill_ids must be accepted without 422 error."""
+    app = create_app()
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={
+                "features": {},
+                "tool_ids": [],
+                "scenario": "direct",
+                "workspace_root": "/tmp/test-ws",
+                "skill_ids": [],
+            },
+        )
+    assert response.status_code == 200
+
+
+def test_prompt_preview_datetime_placeholder() -> None:
+    """current_datetime in PromptContext must be the placeholder, not empty string."""
+    captured: list[PromptContext] = []
+
+    def _capture(ctx: PromptContext) -> str:
+        captured.append(ctx)
+        return "x"
+
+    sections = [PromptSection(name="test", order=100, render=_capture)]
+    app = create_app()
+    app.state.prompt_sections = sections
+    with TestClient(app) as client:
+        client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {}, "tool_ids": [], "scenario": "direct"},
+        )
+
+    assert captured, "section render must have been called"
+    assert captured[0].current_datetime == "<运行时注入：当前时间>", (
+        f"expected datetime placeholder, got: {captured[0].current_datetime!r}"
+    )
+
+
+def test_prompt_preview_cwd_uses_workspace_root() -> None:
+    """When workspace_root is provided, ctx.cwd must equal workspace_root."""
+    captured: list[PromptContext] = []
+
+    def _capture(ctx: PromptContext) -> str:
+        captured.append(ctx)
+        return "x"
+
+    sections = [PromptSection(name="test", order=100, render=_capture)]
+    app = create_app()
+    app.state.prompt_sections = sections
+    with TestClient(app) as client:
+        client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={
+                "features": {},
+                "tool_ids": [],
+                "scenario": "direct",
+                "workspace_root": "/home/user/workspace/my-agent",
+            },
+        )
+
+    assert captured
+    assert captured[0].cwd == "/home/user/workspace/my-agent", (
+        f"expected cwd from workspace_root, got: {captured[0].cwd!r}"
+    )
+
+
+def test_prompt_preview_cwd_placeholder_when_no_workspace() -> None:
+    """When workspace_root is absent, ctx.cwd must be the placeholder."""
+    captured: list[PromptContext] = []
+
+    def _capture(ctx: PromptContext) -> str:
+        captured.append(ctx)
+        return "x"
+
+    sections = [PromptSection(name="test", order=100, render=_capture)]
+    app = create_app()
+    app.state.prompt_sections = sections
+    with TestClient(app) as client:
+        client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {}, "tool_ids": [], "scenario": "direct"},
+        )
+
+    assert captured
+    assert captured[0].cwd == "<运行时注入：workspace 路径>", (
+        f"expected cwd placeholder, got: {captured[0].cwd!r}"
+    )
+
+
+def test_prompt_preview_uses_real_tool_description_from_registry() -> None:
+    """available_tools in ctx must carry real descriptions from ToolRegistry."""
+    captured: list[PromptContext] = []
+
+    def _capture(ctx: PromptContext) -> str:
+        captured.append(ctx)
+        return "x"
+
+    sections = [PromptSection(name="test", order=100, render=_capture)]
+    registry = _make_registry_with_tools(
+        ("read", "Read a file and return its contents."),
+        ("write", "Write content to a file."),
+    )
+
+    app = create_app()
+    app.state.prompt_sections = sections
+    app.state.tool_registry = registry
+    with TestClient(app) as client:
+        client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {}, "tool_ids": ["read", "write"], "scenario": "direct"},
+        )
+
+    assert captured
+    tools_by_name = {t.name: t for t in captured[0].available_tools}
+    assert "read" in tools_by_name, "read tool must appear in available_tools"
+    assert tools_by_name["read"].description == "Read a file and return its contents.", (
+        f"expected real description, got: {tools_by_name['read'].description!r}"
+    )
+    assert "write" in tools_by_name
+    assert tools_by_name["write"].description == "Write content to a file."
+
+
+def test_prompt_preview_silently_skips_unregistered_tool_ids() -> None:
+    """Tool ids not in ToolRegistry must be silently skipped (not appear in ctx)."""
+    captured: list[PromptContext] = []
+
+    def _capture(ctx: PromptContext) -> str:
+        captured.append(ctx)
+        return "x"
+
+    sections = [PromptSection(name="test", order=100, render=_capture)]
+    registry = _make_registry_with_tools(("read", "Read files."))
+
+    app = create_app()
+    app.state.prompt_sections = sections
+    app.state.tool_registry = registry
+    with TestClient(app) as client:
+        client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={
+                "features": {},
+                "tool_ids": ["read", "ghost_tool_that_does_not_exist"],
+                "scenario": "direct",
+            },
+        )
+
+    assert captured
+    tool_names = {t.name for t in captured[0].available_tools}
+    assert "read" in tool_names
+    assert "ghost_tool_that_does_not_exist" not in tool_names, (
+        "unregistered tool id must be silently skipped"
+    )

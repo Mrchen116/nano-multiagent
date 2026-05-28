@@ -270,11 +270,15 @@ class KernelApiClient:
         custom_prompt: str | None,
         tool_ids: list[str],
         scenario: str,
+        workspace_root: str | None = None,
+        skill_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Call agent HTTP /v1/prompt-preview and return the assembled prompt.
 
         feat-379-M2 R5: used by Gateway to assemble a stable-prefix prompt
         preview on behalf of IM frontend (via WS agent.prompt.preview.request).
+        feat-383-M1: workspace_root and skill_ids are forwarded so the kernel
+        can resolve real tool descriptions and skill content.
         """
         return self._request(
             "POST",
@@ -284,6 +288,8 @@ class KernelApiClient:
                 "custom_prompt": custom_prompt,
                 "tool_ids": tool_ids,
                 "scenario": scenario,
+                "workspace_root": workspace_root,
+                "skill_ids": skill_ids or [],
             },
             require_auth=True,
         )

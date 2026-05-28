@@ -379,24 +379,46 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
 // Without tool_ids, features like memory_curation that require a tool are never active.
 export async function promptPreview(
   agentId: string,
-  body: { features: Record<string, boolean>; custom_prompt: string; tool_ids?: string[] }
+  body: {
+    features: Record<string, boolean>;
+    custom_prompt: string;
+    tool_ids?: string[];
+    skill_ids?: string[];
+  }
 ): Promise<string> {
   const result = await requestJson<{ prompt: string }>(`/im/v1/agents/${agentId}/prompt-preview`, {
     method: "POST",
-    body: JSON.stringify({ ...body, scenario: "direct", tool_ids: body.tool_ids ?? [] })
+    body: JSON.stringify({
+      ...body,
+      scenario: "direct",
+      tool_ids: body.tool_ids ?? [],
+      skill_ids: body.skill_ids ?? []
+    })
   });
   return result.prompt;
 }
 
 // feat-379-M9 (決策 11): node-level prompt-preview — used by agent-create page before
 // the agent exists.  No agent_id needed; Gateway uses its default kernel to assemble.
+// feat-383-M1: skill_ids and agent_id_hint added so kernel can resolve real skills and workspace.
 export async function nodePromptPreview(
   nodeId: string,
-  body: { features: Record<string, boolean>; custom_prompt: string; tool_ids?: string[] }
+  body: {
+    features: Record<string, boolean>;
+    custom_prompt: string;
+    tool_ids?: string[];
+    skill_ids?: string[];
+    agent_id_hint?: string;
+  }
 ): Promise<string> {
   const result = await requestJson<{ prompt: string }>(`/im/v1/nodes/${nodeId}/prompt-preview`, {
     method: "POST",
-    body: JSON.stringify({ ...body, scenario: "direct", tool_ids: body.tool_ids ?? [] })
+    body: JSON.stringify({
+      ...body,
+      scenario: "direct",
+      tool_ids: body.tool_ids ?? [],
+      skill_ids: body.skill_ids ?? []
+    })
   });
   return result.prompt;
 }
