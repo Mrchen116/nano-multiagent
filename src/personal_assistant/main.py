@@ -1437,6 +1437,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         im_connection_manager=im_connection_manager,
         kernel_client=kernel_client,
         session_store=session_store,
+        agent_workspace_roots={
+            agent.agent_id: str(agent.workspace_root) for agent in config.agents
+        },
     )
     return GatewayRuntime(
         config,

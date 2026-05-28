@@ -14,7 +14,7 @@ from agent.core.types import Message, TurnResult
 
 
 class _RuntimeStub:
-    async def run(self, session_id, parts, *, stream=True, run_id=None, controller=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id, parts, *, stream=True, run_id=None, controller=None, workspace_root=None):  # noqa: ANN001, ANN201
         del parts, stream, run_id, controller
         return TurnResult(
             session_id=session_id,
@@ -40,11 +40,13 @@ class _CapturingRuntimeStub:
         run_id: str | None = None,
         controller: Any = None,
         origin: "RunOrigin | None" = None,
+        workspace_root: Any = None,
     ) -> TurnResult:
         self.captured_kwargs = {
             "stream": stream,
             "run_id": run_id,
             "origin": origin,
+            "workspace_root": workspace_root,
         }
         return TurnResult(
             session_id=session_id,

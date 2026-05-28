@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.agent.run_control import RunController
@@ -44,6 +45,7 @@ class RuntimeRunner(BackgroundSubagentRunner):
         prompt: str,
         on_complete: TaskCompletionCallback,
         on_fail: TaskFailureCallback,
+        workspace_root: Path | None = None,
     ) -> BackgroundTaskStopper:
         controller = RunController()
 
@@ -56,6 +58,7 @@ class RuntimeRunner(BackgroundSubagentRunner):
                     stream=False,
                     controller=controller,
                     parent_session_id=parent_session_id,
+                    workspace_root=workspace_root,
                 )
             except Exception as exc:
                 on_fail(task_id=agent_session_id, error=str(exc))

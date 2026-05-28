@@ -1,14 +1,16 @@
 import time
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from agent.core.errors import ModelError
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.types import Message, TurnResult
 from agent.platform.http_api.app import create_app
 
 
 class _RuntimeStub:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None, workspace_root=None):  # noqa: ANN001, ANN201
         del parts
         del stream
         del origin
@@ -61,8 +63,10 @@ def _wait_for_terminal_run(client: TestClient, run_id: str, *, timeout_seconds: 
     raise AssertionError("run did not reach terminal status before timeout")
 
 
-def test_messages_async_contract_submit_and_get_run() -> None:
-    client = TestClient(create_app(runtime=_RuntimeStub()))
+def test_messages_async_contract_submit_and_get_run(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(runtime=_RuntimeStub(), session_store=JsonlSessionStore(data_dir=tmp_path))
+    )
 
     created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-runs-create"))
     assert created.status_code == 201
@@ -101,8 +105,10 @@ def test_messages_async_contract_submit_and_get_run() -> None:
     assert terminal["usage"] is None
 
 
-def test_get_run_not_found_uses_unified_error_shape() -> None:
-    client = TestClient(create_app(runtime=_RuntimeStub()))
+def test_get_run_not_found_uses_unified_error_shape(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(runtime=_RuntimeStub(), session_store=JsonlSessionStore(data_dir=tmp_path))
+    )
 
     response = client.get(
         "/v1/runs/run_missing",
@@ -118,12 +124,14 @@ def test_get_run_not_found_uses_unified_error_shape() -> None:
     assert response.headers["x-request-id"] == "req-runs-missing"
 
 
-def test_session_sse_events_include_run_status_on_completion() -> None:
+def test_session_sse_events_include_run_status_on_completion(tmp_path: Path) -> None:
     # Verify that `run_status` SSE events are published to the session event stream
     # after a run completes.  Retry-progress fields (attempt/next_delay/cooldown)
     # are no longer produced at the RunsRegistry layer; transient retry is handled
     # inside AgentLoop, so those fields are omitted here.
-    client = TestClient(create_app(runtime=_RuntimeStub()))
+    client = TestClient(
+        create_app(runtime=_RuntimeStub(), session_store=JsonlSessionStore(data_dir=tmp_path))
+    )
 
     created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-runs-sse-create"))
     assert created.status_code == 201

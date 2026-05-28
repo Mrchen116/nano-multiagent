@@ -48,7 +48,7 @@ class _StreamingKernel:
         self._session_counter += 1
         return {"session_id": f"sess-{self._session_counter}"}
 
-    def get_session(self, *, session_id: str) -> dict[str, Any]:
+    def get_session(self, *, session_id: str, **_kwargs) -> dict[str, Any]:
         return {
             "session_id": session_id,
             "status": "active",
@@ -65,7 +65,7 @@ class _StreamingKernel:
         for ev in self._events:
             yield dict(ev)
 
-    def interrupt_session(self, *, session_id: str) -> dict[str, Any]:
+    def interrupt_session(self, *, session_id: str, **_kwargs) -> dict[str, Any]:
         del session_id
         return {"status": "interrupted"}
 

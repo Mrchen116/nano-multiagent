@@ -237,7 +237,7 @@ def create_app(
         """Dispatch `session_shutdown` observe hooks before process exits."""
         app.state.runs_registry.shutdown()
         await _dispatch_session_shutdown(
-            session_service=session_service,
+            runtime=app.state.agent_runtime,
             hook_runner=active_hook_runner,
             repo_root=resolved_repo_root,
         )
@@ -406,34 +406,34 @@ app = create_app()
 
 async def _dispatch_session_shutdown(
     *,
-    session_service: SessionService,
+    runtime: Any,
     hook_runner: HookRunner | None,
     repo_root: Path,
 ) -> None:
-    """Broadcast shutdown observe hooks for all sessions in paged batches."""
+    """Broadcast `session_shutdown` observe hooks for the runtime's active sessions.
+
+    Scoped to the sessions this process actually loaded into the runtime — the
+    stateless session store has no global on-disk registry to enumerate, and
+    firing `session_shutdown` only for sessions this process ran is also the
+    semantically correct scope.
+    """
     if hook_runner is None:
         return
 
-    offset = 0
-    limit = 100
-    while True:
-        sessions, has_more = session_service.list_sessions(limit=limit, offset=offset)
-        for session in sessions:
-            hook_ctx = HookContext(session_id=session.session_id, repo_root=repo_root)
-            try:
-                diagnostics = await hook_runner.dispatch_observe(
-                    "session_shutdown",
-                    {"session_id": session.session_id},
-                    hook_ctx,
-                )
-            except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-                hook_ctx.logger.warn("hook observe dispatch failed", event="session_shutdown", error=str(exc))
-                continue
-            _log_hook_diagnostics(hook_ctx=hook_ctx, event="session_shutdown", diagnostics=diagnostics)
-
-        if not has_more:
-            break
-        offset += len(sessions)
+    active_ids = getattr(runtime, "active_session_ids", None)
+    session_ids = active_ids() if callable(active_ids) else ()
+    for session_id in session_ids:
+        hook_ctx = HookContext(session_id=session_id, repo_root=repo_root)
+        try:
+            diagnostics = await hook_runner.dispatch_observe(
+                "session_shutdown",
+                {"session_id": session_id},
+                hook_ctx,
+            )
+        except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
+            hook_ctx.logger.warn("hook observe dispatch failed", event="session_shutdown", error=str(exc))
+            continue
+        _log_hook_diagnostics(hook_ctx=hook_ctx, event="session_shutdown", diagnostics=diagnostics)
 
 
 def _log_hook_diagnostics(

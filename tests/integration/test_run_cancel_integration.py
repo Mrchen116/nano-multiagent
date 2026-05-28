@@ -4,16 +4,17 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from agent.platform.http_api.app import create_app
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.types import Message, TurnResult
+from agent.platform.http_api.app import create_app
 
 
 class _BlockingRuntime:
     def __init__(self) -> None:
         self.release = Event()
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
-        del session_id, parts, stream, origin
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None, workspace_root=None):  # noqa: ANN001, ANN201
+        del session_id, parts, stream, origin, workspace_root
         self.release.wait(timeout=1.0)
         return TurnResult(
             session_id="sess_cancel_integration",
@@ -56,7 +57,9 @@ def _wait_for_terminal_run(client: TestClient, run_id: str, *, timeout_seconds: 
 
 def test_cancelled_run_status_is_reflected_in_api(tmp_path: Path) -> None:
     runtime = _BlockingRuntime()
-    client = TestClient(create_app(runtime=runtime))
+    client = TestClient(
+        create_app(runtime=runtime, session_store=JsonlSessionStore(data_dir=tmp_path))
+    )
 
     created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-cancel-integration-create"))
     assert created.status_code == 201

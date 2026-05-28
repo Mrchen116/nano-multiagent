@@ -1,13 +1,15 @@
 import time
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.types import Message, TurnResult
 from agent.platform.http_api.app import create_app
 
 
 class StubRuntime:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None) -> TurnResult:  # noqa: ANN001
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None, workspace_root=None) -> TurnResult:  # noqa: ANN001
         del parts
         del stream
         del origin
@@ -21,7 +23,7 @@ class StubRuntime:
 
 
 class MissingSessionRuntime:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None) -> TurnResult:  # noqa: ANN001
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None, workspace_root=None) -> TurnResult:  # noqa: ANN001
         del parts
         del stream
         del origin
@@ -47,9 +49,11 @@ def _wait_for_terminal_run(client: TestClient, run_id: str, *, timeout_seconds: 
     raise AssertionError("run did not reach terminal status before timeout")
 
 
-def test_submit_message_contract_returns_run_handle() -> None:
+def test_submit_message_contract_returns_run_handle(tmp_path: Path) -> None:
     # POST /v1/sessions/{id}/messages returns an async run handle (not a sync TurnResult).
-    client = TestClient(create_app(runtime=StubRuntime()))
+    client = TestClient(
+        create_app(runtime=StubRuntime(), session_store=JsonlSessionStore(data_dir=tmp_path))
+    )
     created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-message-create"))
     assert created.status_code == 201
     session_id = created.json()["session_id"]
@@ -72,8 +76,10 @@ def test_submit_message_contract_returns_run_handle() -> None:
     assert terminal["output_text"] == "contract-ok"
 
 
-def test_submit_message_not_found_uses_unified_error_with_trace_id() -> None:
-    client = TestClient(create_app(runtime=MissingSessionRuntime()))
+def test_submit_message_not_found_uses_unified_error_with_trace_id(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(runtime=MissingSessionRuntime(), session_store=JsonlSessionStore(data_dir=tmp_path))
+    )
 
     response = client.post(
         "/v1/sessions/sess_missing/messages",

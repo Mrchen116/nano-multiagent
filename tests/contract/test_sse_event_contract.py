@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.types import Message, TurnResult
 from agent.core.hooks.context import HookContext
 from agent.platform.hooks.loader import build_hook_registry
@@ -16,7 +17,7 @@ class _RuntimeStub:
         self.hook_registry = build_hook_registry(repo_root=Path.cwd())
         self.hook_runner = HookRunner(registry=self.hook_registry)
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None, workspace_root=None):  # noqa: ANN001, ANN201
         del parts
         del stream
         turn_id = "turn_sse_contract"
@@ -98,8 +99,10 @@ def _auth_headers(request_id: str) -> dict[str, str]:
     }
 
 
-def test_global_sse_contract_returns_event_stream_frames() -> None:
-    client = TestClient(create_app(runtime=_RuntimeStub()))
+def test_global_sse_contract_returns_event_stream_frames(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(runtime=_RuntimeStub(), session_store=JsonlSessionStore(data_dir=tmp_path))
+    )
 
     created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-sse-contract-create"))
     assert created.status_code == 201
@@ -124,8 +127,10 @@ def test_global_sse_contract_returns_event_stream_frames() -> None:
     assert "event: turn_end" in body
 
 
-def test_session_sse_contract_filters_by_session_id() -> None:
-    client = TestClient(create_app(runtime=_RuntimeStub()))
+def test_session_sse_contract_filters_by_session_id(tmp_path: Path) -> None:
+    client = TestClient(
+        create_app(runtime=_RuntimeStub(), session_store=JsonlSessionStore(data_dir=tmp_path))
+    )
 
     created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-sse-contract-create-2"))
     assert created.status_code == 201

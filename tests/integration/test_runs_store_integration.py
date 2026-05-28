@@ -23,8 +23,8 @@ class _RetryThenSuccessRuntime:
         self._fail_times = fail_times
         self.calls = 0
 
-    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None):  # noqa: ANN001, ANN201
-        del parts, stream, run_id
+    def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None, workspace_root=None):  # noqa: ANN001, ANN201
+        del parts, stream, run_id, origin, workspace_root
         self.calls += 1
         if self.calls <= self._fail_times:
             raise ModelError(f"upstream flaky #{self.calls}", retryable=True)
@@ -85,7 +85,9 @@ def test_async_run_fails_when_runtime_raises_model_error(tmp_path: Path) -> None
     # RunsRegistry executes each run once; retryable ModelError from the runtime
     # layer is treated as terminal (retries happen inside AgentLoop, not here).
     runtime = _RetryThenSuccessRuntime(fail_times=999)
-    client = TestClient(create_app(runtime=runtime))
+    client = TestClient(
+        create_app(runtime=runtime, session_store=JsonlSessionStore(data_dir=tmp_path))
+    )
 
     created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-runs-store-retry-create"))
     assert created.status_code == 201

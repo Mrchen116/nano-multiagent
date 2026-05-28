@@ -16,7 +16,7 @@ from agent.platform.tools.registry import ToolRegistry
 
 
 class _RuntimeStub:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None, workspace_root=None):  # noqa: ANN001, ANN201
         del parts, stream, origin
         return TurnResult(
             session_id=session_id,

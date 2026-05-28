@@ -173,6 +173,7 @@ class TaskTool:
             prompt=prompt,
             continuation=continuation,
             llm_session_id=ctx.session_id,
+            workspace_root=ctx.cwd,
         )
         try:
             turn = future.result(timeout=timeout_seconds)
@@ -240,6 +241,7 @@ class TaskTool:
             continuation=continuation,
             timeout_seconds=timeout_seconds,
             llm_session_id=ctx.session_id,
+            workspace_root=ctx.cwd,
         )
         return receipt
 
@@ -252,6 +254,7 @@ class TaskTool:
         continuation: bool,
         timeout_seconds: float,
         llm_session_id: str | None,
+        workspace_root: Path,
     ) -> None:
         runtime = self._runtime
         if runtime is None:
@@ -265,6 +268,7 @@ class TaskTool:
                 prompt=prompt,
                 continuation=continuation,
                 llm_session_id=llm_session_id,
+                workspace_root=workspace_root,
             )
         except Exception as exc:  # noqa: BLE001
             payload = {
@@ -313,15 +317,19 @@ class TaskTool:
         prompt: str,
         continuation: bool,
         llm_session_id: str | None,
+        workspace_root: Path,
     ) -> TurnResult:
         import asyncio
 
+        # Task subagent sessions are created with workspace_root=ctx.cwd; pass it
+        # so the stateless store can locate the session JSONL on its first load.
         if continuation and not prompt:
             return asyncio.run(
                 runtime.continue_turn(
                     task_session_id,
                     stream=False,
                     llm_session_id=llm_session_id,
+                    workspace_root=workspace_root,
                 )
             )
         return asyncio.run(
@@ -330,6 +338,7 @@ class TaskTool:
                 [{"type": "text", "text": prompt}],
                 stream=False,
                 llm_session_id=llm_session_id,
+                workspace_root=workspace_root,
             )
         )
 

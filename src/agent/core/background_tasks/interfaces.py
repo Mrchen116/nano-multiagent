@@ -49,6 +49,7 @@ class BackgroundSubagentRunner(Protocol):
         prompt: str,
         on_complete: "TaskCompletionCallback",
         on_fail: "TaskFailureCallback",
+        workspace_root: Path | None = None,
     ) -> BackgroundTaskStopper: ...
 
 

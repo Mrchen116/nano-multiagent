@@ -29,15 +29,15 @@ class SessionService:
     """Expose session APIs while hiding store/manager construction details.
 
     Args:
-        store: Explicit JSONL session store; takes priority over both ``profile``
-            and the default path when provided.
+        store: Explicit JSONL session store; takes priority over ``profile`` and
+            the fallback when provided. In production ``create_app`` always
+            passes the workspace-aware store built by ``bootstrap_product``.
         manager: Explicit session manager; bypasses all store construction when
             provided.
-        profile: Optional product profile; when given and ``store`` is not
-            explicitly provided, the session data directory is placed at
-            ``ConfigResolver(profile).session_data_dir()`` only when the profile
-            declares ``global_config_home``. Otherwise, or when profile is
-            absent, falls back to legacy ``_default_data_dir()`` behavior.
+        profile: Optional product profile. Currently unused for store
+            construction — when neither ``store`` nor ``manager`` is given the
+            service falls back to ``_resolve_store`` (a stateless store, or a
+            ``NANO_MULTIAGENT_DATA_DIR``-rooted one if that env var is set).
     """
 
     def __init__(
@@ -95,15 +95,28 @@ class SessionService:
             metadata=merged_metadata or None,
         )
 
-    def get_session(self, session_id: str) -> Session | None:
-        """Return session by id or `None` when no persisted state exists."""
+    def get_session(
+        self, session_id: str, *, workspace_root: Path | None = None
+    ) -> Session | None:
+        """Return session by id or `None` when no persisted state exists.
 
-        return self._manager.get_session(session_id)
+        ``workspace_root`` locates the session JSONL; the stateless store cannot
+        guess it (omit only when the store has a ``data_dir`` default base).
+        """
 
-    def list_sessions(self, *, limit: int, offset: int) -> tuple[tuple[Session, ...], bool]:
-        """List sessions with pagination and `has_more` result."""
+        return self._manager.get_session(session_id, workspace_root=workspace_root)
 
-        return self._manager.list_sessions(limit=limit, offset=offset)
+    def list_sessions(
+        self, *, limit: int, offset: int, workspace_root: Path | None = None
+    ) -> tuple[tuple[Session, ...], bool]:
+        """List sessions with pagination and `has_more` result.
+
+        Scoped to one ``workspace_root`` — there is no cross-workspace listing.
+        """
+
+        return self._manager.list_sessions(
+            limit=limit, offset=offset, workspace_root=workspace_root
+        )
 
     def append_message(
         self,
@@ -116,13 +129,17 @@ class SessionService:
         parts: Sequence[Mapping[str, Any]] | None = None,
         metadata: Mapping[str, Any] | None = None,
         idempotency_key: str | None = None,
+        workspace_root: Path | None = None,
     ) -> AppendMessageResult:
-        """Append one persisted user/assistant message without triggering a model run."""
+        """Append one persisted user/assistant message without triggering a model run.
+
+        ``workspace_root`` locates the session JSONL.
+        """
 
         normalized_role = role.strip().lower()
         if normalized_role not in {"user", "assistant"}:
             raise ValueError("role must be one of: user, assistant")
-        if self._manager.get_session(session_id) is None:
+        if self._manager.get_session(session_id, workspace_root=workspace_root) is None:
             raise ValueError(f"session does not exist: {session_id}")
 
         normalized_metadata = dict(metadata or {})
@@ -132,6 +149,7 @@ class SessionService:
             existing = self._find_message_by_idempotency_key(
                 session_id=session_id,
                 idempotency_key=normalized_idempotency_key,
+                workspace_root=workspace_root,
             )
             if existing is not None:
                 return AppendMessageResult(entry=existing, created=False)
@@ -144,11 +162,14 @@ class SessionService:
             message_id=message_id or ids.make_message_id(),
             parts=parts,
             metadata=normalized_metadata,
+            workspace_root=workspace_root,
         )
         return AppendMessageResult(entry=entry, created=True)
 
-    def _find_message_by_idempotency_key(self, *, session_id: str, idempotency_key: str) -> SessionEntry | None:
-        for entry in self._manager.list_entries(session_id):
+    def _find_message_by_idempotency_key(
+        self, *, session_id: str, idempotency_key: str, workspace_root: Path | None = None
+    ) -> SessionEntry | None:
+        for entry in self._manager.list_entries(session_id, workspace_root=workspace_root):
             if not isinstance(entry, SessionEntry) or entry.kind is not SessionEntryKind.TURN_APPENDED:
                 continue
             metadata = entry.data.get("metadata")
@@ -160,26 +181,31 @@ class SessionService:
 
 
 def _resolve_store(profile: ProductProfile | None = None) -> JsonlSessionStore:
-    """Construct a JsonlSessionStore at the resolved data directory."""
+    """Construct a fallback JsonlSessionStore when no explicit store is supplied.
 
-    data_dir = _resolve_data_dir(profile)
-    return JsonlSessionStore(data_dir=data_dir)
+    This path is only reached by ``SessionService`` callers that pass neither a
+    ``store`` nor a ``manager`` (e.g. ``create_app()`` invoked without a product
+    profile in tests/SDK glue). In production both products call ``create_app``
+    *with* a profile, so ``bootstrap_product`` always injects a concrete
+    workspace-aware store and this fallback is never used.
 
+    The fallback honours one explicit opt-in — the ``NANO_MULTIAGENT_DATA_DIR``
+    env var — for tests/dev that want a fixed flat directory. Otherwise it
+    returns a **stateless** store (``data_dir=None``): callers must pass
+    ``workspace_root`` on every path-resolving call, exactly like the production
+    store. There is deliberately no silent ``.nano``-relative-to-cwd fallback —
+    that silent cwd fallback was the bugfix-348 root cause and must not survive
+    here either.
 
-def _resolve_data_dir(profile: ProductProfile | None = None) -> Path:
-    """Resolve the session data directory.
-
-    The returned path is the *base* directory; ``JsonlSessionStore`` appends
-    ``sessions/`` internally via ``_resolve_path``.
-
-    Priority:
-    1. ``NANO_MULTIAGENT_DATA_DIR`` env var
-    2. Profile's ``global_config_home``
-    3. ``.nano`` relative to CWD
+    Args:
+        profile: Unused. Kept in the signature because the legacy docstring
+            advertised a profile-derived path that was never implemented; a
+            future change may wire ``ConfigResolver`` here, but until then the
+            production store comes from ``bootstrap_product``, not this function.
     """
 
+    del profile  # see docstring — profile-derived path is not implemented here
     env_dir = os.getenv("NANO_MULTIAGENT_DATA_DIR")
     if env_dir:
-        return Path(env_dir)
-
-    return Path(".nano")
+        return JsonlSessionStore(data_dir=Path(env_dir))
+    return JsonlSessionStore(data_dir=None)

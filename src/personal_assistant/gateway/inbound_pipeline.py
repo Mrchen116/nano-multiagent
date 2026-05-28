@@ -196,10 +196,14 @@ class InboundPipeline:
                         item for item in attachments
                         if isinstance(item, dict) and isinstance(item.get("url"), str)
                     ] or None
+                # The stateless kernel needs the session's workspace_root to
+                # locate its JSONL; the gateway knows it from the agent config.
+                agent_workspace_root = str(self._agents[agent_id].workspace_root)
                 run_payload = self._kernel_client.submit_message(
                     session_id=binding.kernel_session_id,
                     texts=texts,
                     image_urls=image_urls,
+                    workspace_root=agent_workspace_root,
                 )
                 run_id = str(run_payload.get("run_id", "")).strip()
                 # anchor_sequence is captured before the run starts; use it as Last-Event-ID
@@ -512,11 +516,18 @@ class InboundPipeline:
                 outbound=outbound,
             )
 
-        self._kernel_client.interrupt_session(session_id=binding.kernel_session_id)
+        # The stateless kernel needs the session's workspace_root to locate its
+        # JSONL; the gateway knows it from the agent config.
+        agent_workspace_root = str(self._agents[agent_id].workspace_root)
+        self._kernel_client.interrupt_session(
+            session_id=binding.kernel_session_id,
+            workspace_root=agent_workspace_root,
+        )
         self._kernel_client.append_message(
             session_id=binding.kernel_session_id,
             role="user",
             content="用户发送了 /stop 命令，要求终止当前操作。",
+            workspace_root=agent_workspace_root,
         )
         reply_text = "已停止当前操作。"
         outbound = self._outbound_router.send_text(text=reply_text, reply_context=binding.reply_context)
@@ -550,9 +561,17 @@ class InboundPipeline:
         if not callable(get_session):
             return True
         try:
-            session_payload = get_session(session_id=session_id)
+            # Pass the expected workspace_root so the stateless kernel can locate
+            # the session JSONL; without it the lookup would always 404.
+            session_payload = get_session(
+                session_id=session_id, workspace_root=expected_workspace_root
+            )
         except RuntimeError:
             return False
+        except TypeError:
+            # Older test doubles whose get_session() predates the workspace_root
+            # kwarg — fall back to the historical signature.
+            session_payload = get_session(session_id=session_id)
         metadata = session_payload.get("metadata")
         if not isinstance(metadata, Mapping):
             return False

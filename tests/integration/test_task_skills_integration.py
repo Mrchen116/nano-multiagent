@@ -42,6 +42,7 @@ class _RuntimeStub:
         controller=None,
         parent_session_id: str | None = None,
         origin=None,
+        workspace_root=None,
     ) -> TurnResult:
         self.run_calls.append(
             {

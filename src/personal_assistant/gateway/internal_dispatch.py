@@ -31,11 +31,18 @@ class InternalDispatchHandler:
         kernel_client: Any | None = None,
         session_store: Any | None = None,
         direct_channel_name: str = "web_relay",
+        agent_workspace_roots: Mapping[str, Any] | None = None,
     ) -> None:
         self._im_connection_manager = im_connection_manager
         self._kernel_client = kernel_client
         self._session_store = session_store
         self._direct_channel_name = direct_channel_name
+        # agent_id -> workspace_root, used to locate the origin agent's session
+        # JSONL when persisting the dispatched assistant message into the
+        # stateless kernel.
+        self._agent_workspace_roots: dict[str, str] = {
+            str(k): str(v) for k, v in (agent_workspace_roots or {}).items()
+        }
 
     async def handle(self, payload: Mapping[str, Any]) -> dict[str, Any]:
         """Process one dispatch request and return a response dict.
@@ -134,6 +141,9 @@ class InternalDispatchHandler:
         append_idempotency_key = None
         if isinstance(dispatch_request_id, str) and dispatch_request_id.strip():
             append_idempotency_key = f"dispatch-sync:{dispatch_request_id.strip()}"
+        # The stateless kernel needs the origin session's workspace_root to locate
+        # its JSONL; resolve it from the source agent's config.
+        origin_workspace_root = self._agent_workspace_roots.get(source_agent_id.strip())
         self._kernel_client.append_message(
             session_id=origin_kernel_session_id.strip(),
             role="assistant",
@@ -147,6 +157,7 @@ class InternalDispatchHandler:
                 "source_agent_id": source_agent_id.strip(),
             },
             idempotency_key=append_idempotency_key,
+            workspace_root=origin_workspace_root,
         )
 
     def build_aiohttp_handler(self) -> Callable:

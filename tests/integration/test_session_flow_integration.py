@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from agent.core.agent.compaction.types import CompactionReason, CompactionResult
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.registry import ToolRegistry
@@ -13,7 +14,8 @@ class _RuntimeWithCompact:
     def __init__(self) -> None:
         self.compact_calls: list[str] = []
 
-    async def compact(self, session_id: str) -> CompactionResult:
+    async def compact(self, session_id: str, *, workspace_root=None) -> CompactionResult:
+        del workspace_root  # stateless-kernel signature; this stub ignores it
         self.compact_calls.append(session_id)
         return CompactionResult(
             reason=CompactionReason.MANUAL,
@@ -50,11 +52,18 @@ def test_app_wires_session_service() -> None:
     assert session.status == 'active'
 
 
-def test_session_routes_wire_tools_registry_and_manual_compact() -> None:
+def test_session_routes_wire_tools_registry_and_manual_compact(tmp_path: Path) -> None:
     runtime = _RuntimeWithCompact()
     registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
     registry.register(_EchoTool())
-    app = create_app(runtime=runtime, tool_registry=registry)
+    # No product profile → stateless fallback store; supply an explicit
+    # data_dir-backed test store so the /tools and :compact ops (which carry no
+    # workspace_root) still resolve in this test.
+    app = create_app(
+        runtime=runtime,
+        tool_registry=registry,
+        session_store=JsonlSessionStore(data_dir=tmp_path),
+    )
     client = TestClient(app)
     headers = {"Authorization": "Bearer test-token", "X-Request-Id": "req-session-flow-compact-tools"}
 
@@ -117,3 +126,59 @@ def test_append_message_persists_history_once_per_idempotency_key() -> None:
     assert messages[0].content == "给你个冷笑话：为什么海盗数学不好？"
     assert messages[0].metadata["source"] == "gateway"
     assert messages[0].metadata["idempotency_key"] == "dispatch-sync-1"
+
+
+def test_http_workspace_root_threaded_to_session_jsonl_location(tmp_path: Path) -> None:
+    """HTTP create + append with workspace_root must land JSONL under that workspace.
+
+    bugfix-348 Option C: the kernel is stateless; the workspace_root carried on
+    each request is what locates the session JSONL. This proves the field is
+    actually threaded HTTP -> service -> store -> filesystem, not dropped.
+    """
+    workspace_root = tmp_path / "agent-workspace"
+    workspace_root.mkdir()
+
+    # Production-shape app: workspace-aware store (data_dir=None), no cwd fallback.
+    from agent.core.session.jsonl_store import JsonlSessionStore
+
+    app = create_app(session_store=JsonlSessionStore(data_dir=None))
+    client = TestClient(app)
+    headers = {"Authorization": "Bearer test-token", "X-Request-Id": "req-ws-thread"}
+
+    created = client.post(
+        "/v1/sessions",
+        json={"workspace_root": str(workspace_root)},
+        headers=headers,
+    )
+    assert created.status_code == 201
+    session_id = created.json()["session_id"]
+
+    # The session_created line must land under the request's workspace_root,
+    # NOT under the process cwd (the bugfix-348 bug).
+    expected = workspace_root / ".nano" / "sessions" / f"{session_id}.jsonl"
+    assert expected.exists(), f"session JSONL must be at {expected}"
+
+    # append with workspace_root must hit the same file.
+    append = client.post(
+        f"/v1/sessions/{session_id}/messages:append",
+        json={
+            "role": "user",
+            "content": "ping",
+            "workspace_root": str(workspace_root),
+        },
+        headers=headers,
+    )
+    assert append.status_code == 200
+
+    # get_session with workspace_root query param resolves the same session.
+    fetched = client.get(
+        f"/v1/sessions/{session_id}",
+        params={"workspace_root": str(workspace_root)},
+        headers=headers,
+    )
+    assert fetched.status_code == 200
+    assert fetched.json()["session_id"] == session_id
+
+    # Without workspace_root, the stateless store cannot locate the session.
+    missing = client.get(f"/v1/sessions/{session_id}", headers=headers)
+    assert missing.status_code == 404

@@ -226,6 +226,9 @@ data/locks/
 
 # Nano multiagent runtime artifacts
 .nano_multiagent/
+# Kernel session JSONL store — written under each workspace_root/.nano/ at runtime.
+# Tests that pass workspace_root=cwd materialize one inside the repo; never commit it.
+.nano/
 data/*.sqlite3
 
 # Local screenshots / scratch artifacts

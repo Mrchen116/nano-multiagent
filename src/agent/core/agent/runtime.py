@@ -160,6 +160,7 @@ class AgentRuntime:
         run_id: str | None = None,
         controller: RunController | None = None,
         parent_session_id: str | None = None,
+        workspace_root: Path | None = None,
         origin: Any = None,
     ) -> TurnResult:
         """Execute one turn for an existing session.
@@ -170,6 +171,10 @@ class AgentRuntime:
             stream: Reserved compatibility flag (currently ignored).
             llm_session_id: Optional provider session id override.
             parent_session_id: Optional parent session id for subagent path resolution.
+            workspace_root: Session's workspace root. Required (in production) to
+                locate the session JSONL on the first load of this process
+                lifetime; once the session is cached its config carries the
+                workspace_root for subsequent writes.
             origin: RunOrigin enum value (or None) passed from RunsRegistry;
                 written into hook_metadata["run_origin"] so auto_mode_gate can
                 detect unattended contexts (heartbeat/cron) without re-importing
@@ -197,6 +202,7 @@ class AgentRuntime:
                 run_id=run_id,
                 controller=controller,
                 parent_session_id=parent_session_id,
+                workspace_root=workspace_root,
                 origin=origin,
             )
 
@@ -209,6 +215,7 @@ class AgentRuntime:
         run_id: str | None = None,
         controller: RunController | None = None,
         parent_session_id: str | None = None,
+        workspace_root: Path | None = None,
         origin: Any = None,
     ) -> TurnResult:
         """Internal run implementation (assumes session lock is held)."""
@@ -216,10 +223,12 @@ class AgentRuntime:
         # --- Cache-first load: miss reads JSONL once, hit uses memory ---
         if session_id not in self._session_histories:
             path = self._session_manager.store.resolve_path(
-                session_id, parent_session_id=parent_session_id
+                session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
             )
             try:
-                result = self._session_manager.load(session_id, parent_session_id=parent_session_id)
+                result = self._session_manager.load(
+                    session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
+                )
             except Exception as exc:
                 raise ValueError(f"session does not exist: {session_id}") from exc
             self._session_histories[session_id] = list(result.messages)
@@ -557,11 +566,15 @@ class AgentRuntime:
 
         return turn_result
 
-    async def compact(self, session_id: str) -> CompactionResult | None:
+    async def compact(
+        self, session_id: str, *, workspace_root: Path | None = None
+    ) -> CompactionResult | None:
         """Run manual session compaction.
 
         Args:
             session_id: Target session id.
+            workspace_root: Session's workspace root, used to locate the JSONL
+                when the session is not already cached in this runtime.
 
         Returns:
             Compaction result, or `None` when planner decides compaction is unnecessary.
@@ -570,7 +583,7 @@ class AgentRuntime:
             ValueError: If session does not exist.
         """
 
-        if self._session_manager.get_session(session_id) is None:
+        if self.get_session(session_id, workspace_root=workspace_root) is None:
             raise ValueError(f"session does not exist: {session_id}")
         lock = self._session_locks.setdefault(session_id, asyncio.Lock())
         async with lock:
@@ -582,6 +595,7 @@ class AgentRuntime:
         *,
         stream: bool = True,
         llm_session_id: str | None = None,
+        workspace_root: Path | None = None,
     ) -> TurnResult:
         """Request another assistant step by submitting synthetic `continue` input."""
 
@@ -590,12 +604,27 @@ class AgentRuntime:
             [{"type": "text", "text": "continue"}],
             stream=stream,
             llm_session_id=llm_session_id,
+            workspace_root=workspace_root,
         )
 
-    def get_session(self, session_id: str) -> Session | None:
-        """Return session model by id, or `None` when absent."""
+    def get_session(
+        self, session_id: str, *, workspace_root: Path | None = None
+    ) -> Session | None:
+        """Return session model by id, or `None` when absent.
 
-        return self._session_manager.get_session(session_id)
+        When the session is already cached in this runtime, its known
+        workspace_root is used so callers need not re-supply it; otherwise the
+        caller-provided ``workspace_root`` locates the JSONL.
+        """
+
+        cached_config = self._session_configs.get(session_id)
+        if cached_config is not None:
+            return self._session_manager.get_session(
+                session_id, workspace_root=cached_config.workspace_root
+            )
+        return self._session_manager.get_session(
+            session_id, workspace_root=workspace_root
+        )
 
     def get_llm_config(self) -> LLMFactoryConfig:
         """Return active LLM configuration used by the runtime."""
@@ -694,6 +723,29 @@ class AgentRuntime:
             return None
         return self._hook_runner.registry
 
+    def active_session_ids(self) -> tuple[str, ...]:
+        """Return ids of sessions currently loaded in this runtime's memory.
+
+        These are the sessions this process actually ran (loaded via ``run``);
+        the stateless kernel has no global on-disk registry, and firing
+        ``session_shutdown`` only for sessions this process touched is also the
+        semantically correct scope.
+        """
+
+        return tuple(self._session_configs.keys())
+
+    def session_workspace_root(self, session_id: str) -> Path | None:
+        """Return the cached workspace_root of a loaded session, or ``None``.
+
+        Tools running inside a turn (e.g. the ``agent`` tool resolving a
+        subagent) use this to obtain the parent session's workspace_root —
+        which the parent turn already loaded — so the stateless store can
+        locate subagent JSONL files under the parent's workspace.
+        """
+
+        config = self._session_configs.get(session_id)
+        return config.workspace_root if config is not None else None
+
     async def create_session(
         self,
         *,
@@ -742,20 +794,30 @@ class AgentRuntime:
         self._session_file_states.pop(session_id, None)
         self._session_locks.pop(session_id, None)
 
-    async def fork_session(self, source_session_id: str) -> Session:
+    async def fork_session(
+        self, source_session_id: str, *, workspace_root: Path | None = None
+    ) -> Session:
         """Fork a session: create a new session with an independent copy of source history.
 
         The fork copies the linear conversation chain from the source session,
         re-stamping all message UUIDs and recalculating parent_uuid links.
         The new session has its own JSONL file and in-memory history.
+
+        ``workspace_root`` locates the source session JSONL when it is not
+        already cached in this runtime; the fork inherits the source's
+        workspace_root.
         """
 
         # Ensure source is loaded into memory
         if source_session_id not in self._session_histories:
-            result = self._session_manager.load(source_session_id)
+            result = self._session_manager.load(
+                source_session_id, workspace_root=workspace_root
+            )
             self._session_histories[source_session_id] = list(result.messages)
             self._session_configs[source_session_id] = result.config
-            self._session_paths[source_session_id] = self._session_manager.store.resolve_path(source_session_id)
+            self._session_paths[source_session_id] = self._session_manager.store.resolve_path(
+                source_session_id, workspace_root=result.config.workspace_root
+            )
 
         source_config = self._session_configs[source_session_id]
         source_history = self._session_histories[source_session_id]
@@ -786,7 +848,9 @@ class AgentRuntime:
             metadata=new_metadata,
         )
         new_session_id = new_session.session_id
-        new_path = self._session_manager.store.resolve_path(new_session_id)
+        new_path = self._session_manager.store.resolve_path(
+            new_session_id, workspace_root=source_config.workspace_root
+        )
 
         # Re-stamp messages: new UUIDs, recalculated parent chain
         if source_history:
@@ -1123,12 +1187,17 @@ class AgentRuntime:
         session_id: str,
         reason: CompactionReason,
     ) -> CompactionResult | None:
-        entries = self._session_manager.list_entries(session_id)
+        # Compaction always runs on a session that has been loaded by a prior
+        # run(), so its config (and thus workspace_root) is cached here.
+        config = self._session_configs.get(session_id)
+        compaction_workspace_root = config.workspace_root if config is not None else None
+        entries = self._session_manager.list_entries(
+            session_id, workspace_root=compaction_workspace_root
+        )
         plan = self._compaction_planner.plan(events=entries, reason=reason)
         if plan is None:
             return None
 
-        config = self._session_configs.get(session_id)
         rendered_system_prompt: str | None = None
         if config is not None:
             active_skills = self._resolve_session_available_skills_from_config(config)

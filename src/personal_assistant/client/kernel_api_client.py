@@ -98,11 +98,24 @@ class KernelApiClient:
             payload["metadata"] = dict(metadata)
         return self._request("POST", "/v1/sessions", json=payload, require_auth=True)
 
-    def get_session(self, *, session_id: str) -> dict[str, Any]:
-        """Fetch one kernel session summary including persisted metadata."""
+    def get_session(
+        self, *, session_id: str, workspace_root: str | None = None
+    ) -> dict[str, Any]:
+        """Fetch one kernel session summary including persisted metadata.
+
+        ``workspace_root`` is forwarded as a query param so the stateless kernel
+        can locate the session JSONL.
+        """
 
         session = _require_non_empty_string(session_id, field_name="session_id")
-        return self._request("GET", f"/v1/sessions/{session}", require_auth=True)
+        params: dict[str, Any] | None = None
+        if workspace_root is not None:
+            params = {"workspace_root": _require_non_empty_string(
+                workspace_root, field_name="workspace_root"
+            )}
+        return self._request(
+            "GET", f"/v1/sessions/{session}", params=params, require_auth=True
+        )
 
     def append_message(
         self,
@@ -115,8 +128,13 @@ class KernelApiClient:
         parts: list[dict[str, Any]] | None = None,
         metadata: Mapping[str, Any] | None = None,
         idempotency_key: str | None = None,
+        workspace_root: str | None = None,
     ) -> dict[str, Any]:
-        """Persist one user/assistant message into session history without running the model."""
+        """Persist one user/assistant message into session history without running the model.
+
+        ``workspace_root`` is forwarded so the stateless kernel can locate the
+        session JSONL; the gateway always knows it from the agent's config.
+        """
 
         session = _require_non_empty_string(session_id, field_name="session_id")
         normalized_role = _require_non_empty_string(role, field_name="role").lower()
@@ -134,6 +152,10 @@ class KernelApiClient:
             payload["turn_id"] = _require_non_empty_string(turn_id, field_name="turn_id")
         if idempotency_key is not None:
             payload["idempotency_key"] = _require_non_empty_string(idempotency_key, field_name="idempotency_key")
+        if workspace_root is not None:
+            payload["workspace_root"] = _require_non_empty_string(
+                workspace_root, field_name="workspace_root"
+            )
         return self._request(
             "POST",
             f"/v1/sessions/{session}/messages:append",
@@ -148,6 +170,7 @@ class KernelApiClient:
         texts: list[str],
         image_urls: list[dict[str, Any]] | None = None,
         priority: str = "next",
+        workspace_root: str | None = None,
         origin: str | None = None,
     ) -> dict[str, Any]:
         """POST /messages. Returns {run_id, anchor_sequence, injected, status}.
@@ -157,6 +180,8 @@ class KernelApiClient:
             texts: One or more user message texts.
             image_urls: Optional image attachments.
             priority: Run scheduling priority ("next" or "now").
+            workspace_root: Forwarded so the stateless kernel can locate the
+                session JSONL on first load; the gateway always knows it.
             origin: Optional run origin tag ("heartbeat", "user", …). When
                 provided it is forwarded to the kernel so ``auto_mode_gate``
                 can detect unattended context and skip blocking permission
@@ -177,6 +202,10 @@ class KernelApiClient:
                     image_part["mime_type"] = mime.strip()
                 parts.append(image_part)
         payload: dict[str, Any] = {"parts": parts, "priority": priority}
+        if workspace_root is not None:
+            payload["workspace_root"] = _require_non_empty_string(
+                workspace_root, field_name="workspace_root"
+            )
         if origin is not None:
             payload["origin"] = origin
         session = _require_non_empty_string(session_id, field_name="session_id")
@@ -234,11 +263,24 @@ class KernelApiClient:
         run = _require_non_empty_string(run_id, field_name="run_id")
         return self._request("POST", f"/v1/runs/{run}/cancel", json={}, require_auth=True)
 
-    def interrupt_session(self, *, session_id: str) -> dict[str, Any]:
-        """Force-interrupt the active run for a session and return interrupt result."""
+    def interrupt_session(
+        self, *, session_id: str, workspace_root: str | None = None
+    ) -> dict[str, Any]:
+        """Force-interrupt the active run for a session and return interrupt result.
+
+        ``workspace_root`` is forwarded so the stateless kernel can locate the
+        session JSONL for its existence check.
+        """
 
         session = _require_non_empty_string(session_id, field_name="session_id")
-        return self._request("POST", f"/v1/sessions/{session}/interrupt", json={}, require_auth=True)
+        payload: dict[str, Any] = {}
+        if workspace_root is not None:
+            payload["workspace_root"] = _require_non_empty_string(
+                workspace_root, field_name="workspace_root"
+            )
+        return self._request(
+            "POST", f"/v1/sessions/{session}/interrupt", json=payload, require_auth=True
+        )
 
     def submit_permission_decision(
         self,
@@ -300,9 +342,16 @@ class KernelApiClient:
         path: str,
         *,
         json: Mapping[str, Any] | None = None,
+        params: Mapping[str, Any] | None = None,
         require_auth: bool,
     ) -> dict[str, Any]:
-        response = self._client.request(method=method, url=path, json=json, headers=self._build_headers(require_auth=require_auth))
+        response = self._client.request(
+            method=method,
+            url=path,
+            json=json,
+            params=params,
+            headers=self._build_headers(require_auth=require_auth),
+        )
         _raise_for_error_response(response)
         payload = response.json()
         if not isinstance(payload, dict):

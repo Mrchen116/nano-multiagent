@@ -49,7 +49,7 @@ class _FakeKernelClient:
         )
         return {"session_id": sid}
 
-    def submit_message(self, *, session_id, texts, image_urls=None):
+    def submit_message(self, *, session_id, texts, image_urls=None, **_kwargs):
         self._run_count += 1
         run_id = f"run-{self._run_count}"
         self.send_calls.append({"session_id": session_id, "texts": texts, "run_id": run_id})
@@ -62,7 +62,7 @@ class _FakeKernelClient:
     def get_run(self, *, run_id):
         return {"status": "completed", "output_text": "ok"}
 
-    def get_session(self, *, session_id):
+    def get_session(self, *, session_id, **_kwargs):
         return {"metadata": {"workspace_root": "/workspace"}}
 
 

@@ -5,6 +5,7 @@ import threading
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from threading import Lock
 from typing import Any, Mapping, Protocol, Sequence
 
@@ -47,6 +48,9 @@ class RunRecord:
     last_error: Mapping[str, Any] | None = None
     origin: RunOrigin = RunOrigin.USER
     source_task_id: str | None = None
+    # Session workspace root, threaded from the request so the stateless kernel
+    # can locate the session JSONL on first load of this process lifetime.
+    workspace_root: Path | None = None
 
 
 class RuntimeRunner(Protocol):
@@ -58,6 +62,7 @@ class RuntimeRunner(Protocol):
         stream: bool = True,
         run_id: str | None = None,
         controller: RunController | None = None,
+        workspace_root: Path | None = None,
     ):  # noqa: ANN001, ANN201
         ...
 
@@ -115,8 +120,15 @@ class RunsRegistry:
         origin: RunOrigin = RunOrigin.USER,
         source_task_id: str | None = None,
         trace_id: str | None = None,
+        workspace_root: Path | None = None,
     ) -> RunRecord:
-        if self._session_manager.get_session(session_id) is None:
+        """Submit a turn for execution.
+
+        ``workspace_root`` is threaded from the request so the stateless kernel
+        can locate the session JSONL; it is required (in production) for the
+        existence check below and for the runtime's first load of the session.
+        """
+        if self._session_manager.get_session(session_id, workspace_root=workspace_root) is None:
             raise ValueError(f"session does not exist: {session_id}")
         if not parts:
             raise ValueError("empty input parts are not allowed")
@@ -133,6 +145,7 @@ class RunsRegistry:
             trace_id=resolved_trace_id,
             origin=origin,
             source_task_id=source_task_id,
+            workspace_root=workspace_root,
         )
         self._persist_run_status_entry(record)
         with self._lock:
@@ -147,7 +160,10 @@ class RunsRegistry:
         )
 
         normalized_parts = [dict(part) for part in parts]
-        coro = self._run_worker_async(run_id, session_id, normalized_parts, resolved_trace_id, origin)
+        coro = self._run_worker_async(
+            run_id, session_id, normalized_parts, resolved_trace_id,
+            workspace_root=workspace_root, origin=origin,
+        )
         asyncio.run_coroutine_threadsafe(coro, self._async_loop)
         return record
 
@@ -218,6 +234,8 @@ class RunsRegistry:
         session_id: str,
         parts: Sequence[Mapping[str, Any]],
         trace_id: str | None,
+        *,
+        workspace_root: Path | None = None,
         origin: RunOrigin = RunOrigin.USER,
     ) -> None:
         # Transient LLM retry is handled inside AgentLoop._generate_with_retry().
@@ -245,7 +263,12 @@ class RunsRegistry:
             try:
                 with span("RunsRegistry.run_worker", run_id=run_id, session_id=session_id):
                     result = await self._runtime.run(
-                        session_id, parts, stream=False, run_id=run_id, controller=controller,
+                        session_id,
+                        parts,
+                        stream=False,
+                        run_id=run_id,
+                        controller=controller,
+                        workspace_root=workspace_root,
                         origin=origin,
                     )
             except TimeoutError as exc:
@@ -272,6 +295,7 @@ class RunsRegistry:
                         session_id=session_id,
                         parts=[{"type": "text", "text": msg.content} for msg in stranded],
                         origin=RunOrigin.BACKGROUND_TASK,
+                        workspace_root=workspace_root,
                     )
 
     def _set_status(

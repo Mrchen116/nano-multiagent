@@ -43,7 +43,7 @@ class _FakeStopper:
 
 
 class _FakeRunner:
-    def start(self, *, agent_session_id, parent_session_id, prompt, on_complete, on_fail):
+    def start(self, *, agent_session_id, parent_session_id, prompt, on_complete, on_fail, workspace_root=None):
         def _worker():
             time.sleep(0.05)
             on_complete(

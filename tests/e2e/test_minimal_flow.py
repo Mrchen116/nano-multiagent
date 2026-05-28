@@ -1,5 +1,8 @@
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
 
 
@@ -10,8 +13,12 @@ def _auth_headers(request_id: str) -> dict[str, str]:
     }
 
 
-def test_health_then_create_session() -> None:
-    client = TestClient(create_app())
+def test_health_then_create_session(tmp_path: Path) -> None:
+    # Bare create_app() has no product profile, so SessionService falls back to
+    # the stateless store (data_dir=None) — every op must carry workspace_root.
+    # This test exercises HTTP ops without workspace_root, so supply an explicit
+    # data_dir-backed test store (legacy flat layout) as documented scaffolding.
+    client = TestClient(create_app(session_store=JsonlSessionStore(data_dir=tmp_path)))
 
     health = client.get('/v1/health')
     create = client.post('/v1/sessions', json={}, headers=_auth_headers("req-e2e-create"))

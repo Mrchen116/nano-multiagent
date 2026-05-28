@@ -91,6 +91,9 @@ class SendMessageRequest(BaseModel):
     parts: list[dict[str, Any]] = Field(min_length=1)
     model: str | None = None
     priority: str = "next"
+    # Session workspace root — the stateless kernel needs it to locate the
+    # session JSONL on first load.  Senders (PA gateway, CLI) always know it.
+    workspace_root: str | None = None
     # Optional run origin — defaults to USER when absent. PA heartbeat runs pass
     # "heartbeat" so auto_mode_gate can short-circuit to unattended_fallback without
     # blocking on a permission request that nobody will answer.
@@ -116,6 +119,9 @@ class AppendMessageRequest(BaseModel):
     parts: list[dict[str, Any]] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
     idempotency_key: str | None = None
+    # Session workspace root — required for the stateless kernel to locate the
+    # session JSONL.  Senders (PA gateway, CLI) always know it.
+    workspace_root: str | None = None
 
     @model_validator(mode="after")
     def validate_role(self) -> "AppendMessageRequest":
@@ -210,6 +216,17 @@ class InterruptSessionResponse(BaseModel):
     run_id: str | None = None
 
 
+class SessionWorkspaceBody(BaseModel):
+    """Request body carrying only the session's workspace_root.
+
+    Used by operations on an existing session (fork/compact/interrupt) so the
+    stateless kernel can locate the session JSONL. Optional so legacy callers
+    and ``data_dir``-backed test stores still work.
+    """
+
+    workspace_root: str | None = None
+
+
 @router.post("", status_code=201, response_model=SessionResponse)
 def create_session(
     payload: CreateSessionRequest,
@@ -240,10 +257,26 @@ def create_session(
 def list_sessions(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
+    workspace_root: str | None = Query(default=None),
     session_service: SessionService = Depends(get_session_service),
 ) -> SessionListResponse:
-    """List sessions with offset pagination semantics."""
-    sessions, has_more = session_service.list_sessions(limit=limit, offset=offset)
+    """List sessions with offset pagination semantics.
+
+    Scoped to the ``workspace_root`` query param — the stateless kernel has no
+    cross-workspace session registry.
+    """
+    try:
+        ws_root = _optional_workspace_root(workspace_root)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    sessions, has_more = session_service.list_sessions(
+        limit=limit, offset=offset, workspace_root=ws_root
+    )
     return SessionListResponse(
         items=[_to_session_response(session) for session in sessions],
         limit=limit,
@@ -255,10 +288,20 @@ def list_sessions(
 @router.get("/{session_id}", response_model=SessionResponse)
 def get_session(
     session_id: str,
+    workspace_root: str | None = Query(default=None),
     session_service: SessionService = Depends(get_session_service),
 ) -> SessionResponse:
     """Fetch session by id or map missing session to HTTP 404."""
-    session = session_service.get_session(session_id)
+    try:
+        ws_root = _optional_workspace_root(workspace_root)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    session = session_service.get_session(session_id, workspace_root=ws_root)
     if session is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -272,11 +315,21 @@ def get_session(
 @router.get("/{session_id}/tools", response_model=SessionToolsResponse)
 def list_session_tools(
     session_id: str,
+    workspace_root: str | None = Query(default=None),
     session_service: SessionService = Depends(get_session_service),
     registry: ToolRegistry = Depends(get_tool_registry),
 ) -> SessionToolsResponse:
     """List available tools for one session after existence check."""
-    if session_service.get_session(session_id) is None:
+    try:
+        ws_root = _optional_workspace_root(workspace_root)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    if session_service.get_session(session_id, workspace_root=ws_root) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="session_not_found",
@@ -300,31 +353,49 @@ def list_session_tools(
 @router.post("/{session_id}:fork", response_model=SessionResponse)
 async def fork_session(
     session_id: str,
+    payload: SessionWorkspaceBody = SessionWorkspaceBody(),
     session_service: SessionService = Depends(get_session_service),
     runtime=Depends(get_agent_runtime),
 ) -> SessionResponse:
     """Fork a session: create a new independent session with copied history."""
-    if session_service.get_session(session_id) is None:
+    try:
+        ws_root = _optional_workspace_root(payload.workspace_root)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    if session_service.get_session(session_id, workspace_root=ws_root) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="session_not_found",
             message=f"session does not exist: {session_id}",
             retryable=False,
         )
-    new_session = await runtime.fork_session(session_id)
+    new_session = await runtime.fork_session(session_id, workspace_root=ws_root)
     return _to_session_response(new_session)
 
 
 @router.post("/{session_id}:compact", response_model=CompactSessionResponse)
 async def compact_session(
     session_id: str,
-    payload: dict[str, Any],
+    payload: SessionWorkspaceBody = SessionWorkspaceBody(),
     session_service: SessionService = Depends(get_session_service),
     runtime=Depends(get_agent_runtime),
 ) -> CompactSessionResponse:
     """Trigger manual compaction and return compaction metadata when applied."""
-    del payload
-    if session_service.get_session(session_id) is None:
+    try:
+        ws_root = _optional_workspace_root(payload.workspace_root)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    if session_service.get_session(session_id, workspace_root=ws_root) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="session_not_found",
@@ -333,7 +404,7 @@ async def compact_session(
         )
 
     try:
-        result = await runtime.compact(session_id)
+        result = await runtime.compact(session_id, workspace_root=ws_root)
     except ValueError as exc:
         raise APIError(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -362,12 +433,22 @@ async def compact_session(
 @router.get("/{session_id}/context-budget", response_model=ContextBudgetResponse)
 def get_context_budget(
     session_id: str,
+    workspace_root: str | None = Query(default=None),
     session_service: SessionService = Depends(get_session_service),
     runtime=Depends(get_agent_runtime),
     hook_registry: HookRegistry = Depends(get_hook_registry),
 ) -> ContextBudgetResponse:
     """Return session context usage for user-facing budget hints."""
-    if session_service.get_session(session_id) is None:
+    try:
+        ws_root = _optional_workspace_root(workspace_root)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    if session_service.get_session(session_id, workspace_root=ws_root) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="session_not_found",
@@ -395,11 +476,21 @@ def get_context_budget(
 @router.post("/{session_id}/interrupt", response_model=InterruptSessionResponse)
 def interrupt_session(
     session_id: str,
+    payload: SessionWorkspaceBody = SessionWorkspaceBody(),
     session_service: SessionService = Depends(get_session_service),
     runs: RunsRegistry = Depends(get_runs_registry),
 ) -> InterruptSessionResponse:
     """Force-interrupt the active run for a session."""
-    if session_service.get_session(session_id) is None:
+    try:
+        ws_root = _optional_workspace_root(payload.workspace_root)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    if session_service.get_session(session_id, workspace_root=ws_root) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="session_not_found",
@@ -423,7 +514,16 @@ def append_message(
 ) -> AppendMessageResponse:
     """Persist one append-only session message and publish a session event."""
 
-    existing = session_service.get_session(session_id)
+    try:
+        ws_root = _optional_workspace_root(payload.workspace_root)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    existing = session_service.get_session(session_id, workspace_root=ws_root)
     if existing is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -441,6 +541,7 @@ def append_message(
             parts=payload.parts,
             metadata=payload.metadata,
             idempotency_key=payload.idempotency_key,
+            workspace_root=ws_root,
         )
     except ValueError as exc:
         raise APIError(
@@ -463,17 +564,27 @@ def append_message(
 def get_session_messages(
     session_id: str,
     limit: int = Query(default=20, ge=1, le=100),
+    workspace_root: str | None = Query(default=None),
     session_service: SessionService = Depends(get_session_service),
 ) -> SessionMessagesResponse:
     """List persisted message entries for one session."""
-    if session_service.get_session(session_id) is None:
+    try:
+        ws_root = _optional_workspace_root(workspace_root)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    if session_service.get_session(session_id, workspace_root=ws_root) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="session_not_found",
             message=f"session does not exist: {session_id}",
             retryable=False,
         )
-    entries = session_service.manager.list_entries(session_id)
+    entries = session_service.manager.list_entries(session_id, workspace_root=ws_root)
     messages: list[SessionMessageItem] = []
     for entry in entries:
         if entry.kind != SessionEntryKind.TURN_APPENDED:
@@ -504,7 +615,16 @@ async def submit_message(
     request: Request = None,  # type: ignore[assignment]
 ) -> SubmitMessageResponse:
     """Submit a message turn and return run handle (JSON RPC, no SSE)."""
-    if session_service.get_session(session_id) is None:
+    try:
+        ws_root = _optional_workspace_root(payload.workspace_root)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    if session_service.get_session(session_id, workspace_root=ws_root) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="session_not_found",
@@ -550,6 +670,7 @@ async def submit_message(
             parts=payload.parts,
             origin=run_origin,
             trace_id=get_trace_id(request),
+            workspace_root=ws_root,
         )
     except ValueError as exc:
         message = str(exc)
@@ -578,11 +699,21 @@ async def submit_message(
 async def session_stream(
     session_id: str,
     request: Request,
+    workspace_root: str | None = Query(default=None),
     event_hub: EventStreamHub = Depends(get_event_stream_hub),
     session_service: SessionService = Depends(get_session_service),
 ) -> StreamingResponse:
     """Persistent session-scoped SSE stream."""
-    if session_service.get_session(session_id) is None:
+    try:
+        ws_root = _optional_workspace_root(workspace_root)
+    except ValueError as exc:
+        raise APIError(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            code="invalid_request",
+            message=str(exc),
+            retryable=False,
+        ) from exc
+    if session_service.get_session(session_id, workspace_root=ws_root) is None:
         raise APIError(
             status_code=status.HTTP_404_NOT_FOUND,
             code="session_not_found",
@@ -654,9 +785,29 @@ def _session_entry_payload(entry: SessionEntry) -> dict[str, Any]:
 
 
 def _parse_workspace_root(workspace_root: str | None) -> Path:
-    """Normalize and validate workspace_root, defaulting to CWD when absent."""
+    """Normalize and validate workspace_root, defaulting to CWD when absent.
+
+    Used by ``create_session`` where a session must be bound to *some* workspace;
+    CWD is the documented default for that one path. Operations on an *existing*
+    session use ``_optional_workspace_root`` instead — they must not invent a
+    CWD-based location, since that is exactly the bugfix-348 bug.
+    """
     if workspace_root is None or not workspace_root.strip():
         return Path.cwd()
+    candidate = Path(workspace_root.strip()).expanduser()
+    if not candidate.is_absolute():
+        raise ValueError("workspace_root must be an absolute path or start with ~/")
+    return candidate.resolve()
+
+
+def _optional_workspace_root(workspace_root: str | None) -> Path | None:
+    """Normalize an optional workspace_root for operations on an existing session.
+
+    Returns ``None`` when absent (no CWD fallback): the stateless store then
+    raises a clear error rather than silently resolving to the process cwd.
+    """
+    if workspace_root is None or not workspace_root.strip():
+        return None
     candidate = Path(workspace_root.strip()).expanduser()
     if not candidate.is_absolute():
         raise ValueError("workspace_root must be an absolute path or start with ~/")

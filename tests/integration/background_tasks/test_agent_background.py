@@ -27,12 +27,12 @@ class _FakeStore:
         self._tmp_path = tmp_path
         self._sessions: dict[str, dict[str, Any]] = {}
 
-    def resolve_path(self, session_id: str, parent_session_id: str = "") -> Path:
+    def resolve_path(self, session_id: str, *, workspace_root=None, parent_session_id: str = "") -> Path:
         path = self._tmp_path / "sessions" / f"{session_id}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
-    def find_session_by_metadata(self, parent_session_id: str, match: dict[str, Any]) -> str | None:
+    def find_session_by_metadata(self, *, parent_session_id: str, match: dict[str, Any], workspace_root=None) -> str | None:
         for sid, meta in self._sessions.items():
             if all(meta.get(k) == v for k, v in match.items()):
                 return sid
@@ -43,7 +43,7 @@ class _SessionManagerStub:
     def __init__(self, store: _FakeStore) -> None:
         self.store = store
 
-    def load(self, session_id: str, *, parent_session_id: str = "") -> Any:
+    def load(self, session_id: str, *, workspace_root=None, parent_session_id: str = "") -> Any:
         meta = self.store._sessions.get(session_id, {})
         return type("LoadResult", (), {
             "config": type("Config", (), {"metadata": meta})(),
@@ -64,6 +64,9 @@ class _RuntimeStub:
         self._session_manager.store._sessions[sid] = dict(metadata or {})
         return type("Session", (), {"session_id": sid})()
 
+    def session_workspace_root(self, session_id: str) -> Any:
+        return self._tmp_path
+
     async def run(
         self,
         session_id: str,
@@ -72,6 +75,8 @@ class _RuntimeStub:
         stream: bool = False,
         controller: Any = None,
         parent_session_id: str | None = None,
+        workspace_root: Any = None,
+        run_id: str | None = None,
     ) -> TurnResult:
         if self._delay > 0:
             time.sleep(self._delay)

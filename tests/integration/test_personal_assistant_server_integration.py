@@ -55,11 +55,18 @@ def test_personal_assistant_capabilities_excludes_write_edit_bash() -> None:
     assert tool_names  # Non-empty tool list
 
 
-def test_personal_assistant_sessions_endpoint_works() -> None:
-    """GET /v1/sessions for personal_assistant must return 200 with paginated items list."""
+def test_personal_assistant_sessions_endpoint_works(tmp_path: Path) -> None:
+    """GET /v1/sessions for personal_assistant must return 200 with paginated items list.
+
+    bugfix-348: stateless kernel requires workspace_root on every path-resolving
+    call (no global session registry); the list endpoint takes it as a query param.
+    """
     app = create_app(product_profile=PERSONAL_ASSISTANT_PROFILE)
     client = TestClient(app)
-    response = client.get("/v1/sessions", headers=_auth_headers("pa-sessions-1"))
+    response = client.get(
+        f"/v1/sessions?workspace_root={tmp_path}",
+        headers=_auth_headers("pa-sessions-1"),
+    )
     assert response.status_code == 200
     # Sessions list endpoint returns paginated payload with "items" key.
     body = response.json()

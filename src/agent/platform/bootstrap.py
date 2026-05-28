@@ -118,7 +118,20 @@ def bootstrap_product(
     else:
         tool_registry = full_tool_registry
 
-    session_store = JsonlSessionStore(data_dir=resolved_root / ".nano")
+    # Stateless session store: data_dir=None means the store has no default base
+    # and every path-resolving call must be given the session's workspace_root by
+    # the caller.  Each session's JSONL then lands under
+    # {workspace_root}/{profile.workspace_config_dirname}/sessions/ rather than
+    # the process cwd.  See feat-330 design.md file-layout section and bugfix-348
+    # for why the previous resolved_root/.nano was wrong; passing data_dir=None
+    # here guarantees production never silently falls back to cwd.  Threading
+    # ``profile.workspace_config_dirname`` lets PA / LC share the same per-workspace
+    # config dir (`.nanoassistant` / `.nanocode`) with memory / skill / hook
+    # resources, instead of stranding session JSONL under a separate `.nano/`.
+    session_store = JsonlSessionStore(
+        data_dir=None,
+        workspace_config_dirname=profile.workspace_config_dirname or ".nano",
+    )
 
     skill_registry = SkillRegistry(
         search_roots=default_skill_search_roots(
