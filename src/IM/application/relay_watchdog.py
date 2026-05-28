@@ -231,7 +231,7 @@ async def run_relay_watchdog(
     connection: sqlite3.Connection,
     event_repository: EventRepository,
     interval_seconds: int = 30,
-    timeout_seconds: int = 300,
+    timeout_seconds: int = 120,
 ) -> None:
     """Background task: sweep stuck `running` messages every `interval_seconds`.
 
