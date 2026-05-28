@@ -154,24 +154,31 @@ def test_scan_inherits_prior_relay_processing_payload_for_id_continuity(tmp_path
         conversation_id="conv-1",
         created_at=stale_at,
     )
-    repo = EventRepository(connection, notify=lambda _ev: None)
-    # Seed the original relay.processing event the way GatewayHandler does.
-    repo.append_event(
-        conversation_id="conv-1",
-        message_id="msg-stuck",
-        event_type="relay.processing",
-        delivery_status="running",
-        payload={
-            "conversation_id": "conv-1",
-            "message_id": "msg-stuck",
-            "relay_task_id": "task-abc",
-            "agent_id": "agent-A",
-            "node_id": "node-1",
-            "run_id": "run-xyz",
-            "progress_state": "processing",
-            "semantic": "agent_run_processing",
-        },
+    # Insert the relay.processing event with a stale created_at so the watchdog's
+    # last-event-time check sees it as idle (bugfix-383: new SQL uses MAX(event.created_at)).
+    # Payload must carry the identity fields to test inheritance.
+    connection.execute(
+        "INSERT INTO conversation_events(message_id, conversation_id, event_type, delivery_status, payload_json, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            "msg-stuck",
+            "conv-1",
+            "relay.processing",
+            "running",
+            json.dumps({
+                "conversation_id": "conv-1",
+                "message_id": "msg-stuck",
+                "relay_task_id": "task-abc",
+                "agent_id": "agent-A",
+                "node_id": "node-1",
+                "run_id": "run-xyz",
+                "progress_state": "processing",
+                "semantic": "agent_run_processing",
+            }),
+            stale_at,
+        ),
     )
+    connection.commit()
 
     captured: list[ConversationEvent] = []
     repo_recorded = EventRepository(connection, notify=captured.append)
@@ -219,7 +226,7 @@ def test_scan_writes_detail_into_empty_message_content(tmp_path: Path) -> None:
         ("msg-empty",),
     ).fetchone()
     assert row["delivery_status"] == "failed"
-    assert row["content"] == "relay timed out after 300s with no completion event"
+    assert row["content"] == "relay idle for 300s with no new event"
 
 
 def test_scan_appends_error_note_to_partial_streamed_content(tmp_path: Path) -> None:
@@ -254,7 +261,7 @@ def test_scan_appends_error_note_to_partial_streamed_content(tmp_path: Path) -> 
         "SELECT content FROM messages WHERE id = ?", ("msg-partial",)
     ).fetchone()
     assert "half a sentence..." in row["content"]
-    assert "[error] relay timed out after 300s with no completion event" in row["content"]
+    assert "[error] relay idle for 300s with no new event" in row["content"]
 
 
 def test_scan_recovers_agent_identity_when_relay_processing_missing(tmp_path: Path) -> None:
