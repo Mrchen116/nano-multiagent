@@ -287,3 +287,193 @@ def test_scan_recovers_agent_identity_when_relay_processing_missing(tmp_path: Pa
     payload = json.loads(relay_failed[0].payload_json)
     assert payload.get("agent_id") == "agent-A"
     assert payload.get("sender_display_name") == "Agent A"
+
+
+# ── bugfix-383: 判活信号改为"最近 event 时间" ──────────────────────────────
+
+
+def _insert_conversation_event(
+    connection,
+    *,
+    message_id: str,
+    conversation_id: str,
+    event_type: str,
+    created_at: str,
+) -> None:
+    """直接向 conversation_events 插入原始行，绕开 repository 做时间控制。"""
+    connection.execute(
+        "INSERT INTO conversation_events(message_id, conversation_id, event_type, delivery_status, payload_json, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (message_id, conversation_id, event_type, "running", "{}", created_at),
+    )
+    connection.commit()
+
+
+def test_active_relay_not_killed(tmp_path: Path) -> None:
+    """bugfix-383: message 10 分钟前创建，但最近 event 30 秒前刚推进 → 不应被杀。
+
+    这是本 bug 的核心回归测试：旧代码按 created_at 判断，10min > 120s 会被杀；
+    新代码按最近 event 时间判断，30s < 120s 不被杀。
+    """
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    old_created_at = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=10))
+    recent_event_at = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=30))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-active",
+        conversation_id="conv-1",
+        created_at=old_created_at,
+    )
+    _insert_conversation_event(
+        connection,
+        message_id="msg-active",
+        conversation_id="conv-1",
+        event_type="tool_call.upserted",
+        created_at=recent_event_at,
+    )
+
+    captured: list[ConversationEvent] = []
+    repo = EventRepository(connection, notify=captured.append)
+    flipped = scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=120,
+    )
+
+    assert flipped == 0
+    row = connection.execute(
+        "SELECT delivery_status FROM messages WHERE id = ?", ("msg-active",)
+    ).fetchone()
+    assert row["delivery_status"] == "running"
+    assert captured == []
+
+
+def test_idle_relay_killed_with_new_wording(tmp_path: Path) -> None:
+    """bugfix-383: message 10 分钟前创建，最后 event 5 分钟前 → 应被杀，文案用新格式。"""
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    old_created_at = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=10))
+    old_event_at = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=5))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-idle",
+        conversation_id="conv-1",
+        created_at=old_created_at,
+    )
+    _insert_conversation_event(
+        connection,
+        message_id="msg-idle",
+        conversation_id="conv-1",
+        event_type="tool_call.upserted",
+        created_at=old_event_at,
+    )
+
+    captured: list[ConversationEvent] = []
+    repo = EventRepository(connection, notify=captured.append)
+    flipped = scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=120,
+    )
+
+    assert flipped == 1
+    row = connection.execute(
+        "SELECT delivery_status, content FROM messages WHERE id = ?", ("msg-idle",)
+    ).fetchone()
+    assert row["delivery_status"] == "failed"
+    assert "relay idle for 120s with no new event" in row["content"]
+
+
+def test_no_event_fallback_to_created_at(tmp_path: Path) -> None:
+    """bugfix-383: message 4 分钟前创建，零 conversation_events → fallback 到 created_at，被杀（> 120s）。"""
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    created_at = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=4))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-noevent",
+        conversation_id="conv-1",
+        created_at=created_at,
+    )
+
+    captured: list[ConversationEvent] = []
+    repo = EventRepository(connection, notify=captured.append)
+    flipped = scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=120,
+    )
+
+    assert flipped == 1
+    row = connection.execute(
+        "SELECT delivery_status FROM messages WHERE id = ?", ("msg-noevent",)
+    ).fetchone()
+    assert row["delivery_status"] == "failed"
+
+
+def test_boundary_just_over_idle_threshold(tmp_path: Path) -> None:
+    """last_evt 121s 前 → idle > 120s，应被杀。"""
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    old_created_at = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=10))
+    last_event_at = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=121))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-over",
+        conversation_id="conv-1",
+        created_at=old_created_at,
+    )
+    _insert_conversation_event(
+        connection,
+        message_id="msg-over",
+        conversation_id="conv-1",
+        event_type="message.delta",
+        created_at=last_event_at,
+    )
+
+    captured: list[ConversationEvent] = []
+    repo = EventRepository(connection, notify=captured.append)
+    flipped = scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=120,
+    )
+
+    assert flipped == 1
+
+
+def test_boundary_just_under_idle_threshold(tmp_path: Path) -> None:
+    """last_evt 119s 前 → idle < 120s，不应被杀。"""
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    old_created_at = _utc_iso(datetime.now(timezone.utc) - timedelta(minutes=10))
+    last_event_at = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=119))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-under",
+        conversation_id="conv-1",
+        created_at=old_created_at,
+    )
+    _insert_conversation_event(
+        connection,
+        message_id="msg-under",
+        conversation_id="conv-1",
+        event_type="message.delta",
+        created_at=last_event_at,
+    )
+
+    captured: list[ConversationEvent] = []
+    repo = EventRepository(connection, notify=captured.append)
+    flipped = scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=120,
+    )
+
+    assert flipped == 0
