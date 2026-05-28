@@ -472,6 +472,8 @@ def test_im_connection_agent_preview_passes_skill_ids_to_provider(tmp_path: Path
 
     async def _exercise() -> None:
         await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 — consume node.register ack
+        await manager._listen_once()  # noqa: SLF001 — process the preview request frame
 
     asyncio.run(_exercise())
 
@@ -537,6 +539,8 @@ def test_im_connection_node_preview_passes_workspace_root_and_skill_ids_to_provi
 
     async def _exercise() -> None:
         await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 — consume node.register ack
+        await manager._listen_once()  # noqa: SLF001 — process the node preview request frame
 
     asyncio.run(_exercise())
 
