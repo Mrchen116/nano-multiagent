@@ -17,4 +17,27 @@
   - E2E/Regression: `test_prompt_preview_runtime_parity.py` — 预览占位符替换后逐字等于 runtime 输出，通过
   - Visual/Interaction: N/A
 - Rollback: `git revert ed3c9148`
-- Commits: C1=0e5245ee, C2=ed3c9148, C3=（本次）
+- Commits: C1=0e5245ee, C2=ed3c9148, C3=512cc788
+- Next: R2（PA client + Gateway WS 透传）
+
+## R2 — kernel_api_client + Gateway WS 透传 workspace_root/skill_ids
+
+- Context: kernel 已支持 workspace_root/skill_ids，但 PA 的 `kernel_api_client.prompt_preview()` 签名没有这两个参数，`im_connection.py` 里的 WS handler 也没有读取 `skill_ids`，Gateway `request_node_prompt_preview` 没有透传 `workspace_root`/`skill_ids`。
+- Decision: 
+  1. `PromptPreviewProvider` callable 签名加 `skill_ids` 参数（第 7 个）
+  2. `im_connection.py` `agent.prompt.preview.request` handler 读取 `skill_ids` 并传给 provider
+  3. `im_connection.py` `node.prompt.preview.request` handler 读取 `workspace_root`/`skill_ids` 并传给 provider
+  4. `kernel_api_client.prompt_preview()` 加 `workspace_root`/`skill_ids` 参数
+  5. `main.py` lambda 更新签名并透传两个新参数
+  6. `gateway_handler.request_prompt_preview` 加 `skill_ids` 参数
+  7. `gateway_handler.request_node_prompt_preview` 加 `workspace_root`/`skill_ids` 参数
+- Rationale: 全链路透传，kernel 端已实现，这一步确保每一层都把用户配置的 skill_ids 和 workspace_root 向下传递。
+- Evidence:
+  - Tests: `pytest tests/unit/ tests/contract/ tests/integration/ -q` — 2139 passed, 0 failed
+  - Entry: N/A（单元测试覆盖 WS handler 行为）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: `test_gateway_im_connection_behavior.py` 新增 2 个测试，11 个全绿
+  - Visual/Interaction: N/A
+- Rollback: `git revert 737246c3`
+- Commits: C1=0fbf0d23, C2=737246c3, C3=（本次）

@@ -88,7 +88,7 @@
 
 ### R2 — kernel_api_client + Gateway WS 透传 workspace_root/skill_ids
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 扩展 `kernel_api_client.prompt_preview()` 签名，扩展 Gateway `request_node_prompt_preview` payload，`im_connection.py` 读取 `skill_ids`/`workspace_root`
 - 验证: 现有 `test_personal_assistant_kernel_client_contract.py` 相关部分 + 新单测
 
