@@ -140,5 +140,50 @@ feat-383 实施期 worker / reviewer / orchestrator 反复手动 patch `kernel.b
 
 ## 修复
 
+**问题 A — scripts/e2e-up.sh 漏 patch kernel.base_url**
+
+在 `scripts/e2e-up.sh` 的 `derive Gateway config` 段，两条代码路径各加一行：
+
+- yq 段：`.kernel.base_url = "http://127.0.0.1:$API_PORT" |`
+- Python fallback 段：`cfg.setdefault("kernel", {})["base_url"] = f"http://127.0.0.1:{os.environ['API_PORT']}"`；同时把 `API_PORT` 加进 fallback 的 env 传递链
+
+**问题 B — vite.config.ts proxy 硬编码 8021**
+
+在 `src/IM/frontend/vite.config.ts` 顶部加：
+
+```ts
+const IM_PROXY_TARGET = process.env.VITE_IM_PROXY_TARGET ?? "http://127.0.0.1:8021";
+```
+
+`/im` proxy 的 `target` 改用 `IM_PROXY_TARGET`。默认值保留 `8021`，向后兼容。
+
+**额外 — .e2e-ports.env 输出契约扩展**
+
+`scripts/e2e-up.sh` 的 `.e2e-ports.env` 输出段加：
+
+```bash
+export VITE_IM_PROXY_TARGET=http://127.0.0.1:$IM_PORT
+```
+
+**变更文件**：`scripts/e2e-up.sh`、`src/IM/frontend/vite.config.ts`
+
 ## 验证
+
+**问题 A — Python fallback 路径真实运行验证**
+
+在 worktree 内对 fallback 逻辑传入模拟端口 `IM_PORT=51139 / API_PORT=51140`，输出：
+
+```
+kernel.base_url: http://127.0.0.1:51140
+所有断言通过
+```
+
+修前：`.gateway-config.yaml` 的 `kernel.base_url` 为 `http://127.0.0.1:8000`（默认主仓端口）或 kernel 段不存在，Gateway 流量打到主仓 kernel。
+修后：patch 后 `kernel.base_url` 指向 ephemeral `$API_PORT`，worktree 隔离不变量得到保证。
+
+**问题 B — env override 行为验证**
+
+未设 `VITE_IM_PROXY_TARGET` 时默认仍为 `http://127.0.0.1:8021`（向后兼容）；设置后 proxy target 随之改变。
+
+**自动测试门禁**：`pytest -m "not e2e"` 2400 passed, 22 skipped, 3 xfailed — 全绿。
 
