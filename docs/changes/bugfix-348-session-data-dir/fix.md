@@ -213,3 +213,36 @@ tests/integration/test_session_flow_integration.py` 等）：
 单独跑：全绿（除 `test_append_message_persists_history_once_per_idempotency_key` 与
 `test_create_app_with_profile_uses_resolver_skill_roots_over_legacy_codex` 两个 pre-existing
 failure——均在 main 基线里就失败，与本修复无关）。
+
+## R5: 评审反馈 — dirname 走 `profile.workspace_config_dirname`
+
+R1-R4 修对了 session JSONL 的**位置**（落到 `workspace_root` 下），但把 dirname
+`.nano` 当作不变常量硬编码——绕过了仓内已有的 `profile.workspace_config_dirname`
+抽象（PA: `.nanoassistant` / LC: `.nanocode`）。后果是 merge 后同一 PA workspace 下
+session 落 `.nano/sessions/`、memory / skill / hook 落 `.nanoassistant/`，**比修前更乱**。
+
+评审作者本人在 feat-385 design 阶段提出（PR #9 上的 self-review，倾向选项 1：本 PR 顺手收）。
+feat-385 design.md "决策 10" 已把"per-workspace 资源必须走 `profile.workspace_config_dirname`、
+禁硬编码 `.nano` / `.nanoassistant` / `.nanocode`"立为架构原则，并把 PR #9 列为 session
+JSONL 部分的落地点。本轮按这一原则收口：
+
+- `src/agent/core/session/jsonl_store.py`：`JsonlSessionStore.__init__` 新增
+  `workspace_config_dirname: str = ".nano"` 参数；`_resolve_base` 把硬编码的 `".nano"`
+  改为 `self._workspace_config_dirname`。默认值 `.nano` 仅供裸构造的测试脚手架使用，
+  生产链路由 bootstrap 显式覆盖。
+- `src/agent/platform/bootstrap.py`：构造 store 时传
+  `workspace_config_dirname=profile.workspace_config_dirname or ".nano"`，让 PA / LC
+  session JSONL 与 memory / skill / hook 共住同一 per-workspace 子目录。
+- 同步改 `tests/unit/test_app_factory_with_profile.py` 端到端断言走
+  `profile.workspace_config_dirname`，不再写死 `.nano/sessions/`。
+
+### 顺手解的事
+
+merge `origin/main` 进 bugfix-348 时，feat-383 / bugfix-384 在 RunsRegistry / KernelApiClient
+等链路上加了 `origin` 参数，与本 unit 加的 `workspace_root` 参数并存。解 13 个冲突
+（含一个 modify/delete：`tests/unit/personal_assistant/test_gateway_pipeline.py` 在 main 上
+被 refactor-372 拆成 5 个文件，HEAD 上只加了 `**_kwargs` 兼容——保留 main 的拆分，把
+`**_kwargs` 迁到 `_pipeline_helpers.py`）。
+
+merge 后全量回归（`pytest -m "not e2e"`）：**2407 passed / 0 failed**，
+含本轮新走 dirname 抽象后所有 session / runtime / contract / IM 路径。

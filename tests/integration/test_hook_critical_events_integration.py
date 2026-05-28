@@ -60,6 +60,17 @@ def test_shutdown_emits_session_shutdown_hook_on_app_close(tmp_path: Path) -> No
         created = client.post("/v1/sessions", json={}, headers=_auth_headers("req-hook-critical-create"))
         assert created.status_code == 201
         session_id = created.json()["session_id"]
+        # bugfix-348: stateless kernel only knows about sessions it has actually
+        # loaded into runtime memory; submit one message so this session shows up
+        # in runtime.active_session_ids() and the shutdown hook fires for it.
+        submitted = client.post(
+            f"/v1/sessions/{session_id}/messages",
+            json={"parts": [{"type": "text", "text": "warm up"}]},
+            headers=_auth_headers("req-hook-critical-submit"),
+        )
+        assert submitted.status_code == 200
+        run_id = submitted.json()["run_id"]
+        _wait_for_terminal_run(client, run_id)
 
     assert observed == [{"session_id": session_id}]
 

@@ -15,7 +15,7 @@ class _BlockingRuntime:
     def __init__(self) -> None:
         self.release = asyncio.Event()
 
-    async def run(self, session_id, parts, *, stream=True, run_id=None, controller=None, origin=None):  # noqa: ANN001, ANN201
+    async def run(self, session_id, parts, *, stream=True, run_id=None, controller=None, origin=None, workspace_root=None):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id, controller, origin
         try:
             await asyncio.wait_for(self.release.wait(), timeout=1.0)

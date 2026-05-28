@@ -79,10 +79,13 @@ def test_create_app_with_profile_wires_stateless_session_store(tmp_path: Path) -
 
     The store has no fixed ``data_dir`` base: every path-resolving call is given
     the session's ``workspace_root`` by the caller, so each session's JSONL lands
-    under ``{workspace_root}/.nano/sessions/`` rather than the process cwd. Before
-    bugfix-348 this asserted ``store._data_dir == repo_root/.nano`` — that was the
-    bug itself (all sessions piled into the kernel process's cwd, no workspace
-    isolation, broken cross-directory resume).
+    under ``{workspace_root}/{profile.workspace_config_dirname}/sessions/`` rather
+    than the process cwd. Before bugfix-348 this asserted
+    ``store._data_dir == repo_root/.nano`` — that was the bug itself (all sessions
+    piled into the kernel process's cwd, no workspace isolation, broken
+    cross-directory resume).  Threading ``profile.workspace_config_dirname`` also
+    co-locates session JSONL with the product's other per-workspace resources
+    (memory / skill / hook) under the same `.nanoassistant` / `.nanocode` dir.
     """
     profile = _make_profile(tmp_path / ".testproduct")
     app = create_app(product_profile=profile, repo_root=tmp_path)
@@ -90,11 +93,14 @@ def test_create_app_with_profile_wires_stateless_session_store(tmp_path: Path) -
     assert store._data_dir is None
 
     # End-to-end proof: a session created via the wired service lands under the
-    # request's workspace_root, not the process cwd.
+    # request's workspace_root with the profile's per-workspace config dirname,
+    # not the process cwd nor a hardcoded ``.nano``.
     workspace_root = tmp_path / "agent-workspace"
     workspace_root.mkdir()
     session = app.state.session_service.create_session(workspace_root=workspace_root)
-    expected = workspace_root / ".nano" / "sessions" / f"{session.session_id}.jsonl"
+    expected = (
+        workspace_root / profile.workspace_config_dirname / "sessions" / f"{session.session_id}.jsonl"
+    )
     assert expected.exists()
 
 

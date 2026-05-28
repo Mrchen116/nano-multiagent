@@ -45,7 +45,7 @@ class _FakeKernelClient:
         self.session_events.setdefault(session_id, [])
         return {"session_id": session_id}
 
-    def get_session(self, *, session_id: str):
+    def get_session(self, *, session_id: str, **_kwargs):
         metadata = self._session_metadata_by_id.get(session_id)
         if metadata is None:
             raise RuntimeError(f"missing session: {session_id}")
@@ -55,7 +55,7 @@ class _FakeKernelClient:
         self._session_metadata_by_id[session_id] = dict(metadata or {})
         self.session_events.setdefault(session_id, [])
 
-    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None):
+    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None, **_kwargs):
         # Renamed from send_message_async to match KernelApiClient.submit_message in src/
         self._run_index += 1
         run_id = f"run-{self._run_index}"

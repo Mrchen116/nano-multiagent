@@ -24,10 +24,18 @@ class _FakeStore:
     def __init__(self, tmp_path: Path) -> None:
         self._tmp_path = tmp_path
 
-    def resolve_path(self, session_id: str, *, parent_session_id: str | None = None) -> Path:
+    def resolve_path(
+        self,
+        session_id: str,
+        *,
+        parent_session_id: str | None = None,
+        workspace_root: Path | None = None,
+    ) -> Path:
+        del workspace_root
         return self._tmp_path / f"{session_id}.jsonl"
 
-    def find_session_by_metadata(self, *, parent_session_id, match):
+    def find_session_by_metadata(self, *, parent_session_id, match, workspace_root=None):
+        del workspace_root
         return None
 
 
@@ -62,8 +70,11 @@ class _RuntimeStub:
         llm_session_id: str | None = None,
         controller=None,
         parent_session_id: str | None = None,
+        run_id: str | None = None,
+        origin=None,
+        workspace_root: Path | None = None,
     ) -> TurnResult:
-        del stream, llm_session_id, controller, parent_session_id
+        del stream, llm_session_id, controller, parent_session_id, run_id, origin, workspace_root
         return TurnResult(
             session_id=session_id,
             turn_id="turn_task_with_resolver",

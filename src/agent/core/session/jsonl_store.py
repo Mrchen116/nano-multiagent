@@ -44,14 +44,21 @@ class JsonlSessionStore:
     must locate a session file accepts the session's ``workspace_root`` from the
     caller and resolves the path on the spot:
 
-        {workspace_root}/.nano/sessions/{session_id}.jsonl
-        {workspace_root}/.nano/sessions/{parent_session_id}/subagents/{subagent_session_id}.jsonl
+        {workspace_root}/{workspace_config_dirname}/sessions/{session_id}.jsonl
+        {workspace_root}/{workspace_config_dirname}/sessions/{parent_session_id}/subagents/{subagent_session_id}.jsonl
 
     This is the deliberate fix for the feat-330 chicken-and-egg gap: ``workspace_root``
     lives *inside* each session file, so locating a file by ``session_id`` alone is
     impossible.  The kernel stays stateless; the gateway and CLI — which already
     know each session's ``workspace_root`` (PA from its per-agent config, CLI from
     its working directory) — pass it on every request.
+
+    ``workspace_config_dirname`` is the per-product config sub-directory under
+    each workspace (PA: ``.nanoassistant`` / LC: ``.nanocode``).  Production
+    bootstrap sets it from ``profile.workspace_config_dirname`` so session JSONL
+    lives alongside memory / skill / hook resources rather than in a separate
+    ``.nano`` directory.  Tests default to ``.nano`` for backward compatibility
+    when no profile is involved.
 
     Backward compatibility: ``data_dir`` is an optional default base.  When a call
     omits ``workspace_root`` and ``data_dir`` was provided at construction, paths
@@ -60,7 +67,13 @@ class JsonlSessionStore:
     pass ``workspace_root``.
     """
 
-    def __init__(self, *, data_dir: Path | None, writer: JsonlWriter | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        data_dir: Path | None,
+        writer: JsonlWriter | None = None,
+        workspace_config_dirname: str = ".nano",
+    ) -> None:
         if data_dir is not None:
             self._data_dir: Path | None = Path(data_dir)
             self._data_dir.mkdir(parents=True, exist_ok=True)
@@ -68,6 +81,9 @@ class JsonlSessionStore:
             # No default base — callers must pass workspace_root on every call.
             self._data_dir = None
         self._writer = writer or JsonlWriter()
+        if not workspace_config_dirname:
+            raise ValueError("workspace_config_dirname must be a non-empty string")
+        self._workspace_config_dirname = workspace_config_dirname
 
     # ------------------------------------------------------------------
     # Public API
@@ -338,16 +354,17 @@ class JsonlSessionStore:
     # ------------------------------------------------------------------
 
     def _resolve_base(self, workspace_root: Path | None) -> Path:
-        """Resolve the ``.nano`` base directory for a session.
+        """Resolve the per-workspace config base directory for a session.
 
         Resolution:
         - ``data_dir`` was provided at construction → use it (test scaffolding
           only; the legacy flat layout). It wins so existing ``data_dir``-based
           tests keep all sessions under one tmp dir regardless of per-session
           ``workspace_root``.
-        - else, ``workspace_root`` passed by the caller → ``{workspace_root}/.nano``
-          (the production path; bootstrap always builds the store with
-          ``data_dir=None``).
+        - else, ``workspace_root`` passed by the caller →
+          ``{workspace_root}/{workspace_config_dirname}`` (the production path;
+          bootstrap always builds the store with ``data_dir=None`` and the
+          product's ``workspace_config_dirname``).
         - else → raise ``SessionNotFoundError``.  The stateless store never
           guesses a location: a missing ``workspace_root`` in production is a
           caller bug and must fail loudly, not silently fall back to a cwd-like
@@ -356,7 +373,7 @@ class JsonlSessionStore:
         if self._data_dir is not None:
             return self._data_dir
         if workspace_root is not None:
-            return Path(workspace_root) / ".nano"
+            return Path(workspace_root) / self._workspace_config_dirname
         raise SessionNotFoundError(
             "cannot resolve session path: the store was constructed with "
             "data_dir=None (production workspace-aware mode) but the caller did "
