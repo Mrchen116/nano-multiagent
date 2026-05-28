@@ -82,7 +82,7 @@
 
 ### R1 — kernel `/v1/prompt-preview` 真实化（工具描述+skill+datetime/cwd 占位）
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 扩展 `PromptPreviewRequest`（加 `workspace_root`/`skill_ids`），在处理函数注入 `ToolRegistry`，用 `registry.get(tid)` 取真实工具，用 `resolve_available_skills` 解析 skills，datetime/cwd 占位
 - 验证: 扩展 `tests/unit/test_prompt_preview_endpoint.py`，新增 contract test `tests/contract/test_prompt_preview_runtime_parity.py`
 
