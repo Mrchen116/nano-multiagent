@@ -645,4 +645,35 @@ describe("feat-379-M9 preview tool_ids regression", () => {
     // tool_ids 来自 draft.tool_allowlist=["memory"]，不再从 capabilityFeatures 推断
     expect(body.tool_ids, "tool_ids 应来自 draft.tool_allowlist").toContain("memory");
   });
+
+  // feat-383-M1: preview 请求必须包含 skill_ids
+  it("feat-383-M1: preview 请求 skill_ids 来自 draft.skills", async () => {
+    const user = userEvent.setup();
+    const stateWithSkills = {
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        skills: ["code-review", "plan"] as string[],
+      }
+    };
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(stateWithSkills);
+    apiMocks.promptPreviewMock.mockResolvedValue("## Preview");
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    const previewToggle = screen.getByRole("button", { name: /Preview full system prompt/i });
+    await user.click(previewToggle);
+
+    await waitFor(() => {
+      expect(apiMocks.promptPreviewMock).toHaveBeenCalled();
+    });
+
+    const calls = apiMocks.promptPreviewMock.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    const body = lastCall[1] as { skill_ids?: string[] };
+    expect(body.skill_ids, "skill_ids 必须来自 draft.skills").toEqual(
+      expect.arrayContaining(["code-review", "plan"])
+    );
+  });
 });

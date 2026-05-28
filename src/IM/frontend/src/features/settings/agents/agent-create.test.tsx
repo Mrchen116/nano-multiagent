@@ -9,6 +9,7 @@ const apiMocks = vi.hoisted(() => ({
   createNodeAgentMock: vi.fn(),
   listNodesMock: vi.fn(),
   promptPreviewMock: vi.fn(),
+  nodePromptPreviewMock: vi.fn(),
   navigateMock: vi.fn()
 }));
 
@@ -25,7 +26,8 @@ vi.mock("./im-agent-config-api", () => ({
   getNodeCreateState: apiMocks.getNodeCreateStateMock,
   createNodeAgent: apiMocks.createNodeAgentMock,
   listNodes: apiMocks.listNodesMock,
-  promptPreview: apiMocks.promptPreviewMock
+  promptPreview: apiMocks.promptPreviewMock,
+  nodePromptPreview: apiMocks.nodePromptPreviewMock
 }));
 
 import { AgentCreatePage } from "./agent-create-page";
@@ -54,6 +56,7 @@ afterEach(() => {
   apiMocks.createNodeAgentMock.mockReset();
   apiMocks.listNodesMock.mockReset();
   apiMocks.promptPreviewMock.mockReset();
+  apiMocks.nodePromptPreviewMock.mockReset();
   apiMocks.navigateMock.mockReset();
 });
 
@@ -299,5 +302,63 @@ describe("agent create page (three-card)", () => {
     const cancels = await screen.findAllByRole("link", { name: /^Cancel$/i });
     expect(cancels.length).toBeGreaterThanOrEqual(1);
     expect(cancels[0]).toHaveAttribute("href", "/settings/agents");
+  });
+});
+
+// feat-383-M1 R4: nodePromptPreview must include skill_ids and agent_id_hint
+describe("agent create page — preview fidelity (feat-383-M1)", () => {
+  function mockCreateState() {
+    apiMocks.getNodeCreateStateMock.mockResolvedValue({
+      node: {
+        node_id: "node-1",
+        owner_id: "owner-1",
+        node_name: "MacBook",
+        status: "online",
+        last_heartbeat_at: "2026-03-13T10:00:00Z",
+        agent_count: 0,
+        version: "1.0.0"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [
+          { name: "plan", description: "Plan work" },
+          { name: "review", description: "Review work" }
+        ],
+        tools: [
+          { name: "read", description: "Read files" }
+        ],
+        model_options: ["codex_oauth:gpt-5.5"],
+        platform_default_model: "codex_oauth:gpt-5.5",
+        default_system_prompt: "You are the personal_assistant default template."
+      }
+    });
+  }
+
+  it("nodePromptPreview 请求 skill_ids 来自 draft.skills", async () => {
+    const user = userEvent.setup();
+    mockNodes();
+    mockCreateState();
+    apiMocks.nodePromptPreviewMock.mockResolvedValue("## Preview");
+
+    renderCreatePage();
+    await screen.findByText(/Select a node/i);
+
+    // 打开预览
+    const previewToggle = await screen.findByRole("button", { name: /Preview full system prompt/i });
+    await user.click(previewToggle);
+
+    await waitFor(() => {
+      expect(apiMocks.nodePromptPreviewMock).toHaveBeenCalled();
+    });
+
+    // 初始状态没有选 skill，skill_ids 应为空
+    const calls = apiMocks.nodePromptPreviewMock.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    const body = lastCall[1] as { skill_ids?: string[]; agent_id_hint?: string };
+    // skill_ids 字段必须存在（即使为空数组）
+    expect(body).toHaveProperty("skill_ids");
   });
 });
