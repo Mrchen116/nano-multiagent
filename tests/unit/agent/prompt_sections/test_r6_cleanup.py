@@ -50,25 +50,21 @@ def test_core_memory_guidance_still_present() -> None:
 
 
 def test_local_store_seeds_memory_in_config_subdir(tmp_path: Path) -> None:
-    """PA local_store should seed MEMORY.md under <workspace>/.nanoassistant/memory/."""
-    from agent.products.personal_assistant.config.local_store import LocalWorkspaceStore
-    from agent.products.personal_assistant.defaults import WORKSPACE_CONFIG_DIRNAME
+    """PA ensure_workspace_defaults seeds MEMORY.md under <workspace>/.nanoassistant/memory/."""
+    from personal_assistant.config.local_store import ensure_workspace_defaults
 
     workspace = tmp_path / "agent-workspace"
     workspace.mkdir()
-    store = LocalWorkspaceStore(workspace_root=workspace)
+    ensure_workspace_defaults(workspace)
 
-    # Ensure memory dir and files are seeded
-    store.ensure_initialized()
-
-    memory_dir = workspace / WORKSPACE_CONFIG_DIRNAME / "memory"
+    memory_dir = workspace / ".nanoassistant" / "memory"
     assert (memory_dir / "MEMORY.md").exists(), (
         f"MEMORY.md should be seeded under {memory_dir}"
     )
     assert (memory_dir / "USER.md").exists(), (
         f"USER.md should be seeded under {memory_dir}"
     )
-    # Must NOT be seeded at workspace root
+    # Must NOT be seeded at workspace root (decision 14)
     assert not (workspace / "MEMORY.md").exists(), (
-        "MEMORY.md must NOT be at workspace root (decision 14)"
+        "MEMORY.md must NOT be at workspace root"
     )

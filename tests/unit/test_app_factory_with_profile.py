@@ -66,12 +66,14 @@ def test_create_app_with_minimal_profile() -> None:
 
 
 def test_create_app_with_profile_uses_resolved_system_prompt() -> None:
-    """app wired via local_coding profile must inject CODING_SYSTEM_PROMPT into runtime."""
+    """app wired via local_coding profile must wire prompt_sections (feat-385: segment assembly)."""
     app = create_app(product_profile=LOCAL_CODING_PROFILE)
     runtime = app.state.agent_runtime
-    loop = getattr(runtime, "_loop", None)
-    assert loop is not None
-    assert loop._system_prompt == CODING_SYSTEM_PROMPT
+    # feat-385 decision 11: default_system_prompt is now "" — prompt is assembled from sections.
+    # Verify that prompt_sections are wired instead.
+    assert app.state.prompt_sections, "prompt_sections must be wired for segment assembly"
+    section_names = {s.name for s in app.state.prompt_sections}
+    assert "core.system" in section_names
 
 
 def test_create_app_with_profile_wires_stateless_session_store(tmp_path: Path) -> None:
