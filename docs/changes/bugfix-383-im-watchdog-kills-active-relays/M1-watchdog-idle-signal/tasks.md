@@ -32,6 +32,6 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | 写新增失败测试（RED） | TODO |
-| R2 | 实现 SQL 改造 + default 120s + 文案更新 + 修文案断言（GREEN） | TODO |
-| R3 | 验证 env override，补文档 | TODO |
+| R1 | 写新增失败测试（RED） | DONE |
+| R2 | 实现 SQL 改造 + default 120s + 文案更新 + 修文案断言（GREEN） | DONE |
+| R3 | 验证 env override，补文档 | DONE |
