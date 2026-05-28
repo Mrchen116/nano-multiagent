@@ -399,3 +399,183 @@ def test_agent_capabilities_features_contract(tmp_path: Path, monkeypatch: pytes
     assert features[1]["key"] == "memory"
     assert features[1]["available"] is False
     assert features[1]["requires_tool"] is None
+
+
+# ---------------------------------------------------------------------------
+# feat-383-M1 R3: skill_ids + agent_id_hint → workspace_root derive
+# ---------------------------------------------------------------------------
+
+
+def test_agent_prompt_preview_forwards_skill_ids_to_gateway(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /im/v1/agents/{id}/prompt-preview must forward skill_ids to request_prompt_preview.
+
+    feat-383-M1: skill_ids from the request body must reach the Gateway call.
+    """
+    captured: list[dict] = []
+
+    async def _fake_request_prompt_preview(
+        self,  # noqa: ARG001
+        *,
+        target_node_id: str,  # noqa: ARG001
+        agent_id: str,  # noqa: ARG001
+        workspace_root: str,  # noqa: ARG001
+        features: dict,  # noqa: ARG001
+        custom_prompt,  # noqa: ARG001
+        tool_ids: list,  # noqa: ARG001
+        scenario: str,  # noqa: ARG001
+        skill_ids: list | None = None,  # noqa: ARG001
+        timeout_seconds: float = 10.0,  # noqa: ARG001
+    ) -> dict:
+        captured.append({"skill_ids": list(skill_ids or [])})
+        return {"prompt": "preview", "section_count": 1}
+
+    monkeypatch.setattr(GatewayHandler, "request_prompt_preview", _fake_request_prompt_preview)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        profiles = AgentProfileRepository(app.state.connection)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(node_id="node-skill", node_name="MacBook")
+        profiles.upsert_profile(
+            agent_id="agent-skill",
+            owner_id=owner.owner_id,
+            display_name="Skill Agent",
+            description="",
+            system_prompt="",
+            skills=["plan"],
+            tool_allowlist=["read"],
+            group_reply_policy="always",
+            default_model=None,
+            workspace_root=None,
+            node_id="node-skill",
+        )
+        response = client.post(
+            "/im/v1/agents/agent-skill/prompt-preview",
+            json={
+                "features": {},
+                "custom_prompt": None,
+                "tool_ids": ["read"],
+                "skill_ids": ["plan", "review"],
+                "scenario": "direct",
+            },
+        )
+
+    assert response.status_code == 200
+    assert len(captured) == 1, "request_prompt_preview must have been called"
+    assert captured[0]["skill_ids"] == ["plan", "review"], (
+        f"skill_ids must be forwarded to Gateway, got: {captured[0]['skill_ids']}"
+    )
+
+
+def test_node_prompt_preview_derives_workspace_root_from_agent_id_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /im/v1/nodes/{id}/prompt-preview must derive workspace_root from agent_id_hint.
+
+    feat-383-M1: when agent_id_hint is provided, IM derives workspace_root via
+    managed_workspace_root(agent_id_hint) and forwards it to Gateway.
+    """
+    captured: list[dict] = []
+
+    async def _fake_request_node_prompt_preview(
+        self,  # noqa: ARG001
+        *,
+        target_node_id: str,  # noqa: ARG001
+        features: dict,  # noqa: ARG001
+        custom_prompt,  # noqa: ARG001
+        tool_ids: list,  # noqa: ARG001
+        scenario: str,  # noqa: ARG001
+        workspace_root: str = "",  # noqa: ARG001
+        skill_ids: list | None = None,  # noqa: ARG001
+        timeout_seconds: float = 10.0,  # noqa: ARG001
+    ) -> dict:
+        captured.append({"workspace_root": workspace_root, "skill_ids": list(skill_ids or [])})
+        return {"prompt": "node-preview", "section_count": 1}
+
+    monkeypatch.setattr(GatewayHandler, "request_node_prompt_preview", _fake_request_node_prompt_preview)
+
+    from IM.domain.models import managed_workspace_root
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(node_id="node-create", node_name="MacBook", owner_id=owner.owner_id)
+
+        response = client.post(
+            "/im/v1/nodes/node-create/prompt-preview",
+            json={
+                "features": {},
+                "custom_prompt": None,
+                "tool_ids": [],
+                "skill_ids": ["code-review"],
+                "agent_id_hint": "new-agent-x",
+                "scenario": "direct",
+            },
+        )
+
+    assert response.status_code == 200
+    assert len(captured) == 1, "request_node_prompt_preview must have been called"
+    expected_ws = managed_workspace_root("new-agent-x")
+    assert captured[0]["workspace_root"] == expected_ws, (
+        f"workspace_root must be derived from agent_id_hint 'new-agent-x', "
+        f"expected {expected_ws!r}, got: {captured[0]['workspace_root']!r}"
+    )
+    assert captured[0]["skill_ids"] == ["code-review"], (
+        f"skill_ids must be forwarded to Gateway, got: {captured[0]['skill_ids']}"
+    )
+
+
+def test_node_prompt_preview_workspace_root_empty_when_no_agent_id_hint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """POST /im/v1/nodes/{id}/prompt-preview must pass empty workspace_root when no agent_id_hint.
+
+    feat-383-M1: without agent_id_hint, workspace_root should be empty string.
+    """
+    captured: list[dict] = []
+
+    async def _fake_request_node_prompt_preview(
+        self,  # noqa: ARG001
+        *,
+        target_node_id: str,  # noqa: ARG001
+        features: dict,  # noqa: ARG001
+        custom_prompt,  # noqa: ARG001
+        tool_ids: list,  # noqa: ARG001
+        scenario: str,  # noqa: ARG001
+        workspace_root: str = "",  # noqa: ARG001
+        skill_ids: list | None = None,  # noqa: ARG001
+        timeout_seconds: float = 10.0,  # noqa: ARG001
+    ) -> dict:
+        captured.append({"workspace_root": workspace_root})
+        return {"prompt": "node-preview-empty", "section_count": 1}
+
+    monkeypatch.setattr(GatewayHandler, "request_node_prompt_preview", _fake_request_node_prompt_preview)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(node_id="node-empty", node_name="MacBook", owner_id=owner.owner_id)
+
+        response = client.post(
+            "/im/v1/nodes/node-empty/prompt-preview",
+            json={
+                "features": {},
+                "custom_prompt": None,
+                "tool_ids": [],
+                "scenario": "direct",
+            },
+        )
+
+    assert response.status_code == 200
+    assert len(captured) == 1
+    assert captured[0]["workspace_root"] == "", (
+        f"workspace_root must be empty when no agent_id_hint, got: {captured[0]['workspace_root']!r}"
+    )
