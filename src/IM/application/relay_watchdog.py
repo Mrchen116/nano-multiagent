@@ -23,29 +23,39 @@ def scan_and_fail_stuck_running_messages(
     *,
     connection: sqlite3.Connection,
     event_repository: EventRepository,
-    timeout_seconds: int = 300,
+    timeout_seconds: int = 120,
 ) -> int:
-    """Find messages stuck in `running` past the cutoff, fail them, and push `relay.failed`.
+    """Find messages idle in `running` past the cutoff, fail them, and push `relay.failed`.
 
     Args:
         connection: SQLite connection used to scan `messages` / `conversation_events`.
         event_repository: Used to append the synthetic `relay.failed` event so WS clients
             see the placeholder flip without an extra round trip.
-        timeout_seconds: Age (relative to `messages.created_at`) past which a `running`
-            message is considered orphaned. Default 5 minutes matches the issue's
-            suggested window — long enough to cover normal LLM latency, short enough
-            that the UI does not feel stuck.
+        timeout_seconds: Idle window — seconds since the last `conversation_events` row for
+            this message (or `messages.created_at` when no events exist) past which a
+            `running` message is considered stuck. Default 2 minutes: active tool-loop
+            relays push events every few seconds, so 120s of silence means truly stuck.
 
     Returns:
         Number of messages flipped from `running` to `failed` in this pass.
     """
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds)).isoformat().replace("+00:00", "Z")
+    # bugfix-383: judge liveness by the most recent event timestamp, not message
+    # creation time. Multi-turn tool loops run for many minutes while pushing events
+    # continuously; only silence (no new event) for `timeout_seconds` means stuck.
+    # COALESCE falls back to created_at when no events exist (gateway crashed before
+    # emitting relay.processing) — preserves the original behaviour for that edge case.
     rows = connection.execute(
         """
-        SELECT id, conversation_id, created_at
-        FROM messages
-        WHERE delivery_status = 'running'
-          AND created_at < ?
+        SELECT m.id, m.conversation_id, m.created_at
+        FROM messages m
+        LEFT JOIN (
+            SELECT message_id, MAX(created_at) AS last_evt
+            FROM conversation_events
+            GROUP BY message_id
+        ) e ON e.message_id = m.id
+        WHERE m.delivery_status = 'running'
+          AND COALESCE(e.last_evt, m.created_at) < ?
         """,
         (cutoff,),
     ).fetchall()
@@ -53,7 +63,7 @@ def scan_and_fail_stuck_running_messages(
         return 0
 
     flipped = 0
-    detail_text = f"relay timed out after {timeout_seconds}s with no completion event"
+    detail_text = f"relay idle for {timeout_seconds}s with no new event"
     for row in rows:
         message_id = str(row["id"])
         conversation_id = str(row["conversation_id"])
@@ -114,7 +124,7 @@ def _build_failed_payload(
         "message_id": message_id,
         "progress_state": "failed",
         "semantic": "relay_watchdog_timeout",
-        "detail": f"relay timed out after {timeout_seconds}s with no completion event",
+        "detail": f"relay idle for {timeout_seconds}s with no new event",
         "reason": "watchdog_timeout",
     }
     row = connection.execute(
@@ -221,7 +231,7 @@ async def run_relay_watchdog(
     connection: sqlite3.Connection,
     event_repository: EventRepository,
     interval_seconds: int = 30,
-    timeout_seconds: int = 300,
+    timeout_seconds: int = 120,
 ) -> None:
     """Background task: sweep stuck `running` messages every `interval_seconds`.
 

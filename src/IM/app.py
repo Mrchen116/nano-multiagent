@@ -295,7 +295,7 @@ def create_app(
 
         # bugfix-361: reap orphan `running` placeholders if Gateway never emits a terminal event.
         relay_watchdog_interval = int(os.getenv("IM_RELAY_WATCHDOG_INTERVAL_SECONDS", "30"))
-        relay_watchdog_timeout = int(os.getenv("IM_RELAY_WATCHDOG_TIMEOUT_SECONDS", "300"))
+        relay_watchdog_timeout = int(os.getenv("IM_RELAY_WATCHDOG_TIMEOUT_SECONDS", "120"))
         relay_watchdog_task = asyncio.create_task(
             run_relay_watchdog(
                 connection=connection,
