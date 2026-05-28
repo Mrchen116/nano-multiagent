@@ -40,4 +40,22 @@
   - E2E/Regression: `test_gateway_im_connection_behavior.py` 新增 2 个测试，11 个全绿
   - Visual/Interaction: N/A
 - Rollback: `git revert 737246c3`
-- Commits: C1=0fbf0d23, C2=737246c3, C3=（本次）
+- Commits: C1=0fbf0d23, C2=737246c3, C3=e8ed4c81
+- Next: R3（IM HTTP 路由）
+
+## R3 — IM HTTP 路由透传 skill_ids + node 端 derive workspace_root
+
+- Context: PA client 和 Gateway WS 已经透传 workspace_root/skill_ids，但 IM HTTP 路由还没有：`/agents/{id}/prompt-preview` 不传 `skill_ids`，`/nodes/{id}/prompt-preview` 不传 `workspace_root`/`skill_ids`/`agent_id_hint`。
+- Decision:
+  1. `agents.py PromptPreviewRequest` 加 `skill_ids` 字段，`agent_prompt_preview` route 把它传给 `gateway_handler.request_prompt_preview`
+  2. `nodes.py` 新增 `NodePromptPreviewRequest` 模型（`skill_ids` + `agent_id_hint`），`node_prompt_preview` route 用 `managed_workspace_root(agent_id_hint)` derive workspace_root 后传给 `gateway_handler.request_node_prompt_preview`
+- Rationale: `managed_workspace_root` 是 IM 层的领域知识（decision 1），前端不应拼路径。`agent_id_hint` 字段在 IM 层吸收并转换，不进入 Gateway 协议。
+- Evidence:
+  - Tests: `pytest tests/im_service/ -q` — 261 passed, 0 failed
+  - Entry: N/A（单元/contract 测试覆盖）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: `test_agent_config_contract.py` 新增 3 个测试，全绿；既有 proxy test 更新 fake 签名
+  - Visual/Interaction: N/A
+- Rollback: `git revert 54448c44`
+- Commits: C1=48273adb, C2=54448c44, C3=（本次）

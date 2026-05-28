@@ -94,7 +94,7 @@
 
 ### R3 — IM HTTP 路由透传 skill_ids + node 端 derive workspace_root
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 扩展 `PromptPreviewRequest`（agents.py） + 扩展 `NodePromptPreviewRequest`（nodes.py）加 `agent_id_hint`，服务端 derive workspace_root
 - 验证: 新建 IM 单测
 
