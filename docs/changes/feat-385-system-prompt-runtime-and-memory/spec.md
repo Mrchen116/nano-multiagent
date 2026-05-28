@@ -45,6 +45,10 @@
   A(原话): 不兜底
   Agent 解读: 直接删,不在 system prompt 留 fallback。若某 provider 适配层没把 API `tools=[]` 通道传给模型,该 provider 适配层独立修,本 unit 不掩盖。reviewer 验收时要走"所有现有工具调用稳定"回归旅程,真踩雷直接暴露。
 
+- Q7: design 阶段调研发现 — 现状 `bootstrap_product` 是 per-process(PA Gateway 起一个 kernel 进程对应一次 bootstrap),`bootstrap.py:143` 把 bootstrap-time `memory_root` 作为 `_fixed_memory_root` 注入 MemoryTool,`MemoryTool._resolve_memory_root` 第一行短路了 per-session 解析。结果:所有 agent 实际共用同一份 MEMORY.md / USER.md(基于进程 cwd / env),**与 feat-349 spec Q3 "每个 agent 完全隔离自己的 memory" 的产品契约矛盾**。本 unit 是否顺手修这个 bug?给三选项:G1 本 unit 扩范围,顺手修(让 MemoryTool 走 ctx.session_metadata 派生 per-session memory_root,runtime 在 hook_metadata 加 workspace_root key);G2 本 unit 只保证读路径正确(读写不一致,memory 形同虚设,不可取);G3 推迟,先开 bugfix 单独修,完成后再做本 unit。
+  A(原话): 本 units 扩大一刀。没关系啊，这个有你的任务多一点没关系，后面我们做 精确的 milestone 分割就好了。
+  Agent 解读: 选 G1。本 unit 范围扩到含 MemoryTool 隔离修复:(1) `bootstrap.py:143` MemoryTool 构造不再传 `memory_root`(传 None);(2) `MemoryTool._resolve_memory_root` 不再短路 _fixed,强制走 ctx.session_metadata;(3) runtime `_run_locked` 在 hook_metadata 中加 `workspace_root` key(目前只有 `cwd`);(4) memory_root 派生路径统一为 `<workspace>/.nanoassistant/memory/`(对齐 `WORKSPACE_CONFIG_DIRNAME` 与 PA local_store 注释);(5) 本 unit freeze 流程从同一来源派生 memory_root,读写一致。milestone 拆分由 design 阶段定。
+
 
 ## 用户场景
 
@@ -146,6 +150,7 @@ reviewer 验收时走真实旅程:coding 让 agent 改个 bug;PA 在群聊和单
   - **runtime 切段式装配**:`loop.py` / `runtime.py` 改用段式装配(`assemble_system_prompt` 路径),老 `LOCAL_CODING_SYSTEM_PROMPT` / `PERSONAL_ASSISTANT_SYSTEM_PROMPT` f-string 模板 + `prompting.build_system_prompt` 旧路径退役
   - **删 `core.runtime_tools` 段**(对应渲染产物 `## Available Tools`),工具描述完全由 LLM API `tools=[]` 通道送达
   - **memory 闭环修复**:session 启动时构造 `MemoryStore` + `load_from_disk`,装配点调 `format_for_prompt` 灌进 `PromptContext.memory_block`,激活既有 `core.memory_block` 段;同样处理 USER.md;清 PA prompt 中"用 `read` 工具读 `<workspace>/MEMORY.md`"残留(与 MemoryTool 操作的 `<memory_root>/MEMORY.md` 不通,留着误导)
+  - **MemoryTool 隔离修复**(Q7 G1):修 `bootstrap.py:143` + `MemoryTool._resolve_memory_root` + runtime 的 hook_metadata,让 memory_root 真正 per-session(per-agent)派生,符合 feat-349 spec Q3 产品契约;读(本 unit 新增的 freeze 流程)与写(MemoryTool)走同一 memory_root
   - 两个产品(coding + PA)同步享用上述改动(沿用 feat-349 已对齐方案,不重新决议)
   - prompt-preview 端点保持工作,与 runtime 装配产物一致(volatile 段以占位符呈现)
 
