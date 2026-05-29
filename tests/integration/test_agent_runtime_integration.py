@@ -6,8 +6,16 @@ import httpx
 
 import agent.core.agent.prompting as prompting_module
 import agent.core.session.manager as session_manager_module
-from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from agent.core.agent.runtime import AgentRuntime
+
+# Fixture replaces deleted _FIXTURE_WITH_PLACEHOLDERS (feat-385 decision 11).
+_FIXTURE_WITH_PLACEHOLDERS = (
+    "You are an expert coding assistant.\n\n"
+    "Available tools:\n<RUNTIME_FILL:AVAILABLE_TOOLS>\n\n"
+    "Guidelines:\n- Be helpful\n\n"
+    "Current date and time: <RUNTIME_FILL:CURRENT_DATETIME>\n"
+    "Current working directory: <RUNTIME_FILL:CURRENT_WORKING_DIRECTORY>"
+)
 from agent.core.llm.factory import LLMFactoryConfig, create_llm_client
 from agent.core.session.entries import SessionEntryKind
 from agent.core.session.jsonl_store import JsonlSessionStore
@@ -135,12 +143,12 @@ async def test_runtime_keeps_same_prompt_timestamp_within_one_session(
         ),
         transport=httpx.MockTransport(handler),
     )
-    # CODING_SYSTEM_PROMPT injected so "Current date and time:" placeholder is present.
+    # _FIXTURE_WITH_PLACEHOLDERS injected so "Current date and time:" placeholder is present.
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=client,
         model="codex_oauth:gpt-5.5",
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_FIXTURE_WITH_PLACEHOLDERS,
     )
 
     await runtime.run(session.session_id, [{"type": "text", "text": "Q1"}], stream=False)
@@ -175,12 +183,12 @@ async def test_runtime_uses_distinct_prompt_timestamps_across_sessions(
         ),
         transport=httpx.MockTransport(handler),
     )
-    # CODING_SYSTEM_PROMPT injected so "Current date and time:" placeholder is present.
+    # _FIXTURE_WITH_PLACEHOLDERS injected so "Current date and time:" placeholder is present.
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=client,
         model="codex_oauth:gpt-5.5",
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_FIXTURE_WITH_PLACEHOLDERS,
     )
 
     await runtime.run(first_session.session_id, [{"type": "text", "text": "Q1"}], stream=False)

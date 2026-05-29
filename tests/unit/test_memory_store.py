@@ -193,9 +193,10 @@ def test_format_for_prompt_user_includes_header(store: MemoryStore) -> None:
 
 
 def test_format_for_prompt_empty(store: MemoryStore) -> None:
+    # Empty store returns None so callers can suppress the segment entirely
+    # (feat-385 I1: prevents the empty banner "[0% — 0/2,200 chars]" from appearing).
     block = store.format_for_prompt("memory")
-    # Empty store should still return a prompt block (could be empty content)
-    assert isinstance(block, str)
+    assert block is None
 
 
 # ---------------------------------------------------------------------------

@@ -2,7 +2,6 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 from agent.core.agent.prompting import (
-    CODING_SYSTEM_PROMPT,
     DEFAULT_SYSTEM_PROMPT,
     MEMORY_GUIDANCE,
     SKILLS_GUIDANCE,
@@ -17,19 +16,23 @@ from agent.core.types import Message
 from agent.core.types import ToolSpec
 from agent.core.skills.registry import SkillMetadata
 
+# Minimal coding prompt fixture — replaces the deleted CODING_SYSTEM_PROMPT constant.
+# Retired in feat-385 (decision 11): coding-specific content now lives in prompt_sections.py.
+# Contains RUNTIME_FILL placeholders so runtime-fill tests remain meaningful.
+_CODING_FIXTURE = (
+    "You are an expert coding assistant.\n\n"
+    "Available tools:\n<RUNTIME_FILL:AVAILABLE_TOOLS>\n\n"
+    "Guidelines:\n- Be helpful\n\n"
+    "Current date and time: <RUNTIME_FILL:CURRENT_DATETIME>\n"
+    "Current working directory: <RUNTIME_FILL:CURRENT_WORKING_DIRECTORY>"
+)
+
 
 def test_default_system_prompt_is_generic_fallback() -> None:
-    """DEFAULT_SYSTEM_PROMPT must be a generic (non-coding-specific) fallback after M76."""
-    # Generic fallback: empty string or a non-coding-specific placeholder.
+    """DEFAULT_SYSTEM_PROMPT must be a generic (non-coding-specific) fallback after feat-385."""
+    # Generic fallback: empty string signals segment-assembled prompt path.
     assert "coding assistant" not in DEFAULT_SYSTEM_PROMPT
     assert "expert coding" not in DEFAULT_SYSTEM_PROMPT
-
-
-def test_coding_system_prompt_contains_coding_content() -> None:
-    """CODING_SYSTEM_PROMPT must contain the coding-specific assistant persona."""
-    assert "coding assistant" in CODING_SYSTEM_PROMPT or "expert coding" in CODING_SYSTEM_PROMPT
-    assert "Available tools:" in CODING_SYSTEM_PROMPT
-    assert "Guidelines:" in CODING_SYSTEM_PROMPT
 
 
 def test_build_prompt_messages_includes_system_history_and_user() -> None:
@@ -37,22 +40,19 @@ def test_build_prompt_messages_includes_system_history_and_user() -> None:
         Message(message_id="msg_1", role="assistant", content="past answer"),
     )
 
-    # Explicit CODING_SYSTEM_PROMPT: verify coding content renders correctly.
+    # Verify role ordering: system → history → user.
     prompts = build_prompt_messages(
         history_messages=history,
         user_text="new question",
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_CODING_FIXTURE,
     )
 
     assert [item.role for item in prompts] == ["system", "assistant", "user"]
-    assert prompts[0].content.startswith("You are an expert coding assistant")
-    assert "Available tools:" in prompts[0].content
-    assert "Guidelines:" in prompts[0].content
+    assert "You are an expert coding assistant" in prompts[0].content
     assert "Current date and time:" in prompts[0].content
     assert "Current working directory:" in prompts[0].content
     assert "input_schema" not in prompts[0].content
     assert "<RUNTIME_FILL:" not in prompts[0].content
-    assert "input_schema" not in prompts[0].content
     assert prompts[-1].content == "new question"
 
 
@@ -80,11 +80,11 @@ def test_build_prompt_messages_injects_available_skills_section_with_absolute_lo
 
 
 def test_build_prompt_messages_skips_available_skills_section_when_empty() -> None:
-    # Use CODING_SYSTEM_PROMPT explicitly: default is now generic empty string.
+    # Use _CODING_FIXTURE explicitly: default is now generic empty string.
     prompts = build_prompt_messages(
         history_messages=(),
         user_text="run this",
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_CODING_FIXTURE,
         available_skills=(),
     )
     assert "<available_skills>" not in prompts[0].content
@@ -93,11 +93,11 @@ def test_build_prompt_messages_skips_available_skills_section_when_empty() -> No
 
 
 def test_build_prompt_messages_only_displays_tool_name_and_description() -> None:
-    # Use CODING_SYSTEM_PROMPT explicitly: default is now generic empty string.
+    # Use _CODING_FIXTURE explicitly: default is now generic empty string.
     prompts = build_prompt_messages(
         history_messages=(),
         user_text="run this",
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_CODING_FIXTURE,
         available_tools=(
             ToolSpec(
                 name="read",
@@ -144,7 +144,7 @@ async def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path
         llm_client=llm,
         model="mock-model",
         repo_root=tmp_path,
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_CODING_FIXTURE,
     )
 
     await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
@@ -181,7 +181,7 @@ def test_build_system_prompt_injects_skills_guidance_when_skill_manage_in_tools(
         ToolSpec(name="read", description="Read a file.", input_schema={}),
     )
     result = build_system_prompt(
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_CODING_FIXTURE,
         available_skills=(),
         available_tools=tools,
     )
@@ -195,7 +195,7 @@ def test_build_system_prompt_no_skills_guidance_without_skill_manage():
         ToolSpec(name="bash", description="Run bash.", input_schema={}),
     )
     result = build_system_prompt(
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_CODING_FIXTURE,
         available_skills=(),
         available_tools=tools,
     )
@@ -209,7 +209,7 @@ def test_build_system_prompt_injects_memory_guidance_when_memory_in_tools():
         ToolSpec(name="read", description="Read a file.", input_schema={}),
     )
     result = build_system_prompt(
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_CODING_FIXTURE,
         available_skills=(),
         available_tools=tools,
     )
@@ -222,7 +222,7 @@ def test_build_system_prompt_no_memory_guidance_without_memory_tool():
         ToolSpec(name="read", description="Read a file.", input_schema={}),
     )
     result = build_system_prompt(
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_CODING_FIXTURE,
         available_skills=(),
         available_tools=tools,
     )
@@ -237,7 +237,7 @@ def test_build_system_prompt_injects_both_guidance_when_both_tools_present():
         ToolSpec(name="read", description="Read a file.", input_schema={}),
     )
     result = build_system_prompt(
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_CODING_FIXTURE,
         available_skills=(),
         available_tools=tools,
     )
@@ -249,7 +249,7 @@ def test_build_system_prompt_injects_memory_block_when_provided():
     """Memory block is injected verbatim when memory_block kwarg is supplied."""
     fake_memory_block = "══════\nMEMORY (your personal notes) [0% — 0/2,200 chars]\n══════\n"
     result = build_system_prompt(
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_CODING_FIXTURE,
         available_skills=(),
         memory_block=fake_memory_block,
     )
@@ -259,7 +259,7 @@ def test_build_system_prompt_injects_memory_block_when_provided():
 def test_build_system_prompt_no_memory_block_when_not_provided():
     """No memory section injected when memory_block not supplied or None."""
     result = build_system_prompt(
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_CODING_FIXTURE,
         available_skills=(),
         memory_block=None,
     )

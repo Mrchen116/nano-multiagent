@@ -2,7 +2,7 @@
 
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol
@@ -69,6 +69,7 @@ class AgentLoop:
         compaction_planner: CompactionPlanner | None = None,
         compaction_summarizer: CompactionSummarizer | None = None,
         compaction_settings: CompactionSettings | None = None,
+        on_compaction: Callable[[str], None] | None = None,
     ) -> None:
         self._llm_client = llm_client
         self._model = model
@@ -84,6 +85,7 @@ class AgentLoop:
         self._compaction_planner = compaction_planner
         self._compaction_summarizer = compaction_summarizer
         self._compaction_settings = compaction_settings
+        self._on_compaction_callback = on_compaction
         self._active_session_id: str | None = None
 
     @property
@@ -684,6 +686,12 @@ class AgentLoop:
                 "restored_files": restored_files,
             },
         )
+
+        # Notify runtime to invalidate cached memory snapshot so the next turn
+        # re-reads from disk (decision 4: compaction resets prefix-cache anchor).
+        if self._on_compaction_callback is not None:
+            self._on_compaction_callback(session_id)
+
         return summary_msg
 
 

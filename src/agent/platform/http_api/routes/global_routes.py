@@ -348,13 +348,33 @@ def prompt_preview(
         available_skills=available_skills,
         current_datetime=current_datetime,
         cwd=cwd,
-        memory_block=None,  # volatile — excluded from preview
+        memory_block=None,  # volatile — shown as placeholder below
         flags=payload.features,
         scenario={"conversation_type": payload.scenario},
         vars={"custom_prompt": payload.custom_prompt} if payload.custom_prompt else {},
     )
     # Preview shows only the cache-stable prefix; volatile segments (memory_block,
-    # communication_context) are excluded so the preview doesn't depend on runtime state.
+    # user_profile_block etc.) are not filled at preview time but shown as placeholders
+    # so users know these fields exist and will be injected at runtime.
     stable_sections = [s for s in sections if getattr(s, "cache_safe", True)]
     assembled = assemble_system_prompt(stable_sections, ctx)
+
+    # Append placeholder lines for each volatile section so the preview is honest
+    # about what runtime will inject — spec requires "identifiable placeholder" (feat-385 I2).
+    volatile_sections = [s for s in sections if not getattr(s, "cache_safe", True)]
+    volatile_placeholders: list[str] = []
+    for sec in volatile_sections:
+        sec_name = getattr(sec, "name", str(sec))
+        volatile_placeholders.append(f"[{sec_name} — runtime fills]")
+
+    if volatile_placeholders:
+        placeholder_block = "\n".join(volatile_placeholders)
+        volatile_note = (
+            "\n\n---\n"
+            "以上预览不包含 volatile 段(memory_block / user_profile_block / 时间等)，"
+            "runtime 装配时实填:\n"
+            + placeholder_block
+        )
+        assembled = assembled + volatile_note
+
     return PromptPreviewResponse(prompt=assembled, section_count=len(stable_sections))

@@ -4,7 +4,6 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
-from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from agent.products.base import ProductProfile
 from agent.products.local_coding import LOCAL_CODING_PROFILE
 from agent.platform.http_api.app import create_app

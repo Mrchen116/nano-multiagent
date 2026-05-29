@@ -167,6 +167,7 @@ class AgentRuntime:
             compaction_planner=self._compaction_planner,
             compaction_summarizer=self._compaction_summarizer,
             compaction_settings=self._compaction_settings,
+            on_compaction=self._invalidate_memory_snapshot,
         )
 
     async def run(

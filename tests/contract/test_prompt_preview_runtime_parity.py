@@ -1,13 +1,15 @@
-"""Contract test: preview HTTP output must match runtime build_system_prompt after placeholder substitution.
+"""Contract test: preview stable-prefix must match runtime output after placeholder substitution.
 
-feat-383-M1 决策 5 — 第 2 层防线:
+feat-383-M1 决策 5 — 第 2 层防线（feat-385-M2 I2 修订：preview 末尾追加 volatile 段说明，不再全文 ==）:
 - 构造一对一致的 PromptContext 和 HTTP 请求
 - 调 /v1/prompt-preview 取得预览串
 - 调 runtime build_system_prompt 取得运行时串
 - 将预览串中的两个占位符（<运行时注入：当前时间> / <运行时注入：workspace 路径>）替换为同一真实值
-- 断言两串逐字相等
+- 截取 preview 中 volatile 说明分隔符之前的部分（stable prefix）
+- 断言 stable prefix 逐字等于 runtime 串
 
-这保证了 HTTP 路由层的 ctx 构造与 runtime 一致——golden test 守 assemble≡build，本 test 守 HTTP 端→runtime 端的端到端等价。
+I2 之后 preview 末尾追加了 volatile 说明块（---\\n...），这部分不属于 runtime 输出。
+契约从"全文 =="收窄为"stable prefix =="，保证路由层 ctx 构造与 runtime 仍然一致。
 """
 from __future__ import annotations
 
@@ -118,8 +120,19 @@ def test_preview_http_output_matches_runtime_after_placeholder_substitution() ->
         CWD_PLACEHOLDER, workspace
     )
 
-    assert normalized_preview == runtime_prompt, (
-        "preview output after placeholder substitution must equal runtime prompt.\n"
-        f"Preview (normalized):\n{normalized_preview[:500]}\n\n"
+    # feat-385-M2 I2: preview appends a volatile-segment explanation block separated by
+    # "\n\n---\n".  Strip that trailing block before comparing; the stable prefix must
+    # equal the runtime output exactly.
+    volatile_separator = "\n\n---\n"
+    stable_prefix = (
+        normalized_preview.split(volatile_separator, 1)[0]
+        if volatile_separator in normalized_preview
+        else normalized_preview
+    )
+
+    assert stable_prefix == runtime_prompt, (
+        "preview stable prefix (before volatile explanation block) after placeholder substitution "
+        "must equal runtime prompt.\n"
+        f"Preview stable prefix:\n{stable_prefix[:500]}\n\n"
         f"Runtime:\n{runtime_prompt[:500]}"
     )

@@ -27,15 +27,11 @@ def _make_stable_section(name: str) -> PromptSection:
 
 
 @pytest.fixture()
-def app_with_volatile_sections():
+def app_with_volatile_sections(tmp_path):
     """Create a test app that has both stable and volatile sections registered."""
-    from agent.platform.bootstrap import bootstrap_product
-    from agent.products.local_coding.profile import LocalCodingProfile
+    from agent.products.local_coding import LOCAL_CODING_PROFILE
 
-    profile = LocalCodingProfile()
-    resolved = bootstrap_product(profile=profile, repo_root=None)
-    app = create_app(resolved=resolved)
-    return app
+    return create_app(product_profile=LOCAL_CODING_PROFILE, repo_root=tmp_path)
 
 
 def test_prompt_preview_volatile_sections_shown_as_placeholders(app_with_volatile_sections) -> None:

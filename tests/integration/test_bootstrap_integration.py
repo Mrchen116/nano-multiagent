@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from agent.core.skills.discovery import default_skill_search_roots
 from agent.platform.bootstrap import bootstrap_product
 from agent.products.base import ProductProfile

@@ -244,22 +244,27 @@ class MemoryStore:
         self._entries[target] = entries
         self._persist(target)
 
-    def format_for_prompt(self, target: Target) -> str:
-        """Return the frozen system-prompt block for ``target``.
+    def format_for_prompt(self, target: Target) -> str | None:
+        """Return the frozen system-prompt block for ``target``, or None when empty.
 
         Captures the snapshot on first call per target; never updates
         mid-session so provider prefix cache stays stable.
+
+        Returns None when there are no entries for the target — callers treat
+        None as "segment inactive", preventing an empty banner from appearing
+        in the system prompt (feat-385 I1: empty store must not emit a banner).
 
         Args:
             target: ``"memory"`` or ``"user"``.
 
         Returns:
-            Formatted block with header and usage percentage.
+            Formatted block with header and usage percentage, or None if empty.
         """
         self._ensure_target(target)
         if not self._snapshot_loaded:
             self._load_snapshot()
-        return self._prompt_snapshot[target]
+        snapshot = self._prompt_snapshot[target]
+        return snapshot if snapshot else None
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -281,11 +286,18 @@ class MemoryStore:
         self._entries[target] = _parse_entries(raw)
 
     def _load_snapshot(self) -> None:
-        """Capture frozen prompt snapshot for all targets."""
+        """Capture frozen prompt snapshot for all targets.
+
+        Stores empty string when no entries exist so format_for_prompt returns
+        None instead of an empty banner (feat-385 I1 fix).
+        """
         self._snapshot_loaded = True
         for target in ("memory", "user"):
             self._maybe_load(target)  # type: ignore[arg-type]
-            self._prompt_snapshot[target] = self._render_block(target)  # type: ignore[arg-type]
+            if self._entries[target]:
+                self._prompt_snapshot[target] = self._render_block(target)  # type: ignore[arg-type]
+            else:
+                self._prompt_snapshot[target] = ""
 
     def _render_block(self, target: Target) -> str:
         """Render prompt block with usage percentage header (mirrors hermes _render_block)."""

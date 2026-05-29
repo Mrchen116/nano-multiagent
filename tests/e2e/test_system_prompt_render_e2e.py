@@ -4,12 +4,20 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
-from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
 from agent.platform.persistence.session.service import SessionService
+
+# Fixture replaces deleted _FIXTURE_WITH_PLACEHOLDERS (feat-385 decision 11).
+_FIXTURE_WITH_PLACEHOLDERS = (
+    "You are an expert coding assistant.\n\n"
+    "Available tools:\n<RUNTIME_FILL:AVAILABLE_TOOLS>\n\n"
+    "Guidelines:\n- Be helpful\n\n"
+    "Current date and time: <RUNTIME_FILL:CURRENT_DATETIME>\n"
+    "Current working directory: <RUNTIME_FILL:CURRENT_WORKING_DIRECTORY>"
+)
 
 
 class CapturePromptLLM:
@@ -44,13 +52,13 @@ def _wait_for_completed_run(client: TestClient, run_id: str, *, timeout_seconds:
 def test_message_sync_e2e_renders_runtime_system_prompt(tmp_path: Path) -> None:
     llm = CapturePromptLLM()
     service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
-    # CODING_SYSTEM_PROMPT injected so "Guidelines:" and placeholders are present.
+    # _FIXTURE_WITH_PLACEHOLDERS injected so "Guidelines:" and placeholders are present.
     runtime = AgentRuntime(
         session_manager=service.manager,
         llm_client=llm,
         model="mock-model",
         repo_root=tmp_path,
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_FIXTURE_WITH_PLACEHOLDERS,
     )
     app = create_app(session_store=service.manager._store, runtime=runtime)
     client = TestClient(app)
