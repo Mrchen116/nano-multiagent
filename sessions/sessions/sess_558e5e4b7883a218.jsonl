@@ -1,0 +1,3 @@
+{"type": "session_created", "session_id": "sess_558e5e4b7883a218", "created_at": "2026-05-29T08:21:36.532962+00:00", "workspace_root": "/Users/czj/Repos/nano-multiagent/.worktrees/feat-385-M4", "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY."}
+{"type": "turn", "uuid": "msg_f50e0f24a76d50e5", "parent_uuid": null, "session_id": "sess_558e5e4b7883a218", "role": "user", "content": "ping", "timestamp": "2026-05-29T08:21:36.533210+00:00"}
+{"type": "turn", "uuid": "msg_3bfee2473bb5861d", "parent_uuid": "msg_f50e0f24a76d50e5", "session_id": "sess_558e5e4b7883a218", "role": "assistant", "content": "ack:ping", "timestamp": "2026-05-29T08:21:36.533418+00:00", "group_id": "msg_3bfee2473bb5861d"}

@@ -71,8 +71,8 @@ def test_preview_http_output_matches_runtime_after_placeholder_substitution() ->
     feat-385-M3-fix-r2 P1: no '---' footer separator expected; volatile sections appear
     inline at their order position as '<运行时注入：...>' strings.
     """
-    from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
-    from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
+    from agent.core.agent.prompt_sections.base import RenderMode
+    from agent.products.personal_assistant.prompt_sections import build_pa_system_prompt
 
     tool_specs = (
         _make_tool_spec("read", "Read a file from the filesystem."),
@@ -82,20 +82,22 @@ def test_preview_http_output_matches_runtime_after_placeholder_substitution() ->
     workspace = "/tmp/test-workspace-contract"
     fake_datetime = "2026-01-01 00:00:00 UTC"
 
-    # Build real runtime ctx with known datetime/cwd, no memory (volatile=None).
+    # M4: use build_pa_system_prompt() for correctly ordered section list
+    all_sections = build_pa_system_prompt()
+    stable_sections = [s for s in all_sections if getattr(s, "cache_safe", True)]
+
+    # Build real runtime ctx with known datetime/cwd, no memory (volatile=None/RUNTIME mode).
     runtime_ctx = PromptContext(
         available_tools=tool_specs,
         available_skills=(),
         current_datetime=fake_datetime,
         cwd=workspace,
-        memory_block=None,
+        render_mode=RenderMode.RUNTIME,
         flags={},
         scenario={"conversation_type": "direct"},
         vars={},
     )
 
-    all_sections = list(CORE_SECTIONS) + list(PA_SECTIONS)
-    stable_sections = [s for s in all_sections if getattr(s, "cache_safe", True)]
     # Runtime with volatile=None: only stable sections render; volatile sections (memory_block,
     # user_profile_block, communication_context) are absent because enabled_when returns False.
     runtime_prompt = assemble_system_prompt(stable_sections, runtime_ctx)

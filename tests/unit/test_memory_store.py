@@ -174,22 +174,37 @@ def test_source_index_persists(memory_root: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# R1.8  format_for_prompt — contains header + usage%
+# R1.8  format_for_prompt — pure content + pct (M4 Decision 17: banner moved to core segment)
 # ---------------------------------------------------------------------------
 
 
-def test_format_for_prompt_includes_header(store: MemoryStore) -> None:
+def test_format_for_prompt_returns_pure_content(store: MemoryStore) -> None:
+    """M4 Decision 17: format_for_prompt returns pure content (no banner/header)."""
     store.add("memory", _entry("some note"))
-    block = store.format_for_prompt("memory")
-    assert "MEMORY" in block
-    assert "%" in block
+    content = store.format_for_prompt("memory")
+    assert content is not None
+    assert "some note" in content
+    # M4: banner text must NOT be in format_for_prompt output
+    assert "MEMORY" not in content, "format_for_prompt must return pure content without MEMORY header"
+    assert "═" * 46 not in content, "format_for_prompt must return pure content without separator"
 
 
-def test_format_for_prompt_user_includes_header(store: MemoryStore) -> None:
+def test_format_for_prompt_pct_via_format_pct(store: MemoryStore) -> None:
+    """format_pct_for_prompt returns 0–100 integer for use in banner rendering."""
+    store.add("memory", _entry("some note"))
+    store.format_for_prompt("memory")  # trigger snapshot
+    pct = store.format_pct_for_prompt("memory")
+    assert isinstance(pct, int)
+    assert 0 <= pct <= 100
+
+
+def test_format_for_prompt_user_returns_pure_content(store: MemoryStore) -> None:
+    """M4: USER format_for_prompt also returns pure content."""
     store.add("user", _entry("Alice loves Rust"))
-    block = store.format_for_prompt("user")
-    assert "USER" in block
-    assert "%" in block
+    content = store.format_for_prompt("user")
+    assert content is not None
+    assert "Alice loves Rust" in content
+    assert "USER" not in content, "format_for_prompt must return pure content without USER header"
 
 
 def test_format_for_prompt_empty(store: MemoryStore) -> None:

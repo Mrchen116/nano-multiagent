@@ -122,15 +122,13 @@ def test_personal_assistant_hook_group_context_now_via_segment(tmp_path: Path) -
     [Communication Context] for group scenarios.
     """
     from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
-    from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
-    from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
+    from agent.products.personal_assistant.prompt_sections import build_pa_system_prompt
 
     ctx = PromptContext(
         available_tools=(),
         available_skills=(),
         current_datetime="2026-01-01T00:00:00",
         cwd="/workspace",
-        memory_block=None,
         flags={},
         scenario={
             "conversation_type": "group",
@@ -139,7 +137,7 @@ def test_personal_assistant_hook_group_context_now_via_segment(tmp_path: Path) -
         },
         vars={},
     )
-    result = assemble_system_prompt(list(CORE_SECTIONS) + list(PA_SECTIONS), ctx)
+    result = assemble_system_prompt(build_pa_system_prompt(), ctx)
     assert "[Communication Context]" in result
     assert "session_type: group" in result
     assert "your_agent_id: agent-a" in result
