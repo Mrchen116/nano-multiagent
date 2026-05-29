@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Mapping
 
-from .ids import make_event_id
+from ..ids import make_event_id
 
 
 class RuntimeEventType(StrEnum):

@@ -163,7 +163,7 @@ def test_permission_requester_injected_and_emits_event(tmp_path: Path) -> None:
     """
     from agent.core.hooks.context import HookContext
     from agent.platform.hooks.session_events import set_session_event_publisher_factory
-    from agent.platform.http_api.sse import EventStreamHub
+    from agent.core.events.hub import EventStreamHub
 
     app = create_app()
     broker: PermissionBroker = app.state.permission_broker

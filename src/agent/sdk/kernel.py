@@ -32,7 +32,7 @@ from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.loader import build_hook_registry
 from agent.platform.hooks.session_events import set_session_event_publisher_factory
-from agent.platform.http_api.sse import EventStreamHub, StreamEvent
+from agent.core.events.hub import EventStreamHub, StreamEvent
 from agent.platform.llm.factory import create_llm_client as _platform_create_llm_client
 from agent.platform.permissions.broker import (
     PermissionBroker,
