@@ -47,7 +47,8 @@ const SAMPLE_MESSAGES: Message[] = [
     content: "Hello",
     attachments: [],
     delivery_status: "completed",
-    created_at: "2026-01-01T00:00:00Z"
+    created_at: "2026-01-01T00:00:00Z",
+    permission_requests: []
   },
   {
     id: "m2",
@@ -58,7 +59,8 @@ const SAMPLE_MESSAGES: Message[] = [
     content: "Hi back",
     attachments: [],
     delivery_status: "completed",
-    created_at: "2026-01-01T00:00:01Z"
+    created_at: "2026-01-01T00:00:01Z",
+    permission_requests: []
   }
 ];
 
@@ -509,7 +511,8 @@ describe("MessagePane", () => {
       content: "User bubble",
       attachments: [],
       delivery_status: "completed",
-      created_at: "2026-05-12T14:30:00Z"
+      created_at: "2026-05-12T14:30:00Z",
+      permission_requests: []
     };
     const TS_AGENT_LOW: Message = {
       id: "mt-agent-low",
@@ -521,7 +524,8 @@ describe("MessagePane", () => {
       attachments: [],
       delivery_status: "completed",
       created_at: "2026-05-12T14:30:01Z",
-      token_usage: { output: 1234, context_used: 30000, context_window: 200000 }
+      token_usage: { output: 1234, context_used: 30000, context_window: 200000 },
+      permission_requests: []
     };
     const TS_AGENT_WARN: Message = {
       ...TS_AGENT_LOW,
@@ -641,6 +645,7 @@ describe("MessagePane", () => {
       attachments: [],
       delivery_status: "completed",
       created_at: "2026-01-01T00:00:00Z",
+      permission_requests: [],
     };
 
     it("renders mention tag as chip showing current display_name (not raw tag text)", () => {

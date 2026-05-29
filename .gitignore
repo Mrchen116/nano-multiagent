@@ -238,3 +238,4 @@ Snipaste_*.png
 # （全局 dist/ 已覆盖；下列路径显式写出以免以后再被 ! 规则误放行）
 src/IM/frontend/dist/
 sessions/
+.gstack/
