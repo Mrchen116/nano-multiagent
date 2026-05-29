@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
@@ -10,61 +13,99 @@ from IM.repositories import AgentProfileRepository, NodeRepository
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 
 
-class _FakeKernelClient:
+@dataclass
+class _FakeSession:
+    """Minimal session stub returned by _FakeKernel.create_session."""
+    session_id: str
+
+
+class _FakeKernel:
     """Record gateway->kernel calls and synthesize deterministic replies.
+
+    Implements the Kernel SDK interface (refactor-387 M3+):
+      - create_session (async) → _FakeSession
+      - submit (sync) → RunRecord mock
+      - stream (returns AsyncIterator)
+      - get_session (sync)
 
     NO_REPLY output is triggered when session metadata matches the suppression
     system_prompt + profile_version combination, mirroring kernel behavior.
+
+    Observable attributes kept compatible with old _FakeKernelClient so test
+    assertions on create_session_calls / send_calls continue to work:
+      - create_session_calls: [{workspace_root, product_id, title, metadata}]
+      - send_calls: [{session_id, text, run_id}]  (text = joined parts texts)
     """
 
     def __init__(self) -> None:
-        self.create_session_calls: list[dict[str, object | None]] = []
+        self.create_session_calls: list[dict[str, Any]] = []
         self.send_calls: list[dict[str, str]] = []
         self.run_states: dict[str, dict[str, str] | list[dict[str, str]]] = {}
         self.session_events: dict[str, list[list[dict[str, object]]]] = {}
-        self._session_metadata_by_id: dict[str, dict[str, object | None]] = {}
+        self._session_metadata_by_id: dict[str, dict[str, Any]] = {}
         self._session_index = 0
         self._run_index = 0
         self._get_run_calls: dict[str, int] = {}
         self._stream_calls: dict[str, int] = {}
 
-    def create_session(
+    async def create_session(
         self,
         *,
-        workspace_root: str,
-        product_id: str,
         title: str | None = None,
-        metadata: dict[str, object] | None = None,
-    ):
+        workspace_root: Path | None = None,
+        skills: list[str] | None = None,
+        tool_allowlist: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> _FakeSession:
         self._session_index += 1
         session_id = f"sess-{self._session_index}"
+        ws_str = str(workspace_root) if workspace_root else ""
+        # Store in backwards-compatible format matching old create_session_calls assertions.
         self.create_session_calls.append(
-            {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
+            {
+                "workspace_root": ws_str,
+                "product_id": "personal_assistant",
+                "title": title,
+                "metadata": metadata,
+            }
         )
-        self._session_metadata_by_id[session_id] = {**dict(metadata or {}), "workspace_root": workspace_root}
+        self._session_metadata_by_id[session_id] = {
+            **(metadata or {}),
+            "workspace_root": ws_str,
+        }
         self.session_events.setdefault(session_id, [])
-        return {"session_id": session_id}
+        return _FakeSession(session_id=session_id)
 
-    def get_session(self, *, session_id: str, **_kwargs):
+    def get_session(self, session_id: str, *, workspace_root: Any = None, **_kwargs) -> dict[str, Any]:
         metadata = self._session_metadata_by_id.get(session_id)
         if metadata is None:
             raise RuntimeError(f"missing session: {session_id}")
         return {"session_id": session_id, "status": "active", "created_at": "now", "metadata": dict(metadata)}
 
-    def seed_session(self, *, session_id: str, metadata: dict[str, object] | None = None) -> None:
+    def seed_session(self, *, session_id: str, metadata: dict[str, Any] | None = None) -> None:
+        """Pre-populate a session for session-reuse tests."""
         self._session_metadata_by_id[session_id] = dict(metadata or {})
         self.session_events.setdefault(session_id, [])
 
-    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None, **_kwargs):
-        # Renamed from send_message_async to match KernelApiClient.submit_message in src/
+    def submit(
+        self,
+        *,
+        session_id: str,
+        parts: list[dict],
+        origin: Any = None,
+        workspace_root: Path | None = None,
+        trace_id: str | None = None,
+    ) -> Any:
         self._run_index += 1
         run_id = f"run-{self._run_index}"
+        # Extract texts from parts and join as legacy send_calls["text"].
+        texts = [p["text"] for p in parts if p.get("type") == "text"]
         rendered_text = "\n".join(texts)
         self.send_calls.append({"session_id": session_id, "text": rendered_text, "run_id": run_id})
         session_metadata = self._session_metadata_by_id.get(session_id, {})
         output_text = f"gateway-reply:{rendered_text}"
         # Determine NO_REPLY based on session system_prompt + profile_version, not message text.
-        # This mirrors kernel behavior: prompt instructs the model to say NO_REPLY, independent of content.
+        # This mirrors kernel behavior: prompt instructs the model to say NO_REPLY.
         system_prompt = session_metadata.get("system_prompt", "")
         profile_version = session_metadata.get("config_profile_version")
         if system_prompt == "When mentioned in a group chat, reply exactly with NO_REPLY." and profile_version == 2:
@@ -72,36 +113,38 @@ class _FakeKernelClient:
         elif system_prompt == "When mentioned in a group chat, reply exactly with NO_REPLY.":
             output_text = "ALPHA_ACK_M170"
         self.run_states[run_id] = {"run_id": run_id, "status": "completed", "output_text": output_text}
-        # Pre-seed SSE events for stream_session: pipeline now consumes SSE stream
-        # instead of polling get_run, so we synthesize the two key event types.
+        # Pre-seed stream events: pipeline consumes stream instead of polling get_run.
         sse_events: list[dict] = [
             {"event": "assistant_message", "run_id": run_id, "content": output_text},
             {"event": "run_status", "run_id": run_id, "status": "completed", "output_text": output_text},
         ]
         self.session_events.setdefault(session_id, []).append(sse_events)
-        return {"run_id": run_id}
+        record = MagicMock()
+        record.run_id = run_id
+        return record
 
-    async def stream_session(self, *, session_id: str, last_event_id: int | None = None, workspace_root: str | None = None, **_kwargs):
-        # Async generator matching KernelApiClient.stream_session.
-        # Each submit_message call appends one batch; we advance per-session index.
-        del last_event_id
-        del workspace_root
+    def stream(self, session_id: str, *, after_sequence: int = 0):
+        # Each submit call appends one batch; advance per-session index across calls.
         batches = self.session_events.get(session_id, [])
         index = self._stream_calls.get(session_id, 0)
         self._stream_calls[session_id] = index + 1
-        if index < len(batches):
-            for event in batches[index]:
+        _batch = batches[index] if index < len(batches) else []
+
+        async def _gen():
+            for event in _batch:
                 yield event
 
-    def get_run(self, *, run_id: str):
-        payload = self.run_states[run_id]
-        if isinstance(payload, list):
-            index = self._get_run_calls.get(run_id, 0)
-            self._get_run_calls[run_id] = index + 1
-            if index >= len(payload):
-                return payload[-1]
-            return payload[index]
-        return payload
+        return _gen()
+
+    def interrupt(self, session_id: str) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+# Legacy alias kept for any remaining import-by-name usages in tests.
+_FakeKernelClient = _FakeKernel
 
 
 def seed_user(client: TestClient, username: str, display_name: str | None = None) -> str:

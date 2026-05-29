@@ -37,7 +37,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
     registry = ChannelRegistry((relay_adapter,))
     session_store = SessionBindingStore()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -282,7 +282,7 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
     registry = ChannelRegistry((relay_adapter,))
     session_store = SessionBindingStore()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),

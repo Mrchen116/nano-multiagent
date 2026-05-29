@@ -36,7 +36,7 @@ def test_group_message_mentioning_two_agents_exposes_distinct_sse_identity_for_r
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-q", "agent-a")
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),
         run_queue=SessionRunQueue(),
@@ -168,7 +168,7 @@ def test_group_message_mentioning_two_agents_persists_distinct_completion_events
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-a", "agent-b")
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),
         run_queue=SessionRunQueue(),

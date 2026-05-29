@@ -35,7 +35,7 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-a", "agent-b")
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),
         run_queue=SessionRunQueue(),
@@ -141,7 +141,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
     relay_adapter = WebRelayAdapter()
     agents = make_agent_configs(tmp_path, "agent-a", "agent-b")
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((relay_adapter,))),
         run_queue=SessionRunQueue(),

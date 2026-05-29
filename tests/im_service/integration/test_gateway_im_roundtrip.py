@@ -34,7 +34,7 @@ def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
     agents = make_agent_configs(tmp_path, "agent-a")
     registry = ChannelRegistry((relay_adapter,))
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
@@ -11,11 +14,27 @@ from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 
 
-class _FakeKernelClient:
-    """Record gateway calls and synthesize agent-tagged replies."""
+@dataclass
+class _FakeSession:
+    """Minimal session stub returned by _FakeKernel.create_session."""
+    session_id: str
+
+
+class _FakeKernel:
+    """Record gateway calls and synthesize agent-tagged replies.
+
+    Implements the Kernel SDK interface (refactor-387 M3+):
+      - create_session (async) → _FakeSession
+      - submit (sync) → RunRecord mock
+      - stream (returns AsyncIterator)
+
+    Observable attributes kept compatible with old _FakeKernelClient:
+      - create_session_calls: [{workspace_root, product_id, title, metadata}]
+      - send_calls: [{session_id, text, run_id}]  (text = joined parts texts)
+    """
 
     def __init__(self) -> None:
-        self.create_session_calls: list[dict[str, object | None]] = []
+        self.create_session_calls: list[dict[str, Any]] = []
         self.send_calls: list[dict[str, str]] = []
         self.run_states: dict[str, dict[str, str]] = {}
         self.session_events: dict[str, list[list[dict[str, object]]]] = {}
@@ -24,25 +43,42 @@ class _FakeKernelClient:
         self._run_index = 0
         self._stream_calls: dict[str, int] = {}
 
-    def create_session(
+    async def create_session(
         self,
         *,
-        workspace_root: str,
-        product_id: str,
         title: str | None = None,
-        metadata: dict[str, object] | None = None,
-    ):
+        workspace_root: Path | None = None,
+        skills: list[str] | None = None,
+        tool_allowlist: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> _FakeSession:
         self._session_index += 1
         session_id = f"sess-{self._session_index}"
+        ws_str = str(workspace_root) if workspace_root else ""
+        # Store in backwards-compatible format matching old create_session_calls assertions.
         self.create_session_calls.append(
-            {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
+            {
+                "workspace_root": ws_str,
+                "product_id": "personal_assistant",
+                "title": title,
+                "metadata": metadata,
+            }
         )
-        return {"session_id": session_id}
+        return _FakeSession(session_id=session_id)
 
-    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None, **_kwargs):
-        # Renamed from send_message_async to match KernelApiClient.submit_message in src/
+    def submit(
+        self,
+        *,
+        session_id: str,
+        parts: list[dict],
+        origin: Any = None,
+        workspace_root: Path | None = None,
+        trace_id: str | None = None,
+    ) -> Any:
         self._run_index += 1
         run_id = f"run-{self._run_index}"
+        # Extract texts from parts and join as legacy send_calls["text"].
+        texts = [p["text"] for p in parts if p.get("type") == "text"]
         rendered_text = "\n".join(texts)
         self.send_calls.append({"session_id": session_id, "text": rendered_text, "run_id": run_id})
         output_text = self.default_output_text.format(text=rendered_text)
@@ -51,25 +87,40 @@ class _FakeKernelClient:
             "status": "completed",
             "output_text": output_text,
         }
-        # Pre-seed SSE events: pipeline consumes SSE stream instead of polling get_run.
+        # Pre-seed stream events: pipeline consumes stream instead of polling get_run.
         sse_events: list[dict] = [
             {"event": "assistant_message", "run_id": run_id, "content": output_text},
             {"event": "run_status", "run_id": run_id, "status": "completed", "output_text": output_text},
         ]
         self.session_events.setdefault(session_id, []).append(sse_events)
-        return {"run_id": run_id}
+        record = MagicMock()
+        record.run_id = run_id
+        return record
 
-    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
-        # Async generator matching KernelApiClient.stream_session.
+    def stream(self, session_id: str, *, after_sequence: int = 0):
         batches = self.session_events.get(session_id, [])
         index = self._stream_calls.get(session_id, 0)
         self._stream_calls[session_id] = index + 1
-        if index < len(batches):
-            for event in batches[index]:
+        _batch = batches[index] if index < len(batches) else []
+
+        async def _gen():
+            for event in _batch:
                 yield event
 
-    def get_run(self, *, run_id: str):
-        return self.run_states[run_id]
+        return _gen()
+
+    def get_session(self, session_id: str, *, workspace_root: Any = None, **_kwargs) -> dict[str, Any]:
+        return {"session_id": session_id, "status": "active", "metadata": {}}
+
+    def interrupt(self, session_id: str) -> None:
+        pass
+
+    def close(self) -> None:
+        pass
+
+
+# Legacy alias kept for any remaining import-by-name usages in tests.
+_FakeKernelClient = _FakeKernel
 
 
 def seed_user(client: TestClient, username: str) -> str:
