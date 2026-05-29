@@ -182,3 +182,43 @@ AttributeError: 'StreamEvent' object has no attribute 'get'
 无 blocking / major issue。inconclusive 项（heartbeat/cron）属于「测试环境未配置触发条件」，不是「用户主路径走不通」，不触发 fail 判定。
 
 **Verdict: pass | Highest Required Action: pass**
+
+---
+
+# Round 3 — 2026-05-29
+
+**Reviewer**: review-pa
+**Review Round**: 3
+**Branch**: unit/refactor-387 @ 97df54a7
+**Verdict**: pass
+**Highest Required Action**: pass
+**Issues Count**: { blocking: 0, major: 0, minor: 0 }
+
+## Fast-lane 说明
+
+架构改动：删除 M3 的 `_stream_event_to_dict` 局部补丁，SDK `Kernel.stream()` 直接产出扁平 dict，inbound_pipeline 直接消费。验证 PA 行为不变。
+
+- IM 端口: 59321（ephemeral）
+- Gateway pid=7329，`--foreground --auto-bind`，无独立 kernel 子进程
+- Gateway log: 无错误（仅 auto-bind 确认行）
+- 服务收尾: `e2e-down.sh` 已执行
+
+## Round 3 覆盖表
+
+### Requirement: personal_assistant 经 IM / channel 的工具型 agent 任务保持一致
+
+| Scenario | 证据 | 结果 |
+|---|---|---|
+| 经 IM 完成含工具调用的任务 | `[default-agent] completed tools=1: 命令输出结果是：r3-tool-1780064866` | **pass** |
+| 多步工具调用 | `[default-agent] completed tools=2: step1-1780064890 / step2-1780064890` | **pass** |
+| 后台任务完成回发 | `[default-agent] completed tools=1: bg-done-1780064890`（sleep 4 后回发） | **pass** |
+| heartbeat / cron 触发的工具型任务 | 测试 config 无 heartbeat/cron 配置，继承 round 2 结论 | **inconclusive**（环境限制，非代码缺陷） |
+| 多 agent 互发消息 | 群组对话：`[default-agent] completed tools=1` + `[Arch] completed tools=1`，各自正确执行 bash 并回复 | **pass** |
+
+### Requirement: gateway 运维命令保持可用
+
+| Scenario | 结果 |
+|---|---|
+| stop / restart | **pass**（继承 round 1） |
+
+**Verdict: pass | Highest Required Action: pass**
