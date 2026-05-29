@@ -197,3 +197,88 @@ Issue #1（round 1）已修复：`init_model_registry` 不再报错，`llm-confi
 - [x] `docs/内核设计SPEC.md`：无需更新
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新
 - [x] `docs/CodingCLI-SPEC.md`：无需更新
+
+---
+
+# Round 3 — 2026-05-29
+
+> **修复说明**：commit 97df54a7 在 SDK 源头修复了 round 2 两个 blocking/major issue：
+> - Issue #2：`Kernel.stream()` 改产出扁平 dict，`commands.py` 的 `.get()` 调用直接正确。
+> - Issue #3：`RunsRegistry` ContextVar 跨 loop reset 已修，run 结束无 ValueError。
+>
+> 基础通信验证通过：`--text "reply OK"` → submit/run_status(queued/running)/assistant_message/turn_end/run_status(completed) 全正常，无任何异常输出，exit 0。
+
+## Verdict
+
+**pass**
+
+## Highest Required Action
+
+**pass**
+
+## Issues
+
+无 blocking / major issue。
+
+---
+
+## User Journeys Exercised（Round 3）
+
+| # | 旅程 | 覆盖的 Scenario | 结果 |
+|---|---|---|---|
+| J8 | `--text "reply OK"` — 基础通信 | 无模式进 REPL + anthropic provider 应答 | **pass**：完整事件流，exit 0，无错误 |
+| J9 | `--text "请读取 calc.py 文件…"` — 单工具 | 多步工具调用（read） | **pass**：`tool_start/tool_end(read)` 可见，agent 正确回答 |
+| J10 | `--text "在 calc.py 末尾增加 multiply…"` — read+edit+bash | 多步工具调用（三步） | **pass**：`read→edit→bash` 三步均可见，bash exit=0 输出 `3\n12`，run completed |
+| J11 | `--text "用 bash 在后台运行 sleep 2…"` — 后台任务提交 | 后台任务完成通知（提交侧） | **pass（部分）**：`run_in_background=true` bash 工具调用成功，task_id 回复；通知回流需交互式 REPL，标 inconclusive |
+| J12 | `--text "请用 task 工具派发子任务…"` — 子 agent | 子 agent/task 工具 | **pass（部分）**：`agent` 工具被调用，`status:async_launched`，agent_id 有值；回灌结果需交互式 REPL，标 inconclusive |
+| J13 | `--text "please use the skill named 'doc'…"` — skill | skill 调用 | **pass**：`skill_manage(view, name=doc)` 被调用并返回 skill 内容，参与推理 |
+| J14 | `llm-config get` + `llm-config set` | REPL 内置命令（llm-config） | **pass**：两者均正常返回 |
+| J15 | `--provider no_such_provider` | 不支持的 provider 报错 | **pass**：立即报 `unsupported llm provider: no_such_provider`，exit 1，不静默 |
+| J16 | `--provider openai_compat --model codex_oauth:gpt-5.5` | openai_compat provider 应答 | **inconclusive**：CLI 正确路由到 openai_compat，但当前 proxy 上该模型无可用后端（上游不支持），无法验证"正常应答" |
+| J17 | 无模式进入 REPL 验证（`--help` 确认无 `--mode`/`--base-url`） | 无模式直接进入 REPL | **pass**：`--help` 无 `--mode`/`--base-url`/HTTP 子命令；`--text` 路径直接与内核通信验证可用 |
+
+---
+
+## 验收标准覆盖（Round 3 更新）
+
+### Requirement: coding_cli 多步工具调用的 agent 任务正常完成 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 多步工具调用完成一个真实编码任务 | motivation.md §多步工具调用 | 旅程 J10：`--text "在 calc.py 末尾增加 multiply…"`，观察 read→edit→bash 三步 | `tool_start/tool_end` 事件依次可见（seq 4–11），bash stdout=`3\n12`，run completed，exit 0 | **pass** | read+edit+bash 三步工具全部成功 |
+| 工具权限确认 | motivation.md §工具权限确认 | 非交互终端无法触发交互式权限 picker；`can_use_tool` 回调代码存在（commands.py:277–283），permission picker 代码存在（repl_input.py:771）；auto_mode 默认开启自动决策 | 代码路径存在，交互式 REPL 下可触发；非交互环境下 auto_mode_gate 自动决策 | **inconclusive** | 需在交互式 TTY REPL 下直接操作验证；非交互终端无法复现 picker 交互 |
+| 任务执行中途打断 | motivation.md §任务中途打断 | 需交互式 REPL 在任务运行中触发 Ctrl-C | 非交互环境无法模拟 | **inconclusive** | 需交互式 TTY REPL 验证 |
+| 后台任务完成通知 | motivation.md §后台任务完成通知 | 旅程 J11：提交 `run_in_background=true` bash 任务成功；通知回流需 REPL 继续监听 | 后台任务提交成功（task_id、output 文件路径均返回）；`--text` 单次模式在 run completed 后退出，无法验证通知回流 | **inconclusive** | 提交侧 pass；通知回流侧需交互式 REPL 持续监听验证 |
+| 子 agent / task 工具 | motivation.md §子 agent/task 工具 | 旅程 J12：`--text "…用 task 工具派发子任务"` | `agent` 工具调用，`status:async_launched`，`agent_id` 有值，主 run completed | **pass** | 派发侧 pass；回灌侧同后台任务，需 REPL 持续监听，inconclusive 但不算 fail（派发本身可观察） |
+| skill 调用 | motivation.md §skill 调用 | 旅程 J13：自然语言触发 doc skill | `skill_manage(view, name=doc)` 事件可见，返回 skill 内容，参与 LLM 推理并输出结果 | **pass** | skill 正常加载并参与本轮 |
+| REPL 内置命令 | motivation.md §REPL 内置命令 | 旅程 J14：`llm-config get`/`set` pass；`/compact`/`/tools`/`/history`/`/new`/`/use` 代码路由存在（commands.py:863–976） | `llm-config get/set` 正常返回；slash 命令路由代码存在但需交互式 REPL 触发 | **inconclusive** | 非交互路径 pass；slash 命令需交互式 TTY 验证，但代码路由已确认存在 |
+| 无模式直接进入 REPL | motivation.md §无模式直接进 REPL | 旅程 J17：`--help` 无 `--mode`/`--base-url`；J8 `--text` 路径直接进入内核通信 | `--help` 输出无 `--mode`、`--base-url`、HTTP 子命令；`--text` 多次验证直接与内核通信，无需任何本地服务 | **pass** | CLI 进程内直跑，无外部依赖 |
+
+### Requirement: LLM provider 选择与调用保持一致 — 组内结论: pass（openai_compat inconclusive 因环境）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| anthropic provider 正常应答 | motivation.md §anthropic provider | 旅程 J8–J10：默认 anthropic，多次 `--text` | 完整 run 事件流，LLM 正确响应，exit 0 | **pass** | anthropic 路径全程正常 |
+| openai_compat provider 正常应答 | motivation.md §openai_compat provider | 旅程 J16：`--provider openai_compat --model codex_oauth:gpt-5.5` | CLI 正确路由（submit 成功，run running），但 proxy 对该模型返回上游错误（`openai_compat request failed`），20 次重试超限 | **inconclusive** | CLI 路由正确；proxy 当前无可用 openai_compat 后端。非 CLI 实现问题，属 LLM 环境限制 |
+| 不支持的 provider 报错不变 | motivation.md §不支持 provider 报错 | 旅程 J15：`--provider no_such_provider` | 立即报 `{"error": "unsupported llm provider: no_such_provider", "layer": "input"}`，exit 1 | **pass** | 错误报出准确，不静默 |
+
+---
+
+## Verdict 判定说明
+
+- 全部 blocking/major issue 已修复（Issue #1、#2、#3 均关闭）。
+- 主路径（多步工具任务、anthropic provider、skill、llm-config、无模式进入）全部 **pass**。
+- 3 个 `inconclusive`：工具权限确认、任务中途打断、后台任务通知回流、REPL slash 命令——均需交互式 TTY REPL 验证，非交互终端结构性无法触发，不算 fail。
+- 1 个 `inconclusive`：openai_compat provider——CLI 路由正确，proxy 侧无可用后端，属环境限制。
+- 无任何必验 Scenario 为 `fail`。按 refactor 验收基线（既有行为不退化）：主路径 pass，inconclusive 项均有合理说明。
+
+**Verdict: pass**
+
+---
+
+## 上层文档同步（Round 3）
+
+- [x] `SPEC.md`：M4 已更新（架构图/边界规则），无需本轮追加更新
+- [x] `docs/内核设计SPEC.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：已更新（refactor-387 过渡说明已写入），无需追加
+- [x] `docs/CodingCLI-SPEC.md`：M4 阶段更新，本轮 N/A
