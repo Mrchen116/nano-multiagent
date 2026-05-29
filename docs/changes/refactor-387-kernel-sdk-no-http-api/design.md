@@ -6,6 +6,8 @@
 
 ## Changelog
 
+- 2026-05-29 (M3): `scripts/e2e-up.sh` 去「起 Kernel API」段从 M4 前移到 M3 — M3 删 `personal_assistant/kernel_app.py` 会让 e2e-up.sh 引用失效入口、当场跑挂，故该脚本改动必须随 M3 落地，否则 Review-B 无法起 gateway。M4 仅保留 `platform/http_api` 删除 + HTTP 端点 contract test 平移 + 文档（含 2 个红测）清理。详见 M3/progress.md。
+
 ## 现状分析
 
 ### 涉及范围
