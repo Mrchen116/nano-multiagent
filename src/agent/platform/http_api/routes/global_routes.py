@@ -308,10 +308,9 @@ def prompt_preview(
     resolved from workspace_root; datetime uses a placeholder to signal runtime
     injection; cwd uses workspace_root or a placeholder when not available.
 
-    feat-385-M3-fix-r2 P1: volatile segments appear inline (not stripped then
-    footer-stacked).  _make_volatile_placeholder_section converts each
-    cache_safe=False section into an always-enabled section whose render returns
-    a human-readable inline placeholder text describing what runtime injects.
+    feat-385-M4 Decision 19: volatile segments render via render_mode=PREVIEW — core
+    segments self-handle the PREVIEW / RUNTIME / inactive three-state. No platform
+    hack needed; volatile sections are not replaced or filtered here.
 
     Args:
         payload: Feature flags, custom_prompt, active tool ids, workspace_root,
@@ -352,9 +351,7 @@ def prompt_preview(
     cwd = payload.workspace_root if payload.workspace_root else "<运行时注入：workspace 路径>"
 
     # M4 Decision 19: preview uses render_mode=PREVIEW so volatile segments render
-    # their banner + '运行时注入' placeholder via core segment logic — no platform hack
-    # needed.  The former _make_volatile_placeholder_section is deleted; core segments
-    # handle all three states (PREVIEW / RUNTIME+data / RUNTIME+no-data) internally.
+    # their banner + '运行时注入' placeholder via core segment logic (three-state render).
     ctx = PromptContext(
         available_tools=available_tools,
         available_skills=available_skills,
