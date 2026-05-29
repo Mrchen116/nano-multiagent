@@ -1,7 +1,7 @@
 from agent.core.agent.prompting import DEFAULT_SYSTEM_PROMPT, build_prompt_messages
 
-# feat-385 decision 11: CODING_SYSTEM_PROMPT retired; coding content now assembled
-# from prompt_sections in agent/products/local_coding/prompt_sections.py.
+# CODING_SYSTEM_PROMPT retired: coding content now assembled from prompt_sections
+# in agent/products/local_coding/prompt_sections.py (segment-based assembly).
 
 _FIXTURE = (
     "You are an expert coding assistant operating inside a coding agent harness.\n\n"
@@ -14,7 +14,8 @@ _FIXTURE = (
 
 
 def test_default_system_prompt_is_empty_string_after_feat385() -> None:
-    # decision 11: empty string signals "use segment assembly" — no monolithic template.
+    # Empty string is the sentinel for segment assembly; ProductProfile sets this
+    # and the runtime detects it to switch from the legacy string-template path.
     assert DEFAULT_SYSTEM_PROMPT == ""
 
 

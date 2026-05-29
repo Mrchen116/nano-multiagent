@@ -47,7 +47,13 @@ from typing import TypedDict
 
 
 class MemorySnapshot(TypedDict):
-    """Lazy-frozen memory snapshot for one session (decision 2)."""
+    """Lazy-frozen memory snapshot for one session.
+
+    Frozen on the first turn and held for the session's lifetime so the
+    stable prefix in the system prompt does not change between turns (which
+    would bust provider prefix-cache hits).  Invalidated on compaction so
+    the next turn re-reads updated memory from disk.
+    """
     memory_block: "str | None"
     user_profile_block: "str | None"
 
@@ -118,9 +124,9 @@ class AgentRuntime:
         self._session_configs: dict[str, SessionConfig] = {}
         self._session_paths: dict[str, Path] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
-        # Per-session memory snapshot cache (decision 2 / 3): lazy freeze on first turn.
+        # Per-session memory snapshot cache: lazy freeze on first turn, invalidated on compaction.
         self._memory_snapshots: dict[str, MemorySnapshot] = {}
-        # Prompt sections for segment-based assembly (decision 12); None = legacy path.
+        # Prompt sections for segment-based assembly; empty list = no sections registered (legacy path).
         self._prompt_sections: list[PromptSection] = list(prompt_sections) if prompt_sections else []
         tool_results_dir = self._repo_root / ".nano" / "tool-results"
         self._tool_result_compressor = ToolResultCompressor(tool_results_dir)
@@ -275,7 +281,7 @@ class AgentRuntime:
         hook_metadata["cwd"] = str(session_workspace_root)
         hook_metadata["context_window"] = self._compaction_settings.context_window
         # Thread workspace_root per-turn so MemoryTool + _ensure_memory_snapshot share
-        # the same derivation path (decision 1 / 9).
+        # the same derivation path (both use derive_memory_root for isolation).
         if session_workspace_root is not None:
             hook_metadata["workspace_root"] = str(session_workspace_root)
         if isinstance(run_id, str) and run_id.strip():
@@ -326,7 +332,7 @@ class AgentRuntime:
         else:
             hook_system_prompt_override = None
 
-        # Determine final system prompt for this turn (decision 12).
+        # Determine final system prompt for this turn.
         # Priority: hook override > frozen session prompt > segment assembly.
         use_frozen_system_prompt = False
         pre_rendered_system_prompt: str | None = None  # non-None → loop skips build_system_prompt
@@ -337,7 +343,7 @@ class AgentRuntime:
             use_frozen_system_prompt = True
         elif self._prompt_sections:
             # Segment-based assembly: freeze memory snapshot on first turn, build ctx,
-            # then resolve effective prompt (decision 3 / 12).
+            # then resolve effective prompt via assemble_system_prompt.
             snapshot = self._ensure_memory_snapshot(session_id, hook_metadata)
             active_tools_for_prompt = session_available_tools or ()
             flags = resolve_flags_from_metadata(metadata=hook_metadata)
@@ -1245,10 +1251,12 @@ class AgentRuntime:
         session_id: str,
         metadata: Mapping[str, Any],
     ) -> MemorySnapshot:
-        """Lazy freeze of memory/user content for one session (decision 3).
+        """Lazy freeze of memory/user content for one session.
 
         Returns cached snapshot on hit; renders + caches on first call per session.
-        Compaction invalidates the cache via _invalidate_memory_snapshot.
+        Freezing on first turn keeps the stable prefix byte-identical across turns
+        so provider prefix-cache hits are maximised.  Compaction invalidates the
+        cache via _invalidate_memory_snapshot so the next turn reflects updated memory.
         """
         if session_id in self._memory_snapshots:
             return self._memory_snapshots[session_id]
@@ -1278,7 +1286,7 @@ class AgentRuntime:
         return snapshot
 
     def _invalidate_memory_snapshot(self, session_id: str) -> None:
-        """Remove cached snapshot so next turn triggers a fresh disk read (decision 4)."""
+        """Remove cached snapshot so next turn triggers a fresh disk read (called after compaction)."""
         self._memory_snapshots.pop(session_id, None)
 
     async def _compact_session(

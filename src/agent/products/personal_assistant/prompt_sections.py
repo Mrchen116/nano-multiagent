@@ -66,11 +66,10 @@ _PA_RUNTIME = PromptSection(
     cache_safe=True,
 )
 
-# feat-385: pa.memory_intro deleted (decision 7).
-# core.memory_guidance (core_sections.py) is the replacement; it activates when
-# the memory tool is present and memory_curation is on. The old segment pointed
-# agents to <workspace>/MEMORY.md (read tool), which conflicts with the actual
-# MemoryTool write path at <memory_root>/MEMORY.md — kept here only as comment.
+# pa.memory_intro deleted: core.memory_guidance (core_sections.py) is the replacement.
+# It activates when the memory tool is present and memory_curation is on.
+# The old segment pointed agents to <workspace>/MEMORY.md (read tool), which conflicts
+# with the actual MemoryTool write path at <memory_root>/MEMORY.md — kept here only as comment.
 
 # Provenance: new — migrated verbatim from ## Heartbeat block in prompts.py
 _PA_HEARTBEAT = PromptSection(

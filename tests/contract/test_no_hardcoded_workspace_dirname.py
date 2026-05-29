@@ -1,4 +1,4 @@
-"""Contract test: no new hardcoded workspace dirnames outside product defaults.py (decision 10).
+"""Contract test: no new hardcoded workspace dirnames outside product defaults.py.
 
 Per-workspace 路径治理原则:
   Any per-workspace resource path must be derived from
@@ -28,7 +28,7 @@ _WHITELIST: frozenset[str] = frozenset({
     # bootstrap.py: JsonlSessionStore fallback dirname — platform default, not product-specific
     "src/agent/platform/bootstrap.py:133",
     # runtime.py: tool-results dir uses .nano — platform default dir, not per-workspace
-    "src/agent/core/agent/runtime.py:125",
+    "src/agent/core/agent/runtime.py:131",
     # skills/discovery.py: .nano skill search root — platform default, pre-185
     "src/agent/core/skills/discovery.py:45",
     # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
@@ -101,7 +101,7 @@ def test_no_new_hardcoded_workspace_dirname_in_src() -> None:
     messages = [f"  {rel}:{lineno}: {line}" for rel, lineno, line in violations]
     pytest.fail(
         "NEW hardcoded workspace dirname found outside product defaults.py "
-        "(decision 10 — per-workspace path governance).\n"
+        "(per-workspace path governance: dirnames must be defined in product defaults.py only).\n"
         "Use profile.workspace_config_dirname or core.memory.path.derive_memory_root.\n"
         "To whitelist a pre-existing legitimate use, add it to _WHITELIST with a WHY comment.\n"
         "Violations:\n" + "\n".join(messages)

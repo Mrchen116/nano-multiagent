@@ -153,7 +153,8 @@ def bootstrap_product(
         tool_registry.register(skill_manage_tool, replace=True)
 
         # No fixed memory_root — memory_root is per-session, derived at runtime from
-        # workspace_root + workspace_config_dirname (decision 9 / per-workspace path governance).
+        # workspace_root + workspace_config_dirname (per-workspace path governance: each
+        # product keeps its config in its own dirname so workspaces don't collide).
         memory_tool = MemoryTool()
         tool_registry.register(memory_tool, replace=True)
 
@@ -168,7 +169,7 @@ def bootstrap_product(
             default_session_metadata["self_evolution"] = dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
 
     # Thread workspace_config_dirname into session metadata so runtime._ensure_memory_snapshot
-    # and MemoryTool._resolve_memory_root can derive memory_root per-session (decision 9 / 10).
+    # and MemoryTool._resolve_memory_root can derive memory_root per-session via derive_memory_root.
     if profile.workspace_config_dirname:
         default_session_metadata["workspace_config_dirname"] = profile.workspace_config_dirname
 

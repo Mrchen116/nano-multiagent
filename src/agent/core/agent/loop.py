@@ -688,7 +688,7 @@ class AgentLoop:
         )
 
         # Notify runtime to invalidate cached memory snapshot so the next turn
-        # re-reads from disk (decision 4: compaction resets prefix-cache anchor).
+        # re-reads from disk (compaction resets the prefix-cache anchor).
         if self._on_compaction_callback is not None:
             self._on_compaction_callback(session_id)
 

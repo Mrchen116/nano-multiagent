@@ -8,7 +8,7 @@ import agent.core.agent.prompting as prompting_module
 import agent.core.session.manager as session_manager_module
 from agent.core.agent.runtime import AgentRuntime
 
-# Fixture replaces deleted _FIXTURE_WITH_PLACEHOLDERS (feat-385 decision 11).
+# Fixture replaces deleted _FIXTURE_WITH_PLACEHOLDERS (segment assembly now owns this content).
 _FIXTURE_WITH_PLACEHOLDERS = (
     "You are an expert coding assistant.\n\n"
     "Available tools:\n<RUNTIME_FILL:AVAILABLE_TOOLS>\n\n"

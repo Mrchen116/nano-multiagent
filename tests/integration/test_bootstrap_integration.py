@@ -74,7 +74,7 @@ def test_bootstrap_local_coding_tool_ids(tmp_path: Path) -> None:
 
 
 def test_bootstrap_local_coding_system_prompt_injected(tmp_path: Path) -> None:
-    """feat-385 decision 11: bootstrap LC uses segment assembly; resolved_system_prompt is ""."""
+    """Bootstrap LC uses segment assembly: resolved_system_prompt must be "" (not a hardcoded template)."""
     resolved = bootstrap_product(profile=LOCAL_CODING_PROFILE, repo_root=tmp_path)
     assert resolved.resolved_system_prompt == ""
     # Segment assembly path: prompt_sections must be wired

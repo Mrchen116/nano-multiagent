@@ -68,8 +68,7 @@ def test_create_app_with_profile_uses_resolved_system_prompt() -> None:
     """app wired via local_coding profile must wire prompt_sections (feat-385: segment assembly)."""
     app = create_app(product_profile=LOCAL_CODING_PROFILE)
     runtime = app.state.agent_runtime
-    # feat-385 decision 11: default_system_prompt is now "" — prompt is assembled from sections.
-    # Verify that prompt_sections are wired instead.
+    # default_system_prompt is "" — segment assembly path; verify prompt_sections are wired.
     assert app.state.prompt_sections, "prompt_sections must be wired for segment assembly"
     section_names = {s.name for s in app.state.prompt_sections}
     assert "core.system" in section_names

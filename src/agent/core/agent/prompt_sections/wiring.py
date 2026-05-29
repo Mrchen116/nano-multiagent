@@ -50,7 +50,7 @@ def build_prompt_context_from_metadata(
         current_datetime: Session-created-at ISO string.
         cwd: Current working directory string.
         memory_block: Pre-rendered MemoryStore snapshot or None.
-        user_profile_block: Pre-rendered USER.md snapshot or None (decision 6).
+        user_profile_block: Pre-rendered USER.md snapshot or None (volatile; injected into cache_safe=False segment).
         flags: Per-agent feature flags (key → bool).
         vars: Freeform string vars (e.g. "custom_prompt").
 

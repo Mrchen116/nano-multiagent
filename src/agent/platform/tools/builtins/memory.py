@@ -184,10 +184,11 @@ class MemoryTool:
     # ------------------------------------------------------------------
 
     def _resolve_memory_root(self, ctx: Any) -> Path:
-        """Resolve memory_root per-session from session_metadata (decision 9).
+        """Resolve memory_root per-session from session_metadata.
 
         Production path: workspace_root + workspace_config_dirname from session_metadata,
-        derived via derive_memory_root (shared with runtime _ensure_memory_snapshot).
+        derived via derive_memory_root (shared with runtime _ensure_memory_snapshot so
+        MemoryTool writes land in the same directory the runtime reads from).
         Test scaffold: _fixed_memory_root set at construction bypasses metadata lookup.
         """
         if self._fixed_memory_root is not None:

@@ -19,7 +19,8 @@ def test_local_coding_prompts_file_deleted() -> None:
     pkg_dir = Path(lc_pkg.__file__).parent
     prompts_file = pkg_dir / "prompts.py"
     assert not prompts_file.exists(), (
-        "products/local_coding/prompts.py should be deleted (decision 11)"
+        "products/local_coding/prompts.py should be deleted: "
+        "coding content now lives in prompt_sections.py (segment assembly)"
     )
 
 
@@ -29,7 +30,8 @@ def test_personal_assistant_prompts_file_deleted() -> None:
     pkg_dir = Path(pa_pkg.__file__).parent
     prompts_file = pkg_dir / "prompts.py"
     assert not prompts_file.exists(), (
-        "products/personal_assistant/prompts.py should be deleted (decision 11)"
+        "products/personal_assistant/prompts.py should be deleted: "
+        "PA content now lives in prompt_sections.py (segment assembly)"
     )
 
 
@@ -38,7 +40,8 @@ def test_pa_memory_intro_segment_removed() -> None:
     from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
     names = {s.name for s in PA_SECTIONS}
     assert "pa.memory_intro" not in names, (
-        "pa.memory_intro segment should be deleted (decision 7)"
+        "pa.memory_intro segment should be deleted: "
+        "core.memory_guidance is the replacement (activates when MemoryTool is present)"
     )
 
 
@@ -64,7 +67,8 @@ def test_local_store_seeds_memory_in_config_subdir(tmp_path: Path) -> None:
     assert (memory_dir / "USER.md").exists(), (
         f"USER.md should be seeded under {memory_dir}"
     )
-    # Must NOT be seeded at workspace root (decision 14)
+    # Must NOT be seeded at workspace root — only under the product config subdir.
     assert not (workspace / "MEMORY.md").exists(), (
-        "MEMORY.md must NOT be at workspace root"
+        "MEMORY.md must NOT be at workspace root: "
+        "seeding there would collide across products sharing the same workspace"
     )

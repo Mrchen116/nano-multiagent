@@ -10,7 +10,7 @@ from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.http_api.app import create_app
 from agent.platform.persistence.session.service import SessionService
 
-# Fixture replaces deleted _FIXTURE_WITH_PLACEHOLDERS (feat-385 decision 11).
+# Fixture replaces deleted _FIXTURE_WITH_PLACEHOLDERS (segment assembly now owns this content).
 _FIXTURE_WITH_PLACEHOLDERS = (
     "You are an expert coding assistant.\n\n"
     "Available tools:\n<RUNTIME_FILL:AVAILABLE_TOOLS>\n\n"

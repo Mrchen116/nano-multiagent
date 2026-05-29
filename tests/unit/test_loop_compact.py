@@ -229,7 +229,7 @@ async def test_loop_preserves_system_prompt_after_compact() -> None:
 
 
 async def test_loop_fires_on_compaction_callback_with_session_id() -> None:
-    """Decision 4: compaction 触发后 on_compaction callback 被调用，携带正确 session_id。
+    """compaction 触发后 on_compaction callback 被调用，携带正确 session_id。
 
     Verifies the closed loop: _maybe_compact success → _on_compaction_callback(session_id),
     which lets AgentRuntime._invalidate_memory_snapshot drop the stale cache entry so the

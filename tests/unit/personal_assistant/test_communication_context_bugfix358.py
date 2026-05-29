@@ -126,7 +126,7 @@ def test_group_participants_user_shows_user_id_key() -> None:
 def test_prompts_no_prefer_stable_ids_line() -> None:
     """PA system prompt sections must not contain deprecated 'prefer stable IDs' wording.
 
-    feat-385: prompts.py deleted (decision 11); verify invariant against PA_SECTIONS instead.
+    prompts.py deleted; verify invariant against PA_SECTIONS (segment-based assembly).
     """
     from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
     from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt

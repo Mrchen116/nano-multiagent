@@ -22,7 +22,7 @@ def test_local_coding_profile_config_namespace() -> None:
 
 
 def test_local_coding_profile_system_prompt_empty_for_segment_assembly() -> None:
-    """feat-385 decision 11: default_system_prompt is "" — segment assembly replaces f-string."""
+    """default_system_prompt must be "" — empty string signals segment assembly, not a monolithic f-string."""
     assert LOCAL_CODING_PROFILE.default_system_prompt == ""
     # Verify LC has prompt_sections (the segment-based assembly path)
     assert LOCAL_CODING_PROFILE.prompt_sections

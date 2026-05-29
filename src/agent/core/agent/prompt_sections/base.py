@@ -35,7 +35,7 @@ class PromptContext:
         memory_block: Pre-rendered MemoryStore snapshot, or None when absent.
             Volatile (changes turn to turn) — passed to cache_safe=False segment.
         user_profile_block: Pre-rendered USER.md snapshot, or None when absent.
-            Volatile — passed to cache_safe=False segment (decision 6).
+            Volatile (changes turn-to-turn) — passed to cache_safe=False segment.
         flags: Per-agent feature flags (key → bool).  Missing key → False.
         scenario: Conversation-level metadata (conversation_type, participants,
             group_reply_policy, run_origin, …).  Read by gated segments.
@@ -47,7 +47,7 @@ class PromptContext:
     current_datetime: str = ""
     cwd: str = ""
     memory_block: str | None = None
-    user_profile_block: str | None = None    # decision 6: independent field + segment for USER.md
+    user_profile_block: str | None = None    # independent field + volatile segment for USER.md user profile
     flags: Mapping[str, bool] = field(default_factory=dict)
     scenario: Mapping[str, object] = field(default_factory=dict)
     vars: Mapping[str, str] = field(default_factory=dict)
@@ -88,7 +88,7 @@ class PromptSection:
             contributes to the provider's auto-prefix-cache stable prefix.
             When False the segment may change turn-to-turn (e.g. MemoryStore
             snapshot, live participant list) and must be ordered after all
-            cache_safe=True segments (decision 8; enforced by assemble_system_prompt).
+            cache_safe=True segments (enforced by assemble_system_prompt to protect prefix-cache stability).
     """
 
     name: str
@@ -107,8 +107,9 @@ def assemble_system_prompt(
     """Assemble sections into a single system-prompt string.
 
     Algorithm:
-    1. Validate the cache_safe invariant (decision 8): every cache_safe=False
-       segment must have order strictly greater than every cache_safe=True segment.
+    1. Validate the cache_safe invariant: every cache_safe=False segment must have
+       order strictly greater than every cache_safe=True segment (volatile tail must
+       come after the stable prefix so provider auto-prefix-cache hits are maximised).
        Raises ValueError on violation so mis-wired segments are loud failures,
        not silent cache degradations.
     2. Sort sections by (order, name) — stable, deterministic.
@@ -150,7 +151,7 @@ def resolve_effective_prompt(
 ) -> str:
     """Resolve the final system-prompt string from competing sources.
 
-    Priority (decision 9 — mirrors CC buildEffectiveSystemPrompt):
+    Priority (mirrors CC buildEffectiveSystemPrompt):
       1. override (non-empty) — used by internal sub-agent fork paths and tests.
       2. Section assembly — the standard path for all product agents.
 

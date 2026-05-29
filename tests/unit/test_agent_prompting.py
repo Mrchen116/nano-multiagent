@@ -17,7 +17,7 @@ from agent.core.types import ToolSpec
 from agent.core.skills.registry import SkillMetadata
 
 # Minimal coding prompt fixture — replaces the deleted CODING_SYSTEM_PROMPT constant.
-# Retired in feat-385 (decision 11): coding-specific content now lives in prompt_sections.py.
+# Coding-specific content now lives in prompt_sections.py (segment assembly).
 # Contains RUNTIME_FILL placeholders so runtime-fill tests remain meaningful.
 _CODING_FIXTURE = (
     "You are an expert coding assistant.\n\n"

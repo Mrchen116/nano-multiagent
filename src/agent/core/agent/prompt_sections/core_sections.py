@@ -36,7 +36,7 @@ ORDER_CORE_SKILLS_GUIDANCE = 510
 ORDER_CORE_BACKGROUND_TASKS = 700
 ORDER_CORE_RUNTIME_FOOTER = 710
 ORDER_CORE_MEMORY_BLOCK = 950        # volatile — cache_safe=False
-ORDER_CORE_USER_PROFILE_BLOCK = 960  # volatile — cache_safe=False (decision 6)
+ORDER_CORE_USER_PROFILE_BLOCK = 960  # volatile (cache_safe=False); renders USER.md user-profile, sorts after memory_block
 
 
 # ---------------------------------------------------------------------------
@@ -364,7 +364,7 @@ def _render_user_profile_block(ctx: PromptContext) -> str | None:
 
 
 # Provenance: new — hermes-adapted from agent/system_prompt.py:236-245
-#   (MemoryStore.format_for_system_prompt + USER.md branch); decision 6.
+#   (MemoryStore.format_for_system_prompt + USER.md branch).
 #   Volatile (changes turn-to-turn) → cache_safe=False, order=960
 _CORE_USER_PROFILE_BLOCK = PromptSection(
     name="core.user_profile_block",

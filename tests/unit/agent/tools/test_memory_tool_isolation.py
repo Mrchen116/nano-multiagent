@@ -1,4 +1,7 @@
-"""Unit tests for MemoryTool isolation fix (decision 9).
+"""Unit tests for MemoryTool per-session isolation.
+
+MemoryTool must derive memory_root from session_metadata at call time (not at
+construction) so each session's writes land in its own workspace directory.
 
 Validates:
 - MemoryTool._resolve_memory_root uses derive_memory_root from session_metadata

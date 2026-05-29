@@ -6,7 +6,7 @@ from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.persistence.session.service import SessionService
 from collections.abc import AsyncIterator
 
-# Fixture replaces deleted CODING_SYSTEM_PROMPT (feat-385 decision 11).
+# Fixture replaces deleted CODING_SYSTEM_PROMPT (coding content now lives in prompt_sections.py).
 # Contains RUNTIME_FILL placeholders so runtime fills them before LLM call.
 _FIXTURE_WITH_PLACEHOLDERS = (
     "You are an expert coding assistant.\n\n"
@@ -33,7 +33,7 @@ async def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path
     session = service.create_session(workspace_root=tmp_path)
     llm = CapturePromptLLM()
     # A fixture with RUNTIME_FILL placeholders is passed explicitly; AgentRuntime
-    # default is "" (segment assembly path; feat-385 decision 11).
+    # default is "" which signals segment assembly (no monolithic template).
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=llm,

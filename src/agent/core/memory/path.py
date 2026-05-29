@@ -1,10 +1,10 @@
 """Memory root path derivation — shared by MemoryTool and runtime freeze flow.
 
-Per-workspace 路径治理原则 (design.md 决策 10):
+Per-workspace 路径治理原则:
   任何 per-workspace 资源路径必须基于
   <session.workspace_root> / <profile.workspace_config_dirname> / <subdir> 派生。
   禁止硬编码 .nano / .nanoassistant / .nanocode 字符串；
-  只允许在 product defaults.py 定义这些常量。
+  只允许在 product defaults.py 定义这些常量（防止多 product 共享同一 workspace 时路径冲突）。
 """
 from __future__ import annotations
 

@@ -46,7 +46,7 @@ def test_local_coding_profile_compat_skill_roots_contains_codex() -> None:
 
 def test_local_coding_package_exports_default_modules() -> None:
     assert local_coding_defaults.CONFIG_NAMESPACE == "nanocode"
-    # feat-385 decision 11: prompts.py deleted; default_system_prompt is now "" (segment assembly)
+    # prompts.py deleted; default_system_prompt="" signals segment assembly
     assert LOCAL_CODING_PROFILE.default_system_prompt == ""
     assert {"read", "write", "edit", "bash", "agent", "task_stop"} <= set(local_coding_toolsets.DEFAULT_TOOL_IDS)
     assert "skill_manage" in local_coding_toolsets.DEFAULT_TOOL_IDS
@@ -73,7 +73,7 @@ def test_personal_assistant_profile_session_db_filename() -> None:
 
 def test_personal_assistant_package_exports_default_modules() -> None:
     assert personal_assistant_defaults.CONFIG_NAMESPACE == "nanoassistant"
-    # feat-385 decision 11: prompts.py deleted; default_system_prompt is now "" (segment assembly)
+    # prompts.py deleted; default_system_prompt="" signals segment assembly
     assert PERSONAL_ASSISTANT_PROFILE.default_system_prompt == ""
     assert {"read", "write", "edit", "bash", "agent", "web_fetch", "web_search"} <= set(personal_assistant_toolsets.DEFAULT_TOOL_IDS)
     assert set(personal_assistant_toolsets.OPTIONAL_TOOL_IDS) == {"send_message"}

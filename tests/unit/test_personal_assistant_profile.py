@@ -39,7 +39,7 @@ def test_personal_assistant_profile_compat_skill_roots_include_current_skill_hom
 
 
 def test_personal_assistant_profile_default_system_prompt_empty_for_segment_assembly() -> None:
-    """feat-385 decision 11: default_system_prompt is "" — segment assembly replaces f-string."""
+    """default_system_prompt must be "" — empty string signals segment assembly, not a monolithic f-string."""
     assert PERSONAL_ASSISTANT_PROFILE.default_system_prompt == ""
     # Verify PA has prompt_sections for segment-based assembly
     assert PERSONAL_ASSISTANT_PROFILE.prompt_sections

@@ -39,7 +39,7 @@ MEMORY_GUIDANCE: str = (
     "Write memories as declarative facts, not instructions to yourself."
 )
 
-# Generic fallback: empty string signals segment-assembled prompt path (feat-385 decision 11).
+# Empty string signals that prompt assembly uses segment-based rendering (not a monolithic f-string template).
 DEFAULT_SYSTEM_PROMPT = ""
 
 
@@ -225,7 +225,7 @@ def _resolve_prompt_timestamp(current_datetime: datetime | str | None) -> str:
 
 
 def _default_tool_specs() -> tuple[ToolSpec, ...]:
-    # Old f-string path retired (feat-385 decision 11); no built-in fallback tools.
+    # Legacy f-string template path retired; segment assembly owns tool listing now.
     return ()
 
 
