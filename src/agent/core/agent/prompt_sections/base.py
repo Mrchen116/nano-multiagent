@@ -1,14 +1,19 @@
 """Core prompt-section data structures and assembler.
 
 Design decisions captured here:
-- Decision 1: explicit order: int for global sort (core + product segments interleave).
 - Decision 2: PromptSection is a pure data + two pure functions; no side effects.
   PromptContext is a frozen dataclass (assembly-time read-only snapshot).
-- Decision 8: cache_safe=False segments must have order > every cache_safe=True
-  segment — enforced at assembly time so the stable prefix is always contiguous
-  and provider auto-prefix-cache hit rate is maximised.
+- Decision 8 (M4 updated): cache_safe=False segments must appear after every
+  cache_safe=True segment — validated by list position (volatile segments' indices
+  must all be greater than every stable segment's index). Enforced at assembly time
+  so the stable prefix is always contiguous and provider auto-prefix-cache hit rate
+  is maximised.
 - Decision 9: resolve_effective_prompt is the single resolution point: override
   direct-pass (internal / sub-agent fork) beats section assembly.
+- Decision 15/16 (M4): ordering is explicit by list position — the caller (product
+  build_<product>_system_prompt function) returns sections in the desired order.
+  There is no 'order' magic number field. This mirrors CC's getSystemPrompt where
+  the function body is a linear list of sections.
 
 This module is pure core: no imports from the platform or products layers —
 core must not depend on higher layers (contract: test_core_no_platform_imports.py).
@@ -32,10 +37,12 @@ class PromptContext:
         current_datetime: Session-created-at timestamp string (stable across
             turns so it lands in the cache-stable prefix).
         cwd: Current working directory string for this session.
-        memory_block: Pre-rendered MemoryStore snapshot, or None when absent.
-            Volatile (changes turn to turn) — passed to cache_safe=False segment.
-        user_profile_block: Pre-rendered USER.md snapshot, or None when absent.
-            Volatile (changes turn-to-turn) — passed to cache_safe=False segment.
+        memory_block: Pre-rendered MemoryStore snapshot (banner + content), or
+            None when absent. Volatile (changes turn to turn) — passed to
+            cache_safe=False segment.
+        user_profile_block: Pre-rendered USER.md snapshot (banner + content), or
+            None when absent. Volatile (changes turn-to-turn) — passed to
+            cache_safe=False segment.
         flags: Per-agent feature flags (key → bool).  Missing key → False.
         scenario: Conversation-level metadata (conversation_type, participants,
             group_reply_policy, run_origin, …).  Read by gated segments.
@@ -59,27 +66,20 @@ class PromptContext:
 
 @dataclass(frozen=True)
 class PromptSection:
-    """A single named, ordered, gate-controlled segment of the system prompt.
+    """A single named, gate-controlled segment of the system prompt.
 
     Segments are pure-data objects — render and enabled_when are pure functions
     that receive PromptContext and produce deterministic output (no IO, no state).
 
+    Ordering is by list position in the sequence passed to assemble_system_prompt
+    (Decision 16 / M4). The product's build_<product>_system_prompt() function is
+    the single authoritative place for segment ordering — open it and you see the
+    complete prompt structure at a glance (mirrors CC getSystemPrompt).
+
     Args:
         name: Stable internal identifier (e.g. "core.system", "pa.identity").
-            Not rendered into the prompt text; used for ordering and registry
-            references.  Convention: ``<layer>.<semantic_name>``.
-        order: Integer position in the global ordered sequence.  Segments from
-            core and product packages are sorted together by (order, name) so
-            product segments can interleave with core segments intentionally.
-            Number bands (see design.md decision 1):
-              100–199  product identity + runtime
-              200–299  core behaviour rules (system/actions/tools/tone)
-              300–399  product lore (memory / heartbeat / policy / guidelines)
-              400–499  tool + skill listings
-              500–599  self-evolution guidance (user-togglable)
-              700–799  mechanism segments (background tasks / footer)
-              800      user custom instructions (stable-prefix tail)
-              900+     volatile tail (cache_safe=False)
+            Not rendered into the prompt text; used for registry references.
+            Convention: ``<layer>.<semantic_name>``.
         render: ``(ctx) -> str | None``.  Returns the rendered text for this
             segment, or None / empty string to omit it entirely this turn.
         enabled_when: ``(ctx) -> bool``.  When False the segment is skipped
@@ -87,12 +87,12 @@ class PromptSection:
         cache_safe: When True the segment's content is stable across turns and
             contributes to the provider's auto-prefix-cache stable prefix.
             When False the segment may change turn-to-turn (e.g. MemoryStore
-            snapshot, live participant list) and must be ordered after all
-            cache_safe=True segments (enforced by assemble_system_prompt to protect prefix-cache stability).
+            snapshot, live participant list) and must be placed after all
+            cache_safe=True segments in the list (enforced by assemble_system_prompt
+            to protect prefix-cache stability).
     """
 
     name: str
-    order: int
     render: Callable[[PromptContext], str | None]
     enabled_when: Callable[[PromptContext], bool] = field(
         default_factory=lambda: lambda ctx: True
@@ -107,18 +107,20 @@ def assemble_system_prompt(
     """Assemble sections into a single system-prompt string.
 
     Algorithm:
-    1. Validate the cache_safe invariant: every cache_safe=False segment must have
-       order strictly greater than every cache_safe=True segment (volatile tail must
-       come after the stable prefix so provider auto-prefix-cache hits are maximised).
-       Raises ValueError on violation so mis-wired segments are loud failures,
-       not silent cache degradations.
-    2. Sort sections by (order, name) — stable, deterministic.
+    1. Validate the cache_safe invariant by list position: every cache_safe=False
+       segment's index must be greater than every cache_safe=True segment's index
+       (volatile segments must come after the stable prefix). Raises ValueError on
+       violation so mis-wired product assemblies are loud failures, not silent
+       cache degradations.
+    2. Iterate sections in list order (no additional sorting — order is the caller's
+       responsibility via build_<product>_system_prompt).
     3. For each section: skip if not enabled_when(ctx); call render(ctx); skip if
        result is None or empty.
-    4. Join surviving pieces with "\n\n".
+    4. Join surviving pieces with "\\n\\n".
 
     Args:
-        sections: Unordered collection of PromptSection objects (core + product).
+        sections: Ordered sequence of PromptSection objects (as returned by
+            build_<product>_system_prompt or a test-supplied list).
         ctx: Frozen runtime snapshot for this turn.
 
     Returns:
@@ -126,15 +128,15 @@ def assemble_system_prompt(
         are absent/disabled.
 
     Raises:
-        ValueError: When the cache_safe invariant is violated — a cache_safe=False
-            segment has order ≤ the maximum order of any cache_safe=True segment.
+        ValueError: When the cache_safe invariant is violated — any cache_safe=False
+            segment appears at a list index ≤ the maximum index of any
+            cache_safe=True segment.
     """
     if sections:
         _validate_cache_safe_invariant(sections)
 
-    ordered = sorted(sections, key=lambda s: (s.order, s.name))
     parts: list[str] = []
-    for section in ordered:
+    for section in sections:
         if not section.enabled_when(ctx):
             continue
         rendered = section.render(ctx)
@@ -174,31 +176,35 @@ def resolve_effective_prompt(
 # ---------------------------------------------------------------------------
 
 def _validate_cache_safe_invariant(sections: Sequence[PromptSection]) -> None:
-    """Raise ValueError when any cache_safe=False segment has order ≤ max stable order.
+    """Raise ValueError when any cache_safe=False segment is not in the volatile tail.
 
     The invariant guarantees that the stable prefix is always contiguous: every
     segment the provider can auto-prefix-cache appears before any volatile segment.
     A violation would silently shrink the cacheable prefix every time a volatile
     segment value changes.
 
+    Validation is by list position (Decision 16 / M4): the index of every
+    cache_safe=False segment must be strictly greater than the index of every
+    cache_safe=True segment.
+
     Args:
-        sections: Sections to validate (may be unordered).
+        sections: Ordered sequence of sections to validate.
 
     Raises:
         ValueError: With a message listing the offending segment names.
     """
-    stable_orders = [s.order for s in sections if s.cache_safe]
-    volatile_sections = [s for s in sections if not s.cache_safe]
+    stable_indices = [i for i, s in enumerate(sections) if s.cache_safe]
+    volatile_sections_with_idx = [(i, s) for i, s in enumerate(sections) if not s.cache_safe]
 
-    if not stable_orders or not volatile_sections:
+    if not stable_indices or not volatile_sections_with_idx:
         return  # Nothing to violate.
 
-    max_stable_order = max(stable_orders)
-    violators = [s for s in volatile_sections if s.order <= max_stable_order]
+    max_stable_idx = max(stable_indices)
+    violators = [(i, s) for i, s in volatile_sections_with_idx if i <= max_stable_idx]
     if violators:
-        names = ", ".join(f"{s.name}(order={s.order})" for s in violators)
+        names = ", ".join(f"{s.name}(idx={i})" for i, s in violators)
         raise ValueError(
-            f"cache_safe invariant violated: cache_safe=False segments must have "
-            f"order > max cache_safe=True order ({max_stable_order}). "
+            f"cache_safe invariant violated: cache_safe=False segments must appear "
+            f"after all cache_safe=True segments (max stable idx={max_stable_idx}). "
             f"Violating segments: {names}"
         )

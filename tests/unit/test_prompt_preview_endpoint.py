@@ -20,16 +20,14 @@ def _auth_headers() -> dict[str, str]:
 
 def _make_section(
     name: str,
-    order: int,
     text: str,
     cache_safe: bool = True,
     enabled: bool = True,
 ) -> PromptSection:
-    """Build a minimal PromptSection for testing."""
+    """Build a minimal PromptSection for testing (M4: no order param)."""
     return PromptSection(
         name=name,
-        order=order,
-        render=lambda ctx: text,
+        render=lambda ctx, t=text: t,
         enabled_when=lambda ctx: enabled,
         cache_safe=cache_safe,
     )
@@ -55,8 +53,8 @@ def test_prompt_preview_no_sections_returns_empty() -> None:
 def test_prompt_preview_with_sections_returns_assembled_text() -> None:
     """Preview assembles injected sections and returns the joined text."""
     sections = [
-        _make_section("core.identity", 100, "You are a helpful assistant."),
-        _make_section("core.rules", 200, "Follow these rules."),
+        _make_section("core.identity", "You are a helpful assistant."),
+        _make_section("core.rules", "Follow these rules."),
     ]
     app = create_app()
     app.state.prompt_sections = sections
@@ -81,9 +79,9 @@ def test_prompt_preview_volatile_sections_appear_as_inline_placeholders() -> Non
     natural order location — not stripped out entirely.
     """
     sections = [
-        _make_section("core.stable", 100, "Stable text.", cache_safe=True),
+        _make_section("core.stable", "Stable text.", cache_safe=True),
         # cache_safe=False segment must have order > stable to avoid cache_safe violation
-        _make_section("core.volatile", 950, "Volatile turn data.", cache_safe=False),
+        _make_section("core.volatile", "Volatile turn data.", cache_safe=False),
     ]
     app = create_app()
     app.state.prompt_sections = sections
@@ -113,7 +111,7 @@ def test_prompt_preview_passes_features_to_context() -> None:
         return "rendered"
 
     sections = [
-        PromptSection(name="core.gated", order=100, render=_capturing_render),
+        PromptSection(name="core.gated", render=_capturing_render),
     ]
     app = create_app()
     app.state.prompt_sections = sections
@@ -262,7 +260,7 @@ def test_prompt_preview_datetime_placeholder() -> None:
         captured.append(ctx)
         return "x"
 
-    sections = [PromptSection(name="test", order=100, render=_capture)]
+    sections = [PromptSection(name="test", render=_capture)]
     app = create_app()
     app.state.prompt_sections = sections
     with TestClient(app) as client:
@@ -286,7 +284,7 @@ def test_prompt_preview_cwd_uses_workspace_root() -> None:
         captured.append(ctx)
         return "x"
 
-    sections = [PromptSection(name="test", order=100, render=_capture)]
+    sections = [PromptSection(name="test", render=_capture)]
     app = create_app()
     app.state.prompt_sections = sections
     with TestClient(app) as client:
@@ -315,7 +313,7 @@ def test_prompt_preview_cwd_placeholder_when_no_workspace() -> None:
         captured.append(ctx)
         return "x"
 
-    sections = [PromptSection(name="test", order=100, render=_capture)]
+    sections = [PromptSection(name="test", render=_capture)]
     app = create_app()
     app.state.prompt_sections = sections
     with TestClient(app) as client:
@@ -339,7 +337,7 @@ def test_prompt_preview_uses_real_tool_description_from_registry() -> None:
         captured.append(ctx)
         return "x"
 
-    sections = [PromptSection(name="test", order=100, render=_capture)]
+    sections = [PromptSection(name="test", render=_capture)]
     registry = _make_registry_with_tools(
         ("read", "Read a file and return its contents."),
         ("write", "Write content to a file."),
@@ -373,7 +371,7 @@ def test_prompt_preview_silently_skips_unregistered_tool_ids() -> None:
         captured.append(ctx)
         return "x"
 
-    sections = [PromptSection(name="test", order=100, render=_capture)]
+    sections = [PromptSection(name="test", render=_capture)]
     registry = _make_registry_with_tools(("read", "Read files."))
 
     app = create_app()
@@ -413,9 +411,9 @@ def test_prompt_preview_volatile_section_inline_placeholder_in_position() -> Non
     The prompt should read as a complete document; volatile positions show what runtime
     will inject rather than being absent.
     """
-    stable_section = _make_section("core.identity", 100, "You are a helpful assistant.", cache_safe=True)
+    stable_section = _make_section("core.identity", "You are a helpful assistant.", cache_safe=True)
     # Volatile section must have order > all cache_safe=True sections (assembler constraint).
-    volatile_section = _make_section("core.memory_block", 950, "MEMORY CONTENT", cache_safe=False)
+    volatile_section = _make_section("core.memory_block", "MEMORY CONTENT", cache_safe=False)
 
     app = create_app()
     app.state.prompt_sections = [stable_section, volatile_section]
@@ -455,8 +453,8 @@ def test_prompt_preview_no_footer_stacking_block() -> None:
 
     This pattern (M2 regression) must be absent. Volatile sections are shown inline.
     """
-    volatile1 = _make_section("core.memory_block", 950, "MEM", cache_safe=False)
-    volatile2 = _make_section("core.user_profile_block", 960, "USER", cache_safe=False)
+    volatile1 = _make_section("core.memory_block", "MEM", cache_safe=False)
+    volatile2 = _make_section("core.user_profile_block", "USER", cache_safe=False)
 
     app = create_app()
     app.state.prompt_sections = [volatile1, volatile2]
@@ -485,8 +483,8 @@ def test_prompt_preview_stable_section_byte_consistency_with_volatile_inline() -
     When volatile sections change their placeholder text, the stable prefix must not change.
     This ensures provider auto-prefix-cache still hits on stable content.
     """
-    stable = _make_section("core.identity", 100, "Stable identity text.", cache_safe=True)
-    volatile = _make_section("core.memory_block", 950, "volatile data", cache_safe=False)
+    stable = _make_section("core.identity", "Stable identity text.", cache_safe=True)
+    volatile = _make_section("core.memory_block", "volatile data", cache_safe=False)
 
     # With volatile section
     app1 = create_app()

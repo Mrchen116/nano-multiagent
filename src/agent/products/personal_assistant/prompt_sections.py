@@ -50,7 +50,6 @@ else:
 #   opening lines in products/personal_assistant/prompts.py
 _PA_IDENTITY = PromptSection(
     name="pa.identity",
-    order=100,
     render=lambda ctx: (
         "# Nano Personal Assistant\n\n"
         "You are a helpful personal assistant communicating through instant messaging."
@@ -61,7 +60,6 @@ _PA_IDENTITY = PromptSection(
 # Provenance: new — migrated verbatim from ## Runtime block in prompts.py
 _PA_RUNTIME = PromptSection(
     name="pa.runtime",
-    order=110,
     render=lambda ctx: f"## Runtime\nPlatform: {_platform_tag}",
     cache_safe=True,
 )
@@ -74,7 +72,6 @@ _PA_RUNTIME = PromptSection(
 # Provenance: new — migrated verbatim from ## Heartbeat block in prompts.py
 _PA_HEARTBEAT = PromptSection(
     name="pa.heartbeat",
-    order=310,
     render=lambda ctx: (
         "## Heartbeat\n"
         "You may have a `HEARTBEAT.md` file in your workspace describing scheduled tasks.\n"
@@ -90,7 +87,6 @@ _PA_HEARTBEAT = PromptSection(
 # Provenance: new — migrated verbatim from _platform_policy block in prompts.py
 _PA_PLATFORM_POLICY = PromptSection(
     name="pa.platform_policy",
-    order=320,
     render=lambda ctx: _platform_policy_text,
     cache_safe=True,
 )
@@ -98,7 +94,6 @@ _PA_PLATFORM_POLICY = PromptSection(
 # Provenance: new — migrated verbatim from ## Guidelines block in prompts.py
 _PA_GUIDELINES = PromptSection(
     name="pa.guidelines",
-    order=330,
     render=lambda ctx: (
         "## Guidelines\n"
         "- Be concise and conversational — this is IM, not an essay.\n"
@@ -126,7 +121,6 @@ _PA_GUIDELINES = PromptSection(
 # Provenance: new — migrated verbatim from routing-related Guidelines bullets in prompts.py
 _PA_ROUTING = PromptSection(
     name="pa.routing",
-    order=340,
     render=lambda ctx: (
         "- Routing boundary (strict): when replying to this conversation, "
         "output text directly and do not call `send_message`.\n"
@@ -161,7 +155,6 @@ def _render_user_custom(ctx: PromptContext) -> str | None:
 #   default/mechanism segments, before volatile boundary at 900+)
 _PA_USER_CUSTOM = PromptSection(
     name="pa.user_custom",
-    order=800,
     render=_render_user_custom,
     enabled_when=_user_custom_enabled,
     cache_safe=True,
@@ -279,7 +272,6 @@ def _render_communication_context(ctx: PromptContext) -> str | None:
 #   bugfix-358 text preserved verbatim via _build_communication_context_block.
 _PA_COMMUNICATION_CONTEXT = PromptSection(
     name="pa.communication_context",
-    order=900,
     render=_render_communication_context,
     enabled_when=_communication_context_enabled,
     cache_safe=False,  # participant list may change turn-to-turn
@@ -300,3 +292,64 @@ PA_SECTIONS: tuple[PromptSection, ...] = (
     _PA_USER_CUSTOM,
     _PA_COMMUNICATION_CONTEXT,
 )
+
+
+# ---------------------------------------------------------------------------
+# M4 Decision 15: explicit assembly function (mirrors CC getSystemPrompt)
+# ---------------------------------------------------------------------------
+
+def build_pa_system_prompt() -> list[PromptSection]:
+    """Return the explicit, ordered list of segments for the Personal Assistant product.
+
+    This is the single authoritative place for the PA system prompt's structure.
+    Open this function and you see the complete prompt at a glance — in order:
+    stable segments first (identity through user_custom), volatile tail at the end
+    (memory_block, user_profile_block, communication_context).
+
+    Mirrors CC getSystemPrompt pattern: one function, linear list, no magic numbers.
+
+    Returns:
+        Ordered list of PromptSection objects for assembly by assemble_system_prompt.
+    """
+    from agent.core.agent.prompt_sections.core_sections import (  # noqa: PLC0415
+        CORE_SYSTEM,
+        CORE_ACTIONS_CARE,
+        CORE_TOOL_RULES,
+        CORE_TONE_STYLE,
+        CORE_SKILLS_LISTING,
+        CORE_MEMORY_GUIDANCE,
+        CORE_SKILLS_GUIDANCE,
+        CORE_BACKGROUND_TASKS,
+        CORE_RUNTIME_FOOTER,
+        CORE_MEMORY_BLOCK,
+        CORE_USER_PROFILE_BLOCK,
+    )
+    return [
+        # ── Stable prefix (cache_safe=True) ──────────────────────────────────
+        # Product identity + runtime context
+        _PA_IDENTITY,
+        _PA_RUNTIME,
+        # Core behaviour rules (CC-aligned)
+        CORE_SYSTEM,
+        CORE_ACTIONS_CARE,
+        CORE_TOOL_RULES,
+        CORE_TONE_STYLE,
+        # Product-specific behaviour
+        _PA_HEARTBEAT,
+        _PA_PLATFORM_POLICY,
+        _PA_GUIDELINES,
+        _PA_ROUTING,
+        # Self-evolution guidance (gated by feature flags + tool presence)
+        CORE_SKILLS_LISTING,
+        CORE_MEMORY_GUIDANCE,
+        CORE_SKILLS_GUIDANCE,
+        # Background task framing + runtime mechanism
+        CORE_BACKGROUND_TASKS,
+        CORE_RUNTIME_FOOTER,
+        # User custom instructions (stable-prefix tail)
+        _PA_USER_CUSTOM,
+        # ── Volatile tail (cache_safe=False) ─────────────────────────────────
+        CORE_MEMORY_BLOCK,          # MEMORY.md snapshot
+        CORE_USER_PROFILE_BLOCK,    # USER.md snapshot
+        _PA_COMMUNICATION_CONTEXT,  # group chat participant list
+    ]

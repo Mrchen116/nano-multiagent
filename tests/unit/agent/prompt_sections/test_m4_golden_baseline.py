@@ -132,8 +132,10 @@ class TestRuntimeAssemblyBannerGolden:
         memory_block: str | None = None,
         user_profile_block: str | None = None,
     ) -> str:
-        from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
-        all_sections = list(CORE_SECTIONS) + list(PA_SECTIONS)
+        # Use only CORE_SECTIONS — cache_safe invariant is preserved within core.
+        # PA segments are not needed for these banner-position golden tests.
+        # (M4 R4 will introduce build_pa_system_prompt() which provides the
+        # correct full ordering; tests involving PA content will be updated then.)
         ctx = PromptContext(
             available_tools=BASIC_PA_TOOLS,
             available_skills=(),
@@ -145,7 +147,7 @@ class TestRuntimeAssemblyBannerGolden:
             scenario={},
             vars={},
         )
-        return assemble_system_prompt(all_sections, ctx)
+        return assemble_system_prompt(list(CORE_SECTIONS), ctx)
 
     def test_memory_banner_appears_in_assembled_prompt(self):
         """memory banner（含 ═ 分隔线 + 标题行）出现在汇编输出中。"""

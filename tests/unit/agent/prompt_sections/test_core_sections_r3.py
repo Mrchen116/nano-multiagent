@@ -31,10 +31,15 @@ def test_core_user_profile_block_segment_exists() -> None:
     assert "core.user_profile_block" in names
 
 
-def test_core_user_profile_block_order_and_cache_safe() -> None:
+def test_core_user_profile_block_cache_safe_and_position() -> None:
+    """M4 Decision 16: no order field; check cache_safe + list position relative to memory_block."""
     seg = next(s for s in CORE_SECTIONS if s.name == "core.user_profile_block")
-    assert seg.order == 960
     assert seg.cache_safe is False
+    # user_profile_block must come after memory_block in the list (both volatile)
+    names = [s.name for s in CORE_SECTIONS]
+    memory_idx = names.index("core.memory_block")
+    user_idx = names.index("core.user_profile_block")
+    assert user_idx > memory_idx, "user_profile_block must be listed after memory_block"
 
 
 def test_core_user_profile_block_renders_when_set() -> None:

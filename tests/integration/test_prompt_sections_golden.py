@@ -71,11 +71,16 @@ LC_FULL_TOOLS = (*BASIC_LC_TOOLS, _tool("memory"), _tool("skill_manage"))
 
 def _pa_sections(tools: tuple[ToolSpec, ...], scenario: dict | None = None,
                  custom_prompt: str = ""):
-    """Build PA section list and context for assembly."""
-    from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
-    from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
+    """Build PA section list and context for assembly.
 
-    all_sections = list(CORE_SECTIONS) + list(PA_SECTIONS)
+    M4: uses build_pa_system_prompt() which provides the correct explicit ordering
+    (stable segments first, volatile tail at the end — cache_safe invariant by
+    list position). Direct CORE_SECTIONS + PA_SECTIONS concatenation is no longer
+    valid because volatile core segments would appear before stable PA segments.
+    """
+    from agent.products.personal_assistant.prompt_sections import build_pa_system_prompt
+
+    all_sections = build_pa_system_prompt()
     ctx = PromptContext(
         available_tools=tools,
         available_skills=(),
@@ -90,11 +95,13 @@ def _pa_sections(tools: tuple[ToolSpec, ...], scenario: dict | None = None,
 
 
 def _lc_sections(tools: tuple[ToolSpec, ...]):
-    """Build LC section list and context for assembly."""
-    from agent.products.local_coding.prompt_sections import LC_SECTIONS
-    from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
+    """Build LC section list and context for assembly.
 
-    all_sections = list(CORE_SECTIONS) + list(LC_SECTIONS)
+    M4: uses build_lc_system_prompt() for correct explicit ordering.
+    """
+    from agent.products.local_coding.prompt_sections import build_lc_system_prompt
+
+    all_sections = build_lc_system_prompt()
     ctx = PromptContext(
         available_tools=tools,
         available_skills=(),
@@ -336,20 +343,19 @@ def test_background_tasks_present_with_agent_tool():
 # ---------------------------------------------------------------------------
 
 def test_cache_safe_ordering_in_pa_direct():
-    """All volatile (cache_safe=False) segments have order > all stable segments."""
-    from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
-    from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
+    """M4 Decision 16: volatile segments are at the end of the list (list-position invariant)."""
+    from agent.products.personal_assistant.prompt_sections import build_pa_system_prompt
 
-    all_sections = list(CORE_SECTIONS) + list(PA_SECTIONS)
+    all_sections = build_pa_system_prompt()
 
-    stable_orders = [s.order for s in all_sections if s.cache_safe]
-    volatile_orders = [s.order for s in all_sections if not s.cache_safe]
+    stable_indices = [i for i, s in enumerate(all_sections) if s.cache_safe]
+    volatile_indices = [i for i, s in enumerate(all_sections) if not s.cache_safe]
 
-    if stable_orders and volatile_orders:
-        assert min(volatile_orders) > max(stable_orders), (
-            f"cache_safe invariant violated: "
-            f"min volatile order={min(volatile_orders)}, "
-            f"max stable order={max(stable_orders)}"
+    if stable_indices and volatile_indices:
+        assert min(volatile_indices) > max(stable_indices), (
+            f"cache_safe invariant violated by list position: "
+            f"min volatile idx={min(volatile_indices)}, "
+            f"max stable idx={max(stable_indices)}"
         )
 
 
@@ -359,10 +365,9 @@ def test_cache_safe_ordering_in_pa_direct():
 
 def test_memory_block_present_when_ctx_has_memory_block():
     """core.memory_block segment renders the memory_block from context."""
-    from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
-    from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
+    from agent.products.personal_assistant.prompt_sections import build_pa_system_prompt
 
-    all_sections = list(CORE_SECTIONS) + list(PA_SECTIONS)
+    all_sections = build_pa_system_prompt()
     fake_block = "══════\nMEMORY [0% — 0/2,200 chars]\n══════\n"
     ctx = PromptContext(
         available_tools=BASIC_PA_TOOLS,

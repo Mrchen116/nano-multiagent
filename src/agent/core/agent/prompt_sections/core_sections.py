@@ -1,16 +1,16 @@
 """Core prompt segments owned by agent.core (no product dependencies allowed).
 
 Segment name convention: ``core.<semantic_name>``
-Order bands used here (full band table in design.md decision 1):
-  200–299  core behaviour rules (system / actions / tools / tone)
-  400–499  tool + skill listings
-  500–599  self-evolution guidance (user-togglable)
-  700–799  mechanism segments (background tasks / runtime footer)
-  950      memory_block (volatile — cache_safe=False)
 
-M4 note: Segments marked [new·CC] / [纠偏·CC] in design.md are fully filled here
-(core-content-align-cc milestone). Each segment carries a Provenance: comment as
-required by design decision 10. CC source: prompts.ts in claude-code repo.
+M4 (Decision 16): 'order' field removed from PromptSection. Ordering is by list
+position in the sequence passed to assemble_system_prompt. CORE_SECTIONS exports
+segments in the canonical order; product build_<product>_system_prompt() functions
+import individual building blocks (CORE_SYSTEM, CORE_MEMORY_GUIDANCE, etc.) and
+interleave them with product segments in the explicitly declared order — making the
+full prompt structure readable at a glance (mirrors CC getSystemPrompt pattern).
+
+Each segment carries a Provenance: comment as required by design decision 10.
+CC source: prompts.ts in claude-code repo.
 
 Important: this module is pure core — no imports from the platform or products
 layers (contract: tests/contract/test_core_no_platform_imports.py).
@@ -20,23 +20,6 @@ from __future__ import annotations
 from typing import Sequence
 
 from agent.core.agent.prompt_sections.base import PromptContext, PromptSection
-
-
-# ---------------------------------------------------------------------------
-# Segment order constants (shared with tests and product sections)
-# ---------------------------------------------------------------------------
-
-ORDER_CORE_SYSTEM = 200
-ORDER_CORE_ACTIONS_CARE = 210
-ORDER_CORE_TOOL_RULES = 220
-ORDER_CORE_TONE_STYLE = 230
-ORDER_CORE_SKILLS_LISTING = 410
-ORDER_CORE_MEMORY_GUIDANCE = 500
-ORDER_CORE_SKILLS_GUIDANCE = 510
-ORDER_CORE_BACKGROUND_TASKS = 700
-ORDER_CORE_RUNTIME_FOOTER = 710
-ORDER_CORE_MEMORY_BLOCK = 950        # volatile — cache_safe=False
-ORDER_CORE_USER_PROFILE_BLOCK = 960  # volatile (cache_safe=False); renders USER.md user-profile, sorts after memory_block
 
 
 # ---------------------------------------------------------------------------
@@ -94,12 +77,14 @@ def _render_core_system(ctx: PromptContext) -> str:
     )
 
 
-_CORE_SYSTEM = PromptSection(
+# Provenance: CC-adapted — see _render_core_system comment above.
+CORE_SYSTEM = PromptSection(
     name="core.system",
-    order=ORDER_CORE_SYSTEM,
     render=_render_core_system,
     cache_safe=True,
 )
+# Backwards-compat alias for tests that use the old private name.
+_CORE_SYSTEM = CORE_SYSTEM
 
 
 # Provenance: CC-adapted — based on claude-code getActionsSection
@@ -137,12 +122,12 @@ before acting.\
 """
 
 # Provenance: CC-adapted — see _CORE_ACTIONS_CARE_TEXT comment above.
-_CORE_ACTIONS_CARE = PromptSection(
+CORE_ACTIONS_CARE = PromptSection(
     name="core.actions_care",
-    order=ORDER_CORE_ACTIONS_CARE,
     render=lambda ctx: _CORE_ACTIONS_CARE_TEXT,
     cache_safe=True,
 )
+_CORE_ACTIONS_CARE = CORE_ACTIONS_CARE
 
 
 # Provenance: CC-adapted — based on claude-code getUsingYourToolsSection
@@ -169,12 +154,12 @@ call these tools in parallel — call them sequentially instead.\
 """
 
 # Provenance: CC-adapted — see _CORE_TOOL_RULES_TEXT comment above.
-_CORE_TOOL_RULES = PromptSection(
+CORE_TOOL_RULES = PromptSection(
     name="core.tool_rules",
-    order=ORDER_CORE_TOOL_RULES,
     render=lambda ctx: _CORE_TOOL_RULES_TEXT,
     cache_safe=True,
 )
+_CORE_TOOL_RULES = CORE_TOOL_RULES
 
 
 # Provenance: CC-adapted — based on claude-code getSimpleToneAndStyleSection
@@ -198,12 +183,12 @@ just be "Let me read the file." with a period.\
 """
 
 # Provenance: CC-adapted — see _CORE_TONE_STYLE_TEXT comment above.
-_CORE_TONE_STYLE = PromptSection(
+CORE_TONE_STYLE = PromptSection(
     name="core.tone_style",
-    order=ORDER_CORE_TONE_STYLE,
     render=lambda ctx: _CORE_TONE_STYLE_TEXT,
     cache_safe=True,
 )
+_CORE_TONE_STYLE = CORE_TONE_STYLE
 
 
 def _render_skills_listing(ctx: PromptContext) -> str | None:
@@ -213,13 +198,13 @@ def _render_skills_listing(ctx: PromptContext) -> str | None:
 
 
 # Provenance: new — migrated from RUNTIME_FILL:SKILLS_SECTION in prompts.py
-_CORE_SKILLS_LISTING = PromptSection(
+CORE_SKILLS_LISTING = PromptSection(
     name="core.skills_listing",
-    order=ORDER_CORE_SKILLS_LISTING,
     render=_render_skills_listing,
     # Skills set is stable within a session (loaded at session creation).
     cache_safe=True,
 )
+_CORE_SKILLS_LISTING = CORE_SKILLS_LISTING
 
 
 def _memory_guidance_enabled(ctx: PromptContext) -> bool:
@@ -246,13 +231,13 @@ def _render_memory_guidance(ctx: PromptContext) -> str:
 
 
 # Provenance: new — migrated from MEMORY_GUIDANCE constant in prompts.py
-_CORE_MEMORY_GUIDANCE = PromptSection(
+CORE_MEMORY_GUIDANCE = PromptSection(
     name="core.memory_guidance",
-    order=ORDER_CORE_MEMORY_GUIDANCE,
     render=_render_memory_guidance,
     enabled_when=_memory_guidance_enabled,
     cache_safe=True,
 )
+_CORE_MEMORY_GUIDANCE = CORE_MEMORY_GUIDANCE
 
 
 def _skills_guidance_enabled(ctx: PromptContext) -> bool:
@@ -275,13 +260,13 @@ def _render_skills_guidance(ctx: PromptContext) -> str:
 
 
 # Provenance: new — migrated from SKILLS_GUIDANCE constant in prompts.py
-_CORE_SKILLS_GUIDANCE = PromptSection(
+CORE_SKILLS_GUIDANCE = PromptSection(
     name="core.skills_guidance",
-    order=ORDER_CORE_SKILLS_GUIDANCE,
     render=_render_skills_guidance,
     enabled_when=_skills_guidance_enabled,
     cache_safe=True,
 )
+_CORE_SKILLS_GUIDANCE = CORE_SKILLS_GUIDANCE
 
 
 def _background_tasks_enabled(ctx: PromptContext) -> bool:
@@ -309,13 +294,13 @@ def _render_background_tasks(ctx: PromptContext) -> str:
 
 # Provenance: new — migrated from BACKGROUND_TASK_PROMPT_BLOCK (notifications.py);
 #   changed from unconditional to 'agent' tool gate (M1 documented exception).
-_CORE_BACKGROUND_TASKS = PromptSection(
+CORE_BACKGROUND_TASKS = PromptSection(
     name="core.background_tasks",
-    order=ORDER_CORE_BACKGROUND_TASKS,
     render=_render_background_tasks,
     enabled_when=_background_tasks_enabled,
     cache_safe=True,
 )
+_CORE_BACKGROUND_TASKS = CORE_BACKGROUND_TASKS
 
 
 def _render_runtime_footer(ctx: PromptContext) -> str:
@@ -328,12 +313,12 @@ def _render_runtime_footer(ctx: PromptContext) -> str:
 
 
 # Provenance: new — migrated from RUNTIME_FILL:CURRENT_DATETIME/CURRENT_WORKING_DIRECTORY
-_CORE_RUNTIME_FOOTER = PromptSection(
+CORE_RUNTIME_FOOTER = PromptSection(
     name="core.runtime_footer",
-    order=ORDER_CORE_RUNTIME_FOOTER,
     render=_render_runtime_footer,
     cache_safe=True,
 )
+_CORE_RUNTIME_FOOTER = CORE_RUNTIME_FOOTER
 
 
 def _memory_block_enabled(ctx: PromptContext) -> bool:
@@ -345,14 +330,14 @@ def _render_memory_block(ctx: PromptContext) -> str | None:
 
 
 # Provenance: new — migrated from memory_block kwarg in build_system_prompt (prompts.py);
-#   volatile (changes turn-to-turn) → cache_safe=False, order=950
-_CORE_MEMORY_BLOCK = PromptSection(
+#   volatile (changes turn-to-turn) → cache_safe=False
+CORE_MEMORY_BLOCK = PromptSection(
     name="core.memory_block",
-    order=ORDER_CORE_MEMORY_BLOCK,
     render=_render_memory_block,
     enabled_when=_memory_block_enabled,
     cache_safe=False,
 )
+_CORE_MEMORY_BLOCK = CORE_MEMORY_BLOCK
 
 
 def _user_profile_block_enabled(ctx: PromptContext) -> bool:
@@ -365,30 +350,33 @@ def _render_user_profile_block(ctx: PromptContext) -> str | None:
 
 # Provenance: new — hermes-adapted from agent/system_prompt.py:236-245
 #   (MemoryStore.format_for_system_prompt + USER.md branch).
-#   Volatile (changes turn-to-turn) → cache_safe=False, order=960
-_CORE_USER_PROFILE_BLOCK = PromptSection(
+#   Volatile (changes turn-to-turn) → cache_safe=False, after CORE_MEMORY_BLOCK
+CORE_USER_PROFILE_BLOCK = PromptSection(
     name="core.user_profile_block",
-    order=ORDER_CORE_USER_PROFILE_BLOCK,
     render=_render_user_profile_block,
     enabled_when=_user_profile_block_enabled,
     cache_safe=False,
 )
+_CORE_USER_PROFILE_BLOCK = CORE_USER_PROFILE_BLOCK
 
 
 # ---------------------------------------------------------------------------
 # Public export: ordered tuple of all core segments
 # ---------------------------------------------------------------------------
 
+# Segment order here defines their position in the assembled prompt.
+# Product build_<product>_system_prompt() functions import individual segment
+# objects (CORE_SYSTEM, CORE_MEMORY_GUIDANCE, etc.) to build an explicit list.
 CORE_SECTIONS: tuple[PromptSection, ...] = (
-    _CORE_SYSTEM,
-    _CORE_ACTIONS_CARE,
-    _CORE_TOOL_RULES,
-    _CORE_TONE_STYLE,
-    _CORE_SKILLS_LISTING,
-    _CORE_MEMORY_GUIDANCE,
-    _CORE_SKILLS_GUIDANCE,
-    _CORE_BACKGROUND_TASKS,
-    _CORE_RUNTIME_FOOTER,
-    _CORE_MEMORY_BLOCK,
-    _CORE_USER_PROFILE_BLOCK,
+    CORE_SYSTEM,           # core behaviour: system rules
+    CORE_ACTIONS_CARE,     # core behaviour: actions with care
+    CORE_TOOL_RULES,       # core behaviour: tool usage rules
+    CORE_TONE_STYLE,       # core behaviour: tone and style
+    CORE_SKILLS_LISTING,   # available skills listing (stable)
+    CORE_MEMORY_GUIDANCE,  # self-evolution: memory usage guidance (gated)
+    CORE_SKILLS_GUIDANCE,  # self-evolution: skill creation guidance (gated)
+    CORE_BACKGROUND_TASKS, # mechanism: background task notifications (gated)
+    CORE_RUNTIME_FOOTER,   # mechanism: datetime + cwd (stable per session)
+    CORE_MEMORY_BLOCK,     # volatile: MEMORY.md snapshot (cache_safe=False)
+    CORE_USER_PROFILE_BLOCK,  # volatile: USER.md snapshot (cache_safe=False)
 )

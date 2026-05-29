@@ -37,12 +37,12 @@ def _ctx(**kwargs) -> PromptContext:
     )
 
 
-def _section(name: str, order: int, text: str, *, cache_safe: bool = True,
+def _section(name: str, text: str, *, cache_safe: bool = True,
              enabled: bool = True) -> PromptSection:
+    """Helper: construct a simple PromptSection without order (M4: list position)."""
     return PromptSection(
         name=name,
-        order=order,
-        render=lambda ctx: text,
+        render=lambda ctx, t=text: t,
         enabled_when=lambda ctx: enabled,
         cache_safe=cache_safe,
     )
@@ -54,38 +54,30 @@ def _section(name: str, order: int, text: str, *, cache_safe: bool = True,
 
 def test_assemble_joins_enabled_sections_with_double_newline():
     sections = [
-        _section("a", 10, "Section A"),
-        _section("b", 20, "Section B"),
+        _section("a", "Section A"),
+        _section("b", "Section B"),
     ]
     result = assemble_system_prompt(sections, _ctx())
     assert result == "Section A\n\nSection B"
 
 
-def test_assemble_sorts_by_order_ascending():
+def test_assemble_uses_list_position_not_name_order():
+    """M4 Decision 16: assemble uses list position, not alphabetic/numeric sort."""
     sections = [
-        _section("z", 300, "Last"),
-        _section("a", 100, "First"),
-        _section("m", 200, "Middle"),
+        _section("z", "Z comes first in list"),
+        _section("a", "A comes second in list"),
+        _section("m", "M comes third in list"),
     ]
     result = assemble_system_prompt(sections, _ctx())
-    assert result == "First\n\nMiddle\n\nLast"
-
-
-def test_assemble_stable_sort_by_name_on_equal_order():
-    sections = [
-        _section("z", 100, "Z text"),
-        _section("a", 100, "A text"),
-    ]
-    result = assemble_system_prompt(sections, _ctx())
-    # Alphabetically "a" < "z" so "A text" comes first.
-    assert result == "A text\n\nZ text"
+    # List position: z → a → m
+    assert result == "Z comes first in list\n\nA comes second in list\n\nM comes third in list"
 
 
 def test_assemble_skips_disabled_sections():
     sections = [
-        _section("always", 10, "Always here"),
-        _section("never", 20, "Should not appear", enabled=False),
-        _section("also_always", 30, "Also here"),
+        _section("always", "Always here"),
+        _section("never", "Should not appear", enabled=False),
+        _section("also_always", "Also here"),
     ]
     result = assemble_system_prompt(sections, _ctx())
     assert result == "Always here\n\nAlso here"
@@ -97,9 +89,9 @@ def test_assemble_skips_sections_whose_render_returns_none():
         return None  # This section is absent this turn.
 
     sections = [
-        _section("stable", 10, "Stable"),
-        PromptSection(name="volatile", order=20, render=conditional_render),
-        _section("final", 30, "Final"),
+        _section("stable", "Stable"),
+        PromptSection(name="volatile", render=conditional_render),
+        _section("final", "Final"),
     ]
     result = assemble_system_prompt(sections, _ctx())
     assert result == "Stable\n\nFinal"
@@ -107,9 +99,9 @@ def test_assemble_skips_sections_whose_render_returns_none():
 
 def test_assemble_skips_sections_whose_render_returns_empty_string():
     sections = [
-        _section("real", 10, "Real"),
-        PromptSection(name="empty", order=20, render=lambda ctx: ""),
-        _section("real2", 30, "Real2"),
+        _section("real", "Real"),
+        PromptSection(name="empty", render=lambda ctx: ""),
+        _section("real2", "Real2"),
     ]
     result = assemble_system_prompt(sections, _ctx())
     assert result == "Real\n\nReal2"
@@ -123,7 +115,7 @@ def test_assemble_passes_context_to_render():
         received.append(ctx)
         return "captured"
 
-    sections = [PromptSection(name="capture", order=10, render=capturing_render)]
+    sections = [PromptSection(name="capture", render=capturing_render)]
     ctx = _ctx(cwd="/home/user")
     assemble_system_prompt(sections, ctx)
     assert len(received) == 1
@@ -135,11 +127,10 @@ def test_assemble_passes_context_to_enabled_when():
     sections = [
         PromptSection(
             name="flag_gated",
-            order=10,
             render=lambda ctx: "Feature active",
             enabled_when=lambda ctx: ctx.flags.get("my_feature", False),
         ),
-        _section("always", 20, "Always"),
+        _section("always", "Always"),
     ]
     # Without flag: section absent.
     without = assemble_system_prompt(sections, _ctx())
@@ -161,8 +152,8 @@ def test_assemble_empty_sections_returns_empty_string():
 def test_cache_safe_invariant_passes_when_all_stable():
     """All cache_safe=True: no ordering constraint to violate."""
     sections = [
-        _section("a", 100, "A", cache_safe=True),
-        _section("b", 200, "B", cache_safe=True),
+        _section("a", "A", cache_safe=True),
+        _section("b", "B", cache_safe=True),
     ]
     # Must not raise.
     assemble_system_prompt(sections, _ctx())
@@ -170,27 +161,28 @@ def test_cache_safe_invariant_passes_when_all_stable():
 
 def test_cache_safe_invariant_passes_when_volatile_after_stable():
     sections = [
-        _section("stable", 100, "Stable", cache_safe=True),
-        _section("volatile", 950, "Volatile", cache_safe=False),
+        _section("stable", "Stable", cache_safe=True),
+        _section("volatile", "Volatile", cache_safe=False),
     ]
     assemble_system_prompt(sections, _ctx())
 
 
 def test_cache_safe_invariant_fails_when_volatile_before_stable():
-    """cache_safe=False segment with order < any cache_safe=True segment violates invariant."""
+    """M4 Decision 16: cache_safe=False segment at list index before cache_safe=True violates invariant."""
     sections = [
-        _section("volatile_early", 100, "Volatile", cache_safe=False),
-        _section("stable_late", 900, "Stable", cache_safe=True),
+        _section("volatile_early", "Volatile", cache_safe=False),
+        _section("stable_late", "Stable", cache_safe=True),
     ]
     with pytest.raises(ValueError, match="cache_safe"):
         assemble_system_prompt(sections, _ctx())
 
 
-def test_cache_safe_invariant_fails_when_volatile_has_equal_order_to_stable():
-    """Equal order between cache_safe=False and cache_safe=True must also fail (strict >)."""
+def test_cache_safe_invariant_fails_when_volatile_between_stable():
+    """volatile segment sandwiched between two stable segments also violates invariant."""
     sections = [
-        _section("volatile", 500, "Volatile", cache_safe=False),
-        _section("stable", 500, "Stable", cache_safe=True),
+        _section("stable_first", "Stable 1", cache_safe=True),
+        _section("volatile_mid", "Volatile", cache_safe=False),
+        _section("stable_last", "Stable 2", cache_safe=True),
     ]
     with pytest.raises(ValueError, match="cache_safe"):
         assemble_system_prompt(sections, _ctx())
@@ -202,7 +194,7 @@ def test_cache_safe_invariant_fails_when_volatile_has_equal_order_to_stable():
 
 def test_resolve_uses_override_when_provided():
     """Non-empty override bypasses section assembly entirely."""
-    sections = [_section("default", 10, "Section output")]
+    sections = [_section("default", "Section output")]
     ctx = _ctx()
     result = resolve_effective_prompt(
         sections=sections,
@@ -214,21 +206,21 @@ def test_resolve_uses_override_when_provided():
 
 
 def test_resolve_uses_section_assembly_when_no_override():
-    sections = [_section("s", 10, "Assembled output")]
+    sections = [_section("s", "Assembled output")]
     result = resolve_effective_prompt(sections=sections, ctx=_ctx(), override=None)
     assert result == "Assembled output"
 
 
 def test_resolve_uses_section_assembly_when_override_is_empty_string():
     """Empty string override is treated as absent; assembly runs."""
-    sections = [_section("s", 10, "Assembled")]
+    sections = [_section("s", "Assembled")]
     result = resolve_effective_prompt(sections=sections, ctx=_ctx(), override="")
     assert result == "Assembled"
 
 
 def test_resolve_uses_section_assembly_when_override_is_whitespace():
     """Whitespace-only override is treated as absent; assembly runs."""
-    sections = [_section("s", 10, "Assembled")]
+    sections = [_section("s", "Assembled")]
     result = resolve_effective_prompt(sections=sections, ctx=_ctx(), override="   ")
     assert result == "Assembled"
 
@@ -238,9 +230,9 @@ def test_resolve_override_covers_subagent_fork_path():
     Verify override beats any number of sections with any content.
     """
     sections = [
-        _section("pa.identity", 100, "PA Identity"),
-        _section("core.system", 200, "Core System"),
-        _section("pa.user_custom", 800, "Custom Instructions"),
+        _section("pa.identity", "PA Identity"),
+        _section("core.system", "Core System"),
+        _section("pa.user_custom", "Custom Instructions"),
     ]
     fork_prompt = "# Sub-Agent System Prompt\nYou are a specialized worker."
     result = resolve_effective_prompt(

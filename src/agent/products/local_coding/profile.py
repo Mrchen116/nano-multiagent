@@ -12,7 +12,7 @@ from .defaults import (
     WORKSPACE_CONFIG_DIRNAME,
 )
 from .hooks import DEFAULT_HOOK_MODULES
-from .prompt_sections import LC_SECTIONS
+from .prompt_sections import LC_SECTIONS, build_lc_system_prompt
 from .toolsets import DEFAULT_TOOL_IDS, OPTIONAL_TOOL_IDS
 
 LOCAL_CODING_PROFILE = ProductProfile(
@@ -21,6 +21,8 @@ LOCAL_CODING_PROFILE = ProductProfile(
     config_namespace=CONFIG_NAMESPACE,
     default_system_prompt="",  # empty string signals segment assembly; no monolithic f-string template
     prompt_sections=LC_SECTIONS,
+    # M4 Decision 15/20: explicit assembly function replaces CORE+LC merge in bootstrap.
+    prompt_sections_builder=build_lc_system_prompt,
     default_tool_ids=list(DEFAULT_TOOL_IDS),
     optional_tool_ids=list(OPTIONAL_TOOL_IDS),
     default_hook_modules=list(DEFAULT_HOOK_MODULES),

@@ -13,7 +13,7 @@ from .defaults import (
     WORKSPACE_CONFIG_DIRNAME,
 )
 from .hooks import DEFAULT_HOOK_MODULES
-from .prompt_sections import PA_SECTIONS
+from .prompt_sections import PA_SECTIONS, build_pa_system_prompt
 from .toolsets import DEFAULT_TOOL_IDS, OPTIONAL_TOOL_IDS
 
 PERSONAL_ASSISTANT_PROFILE = ProductProfile(
@@ -22,6 +22,8 @@ PERSONAL_ASSISTANT_PROFILE = ProductProfile(
     config_namespace=CONFIG_NAMESPACE,
     default_system_prompt="",  # empty string signals segment assembly; no monolithic f-string template
     prompt_sections=PA_SECTIONS,
+    # M4 Decision 15/20: explicit assembly function replaces CORE+PA merge in bootstrap.
+    prompt_sections_builder=build_pa_system_prompt,
     default_tool_ids=list(DEFAULT_TOOL_IDS),
     optional_tool_ids=list(OPTIONAL_TOOL_IDS),
     default_hook_modules=list(DEFAULT_HOOK_MODULES),

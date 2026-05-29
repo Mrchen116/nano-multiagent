@@ -22,7 +22,6 @@ from agent.core.agent.prompt_sections.base import PromptContext, PromptSection
 #   coding assistant…")
 _LC_IDENTITY = PromptSection(
     name="lc.identity",
-    order=100,
     render=lambda ctx: (
         "You are an expert coding assistant operating inside a coding agent harness. "
         "You help users by reading files, executing commands, editing code, and writing new files."
@@ -33,7 +32,6 @@ _LC_IDENTITY = PromptSection(
 # Provenance: new — migrated verbatim from Guidelines block in LOCAL_CODING_SYSTEM_PROMPT
 _LC_GUIDELINES = PromptSection(
     name="lc.guidelines",
-    order=330,
     render=lambda ctx: (
         "Guidelines:\n"
         "- Use bash for file operations like ls, rg, find\n"
@@ -52,7 +50,6 @@ _LC_GUIDELINES = PromptSection(
 #   LOCAL_CODING_SYSTEM_PROMPT; placed between available tools and guidelines.
 _LC_TOOLS_FOOTER = PromptSection(
     name="lc.tools_footer",
-    order=405,
     render=lambda ctx: (
         "In addition to the tools above, you may have access to other custom tools "
         "depending on the project."
@@ -70,3 +67,53 @@ LC_SECTIONS: tuple[PromptSection, ...] = (
     _LC_GUIDELINES,
     _LC_TOOLS_FOOTER,
 )
+
+
+# ---------------------------------------------------------------------------
+# M4 Decision 15: explicit assembly function (mirrors CC getSystemPrompt)
+# ---------------------------------------------------------------------------
+
+def build_lc_system_prompt() -> list[PromptSection]:
+    """Return the explicit, ordered list of segments for the Local Coding product.
+
+    Mirrors CC getSystemPrompt pattern: one function, linear list, explicit order.
+
+    Returns:
+        Ordered list of PromptSection objects for assembly by assemble_system_prompt.
+    """
+    from agent.core.agent.prompt_sections.core_sections import (  # noqa: PLC0415
+        CORE_SYSTEM,
+        CORE_ACTIONS_CARE,
+        CORE_TOOL_RULES,
+        CORE_TONE_STYLE,
+        CORE_SKILLS_LISTING,
+        CORE_MEMORY_GUIDANCE,
+        CORE_SKILLS_GUIDANCE,
+        CORE_BACKGROUND_TASKS,
+        CORE_RUNTIME_FOOTER,
+        CORE_MEMORY_BLOCK,
+        CORE_USER_PROFILE_BLOCK,
+    )
+    return [
+        # ── Stable prefix (cache_safe=True) ──────────────────────────────────
+        # Product identity
+        _LC_IDENTITY,
+        # Core behaviour rules (CC-aligned)
+        CORE_SYSTEM,
+        CORE_ACTIONS_CARE,
+        CORE_TOOL_RULES,
+        CORE_TONE_STYLE,
+        # Product-specific behaviour (tools footer before guidelines)
+        _LC_TOOLS_FOOTER,
+        _LC_GUIDELINES,
+        # Self-evolution guidance (gated by feature flags + tool presence)
+        CORE_SKILLS_LISTING,
+        CORE_MEMORY_GUIDANCE,
+        CORE_SKILLS_GUIDANCE,
+        # Background task framing + runtime mechanism
+        CORE_BACKGROUND_TASKS,
+        CORE_RUNTIME_FOOTER,
+        # ── Volatile tail (cache_safe=False) ─────────────────────────────────
+        CORE_MEMORY_BLOCK,          # MEMORY.md snapshot
+        CORE_USER_PROFILE_BLOCK,    # USER.md snapshot
+    ]
