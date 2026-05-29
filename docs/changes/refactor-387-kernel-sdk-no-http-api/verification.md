@@ -169,3 +169,119 @@ No critical issues. 2 warning(s) to consider. Ready for PR (with noted improveme
 
 - W1（build_kernel 签名偏差）：功能正确，建议在 PR description 中说明此处与 design.md 的意图偏差，或同步更新 design.md
 - W2（SDK 表面过宽）：是 orchestrator 标注疑点的结论——当前实现选择了「扩 SDK 表面 re-export 内部类」而不是「收敛 PA 的能力报告逻辑」，SDK 的「curated surface」属性受损，建议作为后续 unit 的改进项立 issue 追踪
+
+---
+
+# Round 3
+
+> Branch HEAD: 97df54a7 | 变更：sdk-fix-r3（Kernel.stream() 扁平 dict + ContextVar 修复）
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 继承 Round 1 结论（全部 tasks 完成） |
+| Correctness | sdk-fix-r3 三项变更全部正确实现；1 个 pre-existing warning 仍存在（非本修复引入） |
+| Coherence | 变更方向与 Round 1 W2 关切一致；Round 1 W1 已通过 design.md Changelog 记录 |
+
+No critical issues. 1 warning(s) to note (pre-existing). All checks passed. Ready for PR.
+
+---
+
+## Round 3 变更核查
+
+### 变更 1：`Kernel.stream()` 改为产出扁平 dict（`_stream_flat`）
+
+**实现**（`src/agent/sdk/kernel.py:345-389`）：
+
+- `stream()` 签名改为 `-> AsyncIterator[dict[str, Any]]`，通过 `return self._stream_flat(...)` 委托
+- `_stream_flat` 为 async generator，`async for ev in event_hub.stream_session(...)` 遍历 `StreamEvent`，将 `ev.data` 展开为顶层，并 `setdefault("event", ev.event)` / `setdefault("session_id", ...)` / `setdefault("sequence_num", ...)`
+- `StreamEvent` 不再出现在 SDK `__init__.py` 的 `__all__` 中，不泄漏到公开表面
+
+**评估**：
+
+- 消费方（`async for event in kernel.stream(...)`）可以直接 `event.get("run_id")`、`event.get("event")` 等，不需要知道 `StreamEvent` 的内部结构
+- 这比 Round 1 时 `stream()` 返回 `AsyncIterator[StreamEvent]`（内部类泄漏）更干净——直接响应了 W2「SDK curated surface」的关切方向
+- dict 展开逻辑：`flat = dict(ev.data); flat.setdefault("event", ev.event); ...`——当 `ev.data` 中已包含 `event` 字段时 setdefault 保留原值，不冲突；当不包含时从 `ev.event` 补全。语义正确
+
+**结论**：covered，正确
+
+### 变更 2：PA `_stream_event_to_dict` 局部补丁删除
+
+**实现**（`src/personal_assistant/gateway/inbound_pipeline.py:889-919`）：
+
+- `_KernelStreamAdapter.stream_session()` 直接 `async for event in self._kernel.stream(...): yield event`
+- `_stream_event_to_dict` helper 已删除，`_KernelStreamAdapter` 不再做任何 normalization
+- 上游真实 `Kernel.stream()` 已产出 flat dict，所以不需要补丁
+
+**评估**：正确。M3-fix-r2 的局部补丁（`_stream_event_to_dict`）是当时 `stream()` 返回 `StreamEvent` 的临时适配；现在 stream() 改为 dict 后，该补丁正确删除
+
+**结论**：covered，正确
+
+### 变更 3：`RunsRegistry.submit()` ContextVar 修复
+
+**实现**（`src/agent/core/runs/registry.py:168-177`）：
+
+```python
+ctx = contextvars.copy_context()
+self._async_loop.call_soon_threadsafe(
+    lambda: self._async_loop.create_task(coro, context=ctx)
+)
+```
+
+**设计正确性分析**：
+
+1. **线程安全**：`call_soon_threadsafe` 是 Python asyncio 文档中唯一推荐的跨线程安全调度原语（内部持有 lock），正确
+2. **Context 传播**：`copy_context()` 在 submit() 时（caller 线程）创建当前 Context 的快照；`create_task(coro, context=ctx)` 使 Task 在该快照 Context 里运行；`bind_correlation` 里 `_context.set(current)` 和 `_context.reset(token)` 都在同一 `ctx` 里执行，不会触发 `ValueError: token was created in a different Context`
+3. **原理验证**（本地测试）：`copy_context()` + `create_task(context=ctx)` 模式对所有 ContextVar（包括 `_span_stack`）均正确，在 ctx 内 set/reset 正常工作
+
+**测试覆盖**：
+
+- 2334 passed（Round 1 的 2332 + 2 个新测试），0 failed，0 xfail
+- `tests/contract/test_kernel_sdk_behavior_contract.py` 8 passed（含 `test_llm_config_reconfigure_updates_provider`）
+
+**残留 warning**：
+
+`test_llm_config_reconfigure_updates_provider` 仍触发 `PytestUnraisableExceptionWarning`，内容为 `_span_stack`（非 `_context`）ContextVar 的 token 错误。
+
+- 这个 warning 在 Round 1 测试中已存在（同一测试文件）
+- 触发路径：`hook observe dispatch` 内部的 `span()` 调用，不在 `_run_worker_async` 主路径上
+- 修复正确处理了 `bind_correlation`（`_context`）的问题；`_span_stack` 在 hook dispatch 路径的类似问题是 **pre-existing**，超出本修复范围
+- 功能测试全部通过（8/8 pass），warning 不影响正确性
+
+**结论**：ContextVar 修复本身正确；`_span_stack` warning 属 pre-existing，不阻 PR
+
+---
+
+## Round 1 未关闭项状态
+
+| 问题 | 本轮状态 |
+|---|---|
+| W1：`build_kernel` 签名与 design.md 不一致 | 已通过 design.md Changelog（第 9 行）记录，说明此为功能等价的有意简化，关闭 |
+| W2：SDK 表面含内部类 re-export | 维持 follow-up issue 建议不阻 PR；`StreamEvent` 不再在 SDK 表面（`stream()` 改为返回 `dict`），部分改善；`SkillRegistry`/`ConfigResolver`/`FEATURE_REGISTRY` 等 re-export 仍在，待后续 unit 处理 |
+| S1：M4-R3 tasks.md TODO 笔误 | 仍未修（非阻 PR 项） |
+| S2：遗留空目录/过时 docstring | 仍未修（非阻 PR 项） |
+
+---
+
+## Issues（Round 3 新增）
+
+### WARNING
+
+**W3（pre-existing）：`_span_stack` ContextVar 在 hook observe dispatch 路径仍有 token 错误 warning**
+
+- 文件：`src/agent/core/observability/tracing.py:145`（`span()` 的 `_span_stack.set/reset`）
+- 场景：`test_llm_config_reconfigure_updates_provider` 触发真实 run，hook observer 在不同 Context 里调用 `span()`，`_span_stack.reset(token)` 报 `ValueError`
+- 注意：此问题在 Round 1 已存在，不是 sdk-fix-r3 引入
+- 修复建议（不阻本 PR）：在 `_dispatch_observe_async`（`registry.py:408,469`）前也做 `copy_context()` 传播；或在 `span()` 的 finally 中捕获 `ValueError: token was created in a different Context` 并静默（若 hook dispatch 路径的 span 不是核心追踪路径）
+
+---
+
+## 结论（Round 3）
+
+All checks passed. Ready for PR.
+
+- Round 1 W1 已通过 design.md Changelog 关闭
+- Round 1 W2 部分改善（StreamEvent 不再泄漏），残余 SkillRegistry/ConfigResolver/FEATURE_REGISTRY re-export 待后续 unit
+- sdk-fix-r3 三项变更（stream 扁平化、PA 补丁删除、ContextVar 修复）均正确实现
+- W3 为 pre-existing warning，不阻 PR
