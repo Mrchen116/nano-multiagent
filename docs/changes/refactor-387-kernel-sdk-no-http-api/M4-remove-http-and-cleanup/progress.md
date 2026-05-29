@@ -21,7 +21,7 @@ contract 测试：2 个预期硬红（SPEC.md/docs 文档测试），111 绿，1
   - Visual/Interaction: N/A
 - Rollback: 回退到 e6f9802d（R1 C1）
 - Commits: C1=e6f9802d, C2=277f3965
-- Next: R2 — 删 coding_cli 死 HTTP 文件
+- Next: R2 (完成)
 
 ### R2 — 删 coding_cli 死 HTTP 文件及其专属测试
 
@@ -37,6 +37,31 @@ contract 测试：2 个预期硬红（SPEC.md/docs 文档测试），111 绿，1
   - Visual/Interaction: N/A
 - Rollback: 回退到 3ae670d6（R2 C1）
 - Commits: C1=3ae670d6, C2=1e4c9491
-- Next: R3 — 删 agent/platform/http_api/ 整目录
+- Next: R3→R4→R5 (均已完成)
+
+### R3 — 删 agent/platform/http_api/ 整目录
+
+- Context: 前置条件满足（R1 迁移 hub，R2 删 coding_cli 死文件）；无 src 残留 import。
+- Decision: `rm -rf src/agent/platform/http_api/`
+- Evidence: Tests: test_http_api_dir_removed.py 绿；contract 2066 绿
+- Commits: C1=4acede07, C2=80b1f29f
+- Next: R4
+
+### R4 — 平移 HTTP/ASGI contract 测试到 agent.sdk 表面
+
+- Context: 14 个 HTTP contract test 文件、大量 integration/e2e test 文件使用 create_app()。
+- Decision: 新建 test_kernel_sdk_behavior_contract.py（8 个 SDK 行为测试）；删除所有 HTTP contract/integration/e2e 测试文件（83 个文件）。
+- Rationale: HTTP 层已删，HTTP 专属测试无意义；SDK 层契约测试（M1 已建）已覆盖核心行为语义。
+- Evidence: Tests: 2066 绿（R4 后无新失败）
+- Commits: C1=8befea8a, C2=49fbe772
+- Next: R5
+
+### R5 — 文档收尾 + 去 xfail + 产品 import 迁 agent.sdk
+
+- Context: 2 个硬红测（SPEC.md/docs 文档）+ 1 个 xfail（#39）。PA 还有多个文件 import agent.core 内部。
+- Decision: 1) 更新测试断言为新边界原文；2) 清除 xfail，重写为硬断言；3) 扩充 agent.sdk 公共表面（16 个新导出）；4) 将 PA 三个文件改为 import agent.sdk；5) 更新 内核设计SPEC.md / CodingCLI-SPEC.md / test_multi_product_architecture_acceptance.py。
+- Evidence: Tests: 2071 passed, 0 failed, 0 xfail — 完全干净
+- Commits: C2=a33265e2
+- Next: 全部 DONE
 
 

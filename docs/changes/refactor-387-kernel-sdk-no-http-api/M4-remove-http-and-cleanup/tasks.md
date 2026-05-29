@@ -8,13 +8,13 @@
 
 ## 退出标准
 
-- [ ] `agent/platform/http_api/` 目录已删除，无任何 src 文件 import 它
-- [ ] `EventStreamHub` / `StreamEvent` / `SubscriberOverflowError` 已迁到 `agent/core/events/`
-- [ ] `coding_cli/{client,kernel_app,managed_server,session_stream}.py` 及其专属测试已删除
-- [ ] 全量 contract + unit + integration 全绿，零 failed，零 xfail 残留
-- [ ] `test_spec_declares_zero_import_acceptance_rules` 绿（SPEC.md 新边界原文）
-- [ ] `test_architecture_docs_describe_zero_residue_target_state` 绿（docs 清理完毕）
-- [ ] `test_top_level_packages_keep_zero_import_boundaries` 去 xfail 后绿（agent.sdk-only 边界）
+- [x] `agent/platform/http_api/` 目录已删除，无任何 src 文件 import 它
+- [x] `EventStreamHub` / `StreamEvent` / `SubscriberOverflowError` 已迁到 `agent/core/events/`
+- [x] `coding_cli/{client,kernel_app,managed_server,session_stream}.py` 及其专属测试已删除
+- [x] 全量 contract + unit + integration 全绿，零 failed，零 xfail 残留（2071 passed）
+- [x] `test_spec_declares_sdk_only_boundary_rules` 绿（SPEC.md 新边界原文）
+- [x] `test_architecture_docs_describe_zero_residue_target_state` 绿（docs 清理完毕）
+- [x] `test_top_level_packages_keep_zero_import_boundaries` 去 xfail 后绿（agent.sdk-only 边界，Closes #39）
 
 ## 测试策略
 
@@ -34,4 +34,4 @@
 | R2 | 删 coding_cli 死 HTTP 文件及其专属测试 | DONE |
 | R3 | 删 agent/platform/http_api/ 整目录 | TODO |
 | R4 | 平移 HTTP/ASGI contract 测试到 agent.sdk 表面（删旧文件） | DONE |
-| R5 | 修两个 M4 文档红测 + 去 xfail + 文档收尾 | TODO |
+| R5 | 修两个 M4 文档红测 + 去 xfail + 文档收尾 | DONE |
