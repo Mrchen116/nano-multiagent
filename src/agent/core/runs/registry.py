@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import threading
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -164,7 +165,16 @@ class RunsRegistry:
             run_id, session_id, normalized_parts, resolved_trace_id,
             workspace_root=workspace_root, origin=origin,
         )
-        asyncio.run_coroutine_threadsafe(coro, self._async_loop)
+        # Capture the caller's Context now (at submit() time) and pass it to the
+        # Task so that bind_correlation's ContextVar set/reset both happen inside
+        # the same copied Context.  Without this, ensure_future schedules the
+        # coroutine in the background thread's default Context, and
+        # _context.reset(token) raises "token was created in a different Context"
+        # (Issue #3, refactor-387 sdk-fix-r3).
+        ctx = contextvars.copy_context()
+        self._async_loop.call_soon_threadsafe(
+            lambda: self._async_loop.create_task(coro, context=ctx)
+        )
         return record
 
     def get_event_loop(self) -> asyncio.AbstractEventLoop | None:

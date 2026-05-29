@@ -139,24 +139,25 @@ async def test_cross_loop_streaming_receives_run_status_event(tmp_path: Path) ->
             workspace_root=tmp_path,
         )
 
-        # Collect events until run_status terminal or timeout
-        events: list = []
+        # Collect events until run_status terminal or timeout.
+        # Kernel.stream() yields flattened dicts — use .get() directly.
+        events: list[dict] = []
         deadline = asyncio.get_event_loop().time() + 3.0
         async for ev in kernel.stream(session.session_id, after_sequence=0):
             events.append(ev)
             # Stop when terminal run_status arrives
-            if ev.event == "run_status" and ev.data.get("status") in {"completed", "failed"}:
+            if ev.get("event") == "run_status" and ev.get("status") in {"completed", "failed"}:
                 break
             if asyncio.get_event_loop().time() > deadline:
                 break
 
-        event_names = {ev.event for ev in events}
+        event_names = {ev.get("event") for ev in events}
         assert "run_status" in event_names, (
             f"expected run_status event, got: {event_names}"
         )
         terminal = [
             ev for ev in events
-            if ev.event == "run_status" and ev.data.get("status") in {"completed", "failed"}
+            if ev.get("event") == "run_status" and ev.get("status") in {"completed", "failed"}
         ]
         assert terminal, f"no terminal run_status event, events: {event_names}"
     finally:

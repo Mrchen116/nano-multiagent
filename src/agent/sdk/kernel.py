@@ -32,7 +32,7 @@ from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.loader import build_hook_registry
 from agent.platform.hooks.session_events import set_session_event_publisher_factory
-from agent.core.events.hub import EventStreamHub, StreamEvent
+from agent.core.events.hub import EventStreamHub
 from agent.platform.llm.factory import create_llm_client as _platform_create_llm_client
 from agent.platform.permissions.broker import (
     PermissionBroker,
@@ -347,8 +347,13 @@ class Kernel:
         session_id: str,
         *,
         after_sequence: int = 0,
-    ) -> AsyncIterator[StreamEvent]:
-        """Return an async iterator of events for the given session.
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Return an async iterator of flattened event dicts for the given session.
+
+        Each dict has ``event`` (name), ``session_id``, ``sequence_num``, and the
+        payload fields from the event's ``data`` dict merged to the top level.
+        This is the public SDK stream contract — consumers call ``event.get("run_id")``
+        etc. directly, matching the SSE-decoded-dict shape used in the HTTP era.
 
         Yields events from history (after ``after_sequence``) then live events.
         Never closes on terminal run_status — caller must break the loop.
@@ -358,12 +363,30 @@ class Kernel:
             after_sequence: Replay history only after this sequence number.
 
         Returns:
-            AsyncIterator[StreamEvent] — persistent session stream.
+            AsyncIterator[dict] — flattened event dicts; no internal StreamEvent
+            dataclass is exposed on the public surface.
         """
-        return self._c.event_hub.stream_session(
+        return self._stream_flat(session_id=session_id, after_sequence=after_sequence)
+
+    async def _stream_flat(
+        self,
+        *,
+        session_id: str,
+        after_sequence: int,
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Wrap EventStreamHub.stream_session(), flattening StreamEvent → dict."""
+        async for ev in self._c.event_hub.stream_session(
             session_id=session_id,
             after_sequence=after_sequence,
-        )
+        ):
+            # Merge StreamEvent.data (the full payload) with top-level metadata fields
+            # so callers can do event.get("run_id"), event.get("event"), event.get("status")
+            # without knowing about the StreamEvent.data nesting.
+            flat: dict[str, Any] = dict(ev.data)
+            flat.setdefault("event", ev.event)
+            flat.setdefault("session_id", ev.session_id)
+            flat.setdefault("sequence_num", ev.sequence_num)
+            yield flat
 
     def interrupt(self, session_id: str) -> str | None:
         """Interrupt the active run for a session and cancel pending permissions.

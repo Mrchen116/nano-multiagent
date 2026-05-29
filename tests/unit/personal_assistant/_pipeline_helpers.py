@@ -7,21 +7,19 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 from unittest.mock import MagicMock
 
-from agent.core.events.hub import StreamEvent
 from personal_assistant.channels.base import OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 
 
-def _make_stream_event(data: dict[str, Any], *, seq: int = 1) -> StreamEvent:
-    """Wrap a dict payload into a StreamEvent so stream() output matches Kernel.stream()."""
-    return StreamEvent(
-        sequence_num=seq,
-        event_id=f"evt-{seq}",
-        event=str(data.get("event", "")),
-        session_id=str(data.get("session_id", "")),
-        created_at="2026-01-01T00:00:00Z",
-        data=dict(data),
-    )
+def _make_stream_event(data: dict[str, Any], *, seq: int = 1) -> dict[str, Any]:
+    """Build a flattened event dict matching the real Kernel.stream() contract.
+
+    Kernel.stream() now yields flattened dicts (sdk-fix-r3).  Test doubles
+    must produce the same shape so pipeline consumption works without patching.
+    """
+    flat = dict(data)
+    flat.setdefault("sequence_num", seq)
+    return flat
 
 
 class _FakeChannel:
@@ -321,8 +319,8 @@ class _FakeKernel:
 
     def stream(
         self, session_id: str, *, after_sequence: int = 0
-    ) -> AsyncIterator[StreamEvent]:
-        """Yield StreamEvent objects — matching the real Kernel.stream() contract."""
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Yield flattened event dicts — matching the real Kernel.stream() contract."""
         batches = self.session_events.get(session_id, [])
         run_id = self._last_run_id_by_session.get(session_id)
         run_states = self.run_states
@@ -334,7 +332,7 @@ class _FakeKernel:
             _seq[0] += 1
             return n
 
-        async def _gen() -> AsyncIterator[StreamEvent]:
+        async def _gen() -> AsyncIterator[dict[str, Any]]:
             for batch in _batches_copy:
                 for event in batch:
                     yield _make_stream_event(dict(event), seq=_next_seq())
@@ -381,11 +379,11 @@ class _FakeSseKernel(_FakeKernel):
 
     def stream(
         self, session_id: str, *, after_sequence: int = 0
-    ) -> AsyncIterator[StreamEvent]:
-        """Yield StreamEvent objects — matching the real Kernel.stream() contract."""
+    ) -> AsyncIterator[dict[str, Any]]:
+        """Yield flattened event dicts — matching the real Kernel.stream() contract."""
         preset = list(self._preset_events)
 
-        async def _gen() -> AsyncIterator[StreamEvent]:
+        async def _gen() -> AsyncIterator[dict[str, Any]]:
             for seq, event in enumerate(preset, start=1):
                 yield _make_stream_event(dict(event), seq=seq)
 

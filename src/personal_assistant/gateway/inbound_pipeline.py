@@ -655,13 +655,10 @@ class InboundPipeline:
         reply_text = ""
         run_state: Mapping[str, object] | None = None
 
-        async for _raw_event in self._kernel.stream(
+        async for event in self._kernel.stream(
             kernel_session_id, after_sequence=anchor_sequence or 0
         ):
-            # Kernel.stream() yields StreamEvent dataclass objects; normalize to dict so
-            # all downstream .get(...) accesses work (StreamEvent.data contains the full
-            # event payload including run_id, event name, content, status, etc.).
-            event: Mapping[str, object] = _stream_event_to_dict(_raw_event)
+            # Kernel.stream() yields flattened dicts (sdk-fix-r3); .get() works directly.
             if event.get("run_id") != run_id:
                 if on_other is not None:
                     result = on_other(event)
@@ -889,32 +886,6 @@ def _optional_stripped_text(value: object) -> str | None:
     return normalized or None
 
 
-def _stream_event_to_dict(event: object) -> dict[str, Any]:
-    """Normalize a Kernel stream event to a plain dict for pipeline consumption.
-
-    Kernel.stream() yields StreamEvent dataclass objects whose payload lives in
-    the `data` attribute.  Test doubles may yield plain dicts instead.  This
-    helper handles both so all downstream .get(...) accesses work uniformly.
-
-    Args:
-        event: StreamEvent dataclass or plain dict from a test double.
-
-    Returns:
-        The event payload as a mutable dict.
-    """
-    if hasattr(event, "data") and isinstance(event.data, dict):  # type: ignore[union-attr]
-        # Include sequence_num at top level so consumers can track replay position.
-        result = dict(event.data)  # type: ignore[union-attr]
-        seq = getattr(event, "sequence_num", None)
-        if seq is not None:
-            result.setdefault("sequence_num", seq)
-        return result
-    if isinstance(event, dict):
-        return event
-    # Unexpected type — raise loudly so we catch new event shapes early.
-    raise TypeError(f"unexpected stream event type: {type(event)!r}")
-
-
 class _KernelStreamAdapter:
     """Adapt Kernel.stream() to the stream_session(session_id, ...) interface.
 
@@ -922,6 +893,9 @@ class _KernelStreamAdapter:
     workspace_root) on its kernel_client.  In SDK mode, the session is already bound
     to a fixed session_id; this adapter forwards calls to Kernel.stream() ignoring
     the workspace_root parameter (not needed in-process).
+
+    Kernel.stream() now produces flattened dicts (refactor-387 sdk-fix-r3), so no
+    normalization is needed here — events are forwarded directly.
     """
 
     def __init__(self, kernel: "Kernel", session_id: str) -> None:
@@ -937,9 +911,9 @@ class _KernelStreamAdapter:
         **_kwargs: object,
     ):
         # last_event_id maps to after_sequence; workspace_root is ignored in-process.
-        # Normalize StreamEvent → dict so BackgroundSessionEventSubscriber receives dicts.
-        async for raw_event in self._kernel.stream(
+        # Kernel.stream() yields flattened dicts — forward directly.
+        async for event in self._kernel.stream(
             session_id or self._session_id,
             after_sequence=last_event_id or 0,
         ):
-            yield _stream_event_to_dict(raw_event)
+            yield event
