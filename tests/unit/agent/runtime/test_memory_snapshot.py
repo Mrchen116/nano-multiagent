@@ -58,24 +58,24 @@ def test_ensure_memory_snapshot_gate_memory_curation_off(tmp_path: Path) -> None
         "agent_features": {"memory_curation": False},
     }
     snapshot = runtime._ensure_memory_snapshot("sess-1", metadata)
-    assert snapshot["memory_block"] is None
-    assert snapshot["user_profile_block"] is None
+    assert snapshot["memory_content"] is None
+    assert snapshot["user_profile_content"] is None
 
 
 def test_ensure_memory_snapshot_no_workspace_root(tmp_path: Path) -> None:
     runtime = _make_minimal_runtime(tmp_path)
     metadata = {"workspace_config_dirname": ".nanoassistant"}
     snapshot = runtime._ensure_memory_snapshot("sess-2", metadata)
-    assert snapshot["memory_block"] is None
-    assert snapshot["user_profile_block"] is None
+    assert snapshot["memory_content"] is None
+    assert snapshot["user_profile_content"] is None
 
 
 def test_ensure_memory_snapshot_no_dirname(tmp_path: Path) -> None:
     runtime = _make_minimal_runtime(tmp_path)
     metadata = {"workspace_root": str(tmp_path)}
     snapshot = runtime._ensure_memory_snapshot("sess-3", metadata)
-    assert snapshot["memory_block"] is None
-    assert snapshot["user_profile_block"] is None
+    assert snapshot["memory_content"] is None
+    assert snapshot["user_profile_content"] is None
 
 
 def test_ensure_memory_snapshot_cache_hit(tmp_path: Path) -> None:
@@ -98,7 +98,7 @@ def test_ensure_memory_snapshot_cache_hit(tmp_path: Path) -> None:
 
 def test_invalidate_memory_snapshot_clears_cache(tmp_path: Path) -> None:
     runtime = _make_minimal_runtime(tmp_path)
-    runtime._memory_snapshots["sess-5"] = {"memory_block": "old", "user_profile_block": None}
+    runtime._memory_snapshots["sess-5"] = {"memory_content": "old", "memory_pct": 0, "user_profile_content": None, "user_pct": 0}
     runtime._invalidate_memory_snapshot("sess-5")
     assert "sess-5" not in runtime._memory_snapshots
 
@@ -127,6 +127,6 @@ def test_ensure_memory_snapshot_reads_memory_files(tmp_path: Path) -> None:
         "workspace_config_dirname": ".nanoassistant",
     }
     snapshot = runtime._ensure_memory_snapshot("sess-6", metadata)
-    # memory_block should contain the rendered content
-    assert snapshot["memory_block"] is not None
-    assert "venv" in snapshot["memory_block"]
+    # memory_content should contain the rendered content (M4: pure content, no banner)
+    assert snapshot["memory_content"] is not None
+    assert "venv" in snapshot["memory_content"]

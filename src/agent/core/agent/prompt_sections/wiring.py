@@ -31,10 +31,15 @@ def build_prompt_context_from_metadata(
     available_skills: Sequence,
     current_datetime: str,
     cwd: str,
-    memory_block: str | None,
+    memory_block: str | None = None,
     user_profile_block: str | None = None,
+    memory_content: str | None = None,
+    memory_pct: int = 0,
+    user_profile_content: str | None = None,
+    user_pct: int = 0,
     flags: Mapping[str, bool],
     vars: Mapping[str, str] | None = None,
+    render_mode: "object | None" = None,
 ) -> PromptContext:
     """Build a frozen PromptContext from a runtime metadata dict.
 
@@ -43,20 +48,36 @@ def build_prompt_context_from_metadata(
     and packages them into PromptContext.scenario so segment render functions
     can read them without knowing the raw metadata schema.
 
+    M4 Decision 17/18: prefers memory_content / user_profile_content over the
+    deprecated memory_block / user_profile_block pre-rendered strings. Callers
+    on the new path pass memory_content + memory_pct; legacy callers still pass
+    memory_block (backwards compat).
+
     Args:
         metadata: Hook metadata dict from runtime._run_locked (or session config).
         available_tools: Active ToolSpec tuple for this turn.
         available_skills: Active SkillMetadata tuple for this turn.
         current_datetime: Session-created-at ISO string.
         cwd: Current working directory string.
-        memory_block: Pre-rendered MemoryStore snapshot or None.
-        user_profile_block: Pre-rendered USER.md snapshot or None (volatile; injected into cache_safe=False segment).
+        memory_content: Pure MEMORY.md content (no banner) — M4 preferred path.
+        memory_pct: Usage percentage for MEMORY banner display.
+        user_profile_content: Pure USER.md content (no banner) — M4 preferred path.
+        user_pct: Usage percentage for USER PROFILE banner display.
+        memory_block: Deprecated. Pre-rendered snapshot (banner + content). Kept
+            for backwards compat; core segments fall back to this when memory_content
+            is absent.
+        user_profile_block: Deprecated. Same as memory_block but for user profile.
         flags: Per-agent feature flags (key → bool).
         vars: Freeform string vars (e.g. "custom_prompt").
+        render_mode: RenderMode enum value; defaults to RenderMode.RUNTIME when None.
 
     Returns:
         Immutable PromptContext ready for assemble_system_prompt.
     """
+    from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+
+    resolved_render_mode = render_mode if render_mode is not None else RenderMode.RUNTIME
+
     # Extract scenario fields; only include keys that are actually present so
     # segments can distinguish "key absent" from "key = None".
     scenario: dict[str, Any] = {}
@@ -72,6 +93,11 @@ def build_prompt_context_from_metadata(
         available_skills=tuple(available_skills),
         current_datetime=current_datetime,
         cwd=cwd,
+        memory_content=memory_content,
+        memory_pct=memory_pct,
+        user_profile_content=user_profile_content,
+        user_pct=user_pct,
+        render_mode=resolved_render_mode,  # type: ignore[arg-type]
         memory_block=memory_block,
         user_profile_block=user_profile_block,
         flags=dict(flags),

@@ -322,10 +322,9 @@ def prompt_preview(
     Returns:
         PromptPreviewResponse with the assembled prompt and section count.
     """
-    import dataclasses  # noqa: PLC0415
     from pathlib import Path  # noqa: PLC0415
 
-    from agent.core.agent.prompt_sections.base import PromptSection  # noqa: PLC0415
+    from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
     from agent.core.skills.discovery import resolve_available_skills  # noqa: PLC0415
 
     # Use real tool objects from registry; silently skip ids not registered
@@ -352,56 +351,25 @@ def prompt_preview(
     # cwd is known when workspace_root is provided; otherwise show placeholder.
     cwd = payload.workspace_root if payload.workspace_root else "<运行时注入：workspace 路径>"
 
+    # M4 Decision 19: preview uses render_mode=PREVIEW so volatile segments render
+    # their banner + '运行时注入' placeholder via core segment logic — no platform hack
+    # needed.  The former _make_volatile_placeholder_section is deleted; core segments
+    # handle all three states (PREVIEW / RUNTIME+data / RUNTIME+no-data) internally.
     ctx = PromptContext(
         available_tools=available_tools,
         available_skills=available_skills,
         current_datetime=current_datetime,
         cwd=cwd,
-        # memory_block / user_profile_block left as None in ctx — volatile sections
-        # are replaced with inline-placeholder sections below (not filled with real data).
+        # memory_content / user_profile_content left as None — segments use
+        # render_mode=PREVIEW to generate banner + inline placeholder.
+        render_mode=RenderMode.PREVIEW,
         flags=payload.features,
         scenario={"conversation_type": payload.scenario},
         vars={"custom_prompt": payload.custom_prompt} if payload.custom_prompt else {},
     )
 
-    # Build the full section list: stable sections unchanged, volatile sections
-    # replaced by always-enabled inline-placeholder sections that render descriptive
-    # '运行时注入' text at their original order position.
-    # This lets assemble_system_prompt produce a complete prompt shape where the user
-    # can see every section (stable and volatile) in the natural order.
-    def _make_volatile_placeholder_section(sec: PromptSection) -> PromptSection:
-        """Return a preview-only section that renders an inline 运行时注入 placeholder.
-
-        The placeholder text describes what the runtime will inject at this position,
-        using user-readable names (not internal identifiers like 'core.memory_block').
-        Patterned after the datetime placeholder approach — show the field exists and
-        what it will contain, without exposing actual runtime data.
-        """
-        # Human-readable description of what runtime injects at each known volatile position.
-        sec_name = getattr(sec, "name", "")
-        _readable: dict[str, str] = {
-            "core.memory_block": "agent 的 MEMORY.md 内容",
-            "core.user_profile_block": "USER.md 用户画像",
-            "pa.communication_context": "当前会话通信上下文（群聊参与者列表等）",
-        }
-        description = _readable.get(sec_name, sec_name)
-        placeholder_text = f"<运行时注入：{description}>"
-
-        return dataclasses.replace(
-            sec,
-            render=lambda _ctx, _text=placeholder_text: _text,
-            enabled_when=lambda _ctx: True,
-        )
-
-    preview_sections: list[PromptSection] = []
-    stable_count = 0
-    for sec in sections:
-        if getattr(sec, "cache_safe", True):
-            preview_sections.append(sec)
-            stable_count += 1
-        else:
-            # Volatile section → inline placeholder at original order position.
-            preview_sections.append(_make_volatile_placeholder_section(sec))
-
-    assembled = assemble_system_prompt(preview_sections, ctx)
+    # Count stable sections for the response; all sections pass through unchanged —
+    # volatile segments render their own placeholder via render_mode (Decision 19).
+    stable_count = sum(1 for sec in sections if getattr(sec, "cache_safe", True))
+    assembled = assemble_system_prompt(sections, ctx)
     return PromptPreviewResponse(prompt=assembled, section_count=stable_count)

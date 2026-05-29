@@ -72,17 +72,15 @@ def test_prompt_preview_with_sections_returns_assembled_text() -> None:
 
 
 def test_prompt_preview_volatile_sections_appear_as_inline_placeholders() -> None:
-    """Volatile sections appear as inline placeholders at their order position, not excluded.
+    """core.memory_block volatile segment appears as inline placeholder in preview.
 
-    feat-385-M3-fix-r2 P1: volatile (cache_safe=False) sections must be rendered as
-    inline '运行时注入' placeholders in the assembled preview prompt, positioned at their
-    natural order location — not stripped out entirely.
+    M4 Decision 19/21: volatile segments that implement 3-state render (memory_block,
+    user_profile_block) render as banner + '<运行时注入:…>' placeholder in PREVIEW mode.
+    This tests the real CORE_MEMORY_BLOCK segment (not a generic placeholder).
     """
-    sections = [
-        _make_section("core.stable", "Stable text.", cache_safe=True),
-        # cache_safe=False segment must have order > stable to avoid cache_safe violation
-        _make_section("core.volatile", "Volatile turn data.", cache_safe=False),
-    ]
+    from agent.core.agent.prompt_sections.core_sections import CORE_SYSTEM, CORE_MEMORY_BLOCK
+
+    sections = [CORE_SYSTEM, CORE_MEMORY_BLOCK]
     app = create_app()
     app.state.prompt_sections = sections
     with TestClient(app) as client:
@@ -93,12 +91,14 @@ def test_prompt_preview_volatile_sections_appear_as_inline_placeholders() -> Non
         )
     assert response.status_code == 200
     body = response.json()
-    assert "Stable text." in body["prompt"]
-    # Volatile section's raw render text must not appear; instead an inline placeholder.
-    assert "Volatile turn data." not in body["prompt"]
-    # An inline 运行时注入 placeholder must appear in the volatile position.
+    # Stable section appears
+    assert "# System" in body["prompt"]
+    # memory_block shows inline '运行时注入' placeholder (not empty, not actual memory)
     assert "运行时注入" in body["prompt"]
-    # section_count reflects only cache_safe=True sections (stable count unchanged).
+    assert "MEMORY (your personal notes)" in body["prompt"], (
+        "memory_block must show banner title in preview"
+    )
+    # section_count: stable=1 (core.system), volatile not counted
     assert body["section_count"] == 1
 
 
@@ -402,21 +402,17 @@ def test_prompt_preview_silently_skips_unregistered_tool_ids() -> None:
 
 
 def test_prompt_preview_volatile_section_inline_placeholder_in_position() -> None:
-    """Volatile segments must appear as inline placeholders at their original order position.
+    """memory_block and user_profile_block segments render banner + placeholder in PREVIEW.
 
-    Req-4 (feat-385-M3-fix-r2): volatile sections (cache_safe=False, e.g. memory_block /
-    user_profile_block) must render as readable inline placeholders in the assembled prompt
-    at their correct position — not be stripped out and appended as a footer block.
-
-    The prompt should read as a complete document; volatile positions show what runtime
-    will inject rather than being absent.
+    M4 Decision 19/21: volatile segments with 3-state render show complete banner
+    + '<运行时注入:…>' placeholder at their correct list position (not stripped, not footer).
     """
-    stable_section = _make_section("core.identity", "You are a helpful assistant.", cache_safe=True)
-    # Volatile section must have order > all cache_safe=True sections (assembler constraint).
-    volatile_section = _make_section("core.memory_block", "MEMORY CONTENT", cache_safe=False)
+    from agent.core.agent.prompt_sections.core_sections import (
+        CORE_SYSTEM, CORE_MEMORY_BLOCK, CORE_USER_PROFILE_BLOCK,
+    )
 
     app = create_app()
-    app.state.prompt_sections = [stable_section, volatile_section]
+    app.state.prompt_sections = [CORE_SYSTEM, CORE_MEMORY_BLOCK, CORE_USER_PROFILE_BLOCK]
     with TestClient(app) as client:
         response = client.post(
             "/v1/prompt-preview",
@@ -427,19 +423,19 @@ def test_prompt_preview_volatile_section_inline_placeholder_in_position() -> Non
     assert response.status_code == 200
     prompt = response.json()["prompt"]
 
-    # The volatile section must appear as an inline placeholder (not absent).
-    # The placeholder text signals "运行时注入" so users know this will be filled.
+    # memory_block appears as inline placeholder at its list position
+    assert "MEMORY (your personal notes)" in prompt, (
+        "memory_block must show banner title as inline placeholder"
+    )
     assert "运行时注入" in prompt, (
-        "volatile section must produce an inline '运行时注入' placeholder in the assembled prompt"
+        "volatile segment must produce inline '运行时注入' placeholder"
     )
 
-    # Must NOT fall back to the M2 footer-stacking pattern (append at end as a block).
-    assert "---" not in prompt or prompt.index("运行时注入") < len(prompt) - 100, (
-        "placeholder must appear inline (in section position), not only at the bottom of the prompt"
-    )
+    # Stable section still appears
+    assert "# System" in prompt
 
-    # The stable section must still appear (inline placeholder doesn't break stable content).
-    assert "You are a helpful assistant." in prompt
+    # No M2-style footer stacking
+    assert "以上预览不包含 volatile 段" not in prompt
 
 
 def test_prompt_preview_no_footer_stacking_block() -> None:

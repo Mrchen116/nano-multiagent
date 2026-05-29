@@ -28,7 +28,8 @@ _WHITELIST: frozenset[str] = frozenset({
     # bootstrap.py: JsonlSessionStore fallback dirname — platform default, not product-specific
     "src/agent/platform/bootstrap.py:133",
     # runtime.py: tool-results dir uses .nano — platform default dir, not per-workspace
-    "src/agent/core/agent/runtime.py:131",
+    # Line shifted from 131 to 136 after M4 MemorySnapshot TypedDict expansion
+    "src/agent/core/agent/runtime.py:136",
     # skills/discovery.py: .nano skill search root — platform default, pre-185
     "src/agent/core/skills/discovery.py:45",
     # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode

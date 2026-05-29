@@ -60,45 +60,39 @@ def _build_store_with_entries(
 # ---------------------------------------------------------------------------
 
 class TestMemoryStoreBannerFormat:
-    """验证 MemoryStore._render_block 产出的 banner 格式，作为 M4 迁移基线。
+    """M4 Decision 17: MemoryStore.format_for_prompt 返回纯内容（无 banner）。
 
-    M4 后 banner 生成移进 core 段；格式必须与这里相同（逐字节一致）。
+    Banner 已移进 core 段 render；这个类验证：
+    1. format_for_prompt 只返回内容（无 ══ 分隔线）
+    2. Banner 格式在 core 段 render 里正确生成（在 TestRuntimeAssemblyBannerGolden 中验证）
     """
 
-    def test_memory_banner_separator_chars(self):
-        """banner 使用 46 个 ═ 字符作为分隔线。"""
+    def test_memory_store_returns_pure_content_no_banner(self):
+        """M4 Decision 17: format_for_prompt 不包含 banner 分隔线。"""
         store, tmp = _build_store_with_entries(memory_entries=["some fact"])
-        block = store.format_for_prompt("memory")
-        assert block is not None
+        content = store.format_for_prompt("memory")
+        assert content is not None
         sep = "═" * 46
-        assert block.startswith(sep), f"Expected banner to start with 46 ═ chars, got: {block[:60]!r}"
+        assert sep not in content, (
+            "M4: format_for_prompt must return pure content without banner separators"
+        )
+        assert "MEMORY (your personal notes)" not in content, (
+            "M4: format_for_prompt must return pure content without banner title"
+        )
 
-    def test_memory_banner_title_line(self):
-        """memory banner 标题行: 'MEMORY (your personal notes) [pct]'。"""
+    def test_memory_content_present(self):
+        """format_for_prompt 仍然返回 entry 内容。"""
         store, tmp = _build_store_with_entries(memory_entries=["fact1", "fact2"])
-        block = store.format_for_prompt("memory")
-        assert block is not None
-        assert "MEMORY (your personal notes)" in block
+        content = store.format_for_prompt("memory")
+        assert content is not None
+        assert "fact1" in content
 
-    def test_memory_banner_structure(self):
-        """banner 结构: sep\\ntitle [pct]\\nsep\\ncontent。"""
-        store, tmp = _build_store_with_entries(memory_entries=["test entry"])
-        block = store.format_for_prompt("memory")
-        assert block is not None
-        sep = "═" * 46
-        lines = block.split("\n")
-        assert lines[0] == sep
-        assert lines[1].startswith("MEMORY (your personal notes)")
-        assert lines[2] == sep
-        # Content follows
-        assert "test entry" in block
-
-    def test_user_profile_banner_title_line(self):
-        """user banner 标题行: 'USER PROFILE (who the user is) [pct]'。"""
+    def test_user_profile_returns_pure_content_no_banner(self):
+        """M4: USER profile 也是纯内容，无 banner。"""
         store, tmp = _build_store_with_entries(user_entries=["Alice is a developer"])
-        block = store.format_for_prompt("user")
-        assert block is not None
-        assert "USER PROFILE (who the user is)" in block
+        content = store.format_for_prompt("user")
+        assert content is not None
+        assert "USER PROFILE (who the user is)" not in content
 
     def test_empty_store_returns_none(self):
         """空 store 返回 None（feat-385 I1 fix）。"""
@@ -106,14 +100,37 @@ class TestMemoryStoreBannerFormat:
         assert store.format_for_prompt("memory") is None
         assert store.format_for_prompt("user") is None
 
-    def test_banner_pct_format(self):
-        """banner 标题含 '[N%' 格式的百分比。"""
+    def test_format_pct_returns_usage_percentage(self):
+        """format_pct_for_prompt 返回 0–100 的整数百分比（供 core 段 banner 用）。"""
         store, tmp = _build_store_with_entries(memory_entries=["some fact"])
-        block = store.format_for_prompt("memory")
-        assert block is not None
-        # Should contain pct like [3% — 40/2,200 chars] or similar
-        assert "%" in block
-        assert "chars]" in block
+        # Load snapshot first
+        store.format_for_prompt("memory")
+        pct = store.format_pct_for_prompt("memory")
+        assert isinstance(pct, int)
+        assert 0 <= pct <= 100
+
+    def test_banner_in_assembled_prompt_via_core_segment(self):
+        """M4: banner 由 core 段 render 生成，出现在最终汇编输出中。"""
+        from agent.core.agent.prompt_sections.base import RenderMode
+        store, tmp = _build_store_with_entries(memory_entries=["User prefers Python 3.12"])
+        content = store.format_for_prompt("memory")
+        pct = store.format_pct_for_prompt("memory")
+        assert content is not None
+
+        ctx = PromptContext(
+            available_tools=BASIC_PA_TOOLS,
+            current_datetime="2026-01-01T00:00:00",
+            cwd="/workspace",
+            memory_content=content,
+            memory_pct=pct,
+            render_mode=RenderMode.RUNTIME,
+            flags={"memory_curation": True},
+        )
+        result = assemble_system_prompt(list(CORE_SECTIONS), ctx)
+        # Banner must appear in final assembled output
+        assert "MEMORY (your personal notes)" in result
+        assert "═" * 46 in result
+        assert "User prefers Python 3.12" in result
 
 
 # ---------------------------------------------------------------------------

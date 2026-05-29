@@ -321,16 +321,86 @@ CORE_RUNTIME_FOOTER = PromptSection(
 _CORE_RUNTIME_FOOTER = CORE_RUNTIME_FOOTER
 
 
+# ---------------------------------------------------------------------------
+# Banner helper (shared by memory_block and user_profile_block segments)
+# ---------------------------------------------------------------------------
+
+_BANNER_SEP = "═" * 46  # 46 ═ chars — matches hermes and M4 golden baseline
+
+
+def _render_banner_block(
+    *,
+    title: str,
+    pct: int,
+    char_limit: int,
+    char_count: int,
+    content: str,
+) -> str:
+    """Render a full banner block (separator + title + separator + content).
+
+    This is the authoritative banner format; both RUNTIME and PREVIEW paths call
+    this helper so banner bytes are identical for stable parts (Decision 21 / M4).
+    The only difference is the 'content' argument: real content vs. placeholder.
+    """
+    header = f"{title} [{pct}% — {char_count:,}/{char_limit:,} chars]"
+    return f"{_BANNER_SEP}\n{header}\n{_BANNER_SEP}\n{content}"
+
+
+# ---------------------------------------------------------------------------
+# core.memory_block: three-state render (Decision 21 / M4)
+# ---------------------------------------------------------------------------
+
+_MEMORY_CHAR_LIMIT = 2200  # Matches MemoryStore default; used for pct display
+
+
 def _memory_block_enabled(ctx: PromptContext) -> bool:
-    return bool(ctx.memory_block)
+    """Active when memory_content (M4 new) or memory_block (legacy) has content,
+    or when render_mode is PREVIEW (always show placeholder in preview)."""
+    from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+    if ctx.render_mode == RenderMode.PREVIEW:
+        return True  # Preview always shows the segment (with placeholder)
+    return bool(ctx.memory_content) or bool(ctx.memory_block)
 
 
 def _render_memory_block(ctx: PromptContext) -> str | None:
-    return ctx.memory_block  # Pre-rendered by MemoryStore; injected verbatim.
+    """Three-state render for core.memory_block (Decision 21 / M4):
+
+    PREVIEW:                  → banner (with '…' pct) + '运行时注入' placeholder
+    RUNTIME + memory_content: → banner (with real pct) + real content
+    RUNTIME + no content:     → None (segment deactivated, no empty banner)
+    """
+    from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+
+    if ctx.render_mode == RenderMode.PREVIEW:
+        # Preview: show banner shape + placeholder — user sees the slot exists
+        placeholder_content = "<运行时注入：MEMORY.md 条目>"
+        return _render_banner_block(
+            title="MEMORY (your personal notes)",
+            pct=0,
+            char_limit=_MEMORY_CHAR_LIMIT,
+            char_count=0,
+            content=placeholder_content,
+        )
+
+    # RUNTIME path — use new memory_content field (M4), fallback to legacy memory_block
+    content = ctx.memory_content or ctx.memory_block
+    if not content:
+        return None  # No memory data — segment deactivated (feat-385 I1)
+
+    pct = ctx.memory_pct
+    char_count = len(content)
+    return _render_banner_block(
+        title="MEMORY (your personal notes)",
+        pct=pct,
+        char_limit=_MEMORY_CHAR_LIMIT,
+        char_count=char_count,
+        content=content,
+    )
 
 
 # Provenance: new — migrated from memory_block kwarg in build_system_prompt (prompts.py);
-#   volatile (changes turn-to-turn) → cache_safe=False
+#   M4 Decision 17/21: banner moved from MemoryStore into this segment's render.
+#   Volatile (changes turn-to-turn) → cache_safe=False
 CORE_MEMORY_BLOCK = PromptSection(
     name="core.memory_block",
     render=_render_memory_block,
@@ -340,16 +410,53 @@ CORE_MEMORY_BLOCK = PromptSection(
 _CORE_MEMORY_BLOCK = CORE_MEMORY_BLOCK
 
 
+# ---------------------------------------------------------------------------
+# core.user_profile_block: three-state render (Decision 21 / M4)
+# ---------------------------------------------------------------------------
+
+_USER_CHAR_LIMIT = 1375  # Matches MemoryStore default; used for pct display
+
+
 def _user_profile_block_enabled(ctx: PromptContext) -> bool:
-    return bool(ctx.user_profile_block)
+    """Active when user_profile_content (M4 new) or user_profile_block (legacy) has content,
+    or when render_mode is PREVIEW."""
+    from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+    if ctx.render_mode == RenderMode.PREVIEW:
+        return True  # Preview always shows the segment
+    return bool(ctx.user_profile_content) or bool(ctx.user_profile_block)
 
 
 def _render_user_profile_block(ctx: PromptContext) -> str | None:
-    return ctx.user_profile_block  # Pre-rendered by MemoryStore; injected verbatim.
+    """Three-state render for core.user_profile_block (Decision 21 / M4)."""
+    from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+
+    if ctx.render_mode == RenderMode.PREVIEW:
+        placeholder_content = "<运行时注入：USER.md 用户画像条目>"
+        return _render_banner_block(
+            title="USER PROFILE (who the user is)",
+            pct=0,
+            char_limit=_USER_CHAR_LIMIT,
+            char_count=0,
+            content=placeholder_content,
+        )
+
+    content = ctx.user_profile_content or ctx.user_profile_block
+    if not content:
+        return None  # No user profile data — segment deactivated
+
+    pct = ctx.user_pct
+    char_count = len(content)
+    return _render_banner_block(
+        title="USER PROFILE (who the user is)",
+        pct=pct,
+        char_limit=_USER_CHAR_LIMIT,
+        char_count=char_count,
+        content=content,
+    )
 
 
-# Provenance: new — hermes-adapted from agent/system_prompt.py:236-245
-#   (MemoryStore.format_for_system_prompt + USER.md branch).
+# Provenance: new — hermes-adapted from agent/system_prompt.py:236-245;
+#   M4 Decision 17/21: banner moved from MemoryStore into this segment's render.
 #   Volatile (changes turn-to-turn) → cache_safe=False, after CORE_MEMORY_BLOCK
 CORE_USER_PROFILE_BLOCK = PromptSection(
     name="core.user_profile_block",

@@ -53,9 +53,14 @@ class MemorySnapshot(TypedDict):
     stable prefix in the system prompt does not change between turns (which
     would bust provider prefix-cache hits).  Invalidated on compaction so
     the next turn re-reads updated memory from disk.
+
+    M4 Decision 17: memory_content / user_profile_content hold pure data (no banner);
+    memory_pct / user_pct hold usage percentages for banner rendering by core segments.
     """
-    memory_block: "str | None"
-    user_profile_block: "str | None"
+    memory_content: "str | None"
+    memory_pct: int
+    user_profile_content: "str | None"
+    user_pct: int
 
 if TYPE_CHECKING:
     from agent.core.hooks.registry import HookRegistry
@@ -348,14 +353,18 @@ class AgentRuntime:
             active_tools_for_prompt = session_available_tools or ()
             flags = resolve_flags_from_metadata(metadata=hook_metadata)
             cwd_str = str(session_workspace_root) if session_workspace_root else str(self._repo_root)
+            from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
             ctx = build_prompt_context_from_metadata(
                 metadata=hook_metadata,
                 available_tools=list(active_tools_for_prompt),
                 available_skills=list(session_available_skills),
                 current_datetime=session_created_at,
                 cwd=cwd_str,
-                memory_block=snapshot["memory_block"],
-                user_profile_block=snapshot["user_profile_block"],
+                memory_content=snapshot["memory_content"],
+                memory_pct=snapshot["memory_pct"],
+                user_profile_content=snapshot["user_profile_content"],
+                user_pct=snapshot["user_pct"],
+                render_mode=RenderMode.RUNTIME,
                 flags=flags,
                 vars={"custom_prompt": str(hook_metadata.get("custom_prompt", ""))},
             )
@@ -1263,24 +1272,34 @@ class AgentRuntime:
 
         flags = resolve_flags_from_metadata(metadata=metadata)
         if not flags.get("memory_curation", True):
-            snapshot: MemorySnapshot = {"memory_block": None, "user_profile_block": None}
+            snapshot: MemorySnapshot = {
+                "memory_content": None, "memory_pct": 0,
+                "user_profile_content": None, "user_pct": 0,
+            }
             self._memory_snapshots[session_id] = snapshot
             return snapshot
 
         workspace_root_raw = metadata.get("workspace_root")
         dirname = metadata.get("workspace_config_dirname")
         if not workspace_root_raw or not dirname:
-            snapshot = {"memory_block": None, "user_profile_block": None}
+            snapshot = {
+                "memory_content": None, "memory_pct": 0,
+                "user_profile_content": None, "user_pct": 0,
+            }
             self._memory_snapshots[session_id] = snapshot
             return snapshot
 
         memory_root = derive_memory_root(Path(str(workspace_root_raw)), str(dirname))
         store = MemoryStore(memory_root=memory_root)
-        memory_block = store.format_for_prompt("memory")
-        user_block = store.format_for_prompt("user")
+        memory_content = store.format_for_prompt("memory")
+        memory_pct = store.format_pct_for_prompt("memory") if memory_content else 0
+        user_content = store.format_for_prompt("user")
+        user_pct = store.format_pct_for_prompt("user") if user_content else 0
         snapshot = {
-            "memory_block": memory_block or None,
-            "user_profile_block": user_block or None,
+            "memory_content": memory_content or None,
+            "memory_pct": memory_pct,
+            "user_profile_content": user_content or None,
+            "user_pct": user_pct,
         }
         self._memory_snapshots[session_id] = snapshot
         return snapshot
