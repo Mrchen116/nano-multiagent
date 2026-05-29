@@ -388,3 +388,125 @@ def test_prompt_preview_silently_skips_unregistered_tool_ids() -> None:
     assert "ghost_tool_that_does_not_exist" not in tool_names, (
         "unregistered tool id must be silently skipped"
     )
+
+
+# ---------------------------------------------------------------------------
+# feat-385-M3-fix-r2 P1: volatile 段就地内联占位符 (Req-4 用户验收修正)
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_preview_volatile_section_inline_placeholder_in_position() -> None:
+    """Volatile segments must appear as inline placeholders at their original order position.
+
+    Req-4 (feat-385-M3-fix-r2): volatile sections (cache_safe=False, e.g. memory_block /
+    user_profile_block) must render as readable inline placeholders in the assembled prompt
+    at their correct position — not be stripped out and appended as a footer block.
+
+    The prompt should read as a complete document; volatile positions show what runtime
+    will inject rather than being absent.
+    """
+    stable_section = _make_section("core.identity", 100, "You are a helpful assistant.", cache_safe=True)
+    # Volatile section must have order > all cache_safe=True sections (assembler constraint).
+    volatile_section = _make_section("core.memory_block", 950, "MEMORY CONTENT", cache_safe=False)
+
+    app = create_app()
+    app.state.prompt_sections = [stable_section, volatile_section]
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {}, "tool_ids": [], "scenario": "direct"},
+        )
+
+    assert response.status_code == 200
+    prompt = response.json()["prompt"]
+
+    # The volatile section must appear as an inline placeholder (not absent).
+    # The placeholder text signals "运行时注入" so users know this will be filled.
+    assert "运行时注入" in prompt, (
+        "volatile section must produce an inline '运行时注入' placeholder in the assembled prompt"
+    )
+
+    # Must NOT fall back to the M2 footer-stacking pattern (append at end as a block).
+    assert "---" not in prompt or prompt.index("运行时注入") < len(prompt) - 100, (
+        "placeholder must appear inline (in section position), not only at the bottom of the prompt"
+    )
+
+    # The stable section must still appear (inline placeholder doesn't break stable content).
+    assert "You are a helpful assistant." in prompt
+
+
+def test_prompt_preview_no_footer_stacking_block() -> None:
+    """Preview must NOT append a '---' separator + stacked placeholder footer block.
+
+    M2 incorrectly appended a footer block like:
+        ---
+        以上预览不包含 volatile 段...runtime fills:
+        [core.memory_block — runtime fills]
+        [core.user_profile_block — runtime fills]
+
+    This pattern (M2 regression) must be absent. Volatile sections are shown inline.
+    """
+    volatile1 = _make_section("core.memory_block", 950, "MEM", cache_safe=False)
+    volatile2 = _make_section("core.user_profile_block", 960, "USER", cache_safe=False)
+
+    app = create_app()
+    app.state.prompt_sections = [volatile1, volatile2]
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {}, "tool_ids": [], "scenario": "direct"},
+        )
+
+    assert response.status_code == 200
+    prompt = response.json()["prompt"]
+
+    # M2 footer stacking markers must not appear.
+    assert "以上预览不包含 volatile 段" not in prompt, (
+        "M2-style footer explanation block must be removed"
+    )
+    assert "runtime fills]" not in prompt, (
+        "M2-style '[section — runtime fills]' footer list must be removed"
+    )
+
+
+def test_prompt_preview_stable_section_byte_consistency_with_volatile_inline() -> None:
+    """Stable sections must produce identical text regardless of volatile section presence.
+
+    When volatile sections change their placeholder text, the stable prefix must not change.
+    This ensures provider auto-prefix-cache still hits on stable content.
+    """
+    stable = _make_section("core.identity", 100, "Stable identity text.", cache_safe=True)
+    volatile = _make_section("core.memory_block", 950, "volatile data", cache_safe=False)
+
+    # With volatile section
+    app1 = create_app()
+    app1.state.prompt_sections = [stable, volatile]
+    with TestClient(app1) as client:
+        resp_with = client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {}, "tool_ids": [], "scenario": "direct"},
+        )
+
+    # Without volatile section
+    app2 = create_app()
+    app2.state.prompt_sections = [stable]
+    with TestClient(app2) as client:
+        resp_without = client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {}, "tool_ids": [], "scenario": "direct"},
+        )
+
+    prompt_with = resp_with.json()["prompt"]
+    prompt_without = resp_without.json()["prompt"]
+
+    # The stable part must appear identically in both.
+    assert "Stable identity text." in prompt_with
+    assert "Stable identity text." in prompt_without
+    # The stable prefix must be identical (prompt_with starts with same content as prompt_without).
+    assert prompt_with.startswith(prompt_without) or prompt_without in prompt_with, (
+        "stable prefix must be byte-identical regardless of volatile section presence"
+    )
