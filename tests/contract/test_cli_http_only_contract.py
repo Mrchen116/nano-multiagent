@@ -52,21 +52,16 @@ def _collect_cli_agent_internal_imports(package_name: str = "coding_cli") -> lis
 def test_cli_only_uses_agent_sdk_not_agent_internals() -> None:
     """coding_cli must not import agent.core / agent.platform / agent.products directly.
 
-    agent.sdk is the only allowed surface (refactor-387 M2).
-    kernel_app.py and managed_server.py are still present in the source but will be
-    deleted in M4; they are excluded from this check as they are being phased out.
+    agent.sdk is the only allowed surface (refactor-387 M2/M4).
+    Dead HTTP files (kernel_app.py, client.py, managed_server.py, session_stream.py)
+    deleted in M4; no exclusions needed.
     """
     violations = _collect_cli_agent_internal_imports()
-    # Exclude files that are known to be phased out in M4.
-    m4_phase_out = {"src/coding_cli/kernel_app.py"}
-    relevant_violations = [
-        v for v in violations
-        if not any(phase_out in v for phase_out in m4_phase_out)
-    ]
-    assert relevant_violations == [], (
+    # M4: kernel_app.py and all other dead HTTP files deleted; no more exclusions.
+    assert violations == [], (
         "coding_cli must not import agent.core/platform/products directly.\n"
         "These files violate the agent.sdk-only boundary:\n"
-        + "\n".join(f"  {v}" for v in relevant_violations)
+        + "\n".join(f"  {v}" for v in violations)
     )
 
 
