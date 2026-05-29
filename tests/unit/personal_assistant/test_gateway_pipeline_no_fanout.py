@@ -55,7 +55,7 @@ class _FakeKernelClient:
         self.send_calls.append({"session_id": session_id, "texts": texts, "run_id": run_id})
         return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
 
-    async def stream_session(self, *, session_id, last_event_id=None):
+    async def stream_session(self, *, session_id, last_event_id=None, workspace_root=None, **_kwargs):
         run_id = self.send_calls[-1]["run_id"] if self.send_calls else "run-1"
         yield {"event": "run_status", "run_id": run_id, "status": "completed", "output_text": "ok"}
 

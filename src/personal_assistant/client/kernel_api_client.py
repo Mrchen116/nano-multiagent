@@ -221,8 +221,14 @@ class KernelApiClient:
         *,
         session_id: str,
         last_event_id: int | None = None,
+        workspace_root: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """GET /stream as persistent SSE iterator.
+
+        workspace_root is forwarded as a query param so the stateless kernel can
+        locate the session JSONL (Refs #64 — session is per-workspace_root scoped;
+        omitting it causes session_not_found 404 in multi-agent setups).  Follows
+        the same forwarding pattern as get_session.
 
         Yields decoded events {"event": str, "_id": int, **payload}.
         """
@@ -233,6 +239,14 @@ class KernelApiClient:
         if last_event_id is not None:
             headers["Last-Event-ID"] = str(last_event_id)
 
+        # Stateless kernel uses workspace_root to locate the session JSONL; must be
+        # forwarded on every streaming request just as it is for get_session / submit.
+        params: dict[str, Any] | None = None
+        if workspace_root is not None:
+            params = {
+                "workspace_root": _require_non_empty_string(workspace_root, field_name="workspace_root")
+            }
+
         async with httpx.AsyncClient(
             base_url=self._config.base_url,
             transport=self._async_transport,
@@ -242,6 +256,7 @@ class KernelApiClient:
                 "GET",
                 f"/v1/sessions/{session}/stream",
                 headers=headers,
+                params=params,
                 timeout=None,
             ) as resp:
                 if resp.status_code >= 400:

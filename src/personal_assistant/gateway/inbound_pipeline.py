@@ -245,6 +245,7 @@ class InboundPipeline:
                     run_id=run_id,
                     anchor_sequence=anchor_sequence,
                     on_other=_on_other_event,
+                    workspace_root=agent_workspace_root,  # Refs #64: session scoped per workspace_root
                 )
                 # Start a persistent background subscriber for this session so that
                 # self_evolution_review events published by background hooks (which run
@@ -252,6 +253,7 @@ class InboundPipeline:
                 await self._ensure_background_subscriber(
                     kernel_session_id=binding.kernel_session_id,
                     last_sequence=anchor_sequence or 0,
+                    workspace_root=agent_workspace_root,  # Refs #64: must forward for SSE session location
                 )
                 await self._emit_relay_lifecycle(
                     message,
@@ -587,6 +589,7 @@ class InboundPipeline:
         *,
         kernel_session_id: str,
         last_sequence: int,
+        workspace_root: str | None = None,
     ) -> None:
         """Ensure one persistent background SSE subscriber is active for the session.
 
@@ -602,6 +605,8 @@ class InboundPipeline:
             last_sequence: Last SSE sequence number seen by the main turn's loop,
                 used as ``after_sequence`` so the subscriber replays events missed
                 between turn termination and subscription start.
+            workspace_root: Forwarded to stream_session so the stateless kernel can
+                locate the session JSONL (Refs #64 — session is per-workspace_root scoped).
         """
         if self._session_event_callback is None:
             return
@@ -618,6 +623,7 @@ class InboundPipeline:
             session_id=kernel_session_id,
             on_event=_on_session_event,
             after_sequence=last_sequence,
+            workspace_root=workspace_root,  # Refs #64
         )
         self._bg_subscribers[kernel_session_id] = subscriber
         await subscriber.start()
@@ -634,6 +640,7 @@ class InboundPipeline:
         run_id: str,
         anchor_sequence: int | None = None,
         on_other: Callable[[Mapping[str, object]], Awaitable[None] | None] | None = None,
+        workspace_root: str | None = None,
     ) -> tuple[Mapping[str, object], str]:
         """Consume persistent SSE stream until terminal run_status for run_id.
 
@@ -644,12 +651,16 @@ class InboundPipeline:
         anchor_sequence, when provided, is passed as Last-Event-ID so the kernel
         replays history from before the run started — preventing missed events when
         the run completes faster than the HTTP SSE connection is established.
+
+        workspace_root is forwarded to stream_session so the stateless kernel can
+        locate the session JSONL (Refs #64 — session is per-workspace_root scoped;
+        omitting it causes session_not_found 404 in multi-agent setups).
         """
         reply_text = ""
         run_state: Mapping[str, object] | None = None
 
         async for event in self._kernel_client.stream_session(
-            session_id=kernel_session_id, last_event_id=anchor_sequence
+            session_id=kernel_session_id, last_event_id=anchor_sequence, workspace_root=workspace_root
         ):
             if event.get("run_id") != run_id:
                 if on_other is not None:

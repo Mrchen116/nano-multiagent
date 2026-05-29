@@ -137,7 +137,7 @@ async def test_background_subscriber_reconnects_on_stream_error() -> None:
     call_count = 0
     stop_event = asyncio.Event()
 
-    async def _failing_then_ok_stream(*, session_id: str, last_event_id: int | None = None):
+    async def _failing_then_ok_stream(*, session_id: str, last_event_id: int | None = None, workspace_root: str | None = None, **_kwargs):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
