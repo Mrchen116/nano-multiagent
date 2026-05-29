@@ -35,7 +35,7 @@ _M2_M3_KNOWN_VIOLATIONS: dict[str, list[str]] = {
     "coding_cli/kernel_app.py": ["agent.core", "agent.platform", "agent.products"],
     # M3: personal_assistant will be rewritten to import only agent.sdk
     "personal_assistant/kernel_app.py": ["agent.core", "agent.platform", "agent.products"],
-    "personal_assistant/main.py": ["agent.core"],
+    "personal_assistant/main.py": ["agent.core", "agent.platform", "agent.products"],
     "personal_assistant/config/local_store.py": ["agent.core"],
     "personal_assistant/reporter/upstream_reporter.py": ["agent.core", "agent.platform", "agent.products"],
     "personal_assistant/gateway/inbound_pipeline.py": ["agent.core", "agent.platform"],

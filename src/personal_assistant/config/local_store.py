@@ -15,7 +15,8 @@ import yaml
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
 _DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
-_DEFAULT_KERNEL_ENTRYPOINT = "python -m uvicorn personal_assistant.kernel_app:app"
+# refactor-387 M3: kernel_app.py deleted; KernelConfig.command is retained for M4 cleanup.
+_DEFAULT_KERNEL_ENTRYPOINT = ""
 _DEFAULT_KERNEL_HEALTH_PATH = "/v1/health"
 DEFAULT_LOCAL_KERNEL_TOKEN = "nano-local-gateway"
 DEFAULT_LOCAL_CONFIG_DIR = Path("~/.nano-assistant").expanduser()

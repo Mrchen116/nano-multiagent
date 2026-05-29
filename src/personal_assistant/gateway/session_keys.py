@@ -10,8 +10,7 @@ from typing import Any, TYPE_CHECKING
 
 from personal_assistant.channels.base import InboundMessage, ReplyContext
 
-if TYPE_CHECKING:
-    from personal_assistant.client.kernel_api_client import KernelApiClient
+# KernelApiClient removed in M3 (refactor-387).
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,9 +128,9 @@ class PersistentSessionBindingStore:
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_CREATE_TABLE_SQL)
         self._conn.commit()
-        self._kernel_client: KernelApiClient | None = None
+        self._kernel_client: Any | None = None  # KernelApiClient removed in M3
 
-    def set_kernel_client(self, client: KernelApiClient) -> None:
+    def set_kernel_client(self, client: Any) -> None:
         """Inject the kernel HTTP client used for live session validation.
 
         Args:

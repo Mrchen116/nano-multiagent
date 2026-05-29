@@ -6,11 +6,11 @@ import asyncio
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 from typing import Literal
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
-from personal_assistant.client.kernel_api_client import KernelApiClient
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.background_session_events import BackgroundSessionEventSubscriber
 from personal_assistant.gateway.group_context_store import GroupContextStore
@@ -23,6 +23,9 @@ from personal_assistant.gateway.session_keys import (
     build_session_key,
     session_binding_store,
 )
+
+if TYPE_CHECKING:
+    from agent.sdk.kernel import Kernel
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,7 +78,7 @@ class InboundPipeline:
     """Execute the NodeGateway-SPEC §4 four-step decision flow.
 
     Args:
-        kernel_client: HTTP boundary used to create sessions and dispatch runs.
+        kernel: In-process Kernel SDK instance (refactor-387 M3+).
         agents: Managed agent workspace configs indexed by agent id.
         outbound_router: Router used for step 4 reply delivery.
         run_queue: Per-session FIFO queue manager used for step 3.
@@ -98,7 +101,7 @@ class InboundPipeline:
     def __init__(
         self,
         *,
-        kernel_client: KernelApiClient,
+        kernel: "Kernel",
         agents: tuple[AgentWorkspaceConfig, ...],
         outbound_router: OutboundRouter,
         run_queue: SessionRunQueue,
@@ -111,7 +114,7 @@ class InboundPipeline:
         kernel_event_observer: Callable[[Mapping[str, Any]], None] | None = None,
         session_event_callback: Callable[[str, Mapping[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
-        self._kernel_client = kernel_client
+        self._kernel = kernel
         self._agents = {agent.agent_id: agent for agent in agents}
         self._outbound_router = outbound_router
         self._run_queue = run_queue
@@ -172,7 +175,7 @@ class InboundPipeline:
         async def _run() -> PipelineResult:
             run_id: str | None = None
             try:
-                binding = self._ensure_binding(message, agent_id=agent_id, session_key=session_key)
+                binding = await self._ensure_binding(message, agent_id=agent_id, session_key=session_key)
                 buf_key = self._group_buf_key_for_agent(message, agent_id)
                 # drain() returns (sender, text) tuples since M246; format each as "[sender] text"
                 # so the kernel receives sender-prefixed, independently-structured context messages.
@@ -190,26 +193,29 @@ class InboundPipeline:
                     current_text = message.text
                 texts = buffered_texts + [current_text]
                 attachments = message.metadata.get("attachments")
-                image_urls: list[dict[str, Any]] | None = None
+                # Build parts list from texts and optional image attachments.
+                parts: list[dict[str, Any]] = [{"type": "text", "text": t} for t in texts]
                 if isinstance(attachments, list) and attachments:
-                    image_urls = [
-                        item for item in attachments
-                        if isinstance(item, dict) and isinstance(item.get("url"), str)
-                    ] or None
-                # The stateless kernel needs the session's workspace_root to
-                # locate its JSONL; the gateway knows it from the agent config.
-                agent_workspace_root = str(self._agents[agent_id].workspace_root)
-                run_payload = self._kernel_client.submit_message(
+                    for item in attachments:
+                        if isinstance(item, dict) and isinstance(item.get("url"), str):
+                            img_part: dict[str, Any] = {"type": "image", "image_url": item["url"]}
+                            mime = item.get("content_type")
+                            if isinstance(mime, str) and mime.strip():
+                                img_part["mime_type"] = mime.strip()
+                            parts.append(img_part)
+                agent_workspace_root_path = self._agents[agent_id].workspace_root
+                agent_workspace_root = str(agent_workspace_root_path)
+                # submit() is sync, non-blocking — schedules the turn on RunsRegistry's
+                # background loop and returns immediately with a RunRecord.
+                run_record = self._kernel.submit(
                     session_id=binding.kernel_session_id,
-                    texts=texts,
-                    image_urls=image_urls,
-                    workspace_root=agent_workspace_root,
+                    parts=parts,
+                    workspace_root=agent_workspace_root_path,
                 )
-                run_id = str(run_payload.get("run_id", "")).strip()
-                # anchor_sequence is captured before the run starts; use it as Last-Event-ID
-                # so stream_session replays events even if the kernel finishes before we connect.
-                raw_anchor = run_payload.get("anchor_sequence")
-                anchor_sequence = int(raw_anchor) if isinstance(raw_anchor, int) else None
+                run_id = run_record.run_id
+                # In-process mode: no SSE replay needed (events are published synchronously
+                # to EventStreamHub which we subscribe to below).  Use after_sequence=0.
+                anchor_sequence = 0
                 if run_id:
                     async with self._active_runs_lock:
                         self._active_runs[session_key] = run_id
@@ -245,7 +251,6 @@ class InboundPipeline:
                     run_id=run_id,
                     anchor_sequence=anchor_sequence,
                     on_other=_on_other_event,
-                    workspace_root=agent_workspace_root,  # Refs #64: session scoped per workspace_root
                 )
                 # Start a persistent background subscriber for this session so that
                 # self_evolution_review events published by background hooks (which run
@@ -253,7 +258,6 @@ class InboundPipeline:
                 await self._ensure_background_subscriber(
                     kernel_session_id=binding.kernel_session_id,
                     last_sequence=anchor_sequence or 0,
-                    workspace_root=agent_workspace_root,  # Refs #64: must forward for SSE session location
                 )
                 await self._emit_relay_lifecycle(
                     message,
@@ -345,7 +349,7 @@ class InboundPipeline:
             raise LookupError("no default agent configured")
         return self._require_known_agent(self._default_agent_id)
 
-    def _ensure_binding(self, message: InboundMessage, *, agent_id: str, session_key: str) -> SessionBinding:
+    async def _ensure_binding(self, message: InboundMessage, *, agent_id: str, session_key: str) -> SessionBinding:
         existing = self._session_store.get(session_key)
         agent = self._agents[agent_id]
         if existing is not None and self._binding_matches_workspace_root(
@@ -357,13 +361,18 @@ class InboundPipeline:
                 kernel_session_id=existing.kernel_session_id,
                 reply_context=build_reply_context(message),
             )
-        response = self._kernel_client.create_session(
-            workspace_root=str(agent.workspace_root),
-            product_id="personal_assistant",
+        # Resolve per-agent config into session parameters.
+        session_metadata = self._build_session_metadata(message, agent_id=agent_id)
+        agent_skills = list(agent.skills) if agent.skills else None
+        agent_tool_allowlist = list(agent.tool_allowlist) if agent.tool_allowlist else None
+        session = await self._kernel.create_session(
             title=agent.title,
-            metadata=self._build_session_metadata(message, agent_id=agent_id),
+            workspace_root=agent.workspace_root,
+            skills=agent_skills,
+            tool_allowlist=agent_tool_allowlist,
+            metadata=session_metadata,
         )
-        kernel_session_id = str(response.get("session_id", "")).strip()
+        kernel_session_id = session.session_id
         if not kernel_session_id:
             raise RuntimeError("kernel session creation did not return session_id")
         return self._session_store.bind(
@@ -504,7 +513,7 @@ class InboundPipeline:
         async with self._active_runs_lock:
             active_run_id = self._active_runs.get(session_key)
 
-        binding = self._ensure_binding(message, agent_id=agent_id, session_key=session_key)
+        binding = await self._ensure_binding(message, agent_id=agent_id, session_key=session_key)
 
         if active_run_id is None:
             reply_text = "当前没有正在执行的操作。"
@@ -518,18 +527,15 @@ class InboundPipeline:
                 outbound=outbound,
             )
 
-        # The stateless kernel needs the session's workspace_root to locate its
-        # JSONL; the gateway knows it from the agent config.
-        agent_workspace_root = str(self._agents[agent_id].workspace_root)
-        self._kernel_client.interrupt_session(
+        agent_workspace_root_path = self._agents[agent_id].workspace_root
+        # interrupt() cancels the active run and any parked permission futures.
+        self._kernel.interrupt(binding.kernel_session_id)
+        # Log /stop command in session history via a new user turn (no LLM call triggered
+        # because the session has no pending run after interrupt).
+        self._kernel.submit(
             session_id=binding.kernel_session_id,
-            workspace_root=agent_workspace_root,
-        )
-        self._kernel_client.append_message(
-            session_id=binding.kernel_session_id,
-            role="user",
-            content="用户发送了 /stop 命令，要求终止当前操作。",
-            workspace_root=agent_workspace_root,
+            parts=[{"type": "text", "text": "用户发送了 /stop 命令，要求终止当前操作。"}],
+            workspace_root=agent_workspace_root_path,
         )
         reply_text = "已停止当前操作。"
         outbound = self._outbound_router.send_text(text=reply_text, reply_context=binding.reply_context)
@@ -549,31 +555,28 @@ class InboundPipeline:
             self._default_agent_id = agent.agent_id
 
     def _binding_matches_workspace_root(self, session_id: str, *, expected_workspace_root: str) -> bool:
-        """Return whether one bound kernel session carries the exact expected workspace metadata.
+        """Return whether one bound kernel session carries the expected workspace metadata.
 
         Notes:
-            This detects legacy direct-chat sessions created before workspace propagation was
-            wired through `/v1/sessions`. Those sessions silently fall back to repo root even
-            though the gateway now knows the agent workspace, so they must be refreshed once.
-            Older test doubles may not implement session lookup yet; in that case we preserve
-            the historical reuse behavior instead of breaking unrelated coverage.
+            In the SDK (in-process) mode, sessions are always created with the correct
+            workspace_root in the same process, so stale workspace mismatches cannot
+            occur across process restarts (the in-memory session store is fresh each
+            startup).  We still verify via get_session so legacy sessions persisted
+            before M3 are refreshed on the first inbound message.
+
+            Older test doubles may not implement get_session yet; in that case we
+            preserve the historical reuse behavior.
         """
 
-        get_session = getattr(self._kernel_client, "get_session", None)
+        get_session = getattr(self._kernel, "get_session", None)
         if not callable(get_session):
             return True
         try:
-            # Pass the expected workspace_root so the stateless kernel can locate
-            # the session JSONL; without it the lookup would always 404.
             session_payload = get_session(
                 session_id=session_id, workspace_root=expected_workspace_root
             )
         except RuntimeError:
             return False
-        except TypeError:
-            # Older test doubles whose get_session() predates the workspace_root
-            # kwarg — fall back to the historical signature.
-            session_payload = get_session(session_id=session_id)
         metadata = session_payload.get("metadata")
         if not isinstance(metadata, Mapping):
             return False
@@ -589,24 +592,21 @@ class InboundPipeline:
         *,
         kernel_session_id: str,
         last_sequence: int,
-        workspace_root: str | None = None,
     ) -> None:
-        """Ensure one persistent background SSE subscriber is active for the session.
+        """Ensure one persistent background event subscriber is active for the session.
 
         Called after each main turn completes so that session-level events (e.g.
-        self_evolution_review) published by background hooks after the main SSE loop
-        terminates are still received and forwarded to ``_session_event_callback``.
+        self_evolution_review) published by background hooks after the main event
+        loop terminates are still received and forwarded to ``_session_event_callback``.
 
         If a subscriber is already active for this session (from a previous turn) it
         is left running — re-creation would lose events between turns.
 
         Args:
             kernel_session_id: Kernel session to subscribe to.
-            last_sequence: Last SSE sequence number seen by the main turn's loop,
+            last_sequence: Last event sequence number seen by the main turn's loop,
                 used as ``after_sequence`` so the subscriber replays events missed
                 between turn termination and subscription start.
-            workspace_root: Forwarded to stream_session so the stateless kernel can
-                locate the session JSONL (Refs #64 — session is per-workspace_root scoped).
         """
         if self._session_event_callback is None:
             return
@@ -618,12 +618,14 @@ class InboundPipeline:
         async def _on_session_event(event: Mapping[str, Any]) -> None:
             await cb(kernel_session_id, event)
 
+        # In-process mode: the subscriber uses the Kernel directly via its stream() method.
+        # BackgroundSessionEventSubscriber accepts any object with stream_session(); we
+        # adapt the Kernel's stream() method into the expected call shape.
         subscriber = BackgroundSessionEventSubscriber(
-            kernel_client=self._kernel_client,
+            kernel_client=_KernelStreamAdapter(self._kernel, kernel_session_id),
             session_id=kernel_session_id,
             on_event=_on_session_event,
             after_sequence=last_sequence,
-            workspace_root=workspace_root,  # Refs #64
         )
         self._bg_subscribers[kernel_session_id] = subscriber
         await subscriber.start()
@@ -640,27 +642,21 @@ class InboundPipeline:
         run_id: str,
         anchor_sequence: int | None = None,
         on_other: Callable[[Mapping[str, object]], Awaitable[None] | None] | None = None,
-        workspace_root: str | None = None,
     ) -> tuple[Mapping[str, object], str]:
-        """Consume persistent SSE stream until terminal run_status for run_id.
+        """Consume in-process event stream until terminal run_status for run_id.
 
         Non-target events are passed to ``on_other`` if provided.  This lets
         callers route background-task or heartbeat runs through the same
         session-key serial queue while the user run is in progress.
 
-        anchor_sequence, when provided, is passed as Last-Event-ID so the kernel
-        replays history from before the run started — preventing missed events when
-        the run completes faster than the HTTP SSE connection is established.
-
-        workspace_root is forwarded to stream_session so the stateless kernel can
-        locate the session JSONL (Refs #64 — session is per-workspace_root scoped;
-        omitting it causes session_not_found 404 in multi-agent setups).
+        anchor_sequence is passed to kernel.stream as after_sequence so any
+        events published before this call are replayed from the event hub buffer.
         """
         reply_text = ""
         run_state: Mapping[str, object] | None = None
 
-        async for event in self._kernel_client.stream_session(
-            session_id=kernel_session_id, last_event_id=anchor_sequence, workspace_root=workspace_root
+        async for event in self._kernel.stream(
+            kernel_session_id, after_sequence=anchor_sequence or 0
         ):
             if event.get("run_id") != run_id:
                 if on_other is not None:
@@ -887,3 +883,32 @@ def _optional_stripped_text(value: object) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+class _KernelStreamAdapter:
+    """Adapt Kernel.stream() to the stream_session(session_id, ...) interface.
+
+    BackgroundSessionEventSubscriber calls stream_session(session_id, last_event_id,
+    workspace_root) on its kernel_client.  In SDK mode, the session is already bound
+    to a fixed session_id; this adapter forwards calls to Kernel.stream() ignoring
+    the workspace_root parameter (not needed in-process).
+    """
+
+    def __init__(self, kernel: "Kernel", session_id: str) -> None:
+        self._kernel = kernel
+        self._session_id = session_id
+
+    async def stream_session(
+        self,
+        *,
+        session_id: str,
+        last_event_id: int | None = None,
+        workspace_root: str | None = None,
+        **_kwargs: object,
+    ):
+        # last_event_id maps to after_sequence; workspace_root is ignored in-process.
+        async for event in self._kernel.stream(
+            session_id or self._session_id,
+            after_sequence=last_event_id or 0,
+        ):
+            yield event

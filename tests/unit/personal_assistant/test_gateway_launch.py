@@ -61,7 +61,8 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_read
 
     assert result == BackgroundLaunchResult(
         pid=2468,
-        health_url=f"{config.kernel.base_url}{config.kernel.health_path}",
+        # refactor-387 M3: kernel is in-process; health_url shows pid= when no IM service configured.
+        health_url="pid=2468",
         log_path=config.source_path.parent / "gateway.log",
     )
     assert seen["spawn"] == (

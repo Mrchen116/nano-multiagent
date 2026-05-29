@@ -13,6 +13,7 @@ from personal_assistant.gateway.inbound_pipeline import InboundPipeline
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
+from ._pipeline_helpers import _FakeKernel
 
 
 class _FakeChannel:
@@ -132,9 +133,9 @@ def test_stop_command_with_no_active_run_returns_friendly_message(tmp_path: Path
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -164,16 +165,18 @@ def test_stop_command_with_no_active_run_returns_friendly_message(tmp_path: Path
         )
     ]
     assert kernel_client.interrupt_calls == []
-    assert kernel_client.append_calls == []
+    # M3: no message submitted when there is no active run to stop
+    stop_text_calls = [c for c in kernel_client.send_calls if any("stop" in t.lower() for t in c.get("texts", []))]
+    assert stop_text_calls == []
 
 
 def test_stop_command_interrupts_active_run_and_appends_message(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -212,19 +215,20 @@ def test_stop_command_interrupts_active_run_and_appends_message(tmp_path: Path) 
     ]
     assert len(kernel_client.interrupt_calls) == 1
     assert kernel_client.interrupt_calls[0]["session_id"] == "sess-1"
-    assert len(kernel_client.append_calls) == 1
-    assert kernel_client.append_calls[0]["session_id"] == "sess-1"
-    assert kernel_client.append_calls[0]["role"] == "user"
-    assert kernel_client.append_calls[0]["content"] == "用户发送了 /stop 命令，要求终止当前操作。"
+    # M3: /stop logs via kernel.submit (in send_calls) instead of append_message.
+    stop_submits = [c for c in kernel_client.send_calls if any("stop" in t.lower() or "终止" in t for t in c.get("texts", []))]
+    assert len(stop_submits) == 1
+    assert stop_submits[0]["session_id"] == "sess-1"
+    assert "用户发送了 /stop 命令，要求终止当前操作。" in stop_submits[0]["texts"]
 
 
 def test_stop_command_in_group_chat_with_mention_is_recognized(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -255,9 +259,9 @@ def test_stop_command_with_agent_after_slash_is_recognized(tmp_path: Path) -> No
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -290,10 +294,10 @@ def test_stop_command_does_not_enter_group_context_buffer(tmp_path: Path) -> Non
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     group_store = GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3")
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -325,9 +329,9 @@ def test_active_run_tracking_registers_and_unregisters(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),

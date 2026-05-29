@@ -9,7 +9,6 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 
-from personal_assistant.client.kernel_api_client import KernelApiClient
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 
 _INTERVAL_PATTERN = re.compile(r"^\s*(\d+)\s*([smhd])\s*$", re.IGNORECASE)
@@ -140,7 +139,7 @@ class HeartbeatScheduler:
         self,
         *,
         agents: tuple[AgentWorkspaceConfig, ...],
-        kernel_client: KernelApiClient | _KernelClientLike,
+        kernel_client: _KernelClientLike,
         state_store: HeartbeatSchedulerStateStore,
     ) -> None:
         self._agents = agents

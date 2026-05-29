@@ -13,6 +13,7 @@ from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.session_keys import SessionBindingStore
+from ._pipeline_helpers import _FakeKernel
 
 
 class _FakeChannel:
@@ -63,10 +64,10 @@ def _build_pipeline(tmp_path: Path, *, with_store: bool = True) -> tuple[Inbound
     dir_a.mkdir()
     agents = (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=dir_a, title="Agent A"),)
     store = GroupContextStore(db_path=tmp_path / "ctx.sqlite3") if with_store else None
-    kernel = _FakeKernelClient()
+    kernel = _FakeKernel()
     channel = _FakeChannel("web_relay")
     pipeline = InboundPipeline(
-        kernel_client=kernel,
+        kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),

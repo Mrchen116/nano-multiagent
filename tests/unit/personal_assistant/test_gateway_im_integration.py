@@ -29,43 +29,7 @@ class _FakeChannel:
         return None
 
 
-class _FakeKernelClient:
-    def __init__(self) -> None:
-        self.create_session_calls: list[dict[str, object | None]] = []
-        self.send_calls: list[dict[str, str]] = []
-        self.run_states: dict[str, dict[str, str]] = {}
-        self.default_output_text = "reply:{text}"
-        self._session_index = 0
-        self._run_index = 0
-
-    def create_session(
-        self,
-        *,
-        workspace_root: str,
-        product_id: str,
-        title: str | None = None,
-        metadata: dict[str, object] | None = None,
-    ):
-        self._session_index += 1
-        self.create_session_calls.append(
-            {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
-        )
-        return {"session_id": f"sess-{self._session_index}"}
-
-    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None, **_kwargs):
-        self._run_index += 1
-        run_id = f"run-{self._run_index}"
-        self.send_calls.append({"session_id": session_id, "texts": texts, "run_id": run_id})
-        self.run_states[run_id] = {"run_id": run_id, "output_text": self.default_output_text.format(text=texts[-1] if texts else "")}
-        return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
-
-    async def stream_session(self, *, session_id, last_event_id=None, workspace_root=None, **_kwargs):
-        run_id = list(self.run_states.keys())[-1] if self.run_states else "run-1"
-        yield {"event": "assistant_message", "run_id": run_id, "content": self.run_states.get(run_id, {}).get("output_text", "")}
-        yield {"event": "run_status", "run_id": run_id, "status": "completed", "output_text": self.run_states.get(run_id, {}).get("output_text", "")}
-
-    def get_run(self, *, run_id: str):
-        return self.run_states[run_id]
+from ._pipeline_helpers import _FakeKernel  # noqa: E402 (local helper import after stdlib)
 
 
 def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
@@ -89,9 +53,9 @@ def test_group_message_without_mention_is_ignored(tmp_path: Path) -> None:
     """Unmentioned group traffic must not invoke the kernel."""
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
-    kernel = _FakeKernelClient()
+    kernel = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel,
+        kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
@@ -120,9 +84,9 @@ def test_group_message_with_mention_or_reply_runs(tmp_path: Path) -> None:
     """Mentioned or agent-reply group traffic must still reach the kernel."""
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
-    kernel = _FakeKernelClient()
+    kernel = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel,
+        kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
@@ -161,10 +125,10 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
     """Mentioned group traffic that returns NO_REPLY must stay silent."""
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
-    kernel = _FakeKernelClient()
+    kernel = _FakeKernel()
     kernel.default_output_text = "NO_REPLY"
     pipeline = InboundPipeline(
-        kernel_client=kernel,
+        kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
@@ -195,10 +159,10 @@ def test_register_agent_refresh_drops_old_session_binding_and_recreates_session(
     """Refreshing one agent config must force later messages onto a new kernel session."""
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
-    kernel = _FakeKernelClient()
+    kernel = _FakeKernel()
     session_store = SessionBindingStore()
     pipeline = InboundPipeline(
-        kernel_client=kernel,
+        kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
@@ -237,9 +201,9 @@ def test_local_channel_keeps_working_without_im_connection(tmp_path: Path) -> No
     """Gateway local channel execution must not depend on IM websocket connectivity."""
     agents = _agents(tmp_path)
     channel = _FakeChannel("qq")
-    kernel = _FakeKernelClient()
+    kernel = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel,
+        kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
@@ -282,10 +246,10 @@ def test_group_multiagent_fanout_buffers_and_contextualises(tmp_path: Path) -> N
 
     agents = _two_agents(tmp_path)
     channel = _FakeChannel("web_relay")
-    kernel = _FakeKernelClient()
+    kernel = _FakeKernel()
     store = GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3")
     pipeline = InboundPipeline(
-        kernel_client=kernel,
+        kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),

@@ -244,65 +244,9 @@ class TestIMConnectionPermissionResponse:
         assert received[0]["decision"] == "allow_once"
 
 
-# ---------------------------------------------------------------------------
-# Test 3: KernelApiClient.submit_message accepts origin parameter
-# ---------------------------------------------------------------------------
-
-class TestKernelApiClientOrigin:
-    """KernelApiClient.submit_message sends origin field when provided."""
-
-    def test_submit_message_sends_origin_heartbeat(self) -> None:
-        """submit_message passes origin=heartbeat in request payload."""
-        import httpx
-        from personal_assistant.client.kernel_api_client import KernelApiClient, KernelApiClientConfig
-
-        captured_requests: list[httpx.Request] = []
-
-        def handler(request: httpx.Request) -> httpx.Response:
-            captured_requests.append(request)
-            return httpx.Response(200, json={
-                "run_id": "run-1",
-                "anchor_sequence": 1,
-                "injected": False,
-                "status": "queued",
-            })
-
-        transport = httpx.MockTransport(handler)
-        config = KernelApiClientConfig(base_url="http://localhost:8000", token="tok")
-        client = KernelApiClient(config=config, transport=transport)
-
-        client.submit_message(session_id="sess-1", texts=["heartbeat task"], origin="heartbeat")
-
-        assert len(captured_requests) == 1
-        body = json.loads(captured_requests[0].content)
-        assert body.get("origin") == "heartbeat"
-
-    def test_submit_message_defaults_origin_user(self) -> None:
-        """submit_message defaults origin to 'user' when not provided."""
-        import httpx
-        from personal_assistant.client.kernel_api_client import KernelApiClient, KernelApiClientConfig
-
-        captured_requests: list[httpx.Request] = []
-
-        def handler(request: httpx.Request) -> httpx.Response:
-            captured_requests.append(request)
-            return httpx.Response(200, json={
-                "run_id": "run-1",
-                "anchor_sequence": 1,
-                "injected": False,
-                "status": "queued",
-            })
-
-        transport = httpx.MockTransport(handler)
-        config = KernelApiClientConfig(base_url="http://localhost:8000", token="tok")
-        client = KernelApiClient(config=config, transport=transport)
-
-        client.submit_message(session_id="sess-1", texts=["user message"])
-
-        assert len(captured_requests) == 1
-        body = json.loads(captured_requests[0].content)
-        # origin should be absent (not sent) when not specified
-        assert "origin" not in body
+# Test 3 (TestKernelApiClientOrigin) deleted in refactor-387 M3:
+# KernelApiClient was removed. The origin field is now passed via kernel.submit()
+# RunOrigin enum in _KernelClientShim.submit_message.
 
 
 # ---------------------------------------------------------------------------

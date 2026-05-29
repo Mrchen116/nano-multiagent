@@ -250,6 +250,8 @@ class Kernel:
         title: str | None = None,
         workspace_root: Path | None = None,
         skills: list[str] | None = None,
+        tool_allowlist: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> Session:
         """Create and return a new session.
 
@@ -257,6 +259,8 @@ class Kernel:
             title: Optional human-readable title.
             workspace_root: Workspace root for session JSONL storage.
             skills: Optional list of skill names to enable.
+            tool_allowlist: Optional tool allowlist for the session.
+            metadata: Optional session metadata (e.g. routing context for gateway).
 
         Returns:
             The created Session.
@@ -266,6 +270,8 @@ class Kernel:
             workspace_root=effective_root,
             title=title,
             skills=tuple(skills) if skills else None,
+            tool_allowlist=tuple(tool_allowlist) if tool_allowlist else None,
+            metadata=metadata,
         )
 
     async def fork_session(
@@ -440,6 +446,79 @@ class Kernel:
             Updated LLMFactoryConfig.
         """
         return self._c.runtime.reconfigure_llm(**patch)
+
+    def append_message(
+        self,
+        session_id: str,
+        *,
+        role: str,
+        content: str,
+        message_id: str | None = None,
+        parts: list[dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+        workspace_root: Path | None = None,
+    ) -> Any:
+        """Append a message to session history without triggering a model run.
+
+        Used by gateway to persist outbound messages (e.g. from send_message tool)
+        into the session transcript.
+
+        Args:
+            session_id: Target session.
+            role: Message role ("user" or "assistant").
+            content: Plain text message content.
+            message_id: Optional stable message id.
+            parts: Optional structured parts (overrides content when provided).
+            metadata: Optional metadata to attach to the message.
+            idempotency_key: Optional deduplication key.
+            workspace_root: Session workspace root for JSONL location.
+
+        Returns:
+            AppendMessageResult with the persisted entry.
+        """
+        effective_root = workspace_root or self._repo_root
+        return self._c.session_service.append_message(
+            session_id,
+            role=role,
+            content=content,
+            message_id=message_id,
+            parts=parts,
+            metadata=metadata,
+            idempotency_key=idempotency_key,
+            workspace_root=effective_root,
+        )
+
+    def get_session(
+        self,
+        session_id: str,
+        *,
+        workspace_root: Path | None = None,
+    ) -> Any:
+        """Return session metadata for one session.
+
+        Used by gateway to verify workspace_root binding matches agent config.
+        Returns a dict with at least {"session_id", "metadata"} shape.
+
+        Args:
+            session_id: Session to look up.
+            workspace_root: Workspace root where the session JSONL is stored.
+
+        Returns:
+            Session detail dict, or raises RuntimeError when not found.
+        """
+        effective_root = workspace_root or self._repo_root
+        session = self._c.session_service.manager.get_session(
+            session_id, workspace_root=effective_root
+        )
+        if session is None:
+            raise RuntimeError(f"session not found: {session_id}")
+        metadata = session.metadata or {}
+        return {
+            "session_id": session_id,
+            "status": "active",
+            "metadata": dict(metadata),
+        }
 
     def close(self) -> None:
         """Shut down background loops and release resources."""

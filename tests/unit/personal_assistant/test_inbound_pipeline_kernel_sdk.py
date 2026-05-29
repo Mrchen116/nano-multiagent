@@ -55,13 +55,16 @@ class _FakeKernel:
         title: str | None = None,
         workspace_root: Path | None = None,
         skills: list[str] | None = None,
+        tool_allowlist: list[str] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> _FakeSession:
         self._session_index += 1
         session_id = f"sess-{self._session_index}"
         session = _FakeSession(session_id)
         session.workspace_root = str(workspace_root) if workspace_root else None
         self.create_session_calls.append(
-            {"title": title, "workspace_root": workspace_root, "skills": skills}
+            {"title": title, "workspace_root": workspace_root, "skills": skills,
+             "tool_allowlist": tool_allowlist, "metadata": metadata}
         )
         self._sessions[session_id] = session
         return session

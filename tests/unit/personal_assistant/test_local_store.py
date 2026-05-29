@@ -233,7 +233,8 @@ def test_load_local_config_defaults_kernel_command_to_real_http_app_entrypoint(t
 
     config = load_local_config(config_path)
 
-    assert config.kernel.command == "python -m uvicorn personal_assistant.kernel_app:app"
+    # refactor-387 M3: kernel_app.py deleted; default command is now empty string
+    assert config.kernel.command == ""
     assert config.kernel.base_url == "http://127.0.0.1:8000"
     assert config.agents[0].workspace_root == workspace_root
 

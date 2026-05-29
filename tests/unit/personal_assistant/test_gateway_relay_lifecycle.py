@@ -278,7 +278,11 @@ def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:
     assert seen == {"config": config, "ran": True}
 
 
-def test_build_runtime_defaults_local_kernel_token_when_config_omits_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_runtime_returns_gateway_runtime_with_no_process_manager(tmp_path: Path) -> None:
+    """refactor-387 M3: build_runtime no longer spawns a kernel subprocess.
+
+    GatewayRuntime.process_manager must be None — the kernel runs in-process.
+    """
     workspace_root = tmp_path / "agent-a"
     workspace_root.mkdir()
     config = LocalConfig(
@@ -297,23 +301,12 @@ def test_build_runtime_defaults_local_kernel_token_when_config_omits_it(tmp_path
         llm=_DEFAULT_TEST_LLM,
         source_path=tmp_path / "node-config.yaml",
     )
-    seen: dict[str, object] = {}
-
-    class _RecordingKernelClient:
-        def __init__(self, *, config, transport=None) -> None:  # noqa: ANN001
-            del transport
-            seen["kernel_config"] = config
-
-        def close(self) -> None:
-            seen["closed"] = True
-
-    monkeypatch.setattr("personal_assistant.main.KernelApiClient", _RecordingKernelClient)
 
     runtime = build_runtime(config)
 
     assert isinstance(runtime, GatewayRuntime)
-    kernel_config = seen["kernel_config"]
-    assert kernel_config.token == DEFAULT_LOCAL_KERNEL_TOKEN
+    # M3: process manager must be None — kernel is in-process, no subprocess spawned.
+    assert runtime._process_manager is None  # noqa: SLF001
 
 
 def test_build_channel_registry_passes_dedup_db_path(tmp_path: Path) -> None:
@@ -349,14 +342,6 @@ def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(tmp_path: Path,
         source_path=tmp_path / "node-config.yaml",
     )
 
-    class _RecordingKernelClient:
-        def __init__(self, *, config, transport=None) -> None:  # noqa: ANN001
-            del config, transport
-
-        def close(self) -> None:
-            return None
-
-    monkeypatch.setattr("personal_assistant.main.KernelApiClient", _RecordingKernelClient)
     monkeypatch.setattr(
         "personal_assistant.main._build_im_connection_manager",
         lambda **kwargs: type("_Manager", (), {"connected": True, "close": lambda self: None})(),
