@@ -328,3 +328,73 @@ def test_run_cli_repl_command_compact_via_sdk(tmp_path) -> None:
     assert exit_code == 0
     assert any(call[0] == "compact" for call in stub.calls), \
         f"expected compact call, got: {stub.calls}"
+
+
+# ---------------------------------------------------------------------------
+# R-fix: 真实启动路径测试（不经 kernel_factory 注入）
+# 覆盖 bug：coding_cli 启动时 LLMFactoryConfig.from_env() 调 get_default_provider()
+# 要求 init_model_registry 已先调用，否则报 "model registry not initialized"
+# ---------------------------------------------------------------------------
+
+def test_build_llm_config_payload_exists_and_does_not_need_registry(monkeypatch) -> None:
+    """_build_llm_config_payload 必须存在，且在 registry 未初始化时不抛 registry 错。
+
+    这是真实启动路径的核心：_build_kernel 生产路径必须先构造 LLMConfigPayload 并调
+    init_model_registry，才能安全调 LLMFactoryConfig.from_env()。
+    该测试在当前代码（未修复前）应失败（函数不存在），修复后绿。
+    """
+    from agent.core.llm.model_registry import _reset_for_tests
+    _reset_for_tests()  # 隔离：确保本测试内 registry 未初始化
+
+    # 恢复 registry 在测试后（避免污染后续测试）
+    monkeypatch.setenv("NANO_MULTIAGENT_LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("NANO_MULTIAGENT_LLM_MODEL", "kimiCoding:K2.6")
+    monkeypatch.setenv("NANO_MULTIAGENT_LLM_BASE_URL", "http://127.0.0.1:4000")
+
+    import argparse
+    from coding_cli.commands import _build_llm_config_payload  # 修复后才存在
+
+    args = argparse.Namespace(
+        llm_provider=None,
+        llm_model=None,
+        llm_base_url=None,
+        llm_api_key=None,
+        llm_timeout_seconds=None,
+    )
+    # 不应抛 "model registry not initialized"
+    payload = _build_llm_config_payload(args)
+    assert payload is not None
+    # 调完后 registry 应已初始化，from_env() 可正常运行
+    from agent.sdk import LLMFactoryConfig
+    config = LLMFactoryConfig.from_env()
+    assert config.provider == "anthropic"
+
+
+def test_cli_llm_config_get_real_path_does_not_report_registry_error(monkeypatch) -> None:
+    """真实 CLI 启动路径（无 kernel_factory）在 registry 未初始化时不应报 registry 错。
+
+    走 llm-config get 子命令，不涉及真实 LLM 连接，只验证 registry 初始化链路正常。
+    该测试在当前代码（未修复前）应红（exit_code=1 + registry 错误），修复后绿。
+    """
+    import io
+    from agent.core.llm.model_registry import _reset_for_tests
+    _reset_for_tests()
+
+    monkeypatch.setenv("NANO_MULTIAGENT_LLM_PROVIDER", "anthropic")
+    monkeypatch.setenv("NANO_MULTIAGENT_LLM_MODEL", "kimiCoding:K2.6")
+    monkeypatch.setenv("NANO_MULTIAGENT_LLM_BASE_URL", "http://127.0.0.1:4000")
+
+    from coding_cli.commands import run_cli
+
+    out = io.StringIO()
+    exit_code = run_cli(["llm-config", "get"], stdout=out)
+    output = out.getvalue().strip()
+
+    assert "model registry not initialized" not in output, (
+        f"Registry not initialized error in real CLI path: {output}"
+    )
+    # 成功时 exit_code=0 且输出合法 JSON 含 provider 字段
+    assert exit_code == 0, f"run_cli failed with exit_code={exit_code}, output={output}"
+    import json
+    payload = json.loads(output)
+    assert "provider" in payload, f"Expected provider in payload: {payload}"
