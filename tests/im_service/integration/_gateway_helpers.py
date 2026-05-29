@@ -9,8 +9,21 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
+from agent.core.events.hub import StreamEvent
 from IM.repositories import AgentProfileRepository, NodeRepository
 from personal_assistant.config.local_store import AgentWorkspaceConfig
+
+
+def _make_stream_event(data: dict[str, Any], *, seq: int = 1) -> StreamEvent:
+    """Wrap a dict payload into a StreamEvent matching the real Kernel.stream() output."""
+    return StreamEvent(
+        sequence_num=seq,
+        event_id=f"evt-{seq}",
+        event=str(data.get("event", "")),
+        session_id=str(data.get("session_id", "")),
+        created_at="2026-01-01T00:00:00Z",
+        data=dict(data),
+    )
 
 
 @dataclass
@@ -124,6 +137,7 @@ class _FakeKernel:
         return record
 
     def stream(self, session_id: str, *, after_sequence: int = 0):
+        """Yield StreamEvent objects — matching the real Kernel.stream() contract."""
         # Each submit call appends one batch; advance per-session index across calls.
         batches = self.session_events.get(session_id, [])
         index = self._stream_calls.get(session_id, 0)
@@ -131,8 +145,8 @@ class _FakeKernel:
         _batch = batches[index] if index < len(batches) else []
 
         async def _gen():
-            for event in _batch:
-                yield event
+            for seq, event in enumerate(_batch, start=1):
+                yield _make_stream_event(dict(event), seq=seq)
 
         return _gen()
 

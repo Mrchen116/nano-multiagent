@@ -7,8 +7,21 @@ from pathlib import Path
 from typing import Any, AsyncIterator
 from unittest.mock import MagicMock
 
+from agent.core.events.hub import StreamEvent
 from personal_assistant.channels.base import OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
+
+
+def _make_stream_event(data: dict[str, Any], *, seq: int = 1) -> StreamEvent:
+    """Wrap a dict payload into a StreamEvent so stream() output matches Kernel.stream()."""
+    return StreamEvent(
+        sequence_num=seq,
+        event_id=f"evt-{seq}",
+        event=str(data.get("event", "")),
+        session_id=str(data.get("session_id", "")),
+        created_at="2026-01-01T00:00:00Z",
+        data=dict(data),
+    )
 
 
 class _FakeChannel:
@@ -308,16 +321,23 @@ class _FakeKernel:
 
     def stream(
         self, session_id: str, *, after_sequence: int = 0
-    ) -> AsyncIterator[dict[str, Any]]:
+    ) -> AsyncIterator[StreamEvent]:
+        """Yield StreamEvent objects — matching the real Kernel.stream() contract."""
         batches = self.session_events.get(session_id, [])
         run_id = self._last_run_id_by_session.get(session_id)
         run_states = self.run_states
         _batches_copy = list(batches)
+        _seq = [1]  # mutable counter for sequence numbers
 
-        async def _gen() -> AsyncIterator[dict[str, Any]]:
+        def _next_seq() -> int:
+            n = _seq[0]
+            _seq[0] += 1
+            return n
+
+        async def _gen() -> AsyncIterator[StreamEvent]:
             for batch in _batches_copy:
                 for event in batch:
-                    yield dict(event)
+                    yield _make_stream_event(dict(event), seq=_next_seq())
             if run_id is not None:
                 raw_state = run_states.get(run_id, {})
                 if isinstance(raw_state, list):
@@ -326,13 +346,16 @@ class _FakeKernel:
                     state = raw_state
                 output_text = state.get("output_text", "")
                 if output_text:
-                    yield {"event": "assistant_message", "run_id": run_id, "content": output_text}
+                    yield _make_stream_event(
+                        {"event": "assistant_message", "run_id": run_id, "content": output_text},
+                        seq=_next_seq(),
+                    )
                 status = state.get("status", "completed")
                 run_status: dict[str, Any] = {"event": "run_status", "run_id": run_id, "status": status}
                 usage = state.get("usage")
                 if usage is not None:
                     run_status["usage"] = usage
-                yield run_status
+                yield _make_stream_event(run_status, seq=_next_seq())
 
         return _gen()
 
@@ -358,12 +381,13 @@ class _FakeSseKernel(_FakeKernel):
 
     def stream(
         self, session_id: str, *, after_sequence: int = 0
-    ) -> AsyncIterator[dict[str, Any]]:
+    ) -> AsyncIterator[StreamEvent]:
+        """Yield StreamEvent objects — matching the real Kernel.stream() contract."""
         preset = list(self._preset_events)
 
-        async def _gen() -> AsyncIterator[dict[str, Any]]:
-            for event in preset:
-                yield dict(event)
+        async def _gen() -> AsyncIterator[StreamEvent]:
+            for seq, event in enumerate(preset, start=1):
+                yield _make_stream_event(dict(event), seq=seq)
 
         return _gen()
 
