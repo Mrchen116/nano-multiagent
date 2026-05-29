@@ -28,6 +28,7 @@ from agent.platform.persistence.session.service import SessionService
 from agent.platform.tools.loader import build_tool_registry
 from agent.platform.tools.registry import ToolRegistry
 from agent.core.runs.registry import RunsRegistry
+from agent.platform.llm.factory import create_llm_client as _platform_create_llm_client
 
 if TYPE_CHECKING:
     from agent.products.base import ProductProfile
@@ -161,6 +162,9 @@ def create_app(
             hook_runner=active_hook_runner,
             repo_root=resolved_repo_root,
             permission_broker=permission_broker,
+            # Inject platform factory so core stays provider-agnostic (#40).
+            # Wrap in lambda to match Callable[[LLMFactoryConfig], LLMClient] signature.
+            llm_client_factory=lambda cfg: _platform_create_llm_client(config=cfg),
             **runtime_kwargs,
         )
     else:

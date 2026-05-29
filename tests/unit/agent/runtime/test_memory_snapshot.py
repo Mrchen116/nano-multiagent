@@ -26,8 +26,10 @@ def _make_minimal_runtime(tmp_path: Path) -> AgentRuntime:
 
     store = JsonlSessionStore(data_dir=None, workspace_config_dirname=".nanocode")
     session_manager = SessionManager(store=store)
+    # llm_client required since #40 removed the implicit platform factory from core.
     return AgentRuntime(
         session_manager=session_manager,
+        llm_client=MagicMock(),
         repo_root=tmp_path,
     )
 

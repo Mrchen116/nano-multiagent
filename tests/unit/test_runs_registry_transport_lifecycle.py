@@ -12,7 +12,8 @@ from pathlib import Path
 import httpx
 
 from agent.core.agent.runtime import AgentRuntime
-from agent.core.llm.factory import LLMFactoryConfig, create_llm_client
+from agent.core.llm.factory import LLMFactoryConfig
+from agent.platform.llm.factory import create_llm_client
 from agent.core.runs.registry import RunStatus, RunsRegistry
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
