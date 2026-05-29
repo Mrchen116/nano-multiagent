@@ -144,7 +144,9 @@ reviewer 验收时走真实旅程:coding 让 agent 改个 bug;PA 在群聊和单
 #### Scenario: 预览反映 agent 真实接收的系统提示词
 - **GIVEN** agent 配置稳定(工具列表、特性开关、custom prompt 等)
 - **WHEN** 用户在 IM 打开"系统提示词预览"
-- **THEN** 预览内容与 agent 在真实对话中接收的系统提示词在所有 stable 段上字节一致;volatile 段(memory_block / 时间)在预览中以可识别的占位符呈现,且预览底部明确说明该差异
+- **THEN** 预览内容与 agent 在真实对话中接收的系统提示词在所有 stable 段上字节一致;volatile 段(memory_block / user_profile_block / 时间等)在预览中**就地以可识别的内联占位符呈现**,保持 prompt 完整形状。示例:`<运行时注入：当前时间>` / `<运行时注入：agent 的 MEMORY.md 内容>` / `<运行时注入：USER.md 用户画像>`。stable 段内容与 runtime 字节一致,volatile 位置标着"运行时注入"而非在末尾单独堆叠。
+
+  **更新(feat-385-M3-fix-r2 P1)**: 用户验收明确:volatile 段**就地内联**占位符,不在底部堆叠说明块。
 
 ## 范围与非目标
 
