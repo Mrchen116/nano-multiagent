@@ -306,9 +306,22 @@ _CORE_BACKGROUND_TASKS = CORE_BACKGROUND_TASKS
 def _render_runtime_footer(ctx: PromptContext) -> str:
     # Provenance: new — migrated from RUNTIME_FILL:CURRENT_DATETIME /
     #   RUNTIME_FILL:CURRENT_WORKING_DIRECTORY in prompts.py
+    # Decision 18/W3: current_datetime/cwd are now str|None. In PREVIEW mode they are
+    # None and we render inline placeholders (same pattern as memory_block three-state).
+    # In RUNTIME mode the values are always set by the caller; None is a defensive fallback.
+    from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+
+    if ctx.render_mode == RenderMode.PREVIEW:
+        datetime_str = ctx.current_datetime or "<运行时注入：当前时间>"
+        cwd_str = ctx.cwd or "<运行时注入：workspace 路径>"
+    else:
+        # RUNTIME: callers always supply real values; None fallback prevents "None" literals
+        datetime_str = ctx.current_datetime or ""
+        cwd_str = ctx.cwd or ""
+
     return (
-        f"Current date and time: {ctx.current_datetime}\n"
-        f"Current working directory: {ctx.cwd}"
+        f"Current date and time: {datetime_str}\n"
+        f"Current working directory: {cwd_str}"
     )
 
 

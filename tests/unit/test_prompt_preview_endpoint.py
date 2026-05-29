@@ -253,7 +253,12 @@ def test_prompt_preview_accepts_workspace_root_and_skill_ids() -> None:
 
 
 def test_prompt_preview_datetime_placeholder() -> None:
-    """current_datetime in PromptContext must be the placeholder, not empty string."""
+    """current_datetime in PromptContext is None in preview; core segment renders placeholder.
+
+    W3 fix: Decision 18 now makes current_datetime/cwd str|None. The preview endpoint
+    passes None (not a placeholder string) — the core.runtime_footer segment generates
+    the placeholder internally in PREVIEW mode. This test verifies the ctx carries None.
+    """
     captured: list[PromptContext] = []
 
     def _capture(ctx: PromptContext) -> str:
@@ -271,8 +276,9 @@ def test_prompt_preview_datetime_placeholder() -> None:
         )
 
     assert captured, "section render must have been called"
-    assert captured[0].current_datetime == "<运行时注入：当前时间>", (
-        f"expected datetime placeholder, got: {captured[0].current_datetime!r}"
+    # W3: endpoint passes None; segment renders "<运行时注入：当前时间>" internally
+    assert captured[0].current_datetime is None, (
+        f"expected None (placeholder logic in segment), got: {captured[0].current_datetime!r}"
     )
 
 
@@ -306,7 +312,11 @@ def test_prompt_preview_cwd_uses_workspace_root() -> None:
 
 
 def test_prompt_preview_cwd_placeholder_when_no_workspace() -> None:
-    """When workspace_root is absent, ctx.cwd must be the placeholder."""
+    """When workspace_root is absent, ctx.cwd is None; segment renders placeholder.
+
+    W3 fix: endpoint passes None for cwd when workspace_root is unknown;
+    core.runtime_footer generates '<运行时注入：workspace 路径>' internally in PREVIEW mode.
+    """
     captured: list[PromptContext] = []
 
     def _capture(ctx: PromptContext) -> str:
@@ -324,8 +334,9 @@ def test_prompt_preview_cwd_placeholder_when_no_workspace() -> None:
         )
 
     assert captured
-    assert captured[0].cwd == "<运行时注入：workspace 路径>", (
-        f"expected cwd placeholder, got: {captured[0].cwd!r}"
+    # W3: endpoint passes None; segment renders "<运行时注入：workspace 路径>" internally
+    assert captured[0].cwd is None, (
+        f"expected None (placeholder logic in segment), got: {captured[0].cwd!r}"
     )
 
 

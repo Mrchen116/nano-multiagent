@@ -343,20 +343,19 @@ def prompt_preview(
     else:
         available_skills = ()
 
-    # datetime is runtime-volatile; show placeholder so users see the field exists
-    # but understand it will be filled at runtime (spec Q3 / decision 4).
-    current_datetime = "<运行时注入：当前时间>"
-
-    # cwd is known when workspace_root is provided; otherwise show placeholder.
-    cwd = payload.workspace_root if payload.workspace_root else "<运行时注入：workspace 路径>"
+    # W3/Decision 18: datetime and cwd are now str|None. Pass None (or the known cwd)
+    # and let the core.runtime_footer segment render placeholders in PREVIEW mode.
+    # This moves placeholder logic into the segment (same as memory_block three-state),
+    # replacing the previous pattern of the endpoint hard-coding placeholder strings.
+    cwd = payload.workspace_root if payload.workspace_root else None
 
     # M4 Decision 19: preview uses render_mode=PREVIEW so volatile segments render
     # their banner + '运行时注入' placeholder via core segment logic (three-state render).
     ctx = PromptContext(
         available_tools=available_tools,
         available_skills=available_skills,
-        current_datetime=current_datetime,
-        cwd=cwd,
+        current_datetime=None,   # None → segment renders "<运行时注入：当前时间>" placeholder
+        cwd=cwd,                  # real value when workspace_root known, else None → placeholder
         # memory_content / user_profile_content left as None — segments use
         # render_mode=PREVIEW to generate banner + inline placeholder.
         render_mode=RenderMode.PREVIEW,

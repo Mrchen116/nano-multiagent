@@ -14,7 +14,7 @@ def _make_volatile_section(name: str, content: str = "volatile content") -> Prom
     section = MagicMock(spec=PromptSection)
     section.name = name
     section.cache_safe = False
-    section.order = 950
+    # M4: PromptSection.order field deleted; no section.order assignment
     return section
 
 
@@ -22,7 +22,7 @@ def _make_stable_section(name: str) -> PromptSection:
     section = MagicMock(spec=PromptSection)
     section.name = name
     section.cache_safe = True
-    section.order = 100
+    # M4: PromptSection.order field deleted; no section.order assignment
     return section
 
 
