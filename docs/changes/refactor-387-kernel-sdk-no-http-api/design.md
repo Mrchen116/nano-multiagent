@@ -6,6 +6,7 @@
 
 ## Changelog
 
+- 2026-05-29 (Review r1 修订): 决策 5 调整 — `build_kernel` 实际收 `LLMFactoryConfig`（已解析单 provider），而非决策 5 原写的「收 `LLMConfigPayload` 并内部 `init_model_registry`」。改为**由产品在启动时各自 `init_model_registry(LLMConfigPayload)`**（PA: `main.py:1098`；coding_cli: review r1 修复中补齐）。verifier W1 记录此简化为功能等价。**已知 footgun**：产品必须记得在 build_kernel 前 init registry（CLI 首版漏了导致 r1 blocking）——后续可考虑回归决策 5 让 build_kernel 自持 registry init 以消除。详见 acceptance-cli.md / verification.md。
 - 2026-05-29 (M2→M4): coding_cli 的死 HTTP 文件删除推迟到 M4 — M2 已让 coding_cli 全面走 agent.sdk、不再使用 `client.py` / `kernel_app.py` / `managed_server.py` / `session_stream.py`，但保留这些文件（连同其 HTTP-mode 测试）到 M4 与 `agent/platform/http_api` 删除 + 测试平移一起清理。M4 范围据此扩充：除原列项外，还需删 `coding_cli/{client,kernel_app,managed_server,session_stream}.py` 及其专属测试，并移除 `test_cli_http_only_contract.py` 中对 kernel_app.py 的 M4 白名单。M1 的边界守卫已临时白名单 `coding_cli/kernel_app.py`。详见 M2/progress.md。
 - 2026-05-29 (M3 实施期 SDK 表面扩展): `Kernel` 增加 `get_session(session_id, workspace_root)`, `append_message(...)`, `create_session(tool_allowlist=, metadata=)` 方法；`InboundPipeline._ensure_binding` 改为 async（await kernel.create_session）；`_KernelClientShim` 新增，适配 HeartbeatScheduler/InternalDispatchHandler；`_wait_for_gateway_ready` 改为等 PID 文件而非 HTTP 健康探针——以上均为 M3 实施期必要扩展，详见 M3/progress.md。
 - 2026-05-29 (M3): `scripts/e2e-up.sh` 去「起 Kernel API」段从 M4 前移到 M3 — M3 删 `personal_assistant/kernel_app.py` 会让 e2e-up.sh 引用失效入口、当场跑挂，故该脚本改动必须随 M3 落地，否则 Review-B 无法起 gateway。M4 仅保留 `platform/http_api` 删除 + HTTP 端点 contract test 平移 + 文档（含 2 个红测）清理。详见 M3/progress.md。
