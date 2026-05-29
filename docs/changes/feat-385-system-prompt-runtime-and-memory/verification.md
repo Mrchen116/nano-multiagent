@@ -104,3 +104,77 @@ Tasks: 7/7 complete（R1–R7 全部标记 DONE，单测 2186 passed，contract 
 ---
 
 2 warning(s) found. Ready for PR (with noted improvements).
+
+---
+
+# Round 2
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 11/11 tasks done（M2-fix-r1 全部 DONE）；4 Requirement 均有实现 |
+| Correctness | 9/9 Scenarios 均已实现；W1 实现逻辑已修复；残余 WARNING：callback 端到端测试缺失 |
+| Coherence | 12/14 决策遵守；决策 4 逻辑已接通（WARNING 降级）；决策 11 三常量已删（CLOSED）；S1 死代码未清 |
+
+No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvements).
+
+---
+
+## Round 2: W1/W2 复验结果
+
+### W1 — 决策 4 compaction callback 接通（部分 CLOSED）
+
+**代码层面已完全修复**：
+
+- `loop.py:72`：`AgentLoop.__init__` 新增 `on_compaction: Callable[[str], None] | None = None` 参数，存为 `self._on_compaction_callback`
+- `loop.py:692-693`：`_compact` 方法成功返回 summary_msg 后，调用 `if self._on_compaction_callback is not None: self._on_compaction_callback(session_id)`
+- `runtime.py:170`：构造 `AgentLoop` 时传入 `on_compaction=self._invalidate_memory_snapshot`
+- `runtime.py:1280-1282`：`_invalidate_memory_snapshot` 正确从 `self._memory_snapshots` pop 对应 session
+
+**单元测试覆盖**：
+- `test_memory_snapshot.py:test_invalidate_memory_snapshot_clears_cache`：验证 `_invalidate_memory_snapshot` pop 行为
+- `test_agent_loop.py:test_loop_accepts_on_compaction_callback_in_init`：验证参数接收
+- `test_agent_loop.py:test_loop_on_compaction_callback_not_called_without_compaction`：验证无 compaction 时不触发
+
+**残余缺口（WARNING → 降级保留）**：round 1 修复建议第 4 条"补集成测试：mock compaction 触发后验证 callback 实际被调用"未实现。`test_loop_compact.py` 的 4 个测试均不传 `on_compaction`，没有验证"compaction 触发 → callback fired → `_memory_snapshots` 清除"的端到端路径。`_compact` 方法是否调用 callback 的行为仅靠代码审查确认，无测试保证。
+
+- **残余 WARNING 建议**：在 `test_loop_compact.py` 补一个测试：用 `_FakeCompactionPlanner` + `on_compaction=cb` 构造 `AgentLoop`，触发 compaction 后 `assert cb.called` 且传入的 `session_id` 正确。约 15 行。
+
+### W2 — 决策 11 老常量退役（CLOSED）
+
+**已完全修复**：
+
+- `src/agent/core/agent/prompting.py`：`LOCAL_CODING_SYSTEM_PROMPT`、`CODING_SYSTEM_PROMPT`、`_DEFAULT_TOOL_SPECS` 三常量已删除，`grep -E "LOCAL_CODING_SYSTEM_PROMPT|CODING_SYSTEM_PROMPT|_DEFAULT_TOOL_SPECS" src/` 无命中（注释引用除外）
+- `tests/unit/test_agent_prompting.py`：不再从 `prompting.py` 引用已删常量，改用本地 `_CODING_FIXTURE` fixture（`test_agent_prompting.py:19-28`）
+- `src/` 中仅剩 `local_coding/prompt_sections.py` 的 Provenance 注释引用 `LOCAL_CODING_SYSTEM_PROMPT`（说明来源），属合理历史注释，非活跃引用
+- `build_system_prompt` 函数保留合理：`runtime.py:596,1305` 及 `loop.py:162` 仍有 legacy fallback 调用者，删除时机不在本 unit
+
+W2 CLOSED。
+
+### S1 — bootstrap.py 死代码（仍存在）
+
+`src/agent/platform/bootstrap.py:151` 的 `memory_root = config_resolver.user_memory_root()` 仍未清理。M2-fix-r1 范围不含此修复，属于遗留 SUGGESTION。
+
+---
+
+## Round 2: 问题汇总
+
+### WARNING（应该修）
+
+**W1-残: compaction 触发 → callback 被调用的端到端测试缺失**
+
+- **位置**: `tests/unit/test_loop_compact.py`
+- **问题**: 四个 compaction 测试均不传 `on_compaction` 参数。`loop.py:692-693` 的 callback 触发路径无测试覆盖，仅靠代码审查确认正确性。
+- **修复建议**: 在 `tests/unit/test_loop_compact.py` 新增一个测试，构造带 `on_compaction=_cb` 的 `AgentLoop`，用 `_FakeCompactionPlanner` 触发 compaction，断言 `_cb` 被调用且参数为正确 `session_id`。约 20 行，不依赖运行时。
+
+### SUGGESTION（可以修）
+
+**S1: `src/agent/platform/bootstrap.py:151` 死代码未清**
+
+- **位置**: `src/agent/platform/bootstrap.py:151 memory_root = config_resolver.user_memory_root()`
+- **修复建议**: 删除该行（结果未使用，`MemoryTool()` 构造无需此值）。
+
+---
+
+No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvements).
