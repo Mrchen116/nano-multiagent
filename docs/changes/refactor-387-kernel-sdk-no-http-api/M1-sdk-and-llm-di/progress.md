@@ -48,6 +48,27 @@
   - E2E/Regression: 5 个 SDK 表面契约测试覆盖：build_kernel smoke + 必要方法 + 跨 loop 流式 + can_use_tool 回调 + interrupt 取消权限等待
   - Visual/Interaction: N/A
 - Rollback: `git revert 68c7b29f`
-- Commits: C1=b7e9c137, C2=68c7b29f, C3=<待填>
-- Next: R3 — 产品边界守卫 + 全量验证
+- Commits: C1=b7e9c137, C2=68c7b29f, C3=a849be14
+- Next: R3 完成
+
+## R3 — 产品边界守卫雏形 + 全量验证
+
+- Context: M1 退出标准第 3 条：新增「产品只能 import agent.sdk」边界守卫雏形（contract 测试）。
+- Decision:
+  1. 新建 `tests/contract/test_agent_sdk_boundary_contract.py`，含 3 个测试：
+     - `test_agent_sdk_has_no_upward_dependency_on_products`：agent.sdk 不依赖产品包（最关键的不变量，AST 检查）
+     - `test_no_new_unexpected_product_agent_internal_imports`：产品内已知 M2/M3 违例白名单，任何 NEW agent.core/platform 违例立即失败
+     - `test_agent_sdk_exposes_build_kernel_and_kernel`：build_kernel + Kernel 可用
+  2. 白名单化 M2/M3 范围内的已知违例文件（kernel_app.py、main.py 等），并注明 milestone 责任
+- Rationale: 雏形守卫做到"框架建立 + 防止 scope creep"——已知违例明确，任何新增违例立即暴露。严格模式在 M4 所有违例消除后激活。
+- Evidence:
+  - Tests: `pytest tests/contract/test_agent_sdk_boundary_contract.py` — 3 passed；全量 `pytest tests/unit/ tests/contract/` — 2083 passed, 2 failed (M4 预期红测), 1 xfailed
+  - Entry: N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 边界守卫 contract 测试全绿
+  - Visual/Interaction: N/A
+- Rollback: `git revert 91656d62`
+- Commits: C1=91656d62 (R3 只有一个 commit，守卫即实现)
+- Next: M1 全部 roadpoint DONE，准备集成到 unit 分支
 

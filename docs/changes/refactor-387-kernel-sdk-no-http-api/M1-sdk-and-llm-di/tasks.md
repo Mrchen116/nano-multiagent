@@ -10,9 +10,9 @@
 
 ## 退出标准
 
-- [ ] 新增 `agent/sdk` 表面契约测试 green（含跨 loop 流式 + can_use_tool 权限回调 + 等权限时 interrupt 能取消）
-- [ ] `tests/contract/test_core_no_platform_imports.py` 去掉 xfail 后 green（core 零 platform import）
-- [ ] 新增「产品只能 import `agent.sdk`」边界守卫雏形（contract 测试）
+- [x] 新增 `agent/sdk` 表面契约测试 green（含跨 loop 流式 + can_use_tool 权限回调 + 等权限时 interrupt 能取消）
+- [x] `tests/contract/test_core_no_platform_imports.py` 去掉 xfail 后 green（core 零 platform import）
+- [x] 新增「产品只能 import `agent.sdk`」边界守卫雏形（contract 测试）
 
 ## 测试策略
 
