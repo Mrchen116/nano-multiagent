@@ -36,10 +36,12 @@ _TARGET_FILES: dict[str, str] = {
     "user": "USER.md",
 }
 
-# Rendered headers for format_for_prompt (matches hermes _render_block style)
+# M4 Decision 17: banner titles moved to core_sections.py (CORE_MEMORY_BLOCK /
+# CORE_USER_PROFILE_BLOCK render). format_for_prompt now returns pure content.
+# _TARGET_HEADERS kept only for the legacy _render_block helper (not in production path).
 _TARGET_HEADERS: dict[str, str] = {
-    "memory": "MEMORY (your personal notes)",
-    "user": "USER PROFILE (who the user is)",
+    "memory": "MEMORY (your personal notes)",   # also defined in core_sections._render_memory_block
+    "user": "USER PROFILE (who the user is)",   # also defined in core_sections._render_user_profile_block
 }
 
 
