@@ -16,17 +16,13 @@ correct, not just that the stubs work.
 from __future__ import annotations
 
 import asyncio
-import time
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
+from unittest.mock import MagicMock
 
 from agent.sdk import Kernel, build_kernel
 from agent.core.llm.factory import LLMFactoryConfig
-from agent.core.types import Message, TurnResult
-from agent.products.local_coding.profile import LocalCodingProfile
+from agent.products.local_coding.profile import LOCAL_CODING_PROFILE
 
 
 # ---------------------------------------------------------------------------
@@ -34,14 +30,26 @@ from agent.products.local_coding.profile import LocalCodingProfile
 # ---------------------------------------------------------------------------
 
 
+async def _allow_all(tool, input, ctx) -> Any:  # noqa: ANN001
+    """Async can_use_tool strategy that allows all tools."""
+    from agent.platform.permissions.broker import PermissionDecision
+    return PermissionDecision(behavior="allow")
+
+
 def _fake_llm_client() -> Any:
-    """Return a fake LLM client that immediately completes a turn."""
-    client = MagicMock()
-    client.generate = MagicMock(return_value=_aiter_messages())
-    return client
+    """Return a fake LLM client whose generate() returns an async generator each call.
+
+    The runtime calls ``client.generate(request)`` and iterates the async generator.
+    We return a new generator object on every call so the client is reusable across runs.
+    """
+    class _FakeClient:
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            return _async_stub_messages()
+
+    return _FakeClient()
 
 
-async def _aiter_messages():
+async def _async_stub_messages():
     """Async generator yielding one assistant message then finishing."""
     msg = MagicMock()
     msg.role = "assistant"
@@ -52,18 +60,6 @@ async def _aiter_messages():
     yield msg
 
 
-def _always_allow(tool, input, ctx):  # noqa: ANN001, ANN201
-    """can_use_tool strategy that allows everything."""
-    from agent.platform.permissions.broker import PermissionDecision
-    return asyncio.coroutine(lambda: PermissionDecision(behavior="allow"))()
-
-
-async def _allow_all(tool, input, ctx) -> Any:  # noqa: ANN001
-    """Async can_use_tool strategy that allows all tools."""
-    from agent.platform.permissions.broker import PermissionDecision
-    return PermissionDecision(behavior="allow")
-
-
 # ---------------------------------------------------------------------------
 # R2 Tests
 # ---------------------------------------------------------------------------
@@ -72,7 +68,7 @@ async def _allow_all(tool, input, ctx) -> Any:  # noqa: ANN001
 def test_build_kernel_returns_kernel_instance(tmp_path: Path) -> None:
     """build_kernel() with a fake LLM client must return a Kernel."""
     kernel = build_kernel(
-        product_profile=LocalCodingProfile(),
+        product_profile=LOCAL_CODING_PROFILE,
         llm_config=LLMFactoryConfig(
             provider="openai_compat",
             model="codex_oauth:gpt-5.5",
@@ -89,7 +85,7 @@ def test_build_kernel_returns_kernel_instance(tmp_path: Path) -> None:
 def test_kernel_exposes_required_methods(tmp_path: Path) -> None:
     """Kernel must expose all async + sync methods declared in design.md interface."""
     kernel = build_kernel(
-        product_profile=LocalCodingProfile(),
+        product_profile=LOCAL_CODING_PROFILE,
         llm_config=LLMFactoryConfig(
             provider="openai_compat",
             model="codex_oauth:gpt-5.5",
@@ -125,7 +121,7 @@ async def test_cross_loop_streaming_receives_run_status_event(tmp_path: Path) ->
     and the caller's loop can consume events via Kernel.stream() as an AsyncIterator.
     """
     kernel = build_kernel(
-        product_profile=LocalCodingProfile(),
+        product_profile=LOCAL_CODING_PROFILE,
         llm_config=LLMFactoryConfig(
             provider="openai_compat",
             model="codex_oauth:gpt-5.5",
@@ -167,18 +163,12 @@ async def test_cross_loop_streaming_receives_run_status_event(tmp_path: Path) ->
         kernel.close()
 
 
-async def test_can_use_tool_callback_is_invoked_when_gate_fires(tmp_path: Path) -> None:
-    """can_use_tool must be called when the auto_mode_gate hook fires.
+async def test_can_use_tool_callback_is_invoked_via_permission_requester(tmp_path: Path) -> None:
+    """The SDK-injected permission_requester must call can_use_tool and use its decision.
 
-    We set up a kernel where can_use_tool records that it was called,
-    then trigger a turn that uses a tool which the gate processes.
-    This validates the callback wiring through PermissionBroker.
-
-    NOTE: Full integration test requires a real auto_mode_gate hook firing,
-    which depends on the runtime executing a tool. For M1 SDK surface tests we
-    verify the callback protocol: the SDK wires can_use_tool such that if the
-    broker receives a park request, the callback is awaited and its decision
-    resolves the future.
+    This validates the callback wiring: when a permission request arrives at the
+    runtime's HookContext.request_permission(), the SDK bridges it to can_use_tool
+    and resolves the broker Future with the callback's PermissionDecision.
     """
     called: list[str] = []
 
@@ -188,7 +178,7 @@ async def test_can_use_tool_callback_is_invoked_when_gate_fires(tmp_path: Path) 
         return PermissionDecision(behavior="allow")
 
     kernel = build_kernel(
-        product_profile=LocalCodingProfile(),
+        product_profile=LOCAL_CODING_PROFILE,
         llm_config=LLMFactoryConfig(
             provider="openai_compat",
             model="codex_oauth:gpt-5.5",
@@ -199,30 +189,27 @@ async def test_can_use_tool_callback_is_invoked_when_gate_fires(tmp_path: Path) 
         _llm_client_override=_fake_llm_client(),
     )
     try:
-        # Directly simulate a permission request via the broker to test the wiring.
-        # This is the unit-level proof that build_kernel wired can_use_tool correctly
-        # without requiring a full LLM tool-call pipeline.
+        # Simulate a permission request coming through the runtime's hook context.
+        # The SDK wires a permission_requester into the runtime; we call it directly
+        # to verify that can_use_tool is invoked and the decision is returned.
         from agent.platform.permissions.broker import PermissionRequest
-        broker = kernel._broker  # noqa: SLF001  (test accesses internals intentionally)
 
-        loop = asyncio.get_event_loop()
-        future = broker.register_request(
-            request_id="req-test-sdk-can-use-tool",
-            run_id="run-test",
+        requester = kernel._c.runtime._permission_requester  # noqa: SLF001
+        assert requester is not None, "SDK must inject a permission_requester into runtime"
+
+        # Build a minimal PermissionRequest
+        req = PermissionRequest(
+            id="req-sdk-can-use-tool",
             tool_name="bash",
-            loop=loop,
+            tool_input={"command": "echo hi"},
+            question="Allow bash?",
+            options=(),
         )
+        response = await asyncio.wait_for(requester(req), timeout=2.0)
 
-        # Trigger can_use_tool resolution via the SDK bridge
-        await kernel._resolve_permission_via_callback(  # noqa: SLF001
-            request_id="req-test-sdk-can-use-tool",
-            run_id="run-test",
-            tool_name="bash",
-            tool_input={},
-        )
-
-        response = await asyncio.wait_for(future, timeout=1.0)
-        assert response is not None
+        # can_use_tool returned allow → response should be allow_once
+        assert response.decision == "allow_once"
+        assert "bash" in called
     finally:
         kernel.close()
 
@@ -230,8 +217,9 @@ async def test_can_use_tool_callback_is_invoked_when_gate_fires(tmp_path: Path) 
 async def test_interrupt_while_waiting_for_permission_cancels_turn(tmp_path: Path) -> None:
     """interrupt() while can_use_tool is pending must cancel the pending future.
 
-    This validates risk 3 from design.md: broker.cancel_all_pending resolves
-    the parked Future so the turn does not hang indefinitely.
+    This validates risk 3 from design.md: when interrupt fires, cancel_all_pending
+    resolves the broker Future to deny so the awaiting permission_requester returns
+    without hanging indefinitely.
     """
     blocking_event: asyncio.Event = asyncio.Event()
 
@@ -242,7 +230,7 @@ async def test_interrupt_while_waiting_for_permission_cancels_turn(tmp_path: Pat
         return PermissionDecision(behavior="allow")
 
     kernel = build_kernel(
-        product_profile=LocalCodingProfile(),
+        product_profile=LOCAL_CODING_PROFILE,
         llm_config=LLMFactoryConfig(
             provider="openai_compat",
             model="codex_oauth:gpt-5.5",
@@ -260,22 +248,31 @@ async def test_interrupt_while_waiting_for_permission_cancels_turn(tmp_path: Pat
             workspace_root=tmp_path,
         )
 
-        # Register a fake permission request to simulate the gate parking
         from agent.platform.permissions.broker import PermissionRequest
-        broker = kernel._broker  # noqa: SLF001
-        loop = asyncio.get_event_loop()
-        future = broker.register_request(
-            request_id="req-interrupt-test",
-            run_id=run.run_id,
+
+        requester = kernel._c.runtime._permission_requester  # noqa: SLF001
+        assert requester is not None
+
+        req = PermissionRequest(
+            id="req-interrupt-perm",
             tool_name="bash",
-            loop=loop,
+            tool_input={"command": "echo hi"},
+            question="Allow bash?",
+            options=(),
         )
 
-        # interrupt() must resolve all pending futures via cancel_all_pending
+        # Start awaiting permission in background — will block on blocking_can_use_tool
+        perm_task = asyncio.create_task(requester(req))
+
+        # Give the task a moment to start and park in broker
+        await asyncio.sleep(0.05)
+
+        # interrupt() must cancel the blocking permission wait via cancel_all_pending
         kernel.interrupt(session.session_id)
 
-        # Future should resolve quickly (deny from cancellation)
-        response = await asyncio.wait_for(future, timeout=1.0)
+        # The pending permission should resolve quickly after interrupt
+        response = await asyncio.wait_for(perm_task, timeout=2.0)
+        # Broker cancel_all_pending resolves to deny
         assert response.decision == "deny"
     finally:
         kernel.close()

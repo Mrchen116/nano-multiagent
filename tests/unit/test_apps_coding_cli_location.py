@@ -43,6 +43,16 @@ def test_apps_coding_cli_package_root_exports_stable_application_surface() -> No
 
 
 
-def test_legacy_cli_and_sdk_roots_are_removed() -> None:
+def test_legacy_cli_root_is_removed() -> None:
+    """agent.cli was a legacy root removed in M89; must not re-emerge."""
     assert find_spec("agent.cli") is None
-    assert find_spec("agent.sdk") is None
+
+
+def test_agent_sdk_is_the_new_public_surface() -> None:
+    """agent.sdk is now the canonical product-facing surface (refactor-387-M1).
+
+    The old test_legacy_cli_and_sdk_roots_are_removed checked that agent.sdk did
+    not exist (because a prior legacy 'sdk' root had been removed). Now agent.sdk
+    is intentional: products import only from here.
+    """
+    assert find_spec("agent.sdk") is not None

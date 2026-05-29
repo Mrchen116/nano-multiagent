@@ -78,7 +78,9 @@ EXPECTED_EXISTING_PATHS = (
     "platform/product.py",
     "platform/products/local_coding.py",
     "platform/products/personal_assistant.py",
-    "platform/sdk/client.py",
+    # platform/sdk/client.py deleted in refactor-387-M1 (legacy HTTP client removed;
+    # products now use agent.sdk.build_kernel in-process instead of HTTP)
+    "sdk/__init__.py",  # new top-level agent.sdk surface added in refactor-387-M1
     "platform/tools/base.py",
     "platform/tools/builtins/bash.py",
     "platform/tools/builtins/edit.py",
