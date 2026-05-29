@@ -17,7 +17,12 @@
 - `## Available Tools` 段（`core.runtime_tools`）把 ToolSpec 名字+描述渲染进 system prompt，与 Anthropic API `tools=[]` 原生通道重复（schema 在 API 通道、文字描述在 prompt 通道），token 浪费、易漂移、掩盖 provider 兼容 bug。
 - memory 闭环断了：MemoryTool（feat-349 引入，复刻 hermes）写入路径活，但 MemoryStore.format_for_prompt 在 session 启动从未被调用，`PromptContext.memory_block` 永远为 None，`core.memory_block` 段（feat-379 已就位）永远未激活——agent 写得进 memory 但读不到自己写的内容。本 unit 第 3 项补这条注入链路。
 
-> 备注：原始需求第 3 项"对齐 CC 一些段"经澄清后整体推迟（见 Q3/Q4），本 unit 第 3 项已收窄为"修 memory 闭环"，CC 内容补搬留给后续 unit。
+> 备注：原始需求第 3 项"对齐 CC"含两块：【CC 通用段**内容**补搬】与【对齐 CC 的 system prompt **构造结构**(getSystemPrompt 集中装配)】。前者经澄清后整体推迟（见 Q3/Q4），仍留给后续 unit；后者在 M3 验收后由用户激活、并入本 unit（见 Q8 + M4）。memory 闭环修复(原 Q4 B)也在本 unit。
+
+追加原话（2026-05-29，M3 验收时，激活第 3 项的"构造结构对齐 CC"部分）：
+
+> "有这个函数做 getSystemPrompt，里面每个小段就是类似 get*Section。然后在 getSystemPrompt 拼装一下。现在是散的，没有一个 getSystemPrompt 的，打开代码根本看不出系统提示词到底有啥"
+> "我的架构要求就是每个产品都能直接用这套 core，来做自己的 agent 产品。"
 
 ## 澄清记录
 
@@ -50,6 +55,10 @@
 - Q7: design 阶段调研发现 — 现状 `bootstrap_product` 是 per-process(PA Gateway 起一个 kernel 进程对应一次 bootstrap),`bootstrap.py:143` 把 bootstrap-time `memory_root` 作为 `_fixed_memory_root` 注入 MemoryTool,`MemoryTool._resolve_memory_root` 第一行短路了 per-session 解析。结果:所有 agent 实际共用同一份 MEMORY.md / USER.md(基于进程 cwd / env),**与 feat-349 spec Q3 "每个 agent 完全隔离自己的 memory" 的产品契约矛盾**。本 unit 是否顺手修这个 bug?给三选项:G1 本 unit 扩范围,顺手修(让 MemoryTool 走 ctx.session_metadata 派生 per-session memory_root,runtime 在 hook_metadata 加 workspace_root key);G2 本 unit 只保证读路径正确(读写不一致,memory 形同虚设,不可取);G3 推迟,先开 bugfix 单独修,完成后再做本 unit。
   A(原话): 本 units 扩大一刀。没关系啊，这个有你的任务多一点没关系，后面我们做 精确的 milestone 分割就好了。
   Agent 解读: 选 G1。本 unit 范围扩到含 MemoryTool 隔离修复:(1) `bootstrap.py:143` MemoryTool 构造不再传 `memory_root`(传 None);(2) `MemoryTool._resolve_memory_root` 不再短路 _fixed,强制走 ctx.session_metadata;(3) runtime `_run_locked` 在 hook_metadata 中加 `workspace_root` key(目前只有 `cwd`);(4) memory_root 派生路径统一为 `<workspace>/.nanoassistant/memory/`(对齐 `WORKSPACE_CONFIG_DIRNAME` 与 PA local_store 注释);(5) 本 unit freeze 流程从同一来源派生 memory_root,读写一致。milestone 拆分由 design 阶段定。
+
+- Q8: M3 验收时用户指出 system prompt 构造抽象问题(段定义散落三处、靠 order 数字隐式排序、没有集中装配入口、打开代码看不出 prompt 全貌;banner 渲染漏在 MemoryStore;preview 与 runtime 两套处理),要求对齐 CC `getSystemPrompt`(每段 get*Section + 一个集中装配函数显式线性拼装),并并入本 unit。这个需求怎么落进 spec?给推荐:用户可观察部分精确化 Req-4(preview banner 完整呈现 + preview/runtime 同源);"集中可读装配 + core 通用性"作为现状痛点 + 目标状态(动因),其代码结构可验证性归 design 的 `[worker]` 轨,不在 spec 立"打开代码看段序列"这类非产品可观察 Scenario。
+  A(原话): ok
+  Agent 解读: M4 重构并入本 unit,是第 3 项"对齐 CC"中【构造结构】子部分的激活(【CC 段内容补搬】仍推迟)。spec 增补三处:(1) 用户场景加"场景四:维护者看不出 system prompt 全貌"(回归基线镜头,面向内部变更的动因,显式声明无新增终端用户可观察行为);(2) Req-4 精确化(volatile 段 banner 等固定结构在 preview 完整呈现、仅动态内容是占位符;preview 与 runtime 同一套装配同源);(3) 范围加 M4(集中显式装配 / 去 order / banner 回归段 / preview 同源 / core 零 product 依赖可复用)。"集中可读装配 + core 通用性"的代码结构验证(build_<product>_system_prompt 可读、core 不 import products)归 design M4 的 `[worker]` 轨,reviewer 只验 Req-4 的用户可观察面。
 
 
 ## 用户场景
@@ -91,6 +100,14 @@ reviewer 验收时走真实旅程:coding 让 agent 改个 bug;PA 在群聊和单
 但 agent 实际工作时,该用 `read` 还是用 `read`、该用 `send_message` 还是用 `send_message`、该用 `memory` 还是用 `memory` — **所有工具一切正常**。因为工具描述本就该走 LLM API 的 `tools` 通道(本仓 LLM 代理已支持),系统提示词里那段重复列表删掉,既省 token 又消除"prompt 描述漂移于 schema"的风险。
 
 如果哪天小张换了一个不透传 `tools` 通道的 provider,agent 的工具调用会直接炸 — 这是 **provider 适配层该修的事**,本 unit 不在 system prompt 兜底掩盖。
+
+### 场景四:维护者看不出 system prompt 全貌,新产品难复用 core(构造可读性 — M4 动因)
+
+**现状(回归基线)**:一个维护者想知道"PA agent 的 system prompt 到底由哪些段、按什么顺序组成",得同时打开 `core_sections.py`(11 个 core 段,各带 order 数字)、`products/personal_assistant/prompt_sections.py`、`products/local_coding/prompt_sections.py`,再脑内按 order 归并排序——**没有任何一处显式写出完整序列**。order 是散落各文件的 magic number;banner 渲染还漏在 `MemoryStore`;preview 与 runtime 对 volatile 段是两套处理。想做一个新 agent 产品复用这套能力,得照抄这套隐式约定。
+
+**目标状态**:对齐 CC 的 `getSystemPrompt` —— 每个产品有一个集中的装配函数(`build_<product>_system_prompt`),**显式线性列出**该产品 system prompt 的完整段序列(core 积木 + product 段),打开它就是这个产品 prompt 的"目录"。`core` 是一套自包含、零 product 依赖的内核;任何产品 import core、用它的段积木 + 装配机制 + render_mode 搭自己的 agent,**零改 core**。
+
+**这是面向内部的可维护性变更,无新增终端用户可观察行为**——其用户可观察投影落在 Req-4(preview 与 runtime 同源、所见即所得)。"代码能一眼看出段序列""core 不 import products"等可维护性目标由 design M4 的实现层(`[worker]` 轨 + 架构师 PR review)验证,不在本 spec 立产品旅程 Scenario。
 
 ## 验收标准
 
@@ -146,7 +163,16 @@ reviewer 验收时走真实旅程:coding 让 agent 改个 bug;PA 在群聊和单
 - **WHEN** 用户在 IM 打开"系统提示词预览"
 - **THEN** 预览内容与 agent 在真实对话中接收的系统提示词在所有 stable 段上字节一致;volatile 段(memory_block / user_profile_block / 时间等)在预览中**就地以可识别的内联占位符呈现**,保持 prompt 完整形状。示例:`<运行时注入：当前时间>` / `<运行时注入：agent 的 MEMORY.md 内容>` / `<运行时注入：USER.md 用户画像>`。stable 段内容与 runtime 字节一致,volatile 位置标着"运行时注入"而非在末尾单独堆叠。
 
-  **更新(feat-385-M3-fix-r2 P1)**: 用户验收明确:volatile 段**就地内联**占位符,不在底部堆叠说明块。
+#### Scenario: volatile 段的固定结构(banner)在预览中完整可见
+- **WHEN** 用户在预览里看一个带固定格式的 volatile 段(如 memory_block)
+- **THEN** 该段的**固定格式骨架完整呈现**(如 `══…══` 分隔线 + `MEMORY (your personal notes) […]` 标题 banner),**只有动态填充内容**是 `<运行时注入：…>` 占位符 —— 而不是整段被替换成一行占位符。用户能看出"这个段长什么样、runtime 会在哪里填什么"。
+
+#### Scenario: 预览与运行时同源(同一套装配代码)
+- **WHEN** 对同一 agent 配置,分别看预览产物 和 该 agent 真实对话接收的 system prompt
+- **THEN** 两者由**同一套装配代码**产出,所有 stable 段 + 所有段的 banner / 固定结构**字节一致**,差异仅在 volatile 段的动态填充处(预览为占位符、运行时为真值)——不存在"预览一套、运行时另一套"的分叉
+
+  **更新(feat-385-M4)**: 精确化——banner 等固定结构在预览完整呈现(非整段替换);preview 与 runtime 同源(占位符机制下沉 core,二者共用同一 `build_<product>_system_prompt` + `resolve`,只差 `render_mode`)。
+  **更新(feat-385-M3-fix-r2 P1)**: volatile 段**就地内联**占位符,不在底部堆叠说明块。
 
 ## 范围与非目标
 
@@ -157,11 +183,12 @@ reviewer 验收时走真实旅程:coding 让 agent 改个 bug;PA 在群聊和单
   - **MemoryTool 隔离修复**(Q7 G1):修 `bootstrap.py:143` + `MemoryTool._resolve_memory_root` + runtime 的 hook_metadata,让 memory_root 真正 per-session(per-agent)派生,符合 feat-349 spec Q3 产品契约;读(本 unit 新增的 freeze 流程)与写(MemoryTool)走同一 memory_root
   - 两个产品(coding + PA)同步享用上述改动(沿用 feat-349 已对齐方案,不重新决议)
   - prompt-preview 端点保持工作,与 runtime 装配产物一致(volatile 段以占位符呈现)
+  - **(M4)系统提示词构造集中化**:对齐 CC `getSystemPrompt` —— 每产品一个显式装配函数(`build_<product>_system_prompt`)线性列出完整段序列;去 `PromptSection.order`(顺序=列表位置);段渲染自包含(banner 回归段,`MemoryStore` 只给数据);preview 与 runtime 同源(占位符机制下沉 core,只差 `render_mode`);`core` 保持零 product 依赖、任何产品可直接复用。属原始需求第 3 项"对齐 CC"中【构造结构】部分的兑现(behavior-preserving:runtime 实际 system prompt 输出字节不变)
 
 - **非目标**:
-  - **不补搬** CC 任何额外段(Intro / Doing tasks / Output efficiency / Session guidance / Environment 补齐 / Language section 化 / SUMMARIZE_TOOL_RESULTS 等)— 全部留给后续 unit
+  - **不补搬** CC 任何额外段的**文本内容**(Intro / Doing tasks / Output efficiency / Session guidance / Environment 补齐 / Language section 化 / SUMMARIZE_TOOL_RESULTS 等)— 全部留给后续 unit。注:本条推迟的是【段内容补搬】;对齐 CC 的【构造结构 / getSystemPrompt 集中装配】是另一回事,已由 M4 激活并入(见在范围)
   - **不补回** M4 当时砍掉的 `core.actions_care` / `core.tool_rules` / `core.tone_style` 删减内容
-  - 不引入 "core 通用框架 + product 段差异化补例" 这种分层结构(feat-379 的同层共享设计沿用)
+  - 不引入 "core 通用框架 + product 段差异化补例" 这种**段内容**分层结构(feat-379 的同层共享设计沿用)。注:M4 改的是**装配结构**(谁显式编排段顺序),不是段内容分层 —— core 段积木 + product 显式编排不属此条否定范围
   - 不改 memory 体系底层结构(继续 § -分隔单文件,不切 CC 的"索引文件 + per-topic 文件 + frontmatter"形态)
   - 不改 MemoryTool 接口(继续 `add / replace / remove`,不补 `read` action)
   - 不动 skill 自进化机制 / FEATURE_REGISTRY 的开关结构 / IM 前端 agent 配置页 UI(沿用 feat-379 M9 已建成果)
