@@ -7,6 +7,8 @@
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-29 (M4): 系统提示词构造重构 — 集中显式装配(每产品 `build_<product>_system_prompt`,对齐 CC `getSystemPrompt`)+ 去 order(顺序=编排列表位置)+ 段渲染自包含(banner 回归段,MemoryStore 只给数据)+ preview/runtime 共用同一装配只差 `render_mode`(preview 占位符机制下沉 core,删 platform hack)— 详见 M4/progress.md
+
 ## 现状分析
 
 ### 涉及范围
@@ -506,6 +508,129 @@ runtime.session_shutdown(session_id):
 - 实施期发现 `core.user_profile_block` 段引发问题(如某 LLM provider 对 system prompt 长度敏感导致超限),可临时把 `enabled_when` 改为永假禁段,不影响 memory_block 段。
 - compaction callback 接通有问题时,临时方案:`_invalidate_memory_snapshot` 在 turn 结束 hook 里调一次(每 turn 都重读 — 牺牲 prefix cache 命中,换正确性);本 unit 范围内,正式方案是 compaction 触发。
 
+## M4 重构:系统提示词构造集中化
+
+> 追加于 M3 之后,与 M1–M3 同属"System Prompt 代码重构"主题(用户验收 M3 时指出更深的架构缺陷,决定并入本 unit 一起做)。参考实现:CC `~/Repos/opensource-hub/claude-code/src/constants/prompts.ts` 的 `getSystemPrompt`(每段 `get*Section`,在一个函数里显式线性拼装)+ `src/constants/systemPromptSections.ts`(`{name, compute, cacheBreak}` 段抽象)。**亲自核实源码,勿信二手总结。**
+
+### 现状问题(M4 动因)
+
+| 散点 | 证据 |
+|---|---|
+| 段定义分三处 | `core/agent/prompt_sections/core_sections.py`(`CORE_SECTIONS`,各带 `order`)、`products/personal_assistant/prompt_sections.py`(`_PA_*`)、`products/local_coding/prompt_sections.py`(`LC_SECTIONS`) |
+| 顺序靠 order 数字隐式排序 | 无任何地方显式写出"PA 的 prompt = [intro, identity, system, …, memory]";看全貌得开 3 文件 + 脑内按 order 归并 |
+| 装配是无序拼接 | `bootstrap.py:181 merged = list(CORE_SECTIONS) + list(profile.prompt_sections)` → `assemble_system_prompt` 按 `(order,name)` 排序;**没有 `getSystemPrompt` 那样一眼可读的入口** |
+| banner 渲染权漏出段 | `MemoryStore._render_block`(store.py:302-312)把 `══ MEMORY ══ + 百分比 + 内容` 拼成完整串塞进 `ctx.memory_block`,段 `_render_memory_block = return ctx.memory_block` 纯透传 |
+| preview 与 runtime 两套处理 | `global_routes.py _make_volatile_placeholder_section`(M3)把 volatile 段**整段替换**成假段 → banner 在 preview 丢失 |
+
+### 架构铁律(本次对齐确立,约束所有 M4 决策)
+
+**`core` 是一套自包含、可被任意产品直接复用的 agent 内核;产品 import core,用它的积木 + 机制搭自己的 agent,零改 core。** 推论:prompt 构造的"机制 + 通用段积木 + render_mode"必须全在 core 且零 product 依赖;"哪些段、什么顺序"的编排在 products;装配注入在 platform。
+
+### 关键决策
+
+#### 决策 15: 每产品一个显式装配函数(对齐 CC `getSystemPrompt`)
+
+- **选择**: `products/<product>/` 各提供一个 `build_<product>_system_prompt()`(如 `build_pa_system_prompt` / `build_lc_system_prompt`),**显式线性列出**该产品的完整段序列(core 积木 + product 段交织)。打开它 = 该产品 system prompt 的"目录"。
+- **理由**: 直击痛点——当前看不出 prompt 全貌。CC 的清晰正源于此(一个函数线性拼装)。
+- **拒绝**: 继续靠 `order` 隐式排序(看不出顺序)。
+- **风险**: 编排顺序必须与重构前 `order` 排序结果一致,否则 runtime 输出变化 → 靠 golden 测试守(决策 21)。
+
+#### 决策 16: 去掉 `order` 字段,顺序由编排列表位置决定
+
+- **选择**: 删 `PromptSection.order`。装配按 `build_<product>_system_prompt()` 返回列表的**位置**顺序。`cache_safe` 不变量校验改为**列表位置校验**:任一 `cache_safe=False` 段的列表索引必须 > 所有 `cache_safe=True` 段的索引(volatile 尾部连续)。
+- **理由**: order magic number 散落各处正是"看不出顺序"的根。显式列表后 order 冗余。对齐 CC(无 order,纯数组位置 + `cacheBreak` 标记)。
+- **拒绝**: 保留 order 兜底——会留两套真相(列表位置 vs order),更乱。
+- **风险**: 所有段定义去 order;校验逻辑改写。
+
+#### 决策 17: 段渲染自包含,banner 回归段;`MemoryStore` 只给数据
+
+- **选择**: banner(`══` + 标题 + 百分比)的拼装从 `MemoryStore._render_block` **移到 core 段的 `render`**。`MemoryStore` 的 prompt 接口收窄为只返回**数据**(纯内容 `content: str` + 用量 `pct`),不再产出 banner 字符串。
+- **理由**: banner 是 prompt 表现层,属于段;存储层只管数据。段对自己长什么样有完全控制(对齐 CC 的 `compute()` 自渲染)。这也是 banner 能在 preview 体现的前提。
+- **拒绝**: banner 留在 MemoryStore——段无法在 preview 模式只换动态槽、保留 banner。
+- **风险**: 跨 core/memory ↔ core/prompt_sections 的职责迁移;banner 文案需逐字保持(golden)。
+
+#### 决策 18: `PromptContext` 持结构化数据 + `render_mode`,而非预渲染串
+
+- **选择**: 删 `memory_block: str | None` / `user_profile_block: str | None`(预渲染串);改持纯数据 `memory_content: str | None`(+ `memory_pct` 等用量)、`user_profile_content: str | None`;新增 `render_mode: RenderMode`(`RUNTIME` / `PREVIEW` 枚举)。`current_datetime` / `cwd` 改为 `str | None`(preview 时 None → 段出占位)。
+- **理由**: 段要按模式决定动态槽填真值还是占位符,必须拿到"数据 + 模式"而非成品串。
+- **拒绝**: 沿用预渲染串——无法区分静态骨架 / 动态槽。
+- **风险**: `build_prompt_context_from_metadata`(wiring.py)签名变;所有 ctx 构造点更新。
+
+#### 决策 19: preview 占位符机制下沉 core,删 platform hack
+
+- **选择**: preview 的"动态槽出占位符"逻辑放进 **core 段的 `render`**(按 `ctx.render_mode == PREVIEW` 分支),banner 照常渲染。`platform/http_api/global_routes.py` **删掉** `_make_volatile_placeholder_section` + stable/volatile 分流;preview 端点只做:构造 `ctx(render_mode=PREVIEW, …=None)` + 调同一个 `resolve(sections, ctx)`。
+- **理由**: 铁律——任何产品复用 core 就**自动**获得"preview = runtime + 占位符"能力,不必各自在 platform 层 hack;并根治 preview/runtime 分叉。
+- **拒绝**: preview 逻辑留 platform——不可复用 + 必然与 runtime 漂移(M2/M3 反复的根因)。
+- **风险**: 占位符文案现散在 platform,迁移时逐字保留(就地内联形式,延续 M3 P1)。
+
+#### 决策 20: 装配函数归属 `products/`,core 零 product import
+
+- **选择**: `build_<product>_system_prompt` 在 `products/<product>/`(它 import core 积木,`products→core` 合法)。`platform/bootstrap.py` 启动时 import 并调用它,产出有序列表,**注入** `AgentRuntime(prompt_sections=…)` + `app.state.prompt_sections`。core 的 `resolve` / `assemble` / runtime **只接收 `Sequence[PromptSection]` 入参**,签名里**不出现任何产品名**,零 product import。
+- **理由**: 沿用现有注入模式(M1–M3 已是 `bootstrap merged → runtime`),只把"无序拼接"换成"产品显式编排"。core 保持纯净通用——换产品 bootstrap 改调 `build_lc_system_prompt`,core 一行不改。
+- **拒绝**: 装配放 core(违反铁律,`core→products` 反向)、放 platform(集成层不该懂产品 prompt 形状)。
+- **风险**: 无新增依赖风险(注入链路不变);contract 测试 `test_core_no_platform_imports` 继续守边界。
+
+#### 决策 21: 段渲染三态 + behavior-preserving
+
+- **选择**: 段 `render(ctx)` 三态:`PREVIEW` → banner + `<运行时注入:…>` 占位;`RUNTIME` 且有数据 → banner + 真值;`RUNTIME` 且无数据 → `None`(段失活)。第三态保留 M2 的 I1 修复(无 memory 不出空 banner)。
+- **理由**: 一个 render 函数覆盖三态,preview 与 runtime 的 banner 必然字节一致(同一代码)。
+- **风险**: runtime 实际输出必须与重构前**字节不变**(纯重构,除 preview 改善)——用现有 runtime 段式 golden 测试守死。
+
+### 调用图(preview 与 runtime 同一套,唯一分叉在最上)
+
+```
+【启动时,一次】platform/bootstrap.py
+   ├─ import build_pa_system_prompt   (from products.personal_assistant)   ← platform→products ✓
+   │     └─ build_pa_system_prompt 内部 import core 段积木                  ← products→core   ✓
+   ├─ sections = build_pa_system_prompt()        # 显式编排的有序 PromptSection 列表
+   ├─ AgentRuntime(prompt_sections = sections)   # 注入 core runtime
+   └─ app.state.prompt_sections = sections        # 存给 preview 端点
+
+【运行时】
+   RUNTIME (core/runtime._run_locked):
+     ① _ensure_memory_snapshot → MemoryStore 只取【数据】(content + pct)
+     ② ctx = PromptContext(render_mode=RUNTIME, memory_content=<真实>, …=<真实>)
+   PREVIEW (platform/global_routes GET /v1/prompt-preview):
+     ① 不碰 MemoryStore
+     ② ctx = PromptContext(render_mode=PREVIEW, memory_content=None, datetime=None, …)
+                              │  ← 两路汇聚:同一 ctx,只差 render_mode + 数据真值/None
+                              ▼
+     core/base.py  resolve(sections, ctx, override) → assemble  【纯机制,sections 是入参,零 product import】
+       sections = bootstrap 注入的那一份(build_<product>_system_prompt 产物)
+       逐段 section.render(ctx)
+                              ▼
+     core.memory_block.render(ctx)  【core 段,自包含 banner + 三态分支】
+       banner = "══…══\nMEMORY (your personal notes) [{pct}]\n══…══"
+       PREVIEW → body="<运行时注入:MEMORY.md 条目>", pct="…"
+       RUNTIME+有数据 → body=<真实>, pct=<真实>
+       RUNTIME+无数据 → return None(失活)
+                              ▼
+   RUNTIME 产物:                          PREVIEW 产物:
+   ══…══                                  ══…══
+   MEMORY (your personal notes) [37%…]    MEMORY (your personal notes) […]
+   ══…══                                  ══…══
+   <真实 memory 内容>                      <运行时注入:MEMORY.md 条目>
+   （banner 字节一致,仅动态槽不同）
+```
+
+### 接口与数据结构变化
+
+- **`core/agent/prompt_sections/base.py`**:`PromptSection` 删 `order` 字段;`PromptContext` 字段重构(决策 18:`memory_content`/`user_profile_content`/用量 + `render_mode`;`current_datetime`/`cwd` 转 `str|None`)。`assemble_system_prompt` 按列表位置;`_validate_cache_safe_invariant` 改列表位置校验(决策 16)。`resolve_effective_prompt` 签名不变(仍 `sections, ctx, override`)。
+- **`core/agent/prompt_sections/core_sections.py`**:导出 core 段为**单独 building block 对象**(供 product 编排 import);`memory_block`/`user_profile_block`/`runtime_footer` 等段 `render` 重写为自包含(banner + `render_mode` 三态)。
+- **`core/memory/store.py`**:prompt 接口收窄为返回数据(content + pct),banner 移出(决策 17)。
+- **`products/{personal_assistant,local_coding}/prompt_sections.py`**:新增 `build_<product>_system_prompt()` 显式编排(返回有序 `list[PromptSection]`,含 core 积木 + product 段)。
+- **`products/{pa,lc}/profile.py`**:`prompt_sections` 改为引用 build 函数产物(或 profile 暴露 build 函数)。
+- **`platform/bootstrap.py`**:`merged = build_<product>_system_prompt()` 取代 `CORE_SECTIONS + profile.prompt_sections`。
+- **`platform/http_api/routes/global_routes.py`**:删 `_make_volatile_placeholder_section` + stable/volatile 分流;preview 构造 `ctx(render_mode=PREVIEW)` + 调 `resolve`(决策 19)。
+- **`core/agent/runtime.py`**:`_run_locked` 构造 ctx 带 `render_mode=RUNTIME` + memory_content 真值(`wiring.build_prompt_context_from_metadata` 签名同步变)。
+
+### 风险与回退(M4)
+
+- **behavior-preserving 风险(最高)**:这是纯重构,runtime 实际 system prompt 输出必须**字节不变**(除 preview 改善)。最易翻车点:① 编排列表顺序与原 order 排序不一致;② banner 文案在迁移中变动。**对策**:现有 runtime 段式 golden 测试 + banner 逐字测试守死;worker 用 refactor-playbook 小步提交、每步跑 golden。
+- **跨层大改动**:core + 2 product + platform + memory,紧耦合,单 worker 串行做。
+- **回退**:M4 是独立 commit 链,依赖 M3;出问题 `git revert` M4,M1–M3 不受影响。
+- **降级**:若 render_mode 三态某态出问题,可临时让 preview 段 `enabled_when` 失活(退回"preview 不显示该段"),不影响 runtime。
+
 ## Runbook for Reviewer
 
 reviewer 接管时需要起以下服务做回归验收(走 spec scenarios 一/二/三):
@@ -537,6 +662,7 @@ done
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
+| feat-385-M4 | refactor-prompt-assembly | feat-385-M3 已合 | A | 系统提示词构造集中化重构(详见 §M4 重构,决策 15–21)。范围:`core/agent/prompt_sections/base.py`(删 `PromptSection.order` + `PromptContext` 字段重构 + `render_mode` + 列表位置 cache_safe 校验)、`core/agent/prompt_sections/core_sections.py`(导出 core 段 building blocks + memory/user_profile/footer 段 render 自包含 banner + 三态)、`core/agent/prompt_sections/wiring.py`(`build_prompt_context_from_metadata` 签名)、`core/memory/store.py`(prompt 接口收窄为返回数据、banner 移出)、`products/{personal_assistant,local_coding}/prompt_sections.py`(新增 `build_<product>_system_prompt()` 显式编排)、`products/{pa,lc}/profile.py`(引用 build 产物)、`platform/bootstrap.py`(用 `build_*` 取代无序拼接)、`platform/http_api/routes/global_routes.py`(删 `_make_volatile_placeholder_section`,preview 走 `render_mode`)、`core/agent/runtime.py`(ctx 带 `render_mode=RUNTIME` + 数据)、测试全面更新(refactor-playbook,小步提交 + 每步 golden) | `[reviewer]` 打开 `products/<product>/` 的 `build_<product>_system_prompt` 能一眼看出该产品 system prompt 的完整段序列;`[reviewer]` preview 中每个 volatile 段就地显示完整 banner(`══` + 标题)+ 动态槽 `<运行时注入:…>`(不再整段替换);`[reviewer]` preview 与 runtime 在所有 stable 段 + 所有 banner 上字节一致,仅 volatile 动态槽不同;`[worker]` runtime 实际输出 golden 测试**字节不变**(behavior-preserving);`[worker]` `core` 零 product import — `tests/contract/test_core_no_platform_imports.py` 绿,且 core 代码 grep 无 `build_pa`/`build_lc`/产品名;`[worker]` banner 字符串(`══`/`MEMORY (your personal notes)`)只在 core 段 render 出现、不在 `MemoryStore`;`[worker]` `global_routes.py` 无 `_make_volatile_placeholder_section`,preview 与 runtime 共用同一 `build_<product>_system_prompt` + 同一 `resolve`;`[worker]` `PromptSection` 无 `order` 字段;`[worker]` `pytest tests/unit/ tests/integration/ tests/contract/ -m "not e2e"` 全绿 |
 | feat-385-M3 | fix-r2 (post-acceptance fix, round 2) | feat-385-M2 已合 | A | 两项收尾:**(P1) preview 呈现修正(Req-4)** — `/v1/prompt-preview` 中 volatile 段(`core.memory_block` / `core.user_profile_block` / `pa.communication_context`)改为**就地内联**占位符:在各自 order 位置渲染为 `<运行时注入:…>` 形式(与既有 datetime 占位符 `global_routes.py:339` 一致),移除 M2 引入的「末尾抽取式 `[X — runtime fills]` 堆叠 + 说明块」;同步修正 spec.md Req-4 措辞(把「预览底部明确说明该差异」改为「volatile 段就地以可识别占位符内联呈现 + 形式样例」),消除诱导堆末尾的歧义。**(B1) stream_session workspace_root(Refs #64)** — `client/kernel_api_client.py::stream_session` 加 `workspace_root` 参数并作 query param 透传;`gateway/inbound_pipeline.py::_await_terminal_run_async` 与 `gateway/background_session_events.py::BackgroundSessionEventSubscriber` 透传调用方已持有的 `agent_workspace_root`(3 文件 5 处),修复多 agent stream 404 | `[reviewer]` preview 中 volatile 段就地呈现为可识别「运行时注入」占位符、无末尾堆叠块、整体读起来是完整 prompt 形状;`[worker]` stream 链路 3 处带 workspace_root 的回归测试(主对话 + background subscriber);`[worker]` preview volatile 段就地占位符单测;`[worker]` `pytest tests/unit/ tests/integration/ tests/contract/ -m "not e2e"` 全绿 |
 | feat-385-M2 | fix-r1 (post-acceptance fix, round 1) | feat-385-M1 已合 | A | reviewer round 1 + verifier round 1 合并修复:(I1) `MemoryStore.format_for_prompt` 空内容时返回 None(或在段 `enabled_when` 检查实质内容),避免 system prompt 末尾出现 `[0% — 0/2,200 chars]` 空 banner;(I2) `/v1/prompt-preview` 装配 memory_block / user_profile_block 段以可识别占位符呈现 + preview 末尾追加 volatile 段说明;(W1) `AgentLoop` 接 `on_compaction` callback,`_maybe_compact` 成功后回调 `_invalidate_memory_snapshot`(决策 4 接通);(W2) 真彻删 `LOCAL_CODING_SYSTEM_PROMPT` / `CODING_SYSTEM_PROMPT` / `_DEFAULT_TOOL_SPECS` 常量 + 同步退役 `tests/unit/test_agent_prompting.py` 残留引用 | `[reviewer]` Req-1 Scenario 2(新 agent 无 memory)在 system prompt 末尾不出现 memory 空 banner;`[reviewer]` Req-4 Scenario(preview 一致)volatile 段以占位符呈现 + 末尾有差异说明;`[worker]` 单测覆盖:`MemoryStore.format_for_prompt` 空内容返回 None;`[worker]` 单测覆盖:`AgentLoop` compaction 成功后触发 `on_compaction` callback;`[worker]` `pytest tests/unit/ tests/integration/ tests/contract/ -m "not e2e"` 全绿;`[worker]` `grep -E "LOCAL_CODING_SYSTEM_PROMPT\|CODING_SYSTEM_PROMPT\|_DEFAULT_TOOL_SPECS" src/` 无命中 |
 | feat-385-M1 | impl | bugfix-348(PR #9)已合 | A | 全 unit 范围:`core/memory/path.py` 新增;`core/agent/prompting.py` 改(删 `LOCAL_CODING_SYSTEM_PROMPT` / `CODING_SYSTEM_PROMPT` / `DEFAULT_SYSTEM_PROMPT` / `_DEFAULT_TOOL_SPECS` 常量,`build_system_prompt` 函数若无引用则删,保留 `build_chat_messages` 等纯 LLM 消息装配 helper);`core/agent/prompt_sections/{base,wiring,core_sections}.py` 改;`core/agent/runtime.py` + `loop.py` 改(snapshot + 切段式 + callback);`platform/bootstrap.py` 改(默认元数据 + MemoryTool 构造);`platform/tools/builtins/memory.py` 改(`_resolve_memory_root`);`products/{personal_assistant,local_coding}/profile.py` 改(`default_system_prompt = ""`,或显式去掉字段);`products/{personal_assistant,local_coding}/prompts.py` 删整文件;`products/personal_assistant/prompt_sections.py` 删 `pa.memory_intro`;`core_sections.py` 删 `core.runtime_tools` + 新增 `core.user_profile_block`;`personal_assistant/config/local_store.py` 改 seed 位置;`tests/contract/test_no_hardcoded_workspace_dirname.py` 新增;受影响测试套件全面更新 | `[reviewer]` 覆盖 spec.md 4 条 Requirement 全部 9 个 Scenario(Req-1 跨 session memory 三个 / Req-2 不退化两个 / Req-3 工具与 provider 三个 / Req-4 preview 一致一个);`[worker]` `pytest tests/unit/ tests/integration/ tests/contract/ -m "not e2e"` 全绿;`[worker]` 新增 contract 测试在 src 下 grep `.nano`/`.nanoassistant`/`.nanocode` 只命中 product `defaults.py`;`[worker]` `core.memory_block` / `core.user_profile_block` 段在 memory_curation on + workspace + dirname 齐备时激活,在任一缺失时失活 — 单测覆盖;`[worker]` `derive_memory_root` 单测覆盖 PA / LC 两种 dirname;`[worker]` MemoryTool 写入与 runtime freeze 读取从同一物理路径 — 集成测试覆盖 |
