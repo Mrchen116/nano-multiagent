@@ -37,7 +37,7 @@ Gateway SSE 消费链路 stream_session 漏传 workspace_root query param,导致
 
 | ID | 标题 | 状态 |
 |----|------|------|
-| R1 | P1 C1: preview 内联占位符失败测试 | TODO |
-| R2 | P1 C2+C3: 实现就地内联 + 删末尾堆叠 + spec.md 修正 | TODO |
-| R3 | B1 C1: stream_session workspace_root 透传失败测试 | TODO |
-| R4 | B1 C2+C3: 实现 3 文件 5 处改动 | TODO |
+| R1 | P1 C1: preview 内联占位符失败测试 | DONE |
+| R2 | P1 C2+C3: 实现就地内联 + 删末尾堆叠 + spec.md 修正 | DONE |
+| R3 | B1 C1: stream_session workspace_root 透传失败测试 | DONE |
+| R4 | B1 C2+C3: 实现 3 文件 5 处改动 | DONE |
