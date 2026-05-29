@@ -29,6 +29,6 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | 写失败测试（Red） | TODO |
-| R2 | 实现 `_backup_existing_config` + 接入 `save_local_config`（Green） | TODO |
-| R3 | 文档 | TODO |
+| R1 | 写失败测试（Red） | DONE |
+| R2 | 实现 `_backup_existing_config` + 接入 `save_local_config`（Green） | DONE |
+| R3 | 文档 | DONE |
