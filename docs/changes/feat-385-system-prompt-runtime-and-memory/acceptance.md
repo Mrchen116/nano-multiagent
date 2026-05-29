@@ -90,6 +90,196 @@ fix-implementation
 
 ---
 
+# Round 2 — 2026-05-29
+
+## Verdict
+
+**pass**
+
+## Highest Required Action
+
+pass
+
+## Issues Count
+
+- Blocking: 0
+- Major: 0
+- Minor: 0
+
+---
+
+## Round 2 复验摘要
+
+M2-fix-r1 合入了 4 个 roadpoint 修复：
+
+- **I1 修复**(R1): `MemoryStore.format_for_prompt` 空内容/不存在时返回 `None`，段通过 `enabled_when` 自动失活
+- **I2 修复**(R2): `/v1/prompt-preview` 端点对 volatile 段（cache_safe=False）以 `[<name> — runtime fills]` 占位符渲染，末尾追加 `---` 分隔的 volatile 差异说明块
+- **W1 接通**(R3): `AgentLoop` 新增 `on_compaction` callback，`_maybe_compact` 成功后回调 `_invalidate_memory_snapshot`
+- **W2 清理**(R4): 彻删老常量 `LOCAL_CODING_SYSTEM_PROMPT`/`CODING_SYSTEM_PROMPT`/`_DEFAULT_TOOL_SPECS`，同步退役测试引用
+
+本轮走用户旅程复验如下。
+
+---
+
+## 复验用户旅程
+
+### 旅程 1: Issue 1 复验 — 新 agent 无 memory 时空 banner 消除（Req-1 Scenario 2）
+
+**步骤**:
+1. 用 `tempfile.TemporaryDirectory()` 模拟全新 agent，`memory_root` 目录不存在
+2. 构造 `MemoryStore(memory_root=<不存在目录>)`，调用 `format_for_prompt('memory')` 和 `format_for_prompt('user')`
+3. 用返回值装配完整 `PromptContext` + `assemble_system_prompt(CORE_SECTIONS, ctx)`
+4. 追加：`memory_root` 存在但为空目录同样验证
+
+**观察**:
+- `memory_root` 不存在时：`mem_block is None: True`，`user_block is None: True` ✓
+- `memory_root` 存在但为空目录时：同样返回 `None` ✓
+- 完整 system prompt 中无 `0% —` 空 banner 字符 ✓
+- System prompt 长度 4443（合理，无冗余段）✓
+
+```
+PASS: Both blocks are None for new agent - no empty banners
+PASS: Req-1 Scenario 2 — new agent empty memory produces no banners
+```
+
+---
+
+### 旅程 2: Issue 2 复验 — preview volatile 段占位符 + 说明（Req-4 Scenario）
+
+**步骤**:
+1. 启动全栈（e2e-up.sh，IM=55987, API=55988）
+2. 用 nano/nano1234 登录 IM，拿 token
+3. `POST $API_URL/v1/prompt-preview`，`agent_id=default-agent`，`memory_curation=True`
+4. 检查 preview prompt 末尾内容
+
+**观察**:
+- `<运行时注入：当前时间>` 出现 ✓
+- `<运行时注入：workspace 路径>` 出现 ✓
+- `---` 分隔线出现在 preview 末尾 ✓
+- `以上预览不包含 volatile 段(memory_block / user_profile_block / 时间等)，runtime 装配时实填:` 出现 ✓
+- `[core.memory_block — runtime fills]` 出现 ✓
+- `[core.user_profile_block — runtime fills]` 出现 ✓
+- `[pa.communication_context — runtime fills]` 出现 ✓（PA 产品的另一个 volatile 段）
+- `## Available Tools` 不出现 ✓
+
+```
+Last 300 chars of preview:
+'...Current date and time: <运行时注入：当前时间>\nCurrent working directory: <运行时注入：workspace 路径>\n\n---\n以上预览不包含 volatile 段(memory_block / user_profile_block / 时间等)，runtime 装配时实填:\n[core.memory_block — runtime fills]\n[core.user_profile_block — runtime fills]\n[pa.communication_context — runtime fills]'
+```
+
+Spec Req-4 THEN 要求：`volatile 段(memory_block / 时间)在预览中以可识别的占位符呈现，且预览底部明确说明该差异` — **完全满足** ✓
+
+---
+
+### 旅程 3: 回归验证 — 其余 Round 1 pass 项不退化
+
+**Req-1 Scenario 1**（既有 memory 跨 session 感知）:
+
+```
+mem_block contains emoji pref: True
+mem_block contains .venv: True  
+user_block contains 24-hour: True
+System prompt length: 5101
+System prompt contains emoji pref: True
+System prompt contains .venv: True
+System prompt contains 24: True
+PASS: Req-1 Scenario 1 — existing memory injected into new session
+```
+
+**Req-1 Scenario 3**（关闭 Memory Curation 后不再感知）:
+
+```
+memory_curation flag: False
+Unique marker NOT in rendered: True
+MEMORY banner NOT in rendered: True
+PASS: Req-1 Scenario 3 — memory_curation OFF suppresses memory content
+```
+
+**Req-2 Scenario 1**（coding agent 不退化）:
+
+```
+PASS: actions_care (reversibility)
+PASS: tone_style (file_path:line_number)
+PASS: no ## Available Tools
+```
+
+**Req-2 Scenario 2**（PA agent 协议不退化）:
+
+```
+PASS: NO_REPLY protocol
+PASS: send_message routing
+PASS: no pa.memory_intro
+PASS: no ## Available Tools
+```
+
+**Req-3 Scenario 1**（工具仍通过 API 通道注册，prompt 无 `## Available Tools`）:
+
+```
+Tools count: 11
+Names: ['read', 'write', 'edit', 'bash', 'agent', 'task_stop', 'web_fetch', 'send_message', 'web_search', 'skill_manage', 'memory']
+```
+
+---
+
+## 全套测试
+
+```
+2193 passed, 22 skipped, 3 xfailed
+1 failed: test_dispatch_handler_build_aiohttp_handler_returns_callable
+  (aiohttp 依赖未安装，与 feat-385 无关，git blame 显示该测试预存在于更早的 milestone)
+```
+
+---
+
+## 验收标准覆盖（Round 2 更新）
+
+### Requirement: Agent 跨 session 持续感知既有 memory — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 既有 memory 在新 session 启动时被 agent 感知 | spec.md Req-1 | 旅程 3: 预写 memory 条目，新 session 装配 system prompt，确认内容出现 | emoji pref / .venv / 24-hour 均出现在 rendered prompt (len=5101) | **pass** | 继承 Round 1 pass |
+| 新 agent 没有任何 memory 时不报错也不显眼 | spec.md Req-1 | 旅程 1: memory_root 不存在 / 目录为空两种场景，format_for_prompt 返回 None，完整 system prompt 无空 banner | mem_block=None, user_block=None; 无 0% banner; len=4443 | **pass** | Round 1 fail → Round 2 fix 关闭 |
+| 关闭 Memory Curation 后 agent 不再表现 memory 感知 | spec.md Req-1 | 旅程 3: memory_curation=False, 检查唯一 marker 不出现在 rendered prompt | Unique marker not in rendered, MEMORY banner not in rendered | **pass** | 继承 Round 1 pass |
+
+### Requirement: Runtime 行为相对当前不退化 — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| coding agent 既有任务流不退化 | spec.md Req-2 | 旅程 3: LC product 装配，检查 actions_care/tone_style 关键词 + 无 ## Available Tools | reversibility ✓, file_path:line_number ✓, ## Available Tools 不出现 ✓ | **pass** | 继承 Round 1 pass |
+| PA agent 群聊/单聊既有协议不退化 | spec.md Req-2 | 旅程 3: PA product 装配，检查 NO_REPLY / send_message / pa.memory_intro 删除 | NO_REPLY ✓, send_message ✓, pa.memory_intro 已删 ✓ | **pass** | 继承 Round 1 pass |
+
+### Requirement: System prompt 不再列举工具，工具调用走 API 原生通道 — 组内结论: **pass (Scenario 3 not-applicable)**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| prompt preview 不含 `## Available Tools` 段 | spec.md Req-3 | 旅程 2: POST /v1/prompt-preview 检查响应内容 | ## Available Tools 不出现 ✓ | **pass** | 继承 Round 1 pass |
+| 所有当前工具仍可被 agent 正常调用 | spec.md Req-3 | 旅程 3: GET /v1/tools 确认 11 个工具全部注册 | 11 个工具全在列 (read/write/edit/bash/agent/task_stop/web_fetch/send_message/web_search/skill_manage/memory) | **pass** | 继承 Round 1 pass |
+| 某 provider 不透传 tools 通道时错误直接暴露 | spec.md Req-3 | 不可验证（无现成不支持 tools 的 provider） | N/A | **not-applicable** | 继承 Round 1 not-applicable |
+
+### Requirement: prompt-preview 与 runtime 完全一致 — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 预览反映 agent 真实接收的系统提示词 | spec.md Req-4 | 旅程 2: POST /v1/prompt-preview，检查 datetime/cwd 占位符 + memory_block 占位符 + volatile 说明块 | 时间/cwd 占位符 ✓；[core.memory_block — runtime fills] ✓；[core.user_profile_block — runtime fills] ✓；底部差异说明 ✓ | **pass** | Round 1 fail → Round 2 fix 关闭 |
+
+---
+
+## Side Findings
+
+- 全套测试中 1 个预存在失败 `test_dispatch_handler_build_aiohttp_handler_returns_callable`，根因是 `aiohttp` 依赖未安装，与 feat-385 完全无关，git blame 显示该测试来自更早的 milestone
+- `pa.communication_context` 段（PA 产品的 volatile 段）也正确出现在 preview 的 volatile 占位符列表中，表明修复具有通用性，不止覆盖 memory_block/user_profile_block
+
+---
+
+## 上层文档同步
+
+- [x] `SPEC.md`（架构总览）：无需更新
+- [x] `docs/内核设计SPEC.md`：无需更新（低优先级，implementation detail）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] 相关产品 SPEC（NodeGateway / CodingCLI 等）：无需更新
+
+---
+
 ## Issues
 
 ### Issue 1: 新 agent 无 memory 时 system prompt 出现空 banner（major）
