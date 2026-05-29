@@ -99,3 +99,101 @@
 - [x] `docs/内核设计SPEC.md`（agent 内核）：M4 阶段，本轮 N/A
 - [x] `AGENTS.md` / `CLAUDE.md`：M4 阶段，本轮 N/A
 - [x] `docs/CodingCLI-SPEC.md`：M4 阶段，本轮 N/A
+
+---
+
+# Round 2 — 2026-05-29
+
+> **修复说明**：Round 1 blocking issue（Issue #1，`init_model_registry` 缺失）已由 commit 1f117be4 修复。
+> `llm-config get` 验证正常返回。本轮重走全部 Scenario。
+
+## Verdict
+
+**fail**
+
+## Highest Required Action
+
+**fix-implementation**
+
+## Issues
+
+### Issue #2 — CLI 事件流消费崩溃：`StreamEvent.get` AttributeError（blocking）
+
+- **Severity**: blocking
+- **Symptom**: `--text` 模式和 REPL 模式发送任何消息后立即报错并退出，REPL 无法收到 agent 任何响应。
+- **操作步骤与输出**:
+  ```
+  $ cd /tmp/reviewer-r2 && python -m coding_cli.main --text "hello"
+  {"event": "submit_response", "run_id": "run_2767b5e1ce226fa0"}
+  {"error": "'StreamEvent' object has no attribute 'get'", "layer": "runtime", ...}
+  exit 1
+  ```
+  同一错误在三次独立调用（`--text "hello"`、`--text "你好"`、`--text "读取 calc.py"`）中均复现。
+- **预期**: agent 响应流式输出在 REPL/--text 模式中可见，run 完成后正常退出 0。
+- **实际**: `kernel.stream()` 产出 `StreamEvent` dataclass 对象，但 `commands.py` 的事件消费循环（`_run_text_mode` 第 410、415–416 行；`_run_repl` 第 716、731、736、744、747–748、760、763 行）全部调用 `event.get("key")`，dict 方法在 dataclass 对象上不存在，第一个事件即崩溃。
+- **对比**: PA 侧同样问题已在 commit 189c356d 中修复（`inbound_pipeline.py`），`coding_cli/commands.py` 未同步更新。
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: `commands.py` 中所有 `event.get("X")` 应改为 `event.data.get("X")`（或按 `StreamEvent` 的字段访问 `.event`/`.run_id` 等），对齐 PA 侧的修复方式。
+
+### Issue #3 — 后台 worker ContextVar 跨 Context reset 报 ValueError（major）
+
+- **Severity**: major（每次 run 结束时出现在 stderr，Issue #2 修复后需单独确认是否仍存在）
+- **Symptom**:
+  ```
+  ValueError: <Token var=<ContextVar name='agent_observability_context'...> was created in a different Context
+  Exception ignored in: <coroutine object RunsRegistry._run_worker_async at ...>
+  ```
+- **预期**: `RunsRegistry` worker 中 `bind_correlation` context manager 正常进入退出，无 ValueError。
+- **实际**: `bind_correlation.__exit__` 调用 `_context.reset(token)` 失败——token 在不同 asyncio Context 中被创建（`RunsRegistry` 后台 loop vs CLI `asyncio.run` loop），Python 不允许跨 Context reset。
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: 修复方向是确保 `ContextVar` token 的 set/reset 在同一 asyncio Context 内完成；或在 `RunsRegistry` 后台 loop 中运行 worker 时显式 copy 外层 context，让 `bind_correlation` 在 worker 自己的 context 内完成生命周期。此问题在 Issue #2 修复前被掩盖，需独立验证。
+
+---
+
+## User Journeys Exercised（Round 2）
+
+| # | 旅程 | 覆盖的 Scenario | 结果 |
+|---|---|---|---|
+| J4 | `llm-config get` 命令 | REPL 内置命令（非 slash，llm-config 子命令） | **pass**：正常返回 `{"provider":"anthropic",...}` |
+| J5 | `--text "hello"` —— 最基础通信 | 无模式进入 REPL + anthropic provider 应答 | **fail**：`StreamEvent.get` 崩溃，exit 1 |
+| J6 | `--text "读取 calc.py"` —— 工具调用 | 多步工具调用完成真实编码任务 | **fail**：同上 |
+| J7 | `--text "hello"` 连续 3 次验证可重现 | 重现性验证 | **fail**：每次均报同一错误 |
+
+Issue #1（round 1）已修复：`init_model_registry` 不再报错，`llm-config get` 正常。
+所有需要 `kernel.stream()` 的 Scenario 均被 Issue #2 blocking。
+
+---
+
+## 验收标准覆盖（Round 2 更新）
+
+### Requirement: coding_cli 多步工具调用的 agent 任务正常完成 — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 多步工具调用完成一个真实编码任务 | motivation.md §多步工具调用 | 旅程 J6：`--text "读取 calc.py"` | `StreamEvent.get` 崩溃，exit 1；agent 工具调用未到达 | **fail** | Issue #2 blocking |
+| 工具权限确认 | motivation.md §工具权限确认 | 需先到达工具触发点 | 事件流崩溃，无法到达 | **fail** | Issue #2 blocking |
+| 任务执行中途打断 | motivation.md §任务中途打断 | 需任务在运行中 | 无法到达 | **fail** | Issue #2 blocking |
+| 后台任务完成通知 | motivation.md §后台任务完成通知 | 需任务运行完成后收到通知 | 无法到达 | **fail** | Issue #2 blocking |
+| 子 agent / task 工具 | motivation.md §子 agent/task 工具 | 需在 run 中调 task 工具 | 无法到达 | **fail** | Issue #2 blocking |
+| skill 调用 | motivation.md §skill 调用 | 需在 run 中触发 skill | 无法到达 | **fail** | Issue #2 blocking |
+| REPL 内置命令 | motivation.md §REPL 内置命令 | 旅程 J4：`llm-config get` 正常；`/compact`/`/tools`/`/history`/`/new`/`/use` 需交互式 REPL，`--text` 路径因 Issue #2 无法到达 | `llm-config get` pass；slash 命令 inconclusive | **inconclusive** | llm-config 子命令 pass，slash 命令需修 Issue #2 后再验 |
+| 无模式直接进入 REPL | motivation.md §无模式直接进 REPL | 旅程 J5：`python -m coding_cli.main --text "hello"` | CLI 启动正常（Issue #1 已修），submit 成功，stream 第一个事件即崩溃 | **fail** | Issue #1 已修；Issue #2 blocking |
+
+### Requirement: LLM provider 选择与调用保持一致 — 组内结论: fail
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| anthropic provider 正常应答 | motivation.md §anthropic provider | 旅程 J5：默认 anthropic，`--text "hello"` | submit 成功，stream 崩溃，LLM 应答未到用户 | **fail** | Issue #2 blocking |
+| openai_compat provider 正常应答 | motivation.md §openai_compat provider | 需切换 provider | 无法到达 provider 应答 | **fail** | Issue #2 blocking |
+| 不支持的 provider 报错不变 | motivation.md §不支持 provider 报错 | 配置未注册 provider，观察报错 | stream 路径在 provider 应答前即崩溃于 `StreamEvent.get`，无法验证 provider 层错误 | **inconclusive** | 需先修 Issue #2 |
+
+---
+
+## 上层文档同步（Round 2）
+
+（仍因 blocking issue 未完成全量旅程，延至 pass 后检查）
+
+- [x] `SPEC.md`：无需更新（M4 已更新）
+- [x] `docs/内核设计SPEC.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/CodingCLI-SPEC.md`：无需更新
