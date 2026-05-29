@@ -122,15 +122,14 @@ def test_top_level_packages_keep_zero_import_boundaries() -> None:
     assert violations == []
 
 
-@pytest.mark.xfail(
-    reason=(
-        "SPEC.md §5 boundary snippets reference old HTTP arch (coding_cli 通过 HTTP 调用); "
-        "doc cleanup is in M4. Tracked in #39 / refactor-387-M4."
-    ),
-    strict=True,
-)
 def test_spec_declares_zero_import_acceptance_rules() -> None:
-    """SPEC.md must describe M4 target state boundary rules (xfail pending M4 doc)."""
+    """SPEC.md still references old HTTP boundary snippets — these are M4 doc cleanup targets.
+
+    This test is intentionally left as a hard FAIL (no xfail) so that the residue
+    in SPEC.md stays visible until M4 properly updates the document.  Adding an
+    xfail here would be the exact anti-pattern this unit is trying to eradicate
+    (#39/#40).  M4 will update SPEC.md and remove these assertions.
+    """
     SPEC_BOUNDARY_SNIPPETS = (
         "- `coding_cli` 和 `personal_assistant` 通过 HTTP 调用同机 agent，禁止直接 import",
         "- `IM` 不直接调用 agent，只与用户和 `personal_assistant` 交互",
