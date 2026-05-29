@@ -217,3 +217,64 @@ def test_map_kernel_event_to_run_activity() -> None:
     assert InboundPipeline._map_kernel_event_to_run_activity({"event": "tool_end"}) == "agent.tool.completed"
     assert InboundPipeline._map_kernel_event_to_run_activity({"event": "turn_end"}) is None
     assert InboundPipeline._map_kernel_event_to_run_activity({"event": "error"}) is None
+
+
+# ---------------------------------------------------------------------------
+# feat-385-M3-fix-r2 B1: pipeline must pass workspace_root through to stream_session
+# ---------------------------------------------------------------------------
+
+
+def test_inbound_pipeline_stream_session_receives_workspace_root(tmp_path: Path) -> None:
+    """_await_terminal_run_async must forward agent workspace_root to stream_session.
+
+    Refs #64: session is per-workspace_root scoped; the kernel needs workspace_root
+    as a query param to locate the session JSONL.  Without it multi-agent Gateway
+    gets session_not_found 404 when agents have distinct workspace_root values.
+    """
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+
+    # Track kwargs passed to stream_session so we can assert workspace_root is forwarded.
+    stream_kwargs_log: list[dict] = []
+
+    class _TrackingFakeSseClient(_FakeSseKernelClient):
+        async def stream_session(self, *, session_id: str, last_event_id=None, **kwargs):  # type: ignore[override]
+            stream_kwargs_log.append({"session_id": session_id, "last_event_id": last_event_id, **kwargs})
+            # Yield minimal terminal events so the pipeline can complete.
+            run_id_val = "run-1"
+            yield {"event": "assistant_message", "run_id": run_id_val, "content": "ok"}
+            yield {"event": "run_status", "run_id": run_id_val, "status": "completed"}
+
+    kernel_client = _TrackingFakeSseClient()
+    from personal_assistant.gateway.channel_registry import ChannelRegistry
+    from personal_assistant.gateway.outbound_router import OutboundRouter
+    from personal_assistant.gateway.run_queue import SessionRunQueue
+    from personal_assistant.gateway.session_keys import SessionBindingStore
+
+    pipeline = InboundPipeline(
+        kernel_client=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web",
+        text="hello",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    # The agent-a workspace_root is tmp_path/agent-a (from _agents helper).
+    expected_workspace_root = str(tmp_path / "agent-a")
+    assert stream_kwargs_log, "stream_session must have been called"
+    forwarded_ws = stream_kwargs_log[0].get("workspace_root")
+    assert forwarded_ws == expected_workspace_root, (
+        "pipeline must forward agent workspace_root to stream_session (Refs #64); "
+        f"expected {expected_workspace_root!r}, got {forwarded_ws!r}"
+    )

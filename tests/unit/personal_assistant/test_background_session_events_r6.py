@@ -245,3 +245,48 @@ async def test_gateway_handler_node_system_message_creates_system_message() -> N
     assert row is not None
     assert row["sender_type"] == "system"
     assert "self-evolution review" in row["content"]
+
+
+# ---------------------------------------------------------------------------
+# feat-385-M3-fix-r2 B1: BackgroundSessionEventSubscriber must forward workspace_root
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_background_subscriber_forwards_workspace_root_to_stream_session() -> None:
+    """BackgroundSessionEventSubscriber must pass workspace_root to stream_session.
+
+    Refs #64: without workspace_root the kernel cannot locate the session JSONL and
+    returns session_not_found 404.  The subscriber must accept workspace_root at
+    construction time and forward it on every stream_session call.
+    """
+    from personal_assistant.gateway.background_session_events import (
+        BackgroundSessionEventSubscriber,
+    )
+
+    stream_calls: list[dict[str, object]] = []
+
+    async def _fake_stream(**kwargs: object) -> AsyncIterator:  # type: ignore[misc]
+        stream_calls.append(dict(kwargs))
+        return
+        yield  # Make this an async generator
+
+    kernel_client = MagicMock()
+    kernel_client.stream_session = _fake_stream
+
+    subscriber = BackgroundSessionEventSubscriber(
+        kernel_client=kernel_client,
+        session_id="sess-b1",
+        on_event=AsyncMock(),
+        after_sequence=0,
+        workspace_root="/tmp/agent-b1",
+    )
+    await subscriber.start()
+    await asyncio.sleep(0.05)
+    await subscriber.stop()
+
+    assert stream_calls, "stream_session must have been called at least once"
+    assert stream_calls[0].get("workspace_root") == "/tmp/agent-b1", (
+        "BackgroundSessionEventSubscriber must forward workspace_root to stream_session "
+        f"(Refs #64); got call kwargs: {stream_calls[0]}"
+    )

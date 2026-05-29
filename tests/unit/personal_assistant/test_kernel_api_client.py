@@ -305,3 +305,78 @@ def test_incremental_sse_parser_skips_comments_and_empty() -> None:
     assert len(events) == 1
     assert events[0]["event"] == "ok"
     assert events[0]["_id"] == 3
+
+
+# ---------------------------------------------------------------------------
+# feat-385-M3-fix-r2 B1: stream_session must forward workspace_root as query param
+# ---------------------------------------------------------------------------
+
+
+def test_stream_session_forwards_workspace_root_as_query_param() -> None:
+    """stream_session(workspace_root=X) must include workspace_root=X in the SSE request URL.
+
+    Refs #64: multi-agent Gateway uses per-agent workspace_root to scope sessions.
+    Without workspace_root in the stream request, the kernel cannot locate the session
+    JSONL and returns session_not_found 404.
+    """
+    import asyncio
+    captured_requests: list[httpx.Request] = []
+
+    class _CapturingAsyncTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            captured_requests.append(request)
+            # Return a minimal valid SSE stream (empty, terminates immediately).
+            return httpx.Response(200, text="", headers={"content-type": "text/event-stream"})
+
+    client = KernelApiClient(
+        config=KernelApiClientConfig(base_url="http://kernel.local", token="tok"),
+        async_transport=_CapturingAsyncTransport(),
+    )
+
+    async def _run() -> None:
+        async for _ in client.stream_session(
+            session_id="sess-ws",
+            workspace_root="/tmp/agent-ws",
+        ):
+            pass
+
+    asyncio.run(_run())
+
+    assert captured_requests, "stream_session must have issued an HTTP request"
+    stream_req = captured_requests[0]
+    assert stream_req.url.path == "/v1/sessions/sess-ws/stream"
+    assert "workspace_root" in stream_req.url.params, (
+        "stream_session must forward workspace_root as a query parameter (Refs #64)"
+    )
+    assert stream_req.url.params["workspace_root"] == "/tmp/agent-ws", (
+        f"workspace_root param must match the provided value; "
+        f"got params: {dict(stream_req.url.params)}"
+    )
+
+
+def test_stream_session_without_workspace_root_omits_param() -> None:
+    """stream_session without workspace_root must not send workspace_root query param."""
+    import asyncio
+    captured_requests: list[httpx.Request] = []
+
+    class _CapturingAsyncTransport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            captured_requests.append(request)
+            return httpx.Response(200, text="", headers={"content-type": "text/event-stream"})
+
+    client = KernelApiClient(
+        config=KernelApiClientConfig(base_url="http://kernel.local", token="tok"),
+        async_transport=_CapturingAsyncTransport(),
+    )
+
+    async def _run() -> None:
+        async for _ in client.stream_session(session_id="sess-no-ws"):
+            pass
+
+    asyncio.run(_run())
+
+    assert captured_requests
+    stream_req = captured_requests[0]
+    assert "workspace_root" not in stream_req.url.params, (
+        "workspace_root param must be absent when not provided"
+    )
