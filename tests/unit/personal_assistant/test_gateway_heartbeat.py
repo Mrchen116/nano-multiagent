@@ -76,7 +76,7 @@ def test_gateway_runtime_publishes_heartbeat_product_reports_to_im(tmp_path: Pat
         node=NodeConfig(node_id="node-local"),
         agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=tmp_path),),
         channels=(),
-        kernel=KernelConfig(command="python -m agent.platform.http_api.app"),
+        kernel=KernelConfig(),  # command empty: kernel now in-process (M4)
         heartbeat=HeartbeatConfig(),
         im_service=None,
         llm=_DEFAULT_TEST_LLM,
@@ -127,7 +127,7 @@ def test_gateway_runtime_reports_actionable_bootstrap_failure_to_im(tmp_path: Pa
         node=NodeConfig(node_id="node-local"),
         agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=tmp_path),),
         channels=(),
-        kernel=KernelConfig(command="python -m agent.platform.http_api.app"),
+        kernel=KernelConfig(),  # command empty: kernel now in-process (M4)
         heartbeat=HeartbeatConfig(),
         im_service=None,
         llm=_DEFAULT_TEST_LLM,

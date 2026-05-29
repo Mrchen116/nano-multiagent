@@ -189,6 +189,7 @@ def test_load_local_config_preserves_multiple_seed_agents_in_order(tmp_path: Pat
 
 
 def test_load_local_config_uses_internal_kernel_base_url_default(tmp_path: Path) -> None:
+    # refactor-387-M4: kernel is in-process; kernel.command is empty (no subprocess).
     config_path = tmp_path / "node-config.yaml"
     workspace_root = tmp_path / "agents" / "assistant-a"
     workspace_root.mkdir(parents=True)
@@ -200,8 +201,6 @@ def test_load_local_config_uses_internal_kernel_base_url_default(tmp_path: Path)
                 "agents:",
                 "  - agent_id: assistant-a",
                 f"    workspace_root: {workspace_root}",
-                "kernel:",
-                "  command: python -m agent.platform.http_api.app",
             ]
         ) + "\n" + _LLM_YAML,
         encoding="utf-8",
@@ -210,7 +209,7 @@ def test_load_local_config_uses_internal_kernel_base_url_default(tmp_path: Path)
     config = load_local_config(config_path)
 
     assert config.kernel.base_url == "http://127.0.0.1:8000"
-    assert config.kernel.command == "python -m agent.platform.http_api.app"
+    assert config.kernel.command == ""  # in-process: no subprocess command needed
     assert config.agents[0].workspace_root == workspace_root
 
 

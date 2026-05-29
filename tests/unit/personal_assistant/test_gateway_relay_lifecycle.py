@@ -291,7 +291,7 @@ def test_build_runtime_returns_gateway_runtime_with_no_process_manager(tmp_path:
         channels=(),
         kernel=KernelConfig(
             token=None,
-            command="python -m agent.platform.http_api.app",
+            # command removed: kernel now in-process (refactor-387-M4)
             startup_timeout_seconds=0.2,
             health_poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
@@ -331,7 +331,7 @@ def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(tmp_path: Path,
         channels=(ChannelConfig(name="web_relay", enabled=True),),
         kernel=KernelConfig(
             token=None,
-            command="python -m agent.platform.http_api.app",
+            # command removed: kernel now in-process (refactor-387-M4)
             startup_timeout_seconds=0.2,
             health_poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,

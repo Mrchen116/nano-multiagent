@@ -99,7 +99,7 @@ def test_stop_gateway_only_reports_stopped_after_health_url_goes_down(
         agents=(),
         channels=(),
         kernel=KernelConfig(
-            command="python -m agent.platform.http_api.app",
+            # command removed: kernel now in-process (refactor-387-M4)
             startup_timeout_seconds=0.2,
             health_poll_interval_seconds=0.01,
             shutdown_grace_seconds=0.1,

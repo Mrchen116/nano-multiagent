@@ -181,7 +181,7 @@ def build_config(tmp_path: Path) -> LocalConfig:
         agents=(),
         channels=(),
         kernel=KernelConfig(
-            command="python -m agent.platform.http_api.app",
+            # command removed: kernel now in-process (refactor-387-M4)
             startup_timeout_seconds=0.2,
             health_poll_interval_seconds=0.0,
             shutdown_grace_seconds=0.1,
