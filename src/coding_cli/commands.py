@@ -262,7 +262,14 @@ def _build_kernel(
 
     # Production path: import agent.sdk and assemble the local_coding kernel.
     # All types used here are re-exported from agent.sdk — coding_cli only imports agent.sdk.
-    from agent.sdk import build_kernel, LOCAL_CODING_PROFILE
+    from agent.sdk import build_kernel, LOCAL_CODING_PROFILE, init_model_registry
+
+    # init_model_registry must be called before LLMFactoryConfig.from_env(), because
+    # from_env() calls get_default_provider() which requires the registry to be populated.
+    # This mirrors personal_assistant/main.py:1098 — products init the registry at
+    # process startup before building the kernel.
+    llm_payload = _build_llm_config_payload(args)
+    init_model_registry(llm_payload)
 
     llm_config = _build_llm_config_from_args(args)
 
@@ -277,8 +284,52 @@ def _build_kernel(
     )
 
 
+def _build_llm_config_payload(args: argparse.Namespace) -> Any:
+    """Build LLMConfigPayload for init_model_registry from env vars and CLI overrides.
+
+    Called before LLMFactoryConfig.from_env() so the registry is populated when
+    from_env() calls get_default_provider().  Priority:
+    1. NANO_MULTIAGENT_LLM_CONFIG_JSON env (full Gateway-style payload)
+    2. Individual env vars + CLI args (minimal single-provider payload)
+
+    Args:
+        args: Parsed CLI arguments (may carry --provider/--model/--llm-base-url).
+
+    Returns:
+        LLMConfigPayload ready for init_model_registry().
+    """
+    from agent.sdk import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+
+    # Fast path: full config JSON injected (e.g. from a parent process or test env).
+    raw_json = os.getenv("NANO_MULTIAGENT_LLM_CONFIG_JSON")
+    if raw_json:
+        return LLMConfigPayload.from_json(raw_json)
+
+    # Slow path: build minimal payload from env vars + CLI args.
+    provider = getattr(args, "llm_provider", None) or os.getenv("NANO_MULTIAGENT_LLM_PROVIDER", "anthropic")
+    model = getattr(args, "llm_model", None) or os.getenv("NANO_MULTIAGENT_LLM_MODEL", "kimiCoding:K2.6")
+    base_url = (
+        getattr(args, "llm_base_url", None)
+        or os.getenv("NANO_MULTIAGENT_LLM_BASE_URL", "http://127.0.0.1:4000")
+    )
+    return LLMConfigPayload(
+        default_model=model,
+        providers=(
+            LLMProviderPayload(
+                name=provider,
+                base_url=base_url,
+                models=(LLMModelPayload(name=model),),
+            ),
+        ),
+    )
+
+
 def _build_llm_config_from_args(args: argparse.Namespace) -> Any:
-    """Build LLMFactoryConfig from env vars layered with CLI overrides."""
+    """Build LLMFactoryConfig from env vars layered with CLI overrides.
+
+    Must be called after _build_llm_config_payload + init_model_registry, since
+    LLMFactoryConfig.from_env() requires the registry to be initialized.
+    """
     from agent.sdk import LLMFactoryConfig
     import dataclasses
 

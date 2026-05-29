@@ -346,7 +346,6 @@ def test_build_llm_config_payload_exists_and_does_not_need_registry(monkeypatch)
     from agent.core.llm.model_registry import _reset_for_tests
     _reset_for_tests()  # 隔离：确保本测试内 registry 未初始化
 
-    # 恢复 registry 在测试后（避免污染后续测试）
     monkeypatch.setenv("NANO_MULTIAGENT_LLM_PROVIDER", "anthropic")
     monkeypatch.setenv("NANO_MULTIAGENT_LLM_MODEL", "kimiCoding:K2.6")
     monkeypatch.setenv("NANO_MULTIAGENT_LLM_BASE_URL", "http://127.0.0.1:4000")
@@ -361,13 +360,15 @@ def test_build_llm_config_payload_exists_and_does_not_need_registry(monkeypatch)
         llm_api_key=None,
         llm_timeout_seconds=None,
     )
-    # 不应抛 "model registry not initialized"
+    # _build_llm_config_payload 不调 registry，纯从 env 构造 LLMConfigPayload
     payload = _build_llm_config_payload(args)
     assert payload is not None
-    # 调完后 registry 应已初始化，from_env() 可正常运行
-    from agent.sdk import LLMFactoryConfig
-    config = LLMFactoryConfig.from_env()
-    assert config.provider == "anthropic"
+    # payload 结构正确
+    from agent.sdk import LLMConfigPayload
+    assert isinstance(payload, LLMConfigPayload)
+    assert payload.default_model == "kimiCoding:K2.6"
+    assert len(payload.providers) == 1
+    assert payload.providers[0].name == "anthropic"
 
 
 def test_cli_llm_config_get_real_path_does_not_report_registry_error(monkeypatch) -> None:
