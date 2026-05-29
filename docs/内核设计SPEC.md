@@ -7,13 +7,13 @@
 
 ## 1. 定位
 
-`src/agent/` 是整个系统唯一的 Agent 执行内核。对外只暴露 HTTP API，不暴露 Python import。
+`src/agent/` 是整个系统唯一的 Agent 执行内核。对外只暴露 `agent.sdk`（进程内 `build_kernel()` → `Kernel`），不内置 HTTP API。
 
 **做什么**：单 Agent 运行时 + 工具执行 + 技能发现 + 事件扩展 + 会话持久化 + 上下文压缩 + 多 LLM Provider 适配。
 
 **不做什么**：不知道什么是 coding / assistant；不做 IM 接入、Channel 路由、heartbeat 调度；不做 CLI 交互。
 
-消费方通过 HTTP 使用内核：`coding_cli` 和 `personal_assistant` 同机直连，IM 不直接调用内核。
+消费方通过 `agent.sdk` 进程内直调内核：`coding_cli` 和 `personal_assistant` import `agent.sdk`，IM 不直接调用内核。
 
 ---
 
@@ -23,17 +23,19 @@
 src/agent/
 ├── core/        # 执行内核（纯逻辑，无 IO）
 ├── platform/    # 集成层（接外部环境）
-└── products/    # 产品 profile（装配方案）
+├── products/    # 产品 profile（装配方案）
+└── sdk/         # 对外面：build_kernel() → Kernel（唯一产品接口）
 ```
 
 依赖方向：`platform → products + core`（禁止反向）。`core` 不依赖 `platform` / `products`。
+`sdk` 依赖 `platform + products + core`；产品只 import `agent.sdk`，禁止 import 内部层。
 
 ### Core — 怎么运行
 
 | 模块 | 职责 |
 |---|---|
 | `core/types.py` | `Message`、`ToolSpec`、`ToolCall`、`ToolResult`、`TurnResult` |
-| `core/events.py` | 运行时事件与 Hook 事件契约 |
+| `core/events/` | 运行时事件契约（`types.py`）+ 进程内 pub/sub hub（`hub.py`，EventStreamHub） |
 | `core/errors.py` | 类型化异常：`ModelError`、`ToolError`、`PolicyViolation` |
 | `core/ids.py` | session / turn / message / tool-call ID 生成 |
 | `core/agent/runtime.py` | 上层统一 API：`run`、`continue_turn`、`get_session` |
@@ -64,7 +66,6 @@ src/agent/
 
 | 模块 | 职责 |
 |---|---|
-| `platform/http_api/` | HTTP routes、SSE、Bearer auth、deps、错误映射 |
 | `platform/llm/providers/openai_compat/` | OpenAI 兼容协议实现 |
 | `platform/llm/providers/anthropic/` | Anthropic 协议实现 |
 | `core/session/jsonl_store.py` | JSONL-based session store（生产默认，workspace-local `.nano/sessions/`） |
@@ -74,7 +75,7 @@ src/agent/
 | `platform/hooks/loader.py` | 双源目录扫描加载 hook 模块 |
 | `platform/config/` | 配置目录解析与 product namespace 映射 |
 | `platform/bootstrap.py` | 产品装配接线：Profile → ResolvedProductConfig |
-| `platform/sdk/client.py` | 供应用使用的 HTTP client |
+| `sdk/` | 唯一对外面：`build_kernel(product_profile, llm_config, can_use_tool) → Kernel` |
 
 ### Products — 产品长什么样
 

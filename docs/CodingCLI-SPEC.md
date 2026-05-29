@@ -13,7 +13,7 @@
 
 **不做什么**：不实现 Agent Loop，不直接调用 LLM，不管理会话持久化，不做 IM 接入。
 
-**边界**：通过 HTTP 调用同机 `agent` 内核，禁止直接 import agent 内部模块。
+**边界**：通过 `import agent.sdk` 进程内调用内核，禁止 import `agent.core` / `agent.platform` 内部模块。
 
 **体验准则**：`coding_cli` 的前端交互与整体产品体验应优先对标成熟商业 Coding Agent CLI（如 Claude Code、Codex CLI）的一致性、简洁性与低心智负担；后续任何交互、信息架构、默认行为设计，都应先满足这一原则，偏离时必须有明确理由。
 
@@ -21,32 +21,14 @@
 
 ## 2. 运行模式
 
-默认用户体验必须是**无参数启动**：直接执行 `coding_cli` 即进入 Managed 模式。`base-url`、端口等 agent 内部连接参数属于高级调试能力，不应成为日常启动前置条件；需要自定义时，优先走显式 CLI 参数或产品配置文件。
-
-### Managed 模式（默认）
-
-CLI 自动启动同机 agent 进程（uvicorn），使用完毕后自动清理。
+**refactor-387 起**：内核为进程内库（`agent.sdk`），无独立 HTTP API 进程。`--mode managed/remote`、`--base-url` 已移除。直接执行 `coding_cli` 即启动异步 REPL，进程内持有内核。
 
 ```
-coding_cli ──启动──→ agent (localhost) ──HTTP──→ coding_cli
+coding_cli ──import agent.sdk──→ Kernel（进程内）
 ```
 
-- 仅允许绑定本地地址（127.0.0.1 / localhost / ::1）
-- 默认使用内建本地地址与端口，无需用户显式指定 URL
-- 启动超时 10s，0.1s 轮询 `/v1/health`
-- 支持 LLM 覆盖参数透传（`--llm-provider`、`--llm-model`、`--llm-base-url`、`--llm-api-key`）
-- 退出时 terminate（2s 宽限）→ kill
-
-### Remote 模式
-
-CLI 连接已有的远程 agent 服务，不管理进程生命周期。
-
-```
-coding_cli ──HTTP──→ agent (remote)
-```
-
-- 必须显式指定 `--base-url`
-- 不支持 LLM 覆盖参数（由远端配置决定）
+- 无需启动/监控子进程
+- 支持 LLM 覆盖参数（`--llm-provider`、`--llm-model`、`--llm-base-url`、`--llm-api-key`）
 
 ### 环境变量
 
@@ -179,12 +161,10 @@ Context budget: 12500/128000 (9.8%)
 ```text
 src/coding_cli/
 ├── main.py              # 进程入口
-├── commands.py          # REPL / 单命令编排
-├── managed_server.py    # Managed 模式进程管理
-├── client.py            # HTTP client（API 契约对齐 agent HTTP API）
+├── commands.py          # REPL / 单命令编排（CLI module boundary）
 ├── input/
-│   ├── repl_input.py    # 终端输入引擎（行编辑、历史、命令菜单）
-│   └── repl_commands.py # 斜杠命令路由与参数校验
+│   ├── repl_input.py    # 终端输入引擎（行编辑、历史、命令菜单）（`repl_input.py`）
+│   └── repl_commands.py # 斜杠命令路由与参数校验（`repl_commands.py`）
 ├── events/
 │   ├── repl_events.py   # 异步事件消费与实时预览
 │   └── event_pipeline.py # 事件归一化与去重
@@ -197,32 +177,31 @@ src/coding_cli/
     └── repl_runtime.py  # 后台队列（异步消息派发）
 ```
 
+> **refactor-387**: `client.py`（HTTP ServerClient）、`managed_server.py`（进程管理）、
+> `kernel_app.py`、`session_stream.py` 已于 M4 删除。
+
 ### 模块职责边界
 
-- `commands.py` 只做编排，不做输入解析、渲染、事件处理
-- `input/` 不知道 HTTP、不知道 agent，只处理终端交互
-- `events/` 只消费 SSE 事件流，不做 UI 渲染决策
+- `commands.py` 只做编排，不做输入解析、渲染、事件处理；stdout 输出 single final JSON object on stdout
+- `input/` 不知道 agent，只处理终端交互
+- `events/` 只消费内核事件流，不做 UI 渲染决策
 - `render/` 只格式化输出，不做业务逻辑
-- `client.py` 是唯一的 HTTP 出口
 
 ---
 
 ## 7. 与 agent 内核的接口
 
-coding_cli 使用的 agent HTTP API 子集：
+**refactor-387 起**：内核 HTTP API 已删除。coding_cli 通过 `agent.sdk` 进程内直调：
 
-| 方法 | 端点 | 用途 |
+| 操作 | SDK 调用 | 用途 |
 |---|---|---|
-| GET | `/v1/health` | Managed 模式启动探活 |
-| POST | `/v1/sessions` | 创建 session（传入 `workspace_root`） |
-| GET | `/v1/sessions/{id}` | 查询 session 详情 |
-| POST | `/v1/sessions/{id}/messages` | 同步发送消息（单命令模式） |
-| POST | `/v1/sessions/{id}/messages:async` | 异步发送消息（REPL 模式） |
-| GET | `/v1/sessions/{id}/events` | SSE 事件轮询 |
-| GET | `/v1/sessions/{id}/messages` | 消息分页（/history） |
-| GET | `/v1/runs/{run_id}` | 查询异步运行状态 |
-| GET | `/v1/tools` | 列出可用工具（/tools） |
-| POST | `/v1/sessions/{id}/compact` | 手动压缩（/compact） |
+| 创建 session | `await kernel.create_session(workspace_root=...)` | 启动 session |
+| 提交消息 | `kernel.submit(session_id=..., parts=...)` | 异步发送消息 |
+| 消费事件流 | `async for ev in kernel.stream(session_id)` | REPL 实时事件 |
+| 列工具 | `kernel.list_session_tools(session_id=...)` | `/tools` 命令 |
+| 压缩 | `await kernel.compact(session_id=...)` | `/compact` 命令 |
+| 打断 | `kernel.interrupt(session_id=...)` | Ctrl-C |
+| LLM config | `kernel.get_llm_config()` / `kernel.reconfigure_llm(...)` | `llm-config` 子命令 |
 
 ### Workspace 绑定
 
@@ -252,12 +231,12 @@ coding_cli 使用 `local_coding` 产品 profile：
 
 ## 9. 硬约束
 
-1. 禁止直接 import agent 内部模块，所有交互通过 HTTP
+1. 禁止直接 import `agent.core` / `agent.platform` 内部模块；只允许 import `agent.sdk`
 2. 单命令模式 stdout 只输出一个 JSON 对象，REPL 增强不得影响单命令输出格式
 3. 错误必须携带 `layer` 和 `suggestion`，分层一致
 4. 预算显示、事件流等增强功能 fail-open，不阻塞主对话流程
 5. 输入历史按 session 隔离，命令执行不污染历史
-6. Managed 模式退出时必须清理 agent 子进程
+6. 退出时调用 `kernel.close()` 释放后台线程
 7. 非 TTY 环境必须可用（退化为 `input()` + 同步模式）
 8. 禁止继续扩张环境变量接口面；新增配置必须优先走显式 CLI 参数或产品配置文件
 9. 默认交互路径必须保持无参数启动；URL、端口等内部连接参数不得成为日常使用的必填项

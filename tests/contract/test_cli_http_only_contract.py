@@ -71,6 +71,20 @@ def test_cli_main_module_delegates_to_commands() -> None:
     assert "cli.commands" in cli_source
 
 
+# Products (coding_cli / personal_assistant) may ONLY import agent.sdk; all other
+# agent.* sub-packages are forbidden (agent.core, agent.platform, agent.products).
+# IM and agent internals keep the old full-root boundary.
+_SIBLING_FORBIDDEN_PREFIXES: dict[str, tuple[str, ...]] = {
+    # agent must never import products
+    "agent": ("coding_cli", "personal_assistant", "IM"),
+    # products must not import agent.core/platform/products — only agent.sdk
+    "coding_cli": ("agent.core", "agent.platform", "agent.products", "personal_assistant", "IM"),
+    "personal_assistant": ("agent.core", "agent.platform", "agent.products", "coding_cli", "IM"),
+    # IM must not import agent at all, nor sibling products
+    "IM": ("agent", "coding_cli", "personal_assistant"),
+}
+
+# Keep for backward compat (used in test function name)
 PACKAGE_IMPORT_BOUNDARIES = {
     "agent": {"coding_cli", "personal_assistant", "IM"},
     "coding_cli": {"agent", "personal_assistant", "IM"},
@@ -80,60 +94,59 @@ PACKAGE_IMPORT_BOUNDARIES = {
 
 
 def _collect_sibling_import_violations(package_name: str) -> list[str]:
+    """Check package imports against the refined forbidden-prefix table."""
     package_root = SOURCE_ROOT / package_name
-    forbidden_roots = PACKAGE_IMPORT_BOUNDARIES[package_name]
+    forbidden_prefixes = _SIBLING_FORBIDDEN_PREFIXES.get(package_name, ())
     violations: list[str] = []
     for file_path in sorted(package_root.rglob("*.py")):
         tree = ast.parse(file_path.read_text(encoding="utf-8"), filename=str(file_path))
         for node in ast.walk(tree):
-            imported_root: str | None = None
+            module: str | None = None
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    imported_root = alias.name.split(".", 1)[0]
-                    if imported_root in forbidden_roots:
+                    if any(alias.name == p or alias.name.startswith(p + ".") for p in forbidden_prefixes):
                         relative_path = file_path.relative_to(PROJECT_ROOT)
                         violations.append(f"{relative_path}:{node.lineno} imports {alias.name}")
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                imported_root = node.module.split(".", 1)[0]
-                if imported_root in forbidden_roots:
+                module = node.module
+                if any(module == p or module.startswith(p + ".") for p in forbidden_prefixes):
                     relative_path = file_path.relative_to(PROJECT_ROOT)
-                    violations.append(f"{relative_path}:{node.lineno} imports {node.module}")
+                    violations.append(f"{relative_path}:{node.lineno} imports {module}")
     return violations
 
 
-@pytest.mark.xfail(
-    reason=(
-        "coding_cli/kernel_app.py intentionally imports agent.platform for Managed mode, "
-        "violating the HTTP-only boundary declared in SPEC.md; tracked in #39. "
-        "This file is being deleted in M4."
-    ),
-    strict=True,
-)
 def test_top_level_packages_keep_zero_import_boundaries() -> None:
-    """Full zero-import boundary check (kept as xfail pending M4 cleanup)."""
+    """Full zero-import boundary check — active after M4 cleanup (Closes #39).
+
+    coding_cli/kernel_app.py (which violated the HTTP-only boundary) was deleted
+    in M4; this test is now a hard assertion with no xfail.
+    """
     violations: list[str] = []
     for package_name in PACKAGE_IMPORT_BOUNDARIES:
         violations.extend(_collect_sibling_import_violations(package_name))
-    assert violations == []
+    assert violations == [], (
+        "Top-level packages must not import each other directly:\n"
+        + "\n".join(f"  {v}" for v in violations)
+    )
 
 
-def test_spec_declares_zero_import_acceptance_rules() -> None:
-    """SPEC.md still references old HTTP boundary snippets — these are M4 doc cleanup targets.
+def test_spec_declares_sdk_only_boundary_rules() -> None:
+    """SPEC.md §5 must declare the post-M4 agent.sdk-only boundary rules.
 
-    This test is intentionally left as a hard FAIL (no xfail) so that the residue
-    in SPEC.md stays visible until M4 properly updates the document.  Adding an
-    xfail here would be the exact anti-pattern this unit is trying to eradicate
-    (#39/#40).  M4 will update SPEC.md and remove these assertions.
+    These are the NEW rules that replace the old HTTP-only boundary snippets.
+    Verifies that the final SPEC.md reflects the refactor-387 target architecture
+    (#39 Closes: products only import agent.sdk, not agent.core/platform).
     """
     SPEC_BOUNDARY_SNIPPETS = (
-        "- `coding_cli` 和 `personal_assistant` 通过 HTTP 调用同机 agent，禁止直接 import",
-        "- `IM` 不直接调用 agent，只与用户和 `personal_assistant` 交互",
-        "- 四个包之间无 Python import 依赖，各自独立部署",
-        "- 验收口径：`src/agent/`、`src/coding_cli/`、`src/personal_assistant/`、`src/IM/` 源码不得 import 其它顶层包；相关断言由 `tests/contract/test_cli_http_only_contract.py` 自动执行",
+        # §5 dependency rules — new agent.sdk-only phrasing (exact text from SPEC.md §5)
+        "coding_cli` 和 `personal_assistant` 通过 **`import agent.sdk` 进程内调用** agent",
+        "**只允许 import `agent.sdk`**，禁止 import `agent.core` / `agent.platform` 内部模块",
+        # Verification clause
+        "test_cli_http_only_contract.py",
     )
     spec_text = SPEC_PATH.read_text(encoding="utf-8")
     for snippet in SPEC_BOUNDARY_SNIPPETS:
-        assert snippet in spec_text
+        assert snippet in spec_text, f"SPEC.md missing M4 boundary rule: {snippet!r}"
 
 
 def test_cli_exposes_sdk_subcommands() -> None:

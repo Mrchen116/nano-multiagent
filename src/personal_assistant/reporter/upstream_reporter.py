@@ -5,11 +5,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from agent.core.llm.model_registry import get_default_model, get_default_provider, list_provider_models, list_supported_providers
-from agent.core.skills.discovery import default_skill_search_roots
-from agent.core.skills.registry import SkillRegistry
-from agent.platform.config.resolver import ConfigResolver
-from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
+# refactor-387-M4: import from agent.sdk (public surface) instead of agent.core internals
+from agent.sdk import (
+    get_default_model,
+    get_default_provider,
+    list_provider_models,
+    list_supported_providers,
+    default_skill_search_roots,
+    SkillRegistry,
+    ConfigResolver,
+    PERSONAL_ASSISTANT_PROFILE,
+)
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
 
 
@@ -138,7 +144,7 @@ def build_node_capabilities_payload() -> dict[str, object]:
     Returns:
         Capability dict suitable for node.capabilities response frames.
     """
-    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY  # noqa: PLC0415
+    from agent.sdk import FEATURE_REGISTRY  # noqa: PLC0415  # refactor-387-M4
 
     base = build_runtime_capabilities().as_payload()
     # Node-level: no per-agent tool_allowlist → every feature is available.
@@ -171,7 +177,7 @@ def build_agent_capabilities_payload(
         tool_allowlist: Tool names enabled for this agent.  Used to determine
             whether feature-gated tools are available (feat-379 decision 7).
     """
-    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY  # noqa: PLC0415
+    from agent.sdk import FEATURE_REGISTRY  # noqa: PLC0415  # refactor-387-M4
 
     root = Path(workspace_root).expanduser().resolve()
     config_resolver = ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=root)

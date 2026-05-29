@@ -6,11 +6,8 @@ agent.core, agent.platform, or agent.products internals.
 
 Phase status (refactor-387):
 - M1: Framework established; agent.sdk has no reverse dependencies (verified).
-      Known pre-existing violations in coding_cli and personal_assistant are
-      explicitly enumerated (kernel_app.py etc.) and will be fixed in M2/M3.
-      The guard for those files is active but PASSES because the violations
-      are expected at this phase.
-- M4: All violations resolved; full strict guard becomes active.
+- M2/M3: coding_cli and personal_assistant migrated to agent.sdk; dead files kept.
+- M4: All violations resolved; dead files deleted; full strict guard active (Closes #39).
 
 Architecture invariant enforced here:
   agent.sdk → agent.core + agent.platform + agent.products  (correct, downward)
@@ -27,20 +24,9 @@ SRC_ROOT = PROJECT_ROOT / "src"
 AGENT_SDK_ROOT = SRC_ROOT / "agent" / "sdk"
 
 
-# Files in products that have KNOWN violations in M1 (will be fixed in M2/M3).
-# Each entry documents what the violation is and which milestone will fix it.
-# Format: "relative/path/from/src" → ["forbidden_prefix", ...]
-_M2_M3_KNOWN_VIOLATIONS: dict[str, list[str]] = {
-    # M2: coding_cli will be rewritten to import only agent.sdk
-    "coding_cli/kernel_app.py": ["agent.core", "agent.platform", "agent.products"],
-    # M3: personal_assistant will be rewritten to import only agent.sdk
-    "personal_assistant/kernel_app.py": ["agent.core", "agent.platform", "agent.products"],
-    "personal_assistant/main.py": ["agent.core", "agent.platform", "agent.products"],
-    "personal_assistant/config/local_store.py": ["agent.core"],
-    "personal_assistant/reporter/upstream_reporter.py": ["agent.core", "agent.platform", "agent.products"],
-    "personal_assistant/gateway/inbound_pipeline.py": ["agent.core", "agent.platform"],
-    "personal_assistant/client/kernel_api_client.py": ["agent.core", "agent.platform"],
-}
+# M4: All M2/M3 violations resolved; dead files deleted; whitelist is now empty.
+# coding_cli and personal_assistant now import only agent.sdk (no known violations).
+_M2_M3_KNOWN_VIOLATIONS: dict[str, list[str]] = {}
 
 # Agent-internal prefixes that products must NOT import directly in the target arch.
 _FORBIDDEN_INTERNAL_PREFIXES = [

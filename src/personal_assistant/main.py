@@ -26,8 +26,8 @@ from websockets.asyncio.client import ClientConnection
 
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.channels.web_relay_adapter import RelayDeduplicationStore, WebRelayAdapter
-# KernelApiClient removed in M3 (refactor-387); GatewayProcessManager kept as dead code for M4 deletion.
-from agent.core.llm.model_registry import init_model_registry
+# refactor-387-M4: import from agent.sdk (public surface) instead of agent.core internals.
+from agent.sdk import init_model_registry
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     ChannelConfig,
@@ -1316,7 +1316,7 @@ class _KernelClientShim:
         origin: str | None = None,
         **_kwargs: object,
     ) -> dict[str, object]:
-        from agent.core.runs.origin import RunOrigin as _RunOrigin
+        from agent.sdk import RunOrigin as _RunOrigin  # refactor-387-M4
         parts: list[dict] = [{"type": "text", "text": t} for t in texts]
         for img in image_urls or []:
             url = img.get("url")
@@ -1386,8 +1386,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     refactor-387 M3: kernel is now in-process via agent.sdk.  No kernel child
     process is spawned; GatewayProcessManager is no longer used here.
     """
-    from agent.sdk.kernel import build_kernel
-    from agent.platform.permissions.broker import PermissionDecision as _PermissionDecision
+    # refactor-387-M4: import from agent.sdk only
+    from agent.sdk import build_kernel, PermissionDecision as _PermissionDecision, LLMFactoryConfig as _LLMFactoryConfig, PERSONAL_ASSISTANT_PROFILE
 
     # PA permission strategy: unattended gateway — auto-allow all tools.
     # The gateway is primarily a relay for heartbeat/cron and user-triggered turns;
@@ -1401,10 +1401,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
 
     # init_model_registry(config.llm) is called by run_gateway before build_runtime;
     # LLMFactoryConfig.from_env() reads from the global model registry.
-    from agent.core.llm.factory import LLMFactoryConfig as _LLMFactoryConfig
     llm_factory_config = _LLMFactoryConfig.from_env()
-
-    from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 
     kernel = build_kernel(
         product_profile=PERSONAL_ASSISTANT_PROFILE,

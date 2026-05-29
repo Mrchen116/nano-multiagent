@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+from agent.sdk import LLMConfigPayload, LLMModelPayload, LLMProviderPayload  # refactor-387-M4
 
 _DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
 # refactor-387 M3: kernel_app.py deleted; KernelConfig.command is retained for M4 cleanup.

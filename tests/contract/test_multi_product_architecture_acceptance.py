@@ -13,7 +13,7 @@ KERNEL_SPEC = PROJECT_ROOT / "docs" / "内核设计SPEC.md"
 
 EXPECTED_TARGET_TREE_LINES = (
     "src/",
-    "└── IM/                           # IM 前后端（独立服务）",
+    "└── IM/                           # IM 前后端（独立网络服务）",
 )
 
 EXPECTED_EXISTING_PATHS = (
@@ -31,12 +31,15 @@ EXPECTED_EXISTING_PATHS = (
     "core/agent/compaction/summarizer.py",
     "core/agent/compaction/types.py",
     "core/errors.py",
-    "core/events.py",
+    # core/events.py converted to package in refactor-387-M4-R1; use events/ paths below
     "core/hooks/context.py",
     "core/hooks/registry.py",
     "core/hooks/runner.py",
     "core/hooks/types.py",
     "core/ids.py",
+    "core/events/__init__.py",        # new: events package (R1 migration)
+    "core/events/hub.py",             # new: EventStreamHub in core (R1 migration)
+    "core/events/types.py",           # new: RuntimeEvent types moved here (R1)
     "core/llm/factory.py",
     "core/llm/interfaces.py",
     "core/llm/model_registry.py",
@@ -63,11 +66,7 @@ EXPECTED_EXISTING_PATHS = (
     "platform/hooks/loader.py",
     "platform/hooks/session_events.py",
     "platform/hooks/session_usage.py",
-    "platform/http_api/app.py",
-    "platform/http_api/deps.py",
-    "platform/http_api/routes/event.py",
-    "platform/http_api/routes/session.py",
-    "platform/http_api/sse.py",
+    # platform/http_api/ deleted in refactor-387-M4 (HTTP layer removed entirely)
     "platform/llm/providers/__init__.py",
     "platform/llm/providers/anthropic/client.py",
     "platform/llm/providers/anthropic/mapper.py",
@@ -97,10 +96,9 @@ EXPECTED_EXISTING_PATHS = (
 )
 
 EXPECTED_TOP_LEVEL_CODING_CLI_PATHS = (
-    "client.py",
+    # client.py, kernel_app.py, managed_server.py, session_stream.py deleted in M4
     "commands.py",
     "main.py",
-    "managed_server.py",
     "release_observability.py",
     "release_playbook.py",
 )
@@ -116,7 +114,7 @@ LEGACY_DOC_SNIPPETS = (
     "python3 -m nano_multiagent",
 )
 TOP_LEVEL_REQUIRED_DOC_SNIPPETS = (
-    "├── agent/                        # Agent 内核（对外只暴露 HTTP API）",
+    "├── agent/                        # Agent 内核库（对外只暴露 agent.sdk，进程内调用）",
     "├── coding_cli/                   # 本地编码 CLI 应用",
     "├── personal_assistant/           # 个人助手 Node Gateway",
 )
@@ -125,7 +123,9 @@ KERNEL_REQUIRED_DOC_SNIPPETS = (
     "core/        # 执行内核（纯逻辑，无 IO）",
     "platform/    # 集成层（接外部环境）",
     "products/    # 产品 profile（装配方案）",
+    "sdk/         # 对外面：build_kernel() → Kernel（唯一产品接口）",
     "依赖方向：`platform → products + core`（禁止反向）。`core` 不依赖 `platform` / `products`。",
+    "sdk` 依赖 `platform + products + core`；产品只 import `agent.sdk`，禁止 import 内部层",
 )
 ARCHITECTURE_REQUIRED_DOC_SNIPPETS = (
     "顶层结构",
