@@ -65,3 +65,12 @@ contract 测试：2 个预期硬红（SPEC.md/docs 文档测试），111 绿，1
 - Next: 全部 DONE
 
 
+
+### Fix-R1（reviewer 反馈修复）— e2e stale import + managed e2e 删除
+
+- Context: reviewer 发现 pytest tests/ --collect-only 有 3 个 collection ERROR（test_agent_runtime_e2e / test_anthropic_generate_e2e / test_openai_compat_generate_e2e），均为从 agent.core.llm.factory 导入 create_llm_client（M1 #40 已迁到 agent.platform.llm.factory）。另有 test_cli_managed_live_agent_e2e.py 测试已删除的 managed 模式。
+- Decision: 1) 3 个 e2e 文件 import 改为 from agent.platform.llm.factory import create_llm_client（LLMFactoryConfig 留 agent.core.llm.factory）；2) 删 test_cli_managed_live_agent_e2e.py（双重 skip 守卫，测试永不运行，行为已被 M2 SDK 测试覆盖）。
+- Evidence:
+  - `pytest tests/ --collect-only -q` → 零 ERROR（全目录，含 e2e）
+  - `pytest tests/ -m "not e2e" -q` → 2323 passed, 0 failed, 0 error（9 个 im_service 失败为 unit 分支预存，非本修复引入，可 grep "InboundPipeline" 确认）
+- Commits: Fix=69bf96aa
