@@ -829,10 +829,17 @@ def test_save_omits_none_custom_prompt(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 def _make_minimal_config(tmp_path: Path) -> "LocalConfig":
-    """Return a minimal LocalConfig whose source_path lives under tmp_path."""
-    workspace_root = tmp_path / "workspace" / "agent-a"
+    """Return a minimal LocalConfig with workspace and config under a 'src' subdir.
+
+    Uses a dedicated subdirectory so callers can freely control files at
+    tmp_path root (e.g. place or omit a main config.yaml) without colliding
+    with the bootstrap config written here.
+    """
+    src_dir = tmp_path / "_src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    workspace_root = src_dir / "workspace" / "agent-a"
     workspace_root.mkdir(parents=True)
-    config_path = tmp_path / "config.yaml"
+    config_path = src_dir / "bootstrap.yaml"
     config_path.write_text(
         "\n".join([
             "node:",
