@@ -819,3 +819,209 @@ def test_save_omits_none_custom_prompt(tmp_path: Path) -> None:
     save_local_config(original, saved_path)
     raw = _yaml.safe_load(saved_path.read_text(encoding="utf-8"))
     assert "custom_prompt" not in raw["agents"][0]
+
+
+# ---------------------------------------------------------------------------
+# feat-386: save_local_config 写前备份 (backup-on-write)
+#
+# 所有用例通过 monkeypatch default_local_config_path 把"主配置"路由到 tmp_path，
+# 保持单测幂等、无真实 home 副作用。
+# ---------------------------------------------------------------------------
+
+def _make_minimal_config(tmp_path: Path) -> "LocalConfig":
+    """Return a minimal LocalConfig with workspace and config under a 'src' subdir.
+
+    Uses a dedicated subdirectory so callers can freely control files at
+    tmp_path root (e.g. place or omit a main config.yaml) without colliding
+    with the bootstrap config written here.
+    """
+    src_dir = tmp_path / "_src"
+    src_dir.mkdir(parents=True, exist_ok=True)
+    workspace_root = src_dir / "workspace" / "agent-a"
+    workspace_root.mkdir(parents=True)
+    config_path = src_dir / "bootstrap.yaml"
+    config_path.write_text(
+        "\n".join([
+            "node:",
+            "  node_id: n-test",
+            "agents:",
+            f"  - agent_id: agent-a",
+            f"    workspace_root: {workspace_root}",
+        ]) + "\n" + _LLM_YAML,
+        encoding="utf-8",
+    )
+    return load_local_config(config_path)
+
+
+def test_save_local_config_creates_backup_for_main_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """写盘主配置时备份文件出现在 backups/ 子目录，内容等于写盘前的旧版。"""
+    import personal_assistant.config.local_store as ls
+
+    main_cfg = tmp_path / "config.yaml"
+    monkeypatch.setattr(ls, "default_local_config_path", lambda: main_cfg.resolve())
+
+    cfg = _make_minimal_config(tmp_path)
+    # 先写一个"旧版"作为将被备份的内容
+    old_text = "# old version\n"
+    main_cfg.write_text(old_text, encoding="utf-8")
+
+    save_local_config(cfg, main_cfg)
+
+    backups_dir = main_cfg.parent / "backups"
+    assert backups_dir.is_dir(), "backups/ 子目录应被创建"
+    bak_files = sorted(backups_dir.glob("config.*.yaml.bak"))
+    assert len(bak_files) == 1, "应产生恰好一份备份"
+    assert bak_files[0].read_text(encoding="utf-8") == old_text, "备份内容应等于旧版"
+
+
+def test_save_local_config_no_backup_when_dest_does_not_exist(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """首次写盘（dest 不存在）不产生备份文件。"""
+    import personal_assistant.config.local_store as ls
+
+    main_cfg = tmp_path / "config.yaml"
+    monkeypatch.setattr(ls, "default_local_config_path", lambda: main_cfg.resolve())
+
+    cfg = _make_minimal_config(tmp_path)
+    assert not main_cfg.exists(), "前置条件：dest 不存在"
+
+    save_local_config(cfg, main_cfg)
+
+    backups_dir = main_cfg.parent / "backups"
+    bak_files = list(backups_dir.glob("config.*.yaml.bak")) if backups_dir.exists() else []
+    assert len(bak_files) == 0, "首次写盘不应产生备份"
+
+
+def test_save_local_config_no_backup_for_non_main_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """非默认主配置路径（worktree 副本等）不产生备份。"""
+    import personal_assistant.config.local_store as ls
+
+    # 主配置指向另一个路径，与 save 目标不同
+    other_main = tmp_path / "other" / "config.yaml"
+    monkeypatch.setattr(ls, "default_local_config_path", lambda: other_main.resolve())
+
+    side_path = tmp_path / "side-config.yaml"
+    side_path.write_text("# side\n", encoding="utf-8")
+
+    cfg = _make_minimal_config(tmp_path)
+    save_local_config(cfg, side_path)
+
+    backups_dir = side_path.parent / "backups"
+    bak_files = list(backups_dir.glob("config.*.yaml.bak")) if backups_dir.exists() else []
+    assert len(bak_files) == 0, "非主配置路径不应产生备份"
+
+
+def test_save_local_config_skips_backup_when_content_identical(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """新序列化内容与 dest 现有内容逐字节相同时跳过备份（no-op churn 防护）。"""
+    import personal_assistant.config.local_store as ls
+
+    main_cfg = tmp_path / "config.yaml"
+    monkeypatch.setattr(ls, "default_local_config_path", lambda: main_cfg.resolve())
+
+    cfg = _make_minimal_config(tmp_path)
+    # 先正常写一次，dest 现在已含正确内容
+    save_local_config(cfg, main_cfg)
+
+    # 第二次写相同内容，不应再产生备份
+    backups_dir = main_cfg.parent / "backups"
+    bak_before = set(backups_dir.glob("config.*.yaml.bak")) if backups_dir.exists() else set()
+    save_local_config(cfg, main_cfg)
+    bak_after = set(backups_dir.glob("config.*.yaml.bak")) if backups_dir.exists() else set()
+
+    assert bak_after == bak_before, "内容相同时第二次不应产生新备份"
+
+
+def test_save_local_config_backup_retains_at_most_30_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """backups/ 目录应裁剪至最近 30 份，超出删最旧。"""
+    import personal_assistant.config.local_store as ls
+    import time as _time
+
+    main_cfg = tmp_path / "config.yaml"
+    monkeypatch.setattr(ls, "default_local_config_path", lambda: main_cfg.resolve())
+
+    cfg = _make_minimal_config(tmp_path)
+
+    # 写 35 次，每次先改 dest 内容让序列化结果不同（触发备份）
+    for i in range(35):
+        main_cfg.write_text(f"# version {i}\n", encoding="utf-8")
+        # 避免同一秒内文件名碰撞：借助 monkeypatch 注入人工时间戳不可行时，
+        # 小量 sleep 或依靠实现的去碰撞机制——这里测留存裁剪逻辑，
+        # 因此直接用 backups/ 数量断言。
+        save_local_config(cfg, main_cfg)
+
+    backups_dir = main_cfg.parent / "backups"
+    bak_files = sorted(backups_dir.glob("config.*.yaml.bak"))
+    assert len(bak_files) <= 30, f"备份应裁剪至至多 30 份，实际 {len(bak_files)} 份"
+
+
+def test_save_local_config_concurrent_backups_do_not_overwrite_each_other(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """同一时刻（单调时间戳相同）两次备份不互相覆盖。"""
+    import personal_assistant.config.local_store as ls
+    from unittest.mock import patch
+    from datetime import datetime, timezone
+
+    main_cfg = tmp_path / "config.yaml"
+    monkeypatch.setattr(ls, "default_local_config_path", lambda: main_cfg.resolve())
+
+    cfg = _make_minimal_config(tmp_path)
+
+    fixed_dt = datetime(2025, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+
+    # 两次写，都伪造成同一时间戳，期望不产生同名覆盖
+    written_texts: list[str] = []
+    for i in range(2):
+        text = f"# v{i}\n"
+        main_cfg.write_text(text, encoding="utf-8")
+        written_texts.append(text)
+        with patch("personal_assistant.config.local_store.datetime") as mock_dt:
+            mock_dt.now.return_value = fixed_dt
+            mock_dt.side_effect = None
+            save_local_config(cfg, main_cfg)
+
+    backups_dir = main_cfg.parent / "backups"
+    bak_files = sorted(backups_dir.glob("config.*.yaml.bak"))
+    assert len(bak_files) == 2, "同秒两次写盘应产生两份不同名备份"
+    bak_contents = {f.read_text(encoding="utf-8") for f in bak_files}
+    assert bak_contents == set(written_texts), "两份备份内容应各不相同"
+
+
+def test_save_local_config_backup_failure_raises_and_leaves_dest_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """备份失败（目录无写权限）时 raise，dest 原文不动。"""
+    import personal_assistant.config.local_store as ls
+    import os
+    import stat
+
+    main_cfg = tmp_path / "config.yaml"
+    monkeypatch.setattr(ls, "default_local_config_path", lambda: main_cfg.resolve())
+
+    cfg = _make_minimal_config(tmp_path)
+    original_text = "# original\n"
+    main_cfg.write_text(original_text, encoding="utf-8")
+
+    # 创建 backups/ 但去掉写权限
+    backups_dir = main_cfg.parent / "backups"
+    backups_dir.mkdir()
+    backups_dir.chmod(stat.S_IRUSR | stat.S_IXUSR)  # r-x，无写权限
+
+    try:
+        with pytest.raises(Exception):
+            save_local_config(cfg, main_cfg)
+
+        # dest 内容不变
+        assert main_cfg.read_text(encoding="utf-8") == original_text, "备份失败时 dest 不应被改动"
+    finally:
+        # 恢复权限让 tmp_path 清理能成功
+        backups_dir.chmod(stat.S_IRWXU)

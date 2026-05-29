@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import shlex
+import shutil
 from typing import Any
 
 import yaml
@@ -292,6 +294,64 @@ def default_local_config_path() -> Path:
     return Path("~/.nano-assistant/config.yaml").expanduser().resolve()
 
 
+_BACKUP_RETAIN = 30
+"""Maximum number of backup files kept in backups/ — oldest are pruned first."""
+
+
+def _backup_existing_config(dest: Path, new_text: str) -> None:
+    """Copy dest to a timestamped backup before it is overwritten.
+
+    Only runs when dest equals the default main config path and actually
+    exists on disk. Skips silently when dest is a worktree copy or
+    when the serialized content is byte-for-byte identical to the current
+    file (no-op churn protection).
+
+    Raises the underlying OS error unchanged if the backup write fails so
+    the caller never silently loses the current config.  dest is never
+    touched here — only the backups/ sub-directory is written.
+
+    Args:
+        dest: Resolved absolute path of the file about to be overwritten.
+        new_text: The new YAML content that will replace dest after this call.
+    """
+    # Only the main config gets backup protection; worktree copies are
+    # ephemeral and not worth preserving across restarts.
+    if dest != default_local_config_path():
+        return
+    if not dest.exists():
+        # First-ever write — no prior version to back up.
+        return
+
+    current_text = dest.read_text(encoding="utf-8")
+    if current_text == new_text:
+        # Nothing actually changed; skip to avoid filling backups/ with
+        # identical files (token-refresh writes the same content repeatedly).
+        return
+
+    backups_dir = dest.parent / "backups"
+    backups_dir.mkdir(parents=True, exist_ok=True)
+
+    # Build a monotone filename from UTC time with microsecond precision.
+    # If a collision still occurs (two saves in the same microsecond), append
+    # an incrementing suffix rather than silently overwriting the first backup.
+    ts = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S_%f")
+    bak_path = backups_dir / f"config.{ts}.yaml.bak"
+    suffix = 0
+    while bak_path.exists():
+        suffix += 1
+        bak_path = backups_dir / f"config.{ts}_{suffix}.yaml.bak"
+
+    # Raises if backup cannot be written (disk full, permissions, etc.).
+    # The caller must NOT proceed to overwrite dest in that case.
+    shutil.copy2(dest, bak_path)
+
+    # Prune oldest backups, retaining only the most recent _BACKUP_RETAIN files.
+    all_baks = sorted(backups_dir.glob("config.*.yaml.bak"))
+    excess = len(all_baks) - _BACKUP_RETAIN
+    for old_bak in all_baks[:excess]:
+        old_bak.unlink(missing_ok=True)
+
+
 def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     """Serialize a LocalConfig back to YAML and write to disk.
 
@@ -407,9 +467,13 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     }
     data["llm"] = llm_dict
 
+    new_text = yaml.safe_dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
     dest = Path(config_path).expanduser().resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(yaml.safe_dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    # Backup must succeed before we overwrite; raises on IO failure so dest
+    # is never silently clobbered when backup storage is unavailable.
+    _backup_existing_config(dest, new_text)
+    dest.write_text(new_text, encoding="utf-8")
 
 
 def resolve_kernel_token(token: str | None) -> str:
