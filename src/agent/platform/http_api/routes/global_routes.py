@@ -298,13 +298,20 @@ def prompt_preview(
 ) -> PromptPreviewResponse:
     """Assemble a system-prompt preview for the given per-agent feature configuration.
 
-    Filters to cache_safe=True segments only so the preview is stable and free
-    from volatile turn data (memory block, live participant list).  This matches
-    what the IM settings page needs to show: the static portion of the prompt.
+    Volatile segments (cache_safe=False — memory_block, user_profile_block,
+    communication_context, etc.) appear inline at their natural order position as
+    readable '运行时注入' placeholders.  This preserves the complete prompt shape so
+    the preview reads as a coherent document and the user sees exactly where runtime
+    will inject content — same principle as the datetime placeholder.
 
     feat-383-M1: tool descriptions come from the real ToolRegistry; skills are
     resolved from workspace_root; datetime uses a placeholder to signal runtime
     injection; cwd uses workspace_root or a placeholder when not available.
+
+    feat-385-M3-fix-r2 P1: volatile segments appear inline (not stripped then
+    footer-stacked).  _make_volatile_placeholder_section converts each
+    cache_safe=False section into an always-enabled section whose render returns
+    a human-readable inline placeholder text describing what runtime injects.
 
     Args:
         payload: Feature flags, custom_prompt, active tool ids, workspace_root,
@@ -315,8 +322,10 @@ def prompt_preview(
     Returns:
         PromptPreviewResponse with the assembled prompt and section count.
     """
+    import dataclasses  # noqa: PLC0415
     from pathlib import Path  # noqa: PLC0415
 
+    from agent.core.agent.prompt_sections.base import PromptSection  # noqa: PLC0415
     from agent.core.skills.discovery import resolve_available_skills  # noqa: PLC0415
 
     # Use real tool objects from registry; silently skip ids not registered
@@ -348,33 +357,51 @@ def prompt_preview(
         available_skills=available_skills,
         current_datetime=current_datetime,
         cwd=cwd,
-        memory_block=None,  # volatile — shown as placeholder below
+        # memory_block / user_profile_block left as None in ctx — volatile sections
+        # are replaced with inline-placeholder sections below (not filled with real data).
         flags=payload.features,
         scenario={"conversation_type": payload.scenario},
         vars={"custom_prompt": payload.custom_prompt} if payload.custom_prompt else {},
     )
-    # Preview shows only the cache-stable prefix; volatile segments (memory_block,
-    # user_profile_block etc.) are not filled at preview time but shown as placeholders
-    # so users know these fields exist and will be injected at runtime.
-    stable_sections = [s for s in sections if getattr(s, "cache_safe", True)]
-    assembled = assemble_system_prompt(stable_sections, ctx)
 
-    # Append placeholder lines for each volatile section so the preview is honest
-    # about what runtime will inject — spec requires "identifiable placeholder" (feat-385 I2).
-    volatile_sections = [s for s in sections if not getattr(s, "cache_safe", True)]
-    volatile_placeholders: list[str] = []
-    for sec in volatile_sections:
-        sec_name = getattr(sec, "name", str(sec))
-        volatile_placeholders.append(f"[{sec_name} — runtime fills]")
+    # Build the full section list: stable sections unchanged, volatile sections
+    # replaced by always-enabled inline-placeholder sections that render descriptive
+    # '运行时注入' text at their original order position.
+    # This lets assemble_system_prompt produce a complete prompt shape where the user
+    # can see every section (stable and volatile) in the natural order.
+    def _make_volatile_placeholder_section(sec: PromptSection) -> PromptSection:
+        """Return a preview-only section that renders an inline 运行时注入 placeholder.
 
-    if volatile_placeholders:
-        placeholder_block = "\n".join(volatile_placeholders)
-        volatile_note = (
-            "\n\n---\n"
-            "以上预览不包含 volatile 段(memory_block / user_profile_block / 时间等)，"
-            "runtime 装配时实填:\n"
-            + placeholder_block
+        The placeholder text describes what the runtime will inject at this position,
+        using user-readable names (not internal identifiers like 'core.memory_block').
+        Patterned after the datetime placeholder approach — show the field exists and
+        what it will contain, without exposing actual runtime data.
+        """
+        # Human-readable description of what runtime injects at each known volatile position.
+        sec_name = getattr(sec, "name", "")
+        _readable: dict[str, str] = {
+            "core.memory_block": "agent 的 MEMORY.md 内容",
+            "core.user_profile_block": "USER.md 用户画像",
+            "pa.communication_context": "当前会话通信上下文（群聊参与者列表等）",
+        }
+        description = _readable.get(sec_name, sec_name)
+        placeholder_text = f"<运行时注入：{description}>"
+
+        return dataclasses.replace(
+            sec,
+            render=lambda _ctx, _text=placeholder_text: _text,
+            enabled_when=lambda _ctx: True,
         )
-        assembled = assembled + volatile_note
 
-    return PromptPreviewResponse(prompt=assembled, section_count=len(stable_sections))
+    preview_sections: list[PromptSection] = []
+    stable_count = 0
+    for sec in sections:
+        if getattr(sec, "cache_safe", True):
+            preview_sections.append(sec)
+            stable_count += 1
+        else:
+            # Volatile section → inline placeholder at original order position.
+            preview_sections.append(_make_volatile_placeholder_section(sec))
+
+    assembled = assemble_system_prompt(preview_sections, ctx)
+    return PromptPreviewResponse(prompt=assembled, section_count=stable_count)

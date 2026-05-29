@@ -73,8 +73,13 @@ def test_prompt_preview_with_sections_returns_assembled_text() -> None:
     assert body["section_count"] == 2
 
 
-def test_prompt_preview_excludes_volatile_sections() -> None:
-    """Preview must exclude cache_safe=False (volatile) sections."""
+def test_prompt_preview_volatile_sections_appear_as_inline_placeholders() -> None:
+    """Volatile sections appear as inline placeholders at their order position, not excluded.
+
+    feat-385-M3-fix-r2 P1: volatile (cache_safe=False) sections must be rendered as
+    inline '运行时注入' placeholders in the assembled preview prompt, positioned at their
+    natural order location — not stripped out entirely.
+    """
     sections = [
         _make_section("core.stable", 100, "Stable text.", cache_safe=True),
         # cache_safe=False segment must have order > stable to avoid cache_safe violation
@@ -91,8 +96,11 @@ def test_prompt_preview_excludes_volatile_sections() -> None:
     assert response.status_code == 200
     body = response.json()
     assert "Stable text." in body["prompt"]
+    # Volatile section's raw render text must not appear; instead an inline placeholder.
     assert "Volatile turn data." not in body["prompt"]
-    # section_count reflects only cache_safe=True sections
+    # An inline 运行时注入 placeholder must appear in the volatile position.
+    assert "运行时注入" in body["prompt"]
+    # section_count reflects only cache_safe=True sections (stable count unchanged).
     assert body["section_count"] == 1
 
 
