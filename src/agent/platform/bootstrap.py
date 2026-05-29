@@ -148,7 +148,6 @@ def bootstrap_product(
         skill_roots = config_resolver.user_skill_roots()
         # Prefer workspace skill root (first in precedence); fall back to global.
         skill_root = skill_roots[0] if skill_roots else config_resolver.global_config_root() / "skills"
-        memory_root = config_resolver.user_memory_root()
 
         skill_manage_tool = SkillManageTool(skill_root=skill_root, registry=skill_registry)
         tool_registry.register(skill_manage_tool, replace=True)
