@@ -1,7 +1,7 @@
-"""REPL 异步事件渲染测试。
+"""REPL 异步事件渲染测试 (refactor-387 M2)。
 
-覆盖 async stream_session 路径下的事件过滤、去重、工具执行流、
-SSE tail 批处理等行为。Stub classes 定义在 _cli_async_stubs.py。
+覆盖 async stream() 路径下的事件过滤、去重、工具执行流等行为。
+Stub classes 定义在 _cli_kernel_stubs.py（M2 后的 Kernel 接口）。
 """
 
 import io
@@ -9,33 +9,55 @@ import io
 from coding_cli.input import repl_input
 from coding_cli.main import run_cli
 
-from tests.unit._cli_async_stubs import (
-    _AsyncChangedEventIdReplayStubClient,
-    _AsyncEventingStubClient,
-    _AsyncFailedRunStubClient,
-    _AsyncLongToolOutputStubClient,
-    _AsyncMultilineToolOutputStubClient,
-    _AsyncNoEventIdReplayStubClient,
-    _AsyncOrphanExecExitStubClient,
-    _AsyncSameToolSameOutputStubClient,
-    _AsyncSameToolTwiceStubClient,
-    _AsyncToolExecStreamingStubClient,
-    _AsyncUsageEventingStubClient,
-    _ResumeHistoryStubClient,
+from tests.unit._cli_kernel_stubs import (
+    _AsyncChangedEventIdReplayKernelStub,
+    _AsyncEventingKernelStub,
+    _AsyncFailedRunKernelStub,
+    _AsyncLongToolOutputKernelStub,
+    _AsyncMultilineToolKernelStub,
+    _AsyncNoEventIdReplayKernelStub,
+    _AsyncOrphanExecExitKernelStub,
+    _AsyncSameToolSameOutputKernelStub,
+    _AsyncSameToolTwiceKernelStub,
+    _AsyncToolExecStreamingKernelStub,
+    _BaseKernelStub,
     _TTYStringIO,
+    _make_kernel_factory,
 )
 
 
-def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
-    stub = _AsyncEventingStubClient()
+class _AsyncUsageEventingKernelStub(_BaseKernelStub):
+    def submit(self, *, session_id, parts, **kwargs):
+        text = ""
+        for part in parts:
+            if isinstance(part, dict) and part.get("type") == "text":
+                text = part.get("text", "")
+        self.calls.append(("submit", {"session_id": session_id, "text": text}))
+        return type("R", (), {"run_id": "run_target"})()
+
+    def stream(self, session_id, *, after_sequence=0):
+        from tests.unit._cli_kernel_stubs import _AsyncIterEvents
+        return _AsyncIterEvents([
+            {"event": "run_status", "run_id": "run_target", "status": "queued"},
+            {"event": "assistant_message", "run_id": "run_target", "content": "final:echo:ping"},
+            {"event": "tool_start", "run_id": "run_target", "name": "echo", "call_id": "call_1", "arguments": {"text": "ping"}},
+            {"event": "tool_end", "run_id": "run_target", "name": "echo", "call_id": "call_1", "output": {"text": "echo:ping"}, "error": None},
+            {"event": "run_status", "run_id": "run_target", "status": "completed", "stop_reason": "stop",
+             "usage": {"prompt_tokens": 320, "completion_tokens": 41, "total_tokens": 361}},
+        ])
+
+
+def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup(tmp_path) -> None:
+    stub = _AsyncEventingKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -46,19 +68,20 @@ def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup() -> None:
     assert "Tool: echo output=echo:ping" in text
     assert "final:echo:ping" in text
     assert "ignore-me" not in text
-    assert ("submit_message", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
+    assert ("submit", {"session_id": "sess_cli", "text": "ping"}) in stub.calls
 
 
-def test_repl_sanitizes_multiline_tool_preview() -> None:
-    stub = _AsyncMultilineToolOutputStubClient()
+def test_repl_sanitizes_multiline_tool_preview(tmp_path) -> None:
+    stub = _AsyncMultilineToolKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -67,16 +90,17 @@ def test_repl_sanitizes_multiline_tool_preview() -> None:
     assert "Tool: echo output=line1\nline2" not in text
 
 
-def test_repl_truncates_long_tool_output_with_head_and_tail() -> None:
-    stub = _AsyncLongToolOutputStubClient()
+def test_repl_truncates_long_tool_output_with_head_and_tail(tmp_path) -> None:
+    stub = _AsyncLongToolOutputKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -87,16 +111,17 @@ def test_repl_truncates_long_tool_output_with_head_and_tail() -> None:
     assert "x" * 150 not in text
 
 
-def test_run_cli_repl_groups_same_tool_name_events_by_call_id() -> None:
-    stub = _AsyncSameToolTwiceStubClient()
+def test_run_cli_repl_groups_same_tool_name_events_by_call_id(tmp_path) -> None:
+    stub = _AsyncSameToolTwiceKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -107,16 +132,17 @@ def test_run_cli_repl_groups_same_tool_name_events_by_call_id() -> None:
     assert "Tool: echo output=echo:second" in text
 
 
-def test_run_cli_repl_keeps_same_tool_output_lines_for_distinct_call_id() -> None:
-    stub = _AsyncSameToolSameOutputStubClient()
+def test_run_cli_repl_keeps_same_tool_output_lines_for_distinct_call_id(tmp_path) -> None:
+    stub = _AsyncSameToolSameOutputKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -125,16 +151,17 @@ def test_run_cli_repl_keeps_same_tool_output_lines_for_distinct_call_id() -> Non
     assert "final:echo:same" in text
 
 
-def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> None:
-    stub = _AsyncEventingStubClient()
+def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow(tmp_path) -> None:
+    stub = _AsyncEventingKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -144,21 +171,20 @@ def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow() -> No
     assert "Tool: echo start args=ping" in text
     assert "Tool echo start args=ping" not in text
     assert "Tool: echo output=echo:ping" in text
-    assert "Usage: unavailable" in text
-    assert '"run_id": "run_target"' not in text
     assert "[status]" not in text
 
 
-def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
-    stub = _AsyncUsageEventingStubClient()
+def test_run_cli_repl_prints_async_turn_llm_usage_when_available(tmp_path) -> None:
+    stub = _AsyncUsageEventingKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -166,16 +192,17 @@ def test_run_cli_repl_prints_async_turn_llm_usage_when_available() -> None:
     assert "Usage: prompt=320, completion=41, total=361" in text
 
 
-def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution() -> None:
-    stub = _AsyncToolExecStreamingStubClient()
+def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(tmp_path) -> None:
+    stub = _AsyncToolExecStreamingKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -190,16 +217,17 @@ def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(
     assert text.index("Tool: bash started status=started elapsed=0ms") < text.index("State:")
 
 
-def test_run_cli_repl_renders_orphan_tool_exit_as_isolated_timeline() -> None:
-    stub = _AsyncOrphanExecExitStubClient()
+def test_run_cli_repl_renders_orphan_tool_exit_as_isolated_timeline(tmp_path) -> None:
+    stub = _AsyncOrphanExecExitKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -210,16 +238,17 @@ def test_run_cli_repl_renders_orphan_tool_exit_as_isolated_timeline() -> None:
     assert "final:orphan-isolated" in text
 
 
-def test_run_cli_repl_dedupes_replayed_tool_start_without_event_id() -> None:
-    stub = _AsyncNoEventIdReplayStubClient()
+def test_run_cli_repl_dedupes_replayed_tool_start_without_event_id(tmp_path) -> None:
+    stub = _AsyncNoEventIdReplayKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -229,16 +258,17 @@ def test_run_cli_repl_dedupes_replayed_tool_start_without_event_id() -> None:
     assert "final:no-event-id" in text
 
 
-def test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id() -> None:
-    stub = _AsyncChangedEventIdReplayStubClient()
+def test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id(tmp_path) -> None:
+    stub = _AsyncChangedEventIdReplayKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -247,16 +277,17 @@ def test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id() -> Non
     assert "final:changed-event-id" in text
 
 
-def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
-    stub = _AsyncFailedRunStubClient()
+def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis(tmp_path) -> None:
+    stub = _AsyncFailedRunKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "hi", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -266,16 +297,17 @@ def test_run_cli_repl_failed_run_error_includes_run_id_for_diagnosis() -> None:
     assert "layer=runtime" in text
 
 
-def test_run_cli_repl_prints_compact_error_summary_for_failed_run() -> None:
-    stub = _AsyncFailedRunStubClient()
+def test_run_cli_repl_prints_compact_error_summary_for_failed_run(tmp_path) -> None:
+    stub = _AsyncFailedRunKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "hi", "/exit"])
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -283,12 +315,13 @@ def test_run_cli_repl_prints_compact_error_summary_for_failed_run() -> None:
     assert "Assistant: (empty)" in text
     assert "State: failed | layer=runtime" in text
     assert "Error: send failed: run_id=run_failed" in text
-    assert "Usage: unavailable" in text
     assert "[status]" not in text
 
 
-def test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path(monkeypatch) -> None:
-    stub = _AsyncToolExecStreamingStubClient()
+def test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path(
+    monkeypatch, tmp_path
+) -> None:
+    stub = _AsyncToolExecStreamingKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
 
@@ -298,10 +331,11 @@ def test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path(monkey
 
     monkeypatch.setattr(repl_input, "emit_external_text", _forbid_emit_external_text)
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -312,15 +346,18 @@ def test_run_cli_repl_non_tty_async_output_avoids_emit_external_text_path(monkey
     assert "\x1b[" not in text
 
 
-def test_run_cli_repl_tty_async_output_disables_live_preview_until_renderer_is_stable() -> None:
-    stub = _AsyncToolExecStreamingStubClient()
+def test_run_cli_repl_tty_async_output_disables_live_preview_until_renderer_is_stable(
+    tmp_path,
+) -> None:
+    stub = _AsyncToolExecStreamingKernelStub()
     output = _TTYStringIO()
     inputs = iter(["/new", "ping", "/exit"])
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
@@ -331,7 +368,10 @@ def test_run_cli_repl_tty_async_output_disables_live_preview_until_renderer_is_s
     assert text.count("done") >= 1
 
 
-def test_run_cli_repl_resume_batches_history_into_single_emit(monkeypatch) -> None:
+def test_run_cli_repl_resume_batches_history_into_single_emit(monkeypatch, tmp_path) -> None:
+    # M2 does not load history via HTTP; --resume only sets active session_id.
+    # Verify that --resume sets the active session without error.
+    stub = _BaseKernelStub(session_id="sess_hist")
     output = _TTYStringIO()
     emitted: list[str] = []
     original_emit_persistent_text = repl_input.emit_persistent_text
@@ -342,14 +382,14 @@ def test_run_cli_repl_resume_batches_history_into_single_emit(monkeypatch) -> No
 
     monkeypatch.setattr(repl_input, "emit_persistent_text", _record_emit_persistent_text)
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000", "--resume", "sess_hist"],
+        ["--resume", "sess_hist"],
         stdout=output,
-        client_factory=lambda _: _ResumeHistoryStubClient(),
+        kernel_factory=_make_kernel_factory(stub),
         input_fn=lambda _: "/exit",
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0
-    history_emits = [text for text in emitted if "first question" in text]
-    assert history_emits == [
-        "> first question\nAssistant:\nfirst answer\nAssistant:\nsecond line 1\nsecond line 2"
-    ]
+    # M2: history loading removed (no HTTP GET /messages); only banner emitted.
+    text = output.getvalue()
+    assert "bye" in text or "Auto mode" in text

@@ -1,4 +1,15 @@
-"""CLI entry orchestration over HTTP-only ServerClient interactions."""
+"""CLI entry orchestration over in-process agent.sdk Kernel.
+
+Architecture (refactor-387 M2):
+- No HTTP, no spawned subprocess: Kernel assembled via agent.sdk.build_kernel().
+- Async-native REPL: main loop is asyncio.run(repl_main()), matching PA and CC.
+- Permission via can_use_tool callback: CLI awaits user input inside the callback,
+  mirroring how PA uses a programmatic policy.
+- Removed: --mode/--base-url, health/create-session/send-message HTTP subcommands,
+  ManagedServerProcess/ServerClient usage.
+"""
+
+from __future__ import annotations
 
 import argparse
 import asyncio
@@ -6,11 +17,9 @@ import io
 import json
 import os
 import sys
-from contextlib import nullcontext
-from dataclasses import dataclass
-from typing import Callable, Sequence, TextIO
+from pathlib import Path
+from typing import Any, Callable, Sequence, TextIO
 
-from coding_cli.client import ServerClient, ServerClientConfig
 from coding_cli.events.background_runs import BackgroundRunEventProcessor
 from coding_cli.events.event_pipeline import build_repl_view_model as _build_repl_view_model
 from coding_cli.events.repl_events import _build_ordered_repl_updates
@@ -19,7 +28,6 @@ from coding_cli.events.repl_events import merge_text_delta as _merge_text_delta
 from coding_cli.events.repl_events import print_event_preview as _print_event_preview
 import coding_cli.input.repl_commands as repl_commands
 import coding_cli.input.repl_input as repl_input
-from coding_cli.managed_server import ManagedServerConfig, ManagedServerProcess
 from coding_cli.render.context_budget import context_budget_hint_for_ratio as _context_budget_hint_for_ratio
 from coding_cli.render.context_budget import context_budget_prefix as _context_budget_prefix
 from coding_cli.render.context_budget import extract_context_budget_metrics as _extract_context_budget_metrics
@@ -30,23 +38,22 @@ from coding_cli.render.repl_render import print_repl_turn_error as _print_repl_t
 from coding_cli.render.repl_render import print_repl_turn_summary as _print_repl_turn_summary
 from coding_cli.render.terminal_output import emit_lines as _emit_terminal_lines
 from coding_cli.render.terminal_output import write_tty_line as _write_tty_line
-from coding_cli.render.turn_usage import print_turn_usage_snapshot as _print_turn_usage_snapshot
-from coding_cli.session_stream import SessionStreamReader
-from coding_cli.text_runner import run_text
 
 _CLI_HELP_EPILOG = (
     "REPL quick commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit\n"
     "Inline editing: ←/→ move cursor, Backspace deletes at cursor.\n"
     "History recall: ↑/↓ navigates per-session input history and restores draft.\n"
-    "HTTP-only boundary: CLI orchestrates via ServerClient, never direct runtime calls.\n"
-    "JSON contract: non-interactive commands print a single final JSON object on stdout.\n"
+    "In-process kernel: CLI holds Kernel directly via agent.sdk — no HTTP, no subprocess.\n"
+    "Permission: prompted inline when agent needs tool confirmation.\n"
+    "JSON contract: --text mode prints a single final JSON object on stdout.\n"
     "LLM usage: shown per turn when provider usage is available.\n"
-    "Context budget: shown after each assistant reply and after /compact.\n"
-    "Error layers: input / network / runtime."
+    "Error layers: input / runtime."
 )
-_DEFAULT_CLI_MODE = "remote"
-_REPL_DRAIN_TIMEOUT_SECONDS = 0.1
-_REPL_BACKGROUND_TAIL_DRAIN_SECONDS = 0.2
+
+_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+
+# Test-injectable factory type: callable that returns a Kernel-compatible object.
+KernelFactory = Callable[..., Any]
 
 
 def _is_tty_output(out: TextIO) -> bool:
@@ -58,19 +65,6 @@ def _is_tty_output(out: TextIO) -> bool:
         return bool(isatty())
     except Exception:
         return False
-
-
-def _use_rich_live(out: TextIO) -> bool:
-    """Return whether to use rich Live rendering for the given output stream."""
-    if not _is_tty_output(out):
-        return False
-    if os.getenv("CODING_CLI_NO_RICH"):
-        return False
-    try:
-        import rich.live  # noqa: F401
-    except Exception:
-        return False
-    return True
 
 
 def _emit_plain_repl_block(*, out: TextIO, text: str) -> None:
@@ -105,61 +99,40 @@ def _format_resume_history_block(messages: Sequence[dict[str, object]]) -> str:
     return "\n".join(lines)
 
 
-_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
-
-
-@dataclass(frozen=True, slots=True)
-class _ManagedLLMOverrides:
-    provider: str | None = None
-    model: str | None = None
-    base_url: str | None = None
-    api_key: str | None = None
-    timeout_seconds: float | None = None
-
-    def is_empty(self) -> bool:
-        """Return whether managed-mode override set is empty."""
-        return (
-            self.provider is None
-            and self.model is None
-            and self.base_url is None
-            and self.api_key is None
-            and self.timeout_seconds is None
-        )
-
-
 def build_parser() -> argparse.ArgumentParser:
-    """Build command parser for REPL and single-shot CLI modes."""
+    """Build command parser for async-native REPL and --text mode."""
     parser = argparse.ArgumentParser(
         prog="nano-multiagent-cli",
-        description="Interactive Coding Agent CLI over HTTP API.",
+        description="Interactive Coding Agent CLI — in-process Kernel via agent.sdk.",
         epilog=_CLI_HELP_EPILOG,
         formatter_class=argparse.RawTextHelpFormatter,
     )
-    parser.add_argument("--mode", choices=("managed", "remote"), default=None)
-    parser.add_argument("--base-url", default=None)
     parser.add_argument("--request-id", default=None)
-    parser.add_argument("--resume", default=None, help="Resume an existing session by id in REPL or --text mode.")
-    parser.add_argument("--api-timeout-seconds", type=float, default=None)
-    parser.add_argument("--provider", dest="llm_provider", default=None, help="Managed mode only: set local API LLM provider.")
-    parser.add_argument("--model", dest="llm_model", default=None, help="Managed mode only: set local API LLM model.")
-    parser.add_argument("--llm-base-url", dest="llm_base_url", default=None, help="Managed mode only: set local API LLM base URL.")
-    parser.add_argument("--api-key", dest="llm_api_key", default=None, help="Managed mode only: set local API LLM API key.")
+    parser.add_argument(
+        "--resume",
+        default=None,
+        help="Resume an existing session by id in REPL or --text mode.",
+    )
+    parser.add_argument("--model", dest="llm_model", default=None, help="LLM model to use.")
+    parser.add_argument("--provider", dest="llm_provider", default=None, help="LLM provider to use.")
+    parser.add_argument("--llm-base-url", dest="llm_base_url", default=None, help="LLM base URL.")
+    parser.add_argument("--api-key", dest="llm_api_key", default=None, help="LLM API key.")
     parser.add_argument(
         "--timeout-seconds",
         dest="llm_timeout_seconds",
         type=float,
         default=None,
-        help="Managed mode only: set local API LLM timeout in seconds.",
+        help="LLM timeout in seconds.",
     )
     parser.add_argument(
         "--text",
         default=None,
-        help="Non-interactive mode: submit text and stream NDJSON events to stdout, then exit.",
+        help=(
+            "Non-interactive mode: submit text and stream NDJSON events to stdout, then exit."
+        ),
     )
 
     subparsers = parser.add_subparsers(dest="command")
-
-    subparsers.add_parser("health")
 
     llm_parser = subparsers.add_parser("llm-config")
     llm_subparsers = llm_parser.add_subparsers(dest="llm_config_command", required=True)
@@ -169,8 +142,12 @@ def build_parser() -> argparse.ArgumentParser:
     llm_set_parser.add_argument("--model", dest="llm_config_model", default=None)
     llm_set_parser.add_argument("--base-url", dest="llm_config_base_url", default=None)
     llm_set_parser.add_argument("--api-key", dest="llm_config_api_key", default=None)
-    llm_set_parser.add_argument("--clear-api-key", dest="llm_config_clear_api_key", action="store_true")
-    llm_set_parser.add_argument("--timeout-seconds", dest="llm_config_timeout_seconds", type=float, default=None)
+    llm_set_parser.add_argument(
+        "--clear-api-key", dest="llm_config_clear_api_key", action="store_true"
+    )
+    llm_set_parser.add_argument(
+        "--timeout-seconds", dest="llm_config_timeout_seconds", type=float, default=None
+    )
 
     return parser
 
@@ -179,77 +156,51 @@ def run_cli(
     argv: Sequence[str] | None = None,
     *,
     stdout: TextIO | None = None,
-    client_factory: Callable[[ServerClientConfig], ServerClient] | None = None,
+    kernel_factory: KernelFactory | None = None,
     input_fn: Callable[[str], str] | None = None,
     repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None = None,
-    managed_server_factory: Callable[[ManagedServerConfig], ManagedServerProcess] | None = None,
+    workspace_root: Path | None = None,
 ) -> int:
-    """Run CLI command/REPL and return process exit code.
+    """Run CLI REPL or --text mode and return process exit code.
+
+    The kernel is assembled in-process via agent.sdk.build_kernel() (or the
+    injected kernel_factory for tests).  No HTTP server, no subprocess.
+
+    Args:
+        argv: Command-line arguments (defaults to sys.argv[1:]).
+        stdout: Output stream (defaults to sys.stdout).
+        kernel_factory: Test-only factory returning a Kernel-compatible object
+            without starting real LLM connections.
+        input_fn: Synchronous line-reader for tests (overrides terminal input).
+        repl_input_reader_factory: Factory for pluggable ReplInputReader.
+        workspace_root: Override workspace root (tests only).
+
+    Returns:
+        Process exit code: 0 on success, 1 on error.
 
     Notes:
-        Non-interactive commands always print exactly one JSON object to stdout
-        so scripts can parse results without SSE/repl noise.
+        JSON contract: non-interactive commands print exactly one JSON object
+        to stdout, so scripts can parse results without REPL noise.
     """
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
     out = stdout or sys.stdout
-    mode = _DEFAULT_CLI_MODE
+    resolved_root = workspace_root or Path(os.getcwd())
 
     try:
-        mode = _resolve_mode(args.mode, arg_base_url=args.base_url)
-        managed_llm_overrides = _resolve_managed_llm_overrides(args=args, mode=mode)
-        env_config = ServerClientConfig.from_env()
-        base_url = _resolve_base_url(mode=mode, arg_base_url=args.base_url, env_config=env_config)
-        timeout_seconds = _resolve_timeout_seconds(mode=mode, arg_timeout_seconds=args.api_timeout_seconds, env_config=env_config)
-        config = ServerClientConfig(
-            base_url=base_url,
-            request_id=args.request_id if args.request_id is not None else env_config.request_id,
-            timeout_seconds=timeout_seconds,
+        return asyncio.run(
+            _async_main(
+                args=args,
+                out=out,
+                kernel_factory=kernel_factory,
+                input_fn=input_fn,
+                repl_input_reader_factory=repl_input_reader_factory,
+                workspace_root=resolved_root,
+            )
         )
-
-        factory = client_factory or (lambda cfg: ServerClient(config=cfg))
-        managed_factory = managed_server_factory or (lambda cfg: ManagedServerProcess(config=cfg))
-        lifecycle = _build_server_lifecycle(
-            mode=mode,
-            config=config,
-            managed_llm_overrides=managed_llm_overrides,
-            managed_server_factory=managed_factory,
-        )
-        with lifecycle:
-            with factory(config) as client:
-                if args.text is not None:
-                    session_id = args.resume
-                    if not session_id:
-                        session_payload = client.create_session()
-                        session_id = _extract_session_id(session_payload)
-                    return asyncio.run(
-                        run_text(
-                            client=client,
-                            session_id=session_id,
-                            text=args.text,
-                            out=out,
-                        )
-                    )
-                if args.command is None:
-                    return _run_repl(
-                        args=args,
-                        out=out,
-                        client=client,
-                        input_fn=input_fn,
-                        repl_input_reader_factory=repl_input_reader_factory,
-                    )
-                payload = _run_single_command(args=args, client=client)
     except Exception as exc:
         layer = _error_layer_for_exception(exc)
-        suggestion = _suggestion_for_exception(
-            exc,
-            default=(
-                "check local managed API startup and retry, or switch to --mode remote."
-                if mode == "managed"
-                else "check --base-url and ensure remote API server is reachable."
-            ),
-            mode=mode,
-        )
+        suggestion = _suggestion_for_exception(exc, default="check configuration and retry.")
         print(
             json.dumps(
                 {"error": str(exc), "layer": layer, "suggestion": suggestion},
@@ -259,309 +210,537 @@ def run_cli(
         )
         return 1
 
-    # Keep stdout machine-readable for command mode integrations.
-    print(json.dumps(payload, ensure_ascii=False), file=out)
-    return 0
+
+async def _async_main(
+    *,
+    args: argparse.Namespace,
+    out: TextIO,
+    kernel_factory: KernelFactory | None,
+    input_fn: Callable[[str], str] | None,
+    repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None,
+    workspace_root: Path,
+) -> int:
+    """Async entry: build Kernel, dispatch to REPL or --text mode."""
+    kernel = _build_kernel(args=args, kernel_factory=kernel_factory, out=out)
+    try:
+        if args.text is not None:
+            session = await kernel.create_session(workspace_root=workspace_root)
+            session_id = args.resume.strip() if args.resume else session.session_id
+            return await _run_text_mode(
+                kernel=kernel,
+                session_id=session_id,
+                text=args.text,
+                out=out,
+                workspace_root=workspace_root,
+            )
+
+        if args.command == "llm-config":
+            return _run_llm_config_command(args=args, kernel=kernel, out=out)
+
+        # Default path: interactive REPL.
+        return await _run_repl(
+            args=args,
+            out=out,
+            kernel=kernel,
+            input_fn=input_fn,
+            repl_input_reader_factory=repl_input_reader_factory,
+            workspace_root=workspace_root,
+        )
+    finally:
+        kernel.close()
 
 
-def _run_single_command(*, args: argparse.Namespace, client: ServerClient) -> dict[str, object]:
-    if args.command == "health":
-        return client.health()
-    if args.command == "llm-config":
-        return _run_llm_config_command(args=args, client=client)
-    raise ValueError(f"unsupported command: {args.command}")
+def _build_kernel(
+    *,
+    args: argparse.Namespace,
+    kernel_factory: KernelFactory | None,
+    out: TextIO,
+) -> Any:
+    """Assemble Kernel from agent.sdk or test-injected factory."""
+    if kernel_factory is not None:
+        return kernel_factory()
+
+    # Production path: import agent.sdk and assemble the local_coding kernel.
+    # All types used here are re-exported from agent.sdk — coding_cli only imports agent.sdk.
+    from agent.sdk import build_kernel, LOCAL_CODING_PROFILE
+
+    llm_config = _build_llm_config_from_args(args)
+
+    # can_use_tool callback: runs in executor so it doesn't block the async loop.
+    async def can_use_tool(tool_name: str, tool_input: Any, ctx: Any) -> Any:
+        return await _ask_permission_async(tool_name=tool_name, tool_input=tool_input, out=out)
+
+    return build_kernel(
+        product_profile=LOCAL_CODING_PROFILE,
+        llm_config=llm_config,
+        can_use_tool=can_use_tool,
+    )
 
 
-def _run_llm_config_command(*, args: argparse.Namespace, client: ServerClient) -> dict[str, object]:
+def _build_llm_config_from_args(args: argparse.Namespace) -> Any:
+    """Build LLMFactoryConfig from env vars layered with CLI overrides."""
+    from agent.sdk import LLMFactoryConfig
+    import dataclasses
+
+    base = LLMFactoryConfig.from_env()
+    kwargs: dict[str, Any] = {}
+    if getattr(args, "llm_provider", None):
+        kwargs["provider"] = args.llm_provider
+    if getattr(args, "llm_model", None):
+        kwargs["model"] = args.llm_model
+    if getattr(args, "llm_base_url", None):
+        kwargs["base_url"] = args.llm_base_url
+    if getattr(args, "llm_api_key", None):
+        kwargs["api_key"] = args.llm_api_key
+    if getattr(args, "llm_timeout_seconds", None) is not None:
+        kwargs["timeout_seconds"] = args.llm_timeout_seconds
+    if not kwargs:
+        return base
+    return dataclasses.replace(base, **kwargs)
+
+
+async def _ask_permission_async(
+    *,
+    tool_name: str,
+    tool_input: Any,
+    out: TextIO,
+) -> Any:
+    """Async permission callback: present picker and await user decision.
+
+    Runs read_permission_choice in a thread executor so the event loop is
+    not blocked while waiting for terminal input.
+    """
+    from agent.sdk import PermissionDecision
+
+    options = [
+        repl_input.PermissionOption(id="allow", label="Allow once", description="Allow this single action"),
+        repl_input.PermissionOption(id="deny", label="Deny", description="Block this action"),
+    ]
+    header = f"Permission request: {tool_name}"
+    if tool_input:
+        try:
+            header += f"\n  {json.dumps(tool_input, ensure_ascii=False)[:120]}"
+        except Exception:
+            pass
+
+    loop = asyncio.get_event_loop()
+    chosen_id = await loop.run_in_executor(
+        None,
+        lambda: repl_input.read_permission_choice(header=header, options=options, out=out),
+    )
+    return PermissionDecision(behavior=chosen_id)
+
+
+async def _run_text_mode(
+    *,
+    kernel: Any,
+    session_id: str,
+    text: str,
+    out: TextIO,
+    workspace_root: Path,
+) -> int:
+    """Non-interactive --text mode: submit once, stream NDJSON to stdout, exit.
+
+    Returns:
+        0 on completed run, 1 on failed/cancelled.
+    """
+    run_record = kernel.submit(
+        session_id=session_id,
+        parts=[{"type": "text", "text": text}],
+        workspace_root=workspace_root,
+    )
+    run_id = run_record.run_id
+
+    out.write(json.dumps({"event": "submit_response", "run_id": run_id}, ensure_ascii=False) + "\n")
+    _flush(out)
+
+    final_status = "failed"
+    async for event in kernel.stream(session_id):
+        event_run_id = event.get("run_id")
+        if event_run_id is not None and event_run_id != run_id:
+            continue
+        out.write(json.dumps(event, ensure_ascii=False) + "\n")
+        _flush(out)
+        if event.get("event") == "run_status":
+            status = event.get("status", "")
+            if status in _TERMINAL_STATUSES:
+                final_status = status
+                break
+
+    return 0 if final_status == "completed" else 1
+
+
+def _run_llm_config_command(
+    *,
+    args: argparse.Namespace,
+    kernel: Any,
+    out: TextIO,
+) -> int:
+    """Handle llm-config get/set subcommands via Kernel."""
     if args.llm_config_command == "get":
-        return client.get_llm_config()
+        config = kernel.get_llm_config()
+        payload = {
+            "provider": getattr(config, "provider", None),
+            "model": getattr(config, "model", None),
+            "base_url": getattr(config, "base_url", None),
+            "timeout_seconds": getattr(config, "timeout_seconds", None),
+        }
+        print(json.dumps(payload, ensure_ascii=False), file=out)
+        return 0
 
+    # set subcommand
     provider = args.llm_config_provider
     model = args.llm_config_model
     base_url = args.llm_config_base_url
     api_key = args.llm_config_api_key
-    clear_api_key = bool(args.llm_config_clear_api_key)
+    clear_api_key = bool(getattr(args, "llm_config_clear_api_key", False))
     timeout_seconds = args.llm_config_timeout_seconds
 
     if api_key is not None and clear_api_key:
-        raise ValueError("--api-key and --clear-api-key cannot be used together")
+        raise ValueError("--api-key and --clear-api-key cannot be used together — choose either")
     if timeout_seconds is not None and timeout_seconds <= 0:
         raise ValueError("--timeout-seconds must be > 0")
-    if (
-        provider is None
-        and model is None
-        and base_url is None
-        and api_key is None
-        and timeout_seconds is None
-        and not clear_api_key
-    ):
+
+    patch: dict[str, Any] = {}
+    if provider is not None:
+        if not provider.strip():
+            raise ValueError("provider must be a non-empty string")
+        patch["provider"] = provider.strip()
+    if model is not None:
+        if not model.strip():
+            raise ValueError("model must be a non-empty string")
+        patch["model"] = model.strip()
+    if base_url is not None:
+        if not base_url.strip():
+            raise ValueError("base_url must be a non-empty string")
+        patch["base_url"] = base_url.strip()
+    if api_key is not None:
+        patch["api_key"] = api_key
+    if clear_api_key:
+        patch["api_key"] = None
+    if timeout_seconds is not None:
+        patch["timeout_seconds"] = timeout_seconds
+
+    if not patch:
         raise ValueError(
             "llm-config set requires at least one field: "
             "--provider/--model/--base-url/--api-key/--clear-api-key/--timeout-seconds"
         )
 
-    return client.set_llm_config(
-        provider=provider,
-        model=model,
-        base_url=base_url,
-        api_key=api_key,
-        timeout_seconds=timeout_seconds,
-        clear_api_key=clear_api_key,
-    )
+    config = kernel.reconfigure_llm(**patch)
+    payload = {
+        "provider": getattr(config, "provider", None),
+        "model": getattr(config, "model", None),
+        "base_url": getattr(config, "base_url", None),
+        "timeout_seconds": getattr(config, "timeout_seconds", None),
+    }
+    print(json.dumps(payload, ensure_ascii=False), file=out)
+    return 0
 
 
-def _supports_sse_repl_events(client: ServerClient) -> bool:
-    """Check whether client supports submit+SSE streaming required by new REPL."""
-    return callable(getattr(client, "submit_message", None)) and callable(
-        getattr(client, "stream_session", None)
-    )
-
-
-_TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
-
-
-def _grace_period_drain(
-    reader: SessionStreamReader,
+async def _run_repl(
     *,
+    args: argparse.Namespace,
     out: TextIO,
-    background_processor: BackgroundRunEventProcessor,
-    max_wait_seconds: float = _REPL_DRAIN_TIMEOUT_SECONDS,
-) -> None:
-    """Briefly drain queued background completions before returning to prompt."""
-    import time
+    kernel: Any,
+    input_fn: Callable[[str], str] | None,
+    repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None,
+    workspace_root: Path,
+) -> int:
+    """Async-native interactive REPL loop.
 
-    deadline = time.monotonic() + max_wait_seconds
-    while time.monotonic() < deadline:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            break
-        evt = reader.poll(timeout=min(remaining, 0.5))
-        if evt is None:
-            continue
-        lines = background_processor.process(evt)
-        _emit_terminal_lines(out, lines, is_tty=_is_tty_output(out))
-        # If we just saw a terminal background run, give it a moment for
-        # trailing events (assistant_message, tool_end) then exit.
-        if (
-            evt.get("event") == "run_status"
-            and evt.get("status") in _TERMINAL_RUN_STATUSES
-            and evt.get("run_id") in background_processor.seen_run_ids
-        ):
-            # Short tail drain for trailing events of this background run.
-            tail_deadline = time.monotonic() + _REPL_BACKGROUND_TAIL_DRAIN_SECONDS
-            while time.monotonic() < tail_deadline:
-                tail_evt = reader.poll(timeout=0.1)
-                if tail_evt is None:
-                    continue
-                tail_lines = background_processor.process(tail_evt)
-                _emit_terminal_lines(out, tail_lines, is_tty=_is_tty_output(out))
-            break
-
-
-def _handle_permission_request(
-    *,
-    out: TextIO,
-    client: ServerClient,
-    session_id: str,
-    perm_event: dict[str, object],
-) -> None:
-    """Show permission picker for an inbound permission_request SSE event and POST the decision.
-
-    Blocks briefly while the user makes a selection. drain_run parks when this callback
-    runs (the agent run is already parked server-side awaiting the decision), so
-    no concurrent stream events need to be handled.
-
-    Args:
-        out: Terminal output stream.
-        client: ServerClient used to POST the permission decision.
-        session_id: The session that owns the permission request.
-        perm_event: The permission_request SSE event dict from the stream.
+    submit()/interrupt() are sync non-blocking Kernel calls.  Session lifecycle
+    and compact() are awaited.  The permission callback is wired at kernel-build
+    time and invoked via SDK's permission bridge.
     """
-    request_id = str(perm_event.get("request_id") or "")
-    tool_name = str(perm_event.get("tool_name") or "unknown")
-    raw_options: list[dict[str, object]] = list(perm_event.get("options") or [])  # type: ignore[arg-type]
+    active_session_id: str | None = _resolve_initial_session_id(args)
+    history_by_session: dict[str, list[tuple[str, str]]] = {}
+    input_history_by_session: dict[str, list[str]] = {}
 
-    perm_options = [
-        repl_input.PermissionOption(
-            id=str(opt.get("id") or "allow_once"),
-            label=str(opt.get("label") or str(opt.get("id") or "allow_once")),
-            description=str(opt.get("description") or ""),
-        )
-        for opt in raw_options
-    ] or [
-        repl_input.PermissionOption(id="allow_once", label="Allow once", description="Allow this single action"),
-        repl_input.PermissionOption(id="deny", label="Deny", description="Block this action"),
-    ]
+    if _is_tty_output(out):
+        def _emit_repl_block(text: str) -> None:
+            repl_input.emit_persistent_text(out=out, text=text)
+    else:
+        def _emit_repl_block(text: str) -> None:
+            _emit_plain_repl_block(out=out, text=text)
 
-    header = f"Permission request: {tool_name}"
-    tool_input = perm_event.get("tool_input")
-    if tool_input:
-        import json as _json
-        try:
-            header += f"\n  {_json.dumps(tool_input, ensure_ascii=False)[:120]}"
-        except Exception:
-            pass
+    def _print_repl_turn_error_block(*, error: Exception, layer: str, suggestion: str) -> None:
+        buffer = io.StringIO()
+        _print_repl_turn_error(out=buffer, error=error, layer=layer, suggestion=suggestion)
+        _emit_repl_block(buffer.getvalue())
 
-    chosen_id = repl_input.read_permission_choice(
-        header=header,
-        options=perm_options,
+    # Auto mode startup banner (spec A2: dangerously_skip_permissions must be visible).
+    _auto_config = _load_auto_mode_config_for_repl()
+    _banner_buf = io.StringIO()
+    print_auto_mode_banner(config=_auto_config, out=_banner_buf)
+    _banner_text = _banner_buf.getvalue()
+    if _banner_text.strip():
+        _emit_repl_block(_banner_text)
+
+    background_processor = BackgroundRunEventProcessor()
+
+    # Background event queue: receives events from kernel stream for non-current
+    # runs (e.g. background tasks completing after a user turn finishes).
+    _bg_event_queue: asyncio.Queue = asyncio.Queue(maxsize=4096)
+
+    # Background stream task: started when we have an active session.
+    _stream_task: asyncio.Task | None = None
+
+    async def _ensure_stream_for_session(session_id: str) -> None:
+        nonlocal _stream_task
+        # Cancel any existing stream task for a different session.
+        if _stream_task is not None and not _stream_task.done():
+            _stream_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(_stream_task), timeout=0.3)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+
+        async def _drain_forever(sid: str) -> None:
+            try:
+                async for ev in kernel.stream(sid):
+                    try:
+                        _bg_event_queue.put_nowait(ev)
+                    except asyncio.QueueFull:
+                        pass
+            except asyncio.CancelledError:
+                pass
+
+        _stream_task = asyncio.create_task(_drain_forever(session_id))
+
+    def _flush_bg_events() -> list[str]:
+        """Drain background event queue, returning display lines."""
+        lines: list[str] = []
+        while True:
+            try:
+                ev = _bg_event_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            lines.extend(background_processor.process(ev))
+        return lines
+
+    read_line = repl_input.build_repl_input_reader(
         out=out,
+        input_fn=input_fn,
+        repl_input_reader_factory=repl_input_reader_factory,
+        command_suggestions=repl_commands.REPL_COMMANDS,
+        on_idle=None,
+        idle_interval_seconds=0.5,
     )
 
-    if request_id:
-        try:
-            client.submit_permission_decision(
-                session_id=session_id,
-                request_id=request_id,
-                decision=chosen_id,
-            )
-        except RuntimeError:
-            # Decision POST failed (server may have timed out the request).
-            # Drain continues; the run will surface an error via run_status.
-            pass
+    try:
+        while True:
+            # Flush background events that arrived while idle.
+            bg_lines = _flush_bg_events()
+            if bg_lines:
+                _emit_repl_block("\n".join(bg_lines))
+
+            try:
+                raw = read_line(
+                    _prompt(active_session_id),
+                    input_history_by_session.get(active_session_id or "", ()),
+                )
+            except EOFError:
+                _emit_repl_block("bye")
+                return 0
+
+            line = raw.strip()
+            if not line:
+                continue
+
+            if repl_commands.is_repl_command_candidate(line):
+                if active_session_id:
+                    _append_input_history_entry(input_history_by_session, active_session_id, line)
+
+                cmd_result = await _handle_repl_command_async(
+                    line=line,
+                    out=out,
+                    kernel=kernel,
+                    active_session_id=active_session_id,
+                    history_by_session=history_by_session,
+                    workspace_root=workspace_root,
+                )
+                if cmd_result.new_session_id is not None:
+                    active_session_id = cmd_result.new_session_id
+                    await _ensure_stream_for_session(active_session_id)
+                if cmd_result.should_exit:
+                    return 0
+                if cmd_result.handled:
+                    continue
+
+            try:
+                if not active_session_id:
+                    session = await kernel.create_session(workspace_root=workspace_root)
+                    active_session_id = session.session_id
+                    repl_commands.print_session_created(out=out, session_id=active_session_id)
+                    repl_commands.print_active_session(out=out, session_id=active_session_id)
+                    await _ensure_stream_for_session(active_session_id)
+
+                _append_input_history_entry(input_history_by_session, active_session_id, line)
+                _append_history_entry(history_by_session, active_session_id, role="user", content=line)
+
+                payload = await _send_message_async(
+                    out=out,
+                    kernel=kernel,
+                    session_id=active_session_id,
+                    text=line,
+                    workspace_root=workspace_root,
+                    background_processor=background_processor,
+                    bg_event_queue=_bg_event_queue,
+                )
+
+                response_content = _extract_message_content(payload)
+                if response_content is not None:
+                    _append_history_entry(
+                        history_by_session,
+                        active_session_id,
+                        role="assistant",
+                        content=response_content,
+                    )
+
+                buffer = io.StringIO()
+                _print_repl_turn_summary(out=buffer, payload=payload)
+                _emit_repl_block(buffer.getvalue())
+            except Exception as exc:
+                import traceback
+                traceback.print_exc()
+                layer = _error_layer_for_exception(exc)
+                suggestion = _suggestion_for_exception(
+                    exc,
+                    default="run /new to start a session, then retry.",
+                )
+                _print_repl_turn_error_block(
+                    error=RuntimeError(f"send failed: {exc}"),
+                    layer=layer,
+                    suggestion=suggestion,
+                )
+    finally:
+        if _stream_task is not None and not _stream_task.done():
+            _stream_task.cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(_stream_task), timeout=0.3)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
 
 
-def _send_message_via_sse(
+async def _send_message_async(
     *,
     out: TextIO,
-    client: ServerClient,
-    reader: SessionStreamReader,
+    kernel: Any,
     session_id: str,
     text: str,
-    background_processor: BackgroundRunEventProcessor | None = None,
+    workspace_root: Path,
+    background_processor: BackgroundRunEventProcessor,
+    bg_event_queue: asyncio.Queue,
 ) -> dict[str, object]:
-    """Submit message and drain SSE events for the run, returning a turn payload."""
-    submit = client.submit_message(session_id=session_id, text=text)
-    run_id = submit["run_id"]
+    """Submit message, stream kernel events for this run, return turn payload.
 
-    bg_processor = background_processor or BackgroundRunEventProcessor()
+    Events from other runs go to background_processor / bg_event_queue so they
+    appear before the next prompt (design: background task completion notifications).
+    """
+    run_record = kernel.submit(
+        session_id=session_id,
+        parts=[{"type": "text", "text": text}],
+        workspace_root=workspace_root,
+    )
+    run_id = run_record.run_id
 
-    def _on_other_event(event: dict[str, object]) -> None:
-        lines = bg_processor.process(event)
-        _emit_terminal_lines(out, lines, is_tty=_is_tty_output(out))
+    events: list[dict[str, Any]] = []
+    assistant_text = ""
+    terminal_run_status: dict[str, Any] | None = None
+    live_rendered = _is_tty_output(out)
 
-    live_rendered = False
-    if _is_tty_output(out):
-        from coding_cli.render.repl_tool_lines import format_tool_done, format_tool_running
-
-        # Print events sequentially as they arrive so text and tool lines
-        # appear in true execution order.  Rich Live groups ALL tool lines
-        # into one persistent block at the bottom, preventing interleaving.
-        _thinking_shown = [True]
+    _thinking_shown = [True]
+    if live_rendered:
         print("⠋ Thinking...", end="\r", file=out, flush=True)
 
-        def _erase_thinking() -> None:
-            if _thinking_shown[0]:
-                # ANSI: carriage-return + erase to end-of-line
-                print("\r\033[K", end="", file=out, flush=True)
-                _thinking_shown[0] = False
+    def _erase_thinking() -> None:
+        if _thinking_shown[0]:
+            print("\r\033[K", end="", file=out, flush=True)
+            _thinking_shown[0] = False
 
-        def _on_run_event_tty(event: dict[str, object]) -> None:
+    from coding_cli.render.repl_tool_lines import format_tool_done, format_tool_running
+
+    async for event in kernel.stream(session_id):
+        event_run_id = event.get("run_id")
+
+        # Route events from other runs to background processor.
+        if event_run_id is not None and event_run_id != run_id:
+            bg_lines = background_processor.process(event)
+            if bg_lines:
+                _erase_thinking()
+                _emit_terminal_lines(out, bg_lines, is_tty=live_rendered)
+            try:
+                bg_event_queue.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
+            continue
+
+        events.append(event)
+        event_name = event.get("event")
+
+        if live_rendered:
             _erase_thinking()
-            event_name = event.get("event")
             if event_name == "assistant_message":
                 content = event.get("content") or ""
                 if content:
                     lines = content.split("\n")
-                    # Strip trailing empty lines caused by LLM trailing newlines,
-                    # but preserve internal blank lines as paragraph separators.
                     while lines and lines[-1] == "":
                         lines.pop()
-                    for line in lines:
-                        _write_tty_line(out, f"> {line}")
+                    for ln in lines:
+                        _write_tty_line(out, f"> {ln}")
             elif event_name == "tool_start":
                 name = str(event.get("name") or "?")
-                # No newline: tool_end will overwrite this line.
                 print(format_tool_running(name), end="\r", file=out, flush=True)
             elif event_name == "tool_end":
                 name = str(event.get("name") or "?")
                 duration_ms = event.get("duration_ms")
-                # \r\033[K clears the tool_start line before printing completion.
                 out.write(f"\r\033[K{format_tool_done(name, duration_ms)}\r\n")
                 out.flush()
-
-        def _on_permission_request_tty(perm_event: dict[str, object]) -> None:
-            # Pause live render, show permission picker, POST the decision.
-            # drain_run is parked while this callback blocks — no new stream events arrive.
-            _erase_thinking()
-            _handle_permission_request(
-                out=out, client=client, session_id=session_id, perm_event=perm_event,
-            )
-
-        events = reader.drain_run(
-            run_id=run_id, timeout=0.5, idle_timeout=1800.0,
-            on_other=_on_other_event, on_event=_on_run_event_tty,
-            on_permission_request=_on_permission_request_tty,
-        )
-        _erase_thinking()
-        live_rendered = True
-    else:
-        events: list[dict[str, object]] = []
-
-        def _on_run_event_plain(event: dict[str, object]) -> None:
-            events.append(event)
-            event_name = event.get("event")
+        else:
+            # Non-TTY path: print tool_start and tool_exec_started immediately so
+            # tool start lines appear in order (mirrors the old drain_run behavior).
             if event_name in ("tool_start", "tool_exec_started"):
-                line = _event_preview_line(event_name=event_name, data=event)
-                if line:
-                    print(line, file=out)
+                preview_line = _event_preview_line(event_name=event_name, data=event)
+                if preview_line:
+                    print(preview_line, file=out)
 
-        def _on_permission_request_plain(perm_event: dict[str, object]) -> None:
-            _handle_permission_request(
-                out=out, client=client, session_id=session_id, perm_event=perm_event,
-            )
-
-        reader.drain_run(
-            run_id=run_id, timeout=0.5, idle_timeout=1800.0,
-            on_other=_on_other_event, on_event=_on_run_event_plain,
-            on_permission_request=_on_permission_request_plain,
-        )
-
-    assistant_text = ""
-    turn_end_payload: dict[str, object] | None = None
-    terminal_run_status: dict[str, object] | None = None
-
-    for event in events:
-        event_name = event.get("event")
         if event_name == "assistant_message":
             assistant_text = event.get("content") or ""
-        elif event_name == "turn_end":
-            turn_end_payload = event
-        elif event_name == "run_status":
-            status = event.get("status")
-            if isinstance(status, str) and status in _TERMINAL_STATUSES:
-                terminal_run_status = event
 
+        if event_name == "run_status":
+            status = event.get("status", "")
+            if status in _TERMINAL_STATUSES:
+                terminal_run_status = event
+                break
+
+    if live_rendered:
+        _erase_thinking()
+
+    status = "unknown"
     stop_reason = None
     usage = None
-    status = "unknown"
-    if turn_end_payload is not None:
-        stop_reason = turn_end_payload.get("stop_reason")
-        usage = turn_end_payload.get("usage")
-        status = "completed" if turn_end_payload.get("completed") else "failed"
     if terminal_run_status is not None:
         status = terminal_run_status.get("status") or status
-        stop_reason = terminal_run_status.get("stop_reason") or stop_reason
-        usage = terminal_run_status.get("usage") or usage
+        stop_reason = terminal_run_status.get("stop_reason")
+        usage = terminal_run_status.get("usage")
 
-    if status != "completed":
-        # bugfix-380: surface the provider error text from the assistant_message so
-        # CLI users see the actual error instead of the opaque "run failed" message.
-        error_detail = assistant_text.strip() if assistant_text else ""
+    if status not in ("completed",):
+        error_detail = assistant_text.strip()
         if error_detail:
             raise RuntimeError(f"run_id={run_id} run failed: {error_detail}")
         raise RuntimeError(f"run_id={run_id} run failed")
 
-    # Build _repl_view for non-TTY summary rendering (backward-compat with old test assertions).
+    # Build view model matching existing repl_render expectations.
     legacy_events: list[tuple[str, dict[str, object]]] = []
-    for event in events:
-        event_name = event.get("event")
-        data = dict(event)
+    for ev in events:
+        ev_name = ev.get("event")
+        data = dict(ev)
         data.pop("event", None)
-        if event_name == "assistant_message":
-            event_name = "text_delta"
+        if ev_name == "assistant_message":
+            ev_name = "text_delta"
             data["delta"] = data.pop("content", "")
-        legacy_events.append((event_name, data))
+        legacy_events.append((ev_name, data))
 
     view_model = _build_repl_view_model(
         events=legacy_events,
@@ -586,7 +765,207 @@ def _send_message_via_sse(
     }
 
 
-def print_auto_mode_banner(*, config: object, out: "TextIO") -> None:  # noqa: F821
+# ---------------------------------------------------------------------------
+# Async REPL command handling
+# ---------------------------------------------------------------------------
+
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True, slots=True)
+class _ReplCommandResult:
+    handled: bool
+    # None means no session change; non-None replaces active_session_id.
+    new_session_id: str | None = None
+    should_exit: bool = False
+
+
+async def _handle_repl_command_async(
+    *,
+    line: str,
+    out: TextIO,
+    kernel: Any,
+    active_session_id: str | None,
+    history_by_session: dict[str, list[tuple[str, str]]],
+    workspace_root: Path,
+) -> _ReplCommandResult:
+    """Handle slash commands, calling async Kernel methods as needed."""
+    command, argument = _parse_command(line)
+    argument_tokens = _split_argument_tokens(argument)
+
+    if command == "/help":
+        if argument_tokens:
+            repl_commands.print_actionable_error(
+                out=out,
+                message="command /help does not accept arguments.",
+                suggestion="try /help.",
+                usage="/help",
+            )
+            return _ReplCommandResult(handled=True)
+        print(repl_commands.HELP_LINE, file=out)
+        return _ReplCommandResult(handled=True)
+
+    if command == "/exit":
+        return _ReplCommandResult(handled=True, should_exit=True)
+
+    try:
+        if command == "/new":
+            if argument_tokens:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="command /new does not accept arguments.",
+                    suggestion="try /new.",
+                    usage="/new",
+                )
+                return _ReplCommandResult(handled=True)
+            session = await kernel.create_session(workspace_root=workspace_root, skills=[])
+            next_id = session.session_id
+            repl_commands.print_session_created(out=out, session_id=next_id)
+            repl_commands.print_active_session(out=out, session_id=next_id)
+            return _ReplCommandResult(handled=True, new_session_id=next_id)
+
+        if command == "/use":
+            if not argument_tokens:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="missing session_id for /use.",
+                    suggestion="try /use <session_id>.",
+                )
+                return _ReplCommandResult(handled=True)
+            if len(argument_tokens) != 1:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="/use expects exactly one session_id.",
+                    suggestion="try /use <session_id>.",
+                    usage="/use <session_id>",
+                )
+                return _ReplCommandResult(handled=True)
+            next_id = argument_tokens[0]
+            repl_commands.print_session_switched(out=out, session_id=next_id)
+            repl_commands.print_active_session(out=out, session_id=next_id)
+            return _ReplCommandResult(handled=True, new_session_id=next_id)
+
+        if command == "/session":
+            if argument_tokens:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="command /session does not accept arguments.",
+                    suggestion="try /session.",
+                    usage="/session",
+                )
+                return _ReplCommandResult(handled=True)
+            repl_commands.print_active_session(out=out, session_id=active_session_id)
+            return _ReplCommandResult(handled=True)
+
+        if command == "/tools":
+            if argument_tokens:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="command /tools does not accept arguments.",
+                    suggestion="try /tools.",
+                    usage="/tools",
+                )
+                return _ReplCommandResult(handled=True)
+            if not active_session_id:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="no active session.",
+                    suggestion="run /new or /use <session_id>.",
+                )
+                return _ReplCommandResult(handled=True)
+            tools_info = kernel.list_session_tools(active_session_id, workspace_root=workspace_root)
+            _print_tools_summary(out=out, payload=tools_info)
+            return _ReplCommandResult(handled=True)
+
+        if command == "/compact":
+            if argument_tokens:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="command /compact does not accept arguments.",
+                    suggestion="try /compact.",
+                    usage="/compact",
+                )
+                return _ReplCommandResult(handled=True)
+            if not active_session_id:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="no active session.",
+                    suggestion="run /new or /use <session_id>.",
+                )
+                return _ReplCommandResult(handled=True)
+            result = await kernel.compact(active_session_id, workspace_root=workspace_root)
+            _print_compact_summary(
+                out=out,
+                payload=result if isinstance(result, dict) else {"compacted": False},
+                session_id=active_session_id,
+            )
+            return _ReplCommandResult(handled=True)
+
+        if command == "/history":
+            if len(argument_tokens) > 1:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="invalid n for /history.",
+                    suggestion="try /history 10.",
+                    usage="/history [n]",
+                )
+                return _ReplCommandResult(handled=True)
+            # Validate limit before checking session — keeps error priority consistent.
+            limit = 20
+            if argument_tokens:
+                try:
+                    limit = int(argument_tokens[0])
+                    if limit <= 0:
+                        raise ValueError()
+                except ValueError:
+                    repl_commands.print_actionable_error(
+                        out=out,
+                        message="invalid n for /history.",
+                        suggestion="try /history 10.",
+                        usage="/history [n]",
+                    )
+                    return _ReplCommandResult(handled=True)
+            if not active_session_id:
+                repl_commands.print_actionable_error(
+                    out=out,
+                    message="no active session.",
+                    suggestion="run /new or /use <session_id>.",
+                )
+                return _ReplCommandResult(handled=True)
+            history = history_by_session.get(active_session_id, ())
+            total = len(history)
+            shown = list(history[-limit:])
+            if not shown:
+                print(f"History for session {active_session_id} is empty.", file=out)
+            else:
+                print(f"History for session {active_session_id} (last {len(shown)}/{total}):", file=out)
+                for role, content in shown:
+                    print(f"{role}: {content}", file=out)
+            return _ReplCommandResult(handled=True)
+
+    except Exception as exc:
+        layer = _error_layer_for_exception(exc, default="runtime")
+        repl_commands.print_actionable_error(
+            out=out,
+            message=f"failed to run {command}.",
+            suggestion=_suggestion_for_exception(exc, default=f"check configuration and retry {command}."),
+            layer=layer,
+        )
+        return _ReplCommandResult(handled=True)
+
+    repl_commands.print_actionable_error(
+        out=out,
+        message=f"unknown command '{command}'.",
+        suggestion="run /help to see available commands.",
+    )
+    return _ReplCommandResult(handled=True)
+
+
+# ---------------------------------------------------------------------------
+# Auto mode banner (spec A2 compliance)
+# ---------------------------------------------------------------------------
+
+def print_auto_mode_banner(*, config: object, out: TextIO) -> None:
     """Print the auto mode status banner at REPL startup.
 
     Why this is necessary: spec A2 requires that dangerously_skip_permissions being
@@ -596,16 +975,13 @@ def print_auto_mode_banner(*, config: object, out: "TextIO") -> None:  # noqa: F
 
     Args:
         config: AutoModeConfig-compatible object with .enabled and
-            .dangerously_skip_permissions attributes. Typed as `object` to avoid
-            an import from the agent package — the contract forbids cross-package imports.
-        out: Output stream (sys.stdout or StringIO in tests).
+            .dangerously_skip_permissions attributes.
+        out: Output stream.
     """
     enabled: bool = getattr(config, "enabled", True)
     dangerously_skip: bool = getattr(config, "dangerously_skip_permissions", False)
 
     if dangerously_skip:
-        # Prominent danger banner — mirrors CC's "⚠ Skipping all permission checks"
-        # status indicator. Users must clearly see they are in bypass mode.
         print("⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.", file=out)
         print("  No tool will be blocked. This is only safe in isolated sandbox environments.", file=out)
     elif enabled:
@@ -617,29 +993,17 @@ def print_auto_mode_banner(*, config: object, out: "TextIO") -> None:  # noqa: F
 def _load_auto_mode_config_for_repl() -> object:
     """Load auto mode config for REPL startup banner without cross-package imports.
 
-    Reads the auto_mode section from the two-level config chain (workspace > global),
-    where workspace is cwd/.nanocode/config.yaml and global is ~/.nanocode/config.yaml.
-    Returns a lightweight object with .enabled and .dangerously_skip_permissions
-    attributes. Falls back to safe defaults when config is absent or malformed —
-    errors must never crash the REPL.
-
-    Priority: workspace field overrides global field when both are present
-    (spec A9: workspace config must override global for both products).
-    This mirrors the workspace>global priority semantics of the agent 内核侧
-    auto_mode config loader — reimplemented here to avoid cross-package import
-    (cross-package import is forbidden by the module boundary contract).
+    Reads the auto_mode section from the two-level config chain (workspace > global).
+    Falls back to safe defaults on any error — must never crash the REPL.
     """
     import yaml
-    from pathlib import Path
 
     class _AutoModeSummary:
-        """Minimal stand-in carrying only the fields needed by print_auto_mode_banner."""
         def __init__(self, enabled: bool, dangerously_skip_permissions: bool) -> None:
             self.enabled = enabled
             self.dangerously_skip_permissions = dangerously_skip_permissions
 
     def _read_section(config_path: Path) -> dict:
-        """Read auto_mode section from a single config file; return {} on any issue."""
         if not config_path.is_file():
             return {}
         try:
@@ -649,23 +1013,17 @@ def _load_auto_mode_config_for_repl() -> object:
                 if isinstance(section, dict):
                     return section
         except Exception:
-            pass  # Corrupted config — use defaults, don't crash REPL
+            pass
         return {}
 
     global_config_file = Path.home() / ".nanocode" / "config.yaml"
-    # Workspace config: current working directory's .nanocode/config.yaml.
-    # Path.cwd() is used (not __file__) so it reflects where the user launched
-    # the REPL — consistent with how the agent core resolves workspace config.
     workspace_config_file = Path.cwd() / ".nanocode" / "config.yaml"
 
-    # Read global first; workspace overrides field-by-field (same workspace>global
-    # priority semantics as the agent 内核侧 auto_mode config loader).
     merged: dict = dict(_read_section(global_config_file))
     merged.update(_read_section(workspace_config_file))
 
     enabled: bool = True
     dangerously_skip: bool = False
-
     if isinstance(merged.get("enabled"), bool):
         enabled = merged["enabled"]
     if isinstance(merged.get("dangerously_skip_permissions"), bool):
@@ -674,285 +1032,67 @@ def _load_auto_mode_config_for_repl() -> object:
     return _AutoModeSummary(enabled=enabled, dangerously_skip_permissions=dangerously_skip)
 
 
-def _run_repl(
-    *,
-    args: argparse.Namespace,
-    out: TextIO,
-    client: ServerClient,
-    input_fn: Callable[[str], str] | None,
-    repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None = None,
-) -> int:
-    active_session_id = _resolve_initial_session_id(args)
-    history_by_session: dict[str, list[tuple[str, str]]] = {}
-    input_history_by_session: dict[str, list[str]] = {}
-    sse_supported = _supports_sse_repl_events(client)
-    reader: SessionStreamReader | None = None
+# ---------------------------------------------------------------------------
+# Render helpers
+# ---------------------------------------------------------------------------
 
-    if _is_tty_output(out):
-        def _emit_repl_block(text: str) -> None:
-            repl_input.emit_persistent_text(out=out, text=text)
+def _print_tools_summary(*, out: TextIO, payload: Any) -> None:
+    """Print tool list from SDK list_session_tools result."""
+    if isinstance(payload, dict):
+        session_id = payload.get("session_id", "<unknown>")
+        items = payload.get("tools") or []
     else:
-        def _emit_repl_block(text: str) -> None:
-            _emit_plain_repl_block(out=out, text=text)
+        session_id = "<unknown>"
+        items = getattr(payload, "tools", []) or []
 
-    def _print_repl_turn_summary_block(payload: dict[str, object], *, context_budget_client: object | None = None) -> None:
-        buffer = io.StringIO()
-        _print_repl_turn_summary(out=buffer, payload=payload, context_budget_client=context_budget_client)
-        _emit_repl_block(buffer.getvalue())
-
-    def _print_repl_turn_error_block(*, error: Exception, layer: str, suggestion: str) -> None:
-        buffer = io.StringIO()
-        _print_repl_turn_error(out=buffer, error=error, layer=layer, suggestion=suggestion)
-        _emit_repl_block(buffer.getvalue())
-
-    def _ensure_reader_for_session(session_id: str) -> SessionStreamReader | None:
-        nonlocal reader
-        if not sse_supported:
-            return None
-        if reader is None:
-            reader = SessionStreamReader(client)
-        if reader.session_id != session_id:
-            reader.stop()
-            reader.start(session_id=session_id)
-        return reader
-
-    # feat-333-M3/R2: spec A2 requires auto mode status to be visible at startup so
-    # users always know whether permission bypass is active. CC surfaces this in its
-    # persistent status bar; the Python REPL equivalent is a startup banner line.
-    _auto_config = _load_auto_mode_config_for_repl()
-    _banner_buf = io.StringIO()
-    print_auto_mode_banner(config=_auto_config, out=_banner_buf)
-    _banner_text = _banner_buf.getvalue()
-    if _banner_text.strip():
-        _emit_repl_block(_banner_text)
-
-    if active_session_id:
-        try:
-            history_payload = client.get_session_messages(session_id=active_session_id, limit=100)
-            messages = history_payload.get("messages", [])
-            if isinstance(messages, list):
-                history_block = _format_resume_history_block(messages)
-                if history_block:
-                    _emit_repl_block(history_block)
-        except Exception as exc:
-            _emit_repl_block(f"[history load failed: {exc}]")
-        if sse_supported:
-            _ensure_reader_for_session(active_session_id)
-
-    background_processor = BackgroundRunEventProcessor()
-
-    def _idle_callback() -> None:
-        if reader is None:
-            return
-        lines: list[str] = []
-        while True:
-            evt = reader.poll(timeout=0.0)
-            if evt is None:
-                break
-            lines.extend(background_processor.process(evt))
-
-        if lines:
-            _emit_repl_block("\n".join(lines))
-
-    read_line = repl_input.build_repl_input_reader(
-        out=out,
-        input_fn=input_fn,
-        repl_input_reader_factory=repl_input_reader_factory,
-        command_suggestions=repl_commands.REPL_COMMANDS,
-        on_idle=_idle_callback,
-        idle_interval_seconds=0.5,
-    )
-    try:
-        while True:
-            # Drain any background events that arrived while we were idle.
-            # (The idle callback also drains during prompt waits; this catches
-            # any stragglers right before we start the next read.)
-            if reader is not None:
-                lines: list[str] = []
-                while True:
-                    evt = reader.poll(timeout=0.0)
-                    if evt is None:
-                        break
-                    lines.extend(background_processor.process(evt))
-                if lines:
-                    _emit_repl_block("\n".join(lines))
-
-            try:
-                raw = read_line(_prompt(active_session_id), input_history_by_session.get(active_session_id or "", ()))
-            except EOFError:
-                _emit_repl_block("bye")
-                return 0
-
-            line = raw.strip()
-            if not line:
-                continue
-
-            if repl_commands.is_repl_command_candidate(line):
-                if active_session_id:
-                    _append_input_history_entry(input_history_by_session, active_session_id, line)
-                command_result = repl_commands.handle_repl_command(
-                    line=line,
-                    out=out,
-                    client=client,
-                    active_session_id=active_session_id,
-                    history_by_session=history_by_session,
-                    extract_session_id=_extract_session_id,
-                    print_tools_summary=_print_tools_summary,
-                    print_compact_summary=_print_compact_summary,
-                    print_context_budget_snapshot=_print_context_budget_snapshot,
-                    layer_for_exception=lambda exc: _error_layer_for_exception(exc, default="network"),
-                    suggestion_for_exception=lambda exc, command: _suggestion_for_exception(
-                        exc,
-                        default=f"check server status and retry {command}.",
-                    ),
-                )
-                active_session_id = command_result.active_session_id
-                if active_session_id and sse_supported:
-                    _ensure_reader_for_session(active_session_id)
-                if command_result.should_exit:
-                    return 0
-                if command_result.handled:
-                    continue
-
-            try:
-                if not active_session_id:
-                    session_payload = client.create_session()
-                    active_session_id = _extract_session_id(session_payload)
-                    repl_commands.print_session_created(out=out, session_id=active_session_id)
-                    repl_commands.print_active_session(out=out, session_id=active_session_id)
-                    if sse_supported:
-                        _ensure_reader_for_session(active_session_id)
-
-                _append_input_history_entry(input_history_by_session, active_session_id, line)
-                _append_history_entry(history_by_session, active_session_id, role="user", content=line)
-
-                if not sse_supported or reader is None:
-                    raise RuntimeError("client does not support SSE streaming")
-                payload = _send_message_via_sse(
-                    out=out,
-                    client=client,
-                    reader=reader,
-                    session_id=active_session_id,
-                    text=line,
-                    background_processor=background_processor,
-                )
-
-                # Grace-period drain: background tasks that complete shortly
-                # after the main run will have their events rendered here.
-                _grace_period_drain(reader, out=out, background_processor=background_processor)
-
-                response_content = _extract_message_content(payload)
-                if response_content is not None:
-                    _append_history_entry(
-                        history_by_session,
-                        active_session_id,
-                        role="assistant",
-                        content=response_content,
-                    )
-                _print_repl_turn_summary_block(payload, context_budget_client=client)
-            except Exception as exc:
-                import traceback
-                traceback.print_exc()
-                layer = _error_layer_for_exception(exc)
-                suggestion = _suggestion_for_exception(
-                    exc,
-                    default="run /new to start a session, then retry.",
-                )
-                _print_repl_turn_error_block(
-                    error=RuntimeError(f"send failed: {exc}"),
-                    layer=layer,
-                    suggestion=suggestion,
-                )
-    finally:
-        if reader is not None:
-            reader.stop()
-
-
-def _resolve_mode(raw_mode: str | None, *, arg_base_url: str | None = None) -> str:
-    env_mode = os.getenv("NANO_MULTIAGENT_CLI_MODE")
-    if raw_mode is None and env_mode is None:
-        if arg_base_url is None:
-            return "managed"
-        return _DEFAULT_CLI_MODE
-    value = raw_mode or env_mode or _DEFAULT_CLI_MODE
-    lowered = value.strip().lower()
-    if lowered not in {"managed", "remote"}:
-        raise ValueError(f"unsupported --mode: {value}")
-    return lowered
-
-
-def _resolve_base_url(*, mode: str, arg_base_url: str | None, env_config: ServerClientConfig) -> str:
-    env_base_url = os.getenv("NANO_MULTIAGENT_API_BASE_URL")
-    if mode == "remote":
-        value = arg_base_url or env_base_url
-        if not isinstance(value, str) or not value.strip():
-            raise ValueError("remote mode requires --base-url or NANO_MULTIAGENT_API_BASE_URL")
-        return value.strip()
-    if isinstance(arg_base_url, str) and arg_base_url.strip():
-        return arg_base_url.strip()
-    # Keep the no-arg front-door on the built-in managed localhost instead of
-    # letting generic API env vars silently turn startup into a remote flow.
-    return ServerClientConfig().base_url
-
-
-def _resolve_timeout_seconds(*, mode: str, arg_timeout_seconds: float | None, env_config: ServerClientConfig) -> float:
-    if arg_timeout_seconds is not None:
-        if arg_timeout_seconds <= 0:
-            raise ValueError("--api-timeout-seconds must be > 0")
-        return arg_timeout_seconds
-    timeout_from_env = os.getenv("NANO_MULTIAGENT_API_TIMEOUT_SECONDS")
-    if timeout_from_env is not None:
-        return env_config.timeout_seconds
-    if mode == "managed":
-        return 120.0
-    return env_config.timeout_seconds
-
-
-def _resolve_managed_llm_overrides(*, args: argparse.Namespace, mode: str) -> _ManagedLLMOverrides:
-    overrides = _ManagedLLMOverrides(
-        provider=args.llm_provider,
-        model=args.llm_model,
-        base_url=args.llm_base_url,
-        api_key=args.llm_api_key,
-        timeout_seconds=args.llm_timeout_seconds,
-    )
-    if mode != "managed" and not overrides.is_empty():
-        raise ValueError("managed startup LLM options require --mode managed")
-    if overrides.timeout_seconds is not None and overrides.timeout_seconds <= 0:
-        raise ValueError("--llm-timeout-seconds must be > 0")
-    return overrides
-
-
-def _build_server_lifecycle(
-    *,
-    mode: str,
-    config: ServerClientConfig,
-    managed_llm_overrides: _ManagedLLMOverrides,
-    managed_server_factory: Callable[[ManagedServerConfig], ManagedServerProcess],
-):
-    if mode == "remote":
-        return nullcontext()
-    managed_server = managed_server_factory(
-        ManagedServerConfig(
-            base_url=config.base_url,
-            llm_provider=managed_llm_overrides.provider,
-            llm_model=managed_llm_overrides.model,
-            llm_base_url=managed_llm_overrides.base_url,
-            llm_api_key=managed_llm_overrides.api_key,
-            llm_timeout_seconds=managed_llm_overrides.timeout_seconds,
+    resolved_session_id = str(session_id) if session_id else "<unknown>"
+    items_list = list(items) if items else []
+    print(f"Tools for session {resolved_session_id} ({len(items_list)}):", file=out)
+    if not items_list:
+        print("- (no tools)", file=out)
+        return
+    for tool in items_list:
+        if not isinstance(tool, dict):
+            continue
+        name = tool.get("name")
+        description = tool.get("description")
+        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        resolved_description = (
+            str(description)
+            if isinstance(description, str) and description.strip()
+            else "(no description)"
         )
-    )
+        print(f"- {resolved_name}: {resolved_description}", file=out)
 
-    class _Lifecycle:
-        def __enter__(self):
-            managed_server.start()
-            return managed_server
 
-        def __exit__(self, exc_type, exc, tb) -> None:
-            del exc_type, exc, tb
-            managed_server.stop()
+def _print_compact_summary(*, out: TextIO, payload: Any, session_id: str) -> None:
+    """Print compaction result."""
+    if isinstance(payload, dict):
+        compacted = payload.get("compacted")
+        result = payload.get("result")
+    else:
+        compacted = getattr(payload, "compacted", None)
+        result = getattr(payload, "result", None)
 
-    return _Lifecycle()
+    if compacted is not True or not isinstance(result, dict):
+        print(f"Compaction for session {session_id}: no changes.", file=out)
+        return
+    print(f"Compaction for session {session_id}: compacted.", file=out)
+    reason = result.get("reason")
+    summary_text = result.get("summary")
+    if isinstance(reason, str) and reason.strip():
+        print(f"Reason: {reason}", file=out)
+    if isinstance(summary_text, str) and summary_text.strip():
+        print(f"Summary: {summary_text}", file=out)
+
+
+# ---------------------------------------------------------------------------
+# Misc helpers
+# ---------------------------------------------------------------------------
+
+def _resolve_initial_session_id(args: argparse.Namespace) -> str | None:
+    value = getattr(args, "resume", None) or ""
+    return value.strip() or None
 
 
 def _append_history_entry(
@@ -975,66 +1115,30 @@ def _append_input_history_entry(
     entries.append(line)
 
 
-from coding_cli.render.repl_summary import _extract_message_content
+def _parse_command(line: str) -> tuple[str, str | None]:
+    parts = line.split(maxsplit=1)
+    command = parts[0]
+    argument = parts[1].strip() if len(parts) == 2 else None
+    return command, argument
 
 
-def _print_tools_summary(*, out: TextIO, payload: dict[str, object]) -> None:
-    session_id = payload.get("session_id")
-    tools = payload.get("tools")
-    resolved_session_id = session_id if isinstance(session_id, str) and session_id.strip() else "<unknown>"
-    items = tools if isinstance(tools, list) else []
-    print(f"Tools for session {resolved_session_id} ({len(items)}):", file=out)
-    if not items:
-        print("- (no tools)", file=out)
-        return
-    for tool in items:
-        if not isinstance(tool, dict):
-            continue
-        name = tool.get("name")
-        description = tool.get("description")
-        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
-        resolved_description = (
-            str(description) if isinstance(description, str) and description.strip() else "(no description)"
-        )
-        print(f"- {resolved_name}: {resolved_description}", file=out)
-
-
-def _print_compact_summary(*, out: TextIO, payload: dict[str, object]) -> None:
-    session_id = payload.get("session_id")
-    compacted = payload.get("compacted")
-    result = payload.get("result")
-    resolved_session_id = session_id if isinstance(session_id, str) and session_id.strip() else "<unknown>"
-    if compacted is not True or not isinstance(result, dict):
-        print(f"Compaction for session {resolved_session_id}: no changes.", file=out)
-        return
-    print(f"Compaction for session {resolved_session_id}: compacted.", file=out)
-    reason = result.get("reason")
-    summary = result.get("summary")
-    dropped_event_ids = result.get("dropped_event_ids")
-    kept_event_ids = result.get("kept_event_ids")
-    if isinstance(reason, str) and reason.strip():
-        print(f"Reason: {reason}", file=out)
-    if isinstance(summary, str) and summary.strip():
-        print(f"Summary: {summary}", file=out)
-    if isinstance(kept_event_ids, list):
-        print(f"Kept events: {len(kept_event_ids)}", file=out)
-    if isinstance(dropped_event_ids, list):
-        print(f"Dropped events: {len(dropped_event_ids)}", file=out)
-
-
-def _resolve_initial_session_id(args: argparse.Namespace) -> str | None:
-    value = args.resume if args.resume is not None else ""
-    return value.strip() or None
-
-
-def _extract_session_id(payload: dict[str, object]) -> str:
-    session_id = payload.get("session_id")
-    if not isinstance(session_id, str) or not session_id.strip():
-        raise RuntimeError("missing session_id in response")
-    return session_id
+def _split_argument_tokens(argument: str | None) -> list[str]:
+    if argument is None:
+        return []
+    return [token for token in argument.split() if token]
 
 
 def _prompt(active_session_id: str | None) -> str:
     if active_session_id:
         return f"[{active_session_id}]> "
     return "nano> "
+
+
+def _flush(out: TextIO) -> None:
+    """Flush output if the stream supports it."""
+    flush_fn = getattr(out, "flush", None)
+    if callable(flush_fn):
+        flush_fn()
+
+
+from coding_cli.render.repl_summary import _extract_message_content

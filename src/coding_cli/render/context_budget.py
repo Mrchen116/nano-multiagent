@@ -1,8 +1,11 @@
-"""Context-budget presentation helpers for interactive CLI feedback."""
+"""Context-budget presentation helpers for interactive CLI feedback.
 
-from typing import TextIO
+Note (refactor-387 M2): ``client`` was formerly typed as ``ServerClient``
+(HTTP).  The type is now ``Any`` — callers pass either a Kernel or any object
+with a ``get_context_budget`` method.  HTTP dependency removed.
+"""
 
-from coding_cli.client import ServerClient
+from typing import Any, TextIO
 
 _SHORT_ERROR_MAX_LEN = 120
 _CONTEXT_BUDGET_HINTS = (
@@ -15,7 +18,7 @@ _CONTEXT_BUDGET_HINTS = (
 def print_context_budget_snapshot(
     *,
     out: TextIO,
-    client: ServerClient,
+    client: Any,
     session_id: str,
     context_label: str | None = None,
 ) -> None:

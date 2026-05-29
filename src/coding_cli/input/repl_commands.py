@@ -1,9 +1,15 @@
-"""REPL slash-command parsing and execution helpers."""
+"""REPL slash-command parsing and execution helpers.
+
+Note (refactor-387 M2): ``client`` parameters that were formerly typed as
+``ServerClient`` are now typed as ``Any`` — the new async REPL in commands.py
+dispatches through Kernel SDK directly.  The HTTP-specific helpers (those that
+call client.compact_session / client.list_session_tools) are kept for the
+transition period and cleaned up in M4.  The core helpers (print_* / REPL_COMMANDS
+/ print_actionable_error / is_repl_command_candidate) are HTTP-free.
+"""
 
 from dataclasses import dataclass
-from typing import Callable, Sequence, TextIO
-
-from coding_cli.client import ServerClient
+from typing import Any, Callable, Sequence, TextIO
 
 _DEFAULT_HISTORY_LIMIT = 20
 REPL_COMMANDS = ("/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit")
@@ -44,7 +50,7 @@ def handle_repl_command(
     *,
     line: str,
     out: TextIO,
-    client: ServerClient,
+    client: Any,
     active_session_id: str | None,
     history_by_session: dict[str, list[tuple[str, str]]],
     extract_session_id: Callable[[dict[str, object]], str],

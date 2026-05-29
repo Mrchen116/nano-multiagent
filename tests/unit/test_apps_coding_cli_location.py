@@ -30,13 +30,21 @@ def test_apps_coding_cli_client_surface_stays_on_package_owned_module() -> None:
 
 
 def test_apps_coding_cli_package_root_exports_stable_application_surface() -> None:
+    """M2: coding_cli.__init__ exposes only build_parser and run_cli.
+
+    ServerClient / ManagedServerProcess are no longer part of the public surface —
+    they are HTTP/subprocess-era artefacts kept for M4 cleanup.
+    """
     assert coding_cli_app.build_parser is app_commands.build_parser
     assert coding_cli_app.run_cli is app_commands.run_cli
-    assert coding_cli_app.ServerClient is coding_cli_client.ServerClient
-    assert coding_cli_app.ServerClientConfig is coding_cli_client.ServerClientConfig
-    assert coding_cli_app.ManagedServerConfig is AppsManagedServerConfig
-    assert coding_cli_app.ManagedServerError is AppsManagedServerError
-    assert coding_cli_app.ManagedServerProcess is AppsManagedServerProcess
+    # M2: HTTP client exports removed from __init__ (kept in client.py for M4 deletion)
+    assert not hasattr(coding_cli_app, "ServerClient"), (
+        "ServerClient should not be re-exported from coding_cli after M2"
+    )
+    assert not hasattr(coding_cli_app, "ManagedServerProcess"), (
+        "ManagedServerProcess should not be re-exported from coding_cli after M2"
+    )
+    # client.py and managed_server.py files still exist (deleted in M4)
     assert AppsManagedServerConfig.__module__ == "coding_cli.managed_server"
     assert AppsManagedServerError.__module__ == "coding_cli.managed_server"
     assert AppsManagedServerProcess.__module__ == "coding_cli.managed_server"

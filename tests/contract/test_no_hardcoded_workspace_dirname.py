@@ -47,8 +47,9 @@ _WHITELIST: frozenset[str] = frozenset({
     # auto_mode_gate.py: .nanocode workspace_config_dir — this IS a hardcode, but pre-existing
     "src/agent/platform/hooks/builtins/auto_mode_gate.py:679",
     # coding_cli/commands.py: .nanocode global/workspace config — CLI UX, pre-existing
-    "src/coding_cli/commands.py:655",
-    "src/coding_cli/commands.py:659",
+    # Line numbers shifted after refactor-387-M2 commands.py rewrite (async-native REPL)
+    "src/coding_cli/commands.py:1019",
+    "src/coding_cli/commands.py:1020",
 })
 
 # Patterns to detect (as string literals in code)
