@@ -74,3 +74,13 @@ contract 测试：2 个预期硬红（SPEC.md/docs 文档测试），111 绿，1
   - `pytest tests/ --collect-only -q` → 零 ERROR（全目录，含 e2e）
   - `pytest tests/ -m "not e2e" -q` → 2323 passed, 0 failed, 0 error（9 个 im_service 失败为 unit 分支预存，非本修复引入，可 grep "InboundPipeline" 确认）
 - Commits: Fix=69bf96aa
+
+### Fix-R2（reviewer 反馈修复）— http_api 删除断言健壮化
+
+- Context: test_http_api_dir_removed.py 用 HTTP_API_DIR.exists() 检目录存在性，对 gitignored __pycache__ 残留脆弱——任何 pull 前 import 过 http_api 的机器物理目录仍在（含 .pyc），导致假红。
+- Decision: 改为 `list(HTTP_API_DIR.rglob("*.py")) == []`：__pycache__ 只含 .pyc，不触发；无 .py 源文件即不可导入，语义更贴合意图。同时在 worktree 模拟 __pycache__-only 场景确认免疫。
+- Evidence:
+  - 模拟 __pycache__-only：mkdir http_api/__pycache__ + touch .pyc → 测试仍 PASSED
+  - `pytest tests/ -m "not e2e" -q` → **2332 passed, 0 failed**
+  - `pytest tests/ --collect-only -q` → **0 collection ERROR**
+- Commits: Fix=6f6e9944
