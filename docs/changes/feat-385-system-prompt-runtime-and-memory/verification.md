@@ -178,3 +178,141 @@ W2 CLOSED。
 ---
 
 No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvements).
+
+---
+
+# Round 3
+
+## Summary（M4 重构验收）
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 6/6 退出标准全部满足（tasks.md checkbox 未勾选属文档问题，不影响实现完整性） |
+| Correctness | 决策 15–21 逐条落地；banner 字节一致性直接验证通过；M2/M3 修复未被回退 |
+| Coherence | 6/7 M4 设计决策遵守；1 WARNING（`current_datetime`/`cwd` 类型与 design.md 接口表轻微偏离） |
+
+No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvements).
+
+---
+
+## Round 3: M4 决策 15–21 逐条核对
+
+### Completeness（M4 任务完成度）
+
+M4 退出标准 6 条均已满足（实际验证结果）：
+
+| 退出标准 | 验证方式 | 结果 |
+|---|---|---|
+| runtime 输出 golden 测试字节不变 | 直接比较 `_render_block` 输出与 `_render_banner_block` 输出 | 字节完全一致 ✓ |
+| `PromptSection` 无 `order` 字段 | `base.py:126` 定义；`test_m4_no_order_field.py` 全绿 | ✓ |
+| banner 只在 core 段 render，不在 MemoryStore | `store.py:251-276 format_for_prompt` 返回纯内容；`test_m4_golden_baseline.py::TestMemoryStoreBannerFormat` 全绿 | ✓ |
+| `global_routes.py` 无 `_make_volatile_placeholder_section` | grep 无命中；`test_prompt_preview_runtime_parity.py` 通过 | ✓ |
+| core 零 product import | `grep -rn "from agent.products\|build_pa_\|build_lc_" src/agent/core/` 无命中 | ✓ |
+| `pytest tests/unit/ tests/integration/ tests/contract/ -m "not e2e"` 全绿 | 实际运行：2240 passed, 22 skipped, 3 xfailed，1 flaky（非 M4 相关，单独运行通过） | ✓ |
+
+**tasks.md checkbox 全部 `[ ]` 未勾选**：tasks.md 退出标准 6 条均未打勾，但 progress.md 各 roadpoint 标为 DONE，实现和测试均满足。这是文档维护遗漏（worker 未勾 checkbox），不影响实现完整性。
+
+### Correctness（决策 15–21 实现正确性）
+
+**决策 15：每产品显式装配函数**
+
+- `products/personal_assistant/prompt_sections.py:301` `build_pa_system_prompt()` — 显式线性列出 19 个段，stable 前 volatile 尾，一眼可读 ✓
+- `products/local_coding/prompt_sections.py:76` `build_lc_system_prompt()` — 显式线性列出 14 个段 ✓
+
+**决策 16：去掉 `order` 字段，顺序由列表位置决定**
+
+- `base.py:99-132`：`PromptSection` 无 `order` 字段 ✓
+- `base.py:135-177`：`assemble_system_prompt` 按列表位置顺序，不排序 ✓
+- `base.py:210-242`：`_validate_cache_safe_invariant` 改为列表位置校验 ✓
+- 测试：`test_m4_no_order_field.py` 8 个测试全绿 ✓
+
+**决策 17：banner 回归段，MemoryStore 只给数据**
+
+- `store.py:251` `format_for_prompt` 返回纯内容（无 banner）；`store.py:319-331` `_load_snapshot` 调 `_render_content_and_pct` 存纯内容和 pct ✓
+- `core_sections.py:331-346` `_render_banner_block` 是 banner 的唯一生成点 ✓
+- 字节一致性验证：旧 `_render_block` 输出与新路径 `_render_banner_block` 输出字节完全一致（直接比较确认）✓
+
+**决策 18：`PromptContext` 持结构化数据 + `render_mode`**
+
+- `base.py:81-92`：`memory_content`/`memory_pct`/`user_profile_content`/`user_pct`/`render_mode` 均已添加 ✓
+- `memory_block`/`user_profile_block` 保留为向后兼容字段（deprecated 注释标注）✓
+- **轻微偏离（WARNING W3）**：`current_datetime`/`cwd` 类型仍为 `str = ""`，非 design.md 接口表中的 `str | None`（见 Issues）
+
+**决策 19：preview 占位符下沉 core，删 platform hack**
+
+- `global_routes.py`：`_make_volatile_placeholder_section` grep 无命中（已删除）✓
+- `global_routes.py:354-371`：preview 端点构造 `ctx(render_mode=RenderMode.PREVIEW, memory_content=None, ...)` + 直接调 `assemble_system_prompt` ✓
+- `test_prompt_preview_runtime_parity.py`：contract 测试通过，stable 段字节一致 + volatile 内联占位符存在 ✓
+
+**决策 20：装配函数归属 products，core 零 product import**
+
+- `grep -rn "from agent.products\|build_pa_\|build_lc_\|personal_assistant\|local_coding" src/agent/core/` 零命中 ✓
+- `platform/bootstrap.py:186-201`：通过 `profile.prompt_sections_builder()` 调用 build 函数，core 端只接收 `Sequence[PromptSection]` ✓
+- contract test `test_core_no_platform_imports.py` xfail（pre-existing #40 llm-factory 泄漏，与 M4 无关，`agent.products` 维度 core 无 import 已 grep 直接确认）✓
+
+**决策 21：段渲染三态 + behavior-preserving**
+
+- `core_sections.py:365-398` `_render_memory_block`：三态实现（PREVIEW/RUNTIME+有数据/RUNTIME+无数据=None）✓
+- `core_sections.py:429-455` `_render_user_profile_block`：同三态 ✓
+- M2 I1 修复（空 store → None → 不出 banner）在 M4 后验证仍然有效：`store.format_for_prompt("memory")` 返回 None，`CORE_MEMORY_BLOCK.enabled_when` 为 False，banner 不出现 ✓
+- `test_m4_r3_render_mode.py` 10 个测试全绿 ✓
+
+**关于 golden baseline 测试的真实性**：
+
+`test_m4_golden_baseline.py` 的 `TestMemoryStoreBannerFormat` 类在 R3 commit (9903392c) 中被改写——原始 R1 版本验证 MemoryStore 产生带 banner 的串（旧格式契约），R3 改为验证 MemoryStore 不产生 banner（M4 后新格式）。真正的 behavior-preserving 保护体现在三个层面：
+
+1. **字节一致性直接验证**：旧 `_render_block` 输出与新 `_render_banner_block` 输出字节完全一致（运行时验证确认）
+2. `TestRuntimeAssemblyBannerGolden` 类通过 `memory_block=` 向后兼容字段仍然测试"banner 在汇编输出中正确出现"的 runtime 行为，断言未改动
+3. `test_prompt_sections_golden.py` 的 6 个场景 golden 测试（产品级 system prompt 内容断言）全绿
+
+总体 behavior-preserving 目标满足，无虚假 golden 问题。
+
+### Coherence（M4 决策遵守）
+
+| 决策 | 遵守？ | 证据 |
+|---|---|---|
+| 决策 15: 产品显式装配函数 | 是 | `pa/prompt_sections.py:301`、`lc/prompt_sections.py:76` |
+| 决策 16: 去 order，列表位置 | 是 | `base.py:126`（无 order 字段）、`base.py:148`（无排序） |
+| 决策 17: banner 回归段，MemoryStore 纯数据 | 是 | `store.py:251`、`core_sections.py:331` |
+| 决策 18: PromptContext 结构化数据 + render_mode | 部分 | `base.py:81-92`；`current_datetime`/`cwd` 类型偏离见 W3 |
+| 决策 19: 删 platform hack，preview 走 render_mode | 是 | `global_routes.py:354-371` |
+| 决策 20: build_* 在 products，core 零 product import | 是 | grep 零命中；`bootstrap.py:186` |
+| 决策 21: 三态 + behavior-preserving | 是 | `core_sections.py:365-398`；M2 I1 修复未回退 |
+
+---
+
+## Round 3: 问题汇总
+
+### WARNING（应该修）
+
+**W3: `current_datetime` / `cwd` 类型与 design.md 接口表偏离**
+
+- **位置**: `src/agent/core/agent/prompt_sections/base.py:78-79`
+- **问题**: design.md 接口变化表（第 618 行）明确要求 "`current_datetime`/`cwd` 转 `str|None`（preview 时 None → 段出占位）"。实际实现仍为 `str = ""`（非 `str | None`）。`_render_runtime_footer`（`core_sections.py:306-312`）无 None 检查，若调用方传 None 会输出字面量 `"Current date and time: None"`。
+- **影响**: 当前 preview 端点通过注入占位符串（`"<运行时注入：当前时间>"`）绕开了此问题，功能正确；但类型与 design 不符，且 `_render_runtime_footer` 无 None 防御，是潜在的静默 bug 点。
+- **修复建议**:
+  1. `base.py:78-79`：将 `current_datetime: str = ""` 改为 `current_datetime: str | None = None`，`cwd: str | None = None`
+  2. `core_sections.py:306-312`：`_render_runtime_footer` 加 None 分支（None 时输出占位字符串或跳过该行）
+  3. `global_routes.py:348-351` 无需修改，行为不变
+
+**W1-残：compaction callback 端到端测试缺失（继承自 Round 2）**
+
+- 同 Round 2 记录，未新增变化。`loop.py:692-693` 的 callback 触发路径仍无测试覆盖。
+
+---
+
+### SUGGESTION（可以修）
+
+**S2: `test_prompt_preview_volatile.py` 使用了已删除的 `section.order` 属性**
+
+- **位置**: `tests/unit/platform/http_api/test_prompt_preview_volatile.py:17`（`section.order = 950`）、`:24`（`section.order = 100`）
+- **问题**: M4 删除了 `PromptSection.order` 字段，但此测试文件的 MagicMock 仍设置 `section.order`。MagicMock 允许任意属性赋值故不报错，但这是过期残留，会误导维护者认为 `order` 字段仍然存在。
+- **修复建议**: 删除 `test_prompt_preview_volatile.py:17` 和 `:24` 两行 `section.order = ...`（对测试行为无影响，纯清理）。
+
+**S1: `bootstrap.py:151` 死代码（继承自 Round 1）**
+
+同 Round 1/2 记录，仍未清理。`memory_root = config_resolver.user_memory_root()` 结果未使用，删除即可。
+
+---
+
+No critical issues. 1 warning(s) to consider (W3 新增，W1-残 继承). Ready for PR (with noted improvements).
