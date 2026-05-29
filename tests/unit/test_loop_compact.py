@@ -226,3 +226,40 @@ async def test_loop_preserves_system_prompt_after_compact() -> None:
     for req in llm.requests:
         assert req.messages[0].role == "system"
         assert system_prompt in req.messages[0].content
+
+
+async def test_loop_fires_on_compaction_callback_with_session_id() -> None:
+    """compaction 触发后 on_compaction callback 被调用，携带正确 session_id。
+
+    Verifies the closed loop: _maybe_compact success → _on_compaction_callback(session_id),
+    which lets AgentRuntime._invalidate_memory_snapshot drop the stale cache entry so the
+    next turn re-reads memory from disk.
+    """
+    long_content = "x" * 800
+    session_id = "sess-callback-check"
+    history = tuple(
+        Message(message_id=f"msg_{i}", role="user" if i % 2 == 0 else "assistant", content=long_content)
+        for i in range(10)
+    )
+    llm = _FakeLLMClient()
+
+    fired_with: list[str] = []
+
+    def on_compaction(sid: str) -> None:
+        fired_with.append(sid)
+
+    loop = AgentLoop(
+        llm_client=llm,
+        model="test-model",
+        compaction_settings=CompactionSettings(enabled=True, context_window=100, reserve_tokens=10),
+        compaction_planner=_FakeCompactionPlanner(),
+        compaction_summarizer=_FakeCompactionSummarizer(),
+        session_manager=_FakeSessionManager(history),
+        on_compaction=on_compaction,
+    )
+    state = _make_state(session_id=session_id, history_messages=history, user_text="trigger")
+
+    await _run_loop(loop, state)
+
+    assert len(fired_with) == 1, f"Expected callback called once, got {fired_with}"
+    assert fired_with[0] == session_id, f"Expected session_id={session_id!r}, got {fired_with[0]!r}"

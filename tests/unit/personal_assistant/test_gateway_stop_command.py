@@ -76,7 +76,7 @@ class _FakeKernelClient:
         self.run_states.setdefault(run_id, {"run_id": run_id, "status": "completed", "output_text": f"reply:{text}"})
         return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
 
-    async def stream_session(self, *, session_id, last_event_id=None):
+    async def stream_session(self, *, session_id, last_event_id=None, workspace_root=None, **_kwargs):
         run_id = self.send_calls[-1]["run_id"] if self.send_calls else "run-1"
         text = self.run_states.get(run_id, {}).get("output_text", "")
         yield {"event": "assistant_message", "run_id": run_id, "content": text}

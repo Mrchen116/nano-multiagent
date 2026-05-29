@@ -9,7 +9,7 @@ def test_product_profile_has_prompt_sections_field():
     from agent.products.base import ProductProfile
     from agent.core.agent.prompt_sections.base import PromptSection
 
-    sec = PromptSection(name="test.section", order=100, render=lambda ctx: "hello")
+    sec = PromptSection(name="test.section", render=lambda ctx: "hello")
     profile = ProductProfile(
         product_id="test",
         display_name="Test",
@@ -56,7 +56,7 @@ def test_resolved_product_config_has_prompt_sections():
     from agent.products.base import ResolvedProductConfig
     from agent.core.agent.prompt_sections.base import PromptSection
 
-    sec = PromptSection(name="test.s", order=100, render=lambda ctx: "x")
+    sec = PromptSection(name="test.s", render=lambda ctx: "x")
     config = ResolvedProductConfig(
         product_id="test",
         resolved_system_prompt="",

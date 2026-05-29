@@ -298,13 +298,19 @@ def prompt_preview(
 ) -> PromptPreviewResponse:
     """Assemble a system-prompt preview for the given per-agent feature configuration.
 
-    Filters to cache_safe=True segments only so the preview is stable and free
-    from volatile turn data (memory block, live participant list).  This matches
-    what the IM settings page needs to show: the static portion of the prompt.
+    Volatile segments (cache_safe=False — memory_block, user_profile_block,
+    communication_context, etc.) appear inline at their natural order position as
+    readable '运行时注入' placeholders.  This preserves the complete prompt shape so
+    the preview reads as a coherent document and the user sees exactly where runtime
+    will inject content — same principle as the datetime placeholder.
 
     feat-383-M1: tool descriptions come from the real ToolRegistry; skills are
     resolved from workspace_root; datetime uses a placeholder to signal runtime
     injection; cwd uses workspace_root or a placeholder when not available.
+
+    feat-385-M4 Decision 19: volatile segments render via render_mode=PREVIEW — core
+    segments self-handle the PREVIEW / RUNTIME / inactive three-state. No platform
+    hack needed; volatile sections are not replaced or filtered here.
 
     Args:
         payload: Feature flags, custom_prompt, active tool ids, workspace_root,
@@ -317,6 +323,7 @@ def prompt_preview(
     """
     from pathlib import Path  # noqa: PLC0415
 
+    from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
     from agent.core.skills.discovery import resolve_available_skills  # noqa: PLC0415
 
     # Use real tool objects from registry; silently skip ids not registered
@@ -336,25 +343,29 @@ def prompt_preview(
     else:
         available_skills = ()
 
-    # datetime is runtime-volatile; show placeholder so users see the field exists
-    # but understand it will be filled at runtime (spec Q3 / decision 4).
-    current_datetime = "<运行时注入：当前时间>"
+    # W3/Decision 18: datetime and cwd are now str|None. Pass None (or the known cwd)
+    # and let the core.runtime_footer segment render placeholders in PREVIEW mode.
+    # This moves placeholder logic into the segment (same as memory_block three-state),
+    # replacing the previous pattern of the endpoint hard-coding placeholder strings.
+    cwd = payload.workspace_root if payload.workspace_root else None
 
-    # cwd is known when workspace_root is provided; otherwise show placeholder.
-    cwd = payload.workspace_root if payload.workspace_root else "<运行时注入：workspace 路径>"
-
+    # M4 Decision 19: preview uses render_mode=PREVIEW so volatile segments render
+    # their banner + '运行时注入' placeholder via core segment logic (three-state render).
     ctx = PromptContext(
         available_tools=available_tools,
         available_skills=available_skills,
-        current_datetime=current_datetime,
-        cwd=cwd,
-        memory_block=None,  # volatile — excluded from preview
+        current_datetime=None,   # None → segment renders "<运行时注入：当前时间>" placeholder
+        cwd=cwd,                  # real value when workspace_root known, else None → placeholder
+        # memory_content / user_profile_content left as None — segments use
+        # render_mode=PREVIEW to generate banner + inline placeholder.
+        render_mode=RenderMode.PREVIEW,
         flags=payload.features,
         scenario={"conversation_type": payload.scenario},
         vars={"custom_prompt": payload.custom_prompt} if payload.custom_prompt else {},
     )
-    # Preview shows only the cache-stable prefix; volatile segments (memory_block,
-    # communication_context) are excluded so the preview doesn't depend on runtime state.
-    stable_sections = [s for s in sections if getattr(s, "cache_safe", True)]
-    assembled = assemble_system_prompt(stable_sections, ctx)
-    return PromptPreviewResponse(prompt=assembled, section_count=len(stable_sections))
+
+    # Count stable sections for the response; all sections pass through unchanged —
+    # volatile segments render their own placeholder via render_mode (Decision 19).
+    stable_count = sum(1 for sec in sections if getattr(sec, "cache_safe", True))
+    assembled = assemble_system_prompt(sections, ctx)
+    return PromptPreviewResponse(prompt=assembled, section_count=stable_count)

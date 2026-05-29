@@ -78,8 +78,9 @@ class _FakeKernelClient:
         self._last_run_id_by_session[session_id] = run_id
         return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
 
-    async def stream_session(self, *, session_id: str, last_event_id=None):
+    async def stream_session(self, *, session_id: str, last_event_id=None, workspace_root=None, **_kwargs):
         del last_event_id
+        del workspace_root
         batches = self.session_events.get(session_id, [])
         for batch in batches:
             for event in batch:
@@ -167,9 +168,12 @@ class _FakeSseKernelClient:
         *,
         session_id: str,
         last_event_id: int | None = None,
+        workspace_root: str | None = None,  # Refs #64: accepted to match updated kernel client API
+        **_kwargs: object,
     ):
         del session_id
         del last_event_id
+        del workspace_root
         for event in self._events:
             yield dict(event)
 

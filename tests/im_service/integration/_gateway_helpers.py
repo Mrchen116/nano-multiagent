@@ -81,9 +81,11 @@ class _FakeKernelClient:
         self.session_events.setdefault(session_id, []).append(sse_events)
         return {"run_id": run_id}
 
-    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+    async def stream_session(self, *, session_id: str, last_event_id: int | None = None, workspace_root: str | None = None, **_kwargs):
         # Async generator matching KernelApiClient.stream_session.
         # Each submit_message call appends one batch; we advance per-session index.
+        del last_event_id
+        del workspace_root
         batches = self.session_events.get(session_id, [])
         index = self._stream_calls.get(session_id, 0)
         self._stream_calls[session_id] = index + 1

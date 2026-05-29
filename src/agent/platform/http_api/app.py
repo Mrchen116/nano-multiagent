@@ -154,6 +154,8 @@ def create_app(
             runtime_kwargs["config_resolver"] = resolved_config_resolver
         if resolved_default_tool_ids is not None:
             runtime_kwargs["default_tool_ids"] = resolved_default_tool_ids
+        if resolved_prompt_sections:
+            runtime_kwargs["prompt_sections"] = resolved_prompt_sections
         active_runtime = AgentRuntime(
             session_manager=session_service.manager,
             hook_runner=active_hook_runner,

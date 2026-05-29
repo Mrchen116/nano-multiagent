@@ -36,6 +36,31 @@ from .prompting import build_system_prompt
 from .skill_commands import rewrite_skill_command
 from .state import AgentState, InputPart, parse_input_parts, render_user_text
 from agent.core.session.entries import message_from_turn_entry
+from agent.core.agent.prompt_sections.base import PromptSection, resolve_effective_prompt
+from agent.core.agent.prompt_sections.wiring import (
+    build_prompt_context_from_metadata,
+    resolve_flags_from_metadata,
+)
+from agent.core.memory.path import derive_memory_root
+from agent.core.memory.store import MemoryStore
+from typing import TypedDict
+
+
+class MemorySnapshot(TypedDict):
+    """Lazy-frozen memory snapshot for one session.
+
+    Frozen on the first turn and held for the session's lifetime so the
+    stable prefix in the system prompt does not change between turns (which
+    would bust provider prefix-cache hits).  Invalidated on compaction so
+    the next turn re-reads updated memory from disk.
+
+    M4 Decision 17: memory_content / user_profile_content hold pure data (no banner);
+    memory_pct / user_pct hold usage percentages for banner rendering by core segments.
+    """
+    memory_content: "str | None"
+    memory_pct: int
+    user_profile_content: "str | None"
+    user_pct: int
 
 if TYPE_CHECKING:
     from agent.core.hooks.registry import HookRegistry
@@ -68,6 +93,7 @@ class AgentRuntime:
         config_resolver: ConfigResolverLike | None = None,
         default_tool_ids: list[str] | None = None,
         permission_broker: Any | None = None,
+        prompt_sections: Sequence[PromptSection] | None = None,
     ) -> None:
         env_llm_config = LLMFactoryConfig.from_env()
         self._llm_config = LLMFactoryConfig(
@@ -103,6 +129,10 @@ class AgentRuntime:
         self._session_configs: dict[str, SessionConfig] = {}
         self._session_paths: dict[str, Path] = {}
         self._session_locks: dict[str, asyncio.Lock] = {}
+        # Per-session memory snapshot cache: lazy freeze on first turn, invalidated on compaction.
+        self._memory_snapshots: dict[str, MemorySnapshot] = {}
+        # Prompt sections for segment-based assembly; empty list = no sections registered (legacy path).
+        self._prompt_sections: list[PromptSection] = list(prompt_sections) if prompt_sections else []
         tool_results_dir = self._repo_root / ".nano" / "tool-results"
         self._tool_result_compressor = ToolResultCompressor(tool_results_dir)
         self._context_fork = AgentContextFork(
@@ -148,6 +178,7 @@ class AgentRuntime:
             compaction_planner=self._compaction_planner,
             compaction_summarizer=self._compaction_summarizer,
             compaction_settings=self._compaction_settings,
+            on_compaction=self._invalidate_memory_snapshot,
         )
 
     async def run(
@@ -254,6 +285,10 @@ class AgentRuntime:
         hook_metadata: dict[str, Any] = dict(config.metadata) if isinstance(config.metadata, Mapping) else {}
         hook_metadata["cwd"] = str(session_workspace_root)
         hook_metadata["context_window"] = self._compaction_settings.context_window
+        # Thread workspace_root per-turn so MemoryTool + _ensure_memory_snapshot share
+        # the same derivation path (both use derive_memory_root for isolation).
+        if session_workspace_root is not None:
+            hook_metadata["workspace_root"] = str(session_workspace_root)
         if isinstance(run_id, str) and run_id.strip():
             hook_metadata["run_id"] = run_id.strip()
         # Thread RunRecord.origin through to hook_metadata so auto_mode_gate can
@@ -296,17 +331,51 @@ class AgentRuntime:
             user_text = message_override
         if not user_text:
             raise ValueError("empty input parts are not allowed")
-        system_prompt_override = before_payload.get("system_prompt")
+        hook_system_prompt_override = before_payload.get("system_prompt")
+        if isinstance(hook_system_prompt_override, str):
+            hook_system_prompt_override = hook_system_prompt_override.strip() or None
+        else:
+            hook_system_prompt_override = None
+
+        # Determine final system prompt for this turn.
+        # Priority: hook override > frozen session prompt > segment assembly.
         use_frozen_system_prompt = False
-        if isinstance(system_prompt_override, str):
-            system_prompt_override = system_prompt_override.strip()
-            if not system_prompt_override:
-                system_prompt_override = None
+        pre_rendered_system_prompt: str | None = None  # non-None → loop skips build_system_prompt
+        if hook_system_prompt_override:
+            system_prompt_override: str | None = hook_system_prompt_override
+        elif frozen_system_prompt:
+            system_prompt_override = frozen_system_prompt
+            use_frozen_system_prompt = True
+        elif self._prompt_sections:
+            # Segment-based assembly: freeze memory snapshot on first turn, build ctx,
+            # then resolve effective prompt via assemble_system_prompt.
+            snapshot = self._ensure_memory_snapshot(session_id, hook_metadata)
+            active_tools_for_prompt = session_available_tools or ()
+            flags = resolve_flags_from_metadata(metadata=hook_metadata)
+            cwd_str = str(session_workspace_root) if session_workspace_root else str(self._repo_root)
+            from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+            ctx = build_prompt_context_from_metadata(
+                metadata=hook_metadata,
+                available_tools=list(active_tools_for_prompt),
+                available_skills=list(session_available_skills),
+                current_datetime=session_created_at,
+                cwd=cwd_str,
+                memory_content=snapshot["memory_content"],
+                memory_pct=snapshot["memory_pct"],
+                user_profile_content=snapshot["user_profile_content"],
+                user_pct=snapshot["user_pct"],
+                render_mode=RenderMode.RUNTIME,
+                flags=flags,
+                vars={"custom_prompt": str(hook_metadata.get("custom_prompt", ""))},
+            )
+            pre_rendered_system_prompt = resolve_effective_prompt(
+                sections=self._prompt_sections,
+                ctx=ctx,
+                override=None,
+            )
+            system_prompt_override = None
         else:
             system_prompt_override = None
-        if system_prompt_override is None:
-            system_prompt_override = frozen_system_prompt
-            use_frozen_system_prompt = frozen_system_prompt is not None
 
         await self._dispatch_observe(
             "agent_start",
@@ -363,6 +432,7 @@ class AgentRuntime:
                 user_message_id=user_msg.message_id,
                 hook_ctx=hook_ctx,
                 system_prompt_override=system_prompt_override,
+                pre_rendered_system_prompt=pre_rendered_system_prompt,
                 llm_session_id=llm_session_id,
                 session_created_at=session_created_at,
                 current_working_directory_override=session_workspace_root,
@@ -421,6 +491,7 @@ class AgentRuntime:
                         user_message_id=user_msg.message_id,
                         hook_ctx=hook_ctx,
                         system_prompt_override=system_prompt_override,
+                        pre_rendered_system_prompt=pre_rendered_system_prompt,
                         llm_session_id=llm_session_id,
                         session_created_at=session_created_at,
                         current_working_directory_override=session_workspace_root,
@@ -793,6 +864,7 @@ class AgentRuntime:
 
         self._session_file_states.pop(session_id, None)
         self._session_locks.pop(session_id, None)
+        self._memory_snapshots.pop(session_id, None)
 
     async def fork_session(
         self, source_session_id: str, *, workspace_root: Path | None = None
@@ -1151,6 +1223,7 @@ class AgentRuntime:
         user_message_id: str | None,
         hook_ctx: HookContext,
         system_prompt_override: str | None,
+        pre_rendered_system_prompt: str | None = None,
         available_skills_override: tuple[SkillMetadata, ...] | None,
         available_tools_override: tuple[ToolSpec, ...] | None,
         llm_session_id: str | None,
@@ -1172,6 +1245,7 @@ class AgentRuntime:
             controller=controller,
             hook_ctx=hook_ctx,
             system_prompt_override=system_prompt_override,
+            pre_rendered_system_prompt=pre_rendered_system_prompt,
             available_skills_override=available_skills_override,
             available_tools_override=available_tools_override,
             llm_session_id=llm_session_id,
@@ -1180,6 +1254,59 @@ class AgentRuntime:
             session_file_state=session_file_state,
         ):
             yield msg
+
+    def _ensure_memory_snapshot(
+        self,
+        session_id: str,
+        metadata: Mapping[str, Any],
+    ) -> MemorySnapshot:
+        """Lazy freeze of memory/user content for one session.
+
+        Returns cached snapshot on hit; renders + caches on first call per session.
+        Freezing on first turn keeps the stable prefix byte-identical across turns
+        so provider prefix-cache hits are maximised.  Compaction invalidates the
+        cache via _invalidate_memory_snapshot so the next turn reflects updated memory.
+        """
+        if session_id in self._memory_snapshots:
+            return self._memory_snapshots[session_id]
+
+        flags = resolve_flags_from_metadata(metadata=metadata)
+        if not flags.get("memory_curation", True):
+            snapshot: MemorySnapshot = {
+                "memory_content": None, "memory_pct": 0,
+                "user_profile_content": None, "user_pct": 0,
+            }
+            self._memory_snapshots[session_id] = snapshot
+            return snapshot
+
+        workspace_root_raw = metadata.get("workspace_root")
+        dirname = metadata.get("workspace_config_dirname")
+        if not workspace_root_raw or not dirname:
+            snapshot = {
+                "memory_content": None, "memory_pct": 0,
+                "user_profile_content": None, "user_pct": 0,
+            }
+            self._memory_snapshots[session_id] = snapshot
+            return snapshot
+
+        memory_root = derive_memory_root(Path(str(workspace_root_raw)), str(dirname))
+        store = MemoryStore(memory_root=memory_root)
+        memory_content = store.format_for_prompt("memory")
+        memory_pct = store.format_pct_for_prompt("memory") if memory_content else 0
+        user_content = store.format_for_prompt("user")
+        user_pct = store.format_pct_for_prompt("user") if user_content else 0
+        snapshot = {
+            "memory_content": memory_content or None,
+            "memory_pct": memory_pct,
+            "user_profile_content": user_content or None,
+            "user_pct": user_pct,
+        }
+        self._memory_snapshots[session_id] = snapshot
+        return snapshot
+
+    def _invalidate_memory_snapshot(self, session_id: str) -> None:
+        """Remove cached snapshot so next turn triggers a fresh disk read (called after compaction)."""
+        self._memory_snapshots.pop(session_id, None)
 
     async def _compact_session(
         self,

@@ -1,11 +1,20 @@
 from pathlib import Path
 
-from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.persistence.session.service import SessionService
 from collections.abc import AsyncIterator
+
+# Fixture replaces deleted CODING_SYSTEM_PROMPT (coding content now lives in prompt_sections.py).
+# Contains RUNTIME_FILL placeholders so runtime fills them before LLM call.
+_FIXTURE_WITH_PLACEHOLDERS = (
+    "You are an expert coding assistant.\n\n"
+    "Available tools:\n<RUNTIME_FILL:AVAILABLE_TOOLS>\n\n"
+    "Guidelines:\n- Be helpful\n\n"
+    "Current date and time: <RUNTIME_FILL:CURRENT_DATETIME>\n"
+    "Current working directory: <RUNTIME_FILL:CURRENT_WORKING_DIRECTORY>"
+)
 
 
 class CapturePromptLLM:
@@ -23,13 +32,14 @@ async def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path
     manager = service.manager
     session = service.create_session(workspace_root=tmp_path)
     llm = CapturePromptLLM()
-    # CODING_SYSTEM_PROMPT must be injected explicitly; AgentRuntime default is now "".
+    # A fixture with RUNTIME_FILL placeholders is passed explicitly; AgentRuntime
+    # default is "" which signals segment assembly (no monolithic template).
     runtime = AgentRuntime(
         session_manager=manager,
         llm_client=llm,
         model="mock-model",
         repo_root=tmp_path,
-        system_prompt=CODING_SYSTEM_PROMPT,
+        system_prompt=_FIXTURE_WITH_PLACEHOLDERS,
     )
 
     await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)

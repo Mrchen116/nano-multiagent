@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-from agent.core.agent.prompting import CODING_SYSTEM_PROMPT
 from agent.core.skills.discovery import default_skill_search_roots
 from agent.platform.bootstrap import bootstrap_product
 from agent.products.base import ProductProfile
@@ -75,9 +74,11 @@ def test_bootstrap_local_coding_tool_ids(tmp_path: Path) -> None:
 
 
 def test_bootstrap_local_coding_system_prompt_injected(tmp_path: Path) -> None:
-    """bootstrap_product(local_coding) resolved_system_prompt equals CODING_SYSTEM_PROMPT."""
+    """Bootstrap LC uses segment assembly: resolved_system_prompt must be "" (not a hardcoded template)."""
     resolved = bootstrap_product(profile=LOCAL_CODING_PROFILE, repo_root=tmp_path)
-    assert resolved.resolved_system_prompt == CODING_SYSTEM_PROMPT
+    assert resolved.resolved_system_prompt == ""
+    # Segment assembly path: prompt_sections must be wired
+    assert resolved.prompt_sections
 
 
 def test_bootstrap_product_uses_product_hook_directory_as_default_layer(tmp_path: Path) -> None:

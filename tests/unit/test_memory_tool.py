@@ -231,10 +231,21 @@ def test_serialize_result_error_uses_error_arg(tool: MemoryTool) -> None:
 
 
 def test_memory_root_resolved_from_session_metadata(tmp_path: Path) -> None:
-    root = tmp_path / "resolved_root"
-    root.mkdir()
-    ctx = _make_ctx(root)
-    tool = MemoryTool()  # No fixed root
+    # feat-385 R5: memory_root is now derived per-session from workspace_root +
+    # workspace_config_dirname, not from a direct memory_root key.
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    dirname = ".nanoassistant"
+    ctx = MagicMock(spec=ToolContext)
+    ctx.session_id = "test-session"
+    ctx.session_metadata = {
+        "workspace_root": str(workspace),
+        "workspace_config_dirname": dirname,
+    }
+    ctx.cwd = workspace
+
+    tool = MemoryTool()  # No fixed root — resolved from metadata
     result = tool.run({"action": "add", "target": "memory", "content": "from metadata"}, ctx)
     assert result["success"] is True
-    assert (root / "MEMORY.md").exists()
+    expected_memory_file = workspace / dirname / "memory" / "MEMORY.md"
+    assert expected_memory_file.exists()

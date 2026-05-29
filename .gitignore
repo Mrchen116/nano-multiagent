@@ -237,3 +237,4 @@ Snipaste_*.png
 # IM 前端（Vite）：构建产物不入库；需要时在 src/IM/frontend 执行 npm run build
 # （全局 dist/ 已覆盖；下列路径显式写出以免以后再被 ! 规则误放行）
 src/IM/frontend/dist/
+sessions/

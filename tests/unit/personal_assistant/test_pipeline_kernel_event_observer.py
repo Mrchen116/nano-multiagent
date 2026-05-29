@@ -59,9 +59,9 @@ class _StreamingKernel:
         return {"run_id": self.run_id, "status": "queued"}
 
     async def stream_session(
-        self, *, session_id: str, last_event_id: int | None = None
+        self, *, session_id: str, last_event_id: int | None = None, workspace_root: str | None = None, **_kwargs
     ):
-        del session_id, last_event_id
+        del session_id, last_event_id, workspace_root
         for ev in self._events:
             yield dict(ev)
 

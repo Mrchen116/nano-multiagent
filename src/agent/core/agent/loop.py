@@ -2,7 +2,7 @@
 
 import json
 import time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol
@@ -69,6 +69,7 @@ class AgentLoop:
         compaction_planner: CompactionPlanner | None = None,
         compaction_summarizer: CompactionSummarizer | None = None,
         compaction_settings: CompactionSettings | None = None,
+        on_compaction: Callable[[str], None] | None = None,
     ) -> None:
         self._llm_client = llm_client
         self._model = model
@@ -84,6 +85,7 @@ class AgentLoop:
         self._compaction_planner = compaction_planner
         self._compaction_summarizer = compaction_summarizer
         self._compaction_settings = compaction_settings
+        self._on_compaction_callback = on_compaction
         self._active_session_id: str | None = None
 
     @property
@@ -108,6 +110,7 @@ class AgentLoop:
         controller: RunController | None = None,
         hook_ctx: HookContext | None = None,
         system_prompt_override: str | None = None,
+        pre_rendered_system_prompt: str | None = None,
         available_skills_override: tuple[SkillMetadata, ...] | None = None,
         available_tools_override: tuple[ToolSpec, ...] | None = None,
         llm_session_id: str | None = None,
@@ -152,13 +155,17 @@ class AgentLoop:
 
         active_tools = self.active_tool_specs() if available_tools_override is None else available_tools_override
         active_skills = self._available_skills if available_skills_override is None else available_skills_override
-        rendered_system_prompt = build_system_prompt(
-            system_prompt=system_prompt_override or self._system_prompt,
-            available_skills=active_skills,
-            available_tools=active_tools,
-            current_datetime=session_created_at,
-            current_working_directory=current_working_directory_override or self._current_working_directory,
-        )
+        if pre_rendered_system_prompt is not None:
+            # Segment-assembled prompt already contains all guidance; bypass build_system_prompt.
+            rendered_system_prompt = pre_rendered_system_prompt
+        else:
+            rendered_system_prompt = build_system_prompt(
+                system_prompt=system_prompt_override or self._system_prompt,
+                available_skills=active_skills,
+                available_tools=active_tools,
+                current_datetime=session_created_at,
+                current_working_directory=current_working_directory_override or self._current_working_directory,
+            )
         llm_messages = list(build_chat_messages(
             history_messages=state.history_messages,
             user_text=state.user_text,
@@ -679,6 +686,12 @@ class AgentLoop:
                 "restored_files": restored_files,
             },
         )
+
+        # Notify runtime to invalidate cached memory snapshot so the next turn
+        # re-reads from disk (compaction resets the prefix-cache anchor).
+        if self._on_compaction_callback is not None:
+            self._on_compaction_callback(session_id)
+
         return summary_msg
 
 

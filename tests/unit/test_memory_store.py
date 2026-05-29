@@ -174,28 +174,44 @@ def test_source_index_persists(memory_root: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# R1.8  format_for_prompt — contains header + usage%
+# R1.8  format_for_prompt — pure content + pct (M4 Decision 17: banner moved to core segment)
 # ---------------------------------------------------------------------------
 
 
-def test_format_for_prompt_includes_header(store: MemoryStore) -> None:
+def test_format_for_prompt_returns_pure_content(store: MemoryStore) -> None:
+    """M4 Decision 17: format_for_prompt returns pure content (no banner/header)."""
     store.add("memory", _entry("some note"))
-    block = store.format_for_prompt("memory")
-    assert "MEMORY" in block
-    assert "%" in block
+    content = store.format_for_prompt("memory")
+    assert content is not None
+    assert "some note" in content
+    # M4: banner text must NOT be in format_for_prompt output
+    assert "MEMORY" not in content, "format_for_prompt must return pure content without MEMORY header"
+    assert "═" * 46 not in content, "format_for_prompt must return pure content without separator"
 
 
-def test_format_for_prompt_user_includes_header(store: MemoryStore) -> None:
+def test_format_for_prompt_pct_via_format_pct(store: MemoryStore) -> None:
+    """format_pct_for_prompt returns 0–100 integer for use in banner rendering."""
+    store.add("memory", _entry("some note"))
+    store.format_for_prompt("memory")  # trigger snapshot
+    pct = store.format_pct_for_prompt("memory")
+    assert isinstance(pct, int)
+    assert 0 <= pct <= 100
+
+
+def test_format_for_prompt_user_returns_pure_content(store: MemoryStore) -> None:
+    """M4: USER format_for_prompt also returns pure content."""
     store.add("user", _entry("Alice loves Rust"))
-    block = store.format_for_prompt("user")
-    assert "USER" in block
-    assert "%" in block
+    content = store.format_for_prompt("user")
+    assert content is not None
+    assert "Alice loves Rust" in content
+    assert "USER" not in content, "format_for_prompt must return pure content without USER header"
 
 
 def test_format_for_prompt_empty(store: MemoryStore) -> None:
+    # Empty store returns None so callers can suppress the segment entirely
+    # (feat-385 I1: prevents the empty banner "[0% — 0/2,200 chars]" from appearing).
     block = store.format_for_prompt("memory")
-    # Empty store should still return a prompt block (could be empty content)
-    assert isinstance(block, str)
+    assert block is None
 
 
 # ---------------------------------------------------------------------------
@@ -241,3 +257,36 @@ def test_atomic_write_no_partial_file(memory_root: Path) -> None:
 def test_invalid_target_raises(store: MemoryStore) -> None:
     with pytest.raises((ValueError, KeyError)):
         store.add("unknown_target", _entry("x"))  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# R1.12  format_for_prompt returns None when no entries (feat-385-M2 I1)
+# ---------------------------------------------------------------------------
+
+
+def test_format_for_prompt_returns_none_when_empty_no_disk(store: MemoryStore) -> None:
+    """Empty store (no disk files, no entries) must return None, not a banner string."""
+    result = store.format_for_prompt("memory")
+    assert result is None, f"Expected None for empty memory, got: {result!r}"
+
+
+def test_format_for_prompt_returns_none_when_empty_memory_root_missing(tmp_path: Path) -> None:
+    """Store whose memory_root doesn't exist yet returns None for both targets."""
+    nonexistent_root = tmp_path / "no_such_dir"
+    store = MemoryStore(memory_root=nonexistent_root)
+    assert store.format_for_prompt("memory") is None
+    assert store.format_for_prompt("user") is None
+
+
+def test_format_for_prompt_returns_str_when_has_entries(store: MemoryStore) -> None:
+    """With entries, format_for_prompt returns a non-empty string."""
+    store.add("memory", _entry("a real fact"))
+    result = store.format_for_prompt("memory")
+    assert isinstance(result, str)
+    assert "a real fact" in result
+
+
+def test_format_for_prompt_user_returns_none_when_empty(store: MemoryStore) -> None:
+    """user target also returns None when no user entries."""
+    result = store.format_for_prompt("user")
+    assert result is None

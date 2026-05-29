@@ -1,13 +1,16 @@
-"""Contract test: preview HTTP output must match runtime build_system_prompt after placeholder substitution.
+"""Contract test: preview stable-prefix must match runtime output after placeholder substitution.
 
-feat-383-M1 决策 5 — 第 2 层防线:
+feat-383-M1 决策 5 — 第 2 层防线（feat-385-M3-fix-r2 P1 修订：volatile 段就地内联占位符，
+不再使用末尾堆叠块）:
 - 构造一对一致的 PromptContext 和 HTTP 请求
 - 调 /v1/prompt-preview 取得预览串
-- 调 runtime build_system_prompt 取得运行时串
-- 将预览串中的两个占位符（<运行时注入：当前时间> / <运行时注入：workspace 路径>）替换为同一真实值
-- 断言两串逐字相等
+- 调 runtime assemble_system_prompt(stable_only) 取得运行时 stable-only 串
+- 将预览串中的占位符（<运行时注入：当前时间> / <运行时注入：workspace 路径>）替换为真实值
+- 断言 preview 以 runtime stable-only 串为前缀（stable 段字节一致）
+- 断言 preview 包含 volatile 段内联占位符（<运行时注入：...>，在 stable 前缀之后）
 
-这保证了 HTTP 路由层的 ctx 构造与 runtime 一致——golden test 守 assemble≡build，本 test 守 HTTP 端→runtime 端的端到端等价。
+P1 之后 preview 不再有末尾 "---" 分隔块；volatile 段在其自然 order 位置以内联占位符出现。
+契约：stable 前缀字节一致 + volatile 内联占位符存在，不再截断分隔符。
 """
 from __future__ import annotations
 
@@ -55,17 +58,21 @@ def _make_registry_with_tools(*tool_specs: ToolSpec) -> object:
 
 
 def test_preview_http_output_matches_runtime_after_placeholder_substitution() -> None:
-    """preview HTTP output with placeholders substituted must equal runtime output.
+    """preview HTTP output with placeholders substituted must start with runtime stable output.
 
     This test verifies the end-to-end parity between:
-    - The /v1/prompt-preview HTTP response (with placeholder datetime/cwd)
-    - The runtime build_system_prompt output (with real datetime/cwd)
+    - The /v1/prompt-preview HTTP response (volatile sections appear inline as '运行时注入' placeholders)
+    - The runtime assemble_system_prompt output (stable-only, volatile sections absent/None)
 
-    After replacing the two placeholders in the preview output with the same
-    values used in the runtime call, the two strings must be identical.
+    After replacing the datetime/cwd placeholders in the preview output with the same
+    values used in the runtime call, the preview must start with the runtime stable-only
+    string byte-for-byte.  Volatile inline placeholders appear after this stable prefix.
+
+    feat-385-M3-fix-r2 P1: no '---' footer separator expected; volatile sections appear
+    inline at their order position as '<运行时注入：...>' strings.
     """
-    from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
-    from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
+    from agent.core.agent.prompt_sections.base import RenderMode
+    from agent.products.personal_assistant.prompt_sections import build_pa_system_prompt
 
     tool_specs = (
         _make_tool_spec("read", "Read a file from the filesystem."),
@@ -75,20 +82,24 @@ def test_preview_http_output_matches_runtime_after_placeholder_substitution() ->
     workspace = "/tmp/test-workspace-contract"
     fake_datetime = "2026-01-01 00:00:00 UTC"
 
-    # Build real runtime ctx with known datetime/cwd
+    # M4: use build_pa_system_prompt() for correctly ordered section list
+    all_sections = build_pa_system_prompt()
+    stable_sections = [s for s in all_sections if getattr(s, "cache_safe", True)]
+
+    # Build real runtime ctx with known datetime/cwd, no memory (volatile=None/RUNTIME mode).
     runtime_ctx = PromptContext(
         available_tools=tool_specs,
         available_skills=(),
         current_datetime=fake_datetime,
         cwd=workspace,
-        memory_block=None,
+        render_mode=RenderMode.RUNTIME,
         flags={},
         scenario={"conversation_type": "direct"},
         vars={},
     )
 
-    all_sections = list(CORE_SECTIONS) + list(PA_SECTIONS)
-    stable_sections = [s for s in all_sections if getattr(s, "cache_safe", True)]
+    # Runtime with volatile=None: only stable sections render; volatile sections (memory_block,
+    # user_profile_block, communication_context) are absent because enabled_when returns False.
     runtime_prompt = assemble_system_prompt(stable_sections, runtime_ctx)
 
     # Build HTTP app with real tool registry and PA sections
@@ -113,13 +124,35 @@ def test_preview_http_output_matches_runtime_after_placeholder_substitution() ->
     assert response.status_code == 200
     preview_prompt = response.json()["prompt"]
 
-    # Replace placeholders with the same values used in the runtime ctx
+    # Replace placeholders with the same values used in the runtime ctx.
     normalized_preview = preview_prompt.replace(DATETIME_PLACEHOLDER, fake_datetime).replace(
         CWD_PLACEHOLDER, workspace
     )
 
-    assert normalized_preview == runtime_prompt, (
-        "preview output after placeholder substitution must equal runtime prompt.\n"
-        f"Preview (normalized):\n{normalized_preview[:500]}\n\n"
-        f"Runtime:\n{runtime_prompt[:500]}"
+    # feat-385-M3-fix-r2 P1: volatile sections render as inline '运行时注入' placeholders at
+    # their order position (after stable sections).  The preview string must therefore start
+    # with the runtime stable-only output (byte-identical prefix).
+    # No '---' footer separator; volatile placeholders are embedded in the prompt body.
+    assert normalized_preview.startswith(runtime_prompt), (
+        "preview (after placeholder substitution) must start with runtime stable-only output byte-for-byte.\n"
+        f"Runtime stable prefix (first 500 chars):\n{runtime_prompt[:500]}\n\n"
+        f"Normalized preview (first 500 chars):\n{normalized_preview[:500]}"
+    )
+
+    # Confirm volatile inline placeholders are present after the stable prefix.
+    volatile_suffix = normalized_preview[len(runtime_prompt):]
+    # In the scenario="direct" request, pa.communication_context is not active
+    # (requires conversation_type="group").  memory_block and user_profile_block
+    # placeholders should appear.
+    assert "运行时注入" in volatile_suffix, (
+        "preview must contain inline '运行时注入' placeholders for volatile sections "
+        f"(suffix after stable prefix: {volatile_suffix[:200]!r})"
+    )
+
+    # No M2-style footer stacking markers should appear anywhere.
+    assert "---" not in normalized_preview, (
+        "M2-style '---' footer separator must not appear in preview (feat-385-M3-fix-r2 P1)"
+    )
+    assert "runtime fills]" not in normalized_preview, (
+        "M2-style '[section — runtime fills]' footer list must not appear in preview"
     )

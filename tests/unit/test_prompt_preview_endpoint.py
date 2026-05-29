@@ -20,16 +20,14 @@ def _auth_headers() -> dict[str, str]:
 
 def _make_section(
     name: str,
-    order: int,
     text: str,
     cache_safe: bool = True,
     enabled: bool = True,
 ) -> PromptSection:
-    """Build a minimal PromptSection for testing."""
+    """Build a minimal PromptSection for testing (M4: no order param)."""
     return PromptSection(
         name=name,
-        order=order,
-        render=lambda ctx: text,
+        render=lambda ctx, t=text: t,
         enabled_when=lambda ctx: enabled,
         cache_safe=cache_safe,
     )
@@ -55,8 +53,8 @@ def test_prompt_preview_no_sections_returns_empty() -> None:
 def test_prompt_preview_with_sections_returns_assembled_text() -> None:
     """Preview assembles injected sections and returns the joined text."""
     sections = [
-        _make_section("core.identity", 100, "You are a helpful assistant."),
-        _make_section("core.rules", 200, "Follow these rules."),
+        _make_section("core.identity", "You are a helpful assistant."),
+        _make_section("core.rules", "Follow these rules."),
     ]
     app = create_app()
     app.state.prompt_sections = sections
@@ -73,13 +71,16 @@ def test_prompt_preview_with_sections_returns_assembled_text() -> None:
     assert body["section_count"] == 2
 
 
-def test_prompt_preview_excludes_volatile_sections() -> None:
-    """Preview must exclude cache_safe=False (volatile) sections."""
-    sections = [
-        _make_section("core.stable", 100, "Stable text.", cache_safe=True),
-        # cache_safe=False segment must have order > stable to avoid cache_safe violation
-        _make_section("core.volatile", 950, "Volatile turn data.", cache_safe=False),
-    ]
+def test_prompt_preview_volatile_sections_appear_as_inline_placeholders() -> None:
+    """core.memory_block volatile segment appears as inline placeholder in preview.
+
+    M4 Decision 19/21: volatile segments that implement 3-state render (memory_block,
+    user_profile_block) render as banner + '<运行时注入:…>' placeholder in PREVIEW mode.
+    This tests the real CORE_MEMORY_BLOCK segment (not a generic placeholder).
+    """
+    from agent.core.agent.prompt_sections.core_sections import CORE_SYSTEM, CORE_MEMORY_BLOCK
+
+    sections = [CORE_SYSTEM, CORE_MEMORY_BLOCK]
     app = create_app()
     app.state.prompt_sections = sections
     with TestClient(app) as client:
@@ -90,9 +91,14 @@ def test_prompt_preview_excludes_volatile_sections() -> None:
         )
     assert response.status_code == 200
     body = response.json()
-    assert "Stable text." in body["prompt"]
-    assert "Volatile turn data." not in body["prompt"]
-    # section_count reflects only cache_safe=True sections
+    # Stable section appears
+    assert "# System" in body["prompt"]
+    # memory_block shows inline '运行时注入' placeholder (not empty, not actual memory)
+    assert "运行时注入" in body["prompt"]
+    assert "MEMORY (your personal notes)" in body["prompt"], (
+        "memory_block must show banner title in preview"
+    )
+    # section_count: stable=1 (core.system), volatile not counted
     assert body["section_count"] == 1
 
 
@@ -105,7 +111,7 @@ def test_prompt_preview_passes_features_to_context() -> None:
         return "rendered"
 
     sections = [
-        PromptSection(name="core.gated", order=100, render=_capturing_render),
+        PromptSection(name="core.gated", render=_capturing_render),
     ]
     app = create_app()
     app.state.prompt_sections = sections
@@ -247,14 +253,19 @@ def test_prompt_preview_accepts_workspace_root_and_skill_ids() -> None:
 
 
 def test_prompt_preview_datetime_placeholder() -> None:
-    """current_datetime in PromptContext must be the placeholder, not empty string."""
+    """current_datetime in PromptContext is None in preview; core segment renders placeholder.
+
+    W3 fix: Decision 18 now makes current_datetime/cwd str|None. The preview endpoint
+    passes None (not a placeholder string) — the core.runtime_footer segment generates
+    the placeholder internally in PREVIEW mode. This test verifies the ctx carries None.
+    """
     captured: list[PromptContext] = []
 
     def _capture(ctx: PromptContext) -> str:
         captured.append(ctx)
         return "x"
 
-    sections = [PromptSection(name="test", order=100, render=_capture)]
+    sections = [PromptSection(name="test", render=_capture)]
     app = create_app()
     app.state.prompt_sections = sections
     with TestClient(app) as client:
@@ -265,8 +276,9 @@ def test_prompt_preview_datetime_placeholder() -> None:
         )
 
     assert captured, "section render must have been called"
-    assert captured[0].current_datetime == "<运行时注入：当前时间>", (
-        f"expected datetime placeholder, got: {captured[0].current_datetime!r}"
+    # W3: endpoint passes None; segment renders "<运行时注入：当前时间>" internally
+    assert captured[0].current_datetime is None, (
+        f"expected None (placeholder logic in segment), got: {captured[0].current_datetime!r}"
     )
 
 
@@ -278,7 +290,7 @@ def test_prompt_preview_cwd_uses_workspace_root() -> None:
         captured.append(ctx)
         return "x"
 
-    sections = [PromptSection(name="test", order=100, render=_capture)]
+    sections = [PromptSection(name="test", render=_capture)]
     app = create_app()
     app.state.prompt_sections = sections
     with TestClient(app) as client:
@@ -300,14 +312,18 @@ def test_prompt_preview_cwd_uses_workspace_root() -> None:
 
 
 def test_prompt_preview_cwd_placeholder_when_no_workspace() -> None:
-    """When workspace_root is absent, ctx.cwd must be the placeholder."""
+    """When workspace_root is absent, ctx.cwd is None; segment renders placeholder.
+
+    W3 fix: endpoint passes None for cwd when workspace_root is unknown;
+    core.runtime_footer generates '<运行时注入：workspace 路径>' internally in PREVIEW mode.
+    """
     captured: list[PromptContext] = []
 
     def _capture(ctx: PromptContext) -> str:
         captured.append(ctx)
         return "x"
 
-    sections = [PromptSection(name="test", order=100, render=_capture)]
+    sections = [PromptSection(name="test", render=_capture)]
     app = create_app()
     app.state.prompt_sections = sections
     with TestClient(app) as client:
@@ -318,8 +334,9 @@ def test_prompt_preview_cwd_placeholder_when_no_workspace() -> None:
         )
 
     assert captured
-    assert captured[0].cwd == "<运行时注入：workspace 路径>", (
-        f"expected cwd placeholder, got: {captured[0].cwd!r}"
+    # W3: endpoint passes None; segment renders "<运行时注入：workspace 路径>" internally
+    assert captured[0].cwd is None, (
+        f"expected None (placeholder logic in segment), got: {captured[0].cwd!r}"
     )
 
 
@@ -331,7 +348,7 @@ def test_prompt_preview_uses_real_tool_description_from_registry() -> None:
         captured.append(ctx)
         return "x"
 
-    sections = [PromptSection(name="test", order=100, render=_capture)]
+    sections = [PromptSection(name="test", render=_capture)]
     registry = _make_registry_with_tools(
         ("read", "Read a file and return its contents."),
         ("write", "Write content to a file."),
@@ -365,7 +382,7 @@ def test_prompt_preview_silently_skips_unregistered_tool_ids() -> None:
         captured.append(ctx)
         return "x"
 
-    sections = [PromptSection(name="test", order=100, render=_capture)]
+    sections = [PromptSection(name="test", render=_capture)]
     registry = _make_registry_with_tools(("read", "Read files."))
 
     app = create_app()
@@ -387,4 +404,122 @@ def test_prompt_preview_silently_skips_unregistered_tool_ids() -> None:
     assert "read" in tool_names
     assert "ghost_tool_that_does_not_exist" not in tool_names, (
         "unregistered tool id must be silently skipped"
+    )
+
+
+# ---------------------------------------------------------------------------
+# feat-385-M3-fix-r2 P1: volatile 段就地内联占位符 (Req-4 用户验收修正)
+# ---------------------------------------------------------------------------
+
+
+def test_prompt_preview_volatile_section_inline_placeholder_in_position() -> None:
+    """memory_block and user_profile_block segments render banner + placeholder in PREVIEW.
+
+    M4 Decision 19/21: volatile segments with 3-state render show complete banner
+    + '<运行时注入:…>' placeholder at their correct list position (not stripped, not footer).
+    """
+    from agent.core.agent.prompt_sections.core_sections import (
+        CORE_SYSTEM, CORE_MEMORY_BLOCK, CORE_USER_PROFILE_BLOCK,
+    )
+
+    app = create_app()
+    app.state.prompt_sections = [CORE_SYSTEM, CORE_MEMORY_BLOCK, CORE_USER_PROFILE_BLOCK]
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {}, "tool_ids": [], "scenario": "direct"},
+        )
+
+    assert response.status_code == 200
+    prompt = response.json()["prompt"]
+
+    # memory_block appears as inline placeholder at its list position
+    assert "MEMORY (your personal notes)" in prompt, (
+        "memory_block must show banner title as inline placeholder"
+    )
+    assert "运行时注入" in prompt, (
+        "volatile segment must produce inline '运行时注入' placeholder"
+    )
+
+    # Stable section still appears
+    assert "# System" in prompt
+
+    # No M2-style footer stacking
+    assert "以上预览不包含 volatile 段" not in prompt
+
+
+def test_prompt_preview_no_footer_stacking_block() -> None:
+    """Preview must NOT append a '---' separator + stacked placeholder footer block.
+
+    M2 incorrectly appended a footer block like:
+        ---
+        以上预览不包含 volatile 段...runtime fills:
+        [core.memory_block — runtime fills]
+        [core.user_profile_block — runtime fills]
+
+    This pattern (M2 regression) must be absent. Volatile sections are shown inline.
+    """
+    volatile1 = _make_section("core.memory_block", "MEM", cache_safe=False)
+    volatile2 = _make_section("core.user_profile_block", "USER", cache_safe=False)
+
+    app = create_app()
+    app.state.prompt_sections = [volatile1, volatile2]
+    with TestClient(app) as client:
+        response = client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {}, "tool_ids": [], "scenario": "direct"},
+        )
+
+    assert response.status_code == 200
+    prompt = response.json()["prompt"]
+
+    # M2 footer stacking markers must not appear.
+    assert "以上预览不包含 volatile 段" not in prompt, (
+        "M2-style footer explanation block must be removed"
+    )
+    assert "runtime fills]" not in prompt, (
+        "M2-style '[section — runtime fills]' footer list must be removed"
+    )
+
+
+def test_prompt_preview_stable_section_byte_consistency_with_volatile_inline() -> None:
+    """Stable sections must produce identical text regardless of volatile section presence.
+
+    When volatile sections change their placeholder text, the stable prefix must not change.
+    This ensures provider auto-prefix-cache still hits on stable content.
+    """
+    stable = _make_section("core.identity", "Stable identity text.", cache_safe=True)
+    volatile = _make_section("core.memory_block", "volatile data", cache_safe=False)
+
+    # With volatile section
+    app1 = create_app()
+    app1.state.prompt_sections = [stable, volatile]
+    with TestClient(app1) as client:
+        resp_with = client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {}, "tool_ids": [], "scenario": "direct"},
+        )
+
+    # Without volatile section
+    app2 = create_app()
+    app2.state.prompt_sections = [stable]
+    with TestClient(app2) as client:
+        resp_without = client.post(
+            "/v1/prompt-preview",
+            headers=_auth_headers(),
+            json={"features": {}, "tool_ids": [], "scenario": "direct"},
+        )
+
+    prompt_with = resp_with.json()["prompt"]
+    prompt_without = resp_without.json()["prompt"]
+
+    # The stable part must appear identically in both.
+    assert "Stable identity text." in prompt_with
+    assert "Stable identity text." in prompt_without
+    # The stable prefix must be identical (prompt_with starts with same content as prompt_without).
+    assert prompt_with.startswith(prompt_without) or prompt_without in prompt_with, (
+        "stable prefix must be byte-identical regardless of volatile section presence"
     )

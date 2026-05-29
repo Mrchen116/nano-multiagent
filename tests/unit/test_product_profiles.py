@@ -18,12 +18,10 @@ from agent.platform.products.personal_assistant import (
 from agent.products.local_coding import LOCAL_CODING_PROFILE
 from agent.products.local_coding import defaults as local_coding_defaults
 from agent.products.local_coding import hooks as local_coding_hooks
-from agent.products.local_coding import prompts as local_coding_prompts
 from agent.products.local_coding import toolsets as local_coding_toolsets
 from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 from agent.products.personal_assistant import defaults as personal_assistant_defaults
 from agent.products.personal_assistant import hooks as personal_assistant_hooks
-from agent.products.personal_assistant import prompts as personal_assistant_prompts
 from agent.products.personal_assistant import toolsets as personal_assistant_toolsets
 
 
@@ -48,7 +46,8 @@ def test_local_coding_profile_compat_skill_roots_contains_codex() -> None:
 
 def test_local_coding_package_exports_default_modules() -> None:
     assert local_coding_defaults.CONFIG_NAMESPACE == "nanocode"
-    assert local_coding_prompts.LOCAL_CODING_SYSTEM_PROMPT == LOCAL_CODING_PROFILE.default_system_prompt
+    # prompts.py deleted; default_system_prompt="" signals segment assembly
+    assert LOCAL_CODING_PROFILE.default_system_prompt == ""
     assert {"read", "write", "edit", "bash", "agent", "task_stop"} <= set(local_coding_toolsets.DEFAULT_TOOL_IDS)
     assert "skill_manage" in local_coding_toolsets.DEFAULT_TOOL_IDS
     assert "memory" in local_coding_toolsets.DEFAULT_TOOL_IDS
@@ -74,10 +73,8 @@ def test_personal_assistant_profile_session_db_filename() -> None:
 
 def test_personal_assistant_package_exports_default_modules() -> None:
     assert personal_assistant_defaults.CONFIG_NAMESPACE == "nanoassistant"
-    assert (
-        personal_assistant_prompts.PERSONAL_ASSISTANT_SYSTEM_PROMPT
-        == PERSONAL_ASSISTANT_PROFILE.default_system_prompt
-    )
+    # prompts.py deleted; default_system_prompt="" signals segment assembly
+    assert PERSONAL_ASSISTANT_PROFILE.default_system_prompt == ""
     assert {"read", "write", "edit", "bash", "agent", "web_fetch", "web_search"} <= set(personal_assistant_toolsets.DEFAULT_TOOL_IDS)
     assert set(personal_assistant_toolsets.OPTIONAL_TOOL_IDS) == {"send_message"}
     assert set(PERSONAL_ASSISTANT_PROFILE.optional_tool_ids) == {"send_message"}
@@ -125,15 +122,13 @@ def test_personal_assistant_hook_group_context_now_via_segment(tmp_path: Path) -
     [Communication Context] for group scenarios.
     """
     from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
-    from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
-    from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
+    from agent.products.personal_assistant.prompt_sections import build_pa_system_prompt
 
     ctx = PromptContext(
         available_tools=(),
         available_skills=(),
         current_datetime="2026-01-01T00:00:00",
         cwd="/workspace",
-        memory_block=None,
         flags={},
         scenario={
             "conversation_type": "group",
@@ -142,7 +137,7 @@ def test_personal_assistant_hook_group_context_now_via_segment(tmp_path: Path) -
         },
         vars={},
     )
-    result = assemble_system_prompt(list(CORE_SECTIONS) + list(PA_SECTIONS), ctx)
+    result = assemble_system_prompt(build_pa_system_prompt(), ctx)
     assert "[Communication Context]" in result
     assert "session_type: group" in result
     assert "your_agent_id: agent-a" in result

@@ -35,13 +35,15 @@ class BackgroundSessionEventSubscriber:
     each matching event.
 
     Args:
-        kernel_client: Client exposing ``stream_session(session_id, last_event_id)``.
+        kernel_client: Client exposing ``stream_session(session_id, last_event_id, workspace_root)``.
         session_id: Kernel session to subscribe to.
         on_event: Async callback invoked for each matching session event.
         after_sequence: Stream starting sequence (last sequence seen by main loop).
         reconnect_delay: Base delay (seconds) before reconnect on stream error.
         max_reconnect_delay: Maximum backoff delay (seconds).
         event_filter: Set of event names to forward; defaults to session event names.
+        workspace_root: Forwarded to stream_session so the stateless kernel can locate
+            the session JSONL (Refs #64 — session is per-workspace_root scoped).
     """
 
     def __init__(
@@ -54,6 +56,7 @@ class BackgroundSessionEventSubscriber:
         reconnect_delay: float = 2.0,
         max_reconnect_delay: float = 60.0,
         event_filter: frozenset[str] = _SESSION_EVENT_NAMES,
+        workspace_root: str | None = None,
     ) -> None:
         self._kernel_client = kernel_client
         self._session_id = session_id
@@ -62,6 +65,9 @@ class BackgroundSessionEventSubscriber:
         self._reconnect_delay = reconnect_delay
         self._max_reconnect_delay = max_reconnect_delay
         self._event_filter = event_filter
+        # workspace_root is forwarded to stream_session so the stateless kernel can
+        # locate the session JSONL (Refs #64 — session is per-workspace_root scoped).
+        self._workspace_root = workspace_root
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
@@ -94,6 +100,7 @@ class BackgroundSessionEventSubscriber:
                 async for event in self._kernel_client.stream_session(
                     session_id=self._session_id,
                     last_event_id=last_sequence if last_sequence > 0 else None,
+                    workspace_root=self._workspace_root,  # Refs #64
                 ):
                     if self._stop_event.is_set():
                         return

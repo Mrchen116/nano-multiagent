@@ -148,12 +148,14 @@ def bootstrap_product(
         skill_roots = config_resolver.user_skill_roots()
         # Prefer workspace skill root (first in precedence); fall back to global.
         skill_root = skill_roots[0] if skill_roots else config_resolver.global_config_root() / "skills"
-        memory_root = config_resolver.user_memory_root()
 
         skill_manage_tool = SkillManageTool(skill_root=skill_root, registry=skill_registry)
         tool_registry.register(skill_manage_tool, replace=True)
 
-        memory_tool = MemoryTool(memory_root=memory_root)
+        # No fixed memory_root — memory_root is per-session, derived at runtime from
+        # workspace_root + workspace_config_dirname (per-workspace path governance: each
+        # product keeps its config in its own dirname so workspaces don't collide).
+        memory_tool = MemoryTool()
         tool_registry.register(memory_tool, replace=True)
 
     # Read workspace config file for self_evolution settings.
@@ -166,12 +168,25 @@ def bootstrap_product(
         else:
             default_session_metadata["self_evolution"] = dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
 
-    # Merge core segments with product-specific segments so /v1/prompt-preview
-    # assembles the full stable prefix (identity, runtime, guidelines, etc.) plus
-    # any product-defined segments (memory, heartbeat, routing, user_custom, ...).
-    # Empty profile.prompt_sections → only core segments, which is correct for
-    # products still on the legacy string-based prompt path.
-    merged_prompt_sections = list(CORE_SECTIONS) + list(profile.prompt_sections)
+    # Thread workspace_config_dirname into session metadata so runtime._ensure_memory_snapshot
+    # and MemoryTool._resolve_memory_root can derive memory_root per-session via derive_memory_root.
+    if profile.workspace_config_dirname:
+        default_session_metadata["workspace_config_dirname"] = profile.workspace_config_dirname
+
+    # Assemble the ordered prompt section list.
+    #
+    # M4 Decision 15/20: when the product provides a prompt_sections_builder
+    # (build_<product>_system_prompt), call it to get the explicitly ordered list.
+    # This is the preferred path — the product function is the single authoritative
+    # place for segment ordering, readable at a glance (mirrors CC getSystemPrompt).
+    #
+    # Fallback: legacy CORE_SECTIONS + profile.prompt_sections concatenation, kept
+    # for backwards compatibility during migration.  Products on this path must
+    # ensure their volatile segments are already ordered after all stable segments.
+    if profile.prompt_sections_builder is not None:
+        merged_prompt_sections = list(profile.prompt_sections_builder())  # type: ignore[operator]
+    else:
+        merged_prompt_sections = list(CORE_SECTIONS) + list(profile.prompt_sections)
 
     return ResolvedProductConfig(
         product_id=profile.product_id,

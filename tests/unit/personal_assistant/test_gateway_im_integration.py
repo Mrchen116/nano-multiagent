@@ -59,7 +59,7 @@ class _FakeKernelClient:
         self.run_states[run_id] = {"run_id": run_id, "output_text": self.default_output_text.format(text=texts[-1] if texts else "")}
         return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
 
-    async def stream_session(self, *, session_id, last_event_id=None):
+    async def stream_session(self, *, session_id, last_event_id=None, workspace_root=None, **_kwargs):
         run_id = list(self.run_states.keys())[-1] if self.run_states else "run-1"
         yield {"event": "assistant_message", "run_id": run_id, "content": self.run_states.get(run_id, {}).get("output_text", "")}
         yield {"event": "run_status", "run_id": run_id, "status": "completed", "output_text": self.run_states.get(run_id, {}).get("output_text", "")}
