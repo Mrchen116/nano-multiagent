@@ -6,6 +6,7 @@ import { InAppToast } from "../../chat/components/in-app-toast";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
+import { colorForAgent } from "./components/avatar";
 import {
   createConversation,
   createMessage,
@@ -237,7 +238,7 @@ export function ChatWorkspacePageV2() {
     const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === agentRow.node_id);
     const nodeStatus = nodeRow?.status === "online" ? "online" : "offline";
     const initials = agentRow.display_name?.slice(0, 2) ?? agentRow.agent_id.slice(0, 2);
-    const color = colorForSeed(agentRow.display_name ?? agentRow.agent_id);
+    const color = colorForAgent(agentRow);
     return {
       agentId: agentRow.agent_id,
       nodeName: nodeRow?.node_name ?? null,
@@ -423,9 +424,3 @@ export function ChatWorkspacePageV2() {
   );
 }
 
-function colorForSeed(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
-  const hue = Math.abs(hash) % 360;
-  return `oklch(0.55 0.15 ${hue})`;
-}

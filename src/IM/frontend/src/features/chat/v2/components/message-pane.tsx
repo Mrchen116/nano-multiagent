@@ -12,7 +12,7 @@ import {
   type MentionCandidate,
   type Message
 } from "../chat-types";
-import { Avatar } from "./avatar";
+import { Avatar, colorForAgentSeed } from "./avatar";
 import { KindBadge } from "./kind-badge";
 import { parseMentions } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
@@ -360,7 +360,7 @@ function MessageBubble({
   const initials = (message.sender.display_name ?? message.sender.id).slice(0, 2).toUpperCase();
   const ts = formatHM(message.created_at);
   const senderColor = message.sender.type === "agent" && message.sender.display_name
-    ? colorForSeed(message.sender.display_name)
+    ? colorForAgentSeed(message.sender.display_name)
     : "oklch(0.52 0.14 270)";
   const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
   const statusAlign = isUser ? "justify-end" : "justify-start";
@@ -541,13 +541,6 @@ function renderInlineMarkdown(text: string) {
     }
     return <span key={idx}>{part}</span>;
   });
-}
-
-function colorForSeed(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
-  const hue = Math.abs(hash) % 360;
-  return `oklch(0.55 0.15 ${hue})`;
 }
 
 function formatHM(iso: string): string {

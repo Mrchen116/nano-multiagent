@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
-import { Avatar } from "./avatar";
+import { Avatar, colorForAgent } from "./avatar";
 
 interface SidebarAgent {
   agent_id: string;
@@ -114,7 +114,7 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
               : null;
             const avatarColor =
               kind === "direct-agent" && agentRow
-                ? colorForSeed(agentRow.display_name ?? agentRow.agent_id)
+                ? colorForAgent(agentRow)
                 : kind === "group"
                   ? "oklch(0.52 0.14 270)"
                   : kind === "agent-network" || kind === "direct-user"
@@ -157,8 +157,3 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
   );
 }
 
-function colorForSeed(seed: string): string {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
-  return `oklch(0.52 0.14 ${Math.abs(hash) % 360})`;
-}
