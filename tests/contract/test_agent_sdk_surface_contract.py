@@ -277,3 +277,49 @@ async def test_interrupt_while_waiting_for_permission_cancels_turn(tmp_path: Pat
         assert response.decision == "deny"
     finally:
         kernel.close()
+
+
+# ---------------------------------------------------------------------------
+# Prompt preview (C1 fix: refactor-387 regression)
+# ---------------------------------------------------------------------------
+
+
+def test_kernel_exposes_assemble_prompt_preview(tmp_path: Path) -> None:
+    """Kernel must expose an assemble_prompt_preview method (sdk-fix-prompt-preview C1).
+
+    This method is the in-process replacement for the removed kernel HTTP
+    /v1/prompt-preview endpoint (M3 regression).  Its existence and correct
+    return schema — {"prompt": str, "section_count": int} — are the contract.
+    """
+    kernel = build_kernel(
+        product_profile=LOCAL_CODING_PROFILE,
+        llm_config=LLMFactoryConfig(
+            provider="openai_compat",
+            model="codex_oauth:gpt-5.5",
+            base_url="http://127.0.0.1:4000",
+        ),
+        can_use_tool=_allow_all,
+        repo_root=tmp_path,
+        _llm_client_override=_fake_llm_client(),
+    )
+    try:
+        assert callable(getattr(kernel, "assemble_prompt_preview", None)), (
+            "Kernel must expose assemble_prompt_preview for in-process prompt preview"
+        )
+        result = kernel.assemble_prompt_preview(
+            workspace_root=tmp_path,
+            features={},
+            custom_prompt=None,
+            tool_ids=[],
+            scenario="direct",
+            skill_ids=[],
+        )
+        assert isinstance(result, dict), f"must return dict, got {type(result)}"
+        assert "prompt" in result, f"result must contain 'prompt', got keys: {list(result)}"
+        assert "section_count" in result, f"result must contain 'section_count', got keys: {list(result)}"
+        assert isinstance(result["prompt"], str), f"prompt must be str, got {type(result['prompt'])}"
+        assert isinstance(result["section_count"], int), f"section_count must be int, got {type(result['section_count'])}"
+        assert result["prompt"], "assemble_prompt_preview must return non-empty prompt"
+        assert result["section_count"] > 0, "assemble_prompt_preview must report at least one section"
+    finally:
+        kernel.close()

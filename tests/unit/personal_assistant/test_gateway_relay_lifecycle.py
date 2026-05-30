@@ -431,3 +431,91 @@ def test_im_bootstrap_client_only_uses_configured_im_base_url() -> None:
         bootstrap.ensure_node_binding(node_id="node-local")
 
     assert requests == [("http://127.0.0.1:8021", "/im/v1/nodes")]
+
+
+# ---------------------------------------------------------------------------
+# Prompt preview provider wiring (C1 fix: refactor-387 regression)
+# ---------------------------------------------------------------------------
+
+
+def test_build_runtime_wires_prompt_preview_provider_when_im_service_configured(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """build_runtime must wire a non-None prompt_preview_provider when im_service is set.
+
+    refactor-387 M3 regression: prompt_preview_provider was set to None because
+    the kernel HTTP endpoint was deleted without an SDK replacement.  The fix adds
+    Kernel.assemble_prompt_preview() and wires it here.
+
+    This test verifies that:
+    1. The im_connection_manager receives a non-None provider.
+    2. Calling the provider returns {"prompt": <non-empty str>, "section_count": <int>}.
+    """
+    import asyncio
+
+    workspace_root = tmp_path / "agent-a"
+    workspace_root.mkdir()
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-local"),
+        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        channels=(ChannelConfig(name="web_relay", enabled=True),),
+        kernel=KernelConfig(
+            token=None,
+            startup_timeout_seconds=0.2,
+            health_poll_interval_seconds=0.0,
+            shutdown_grace_seconds=0.1,
+        ),
+        heartbeat=HeartbeatConfig(),
+        im_service=IMServiceConfig(url="http://im.local"),
+        llm=_DEFAULT_TEST_LLM,
+        source_path=tmp_path / "node-config.yaml",
+    )
+
+    captured_kwargs: dict = {}
+
+    def _fake_build_im_connection_manager(**kwargs: object) -> object:
+        captured_kwargs.update(kwargs)
+        return type("_Manager", (), {"connected": True, "close": lambda self: None})()
+
+    monkeypatch.setattr(
+        "personal_assistant.main._build_im_connection_manager",
+        _fake_build_im_connection_manager,
+    )
+
+    build_runtime(config)
+
+    provider = captured_kwargs.get("prompt_preview_provider")
+    assert provider is not None, (
+        "build_runtime must wire a non-None prompt_preview_provider when im_service is set; "
+        "None means agent settings page Preview shows empty (M3 regression)"
+    )
+    assert callable(provider), "prompt_preview_provider must be callable"
+
+    # Call the provider and verify it returns the expected schema.
+    result = asyncio.run(
+        provider(
+            "agent-a",
+            str(workspace_root),
+            {},    # features
+            None,  # custom_prompt
+            [],    # tool_ids
+            "direct",  # scenario
+            [],    # skill_ids
+        )
+    ) if asyncio.iscoroutinefunction(provider) else provider(
+        "agent-a",
+        str(workspace_root),
+        {},
+        None,
+        [],
+        "direct",
+        [],
+    )
+    assert isinstance(result, dict), f"provider must return dict, got {type(result)}"
+    assert "prompt" in result, f"provider result must contain 'prompt', got {list(result)}"
+    assert "section_count" in result, f"provider result must contain 'section_count', got {list(result)}"
+    assert result["prompt"], "prompt_preview_provider must return non-empty prompt"
+    assert isinstance(result["section_count"], int) and result["section_count"] > 0, (
+        f"section_count must be positive int, got {result['section_count']!r}"
+    )
