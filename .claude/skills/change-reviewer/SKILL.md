@@ -196,7 +196,7 @@ git pull --ff-only origin "unit/<unit_id>"
 
 **保留**:§0.1-§0.5、§3.1 覆盖表继承规则、§3.3、§5 三道闸、§6 out-of-unit 流程。
 
-**升级回完整复验**:fix 没修对 / 引入新副作用 / fix 不止 trivial / 触及上轮未覆盖旅程——立刻扩回 §3 全旅程:
+**升级回完整复验**:fix 没修对 / 引入新副作用 / fix 实际不止小修 / 触及上轮未覆盖旅程——立刻扩回 §3 全旅程:
 1. `verdict=fail`、`Highest Required Action=fix-implementation`(或按 §5 三闸视情升)
 2. acceptance.md round N 显式注记"Fast-lane 启动后扩回完整复验,原因 <X>"
 3. `review_round` 正常递增(区别于 §0.9 越界场景的作废)

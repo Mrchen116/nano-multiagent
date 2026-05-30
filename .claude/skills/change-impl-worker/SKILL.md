@@ -1,6 +1,6 @@
 ---
 name: change-impl-worker
-description: 用于作为 subagent 执行单个 milestone 的编码实现,或处理 reviewer 反馈循环里的小修快车道(此时可能复用 worktree、不绑定 milestone)。触发条件:被 `change-orchestrator` 派发一个含 unit_id / milestone_id / worktree_dir / branch 的派发包,或派发包指示"按 Reviewer 反馈循环的小修快车道处理"。不要用于:写架构方案(那是 change-design-author)、不属于本 unit / 非 reviewer 反馈循环里的简单文档/配置修改。
+description: 用于作为 subagent 执行单个 milestone 的编码实现,或处理 reviewer 反馈循环里的小修快车道(此时可能被 SendMessage 唤醒复用、不绑定 milestone)。触发条件:被 `change-orchestrator` 派发一个含 unit_id / milestone_id / worktree_dir / branch 的派发包,或派发包指示"按 Reviewer 反馈循环的小修快车道处理"。不要用于:写架构方案(那是 change-design-author)、不属于本 unit / 非 reviewer 反馈循环里的简单文档/配置修改。
 ---
 
 # Implementation Worker: 后端 TDD,前端状态驱动 + 浏览器验收
@@ -25,34 +25,33 @@ description: 用于作为 subagent 执行单个 milestone 的编码实现,或处
 
 ---
 
-## §FL Fast-lane: Reviewer 反馈循环里的小修
+## §FL Reviewer 反馈循环里的 fix — 三条正交的轻量化
 
-**启用**:派发 prompt 含"按 Reviewer 反馈循环的小修快车道处理"(或等价自然语言)。否则走完整 §1-§8。
+orchestrator 把这批 fix 标为「reviewer 反馈循环的小修」(派发措辞),或 `SendMessage` 唤醒你续修时适用。有三条**正交**的轻量化,各有判据,可单独可叠加;别把它们焊成"小修就一起全省"。
 
-**目标**:避免冷启动税(§2.3 / §2.4 / §3)+ 流程税(§0.4 / §5)。
+**① 复用上下文** —— 当你是被 `SendMessage` **唤醒的原 milestone worker**(上下文/worktree 还在):
+- §2.3 六读、§2.4 跑基线 自然省掉——你本来就有,不必重做;复用你原 milestone 的 worktree。
+- **但若你是被新派来修 fix 的**(不是原 worker):这些**不能省**,该读的上下文读全、该跑的基线跑——否则不懂架构容易治标(见 ③)。
 
-**硬边界**(破任一即失效,退主流程):
+**② 减流程仪式** —— fix 单点、一步到位时:
+- §0.4 三提交 → 允许单 commit;§3 → 不复制 tasks.md 模板,fix 列表写 commit message 或 progress 续段。
+- **判据**:fix 自包含、不需要拆 roadpoint。装不下(>100 行 / 跨 3+ 文件 / 需分步)→ 升级回主流程。
+- ⚡**红测试不豁免行为/契约类 fix**:只有 typo / 样式 / 文案这类**本质写不出有意义断言**的才免 §5 C1 红测试。**只要这个 fix 能被测试断言(逻辑 / 契约 / 数据流改动),就必须先写红测试**——当初漏 bug 往往正因没测到,免了下轮还漏。
+
+**③ 架构治本(底线,不是轻量化)** —— §0.1 在 fix 下**不放松**:reviewer 给的「最小路径 / 改第 X 行」是现象线索,不是方案。判断根因在哪层,在架构正确的位置治本,不在崩溃点贴补丁绕过契约。复用原 worker 反而更利于此——你最懂自己写过的那层。
+
+**硬边界**(破任一即退主流程):
 
 1. reviewer 仍独立验收(你不自我验收)
 2. fix 历史可从 commit message / progress 看到
 3. 集成路径不变(§6 rebase + unit 锁 + merge **不放松**)
 4. 单 commit 可 `git revert` 到上一稳定态
 
-**放松**(carve-out):
-
-| 原段落 | Fast-lane 下 |
-|---|---|
-| §0.4 三提交 / §5 C1 红测试 | 允许单 commit;红测试豁免(typo/样式/文案写不出有意义红测试) |
-| §2.3 6 项阅读 | 只读 fix 涉及文件 + 首文档验收项;其余 5 项跳过 |
-| §2.4 跑基线 | 自决;通常不重跑(主 milestone 已跑过) |
-| §3 写 tasks.md | 不复制模板;fix 列表写 commit message 或 progress 续段 |
-| worktree 选址 | 自决:复用前 milestone worktree 或新开 `.worktrees/<unit_id>-fix-r<N>` |
-
 **保留**:§0.1-§0.3、§0.7-§0.11、§6 集成。
 
-每次走 Fast-lane 在 commit message 或 progress 写一句"Fast-lane 省略 §X,理由 <Y>",留决策痕迹。
+每次走轻量化在 commit message 或 progress 写一句"省略 §X,理由 <Y>",留决策痕迹。
 
-**升级回主流程**:fix 实际不止 trivial / 硬边界即将破 / 单 commit 装不下(>100 行 / 跨 3+ 文件)——立刻停手,在 progress 记触发原因,按 §3 复制 tasks.md,从下一 roadpoint 起按 §5 走。已写 commit 不 revert。
+**升级回主流程**:fix 实际不止小修 / 硬边界即将破 / 单 commit 装不下(>100 行 / 跨 3+ 文件)——立刻停手,在 progress 记触发原因,按 §3 复制 tasks.md,从下一 roadpoint 起按 §5 走。已写 commit 不 revert。
 
 ---
 

@@ -8,6 +8,8 @@
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-05-30: 三份 SKILL.md 的 §FL 按三条**正交**维度（① 复用上下文/省冷启动 ② 减流程仪式/省调度税 ③ 架构治本/底线）重组，修正原版偏差——原 §FL 把判据焊在「trivial / 改动小」上（违背 spec Q3「不立 trivial 分级表」），且漏写本 unit 初心「优先复用原 worker（省冷启动）」。新版：① 判据=原 worker 是否活着且上下文相关（默认优先 SendMessage 唤醒原 milestone worker，新派为兜底且不享受省读）；② 判据=fix 是否单点自包含，并加「红测试对行为/契约类 fix 不豁免」闸；③ 引 orchestrator §6.2，reviewer 的最小路径仅当现象线索。
+
 ## 现状分析
 
 ### 涉及范围

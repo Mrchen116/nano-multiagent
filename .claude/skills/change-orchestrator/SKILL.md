@@ -403,6 +403,8 @@ NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 
 ### §6.2 `fix-implementation`
 
+**先以研发视角定义 fix,别转包 reviewer 的最短路径**。reviewer 报告里的「修法 / 最小路径 / 改第 X 行」是**现象线索**(它站用户视角,只关心症状消失),不是修复方案。打包 fix 前你要判断:根因在哪一层、违反了 design 哪条契约、**架构正确的修复位置在哪**,按「架构最合理」而非「改动最少」定义 fix 任务再派 worker。崩溃点常在表层、根因常在更下层(例:消费方崩 → 根因是上游契约泄漏 → 正确修复是在源头一次根治,而非每个消费方各贴本地补丁)。
+
 把两份报告的修复项合并去重后,打包成**一个**新 fix milestone——**verifier** 的 CRITICAL / WARNING issues + **reviewer** 的 `Recommended Action: fix-implementation` issues(沿用 design-author 的反向门槛——除非 issues 跨独立模块且能并行,否则一个就够):
 
 ```
@@ -419,38 +421,41 @@ milestone_dir = M<next>-fix-<short-desc>      # 例: M4-fix-picker-keyboard
 
 worker 完成后,回到 §5 派下一轮 reviewer。
 
-### §6.FL Fast-lane: Reviewer 反馈循环里的小修(§6.2 轻量路径)
+### §6.FL Reviewer 反馈循环里的 fix — 三条正交的轻量化(§6.2 轻量路径)
 
-**启用**:reviewer 报告里**明确表达**这一批 issue 走小修快车道(措辞自由,例:"建议 Fast-lane 处理"、"走小修快车道")。措辞有歧义按 §3.1.1 澄清,3 轮不收敛走 §6.2 默认。reviewer 没明示就走 §6.2。
+reviewer 出 fix 反馈后,派 fix 不必默认走 §6.2 的完整重型路径。有三条**正交**的轻量化,各有独立判据,可单独用也可叠加(典型最优:三条全中)。不要把它们焊成"trivial 才全走 / 否则全不走"——按各自判据分别判断。
 
-**目标**:避免调度税(§6.2 建 fix milestone / 改 design.md Milestone 表)。
+**① 复用上下文(省冷启动)** —— 本节最该优先做的一条。
+in-unit fix 默认**优先 `SendMessage` 唤醒原 milestone worker**(实例还在 team、worktree/上下文全热),而不是新派一个去重爬背景。
+- **判据**:原 worker 还活着(team 里)、且 fix 落在它做过的模块。
+- **新派是兜底**:原 worker 已死 / fix 跨它没碰过的模块。新派的 fix worker **不享受省读**——该读的上下文必须读全,否则不懂架构容易治标(见 ③)。
+- 前提靠 §0.14 team:实例不销毁才能唤醒。
 
-**硬边界**(破任一即失效退 §6.2):
+**② 减流程仪式(省调度税)** —— fix 单点、自包含时:
+- 不建 fix milestone 子目录、不动 design.md Milestone 表;fix 痕迹归并位置自决(acceptance 同级 / PR body / commit 链)。
+- **判据**:fix 不需要独立 design 决策、不跨模块并行。需要的 → 回 §6.2 建 milestone。
+- §0.5 随之放松:fix worker 绑 reviewer round + fix 列表,不绑 milestone。
+- §0.10 / §3.3 核对依据变:每条 issue 在 commit 里有对应改动 + commit message 对应到 issue;**严格度不降**。
+
+**③ 架构治本(底线,不是轻量化)** —— 见 §6.2:派 fix 传「根因 + 正确修复层」,reviewer 给的「最小路径 / 改第 X 行」只是现象线索。**这条永不放松**,且和 ①② 无关——复用原 worker 反而更利于治本(它最懂那层架构)。
+
+**硬边界**(破任一即退回 §6.2 完整路径):
 1. reviewer 仍独立验收
-2. PR body 仍列 fix 历史(§7.2 不放松)
+2. PR body 仍列本 unit 所有 fix 历史(数量、轮次、复用还是新派;§7.2 不放松)
 3. reviewer 复用实例零写入(reviewer §0.1)
 4. 集成路径不变
 5. 失败可回退
 
-**放松**:
-
-| 原段落 | Fast-lane 下 |
-|---|---|
-| §6.2 建 fix milestone | 不建子目录、不动 design.md Milestone 表;fix 痕迹归并位置自决(acceptance 同级 / PR body / commit 链);issue 指纹表仍要维护(用于 §0.7) |
-| §0.5 一 milestone 一 worker | fix worker 绑 reviewer round + fix 列表,不绑 milestone |
-| §0.10 / §3.3 退出标准核对 | 核对依据变 = 每条 issue 在 commit 里有对应改动证据 + commit message 对应到 issue;严格度不降 |
-| §7.2 PR body | 仍列本 unit 所有 fix 历史(数量、轮次、milestone 还是 Fast-lane);格式自决 |
-| worktree 选址 | fix worker 自决,orchestrator 不强加 |
-
-**保留**:§0.3、§0.7 5/7 轮闸、§0.9、§0.11、§0.13 后台派发。
+**保留**:§0.3、§0.7 5/7 轮闸、§0.9、§0.11、§0.13 后台派发;issue 指纹表照常维护(§0.7)。
 
 **派发口径**:
-- 派 fix worker prompt 加"按 Reviewer 反馈循环的小修快车道处理这批 fix"
-- 派 reviewer 复验 prompt 加"复用上轮上下文做轻量复验"
+- 唤醒原 worker(①):`SendMessage` 传 fix 列表 + 「按 reviewer 反馈循环的小修处理,复用你已有的上下文/worktree」
+- 新派 fix worker:prompt 加「按 reviewer 反馈循环的小修快车道处理这批 fix」+ 完整派发包
+- 派 reviewer 复验:加「复用上轮上下文做轻量复验」
 
-**Fast-lane 失效**(reviewer 复验 `verdict=fail`):
+**轻量化失效**(reviewer 复验 `verdict=fail`):
 1. `review_round` 正常递增(本轮有效)
-2. 切回 §6.2:建 fix milestone + 派完整 fix worker(**不复用** Fast-lane worker 实例)
+2. fix 实际不止小修 → 切回 §6.2 建 fix milestone + 派完整 fix worker
 3. acceptance.md round N 末尾追加 orchestrator 注记说明触发原因
 4. issue 指纹表追加,§0.7 cap 照常生效
 
