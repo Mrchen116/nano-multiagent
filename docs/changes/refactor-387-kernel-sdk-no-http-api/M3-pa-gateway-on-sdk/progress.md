@@ -69,3 +69,34 @@
 - Rollback: commit baeb1900
 - Commits: C3=（本次 docs commit）
 - Next: 集成到 unit 分支，等待 reviewer Review-B
+
+---
+
+## [Fix] refactor-387 session 复用回归修复（fix/refactor-387-session-reuse）
+
+- Context: 用户实地验证发现 IM 多轮对话 LLM 感知不到上一轮历史。每条入站消息各自
+  新建一个 kernel session，历史不累积。
+- Root cause: `Kernel.get_session` 返回 `{session_id, status, metadata}`，没有顶层
+  `workspace_root`；`_binding_matches_workspace_root` 读 `metadata["workspace_root"]`，
+  该字段恒 None → 校验恒 False → 每轮新建 session。这是 M3 新写的方法，metadata 契约
+  未对齐，属于本次 refactor 引入的回归。
+- Decision: 治本——让 `Kernel.get_session` 暴露顶层 `workspace_root`（从 `Session.workspace_root`
+  取，与 jsonl_store 顶层字段一致）；`_binding_matches_workspace_root` 改为读顶层字段；
+  两个 `_FakeKernel` stub 同步更新，移除 `metadata["workspace_root"]` 冗余副本。
+  **不在 `_build_session_metadata` / `create_session` 里往 metadata 里再塞一份**。
+- Evidence:
+  - Tests: 新增 `tests/unit/personal_assistant/test_session_reuse_regression.py`
+    （3 个测试：contract × get_session 顶层字段、binding_matches 读顶层、端到端复用）
+  - Full test tree: `pytest -m "not e2e"` → 2337 passed, 0 failed
+  - Entry (实地验证): IM DM 会话连发两轮消息
+    - session 文件数：第1条消息后 3→4（新建一个），第2条消息后仍为 4（复用）
+    - session JSONL `sess_f270b7a644b30fdd.jsonl`：turn 1 user="你好，请记住这个数字：42"，
+      turn 7 assistant="已保存到长期记忆"，turn 8 user="你记得我说的数字是多少吗？"，
+      turn 11 assistant="我记得，你让我记住的数字是 42。"——两轮写入同一 session，历史连续。
+  - Frontend State Matrix: N/A（后端 fix）
+  - Browser QA: N/A
+  - E2E/Regression: 新增回归测试已落库
+  - Visual/Interaction: N/A
+- Rollback: commit 48a35bac（fix 之前的 unit 分支头）
+- Commits: C1=78773f99, C2=df319bee, merge=3771a6cb
+- Next: 合并已完成，等待 reviewer 验收
