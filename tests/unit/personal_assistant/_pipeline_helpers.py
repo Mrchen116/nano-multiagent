@@ -266,10 +266,10 @@ class _FakeKernel:
                 "metadata": metadata,
             }
         )
-        self._session_metadata_by_id[session_id] = {
-            **(metadata or {}),
-            "workspace_root": ws_str,
-        }
+        # workspace_root is stored separately from metadata to mirror the real
+        # Kernel.get_session contract: workspace_root is a top-level key, not
+        # injected into metadata (refactor-387 regression fix).
+        self._session_metadata_by_id[session_id] = dict(metadata or {})
         self.session_events.setdefault(session_id, [])
         session = _FakeSession(session_id=session_id, workspace_root=ws_str)
         self._sessions[session_id] = session
@@ -279,16 +279,25 @@ class _FakeKernel:
         """Pre-populate a session for session-reuse tests."""
         self._session_metadata_by_id[session_id] = dict(metadata or {})
         self.session_events.setdefault(session_id, [])
+        ws = (metadata or {}).get("workspace_root")
         self._sessions.setdefault(
             session_id,
-            _FakeSession(session_id=session_id, workspace_root=(metadata or {}).get("workspace_root")),
+            _FakeSession(session_id=session_id, workspace_root=ws),
         )
 
     def get_session(self, session_id: str, *, workspace_root: str | None = None) -> dict[str, Any]:
-        metadata = self._session_metadata_by_id.get(session_id)
-        if metadata is None:
+        """Return session payload mirroring real Kernel.get_session: workspace_root at top level."""
+        session = self._sessions.get(session_id)
+        if session is None:
             raise RuntimeError(f"missing session: {session_id}")
-        return {"session_id": session_id, "status": "active", "metadata": dict(metadata)}
+        metadata = self._session_metadata_by_id.get(session_id, {})
+        return {
+            "session_id": session_id,
+            "status": "active",
+            # Top-level workspace_root — matches Kernel.get_session contract.
+            "workspace_root": session.workspace_root or "",
+            "metadata": dict(metadata),
+        }
 
     def submit(
         self,

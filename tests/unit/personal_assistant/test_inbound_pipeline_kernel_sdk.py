@@ -118,17 +118,20 @@ class _FakeKernel:
     def close(self) -> None:
         pass
 
-    def get_session(self, *, session_id: str, workspace_root: str | None = None) -> dict[str, Any]:
-        """Support _binding_matches_workspace_root check."""
+    def get_session(self, session_id: str, *, workspace_root: str | None = None) -> dict[str, Any]:
+        """Return session payload mirroring real Kernel.get_session contract.
+
+        workspace_root is exposed as a top-level key (not inside metadata) to
+        match the Kernel.get_session contract fixed in refactor-387.
+        """
         session = self._sessions.get(session_id)
         if session is None:
             raise RuntimeError(f"session not found: {session_id}")
         return {
             "session_id": session_id,
             "status": "active",
-            "metadata": {
-                "workspace_root": session.workspace_root or "",
-            },
+            "workspace_root": session.workspace_root or "",
+            "metadata": {},
         }
 
 

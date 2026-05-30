@@ -540,6 +540,11 @@ class Kernel:
         return {
             "session_id": session_id,
             "status": "active",
+            # workspace_root is exposed as a top-level key so that
+            # _binding_matches_workspace_root can compare it directly without
+            # requiring the gateway to inject it into metadata (which would
+            # create two sources of truth that can drift — refactor-387 regression).
+            "workspace_root": str(session.workspace_root),
             "metadata": dict(metadata),
         }
 

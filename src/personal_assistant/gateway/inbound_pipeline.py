@@ -577,10 +577,11 @@ class InboundPipeline:
             )
         except RuntimeError:
             return False
-        metadata = session_payload.get("metadata")
-        if not isinstance(metadata, Mapping):
-            return False
-        workspace_root = metadata.get("workspace_root")
+        # workspace_root is a top-level key in the session payload (set by
+        # Kernel.get_session from Session.workspace_root).  Reading it from
+        # metadata would require the gateway to inject a redundant copy on
+        # create_session, creating two sources of truth — refactor-387 regression.
+        workspace_root = session_payload.get("workspace_root")
         return isinstance(workspace_root, str) and workspace_root.strip() == expected_workspace_root.strip()
 
     def drop_agent_sessions(self, agent_id: str) -> None:
