@@ -84,6 +84,51 @@ describe("MessagePane", () => {
     expect(screen.getByText("Hi back")).toBeInTheDocument();
   });
 
+  it("renders a GFM markdown table in an agent message as a real <table>", () => {
+    const tableMsg: Message = {
+      id: "m-table",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "u1",
+      sender_type: "agent",
+      content: [
+        "Here are the repos:",
+        "",
+        "| Repo | Note |",
+        "|------|------|",
+        "| **nano-multiagent** | main |",
+        "| LLM_PROXY | proxy |",
+        "",
+        "That is all.",
+      ].join("\n"),
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:02Z",
+      permission_requests: [],
+    };
+    const { container } = render(
+      <MessagePane
+        conversation={DIRECT_CONV}
+        messages={[tableMsg]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+      />
+    );
+
+    expect(container.querySelector("table")).not.toBeNull();
+    expect(screen.getByRole("columnheader", { name: "Repo" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Note" })).toBeInTheDocument();
+    // inline **bold** inside a cell still renders via renderInlineContent
+    expect(screen.getByText("nano-multiagent").tagName).toBe("STRONG");
+    expect(screen.getByText("LLM_PROXY")).toBeInTheDocument();
+    expect(screen.getAllByRole("row")).toHaveLength(3); // 1 header + 2 body
+    // prose around the table stays as paragraphs, not swallowed into it
+    expect(screen.getByText("Here are the repos:")).toBeInTheDocument();
+    expect(screen.getByText("That is all.")).toBeInTheDocument();
+    // raw delimiter pipes are no longer dumped as plain text
+    expect(screen.queryByText(/\|------\|/)).toBeNull();
+  });
+
   it("renders an empty-state hint when there are no messages", () => {
     render(
       <MessagePane
