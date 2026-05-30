@@ -552,6 +552,111 @@ class Kernel:
         """Shut down background loops and release resources."""
         self._c.runs_registry.shutdown()
 
+    def assemble_prompt_preview(
+        self,
+        *,
+        workspace_root: Path | None = None,
+        features: dict[str, bool] | None = None,
+        custom_prompt: str | None = None,
+        tool_ids: list[str] | None = None,
+        scenario: str = "direct",
+        skill_ids: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Assemble a system-prompt preview for the agent settings page.
+
+        In-process replacement for the removed kernel HTTP /v1/prompt-preview
+        endpoint (refactor-387 M3 regression).  Calls the same section-assembly
+        path the runtime uses at turn time, but with RenderMode.PREVIEW so
+        volatile segments emit ``<runtime-injected:…>`` placeholders rather than
+        live data.
+
+        The returned schema matches the IM side's PromptPreviewResponse contract
+        so the frontend receives the same ``{prompt, section_count}`` shape as
+        in the HTTP era.
+
+        Args:
+            workspace_root: Workspace root for skill resolution.  Falls back to
+                the kernel's repo_root when None.
+            features: Per-agent feature-flag overrides (key → bool).  Merged with
+                FEATURE_REGISTRY defaults — same as runtime wiring.
+            custom_prompt: Optional user-supplied custom instructions injected into
+                the pa.user_custom segment via ``vars["custom_prompt"]``.
+            tool_ids: Tool names to treat as active for the preview turn.  Only
+                names are needed — has_tool() checks gate guidance segments.
+            scenario: Conversation type hint forwarded into PromptContext.scenario.
+            skill_ids: Skill IDs to resolve from workspace for the skills listing.
+
+        Returns:
+            Dict with keys ``prompt`` (str) and ``section_count`` (int).
+        """
+        from agent.core.agent.prompt_sections.base import (  # noqa: PLC0415
+            RenderMode,
+            assemble_system_prompt,
+        )
+        from agent.core.agent.prompt_sections.wiring import (  # noqa: PLC0415
+            build_prompt_context_from_metadata,
+            resolve_flags_from_metadata,
+        )
+        from agent.core.types import ToolSpec  # noqa: PLC0415
+
+        effective_root = workspace_root or self._repo_root
+
+        # Resolve flags from feature overrides — mirrors runtime wiring.
+        flags = resolve_flags_from_metadata(
+            metadata={"agent_features": dict(features) if features else {}}
+        )
+
+        # Build lightweight ToolSpec stubs from IDs — schema is not needed for
+        # preview; has_tool(name) only checks the name to gate guidance segments.
+        active_tool_ids = list(tool_ids) if tool_ids else []
+        active_tools: tuple[ToolSpec, ...] = tuple(
+            ToolSpec(name=name, description="", input_schema={})
+            for name in active_tool_ids
+        )
+
+        # Resolve skills for the listing segment — best-effort; non-existent
+        # skill IDs silently produce empty SkillMetadata so the listing renders
+        # whatever exists on disk without crashing (mirrors runtime path).
+        active_skills: tuple = ()
+        if skill_ids:
+            try:
+                from agent.core.skills import resolve_available_skills  # noqa: PLC0415
+                active_skills = tuple(
+                    resolve_available_skills(
+                        workspace_root=effective_root,
+                        include_names=tuple(skill_ids),
+                        config_resolver=getattr(self._c.runtime, "_config_resolver", None),
+                    )
+                )
+            except Exception:  # noqa: BLE001
+                # Skill resolution may fail when the workspace has no skills dir;
+                # fall through to an empty listing rather than aborting the preview.
+                active_skills = ()
+
+        ctx = build_prompt_context_from_metadata(
+            metadata={"conversation_type": scenario},
+            available_tools=active_tools,
+            available_skills=active_skills,
+            current_datetime=None,  # PREVIEW mode: segments emit placeholder
+            cwd=str(effective_root),
+            flags=flags,
+            vars={"custom_prompt": custom_prompt or ""},
+            render_mode=RenderMode.PREVIEW,
+        )
+
+        sections = getattr(self._c.runtime, "_prompt_sections", [])
+        assembled = assemble_system_prompt(sections, ctx)
+
+        # Count active sections — segments that pass enabled_when and produce
+        # non-empty output for this context.
+        section_count = sum(
+            1
+            for s in sections
+            if s.enabled_when(ctx) and s.render(ctx)
+        )
+
+        return {"prompt": assembled, "section_count": section_count}
+
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------

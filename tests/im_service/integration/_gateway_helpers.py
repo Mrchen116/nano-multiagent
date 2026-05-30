@@ -90,7 +90,17 @@ class _FakeKernel:
         metadata = self._session_metadata_by_id.get(session_id)
         if metadata is None:
             raise RuntimeError(f"missing session: {session_id}")
-        return {"session_id": session_id, "status": "active", "created_at": "now", "metadata": dict(metadata)}
+        # workspace_root is exposed as a top-level key to match Kernel.get_session
+        # contract (df319bee fix) — _binding_matches_workspace_root reads the top-level
+        # key directly; without it the session-reuse path silently bypasses the check.
+        ws = metadata.get("workspace_root", "")
+        return {
+            "session_id": session_id,
+            "status": "active",
+            "workspace_root": ws,
+            "created_at": "now",
+            "metadata": dict(metadata),
+        }
 
     def seed_session(self, *, session_id: str, metadata: dict[str, Any] | None = None) -> None:
         """Pre-populate a session for session-reuse tests."""

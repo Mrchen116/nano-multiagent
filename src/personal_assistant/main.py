@@ -61,7 +61,7 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatTickSummary,
 )
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
-from personal_assistant.ws.im_connection import AgentCreateHandler, IMConnectionConfig, IMConnectionManager
+from personal_assistant.ws.im_connection import AgentCreateHandler, IMConnectionConfig, IMConnectionManager, PromptPreviewProvider
 
 
 ProcessLike = subprocess.Popen[Any]
@@ -1380,6 +1380,44 @@ def _verify_stopped_health_url(health_url: str, *, timeout_seconds: float, sleep
     return not _healthcheck_reports_healthy(health_url)
 
 
+def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
+    """Build a PromptPreviewProvider backed by Kernel.assemble_prompt_preview.
+
+    sdk-fix-prompt-preview: in-process replacement for the removed kernel HTTP
+    /v1/prompt-preview endpoint (refactor-387 M3 regression).  The returned
+    callable matches PromptPreviewProvider signature so IMConnectionManager can
+    call it transparently.
+
+    Args:
+        kernel: Assembled Kernel instance (agent.sdk.Kernel).
+
+    Returns:
+        Sync callable matching PromptPreviewProvider: (agent_id, workspace_root,
+        features, custom_prompt, tool_ids, scenario, skill_ids) → dict.
+    """
+    from pathlib import Path as _Path  # noqa: PLC0415 — local import avoids circular risk
+
+    def _provider(
+        agent_id: str,
+        workspace_root: str,
+        features: dict,
+        custom_prompt: "str | None",
+        tool_ids: list,
+        scenario: str,
+        skill_ids: list = (),
+    ) -> dict:
+        return kernel.assemble_prompt_preview(
+            workspace_root=_Path(workspace_root) if workspace_root else None,
+            features=features or {},
+            custom_prompt=custom_prompt,
+            tool_ids=list(tool_ids) if tool_ids else [],
+            scenario=scenario or "direct",
+            skill_ids=list(skill_ids) if skill_ids else [],
+        )
+
+    return _provider  # type: ignore[return-value]
+
+
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
     """Construct the default long-running gateway runtime from parsed local config.
 
@@ -1490,9 +1528,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 workspace_root=workspace_root,
                 tool_allowlist=_resolve_agent_tool_allowlist(im_config_sync_client, agent_id),
             ),
-            # prompt_preview_provider: M3 — kernel no longer has a HTTP endpoint; skip preview
-            # until a direct SDK method is available in a later milestone.
-            prompt_preview_provider=None,
+            # sdk-fix-prompt-preview: assemble_prompt_preview is now available on the
+            # in-process Kernel (refactor-387 M3 regression fix).  The provider
+            # signature matches PromptPreviewProvider: (agent_id, workspace_root,
+            # features, custom_prompt, tool_ids, scenario, skill_ids) → preview dict.
+            prompt_preview_provider=_make_prompt_preview_provider(kernel),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
             permission_response_handler=None,

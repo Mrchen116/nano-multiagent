@@ -52,6 +52,9 @@ class _FakeKernel:
         self._session_index = 0
         self._run_index = 0
         self._stream_calls: dict[str, int] = {}
+        # Track workspace_root per session so get_session can expose the top-level
+        # key — required by _binding_matches_workspace_root (df319bee contract).
+        self._session_workspace: dict[str, str] = {}
 
     async def create_session(
         self,
@@ -74,6 +77,7 @@ class _FakeKernel:
                 "metadata": metadata,
             }
         )
+        self._session_workspace[session_id] = ws_str
         return _FakeSession(session_id=session_id)
 
     def submit(
@@ -121,7 +125,10 @@ class _FakeKernel:
         return _gen()
 
     def get_session(self, session_id: str, *, workspace_root: Any = None, **_kwargs) -> dict[str, Any]:
-        return {"session_id": session_id, "status": "active", "metadata": {}}
+        # workspace_root exposed as top-level key to match Kernel.get_session contract
+        # (df319bee) — _binding_matches_workspace_root reads this directly.
+        ws = self._session_workspace.get(session_id, "")
+        return {"session_id": session_id, "status": "active", "workspace_root": ws, "metadata": {}}
 
     def interrupt(self, session_id: str) -> None:
         pass
