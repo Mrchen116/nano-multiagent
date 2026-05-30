@@ -285,3 +285,137 @@ All checks passed. Ready for PR.
 - Round 1 W2 部分改善（StreamEvent 不再泄漏），残余 SkillRegistry/ConfigResolver/FEATURE_REGISTRY re-export 待后续 unit
 - sdk-fix-r3 三项变更（stream 扁平化、PA 补丁删除、ContextVar 修复）均正确实现
 - W3 为 pre-existing warning，不阻 PR
+
+---
+
+# Round 4
+
+> Branch HEAD: 67d3645b | 重点：session 复用历史接续 fix 正确性核查 + agent system prompt preview 链路断裂根因判定
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 继承 Round 3（全量 2337 passed，0 failed） |
+| Correctness | session 复用 fix 本身正确；2 个新问题：集成测试 stub 契约错位（WARNING）+ prompt preview in-unit 回归（CRITICAL） |
+| Coherence | M3 "行为完全不变"声明与 prompt_preview_provider=None 矛盾，属于 in-unit 行为回归未记录 |
+
+**2 critical issue(s) found. Fix before PR.**
+
+---
+
+## Round 4 重点核查
+
+### 1. session 复用历史接续 fix（df319bee 等）
+
+**fix 本身：正确**
+
+- `Kernel.get_session`（`src/agent/sdk/kernel.py:515-549`）暴露顶层 `workspace_root`：从 `Session.workspace_root` 取，不经 metadata；注释明确说明"workspace_root is exposed as a top-level key so that _binding_matches_workspace_root can compare it directly"
+- `_binding_matches_workspace_root`（`src/personal_assistant/gateway/inbound_pipeline.py:557-585`）读 `session_payload.get("workspace_root")` 而非 `metadata["workspace_root"]`，正确
+- `tests/unit/personal_assistant/test_session_reuse_regression.py`：3 个测试（contract × get_session 顶层字段、binding_matches 读顶层、端对端 session 复用）全绿，回归测试有效覆盖根因路径
+
+**残留缺口：WARNING（见 W4）**
+
+`tests/im_service/integration/_gateway_helpers.py:89-93` 的 `_FakeKernel.get_session` 仍然返回缺少顶层 `workspace_root` 的 dict：
+
+```python
+# _gateway_helpers.py:89-93 — WRONG: workspace_root buried in metadata
+def get_session(self, session_id: str, *, workspace_root: Any = None, **_kwargs) -> dict[str, Any]:
+    metadata = self._session_metadata_by_id.get(session_id)
+    if metadata is None:
+        raise RuntimeError(f"missing session: {session_id}")
+    return {"session_id": session_id, "status": "active", "created_at": "now", "metadata": dict(metadata)}
+```
+
+`create_session` 把 `workspace_root` 写进 `_session_metadata_by_id`（第82-85行），但 `get_session` 返回时只打包 `metadata` 字典，没有把 `workspace_root` 提到顶层——与 `Kernel.get_session` 的正确契约（顶层暴露）不符。
+
+后果：在 IM 集成测试层，`_binding_matches_workspace_root` 每次都返回 False（workspace_root 检查失败），所有使用此 stub 的测试（`test_gateway_im_roundtrip.py`、`test_gateway_im_direct_chat.py`、`test_gateway_im_group_chat.py`、`test_group_chat_flow.py` 等）都无法验证 session reuse 路径。此问题不影响测试通过（测试只发一条消息，不断言 reuse），但留下测试盲区。
+
+同样问题存在于 `tests/im_service/integration/_group_chat_helpers.py:123-124`（返回 `{"session_id", "status", "metadata": {}}` 无顶层 workspace_root）。
+
+另注：`tests/unit/personal_assistant/_pipeline_helpers.py:72-76`（旧 `_FakeKernelClient`，非本 unit 核心，部分集成测试用别名导入）同一问题，但该 stub 主要用于测试 legacy session refresh 路径（刻意让 workspace check 失败），可保持现状，但需要文档说明。
+
+### 2. agent system prompt preview 链路（前端 "Preview full system prompt" 按钮不显示）
+
+**根因：in-unit 回归**
+
+链路：前端 → `POST /im/v1/agents/{id}/prompt-preview` → `IM.api.routes.agents.agent_prompt_preview` → `gateway_handler.request_prompt_preview` → WebSocket → `im_connection.py:380-411 agent.prompt.preview.request` handler → `self._prompt_preview_provider`
+
+M3 commit 9954e383 将 `prompt_preview_provider=None`（`src/personal_assistant/main.py:1493-1495`），注释"skip preview until a direct SDK method is available in a later milestone"。
+
+当 `_prompt_preview_provider is None` 时（`im_connection.py:398-403`），Gateway 返回 `preview: {}`（空字典）给 IM，IM `routes/agents.py:452-455` 取 `result.get("prompt")` 得 `None`，返回 `PromptPreviewResponse(prompt="", section_count=0)`，前端显示空字符串。
+
+**in-unit 判定依据**：
+
+1. 旧实现（删除前）调用 `kernel_client.prompt_preview(...)`，该方法经由内核 HTTP `POST /v1/prompt-preview` 组装完整系统提示并返回。refactor-387 删除内核 HTTP API 时，直接将此调用链设为 None，未提供进程内替代
+2. `kernel_client.prompt_preview` → `agent/platform/http_api/routes/session.py`（现已删除）这条路径是 refactor-387 主要删除对象
+3. M3 `tasks.md:16` 声明"从外部（IM / channel 用户）看行为完全不变"，但 prompt preview 是 IM 设置页的功能，对 IM 用户可见，行为已改变（功能变为空响应）
+4. design.md 的"删除"列表（`agent/platform/http_api/routes/`）包含 session routes，其中含 `prompt-preview` 端点实现；未有对应迁移说明
+
+**SDK 层迁移路径（修复建议）**：
+
+`Kernel` 已有 `build_kernel(product_profile, llm_config, ...)` + `agent/core/agent/prompting.py:build_system_prompt`。进程内 prompt preview 可通过直接调用 `build_system_prompt(prompt_context)` 实现，无需 HTTP roundtrip。具体：
+
+```python
+# personal_assistant/main.py 中，替换 prompt_preview_provider=None 为：
+from agent.sdk.kernel import Kernel  # kernel 已在 build_runtime 中构建
+from agent.products.personal_assistant.prompt_sections import build_pa_system_prompt
+from agent.core.agent.prompting import build_system_prompt, PromptContext
+
+def _build_prompt_preview_provider(kernel: Kernel):
+    def preview(agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids):
+        # 直接调用 build_system_prompt 而不是走 HTTP
+        prompt_context = PromptContext(...)  # 从 features/custom_prompt/skill_ids 组装
+        sections = build_pa_system_prompt()
+        rendered = build_system_prompt(prompt_context, prompt_sections=sections)
+        return {"prompt": rendered, "section_count": len(sections)}
+    return preview
+```
+
+或：在 `Kernel` 上增加 `assemble_prompt_preview(features, custom_prompt, tool_ids, scenario, skill_ids, workspace_root)` 方法（SDK 扩展，与 session/submit/stream 对齐的 SDK surface）。
+
+---
+
+## Issues（Round 4 新增）
+
+### CRITICAL
+
+**C1：agent system prompt preview 功能因删除内核 HTTP API 而断裂（in-unit 回归）**
+
+- 文件：`src/personal_assistant/main.py:1493-1495`
+- 根因：M3 将 `prompt_preview_provider=None`，删除了 `kernel_client.prompt_preview(...)` 调用但没有提供进程内替代
+- 影响：前端 agent 设置页 "Preview full system prompt" 按钮调用 `POST /im/v1/agents/{id}/prompt-preview` 返回 `{"prompt": "", "section_count": 0}`，用户无法预览完整系统提示
+- 测试覆盖缺口：无任何测试断言 `prompt_preview_provider` 非 None 或 prompt preview 返回非空结果；`tests/im_service/` 中的 prompt preview 测试（若有）使用 mock，不覆盖 `main.py` 的 `None` 装配
+- 修复建议：在 `build_runtime`（`main.py:~1437`）中替换 `prompt_preview_provider=None` 为调用 SDK 内部 `build_system_prompt` 的进程内实现；同时在 `build_runtime` 级别补充集成测试，断言 `prompt_preview_provider` 非 None 且调用后返回非空 prompt
+
+### WARNING
+
+**W4：`tests/im_service/integration/_gateway_helpers.py:_FakeKernel.get_session` 不符合修复后的 Kernel.get_session 契约**
+
+- 文件：`tests/im_service/integration/_gateway_helpers.py:89-93`；同样存在于 `tests/im_service/integration/_group_chat_helpers.py:123-124`
+- 根因：stub 的 `get_session` 返回 `{"session_id", "status", "created_at", "metadata"}` 无顶层 `workspace_root`，与 df319bee 修复后 `Kernel.get_session` 的契约（顶层暴露）不一致
+- 影响：IM 集成测试中 `_binding_matches_workspace_root` 对 stub 始终返回 False，所有发送多条消息的集成测试都无法断言"第二条消息复用同一 session"。目前没有集成测试覆盖此场景，存在测试盲区
+- 修复建议：
+  1. 更新 `_gateway_helpers.py:_FakeKernel.get_session`：在返回 dict 中加顶层 `workspace_root: str`，从 `_session_metadata_by_id[session_id].get("workspace_root", "")` 取（第84行已存入）
+  2. 更新 `_group_chat_helpers.py:_FakeKernel.get_session`：同样补充顶层 `workspace_root`，从已存的 `_sessions` 字典或 `_session_metadata_by_id` 取
+  3. 在 `tests/im_service/integration/` 增加一个两消息连发的集成测试（发两条消息断言 `create_session_calls` 长度为 1），覆盖 session reuse 路径
+
+---
+
+## Round 3 未关闭项状态
+
+| 问题 | 本轮状态 |
+|---|---|
+| W2：SDK 表面含内部类 re-export | 维持 follow-up issue，不阻 PR |
+| S1：M4-R3 tasks.md TODO 笔误 | 仍未修 |
+| S2：遗留空目录/过时 docstring | 仍未修 |
+| W3：_span_stack ContextVar warning（pre-existing）| 仍存在，不阻 PR |
+
+---
+
+## 结论（Round 4）
+
+**2 critical issue(s) found. Fix before PR.**
+
+- C1（prompt_preview_provider=None）：in-unit 回归，删除内核 HTTP API 时未迁移 prompt preview 到 SDK，功能断裂对 IM 用户可见，必须修复后才能 PR
+- W4（集成测试 stub 契约错位）：session reuse fix 本身正确，但 IM 集成测试的 FakeKernel stub 未同步更新，留下测试盲区；不阻 PR 但应在同一 fix milestone 补齐
