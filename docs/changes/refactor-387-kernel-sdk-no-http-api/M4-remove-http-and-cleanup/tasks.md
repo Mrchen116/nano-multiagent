@@ -32,6 +32,6 @@
 |---|---|---|
 | R1 | 迁移 EventStreamHub 出 http_api → agent/core/events/ | DONE |
 | R2 | 删 coding_cli 死 HTTP 文件及其专属测试 | DONE |
-| R3 | 删 agent/platform/http_api/ 整目录 | TODO |
+| R3 | 删 agent/platform/http_api/ 整目录 | DONE |
 | R4 | 平移 HTTP/ASGI contract 测试到 agent.sdk 表面（删旧文件） | DONE |
 | R5 | 修两个 M4 文档红测 + 去 xfail + 文档收尾 | DONE |

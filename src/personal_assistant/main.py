@@ -675,12 +675,18 @@ class _IMBootstrapClient:
 
 
 class GatewayProcessManager:
-    """Manage the local agent kernel child process for the gateway.
+    """Legacy kernel subprocess manager — unused since refactor-387.
+
+    refactor-387 M3: the kernel runs in-process via agent.sdk; no child process
+    is spawned.  This class is retained only because GatewayRuntime still
+    accepts a ``process_manager`` parameter typed as ``GatewayProcessManager | None``
+    for backward compatibility with tests that pass None.  It will be removed
+    in a follow-up unit that trims the dead config+process management layer.
 
     Args:
-        config: Kernel process and health-probe settings loaded from local config.
-        kernel_client: HTTP client used for readiness probes.
-        process_factory: Factory used to spawn the kernel child process.
+        config: Legacy KernelConfig (unused at runtime).
+        kernel_client: Unused (was: HTTP client for readiness probes).
+        process_factory: Unused (was: factory to spawn the kernel subprocess).
         monotonic: Monotonic clock source for timeout accounting.
         sleep: Sleep function used between readiness probes.
     """
@@ -702,16 +708,15 @@ class GatewayProcessManager:
         self.process: ProcessLike | None = None
 
     def start_kernel_process(self) -> ProcessLike:
-        """Spawn the local kernel child and wait until `/v1/health` reports ready.
+        """Spawn the kernel subprocess and poll until ``/v1/health`` reports ready.
+
+        Legacy method — not called since refactor-387 (kernel runs in-process).
 
         Returns:
             The spawned process handle once health probing succeeds.
 
         Raises:
             RuntimeError: When the kernel does not become healthy before timeout.
-
-        Side Effects:
-            Starts a subprocess and performs repeated HTTP health checks.
         """
 
         if self.process is not None:

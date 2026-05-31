@@ -1,9 +1,7 @@
 """Non-interactive ``--text`` runner: NDJSON output until run terminal.
 
-Note (refactor-387 M2): Formerly used ServerClient (HTTP).  Now accepts any
-Kernel-compatible object with ``submit(...)`` and ``stream(session_id)`` methods.
-The new commands.py calls ``_run_text_mode`` directly; this module is kept for
-reference but no longer on the main path.
+Accepts any Kernel-compatible object with ``submit(...)`` and
+``stream(session_id)`` methods.  No HTTP dependency.
 """
 
 from __future__ import annotations
