@@ -830,7 +830,7 @@ class PollingHeartbeatRunner:
 
     async def _run_loop(self) -> None:
         while not self._stop_requested:
-            summary = self._scheduler.tick()
+            summary = await self._scheduler.tick()
             self._product_reports.extend(_build_heartbeat_product_reports(summary))
             if self._stop_requested:
                 break
@@ -1287,13 +1287,18 @@ class _KernelClientShim:
 
     HeartbeatScheduler and InternalDispatchHandler use the old kernel_client
     interface (create_session/submit_message/append_message).  This shim
-    bridges them to the in-process Kernel SDK until M4 replaces these callers.
+    bridges them to the in-process Kernel SDK.
+
+    create_session is async so it can be properly awaited from the gateway's
+    async event loop — run_until_complete on an already-running loop raises
+    RuntimeError (refactor-387 M4 fix; previously the shim used that approach
+    which silently prevented all heartbeat/cron runs from being submitted).
     """
 
     def __init__(self, kernel: "Kernel") -> None:
         self._kernel = kernel
 
-    def create_session(
+    async def create_session(
         self,
         *,
         workspace_root: str,
@@ -1301,13 +1306,10 @@ class _KernelClientShim:
         title: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> dict[str, object]:
-        import asyncio
-        session = asyncio.get_event_loop().run_until_complete(
-            self._kernel.create_session(
-                title=title,
-                workspace_root=Path(workspace_root),
-                metadata=metadata,
-            )
+        session = await self._kernel.create_session(
+            title=title,
+            workspace_root=Path(workspace_root),
+            metadata=metadata,
         )
         return {"session_id": session.session_id}
 
