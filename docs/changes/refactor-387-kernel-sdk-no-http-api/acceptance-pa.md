@@ -405,3 +405,106 @@ run_failed | error='LLM generate exceeded 20 retries: anthropic transport error'
 - run 因 e2e 环境无 LLM 后端而失败，属预期；提交路径完全通畅
 - 修复前：`run_until_complete` 在 async loop 里炸，create_session 和 submit 根本不会被调用，不会有任何 run_id 出现
 
+---
+
+# Round 5 — 2026-06-01
+
+**Reviewer**: reviewer-r5
+**Review Round**: 5（针对性补验，原 inconclusive 项）
+**Branch**: unit/refactor-387
+**Verdict**: fail
+**Highest Required Action**: fix-implementation
+**Issues Count**: { blocking: 0, major: 2, minor: 0 }
+**GH Issues Filed**: none
+**Top Concern**: heartbeat 触发时 `_KernelClientShim.create_session` 在异步 event loop 内调用 `asyncio.get_event_loop().run_until_complete()`，抛出 `"This event loop is already running"`，所有 heartbeat run 均提交失败。
+
+---
+
+## 本轮背景
+
+本轮专注于将前几轮标为 `inconclusive` 的三项真正搭环境验出结论：
+1. heartbeat / cron 触发
+2. CLI 交互式权限确认 + Ctrl-C 打断
+3. openai_compat provider 实调
+
+---
+
+## Environment
+
+- Worktree: `/Users/czj/Repos/nano-multiagent/.worktrees/refactor-387`
+- Branch: `unit/refactor-387`
+- Venv: `/Users/czj/Repos/nano-multiagent/.venv`（symlink → miniforge3/bin/python3.12）
+- IM 分配端口: 57192（ephemeral）
+- Gateway 启动命令: `--foreground --auto-bind`
+- e2e-up.sh 成功，3 个 agent `node_status: online`
+- 测试工具: `pexpect 4.9.0`（临时安装到 venv）
+
+---
+
+## 验收标准覆盖（Round 5 — 仅更新 inconclusive 行）
+
+### Requirement: personal_assistant 经 IM / channel 的工具型 agent 任务保持一致
+
+| Scenario | 验证方式 | 证据 | 结果 |
+|---|---|---|---|
+| heartbeat 触发的工具型任务 | 在 `.gateway-config.yaml` 设 `heartbeat.tick_interval_seconds: 5`；在 default-agent workspace 写 `HEARTBEAT.md`（`interval: 10s` + bash 工具任务）；启动 gateway 观察日志 | 完整 traceback（`/tmp/gw-full.log`）：`_run_loop` 调 `scheduler.tick()`，后者调 `_submit_run()`，后者调 `_KernelClientShim.create_session()`，后者内 `asyncio.get_event_loop().run_until_complete(self._kernel.create_session(...))` 在已运行的 event loop 里抛出 `"This event loop is already running"`，coroutine 未被 await，heartbeat run 提交失败。调用链：`main.py:833 → heartbeat_scheduler.py:180 → heartbeat_scheduler.py:187 → main.py:1306` | **fail** |
+| cron 触发的工具型任务 | 与 heartbeat 使用相同 `_KernelClientShim`，问题相同 | 同上，代码路径一致 | **fail** |
+
+---
+
+## Issues（Round 5）
+
+### Issue-PA5-1: heartbeat/cron run 提交失败 — asyncio event loop 嵌套冲突（major）
+
+- **Severity**: major
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: `_KernelClientShim.create_session` 使用 `asyncio.get_event_loop().run_until_complete(...)` 包装异步 `Kernel.create_session`；但 `HeartbeatRunnerImpl._run_loop` 是 async 方法（运行在 asyncio event loop 中），其内调用同步 `scheduler.tick()` 再转调 shim，导致 `run_until_complete` 在已运行的 loop 内抛 `RuntimeError("This event loop is already running")`。根因是 M3/M4 的 `_KernelClientShim` 是临时过渡层，其同步包装与异步调用方不兼容。
+
+**完整调用链（来自 `/tmp/gw-full.log`）**：
+```
+personal_assistant/main.py:833, in _run_loop
+    summary = self._scheduler.tick()
+heartbeat_scheduler.py:180, in tick
+    triggered_runs.append(self._submit_run(agent=agent, ...))
+heartbeat_scheduler.py:187, in _submit_run
+    session_payload = self._kernel_client.create_session(...)
+personal_assistant/main.py:1305-1312, in _KernelClientShim.create_session
+    session = asyncio.get_event_loop().run_until_complete(
+        self._kernel.create_session(...)   # ← async method called via sync wrapper
+    )
+# → RuntimeError: This event loop is already running
+# → RuntimeWarning: coroutine 'Kernel.create_session' was never awaited
+```
+
+**用户可观察影响**：heartbeat/cron 配置不生效，agent 不会按计划执行任务。
+
+**Fix 方向**：将 `HeartbeatScheduler.tick()` 和 `_submit_run()` 改为 async，并在 `_run_loop` 中用 `await scheduler.tick_async()` 调用；或将 `_KernelClientShim` 改为 async 接口以直接 await kernel 方法，不再用 `run_until_complete`。
+
+---
+
+## Round 5 覆盖表（完整，含继承项）
+
+### Requirement: personal_assistant 经 IM / channel 的工具型 agent 任务保持一致
+
+| Scenario | 验证方式 | 证据 | 结果 |
+|---|---|---|---|
+| 经 IM 完成一个含工具调用的任务 | 继承 round 4 | round 4 J1/J2 pass | **pass**（继承 round 4） |
+| 后台任务完成回发 | 继承 round 3 | round 3 已验证 | **pass**（继承 round 3） |
+| heartbeat 触发的工具型任务 | 搭 gateway + HEARTBEAT.md（interval: 10s），观察日志 | `asyncio.get_event_loop().run_until_complete()` 在运行中 event loop 内失败，heartbeat run 未提交 | **fail** |
+| cron 触发的工具型任务 | 与 heartbeat 同 KernelClientShim 路径 | 同上 | **fail** |
+| 多 agent 互发消息 | 继承 round 4 | round 4 J3 pass | **pass**（继承 round 4） |
+
+### Requirement: gateway 运维命令保持可用
+
+| Scenario | 结果 |
+|---|---|
+| stop / restart | **pass**（继承 round 1） |
+
+---
+
+## Round 5 Verdict 判定
+
+- Issue-PA5-1（heartbeat/cron run 提交失败）：severity **major**，用户所有 heartbeat/cron 自动化任务均不生效。按验收 bar（major → fail），判 fail。
+- 其余主路径（PA 工具任务、群聊、gateway restart）继承 round 4 pass。
+
+**Verdict: fail | Highest Required Action: fix-implementation**
