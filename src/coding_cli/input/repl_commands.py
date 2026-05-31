@@ -1,11 +1,7 @@
 """REPL slash-command parsing and execution helpers.
 
-Note (refactor-387 M2): ``client`` parameters that were formerly typed as
-``ServerClient`` are now typed as ``Any`` — the new async REPL in commands.py
-dispatches through Kernel SDK directly.  The HTTP-specific helpers (those that
-call client.compact_session / client.list_session_tools) are kept for the
-transition period and cleaned up in M4.  The core helpers (print_* / REPL_COMMANDS
-/ print_actionable_error / is_repl_command_candidate) are HTTP-free.
+``client`` parameters accept any Kernel-compatible object — the async REPL in
+commands.py dispatches through Kernel SDK directly.  All helpers are HTTP-free.
 """
 
 from dataclasses import dataclass

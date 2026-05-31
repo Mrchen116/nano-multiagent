@@ -1,8 +1,7 @@
 """Context-budget presentation helpers for interactive CLI feedback.
 
-Note (refactor-387 M2): ``client`` was formerly typed as ``ServerClient``
-(HTTP).  The type is now ``Any`` — callers pass either a Kernel or any object
-with a ``get_context_budget`` method.  HTTP dependency removed.
+``client`` accepts any Kernel-compatible object with a ``get_context_budget``
+method.  No HTTP dependency.
 """
 
 from typing import Any, TextIO
