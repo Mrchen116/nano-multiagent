@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,13 +14,15 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
 
 
 class _FakeKernelClient:
+    """Sync fake client — used by existing tests that don't exercise the async path."""
+
     def __init__(self) -> None:
         self.created_sessions: list[dict[str, object]] = []
         self.sent_messages: list[dict[str, object]] = []
         self._session_counter = 0
         self._run_counter = 0
 
-    def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, object]:
+    async def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, object]:
         self._session_counter += 1
         payload = {
             "session_id": f"sess-{self._session_counter}",
@@ -175,4 +178,38 @@ def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(tmp_path: Pa
     )
 
     with pytest.raises(ValueError, match="exactly one schedule mode"):
-        scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
+        asyncio.get_event_loop().run_until_complete(
+            scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
+        )
+
+
+@pytest.mark.asyncio
+async def test_scheduler_tick_from_async_context_completes_without_event_loop_error(tmp_path: Path) -> None:
+    """tick() must be awaitable from an async context without RuntimeError.
+
+    Regression: _KernelClientShim used run_until_complete inside an already-running
+    loop, causing 'This event loop is already running' — heartbeat runs were silently
+    never submitted.  After the fix, tick() is a coroutine and create_session is async
+    so the call chain is properly awaited end-to-end.
+    """
+    agent = _agent(tmp_path)
+    _write_heartbeat(
+        agent.workspace_root,
+        "# Heartbeat\n\ninterval: 1m\n\n- Check status\n",
+    )
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    # This must not raise RuntimeError("This event loop is already running")
+    summary = await scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
+
+    # The run was actually submitted — not silently dropped
+    assert len(summary.triggered_runs) == 1
+    assert len(kernel.created_sessions) == 1
+    assert kernel.created_sessions[0]["session_id"] == "sess-1"
+    assert len(kernel.sent_messages) == 1
+    assert kernel.sent_messages[0]["run_id"] == "run-1"

@@ -256,7 +256,8 @@ class TestIMConnectionPermissionResponse:
 class TestHeartbeatOrigin:
     """Heartbeat scheduler passes origin='heartbeat' when submitting runs."""
 
-    def test_heartbeat_submit_passes_origin(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_heartbeat_submit_passes_origin(self, tmp_path: Path) -> None:
         """HeartbeatScheduler._submit_run passes origin='heartbeat' to kernel."""
         from datetime import datetime, timezone
 
@@ -269,7 +270,7 @@ class TestHeartbeatOrigin:
         submit_calls: list[dict] = []
 
         class _FakeKernel:
-            def create_session(self, *, workspace_root, product_id, title=None, metadata=None):
+            async def create_session(self, *, workspace_root, product_id, title=None, metadata=None):
                 return {"session_id": "sess-1"}
 
             def get_session(self, *, session_id):
@@ -292,7 +293,7 @@ class TestHeartbeatOrigin:
         heartbeat_file = tmp_path / "HEARTBEAT.md"
         heartbeat_file.write_text("# HEARTBEAT\n\nat: 2020-01-01T00:00:00+00:00\n\nCheck the workspace.\n")
 
-        scheduler.tick()
+        await scheduler.tick()
 
         assert len(submit_calls) == 1
         # origin should be "heartbeat"

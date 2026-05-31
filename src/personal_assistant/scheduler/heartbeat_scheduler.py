@@ -108,7 +108,9 @@ class HeartbeatSchedulerStateStore:
 
 
 class _KernelClientLike(Protocol):
-    def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, object]: ...
+    # create_session is async — the gateway runs an asyncio event loop and
+    # run_until_complete on an already-running loop raises RuntimeError.
+    async def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, object]: ...
 
     def submit_message(
         self, *, session_id: str, texts: list[str], workspace_root: str | None = None
@@ -146,7 +148,7 @@ class HeartbeatScheduler:
         self._kernel_client = kernel_client
         self._state_store = state_store
 
-    def tick(self, *, now: datetime | None = None) -> HeartbeatTickSummary:
+    async def tick(self, *, now: datetime | None = None) -> HeartbeatTickSummary:
         """Run one scheduler evaluation pass.
 
         Args:
@@ -158,6 +160,10 @@ class HeartbeatScheduler:
         Raises:
             ValueError: When a HEARTBEAT.md file declares invalid or conflicting schedule modes.
             RuntimeError: When the kernel returns malformed session or run identifiers.
+
+        Notes:
+            async because create_session on the in-process Kernel SDK is a coroutine;
+            run_until_complete on an already-running loop raises RuntimeError (refactor-387 M4 fix).
         """
 
         current_time = _normalize_datetime(now or datetime.now(tz=UTC))
@@ -177,14 +183,14 @@ class HeartbeatScheduler:
             if not due_times:
                 continue
             for due_at in due_times:
-                triggered_runs.append(self._submit_run(agent=agent, due_at=due_at, instructions=spec.instructions))
+                triggered_runs.append(await self._submit_run(agent=agent, due_at=due_at, instructions=spec.instructions))
                 state_agents[agent.agent_id] = _AgentState(last_due_at=due_at.isoformat())
 
         self._state_store.save(_SchedulerState(agents=state_agents))
         return HeartbeatTickSummary(triggered_runs=tuple(triggered_runs), skipped_agents=tuple(skipped_agents))
 
-    def _submit_run(self, *, agent: AgentWorkspaceConfig, due_at: datetime, instructions: str) -> HeartbeatRunRecord:
-        session_payload = self._kernel_client.create_session(
+    async def _submit_run(self, *, agent: AgentWorkspaceConfig, due_at: datetime, instructions: str) -> HeartbeatRunRecord:
+        session_payload = await self._kernel_client.create_session(
             workspace_root=str(agent.workspace_root),
             product_id="personal_assistant",
             title=agent.title,
