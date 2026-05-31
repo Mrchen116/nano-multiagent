@@ -361,3 +361,47 @@ orchestrator 指出前三轮覆盖过窄，连续漏掉两个用户可观察回�
 - 多条 `inconclusive`（heartbeat/cron 环境无配置、工具权限 TTY 不可达、后台通知回流 REPL 不可达、openai_compat 上游无后端）均属环境/结构性限制，继承上轮结论，不影响判定。
 
 **Verdict: fail | Highest Required Action: fix-implementation**
+
+---
+
+## fix-heartbeat-async 修复记录 — 2026-06-01
+
+**Fix worker**: fix-worker-r7
+**Branch**: fix/refactor-387-heartbeat-async → merged to unit/refactor-387
+
+### 根因确认
+
+- `_KernelClientShim.create_session`（main.py:1296-1312）用 `asyncio.get_event_loop().run_until_complete()` 包了 async `kernel.create_session()`。
+- 调用链：`HeartbeatRunnerImpl._run_loop`(async) → `scheduler.tick()`(sync) → `_submit_run()` → `shim.create_session()` → `run_until_complete` 在已运行 loop 里炸 `RuntimeError: This event loop is already running`。
+- heartbeat tick 正常触发，但所有 run 提交静默失败。
+- `InternalDispatchHandler._sync_direct_session` 只调用 `append_message`（同步），不受此 bug 影响。
+
+### 修复内容
+
+1. `HeartbeatScheduler.tick()` 改为 `async def`
+2. `HeartbeatScheduler._submit_run()` 改为 `async def`，`await kernel_client.create_session()`
+3. `_KernelClientLike` 协议 `create_session` 改为 `async`
+4. `_KernelClientShim.create_session` 改为 `async def`，去掉 `run_until_complete`，直接 `await self._kernel.create_session()`
+5. `HeartbeatRunnerImpl._run_loop` 改为 `await self._scheduler.tick()`
+6. 相关测试（test_heartbeat_scheduler.py / test_permission_pipeline_r3.py）全部改为 `@pytest.mark.asyncio`
+
+### 测试证据
+
+- `pytest tests/unit/personal_assistant/test_heartbeat_scheduler.py` → 7 passed（含新增 async 回归测试）
+- `pytest -m "not e2e"` → 2341 passed
+- `pytest tests/contract` → 97 passed（产品仍只 import agent.sdk）
+
+### e2e 实地验证
+
+启动 IM（port 61260）+ Gateway（fix worktree，interval: 10s HEARTBEAT.md），30s 内 gateway 日志观察到：
+
+```
+run_failed | error='LLM generate exceeded 20 retries: anthropic transport error',
+  run_id='run_f34b7fda1d431a79', session_id='sess_49129d747601abd8', ...
+```
+
+- `create_session()` 成功（有 session_id）
+- `submit_message()` 成功（有 run_id）
+- run 因 e2e 环境无 LLM 后端而失败，属预期；提交路径完全通畅
+- 修复前：`run_until_complete` 在 async loop 里炸，create_session 和 submit 根本不会被调用，不会有任何 run_id 出现
+
