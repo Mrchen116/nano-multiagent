@@ -32,7 +32,54 @@
 
 ## R2 — docs/specs/kernel/spec.md 内核契约层
 
-<!-- 待填 -->
+- Context: 最难的一包。内核是**库**(无 UI),消费者 = 经 `agent.sdk` 调它的两个产品 +
+  `tests/contract/` 契约测试。要从代码/测试逆向出"当前对外行为契约",不从旧 `内核设计SPEC.md`
+  蒸馏(它仍描述 refactor-387 已删的 §12 HTTP API,蒸馏=种旧 drift)。
+- Decision: 照 R1 GUIDE 骨架写 `docs/specs/kernel/spec.md`,纯 `Purpose + Requirement/Scenario`,
+  12 Requirement / 23 Scenario。每条 Scenario 主语 = 消费者(产品 / contract 测试),按 CDC 只收
+  调用方依赖的对外行为。覆盖:边界不变量(only sdk / no upward / core↛platform)、build_kernel
+  装配 + 方法集、create_session 绑 workspace、submit 非阻塞 + stream 跨循环、can_use_tool 许可裁决
+  + interrupt 解除挂起、cancel 幂等/未知 run、LLM config get/reconfigure 纯配置切换、compaction
+  可恢复、5 内置工具 + bash 截断/超时契约、hook 事件集(4 intercept)+ fail-open、skill 自动列表 +
+  `/skill:` 改写、会话溯源持久化重启可恢复。
+- Rationale: 料源优先级照 design 决策 7——① `tests/contract/`(可执行契约,不 drift)② `src/agent/
+  sdk/kernel.py` 实际代码;③ 旧 SPEC 仅作 checklist。逐条 Requirement 拿 contract 测试断言 +
+  kernel.py 方法签名重核,核不上即弃。已删 HTTP API(`/v1/*`、`AgentRuntime` 旧 §3、`platform/
+  http_api`)一律不写。
+- Evidence:
+  - Tests: N/A(契约层不带 freshness 测试,决策 4)。但每条 Requirement 已对照现有 contract 测试
+    印证其为真(见下 Entry)。
+  - Entry(逐条代码/测试对照——这是本 unit 的"真实入口验证",拿契约对 tests/contract + kernel.py 核):
+    · 边界不变量 → `test_agent_sdk_boundary_contract.py`(only sdk / no upward / 暴露 build_kernel+Kernel)
+      + `test_core_no_platform_imports.py`(core↛platform/products/fastapi/starlette)。
+    · build_kernel 装配 + 方法集 → `test_agent_sdk_surface_contract.py::test_build_kernel_returns_kernel_instance`
+      + `::test_kernel_exposes_required_methods`(方法名逐一对 `kernel.py` 核:create_session/fork_session/
+      compact/submit/stream/interrupt/cancel/get_run/list_session_tools/get_llm_config/reconfigure_llm/close ✓)。
+    · create_session 绑 workspace → `kernel.py:247` create_session(workspace_root=...)。
+    · submit 非阻塞 + stream → `::test_cross_loop_streaming_receives_run_status_event`(收到 run_status,
+      terminal completed)+ `test_kernel_sdk_behavior_contract.py::test_message_sync_completes_and_updates_run`
+      (turn_id 非空)。
+    · can_use_tool 裁决 + interrupt 解除许可 → `::test_can_use_tool_callback_is_invoked_via_permission_requester`
+      (allow→放行)+ `::test_interrupt_while_waiting_for_permission_cancels_turn`(deny,不挂起)。
+    · cancel 幂等/未知/interrupt 无活动 → `::test_run_cancel_cancels_running_run_idempotent` +
+      `::test_cancel_unknown_run_returns_none`(None 不抛)+ `::test_session_interrupt_returns_run_id`。
+    · LLM config get/reconfigure → `::test_llm_config_get_shape`(provider/model/base_url)+
+      `::test_llm_config_reconfigure_updates_provider` + `::test_global_capabilities_llm_config_round_trip`。
+    · compaction → `kernel.py:297` compact() + `test_compaction_contract.py`(reason threshold/overflow/manual、
+      result.first_kept_event_id)。
+    · 5 工具 + bash 截断/超时 → `test_tools_bash_contract.py::test_bash_truncation_contract_exposes_full_output_path`
+      (truncated=True)+ `::test_bash_timeout_contract_exposes_stable_details`;list_session_tools →
+      `::test_list_session_tools_returns_result`。
+    · hook 事件集 + fail-open → `test_hooks_contract.py::test_hook_event_contracts_are_stable`
+      (INTERCEPT_EVENTS={input,before_agent_start,tool_call,tool_result}、priority 100、timeout 1500)。
+    · skill 改写 → `test_skill_commands_contract.py`(`/skill:doc`→`Use the "doc" skill...`、带参追加 User input)。
+  - 格式自检(命令): `grep -c 覆盖:` = 0、`grep -cE '\[可执行\]|\[行为\]'` = 0、`grep -cE '/v1/|http_api'` = 0。
+  - Frontend State Matrix: N/A(无界面)
+  - Browser QA: N/A
+  - E2E/Regression: N/A — 决策 4 走软对账。系统级硬卡留给 orchestrator 收尾(reviewer/verifier 对账)。
+  - Visual/Interaction: N/A
+- Rollback: 纯新增文件,`git rm docs/specs/kernel/spec.md` 即回退。
+- Commits: 见 git log(R2 单 commit,契约文档无可断言红测试,省独立 C1,§FL② 豁免)。
 
 ## R3 — 顶点 SPEC.md 重定位 + AGENTS.md 索引 + 退役旧内核 SPEC
 

@@ -42,7 +42,7 @@
 - 步骤:新建 `docs/SPEC_GUIDE.md`。含五块:① 判据两问;② 契约层文件骨架(Purpose + Requirement/Scenario + 对齐行);③ 不进 spec 的分流表;④ orchestrator 收尾归并 checklist;⑤ 读侧 grounding checklist;⑥ 内核/库契约写法纪律(research §7.5:WHEN/THEN 主语=消费者、每 Requirement 一份 pre→post 契约或 invariant、CDC 裁剪、spec-anchored)。
 - 验证:自审 GUIDE 是否覆盖 spec.md 验收标准「文档规范 GUIDE 定义放什么/不放什么 + 骨架」的 Scenario;格式纪律符合决策 4(纯 Purpose+Req/Scenario,无标签/覆盖行/freshness)。
 
-### R2 — docs/specs/kernel/spec.md 内核契约层
+### R2 — docs/specs/kernel/spec.md 内核契约层 — DONE
 
 - 步骤:照 R1 GUIDE 骨架,从 ① `tests/contract/`(尤其 `test_agent_sdk_surface_contract.py` / `test_kernel_sdk_behavior_contract.py` / `test_agent_sdk_boundary_contract.py` / `test_core_no_platform_imports.py`)② `src/agent/sdk/kernel.py` 逆向出内核对外契约。每条 Requirement/Scenario 主语 = 经 `agent.sdk` 调用内核的消费者(产品/contract 测试)。旧 `docs/内核设计SPEC.md` 仅作 checklist 逐条拿代码重核,核不上即弃(§12 HTTP API 已删,不写)。
 - 验证:逐条 Requirement 对照 `kernel.py` 方法签名 + contract 测试断言,确认可被代码/测试印证;无实现走查、无库选型、无内部数据结构。
