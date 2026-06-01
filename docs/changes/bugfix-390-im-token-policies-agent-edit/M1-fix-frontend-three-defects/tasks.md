@@ -8,14 +8,14 @@
 
 ## 退出标准
 
-- [ ] `npm test` 全绿（token-chip / policies-page / agent-edit 三处由失败转绿，不新增失败）
-- [ ] `npm run build` 类型检查通过
-- [ ] 后端 `pytest -m "not e2e"` 全绿
-- [ ] token 牌主数字取 `usage.total`，无 `?? output` 回退
-- [ ] REST(`messages.py`) total 兜底 = WS(`event_types.py`) 口径
-- [ ] i18n EN/ZH 均补 `shell.userMenu.policies`
-- [ ] 用户菜单「节点」下方有「策略」Link 指向 `/settings/policies`
-- [ ] `/settings/policies` 路由已接回，PoliciesPage 可达
+- [x] `npm test` 全绿（token-chip / policies-page / agent-edit 三处由失败转绿，不新增失败）
+- [x] `npm run build` 类型检查通过
+- [x] 后端 `pytest -m "not e2e"` 全绿
+- [x] token 牌主数字取 `usage.total`，无 `?? output` 回退
+- [x] REST(`messages.py`) total 兜底 = WS(`event_types.py`) 口径
+- [x] i18n EN/ZH 均补 `shell.userMenu.policies`
+- [x] 用户菜单「节点」下方有「策略」Link 指向 `/settings/policies`
+- [x] `/settings/policies` 路由已接回，PoliciesPage 可达
 
 ## 测试策略
 

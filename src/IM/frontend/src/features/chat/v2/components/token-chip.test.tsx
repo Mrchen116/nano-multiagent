@@ -17,13 +17,18 @@ describe("TokenChip", () => {
   });
 
   it("switches to the warning variant at 70% context usage", () => {
-    render(<TokenChip usage={{ output: 50, context_used: 140_000, context_window: 200_000 }} />);
+    // bugfix-390 FIX-2: fixture must include total; without it displayed=usage.total!
+    // renders "undefined tok" but the test only checked CSS class, hiding the defect.
+    render(<TokenChip usage={{ output: 50, context_used: 140_000, context_window: 200_000, total: 140_050 }} />);
     expect(screen.getByRole("button")).toHaveClass("chat-token-chip--warn");
+    expect(screen.getByRole("button").textContent).toMatch(/140\.1k/);
   });
 
   it("switches to the critical variant at 90% context usage", () => {
-    render(<TokenChip usage={{ output: 50, context_used: 190_000, context_window: 200_000 }} />);
+    // bugfix-390 FIX-2: fixture must include total for the same reason.
+    render(<TokenChip usage={{ output: 50, context_used: 190_000, context_window: 200_000, total: 190_050 }} />);
     expect(screen.getByRole("button")).toHaveClass("chat-token-chip--critical");
+    expect(screen.getByRole("button").textContent).toMatch(/190\.1k/);
   });
 
   it("renders nothing when usage is missing", () => {
