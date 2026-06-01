@@ -608,3 +608,216 @@ def test_parse_token_usage_derives_total_when_missing() -> None:
     parsed = _parse_token_usage({"prompt": 12, "completion": 30})
     assert parsed is not None
     assert parsed.total == 42
+
+
+# ---------------------------------------------------------------------------
+# feat-393: turn_start to_user_id 模式 — heartbeat canonical 直聊解析
+# ---------------------------------------------------------------------------
+
+
+def _build_handler_with_event_bridge(tmp_path: Path) -> tuple["GatewayHandler", object]:
+    """Build a GatewayHandler with a real EventBridge wired to a FK-enforced DB.
+
+    FK enforcement comes from initialize_schema which calls PRAGMA foreign_keys=ON.
+    This is the guard against M138-style fake-green tests that used mocks bypassing FK.
+    """
+    from IM.application.event_bridge import EventBridge
+    from IM.infra.repositories import EventRepository
+
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    msg_repo = MessageRepository(connection)
+    evt_repo = EventRepository(connection)
+    bridge = EventBridge(message_repository=msg_repo, event_repository=evt_repo, notify=None)
+    # user_repository is auto-derived from conversation_repository._connection in GatewayHandler.__init__
+    handler = GatewayHandler(
+        relay_service=RelayService(connection),
+        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+        conversation_repository=ConversationRepository(connection),
+        event_bridge=bridge,
+    )
+    return handler, connection
+
+
+def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_creates_message(tmp_path: Path) -> None:
+    """turn_start with to_user_id finds/creates the canonical (owner,agent) direct conv and persists a real message row.
+
+    FK-enforced DB path: messages row must exist before events row is written.
+    M138 fake-green guard: initialize_schema sets PRAGMA foreign_keys=ON; any synthetic FK would raise here.
+    """
+    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    owner = users.create_user(username="nano", display_name="Nano")
+    agent_user = users.create_user(username="agent:alpha", display_name="Alpha")
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["alpha"], "capabilities": {}},
+        )
+    )
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "turn_start",
+                "to_user_id": owner.id,
+                "agent_id": "alpha",
+                "run_id": "run-heartbeat-1",
+            },
+        )
+    )
+
+    assert response["type"] == "ack"
+    ack_payload = response["payload"]
+    assert ack_payload["kind"] == "turn_start"
+    message_id = ack_payload.get("message_id")
+    assert message_id, "turn_start ack must return message_id so gateway can store it in run_context_store"
+    conversation_id = ack_payload.get("conversation_id")
+    assert conversation_id, "turn_start ack must return conversation_id for heartbeat run context"
+
+    # Verify the canonical direct conversation and real message row exist in FK-enforced DB.
+    conversations = ConversationRepository(connection)
+    conv = conversations.get_conversation(conversation_id=str(conversation_id))
+    assert conv is not None
+    assert conv.type == "direct"
+    assert conv.direct_kind == "user-agent"
+    assert set(conv.participant_ids) == {owner.id, agent_user.id}
+
+    messages = MessageRepository(connection).list_messages(conversation_id=conv.id)
+    assert len(messages) == 1
+    assert messages[0].id == str(message_id)
+    assert messages[0].sender_type == "agent"
+
+
+def test_turn_start_to_user_id_creates_direct_conversation_when_none_exists(tmp_path: Path) -> None:
+    """turn_start with to_user_id auto-creates the canonical direct conversation when owner has no prior chat."""
+    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    owner = users.create_user(username="new-owner", display_name="New Owner")
+    users.create_user(username="agent:beta", display_name="Beta")
+
+    assert len(ConversationRepository(connection).list_conversations()) == 0
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["beta"], "capabilities": {}},
+        )
+    )
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "turn_start",
+                "to_user_id": owner.id,
+                "agent_id": "beta",
+                "run_id": "run-heartbeat-2",
+            },
+        )
+    )
+
+    assert response["type"] == "ack"
+    conversations_after = ConversationRepository(connection).list_conversations()
+    assert len(conversations_after) == 1
+    conv = conversations_after[0]
+    assert conv.type == "direct"
+    assert conv.direct_kind == "user-agent"
+
+
+def test_turn_start_to_user_id_uses_oldest_conversation_when_multiple_exist(tmp_path: Path) -> None:
+    """turn_start with to_user_id selects the canonical (oldest) direct conversation when owner has multiple."""
+    import time
+
+    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    convs = ConversationRepository(connection)
+    owner = users.create_user(username="multi-owner", display_name="Multi Owner")
+    agent_user = users.create_user(username="agent:gamma", display_name="Gamma")
+
+    first_conv = convs.create_conversation(
+        title="first-direct",
+        participant_ids=[owner.id, agent_user.id],
+    )
+    time.sleep(0.01)  # ensure different created_at
+    convs.create_conversation(
+        title="second-direct",
+        participant_ids=[owner.id, agent_user.id],
+    )
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["gamma"], "capabilities": {}},
+        )
+    )
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "turn_start",
+                "to_user_id": owner.id,
+                "agent_id": "gamma",
+                "run_id": "run-heartbeat-3",
+            },
+        )
+    )
+
+    assert response["type"] == "ack"
+    returned_conv_id = response["payload"].get("conversation_id")
+    assert returned_conv_id == first_conv.id, "must land on the oldest (canonical) direct conversation"
+
+
+def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(tmp_path: Path) -> None:
+    """turn_start with conversation_id follows the existing eager-bubble path (regression guard).
+
+    Ensures the to_user_id branch does not interfere with normal chat eager placeholder behavior.
+    """
+    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    convs = ConversationRepository(connection)
+    owner = users.create_user(username="chat-owner", display_name="Chat Owner")
+    agent_user = users.create_user(username="agent:delta", display_name="Delta")
+    conv = convs.create_conversation(title="chat", participant_ids=[owner.id, agent_user.id])
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["delta"], "capabilities": {}},
+        )
+    )
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "turn_start",
+                "conversation_id": conv.id,
+                "agent_id": "delta",
+                "run_id": "run-chat-1",
+            },
+        )
+    )
+
+    assert response["type"] == "ack"
+    msg_id = response["payload"].get("message_id")
+    assert msg_id, "existing eager-bubble path must still return message_id immediately"
+    # Verify real message row created (FK path unbroken for normal chat)
+    messages = MessageRepository(connection).list_messages(conversation_id=conv.id)
+    assert len(messages) == 1
+    assert messages[0].id == str(msg_id)
