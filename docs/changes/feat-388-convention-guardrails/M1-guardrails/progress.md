@@ -90,6 +90,37 @@
 - Rollback: `git revert 3dbd86d7`
 - Commits: C2=3dbd86d7
 
+## PR-fix: clean-CI 5 failures（2026-06-01）
+
+CI 首次在 clean Linux runner（Python 3.11）上暴露 5 个存量失败，均为"本地 macOS + 被污染 venv"隐藏的历史债，非 feat-388 引入。修复 commit `51bc4055`，push 到 `unit/feat-388`。
+
+### 失败 1-3：`test_scan_finds_personal_assistant_main_in_pytest_tmpdir` / `test_scan_finds_kernel_app_in_pytest_tmpdir` / `test_kill_leaked_processes_actually_kills`
+
+- 根因：`tests/e2e/conftest.py::_scan_leaked_pids` 用 `ps -eo pid=,command=`。Linux 非 tty 下 `ps` 默认按终端列宽截断 command 列，含长 pytest tmpdir 路径（`pytest-of-tester/pytest-99/test_x/node-config.yaml` 等）的 cmdline 被截掉，无法匹配到标记字符串；macOS `ps` 不截断，本地不暴露。这是 scanner 真 bug：Linux 上会漏报泄漏进程，削弱 e2e 清理保障。
+- 修法：`ps -eo` 改为 `ps -ww -eo`。`-ww` 跨平台取消列宽限制，确保完整 cmdline 输出。修在源头 `tests/e2e/conftest.py`，同时补注释说明 Linux 截断问题。
+- 修在哪层：`tests/e2e/conftest.py`（scanner 源头，非测试用例侧）。
+
+### 失败 4：`test_frontend_runtime_bundle_exposes_mark_as_read_flow`
+
+- 根因：测试访问 `/chat/<id>` 抓 HTML 里 `/assets/` bundle 路径再验 `mark_as_read` 字符串，依赖 `src/IM/frontend/dist/` 构建产物存在。CI python job 按 design 不 build 前端（前端归 `frontend` job 的 vitest，且 `dist/` 不提交），无 dist → IM `StaticFiles` mount 失败 → `/chat/` 重定向循环 → `TooManyRedirects`。
+- 修法：函数体首行检测 `dist/` 是否存在，不存在则 `pytest.skip()`，保留有构建产物环境的真实断言（不削弱）。同时补 docstring 说明 CI python job 不 build 前端的 design 约束。
+- 修在哪层：`tests/im_service/integration/test_messages_api.py`（测试入口，skip 条件判断在此）。
+
+### 失败 5：`test_create_agent_without_workspace_persists_managed_default_workspace_root`
+
+- 根因：`fake_request_agent_create` 返回 `workspace_root: "/Users/czj/nano-assistant/workspace/{agent_id}"`，硬编码了开发者 macOS HOME。CI Linux runner HOME 不同（`/home/runner` 等），`is_managed_workspace_root` 用 `Path("~/nano-assistant/workspace").expanduser()` 展开后与 `/Users/czj/...` 不匹配，返回 False，`workspace_is_default` 断言失败。这是测试假设问题（写死 HOME），不是逻辑 bug。
+- 修法：fake handler 返回路径改为 `managed_workspace_root(str(payload["agent_id"]))`，与被测代码使用同一工厂函数，消除 HOME 依赖。同时在 import 段引入 `from IM.domain.models import managed_workspace_root`。
+- 修在哪层：`tests/im_service/integration/test_agent_create_flow.py`（测试的 fake handler，测试假设层）。
+
+### CI 验证证据
+
+- Run URL: https://github.com/Mrchen116/nano-multiagent/actions/runs/26753532054
+- Python checks (ID 78847337760): ✓ 2m7s — ruff check / ruff format --check / pytest (not e2e) 全绿
+- Frontend checks (ID 78847337766): ✓ 52s — npm ci / vitest run 全绿
+- 本地 clean venv (`python3 -m venv /tmp/fix-venv-388`)：2341 passed, 1 skipped（`test_frontend_runtime_bundle` 正确 skip，无 dist）
+
+---
+
 ## 最终状态
 
 - `ruff check .` 全绿
