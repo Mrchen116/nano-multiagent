@@ -11,7 +11,7 @@ from IM.repositories import NodeRepository, UserRepository
 
 from .conftest import authorize, register_user
 
-_WORKSPACE_PATH_SETTING = "/Users/czj/nano-assistant/workspace/fuck"
+_WORKSPACE_PATH_SETTING = "/tmp/nano-test/workspace/test-agent"
 
 
 def test_create_agent_lists_details_and_uses_new_node_binding_for_relay(

@@ -235,9 +235,7 @@ def test_run_cli_repl_command_errors_include_actionable_suggestions(tmp_path) ->
 def test_run_cli_repl_absolute_path_input_is_not_treated_as_command(tmp_path) -> None:
     stub = _BaseKernelStub()
     output = io.StringIO()
-    path_line = (
-        "/Users/czj/Repos/nano-multiagent/Snipaste_2026-03-03_12-54-14.png这个呢"
-    )
+    path_line = "/tmp/nano-test/screenshot_2026-03-03.png这个呢"
     inputs = iter(["/new", path_line, "/exit"])
 
     exit_code = run_cli(
