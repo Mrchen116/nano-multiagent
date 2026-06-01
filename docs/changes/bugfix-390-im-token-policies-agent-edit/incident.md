@@ -39,7 +39,11 @@ FAIL  src/features/settings/agents/agent-edit.test.tsx
 
 - Q2: token 用量牌按钮上的主数字，显示 agent 写出来的量（output）还是这一轮总消耗（total，含读进去的上下文）？
   A(原话): 同意你说的，按总的显示。
-  Agent 解读: 牌子主数字显示 total（prompt+completion 总和）。total 缺失的旧消息回退显示 output（向后兼容）。
+  Agent 解读: 牌子主数字显示 total（prompt+completion 总和）。
+
+- Q2b: total 缺失时（pre-M17 旧持久化行）牌子主数字怎么办——回退显示 output？
+  A(原话): 无 total 自动回退 output。坚决不搞这种退回
+  Agent 解读: 否决视图层回退。output 严重低估、是误导性退让，前端不得用它顶替。改为在数据源头保证 total 恒有值——后端 WS 路径已兜底（`event_types.py:67` = `total or context_used+output`），REST 序列化路径对齐同一公式，使 total 成为契约必有字段；前端直接取 `usage.total`，无任何回退。详见 design.md 决策 1。
 
 - Q3: 进不去的「全局策略」页放哪？
   A(原话): 放到这吧[用户菜单下拉截图]，账号、节点按钮下面加多一个
@@ -96,12 +100,12 @@ FAIL  src/features/settings/agents/agent-edit.test.tsx
 
 ### Requirement: token 用量牌显示这一轮的总消耗
 #### Scenario: 回复带 total
-- **WHEN** 用户查看一条带 `total` 的 agent 回复的 token 用量牌
+- **WHEN** 用户查看一条 agent 回复的 token 用量牌
 - **THEN** 牌子主数字显示 total（例 total=2429 → "2.4k"），而非 output
-#### Scenario: 旧回复无 total（向后兼容）
-- **GIVEN** 一条在 total 字段引入前持久化的旧回复
+#### Scenario: 旧回复（pre-M17 持久化行）经历史加载
+- **GIVEN** 一条在 total 字段引入前持久化的旧回复，用户重新打开会话经 REST 历史加载它
 - **WHEN** 用户查看其 token 用量牌
-- **THEN** 牌子回退显示 output，不报错、不显示空白
+- **THEN** 牌子主数字仍显示 total（后端 REST 序列化按 `total or context_used+output` 兜底，恒有值），**不退回显示 output**、不报错、不显示空白
 
 ### Requirement: 全局策略页可从用户菜单进入并使用
 #### Scenario: 从用户下拉菜单进入
@@ -118,12 +122,12 @@ FAIL  src/features/settings/agents/agent-edit.test.tsx
 ## 范围与非目标
 
 **本期做**：
-- token 牌主数字改为 total（旧消息回退 output）。
+- token 牌主数字改为 total，前端不做视图层回退；total 由后端契约保证恒有值（REST 序列化对齐 WS 已有的 `total or context_used+output` 兜底）。
 - 全局策略页：接回路由 + 在用户下拉菜单「节点」下方加「策略」入口。
 - agent-edit：更新陈旧测试断言以匹配当前正确的保存行为（含 `features`）。
 
 **非目标**：
-- 不重新设计 token 牌的详情面板布局、不改 token 统计口径本身（只改牌子主数字取哪个已有字段）。
+- 不重新设计 token 牌的详情面板布局、不改 token 统计口径本身（只改牌子主数字取 total，并把 REST 序列化的 total 兜底对齐到 WS 既有口径，使其恒有值）。
 - 不重做全局策略页的功能/字段（只恢复可达性 + 入口；页面既有能力保持）。
 - 不改 agent 保存的实际行为（它正常）；不借机重构 agent 编辑表单。
 - **不在本 unit 搭建 CI**。本仓目前无任何 CI（无 `.github/workflows`），CI 门禁由 **feat-388** 负责建设。RCA 已指出"前端测试无门禁"是共同根因，**防复发归 feat-388**（需在其 `ci.yml` 补前端 vitest job，已就此向 388 提补充）；本 unit 仅修三处缺陷本身。
