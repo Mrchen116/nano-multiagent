@@ -821,3 +821,54 @@ def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(tmp_path: Pa
     messages = MessageRepository(connection).list_messages(conversation_id=conv.id)
     assert len(messages) == 1
     assert messages[0].id == str(msg_id)
+
+
+def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception(tmp_path: Path) -> None:
+    """turn_start with a to_user_id that does not exist in the DB must return a skipped ack, never raise.
+
+    Root cause of feat-393 round-1 WS flap: _find_or_create_direct_conversation calls
+    create_conversation with a nonexistent left_user_id; SQLite FK enforcement raises
+    IntegrityError which propagated out of serve() and closed the connection — causing
+    413 open/close cycles.
+
+    The fix must stay per-handler (not a broad except in serve()) so that other frame
+    types' real exceptions still surface.  This test uses a FK-enforced DB (foreign_keys=ON
+    via initialize_schema) to ensure the FK violation path is exercised, not mocked away.
+    """
+    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    # Register agent user so agent lookup succeeds; owner user intentionally absent.
+    users = UserRepository(connection)
+    users.create_user(username="agent:epsilon", display_name="Epsilon")
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["epsilon"], "capabilities": {}},
+        )
+    )
+
+    nonexistent_owner_id = "00000000000000000000000000000000"
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "turn_start",
+                "to_user_id": nonexistent_owner_id,
+                "agent_id": "epsilon",
+                "run_id": "run-heartbeat-bad-owner",
+            },
+        )
+    )
+
+    # Must be a skipped ack, not an exception.  WS connection must stay alive.
+    assert response["type"] == "ack"
+    ack_payload = response["payload"]
+    assert ack_payload.get("skipped") == "owner_unresolved", (
+        f"Expected skipped='owner_unresolved' but got: {ack_payload!r}"
+    )
+    # No message rows must have been created (owner does not exist, nothing to deliver).
+    all_convs = ConversationRepository(connection).list_conversations()
+    assert all_convs == [], "No conversation should have been created for a nonexistent owner"
