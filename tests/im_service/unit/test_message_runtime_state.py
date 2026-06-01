@@ -113,3 +113,52 @@ def test_update_runtime_state_appends_content_and_upserts_tool_call(tmp_path: Pa
 def test_tool_call_validates_status() -> None:
     with pytest.raises(ValueError):
         ToolCall(id="x", name="t", status="bogus", duration_ms=None, input={}, output=None)
+
+
+def test_decode_token_usage_with_null_total_derives_from_context_plus_output(tmp_path: Path) -> None:
+    """bugfix-390 FIX-1: pre-M17 rows have "total": null in JSON.
+
+    parsed.get("total", 0) returns None (key exists, value is null) not 0,
+    so int(None) would raise TypeError → the old except block silently returned None
+    → the entire message.token_usage became None → token chip not rendered.
+
+    The fix moves the fallback derivation into _decode_token_usage so the decode
+    layer is the single source of truth for "total is always non-None".
+    """
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(title="t", participant_ids=[alice.id])
+
+    # Persist a message with total explicitly set, then manually corrupt its JSON in DB
+    # to simulate the pre-M17 "total": null persisted row.
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="old message",
+        token_usage=TokenUsage(output=100, context_used=5000, context_window=200000, total=5100),
+    )
+
+    # Overwrite token_usage JSON with "total": null to simulate the pre-M17 row
+    import json
+    from IM.infra.db import connect as _connect
+    conn = _connect(tmp_path / "im.db")
+    null_total_json = json.dumps({
+        "output": 100,
+        "context_used": 5000,
+        "context_window": 200000,
+        "total": None,
+    })
+    conn.execute(
+        "UPDATE messages SET token_usage_json = ? WHERE id = ?",
+        (null_total_json, created.id),
+    )
+    conn.commit()
+
+    listed = messages.list_messages(conversation_id=conversation.id)
+    usage = listed[-1].token_usage
+
+    # Must decode successfully (not None) and total must be derived as context_used + output
+    assert usage is not None, "token_usage must not be None for pre-M17 rows with total=null"
+    assert usage.total == 5100, f"expected total=5100 (5000+100), got {usage.total}"
+    assert usage.output == 100
+    assert usage.context_used == 5000
