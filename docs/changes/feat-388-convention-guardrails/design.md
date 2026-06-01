@@ -7,6 +7,18 @@
 
 - 对齐 spec.md v2(Q7):D3 扩为前后端两个并行 CI job,新增前端 `frontend` job(Node 20 → `npm ci` → `npm run test`,不跑 build / 不引入 tsc);现状分析补 `src/IM/frontend/` 与 bugfix-390(已并 main,前端门依赖已兑现);风险/Runbook/Milestone 两轨退出标准同步补前端门条目。
 
+### 实施期偏差与扩范围(开 PR #72 后)
+
+> CI 首次在干净 runner 运行,暴露了一批"靠开发者污染本地环境跑绿"的系统性债。原 design 现状分析只用 ruff 扫了卫生违规、**未扫 pytest 基线**,因而漏判了一个错误假设——"main 测试在 clean runner 能跑绿"。用户决定借本 PR 统一清理,故实际交付范围超出原 spec(规范固化 5 条 + CI 双门)。逐条记录:
+
+- **依赖声明黑洞补全**(commit `dedb504d`、`d9743a66`):`pyyaml`/`websockets`/`aiohttp`/`ddgs` 此前从未在 `pyproject` 声明,靠本地全局包(chromadb/litellm 等)传递依赖碰巧带入;clean runner 缺失 → collection 83 error + 运行时 ModuleNotFoundError(aiohttp 延迟 import 一度被误判 flaky)。系统扫 src 第三方 import 对照 clean venv 一次性补进核心依赖。
+- **CI `push` 触发限主干**(commit `d2b529ba`,已同步 D3 + §CI 契约):`on: push(branches:[main]) + pull_request`,避免开 PR 后同一 commit 被 push 与 pull_request 双触发跑两遍。
+- **5 个 clean-CI 存量测试失败修复**(commit `51bc4055`,out-of-unit、非本 unit 代码引入):`tests/e2e/conftest.py::_scan_leaked_pids` 的 `ps -eo`→`ps -ww`(Linux 非 tty 截断长 cmdline 漏报泄漏进程)、测试 fixture 硬编码 `/Users/czj/` 本地路径、前端 dist 依赖(无 dist 时 `pytest.skip`)。
+- **web_search 工具修复 + fail-loud**(commit `d9743a66`,原 spec 未含、用户主导扩入):`duckduckgo_search`(2024 改名废弃)→ `ddgs` 迁移 + 核心依赖;删 `except: return []` 静默吞——provider 缺失/调用失败**直接抛错**(不再把"搜索不可用"伪装成"零结果"骗 agent),仅真实零结果返 `[]`;5 单测覆盖。考据:该工具是旧 M219「救火恢复误丢失工具」时搬回、未补依赖声明,靠污染本地跑至今。
+- **硬编码开发者路径治理 + 静默吞异常审计**(`path-worker` 批次):5 个测试文件写死的 `/Users/czj/...` → 环境无关写法,`grep /Users/czj tests/` 归零、断言未削弱;AST 扫 src 85 处 `except` 分类(可选功能探测/异步控制流/side-effect BLE001/IO 容错/配置降级),确认无 web_search 同款「掩盖真错误」型,src 零改动。
+- **测试策略决定**:`test_messages_api` 的前端 bundle 校验维持 `no-dist skip`——dist 不上库(.gitignore 忽略、git 零跟踪),CI 无可验、本地验旧 build 残留不可信,是虚假安全感,不为它让 CI build 前端。
+- **未做(follow-up)**:`ruff-guardrail.py` hook 的 autofix/exit2 行为无自动化单测(当前靠实测),低优先级,留后续单独补。
+
 ## 现状分析
 
 ### 涉及范围
