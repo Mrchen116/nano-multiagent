@@ -1,6 +1,6 @@
 # feat-393-M1 Progress
 
-## Status: DOING
+## Status: DONE
 
 ##澄清记录
 
@@ -24,7 +24,36 @@
   - Visual/Interaction: N/A
 - Rollback: C1=b4211ed5, C2=66a3815b
 - Commits: C1=b4211ed5, C2=66a3815b, C3=（本条记录）
-- Next: R3 — 全套回归验证 + 文档更新
+- Next: 完成，M1 DONE
+
+### R3 — 全套回归验证
+
+- Context: R1+R2 完成后验证全量测试树通过，并核对 worker 退出标准逐条达标。
+- Decision: 跑 `pytest -m "not e2e"` 全量 + 逐条核对 [worker] 退出标准。
+- Rationale: 防止 R1/R2 改动意外影响普通聊天流式路径或 IM 其他路径。
+- Evidence:
+  - Tests: `pytest -m "not e2e" -q` — 2351 passed, 4 deselected, 15 warnings
+  - Entry: N/A（纯回归验证）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression:
+    - `test_heartbeat_with_content_creates_real_message_row_in_fk_enforced_db` ✓ — 真实 FK message 路径
+    - `test_heartbeat_no_reply_produces_zero_message_rows` ✓ — 静默 tick 零 message
+    - `test_heartbeat_empty_content_produces_zero_message_rows` ✓ — 空内容静默
+    - `test_normal_chat_run_context_store_eager_bubble_unchanged` ✓ — 普通聊天 eager bubble 不变
+    - `test_heartbeat_scheduler_reuses_stable_heartbeat_session_across_ticks` ✓ — fresh-session 旁路已删
+    - `test_turn_start_conversation_id_mode_unchanged_normal_chat_path` ✓ — 普通聊天 turn_start 不变
+  - Visual/Interaction: N/A
+- Worker 退出标准核对:
+  - [worker] 集成测试真实 FK path ✓
+  - [worker] 静默 tick 零 message ✓
+  - [worker] 普通聊天无回归 ✓
+  - [worker] pytest -m "not e2e" 全绿（含 IM_service）✓
+  - [worker] fresh-session 旁路已删（`_get_or_create_heartbeat_session` 稳定复用）✓
+  - [worker] `origin=heartbeat` 门控唯一开关：`to_user_id` 在 run_context_store 中作为判定字段，仅 heartbeat runner 写入 ✓
+- Rollback: 回退到 R2 C3（b092b364）即恢复 heartbeat 正常执行但不投递状态。
+- Commits: C1/C2/C3 共用一个 docs commit 记录
+- Next: M1 完成，合并到 unit/feat-393
 
 ### R2 — heartbeat observer 惰性 turn_start + 稳定 :heartbeat session
 
