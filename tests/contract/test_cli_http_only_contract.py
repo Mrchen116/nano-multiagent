@@ -10,8 +10,6 @@ import ast
 import inspect
 from pathlib import Path
 
-import pytest
-
 from coding_cli.input import repl_commands as cli_repl_commands
 from coding_cli import commands as cli_commands
 from coding_cli import main as cli_main

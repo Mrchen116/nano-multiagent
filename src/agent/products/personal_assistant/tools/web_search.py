@@ -11,30 +11,35 @@ from agent.core.tools.base import ToolContext
 def _search_duckduckgo(query: str, count: int) -> list[dict[str, str]]:
     """Search via DuckDuckGo (free, no API key).
 
-    Returns:
-        List of dicts with title/url/snippet keys. Empty list on failure.
-    """
-    try:
-        from duckduckgo_search import DDGS  # type: ignore[import-untyped]
+    Raises ImportError if ddgs package is not installed — caller must not
+    treat a missing provider as zero results.
 
-        with DDGS() as ddgs:
-            raw = list(ddgs.text(query, max_results=count))
-        return [
-            {
-                "title": r.get("title", ""),
-                "url": r.get("href", ""),
-                "snippet": r.get("body", ""),
-            }
-            for r in raw
-        ]
-    except Exception:
-        return []
+    Returns:
+        List of dicts with title/url/snippet keys. Empty list only when the
+        provider works normally but the query returns no hits.
+    """
+    # ImportError propagates intentionally: missing provider ≠ zero results.
+    from ddgs import DDGS  # type: ignore[import-untyped]
+
+    raw = DDGS().text(query, max_results=count)
+    return [
+        {
+            "title": r.get("title", ""),
+            "url": r.get("href", ""),
+            "snippet": r.get("body", ""),
+        }
+        for r in raw
+    ]
 
 
 def _search_brave(query: str, count: int) -> list[dict[str, str]]:
     """Search via Brave Search API. Falls back to DuckDuckGo when key is absent.
 
     Requires BRAVE_API_KEY env var.
+
+    When Brave API itself fails (network error, bad status) the call falls
+    through to DuckDuckGo.  If the fallback also fails, the exception
+    propagates — search is genuinely unavailable and must not be silenced.
 
     Returns:
         List of dicts with title/url/snippet keys.
@@ -64,6 +69,7 @@ def _search_brave(query: str, count: int) -> list[dict[str, str]]:
             for x in resp.json().get("web", {}).get("results", [])
         ]
     except Exception:
+        # Brave API failed — fall through to ddg; if ddg also raises, propagate.
         return _search_duckduckgo(query, count)
 
 

@@ -60,13 +60,14 @@ def test_web_search_raises_when_provider_call_fails() -> None:
     """When DDGS().text() raises (e.g. network/auth error), the error must propagate.
 
     Provider-level failures are not 'zero results' — they mean 'search unavailable'.
+    Uses patch.dict on _PROVIDERS so the tool's dispatch path sees the replaced fn.
     """
     from agent.products.personal_assistant.tools import web_search as ws_module
 
-    def _failing_ddgs(*args: Any, **kwargs: Any) -> list[Any]:
+    def _failing_ddgs(query: str, count: int) -> list[Any]:
         raise RuntimeError("upstream search provider unreachable")
 
-    with patch.object(ws_module, "_search_duckduckgo", side_effect=_failing_ddgs):
+    with patch.dict(ws_module._PROVIDERS, {"duckduckgo": _failing_ddgs}):
         tool = _make_tool()
         ctx = _make_ctx()
         with pytest.raises(RuntimeError):
@@ -82,7 +83,10 @@ def test_web_search_returns_empty_list_on_true_zero_results() -> None:
     """When provider returns [] legitimately (no hits), tool must return ok=True, results=[]."""
     from agent.products.personal_assistant.tools import web_search as ws_module
 
-    with patch.object(ws_module, "_search_duckduckgo", return_value=[]):
+    def _zero_results(query: str, count: int) -> list[Any]:
+        return []
+
+    with patch.dict(ws_module._PROVIDERS, {"duckduckgo": _zero_results}):
         tool = _make_tool()
         ctx = _make_ctx()
         result = tool.run({"query": "xyzzy_this_query_has_no_results_12345"}, ctx)
@@ -101,21 +105,18 @@ def test_brave_fallback_exhausted_raises() -> None:
 
     Previously: brave except → _search_duckduckgo() → except → [] (silent double-swallow).
     Now: brave except → _search_duckduckgo() → raises → caller sees error.
+    Uses patch.dict on _PROVIDERS so the dispatch in tool.run picks up the replaced fn.
     """
     from agent.products.personal_assistant.tools import web_search as ws_module
-    import os
 
-    def _failing_ddgs(query: str, count: int) -> list[Any]:
-        raise RuntimeError("ddgs also down")
+    def _failing_brave(query: str, count: int) -> list[Any]:
+        raise RuntimeError("brave and ddg both down")
 
-    with patch.dict(os.environ, {"BRAVE_API_KEY": "fake-key"}):
-        with patch.object(ws_module, "_search_duckduckgo", side_effect=_failing_ddgs):
-            # _search_brave will fail (httpx.get to real Brave API with fake key),
-            # then fall through to _search_duckduckgo which also raises
-            tool = _make_tool()
-            ctx = _make_ctx()
-            with pytest.raises(Exception):
-                tool.run({"query": "test"}, ctx)
+    with patch.dict(ws_module._PROVIDERS, {"brave": _failing_brave}):
+        tool = _make_tool()
+        ctx = _make_ctx()
+        with pytest.raises(RuntimeError):
+            tool.run({"query": "test", "provider": "brave"}, ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +129,9 @@ def test_web_search_returns_results_when_ddgs_available() -> None:
 
     Skipped if ddgs is not installed (optional integration check).
     """
-    pytest.importorskip("ddgs", reason="ddgs not installed — skipping integration check")
+    pytest.importorskip(
+        "ddgs", reason="ddgs not installed — skipping integration check"
+    )
 
     tool = _make_tool()
     ctx = _make_ctx()
