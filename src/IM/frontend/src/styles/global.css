@@ -1577,6 +1577,35 @@ body {
   color: inherit;
 }
 
+/* GFM pipe tables (renderTableBlock in message-pane). display:block + overflow
+   lets a wide table scroll horizontally inside the bubble instead of forcing
+   the whole bubble wider. */
+.im-md-table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+
+.im-md-table th,
+.im-md-table td {
+  border: 1px solid oklch(0.82 0.01 240);
+  padding: 0.3rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.im-md-table thead th {
+  background: oklch(0.90 0.01 240);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.im-md-table tbody tr:nth-child(even) td {
+  background: oklch(0.965 0.004 240);
+}
+
 .chat-bubble-attachments {
   display: flex;
   flex-wrap: wrap;

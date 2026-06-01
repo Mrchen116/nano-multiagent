@@ -458,6 +458,8 @@ function MarkdownContent({
           const code = block.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
           return <pre key={idx}><code>{code}</code></pre>;
         }
+        const tableNode = renderTableBlock(block, idx, participants);
+        if (tableNode) return tableNode;
         if (/^\s*[-*]\s+/m.test(block)) {
           const items = block.split("\n").filter(Boolean).map((line) => line.replace(/^\s*[-*]\s+/, ""));
           return (
@@ -482,6 +484,74 @@ function MarkdownContent({
       })}
     </div>
   );
+}
+
+/**
+ * GFM pipe table → real <table>. The hand-rolled renderer otherwise drops a
+ * table block into a <p>, leaving the raw `|`/`---` pipes squashed onto one
+ * line. We detect the standard shape (header row + `|---|` delimiter row) and
+ * emit cells; cell text still flows through renderInlineContent so inline
+ * emphasis and @mentions inside cells keep working.
+ *
+ * Body rows must contain a pipe, which drops any prose accidentally glued to
+ * the table by a single newline instead of treating it as data rows.
+ */
+function renderTableBlock(
+  block: string,
+  idx: number,
+  participants?: Actor[],
+): React.ReactNode | null {
+  const lines = block.split("\n").map((l) => l.trimEnd());
+  if (lines.length < 2 || !lines[0]!.includes("|") || !isTableDelimiterRow(lines[1]!)) {
+    return null;
+  }
+  const headers = splitTableRow(lines[0]!);
+  const aligns = splitTableRow(lines[1]!).map(cellAlign);
+  const rows = lines.slice(2).filter((l) => l.trim() && l.includes("|")).map(splitTableRow);
+  return (
+    <table key={idx} className="im-md-table">
+      <thead>
+        <tr>
+          {headers.map((cell, i) => (
+            <th key={i} style={{ textAlign: aligns[i] }}>{renderInlineContent(cell, participants)}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, rIdx) => (
+          <tr key={rIdx}>
+            {headers.map((_, cIdx) => (
+              <td key={cIdx} style={{ textAlign: aligns[cIdx] }}>
+                {renderInlineContent(row[cIdx] ?? "", participants)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function splitTableRow(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split("|").map((c) => c.trim());
+}
+
+function isTableDelimiterRow(line: string): boolean {
+  if (!line.includes("-")) return false;
+  const cells = splitTableRow(line);
+  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c));
+}
+
+function cellAlign(spec: string): "left" | "center" | "right" | undefined {
+  const left = spec.startsWith(":");
+  const right = spec.endsWith(":");
+  if (left && right) return "center";
+  if (right) return "right";
+  if (left) return "left";
+  return undefined;
 }
 
 /**
