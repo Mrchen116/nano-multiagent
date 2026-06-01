@@ -103,7 +103,7 @@ B-2 真实违规 ≈ 66 处(57 可 `--fix` 自动修)。
 
 ### 决策 D3: 触点 (c) = 新建 GitHub Actions CI(现状零 CI),前后端两个并行 job 任一红即阻止合并
 
-- **选择**: 新建 `.github/workflows/ci.yml`,`on: [push, pull_request]`,内含**两个并行 job**(`needs` 互不依赖,失败各自独立):
+- **选择**: 新建 `.github/workflows/ci.yml`,`on: push(仅 branches: [main])+ pull_request`(push 限主干,避免开 PR 后同一 commit 被 push 与 pull_request 双触发跑两遍),内含**两个并行 job**(`needs` 互不依赖,失败各自独立):
   - **`python`**: setup Python 3.11 → `pip install -e ".[dev]"` → `ruff check .` → `ruff format --check .` → `pytest -m "not e2e"`(契约测试 R1/R2/R3 在内)。
   - **`frontend`**: `actions/setup-node@v4` Node **20**(带 npm cache,`cache-dependency-path: src/IM/frontend/package-lock.json`)→ 在 `src/IM/frontend/` 下 `npm ci` → `npm run test`(= `vitest run`)。
   - 任一 job 失败 → workflow 红 → 阻止合并。
@@ -153,8 +153,8 @@ B-2 真实违规 ≈ 66 处(57 可 `--fix` 自动修)。
 
 ### CI 契约(`.github/workflows/ci.yml`)
 
-- `on: [push, pull_request]`,两个并行 job(ubuntu):
-  - **`python`**(py3.11):`pip install -e ".[dev]"` → `ruff check .` → `ruff format --check .` → `pytest -m "not e2e"`。任一步失败即该 job 红。
+- `on: push(branches: [main])+ pull_request`(push 限主干,功能分支仅由 pull_request 触发一次),两个并行 job(ubuntu):
+  - **`python`**(py3.11):`pip install -e ".[dev]"` → `ruff check .` → `ruff format --check .` → `pytest -m "not e2e"`。任一步失败即该 job 红。**`dependencies` 必须声明全部运行时直接依赖(含 `pyyaml`/`websockets`)——本地靠无关全局包传递带入会在 clean runner 缺失,导致 collection error 全红(feat-388 实测教训)。**
   - **`frontend`**(Node 20):`working-directory: src/IM/frontend` → `npm ci` → `npm run test`。任一步失败即该 job 红。
 - 两 job 任一红 → workflow 红 → 阻止合并;两 job 全绿才放行。前端 job 不跑 `npm run build`(不引入 tsc)。
 

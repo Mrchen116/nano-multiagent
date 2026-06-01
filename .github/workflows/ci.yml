@@ -3,7 +3,9 @@
 name: CI
 
 on:
+  # push 仅限主干：功能分支由 pull_request 跑一次，避免开 PR 后同一 commit 被 push+pull_request 双触发。
   push:
+    branches: [main]
   pull_request:
 
 jobs:
