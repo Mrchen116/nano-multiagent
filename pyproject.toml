@@ -24,6 +24,8 @@ dev = [
   "pytest-asyncio>=0.23,<2.0",
   # refactor-372-M1: 删除候选需要覆盖率证据才能安全删（决策 4）
   "pytest-cov>=5.0,<7.0",
+  # feat-388: 固定大版本——format 输出跨大版本会变，CI/hook/本地须保持一致（决策 D5）
+  "ruff==0.15.*",
 ]
 
 [tool.setuptools]
@@ -32,6 +34,21 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 include = ["agent*", "coding_cli*", "personal_assistant*"]
+
+[tool.ruff]
+# feat-388: target-version 与 requires-python = ">=3.11" 对齐
+target-version = "py311"
+# line-length 取默认（88），消除风格软约定，不引入新约束
+
+[tool.ruff.lint]
+# 裁剪集：纳真违规（F 系），守可变默认参（B006）和裸 except（E722）；
+# 排 B008（FastAPI Depends/Query 惯用法，107 处误报，决策 D4）。
+select = ["F", "B006", "E722"]
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+# tests/ 里 fixture 变量可能被 pytest 解析而不直接使用
+"tests/**" = ["F401", "F811"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]
