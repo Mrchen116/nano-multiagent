@@ -173,14 +173,14 @@ def test_rebuild_runtime_seeds_canonical_agent_profiles_into_fresh_db(
 
 def test_resolve_canonical_repo_root_collapses_worktree_checkout_to_main_repo() -> None:
     script_path = Path(
-        "/Users/czj/Repos/nano-multiagent/.worktrees/M204/scripts/acceptance/m170_runtime.py"
+        "/repo/nano-multiagent/.worktrees/M204/scripts/acceptance/m170_runtime.py"
     )
 
     resolved = m170_runtime._resolve_canonical_repo_root(script_path)
 
-    assert resolved == Path("/Users/czj/Repos/nano-multiagent")
+    assert resolved == Path("/repo/nano-multiagent")
     assert resolved / "ACCEPTANCE" / "m170-runtime" == Path(
-        "/Users/czj/Repos/nano-multiagent/ACCEPTANCE/m170-runtime"
+        "/repo/nano-multiagent/ACCEPTANCE/m170-runtime"
     )
 
 
@@ -235,12 +235,12 @@ def test_stop_runtime_terminates_duplicate_gateway_and_kernel_processes(
 
 def test_resolve_canonical_repo_root_keeps_main_checkout_path() -> None:
     script_path = Path(
-        "/Users/czj/Repos/nano-multiagent/scripts/acceptance/m170_runtime.py"
+        "/repo/nano-multiagent/scripts/acceptance/m170_runtime.py"
     )
 
     resolved = m170_runtime._resolve_canonical_repo_root(script_path)
 
-    assert resolved == Path("/Users/czj/Repos/nano-multiagent")
+    assert resolved == Path("/repo/nano-multiagent")
     assert resolved / "ACCEPTANCE" / "m170-runtime" == Path(
-        "/Users/czj/Repos/nano-multiagent/ACCEPTANCE/m170-runtime"
+        "/repo/nano-multiagent/ACCEPTANCE/m170-runtime"
     )

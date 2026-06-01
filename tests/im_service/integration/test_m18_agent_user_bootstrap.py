@@ -21,7 +21,7 @@ from IM.repositories import NodeRepository, UserRepository
 
 from .conftest import authorize, register_user
 
-_WORKSPACE_SETTING = "/Users/czj/nano-assistant/workspace/m18"
+_WORKSPACE_SETTING = "/tmp/nano-test/workspace/m18"
 
 
 def test_create_node_agent_provisions_im_user_row_atomically(tmp_path: Path) -> None:

@@ -12,7 +12,7 @@ from IM.repositories import AgentProfileRepository, NodeRepository, UserReposito
 
 from .conftest import authorize, register_user
 
-_WORKSPACE_PATH_SETTING = "/Users/czj/nano-assistant/workspace/fuck"
+_WORKSPACE_PATH_SETTING = "/tmp/nano-test/workspace/test-agent"
 
 
 def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
