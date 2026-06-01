@@ -3,6 +3,7 @@
 ## Relations
 
 - Depends on: refactor-387
+- Depends on: bugfix-390（前端 CI 门要"零失败"才能开，需先由 bugfix-390 修掉 main 上现存的三处前端 vitest 失败；与"依赖 387 修 #40 才能开 R3 门"同理）
 - Refs: #40
 
 ## 原始需求
@@ -34,6 +35,10 @@ Agent 解读：种子需求是"产品包只能 import `agent.sdk`、不许穿透
   A(原话): 存量要本unit修了
   Agent 解读: 采纳 (i) 零容忍——本 unit 内修掉全部存量违规,不留 baseline/xfail;R3 已知的 #40(core→platform 反向依赖)修绿挂靠 refactor-387。
 
+- Q7: 触点 (c) 的 CI 是否也把前端测试(IM 前端 vitest)纳入,不只 Python?
+  A(原话): feat-388 的前端 CI 补充，你作为spec-author，顺便补一下
+  Agent 解读: 把触点 (c) 的 CI 合并门从"只跑 Python(ruff + pytest)"扩展到**同时跑前端 vitest 测试套件**;破坏前端测试的改动与破坏 Python 测试同等被 CI 拦红。背景(bugfix-390):IM 前端三处缺陷(token 牌口径 / 策略页入口 / agent-edit 测试)在 main 上烂了约 2-3 周没人发现,正因前端 vitest 不在任何门禁里——CI 门只盖了 Python 一半。本次只补"测试套件门"(vitest run),**不引入前端类型检查(tsc)**——与 Python 侧不做 mypy 对称,类型检查仍是非目标。
+
 ## 用户场景
 
 这里的"用户"是**在本仓写代码的开发者,以及承担编码的 agent**。可观察面:运行检查得到红/绿、编辑文件后被回喂违规、提交/合并被拦或放行。
@@ -43,7 +48,7 @@ Agent 解读：种子需求是"产品包只能 import `agent.sdk`、不许穿透
 本 feat 把其中**可机检的几条**从"文字软约束"升级为"机器硬约束",落在两个用户能直接感知的触点:
 
 - **触点 (a) 编码循环内**:编码 agent 每写完一个 `.py` 文件,检查当场跑;可自动修的(格式、部分 correctness)被自动修好,agent 无需操心;不可自动修的违规(如反向 import、裸 `except`)被回喂给 agent,要求改正后才继续。约束的执行从"求 agent 自觉"变成"harness 强制 + 错误回灌",agent 绕不过去。
-- **触点 (c) 远端兜底**:任何绕过编码循环的路径(人手改、别的机器、别的工具)推代码到远端时,CI 跑同一套检查,违规则红、阻止合并。
+- **触点 (c) 远端兜底**:任何绕过编码循环的路径(人手改、别的机器、别的工具)推代码到远端时,CI 跑同一套检查,违规则红、阻止合并。**CI 门覆盖前后端两侧测试套件**——后端 Python(`pytest`,契约规则在内)与 IM 前端(vitest)任一红都阻止合并;否则像 bugfix-390 那样,前端测试不在门里、坏了数周没人知。
 
 首批固化 5 条规则:产品包(`coding_cli` / `personal_assistant`)对内核只能走 `agent.sdk` 这一对外面、禁止穿透 `core`/`platform`/`products`(R1);四个顶层包之间横向零互相 import(R2);内核 `core` 不反向依赖 `platform`/`products`(R3);全仓统一 formatter、消除风格类口头约定(B-1);通用 correctness——未用 import/变量、可变默认参数、裸 `except`(B-2)。
 
@@ -113,12 +118,29 @@ Agent 解读：种子需求是"产品包只能 import `agent.sdk`、不许穿透
 - **WHEN** 本 unit 完成后,对整个仓库现有代码跑这 5 条规则的检查
 - **THEN** 零违规,且无任何 baseline / xfail 永久豁免残留
 
+### Requirement: CI 合并门覆盖前端测试套件(触点 c)
+
+#### Scenario: 破坏前端测试的改动被 CI 拦
+- **GIVEN** 一处改动让 IM 前端测试(vitest)变红
+- **WHEN** 该改动被推到远端 / 开 PR
+- **THEN** CI 红,阻止合并——与破坏后端 Python 测试同等对待
+
+#### Scenario: 前后端测试全绿才放行
+- **WHEN** 一个 PR 的 IM 前端测试与后端 Python 检查全部通过
+- **THEN** CI 绿,不阻止合并
+
+#### Scenario: 上线时前端测试已全绿
+- **GIVEN** 本 unit 完成
+- **WHEN** 在 main 上跑 IM 前端测试套件
+- **THEN** 全绿、零失败(bugfix-390 修掉的三处前端失败已不存在),门处于真正生效状态
+
 ## 范围与非目标
 
 - 在范围:
   - 首批 5 条规则:R1 产品包只能 import `agent.sdk`;R2 四顶层包横向零互相 import;R3 `core` 不依赖 `platform`/`products`;B-1 统一 formatter;B-2 通用 correctness(未用 import/变量、可变默认参、裸 `except`)
   - 两个执行触点:(a) 编码 agent Edit/Write 后当场检查、可自动修的自动修、其余回喂;(c) PR/CI 兜底
-  - 存量违规在本 unit 内全部修掉(零容忍,含 #40 的 `core→platform` 反向依赖,挂靠 refactor-387)
+  - **触点 (c) CI 门覆盖前后端两侧测试套件**:后端 Python(`pytest -m "not e2e"`,含契约规则)+ IM 前端(vitest run),任一红阻止合并
+  - 存量违规在本 unit 内全部修掉(零容忍,含 #40 的 `core→platform` 反向依赖,挂靠 refactor-387);前端测试的现存失败由 bugfix-390 修绿(本 unit 依赖其落地)
   - 同步改写 `AGENTS.md` 中因 refactor-387 失效的 import 边界表述(产品现在要 import `agent.sdk`,旧文写的是"禁止 import agent")
 - 非目标:
   - R4 public API docstring 强制(需按公开面 scoped、会误伤存量,押后)
@@ -126,4 +148,4 @@ Agent 解读：种子需求是"产品包只能 import `agent.sdk`、不许穿透
   - 私有成员跨边界访问(`_foo`)等无文档背书的封装规则(先成文再固化)
   - 注释"为什么 vs 做什么"、命名、抽象合理性等语义级规范(无机器执行手段,仍靠 review)
   - git commit 本地拦截(触点 b)
-  - 类型检查(mypy/pyright)、密钥扫描、覆盖率门等其它固化轴
+  - 类型检查(后端 mypy/pyright、前端 tsc)、密钥扫描、覆盖率门等其它固化轴——前端只把 vitest 测试套件纳入 CI 门,不引入 tsc 类型检查(与 Python 侧不做 mypy 对称)
