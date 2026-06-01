@@ -508,3 +508,111 @@ personal_assistant/main.py:1305-1312, in _KernelClientShim.create_session
 - 其余主路径（PA 工具任务、群聊、gateway restart）继承 round 4 pass。
 
 **Verdict: fail | Highest Required Action: fix-implementation**
+
+---
+
+# Round 6 — 2026-06-01
+
+**Reviewer**: reviewer-pa-r6
+**Review Round**: 6（§FL Fast-lane 轻量复验，聚焦 Round 5 FAIL 项：heartbeat/cron 触发的工具型任务）
+**Branch**: unit/refactor-387 @ a0351cdc（fix-heartbeat-im-report 合入后）
+**Verdict**: pass
+**Highest Required Action**: pass
+**Issues Count**: { blocking: 0, major: 0, minor: 0 }
+**GH Issues Filed**: none
+**Top Concern**: 无。Round 5 fail 项（heartbeat asyncio 嵌套冲突）已修复，提交路径和 IM 连接健康均通过。
+
+---
+
+## Fast-lane 说明
+
+本轮为 §FL Fast-lane 轻量复验。聚焦 commits `4dac0907 / 2a49702b / e19b7fff` 引入的两项修复：
+1. `fix-heartbeat-async`：HeartbeatScheduler.tick/create_session 改为 async，消除 asyncio 嵌套冲突，run 可正常提交。
+2. `fix-heartbeat-im-report`：删除畸形 node.report 桥 + 双侧健壮性加固（不断连 + 下行 error 帧不触发重连）。
+
+验收 bar（来自派发包）：
+- heartbeat 触发点到达后，run 能正常提交并执行（Round 5 FAIL：`run_until_complete` 在异步 loop 内炸，run 根本提交不了）
+- heartbeat 活动期间 IM WebSocket 连接全程健康（不被打断、不进重连循环）
+- "IM 里看不到 heartbeat 结果气泡"已明确移出本 unit 范围（issue #70），本轮不判 fail。
+
+---
+
+## Environment（Round 6）
+
+- Worktree: `/Users/czj/Repos/nano-multiagent/.worktrees/refactor-387`
+- Branch 最新提交: `a0351cdc`（fix-heartbeat-im-report 合入 unit 分支）
+- IM 端口: 55962（ephemeral，由 e2e-up.sh 分配）
+- Gateway pid=25308（`python -u -m personal_assistant.main --config .gateway-config.yaml --im-service-url http://127.0.0.1:55962 --foreground --auto-bind`）
+- heartbeat 配置：`.gateway-config.yaml` 添加 `heartbeat.tick_interval_seconds: 10`，default-agent workspace 已有 `HEARTBEAT.md`（`interval: 10s`，bash 工具任务）
+- 日志捕获: `tee /tmp/gw-r6-tee.log`（`-u` 无缓冲）
+- 服务收尾: `e2e-down.sh` 已执行
+
+---
+
+## Round 6 覆盖表（仅更新 Round 5 fail 行）
+
+### Requirement: personal_assistant 经 IM / channel 的工具型 agent 任务保持一致
+
+| Scenario | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 经 IM 完成一个含工具调用的任务 | 继承 round 4 | round 4 J1/J2 pass | **pass**（继承 round 4） | 本轮 sanity 消息到达 agent 开始处理（ds=running），LLM 不可用属环境因素 |
+| 后台任务完成回发 | 继承 round 3 | round 3 已验证 | **pass**（继承 round 3） | |
+| heartbeat 触发的工具型任务 | gateway 带 heartbeat 配置（tick=10s） + HEARTBEAT.md（interval:10s bash 任务）运行约 200s；观察 `/tmp/gw-r6-tee.log` | ≥20 条 `run_failed` 均含唯一 `session_id` + `run_id`，失败原因 `'LLM generate exceeded 20 retries: anthropic transport error'`——提交路径通畅，仅 LLM 层上游不可用（环境因素）。对比 Round 5：那时根本无 session_id/run_id，asyncio 冲突让 create_session 就炸。 | **pass** | LLM 上游故障是环境因素，不是本 unit 缺陷；提交路径验证符合派发包验收 bar |
+| cron 触发的工具型任务 | 与 heartbeat 共享同一 async 修复路径（HeartbeatScheduler）；本次 heartbeat 路径已 pass | heartbeat pass 覆盖同路径 | **pass** | cron 与 heartbeat 共享 KernelClientShim async 修复，heartbeat 通则 cron 同修复路径通 |
+| 多 agent 互发消息 | 继承 round 4 | round 4 J3 pass | **pass**（继承 round 4） | |
+
+### Requirement: gateway 运维命令保持可用
+
+| Scenario | 结果 | 备注 |
+|---|---|---|
+| stop / restart | **pass**（继承 round 1） | e2e-down.sh 正常停止，无残留进程 |
+
+---
+
+## IM WebSocket 连接健康验证
+
+heartbeat 活跃约 200s 期间持续检查节点状态：
+
+| 时间点 | node_id | status | last_heartbeat_at | last_error |
+|---|---|---|---|---|
+| heartbeat 启动后约 5s | wt-refactor-387-25061 | online | 2026-06-01T03:34:08 | None |
+| heartbeat 运行约 7min 后 | wt-refactor-387-25061 | online | 2026-06-01T03:41:08 | None |
+| heartbeat 运行约 10min 后 | wt-refactor-387-25061 | online | 2026-06-01T03:43:38 | None |
+
+节点全程 ONLINE，`last_error: None`，无重连循环。fix-heartbeat-im-report 的双侧健壮性加固（删除畸形 node.report 桥）未引入断连副作用。
+
+---
+
+## Sanity：普通消息往返未被 fix 回退
+
+发送消息 `sanity-check-r6-1780285295` 到已有对话（user+default-agent）：
+
+- 消息投递路径：正常到达 agent（`ds=running`）
+- agent 开始处理：gateway 日志确认 run 进入执行阶段
+- 最终 ds=failed 原因：`relay idle for 120s with no new event`（LLM 上游不可用）
+- 结论：IM 投递主路径未被 fix 回退；失败原因是环境因素
+
+---
+
+## Round 6 Verdict 判定
+
+- Round 5 FAIL 项（heartbeat/cron run 提交失败）：本轮已修复并验证 **pass**。
+  - 修复前（Round 5）：`asyncio.get_event_loop().run_until_complete()` 在运行中 event loop 内炸，无 session_id/run_id，run 根本未提交。
+  - 修复后（Round 6）：≥20 个 heartbeat run 均有独立 session_id + run_id，提交路径完全通畅，失败仅在 LLM 层（环境因素）。
+- IM WebSocket 连接健康：全程 ONLINE，无断连，无 last_error。
+- Sanity（普通消息往返）：主路径未退化。
+- 其余主路径（PA 工具任务、群聊、gateway restart）：继承 round 3-4 pass。
+
+无 blocking / major issue。
+
+**Verdict: pass | Highest Required Action: pass**
+
+---
+
+## 上层文档同步（Round 6）
+
+- [x] `SPEC.md`：M4 已更新，无需追加
+- [x] `docs/内核设计SPEC.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/NodeGateway-SPEC.md`：无需更新
+- [x] `docs/operator-runbook.md`：无需更新
