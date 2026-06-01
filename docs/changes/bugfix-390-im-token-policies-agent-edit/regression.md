@@ -151,3 +151,52 @@
 **fix-implementation**
 
 主要验收失败项（Issue #1）属于实现层 bug：`_decode_token_usage` 对 `total=null` 的处理有缺陷，导致 REST 兜底逻辑从未执行。需要 fix worker 修复 `repositories.py:_decode_token_usage` 对 null total 的处理。
+
+---
+
+# Round 2 — 2026-06-01
+
+## Verdict
+
+**pass**
+
+## Fast-lane 说明
+
+复用上轮上下文，聚焦 Round 1 fail 的 Scenario。IM 后端已重启（commit a34edd5c，修复在 `repositories.py:_decode_token_usage`）；Vite dev server 同步重启。上轮 pass 的 3 个 Scenario 结论继承，无行为变化信号。
+
+## 验收标准覆盖表（Round 2 更新）
+
+### Requirement: token 用量牌显示这一轮的总消耗
+
+#### Scenario: 回复带 total
+
+继承 Round 1 结论：**pass**（无变更，未触及此路径）
+
+#### Scenario: 旧回复（pre-M17 持久化行）经历史加载
+
+| 字段 | 内容 |
+|---|---|
+| 期望 | DB `"total": null` 的旧消息经 REST 加载后，token_usage.total = context_used+output；前端渲染 token chip 显示合并后的 total |
+| 验证方式 | 数据库插入 {output:42, context_used:500, total:null, context_window:100000} 消息（delivery_status=completed）；curl REST /messages 核查 total；浏览器加载对话截图确认 chip 渲染 |
+| REST 证据 | `"token_usage": {"output": 42, "context_used": 500, "total": 542}`（542 = 500+42，兜底正确） |
+| 前端证据 | 截图 `/tmp/bugfix390-r2-chat.png`：pre-M17 消息显示 `▸ 542 tok · ctx 1%`，chip 正常渲染 |
+| 结果 | **pass**（Round 1 fail → Round 2 pass，已关闭） |
+| 备注 | `_decode_token_usage` 现在正确处理 `total=None`：先取值再判空，若 None 则用 context_used+output 计算；messages.py 的兜底逻辑也因此能正常执行（double-safe） |
+
+### Requirement: 全局策略页可从用户菜单进入并使用
+
+#### Scenario: 从用户下拉菜单进入
+
+继承 Round 1 结论：**pass**
+
+#### Scenario: 查看与保存全局策略
+
+继承 Round 1 结论：**pass**
+
+## 回归验证
+
+Round 1 中现代消息（total=2429）的 chip 渲染 Round 2 同一浏览器会话中仍正确显示 `▸ 2.4k tok · ctx 1%`（截图 `/tmp/bugfix390-r2-chat.png`），确认修复未引入回归。
+
+## Highest Required Action
+
+**pass**
