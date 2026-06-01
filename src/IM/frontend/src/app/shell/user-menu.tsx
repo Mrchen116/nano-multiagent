@@ -147,6 +147,14 @@ export function UserMenu() {
             </div>
             <span className="im-user-menu-chevron-right" aria-hidden>›</span>
           </Link>
+          {/* bugfix-390: restore policies page entry below nodes per user decision */}
+          <Link role="menuitem" to="/settings/policies" onClick={() => setOpen(false)} className="im-user-menu-item">
+            <span className="im-user-menu-icon">⚙️</span>
+            <div className="im-user-menu-item-body">
+              <div style={{ fontSize: 14, fontWeight: 500 }}>{t("shell.userMenu.policies")}</div>
+            </div>
+            <span className="im-user-menu-chevron-right" aria-hidden>›</span>
+          </Link>
           <div role="group" className="im-user-menu-language">
             <span className="im-user-menu-icon">文</span>
             <span style={{ fontSize: 14, fontWeight: 500, flex: 1 }}>{t("shell.userMenu.language")}</span>
