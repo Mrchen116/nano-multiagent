@@ -40,9 +40,20 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(dirname \"$(git rev-parse --path-format=absolute --git-common-dir)\")/.claude/hooks/ruff-guardrail.py\""
+          }
+        ]
+      }
     ]
   },
-  "disableAllHooks": true,
+  "disableAllHooks": false,
   "permissions": {
     "allow": [
       "Bash(python -m pytest *)"
