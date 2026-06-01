@@ -70,7 +70,7 @@
   3. 后端跑 `pytest -m "not e2e"` 验证无回归
   4. 前端跑 `npx vitest run src/features/chat/v2/components/token-chip.test.tsx` 验证 R8-3 转绿
 - 验证: `token-chip.test.tsx` 全绿；`pytest -m "not e2e"` 全绿
-- Status: TODO
+- Status: DONE
 
 ### R2 — 全局策略页：接回路由 + 用户菜单加「策略」入口
 
@@ -80,7 +80,7 @@
   3. `user-menu.tsx` 在「节点」Link 之后、语言组之前加「策略」Link（沿用 nodes Link 样式）
   4. 前端跑 `npx vitest run src/features/settings/policies/policies-page.test.tsx` 验证转绿
 - 验证: `policies-page.test.tsx` 全绿；用户菜单可见「策略」入口
-- Status: TODO
+- Status: DONE
 
 ### R3 — agent-edit 测试断言对齐 features:{}
 
@@ -88,7 +88,7 @@
   1. `agent-edit.test.tsx` 第一用例第 193-209 行：期望 body 补入 `features: {}`（在 `custom_prompt` 后，对齐组件现状）
   2. 前端跑 `npx vitest run src/features/settings/agents/agent-edit.test.tsx` 验证转绿
 - 验证: `agent-edit.test.tsx` 全绿
-- Status: TODO
+- Status: DONE
 
 ### R4 — 全量门禁 + 浏览器验收
 
@@ -98,4 +98,4 @@
   3. 后端 `pytest -m "not e2e"` 全绿
   4. 浏览器验收：起服务，点用户菜单查看「策略」入口，点击进入，查看 token 牌显示
 - 验证: 全量测试绿；build 无 type error；浏览器验收截图记录
-- Status: TODO
+- Status: DONE
