@@ -35,5 +35,5 @@ NO_REPLY/空内容静默；多单聊落最旧那条且不污染其它；无直�
 | ID | 标题 | 状态 | 描述 |
 |---|---|---|---|
 | R1 | IM turn_start to_user_id 分支 + 集成测试 | DONE | 扩展 gateway_handler._handle_streaming_delta：新增 to_user_id 模式；写红测试先 |
-| R2 | heartbeat observer 惰性 turn_start + run_context_store 播种 | TODO | main.py: observer origin 门控；heartbeat run 在专属 :heartbeat session + 等终态消费；删 fresh-session 旁路 |
+| R2 | heartbeat observer 惰性 turn_start + run_context_store 播种 | DONE | main.py: observer origin 门控；heartbeat run 在专属 :heartbeat session + 等终态消费；删 fresh-session 旁路 |
 | R3 | 全套回归验证 | TODO | 跑全量测试树；补普通聊天流式无回归的断言；更新文档 |
