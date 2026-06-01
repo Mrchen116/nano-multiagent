@@ -13,15 +13,15 @@
 
 ## 退出标准
 
-- [ ] `ruff check .` 全绿（select=F,B006,E722；不含 B008）
-- [ ] `ruff format --check .` 全绿
-- [ ] `pytest -m "not e2e"` 全绿（含 R1/R2/R3 契约测试）
-- [ ] PostToolUse hook 实测：编辑含 F401 的 src/ 文件 → 自动清除；加 import agent.core → exit 2 阻断
-- [ ] `stop-require-explicit-ok.py` 自门控：普通会话正常停止；orchestrator 受管会话 gate 行为不变
-- [ ] `.github/workflows/ci.yml`：`python` job（ruff+pytest）+ `frontend` job（vitest）两个并行 job 结构正确
-- [ ] 前端基线确认：`cd src/IM/frontend && npm run test` 全绿
-- [ ] 机械重排为独立 commit
-- [ ] 无 baseline/xfail 永久豁免残留
+- [x] `ruff check .` 全绿（select=F,B006,E722；不含 B008）
+- [x] `ruff format --check .` 全绿
+- [x] `pytest -m "not e2e"` 全绿（含 R1/R2/R3 契约测试）
+- [x] PostToolUse hook 实测：编辑含 F401 的 src/ 文件 → 自动清除；加 import agent.core → exit 2 阻断
+- [x] `stop-require-explicit-ok.py` 自门控：普通会话正常停止；orchestrator 受管会话 gate 行为不变
+- [x] `.github/workflows/ci.yml`：`python` job（ruff+pytest）+ `frontend` job（vitest）两个并行 job 结构正确
+- [x] 前端基线确认：`cd src/IM/frontend && npm run test` 全绿
+- [x] 机械重排为独立 commit
+- [x] 无 baseline/xfail 永久豁免残留
 
 ## 测试策略
 

@@ -51,8 +51,8 @@
 - Decision: 新增自门控：检查 session 是否在 active-subagents.json 中有登记（orchestrator 受管会话标识），无登记则 exit 0 放行
 - Rationale: "有登记" = orchestrator 通过 SubagentStart hook 写入的 session，保证只有受管会话进入 gate 逻辑；普通编码会话零影响（决策 D2）
 - Evidence:
-  - Tests: 逻辑 review：无登记 session → exit 0；有登记 active=0 → block；有登记 active>0 → exit 0
-  - Entry: N/A（hook 脚本，通过代码 review 验证）
+  - Tests: 逻辑 review + orchestrator 实测确认（team-lead 在 unit 分支上亲自运行 hook）：无登记 session → exit 0（普通会话正常停止）；空 session（session_id 存在但 agent_ids 为空）→ exit 0（同样放行）；有登记 active=0 → block；有登记 active>0 → exit 0。实测结论：普通会话可正常停止，gate 行为仅作用于 orchestrator 受管会话。
+  - Entry: orchestrator 实测通过（非仅代码 review）
   - Frontend State Matrix: N/A
   - Browser QA: N/A
   - E2E/Regression: N/A（行为/逻辑改动，但 hook 自身无单测）
