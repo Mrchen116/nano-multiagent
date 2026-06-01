@@ -10,7 +10,7 @@ persistent config directories are added to this project, update this set accordi
 
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 
 # ---------------------------------------------------------------------------
@@ -109,7 +109,11 @@ def check_dangerous_path(file_path: str, *, cwd: Path | None = None) -> bool:
         part_lower = parts[i].lower()
         if part_lower in {d.lower() for d in DANGEROUS_DIRECTORIES}:
             # Exemption: .claude/worktrees/ paths are safe (CC AgentTool worktrees exception)
-            if part_lower == ".claude" and i + 1 < len(parts) and parts[i + 1].lower() == "worktrees":
+            if (
+                part_lower == ".claude"
+                and i + 1 < len(parts)
+                and parts[i + 1].lower() == "worktrees"
+            ):
                 # Skip this .claude segment — it's a worktrees path, not config
                 i += 2  # skip .claude and worktrees
                 continue

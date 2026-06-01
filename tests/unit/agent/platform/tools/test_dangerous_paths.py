@@ -49,7 +49,9 @@ EXPECTED_DANGEROUS_DIRECTORIES = frozenset(
 
 class TestDangerousFilesConstant:
     def test_dangerous_files_has_exactly_8_items(self):
-        assert len(DANGEROUS_FILES) == 8, f"Expected 8 items, got {len(DANGEROUS_FILES)}: {DANGEROUS_FILES}"
+        assert len(DANGEROUS_FILES) == 8, (
+            f"Expected 8 items, got {len(DANGEROUS_FILES)}: {DANGEROUS_FILES}"
+        )
 
     def test_dangerous_files_matches_d52_spec_exactly(self):
         assert DANGEROUS_FILES == EXPECTED_DANGEROUS_FILES
@@ -75,7 +77,9 @@ class TestDangerousFilesConstant:
 
 class TestDangerousDirectoriesConstant:
     def test_dangerous_directories_has_exactly_6_items(self):
-        assert len(DANGEROUS_DIRECTORIES) == 6, f"Expected 6 items, got {len(DANGEROUS_DIRECTORIES)}: {DANGEROUS_DIRECTORIES}"
+        assert len(DANGEROUS_DIRECTORIES) == 6, (
+            f"Expected 6 items, got {len(DANGEROUS_DIRECTORIES)}: {DANGEROUS_DIRECTORIES}"
+        )
 
     def test_dangerous_directories_matches_d52_spec_exactly(self):
         assert DANGEROUS_DIRECTORIES == EXPECTED_DANGEROUS_DIRECTORIES
@@ -199,11 +203,17 @@ class TestCheckDangerousPathClaudeWorktreesExemption:
 
     def test_claude_worktrees_is_exempt(self):
         """.claude/worktrees/ is exempt per Anchor G (CC AgentTool.tsx worktrees comment)."""
-        assert check_dangerous_path("/project/.claude/worktrees/my-worktree/file.py") is False
+        assert (
+            check_dangerous_path("/project/.claude/worktrees/my-worktree/file.py")
+            is False
+        )
 
     def test_claude_worktrees_exempt_nested(self):
         """Nested paths under .claude/worktrees/ are also exempt."""
-        assert check_dangerous_path("/project/.claude/worktrees/feat-100/src/main.py") is False
+        assert (
+            check_dangerous_path("/project/.claude/worktrees/feat-100/src/main.py")
+            is False
+        )
 
     def test_claude_config_still_dangerous(self):
         assert check_dangerous_path("/project/.claude/config.json") is True

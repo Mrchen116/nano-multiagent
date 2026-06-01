@@ -11,7 +11,10 @@ import pytest
 from agent.core.background_tasks.models import BackgroundTaskStatus
 from agent.core.llm.interfaces import LLMMessage
 from agent.core.runs.origin import RunOrigin
-from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.base import (
+    set_tool_safety_factory,
+    set_tool_safety_config_factory,
+)
 from agent.core.types import Message, TurnResult
 from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.tools.base import ToolContext
@@ -27,12 +30,16 @@ class _FakeStore:
         self._tmp_path = tmp_path
         self._sessions: dict[str, dict[str, Any]] = {}
 
-    def resolve_path(self, session_id: str, *, workspace_root=None, parent_session_id: str = "") -> Path:
+    def resolve_path(
+        self, session_id: str, *, workspace_root=None, parent_session_id: str = ""
+    ) -> Path:
         path = self._tmp_path / "sessions" / f"{session_id}.jsonl"
         path.parent.mkdir(parents=True, exist_ok=True)
         return path
 
-    def find_session_by_metadata(self, *, parent_session_id: str, match: dict[str, Any], workspace_root=None) -> str | None:
+    def find_session_by_metadata(
+        self, *, parent_session_id: str, match: dict[str, Any], workspace_root=None
+    ) -> str | None:
         for sid, meta in self._sessions.items():
             if all(meta.get(k) == v for k, v in match.items()):
                 return sid
@@ -43,11 +50,17 @@ class _SessionManagerStub:
     def __init__(self, store: _FakeStore) -> None:
         self.store = store
 
-    def load(self, session_id: str, *, workspace_root=None, parent_session_id: str = "") -> Any:
+    def load(
+        self, session_id: str, *, workspace_root=None, parent_session_id: str = ""
+    ) -> Any:
         meta = self.store._sessions.get(session_id, {})
-        return type("LoadResult", (), {
-            "config": type("Config", (), {"metadata": meta})(),
-        })()
+        return type(
+            "LoadResult",
+            (),
+            {
+                "config": type("Config", (), {"metadata": meta})(),
+            },
+        )()
 
 
 class _RuntimeStub:
@@ -58,7 +71,14 @@ class _RuntimeStub:
         store = _FakeStore(tmp_path)
         self._session_manager = _SessionManagerStub(store)
 
-    async def create_session(self, *, workspace_root: Any = None, skills: Any = None, metadata: Any = None, parent_session_id: str | None = None) -> Any:
+    async def create_session(
+        self,
+        *,
+        workspace_root: Any = None,
+        skills: Any = None,
+        metadata: Any = None,
+        parent_session_id: str | None = None,
+    ) -> Any:
         self._counter += 1
         sid = f"subagent_{self._counter}"
         self._session_manager.store._sessions[sid] = dict(metadata or {})
@@ -83,7 +103,9 @@ class _RuntimeStub:
         return TurnResult(
             session_id=session_id,
             turn_id="turn_1",
-            messages=(Message(message_id="msg_1", role="assistant", content="subagent done"),),
+            messages=(
+                Message(message_id="msg_1", role="assistant", content="subagent done"),
+            ),
             completed=True,
             stop_reason="completed",
         )
@@ -114,13 +136,19 @@ class _RunsRegistryStub:
         source_task_id: str | None = None,
         trace_id: str | None = None,
     ) -> Any:
-        self.submissions.append({
-            "session_id": session_id,
-            "parts": parts,
-            "origin": origin,
-            "source_task_id": source_task_id,
-        })
-        return type("RunRecord", (), {"run_id": "run_1", "session_id": session_id, "status": "queued"})()
+        self.submissions.append(
+            {
+                "session_id": session_id,
+                "parts": parts,
+                "origin": origin,
+                "source_task_id": source_task_id,
+            }
+        )
+        return type(
+            "RunRecord",
+            (),
+            {"run_id": "run_1", "session_id": session_id, "status": "queued"},
+        )()
 
 
 def _make_ctx(tmp_path: Path, session_id: str = "sess_parent") -> ToolContext:
@@ -179,7 +207,9 @@ def test_background_agent_registry_record_created(tmp_path: Path) -> None:
 def test_background_agent_completes_and_delivers_notification(tmp_path: Path) -> None:
     runtime = _RuntimeStub(tmp_path, delay=0.1)
     runs = _RunsRegistryStub()
-    wiring = wire_background_tasks(workspace_root=tmp_path, runtime=runtime, runs_registry=runs)
+    wiring = wire_background_tasks(
+        workspace_root=tmp_path, runtime=runtime, runs_registry=runs
+    )
     tool = AgentTool(runtime=runtime, wiring=wiring)
     ctx = _make_ctx(tmp_path, session_id="sess_parent")
 
@@ -199,7 +229,11 @@ def test_background_agent_completes_and_delivers_notification(tmp_path: Path) ->
     # Poll for completion.
     for _ in range(50):
         record = wiring.registry.get(agent_id)
-        if record is not None and record.status.value in ("completed", "failed", "killed"):
+        if record is not None and record.status.value in (
+            "completed",
+            "failed",
+            "killed",
+        ):
             break
         time.sleep(0.05)
 

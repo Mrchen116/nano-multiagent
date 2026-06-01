@@ -14,7 +14,9 @@ _EVENT_POLL_MAX_EVENTS = 200
 _EVENT_POLL_TIMEOUT_SECONDS = 0.25
 
 
-def print_event_preview(*, out: TextIO, event_name: str, data: dict[str, object]) -> None:
+def print_event_preview(
+    *, out: TextIO, event_name: str, data: dict[str, object]
+) -> None:
     """Render concise human-readable preview for one streamed event."""
     line = _event_preview_line(event_name=event_name, data=data)
     if line is not None:
@@ -38,7 +40,9 @@ def _emit_preview_line(
     return line
 
 
-def _build_ordered_repl_updates(events: list[tuple[str, dict[str, object]]]) -> list[dict[str, str]]:
+def _build_ordered_repl_updates(
+    events: list[tuple[str, dict[str, object]]],
+) -> list[dict[str, str]]:
     updates: list[dict[str, str]] = []
     assistant_buffer = ""
     pending_tool_identity: str | None = None
@@ -84,7 +88,9 @@ def _build_ordered_repl_updates(events: list[tuple[str, dict[str, object]]]) -> 
     return []
 
 
-def _ordered_tool_update_line(*, event_name: str, data: dict[str, object]) -> str | None:
+def _ordered_tool_update_line(
+    *, event_name: str, data: dict[str, object]
+) -> str | None:
     preview = _event_preview_line(event_name=event_name, data=data)
     if preview is None:
         return None
@@ -107,8 +113,12 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
     if event_name == "run_status":
         run_id = data.get("run_id")
         status = data.get("status")
-        resolved_run_id = str(run_id) if isinstance(run_id, str) and run_id.strip() else "<unknown>"
-        resolved_status = str(status) if isinstance(status, str) and status.strip() else "<unknown>"
+        resolved_run_id = (
+            str(run_id) if isinstance(run_id, str) and run_id.strip() else "<unknown>"
+        )
+        resolved_status = (
+            str(status) if isinstance(status, str) and status.strip() else "<unknown>"
+        )
         retry_preview = _format_retry_progress(data)
         if retry_preview:
             return f"Run {resolved_run_id}: status={resolved_status} {retry_preview}"
@@ -117,7 +127,9 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
     if event_name == "tool_start":
         name = data.get("name")
         arguments = data.get("arguments")
-        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        resolved_name = (
+            str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        )
         return _with_call_id_preview(
             f"Tool: {resolved_name} start args={_preview_event_value(arguments)}",
             data=data,
@@ -127,17 +139,27 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         name = data.get("name")
         error = data.get("error")
         output = data.get("output")
-        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        resolved_name = (
+            str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        )
         if error not in (None, "", {}):
-            return _with_call_id_preview(f"Tool: {resolved_name} error={_preview_event_value(error)}", data=data)
-        return _with_call_id_preview(f"Tool: {resolved_name} output={_preview_event_value(output)}", data=data)
+            return _with_call_id_preview(
+                f"Tool: {resolved_name} error={_preview_event_value(error)}", data=data
+            )
+        return _with_call_id_preview(
+            f"Tool: {resolved_name} output={_preview_event_value(output)}", data=data
+        )
 
     if event_name == "tool_exec_started":
         name = data.get("name")
         status = data.get("status")
         elapsed_ms = data.get("elapsed_ms")
-        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
-        resolved_status = str(status) if isinstance(status, str) and status.strip() else "started"
+        resolved_name = (
+            str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        )
+        resolved_status = (
+            str(status) if isinstance(status, str) and status.strip() else "started"
+        )
         resolved_elapsed = _preview_elapsed_ms(elapsed_ms)
         return _with_call_id_preview(
             f"Tool: {resolved_name} started status={resolved_status} elapsed={resolved_elapsed}",
@@ -148,8 +170,12 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         name = data.get("name")
         status = data.get("status")
         elapsed_ms = data.get("elapsed_ms")
-        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
-        resolved_status = str(status) if isinstance(status, str) and status.strip() else "running"
+        resolved_name = (
+            str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        )
+        resolved_status = (
+            str(status) if isinstance(status, str) and status.strip() else "running"
+        )
         resolved_elapsed = _preview_elapsed_ms(elapsed_ms)
         return _with_call_id_preview(
             f"Tool: {resolved_name} running status={resolved_status} elapsed={resolved_elapsed}",
@@ -161,8 +187,12 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         stream = data.get("stream")
         chunk = data.get("chunk")
         seq = data.get("seq")
-        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
-        resolved_stream = str(stream) if isinstance(stream, str) and stream.strip() else "<unknown>"
+        resolved_name = (
+            str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        )
+        resolved_stream = (
+            str(stream) if isinstance(stream, str) and stream.strip() else "<unknown>"
+        )
         resolved_seq = str(seq) if isinstance(seq, int) else "?"
         return _with_call_id_preview(
             f"Tool: {resolved_name} chunk {resolved_stream}#{resolved_seq}: {_preview_event_value(chunk)}",
@@ -174,10 +204,16 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
         status = data.get("status")
         duration_ms = data.get("duration_ms")
         exit_code = data.get("exit_code")
-        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
-        resolved_status = str(status) if isinstance(status, str) and status.strip() else "<unknown>"
+        resolved_name = (
+            str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        )
+        resolved_status = (
+            str(status) if isinstance(status, str) and status.strip() else "<unknown>"
+        )
         resolved_duration = _preview_elapsed_ms(duration_ms)
-        resolved_exit_code = str(exit_code) if isinstance(exit_code, int) else "<unknown>"
+        resolved_exit_code = (
+            str(exit_code) if isinstance(exit_code, int) else "<unknown>"
+        )
         line = (
             f"Tool: {resolved_name} exit code={resolved_exit_code} "
             f"status={resolved_status} duration={resolved_duration}"
@@ -193,7 +229,11 @@ def _event_preview_line(*, event_name: str, data: dict[str, object]) -> str | No
 
 def _format_status_progress(data: dict[str, object]) -> str:
     status = data.get("status")
-    resolved_status = str(status).strip().lower() if isinstance(status, str) and status.strip() else "<unknown>"
+    resolved_status = (
+        str(status).strip().lower()
+        if isinstance(status, str) and status.strip()
+        else "<unknown>"
+    )
     retry_preview = _format_retry_progress(data)
     if resolved_status in {"queued", "running", "completed"} and not retry_preview:
         return ""
@@ -264,7 +304,9 @@ def _event_replay_dedupe_key(*, event_name: str, data: dict[str, object]) -> str
     return replay_fallback_dedupe_key(event_name=event_name, data=data)
 
 
-def _filter_previewed_tool_updates(*, tool_updates: list[str], previewed_tool_lines: set[str]) -> list[str]:
+def _filter_previewed_tool_updates(
+    *, tool_updates: list[str], previewed_tool_lines: set[str]
+) -> list[str]:
     if not previewed_tool_lines:
         return tool_updates
     previewed_identities = {_tool_line_identity(line) for line in previewed_tool_lines}
@@ -290,7 +332,9 @@ def _tool_line_identity(line: str) -> str:
     return trimmed
 
 
-def _tool_preview_identity(*, event_name: str, data: dict[str, object], run_id: str) -> str | None:
+def _tool_preview_identity(
+    *, event_name: str, data: dict[str, object], run_id: str
+) -> str | None:
     phase_by_event = {
         "tool_start": "start",
         "tool_exec_started": "started",

@@ -105,13 +105,18 @@ def test_create_node_agent_provisions_im_user_row_atomically(tmp_path: Path) -> 
 
         users = UserRepository(app.state.connection)
         provisioned = users.get_user_by_username(username="agent:agent-m18-new")
-        assert provisioned is not None, "agent registration must provision matching users row"
+        assert provisioned is not None, (
+            "agent registration must provision matching users row"
+        )
         assert provisioned.display_name == "M18 Beta"
 
         listed = client.get("/im/v1/agents")
         assert listed.status_code == 200
         rows = listed.json()
-        assert any(row["agent_id"] == "agent-m18-new" and row["user_id"] == provisioned.id for row in rows)
+        assert any(
+            row["agent_id"] == "agent-m18-new" and row["user_id"] == provisioned.id
+            for row in rows
+        )
 
 
 def test_list_agents_lazy_provisions_user_row_for_legacy_seed(tmp_path: Path) -> None:
@@ -143,7 +148,8 @@ def test_list_agents_lazy_provisions_user_row_for_legacy_seed(tmp_path: Path) ->
             workspace_root=None,
         )
         app.state.connection.execute(
-            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?", ("node-legacy", "legacy-seed")
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-legacy", "legacy-seed"),
         )
         app.state.connection.commit()
 
@@ -153,7 +159,9 @@ def test_list_agents_lazy_provisions_user_row_for_legacy_seed(tmp_path: Path) ->
         listed = client.get("/im/v1/agents")
         assert listed.status_code == 200
         row = next(item for item in listed.json() if item["agent_id"] == "legacy-seed")
-        assert row["user_id"] is not None, "legacy seed agent must surface a real user_id via lazy bootstrap"
+        assert row["user_id"] is not None, (
+            "legacy seed agent must surface a real user_id via lazy bootstrap"
+        )
 
         provisioned = users.get_user_by_username(username="agent:legacy-seed")
         assert provisioned is not None

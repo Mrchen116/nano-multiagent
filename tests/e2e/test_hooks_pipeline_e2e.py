@@ -6,7 +6,9 @@ from agent.platform.hooks.loader import load_hooks_from_directories
 from agent.core.hooks.runner import HookRunner
 
 
-def test_hooks_e2e_input_transform_and_session_isolated_closure_state(tmp_path: Path) -> None:
+def test_hooks_e2e_input_transform_and_session_isolated_closure_state(
+    tmp_path: Path,
+) -> None:
     builtins_dir = tmp_path / "builtin_hooks"
     workspace_dir = tmp_path / ".nano" / "hooks"
     builtins_dir.mkdir(parents=True, exist_ok=True)
@@ -80,4 +82,3 @@ def setup(hooks):
     assert result_s1_first.payload["text"] == "builtin:hello|seen=1"
     assert result_s1_second.payload["text"] == "builtin:hello|seen=2"
     assert result_s2_first.payload["text"] == "builtin:hello|seen=1"
-

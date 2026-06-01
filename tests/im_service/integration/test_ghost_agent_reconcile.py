@@ -6,6 +6,7 @@ Verifies:
 - GET /im/v1/conversations/{id} includes is_stale=True for stale participants
 - Re-registering with old agent revives it (is_stale becomes False)
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,16 +19,18 @@ from .conftest import authorize, register_user, seed_user_under_owner
 
 
 def _register_node(ws, *, node_id: str, agents: list[str]) -> dict:
-    ws.send_json({
-        "type": "node.register",
-        "payload": {
-            "node_id": node_id,
-            "node_name": node_id,
-            "version": "1.0.0",
-            "agents": agents,
-            "capabilities": {"relay": True},
-        },
-    })
+    ws.send_json(
+        {
+            "type": "node.register",
+            "payload": {
+                "node_id": node_id,
+                "node_name": node_id,
+                "version": "1.0.0",
+                "agents": agents,
+                "capabilities": {"relay": True},
+            },
+        }
+    )
     return ws.receive_json()
 
 
@@ -93,14 +96,20 @@ def test_conversation_participant_is_stale_exposed(tmp_path: Path) -> None:
         # Seed the agent user rows so conversation participants can resolve them.
         # ws register writes agent_profiles but not users; we seed users manually.
         agent_x_user_id = seed_user_under_owner(
-            client, username="agent:agent-x", display_name="Agent X", owner_id=user.owner_id
+            client,
+            username="agent:agent-x",
+            display_name="Agent X",
+            owner_id=user.owner_id,
         )
 
         # Create a group conversation with X as participant (using user_id reference)
-        conv_resp = client.post("/im/v1/conversations", json={
-            "title": "group",
-            "participant_ids": [agent_x_user_id],
-        })
+        conv_resp = client.post(
+            "/im/v1/conversations",
+            json={
+                "title": "group",
+                "participant_ids": [agent_x_user_id],
+            },
+        )
         assert conv_resp.status_code == 201
         conv_id = conv_resp.json()["id"]
 
@@ -111,5 +120,7 @@ def test_conversation_participant_is_stale_exposed(tmp_path: Path) -> None:
         # Fetch conversation – agent-x participant should have is_stale=True
         detail = client.get(f"/im/v1/conversations/{conv_id}").json()
         participants = detail["participants"]
-        stale_flags = {p["id"]: p.get("is_stale") for p in participants if p["type"] == "agent"}
+        stale_flags = {
+            p["id"]: p.get("is_stale") for p in participants if p["type"] == "agent"
+        }
         assert stale_flags.get("agent-x") is True

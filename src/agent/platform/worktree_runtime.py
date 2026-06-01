@@ -16,9 +16,7 @@ _SHARED_RUNTIME_PATHS: tuple[tuple[str, bool], ...] = (
     ("data/dev-tasks.json", False),
     ("data/locks", True),
 )
-_WORKTREE_LOCAL_RUNTIME_DIRS: tuple[str, ...] = (
-    "data",
-)
+_WORKTREE_LOCAL_RUNTIME_DIRS: tuple[str, ...] = ("data",)
 
 
 def prepare_shared_runtime_files(*, repo_root: Path, worktree_dir: Path) -> None:
@@ -53,7 +51,9 @@ def prepare_shared_runtime_files(*, repo_root: Path, worktree_dir: Path) -> None
         )
 
 
-def _ensure_symlink(*, link_path: Path, target_path: Path, target_is_directory: bool) -> None:
+def _ensure_symlink(
+    *, link_path: Path, target_path: Path, target_is_directory: bool
+) -> None:
     """Replace ``link_path`` with a symlink to ``target_path`` when needed."""
 
     if link_path.is_symlink() and link_path.resolve() == target_path.resolve():

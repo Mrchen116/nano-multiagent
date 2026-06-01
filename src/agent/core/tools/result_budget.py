@@ -38,8 +38,7 @@ class ToolResultCompressor:
         # Skip non-text content (images, etc.)
         if isinstance(content, list):
             if any(
-                not (isinstance(b, dict) and b.get("type") == "text")
-                for b in content
+                not (isinstance(b, dict) and b.get("type") == "text") for b in content
             ):
                 return content
             text_content = "\n".join(

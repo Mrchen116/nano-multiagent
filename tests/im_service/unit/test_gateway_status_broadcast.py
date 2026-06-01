@@ -22,7 +22,9 @@ from IM.ws.user_stream import UserStreamRegistry
 class _StubGatewayWebSocket:
     """Echo websocket sufficient for GatewayHandler register/heartbeat protocol."""
 
-    async def send_json(self, payload: dict[str, object]) -> None:  # pragma: no cover - unused here
+    async def send_json(
+        self, payload: dict[str, object]
+    ) -> None:  # pragma: no cover - unused here
         pass
 
 
@@ -79,7 +81,9 @@ def test_register_broadcasts_node_online_to_owner(tmp_path: Path) -> None:
     assert frame["data"]["seq"] == 1
 
 
-def test_register_with_agents_broadcasts_per_agent_status_online(tmp_path: Path) -> None:
+def test_register_with_agents_broadcasts_per_agent_status_online(
+    tmp_path: Path,
+) -> None:
     """Agent-status events ride alongside node-status events when node flips online."""
     handler, nodes, registry, connection, users = _build(tmp_path)
     owner = users.create_user(username="owner-a", display_name="Owner A")
@@ -92,14 +96,22 @@ def test_register_with_agents_broadcasts_per_agent_status_online(tmp_path: Path)
         handler.handle_message(
             websocket=_StubGatewayWebSocket(),
             message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["agent-a", "agent-b"], "capabilities": {}},
+            payload={
+                "node_id": "node-1",
+                "agents": ["agent-a", "agent-b"],
+                "capabilities": {},
+            },
         )
     )
 
     event_types = [f["event_type"] for f in browser.frames]
     assert event_types.count("node.status_changed") == 1
     assert event_types.count("agent.status_changed") == 2
-    agent_ids = sorted(f["data"]["agent_id"] for f in browser.frames if f["event_type"] == "agent.status_changed")
+    agent_ids = sorted(
+        f["data"]["agent_id"]
+        for f in browser.frames
+        if f["event_type"] == "agent.status_changed"
+    )
     assert agent_ids == ["agent-a", "agent-b"]
     for f in browser.frames:
         if f["event_type"] == "agent.status_changed":
@@ -132,7 +144,9 @@ def test_heartbeat_with_same_status_does_not_rebroadcast(tmp_path: Path) -> None
         )
     )
 
-    assert len(browser.frames) == frames_after_register, "stable heartbeat must not broadcast"
+    assert len(browser.frames) == frames_after_register, (
+        "stable heartbeat must not broadcast"
+    )
 
 
 def test_heartbeat_flip_to_degraded_broadcasts(tmp_path: Path) -> None:
@@ -162,7 +176,9 @@ def test_heartbeat_flip_to_degraded_broadcasts(tmp_path: Path) -> None:
     )
 
     # last_error sets status to "degraded" per _normalize_node_status
-    flip_frames = [f for f in browser.frames if f["event_type"] == "node.status_changed"]
+    flip_frames = [
+        f for f in browser.frames if f["event_type"] == "node.status_changed"
+    ]
     assert len(flip_frames) == 1
     assert flip_frames[0]["data"]["status"] != "online"
 
@@ -190,8 +206,12 @@ def test_disconnect_broadcasts_node_and_agents_offline(tmp_path: Path) -> None:
     types = [f["event_type"] for f in browser.frames]
     assert "node.status_changed" in types
     assert "agent.status_changed" in types
-    node_frame = next(f for f in browser.frames if f["event_type"] == "node.status_changed")
-    agent_frame = next(f for f in browser.frames if f["event_type"] == "agent.status_changed")
+    node_frame = next(
+        f for f in browser.frames if f["event_type"] == "node.status_changed"
+    )
+    agent_frame = next(
+        f for f in browser.frames if f["event_type"] == "agent.status_changed"
+    )
     assert node_frame["data"]["status"] == "offline"
     assert agent_frame["data"]["status"] == "offline"
     assert agent_frame["data"]["agent_id"] == "agent-a"

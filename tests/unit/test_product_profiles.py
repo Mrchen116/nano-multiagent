@@ -48,7 +48,9 @@ def test_local_coding_package_exports_default_modules() -> None:
     assert local_coding_defaults.CONFIG_NAMESPACE == "nanocode"
     # prompts.py deleted; default_system_prompt="" signals segment assembly
     assert LOCAL_CODING_PROFILE.default_system_prompt == ""
-    assert {"read", "write", "edit", "bash", "agent", "task_stop"} <= set(local_coding_toolsets.DEFAULT_TOOL_IDS)
+    assert {"read", "write", "edit", "bash", "agent", "task_stop"} <= set(
+        local_coding_toolsets.DEFAULT_TOOL_IDS
+    )
     assert "skill_manage" in local_coding_toolsets.DEFAULT_TOOL_IDS
     assert "memory" in local_coding_toolsets.DEFAULT_TOOL_IDS
     # feat-333 M1 replaced bash_risk_gate with the unified auto_mode_gate classifier.
@@ -75,7 +77,9 @@ def test_personal_assistant_package_exports_default_modules() -> None:
     assert personal_assistant_defaults.CONFIG_NAMESPACE == "nanoassistant"
     # prompts.py deleted; default_system_prompt="" signals segment assembly
     assert PERSONAL_ASSISTANT_PROFILE.default_system_prompt == ""
-    assert {"read", "write", "edit", "bash", "agent", "web_fetch", "web_search"} <= set(personal_assistant_toolsets.DEFAULT_TOOL_IDS)
+    assert {"read", "write", "edit", "bash", "agent", "web_fetch", "web_search"} <= set(
+        personal_assistant_toolsets.DEFAULT_TOOL_IDS
+    )
     assert set(personal_assistant_toolsets.OPTIONAL_TOOL_IDS) == {"send_message"}
     assert set(PERSONAL_ASSISTANT_PROFILE.optional_tool_ids) == {"send_message"}
     # feat-379-M1: communication_context is no longer a hook module — group context
@@ -84,8 +88,9 @@ def test_personal_assistant_package_exports_default_modules() -> None:
     assert "default_status" in personal_assistant_hooks.DEFAULT_HOOK_MODULES
 
 
-
-def test_personal_assistant_bootstrap_loads_communication_context_hook(tmp_path: Path) -> None:
+def test_personal_assistant_bootstrap_loads_communication_context_hook(
+    tmp_path: Path,
+) -> None:
     # feat-379-M1: communication_context.setup() no longer registers a
     # before_agent_start prompt-injection handler.  The hook file is still
     # loaded (module stem present in module_stems) because the module itself
@@ -103,7 +108,8 @@ def test_personal_assistant_bootstrap_loads_communication_context_hook(tmp_path:
     assert "default_status" in module_stems
     # Verify the prompt injection was not added as before_agent_start.
     before_start_handlers = [
-        h for h in resolved.hook_registry.all_handlers()
+        h
+        for h in resolved.hook_registry.all_handlers()
         if h.event == "before_agent_start"
         and h.file_path is not None
         and Path(h.file_path).stem == "communication_context"
@@ -121,7 +127,10 @@ def test_personal_assistant_hook_group_context_now_via_segment(tmp_path: Path) -
     Verifies that the pa.communication_context segment correctly renders
     [Communication Context] for group scenarios.
     """
-    from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
+    from agent.core.agent.prompt_sections.base import (
+        PromptContext,
+        assemble_system_prompt,
+    )
     from agent.products.personal_assistant.prompt_sections import build_pa_system_prompt
 
     ctx = PromptContext(
@@ -141,7 +150,6 @@ def test_personal_assistant_hook_group_context_now_via_segment(tmp_path: Path) -
     assert "[Communication Context]" in result
     assert "session_type: group" in result
     assert "your_agent_id: agent-a" in result
-
 
 
 def test_platform_products_shims_export_canonical_profiles() -> None:

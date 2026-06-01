@@ -37,7 +37,12 @@ def test_conversation_404_across_tenants(tmp_path: Path) -> None:
         cid = alice_conv["id"]
 
         assert bob_client.get(f"/im/v1/conversations/{cid}").status_code == 404
-        assert bob_client.patch(f"/im/v1/conversations/{cid}", json={"is_pinned": True}).status_code == 404
+        assert (
+            bob_client.patch(
+                f"/im/v1/conversations/{cid}", json={"is_pinned": True}
+            ).status_code
+            == 404
+        )
         assert bob_client.delete(f"/im/v1/conversations/{cid}").status_code == 404
     finally:
         alice_client.__exit__(None, None, None)
@@ -55,10 +60,13 @@ def test_message_404_across_tenants(tmp_path: Path) -> None:
         ).json()["id"]
 
         assert bob_client.get(f"/im/v1/conversations/{cid}/messages").status_code == 404
-        assert bob_client.post(
-            f"/im/v1/conversations/{cid}/messages",
-            json={"sender_user_id": bob.id, "content": "intrude"},
-        ).status_code == 404
+        assert (
+            bob_client.post(
+                f"/im/v1/conversations/{cid}/messages",
+                json={"sender_user_id": bob.id, "content": "intrude"},
+            ).status_code
+            == 404
+        )
     finally:
         alice_client.__exit__(None, None, None)
         bob_client.__exit__(None, None, None)
@@ -82,26 +90,32 @@ def test_agent_404_across_tenants(tmp_path: Path) -> None:
             default_model=None,
             workspace_root="/tmp/a",
         )
-        NodeRepository(app.state.connection).upsert_node(node_id="node-alice", node_name="N", owner_id=alice.owner_id)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-alice", node_name="N", owner_id=alice.owner_id
+        )
         app.state.connection.execute(
-            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?", ("node-alice", "alice-agent")
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-alice", "alice-agent"),
         )
         app.state.connection.commit()
 
         assert bob_client.get("/im/v1/agents/alice-agent/config").status_code == 404
-        assert bob_client.patch(
-            "/im/v1/agents/alice-agent/config",
-            json={
-                "profile_version": 1,
-                "display_name": "x",
-                "description": "",
-                "system_prompt": "",
-                "skills": [],
-                "tool_allowlist": [],
-                "group_reply_policy": "manual",
-                "default_model": None,
-            },
-        ).status_code == 404
+        assert (
+            bob_client.patch(
+                "/im/v1/agents/alice-agent/config",
+                json={
+                    "profile_version": 1,
+                    "display_name": "x",
+                    "description": "",
+                    "system_prompt": "",
+                    "skills": [],
+                    "tool_allowlist": [],
+                    "group_reply_policy": "manual",
+                    "default_model": None,
+                },
+            ).status_code
+            == 404
+        )
 
         bob_list = bob_client.get("/im/v1/agents")
         assert bob_list.status_code == 200
@@ -121,7 +135,12 @@ def test_node_404_across_tenants(tmp_path: Path) -> None:
         )
 
         assert bob_client.get("/im/v1/nodes/node-alice/capabilities").status_code == 404
-        assert bob_client.patch("/im/v1/nodes/node-alice/config", json={"alias": "x"}).status_code == 404
+        assert (
+            bob_client.patch(
+                "/im/v1/nodes/node-alice/config", json={"alias": "x"}
+            ).status_code
+            == 404
+        )
         bob_list = bob_client.get("/im/v1/nodes")
         assert bob_list.status_code == 200
         assert "node-alice" not in [item["node_id"] for item in bob_list.json()]

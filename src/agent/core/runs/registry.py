@@ -69,8 +69,9 @@ class RuntimeRunner(Protocol):
 
 
 class EventHubLike(Protocol):
-    def publish(self, *, event: str, session_id: str, data: dict[str, Any]) -> object:
-        ...
+    def publish(
+        self, *, event: str, session_id: str, data: dict[str, Any]
+    ) -> object: ...
 
 
 class RunsRegistry:
@@ -129,7 +130,10 @@ class RunsRegistry:
         can locate the session JSONL; it is required (in production) for the
         existence check below and for the runtime's first load of the session.
         """
-        if self._session_manager.get_session(session_id, workspace_root=workspace_root) is None:
+        if (
+            self._session_manager.get_session(session_id, workspace_root=workspace_root)
+            is None
+        ):
             raise ValueError(f"session does not exist: {session_id}")
         if not parts:
             raise ValueError("empty input parts are not allowed")
@@ -162,8 +166,12 @@ class RunsRegistry:
 
         normalized_parts = [dict(part) for part in parts]
         coro = self._run_worker_async(
-            run_id, session_id, normalized_parts, resolved_trace_id,
-            workspace_root=workspace_root, origin=origin,
+            run_id,
+            session_id,
+            normalized_parts,
+            resolved_trace_id,
+            workspace_root=workspace_root,
+            origin=origin,
         )
         # Capture the caller's Context now (at submit() time) and pass it to the
         # Task so that bind_correlation's ContextVar set/reset both happen inside
@@ -271,7 +279,9 @@ class RunsRegistry:
                     self._active_run_by_session.pop(session_id, None)
                 return
             try:
-                with span("RunsRegistry.run_worker", run_id=run_id, session_id=session_id):
+                with span(
+                    "RunsRegistry.run_worker", run_id=run_id, session_id=session_id
+                ):
                     result = await self._runtime.run(
                         session_id,
                         parts,
@@ -303,7 +313,9 @@ class RunsRegistry:
                 if stranded:
                     self.submit(
                         session_id=session_id,
-                        parts=[{"type": "text", "text": msg.content} for msg in stranded],
+                        parts=[
+                            {"type": "text", "text": msg.content} for msg in stranded
+                        ],
                         origin=RunOrigin.BACKGROUND_TASK,
                         workspace_root=workspace_root,
                     )
@@ -357,7 +369,9 @@ class RunsRegistry:
             return True
         return controller is not None and controller.is_cancelled
 
-    def _mark_completed(self, run_id: str, *, turn_result: TurnResult) -> RunRecord | None:
+    def _mark_completed(
+        self, run_id: str, *, turn_result: TurnResult
+    ) -> RunRecord | None:
         updated = self._set_status(
             run_id,
             status=RunStatus.COMPLETED,
@@ -378,7 +392,9 @@ class RunsRegistry:
             )
         return updated
 
-    async def _mark_failed_async(self, run_id: str, *, message: str) -> RunRecord | None:
+    async def _mark_failed_async(
+        self, run_id: str, *, message: str
+    ) -> RunRecord | None:
         updated = self._set_status(
             run_id,
             status=RunStatus.FAILED,
@@ -416,7 +432,9 @@ class RunsRegistry:
             )
         return updated
 
-    async def _mark_aborted_async(self, run_id: str, *, source: str = "priority_now") -> RunRecord | None:
+    async def _mark_aborted_async(
+        self, run_id: str, *, source: str = "priority_now"
+    ) -> RunRecord | None:
         message = (
             "run was aborted by priority=now preemption"
             if source == "priority_now"
@@ -426,7 +444,11 @@ class RunsRegistry:
             run_id,
             status=RunStatus.CANCELLED,
             stop_reason="aborted",
-            error={"code": "run_aborted_by_priority_now", "message": message, "retryable": False},
+            error={
+                "code": "run_aborted_by_priority_now",
+                "message": message,
+                "retryable": False,
+            },
             only_if={RunStatus.RUNNING},
         )
         if updated is not None and updated.status is RunStatus.CANCELLED:
@@ -438,7 +460,9 @@ class RunsRegistry:
             )
         return updated
 
-    async def _mark_timed_out_async(self, run_id: str, *, message: str) -> RunRecord | None:
+    async def _mark_timed_out_async(
+        self, run_id: str, *, message: str
+    ) -> RunRecord | None:
         updated = self._set_status(
             run_id,
             status=RunStatus.FAILED,
@@ -492,7 +516,9 @@ class RunsRegistry:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn("hook observe dispatch failed", event=event, error=str(exc))
+            hook_ctx.logger.warn(
+                "hook observe dispatch failed", event=event, error=str(exc)
+            )
             return
         self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
 
@@ -555,6 +581,7 @@ class RunsRegistry:
             data=payload,
         )
 
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -610,7 +637,9 @@ def _resolve_session_event_publisher(
 ):
     if hook_runner is None:
         return None
-    factory = hook_runner.registry.get_extension_state(_SESSION_EVENT_PUBLISHER_FACTORY_STATE_KEY)
+    factory = hook_runner.registry.get_extension_state(
+        _SESSION_EVENT_PUBLISHER_FACTORY_STATE_KEY
+    )
     if not callable(factory):
         return None
     publisher = factory(session_id)

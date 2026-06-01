@@ -21,6 +21,7 @@ from tests.unit._cli_kernel_stubs import (
 # Kernel stubs for text/SSE path tests
 # ---------------------------------------------------------------------------
 
+
 class _TextModeKernelStub(_BaseKernelStub):
     """Stub for --text mode: one session create + one submit + stream."""
 
@@ -33,11 +34,22 @@ class _TextModeKernelStub(_BaseKernelStub):
         return type("R", (), {"run_id": "run_sse"})()
 
     def stream(self, session_id, *, after_sequence=0):
-        return _AsyncIterEvents([
-            {"event": "assistant_message", "run_id": "run_sse", "content": "ack:hello"},
-            {"event": "turn_end", "run_id": "run_sse", "completed": True, "stop_reason": "stop"},
-            {"event": "run_status", "run_id": "run_sse", "status": "completed"},
-        ])
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_sse",
+                    "content": "ack:hello",
+                },
+                {
+                    "event": "turn_end",
+                    "run_id": "run_sse",
+                    "completed": True,
+                    "stop_reason": "stop",
+                },
+                {"event": "run_status", "run_id": "run_sse", "status": "completed"},
+            ]
+        )
 
 
 class _TtyToolKernelStub(_BaseKernelStub):
@@ -53,12 +65,23 @@ class _TtyToolKernelStub(_BaseKernelStub):
         return type("R", (), {"run_id": "run_sse"})()
 
     def stream(self, session_id, *, after_sequence=0):
-        return _AsyncIterEvents([
-            {"event": "tool_start", "run_id": "run_sse", "name": "agent"},
-            {"event": "tool_end", "run_id": "run_sse", "name": "agent", "duration_ms": 22},
-            {"event": "assistant_message", "run_id": "run_sse", "content": "line one\nline two"},
-            {"event": "run_status", "run_id": "run_sse", "status": "completed"},
-        ])
+        return _AsyncIterEvents(
+            [
+                {"event": "tool_start", "run_id": "run_sse", "name": "agent"},
+                {
+                    "event": "tool_end",
+                    "run_id": "run_sse",
+                    "name": "agent",
+                    "duration_ms": 22,
+                },
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_sse",
+                    "content": "line one\nline two",
+                },
+                {"event": "run_status", "run_id": "run_sse", "status": "completed"},
+            ]
+        )
 
 
 class _BgRunKernelStub(_BaseKernelStub):
@@ -73,16 +96,25 @@ class _BgRunKernelStub(_BaseKernelStub):
         return type("R", (), {"run_id": "run_sse"})()
 
     def stream(self, session_id, *, after_sequence=0):
-        return _AsyncIterEvents([
-            {"event": "run_status", "run_id": "run_bg", "status": "running", "origin": "background_task", "source_task_id": "t1"},
-            {"event": "assistant_message", "run_id": "run_sse", "content": "done"},
-            {"event": "run_status", "run_id": "run_sse", "status": "completed"},
-        ])
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "run_status",
+                    "run_id": "run_bg",
+                    "status": "running",
+                    "origin": "background_task",
+                    "source_task_id": "t1",
+                },
+                {"event": "assistant_message", "run_id": "run_sse", "content": "done"},
+                {"event": "run_status", "run_id": "run_sse", "status": "completed"},
+            ]
+        )
 
 
 # ---------------------------------------------------------------------------
 # Tests: text mode
 # ---------------------------------------------------------------------------
+
 
 def test_run_cli_text_mode_creates_session_and_streams_ndjson(tmp_path) -> None:
     stub = _TextModeKernelStub()
@@ -105,7 +137,10 @@ def test_run_cli_text_mode_creates_session_and_streams_ndjson(tmp_path) -> None:
     event_lines = [json.loads(line) for line in lines[1:]]
     run_events = [e for e in event_lines if e.get("run_id") == "run_sse"]
     assert any(e.get("event") == "assistant_message" for e in run_events)
-    assert any(e.get("event") == "run_status" and e.get("status") == "completed" for e in run_events)
+    assert any(
+        e.get("event") == "run_status" and e.get("status") == "completed"
+        for e in run_events
+    )
 
 
 def test_run_cli_text_mode_uses_resume_session_when_given(tmp_path) -> None:
@@ -133,6 +168,7 @@ def test_run_cli_text_mode_uses_resume_session_when_given(tmp_path) -> None:
 # Tests: SSE REPL path (now: SDK stream REPL path)
 # ---------------------------------------------------------------------------
 
+
 def test_run_cli_repl_uses_sse_path_when_submit_message_available(tmp_path) -> None:
     stub = _TextModeKernelStub()
     output = io.StringIO()
@@ -152,7 +188,9 @@ def test_run_cli_repl_uses_sse_path_when_submit_message_available(tmp_path) -> N
     assert ("submit", {"session_id": "sess_cli", "text": "hello"}) in stub.calls
 
 
-def test_run_cli_repl_tty_turn_summary_starts_each_line_at_column_zero(tmp_path) -> None:
+def test_run_cli_repl_tty_turn_summary_starts_each_line_at_column_zero(
+    tmp_path,
+) -> None:
     from tests.unit._cli_async_stubs import _simulate_terminal_rows
 
     stub = _TextModeKernelStub()
@@ -170,16 +208,20 @@ def test_run_cli_repl_tty_turn_summary_starts_each_line_at_column_zero(tmp_path)
     assert exit_code == 0
     rows = _simulate_terminal_rows(output.getvalue())
     summary_rows = [
-        row for row in rows
+        row
+        for row in rows
         if row.lstrip().startswith(("State:", "Usage:", "Context budget:"))
     ]
     assert summary_rows
-    assert all(row.startswith(("State:", "Usage:", "Context budget:")) for row in summary_rows)
+    assert all(
+        row.startswith(("State:", "Usage:", "Context budget:")) for row in summary_rows
+    )
 
 
 # ---------------------------------------------------------------------------
 # Tests: _send_message_async behavior (via run_cli integration)
 # ---------------------------------------------------------------------------
+
 
 def test_send_message_builds_payload_from_events(tmp_path) -> None:
     """Verify that a turn payload with assistant reply is built correctly."""

@@ -131,7 +131,10 @@ class TestMaybeCompress:
             assert result.startswith(PERSISTED_OUTPUT_TAG)
             filepath = Path(tmpdir) / "sess_6" / "call_6.txt"
             assert filepath.exists()
-            assert filepath.read_text(encoding="utf-8") == "a" * 30_000 + "\n" + "b" * 30_000
+            assert (
+                filepath.read_text(encoding="utf-8")
+                == "a" * 30_000 + "\n" + "b" * 30_000
+            )
 
     def test_empty_string_no_crash(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -8,7 +8,10 @@ from pathlib import Path
 
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
-from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_runtime_capabilities
+from personal_assistant.reporter.upstream_reporter import (
+    UpstreamReporter,
+    build_runtime_capabilities,
+)
 from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 
 
@@ -33,9 +36,7 @@ class _FakeWebSocket:
 def _minimal_reporter(tmp_path: Path) -> UpstreamReporter:
     workspace = tmp_path / "agent-a"
     workspace.mkdir(exist_ok=True)
-    agents = (
-        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),
-    )
+    agents = (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),)
     return UpstreamReporter(
         node=NodeConfig(node_id="n1"),
         agents=agents,
@@ -60,13 +61,19 @@ def test_send_message_tool_dispatches_via_gateway_boundary() -> None:
     import httpx as _httpx
 
     from agent.products.personal_assistant.tools.send_message import SendMessageTool
-    from agent.core.tools.base import ToolContext, set_tool_safety_config_factory, set_tool_safety_factory
+    from agent.core.tools.base import (
+        ToolContext,
+        set_tool_safety_config_factory,
+        set_tool_safety_factory,
+    )
 
     seen_payloads: list[dict] = []
 
     def _mock_post(url: str, **kwargs) -> _httpx.Response:
         seen_payloads.append(kwargs.get("json", {}))
-        return _httpx.Response(200, json={"ok": True}, request=_httpx.Request("POST", url))
+        return _httpx.Response(
+            200, json={"ok": True}, request=_httpx.Request("POST", url)
+        )
 
     tool = SendMessageTool()
 
@@ -82,7 +89,9 @@ def test_send_message_tool_dispatches_via_gateway_boundary() -> None:
     set_tool_safety_config_factory(_SafetyConfig)
     ctx = ToolContext.create(repo_root=Path("/tmp")).with_session(
         "sess-1",
-        session_metadata={"gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch"},
+        session_metadata={
+            "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch"
+        },
     )
 
     with patch("httpx.post", side_effect=_mock_post):
@@ -96,17 +105,24 @@ def test_send_message_tool_dispatches_via_gateway_boundary() -> None:
     assert seen_payloads[0]["origin_kernel_session_id"] == "sess-1"
     assert seen_payloads[0]["source_agent_id"] is None
     assert isinstance(seen_payloads[0]["dispatch_request_id"], str)
-    assert seen_payloads[0]["from_session_id"] == f"sess-1|tool_call:{seen_payloads[0]['dispatch_request_id']}"
+    assert (
+        seen_payloads[0]["from_session_id"]
+        == f"sess-1|tool_call:{seen_payloads[0]['dispatch_request_id']}"
+    )
 
 
-def test_connect_once_calls_token_getter_and_uses_returned_token(tmp_path: Path) -> None:
+def test_connect_once_calls_token_getter_and_uses_returned_token(
+    tmp_path: Path,
+) -> None:
     """token_getter 返回值应被写入 Authorization 请求头，而非使用 config.token。"""
     reporter = _minimal_reporter(tmp_path)
     relay_adapter = WebRelayAdapter()
     connect_calls: list[tuple[str, dict[str, str]]] = []
-    socket = _FakeWebSocket(incoming=[
-        json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-    ])
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+        ]
+    )
 
     async def _token_getter() -> str | None:
         return "dynamic-access-token"
@@ -127,14 +143,18 @@ def test_connect_once_calls_token_getter_and_uses_returned_token(tmp_path: Path)
     assert headers.get("Authorization") == "Bearer dynamic-access-token"
 
 
-def test_connect_once_falls_back_to_config_token_when_no_token_getter(tmp_path: Path) -> None:
+def test_connect_once_falls_back_to_config_token_when_no_token_getter(
+    tmp_path: Path,
+) -> None:
     """token_getter 未提供时使用 config.token（向后兼容）。"""
     reporter = _minimal_reporter(tmp_path)
     relay_adapter = WebRelayAdapter()
     connect_calls: list[tuple[str, dict[str, str]]] = []
-    socket = _FakeWebSocket(incoming=[
-        json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-    ])
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+        ]
+    )
 
     manager = IMConnectionManager(
         config=IMConnectionConfig(url="http://im.local:9000", token="config-token"),
@@ -149,14 +169,18 @@ def test_connect_once_falls_back_to_config_token_when_no_token_getter(tmp_path: 
     assert headers.get("Authorization") == "Bearer config-token"
 
 
-def test_connect_once_skips_auth_header_when_token_getter_returns_none(tmp_path: Path) -> None:
+def test_connect_once_skips_auth_header_when_token_getter_returns_none(
+    tmp_path: Path,
+) -> None:
     """token_getter 返回 None 时不发送 Authorization 头（config.token 也为 None）。"""
     reporter = _minimal_reporter(tmp_path)
     relay_adapter = WebRelayAdapter()
     connect_calls: list[tuple[str, dict[str, str]]] = []
-    socket = _FakeWebSocket(incoming=[
-        json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-    ])
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+        ]
+    )
 
     async def _token_getter() -> str | None:
         return None

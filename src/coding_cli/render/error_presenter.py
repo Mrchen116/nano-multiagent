@@ -3,7 +3,9 @@
 _ERROR_LAYERS = {"input", "network", "runtime"}
 
 
-def suggestion_for_exception(exc: Exception, *, default: str, mode: str | None = None) -> str:
+def suggestion_for_exception(
+    exc: Exception, *, default: str, mode: str | None = None
+) -> str:
     """Return actionable remediation suggestion for a CLI-visible exception."""
     explicit_suggestion = getattr(exc, "suggestion", None)
     if isinstance(explicit_suggestion, str) and explicit_suggestion.strip():
@@ -14,7 +16,9 @@ def suggestion_for_exception(exc: Exception, *, default: str, mode: str | None =
     if "remote mode requires --base-url" in text:
         return "pass --base-url <url> (or set NANO_MULTIAGENT_API_BASE_URL)."
     if "managed mode requires" in text:
-        return "use a local http:// base URL for managed mode, or switch to --mode remote."
+        return (
+            "use a local http:// base URL for managed mode, or switch to --mode remote."
+        )
     if "managed startup llm options require --mode managed" in text:
         return "use --mode managed when passing --llm-provider/--llm-model/--llm-base-url/--llm-api-key/--llm-timeout-seconds."
     if "llm-config set requires at least one field" in text:
@@ -30,8 +34,14 @@ def suggestion_for_exception(exc: Exception, *, default: str, mode: str | None =
             return "request timed out; check remote API latency or increase NANO_MULTIAGENT_API_TIMEOUT_SECONDS."
         if mode == "managed":
             return "request timed out; local API/LLM may be slow, retry or increase NANO_MULTIAGENT_API_TIMEOUT_SECONDS."
-        return "request timed out; retry or increase NANO_MULTIAGENT_API_TIMEOUT_SECONDS."
-    if "connection refused" in text or "connecterror" in text or "nodename nor servname" in text:
+        return (
+            "request timed out; retry or increase NANO_MULTIAGENT_API_TIMEOUT_SECONDS."
+        )
+    if (
+        "connection refused" in text
+        or "connecterror" in text
+        or "nodename nor servname" in text
+    ):
         if mode == "remote":
             return "check --base-url and ensure the remote API server is reachable."
         if mode == "managed":

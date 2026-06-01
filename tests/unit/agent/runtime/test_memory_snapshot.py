@@ -10,6 +10,7 @@ Validates:
 - cache: second call returns same snapshot without re-reading disk
 - invalidate clears cache so next call re-freezes
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -100,7 +101,12 @@ def test_ensure_memory_snapshot_cache_hit(tmp_path: Path) -> None:
 
 def test_invalidate_memory_snapshot_clears_cache(tmp_path: Path) -> None:
     runtime = _make_minimal_runtime(tmp_path)
-    runtime._memory_snapshots["sess-5"] = {"memory_content": "old", "memory_pct": 0, "user_profile_content": None, "user_pct": 0}
+    runtime._memory_snapshots["sess-5"] = {
+        "memory_content": "old",
+        "memory_pct": 0,
+        "user_profile_content": None,
+        "user_pct": 0,
+    }
     runtime._invalidate_memory_snapshot("sess-5")
     assert "sess-5" not in runtime._memory_snapshots
 

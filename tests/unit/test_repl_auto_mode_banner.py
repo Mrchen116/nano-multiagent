@@ -39,7 +39,9 @@ class TestAutoModeBanner:
         assert output.strip(), "Expected non-empty banner for auto mode"
         # Must contain some recognisable indicator of auto mode being on
         lower = output.lower()
-        assert "auto" in lower or "mode" in lower, f"Expected 'auto' or 'mode' in banner, got: {output!r}"
+        assert "auto" in lower or "mode" in lower, (
+            f"Expected 'auto' or 'mode' in banner, got: {output!r}"
+        )
 
     def test_dangerously_skip_permissions_shows_danger_banner(self) -> None:
         """When dangerously_skip_permissions=True, banner must be prominently visible."""
@@ -123,7 +125,9 @@ class TestLoadAutoModeConfigForRepl:
             "workspace config dangerously_skip_permissions=true must override global false"
         )
 
-    def test_global_config_used_when_no_workspace_config(self, tmp_path: "pytest.FixtureLookupError") -> None:
+    def test_global_config_used_when_no_workspace_config(
+        self, tmp_path: "pytest.FixtureLookupError"
+    ) -> None:
         """When no workspace config exists, global config is the only source."""
         from pathlib import Path
         from unittest.mock import patch
@@ -153,7 +157,9 @@ class TestLoadAutoModeConfigForRepl:
 
         assert config.dangerously_skip_permissions is True
 
-    def test_workspace_false_overrides_global_true(self, tmp_path: "pytest.FixtureLookupError") -> None:
+    def test_workspace_false_overrides_global_true(
+        self, tmp_path: "pytest.FixtureLookupError"
+    ) -> None:
         """Workspace dangerously_skip_permissions=false must override global true."""
         from pathlib import Path
         from unittest.mock import patch

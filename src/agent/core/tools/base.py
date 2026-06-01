@@ -2,7 +2,15 @@
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Optional, Protocol, runtime_checkable
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Callable,
+    Mapping,
+    Optional,
+    Protocol,
+    runtime_checkable,
+)
 
 from .safety_types import (
     ToolSafetyConfigFactory,
@@ -68,7 +76,9 @@ class Tool(Protocol):
     def run(self, args: Mapping[str, Any], ctx: "ToolContext") -> Mapping[str, Any]:
         """Run tool with validated args and context."""
 
-    def serialize_result(self, output: Any, error: str | None = None) -> str | list[dict[str, Any]]:
+    def serialize_result(
+        self, output: Any, error: str | None = None
+    ) -> str | list[dict[str, Any]]:
         """Serialize tool result into LLM-facing content.
 
         Returns either a plain string (text-only tools) or a list of
@@ -146,9 +156,20 @@ class ToolContext:
 
         resolved_root = repo_root.expanduser().resolve()
         resolved_cwd = (cwd or resolved_root).expanduser().resolve()
-        effective_config = safety_config if safety_config is not None else _build_default_tool_safety_config()
-        safety = _require_tool_safety_factory()(repo_root=resolved_root, config=effective_config)
-        return cls(repo_root=resolved_root, cwd=resolved_cwd, safety=safety, llm_client=llm_client)
+        effective_config = (
+            safety_config
+            if safety_config is not None
+            else _build_default_tool_safety_config()
+        )
+        safety = _require_tool_safety_factory()(
+            repo_root=resolved_root, config=effective_config
+        )
+        return cls(
+            repo_root=resolved_root,
+            cwd=resolved_cwd,
+            safety=safety,
+            llm_client=llm_client,
+        )
 
     def with_session(
         self,
@@ -170,7 +191,9 @@ class ToolContext:
             tool_call_id=tool_call_id,
             safety_overrides=dict(safety_overrides or {}),
             execution_event_callback=execution_event_callback,
-            session_metadata=dict(session_metadata) if session_metadata is not None else dict(self.session_metadata),
+            session_metadata=dict(session_metadata)
+            if session_metadata is not None
+            else dict(self.session_metadata),
             session_file_state=session_file_state,
             llm_client=self.llm_client,
         )

@@ -60,7 +60,9 @@ def main() -> int:
         sys.stderr.write(f"unknown mode: {mode}\n")
         return 2
     server = http.server.HTTPServer(("127.0.0.1", port), _build_handler(mode))
-    sys.stderr.write(f"slow_stream fixture listening on 127.0.0.1:{port} (mode={mode})\n")
+    sys.stderr.write(
+        f"slow_stream fixture listening on 127.0.0.1:{port} (mode={mode})\n"
+    )
     sys.stderr.flush()
     try:
         server.serve_forever()

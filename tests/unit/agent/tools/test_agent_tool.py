@@ -43,7 +43,16 @@ class _FakeStopper:
 
 
 class _FakeRunner:
-    def start(self, *, agent_session_id, parent_session_id, prompt, on_complete, on_fail, workspace_root=None):
+    def start(
+        self,
+        *,
+        agent_session_id,
+        parent_session_id,
+        prompt,
+        on_complete,
+        on_fail,
+        workspace_root=None,
+    ):
         def _worker():
             time.sleep(0.05)
             on_complete(
@@ -67,7 +76,9 @@ async def _fake_create_session(*args, **kwargs):
 def _make_tool(*, with_wiring: bool = True) -> AgentTool:
     runtime = MagicMock()
     runtime.create_session = _fake_create_session
-    runtime._session_manager.store.resolve_path.return_value = Path("/tmp/sess_123.jsonl")
+    runtime._session_manager.store.resolve_path.return_value = Path(
+        "/tmp/sess_123.jsonl"
+    )
     runtime._session_manager.store.find_session_by_metadata.return_value = None
 
     wiring = None
@@ -85,12 +96,15 @@ def _make_ctx(tmpdir: str) -> ToolContext:
     from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
     safety = ToolSafety(repo_root=Path(tmpdir), config=ToolSafetyConfig())
-    return ToolContext(repo_root=Path(tmpdir), cwd=Path(tmpdir), safety=safety, session_id="parent_1")
+    return ToolContext(
+        repo_root=Path(tmpdir), cwd=Path(tmpdir), safety=safety, session_id="parent_1"
+    )
 
 
 # ------------------------------------------------------------------
 # Background launch
 # ------------------------------------------------------------------
+
 
 def test_background_launch_returns_async_launched() -> None:
     tool = _make_tool()
@@ -114,6 +128,7 @@ def test_background_launch_returns_async_launched() -> None:
 # ------------------------------------------------------------------
 # Foreground completion
 # ------------------------------------------------------------------
+
 
 async def _fake_run_fast(*args, **kwargs):
     return _FakeTurnResult("sync result")
@@ -143,6 +158,7 @@ def test_foreground_completes_within_budget() -> None:
 # ------------------------------------------------------------------
 # Foreground auto-background
 # ------------------------------------------------------------------
+
 
 def test_foreground_auto_backgrounds_on_timeout() -> None:
     tool = _make_tool()
@@ -176,6 +192,7 @@ def test_foreground_auto_backgrounds_on_timeout() -> None:
 # ------------------------------------------------------------------
 # Continuation: running agent
 # ------------------------------------------------------------------
+
 
 def test_continuation_to_running_agent_queues_message() -> None:
     tool = _make_tool()
@@ -216,6 +233,7 @@ def test_continuation_to_running_agent_queues_message() -> None:
 # Continuation: terminal agent in memory
 # ------------------------------------------------------------------
 
+
 def test_continuation_to_terminal_agent_resumes() -> None:
     tool = _make_tool()
     registry = tool._wiring.registry
@@ -253,15 +271,22 @@ def test_continuation_to_terminal_agent_resumes() -> None:
 # JSONL rehydrate
 # ------------------------------------------------------------------
 
+
 def test_continuation_falls_back_to_jsonl_rehydrate() -> None:
     tool = _make_tool(with_wiring=False)
     runtime = tool._runtime
 
     # No in-memory registry; JSONL should find it
-    runtime._session_manager.store.find_session_by_metadata.return_value = "sess_from_jsonl"
+    runtime._session_manager.store.find_session_by_metadata.return_value = (
+        "sess_from_jsonl"
+    )
 
     fake_config = MagicMock()
-    fake_config.metadata = {"agent_id": "a1234567890abcdef", "agent_type": "explore", "description": "rehydrated"}
+    fake_config.metadata = {
+        "agent_id": "a1234567890abcdef",
+        "agent_type": "explore",
+        "description": "rehydrated",
+    }
     fake_config.created_at = "2024-01-01T00:00:00"
     fake_config.workspace_root = Path("/tmp")
     fake_config.system_prompt = None
@@ -273,7 +298,9 @@ def test_continuation_falls_back_to_jsonl_rehydrate() -> None:
     fake_load_result.messages = []
 
     runtime._session_manager.load.return_value = fake_load_result
-    runtime._session_manager.store.resolve_path.return_value = Path("/tmp/sess_from_jsonl.jsonl")
+    runtime._session_manager.store.resolve_path.return_value = Path(
+        "/tmp/sess_from_jsonl.jsonl"
+    )
 
     # Need wiring with registry for the resume path
     registry = BackgroundTaskRegistry()
@@ -301,6 +328,7 @@ def test_continuation_falls_back_to_jsonl_rehydrate() -> None:
 # Not found
 # ------------------------------------------------------------------
 
+
 def test_continuation_not_found_raises_tool_error() -> None:
     tool = _make_tool()
     # Registry empty, JSONL returns None
@@ -324,6 +352,7 @@ def test_continuation_not_found_raises_tool_error() -> None:
 # ------------------------------------------------------------------
 # Validation
 # ------------------------------------------------------------------
+
 
 def test_missing_description_raises() -> None:
     tool = _make_tool(with_wiring=False)
@@ -376,14 +405,17 @@ def test_mutually_exclusive_category_and_subagent_type() -> None:
 # Serialization
 # ------------------------------------------------------------------
 
+
 def test_serialize_async_launched() -> None:
     tool = _make_tool(with_wiring=False)
-    text = tool.serialize_result({
-        "status": "async_launched",
-        "agent_id": "a123",
-        "description": "desc",
-        "output_file": "/tmp/out",
-    })
+    text = tool.serialize_result(
+        {
+            "status": "async_launched",
+            "agent_id": "a123",
+            "description": "desc",
+            "output_file": "/tmp/out",
+        }
+    )
     assert "Background agent launched" in text
     assert "a123" in text
     assert "output_file" in text
@@ -391,20 +423,24 @@ def test_serialize_async_launched() -> None:
 
 def test_serialize_message_queued() -> None:
     tool = _make_tool(with_wiring=False)
-    text = tool.serialize_result({
-        "status": "message_queued",
-        "agent_id": "a123",
-        "description": "desc",
-        "output_file": "/tmp/out",
-    })
+    text = tool.serialize_result(
+        {
+            "status": "message_queued",
+            "agent_id": "a123",
+            "description": "desc",
+            "output_file": "/tmp/out",
+        }
+    )
     assert "Message queued for agent" in text
 
 
 def test_serialize_completed() -> None:
     tool = _make_tool(with_wiring=False)
-    text = tool.serialize_result({
-        "status": "completed",
-        "content": "result text",
-        "agent_id": "a123",
-    })
+    text = tool.serialize_result(
+        {
+            "status": "completed",
+            "content": "result text",
+            "agent_id": "a123",
+        }
+    )
     assert "result text" in text

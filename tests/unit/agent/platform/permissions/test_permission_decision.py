@@ -32,9 +32,15 @@ class TestPermissionDecisionStructure:
         """decision_reason must accept a dict with type key."""
         d = PermissionDecision(
             behavior="ask",
-            decision_reason={"type": "safety_check", "matched_path": "/home/user/.bashrc"},
+            decision_reason={
+                "type": "safety_check",
+                "matched_path": "/home/user/.bashrc",
+            },
         )
-        assert d.decision_reason == {"type": "safety_check", "matched_path": "/home/user/.bashrc"}
+        assert d.decision_reason == {
+            "type": "safety_check",
+            "matched_path": "/home/user/.bashrc",
+        }
 
     def test_updated_input_defaults_to_none(self):
         """New updated_input field must default to None."""

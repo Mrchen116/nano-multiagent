@@ -46,11 +46,15 @@ def test_me_roundtrip_and_bind_flow(tmp_path: Path) -> None:
         assert patch_resp.status_code == 200
         assert patch_resp.json()["display_name"] == "Alice Cooper"
 
-        start_resp = client.post("/im/v1/bind", json={"action": "start", "node_id": "node-1"})
+        start_resp = client.post(
+            "/im/v1/bind", json={"action": "start", "node_id": "node-1"}
+        )
         assert start_resp.status_code == 201
         start_body = start_resp.json()
         assert start_body["status"] == "pending"
-        assert start_body["bind_url"].startswith("http://testserver/bind/confirm?token=")
+        assert start_body["bind_url"].startswith(
+            "http://testserver/bind/confirm?token="
+        )
 
         confirm_resp = client.post(
             "/im/v1/bind",
@@ -85,7 +89,9 @@ def test_bind_rejects_unknown_references(tmp_path: Path) -> None:
     with make_app_client(tmp_path) as client:
         user = register_user(client, username="alice")
         authorize(client, user)
-        start_resp = client.post("/im/v1/bind", json={"action": "start", "node_id": "missing-node"})
+        start_resp = client.post(
+            "/im/v1/bind", json={"action": "start", "node_id": "missing-node"}
+        )
         assert start_resp.status_code == 404
         assert start_resp.json()["detail"] == "node_id not found"
 

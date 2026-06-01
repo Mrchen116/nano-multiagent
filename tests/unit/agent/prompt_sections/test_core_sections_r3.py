@@ -7,6 +7,7 @@ Validates:
 - core.user_profile_block is disabled when ctx.user_profile_block is None/empty
 - cache_safe invariant is satisfied (all cache_safe=False segments have order > max stable order)
 """
+
 from __future__ import annotations
 
 import pytest
@@ -45,6 +46,7 @@ def test_core_user_profile_block_cache_safe_and_position() -> None:
 def test_core_user_profile_block_renders_when_set() -> None:
     """M4 Decision 17: render includes banner + content (not raw content)."""
     from agent.core.agent.prompt_sections.base import RenderMode
+
     ctx = PromptContext(
         user_profile_content="Alice is a developer.",
         render_mode=RenderMode.RUNTIME,
@@ -52,13 +54,16 @@ def test_core_user_profile_block_renders_when_set() -> None:
     seg = next(s for s in CORE_SECTIONS if s.name == "core.user_profile_block")
     rendered = seg.render(ctx)
     assert rendered is not None
-    assert "USER PROFILE (who the user is)" in rendered, "render must include banner title"
+    assert "USER PROFILE (who the user is)" in rendered, (
+        "render must include banner title"
+    )
     assert "Alice is a developer." in rendered, "render must include content"
     assert "═" * 46 in rendered, "render must include 46-char banner separator"
 
 
 def test_core_user_profile_block_disabled_when_none() -> None:
     from agent.core.agent.prompt_sections.base import RenderMode
+
     ctx = PromptContext(user_profile_content=None, render_mode=RenderMode.RUNTIME)
     seg = next(s for s in CORE_SECTIONS if s.name == "core.user_profile_block")
     assert not seg.enabled_when(ctx)

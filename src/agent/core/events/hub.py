@@ -10,7 +10,6 @@ encode_stream_error) stayed in http_api and were deleted with it.
 from __future__ import annotations
 
 import asyncio
-import json
 import queue
 import time
 from dataclasses import dataclass
@@ -98,7 +97,10 @@ class EventStreamHub:
             subscribers = tuple(self._subscribers)
 
         for subscriber in subscribers:
-            if subscriber.session_id is not None and subscriber.session_id != session_id:
+            if (
+                subscriber.session_id is not None
+                and subscriber.session_id != session_id
+            ):
                 continue
             try:
                 subscriber.queue.put_nowait(stream_event)
@@ -157,7 +159,9 @@ class EventStreamHub:
                 yielded += 1
         finally:
             with self._lock:
-                self._subscribers = [item for item in self._subscribers if item is not subscriber]
+                self._subscribers = [
+                    item for item in self._subscribers if item is not subscriber
+                ]
 
     def current_sequence(self) -> int:
         """Return the last published sequence atomically; used as anchor for POST."""
@@ -201,7 +205,8 @@ class EventStreamHub:
             history = [
                 event
                 for event in self._history
-                if event.sequence_num > after_sequence and event.session_id == session_id
+                if event.sequence_num > after_sequence
+                and event.session_id == session_id
             ]
 
         empty_ticks = 0
@@ -229,7 +234,9 @@ class EventStreamHub:
                 yield event
         finally:
             with self._lock:
-                self._subscribers = [item for item in self._subscribers if item is not subscriber]
+                self._subscribers = [
+                    item for item in self._subscribers if item is not subscriber
+                ]
 
 
 def _utc_now_iso() -> str:

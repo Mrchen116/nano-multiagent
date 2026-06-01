@@ -5,7 +5,12 @@ import json
 from typing import Any, Mapping
 
 from agent.core.errors import ModelError
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+    LLMToolCall,
+)
 from agent.core.types import TokenUsage
 
 
@@ -81,7 +86,9 @@ class OpenAICompatMapper:
         mapped: dict[str, Any] = {"role": message.role}
         if message.role == "assistant" and message.tool_calls:
             mapped["content"] = message.content or ""
-            mapped["tool_calls"] = [self._map_tool_call(call) for call in message.tool_calls]
+            mapped["tool_calls"] = [
+                self._map_tool_call(call) for call in message.tool_calls
+            ]
             # Round-trip reasoning_content so providers like kimi K2.6 don't reject the request
             # with "reasoning_content is missing in assistant tool call message".
             if message.reasoning_content:
@@ -113,7 +120,9 @@ class OpenAICompatMapper:
             "type": "function",
             "function": {
                 "name": tool_call.name,
-                "arguments": json.dumps(tool_call.arguments, ensure_ascii=True, separators=(",", ":")),
+                "arguments": json.dumps(
+                    tool_call.arguments, ensure_ascii=True, separators=(",", ":")
+                ),
             },
         }
 
@@ -224,12 +233,23 @@ def _normalize_tool_output_parts(parts: list[Any]) -> list[dict[str, Any]]:
             image_data = item.get("data")
             mime_type = item.get("mimeType", item.get("mime_type"))
             if isinstance(image_data, str) and image_data:
-                media_type = mime_type if isinstance(mime_type, str) and mime_type else "application/octet-stream"
-                normalized.append({"type": "image_url", "image_url": {"url": f"data:{media_type};base64,{image_data}"}})
+                media_type = (
+                    mime_type
+                    if isinstance(mime_type, str) and mime_type
+                    else "application/octet-stream"
+                )
+                normalized.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{media_type};base64,{image_data}"},
+                    }
+                )
                 continue
             image_url = item.get("image_url")
             if isinstance(image_url, str) and image_url:
-                normalized.append({"type": "image_url", "image_url": {"url": image_url}})
+                normalized.append(
+                    {"type": "image_url", "image_url": {"url": image_url}}
+                )
             continue
         if part_type == "image_url":
             image_payload = item.get("image_url")
@@ -238,7 +258,9 @@ def _normalize_tool_output_parts(parts: list[Any]) -> list[dict[str, Any]]:
                 if isinstance(url, str) and url:
                     normalized.append({"type": "image_url", "image_url": {"url": url}})
             elif isinstance(image_payload, str) and image_payload:
-                normalized.append({"type": "image_url", "image_url": {"url": image_payload}})
+                normalized.append(
+                    {"type": "image_url", "image_url": {"url": image_payload}}
+                )
     return normalized
 
 
@@ -282,7 +304,11 @@ def _parse_openai_usage(payload: Any) -> TokenUsage | None:
 
     resolved_prompt = prompt_tokens or 0
     resolved_completion = completion_tokens or 0
-    resolved_total = total_tokens if total_tokens is not None else resolved_prompt + resolved_completion
+    resolved_total = (
+        total_tokens
+        if total_tokens is not None
+        else resolved_prompt + resolved_completion
+    )
     return TokenUsage(
         prompt_tokens=resolved_prompt,
         completion_tokens=resolved_completion,
@@ -298,7 +324,9 @@ def _extract_non_negative_int(value: Any) -> int | None:
     return None
 
 
-_LEGACY_OPENAI_COMPAT_MAPPER_MODULE = "agent" + ".llm.providers" + ".openai_compat.mapper"
+_LEGACY_OPENAI_COMPAT_MAPPER_MODULE = (
+    "agent" + ".llm.providers" + ".openai_compat.mapper"
+)
 sys.modules.setdefault(_LEGACY_OPENAI_COMPAT_MAPPER_MODULE, sys.modules[__name__])
 
 __all__ = ["OpenAICompatMapper"]

@@ -6,6 +6,7 @@ cache_safe 不变量校验改为列表位置校验（volatile 段索引 > 所有
 这个测试在 M4 实施 R2 之前是红的（PromptSection 仍有 order 字段）。
 实施后变绿。
 """
+
 from __future__ import annotations
 
 import dataclasses
@@ -21,6 +22,7 @@ from agent.core.agent.prompt_sections.base import (
 # ---------------------------------------------------------------------------
 # R2-A: PromptSection 无 order 字段
 # ---------------------------------------------------------------------------
+
 
 def test_prompt_section_has_no_order_field():
     """决策 16: PromptSection 不应有 order 字段。"""
@@ -40,6 +42,7 @@ def test_prompt_section_can_be_constructed_without_order():
 # ---------------------------------------------------------------------------
 # R2-B: assemble_system_prompt 按列表位置顺序
 # ---------------------------------------------------------------------------
+
 
 def _ctx() -> PromptContext:
     return PromptContext()
@@ -74,6 +77,7 @@ def test_assemble_list_position_reversed_order():
 # ---------------------------------------------------------------------------
 # R2-C: cache_safe 不变量改为列表位置校验
 # ---------------------------------------------------------------------------
+
 
 def test_cache_safe_invariant_passes_when_volatile_at_end():
     """volatile 段（cache_safe=False）在列表末尾 → 不变量满足。"""

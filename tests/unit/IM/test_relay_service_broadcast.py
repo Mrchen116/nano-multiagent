@@ -8,12 +8,23 @@ import pytest
 
 from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import AgentProfileRepository, ConversationRepository, MessageRepository, UserRepository
+from IM.repositories import (
+    AgentProfileRepository,
+    ConversationRepository,
+    MessageRepository,
+    UserRepository,
+)
 
 
 def _build_fixture(
     tmp_path: Path,
-) -> tuple[RelayService, MessageRepository, ConversationRepository, UserRepository, AgentProfileRepository]:
+) -> tuple[
+    RelayService,
+    MessageRepository,
+    ConversationRepository,
+    UserRepository,
+    AgentProfileRepository,
+]:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     users = UserRepository(connection)

@@ -39,9 +39,7 @@ _DEFAULT_TEST_PAYLOAD = LLMConfigPayload(
         LLMProviderPayload(
             name="openai_compat",
             base_url="http://127.0.0.1:4000",
-            models=(
-                LLMModelPayload(name="codex_oauth:gpt-5.5"),
-            ),
+            models=(LLMModelPayload(name="codex_oauth:gpt-5.5"),),
         ),
     ),
 )

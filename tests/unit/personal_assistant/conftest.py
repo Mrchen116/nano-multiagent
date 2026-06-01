@@ -11,5 +11,12 @@ import pytest
 
 @pytest.fixture(autouse=True)
 def _clear_proxy_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    for var in ("ALL_PROXY", "HTTPS_PROXY", "HTTP_PROXY", "all_proxy", "https_proxy", "http_proxy"):
+    for var in (
+        "ALL_PROXY",
+        "HTTPS_PROXY",
+        "HTTP_PROXY",
+        "all_proxy",
+        "https_proxy",
+        "http_proxy",
+    ):
         monkeypatch.delenv(var, raising=False)

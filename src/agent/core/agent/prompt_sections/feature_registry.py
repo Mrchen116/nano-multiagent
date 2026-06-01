@@ -17,6 +17,7 @@ render toggles without hardcoding the key set.
 M1 status: skeleton only — section names are correct, i18n keys are stubs.
 M2 will fill in the capabilities API projection and per-agent config plumbing.
 """
+
 from __future__ import annotations
 
 from typing import TypedDict

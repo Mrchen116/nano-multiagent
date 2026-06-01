@@ -28,7 +28,9 @@ def _make_session(
     )
 
 
-def _make_runtime_with_specs(tool_names: list[str], default_tool_ids: list[str] | None = None):
+def _make_runtime_with_specs(
+    tool_names: list[str], default_tool_ids: list[str] | None = None
+):
     """Build a minimal AgentRuntime-like object with a mock loop returning fixed specs."""
     from agent.core.agent.runtime import AgentRuntime
 
@@ -63,7 +65,9 @@ def test_resolve_session_tools_with_allowlist_includes_send_message() -> None:
     session = _make_session(tool_allowlist=["read", "send_message"])
     result = runtime._resolve_session_available_tools(session)
     names = {spec.name for spec in result}
-    assert names == {"read", "send_message"}, f"expected {{read, send_message}}, got {names}"
+    assert names == {"read", "send_message"}, (
+        f"expected {{read, send_message}}, got {names}"
+    )
 
 
 def test_resolve_session_tools_no_allowlist_no_default_returns_all() -> None:

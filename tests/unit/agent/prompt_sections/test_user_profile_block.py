@@ -5,6 +5,7 @@ Validates:
 - build_prompt_context_from_metadata accepts user_profile_block param
 - user_profile_block is passed through to PromptContext correctly
 """
+
 from __future__ import annotations
 
 import pytest

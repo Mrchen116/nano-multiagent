@@ -1,4 +1,5 @@
 """Product-owned web_search tool for personal_assistant — web search with provider fallback."""
+
 from __future__ import annotations
 
 import os
@@ -129,11 +130,19 @@ class WebSearchTool:
 
         search_fn = _PROVIDERS.get(provider)
         if search_fn is None:
-            return {"ok": False, "error": f"Unknown provider: {provider}", "query": query}
+            return {
+                "ok": False,
+                "error": f"Unknown provider: {provider}",
+                "query": query,
+            }
 
         raw = search_fn(query, count)
         results = [
-            {"title": r.get("title", ""), "url": r.get("url", ""), "snippet": r.get("snippet", "")}
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "snippet": r.get("snippet", ""),
+            }
             for r in raw[:count]
         ]
         return {"ok": True, "query": query, "provider": provider, "results": results}

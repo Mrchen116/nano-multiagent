@@ -26,7 +26,9 @@ from agent.core.llm.interfaces import (
 
 
 class FakeLLMClient:
-    def __init__(self, responses: tuple[LLMGenerateResponse, ...] | None = None) -> None:
+    def __init__(
+        self, responses: tuple[LLMGenerateResponse, ...] | None = None
+    ) -> None:
         self.requests: list[LLMGenerateRequest] = []
         self._responses = list(
             responses
@@ -126,7 +128,9 @@ async def _run_loop(loop: AgentLoop, state: AgentState, **kwargs):
 
 async def test_loop_builds_context_and_returns_turn_result() -> None:
     client = FakeLLMClient()
-    loop = AgentLoop(llm_client=client, model="model-x", policies=AgentPolicies(max_turns=3))
+    loop = AgentLoop(
+        llm_client=client, model="model-x", policies=AgentPolicies(max_turns=3)
+    )
     state = _base_state()
 
     result = await _run_loop(loop, state)
@@ -148,7 +152,11 @@ async def test_loop_executes_tool_call_until_final_assistant_message() -> None:
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(LLMToolCall(call_id="", name="echo", arguments={"text": "ping"}),),
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="", name="echo", arguments={"text": "ping"}
+                        ),
+                    ),
                 ),
                 finish_reason="tool_calls",
             ),
@@ -184,7 +192,12 @@ async def test_loop_executes_tool_call_until_final_assistant_message() -> None:
     assert registry.calls == [("echo", {"text": "ping"}, call_id)]
 
     assert len(client.requests) == 2
-    assert [msg.role for msg in client.requests[1].messages] == ["system", "user", "assistant", "tool"]
+    assert [msg.role for msg in client.requests[1].messages] == [
+        "system",
+        "user",
+        "assistant",
+        "tool",
+    ]
     assert client.requests[1].messages[2].tool_calls[0].call_id == call_id
     assert client.requests[1].messages[3].tool_call_id == call_id
     assert '"output":{"echoed":"ping"}' in client.requests[1].messages[3].content
@@ -198,7 +211,11 @@ async def test_loop_records_tool_calls_when_registry_is_unavailable() -> None:
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(LLMToolCall(call_id="", name="echo", arguments={"text": "ping"}),),
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="", name="echo", arguments={"text": "ping"}
+                        ),
+                    ),
                 ),
                 finish_reason="tool_calls",
             ),
@@ -223,7 +240,11 @@ async def test_loop_fail_open_on_tool_error_and_continue_generation() -> None:
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(LLMToolCall(call_id="", name="echo", arguments={"text": "ping"}),),
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="", name="echo", arguments={"text": "ping"}
+                        ),
+                    ),
                 ),
                 finish_reason="tool_calls",
             ),
@@ -257,20 +278,30 @@ async def test_loop_accumulates_usage_across_multiple_model_calls() -> None:
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(LLMToolCall(call_id="", name="echo", arguments={"text": "ping"}),),
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="", name="echo", arguments={"text": "ping"}
+                        ),
+                    ),
                 ),
                 finish_reason="tool_calls",
-                usage=TokenUsage(prompt_tokens=100, completion_tokens=10, total_tokens=110),
+                usage=TokenUsage(
+                    prompt_tokens=100, completion_tokens=10, total_tokens=110
+                ),
             ),
             LLMGenerateResponse(
                 model="model-x",
                 message=LLMMessage(role="assistant", content="done"),
                 finish_reason="stop",
-                usage=TokenUsage(prompt_tokens=80, completion_tokens=12, total_tokens=92),
+                usage=TokenUsage(
+                    prompt_tokens=80, completion_tokens=12, total_tokens=92
+                ),
             ),
         )
     )
-    loop = AgentLoop(llm_client=client, model="model-x", tool_registry=FakeToolRegistry())
+    loop = AgentLoop(
+        llm_client=client, model="model-x", tool_registry=FakeToolRegistry()
+    )
 
     result = await _run_loop(loop, _base_state())
 
@@ -294,30 +325,42 @@ async def test_loop_prompt_tokens_tracks_last_roundtrip_not_sum() -> None:
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(LLMToolCall(call_id="c1", name="echo", arguments={"text": "a"}),),
+                    tool_calls=(
+                        LLMToolCall(call_id="c1", name="echo", arguments={"text": "a"}),
+                    ),
                 ),
                 finish_reason="tool_calls",
-                usage=TokenUsage(prompt_tokens=200, completion_tokens=5, total_tokens=205),
+                usage=TokenUsage(
+                    prompt_tokens=200, completion_tokens=5, total_tokens=205
+                ),
             ),
             LLMGenerateResponse(
                 model="model-x",
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(LLMToolCall(call_id="c2", name="echo", arguments={"text": "b"}),),
+                    tool_calls=(
+                        LLMToolCall(call_id="c2", name="echo", arguments={"text": "b"}),
+                    ),
                 ),
                 finish_reason="tool_calls",
-                usage=TokenUsage(prompt_tokens=210, completion_tokens=6, total_tokens=216),
+                usage=TokenUsage(
+                    prompt_tokens=210, completion_tokens=6, total_tokens=216
+                ),
             ),
             LLMGenerateResponse(
                 model="model-x",
                 message=LLMMessage(role="assistant", content="finished"),
                 finish_reason="stop",
-                usage=TokenUsage(prompt_tokens=220, completion_tokens=8, total_tokens=228),
+                usage=TokenUsage(
+                    prompt_tokens=220, completion_tokens=8, total_tokens=228
+                ),
             ),
         )
     )
-    loop = AgentLoop(llm_client=client, model="model-x", tool_registry=FakeToolRegistry())
+    loop = AgentLoop(
+        llm_client=client, model="model-x", tool_registry=FakeToolRegistry()
+    )
 
     result = await _run_loop(loop, _base_state())
 
@@ -338,7 +381,11 @@ async def test_loop_propagates_session_event_publisher_to_tool_hook_context() ->
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(LLMToolCall(call_id="", name="echo", arguments={"text": "ping"}),),
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="", name="echo", arguments={"text": "ping"}
+                        ),
+                    ),
                 ),
                 finish_reason="tool_calls",
             ),
@@ -376,7 +423,9 @@ async def test_loop_propagates_session_event_publisher_to_tool_hook_context() ->
         hook_ctx=HookContext(
             session_id="sess_agent",
             turn_id="turn_1",
-            session_event_publisher=lambda event, data: published.append((event, str(data.get("call_id", "")))),
+            session_event_publisher=lambda event, data: published.append(
+                (event, str(data.get("call_id", "")))
+            ),
         ),
     )
 
@@ -398,7 +447,11 @@ async def test_loop_preserves_reasoning_content_in_tool_call_roundtrip() -> None
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(LLMToolCall(call_id="call_r1", name="echo", arguments={"text": "hi"}),),
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="call_r1", name="echo", arguments={"text": "hi"}
+                        ),
+                    ),
                     reasoning_content=thinking_text,
                 ),
                 finish_reason="tool_calls",

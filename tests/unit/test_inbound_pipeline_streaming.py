@@ -131,7 +131,14 @@ class TestObserverHandlesDirectAssistantMessage:
 
         async def mock_send_json_await_ack(message_type, payload):
             send_calls.append((message_type, payload))
-            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": "turn_start", "message_id": "auto-placeholder-111"}}
+            return {
+                "type": "ack",
+                "payload": {
+                    "message_type": "node.streaming_delta",
+                    "kind": "turn_start",
+                    "message_id": "auto-placeholder-111",
+                },
+            }
 
         async def mock_send_json(message_type, payload):
             send_calls.append((message_type, payload))
@@ -152,12 +159,16 @@ class TestObserverHandlesDirectAssistantMessage:
             run_context_store=run_context_store,
         )
 
-        coro = observer({
-            "event": "assistant_message",
-            "content": "The answer is 42.",
-            "run_id": "run-001",
-        })
-        assert asyncio.iscoroutine(coro), "Should return coroutine for direct assistant_message path"
+        coro = observer(
+            {
+                "event": "assistant_message",
+                "content": "The answer is 42.",
+                "run_id": "run-001",
+            }
+        )
+        assert asyncio.iscoroutine(coro), (
+            "Should return coroutine for direct assistant_message path"
+        )
         await coro
 
         # turn_start must have been sent
@@ -179,13 +190,24 @@ class TestObserverHandlesDirectAssistantMessage:
         manager.connected = True
 
         async def mock_send_json_await_ack(message_type, payload):
-            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": "turn_start", "message_id": "inline-placeholder-222"}}
+            return {
+                "type": "ack",
+                "payload": {
+                    "message_type": "node.streaming_delta",
+                    "kind": "turn_start",
+                    "message_id": "inline-placeholder-222",
+                },
+            }
 
         manager.send_json = AsyncMock()
         manager.send_json_await_ack = mock_send_json_await_ack
 
         run_context_store: dict[str, dict[str, str]] = {
-            "run-001": {"conversation_id": "conv-abc", "message_id": "", "agent_id": "alpha"}
+            "run-001": {
+                "conversation_id": "conv-abc",
+                "message_id": "",
+                "agent_id": "alpha",
+            }
         }
 
         observer = _build_kernel_event_observer(
@@ -193,7 +215,9 @@ class TestObserverHandlesDirectAssistantMessage:
             run_context_store=run_context_store,
         )
 
-        coro = observer({"event": "assistant_message", "content": "Hi!", "run_id": "run-001"})
+        coro = observer(
+            {"event": "assistant_message", "content": "Hi!", "run_id": "run-001"}
+        )
         if coro is not None:
             await coro
 
@@ -220,10 +244,16 @@ class TestObserverSendsTurnStart:
             send_calls.append((message_type, payload))
 
         manager.send_json = mock_send_json
-        manager.send_json_await_ack = AsyncMock(return_value={
-            "type": "ack",
-            "payload": {"message_type": "node.streaming_delta", "kind": "turn_start", "message_id": "agent-msg-999"},
-        })
+        manager.send_json_await_ack = AsyncMock(
+            return_value={
+                "type": "ack",
+                "payload": {
+                    "message_type": "node.streaming_delta",
+                    "kind": "turn_start",
+                    "message_id": "agent-msg-999",
+                },
+            }
+        )
 
         run_context_store = {
             "run-001": {
@@ -238,17 +268,21 @@ class TestObserverSendsTurnStart:
             run_context_store=run_context_store,
         )
 
-        observer({
-            "event": "assistant_message",
-            "content": "The answer is 4.",
-            "run_id": "run-001",
-        })
+        observer(
+            {
+                "event": "assistant_message",
+                "content": "The answer is 4.",
+                "run_id": "run-001",
+            }
+        )
         # Let the scheduled tasks run
         await asyncio.sleep(0.05)
 
         # Find message_delta calls
         delta_calls = [p for _, p in send_calls if p.get("kind") == "message_delta"]
-        assert len(delta_calls) >= 1, f"Expected message_delta to be sent, got send_calls={send_calls}"
+        assert len(delta_calls) >= 1, (
+            f"Expected message_delta to be sent, got send_calls={send_calls}"
+        )
         assert delta_calls[0]["message_id"] == "agent-msg-999", (
             f"message_delta must use agent message_id, got {delta_calls[0].get('message_id')}"
         )
@@ -272,7 +306,14 @@ class TestObserverSendsTurnStartAndUpdatesStore:
 
         async def mock_send_json_await_ack(message_type, payload):
             send_calls.append((message_type, payload))
-            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": "turn_start", "message_id": "agent-msg-from-gw"}}
+            return {
+                "type": "ack",
+                "payload": {
+                    "message_type": "node.streaming_delta",
+                    "kind": "turn_start",
+                    "message_id": "agent-msg-from-gw",
+                },
+            }
 
         async def mock_send_json(message_type, payload):
             send_calls.append((message_type, payload))
@@ -283,7 +324,7 @@ class TestObserverSendsTurnStartAndUpdatesStore:
         run_context_store: dict[str, dict[str, str]] = {
             "run-001": {
                 "conversation_id": "conv-abc",
-                "message_id": "",   # empty = not yet created
+                "message_id": "",  # empty = not yet created
                 "agent_id": "alpha",
             }
         }
@@ -293,11 +334,13 @@ class TestObserverSendsTurnStartAndUpdatesStore:
             run_context_store=run_context_store,
         )
 
-        coro = observer({
-            "event": "run_status",
-            "status": "running",
-            "run_id": "run-001",
-        })
+        coro = observer(
+            {
+                "event": "run_status",
+                "status": "running",
+                "run_id": "run-001",
+            }
+        )
         if coro is not None:
             await coro
         await asyncio.sleep(0.05)
@@ -316,7 +359,14 @@ class TestObserverSendsTurnStartAndUpdatesStore:
         manager.connected = True
 
         async def mock_send_json_await_ack(message_type, payload):
-            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": "turn_start", "message_id": "agent-placeholder-555"}}
+            return {
+                "type": "ack",
+                "payload": {
+                    "message_type": "node.streaming_delta",
+                    "kind": "turn_start",
+                    "message_id": "agent-placeholder-555",
+                },
+            }
 
         manager.send_json = AsyncMock()
         manager.send_json_await_ack = mock_send_json_await_ack
@@ -334,11 +384,13 @@ class TestObserverSendsTurnStartAndUpdatesStore:
             run_context_store=run_context_store,
         )
 
-        coro = observer({
-            "event": "run_status",
-            "status": "running",
-            "run_id": "run-001",
-        })
+        coro = observer(
+            {
+                "event": "run_status",
+                "status": "running",
+                "run_id": "run-001",
+            }
+        )
         if coro is not None:
             await coro
 
@@ -357,7 +409,14 @@ class TestObserverSendsTurnStartAndUpdatesStore:
         manager.connected = True
 
         async def mock_send_json_await_ack(message_type, payload):
-            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": "turn_start", "message_id": "agent-placeholder-777"}}
+            return {
+                "type": "ack",
+                "payload": {
+                    "message_type": "node.streaming_delta",
+                    "kind": "turn_start",
+                    "message_id": "agent-placeholder-777",
+                },
+            }
 
         async def mock_send_json(message_type, payload):
             send_calls.append((message_type, payload))
@@ -379,21 +438,25 @@ class TestObserverSendsTurnStartAndUpdatesStore:
         )
 
         # Simulate run_status=running (sends turn_start and updates store)
-        coro = observer({
-            "event": "run_status",
-            "status": "running",
-            "run_id": "run-001",
-        })
+        coro = observer(
+            {
+                "event": "run_status",
+                "status": "running",
+                "run_id": "run-001",
+            }
+        )
         # Await the coroutine so turn_start ack updates store before assistant_message fires
         if coro is not None:
             await coro
 
         # Now send assistant_message: should use the new agent message_id
-        observer({
-            "event": "assistant_message",
-            "content": "The answer is 42.",
-            "run_id": "run-001",
-        })
+        observer(
+            {
+                "event": "assistant_message",
+                "content": "The answer is 42.",
+                "run_id": "run-001",
+            }
+        )
         await asyncio.sleep(0.05)
 
         delta_calls = [p for _, p in send_calls if p.get("kind") == "message_delta"]

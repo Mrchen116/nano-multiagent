@@ -4,7 +4,10 @@ import signal
 import pytest
 
 from agent.core.errors import ToolError
-from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.base import (
+    set_tool_safety_factory,
+    set_tool_safety_config_factory,
+)
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
 from agent.platform.tools.builtins.bash_runner import BashRunner, BashRunnerConfig
@@ -44,7 +47,9 @@ def test_bash_truncation_contract_exposes_full_output_path(tmp_path: Path) -> No
 
 
 def test_bash_timeout_contract_exposes_stable_details(tmp_path: Path) -> None:
-    with pytest.raises(ToolError, match="Command timed out after 0.05 seconds") as exc_info:
+    with pytest.raises(
+        ToolError, match="Command timed out after 0.05 seconds"
+    ) as exc_info:
         BashTool().run(
             {
                 "command": "python -c \"import time; print('before-timeout', flush=True); time.sleep(0.3)\"",
@@ -64,7 +69,7 @@ def test_bash_signal_contract_exposes_signal_details(tmp_path: Path) -> None:
     with pytest.raises(ToolError, match="Command exited with code") as exc_info:
         BashTool().run(
             {
-                "command": "python -c \"import os,signal; os.kill(os.getpid(), signal.SIGTERM)\"",
+                "command": 'python -c "import os,signal; os.kill(os.getpid(), signal.SIGTERM)"',
             },
             _context(tmp_path),
         )

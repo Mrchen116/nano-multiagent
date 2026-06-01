@@ -1,4 +1,5 @@
 """Integration tests for conversation messages APIs."""
+
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,9 +28,7 @@ def _create_user(client: TestClient, username: str) -> str:
         return user.id
     # Reuse the existing tenant's owner_id by reading /im/v1/me
     me = client.get("/im/v1/me").json()
-    return seed_user_under_owner(
-        client, username=username, owner_id=me["owner_id"]
-    )
+    return seed_user_under_owner(client, username=username, owner_id=me["owner_id"])
 
 
 def _create_conversation(client: TestClient, user_id: str, title: str) -> str:
@@ -68,7 +67,9 @@ def test_messages_roundtrip_and_order(tmp_path: Path) -> None:
         assert [item["content"] for item in payload] == ["hello", "world"]
 
 
-def test_list_messages_mark_as_read_clears_conversation_unread_counter(tmp_path: Path) -> None:
+def test_list_messages_mark_as_read_clears_conversation_unread_counter(
+    tmp_path: Path,
+) -> None:
     """Treat initial history load as read acknowledgement for unread badge sync."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -98,9 +99,14 @@ def test_list_messages_mark_as_read_clears_conversation_unread_counter(tmp_path:
         assert before_read.status_code == 200
         assert before_read.json()["unread_count"] == 2
 
-        listed = client.get(f"/im/v1/conversations/{conversation_id}/messages?mark_as_read=true")
+        listed = client.get(
+            f"/im/v1/conversations/{conversation_id}/messages?mark_as_read=true"
+        )
         assert listed.status_code == 200
-        assert [item["content"] for item in listed.json()["items"]] == ["hello", "world"]
+        assert [item["content"] for item in listed.json()["items"]] == [
+            "hello",
+            "world",
+        ]
 
         after_read = client.get(f"/im/v1/conversations/{conversation_id}")
         assert after_read.status_code == 200
@@ -147,7 +153,9 @@ def test_messages_are_isolated_by_conversation(tmp_path: Path) -> None:
         assert second_list.json()["next_before_message_id"] is None
 
 
-def test_messages_support_sender_type_attachments_and_pagination(tmp_path: Path) -> None:
+def test_messages_support_sender_type_attachments_and_pagination(
+    tmp_path: Path,
+) -> None:
     """Expose rich message fields and cursor pagination for Web IM history."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -183,7 +191,9 @@ def test_messages_support_sender_type_attachments_and_pagination(tmp_path: Path)
         assert system_message.status_code == 201
         assert agent_message.json()["attachments"][0]["url"] == "file:///tmp/result.txt"
 
-        first_page = client.get(f"/im/v1/conversations/{conversation_id}/messages?limit=2")
+        first_page = client.get(
+            f"/im/v1/conversations/{conversation_id}/messages?limit=2"
+        )
         assert first_page.status_code == 200
         first_items = first_page.json()["items"]
         assert [item["content"] for item in first_items] == ["m2", "m3"]
@@ -201,7 +211,10 @@ def test_messages_support_sender_type_attachments_and_pagination(tmp_path: Path)
         assert conversation.status_code == 200
         # All 3 messages were sent by alice (conversation owner), so no unread accumulates.
         assert conversation.json()["unread_count"] == 0
-        assert conversation.json()["last_message_at"] == system_message.json()["created_at"]
+        assert (
+            conversation.json()["last_message_at"]
+            == system_message.json()["created_at"]
+        )
 
 
 def test_user_stream_roundtrip_for_sent_message(tmp_path: Path) -> None:
@@ -216,7 +229,9 @@ def test_user_stream_roundtrip_for_sent_message(tmp_path: Path) -> None:
                 "sender_user_id": sender_id,
                 "sender_type": "agent",
                 "content": "hello stream",
-                "attachments": [{"url": "https://example.com/file.png", "content_type": "image/png"}],
+                "attachments": [
+                    {"url": "https://example.com/file.png", "content_type": "image/png"}
+                ],
             },
         )
         assert sent.status_code == 201
@@ -262,7 +277,9 @@ def test_sync_returns_global_event_cursor(tmp_path: Path) -> None:
         assert max_event_id >= 4
 
 
-def test_messages_endpoint_includes_visible_relay_history_on_first_load(tmp_path: Path) -> None:
+def test_messages_endpoint_includes_visible_relay_history_on_first_load(
+    tmp_path: Path,
+) -> None:
     """Return synthetic agent history rows so old conversations do not gain replies only after实时回放。"""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -271,18 +288,29 @@ def test_messages_endpoint_includes_visible_relay_history_on_first_load(tmp_path
         agent_q_user_id = _create_user(client, "agent:Q")
         create_group = client.post(
             "/im/v1/conversations",
-            json={"title": "A + Q", "participant_ids": [owner_id, agent_a_user_id, agent_q_user_id]},
+            json={
+                "title": "A + Q",
+                "participant_ids": [owner_id, agent_a_user_id, agent_q_user_id],
+            },
         )
         assert create_group.status_code == 201
         conversation_id = create_group.json()["id"]
 
         base_message = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": owner_id, "content": "大家下午去哪里了", "target_node_id": "node-offline"},
+            json={
+                "sender_user_id": owner_id,
+                "content": "大家下午去哪里了",
+                "target_node_id": "node-offline",
+            },
         )
         followup_message = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": owner_id, "content": "@agent:Q 还有你", "target_node_id": "node-offline"},
+            json={
+                "sender_user_id": owner_id,
+                "content": "@agent:Q 还有你",
+                "target_node_id": "node-offline",
+            },
         )
         assert base_message.status_code == 503
         assert followup_message.status_code == 503
@@ -314,7 +342,9 @@ def test_messages_endpoint_includes_visible_relay_history_on_first_load(tmp_path
                 base_id,
                 "relay.completed",
                 "completed",
-                '{"message_id":"' + base_id + '","relay_task_id":"relay-a-1","agent_id":"A","detail":"我不在现场，无法得知。你想让我帮你发消息问大家吗？"}',
+                '{"message_id":"'
+                + base_id
+                + '","relay_task_id":"relay-a-1","agent_id":"A","detail":"我不在现场，无法得知。你想让我帮你发消息问大家吗？"}',
                 "2026-03-26T00:00:01Z",
             ),
         )
@@ -328,7 +358,9 @@ def test_messages_endpoint_includes_visible_relay_history_on_first_load(tmp_path
                 base_id,
                 "relay.completed",
                 "completed",
-                '{"message_id":"' + base_id + '","relay_task_id":"relay-q-1","agent_id":"Q","detail":"抱歉没明白，你是要我帮你问大家下午去哪儿了吗？"}',
+                '{"message_id":"'
+                + base_id
+                + '","relay_task_id":"relay-q-1","agent_id":"Q","detail":"抱歉没明白，你是要我帮你问大家下午去哪儿了吗？"}',
                 "2026-03-26T00:00:02Z",
             ),
         )
@@ -342,7 +374,9 @@ def test_messages_endpoint_includes_visible_relay_history_on_first_load(tmp_path
                 followup_id,
                 "relay.completed",
                 "completed",
-                '{"message_id":"' + followup_id + '","relay_task_id":"relay-a-2","agent_id":"A","detail":"我在这儿呢。你是指今天下午大家都去哪儿了吗？我这边没收到行程消息，要不要我帮你问一下？"}',
+                '{"message_id":"'
+                + followup_id
+                + '","relay_task_id":"relay-a-2","agent_id":"A","detail":"我在这儿呢。你是指今天下午大家都去哪儿了吗？我这边没收到行程消息，要不要我帮你问一下？"}',
                 "2026-03-26T00:00:04Z",
             ),
         )
@@ -356,7 +390,9 @@ def test_messages_endpoint_includes_visible_relay_history_on_first_load(tmp_path
                 followup_id,
                 "relay.completed",
                 "completed",
-                '{"message_id":"' + followup_id + '","relay_task_id":"relay-q-2","agent_id":"Q","detail":"在的。你想让我做什么？"}',
+                '{"message_id":"'
+                + followup_id
+                + '","relay_task_id":"relay-q-2","agent_id":"Q","detail":"在的。你想让我做什么？"}',
                 "2026-03-26T00:00:05Z",
             ),
         )
@@ -379,7 +415,9 @@ def test_messages_endpoint_includes_visible_relay_history_on_first_load(tmp_path
             f"{followup_id}:relay:relay-a-2",
             f"{followup_id}:relay:relay-q-2",
         ]
-        assert [item["sender"]["id"] for item in items if item["sender_type"] == "agent"] == ["A", "Q", "A", "Q"]
+        assert [
+            item["sender"]["id"] for item in items if item["sender_type"] == "agent"
+        ] == ["A", "Q", "A", "Q"]
 
 
 def test_uploads_expose_im_hosted_paths_for_message_attachments(tmp_path: Path) -> None:
@@ -419,7 +457,9 @@ def test_uploads_expose_im_hosted_paths_for_message_attachments(tmp_path: Path) 
         assert created.json()["attachments"] == [attachment]
 
 
-def test_direct_chat_reports_node_offline_when_relay_not_live_connected(tmp_path: Path) -> None:
+def test_direct_chat_reports_node_offline_when_relay_not_live_connected(
+    tmp_path: Path,
+) -> None:
     """Keep node board and direct-chat relay availability aligned on live connectivity."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -439,11 +479,16 @@ def test_direct_chat_reports_node_offline_when_relay_not_live_connected(tmp_path
             default_model=None,
             workspace_root="",
         )
-        app.state.connection.execute("UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?", ("node-ops", "ops-bot"))
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-ops", "ops-bot"),
+        )
         app.state.connection.commit()
 
         node_repo = NodeRepository(app.state.connection)
-        node_repo.upsert_node(node_id="node-ops", node_name="Ops Node", status="online", version="1.0.0")
+        node_repo.upsert_node(
+            node_id="node-ops", node_name="Ops Node", status="online", version="1.0.0"
+        )
         app.state.connection.execute(
             "UPDATE nodes SET last_heartbeat_at = ? WHERE node_id = ?",
             (datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"), "node-ops"),
@@ -523,7 +568,11 @@ def test_create_message_rejects_more_than_five_attachments(tmp_path: Path) -> No
         conversation_id = _create_conversation(client, user_id, "chat")
 
         too_many = [
-            {"url": f"http://testserver/im/uploads/{i}.txt", "content_type": "text/plain", "file_name": f"{i}.txt"}
+            {
+                "url": f"http://testserver/im/uploads/{i}.txt",
+                "content_type": "text/plain",
+                "file_name": f"{i}.txt",
+            }
             for i in range(6)
         ]
         response = client.post(

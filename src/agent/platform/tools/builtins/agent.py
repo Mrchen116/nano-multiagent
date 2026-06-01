@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from pathlib import Path
@@ -106,7 +105,9 @@ class AgentTool:
     ) -> None:
         self._runtime = runtime
         self._wiring = wiring
-        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="nano-agent")
+        self._executor = ThreadPoolExecutor(
+            max_workers=4, thread_name_prefix="nano-agent"
+        )
 
     def bind_runtime(self, runtime: Any | None) -> None:
         """Bind runtime after bootstrap."""
@@ -138,7 +139,9 @@ class AgentTool:
     # Background launch
     # ------------------------------------------------------------------
 
-    def _run_background(self, args: Mapping[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    def _run_background(
+        self, args: Mapping[str, Any], ctx: ToolContext
+    ) -> dict[str, Any]:
         runtime = self._require_runtime()
         wiring = self._require_wiring()
         registry = wiring.registry
@@ -166,7 +169,7 @@ class AgentTool:
         )
 
         # Register background task
-        record = registry.register_subagent(
+        registry.register_subagent(
             task_id=agent_id,
             parent_session_id=ctx.session_id or "",
             agent_id=agent_id,
@@ -200,7 +203,9 @@ class AgentTool:
     # Foreground with auto-background
     # ------------------------------------------------------------------
 
-    def _run_foreground(self, args: Mapping[str, Any], ctx: ToolContext) -> dict[str, Any]:
+    def _run_foreground(
+        self, args: Mapping[str, Any], ctx: ToolContext
+    ) -> dict[str, Any]:
         runtime = self._require_runtime()
         wiring = self._require_wiring()
 
@@ -444,14 +449,18 @@ class AgentTool:
     ) -> str:
         import asyncio
 
-        load_skills = _normalize_skill_names(args.get("load_skills"), tool_name=self.name)
+        load_skills = _normalize_skill_names(
+            args.get("load_skills"), tool_name=self.name
+        )
         effective_workspace = ctx.cwd
         metadata: dict[str, Any] = {
             "kind": "subagent",
             "agent_id": agent_id,
             "agent_type": agent_type,
             "description": description,
-            "workspace_root": str(effective_workspace.resolve()) if effective_workspace else None,
+            "workspace_root": str(effective_workspace.resolve())
+            if effective_workspace
+            else None,
         }
         session = asyncio.run(
             runtime.create_session(
@@ -489,16 +498,24 @@ class AgentTool:
     def _require_wiring(self) -> Any:
         wiring = self._wiring
         if wiring is None:
-            raise ToolError("background task wiring is not configured", tool_name=self.name)
+            raise ToolError(
+                "background task wiring is not configured", tool_name=self.name
+            )
         return wiring
 
-    def _validate_new_agent_args(self, args: Mapping[str, Any], *, ctx: ToolContext) -> None:
+    def _validate_new_agent_args(
+        self, args: Mapping[str, Any], *, ctx: ToolContext
+    ) -> None:
         if _normalize_optional_text(args.get("description")) is None:
-            raise ToolError("description must be a non-empty string", tool_name=self.name)
+            raise ToolError(
+                "description must be a non-empty string", tool_name=self.name
+            )
         if _normalize_optional_text(args.get("prompt")) is None:
             raise ToolError("prompt must be a non-empty string", tool_name=self.name)
 
-        load_skills = _normalize_skill_names(args.get("load_skills"), tool_name=self.name)
+        load_skills = _normalize_skill_names(
+            args.get("load_skills"), tool_name=self.name
+        )
         available = resolve_available_skills(
             workspace_root=ctx.repo_root,
             include_names=load_skills,
@@ -552,12 +569,7 @@ class AgentTool:
     def _format_completed(self, output: Mapping[str, Any]) -> str:
         content = output.get("content", "")
         agent_id = output.get("agent_id", "unknown")
-        return (
-            f"Task completed.\n\n"
-            f"---\n\n"
-            f"{content}\n\n"
-            f"agent_id: {agent_id}"
-        )
+        return f"Task completed.\n\n---\n\n{content}\n\nagent_id: {agent_id}"
 
     def _format_async_launched(self, output: Mapping[str, Any]) -> str:
         agent_id = output.get("agent_id", "unknown")
@@ -572,8 +584,8 @@ class AgentTool:
             f"The agent is working in the background. You will be notified automatically when it completes.\n"
             f"Do not duplicate this agent's work. Work on non-overlapping tasks, or briefly tell the user what you launched and continue.\n"
             f"Use Read on output_file to inspect progress or final output.\n"
-            f"Use Agent with agent_id=\"{agent_id}\" only when you want to continue the agent conversation.\n"
-            f"Use task_stop with task_id=\"{agent_id}\" to stop it."
+            f'Use Agent with agent_id="{agent_id}" only when you want to continue the agent conversation.\n'
+            f'Use task_stop with task_id="{agent_id}" to stop it.'
         )
 
     def _format_message_queued(self, output: Mapping[str, Any]) -> str:
@@ -599,6 +611,7 @@ class AgentTool:
 # ------------------------------------------------------------------
 # Worker helpers
 # ------------------------------------------------------------------
+
 
 def _run_subagent_turn_sync(
     runtime: Any,
@@ -676,6 +689,7 @@ def _make_on_fail(registry: BackgroundTaskRegistry, agent_id: str) -> Any:
 # Text / argument helpers
 # ------------------------------------------------------------------
 
+
 def _normalize_optional_text(value: Any) -> str | None:
     if not isinstance(value, str):
         return None
@@ -709,10 +723,14 @@ def _normalize_skill_names(value: Any, *, tool_name: str) -> tuple[str, ...]:
     normalized: list[str] = []
     for item in value:
         if not isinstance(item, str):
-            raise ToolError("load_skills must be an array of strings", tool_name=tool_name)
+            raise ToolError(
+                "load_skills must be an array of strings", tool_name=tool_name
+            )
         name = item.strip()
         if not name:
-            raise ToolError("load_skills contains an empty skill name", tool_name=tool_name)
+            raise ToolError(
+                "load_skills contains an empty skill name", tool_name=tool_name
+            )
         normalized.append(name)
     return tuple(normalized)
 

@@ -16,10 +16,12 @@ def test_fake_kernel_submit_seeds_terminal_run_snapshot() -> None:
     kernel = _FakeKernel()
 
     # create_session is async in the SDK (returns _FakeSession with .session_id).
-    session = asyncio.run(kernel.create_session(
-        title="Agent-A",
-        workspace_root=Path("/tmp/agent-a"),
-    ))
+    session = asyncio.run(
+        kernel.create_session(
+            title="Agent-A",
+            workspace_root=Path("/tmp/agent-a"),
+        )
+    )
     record = kernel.submit(
         session_id=session.session_id,
         parts=[{"type": "text", "text": "hello gateway"}],

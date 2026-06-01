@@ -70,7 +70,9 @@ class BashRunner:
         """
         repo_tmp = cwd / ".agent" / "tmp"
         repo_tmp.mkdir(parents=True, exist_ok=True)
-        tmp_fd, tmp_path = tempfile.mkstemp(prefix="bash-stdout-", suffix=".log", dir=repo_tmp)
+        tmp_fd, tmp_path = tempfile.mkstemp(
+            prefix="bash-stdout-", suffix=".log", dir=repo_tmp
+        )
         os.close(tmp_fd)
 
         MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB hard cap
@@ -106,7 +108,11 @@ class BashRunner:
             try:
                 while True:
                     now = time.monotonic()
-                    if deadline is not None and now >= deadline and process.poll() is None:
+                    if (
+                        deadline is not None
+                        and now >= deadline
+                        and process.poll() is None
+                    ):
                         timed_out = True
                         process.kill()
 
@@ -129,12 +135,17 @@ class BashRunner:
                             was_limited = True
 
                         seq += 1
-                        _emit_event(on_event, {"phase": "chunk", "chunk": chunk, "seq": seq})
+                        _emit_event(
+                            on_event, {"phase": "chunk", "chunk": chunk, "seq": seq}
+                        )
 
                     current = time.monotonic()
                     if process.poll() is not None and not selector.get_map():
                         break
-                    if process.poll() is None and current - last_heartbeat >= heartbeat_interval:
+                    if (
+                        process.poll() is None
+                        and current - last_heartbeat >= heartbeat_interval
+                    ):
                         last_heartbeat = current
                         _emit_event(
                             on_event,

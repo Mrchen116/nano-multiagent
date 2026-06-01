@@ -21,7 +21,10 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
             name="anthropic",
             base_url="http://127.0.0.1:4000",
             models=(
-                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+                LLMModelPayload(
+                    name="kimiCoding:K2.6",
+                    extra_request_body={"thinking": {"type": "adaptive"}},
+                ),
             ),
         ),
     ),
@@ -72,7 +75,9 @@ def test_build_runtime_does_not_call_set_kernel_client(
             injected_clients.append(client)
             super().set_kernel_client(client)  # type: ignore[arg-type]
 
-    monkeypatch.setattr("personal_assistant.main.PersistentSessionBindingStore", _TrackingStore)
+    monkeypatch.setattr(
+        "personal_assistant.main.PersistentSessionBindingStore", _TrackingStore
+    )
 
     build_runtime(config)
 
@@ -90,14 +95,22 @@ def test_make_token_getter_is_importable() -> None:
 async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> None:
     """当 refresh_token 存在时，闭包应调用 IMAuthClient.refresh() 并返回新的 access_token。"""
     from personal_assistant.main import _make_token_getter
-    from personal_assistant.config.local_store import IMServiceConfig, LocalConfig, NodeConfig, KernelConfig, HeartbeatConfig
+    from personal_assistant.config.local_store import (
+        IMServiceConfig,
+        LocalConfig,
+        NodeConfig,
+        KernelConfig,
+        HeartbeatConfig,
+    )
 
     class _FakeAuthClient:
         async def refresh(self, refresh_token: str) -> tuple[str, str]:
             return "new-access", "new-refresh"
 
         async def login(self, *, username: str, password: str) -> tuple[str, str]:
-            raise AssertionError("login should not be called when refresh_token is present")
+            raise AssertionError(
+                "login should not be called when refresh_token is present"
+            )
 
     config_path = tmp_path / "config.yaml"
     workspace = tmp_path / "ws"
@@ -124,7 +137,9 @@ async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> Non
 
     def _fake_save(cfg, path) -> None:  # noqa: ANN001
         if cfg.im_service is not None:
-            persisted.append((cfg.im_service.token or "", cfg.im_service.refresh_token or ""))
+            persisted.append(
+                (cfg.im_service.token or "", cfg.im_service.refresh_token or "")
+            )
 
     token_getter = _make_token_getter(
         im_service=im_service,
@@ -142,11 +157,19 @@ async def test_make_token_getter_uses_refresh_token_first(tmp_path: Path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_make_token_getter_falls_back_to_login_when_refresh_fails(tmp_path: Path) -> None:
+async def test_make_token_getter_falls_back_to_login_when_refresh_fails(
+    tmp_path: Path,
+) -> None:
     """refresh 失败后应自动用 username+password 登录并返回 access_token。"""
     from personal_assistant.main import _make_token_getter
     from personal_assistant.auth.im_auth_client import IMAuthError
-    from personal_assistant.config.local_store import IMServiceConfig, LocalConfig, NodeConfig, KernelConfig, HeartbeatConfig
+    from personal_assistant.config.local_store import (
+        IMServiceConfig,
+        LocalConfig,
+        NodeConfig,
+        KernelConfig,
+        HeartbeatConfig,
+    )
 
     class _FakeAuthClient:
         async def refresh(self, refresh_token: str) -> tuple[str, str]:
@@ -181,7 +204,9 @@ async def test_make_token_getter_falls_back_to_login_when_refresh_fails(tmp_path
 
     def _fake_save(cfg, path) -> None:  # noqa: ANN001
         if cfg.im_service is not None:
-            persisted.append((cfg.im_service.token or "", cfg.im_service.refresh_token or ""))
+            persisted.append(
+                (cfg.im_service.token or "", cfg.im_service.refresh_token or "")
+            )
 
     token_getter = _make_token_getter(
         im_service=im_service,
@@ -198,10 +223,18 @@ async def test_make_token_getter_falls_back_to_login_when_refresh_fails(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_make_token_getter_returns_static_token_when_no_refresh_or_credentials(tmp_path: Path) -> None:
+async def test_make_token_getter_returns_static_token_when_no_refresh_or_credentials(
+    tmp_path: Path,
+) -> None:
     """当 refresh_token/username/password 均未配置时，返回静态 config.token（向后兼容）。"""
     from personal_assistant.main import _make_token_getter
-    from personal_assistant.config.local_store import IMServiceConfig, LocalConfig, NodeConfig, KernelConfig, HeartbeatConfig
+    from personal_assistant.config.local_store import (
+        IMServiceConfig,
+        LocalConfig,
+        NodeConfig,
+        KernelConfig,
+        HeartbeatConfig,
+    )
 
     class _FakeAuthClient:
         async def refresh(self, refresh_token: str) -> tuple[str, str]:

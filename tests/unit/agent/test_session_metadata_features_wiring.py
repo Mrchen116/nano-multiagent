@@ -5,6 +5,7 @@ Validates:
 2. wiring.resolve_flags_from_metadata merges agent_features with FEATURE_REGISTRY defaults.
 3. PromptContext.vars["custom_prompt"] is populated when agent_custom_prompt is in metadata.
 """
+
 from __future__ import annotations
 
 from typing import Any, Mapping
@@ -91,7 +92,9 @@ def test_build_session_metadata_empty_features_still_injected() -> None:
 
 def test_build_session_metadata_injects_custom_prompt_when_set() -> None:
     """agent_custom_prompt must be in metadata when agent.custom_prompt is non-empty."""
-    pipeline = _make_pipeline(agent_features={}, custom_prompt="Be concise and precise.")
+    pipeline = _make_pipeline(
+        agent_features={}, custom_prompt="Be concise and precise."
+    )
     msg = _MinimalMessage()
     meta = pipeline._build_session_metadata(msg, agent_id="test-agent")
 
@@ -124,7 +127,9 @@ def test_resolve_flags_from_metadata_returns_defaults_when_no_agent_features() -
 
     for key, entry in FEATURE_REGISTRY.items():
         assert key in flags, f"missing key: {key}"
-        assert flags[key] == entry["default_on"], f"{key}: expected {entry['default_on']}, got {flags[key]}"
+        assert flags[key] == entry["default_on"], (
+            f"{key}: expected {entry['default_on']}, got {flags[key]}"
+        )
 
 
 def test_resolve_flags_from_metadata_overrides_default() -> None:

@@ -6,6 +6,7 @@ Per-workspace 路径治理原则:
   禁止硬编码 .nano / .nanoassistant / .nanocode 字符串；
   只允许在 product defaults.py 定义这些常量（防止多 product 共享同一 workspace 时路径冲突）。
 """
+
 from __future__ import annotations
 
 from pathlib import Path

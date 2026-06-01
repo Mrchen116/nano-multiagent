@@ -27,7 +27,9 @@ class CapturePromptLLM:
         yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
 
-async def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path: Path) -> None:
+async def test_runtime_fills_system_prompt_placeholders_before_llm_call(
+    tmp_path: Path,
+) -> None:
     service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     manager = service.manager
     session = service.create_session(workspace_root=tmp_path)
@@ -42,7 +44,9 @@ async def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path
         system_prompt=_FIXTURE_WITH_PLACEHOLDERS,
     )
 
-    await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "hello"}], stream=False
+    )
 
     system_prompt = llm.requests[-1].messages[0].content
     assert "Current date and time:" in system_prompt

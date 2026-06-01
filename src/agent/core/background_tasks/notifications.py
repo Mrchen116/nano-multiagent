@@ -28,12 +28,14 @@ def build_task_notification_xml(record: BackgroundTaskRecord) -> str:
     lines.append(f"<status>{record.status.value}</status>")
 
     if record.task_type == BackgroundTaskType.SUBAGENT:
-        lines.append(f"<summary>Agent \"{_esc(record.description)}\" {record.status.value}</summary>")
+        lines.append(
+            f'<summary>Agent "{_esc(record.description)}" {record.status.value}</summary>'
+        )
     else:
         exit_code = record.exit_code
         exit_hint = f" with exit code {exit_code}" if exit_code is not None else ""
         lines.append(
-            f"<summary>Command \"{_esc(record.description)}\" {record.status.value}{exit_hint}</summary>"
+            f'<summary>Command "{_esc(record.description)}" {record.status.value}{exit_hint}</summary>'
         )
 
     if record.result_text:
@@ -68,8 +70,4 @@ def _build_usage_xml(
 
 def _esc(text: str) -> str:
     """Minimal XML escape for notification content."""
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")

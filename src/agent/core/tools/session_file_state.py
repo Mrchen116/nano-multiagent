@@ -38,8 +38,9 @@ class SessionFileState:
         self._capacity = max(1, capacity)
         self._states: OrderedDict[str, FileReadState] = OrderedDict()
 
-    def check_unchanged(self, file_path: str, offset: int | None,
-                        limit: int | None) -> bool:
+    def check_unchanged(
+        self, file_path: str, offset: int | None, limit: int | None
+    ) -> bool:
         """Return True if this exact range was last read and file is unchanged."""
         normalized = str(Path(file_path).resolve())
         state = self._states.get(normalized)
@@ -53,8 +54,14 @@ class SessionFileState:
         except (OSError, ValueError):
             return False
 
-    def record_read(self, file_path: str, mtime_ns: int, size: int,
-                    offset: int | None, limit: int | None) -> None:
+    def record_read(
+        self,
+        file_path: str,
+        mtime_ns: int,
+        size: int,
+        offset: int | None,
+        limit: int | None,
+    ) -> None:
         """Record a successful read, overwriting the last range for this file."""
         normalized = str(Path(file_path).resolve())
         state = FileReadState(

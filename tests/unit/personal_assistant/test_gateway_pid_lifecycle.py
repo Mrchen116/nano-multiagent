@@ -37,7 +37,10 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
             name="anthropic",
             base_url="http://127.0.0.1:4000",
             models=(
-                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+                LLMModelPayload(
+                    name="kimiCoding:K2.6",
+                    extra_request_body={"thinking": {"type": "adaptive"}},
+                ),
             ),
         ),
     ),
@@ -79,9 +82,13 @@ def test_stop_gateway_reports_still_healthy_when_pid_is_stale_but_health_url_is_
         encoding="utf-8",
     )
     monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: False)
-    monkeypatch.setattr("personal_assistant.main._healthcheck_reports_healthy", lambda _url: True)
+    monkeypatch.setattr(
+        "personal_assistant.main._healthcheck_reports_healthy", lambda _url: True
+    )
 
-    result = main_module.stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
+    result = main_module.stop_gateway(
+        config_path=config.source_path, load_config=lambda _path: config
+    )
 
     assert result == (
         "STALE pid=2468 state="
@@ -122,19 +129,27 @@ def test_stop_gateway_only_reports_stopped_after_health_url_goes_down(
         encoding="utf-8",
     )
     pid_checks = iter([True, False])
-    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks))
+    monkeypatch.setattr(
+        "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
+    )
     monkeypatch.setattr("personal_assistant.main.os.kill", lambda _pid, _sig: None)
     monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _seconds: None)
-    monkeypatch.setattr("personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__)
+    monkeypatch.setattr(
+        "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
+    )
     verify_calls: list[tuple[str, float, float]] = []
 
-    def _verify(health_url: str, *, timeout_seconds: float, sleep_seconds: float) -> bool:
+    def _verify(
+        health_url: str, *, timeout_seconds: float, sleep_seconds: float
+    ) -> bool:
         verify_calls.append((health_url, timeout_seconds, sleep_seconds))
         return False
 
     monkeypatch.setattr("personal_assistant.main._verify_stopped_health_url", _verify)
 
-    result = main_module.stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
+    result = main_module.stop_gateway(
+        config_path=config.source_path, load_config=lambda _path: config
+    )
 
     assert result == (
         "STOPPED pid=2468 state="
@@ -169,7 +184,9 @@ def test_run_gateway_writes_pid_file_before_start_and_removes_on_exit(
         ),
     )
 
-    assert pid_observed_during_run == [True], "gateway.pid must exist while runtime is running"
+    assert pid_observed_during_run == [True], (
+        "gateway.pid must exist while runtime is running"
+    )
     assert not pid_path.exists(), "gateway.pid must be removed after clean exit"
 
 
@@ -283,13 +300,21 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
     )
 
     pid_checks = iter([True, False])
-    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks))
+    monkeypatch.setattr(
+        "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
+    )
     monkeypatch.setattr("personal_assistant.main.os.kill", lambda _pid, _sig: None)
     monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _s: None)
-    monkeypatch.setattr("personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__)
-    monkeypatch.setattr("personal_assistant.main._verify_stopped_health_url", lambda *a, **kw: True)
+    monkeypatch.setattr(
+        "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main._verify_stopped_health_url", lambda *a, **kw: True
+    )
 
-    result = stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
+    result = stop_gateway(
+        config_path=config.source_path, load_config=lambda _path: config
+    )
 
     assert "STOPPED" in result
     assert not pid_path.exists(), "gateway.pid must be removed after stop"
@@ -308,12 +333,20 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
     pid_checks = iter([True, False])
     kills: list[tuple[int, int]] = []
 
-    monkeypatch.setattr("personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks))
-    monkeypatch.setattr("personal_assistant.main.os.kill", lambda pid, sig: kills.append((pid, sig)))
+    monkeypatch.setattr(
+        "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
+    )
+    monkeypatch.setattr(
+        "personal_assistant.main.os.kill", lambda pid, sig: kills.append((pid, sig))
+    )
     monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _s: None)
-    monkeypatch.setattr("personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__)
+    monkeypatch.setattr(
+        "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
+    )
 
-    result = stop_gateway(config_path=config.source_path, load_config=lambda _path: config)
+    result = stop_gateway(
+        config_path=config.source_path, load_config=lambda _path: config
+    )
 
     assert result == f"STOPPED pid=2468 pid_file={pid_path}"
     assert kills == [(2468, signal.SIGTERM)]

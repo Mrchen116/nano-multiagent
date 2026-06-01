@@ -4,10 +4,23 @@ from pathlib import Path
 
 from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import AgentProfileRepository, ConversationRepository, MessageRepository, UserRepository
+from IM.repositories import (
+    AgentProfileRepository,
+    ConversationRepository,
+    MessageRepository,
+    UserRepository,
+)
 
 
-def _build_fixture(tmp_path: Path) -> tuple[RelayService, MessageRepository, ConversationRepository, UserRepository, AgentProfileRepository]:
+def _build_fixture(
+    tmp_path: Path,
+) -> tuple[
+    RelayService,
+    MessageRepository,
+    ConversationRepository,
+    UserRepository,
+    AgentProfileRepository,
+]:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     users = UserRepository(connection)
@@ -18,7 +31,9 @@ def _build_fixture(tmp_path: Path) -> tuple[RelayService, MessageRepository, Con
     return relay_service, messages, conversations, users, profiles
 
 
-def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(tmp_path: Path) -> None:
+def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(
+    tmp_path: Path,
+) -> None:
     """Group relay payloads must snapshot the addressed agent even when the mention includes punctuation."""
     relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
@@ -76,7 +91,9 @@ def test_enqueue_message_relay_targets_the_mentioned_agent_in_group_chats(tmp_pa
     }
 
 
-def test_enqueue_message_relay_advances_group_profile_version_without_overwriting_frozen_prompt(tmp_path: Path) -> None:
+def test_enqueue_message_relay_advances_group_profile_version_without_overwriting_frozen_prompt(
+    tmp_path: Path,
+) -> None:
     """Group relays must advance to the latest mentioned-agent profile version while keeping the matching prompt snapshot."""
     relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
@@ -155,7 +172,9 @@ def test_enqueue_message_relay_advances_group_profile_version_without_overwritin
     }
 
 
-def test_enqueue_message_relay_uses_live_group_prompt_when_conversation_has_no_matching_frozen_prompt(tmp_path: Path) -> None:
+def test_enqueue_message_relay_uses_live_group_prompt_when_conversation_has_no_matching_frozen_prompt(
+    tmp_path: Path,
+) -> None:
     """Group relays must keep using the live prompt when no matching frozen prompt snapshot exists."""
     relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
@@ -227,7 +246,9 @@ def test_enqueue_message_relay_uses_live_group_prompt_when_conversation_has_no_m
     }
 
 
-def test_enqueue_message_relay_normalizes_typed_and_picker_mentions_to_the_same_agent(tmp_path: Path) -> None:
+def test_enqueue_message_relay_normalizes_typed_and_picker_mentions_to_the_same_agent(
+    tmp_path: Path,
+) -> None:
     """Typed and picker mention tokens must converge on the same addressed agent id."""
     relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
@@ -290,5 +311,9 @@ def test_enqueue_message_relay_normalizes_typed_and_picker_mentions_to_the_same_
 
     assert typed_relay.relay_task.payload["agent_id"] == "agent-b"
     assert picker_relay.relay_task.payload["agent_id"] == "agent-b"
-    assert typed_relay.relay_task.payload["metadata"]["mentioned_agent_ids"] == ["agent-b"]
-    assert picker_relay.relay_task.payload["metadata"]["mentioned_agent_ids"] == ["agent-b"]
+    assert typed_relay.relay_task.payload["metadata"]["mentioned_agent_ids"] == [
+        "agent-b"
+    ]
+    assert picker_relay.relay_task.payload["metadata"]["mentioned_agent_ids"] == [
+        "agent-b"
+    ]

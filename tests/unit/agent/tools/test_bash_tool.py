@@ -72,7 +72,9 @@ class _FakeOutput:
         pass
 
 
-def _make_tool(*, with_wiring: bool = True, runner_delay: float = 0.0, runner_exit: int = 0) -> BashTool:
+def _make_tool(
+    *, with_wiring: bool = True, runner_delay: float = 0.0, runner_exit: int = 0
+) -> BashTool:
     if not with_wiring:
         return BashTool()
 
@@ -93,12 +95,15 @@ def _make_ctx(tmpdir: str) -> ToolContext:
     from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
     safety = ToolSafety(repo_root=Path(tmpdir), config=ToolSafetyConfig())
-    return ToolContext(repo_root=Path(tmpdir), cwd=Path(tmpdir), safety=safety, session_id="parent_1")
+    return ToolContext(
+        repo_root=Path(tmpdir), cwd=Path(tmpdir), safety=safety, session_id="parent_1"
+    )
 
 
 # ------------------------------------------------------------------
 # Background launch
 # ------------------------------------------------------------------
+
 
 def test_background_launch_returns_async_launched() -> None:
     tool = _make_tool()
@@ -122,6 +127,7 @@ def test_background_launch_returns_async_launched() -> None:
 # Foreground completion
 # ------------------------------------------------------------------
 
+
 def test_foreground_completes_within_budget() -> None:
     tool = _make_tool(runner_delay=0.0)
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -141,7 +147,10 @@ def test_foreground_completes_within_budget() -> None:
 # Foreground auto-background
 # ------------------------------------------------------------------
 
-def test_foreground_auto_backgrounds_on_slow_command(monkeypatch: pytest.MonkeyPatch) -> None:
+
+def test_foreground_auto_backgrounds_on_slow_command(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     # Patch budget to 0.1s so the test completes quickly.
     monkeypatch.setattr(
         "agent.platform.tools.builtins.bash._DEFAULT_FOREGROUND_BUDGET", 0.1
@@ -165,6 +174,7 @@ def test_foreground_auto_backgrounds_on_slow_command(monkeypatch: pytest.MonkeyP
 # Foreground failure within budget
 # ------------------------------------------------------------------
 
+
 def test_foreground_fails_within_budget_raises_tool_error() -> None:
     tool = _make_tool(runner_delay=0.0, runner_exit=1)
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -182,6 +192,7 @@ def test_foreground_fails_within_budget_raises_tool_error() -> None:
 # ------------------------------------------------------------------
 # Legacy sync path (no wiring)
 # ------------------------------------------------------------------
+
 
 def test_legacy_sync_without_wiring() -> None:
     tool = _make_tool(with_wiring=False)
@@ -202,30 +213,37 @@ def test_legacy_sync_without_wiring() -> None:
 # Serialization
 # ------------------------------------------------------------------
 
+
 def test_serialize_async_launched() -> None:
     tool = _make_tool()
-    text = tool.serialize_result({
-        "status": "async_launched",
-        "task_id": "b1234",
-        "output_file": "/tmp/out.txt",
-    })
+    text = tool.serialize_result(
+        {
+            "status": "async_launched",
+            "task_id": "b1234",
+            "output_file": "/tmp/out.txt",
+        }
+    )
     assert "b1234" in text
     assert "/tmp/out.txt" in text
 
 
 def test_serialize_completed() -> None:
     tool = _make_tool()
-    text = tool.serialize_result({
-        "stdout": "hello world",
-        "exitCode": 0,
-    })
+    text = tool.serialize_result(
+        {
+            "stdout": "hello world",
+            "exitCode": 0,
+        }
+    )
     assert text == "hello world"
 
 
 def test_serialize_no_output() -> None:
     tool = _make_tool()
-    text = tool.serialize_result({
-        "stdout": "",
-        "exitCode": 0,
-    })
+    text = tool.serialize_result(
+        {
+            "stdout": "",
+            "exitCode": 0,
+        }
+    )
     assert text == "(no output)"

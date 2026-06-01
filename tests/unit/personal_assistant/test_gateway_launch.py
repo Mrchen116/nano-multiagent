@@ -33,14 +33,19 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
             name="anthropic",
             base_url="http://127.0.0.1:4000",
             models=(
-                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+                LLMModelPayload(
+                    name="kimiCoding:K2.6",
+                    extra_request_body={"thinking": {"type": "adaptive"}},
+                ),
             ),
         ),
     ),
 )
 
 
-def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_ready(tmp_path: Path) -> None:
+def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_ready(
+    tmp_path: Path,
+) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0, pid=2468)
     seen: dict[str, object] = {}
@@ -49,7 +54,9 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_read
         seen["spawn"] = (argv, log_path)
         return process
 
-    def _wait_for_ready(child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float) -> None:
+    def _wait_for_ready(
+        child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float
+    ) -> None:
         seen["wait"] = (child, loaded_config, timeout_seconds)
 
     result = launch_gateway_in_background(
@@ -79,7 +86,9 @@ def test_launch_gateway_in_background_spawns_foreground_child_and_waits_for_read
     assert seen["wait"] == (process, config, config.kernel.startup_timeout_seconds)
 
 
-def test_launch_gateway_in_background_passes_im_service_override_to_child_and_runtime_config(tmp_path: Path) -> None:
+def test_launch_gateway_in_background_passes_im_service_override_to_child_and_runtime_config(
+    tmp_path: Path,
+) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0, pid=1357)
     seen: dict[str, object] = {}
@@ -88,7 +97,9 @@ def test_launch_gateway_in_background_passes_im_service_override_to_child_and_ru
         seen["spawn"] = (argv, log_path)
         return process
 
-    def _wait_for_ready(child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float) -> None:
+    def _wait_for_ready(
+        child: _FakeProcess, loaded_config: LocalConfig, timeout_seconds: float
+    ) -> None:
         seen["wait"] = (child, loaded_config, timeout_seconds)
 
     result = launch_gateway_in_background(
@@ -118,7 +129,9 @@ def test_launch_gateway_in_background_passes_im_service_override_to_child_and_ru
     assert loaded_config.im_service.url == "http://im.remote:9011"
 
 
-def test_load_runtime_config_preserves_im_credentials_when_overriding_url(tmp_path: Path) -> None:
+def test_load_runtime_config_preserves_im_credentials_when_overriding_url(
+    tmp_path: Path,
+) -> None:
     config = LocalConfig(
         node=NodeConfig(node_id="node-local"),
         agents=(),
@@ -150,7 +163,9 @@ def test_load_runtime_config_preserves_im_credentials_when_overriding_url(tmp_pa
     assert loaded.im_service.password == "nano1234"
 
 
-def test_launch_gateway_in_background_stops_child_when_ready_wait_fails(tmp_path: Path) -> None:
+def test_launch_gateway_in_background_stops_child_when_ready_wait_fails(
+    tmp_path: Path,
+) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0)
 
@@ -159,7 +174,9 @@ def test_launch_gateway_in_background_stops_child_when_ready_wait_fails(tmp_path
             config_path=config.source_path,
             load_config=lambda _path: config,
             spawn_process=lambda _argv, _log_path: process,
-            wait_for_ready=lambda _child, _config, _timeout: (_ for _ in ()).throw(RuntimeError("not ready")),
+            wait_for_ready=lambda _child, _config, _timeout: (_ for _ in ()).throw(
+                RuntimeError("not ready")
+            ),
         )
 
     assert process.terminate_called == 1

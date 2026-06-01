@@ -33,10 +33,18 @@ def test_resolve_model_metadata_no_dead_fields() -> None:
     metadata = resolve_model_metadata("openai_compat", "codex_oauth:gpt-5.5")
     assert metadata.provider == "openai_compat"
     assert metadata.model == "codex_oauth:gpt-5.5"
-    assert not hasattr(metadata, "supports_text"), "supports_text dead field must be removed"
-    assert not hasattr(metadata, "supports_image"), "supports_image dead field must be removed"
-    assert not hasattr(metadata, "supports_tools"), "supports_tools dead field must be removed"
-    assert not hasattr(metadata, "supports_streaming"), "supports_streaming dead field must be removed"
+    assert not hasattr(metadata, "supports_text"), (
+        "supports_text dead field must be removed"
+    )
+    assert not hasattr(metadata, "supports_image"), (
+        "supports_image dead field must be removed"
+    )
+    assert not hasattr(metadata, "supports_tools"), (
+        "supports_tools dead field must be removed"
+    )
+    assert not hasattr(metadata, "supports_streaming"), (
+        "supports_streaming dead field must be removed"
+    )
 
 
 def test_resolve_anthropic_metadata_extra_request_body_preserved() -> None:
@@ -83,7 +91,11 @@ def test_not_initialized_raises_runtime_error() -> None:
 
 def test_reset_and_reinit() -> None:
     """After reset, init with new payload must work correctly."""
-    from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
 
     _reset_for_tests()
     with pytest.raises(RuntimeError):
@@ -106,7 +118,11 @@ def test_reset_and_reinit() -> None:
 
 def test_double_init_raises() -> None:
     """Calling init_model_registry twice without reset must raise RuntimeError."""
-    from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
 
     _reset_for_tests()
     payload = LLMConfigPayload(
@@ -126,7 +142,11 @@ def test_double_init_raises() -> None:
 
 def test_get_default_base_url_returns_none_when_not_configured() -> None:
     """get_default_base_url must return None when provider.base_url is None — not empty string."""
-    from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
 
     _reset_for_tests()
     payload = LLMConfigPayload(
@@ -144,10 +164,16 @@ def test_get_default_base_url_returns_none_when_not_configured() -> None:
     assert result is None, "base_url=None in config must propagate as None, not ''"
 
 
-def test_from_env_raises_when_no_base_url_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_from_env_raises_when_no_base_url_configured(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """LLMFactoryConfig.from_env() must raise ValueError when env and config both lack base_url."""
     import os
-    from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
     from agent.core.llm.factory import LLMFactoryConfig
 
     _reset_for_tests()

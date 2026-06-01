@@ -136,7 +136,11 @@ class RelayService:
             )
         # _override_agent_id is used by enqueue_message_relay_all for group fan-out:
         # each per-agent relay identifies its own target agent explicitly.
-        effective_agent_id = _override_agent_id if _override_agent_id is not None else agent_snapshot.agent_id
+        effective_agent_id = (
+            _override_agent_id
+            if _override_agent_id is not None
+            else agent_snapshot.agent_id
+        )
         if effective_agent_id:
             payload["agent_id"] = effective_agent_id
         payload_json = json.dumps(payload, ensure_ascii=True, separators=(",", ":"))
@@ -173,7 +177,9 @@ class RelayService:
                     ),
                 )
             except sqlite3.IntegrityError:
-                existing = self.get_task_by_idempotency_key(idempotency_key=idempotency_key)
+                existing = self.get_task_by_idempotency_key(
+                    idempotency_key=idempotency_key
+                )
                 if existing is None:  # pragma: no cover - defensive consistency guard
                     raise
                 return RelayEnqueueResult(relay_task=existing, created=False)
@@ -320,7 +326,9 @@ class RelayService:
                 found.add(target_id)
         return sorted(found)
 
-    def _resolve_agent_snapshot(self, *, conversation_id: str, mentioned_agent_ids: list[str]) -> _RelayAgentSnapshot:
+    def _resolve_agent_snapshot(
+        self, *, conversation_id: str, mentioned_agent_ids: list[str]
+    ) -> _RelayAgentSnapshot:
         conversation_row = self._connection.execute(
             """
             SELECT type, config_agent_id, config_profile_version, config_system_prompt
@@ -329,7 +337,9 @@ class RelayService:
             """,
             (conversation_id,),
         ).fetchone()
-        conversation_type = str(conversation_row["type"]) if conversation_row is not None else None
+        conversation_type = (
+            str(conversation_row["type"]) if conversation_row is not None else None
+        )
         frozen_agent_id = None
         frozen_profile_version = None
         frozen_system_prompt = None
@@ -385,10 +395,12 @@ class RelayService:
         if selected_agent_id is None and participant_agent_ids:
             selected_agent_id = participant_agent_ids[0]
 
-        if conversation_type == "direct" and frozen_agent_id and (
-            selected_agent_id is None or selected_agent_id == frozen_agent_id
+        if (
+            conversation_type == "direct"
+            and frozen_agent_id
+            and (selected_agent_id is None or selected_agent_id == frozen_agent_id)
         ):
-            frozen_snapshot = _profile_snapshot(frozen_agent_id)
+            _profile_snapshot(frozen_agent_id)
             return _RelayAgentSnapshot(
                 agent_id=frozen_agent_id,
                 profile_version=frozen_profile_version,
@@ -396,7 +408,11 @@ class RelayService:
             )
 
         if selected_agent_id is None:
-            return _RelayAgentSnapshot(agent_id=None, profile_version=frozen_profile_version, system_prompt=None)
+            return _RelayAgentSnapshot(
+                agent_id=None,
+                profile_version=frozen_profile_version,
+                system_prompt=None,
+            )
 
         selected_snapshot = _profile_snapshot(selected_agent_id)
         if selected_snapshot is not None:
@@ -414,17 +430,21 @@ class RelayService:
                 )
             return selected_snapshot
 
-        if conversation_type == "group" and frozen_agent_id and (
-            selected_agent_id is None or selected_agent_id == frozen_agent_id
+        if (
+            conversation_type == "group"
+            and frozen_agent_id
+            and (selected_agent_id is None or selected_agent_id == frozen_agent_id)
         ):
-            frozen_snapshot = _profile_snapshot(frozen_agent_id)
+            _profile_snapshot(frozen_agent_id)
             return _RelayAgentSnapshot(
                 agent_id=frozen_agent_id,
                 profile_version=frozen_profile_version,
                 system_prompt=frozen_system_prompt,
             )
 
-        return _RelayAgentSnapshot(agent_id=None, profile_version=frozen_profile_version, system_prompt=None)
+        return _RelayAgentSnapshot(
+            agent_id=None, profile_version=frozen_profile_version, system_prompt=None
+        )
 
     def _resolve_participant_agent_ids(self, *, conversation_id: str) -> list[str]:
         """Return all participant agent IDs for a conversation, in insertion order.
@@ -457,7 +477,7 @@ class RelayService:
             username = str(row["username"])
             if not username.startswith("agent:"):
                 continue
-            alias_agent_id = username[len("agent:"):].strip()
+            alias_agent_id = username[len("agent:") :].strip()
             if not alias_agent_id:
                 continue
             if self._profile_row(agent_id=alias_agent_id) is None:
@@ -487,15 +507,21 @@ class RelayService:
             (sender_user_id,),
         ).fetchone()
         if row is None:
-            return {"type": "user", "user_id": sender_user_id, "display_name": sender_user_id}
+            return {
+                "type": "user",
+                "user_id": sender_user_id,
+                "display_name": sender_user_id,
+            }
         username = str(row["username"])
         display_name = str(row["display_name"]) or sender_user_id
         if username.startswith("agent:"):
-            agent_id = username[len("agent:"):].strip() or sender_user_id
+            agent_id = username[len("agent:") :].strip() or sender_user_id
             return {"type": "agent", "agent_id": agent_id, "display_name": display_name}
         return {"type": "user", "user_id": sender_user_id, "display_name": display_name}
 
-    def _resolve_all_participants(self, *, conversation_id: str) -> list[dict[str, str]]:
+    def _resolve_all_participants(
+        self, *, conversation_id: str
+    ) -> list[dict[str, str]]:
         """Return actor-first participant dicts for all conversation members.
 
         Args:
@@ -530,12 +556,28 @@ class RelayService:
             user_display_name = str(row["display_name"]) or user_id
             if username.startswith("agent:"):
                 # agent_id is the stable wire ID; display_name from agent_profiles is canonical.
-                agent_id = username[len("agent:"):].strip()
-                profile_display = self._agent_display_name_row(agent_id=agent_id) if agent_id else None
+                agent_id = username[len("agent:") :].strip()
+                profile_display = (
+                    self._agent_display_name_row(agent_id=agent_id)
+                    if agent_id
+                    else None
+                )
                 display_name = profile_display if profile_display else user_display_name
-                result.append({"type": "agent", "agent_id": agent_id, "display_name": display_name})
+                result.append(
+                    {
+                        "type": "agent",
+                        "agent_id": agent_id,
+                        "display_name": display_name,
+                    }
+                )
             else:
-                result.append({"type": "user", "user_id": user_id, "display_name": user_display_name})
+                result.append(
+                    {
+                        "type": "user",
+                        "user_id": user_id,
+                        "display_name": user_display_name,
+                    }
+                )
         return result
 
     def _agent_display_name_row(self, *, agent_id: str) -> str | None:

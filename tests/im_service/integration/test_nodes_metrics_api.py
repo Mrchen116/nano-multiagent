@@ -19,7 +19,10 @@ def _create_user(client: TestClient, username: str) -> str:
         return user.id
     me = client.get("/im/v1/me").json()
     return seed_user_under_owner(
-        client, username=username, display_name=username.title(), owner_id=me["owner_id"]
+        client,
+        username=username,
+        display_name=username.title(),
+        owner_id=me["owner_id"],
     )
 
 
@@ -38,7 +41,9 @@ def test_nodes_list_and_config_update(tmp_path: Path) -> None:
         viewer = register_user(client, username="viewer")
         authorize(client, viewer)
         repo = NodeRepository(client.app.state.connection)
-        repo.upsert_node(node_id="node-1", node_name="MacBook", status="online", version="1.0.0")
+        repo.upsert_node(
+            node_id="node-1", node_name="MacBook", status="online", version="1.0.0"
+        )
 
         listed = client.get("/im/v1/nodes")
         assert listed.status_code == 200
@@ -60,7 +65,11 @@ def test_nodes_list_and_config_update(tmp_path: Path) -> None:
 
         updated = client.patch(
             "/im/v1/nodes/node-1/config",
-            json={"alias": "Office Mac", "relay_enabled": False, "reporting_enabled": True},
+            json={
+                "alias": "Office Mac",
+                "relay_enabled": False,
+                "reporting_enabled": True,
+            },
         )
         assert updated.status_code == 200
         assert updated.json()["alias"] == "Office Mac"
@@ -68,13 +77,19 @@ def test_nodes_list_and_config_update(tmp_path: Path) -> None:
         assert updated.json()["reporting_enabled"] is True
 
 
-def test_nodes_list_marks_stale_and_disconnected_online_rows_as_offline(tmp_path: Path) -> None:
+def test_nodes_list_marks_stale_and_disconnected_online_rows_as_offline(
+    tmp_path: Path,
+) -> None:
     """Show offline when stored online snapshots are stale or not live-connected."""
     with make_app_client(tmp_path) as client:
         viewer = register_user(client, username="viewer")
         authorize(client, viewer)
         repo = NodeRepository(client.app.state.connection)
-        stale_heartbeat = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat().replace("+00:00", "Z")
+        stale_heartbeat = (
+            (datetime.now(timezone.utc) - timedelta(days=1))
+            .isoformat()
+            .replace("+00:00", "Z")
+        )
         fresh_heartbeat = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         client.app.state.connection.execute(
             """
@@ -92,7 +107,19 @@ def test_nodes_list_marks_stale_and_disconnected_online_rows_as_offline(tmp_path
                 last_error
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            ("node-stale", "", "Stale Node", "online", stale_heartbeat, 1, "1.0.0", 1, 1, None, None),
+            (
+                "node-stale",
+                "",
+                "Stale Node",
+                "online",
+                stale_heartbeat,
+                1,
+                "1.0.0",
+                1,
+                1,
+                None,
+                None,
+            ),
         )
         client.app.state.connection.execute(
             """
@@ -110,7 +137,19 @@ def test_nodes_list_marks_stale_and_disconnected_online_rows_as_offline(tmp_path
                 last_error
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            ("node-fresh-but-disconnected", "", "Fresh Node", "online", fresh_heartbeat, 1, "1.0.1", 1, 1, None, None),
+            (
+                "node-fresh-but-disconnected",
+                "",
+                "Fresh Node",
+                "online",
+                fresh_heartbeat,
+                1,
+                "1.0.1",
+                1,
+                1,
+                None,
+                None,
+            ),
         )
         client.app.state.connection.commit()
 
@@ -129,7 +168,9 @@ def test_nodes_list_marks_stale_and_disconnected_online_rows_as_offline(tmp_path
         )
         listed_after_register = client.get("/im/v1/nodes")
         assert listed_after_register.status_code == 200
-        payload_after_register = {item["node_id"]: item for item in listed_after_register.json()}
+        payload_after_register = {
+            item["node_id"]: item for item in listed_after_register.json()
+        }
         assert payload_after_register["node-live"]["status"] == "offline"
 
 
@@ -154,7 +195,11 @@ def test_usage_metrics_aggregate_messages_by_scope(tmp_path: Path) -> None:
 
         created_agent_message = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": agent_id, "sender_type": "agent", "content": "reply from agent"},
+            json={
+                "sender_user_id": agent_id,
+                "sender_type": "agent",
+                "content": "reply from agent",
+            },
         )
         assert created_agent_message.status_code == 201
 
@@ -180,12 +225,24 @@ def test_usage_metrics_aggregate_messages_by_scope(tmp_path: Path) -> None:
         workspace_metrics = client.get("/im/v1/metrics/usage")
         assert workspace_metrics.status_code == 200
         workspace_payload = workspace_metrics.json()
-        assert any(item["scope"] == "owner" and item["total_tokens"] == 6 for item in workspace_payload)
-        assert any(item["scope"] == "conversation" and item["conversation_id"] == conversation_id for item in workspace_payload)
-        assert any(item["scope"] == "agent" and item["agent_id"] == agent_id for item in workspace_payload)
+        assert any(
+            item["scope"] == "owner" and item["total_tokens"] == 6
+            for item in workspace_payload
+        )
+        assert any(
+            item["scope"] == "conversation"
+            and item["conversation_id"] == conversation_id
+            for item in workspace_payload
+        )
+        assert any(
+            item["scope"] == "agent" and item["agent_id"] == agent_id
+            for item in workspace_payload
+        )
 
 
-def test_usage_metrics_follow_real_relay_usage_by_owner_conversation_and_agent(tmp_path: Path) -> None:
+def test_usage_metrics_follow_real_relay_usage_by_owner_conversation_and_agent(
+    tmp_path: Path,
+) -> None:
     """Delay relay-backed usage until completed reports deliver real kernel usage."""
     with make_app_client(tmp_path) as client:
         owner_id = _create_user(client, "alice")
@@ -223,7 +280,9 @@ def test_usage_metrics_follow_real_relay_usage_by_owner_conversation_and_agent(t
             relay_frame = websocket.receive_json()
             message_id = created.json()["id"]
 
-            pre_report = client.get(f"/im/v1/metrics/usage?conversation_id={conversation_id}")
+            pre_report = client.get(
+                f"/im/v1/metrics/usage?conversation_id={conversation_id}"
+            )
             assert pre_report.status_code == 200
             assert pre_report.json() == []
 
@@ -237,7 +296,11 @@ def test_usage_metrics_follow_real_relay_usage_by_owner_conversation_and_agent(t
                         "agent_id": agent_id,
                         "conversation_id": conversation_id,
                         "message_id": message_id,
-                        "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+                        "usage": {
+                            "prompt_tokens": 11,
+                            "completion_tokens": 7,
+                            "total_tokens": 18,
+                        },
                     },
                 }
             )
@@ -255,12 +318,18 @@ def test_usage_metrics_follow_real_relay_usage_by_owner_conversation_and_agent(t
             )
             assert websocket.receive_json()["type"] == "ack"
 
-        conversation_metrics = client.get(f"/im/v1/metrics/usage?conversation_id={conversation_id}")
+        conversation_metrics = client.get(
+            f"/im/v1/metrics/usage?conversation_id={conversation_id}"
+        )
         assert conversation_metrics.status_code == 200
         conversation_payload = conversation_metrics.json()
         assert len(conversation_payload) == 2
-        conversation_row = next(item for item in conversation_payload if item["scope"] == "conversation")
-        agent_row = next(item for item in conversation_payload if item["scope"] == "agent")
+        conversation_row = next(
+            item for item in conversation_payload if item["scope"] == "conversation"
+        )
+        agent_row = next(
+            item for item in conversation_payload if item["scope"] == "agent"
+        )
         assert conversation_row["prompt_tokens"] == 11
         assert conversation_row["completion_tokens"] == 7
         assert conversation_row["total_tokens"] == 18
@@ -270,4 +339,7 @@ def test_usage_metrics_follow_real_relay_usage_by_owner_conversation_and_agent(t
         workspace_metrics = client.get("/im/v1/metrics/usage")
         assert workspace_metrics.status_code == 200
         workspace_payload = workspace_metrics.json()
-        assert any(item["scope"] == "owner" and item["total_tokens"] == 18 for item in workspace_payload)
+        assert any(
+            item["scope"] == "owner" and item["total_tokens"] == 18
+            for item in workspace_payload
+        )

@@ -32,7 +32,9 @@ class TestPermissionDecision:
         assert d.rule_source == ""
 
     def test_deny_behavior(self):
-        d = PermissionDecision(behavior="deny", reason="too risky", rule_source="classifier")
+        d = PermissionDecision(
+            behavior="deny", reason="too risky", rule_source="classifier"
+        )
         assert d.behavior == "deny"
         assert d.reason == "too risky"
 
@@ -43,7 +45,9 @@ class TestPermissionDecision:
 
 class TestPermissionOption:
     def test_fields(self):
-        opt = PermissionOption(id="allow_once", label="Allow once", description="Allow this time")
+        opt = PermissionOption(
+            id="allow_once", label="Allow once", description="Allow this time"
+        )
         assert opt.id == "allow_once"
         assert opt.label == "Allow once"
         assert opt.description == "Allow this time"
@@ -73,6 +77,7 @@ class TestPermissionResponse:
 class TestPermissionBroker:
     def _make_broker(self, deny_limit: int = 3) -> PermissionBroker:
         from agent.platform.config.auto_mode import AutoModeConfig
+
         cfg = AutoModeConfig(deny_limit=deny_limit)
         broker = PermissionBroker(config=cfg)
         return broker

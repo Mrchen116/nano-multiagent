@@ -6,10 +6,12 @@ from datetime import datetime
 
 DEBUG_LOG = Path(".claude/state/pretooluse-agent.log")
 
+
 def log(msg: str) -> None:
     DEBUG_LOG.parent.mkdir(parents=True, exist_ok=True)
     with DEBUG_LOG.open("a", encoding="utf-8") as f:
         f.write(f"{datetime.now().isoformat()} {msg}\n")
+
 
 def main() -> int:
     try:
@@ -37,7 +39,9 @@ def main() -> int:
     updated_input = dict(tool_input)
     updated_input.pop("isolation", None)
 
-    log(f"[REWRITE] removed isolation=worktree; updated_input={json.dumps(updated_input, ensure_ascii=False)}")
+    log(
+        f"[REWRITE] removed isolation=worktree; updated_input={json.dumps(updated_input, ensure_ascii=False)}"
+    )
 
     # PreToolUse 通过 hookSpecificOutput 返回 permissionDecision + updatedInput
     result = {
@@ -52,13 +56,14 @@ def main() -> int:
                 'In this project, Agent tool calls must not use isolation="worktree". '
                 "The isolation field was removed automatically. "
                 "Continue without worktree isolation."
-            )
+            ),
         }
     }
 
     json.dump(result, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

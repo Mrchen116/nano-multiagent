@@ -47,7 +47,9 @@ def init_model_registry(payload: "LLMConfigPayload") -> None:
     """
     global _REGISTRY
     if _REGISTRY is not None:
-        raise RuntimeError("model registry already initialized — call _reset_for_tests() first in tests")
+        raise RuntimeError(
+            "model registry already initialized — call _reset_for_tests() first in tests"
+        )
 
     models: dict[str, dict[str, ModelMetadata]] = {}
     provider_defaults: dict[str, str] = {}

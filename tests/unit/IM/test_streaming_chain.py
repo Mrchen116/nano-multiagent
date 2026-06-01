@@ -44,7 +44,7 @@ def _make_minimal_handler(
         message_id="msg-1",
         event_type="message.delta",
         delivery_status="running",
-        payload_json='{}',
+        payload_json="{}",
         created_at="2026-01-01T00:00:00Z",
     )
 
@@ -78,8 +78,12 @@ class TestNodeStreamingDeltaHandling:
             "delta_text": "Hello",
             "owner_id": "owner-A",
         }
-        await handler.handle_message(websocket=ws, message_type="node.streaming_delta", payload=payload)
-        bridge.on_message_delta.assert_called_once_with(message_id="msg-1", delta_text="Hello")
+        await handler.handle_message(
+            websocket=ws, message_type="node.streaming_delta", payload=payload
+        )
+        bridge.on_message_delta.assert_called_once_with(
+            message_id="msg-1", delta_text="Hello"
+        )
 
     @pytest.mark.asyncio
     async def test_streaming_delta_turn_start_calls_on_turn_start(self):
@@ -104,7 +108,9 @@ class TestNodeStreamingDeltaHandling:
             "agent_id": "alpha",
             "owner_id": "owner-A",
         }
-        result = await handler.handle_message(websocket=ws, message_type="node.streaming_delta", payload=payload)
+        result = await handler.handle_message(
+            websocket=ws, message_type="node.streaming_delta", payload=payload
+        )
         bridge.on_turn_start.assert_called_once_with(
             conversation_id="conv-1",
             agent_user_id="agent-user-1",
@@ -130,7 +136,9 @@ class TestNodeStreamingDeltaHandling:
             },
             "owner_id": "owner-A",
         }
-        await handler.handle_message(websocket=ws, message_type="node.streaming_delta", payload=payload)
+        await handler.handle_message(
+            websocket=ws, message_type="node.streaming_delta", payload=payload
+        )
         assert bridge.on_tool_call_upserted.called
         tc_arg = bridge.on_tool_call_upserted.call_args[1]["tool_call"]
         assert tc_arg.id == "tc-1"
@@ -155,7 +163,9 @@ class TestNodeStreamingDeltaHandling:
             },
             "owner_id": "owner-A",
         }
-        await handler.handle_message(websocket=ws, message_type="node.streaming_delta", payload=payload)
+        await handler.handle_message(
+            websocket=ws, message_type="node.streaming_delta", payload=payload
+        )
         assert bridge.on_tool_call_completed.called
 
     @pytest.mark.asyncio
@@ -171,7 +181,9 @@ class TestNodeStreamingDeltaHandling:
             "token_usage": {"prompt": 10, "completion": 5, "total": 15},
             "owner_id": "owner-A",
         }
-        await handler.handle_message(websocket=ws, message_type="node.streaming_delta", payload=payload)
+        await handler.handle_message(
+            websocket=ws, message_type="node.streaming_delta", payload=payload
+        )
         assert bridge.on_message_completed.called
         kwargs = bridge.on_message_completed.call_args[1]
         assert kwargs["message_id"] == "msg-1"
@@ -198,7 +210,9 @@ class TestNodeStreamingDeltaHandling:
             "delivery_status": "failed",
             "owner_id": "owner-A",
         }
-        await handler.handle_message(websocket=ws, message_type="node.streaming_delta", payload=payload)
+        await handler.handle_message(
+            websocket=ws, message_type="node.streaming_delta", payload=payload
+        )
         assert bridge.on_message_completed.called
         kwargs = bridge.on_message_completed.call_args[1]
         assert kwargs["delivery_status"] == "failed"
@@ -243,7 +257,9 @@ class TestNodeStreamingDeltaHandling:
             "delta_text": "Hello",
             "owner_id": "owner-A",
         }
-        result = await handler.handle_message(websocket=ws, message_type="node.streaming_delta", payload=payload)
+        result = await handler.handle_message(
+            websocket=ws, message_type="node.streaming_delta", payload=payload
+        )
         assert result is not None
         assert result.get("type") == "ack"
 
@@ -300,7 +316,9 @@ class TestRelayReportTokenUsage:
         report_events = [c for c in captured if c.get("event_type") == "relay.report"]
         assert report_events, "Expected a relay.report event"
         report_payload = report_events[0]["payload"]
-        assert "token_usage" in report_payload, "relay.report payload must contain token_usage"
+        assert "token_usage" in report_payload, (
+            "relay.report payload must contain token_usage"
+        )
         assert report_payload["token_usage"]["total"] == 15
         assert report_payload["token_usage"]["prompt"] == 10
         assert report_payload["token_usage"]["completion"] == 5
@@ -320,7 +338,9 @@ class TestCrossTenantStreamingIsolation:
         registry.broadcast_to_user = AsyncMock()
         registry.broadcast_to_users = AsyncMock()
 
-        handler = _make_minimal_handler(event_bridge=bridge, user_stream_registry=registry)
+        handler = _make_minimal_handler(
+            event_bridge=bridge, user_stream_registry=registry
+        )
 
         ws = AsyncMock()
         payload = {
@@ -330,7 +350,9 @@ class TestCrossTenantStreamingIsolation:
             "delta_text": "secret A",
             "owner_id": "owner-A",
         }
-        await handler.handle_message(websocket=ws, message_type="node.streaming_delta", payload=payload)
+        await handler.handle_message(
+            websocket=ws, message_type="node.streaming_delta", payload=payload
+        )
 
         # broadcast_to_users (all users) must not be called for streaming frames
         registry.broadcast_to_users.assert_not_called()
@@ -365,7 +387,9 @@ class TestTurnStartAckReturnsMessageId:
             "agent_id": "alpha",
             "owner_id": "owner-A",
         }
-        result = await handler.handle_message(websocket=ws, message_type="node.streaming_delta", payload=payload)
+        result = await handler.handle_message(
+            websocket=ws, message_type="node.streaming_delta", payload=payload
+        )
         assert result is not None
         assert result.get("type") == "ack"
         # message_id must appear in the ack payload so the PA observer can update run_context_store

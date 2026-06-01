@@ -55,7 +55,11 @@ class JsonlWriter:
             try:
                 item = self._queue.get(timeout=0.05)
             except queue.Empty:
-                if buffer and (time.monotonic() - last_flush) * 1000 >= self._FLUSH_INTERVAL_MS:
+                if (
+                    buffer
+                    and (time.monotonic() - last_flush) * 1000
+                    >= self._FLUSH_INTERVAL_MS
+                ):
                     try:
                         self._flush_buffer(buffer)
                     except Exception as e:

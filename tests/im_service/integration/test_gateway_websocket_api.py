@@ -21,7 +21,10 @@ def _create_user(client: TestClient, username: str) -> str:
         return user.id
     me = client.get("/im/v1/me").json()
     return seed_user_under_owner(
-        client, username=username, display_name=username.title(), owner_id=me["owner_id"]
+        client,
+        username=username,
+        display_name=username.title(),
+        owner_id=me["owner_id"],
     )
 
 
@@ -57,7 +60,9 @@ async def _snapshot_gateway(app, *, node_id: str) -> GatewayConnection | None:  
     return await app.state.gateway_handler.snapshot_connection(node_id=node_id)
 
 
-def test_gateway_websocket_registers_and_receives_relay_messages(tmp_path: Path) -> None:
+def test_gateway_websocket_registers_and_receives_relay_messages(
+    tmp_path: Path,
+) -> None:
     """Relay HTTP-created messages to a connected gateway websocket."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -133,7 +138,13 @@ def test_gateway_websocket_receives_config_and_heartbeat_pushes(tmp_path: Path) 
             websocket.send_json(
                 {
                     "type": "node.register",
-                    "payload": {"node_id": "node-1", "node_name": "MacBook", "version": "1.0.0", "agents": [], "capabilities": {}},
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": [],
+                        "capabilities": {},
+                    },
                 }
             )
             websocket.receive_json()
@@ -172,7 +183,9 @@ def test_gateway_websocket_receives_config_and_heartbeat_pushes(tmp_path: Path) 
             assert node_row.json()[0]["node_name"] == "MacBook"
 
 
-def test_gateway_websocket_persists_completed_relay_chain_from_report_and_receipt(tmp_path: Path) -> None:
+def test_gateway_websocket_persists_completed_relay_chain_from_report_and_receipt(
+    tmp_path: Path,
+) -> None:
     """Persist relay processing/completed events even when report and receipt arrive after reconnect."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -307,7 +320,9 @@ def test_gateway_websocket_persists_completed_relay_chain_from_report_and_receip
         assert message_row.json()["items"][-1]["delivery_status"] == "completed"
 
 
-def test_gateway_websocket_exposes_actionable_last_error_in_node_board(tmp_path: Path) -> None:
+def test_gateway_websocket_exposes_actionable_last_error_in_node_board(
+    tmp_path: Path,
+) -> None:
     """Persist actionable startup guidance so `/im/v1/nodes` can surface it to operators."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -317,7 +332,13 @@ def test_gateway_websocket_exposes_actionable_last_error_in_node_board(tmp_path:
             websocket.send_json(
                 {
                     "type": "node.register",
-                    "payload": {"node_id": "node-1", "node_name": "MacBook", "version": "1.0.0", "agents": ["agent-a"], "capabilities": {}},
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "MacBook",
+                        "version": "1.0.0",
+                        "agents": ["agent-a"],
+                        "capabilities": {},
+                    },
                 }
             )
             websocket.receive_json()
@@ -342,7 +363,9 @@ def test_gateway_websocket_exposes_actionable_last_error_in_node_board(tmp_path:
             )
 
 
-def test_message_post_to_disconnected_node_persists_actionable_failure_events(tmp_path: Path) -> None:
+def test_message_post_to_disconnected_node_persists_actionable_failure_events(
+    tmp_path: Path,
+) -> None:
     """Persist conversation-context failure feedback when the target node is offline."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -380,10 +403,15 @@ def test_message_post_to_disconnected_node_persists_actionable_failure_events(tm
         assert "conversation.notice" in types
         payloads = [json.loads(str(r["payload_json"])) for r in rows]
         assert any(payload.get("progress_state") == "failed" for payload in payloads)
-        assert any(payload.get("guidance") == "检查目标节点连接状态后重试，或切换到在线节点。" for payload in payloads)
+        assert any(
+            payload.get("guidance") == "检查目标节点连接状态后重试，或切换到在线节点。"
+            for payload in payloads
+        )
 
 
-def test_gateway_websocket_persists_heartbeat_report_into_conversation_events(tmp_path: Path) -> None:
+def test_gateway_websocket_persists_heartbeat_report_into_conversation_events(
+    tmp_path: Path,
+) -> None:
     """Persist heartbeat-style node.report payloads into IM events users can read."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -394,7 +422,11 @@ def test_gateway_websocket_persists_heartbeat_report_into_conversation_events(tm
         ).json()["id"]
         created = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": agent_id, "content": "heartbeat placeholder", "sender_type": "agent"},
+            json={
+                "sender_user_id": agent_id,
+                "content": "heartbeat placeholder",
+                "sender_type": "agent",
+            },
         )
         assert created.status_code == 201
         message_id = created.json()["id"]
@@ -431,7 +463,10 @@ def test_gateway_websocket_persists_heartbeat_report_into_conversation_events(tm
             )
             report_ack = websocket.receive_json()
 
-        assert report_ack == {"type": "ack", "payload": {"message_type": "node.report", "node_id": "node-1"}}
+        assert report_ack == {
+            "type": "ack",
+            "payload": {"message_type": "node.report", "node_id": "node-1"},
+        }
         bodies = client.app.state.connection.execute(
             "SELECT event_type, payload_json FROM conversation_events WHERE conversation_id = ? ORDER BY event_id DESC LIMIT 5",
             (conversation_id,),
@@ -439,11 +474,15 @@ def test_gateway_websocket_persists_heartbeat_report_into_conversation_events(tm
         joined = " ".join(str(b["event_type"]) + str(b["payload_json"]) for b in bodies)
         assert "relay.report" in joined
         assert "agent_run_completed" in joined
-        assert "Open your main agent thread in Web IM to review the latest heartbeat result." in joined
+        assert (
+            "Open your main agent thread in Web IM to review the latest heartbeat result."
+            in joined
+        )
 
 
-
-def test_gateway_websocket_malformed_node_report_does_not_close_connection(tmp_path: Path) -> None:
+def test_gateway_websocket_malformed_node_report_does_not_close_connection(
+    tmp_path: Path,
+) -> None:
     """IM 收到缺少 node_id 的畸形 node.report 时，返回 error ack 但 WS 连接继续存活。
 
     根因：`_handle_report` 中 `_require_text(payload.get("node_id"), ...)` 对畸形 payload
@@ -456,59 +495,74 @@ def test_gateway_websocket_malformed_node_report_does_not_close_connection(tmp_p
         conversation_id = _create_conversation(client, agent_id)
         created = client.post(
             f"/im/v1/conversations/{conversation_id}/messages",
-            json={"sender_user_id": agent_id, "content": "placeholder", "sender_type": "agent"},
+            json={
+                "sender_user_id": agent_id,
+                "content": "placeholder",
+                "sender_type": "agent",
+            },
         )
         assert created.status_code == 201
         message_id = created.json()["id"]
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
-            websocket.send_json({
-                "type": "node.register",
-                "payload": {
-                    "node_id": "node-1",
-                    "node_name": "Gateway Node",
-                    "version": "1.0.0",
-                    "agents": ["agent-b"],
-                    "capabilities": {"relay": True},
-                },
-            })
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "Gateway Node",
+                        "version": "1.0.0",
+                        "agents": ["agent-b"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
             assert websocket.receive_json()["type"] == "ack"
 
             # 畸形 node.report：缺少 node_id
-            websocket.send_json({
-                "type": "node.report",
-                "payload": {
-                    # node_id 故意缺失
-                    "run_id": "heartbeat-bad-run",
-                    "status": "completed",
-                    "agent_id": "agent-b",
-                    "conversation_id": "heartbeat:agent-b",
-                    "message_id": "heartbeat-bad-run",
-                    "summary": "malformed heartbeat report",
-                },
-            })
+            websocket.send_json(
+                {
+                    "type": "node.report",
+                    "payload": {
+                        # node_id 故意缺失
+                        "run_id": "heartbeat-bad-run",
+                        "status": "completed",
+                        "agent_id": "agent-b",
+                        "conversation_id": "heartbeat:agent-b",
+                        "message_id": "heartbeat-bad-run",
+                        "summary": "malformed heartbeat report",
+                    },
+                }
+            )
             bad_response = websocket.receive_json()
             # IM 应返回 error 帧（不应关闭连接）
             assert bad_response["type"] == "error"
 
             # 连接仍然存活：合法的 node.report 仍然可以送达
-            websocket.send_json({
-                "type": "node.report",
-                "payload": {
-                    "node_id": "node-1",
-                    "run_id": "run-ok",
-                    "status": "completed",
-                    "agent_id": "agent-b",
-                    "conversation_id": conversation_id,
-                    "message_id": message_id,
-                    "summary": "connection still alive after malformed report",
-                },
-            })
+            websocket.send_json(
+                {
+                    "type": "node.report",
+                    "payload": {
+                        "node_id": "node-1",
+                        "run_id": "run-ok",
+                        "status": "completed",
+                        "agent_id": "agent-b",
+                        "conversation_id": conversation_id,
+                        "message_id": message_id,
+                        "summary": "connection still alive after malformed report",
+                    },
+                }
+            )
             ok_ack = websocket.receive_json()
-            assert ok_ack == {"type": "ack", "payload": {"message_type": "node.report", "node_id": "node-1"}}
+            assert ok_ack == {
+                "type": "ack",
+                "payload": {"message_type": "node.report", "node_id": "node-1"},
+            }
 
 
-def test_message_post_with_broken_gateway_socket_returns_503_instead_of_500(tmp_path: Path) -> None:
+def test_message_post_with_broken_gateway_socket_returns_503_instead_of_500(
+    tmp_path: Path,
+) -> None:
     """Degrade broken websocket pushes into actionable 503 feedback instead of Internal Server Error."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:

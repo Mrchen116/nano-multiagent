@@ -78,7 +78,11 @@ def test_register_bash_defaults_to_queued() -> None:
 def test_mark_running_transitions_from_queued() -> None:
     reg = BackgroundTaskRegistry()
     reg.register_bash(
-        task_id="b1", parent_session_id="s1", description="d", command="c", output_file="o"
+        task_id="b1",
+        parent_session_id="s1",
+        description="d",
+        command="c",
+        output_file="o",
     )
     updated = reg.mark_running("b1")
     assert updated.status == BackgroundTaskStatus.RUNNING
@@ -89,7 +93,11 @@ def test_mark_running_transitions_from_queued() -> None:
 def test_complete_transitions_from_running() -> None:
     reg = BackgroundTaskRegistry()
     reg.register_bash(
-        task_id="b1", parent_session_id="s1", description="d", command="c", output_file="o"
+        task_id="b1",
+        parent_session_id="s1",
+        description="d",
+        command="c",
+        output_file="o",
     )
     reg.mark_running("b1")
     updated = reg.complete("b1", result_text="ok", duration_ms=1000, tool_use_count=3)
@@ -102,7 +110,11 @@ def test_complete_transitions_from_running() -> None:
 def test_fail_transitions_from_running() -> None:
     reg = BackgroundTaskRegistry()
     reg.register_bash(
-        task_id="b1", parent_session_id="s1", description="d", command="c", output_file="o"
+        task_id="b1",
+        parent_session_id="s1",
+        description="d",
+        command="c",
+        output_file="o",
     )
     reg.mark_running("b1")
     updated = reg.fail("b1", error="boom")
@@ -113,7 +125,11 @@ def test_fail_transitions_from_running() -> None:
 def test_kill_transitions_from_running() -> None:
     reg = BackgroundTaskRegistry()
     reg.register_bash(
-        task_id="b1", parent_session_id="s1", description="d", command="c", output_file="o"
+        task_id="b1",
+        parent_session_id="s1",
+        description="d",
+        command="c",
+        output_file="o",
     )
     reg.mark_running("b1")
     updated = reg.kill("b1", reason="user_stopped")
@@ -125,7 +141,11 @@ def test_terminal_state_is_idempotent() -> None:
     """Terminal transitions are no-ops to prevent races with task_stop."""
     reg = BackgroundTaskRegistry()
     reg.register_bash(
-        task_id="b1", parent_session_id="s1", description="d", command="c", output_file="o"
+        task_id="b1",
+        parent_session_id="s1",
+        description="d",
+        command="c",
+        output_file="o",
     )
     reg.mark_running("b1")
     reg.complete("b1")
@@ -160,7 +180,11 @@ def test_enqueue_and_drain_agent_messages() -> None:
 def test_request_stop_invokes_handle() -> None:
     reg = BackgroundTaskRegistry()
     reg.register_bash(
-        task_id="b1", parent_session_id="s1", description="d", command="c", output_file="o"
+        task_id="b1",
+        parent_session_id="s1",
+        description="d",
+        command="c",
+        output_file="o",
     )
     reg.mark_running("b1")
 
@@ -178,7 +202,11 @@ def test_request_stop_invokes_handle() -> None:
 def test_request_stop_on_terminal_returns_false() -> None:
     reg = BackgroundTaskRegistry()
     reg.register_bash(
-        task_id="b1", parent_session_id="s1", description="d", command="c", output_file="o"
+        task_id="b1",
+        parent_session_id="s1",
+        description="d",
+        command="c",
+        output_file="o",
     )
     reg.mark_running("b1")
     reg.complete("b1")
@@ -209,14 +237,22 @@ class _FakeStore:
         return self.records.get(task_id)
 
     def list_non_terminal(self) -> Sequence[BackgroundTaskRecord]:
-        return [r for r in self.records.values() if r.status not in {"completed", "failed", "killed"}]
+        return [
+            r
+            for r in self.records.values()
+            if r.status not in {"completed", "failed", "killed"}
+        ]
 
 
 def test_registry_persists_via_store() -> None:
     store = _FakeStore()
     reg = BackgroundTaskRegistry(store=store)
     reg.register_bash(
-        task_id="b1", parent_session_id="s1", description="d", command="c", output_file="o"
+        task_id="b1",
+        parent_session_id="s1",
+        description="d",
+        command="c",
+        output_file="o",
     )
     assert "b1" in store.records
     reg.mark_running("b1")

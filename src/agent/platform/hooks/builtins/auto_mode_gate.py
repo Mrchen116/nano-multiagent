@@ -40,7 +40,6 @@ from agent.platform.config.auto_mode import AutoModeConfig, load_auto_mode_confi
 from agent.platform.permissions.broker import (
     PermissionBroker,
     PermissionDecision,
-    PermissionOption,
     PermissionRequest,
     PermissionResponse,
     _default_options_for_tool,
@@ -169,27 +168,29 @@ XML_S2_SUFFIX = (
 # Safe-tool allowlist — pixel-perfect CC SAFE_YOLO_ALLOWLISTED_TOOLS
 # ---------------------------------------------------------------------------
 
-SAFE_TOOL_ALLOWLIST: frozenset[str] = frozenset({
-    # Read-only file operations
-    "read",
-    # web_fetch and web_search removed (bugfix-355 S1/S2):
-    # web_fetch falls to WebFetchTool.check_permissions (preapproved host table + hostname rules)
-    # web_search falls to classifier via passthrough (no tool-level opinion)
-    # Task management (metadata only)
-    "task_create",
-    "task_get",
-    "task_update",
-    "task_list",
-    "task_stop",
-    "task_output",
-    # Agent coordination — kept (D2 decision: CC external build behavior is allow-by-default)
-    "agent",
-    "send_message",
-    # Agent self-management (bugfix-368): writes only to .nano/memory/, no user-code
-    # or system impact; semantically equivalent to task_*. Without this entry the
-    # classifier judges memory as deny → PA self-improvement loop dies on every call.
-    "memory",
-})
+SAFE_TOOL_ALLOWLIST: frozenset[str] = frozenset(
+    {
+        # Read-only file operations
+        "read",
+        # web_fetch and web_search removed (bugfix-355 S1/S2):
+        # web_fetch falls to WebFetchTool.check_permissions (preapproved host table + hostname rules)
+        # web_search falls to classifier via passthrough (no tool-level opinion)
+        # Task management (metadata only)
+        "task_create",
+        "task_get",
+        "task_update",
+        "task_list",
+        "task_stop",
+        "task_output",
+        # Agent coordination — kept (D2 decision: CC external build behavior is allow-by-default)
+        "agent",
+        "send_message",
+        # Agent self-management (bugfix-368): writes only to .nano/memory/, no user-code
+        # or system impact; semantically equivalent to task_*. Without this entry the
+        # classifier judges memory as deny → PA self-improvement loop dies on every call.
+        "memory",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # Tool input projections — pixel-perfect CC toAutoClassifierInput mapping
@@ -198,21 +199,26 @@ SAFE_TOOL_ALLOWLIST: frozenset[str] = frozenset({
 TOOL_PROJECTIONS: dict[str, Callable[[dict], str]] = {
     "bash": lambda inp: inp.get("command", ""),
     "read": lambda inp: inp.get("file_path", ""),
-    "write": lambda inp: f'{inp.get("file_path", "")}: {inp.get("content", "")[:200]}',
-    "edit": lambda inp: f'{inp.get("file_path", "")}: {inp.get("new_string", "")[:200]}',
+    "write": lambda inp: f"{inp.get('file_path', '')}: {inp.get('content', '')[:200]}",
+    "edit": lambda inp: (
+        f"{inp.get('file_path', '')}: {inp.get('new_string', '')[:200]}"
+    ),
 }
 
 # Unattended run origins (no human present to answer ask prompts)
-_UNATTENDED_ORIGINS: frozenset[str] = frozenset({
-    RunOrigin.HEARTBEAT.value,
-    "heartbeat",  # string form
-    RunOrigin.BACKGROUND_TASK.value,
-})
+_UNATTENDED_ORIGINS: frozenset[str] = frozenset(
+    {
+        RunOrigin.HEARTBEAT.value,
+        "heartbeat",  # string form
+        RunOrigin.BACKGROUND_TASK.value,
+    }
+)
 
 
 # ---------------------------------------------------------------------------
 # Public API used by tests
 # ---------------------------------------------------------------------------
+
 
 def is_safe_tool(tool_name: str, config: AutoModeConfig) -> bool:
     """Return True if tool should bypass the classifier entirely.
@@ -268,12 +274,18 @@ def build_yolo_system_prompt(config: AutoModeConfig) -> str:
         Fully assembled system prompt string.
     """
     # Step 1: inject permissions template into base prompt
-    system_prompt = BASE_PROMPT.replace("<permissions_template>", EXTERNAL_PERMISSIONS_TEMPLATE)
+    system_prompt = BASE_PROMPT.replace(
+        "<permissions_template>", EXTERNAL_PERMISSIONS_TEMPLATE
+    )
 
     # Step 2: user rules — replace tagged defaults or keep defaults if user has none
     user_allow = "\n".join(f"- {r}" for r in config.allow) if config.allow else None
-    user_deny = "\n".join(f"- {r}" for r in config.soft_deny) if config.soft_deny else None
-    user_env = "\n".join(f"- {r}" for r in config.environment) if config.environment else None
+    user_deny = (
+        "\n".join(f"- {r}" for r in config.soft_deny) if config.soft_deny else None
+    )
+    user_env = (
+        "\n".join(f"- {r}" for r in config.environment) if config.environment else None
+    )
 
     def replace_tag(tag: str, user_value: str | None, text: str) -> str:
         pattern = f"<{tag}>([\\s\\S]*?)</{tag}>"
@@ -283,26 +295,30 @@ def build_yolo_system_prompt(config: AutoModeConfig) -> str:
             text,
         )
 
-    system_prompt = replace_tag("user_allow_rules_to_replace", user_allow, system_prompt)
+    system_prompt = replace_tag(
+        "user_allow_rules_to_replace", user_allow, system_prompt
+    )
     system_prompt = replace_tag("user_deny_rules_to_replace", user_deny, system_prompt)
     system_prompt = replace_tag("user_environment_to_replace", user_env, system_prompt)
 
     # Step 3: replace tool_use output format with XML format
     tool_use_line = "Use the classify_result tool to report your classification."
-    xml_format = "\n".join([
-        "## Output Format",
-        "",
-        "If the action should be blocked:",
-        "<block>yes</block><reason>one short sentence</reason>",
-        "",
-        "If the action should be allowed:",
-        "<block>no</block>",
-        "",
-        "Do NOT include a <reason> tag when the action is allowed.",
-        "Your ENTIRE response MUST begin with <block>. "
-        "Do NOT output any analysis, reasoning, or commentary before <block>. "
-        "No \"Looking at...\" or similar preamble.",
-    ])
+    xml_format = "\n".join(
+        [
+            "## Output Format",
+            "",
+            "If the action should be blocked:",
+            "<block>yes</block><reason>one short sentence</reason>",
+            "",
+            "If the action should be allowed:",
+            "<block>no</block>",
+            "",
+            "Do NOT include a <reason> tag when the action is allowed.",
+            "Your ENTIRE response MUST begin with <block>. "
+            "Do NOT output any analysis, reasoning, or commentary before <block>. "
+            'No "Looking at..." or similar preamble.',
+        ]
+    )
     system_prompt = system_prompt.replace(tool_use_line, xml_format)
 
     return system_prompt
@@ -351,11 +367,13 @@ def build_transcript_entries(messages: list | tuple) -> list[dict]:
             if isinstance(content, list):
                 for block in content:
                     if isinstance(block, dict) and block.get("type") == "tool_use":
-                        tool_uses.append({
-                            "type": "tool_use",
-                            "name": block.get("name", ""),
-                            "input": block.get("input", {}),
-                        })
+                        tool_uses.append(
+                            {
+                                "type": "tool_use",
+                                "name": block.get("name", ""),
+                                "input": block.get("input", {}),
+                            }
+                        )
             if tool_uses:
                 transcript.append({"role": "assistant", "content": tool_uses})
             # assistant text blocks intentionally excluded (prompt injection prevention)
@@ -413,7 +431,10 @@ def parse_xml_reason(text: str) -> str | None:
 # Two-stage classifier
 # ---------------------------------------------------------------------------
 
-async def _classify_action(ctx: Any, system_prompt: str, user_prompt: str) -> PermissionDecision:
+
+async def _classify_action(
+    ctx: Any, system_prompt: str, user_prompt: str
+) -> PermissionDecision:
     """Two-stage XML classification. Pixel-perfect CC classifyYoloActionXml.
 
     Stage 1 (fast, max_tokens=64, stop at </block>):
@@ -521,7 +542,9 @@ async def _classify_action(ctx: Any, system_prompt: str, user_prompt: str) -> Pe
 
     if stage2_block:
         reason = parse_xml_reason(stage2_text) or "Blocked by classifier"
-        return PermissionDecision(behavior="deny", reason=reason, rule_source="classifier")
+        return PermissionDecision(
+            behavior="deny", reason=reason, rule_source="classifier"
+        )
 
     return PermissionDecision(
         behavior="allow",
@@ -533,6 +556,7 @@ async def _classify_action(ctx: Any, system_prompt: str, user_prompt: str) -> Pe
 # ---------------------------------------------------------------------------
 # Gate hook
 # ---------------------------------------------------------------------------
+
 
 def _build_transcript_user_message(ctx: Any, tool_name: str, tool_input: dict) -> str:
     """Build the classifier user prompt: transcript + current action.
@@ -551,17 +575,17 @@ def _build_transcript_user_message(ctx: Any, tool_name: str, tool_input: dict) -
     compact_parts = []
     for entry in entries:
         if entry["role"] == "user":
-            compact_parts.append(f'User: {entry["content"]}\n')
+            compact_parts.append(f"User: {entry['content']}\n")
         elif entry["role"] == "assistant":
             for block in entry["content"]:
                 projected = project_tool_input(block["name"], block.get("input", {}))
                 if projected:
-                    compact_parts.append(f'{block["name"]} {projected}\n')
+                    compact_parts.append(f"{block['name']} {projected}\n")
 
     # Current action being classified
     action_projected = project_tool_input(tool_name, tool_input)
     if action_projected:
-        compact_parts.append(f'{tool_name} {action_projected}\n')
+        compact_parts.append(f"{tool_name} {action_projected}\n")
 
     transcript_body = "".join(compact_parts)
     return f"<transcript>\n{transcript_body}</transcript>"
@@ -683,7 +707,9 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
         # so safety_check type results can be bypass-immune (W1).
         # Anchor B: getattr fallback — tool without check_permissions → passthrough.
         tool_registry = metadata.get("tool_registry")
-        tool_instance = tool_registry.get(tool_name) if tool_registry is not None else None
+        tool_instance = (
+            tool_registry.get(tool_name) if tool_registry is not None else None
+        )
         check_fn = getattr(tool_instance, "check_permissions", None)
         tool_result: Any = None
         if check_fn is not None:
@@ -726,9 +752,14 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
             if safety_locked:
                 # Bypass-immune: safety_check ask cannot be skipped by dangerously mode
                 return await _handle_ask(
-                    ctx, tool_name, tool_input,
+                    ctx,
+                    tool_name,
+                    tool_input,
                     tool_result.reason if tool_result else "Safety check required",
-                    run_id, session_id, config, broker,
+                    run_id,
+                    session_id,
+                    config,
+                    broker,
                 )
             return None  # true bypass (bash included — D10: policy was already checked in step 1)
 
@@ -750,34 +781,61 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
                     broker.reset_deny_count(run_id, tool_name)
                 return None
             if tool_behavior == "deny":
-                return {"block": True, "reason": getattr(tool_result, "reason", "denied by tool")}
+                return {
+                    "block": True,
+                    "reason": getattr(tool_result, "reason", "denied by tool"),
+                }
             if tool_behavior == "ask":
                 # Non-safety-check ask (safety_check was handled at step 2)
                 is_unattended = run_origin in _UNATTENDED_ORIGINS
                 if is_unattended:
                     if config.unattended_fallback == "allow":
                         return None
-                    return {"block": True, "reason": f"tool ask, unattended fallback: deny"}
+                    return {
+                        "block": True,
+                        "reason": "tool ask, unattended fallback: deny",
+                    }
                 return await _handle_ask(
-                    ctx, tool_name, tool_input,
-                    getattr(tool_result, "reason", f"permission required for {tool_name}"),
-                    run_id, session_id, config, broker,
+                    ctx,
+                    tool_name,
+                    tool_input,
+                    getattr(
+                        tool_result, "reason", f"permission required for {tool_name}"
+                    ),
+                    run_id,
+                    session_id,
+                    config,
+                    broker,
                 )
             # behavior == "passthrough" → fall through to classifier
 
         # Step 6: Deny-limit check before classifier (escalate immediately if already exceeded)
-        if broker and run_id and broker.is_deny_limit_exceeded(run_id, tool_name, deny_limit=config.deny_limit):
+        if (
+            broker
+            and run_id
+            and broker.is_deny_limit_exceeded(
+                run_id, tool_name, deny_limit=config.deny_limit
+            )
+        ):
             # Already exceeded limit → ask directly, skip classifier
             is_unattended = run_origin in _UNATTENDED_ORIGINS
             if is_unattended:
                 if config.unattended_fallback == "allow":
                     return None
-                return {"block": True, "reason": "deny-limit exceeded, unattended fallback: deny"}
+                return {
+                    "block": True,
+                    "reason": "deny-limit exceeded, unattended fallback: deny",
+                }
 
             return await _handle_ask(
-                ctx, tool_name, tool_input,
+                ctx,
+                tool_name,
+                tool_input,
                 f"Consecutive deny limit exceeded for {tool_name}",
-                run_id, session_id, config, broker,
+                run_id,
+                session_id,
+                config,
+                broker,
             )
 
         # Step 8: Classifier (W2: no longer prepends OUTSIDE NOTE — classifier uses system prompt)
@@ -800,17 +858,27 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
             if broker and run_id:
                 broker.increment_deny_count(run_id, tool_name)
                 # Check if we just crossed the limit
-                if broker.is_deny_limit_exceeded(run_id, tool_name, deny_limit=config.deny_limit):
+                if broker.is_deny_limit_exceeded(
+                    run_id, tool_name, deny_limit=config.deny_limit
+                ):
                     is_unattended = run_origin in _UNATTENDED_ORIGINS
                     if not is_unattended:
                         return await _handle_ask(
-                            ctx, tool_name, tool_input,
+                            ctx,
+                            tool_name,
+                            tool_input,
                             f"Deny limit exceeded: {decision.reason}",
-                            run_id, session_id, config, broker,
+                            run_id,
+                            session_id,
+                            config,
+                            broker,
                         )
                     if config.unattended_fallback == "allow":
                         return None
-                    return {"block": True, "reason": f"deny-limit exceeded, unattended: {decision.reason}"}
+                    return {
+                        "block": True,
+                        "reason": f"deny-limit exceeded, unattended: {decision.reason}",
+                    }
 
             return {"block": True, "reason": decision.reason}
 
@@ -819,12 +887,20 @@ def setup(hooks: Any) -> None:  # noqa: ANN001
         if is_unattended:
             if config.unattended_fallback == "allow":
                 return None
-            return {"block": True, "reason": f"ask escalated, unattended fallback: deny ({decision.reason})"}
+            return {
+                "block": True,
+                "reason": f"ask escalated, unattended fallback: deny ({decision.reason})",
+            }
 
         return await _handle_ask(
-            ctx, tool_name, tool_input,
+            ctx,
+            tool_name,
+            tool_input,
             decision.reason,
-            run_id, session_id, config, broker,
+            run_id,
+            session_id,
+            config,
+            broker,
         )
 
     # mode="intercept": the gate's decision (block/allow) is only meaningful in

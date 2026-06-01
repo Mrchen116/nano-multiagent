@@ -10,6 +10,7 @@ Design (refactor-387 M1):
 - All methods async-native; RunsRegistry runs in its own background loop
   (decision 2 — pre-condition for M2 async-native CLI).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -93,8 +94,10 @@ def build_kernel(
         A fully assembled, ready-to-use Kernel.
     """
     resolved_repo_root = (
-        repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd()))
-    ).expanduser().resolve()
+        (repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd())))
+        .expanduser()
+        .resolve()
+    )
 
     # Wire console tracer when threshold env is set.
     _trace_threshold = os.getenv("NANO_MULTIAGENT_TRACE_CONSOLE_THRESHOLD_MS")
@@ -206,7 +209,9 @@ def build_kernel(
         hook_runner=active_hook_runner,
     )
 
-    return Kernel(components=components, can_use_tool=can_use_tool, repo_root=resolved_repo_root)
+    return Kernel(
+        components=components, can_use_tool=can_use_tool, repo_root=resolved_repo_root
+    )
 
 
 class Kernel:
@@ -621,11 +626,14 @@ class Kernel:
         if skill_ids:
             try:
                 from agent.core.skills import resolve_available_skills  # noqa: PLC0415
+
                 active_skills = tuple(
                     resolve_available_skills(
                         workspace_root=effective_root,
                         include_names=tuple(skill_ids),
-                        config_resolver=getattr(self._c.runtime, "_config_resolver", None),
+                        config_resolver=getattr(
+                            self._c.runtime, "_config_resolver", None
+                        ),
                     )
                 )
             except Exception:  # noqa: BLE001
@@ -650,9 +658,7 @@ class Kernel:
         # Count active sections — segments that pass enabled_when and produce
         # non-empty output for this context.
         section_count = sum(
-            1
-            for s in sections
-            if s.enabled_when(ctx) and s.render(ctx)
+            1 for s in sections if s.enabled_when(ctx) and s.render(ctx)
         )
 
         return {"prompt": assembled, "section_count": section_count}
@@ -713,12 +719,16 @@ class Kernel:
                 decision: PermissionDecision = can_use_task.result()
             except Exception:
                 # If can_use_tool raised, fail-closed.
-                decision = PermissionDecision(behavior="deny", reason="can_use_tool raised")
+                decision = PermissionDecision(
+                    behavior="deny", reason="can_use_tool raised"
+                )
 
             response = _decision_to_response(decision)
             # Resolve broker future so any lingering cancel_all_pending call sees it done.
             if not broker_future.done():
-                broker_future.get_loop().call_soon_threadsafe(broker_future.set_result, response)
+                broker_future.get_loop().call_soon_threadsafe(
+                    broker_future.set_result, response
+                )
             return response
 
         return _requester

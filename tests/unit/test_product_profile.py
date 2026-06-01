@@ -13,7 +13,9 @@ def test_product_profile_instantiation_with_defaults() -> None:
     assert profile.display_name == "Test Product"
     assert profile.config_namespace == "test"
     # Fields with defaults should be set.
-    assert profile.default_system_prompt is None or isinstance(profile.default_system_prompt, str)
+    assert profile.default_system_prompt is None or isinstance(
+        profile.default_system_prompt, str
+    )
     assert isinstance(profile.default_tool_ids, (list, tuple, type(None)))
     assert isinstance(profile.default_hook_modules, (list, tuple, type(None)))
     assert profile.optional_tool_ids == []

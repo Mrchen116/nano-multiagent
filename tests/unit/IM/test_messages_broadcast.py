@@ -9,7 +9,11 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import AgentProfileRepository, ConversationRepository, UserRepository
+from IM.repositories import (
+    AgentProfileRepository,
+    ConversationRepository,
+    UserRepository,
+)
 
 
 def _setup_group_conversation(tmp_path: Path) -> tuple[TestClient, str, str, MagicMock]:
@@ -38,7 +42,11 @@ def _setup_group_conversation(tmp_path: Path) -> tuple[TestClient, str, str, Mag
         # Register alice via API to get a JWT token in the correct tenant.
         reg = client.post(
             "/im/v1/auth/register",
-            json={"username": "alice", "password": "pw12345678", "display_name": "Alice"},
+            json={
+                "username": "alice",
+                "password": "pw12345678",
+                "display_name": "Alice",
+            },
         )
         assert reg.status_code in (200, 201), f"register failed: {reg.text}"
         token = reg.json()["access_token"]
@@ -52,8 +60,12 @@ def _setup_group_conversation(tmp_path: Path) -> tuple[TestClient, str, str, Mag
         conversations_repo = ConversationRepository(conn2)
         profiles_repo = AgentProfileRepository(conn2)
 
-        agent_a_user = users_repo.create_user(username="agent:agent-a", display_name="Agent A")
-        agent_b_user = users_repo.create_user(username="agent:agent-b", display_name="Agent B")
+        agent_a_user = users_repo.create_user(
+            username="agent:agent-a", display_name="Agent A"
+        )
+        agent_b_user = users_repo.create_user(
+            username="agent:agent-b", display_name="Agent B"
+        )
         # Place agent users in alice's tenant so the route can scope them.
         conn2.execute(
             "UPDATE users SET owner_id = ? WHERE id IN (?, ?)",
@@ -97,12 +109,18 @@ def _setup_group_conversation(tmp_path: Path) -> tuple[TestClient, str, str, Mag
 
 def test_group_message_pushes_relay_to_each_agent(tmp_path: Path) -> None:
     """群聊消息路由对每个 participant agent 各调一次 push_relay_message。"""
-    app, db_path, conv_id, alice_id, auth, mock_gateway = _setup_group_conversation(tmp_path)
+    app, db_path, conv_id, alice_id, auth, mock_gateway = _setup_group_conversation(
+        tmp_path
+    )
 
     push_calls: list[dict] = []
 
-    async def _fake_push(*, relay_task_id: str, target_node_id: str, payload: dict) -> bool:
-        push_calls.append({"relay_task_id": relay_task_id, "agent_id": payload.get("agent_id")})
+    async def _fake_push(
+        *, relay_task_id: str, target_node_id: str, payload: dict
+    ) -> bool:
+        push_calls.append(
+            {"relay_task_id": relay_task_id, "agent_id": payload.get("agent_id")}
+        )
         return True
 
     mock_gateway.push_relay_message = _fake_push
@@ -116,7 +134,9 @@ def test_group_message_pushes_relay_to_each_agent(tmp_path: Path) -> None:
             headers=auth,
         )
 
-    assert resp.status_code in (200, 201), f"unexpected status {resp.status_code}: {resp.text}"
+    assert resp.status_code in (200, 201), (
+        f"unexpected status {resp.status_code}: {resp.text}"
+    )
     assert len(push_calls) == 2, f"expected 2 push calls, got {push_calls}"
     pushed_agent_ids = {c["agent_id"] for c in push_calls}
     assert pushed_agent_ids == {"agent-a", "agent-b"}
@@ -124,11 +144,15 @@ def test_group_message_pushes_relay_to_each_agent(tmp_path: Path) -> None:
 
 def test_group_message_partial_push_failure_continues(tmp_path: Path) -> None:
     """一个 agent 节点离线不阻断其他 agent 的 relay；所有 agent 均被尝试。"""
-    app, db_path, conv_id, alice_id, auth, mock_gateway = _setup_group_conversation(tmp_path)
+    app, db_path, conv_id, alice_id, auth, mock_gateway = _setup_group_conversation(
+        tmp_path
+    )
 
     push_calls: list[dict] = []
 
-    async def _fake_push(*, relay_task_id: str, target_node_id: str, payload: dict) -> bool:
+    async def _fake_push(
+        *, relay_task_id: str, target_node_id: str, payload: dict
+    ) -> bool:
         agent_id = payload.get("agent_id", "")
         # agent-a offline, agent-b online
         result = agent_id != "agent-a"
@@ -153,14 +177,20 @@ def test_group_message_partial_push_failure_continues(tmp_path: Path) -> None:
     # Failure must be recorded for the offline agent
     assert mock_gateway.record_relay_failure.called
     # Route succeeds because at least one relay was delivered
-    assert resp.status_code in (200, 201), f"unexpected status {resp.status_code}: {resp.text}"
+    assert resp.status_code in (200, 201), (
+        f"unexpected status {resp.status_code}: {resp.text}"
+    )
 
 
 def test_group_message_all_push_failure_returns_503(tmp_path: Path) -> None:
     """群聊中所有 agent 均离线时返回 503。"""
-    app, db_path, conv_id, alice_id, auth, mock_gateway = _setup_group_conversation(tmp_path)
+    app, db_path, conv_id, alice_id, auth, mock_gateway = _setup_group_conversation(
+        tmp_path
+    )
 
-    async def _fake_push(*, relay_task_id: str, target_node_id: str, payload: dict) -> bool:
+    async def _fake_push(
+        *, relay_task_id: str, target_node_id: str, payload: dict
+    ) -> bool:
         return False
 
     mock_gateway.push_relay_message = _fake_push

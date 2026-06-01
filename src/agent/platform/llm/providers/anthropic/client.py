@@ -13,7 +13,12 @@ from urllib.parse import urlparse
 import httpx
 
 from agent.core.errors import ModelError
-from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
+from agent.core.llm.interfaces import (
+    LLMClient,
+    LLMGenerateRequest,
+    LLMMessage,
+    LLMToolCall,
+)
 from agent.core.llm.model_registry import resolve_model_metadata
 from agent.core.types import TokenUsage
 from agent.platform.llm.providers.translator import LLMTranslator
@@ -94,7 +99,9 @@ class AnthropicClient(LLMClient):
                 details={"error": str(exc)},
             ) from exc
 
-    async def _stream_response(self, response: httpx.Response) -> AsyncIterator[LLMMessage]:
+    async def _stream_response(
+        self, response: httpx.Response
+    ) -> AsyncIterator[LLMMessage]:
         """Parse Anthropic SSE stream and yield LLMMessage per content block."""
 
         content_blocks: dict[int, dict[str, Any]] = {}
@@ -121,7 +128,9 @@ class AnthropicClient(LLMClient):
             # bugfix-380: upstream error event — surface as ModelError immediately.
             if event_type == "error":
                 error_obj = event.get("error") or {}
-                error_msg = error_obj.get("message") or str(error_obj) or "upstream error"
+                error_msg = (
+                    error_obj.get("message") or str(error_obj) or "upstream error"
+                )
                 error_type = error_obj.get("type") or "error"
                 raise ModelError(
                     f"anthropic: {error_msg}",
@@ -156,7 +165,9 @@ class AnthropicClient(LLMClient):
                     continue
                 yielded_content = True
                 yield _anthropic_block_to_llm_message(
-                    block, reasoning_content=turn_reasoning, reasoning_signature=turn_signature
+                    block,
+                    reasoning_content=turn_reasoning,
+                    reasoning_signature=turn_signature,
                 )
 
             elif event_type == "message_delta":
@@ -284,8 +295,12 @@ def _parse_anthropic_usage(payload: dict[str, Any] | None) -> TokenUsage | None:
 
     input_tokens = _extract_non_negative_int(payload.get("input_tokens"))
     output_tokens = _extract_non_negative_int(payload.get("output_tokens"))
-    cache_creation_tokens = _extract_non_negative_int(payload.get("cache_creation_input_tokens")) or 0
-    cache_read_tokens = _extract_non_negative_int(payload.get("cache_read_input_tokens")) or 0
+    cache_creation_tokens = (
+        _extract_non_negative_int(payload.get("cache_creation_input_tokens")) or 0
+    )
+    cache_read_tokens = (
+        _extract_non_negative_int(payload.get("cache_read_input_tokens")) or 0
+    )
     if input_tokens is None and output_tokens is None:
         return None
 

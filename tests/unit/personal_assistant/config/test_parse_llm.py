@@ -38,9 +38,7 @@ def _make_config(tmp_path: Path, extra_yaml: str = "") -> Path:
     ws.mkdir(parents=True, exist_ok=True)
     cfg = tmp_path / "config.yaml"
     cfg.write_text(
-        _MINIMAL_NODE_YAML
-        + f"    workspace_root: {ws}\n"
-        + extra_yaml,
+        _MINIMAL_NODE_YAML + f"    workspace_root: {ws}\n" + extra_yaml,
         encoding="utf-8",
     )
     return cfg
@@ -68,7 +66,9 @@ def test_load_local_config_missing_llm_raises(tmp_path: Path) -> None:
         load_local_config(cfg)
 
 
-def test_load_local_config_agent_default_model_validated_against_llm(tmp_path: Path) -> None:
+def test_load_local_config_agent_default_model_validated_against_llm(
+    tmp_path: Path,
+) -> None:
     """agent.default_model must exist in llm.providers.*.models; else hard fail."""
     from personal_assistant.config.local_store import load_local_config
 
@@ -97,7 +97,10 @@ def test_load_local_config_agent_no_default_model_ok(tmp_path: Path) -> None:
 
 def test_save_and_reload_preserves_llm(tmp_path: Path) -> None:
     """save_local_config must roundtrip the llm segment."""
-    from personal_assistant.config.local_store import load_local_config, save_local_config
+    from personal_assistant.config.local_store import (
+        load_local_config,
+        save_local_config,
+    )
 
     cfg = _make_config(tmp_path, _LLM_YAML)
     original = load_local_config(cfg)

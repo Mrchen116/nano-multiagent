@@ -62,10 +62,14 @@ def parse_input_parts(parts: Sequence[Mapping[str, Any]]) -> tuple[InputPart, ..
         if part_type == "image":
             image_url = raw_part.get("image_url")
             if image_url is not None and not isinstance(image_url, str):
-                raise ValueError("image part field image_url must be string when provided")
+                raise ValueError(
+                    "image part field image_url must be string when provided"
+                )
             mime_type = raw_part.get("mime_type")
             if mime_type is not None and not isinstance(mime_type, str):
-                raise ValueError("image part field mime_type must be string when provided")
+                raise ValueError(
+                    "image part field mime_type must be string when provided"
+                )
             parsed.append(
                 InputPart(
                     type="image",

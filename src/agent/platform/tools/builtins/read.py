@@ -38,9 +38,18 @@ class ReadTool:
     input_schema = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Path to the file to read (relative or absolute)"},
-            "offset": {"type": "integer", "description": "Line number to start reading from (1-indexed)"},
-            "limit": {"type": "integer", "description": "Maximum number of lines to read"},
+            "path": {
+                "type": "string",
+                "description": "Path to the file to read (relative or absolute)",
+            },
+            "offset": {
+                "type": "integer",
+                "description": "Line number to start reading from (1-indexed)",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of lines to read",
+            },
         },
         "required": ["path"],
         "additionalProperties": False,
@@ -80,7 +89,10 @@ class ReadTool:
                 if ctx.session_file_state.check_unchanged(
                     str(file_path.resolve()), normalized_offset, limit
                 ):
-                    return {"type": "file_unchanged", "file": {"filePath": display_path}}
+                    return {
+                        "type": "file_unchanged",
+                        "file": {"filePath": display_path},
+                    }
             except (OSError, ValueError):
                 pass
 
@@ -183,7 +195,9 @@ class ReadTool:
 
         return response
 
-    def serialize_result(self, output: Any, error: str | None = None) -> str | list[dict[str, Any]]:
+    def serialize_result(
+        self, output: Any, error: str | None = None
+    ) -> str | list[dict[str, Any]]:
         if error is not None:
             return error
 
@@ -250,7 +264,9 @@ def _image_mime_type(path: Path) -> str | None:
     return _IMAGE_MIME_BY_SUFFIX.get(path.suffix.lower())
 
 
-def _image_dimensions(image_bytes: bytes, mime_type: str) -> tuple[int | None, int | None]:
+def _image_dimensions(
+    image_bytes: bytes, mime_type: str
+) -> tuple[int | None, int | None]:
     if mime_type == "image/png":
         return _png_dimensions(image_bytes)
     if mime_type == "image/gif":
@@ -308,11 +324,29 @@ def _jpeg_dimensions(image_bytes: bytes) -> tuple[int | None, int | None]:
         if segment_end > len(image_bytes):
             return None, None
 
-        if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
+        if marker in {
+            0xC0,
+            0xC1,
+            0xC2,
+            0xC3,
+            0xC5,
+            0xC6,
+            0xC7,
+            0xC9,
+            0xCA,
+            0xCB,
+            0xCD,
+            0xCE,
+            0xCF,
+        }:
             if segment_length < 7:
                 return None, None
-            height = int.from_bytes(image_bytes[segment_start + 1 : segment_start + 3], "big")
-            width = int.from_bytes(image_bytes[segment_start + 3 : segment_start + 5], "big")
+            height = int.from_bytes(
+                image_bytes[segment_start + 1 : segment_start + 3], "big"
+            )
+            width = int.from_bytes(
+                image_bytes[segment_start + 3 : segment_start + 5], "big"
+            )
             return width, height
 
         index = segment_end
@@ -320,7 +354,11 @@ def _jpeg_dimensions(image_bytes: bytes) -> tuple[int | None, int | None]:
 
 
 def _webp_dimensions(image_bytes: bytes) -> tuple[int | None, int | None]:
-    if len(image_bytes) < 30 or image_bytes[:4] != b"RIFF" or image_bytes[8:12] != b"WEBP":
+    if (
+        len(image_bytes) < 30
+        or image_bytes[:4] != b"RIFF"
+        or image_bytes[8:12] != b"WEBP"
+    ):
         return None, None
 
     chunk_type = image_bytes[12:16]
@@ -333,7 +371,11 @@ def _webp_dimensions(image_bytes: bytes) -> tuple[int | None, int | None]:
         width = (bits & 0x3FFF) + 1
         height = ((bits >> 14) & 0x3FFF) + 1
         return width, height
-    if chunk_type == b"VP8 " and len(image_bytes) >= 30 and image_bytes[23:26] == b"\x9d\x01\x2a":
+    if (
+        chunk_type == b"VP8 "
+        and len(image_bytes) >= 30
+        and image_bytes[23:26] == b"\x9d\x01\x2a"
+    ):
         width = int.from_bytes(image_bytes[26:28], "little") & 0x3FFF
         height = int.from_bytes(image_bytes[28:30], "little") & 0x3FFF
         return width, height
@@ -348,7 +390,9 @@ def _format_size(bytes_count: int) -> str:
     return f"{bytes_count / (1024 * 1024):.1f}MB"
 
 
-def _truncate_head_lines(lines: list[str], *, max_lines: int, max_bytes: int) -> dict[str, Any]:
+def _truncate_head_lines(
+    lines: list[str], *, max_lines: int, max_bytes: int
+) -> dict[str, Any]:
     max_lines = max(1, max_lines)
     max_bytes = max(1, max_bytes)
 

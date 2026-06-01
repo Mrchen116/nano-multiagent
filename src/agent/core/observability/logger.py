@@ -71,7 +71,9 @@ def _emit(level: str, message: str, fields: dict[str, Any]) -> None:
         return
 
     if merged_fields:
-        rendered = ", ".join(f"{key}={value!r}" for key, value in sorted(merged_fields.items()))
+        rendered = ", ".join(
+            f"{key}={value!r}" for key, value in sorted(merged_fields.items())
+        )
         message = f"{message} | {rendered}"
     getattr(_logger, level)(message)
 

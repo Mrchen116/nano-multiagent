@@ -31,6 +31,7 @@ def _build_block(
 
 # ─── mention_format: 教 inline tag ─────────────────────────────────────────
 
+
 def test_group_context_block_mention_format_teaches_inline_tag() -> None:
     """message_format 行必须教 <mention type=... target_id=.../> 标签格式。"""
     block = _build_block(
@@ -43,8 +44,12 @@ def test_group_context_block_mention_format_teaches_inline_tag() -> None:
     )
 
     # 必须包含 inline tag 语法示例
-    assert "<mention" in block, f"message_format must teach <mention> tag, got:\n{block}"
-    assert "target_id" in block, f"message_format must reference target_id attribute, got:\n{block}"
+    assert "<mention" in block, (
+        f"message_format must teach <mention> tag, got:\n{block}"
+    )
+    assert "target_id" in block, (
+        f"message_format must reference target_id attribute, got:\n{block}"
+    )
 
 
 def test_group_context_block_mention_format_no_at_id_syntax() -> None:
@@ -62,8 +67,12 @@ def test_group_context_block_mention_format_no_at_id_syntax() -> None:
     lines = block.splitlines()
     format_lines = [l for l in lines if "message_format" in l or "mention" in l.lower()]
     for line in format_lines:
-        assert "@agent_id" not in line, f"message_format should not teach @agent_id syntax: {line}"
-        assert "@<id>" not in line, f"message_format should not teach @<id> syntax: {line}"
+        assert "@agent_id" not in line, (
+            f"message_format should not teach @agent_id syntax: {line}"
+        )
+        assert "@<id>" not in line, (
+            f"message_format should not teach @<id> syntax: {line}"
+        )
 
 
 def test_group_context_block_mention_format_has_example() -> None:
@@ -84,6 +93,7 @@ def test_group_context_block_mention_format_has_example() -> None:
 
 
 # ─── participants 条目：actor-first identity key ────────────────────────────
+
 
 def test_group_participants_agent_shows_agent_id_key() -> None:
     """participants 中 agent 条目，identity key 为 agent_id（不是 id）。"""
@@ -123,13 +133,17 @@ def test_group_participants_user_shows_user_id_key() -> None:
 
 # ─── prompts.py: 删除 "prefer stable IDs" 硬编码措辞 ─────────────────────
 
+
 def test_prompts_no_prefer_stable_ids_line() -> None:
     """PA system prompt sections must not contain deprecated 'prefer stable IDs' wording.
 
     prompts.py deleted; verify invariant against PA_SECTIONS (segment-based assembly).
     """
     from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
-    from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
+    from agent.core.agent.prompt_sections.base import (
+        PromptContext,
+        assemble_system_prompt,
+    )
 
     ctx = PromptContext(current_datetime="2026-01-01T00:00:00", cwd="/ws")
     assembled = assemble_system_prompt(list(PA_SECTIONS), ctx)

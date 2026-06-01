@@ -21,21 +21,43 @@ from pathlib import Path
 from typing import Any, Callable, Sequence, TextIO
 
 from coding_cli.events.background_runs import BackgroundRunEventProcessor
-from coding_cli.events.event_pipeline import build_repl_view_model as _build_repl_view_model
+from coding_cli.events.event_pipeline import (
+    build_repl_view_model as _build_repl_view_model,
+)
 from coding_cli.events.repl_events import _build_ordered_repl_updates
 from coding_cli.events.repl_events import _event_preview_line
-from coding_cli.events.repl_events import merge_text_delta as _merge_text_delta
-from coding_cli.events.repl_events import print_event_preview as _print_event_preview
+from coding_cli.events.repl_events import (
+    merge_text_delta as _merge_text_delta,
+)  # bridge: tested via module attr
+from coding_cli.events.repl_events import (
+    print_event_preview as _print_event_preview,
+)  # bridge: tested via module attr
 import coding_cli.input.repl_commands as repl_commands
 import coding_cli.input.repl_input as repl_input
-from coding_cli.render.context_budget import context_budget_hint_for_ratio as _context_budget_hint_for_ratio
-from coding_cli.render.context_budget import context_budget_prefix as _context_budget_prefix
-from coding_cli.render.context_budget import extract_context_budget_metrics as _extract_context_budget_metrics
-from coding_cli.render.context_budget import print_context_budget_snapshot as _print_context_budget_snapshot
-from coding_cli.render.error_presenter import error_layer_for_exception as _error_layer_for_exception
-from coding_cli.render.error_presenter import suggestion_for_exception as _suggestion_for_exception
-from coding_cli.render.repl_render import print_repl_turn_error as _print_repl_turn_error
-from coding_cli.render.repl_render import print_repl_turn_summary as _print_repl_turn_summary
+from coding_cli.render.context_budget import (
+    context_budget_hint_for_ratio as _context_budget_hint_for_ratio,
+)  # bridge
+from coding_cli.render.context_budget import (
+    context_budget_prefix as _context_budget_prefix,
+)  # bridge
+from coding_cli.render.context_budget import (
+    extract_context_budget_metrics as _extract_context_budget_metrics,
+)  # bridge
+from coding_cli.render.context_budget import (
+    print_context_budget_snapshot as _print_context_budget_snapshot,
+)  # bridge
+from coding_cli.render.error_presenter import (
+    error_layer_for_exception as _error_layer_for_exception,
+)
+from coding_cli.render.error_presenter import (
+    suggestion_for_exception as _suggestion_for_exception,
+)
+from coding_cli.render.repl_render import (
+    print_repl_turn_error as _print_repl_turn_error,
+)
+from coding_cli.render.repl_render import (
+    print_repl_turn_summary as _print_repl_turn_summary,
+)
 from coding_cli.render.terminal_output import emit_lines as _emit_terminal_lines
 from coding_cli.render.terminal_output import write_tty_line as _write_tty_line
 
@@ -113,10 +135,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Resume an existing session by id in REPL or --text mode.",
     )
-    parser.add_argument("--model", dest="llm_model", default=None, help="LLM model to use.")
-    parser.add_argument("--provider", dest="llm_provider", default=None, help="LLM provider to use.")
-    parser.add_argument("--llm-base-url", dest="llm_base_url", default=None, help="LLM base URL.")
-    parser.add_argument("--api-key", dest="llm_api_key", default=None, help="LLM API key.")
+    parser.add_argument(
+        "--model", dest="llm_model", default=None, help="LLM model to use."
+    )
+    parser.add_argument(
+        "--provider", dest="llm_provider", default=None, help="LLM provider to use."
+    )
+    parser.add_argument(
+        "--llm-base-url", dest="llm_base_url", default=None, help="LLM base URL."
+    )
+    parser.add_argument(
+        "--api-key", dest="llm_api_key", default=None, help="LLM API key."
+    )
     parser.add_argument(
         "--timeout-seconds",
         dest="llm_timeout_seconds",
@@ -200,7 +230,9 @@ def run_cli(
         )
     except Exception as exc:
         layer = _error_layer_for_exception(exc)
-        suggestion = _suggestion_for_exception(exc, default="check configuration and retry.")
+        suggestion = _suggestion_for_exception(
+            exc, default="check configuration and retry."
+        )
         print(
             json.dumps(
                 {"error": str(exc), "layer": layer, "suggestion": suggestion},
@@ -275,7 +307,9 @@ def _build_kernel(
 
     # can_use_tool callback: runs in executor so it doesn't block the async loop.
     async def can_use_tool(tool_name: str, tool_input: Any, ctx: Any) -> Any:
-        return await _ask_permission_async(tool_name=tool_name, tool_input=tool_input, out=out)
+        return await _ask_permission_async(
+            tool_name=tool_name, tool_input=tool_input, out=out
+        )
 
     return build_kernel(
         product_profile=LOCAL_CODING_PROFILE,
@@ -306,11 +340,14 @@ def _build_llm_config_payload(args: argparse.Namespace) -> Any:
         return LLMConfigPayload.from_json(raw_json)
 
     # Slow path: build minimal payload from env vars + CLI args.
-    provider = getattr(args, "llm_provider", None) or os.getenv("NANO_MULTIAGENT_LLM_PROVIDER", "anthropic")
-    model = getattr(args, "llm_model", None) or os.getenv("NANO_MULTIAGENT_LLM_MODEL", "kimiCoding:K2.6")
-    base_url = (
-        getattr(args, "llm_base_url", None)
-        or os.getenv("NANO_MULTIAGENT_LLM_BASE_URL", "http://127.0.0.1:4000")
+    provider = getattr(args, "llm_provider", None) or os.getenv(
+        "NANO_MULTIAGENT_LLM_PROVIDER", "anthropic"
+    )
+    model = getattr(args, "llm_model", None) or os.getenv(
+        "NANO_MULTIAGENT_LLM_MODEL", "kimiCoding:K2.6"
+    )
+    base_url = getattr(args, "llm_base_url", None) or os.getenv(
+        "NANO_MULTIAGENT_LLM_BASE_URL", "http://127.0.0.1:4000"
     )
     return LLMConfigPayload(
         default_model=model,
@@ -364,8 +401,12 @@ async def _ask_permission_async(
     from agent.sdk import PermissionDecision
 
     options = [
-        repl_input.PermissionOption(id="allow", label="Allow once", description="Allow this single action"),
-        repl_input.PermissionOption(id="deny", label="Deny", description="Block this action"),
+        repl_input.PermissionOption(
+            id="allow", label="Allow once", description="Allow this single action"
+        ),
+        repl_input.PermissionOption(
+            id="deny", label="Deny", description="Block this action"
+        ),
     ]
     header = f"Permission request: {tool_name}"
     if tool_input:
@@ -377,7 +418,9 @@ async def _ask_permission_async(
     loop = asyncio.get_event_loop()
     chosen_id = await loop.run_in_executor(
         None,
-        lambda: repl_input.read_permission_choice(header=header, options=options, out=out),
+        lambda: repl_input.read_permission_choice(
+            header=header, options=options, out=out
+        ),
     )
     return PermissionDecision(behavior=chosen_id)
 
@@ -402,7 +445,10 @@ async def _run_text_mode(
     )
     run_id = run_record.run_id
 
-    out.write(json.dumps({"event": "submit_response", "run_id": run_id}, ensure_ascii=False) + "\n")
+    out.write(
+        json.dumps({"event": "submit_response", "run_id": run_id}, ensure_ascii=False)
+        + "\n"
+    )
     _flush(out)
 
     final_status = "failed"
@@ -448,7 +494,9 @@ def _run_llm_config_command(
     timeout_seconds = args.llm_config_timeout_seconds
 
     if api_key is not None and clear_api_key:
-        raise ValueError("--api-key and --clear-api-key cannot be used together — choose either")
+        raise ValueError(
+            "--api-key and --clear-api-key cannot be used together — choose either"
+        )
     if timeout_seconds is not None and timeout_seconds <= 0:
         raise ValueError("--timeout-seconds must be > 0")
 
@@ -509,15 +557,21 @@ async def _run_repl(
     input_history_by_session: dict[str, list[str]] = {}
 
     if _is_tty_output(out):
+
         def _emit_repl_block(text: str) -> None:
             repl_input.emit_persistent_text(out=out, text=text)
     else:
+
         def _emit_repl_block(text: str) -> None:
             _emit_plain_repl_block(out=out, text=text)
 
-    def _print_repl_turn_error_block(*, error: Exception, layer: str, suggestion: str) -> None:
+    def _print_repl_turn_error_block(
+        *, error: Exception, layer: str, suggestion: str
+    ) -> None:
         buffer = io.StringIO()
-        _print_repl_turn_error(out=buffer, error=error, layer=layer, suggestion=suggestion)
+        _print_repl_turn_error(
+            out=buffer, error=error, layer=layer, suggestion=suggestion
+        )
         _emit_repl_block(buffer.getvalue())
 
     # Auto mode startup banner (spec A2: dangerously_skip_permissions must be visible).
@@ -601,7 +655,9 @@ async def _run_repl(
 
             if repl_commands.is_repl_command_candidate(line):
                 if active_session_id:
-                    _append_input_history_entry(input_history_by_session, active_session_id, line)
+                    _append_input_history_entry(
+                        input_history_by_session, active_session_id, line
+                    )
 
                 cmd_result = await _handle_repl_command_async(
                     line=line,
@@ -623,12 +679,20 @@ async def _run_repl(
                 if not active_session_id:
                     session = await kernel.create_session(workspace_root=workspace_root)
                     active_session_id = session.session_id
-                    repl_commands.print_session_created(out=out, session_id=active_session_id)
-                    repl_commands.print_active_session(out=out, session_id=active_session_id)
+                    repl_commands.print_session_created(
+                        out=out, session_id=active_session_id
+                    )
+                    repl_commands.print_active_session(
+                        out=out, session_id=active_session_id
+                    )
                     await _ensure_stream_for_session(active_session_id)
 
-                _append_input_history_entry(input_history_by_session, active_session_id, line)
-                _append_history_entry(history_by_session, active_session_id, role="user", content=line)
+                _append_input_history_entry(
+                    input_history_by_session, active_session_id, line
+                )
+                _append_history_entry(
+                    history_by_session, active_session_id, role="user", content=line
+                )
 
                 payload = await _send_message_async(
                     out=out,
@@ -654,6 +718,7 @@ async def _run_repl(
                 _emit_repl_block(buffer.getvalue())
             except Exception as exc:
                 import traceback
+
                 traceback.print_exc()
                 layer = _error_layer_for_exception(exc)
                 suggestion = _suggestion_for_exception(
@@ -795,7 +860,9 @@ async def _send_message_async(
 
     view_model = _build_repl_view_model(
         events=legacy_events,
-        preview_line_resolver=lambda name, data: _event_preview_line(event_name=name, data=data),
+        preview_line_resolver=lambda name, data: _event_preview_line(
+            event_name=name, data=data
+        ),
     )
     ordered_updates = _build_ordered_repl_updates(legacy_events)
 
@@ -869,7 +936,9 @@ async def _handle_repl_command_async(
                     usage="/new",
                 )
                 return _ReplCommandResult(handled=True)
-            session = await kernel.create_session(workspace_root=workspace_root, skills=[])
+            session = await kernel.create_session(
+                workspace_root=workspace_root, skills=[]
+            )
             next_id = session.session_id
             repl_commands.print_session_created(out=out, session_id=next_id)
             repl_commands.print_active_session(out=out, session_id=next_id)
@@ -924,7 +993,9 @@ async def _handle_repl_command_async(
                     suggestion="run /new or /use <session_id>.",
                 )
                 return _ReplCommandResult(handled=True)
-            tools_info = kernel.list_session_tools(active_session_id, workspace_root=workspace_root)
+            tools_info = kernel.list_session_tools(
+                active_session_id, workspace_root=workspace_root
+            )
             _print_tools_summary(out=out, payload=tools_info)
             return _ReplCommandResult(handled=True)
 
@@ -944,7 +1015,9 @@ async def _handle_repl_command_async(
                     suggestion="run /new or /use <session_id>.",
                 )
                 return _ReplCommandResult(handled=True)
-            result = await kernel.compact(active_session_id, workspace_root=workspace_root)
+            result = await kernel.compact(
+                active_session_id, workspace_root=workspace_root
+            )
             _print_compact_summary(
                 out=out,
                 payload=result if isinstance(result, dict) else {"compacted": False},
@@ -989,7 +1062,10 @@ async def _handle_repl_command_async(
             if not shown:
                 print(f"History for session {active_session_id} is empty.", file=out)
             else:
-                print(f"History for session {active_session_id} (last {len(shown)}/{total}):", file=out)
+                print(
+                    f"History for session {active_session_id} (last {len(shown)}/{total}):",
+                    file=out,
+                )
                 for role, content in shown:
                     print(f"{role}: {content}", file=out)
             return _ReplCommandResult(handled=True)
@@ -999,7 +1075,9 @@ async def _handle_repl_command_async(
         repl_commands.print_actionable_error(
             out=out,
             message=f"failed to run {command}.",
-            suggestion=_suggestion_for_exception(exc, default=f"check configuration and retry {command}."),
+            suggestion=_suggestion_for_exception(
+                exc, default=f"check configuration and retry {command}."
+            ),
             layer=layer,
         )
         return _ReplCommandResult(handled=True)
@@ -1015,6 +1093,7 @@ async def _handle_repl_command_async(
 # ---------------------------------------------------------------------------
 # Auto mode banner (spec A2 compliance)
 # ---------------------------------------------------------------------------
+
 
 def print_auto_mode_banner(*, config: object, out: TextIO) -> None:
     """Print the auto mode status banner at REPL startup.
@@ -1033,12 +1112,24 @@ def print_auto_mode_banner(*, config: object, out: TextIO) -> None:
     dangerously_skip: bool = getattr(config, "dangerously_skip_permissions", False)
 
     if dangerously_skip:
-        print("⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.", file=out)
-        print("  No tool will be blocked. This is only safe in isolated sandbox environments.", file=out)
+        print(
+            "⚠ WARNING: dangerously_skip_permissions is enabled — all permission checks are bypassed.",
+            file=out,
+        )
+        print(
+            "  No tool will be blocked. This is only safe in isolated sandbox environments.",
+            file=out,
+        )
     elif enabled:
-        print("✓ Auto mode enabled — permission decisions handled automatically.", file=out)
+        print(
+            "✓ Auto mode enabled — permission decisions handled automatically.",
+            file=out,
+        )
     else:
-        print("ℹ Auto mode disabled — manual approval required for tool actions.", file=out)
+        print(
+            "ℹ Auto mode disabled — manual approval required for tool actions.",
+            file=out,
+        )
 
 
 def _load_auto_mode_config_for_repl() -> object:
@@ -1080,12 +1171,15 @@ def _load_auto_mode_config_for_repl() -> object:
     if isinstance(merged.get("dangerously_skip_permissions"), bool):
         dangerously_skip = merged["dangerously_skip_permissions"]
 
-    return _AutoModeSummary(enabled=enabled, dangerously_skip_permissions=dangerously_skip)
+    return _AutoModeSummary(
+        enabled=enabled, dangerously_skip_permissions=dangerously_skip
+    )
 
 
 # ---------------------------------------------------------------------------
 # Render helpers
 # ---------------------------------------------------------------------------
+
 
 def _print_tools_summary(*, out: TextIO, payload: Any) -> None:
     """Print tool list from SDK list_session_tools result."""
@@ -1107,7 +1201,9 @@ def _print_tools_summary(*, out: TextIO, payload: Any) -> None:
             continue
         name = tool.get("name")
         description = tool.get("description")
-        resolved_name = str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        resolved_name = (
+            str(name) if isinstance(name, str) and name.strip() else "<unknown>"
+        )
         resolved_description = (
             str(description)
             if isinstance(description, str) and description.strip()
@@ -1140,6 +1236,7 @@ def _print_compact_summary(*, out: TextIO, payload: Any, session_id: str) -> Non
 # ---------------------------------------------------------------------------
 # Misc helpers
 # ---------------------------------------------------------------------------
+
 
 def _resolve_initial_session_id(args: argparse.Namespace) -> str | None:
     value = getattr(args, "resume", None) or ""

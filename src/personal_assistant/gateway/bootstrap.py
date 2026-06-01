@@ -8,7 +8,9 @@ from personal_assistant.channels.base import InboundMessage
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 
 
-def start_channels(registry: ChannelRegistry, on_inbound: Callable[[InboundMessage], None]) -> tuple[str, ...]:
+def start_channels(
+    registry: ChannelRegistry, on_inbound: Callable[[InboundMessage], None]
+) -> tuple[str, ...]:
     """Start all registered channel adapters.
 
     Args:

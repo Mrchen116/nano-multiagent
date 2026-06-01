@@ -79,15 +79,19 @@ class LLMConfigPayload:
         for p in data.get("providers", []):
             models: list[LLMModelPayload] = []
             for m in p.get("models", []):
-                models.append(LLMModelPayload(
-                    name=m["name"],
-                    extra_request_body=m.get("extra_request_body"),
-                ))
-            providers.append(LLMProviderPayload(
-                name=p["name"],
-                base_url=p.get("base_url"),
-                models=tuple(models),
-            ))
+                models.append(
+                    LLMModelPayload(
+                        name=m["name"],
+                        extra_request_body=m.get("extra_request_body"),
+                    )
+                )
+            providers.append(
+                LLMProviderPayload(
+                    name=p["name"],
+                    base_url=p.get("base_url"),
+                    models=tuple(models),
+                )
+            )
         return cls(
             default_model=data["default_model"],
             providers=tuple(providers),

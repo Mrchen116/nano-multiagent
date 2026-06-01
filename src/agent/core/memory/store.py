@@ -40,8 +40,8 @@ _TARGET_FILES: dict[str, str] = {
 # CORE_USER_PROFILE_BLOCK render). format_for_prompt now returns pure content.
 # _TARGET_HEADERS kept only for the legacy _render_block helper (not in production path).
 _TARGET_HEADERS: dict[str, str] = {
-    "memory": "MEMORY (your personal notes)",   # also defined in core_sections._render_memory_block
-    "user": "USER PROFILE (who the user is)",   # also defined in core_sections._render_user_profile_block
+    "memory": "MEMORY (your personal notes)",  # also defined in core_sections._render_memory_block
+    "user": "USER PROFILE (who the user is)",  # also defined in core_sections._render_user_profile_block
 }
 
 
@@ -114,7 +114,9 @@ def _deserialize_entry(block: str) -> MemoryEntry:
         )
 
     text = "\n".join(lines[:source_line_idx]).strip()
-    source_json_str = lines[source_line_idx][len("<!-- source:") :].rstrip(" -->").strip()
+    source_json_str = (
+        lines[source_line_idx][len("<!-- source:") :].rstrip(" -->").strip()
+    )
     try:
         src_data = json.loads(source_json_str)
         source = MemorySource(
@@ -222,7 +224,9 @@ class MemoryStore:
         entries = list(self._entries[target])
         idx = self._find_entry(entries, old_text)
         if idx is None:
-            raise ValueError(f"Entry containing '{old_text}' not found in target '{target}'")
+            raise ValueError(
+                f"Entry containing '{old_text}' not found in target '{target}'"
+            )
         entries[idx] = new_entry
         self._check_char_limit(target, entries)
         self._entries[target] = entries
@@ -243,7 +247,9 @@ class MemoryStore:
         entries = list(self._entries[target])
         idx = self._find_entry(entries, old_text)
         if idx is None:
-            raise ValueError(f"Entry containing '{old_text}' not found in target '{target}'")
+            raise ValueError(
+                f"Entry containing '{old_text}' not found in target '{target}'"
+            )
         del entries[idx]
         self._entries[target] = entries
         self._persist(target)
@@ -298,7 +304,9 @@ class MemoryStore:
 
     def _ensure_target(self, target: str) -> None:
         if target not in _TARGET_FILES:
-            raise ValueError(f"Unknown memory target '{target}'; expected one of {list(_TARGET_FILES)}")
+            raise ValueError(
+                f"Unknown memory target '{target}'; expected one of {list(_TARGET_FILES)}"
+            )
 
     def _maybe_load(self, target: Target) -> None:
         """Lazily load entries from disk if not yet loaded (only if file exists)."""
@@ -396,11 +404,8 @@ class MemoryStore:
         with open(lock_path, "w", encoding="utf-8") as lock_fh:
             fcntl.flock(lock_fh.fileno(), fcntl.LOCK_EX)
             try:
-                # Re-read under lock to merge concurrent changes
-                existing_entries: list[MemoryEntry] = []
-                if file_path.exists():
-                    raw = file_path.read_text(encoding="utf-8")
-                    existing_entries = _parse_entries(raw)
+                # Re-read under lock — merge logic reserved for future improvement;
+                # current strategy overwrites entirely with in-memory state (best-effort).
 
                 # Rebuild: keep existing entries not overridden by in-memory state
                 # Strategy: replace existing on-disk state entirely with current in-memory state

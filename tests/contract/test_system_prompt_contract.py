@@ -26,7 +26,10 @@ def test_system_prompt_contract_build_prompt_messages_renders_fixture() -> None:
         history_messages=(), user_text="ping", system_prompt=_FIXTURE
     )[0].content
 
-    assert "You are an expert coding assistant operating inside a coding agent harness." in system_prompt
+    assert (
+        "You are an expert coding assistant operating inside a coding agent harness."
+        in system_prompt
+    )
     assert "Available tools:" in system_prompt
     assert "Guidelines:" in system_prompt
     assert "Current date and time:" in system_prompt

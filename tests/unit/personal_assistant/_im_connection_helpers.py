@@ -5,7 +5,10 @@ from __future__ import annotations
 from pathlib import Path
 
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
-from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_runtime_capabilities
+from personal_assistant.reporter.upstream_reporter import (
+    UpstreamReporter,
+    build_runtime_capabilities,
+)
 
 
 class _FakeWebSocket:
@@ -27,7 +30,9 @@ class _FakeWebSocket:
 
 
 class _FailOnNthSendWebSocket(_FakeWebSocket):
-    def __init__(self, *, fail_on_send_number: int, incoming: list[str] | None = None) -> None:
+    def __init__(
+        self, *, fail_on_send_number: int, incoming: list[str] | None = None
+    ) -> None:
         super().__init__(incoming=incoming)
         self._fail_on_send_number = fail_on_send_number
         self._send_count = 0
@@ -54,7 +59,9 @@ def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
     )
 
 
-def _write_skill(root: Path, dir_name: str, *, frontmatter_name: str | None = None) -> None:
+def _write_skill(
+    root: Path, dir_name: str, *, frontmatter_name: str | None = None
+) -> None:
     skill_dir = root / dir_name
     skill_dir.mkdir(parents=True, exist_ok=True)
     declared_name = frontmatter_name or dir_name
@@ -67,9 +74,7 @@ def _write_skill(root: Path, dir_name: str, *, frontmatter_name: str | None = No
 def _minimal_reporter(tmp_path: Path) -> UpstreamReporter:
     workspace = tmp_path / "agent-a"
     workspace.mkdir(exist_ok=True)
-    agents = (
-        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),
-    )
+    agents = (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),)
     return UpstreamReporter(
         node=NodeConfig(node_id="n1"),
         agents=agents,

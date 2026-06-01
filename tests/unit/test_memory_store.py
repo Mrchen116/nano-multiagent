@@ -53,7 +53,11 @@ def _entry(text: str, session_id: str = "s1") -> MemoryEntry:
 def test_no_extra_files_created(store: MemoryStore, memory_root: Path) -> None:
     store.add("memory", _entry("fact 1"))
     store.add("user", _entry("user pref"))
-    files = {p.name for p in memory_root.iterdir() if not p.name.endswith(".lock") and not p.name.endswith(".tmp")}
+    files = {
+        p.name
+        for p in memory_root.iterdir()
+        if not p.name.endswith(".lock") and not p.name.endswith(".tmp")
+    }
     assert files == {"MEMORY.md", "USER.md"}
 
 
@@ -185,8 +189,12 @@ def test_format_for_prompt_returns_pure_content(store: MemoryStore) -> None:
     assert content is not None
     assert "some note" in content
     # M4: banner text must NOT be in format_for_prompt output
-    assert "MEMORY" not in content, "format_for_prompt must return pure content without MEMORY header"
-    assert "═" * 46 not in content, "format_for_prompt must return pure content without separator"
+    assert "MEMORY" not in content, (
+        "format_for_prompt must return pure content without MEMORY header"
+    )
+    assert "═" * 46 not in content, (
+        "format_for_prompt must return pure content without separator"
+    )
 
 
 def test_format_for_prompt_pct_via_format_pct(store: MemoryStore) -> None:
@@ -204,7 +212,9 @@ def test_format_for_prompt_user_returns_pure_content(store: MemoryStore) -> None
     content = store.format_for_prompt("user")
     assert content is not None
     assert "Alice loves Rust" in content
-    assert "USER" not in content, "format_for_prompt must return pure content without USER header"
+    assert "USER" not in content, (
+        "format_for_prompt must return pure content without USER header"
+    )
 
 
 def test_format_for_prompt_empty(store: MemoryStore) -> None:
@@ -222,7 +232,9 @@ def test_format_for_prompt_empty(store: MemoryStore) -> None:
 def test_char_limit_enforced(memory_root: Path) -> None:
     # Limit is large enough to hold one entry but not two. Each serialized
     # entry is roughly len(text) + ~70 bytes for the source comment line.
-    store = MemoryStore(memory_root=memory_root, memory_char_limit=200, user_char_limit=200)
+    store = MemoryStore(
+        memory_root=memory_root, memory_char_limit=200, user_char_limit=200
+    )
     store.add("memory", _entry("a" * 50))
     with pytest.raises(ValueError, match="char limit"):
         store.add("memory", _entry("b" * 200))
@@ -238,7 +250,10 @@ def test_atomic_write_no_partial_file(memory_root: Path) -> None:
 
     async def _do_adds() -> None:
         stores = [MemoryStore(memory_root=memory_root) for _ in range(3)]
-        tasks = [asyncio.to_thread(s.add, "memory", _entry(f"entry {i}", f"s{i}")) for i, s in enumerate(stores)]
+        tasks = [
+            asyncio.to_thread(s.add, "memory", _entry(f"entry {i}", f"s{i}"))
+            for i, s in enumerate(stores)
+        ]
         await asyncio.gather(*tasks, return_exceptions=True)
 
     asyncio.run(_do_adds())
@@ -270,7 +285,9 @@ def test_format_for_prompt_returns_none_when_empty_no_disk(store: MemoryStore) -
     assert result is None, f"Expected None for empty memory, got: {result!r}"
 
 
-def test_format_for_prompt_returns_none_when_empty_memory_root_missing(tmp_path: Path) -> None:
+def test_format_for_prompt_returns_none_when_empty_memory_root_missing(
+    tmp_path: Path,
+) -> None:
     """Store whose memory_root doesn't exist yet returns None for both targets."""
     nonexistent_root = tmp_path / "no_such_dir"
     store = MemoryStore(memory_root=nonexistent_root)

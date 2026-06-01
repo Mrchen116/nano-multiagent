@@ -35,7 +35,11 @@ from ._pipeline_helpers import _FakeKernel  # noqa: E402 (local helper import af
 def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
     workspace = tmp_path / "agent-a"
     workspace.mkdir()
-    return (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace, title="Agent A"),)
+    return (
+        AgentWorkspaceConfig(
+            agent_id="agent-a", workspace_root=workspace, title="Agent A"
+        ),
+    )
 
 
 def _two_agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
@@ -117,11 +121,19 @@ def test_group_message_with_mention_or_reply_runs(tmp_path: Path) -> None:
     assert first is not None
     assert second is not None
     # Since M246: group messages are prefixed with [sender_id] by the gateway layer.
-    assert [call["texts"][-1] for call in kernel.send_calls] == ["[user-1] @agent-a hello", "[user-1] follow-up"]
-    assert [item.text for item in channel.sent] == ["reply:[user-1] @agent-a hello", "reply:[user-1] follow-up"]
+    assert [call["texts"][-1] for call in kernel.send_calls] == [
+        "[user-1] @agent-a hello",
+        "[user-1] follow-up",
+    ]
+    assert [item.text for item in channel.sent] == [
+        "reply:[user-1] @agent-a hello",
+        "reply:[user-1] follow-up",
+    ]
 
 
-def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Path) -> None:
+def test_group_message_with_mention_and_no_reply_token_stays_silent(
+    tmp_path: Path,
+) -> None:
     """Mentioned group traffic that returns NO_REPLY must stay silent."""
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
@@ -151,11 +163,19 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
     assert result.reply_text == "NO_REPLY"
     assert result.outbound is None
     # Since M246: group messages are prefixed with [sender_id] by the gateway layer.
-    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["[user-1] @agent-a stay quiet"], "run_id": "run-1"}]
+    assert kernel.send_calls == [
+        {
+            "session_id": "sess-1",
+            "texts": ["[user-1] @agent-a stay quiet"],
+            "run_id": "run-1",
+        }
+    ]
     assert channel.sent == []
 
 
-def test_register_agent_refresh_drops_old_session_binding_and_recreates_session(tmp_path: Path) -> None:
+def test_register_agent_refresh_drops_old_session_binding_and_recreates_session(
+    tmp_path: Path,
+) -> None:
     """Refreshing one agent config must force later messages onto a new kernel session."""
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
@@ -182,7 +202,9 @@ def test_register_agent_refresh_drops_old_session_binding_and_recreates_session(
 
     first = asyncio.run(pipeline.handle_inbound(inbound))
     pipeline.register_agent(
-        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=refreshed_workspace, title="Agent A v2")
+        AgentWorkspaceConfig(
+            agent_id="agent-a", workspace_root=refreshed_workspace, title="Agent A v2"
+        )
     )
     session_store.drop_agent("agent-a")
     second = asyncio.run(pipeline.handle_inbound(inbound))
@@ -194,7 +216,6 @@ def test_register_agent_refresh_drops_old_session_binding_and_recreates_session(
         str(tmp_path / "agent-a"),
         str(refreshed_workspace),
     ]
-
 
 
 def test_local_channel_keeps_working_without_im_connection(tmp_path: Path) -> None:
@@ -223,7 +244,9 @@ def test_local_channel_keeps_working_without_im_connection(tmp_path: Path) -> No
 
     assert result is not None
     assert result.reply_text == "reply:offline still works"
-    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["offline still works"], "run_id": "run-1"}]
+    assert kernel.send_calls == [
+        {"session_id": "sess-1", "texts": ["offline still works"], "run_id": "run-1"}
+    ]
     assert channel.sent == [
         OutboundMessage(
             channel_name="qq",
@@ -288,7 +311,10 @@ def test_group_multiagent_fanout_buffers_and_contextualises(tmp_path: Path) -> N
     assert len(kernel.send_calls) == 1
     # Since M246: group messages are prefixed with [sender_id] by the gateway layer.
     # agent-b must drain "hello everyone" then receive the @mention in its own buffer
-    assert kernel.send_calls[0]["texts"] == ["[user-1] hello everyone", "[user-1] @agent-b what time is it?"]
+    assert kernel.send_calls[0]["texts"] == [
+        "[user-1] hello everyone",
+        "[user-1] @agent-b what time is it?",
+    ]
 
     # Step 3a: plain message relay targeted to agent-a → agent-a buffers.
     plain_for_a = InboundMessage(

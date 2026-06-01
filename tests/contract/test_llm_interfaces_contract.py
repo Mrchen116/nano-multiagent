@@ -12,7 +12,11 @@ from agent.core.llm.interfaces import (
 
 def test_llm_tool_call_contract() -> None:
     assert is_dataclass(LLMToolCall)
-    assert [field.name for field in fields(LLMToolCall)] == ["call_id", "name", "arguments"]
+    assert [field.name for field in fields(LLMToolCall)] == [
+        "call_id",
+        "name",
+        "arguments",
+    ]
 
 
 def test_llm_message_contract() -> None:
@@ -85,7 +89,10 @@ def test_llm_generate_request_accepts_tools() -> None:
             ToolSpec(
                 name="read",
                 description="Read file",
-                input_schema={"type": "object", "properties": {"path": {"type": "string"}}},
+                input_schema={
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                },
             ),
         ),
     )

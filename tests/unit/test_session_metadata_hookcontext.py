@@ -10,7 +10,11 @@ from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+)
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 
@@ -38,9 +42,15 @@ class EchoLLMClient:
         )
 
 
-def _make_runtime(manager: SessionManager, registry: HookRegistry | None = None) -> AgentRuntime:
+def _make_runtime(
+    manager: SessionManager, registry: HookRegistry | None = None
+) -> AgentRuntime:
     """Create an AgentRuntime wired to a JSONL store and echo LLM."""
-    hook_runner = HookRunner(registry=registry or HookRegistry()) if registry is not None else None
+    hook_runner = (
+        HookRunner(registry=registry or HookRegistry())
+        if registry is not None
+        else None
+    )
     return AgentRuntime(
         session_manager=manager,
         llm_client=EchoLLMClient(),
@@ -68,10 +78,12 @@ async def test_session_metadata_merged_into_hook_context() -> None:
             "conversation_type": "group",
             "participant_agent_ids": ["agent-a", "agent-b"],
             "agent_id": "agent-a",
-        }
+        },
     )
     runtime = _make_runtime(manager, registry)
-    await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "hello"}], stream=False
+    )
 
     assert len(captured_contexts) == 1
     ctx_meta = captured_contexts[0].metadata
@@ -98,10 +110,12 @@ async def test_runtime_keys_not_overwritten_by_session_metadata() -> None:
         metadata={
             "cwd": "/should-not-overwrite",
             "conversation_type": "direct",
-        }
+        },
     )
     runtime = _make_runtime(manager, registry)
-    await runtime.run(session.session_id, [{"type": "text", "text": "hi"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "hi"}], stream=False
+    )
 
     assert len(captured_contexts) == 1
     ctx_meta = captured_contexts[0].metadata
@@ -126,7 +140,9 @@ async def test_group_session_metadata_visible_in_hook_context() -> None:
         captured_contexts.append(ctx)
 
     registry = HookRegistry()
-    registry.on("before_agent_start", _capture, priority=100, timeout_ms=500, mode="observe")
+    registry.on(
+        "before_agent_start", _capture, priority=100, timeout_ms=500, mode="observe"
+    )
 
     store = JsonlSessionStore(data_dir=Path("/tmp") / "sessions")
     manager = SessionManager(store=store)
@@ -137,7 +153,7 @@ async def test_group_session_metadata_visible_in_hook_context() -> None:
             "conversation_type": "group",
             "participant_agent_ids": ["agent-alpha", "agent-beta"],
             "agent_id": "agent-alpha",
-        }
+        },
     )
     runtime = AgentRuntime(
         session_manager=manager,
@@ -146,7 +162,9 @@ async def test_group_session_metadata_visible_in_hook_context() -> None:
         hook_runner=HookRunner(registry=registry),
         repo_root=Path("/tmp"),
     )
-    await runtime.run(session.session_id, [{"type": "text", "text": "hello group"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "hello group"}], stream=False
+    )
 
     assert len(captured_contexts) == 1
     meta = captured_contexts[0].metadata
@@ -180,7 +198,11 @@ async def test_before_agent_start_noop_when_no_conversation_type() -> None:
         hook_runner=HookRunner(registry=registry),
         repo_root=Path("/tmp"),
     )
-    await runtime.run(session.session_id, [{"type": "text", "text": "just a regular message"}], stream=False)
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "just a regular message"}],
+        stream=False,
+    )
 
     assert len(llm.requests) == 1
     system_message = llm.requests[0].messages[0]

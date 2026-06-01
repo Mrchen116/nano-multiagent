@@ -72,7 +72,9 @@ class WebIMService:
         """List conversations owned by ``owner_id`` (SQL-level tenant filter)."""
         return self._conversations.list_conversations_for_owner(owner_id=owner_id)
 
-    def get_conversation_for_owner(self, *, conversation_id: str, owner_id: str) -> Conversation | None:
+    def get_conversation_for_owner(
+        self, *, conversation_id: str, owner_id: str
+    ) -> Conversation | None:
         """Return the conversation iff it belongs to ``owner_id`` (else None)."""
         return self._conversations.get_conversation_for_owner(
             conversation_id=conversation_id, owner_id=owner_id
@@ -142,7 +144,9 @@ class WebIMService:
             auto_complete_delivery=auto_complete_delivery,
         )
         if self._metrics_service is not None and auto_complete_delivery:
-            conversation = self._conversations.get_conversation(conversation_id=conversation_id)
+            conversation = self._conversations.get_conversation(
+                conversation_id=conversation_id
+            )
             owner_id = conversation.owner_id if conversation is not None else None
             token_count = len(content.split())
             prompt_tokens = token_count if sender_type == "user" else 0
@@ -196,7 +200,9 @@ class WebIMService:
         """
         if self._relay_service is None:
             raise RuntimeError("relay_service is not configured")
-        conversation = self._conversations.get_conversation(conversation_id=message.conversation_id)
+        conversation = self._conversations.get_conversation(
+            conversation_id=message.conversation_id
+        )
         return self._relay_service.enqueue_message_relay(
             message=message,
             target_node_id=target_node_id,
@@ -232,7 +238,9 @@ class WebIMService:
         """
         if self._relay_service is None:
             raise RuntimeError("relay_service is not configured")
-        conversation = self._conversations.get_conversation(conversation_id=message.conversation_id)
+        conversation = self._conversations.get_conversation(
+            conversation_id=message.conversation_id
+        )
         return self._relay_service.enqueue_message_relay_all(
             message=message,
             target_node_id=target_node_id,
@@ -241,7 +249,9 @@ class WebIMService:
             conversation_type=conversation.type if conversation is not None else None,
         )
 
-    def resolve_target_node_id(self, *, conversation_id: str, content: str) -> str | None:
+    def resolve_target_node_id(
+        self, *, conversation_id: str, content: str
+    ) -> str | None:
         """Resolve the concrete gateway node for one outgoing conversation message."""
         if self._relay_service is None:
             return None

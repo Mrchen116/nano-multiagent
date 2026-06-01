@@ -62,13 +62,25 @@ def test_scan_flips_stale_online_node_to_offline_and_broadcasts(tmp_path: Path) 
     browser.frames.clear()
 
     # Force last_heartbeat_at older than timeout.
-    stale_at = (datetime.now(timezone.utc) - timedelta(seconds=200)).isoformat().replace("+00:00", "Z")
-    connection.execute("UPDATE nodes SET last_heartbeat_at = ? WHERE node_id = ?", (stale_at, "node-1"))
+    stale_at = (
+        (datetime.now(timezone.utc) - timedelta(seconds=200))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    connection.execute(
+        "UPDATE nodes SET last_heartbeat_at = ? WHERE node_id = ?", (stale_at, "node-1")
+    )
     connection.commit()
 
-    asyncio.run(scan_and_flip_stale_nodes(handler=handler, node_repository=nodes, timeout_seconds=60))
+    asyncio.run(
+        scan_and_flip_stale_nodes(
+            handler=handler, node_repository=nodes, timeout_seconds=60
+        )
+    )
 
-    offline_frames = [f for f in browser.frames if f["event_type"] == "node.status_changed"]
+    offline_frames = [
+        f for f in browser.frames if f["event_type"] == "node.status_changed"
+    ]
     assert len(offline_frames) == 1
     assert offline_frames[0]["data"]["status"] == "offline"
     assert offline_frames[0]["data"]["last_error"] == "heartbeat_timeout"
@@ -94,7 +106,11 @@ def test_scan_skips_fresh_node(tmp_path: Path) -> None:
     )
     browser.frames.clear()
 
-    asyncio.run(scan_and_flip_stale_nodes(handler=handler, node_repository=nodes, timeout_seconds=60))
+    asyncio.run(
+        scan_and_flip_stale_nodes(
+            handler=handler, node_repository=nodes, timeout_seconds=60
+        )
+    )
 
     assert browser.frames == []
     snapshot = nodes.get_node(node_id="node-1")
@@ -112,6 +128,10 @@ def test_scan_idempotent_on_already_offline_node(tmp_path: Path) -> None:
     browser = _RecordingWS()
     asyncio.run(registry.add(owner.owner_id, browser))
 
-    asyncio.run(scan_and_flip_stale_nodes(handler=handler, node_repository=nodes, timeout_seconds=60))
+    asyncio.run(
+        scan_and_flip_stale_nodes(
+            handler=handler, node_repository=nodes, timeout_seconds=60
+        )
+    )
 
     assert browser.frames == []

@@ -6,10 +6,23 @@ from pathlib import Path
 from IM.application.relay_service import RelayService
 from IM.domain.models import Attachment
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import AgentProfileRepository, ConversationRepository, MessageRepository, UserRepository
+from IM.repositories import (
+    AgentProfileRepository,
+    ConversationRepository,
+    MessageRepository,
+    UserRepository,
+)
 
 
-def _build_fixture(tmp_path: Path) -> tuple[RelayService, MessageRepository, ConversationRepository, UserRepository, AgentProfileRepository]:
+def _build_fixture(
+    tmp_path: Path,
+) -> tuple[
+    RelayService,
+    MessageRepository,
+    ConversationRepository,
+    UserRepository,
+    AgentProfileRepository,
+]:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     users = UserRepository(connection)
@@ -24,14 +37,24 @@ def test_relay_payload_with_attachments_is_json_serializable(tmp_path: Path) -> 
     """Attachment dataclass objects must be serialized to dicts before json.dumps (regression for 500 on image send)."""
     relay_service, messages, conversations, users, _profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
-    conversation = conversations.create_conversation(title="chat", participant_ids=[alice.id])
+    conversation = conversations.create_conversation(
+        title="chat", participant_ids=[alice.id]
+    )
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
         content="look at this image",
         attachments=[
-            Attachment(url="http://im.local/im/uploads/abc123.png", content_type="image/png", file_name="screenshot.png"),
-            Attachment(url="http://im.local/im/uploads/def456.jpg", content_type="image/jpeg", file_name=None),
+            Attachment(
+                url="http://im.local/im/uploads/abc123.png",
+                content_type="image/png",
+                file_name="screenshot.png",
+            ),
+            Attachment(
+                url="http://im.local/im/uploads/def456.jpg",
+                content_type="image/jpeg",
+                file_name=None,
+            ),
         ],
     )
 
@@ -62,7 +85,9 @@ def test_relay_payload_without_attachments_has_empty_list(tmp_path: Path) -> Non
     """Relay payload always includes an attachments list even when message has none."""
     relay_service, messages, conversations, users, _profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
-    conversation = conversations.create_conversation(title="chat", participant_ids=[alice.id])
+    conversation = conversations.create_conversation(
+        title="chat", participant_ids=[alice.id]
+    )
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
@@ -85,12 +110,18 @@ def test_relay_payload_without_attachments_has_empty_list(tmp_path: Path) -> Non
 # ---------------------------------------------------------------------------
 
 
-def test_group_relay_payload_includes_sender_display_name_and_participants(tmp_path: Path) -> None:
+def test_group_relay_payload_includes_sender_display_name_and_participants(
+    tmp_path: Path,
+) -> None:
     """Group relay payload must carry sender.display_name and a participants list with display names."""
     relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice Chen")
-    agent_a_user = users.create_user(username="agent:agent-a", display_name="Agent A Display")
-    agent_b_user = users.create_user(username="agent:agent-b", display_name="Agent B Display")
+    agent_a_user = users.create_user(
+        username="agent:agent-a", display_name="Agent A Display"
+    )
+    agent_b_user = users.create_user(
+        username="agent:agent-b", display_name="Agent B Display"
+    )
     profiles.upsert_profile(
         agent_id="agent-a",
         owner_id=alice.owner_id,
@@ -152,7 +183,9 @@ def test_group_relay_payload_includes_sender_display_name_and_participants(tmp_p
     assert "Agent B Title" in agent_names
 
 
-def test_group_relay_payload_sender_fallback_to_id_when_no_user_record(tmp_path: Path) -> None:
+def test_group_relay_payload_sender_fallback_to_id_when_no_user_record(
+    tmp_path: Path,
+) -> None:
     """Sender display_name falls back to sender_user_id when the user is unknown."""
     relay_service, messages, conversations, users, _profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice Chen")
@@ -182,7 +215,9 @@ def test_group_relay_payload_sender_fallback_to_id_when_no_user_record(tmp_path:
     assert sender["display_name"] == unknown_sender_id
 
 
-def test_direct_relay_payload_does_not_include_sender_participants(tmp_path: Path) -> None:
+def test_direct_relay_payload_does_not_include_sender_participants(
+    tmp_path: Path,
+) -> None:
     """Direct relay payloads must NOT include sender/participants fields (backward compat)."""
     relay_service, messages, conversations, users, _profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice Chen")

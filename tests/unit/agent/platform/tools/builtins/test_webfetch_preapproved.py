@@ -18,6 +18,7 @@ import pytest
 
 def _import_module():
     from agent.platform.tools.builtins import webfetch_preapproved  # noqa: PLC0415
+
     return webfetch_preapproved
 
 
@@ -49,7 +50,9 @@ class TestPreapprovedHosts:
             "kubernetes.io",
             "git-scm.com",
         ]:
-            assert host in mod.PREAPPROVED_HOSTS, f"{host!r} should be in PREAPPROVED_HOSTS"
+            assert host in mod.PREAPPROVED_HOSTS, (
+                f"{host!r} should be in PREAPPROVED_HOSTS"
+            )
 
     def test_known_path_prefix_entries(self):
         mod = _import_module()
@@ -119,7 +122,9 @@ class TestIsPreapprovedHost:
         """'/anthropics-evil' must NOT match the '/anthropics' prefix."""
         mod = _import_module()
         assert mod.is_preapproved_host("github.com", "/anthropics-evil") is False
-        assert mod.is_preapproved_host("github.com", "/anthropics-evil/malware") is False
+        assert (
+            mod.is_preapproved_host("github.com", "/anthropics-evil/malware") is False
+        )
 
     def test_unknown_host_returns_false(self):
         mod = _import_module()
@@ -150,6 +155,7 @@ class TestHostnameRuleEngine:
 
     def _engine(self, deny=(), ask=(), allow=()):
         from agent.platform.permissions.hostname_rules import HostnameRuleEngine  # noqa: PLC0415
+
         return HostnameRuleEngine(deny=deny, ask=ask, allow=allow)
 
     def test_empty_rules_returns_passthrough(self):

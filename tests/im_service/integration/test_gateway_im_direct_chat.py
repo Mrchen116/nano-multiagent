@@ -27,7 +27,9 @@ from ._gateway_helpers import (
 )
 
 
-def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(tmp_path: Path) -> None:
+def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(
+    tmp_path: Path,
+) -> None:
     """Legacy direct bindings without workspace metadata must be refreshed before reuse."""
     app = create_app(db_path=tmp_path / "im.db")
     kernel_client = _FakeKernelClient()
@@ -55,19 +57,30 @@ def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(
 
         conversation = client.post(
             "/im/v1/conversations",
-            json={"title": "legacy direct", "participant_ids": [human_user_id, agent_user_id]},
+            json={
+                "title": "legacy direct",
+                "participant_ids": [human_user_id, agent_user_id],
+            },
         )
         assert conversation.status_code == 201
         conversation_id = conversation.json()["id"]
         session_key = f"web_relay:{conversation_id}:agent-a"
-        kernel_client.seed_session(session_id="sess-legacy", metadata={"agent_id": "agent-a", "config_profile_version": 1})
+        kernel_client.seed_session(
+            session_id="sess-legacy",
+            metadata={"agent_id": "agent-a", "config_profile_version": 1},
+        )
         session_store.bind(
             session_key=session_key,
             kernel_session_id="sess-legacy",
             reply_context=type(
                 "_ReplyContext",
                 (),
-                {"channel_name": "web_relay", "target_chat_id": conversation_id, "thread_id": None, "metadata": {}},
+                {
+                    "channel_name": "web_relay",
+                    "target_chat_id": conversation_id,
+                    "thread_id": None,
+                    "metadata": {},
+                },
             )(),
         )
 
@@ -120,12 +133,16 @@ def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(
                 },
             }
 
-    assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [str(agents[0].workspace_root)]
+    assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [
+        str(agents[0].workspace_root)
+    ]
     assert [call["session_id"] for call in kernel_client.send_calls] == ["sess-1"]
     assert session_store.get(session_key).kernel_session_id == "sess-1"
 
 
-def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_gets_new_profile(tmp_path: Path) -> None:
+def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_gets_new_profile(
+    tmp_path: Path,
+) -> None:
     """Old direct conversations stay pinned while new conversations pick up synced config."""
     app = create_app(db_path=tmp_path / "im.db")
     kernel_client = _FakeKernelClient()
@@ -153,7 +170,10 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
 
         old_conversation = client.post(
             "/im/v1/conversations",
-            json={"title": "old direct", "participant_ids": [human_user_id, agent_user_id]},
+            json={
+                "title": "old direct",
+                "participant_ids": [human_user_id, agent_user_id],
+            },
         )
         assert old_conversation.status_code == 201
         assert old_conversation.json()["config_profile_version"] == 1
@@ -282,7 +302,10 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
 
             new_conversation = client.post(
                 "/im/v1/conversations",
-                json={"title": "new direct", "participant_ids": [human_user_id, agent_user_id]},
+                json={
+                    "title": "new direct",
+                    "participant_ids": [human_user_id, agent_user_id],
+                },
             )
             assert new_conversation.status_code == 201
             assert new_conversation.json()["config_profile_version"] == 2
@@ -335,7 +358,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-                "agent_features": {},
+            "agent_features": {},
             "config_profile_version": 1,
             "system_prompt": "You are agent-a.",
             "conversation_type": "direct",
@@ -343,7 +366,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-                "agent_features": {},
+            "agent_features": {},
             "config_profile_version": 1,
             "system_prompt": "You are upgraded.",
             "skills": ["plan"],
@@ -353,7 +376,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-                "agent_features": {},
+            "agent_features": {},
             "config_profile_version": 2,
             "system_prompt": "You are upgraded.",
             "skills": ["plan"],
@@ -361,15 +384,29 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
             "conversation_type": "direct",
         },
     ]
-    assert [call["title"] for call in kernel_client.create_session_calls] == ["Agent-A", "agent-a v2", "agent-a v2"]
+    assert [call["title"] for call in kernel_client.create_session_calls] == [
+        "Agent-A",
+        "agent-a v2",
+        "agent-a v2",
+    ]
     assert [call["workspace_root"] for call in kernel_client.create_session_calls] == [
         str(agents[0].workspace_root),
         str(tmp_path / "agent-a-refreshed"),
         str(tmp_path / "agent-a-refreshed"),
     ]
-    assert [call["session_id"] for call in kernel_client.send_calls] == ["sess-1", "sess-2", "sess-3"]
-    assert session_store.get(f"web_relay:{old_conversation_id}:agent-a").kernel_session_id == "sess-2"
-    assert session_store.get(f"web_relay:{new_conversation_id}:agent-a").kernel_session_id == "sess-3"
+    assert [call["session_id"] for call in kernel_client.send_calls] == [
+        "sess-1",
+        "sess-2",
+        "sess-3",
+    ]
+    assert (
+        session_store.get(f"web_relay:{old_conversation_id}:agent-a").kernel_session_id
+        == "sess-2"
+    )
+    assert (
+        session_store.get(f"web_relay:{new_conversation_id}:agent-a").kernel_session_id
+        == "sess-3"
+    )
 
     assert first_relay["payload"]["conversation_id"] == old_conversation_id
     assert old_after_relay["payload"]["conversation_id"] == old_conversation_id
@@ -425,9 +462,18 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
 
     assert len(old_completed_payloads) == 2
     assert len(new_completed_payloads) == 1
-    assert old_completed_payloads[0]["relay_metadata"] == first_relay["payload"]["metadata"]
-    assert old_completed_payloads[1]["relay_metadata"] == old_after_relay["payload"]["metadata"]
-    assert new_completed_payloads[0]["relay_metadata"] == new_after_relay["payload"]["metadata"]
+    assert (
+        old_completed_payloads[0]["relay_metadata"]
+        == first_relay["payload"]["metadata"]
+    )
+    assert (
+        old_completed_payloads[1]["relay_metadata"]
+        == old_after_relay["payload"]["metadata"]
+    )
+    assert (
+        new_completed_payloads[0]["relay_metadata"]
+        == new_after_relay["payload"]["metadata"]
+    )
     assert old_completed_payloads[1]["agent_id"] == "agent-a"
     assert new_completed_payloads[0]["agent_id"] == "agent-a"
     assert old_completed_payloads[1]["idempotency_key"] == "idem-m150-old-after"

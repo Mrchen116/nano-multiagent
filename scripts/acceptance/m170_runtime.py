@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 import yaml
 
+
 def _resolve_canonical_repo_root(script_path: Path) -> Path:
     """Resolve the main repository root even when this script runs from a worktree.
 
@@ -133,7 +134,11 @@ def _wait_for_gateway_health(url: str, *, timeout_seconds: float) -> bool:
         try:
             response = httpx.get(url, timeout=1.0, trust_env=False)
             payload = response.json()
-            if response.status_code == 200 and isinstance(payload, dict) and bool(payload.get("healthy")):
+            if (
+                response.status_code == 200
+                and isinstance(payload, dict)
+                and bool(payload.get("healthy"))
+            ):
                 return True
         except Exception:
             pass
@@ -234,7 +239,6 @@ def _list_gateway_pids_for_config(config_path: Path) -> set[int]:
     return pids
 
 
-
 def _list_listener_pids(port: int) -> set[int]:
     try:
         completed = subprocess.run(
@@ -258,7 +262,6 @@ def _list_listener_pids(port: int) -> set[int]:
     return pids
 
 
-
 def _terminate_pid(pid: int, *, timeout_seconds: float) -> None:
     try:
         os.kill(pid, signal.SIGTERM)
@@ -277,8 +280,9 @@ def _terminate_pid(pid: int, *, timeout_seconds: float) -> None:
         return
 
 
-
-def stop_runtime(*, timeout_seconds: float = DEFAULT_STOP_TIMEOUT_SECONDS) -> dict[str, str]:
+def stop_runtime(
+    *, timeout_seconds: float = DEFAULT_STOP_TIMEOUT_SECONDS
+) -> dict[str, str]:
     result: dict[str, str] = {}
     if RUNTIME_CONFIG.exists():
         try:
@@ -315,7 +319,9 @@ def stop_runtime(*, timeout_seconds: float = DEFAULT_STOP_TIMEOUT_SECONDS) -> di
             pass
         finally:
             im_pid_path.unlink(missing_ok=True)
-    stale_pids = _list_gateway_pids_for_config(RUNTIME_CONFIG) | _list_listener_pids(KERNEL_PORT)
+    stale_pids = _list_gateway_pids_for_config(RUNTIME_CONFIG) | _list_listener_pids(
+        KERNEL_PORT
+    )
     stale_pids.discard(os.getpid())
     if state_pid is not None:
         stale_pids.discard(state_pid)
@@ -323,7 +329,9 @@ def stop_runtime(*, timeout_seconds: float = DEFAULT_STOP_TIMEOUT_SECONDS) -> di
         stale_pids.discard(im_pid)
     for pid in sorted(stale_pids):
         _terminate_pid(pid, timeout_seconds=timeout_seconds)
-    result["im_url_stopped"] = "true" if not _wait_for_url(IM_HEALTH_URL, timeout_seconds=1.0) else "false"
+    result["im_url_stopped"] = (
+        "true" if not _wait_for_url(IM_HEALTH_URL, timeout_seconds=1.0) else "false"
+    )
     return result
 
 
@@ -331,7 +339,12 @@ def rebuild_runtime() -> dict[str, str]:
     stop_runtime()
     if RUNTIME_DB.exists():
         RUNTIME_DB.unlink()
-    for path in (RUNTIME_IM_LOG, RUNTIME_GATEWAY_LOG, RUNTIME_HEARTBEAT_STATE, RUNTIME_GATEWAY_STATE):
+    for path in (
+        RUNTIME_IM_LOG,
+        RUNTIME_GATEWAY_LOG,
+        RUNTIME_HEARTBEAT_STATE,
+        RUNTIME_GATEWAY_STATE,
+    ):
         path.unlink(missing_ok=True)
     if RUNTIME_UPLOADS.exists():
         shutil.rmtree(RUNTIME_UPLOADS)
@@ -351,7 +364,11 @@ def rebuild_runtime() -> dict[str, str]:
 def _spawn_im() -> int:
     env = os.environ.copy()
     existing_pythonpath = env.get("PYTHONPATH", "").strip()
-    env["PYTHONPATH"] = str(SRC_ROOT) if not existing_pythonpath else f"{SRC_ROOT}{os.pathsep}{existing_pythonpath}"
+    env["PYTHONPATH"] = (
+        str(SRC_ROOT)
+        if not existing_pythonpath
+        else f"{SRC_ROOT}{os.pathsep}{existing_pythonpath}"
+    )
     env["IM_DB_PATH"] = str(RUNTIME_DB)
     env["IM_UPLOAD_DIR"] = str(RUNTIME_UPLOADS)
     log_handle = RUNTIME_IM_LOG.open("w", encoding="utf-8")
@@ -372,16 +389,28 @@ def _spawn_im() -> int:
         stderr=subprocess.STDOUT,
         start_new_session=True,
     )
-    (RUNTIME_ROOT / ".im-state.json").write_text(json.dumps({"pid": process.pid}, indent=2), encoding="utf-8")
+    (RUNTIME_ROOT / ".im-state.json").write_text(
+        json.dumps({"pid": process.pid}, indent=2), encoding="utf-8"
+    )
     return process.pid
 
 
 def _start_gateway() -> str:
     env = os.environ.copy()
     existing_pythonpath = env.get("PYTHONPATH", "").strip()
-    env["PYTHONPATH"] = str(SRC_ROOT) if not existing_pythonpath else f"{SRC_ROOT}{os.pathsep}{existing_pythonpath}"
+    env["PYTHONPATH"] = (
+        str(SRC_ROOT)
+        if not existing_pythonpath
+        else f"{SRC_ROOT}{os.pathsep}{existing_pythonpath}"
+    )
     completed = subprocess.run(
-        [sys.executable, "-m", "personal_assistant.main", "--config", str(RUNTIME_CONFIG)],
+        [
+            sys.executable,
+            "-m",
+            "personal_assistant.main",
+            "--config",
+            str(RUNTIME_CONFIG),
+        ],
         cwd=str(REPO_ROOT),
         env=env,
         capture_output=True,
@@ -390,7 +419,9 @@ def _start_gateway() -> str:
         timeout=30,
     )
     if completed.returncode != 0:
-        raise RuntimeError((completed.stderr or completed.stdout).strip() or "gateway start failed")
+        raise RuntimeError(
+            (completed.stderr or completed.stdout).strip() or "gateway start failed"
+        )
     return completed.stdout.strip()
 
 
@@ -405,13 +436,17 @@ def _wait_for_node_online(*, timeout_seconds: float) -> RuntimeStatus:
     return last_status
 
 
-def start_runtime(*, timeout_seconds: float = DEFAULT_READY_TIMEOUT_SECONDS) -> dict[str, str]:
+def start_runtime(
+    *, timeout_seconds: float = DEFAULT_READY_TIMEOUT_SECONDS
+) -> dict[str, str]:
     rebuild_runtime()
     im_pid = _spawn_im()
     if not _wait_for_url(IM_HEALTH_URL, timeout_seconds=timeout_seconds):
         raise RuntimeError(f"IM did not become ready on {IM_HEALTH_URL}; pid={im_pid}")
     gateway_started = _start_gateway()
-    if not _wait_for_gateway_health(GATEWAY_HEALTH_URL, timeout_seconds=timeout_seconds):
+    if not _wait_for_gateway_health(
+        GATEWAY_HEALTH_URL, timeout_seconds=timeout_seconds
+    ):
         raise RuntimeError(f"Gateway did not become healthy on {GATEWAY_HEALTH_URL}")
     status = _wait_for_node_online(timeout_seconds=timeout_seconds)
     result = {
@@ -421,7 +456,9 @@ def start_runtime(*, timeout_seconds: float = DEFAULT_READY_TIMEOUT_SECONDS) -> 
         "node_status": status.node_status or "",
     }
     if not status.node_online:
-        raise RuntimeError(f"Gateway became healthy but node m170-node is not online: {json.dumps(result, ensure_ascii=False)}")
+        raise RuntimeError(
+            f"Gateway became healthy but node m170-node is not online: {json.dumps(result, ensure_ascii=False)}"
+        )
     return result
 
 
@@ -438,7 +475,11 @@ def runtime_status() -> RuntimeStatus:
     try:
         response = httpx.get(GATEWAY_HEALTH_URL, timeout=1.0, trust_env=False)
         payload = response.json()
-        gateway_http_ok = response.status_code == 200 and isinstance(payload, dict) and bool(payload.get("healthy"))
+        gateway_http_ok = (
+            response.status_code == 200
+            and isinstance(payload, dict)
+            and bool(payload.get("healthy"))
+        )
     except Exception:
         gateway_http_ok = False
     try:
@@ -448,7 +489,11 @@ def runtime_status() -> RuntimeStatus:
             if isinstance(payload, list):
                 for item in payload:
                     if isinstance(item, dict) and item.get("node_id") == "m170-node":
-                        node_status = str(item.get("status")) if item.get("status") is not None else None
+                        node_status = (
+                            str(item.get("status"))
+                            if item.get("status") is not None
+                            else None
+                        )
                         node_online = node_status == "online"
                         break
     except Exception:
@@ -469,11 +514,18 @@ def runtime_status() -> RuntimeStatus:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Manage the canonical M170 acceptance runtime")
+    parser = argparse.ArgumentParser(
+        description="Manage the canonical M170 acceptance runtime"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
-    subparsers.add_parser("rebuild", help="Recreate the runtime directory state from scratch")
+    subparsers.add_parser(
+        "rebuild", help="Recreate the runtime directory state from scratch"
+    )
     subparsers.add_parser("start", help="Rebuild the runtime and start IM plus gateway")
-    subparsers.add_parser("stop", help="Stop the runtime processes tracked under the canonical runtime root")
+    subparsers.add_parser(
+        "stop",
+        help="Stop the runtime processes tracked under the canonical runtime root",
+    )
     subparsers.add_parser("status", help="Show current runtime readiness")
     args = parser.parse_args(argv)
     if args.command == "rebuild":

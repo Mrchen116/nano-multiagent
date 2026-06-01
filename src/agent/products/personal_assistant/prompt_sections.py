@@ -13,6 +13,7 @@ Order bands used (full table in design.md):
 
 No imports from agent.core.agent.prompt_sections (only base types).
 """
+
 from __future__ import annotations
 
 import platform
@@ -214,7 +215,9 @@ def _build_communication_context_block(
                         p_identity = p.get("id", "")
                     p_display = p.get("display_name") or p_identity or "unknown"
                     if p_identity:
-                        entries.append(f"{p_display} ({p_type}, {identity_key}: {p_identity})")
+                        entries.append(
+                            f"{p_display} ({p_type}, {identity_key}: {p_identity})"
+                        )
                     else:
                         entries.append(f"{p_display} ({p_type})")
                 lines.append(f"- group_participants: {'; '.join(entries)}")
@@ -222,7 +225,9 @@ def _build_communication_context_block(
                 lines.append("- group_participants: (none)")
         elif participant_agent_ids is not None:
             # Fallback for pre-M247 sessions that only carry agent ID lists.
-            ids_repr = ", ".join(participant_agent_ids) if participant_agent_ids else "(none)"
+            ids_repr = (
+                ", ".join(participant_agent_ids) if participant_agent_ids else "(none)"
+            )
             lines.append(f"- group_participants: {ids_repr}")
         # bugfix-358: message_format 改为教 inline mention 标签，不再教 @agent_id 形式。
         # target_id 严格取自上方 group_participants 对应条目的 agent_id / user_id。
@@ -298,6 +303,7 @@ PA_SECTIONS: tuple[PromptSection, ...] = (
 # M4 Decision 15: explicit assembly function (mirrors CC getSystemPrompt)
 # ---------------------------------------------------------------------------
 
+
 def build_pa_system_prompt() -> list[PromptSection]:
     """Return the explicit, ordered list of segments for the Personal Assistant product.
 
@@ -324,6 +330,7 @@ def build_pa_system_prompt() -> list[PromptSection]:
         CORE_MEMORY_BLOCK,
         CORE_USER_PROFILE_BLOCK,
     )
+
     return [
         # ── Stable prefix (cache_safe=True) ──────────────────────────────────
         # Product identity + runtime context
@@ -349,7 +356,7 @@ def build_pa_system_prompt() -> list[PromptSection]:
         # User custom instructions (stable-prefix tail)
         _PA_USER_CUSTOM,
         # ── Volatile tail (cache_safe=False) ─────────────────────────────────
-        CORE_MEMORY_BLOCK,          # MEMORY.md snapshot
-        CORE_USER_PROFILE_BLOCK,    # USER.md snapshot
+        CORE_MEMORY_BLOCK,  # MEMORY.md snapshot
+        CORE_USER_PROFILE_BLOCK,  # USER.md snapshot
         _PA_COMMUNICATION_CONTEXT,  # group chat participant list
     ]

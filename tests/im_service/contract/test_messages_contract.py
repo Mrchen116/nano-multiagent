@@ -1,4 +1,5 @@
 """Contract tests for message delivery status fields."""
+
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -66,7 +67,9 @@ def test_list_messages_contract_includes_delivery_status(tmp_path: Path) -> None
         assert payload["next_before_message_id"] is None
 
 
-def test_message_contract_supports_sender_type_attachments_and_pagination(tmp_path: Path) -> None:
+def test_message_contract_supports_sender_type_attachments_and_pagination(
+    tmp_path: Path,
+) -> None:
     """Expose rich message fields and pagination envelope in Web IM responses."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:

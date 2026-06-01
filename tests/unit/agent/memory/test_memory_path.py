@@ -5,6 +5,7 @@ Validates:
 - LC dirname (.nanocode) derives correct memory_root
 - Path is always <workspace>/<dirname>/memory/
 """
+
 from __future__ import annotations
 
 from pathlib import Path

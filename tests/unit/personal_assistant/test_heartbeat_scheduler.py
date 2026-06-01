@@ -22,7 +22,9 @@ class _FakeKernelClient:
         self._session_counter = 0
         self._run_counter = 0
 
-    async def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, object]:
+    async def create_session(
+        self, *, workspace_root: str, product_id: str, title: str | None = None
+    ) -> dict[str, object]:
         self._session_counter += 1
         payload = {
             "session_id": f"sess-{self._session_counter}",
@@ -33,7 +35,9 @@ class _FakeKernelClient:
         self.created_sessions.append(payload)
         return payload
 
-    def submit_message(self, *, session_id: str, texts: list[str], **kwargs: object) -> dict[str, object]:
+    def submit_message(
+        self, *, session_id: str, texts: list[str], **kwargs: object
+    ) -> dict[str, object]:
         self._run_counter += 1
         payload: dict[str, object] = {
             "run_id": f"run-{self._run_counter}",
@@ -51,7 +55,9 @@ class _FakeKernelClient:
 def _agent(tmp_path: Path, name: str = "agent-a") -> AgentWorkspaceConfig:
     workspace_root = tmp_path / name
     workspace_root.mkdir(parents=True, exist_ok=True)
-    return AgentWorkspaceConfig(agent_id=name, workspace_root=workspace_root, title=f"Title for {name}")
+    return AgentWorkspaceConfig(
+        agent_id=name, workspace_root=workspace_root, title=f"Title for {name}"
+    )
 
 
 def _write_heartbeat(workspace_root: Path, content: str) -> Path:
@@ -60,7 +66,9 @@ def _write_heartbeat(workspace_root: Path, content: str) -> Path:
     return path
 
 
-def test_scheduler_skips_quietly_when_heartbeat_has_no_actionable_task(tmp_path: Path) -> None:
+def test_scheduler_skips_quietly_when_heartbeat_has_no_actionable_task(
+    tmp_path: Path,
+) -> None:
     agent = _agent(tmp_path)
     _write_heartbeat(agent.workspace_root, "# Heartbeat\n\n<!-- comment only -->\n")
     kernel = _FakeKernelClient()
@@ -86,7 +94,9 @@ def test_scheduler_runs_interval_schedule_and_persists_last_due(tmp_path: Path) 
     )
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
     kernel = _FakeKernelClient()
-    scheduler = HeartbeatScheduler(agents=(agent,), kernel_client=kernel, state_store=state_store)
+    scheduler = HeartbeatScheduler(
+        agents=(agent,), kernel_client=kernel, state_store=state_store
+    )
 
     first = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
     second = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 10, tzinfo=UTC)))
@@ -96,10 +106,15 @@ def test_scheduler_runs_interval_schedule_and_persists_last_due(tmp_path: Path) 
     assert second.triggered_runs == ()
     assert len(third.triggered_runs) == 1
     assert len(kernel.sent_messages) == 2
-    assert state_store.load().agents[agent.agent_id].last_due_at == "2026-03-11T09:30:00+00:00"
+    assert (
+        state_store.load().agents[agent.agent_id].last_due_at
+        == "2026-03-11T09:30:00+00:00"
+    )
 
 
-def test_scheduler_runs_at_schedule_only_once_even_across_restart(tmp_path: Path) -> None:
+def test_scheduler_runs_at_schedule_only_once_even_across_restart(
+    tmp_path: Path,
+) -> None:
     agent = _agent(tmp_path)
     _write_heartbeat(
         agent.workspace_root,
@@ -108,10 +123,14 @@ def test_scheduler_runs_at_schedule_only_once_even_across_restart(tmp_path: Path
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
     kernel = _FakeKernelClient()
 
-    scheduler = HeartbeatScheduler(agents=(agent,), kernel_client=kernel, state_store=state_store)
+    scheduler = HeartbeatScheduler(
+        agents=(agent,), kernel_client=kernel, state_store=state_store
+    )
     first = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
 
-    restarted = HeartbeatScheduler(agents=(agent,), kernel_client=kernel, state_store=state_store)
+    restarted = HeartbeatScheduler(
+        agents=(agent,), kernel_client=kernel, state_store=state_store
+    )
     second = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 10, 0, tzinfo=UTC)))
 
     assert len(first.triggered_runs) == 1
@@ -148,14 +167,22 @@ def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) 
     )
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
     first_kernel = _FakeKernelClient()
-    first_scheduler = HeartbeatScheduler(agents=(agent,), kernel_client=first_kernel, state_store=state_store)
+    first_scheduler = HeartbeatScheduler(
+        agents=(agent,), kernel_client=first_kernel, state_store=state_store
+    )
 
-    first = asyncio.run(first_scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+    first = asyncio.run(
+        first_scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
+    )
     assert len(first.triggered_runs) == 1
 
     second_kernel = _FakeKernelClient()
-    restarted = HeartbeatScheduler(agents=(agent,), kernel_client=second_kernel, state_store=state_store)
-    catch_up = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC)))
+    restarted = HeartbeatScheduler(
+        agents=(agent,), kernel_client=second_kernel, state_store=state_store
+    )
+    catch_up = asyncio.run(
+        restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC))
+    )
 
     assert [run.due_at.isoformat() for run in catch_up.triggered_runs] == [
         "2026-03-11T09:30:00+00:00",
@@ -165,7 +192,9 @@ def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) 
     assert len(second_kernel.sent_messages) == 3
 
 
-def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(tmp_path: Path) -> None:
+def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(
+    tmp_path: Path,
+) -> None:
     agent = _agent(tmp_path)
     _write_heartbeat(
         agent.workspace_root,
@@ -182,7 +211,9 @@ def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(tmp_path: Pa
 
 
 @pytest.mark.asyncio
-async def test_scheduler_tick_from_async_context_completes_without_event_loop_error(tmp_path: Path) -> None:
+async def test_scheduler_tick_from_async_context_completes_without_event_loop_error(
+    tmp_path: Path,
+) -> None:
     """tick() must be awaitable from an async context without RuntimeError.
 
     Regression: _KernelClientShim used run_until_complete inside an already-running

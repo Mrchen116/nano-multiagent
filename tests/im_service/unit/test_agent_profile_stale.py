@@ -5,6 +5,7 @@ Covers:
 - list_runtime_selectable_profiles[_for_owner] filters stale rows
 - DB migration idempotency for is_stale / staled_at columns
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -19,7 +20,10 @@ from IM.infra.repositories import AgentProfileRepository, NodeRepository
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _upsert(profiles: AgentProfileRepository, *, agent_id: str, node_id: str, owner_id: str = "") -> None:
+
+def _upsert(
+    profiles: AgentProfileRepository, *, agent_id: str, node_id: str, owner_id: str = ""
+) -> None:
     profiles.upsert_profile(
         agent_id=agent_id,
         owner_id=owner_id,
@@ -48,6 +52,7 @@ def repos(tmp_path: Path) -> tuple[AgentProfileRepository, NodeRepository]:
 # mark_stale_for_node – empty advertise
 # ---------------------------------------------------------------------------
 
+
 def test_mark_stale_for_node_empty_advertise_marks_all(repos) -> None:
     """When agents=[] all active profiles for that node become stale."""
     profiles, nodes = repos
@@ -66,6 +71,7 @@ def test_mark_stale_for_node_empty_advertise_marks_all(repos) -> None:
 # ---------------------------------------------------------------------------
 # mark_stale_for_node – non-empty advertise
 # ---------------------------------------------------------------------------
+
 
 def test_mark_stale_for_node_partial_advertise(repos) -> None:
     """Only agents absent from advertised list become stale; listed ones stay active."""
@@ -110,6 +116,7 @@ def test_mark_stale_for_node_does_not_touch_other_nodes(repos) -> None:
 # Revive path: upsert clears stale
 # ---------------------------------------------------------------------------
 
+
 def test_upsert_clears_stale_flag(repos) -> None:
     """upsert_profile on a previously stale agent resets is_stale to False."""
     profiles, nodes = repos
@@ -126,6 +133,7 @@ def test_upsert_clears_stale_flag(repos) -> None:
 # ---------------------------------------------------------------------------
 # list_runtime_selectable – stale filter
 # ---------------------------------------------------------------------------
+
 
 def test_list_runtime_selectable_excludes_stale(repos) -> None:
     """list_runtime_selectable_profiles must not return stale agents."""
@@ -144,6 +152,7 @@ def test_list_runtime_selectable_for_owner_excludes_stale(repos) -> None:
     profiles, nodes = repos
     from IM.infra.repositories import UserRepository
     from IM.infra.db import connect
+
     # reuse the same connection from repos fixture via the profiles object
     users = UserRepository(profiles._connection)
     alice = users.create_user(username="alice", display_name="Alice")
@@ -153,13 +162,16 @@ def test_list_runtime_selectable_for_owner_excludes_stale(repos) -> None:
     _upsert(profiles, agent_id="X", node_id="N", owner_id=alice.owner_id)
     profiles.mark_stale_for_node(node_id="N", advertised_agent_ids=["A"])
 
-    visible = profiles.list_runtime_selectable_profiles_for_owner(owner_id=alice.owner_id)
+    visible = profiles.list_runtime_selectable_profiles_for_owner(
+        owner_id=alice.owner_id
+    )
     assert [p.agent_id for p in visible] == ["A"]
 
 
 # ---------------------------------------------------------------------------
 # First register on empty node – no-op
 # ---------------------------------------------------------------------------
+
 
 def test_mark_stale_no_op_on_fresh_node(repos) -> None:
     """When the node has no prior agent_profiles, reconcile affects 0 rows."""
@@ -173,12 +185,16 @@ def test_mark_stale_no_op_on_fresh_node(repos) -> None:
 # DB migration idempotency
 # ---------------------------------------------------------------------------
 
+
 def test_initialize_schema_idempotent_with_stale_columns(tmp_path: Path) -> None:
     """Calling initialize_schema multiple times must not raise on the new stale columns."""
     connection = connect(tmp_path / "im.sqlite3")
     initialize_schema(connection)
     # second call must succeed without errors
     initialize_schema(connection)
-    col_names = {row["name"] for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()}
+    col_names = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()
+    }
     assert "is_stale" in col_names
     assert "staled_at" in col_names

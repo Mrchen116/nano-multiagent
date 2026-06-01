@@ -29,6 +29,7 @@ from tests.unit._cli_kernel_stubs import (
 # Additional stubs for command tests
 # ---------------------------------------------------------------------------
 
+
 class _StopReasonOnlyKernelStub(_BaseKernelStub):
     def submit(self, *, session_id, parts, **kwargs):
         text = ""
@@ -41,12 +42,25 @@ class _StopReasonOnlyKernelStub(_BaseKernelStub):
 
     def stream(self, session_id, *, after_sequence=0):
         from tests.unit._cli_kernel_stubs import _AsyncIterEvents
+
         text = self._last_text
-        return _AsyncIterEvents([
-            {"event": "assistant_message", "run_id": "run-1", "session_id": session_id, "content": f"echo:{text}"},
-            {"event": "run_status", "run_id": "run-1", "session_id": session_id,
-             "status": "completed", "stop_reason": "stop"},
-        ])
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "assistant_message",
+                    "run_id": "run-1",
+                    "session_id": session_id,
+                    "content": f"echo:{text}",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run-1",
+                    "session_id": session_id,
+                    "status": "completed",
+                    "stop_reason": "stop",
+                },
+            ]
+        )
 
 
 class _ScriptedReplInputReader:
@@ -56,6 +70,7 @@ class _ScriptedReplInputReader:
 
     def read_line(self, prompt: str, history: tuple[str, ...] | list[str]) -> str:
         from coding_cli.input import repl_commands
+
         keys = next(self._line_iterator)
         key_iterator = iter(keys)
 
@@ -97,7 +112,9 @@ def test_cli_help_mentions_repl_editing_budget_and_error_layers() -> None:
 def test_run_cli_repl_supports_required_commands(tmp_path) -> None:
     stub = _BaseKernelStub()
     output = io.StringIO()
-    inputs = iter(["/help", "/new", "hello repl", "/session", "/tools", "/compact", "/exit"])
+    inputs = iter(
+        ["/help", "/new", "hello repl", "/session", "/tools", "/compact", "/exit"]
+    )
 
     exit_code = run_cli(
         [],
@@ -145,7 +162,9 @@ def test_run_cli_repl_use_switches_active_session(tmp_path) -> None:
     assert ("submit", {"session_id": "sess_manual", "text": "ping"}) in stub.calls
 
 
-def test_run_cli_repl_session_transitions_render_active_copy_without_json(tmp_path) -> None:
+def test_run_cli_repl_session_transitions_render_active_copy_without_json(
+    tmp_path,
+) -> None:
     stub = _BaseKernelStub()
     output = io.StringIO()
     inputs = iter(["hello auto", "/new", "/use sess_manual", "/exit"])
@@ -216,7 +235,9 @@ def test_run_cli_repl_command_errors_include_actionable_suggestions(tmp_path) ->
 def test_run_cli_repl_absolute_path_input_is_not_treated_as_command(tmp_path) -> None:
     stub = _BaseKernelStub()
     output = io.StringIO()
-    path_line = "/Users/czj/Repos/nano-multiagent/Snipaste_2026-03-03_12-54-14.png这个呢"
+    path_line = (
+        "/Users/czj/Repos/nano-multiagent/Snipaste_2026-03-03_12-54-14.png这个呢"
+    )
     inputs = iter(["/new", path_line, "/exit"])
 
     exit_code = run_cli(
@@ -421,7 +442,9 @@ def test_run_cli_repl_prints_turn_llm_usage_when_available(tmp_path) -> None:
     assert "[usage]" not in text
 
 
-def test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason(tmp_path) -> None:
+def test_run_cli_repl_infers_completed_state_when_sync_payload_has_stop_reason(
+    tmp_path,
+) -> None:
     stub = _StopReasonOnlyKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "hello", "/exit"])

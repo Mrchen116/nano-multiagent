@@ -9,11 +9,23 @@ import httpx
 import pytest
 
 from agent.core.types import ToolSpec
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+    LLMToolCall,
+)
 from agent.platform.llm.providers.anthropic import AnthropicClient, AnthropicMapper
-from agent.platform.llm.providers.openai_compat import OpenAICompatClient, OpenAICompatMapper
-from agent.platform.llm.providers.anthropic.client import _should_trust_env as anthropic_should_trust_env
-from agent.platform.llm.providers.openai_compat.client import _should_trust_env as openai_should_trust_env
+from agent.platform.llm.providers.openai_compat import (
+    OpenAICompatClient,
+    OpenAICompatMapper,
+)
+from agent.platform.llm.providers.anthropic.client import (
+    _should_trust_env as anthropic_should_trust_env,
+)
+from agent.platform.llm.providers.openai_compat.client import (
+    _should_trust_env as openai_should_trust_env,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,7 +127,11 @@ def _build_tool_request() -> LLMGenerateRequest:
             LLMMessage(
                 role="assistant",
                 content="",
-                tool_calls=(LLMToolCall(call_id="call_1", name="read", arguments={"path": "README.md"}),),
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="call_1", name="read", arguments={"path": "README.md"}
+                    ),
+                ),
             ),
             LLMMessage(role="tool", content="file content", tool_call_id="call_1"),
         ),
@@ -145,7 +161,11 @@ def _build_tool_image_request() -> LLMGenerateRequest:
             LLMMessage(
                 role="assistant",
                 content="",
-                tool_calls=(LLMToolCall(call_id="call_1", name="read", arguments={"path": "pixel.png"}),),
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="call_1", name="read", arguments={"path": "pixel.png"}
+                    ),
+                ),
             ),
             LLMMessage(
                 role="tool",
@@ -156,7 +176,10 @@ def _build_tool_image_request() -> LLMGenerateRequest:
                         "name": "read",
                         "output": {
                             "content": [
-                                {"type": "text", "text": "Image: pixel.png (image/png, 68 bytes)"},
+                                {
+                                    "type": "text",
+                                    "text": "Image: pixel.png (image/png, 68 bytes)",
+                                },
                                 {
                                     "type": "image",
                                     "mime_type": "image/png",
@@ -199,7 +222,9 @@ def test_provider_mapper_response_contract(provider_case: ProviderContractCase) 
     provider_case.response_assertion(response)
 
 
-def test_provider_mapper_tool_request_contract(provider_case: ProviderContractCase) -> None:
+def test_provider_mapper_tool_request_contract(
+    provider_case: ProviderContractCase,
+) -> None:
     payload = provider_case.mapper.map_generate_request(_build_tool_request())
 
     assert isinstance(payload, dict)
@@ -228,7 +253,7 @@ def test_provider_mapper_tool_request_contract(provider_case: ProviderContractCa
                     "type": "function",
                     "function": {
                         "name": "read",
-                        "arguments": "{\"path\":\"README.md\"}",
+                        "arguments": '{"path":"README.md"}',
                     },
                 }
             ],
@@ -273,7 +298,9 @@ def test_provider_mapper_tool_request_contract(provider_case: ProviderContractCa
         }
 
 
-def test_provider_mapper_tool_request_preserves_image_parts(provider_case: ProviderContractCase) -> None:
+def test_provider_mapper_tool_request_preserves_image_parts(
+    provider_case: ProviderContractCase,
+) -> None:
     payload = provider_case.mapper.map_generate_request(_build_tool_image_request())
 
     if provider_case.provider == "openai_compat":
@@ -283,7 +310,10 @@ def test_provider_mapper_tool_request_preserves_image_parts(provider_case: Provi
             "tool_call_id": "call_1",
             "content": [
                 {"type": "text", "text": "Image: pixel.png (image/png, 68 bytes)"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64,abcd"}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,abcd"},
+                },
             ],
         }
     else:
@@ -293,7 +323,10 @@ def test_provider_mapper_tool_request_preserves_image_parts(provider_case: Provi
         assert tool_result["type"] == "tool_result"
         assert tool_result["tool_use_id"] == "call_1"
         blocks = tool_result["content"]
-        assert blocks[0] == {"type": "text", "text": "Image: pixel.png (image/png, 68 bytes)"}
+        assert blocks[0] == {
+            "type": "text",
+            "text": "Image: pixel.png (image/png, 68 bytes)",
+        }
         assert blocks[1] == {
             "type": "image",
             "source": {
@@ -304,7 +337,9 @@ def test_provider_mapper_tool_request_preserves_image_parts(provider_case: Provi
         }
 
 
-def test_provider_mapper_tool_response_contract(provider_case: ProviderContractCase) -> None:
+def test_provider_mapper_tool_response_contract(
+    provider_case: ProviderContractCase,
+) -> None:
     if provider_case.provider == "openai_compat":
         payload = {
             "model": "codex_oauth:gpt-5.5",
@@ -319,7 +354,7 @@ def test_provider_mapper_tool_response_contract(provider_case: ProviderContractC
                                 "type": "function",
                                 "function": {
                                     "name": "read",
-                                    "arguments": "{\"path\":\"README.md\"}",
+                                    "arguments": '{"path":"README.md"}',
                                 },
                             }
                         ],
@@ -337,7 +372,12 @@ def test_provider_mapper_tool_response_contract(provider_case: ProviderContractC
             "stop_reason": "tool_use",
             "content": [
                 {"type": "text", "text": "checking"},
-                {"type": "tool_use", "id": "call_1", "name": "read", "input": {"path": "README.md"}},
+                {
+                    "type": "tool_use",
+                    "id": "call_1",
+                    "name": "read",
+                    "input": {"path": "README.md"},
+                },
             ],
         }
 
@@ -355,7 +395,9 @@ def test_provider_mapper_tool_response_contract(provider_case: ProviderContractC
         assert response.finish_reason == "tool_use"
 
 
-async def test_provider_client_contract_non_stream_and_headers(provider_case: ProviderContractCase) -> None:
+async def test_provider_client_contract_non_stream_and_headers(
+    provider_case: ProviderContractCase,
+) -> None:
     observed: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -383,9 +425,13 @@ async def test_provider_client_contract_non_stream_and_headers(provider_case: Pr
         assert observed["headers"]["anthropic-version"] == "2023-06-01"
 
 
-async def test_provider_client_contract_streaming_supported(provider_case: ProviderContractCase) -> None:
+async def test_provider_client_contract_streaming_supported(
+    provider_case: ProviderContractCase,
+) -> None:
     """Streaming is now the default; clients return AsyncIterator[LLMMessage]."""
-    client = provider_case.make_client(httpx.MockTransport(lambda _: httpx.Response(500)))
+    client = provider_case.make_client(
+        httpx.MockTransport(lambda _: httpx.Response(500))
+    )
 
     # generate() returns an async iterator, not a response directly
     result = client.generate(_build_request())
@@ -470,7 +516,10 @@ def _assert_openai_request(payload: dict[str, Any]) -> None:
     assert payload["temperature"] == 0.2
     assert payload["max_tokens"] == 64
     assert payload["messages"][0] == {"role": "system", "content": "You are concise."}
-    assert payload["messages"][1] == {"role": "user", "content": "reply with one word: pong"}
+    assert payload["messages"][1] == {
+        "role": "user",
+        "content": "reply with one word: pong",
+    }
 
 
 def _assert_anthropic_request(payload: dict[str, Any]) -> None:

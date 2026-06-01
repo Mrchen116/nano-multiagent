@@ -66,12 +66,16 @@ def build_tool_registry(
     register_builtin_tools(registry, runtime=runtime, wiring=wiring)
 
     if product_tool_dir is not None:
-        _load_tools_from_single_dir(tool_root=product_tool_dir, registry=registry, replace=True)
+        _load_tools_from_single_dir(
+            tool_root=product_tool_dir, registry=registry, replace=True
+        )
 
     if config_resolver is not None:
         # Load from resolver-specified roots; legacy .nano/tools is NOT searched.
         for tool_root in reversed(config_resolver.user_tool_roots()):
-            _load_tools_from_single_dir(tool_root=tool_root, registry=registry, replace=True)
+            _load_tools_from_single_dir(
+                tool_root=tool_root, registry=registry, replace=True
+            )
     else:
         load_tools_from_directory(repo_root=repo_root, registry=registry)
 
@@ -100,7 +104,9 @@ def discover_tool_files(repo_root: Path) -> tuple[Path, ...]:
     return tuple(sorted(files))
 
 
-def _load_tools_from_single_dir(*, tool_root: Path, registry: ToolRegistry, replace: bool = False) -> tuple[str, ...]:
+def _load_tools_from_single_dir(
+    *, tool_root: Path, registry: ToolRegistry, replace: bool = False
+) -> tuple[str, ...]:
     """Import tool modules from a single directory and register discovered tools.
 
     Args:
@@ -125,7 +131,9 @@ def _load_tools_from_single_dir(*, tool_root: Path, registry: ToolRegistry, repl
     return tuple(loaded_names)
 
 
-def load_tools_from_directory(*, repo_root: Path, registry: ToolRegistry) -> tuple[str, ...]:
+def load_tools_from_directory(
+    *, repo_root: Path, registry: ToolRegistry
+) -> tuple[str, ...]:
     """Import user tool modules and register exported tool objects."""
 
     loaded_names: list[str] = []

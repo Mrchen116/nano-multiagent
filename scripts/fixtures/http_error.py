@@ -32,7 +32,9 @@ _MESSAGES = {
 
 def _build_handler(status_code: int) -> type[http.server.BaseHTTPRequestHandler]:
     err_type, err_msg = _MESSAGES.get(status_code, ("api_error", f"http {status_code}"))
-    body = json.dumps({"type": "error", "error": {"type": err_type, "message": err_msg}})
+    body = json.dumps(
+        {"type": "error", "error": {"type": err_type, "message": err_msg}}
+    )
 
     class _Handler(http.server.BaseHTTPRequestHandler):
         def do_POST(self) -> None:  # noqa: N802
@@ -58,7 +60,9 @@ def main() -> int:
     port = int(sys.argv[1])
     status_code = int(sys.argv[2])
     server = http.server.HTTPServer(("127.0.0.1", port), _build_handler(status_code))
-    sys.stderr.write(f"http_error fixture listening on 127.0.0.1:{port} (status={status_code})\n")
+    sys.stderr.write(
+        f"http_error fixture listening on 127.0.0.1:{port} (status={status_code})\n"
+    )
     sys.stderr.flush()
     try:
         server.serve_forever()

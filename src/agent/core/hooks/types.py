@@ -58,13 +58,17 @@ INTERCEPT_EVENTS = frozenset(
         HookEventType.TOOL_RESULT.value,
     }
 )
-OBSERVE_EVENTS = frozenset({event.value for event in HookEventType} - set(INTERCEPT_EVENTS))
+OBSERVE_EVENTS = frozenset(
+    {event.value for event in HookEventType} - set(INTERCEPT_EVENTS)
+)
 ALL_HOOK_EVENTS = frozenset({event.value for event in HookEventType})
 
 HookEventName: TypeAlias = str
 HookPayload: TypeAlias = Mapping[str, Any]
 HookResult: TypeAlias = Mapping[str, Any] | None
-HookHandler: TypeAlias = Callable[[Mapping[str, Any], "HookContext"], HookResult | Awaitable[HookResult]]
+HookHandler: TypeAlias = Callable[
+    [Mapping[str, Any], "HookContext"], HookResult | Awaitable[HookResult]
+]
 HookSource: TypeAlias = Literal["builtin", "workspace", "runtime"]
 
 InputHookAction: TypeAlias = Literal["continue", "transform", "handled"]

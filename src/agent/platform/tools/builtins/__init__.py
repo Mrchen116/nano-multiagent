@@ -19,6 +19,22 @@ from .task_stop import TaskStopTool
 from .web_fetch import WebFetchTool
 from .write import WriteTool
 
+# MemoryTool and SkillManageTool are not in builtin_tools() (they need path-resolved args),
+# but they ARE exported here for product bootstrap to import without knowing the submodule.
+__all__ = [
+    "AgentTool",
+    "BashTool",
+    "EditTool",
+    "MemoryTool",
+    "ReadTool",
+    "SkillManageTool",
+    "TaskStopTool",
+    "WebFetchTool",
+    "WriteTool",
+    "builtin_tools",
+    "register_builtin_tools",
+]
+
 
 def builtin_tools(
     *,

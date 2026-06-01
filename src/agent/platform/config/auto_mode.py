@@ -108,8 +108,12 @@ def _parse_auto_mode_config(raw: dict[str, Any]) -> AutoModeConfig:
     defaults = AutoModeConfig()
 
     enabled = _coerce_bool(raw.get("enabled"), defaults.enabled)
-    dangerously_skip = _coerce_bool(raw.get("dangerously_skip_permissions"), defaults.dangerously_skip_permissions)
-    always_allow_tools = _coerce_str_tuple(raw.get("always_allow_tools"), defaults.always_allow_tools)
+    dangerously_skip = _coerce_bool(
+        raw.get("dangerously_skip_permissions"), defaults.dangerously_skip_permissions
+    )
+    always_allow_tools = _coerce_str_tuple(
+        raw.get("always_allow_tools"), defaults.always_allow_tools
+    )
     deny_limit = _coerce_int(raw.get("deny_limit"), defaults.deny_limit)
     ask_timeout_sec = _coerce_int(raw.get("ask_timeout_sec"), defaults.ask_timeout_sec)
     unattended_fallback = _coerce_literal(
@@ -123,7 +127,9 @@ def _parse_auto_mode_config(raw: dict[str, Any]) -> AutoModeConfig:
     if not isinstance(web_fetch_section, Mapping):
         web_fetch_section = {}
     web_fetch = WebFetchConfig(
-        preapproved_hosts_extra=_coerce_str_tuple(web_fetch_section.get("preapproved_hosts_extra"), ()),
+        preapproved_hosts_extra=_coerce_str_tuple(
+            web_fetch_section.get("preapproved_hosts_extra"), ()
+        ),
         deny_hosts=_coerce_str_tuple(web_fetch_section.get("deny_hosts"), ()),
         ask_hosts=_coerce_str_tuple(web_fetch_section.get("ask_hosts"), ()),
         allow_hosts=_coerce_str_tuple(web_fetch_section.get("allow_hosts"), ()),

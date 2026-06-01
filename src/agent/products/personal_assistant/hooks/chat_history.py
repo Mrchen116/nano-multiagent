@@ -97,8 +97,13 @@ def setup(hooks: Any) -> None:  # noqa: ANN401
         assistant_text = session_state.get("assistant_text", "")
 
         jsonl_path = Path(workspace_root) / "chat_history" / f"{ctx.session_id}.jsonl"
-        _append_line(jsonl_path, {"ts": _now_iso(), "role": "user", "content": user_text})
-        _append_line(jsonl_path, {"ts": _now_iso(), "role": "assistant", "content": assistant_text})
+        _append_line(
+            jsonl_path, {"ts": _now_iso(), "role": "user", "content": user_text}
+        )
+        _append_line(
+            jsonl_path,
+            {"ts": _now_iso(), "role": "assistant", "content": assistant_text},
+        )
         return None
 
     # Priority 50: run after communication_context (priority=200) but before defaults.

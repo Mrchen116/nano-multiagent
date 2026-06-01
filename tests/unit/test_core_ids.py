@@ -1,6 +1,12 @@
 import re
 
-from agent.core.ids import IdGenerator, make_message_id, make_session_id, make_tool_call_id, make_turn_id
+from agent.core.ids import (
+    IdGenerator,
+    make_message_id,
+    make_session_id,
+    make_tool_call_id,
+    make_turn_id,
+)
 
 
 def test_default_id_factory_generates_prefixed_ids() -> None:

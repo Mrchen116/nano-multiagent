@@ -25,6 +25,7 @@ from IM.infra.repositories import EventRepository, MessageRepository
 # Minimal helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_db() -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
@@ -40,7 +41,9 @@ def _insert_user(conn: sqlite3.Connection, user_id: str, username: str) -> None:
     conn.commit()
 
 
-def _insert_conversation(conn: sqlite3.Connection, cid: str, owner_id: str = "owner-1") -> None:
+def _insert_conversation(
+    conn: sqlite3.Connection, cid: str, owner_id: str = "owner-1"
+) -> None:
     conn.execute(
         "INSERT INTO conversations(id, title, owner_id, creator_id, is_pinned, is_muted, unread_count, created_at)"
         " VALUES (?,?,?,?,?,?,?,?)",
@@ -49,7 +52,9 @@ def _insert_conversation(conn: sqlite3.Connection, cid: str, owner_id: str = "ow
     conn.commit()
 
 
-def _insert_message(conn: sqlite3.Connection, msg_id: str, cid: str, sender_user_id: str) -> None:
+def _insert_message(
+    conn: sqlite3.Connection, msg_id: str, cid: str, sender_user_id: str
+) -> None:
     conn.execute(
         "INSERT INTO messages(id, conversation_id, sender_user_id, sender_type, content, delivery_status, created_at)"
         " VALUES (?,?,?,?,?,?,?)",
@@ -61,6 +66,7 @@ def _insert_message(conn: sqlite3.Connection, msg_id: str, cid: str, sender_user
 # ---------------------------------------------------------------------------
 # EventBridge — permission_request append (list semantics, bugfix-367)
 # ---------------------------------------------------------------------------
+
 
 class TestEventBridgePermissionRequest:
     """EventBridge.on_permission_request appends to list and emits WS event."""
@@ -94,7 +100,11 @@ class TestEventBridgePermissionRequest:
             "tool_input": {"command": "rm -rf /tmp/old"},
             "question": "Allow bash? Risky deletion",
             "options": [
-                {"id": "allow_once", "label": "Allow once", "description": "Allow this single action"},
+                {
+                    "id": "allow_once",
+                    "label": "Allow once",
+                    "description": "Allow this single action",
+                },
                 {"id": "deny", "label": "Deny", "description": "Block this action"},
             ],
         }
@@ -165,11 +175,19 @@ class TestEventBridgePermissionRequest:
 
         bridge.on_permission_request(
             message_id="msg-1",
-            permission_request={"request_id": "req-1", "tool_name": "bash", "question": "v1"},
+            permission_request={
+                "request_id": "req-1",
+                "tool_name": "bash",
+                "question": "v1",
+            },
         )
         bridge.on_permission_request(
             message_id="msg-1",
-            permission_request={"request_id": "req-1", "tool_name": "bash", "question": "v2"},
+            permission_request={
+                "request_id": "req-1",
+                "tool_name": "bash",
+                "question": "v2",
+            },
         )
 
         row = conn.execute(
@@ -214,7 +232,9 @@ class TestEventBridgePermissionRequest:
         persisted = json.loads(row["permission_request_json"])
         assert len(persisted) == 2
         assert persisted[0]["request_id"] == "req-a"
-        assert persisted[0]["status"] == "pending", "未指定 request_id 的条目状态不应被改"
+        assert persisted[0]["status"] == "pending", (
+            "未指定 request_id 的条目状态不应被改"
+        )
         assert persisted[1]["request_id"] == "req-b"
         assert persisted[1]["status"] == "resolved"
         assert persisted[1]["decision"] == "deny"
@@ -248,6 +268,7 @@ class TestEventBridgePermissionRequest:
 # ---------------------------------------------------------------------------
 # gateway_handler — streaming_delta permission_request / permission_resolved kinds
 # ---------------------------------------------------------------------------
+
 
 class TestGatewayHandlerPermissionKinds:
     """gateway_handler._handle_streaming_delta routes new permission kinds to EventBridge."""
@@ -328,7 +349,11 @@ class TestPermissionRestEndpoint:
     def _make_app(self, tmp_path) -> tuple[object, dict]:
         from IM.app import create_app
         from IM.infra.db import connect, initialize_schema
-        from IM.infra.repositories import AgentProfileRepository, MessageRepository, UserRepository
+        from IM.infra.repositories import (
+            AgentProfileRepository,
+            MessageRepository,
+            UserRepository,
+        )
         from fastapi.testclient import TestClient
 
         db_path = tmp_path / "im.db"
@@ -344,7 +369,11 @@ class TestPermissionRestEndpoint:
         with TestClient(app) as client:
             reg = client.post(
                 "/im/v1/auth/register",
-                json={"username": "alice", "password": "pw12345678", "display_name": "Alice"},
+                json={
+                    "username": "alice",
+                    "password": "pw12345678",
+                    "display_name": "Alice",
+                },
             )
             assert reg.status_code in (200, 201), f"register failed: {reg.text}"
             token = reg.json()["access_token"]
@@ -358,7 +387,9 @@ class TestPermissionRestEndpoint:
                 },
                 headers={"Authorization": f"Bearer {token}"},
             )
-            assert conv_resp.status_code in (200, 201), f"create conv failed: {conv_resp.text}"
+            assert conv_resp.status_code in (200, 201), (
+                f"create conv failed: {conv_resp.text}"
+            )
             conv_id = conv_resp.json()["id"]
 
         conn2 = connect(db_path)
@@ -387,9 +418,17 @@ class TestPermissionRestEndpoint:
         )
         conn2.close()
 
-        return app, {"owner_id": owner_id, "conv_id": conv_id, "msg_id": msg.id, "agent_id": "beta", "token": token}
+        return app, {
+            "owner_id": owner_id,
+            "conv_id": conv_id,
+            "msg_id": msg.id,
+            "agent_id": "beta",
+            "token": token,
+        }
 
-    def test_submit_decision_forwards_permission_response_to_gateway(self, tmp_path) -> None:
+    def test_submit_decision_forwards_permission_response_to_gateway(
+        self, tmp_path
+    ) -> None:
         from fastapi.testclient import TestClient
 
         app, ctx = self._make_app(tmp_path)

@@ -20,7 +20,9 @@ REPLAY_MAX_GAP = 2000
 REPLAY_WINDOW_MINUTES = 15
 
 
-def resolve_recipient_user_ids(connection: sqlite3.Connection, conversation_id: str) -> list[str]:
+def resolve_recipient_user_ids(
+    connection: sqlite3.Connection, conversation_id: str
+) -> list[str]:
     """返回应接收该会话事件的 user_id 列表（与 conversation_participants 一致）。"""
     rows = connection.execute(
         "SELECT user_id FROM conversation_participants WHERE conversation_id = ? ORDER BY rowid",
@@ -81,10 +83,14 @@ def list_events_for_user_resume(
     after_event_id: int,
 ) -> ReplayOutcome:
     """按用户可见会话与游标列出待回放事件；必要时要求客户端走 /sync。"""
-    row = connection.execute("SELECT MAX(event_id) AS m FROM conversation_events").fetchone()
+    row = connection.execute(
+        "SELECT MAX(event_id) AS m FROM conversation_events"
+    ).fetchone()
     max_id = int(row["m"] or 0) if row is not None else 0
     if after_event_id > 0 and max_id - after_event_id > REPLAY_MAX_GAP:
-        return ReplayOutcome(events=[], resync_required=True, reason="event_gap_exceeded")
+        return ReplayOutcome(
+            events=[], resync_required=True, reason="event_gap_exceeded"
+        )
 
     cutoff = replay_cutoff_iso()
     rows = connection.execute(
@@ -104,7 +110,11 @@ def list_events_for_user_resume(
 
     # 若游标过旧导致时间窗内没有记录但库里有更新，要求全量对齐
     if after_event_id > 0 and not rows and max_id > after_event_id:
-        return ReplayOutcome(events=[], resync_required=True, reason="cursor_stale_or_outside_replay_window")
+        return ReplayOutcome(
+            events=[],
+            resync_required=True,
+            reason="cursor_stale_or_outside_replay_window",
+        )
 
     events = [
         ConversationEvent(
@@ -122,7 +132,9 @@ def list_events_for_user_resume(
 
 
 def global_max_event_id(connection: sqlite3.Connection) -> int:
-    row = connection.execute("SELECT MAX(event_id) AS m FROM conversation_events").fetchone()
+    row = connection.execute(
+        "SELECT MAX(event_id) AS m FROM conversation_events"
+    ).fetchone()
     if row is None or row["m"] is None:
         return 0
     return int(row["m"])
@@ -222,7 +234,11 @@ async def scan_and_flip_stale_nodes(
     Pulled out of the long-running task so unit tests can invoke a single pass
     directly without sleeping. The loop in ``run_offline_guard`` wraps this.
     """
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds)).isoformat().replace("+00:00", "Z")
+    cutoff = (
+        (datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     rows = node_repository._connection.execute(  # noqa: SLF001
         """
         SELECT node_id FROM nodes
@@ -234,7 +250,9 @@ async def scan_and_flip_stale_nodes(
     ).fetchall()
     flipped = 0
     for row in rows:
-        await handler.force_mark_offline(node_id=str(row["node_id"]), reason="heartbeat_timeout")
+        await handler.force_mark_offline(
+            node_id=str(row["node_id"]), reason="heartbeat_timeout"
+        )
         flipped += 1
     return flipped
 
@@ -295,7 +313,9 @@ async def serve_user_websocket(
         except json.JSONDecodeError:
             after_event_id = 0
 
-        outcome = list_events_for_user_resume(connection, user_id=user_id, after_event_id=after_event_id)
+        outcome = list_events_for_user_resume(
+            connection, user_id=user_id, after_event_id=after_event_id
+        )
         if outcome.resync_required:
             await websocket.send_text(
                 json.dumps(
@@ -317,11 +337,19 @@ async def serve_user_websocket(
                 continue
             op = msg.get("op")
             if op == "ping":
-                await websocket.send_text(json.dumps({"op": "pong"}, ensure_ascii=True, separators=(",", ":")))
+                await websocket.send_text(
+                    json.dumps({"op": "pong"}, ensure_ascii=True, separators=(",", ":"))
+                )
             elif op == "resume":
                 raw_after = msg.get("after_event_id", 0)
-                next_after = int(raw_after) if isinstance(raw_after, int) and raw_after >= 0 else 0
-                again = list_events_for_user_resume(connection, user_id=user_id, after_event_id=next_after)
+                next_after = (
+                    int(raw_after)
+                    if isinstance(raw_after, int) and raw_after >= 0
+                    else 0
+                )
+                again = list_events_for_user_resume(
+                    connection, user_id=user_id, after_event_id=next_after
+                )
                 if again.resync_required:
                     await websocket.send_text(
                         json.dumps(

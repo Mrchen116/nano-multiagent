@@ -19,10 +19,14 @@ class SessionRunQueue:
     """
 
     def __init__(self) -> None:
-        self._queues: dict[str, deque[tuple[asyncio.Future[T], Callable[[], Awaitable[T]]]]] = {}
+        self._queues: dict[
+            str, deque[tuple[asyncio.Future[T], Callable[[], Awaitable[T]]]]
+        ] = {}
         self._active_sessions: set[str] = set()
 
-    async def submit(self, session_key: str, operation: Callable[[], Awaitable[T]]) -> T:
+    async def submit(
+        self, session_key: str, operation: Callable[[], Awaitable[T]]
+    ) -> T:
         """Queue one coroutine factory under the given session key.
 
         Args:

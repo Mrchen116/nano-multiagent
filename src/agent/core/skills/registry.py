@@ -62,7 +62,10 @@ _BLOCK_SCALAR_MARKERS = frozenset({"|", "|-", "|+", ">", ">-", ">+"})
 def _parse_skill_metadata(skill_file: Path) -> SkillMetadata:
     resolved_file = skill_file.expanduser().resolve()
     frontmatter, body_lines = _extract_frontmatter_and_body(resolved_file)
-    name = _normalize_frontmatter_text(frontmatter.get("name")) or resolved_file.parent.name
+    name = (
+        _normalize_frontmatter_text(frontmatter.get("name"))
+        or resolved_file.parent.name
+    )
     raw_desc = _normalize_frontmatter_text(frontmatter.get("description"))
     # 历史 bug：`description: |` 被误解析为字面量 "|"；块标量需在 frontmatter 内吞后续缩进行的正文
     if raw_desc in _BLOCK_SCALAR_MARKERS:
@@ -105,7 +108,9 @@ def _dedent_indented_block(lines: Sequence[str]) -> str:
     return "\n".join(parts).strip()
 
 
-def _extract_frontmatter_and_body(skill_file: Path) -> tuple[Mapping[str, str], tuple[str, ...]]:
+def _extract_frontmatter_and_body(
+    skill_file: Path,
+) -> tuple[Mapping[str, str], tuple[str, ...]]:
     text = skill_file.read_text(encoding="utf-8", errors="replace")
     lines = text.splitlines()
     if not lines:
@@ -158,7 +163,11 @@ def _normalize_frontmatter_text(value: str | None) -> str:
     if value is None:
         return ""
     normalized = value.strip()
-    if len(normalized) >= 2 and normalized[0] == normalized[-1] and normalized[0] in {'"', "'"}:
+    if (
+        len(normalized) >= 2
+        and normalized[0] == normalized[-1]
+        and normalized[0] in {'"', "'"}
+    ):
         normalized = normalized[1:-1].strip()
     return normalized
 

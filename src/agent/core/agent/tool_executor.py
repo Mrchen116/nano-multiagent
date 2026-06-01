@@ -5,14 +5,13 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping, Protocol
 
-from agent.core.types import Message, ToolCall, ToolResult
+from agent.core.types import ToolCall, ToolResult
 
 
 class _ToolRegistryLike(Protocol):
     """Minimal registry surface needed by StreamingToolExecutor."""
 
-    def get(self, name: str) -> Any | None:
-        ...
+    def get(self, name: str) -> Any | None: ...
 
     async def execute(
         self,
@@ -21,8 +20,7 @@ class _ToolRegistryLike(Protocol):
         *,
         hook_context: Any | None = None,
         session_file_state: Any | None = None,
-    ) -> Mapping[str, Any]:
-        ...
+    ) -> Mapping[str, Any]: ...
 
 
 @dataclass
@@ -78,9 +76,7 @@ class StreamingToolExecutor:
             return False
         return tool_name not in self._tool_execution_allowlist
 
-    def add_tool(
-        self, tool_call: ToolCall, *, hook_context: Any | None = None
-    ) -> None:
+    def add_tool(self, tool_call: ToolCall, *, hook_context: Any | None = None) -> None:
         """Enqueue a tool call when its content_block completes in the stream."""
         tool = self._registry.get(tool_call.name)
         safe_method = getattr(tool, "is_concurrency_safe", None)
@@ -89,7 +85,9 @@ class StreamingToolExecutor:
             if tool is not None and callable(safe_method)
             else bool(safe_method)
         )
-        item = _QueuedTool(tool_call=tool_call, is_safe=is_safe, hook_context=hook_context)
+        item = _QueuedTool(
+            tool_call=tool_call, is_safe=is_safe, hook_context=hook_context
+        )
         self._queue.append(item)
         asyncio.create_task(self._process_queue())
 
@@ -132,7 +130,9 @@ class StreamingToolExecutor:
         item._started_at_ns = time.perf_counter_ns()
         try:
             if self._should_cancel(item):
-                item.result = self._synthetic_error(item, "cancelled by sibling bash error")
+                item.result = self._synthetic_error(
+                    item, "cancelled by sibling bash error"
+                )
                 item.status = "completed"
                 item._event.set()
                 await self._process_queue()
@@ -164,7 +164,9 @@ class StreamingToolExecutor:
                 session_file_state=self._session_file_state,
             )
             if self._should_cancel(item):
-                item.result = self._synthetic_error(item, "cancelled by sibling bash error")
+                item.result = self._synthetic_error(
+                    item, "cancelled by sibling bash error"
+                )
             else:
                 item.result = ToolResult(
                     call_id=item.tool_call.call_id,
@@ -194,7 +196,9 @@ class StreamingToolExecutor:
                 self._errored_tool_name = item.tool_call.name
                 self._sibling_event.set()
         finally:
-            item.duration_ms = (time.perf_counter_ns() - item._started_at_ns) // 1_000_000
+            item.duration_ms = (
+                time.perf_counter_ns() - item._started_at_ns
+            ) // 1_000_000
             if item.result is not None:
                 # update result with final duration
                 item.result = ToolResult(

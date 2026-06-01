@@ -58,7 +58,9 @@ def test_truncate_history_returns_original_when_max_context_messages_is_zero() -
     assert policies.truncate_history(messages) == messages
 
 
-def test_truncate_history_returns_original_when_max_context_messages_is_negative() -> None:
+def test_truncate_history_returns_original_when_max_context_messages_is_negative() -> (
+    None
+):
     """max_context_messages<0 也视为无限制，返回原始 messages。"""
     policies = AgentPolicies(max_context_messages=-1)
     messages = ("m1", "m2", "m3")

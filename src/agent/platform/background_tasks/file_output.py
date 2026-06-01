@@ -6,7 +6,6 @@ import threading
 from pathlib import Path
 from typing import Literal
 
-from agent.core.background_tasks.interfaces import BackgroundTaskOutput
 
 BACKGROUND_BASH_MAX_OUTPUT_BYTES = 256 * 1024 * 1024  # 256 MiB
 
@@ -33,7 +32,9 @@ class BashFileOutput:
             self._handles[task_id] = _OutputHandle(path=path, bytes_written=0)
         return path
 
-    def append(self, task_id: str, text: str, *, stream: Literal["stdout", "stderr"]) -> None:
+    def append(
+        self, task_id: str, text: str, *, stream: Literal["stdout", "stderr"]
+    ) -> None:
         with self._lock:
             handle = self._handles.get(task_id)
         if handle is None:
@@ -42,7 +43,10 @@ class BashFileOutput:
         chunk = prefix + text
         chunk_bytes = chunk.encode("utf-8")
         with handle.lock:
-            if handle.bytes_written + len(chunk_bytes) > BACKGROUND_BASH_MAX_OUTPUT_BYTES:
+            if (
+                handle.bytes_written + len(chunk_bytes)
+                > BACKGROUND_BASH_MAX_OUTPUT_BYTES
+            ):
                 if not handle.truncated:
                     handle.truncated = True
                     notice = "\n[output truncated: exceeded 256 MiB limit]\n"
@@ -58,7 +62,13 @@ class BashFileOutput:
         pass
 
     def _resolve_path(self, parent_session_id: str, task_id: str) -> Path:
-        return self._workspace_root / ".nano" / "background-tasks" / parent_session_id / f"{task_id}.output"
+        return (
+            self._workspace_root
+            / ".nano"
+            / "background-tasks"
+            / parent_session_id
+            / f"{task_id}.output"
+        )
 
 
 class _OutputHandle:

@@ -15,6 +15,7 @@ CC source: prompts.ts in claude-code repo.
 Important: this module is pure core — no imports from the platform or products
 layers (contract: tests/contract/test_core_no_platform_imports.py).
 """
+
 from __future__ import annotations
 
 from typing import Sequence
@@ -25,6 +26,7 @@ from agent.core.agent.prompt_sections.base import PromptContext, PromptSection
 # ---------------------------------------------------------------------------
 # Rendering helpers (internal)
 # ---------------------------------------------------------------------------
+
 
 def _format_tools(tools: Sequence) -> str:
     """Render available tools the same way as the legacy _format_available_tools."""
@@ -37,12 +39,14 @@ def _format_skills(skills: Sequence) -> str:
     """Render available skills the same way as format_available_skills_section."""
     # Lazily import from core.skills to avoid import-time side-effects.
     from agent.core.skills.formatter import format_available_skills_section  # noqa: PLC0415
+
     return format_available_skills_section(skills)
 
 
 # ---------------------------------------------------------------------------
 # Core segment definitions
 # ---------------------------------------------------------------------------
+
 
 # Provenance: CC-adapted — based on claude-code getSimpleSystemSection
 #   (prompts.ts:getSimpleSystemSection); kept: markdown rendering note,
@@ -320,8 +324,7 @@ def _render_runtime_footer(ctx: PromptContext) -> str:
         cwd_str = ctx.cwd or ""
 
     return (
-        f"Current date and time: {datetime_str}\n"
-        f"Current working directory: {cwd_str}"
+        f"Current date and time: {datetime_str}\nCurrent working directory: {cwd_str}"
     )
 
 
@@ -370,6 +373,7 @@ def _memory_block_enabled(ctx: PromptContext) -> bool:
     """Active when memory_content (M4 new) or memory_block (legacy) has content,
     or when render_mode is PREVIEW (always show placeholder in preview)."""
     from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+
     if ctx.render_mode == RenderMode.PREVIEW:
         return True  # Preview always shows the segment (with placeholder)
     return bool(ctx.memory_content) or bool(ctx.memory_block)
@@ -434,6 +438,7 @@ def _user_profile_block_enabled(ctx: PromptContext) -> bool:
     """Active when user_profile_content (M4 new) or user_profile_block (legacy) has content,
     or when render_mode is PREVIEW."""
     from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+
     if ctx.render_mode == RenderMode.PREVIEW:
         return True  # Preview always shows the segment
     return bool(ctx.user_profile_content) or bool(ctx.user_profile_block)
@@ -488,15 +493,15 @@ _CORE_USER_PROFILE_BLOCK = CORE_USER_PROFILE_BLOCK
 # Product build_<product>_system_prompt() functions import individual segment
 # objects (CORE_SYSTEM, CORE_MEMORY_GUIDANCE, etc.) to build an explicit list.
 CORE_SECTIONS: tuple[PromptSection, ...] = (
-    CORE_SYSTEM,           # core behaviour: system rules
-    CORE_ACTIONS_CARE,     # core behaviour: actions with care
-    CORE_TOOL_RULES,       # core behaviour: tool usage rules
-    CORE_TONE_STYLE,       # core behaviour: tone and style
-    CORE_SKILLS_LISTING,   # available skills listing (stable)
+    CORE_SYSTEM,  # core behaviour: system rules
+    CORE_ACTIONS_CARE,  # core behaviour: actions with care
+    CORE_TOOL_RULES,  # core behaviour: tool usage rules
+    CORE_TONE_STYLE,  # core behaviour: tone and style
+    CORE_SKILLS_LISTING,  # available skills listing (stable)
     CORE_MEMORY_GUIDANCE,  # self-evolution: memory usage guidance (gated)
     CORE_SKILLS_GUIDANCE,  # self-evolution: skill creation guidance (gated)
-    CORE_BACKGROUND_TASKS, # mechanism: background task notifications (gated)
-    CORE_RUNTIME_FOOTER,   # mechanism: datetime + cwd (stable per session)
-    CORE_MEMORY_BLOCK,     # volatile: MEMORY.md snapshot (cache_safe=False)
+    CORE_BACKGROUND_TASKS,  # mechanism: background task notifications (gated)
+    CORE_RUNTIME_FOOTER,  # mechanism: datetime + cwd (stable per session)
+    CORE_MEMORY_BLOCK,  # volatile: MEMORY.md snapshot (cache_safe=False)
     CORE_USER_PROFILE_BLOCK,  # volatile: USER.md snapshot (cache_safe=False)
 )

@@ -57,10 +57,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.end_headers()
 
-        chunk = (
-            "event: error\r\n"
-            f"data: {json.dumps(ERROR_PAYLOAD)}\r\n\r\n"
-        ).encode("utf-8")
+        chunk = (f"event: error\r\ndata: {json.dumps(ERROR_PAYLOAD)}\r\n\r\n").encode(
+            "utf-8"
+        )
         self.wfile.write(chunk)
         self.wfile.flush()
 

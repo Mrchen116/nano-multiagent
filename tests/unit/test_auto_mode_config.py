@@ -67,7 +67,9 @@ class TestLoadAutoModeConfig:
         workspace_dir = tmp_path / "workspace"
         global_dir.mkdir()
         workspace_dir.mkdir()
-        cfg = load_auto_mode_config(global_config_dir=global_dir, workspace_config_dir=workspace_dir)
+        cfg = load_auto_mode_config(
+            global_config_dir=global_dir, workspace_config_dir=workspace_dir
+        )
         assert cfg == AutoModeConfig()
 
     def test_loads_global_config(self, tmp_path):
@@ -80,8 +82,12 @@ class TestLoadAutoModeConfig:
                 "environment": ["Python project"],
             }
         }
-        (global_dir / "config.yaml").write_text(yaml.dump(config_data), encoding="utf-8")
-        cfg = load_auto_mode_config(global_config_dir=global_dir, workspace_config_dir=None)
+        (global_dir / "config.yaml").write_text(
+            yaml.dump(config_data), encoding="utf-8"
+        )
+        cfg = load_auto_mode_config(
+            global_config_dir=global_dir, workspace_config_dir=None
+        )
         assert cfg.allow == ("reading files",)
         assert cfg.soft_deny == ("deleting files",)
         assert cfg.environment == ("Python project",)
@@ -103,9 +109,15 @@ class TestLoadAutoModeConfig:
                 "dangerously_skip_permissions": True,
             }
         }
-        (global_dir / "config.yaml").write_text(yaml.dump(global_data), encoding="utf-8")
-        (workspace_dir / "config.yaml").write_text(yaml.dump(workspace_data), encoding="utf-8")
-        cfg = load_auto_mode_config(global_config_dir=global_dir, workspace_config_dir=workspace_dir)
+        (global_dir / "config.yaml").write_text(
+            yaml.dump(global_data), encoding="utf-8"
+        )
+        (workspace_dir / "config.yaml").write_text(
+            yaml.dump(workspace_data), encoding="utf-8"
+        )
+        cfg = load_auto_mode_config(
+            global_config_dir=global_dir, workspace_config_dir=workspace_dir
+        )
         # workspace wins on fields it declares
         assert cfg.allow == ("workspace rule",)
         assert cfg.dangerously_skip_permissions is True
@@ -115,8 +127,12 @@ class TestLoadAutoModeConfig:
     def test_missing_auto_mode_section_returns_defaults(self, tmp_path):
         global_dir = tmp_path / "global"
         global_dir.mkdir()
-        (global_dir / "config.yaml").write_text(yaml.dump({"other": "stuff"}), encoding="utf-8")
-        cfg = load_auto_mode_config(global_config_dir=global_dir, workspace_config_dir=None)
+        (global_dir / "config.yaml").write_text(
+            yaml.dump({"other": "stuff"}), encoding="utf-8"
+        )
+        cfg = load_auto_mode_config(
+            global_config_dir=global_dir, workspace_config_dir=None
+        )
         assert cfg == AutoModeConfig()
 
     def test_workspace_config_none_falls_back_to_global(self, tmp_path):
@@ -125,16 +141,21 @@ class TestLoadAutoModeConfig:
         (global_dir / "config.yaml").write_text(
             yaml.dump({"auto_mode": {"deny_limit": 7}}), encoding="utf-8"
         )
-        cfg = load_auto_mode_config(global_config_dir=global_dir, workspace_config_dir=None)
+        cfg = load_auto_mode_config(
+            global_config_dir=global_dir, workspace_config_dir=None
+        )
         assert cfg.deny_limit == 7
 
     def test_dangerously_skip_permissions_from_config(self, tmp_path):
         global_dir = tmp_path / "global"
         global_dir.mkdir()
         (global_dir / "config.yaml").write_text(
-            yaml.dump({"auto_mode": {"dangerously_skip_permissions": True}}), encoding="utf-8"
+            yaml.dump({"auto_mode": {"dangerously_skip_permissions": True}}),
+            encoding="utf-8",
         )
-        cfg = load_auto_mode_config(global_config_dir=global_dir, workspace_config_dir=None)
+        cfg = load_auto_mode_config(
+            global_config_dir=global_dir, workspace_config_dir=None
+        )
         assert cfg.dangerously_skip_permissions is True
 
     def test_always_allow_tools_from_config(self, tmp_path):
@@ -144,5 +165,7 @@ class TestLoadAutoModeConfig:
             yaml.dump({"auto_mode": {"always_allow_tools": ["my_tool", "other_tool"]}}),
             encoding="utf-8",
         )
-        cfg = load_auto_mode_config(global_config_dir=global_dir, workspace_config_dir=None)
+        cfg = load_auto_mode_config(
+            global_config_dir=global_dir, workspace_config_dir=None
+        )
         assert cfg.always_allow_tools == ("my_tool", "other_tool")

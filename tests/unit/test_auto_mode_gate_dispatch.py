@@ -36,11 +36,16 @@ from agent.platform.permissions.broker import PermissionBroker, PermissionDecisi
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _make_tool_with_check_permissions(behavior: str, decision_reason: dict | None = None):
+
+def _make_tool_with_check_permissions(
+    behavior: str, decision_reason: dict | None = None
+):
     """Build a mock tool that implements check_permissions returning given behavior."""
     tool = MagicMock()
     tool.check_permissions = MagicMock(
-        return_value=PermissionDecision(behavior=behavior, decision_reason=decision_reason)
+        return_value=PermissionDecision(
+            behavior=behavior, decision_reason=decision_reason
+        )
     )
     return tool
 
@@ -99,6 +104,7 @@ def _make_ctx(
     ctx.metadata = meta
 
     if call_model_result is not None:
+
         async def _call_model(**kwargs):
             return call_model_result
 
@@ -113,6 +119,7 @@ def _make_ctx(
 # ---------------------------------------------------------------------------
 # SAFE_TOOL_ALLOWLIST changes
 # ---------------------------------------------------------------------------
+
 
 class TestSafeToolAllowlistChanges:
     def test_web_fetch_removed_from_safe_allowlist(self):
@@ -136,7 +143,14 @@ class TestSafeToolAllowlistChanges:
         assert "agent" in SAFE_TOOL_ALLOWLIST
 
     def test_task_tools_still_in_safe_allowlist(self):
-        for tool in ("task_create", "task_get", "task_update", "task_list", "task_stop", "task_output"):
+        for tool in (
+            "task_create",
+            "task_get",
+            "task_update",
+            "task_list",
+            "task_stop",
+            "task_output",
+        ):
             assert tool in SAFE_TOOL_ALLOWLIST
 
     def test_send_message_still_in_safe_allowlist(self):
@@ -155,10 +169,12 @@ class TestSafeToolAllowlistChanges:
 # _detect_outside_workspace_path deleted
 # ---------------------------------------------------------------------------
 
+
 class TestDetectOutsideWorkspacePathDeleted:
     def test_detect_outside_workspace_path_not_exported(self):
         """_detect_outside_workspace_path must be deleted from auto_mode_gate."""
         import agent.platform.hooks.builtins.auto_mode_gate as gate_module
+
         assert not hasattr(gate_module, "_detect_outside_workspace_path"), (
             "_detect_outside_workspace_path must be deleted (Anchor F)"
         )
@@ -166,6 +182,7 @@ class TestDetectOutsideWorkspacePathDeleted:
     def test_write_tools_with_path_input_not_exported(self):
         """_WRITE_TOOLS_WITH_PATH_INPUT constant must be deleted from auto_mode_gate."""
         import agent.platform.hooks.builtins.auto_mode_gate as gate_module
+
         assert not hasattr(gate_module, "_WRITE_TOOLS_WITH_PATH_INPUT"), (
             "_WRITE_TOOLS_WITH_PATH_INPUT must be deleted (Anchor F)"
         )
@@ -174,6 +191,7 @@ class TestDetectOutsideWorkspacePathDeleted:
 # ---------------------------------------------------------------------------
 # OUTSIDE NOTE removed from classifier prompt
 # ---------------------------------------------------------------------------
+
 
 class TestOutsideNoteRemoved:
     @pytest.mark.asyncio
@@ -192,7 +210,10 @@ class TestOutsideNoteRemoved:
 
         # write to out-of-workspace path (previously would add OUTSIDE NOTE)
         await handler(
-            {"name": "write", "args": {"file_path": "/tmp/outside_workspace.txt", "content": "data"}},
+            {
+                "name": "write",
+                "args": {"file_path": "/tmp/outside_workspace.txt", "content": "data"},
+            },
             ctx,
         )
 
@@ -210,6 +231,7 @@ class TestOutsideNoteRemoved:
 # ---------------------------------------------------------------------------
 # tool.check_permissions dispatch
 # ---------------------------------------------------------------------------
+
 
 class TestCheckPermissionsDispatch:
     @pytest.mark.asyncio
@@ -257,7 +279,9 @@ class TestCheckPermissionsDispatch:
         model_result.content = "<block>no</block>"
 
         handler, _ = _get_handler(config)
-        ctx = _make_ctx(config=config, tool_instance=tool, call_model_result=model_result)
+        ctx = _make_ctx(
+            config=config, tool_instance=tool, call_model_result=model_result
+        )
 
         result = await handler(
             {"name": "web_fetch", "args": {"url": "https://unknown.example.com"}},
@@ -275,7 +299,9 @@ class TestCheckPermissionsDispatch:
 
         handler, _ = _get_handler(config)
         # No tool_instance → no tool_registry in metadata
-        ctx = _make_ctx(config=config, tool_instance=None, call_model_result=model_result)
+        ctx = _make_ctx(
+            config=config, tool_instance=None, call_model_result=model_result
+        )
 
         result = await handler(
             {"name": "web_fetch", "args": {"url": "https://example.com"}},
@@ -288,6 +314,7 @@ class TestCheckPermissionsDispatch:
 # ---------------------------------------------------------------------------
 # safety_locked bypass-immune behavior (W1)
 # ---------------------------------------------------------------------------
+
 
 class TestSafetyLockedBypassImmune:
     @pytest.mark.asyncio

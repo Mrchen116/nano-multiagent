@@ -39,7 +39,11 @@ def scan_and_fail_stuck_running_messages(
     Returns:
         Number of messages flipped from `running` to `failed` in this pass.
     """
-    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds)).isoformat().replace("+00:00", "Z")
+    cutoff = (
+        (datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds))
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
     # bugfix-383: judge liveness by the most recent event timestamp, not message
     # creation time. Multi-turn tool loops run for many minutes while pushing events
     # continuously; only silence (no new event) for `timeout_seconds` means stuck.
@@ -162,7 +166,9 @@ def _build_failed_payload(
     # back to the literal "Agent" sender label. Recover identity from the messages
     # table so the failure is correctly attributed even on this edge path.
     if "agent_id" not in base or "sender_display_name" not in base:
-        identity = _agent_identity_from_message_row(connection=connection, message_id=message_id)
+        identity = _agent_identity_from_message_row(
+            connection=connection, message_id=message_id
+        )
         if identity is not None:
             agent_id, display_name = identity
             base.setdefault("agent_id", agent_id)

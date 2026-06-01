@@ -25,7 +25,9 @@ from agent.core.types import TurnResult
 # ---------------------------------------------------------------------------
 
 
-def _make_mock_fork_result(tool_names: tuple[str, ...] = ("skill_manage",)) -> ForkResult:
+def _make_mock_fork_result(
+    tool_names: tuple[str, ...] = ("skill_manage",),
+) -> ForkResult:
     tr = MagicMock(spec=TurnResult)
     tr.tool_calls = []
     tr.completed = True
@@ -89,7 +91,9 @@ class TestNudgeCounter:
         registered: dict[str, Any] = {}
 
         class FakeHookAPI:
-            def on(self, event, handler, *, priority=100, timeout_ms=1500, mode="observe"):
+            def on(
+                self, event, handler, *, priority=100, timeout_ms=1500, mode="observe"
+            ):
                 registered[event] = (handler, mode)
 
             def set_state(self, key, value):
@@ -139,7 +143,9 @@ class TestNudgeCounter:
         fork_fn = AsyncMock(return_value=_make_mock_fork_result())
         ctx = _make_hook_ctx(
             fork_conversation=fork_fn,
-            metadata=_self_evolution_meta(skill_nudge_interval=10, memory_nudge_interval=10),
+            metadata=_self_evolution_meta(
+                skill_nudge_interval=10, memory_nudge_interval=10
+            ),
         )
         # tool_iterations=9 < 10, turn_count=9 < 10 — both below threshold
         payload = {"tool_iterations": 9, "turn_count": 9}
@@ -156,7 +162,9 @@ class TestNudgeCounter:
         fork_fn = AsyncMock(return_value=mock_result)
         ctx = _make_hook_ctx(
             fork_conversation=fork_fn,
-            metadata=_self_evolution_meta(skill_nudge_interval=10, memory_nudge_interval=100),
+            metadata=_self_evolution_meta(
+                skill_nudge_interval=10, memory_nudge_interval=100
+            ),
         )
         # Enough iters to hit skill threshold; not enough turns for memory
         payload = {"tool_iterations": 10, "turn_count": 5}
@@ -176,7 +184,9 @@ class TestNudgeCounter:
         fork_fn = AsyncMock(return_value=mock_result)
         ctx = _make_hook_ctx(
             fork_conversation=fork_fn,
-            metadata=_self_evolution_meta(skill_nudge_interval=100, memory_nudge_interval=10),
+            metadata=_self_evolution_meta(
+                skill_nudge_interval=100, memory_nudge_interval=10
+            ),
         )
         # 10 turns, not many iters
         payload = {"tool_iterations": 5, "turn_count": 10}
@@ -195,7 +205,9 @@ class TestNudgeCounter:
         fork_fn = AsyncMock(return_value=mock_result)
         ctx = _make_hook_ctx(
             fork_conversation=fork_fn,
-            metadata=_self_evolution_meta(skill_nudge_interval=10, memory_nudge_interval=10),
+            metadata=_self_evolution_meta(
+                skill_nudge_interval=10, memory_nudge_interval=10
+            ),
         )
         payload = {"tool_iterations": 10, "turn_count": 10}
         await _await_if_coro(handler(payload, ctx))
@@ -215,7 +227,9 @@ class TestNudgeCounter:
         fork_fn = AsyncMock(return_value=mock_result)
         ctx = _make_hook_ctx(
             fork_conversation=fork_fn,
-            metadata=_self_evolution_meta(skill_nudge_interval=10, memory_nudge_interval=100),
+            metadata=_self_evolution_meta(
+                skill_nudge_interval=10, memory_nudge_interval=100
+            ),
         )
 
         # Three calls of 4 iterations each = 12 total → crosses threshold
@@ -239,7 +253,9 @@ class TestSessionEventPublish:
         registered: dict[str, Any] = {}
 
         class FakeAPI:
-            def on(self, event, handler, *, priority=100, timeout_ms=1500, mode="observe"):
+            def on(
+                self, event, handler, *, priority=100, timeout_ms=1500, mode="observe"
+            ):
                 registered[event] = (handler, mode)
 
             def set_state(self, key, value):
@@ -257,7 +273,9 @@ class TestSessionEventPublish:
         fork_fn = AsyncMock(return_value=mock_result)
         ctx = _make_hook_ctx(
             fork_conversation=fork_fn,
-            metadata=_self_evolution_meta(skill_nudge_interval=10, memory_nudge_interval=100),
+            metadata=_self_evolution_meta(
+                skill_nudge_interval=10, memory_nudge_interval=100
+            ),
             publisher=publisher,
         )
         payload = {"tool_iterations": 10, "turn_count": 3}
@@ -276,7 +294,9 @@ class TestSessionEventPublish:
         fork_fn = AsyncMock(return_value=_make_mock_fork_result())
         ctx = _make_hook_ctx(
             fork_conversation=fork_fn,
-            metadata=_self_evolution_meta(skill_nudge_interval=100, memory_nudge_interval=100),
+            metadata=_self_evolution_meta(
+                skill_nudge_interval=100, memory_nudge_interval=100
+            ),
             publisher=publisher,
         )
         payload = {"tool_iterations": 5, "turn_count": 5}

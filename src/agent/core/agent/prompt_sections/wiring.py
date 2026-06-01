@@ -17,6 +17,7 @@ Design (feat-379-M2 decision 3):
 
 Pure core module: no imports from the platform or products layers.
 """
+
 from __future__ import annotations
 
 from typing import Any, Mapping, Sequence
@@ -76,7 +77,9 @@ def build_prompt_context_from_metadata(
     """
     from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
 
-    resolved_render_mode = render_mode if render_mode is not None else RenderMode.RUNTIME
+    resolved_render_mode = (
+        render_mode if render_mode is not None else RenderMode.RUNTIME
+    )
 
     # Extract scenario fields; only include keys that are actually present so
     # segments can distinguish "key absent" from "key = None".
@@ -130,7 +133,9 @@ def resolve_flags_from_metadata(
     from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY  # noqa: PLC0415
 
     # Start with registry defaults.
-    flags: dict[str, bool] = {key: entry["default_on"] for key, entry in FEATURE_REGISTRY.items()}
+    flags: dict[str, bool] = {
+        key: entry["default_on"] for key, entry in FEATURE_REGISTRY.items()
+    }
 
     # Apply per-agent overrides; unknown keys are dropped (future-proof).
     raw_overrides = metadata.get("agent_features")

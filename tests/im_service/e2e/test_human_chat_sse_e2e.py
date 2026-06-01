@@ -7,7 +7,11 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 
-from tests.im_service._auth_helpers import authorize, register_user, seed_user_under_owner
+from tests.im_service._auth_helpers import (
+    authorize,
+    register_user,
+    seed_user_under_owner,
+)
 
 
 def test_human_chat_chain_and_user_stream_incremental(tmp_path: Path) -> None:
@@ -41,13 +45,17 @@ def test_human_chat_chain_and_user_stream_incremental(tmp_path: Path) -> None:
                 "sender_user_id": alice_id,
                 "sender_type": "agent",
                 "content": "second",
-                "attachments": [{"url": "file:///tmp/second.txt", "file_name": "second.txt"}],
+                "attachments": [
+                    {"url": "file:///tmp/second.txt", "file_name": "second.txt"}
+                ],
             },
         )
         assert first_msg.status_code == 201
         assert second_msg.status_code == 201
 
-        with client.websocket_connect(f"/im/ws/user?token={alice.access_token}") as websocket:
+        with client.websocket_connect(
+            f"/im/ws/user?token={alice.access_token}"
+        ) as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             initial_events: list[dict[str, object]] = []
             while len(initial_events) < 4:
@@ -58,7 +66,11 @@ def test_human_chat_chain_and_user_stream_incremental(tmp_path: Path) -> None:
 
             third_msg = client.post(
                 f"/im/v1/conversations/{conversation_id}/messages",
-                json={"sender_user_id": alice_id, "sender_type": "system", "content": "third"},
+                json={
+                    "sender_user_id": alice_id,
+                    "sender_type": "system",
+                    "content": "third",
+                },
             )
             assert third_msg.status_code == 201
             third_message_id = third_msg.json()["id"]
@@ -68,6 +80,13 @@ def test_human_chat_chain_and_user_stream_incremental(tmp_path: Path) -> None:
                 body = json.loads(websocket.receive_text())
                 if body.get("op") == "event":
                     incremental_events.append(body)
-            assert {str((b.get("data") or {}).get("message_id")) for b in incremental_events} == {third_message_id}
-            assert {b.get("event_type") for b in incremental_events} == {"message.sent", "message.delivered"}
-            assert (incremental_events[0].get("data") or {}).get("sender_type") == "system"
+            assert {
+                str((b.get("data") or {}).get("message_id")) for b in incremental_events
+            } == {third_message_id}
+            assert {b.get("event_type") for b in incremental_events} == {
+                "message.sent",
+                "message.delivered",
+            }
+            assert (incremental_events[0].get("data") or {}).get(
+                "sender_type"
+            ) == "system"

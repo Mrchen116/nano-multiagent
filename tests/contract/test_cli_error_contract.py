@@ -32,7 +32,9 @@ def test_cli_single_command_error_payload_contract_contains_layer(tmp_path) -> N
     assert isinstance(payload["suggestion"], str)
 
 
-def test_cli_single_command_network_error_payload_contract_contains_layer(tmp_path) -> None:
+def test_cli_single_command_network_error_payload_contract_contains_layer(
+    tmp_path,
+) -> None:
     """Network-layer error (connection refused during submit) must produce {error, suggestion, layer}."""
     from tests.unit._cli_kernel_stubs import _ConnectionRefusedKernelStub
 

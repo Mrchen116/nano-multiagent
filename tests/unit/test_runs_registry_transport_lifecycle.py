@@ -77,24 +77,34 @@ def test_two_runs_through_registry_reuse_async_client_transport(tmp_path: Path) 
             parts=[{"type": "text", "text": "Q1"}],
         )
         _wait_for(
-            lambda: registry.get(first.run_id) is not None
-            and registry.get(first.run_id).status in {RunStatus.COMPLETED, RunStatus.FAILED}
+            lambda: (
+                registry.get(first.run_id) is not None
+                and registry.get(first.run_id).status
+                in {RunStatus.COMPLETED, RunStatus.FAILED}
+            )
         )
         first_final = registry.get(first.run_id)
         assert first_final is not None
-        assert first_final.status is RunStatus.COMPLETED, f"first run failed: {first_final.error}"
+        assert first_final.status is RunStatus.COMPLETED, (
+            f"first run failed: {first_final.error}"
+        )
 
         second = registry.submit(
             session_id=session.session_id,
             parts=[{"type": "text", "text": "Q2"}],
         )
         _wait_for(
-            lambda: registry.get(second.run_id) is not None
-            and registry.get(second.run_id).status in {RunStatus.COMPLETED, RunStatus.FAILED}
+            lambda: (
+                registry.get(second.run_id) is not None
+                and registry.get(second.run_id).status
+                in {RunStatus.COMPLETED, RunStatus.FAILED}
+            )
         )
         second_final = registry.get(second.run_id)
         assert second_final is not None
-        assert second_final.status is RunStatus.COMPLETED, f"second run failed: {second_final.error}"
+        assert second_final.status is RunStatus.COMPLETED, (
+            f"second run failed: {second_final.error}"
+        )
 
         # Assert the mock handler was called twice (transport survived)
         assert get_call_count() == 2, f"expected 2 LLM calls, got {get_call_count()}"

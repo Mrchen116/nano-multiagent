@@ -18,7 +18,9 @@ from agent.core.observability.logger import log_error as CoreLogError
 from agent.core.observability.logger import log_info as CoreLogInfo
 from agent.core.observability.logger import log_warn as CoreLogWarn
 from agent.core.observability.tracing import bind_correlation as CoreBindCorrelation
-from agent.core.observability.tracing import current_correlation as CoreCurrentCorrelation
+from agent.core.observability.tracing import (
+    current_correlation as CoreCurrentCorrelation,
+)
 from agent.core.observability.tracing import current_trace_id as CoreCurrentTraceId
 
 

@@ -8,6 +8,7 @@ Verifies:
 - resolve_effective_prompt with the assembled sections produces group-chat
   context via the pa.communication_context segment instead of the hook.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -22,9 +23,12 @@ from agent.core.agent.prompt_sections.base import (
 # build_prompt_context_from_metadata (new helper in runtime or loop)
 # ---------------------------------------------------------------------------
 
+
 def test_build_prompt_context_from_metadata_basic():
     """build_prompt_context_from_metadata should produce a valid PromptContext."""
-    from agent.core.agent.prompt_sections.wiring import build_prompt_context_from_metadata
+    from agent.core.agent.prompt_sections.wiring import (
+        build_prompt_context_from_metadata,
+    )
 
     from agent.core.types import ToolSpec
 
@@ -51,7 +55,9 @@ def test_build_prompt_context_from_metadata_basic():
 
 def test_build_prompt_context_group_scenario():
     """Group conversation_type is propagated into PromptContext.scenario."""
-    from agent.core.agent.prompt_sections.wiring import build_prompt_context_from_metadata
+    from agent.core.agent.prompt_sections.wiring import (
+        build_prompt_context_from_metadata,
+    )
 
     metadata = {
         "conversation_type": "group",
@@ -77,7 +83,9 @@ def test_build_prompt_context_group_scenario():
 
 def test_build_prompt_context_empty_metadata():
     """Empty metadata produces PromptContext with empty scenario."""
-    from agent.core.agent.prompt_sections.wiring import build_prompt_context_from_metadata
+    from agent.core.agent.prompt_sections.wiring import (
+        build_prompt_context_from_metadata,
+    )
 
     ctx = build_prompt_context_from_metadata(
         metadata={},
@@ -94,6 +102,7 @@ def test_build_prompt_context_empty_metadata():
 # ---------------------------------------------------------------------------
 # communication_context hook: prompt injection retired
 # ---------------------------------------------------------------------------
+
 
 def test_communication_context_hook_module_removed_after_m1():
     """The communication_context hook module is fully removed after feat-379-M1.

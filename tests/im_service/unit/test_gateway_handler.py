@@ -9,7 +9,12 @@ from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from IM.domain.models import Message
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import ConversationRepository, MessageRepository, UsageMetricsRepository, UserRepository
+from IM.infra.repositories import (
+    ConversationRepository,
+    MessageRepository,
+    UsageMetricsRepository,
+    UserRepository,
+)
 from IM.ws.gateway_handler import GatewayHandler
 
 
@@ -45,7 +50,11 @@ def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) ->
         handler.handle_message(
             websocket=websocket,
             message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["agent-a"], "capabilities": {"relay": True}},
+            payload={
+                "node_id": "node-1",
+                "agents": ["agent-a"],
+                "capabilities": {"relay": True},
+            },
         )
     )
     heartbeat_ack = asyncio.run(
@@ -64,13 +73,24 @@ def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) ->
     )
     snapshot = asyncio.run(handler.snapshot_connection(node_id="node-1"))
 
-    assert register_ack == {"type": "ack", "payload": {"message_type": "node.register", "node_id": "node-1"}}
-    assert heartbeat_ack == {"type": "ack", "payload": {"message_type": "node.heartbeat", "node_id": "node-1"}}
-    assert report_ack == {"type": "ack", "payload": {"message_type": "node.report", "node_id": "node-1"}}
+    assert register_ack == {
+        "type": "ack",
+        "payload": {"message_type": "node.register", "node_id": "node-1"},
+    }
+    assert heartbeat_ack == {
+        "type": "ack",
+        "payload": {"message_type": "node.heartbeat", "node_id": "node-1"},
+    }
+    assert report_ack == {
+        "type": "ack",
+        "payload": {"message_type": "node.report", "node_id": "node-1"},
+    }
     assert snapshot is not None
     assert snapshot.node_id == "node-1"
     assert snapshot.heartbeats == [{"node_id": "node-1", "status": "online"}]
-    assert snapshot.reports == [{"node_id": "node-1", "run_id": "run-1", "status": "completed"}]
+    assert snapshot.reports == [
+        {"node_id": "node-1", "run_id": "run-1", "status": "completed"}
+    ]
 
 
 def test_unknown_node_receives_not_registered_error(tmp_path: Path) -> None:
@@ -128,13 +148,19 @@ def test_completed_report_persists_real_usage_metrics(tmp_path: Path) -> None:
     websocket = StubWebSocket()
     owner = users.create_user(username="owner", display_name="Owner")
     agent = users.create_user(username="agent-a", display_name="Agent A")
-    conversation = conversations.create_conversation(title="chat", participant_ids=[owner.id, agent.id])
+    conversation = conversations.create_conversation(
+        title="chat", participant_ids=[owner.id, agent.id]
+    )
 
     asyncio.run(
         handler.handle_message(
             websocket=websocket,
             message_type="node.register",
-            payload={"node_id": "node-1", "agents": [agent.id], "capabilities": {"relay": True}},
+            payload={
+                "node_id": "node-1",
+                "agents": [agent.id],
+                "capabilities": {"relay": True},
+            },
         )
     )
 
@@ -149,7 +175,11 @@ def test_completed_report_persists_real_usage_metrics(tmp_path: Path) -> None:
                 "agent_id": agent.id,
                 "conversation_id": conversation.id,
                 "message_id": "msg-1",
-                "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7,
+                    "total_tokens": 18,
+                },
             },
         )
     )
@@ -157,7 +187,10 @@ def test_completed_report_persists_real_usage_metrics(tmp_path: Path) -> None:
     owner_rows = metrics_repo.list_usage_metrics(owner_id=conversation.owner_id)
     conversation_rows = metrics_repo.list_usage_metrics(conversation_id=conversation.id)
 
-    assert response == {"type": "ack", "payload": {"message_type": "node.report", "node_id": "node-1"}}
+    assert response == {
+        "type": "ack",
+        "payload": {"message_type": "node.report", "node_id": "node-1"},
+    }
     assert len(owner_rows) == 3
     by_scope = {(row.scope, row.agent_id): row for row in owner_rows}
     assert by_scope[("owner", None)].prompt_tokens == 11
@@ -170,8 +203,9 @@ def test_completed_report_persists_real_usage_metrics(tmp_path: Path) -> None:
     assert len(conversation_rows) == 2
 
 
-
-def test_push_relay_message_returns_false_when_socket_send_fails(tmp_path: Path) -> None:
+def test_push_relay_message_returns_false_when_socket_send_fails(
+    tmp_path: Path,
+) -> None:
     """Treat broken websocket deliveries like disconnected nodes instead of bubbling 500s."""
     handler = _build_handler(tmp_path)
     websocket = FailingWebSocket()
@@ -195,7 +229,9 @@ def test_push_relay_message_returns_false_when_socket_send_fails(tmp_path: Path)
     assert asyncio.run(handler.is_connected(node_id="node-1")) is False
 
 
-def test_completed_group_reply_broadcasts_background_context_to_peer_agents(tmp_path: Path) -> None:
+def test_completed_group_reply_broadcasts_background_context_to_peer_agents(
+    tmp_path: Path,
+) -> None:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     users = UserRepository(connection)
@@ -210,18 +246,55 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(tmp_
     owner = users.create_user(username="owner", display_name="Owner")
     agent_a_user = users.create_user(username="agent:A", display_name="A")
     agent_q_user = users.create_user(username="agent:Q", display_name="Q")
-    conversation = conversations.create_conversation(title="group", participant_ids=[owner.id, agent_a_user.id, agent_q_user.id])
-    connection.execute(
-        "INSERT INTO agent_profiles(agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json, tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-        ("A", owner.owner_id, "node-1", "A", "desc", "prompt", "[]", "[]", "manual", None, "/tmp/A", 1),
+    conversation = conversations.create_conversation(
+        title="group", participant_ids=[owner.id, agent_a_user.id, agent_q_user.id]
     )
     connection.execute(
         "INSERT INTO agent_profiles(agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json, tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
-        ("Q", owner.owner_id, "node-1", "Q", "desc", "prompt", "[]", "[]", "manual", None, "/tmp/Q", 1),
+        (
+            "A",
+            owner.owner_id,
+            "node-1",
+            "A",
+            "desc",
+            "prompt",
+            "[]",
+            "[]",
+            "manual",
+            None,
+            "/tmp/A",
+            1,
+        ),
+    )
+    connection.execute(
+        "INSERT INTO agent_profiles(agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json, tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))",
+        (
+            "Q",
+            owner.owner_id,
+            "node-1",
+            "Q",
+            "desc",
+            "prompt",
+            "[]",
+            "[]",
+            "manual",
+            None,
+            "/tmp/Q",
+            1,
+        ),
     )
     connection.execute(
         "INSERT INTO messages(id, conversation_id, sender_user_id, sender_type, content, attachments_json, delivery_status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        ("msg-1", conversation.id, owner.id, "user", "@agent:A hi", "[]", "sent", "2026-03-19T00:00:00Z"),
+        (
+            "msg-1",
+            conversation.id,
+            owner.id,
+            "user",
+            "@agent:A hi",
+            "[]",
+            "sent",
+            "2026-03-19T00:00:00Z",
+        ),
     )
     connection.commit()
     original = relay_service.enqueue_message_relay(
@@ -243,7 +316,11 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(tmp_
         handler.handle_message(
             websocket=websocket,
             message_type="node.register",
-            payload={"node_id": "node-1", "agents": ["A", "Q"], "capabilities": {"relay": True}},
+            payload={
+                "node_id": "node-1",
+                "agents": ["A", "Q"],
+                "capabilities": {"relay": True},
+            },
         )
     )
 
@@ -274,12 +351,16 @@ def test_completed_group_reply_broadcasts_background_context_to_peer_agents(tmp_
     assert "background_context_only" not in peer_tasks[0]["payload_json"]
     assert '"agent_id":"Q"' in peer_tasks[0]["payload_json"]
     assert '"content":"A reply"' in peer_tasks[0]["payload_json"]
-    relay_frames = [item for item in websocket.sent_json if item.get("type") == "relay.message"]
+    relay_frames = [
+        item for item in websocket.sent_json if item.get("type") == "relay.message"
+    ]
     assert len(relay_frames) == 1
     assert relay_frames[0]["payload"]["agent_id"] == "Q"
 
 
-def test_resolve_send_message_target_handles_agent_user_and_conversation(tmp_path: Path) -> None:
+def test_resolve_send_message_target_handles_agent_user_and_conversation(
+    tmp_path: Path,
+) -> None:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     users = UserRepository(connection)
@@ -332,7 +413,9 @@ def test_resolve_send_message_target_handles_agent_user_and_conversation(tmp_pat
     assert landed_group_id == group.id
 
 
-def test_resolve_send_message_target_reuses_existing_direct_conversation(tmp_path: Path) -> None:
+def test_resolve_send_message_target_reuses_existing_direct_conversation(
+    tmp_path: Path,
+) -> None:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     users = UserRepository(connection)
@@ -370,10 +453,14 @@ def test_resolve_send_message_target_rejects_unknown_target(tmp_path: Path) -> N
     users.create_user(username="agent:A", display_name="Agent A")
 
     with pytest.raises(ValueError, match="target not found"):
-        handler.resolve_send_message_target(source_agent_id="A", target="missing-target")
+        handler.resolve_send_message_target(
+            source_agent_id="A", target="missing-target"
+        )
 
 
-def test_handle_agent_message_routes_user_target_and_persists_message(tmp_path: Path) -> None:
+def test_handle_agent_message_routes_user_target_and_persists_message(
+    tmp_path: Path,
+) -> None:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     users = UserRepository(connection)
@@ -408,7 +495,9 @@ def test_handle_agent_message_routes_user_target_and_persists_message(tmp_path: 
     conversation_id = str(payload["conversation_id"])
     message_id = str(payload["message_id"])
 
-    landed_conversation = conversations.get_conversation(conversation_id=conversation_id)
+    landed_conversation = conversations.get_conversation(
+        conversation_id=conversation_id
+    )
     assert landed_conversation is not None
     assert landed_conversation.type == "direct"
     assert landed_conversation.direct_kind == "user-agent"
@@ -444,7 +533,9 @@ def test_handle_agent_message_returns_error_for_invalid_source(tmp_path: Path) -
     assert response["payload"]["code"] == "invalid_agent_message"
 
 
-def test_handle_agent_message_deduplicates_same_dispatch_request(tmp_path: Path) -> None:
+def test_handle_agent_message_deduplicates_same_dispatch_request(
+    tmp_path: Path,
+) -> None:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     users = UserRepository(connection)
@@ -484,7 +575,9 @@ def test_handle_agent_message_deduplicates_same_dispatch_request(tmp_path: Path)
     assert second["type"] == "ack"
     assert first["payload"]["message_id"] == second["payload"]["message_id"]
     assert first["payload"]["conversation_id"] == second["payload"]["conversation_id"]
-    landed = conversations.get_conversation(conversation_id=str(first["payload"]["conversation_id"]))
+    landed = conversations.get_conversation(
+        conversation_id=str(first["payload"]["conversation_id"])
+    )
     assert landed is not None
     assert landed.type == "direct"
     assert landed.direct_kind == "agent-agent"
@@ -501,7 +594,9 @@ def test_parse_token_usage_preserves_total_field() -> None:
     parsed = _parse_token_usage({"prompt": 2428, "completion": 1, "total": 2429})
     assert parsed is not None
     # Total exposed for the chip; output stays = completion for backwards reads.
-    assert parsed.total == 2429, f"Expected total=2429 (prompt+completion), got {parsed!r}"
+    assert parsed.total == 2429, (
+        f"Expected total=2429 (prompt+completion), got {parsed!r}"
+    )
     assert parsed.output == 1
     assert parsed.context_used == 2428
 

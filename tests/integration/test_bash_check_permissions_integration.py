@@ -25,7 +25,10 @@ from agent.core.hooks.runner import HookRunner
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
 from agent.platform.tools.registry import ToolRegistry
-from agent.core.tools.base import set_tool_safety_config_factory, set_tool_safety_factory
+from agent.core.tools.base import (
+    set_tool_safety_config_factory,
+    set_tool_safety_factory,
+)
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 set_tool_safety_factory(ToolSafety)
@@ -93,7 +96,9 @@ async def test_python3_version_flag_passes_without_classifier(tmp_path: Path) ->
 
 
 @pytest.mark.asyncio
-async def test_python3_script_goes_to_classifier_and_blocks_fail_closed(tmp_path: Path) -> None:
+async def test_python3_script_goes_to_classifier_and_blocks_fail_closed(
+    tmp_path: Path,
+) -> None:
     """python3 file.py (review path) goes to classifier, blocks when no model_caller.
 
     After M6: BashTool.check_permissions returns passthrough for python3 file.py.
@@ -114,7 +119,9 @@ async def test_python3_script_goes_to_classifier_and_blocks_fail_closed(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_bash_check_permissions_is_called_via_tool_registry_injection(tmp_path: Path) -> None:
+async def test_bash_check_permissions_is_called_via_tool_registry_injection(
+    tmp_path: Path,
+) -> None:
     """Verify tool_registry injection: auto_mode_gate calls BashTool.check_permissions.
 
     Confirms the full D10 chain works: ToolRegistry.execute injects tool_registry into
@@ -129,8 +136,12 @@ async def test_bash_check_permissions_is_called_via_tool_registry_injection(tmp_
 
     # python3 /tmp/run.py is review → BashTool.check_permissions returns passthrough
     decision2 = check_command_policy("python3 /tmp/run.py")
-    assert decision2.status == "review", "python3 <script> must be review (not in allowed prefix)"
+    assert decision2.status == "review", (
+        "python3 <script> must be review (not in allowed prefix)"
+    )
 
     # Verify BashTool has check_permissions method
     tool = BashTool()
-    assert hasattr(tool, "check_permissions"), "BashTool must implement check_permissions (M6 D1)"
+    assert hasattr(tool, "check_permissions"), (
+        "BashTool must implement check_permissions (M6 D1)"
+    )

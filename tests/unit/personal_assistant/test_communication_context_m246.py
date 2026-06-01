@@ -17,7 +17,10 @@ def _build_block(
     participant_agent_ids: list[str] | None = None,
     participants: list[dict] | None = None,
 ) -> str:
-    from agent.products.personal_assistant.prompt_sections import _build_communication_context_block
+    from agent.products.personal_assistant.prompt_sections import (
+        _build_communication_context_block,
+    )
+
     return _build_communication_context_block(
         conversation_type=conversation_type,
         agent_id=agent_id,
@@ -28,7 +31,11 @@ def _build_block(
 
 def test_group_context_block_includes_message_format() -> None:
     """群聊 context block 包含 message_format 说明行（M247 更新为 display_name 描述）。"""
-    block = _build_block(conversation_type="group", agent_id="agent-a", participant_agent_ids=["agent-a", "agent-b"])
+    block = _build_block(
+        conversation_type="group",
+        agent_id="agent-a",
+        participant_agent_ids=["agent-a", "agent-b"],
+    )
 
     assert "message_format" in block
 
@@ -103,7 +110,9 @@ def test_group_context_participants_with_display_names(tmp_path: object) -> None
     assert "agent" in block
 
 
-def test_group_context_participants_fallback_to_agent_ids_when_no_participants(tmp_path: object) -> None:
+def test_group_context_participants_fallback_to_agent_ids_when_no_participants(
+    tmp_path: object,
+) -> None:
     """M247: participants 未传时，fallback 使用 participant_agent_ids 原有逻辑。"""
     block = _build_block(
         conversation_type="group",

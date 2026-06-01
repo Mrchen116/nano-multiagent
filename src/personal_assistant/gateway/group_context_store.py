@@ -25,7 +25,9 @@ CREATE TABLE IF NOT EXISTS group_context_buffer (
 """
 
 # Applied on _init_db to upgrade databases that predate M246 (no sender column).
-_MIGRATION_ADD_SENDER = "ALTER TABLE group_context_buffer ADD COLUMN sender TEXT NOT NULL DEFAULT ''"
+_MIGRATION_ADD_SENDER = (
+    "ALTER TABLE group_context_buffer ADD COLUMN sender TEXT NOT NULL DEFAULT ''"
+)
 
 
 class GroupContextStore:
@@ -109,7 +111,12 @@ class GroupContextStore:
             conn.executescript(_SCHEMA)
             conn.commit()
             # Migration: add sender column to databases created before M246.
-            cols = {row[1] for row in conn.execute("PRAGMA table_info(group_context_buffer)").fetchall()}
+            cols = {
+                row[1]
+                for row in conn.execute(
+                    "PRAGMA table_info(group_context_buffer)"
+                ).fetchall()
+            }
             if "sender" not in cols:
                 conn.execute(_MIGRATION_ADD_SENDER)
                 conn.commit()

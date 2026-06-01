@@ -44,7 +44,11 @@ def test_idle_callback_renders_background_events_prompt_aware() -> None:
         if not isinstance(origin, str) or origin.strip() == "" or origin == "user":
             return None
         source_task_id = event.get("source_task_id")
-        if origin == "background_task" and isinstance(source_task_id, str) and source_task_id.strip():
+        if (
+            origin == "background_task"
+            and isinstance(source_task_id, str)
+            and source_task_id.strip()
+        ):
             return f"── background wake (task_id={source_task_id.strip()}) ──"
         return f"── origin: {origin.strip()} ──"
 
@@ -92,11 +96,26 @@ def test_idle_callback_renders_background_events_prompt_aware() -> None:
 
     # Simulate events arriving during idle (same sequence as real SSE events)
     events = [
-        {"event": "run_status", "run_id": "run_bg1", "origin": "background_task", "source_task_id": "agent_abc123"},
-        {"event": "assistant_message", "run_id": "run_bg1", "content": "I found 3 relevant files in the codebase.\nThe main loop is in src/agent/core/agent/runtime.py.\n"},
+        {
+            "event": "run_status",
+            "run_id": "run_bg1",
+            "origin": "background_task",
+            "source_task_id": "agent_abc123",
+        },
+        {
+            "event": "assistant_message",
+            "run_id": "run_bg1",
+            "content": "I found 3 relevant files in the codebase.\nThe main loop is in src/agent/core/agent/runtime.py.\n",
+        },
         {"event": "tool_start", "run_id": "run_bg1", "name": "read"},
         {"event": "tool_end", "run_id": "run_bg1", "name": "read", "duration_ms": 250},
-        {"event": "run_status", "run_id": "run_bg1", "origin": "background_task", "source_task_id": "agent_abc123", "status": "completed"},
+        {
+            "event": "run_status",
+            "run_id": "run_bg1",
+            "origin": "background_task",
+            "source_task_id": "agent_abc123",
+            "status": "completed",
+        },
     ]
 
     # Simulate idle callback execution (same logic as commands.py _idle_callback)

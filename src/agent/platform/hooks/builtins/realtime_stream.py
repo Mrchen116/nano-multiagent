@@ -122,7 +122,9 @@ def _presentation_dict(presentation: Any) -> dict[str, Any]:
         "visible": getattr(presentation, "visible", False),
         "label": getattr(presentation, "label", ""),
         "summary": getattr(presentation, "summary", ""),
-        "detail": dict(getattr(presentation, "detail", {})) if getattr(presentation, "detail", None) is not None else None,
+        "detail": dict(getattr(presentation, "detail", {}))
+        if getattr(presentation, "detail", None) is not None
+        else None,
     }
 
 

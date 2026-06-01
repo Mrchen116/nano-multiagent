@@ -4,7 +4,10 @@ Also covers _coalesce_assistant_group: same-group_id assistant Message rows must
 merged before build_chat_messages so parallel tool_use blocks restore correctly.
 """
 
-from agent.core.agent.prompting import _merge_adjacent_assistant, _coalesce_assistant_group
+from agent.core.agent.prompting import (
+    _merge_adjacent_assistant,
+    _coalesce_assistant_group,
+)
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 from agent.core.types import Message
 
@@ -93,6 +96,7 @@ def test_non_adjacent_assistant_messages_unaffected() -> None:
 # _coalesce_assistant_group tests
 # ---------------------------------------------------------------------------
 
+
 def _make_msg(
     message_id: str,
     role: str = "assistant",
@@ -122,7 +126,13 @@ def test_coalesce_same_group_id_merges_tool_calls() -> None:
     tc2 = {"call_id": "tc2", "name": "read", "arguments": {}}
     tc3 = {"call_id": "tc3", "name": "read", "arguments": {}}
     msgs = (
-        _make_msg("m1", group_id="g1", tool_calls=[tc1], reasoning_content="rc", reasoning_signature="sig"),
+        _make_msg(
+            "m1",
+            group_id="g1",
+            tool_calls=[tc1],
+            reasoning_content="rc",
+            reasoning_signature="sig",
+        ),
         _make_msg("m2", group_id="g1", tool_calls=[tc2]),
         _make_msg("m3", group_id="g1", tool_calls=[tc3]),
     )

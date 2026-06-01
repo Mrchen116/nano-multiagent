@@ -24,7 +24,9 @@ from ._im_connection_helpers import (
 )
 
 
-def test_im_connection_connects_registers_and_handles_downstream_frames(tmp_path: Path) -> None:
+def test_im_connection_connects_registers_and_handles_downstream_frames(
+    tmp_path: Path,
+) -> None:
     inbound_seen: list[InboundMessage] = []
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(inbound_seen.append)
@@ -49,8 +51,18 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(tmp_path
                     },
                 }
             ),
-            json.dumps({"type": "config.sync", "payload": {"agent_id": "agent-a", "profile_version": 5}}),
-            json.dumps({"type": "heartbeat.trigger", "payload": {"agent_id": "agent-a", "reason": "manual"}}),
+            json.dumps(
+                {
+                    "type": "config.sync",
+                    "payload": {"agent_id": "agent-a", "profile_version": 5},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "heartbeat.trigger",
+                    "payload": {"agent_id": "agent-a", "reason": "manual"},
+                }
+            ),
         ]
     )
     connect_calls: list[tuple[str, dict[str, str]]] = []
@@ -64,7 +76,9 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(tmp_path
         reporter=reporter,
         relay_adapter=relay_adapter,
         sync_client=sync_client,
-        heartbeat_trigger=lambda agent_id, reason: heartbeat_seen.append((agent_id, reason)),
+        heartbeat_trigger=lambda agent_id, reason: heartbeat_seen.append(
+            (agent_id, reason)
+        ),
         connect=lambda url, headers: _connect_fake(socket, connect_calls, url, headers),
     )
 
@@ -152,17 +166,25 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
     }
 
 
-def test_im_connection_sends_periodic_node_heartbeats_while_connected(tmp_path: Path) -> None:
+def test_im_connection_sends_periodic_node_heartbeats_while_connected(
+    tmp_path: Path,
+) -> None:
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(lambda _message: None)
-    socket = _FakeWebSocket(incoming=[json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})])
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1"),
         agents=_agents(tmp_path),
         send_frame=lambda _message_type, _payload: None,
     )
     manager = IMConnectionManager(
-        config=IMConnectionConfig(url="http://im.local:9000", heartbeat_interval_seconds=0.01),
+        config=IMConnectionConfig(
+            url="http://im.local:9000", heartbeat_interval_seconds=0.01
+        ),
         reporter=reporter,
         relay_adapter=relay_adapter,
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
@@ -223,9 +245,17 @@ def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) ->
         ("ws://im.local:9000/im/ws/gateway", {"User-Agent": "nano-multiagent-gateway"}),
         ("ws://im.local:9000/im/ws/gateway", {"User-Agent": "nano-multiagent-gateway"}),
     ]
-    assert [json.loads(frame)["type"] for frame in first_socket.sent] == ["node.register"]
-    assert [json.loads(frame)["type"] for frame in second_socket.sent] == ["node.register", "node.report"]
-    assert json.loads(second_socket.sent[1])["payload"] == {"run_id": "run-1", "status": "running"}
+    assert [json.loads(frame)["type"] for frame in first_socket.sent] == [
+        "node.register"
+    ]
+    assert [json.loads(frame)["type"] for frame in second_socket.sent] == [
+        "node.register",
+        "node.report",
+    ]
+    assert json.loads(second_socket.sent[1])["payload"] == {
+        "run_id": "run-1",
+        "status": "running",
+    }
 
 
 def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) -> None:
@@ -238,7 +268,14 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
     relay_adapter.start(lambda _message: None)
     first_socket = _FakeWebSocket()
     second_socket = _FakeWebSocket(
-        incoming=[json.dumps({"type": "ack", "payload": {"message_type": "node.report", "node_id": "node-1"}})]
+        incoming=[
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {"message_type": "node.report", "node_id": "node-1"},
+                }
+            )
+        ]
     )
     sockets = [first_socket, second_socket]
 
@@ -254,12 +291,20 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
 
     async def _exercise() -> None:
         await manager.connect_once()
-        await manager.send_json("node.report", {"run_id": "run-1", "status": "completed"})
+        await manager.send_json(
+            "node.report", {"run_id": "run-1", "status": "completed"}
+        )
         assert manager._awaiting_ack_type == "node.report"  # noqa: SLF001
-        assert [json.loads(frame)["type"] for frame in first_socket.sent] == ["node.register", "node.report"]
+        assert [json.loads(frame)["type"] for frame in first_socket.sent] == [
+            "node.register",
+            "node.report",
+        ]
         await manager._disconnect_current_websocket(RuntimeError("socket dropped"))  # noqa: SLF001
         await manager.connect_once()
-        assert [json.loads(frame)["type"] for frame in second_socket.sent] == ["node.register", "node.report"]
+        assert [json.loads(frame)["type"] for frame in second_socket.sent] == [
+            "node.register",
+            "node.report",
+        ]
         await manager._listen_once()  # noqa: SLF001
         assert manager._awaiting_ack_type is None  # noqa: SLF001
         assert list(manager._pending_frames) == []  # noqa: SLF001
@@ -267,7 +312,9 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
     asyncio.run(_exercise())
 
 
-def test_im_connection_retries_with_exponential_backoff_until_cap(tmp_path: Path) -> None:
+def test_im_connection_retries_with_exponential_backoff_until_cap(
+    tmp_path: Path,
+) -> None:
     attempts = 0
     sleeps: list[float] = []
     reporter = UpstreamReporter(
@@ -289,7 +336,11 @@ def test_im_connection_retries_with_exponential_backoff_until_cap(tmp_path: Path
             manager._stop_requested = True  # noqa: SLF001
 
     manager = IMConnectionManager(
-        config=IMConnectionConfig(url="http://im.local:9000", reconnect_initial_seconds=1.0, reconnect_max_seconds=5.0),
+        config=IMConnectionConfig(
+            url="http://im.local:9000",
+            reconnect_initial_seconds=1.0,
+            reconnect_max_seconds=5.0,
+        ),
         reporter=reporter,
         relay_adapter=relay_adapter,
         connect=_connect,
@@ -339,7 +390,9 @@ def test_im_connection_send_agent_message_returns_dispatch_ack(tmp_path: Path) -
     async def _exercise() -> None:
         await manager.connect_once()
         await manager._listen_once()  # noqa: SLF001 - consume node.register ack first
-        ack_task = asyncio.create_task(manager.send_agent_message({"to": "user-1", "text": "hi"}))
+        ack_task = asyncio.create_task(
+            manager.send_agent_message({"to": "user-1", "text": "hi"})
+        )
         await asyncio.sleep(0)
         await manager._listen_once()  # noqa: SLF001 - consume agent.message ack
         ack = await ack_task
@@ -352,7 +405,9 @@ def test_im_connection_send_agent_message_returns_dispatch_ack(tmp_path: Path) -
     asyncio.run(_exercise())
 
 
-def test_im_connection_send_json_await_ack_returns_raw_ack_payload(tmp_path: Path) -> None:
+def test_im_connection_send_json_await_ack_returns_raw_ack_payload(
+    tmp_path: Path,
+) -> None:
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1"),
         agents=_agents(tmp_path),
@@ -363,7 +418,16 @@ def test_im_connection_send_json_await_ack_returns_raw_ack_payload(tmp_path: Pat
     socket = _FakeWebSocket(
         incoming=[
             json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-            json.dumps({"type": "ack", "payload": {"message_type": "node.report", "status": "ok", "run_id": "run-1"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.report",
+                        "status": "ok",
+                        "run_id": "run-1",
+                    },
+                }
+            ),
         ]
     )
     manager = IMConnectionManager(
@@ -376,7 +440,9 @@ def test_im_connection_send_json_await_ack_returns_raw_ack_payload(tmp_path: Pat
     async def _exercise() -> None:
         await manager.connect_once()
         await manager._listen_once()  # noqa: SLF001
-        ack_task = asyncio.create_task(manager.send_json_await_ack("node.report", {"run_id": "run-1"}))
+        ack_task = asyncio.create_task(
+            manager.send_json_await_ack("node.report", {"run_id": "run-1"})
+        )
         await asyncio.sleep(0)
         await manager._listen_once()  # noqa: SLF001
         ack = await ack_task
@@ -385,7 +451,9 @@ def test_im_connection_send_json_await_ack_returns_raw_ack_payload(tmp_path: Pat
     asyncio.run(_exercise())
 
 
-def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp_path: Path) -> None:
+def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(
+    tmp_path: Path,
+) -> None:
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1"),
         agents=_agents(tmp_path),
@@ -393,7 +461,11 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp
     )
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(lambda _message: None)
-    socket = _FakeWebSocket(incoming=[json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})])
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
     manager = IMConnectionManager(
         config=IMConnectionConfig(url="http://im.local:9000"),
         reporter=reporter,
@@ -403,7 +475,9 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp
 
     async def _exercise() -> None:
         await manager.connect_once()
-        task = asyncio.create_task(manager.send_agent_message({"to": "user-1", "text": "hi"}))
+        task = asyncio.create_task(
+            manager.send_agent_message({"to": "user-1", "text": "hi"})
+        )
         await asyncio.sleep(0)
         await manager._disconnect_current_websocket(RuntimeError("socket dropped"))  # noqa: SLF001
         with pytest.raises(RuntimeError, match="before ack"):
@@ -419,7 +493,9 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp
 # ---------------------------------------------------------------------------
 
 
-def test_im_connection_agent_preview_passes_skill_ids_to_provider(tmp_path: Path) -> None:
+def test_im_connection_agent_preview_passes_skill_ids_to_provider(
+    tmp_path: Path,
+) -> None:
     """agent.prompt.preview.request handler must extract skill_ids and pass them to provider.
 
     feat-383-M1: provider signature now includes skill_ids so the kernel can
@@ -427,31 +503,43 @@ def test_im_connection_agent_preview_passes_skill_ids_to_provider(tmp_path: Path
     """
     provider_calls: list[dict] = []
 
-    async def _fake_provider(agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids=()):  # type: ignore[misc]
-        provider_calls.append({
-            "agent_id": agent_id,
-            "workspace_root": workspace_root,
-            "tool_ids": tool_ids,
-            "skill_ids": list(skill_ids),
-        })
+    async def _fake_provider(
+        agent_id,
+        workspace_root,
+        features,
+        custom_prompt,
+        tool_ids,
+        scenario,
+        skill_ids=(),
+    ):  # type: ignore[misc]
+        provider_calls.append(
+            {
+                "agent_id": agent_id,
+                "workspace_root": workspace_root,
+                "tool_ids": tool_ids,
+                "skill_ids": list(skill_ids),
+            }
+        )
         return {"prompt": "preview", "section_count": 1}
 
     socket = _FakeWebSocket(
         incoming=[
             json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-            json.dumps({
-                "type": "agent.prompt.preview.request",
-                "payload": {
-                    "request_id": "req-1",
-                    "agent_id": "agent-x",
-                    "workspace_root": "/ws/agent-x",
-                    "features": {},
-                    "custom_prompt": None,
-                    "tool_ids": ["read"],
-                    "skill_ids": ["plan", "review"],
-                    "scenario": "direct",
-                },
-            }),
+            json.dumps(
+                {
+                    "type": "agent.prompt.preview.request",
+                    "payload": {
+                        "request_id": "req-1",
+                        "agent_id": "agent-x",
+                        "workspace_root": "/ws/agent-x",
+                        "features": {},
+                        "custom_prompt": None,
+                        "tool_ids": ["read"],
+                        "skill_ids": ["plan", "review"],
+                        "scenario": "direct",
+                    },
+                }
+            ),
         ]
     )
 
@@ -487,7 +575,9 @@ def test_im_connection_agent_preview_passes_skill_ids_to_provider(tmp_path: Path
     )
 
 
-def test_im_connection_node_preview_passes_workspace_root_and_skill_ids_to_provider(tmp_path: Path) -> None:
+def test_im_connection_node_preview_passes_workspace_root_and_skill_ids_to_provider(
+    tmp_path: Path,
+) -> None:
     """node.prompt.preview.request handler must extract workspace_root + skill_ids and pass them to provider.
 
     feat-383-M1: node-level preview now carries workspace_root (IM-derived) and
@@ -495,30 +585,42 @@ def test_im_connection_node_preview_passes_workspace_root_and_skill_ids_to_provi
     """
     provider_calls: list[dict] = []
 
-    async def _fake_provider(agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids=()):  # type: ignore[misc]
-        provider_calls.append({
-            "agent_id": agent_id,
-            "workspace_root": workspace_root,
-            "tool_ids": tool_ids,
-            "skill_ids": list(skill_ids),
-        })
+    async def _fake_provider(
+        agent_id,
+        workspace_root,
+        features,
+        custom_prompt,
+        tool_ids,
+        scenario,
+        skill_ids=(),
+    ):  # type: ignore[misc]
+        provider_calls.append(
+            {
+                "agent_id": agent_id,
+                "workspace_root": workspace_root,
+                "tool_ids": tool_ids,
+                "skill_ids": list(skill_ids),
+            }
+        )
         return {"prompt": "preview-node", "section_count": 1}
 
     socket = _FakeWebSocket(
         incoming=[
             json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-            json.dumps({
-                "type": "node.prompt.preview.request",
-                "payload": {
-                    "request_id": "req-node-1",
-                    "workspace_root": "/ws/new-agent",
-                    "features": {},
-                    "custom_prompt": None,
-                    "tool_ids": ["bash"],
-                    "skill_ids": ["code-review"],
-                    "scenario": "direct",
-                },
-            }),
+            json.dumps(
+                {
+                    "type": "node.prompt.preview.request",
+                    "payload": {
+                        "request_id": "req-node-1",
+                        "workspace_root": "/ws/new-agent",
+                        "features": {},
+                        "custom_prompt": None,
+                        "tool_ids": ["bash"],
+                        "skill_ids": ["code-review"],
+                        "scenario": "direct",
+                    },
+                }
+            ),
         ]
     )
 

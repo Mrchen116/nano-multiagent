@@ -81,25 +81,41 @@ def test_bootstrap_local_coding_system_prompt_injected(tmp_path: Path) -> None:
     assert resolved.prompt_sections
 
 
-def test_bootstrap_product_uses_product_hook_directory_as_default_layer(tmp_path: Path) -> None:
+def test_bootstrap_product_uses_product_hook_directory_as_default_layer(
+    tmp_path: Path,
+) -> None:
     for product_name, profile in _PRODUCT_PROFILES.items():
         resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
-        product_stems = {path.stem for path in _PRODUCT_HOOK_DIRS[product_name].glob("*.py") if not path.name.startswith("_")}
+        product_stems = {
+            path.stem
+            for path in _PRODUCT_HOOK_DIRS[product_name].glob("*.py")
+            if not path.name.startswith("_")
+        }
         loaded_stems = _module_stems_with_source(resolved, source="product")
         assert product_stems <= loaded_stems
 
 
-def test_bootstrap_product_exposes_product_default_tools_before_user_layers(tmp_path: Path) -> None:
+def test_bootstrap_product_exposes_product_default_tools_before_user_layers(
+    tmp_path: Path,
+) -> None:
     for product_name, profile in _PRODUCT_PROFILES.items():
         resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
         tool_names = _tool_names(resolved)
-        product_tool_names = {path.stem for path in _PRODUCT_TOOL_DIRS[product_name].glob("*.py") if not path.name.startswith("_")}
-        declared_tool_names = set(profile.default_tool_ids or []) | set(profile.optional_tool_ids or [])
+        product_tool_names = {
+            path.stem
+            for path in _PRODUCT_TOOL_DIRS[product_name].glob("*.py")
+            if not path.name.startswith("_")
+        }
+        declared_tool_names = set(profile.default_tool_ids or []) | set(
+            profile.optional_tool_ids or []
+        )
         assert set(profile.default_tool_ids or []) <= set(tool_names)
         assert product_tool_names <= declared_tool_names
 
 
-def test_bootstrap_product_resolver_skill_roots_include_product_default_layer(tmp_path: Path) -> None:
+def test_bootstrap_product_resolver_skill_roots_include_product_default_layer(
+    tmp_path: Path,
+) -> None:
     for product_name, profile in _PRODUCT_PROFILES.items():
         resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
         assert resolved.config_resolver is not None

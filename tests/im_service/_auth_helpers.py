@@ -89,9 +89,13 @@ def seed_user_under_owner(
     if existing is not None:
         created = existing
     else:
-        created = repo.create_user(username=username, display_name=display_name or username.title())
+        created = repo.create_user(
+            username=username, display_name=display_name or username.title()
+        )
     if created.owner_id != owner_id:
-        connection.execute("UPDATE users SET owner_id = ? WHERE id = ?", (owner_id, created.id))
+        connection.execute(
+            "UPDATE users SET owner_id = ? WHERE id = ?", (owner_id, created.id)
+        )
         connection.commit()
     return created.id
 

@@ -1,7 +1,6 @@
 """High-level runtime orchestration over sessions, hooks, loop, and compaction."""
 
 import asyncio
-import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,12 +8,18 @@ from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, Sequence
 
 from agent.core.errors import ModelError
 from agent.core.ids import make_message_id, make_turn_id
-from agent.core.types import Message, TokenUsage, ToolCall, ToolResult, ToolSpec, TurnResult
+from agent.core.types import (
+    Message,
+    TokenUsage,
+    ToolCall,
+    ToolResult,
+    ToolSpec,
+    TurnResult,
+)
 from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from agent.core.hooks.runner import HookExecution, HookRunner
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
-from agent.core.session.entries import SessionEntry
 from agent.core.session.jsonl_store import SessionConfig
 from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
@@ -25,7 +30,6 @@ from agent.core.tools.session_file_state import SessionFileState, read_file_slic
 
 from .compaction.applier import CompactionApplier
 from .compaction.planner import CompactionPlanner
-from .compaction.policy import should_compact
 from .compaction.summarizer import CompactionSummarizer
 from .compaction.types import CompactionReason, CompactionResult, CompactionSettings
 from .context_fork import AgentContextFork
@@ -36,7 +40,10 @@ from .prompting import build_system_prompt
 from .skill_commands import rewrite_skill_command
 from .state import AgentState, InputPart, parse_input_parts, render_user_text
 from agent.core.session.entries import message_from_turn_entry
-from agent.core.agent.prompt_sections.base import PromptSection, resolve_effective_prompt
+from agent.core.agent.prompt_sections.base import (
+    PromptSection,
+    resolve_effective_prompt,
+)
 from agent.core.agent.prompt_sections.wiring import (
     build_prompt_context_from_metadata,
     resolve_flags_from_metadata,
@@ -57,21 +64,21 @@ class MemorySnapshot(TypedDict):
     M4 Decision 17: memory_content / user_profile_content hold pure data (no banner);
     memory_pct / user_pct hold usage percentages for banner rendering by core segments.
     """
+
     memory_content: "str | None"
     memory_pct: int
     user_profile_content: "str | None"
     user_pct: int
+
 
 if TYPE_CHECKING:
     from agent.core.hooks.registry import HookRegistry
 
 
 class ConfigResolverLike(SkillRootResolver, Protocol):
-    def user_tool_roots(self) -> tuple[Path, ...]:
-        ...
+    def user_tool_roots(self) -> tuple[Path, ...]: ...
 
-    def user_hook_roots(self) -> tuple[Path, ...]:
-        ...
+    def user_hook_roots(self) -> tuple[Path, ...]: ...
 
 
 class AgentRuntime:
@@ -123,9 +130,7 @@ class AgentRuntime:
         self._config_resolver = config_resolver
         self._compaction_settings = compaction_settings or CompactionSettings()
         resolved_skills = (
-            tuple(available_skills)
-            if available_skills is not None
-            else ()
+            tuple(available_skills) if available_skills is not None else ()
         )
         self._session_manager = session_manager
         # PermissionBroker wired by platform layer (create_app). None in contexts that
@@ -145,7 +150,9 @@ class AgentRuntime:
         # Per-session memory snapshot cache: lazy freeze on first turn, invalidated on compaction.
         self._memory_snapshots: dict[str, MemorySnapshot] = {}
         # Prompt sections for segment-based assembly; empty list = no sections registered (legacy path).
-        self._prompt_sections: list[PromptSection] = list(prompt_sections) if prompt_sections else []
+        self._prompt_sections: list[PromptSection] = (
+            list(prompt_sections) if prompt_sections else []
+        )
         tool_results_dir = self._repo_root / ".nano" / "tool-results"
         self._tool_result_compressor = ToolResultCompressor(tool_results_dir)
         self._context_fork = AgentContextFork(
@@ -267,11 +274,15 @@ class AgentRuntime:
         # --- Cache-first load: miss reads JSONL once, hit uses memory ---
         if session_id not in self._session_histories:
             path = self._session_manager.store.resolve_path(
-                session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
+                session_id,
+                workspace_root=workspace_root,
+                parent_session_id=parent_session_id,
             )
             try:
                 result = self._session_manager.load(
-                    session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
+                    session_id,
+                    workspace_root=workspace_root,
+                    parent_session_id=parent_session_id,
                 )
             except Exception as exc:
                 raise ValueError(f"session does not exist: {session_id}") from exc
@@ -285,8 +296,12 @@ class AgentRuntime:
 
         session_created_at = config.created_at
         session_workspace_root = config.workspace_root
-        session_available_skills = self._resolve_session_available_skills_from_config(config)
-        session_available_tools = self._resolve_session_available_tools_from_config(config)
+        session_available_skills = self._resolve_session_available_skills_from_config(
+            config
+        )
+        session_available_tools = self._resolve_session_available_tools_from_config(
+            config
+        )
         frozen_system_prompt = config.system_prompt
 
         input_parts = parse_input_parts(parts)
@@ -295,7 +310,9 @@ class AgentRuntime:
             raise ValueError("empty input parts are not allowed")
 
         turn_id = make_turn_id()
-        hook_metadata: dict[str, Any] = dict(config.metadata) if isinstance(config.metadata, Mapping) else {}
+        hook_metadata: dict[str, Any] = (
+            dict(config.metadata) if isinstance(config.metadata, Mapping) else {}
+        )
         hook_metadata["cwd"] = str(session_workspace_root)
         hook_metadata["context_window"] = self._compaction_settings.context_window
         # Thread workspace_root per-turn so MemoryTool + _ensure_memory_snapshot share
@@ -309,7 +326,9 @@ class AgentRuntime:
         # RunOrigin in core hooks. Use .value (string) for decoupling.
         if origin is not None:
             hook_metadata["run_origin"] = getattr(origin, "value", str(origin))
-        hook_ctx = self._build_hook_context(session_id=session_id, turn_id=turn_id, metadata=hook_metadata)
+        hook_ctx = self._build_hook_context(
+            session_id=session_id, turn_id=turn_id, metadata=hook_metadata
+        )
 
         input_payload, handled = await self._dispatch_intercept(
             "input",
@@ -353,7 +372,9 @@ class AgentRuntime:
         # Determine final system prompt for this turn.
         # Priority: hook override > frozen session prompt > segment assembly.
         use_frozen_system_prompt = False
-        pre_rendered_system_prompt: str | None = None  # non-None → loop skips build_system_prompt
+        pre_rendered_system_prompt: str | None = (
+            None  # non-None → loop skips build_system_prompt
+        )
         if hook_system_prompt_override:
             system_prompt_override: str | None = hook_system_prompt_override
         elif frozen_system_prompt:
@@ -365,8 +386,13 @@ class AgentRuntime:
             snapshot = self._ensure_memory_snapshot(session_id, hook_metadata)
             active_tools_for_prompt = session_available_tools or ()
             flags = resolve_flags_from_metadata(metadata=hook_metadata)
-            cwd_str = str(session_workspace_root) if session_workspace_root else str(self._repo_root)
+            cwd_str = (
+                str(session_workspace_root)
+                if session_workspace_root
+                else str(self._repo_root)
+            )
             from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+
             ctx = build_prompt_context_from_metadata(
                 metadata=hook_metadata,
                 available_tools=list(active_tools_for_prompt),
@@ -406,7 +432,9 @@ class AgentRuntime:
             content=user_text,
         )
         history.append(user_msg)
-        self._session_manager.writer.enqueue(path, _message_to_entry(user_msg, session_id))
+        self._session_manager.writer.enqueue(
+            path, _message_to_entry(user_msg, session_id)
+        )
         await self._session_manager.writer.flush_async()
 
         # Remove the user message we just added from history passed to loop.
@@ -421,7 +449,9 @@ class AgentRuntime:
             extra_messages = tuple(
                 Message(
                     message_id=make_message_id(),
-                    parent_message_id=loop_history[-1].message_id if loop_history else None,
+                    parent_message_id=loop_history[-1].message_id
+                    if loop_history
+                    else None,
                     role="user",
                     content=render_user_text([part]),
                 )
@@ -449,7 +479,9 @@ class AgentRuntime:
                 llm_session_id=llm_session_id,
                 session_created_at=session_created_at,
                 current_working_directory_override=session_workspace_root,
-                available_skills_override=() if use_frozen_system_prompt else session_available_skills,
+                available_skills_override=()
+                if use_frozen_system_prompt
+                else session_available_skills,
                 available_tools_override=session_available_tools,
                 controller=controller,
             ):
@@ -460,16 +492,23 @@ class AgentRuntime:
                 all_messages.append(msg)
                 # Detect compact summary: write compact_boundary before the summary turn
                 if msg.metadata.get("is_compact_summary"):
-                    self._session_manager.writer.enqueue(path, {
-                        "type": "compact_boundary",
-                        "session_id": session_id,
-                        "timestamp": _utc_now_iso(),
-                        "summary_uuid": msg.message_id,
-                        "data": {
-                            "reason": msg.metadata.get("compact_reason", "threshold"),
-                            "restored_files": msg.metadata.get("restored_files", []),
+                    self._session_manager.writer.enqueue(
+                        path,
+                        {
+                            "type": "compact_boundary",
+                            "session_id": session_id,
+                            "timestamp": _utc_now_iso(),
+                            "summary_uuid": msg.message_id,
+                            "data": {
+                                "reason": msg.metadata.get(
+                                    "compact_reason", "threshold"
+                                ),
+                                "restored_files": msg.metadata.get(
+                                    "restored_files", []
+                                ),
+                            },
                         },
-                    })
+                    )
                 entry = _message_to_entry(msg, session_id)
                 if msg.role == "tool":
                     self._session_manager.writer.enqueue(path, entry)
@@ -480,7 +519,11 @@ class AgentRuntime:
         except ModelError as exc:
             await self._session_manager.writer.flush_async()
             # Attempt overflow recovery: compact then retry once.
-            if not _overflow_retried and _is_context_overflow_error(exc) and self._compaction_settings.enabled:
+            if (
+                not _overflow_retried
+                and _is_context_overflow_error(exc)
+                and self._compaction_settings.enabled
+            ):
                 _overflow_retried = True
                 compact_result = await self._compact_session(
                     session_id=session_id, reason=CompactionReason.OVERFLOW
@@ -492,7 +535,9 @@ class AgentRuntime:
                     history.extend(reloaded)
                     # user_msg was written before the overflow; it's in the reloaded history.
                     # Rebuild loop_history excluding it, then re-run.
-                    retry_history = tuple(m for m in history if m.message_id != user_msg.message_id)
+                    retry_history = tuple(
+                        m for m in history if m.message_id != user_msg.message_id
+                    )
                     all_messages = [user_msg]
                     async for msg in self._execute_loop(
                         session_id=session_id,
@@ -508,7 +553,9 @@ class AgentRuntime:
                         llm_session_id=llm_session_id,
                         session_created_at=session_created_at,
                         current_working_directory_override=session_workspace_root,
-                        available_skills_override=() if use_frozen_system_prompt else session_available_skills,
+                        available_skills_override=()
+                        if use_frozen_system_prompt
+                        else session_available_skills,
                         available_tools_override=session_available_tools,
                         controller=controller,
                     ):
@@ -518,16 +565,23 @@ class AgentRuntime:
                         history.append(msg)
                         all_messages.append(msg)
                         if msg.metadata.get("is_compact_summary"):
-                            self._session_manager.writer.enqueue(path, {
-                                "type": "compact_boundary",
-                                "session_id": session_id,
-                                "timestamp": _utc_now_iso(),
-                                "summary_uuid": msg.message_id,
-                                "data": {
-                                    "reason": msg.metadata.get("compact_reason", "threshold"),
-                                    "restored_files": msg.metadata.get("restored_files", []),
+                            self._session_manager.writer.enqueue(
+                                path,
+                                {
+                                    "type": "compact_boundary",
+                                    "session_id": session_id,
+                                    "timestamp": _utc_now_iso(),
+                                    "summary_uuid": msg.message_id,
+                                    "data": {
+                                        "reason": msg.metadata.get(
+                                            "compact_reason", "threshold"
+                                        ),
+                                        "restored_files": msg.metadata.get(
+                                            "restored_files", []
+                                        ),
+                                    },
                                 },
-                            })
+                            )
                         entry = _message_to_entry(msg, session_id)
                         if msg.role == "tool":
                             self._session_manager.writer.enqueue(path, entry)
@@ -547,7 +601,9 @@ class AgentRuntime:
                     parent_message_id=user_msg.message_id,
                 )
                 history.append(error_msg)
-                self._session_manager.writer.enqueue(path, _message_to_entry(error_msg, session_id))
+                self._session_manager.writer.enqueue(
+                    path, _message_to_entry(error_msg, session_id)
+                )
                 await self._session_manager.writer.flush_async()
                 # bugfix-380: run_id must be in message_end payload so realtime_stream hook
                 # can publish assistant_message SSE before run_status=failed arrives.
@@ -609,7 +665,9 @@ class AgentRuntime:
         # with background registrations — but we also set fork_conversation=None when
         # building contexts for fork side-chains as an explicit belt-and-suspenders guard.
         if self._hook_runner is not None:
-            background_registrations = self._hook_runner.registry.background_handlers_for("agent_end")
+            background_registrations = (
+                self._hook_runner.registry.background_handlers_for("agent_end")
+            )
             if background_registrations:
                 from agent.core.agent.context_fork import make_fork_conversation
 
@@ -619,10 +677,15 @@ class AgentRuntime:
                 fork_active_tools: tuple[ToolSpec, ...] = ()
                 if session_id in self._session_configs:
                     fork_config = self._session_configs[session_id]
-                    fork_active_skills = self._resolve_session_available_skills_from_config(fork_config)
-                    fork_active_tools = self._resolve_session_available_tools_from_config(fork_config)
+                    fork_active_skills = (
+                        self._resolve_session_available_skills_from_config(fork_config)
+                    )
+                    fork_active_tools = (
+                        self._resolve_session_available_tools_from_config(fork_config)
+                    )
                     fork_system_prompt = build_system_prompt(
-                        system_prompt=fork_config.system_prompt or self._loop._system_prompt,
+                        system_prompt=fork_config.system_prompt
+                        or self._loop._system_prompt,
                         available_skills=fork_active_skills,
                         available_tools=fork_active_tools,
                         current_working_directory=fork_config.workspace_root,
@@ -646,7 +709,9 @@ class AgentRuntime:
                 # attaching fork_conversation. The hand-listed rebuild had been
                 # dropping permission_requester + message_history.
                 background_hook_ctx = replace(hook_ctx, fork_conversation=fork_fn)
-                self._hook_runner.dispatch_background("agent_end", agent_end_payload, background_hook_ctx)
+                self._hook_runner.dispatch_background(
+                    "agent_end", agent_end_payload, background_hook_ctx
+                )
 
         return turn_result
 
@@ -671,7 +736,9 @@ class AgentRuntime:
             raise ValueError(f"session does not exist: {session_id}")
         lock = self._session_locks.setdefault(session_id, asyncio.Lock())
         async with lock:
-            return await self._compact_session(session_id=session_id, reason=CompactionReason.MANUAL)
+            return await self._compact_session(
+                session_id=session_id, reason=CompactionReason.MANUAL
+            )
 
     async def continue_turn(
         self,
@@ -749,7 +816,9 @@ class AgentRuntime:
             model=model if model is not None else self._llm_config.model,
             base_url=base_url if base_url is not None else self._llm_config.base_url,
             api_key=api_key if update_api_key else self._llm_config.api_key,
-            timeout_seconds=timeout_seconds if timeout_seconds is not None else self._llm_config.timeout_seconds,
+            timeout_seconds=timeout_seconds
+            if timeout_seconds is not None
+            else self._llm_config.timeout_seconds,
         )
 
         if self._llm_client_factory is None:
@@ -905,8 +974,10 @@ class AgentRuntime:
             )
             self._session_histories[source_session_id] = list(result.messages)
             self._session_configs[source_session_id] = result.config
-            self._session_paths[source_session_id] = self._session_manager.store.resolve_path(
-                source_session_id, workspace_root=result.config.workspace_root
+            self._session_paths[source_session_id] = (
+                self._session_manager.store.resolve_path(
+                    source_session_id, workspace_root=result.config.workspace_root
+                )
             )
 
         source_config = self._session_configs[source_session_id]
@@ -916,8 +987,12 @@ class AgentRuntime:
         source_lock = self._session_locks.get(source_session_id)
         if source_lock:
             async with source_lock:
-                return await self._fork_locked(source_session_id, source_config, list(source_history))
-        return await self._fork_locked(source_session_id, source_config, list(source_history))
+                return await self._fork_locked(
+                    source_session_id, source_config, list(source_history)
+                )
+        return await self._fork_locked(
+            source_session_id, source_config, list(source_history)
+        )
 
     async def _fork_locked(
         self,
@@ -965,7 +1040,9 @@ class AgentRuntime:
                     msg,
                     message_id=new_uuid,
                     parent_message_id=new_parent,
-                    group_id=old_to_new_uuid.get(msg.group_id) if msg.group_id else None,
+                    group_id=old_to_new_uuid.get(msg.group_id)
+                    if msg.group_id
+                    else None,
                     metadata=dict(msg.metadata),
                 )
                 new_history.append(new_msg)
@@ -992,7 +1069,9 @@ class AgentRuntime:
 
         return new_session
 
-    def _resolve_session_available_skills(self, session: Session) -> tuple[SkillMetadata, ...]:
+    def _resolve_session_available_skills(
+        self, session: Session
+    ) -> tuple[SkillMetadata, ...]:
         if session.skills is None:
             return self._loop.available_skills
         if not session.skills:
@@ -1003,7 +1082,9 @@ class AgentRuntime:
             config_resolver=self._config_resolver,
         )
 
-    def _resolve_session_available_skills_from_config(self, config: SessionConfig) -> tuple[SkillMetadata, ...]:
+    def _resolve_session_available_skills_from_config(
+        self, config: SessionConfig
+    ) -> tuple[SkillMetadata, ...]:
         if config.skills is None:
             return self._loop.available_skills
         if not config.skills:
@@ -1014,7 +1095,9 @@ class AgentRuntime:
             config_resolver=self._config_resolver,
         )
 
-    def _resolve_session_available_tools(self, session: Session) -> tuple[ToolSpec, ...]:
+    def _resolve_session_available_tools(
+        self, session: Session
+    ) -> tuple[ToolSpec, ...]:
         if session.tool_allowlist is None:
             all_specs = self._loop.active_tool_specs()
             default_ids = self._default_tool_ids
@@ -1023,9 +1106,13 @@ class AgentRuntime:
             allowed_set = set(default_ids)
             return tuple(spec for spec in all_specs if spec.name in allowed_set)
         requested = set(session.tool_allowlist)
-        return tuple(tool for tool in self._loop.active_tool_specs() if tool.name in requested)
+        return tuple(
+            tool for tool in self._loop.active_tool_specs() if tool.name in requested
+        )
 
-    def _resolve_session_available_tools_from_config(self, config: SessionConfig) -> tuple[ToolSpec, ...]:
+    def _resolve_session_available_tools_from_config(
+        self, config: SessionConfig
+    ) -> tuple[ToolSpec, ...]:
         if config.tool_allowlist is None:
             all_specs = self._loop.active_tool_specs()
             default_ids = self._default_tool_ids
@@ -1034,7 +1121,9 @@ class AgentRuntime:
             allowed_set = set(default_ids)
             return tuple(spec for spec in all_specs if spec.name in allowed_set)
         requested = set(config.tool_allowlist)
-        return tuple(tool for tool in self._loop.active_tool_specs() if tool.name in requested)
+        return tuple(
+            tool for tool in self._loop.active_tool_specs() if tool.name in requested
+        )
 
     async def _dispatch_intercept(
         self,
@@ -1051,9 +1140,13 @@ class AgentRuntime:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn("hook intercept dispatch failed", event=event, error=str(exc))
+            hook_ctx.logger.warn(
+                "hook intercept dispatch failed", event=event, error=str(exc)
+            )
             return dict(payload), False
-        self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=dispatch_result.diagnostics)
+        self._log_hook_diagnostics(
+            hook_ctx, event=event, diagnostics=dispatch_result.diagnostics
+        )
         return dispatch_result.payload, dispatch_result.stopped
 
     async def _dispatch_observe(
@@ -1071,7 +1164,9 @@ class AgentRuntime:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn("hook observe dispatch failed", event=event, error=str(exc))
+            hook_ctx.logger.warn(
+                "hook observe dispatch failed", event=event, error=str(exc)
+            )
             return
         self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
 
@@ -1126,29 +1221,49 @@ class AgentRuntime:
                 if publisher_for_broker is not None:
                     # Emit 'permission_request' SSE event — PA inbound_pipeline
                     # already listens for this event name (see personal_assistant/main.py).
-                    publisher_for_broker("permission_request", {
-                        "run_id": run_id_for_broker,
-                        "request_id": req.id,
-                        "tool_name": req.tool_name,
-                        "tool_input": dict(req.tool_input) if hasattr(req, "tool_input") else {},
-                        "question": req.question if hasattr(req, "question") else "",
-                        "options": [
-                            {"id": o.id, "label": o.label, "description": o.description}
-                            for o in (req.options if hasattr(req, "options") else ())
-                        ],
-                    })
+                    publisher_for_broker(
+                        "permission_request",
+                        {
+                            "run_id": run_id_for_broker,
+                            "request_id": req.id,
+                            "tool_name": req.tool_name,
+                            "tool_input": dict(req.tool_input)
+                            if hasattr(req, "tool_input")
+                            else {},
+                            "question": req.question
+                            if hasattr(req, "question")
+                            else "",
+                            "options": [
+                                {
+                                    "id": o.id,
+                                    "label": o.label,
+                                    "description": o.description,
+                                }
+                                for o in (
+                                    req.options if hasattr(req, "options") else ()
+                                )
+                            ],
+                        },
+                    )
                 try:
                     response = await future
                 finally:
                     # Emit 'permission_resolved' SSE event so IM card updates to resolved state.
-                    if publisher_for_broker is not None and future.done() and not future.cancelled():
+                    if (
+                        publisher_for_broker is not None
+                        and future.done()
+                        and not future.cancelled()
+                    ):
                         try:
                             result = future.result()
-                            publisher_for_broker("permission_resolved", {
-                                "run_id": run_id_for_broker,
-                                "request_id": req.id,
-                                "decision": getattr(result, "decision", "deny"),
-                            })
+                            publisher_for_broker(
+                                "permission_resolved",
+                                {
+                                    "run_id": run_id_for_broker,
+                                    "request_id": req.id,
+                                    "decision": getattr(result, "decision", "deny"),
+                                },
+                            )
                         except Exception:
                             pass
                 return response
@@ -1198,7 +1313,9 @@ class AgentRuntime:
                 max_tokens=call.max_tokens,
                 stop_sequences=call.stop_sequences,
                 metadata=dict(call.metadata),
-                extra_body=dict(call.extra_body) if call.extra_body is not None else None,
+                extra_body=dict(call.extra_body)
+                if call.extra_body is not None
+                else None,
             )
         )
 
@@ -1249,7 +1366,9 @@ class AgentRuntime:
         current_working_directory_override: Path | None,
         controller: RunController | None = None,
     ):
-        session_file_state = self._session_file_states.setdefault(session_id, SessionFileState())
+        session_file_state = self._session_file_states.setdefault(
+            session_id, SessionFileState()
+        )
         async for msg in self._loop.run(
             AgentState(
                 session_id=session_id,
@@ -1291,8 +1410,10 @@ class AgentRuntime:
         flags = resolve_flags_from_metadata(metadata=metadata)
         if not flags.get("memory_curation", True):
             snapshot: MemorySnapshot = {
-                "memory_content": None, "memory_pct": 0,
-                "user_profile_content": None, "user_pct": 0,
+                "memory_content": None,
+                "memory_pct": 0,
+                "user_profile_content": None,
+                "user_pct": 0,
             }
             self._memory_snapshots[session_id] = snapshot
             return snapshot
@@ -1301,8 +1422,10 @@ class AgentRuntime:
         dirname = metadata.get("workspace_config_dirname")
         if not workspace_root_raw or not dirname:
             snapshot = {
-                "memory_content": None, "memory_pct": 0,
-                "user_profile_content": None, "user_pct": 0,
+                "memory_content": None,
+                "memory_pct": 0,
+                "user_profile_content": None,
+                "user_pct": 0,
             }
             self._memory_snapshots[session_id] = snapshot
             return snapshot
@@ -1335,7 +1458,9 @@ class AgentRuntime:
         # Compaction always runs on a session that has been loaded by a prior
         # run(), so its config (and thus workspace_root) is cached here.
         config = self._session_configs.get(session_id)
-        compaction_workspace_root = config.workspace_root if config is not None else None
+        compaction_workspace_root = (
+            config.workspace_root if config is not None else None
+        )
         entries = self._session_manager.list_entries(
             session_id, workspace_root=compaction_workspace_root
         )
@@ -1354,7 +1479,9 @@ class AgentRuntime:
                 current_working_directory=config.workspace_root,
             )
 
-        dropped_messages = tuple(message_from_turn_entry(entry) for entry in plan.dropped_events)
+        dropped_messages = tuple(
+            message_from_turn_entry(entry) for entry in plan.dropped_events
+        )
         summary = await self._compaction_summarizer.summarize(
             session_id=session_id,
             system_prompt=rendered_system_prompt,
@@ -1403,14 +1530,22 @@ class AgentRuntime:
             # compact_boundary must be written before summary turn so that
             # JsonlSessionStore.load() (which keeps only turns after the latest
             # compact_boundary) includes the summary turn in the replayed history.
-            self._session_manager.writer.enqueue(path, {
-                "type": "compact_boundary",
-                "session_id": session_id,
-                "timestamp": _utc_now_iso(),
-                "summary_uuid": summary_msg.message_id,
-                "data": {"reason": reason.value, "restored_files": list(restored_files)},
-            })
-            self._session_manager.writer.enqueue(path, _message_to_entry(summary_msg, session_id))
+            self._session_manager.writer.enqueue(
+                path,
+                {
+                    "type": "compact_boundary",
+                    "session_id": session_id,
+                    "timestamp": _utc_now_iso(),
+                    "summary_uuid": summary_msg.message_id,
+                    "data": {
+                        "reason": reason.value,
+                        "restored_files": list(restored_files),
+                    },
+                },
+            )
+            self._session_manager.writer.enqueue(
+                path, _message_to_entry(summary_msg, session_id)
+            )
             await self._session_manager.writer.flush_async()
 
         # Use applier for backward-compatible result object.
@@ -1450,7 +1585,6 @@ class AgentRuntime:
 
 
 _SESSION_EVENT_PUBLISHER_FACTORY_STATE_KEY = "session_event_publisher_factory"
-
 
 
 def _resolve_session_event_publisher(*, registry: "HookRegistry", session_id: str):
@@ -1527,7 +1661,9 @@ def _is_context_overflow_error(error: ModelError) -> bool:
     return any(marker in response_text or marker in message_text for marker in markers)
 
 
-def build_turn_result(session_id: str, turn_id: str, messages: list[Message]) -> TurnResult:
+def build_turn_result(
+    session_id: str, turn_id: str, messages: list[Message]
+) -> TurnResult:
     """Assemble TurnResult from a stream of messages yielded by AgentLoop.
 
     The last message is expected to be a turn_meta message carrying stop_reason,
@@ -1661,5 +1797,3 @@ def _build_provider_error_message(
 
 # _message_from_turn_entry and _read_file_slice migrated to break loop->runtime cycle.
 # See session/entries.py and tools/session_file_state.py respectively.
-
-

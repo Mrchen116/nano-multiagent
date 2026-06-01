@@ -27,6 +27,5 @@ def test_http_api_source_files_deleted() -> None:
     py_files = list(HTTP_API_DIR.rglob("*.py")) if HTTP_API_DIR.exists() else []
     assert py_files == [], (
         "agent/platform/http_api/ still contains .py source files — "
-        "these must be deleted in M4:\n"
-        + "\n".join(f"  {f}" for f in py_files)
+        "these must be deleted in M4:\n" + "\n".join(f"  {f}" for f in py_files)
     )

@@ -12,7 +12,11 @@ from agent.core.errors import ModelError
 from agent.core.agent.loop import AgentLoop
 from agent.core.agent.runtime import build_turn_result
 from agent.core.agent.state import AgentState
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+)
 
 
 async def _run_loop(loop: AgentLoop, state: AgentState):
@@ -74,7 +78,9 @@ class _NonRetryableErrorLLMClient:
         raise ModelError("fatal error", retryable=False)
 
 
-def _make_state(*, session_id: str = "sess-retry-unit", user_text: str = "ping") -> AgentState:
+def _make_state(
+    *, session_id: str = "sess-retry-unit", user_text: str = "ping"
+) -> AgentState:
     return AgentState(
         session_id=session_id,
         turn_id="turn-retry-unit",

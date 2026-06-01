@@ -8,7 +8,6 @@ from agent.platform.tools.base import ToolContext as PlatformToolContext
 from agent.platform.tools.registry import ToolRegistry as PlatformToolRegistry
 
 
-
 def test_core_tools_is_canonical_home() -> None:
     assert CoreTool is PlatformTool
     assert CoreToolContext is PlatformToolContext

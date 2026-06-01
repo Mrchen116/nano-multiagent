@@ -15,9 +15,7 @@ REFACTOR_353_DIR = DOCS_BASE / "refactor-353-unify-path-sandbox"
 class TestRefactor353Corrigendum:
     def test_spec_md_exists(self):
         """refactor-353/spec.md must exist."""
-        assert (REFACTOR_353_DIR / "spec.md").exists(), (
-            "refactor-353/spec.md not found"
-        )
+        assert (REFACTOR_353_DIR / "spec.md").exists(), "refactor-353/spec.md not found"
 
     def test_design_md_exists(self):
         """refactor-353/design.md must exist."""
@@ -31,17 +29,17 @@ class TestRefactor353Corrigendum:
         assert "Corrigendum" in content, (
             "spec.md must have Corrigendum block (bugfix-355 D6)"
         )
-        assert "bugfix-355" in content, (
-            "spec.md Corrigendum must reference bugfix-355"
-        )
+        assert "bugfix-355" in content, "spec.md Corrigendum must reference bugfix-355"
 
     def test_spec_md_corrigendum_describes_cc_behavior(self):
         """spec.md corrigendum must describe actual CC Read behavior per mode."""
         content = (REFACTOR_353_DIR / "spec.md").read_text(encoding="utf-8")
         # Must mention the corrected CC mode behaviors
-        assert "auto" in content.lower() or "SAFE_YOLO" in content or "safe-allowlist" in content.lower(), (
-            "spec.md corrigendum must describe CC auto mode Read behavior"
-        )
+        assert (
+            "auto" in content.lower()
+            or "SAFE_YOLO" in content
+            or "safe-allowlist" in content.lower()
+        ), "spec.md corrigendum must describe CC auto mode Read behavior"
         assert "bypass" in content.lower() or "bypassPermissions" in content, (
             "spec.md corrigendum must describe CC bypass mode behavior"
         )

@@ -66,7 +66,9 @@ def test_on_tool_event_tracks_running_and_done(mock_rich) -> None:
         assert renderer._tool_lines["bash::c1"] == "▸ Tool: bash"
         assert renderer._spinner_active is False
 
-        renderer.on_tool_event("tool_exec_exit", {"name": "bash", "call_id": "c1", "duration_ms": 150})
+        renderer.on_tool_event(
+            "tool_exec_exit", {"name": "bash", "call_id": "c1", "duration_ms": 150}
+        )
         assert renderer._tool_lines["bash::c1"] == "✓ Tool: bash (elapsed=150ms)"
 
 
@@ -97,7 +99,9 @@ def test_refresh_updates_live_with_text_and_tools(mock_rich) -> None:
     join_calls = [call for call in mock_text.method_calls if "join" in str(call)]
     assert mock_live.update.called
     # Verify refresh=True is passed so Live actually renders intermediate frames.
-    assert any(call.kwargs.get("refresh") is True for call in mock_live.update.call_args_list)
+    assert any(
+        call.kwargs.get("refresh") is True for call in mock_live.update.call_args_list
+    )
 
 
 def test_refresh_shows_spinner_when_empty(mock_rich) -> None:
@@ -133,7 +137,9 @@ def test_block_renderer_merges_cumulative_text_and_tool_state() -> None:
     renderer.on_text_delta("你好")
     renderer.on_tool_event("tool_start", {"name": "bash", "call_id": "c1"})
     renderer.on_text_delta("你好\n第二行")
-    renderer.on_tool_event("tool_exec_exit", {"name": "bash", "call_id": "c1", "duration_ms": 12})
+    renderer.on_tool_event(
+        "tool_exec_exit", {"name": "bash", "call_id": "c1", "duration_ms": 12}
+    )
 
     assert emitted == [
         "> 你好",

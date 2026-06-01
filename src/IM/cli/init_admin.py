@@ -15,7 +15,11 @@ import os
 import sys
 from pathlib import Path
 
-from IM.application.auth_service import AuthService, RegistrationError, resolve_jwt_secret
+from IM.application.auth_service import (
+    AuthService,
+    RegistrationError,
+    resolve_jwt_secret,
+)
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories import UserRepository
 
@@ -29,13 +33,17 @@ def run_init_admin(
     locale: str = "en",
 ) -> int:
     """Create one admin user and return a shell exit code (0 success, 1 duplicate, 2 other)."""
-    resolved_db_path = db_path or Path(os.getenv("IM_DB_PATH", "data/im_service.sqlite3"))
+    resolved_db_path = db_path or Path(
+        os.getenv("IM_DB_PATH", "data/im_service.sqlite3")
+    )
     resolved_db_path.parent.mkdir(parents=True, exist_ok=True)
 
     connection = connect(resolved_db_path)
     initialize_schema(connection)
     try:
-        service = AuthService(users=UserRepository(connection), jwt_secret=resolve_jwt_secret())
+        service = AuthService(
+            users=UserRepository(connection), jwt_secret=resolve_jwt_secret()
+        )
         try:
             pair = service.register(
                 username=username,
@@ -47,7 +55,9 @@ def run_init_admin(
             detail = str(exc)
             print(f"init_admin failed: {detail}", file=sys.stderr)
             return 1 if "already exists" in detail else 2
-        print(f"init_admin: created user {pair.user.id} (owner_id={pair.user.owner_id})")
+        print(
+            f"init_admin: created user {pair.user.id} (owner_id={pair.user.owner_id})"
+        )
         return 0
     finally:
         connection.close()

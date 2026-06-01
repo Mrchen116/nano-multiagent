@@ -45,4 +45,6 @@ def test_m85_active_layers_do_not_import_legacy_wiring_paths() -> None:
     for relative_path, forbidden_snippets in FORBIDDEN_IMPORTS.items():
         source = (SRC_ROOT / relative_path).read_text(encoding="utf-8")
         for snippet in forbidden_snippets:
-            assert snippet not in source, f"{relative_path} still imports legacy path: {snippet}"
+            assert snippet not in source, (
+                f"{relative_path} still imports legacy path: {snippet}"
+            )

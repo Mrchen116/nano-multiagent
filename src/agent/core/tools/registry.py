@@ -11,7 +11,12 @@ from agent.core.observability.logger import log_error, log_info
 from agent.core.observability.tracing import bind_correlation
 from agent.core.types import ToolSpec
 
-from .base import Tool, ToolContext, _build_default_tool_safety_config, _require_tool_safety_factory
+from .base import (
+    Tool,
+    ToolContext,
+    _build_default_tool_safety_config,
+    _require_tool_safety_factory,
+)
 from .result_budget import DEFAULT_MAX_RESULT_SIZE_CHARS
 from .session_file_state import SessionFileState
 
@@ -19,7 +24,9 @@ from .session_file_state import SessionFileState
 class ToolRegistry:
     """Store tool definitions and execute them with hook-aware lifecycle events."""
 
-    def __init__(self, *, context: ToolContext, hook_runner: HookRunner | None = None) -> None:
+    def __init__(
+        self, *, context: ToolContext, hook_runner: HookRunner | None = None
+    ) -> None:
         self._context = context
         self._hook_runner = hook_runner
         self._tools: dict[str, Tool] = {}
@@ -67,7 +74,9 @@ class ToolRegistry:
                 description=tool.description,
                 input_schema=dict(tool.input_schema),
                 is_concurrency_safe=getattr(tool, "is_concurrency_safe", False),
-                max_result_size_chars=getattr(tool, "max_result_size_chars", DEFAULT_MAX_RESULT_SIZE_CHARS),
+                max_result_size_chars=getattr(
+                    tool, "max_result_size_chars", DEFAULT_MAX_RESULT_SIZE_CHARS
+                ),
             )
             for tool in self._tools.values()
         )
@@ -119,8 +128,13 @@ class ToolRegistry:
         if "tool_registry" not in _existing_meta:
             _existing_meta["tool_registry"] = self
         import dataclasses
-        active_hook_context = dataclasses.replace(_base_hook_context, metadata=_existing_meta)
-        tool_call_id = _extract_tool_call_id(args=args, hook_context=active_hook_context)
+
+        active_hook_context = dataclasses.replace(
+            _base_hook_context, metadata=_existing_meta
+        )
+        tool_call_id = _extract_tool_call_id(
+            args=args, hook_context=active_hook_context
+        )
 
         with bind_correlation(
             session_id=active_hook_context.session_id,
@@ -131,7 +145,11 @@ class ToolRegistry:
             # observe handler（realtime_stream.on_tool_call）拿到与原 loop.py 触发时
             # 相同的字段。registry 是 tool_call hook 唯一的触发点，gate 通过后
             # observe handler 才会运行，前端因此只在真正开始执行时看到 "运行中"。
-            _run_id_meta = active_hook_context.metadata.get("run_id") if isinstance(active_hook_context.metadata, Mapping) else None
+            _run_id_meta = (
+                active_hook_context.metadata.get("run_id")
+                if isinstance(active_hook_context.metadata, Mapping)
+                else None
+            )
             tool_call_payload, _ = await self._dispatch_intercept(
                 "tool_call",
                 {
@@ -139,7 +157,9 @@ class ToolRegistry:
                     "args": dict(args),
                     "arguments": dict(args),
                     "call_id": tool_call_id,
-                    "run_id": _run_id_meta if isinstance(_run_id_meta, str) and _run_id_meta else None,
+                    "run_id": _run_id_meta
+                    if isinstance(_run_id_meta, str) and _run_id_meta
+                    else None,
                     "block": False,
                     "reason": None,
                 },
@@ -163,7 +183,9 @@ class ToolRegistry:
             safety_overrides: dict[str, Any] = {}
             if bool(tool_call_payload.get("allow_unlisted")):
                 safety_overrides["bash_allow_unlisted"] = True
-            normalized_args = _validate_args(name=name, args=effective_args, schema=tool.input_schema)
+            normalized_args = _validate_args(
+                name=name, args=effective_args, schema=tool.input_schema
+            )
             event_base_payload = _build_tool_execution_base_payload(
                 name=name,
                 args=normalized_args,
@@ -178,7 +200,9 @@ class ToolRegistry:
             def _emit_execution_update(update_payload: Mapping[str, Any]) -> None:
                 _pending_updates.append({**event_base_payload, **dict(update_payload)})
 
-            execution_base_context = _resolve_execution_context(self._context, active_hook_context)
+            execution_base_context = _resolve_execution_context(
+                self._context, active_hook_context
+            )
             # Forward session metadata from hook context so product tools (e.g.
             # send_message) can read runtime-injected fields like gateway_dispatch_url.
             execution_context = execution_base_context.with_session(
@@ -186,7 +210,9 @@ class ToolRegistry:
                 tool_call_id=tool_call_id,
                 safety_overrides=safety_overrides,
                 execution_event_callback=_emit_execution_update,
-                session_metadata=dict(active_hook_context.metadata) if active_hook_context.metadata else {},
+                session_metadata=dict(active_hook_context.metadata)
+                if active_hook_context.metadata
+                else {},
                 session_file_state=session_file_state,
             )
             log_info("tool_execution_start", tool_name=name)
@@ -199,7 +225,9 @@ class ToolRegistry:
             execution_error: ToolError | None = None
             raw_result: Mapping[str, Any] | Any | None = None
             try:
-                raw_result = await asyncio.to_thread(tool.run, normalized_args, execution_context)
+                raw_result = await asyncio.to_thread(
+                    tool.run, normalized_args, execution_context
+                )
             except ToolError as exc:
                 execution_error = exc
             except Exception as exc:
@@ -211,7 +239,9 @@ class ToolRegistry:
 
             # Flush any tool-execution updates that accumulated during the run.
             for update in _pending_updates:
-                await self._dispatch_observe("tool_execution_update", update, active_hook_context)
+                await self._dispatch_observe(
+                    "tool_execution_update", update, active_hook_context
+                )
 
             if execution_error is None:
                 await self._dispatch_observe(
@@ -242,7 +272,9 @@ class ToolRegistry:
                     },
                     active_hook_context,
                 )
-                log_error("tool_execution_error", tool_name=name, error=str(execution_error))
+                log_error(
+                    "tool_execution_error", tool_name=name, error=str(execution_error)
+                )
 
             if self._hook_runner is None:
                 if execution_error is not None:
@@ -274,7 +306,9 @@ class ToolRegistry:
                     error_message = "tool result marked as error by hook"
                 details = rewritten_payload.get("details")
                 if not isinstance(details, Mapping):
-                    details = execution_error.details if execution_error is not None else {}
+                    details = (
+                        execution_error.details if execution_error is not None else {}
+                    )
                 raise ToolError(
                     error_message,
                     tool_name=name,
@@ -312,9 +346,13 @@ class ToolRegistry:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn("hook intercept dispatch failed", event=event, error=str(exc))
+            hook_ctx.logger.warn(
+                "hook intercept dispatch failed", event=event, error=str(exc)
+            )
             return dict(payload), False
-        self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=dispatch_result.diagnostics)
+        self._log_hook_diagnostics(
+            hook_ctx, event=event, diagnostics=dispatch_result.diagnostics
+        )
         return dispatch_result.payload, dispatch_result.stopped
 
     async def _dispatch_observe(
@@ -334,7 +372,9 @@ class ToolRegistry:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn("hook observe dispatch failed", event=event, error=str(exc))
+            hook_ctx.logger.warn(
+                "hook observe dispatch failed", event=event, error=str(exc)
+            )
             return
         self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
 
@@ -358,7 +398,9 @@ class ToolRegistry:
             )
 
 
-def _validate_args(*, name: str, args: Mapping[str, Any], schema: Mapping[str, Any]) -> dict[str, Any]:
+def _validate_args(
+    *, name: str, args: Mapping[str, Any], schema: Mapping[str, Any]
+) -> dict[str, Any]:
     if not isinstance(args, Mapping):
         raise ToolError("tool args must be an object", tool_name=name)
 
@@ -371,7 +413,9 @@ def _validate_args(*, name: str, args: Mapping[str, Any], schema: Mapping[str, A
         raise ToolError("invalid tool schema properties", tool_name=name)
 
     required = schema.get("required", [])
-    if not isinstance(required, list) or any(not isinstance(item, str) for item in required):
+    if not isinstance(required, list) or any(
+        not isinstance(item, str) for item in required
+    ):
         raise ToolError("invalid tool schema required list", tool_name=name)
 
     additional_properties = schema.get("additionalProperties", True)
@@ -424,7 +468,9 @@ def _validate_args(*, name: str, args: Mapping[str, Any], schema: Mapping[str, A
     return normalized
 
 
-def _validate_value(*, tool_name: str, field_name: str, value: Any, schema: Any) -> None:
+def _validate_value(
+    *, tool_name: str, field_name: str, value: Any, schema: Any
+) -> None:
     if not isinstance(schema, Mapping):
         return
 
@@ -466,7 +512,9 @@ def _validate_value(*, tool_name: str, field_name: str, value: Any, schema: Any)
             )
 
 
-def _extract_tool_call_id(*, args: Mapping[str, Any], hook_context: HookContext) -> str | None:
+def _extract_tool_call_id(
+    *, args: Mapping[str, Any], hook_context: HookContext
+) -> str | None:
     metadata = hook_context.metadata
     if isinstance(metadata, Mapping):
         raw_tool_call_id = metadata.get("tool_call_id")
@@ -478,7 +526,9 @@ def _extract_tool_call_id(*, args: Mapping[str, Any], hook_context: HookContext)
     return None
 
 
-def _resolve_execution_context(base_context: ToolContext, hook_context: HookContext) -> ToolContext:
+def _resolve_execution_context(
+    base_context: ToolContext, hook_context: HookContext
+) -> ToolContext:
     """Return base tool context or clone it with session-scoped cwd override."""
     resolved_cwd = _metadata_path(hook_context.metadata, key="cwd")
     if resolved_cwd is None:
@@ -486,8 +536,13 @@ def _resolve_execution_context(base_context: ToolContext, hook_context: HookCont
     # When the session workspace differs from the global repo root, rebuild the
     # safety sandbox so that file tools can access files in the workspace.
     if resolved_cwd != base_context.repo_root:
-        safety_config = getattr(base_context.safety, "config", None) or _build_default_tool_safety_config()
-        safety = _require_tool_safety_factory()(repo_root=resolved_cwd, config=safety_config)
+        safety_config = (
+            getattr(base_context.safety, "config", None)
+            or _build_default_tool_safety_config()
+        )
+        safety = _require_tool_safety_factory()(
+            repo_root=resolved_cwd, config=safety_config
+        )
         repo_root = resolved_cwd
     else:
         safety = base_context.safety
@@ -533,7 +588,11 @@ def _build_tool_execution_base_payload(
     }
     if tool_call_id is not None:
         payload["tool_call_id"] = tool_call_id
-    run_id = hook_context.metadata.get("run_id") if isinstance(hook_context.metadata, Mapping) else None
+    run_id = (
+        hook_context.metadata.get("run_id")
+        if isinstance(hook_context.metadata, Mapping)
+        else None
+    )
     if isinstance(run_id, str) and run_id:
         payload["run_id"] = run_id
     return payload

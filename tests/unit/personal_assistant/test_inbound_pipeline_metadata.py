@@ -16,7 +16,9 @@ from personal_assistant.gateway.session_keys import SessionBindingStore
 from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
 
-def test_build_session_metadata_reads_system_prompt_from_local_agent_config(tmp_path: Path) -> None:
+def test_build_session_metadata_reads_system_prompt_from_local_agent_config(
+    tmp_path: Path,
+) -> None:
     """system_prompt in session metadata must come from the local AgentWorkspaceConfig,
     not from the relay-pushed message.metadata."""
     agent_dir = tmp_path / "agent-x"
@@ -58,7 +60,9 @@ def test_build_session_metadata_reads_system_prompt_from_local_agent_config(tmp_
     assert created_metadata["system_prompt"] == "Local system prompt from config."
 
 
-def test_build_session_metadata_reads_skills_and_tool_allowlist_from_local_agent_config(tmp_path: Path) -> None:
+def test_build_session_metadata_reads_skills_and_tool_allowlist_from_local_agent_config(
+    tmp_path: Path,
+) -> None:
     """skills and tool_allowlist in session metadata must come from local config."""
     agent_dir = tmp_path / "agent-y"
     agent_dir.mkdir()
@@ -101,7 +105,9 @@ def test_build_session_metadata_reads_skills_and_tool_allowlist_from_local_agent
     assert created_metadata["tool_allowlist"] == ["read_file", "write_file"]
 
 
-def test_build_session_metadata_ignores_message_metadata_for_prompt_fields(tmp_path: Path) -> None:
+def test_build_session_metadata_ignores_message_metadata_for_prompt_fields(
+    tmp_path: Path,
+) -> None:
     """When local agent config has no system_prompt/skills/tool_allowlist,
     message.metadata values must still be ignored (not leaked through)."""
     agent_dir = tmp_path / "agent-z"
@@ -145,7 +151,9 @@ def test_build_session_metadata_ignores_message_metadata_for_prompt_fields(tmp_p
     assert "tool_allowlist" not in created_metadata
 
 
-def test_build_session_metadata_still_reads_conversation_id_from_message_metadata(tmp_path: Path) -> None:
+def test_build_session_metadata_still_reads_conversation_id_from_message_metadata(
+    tmp_path: Path,
+) -> None:
     """conversation_id and config_profile_version should still come from message.metadata."""
     agent_dir = tmp_path / "agent-w"
     agent_dir.mkdir()

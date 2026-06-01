@@ -67,7 +67,9 @@ class RuntimeRunner(BackgroundSubagentRunner):
             duration_ms = int((time.monotonic() - start) * 1000)
             result_text = _extract_assistant_text(turn_result)
             usage = _usage_to_dict(turn_result.usage) if turn_result.usage else None
-            tool_use_count = len(turn_result.tool_calls) if turn_result.tool_calls else 0
+            tool_use_count = (
+                len(turn_result.tool_calls) if turn_result.tool_calls else 0
+            )
 
             try:
                 on_complete(

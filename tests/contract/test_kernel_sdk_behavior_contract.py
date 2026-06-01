@@ -13,6 +13,7 @@ Behaviors covered:
 - global capabilities / get_llm_config
 - hook intercept (hook modifying tool input before execution)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,6 +35,7 @@ from agent.products.local_coding.profile import LOCAL_CODING_PROFILE
 
 async def _allow_all(tool, input, ctx) -> Any:  # noqa: ANN001
     from agent.platform.permissions.broker import PermissionDecision
+
     return PermissionDecision(behavior="allow")
 
 
@@ -77,7 +79,9 @@ def _build_kernel(tmp_path: Path, **kwargs: Any) -> Kernel:
     return build_kernel(**defaults)
 
 
-async def _wait_for_terminal_run(kernel: Kernel, run_id: str, *, timeout: float = 3.0) -> Any:
+async def _wait_for_terminal_run(
+    kernel: Kernel, run_id: str, *, timeout: float = 3.0
+) -> Any:
     """Poll kernel.get_run() until terminal status or timeout."""
     deadline = asyncio.get_event_loop().time() + timeout
     while asyncio.get_event_loop().time() < deadline:
@@ -88,7 +92,9 @@ async def _wait_for_terminal_run(kernel: Kernel, run_id: str, *, timeout: float 
     raise AssertionError(f"run {run_id} did not reach terminal status in {timeout}s")
 
 
-async def _wait_for_run_status(kernel: Kernel, run_id: str, target_status: str, *, timeout: float = 3.0) -> Any:
+async def _wait_for_run_status(
+    kernel: Kernel, run_id: str, target_status: str, *, timeout: float = 3.0
+) -> Any:
     """Poll until run reaches target_status."""
     deadline = asyncio.get_event_loop().time() + timeout
     while asyncio.get_event_loop().time() < deadline:
@@ -114,7 +120,9 @@ async def test_run_cancel_cancels_running_run_idempotent(tmp_path: Path) -> None
 
     async def _blocking_generate(event: asyncio.Event):
         await asyncio.wait_for(event.wait(), timeout=5.0)
-        yield LLMMessage(role="assistant", content="unblocked", finish_reason="stop", tool_calls=())
+        yield LLMMessage(
+            role="assistant", content="unblocked", finish_reason="stop", tool_calls=()
+        )
 
     kernel = _build_kernel(tmp_path, _llm_client_override=_BlockingClient())
     try:
@@ -225,7 +233,9 @@ def test_llm_config_reconfigure_updates_provider(tmp_path: Path) -> None:
         initial = kernel.get_llm_config()
 
         # Reconfigure to a different provider/model
-        target_provider = "anthropic" if initial.provider != "anthropic" else "openai_compat"
+        target_provider = (
+            "anthropic" if initial.provider != "anthropic" else "openai_compat"
+        )
         target_model = "test-model-xyz"
         updated = kernel.reconfigure_llm(provider=target_provider, model=target_model)
         assert updated.provider == target_provider

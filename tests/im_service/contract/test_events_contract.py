@@ -53,14 +53,19 @@ def test_user_stream_contract_emits_json_events(tmp_path: Path) -> None:
             json={"sender_user_id": alice.id, "content": "hello"},
         )
         assert posted.status_code == 201
-        with client.websocket_connect(f"/im/ws/user?token={alice.access_token}") as websocket:
+        with client.websocket_connect(
+            f"/im/ws/user?token={alice.access_token}"
+        ) as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             seen: list[dict[str, object]] = []
             for _ in range(4):
                 raw = websocket.receive_text()
                 body = json.loads(raw)
                 seen.append(body)
-                if body.get("op") == "event" and body.get("event_type") == "message.delivered":
+                if (
+                    body.get("op") == "event"
+                    and body.get("event_type") == "message.delivered"
+                ):
                     break
             event_types = [b.get("event_type") for b in seen if b.get("op") == "event"]
             assert "message.sent" in event_types

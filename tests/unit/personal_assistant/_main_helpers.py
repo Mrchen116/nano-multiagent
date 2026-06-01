@@ -21,7 +21,10 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
             name="anthropic",
             base_url="http://127.0.0.1:4000",
             models=(
-                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+                LLMModelPayload(
+                    name="kimiCoding:K2.6",
+                    extra_request_body={"thinking": {"type": "adaptive"}},
+                ),
             ),
         ),
     ),
@@ -42,7 +45,13 @@ class _FakeKernelClient:
 
 
 class _FakeProcess:
-    def __init__(self, wait_result: int | TimeoutError, *, pid: int = 4321, poll_result: int | None = None) -> None:
+    def __init__(
+        self,
+        wait_result: int | TimeoutError,
+        *,
+        pid: int = 4321,
+        poll_result: int | None = None,
+    ) -> None:
         self.wait_result = wait_result
         self.pid = pid
         self.poll_result = poll_result
@@ -167,7 +176,9 @@ def make_minimal_config(tmp_path: Path) -> LocalConfig:
     workspace_root.mkdir()
     return LocalConfig(
         node=NodeConfig(node_id="node-m248"),
-        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        agents=(
+            AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
+        ),
         channels=(),
         kernel=KernelConfig(
             token=None,

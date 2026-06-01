@@ -54,7 +54,9 @@ class _StreamingKernel:
         self._session_counter += 1
         return _FakeSession(session_id=f"sess-{self._session_counter}")
 
-    def get_session(self, session_id: str, *, workspace_root: Any = None, **_kwargs) -> dict[str, Any]:
+    def get_session(
+        self, session_id: str, *, workspace_root: Any = None, **_kwargs
+    ) -> dict[str, Any]:
         return {
             "session_id": session_id,
             "status": "active",
@@ -64,6 +66,7 @@ class _StreamingKernel:
     def submit(self, *, session_id: str, parts: Any = None, **_kwargs: Any) -> Any:
         self._run_counter += 1
         from unittest.mock import MagicMock
+
         record = MagicMock()
         record.run_id = self.run_id
         return record
@@ -84,24 +87,37 @@ class _StreamingKernel:
 def test_kernel_event_observer_receives_each_run_event_in_order(tmp_path: Path) -> None:
     agent_dir = tmp_path / "agent"
     agent_dir.mkdir()
-    agents = (
-        AgentWorkspaceConfig(agent_id="a", workspace_root=agent_dir, title="A"),
-    )
+    agents = (AgentWorkspaceConfig(agent_id="a", workspace_root=agent_dir, title="A"),)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
 
     kernel = _StreamingKernel(
         events=[
             {"run_id": "run-1", "event": "message_update", "delta_text": "hi "},
-            {"run_id": "run-1", "event": "tool_start", "tool_call_id": "tc1", "tool_name": "t"},
-            {"run_id": "run-1", "event": "tool_end", "tool_call_id": "tc1", "tool_name": "t", "status": "completed"},
+            {
+                "run_id": "run-1",
+                "event": "tool_start",
+                "tool_call_id": "tc1",
+                "tool_name": "t",
+            },
+            {
+                "run_id": "run-1",
+                "event": "tool_end",
+                "tool_call_id": "tc1",
+                "tool_name": "t",
+                "status": "completed",
+            },
             {"run_id": "run-1", "event": "message_update", "delta_text": "world"},
             {"run_id": "run-1", "event": "assistant_message", "content": "hi world"},
             {
                 "run_id": "run-1",
                 "event": "run_status",
                 "status": "completed",
-                "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8},
+                "usage": {
+                    "prompt_tokens": 5,
+                    "completion_tokens": 3,
+                    "total_tokens": 8,
+                },
             },
         ]
     )

@@ -11,7 +11,10 @@ import pytest
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 from agent.core.llm.interfaces import LLMMessage
 from agent.core.runs.origin import RunOrigin
-from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.base import (
+    set_tool_safety_factory,
+    set_tool_safety_config_factory,
+)
 from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
@@ -43,13 +46,19 @@ class _RunsRegistryStub:
         source_task_id: str | None = None,
         trace_id: str | None = None,
     ) -> Any:
-        self.submissions.append({
-            "session_id": session_id,
-            "parts": parts,
-            "origin": origin,
-            "source_task_id": source_task_id,
-        })
-        return type("RunRecord", (), {"run_id": "run_1", "session_id": session_id, "status": "queued"})()
+        self.submissions.append(
+            {
+                "session_id": session_id,
+                "parts": parts,
+                "origin": origin,
+                "source_task_id": source_task_id,
+            }
+        )
+        return type(
+            "RunRecord",
+            (),
+            {"run_id": "run_1", "session_id": session_id, "status": "queued"},
+        )()
 
 
 def _make_ctx(tmp_path: Path, session_id: str = "sess_parent") -> ToolContext:
@@ -97,7 +106,11 @@ def test_background_bash_output_file_is_created_and_written(tmp_path: Path) -> N
     task_id = result["task_id"]
     for _ in range(50):
         record = wiring.registry.get(task_id)
-        if record is not None and record.status.value in ("completed", "failed", "killed"):
+        if record is not None and record.status.value in (
+            "completed",
+            "failed",
+            "killed",
+        ):
             break
         time.sleep(0.05)
 
@@ -125,7 +138,11 @@ def test_background_bash_completes_and_delivers_notification(tmp_path: Path) -> 
     # Poll for completion.
     for _ in range(50):
         record = wiring.registry.get(task_id)
-        if record is not None and record.status.value in ("completed", "failed", "killed"):
+        if record is not None and record.status.value in (
+            "completed",
+            "failed",
+            "killed",
+        ):
             break
         time.sleep(0.05)
 
@@ -144,7 +161,9 @@ def test_background_bash_completes_and_delivers_notification(tmp_path: Path) -> 
     assert task_id in parts[0]["text"]
 
 
-def test_background_bash_failed_exit_code_delivers_failed_notification(tmp_path: Path) -> None:
+def test_background_bash_failed_exit_code_delivers_failed_notification(
+    tmp_path: Path,
+) -> None:
     runs = _RunsRegistryStub()
     wiring = wire_background_tasks(workspace_root=tmp_path, runs_registry=runs)
     tool = BashTool(wiring=wiring)
@@ -163,7 +182,11 @@ def test_background_bash_failed_exit_code_delivers_failed_notification(tmp_path:
 
     for _ in range(50):
         record = wiring.registry.get(task_id)
-        if record is not None and record.status.value in ("completed", "failed", "killed"):
+        if record is not None and record.status.value in (
+            "completed",
+            "failed",
+            "killed",
+        ):
             break
         time.sleep(0.05)
 

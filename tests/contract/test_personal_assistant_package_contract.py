@@ -15,7 +15,9 @@ def test_personal_assistant_package_root_exists() -> None:
 
 
 def test_setuptools_package_discovery_includes_personal_assistant() -> None:
-    pyproject = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    pyproject = tomllib.loads(
+        (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    )
     include = pyproject["tool"]["setuptools"]["packages"]["find"]["include"]
 
     assert "personal_assistant*" in include

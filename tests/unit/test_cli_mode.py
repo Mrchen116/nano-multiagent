@@ -22,10 +22,12 @@ from tests.unit._cli_kernel_stubs import (
 # LLM config stub
 # ---------------------------------------------------------------------------
 
+
 class _LLMConfigKernelStub(_BaseKernelStub):
     def __init__(self) -> None:
         super().__init__()
         from tests.unit._cli_kernel_stubs import _StubLLMConfig
+
         self._llm_config = _StubLLMConfig(
             provider="openai_compat",
             model="codex_oauth:gpt-5.5",
@@ -44,6 +46,7 @@ class _LLMConfigKernelStub(_BaseKernelStub):
 # ---------------------------------------------------------------------------
 # Tests: basic REPL lifecycle (replaces managed/remote lifecycle tests)
 # ---------------------------------------------------------------------------
+
 
 def test_run_cli_enters_repl_directly_without_mode(tmp_path) -> None:
     """M2: no --mode flag; CLI always enters async REPL via Kernel SDK."""
@@ -122,6 +125,7 @@ def test_run_cli_auto_mode_banner_shown_at_startup(tmp_path) -> None:
 # Tests: llm-config subcommand
 # ---------------------------------------------------------------------------
 
+
 def test_run_cli_llm_config_get_outputs_payload(tmp_path) -> None:
     stub = _LLMConfigKernelStub()
     output = io.StringIO()
@@ -145,12 +149,18 @@ def test_run_cli_llm_config_set_applies_requested_fields(tmp_path) -> None:
 
     exit_code = run_cli(
         [
-            "llm-config", "set",
-            "--provider", "anthropic",
-            "--model", "kimiCoding:K2.6",
-            "--base-url", "http://127.0.0.1:4100",
-            "--api-key", "sk-cli",
-            "--timeout-seconds", "55",
+            "llm-config",
+            "set",
+            "--provider",
+            "anthropic",
+            "--model",
+            "kimiCoding:K2.6",
+            "--base-url",
+            "http://127.0.0.1:4100",
+            "--api-key",
+            "sk-cli",
+            "--timeout-seconds",
+            "55",
         ],
         stdout=output,
         kernel_factory=_make_kernel_factory(stub),
@@ -160,13 +170,16 @@ def test_run_cli_llm_config_set_applies_requested_fields(tmp_path) -> None:
     assert exit_code == 0
     payload = json.loads(output.getvalue())
     assert payload["provider"] == "anthropic"
-    assert ("reconfigure_llm", {
-        "provider": "anthropic",
-        "model": "kimiCoding:K2.6",
-        "base_url": "http://127.0.0.1:4100",
-        "api_key": "sk-cli",
-        "timeout_seconds": 55.0,
-    }) in stub.calls
+    assert (
+        "reconfigure_llm",
+        {
+            "provider": "anthropic",
+            "model": "kimiCoding:K2.6",
+            "base_url": "http://127.0.0.1:4100",
+            "api_key": "sk-cli",
+            "timeout_seconds": 55.0,
+        },
+    ) in stub.calls
 
 
 def test_run_cli_llm_config_set_requires_at_least_one_field(tmp_path) -> None:

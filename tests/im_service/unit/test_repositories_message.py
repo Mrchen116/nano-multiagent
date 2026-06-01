@@ -95,12 +95,16 @@ def test_create_message_accepts_agent_actor_sender_id(tmp_path: Path) -> None:
     assert stored.last_message_at is not None
 
 
-def test_event_repository_updates_last_message_preview_for_visible_relay_events(tmp_path: Path) -> None:
+def test_event_repository_updates_last_message_preview_for_visible_relay_events(
+    tmp_path: Path,
+) -> None:
     """Persist relay-visible events into conversation summaries so inbox preview matches reopened threads."""
     users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
     events = EventRepository(messages._connection)
     owner = users.create_user(username="owner", display_name="Owner")
-    conversation = conversations.create_conversation(title="relay thread", participant_ids=[owner.id])
+    conversation = conversations.create_conversation(
+        title="relay thread", participant_ids=[owner.id]
+    )
     base_message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=owner.id,
@@ -127,7 +131,9 @@ def test_event_repository_updates_last_message_preview_for_visible_relay_events(
     assert stored.last_message_at is not None
 
 
-def test_list_messages_merges_visible_relay_history_into_old_conversations(tmp_path: Path) -> None:
+def test_list_messages_merges_visible_relay_history_into_old_conversations(
+    tmp_path: Path,
+) -> None:
     """Return the same visible relay replies on first history load, even when only events were persisted."""
     users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
     events = EventRepository(messages._connection)
@@ -251,10 +257,17 @@ def test_list_messages_merges_visible_relay_history_into_old_conversations(tmp_p
         f"{followup.id}:relay:relay-a-2",
         f"{followup.id}:relay:relay-q-2",
     ]
-    assert [item.sender.id for item in listed if item.sender_type == "agent"] == ["A", "Q", "A", "Q"]
+    assert [item.sender.id for item in listed if item.sender_type == "agent"] == [
+        "A",
+        "Q",
+        "A",
+        "Q",
+    ]
 
 
-def test_list_messages_drops_relay_mirror_when_real_agent_message_exists(tmp_path: Path) -> None:
+def test_list_messages_drops_relay_mirror_when_real_agent_message_exists(
+    tmp_path: Path,
+) -> None:
     """When a turn produced both a real agent message and a relay.completed mirror, the mirror is suppressed."""
     users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
     events = EventRepository(messages._connection)
@@ -300,7 +313,9 @@ def test_list_messages_drops_relay_mirror_when_real_agent_message_exists(tmp_pat
     )
 
 
-def test_list_messages_keeps_relay_mirror_when_no_real_agent_message(tmp_path: Path) -> None:
+def test_list_messages_keeps_relay_mirror_when_no_real_agent_message(
+    tmp_path: Path,
+) -> None:
     """Old conversations without real agent messages still surface relay.completed mirror rows."""
     users, conversations, messages, _, _, _ = _build_repositories(tmp_path)
     events = EventRepository(messages._connection)
@@ -335,7 +350,9 @@ def test_list_messages_keeps_relay_mirror_when_no_real_agent_message(tmp_path: P
     )
 
 
-def test_list_messages_dedups_relay_failed_when_real_terminal_row_exists(tmp_path: Path) -> None:
+def test_list_messages_dedups_relay_failed_when_real_terminal_row_exists(
+    tmp_path: Path,
+) -> None:
     """bugfix-365: a `relay.failed` event must not produce a second bubble when the
     real `messages` row with same `message_id` is already in `failed` terminal state.
 
@@ -390,4 +407,6 @@ def test_list_messages_dedups_relay_failed_when_real_terminal_row_exists(tmp_pat
     assert len(failed_rows) == 1, (
         f"Expected exactly one failed bubble; got {[(m.id, m.sender_type) for m in failed_rows]}"
     )
-    assert failed_rows[0].id == real_agent_msg.id, "The kept failed bubble must be the real message row, not a synthetic"
+    assert failed_rows[0].id == real_agent_msg.id, (
+        "The kept failed bubble must be the real message row, not a synthetic"
+    )

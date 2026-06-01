@@ -1,15 +1,20 @@
 """Message and event routes for IM HTTP APIs."""
+
 from pathlib import Path
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, model_validator
 
-from IM.api.deps import current_user, get_gateway_handler, get_relay_service, get_web_im_service
-from IM.api.ws.event_types import tool_call_to_dict
+from IM.api.deps import (
+    current_user,
+    get_gateway_handler,
+    get_relay_service,
+    get_web_im_service,
+)
 from IM.application.relay_service import RelayService
 from IM.application.web_im_service import WebIMService
-from IM.domain.models import Attachment, Message, TokenUsage, User
+from IM.domain.models import Attachment, Message, User
 from IM.ws.gateway_handler import GatewayHandler
 
 router = APIRouter(tags=["messages"])
@@ -19,12 +24,14 @@ router = APIRouter(tags=["messages"])
 # the existing tool surface. Anything else returns 415 so an agent can never
 # be coerced into running an arbitrary blob downloaded by the user.
 _UPLOAD_ALLOWED_PREFIXES = ("image/",)
-_UPLOAD_ALLOWED_EXACT = frozenset({
-    "application/pdf",
-    "text/plain",
-    "text/markdown",
-    "application/json",
-})
+_UPLOAD_ALLOWED_EXACT = frozenset(
+    {
+        "application/pdf",
+        "text/plain",
+        "text/markdown",
+        "application/json",
+    }
+)
 _UPLOAD_MAX_BYTES = 10 * 1024 * 1024
 _MESSAGE_MAX_ATTACHMENTS = 5
 
@@ -124,9 +131,15 @@ def to_message_response(message: Message) -> MessageResponse:
         id=message.id,
         conversation_id=message.conversation_id,
         sender=ActorPayload(
-            type=message.sender.type if message.sender is not None else message.sender_type,
-            id=message.sender.id if message.sender is not None else message.sender_user_id,
-            display_name=message.sender.display_name if message.sender is not None else None,
+            type=message.sender.type
+            if message.sender is not None
+            else message.sender_type,
+            id=message.sender.id
+            if message.sender is not None
+            else message.sender_user_id,
+            display_name=message.sender.display_name
+            if message.sender is not None
+            else None,
         ),
         sender_user_id=message.sender_user_id,
         sender_type=message.sender_type,
@@ -164,7 +177,9 @@ def to_message_response(message: Message) -> MessageResponse:
                 if message.token_usage.total is not None
                 else message.token_usage.context_used + message.token_usage.output
             ),
-        ) if message.token_usage is not None else None,
+        )
+        if message.token_usage is not None
+        else None,
         # bugfix-367: pass-through list 形态。前端 reducer / 渲染按 request_id
         # 索引每张卡,key 用 request_id remount,刷新后历史小条全部还原。
         permission_requests=list(message.permission_requests),
@@ -175,7 +190,10 @@ def _sanitize_upload_file_name(file_name: str) -> str:
     """Collapse user-provided upload names to a safe basename."""
     safe_name = Path(file_name.strip()).name
     if not safe_name:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="file_name must be non-empty")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="file_name must be non-empty",
+        )
     return safe_name
 
 
@@ -198,7 +216,11 @@ def _assert_conversation_in_owner_scope(
         )
 
 
-@router.post("/im/v1/uploads", response_model=AttachmentPayload, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/im/v1/uploads",
+    response_model=AttachmentPayload,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_upload(
     request: Request,
     file_name: str = Query(min_length=1),
@@ -257,9 +279,12 @@ async def create_message(
         )
     try:
         sender_user_id, sender_type = _resolve_create_message_sender(payload)
-        resolved_target_node_id = payload.target_node_id or service.resolve_target_node_id(
-            conversation_id=conversation_id,
-            content=payload.content,
+        resolved_target_node_id = (
+            payload.target_node_id
+            or service.resolve_target_node_id(
+                conversation_id=conversation_id,
+                content=payload.content,
+            )
         )
         created = service.create_message(
             conversation_id=conversation_id,
@@ -279,7 +304,9 @@ async def create_message(
     except ValueError as exc:
         raise map_message_write_error(exc) from exc
     if resolved_target_node_id is not None:
-        idempotency_key_base = idempotency_key or f"relay:{created.id}:{resolved_target_node_id}"
+        idempotency_key_base = (
+            idempotency_key or f"relay:{created.id}:{resolved_target_node_id}"
+        )
         relay_results = service.enqueue_relay_all(
             message=created,
             target_node_id=resolved_target_node_id,
@@ -338,7 +365,11 @@ def list_messages(
         )
     except ValueError as exc:
         detail = str(exc)
-        http_status = status.HTTP_404_NOT_FOUND if detail == "before_message_id not found" else status.HTTP_400_BAD_REQUEST
+        http_status = (
+            status.HTTP_404_NOT_FOUND
+            if detail == "before_message_id not found"
+            else status.HTTP_400_BAD_REQUEST
+        )
         raise HTTPException(status_code=http_status, detail=detail) from exc
     next_before_message_id = items[0].id if len(items) == limit else None
     return ListMessagesResponse(

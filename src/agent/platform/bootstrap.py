@@ -88,7 +88,9 @@ def bootstrap_product(
         product_hook_dir=product_root / "hooks",
     )
     if profile.default_hook_modules is not None:
-        hook_registry = _filter_hook_registry(full_hook_registry, profile.default_hook_modules)
+        hook_registry = _filter_hook_registry(
+            full_hook_registry, profile.default_hook_modules
+        )
     else:
         hook_registry = full_hook_registry
 
@@ -111,7 +113,8 @@ def bootstrap_product(
         # Include both default and optional ids so optional tools are accessible
         # when an explicit tool_allowlist enables them on a per-session basis.
         combined_ids = list(profile.default_tool_ids) + [
-            tid for tid in profile.optional_tool_ids
+            tid
+            for tid in profile.optional_tool_ids
             if tid not in profile.default_tool_ids
         ]
         tool_registry = _filter_tool_registry(full_tool_registry, combined_ids)
@@ -147,9 +150,15 @@ def bootstrap_product(
     if config_resolver is not None:
         skill_roots = config_resolver.user_skill_roots()
         # Prefer workspace skill root (first in precedence); fall back to global.
-        skill_root = skill_roots[0] if skill_roots else config_resolver.global_config_root() / "skills"
+        skill_root = (
+            skill_roots[0]
+            if skill_roots
+            else config_resolver.global_config_root() / "skills"
+        )
 
-        skill_manage_tool = SkillManageTool(skill_root=skill_root, registry=skill_registry)
+        skill_manage_tool = SkillManageTool(
+            skill_root=skill_root, registry=skill_registry
+        )
         tool_registry.register(skill_manage_tool, replace=True)
 
         # No fixed memory_root — memory_root is per-session, derived at runtime from
@@ -163,15 +172,21 @@ def bootstrap_product(
     if config_resolver is not None:
         workspace_config_root = config_resolver.workspace_config_root()
         if workspace_config_root is not None:
-            self_evo_config = _load_self_evolution_config(workspace_config_root / "config.yaml")
+            self_evo_config = _load_self_evolution_config(
+                workspace_config_root / "config.yaml"
+            )
             default_session_metadata["self_evolution"] = self_evo_config
         else:
-            default_session_metadata["self_evolution"] = dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+            default_session_metadata["self_evolution"] = dict(
+                _DEFAULT_SELF_EVOLUTION_CONFIG
+            )
 
     # Thread workspace_config_dirname into session metadata so runtime._ensure_memory_snapshot
     # and MemoryTool._resolve_memory_root can derive memory_root per-session via derive_memory_root.
     if profile.workspace_config_dirname:
-        default_session_metadata["workspace_config_dirname"] = profile.workspace_config_dirname
+        default_session_metadata["workspace_config_dirname"] = (
+            profile.workspace_config_dirname
+        )
 
     # Assemble the ordered prompt section list.
     #
@@ -196,7 +211,9 @@ def bootstrap_product(
         session_store=session_store,
         config_resolver=config_resolver,
         skill_registry=skill_registry,
-        default_tool_ids=list(profile.default_tool_ids) if profile.default_tool_ids is not None else None,
+        default_tool_ids=list(profile.default_tool_ids)
+        if profile.default_tool_ids is not None
+        else None,
         default_session_metadata=default_session_metadata,
         prompt_sections=merged_prompt_sections,
     )
@@ -230,7 +247,11 @@ def _load_self_evolution_config(config_path: Path) -> dict:
         result.update(user_evo)
         return result
     except Exception:
-        _logger.warning("Failed to read workspace config %s; using defaults", config_path, exc_info=True)
+        _logger.warning(
+            "Failed to read workspace config %s; using defaults",
+            config_path,
+            exc_info=True,
+        )
         return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
 
 
@@ -253,7 +274,9 @@ def _filter_tool_registry(full: ToolRegistry, allowed_ids: list[str]) -> ToolReg
     return filtered
 
 
-def _filter_hook_registry(full: HookRegistry, allowed_modules: list[str]) -> HookRegistry:
+def _filter_hook_registry(
+    full: HookRegistry, allowed_modules: list[str]
+) -> HookRegistry:
     """Return a new HookRegistry containing only hooks from ``allowed_modules``.
 
     Hooks are identified by the stem (filename without extension) of their

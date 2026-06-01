@@ -15,6 +15,7 @@ Public surface:
         resolve_effective_prompt,
     )
 """
+
 from agent.core.agent.prompt_sections.base import (
     PromptContext,
     PromptSection,

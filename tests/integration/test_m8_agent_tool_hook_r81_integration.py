@@ -8,10 +8,17 @@ from agent.core.errors import ToolError
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+)
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.base import (
+    set_tool_safety_factory,
+    set_tool_safety_config_factory,
+)
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.registry import ToolRegistry
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
@@ -27,7 +34,9 @@ class EchoLLMClient:
     async def generate(self, request: LLMGenerateRequest):  # AsyncIterator[LLMMessage]
         self.requests.append(request)
         # Yield the assistant message, then terminal metadata with finish_reason.
-        yield LLMMessage(role="assistant", content=f"ack:{request.messages[-1].content}")
+        yield LLMMessage(
+            role="assistant", content=f"ack:{request.messages[-1].content}"
+        )
         yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
 
@@ -50,7 +59,9 @@ class EchoTool:
         return {"text": args["text"]}
 
 
-def _runtime_with_hooks(registry: HookRegistry, tmp_path: Path) -> tuple[AgentRuntime, EchoLLMClient, SessionManager, str]:
+def _runtime_with_hooks(
+    registry: HookRegistry, tmp_path: Path
+) -> tuple[AgentRuntime, EchoLLMClient, SessionManager, str]:
     manager = SessionManager(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     session = manager.create_session(workspace_root=tmp_path)
     llm = EchoLLMClient()
@@ -95,7 +106,9 @@ def test_runtime_input_transform_and_handled_are_effective(tmp_path: Path) -> No
 
     runtime, llm, manager, session_id = _runtime_with_hooks(registry, tmp_path)
 
-    result = asyncio.run(runtime.run(session_id, [{"type": "text", "text": "ping"}], stream=False))
+    result = asyncio.run(
+        runtime.run(session_id, [{"type": "text", "text": "ping"}], stream=False)
+    )
 
     assert result.stop_reason == "handled_by_hook"
     assert result.messages == ()
@@ -116,11 +129,15 @@ def test_tool_call_block_is_applied_before_tool_execution_and_arg_validation() -
     tool_registry, tool = _tool_registry_with_hooks(registry)
 
     with pytest.raises(ToolError, match="blocked by hook") as exc_info:
-        asyncio.run(tool_registry.execute(
-            "echo",
-            {},
-            hook_context=HookContext(session_id="sess-r81-block", repo_root=Path.cwd()),
-        ))
+        asyncio.run(
+            tool_registry.execute(
+                "echo",
+                {},
+                hook_context=HookContext(
+                    session_id="sess-r81-block", repo_root=Path.cwd()
+                ),
+            )
+        )
 
     assert exc_info.value.details["blocked_by_hook"] is True
     assert exc_info.value.details["reason"] == "policy"
@@ -139,11 +156,15 @@ def test_tool_result_rewrite_output_is_applied_before_return() -> None:
     registry.on("tool_result", rewrite_result, priority=10)
     tool_registry, _ = _tool_registry_with_hooks(registry)
 
-    result = asyncio.run(tool_registry.execute(
-        "echo",
-        {"text": "ping"},
-        hook_context=HookContext(session_id="sess-r81-rewrite", repo_root=Path.cwd()),
-    ))
+    result = asyncio.run(
+        tool_registry.execute(
+            "echo",
+            {"text": "ping"},
+            hook_context=HookContext(
+                session_id="sess-r81-rewrite", repo_root=Path.cwd()
+            ),
+        )
+    )
 
     assert result == {"text": "rewritten:ping"}
 
@@ -163,11 +184,15 @@ def test_tool_result_rewrite_list_content_is_passthrough() -> None:
     registry.on("tool_result", rewrite_result, priority=10)
     tool_registry, _ = _tool_registry_with_hooks(registry)
 
-    result = asyncio.run(tool_registry.execute(
-        "echo",
-        {"text": "ping"},
-        hook_context=HookContext(session_id="sess-r81-list-content", repo_root=Path.cwd()),
-    ))
+    result = asyncio.run(
+        tool_registry.execute(
+            "echo",
+            {"text": "ping"},
+            hook_context=HookContext(
+                session_id="sess-r81-list-content", repo_root=Path.cwd()
+            ),
+        )
+    )
 
     assert result == {
         "content": [
@@ -177,7 +202,9 @@ def test_tool_result_rewrite_list_content_is_passthrough() -> None:
     }
 
 
-def test_hook_exceptions_are_isolated_and_fail_open_for_runtime_and_tools(tmp_path: Path) -> None:
+def test_hook_exceptions_are_isolated_and_fail_open_for_runtime_and_tools(
+    tmp_path: Path,
+) -> None:
     runtime_registry = HookRegistry()
 
     async def runtime_exploding(event, ctx):
@@ -186,7 +213,9 @@ def test_hook_exceptions_are_isolated_and_fail_open_for_runtime_and_tools(tmp_pa
 
     runtime_registry.on("input", runtime_exploding, priority=10)
     runtime, llm, _, session_id = _runtime_with_hooks(runtime_registry, tmp_path)
-    runtime_result = asyncio.run(runtime.run(session_id, [{"type": "text", "text": "ping"}], stream=False))
+    runtime_result = asyncio.run(
+        runtime.run(session_id, [{"type": "text", "text": "ping"}], stream=False)
+    )
 
     assert runtime_result.messages[0].content == "ack:ping"
     assert llm.requests[-1].messages[-1].content == "ping"
@@ -200,11 +229,15 @@ def test_hook_exceptions_are_isolated_and_fail_open_for_runtime_and_tools(tmp_pa
     tools_registry.on("tool_result", tools_exploding, priority=10)
     tool_registry, tool = _tool_registry_with_hooks(tools_registry)
 
-    tool_result = asyncio.run(tool_registry.execute(
-        "echo",
-        {"text": "pong"},
-        hook_context=HookContext(session_id="sess-r81-fail-open", repo_root=Path.cwd()),
-    ))
+    tool_result = asyncio.run(
+        tool_registry.execute(
+            "echo",
+            {"text": "pong"},
+            hook_context=HookContext(
+                session_id="sess-r81-fail-open", repo_root=Path.cwd()
+            ),
+        )
+    )
 
     assert tool_result == {"text": "pong"}
     assert tool.calls == 1

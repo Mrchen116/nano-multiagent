@@ -1,4 +1,5 @@
 """Tests for ProductProfile.prompt_sections field and bootstrap assembly (feat-379-M1 R6)."""
+
 from __future__ import annotations
 
 import pytest

@@ -100,7 +100,11 @@ def test_conversation_list_orders_pinned_then_recent_activity(tmp_path: Path) ->
         assert create_message.status_code == 201
 
         items = client.get("/im/v1/conversations").json()["items"]
-        assert [item["id"] for item in items] == [first["id"], second["id"], third["id"]]
+        assert [item["id"] for item in items] == [
+            first["id"],
+            second["id"],
+            third["id"],
+        ]
         assert items[1]["last_message_preview"] == "latest"
         assert items[1]["last_message_at"] is not None
         # alice is the conversation owner, so her own message does not increment unread_count.
@@ -129,11 +133,19 @@ def test_register_rejects_duplicate_username(tmp_path: Path) -> None:
     with make_app_client(tmp_path) as client:
         first = client.post(
             "/im/v1/auth/register",
-            json={"username": "peer", "password": "hunter2-strong", "display_name": "Teammate"},
+            json={
+                "username": "peer",
+                "password": "hunter2-strong",
+                "display_name": "Teammate",
+            },
         )
         duplicate = client.post(
             "/im/v1/auth/register",
-            json={"username": "peer", "password": "hunter2-strong", "display_name": "OpsBot"},
+            json={
+                "username": "peer",
+                "password": "hunter2-strong",
+                "display_name": "OpsBot",
+            },
         )
 
         assert first.status_code == 201

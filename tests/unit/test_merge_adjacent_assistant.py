@@ -22,7 +22,9 @@ def test_merge_assistant_with_tool_calls() -> None:
             role="assistant",
             content="",
             tool_calls=(
-                LLMToolCall(call_id="call_1", name="Read", arguments={"path": "/tmp/foo"}),
+                LLMToolCall(
+                    call_id="call_1", name="Read", arguments={"path": "/tmp/foo"}
+                ),
             ),
         ),
     ]

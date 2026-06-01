@@ -44,7 +44,10 @@ async def run_text(
     )
     run_id = run_record.run_id
 
-    out.write(json.dumps({"event": "submit_response", "run_id": run_id}, ensure_ascii=False) + "\n")
+    out.write(
+        json.dumps({"event": "submit_response", "run_id": run_id}, ensure_ascii=False)
+        + "\n"
+    )
     _flush(out)
 
     final_status = "failed"

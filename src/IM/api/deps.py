@@ -15,14 +15,25 @@ from IM.application.relay_service import RelayService
 from IM.application.user_service import UserService
 from IM.application.web_im_service import WebIMService
 from IM.domain.models import User
-from IM.infra.repositories import AgentProfileRepository, BindRepository, ConversationRepository, MessageRepository, NodeRepository, SettingsPolicyRepository, UsageMetricsRepository, UserRepository
+from IM.infra.repositories import (
+    AgentProfileRepository,
+    BindRepository,
+    ConversationRepository,
+    MessageRepository,
+    NodeRepository,
+    SettingsPolicyRepository,
+    UsageMetricsRepository,
+    UserRepository,
+)
 from IM.ws.gateway_handler import GatewayHandler
 
 
 class _ConfigEnabledConversationRepository(ConversationRepository):
     """Enable M96 config profile snapshots without forking the canonical repository."""
 
-    def _resolve_config_profile_version(self, *, owner_id: str, participant_ids: list[str]) -> int | None:
+    def _resolve_config_profile_version(
+        self, *, owner_id: str, participant_ids: list[str]
+    ) -> int | None:
         if not participant_ids:
             return None
         rows = self._connection.execute(
@@ -132,7 +143,9 @@ def get_web_im_service(request: Request) -> WebIMService:
         conversations=_build_conversation_repository(request),
         messages=_build_message_repository(request),
         relay_service=RelayService(request.app.state.connection),
-        metrics_service=MetricsService(metrics=UsageMetricsRepository(request.app.state.connection)),
+        metrics_service=MetricsService(
+            metrics=UsageMetricsRepository(request.app.state.connection)
+        ),
     )
 
 
@@ -148,10 +161,12 @@ def get_config_service(request: Request) -> ConfigService:
         profiles=_build_profile_repository(request),
         nodes=_build_node_repository(request),
         users=_build_user_repository(request),
-        config_sync_notifier=lambda node_id, agent_id, profile_version: gateway_handler.push_config_sync(
-            target_node_id=node_id,
-            agent_id=agent_id,
-            profile_version=profile_version,
+        config_sync_notifier=lambda node_id, agent_id, profile_version: (
+            gateway_handler.push_config_sync(
+                target_node_id=node_id,
+                agent_id=agent_id,
+                profile_version=profile_version,
+            )
         ),
     )
 
@@ -178,7 +193,9 @@ def get_bind_service(request: Request) -> BindService:
         nodes=_build_node_repository(request),
         binds=_build_bind_repository(request),
         profiles=_build_profile_repository(request),
-        bind_base_url=os.getenv("IM_BIND_BASE_URL", "http://127.0.0.1:8011/bind/confirm"),
+        bind_base_url=os.getenv(
+            "IM_BIND_BASE_URL", "http://127.0.0.1:8011/bind/confirm"
+        ),
     )
 
 

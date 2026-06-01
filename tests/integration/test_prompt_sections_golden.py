@@ -22,6 +22,7 @@ Key invariants:
 These tests import both the legacy prompting module and the new segment modules.
 They will fail until core_sections.py and PA/LC prompt_sections.py are implemented.
 """
+
 from __future__ import annotations
 
 import platform
@@ -46,13 +47,19 @@ from agent.core.skills.registry import SkillMetadata
 # Minimal ToolSpec fixtures
 # ---------------------------------------------------------------------------
 
+
 def _tool(name: str) -> ToolSpec:
     return ToolSpec(name=name, description=f"{name} tool.", input_schema={})
 
 
 BASIC_PA_TOOLS = (
-    _tool("read"), _tool("write"), _tool("edit"), _tool("bash"),
-    _tool("web_search"), _tool("web_fetch"), _tool("send_message"),
+    _tool("read"),
+    _tool("write"),
+    _tool("edit"),
+    _tool("bash"),
+    _tool("web_search"),
+    _tool("web_fetch"),
+    _tool("send_message"),
 )
 MEMORY_TOOLS = (*BASIC_PA_TOOLS, _tool("memory"))
 SKILL_TOOLS = (*MEMORY_TOOLS, _tool("skill_manage"))
@@ -60,7 +67,11 @@ AGENT_TOOLS = (*BASIC_PA_TOOLS, _tool("agent"))
 FULL_TOOLS = (*SKILL_TOOLS, _tool("agent"))
 
 BASIC_LC_TOOLS = (
-    _tool("read"), _tool("write"), _tool("edit"), _tool("bash"), _tool("agent"),
+    _tool("read"),
+    _tool("write"),
+    _tool("edit"),
+    _tool("bash"),
+    _tool("agent"),
 )
 LC_FULL_TOOLS = (*BASIC_LC_TOOLS, _tool("memory"), _tool("skill_manage"))
 
@@ -69,8 +80,10 @@ LC_FULL_TOOLS = (*BASIC_LC_TOOLS, _tool("memory"), _tool("skill_manage"))
 # PA section imports (will fail until PA prompt_sections.py is implemented)
 # ---------------------------------------------------------------------------
 
-def _pa_sections(tools: tuple[ToolSpec, ...], scenario: dict | None = None,
-                 custom_prompt: str = ""):
+
+def _pa_sections(
+    tools: tuple[ToolSpec, ...], scenario: dict | None = None, custom_prompt: str = ""
+):
     """Build PA section list and context for assembly.
 
     M4: uses build_pa_system_prompt() which provides the correct explicit ordering
@@ -124,6 +137,7 @@ def _lc_sections(tools: tuple[ToolSpec, ...]):
 # Scenario 1: PA direct chat, no memory/skill tools
 # ---------------------------------------------------------------------------
 
+
 def test_pa_golden_direct_no_memory_no_skill():
     """Segment assembly for direct chat without self-evolution tools."""
     sections, ctx = _pa_sections(BASIC_PA_TOOLS)
@@ -175,9 +189,18 @@ def test_pa_golden_direct_no_memory_no_skill_contains_old_content():
     new_prompt = assemble_system_prompt(sections, ctx)
 
     # Key phrases from original PA prompt.
-    assert "You are a helpful personal assistant communicating through instant messaging." in new_prompt
-    assert "State intent before tool calls, but NEVER predict or claim results before receiving them." in new_prompt
-    assert "Routing boundary (strict): when replying to this conversation, output text directly" in new_prompt
+    assert (
+        "You are a helpful personal assistant communicating through instant messaging."
+        in new_prompt
+    )
+    assert (
+        "State intent before tool calls, but NEVER predict or claim results before receiving them."
+        in new_prompt
+    )
+    assert (
+        "Routing boundary (strict): when replying to this conversation, output text directly"
+        in new_prompt
+    )
     assert "only treat it as sent when the tool returns `ok=true`" in new_prompt
 
 
@@ -242,6 +265,7 @@ def test_pa_golden_group_chat_mention_text_verbatim():
 # Scenario 3: PA direct chat, memory tool active
 # ---------------------------------------------------------------------------
 
+
 def test_pa_golden_direct_with_memory_tool():
     """MEMORY_GUIDANCE injected when memory tool is active."""
     sections, ctx = _pa_sections(MEMORY_TOOLS)
@@ -254,6 +278,7 @@ def test_pa_golden_direct_with_memory_tool():
 # ---------------------------------------------------------------------------
 # Scenario 4: PA direct chat, custom_prompt non-empty
 # ---------------------------------------------------------------------------
+
 
 def test_pa_golden_direct_with_custom_prompt():
     """User custom instructions appear in stable prefix when custom_prompt is set."""
@@ -281,13 +306,17 @@ def test_pa_golden_direct_without_custom_prompt_no_custom_header():
 # Scenario 5: LC direct chat, no memory/skill tools
 # ---------------------------------------------------------------------------
 
+
 def test_lc_golden_direct_no_memory_no_skill():
     """LC assembly matches legacy LOCAL_CODING_SYSTEM_PROMPT content."""
     sections, ctx = _lc_sections(BASIC_LC_TOOLS)
     new_prompt = assemble_system_prompt(sections, ctx)
 
     # LC identity.
-    assert "coding assistant" in new_prompt.lower() or "expert coding" in new_prompt.lower()
+    assert (
+        "coding assistant" in new_prompt.lower()
+        or "expert coding" in new_prompt.lower()
+    )
 
     # Runtime footer.
     assert "Current date and time: 2026-01-01T00:00:00" in new_prompt
@@ -308,6 +337,7 @@ def test_lc_golden_direct_no_memory_no_skill():
 # Scenario 6: LC direct chat, memory + skill tools active
 # ---------------------------------------------------------------------------
 
+
 def test_lc_golden_direct_with_memory_and_skill():
     """LC with both self-evolution tools injects both guidance blocks."""
     sections, ctx = _lc_sections(LC_FULL_TOOLS)
@@ -320,6 +350,7 @@ def test_lc_golden_direct_with_memory_and_skill():
 # ---------------------------------------------------------------------------
 # Invariant: background_tasks gate (M1 documented exception)
 # ---------------------------------------------------------------------------
+
 
 def test_background_tasks_absent_without_agent_tool():
     """core.background_tasks must NOT appear when 'agent' tool is absent."""
@@ -342,6 +373,7 @@ def test_background_tasks_present_with_agent_tool():
 # cache_safe ordering: volatile segments must come after stable segments
 # ---------------------------------------------------------------------------
 
+
 def test_cache_safe_ordering_in_pa_direct():
     """M4 Decision 16: volatile segments are at the end of the list (list-position invariant)."""
     from agent.products.personal_assistant.prompt_sections import build_pa_system_prompt
@@ -362,6 +394,7 @@ def test_cache_safe_ordering_in_pa_direct():
 # ---------------------------------------------------------------------------
 # memory_block: volatile segment present when ctx.memory_block is set
 # ---------------------------------------------------------------------------
+
 
 def test_memory_block_present_when_ctx_has_memory_block():
     """core.memory_block segment renders the memory_block from context."""

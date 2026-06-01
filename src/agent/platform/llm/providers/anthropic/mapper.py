@@ -8,7 +8,12 @@ import json
 from typing import Any, Mapping
 
 from agent.core.errors import ModelError
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage, LLMToolCall
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+    LLMToolCall,
+)
 from agent.core.types import TokenUsage
 
 _DEFAULT_MAX_TOKENS = 1024 * 32
@@ -42,7 +47,9 @@ class AnthropicMapper:
             "model": request.model,
             "messages": messages,
             "stream": True,
-            "max_tokens": request.max_tokens if request.max_tokens is not None else _DEFAULT_MAX_TOKENS,
+            "max_tokens": request.max_tokens
+            if request.max_tokens is not None
+            else _DEFAULT_MAX_TOKENS,
         }
         if request.temperature is not None:
             payload["temperature"] = request.temperature
@@ -85,7 +92,9 @@ class AnthropicMapper:
 
         return LLMGenerateResponse(
             model=str(payload.get("model", "")),
-            message=LLMMessage(role=role, content=normalized_content, tool_calls=tool_calls),
+            message=LLMMessage(
+                role=role, content=normalized_content, tool_calls=tool_calls
+            ),
             finish_reason=str(finish_reason) if finish_reason is not None else None,
             usage=_parse_anthropic_usage(payload.get("usage")),
             raw=dict(payload),
@@ -139,7 +148,9 @@ class AnthropicMapper:
         }
 
 
-def _map_tool_result_content(content: str | list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _map_tool_result_content(
+    content: str | list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     if isinstance(content, list):
         normalized = _normalize_tool_result_parts(content)
         if normalized:
@@ -196,9 +207,15 @@ def _normalize_tool_result_parts(parts: list[Any]) -> list[dict[str, Any]]:
     return normalized
 
 
-def _to_anthropic_image_part(*, image_url: Any, image_data: Any, mime_type: Any) -> dict[str, Any] | None:
+def _to_anthropic_image_part(
+    *, image_url: Any, image_data: Any, mime_type: Any
+) -> dict[str, Any] | None:
     if isinstance(image_data, str) and image_data:
-        media_type = mime_type if isinstance(mime_type, str) and mime_type else "application/octet-stream"
+        media_type = (
+            mime_type
+            if isinstance(mime_type, str) and mime_type
+            else "application/octet-stream"
+        )
         return {
             "type": "image",
             "source": {
@@ -279,8 +296,12 @@ def _parse_anthropic_usage(payload: Any) -> TokenUsage | None:
 
     input_tokens = _extract_non_negative_int(payload.get("input_tokens"))
     output_tokens = _extract_non_negative_int(payload.get("output_tokens"))
-    cache_creation_tokens = _extract_non_negative_int(payload.get("cache_creation_input_tokens")) or 0
-    cache_read_tokens = _extract_non_negative_int(payload.get("cache_read_input_tokens")) or 0
+    cache_creation_tokens = (
+        _extract_non_negative_int(payload.get("cache_creation_input_tokens")) or 0
+    )
+    cache_read_tokens = (
+        _extract_non_negative_int(payload.get("cache_read_input_tokens")) or 0
+    )
     if input_tokens is None and output_tokens is None:
         return None
 

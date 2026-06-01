@@ -129,7 +129,9 @@ class SkillWriter:
 
         count = current.count(old_string)
         if count == 0:
-            raise ValueError(f"old_string '{old_string[:50]}' not found in skill '{name}'")
+            raise ValueError(
+                f"old_string '{old_string[:50]}' not found in skill '{name}'"
+            )
         if count > 1:
             raise ValueError(
                 f"old_string '{old_string[:50]}' matches {count} times in skill '{name}'; "
@@ -236,7 +238,9 @@ def _validate_name(name: str) -> None:
     if not name:
         raise ValueError("Skill name must not be empty")
     if len(name) > _MAX_NAME_LENGTH:
-        raise ValueError(f"Skill name too long ({len(name)} > {_MAX_NAME_LENGTH} chars): '{name[:20]}...'")
+        raise ValueError(
+            f"Skill name too long ({len(name)} > {_MAX_NAME_LENGTH} chars): '{name[:20]}...'"
+        )
     if not _VALID_NAME_RE.match(name):
         raise ValueError(
             f"Invalid skill name '{name}'; must match ^[a-z0-9][a-z0-9._-]*$ "
@@ -317,7 +321,9 @@ def _validate_frontmatter(content: str) -> None:
     body_lines = lines[close_idx + 1 :]
     body = "\n".join(body_lines).strip()
     if not body:
-        raise ValueError("Skill frontmatter is present but body is empty; SKILL.md must have content after '---'")
+        raise ValueError(
+            "Skill frontmatter is present but body is empty; SKILL.md must have content after '---'"
+        )
 
 
 def _validate_content_size(content: str) -> None:

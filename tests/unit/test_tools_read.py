@@ -10,7 +10,10 @@ from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.read import ReadTool
 from agent.platform.tools.safety import ToolSafety
 from agent.platform.tools.safety import ToolSafetyConfig
-from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.base import (
+    set_tool_safety_factory,
+    set_tool_safety_config_factory,
+)
 from agent.core.tools.session_file_state import SessionFileState
 
 set_tool_safety_factory(ToolSafety)
@@ -21,7 +24,9 @@ def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolC
     return ToolContext.create(repo_root=tmp_path, safety_config=config)
 
 
-def _context_with_state(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> tuple[ToolContext, SessionFileState]:
+def _context_with_state(
+    tmp_path: Path, *, config: ToolSafetyConfig | None = None
+) -> tuple[ToolContext, SessionFileState]:
     base = ToolContext.create(repo_root=tmp_path, safety_config=config)
     state = SessionFileState()
     ctx = base.with_session("test-session", session_file_state=state)
@@ -61,7 +66,9 @@ def test_read_truncates_output_by_lines(tmp_path: Path) -> None:
 
 
 def test_read_truncates_by_bytes(tmp_path: Path) -> None:
-    (tmp_path / "note.txt").write_text("1234567890\nabcdefghij\nline-3", encoding="utf-8")
+    (tmp_path / "note.txt").write_text(
+        "1234567890\nabcdefghij\nline-3", encoding="utf-8"
+    )
     ctx = _context(
         tmp_path,
         config=ToolSafetyConfig(read_max_lines=200, read_max_bytes=16),
@@ -102,7 +109,9 @@ def test_read_allows_path_outside_repo(tmp_path: Path) -> None:
     assert "allowed content" in serialized
 
 
-def test_read_allows_codex_home_skills_outside_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_allows_codex_home_skills_outside_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     # bugfix-355: All paths outside repo are allowed now (no special CODEX_HOME case needed).
     # This test retained to verify reading from arbitrary external paths works.
     codex_home = tmp_path.parent / "codex-home"

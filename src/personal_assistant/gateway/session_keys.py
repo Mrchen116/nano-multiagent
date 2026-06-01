@@ -6,7 +6,7 @@ import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from personal_assistant.channels.base import InboundMessage, ReplyContext
 
@@ -39,7 +39,9 @@ class SessionBindingStore:
 
         return self._bindings.get(session_key)
 
-    def bind(self, *, session_key: str, kernel_session_id: str, reply_context: ReplyContext) -> SessionBinding:
+    def bind(
+        self, *, session_key: str, kernel_session_id: str, reply_context: ReplyContext
+    ) -> SessionBinding:
         """Create or replace the binding for one session key."""
 
         binding = SessionBinding(
@@ -50,7 +52,9 @@ class SessionBindingStore:
         self._bindings[session_key] = binding
         return binding
 
-    def find_by_kernel_session_id(self, kernel_session_id: str) -> SessionBinding | None:
+    def find_by_kernel_session_id(
+        self, kernel_session_id: str
+    ) -> SessionBinding | None:
         """Return the first binding whose kernel_session_id matches, or None.
 
         Used by background event subscribers to reverse-resolve conversation routing
@@ -296,13 +300,17 @@ def build_reply_context(message: InboundMessage) -> ReplyContext:
     )
 
 
-def build_conversation_session_key(*, channel_name: str, conversation_id: str, agent_id: str) -> str:
+def build_conversation_session_key(
+    *, channel_name: str, conversation_id: str, agent_id: str
+) -> str:
     """Build one gateway session key from a canonical conversation id."""
 
     return f"{channel_name}:{conversation_id}:{agent_id}"
 
 
-def build_conversation_reply_context(*, channel_name: str, conversation_id: str) -> ReplyContext:
+def build_conversation_reply_context(
+    *, channel_name: str, conversation_id: str
+) -> ReplyContext:
     """Build a reply context that routes back to one canonical IM conversation."""
 
     return ReplyContext(

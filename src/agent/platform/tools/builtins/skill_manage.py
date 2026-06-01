@@ -71,7 +71,15 @@ class SkillManageTool:
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["create", "edit", "patch", "view", "list", "write_file", "remove_file"],
+                "enum": [
+                    "create",
+                    "edit",
+                    "patch",
+                    "view",
+                    "list",
+                    "write_file",
+                    "remove_file",
+                ],
                 "description": "The action to perform.",
             },
             "name": {
@@ -169,9 +177,15 @@ class SkillManageTool:
         if not file_path:
             return {"success": False, "error": "write_file action requires 'file_path'"}
         if file_content is None:
-            return {"success": False, "error": "write_file action requires 'file_content'"}
+            return {
+                "success": False,
+                "error": "write_file action requires 'file_content'",
+            }
         path = self._writer.write_file(str(name), str(file_path), str(file_content))
-        return {"success": True, "message": f"wrote support file '{file_path}' to skill '{name}' at {path}"}
+        return {
+            "success": True,
+            "message": f"wrote support file '{file_path}' to skill '{name}' at {path}",
+        }
 
     def _remove_file(self, args: Mapping[str, Any]) -> Mapping[str, Any]:
         name = args.get("name")
@@ -179,9 +193,15 @@ class SkillManageTool:
         if not name:
             return {"success": False, "error": "remove_file action requires 'name'"}
         if not file_path:
-            return {"success": False, "error": "remove_file action requires 'file_path'"}
+            return {
+                "success": False,
+                "error": "remove_file action requires 'file_path'",
+            }
         self._writer.remove_file(str(name), str(file_path))
-        return {"success": True, "message": f"removed support file '{file_path}' from skill '{name}'"}
+        return {
+            "success": True,
+            "message": f"removed support file '{file_path}' from skill '{name}'",
+        }
 
     def _create(self, args: Mapping[str, Any]) -> Mapping[str, Any]:
         name = args.get("name")
@@ -213,7 +233,9 @@ class SkillManageTool:
             return {"success": False, "error": "patch action requires 'old_string'"}
         if new_string is None:
             return {"success": False, "error": "patch action requires 'new_string'"}
-        path = self._writer.patch(str(name), old_string=str(old_string), new_string=str(new_string))
+        path = self._writer.patch(
+            str(name), old_string=str(old_string), new_string=str(new_string)
+        )
         return {"success": True, "message": f"patched skill '{name}' at {path}"}
 
     def _view(self, args: Mapping[str, Any]) -> Mapping[str, Any]:

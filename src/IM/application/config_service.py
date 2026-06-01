@@ -4,7 +4,12 @@ import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
-from IM.domain.models import AgentProfile, User, is_managed_workspace_root, managed_workspace_root
+from IM.domain.models import (
+    AgentProfile,
+    User,
+    is_managed_workspace_root,
+    managed_workspace_root,
+)
 from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
 
 ConfigSyncNotifier = Callable[[str, str, int], object]
@@ -92,7 +97,11 @@ class ConfigService:
         if node is None:
             raise LookupError("node_id not found")
         normalized_owner_id = owner_id.strip()
-        if node.owner_id.strip() and normalized_owner_id and node.owner_id != normalized_owner_id:
+        if (
+            node.owner_id.strip()
+            and normalized_owner_id
+            and node.owner_id != normalized_owner_id
+        ):
             raise ValueError("node_id owned by another owner")
         if not node.owner_id.strip() and normalized_owner_id:
             self._nodes.assign_owner(node_id=node_id, owner_id=normalized_owner_id)
@@ -107,14 +116,18 @@ class ConfigService:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
-            workspace_root=self.normalize_workspace_root(agent_id=agent_id, workspace_root=workspace_root),
+            workspace_root=self.normalize_workspace_root(
+                agent_id=agent_id, workspace_root=workspace_root
+            ),
         )
         # feat-340-M18 R9-1: pair every newly-created agent with an IM users row so the
         # subsequent `POST /im/v1/conversations { participant_ids: [user_id] }` flow
         # used by the chat UI can resolve the agent participant. Without this, the
         # end-user cannot start a direct chat with a freshly-minted agent.
         self.ensure_agent_user(agent_id=agent_id, display_name=created.display_name)
-        self._notify_config_sync(agent_id=agent_id, profile_version=created.profile_version)
+        self._notify_config_sync(
+            agent_id=agent_id, profile_version=created.profile_version
+        )
         return created
 
     def list_profiles(self) -> list[AgentProfile]:
@@ -125,9 +138,13 @@ class ConfigService:
         """List agent profiles that are selectable in the current runtime."""
         return self._profiles.list_runtime_selectable_profiles()
 
-    def list_runtime_selectable_profiles_for_owner(self, *, owner_id: str) -> list[AgentProfile]:
+    def list_runtime_selectable_profiles_for_owner(
+        self, *, owner_id: str
+    ) -> list[AgentProfile]:
         """Owner-scoped variant used by IM routes after multi-user auth (feat-340-M1)."""
-        return self._profiles.list_runtime_selectable_profiles_for_owner(owner_id=owner_id)
+        return self._profiles.list_runtime_selectable_profiles_for_owner(
+            owner_id=owner_id
+        )
 
     def get_updated_at(self, *, agent_id: str) -> str | None:
         """Return the last update timestamp for one agent."""
@@ -137,9 +154,13 @@ class ConfigService:
         """Return one agent profile, or None when missing."""
         return self._profiles.get_profile(agent_id=agent_id)
 
-    def get_profile_for_owner(self, *, agent_id: str, owner_id: str) -> AgentProfile | None:
+    def get_profile_for_owner(
+        self, *, agent_id: str, owner_id: str
+    ) -> AgentProfile | None:
         """Return one agent profile when it belongs to ``owner_id`` or is ownerless."""
-        return self._profiles.get_profile_for_owner(agent_id=agent_id, owner_id=owner_id)
+        return self._profiles.get_profile_for_owner(
+            agent_id=agent_id, owner_id=owner_id
+        )
 
     def update_profile(
         self,
@@ -175,11 +196,15 @@ class ConfigService:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
-            workspace_root=self.normalize_workspace_root(agent_id=agent_id, workspace_root=workspace_root),
+            workspace_root=self.normalize_workspace_root(
+                agent_id=agent_id, workspace_root=workspace_root
+            ),
             features=features,
             custom_prompt=custom_prompt,
         )
-        self._notify_config_sync(agent_id=agent_id, profile_version=updated.profile_version)
+        self._notify_config_sync(
+            agent_id=agent_id, profile_version=updated.profile_version
+        )
         return updated
 
     def workspace_root_for_profile(self, profile: AgentProfile) -> str:
@@ -190,7 +215,9 @@ class ConfigService:
 
     def workspace_is_default_for_profile(self, profile: AgentProfile) -> bool:
         """Return whether one profile is still using the managed default workspace."""
-        return is_managed_workspace_root(agent_id=profile.agent_id, workspace_root=profile.workspace_root)
+        return is_managed_workspace_root(
+            agent_id=profile.agent_id, workspace_root=profile.workspace_root
+        )
 
     @staticmethod
     def normalize_workspace_root(*, agent_id: str, workspace_root: str | None) -> str:

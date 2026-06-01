@@ -39,13 +39,23 @@ def _collect_cli_agent_internal_imports(package_name: str = "coding_cli") -> lis
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if any(alias.name.startswith(forbidden) for forbidden in _FORBIDDEN_CLI_AGENT_INTERNALS):
+                    if any(
+                        alias.name.startswith(forbidden)
+                        for forbidden in _FORBIDDEN_CLI_AGENT_INTERNALS
+                    ):
                         relative_path = file_path.relative_to(PROJECT_ROOT)
-                        violations.append(f"{relative_path}:{node.lineno} imports {alias.name}")
+                        violations.append(
+                            f"{relative_path}:{node.lineno} imports {alias.name}"
+                        )
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                if any(node.module.startswith(forbidden) for forbidden in _FORBIDDEN_CLI_AGENT_INTERNALS):
+                if any(
+                    node.module.startswith(forbidden)
+                    for forbidden in _FORBIDDEN_CLI_AGENT_INTERNALS
+                ):
                     relative_path = file_path.relative_to(PROJECT_ROOT)
-                    violations.append(f"{relative_path}:{node.lineno} imports {node.module}")
+                    violations.append(
+                        f"{relative_path}:{node.lineno} imports {node.module}"
+                    )
     return violations
 
 
@@ -78,8 +88,20 @@ _SIBLING_FORBIDDEN_PREFIXES: dict[str, tuple[str, ...]] = {
     # agent must never import products
     "agent": ("coding_cli", "personal_assistant", "IM"),
     # products must not import agent.core/platform/products — only agent.sdk
-    "coding_cli": ("agent.core", "agent.platform", "agent.products", "personal_assistant", "IM"),
-    "personal_assistant": ("agent.core", "agent.platform", "agent.products", "coding_cli", "IM"),
+    "coding_cli": (
+        "agent.core",
+        "agent.platform",
+        "agent.products",
+        "personal_assistant",
+        "IM",
+    ),
+    "personal_assistant": (
+        "agent.core",
+        "agent.platform",
+        "agent.products",
+        "coding_cli",
+        "IM",
+    ),
     # IM must not import agent at all, nor sibling products
     "IM": ("agent", "coding_cli", "personal_assistant"),
 }
@@ -104,12 +126,20 @@ def _collect_sibling_import_violations(package_name: str) -> list[str]:
             module: str | None = None
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    if any(alias.name == p or alias.name.startswith(p + ".") for p in forbidden_prefixes):
+                    if any(
+                        alias.name == p or alias.name.startswith(p + ".")
+                        for p in forbidden_prefixes
+                    ):
                         relative_path = file_path.relative_to(PROJECT_ROOT)
-                        violations.append(f"{relative_path}:{node.lineno} imports {alias.name}")
+                        violations.append(
+                            f"{relative_path}:{node.lineno} imports {alias.name}"
+                        )
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
                 module = node.module
-                if any(module == p or module.startswith(p + ".") for p in forbidden_prefixes):
+                if any(
+                    module == p or module.startswith(p + ".")
+                    for p in forbidden_prefixes
+                ):
                     relative_path = file_path.relative_to(PROJECT_ROOT)
                     violations.append(f"{relative_path}:{node.lineno} imports {module}")
     return violations
@@ -173,7 +203,16 @@ def test_cli_has_no_mode_flag() -> None:
 
 def test_cli_exposes_required_repl_commands_contract() -> None:
     names = set(cli_repl_commands.REPL_COMMANDS)
-    assert {"/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit"}.issubset(names)
+    assert {
+        "/help",
+        "/new",
+        "/use",
+        "/session",
+        "/tools",
+        "/compact",
+        "/history",
+        "/exit",
+    }.issubset(names)
     assert not hasattr(cli_commands, "supported_repl_commands")
 
 

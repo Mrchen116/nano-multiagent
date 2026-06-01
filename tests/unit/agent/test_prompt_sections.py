@@ -7,6 +7,7 @@ Covers:
 - resolve_effective_prompt: override direct-pass > section assembly (decision 9)
 - feature registry: skeleton structure validity
 """
+
 from __future__ import annotations
 
 import pytest
@@ -23,6 +24,7 @@ from agent.core.agent.prompt_sections.base import (
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _ctx(**kwargs) -> PromptContext:
     """Build a minimal PromptContext; all optional fields default to empty."""
     return PromptContext(
@@ -37,8 +39,9 @@ def _ctx(**kwargs) -> PromptContext:
     )
 
 
-def _section(name: str, text: str, *, cache_safe: bool = True,
-             enabled: bool = True) -> PromptSection:
+def _section(
+    name: str, text: str, *, cache_safe: bool = True, enabled: bool = True
+) -> PromptSection:
     """Helper: construct a simple PromptSection without order (M4: list position)."""
     return PromptSection(
         name=name,
@@ -51,6 +54,7 @@ def _section(name: str, text: str, *, cache_safe: bool = True,
 # ---------------------------------------------------------------------------
 # assemble_system_prompt: core assembler behaviour
 # ---------------------------------------------------------------------------
+
 
 def test_assemble_joins_enabled_sections_with_double_newline():
     sections = [
@@ -70,7 +74,10 @@ def test_assemble_uses_list_position_not_name_order():
     ]
     result = assemble_system_prompt(sections, _ctx())
     # List position: z → a → m
-    assert result == "Z comes first in list\n\nA comes second in list\n\nM comes third in list"
+    assert (
+        result
+        == "Z comes first in list\n\nA comes second in list\n\nM comes third in list"
+    )
 
 
 def test_assemble_skips_disabled_sections():
@@ -149,6 +156,7 @@ def test_assemble_empty_sections_returns_empty_string():
 # cache_safe invariant (decision 8)
 # ---------------------------------------------------------------------------
 
+
 def test_cache_safe_invariant_passes_when_all_stable():
     """All cache_safe=True: no ordering constraint to violate."""
     sections = [
@@ -191,6 +199,7 @@ def test_cache_safe_invariant_fails_when_volatile_between_stable():
 # ---------------------------------------------------------------------------
 # resolve_effective_prompt (decision 9): override > section assembly
 # ---------------------------------------------------------------------------
+
 
 def test_resolve_uses_override_when_provided():
     """Non-empty override bypasses section assembly entirely."""

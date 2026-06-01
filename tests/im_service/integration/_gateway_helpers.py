@@ -26,6 +26,7 @@ def _make_stream_event(data: dict[str, Any], *, seq: int = 1) -> dict[str, Any]:
 @dataclass
 class _FakeSession:
     """Minimal session stub returned by _FakeKernel.create_session."""
+
     session_id: str
 
 
@@ -86,7 +87,9 @@ class _FakeKernel:
         self.session_events.setdefault(session_id, [])
         return _FakeSession(session_id=session_id)
 
-    def get_session(self, session_id: str, *, workspace_root: Any = None, **_kwargs) -> dict[str, Any]:
+    def get_session(
+        self, session_id: str, *, workspace_root: Any = None, **_kwargs
+    ) -> dict[str, Any]:
         metadata = self._session_metadata_by_id.get(session_id)
         if metadata is None:
             raise RuntimeError(f"missing session: {session_id}")
@@ -102,7 +105,9 @@ class _FakeKernel:
             "metadata": dict(metadata),
         }
 
-    def seed_session(self, *, session_id: str, metadata: dict[str, Any] | None = None) -> None:
+    def seed_session(
+        self, *, session_id: str, metadata: dict[str, Any] | None = None
+    ) -> None:
         """Pre-populate a session for session-reuse tests."""
         self._session_metadata_by_id[session_id] = dict(metadata or {})
         self.session_events.setdefault(session_id, [])
@@ -121,22 +126,40 @@ class _FakeKernel:
         # Extract texts from parts and join as legacy send_calls["text"].
         texts = [p["text"] for p in parts if p.get("type") == "text"]
         rendered_text = "\n".join(texts)
-        self.send_calls.append({"session_id": session_id, "text": rendered_text, "run_id": run_id})
+        self.send_calls.append(
+            {"session_id": session_id, "text": rendered_text, "run_id": run_id}
+        )
         session_metadata = self._session_metadata_by_id.get(session_id, {})
         output_text = f"gateway-reply:{rendered_text}"
         # Determine NO_REPLY based on session system_prompt + profile_version, not message text.
         # This mirrors kernel behavior: prompt instructs the model to say NO_REPLY.
         system_prompt = session_metadata.get("system_prompt", "")
         profile_version = session_metadata.get("config_profile_version")
-        if system_prompt == "When mentioned in a group chat, reply exactly with NO_REPLY." and profile_version == 2:
+        if (
+            system_prompt
+            == "When mentioned in a group chat, reply exactly with NO_REPLY."
+            and profile_version == 2
+        ):
             output_text = "NO_REPLY"
-        elif system_prompt == "When mentioned in a group chat, reply exactly with NO_REPLY.":
+        elif (
+            system_prompt
+            == "When mentioned in a group chat, reply exactly with NO_REPLY."
+        ):
             output_text = "ALPHA_ACK_M170"
-        self.run_states[run_id] = {"run_id": run_id, "status": "completed", "output_text": output_text}
+        self.run_states[run_id] = {
+            "run_id": run_id,
+            "status": "completed",
+            "output_text": output_text,
+        }
         # Pre-seed stream events: pipeline consumes stream instead of polling get_run.
         sse_events: list[dict] = [
             {"event": "assistant_message", "run_id": run_id, "content": output_text},
-            {"event": "run_status", "run_id": run_id, "status": "completed", "output_text": output_text},
+            {
+                "event": "run_status",
+                "run_id": run_id,
+                "status": "completed",
+                "output_text": output_text,
+            },
         ]
         self.session_events.setdefault(session_id, []).append(sse_events)
         record = MagicMock()
@@ -168,9 +191,15 @@ class _FakeKernel:
 _FakeKernelClient = _FakeKernel
 
 
-def seed_user(client: TestClient, username: str, display_name: str | None = None) -> str:
+def seed_user(
+    client: TestClient, username: str, display_name: str | None = None
+) -> str:
     """Auth-aware seeding: first call registers + authorizes; subsequent calls seed under tenant."""
-    from tests.im_service._auth_helpers import authorize, register_user, seed_user_under_owner
+    from tests.im_service._auth_helpers import (
+        authorize,
+        register_user,
+        seed_user_under_owner,
+    )
 
     if client.headers.get("Authorization") is None:
         user = register_user(client, username=username, display_name=display_name)
@@ -182,7 +211,9 @@ def seed_user(client: TestClient, username: str, display_name: str | None = None
     )
 
 
-def seed_node_and_profiles(app, *, owner_id: str = "", agent_ids: tuple[str, ...] = ("agent-a",)) -> None:
+def seed_node_and_profiles(
+    app, *, owner_id: str = "", agent_ids: tuple[str, ...] = ("agent-a",)
+) -> None:
     """Register node-1 and upsert agent profiles with default group_reply_policy=manual."""
     nodes = NodeRepository(app.state.connection)
     nodes.upsert_node(node_id="node-1", node_name="MacBook")
@@ -207,7 +238,9 @@ def seed_node_and_profiles(app, *, owner_id: str = "", agent_ids: tuple[str, ...
     app.state.connection.commit()
 
 
-def make_agent_configs(tmp_path: Path, *agent_ids: str) -> tuple[AgentWorkspaceConfig, ...]:
+def make_agent_configs(
+    tmp_path: Path, *agent_ids: str
+) -> tuple[AgentWorkspaceConfig, ...]:
     """Create workspace directories and AgentWorkspaceConfig for each agent_id."""
     agents: list[AgentWorkspaceConfig] = []
     for agent_id in agent_ids:

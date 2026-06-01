@@ -25,7 +25,11 @@ import websockets
 from websockets.asyncio.client import ClientConnection
 
 from personal_assistant.channels.base import InboundMessage
-from personal_assistant.channels.web_relay_adapter import RelayDeduplicationStore, WebRelayAdapter
+from personal_assistant.channels.web_relay_adapter import (
+    RelayDeduplicationStore,
+    WebRelayAdapter,
+)
+
 # refactor-387-M4: import from agent.sdk (public surface) instead of agent.core internals.
 from agent.sdk import init_model_registry
 from personal_assistant.config.local_store import (
@@ -38,18 +42,23 @@ from personal_assistant.config.local_store import (
     default_local_config_path,
     ensure_workspace_defaults,
     load_local_config,
-    resolve_kernel_token,
     save_local_config,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.gateway.bootstrap import start_channels, stop_channels
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.group_context_store import GroupContextStore
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline, RelayLifecycleUpdate
+from personal_assistant.gateway.inbound_pipeline import (
+    InboundPipeline,
+    RelayLifecycleUpdate,
+)
 from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
-from personal_assistant.gateway.session_keys import PersistentSessionBindingStore, SessionBindingStore
+from personal_assistant.gateway.session_keys import (
+    PersistentSessionBindingStore,
+    SessionBindingStore,
+)
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_agent_capabilities_payload,
@@ -60,7 +69,12 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatSchedulerStateStore,
 )
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
-from personal_assistant.ws.im_connection import AgentCreateHandler, IMConnectionConfig, IMConnectionManager, PromptPreviewProvider
+from personal_assistant.ws.im_connection import (
+    AgentCreateHandler,
+    IMConnectionConfig,
+    IMConnectionManager,
+    PromptPreviewProvider,
+)
 
 
 ProcessLike = subprocess.Popen[Any]
@@ -85,13 +99,19 @@ class GatewayStartupError(RuntimeError):
 
     def __init__(self, *, summary: str, next_step: str | None = None) -> None:
         cleaned_summary = summary.strip()
-        cleaned_next_step = next_step.strip() if isinstance(next_step, str) and next_step.strip() else None
+        cleaned_next_step = (
+            next_step.strip()
+            if isinstance(next_step, str) and next_step.strip()
+            else None
+        )
         super().__init__(cleaned_summary)
         self.summary = cleaned_summary
         self.next_step = cleaned_next_step
 
 
-def _read_log_last_error(log_path: Path, *, offset: int = 0, lines: int = 20) -> str | None:
+def _read_log_last_error(
+    log_path: Path, *, offset: int = 0, lines: int = 20
+) -> str | None:
     """Return the last non-empty line written after *offset* bytes, or None if unreadable."""
     try:
         with log_path.open("rb") as f:
@@ -117,12 +137,16 @@ def _print_gateway_started(result: "BackgroundLaunchResult") -> None:
     print(f"Health:          {result.health_url}")
     if result.im_service_url is not None:
         reachable = _check_im_reachable(result.im_service_url)
-        status = "connected" if reachable else "unavailable (running offline, will retry)"
+        status = (
+            "connected" if reachable else "unavailable (running offline, will retry)"
+        )
         print(f"IM service:      {result.im_service_url}  [{status}]")
     print(f"Log:             {result.log_path}")
 
 
-def _emit_gateway_feedback(level: str, summary: str, next_step: str | None = None) -> None:
+def _emit_gateway_feedback(
+    level: str, summary: str, next_step: str | None = None
+) -> None:
     """Print one operator-facing gateway feedback line to stderr."""
 
     if level == "ERROR":
@@ -250,7 +274,9 @@ class _IMConfigSyncClient:
         self._max_attempts = max(max_attempts, 1)
         self._pipeline = pipeline
         self._local_config = local_config
-        self._workspace_root_factory = workspace_root_factory or self._default_workspace_root
+        self._workspace_root_factory = (
+            workspace_root_factory or self._default_workspace_root
+        )
         self._reporter = reporter
         self._client_factory = client_factory
         self._client = client
@@ -278,14 +304,19 @@ class _IMConfigSyncClient:
                 # feat-379-M2: parse per-agent features/custom_prompt from IM mirror payload
                 raw_features = payload.get("features")
                 synced_features = (
-                    {k: v for k, v in raw_features.items() if isinstance(k, str) and isinstance(v, bool)}
+                    {
+                        k: v
+                        for k, v in raw_features.items()
+                        if isinstance(k, str) and isinstance(v, bool)
+                    }
                     if isinstance(raw_features, dict)
                     else {}
                 )
                 synced_custom_prompt_val = payload.get("custom_prompt")
                 synced_custom_prompt = (
                     synced_custom_prompt_val.strip()
-                    if isinstance(synced_custom_prompt_val, str) and synced_custom_prompt_val.strip()
+                    if isinstance(synced_custom_prompt_val, str)
+                    and synced_custom_prompt_val.strip()
                     else None
                 )
                 agent_config = AgentWorkspaceConfig(
@@ -304,17 +335,20 @@ class _IMConfigSyncClient:
                     ),
                     system_prompt=(
                         payload.get("system_prompt").strip()
-                        if isinstance(payload.get("system_prompt"), str) and payload.get("system_prompt").strip()
+                        if isinstance(payload.get("system_prompt"), str)
+                        and payload.get("system_prompt").strip()
                         else None
                     ),
                     group_reply_policy=(
                         payload.get("group_reply_policy").strip()
-                        if isinstance(payload.get("group_reply_policy"), str) and payload.get("group_reply_policy").strip()
+                        if isinstance(payload.get("group_reply_policy"), str)
+                        and payload.get("group_reply_policy").strip()
                         else None
                     ),
                     default_model=(
                         payload.get("default_model").strip()
-                        if isinstance(payload.get("default_model"), str) and payload.get("default_model").strip()
+                        if isinstance(payload.get("default_model"), str)
+                        and payload.get("default_model").strip()
                         else None
                     ),
                     features=synced_features,
@@ -329,7 +363,9 @@ class _IMConfigSyncClient:
                     raise
                 self._sleep(self._retry_interval_seconds)
 
-    def handle_agent_create(self, agent_payload: Mapping[str, object]) -> dict[str, object]:
+    def handle_agent_create(
+        self, agent_payload: Mapping[str, object]
+    ) -> dict[str, object]:
         """在节点上落地工作区并注册 Agent，供 IM ``agent.create`` / ``agent.created`` 回包使用。"""
         agent_id_raw = agent_payload.get("agent_id")
         if not isinstance(agent_id_raw, str) or not agent_id_raw.strip():
@@ -339,13 +375,19 @@ class _IMConfigSyncClient:
         if isinstance(ws_raw, str) and ws_raw.strip():
             workspace_root = Path(ws_raw.strip()).expanduser()
             if not workspace_root.is_absolute():
-                raise ValueError("workspace_root must be an absolute path or start with ~/")
+                raise ValueError(
+                    "workspace_root must be an absolute path or start with ~/"
+                )
             workspace_root = workspace_root.resolve()
         else:
             workspace_root = self._workspace_root_factory(agent_id)
         workspace_root = ensure_workspace_defaults(workspace_root)
         display = agent_payload.get("display_name")
-        title = display.strip() if isinstance(display, str) and display.strip() else agent_id
+        title = (
+            display.strip()
+            if isinstance(display, str) and display.strip()
+            else agent_id
+        )
         desc_val = agent_payload.get("description")
         description_str = desc_val.strip() if isinstance(desc_val, str) else ""
         system_prompt_val = agent_payload.get("system_prompt")
@@ -367,18 +409,26 @@ class _IMConfigSyncClient:
             if isinstance(item, str) and item.strip()
         )
         grp = agent_payload.get("group_reply_policy")
-        group_reply_policy = grp.strip() if isinstance(grp, str) and grp.strip() else "MENTION"
+        group_reply_policy = (
+            grp.strip() if isinstance(grp, str) and grp.strip() else "MENTION"
+        )
         dm = agent_payload.get("default_model")
         default_model = dm.strip() if isinstance(dm, str) and dm.strip() else None
         # feat-379-M2: per-agent features and custom_prompt from IM push payload
         raw_features = agent_payload.get("features")
         features = (
-            {k: v for k, v in raw_features.items() if isinstance(k, str) and isinstance(v, bool)}
+            {
+                k: v
+                for k, v in raw_features.items()
+                if isinstance(k, str) and isinstance(v, bool)
+            }
             if isinstance(raw_features, dict)
             else {}
         )
         cp_val = agent_payload.get("custom_prompt")
-        custom_prompt = cp_val.strip() if isinstance(cp_val, str) and cp_val.strip() else None
+        custom_prompt = (
+            cp_val.strip() if isinstance(cp_val, str) and cp_val.strip() else None
+        )
         agent_config = AgentWorkspaceConfig(
             agent_id=agent_id,
             workspace_root=workspace_root,
@@ -423,7 +473,11 @@ class _IMConfigSyncClient:
                 break
         else:
             agents.append(agent_config)
-        persist_path = Path(self._local_config.source_path) if self._local_config.source_path else default_local_config_path()
+        persist_path = (
+            Path(self._local_config.source_path)
+            if self._local_config.source_path
+            else default_local_config_path()
+        )
         self._local_config = LocalConfig(
             node=self._local_config.node,
             agents=tuple(agents),
@@ -456,7 +510,9 @@ class _IMConfigSyncClient:
         return None
 
     def _fetch_agent_config(self, *, agent_id: str) -> dict[str, object]:
-        response = self._get_client().get(f"/im/v1/agents/{agent_id}/config", params={"source": "mirror"})
+        response = self._get_client().get(
+            f"/im/v1/agents/{agent_id}/config", params={"source": "mirror"}
+        )
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, dict):
@@ -554,7 +610,9 @@ class _IMBootstrapClient:
             return None
         client = self._get_client(resolved_base_url)
         try:
-            response = client.post("/im/v1/bind", json={"action": "start", "node_id": node_id})
+            response = client.post(
+                "/im/v1/bind", json={"action": "start", "node_id": node_id}
+            )
             response.raise_for_status()
         except Exception as exc:  # noqa: BLE001
             raise GatewayStartupError(
@@ -621,15 +679,23 @@ class _IMBootstrapClient:
         while self._monotonic() <= deadline:
             for base_url in self._base_urls:
                 try:
-                    return self._get_owner_id(node_id=node_id, base_url=base_url), base_url
+                    return self._get_owner_id(
+                        node_id=node_id, base_url=base_url
+                    ), base_url
                 except Exception as exc:  # noqa: BLE001
                     last_error = exc
             self._sleep(0.1)
-        checked_urls = ", ".join(f"{base_url}/im/v1/nodes" for base_url in self._base_urls)
+        checked_urls = ", ".join(
+            f"{base_url}/im/v1/nodes" for base_url in self._base_urls
+        )
         message = f"node {node_id} did not appear in IM bootstrap"
-        next_step = f"Verify the IM node API is reachable at {checked_urls} and rerun gateway."
+        next_step = (
+            f"Verify the IM node API is reachable at {checked_urls} and rerun gateway."
+        )
         if last_error is not None:
-            raise GatewayStartupError(summary=message, next_step=next_step) from last_error
+            raise GatewayStartupError(
+                summary=message, next_step=next_step
+            ) from last_error
         raise GatewayStartupError(summary=message, next_step=next_step)
 
     def _get_owner_id(self, *, node_id: str, base_url: str) -> str:
@@ -685,7 +751,7 @@ class GatewayProcessManager:
         self,
         *,
         config: KernelConfig,
-        kernel_client: Any,   # KernelApiClient removed in M3; GatewayProcessManager is dead code until M4
+        kernel_client: Any,  # KernelApiClient removed in M3; GatewayProcessManager is dead code until M4
         process_factory: ProcessFactory | None = None,
         monotonic: Monotonic = time.monotonic,
         sleep: Sleep = time.sleep,
@@ -745,7 +811,9 @@ class GatewayProcessManager:
             else:
                 if bool(payload.get("healthy")):
                     return
-                last_error = RuntimeError(f"kernel reported unhealthy payload: {payload}")
+                last_error = RuntimeError(
+                    f"kernel reported unhealthy payload: {payload}"
+                )
             self._sleep(self._config.health_poll_interval_seconds)
         message = "kernel health check timed out"
         if last_error is not None:
@@ -788,7 +856,9 @@ class PollingHeartbeatRunner:
             return
         self._stop_requested = False
         self._wake_event.clear()
-        self._task = asyncio.create_task(self._run_loop(), name="personal-assistant-heartbeat")
+        self._task = asyncio.create_task(
+            self._run_loop(), name="personal-assistant-heartbeat"
+        )
 
     async def close(self) -> None:
         """Stop the background loop and wait for the worker task to finish."""
@@ -812,7 +882,9 @@ class PollingHeartbeatRunner:
             if self._stop_requested:
                 break
             try:
-                await asyncio.wait_for(self._wake_event.wait(), timeout=self._config.tick_interval_seconds)
+                await asyncio.wait_for(
+                    self._wake_event.wait(), timeout=self._config.tick_interval_seconds
+                )
             except TimeoutError:
                 continue
             finally:
@@ -849,7 +921,9 @@ class _InboundDispatcher:
             task = loop.create_task(self._pipeline.handle_inbound(message))
             task.add_done_callback(_consume_task_exception)
             return
-        future = asyncio.run_coroutine_threadsafe(self._pipeline.handle_inbound(message), loop)
+        future = asyncio.run_coroutine_threadsafe(
+            self._pipeline.handle_inbound(message), loop
+        )
         future.add_done_callback(_consume_future_exception)
 
 
@@ -940,6 +1014,7 @@ class GatewayRuntime:
             if self._internal_dispatch_handler is not None:
                 try:
                     from aiohttp import web as _aiohttp_web
+
                     _dispatch_app = _aiohttp_web.Application()
                     _dispatch_app.router.add_post(
                         "/internal/dispatch",
@@ -963,7 +1038,10 @@ class GatewayRuntime:
                     except GatewayStartupError as exc:
                         await self._publish_startup_failure(exc)
                         raise
-                im_task = asyncio.create_task(self._im_connection_manager.run_forever(), name="personal-assistant-im")
+                im_task = asyncio.create_task(
+                    self._im_connection_manager.run_forever(),
+                    name="personal-assistant-im",
+                )
             await asyncio.to_thread(self._shutdown_requested.wait)
             return 0
         finally:
@@ -993,7 +1071,11 @@ class GatewayRuntime:
         manager = self._im_connection_manager
         if manager is None or not manager.connected:
             return
-        last_error = exc.summary if exc.next_step is None else f"{exc.summary} Next: {exc.next_step}"
+        last_error = (
+            exc.summary
+            if exc.next_step is None
+            else f"{exc.summary} Next: {exc.next_step}"
+        )
         payload = {
             "node_id": self._config.node.node_id,
             "status": "degraded",
@@ -1005,6 +1087,7 @@ class GatewayRuntime:
         except Exception:  # noqa: BLE001
             return
 
+
 def _load_runtime_config(
     config_path: str | Path,
     *,
@@ -1012,7 +1095,10 @@ def _load_runtime_config(
     im_service_url_override: str | None = None,
 ) -> LocalConfig:
     config = load_config(config_path)
-    if not isinstance(im_service_url_override, str) or not im_service_url_override.strip():
+    if (
+        not isinstance(im_service_url_override, str)
+        or not im_service_url_override.strip()
+    ):
         return config
     override_url = im_service_url_override.strip()
     old_im = config.im_service
@@ -1055,7 +1141,10 @@ def run_gateway(
     init_model_registry(config.llm)
     builder = resolved_factories.build_runtime or build_runtime
     runtime = builder(config)
-    restore_signal_handlers = resolved_factories.install_signal_handlers or _install_default_signal_handlers(runtime)
+    restore_signal_handlers = (
+        resolved_factories.install_signal_handlers
+        or _install_default_signal_handlers(runtime)
+    )
     restore = restore_signal_handlers()
     # Write PID file so the background launcher can detect a live instance.
     _write_gateway_pid(config)
@@ -1100,20 +1189,24 @@ def launch_gateway_in_background(
         if _pid_is_running(existing_pid):
             raise GatewayStartupError(
                 summary=f"gateway is already running (pid={existing_pid})",
-                next_step=f"Run 'stop' to shut it down first, or 'restart' to replace it.",
+                next_step="Run 'stop' to shut it down first, or 'restart' to replace it.",
             )
         # Stale PID file from a crashed process — clean it up and continue.
         _remove_gateway_pid(config)
     log_path = _default_gateway_log_path(config)
     log_offset = log_path.stat().st_size if log_path.exists() else 0
-    argv = _background_gateway_argv(config.source_path, im_service_url_override=im_service_url_override)
+    argv = _background_gateway_argv(
+        config.source_path, im_service_url_override=im_service_url_override
+    )
     launcher = spawn_process or _spawn_background_gateway_process
     ready_waiter = wait_for_ready or _wait_for_gateway_ready
     process = launcher(argv, log_path)
     try:
         ready_waiter(process, config, config.kernel.startup_timeout_seconds)
     except Exception as exc:
-        _stop_background_process(process, timeout_seconds=config.kernel.shutdown_grace_seconds)
+        _stop_background_process(
+            process, timeout_seconds=config.kernel.shutdown_grace_seconds
+        )
         hint = _read_log_last_error(log_path, offset=log_offset)
         summary = hint if hint else str(exc)
         raise GatewayStartupError(
@@ -1124,7 +1217,9 @@ def launch_gateway_in_background(
         pid=process.pid,
         # refactor-387 M3: kernel is in-process; no separate health endpoint.
         # Use the IM service URL as the operator-facing health hint when available.
-        health_url=config.im_service.url if config.im_service is not None else f"pid={process.pid}",
+        health_url=config.im_service.url
+        if config.im_service is not None
+        else f"pid={process.pid}",
         log_path=log_path,
         im_service_url=config.im_service.url if config.im_service is not None else None,
     )
@@ -1231,7 +1326,11 @@ def _healthcheck_reports_healthy(health_url: str) -> bool:
         payload = response.json()
     except Exception:  # noqa: BLE001
         return False
-    return response.status_code == 200 and isinstance(payload, dict) and bool(payload.get("healthy"))
+    return (
+        response.status_code == 200
+        and isinstance(payload, dict)
+        and bool(payload.get("healthy"))
+    )
 
 
 class _KernelClientShim:
@@ -1276,6 +1375,7 @@ class _KernelClientShim:
         **_kwargs: object,
     ) -> dict[str, object]:
         from agent.sdk import RunOrigin as _RunOrigin  # refactor-387-M4
+
         parts: list[dict] = [{"type": "text", "text": t} for t in texts]
         for img in image_urls or []:
             url = img.get("url")
@@ -1286,7 +1386,9 @@ class _KernelClientShim:
                     img_part["mime_type"] = mime.strip()
                 parts.append(img_part)
         # Map string origin → RunOrigin enum; default to SYSTEM for heartbeat/background.
-        run_origin = _RunOrigin.HEARTBEAT if origin == "heartbeat" else _RunOrigin.SYSTEM
+        run_origin = (
+            _RunOrigin.HEARTBEAT if origin == "heartbeat" else _RunOrigin.SYSTEM
+        )
         run_record = self._kernel.submit(
             session_id=session_id,
             parts=parts,
@@ -1330,7 +1432,9 @@ class _KernelClientShim:
         pass
 
 
-def _verify_stopped_health_url(health_url: str, *, timeout_seconds: float, sleep_seconds: float) -> bool:
+def _verify_stopped_health_url(
+    health_url: str, *, timeout_seconds: float, sleep_seconds: float
+) -> bool:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() <= deadline:
         if not _healthcheck_reports_healthy(health_url):
@@ -1384,7 +1488,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     process is spawned; GatewayProcessManager is no longer used here.
     """
     # refactor-387-M4: import from agent.sdk only
-    from agent.sdk import build_kernel, PermissionDecision as _PermissionDecision, LLMFactoryConfig as _LLMFactoryConfig, PERSONAL_ASSISTANT_PROFILE
+    from agent.sdk import (
+        build_kernel,
+        PermissionDecision as _PermissionDecision,
+        LLMFactoryConfig as _LLMFactoryConfig,
+        PERSONAL_ASSISTANT_PROFILE,
+    )
 
     # PA permission strategy: unattended gateway — auto-allow all tools.
     # The gateway is primarily a relay for heartbeat/cron and user-triggered turns;
@@ -1421,7 +1530,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         scheduler=HeartbeatScheduler(
             agents=config.agents,
             kernel_client=kernel_shim,
-            state_store=HeartbeatSchedulerStateStore(_default_heartbeat_state_path(config)),
+            state_store=HeartbeatSchedulerStateStore(
+                _default_heartbeat_state_path(config)
+            ),
         ),
         config=config.heartbeat,
     )
@@ -1482,10 +1593,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             reporter=reporter,
             heartbeat_runner=heartbeat_runner,
             sync_client=ConfigSyncClient(fetcher=im_config_sync_client.sync_agent),
-            agent_config_provider=lambda agent_id: im_config_sync_client.current_agent_payload(agent_id=agent_id),
-            agent_capabilities_provider=lambda agent_id, workspace_root: build_agent_capabilities_payload(
-                workspace_root=workspace_root,
-                tool_allowlist=_resolve_agent_tool_allowlist(im_config_sync_client, agent_id),
+            agent_config_provider=lambda agent_id: (
+                im_config_sync_client.current_agent_payload(agent_id=agent_id)
+            ),
+            agent_capabilities_provider=lambda agent_id, workspace_root: (
+                build_agent_capabilities_payload(
+                    workspace_root=workspace_root,
+                    tool_allowlist=_resolve_agent_tool_allowlist(
+                        im_config_sync_client, agent_id
+                    ),
+                )
             ),
             # sdk-fix-prompt-preview: assemble_prompt_preview is now available on the
             # in-process Kernel (refactor-387 M3 regression fix).  The provider
@@ -1501,7 +1618,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             token=config.im_service.token,
             token_getter=_token_getter,
         )
-        post_im_connect = lambda: im_bootstrap_client.ensure_node_binding(node_id=config.node.node_id)
+        post_im_connect = lambda: im_bootstrap_client.ensure_node_binding(
+            node_id=config.node.node_id
+        )
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
         im_connection_manager_factory=lambda: im_connection_manager,
@@ -1534,7 +1653,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
     return GatewayRuntime(
         config,
-        None,   # no kernel subprocess — kernel runs in-process (M3+)
+        None,  # no kernel subprocess — kernel runs in-process (M3+)
         channel_registry=channel_registry,
         heartbeat_runner=heartbeat_runner,
         im_connection_manager=im_connection_manager,
@@ -1550,9 +1669,17 @@ def main(argv: list[str] | None = None) -> int:
     """Parse CLI arguments and execute the gateway process entry."""
 
     argv = sys.argv[1:] if argv is None else list(argv)
-    parser = argparse.ArgumentParser(description="Run personal assistant gateway runtime")
-    parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
-    parser.add_argument("--im-service-url", help="Override the upstream IM service base URL for this launch")
+    parser = argparse.ArgumentParser(
+        description="Run personal assistant gateway runtime"
+    )
+    parser.add_argument(
+        "--config",
+        help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)",
+    )
+    parser.add_argument(
+        "--im-service-url",
+        help="Override the upstream IM service base URL for this launch",
+    )
     parser.add_argument(
         "--foreground",
         action="store_true",
@@ -1568,15 +1695,36 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     subparsers = parser.add_subparsers(dest="command")
-    stop_parser = subparsers.add_parser("stop", help="Stop the current background gateway for one config")
-    stop_parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
-    stop_parser.add_argument("--im-service-url", help="Override the upstream IM service base URL for this launch")
-    restart_parser = subparsers.add_parser("restart", help="Stop then start the background gateway (equivalent to stop + start)")
-    restart_parser.add_argument("--config", help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)")
-    restart_parser.add_argument("--im-service-url", help="Override the upstream IM service base URL for this launch")
+    stop_parser = subparsers.add_parser(
+        "stop", help="Stop the current background gateway for one config"
+    )
+    stop_parser.add_argument(
+        "--config",
+        help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)",
+    )
+    stop_parser.add_argument(
+        "--im-service-url",
+        help="Override the upstream IM service base URL for this launch",
+    )
+    restart_parser = subparsers.add_parser(
+        "restart",
+        help="Stop then start the background gateway (equivalent to stop + start)",
+    )
+    restart_parser.add_argument(
+        "--config",
+        help="Path to local gateway config (defaults to ~/.nano-assistant/config.yaml)",
+    )
+    restart_parser.add_argument(
+        "--im-service-url",
+        help="Override the upstream IM service base URL for this launch",
+    )
     args = parser.parse_args(argv)
     command = args.command or "start"
-    resolved_config_path = str(Path(args.config).expanduser()) if args.config else str(default_local_config_path())
+    resolved_config_path = (
+        str(Path(args.config).expanduser())
+        if args.config
+        else str(default_local_config_path())
+    )
     if getattr(args, "auto_bind", False):
         os.environ["NANO_MULTIAGENT_AUTO_BIND"] = "1"
     try:
@@ -1593,7 +1741,10 @@ def main(argv: list[str] | None = None) -> int:
             _print_gateway_started(result)
             return 0
         if args.foreground:
-            return run_gateway(config_path=resolved_config_path, im_service_url_override=args.im_service_url)
+            return run_gateway(
+                config_path=resolved_config_path,
+                im_service_url_override=args.im_service_url,
+            )
         result = launch_gateway_in_background(
             config_path=resolved_config_path,
             im_service_url_override=args.im_service_url,
@@ -1608,7 +1759,9 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
 
-def _coerce_factories(factories: RuntimeFactories | Mapping[str, Any] | None) -> RuntimeFactories:
+def _coerce_factories(
+    factories: RuntimeFactories | Mapping[str, Any] | None,
+) -> RuntimeFactories:
     if factories is None:
         return RuntimeFactories()
     if isinstance(factories, RuntimeFactories):
@@ -1695,7 +1848,9 @@ def _make_token_getter(
         password = im_service.password
         if username and password:
             try:
-                access, new_refresh = await auth_client.login(username=username, password=password)
+                access, new_refresh = await auth_client.login(
+                    username=username, password=password
+                )
                 _state["token"] = access
                 _state["refresh_token"] = new_refresh
                 _persist(access, new_refresh)
@@ -1760,7 +1915,7 @@ def _build_im_connection_manager(
 
 def _build_permission_response_handler(
     *,
-    kernel_client: Any,   # KernelAPIClient removed in M3; this function is dead code until M4 cleanup
+    kernel_client: Any,  # KernelAPIClient removed in M3; this function is dead code until M4 cleanup
     run_context_store: dict[str, dict[str, str]],
 ) -> Callable[[Mapping[str, object]], None]:
     """Build handler that routes IM permission_response frames to the kernel.
@@ -1828,7 +1983,11 @@ def _build_relay_lifecycle_callback(
             # by the turn_start ack (gateway returns the created placeholder message_id).
             if run_context_store is not None and update.run_id:
                 conversation_id = message.external_chat_id or ""
-                agent_id_meta = _metadata_text(message.metadata, key="agent_id") or update.agent_id or ""
+                agent_id_meta = (
+                    _metadata_text(message.metadata, key="agent_id")
+                    or update.agent_id
+                    or ""
+                )
                 run_context_store[update.run_id] = {
                     "conversation_id": conversation_id,
                     "message_id": "",  # filled by turn_start ack
@@ -1864,7 +2023,11 @@ def _build_relay_lifecycle_callback(
                 run_context_store.pop(update.run_id, None)
             message_id = _metadata_text(message.metadata, key="message_id")
             send_report = getattr(reporter, "send_report", None)
-            if callable(send_report) and message_id is not None and update.run_id is not None:
+            if (
+                callable(send_report)
+                and message_id is not None
+                and update.run_id is not None
+            ):
                 payload = send_report(
                     run_id=update.run_id,
                     status="completed",
@@ -1879,12 +2042,25 @@ def _build_relay_lifecycle_callback(
                 await manager.send_json("node.report", payload)
             suppression_detail = None
             if update.detail is not None:
-                detail_parts = [f"{key}={value}" for key, value in update.detail.items()]
+                detail_parts = [
+                    f"{key}={value}" for key, value in update.detail.items()
+                ]
                 suppression_detail = " | ".join(detail_parts) if detail_parts else None
             receipt_detail = update.reply_text
             if suppression_detail is not None:
-                receipt_detail = suppression_detail if InboundPipeline._is_no_reply_token(update.reply_text or "") else (
-                    " | ".join([part for part in [receipt_detail, suppression_detail] if part]) or None
+                receipt_detail = (
+                    suppression_detail
+                    if InboundPipeline._is_no_reply_token(update.reply_text or "")
+                    else (
+                        " | ".join(
+                            [
+                                part
+                                for part in [receipt_detail, suppression_detail]
+                                if part
+                            ]
+                        )
+                        or None
+                    )
                 )
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
@@ -1925,7 +2101,9 @@ def _build_kernel_event_observer(
     - turn_end            → node.streaming_delta kind=message_completed (with token_usage if available)
     """
 
-    async def _send(manager: IMConnectionManager, message_type: str, payload: Mapping[str, Any]) -> None:
+    async def _send(
+        manager: IMConnectionManager, message_type: str, payload: Mapping[str, Any]
+    ) -> None:
         try:
             await manager.send_json(message_type, payload)
         except Exception:  # noqa: BLE001
@@ -1960,18 +2138,30 @@ def _build_kernel_event_observer(
                     aid: str = agent_id,
                 ) -> None:
                     try:
-                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
-                            "kind": "turn_start",
-                            "conversation_id": cid,
-                            "agent_id": aid,
-                            "run_id": rid,
-                        })
-                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
-                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
+                        ack = await mgr.send_json_await_ack(
+                            "node.streaming_delta",
+                            {
+                                "kind": "turn_start",
+                                "conversation_id": cid,
+                                "agent_id": aid,
+                                "run_id": rid,
+                            },
+                        )
+                        ack_payload = (
+                            ack.get("payload")
+                            if isinstance(ack.get("payload"), dict)
+                            else ack
+                        )
+                        returned_msg_id = (
+                            ack_payload.get("message_id")
+                            if isinstance(ack_payload, dict)
+                            else None
+                        )
                         if returned_msg_id and rid in run_context_store:
                             run_context_store[rid]["message_id"] = str(returned_msg_id)
                     except Exception:  # noqa: BLE001
                         pass
+
                 return _send_turn_start_and_store()
 
         elif event_name == "assistant_message":
@@ -1985,7 +2175,12 @@ def _build_kernel_event_observer(
             # The kernel's while-loop generates a fresh assistant_msg_id per iteration; when it
             # differs from the previous one we must close the old IM message and start a new one
             # so the frontend renders textA and textB as separate bubbles.
-            if kernel_msg_id and prev_kernel_msg_id and kernel_msg_id != prev_kernel_msg_id:
+            if (
+                kernel_msg_id
+                and prev_kernel_msg_id
+                and kernel_msg_id != prev_kernel_msg_id
+            ):
+
                 async def _close_old_and_restart(
                     mgr: IMConnectionManager = manager,
                     rid: str = run_id,
@@ -1997,44 +2192,68 @@ def _build_kernel_event_observer(
                 ) -> None:
                     try:
                         if old_msg_id:
-                            await mgr.send_json("node.streaming_delta", {
-                                "kind": "message_completed",
-                                "message_id": old_msg_id,
-                                "final_content": None,
-                                "token_usage": None,
+                            await mgr.send_json(
+                                "node.streaming_delta",
+                                {
+                                    "kind": "message_completed",
+                                    "message_id": old_msg_id,
+                                    "final_content": None,
+                                    "token_usage": None,
+                                    "run_id": rid,
+                                },
+                            )
+                        ack = await mgr.send_json_await_ack(
+                            "node.streaming_delta",
+                            {
+                                "kind": "turn_start",
+                                "conversation_id": cid,
+                                "agent_id": aid,
                                 "run_id": rid,
-                            })
-                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
-                            "kind": "turn_start",
-                            "conversation_id": cid,
-                            "agent_id": aid,
-                            "run_id": rid,
-                        })
-                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
-                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
+                            },
+                        )
+                        ack_payload = (
+                            ack.get("payload")
+                            if isinstance(ack.get("payload"), dict)
+                            else ack
+                        )
+                        returned_msg_id = (
+                            ack_payload.get("message_id")
+                            if isinstance(ack_payload, dict)
+                            else None
+                        )
                         if returned_msg_id and rid in run_context_store:
                             run_context_store[rid]["message_id"] = str(returned_msg_id)
                             run_context_store[rid]["kernel_message_id"] = new_kernel_id
-                            await mgr.send_json("node.streaming_delta", {
-                                "kind": "message_delta",
-                                "message_id": str(returned_msg_id),
-                                "delta_text": text,
-                                "run_id": rid,
-                            })
+                            await mgr.send_json(
+                                "node.streaming_delta",
+                                {
+                                    "kind": "message_delta",
+                                    "message_id": str(returned_msg_id),
+                                    "delta_text": text,
+                                    "run_id": rid,
+                                },
+                            )
                     except Exception:  # noqa: BLE001
                         pass
+
                 return _close_old_and_restart()
 
             if message_id:
                 # turn_start already ack'd — send delta directly.
                 if kernel_msg_id:
                     ctx["kernel_message_id"] = kernel_msg_id
-                loop.create_task(_send(manager, "node.streaming_delta", {
-                    "kind": "message_delta",
-                    "message_id": message_id,
-                    "delta_text": content,
-                    "run_id": run_id,
-                }))
+                loop.create_task(
+                    _send(
+                        manager,
+                        "node.streaming_delta",
+                        {
+                            "kind": "message_delta",
+                            "message_id": message_id,
+                            "delta_text": content,
+                            "run_id": run_id,
+                        },
+                    )
+                )
             elif conversation_id and agent_id:
                 # Kernel skipped run_status=running; send turn_start inline and await ack
                 # so we have message_id before the delta frame is dispatched.
@@ -2047,26 +2266,43 @@ def _build_kernel_event_observer(
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
-                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
-                            "kind": "turn_start",
-                            "conversation_id": cid,
-                            "agent_id": aid,
-                            "run_id": rid,
-                        })
-                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
-                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
+                        ack = await mgr.send_json_await_ack(
+                            "node.streaming_delta",
+                            {
+                                "kind": "turn_start",
+                                "conversation_id": cid,
+                                "agent_id": aid,
+                                "run_id": rid,
+                            },
+                        )
+                        ack_payload = (
+                            ack.get("payload")
+                            if isinstance(ack.get("payload"), dict)
+                            else ack
+                        )
+                        returned_msg_id = (
+                            ack_payload.get("message_id")
+                            if isinstance(ack_payload, dict)
+                            else None
+                        )
                         if returned_msg_id and rid in run_context_store:
                             run_context_store[rid]["message_id"] = str(returned_msg_id)
                             if new_kernel_id:
-                                run_context_store[rid]["kernel_message_id"] = new_kernel_id
-                            await mgr.send_json("node.streaming_delta", {
-                                "kind": "message_delta",
-                                "message_id": str(returned_msg_id),
-                                "delta_text": text,
-                                "run_id": rid,
-                            })
+                                run_context_store[rid]["kernel_message_id"] = (
+                                    new_kernel_id
+                                )
+                            await mgr.send_json(
+                                "node.streaming_delta",
+                                {
+                                    "kind": "message_delta",
+                                    "message_id": str(returned_msg_id),
+                                    "delta_text": text,
+                                    "run_id": rid,
+                                },
+                            )
                     except Exception:  # noqa: BLE001
                         pass
+
                 return _turn_start_then_delta()
 
         elif event_name == "turn_end":
@@ -2081,7 +2317,9 @@ def _build_kernel_event_observer(
             token_usage_payload: dict[str, object] | None = None
             if isinstance(usage_raw, Mapping):
                 prompt = usage_raw.get("prompt_tokens") or usage_raw.get("input_tokens")
-                completion = usage_raw.get("completion_tokens") or usage_raw.get("output_tokens")
+                completion = usage_raw.get("completion_tokens") or usage_raw.get(
+                    "output_tokens"
+                )
                 if isinstance(prompt, int) and isinstance(completion, int):
                     token_usage_payload = {
                         "prompt": prompt,
@@ -2092,31 +2330,47 @@ def _build_kernel_event_observer(
                     if isinstance(cw, int) and cw > 0:
                         token_usage_payload["context_window"] = cw
             if message_id:
-                loop.create_task(_send(manager, "node.streaming_delta", {
-                    "kind": "message_completed",
-                    "message_id": message_id,
-                    "final_content": None,
-                    "token_usage": token_usage_payload,
-                    "delivery_status": "completed" if turn_completed else "failed",
-                    "run_id": run_id,
-                }))
+                loop.create_task(
+                    _send(
+                        manager,
+                        "node.streaming_delta",
+                        {
+                            "kind": "message_completed",
+                            "message_id": message_id,
+                            "final_content": None,
+                            "token_usage": token_usage_payload,
+                            "delivery_status": "completed"
+                            if turn_completed
+                            else "failed",
+                            "run_id": run_id,
+                        },
+                    )
+                )
 
         elif event_name == "tool_start":
             call_id = str(event.get("call_id") or "").strip() or run_id
             tool_name = str(event.get("name") or "")
             arguments = event.get("arguments") or {}
             if message_id:
-                loop.create_task(_send(manager, "node.streaming_delta", {
-                    "kind": "tool_call_upserted",
-                    "message_id": message_id,
-                    "tool_call": {
-                        "id": call_id,
-                        "name": tool_name,
-                        "status": "running",
-                        "input": arguments if isinstance(arguments, dict) else {},
-                    },
-                    "run_id": run_id,
-                }))
+                loop.create_task(
+                    _send(
+                        manager,
+                        "node.streaming_delta",
+                        {
+                            "kind": "tool_call_upserted",
+                            "message_id": message_id,
+                            "tool_call": {
+                                "id": call_id,
+                                "name": tool_name,
+                                "status": "running",
+                                "input": arguments
+                                if isinstance(arguments, dict)
+                                else {},
+                            },
+                            "run_id": run_id,
+                        },
+                    )
+                )
 
         elif event_name == "tool_end":
             call_id = str(event.get("call_id") or "").strip() or run_id
@@ -2131,19 +2385,31 @@ def _build_kernel_event_observer(
             if isinstance(pres, Mapping) and pres.get("summary"):
                 output_parts.append(str(pres["summary"]))
             if message_id:
-                loop.create_task(_send(manager, "node.streaming_delta", {
-                    "kind": "tool_call_completed",
-                    "message_id": message_id,
-                    "tool_call": {
-                        "id": call_id,
-                        "name": tool_name,
-                        "status": status,
-                        "input": arguments if isinstance(arguments, dict) else {},
-                        "output": " | ".join(output_parts) if output_parts else None,
-                        "duration_ms": int(duration_ms) if isinstance(duration_ms, (int, float)) else None,
-                    },
-                    "run_id": run_id,
-                }))
+                loop.create_task(
+                    _send(
+                        manager,
+                        "node.streaming_delta",
+                        {
+                            "kind": "tool_call_completed",
+                            "message_id": message_id,
+                            "tool_call": {
+                                "id": call_id,
+                                "name": tool_name,
+                                "status": status,
+                                "input": arguments
+                                if isinstance(arguments, dict)
+                                else {},
+                                "output": " | ".join(output_parts)
+                                if output_parts
+                                else None,
+                                "duration_ms": int(duration_ms)
+                                if isinstance(duration_ms, (int, float))
+                                else None,
+                            },
+                            "run_id": run_id,
+                        },
+                    )
+                )
 
         elif event_name == "permission_request":
             # Agent auto_mode_gate is awaiting a user decision; forward to IM so the
@@ -2157,19 +2423,27 @@ def _build_kernel_event_observer(
                 question = str(event.get("question") or "").strip()
                 options_raw = event.get("options")
                 options = list(options_raw) if isinstance(options_raw, list) else []
-                loop.create_task(_send(manager, "node.streaming_delta", {
-                    "kind": "permission_request",
-                    "message_id": message_id,
-                    "permission_request": {
-                        "request_id": request_id,
-                        "tool_name": tool_name,
-                        "tool_input": dict(tool_input) if isinstance(tool_input, Mapping) else (tool_input or {}),
-                        "question": question,
-                        "options": options,
-                        "status": "pending",
-                    },
-                    "run_id": run_id,
-                }))
+                loop.create_task(
+                    _send(
+                        manager,
+                        "node.streaming_delta",
+                        {
+                            "kind": "permission_request",
+                            "message_id": message_id,
+                            "permission_request": {
+                                "request_id": request_id,
+                                "tool_name": tool_name,
+                                "tool_input": dict(tool_input)
+                                if isinstance(tool_input, Mapping)
+                                else (tool_input or {}),
+                                "question": question,
+                                "options": options,
+                                "status": "pending",
+                            },
+                            "run_id": run_id,
+                        },
+                    )
+                )
 
         elif event_name == "permission_resolved":
             # Agent resolved a permission request (hook resumed); update the IM card
@@ -2177,13 +2451,19 @@ def _build_kernel_event_observer(
             if message_id:
                 request_id = str(event.get("request_id") or "").strip()
                 decision = str(event.get("decision") or "").strip()
-                loop.create_task(_send(manager, "node.streaming_delta", {
-                    "kind": "permission_resolved",
-                    "message_id": message_id,
-                    "request_id": request_id,
-                    "decision": decision,
-                    "run_id": run_id,
-                }))
+                loop.create_task(
+                    _send(
+                        manager,
+                        "node.streaming_delta",
+                        {
+                            "kind": "permission_resolved",
+                            "message_id": message_id,
+                            "request_id": request_id,
+                            "decision": decision,
+                            "run_id": run_id,
+                        },
+                    )
+                )
 
     return observer
 
@@ -2242,10 +2522,13 @@ def _build_session_event_callback(
         text = f"· background self-evolution review: {subject} updated"
 
         try:
-            await manager.send_json("node.system_message", {
-                "conversation_id": conversation_id,
-                "text": text,
-            })
+            await manager.send_json(
+                "node.system_message",
+                {
+                    "conversation_id": conversation_id,
+                    "text": text,
+                },
+            )
         except Exception:  # noqa: BLE001
             # Background notification delivery must never crash the gateway.
             pass
@@ -2342,7 +2625,9 @@ def _write_gateway_state(config: LocalConfig, result: BackgroundLaunchResult) ->
         health_url=result.health_url,
         log_path=str(result.log_path),
     )
-    _gateway_state_path(config).write_text(json.dumps(asdict(state), indent=2, sort_keys=True), encoding="utf-8")
+    _gateway_state_path(config).write_text(
+        json.dumps(asdict(state), indent=2, sort_keys=True), encoding="utf-8"
+    )
 
 
 def _read_gateway_state(state_path: Path) -> GatewayRuntimeState | None:
@@ -2419,7 +2704,9 @@ def _im_bootstrap_base_urls(url: str) -> tuple[str, ...]:
     return (_im_http_base_url(url),)
 
 
-def _background_gateway_argv(config_path: Path, *, im_service_url_override: str | None = None) -> list[str]:
+def _background_gateway_argv(
+    config_path: Path, *, im_service_url_override: str | None = None
+) -> list[str]:
     argv = [
         sys.executable,
         "-m",
@@ -2445,7 +2732,9 @@ def _spawn_background_gateway_process(argv: list[str], log_path: Path) -> Proces
         )
 
 
-def _wait_for_gateway_ready(process: ProcessLike, config: LocalConfig, timeout_seconds: float) -> None:
+def _wait_for_gateway_ready(
+    process: ProcessLike, config: LocalConfig, timeout_seconds: float
+) -> None:
     """Wait for the background gateway to write its PID file (ready signal).
 
     refactor-387 M3: the kernel is in-process and has no HTTP health endpoint.
@@ -2456,11 +2745,15 @@ def _wait_for_gateway_ready(process: ProcessLike, config: LocalConfig, timeout_s
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() <= deadline:
         if process.poll() is not None:
-            raise RuntimeError(f"gateway exited before ready with return code {process.poll()}")
+            raise RuntimeError(
+                f"gateway exited before ready with return code {process.poll()}"
+            )
         if pid_path.exists():
             return
         time.sleep(config.kernel.health_poll_interval_seconds or 0.2)
-    raise RuntimeError("timed out waiting for gateway readiness (pid file never appeared)")
+    raise RuntimeError(
+        "timed out waiting for gateway readiness (pid file never appeared)"
+    )
 
 
 def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) -> None:
@@ -2497,7 +2790,9 @@ def _kill_process_tree(pid: int, sig: int) -> None:
         return
 
 
-def _install_default_signal_handlers(runtime: GatewayRuntimeLike) -> SignalHandlerInstaller:
+def _install_default_signal_handlers(
+    runtime: GatewayRuntimeLike,
+) -> SignalHandlerInstaller:
     def _installer() -> Callable[[], None]:
         if not isinstance(runtime, GatewayRuntime):
             return lambda: None
@@ -2523,7 +2818,9 @@ def _install_default_signal_handlers(runtime: GatewayRuntimeLike) -> SignalHandl
 
 
 async def _connect_websocket(url: str, headers: Mapping[str, str]) -> ClientConnection:
-    return await websockets.connect(url, additional_headers=dict(headers), user_agent_header=None)
+    return await websockets.connect(
+        url, additional_headers=dict(headers), user_agent_header=None
+    )
 
 
 async def _await_background_task(task: asyncio.Task[None]) -> None:

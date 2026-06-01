@@ -32,8 +32,12 @@ from agent.core.llm.model_registry import get_default_base_url as CoreGetDefault
 from agent.core.llm.model_registry import get_default_model as CoreGetDefaultModel
 from agent.core.llm.model_registry import get_default_provider as CoreGetDefaultProvider
 from agent.core.llm.model_registry import list_provider_models as CoreListProviderModels
-from agent.core.llm.model_registry import list_supported_providers as CoreListSupportedProviders
-from agent.core.llm.model_registry import resolve_model_metadata as CoreResolveModelMetadata
+from agent.core.llm.model_registry import (
+    list_supported_providers as CoreListSupportedProviders,
+)
+from agent.core.llm.model_registry import (
+    resolve_model_metadata as CoreResolveModelMetadata,
+)
 
 
 def test_core_llm_is_canonical_home() -> None:

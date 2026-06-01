@@ -83,7 +83,10 @@ class ReplLiveRenderer:
 
     def on_tool_event(self, event_name: str, data: dict[str, object]) -> None:
         """Handle tool lifecycle events and refresh the live view."""
-        from coding_cli.render.repl_tool_lines import format_tool_done, format_tool_running
+        from coding_cli.render.repl_tool_lines import (
+            format_tool_done,
+            format_tool_running,
+        )
 
         name = data.get("name")
         call_id = data.get("call_id")

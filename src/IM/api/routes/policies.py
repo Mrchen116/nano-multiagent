@@ -45,7 +45,9 @@ def to_policy_response(policy: SettingsPolicy) -> PolicyResponse:
 
 
 @router.get("/im/v1/policies", response_model=PolicyResponse)
-def get_policies(service: PolicyService = Depends(get_policy_service)) -> PolicyResponse:
+def get_policies(
+    service: PolicyService = Depends(get_policy_service),
+) -> PolicyResponse:
     """Return the singleton settings-policy snapshot."""
     return to_policy_response(service.get_policies())
 
@@ -66,5 +68,7 @@ def update_policies(
             rate_limit_per_min=payload.rate_limit_per_min,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
     return to_policy_response(updated)

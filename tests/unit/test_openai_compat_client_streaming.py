@@ -22,7 +22,9 @@ def _make_sse_body(chunks: list[dict[str, Any]]) -> bytes:
     return "".join(lines).encode()
 
 
-async def _collect_messages(client: OpenAICompatClient, request: LLMGenerateRequest) -> list[LLMMessage]:
+async def _collect_messages(
+    client: OpenAICompatClient, request: LLMGenerateRequest
+) -> list[LLMMessage]:
     messages: list[LLMMessage] = []
     async for msg in client.generate(request):
         messages.append(msg)
@@ -42,7 +44,13 @@ async def test_stream_response_parses_reasoning_content() -> None:
             "id": "chatcmpl-1",
             "object": "chat.completion.chunk",
             "model": "kimi-k2",
-            "choices": [{"index": 0, "delta": {"role": "assistant", "reasoning_content": thinking_text}, "finish_reason": None}],
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "reasoning_content": thinking_text},
+                    "finish_reason": None,
+                }
+            ],
         },
         # 第二个 chunk: tool_call
         {
@@ -54,7 +62,15 @@ async def test_stream_response_parses_reasoning_content() -> None:
                     "index": 0,
                     "delta": {
                         "tool_calls": [
-                            {"index": 0, "id": "call_abc", "type": "function", "function": {"name": "bash", "arguments": '{"command":"pwd"}'}},
+                            {
+                                "index": 0,
+                                "id": "call_abc",
+                                "type": "function",
+                                "function": {
+                                    "name": "bash",
+                                    "arguments": '{"command":"pwd"}',
+                                },
+                            },
                         ]
                     },
                     "finish_reason": None,
@@ -126,7 +142,9 @@ async def test_stream_response_top_level_error_raises_model_error() -> None:
     body = _make_sse_body(chunks)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = OpenAICompatClient(
         base_url="http://127.0.0.1:9999",
@@ -144,7 +162,11 @@ async def test_stream_response_top_level_error_raises_model_error() -> None:
             ),
         )
     err_str = str(exc_info.value)
-    assert "rate limit" in err_str.lower() or "rate_limit" in err_str.lower() or "429" in err_str
+    assert (
+        "rate limit" in err_str.lower()
+        or "rate_limit" in err_str.lower()
+        or "429" in err_str
+    )
 
 
 async def test_stream_response_incomplete_stream_raises_model_error() -> None:
@@ -152,13 +174,17 @@ async def test_stream_response_incomplete_stream_raises_model_error() -> None:
     chunks = [
         {
             "id": "chatcmpl-1",
-            "choices": [{"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}],
+            "choices": [
+                {"index": 0, "delta": {"role": "assistant"}, "finish_reason": None}
+            ],
         }
     ]
     body = _make_sse_body(chunks)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = OpenAICompatClient(
         base_url="http://127.0.0.1:9999",
@@ -182,7 +208,13 @@ async def test_stream_response_happy_path_not_affected_by_bugfix380() -> None:
     chunks = [
         {
             "id": "chatcmpl-2",
-            "choices": [{"index": 0, "delta": {"role": "assistant", "content": "hello"}, "finish_reason": None}],
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "hello"},
+                    "finish_reason": None,
+                }
+            ],
         },
         {
             "id": "chatcmpl-2",
@@ -193,7 +225,9 @@ async def test_stream_response_happy_path_not_affected_by_bugfix380() -> None:
     body = _make_sse_body(chunks)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = OpenAICompatClient(
         base_url="http://127.0.0.1:9999",
@@ -222,7 +256,9 @@ async def test_http_401_raises_model_error() -> None:
     """HTTP 401 鉴权失败必须 raise ModelError，状态码体现在 error details。"""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, text="Unauthorized", headers={"content-type": "application/json"})
+        return httpx.Response(
+            401, text="Unauthorized", headers={"content-type": "application/json"}
+        )
 
     client = OpenAICompatClient(
         base_url="http://127.0.0.1:9999",
@@ -249,7 +285,9 @@ async def test_http_429_raises_model_error() -> None:
     """HTTP 429 限流必须 raise ModelError。"""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(429, text="Too Many Requests", headers={"content-type": "application/json"})
+        return httpx.Response(
+            429, text="Too Many Requests", headers={"content-type": "application/json"}
+        )
 
     client = OpenAICompatClient(
         base_url="http://127.0.0.1:9999",
@@ -276,7 +314,11 @@ async def test_http_500_raises_model_error() -> None:
     """HTTP 500 服务端错误必须 raise ModelError。"""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, text="Internal Server Error", headers={"content-type": "application/json"})
+        return httpx.Response(
+            500,
+            text="Internal Server Error",
+            headers={"content-type": "application/json"},
+        )
 
     client = OpenAICompatClient(
         base_url="http://127.0.0.1:9999",
@@ -326,9 +368,11 @@ async def test_connect_timeout_raises_model_error() -> None:
             ),
         )
     err = exc_info.value
-    assert "transport" in str(err).lower() or "timeout" in str(err).lower() or err.details.get("error"), (
-        f"ModelError 应反映传输层超时，实际: {err!r}"
-    )
+    assert (
+        "transport" in str(err).lower()
+        or "timeout" in str(err).lower()
+        or err.details.get("error")
+    ), f"ModelError 应反映传输层超时，实际: {err!r}"
 
 
 async def test_connect_error_raises_model_error() -> None:
@@ -353,6 +397,8 @@ async def test_connect_error_raises_model_error() -> None:
             ),
         )
     err = exc_info.value
-    assert "transport" in str(err).lower() or "connect" in str(err).lower() or err.details.get("error"), (
-        f"ModelError 应反映连接被拒，实际: {err!r}"
-    )
+    assert (
+        "transport" in str(err).lower()
+        or "connect" in str(err).lower()
+        or err.details.get("error")
+    ), f"ModelError 应反映连接被拒，实际: {err!r}"

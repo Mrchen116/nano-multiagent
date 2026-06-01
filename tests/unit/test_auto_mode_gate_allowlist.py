@@ -19,6 +19,7 @@ from agent.platform.hooks.builtins.auto_mode_gate import (
 # Safe-tool allowlist
 # ---------------------------------------------------------------------------
 
+
 class TestSafeToolAllowlist:
     def test_read_is_safe(self):
         assert is_safe_tool("read", AutoModeConfig()) is True
@@ -34,7 +35,14 @@ class TestSafeToolAllowlist:
         assert is_safe_tool("web_search", AutoModeConfig()) is False
 
     def test_task_tools_safe(self):
-        for tool in ("task_create", "task_get", "task_update", "task_list", "task_stop", "task_output"):
+        for tool in (
+            "task_create",
+            "task_get",
+            "task_update",
+            "task_list",
+            "task_stop",
+            "task_output",
+        ):
             assert is_safe_tool(tool, AutoModeConfig()) is True
 
     def test_agent_tool_safe(self):
@@ -70,6 +78,7 @@ class TestSafeToolAllowlist:
 # Tool input projection
 # ---------------------------------------------------------------------------
 
+
 class TestProjectToolInput:
     def test_bash_projects_command(self):
         result = project_tool_input("bash", {"command": "ls -la"})
@@ -81,14 +90,18 @@ class TestProjectToolInput:
 
     def test_write_projects_path_and_content_truncated(self):
         long_content = "x" * 500
-        result = project_tool_input("write", {"file_path": "/tmp/f.py", "content": long_content})
+        result = project_tool_input(
+            "write", {"file_path": "/tmp/f.py", "content": long_content}
+        )
         assert "/tmp/f.py" in result
         # Content truncated at 200 chars
         assert len(result) < len(long_content) + 50
 
     def test_edit_projects_path_and_new_string_truncated(self):
         long_content = "y" * 500
-        result = project_tool_input("edit", {"file_path": "/tmp/f.py", "new_string": long_content})
+        result = project_tool_input(
+            "edit", {"file_path": "/tmp/f.py", "new_string": long_content}
+        )
         assert "/tmp/f.py" in result
 
     def test_unknown_tool_returns_empty(self):
@@ -104,6 +117,7 @@ class TestProjectToolInput:
 # Gate hook setup — registration uses timeout_ms=None
 # ---------------------------------------------------------------------------
 
+
 class TestGateSetup:
     def test_setup_registers_with_none_timeout(self):
         """auto_mode_gate must register with timeout_ms=None (self-managed)."""
@@ -111,11 +125,13 @@ class TestGateSetup:
 
         class MockHooks:
             def on(self, event, handler, *, priority=100, timeout_ms=1500, **kwargs):
-                registrations.append({
-                    "event": event,
-                    "priority": priority,
-                    "timeout_ms": timeout_ms,
-                })
+                registrations.append(
+                    {
+                        "event": event,
+                        "priority": priority,
+                        "timeout_ms": timeout_ms,
+                    }
+                )
 
         gate_setup(MockHooks())
         assert len(registrations) == 1

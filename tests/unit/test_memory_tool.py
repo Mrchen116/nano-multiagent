@@ -79,14 +79,18 @@ def test_target_enum_contains_memory_user(tool: MemoryTool) -> None:
 
 def test_add_memory_success(tool: MemoryTool, memory_root: Path) -> None:
     ctx = _make_ctx(memory_root)
-    result = tool.run({"action": "add", "target": "memory", "content": "test fact"}, ctx)
+    result = tool.run(
+        {"action": "add", "target": "memory", "content": "test fact"}, ctx
+    )
     assert result["success"] is True
     assert (memory_root / "MEMORY.md").exists()
 
 
 def test_add_user_success(tool: MemoryTool, memory_root: Path) -> None:
     ctx = _make_ctx(memory_root)
-    result = tool.run({"action": "add", "target": "user", "content": "user name is Alice"}, ctx)
+    result = tool.run(
+        {"action": "add", "target": "user", "content": "user name is Alice"}, ctx
+    )
     assert result["success"] is True
     assert (memory_root / "USER.md").exists()
 
@@ -107,7 +111,12 @@ def test_replace_existing_entry(tool: MemoryTool, memory_root: Path) -> None:
     ctx = _make_ctx(memory_root)
     tool.run({"action": "add", "target": "memory", "content": "old text"}, ctx)
     result = tool.run(
-        {"action": "replace", "target": "memory", "old_text": "old text", "content": "new text"},
+        {
+            "action": "replace",
+            "target": "memory",
+            "old_text": "old text",
+            "content": "new text",
+        },
         ctx,
     )
     assert result["success"] is True
@@ -115,16 +124,25 @@ def test_replace_existing_entry(tool: MemoryTool, memory_root: Path) -> None:
     assert "new text" in content
 
 
-def test_replace_missing_old_text_returns_error(tool: MemoryTool, memory_root: Path) -> None:
+def test_replace_missing_old_text_returns_error(
+    tool: MemoryTool, memory_root: Path
+) -> None:
     ctx = _make_ctx(memory_root)
     result = tool.run(
-        {"action": "replace", "target": "memory", "old_text": "does not exist", "content": "new"},
+        {
+            "action": "replace",
+            "target": "memory",
+            "old_text": "does not exist",
+            "content": "new",
+        },
         ctx,
     )
     assert result["success"] is False
 
 
-def test_replace_missing_content_param_returns_error(tool: MemoryTool, memory_root: Path) -> None:
+def test_replace_missing_content_param_returns_error(
+    tool: MemoryTool, memory_root: Path
+) -> None:
     ctx = _make_ctx(memory_root)
     result = tool.run({"action": "replace", "target": "memory", "old_text": "x"}, ctx)
     assert result["success"] is False
@@ -138,17 +156,25 @@ def test_replace_missing_content_param_returns_error(tool: MemoryTool, memory_ro
 def test_remove_existing_entry(tool: MemoryTool, memory_root: Path) -> None:
     ctx = _make_ctx(memory_root)
     tool.run({"action": "add", "target": "memory", "content": "to be removed"}, ctx)
-    result = tool.run({"action": "remove", "target": "memory", "old_text": "to be removed"}, ctx)
+    result = tool.run(
+        {"action": "remove", "target": "memory", "old_text": "to be removed"}, ctx
+    )
     assert result["success"] is True
 
 
-def test_remove_missing_entry_returns_error(tool: MemoryTool, memory_root: Path) -> None:
+def test_remove_missing_entry_returns_error(
+    tool: MemoryTool, memory_root: Path
+) -> None:
     ctx = _make_ctx(memory_root)
-    result = tool.run({"action": "remove", "target": "memory", "old_text": "ghost"}, ctx)
+    result = tool.run(
+        {"action": "remove", "target": "memory", "old_text": "ghost"}, ctx
+    )
     assert result["success"] is False
 
 
-def test_remove_missing_old_text_param_returns_error(tool: MemoryTool, memory_root: Path) -> None:
+def test_remove_missing_old_text_param_returns_error(
+    tool: MemoryTool, memory_root: Path
+) -> None:
     ctx = _make_ctx(memory_root)
     result = tool.run({"action": "remove", "target": "memory"}, ctx)
     assert result["success"] is False
@@ -159,7 +185,9 @@ def test_remove_missing_old_text_param_returns_error(tool: MemoryTool, memory_ro
 # ---------------------------------------------------------------------------
 
 
-def test_two_entries_have_section_separator(tool: MemoryTool, memory_root: Path) -> None:
+def test_two_entries_have_section_separator(
+    tool: MemoryTool, memory_root: Path
+) -> None:
     ctx = _make_ctx(memory_root)
     tool.run({"action": "add", "target": "memory", "content": "fact A"}, ctx)
     tool.run({"action": "add", "target": "memory", "content": "fact B"}, ctx)
@@ -184,11 +212,17 @@ def test_source_index_in_file(tool: MemoryTool, memory_root: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_only_memory_and_user_files_created(tool: MemoryTool, memory_root: Path) -> None:
+def test_only_memory_and_user_files_created(
+    tool: MemoryTool, memory_root: Path
+) -> None:
     ctx = _make_ctx(memory_root)
     tool.run({"action": "add", "target": "memory", "content": "note"}, ctx)
     tool.run({"action": "add", "target": "user", "content": "Alice"}, ctx)
-    files = {p.name for p in memory_root.iterdir() if not p.name.endswith(".lock") and not p.name.endswith(".tmp")}
+    files = {
+        p.name
+        for p in memory_root.iterdir()
+        if not p.name.endswith(".lock") and not p.name.endswith(".tmp")
+    }
     assert files == {"MEMORY.md", "USER.md"}
 
 
@@ -245,7 +279,9 @@ def test_memory_root_resolved_from_session_metadata(tmp_path: Path) -> None:
     ctx.cwd = workspace
 
     tool = MemoryTool()  # No fixed root — resolved from metadata
-    result = tool.run({"action": "add", "target": "memory", "content": "from metadata"}, ctx)
+    result = tool.run(
+        {"action": "add", "target": "memory", "content": "from metadata"}, ctx
+    )
     assert result["success"] is True
     expected_memory_file = workspace / dirname / "memory" / "MEMORY.md"
     assert expected_memory_file.exists()

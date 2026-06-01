@@ -21,6 +21,7 @@ Design decisions captured here:
 This module is pure core: no imports from the platform or products layers —
 core must not depend on higher layers (contract: test_core_no_platform_imports.py).
 """
+
 from __future__ import annotations
 
 import enum
@@ -35,6 +36,7 @@ class RenderMode(enum.Enum):
     PREVIEW: /v1/prompt-preview endpoint — volatile segments render their banner
              plus a '<运行时注入:…>' placeholder instead of actual data.
     """
+
     RUNTIME = "runtime"
     PREVIEW = "preview"
 
@@ -210,6 +212,7 @@ def resolve_effective_prompt(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+
 def _validate_cache_safe_invariant(sections: Sequence[PromptSection]) -> None:
     """Raise ValueError when any cache_safe=False segment is not in the volatile tail.
 
@@ -229,7 +232,9 @@ def _validate_cache_safe_invariant(sections: Sequence[PromptSection]) -> None:
         ValueError: With a message listing the offending segment names.
     """
     stable_indices = [i for i, s in enumerate(sections) if s.cache_safe]
-    volatile_sections_with_idx = [(i, s) for i, s in enumerate(sections) if not s.cache_safe]
+    volatile_sections_with_idx = [
+        (i, s) for i, s in enumerate(sections) if not s.cache_safe
+    ]
 
     if not stable_indices or not volatile_sections_with_idx:
         return  # Nothing to violate.

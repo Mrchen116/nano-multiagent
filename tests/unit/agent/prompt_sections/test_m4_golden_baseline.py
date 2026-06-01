@@ -13,6 +13,7 @@ M4 重构（决策 15–21）完成后，这些测试必须仍然全绿，证明
 - banner 由 core 段 render 自包含生成，格式逐字等价（golden 守）。
 - 这批测试验证最终 assemble 输出不变（对外行为 = 字节一致）。
 """
+
 from __future__ import annotations
 
 from agent.core.agent.prompt_sections.base import PromptContext, assemble_system_prompt
@@ -27,12 +28,23 @@ from pathlib import Path
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _tool(name: str) -> ToolSpec:
     return ToolSpec(name=name, description=f"{name}.", input_schema={})
 
 
 BASIC_PA_TOOLS = tuple(
-    _tool(n) for n in ["read", "write", "edit", "bash", "web_search", "web_fetch", "send_message", "memory"]
+    _tool(n)
+    for n in [
+        "read",
+        "write",
+        "edit",
+        "bash",
+        "web_search",
+        "web_fetch",
+        "send_message",
+        "memory",
+    ]
 )
 
 
@@ -48,9 +60,9 @@ def _build_store_with_entries(
     tmp = Path(tempfile.mkdtemp())
     store = MemoryStore(memory_root=tmp)
     src = MemorySource(session_id="test-session", timestamp=0.0)
-    for text in (memory_entries or []):
+    for text in memory_entries or []:
         store.add("memory", MemoryEntry(text=text, source=src))
-    for text in (user_entries or []):
+    for text in user_entries or []:
         store.add("user", MemoryEntry(text=text, source=src))
     return store, tmp
 
@@ -58,6 +70,7 @@ def _build_store_with_entries(
 # ---------------------------------------------------------------------------
 # R1: Banner 格式基线 — MemoryStore 产出 banner 的格式契约
 # ---------------------------------------------------------------------------
+
 
 class TestMemoryStoreBannerFormat:
     """M4 Decision 17: MemoryStore.format_for_prompt 返回纯内容（无 banner）。
@@ -112,7 +125,10 @@ class TestMemoryStoreBannerFormat:
     def test_banner_in_assembled_prompt_via_core_segment(self):
         """M4: banner 由 core 段 render 生成，出现在最终汇编输出中。"""
         from agent.core.agent.prompt_sections.base import RenderMode
-        store, tmp = _build_store_with_entries(memory_entries=["User prefers Python 3.12"])
+
+        store, tmp = _build_store_with_entries(
+            memory_entries=["User prefers Python 3.12"]
+        )
         content = store.format_for_prompt("memory")
         pct = store.format_pct_for_prompt("memory")
         assert content is not None
@@ -136,6 +152,7 @@ class TestMemoryStoreBannerFormat:
 # ---------------------------------------------------------------------------
 # R1: Runtime assembly golden — banner 注入后的汇编输出快照
 # ---------------------------------------------------------------------------
+
 
 class TestRuntimeAssemblyBannerGolden:
     """验证 banner 注入进 PromptContext 后，runtime 汇编输出包含完整 banner。
@@ -200,7 +217,9 @@ class TestRuntimeAssemblyBannerGolden:
         sep = "═" * 46
         mem_banner = f"{sep}\nMEMORY (your personal notes) [5% — 100/2,200 chars]\n{sep}\nmem fact"
         user_banner = f"{sep}\nUSER PROFILE (who the user is) [3% — 50/1,375 chars]\n{sep}\nuser fact"
-        result = self._assemble_with_memory(memory_block=mem_banner, user_profile_block=user_banner)
+        result = self._assemble_with_memory(
+            memory_block=mem_banner, user_profile_block=user_banner
+        )
         memory_idx = result.find("MEMORY (your personal notes)")
         user_idx = result.find("USER PROFILE (who the user is)")
         assert user_idx > memory_idx, (
@@ -227,7 +246,9 @@ class TestRuntimeAssemblyBannerGolden:
 
     def test_end_to_end_with_real_memory_store(self):
         """End-to-end：MemoryStore 产出 banner → 注入 ctx → 汇编包含 banner。"""
-        store, tmp = _build_store_with_entries(memory_entries=["User prefers Python 3.12"])
+        store, tmp = _build_store_with_entries(
+            memory_entries=["User prefers Python 3.12"]
+        )
         memory_block = store.format_for_prompt("memory")
         assert memory_block is not None  # pre-condition
 

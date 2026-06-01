@@ -13,6 +13,7 @@ so that any NEW hardcode is caught immediately.
 Whitelisted items document WHY they are allowed and what would need to change
 to fully remove the hardcode in a future unit.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -24,37 +25,51 @@ _REPO_ROOT = Path(__file__).resolve().parents[2]
 # Pre-existing legitimate hardcodes (platform defaults, docstring examples, etc.)
 # Format: set of "relative_path:lineno" strings.
 # WHY: Each entry documents the reason it's allowed.
-_WHITELIST: frozenset[str] = frozenset({
-    # bootstrap.py: JsonlSessionStore fallback dirname — platform default, not product-specific
-    "src/agent/platform/bootstrap.py:133",
-    # runtime.py: tool-results dir uses .nano — platform default dir, not per-workspace
-    # Line shifted from 136 to 149 after refactor-387-M1 llm_client_factory DI insertion
-    "src/agent/core/agent/runtime.py:149",
-    # skills/discovery.py: .nano skill search root — platform default, pre-185
-    "src/agent/core/skills/discovery.py:45",
-    # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
-    "src/agent/core/session/jsonl_store.py:75",
-    # tools/loader.py: .nano/tools platform dir
-    "src/agent/platform/tools/loader.py:91",
-    # dangerous_paths.py: .nanocode in safe-path list — correct: this references the product dirname
-    "src/agent/platform/tools/dangerous_paths.py:52",
-    # background tasks output: .nano/background-tasks platform dir
-    "src/agent/platform/background_tasks/file_output.py:61",
-    # hooks/loader.py: .nano/hooks platform dir
-    "src/agent/platform/hooks/loader.py:101",
-    # bash_policy.py: .nano/policy.toml platform dir
-    "src/agent/platform/tools/builtins/bash_policy.py:159",
-    # auto_mode_gate.py: .nanocode workspace_config_dir — this IS a hardcode, but pre-existing
-    "src/agent/platform/hooks/builtins/auto_mode_gate.py:679",
-    # coding_cli/commands.py: .nanocode global/workspace config — CLI UX, pre-existing
-    # Line numbers shifted after refactor-387-M2 fix2 (_build_llm_config_payload added)
-    "src/coding_cli/commands.py:1070",
-    "src/coding_cli/commands.py:1071",
-})
+_WHITELIST: frozenset[str] = frozenset(
+    {
+        # bootstrap.py: JsonlSessionStore fallback dirname — platform default, not product-specific
+        # feat-388 ruff format: line shifted to 136
+        "src/agent/platform/bootstrap.py:136",
+        # runtime.py: tool-results dir uses .nano — platform default dir, not per-workspace
+        # feat-388 ruff format: line shifted to 156
+        "src/agent/core/agent/runtime.py:156",
+        # skills/discovery.py: .nano skill search root — platform default, pre-185
+        "src/agent/core/skills/discovery.py:45",
+        # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
+        "src/agent/core/session/jsonl_store.py:75",
+        # tools/loader.py: .nano/tools platform dir
+        # feat-388 ruff format: line shifted to 95
+        "src/agent/platform/tools/loader.py:95",
+        # dangerous_paths.py: .nanocode in safe-path list — correct: this references the product dirname
+        "src/agent/platform/tools/dangerous_paths.py:52",
+        # background tasks output: .nano/background-tasks platform dir
+        # feat-388 ruff format: line shifted to 67
+        "src/agent/platform/background_tasks/file_output.py:67",
+        # hooks/loader.py: .nano/hooks platform dir
+        # feat-388 ruff format: line shifted to 111
+        "src/agent/platform/hooks/loader.py:111",
+        # bash_policy.py: .nano/policy.toml platform dir
+        # feat-388 ruff format: line shifted to 158
+        "src/agent/platform/tools/builtins/bash_policy.py:158",
+        # auto_mode_gate.py: .nanocode workspace_config_dir — this IS a hardcode, but pre-existing
+        # feat-388 ruff format: line shifted to 703
+        "src/agent/platform/hooks/builtins/auto_mode_gate.py:703",
+        # coding_cli/commands.py: .nanocode global/workspace config — CLI UX, pre-existing
+        # feat-388: bridge imports added, line shifted to 1161/1162
+        "src/coding_cli/commands.py:1161",
+        "src/coding_cli/commands.py:1162",
+    }
+)
 
 # Patterns to detect (as string literals in code)
-_FORBIDDEN_PATTERNS = ['".nanoassistant"', '".nanocode"', '".nano"',
-                       "'.nanoassistant'", "'.nanocode'", "'.nano'"]
+_FORBIDDEN_PATTERNS = [
+    '".nanoassistant"',
+    '".nanocode"',
+    '".nano"',
+    "'.nanoassistant'",
+    "'.nanocode'",
+    "'.nano'",
+]
 
 # Files where these strings are legitimately allowed (product defaults, docstrings)
 _ALLOWED_STEMS = {"defaults"}
