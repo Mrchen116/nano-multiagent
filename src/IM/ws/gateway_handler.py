@@ -866,6 +866,11 @@ class GatewayHandler:
                         left_user_id=to_user_id,
                         right_user_id=agent_user_id,
                         expected_direct_kind="user-agent",
+                        # Pass the owner's own id as caller_owner_id so the created
+                        # conversation is visible via list_conversations_for_owner.
+                        # Without this, the conversation is created with the owner_id
+                        # derived from the users table, which may be stale across e2e runs.
+                        caller_owner_id=to_user_id,
                     )
                 except (ValueError, Exception) as exc:  # noqa: BLE001
                     _logger.warning(
@@ -1708,8 +1713,16 @@ class GatewayHandler:
         left_user_id: str,
         right_user_id: str,
         expected_direct_kind: str,
+        caller_owner_id: str | None = None,
     ):  # noqa: ANN202
-        """Resolve one canonical direct conversation, creating it when absent."""
+        """Resolve one canonical direct conversation, creating it when absent.
+
+        Args:
+            caller_owner_id: The authenticated caller's owner_id.  When supplied, the
+                created conversation's owner_id is set to this value so that
+                ``list_conversations_for_owner`` can surface it to the caller.
+                For heartbeat delivery the caller is the owner user (to_user_id).
+        """
         existing = self._find_canonical_direct_conversation(
             left_user_id=left_user_id,
             right_user_id=right_user_id,
@@ -1725,6 +1738,7 @@ class GatewayHandler:
             ),
             participant_ids=[left_user_id, right_user_id],
             creator_id=left_user_id,
+            caller_owner_id=caller_owner_id,
         )
 
     def _build_default_direct_conversation_title(

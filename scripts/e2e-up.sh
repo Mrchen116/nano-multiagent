@@ -108,6 +108,11 @@ for agent in cfg.get("agents", []):
 PY
 
 # ─── start IM (bare uvicorn) ─────────────────────────────────────────────────
+#
+# feat-393 fix-r1: remove stale IM DB before each e2e run so heartbeat conversations
+# created by a previous run (with different owner_id) do not pollute the new instance.
+# The DB path is cwd-relative (data/im_service.sqlite3) so we remove it from $WT_ROOT.
+rm -f "$WT_ROOT/data/im_service.sqlite3"
 
 cd "$WT_ROOT"
 IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH=src \
