@@ -37,7 +37,7 @@
 
 ## Roadpoints
 
-### R1 — docs/SPEC_GUIDE.md 文档规范
+### R1 — docs/SPEC_GUIDE.md 文档规范 — DONE
 
 - 步骤:新建 `docs/SPEC_GUIDE.md`。含五块:① 判据两问;② 契约层文件骨架(Purpose + Requirement/Scenario + 对齐行);③ 不进 spec 的分流表;④ orchestrator 收尾归并 checklist;⑤ 读侧 grounding checklist;⑥ 内核/库契约写法纪律(research §7.5:WHEN/THEN 主语=消费者、每 Requirement 一份 pre→post 契约或 invariant、CDC 裁剪、spec-anchored)。
 - 验证:自审 GUIDE 是否覆盖 spec.md 验收标准「文档规范 GUIDE 定义放什么/不放什么 + 骨架」的 Scenario;格式纪律符合决策 4(纯 Purpose+Req/Scenario,无标签/覆盖行/freshness)。
