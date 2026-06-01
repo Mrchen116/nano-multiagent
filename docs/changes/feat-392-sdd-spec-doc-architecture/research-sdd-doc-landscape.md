@@ -108,6 +108,130 @@ CDC 的核心：**契约是消费者写的**——消费者声明它对供应方
 
 > 这一节的纪律将折进 feat-392 的文档 GUIDE（design 阶段产出）；此处先作为调研依据存档。
 
+## 8. 决策的 supersede 链怎么设计（ADR 传承，专题调研）
+
+feat-392 砍掉了独立 `docs/decisions/`（决策留 per-unit `design.md`）。但调研了"决策随时间演化"在 ADR 圈的成熟设计,作为将来 opt-in 的现成模型存档。
+
+### 8.1 status 生命周期（Nygard / MADR 通用）
+
+四态最小集:`Proposed → Accepted → Deprecated / Superseded`。末两态区分:
+
+- **Deprecated**:不再适用,**无替代**(整块功能废了)。
+- **Superseded by ADR-NNNN**:被更新的 ADR **替换**;`NNNN` 让链**可前向追溯**。
+
+### 8.2 不可变 + 唯一允许的改动
+
+铁律:ADR 一旦 `accepted` **不再编辑**。改主意 → **新写一条**去 supersede 旧的。对旧 ADR **只允许动 status 行**(加 `Superseded by ADR-NNNN`),正文一字不改——保住"当初怎么想"的历史。
+
+### 8.3 双向链
+
+```
+ADR-0005（新）:  Supersedes ADR-0001       ← 后向:我替换了谁
+ADR-0001（旧）:  Superseded by ADR-0005    ← 前向:我被谁替换
+```
+
+两向都写 → 既能从旧往前查"被谁取代",也能从新往后查"推翻了啥",不必翻 git 历史。
+
+### 8.4 工具自动化（adr-tools, Nat Pryce）
+
+`adr new -s 9 "标题"`:建新 ADR 标记 supersede #9,**并自动改 #9 的 status 指向新的**。v2.1.0 起一条可 supersede 多条;通用 `adr link` 随时加任意关系。
+
+### 8.5 这套成立的两个前提（= 为什么 per-unit design.md 挂不了链）
+
+① **稳定全局 ID**(ADR-0001);② 在不可变记录上留**一个可变字段(status)**。per-unit `design.md` 两个都不干净:ID 是 unit 内局部(`决策 1/2/3`),且文件冻结归档。**这正是 ADR 圈维护一层薄 decisions 的真正原因——不是为内容,是为给决策稳定 ID + 可变 status。** 真要挂链,最小补法 = 加一张薄索引,**不是重写内容**。
+
+## 9. SDD 各家怎么处理决策 / ADR（专题调研）
+
+回答"前面调研的 SDD 工具是否也做 supersede 链"——**不,这是两条不同传承,被拼成可选挂件**。
+
+### 9.1 两条传承
+
+- **SDD 工具默认流**:决策待在 per-feature/per-change 的 `design.md`,**易逝**(归档即逝)。**无 supersede 链。** —— 跟本仓 per-unit `design.md` 现状一致。
+- **supersede 链来自独立的 ADR 传承**(Nygard/adr-tools/MADR),另一个更老的圈子。
+
+### 9.2 各家拼法（都做成可选挂件,且都印证"durable 决策须在变更稿之外")
+
+| 工具 | 决策默认在哪 | durable + 链怎么办 |
+|---|---|---|
+| **OpenSpec** | per-change `design.md`,归档即逝 | **可选 schema `spec-driven-with-adr`**:ADR 工件**放在 change 之外、`openspec/` 之外**,归档后仍持久 |
+| **Kiro** | per-feature `design.md` | 通过 **steering** 配置让 AI 自动生成 Nygard 式 ADR |
+| **spec-kit** | per-feature `plan.md` | 耐久层是 **constitution（不可变原则）**,无 ADR 链 |
+
+### 9.3 关键印证 + 摩擦判据
+
+OpenSpec 的 ADR 必须**活在 change 之外、归档后仍持久**——正是"决策要 durable+挂链就得有独立于易逝变更稿的持久层"。生态对"为什么大家不维护 ADR"的诊断很尖锐:*纯粹是摩擦——能被记下的往往是设计期 upfront 的决策,实现中途冒出来的同样重要的决策反而漏了*。→ 依据:要么做得极廉价,要么别做。
+
+### 9.4 回扣 feat-392 的决定
+
+砍 `docs/decisions/` = **选了 OpenSpec 默认 schema(不带 adr),决策留 per-unit design.md**,是 SDD **主流默认**,非另类。supersede 链是**有现成模型的 opt-in 挂件**(OpenSpec `spec-driven-with-adr` / Kiro steering),需要时按 §8.5 最小补法接入即可。**一句话:他们默认也不做链;做的人都当作 change 之外的可选持久层——本仓跟随默认,留好 opt-in 口子。**
+
+## 10. 把 Requirement 绑到测试——业界三种做法（专题调研）
+
+"绑定" = 在 spec 里写一条规矩,旁边注明"这条由哪个测试把守",让规矩有可执行的牙。业界从浅到深三种:
+
+### 10.1 RTM 内联（需求可追溯矩阵,最轻）—— 本仓采纳
+
+经典 QA 做法:一张 **Requirement ID ↔ Test ID** 的映射(前向证明覆盖 + 后向)。落到 spec 里 = 每条 Requirement 注一行指向验它的测试。
+- 缺点:手维护的 RTM 自身会 rot / 变形式主义 → 本仓用 freshness 检查补这颗牙(见下)。
+
+### 10.2 Kiro（现代 SDD,自动生成 + 可导航）
+
+EARS 需求(`WHEN…THE SYSTEM SHALL…`)→ 工具抽取可测的 "property" → **自动生成** property-based 测试 → 并让你**从需求文本直接跳到验它的测试**。
+- 缺点:依赖 Kiro 那套自动抽取/生成器,本仓没有也不造。"可导航"理念可借。
+
+### 10.3 BDD / Gherkin / Cucumber（最深,散文即测试）
+
+**Scenario 文本本身就是测试**:Given/When/Then 每步绑一个 step definition(代码),执行时把散文翻成对系统的操作。spec=living doc=test 同一工件,无"覆盖:"行。`@req-id` 标签做关联。
+- 缺点:要上 `pytest-bdd` + 给每条 Scenario 写胶水,所有 Scenario(含没法单测的行为/UI 类)被拽进 BDD 框架,过重。
+
+### 10.4 本仓选型 + 具体例子
+
+取最轻的 **RTM 内联**(复用现有 `tests/contract/`,零新基建),再补 Gherkin/RTM 各自缺的牙:`[可执行]` Req 挂 `覆盖:` 指向已存在的断言;freshness 检查保证引用非悬空。
+
+真实例子(本仓现成规矩 + 现成测试):
+
+```markdown
+### Requirement: 产品只能走 agent.sdk,不能碰内核内部   [可执行]
+覆盖: tests/contract/test_core_no_platform_imports.py
+#### Scenario: 产品越界 import 被拦
+- 当 coding_cli 里写了 import agent.core.runtime
+- 那么上面那个测试会失败
+```
+
+**两个红灯**:
+1. 代码违规(coding_cli 真去 import 内核内部)→ 跑 pytest,该测试红 → 挡住。规矩有牙。
+2. 测试消失(被删/改名)→ freshness 检查发现 `覆盖:` 指向空气 → 红 → 逼修。链不会静默 rot。
+
+| 做法 | 绑定深度 | 要不要新基建 | 适配 |
+|---|---|---|---|
+| RTM 内联 `覆盖:` | 浅(指针) | 零,复用 pytest | ✅ |
+| Kiro property+导航 | 中 | 要自动生成器 | ✗ |
+| Gherkin 全绑 | 深(散文即测试) | 要 pytest-bdd + 全量 step | ✗ 过重 |
+
+> 反向可选:测试 docstring 里写 `# Req: kernel/产品只能走 agent.sdk`,支持从测试回查需求。
+
+### 10.5 OpenSpec 怎么做（本地源码核实）
+
+源:`~/Repos/opensource-hub/OpenSpec/openspec/specs/opsx-verify-skill/spec.md`。
+
+**OpenSpec 不在 spec 里写任何声明式的 scenario↔test 链。** 它靠一个 `/opsx:verify` 命令,实现完跑它,**agent 现场对账**:
+
+- 对每条 Requirement → 搜代码里的实现,指认文件/行,判断是否满足。
+- 对每条 Scenario → "检查是否存在覆盖该 scenario 的测试",报告覆盖状态(真实输出:`⚠ Scenario "..." has no test coverage`)。
+- 实现与 spec 不符 → 报 **WARNING**,建议改实现或改 spec。
+
+即 OpenSpec 是**软对账**:agent 每次现场搜 + 出报告(advisory),**没有机械硬绑定、不出红测**。这等于本仓的 reviewer 旅程 + design grounding 那一层(靠 agent 判断)。
+
+**对比本仓选型**:
+
+| | OpenSpec | 本仓 RTM 内联 |
+|---|---|---|
+| spec 里声明链 | 无 | 有 `覆盖: test_xxx` |
+| 谁判覆盖 | agent 现场搜 | 机器(freshness 查引用) |
+| 结果 | 报告(WARNING) | 红测(硬卡) |
+
+→ 印证两轨:`[可执行]` Req 用 `覆盖:`+freshness 硬卡(比 OpenSpec 硬);`[行为]` Req 靠 agent 对账(= OpenSpec 对所有 scenario 的做法)。本仓 = OpenSpec 软对账 + 给能上硬测的部分再加一道机械链。
+
 ## Sources
 
 - Martin Fowler — Understanding SDD: Kiro, spec-kit, Tessl: https://martinfowler.com/articles/exploring-gen-ai/sdd-3-tools.html
@@ -123,3 +247,10 @@ CDC 的核心：**契约是消费者写的**——消费者声明它对供应方
 - CMU SEI — API Security through Contract-Driven Programming（pre/post/invariant 映射 API）: https://www.sei.cmu.edu/blog/api-security-through-contract-driven-programming/
 - Pact — Consumer-Driven Contracts（consumer 定义契约 / GWT）: https://docs.pact.io/consumer , https://pactflow.io/what-is-consumer-driven-contract-testing/
 - arxiv — Spec-Driven Development: From Code to Contract（spec-first / anchored / as-source 三档）: https://arxiv.org/html/2602.00180v1
+- npryce/adr-tools（supersede 命令 + 自动改旧记录 status）: https://github.com/npryce/adr-tools
+- MADR — Markdown ADR（status 生命周期 proposed/accepted/deprecated/superseded）: https://adr.github.io/madr/
+- joelparkerhenderson/architecture-decision-record（ADR 模板库）: https://github.com/joelparkerhenderson/architecture-decision-record
+- EventCatalog — ADRs 双向链: https://www.eventcatalog.dev/blog/introducing-adrs
+- Martin Fowler — Architecture Decision Record: https://martinfowler.com/bliki/ArchitectureDecisionRecord.html
+- intent-driven.dev — ADR with OpenSpec（`spec-driven-with-adr` schema,ADR 在 change 之外持久）: https://intent-driven.dev/blog/2026/04/29/spec-driven-development-with-adr/
+- doit.com — SDD with Kiro: who owns the decisions（steering 配置 ADR、摩擦判据）: https://www.doit.com/blog/your-ai-writes-the-code-who-owns-the-decisions

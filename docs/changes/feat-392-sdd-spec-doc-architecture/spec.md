@@ -1,4 +1,4 @@
-# feat-392: SDD 长青 spec 文档体系（行为契约层 + ADR + 顶点架构，收尾归并保持 current）
+# feat-392: SDD 长青 spec 文档体系（行为契约层 + 顶点架构，收尾归并保持 current）
 
 > 本 unit 是回顾性立项：把一段较长的交互式讨论（含两轮联网调研 + 读 OpenSpec 源码）沉淀成首文档。
 > 调研结论单列附档 [`research-sdd-doc-landscape.md`](./research-sdd-doc-landscape.md)，本文件只写"做什么 / 目标状态"。
@@ -66,10 +66,10 @@
 
 1. **长青行为契约层** `docs/specs/<包>/spec.md`：按包（kernel / im / gateway / cli）组织，内容是 `Purpose` + `Requirement`/`Scenario`（对外可观察的行为契约），描述"系统现在怎么表现"。它是 current 状态的单一权威，开发者/agent 读它即可掌握全貌，不必再脑内合并散单元。
 2. **收尾归并**：单元在 orchestrator 收尾时，依据本单元 `design.md` + 代码 diff，把行为增量**直接编辑**进对应契约层文件，并 bump"对齐 `<最新 unit>`"行。**不产出独立 delta-spec 工件**。
-3. **决策走 ADR**：架构级决策落 `docs/decisions/`（带 status / supersede 链接，append-only），不埋进会过期的设计文档。
+3. **决策留 per-unit design.md**：架构级决策继续记在各单元 `design.md` 的 §关键决策（= SDD 默认），本 unit 不建独立 ADR 层；将来真需要 supersede 链再 opt-in。
 4. **顶点 SPEC.md 重定位**：只保留跨包架构（包、依赖方向、部署拓扑），与契约层不重复；手维护，极少变。
-5. **design 不做 living 大全**：`design.md` 保持 per-unit、归档留痕；"内部今天怎么搭"由代码 + 归档 design + ADR 承载，不单独维护一份会追不上代码的设计大全。
-6. **读侧接入 + 防 drift**：`change-spec-author` / `change-design-author` 在各自阶段读契约层（current），design 阶段对代码做 grounding 校验；并有一个 spec-vs-code 的强制闸，使 drift 可见而非静默累积。
+5. **design 不做 living 大全**：`design.md` 保持 per-unit、归档留痕；"内部今天怎么搭"由代码 + 归档 design（含 §关键决策）承载，不单独维护一份会追不上代码的设计大全，也不建独立 ADR 层。
+6. **读侧接入 + 收尾对账**：`change-spec-author` / `change-design-author` 在各自阶段读契约层（current），design 阶段对代码做 grounding；收尾时由 reviewer/verifier 对每条 Requirement/Scenario 搜代码 + 测试做软对账，使 drift 在报告中可见（follow OpenSpec，不做机械校验闸）。
 7. **迁移**：把四份既有子系统 `*-SPEC.md` 中稳定的契约部分蒸馏进新契约层，过时的实现叙事退役；`SPEC.md` 收口到顶点定位。
 
 最终让"读侧喂的是新 spec、写侧每单元增量维护、design 不做大全"三头闭合。
@@ -102,18 +102,11 @@
 - **WHEN** orchestrator 收尾
 - **THEN** 契约层无需改动，收尾记录显式注明"no spec delta"
 
-### Requirement: 架构级决策以 ADR 形式独立留痕
-
-#### Scenario: 记录一条架构决策
-- **WHEN** 某单元做出一个架构级决策（顶点 SPEC.md 依赖的那类）
-- **THEN** 在 `docs/decisions/` 新增一条 ADR，含 status（proposed/accepted/superseded）
-- **AND** 推翻旧决策时，是新增 ADR + 把旧 ADR 标 superseded 并互链，而非静默改写旧文
-
 ### Requirement: 不维护 living 全量 design 文档
 
 #### Scenario: 找"内部今天怎么实现"
 - **WHEN** 开发者想知道某包内部当前如何实现
-- **THEN** 答案来自代码 + 该功能所属单元的归档 `design.md` + 相关 ADR
+- **THEN** 答案来自代码 + 该功能所属单元的归档 `design.md`（含其 §关键决策）
 - **AND** 仓库中不存在一份号称 current 的"全量 design 大全"（即无此 rot 载体）
 
 ### Requirement: 顶点 SPEC.md 与契约层分工不重复
@@ -126,7 +119,7 @@
 ### Requirement: 文档规范 GUIDE 定义放什么/不放什么 + 骨架
 
 #### Scenario: 作者按规范判断内容归属
-- **WHEN** 开发者或 agent 要新增/更新一份长青文档，先查文档规范（如 `docs/DESIGN_DOC_GUIDE.md`）
+- **WHEN** 开发者或 agent 要新增/更新一份长青文档，先查文档规范（`docs/SPEC_GUIDE.md`）
 - **THEN** 规范给出判据（"实现能变而对外行为不变的，不进 spec"）、契约层骨架、以及"不进 spec 的内容各自去哪"的分流表
 
 ### Requirement: change-* 读侧接入契约层并对代码做 grounding
@@ -136,12 +129,12 @@
 - **THEN** 它读 `docs/specs/<包>`（current 契约层）而非过期子系统设计叙事
 - **AND** design 阶段会拿契约层与当前代码核对（grounding），发现不一致即报出
 
-### Requirement: spec-vs-code 防 drift 校验闸
+### Requirement: 契约层与代码的背离在收尾对账时被暴露
 
-#### Scenario: 契约层与代码背离被显式暴露
+#### Scenario: 契约层与代码背离被报出
 - **GIVEN** 契约层声明的某行为与代码实际行为已背离
-- **WHEN** 运行防 drift 校验
-- **THEN** 该背离被显式报出（而非静默累积），提示需在收尾或专门单元修正
+- **WHEN** orchestrator 收尾对账（reviewer 旅程 / verifier 对每条 Requirement/Scenario 搜代码 + 测试）
+- **THEN** 该背离被显式报出（而非静默累积），提示改实现或改 spec
 
 ### Requirement: 既有陈旧文档迁移到新结构
 
@@ -153,16 +146,16 @@
 ## 范围与非目标
 
 - **在范围**：
-  - 文档规范 GUIDE（判据 + 契约层骨架 + 不进 spec 的分流表 + 收尾归并 checklist + 读侧 grounding checklist）。
+  - 文档规范 `docs/SPEC_GUIDE.md`（判据 + 契约层骨架 + 不进 spec 的分流表 + 收尾归并 checklist + 读侧 grounding checklist）。
   - 长青行为契约层结构 `docs/specs/<包>/`（按包组织）。
-  - ADR 层 `docs/decisions/`。
   - 顶点 `SPEC.md` 重定位（跨包架构，去单包内部）。
-  - `change-*` skill 读写侧接入：spec-author/design-author 读侧指向契约层 + grounding；orchestrator 收尾归并步；防 drift 校验闸。
-  - 迁移既有四份子系统 `*-SPEC.md` + `SPEC.md` 到新结构。
+  - `change-*` skill 读写侧接入：spec-author/design-author 读侧指向契约层 + grounding；orchestrator 收尾归并步 + 软对账（复用 reviewer/verifier）。
+  - 迁移：四份子系统 `*-SPEC.md` 退役 + `SPEC.md` 收口顶点 + `AGENTS.md` 关键文档索引指向 `docs/specs/`。
 
 - **非目标**：
   - **不引入独立 delta-spec 工件**（用户明确否决；归并由 orchestrator 收尾手工编辑 canonical 完成）。
   - **不维护 living 全量 design 文档**（业界共识的 rot 陷阱）。
+  - **不建 ADR 层 `docs/decisions/`**（决策留 per-unit design.md，= SDD 默认；需要 supersede 链时后续 opt-in）。
+  - **drift 检测走软对账**（follow OpenSpec），不做机械校验闸 / freshness lint / spec↔test 声明式绑定。
   - **不强绑外部 SDD 工具**（openspec CLI / spec-kit 等）——只借鉴机制，不引入工具依赖。
-  - 不在本 unit 决定实现形态（归并是纯手工还是配脚本、防 drift 闸的技术形态 contract-test/CI/其它）——交 design 阶段。
-  - 不要求一次性把 64 个历史单元全部回灌进契约层；迁移可迭代，先覆盖四大包当前行为基线即可。
+  - 不要求一次性把 64 个历史单元全部回灌进契约层；迁移先覆盖四大包当前行为基线即可。
