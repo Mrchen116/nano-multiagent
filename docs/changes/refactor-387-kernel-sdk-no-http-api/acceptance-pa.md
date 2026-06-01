@@ -609,6 +609,51 @@ heartbeat 活跃约 200s 期间持续检查节点状态：
 
 ---
 
+## Round 6 补充验证 — LLM proxy 可用后的实测（同轮次）
+
+LLM proxy 开启后，在同一 worktree 环境重新搭服（IM port=58398，gateway heartbeat.tick=10s）做真实执行验证。
+
+### heartbeat 工具执行全路径（真实 LLM）
+
+更新 `HEARTBEAT.md` 任务：`echo heartbeat-fired-$(date +%s) > /tmp/heartbeat-evidence.txt && cat /tmp/heartbeat-evidence.txt`
+
+**证据**：`/tmp/heartbeat-evidence.txt` 被 agent 通过 bash 工具写入，内容：
+```
+heartbeat-fired-1780285739
+```
+检测时间：`Mon Jun  1 11:48:59 CST 2026`（gateway 启动约 2 分钟后 heartbeat 触发并执行完成）
+
+全链路：heartbeat tick → create_session → submit_message → **LLM 推理 → bash 工具调用 → 文件写入成功**
+
+覆盖表更新：
+
+| Scenario | 证据 | 结果 |
+|---|---|---|
+| heartbeat 触发的工具型任务（真实 LLM） | `/tmp/heartbeat-evidence.txt` 含 `heartbeat-fired-1780285739`，由 agent 通过 bash 工具写入 | **pass（真实执行）** |
+
+### Sanity：普通 IM 消息工具调用（真实 LLM）
+
+发送：「请用 bash 工具运行 echo sanity-r6b-1780285751」
+
+**证据**：agent 回复 `delivery_status=completed`，内容：
+```
+命令执行成功，输出：
+
+sanity-r6b-1780285751
+```
+
+fix 未回退普通消息主路径；工具调用全链路（IM 投递 → LLM 推理 → bash 执行 → 回复）正常。
+
+### IM 连接健康（真实 LLM 执行期间）
+
+| 时间点 | status | last_error |
+|---|---|---|
+| gateway 启动后 | online | None |
+| heartbeat 活跃（run 执行中） | online | None |
+| sanity 消息 completed 后 | online | None |
+
+---
+
 ## 上层文档同步（Round 6）
 
 - [x] `SPEC.md`：M4 已更新，无需追加
