@@ -1,9 +1,11 @@
 # feat-388: 把项目规范固化为机器执行的硬约束 — 技术方案
 
-> 对齐: spec.md v1
+> 对齐: spec.md v2(含 Q7 前端 CI 测试套件门)
 > Unit branch: `unit/feat-388` (will be created by orchestrator)
 
 ## Changelog
+
+- 对齐 spec.md v2(Q7):D3 扩为前后端两个并行 CI job,新增前端 `frontend` job(Node 20 → `npm ci` → `npm run test`,不跑 build / 不引入 tsc);现状分析补 `src/IM/frontend/` 与 bugfix-390(已并 main,前端门依赖已兑现);风险/Runbook/Milestone 两轨退出标准同步补前端门条目。
 
 ## 现状分析
 
@@ -14,7 +16,8 @@
 - `tests/contract/test_core_no_platform_imports.py` —— 现状断言 `core` 不 import `platform`/`products`/`apps`/fastapi/starlette(R3),但整条 `@pytest.mark.xfail(strict=True)`,挂 #40(`core.llm.factory → platform` 反向依赖)。本 unit 在 #40 被 refactor-387 消除后 un-xfail 锁定。
 - `.claude/settings.json` —— 现状定义了 4 个 orchestration hook(SubagentStart/Stop、Stop=`stop-require-explicit-ok.py`、PreToolUse[Agent]),但 `"disableAllHooks": true` 全局关闭;**无 PostToolUse**。本 unit 在此加 PostToolUse[Edit|Write] 跑 ruff 守卫(触点 a)。
 - `.claude/hooks/` —— hook 脚本目录,现有 4 个脚本。本 unit 新增 `ruff-guardrail.py`,并需令 `stop-require-explicit-ok.py` 在非 orchestrator 会话安全(见决策 D2)。
-- `.github/workflows/` —— **不存在**。本 unit 新建 `ci.yml`(触点 c)。
+- `.github/workflows/` —— **不存在**。本 unit 新建 `ci.yml`(触点 c),内含**两个并行 job**:后端 `python`(ruff + pytest)+ 前端 `frontend`(vitest)。
+- `src/IM/frontend/` —— IM 前端。测试入口 `npm run test`(`package.json` script → wrapper 调 `vitest run`),vitest 配置内联在 `vite.config.ts`(`test.environment = "jsdom"` + `setupFiles`),vitest `^3.2.4` / jsdom `^27`。存在 `package-lock.json`(CI 可 `npm ci` 锁定装包);**无** `engines`/`.nvmrc`(CI Node 版本须显式定,vitest3+jsdom27 要 Node ≥20)。本 unit 不改前端源码,只把其 vitest 套件纳入 CI 门(触点 c)。
 - 全仓 `src/**`(271 文件 / 50540 行)—— 零容忍要求存量违规全修,实际触及面见"相关历史 / 量化"。
 
 ### 既有约束
@@ -37,6 +40,7 @@
 - **refactor-387**(motivation/design 已定稿,实施中):内核纯 SDK 化,移除内置 HTTP API,产品改 import `agent.sdk`;其 motivation 明确"**修 core→platform 反向依赖**"(即 #40)。本 unit 的 R1 前提与 R3 前提都由它兑现 ⇒ `Depends on: refactor-387`。两者在 `test_cli_http_only_contract.py` 上有交接:387 反转/移除旧 HTTP-only 断言并让产品 import `agent.sdk`,**388 在其上加 R1 守卫锁定**。
 - #40(OPEN):`core.llm.factory` 直接 import `platform`,正是 R3 现存唯一违规,由 387 修。`Refs: #40`。
 - #39:`kernel_app.py` 为 Managed 模式 import platform —— 注意 refactor-387 移除内置 HTTP API / Managed 子进程模型后,`kernel_app.py` 形态会变,`test_top_level_packages_keep_zero_import_boundaries` 的 xfail 前提可能随之消失;本 unit 接手时需复核该 xfail 是否仍需要(见风险)。
+- **bugfix-390**(已并 main,PR #71 / `aaaf3956`):修掉 main 上 IM 前端三处 vitest 失败(token 牌口径 / 策略页入口 / agent-edit 测试),这三处此前烂了约 2-3 周没人发现,正因 vitest 不在任何门禁里。spec 的 `Depends on: bugfix-390` 即指此——前端 CI 门要"零失败"才能开,需先有干净的 main。**该依赖已兑现**:bugfix-390 已落地,main 上前端 vitest 应已全绿,本 unit 的前端门可直接生效,不再是阻塞项(本 unit 接手时跑一遍 `npm run test` 确认基线为绿即可)。
 
 ### 量化(只读 ruff 0.15 扫描,50540 行 / 271 文件)
 
@@ -97,12 +101,15 @@ B-2 真实违规 ≈ 66 处(57 可 `--fix` 自动修)。
 - **拒绝**: 触点 (b) git pre-commit——spec 已排除,且 commit-time 晚于 edit-time。直接翻 `disableAllHooks` 不动 stop hook——会给普通编码会话强加"停止要写魔法 token"的干扰。
 - **风险**: 改 `stop-require-explicit-ok.py` 触碰 orchestrator 基础设施;需保证 orchestrator 受管会话行为不变(self-check + 实测)。
 
-### 决策 D3: 触点 (c) = 新建 GitHub Actions CI(现状零 CI)
+### 决策 D3: 触点 (c) = 新建 GitHub Actions CI(现状零 CI),前后端两个并行 job 任一红即阻止合并
 
-- **选择**: 新建 `.github/workflows/ci.yml`,`on: [push, pull_request]`,步骤:setup Python 3.11 → `pip install -e ".[dev]"` → `ruff check` → `ruff format --check` → `pytest -m "not e2e"`(契约测试在内)。
-- **理由**: 仓里完全没有 CI,触点 (c) 必须从零搭。三道检查 = 两引擎全集,与 hook 对称。`not e2e` 避免 CI 依赖本地运行时。
-- **拒绝**: 复用某现有 CI——不存在。只在 hook 拦不设 CI——绕过 hook 的路径(人手改、别的机器)就漏了,spec 明确要 (c) 兜底。
-- **风险**: 首次引入 CI,需保证 `pip install -e ".[dev]"` 在 clean runner 能装上;ruff 版本须与本地一致(见 D5)。
+- **选择**: 新建 `.github/workflows/ci.yml`,`on: [push, pull_request]`,内含**两个并行 job**(`needs` 互不依赖,失败各自独立):
+  - **`python`**: setup Python 3.11 → `pip install -e ".[dev]"` → `ruff check .` → `ruff format --check .` → `pytest -m "not e2e"`(契约测试 R1/R2/R3 在内)。
+  - **`frontend`**: `actions/setup-node@v4` Node **20**(带 npm cache,`cache-dependency-path: src/IM/frontend/package-lock.json`)→ 在 `src/IM/frontend/` 下 `npm ci` → `npm run test`(= `vitest run`)。
+  - 任一 job 失败 → workflow 红 → 阻止合并。
+- **理由**: 仓里完全没有 CI,触点 (c) 必须从零搭。后端三道检查 = 两引擎全集,与 hook 对称;`not e2e` 避免 CI 依赖本地运行时。前端单独成 job 而非塞进 `python` job 串联:前后端工具链(pip vs npm)互不依赖,拆开可**并行**、各自 setup 干净、失败定位直接。spec Q7 要求 CI 门同等覆盖前端测试套件——前端 vitest 红与后端 pytest 红同等阻止合并,否则像 bugfix-390 那样前端坏数周无人知。
+- **拒绝**: 复用某现有 CI——不存在。只在 hook 拦不设 CI——绕过 hook 的路径(人手改、别的机器)就漏了,spec 明确要 (c) 兜底。前后端塞进单 job 串联——无法并行、Python 步失败会挡住前端步、定位混。前端 job 跑 `npm run build`(含 `tsc -b`)——**明确不做**:spec 只把 vitest 测试套件纳入门,不引入前端 tsc 类型检查(与 Python 侧不做 mypy 对称),`build` 会把类型检查偷偷带进门。
+- **风险**: 首次引入 CI,需保证 `pip install -e ".[dev]"` 在 clean runner 能装上;ruff 版本须与本地一致(见 D5)。前端侧:Node 20 须能装 jsdom27/vitest3;前端门生效前提是 main 基线全绿,已由 bugfix-390 兑现(见相关历史)。
 
 ### 决策 D4: B-2 correctness 规则集裁剪——纳真违规、排惯用法误报
 
@@ -146,7 +153,10 @@ B-2 真实违规 ≈ 66 处(57 可 `--fix` 自动修)。
 
 ### CI 契约(`.github/workflows/ci.yml`)
 
-- `on: [push, pull_request]` → job(ubuntu, py3.11):`pip install -e ".[dev]"` → `ruff check .` → `ruff format --check .` → `pytest -m "not e2e"`。三步任一失败即红。
+- `on: [push, pull_request]`,两个并行 job(ubuntu):
+  - **`python`**(py3.11):`pip install -e ".[dev]"` → `ruff check .` → `ruff format --check .` → `pytest -m "not e2e"`。任一步失败即该 job 红。
+  - **`frontend`**(Node 20):`working-directory: src/IM/frontend` → `npm ci` → `npm run test`。任一步失败即该 job 红。
+- 两 job 任一红 → workflow 红 → 阻止合并;两 job 全绿才放行。前端 job 不跑 `npm run build`(不引入 tsc)。
 
 ## 风险与回退
 
@@ -155,6 +165,8 @@ B-2 真实违规 ≈ 66 处(57 可 `--fix` 自动修)。
 - **ruff 误报扩面**:D4 已排 B008;约定逐条具名排除。若某次升级 ruff 引入新误报,固定版本(D5)挡住非预期漂移。
 - **#39 xfail 前提随 387 变化**:387 改 Managed/HTTP 模型后 `kernel_app.py` 可能不再 import platform,`test_top_level_packages_keep_zero_import_boundaries` 的 xfail 可能该转正或删除;本 unit 接手时按 387 落地后的实际复核,不预设。
 - **CI clean-runner 装不上**:首引 CI;退路:CI 先只跑 ruff 两步(纯 pip 装 ruff,极轻),pytest 步若依赖问题暂标 continue-on-error 并开 issue,但**不**作为长期 baseline。
+- **前端 CI 门基线不绿**:前端门生效前提是 main 上 vitest 已全绿,否则门一开就常红、逼人绕过。缓解:硬依赖 bugfix-390(已并 main,PR #71)修掉三处存量失败;本 unit 接手时**先在 main 跑一遍 `npm run test` 确认基线为绿**,再合 CI 前端 job。若届时仍有失败 → 说明 bugfix-390 之后又退化,回 spec-author/orchestrator 评估而非带病开门。
+- **前端 CI Node 环境**:无 `engines`/`.nvmrc`,CI 固定 Node 20(满足 vitest3+jsdom27)。退路:若 Node 20 装包失败,降到本地实测可跑的版本并在 `ci.yml` 注明,**不**因此放宽为 continue-on-error。
 - **回滚**:本 unit 改动全是叠加式(ruff 配置 / CI yaml / hook / 契约测试),可整体 `git revert` unit 合并提交;机械重排 commit 独立,可单独 revert 而不影响规则配置。
 
 ## Runbook for Reviewer
@@ -163,8 +175,9 @@ B-2 真实违规 ≈ 66 处(57 可 `--fix` 自动修)。
 
 reviewer 走旅程的验证方式(非服务重启,列此备用):在干净工作树构造一处违规并观察是否被拦——
 - 触点 (a):在 `src/personal_assistant/` 某文件加 `import agent.core`(或写一个含未用 import 的文件)→ 经 Edit/Write → hook 应 autofix 未用 import / 以 exit 2 回喂 import 越界。
-- 触点 (c):把上述违规推到 PR → CI 应红(`ruff check` 或契约测试失败)。
-- 零容忍:在 unit 分支跑 `ruff check . && ruff format --check . && pytest -m "not e2e"` → 全绿、无 xfail/baseline 残留。
+- 触点 (c) 后端:把上述违规推到 PR → CI `python` job 应红(`ruff check` 或契约测试失败)。
+- 触点 (c) 前端:故意改坏一处 IM 前端组件让某 vitest 用例失败 → 推到 PR → CI `frontend` job 应红、阻止合并;改回则绿。
+- 零容忍:在 unit 分支跑 `ruff check . && ruff format --check . && pytest -m "not e2e"` → 全绿、无 xfail/baseline 残留;`cd src/IM/frontend && npm run test` → 全绿、零失败。
 
 ## Milestones
 
@@ -172,7 +185,7 @@ reviewer 走旅程的验证方式(非服务重启,列此备用):在干净工作�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-388-M1 | guardrails | refactor-387(unit 级外部依赖,需先并 main) | A | `pyproject.toml`、`.github/workflows/ci.yml`、`.claude/settings.json`、`.claude/hooks/ruff-guardrail.py`、`.claude/hooks/stop-require-explicit-ok.py`、`tests/contract/test_cli_http_only_contract.py`、`tests/contract/test_core_no_platform_imports.py`、全仓 `src/**`(一次性 format + correctness 修复) | 见下方两轨 |
+| feat-388-M1 | guardrails | refactor-387、bugfix-390(均 unit 级外部依赖,需先并 main;bugfix-390 已并) | A | `pyproject.toml`、`.github/workflows/ci.yml`(python + frontend 两 job)、`.claude/settings.json`、`.claude/hooks/ruff-guardrail.py`、`.claude/hooks/stop-require-explicit-ok.py`、`tests/contract/test_cli_http_only_contract.py`、`tests/contract/test_core_no_platform_imports.py`、全仓 `src/**`(一次性 format + correctness 修复;`src/IM/frontend/` 仅纳入 CI 门、不改源码) | 见下方两轨 |
 
 ### feat-388-M1 退出标准(两轨)
 
@@ -184,6 +197,7 @@ reviewer 走旅程的验证方式(非服务重启,列此备用):在干净工作�
 - `[reviewer]` 格式不符代码经 Edit 后被自动规整;绕过则远端 CI 红(覆盖 Req-B-1)
 - `[reviewer]` 未用 import/变量经 Edit 后被自动清除;可变默认参/裸 except 当场回喂、绕过则 CI 红(覆盖 Req-B-2)
 - `[reviewer]` 本 unit 完成后对全仓现有代码跑检查零违规、无 baseline/xfail 永久豁免(覆盖 Req-零容忍)
+- `[reviewer]` 破坏 IM 前端 vitest 的改动推到 PR 后 CI 红、阻止合并,与破坏后端 Python 同等对待;前后端检查全绿才放行(覆盖 Req-CI 前端门 / Scenario-破坏前端测试被拦、前后端全绿才放行)
 
 **[worker]**(实现层):
 - `[worker]` `ruff check .` 全绿(select = F, B006, E722;不含 B008)
@@ -191,5 +205,7 @@ reviewer 走旅程的验证方式(非服务重启,列此备用):在干净工作�
 - `[worker]` `pytest -m "not e2e"` 全绿,含改写后的 `test_cli_http_only_contract.py`(R1 新语义 + R2 矩阵)与 un-xfail 的 `test_core_no_platform_imports.py`(R3 正向)
 - `[worker]` PostToolUse hook 实测:编辑含 F401 的 `src/` 文件 → 自动清除;编辑产品包加 `import agent.core` → exit 2 回喂阻断
 - `[worker]` 普通会话能正常停止(`stop-require-explicit-ok.py` 自门控生效),orchestrator 受管会话 gate 行为不变
-- `[worker]` `.github/workflows/ci.yml` 在 PR 上三步检查跑通
+- `[worker]` `.github/workflows/ci.yml` 在 PR 上两 job 跑通:`python`(ruff check / format --check / pytest -m "not e2e")+ `frontend`(Node 20 → `npm ci` → `npm run test`),任一红阻止合并
+- `[worker]` 在 main 基线 `cd src/IM/frontend && npm run test` 全绿、零失败(bugfix-390 已修绿,门处于真正生效状态;覆盖 Req-CI 前端门 / Scenario-上线时前端测试已全绿)
+- `[worker]` 前端 job 不跑 `npm run build`(不引入 tsc 类型检查)
 - `[worker]` `pyproject.toml` 固定 ruff 版本,`dev` 依赖含 ruff;机械重排为独立 commit
