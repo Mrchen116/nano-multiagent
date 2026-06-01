@@ -1,6 +1,42 @@
 # Verification Report: bugfix-390
 
-## Summary
+## Round 2 Summary（2026-06-01）
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 8/8（tasks.md 退出标准全部勾选；decode 回归单测新增） |
+| Correctness | 全部 requirement 覆盖；Round 1 WARNING-1 已闭环（fixture 补 total + textContent 断言） |
+| Coherence | 全部遵守；decode 层为 total 恒非 None 的单一收口点，WS/REST 兜底与之一致 |
+
+All checks passed. Ready for PR.
+
+---
+
+## Round 2 核查重点
+
+### WARNING-1 闭环：token-chip.test.tsx warn/critical fixture 补 total
+
+已确认 `token-chip.test.tsx:22` warn 变体补 `total: 140_050` 并加 `textContent` 断言 `/140\.1k/`；`token-chip.test.tsx:30` critical 变体补 `total: 190_050` 并加 `textContent` 断言 `/190\.1k/`。`"undefined tok"` 渲染盲点已堵死。
+
+全量 vitest：54 test files, **345 tests, 0 failed**（本地验证通过）。
+
+### 根因修复 Coherence：decode 层为 total 恒非 None 的单一收口点
+
+`src/IM/infra/repositories.py:2547-2576`（`_decode_token_usage`）：pre-M17 `total:null` 行在此处即被派生为 `context_used + output`，`TokenUsage.total` 从 decode 层出口起恒非 None。下游两条路径：
+- **REST**（`messages.py:162-166`）：再次检查 `total is not None`，等同双重防御
+- **WS**（`event_types.py:67`）：`int(usage.total) if usage.total else ctx+output`，同一公式
+
+三层口径一致，无矛盾。decode 是收口，REST/WS 是防御层，逻辑清晰。
+
+回归单测 `test_decode_token_usage_with_null_total_derives_from_context_plus_output`（`tests/im_service/unit/test_message_runtime_state.py:118-165`）直接复现 pre-M17 `total:null` 场景，断言 `usage.total == 5100`（5000+100）。**1 passed**。
+
+### WARNING-2 闭环：tasks.md 退出标准 checkbox 全勾选
+
+`tasks.md:11-18` 所有 8 个退出标准均已改为 `[x]`，与 Roadpoints DONE 状态对齐。
+
+---
+
+## Round 1 Summary（历史存档）
 
 | 维度 | 结果 |
 |---|---|
