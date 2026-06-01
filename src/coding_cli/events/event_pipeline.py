@@ -157,7 +157,9 @@ class ReplRenderPhaseMachine:
             return True
         return preview_identity not in self._emitted_tool_preview_identities
 
-    def record_tool_preview(self, *, preview_identity: str | None, preview_line_identity: str | None) -> None:
+    def record_tool_preview(
+        self, *, preview_identity: str | None, preview_line_identity: str | None
+    ) -> None:
         """Record emitted preview identities for later dedupe and summary filtering."""
         if preview_identity is not None and preview_identity:
             self._emitted_tool_preview_identities.add(preview_identity)
@@ -256,9 +258,15 @@ def normalize_session_event(event: object) -> NormalizedSessionEvent:
     event_name = event.get("event")
     data = event.get("data")
     resolved_id = event_id.strip() if isinstance(event_id, str) else ""
-    resolved_name = event_name.strip() if isinstance(event_name, str) and event_name.strip() else "message"
+    resolved_name = (
+        event_name.strip()
+        if isinstance(event_name, str) and event_name.strip()
+        else "message"
+    )
     resolved_data = data if isinstance(data, dict) else {}
-    return NormalizedSessionEvent(event_id=resolved_id, event_name=resolved_name, data=resolved_data)
+    return NormalizedSessionEvent(
+        event_id=resolved_id, event_name=resolved_name, data=resolved_data
+    )
 
 
 def consume_event_for_run(
@@ -283,11 +291,15 @@ def consume_event_for_run(
     # to prevent duplicate deltas from being streamed
     replay_key = None
     if normalized_event.event_name == "text_delta":
-        replay_key = replay_fallback_dedupe_key(event_name=normalized_event.event_name, data=data)
+        replay_key = replay_fallback_dedupe_key(
+            event_name=normalized_event.event_name, data=data
+        )
     else:
         if not event_id:
-            replay_key = replay_fallback_dedupe_key(event_name=normalized_event.event_name, data=data)
-    
+            replay_key = replay_fallback_dedupe_key(
+                event_name=normalized_event.event_name, data=data
+            )
+
     if replay_key is not None:
         if dedupe_window.has_fallback_key(run_id=run_id, key=replay_key):
             return False
@@ -297,7 +309,7 @@ def consume_event_for_run(
         dedupe_window.record_event_id(event_id)
         if seen_event_ids is not None:
             seen_event_ids.add(event_id)
-    
+
     if replay_key is not None:
         dedupe_window.record_fallback_key(run_id=run_id, key=replay_key)
         if seen_event_fingerprints is not None:
@@ -306,7 +318,9 @@ def consume_event_for_run(
     return True
 
 
-def replay_fallback_dedupe_key(*, event_name: str, data: dict[str, object]) -> str | None:
+def replay_fallback_dedupe_key(
+    *, event_name: str, data: dict[str, object]
+) -> str | None:
     """Build semantic fallback dedupe key for missing/unreliable event ids."""
     if event_name not in _REPLAY_FALLBACK_DEDUPE_EVENTS:
         return None
@@ -448,21 +462,35 @@ def build_repl_view_model(
                 tool_updates.append(start_line)
             if progress_line:
                 tool_updates.append(progress_line)
-            tool_updates.append(_format_orphan_tool_line(error_line) if is_orphan else error_line)
+            tool_updates.append(
+                _format_orphan_tool_line(error_line) if is_orphan else error_line
+            )
             continue
 
         output_line = slot.get("output")
         exit_line = slot.get("exec_exit")
         started_line = slot.get("exec_started")
 
-        if isinstance(output_line, str) and output_line and not isinstance(exit_line, str):
-            tool_updates.append(_format_orphan_tool_line(output_line) if is_orphan else output_line)
+        if (
+            isinstance(output_line, str)
+            and output_line
+            and not isinstance(exit_line, str)
+        ):
+            tool_updates.append(
+                _format_orphan_tool_line(output_line) if is_orphan else output_line
+            )
         if progress_line:
             tool_updates.append(progress_line)
         if isinstance(exit_line, str) and exit_line:
-            tool_updates.append(_format_orphan_tool_line(exit_line) if is_orphan else exit_line)
+            tool_updates.append(
+                _format_orphan_tool_line(exit_line) if is_orphan else exit_line
+            )
             continue
-        if isinstance(started_line, str) and started_line and not isinstance(output_line, str):
+        if (
+            isinstance(started_line, str)
+            and started_line
+            and not isinstance(output_line, str)
+        ):
             tool_updates.append(started_line)
             continue
     if orphan_events > 0:
@@ -478,12 +506,18 @@ def _record_chunk_count(slot: dict[str, object], *, stream: object) -> None:
         slot[count_key] = current_count + 1 if isinstance(current_count, int) else 1
         return
     current_count = slot.get("chunk_count_unknown")
-    slot["chunk_count_unknown"] = current_count + 1 if isinstance(current_count, int) else 1
+    slot["chunk_count_unknown"] = (
+        current_count + 1 if isinstance(current_count, int) else 1
+    )
 
 
 def _format_tool_chunk_progress(slot: dict[str, object]) -> str | None:
     tool_name = slot.get("tool_name")
-    resolved_name = str(tool_name) if isinstance(tool_name, str) and tool_name.strip() else "<unknown>"
+    resolved_name = (
+        str(tool_name)
+        if isinstance(tool_name, str) and tool_name.strip()
+        else "<unknown>"
+    )
     count_items: list[tuple[str, int]] = []
     for key, label in (
         ("chunk_count_stdout", "stdout"),
@@ -505,8 +539,12 @@ def _is_terminal_tool_event(event_name: str) -> bool:
 
 
 def _is_orphan_terminal_event(slot: dict[str, object]) -> bool:
-    has_start = isinstance(slot.get("start"), str) and bool(str(slot.get("start")).strip())
-    has_exec_started = isinstance(slot.get("exec_started"), str) and bool(str(slot.get("exec_started")).strip())
+    has_start = isinstance(slot.get("start"), str) and bool(
+        str(slot.get("start")).strip()
+    )
+    has_exec_started = isinstance(slot.get("exec_started"), str) and bool(
+        str(slot.get("exec_started")).strip()
+    )
     return not has_start and not has_exec_started
 
 
@@ -523,7 +561,11 @@ def _format_orphan_tool_line(line: str) -> str:
 
 def _format_status_progress(data: dict[str, object]) -> str:
     status = data.get("status")
-    resolved_status = str(status).strip().lower() if isinstance(status, str) and status.strip() else "<unknown>"
+    resolved_status = (
+        str(status).strip().lower()
+        if isinstance(status, str) and status.strip()
+        else "<unknown>"
+    )
     retry_preview = _format_retry_progress(data)
     if resolved_status in {"queued", "running", "completed"} and not retry_preview:
         return ""
@@ -585,4 +627,6 @@ def _read_str(value: object) -> str:
 
 
 def _stable_key(payload: dict[str, object]) -> str:
-    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return json.dumps(
+        payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )

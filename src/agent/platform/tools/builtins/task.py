@@ -91,8 +91,14 @@ class TaskTool:
                     'proper skills like ["playwright"], ["git-master"] for best results.'
                 ),
             },
-            "description": {"type": "string", "description": "Short task description (3-5 words)"},
-            "prompt": {"type": "string", "description": "Full detailed prompt for the agent"},
+            "description": {
+                "type": "string",
+                "description": "Short task description (3-5 words)",
+            },
+            "prompt": {
+                "type": "string",
+                "description": "Full detailed prompt for the agent",
+            },
             "run_in_background": {
                 "type": "boolean",
                 "description": "true=async (returns task_id), false=sync (waits). Default: false",
@@ -122,7 +128,9 @@ class TaskTool:
 
     def __init__(self, *, runtime: TaskRuntime | None = None) -> None:
         self._runtime = runtime
-        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="nano-task")
+        self._executor = ThreadPoolExecutor(
+            max_workers=4, thread_name_prefix="nano-task"
+        )
         self._idempotent_results: dict[str, Any] = {}
         self._task_results: dict[str, Any] = {}
         self._lock = Lock()
@@ -147,7 +155,9 @@ class TaskTool:
         if mode == "blocking":
             result = self._run_blocking(args, ctx, run_in_background=run_in_background)
         else:
-            result = self._run_non_blocking(args, ctx, run_in_background=run_in_background)
+            result = self._run_non_blocking(
+                args, ctx, run_in_background=run_in_background
+            )
 
         self._cache_result(idempotency_key, result)
         return result
@@ -162,7 +172,9 @@ class TaskTool:
         runtime = self._require_runtime()
         task_id = make_tool_call_id()
         timeout_seconds = _resolve_timeout_seconds(args)
-        task_session_id, prompt, continuation = self._resolve_target_session(args, runtime=runtime, ctx=ctx)
+        task_session_id, prompt, continuation = self._resolve_target_session(
+            args, runtime=runtime, ctx=ctx
+        )
         agent = _resolve_agent_name(args)
 
         start = perf_counter()
@@ -218,7 +230,9 @@ class TaskTool:
         runtime = self._require_runtime()
         timeout_seconds = _resolve_timeout_seconds(args)
         task_id = make_tool_call_id()
-        task_session_id, prompt, continuation = self._resolve_target_session(args, runtime=runtime, ctx=ctx)
+        task_session_id, prompt, continuation = self._resolve_target_session(
+            args, runtime=runtime, ctx=ctx
+        )
         description = _normalize_optional_text(args.get("description")) or ""
         agent = _resolve_agent_name(args)
 
@@ -376,7 +390,9 @@ class TaskTool:
         created = asyncio.run(runtime.create_session(workspace_root=ctx.cwd))
         return str(created.session_id), prompt, False
 
-    def _validate_task_arguments(self, args: Mapping[str, Any], *, ctx: ToolContext) -> None:
+    def _validate_task_arguments(
+        self, args: Mapping[str, Any], *, ctx: ToolContext
+    ) -> None:
         if _normalize_optional_text(args.get("description")) is None:
             raise ToolError(
                 "description must be a non-empty string",
@@ -388,7 +404,9 @@ class TaskTool:
                 tool_name=self.name,
             )
 
-        load_skills = _normalize_skill_names(args.get("load_skills"), tool_name=self.name)
+        load_skills = _normalize_skill_names(
+            args.get("load_skills"), tool_name=self.name
+        )
         available = resolve_available_skills(
             workspace_root=ctx.repo_root,
             include_names=load_skills,
@@ -490,7 +508,11 @@ class TaskTool:
         agent = output.get("agent", "unknown")
         continuation = output.get("continuation", False)
 
-        status_line = "Background task continued." if continuation else "Background task launched."
+        status_line = (
+            "Background task continued."
+            if continuation
+            else "Background task launched."
+        )
         guidance = (
             f"Agent continues with full previous context preserved.\n"
             f"Use `task` with session_id='{session_id}' to continue or check progress."

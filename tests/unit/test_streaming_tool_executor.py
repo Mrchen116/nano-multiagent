@@ -34,7 +34,9 @@ class _FakeTool(Tool):
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         raise NotImplementedError("use async registry mock")
 
-    def serialize_result(self, output: Any, error: str | None = None) -> str | list[dict[str, Any]]:
+    def serialize_result(
+        self, output: Any, error: str | None = None
+    ) -> str | list[dict[str, Any]]:
         return str(output) if output else error or ""
 
 
@@ -89,6 +91,7 @@ def _call(name: str, args: Mapping[str, Any] | None = None) -> ToolCall:
 # Basic enqueue / completion
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_single_tool_completes(registry: _FakeRegistry) -> None:
     registry.register(_FakeTool(name="read", is_concurrency_safe=True))
@@ -122,6 +125,7 @@ async def test_nonexistent_tool_records_error(registry: _FakeRegistry) -> None:
 # Concurrency: safe tools run in parallel
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_safe_tools_run_in_parallel(registry: _FakeRegistry) -> None:
     """Two safe tools with non-zero delay should overlap in time."""
@@ -149,6 +153,7 @@ async def test_safe_tools_run_in_parallel(registry: _FakeRegistry) -> None:
 # ---------------------------------------------------------------------------
 # Blocking: non-safe tools block subsequent items
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_non_safe_blocks_subsequent(registry: _FakeRegistry) -> None:
@@ -201,6 +206,7 @@ async def test_safe_then_non_safe_blocks_later_safe(registry: _FakeRegistry) -> 
 # Results yielded in order
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_results_yielded_in_enqueue_order(registry: _FakeRegistry) -> None:
     registry.register(_FakeTool(name="r1", is_concurrency_safe=True, delay=0.02))
@@ -221,6 +227,7 @@ async def test_results_yielded_in_enqueue_order(registry: _FakeRegistry) -> None
 # Error handling
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_tool_error_is_captured(registry: _FakeRegistry) -> None:
     registry.register(_FakeTool(name="bad", is_concurrency_safe=True, raise_error=True))
@@ -239,6 +246,7 @@ async def test_tool_error_is_captured(registry: _FakeRegistry) -> None:
 # ---------------------------------------------------------------------------
 # Discard / abort
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_discard_aborts_queued_tools(registry: _FakeRegistry) -> None:
@@ -264,7 +272,9 @@ async def test_discard_aborts_queued_tools(registry: _FakeRegistry) -> None:
 
 
 @pytest.mark.asyncio
-async def test_discard_does_not_affect_already_completed(registry: _FakeRegistry) -> None:
+async def test_discard_does_not_affect_already_completed(
+    registry: _FakeRegistry,
+) -> None:
     registry.register(_FakeTool(name="read", is_concurrency_safe=True))
     executor = StreamingToolExecutor(registry)
 
@@ -286,6 +296,7 @@ async def test_discard_does_not_affect_already_completed(registry: _FakeRegistry
 # Bash sibling abort cascade
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_bash_error_cancels_sibling_bash(registry: _FakeRegistry) -> None:
     """One bash failing triggers sibling abort for other parallel bash tools.
@@ -294,11 +305,17 @@ async def test_bash_error_cancels_sibling_bash(registry: _FakeRegistry) -> None:
     otherwise FIFO blocking prevents the second from ever starting.
     """
     registry.register(_FakeTool(name="bash", is_concurrency_safe=True, delay=0.15))
-    registry.register(_FakeTool(name="bash", is_concurrency_safe=True, delay=0.0, raise_error=True))
+    registry.register(
+        _FakeTool(name="bash", is_concurrency_safe=True, delay=0.0, raise_error=True)
+    )
     executor = StreamingToolExecutor(registry)
 
-    executor.add_tool(ToolCall(call_id="call_bash_1", name="bash", arguments={"cmd": "sleep 1"}))
-    executor.add_tool(ToolCall(call_id="call_bash_2", name="bash", arguments={"cmd": "false"}))
+    executor.add_tool(
+        ToolCall(call_id="call_bash_1", name="bash", arguments={"cmd": "sleep 1"})
+    )
+    executor.add_tool(
+        ToolCall(call_id="call_bash_2", name="bash", arguments={"cmd": "false"})
+    )
     await asyncio.sleep(0.05)  # bash2 fails quickly
 
     # bash1 should be cancelled by sibling abort
@@ -318,7 +335,9 @@ async def test_bash_error_cancels_sibling_bash(registry: _FakeRegistry) -> None:
 async def test_non_bash_error_does_not_cancel_siblings(registry: _FakeRegistry) -> None:
     """Non-bash tool error does not trigger sibling abort."""
     registry.register(_FakeTool(name="read", is_concurrency_safe=True, delay=0.15))
-    registry.register(_FakeTool(name="bad", is_concurrency_safe=True, delay=0.0, raise_error=True))
+    registry.register(
+        _FakeTool(name="bad", is_concurrency_safe=True, delay=0.0, raise_error=True)
+    )
     executor = StreamingToolExecutor(registry)
 
     executor.add_tool(_call("read"))
@@ -342,6 +361,7 @@ async def test_non_bash_error_does_not_cancel_siblings(registry: _FakeRegistry) 
 # ---------------------------------------------------------------------------
 # get_completed_results is non-blocking
 # ---------------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_get_completed_results_non_blocking(registry: _FakeRegistry) -> None:

@@ -7,7 +7,21 @@ import json
 import sqlite3
 from uuid import uuid4
 
-from IM.domain.models import Actor, AgentProfile, Attachment, Conversation, ConversationEvent, DeviceBindRequest, Message, NodeStatus, SettingsPolicy, TokenUsage, ToolCall, UsageMetric, User
+from IM.domain.models import (
+    Actor,
+    AgentProfile,
+    Attachment,
+    Conversation,
+    ConversationEvent,
+    DeviceBindRequest,
+    Message,
+    NodeStatus,
+    SettingsPolicy,
+    TokenUsage,
+    ToolCall,
+    UsageMetric,
+    User,
+)
 from IM.infra.db import DEFAULT_SETTINGS_POLICIES
 
 
@@ -78,7 +92,16 @@ class UserRepository:
                     INSERT INTO users(id, username, display_name, owner_id, default_entry_node_id, password_hash, locale, created_at)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (user_id, username, display_name, owner_id, None, password_hash, locale, created_at),
+                    (
+                        user_id,
+                        username,
+                        display_name,
+                        owner_id,
+                        None,
+                        password_hash,
+                        locale,
+                        created_at,
+                    ),
                 )
         except sqlite3.IntegrityError as error:
             _raise_constraint_error(error)
@@ -142,7 +165,10 @@ class UserRepository:
         next_default_entry_node_id = default_entry_node_id
         if next_default_entry_node_id is not None:
             next_default_entry_node_id = next_default_entry_node_id.strip() or None
-            if next_default_entry_node_id and next_default_entry_node_id not in user.owned_node_ids:
+            if (
+                next_default_entry_node_id
+                and next_default_entry_node_id not in user.owned_node_ids
+            ):
                 raise ValueError("default_entry_node_id not owned by user")
         next_locale = user.locale if locale is None else locale.strip() or user.locale
         with self._connection:
@@ -359,7 +385,11 @@ class ConversationRepository:
             ValueError: When participant list is empty or references missing users.
         """
         normalized_references = list(
-            dict.fromkeys(participant_id.strip() for participant_id in participant_ids if participant_id.strip())
+            dict.fromkeys(
+                participant_id.strip()
+                for participant_id in participant_ids
+                if participant_id.strip()
+            )
         )
         if not normalized_references:
             raise ValueError("participant_ids must not be empty")
@@ -533,7 +563,9 @@ class ConversationRepository:
         ).fetchall()
         return [self._row_to_conversation(row) for row in conversation_rows]
 
-    def get_conversation_for_owner(self, *, conversation_id: str, owner_id: str) -> Conversation | None:
+    def get_conversation_for_owner(
+        self, *, conversation_id: str, owner_id: str
+    ) -> Conversation | None:
         """Return the conversation only when it is owned by ``owner_id``; else None.
 
         Notes:
@@ -570,7 +602,9 @@ class ConversationRepository:
             raise ValueError("conversation_id not found")
         # Permission check is enforced here in the service layer, not only in the UI.
         if str(row["creator_id"]) != requester_id:
-            raise PermissionError("only the conversation creator can dissolve this conversation")
+            raise PermissionError(
+                "only the conversation creator can dissolve this conversation"
+            )
         with self._connection:
             self._connection.execute(
                 "DELETE FROM conversations WHERE id = ?",
@@ -621,10 +655,16 @@ class ConversationRepository:
             """,
             (row["id"],),
         ).fetchall()
-        profile_version = row["config_profile_version"] if "config_profile_version" in row.keys() else None
+        profile_version = (
+            row["config_profile_version"]
+            if "config_profile_version" in row.keys()
+            else None
+        )
         row_keys = row.keys()
         # creator_id was added by M234 migration; fall back to owner_id for legacy rows.
-        creator_id = str(row["creator_id"]) if "creator_id" in row_keys else str(row["owner_id"])
+        creator_id = (
+            str(row["creator_id"]) if "creator_id" in row_keys else str(row["owner_id"])
+        )
         return Conversation(
             id=row["id"],
             title=row["title"],
@@ -635,7 +675,9 @@ class ConversationRepository:
             is_pinned=bool(row["is_pinned"]),
             is_muted=bool(row["is_muted"]),
             unread_count=int(row["unread_count"]),
-            last_message_preview=row["last_message_preview"] if "last_message_preview" in row_keys else None,
+            last_message_preview=row["last_message_preview"]
+            if "last_message_preview" in row_keys
+            else None,
             last_message_at=row["last_message_at"],
             config_profile_version=profile_version,
             created_at=row["created_at"],
@@ -686,15 +728,27 @@ class ConversationRepository:
         """Convert one IM user row to actor-first identity."""
         user_id = str(row["id"])
         username = str(row["username"])
-        display_name = str(row["display_name"]) if row["display_name"] is not None else None
+        display_name = (
+            str(row["display_name"]) if row["display_name"] is not None else None
+        )
         keys = row.keys()
         if username.startswith("agent:"):
             agent_id = username[len("agent:") :].strip() or user_id
             is_stale = bool(row["is_stale"]) if "is_stale" in keys else None
-            return Actor(type="agent", id=agent_id, display_name=display_name, user_id=user_id, is_stale=is_stale)
-        return Actor(type="user", id=user_id, display_name=display_name, user_id=user_id)
+            return Actor(
+                type="agent",
+                id=agent_id,
+                display_name=display_name,
+                user_id=user_id,
+                is_stale=is_stale,
+            )
+        return Actor(
+            type="user", id=user_id, display_name=display_name, user_id=user_id
+        )
 
-    def _resolve_config_profile_version(self, *, owner_id: str, participant_ids: list[str]) -> int | None:
+    def _resolve_config_profile_version(
+        self, *, owner_id: str, participant_ids: list[str]
+    ) -> int | None:
         """Return the frozen profile version that a new conversation should bind to."""
         if not participant_ids:
             return None
@@ -711,7 +765,9 @@ class ConversationRepository:
             seen_user_ids.add(resolved_user_id)
         if not participant_rows:
             return None
-        snapshot = self._resolve_config_snapshot(participant_rows=participant_rows, conversation_type="group")
+        snapshot = self._resolve_config_snapshot(
+            participant_rows=participant_rows, conversation_type="group"
+        )
         return snapshot.profile_version
 
     def _resolve_config_snapshot(
@@ -732,9 +788,13 @@ class ConversationRepository:
                 profile_version=snapshot.profile_version,
                 system_prompt=None,
             )
-        return _ConversationConfigSnapshot(agent_id=None, profile_version=None, system_prompt=None)
+        return _ConversationConfigSnapshot(
+            agent_id=None, profile_version=None, system_prompt=None
+        )
 
-    def _profile_snapshot_for_participant(self, *, row: sqlite3.Row) -> _ConversationConfigSnapshot | None:
+    def _profile_snapshot_for_participant(
+        self, *, row: sqlite3.Row
+    ) -> _ConversationConfigSnapshot | None:
         """Resolve one participant row into an agent profile snapshot when it represents an agent."""
         candidate_agent_ids: list[str] = [str(row["id"])]
         username = str(row["username"])
@@ -831,7 +891,9 @@ class MessageRepository:
             sender_type=sender_type,
             sender_user_id=resolved_sender_user_id,
             sender_username=str(sender_user["username"]),
-            sender_display_name=str(sender_user["display_name"]) if sender_user["display_name"] is not None else None,
+            sender_display_name=str(sender_user["display_name"])
+            if sender_user["display_name"] is not None
+            else None,
         )
         participant_exists = self._connection.execute(
             """
@@ -844,7 +906,9 @@ class MessageRepository:
         # System messages are server-originated and bypass the owner scope check;
         # they can be injected into any conversation regardless of participant/owner alignment.
         if sender_type != "system":
-            if participant_exists is None and str(sender_user["owner_id"]) != str(conversation_exists["owner_id"]):
+            if participant_exists is None and str(sender_user["owner_id"]) != str(
+                conversation_exists["owner_id"]
+            ):
                 raise ValueError("sender_user_id is outside conversation owner scope")
 
         if sender_type == "user" and participant_exists is None:
@@ -855,7 +919,9 @@ class MessageRepository:
         initial_status = "sent"
         final_status = "completed" if auto_complete_delivery else initial_status
         attachments_json = _encode_attachments(normalized_attachments)
-        event_attachments = [_attachment_to_dict(item) for item in normalized_attachments]
+        event_attachments = [
+            _attachment_to_dict(item) for item in normalized_attachments
+        ]
         sent_payload = {
             "conversation_id": conversation_id,
             "message_id": message_id,
@@ -868,7 +934,11 @@ class MessageRepository:
         }
         pending_live_events: list[ConversationEvent] = []
         normalized_tool_calls = _normalize_tool_calls(tool_calls)
-        tool_calls_json = _encode_tool_calls(normalized_tool_calls) if normalized_tool_calls is not None else None
+        tool_calls_json = (
+            _encode_tool_calls(normalized_tool_calls)
+            if normalized_tool_calls is not None
+            else None
+        )
         token_usage_json = _encode_token_usage(token_usage)
         with self._connection:
             self._connection.execute(
@@ -932,12 +1002,24 @@ class MessageRepository:
             if is_own_message:
                 self._connection.execute(
                     "UPDATE conversations SET last_message_preview = ?, last_message_at = ? WHERE id = ?",
-                    (_to_message_preview(content=content, attachments=normalized_attachments), created_at, conversation_id),
+                    (
+                        _to_message_preview(
+                            content=content, attachments=normalized_attachments
+                        ),
+                        created_at,
+                        conversation_id,
+                    ),
                 )
             else:
                 self._connection.execute(
                     "UPDATE conversations SET last_message_preview = ?, last_message_at = ?, unread_count = unread_count + 1 WHERE id = ?",
-                    (_to_message_preview(content=content, attachments=normalized_attachments), created_at, conversation_id),
+                    (
+                        _to_message_preview(
+                            content=content, attachments=normalized_attachments
+                        ),
+                        created_at,
+                        conversation_id,
+                    ),
                 )
         if self._notify is not None:
             for live_event in pending_live_events:
@@ -990,7 +1072,9 @@ class MessageRepository:
             ValueError: When ``message_id`` does not exist or arguments conflict.
         """
         if content_append is not None and content_replace is not None:
-            raise ValueError("content_append and content_replace are mutually exclusive")
+            raise ValueError(
+                "content_append and content_replace are mutually exclusive"
+            )
         row = self._connection.execute(
             "SELECT content, tool_calls_json, token_usage_json, conversation_id FROM messages WHERE id = ?",
             (message_id,),
@@ -1002,7 +1086,9 @@ class MessageRepository:
         if content_replace is not None:
             next_content = content_replace
         elif content_append is not None:
-            next_content = (str(row["content"]) if row["content"] is not None else "") + content_append
+            next_content = (
+                str(row["content"]) if row["content"] is not None else ""
+            ) + content_append
 
         next_tool_calls_json: str | None | object = _UNSET
         if tool_calls_upsert is not None:
@@ -1035,7 +1121,9 @@ class MessageRepository:
             sets.append("delivery_status = ?")
             values.append(delivery_status)
         if not sets:
-            raise ValueError("update_runtime_state requires at least one field to change")
+            raise ValueError(
+                "update_runtime_state requires at least one field to change"
+            )
         values.append(message_id)
         with self._connection:
             self._connection.execute(
@@ -1089,7 +1177,11 @@ class MessageRepository:
         merged_messages = self._list_message_timeline(conversation_id=conversation_id)
         if before_message_id is not None:
             cursor_index = next(
-                (index for index, message in enumerate(merged_messages) if message.id == before_message_id),
+                (
+                    index
+                    for index, message in enumerate(merged_messages)
+                    if message.id == before_message_id
+                ),
                 None,
             )
             if cursor_index is None:
@@ -1259,9 +1351,17 @@ class MessageRepository:
 
     def _message_from_row(self, row: sqlite3.Row) -> Message:
         """Convert one stored SQLite row into a Message domain model."""
-        tool_calls_value = row["tool_calls_json"] if "tool_calls_json" in row.keys() else None
-        token_usage_value = row["token_usage_json"] if "token_usage_json" in row.keys() else None
-        permission_request_value = row["permission_request_json"] if "permission_request_json" in row.keys() else None
+        tool_calls_value = (
+            row["tool_calls_json"] if "tool_calls_json" in row.keys() else None
+        )
+        token_usage_value = (
+            row["token_usage_json"] if "token_usage_json" in row.keys() else None
+        )
+        permission_request_value = (
+            row["permission_request_json"]
+            if "permission_request_json" in row.keys()
+            else None
+        )
         permission_requests = _load_permission_requests(permission_request_value)
         return Message(
             id=row["id"],
@@ -1271,9 +1371,13 @@ class MessageRepository:
             sender=self._actor_from_sender_row(
                 sender_type=str(row["sender_type"]),
                 sender_user_id=str(row["sender_user_id"]),
-                sender_username=str(row["sender_username"]) if row["sender_username"] is not None else None,
+                sender_username=str(row["sender_username"])
+                if row["sender_username"] is not None
+                else None,
                 sender_display_name=(
-                    str(row["sender_display_name"]) if row["sender_display_name"] is not None else None
+                    str(row["sender_display_name"])
+                    if row["sender_display_name"] is not None
+                    else None
                 ),
             ),
             content=row["content"],
@@ -1324,7 +1428,13 @@ class MessageRepository:
             return None
         sender = self._actor_from_event_payload(payload)
         sender_user_id = sender.user_id or sender.id
-        delivery_status = "running" if event_type == "relay.processing" else "failed" if event_type == "relay.failed" else "completed"
+        delivery_status = (
+            "running"
+            if event_type == "relay.processing"
+            else "failed"
+            if event_type == "relay.failed"
+            else "completed"
+        )
         return Message(
             id=synthetic_message_id,
             conversation_id=str(row["conversation_id"]),
@@ -1353,13 +1463,25 @@ class MessageRepository:
             return Actor(
                 type="agent",
                 id=agent_id,
-                display_name=sender_display_name or (str(sender_row["display_name"]) if sender_row is not None else None),
-                user_id=str(sender_row["id"]) if sender_row is not None else f"agent:{agent_id}",
+                display_name=sender_display_name
+                or (
+                    str(sender_row["display_name"]) if sender_row is not None else None
+                ),
+                user_id=str(sender_row["id"])
+                if sender_row is not None
+                else f"agent:{agent_id}",
             )
         fallback_display_name = sender_display_name or "Agent"
-        return Actor(type="agent", id=fallback_display_name, display_name=sender_display_name, user_id=f"agent:{fallback_display_name}")
+        return Actor(
+            type="agent",
+            id=fallback_display_name,
+            display_name=sender_display_name,
+            user_id=f"agent:{fallback_display_name}",
+        )
 
-    def _resolve_sender_user_row(self, *, sender_user_id: str, sender_type: str) -> sqlite3.Row | None:
+    def _resolve_sender_user_row(
+        self, *, sender_user_id: str, sender_type: str
+    ) -> sqlite3.Row | None:
         """Resolve sender identity by stable actor id to concrete IM user row."""
         normalized_sender = sender_user_id.strip()
         if not normalized_sender:
@@ -1398,10 +1520,24 @@ class MessageRepository:
         sender_display_name: str | None,
     ) -> Actor:
         """Build actor-first sender identity from message row and user metadata."""
-        if sender_type == "agent" and sender_username is not None and sender_username.startswith("agent:"):
+        if (
+            sender_type == "agent"
+            and sender_username is not None
+            and sender_username.startswith("agent:")
+        ):
             actor_id = sender_username[len("agent:") :].strip() or sender_user_id
-            return Actor(type="agent", id=actor_id, display_name=sender_display_name, user_id=sender_user_id)
-        return Actor(type=sender_type, id=sender_user_id, display_name=sender_display_name, user_id=sender_user_id)
+            return Actor(
+                type="agent",
+                id=actor_id,
+                display_name=sender_display_name,
+                user_id=sender_user_id,
+            )
+        return Actor(
+            type=sender_type,
+            id=sender_user_id,
+            display_name=sender_display_name,
+            user_id=sender_user_id,
+        )
 
     def _insert_event(
         self,
@@ -1493,7 +1629,9 @@ class AgentProfileRepository:
         ).fetchall()
         return [self._row_to_profile(row) for row in rows]
 
-    def list_runtime_selectable_profiles_for_owner(self, *, owner_id: str) -> list[AgentProfile]:
+    def list_runtime_selectable_profiles_for_owner(
+        self, *, owner_id: str
+    ) -> list[AgentProfile]:
         """Owner-scoped runtime-selectable profile list (cross-tenant safe).
 
         Filters to either:
@@ -1523,7 +1661,9 @@ class AgentProfileRepository:
         ).fetchall()
         return [self._row_to_profile(row) for row in rows]
 
-    def get_profile_for_owner(self, *, agent_id: str, owner_id: str) -> AgentProfile | None:
+    def get_profile_for_owner(
+        self, *, agent_id: str, owner_id: str
+    ) -> AgentProfile | None:
         """Return the profile when owned by ``owner_id`` or ownerless (fresh, pre-bind); else None."""
         profile = self.get_profile(agent_id=agent_id)
         if profile is None:
@@ -1585,7 +1725,9 @@ class AgentProfileRepository:
         # keep whatever is already in the DB so Gateway re-registration on restart does not
         # wipe user edits.  The ON CONFLICT clause uses COALESCE to fall back to the
         # existing row value when the incoming JSON is the empty-object sentinel '{}' / NULL.
-        features_json = json.dumps(features, ensure_ascii=False) if features is not None else None
+        features_json = (
+            json.dumps(features, ensure_ascii=False) if features is not None else None
+        )
         with self._connection:
             self._connection.execute(
                 """
@@ -1706,8 +1848,13 @@ class AgentProfileRepository:
         updated_at = _utc_now()
         next_version = current.profile_version + 1
         # feat-379-M2: persist per-agent feature flags and custom prompt
-        features_json = json.dumps(features if features is not None else dict(current.features), ensure_ascii=False)
-        resolved_custom_prompt = custom_prompt if custom_prompt is not None else current.custom_prompt
+        features_json = json.dumps(
+            features if features is not None else dict(current.features),
+            ensure_ascii=False,
+        )
+        resolved_custom_prompt = (
+            custom_prompt if custom_prompt is not None else current.custom_prompt
+        )
         with self._connection:
             self._connection.execute(
                 """
@@ -1763,13 +1910,25 @@ class AgentProfileRepository:
         if raw_features:
             try:
                 decoded_features = json.loads(raw_features)
-                features = {k: bool(v) for k, v in decoded_features.items() if isinstance(k, str)} if isinstance(decoded_features, dict) else {}
+                features = (
+                    {
+                        k: bool(v)
+                        for k, v in decoded_features.items()
+                        if isinstance(k, str)
+                    }
+                    if isinstance(decoded_features, dict)
+                    else {}
+                )
             except (ValueError, TypeError):
                 features = {}
         else:
             features = {}
         custom_prompt_raw = row["custom_prompt"] if "custom_prompt" in keys else None
-        custom_prompt = custom_prompt_raw if isinstance(custom_prompt_raw, str) and custom_prompt_raw.strip() else None
+        custom_prompt = (
+            custom_prompt_raw
+            if isinstance(custom_prompt_raw, str) and custom_prompt_raw.strip()
+            else None
+        )
         return AgentProfile(
             agent_id=row["agent_id"],
             owner_id=row["owner_id"],
@@ -1829,7 +1988,19 @@ class NodeRepository:
                     status = excluded.status,
                     version = excluded.version
                 """,
-                (node_id, owner_id, node_name, normalized_status, "", 0, version, 1, 1, None, None),
+                (
+                    node_id,
+                    owner_id,
+                    node_name,
+                    normalized_status,
+                    "",
+                    0,
+                    version,
+                    1,
+                    1,
+                    None,
+                    None,
+                ),
             )
         node = self.get_node(node_id=node_id)
         assert node is not None
@@ -1870,7 +2041,19 @@ class NodeRepository:
                     version = excluded.version,
                     last_error = excluded.last_error
                 """,
-                (node_id, owner_id, node_name, "online", _utc_now(), max(agent_count, 0), version, 1, 1, None, None),
+                (
+                    node_id,
+                    owner_id,
+                    node_name,
+                    "online",
+                    _utc_now(),
+                    max(agent_count, 0),
+                    version,
+                    1,
+                    1,
+                    None,
+                    None,
+                ),
             )
         node = self.get_node(node_id=node_id)
         assert node is not None
@@ -1889,8 +2072,12 @@ class NodeRepository:
         existing = self.get_node(node_id=node_id)
         if existing is None:
             raise ValueError("node_id not found")
-        next_status = _normalize_node_status(status=reported_status, last_error=last_error)
-        next_agent_count = existing.agent_count if agent_count is None else max(agent_count, 0)
+        next_status = _normalize_node_status(
+            status=reported_status, last_error=last_error
+        )
+        next_agent_count = (
+            existing.agent_count if agent_count is None else max(agent_count, 0)
+        )
         next_version = existing.version if version is None else version
         with self._connection:
             self._connection.execute(
@@ -1899,7 +2086,14 @@ class NodeRepository:
                 SET status = ?, last_heartbeat_at = ?, agent_count = ?, version = ?, last_error = ?
                 WHERE node_id = ?
                 """,
-                (next_status, _utc_now(), next_agent_count, next_version, last_error, node_id),
+                (
+                    next_status,
+                    _utc_now(),
+                    next_agent_count,
+                    next_version,
+                    last_error,
+                    node_id,
+                ),
             )
         node = self.get_node(node_id=node_id)
         assert node is not None
@@ -1982,8 +2176,14 @@ class NodeRepository:
         if existing is None:
             raise ValueError("node_id not found")
         next_alias = existing.alias if alias is None else (alias.strip() or None)
-        next_relay_enabled = existing.relay_enabled if relay_enabled is None else relay_enabled
-        next_reporting_enabled = existing.reporting_enabled if reporting_enabled is None else reporting_enabled
+        next_relay_enabled = (
+            existing.relay_enabled if relay_enabled is None else relay_enabled
+        )
+        next_reporting_enabled = (
+            existing.reporting_enabled
+            if reporting_enabled is None
+            else reporting_enabled
+        )
         with self._connection:
             self._connection.execute(
                 """
@@ -1991,7 +2191,12 @@ class NodeRepository:
                 SET alias = ?, relay_enabled = ?, reporting_enabled = ?
                 WHERE node_id = ?
                 """,
-                (next_alias, int(next_relay_enabled), int(next_reporting_enabled), node_id),
+                (
+                    next_alias,
+                    int(next_relay_enabled),
+                    int(next_reporting_enabled),
+                    node_id,
+                ),
             )
         updated = self.get_node(node_id=node_id)
         assert updated is not None
@@ -2032,7 +2237,9 @@ class BindRepository:
     def __init__(self, connection: sqlite3.Connection) -> None:
         self._connection = connection
 
-    def create_bind_request(self, *, node_id: str, bind_base_url: str) -> DeviceBindRequest:
+    def create_bind_request(
+        self, *, node_id: str, bind_base_url: str
+    ) -> DeviceBindRequest:
         """Create a pending bind request and return its browser URL."""
         bind_id = uuid4().hex
         bind_token = uuid4().hex
@@ -2044,7 +2251,16 @@ class BindRepository:
                 INSERT INTO bind_requests(bind_id, node_id, user_id, status, bind_token, bind_url, created_at, confirmed_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (bind_id, node_id, None, "pending", bind_token, bind_url, created_at, None),
+                (
+                    bind_id,
+                    node_id,
+                    None,
+                    "pending",
+                    bind_token,
+                    bind_url,
+                    created_at,
+                    None,
+                ),
             )
         request = self.get_bind_request(bind_id=bind_id)
         assert request is not None
@@ -2088,7 +2304,9 @@ class BindRepository:
             confirmed_at=row["confirmed_at"],
         )
 
-    def confirm_bind_request(self, *, bind_id: str | None = None, bind_token: str | None = None, user_id: str) -> DeviceBindRequest:
+    def confirm_bind_request(
+        self, *, bind_id: str | None = None, bind_token: str | None = None, user_id: str
+    ) -> DeviceBindRequest:
         """Mark one pending bind request as confirmed for a user."""
         resolved_bind_id = bind_id
         if resolved_bind_id is None:
@@ -2370,7 +2588,9 @@ class EventRepository:
 
 def _encode_json_list(values: list[str]) -> str:
     """Encode string lists with a stable JSON representation."""
-    return json.dumps([str(item) for item in values], ensure_ascii=True, separators=(",", ":"))
+    return json.dumps(
+        [str(item) for item in values], ensure_ascii=True, separators=(",", ":")
+    )
 
 
 def _decode_string_list(raw_value: str) -> list[str]:
@@ -2384,7 +2604,9 @@ def _decode_string_list(raw_value: str) -> list[str]:
     return [str(item) for item in decoded]
 
 
-def _resolve_usage_scope(*, owner_id: str | None, conversation_id: str | None, agent_id: str | None) -> tuple[str, str | None]:
+def _resolve_usage_scope(
+    *, owner_id: str | None, conversation_id: str | None, agent_id: str | None
+) -> tuple[str, str | None]:
     """Choose the most specific scope label for one aggregated usage row."""
     if agent_id:
         return "agent", agent_id
@@ -2472,7 +2694,11 @@ def _tool_call_to_dict(tool_call: ToolCall) -> dict[str, object]:
 
 
 def _encode_tool_calls(tool_calls: list[ToolCall]) -> str:
-    return json.dumps([_tool_call_to_dict(tc) for tc in tool_calls], ensure_ascii=True, separators=(",", ":"))
+    return json.dumps(
+        [_tool_call_to_dict(tc) for tc in tool_calls],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
 
 
 def _load_permission_requests(raw_value: object) -> list[dict]:
@@ -2517,10 +2743,16 @@ def _decode_tool_calls(value: object) -> list[ToolCall] | None:
                     name=str(item.get("name", "")),
                     status=str(item.get("status", "")),
                     duration_ms=(
-                        int(item["duration_ms"]) if isinstance(item.get("duration_ms"), (int, float)) else None
+                        int(item["duration_ms"])
+                        if isinstance(item.get("duration_ms"), (int, float))
+                        else None
                     ),
-                    input=dict(item.get("input")) if isinstance(item.get("input"), dict) else {},
-                    output=item.get("output") if isinstance(item.get("output"), str) else None,
+                    input=dict(item.get("input"))
+                    if isinstance(item.get("input"), dict)
+                    else {},
+                    output=item.get("output")
+                    if isinstance(item.get("output"), str)
+                    else None,
                 )
             )
         except ValueError:
@@ -2587,7 +2819,11 @@ def _is_no_reply_protocol_token(value: str | None) -> bool:
     if value is None:
         return False
     normalized = value.strip()
-    return normalized == "NO_REPLY" or normalized.startswith("suppressed_by=no_reply_token") or "suppressed_by=no_reply_token" in normalized
+    return (
+        normalized == "NO_REPLY"
+        or normalized.startswith("suppressed_by=no_reply_token")
+        or "suppressed_by=no_reply_token" in normalized
+    )
 
 
 def _preview_from_event(*, event_type: str, payload: dict[str, object]) -> str | None:
@@ -2595,7 +2831,13 @@ def _preview_from_event(*, event_type: str, payload: dict[str, object]) -> str |
     if event_type in {"message.sent", "message_created"} and content is not None:
         return content
 
-    if event_type in {"relay.processing", "relay.report", "relay.completed", "relay.failed", "message.delivered"}:
+    if event_type in {
+        "relay.processing",
+        "relay.report",
+        "relay.completed",
+        "relay.failed",
+        "message.delivered",
+    }:
         summary = _optional_text(payload.get("summary"))
         detail = _optional_text(payload.get("detail"))
         preview = summary or detail or content
@@ -2612,7 +2854,9 @@ def _preview_from_event(*, event_type: str, payload: dict[str, object]) -> str |
     return None
 
 
-def _visible_content_from_event(*, event_type: str, payload: dict[str, object]) -> str | None:
+def _visible_content_from_event(
+    *, event_type: str, payload: dict[str, object]
+) -> str | None:
     """Return the visible bubble content represented by one event payload."""
     return _preview_from_event(event_type=event_type, payload=payload)
 
@@ -2633,7 +2877,9 @@ def _synthetic_message_id_from_event_payload(payload: dict[str, object]) -> str 
 
 def _upsert_message(messages: list[Message], candidate: Message) -> list[Message]:
     """Insert or refresh one message while preserving chronological ordering."""
-    existing_index = next((index for index, item in enumerate(messages) if item.id == candidate.id), -1)
+    existing_index = next(
+        (index for index, item in enumerate(messages) if item.id == candidate.id), -1
+    )
     if existing_index == -1:
         return _sort_messages(messages + [candidate])
     existing = messages[existing_index]
@@ -2644,8 +2890,12 @@ def _upsert_message(messages: list[Message], candidate: Message) -> list[Message
         sender_user_id=candidate.sender_user_id,
         sender_type=candidate.sender_type,
         sender=candidate.sender,
-        content=candidate.content if len(candidate.content) >= len(existing.content) else existing.content,
-        attachments=candidate.attachments if candidate.attachments else existing.attachments,
+        content=candidate.content
+        if len(candidate.content) >= len(existing.content)
+        else existing.content,
+        attachments=candidate.attachments
+        if candidate.attachments
+        else existing.attachments,
         delivery_status=candidate.delivery_status,
         created_at=candidate.created_at,
     )
@@ -2688,7 +2938,9 @@ def _decode_attachments(raw_value: str) -> list[Attachment]:
         results.append(
             Attachment(
                 url=url,
-                content_type=str(content_type) if content_type not in {None, ""} else None,
+                content_type=str(content_type)
+                if content_type not in {None, ""}
+                else None,
                 file_name=str(file_name) if file_name not in {None, ""} else None,
             )
         )

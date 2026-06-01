@@ -32,8 +32,10 @@ def _make_ctx(
         ctx.message_history = ()
 
     if call_model_result is not None:
+
         async def _call_model(**kwargs):
             return call_model_result
+
         ctx.call_model = _call_model
     else:
         ctx.call_model = AsyncMock(return_value=MagicMock(content="<block>no</block>"))
@@ -49,6 +51,7 @@ def _make_ctx(
 # ---------------------------------------------------------------------------
 # Gate hook logic (mocked HookContext)
 # ---------------------------------------------------------------------------
+
 
 class TestGateHookLogic:
     """Integration tests for the gate hook on_tool_call coroutine."""
@@ -75,8 +78,12 @@ class TestGateHookLogic:
 
     @pytest.mark.asyncio
     async def test_dangerously_skip_permissions_passes_all(self):
-        handler, config = self._get_handler(AutoModeConfig(dangerously_skip_permissions=True))
-        ctx = self._make_ctx_with_config(AutoModeConfig(dangerously_skip_permissions=True))
+        handler, config = self._get_handler(
+            AutoModeConfig(dangerously_skip_permissions=True)
+        )
+        ctx = self._make_ctx_with_config(
+            AutoModeConfig(dangerously_skip_permissions=True)
+        )
         result = await handler({"name": "bash", "args": {"command": "rm -rf /"}}, ctx)
         assert result is None or result.get("block") is not True
 
@@ -93,6 +100,7 @@ class TestGateHookLogic:
     def _make_bash_tool_registry(self):
         """Return a fake tool_registry with BashTool for M6 dispatch tests."""
         from agent.platform.tools.builtins.bash import BashTool
+
         bash_tool = BashTool()
 
         class FakeRegistry:
@@ -131,7 +139,9 @@ class TestGateHookLogic:
         ctx = self._make_ctx_with_config(config)
         ctx.metadata = dict(ctx.metadata)
         ctx.metadata["tool_registry"] = self._make_bash_tool_registry()
-        result = await handler({"name": "bash", "args": {"command": ":(){:|:&};:"}}, ctx)
+        result = await handler(
+            {"name": "bash", "args": {"command": ":(){:|:&};:"}}, ctx
+        )
         assert result is not None
         assert result.get("block") is True
 
@@ -155,7 +165,9 @@ class TestGateHookLogic:
         model_result.content = "<block>no</block>"
         handler, config = self._get_handler()
         ctx = self._make_ctx_with_config(config, call_model_result=model_result)
-        result = await handler({"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx)
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx
+        )
         assert result is None or result.get("block") is not True
 
     @pytest.mark.asyncio
@@ -164,7 +176,9 @@ class TestGateHookLogic:
         model_result.content = "<block>yes</block><reason>dangerous action</reason>"
         handler, config = self._get_handler()
         ctx = self._make_ctx_with_config(config, call_model_result=model_result)
-        result = await handler({"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx)
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx
+        )
         assert result is not None
         assert result.get("block") is True
 
@@ -187,7 +201,9 @@ class TestGateHookLogic:
         ctx.metadata = dict(ctx.metadata)
         ctx.metadata["permission_requester"] = mock_requester
 
-        result = await handler({"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx)
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "data"}}, ctx
+        )
         # Result is block because user denied the ask
         assert result is not None
         assert result.get("block") is True
@@ -207,7 +223,9 @@ class TestGateHookLogic:
         # request_permission should NOT be called
         ctx.request_permission = AsyncMock()
 
-        result = await handler({"name": "write", "args": {"file_path": "/tmp/f", "content": "x"}}, ctx)
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "x"}}, ctx
+        )
         assert result is not None
         assert result.get("block") is True
         ctx.request_permission.assert_not_called()
@@ -216,6 +234,7 @@ class TestGateHookLogic:
     async def test_deny_limit_escalates_to_ask(self):
         """Exceeding deny_limit for same tool → escalate to ask."""
         from agent.platform.config.auto_mode import AutoModeConfig
+
         deny_limit_config = AutoModeConfig(deny_limit=1)
         broker = PermissionBroker(config=deny_limit_config)
         # Pre-increment deny count past limit
@@ -231,13 +250,17 @@ class TestGateHookLogic:
         async def mock_requester(req):
             return allow_response
 
-        ctx = self._make_ctx_with_config(deny_limit_config, call_model_result=model_result, run_origin="user")
+        ctx = self._make_ctx_with_config(
+            deny_limit_config, call_model_result=model_result, run_origin="user"
+        )
         ctx.request_permission = mock_requester
         ctx.metadata = dict(ctx.metadata)
         ctx.metadata["run_id"] = "run-1"
         ctx.metadata["permission_broker"] = broker
 
-        result = await handler({"name": "write", "args": {"file_path": "/tmp/f", "content": "x"}}, ctx)
+        result = await handler(
+            {"name": "write", "args": {"file_path": "/tmp/f", "content": "x"}}, ctx
+        )
         # Deny limit exceeded → ask → user allowed → should pass
         assert result is None or result.get("block") is not True
 
@@ -245,6 +268,7 @@ class TestGateHookLogic:
 # ---------------------------------------------------------------------------
 # M6: Regression tests — step 6 deleted, bash via tool.check_permissions dispatch
 # ---------------------------------------------------------------------------
+
 
 class TestM6BashViaCheckPermissions:
     """M6: bash no longer has hardcoded step 6 in auto_mode_gate.
@@ -266,7 +290,9 @@ class TestM6BashViaCheckPermissions:
         gate_setup(MockHooks())
         return handlers[0], config
 
-    def _make_ctx_with_bash_tool(self, config=None, *, call_model_result=None, tool_registry=None):
+    def _make_ctx_with_bash_tool(
+        self, config=None, *, call_model_result=None, tool_registry=None
+    ):
         """Make HookContext with BashTool in tool_registry so check_permissions is dispatched."""
         if config is None:
             config = AutoModeConfig()
@@ -281,16 +307,21 @@ class TestM6BashViaCheckPermissions:
             ctx.metadata["tool_registry"] = tool_registry
 
         if call_model_result is not None:
+
             async def _call_model(**kwargs):
                 return call_model_result
+
             ctx.call_model = _call_model
         else:
-            ctx.call_model = AsyncMock(return_value=MagicMock(content="<block>no</block>"))
+            ctx.call_model = AsyncMock(
+                return_value=MagicMock(content="<block>no</block>")
+            )
         return ctx
 
     def _make_bash_registry(self):
         """Return a fake tool_registry with BashTool registered."""
         from agent.platform.tools.builtins.bash import BashTool
+
         bash_tool = BashTool()
 
         class FakeRegistry:
@@ -306,6 +337,7 @@ class TestM6BashViaCheckPermissions:
         """
         import inspect
         from agent.platform.hooks.builtins import auto_mode_gate
+
         source = inspect.getsource(auto_mode_gate)
         # "Step 6: Bash" comment must be gone
         assert "Step 6: Bash" not in source, (
@@ -347,7 +379,9 @@ class TestM6BashViaCheckPermissions:
         ctx = self._make_ctx_with_bash_tool(config, tool_registry=registry)
         ctx.call_model = call_model_mock
 
-        result = await handler({"name": "bash", "args": {"command": "python3 script.py"}}, ctx)
+        result = await handler(
+            {"name": "bash", "args": {"command": "python3 script.py"}}, ctx
+        )
         # Classifier allowed → pass
         assert result is None or result.get("block") is not True
         # call_model was called (classifier ran)
@@ -357,6 +391,7 @@ class TestM6BashViaCheckPermissions:
         """M6: allow_unlisted marker should not appear in auto_mode_gate.py after step 6 removal."""
         import inspect
         from agent.platform.hooks.builtins import auto_mode_gate
+
         source = inspect.getsource(auto_mode_gate)
         assert "allow_unlisted" not in source, (
             "auto_mode_gate.py still references allow_unlisted — M6 migration incomplete"

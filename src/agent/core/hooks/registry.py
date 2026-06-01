@@ -82,18 +82,22 @@ class HookRegistry:
 
         normalized_event = normalize_hook_event(event)
         registrations = [
-            r for r in self._registrations.get(normalized_event, ())
+            r
+            for r in self._registrations.get(normalized_event, ())
             if r.mode != HookEventMode.BACKGROUND
         ]
         registrations.sort(key=lambda item: (item.priority, item.order))
         return tuple(registrations)
 
-    def background_handlers_for(self, event: str | HookEventType) -> tuple[HookRegistration, ...]:
+    def background_handlers_for(
+        self, event: str | HookEventType
+    ) -> tuple[HookRegistration, ...]:
         """Return BACKGROUND-mode handlers for an event sorted by priority then order."""
 
         normalized_event = normalize_hook_event(event)
         registrations = [
-            r for r in self._registrations.get(normalized_event, ())
+            r
+            for r in self._registrations.get(normalized_event, ())
             if r.mode == HookEventMode.BACKGROUND
         ]
         registrations.sort(key=lambda item: (item.priority, item.order))
@@ -102,7 +106,10 @@ class HookRegistry:
     def by_event(self) -> Mapping[str, tuple[HookRegistration, ...]]:
         """Return all handlers grouped by normalized event name."""
 
-        return {event: self.handlers_for(event) for event in sorted(self._registrations.keys())}
+        return {
+            event: self.handlers_for(event)
+            for event in sorted(self._registrations.keys())
+        }
 
     def all_handlers(self) -> tuple[HookRegistration, ...]:
         """Return all handlers flattened and deterministically sorted."""

@@ -32,7 +32,10 @@ def test_init_admin_cli_creates_user_loginable_via_http(tmp_path: Path) -> None:
         capture_output=True,
         text=True,
         check=False,
-        env={"PYTHONPATH": str(Path(__file__).resolve().parents[3] / "src"), "PATH": "/usr/bin:/bin"},
+        env={
+            "PYTHONPATH": str(Path(__file__).resolve().parents[3] / "src"),
+            "PATH": "/usr/bin:/bin",
+        },
     )
     assert result.returncode == 0, f"stdout={result.stdout} stderr={result.stderr}"
 
@@ -63,7 +66,10 @@ def test_init_admin_cli_rejects_duplicate(tmp_path: Path) -> None:
         "--db-path",
         str(db_path),
     ]
-    env = {"PYTHONPATH": str(Path(__file__).resolve().parents[3] / "src"), "PATH": "/usr/bin:/bin"}
+    env = {
+        "PYTHONPATH": str(Path(__file__).resolve().parents[3] / "src"),
+        "PATH": "/usr/bin:/bin",
+    }
     first = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
     second = subprocess.run(cmd, capture_output=True, text=True, check=False, env=env)
     assert first.returncode == 0, first.stderr

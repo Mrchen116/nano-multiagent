@@ -60,12 +60,24 @@ class _RuntimeStub:
         return TurnResult(
             session_id=session_id,
             turn_id="turn_task",
-            messages=(Message(message_id="msg_task", role="assistant", content=f"task:{text}"),),
+            messages=(
+                Message(
+                    message_id="msg_task", role="assistant", content=f"task:{text}"
+                ),
+            ),
             completed=True,
             stop_reason="completed",
         )
 
-    async def continue_turn(self, session_id: str, *, stream: bool = True, llm_session_id: str | None = None, run_id: str | None = None, workspace_root=None) -> TurnResult:
+    async def continue_turn(
+        self,
+        session_id: str,
+        *,
+        stream: bool = True,
+        llm_session_id: str | None = None,
+        run_id: str | None = None,
+        workspace_root=None,
+    ) -> TurnResult:
         return await self.run(
             session_id,
             [{"type": "text", "text": "continue"}],

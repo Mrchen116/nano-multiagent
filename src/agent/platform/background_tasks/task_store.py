@@ -7,7 +7,6 @@ import threading
 from pathlib import Path
 from typing import Any, Sequence
 
-from agent.core.background_tasks.interfaces import BackgroundTaskStore
 from agent.core.background_tasks.models import (
     BackgroundTaskRecord,
     BackgroundTaskStatus,
@@ -42,8 +41,7 @@ class InMemoryTaskStore:
     def list_non_terminal(self) -> Sequence[BackgroundTaskRecord]:
         with self._lock:
             return [
-                r for r in self._records.values()
-                if r.status not in _TERMINAL_STATUSES
+                r for r in self._records.values() if r.status not in _TERMINAL_STATUSES
             ]
 
     def _append_manifest(self, record: BackgroundTaskRecord) -> None:

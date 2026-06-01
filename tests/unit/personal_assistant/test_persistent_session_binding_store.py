@@ -8,7 +8,10 @@ from unittest.mock import MagicMock
 import pytest
 
 from personal_assistant.channels.base import ReplyContext
-from personal_assistant.gateway.session_keys import PersistentSessionBindingStore, SessionBinding
+from personal_assistant.gateway.session_keys import (
+    PersistentSessionBindingStore,
+    SessionBinding,
+)
 
 
 def _make_reply_context(chat_id: str = "chat-1") -> ReplyContext:
@@ -27,7 +30,11 @@ class TestR1PersistAndRecover:
         """bind 写入后 get 能读取相同 binding。"""
         store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
         rc = _make_reply_context()
-        binding = store.bind(session_key="ch:chat:agent-1", kernel_session_id="ksess-abc", reply_context=rc)
+        binding = store.bind(
+            session_key="ch:chat:agent-1",
+            kernel_session_id="ksess-abc",
+            reply_context=rc,
+        )
 
         result = store.get("ch:chat:agent-1")
 
@@ -60,7 +67,11 @@ class TestR1PersistAndRecover:
         db_path = tmp_path / "sb.sqlite3"
         rc = _make_reply_context("persist-chat")
         store1 = PersistentSessionBindingStore(db_path=db_path)
-        store1.bind(session_key="ch:persist:agent-x", kernel_session_id="ksess-persist", reply_context=rc)
+        store1.bind(
+            session_key="ch:persist:agent-x",
+            kernel_session_id="ksess-persist",
+            reply_context=rc,
+        )
         del store1
 
         store2 = PersistentSessionBindingStore(db_path=db_path)
@@ -73,9 +84,15 @@ class TestR1PersistAndRecover:
         """drop_agent 按 :{agent_id} suffix 删除相关行，其他行不受影响。"""
         store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
         rc = _make_reply_context()
-        store.bind(session_key="ch:c1:agent-A", kernel_session_id="ksess-1", reply_context=rc)
-        store.bind(session_key="ch:c2:agent-A", kernel_session_id="ksess-2", reply_context=rc)
-        store.bind(session_key="ch:c3:agent-B", kernel_session_id="ksess-3", reply_context=rc)
+        store.bind(
+            session_key="ch:c1:agent-A", kernel_session_id="ksess-1", reply_context=rc
+        )
+        store.bind(
+            session_key="ch:c2:agent-A", kernel_session_id="ksess-2", reply_context=rc
+        )
+        store.bind(
+            session_key="ch:c3:agent-B", kernel_session_id="ksess-3", reply_context=rc
+        )
 
         store.drop_agent("agent-A")
 
@@ -87,7 +104,9 @@ class TestR1PersistAndRecover:
         """drop_agent 对不存在的 agent_id 不报错。"""
         store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
         rc = _make_reply_context()
-        store.bind(session_key="ch:c:agent-Z", kernel_session_id="ksess-z", reply_context=rc)
+        store.bind(
+            session_key="ch:c:agent-Z", kernel_session_id="ksess-z", reply_context=rc
+        )
 
         store.drop_agent("no-such-agent")
 
@@ -121,7 +140,9 @@ class TestR2KernelValidation:
     set_kernel_client 仍保留为兼容性 setter，但 get() 不再调用它。
     """
 
-    def test_get_returns_stored_binding_without_probing_kernel(self, tmp_path: Path) -> None:
+    def test_get_returns_stored_binding_without_probing_kernel(
+        self, tmp_path: Path
+    ) -> None:
         """即使注入了 kernel_client，get() 也不调用 get_session()。"""
         store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
         rc = _make_reply_context()
@@ -137,14 +158,20 @@ class TestR2KernelValidation:
         # get() must not probe the kernel — validation lives in the pipeline now.
         mock_client.get_session.assert_not_called()
 
-    def test_get_does_not_delete_binding_even_if_kernel_would_404(self, tmp_path: Path) -> None:
+    def test_get_does_not_delete_binding_even_if_kernel_would_404(
+        self, tmp_path: Path
+    ) -> None:
         """get() 不再因 kernel 探测失败而删除 binding；binding 持久保留。"""
         store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
         rc = _make_reply_context()
-        store.bind(session_key="ch:c:a", kernel_session_id="ksess-dead", reply_context=rc)
+        store.bind(
+            session_key="ch:c:a", kernel_session_id="ksess-dead", reply_context=rc
+        )
 
         mock_client = MagicMock()
-        mock_client.get_session.side_effect = RuntimeError("kernel request failed (404)")
+        mock_client.get_session.side_effect = RuntimeError(
+            "kernel request failed (404)"
+        )
         store.set_kernel_client(mock_client)
 
         result = store.get("ch:c:a")

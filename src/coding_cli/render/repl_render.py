@@ -25,7 +25,12 @@ def print_repl_turn_summary(
                     continue
                 kind = item.get("kind")
                 text = item.get("text")
-                if isinstance(kind, str) and kind in {"assistant", "tool"} and isinstance(text, str) and text:
+                if (
+                    isinstance(kind, str)
+                    and kind in {"assistant", "tool"}
+                    and isinstance(text, str)
+                    and text
+                ):
                     ordered_updates.append({"kind": kind, "text": text})
 
     if not text_streamed:
@@ -47,7 +52,9 @@ def print_repl_turn_summary(
     summary_payload = dict(payload) if ordered_updates else payload
     if ordered_updates:
         summary_payload["_ordered_rendered"] = True
-    print_turn_summary(out=out, payload=summary_payload, context_budget_client=context_budget_client)
+    print_turn_summary(
+        out=out, payload=summary_payload, context_budget_client=context_budget_client
+    )
 
 
 def print_repl_turn_error(

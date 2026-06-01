@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 from agent.platform.config.auto_mode import AutoModeConfig
@@ -66,8 +66,12 @@ class PermissionDecision:
     behavior: Literal["allow", "deny", "ask", "passthrough"]
     reason: str = ""
     rule_source: str = ""  # Deprecated: use decision_reason instead; retained for callers using rule_source
-    decision_reason: dict | None = None  # Structured reason: {"type": "safety_check"|"preapproved"|..., ...}
-    updated_input: dict | None = None  # Reserved: tool may rewrite its own input (not used in M1)
+    decision_reason: dict | None = (
+        None  # Structured reason: {"type": "safety_check"|"preapproved"|..., ...}
+    )
+    updated_input: dict | None = (
+        None  # Reserved: tool may rewrite its own input (not used in M1)
+    )
 
 
 # Default options per tool category
@@ -77,10 +81,18 @@ def _default_options_for_tool(tool_name: str) -> tuple[PermissionOption, ...]:
     Mirrors CC's per-tool differentiation (bash has 4 options including always-allow;
     file-write tools have 3; others get the standard 4).
     """
-    allow_once = PermissionOption("allow_once", "Allow once", "Allow this single action")
+    allow_once = PermissionOption(
+        "allow_once", "Allow once", "Allow this single action"
+    )
     deny = PermissionOption("deny", "Deny", "Block this action")
-    allow_session = PermissionOption("allow_session", "Allow for session", "Allow all calls to this tool this session")
-    allow_always = PermissionOption("allow_always", "Always allow", "Remember and always allow this tool")
+    allow_session = PermissionOption(
+        "allow_session",
+        "Allow for session",
+        "Allow all calls to this tool this session",
+    )
+    allow_always = PermissionOption(
+        "allow_always", "Always allow", "Remember and always allow this tool"
+    )
 
     if tool_name in ("write", "edit"):
         return (allow_once, deny, allow_session)
@@ -102,7 +114,9 @@ class PermissionBroker:
         self._lock = threading.Lock()
 
         # request_id -> (Future, run_id)
-        self._pending: dict[str, tuple[asyncio.Future[PermissionResponse], str | None]] = {}
+        self._pending: dict[
+            str, tuple[asyncio.Future[PermissionResponse], str | None]
+        ] = {}
 
         # (run_id, tool_name) -> deny count
         self._deny_counts: dict[tuple[str, str], int] = {}
@@ -196,7 +210,9 @@ class PermissionBroker:
         for rid, (future, _) in to_cancel.items():
             if not future.done():
                 try:
-                    future.get_loop().call_soon_threadsafe(future.set_result, deny_response)
+                    future.get_loop().call_soon_threadsafe(
+                        future.set_result, deny_response
+                    )
                 except Exception:
                     # Loop may be closing; best-effort cancellation
                     pass
@@ -257,7 +273,9 @@ class PermissionBroker:
         Returns:
             True if deny count >= deny_limit threshold.
         """
-        effective_limit = deny_limit if deny_limit is not None else self._config.deny_limit
+        effective_limit = (
+            deny_limit if deny_limit is not None else self._config.deny_limit
+        )
         return self.get_deny_count(run_id, tool_name) >= effective_limit
 
     # ------------------------------------------------------------------

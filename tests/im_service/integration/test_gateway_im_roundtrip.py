@@ -132,7 +132,9 @@ def test_device_binding_end_to_end_updates_node_and_agent_owner(tmp_path: Path) 
         owner_id = seed_user(client, "owner", "Owner")
         seed_node_and_profiles(app, agent_ids=("agent-a", "agent-b"))
 
-        start = client.post("/im/v1/bind", json={"action": "start", "node_id": "node-1"})
+        start = client.post(
+            "/im/v1/bind", json={"action": "start", "node_id": "node-1"}
+        )
         assert start.status_code == 201
         bind_id = start.json()["bind_id"]
 
@@ -160,7 +162,12 @@ def test_agent_config_sync_notifies_connected_gateway(tmp_path: Path) -> None:
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         owner_id = seed_user(client, "owner")
-        seed_node_and_profiles(app, owner_id=UserRepository(app.state.connection).get_user(user_id=owner_id).owner_id)
+        seed_node_and_profiles(
+            app,
+            owner_id=UserRepository(app.state.connection)
+            .get_user(user_id=owner_id)
+            .owner_id,
+        )
         sync_client = ConfigSyncClient()
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
@@ -230,7 +237,9 @@ def test_agent_config_sync_notifies_connected_gateway(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_same_session_key_reuses_session_create_session_called_once(tmp_path: Path) -> None:
+def test_same_session_key_reuses_session_create_session_called_once(
+    tmp_path: Path,
+) -> None:
     """Two messages on the same session_key must trigger create_session exactly once.
 
     W4 regression (refactor-387): _FakeKernel.get_session lacked workspace_root at
@@ -260,22 +269,27 @@ def test_same_session_key_reuses_session_create_session_called_once(tmp_path: Pa
         seed_node_and_profiles(app, agent_ids=("agent-a",))
         conversation = client.post(
             "/im/v1/conversations",
-            json={"title": "session-reuse-chat", "participant_ids": [user_id, agent_user_id]},
+            json={
+                "title": "session-reuse-chat",
+                "participant_ids": [user_id, agent_user_id],
+            },
         )
         assert conversation.status_code == 201
         conversation_id = conversation.json()["id"]
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
-            websocket.send_json({
-                "type": "node.register",
-                "payload": {
-                    "node_id": "node-1",
-                    "node_name": "test-node",
-                    "version": "1.0.0",
-                    "agents": ["agent-a"],
-                    "capabilities": {"relay": True},
-                },
-            })
+            websocket.send_json(
+                {
+                    "type": "node.register",
+                    "payload": {
+                        "node_id": "node-1",
+                        "node_name": "test-node",
+                        "version": "1.0.0",
+                        "agents": ["agent-a"],
+                        "capabilities": {"relay": True},
+                    },
+                }
+            )
             assert websocket.receive_json()["type"] == "ack"
 
             # First message — creates a new session.

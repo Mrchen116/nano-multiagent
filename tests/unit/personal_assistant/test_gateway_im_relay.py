@@ -10,9 +10,15 @@ from pathlib import Path
 import pytest
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
-from personal_assistant.channels.web_relay_adapter import RelayDeduplicationStore, WebRelayAdapter
+from personal_assistant.channels.web_relay_adapter import (
+    RelayDeduplicationStore,
+    WebRelayAdapter,
+)
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
-from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_runtime_capabilities
+from personal_assistant.reporter.upstream_reporter import (
+    UpstreamReporter,
+    build_runtime_capabilities,
+)
 
 
 def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
@@ -30,7 +36,9 @@ def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
     )
 
 
-def _write_skill(root: Path, dir_name: str, *, frontmatter_name: str | None = None) -> None:
+def _write_skill(
+    root: Path, dir_name: str, *, frontmatter_name: str | None = None
+) -> None:
     skill_dir = root / dir_name
     skill_dir.mkdir(parents=True, exist_ok=True)
     declared_name = frontmatter_name or dir_name
@@ -40,16 +48,28 @@ def _write_skill(root: Path, dir_name: str, *, frontmatter_name: str | None = No
     )
 
 
-def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     frames: list[tuple[str, dict[str, object]]] = []
     monkeypatch.setenv("HOME", str(tmp_path))
     _write_skill(tmp_path / ".nanoassistant" / "skills", "plan")
-    _write_skill(tmp_path / ".claude" / "skills", "playwright", frontmatter_name='"playwright"')
-    gstack_target_root = tmp_path / ".gstack" / "repos" / "gstack" / ".agents" / "skills"
-    _write_skill(gstack_target_root, "gstack-plan-design-review", frontmatter_name="plan-design-review")
+    _write_skill(
+        tmp_path / ".claude" / "skills", "playwright", frontmatter_name='"playwright"'
+    )
+    gstack_target_root = (
+        tmp_path / ".gstack" / "repos" / "gstack" / ".agents" / "skills"
+    )
+    _write_skill(
+        gstack_target_root,
+        "gstack-plan-design-review",
+        frontmatter_name="plan-design-review",
+    )
     codex_skills_root = tmp_path / ".codex" / "skills"
     codex_skills_root.mkdir(parents=True, exist_ok=True)
-    (codex_skills_root / "gstack-plan-design-review").symlink_to(gstack_target_root / "gstack-plan-design-review", target_is_directory=True)
+    (codex_skills_root / "gstack-plan-design-review").symlink_to(
+        gstack_target_root / "gstack-plan-design-review", target_is_directory=True
+    )
     agents = _agents(tmp_path)
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1", user_id="user-1"),
@@ -61,13 +81,26 @@ def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(tmp_path
     )
 
     register = reporter.send_register()
-    heartbeat = reporter.send_heartbeat(status="online", last_error=None, extra={"running_runs": 2})
-    report = reporter.send_report(run_id="run-1", status="completed", agent_id="agent-a", session_key="web:user:agent-a")
-    receipt = reporter.send_delivery_receipt(relay_task_id="relay-1", delivery_status="completed", detail="ok")
+    heartbeat = reporter.send_heartbeat(
+        status="online", last_error=None, extra={"running_runs": 2}
+    )
+    report = reporter.send_report(
+        run_id="run-1",
+        status="completed",
+        agent_id="agent-a",
+        session_key="web:user:agent-a",
+    )
+    receipt = reporter.send_delivery_receipt(
+        relay_task_id="relay-1", delivery_status="completed", detail="ok"
+    )
 
     assert register["node_id"] == "node-1"
     assert register["agents"] == ["agent-a"]
-    assert register["capabilities"] == {"relay": True, "send_message": True, "config_sync": True}
+    assert register["capabilities"] == {
+        "relay": True,
+        "send_message": True,
+        "config_sync": True,
+    }
     assert "capabilities" not in heartbeat
     assert heartbeat["running_runs"] == 2
     assert report["run_id"] == "run-1"
@@ -141,7 +174,9 @@ def test_relay_dedup_store_expired_keys_not_loaded(tmp_path: Path) -> None:
     store = RelayDeduplicationStore(db_path=db_path, ttl_seconds=1)
     store.add("idem-expired")
     with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE relay_deduplication_keys SET expires_at = ?", (time.time() - 10,))
+        conn.execute(
+            "UPDATE relay_deduplication_keys SET expires_at = ?", (time.time() - 10,)
+        )
         conn.commit()
 
     reloaded = RelayDeduplicationStore(db_path=db_path)
@@ -173,7 +208,9 @@ def test_relay_dedup_store_purge_removes_expired_rows(tmp_path: Path) -> None:
 
 
 def test_relay_dedup_store_deque_rolls_over_at_max(tmp_path: Path) -> None:
-    store = RelayDeduplicationStore(db_path=tmp_path / "relay-dedup.sqlite3", seen_keys=deque(["old"]))
+    store = RelayDeduplicationStore(
+        db_path=tmp_path / "relay-dedup.sqlite3", seen_keys=deque(["old"])
+    )
     store._seen_idempotency_keys = deque([str(index) for index in range(1000)])  # noqa: SLF001
 
     store.add("overflow")

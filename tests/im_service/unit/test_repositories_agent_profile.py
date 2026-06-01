@@ -94,11 +94,15 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
         )
 
 
-def test_direct_conversation_with_agent_alias_freezes_prompt_snapshot(tmp_path: Path) -> None:
+def test_direct_conversation_with_agent_alias_freezes_prompt_snapshot(
+    tmp_path: Path,
+) -> None:
     """Freeze agent snapshot metadata when direct chats target an alias user like `agent:<id>`."""
     users, conversations, _, profiles, _, _ = _build_repositories(tmp_path)
     owner = users.create_user(username="owner", display_name="Owner")
-    agent_alias = users.create_user(username="agent:agent-1", display_name="Alpha Alias")
+    agent_alias = users.create_user(
+        username="agent:agent-1", display_name="Alpha Alias"
+    )
     profiles.upsert_profile(
         agent_id="agent-1",
         owner_id=owner.owner_id,
@@ -136,6 +140,7 @@ def test_direct_conversation_with_agent_alias_freezes_prompt_snapshot(tmp_path: 
 # feat-379-M2/R3: features_json + custom_prompt in AgentProfile
 # ---------------------------------------------------------------------------
 
+
 def test_agent_profile_features_and_custom_prompt_roundtrip(tmp_path: Path) -> None:
     """AgentProfile must store and return features_json + custom_prompt (feat-379-M2)."""
     _, _, _, profiles, _, _ = _build_repositories(tmp_path)
@@ -144,10 +149,13 @@ def test_agent_profile_features_and_custom_prompt_roundtrip(tmp_path: Path) -> N
 
     # features + custom_prompt must exist on AgentProfile dataclass
     from IM.domain.models import AgentProfile
+
     assert hasattr(AgentProfile, "__dataclass_fields__") or True  # dataclass check
     sample = AgentProfile(agent_id="x", owner_id="y")
     assert hasattr(sample, "features"), "AgentProfile must have 'features' field"
-    assert hasattr(sample, "custom_prompt"), "AgentProfile must have 'custom_prompt' field"
+    assert hasattr(sample, "custom_prompt"), (
+        "AgentProfile must have 'custom_prompt' field"
+    )
 
 
 def test_upsert_profile_stores_features_and_custom_prompt(tmp_path: Path) -> None:

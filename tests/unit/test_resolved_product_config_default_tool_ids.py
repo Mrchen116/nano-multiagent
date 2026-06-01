@@ -35,7 +35,9 @@ def test_resolved_product_config_default_tool_ids_can_be_set() -> None:
     assert config.default_tool_ids == ["read", "write"]
 
 
-def test_bootstrap_personal_assistant_registry_includes_optional_send_message(tmp_path: Path) -> None:
+def test_bootstrap_personal_assistant_registry_includes_optional_send_message(
+    tmp_path: Path,
+) -> None:
     """bootstrap_product must include send_message in the full registry (optional pool) so allowlist can find it."""
     from agent.platform.bootstrap import bootstrap_product
     from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
@@ -50,7 +52,9 @@ def test_bootstrap_personal_assistant_registry_includes_optional_send_message(tm
     )
 
 
-def test_bootstrap_personal_assistant_default_tool_ids_excludes_send_message(tmp_path: Path) -> None:
+def test_bootstrap_personal_assistant_default_tool_ids_excludes_send_message(
+    tmp_path: Path,
+) -> None:
     """Resolved config must carry default_tool_ids that excludes send_message."""
     from agent.platform.bootstrap import bootstrap_product
     from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
@@ -61,7 +65,9 @@ def test_bootstrap_personal_assistant_default_tool_ids_excludes_send_message(tmp
     assert "read" in resolved.default_tool_ids
 
 
-def test_bootstrap_personal_assistant_resolved_config_default_tool_ids_matches_profile(tmp_path: Path) -> None:
+def test_bootstrap_personal_assistant_resolved_config_default_tool_ids_matches_profile(
+    tmp_path: Path,
+) -> None:
     """ResolvedProductConfig.default_tool_ids must equal profile.default_tool_ids."""
     from agent.platform.bootstrap import bootstrap_product
     from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE

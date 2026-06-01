@@ -94,26 +94,38 @@ def test_action_enum_contains_expected_values(tool: SkillManageTool) -> None:
 
 def test_create_action_writes_file(tool: SkillManageTool, workspace: Path) -> None:
     ctx = _make_ctx(workspace)
-    result = tool.run({"action": "create", "name": "my-skill", "content": _VALID_FM}, ctx)
+    result = tool.run(
+        {"action": "create", "name": "my-skill", "content": _VALID_FM}, ctx
+    )
     assert result.get("success") is True
     assert (workspace / "my-skill" / "SKILL.md").exists()
 
 
-def test_create_action_duplicate_returns_error(tool: SkillManageTool, workspace: Path) -> None:
+def test_create_action_duplicate_returns_error(
+    tool: SkillManageTool, workspace: Path
+) -> None:
     ctx = _make_ctx(workspace)
     tool.run({"action": "create", "name": "my-skill", "content": _VALID_FM}, ctx)
-    result = tool.run({"action": "create", "name": "my-skill", "content": _VALID_FM}, ctx)
+    result = tool.run(
+        {"action": "create", "name": "my-skill", "content": _VALID_FM}, ctx
+    )
     assert result.get("success") is False
     assert "already exists" in result.get("error", "").lower()
 
 
-def test_create_invalid_name_returns_error(tool: SkillManageTool, workspace: Path) -> None:
+def test_create_invalid_name_returns_error(
+    tool: SkillManageTool, workspace: Path
+) -> None:
     ctx = _make_ctx(workspace)
-    result = tool.run({"action": "create", "name": "INVALID NAME", "content": _VALID_FM}, ctx)
+    result = tool.run(
+        {"action": "create", "name": "INVALID NAME", "content": _VALID_FM}, ctx
+    )
     assert result.get("success") is False
 
 
-def test_create_missing_content_returns_error(tool: SkillManageTool, workspace: Path) -> None:
+def test_create_missing_content_returns_error(
+    tool: SkillManageTool, workspace: Path
+) -> None:
     ctx = _make_ctx(workspace)
     result = tool.run({"action": "create", "name": "my-skill"}, ctx)
     assert result.get("success") is False
@@ -126,8 +138,17 @@ def test_create_missing_content_returns_error(tool: SkillManageTool, workspace: 
 
 def test_edit_action_updates_file(tool: SkillManageTool, workspace: Path) -> None:
     ctx = _make_ctx(workspace)
-    tool.run({"action": "create", "name": "edit-skill", "content": _VALID_FM.replace("my-skill", "edit-skill")}, ctx)
-    new_fm = "---\nname: edit-skill\ndescription: Updated\n---\n\n# New\n\nUpdated content."
+    tool.run(
+        {
+            "action": "create",
+            "name": "edit-skill",
+            "content": _VALID_FM.replace("my-skill", "edit-skill"),
+        },
+        ctx,
+    )
+    new_fm = (
+        "---\nname: edit-skill\ndescription: Updated\n---\n\n# New\n\nUpdated content."
+    )
     result = tool.run({"action": "edit", "name": "edit-skill", "content": new_fm}, ctx)
     assert result.get("success") is True
     content = (workspace / "edit-skill" / "SKILL.md").read_text(encoding="utf-8")
@@ -147,10 +168,17 @@ def test_edit_nonexistent_returns_error(tool: SkillManageTool, workspace: Path) 
 
 def test_patch_action_replaces_text(tool: SkillManageTool, workspace: Path) -> None:
     ctx = _make_ctx(workspace)
-    content = "---\nname: patch-skill\ndescription: desc\n---\n\n# Body\n\nOld sentence."
+    content = (
+        "---\nname: patch-skill\ndescription: desc\n---\n\n# Body\n\nOld sentence."
+    )
     tool.run({"action": "create", "name": "patch-skill", "content": content}, ctx)
     result = tool.run(
-        {"action": "patch", "name": "patch-skill", "old_string": "Old sentence.", "new_string": "New sentence."},
+        {
+            "action": "patch",
+            "name": "patch-skill",
+            "old_string": "Old sentence.",
+            "new_string": "New sentence.",
+        },
         ctx,
     )
     assert result.get("success") is True
@@ -158,11 +186,25 @@ def test_patch_action_replaces_text(tool: SkillManageTool, workspace: Path) -> N
     assert "New sentence." in file_content
 
 
-def test_patch_missing_old_string_returns_error(tool: SkillManageTool, workspace: Path) -> None:
+def test_patch_missing_old_string_returns_error(
+    tool: SkillManageTool, workspace: Path
+) -> None:
     ctx = _make_ctx(workspace)
-    tool.run({"action": "create", "name": "ps2", "content": _VALID_FM.replace("my-skill", "ps2")}, ctx)
+    tool.run(
+        {
+            "action": "create",
+            "name": "ps2",
+            "content": _VALID_FM.replace("my-skill", "ps2"),
+        },
+        ctx,
+    )
     result = tool.run(
-        {"action": "patch", "name": "ps2", "old_string": "NOT_IN_CONTENT", "new_string": "y"},
+        {
+            "action": "patch",
+            "name": "ps2",
+            "old_string": "NOT_IN_CONTENT",
+            "new_string": "y",
+        },
         ctx,
     )
     assert result.get("success") is False
@@ -175,7 +217,14 @@ def test_patch_missing_old_string_returns_error(tool: SkillManageTool, workspace
 
 def test_list_action_returns_skills(tool: SkillManageTool, workspace: Path) -> None:
     ctx = _make_ctx(workspace)
-    tool.run({"action": "create", "name": "list-skill", "content": _VALID_FM.replace("my-skill", "list-skill")}, ctx)
+    tool.run(
+        {
+            "action": "create",
+            "name": "list-skill",
+            "content": _VALID_FM.replace("my-skill", "list-skill"),
+        },
+        ctx,
+    )
     result = tool.run({"action": "list"}, ctx)
     assert result.get("success") is True
     assert "list-skill" in str(result.get("skills", ""))
@@ -194,7 +243,14 @@ def test_list_empty_returns_empty(tool: SkillManageTool, workspace: Path) -> Non
 
 def test_view_action_returns_content(tool: SkillManageTool, workspace: Path) -> None:
     ctx = _make_ctx(workspace)
-    tool.run({"action": "create", "name": "view-skill", "content": _VALID_FM.replace("my-skill", "view-skill")}, ctx)
+    tool.run(
+        {
+            "action": "create",
+            "name": "view-skill",
+            "content": _VALID_FM.replace("my-skill", "view-skill"),
+        },
+        ctx,
+    )
     result = tool.run({"action": "view", "name": "view-skill"}, ctx)
     assert result.get("success") is True
     assert "view-skill" in result.get("content", "")
@@ -242,9 +298,16 @@ _FM = "---\nname: umb\ndescription: d\n---\n\n# Body\n"
 
 
 def test_tool_write_file_then_view_lists_it(tool: SkillManageTool) -> None:
-    assert tool.run({"action": "create", "name": "umb", "content": _FM}, ctx=None)["success"]
+    assert tool.run({"action": "create", "name": "umb", "content": _FM}, ctx=None)[
+        "success"
+    ]
     r = tool.run(
-        {"action": "write_file", "name": "umb", "file_path": "references/n.md", "file_content": "x"},
+        {
+            "action": "write_file",
+            "name": "umb",
+            "file_path": "references/n.md",
+            "file_content": "x",
+        },
         ctx=None,
     )
     assert r["success"], r
@@ -255,7 +318,12 @@ def test_tool_write_file_then_view_lists_it(tool: SkillManageTool) -> None:
 def test_tool_write_file_rejects_bad_path(tool: SkillManageTool) -> None:
     tool.run({"action": "create", "name": "umb", "content": _FM}, ctx=None)
     r = tool.run(
-        {"action": "write_file", "name": "umb", "file_path": "secrets/k", "file_content": "x"},
+        {
+            "action": "write_file",
+            "name": "umb",
+            "file_path": "secrets/k",
+            "file_content": "x",
+        },
         ctx=None,
     )
     assert not r["success"]
@@ -264,10 +332,17 @@ def test_tool_write_file_rejects_bad_path(tool: SkillManageTool) -> None:
 def test_tool_remove_file(tool: SkillManageTool) -> None:
     tool.run({"action": "create", "name": "umb", "content": _FM}, ctx=None)
     tool.run(
-        {"action": "write_file", "name": "umb", "file_path": "scripts/p.sh", "file_content": "x"},
+        {
+            "action": "write_file",
+            "name": "umb",
+            "file_path": "scripts/p.sh",
+            "file_content": "x",
+        },
         ctx=None,
     )
-    r = tool.run({"action": "remove_file", "name": "umb", "file_path": "scripts/p.sh"}, ctx=None)
+    r = tool.run(
+        {"action": "remove_file", "name": "umb", "file_path": "scripts/p.sh"}, ctx=None
+    )
     assert r["success"], r
     v = tool.run({"action": "view", "name": "umb"}, ctx=None)
     assert "scripts/p.sh" not in v.get("support_files", [])

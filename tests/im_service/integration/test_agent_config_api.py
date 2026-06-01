@@ -12,7 +12,7 @@ from IM.repositories import AgentProfileRepository, NodeRepository, UserReposito
 
 from .conftest import authorize, register_user
 
-_WORKSPACE_PATH_SETTING = "/Users/czj/nano-assistant/workspace/fuck"
+_WORKSPACE_PATH_SETTING = "/tmp/nano-test/workspace/test-agent"
 
 
 def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
@@ -42,17 +42,29 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
             default_model="gpt-4.1",
             workspace_root=None,
         )
-        app.state.connection.execute("UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?", ("node-1", "agent-1"))
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-1", "agent-1"),
+        )
         app.state.connection.commit()
 
         list_resp = client.get("/im/v1/agents")
         assert list_resp.status_code == 200
         # Use subset assertion: node_status is runtime-derived and may change.
         agent_row = list_resp.json()[0]
-        assert {k: agent_row[k] for k in (
-            "agent_id", "owner_id", "node_id", "display_name", "description",
-            "profile_version", "default_model", "workspace_is_default",
-        )} == {
+        assert {
+            k: agent_row[k]
+            for k in (
+                "agent_id",
+                "owner_id",
+                "node_id",
+                "display_name",
+                "description",
+                "profile_version",
+                "default_model",
+                "workspace_is_default",
+            )
+        } == {
             "agent_id": "agent-1",
             "owner_id": owner.owner_id,
             "node_id": "node-1",
@@ -63,7 +75,9 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
             "workspace_is_default": True,
         }
         assert list_resp.json()[0]["user_id"] is not None
-        assert list_resp.json()[0]["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
+        assert list_resp.json()[0]["workspace_root"].endswith(
+            "/nano-assistant/workspace/agent-1"
+        )
 
         get_resp = client.get(f"/im/v1/agents/{seeded.agent_id}/config?source=mirror")
         assert get_resp.status_code == 200
@@ -111,13 +125,17 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
         reset_body = reset_resp.json()
         assert reset_body["profile_version"] == 3
         assert reset_body["workspace_is_default"] is True
-        assert reset_body["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
+        assert reset_body["workspace_root"].endswith(
+            "/nano-assistant/workspace/agent-1"
+        )
         stored_row = app.state.connection.execute(
             "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
             (seeded.agent_id,),
         ).fetchone()
         assert stored_row is not None
-        assert stored_row["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
+        assert stored_row["workspace_root"].endswith(
+            "/nano-assistant/workspace/agent-1"
+        )
 
         conflict_resp = client.patch(
             f"/im/v1/agents/{seeded.agent_id}/config",
@@ -164,7 +182,10 @@ def test_get_agent_config_prefers_live_gateway_snapshot(tmp_path: Path) -> None:
             default_model=None,
             workspace_root=None,
         )
-        app.state.connection.execute("UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?", ("node-1", "agent-1"))
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-1", "agent-1"),
+        )
         app.state.connection.commit()
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
@@ -303,8 +324,9 @@ def test_agents_list_hides_unbound_and_cross_owner_profiles(tmp_path: Path) -> N
         assert response.json()[0]["node_id"] == "node-1"
 
 
-
-def test_agents_list_includes_fresh_runtime_profiles_before_bind(tmp_path: Path) -> None:
+def test_agents_list_includes_fresh_runtime_profiles_before_bind(
+    tmp_path: Path,
+) -> None:
     """Fresh gateway runtimes should expose ownerless bound agents before bind confirmation."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -354,10 +376,19 @@ def test_agents_list_includes_fresh_runtime_profiles_before_bind(tmp_path: Path)
         assert response.status_code == 200
         # Use subset assertion: node_status is runtime-derived and may change.
         agent_row = response.json()[0]
-        assert {k: agent_row[k] for k in (
-            "agent_id", "owner_id", "node_id", "display_name", "description",
-            "profile_version", "default_model", "workspace_is_default",
-        )} == {
+        assert {
+            k: agent_row[k]
+            for k in (
+                "agent_id",
+                "owner_id",
+                "node_id",
+                "display_name",
+                "description",
+                "profile_version",
+                "default_model",
+                "workspace_is_default",
+            )
+        } == {
             "agent_id": "agent-fresh",
             "owner_id": "",
             "node_id": "node-fresh",
@@ -367,9 +398,10 @@ def test_agents_list_includes_fresh_runtime_profiles_before_bind(tmp_path: Path)
             "default_model": None,
             "workspace_is_default": True,
         }
-        assert response.json()[0]["workspace_root"].endswith("/nano-assistant/workspace/agent-fresh")
+        assert response.json()[0]["workspace_root"].endswith(
+            "/nano-assistant/workspace/agent-fresh"
+        )
         assert response.json()[0]["user_id"] is not None
-
 
 
 def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
@@ -393,13 +425,21 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
             workspace_root=None,
         )
 
-        agent_participant = users.create_user(username="agent:agent-1", display_name="Alpha Alias")
-        app.state.connection.execute("UPDATE users SET owner_id = ? WHERE id = ?", (owner.owner_id, agent_participant.id))
+        agent_participant = users.create_user(
+            username="agent:agent-1", display_name="Alpha Alias"
+        )
+        app.state.connection.execute(
+            "UPDATE users SET owner_id = ? WHERE id = ?",
+            (owner.owner_id, agent_participant.id),
+        )
         app.state.connection.commit()
 
         first_conv = client.post(
             "/im/v1/conversations",
-            json={"title": "first", "participant_ids": [owner.id, agent_participant.id]},
+            json={
+                "title": "first",
+                "participant_ids": [owner.id, agent_participant.id],
+            },
         )
         assert first_conv.status_code == 201
         assert first_conv.json()["config_profile_version"] == 1
@@ -422,12 +462,19 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
 
         second_conv = client.post(
             "/im/v1/conversations",
-            json={"title": "second", "participant_ids": [owner.id, agent_participant.id]},
+            json={
+                "title": "second",
+                "participant_ids": [owner.id, agent_participant.id],
+            },
         )
         assert second_conv.status_code == 201
 
-        first_conv_after_patch = client.get(f"/im/v1/conversations/{first_conv.json()['id']}")
-        second_conv_after_patch = client.get(f"/im/v1/conversations/{second_conv.json()['id']}")
+        first_conv_after_patch = client.get(
+            f"/im/v1/conversations/{first_conv.json()['id']}"
+        )
+        second_conv_after_patch = client.get(
+            f"/im/v1/conversations/{second_conv.json()['id']}"
+        )
         assert first_conv_after_patch.status_code == 200
         assert second_conv_after_patch.status_code == 200
         assert first_conv.json()["config_profile_version"] == 1
@@ -436,7 +483,9 @@ def test_profile_updates_only_affect_new_conversations(tmp_path: Path) -> None:
         assert second_conv_after_patch.json()["config_profile_version"] == 2
 
 
-def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(tmp_path: Path) -> None:
+def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(
+    tmp_path: Path,
+) -> None:
     """Fresh runtime re-registration must not clear ownership from a previously bound agent profile."""
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -446,7 +495,12 @@ def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(tmp_pat
         nodes = NodeRepository(app.state.connection)
         profiles = AgentProfileRepository(app.state.connection)
 
-        nodes.upsert_node(node_id="node-fresh", node_name="Fresh Runtime", status="online", version="1.0.0")
+        nodes.upsert_node(
+            node_id="node-fresh",
+            node_name="Fresh Runtime",
+            status="online",
+            version="1.0.0",
+        )
         profiles.upsert_profile(
             agent_id="agent-m170-alpha",
             owner_id="",
@@ -465,7 +519,9 @@ def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(tmp_pat
         )
         app.state.connection.commit()
 
-        start_resp = client.post("/im/v1/bind", json={"action": "start", "node_id": "node-fresh"})
+        start_resp = client.post(
+            "/im/v1/bind", json={"action": "start", "node_id": "node-fresh"}
+        )
         assert start_resp.status_code == 201
         confirm_resp = client.post(
             "/im/v1/bind",
@@ -521,10 +577,14 @@ def test_bound_agent_survives_fresh_reregistration_and_remains_updatable(tmp_pat
         assert patch_resp.json()["display_name"] == "Alpha NO_REPLY"
 
 
-def test_node_capabilities_return_current_selectable_items(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_node_capabilities_return_current_selectable_items(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Expose current gateway-resolved skill/tool/model items for the settings UI."""
 
-    async def _fake_node_capabilities(self, *, target_node_id: str, timeout_seconds: float = 15.0):  # noqa: ARG002
+    async def _fake_node_capabilities(
+        self, *, target_node_id: str, timeout_seconds: float = 15.0
+    ):  # noqa: ARG002
         return {
             "skills": ["plan", "playwright"],
             "tools": ["read", "bash"],
@@ -533,17 +593,24 @@ def test_node_capabilities_return_current_selectable_items(tmp_path: Path, monke
 
     from IM.ws.gateway_handler import GatewayHandler
 
-    monkeypatch.setattr(GatewayHandler, "request_node_capabilities", _fake_node_capabilities)
+    monkeypatch.setattr(
+        GatewayHandler, "request_node_capabilities", _fake_node_capabilities
+    )
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         viewer = register_user(client, username="viewer", display_name="Viewer")
         authorize(client, viewer)
         nodes = NodeRepository(app.state.connection)
-        nodes.upsert_node(node_id="node-1", node_name="MacBook", status="online", version="1.0.0")
+        nodes.upsert_node(
+            node_id="node-1", node_name="MacBook", status="online", version="1.0.0"
+        )
         response = client.get("/im/v1/nodes/node-1/capabilities")
 
     assert response.status_code == 200
-    assert [item["name"] for item in response.json()["skills"]] == ["plan", "playwright"]
+    assert [item["name"] for item in response.json()["skills"]] == [
+        "plan",
+        "playwright",
+    ]
     assert [item["name"] for item in response.json()["tools"]] == ["read", "bash"]
     assert response.json()["models"] == ["kimiCoding:K2.6", "codex_oauth:gpt-5.5"]

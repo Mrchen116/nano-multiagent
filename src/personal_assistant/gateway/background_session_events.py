@@ -116,7 +116,10 @@ class BackgroundSessionEventSubscriber:
                             _log.warning(
                                 "background session event callback error",
                                 exc_info=True,
-                                extra={"session_id": self._session_id, "event": event_name},
+                                extra={
+                                    "session_id": self._session_id,
+                                    "event": event_name,
+                                },
                             )
                 # Stream ended cleanly — treat as transient; reconnect after delay.
                 delay = self._reconnect_delay

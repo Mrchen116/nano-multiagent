@@ -8,7 +8,10 @@ from pathlib import Path
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.group_context_store import GroupContextStore
-from personal_assistant.gateway.inbound_pipeline import InboundPipeline, _format_sender_text
+from personal_assistant.gateway.inbound_pipeline import (
+    InboundPipeline,
+    _format_sender_text,
+)
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.channel_registry import ChannelRegistry
@@ -41,16 +44,35 @@ class _FakeKernelClient:
         self._session_count += 1
         return {"session_id": f"sess-{self._session_count}"}
 
-    def submit_message(self, *, session_id, texts, image_urls=None, priority="next", **_kwargs):
+    def submit_message(
+        self, *, session_id, texts, image_urls=None, priority="next", **_kwargs
+    ):
         self._run_count += 1
         run_id = f"run-{self._run_count}"
-        self.send_calls.append({"session_id": session_id, "texts": texts, "run_id": run_id})
-        return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
+        self.send_calls.append(
+            {"session_id": session_id, "texts": texts, "run_id": run_id}
+        )
+        return {
+            "run_id": run_id,
+            "anchor_sequence": 1,
+            "injected": False,
+            "status": "queued",
+        }
 
-    async def stream_session(self, *, session_id, last_event_id=None, workspace_root=None, **_kwargs):
+    async def stream_session(
+        self, *, session_id, last_event_id=None, workspace_root=None, **_kwargs
+    ):
         del session_id, last_event_id
-        yield {"event": "assistant_message", "run_id": f"run-{self._run_count}", "content": "ok"}
-        yield {"event": "run_status", "run_id": f"run-{self._run_count}", "status": "completed"}
+        yield {
+            "event": "assistant_message",
+            "run_id": f"run-{self._run_count}",
+            "content": "ok",
+        }
+        yield {
+            "event": "run_status",
+            "run_id": f"run-{self._run_count}",
+            "status": "completed",
+        }
 
     def get_run(self, *, run_id):
         return {"status": "completed", "output_text": "ok"}
@@ -59,10 +81,14 @@ class _FakeKernelClient:
         return {"metadata": {"workspace_root": "/workspace"}}
 
 
-def _build_pipeline(tmp_path: Path, *, with_store: bool = True) -> tuple[InboundPipeline, GroupContextStore | None, _FakeKernelClient]:
+def _build_pipeline(
+    tmp_path: Path, *, with_store: bool = True
+) -> tuple[InboundPipeline, GroupContextStore | None, _FakeKernelClient]:
     dir_a = tmp_path / "agent-a"
     dir_a.mkdir()
-    agents = (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=dir_a, title="Agent A"),)
+    agents = (
+        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=dir_a, title="Agent A"),
+    )
     store = GroupContextStore(db_path=tmp_path / "ctx.sqlite3") if with_store else None
     kernel = _FakeKernel()
     channel = _FakeChannel("web_relay")
@@ -80,6 +106,7 @@ def _build_pipeline(tmp_path: Path, *, with_store: bool = True) -> tuple[Inbound
 
 # ── _format_sender_text unit tests ────────────────────────────────────────────
 
+
 def test_format_sender_text_with_non_empty_sender() -> None:
     """Non-empty sender produces [sender] text prefix."""
     result = _format_sender_text("user-1", "hello")
@@ -93,6 +120,7 @@ def test_format_sender_text_with_empty_sender_returns_text_unchanged() -> None:
 
 
 # ── Pipeline integration tests ────────────────────────────────────────────────
+
 
 def test_group_mention_message_gets_sender_prefix(tmp_path: Path) -> None:
     """群聊 @mention 消息发送给 kernel 时带有 [external_user_id] 前缀。"""
@@ -156,7 +184,10 @@ def test_buffer_drain_formats_sender_prefix_on_each_item(tmp_path: Path) -> None
     asyncio.run(pipeline.handle_inbound(plain))
     asyncio.run(pipeline.handle_inbound(mention))
 
-    assert kernel.send_calls[0]["texts"] == ["[alice] first message", "[bob] @agent-a respond"]
+    assert kernel.send_calls[0]["texts"] == [
+        "[alice] first message",
+        "[bob] @agent-a respond",
+    ]
 
 
 def test_no_buffer_single_group_text_has_prefix(tmp_path: Path) -> None:
@@ -183,15 +214,19 @@ def test_multiple_buffered_items_become_independent_texts(tmp_path: Path) -> Non
     pipeline, store, kernel = _build_pipeline(tmp_path)
 
     for sender, text in [("alice", "msg one"), ("bob", "msg two")]:
-        asyncio.run(pipeline.handle_inbound(InboundMessage(
-            channel_name="web_relay",
-            text=text,
-            external_user_id=sender,
-            external_chat_id="conv-1",
-            is_group=True,
-            agent_id="agent-a",
-            metadata={"mentioned_agent_ids": []},
-        )))
+        asyncio.run(
+            pipeline.handle_inbound(
+                InboundMessage(
+                    channel_name="web_relay",
+                    text=text,
+                    external_user_id=sender,
+                    external_chat_id="conv-1",
+                    is_group=True,
+                    agent_id="agent-a",
+                    metadata={"mentioned_agent_ids": []},
+                )
+            )
+        )
 
     mention = InboundMessage(
         channel_name="web_relay",
@@ -224,7 +259,10 @@ def test_group_mention_uses_display_name_when_provided(tmp_path: Path) -> None:
         external_chat_id="conv-1",
         is_group=True,
         agent_id="agent-a",
-        metadata={"mentioned_agent_ids": ["agent-a"], "sender_display_name": "Alice Chen"},
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "sender_display_name": "Alice Chen",
+        },
     )
     asyncio.run(pipeline.handle_inbound(msg))
 
@@ -271,7 +309,10 @@ def test_buffered_messages_use_display_name_from_metadata(tmp_path: Path) -> Non
         external_chat_id="conv-1",
         is_group=True,
         agent_id="agent-a",
-        metadata={"mentioned_agent_ids": ["agent-a"], "sender_display_name": "Alice Chen"},
+        metadata={
+            "mentioned_agent_ids": ["agent-a"],
+            "sender_display_name": "Alice Chen",
+        },
     )
 
     asyncio.run(pipeline.handle_inbound(plain))

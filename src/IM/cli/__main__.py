@@ -8,10 +8,14 @@ from pathlib import Path
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(prog="IM.cli", description="IM service operator CLI")
+    parser = argparse.ArgumentParser(
+        prog="IM.cli", description="IM service operator CLI"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    init_admin = sub.add_parser("init_admin", help="Seed the first admin user on a fresh database")
+    init_admin = sub.add_parser(
+        "init_admin", help="Seed the first admin user on a fresh database"
+    )
     init_admin.add_argument("--username", required=True)
     init_admin.add_argument("--password", required=True)
     init_admin.add_argument("--display-name", required=True)

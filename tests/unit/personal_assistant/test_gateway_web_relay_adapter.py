@@ -6,7 +6,10 @@ from collections import deque
 from pathlib import Path
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
-from personal_assistant.channels.web_relay_adapter import RelayDeduplicationStore, WebRelayAdapter
+from personal_assistant.channels.web_relay_adapter import (
+    RelayDeduplicationStore,
+    WebRelayAdapter,
+)
 
 
 def test_web_relay_adapter_converts_relay_payload_to_inbound_message() -> None:

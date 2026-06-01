@@ -114,16 +114,34 @@ class _BaseKernelStub:
         self._run_id_counter += 1
         return _StubRunRecord(run_id=f"run-{self._run_id_counter}")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         """Return async iterator of events for session. Override in subclasses."""
         run_id = f"run-{self._run_id_counter}"
         text = self._last_text
-        return _AsyncIterEvents([
-            {"event": "assistant_message", "run_id": run_id, "session_id": session_id, "content": f"echo:{text}"},
-            {"event": "run_status", "run_id": run_id, "session_id": session_id,
-             "status": "completed", "stop_reason": "stop",
-             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}},
-        ])
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "assistant_message",
+                    "run_id": run_id,
+                    "session_id": session_id,
+                    "content": f"echo:{text}",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": run_id,
+                    "session_id": session_id,
+                    "status": "completed",
+                    "stop_reason": "stop",
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                },
+            ]
+        )
 
     async def compact(
         self, session_id: str, *, workspace_root: Any = None
@@ -137,7 +155,9 @@ class _BaseKernelStub:
         self.calls.append(("list_session_tools", {"session_id": session_id}))
         return self._tools_result
 
-    async def fork_session(self, session_id: str, *, workspace_root: Any = None) -> _StubSession:
+    async def fork_session(
+        self, session_id: str, *, workspace_root: Any = None
+    ) -> _StubSession:
         self.calls.append(("fork_session", {"session_id": session_id}))
         return _StubSession(session_id=f"{session_id}-fork")
 
@@ -169,14 +189,17 @@ class _BaseKernelStub:
 
 def _make_kernel_factory(stub: _BaseKernelStub):
     """Build a kernel_factory callable from a stub."""
+
     def factory(**_kwargs: Any) -> _BaseKernelStub:
         return stub
+
     return factory
 
 
 # ---------------------------------------------------------------------------
 # Specialized stubs for async event rendering tests
 # ---------------------------------------------------------------------------
+
 
 class _KernelWithEvents(_BaseKernelStub):
     """Kernel stub with configurable event sequences per stream() call."""
@@ -193,7 +216,9 @@ class _KernelWithEvents(_BaseKernelStub):
         self._default_events = default_events
         self._stream_call_count = 0
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         call_index = self._stream_call_count
         self._stream_call_count += 1
         if call_index < len(self._stream_events_by_call):
@@ -204,9 +229,19 @@ class _KernelWithEvents(_BaseKernelStub):
             run_id = f"run-{self._run_id_counter}"
             text = self._last_text
             events = [
-                {"event": "assistant_message", "run_id": run_id, "session_id": session_id, "content": f"echo:{text}"},
-                {"event": "run_status", "run_id": run_id, "session_id": session_id,
-                 "status": "completed", "stop_reason": "stop"},
+                {
+                    "event": "assistant_message",
+                    "run_id": run_id,
+                    "session_id": session_id,
+                    "content": f"echo:{text}",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": run_id,
+                    "session_id": session_id,
+                    "status": "completed",
+                    "stop_reason": "stop",
+                },
             ]
         return _AsyncIterEvents(events)
 
@@ -227,20 +262,55 @@ class _AsyncEventingKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run_target")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         self._stream_call_count += 1
         if self._stream_call_count == 1:
             events = [
                 {"event": "run_status", "run_id": "run_target", "status": "queued"},
                 {"event": "run_status", "run_id": "run_target", "status": "queued"},
-                {"event": "assistant_message", "run_id": "run_other", "content": "ignore-me"},
-                {"event": "tool_start", "run_id": "run_target", "name": "echo", "call_id": "call_1", "arguments": {"text": "ping"}},
-                {"event": "tool_end", "run_id": "run_target", "name": "echo", "call_id": "call_1", "output": {"text": "echo:ping"}, "error": None},
-                {"event": "assistant_message", "run_id": "run_target", "content": "final:echo:ping"},
-                {"event": "run_status", "run_id": "run_target", "status": "completed", "stop_reason": "stop"},
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_other",
+                    "content": "ignore-me",
+                },
+                {
+                    "event": "tool_start",
+                    "run_id": "run_target",
+                    "name": "echo",
+                    "call_id": "call_1",
+                    "arguments": {"text": "ping"},
+                },
+                {
+                    "event": "tool_end",
+                    "run_id": "run_target",
+                    "name": "echo",
+                    "call_id": "call_1",
+                    "output": {"text": "echo:ping"},
+                    "error": None,
+                },
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_target",
+                    "content": "final:echo:ping",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run_target",
+                    "status": "completed",
+                    "stop_reason": "stop",
+                },
             ]
         else:
-            events = [{"event": "run_status", "run_id": "run_target", "status": "completed", "stop_reason": "stop"}]
+            events = [
+                {
+                    "event": "run_status",
+                    "run_id": "run_target",
+                    "status": "completed",
+                    "stop_reason": "stop",
+                }
+            ]
         return _AsyncIterEvents(events)
 
 
@@ -253,13 +323,39 @@ class _AsyncMultilineToolKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run_multiline")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
-        return _AsyncIterEvents([
-            {"event": "tool_start", "run_id": "run_multiline", "name": "echo", "call_id": "call_ml", "arguments": {"text": "ping"}},
-            {"event": "tool_end", "run_id": "run_multiline", "name": "echo", "call_id": "call_ml", "output": {"text": "line1\nline2"}, "error": None},
-            {"event": "assistant_message", "run_id": "run_multiline", "content": "final:echo:ping"},
-            {"event": "run_status", "run_id": "run_multiline", "status": "completed", "stop_reason": "stop"},
-        ])
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "tool_start",
+                    "run_id": "run_multiline",
+                    "name": "echo",
+                    "call_id": "call_ml",
+                    "arguments": {"text": "ping"},
+                },
+                {
+                    "event": "tool_end",
+                    "run_id": "run_multiline",
+                    "name": "echo",
+                    "call_id": "call_ml",
+                    "output": {"text": "line1\nline2"},
+                    "error": None,
+                },
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_multiline",
+                    "content": "final:echo:ping",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run_multiline",
+                    "status": "completed",
+                    "stop_reason": "stop",
+                },
+            ]
+        )
 
 
 class _AsyncLongToolOutputKernelStub(_BaseKernelStub):
@@ -271,14 +367,40 @@ class _AsyncLongToolOutputKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run_long_output")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         long_output = "HEAD-" + ("x" * 200) + "-TAIL"
-        return _AsyncIterEvents([
-            {"event": "tool_start", "run_id": "run_long_output", "name": "echo", "call_id": "call_long", "arguments": {"text": "ping"}},
-            {"event": "tool_end", "run_id": "run_long_output", "name": "echo", "call_id": "call_long", "output": {"text": long_output}, "error": None},
-            {"event": "assistant_message", "run_id": "run_long_output", "content": "final:echo:ping"},
-            {"event": "run_status", "run_id": "run_long_output", "status": "completed", "stop_reason": "stop"},
-        ])
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "tool_start",
+                    "run_id": "run_long_output",
+                    "name": "echo",
+                    "call_id": "call_long",
+                    "arguments": {"text": "ping"},
+                },
+                {
+                    "event": "tool_end",
+                    "run_id": "run_long_output",
+                    "name": "echo",
+                    "call_id": "call_long",
+                    "output": {"text": long_output},
+                    "error": None,
+                },
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_long_output",
+                    "content": "final:echo:ping",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run_long_output",
+                    "status": "completed",
+                    "stop_reason": "stop",
+                },
+            ]
+        )
 
 
 class _AsyncSameToolTwiceKernelStub(_BaseKernelStub):
@@ -290,15 +412,54 @@ class _AsyncSameToolTwiceKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run_twice")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
-        return _AsyncIterEvents([
-            {"event": "tool_start", "run_id": "run_twice", "name": "echo", "call_id": "call_1", "arguments": {"text": "first"}},
-            {"event": "tool_end", "run_id": "run_twice", "name": "echo", "call_id": "call_1", "output": {"text": "echo:first"}, "error": None},
-            {"event": "tool_start", "run_id": "run_twice", "name": "echo", "call_id": "call_2", "arguments": {"text": "second"}},
-            {"event": "tool_end", "run_id": "run_twice", "name": "echo", "call_id": "call_2", "output": {"text": "echo:second"}, "error": None},
-            {"event": "assistant_message", "run_id": "run_twice", "content": "final:echo:second"},
-            {"event": "run_status", "run_id": "run_twice", "status": "completed", "stop_reason": "stop"},
-        ])
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "tool_start",
+                    "run_id": "run_twice",
+                    "name": "echo",
+                    "call_id": "call_1",
+                    "arguments": {"text": "first"},
+                },
+                {
+                    "event": "tool_end",
+                    "run_id": "run_twice",
+                    "name": "echo",
+                    "call_id": "call_1",
+                    "output": {"text": "echo:first"},
+                    "error": None,
+                },
+                {
+                    "event": "tool_start",
+                    "run_id": "run_twice",
+                    "name": "echo",
+                    "call_id": "call_2",
+                    "arguments": {"text": "second"},
+                },
+                {
+                    "event": "tool_end",
+                    "run_id": "run_twice",
+                    "name": "echo",
+                    "call_id": "call_2",
+                    "output": {"text": "echo:second"},
+                    "error": None,
+                },
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_twice",
+                    "content": "final:echo:second",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run_twice",
+                    "status": "completed",
+                    "stop_reason": "stop",
+                },
+            ]
+        )
 
 
 class _AsyncSameToolSameOutputKernelStub(_BaseKernelStub):
@@ -310,15 +471,54 @@ class _AsyncSameToolSameOutputKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run_same_output")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
-        return _AsyncIterEvents([
-            {"event": "tool_start", "run_id": "run_same_output", "name": "echo", "call_id": "call_same_1", "arguments": {"text": "same"}},
-            {"event": "tool_end", "run_id": "run_same_output", "name": "echo", "call_id": "call_same_1", "output": {"text": "echo:same"}, "error": None},
-            {"event": "tool_start", "run_id": "run_same_output", "name": "echo", "call_id": "call_same_2", "arguments": {"text": "same"}},
-            {"event": "tool_end", "run_id": "run_same_output", "name": "echo", "call_id": "call_same_2", "output": {"text": "echo:same"}, "error": None},
-            {"event": "assistant_message", "run_id": "run_same_output", "content": "final:echo:same"},
-            {"event": "run_status", "run_id": "run_same_output", "status": "completed", "stop_reason": "stop"},
-        ])
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "tool_start",
+                    "run_id": "run_same_output",
+                    "name": "echo",
+                    "call_id": "call_same_1",
+                    "arguments": {"text": "same"},
+                },
+                {
+                    "event": "tool_end",
+                    "run_id": "run_same_output",
+                    "name": "echo",
+                    "call_id": "call_same_1",
+                    "output": {"text": "echo:same"},
+                    "error": None,
+                },
+                {
+                    "event": "tool_start",
+                    "run_id": "run_same_output",
+                    "name": "echo",
+                    "call_id": "call_same_2",
+                    "arguments": {"text": "same"},
+                },
+                {
+                    "event": "tool_end",
+                    "run_id": "run_same_output",
+                    "name": "echo",
+                    "call_id": "call_same_2",
+                    "output": {"text": "echo:same"},
+                    "error": None,
+                },
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_same_output",
+                    "content": "final:echo:same",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run_same_output",
+                    "status": "completed",
+                    "stop_reason": "stop",
+                },
+            ]
+        )
 
 
 class _AsyncToolExecStreamingKernelStub(_BaseKernelStub):
@@ -330,17 +530,77 @@ class _AsyncToolExecStreamingKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run_tool_exec")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
-        return _AsyncIterEvents([
-            {"event": "tool_start", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "arguments": {"command": "printf out-line; printf err-line >&2", "timeout": 1}},
-            {"event": "tool_exec_started", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "status": "started", "elapsed_ms": 0},
-            {"event": "tool_exec_running", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "status": "running", "elapsed_ms": 120},
-            {"event": "tool_exec_chunk", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "stream": "stdout", "chunk": "out-line", "seq": 1},
-            {"event": "tool_exec_chunk", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "stream": "stderr", "chunk": "err-line", "seq": 2},
-            {"event": "tool_exec_exit", "run_id": "run_tool_exec", "name": "bash", "call_id": "call_bash_1", "status": "completed", "duration_ms": 210, "exit_code": 0},
-            {"event": "assistant_message", "run_id": "run_tool_exec", "content": "done"},
-            {"event": "run_status", "run_id": "run_tool_exec", "status": "completed", "stop_reason": "stop"},
-        ])
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "tool_start",
+                    "run_id": "run_tool_exec",
+                    "name": "bash",
+                    "call_id": "call_bash_1",
+                    "arguments": {
+                        "command": "printf out-line; printf err-line >&2",
+                        "timeout": 1,
+                    },
+                },
+                {
+                    "event": "tool_exec_started",
+                    "run_id": "run_tool_exec",
+                    "name": "bash",
+                    "call_id": "call_bash_1",
+                    "status": "started",
+                    "elapsed_ms": 0,
+                },
+                {
+                    "event": "tool_exec_running",
+                    "run_id": "run_tool_exec",
+                    "name": "bash",
+                    "call_id": "call_bash_1",
+                    "status": "running",
+                    "elapsed_ms": 120,
+                },
+                {
+                    "event": "tool_exec_chunk",
+                    "run_id": "run_tool_exec",
+                    "name": "bash",
+                    "call_id": "call_bash_1",
+                    "stream": "stdout",
+                    "chunk": "out-line",
+                    "seq": 1,
+                },
+                {
+                    "event": "tool_exec_chunk",
+                    "run_id": "run_tool_exec",
+                    "name": "bash",
+                    "call_id": "call_bash_1",
+                    "stream": "stderr",
+                    "chunk": "err-line",
+                    "seq": 2,
+                },
+                {
+                    "event": "tool_exec_exit",
+                    "run_id": "run_tool_exec",
+                    "name": "bash",
+                    "call_id": "call_bash_1",
+                    "status": "completed",
+                    "duration_ms": 210,
+                    "exit_code": 0,
+                },
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_tool_exec",
+                    "content": "done",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run_tool_exec",
+                    "status": "completed",
+                    "stop_reason": "stop",
+                },
+            ]
+        )
 
 
 class _AsyncOrphanExecExitKernelStub(_BaseKernelStub):
@@ -352,15 +612,57 @@ class _AsyncOrphanExecExitKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run_orphan")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
-        return _AsyncIterEvents([
-            {"event": "tool_start", "run_id": "run_orphan", "name": "bash", "call_id": "call_active", "arguments": {"command": "echo active"}},
-            {"event": "tool_exec_started", "run_id": "run_orphan", "name": "bash", "call_id": "call_active", "status": "started", "elapsed_ms": 0},
-            {"event": "tool_exec_exit", "run_id": "run_orphan", "name": "bash", "call_id": "call_orphan", "status": "failed", "duration_ms": 31, "exit_code": 137},
-            {"event": "tool_exec_exit", "run_id": "run_orphan", "name": "bash", "call_id": "call_active", "status": "completed", "duration_ms": 19, "exit_code": 0},
-            {"event": "assistant_message", "run_id": "run_orphan", "content": "final:orphan-isolated"},
-            {"event": "run_status", "run_id": "run_orphan", "status": "completed", "stop_reason": "stop"},
-        ])
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "tool_start",
+                    "run_id": "run_orphan",
+                    "name": "bash",
+                    "call_id": "call_active",
+                    "arguments": {"command": "echo active"},
+                },
+                {
+                    "event": "tool_exec_started",
+                    "run_id": "run_orphan",
+                    "name": "bash",
+                    "call_id": "call_active",
+                    "status": "started",
+                    "elapsed_ms": 0,
+                },
+                {
+                    "event": "tool_exec_exit",
+                    "run_id": "run_orphan",
+                    "name": "bash",
+                    "call_id": "call_orphan",
+                    "status": "failed",
+                    "duration_ms": 31,
+                    "exit_code": 137,
+                },
+                {
+                    "event": "tool_exec_exit",
+                    "run_id": "run_orphan",
+                    "name": "bash",
+                    "call_id": "call_active",
+                    "status": "completed",
+                    "duration_ms": 19,
+                    "exit_code": 0,
+                },
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_orphan",
+                    "content": "final:orphan-isolated",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run_orphan",
+                    "status": "completed",
+                    "stop_reason": "stop",
+                },
+            ]
+        )
 
 
 class _AsyncFailedRunKernelStub(_BaseKernelStub):
@@ -372,11 +674,20 @@ class _AsyncFailedRunKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run_failed")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
-        return _AsyncIterEvents([
-            {"event": "run_status", "run_id": "run_failed", "status": "queued"},
-            {"event": "run_status", "run_id": "run_failed", "status": "failed", "stop_reason": "timeout"},
-        ])
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
+        return _AsyncIterEvents(
+            [
+                {"event": "run_status", "run_id": "run_failed", "status": "queued"},
+                {
+                    "event": "run_status",
+                    "run_id": "run_failed",
+                    "status": "failed",
+                    "stop_reason": "timeout",
+                },
+            ]
+        )
 
 
 class _AsyncNoEventIdReplayKernelStub(_BaseKernelStub):
@@ -392,15 +703,42 @@ class _AsyncNoEventIdReplayKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run_no_event_id")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         self._stream_call_count += 1
         if self._stream_call_count <= 2:
-            return _AsyncIterEvents([
-                {"event": "tool_start", "run_id": "run_no_event_id", "name": "bash", "call_id": "call_no_event_id", "arguments": {"command": "echo hi"}},
-                {"event": "tool_exec_exit", "run_id": "run_no_event_id", "name": "bash", "call_id": "call_no_event_id", "status": "completed", "duration_ms": 12, "exit_code": 0},
-                {"event": "assistant_message", "run_id": "run_no_event_id", "content": "final:no-event-id"},
-                {"event": "run_status", "run_id": "run_no_event_id", "status": "completed", "stop_reason": "stop"},
-            ])
+            return _AsyncIterEvents(
+                [
+                    {
+                        "event": "tool_start",
+                        "run_id": "run_no_event_id",
+                        "name": "bash",
+                        "call_id": "call_no_event_id",
+                        "arguments": {"command": "echo hi"},
+                    },
+                    {
+                        "event": "tool_exec_exit",
+                        "run_id": "run_no_event_id",
+                        "name": "bash",
+                        "call_id": "call_no_event_id",
+                        "status": "completed",
+                        "duration_ms": 12,
+                        "exit_code": 0,
+                    },
+                    {
+                        "event": "assistant_message",
+                        "run_id": "run_no_event_id",
+                        "content": "final:no-event-id",
+                    },
+                    {
+                        "event": "run_status",
+                        "run_id": "run_no_event_id",
+                        "status": "completed",
+                        "stop_reason": "stop",
+                    },
+                ]
+            )
         return _AsyncIterEvents([])
 
 
@@ -417,19 +755,59 @@ class _AsyncChangedEventIdReplayKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run_changed_event_id")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         self._stream_call_count += 1
         if self._stream_call_count == 1:
-            return _AsyncIterEvents([
-                {"event": "tool_start", "run_id": "run_changed_event_id", "name": "bash", "call_id": "call_changed_event_id", "arguments": {"command": "echo hi"}},
-                {"event": "tool_exec_exit", "run_id": "run_changed_event_id", "name": "bash", "call_id": "call_changed_event_id", "status": "completed", "duration_ms": 18, "exit_code": 0},
-                {"event": "assistant_message", "run_id": "run_changed_event_id", "content": "final:changed-event-id"},
-                {"event": "run_status", "run_id": "run_changed_event_id", "status": "completed", "stop_reason": "stop"},
-            ])
-        return _AsyncIterEvents([
-            {"event": "tool_start", "run_id": "run_changed_event_id", "name": "bash", "call_id": "call_changed_event_id", "arguments": {"command": "echo hi"}},
-            {"event": "run_status", "run_id": "run_changed_event_id", "status": "completed", "stop_reason": "stop"},
-        ])
+            return _AsyncIterEvents(
+                [
+                    {
+                        "event": "tool_start",
+                        "run_id": "run_changed_event_id",
+                        "name": "bash",
+                        "call_id": "call_changed_event_id",
+                        "arguments": {"command": "echo hi"},
+                    },
+                    {
+                        "event": "tool_exec_exit",
+                        "run_id": "run_changed_event_id",
+                        "name": "bash",
+                        "call_id": "call_changed_event_id",
+                        "status": "completed",
+                        "duration_ms": 18,
+                        "exit_code": 0,
+                    },
+                    {
+                        "event": "assistant_message",
+                        "run_id": "run_changed_event_id",
+                        "content": "final:changed-event-id",
+                    },
+                    {
+                        "event": "run_status",
+                        "run_id": "run_changed_event_id",
+                        "status": "completed",
+                        "stop_reason": "stop",
+                    },
+                ]
+            )
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "tool_start",
+                    "run_id": "run_changed_event_id",
+                    "name": "bash",
+                    "call_id": "call_changed_event_id",
+                    "arguments": {"command": "echo hi"},
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run_changed_event_id",
+                    "status": "completed",
+                    "stop_reason": "stop",
+                },
+            ]
+        )
 
 
 class _UsageKernelStub(_BaseKernelStub):
@@ -442,14 +820,32 @@ class _UsageKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run-1")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         text = self._last_text
-        return _AsyncIterEvents([
-            {"event": "assistant_message", "run_id": "run-1", "session_id": session_id, "content": f"echo:{text}"},
-            {"event": "run_status", "run_id": "run-1", "session_id": session_id,
-             "status": "completed", "stop_reason": "stop",
-             "usage": {"prompt_tokens": 120, "completion_tokens": 35, "total_tokens": 155}},
-        ])
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "assistant_message",
+                    "run_id": "run-1",
+                    "session_id": session_id,
+                    "content": f"echo:{text}",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run-1",
+                    "session_id": session_id,
+                    "status": "completed",
+                    "stop_reason": "stop",
+                    "usage": {
+                        "prompt_tokens": 120,
+                        "completion_tokens": 35,
+                        "total_tokens": 155,
+                    },
+                },
+            ]
+        )
 
 
 class _CompactedKernelStub(_BaseKernelStub):
@@ -473,14 +869,32 @@ class _CompactedKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run-1")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         text = self._last_text
-        return _AsyncIterEvents([
-            {"event": "assistant_message", "run_id": "run-1", "session_id": session_id, "content": f"echo:{text}"},
-            {"event": "run_status", "run_id": "run-1", "session_id": session_id,
-             "status": "completed", "stop_reason": "stop",
-             "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}},
-        ])
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "assistant_message",
+                    "run_id": "run-1",
+                    "session_id": session_id,
+                    "content": f"echo:{text}",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run-1",
+                    "session_id": session_id,
+                    "status": "completed",
+                    "stop_reason": "stop",
+                    "usage": {
+                        "prompt_tokens": 1,
+                        "completion_tokens": 1,
+                        "total_tokens": 2,
+                    },
+                },
+            ]
+        )
 
 
 class _ThresholdBudgetKernelStub(_BaseKernelStub):
@@ -503,13 +917,27 @@ class _ThresholdBudgetKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return _StubRunRecord(run_id="run-1")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         text = self._last_text
-        return _AsyncIterEvents([
-            {"event": "assistant_message", "run_id": "run-1", "session_id": session_id, "content": f"echo:{text}"},
-            {"event": "run_status", "run_id": "run-1", "session_id": session_id,
-             "status": "completed", "stop_reason": "stop"},
-        ])
+        return _AsyncIterEvents(
+            [
+                {
+                    "event": "assistant_message",
+                    "run_id": "run-1",
+                    "session_id": session_id,
+                    "content": f"echo:{text}",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run-1",
+                    "session_id": session_id,
+                    "status": "completed",
+                    "stop_reason": "stop",
+                },
+            ]
+        )
 
     def get_context_budget(self, session_id: str, **kwargs: Any) -> dict[str, Any]:
         return self._context_budget
@@ -529,7 +957,9 @@ class _ConnectionRefusedKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         raise ConnectionRefusedError(61, "Connection refused")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         return _AsyncIterEvents([])
 
 
@@ -542,5 +972,7 @@ class _TimeoutKernelStub(_BaseKernelStub):
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         raise TimeoutError("timed out")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         return _AsyncIterEvents([])

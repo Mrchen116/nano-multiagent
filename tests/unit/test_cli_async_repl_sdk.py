@@ -24,6 +24,7 @@ import pytest
 # Stub: 模拟 agent.sdk.Kernel 的最小 stub
 # ---------------------------------------------------------------------------
 
+
 class _StubSession:
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
@@ -46,8 +47,19 @@ class _StubKernel:
     ) -> None:
         self._session_id = session_id
         self._events: list[dict[str, Any]] = events or [
-            {"event": "assistant_message", "run_id": "run-1", "session_id": session_id, "content": "pong"},
-            {"event": "run_status", "run_id": "run-1", "session_id": session_id, "status": "completed", "stop_reason": "stop"},
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "session_id": session_id,
+                "content": "pong",
+            },
+            {
+                "event": "run_status",
+                "run_id": "run-1",
+                "session_id": session_id,
+                "status": "completed",
+                "stop_reason": "stop",
+            },
         ]
         self._permission_tool = permission_tool
         self.calls: list[tuple[str, Any]] = []
@@ -57,12 +69,16 @@ class _StubKernel:
         self.calls.append(("create_session", {"title": title, "skills": skills}))
         return _StubSession(self._session_id)
 
-    def submit(self, *, session_id, parts, origin=None, workspace_root=None, trace_id=None):
+    def submit(
+        self, *, session_id, parts, origin=None, workspace_root=None, trace_id=None
+    ):
         self.calls.append(("submit", {"session_id": session_id, "parts": parts}))
         self._run_id_counter += 1
         return _StubRunRecord(f"run-{self._run_id_counter}")
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         """Return an async iterator of stub events."""
         return _AsyncIterEvents(self._events)
 
@@ -109,16 +125,20 @@ class _AsyncIterEvents:
 # 辅助：构建 async 版 run_cli 的 kernel_factory
 # ---------------------------------------------------------------------------
 
+
 def _make_kernel_factory(kernel: _StubKernel):
     """返回一个 kernel_factory 可注入 run_cli。"""
+
     def factory(**kwargs):
         return kernel
+
     return factory
 
 
 # ---------------------------------------------------------------------------
 # R1 — 新 async-native REPL 入口测试
 # ---------------------------------------------------------------------------
+
 
 def test_run_cli_enters_repl_without_mode_or_base_url(tmp_path) -> None:
     """无 --mode/--base-url 参数，CLI 应直接进入 REPL（不 spawn HTTP 服务）。"""
@@ -158,8 +178,9 @@ def test_run_cli_new_creates_session_via_sdk(tmp_path) -> None:
         workspace_root=tmp_path,
     )
 
-    assert any(call[0] == "create_session" for call in stub.calls), \
+    assert any(call[0] == "create_session" for call in stub.calls), (
         f"expected create_session call, got: {stub.calls}"
+    )
 
 
 def test_run_cli_sends_message_via_sdk_stream(tmp_path) -> None:
@@ -181,8 +202,9 @@ def test_run_cli_sends_message_via_sdk_stream(tmp_path) -> None:
     assert exit_code == 0
     text = output.getvalue()
     assert "pong" in text, f"expected 'pong' in output, got: {text!r}"
-    assert any(call[0] == "submit" for call in stub.calls), \
+    assert any(call[0] == "submit" for call in stub.calls), (
         f"expected submit call, got: {stub.calls}"
+    )
 
 
 def test_run_cli_text_mode_via_sdk(tmp_path) -> None:
@@ -200,8 +222,9 @@ def test_run_cli_text_mode_via_sdk(tmp_path) -> None:
     )
 
     assert exit_code == 0
-    assert any(call[0] == "submit" for call in stub.calls), \
+    assert any(call[0] == "submit" for call in stub.calls), (
         f"expected submit call, got: {stub.calls}"
+    )
 
 
 def test_run_cli_permission_callback_invoked(tmp_path) -> None:
@@ -210,11 +233,27 @@ def test_run_cli_permission_callback_invoked(tmp_path) -> None:
 
     # 内核在 stream 中发出一个 permission_request 事件，然后等待
     perm_events = [
-        {"event": "permission_request", "run_id": "run-1", "session_id": "sess-1",
-         "request_id": "req-1", "tool_name": "bash", "tool_input": {"command": "ls"}},
-        {"event": "assistant_message", "run_id": "run-1", "session_id": "sess-1", "content": "done"},
-        {"event": "run_status", "run_id": "run-1", "session_id": "sess-1",
-         "status": "completed", "stop_reason": "stop"},
+        {
+            "event": "permission_request",
+            "run_id": "run-1",
+            "session_id": "sess-1",
+            "request_id": "req-1",
+            "tool_name": "bash",
+            "tool_input": {"command": "ls"},
+        },
+        {
+            "event": "assistant_message",
+            "run_id": "run-1",
+            "session_id": "sess-1",
+            "content": "done",
+        },
+        {
+            "event": "run_status",
+            "run_id": "run-1",
+            "session_id": "sess-1",
+            "status": "completed",
+            "stop_reason": "stop",
+        },
     ]
     stub = _StubKernel(events=perm_events)
 
@@ -231,7 +270,9 @@ def test_run_cli_permission_callback_invoked(tmp_path) -> None:
         [],
         stdout=output,
         kernel_factory=_make_kernel_factory(stub),
-        input_fn=lambda prompt: _mock_permission_input(prompt) if "Permission" in prompt else next(inputs),
+        input_fn=lambda prompt: (
+            _mock_permission_input(prompt) if "Permission" in prompt else next(inputs)
+        ),
         workspace_root=tmp_path,
     )
 
@@ -254,7 +295,9 @@ def test_run_cli_no_base_url_flag_in_new_parser() -> None:
 
     parser = build_parser()
     base_url_actions = [a for a in parser._actions if a.dest == "base_url"]
-    assert not base_url_actions, f"--base-url should be removed in M2, found: {base_url_actions}"
+    assert not base_url_actions, (
+        f"--base-url should be removed in M2, found: {base_url_actions}"
+    )
 
 
 def test_run_cli_no_health_subcommand() -> None:
@@ -262,10 +305,14 @@ def test_run_cli_no_health_subcommand() -> None:
     from coding_cli.commands import build_parser
 
     parser = build_parser()
-    subparsers_actions = [a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction"]
+    subparsers_actions = [
+        a for a in parser._actions if a.__class__.__name__ == "_SubParsersAction"
+    ]
     if subparsers_actions:
         names = set(subparsers_actions[0].choices.keys())
-        assert "health" not in names, f"'health' subcommand should be removed in M2, found: {names}"
+        assert "health" not in names, (
+            f"'health' subcommand should be removed in M2, found: {names}"
+        )
 
 
 def test_run_cli_kernel_closed_on_exit(tmp_path) -> None:
@@ -284,8 +331,9 @@ def test_run_cli_kernel_closed_on_exit(tmp_path) -> None:
         workspace_root=tmp_path,
     )
 
-    assert any(call[0] == "close" for call in stub.calls), \
+    assert any(call[0] == "close" for call in stub.calls), (
         f"expected kernel.close() call on exit, got: {stub.calls}"
+    )
 
 
 def test_run_cli_repl_command_tools_via_sdk(tmp_path) -> None:
@@ -326,8 +374,9 @@ def test_run_cli_repl_command_compact_via_sdk(tmp_path) -> None:
     )
 
     assert exit_code == 0
-    assert any(call[0] == "compact" for call in stub.calls), \
+    assert any(call[0] == "compact" for call in stub.calls), (
         f"expected compact call, got: {stub.calls}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -336,7 +385,10 @@ def test_run_cli_repl_command_compact_via_sdk(tmp_path) -> None:
 # 要求 init_model_registry 已先调用，否则报 "model registry not initialized"
 # ---------------------------------------------------------------------------
 
-def test_build_llm_config_payload_exists_and_does_not_need_registry(monkeypatch) -> None:
+
+def test_build_llm_config_payload_exists_and_does_not_need_registry(
+    monkeypatch,
+) -> None:
     """_build_llm_config_payload 必须存在，且在 registry 未初始化时不抛 registry 错。
 
     这是真实启动路径的核心：_build_kernel 生产路径必须先构造 LLMConfigPayload 并调
@@ -344,6 +396,7 @@ def test_build_llm_config_payload_exists_and_does_not_need_registry(monkeypatch)
     该测试在当前代码（未修复前）应失败（函数不存在），修复后绿。
     """
     from agent.core.llm.model_registry import _reset_for_tests
+
     _reset_for_tests()  # 隔离：确保本测试内 registry 未初始化
 
     monkeypatch.setenv("NANO_MULTIAGENT_LLM_PROVIDER", "anthropic")
@@ -365,13 +418,16 @@ def test_build_llm_config_payload_exists_and_does_not_need_registry(monkeypatch)
     assert payload is not None
     # payload 结构正确
     from agent.sdk import LLMConfigPayload
+
     assert isinstance(payload, LLMConfigPayload)
     assert payload.default_model == "kimiCoding:K2.6"
     assert len(payload.providers) == 1
     assert payload.providers[0].name == "anthropic"
 
 
-def test_cli_llm_config_get_real_path_does_not_report_registry_error(monkeypatch) -> None:
+def test_cli_llm_config_get_real_path_does_not_report_registry_error(
+    monkeypatch,
+) -> None:
     """真实 CLI 启动路径（无 kernel_factory）在 registry 未初始化时不应报 registry 错。
 
     走 llm-config get 子命令，不涉及真实 LLM 连接，只验证 registry 初始化链路正常。
@@ -379,6 +435,7 @@ def test_cli_llm_config_get_real_path_does_not_report_registry_error(monkeypatch
     """
     import io
     from agent.core.llm.model_registry import _reset_for_tests
+
     _reset_for_tests()
 
     monkeypatch.setenv("NANO_MULTIAGENT_LLM_PROVIDER", "anthropic")
@@ -397,5 +454,6 @@ def test_cli_llm_config_get_real_path_does_not_report_registry_error(monkeypatch
     # 成功时 exit_code=0 且输出合法 JSON 含 provider 字段
     assert exit_code == 0, f"run_cli failed with exit_code={exit_code}, output={output}"
     import json
+
     payload = json.loads(output)
     assert "provider" in payload, f"Expected provider in payload: {payload}"

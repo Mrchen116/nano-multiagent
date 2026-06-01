@@ -114,7 +114,9 @@ class AuthService:
         if not display_name.strip():
             raise RegistrationError("display_name must be non-empty")
         if len(password) < _PASSWORD_MIN_LENGTH:
-            raise RegistrationError(f"password must be at least {_PASSWORD_MIN_LENGTH} characters")
+            raise RegistrationError(
+                f"password must be at least {_PASSWORD_MIN_LENGTH} characters"
+            )
         password_hash = hash_password(password)
         try:
             user = self._users.create_user(
@@ -194,7 +196,9 @@ class AuthService:
             self._jwt_secret,
             algorithm=_JWT_ALG,
         )
-        return TokenPair(access_token=access_token, refresh_token=refresh_token, user=user)
+        return TokenPair(
+            access_token=access_token, refresh_token=refresh_token, user=user
+        )
 
     def _decode(self, token: str, *, expected_type: str) -> dict:
         try:

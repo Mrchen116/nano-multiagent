@@ -10,7 +10,12 @@ from urllib.parse import urlparse
 import httpx
 
 from agent.core.errors import ModelError
-from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
+from agent.core.llm.interfaces import (
+    LLMClient,
+    LLMGenerateRequest,
+    LLMMessage,
+    LLMToolCall,
+)
 from agent.core.types import TokenUsage
 from agent.platform.llm.providers.translator import LLMTranslator
 
@@ -81,7 +86,9 @@ class OpenAICompatClient(LLMClient):
                 details={"error": str(exc)},
             ) from exc
 
-    async def _stream_response(self, response: httpx.Response) -> AsyncIterator[LLMMessage]:
+    async def _stream_response(
+        self, response: httpx.Response
+    ) -> AsyncIterator[LLMMessage]:
         """Parse OpenAI-compatible SSE stream and yield LLMMessage."""
 
         text_buffer = ""
@@ -96,7 +103,9 @@ class OpenAICompatClient(LLMClient):
             # bugfix-380: top-level {"error":{...}} frame — surface as ModelError.
             if "error" in event and "choices" not in event:
                 error_obj = event["error"] if isinstance(event["error"], dict) else {}
-                error_msg = error_obj.get("message") or str(event["error"]) or "upstream error"
+                error_msg = (
+                    error_obj.get("message") or str(event["error"]) or "upstream error"
+                )
                 error_type = error_obj.get("type") or "error"
                 raise ModelError(
                     f"openai_compat: {error_msg}",
@@ -139,7 +148,9 @@ class OpenAICompatClient(LLMClient):
                     text_buffer = ""
                 accumulated_reasoning = reasoning_buffer or None
                 reasoning_buffer = ""
-                for tc in _finalize_tool_calls(tool_calls_buffer, reasoning_content=accumulated_reasoning):
+                for tc in _finalize_tool_calls(
+                    tool_calls_buffer, reasoning_content=accumulated_reasoning
+                ):
                     yield tc
                 tool_calls_buffer.clear()
                 # Terminal metadata message
@@ -195,7 +206,9 @@ def _first_choice(event: dict[str, Any]) -> dict[str, Any] | None:
     return choice if isinstance(choice, dict) else None
 
 
-def _accumulate_openai_tool_call(buffer: dict[int, dict[str, Any]], delta: dict[str, Any]) -> None:
+def _accumulate_openai_tool_call(
+    buffer: dict[int, dict[str, Any]], delta: dict[str, Any]
+) -> None:
     """Accumulate incremental tool_call fragments keyed by index."""
 
     idx = delta.get("index", 0)
@@ -207,7 +220,9 @@ def _accumulate_openai_tool_call(buffer: dict[int, dict[str, Any]], delta: dict[
         if "name" in function_delta:
             existing["name"] = function_delta["name"]
         if "arguments" in function_delta:
-            existing["arguments"] = existing.get("arguments", "") + function_delta["arguments"]
+            existing["arguments"] = (
+                existing.get("arguments", "") + function_delta["arguments"]
+            )
     if "id" in delta:
         existing["id"] = delta["id"]
     if "type" in delta:
@@ -268,7 +283,11 @@ def _parse_openai_usage(payload: dict[str, Any] | None) -> TokenUsage | None:
 
     resolved_prompt = prompt_tokens or 0
     resolved_completion = completion_tokens or 0
-    resolved_total = total_tokens if total_tokens is not None else resolved_prompt + resolved_completion
+    resolved_total = (
+        total_tokens
+        if total_tokens is not None
+        else resolved_prompt + resolved_completion
+    )
     return TokenUsage(
         prompt_tokens=resolved_prompt,
         completion_tokens=resolved_completion,
@@ -290,7 +309,9 @@ def _should_trust_env(base_url: str) -> bool:
     return host not in local_hosts
 
 
-_LEGACY_OPENAI_COMPAT_CLIENT_MODULE = "agent" + ".llm.providers" + ".openai_compat.client"
+_LEGACY_OPENAI_COMPAT_CLIENT_MODULE = (
+    "agent" + ".llm.providers" + ".openai_compat.client"
+)
 sys.modules.setdefault(_LEGACY_OPENAI_COMPAT_CLIENT_MODULE, sys.modules[__name__])
 
 __all__ = ["OpenAICompatClient", "_should_trust_env"]

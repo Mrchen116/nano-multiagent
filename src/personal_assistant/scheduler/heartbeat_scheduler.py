@@ -104,13 +104,17 @@ class HeartbeatSchedulerStateStore:
         """Persist the given scheduler state atomically enough for local single-process use."""
 
         self._state_path.parent.mkdir(parents=True, exist_ok=True)
-        self._state_path.write_text(json.dumps(asdict(state), ensure_ascii=False, indent=2), encoding="utf-8")
+        self._state_path.write_text(
+            json.dumps(asdict(state), ensure_ascii=False, indent=2), encoding="utf-8"
+        )
 
 
 class _KernelClientLike(Protocol):
     # create_session is async — the gateway runs an asyncio event loop and
     # run_until_complete on an already-running loop raises RuntimeError.
-    async def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, object]: ...
+    async def create_session(
+        self, *, workspace_root: str, product_id: str, title: str | None = None
+    ) -> dict[str, object]: ...
 
     def submit_message(
         self, *, session_id: str, texts: list[str], workspace_root: str | None = None
@@ -179,17 +183,30 @@ class HeartbeatScheduler:
                 skipped_agents.append(agent.agent_id)
                 continue
             agent_state = state_agents.get(agent.agent_id, _AgentState())
-            due_times = spec.schedule.due_times_up_to(now=current_time, last_due_at=_parse_optional_datetime(agent_state.last_due_at))
+            due_times = spec.schedule.due_times_up_to(
+                now=current_time,
+                last_due_at=_parse_optional_datetime(agent_state.last_due_at),
+            )
             if not due_times:
                 continue
             for due_at in due_times:
-                triggered_runs.append(await self._submit_run(agent=agent, due_at=due_at, instructions=spec.instructions))
-                state_agents[agent.agent_id] = _AgentState(last_due_at=due_at.isoformat())
+                triggered_runs.append(
+                    await self._submit_run(
+                        agent=agent, due_at=due_at, instructions=spec.instructions
+                    )
+                )
+                state_agents[agent.agent_id] = _AgentState(
+                    last_due_at=due_at.isoformat()
+                )
 
         self._state_store.save(_SchedulerState(agents=state_agents))
-        return HeartbeatTickSummary(triggered_runs=tuple(triggered_runs), skipped_agents=tuple(skipped_agents))
+        return HeartbeatTickSummary(
+            triggered_runs=tuple(triggered_runs), skipped_agents=tuple(skipped_agents)
+        )
 
-    async def _submit_run(self, *, agent: AgentWorkspaceConfig, due_at: datetime, instructions: str) -> HeartbeatRunRecord:
+    async def _submit_run(
+        self, *, agent: AgentWorkspaceConfig, due_at: datetime, instructions: str
+    ) -> HeartbeatRunRecord:
         session_payload = await self._kernel_client.create_session(
             workspace_root=str(agent.workspace_root),
             product_id="personal_assistant",
@@ -198,7 +215,9 @@ class HeartbeatScheduler:
         session_id = str(session_payload.get("session_id", "")).strip()
         if not session_id:
             raise RuntimeError("kernel session creation did not return session_id")
-        message = _build_heartbeat_message(agent_id=agent.agent_id, due_at=due_at, instructions=instructions)
+        message = _build_heartbeat_message(
+            agent_id=agent.agent_id, due_at=due_at, instructions=instructions
+        )
         # The stateless kernel needs workspace_root to locate the session JSONL;
         # origin=heartbeat lets auto_mode_gate detect unattended context and skip
         # blocking permission requests that nobody is around to answer.
@@ -211,18 +230,24 @@ class HeartbeatScheduler:
         run_id = str(run_payload.get("run_id", "")).strip()
         if not run_id:
             raise RuntimeError("heartbeat submission did not return run_id")
-        return HeartbeatRunRecord(agent_id=agent.agent_id, due_at=due_at, run_id=run_id, session_id=session_id)
+        return HeartbeatRunRecord(
+            agent_id=agent.agent_id, due_at=due_at, run_id=run_id, session_id=session_id
+        )
 
 
 class _Schedule(Protocol):
-    def due_times_up_to(self, *, now: datetime, last_due_at: datetime | None) -> list[datetime]: ...
+    def due_times_up_to(
+        self, *, now: datetime, last_due_at: datetime | None
+    ) -> list[datetime]: ...
 
 
 @dataclass(frozen=True, slots=True)
 class _AtSchedule:
     due_at: datetime
 
-    def due_times_up_to(self, *, now: datetime, last_due_at: datetime | None) -> list[datetime]:
+    def due_times_up_to(
+        self, *, now: datetime, last_due_at: datetime | None
+    ) -> list[datetime]:
         if now < self.due_at:
             return []
         if last_due_at is not None and last_due_at >= self.due_at:
@@ -234,7 +259,9 @@ class _AtSchedule:
 class _IntervalSchedule:
     interval: timedelta
 
-    def due_times_up_to(self, *, now: datetime, last_due_at: datetime | None) -> list[datetime]:
+    def due_times_up_to(
+        self, *, now: datetime, last_due_at: datetime | None
+    ) -> list[datetime]:
         if last_due_at is None:
             return [_floor_datetime(now, self.interval)]
         due_times: list[datetime] = []
@@ -253,7 +280,9 @@ class _CronSchedule:
     month_values: tuple[int, ...]
     weekday_values: tuple[int, ...]
 
-    def due_times_up_to(self, *, now: datetime, last_due_at: datetime | None) -> list[datetime]:
+    def due_times_up_to(
+        self, *, now: datetime, last_due_at: datetime | None
+    ) -> list[datetime]:
         current = now.replace(second=0, microsecond=0)
         if last_due_at is None:
             candidates = [current] if self._matches(current) else []
@@ -289,11 +318,20 @@ def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
     for raw_line in content.splitlines():
         line = raw_line.strip()
         lowered = line.lower()
-        if lowered.startswith("#") or lowered.startswith("<!--") and lowered.endswith("-->"):
+        if (
+            lowered.startswith("#")
+            or lowered.startswith("<!--")
+            and lowered.endswith("-->")
+        ):
             continue
-        matched_prefix = next((prefix for prefix in _SCHEDULE_PREFIXES if lowered.startswith(prefix)), None)
+        matched_prefix = next(
+            (prefix for prefix in _SCHEDULE_PREFIXES if lowered.startswith(prefix)),
+            None,
+        )
         if matched_prefix is not None:
-            schedule_entries.append((matched_prefix[:-1], line.split(":", 1)[1].strip()))
+            schedule_entries.append(
+                (matched_prefix[:-1], line.split(":", 1)[1].strip())
+            )
             continue
         if not line:
             continue
@@ -306,14 +344,19 @@ def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
     if len(schedule_entries) != 1:
         raise ValueError("HEARTBEAT.md must declare exactly one schedule mode")
     schedule_kind, schedule_value = schedule_entries[0]
-    return _HeartbeatSpec(schedule=_parse_schedule(schedule_kind, schedule_value), instructions="\n".join(instruction_lines))
+    return _HeartbeatSpec(
+        schedule=_parse_schedule(schedule_kind, schedule_value),
+        instructions="\n".join(instruction_lines),
+    )
 
 
 def _parse_schedule(kind: str, raw_value: str) -> _Schedule:
     if kind in {"interval", "every"}:
         return _IntervalSchedule(interval=_parse_interval(raw_value))
     if kind == "at":
-        return _AtSchedule(due_at=_normalize_datetime(datetime.fromisoformat(raw_value)))
+        return _AtSchedule(
+            due_at=_normalize_datetime(datetime.fromisoformat(raw_value))
+        )
     if kind == "cron":
         return _parse_cron(raw_value)
     raise ValueError(f"unsupported heartbeat schedule mode: {kind}")
@@ -348,11 +391,15 @@ def _parse_cron(raw_value: str) -> _CronSchedule:
         hour_values=_parse_cron_field(hour, minimum=0, maximum=23),
         day_values=_parse_cron_field(day, minimum=1, maximum=31),
         month_values=_parse_cron_field(month, minimum=1, maximum=12),
-        weekday_values=_parse_cron_field(weekday, minimum=0, maximum=6, allow_names=True),
+        weekday_values=_parse_cron_field(
+            weekday, minimum=0, maximum=6, allow_names=True
+        ),
     )
 
 
-def _parse_cron_field(raw_value: str, *, minimum: int, maximum: int, allow_names: bool = False) -> tuple[int, ...]:
+def _parse_cron_field(
+    raw_value: str, *, minimum: int, maximum: int, allow_names: bool = False
+) -> tuple[int, ...]:
     values: set[int] = set()
     for part in raw_value.split(","):
         item = part.strip().lower()
@@ -375,7 +422,11 @@ def _parse_cron_field(raw_value: str, *, minimum: int, maximum: int, allow_names
             else:
                 start = _parse_cron_number(base, allow_names=allow_names)
                 end = maximum
-            values.update(number for number in range(start, end + 1) if (number - start) % step == 0)
+            values.update(
+                number
+                for number in range(start, end + 1)
+                if (number - start) % step == 0
+            )
             continue
         if "-" in item:
             start_text, end_text = item.split("-", 1)
@@ -421,7 +472,9 @@ def _floor_datetime(value: datetime, interval: timedelta) -> datetime:
     return datetime.fromtimestamp(floored, tz=UTC)
 
 
-def _build_heartbeat_message(*, agent_id: str, due_at: datetime, instructions: str) -> str:
+def _build_heartbeat_message(
+    *, agent_id: str, due_at: datetime, instructions: str
+) -> str:
     return (
         "Heartbeat scheduler trigger.\n\n"
         f"Agent: {agent_id}\n"

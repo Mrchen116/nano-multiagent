@@ -19,7 +19,12 @@ import pytest
 
 from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import AgentProfileRepository, ConversationRepository, MessageRepository, UserRepository
+from IM.repositories import (
+    AgentProfileRepository,
+    ConversationRepository,
+    MessageRepository,
+    UserRepository,
+)
 
 
 # ─── fixture ────────────────────────────────────────────────────────────────
@@ -27,7 +32,13 @@ from IM.repositories import AgentProfileRepository, ConversationRepository, Mess
 
 def _setup(
     tmp_path: Path,
-) -> tuple[RelayService, MessageRepository, ConversationRepository, UserRepository, AgentProfileRepository]:
+) -> tuple[
+    RelayService,
+    MessageRepository,
+    ConversationRepository,
+    UserRepository,
+    AgentProfileRepository,
+]:
     conn = connect(tmp_path / "im.db")
     initialize_schema(conn)
     return (
@@ -40,6 +51,7 @@ def _setup(
 
 
 # ─── agent → agent mention routing ─────────────────────────────────────────
+
 
 def test_agent_to_agent_mention_routing_with_inline_tag(tmp_path: Path) -> None:
     """Agent reply 含 <mention> 标签 → mentioned_agent_ids 正确包含目标 agent。
@@ -315,13 +327,19 @@ def test_orphan_agent_does_not_hijack_inline_tag_routing(tmp_path: Path) -> None
     assert "Q" not in meta["mentioned_agent_ids"]
 
 
-def test_same_name_agents_disambiguation_via_different_target_ids(tmp_path: Path) -> None:
+def test_same_name_agents_disambiguation_via_different_target_ids(
+    tmp_path: Path,
+) -> None:
     """两个 display_name 同为"助手"的 agent，通过不同 target_id 可独立路由。"""
     relay_svc, messages, convs, users, profiles = _setup(tmp_path)
 
     alice = users.create_user(username="alice", display_name="Alice")
-    assistant1_user = users.create_user(username="agent:assistant-1", display_name="助手")
-    assistant2_user = users.create_user(username="agent:assistant-2", display_name="助手")
+    assistant1_user = users.create_user(
+        username="agent:assistant-1", display_name="助手"
+    )
+    assistant2_user = users.create_user(
+        username="agent:assistant-2", display_name="助手"
+    )
 
     for aid in ["assistant-1", "assistant-2"]:
         profiles.upsert_profile(

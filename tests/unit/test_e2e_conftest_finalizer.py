@@ -21,7 +21,9 @@ def _load_conftest_module() -> Any:
     """Load tests/e2e/conftest.py as a regular module so we can call its helpers."""
     repo_root = Path(__file__).resolve().parents[2]
     conftest_path = repo_root / "tests" / "e2e" / "conftest.py"
-    spec = importlib.util.spec_from_file_location("_e2e_conftest_for_test", conftest_path)
+    spec = importlib.util.spec_from_file_location(
+        "_e2e_conftest_for_test", conftest_path
+    )
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
@@ -49,7 +51,10 @@ def _await_in_ps(pid: int, *, timeout: float = 3.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         completed = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "pid="], capture_output=True, text=True, check=False
+            ["ps", "-p", str(pid), "-o", "pid="],
+            capture_output=True,
+            text=True,
+            check=False,
         )
         if completed.stdout.strip():
             return
@@ -95,7 +100,9 @@ def test_scan_skips_non_pytest_paths() -> None:
         _await_in_ps(proc.pid)
         leaked = _MOD._scan_leaked_pids()
         pids = {p for p, _ in leaked}
-        assert proc.pid not in pids, f"scanner false-positive on prod path; leaked={leaked}"
+        assert proc.pid not in pids, (
+            f"scanner false-positive on prod path; leaked={leaked}"
+        )
     finally:
         _terminate(proc)
 
@@ -147,7 +154,14 @@ def test_kill_leaked_processes_actually_kills() -> None:
 
 
 def test_emit_warnings_writes_to_stderr(capsys: pytest.CaptureFixture[str]) -> None:
-    _MOD._emit_warnings([(12345, "personal_assistant.main --config /tmp/pytest-of-x/pytest-0/y/cfg.yaml")])
+    _MOD._emit_warnings(
+        [
+            (
+                12345,
+                "personal_assistant.main --config /tmp/pytest-of-x/pytest-0/y/cfg.yaml",
+            )
+        ]
+    )
     captured = capsys.readouterr()
     assert "WARN: pytest finalizer killed leaked process" in captured.err
     assert "pid=12345" in captured.err

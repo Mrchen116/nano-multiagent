@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-import datetime, json, sys
+# feat-388 D2 自门控：仅当本 session 在 active-subagents.json 中有登记（orchestrator 受管会话）
+# 才进入 gate 逻辑；普通会话（无登记）直接 exit 0，避免干扰日常编码会话正常停止。
+import datetime
+import json
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -15,18 +19,28 @@ stop_hook_active = data.get("stop_hook_active", True)
 if stop_hook_active or EXEMPT in last_msg:
     sys.exit(0)
 
+# 自门控：只有 session 在 active-subagents.json 中有登记才进入 gate 逻辑。
+# 普通会话（不在 orchestrator 受管范围内）没有登记 → 直接放行，不阻止停止。
+session_managed = False
 active = 0
 if session_id and STATE_FILE.exists():
     try:
         state = json.loads(STATE_FILE.read_text())
-        active = len(state.get("sessions", {}).get(session_id, {}).get("agent_ids", []))
+        sessions = state.get("sessions", {})
+        if session_id in sessions:
+            session_managed = True
+            active = len(sessions[session_id].get("agent_ids", []))
     except Exception:
         pass
+
+if not session_managed:
+    # 非 orchestrator 受管会话，不进入 gate 逻辑
+    sys.exit(0)
 
 LOG = REPO_ROOT / ".claude/state/hook-events.log"
 with LOG.open("a") as f:
     f.write(
-        f"{datetime.datetime.now().isoformat()} Stop session_id={session_id} active_in_session={active} exempt={EXEMPT in last_msg}\n"
+        f"{datetime.datetime.now().isoformat()} Stop session_id={session_id} managed=True active_in_session={active} exempt={EXEMPT in last_msg}\n"
     )
 
 if active > 0:

@@ -146,12 +146,14 @@ class _WritePresenter:
                 summary = f"overwritten ({byte_count} bytes)"
             else:
                 summary = path
-            detail = _enforce_cap({
-                "path": path,
-                "content": content,
-                "bytes": byte_count,
-                "truncated": False,
-            })
+            detail = _enforce_cap(
+                {
+                    "path": path,
+                    "content": content,
+                    "bytes": byte_count,
+                    "truncated": False,
+                }
+            )
             return ToolPresentationEvent(
                 visible=True,
                 label="Write",
@@ -203,7 +205,9 @@ class _EditPresenter:
         if not new_lines:
             new_lines = [new_text]
         diff = "".join(
-            difflib.unified_diff(old_lines, new_lines, fromfile=path, tofile=path, lineterm="")
+            difflib.unified_diff(
+                old_lines, new_lines, fromfile=path, tofile=path, lineterm=""
+            )
         )
         # find first changed line number (best-effort)
         first_changed_line: int | None = None
@@ -213,12 +217,14 @@ class _EditPresenter:
                 break
         if first_changed_line is None and len(old_lines) != len(new_lines):
             first_changed_line = min(len(old_lines), len(new_lines)) + 1
-        detail = _enforce_cap({
-            "path": path,
-            "diff": diff,
-            "firstChangedLine": first_changed_line,
-            "truncated": False,
-        })
+        detail = _enforce_cap(
+            {
+                "path": path,
+                "diff": diff,
+                "firstChangedLine": first_changed_line,
+                "truncated": False,
+            }
+        )
         line_info = f" (line {first_changed_line})" if first_changed_line else ""
         return ToolPresentationEvent(
             visible=True,
@@ -262,14 +268,16 @@ class _BashPresenter:
             stdout = output.get("stdout", "")
             stderr = output.get("stderr", "")
             summary = f"exit={exit_code} elapsed={duration_ms}ms"
-            detail = _enforce_cap({
-                "command": command,
-                "exit_code": exit_code,
-                "duration_ms": duration_ms,
-                "stdout": stdout or "",
-                "stderr": stderr or "",
-                "truncated": False,
-            })
+            detail = _enforce_cap(
+                {
+                    "command": command,
+                    "exit_code": exit_code,
+                    "duration_ms": duration_ms,
+                    "stdout": stdout or "",
+                    "stderr": stderr or "",
+                    "truncated": False,
+                }
+            )
             return ToolPresentationEvent(
                 visible=True,
                 label="Bash",

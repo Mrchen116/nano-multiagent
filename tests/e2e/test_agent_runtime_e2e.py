@@ -21,7 +21,9 @@ def _llm_proxy_available() -> bool:
 @pytest.mark.e2e
 def test_runtime_can_complete_text_only_turn_with_real_proxy(tmp_path) -> None:
     if os.getenv("NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E") != "1":
-        pytest.skip("set NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 to run live proxy e2e tests")
+        pytest.skip(
+            "set NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 to run live proxy e2e tests"
+        )
 
     if not _llm_proxy_available():
         pytest.skip("LLM_PROXY is unavailable on http://127.0.0.1:4000")
@@ -30,7 +32,9 @@ def test_runtime_can_complete_text_only_turn_with_real_proxy(tmp_path) -> None:
     session = service.create_session(workspace_root=tmp_path)
 
     with create_llm_client() as llm_client:
-        runtime = AgentRuntime(session_manager=service.manager, llm_client=llm_client, model="")
+        runtime = AgentRuntime(
+            session_manager=service.manager, llm_client=llm_client, model=""
+        )
         result = runtime.run(
             session.session_id,
             [{"type": "text", "text": "reply one word: pong"}],

@@ -46,9 +46,18 @@ class _FakeKernel:
         pass
 
 
-async def _run_text(kernel: _FakeKernel, out: io.StringIO, session_id: str = "s1", text: str = "hi") -> int:
+async def _run_text(
+    kernel: _FakeKernel, out: io.StringIO, session_id: str = "s1", text: str = "hi"
+) -> int:
     from coding_cli.text_runner import run_text
-    return await run_text(kernel=kernel, session_id=session_id, text=text, out=out, workspace_root=Path("."))
+
+    return await run_text(
+        kernel=kernel,
+        session_id=session_id,
+        text=text,
+        out=out,
+        workspace_root=Path("."),
+    )
 
 
 def test_run_text_outputs_ndjson_and_returns_0_on_completed() -> None:

@@ -53,7 +53,9 @@ def test_handler_routes_to_kernel_session_via_message_id_lookup() -> None:
         run_context_store=store,
     )
 
-    handler({"request_id": "req-xyz", "decision": "allow_once", "message_id": "im-msg-9"})
+    handler(
+        {"request_id": "req-xyz", "decision": "allow_once", "message_id": "im-msg-9"}
+    )
 
     assert client.calls == [
         {"session_id": "sess-B", "request_id": "req-xyz", "decision": "allow_once"}

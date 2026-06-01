@@ -58,7 +58,10 @@ class TaskStopTool:
             raise ToolError(
                 f"Task '{task_id}' is already {record.status.value}.",
                 tool_name=self.name,
-                details={"code": "task_already_terminal", "status": record.status.value},
+                details={
+                    "code": "task_already_terminal",
+                    "status": record.status.value,
+                },
             )
 
         # Invoke the runner's stop handle (e.g., terminate process tree, abort LLM run).
@@ -103,5 +106,7 @@ class TaskStopTool:
 
     def _require_wiring(self) -> Any:
         if self._wiring is None:
-            raise ToolError("background task wiring is not configured", tool_name=self.name)
+            raise ToolError(
+                "background task wiring is not configured", tool_name=self.name
+            )
         return self._wiring

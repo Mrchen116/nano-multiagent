@@ -5,7 +5,9 @@ from pathlib import Path
 from agent.products.base import ProductProfile
 from agent.products.local_coding import LOCAL_CODING_PROFILE
 
-_PRODUCT_ROOT = Path(__file__).resolve().parents[2] / "src" / "agent" / "products" / "local_coding"
+_PRODUCT_ROOT = (
+    Path(__file__).resolve().parents[2] / "src" / "agent" / "products" / "local_coding"
+)
 
 
 def test_local_coding_profile_is_product_profile() -> None:
@@ -50,7 +52,9 @@ def test_local_coding_profile_default_hook_modules() -> None:
     assert len(LOCAL_CODING_PROFILE.default_hook_modules) > 0
     # All 4 original builtin hook modules must be declared.
     modules = set(LOCAL_CODING_PROFILE.default_hook_modules)
-    assert "auto_mode_gate" in modules  # M1: replaced bash_risk_gate with auto_mode_gate
+    assert (
+        "auto_mode_gate" in modules
+    )  # M1: replaced bash_risk_gate with auto_mode_gate
     assert "default_status" in modules
     assert "realtime_stream" in modules
     assert "usage_metrics" in modules

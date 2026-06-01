@@ -28,7 +28,9 @@ from ._gateway_helpers import (
 )
 
 
-def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversation(tmp_path: Path) -> None:
+def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversation(
+    tmp_path: Path,
+) -> None:
     """An existing group conversation must use the updated mentioned-agent profile after config sync."""
     app = create_app(db_path=tmp_path / "im.db")
     kernel_client = _FakeKernelClient()
@@ -53,7 +55,9 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
         agent_b_user_id = seed_user(client, "agent:agent-b")
         owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
         assert owner is not None
-        seed_node_and_profiles(app, owner_id=owner.owner_id, agent_ids=("agent-a", "agent-b"))
+        seed_node_and_profiles(
+            app, owner_id=owner.owner_id, agent_ids=("agent-a", "agent-b")
+        )
 
         group_conversation = client.post(
             "/im/v1/conversations",
@@ -113,7 +117,9 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
             )
             # bugfix-358: peer relay no longer carries background_context_only;
             # Gateway decides trigger vs buffer from mentioned_agent_ids alone.
-            assert peer_context_frames, "expected at least one peer agent-reply relay frame"
+            assert peer_context_frames, (
+                "expected at least one peer agent-reply relay frame"
+            )
 
             current = client.get("/im/v1/agents/agent-a/config")
             assert current.status_code == 200
@@ -219,7 +225,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-                "agent_features": {},
+            "agent_features": {},
             "config_profile_version": 1,
             "system_prompt": "You are agent-a.",
             "conversation_type": "group",
@@ -234,7 +240,7 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-                "agent_features": {},
+            "agent_features": {},
             "config_profile_version": 2,
             "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
             "conversation_type": "group",
@@ -247,7 +253,10 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
             "participant_agent_ids": ["agent-a", "agent-b"],
         },
     ]
-    assert [call["session_id"] for call in kernel_client.send_calls] == ["sess-1", "sess-2"]
+    assert [call["session_id"] for call in kernel_client.send_calls] == [
+        "sess-1",
+        "sess-2",
+    ]
     assert first_relay["payload"]["metadata"] == {
         "conversation_type": "group",
         "mentioned_agent_ids": ["agent-a"],
@@ -273,7 +282,9 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
     ]
 
 
-def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta_conflict(tmp_path: Path) -> None:
+def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta_conflict(
+    tmp_path: Path,
+) -> None:
     """Completed NO_REPLY snapshots must win over stale streamed text in the same relay chain."""
     app = create_app(db_path=tmp_path / "im.db")
     kernel_client = _FakeKernelClient()
@@ -298,7 +309,9 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
         agent_b_user_id = seed_user(client, "agent:agent-b")
         owner = UserRepository(app.state.connection).get_user(user_id=owner_id)
         assert owner is not None
-        seed_node_and_profiles(app, owner_id=owner.owner_id, agent_ids=("agent-a", "agent-b"))
+        seed_node_and_profiles(
+            app, owner_id=owner.owner_id, agent_ids=("agent-a", "agent-b")
+        )
 
         current = client.get("/im/v1/agents/agent-a/config")
         assert current.status_code == 200
@@ -422,7 +435,11 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
                 "external_chat_id": conversation_id,
                 "participants": [
                     {"type": "user", "user_id": human_user_id, "display_name": "Alice"},
-                    {"type": "agent", "agent_id": "agent-a", "display_name": "agent-a v2"},
+                    {
+                        "type": "agent",
+                        "agent_id": "agent-a",
+                        "display_name": "agent-a v2",
+                    },
                     {"type": "agent", "agent_id": "agent-b", "display_name": "B"},
                 ],
                 "participant_agent_ids": ["agent-a", "agent-b"],
@@ -431,7 +448,11 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
     ]
     assert kernel_client.send_calls == [
         # bugfix-358: mention format in content changed to XML tag; group prefix "[Alice]" added by pipeline.
-        {"session_id": "sess-1", "text": '[Alice] <mention type="agent" target_id="agent-a"/> please stay silent if NO_REPLY works.', "run_id": "run-1"}
+        {
+            "session_id": "sess-1",
+            "text": '[Alice] <mention type="agent" target_id="agent-a"/> please stay silent if NO_REPLY works.',
+            "run_id": "run-1",
+        }
     ]
     assert second_relay["payload"]["relay_task_id"] == relay_task_id
     assert second_relay["payload"]["message"]["id"] == message_id
@@ -439,4 +460,6 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
     # relay_adapter.sent is empty; completed delivery receipt carries the NO_REPLY suppress detail.
     assert relay_adapter.sent == []
     assert [payload["detail"] for payload in accepted_payloads] == [None]
-    assert [payload["detail"] for payload in completed_payloads] == ["NO_REPLY | suppressed_by=no_reply_token"]
+    assert [payload["detail"] for payload in completed_payloads] == [
+        "NO_REPLY | suppressed_by=no_reply_token"
+    ]

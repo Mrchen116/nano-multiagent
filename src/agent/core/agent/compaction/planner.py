@@ -42,8 +42,9 @@ class CompactionPlanner:
 
         turn_events = tuple(
             event
-            for event in events[latest_compaction_idx + 1:]
-            if isinstance(event, SessionEntry) and event.kind is SessionEntryKind.TURN_APPENDED
+            for event in events[latest_compaction_idx + 1 :]
+            if isinstance(event, SessionEntry)
+            and event.kind is SessionEntryKind.TURN_APPENDED
         )
 
         if not turn_events:

@@ -14,10 +14,17 @@ These tests verify:
 from __future__ import annotations
 
 from agent.core.hooks.context import HookContext
-from agent.products.personal_assistant.prompt_sections import _build_communication_context_block
+from agent.products.personal_assistant.prompt_sections import (
+    _build_communication_context_block,
+)
 
 
-def _make_ctx(*, conversation_type: str | None = None, participant_agent_ids: list[str] | None = None, agent_id: str | None = None) -> HookContext:
+def _make_ctx(
+    *,
+    conversation_type: str | None = None,
+    participant_agent_ids: list[str] | None = None,
+    agent_id: str | None = None,
+) -> HookContext:
     """Build a HookContext with injected session-level group metadata."""
     metadata: dict = {}
     if conversation_type is not None:
@@ -32,6 +39,7 @@ def _make_ctx(*, conversation_type: str | None = None, participant_agent_ids: li
 # ---------------------------------------------------------------------------
 # _build_communication_context_block helper tests (unchanged behaviour)
 # ---------------------------------------------------------------------------
+
 
 def test_build_context_block_group_contains_required_fields() -> None:
     """Group context block contains conversation_type, agent_id, and participant list."""
@@ -63,6 +71,7 @@ def test_build_context_block_direct_contains_agent_id_only() -> None:
 # ---------------------------------------------------------------------------
 # Hook retirement tests (feat-379-M1)
 # ---------------------------------------------------------------------------
+
 
 def test_hook_does_not_register_before_agent_start_after_m1() -> None:
     """After M1, setup() must NOT register a before_agent_start handler.
@@ -101,7 +110,9 @@ def test_hook_group_no_longer_injects_system_prompt() -> None:
     if not handlers:
         return  # Pass: hook correctly removed.
 
-    ctx = _make_ctx(conversation_type="group", participant_agent_ids=["agent-a"], agent_id="agent-a")
+    ctx = _make_ctx(
+        conversation_type="group", participant_agent_ids=["agent-a"], agent_id="agent-a"
+    )
     payload = {"message": "hello", "system_prompt": None}
     result = handlers[0].handler(payload, ctx)
 

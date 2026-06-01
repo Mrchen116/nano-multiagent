@@ -65,7 +65,9 @@ def test_repositories_reject_invalid_relationships(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         conversations.create_conversation(title="空会话", participant_ids=[])
 
-    conversation = conversations.create_conversation(title="聊天", participant_ids=[alice.id])
+    conversation = conversations.create_conversation(
+        title="聊天", participant_ids=[alice.id]
+    )
 
     with pytest.raises(ValueError):
         messages.create_message(
@@ -124,7 +126,9 @@ def test_user_nodes_and_bind_roundtrip(tmp_path: Path) -> None:
     )
     profiles._connection.commit()
 
-    bind = binds.create_bind_request(node_id="node-1", bind_base_url="http://127.0.0.1:8011/bind/confirm")
+    bind = binds.create_bind_request(
+        node_id="node-1", bind_base_url="http://127.0.0.1:8011/bind/confirm"
+    )
     assert bind.status == "pending"
     assert bind.bind_url.startswith("http://127.0.0.1:8011/bind/confirm?token=")
 

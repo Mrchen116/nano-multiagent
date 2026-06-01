@@ -4,6 +4,7 @@ Stateless design: the tool reads the Gateway dispatch endpoint URL from
 ``ctx.session_metadata["gateway_dispatch_url"]`` at execution time and sends
 the message via an HTTP POST.  No module-level singleton, no bind_dispatcher.
 """
+
 from __future__ import annotations
 
 from typing import Any, Mapping
@@ -85,15 +86,23 @@ class SendMessageTool:
             dispatch_request_id = ctx.tool_call_id.strip()
         else:
             dispatch_request_id = uuid4().hex
-        if isinstance(dispatch_source, str) and dispatch_source.strip() and dispatch_request_id:
-            dispatch_source = f"{dispatch_source.strip()}|tool_call:{dispatch_request_id}"
+        if (
+            isinstance(dispatch_source, str)
+            and dispatch_source.strip()
+            and dispatch_request_id
+        ):
+            dispatch_source = (
+                f"{dispatch_source.strip()}|tool_call:{dispatch_request_id}"
+            )
 
         payload: dict[str, Any] = {
             "text": text,
             "to": target,
             "from_session_id": dispatch_source,
             "origin_kernel_session_id": ctx.session_id,
-            "source_agent_id": source_agent_id.strip() if isinstance(source_agent_id, str) and source_agent_id.strip() else None,
+            "source_agent_id": source_agent_id.strip()
+            if isinstance(source_agent_id, str) and source_agent_id.strip()
+            else None,
             "dispatch_request_id": dispatch_request_id,
         }
         timeout = httpx.Timeout(connect=3.0, write=10.0, read=None, pool=3.0)
@@ -101,14 +110,20 @@ class SendMessageTool:
         try:
             body = response.json()
         except ValueError as exc:
-            raise RuntimeError("send_message: gateway dispatch returned non-JSON response") from exc
+            raise RuntimeError(
+                "send_message: gateway dispatch returned non-JSON response"
+            ) from exc
         if not isinstance(body, Mapping):
-            raise RuntimeError("send_message: gateway dispatch returned non-object response")
+            raise RuntimeError(
+                "send_message: gateway dispatch returned non-object response"
+            )
         if response.status_code >= 400 or body.get("ok") is not True:
             error = body.get("error")
             if isinstance(error, str) and error.strip():
                 raise RuntimeError(f"send_message: {error.strip()}")
-            raise RuntimeError(f"send_message: gateway dispatch failed with status {response.status_code}")
+            raise RuntimeError(
+                f"send_message: gateway dispatch failed with status {response.status_code}"
+            )
 
         return {
             "ok": True,

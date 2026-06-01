@@ -26,7 +26,9 @@ from ._group_chat_helpers import (
 )
 
 
-def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Path) -> None:
+def test_group_message_with_mention_and_no_reply_token_stays_silent(
+    tmp_path: Path,
+) -> None:
     """A mentioned group relay that returns NO_REPLY must complete without outbound chat text."""
 
     app = create_app(db_path=tmp_path / "im.db")
@@ -87,8 +89,7 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
             assert posted.status_code == 201
             relay_frames = [websocket.receive_json(), websocket.receive_json()]
             relay_frame_by_agent = {
-                frame["payload"]["agent_id"]: frame
-                for frame in relay_frames
+                frame["payload"]["agent_id"]: frame for frame in relay_frames
             }
             relay_adapter.accept_relay(relay_frame_by_agent["agent-a"]["payload"])
             relay_adapter.accept_relay(relay_frame_by_agent["agent-b"]["payload"])
@@ -125,15 +126,25 @@ def test_group_message_with_mention_and_no_reply_token_stays_silent(tmp_path: Pa
         for row in event_rows
         if row["event_type"] == "relay.completed"
     ]
-    assert kernel_client.send_calls == [{"session_id": "sess-1", "text": "[Alice] @agent-a stay quiet", "run_id": "run-1"}]
+    assert kernel_client.send_calls == [
+        {
+            "session_id": "sess-1",
+            "text": "[Alice] @agent-a stay quiet",
+            "run_id": "run-1",
+        }
+    ]
     assert relay_adapter.sent == []
     assert sent_ack["type"] == "ack"
     assert completed_ack["type"] == "ack"
     assert [payload["detail"] for payload in accepted_payloads] == [None]
-    assert [payload["detail"] for payload in completed_payloads] == ["NO_REPLY | suppressed_by=no_reply_token"]
+    assert [payload["detail"] for payload in completed_payloads] == [
+        "NO_REPLY | suppressed_by=no_reply_token"
+    ]
 
 
-def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_path: Path) -> None:
+def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(
+    tmp_path: Path,
+) -> None:
     """Create a real group conversation and keep typed plus picker mentions pinned to their addressed agents."""
 
     app = create_app(db_path=tmp_path / "im.db")
@@ -171,7 +182,10 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
         listed = client.get("/im/v1/conversations")
         assert listed.status_code == 200
         listed_items = listed.json()["items"]
-        assert any(item["id"] == conversation_id and item["type"] == "group" for item in listed_items)
+        assert any(
+            item["id"] == conversation_id and item["type"] == "group"
+            for item in listed_items
+        )
 
         with client.websocket_connect("/im/ws/gateway") as websocket:
             websocket.send_json(
@@ -201,8 +215,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
             assert first.status_code == 201
             first_frames = [websocket.receive_json(), websocket.receive_json()]
             first_frame_by_agent = {
-                frame["payload"]["agent_id"]: frame
-                for frame in first_frames
+                frame["payload"]["agent_id"]: frame for frame in first_frames
             }
             relay_adapter.accept_relay(first_frame_by_agent["agent-a"]["payload"])
             relay_adapter.accept_relay(first_frame_by_agent["agent-b"]["payload"])
@@ -220,21 +233,23 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
             assert second.status_code == 201
             second_frames = [websocket.receive_json(), websocket.receive_json()]
             second_frame_by_agent = {
-                frame["payload"]["agent_id"]: frame
-                for frame in second_frames
+                frame["payload"]["agent_id"]: frame for frame in second_frames
             }
             relay_adapter.accept_relay(second_frame_by_agent["agent-a"]["payload"])
             relay_adapter.accept_relay(second_frame_by_agent["agent-b"]["payload"])
 
     first_frame = first_frame_by_agent["agent-a"]
     second_frame = second_frame_by_agent["agent-b"]
-    assert [call["title"] for call in kernel_client.create_session_calls] == ["Agent-A", "Agent-B"]
+    assert [call["title"] for call in kernel_client.create_session_calls] == [
+        "Agent-A",
+        "Agent-B",
+    ]
     # participants use logical agent_id (from "agent:" prefix), not user UUID.
     assert [call["metadata"] for call in kernel_client.create_session_calls] == [
         {
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-                "agent_features": {},
+            "agent_features": {},
             "config_profile_version": 1,
             "conversation_type": "group",
             "participant_agent_ids": ["agent-a", "agent-b"],
@@ -248,7 +263,7 @@ def test_group_conversation_creation_and_explicit_agent_mentions_roundtrip(tmp_p
         {
             "agent_id": "agent-b",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
-                "agent_features": {},
+            "agent_features": {},
             "config_profile_version": 1,
             "conversation_type": "group",
             "participant_agent_ids": ["agent-a", "agent-b"],

@@ -1,4 +1,5 @@
 """Upstream reporter that emits gateway -> IM websocket protocol frames."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -84,12 +85,20 @@ def _repo_root() -> Path:
 
 
 def _product_root() -> Path:
-    return _repo_root() / "src" / "agent" / "products" / PERSONAL_ASSISTANT_PROFILE.product_id
+    return (
+        _repo_root()
+        / "src"
+        / "agent"
+        / "products"
+        / PERSONAL_ASSISTANT_PROFILE.product_id
+    )
 
 
 def _build_skill_capability_entries() -> tuple[dict[str, str], ...]:
     """从 SKILL.md 解析 name/description，供 IM 设置页展示。"""
-    config_resolver = ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=None)
+    config_resolver = ConfigResolver(
+        profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=None
+    )
     registry = SkillRegistry(
         search_roots=default_skill_search_roots(
             workspace_root=_repo_root(),
@@ -97,7 +106,10 @@ def _build_skill_capability_entries() -> tuple[dict[str, str], ...]:
             product_skill_root=_product_root() / "skills",
         )
     )
-    return tuple({"name": skill.name, "description": skill.description or ""} for skill in registry.list_skills())
+    return tuple(
+        {"name": skill.name, "description": skill.description or ""}
+        for skill in registry.list_skills()
+    )
 
 
 def _build_tool_names() -> tuple[str, ...]:
@@ -106,13 +118,20 @@ def _build_tool_names() -> tuple[str, ...]:
     # require bootstrap path injection before they appear in list_specs().  Taking names
     # directly from the profile guarantees the full declared surface is advertised,
     # regardless of whether a live runtime is present.
-    allowed_ids = [*PERSONAL_ASSISTANT_PROFILE.default_tool_ids, *PERSONAL_ASSISTANT_PROFILE.optional_tool_ids]
+    allowed_ids = [
+        *PERSONAL_ASSISTANT_PROFILE.default_tool_ids,
+        *PERSONAL_ASSISTANT_PROFILE.optional_tool_ids,
+    ]
     return _dedupe_preserve_order(allowed_ids)
 
 
 def _build_model_names() -> tuple[str, ...]:
     return _dedupe_preserve_order(
-        [metadata.model for provider in list_supported_providers() for metadata in list_provider_models(provider)]
+        [
+            metadata.model
+            for provider in list_supported_providers()
+            for metadata in list_provider_models(provider)
+        ]
     )
 
 
@@ -180,7 +199,9 @@ def build_agent_capabilities_payload(
     from agent.sdk import FEATURE_REGISTRY  # noqa: PLC0415  # refactor-387-M4
 
     root = Path(workspace_root).expanduser().resolve()
-    config_resolver = ConfigResolver(profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=root)
+    config_resolver = ConfigResolver(
+        profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=root
+    )
     registry = SkillRegistry(
         search_roots=default_skill_search_roots(
             workspace_root=root,
@@ -189,7 +210,8 @@ def build_agent_capabilities_payload(
         )
     )
     skills: list[dict[str, str]] = [
-        {"name": skill.name, "description": skill.description or ""} for skill in registry.list_skills()
+        {"name": skill.name, "description": skill.description or ""}
+        for skill in registry.list_skills()
     ]
     base = build_runtime_capabilities().as_payload()
     base["skills"] = skills
@@ -204,7 +226,8 @@ def build_agent_capabilities_payload(
             "help_i18n": entry["help_i18n"],
             "default_on": entry["default_on"],
             # available=False means the required tool is not in the agent's allowlist
-            "available": entry["requires_tool"] is None or entry["requires_tool"] in allowlist_set,
+            "available": entry["requires_tool"] is None
+            or entry["requires_tool"] in allowlist_set,
             "requires_tool": entry["requires_tool"],
         }
         for key, entry in FEATURE_REGISTRY.items()

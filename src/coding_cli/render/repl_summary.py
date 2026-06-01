@@ -103,7 +103,9 @@ def _format_usage_line(usage: object) -> str:
     if metrics is None:
         return "unavailable"
     prompt_tokens, completion_tokens, total_tokens = metrics
-    return f"prompt={prompt_tokens}, completion={completion_tokens}, total={total_tokens}"
+    return (
+        f"prompt={prompt_tokens}, completion={completion_tokens}, total={total_tokens}"
+    )
 
 
 def _compact_status_updates(updates: list[str], *, final_state: str) -> list[str]:

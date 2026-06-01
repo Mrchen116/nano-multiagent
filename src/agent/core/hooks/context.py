@@ -125,7 +125,9 @@ class HookLogger:
             log_error(message, **merged_fields)
             return
         if merged_fields:
-            rendered = ", ".join(f"{key}={value!r}" for key, value in sorted(merged_fields.items()))
+            rendered = ", ".join(
+                f"{key}={value!r}" for key, value in sorted(merged_fields.items())
+            )
             message = f"{message} | {rendered}"
         getattr(self._logger, level)(message)
 
@@ -223,7 +225,9 @@ class HookContext:
 
         publisher = self.session_event_publisher
         if publisher is None:
-            raise RuntimeError("session event publisher is unavailable in this hook context")
+            raise RuntimeError(
+                "session event publisher is unavailable in this hook context"
+            )
         publisher(event, dict(data or {}))
 
     async def request_permission(self, req: Any) -> Any:
@@ -248,6 +252,7 @@ class HookContext:
             # Return a duck-typed namespace matching PermissionResponse.decision
             # to avoid a core → platform import violation (#40).
             import types  # noqa: PLC0415
+
             return types.SimpleNamespace(
                 decision="deny",
                 reason="no permission channel (fail-closed)",

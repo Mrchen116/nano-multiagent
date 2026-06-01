@@ -9,12 +9,17 @@ from agent.core.skills import (
     format_available_skills_section,
     resolve_available_skills,
 )
-from agent.core.skills.discovery import default_skill_search_roots as CoreDefaultSkillSearchRoots
-from agent.core.skills.discovery import resolve_available_skills as CoreResolveAvailableSkills
-from agent.core.skills.formatter import format_available_skills_section as CoreFormatAvailableSkillsSection
+from agent.core.skills.discovery import (
+    default_skill_search_roots as CoreDefaultSkillSearchRoots,
+)
+from agent.core.skills.discovery import (
+    resolve_available_skills as CoreResolveAvailableSkills,
+)
+from agent.core.skills.formatter import (
+    format_available_skills_section as CoreFormatAvailableSkillsSection,
+)
 from agent.core.skills.registry import SkillMetadata as CoreSkillMetadata
 from agent.core.skills.registry import SkillRegistry as CoreSkillRegistry
-
 
 
 def test_core_skills_is_canonical_home() -> None:
@@ -30,7 +35,6 @@ def test_core_skills_is_canonical_home() -> None:
     assert default_skill_search_roots.__module__ == "agent.core.skills.discovery"
     assert resolve_available_skills.__module__ == "agent.core.skills.discovery"
     assert format_available_skills_section.__module__ == "agent.core.skills.formatter"
-
 
 
 def test_legacy_skills_root_is_removed() -> None:

@@ -9,7 +9,11 @@ from agent.core.agent.prompting import (
     build_system_prompt,
 )
 from agent.core.agent.runtime import AgentRuntime
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+)
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 from agent.core.types import Message
@@ -36,9 +40,7 @@ def test_default_system_prompt_is_generic_fallback() -> None:
 
 
 def test_build_prompt_messages_includes_system_history_and_user() -> None:
-    history = (
-        Message(message_id="msg_1", role="assistant", content="past answer"),
-    )
+    history = (Message(message_id="msg_1", role="assistant", content="past answer"),)
 
     # Verify role ordering: system → history → user.
     prompts = build_prompt_messages(
@@ -56,7 +58,9 @@ def test_build_prompt_messages_includes_system_history_and_user() -> None:
     assert prompts[-1].content == "new question"
 
 
-def test_build_prompt_messages_injects_available_skills_section_with_absolute_location() -> None:
+def test_build_prompt_messages_injects_available_skills_section_with_absolute_location() -> (
+    None
+):
     relative_location = Path("./relative/demo/SKILL.md")
     prompts = build_prompt_messages(
         history_messages=(),
@@ -76,7 +80,10 @@ def test_build_prompt_messages_injects_available_skills_section_with_absolute_lo
     assert "<name>demo</name>" in system_prompt
     assert "Use the read tool to load a skill's file" in system_prompt
     assert "resolve it against the skill directory" in system_prompt
-    assert f"<location>{relative_location.expanduser().resolve()}</location>" in system_prompt
+    assert (
+        f"<location>{relative_location.expanduser().resolve()}</location>"
+        in system_prompt
+    )
 
 
 def test_build_prompt_messages_skips_available_skills_section_when_empty() -> None:
@@ -102,7 +109,10 @@ def test_build_prompt_messages_only_displays_tool_name_and_description() -> None
             ToolSpec(
                 name="read",
                 description="Read file contents",
-                input_schema={"type": "object", "properties": {"path": {"type": "string"}}},
+                input_schema={
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                },
             ),
         ),
     )
@@ -113,14 +123,18 @@ def test_build_prompt_messages_only_displays_tool_name_and_description() -> None
     assert "input_schema" not in system_prompt
 
 
-async def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path: Path) -> None:
+async def test_runtime_fills_system_prompt_placeholders_before_llm_call(
+    tmp_path: Path,
+) -> None:
     """AgentRuntime fills system prompt placeholders with runtime context before LLM call."""
 
     class CapturePromptLLM:
         def __init__(self) -> None:
             self.requests: list[LLMGenerateRequest] = []
 
-        async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
+        async def generate(
+            self, request: LLMGenerateRequest
+        ) -> AsyncIterator[LLMMessage]:
             self.requests.append(request)
             response = LLMGenerateResponse(
                 model=request.model,
@@ -147,7 +161,9 @@ async def test_runtime_fills_system_prompt_placeholders_before_llm_call(tmp_path
         system_prompt=_CODING_FIXTURE,
     )
 
-    await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "hello"}], stream=False
+    )
 
     system_prompt = llm.requests[-1].messages[0].content
     assert "Current date and time:" in system_prompt
@@ -218,9 +234,7 @@ def test_build_system_prompt_injects_memory_guidance_when_memory_in_tools():
 
 def test_build_system_prompt_no_memory_guidance_without_memory_tool():
     """MEMORY_GUIDANCE is NOT injected when memory tool is absent."""
-    tools = (
-        ToolSpec(name="read", description="Read a file.", input_schema={}),
-    )
+    tools = (ToolSpec(name="read", description="Read a file.", input_schema={}),)
     result = build_system_prompt(
         system_prompt=_CODING_FIXTURE,
         available_skills=(),
@@ -247,7 +261,9 @@ def test_build_system_prompt_injects_both_guidance_when_both_tools_present():
 
 def test_build_system_prompt_injects_memory_block_when_provided():
     """Memory block is injected verbatim when memory_block kwarg is supplied."""
-    fake_memory_block = "══════\nMEMORY (your personal notes) [0% — 0/2,200 chars]\n══════\n"
+    fake_memory_block = (
+        "══════\nMEMORY (your personal notes) [0% — 0/2,200 chars]\n══════\n"
+    )
     result = build_system_prompt(
         system_prompt=_CODING_FIXTURE,
         available_skills=(),

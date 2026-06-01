@@ -17,7 +17,9 @@ from agent.core.skills.writer import SkillWriter
 # Fixtures
 # ---------------------------------------------------------------------------
 
-_VALID_FRONTMATTER = "---\nname: test-skill\ndescription: A test skill\n---\n\n# Body\n\nSome content."
+_VALID_FRONTMATTER = (
+    "---\nname: test-skill\ndescription: A test skill\n---\n\n# Body\n\nSome content."
+)
 
 
 @pytest.fixture()
@@ -62,7 +64,9 @@ def test_create_invalidates_cache(writer: SkillWriter, registry: SkillRegistry) 
 def test_create_duplicate_raises(writer: SkillWriter) -> None:
     writer.create("dup-skill", _VALID_FRONTMATTER.replace("test-skill", "dup-skill"))
     with pytest.raises(ValueError, match="already exists"):
-        writer.create("dup-skill", _VALID_FRONTMATTER.replace("test-skill", "dup-skill"))
+        writer.create(
+            "dup-skill", _VALID_FRONTMATTER.replace("test-skill", "dup-skill")
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -99,7 +103,9 @@ def test_create_invalid_name_raises(writer: SkillWriter, bad_name: str) -> None:
         "a" * 64,  # exactly 64 chars — at limit
     ],
 )
-def test_create_valid_name_accepted(writer: SkillWriter, skill_root: Path, good_name: str) -> None:
+def test_create_valid_name_accepted(
+    writer: SkillWriter, skill_root: Path, good_name: str
+) -> None:
     content = f"---\nname: {good_name}\ndescription: desc\n---\n\n# Body\n"
     writer.create(good_name, content)
     assert (skill_root / good_name / "SKILL.md").exists()
@@ -125,7 +131,9 @@ def test_create_valid_name_accepted(writer: SkillWriter, skill_root: Path, good_
         f"---\nname: skill-c\ndescription: {'x' * 1025}\n---\n\n# Body\n",
     ],
 )
-def test_create_invalid_frontmatter_raises(writer: SkillWriter, bad_content: str) -> None:
+def test_create_invalid_frontmatter_raises(
+    writer: SkillWriter, bad_content: str
+) -> None:
     with pytest.raises(ValueError, match="frontmatter"):
         writer.create("valid-name", bad_content)
 
@@ -161,7 +169,9 @@ def test_edit_nonexistent_raises(writer: SkillWriter) -> None:
 
 
 def test_edit_invalidates_cache(writer: SkillWriter, registry: SkillRegistry) -> None:
-    writer.create("cached-skill", _VALID_FRONTMATTER.replace("test-skill", "cached-skill"))
+    writer.create(
+        "cached-skill", _VALID_FRONTMATTER.replace("test-skill", "cached-skill")
+    )
     _ = registry.list_skills()  # warm cache
     new_content = "---\nname: cached-skill\ndescription: Updated desc\n---\n\n# Body\n"
     writer.edit("cached-skill", new_content)
@@ -176,9 +186,13 @@ def test_edit_invalidates_cache(writer: SkillWriter, registry: SkillRegistry) ->
 
 
 def test_patch_replaces_substring(writer: SkillWriter, skill_root: Path) -> None:
-    content = "---\nname: patch-skill\ndescription: desc\n---\n\n# Body\n\nOld text here."
+    content = (
+        "---\nname: patch-skill\ndescription: desc\n---\n\n# Body\n\nOld text here."
+    )
     writer.create("patch-skill", content)
-    writer.patch("patch-skill", old_string="Old text here.", new_string="New text here.")
+    writer.patch(
+        "patch-skill", old_string="Old text here.", new_string="New text here."
+    )
     result = (skill_root / "patch-skill" / "SKILL.md").read_text(encoding="utf-8")
     assert "New text here." in result
     assert "Old text here." not in result
@@ -211,7 +225,9 @@ def test_patch_invalidates_cache(writer: SkillWriter, registry: SkillRegistry) -
 
 
 def test_create_produces_complete_file(writer: SkillWriter, skill_root: Path) -> None:
-    writer.create("atomic-skill", _VALID_FRONTMATTER.replace("test-skill", "atomic-skill"))
+    writer.create(
+        "atomic-skill", _VALID_FRONTMATTER.replace("test-skill", "atomic-skill")
+    )
     file_path = skill_root / "atomic-skill" / "SKILL.md"
     assert file_path.exists()
     content = file_path.read_text(encoding="utf-8")
@@ -234,10 +250,15 @@ def test_write_file_lists_in_view_and_list_support_files(writer: SkillWriter) ->
     writer.create("umbrella", _VALID_FRONTMATTER.replace("test-skill", "umbrella"))
     writer.write_file("umbrella", "references/a.md", "a")
     writer.write_file("umbrella", "scripts/probe.sh", "echo hi")
-    assert writer.list_support_files("umbrella") == ["references/a.md", "scripts/probe.sh"]
+    assert writer.list_support_files("umbrella") == [
+        "references/a.md",
+        "scripts/probe.sh",
+    ]
 
 
-def test_remove_file_deletes_support_file(writer: SkillWriter, skill_root: Path) -> None:
+def test_remove_file_deletes_support_file(
+    writer: SkillWriter, skill_root: Path
+) -> None:
     writer.create("umbrella", _VALID_FRONTMATTER.replace("test-skill", "umbrella"))
     writer.write_file("umbrella", "templates/base.yaml", "k: v")
     writer.remove_file("umbrella", "templates/base.yaml")

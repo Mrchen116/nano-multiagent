@@ -67,7 +67,11 @@ class _RuntimeStub:
         return TurnResult(
             session_id=session_id,
             turn_id="turn_non_blocking",
-            messages=(Message(message_id="msg_non_blocking", role="assistant", content="done"),),
+            messages=(
+                Message(
+                    message_id="msg_non_blocking", role="assistant", content="done"
+                ),
+            ),
             completed=True,
             stop_reason="completed",
         )
@@ -90,7 +94,11 @@ class _RuntimeStub:
         return TurnResult(
             session_id=session_id,
             turn_id="turn_continue",
-            messages=(Message(message_id="msg_continue", role="assistant", content="continued"),),
+            messages=(
+                Message(
+                    message_id="msg_continue", role="assistant", content="continued"
+                ),
+            ),
             completed=True,
             stop_reason="completed",
         )
@@ -109,7 +117,9 @@ def _wait_for(predicate, *, timeout_seconds: float = 0.5) -> None:  # noqa: ANN0
     raise AssertionError("condition not met before timeout")
 
 
-def test_task_non_blocking_returns_receipt_and_executes_in_background(tmp_path: Path) -> None:
+def test_task_non_blocking_returns_receipt_and_executes_in_background(
+    tmp_path: Path,
+) -> None:
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
 
@@ -159,11 +169,15 @@ def test_task_idempotency_key_returns_same_receipt(tmp_path: Path) -> None:
     assert first == second
 
 
-def test_task_rejects_new_task_when_category_and_subagent_type_both_present(tmp_path: Path) -> None:
+def test_task_rejects_new_task_when_category_and_subagent_type_both_present(
+    tmp_path: Path,
+) -> None:
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
 
-    with pytest.raises(ToolError, match="category and subagent_type are mutually exclusive"):
+    with pytest.raises(
+        ToolError, match="category and subagent_type are mutually exclusive"
+    ):
         tool.run(
             {
                 "run_in_background": False,
@@ -177,7 +191,9 @@ def test_task_rejects_new_task_when_category_and_subagent_type_both_present(tmp_
         )
 
 
-def test_task_rejects_new_task_when_category_and_subagent_type_both_missing(tmp_path: Path) -> None:
+def test_task_rejects_new_task_when_category_and_subagent_type_both_missing(
+    tmp_path: Path,
+) -> None:
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
 
@@ -221,7 +237,9 @@ def test_task_continuation_uses_existing_session_id(tmp_path: Path) -> None:
     assert "session_id: sess_existing" in serialized
 
 
-def test_task_unknown_session_id_starts_new_task_when_prompt_present(tmp_path: Path) -> None:
+def test_task_unknown_session_id_starts_new_task_when_prompt_present(
+    tmp_path: Path,
+) -> None:
     runtime = _RuntimeStub()
     tool = TaskTool(runtime=runtime)
 

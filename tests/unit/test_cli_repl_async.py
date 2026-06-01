@@ -37,14 +37,43 @@ class _AsyncUsageEventingKernelStub(_BaseKernelStub):
 
     def stream(self, session_id, *, after_sequence=0):
         from tests.unit._cli_kernel_stubs import _AsyncIterEvents
-        return _AsyncIterEvents([
-            {"event": "run_status", "run_id": "run_target", "status": "queued"},
-            {"event": "assistant_message", "run_id": "run_target", "content": "final:echo:ping"},
-            {"event": "tool_start", "run_id": "run_target", "name": "echo", "call_id": "call_1", "arguments": {"text": "ping"}},
-            {"event": "tool_end", "run_id": "run_target", "name": "echo", "call_id": "call_1", "output": {"text": "echo:ping"}, "error": None},
-            {"event": "run_status", "run_id": "run_target", "status": "completed", "stop_reason": "stop",
-             "usage": {"prompt_tokens": 320, "completion_tokens": 41, "total_tokens": 361}},
-        ])
+
+        return _AsyncIterEvents(
+            [
+                {"event": "run_status", "run_id": "run_target", "status": "queued"},
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_target",
+                    "content": "final:echo:ping",
+                },
+                {
+                    "event": "tool_start",
+                    "run_id": "run_target",
+                    "name": "echo",
+                    "call_id": "call_1",
+                    "arguments": {"text": "ping"},
+                },
+                {
+                    "event": "tool_end",
+                    "run_id": "run_target",
+                    "name": "echo",
+                    "call_id": "call_1",
+                    "output": {"text": "echo:ping"},
+                    "error": None,
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run_target",
+                    "status": "completed",
+                    "stop_reason": "stop",
+                    "usage": {
+                        "prompt_tokens": 320,
+                        "completion_tokens": 41,
+                        "total_tokens": 361,
+                    },
+                },
+            ]
+        )
 
 
 def test_run_cli_repl_uses_async_events_with_run_filter_and_dedup(tmp_path) -> None:
@@ -132,7 +161,9 @@ def test_run_cli_repl_groups_same_tool_name_events_by_call_id(tmp_path) -> None:
     assert "Tool: echo output=echo:second" in text
 
 
-def test_run_cli_repl_keeps_same_tool_output_lines_for_distinct_call_id(tmp_path) -> None:
+def test_run_cli_repl_keeps_same_tool_output_lines_for_distinct_call_id(
+    tmp_path,
+) -> None:
     stub = _AsyncSameToolSameOutputKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
@@ -151,7 +182,9 @@ def test_run_cli_repl_keeps_same_tool_output_lines_for_distinct_call_id(tmp_path
     assert "final:echo:same" in text
 
 
-def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow(tmp_path) -> None:
+def test_run_cli_repl_prints_compact_answer_first_summary_for_async_flow(
+    tmp_path,
+) -> None:
     stub = _AsyncEventingKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
@@ -192,7 +225,9 @@ def test_run_cli_repl_prints_async_turn_llm_usage_when_available(tmp_path) -> No
     assert "Usage: prompt=320, completion=41, total=361" in text
 
 
-def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(tmp_path) -> None:
+def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(
+    tmp_path,
+) -> None:
     stub = _AsyncToolExecStreamingKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
@@ -214,7 +249,9 @@ def test_run_cli_repl_streams_started_running_chunk_and_exit_for_tool_execution(
     assert "Tool: bash chunk stderr#2: err-line" not in text
     assert "Tool: bash progress chunks=2 (stdout=1, stderr=1)" in text
     assert text.count("Tool: bash exit code=0 status=completed duration=210ms") == 1
-    assert text.index("Tool: bash started status=started elapsed=0ms") < text.index("State:")
+    assert text.index("Tool: bash started status=started elapsed=0ms") < text.index(
+        "State:"
+    )
 
 
 def test_run_cli_repl_renders_orphan_tool_exit_as_isolated_timeline(tmp_path) -> None:
@@ -258,7 +295,9 @@ def test_run_cli_repl_dedupes_replayed_tool_start_without_event_id(tmp_path) -> 
     assert "final:no-event-id" in text
 
 
-def test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id(tmp_path) -> None:
+def test_run_cli_repl_dedupes_replayed_tool_start_with_changed_event_id(
+    tmp_path,
+) -> None:
     stub = _AsyncChangedEventIdReplayKernelStub()
     output = io.StringIO()
     inputs = iter(["/new", "ping", "/exit"])
@@ -368,7 +407,9 @@ def test_run_cli_repl_tty_async_output_disables_live_preview_until_renderer_is_s
     assert text.count("done") >= 1
 
 
-def test_run_cli_repl_resume_batches_history_into_single_emit(monkeypatch, tmp_path) -> None:
+def test_run_cli_repl_resume_batches_history_into_single_emit(
+    monkeypatch, tmp_path
+) -> None:
     # M2 does not load history via HTTP; --resume only sets active session_id.
     # Verify that --resume sets the active session without error.
     stub = _BaseKernelStub(session_id="sess_hist")
@@ -380,7 +421,9 @@ def test_run_cli_repl_resume_batches_history_into_single_emit(monkeypatch, tmp_p
         emitted.append(text)
         return original_emit_persistent_text(out=out, text=text)
 
-    monkeypatch.setattr(repl_input, "emit_persistent_text", _record_emit_persistent_text)
+    monkeypatch.setattr(
+        repl_input, "emit_persistent_text", _record_emit_persistent_text
+    )
     exit_code = run_cli(
         ["--resume", "sess_hist"],
         stdout=output,

@@ -91,7 +91,9 @@ def _resolve_bind_url(bind_url: str, *, request: Request) -> str:
     """Rebase one stored bind URL onto the current IM host while preserving query params."""
     parsed = urlsplit(bind_url)
     query = urlencode(parse_qsl(parsed.query, keep_blank_values=True))
-    return urlunsplit((request.url.scheme, request.url.netloc, parsed.path, query, parsed.fragment))
+    return urlunsplit(
+        (request.url.scheme, request.url.netloc, parsed.path, query, parsed.fragment)
+    )
 
 
 def to_bind_response(bind: DeviceBindRequest, *, request: Request) -> BindResponse:
@@ -135,12 +137,18 @@ def update_me(
         )
     except ValueError as exc:
         detail = str(exc)
-        status_code = status.HTTP_404_NOT_FOUND if detail == "user_id not found" else status.HTTP_400_BAD_REQUEST
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if detail == "user_id not found"
+            else status.HTTP_400_BAD_REQUEST
+        )
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return to_me_response(updated)
 
 
-@router.post("/im/v1/bind", response_model=BindResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/im/v1/bind", response_model=BindResponse, status_code=status.HTTP_201_CREATED
+)
 def bind_device(
     payload: BindRequestEnvelope,
     request: Request,
@@ -155,7 +163,10 @@ def bind_device(
     try:
         if payload.action == "start":
             if not payload.node_id:
-                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="node_id is required for start")
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="node_id is required for start",
+                )
             bind = service.start_bind(node_id=payload.node_id)
             return to_bind_response(bind, request=request)
         if not payload.bind_id and not payload.bind_token:
@@ -163,11 +174,18 @@ def bind_device(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="bind_id or bind_token is required for confirm",
             )
-        bind = service.confirm_bind(bind_id=payload.bind_id, bind_token=payload.bind_token, user_id=user.id)
+        bind = service.confirm_bind(
+            bind_id=payload.bind_id, bind_token=payload.bind_token, user_id=user.id
+        )
         return to_bind_response(bind, request=request)
     except ValueError as exc:
         detail = str(exc)
         status_code = status.HTTP_400_BAD_REQUEST
-        if detail in {"node_id not found", "user_id not found", "bind_id not found", "bind_token not found"}:
+        if detail in {
+            "node_id not found",
+            "user_id not found",
+            "bind_id not found",
+            "bind_token not found",
+        }:
             status_code = status.HTTP_404_NOT_FOUND
         raise HTTPException(status_code=status_code, detail=detail) from exc

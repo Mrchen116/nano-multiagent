@@ -31,7 +31,9 @@ from IM.repositories import (
 )
 
 
-def _translate_kernel_event(bridge: EventBridge, *, message_id: str, event: dict) -> None:
+def _translate_kernel_event(
+    bridge: EventBridge, *, message_id: str, event: dict
+) -> None:
     """Minimal translation map exercised by the integration test.
 
     Kernel SSE → bridge call. In production this lives in the gateway's event observer
@@ -64,9 +66,13 @@ def _translate_kernel_event(bridge: EventBridge, *, message_id: str, event: dict
                 id=str(event["tool_call_id"]),
                 name=str(event["tool_name"]),
                 status=str(event.get("status") or "completed"),
-                duration_ms=int(event["duration_ms"]) if "duration_ms" in event else None,
+                duration_ms=int(event["duration_ms"])
+                if "duration_ms" in event
+                else None,
                 input=dict(event.get("input") or {}),
-                output=str(event.get("output")) if event.get("output") is not None else None,
+                output=str(event.get("output"))
+                if event.get("output") is not None
+                else None,
             ),
         )
         return
@@ -94,7 +100,9 @@ def test_full_kernel_stream_persists_and_broadcasts(tmp_path: Path) -> None:
 
     alice = users.create_user(username="alice", display_name="Alice")
     agent_user = users.create_user(username="agent:planner", display_name="Planner")
-    connection.execute("UPDATE users SET owner_id = ? WHERE id = ?", (alice.owner_id, agent_user.id))
+    connection.execute(
+        "UPDATE users SET owner_id = ? WHERE id = ?", (alice.owner_id, agent_user.id)
+    )
     connection.commit()
     conv = conversations.create_conversation(title="t", participant_ids=[alice.id])
 
@@ -116,7 +124,12 @@ def test_full_kernel_stream_persists_and_broadcasts(tmp_path: Path) -> None:
     kernel_events = [
         {"event": "message_update", "delta_text": "Let me check"},
         {"event": "message_update", "delta_text": " the file."},
-        {"event": "tool_start", "tool_call_id": "tc1", "tool_name": "read_file", "input": {"p": "x"}},
+        {
+            "event": "tool_start",
+            "tool_call_id": "tc1",
+            "tool_name": "read_file",
+            "input": {"p": "x"},
+        },
         {"event": "message_update", "delta_text": " Reading..."},
         {
             "event": "tool_end",
@@ -149,7 +162,9 @@ def test_full_kernel_stream_persists_and_broadcasts(tmp_path: Path) -> None:
     assert only.status == "completed"
     assert only.duration_ms == 22
     assert only.output == "OK"
-    assert final.token_usage == TokenUsage(output=312, context_used=14800, context_window=200000)
+    assert final.token_usage == TokenUsage(
+        output=312, context_used=14800, context_window=200000
+    )
 
     # 4. WS broadcast events emitted in lifecycle order, ready for the browser to consume.
     event_types_in_order = [e.event_type for e in captured]

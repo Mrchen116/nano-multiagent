@@ -28,9 +28,18 @@ class EditTool:
     input_schema = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Path to the file to edit (relative or absolute)"},
-            "oldText": {"type": "string", "description": "Exact text to find and replace (must match exactly)"},
-            "newText": {"type": "string", "description": "New text to replace the old text with"},
+            "path": {
+                "type": "string",
+                "description": "Path to the file to edit (relative or absolute)",
+            },
+            "oldText": {
+                "type": "string",
+                "description": "Exact text to find and replace (must match exactly)",
+            },
+            "newText": {
+                "type": "string",
+                "description": "New text to replace the old text with",
+            },
         },
         "required": ["path", "oldText", "newText"],
         "additionalProperties": False,
@@ -72,13 +81,17 @@ class EditTool:
 
         file_path = ctx.safety.resolve_path(raw_path, cwd=ctx.cwd, tool_name=self.name)
         if not file_path.exists() or not file_path.is_file():
-            raise ToolError("file does not exist", tool_name=self.name, details={"path": raw_path})
+            raise ToolError(
+                "file does not exist", tool_name=self.name, details={"path": raw_path}
+            )
 
         display_path = _display_path(file_path, ctx.repo_root)
 
         # -- Read-Before-Write enforcement (always checked for edits) --
         if ctx.session_file_state is not None:
-            can_write, error_code = ctx.session_file_state.can_write(str(file_path.resolve()))
+            can_write, error_code = ctx.session_file_state.can_write(
+                str(file_path.resolve())
+            )
             if not can_write:
                 if error_code == 6:
                     raise ToolError(
@@ -98,9 +111,13 @@ class EditTool:
         source = file_path.read_text(encoding="utf-8")
         matches = source.count(old_text)
         if matches == 0:
-            raise ToolError("Could not find the exact text to replace", tool_name=self.name)
+            raise ToolError(
+                "Could not find the exact text to replace", tool_name=self.name
+            )
         if matches > 1:
-            raise ToolError("Found multiple matches; text must be unique", tool_name=self.name)
+            raise ToolError(
+                "Found multiple matches; text must be unique", tool_name=self.name
+            )
 
         updated = source.replace(old_text, new_text, 1)
         if updated == source:

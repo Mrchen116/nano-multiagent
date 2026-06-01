@@ -10,6 +10,7 @@ CC source: claude-code/src/constants/prompts.ts
   - getUsingYourToolsSection (line ~270)
   - getSimpleToneAndStyleSection (line ~430)
 """
+
 from __future__ import annotations
 
 import pytest
@@ -43,6 +44,7 @@ def _get_section(name: str):
 #   system-reminder explanation, auto-compression notice, hooks note.
 # ---------------------------------------------------------------------------
 
+
 class TestCoreSystemM4:
     def test_system_renders_non_none(self):
         s = _get_section("core.system")
@@ -60,7 +62,11 @@ class TestCoreSystemM4:
         s = _get_section("core.system")
         text = s.render(_ctx())
         # Must not re-attempt verbatim; adjust approach
-        assert "denied" in text.lower() or "deny" in text.lower() or "adjust" in text.lower()
+        assert (
+            "denied" in text.lower()
+            or "deny" in text.lower()
+            or "adjust" in text.lower()
+        )
 
     def test_system_explains_system_reminder_tags(self):
         """CC: 'Tool results and user messages may include <system-reminder> ... tags.'"""
@@ -90,6 +96,7 @@ class TestCoreSystemM4:
 # ---------------------------------------------------------------------------
 # core.actions_care — M4 must fill (currently render→None stub)
 # ---------------------------------------------------------------------------
+
 
 class TestCoreActionsCareM4:
     def test_actions_care_renders_non_none(self):
@@ -122,7 +129,11 @@ class TestCoreActionsCareM4:
         s = _get_section("core.actions_care")
         text = s.render(_ctx())
         # Must convey that approval is scoped, not blanket
-        assert "scope" in text.lower() or "once" in text.lower() or "authorized" in text.lower()
+        assert (
+            "scope" in text.lower()
+            or "once" in text.lower()
+            or "authorized" in text.lower()
+        )
 
     def test_actions_care_warns_about_destructive_shortcuts(self):
         """CC: 'do not use destructive actions as a shortcut ... --no-verify'"""
@@ -134,6 +145,7 @@ class TestCoreActionsCareM4:
 # ---------------------------------------------------------------------------
 # core.tool_rules — M4 must fill (currently render→None stub)
 # ---------------------------------------------------------------------------
+
 
 class TestCoreToolRulesM4:
     def test_tool_rules_renders_non_none(self):
@@ -173,6 +185,7 @@ class TestCoreToolRulesM4:
 # ---------------------------------------------------------------------------
 # core.tone_style — M4 must fill (currently render→None stub)
 # ---------------------------------------------------------------------------
+
 
 class TestCoreToneStyleM4:
     def test_tone_style_renders_non_none(self):
@@ -258,7 +271,9 @@ class TestMemoryGuidanceFeatureGate:
         from agent.core.agent.prompt_sections.base import assemble_system_prompt
         from agent.core.agent.prompt_sections.core_sections import CORE_SECTIONS
 
-        ctx_off = _ctx(available_tools=(_MEMORY_TOOL,), flags={"memory_curation": False})
+        ctx_off = _ctx(
+            available_tools=(_MEMORY_TOOL,), flags={"memory_curation": False}
+        )
         result_off = assemble_system_prompt(CORE_SECTIONS, ctx_off)
         # Use the unique opening phrase of _render_memory_guidance, not the tool description.
         assert "You have persistent memory across sessions" not in result_off, (

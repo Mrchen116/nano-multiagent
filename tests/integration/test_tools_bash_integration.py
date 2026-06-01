@@ -4,7 +4,10 @@ from pathlib import Path
 import pytest
 
 from agent.core.errors import ToolError
-from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.base import (
+    set_tool_safety_factory,
+    set_tool_safety_config_factory,
+)
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
 from agent.platform.tools.builtins.bash_runner import BashRunner, BashRunnerConfig
@@ -15,7 +18,9 @@ set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
 
 
-def test_registry_executes_bash_with_truncation_and_persisted_output(tmp_path: Path) -> None:
+def test_registry_executes_bash_with_truncation_and_persisted_output(
+    tmp_path: Path,
+) -> None:
     # BashRunnerConfig carries bash-specific execution limits (replaced ToolSafetyConfig
     # after M6 refactor); inject via _bash_runner to test truncation contract.
     tool = BashTool()
@@ -25,10 +30,12 @@ def test_registry_executes_bash_with_truncation_and_persisted_output(tmp_path: P
     registry = ToolRegistry(context=ToolContext.create(repo_root=tmp_path))
     registry.register(tool)
 
-    result = asyncio.run(registry.execute(
-        "bash",
-        {"command": "python -c \"[print(f'line-{i}') for i in range(8)]\""},
-    ))
+    result = asyncio.run(
+        registry.execute(
+            "bash",
+            {"command": "python -c \"[print(f'line-{i}') for i in range(8)]\""},
+        )
+    )
 
     assert result["truncated"] is True
     assert "fullOutputPath" in result
@@ -44,10 +51,14 @@ def test_registry_bash_signal_error_keeps_signal_details(tmp_path: Path) -> None
     registry.register(BashTool())
 
     with pytest.raises(ToolError, match="Command exited with code") as exc_info:
-        asyncio.run(registry.execute(
-            "bash",
-            {"command": "python -c \"import os,signal; os.kill(os.getpid(), signal.SIGTERM)\""},
-        ))
+        asyncio.run(
+            registry.execute(
+                "bash",
+                {
+                    "command": 'python -c "import os,signal; os.kill(os.getpid(), signal.SIGTERM)"'
+                },
+            )
+        )
 
     details = exc_info.value.details
     assert details["tool_name"] == "bash"

@@ -77,26 +77,23 @@ def _string_or_none(value: str | None | object) -> str | None:
 # Tracing protocol and global tracer
 # ---------------------------------------------------------------------------
 
+
 @runtime_checkable
 class Span(Protocol):
     """Mutable span handle used to annotate an in-flight operation."""
 
-    def set_attribute(self, key: str, value: Any) -> None:
-        ...
+    def set_attribute(self, key: str, value: Any) -> None: ...
 
-    def record_exception(self, exc: BaseException) -> None:
-        ...
+    def record_exception(self, exc: BaseException) -> None: ...
 
-    def end(self) -> None:
-        ...
+    def end(self) -> None: ...
 
 
 @runtime_checkable
 class Tracer(Protocol):
     """Provider-agnostic tracer used by core agent code."""
 
-    def start_span(self, name: str, context: dict[str, Any] | None = None) -> Span:
-        ...
+    def start_span(self, name: str, context: dict[str, Any] | None = None) -> Span: ...
 
 
 class NoOpSpan:

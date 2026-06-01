@@ -6,7 +6,9 @@ from agent.platform.hooks.loader import load_hooks_from_directories
 from agent.core.hooks.runner import HookRunner
 
 
-def test_loader_uses_builtin_then_workspace_order_for_same_priority(tmp_path: Path) -> None:
+def test_loader_uses_builtin_then_workspace_order_for_same_priority(
+    tmp_path: Path,
+) -> None:
     builtins_dir = tmp_path / "builtin_hooks"
     workspace_dir = tmp_path / ".nano" / "hooks"
     builtins_dir.mkdir(parents=True, exist_ok=True)
@@ -53,7 +55,11 @@ def setup(hooks):
     )
 
     assert [item.source for item in loaded] == ["builtin", "builtin", "workspace"]
-    assert [item.file_path.name for item in loaded] == ["a_builtin.py", "b_builtin.py", "local.py"]
+    assert [item.file_path.name for item in loaded] == [
+        "a_builtin.py",
+        "b_builtin.py",
+        "local.py",
+    ]
 
     runner = HookRunner(registry=registry)
     payload = {"order": []}
@@ -65,4 +71,3 @@ def setup(hooks):
         )
     )
     assert payload["order"] == ["builtin-a", "builtin-b", "workspace"]
-

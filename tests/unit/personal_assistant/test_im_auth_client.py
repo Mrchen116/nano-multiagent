@@ -1,4 +1,5 @@
 """Tests for IMAuthClient — IM token refresh and login HTTP operations."""
+
 from __future__ import annotations
 
 import json
@@ -32,12 +33,16 @@ def _json_response(data: dict, *, status_code: int = 200) -> httpx.Response:
 @pytest.mark.asyncio
 async def test_refresh_returns_new_tokens_on_success() -> None:
     """refresh() returns (access_token, refresh_token) when IM returns 200."""
-    transport = _MockTransport([
-        _json_response({
-            "access_token": "new-access",
-            "refresh_token": "new-refresh",
-        })
-    ])
+    transport = _MockTransport(
+        [
+            _json_response(
+                {
+                    "access_token": "new-access",
+                    "refresh_token": "new-refresh",
+                }
+            )
+        ]
+    )
     client = IMAuthClient(base_url="http://localhost:8011", transport=transport)
 
     access, refresh = await client.refresh("old-refresh")
@@ -49,9 +54,9 @@ async def test_refresh_returns_new_tokens_on_success() -> None:
 @pytest.mark.asyncio
 async def test_refresh_raises_on_401() -> None:
     """refresh() raises IMAuthError when IM returns 401 (token expired/revoked)."""
-    transport = _MockTransport([
-        _json_response({"detail": "invalid refresh token"}, status_code=401)
-    ])
+    transport = _MockTransport(
+        [_json_response({"detail": "invalid refresh token"}, status_code=401)]
+    )
     client = IMAuthClient(base_url="http://localhost:8011", transport=transport)
 
     with pytest.raises(IMAuthError):
@@ -61,12 +66,16 @@ async def test_refresh_raises_on_401() -> None:
 @pytest.mark.asyncio
 async def test_login_returns_tokens_on_success() -> None:
     """login() returns (access_token, refresh_token) on successful credential auth."""
-    transport = _MockTransport([
-        _json_response({
-            "access_token": "fresh-access",
-            "refresh_token": "fresh-refresh",
-        })
-    ])
+    transport = _MockTransport(
+        [
+            _json_response(
+                {
+                    "access_token": "fresh-access",
+                    "refresh_token": "fresh-refresh",
+                }
+            )
+        ]
+    )
     client = IMAuthClient(base_url="http://localhost:8011", transport=transport)
 
     access, refresh = await client.login(username="nano", password="nano1234")
@@ -78,9 +87,9 @@ async def test_login_returns_tokens_on_success() -> None:
 @pytest.mark.asyncio
 async def test_login_raises_on_bad_credentials() -> None:
     """login() raises IMAuthError when IM returns 401 (wrong password)."""
-    transport = _MockTransport([
-        _json_response({"detail": "invalid credentials"}, status_code=401)
-    ])
+    transport = _MockTransport(
+        [_json_response({"detail": "invalid credentials"}, status_code=401)]
+    )
     client = IMAuthClient(base_url="http://localhost:8011", transport=transport)
 
     with pytest.raises(IMAuthError):
@@ -97,7 +106,9 @@ async def test_refresh_sends_correct_body() -> None:
             captured.append(request)
             return _json_response({"access_token": "a", "refresh_token": "r"})
 
-    client = IMAuthClient(base_url="http://localhost:8011", transport=_CapturingTransport())
+    client = IMAuthClient(
+        base_url="http://localhost:8011", transport=_CapturingTransport()
+    )
     await client.refresh("my-refresh-token")
 
     assert len(captured) == 1
@@ -118,7 +129,9 @@ async def test_login_sends_correct_body() -> None:
             captured.append(request)
             return _json_response({"access_token": "a", "refresh_token": "r"})
 
-    client = IMAuthClient(base_url="http://localhost:8011", transport=_CapturingTransport())
+    client = IMAuthClient(
+        base_url="http://localhost:8011", transport=_CapturingTransport()
+    )
     await client.login(username="nano", password="nano1234")
 
     assert len(captured) == 1

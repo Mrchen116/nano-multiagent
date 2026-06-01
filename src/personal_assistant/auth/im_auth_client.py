@@ -12,6 +12,7 @@ The client is intentionally thin: it performs the HTTP call, validates the respo
 shape, and raises ``IMAuthError`` on any failure so callers can branch on auth vs.
 network errors without parsing HTTP status codes themselves.
 """
+
 from __future__ import annotations
 
 import httpx
@@ -106,7 +107,9 @@ class IMAuthClient:
         return httpx.AsyncClient(**kwargs)
 
     @staticmethod
-    def _extract_token_pair(response: httpx.Response, *, operation: str) -> tuple[str, str]:
+    def _extract_token_pair(
+        response: httpx.Response, *, operation: str
+    ) -> tuple[str, str]:
         if response.status_code != 200:
             raise IMAuthError(
                 f"IM {operation} failed with status {response.status_code}",

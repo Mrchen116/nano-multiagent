@@ -27,7 +27,9 @@ def _make_profile(global_home: str = "~/.testservice") -> ProductProfile:
     )
 
 
-def test_session_service_fallback_store_is_stateless_with_profile(tmp_path: Path) -> None:
+def test_session_service_fallback_store_is_stateless_with_profile(
+    tmp_path: Path,
+) -> None:
     """SessionService(profile=...) without explicit store builds a stateless store.
 
     The profile is currently not used for store construction; the fallback is a
@@ -48,7 +50,9 @@ def test_session_service_fallback_store_is_stateless_without_profile() -> None:
     assert store._data_dir is None
 
 
-def test_session_service_fallback_honours_env_data_dir(tmp_path: Path, monkeypatch) -> None:
+def test_session_service_fallback_honours_env_data_dir(
+    tmp_path: Path, monkeypatch
+) -> None:
     """NANO_MULTIAGENT_DATA_DIR is the one explicit opt-in for a fixed flat base."""
     env_dir = tmp_path / "env-sessions"
     monkeypatch.setenv("NANO_MULTIAGENT_DATA_DIR", str(env_dir))

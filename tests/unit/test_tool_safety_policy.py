@@ -83,9 +83,9 @@ def test_reboot_base_command_is_hard_denied() -> None:
 def test_zsh_module_dangerous_commands_are_hard_denied() -> None:
     """Mirror CC ZSH_DANGEROUS_COMMANDS Set as defense-in-depth."""
     for cmd in ("zmodload zsh/system", "emulate -c 'eval $code'", "zf_rm /tmp/x"):
-        assert (
-            check_command_policy(cmd).status == "denied"
-        ), f"expected deny for {cmd!r}"
+        assert check_command_policy(cmd).status == "denied", (
+            f"expected deny for {cmd!r}"
+        )
 
 
 def test_env_var_prefix_is_stripped_before_base_command_match() -> None:

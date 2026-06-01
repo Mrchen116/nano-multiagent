@@ -27,7 +27,9 @@ from agent.core.hooks.registry import HookAPI as CoreHookAPI
 from agent.core.hooks.registry import HookRegistry as CoreHookRegistry
 from agent.core.hooks.runner import HookExecution as CoreHookExecution
 from agent.core.hooks.runner import HookRunner as CoreHookRunner
-from agent.core.hooks.runner import InterceptDispatchResult as CoreInterceptDispatchResult
+from agent.core.hooks.runner import (
+    InterceptDispatchResult as CoreInterceptDispatchResult,
+)
 from agent.core.hooks.types import ALL_HOOK_EVENTS as CoreAllHookEvents
 from agent.core.hooks.types import DEFAULT_HOOK_PRIORITY as CoreDefaultHookPriority
 from agent.core.hooks.types import DEFAULT_HOOK_TIMEOUT_MS as CoreDefaultHookTimeoutMs
@@ -44,7 +46,9 @@ from agent.core.hooks.registry import HookAPI as LegacyHookAPI
 from agent.core.hooks.registry import HookRegistry as LegacyHookRegistry
 from agent.core.hooks.runner import HookExecution as LegacyHookExecution
 from agent.core.hooks.runner import HookRunner as LegacyHookRunner
-from agent.core.hooks.runner import InterceptDispatchResult as LegacyInterceptDispatchResult
+from agent.core.hooks.runner import (
+    InterceptDispatchResult as LegacyInterceptDispatchResult,
+)
 from agent.core.hooks.types import ALL_HOOK_EVENTS as LegacyAllHookEvents
 from agent.core.hooks.types import DEFAULT_HOOK_PRIORITY as LegacyDefaultHookPriority
 from agent.core.hooks.types import DEFAULT_HOOK_TIMEOUT_MS as LegacyDefaultHookTimeoutMs

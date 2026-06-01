@@ -1,4 +1,5 @@
 """Optional config-sync client that reacts to IM config.sync pushes."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -38,7 +39,9 @@ class ConfigSyncClient:
         """Record one ``config.sync`` notification and optionally fetch config."""
 
         agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
-        profile_version = _require_int(payload.get("profile_version"), field_name="profile_version")
+        profile_version = _require_int(
+            payload.get("profile_version"), field_name="profile_version"
+        )
         request = ConfigSyncRequest(agent_id=agent_id, profile_version=profile_version)
         self._latest_versions[agent_id] = profile_version
         self._history.append(request)

@@ -17,7 +17,11 @@ from agent.core.agent.prompting import build_system_prompt
 from agent.core.agent.runtime import build_turn_result
 from agent.core.agent.state import AgentState
 from agent.core.agent.compaction.types import CompactionSettings
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+)
 from agent.core.types import Message
 
 
@@ -51,16 +55,23 @@ class _FakeSessionManager:
         self._history = history_messages
 
     def list_entries(self, session_id: str):
-        from agent.core.session.entries import SessionEntry, SessionEntryKind, new_turn_appended_entry
+        from agent.core.session.entries import (
+            SessionEntry,
+            SessionEntryKind,
+            new_turn_appended_entry,
+        )
+
         entries = []
         for msg in self._history:
-            entries.append(new_turn_appended_entry(
-                session_id=session_id,
-                turn_id="turn_1",
-                role=msg.role,
-                content=msg.content,
-                message_id=msg.message_id,
-            ))
+            entries.append(
+                new_turn_appended_entry(
+                    session_id=session_id,
+                    turn_id="turn_1",
+                    role=msg.role,
+                    content=msg.content,
+                    message_id=msg.message_id,
+                )
+            )
         return tuple(entries)
 
 
@@ -72,7 +83,8 @@ class _FakeCompactionPlanner:
         from agent.core.session.entries import SessionEntry, SessionEntryKind
 
         turn_events = tuple(
-            e for e in events
+            e
+            for e in events
             if isinstance(e, SessionEntry) and e.kind is SessionEntryKind.TURN_APPENDED
         )
         if not turn_events:
@@ -92,7 +104,12 @@ class _FakeCompactionSummarizer:
         return "Compact summary: context was too long."
 
 
-def _make_state(*, session_id: str = "sess-compact", user_text: str = "ping", history_messages: tuple[Message, ...] = ()) -> AgentState:
+def _make_state(
+    *,
+    session_id: str = "sess-compact",
+    user_text: str = "ping",
+    history_messages: tuple[Message, ...] = (),
+) -> AgentState:
     return AgentState(
         session_id=session_id,
         turn_id="turn-compact",
@@ -115,18 +132,25 @@ async def _run_loop(loop: AgentLoop, state: AgentState):
 # C1 tests (Red) — these will fail until implementation is added
 # ---------------------------------------------------------------------------
 
+
 async def test_loop_triggers_compact_when_token_threshold_exceeded() -> None:
     """Exit criterion 1: loop 内 token 超限触发 compact."""
     long_content = "x" * 800  # ~100 tokens
     history = tuple(
-        Message(message_id=f"msg_{i}", role="user" if i % 2 == 0 else "assistant", content=long_content)
+        Message(
+            message_id=f"msg_{i}",
+            role="user" if i % 2 == 0 else "assistant",
+            content=long_content,
+        )
         for i in range(10)
     )
     llm = _FakeLLMClient()
     loop = AgentLoop(
         llm_client=llm,
         model="test-model",
-        compaction_settings=CompactionSettings(enabled=True, context_window=100, reserve_tokens=10),
+        compaction_settings=CompactionSettings(
+            enabled=True, context_window=100, reserve_tokens=10
+        ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
         session_manager=_FakeSessionManager(history),
@@ -139,22 +163,32 @@ async def test_loop_triggers_compact_when_token_threshold_exceeded() -> None:
         raw_messages.append(msg)
 
     # Compact should have triggered: we should see a compact summary message
-    compact_msgs = [m for m in raw_messages if getattr(m, "metadata", {}).get("is_compact_summary")]
-    assert len(compact_msgs) == 1, f"Expected 1 compact summary, got {len(compact_msgs)}"
+    compact_msgs = [
+        m for m in raw_messages if getattr(m, "metadata", {}).get("is_compact_summary")
+    ]
+    assert len(compact_msgs) == 1, (
+        f"Expected 1 compact summary, got {len(compact_msgs)}"
+    )
 
 
 async def test_loop_continues_iteration_after_compact() -> None:
     """Exit criterion 2: compact 后 iteration 继续."""
     long_content = "x" * 800
     history = tuple(
-        Message(message_id=f"msg_{i}", role="user" if i % 2 == 0 else "assistant", content=long_content)
+        Message(
+            message_id=f"msg_{i}",
+            role="user" if i % 2 == 0 else "assistant",
+            content=long_content,
+        )
         for i in range(10)
     )
     llm = _FakeLLMClient(content="after-compact")
     loop = AgentLoop(
         llm_client=llm,
         model="test-model",
-        compaction_settings=CompactionSettings(enabled=True, context_window=100, reserve_tokens=10),
+        compaction_settings=CompactionSettings(
+            enabled=True, context_window=100, reserve_tokens=10
+        ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
         session_manager=_FakeSessionManager(history),
@@ -176,14 +210,20 @@ async def test_loop_compact_does_not_modify_session_history() -> None:
     """
     long_content = "x" * 800
     original_history = tuple(
-        Message(message_id=f"msg_{i}", role="user" if i % 2 == 0 else "assistant", content=long_content)
+        Message(
+            message_id=f"msg_{i}",
+            role="user" if i % 2 == 0 else "assistant",
+            content=long_content,
+        )
         for i in range(10)
     )
     llm = _FakeLLMClient()
     loop = AgentLoop(
         llm_client=llm,
         model="test-model",
-        compaction_settings=CompactionSettings(enabled=True, context_window=100, reserve_tokens=10),
+        compaction_settings=CompactionSettings(
+            enabled=True, context_window=100, reserve_tokens=10
+        ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
         session_manager=_FakeSessionManager(original_history),
@@ -204,7 +244,11 @@ async def test_loop_preserves_system_prompt_after_compact() -> None:
     """
     long_content = "x" * 800
     history = tuple(
-        Message(message_id=f"msg_{i}", role="user" if i % 2 == 0 else "assistant", content=long_content)
+        Message(
+            message_id=f"msg_{i}",
+            role="user" if i % 2 == 0 else "assistant",
+            content=long_content,
+        )
         for i in range(10)
     )
     llm = _FakeLLMClient()
@@ -213,7 +257,9 @@ async def test_loop_preserves_system_prompt_after_compact() -> None:
         llm_client=llm,
         model="test-model",
         system_prompt=system_prompt,
-        compaction_settings=CompactionSettings(enabled=True, context_window=100, reserve_tokens=10),
+        compaction_settings=CompactionSettings(
+            enabled=True, context_window=100, reserve_tokens=10
+        ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
         session_manager=_FakeSessionManager(history),
@@ -238,7 +284,11 @@ async def test_loop_fires_on_compaction_callback_with_session_id() -> None:
     long_content = "x" * 800
     session_id = "sess-callback-check"
     history = tuple(
-        Message(message_id=f"msg_{i}", role="user" if i % 2 == 0 else "assistant", content=long_content)
+        Message(
+            message_id=f"msg_{i}",
+            role="user" if i % 2 == 0 else "assistant",
+            content=long_content,
+        )
         for i in range(10)
     )
     llm = _FakeLLMClient()
@@ -251,15 +301,21 @@ async def test_loop_fires_on_compaction_callback_with_session_id() -> None:
     loop = AgentLoop(
         llm_client=llm,
         model="test-model",
-        compaction_settings=CompactionSettings(enabled=True, context_window=100, reserve_tokens=10),
+        compaction_settings=CompactionSettings(
+            enabled=True, context_window=100, reserve_tokens=10
+        ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
         session_manager=_FakeSessionManager(history),
         on_compaction=on_compaction,
     )
-    state = _make_state(session_id=session_id, history_messages=history, user_text="trigger")
+    state = _make_state(
+        session_id=session_id, history_messages=history, user_text="trigger"
+    )
 
     await _run_loop(loop, state)
 
     assert len(fired_with) == 1, f"Expected callback called once, got {fired_with}"
-    assert fired_with[0] == session_id, f"Expected session_id={session_id!r}, got {fired_with[0]!r}"
+    assert fired_with[0] == session_id, (
+        f"Expected session_id={session_id!r}, got {fired_with[0]!r}"
+    )

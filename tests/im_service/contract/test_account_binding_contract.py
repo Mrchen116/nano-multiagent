@@ -35,7 +35,9 @@ def test_me_and_bind_contract_shapes(tmp_path: Path) -> None:
         assert me_response.json()["user_id"] == owner.id
         assert me_response.json()["default_entry_node_id"] is None
 
-        bind_response = client.post("/im/v1/bind", json={"action": "start", "node_id": "node-1"})
+        bind_response = client.post(
+            "/im/v1/bind", json={"action": "start", "node_id": "node-1"}
+        )
         assert bind_response.status_code == 201
         assert set(bind_response.json()) == {
             "bind_id",
@@ -60,4 +62,6 @@ def test_bind_contract_requires_action_specific_fields(tmp_path: Path) -> None:
 
         confirm_response = client.post("/im/v1/bind", json={"action": "confirm"})
         assert confirm_response.status_code == 400
-        assert confirm_response.json() == {"detail": "bind_id or bind_token is required for confirm"}
+        assert confirm_response.json() == {
+            "detail": "bind_id or bind_token is required for confirm"
+        }

@@ -10,6 +10,7 @@
 
 这是开发态修复,不做兼容(参见 docs/changes/bugfix-367-permission-history-list/fix.md)。
 """
+
 import asyncio
 import pytest
 
@@ -100,6 +101,7 @@ async def test_observe_tool_call_skipped_when_intercept_gate_blocks() -> None:
         metadata={"tool_call_id": "call-bbb"},
     )
     from agent.core.errors import ToolError
+
     with pytest.raises(ToolError) as exc:
         await registry.execute("echo", {"text": "hi"}, hook_context=ctx)
     assert "blocked by hook" in str(exc.value)
@@ -110,6 +112,7 @@ async def test_observe_tool_call_skipped_when_intercept_gate_blocks() -> None:
 async def test_loop_no_longer_dispatches_tool_call_observe() -> None:
     """loop._dispatch_tool_call_hook 已删除,loop.py 不再触发 observe 'tool_call'."""
     from agent.core.agent.loop import AgentLoop
+
     assert not hasattr(AgentLoop, "_dispatch_tool_call_hook"), (
         "loop.py 不应保留 _dispatch_tool_call_hook —— observe 触发责任已迁移至 registry.execute"
     )

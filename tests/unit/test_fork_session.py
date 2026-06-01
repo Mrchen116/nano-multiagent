@@ -6,7 +6,11 @@ from pathlib import Path
 import pytest
 
 from agent.core.agent.runtime import AgentRuntime
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+)
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 from agent.core.types import Message
@@ -85,7 +89,9 @@ async def test_fork_session_creates_independent_copy(tmp_path: Path) -> None:
     # Parent chain must be recalculated correctly
     for msg in fork_history:
         if msg.parent_message_id is not None:
-            assert msg.parent_message_id in fork_uuids, "parent_uuid must point within fork"
+            assert msg.parent_message_id in fork_uuids, (
+                "parent_uuid must point within fork"
+            )
 
     # History independence: run another turn on source
     await runtime.run(source_id, [{"type": "text", "text": "extra"}], stream=False)

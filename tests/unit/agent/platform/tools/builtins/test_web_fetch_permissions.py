@@ -96,7 +96,10 @@ class TestCheckPermissionsBranch2_Preapproved:
         tool = _make_tool()
         result = _check(tool, "https://github.com/anthropics-evil/malware")
         # Not preapproved — falls through to hostname rule or fallback ask
-        assert result.behavior != "allow" or result.decision_reason.get("type") != "preapproved"
+        assert (
+            result.behavior != "allow"
+            or result.decision_reason.get("type") != "preapproved"
+        )
 
     def test_preapproved_hosts_extra_allow(self):
         """preapproved_hosts_extra from config also grants allow."""
@@ -115,7 +118,10 @@ class TestCheckPermissionsBranch2_Preapproved:
         result = _check(tool, "https://vercel.com/pricing")
         # Should not be allow-via-preapproved; might be ask from fallback
         if result.behavior == "allow":
-            assert result.decision_reason is None or result.decision_reason.get("type") != "preapproved"
+            assert (
+                result.decision_reason is None
+                or result.decision_reason.get("type") != "preapproved"
+            )
 
 
 class TestCheckPermissionsBranch3_HostnameRules:
@@ -169,13 +175,16 @@ class TestSafeToolAllowlistNoWebFetch:
 
     def test_web_fetch_not_in_safe_allowlist(self):
         from agent.platform.hooks.builtins.auto_mode_gate import SAFE_TOOL_ALLOWLIST  # noqa: PLC0415
+
         assert "web_fetch" not in SAFE_TOOL_ALLOWLIST
 
     def test_web_search_not_in_safe_allowlist(self):
         """web_search also removed (S2)."""
         from agent.platform.hooks.builtins.auto_mode_gate import SAFE_TOOL_ALLOWLIST  # noqa: PLC0415
+
         assert "web_search" not in SAFE_TOOL_ALLOWLIST
 
     def test_read_still_in_safe_allowlist(self):
         from agent.platform.hooks.builtins.auto_mode_gate import SAFE_TOOL_ALLOWLIST  # noqa: PLC0415
+
         assert "read" in SAFE_TOOL_ALLOWLIST

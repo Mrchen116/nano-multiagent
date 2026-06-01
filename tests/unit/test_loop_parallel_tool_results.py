@@ -43,7 +43,9 @@ class _SlowStreamLLMClient:
     ) -> None:
         self.requests: list[LLMGenerateRequest] = []
         self._call_count = 0
-        self._second_response = second_response or LLMMessage(role="assistant", content="done")
+        self._second_response = second_response or LLMMessage(
+            role="assistant", content="done"
+        )
 
     async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         self.requests.append(request)
@@ -55,13 +57,17 @@ class _SlowStreamLLMClient:
             yield LLMMessage(
                 role="assistant",
                 content="",
-                tool_calls=(LLMToolCall(call_id="tc-A", name="r1", arguments={"path": "/a"}),),
+                tool_calls=(
+                    LLMToolCall(call_id="tc-A", name="r1", arguments={"path": "/a"}),
+                ),
             )
             await asyncio.sleep(0.01)  # tiny pause: r2 becomes enqueued after r1 starts
             yield LLMMessage(
                 role="assistant",
                 content="",
-                tool_calls=(LLMToolCall(call_id="tc-B", name="r2", arguments={"path": "/b"}),),
+                tool_calls=(
+                    LLMToolCall(call_id="tc-B", name="r2", arguments={"path": "/b"}),
+                ),
             )
             yield LLMMessage(role="assistant", content="", finish_reason="tool_calls")
         else:
@@ -83,7 +89,9 @@ class _FakeSafeTool(Tool):
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         raise NotImplementedError
 
-    def serialize_result(self, output: Any, error: str | None = None) -> str | list[dict[str, Any]]:
+    def serialize_result(
+        self, output: Any, error: str | None = None
+    ) -> str | list[dict[str, Any]]:
         return str(output) if output else error or ""
 
 

@@ -9,10 +9,15 @@ Covers the bug where image messages sent from the Web IM frontend resulted in a
 
 from __future__ import annotations
 
-from personal_assistant.channels.web_relay_adapter import WebRelayAdapter, _parse_relay_payload
+from personal_assistant.channels.web_relay_adapter import (
+    WebRelayAdapter,
+    _parse_relay_payload,
+)
 
 
-def _minimal_payload(*, content: str = "hello", attachments: list | None = None) -> dict:
+def _minimal_payload(
+    *, content: str = "hello", attachments: list | None = None
+) -> dict:
     """Build a minimal valid relay payload with optional attachments."""
     message: dict = {
         "id": "msg-1",
@@ -37,7 +42,11 @@ def test_parse_relay_payload_extracts_single_image_attachment() -> None:
     payload = _minimal_payload(
         content="look at this",
         attachments=[
-            {"url": "http://im.local/im/uploads/abc.png", "content_type": "image/png", "file_name": "screen.png"}
+            {
+                "url": "http://im.local/im/uploads/abc.png",
+                "content_type": "image/png",
+                "file_name": "screen.png",
+            }
         ],
     )
 
@@ -69,7 +78,10 @@ def test_parse_relay_payload_skips_attachment_without_url() -> None:
     payload = _minimal_payload(
         attachments=[
             {"content_type": "image/png"},  # no url
-            {"url": "http://im.local/im/uploads/valid.jpg", "content_type": "image/jpeg"},
+            {
+                "url": "http://im.local/im/uploads/valid.jpg",
+                "content_type": "image/jpeg",
+            },
         ]
     )
     envelope = _parse_relay_payload(payload)
@@ -86,7 +98,11 @@ def test_accept_relay_puts_attachments_in_inbound_metadata() -> None:
     payload = _minimal_payload(
         content="check image",
         attachments=[
-            {"url": "http://im.local/im/uploads/photo.png", "content_type": "image/png", "file_name": "photo.png"}
+            {
+                "url": "http://im.local/im/uploads/photo.png",
+                "content_type": "image/png",
+                "file_name": "photo.png",
+            }
         ],
     )
 
@@ -122,7 +138,11 @@ def test_accept_relay_multiple_attachments_all_forwarded() -> None:
         content="two images",
         attachments=[
             {"url": "http://im.local/im/uploads/a.png", "content_type": "image/png"},
-            {"url": "http://im.local/im/uploads/b.jpg", "content_type": "image/jpeg", "file_name": "b.jpg"},
+            {
+                "url": "http://im.local/im/uploads/b.jpg",
+                "content_type": "image/jpeg",
+                "file_name": "b.jpg",
+            },
         ],
     )
 
@@ -234,7 +254,9 @@ def test_relay_adapter_backward_compat_without_sender_field() -> None:
     assert envelope.participants == []
 
 
-def test_relay_adapter_inbound_no_sender_display_name_key_when_none(tmp_path: object) -> None:
+def test_relay_adapter_inbound_no_sender_display_name_key_when_none(
+    tmp_path: object,
+) -> None:
     """When sender_display_name is None, InboundMessage.metadata must not contain the key."""
     received = []
     adapter = WebRelayAdapter()

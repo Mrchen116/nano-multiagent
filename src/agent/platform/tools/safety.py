@@ -10,13 +10,9 @@ After M6 (bugfix-355):
   a shim export so existing callers still import without breaking.
 """
 
-import os
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping
 
-from agent.core.errors import ToolError
 
 from .constants import DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES
 
@@ -35,7 +31,9 @@ class ToolSafetyConfig:
     read_max_bytes: int = DEFAULT_MAX_BYTES
 
 
-def load_tool_safety_config(*, repo_root: Path, default: ToolSafetyConfig | None = None) -> ToolSafetyConfig:
+def load_tool_safety_config(
+    *, repo_root: Path, default: ToolSafetyConfig | None = None
+) -> ToolSafetyConfig:
     """Load optional `.nano/policy.toml` overrides for file-tool safety.
 
     After M6: bash policy overrides are handled by bash_policy.load_bash_policy_overrides.
@@ -117,7 +115,9 @@ class ToolSafety:
         except ValueError:
             return False
 
-    def truncate_text(self, text: str, *, max_lines: int, max_bytes: int, tail: bool = False) -> tuple[str, bool]:
+    def truncate_text(
+        self, text: str, *, max_lines: int, max_bytes: int, tail: bool = False
+    ) -> tuple[str, bool]:
         """Truncate text by line and byte ceilings and report truncation flag."""
         max_lines = max(1, max_lines)
         max_bytes = max(1, max_bytes)
@@ -140,4 +140,6 @@ class ToolSafety:
 # New code should import from agent.platform.tools.builtins.bash_policy.
 # ---------------------------------------------------------------------------
 
-from agent.platform.tools.builtins.bash_policy import CommandPolicyDecision as CommandPolicyDecision  # noqa: E402, F401
+from agent.platform.tools.builtins.bash_policy import (
+    CommandPolicyDecision as CommandPolicyDecision,
+)  # noqa: E402, F401

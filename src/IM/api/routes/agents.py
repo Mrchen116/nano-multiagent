@@ -3,7 +3,13 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 
-from IM.api.deps import current_user, get_config_service, get_gateway_handler, get_node_service, get_user_service
+from IM.api.deps import (
+    current_user,
+    get_config_service,
+    get_gateway_handler,
+    get_node_service,
+    get_user_service,
+)
 from IM.application.config_service import ConfigService
 from IM.application.node_service import NodeService
 from IM.application.user_service import UserService
@@ -109,7 +115,9 @@ class AgentCapabilitiesResponse(BaseModel):
     features: list[FeatureCapabilityResponse] = Field(default_factory=list)
 
 
-def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -> AgentConfigResponse:
+def to_agent_config_response(
+    profile: AgentProfile, *, service: ConfigService
+) -> AgentConfigResponse:
     """Convert a domain profile to the config response model."""
     # feat-379-M5 (ISSUE-2): features/custom_prompt must be round-tripped so the
     # frontend can restore toggle state and custom text on page load.
@@ -133,7 +141,9 @@ def to_agent_config_response(profile: AgentProfile, *, service: ConfigService) -
     )
 
 
-def _merge_live_agent_profile(profile: AgentProfile, payload: dict[str, object]) -> AgentProfile:
+def _merge_live_agent_profile(
+    profile: AgentProfile, payload: dict[str, object]
+) -> AgentProfile:
     """Overlay one live gateway snapshot onto the persisted IM mirror for read APIs."""
     display_name = payload.get("display_name")
     system_prompt = payload.get("system_prompt")
@@ -146,16 +156,30 @@ def _merge_live_agent_profile(profile: AgentProfile, payload: dict[str, object])
         agent_id=profile.agent_id,
         owner_id=profile.owner_id,
         node_id=profile.node_id,
-        display_name=display_name if isinstance(display_name, str) and display_name.strip() else profile.display_name,
+        display_name=display_name
+        if isinstance(display_name, str) and display_name.strip()
+        else profile.display_name,
         description=profile.description,
-        system_prompt=system_prompt if isinstance(system_prompt, str) else profile.system_prompt,
-        skills=[item for item in skills if isinstance(item, str)] if isinstance(skills, list) else profile.skills,
-        tool_allowlist=[item for item in tool_allowlist if isinstance(item, str)] if isinstance(tool_allowlist, list) else profile.tool_allowlist,
+        system_prompt=system_prompt
+        if isinstance(system_prompt, str)
+        else profile.system_prompt,
+        skills=[item for item in skills if isinstance(item, str)]
+        if isinstance(skills, list)
+        else profile.skills,
+        tool_allowlist=[item for item in tool_allowlist if isinstance(item, str)]
+        if isinstance(tool_allowlist, list)
+        else profile.tool_allowlist,
         group_reply_policy=(
-            group_reply_policy if isinstance(group_reply_policy, str) and group_reply_policy.strip() else profile.group_reply_policy
+            group_reply_policy
+            if isinstance(group_reply_policy, str) and group_reply_policy.strip()
+            else profile.group_reply_policy
         ),
-        default_model=default_model if isinstance(default_model, str) or default_model is None else profile.default_model,
-        workspace_root=workspace_root if isinstance(workspace_root, str) and workspace_root.strip() else profile.workspace_root,
+        default_model=default_model
+        if isinstance(default_model, str) or default_model is None
+        else profile.default_model,
+        workspace_root=workspace_root
+        if isinstance(workspace_root, str) and workspace_root.strip()
+        else profile.workspace_root,
         profile_version=profile.profile_version,
         # feat-379-M7 (ISSUE-2): live gateway snapshots do not carry features/custom_prompt
         # (those are IM-owned fields set via PATCH, not reported back by the node).
@@ -178,7 +202,9 @@ def to_agent_summary_response(
     # (agent profiles that pre-date the R9-1 fix and any profile written outside
     # the HTTP route) self-heal on first read. Falling back to ``user_service``
     # keeps unit tests that wire only the user service working.
-    agent_user = service.ensure_agent_user(agent_id=profile.agent_id, display_name=profile.display_name)
+    agent_user = service.ensure_agent_user(
+        agent_id=profile.agent_id, display_name=profile.display_name
+    )
     if agent_user is None and user_service is not None:
         agent_user = user_service.get_by_username(username=f"agent:{profile.agent_id}")
     return AgentSummaryResponse(
@@ -205,7 +231,10 @@ def list_agents(
     node_service: NodeService = Depends(get_node_service),
 ) -> list[AgentSummaryResponse]:
     """List runtime-selectable agents visible to the authenticated tenant."""
-    nodes = {n.node_id: n.status for n in node_service.list_nodes_for_owner(owner_id=user.owner_id)}
+    nodes = {
+        n.node_id: n.status
+        for n in node_service.list_nodes_for_owner(owner_id=user.owner_id)
+    }
     return [
         to_agent_summary_response(
             item,
@@ -213,7 +242,9 @@ def list_agents(
             user_service=user_service,
             node_status=nodes.get(item.node_id) if item.node_id else None,
         )
-        for item in service.list_runtime_selectable_profiles_for_owner(owner_id=user.owner_id)
+        for item in service.list_runtime_selectable_profiles_for_owner(
+            owner_id=user.owner_id
+        )
     ]
 
 
@@ -232,19 +263,28 @@ async def get_agent_config(
     """
     profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
     if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
+        )
     if source == "mirror":
         return to_agent_config_response(profile, service=service)
     if source != "live":
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="source must be live or mirror")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="source must be live or mirror",
+        )
     if profile.node_id:
-        payload = await gateway_handler.request_agent_config(target_node_id=profile.node_id, agent_id=agent_id)
+        payload = await gateway_handler.request_agent_config(
+            target_node_id=profile.node_id, agent_id=agent_id
+        )
         if isinstance(payload, dict):
             profile = _merge_live_agent_profile(profile, payload)
     return to_agent_config_response(profile, service=service)
 
 
-@router.get("/im/v1/agents/{agent_id}/capabilities", response_model=AgentCapabilitiesResponse)
+@router.get(
+    "/im/v1/agents/{agent_id}/capabilities", response_model=AgentCapabilitiesResponse
+)
 async def get_agent_capabilities(
     agent_id: str,
     user: User = Depends(current_user),
@@ -254,9 +294,14 @@ async def get_agent_capabilities(
     """Resolve runtime capabilities for one agent from its owning node (owner-scoped)."""
     profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
     if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
+        )
     if profile.node_id is None or not profile.node_id.strip():
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id is not bound to a node")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="agent_id is not bound to a node",
+        )
     workspace_root = service.workspace_root_for_profile(profile)
     payload = await gateway_handler.request_agent_capabilities(
         target_node_id=profile.node_id,
@@ -264,9 +309,16 @@ async def get_agent_capabilities(
         workspace_root=workspace_root,
     )
     if payload is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="target_node_id is not connected")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="target_node_id is not connected",
+        )
     raw_platform = payload.get("platform_default_model")
-    platform_default: str | None = raw_platform.strip() if isinstance(raw_platform, str) and raw_platform.strip() else None
+    platform_default: str | None = (
+        raw_platform.strip()
+        if isinstance(raw_platform, str) and raw_platform.strip()
+        else None
+    )
     raw_prompt = payload.get("default_system_prompt")
     default_system_prompt = raw_prompt if isinstance(raw_prompt, str) else ""
     # feat-379-M2: forward FEATURE_REGISTRY projection from Gateway verbatim
@@ -293,7 +345,9 @@ def update_agent_config(
 ) -> AgentConfigResponse:
     """Update one agent configuration profile with optimistic locking (owner-scoped)."""
     if service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
+        )
     try:
         # feat-379-M5 (ISSUE-2): pass features + custom_prompt through so they
         # are written to the DB and returned in the response.
@@ -317,11 +371,17 @@ def update_agent_config(
             custom_prompt=payload.custom_prompt,
         )
     except AgentProfileVersionConflictError as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
     except LookupError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     return to_agent_config_response(updated, service=service)
 
 
@@ -382,7 +442,9 @@ def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:
                 continue
             raw_desc = item.get("description")
             desc = raw_desc.strip() if isinstance(raw_desc, str) else ""
-            result.append(AllowlistOptionResponse(name=raw_name.strip(), description=desc))
+            result.append(
+                AllowlistOptionResponse(name=raw_name.strip(), description=desc)
+            )
     return result
 
 
@@ -416,7 +478,9 @@ class PromptPreviewResponse(BaseModel):
     section_count: int
 
 
-@router.post("/im/v1/agents/{agent_id}/prompt-preview", response_model=PromptPreviewResponse)
+@router.post(
+    "/im/v1/agents/{agent_id}/prompt-preview", response_model=PromptPreviewResponse
+)
 async def agent_prompt_preview(
     agent_id: str,
     payload: PromptPreviewRequest,
@@ -433,9 +497,14 @@ async def agent_prompt_preview(
     """
     profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
     if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
+        )
     if profile.node_id is None or not profile.node_id.strip():
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="agent_id is not bound to a node")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="agent_id is not bound to a node",
+        )
     workspace_root = service.workspace_root_for_profile(profile)
     result = await gateway_handler.request_prompt_preview(
         target_node_id=profile.node_id,
@@ -448,7 +517,10 @@ async def agent_prompt_preview(
         skill_ids=payload.skill_ids,
     )
     if result is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="target_node_id is not connected")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="target_node_id is not connected",
+        )
     raw_prompt = result.get("prompt")
     prompt = raw_prompt if isinstance(raw_prompt, str) else ""
     raw_count = result.get("section_count")

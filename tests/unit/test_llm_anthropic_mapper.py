@@ -7,7 +7,9 @@ from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 from agent.platform.llm.providers.anthropic.mapper import AnthropicMapper
 
 
-def _request(*, messages: tuple[LLMMessage, ...], max_tokens: int | None = None) -> LLMGenerateRequest:
+def _request(
+    *, messages: tuple[LLMMessage, ...], max_tokens: int | None = None
+) -> LLMGenerateRequest:
     return LLMGenerateRequest(
         session_id="sess_anthropic_mapper",
         model="kimiCoding:K2.6",
@@ -141,7 +143,11 @@ def test_map_message_assistant_tool_call_round_trips_thinking_block() -> None:
                     content="",
                     reasoning_content="我需要使用 bash 工具",
                     reasoning_signature=real_sig,
-                    tool_calls=(LLMToolCall(call_id="tool_1", name="bash", arguments={"command": "pwd"}),),
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="tool_1", name="bash", arguments={"command": "pwd"}
+                        ),
+                    ),
                 ),
                 LLMMessage(role="tool", content="/repo", tool_call_id="tool_1"),
             ),
@@ -150,7 +156,11 @@ def test_map_message_assistant_tool_call_round_trips_thinking_block() -> None:
 
     assistant_msg = payload["messages"][1]
     blocks = assistant_msg["content"]
-    assert blocks[0] == {"type": "thinking", "thinking": "我需要使用 bash 工具", "signature": real_sig}
+    assert blocks[0] == {
+        "type": "thinking",
+        "thinking": "我需要使用 bash 工具",
+        "signature": real_sig,
+    }
     assert any(b.get("type") == "tool_use" and b.get("id") == "tool_1" for b in blocks)
 
 
@@ -169,7 +179,11 @@ def test_map_message_assistant_tool_call_uses_empty_signature_when_none() -> Non
                     content="",
                     reasoning_content="我需要使用 bash 工具",
                     reasoning_signature=None,
-                    tool_calls=(LLMToolCall(call_id="tool_1", name="bash", arguments={"command": "pwd"}),),
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="tool_1", name="bash", arguments={"command": "pwd"}
+                        ),
+                    ),
                 ),
                 LLMMessage(role="tool", content="/repo", tool_call_id="tool_1"),
             ),
@@ -178,7 +192,11 @@ def test_map_message_assistant_tool_call_uses_empty_signature_when_none() -> Non
 
     assistant_msg = payload["messages"][1]
     blocks = assistant_msg["content"]
-    assert blocks[0] == {"type": "thinking", "thinking": "我需要使用 bash 工具", "signature": ""}
+    assert blocks[0] == {
+        "type": "thinking",
+        "thinking": "我需要使用 bash 工具",
+        "signature": "",
+    }
 
 
 def test_map_message_assistant_without_reasoning_omits_thinking_block() -> None:

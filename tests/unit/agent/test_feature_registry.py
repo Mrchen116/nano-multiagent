@@ -4,6 +4,7 @@ M1 only establishes the registry skeleton with correct field shapes.
 M2 will fill in the full implementation and add contract tests for the
 capabilities API projection.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -30,7 +31,14 @@ def test_feature_registry_entries_have_required_fields():
     """Each registry entry must have: sections, default_on, requires_tool, layer, label_i18n, help_i18n."""
     from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
 
-    required_fields = {"sections", "default_on", "requires_tool", "layer", "label_i18n", "help_i18n"}
+    required_fields = {
+        "sections",
+        "default_on",
+        "requires_tool",
+        "layer",
+        "label_i18n",
+        "help_i18n",
+    }
     for key, entry in FEATURE_REGISTRY.items():
         missing = required_fields - set(entry)
         assert not missing, f"FEATURE_REGISTRY[{key!r}] missing fields: {missing}"
@@ -57,7 +65,9 @@ def test_feature_registry_requires_tool_is_str_or_none():
 
     for key, entry in FEATURE_REGISTRY.items():
         val = entry["requires_tool"]
-        assert val is None or isinstance(val, str), f"{key}: requires_tool must be str or None"
+        assert val is None or isinstance(val, str), (
+            f"{key}: requires_tool must be str or None"
+        )
 
 
 def test_feature_registry_layer_is_valid():
@@ -65,7 +75,9 @@ def test_feature_registry_layer_is_valid():
 
     valid_layers = {"core", "product"}
     for key, entry in FEATURE_REGISTRY.items():
-        assert entry["layer"] in valid_layers, f"{key}: layer must be 'core' or 'product'"
+        assert entry["layer"] in valid_layers, (
+            f"{key}: layer must be 'core' or 'product'"
+        )
 
 
 def test_memory_curation_defaults():

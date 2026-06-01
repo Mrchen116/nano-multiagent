@@ -6,7 +6,10 @@ import pytest
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
-from agent.core.tools.base import set_tool_safety_config_factory, set_tool_safety_factory
+from agent.core.tools.base import (
+    set_tool_safety_config_factory,
+    set_tool_safety_factory,
+)
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 from agent.core.llm.interfaces import (
     LLMGenerateRequest,
@@ -31,7 +34,9 @@ def _make_workspace_session(manager: SessionManager, tmp_path: Path):
 
 
 class FakeLLMClient:
-    def __init__(self, responses: tuple[LLMGenerateResponse, ...] | None = None) -> None:
+    def __init__(
+        self, responses: tuple[LLMGenerateResponse, ...] | None = None
+    ) -> None:
         self.requests: list[LLMGenerateRequest] = []
         self._responses = list(responses) if responses is not None else None
 
@@ -75,9 +80,13 @@ async def test_runtime_run_appends_user_and_assistant_events(tmp_path: Path) -> 
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
-    runtime = AgentRuntime(session_manager=manager, llm_client=FakeLLMClient(), model="mock-model")
+    runtime = AgentRuntime(
+        session_manager=manager, llm_client=FakeLLMClient(), model="mock-model"
+    )
 
-    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
     manager.writer.flush()
 
     assert result.session_id == session.session_id
@@ -98,23 +107,35 @@ async def test_runtime_run_with_default_workspace_root() -> None:
     store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=Path.cwd())
-    runtime = AgentRuntime(session_manager=manager, llm_client=FakeLLMClient(), model="mock-model")
+    runtime = AgentRuntime(
+        session_manager=manager, llm_client=FakeLLMClient(), model="mock-model"
+    )
 
-    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
 
     assert result.session_id == session.session_id
     assert result.messages[0].role == "assistant"
 
 
-async def test_runtime_builds_followup_context_from_session_events(tmp_path: Path) -> None:
+async def test_runtime_builds_followup_context_from_session_events(
+    tmp_path: Path,
+) -> None:
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
     llm_client = FakeLLMClient()
-    runtime = AgentRuntime(session_manager=manager, llm_client=llm_client, model="mock-model")
+    runtime = AgentRuntime(
+        session_manager=manager, llm_client=llm_client, model="mock-model"
+    )
 
-    await runtime.run(session.session_id, [{"type": "text", "text": "first"}], stream=False)
-    await runtime.run(session.session_id, [{"type": "text", "text": "second"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "first"}], stream=False
+    )
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "second"}], stream=False
+    )
 
     second_call_messages = llm_client.requests[-1].messages
     assert [message.role for message in second_call_messages] == [
@@ -128,14 +149,21 @@ async def test_runtime_builds_followup_context_from_session_events(tmp_path: Pat
     assert second_call_messages[3].content == "second"
 
 
-async def test_runtime_filters_prompt_skills_from_session_metadata(tmp_path: Path) -> None:
+async def test_runtime_filters_prompt_skills_from_session_metadata(
+    tmp_path: Path,
+) -> None:
     skills_root = tmp_path / ".codex" / "skills"
     selected_dir = skills_root / "selected-skill"
     ignored_dir = skills_root / "ignored-skill"
     selected_dir.mkdir(parents=True)
     ignored_dir.mkdir(parents=True)
-    (selected_dir / "SKILL.md").write_text("---\nname: selected-skill\ndescription: selected skill\n---\n", encoding="utf-8")
-    (ignored_dir / "SKILL.md").write_text("---\nname: ignored-skill\ndescription: ignored skill\n---\n", encoding="utf-8")
+    (selected_dir / "SKILL.md").write_text(
+        "---\nname: selected-skill\ndescription: selected skill\n---\n",
+        encoding="utf-8",
+    )
+    (ignored_dir / "SKILL.md").write_text(
+        "---\nname: ignored-skill\ndescription: ignored skill\n---\n", encoding="utf-8"
+    )
 
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
@@ -145,16 +173,25 @@ async def test_runtime_filters_prompt_skills_from_session_metadata(tmp_path: Pat
         skills=("selected-skill",),
     )
     llm_client = FakeLLMClient()
-    runtime = AgentRuntime(session_manager=manager, llm_client=llm_client, model="mock-model", repo_root=workspace_root)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="mock-model",
+        repo_root=workspace_root,
+    )
 
-    await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
 
     system_prompt = llm_client.requests[-1].messages[0].content
     assert "<name>selected-skill</name>" in system_prompt
     assert "<name>ignored-skill</name>" not in system_prompt
 
 
-async def test_runtime_persists_tool_events_with_metadata_and_replays_context(tmp_path: Path) -> None:
+async def test_runtime_persists_tool_events_with_metadata_and_replays_context(
+    tmp_path: Path,
+) -> None:
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
@@ -187,30 +224,30 @@ async def test_runtime_persists_tool_events_with_metadata_and_replays_context(tm
             ),
         )
     )
-    runtime = AgentRuntime(session_manager=manager, llm_client=llm_client, model="mock-model")
+    runtime = AgentRuntime(
+        session_manager=manager, llm_client=llm_client, model="mock-model"
+    )
     registry = ToolRegistry(context=ToolContext.create(repo_root=Path.cwd()))
     registry.register(EchoTool())
     runtime.bind_tool_registry(registry)
 
-    await runtime.run(session.session_id, [{"type": "text", "text": "first"}], stream=False)
-    await runtime.run(session.session_id, [{"type": "text", "text": "second"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "first"}], stream=False
+    )
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "second"}], stream=False
+    )
     manager.writer.flush()
 
     entries = manager.list_entries(session.session_id)
     turn_events = [
-        entry
-        for entry in entries
-        if entry.kind is SessionEntryKind.TURN_APPENDED
+        entry for entry in entries if entry.kind is SessionEntryKind.TURN_APPENDED
     ]
     call_events = [
-        entry
-        for entry in turn_events
-        if entry.data["metadata"].get("tool_calls")
+        entry for entry in turn_events if entry.data["metadata"].get("tool_calls")
     ]
     result_events = [
-        entry
-        for entry in turn_events
-        if entry.data["metadata"].get("tool_name")
+        entry for entry in turn_events if entry.data["metadata"].get("tool_name")
     ]
     assert len(call_events) == 1
     assert len(result_events) == 1
@@ -246,7 +283,9 @@ async def test_hook_context_model_call_uses_same_session_id(tmp_path: Path) -> N
         responses=(
             LLMGenerateResponse(
                 model="mock-model",
-                message=LLMMessage(role="assistant", content='{"risk":"safe","reason":"read only"}'),
+                message=LLMMessage(
+                    role="assistant", content='{"risk":"safe","reason":"read only"}'
+                ),
                 finish_reason="stop",
             ),
             LLMGenerateResponse(
@@ -273,7 +312,9 @@ async def test_hook_context_model_call_uses_same_session_id(tmp_path: Path) -> N
         hook_runner=HookRunner(registry=hooks),
     )
 
-    await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
 
     assert llm_client.requests[0].session_id == session.session_id
     assert llm_client.requests[1].session_id == session.session_id
@@ -287,7 +328,9 @@ async def test_hook_context_model_call_supports_model_override(tmp_path: Path) -
         responses=(
             LLMGenerateResponse(
                 model="risk-model-x",
-                message=LLMMessage(role="assistant", content='{"risk":"safe","reason":"ok"}'),
+                message=LLMMessage(
+                    role="assistant", content='{"risk":"safe","reason":"ok"}'
+                ),
                 finish_reason="stop",
             ),
             LLMGenerateResponse(
@@ -315,13 +358,17 @@ async def test_hook_context_model_call_supports_model_override(tmp_path: Path) -
         hook_runner=HookRunner(registry=hooks),
     )
 
-    await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
 
     assert llm_client.requests[0].model == "risk-model-x"
     assert llm_client.requests[0].session_id == session.session_id
 
 
-async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(tmp_path: Path) -> None:
+async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(
+    tmp_path: Path,
+) -> None:
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = _make_workspace_session(manager, tmp_path)
@@ -339,7 +386,9 @@ async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(tmp_pa
     )
     manager.writer.flush()
 
-    rewritten = 'Use the "doc" skill for this request.\nUser input:\npolish this paragraph'
+    rewritten = (
+        'Use the "doc" skill for this request.\nUser input:\npolish this paragraph'
+    )
     assert llm_client.requests[-1].messages[-1].content == rewritten
     assert result.messages[0].content == "runtime-pong"
 
@@ -353,7 +402,9 @@ async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(tmp_pa
     assert assistant_event.data["role"] == "assistant"
 
 
-async def test_task_tool_is_registered_and_validated_by_registry(tmp_path: Path) -> None:
+async def test_task_tool_is_registered_and_validated_by_registry(
+    tmp_path: Path,
+) -> None:
     from agent.core.errors import ToolError
     from agent.platform.tools.loader import build_tool_registry
 
@@ -363,7 +414,9 @@ async def test_task_tool_is_registered_and_validated_by_registry(tmp_path: Path)
         await registry.execute("agent", {})
 
 
-async def test_single_part_creates_single_user_message_in_llm_history(tmp_path: Path) -> None:
+async def test_single_part_creates_single_user_message_in_llm_history(
+    tmp_path: Path,
+) -> None:
     """单条 part（向后兼容路径）→ LLM history 末尾只有一条 user message。"""
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
@@ -375,8 +428,12 @@ async def test_single_part_creates_single_user_message_in_llm_history(tmp_path: 
         model="mock-model",
     )
 
-    await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
-    await runtime.run(session.session_id, [{"type": "text", "text": "turn two"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "hello"}], stream=False
+    )
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "turn two"}], stream=False
+    )
 
     # First call: 1 user message
     call1_user = [m for m in llm_client.requests[0].messages if m.role == "user"]
@@ -388,7 +445,9 @@ async def test_single_part_creates_single_user_message_in_llm_history(tmp_path: 
     assert call2_user[-1].content == "turn two"
 
 
-async def test_multiple_parts_become_independent_user_messages_in_llm_history(tmp_path: Path) -> None:
+async def test_multiple_parts_become_independent_user_messages_in_llm_history(
+    tmp_path: Path,
+) -> None:
     """多条 parts → LLM history 中每条 part 对应一条独立 user message（而非 \\n join）。"""
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
@@ -417,7 +476,10 @@ async def test_multiple_parts_become_independent_user_messages_in_llm_history(tm
     assert user_messages[1].content == "[bob] world"
     assert user_messages[2].content == "[charlie] @agent go"
     # Must NOT be joined
-    assert not any(m.content == "[alice] hello\n[bob] world\n[charlie] @agent go" for m in user_messages)
+    assert not any(
+        m.content == "[alice] hello\n[bob] world\n[charlie] @agent go"
+        for m in user_messages
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -438,7 +500,9 @@ class ErrorLLMClient:
         yield  # make this an async generator
 
 
-async def test_runtime_provider_error_persists_error_assistant_message(tmp_path: Path) -> None:
+async def test_runtime_provider_error_persists_error_assistant_message(
+    tmp_path: Path,
+) -> None:
     """ModelError 必须被合成为带 is_provider_error=True 的 assistant 消息并持久化。"""
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
@@ -450,20 +514,33 @@ async def test_runtime_provider_error_persists_error_assistant_message(tmp_path:
     )
 
     with pytest.raises(ModelError):
-        await runtime.run(session.session_id, [{"type": "text", "text": "hi"}], stream=False)
+        await runtime.run(
+            session.session_id, [{"type": "text", "text": "hi"}], stream=False
+        )
 
     manager.writer.flush()
     entries = manager.list_entries(session.session_id)
-    assistant_entries = [e for e in entries if e.kind is SessionEntryKind.TURN_APPENDED and e.data.get("role") == "assistant"]
+    assistant_entries = [
+        e
+        for e in entries
+        if e.kind is SessionEntryKind.TURN_APPENDED
+        and e.data.get("role") == "assistant"
+    ]
     assert len(assistant_entries) == 1, "应该有一条 assistant 错误消息被持久化"
     err_entry = assistant_entries[0]
     # is_provider_error is promoted into entry.data["metadata"] via _build_turn_metadata
     err_metadata = err_entry.data.get("metadata") or {}
-    assert err_metadata.get("is_provider_error") is True, "is_provider_error 必须为 True"
-    assert "模型调用失败" in str(err_entry.data.get("content", "")) or "⚠️" in str(err_entry.data.get("content", ""))
+    assert err_metadata.get("is_provider_error") is True, (
+        "is_provider_error 必须为 True"
+    )
+    assert "模型调用失败" in str(err_entry.data.get("content", "")) or "⚠️" in str(
+        err_entry.data.get("content", "")
+    )
 
 
-async def test_runtime_provider_error_message_content_contains_provider_text(tmp_path: Path) -> None:
+async def test_runtime_provider_error_message_content_contains_provider_text(
+    tmp_path: Path,
+) -> None:
     """错误消息正文必须含有 provider 原始文案。"""
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
@@ -475,14 +552,26 @@ async def test_runtime_provider_error_message_content_contains_provider_text(tmp
     )
 
     with pytest.raises(ModelError):
-        await runtime.run(session.session_id, [{"type": "text", "text": "hi"}], stream=False)
+        await runtime.run(
+            session.session_id, [{"type": "text", "text": "hi"}], stream=False
+        )
 
     manager.writer.flush()
     entries = manager.list_entries(session.session_id)
-    assistant_entries = [e for e in entries if e.kind is SessionEntryKind.TURN_APPENDED and e.data.get("role") == "assistant"]
+    assistant_entries = [
+        e
+        for e in entries
+        if e.kind is SessionEntryKind.TURN_APPENDED
+        and e.data.get("role") == "assistant"
+    ]
     assert assistant_entries, "应该有 assistant 错误消息"
     content = str(assistant_entries[0].data.get("content", ""))
-    assert "usage limit" in content.lower() or "quota" in content.lower() or "usage" in content.lower() or "reached" in content.lower()
+    assert (
+        "usage limit" in content.lower()
+        or "quota" in content.lower()
+        or "usage" in content.lower()
+        or "reached" in content.lower()
+    )
 
 
 async def test_runtime_provider_error_not_in_next_llm_history(tmp_path: Path) -> None:
@@ -498,7 +587,9 @@ async def test_runtime_provider_error_not_in_next_llm_history(tmp_path: Path) ->
         model="mock-model",
     )
     with pytest.raises(ModelError):
-        await runtime_err.run(session.session_id, [{"type": "text", "text": "first"}], stream=False)
+        await runtime_err.run(
+            session.session_id, [{"type": "text", "text": "first"}], stream=False
+        )
     manager.writer.flush()
 
     # 第二轮：LLM 正常，检查 history 里没有错误消息
@@ -508,9 +599,13 @@ async def test_runtime_provider_error_not_in_next_llm_history(tmp_path: Path) ->
         llm_client=tracking_client,
         model="mock-model",
     )
-    await runtime2.run(session.session_id, [{"type": "text", "text": "second"}], stream=False)
+    await runtime2.run(
+        session.session_id, [{"type": "text", "text": "second"}], stream=False
+    )
 
     messages_sent = tracking_client.requests[-1].messages
     # history 中不应有包含 "⚠️" 的 assistant 消息
-    error_msgs = [m for m in messages_sent if m.role == "assistant" and "⚠️" in (m.content or "")]
+    error_msgs = [
+        m for m in messages_sent if m.role == "assistant" and "⚠️" in (m.content or "")
+    ]
     assert not error_msgs, f"is_provider_error 消息泄漏到 LLM history: {error_msgs}"

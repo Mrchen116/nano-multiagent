@@ -12,7 +12,11 @@ from typing import Any
 
 import yaml
 
-from agent.sdk import LLMConfigPayload, LLMModelPayload, LLMProviderPayload  # refactor-387-M4
+from agent.sdk import (
+    LLMConfigPayload,
+    LLMModelPayload,
+    LLMProviderPayload,
+)  # refactor-387-M4
 
 _DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
 # refactor-387 M3: kernel_app.py deleted; KernelConfig.command is retained for M4 cleanup.
@@ -92,8 +96,6 @@ def ensure_workspace_defaults(workspace_root: Path) -> Path:
         file_path.write_text(default_content, encoding="utf-8")
 
     return resolved_root
-
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -432,13 +434,20 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     if config.kernel.shutdown_grace_seconds != _DEFAULT_SHUTDOWN_GRACE_SECONDS:
         kernel_dict["shutdown_grace_seconds"] = config.kernel.shutdown_grace_seconds
     if config.kernel.health_poll_interval_seconds != _DEFAULT_POLL_INTERVAL_SECONDS:
-        kernel_dict["health_poll_interval_seconds"] = config.kernel.health_poll_interval_seconds
+        kernel_dict["health_poll_interval_seconds"] = (
+            config.kernel.health_poll_interval_seconds
+        )
     if kernel_dict:
         data["kernel"] = kernel_dict
 
     # Heartbeat — only emit non-default
-    if config.heartbeat.tick_interval_seconds != _DEFAULT_HEARTBEAT_TICK_INTERVAL_SECONDS:
-        data["heartbeat"] = {"tick_interval_seconds": config.heartbeat.tick_interval_seconds}
+    if (
+        config.heartbeat.tick_interval_seconds
+        != _DEFAULT_HEARTBEAT_TICK_INTERVAL_SECONDS
+    ):
+        data["heartbeat"] = {
+            "tick_interval_seconds": config.heartbeat.tick_interval_seconds
+        }
 
     # IM service
     if config.im_service is not None:
@@ -463,7 +472,11 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
                 "models": [
                     {
                         "name": m.name,
-                        **({"extra_request_body": m.extra_request_body} if m.extra_request_body is not None else {}),
+                        **(
+                            {"extra_request_body": m.extra_request_body}
+                            if m.extra_request_body is not None
+                            else {}
+                        ),
                     }
                     for m in p.models
                 ],
@@ -473,7 +486,9 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     }
     data["llm"] = llm_dict
 
-    new_text = yaml.safe_dump(data, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    new_text = yaml.safe_dump(
+        data, default_flow_style=False, allow_unicode=True, sort_keys=False
+    )
     dest = Path(config_path).expanduser().resolve()
     dest.parent.mkdir(parents=True, exist_ok=True)
     # Backup must succeed before we overwrite; raises on IO failure so dest
@@ -505,7 +520,9 @@ def resolve_kernel_token(token: str | None) -> str:
 def _parse_node_config(payload: Any) -> NodeConfig:
     if not isinstance(payload, dict):
         raise ValueError("node must be a mapping")
-    node_id = _require_non_empty_string(payload.get("node_id"), field_name="node.node_id")
+    node_id = _require_non_empty_string(
+        payload.get("node_id"), field_name="node.node_id"
+    )
     user_id = _optional_string(payload.get("user_id"), field_name="node.user_id")
     return NodeConfig(node_id=node_id, user_id=user_id)
 
@@ -518,10 +535,14 @@ def _parse_llm(payload: Any) -> LLMConfigPayload:
             decision 8: config without llm section must hard-fail at parse time.
     """
     if payload is None:
-        raise ValueError("config root must contain 'llm' section with default_model and providers")
+        raise ValueError(
+            "config root must contain 'llm' section with default_model and providers"
+        )
     if not isinstance(payload, dict):
         raise ValueError("llm must be a mapping")
-    default_model = _require_non_empty_string(payload.get("default_model"), field_name="llm.default_model")
+    default_model = _require_non_empty_string(
+        payload.get("default_model"), field_name="llm.default_model"
+    )
     providers_raw = payload.get("providers")
     if not isinstance(providers_raw, list):
         raise ValueError("llm.providers must be a list")
@@ -529,8 +550,12 @@ def _parse_llm(payload: Any) -> LLMConfigPayload:
     for pi, pitem in enumerate(providers_raw):
         if not isinstance(pitem, dict):
             raise ValueError(f"llm.providers[{pi}] must be a mapping")
-        pname = _require_non_empty_string(pitem.get("name"), field_name=f"llm.providers[{pi}].name")
-        base_url = _optional_string(pitem.get("base_url"), field_name=f"llm.providers[{pi}].base_url")
+        pname = _require_non_empty_string(
+            pitem.get("name"), field_name=f"llm.providers[{pi}].name"
+        )
+        base_url = _optional_string(
+            pitem.get("base_url"), field_name=f"llm.providers[{pi}].base_url"
+        )
         models_raw = pitem.get("models")
         if not isinstance(models_raw, list):
             raise ValueError(f"llm.providers[{pi}].models must be a list")
@@ -538,12 +563,24 @@ def _parse_llm(payload: Any) -> LLMConfigPayload:
         for mi, mitem in enumerate(models_raw):
             if not isinstance(mitem, dict):
                 raise ValueError(f"llm.providers[{pi}].models[{mi}] must be a mapping")
-            mname = _require_non_empty_string(mitem.get("name"), field_name=f"llm.providers[{pi}].models[{mi}].name")
+            mname = _require_non_empty_string(
+                mitem.get("name"), field_name=f"llm.providers[{pi}].models[{mi}].name"
+            )
             extra_request_body = mitem.get("extra_request_body")
-            if extra_request_body is not None and not isinstance(extra_request_body, dict):
-                raise ValueError(f"llm.providers[{pi}].models[{mi}].extra_request_body must be a mapping")
-            models.append(LLMModelPayload(name=mname, extra_request_body=extra_request_body or None))
-        providers.append(LLMProviderPayload(name=pname, base_url=base_url, models=tuple(models)))
+            if extra_request_body is not None and not isinstance(
+                extra_request_body, dict
+            ):
+                raise ValueError(
+                    f"llm.providers[{pi}].models[{mi}].extra_request_body must be a mapping"
+                )
+            models.append(
+                LLMModelPayload(
+                    name=mname, extra_request_body=extra_request_body or None
+                )
+            )
+        providers.append(
+            LLMProviderPayload(name=pname, base_url=base_url, models=tuple(models))
+        )
 
     # Validate default_model exists in at least one provider
     all_models = {m.name for p in providers for m in p.models}
@@ -555,25 +592,27 @@ def _parse_llm(payload: Any) -> LLMConfigPayload:
     return LLMConfigPayload(default_model=default_model, providers=tuple(providers))
 
 
-def _parse_agents(payload: Any, llm: LLMConfigPayload) -> tuple[AgentWorkspaceConfig, ...]:
+def _parse_agents(
+    payload: Any, llm: LLMConfigPayload
+) -> tuple[AgentWorkspaceConfig, ...]:
     if not isinstance(payload, list):
         raise ValueError("agents must be a list")
     if not payload:
         raise ValueError("agents must contain at least one entry")
 
     # Build set of all known model names for fast lookup
-    known_models: set[str] = {
-        m.name
-        for p in llm.providers
-        for m in p.models
-    }
+    known_models: set[str] = {m.name for p in llm.providers for m in p.models}
 
     agents: list[AgentWorkspaceConfig] = []
     for index, item in enumerate(payload):
         if not isinstance(item, dict):
             raise ValueError(f"agents[{index}] must be a mapping")
-        agent_id = _require_non_empty_string(item.get("agent_id"), field_name=f"agents[{index}].agent_id")
-        workspace_text = _optional_string(item.get("workspace_root"), field_name=f"agents[{index}].workspace_root")
+        agent_id = _require_non_empty_string(
+            item.get("agent_id"), field_name=f"agents[{index}].agent_id"
+        )
+        workspace_text = _optional_string(
+            item.get("workspace_root"), field_name=f"agents[{index}].workspace_root"
+        )
         if workspace_text is None:
             workspace_root = Path("~/nano-assistant/workspace").expanduser() / agent_id
             # Default workspaces are gateway-managed local state, so config loading
@@ -581,22 +620,39 @@ def _parse_agents(payload: Any, llm: LLMConfigPayload) -> tuple[AgentWorkspaceCo
         else:
             workspace_root = Path(workspace_text).expanduser()
             if not workspace_root.exists():
-                raise ValueError(f"workspace_root does not exist: {workspace_root.resolve()}")
+                raise ValueError(
+                    f"workspace_root does not exist: {workspace_root.resolve()}"
+                )
         workspace_root = ensure_workspace_defaults(workspace_root)
         title = _optional_string(item.get("title"), field_name=f"agents[{index}].title")
-        skills = _parse_string_list(item.get("skills"), field_name=f"agents[{index}].skills")
-        tool_allowlist = _parse_string_list(item.get("tool_allowlist"), field_name=f"agents[{index}].tool_allowlist")
-        system_prompt = _optional_string(item.get("system_prompt"), field_name=f"agents[{index}].system_prompt")
-        group_reply_policy = _optional_string(item.get("group_reply_policy"), field_name=f"agents[{index}].group_reply_policy")
-        default_model = _optional_string(item.get("default_model"), field_name=f"agents[{index}].default_model")
+        skills = _parse_string_list(
+            item.get("skills"), field_name=f"agents[{index}].skills"
+        )
+        tool_allowlist = _parse_string_list(
+            item.get("tool_allowlist"), field_name=f"agents[{index}].tool_allowlist"
+        )
+        system_prompt = _optional_string(
+            item.get("system_prompt"), field_name=f"agents[{index}].system_prompt"
+        )
+        group_reply_policy = _optional_string(
+            item.get("group_reply_policy"),
+            field_name=f"agents[{index}].group_reply_policy",
+        )
+        default_model = _optional_string(
+            item.get("default_model"), field_name=f"agents[{index}].default_model"
+        )
         if default_model is not None and default_model not in known_models:
             available = ", ".join(sorted(known_models))
             raise ValueError(
                 f"agents[{index}].default_model='{default_model}' not found in llm.providers "
                 f"(available: {available})"
             )
-        features = _parse_features(item.get("features"), field_name=f"agents[{index}].features")
-        custom_prompt = _optional_string(item.get("custom_prompt"), field_name=f"agents[{index}].custom_prompt")
+        features = _parse_features(
+            item.get("features"), field_name=f"agents[{index}].features"
+        )
+        custom_prompt = _optional_string(
+            item.get("custom_prompt"), field_name=f"agents[{index}].custom_prompt"
+        )
         agents.append(
             AgentWorkspaceConfig(
                 agent_id=agent_id,
@@ -624,14 +680,18 @@ def _parse_channels(payload: Any) -> tuple[ChannelConfig, ...]:
     for index, item in enumerate(payload):
         if not isinstance(item, dict):
             raise ValueError(f"channels[{index}] must be a mapping")
-        name = _require_non_empty_string(item.get("name"), field_name=f"channels[{index}].name")
+        name = _require_non_empty_string(
+            item.get("name"), field_name=f"channels[{index}].name"
+        )
         enabled = item.get("enabled", True)
         if not isinstance(enabled, bool):
             raise ValueError(f"channels[{index}].enabled must be a bool")
         settings = item.get("settings", {})
         if not isinstance(settings, dict):
             raise ValueError(f"channels[{index}].settings must be a mapping")
-        channels.append(ChannelConfig(name=name, enabled=enabled, settings=dict(settings)))
+        channels.append(
+            ChannelConfig(name=name, enabled=enabled, settings=dict(settings))
+        )
     return tuple(channels)
 
 
@@ -640,13 +700,31 @@ def _parse_kernel(payload: Any) -> KernelConfig:
         payload = {}
     if not isinstance(payload, dict):
         raise ValueError("kernel must be a mapping")
-    command = _optional_string(payload.get("command"), field_name="kernel.command") or _DEFAULT_KERNEL_ENTRYPOINT
-    explicit_base_url = _optional_string(payload.get("base_url"), field_name="kernel.base_url")
-    base_url = explicit_base_url or _derive_kernel_base_url(command) or _DEFAULT_KERNEL_BASE_URL
-    token = resolve_kernel_token(_optional_string(payload.get("token"), field_name="kernel.token"))
-    request_id = _optional_string(payload.get("request_id"), field_name="kernel.request_id")
-    health_path = _optional_string(payload.get("health_path"), field_name="kernel.health_path") or _DEFAULT_KERNEL_HEALTH_PATH
-    timeout_seconds = _positive_number(payload.get("timeout_seconds", 10.0), field_name="kernel.timeout_seconds")
+    command = (
+        _optional_string(payload.get("command"), field_name="kernel.command")
+        or _DEFAULT_KERNEL_ENTRYPOINT
+    )
+    explicit_base_url = _optional_string(
+        payload.get("base_url"), field_name="kernel.base_url"
+    )
+    base_url = (
+        explicit_base_url
+        or _derive_kernel_base_url(command)
+        or _DEFAULT_KERNEL_BASE_URL
+    )
+    token = resolve_kernel_token(
+        _optional_string(payload.get("token"), field_name="kernel.token")
+    )
+    request_id = _optional_string(
+        payload.get("request_id"), field_name="kernel.request_id"
+    )
+    health_path = (
+        _optional_string(payload.get("health_path"), field_name="kernel.health_path")
+        or _DEFAULT_KERNEL_HEALTH_PATH
+    )
+    timeout_seconds = _positive_number(
+        payload.get("timeout_seconds", 10.0), field_name="kernel.timeout_seconds"
+    )
     startup_timeout_seconds = _positive_number(
         payload.get("startup_timeout_seconds", _DEFAULT_STARTUP_TIMEOUT_SECONDS),
         field_name="kernel.startup_timeout_seconds",
@@ -691,10 +769,22 @@ def _parse_im_service(payload: Any) -> IMServiceConfig | None:
         raise ValueError("im_service must be a mapping")
     url = _require_non_empty_string(payload.get("url"), field_name="im_service.url")
     token = _optional_string(payload.get("token"), field_name="im_service.token")
-    refresh_token = _optional_string(payload.get("refresh_token"), field_name="im_service.refresh_token")
-    username = _optional_string(payload.get("username"), field_name="im_service.username")
-    password = _optional_string(payload.get("password"), field_name="im_service.password")
-    return IMServiceConfig(url=url, token=token, refresh_token=refresh_token, username=username, password=password)
+    refresh_token = _optional_string(
+        payload.get("refresh_token"), field_name="im_service.refresh_token"
+    )
+    username = _optional_string(
+        payload.get("username"), field_name="im_service.username"
+    )
+    password = _optional_string(
+        payload.get("password"), field_name="im_service.password"
+    )
+    return IMServiceConfig(
+        url=url,
+        token=token,
+        refresh_token=refresh_token,
+        username=username,
+        password=password,
+    )
 
 
 def _derive_kernel_base_url(command: str) -> str | None:

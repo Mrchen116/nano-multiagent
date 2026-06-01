@@ -49,14 +49,19 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
             name="anthropic",
             base_url="http://127.0.0.1:4000",
             models=(
-                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+                LLMModelPayload(
+                    name="kimiCoding:K2.6",
+                    extra_request_body={"thinking": {"type": "adaptive"}},
+                ),
             ),
         ),
     ),
 )
 
 
-def test_gateway_runtime_reports_actionable_bootstrap_failure_to_im(tmp_path: Path) -> None:
+def test_gateway_runtime_reports_actionable_bootstrap_failure_to_im(
+    tmp_path: Path,
+) -> None:
     config = LocalConfig(
         node=NodeConfig(node_id="node-local"),
         agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=tmp_path),),
@@ -83,7 +88,10 @@ def test_gateway_runtime_reports_actionable_bootstrap_failure_to_im(tmp_path: Pa
     )
 
     import pytest
-    with pytest.raises(GatewayStartupError, match="node-local did not appear in IM bootstrap"):
+
+    with pytest.raises(
+        GatewayStartupError, match="node-local did not appear in IM bootstrap"
+    ):
         runtime.run_forever()
 
     assert manager.sent_frames == [

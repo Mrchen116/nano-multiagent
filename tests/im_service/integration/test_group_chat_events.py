@@ -88,8 +88,7 @@ def test_group_message_mentioning_two_agents_exposes_distinct_sse_identity_for_r
             assert posted.status_code == 201
             relay_frames = [websocket.receive_json(), websocket.receive_json()]
             relay_frame_by_agent = {
-                frame["payload"]["agent_id"]: frame
-                for frame in relay_frames
+                frame["payload"]["agent_id"]: frame for frame in relay_frames
             }
             assert set(relay_frame_by_agent) == {"agent-q", "agent-a"}
 
@@ -139,28 +138,44 @@ def test_group_message_mentioning_two_agents_exposes_distinct_sse_identity_for_r
                 }
 
         event_service = EventService(events=client.app.state.event_repository)
-        enriched = event_service.list_events(conversation_id=conversation_id, after_event_id=0, limit=200)
+        enriched = event_service.list_events(
+            conversation_id=conversation_id, after_event_id=0, limit=200
+        )
         sse_events = [
             (ev.event_type, json.loads(ev.payload_json))
             for ev in enriched
             if ev.event_type in ("relay.processing", "relay.report")
         ]
 
-    processing_payloads = [payload for event_type, payload in sse_events if event_type == "relay.processing"]
-    report_payloads = [payload for event_type, payload in sse_events if event_type == "relay.report"]
-    assert {payload["agent_id"] for payload in processing_payloads} == {"agent-q", "agent-a"}
+    processing_payloads = [
+        payload
+        for event_type, payload in sse_events
+        if event_type == "relay.processing"
+    ]
+    report_payloads = [
+        payload for event_type, payload in sse_events if event_type == "relay.report"
+    ]
+    assert {payload["agent_id"] for payload in processing_payloads} == {
+        "agent-q",
+        "agent-a",
+    }
     assert {payload["relay_task_id"] for payload in processing_payloads} == {
         relay_frame_by_agent["agent-q"]["payload"]["relay_task_id"],
         relay_frame_by_agent["agent-a"]["payload"]["relay_task_id"],
     }
-    assert {payload["agent_id"] for payload in report_payloads} == {"agent-q", "agent-a"}
+    assert {payload["agent_id"] for payload in report_payloads} == {
+        "agent-q",
+        "agent-a",
+    }
     assert {payload["relay_task_id"] for payload in report_payloads} == {
         relay_frame_by_agent["agent-q"]["payload"]["relay_task_id"],
         relay_frame_by_agent["agent-a"]["payload"]["relay_task_id"],
     }
 
 
-def test_group_message_mentioning_two_agents_persists_distinct_completion_events(tmp_path: Path) -> None:
+def test_group_message_mentioning_two_agents_persists_distinct_completion_events(
+    tmp_path: Path,
+) -> None:
     """Keep per-agent receipt identity distinct when one group message mentions two agents."""
 
     app = create_app(db_path=tmp_path / "im.db")
@@ -220,8 +235,7 @@ def test_group_message_mentioning_two_agents_persists_distinct_completion_events
             assert posted.status_code == 201
             relay_frames = [websocket.receive_json(), websocket.receive_json()]
             relay_frame_by_agent = {
-                frame["payload"]["agent_id"]: frame
-                for frame in relay_frames
+                frame["payload"]["agent_id"]: frame for frame in relay_frames
             }
             assert set(relay_frame_by_agent) == {"agent-a", "agent-b"}
 
@@ -269,16 +283,27 @@ def test_group_message_mentioning_two_agents_persists_distinct_completion_events
         "[Alice] @agent-a @agent-b please review this rollout together",
         "[Alice] @agent-a @agent-b please review this rollout together",
     ]
-    assert {payload["agent_id"] for payload in completed_payloads} == {"agent-a", "agent-b"}
+    assert {payload["agent_id"] for payload in completed_payloads} == {
+        "agent-a",
+        "agent-b",
+    }
     assert {payload["relay_task_id"] for payload in completed_payloads} == {
         relay_frame_by_agent["agent-a"]["payload"]["relay_task_id"],
         relay_frame_by_agent["agent-b"]["payload"]["relay_task_id"],
     }
-    assert [payload["detail"] for payload in sorted(completed_payloads, key=lambda payload: payload["agent_id"])] == [
+    assert [
+        payload["detail"]
+        for payload in sorted(
+            completed_payloads, key=lambda payload: payload["agent_id"]
+        )
+    ] == [
         "reply from agent-a",
         "reply from agent-b",
     ]
-    assert {payload["agent_id"] for payload in delivered_payloads} == {"agent-a", "agent-b"}
+    assert {payload["agent_id"] for payload in delivered_payloads} == {
+        "agent-a",
+        "agent-b",
+    }
     assert {payload["relay_task_id"] for payload in delivered_payloads} == {
         relay_frame_by_agent["agent-a"]["payload"]["relay_task_id"],
         relay_frame_by_agent["agent-b"]["payload"]["relay_task_id"],

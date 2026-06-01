@@ -6,7 +6,10 @@ import pytest
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.errors import ToolError
 from agent.core.hooks.context import HookContext
-from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.base import (
+    set_tool_safety_factory,
+    set_tool_safety_config_factory,
+)
 from agent.platform.hooks.loader import load_hooks_from_directories
 from agent.core.hooks.runner import HookRunner
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
@@ -27,7 +30,9 @@ class EchoLLMClient:
     async def generate(self, request: LLMGenerateRequest):  # AsyncIterator[LLMMessage]
         self.requests.append(request)
         # Yield assistant content, then terminal metadata with finish_reason.
-        yield LLMMessage(role="assistant", content=f"ack:{request.messages[-1].content}")
+        yield LLMMessage(
+            role="assistant", content=f"ack:{request.messages[-1].content}"
+        )
         yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
 
@@ -46,7 +51,9 @@ class EchoTool:
         return {"text": args["text"]}
 
 
-async def test_runtime_uses_loaded_hooks_for_input_transform_chain(tmp_path: Path) -> None:
+async def test_runtime_uses_loaded_hooks_for_input_transform_chain(
+    tmp_path: Path,
+) -> None:
     builtins_dir = tmp_path / "builtin_hooks"
     workspace_dir = tmp_path / ".nano" / "hooks"
     builtins_dir.mkdir(parents=True, exist_ok=True)
@@ -93,7 +100,9 @@ def setup(hooks):
         repo_root=tmp_path,
     )
 
-    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
 
     assert llm.requests[-1].messages[-1].content == "builtin:ping:workspace"
     assert result.messages[0].content == "ack:builtin:ping:workspace"
@@ -129,15 +138,23 @@ def test_tool_registry_uses_loaded_hooks_for_block_and_rewrite(tmp_path: Path) -
     tool_registry.register(EchoTool())
 
     with pytest.raises(ToolError, match="blocked by hook"):
-        asyncio.run(tool_registry.execute(
-            "echo",
-            {"text": "blocked"},
-            hook_context=HookContext(session_id="sess_tool_block", repo_root=tmp_path),
-        ))
+        asyncio.run(
+            tool_registry.execute(
+                "echo",
+                {"text": "blocked"},
+                hook_context=HookContext(
+                    session_id="sess_tool_block", repo_root=tmp_path
+                ),
+            )
+        )
 
-    rewritten = asyncio.run(tool_registry.execute(
-        "echo",
-        {"text": "ping"},
-        hook_context=HookContext(session_id="sess_tool_rewrite", repo_root=tmp_path),
-    ))
+    rewritten = asyncio.run(
+        tool_registry.execute(
+            "echo",
+            {"text": "ping"},
+            hook_context=HookContext(
+                session_id="sess_tool_rewrite", repo_root=tmp_path
+            ),
+        )
+    )
     assert rewritten == {"text": "rewritten:ping"}

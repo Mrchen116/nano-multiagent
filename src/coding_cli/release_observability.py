@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Iterable
-
 
 _GUARDRAIL_HINT_BY_REASON = {
     "throughput": "throughput: 检查 run_id 过滤或去重策略是否过严。",

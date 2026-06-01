@@ -33,14 +33,18 @@ class ToolSafetyLike(Protocol):
     def is_path_in_workspace(self, resolved: Path) -> bool:
         """Whether the resolved path lies under the repository root."""
 
-    def truncate_text(self, text: str, *, max_lines: int, max_bytes: int, tail: bool = False) -> tuple[str, bool]:
+    def truncate_text(
+        self, text: str, *, max_lines: int, max_bytes: int, tail: bool = False
+    ) -> tuple[str, bool]:
         """Truncate tool output according to line and byte ceilings."""
 
 
 class ToolSafetyFactory(Protocol):
     """Build concrete tool safety/config objects without importing platform paths."""
 
-    def __call__(self, *, repo_root: Path, config: ToolSafetyConfigLike) -> ToolSafetyLike:
+    def __call__(
+        self, *, repo_root: Path, config: ToolSafetyConfigLike
+    ) -> ToolSafetyLike:
         """Return a concrete safety object rooted at ``repo_root``."""
 
 

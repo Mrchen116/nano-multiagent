@@ -10,6 +10,7 @@ Validates:
 - Missing workspace_root or dirname → raises RuntimeError (no silent fallback)
 - bootstrap.py no longer passes memory_root to MemoryTool constructor
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -21,7 +22,9 @@ from agent.core.memory.path import derive_memory_root
 from agent.platform.tools.builtins.memory import MemoryTool
 
 
-def _make_ctx(workspace_root: str | None, dirname: str | None, session_id: str = "s1") -> MagicMock:
+def _make_ctx(
+    workspace_root: str | None, dirname: str | None, session_id: str = "s1"
+) -> MagicMock:
     ctx = MagicMock()
     ctx.session_id = session_id
     metadata: dict = {}
@@ -85,6 +88,7 @@ def test_bootstrap_memory_tool_constructed_without_fixed_root() -> None:
     import ast
 
     import agent.platform.bootstrap as _bootstrap_module
+
     bootstrap_path = Path(_bootstrap_module.__file__)
     source = bootstrap_path.read_text(encoding="utf-8")
     tree = ast.parse(source)

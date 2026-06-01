@@ -112,44 +112,116 @@ class _StubClient:
         self.calls.append(("health", None))
         return {"healthy": True}
 
-    def create_session(self, *, title: str | None = None, **kwargs: object) -> dict[str, str]:
+    def create_session(
+        self, *, title: str | None = None, **kwargs: object
+    ) -> dict[str, str]:
         self.calls.append(("create_session", {"title": title or ""}))
         return {"session_id": "sess_cli"}
 
-    def submit_message(self, *, session_id: str, text: str, priority: str = "next", message_id: str | None = None) -> dict[str, object]:
+    def submit_message(
+        self,
+        *,
+        session_id: str,
+        text: str,
+        priority: str = "next",
+        message_id: str | None = None,
+    ) -> dict[str, object]:
         self.calls.append(("submit_message", {"session_id": session_id, "text": text}))
         self._last_text = text
-        return {"run_id": "run-1", "anchor_sequence": 1, "injected": False, "status": "queued"}
+        return {
+            "run_id": "run-1",
+            "anchor_sequence": 1,
+            "injected": False,
+            "status": "queued",
+        }
 
-    async def stream_session(self, *, session_id: str, last_event_id: int | None = None):
+    async def stream_session(
+        self, *, session_id: str, last_event_id: int | None = None
+    ):
         del last_event_id
         text = getattr(self, "_last_text", "hello repl")
-        yield {"event": "assistant_message", "run_id": "run-1", "content": f"echo:{text}"}
-        yield {"event": "run_status", "run_id": "run-1", "status": "completed", "stop_reason": "stop", "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}}
+        yield {
+            "event": "assistant_message",
+            "run_id": "run-1",
+            "content": f"echo:{text}",
+        }
+        yield {
+            "event": "run_status",
+            "run_id": "run-1",
+            "status": "completed",
+            "stop_reason": "stop",
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        }
 
     def list_session_tools(self, *, session_id: str) -> dict[str, object]:
         self.calls.append(("list_session_tools", {"session_id": session_id}))
-        return {"session_id": session_id, "tools": [{"name": "read", "description": "Read", "input_schema": {}}]}
+        return {
+            "session_id": session_id,
+            "tools": [{"name": "read", "description": "Read", "input_schema": {}}],
+        }
 
     def compact_session(self, *, session_id: str) -> dict[str, object]:
         self.calls.append(("compact_session", {"session_id": session_id}))
         return {"session_id": session_id, "compacted": False, "result": None}
 
-    def get_session_messages(self, *, session_id: str, limit: int = 20) -> dict[str, object]:
-        self.calls.append(("get_session_messages", {"session_id": session_id, "limit": limit}))
+    def get_session_messages(
+        self, *, session_id: str, limit: int = 20
+    ) -> dict[str, object]:
+        self.calls.append(
+            ("get_session_messages", {"session_id": session_id, "limit": limit})
+        )
         return {"session_id": session_id, "messages": []}
 
     def get_context_budget(self, *, session_id: str) -> dict[str, object]:
         self.calls.append(("get_context_budget", {"session_id": session_id}))
-        return {"session_id": session_id, "used_tokens": 64, "max_tokens": 200, "remaining_tokens": 136, "usage_ratio": 0.32}
+        return {
+            "session_id": session_id,
+            "used_tokens": 64,
+            "max_tokens": 200,
+            "remaining_tokens": 136,
+            "usage_ratio": 0.32,
+        }
 
     def get_llm_config(self) -> dict[str, object]:
         self.calls.append(("get_llm_config", None))
-        return {"provider": "openai_compat", "model": "codex_oauth:gpt-5.5", "base_url": "http://127.0.0.1:4000", "api_key_configured": False, "timeout_seconds": 30.0}
+        return {
+            "provider": "openai_compat",
+            "model": "codex_oauth:gpt-5.5",
+            "base_url": "http://127.0.0.1:4000",
+            "api_key_configured": False,
+            "timeout_seconds": 30.0,
+        }
 
-    def set_llm_config(self, *, provider=None, model=None, base_url=None, api_key=None, timeout_seconds=None, clear_api_key=False) -> dict[str, object]:
-        self.calls.append(("set_llm_config", {"provider": provider, "model": model, "base_url": base_url, "api_key": api_key, "timeout_seconds": timeout_seconds, "clear_api_key": clear_api_key}))
-        return {"provider": provider or "openai_compat", "model": model or "codex_oauth:gpt-5.5", "base_url": base_url or "http://127.0.0.1:4000", "api_key_configured": bool(api_key), "timeout_seconds": timeout_seconds or 30.0}
+    def set_llm_config(
+        self,
+        *,
+        provider=None,
+        model=None,
+        base_url=None,
+        api_key=None,
+        timeout_seconds=None,
+        clear_api_key=False,
+    ) -> dict[str, object]:
+        self.calls.append(
+            (
+                "set_llm_config",
+                {
+                    "provider": provider,
+                    "model": model,
+                    "base_url": base_url,
+                    "api_key": api_key,
+                    "timeout_seconds": timeout_seconds,
+                    "clear_api_key": clear_api_key,
+                },
+            )
+        )
+        return {
+            "provider": provider or "openai_compat",
+            "model": model or "codex_oauth:gpt-5.5",
+            "base_url": base_url or "http://127.0.0.1:4000",
+            "api_key_configured": bool(api_key),
+            "timeout_seconds": timeout_seconds or 30.0,
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +368,9 @@ def test_repl_input_raw_mode_reenables_output_postprocessing(monkeypatch) -> Non
             del file_descriptor
             return [0, 0, 0, 0, 0, 0, []]
 
-        def tcsetattr(self, file_descriptor: int, when: int, mode: list[object]) -> None:
+        def tcsetattr(
+            self, file_descriptor: int, when: int, mode: list[object]
+        ) -> None:
             del file_descriptor, when
             self.set_modes.append(list(mode))
 
@@ -319,9 +393,13 @@ def test_repl_input_raw_mode_reenables_output_postprocessing(monkeypatch) -> Non
     assert raw_mode[1] == fake_termios.OPOST | fake_termios.ONLCR
 
 
-def test_repl_input_persistent_output_does_not_clear_prior_completed_blocks(monkeypatch) -> None:
+def test_repl_input_persistent_output_does_not_clear_prior_completed_blocks(
+    monkeypatch,
+) -> None:
     output = io.StringIO()
-    monkeypatch.setattr(repl_input, "_count_terminal_lines", lambda text: 2 if text else 0)
+    monkeypatch.setattr(
+        repl_input, "_count_terminal_lines", lambda text: 2 if text else 0
+    )
 
     repl_input.emit_persistent_text(out=output, text="Assistant:\nfirst turn")
     repl_input.emit_persistent_text(out=output, text="Assistant:\nsecond turn")
@@ -332,7 +410,9 @@ def test_repl_input_persistent_output_does_not_clear_prior_completed_blocks(monk
     assert "\x1b[A\x1b[2K" not in text
 
 
-def test_repl_input_engine_supports_cjk_cursor_movement_for_visible_characters() -> None:
+def test_repl_input_engine_supports_cjk_cursor_movement_for_visible_characters() -> (
+    None
+):
     typed = repl_input.read_interactive_line(
         prompt="nano> ",
         history=(),
@@ -358,7 +438,9 @@ def test_repl_input_render_uses_display_width_for_mixed_text_cursor_position() -
     assert "\x1b[3D" in text
 
 
-def test_repl_input_render_uses_display_width_for_cjk_inline_hint_cursor_position() -> None:
+def test_repl_input_render_uses_display_width_for_cjk_inline_hint_cursor_position() -> (
+    None
+):
     output = io.StringIO()
 
     repl_input.render_interactive_line(
@@ -389,10 +471,14 @@ def test_repl_input_engine_supports_crlf_line_break_for_terminal_mode() -> None:
     assert output.getvalue().endswith("\r\n")
 
 
-def test_repl_input_state_machine_reports_needs_redraw_for_noop_and_mutating_keys() -> None:
+def test_repl_input_state_machine_reports_needs_redraw_for_noop_and_mutating_keys() -> (
+    None
+):
     from coding_cli.input import repl_input as layered_repl_input
 
-    state = layered_repl_input._initial_input_state(history=(), command_items=repl_commands.REPL_COMMANDS)
+    state = layered_repl_input._initial_input_state(
+        history=(), command_items=repl_commands.REPL_COMMANDS
+    )
 
     noop = layered_repl_input._apply_input_key(state=state, key="\x1b[D")
     assert noop.needs_redraw is False
@@ -413,7 +499,9 @@ def test_repl_input_engine_skips_redundant_redraw_for_noop_keys(monkeypatch) -> 
     render_calls: list[tuple[str, str, int]] = []
     original_render = layered_repl_input.render_interactive_line
 
-    def _counting_render(*, out, prompt, chars, cursor, command_items=(), selected_command_index=None):
+    def _counting_render(
+        *, out, prompt, chars, cursor, command_items=(), selected_command_index=None
+    ):
         render_calls.append(("render", "".join(chars), cursor))
         return original_render(
             out=out,
@@ -439,10 +527,14 @@ def test_repl_input_engine_skips_redundant_redraw_for_noop_keys(monkeypatch) -> 
     assert len(render_calls) == 2
 
 
-def test_repl_input_state_machine_skips_redraw_when_history_up_hits_top_boundary() -> None:
+def test_repl_input_state_machine_skips_redraw_when_history_up_hits_top_boundary() -> (
+    None
+):
     from coding_cli.input import repl_input as layered_repl_input
 
-    state = layered_repl_input._initial_input_state(history=("first",), command_items=repl_commands.REPL_COMMANDS)
+    state = layered_repl_input._initial_input_state(
+        history=("first",), command_items=repl_commands.REPL_COMMANDS
+    )
 
     first_up = layered_repl_input._apply_input_key(state=state, key="\x1b[A")
     assert first_up.needs_redraw is True
@@ -455,6 +547,7 @@ def test_repl_input_state_machine_skips_redraw_when_history_up_hits_top_boundary
 
 def test_run_cli_repl_up_recalls_previous_command_line(tmp_path) -> None:
     from tests.unit._cli_kernel_stubs import _BaseKernelStub, _make_kernel_factory
+
     stub = _BaseKernelStub()
     output = io.StringIO()
     scripted_reader = _ScriptedReplInputReader(

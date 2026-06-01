@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-import sys
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -19,18 +18,10 @@ REQUIRED_MARKERS: dict[str, tuple[str, ...]] = {
         "SECURITY BOUNDARY:",
         "POLICY TRADE-OFF:",
     ),
-    "src/nano_multiagent/tools/registry.py": (
-        "FAIL-OPEN GUARANTEE:",
-    ),
-    "src/nano_multiagent/hooks/runner.py": (
-        "DISPATCH ISOLATION:",
-    ),
-    "src/nano_multiagent/session/stores/base.py": (
-        "STORE BOUNDARY:",
-    ),
-    "src/nano_multiagent/session/serializers.py": (
-        "PERSISTENCE PROTOCOL:",
-    ),
+    "src/nano_multiagent/tools/registry.py": ("FAIL-OPEN GUARANTEE:",),
+    "src/nano_multiagent/hooks/runner.py": ("DISPATCH ISOLATION:",),
+    "src/nano_multiagent/session/stores/base.py": ("STORE BOUNDARY:",),
+    "src/nano_multiagent/session/serializers.py": ("PERSISTENCE PROTOCOL:",),
 }
 
 

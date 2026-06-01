@@ -29,11 +29,14 @@ def test_initialize_schema_is_idempotent(tmp_path: Path) -> None:
     assert "bind_requests" in table_names
 
 
-
-def test_connect_supports_cross_thread_parameterized_reads_without_interface_errors(tmp_path: Path) -> None:
+def test_connect_supports_cross_thread_parameterized_reads_without_interface_errors(
+    tmp_path: Path,
+) -> None:
     """Keep shared cross-thread reads stable for FastAPI threadpool handlers."""
     connection = connect(tmp_path / "im.db")
-    connection.execute("CREATE TABLE read_probe (id TEXT PRIMARY KEY, payload TEXT NOT NULL)")
+    connection.execute(
+        "CREATE TABLE read_probe (id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
+    )
     for index in range(64):
         connection.execute(
             "INSERT INTO read_probe(id, payload) VALUES (?, ?)",

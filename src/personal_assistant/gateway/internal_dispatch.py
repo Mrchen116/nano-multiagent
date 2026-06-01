@@ -4,10 +4,11 @@ Exposes ``POST /internal/dispatch`` so that product tools (e.g. ``send_message``
 running inside the kernel can post outbound messages back through the Gateway's
 existing IM routing layer without requiring a separate process or service.
 """
+
 from __future__ import annotations
 
 import json
-from typing import Any, Awaitable, Callable, Mapping
+from typing import Any, Callable, Mapping
 
 from personal_assistant.gateway.session_keys import bind_conversation_session
 
@@ -85,8 +86,13 @@ class InternalDispatchHandler:
         if isinstance(from_session_id, str) and from_session_id.strip():
             dispatch_payload["from_session_id"] = from_session_id.strip()
 
-        if isinstance(origin_kernel_session_id, str) and origin_kernel_session_id.strip():
-            dispatch_payload["origin_kernel_session_id"] = origin_kernel_session_id.strip()
+        if (
+            isinstance(origin_kernel_session_id, str)
+            and origin_kernel_session_id.strip()
+        ):
+            dispatch_payload["origin_kernel_session_id"] = (
+                origin_kernel_session_id.strip()
+            )
         if isinstance(source_agent_id, str) and source_agent_id.strip():
             dispatch_payload["source_agent_id"] = source_agent_id.strip()
         if isinstance(dispatch_request_id, str) and dispatch_request_id.strip():
@@ -122,7 +128,10 @@ class InternalDispatchHandler:
     ) -> None:
         if getattr(ack, "target_kind", None) != "user_id":
             return
-        if not isinstance(origin_kernel_session_id, str) or not origin_kernel_session_id.strip():
+        if (
+            not isinstance(origin_kernel_session_id, str)
+            or not origin_kernel_session_id.strip()
+        ):
             return
         if not isinstance(source_agent_id, str) or not source_agent_id.strip():
             source_agent_id = getattr(ack, "source_agent_id", None)

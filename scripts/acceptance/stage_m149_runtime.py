@@ -15,7 +15,9 @@ if str(SRC_ROOT) not in sys.path:
 
 from IM.infra.db import initialize_schema
 
-RUNTIME_ROOT = Path("/Users/czj/Repos/nano-multiagent/.worktrees/M104/ACCEPTANCE/m104-runtime")
+RUNTIME_ROOT = Path(
+    "/Users/czj/Repos/nano-multiagent/.worktrees/M104/ACCEPTANCE/m104-runtime"
+)
 RUNTIME_DB = RUNTIME_ROOT / "im.db"
 M149_AGENT_ID = "agent-m149-1773456058"
 ACCEPTANCE_USER_USERNAME = "you"
@@ -32,7 +34,9 @@ def _connect(db_path: Path) -> sqlite3.Connection:
     return connection
 
 
-def _ensure_runtime_user(connection: sqlite3.Connection, *, username: str) -> sqlite3.Row:
+def _ensure_runtime_user(
+    connection: sqlite3.Connection, *, username: str
+) -> sqlite3.Row:
     row = connection.execute(
         "SELECT id, username, display_name, owner_id, default_entry_node_id FROM users WHERE username = ?",
         (username,),
@@ -42,7 +46,9 @@ def _ensure_runtime_user(connection: sqlite3.Connection, *, username: str) -> sq
     return row
 
 
-def _ensure_agent_alias(connection: sqlite3.Connection, *, agent_id: str) -> sqlite3.Row:
+def _ensure_agent_alias(
+    connection: sqlite3.Connection, *, agent_id: str
+) -> sqlite3.Row:
     row = connection.execute(
         "SELECT id, username, display_name, owner_id FROM users WHERE username = ?",
         (f"agent:{agent_id}",),
@@ -52,7 +58,9 @@ def _ensure_agent_alias(connection: sqlite3.Connection, *, agent_id: str) -> sql
     return row
 
 
-def _conversation_snapshot(connection: sqlite3.Connection, conversation_id: str) -> sqlite3.Row:
+def _conversation_snapshot(
+    connection: sqlite3.Connection, conversation_id: str
+) -> sqlite3.Row:
     row = connection.execute(
         """
         SELECT id, title, type, owner_id, config_agent_id, config_profile_version, config_system_prompt
@@ -66,7 +74,9 @@ def _conversation_snapshot(connection: sqlite3.Connection, conversation_id: str)
     return row
 
 
-def _current_agent_snapshot(connection: sqlite3.Connection, *, agent_id: str) -> sqlite3.Row:
+def _current_agent_snapshot(
+    connection: sqlite3.Connection, *, agent_id: str
+) -> sqlite3.Row:
     row = connection.execute(
         "SELECT agent_id, profile_version, system_prompt FROM agent_profiles WHERE agent_id = ?",
         (agent_id,),
@@ -97,7 +107,9 @@ def _history_message_snapshot(
     ).fetchone()
 
 
-def _extract_frozen_snapshot_from_payload(payload_json: str) -> tuple[str | None, int | None, str | None]:
+def _extract_frozen_snapshot_from_payload(
+    payload_json: str,
+) -> tuple[str | None, int | None, str | None]:
     try:
         payload = json.loads(payload_json)
     except json.JSONDecodeError:
@@ -117,7 +129,9 @@ def _extract_frozen_snapshot_from_payload(payload_json: str) -> tuple[str | None
     return agent_id, profile_version, system_prompt
 
 
-def _ensure_old_direct_conversation(connection: sqlite3.Connection, *, self_user_id: str, peer_user_id: str) -> sqlite3.Row:
+def _ensure_old_direct_conversation(
+    connection: sqlite3.Connection, *, self_user_id: str, peer_user_id: str
+) -> sqlite3.Row:
     del peer_user_id
     conversation = connection.execute(
         "SELECT id FROM conversations WHERE title = ? ORDER BY rowid DESC LIMIT 1",
@@ -129,10 +143,14 @@ def _ensure_old_direct_conversation(connection: sqlite3.Connection, *, self_user
         )
     conversation_id = str(conversation["id"])
 
-    history_row = _history_message_snapshot(connection, conversation_id=conversation_id, user_id=self_user_id)
+    history_row = _history_message_snapshot(
+        connection, conversation_id=conversation_id, user_id=self_user_id
+    )
     agent_id = profile_version = system_prompt = None
     if history_row is not None:
-        agent_id, profile_version, system_prompt = _extract_frozen_snapshot_from_payload(str(history_row["payload_json"]))
+        agent_id, profile_version, system_prompt = (
+            _extract_frozen_snapshot_from_payload(str(history_row["payload_json"]))
+        )
     if agent_id is None:
         agent_id = M149_AGENT_ID
     if profile_version is None or system_prompt is None:
@@ -155,20 +173,34 @@ def _ensure_old_direct_conversation(connection: sqlite3.Connection, *, self_user
     return _conversation_snapshot(connection, conversation_id)
 
 
-def _create_new_direct_conversation(connection: sqlite3.Connection, *, self_user_id: str, peer_user_id: str) -> sqlite3.Row:
+def _create_new_direct_conversation(
+    connection: sqlite3.Connection, *, self_user_id: str, peer_user_id: str
+) -> sqlite3.Row:
     existing = connection.execute(
         "SELECT id FROM conversations WHERE title = ? ORDER BY rowid DESC LIMIT 1",
         (NEW_CONVERSATION_TITLE,),
     ).fetchone()
     if existing is not None:
         snapshot = _conversation_snapshot(connection, str(existing["id"]))
-        if snapshot["config_agent_id"] is not None and snapshot["config_profile_version"] is not None:
+        if (
+            snapshot["config_agent_id"] is not None
+            and snapshot["config_profile_version"] is not None
+        ):
             return snapshot
-        connection.execute("DELETE FROM conversation_participants WHERE conversation_id = ?", (str(existing["id"]),))
-        connection.execute("DELETE FROM conversations WHERE id = ?", (str(existing["id"]),))
+        connection.execute(
+            "DELETE FROM conversation_participants WHERE conversation_id = ?",
+            (str(existing["id"]),),
+        )
+        connection.execute(
+            "DELETE FROM conversations WHERE id = ?", (str(existing["id"]),)
+        )
 
-    created_at = connection.execute("SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')").fetchone()[0]
-    conversation_id = connection.execute("SELECT lower(hex(randomblob(16)))").fetchone()[0]
+    created_at = connection.execute(
+        "SELECT strftime('%Y-%m-%dT%H:%M:%fZ','now')"
+    ).fetchone()[0]
+    conversation_id = connection.execute(
+        "SELECT lower(hex(randomblob(16)))"
+    ).fetchone()[0]
     owner_id = connection.execute("SELECT lower(hex(randomblob(16)))").fetchone()[0]
     agent_snapshot = _current_agent_snapshot(connection, agent_id=M149_AGENT_ID)
     connection.execute(
@@ -231,10 +263,14 @@ def stage_runtime() -> dict[str, object]:
             conversation_id=str(old_conversation["id"]),
             user_id=str(user["id"]),
         )
-        frozen_agent_id, frozen_profile_version, frozen_system_prompt = (None, None, None)
+        frozen_agent_id, frozen_profile_version, frozen_system_prompt = (
+            None,
+            None,
+            None,
+        )
         if history_row is not None:
-            frozen_agent_id, frozen_profile_version, frozen_system_prompt = _extract_frozen_snapshot_from_payload(
-                str(history_row["payload_json"])
+            frozen_agent_id, frozen_profile_version, frozen_system_prompt = (
+                _extract_frozen_snapshot_from_payload(str(history_row["payload_json"]))
             )
         return {
             "runtime_root": str(RUNTIME_ROOT),
@@ -262,7 +298,9 @@ def stage_runtime() -> dict[str, object]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Stage the live M149 acceptance runtime")
+    parser = argparse.ArgumentParser(
+        description="Stage the live M149 acceptance runtime"
+    )
     parser.parse_args()
     print(json.dumps(stage_runtime(), ensure_ascii=False, indent=2))
     return 0

@@ -35,6 +35,7 @@ from agent.platform.permissions.broker import PermissionBroker
 # System prompt three-layer assembly
 # ---------------------------------------------------------------------------
 
+
 class TestBuildYoloSystemPrompt:
     def test_base_prompt_embedded_in_output(self):
         cfg = AutoModeConfig()
@@ -75,7 +76,10 @@ class TestBuildYoloSystemPrompt:
         cfg = AutoModeConfig()  # no user rules
         prompt = build_yolo_system_prompt(cfg)
         # Default allow rule from permissions_external template
-        assert "Running read-only shell commands" in prompt or "read-only" in prompt.lower()
+        assert (
+            "Running read-only shell commands" in prompt
+            or "read-only" in prompt.lower()
+        )
 
     def test_xml_output_format_replaces_tool_use_line(self):
         """The classify_result tool line must be replaced with XML format."""
@@ -95,6 +99,7 @@ class TestBuildYoloSystemPrompt:
 # ---------------------------------------------------------------------------
 # Transcript construction
 # ---------------------------------------------------------------------------
+
 
 class TestBuildTranscriptEntries:
     def _make_user_msg(self, text: str) -> dict:
@@ -140,7 +145,9 @@ class TestBuildTranscriptEntries:
 
     def test_assistant_mixed_content_only_tool_use(self):
         """Mixed assistant message: only tool_use should appear in transcript."""
-        msgs = [self._make_assistant_mixed("thinking text", "bash", {"command": "ls -la"})]
+        msgs = [
+            self._make_assistant_mixed("thinking text", "bash", {"command": "ls -la"})
+        ]
         entries = build_transcript_entries(msgs)
         assert len(entries) == 1
         assert entries[0]["role"] == "assistant"
@@ -151,7 +158,13 @@ class TestBuildTranscriptEntries:
     def test_list_content_user_message(self):
         """User messages with list content extract text blocks."""
         msgs = [
-            {"role": "user", "content": [{"type": "text", "text": "hello world"}, {"type": "image", "source": {}}]}
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "hello world"},
+                    {"type": "image", "source": {}},
+                ],
+            }
         ]
         entries = build_transcript_entries(msgs)
         # Should get user entry with text
@@ -161,9 +174,7 @@ class TestBuildTranscriptEntries:
 
     def test_tool_results_excluded(self):
         """Tool result messages (role='tool') are not included."""
-        msgs = [
-            {"role": "tool", "content": "output", "tool_use_id": "t1"}
-        ]
+        msgs = [{"role": "tool", "content": "output", "tool_use_id": "t1"}]
         entries = build_transcript_entries(msgs)
         assert len(entries) == 0
 
@@ -182,6 +193,7 @@ class TestBuildTranscriptEntries:
 # ---------------------------------------------------------------------------
 # Two-stage XML classification helpers
 # ---------------------------------------------------------------------------
+
 
 class TestXmlParsing:
     def test_parse_block_no(self):
@@ -230,6 +242,7 @@ class TestXmlParsing:
 # bugfix-369: 门禁分类器不得继承主 agent thinking
 # ---------------------------------------------------------------------------
 
+
 class TestClassifyActionThinkingDisabled:
     """_classify_action 的 call_model 调用必须显式关闭 thinking。
 
@@ -241,9 +254,7 @@ class TestClassifyActionThinkingDisabled:
     def _make_ctx(self, stage1_content: str = "<block>no</block>") -> MagicMock:
         ctx = MagicMock()
         ctx.session_id = "test-session"
-        ctx.call_model = AsyncMock(
-            return_value=MagicMock(content=stage1_content)
-        )
+        ctx.call_model = AsyncMock(return_value=MagicMock(content=stage1_content))
         return ctx
 
     @pytest.mark.asyncio
@@ -271,17 +282,13 @@ class TestClassifyActionThinkingDisabled:
 
         ctx = self._make_ctx()
         # stage-1 返回 yes → 触发 stage-2
-        ctx.call_model = AsyncMock(
-            return_value=MagicMock(content="<block>yes</block>")
-        )
+        ctx.call_model = AsyncMock(return_value=MagicMock(content="<block>yes</block>"))
         await _classify_action(ctx, "sys", "user")
 
         assert ctx.call_model.call_count == 2, "stage-1 block 应触发 stage-2"
         for i, call in enumerate(ctx.call_model.call_args_list):
             extra_body = call.kwargs.get("extra_body")
-            assert extra_body is not None, (
-                f"stage-{i + 1} call_model 没有传 extra_body"
-            )
+            assert extra_body is not None, f"stage-{i + 1} call_model 没有传 extra_body"
             thinking = extra_body.get("thinking", {})
             assert thinking.get("type") == "disabled", (
                 f"stage-{i + 1} extra_body.thinking.type 应为 'disabled'，实际 {thinking!r}"

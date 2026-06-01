@@ -32,7 +32,9 @@ class TestCheckUnchanged:
         file.write_text("hello\n", encoding="utf-8")
         state = SessionFileState()
         stat = file.stat()
-        state.record_read(str(file), stat.st_mtime_ns, stat.st_size, offset=1, limit=None)
+        state.record_read(
+            str(file), stat.st_mtime_ns, stat.st_size, offset=1, limit=None
+        )
 
         file.write_text("changed\n", encoding="utf-8")
         assert state.check_unchanged(str(file), 1, None) is False
@@ -51,7 +53,9 @@ class TestCanWrite:
         file.write_text("hello\n", encoding="utf-8")
         state = SessionFileState()
         stat = file.stat()
-        state.record_read(str(file), stat.st_mtime_ns, stat.st_size, offset=1, limit=None)
+        state.record_read(
+            str(file), stat.st_mtime_ns, stat.st_size, offset=1, limit=None
+        )
 
         ok, code = state.can_write(str(file))
         assert ok is True
@@ -71,7 +75,9 @@ class TestCanWrite:
         file.write_text("hello\n", encoding="utf-8")
         state = SessionFileState()
         stat = file.stat()
-        state.record_read(str(file), stat.st_mtime_ns, stat.st_size, offset=1, limit=None)
+        state.record_read(
+            str(file), stat.st_mtime_ns, stat.st_size, offset=1, limit=None
+        )
 
         file.write_text("changed\n", encoding="utf-8")
         ok, code = state.can_write(str(file))
@@ -129,7 +135,9 @@ class TestLRU:
             file = tmp_path / f"f{i}.txt"
             file.write_text("x", encoding="utf-8")
             stat = file.stat()
-            state.record_read(str(file), stat.st_mtime_ns, stat.st_size, offset=1, limit=None)
+            state.record_read(
+                str(file), stat.st_mtime_ns, stat.st_size, offset=1, limit=None
+            )
 
         first = str((tmp_path / "f0.txt").resolve())
         assert first not in state._states
@@ -142,7 +150,9 @@ class TestRemove:
         file.write_text("hello\n", encoding="utf-8")
         state = SessionFileState()
         stat = file.stat()
-        state.record_read(str(file), stat.st_mtime_ns, stat.st_size, offset=1, limit=None)
+        state.record_read(
+            str(file), stat.st_mtime_ns, stat.st_size, offset=1, limit=None
+        )
 
         state.remove(str(file))
         assert state.can_write(str(file)) == (False, 6)

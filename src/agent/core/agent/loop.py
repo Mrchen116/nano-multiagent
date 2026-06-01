@@ -8,13 +8,26 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping, Protocol
 
 from agent.core.ids import make_message_id, make_tool_call_id
-from agent.core.types import Message, TokenUsage, ToolCall, ToolResult, ToolSpec, TurnResult
+from agent.core.types import (
+    Message,
+    TokenUsage,
+    ToolCall,
+    ToolResult,
+    ToolSpec,
+)
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.runner import HookExecution, HookRunner
-from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage, LLMToolCall
+from agent.core.llm.interfaces import (
+    LLMClient,
+    LLMGenerateRequest,
+    LLMMessage,
+    LLMToolCall,
+)
 from agent.core.observability.tracing import span
 from agent.core.skills.registry import SkillMetadata
-from agent.core.tools.result_budget import DEFAULT_MAX_RESULT_SIZE_CHARS, ToolResultCompressor
+from agent.core.tools.result_budget import (
+    DEFAULT_MAX_RESULT_SIZE_CHARS,
+)
 from agent.core.tools.session_file_state import SessionFileState, read_file_slice
 
 from .compaction.planner import CompactionPlanner
@@ -22,7 +35,11 @@ from .compaction.summarizer import CompactionSummarizer
 from .compaction.policy import should_compact
 from .compaction.types import CompactionReason, CompactionSettings
 from .policies import AgentPolicies
-from .prompting import build_chat_messages, build_system_prompt, estimate_llm_context_tokens
+from .prompting import (
+    build_chat_messages,
+    build_system_prompt,
+    estimate_llm_context_tokens,
+)
 from .run_control import RunController
 from .state import AgentState
 from .tool_executor import StreamingToolExecutor
@@ -32,11 +49,9 @@ if TYPE_CHECKING:
 
 
 class ToolRegistryLike(Protocol):
-    def list_specs(self) -> tuple[ToolSpec, ...]:
-        ...
+    def list_specs(self) -> tuple[ToolSpec, ...]: ...
 
-    def get(self, name: str) -> Any | None:
-        ...
+    def get(self, name: str) -> Any | None: ...
 
     async def execute(
         self,
@@ -45,8 +60,7 @@ class ToolRegistryLike(Protocol):
         *,
         hook_context: HookContext | None = None,
         session_file_state: SessionFileState | None = None,
-    ) -> Mapping[str, Any]:
-        ...
+    ) -> Mapping[str, Any]: ...
 
 
 class AgentLoop:
@@ -138,7 +152,9 @@ class AgentLoop:
         """
 
         self._active_session_id = state.session_id
-        active_hook_ctx = hook_ctx or HookContext(session_id=state.session_id, turn_id=state.turn_id)
+        active_hook_ctx = hook_ctx or HookContext(
+            session_id=state.session_id, turn_id=state.turn_id
+        )
         run_id = _resolve_hook_run_id(active_hook_ctx)
         await self._dispatch_observe_async(
             "turn_start",
@@ -153,8 +169,16 @@ class AgentLoop:
             active_hook_ctx,
         )
 
-        active_tools = self.active_tool_specs() if available_tools_override is None else available_tools_override
-        active_skills = self._available_skills if available_skills_override is None else available_skills_override
+        active_tools = (
+            self.active_tool_specs()
+            if available_tools_override is None
+            else available_tools_override
+        )
+        active_skills = (
+            self._available_skills
+            if available_skills_override is None
+            else available_skills_override
+        )
         if pre_rendered_system_prompt is not None:
             # Segment-assembled prompt already contains all guidance; bypass build_system_prompt.
             rendered_system_prompt = pre_rendered_system_prompt
@@ -164,12 +188,15 @@ class AgentLoop:
                 available_skills=active_skills,
                 available_tools=active_tools,
                 current_datetime=session_created_at,
-                current_working_directory=current_working_directory_override or self._current_working_directory,
+                current_working_directory=current_working_directory_override
+                or self._current_working_directory,
             )
-        llm_messages = list(build_chat_messages(
-            history_messages=state.history_messages,
-            user_text=state.user_text,
-        ))
+        llm_messages = list(
+            build_chat_messages(
+                history_messages=state.history_messages,
+                user_text=state.user_text,
+            )
+        )
 
         all_tool_calls: list[ToolCall] = []
         all_tool_results: list[ToolResult] = []
@@ -185,7 +212,9 @@ class AgentLoop:
         # after the error assistant_message so Gateway observer sees content before close.
         _loop_succeeded = False
         try:
-            with span("AgentLoop.run", session_id=state.session_id, turn_id=state.turn_id):
+            with span(
+                "AgentLoop.run", session_id=state.session_id, turn_id=state.turn_id
+            ):
                 api_round_count = 0
                 while True:
                     api_round_count += 1
@@ -232,12 +261,16 @@ class AgentLoop:
                             )
                             return
 
-                    executor = StreamingToolExecutor(
-                        self._tool_registry,
-                        hook_context=active_hook_ctx,
-                        session_file_state=session_file_state,
-                        tool_execution_allowlist=tool_execution_allowlist,
-                    ) if self._tool_registry is not None else None
+                    executor = (
+                        StreamingToolExecutor(
+                            self._tool_registry,
+                            hook_context=active_hook_ctx,
+                            session_file_state=session_file_state,
+                            tool_execution_allowlist=tool_execution_allowlist,
+                        )
+                        if self._tool_registry is not None
+                        else None
+                    )
                     iteration_tool_calls: list[ToolCall] = []
                     early_tool_results: list[ToolResult] = []
                     finish_reason: str | None = None
@@ -269,7 +302,8 @@ class AgentLoop:
                             continue
 
                         normalized_calls = tuple(
-                            _normalize_tool_call(tc) for tc in (llm_msg.tool_calls or ())
+                            _normalize_tool_call(tc)
+                            for tc in (llm_msg.tool_calls or ())
                         )
 
                         assistant_msg_id = make_message_id()
@@ -281,14 +315,18 @@ class AgentLoop:
                             role="assistant",
                             content=llm_msg.content or "",
                             group_id=turn_assistant_group_id,
-                            metadata=_assistant_metadata_from_tool_calls(normalized_calls),
+                            metadata=_assistant_metadata_from_tool_calls(
+                                normalized_calls
+                            ),
                             reasoning_content=llm_msg.reasoning_content,
                             reasoning_signature=llm_msg.reasoning_signature,
                         )
                         last_assistant_msg_id = assistant_msg.message_id
                         last_parent_id = assistant_msg.message_id
 
-                        await self._dispatch_message_hooks(assistant_msg, active_hook_ctx, run_id)
+                        await self._dispatch_message_hooks(
+                            assistant_msg, active_hook_ctx, run_id
+                        )
                         yield assistant_msg
 
                         _append_llm_message(
@@ -314,7 +352,10 @@ class AgentLoop:
                                 # so it can see the user's actual request text.
                                 tool_hook_ctx = replace(
                                     active_hook_ctx,
-                                    metadata={**dict(active_hook_ctx.metadata), "tool_call_id": tc.call_id},
+                                    metadata={
+                                        **dict(active_hook_ctx.metadata),
+                                        "tool_call_id": tc.call_id,
+                                    },
                                     message_history=tuple(llm_messages),
                                 )
                                 if executor is not None:
@@ -334,11 +375,17 @@ class AgentLoop:
                             if executor is not None:
                                 for result in executor.get_completed_results():
                                     all_tool_results.append(result)
-                                    tool_msg = self._build_tool_result_message(result, parent_message_id=last_assistant_msg_id, group_id=last_assistant_msg_id)
+                                    tool_msg = self._build_tool_result_message(
+                                        result,
+                                        parent_message_id=last_assistant_msg_id,
+                                        group_id=last_assistant_msg_id,
+                                    )
                                     last_parent_id = tool_msg.message_id
                                     yield tool_msg
                                     early_tool_results.append(result)
-                                    await self._dispatch_tool_result_hook(result, active_hook_ctx, run_id)
+                                    await self._dispatch_tool_result_hook(
+                                        result, active_hook_ctx, run_id
+                                    )
 
                     # After stream ends, flush early results into LLM history in
                     # order, then wait for any remaining tools.
@@ -350,14 +397,20 @@ class AgentLoop:
                     if executor is not None:
                         async for result in executor.get_remaining_results():
                             all_tool_results.append(result)
-                            tool_msg = self._build_tool_result_message(result, parent_message_id=last_assistant_msg_id, group_id=last_assistant_msg_id)
+                            tool_msg = self._build_tool_result_message(
+                                result,
+                                parent_message_id=last_assistant_msg_id,
+                                group_id=last_assistant_msg_id,
+                            )
                             last_parent_id = tool_msg.message_id
                             yield tool_msg
                             _append_llm_message(
                                 llm_messages,
                                 self._build_llm_tool_result_message(result),
                             )
-                            await self._dispatch_tool_result_hook(result, active_hook_ctx, run_id)
+                            await self._dispatch_tool_result_hook(
+                                result, active_hook_ctx, run_id
+                            )
 
                     turn_usage = _accumulate_usage(turn_usage, latest_usage)
 
@@ -397,7 +450,9 @@ class AgentLoop:
                         _loop_succeeded = True
                         break
 
-                    self._policies.ensure_tool_calls_allowed(tool_call_count=len(all_tool_calls))
+                    self._policies.ensure_tool_calls_allowed(
+                        tool_call_count=len(all_tool_calls)
+                    )
         finally:
             # Only dispatch turn_end on success. On ModelError the runtime.py except block
             # dispatches turn_end(completed=False) after message_end so Gateway observer
@@ -491,7 +546,9 @@ class AgentLoop:
                     "turn_id": hook_ctx.turn_id,
                     "call_id": result.call_id,
                     "name": result.name,
-                    "arguments": dict(result.arguments) if hasattr(result, "arguments") and result.arguments else {},
+                    "arguments": dict(result.arguments)
+                    if hasattr(result, "arguments") and result.arguments
+                    else {},
                     "output": result.output,
                     "error": result.error,
                     "duration_ms": result.duration_ms,
@@ -516,7 +573,9 @@ class AgentLoop:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn("hook observe dispatch failed", event=event, error=str(exc))
+            hook_ctx.logger.warn(
+                "hook observe dispatch failed", event=event, error=str(exc)
+            )
             return
         self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
 
@@ -537,7 +596,11 @@ class AgentLoop:
     def _serialize_tool_result(self, result: ToolResult) -> str:
         """Serialize tool result via tool adapter, then apply budget compression."""
 
-        tool = self._tool_registry.get(result.name) if self._tool_registry is not None else None
+        tool = (
+            self._tool_registry.get(result.name)
+            if self._tool_registry is not None
+            else None
+        )
         if tool is not None and hasattr(tool, "serialize_result"):
             try:
                 raw_content = tool.serialize_result(result.output, result.error)
@@ -552,7 +615,9 @@ class AgentLoop:
             and result.call_id
             and self._active_session_id is not None
         ):
-            max_size = getattr(tool, "max_result_size_chars", DEFAULT_MAX_RESULT_SIZE_CHARS)
+            max_size = getattr(
+                tool, "max_result_size_chars", DEFAULT_MAX_RESULT_SIZE_CHARS
+            )
             raw_content = compressor.maybe_compress(
                 raw_content,
                 tool_name=result.name,
@@ -572,7 +637,13 @@ class AgentLoop:
             tool_call_id=result.call_id,
         )
 
-    def _build_tool_result_message(self, result: ToolResult, *, parent_message_id: str | None = None, group_id: str | None = None) -> Message:
+    def _build_tool_result_message(
+        self,
+        result: ToolResult,
+        *,
+        parent_message_id: str | None = None,
+        group_id: str | None = None,
+    ) -> Message:
         """Build a Message for yielding a completed tool result."""
 
         return Message(
@@ -619,11 +690,14 @@ class AgentLoop:
         if self._compaction_settings is None or not self._compaction_settings.enabled:
             return False
         estimated = estimate_llm_context_tokens(llm_messages, rendered_system_prompt)
-        return should_compact(
-            context_tokens=estimated,
-            context_window=self._compaction_settings.context_window,
-            reserve_tokens=self._compaction_settings.reserve_tokens,
-        ) is not None
+        return (
+            should_compact(
+                context_tokens=estimated,
+                context_window=self._compaction_settings.context_window,
+                reserve_tokens=self._compaction_settings.reserve_tokens,
+            )
+            is not None
+        )
 
     async def _maybe_compact(
         self,
@@ -635,16 +709,25 @@ class AgentLoop:
     ) -> Message | None:
         if not self._should_compact(llm_messages, rendered_system_prompt):
             return None
-        if self._session_manager is None or self._compaction_planner is None or self._compaction_summarizer is None:
+        if (
+            self._session_manager is None
+            or self._compaction_planner is None
+            or self._compaction_summarizer is None
+        ):
             return None
 
         entries = self._session_manager.list_entries(session_id)
-        plan = self._compaction_planner.plan(events=entries, reason=CompactionReason.THRESHOLD)
+        plan = self._compaction_planner.plan(
+            events=entries, reason=CompactionReason.THRESHOLD
+        )
         if plan is None:
             return None
 
         from agent.core.session.entries import message_from_turn_entry
-        dropped_messages = tuple(message_from_turn_entry(e) for e in plan.dropped_events)
+
+        dropped_messages = tuple(
+            message_from_turn_entry(e) for e in plan.dropped_events
+        )
         summary = await self._compaction_summarizer.summarize(
             session_id=session_id,
             system_prompt=rendered_system_prompt,
@@ -708,7 +791,9 @@ def _normalize_tool_call(tool_call: LLMToolCall) -> ToolCall:
     )
 
 
-def _assistant_metadata_from_tool_calls(tool_calls: tuple[ToolCall, ...]) -> Mapping[str, Any]:
+def _assistant_metadata_from_tool_calls(
+    tool_calls: tuple[ToolCall, ...],
+) -> Mapping[str, Any]:
     """Serialize tool calls into assistant metadata persisted in session history."""
 
     if not tool_calls:
@@ -750,7 +835,9 @@ def _serialize_tool_result_content(result: ToolResult) -> str:
     else:
         payload["output"] = result.output
     try:
-        return json.dumps(payload, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        return json.dumps(
+            payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+        )
     except TypeError:
         return str(payload)
 
@@ -778,7 +865,9 @@ def _append_llm_message(messages: list[LLMMessage], msg: LLMMessage) -> None:
         messages.append(msg)
 
 
-def _accumulate_usage(current: TokenUsage | None, update: TokenUsage | None) -> TokenUsage | None:
+def _accumulate_usage(
+    current: TokenUsage | None, update: TokenUsage | None
+) -> TokenUsage | None:
     """Merge per-roundtrip LLM usage into a running turn-level summary.
 
     Semantics within a single turn that contains tool calls (≥2 roundtrips):
@@ -816,7 +905,9 @@ def _resolve_hook_run_id(hook_ctx: HookContext) -> str | None:
     return None
 
 
-def _with_optional_run_id(payload: Mapping[str, Any], *, run_id: str | None) -> dict[str, Any]:
+def _with_optional_run_id(
+    payload: Mapping[str, Any], *, run_id: str | None
+) -> dict[str, Any]:
     resolved = dict(payload)
     if run_id is not None:
         resolved["run_id"] = run_id

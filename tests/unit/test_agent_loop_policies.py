@@ -58,7 +58,9 @@ async def test_loop_does_not_raise_on_high_turn_count() -> None:
         )
     )
     # 设置极小的 max_turns，但 turn_count 远超此值
-    loop = AgentLoop(llm_client=client, model="model-x", policies=AgentPolicies(max_turns=1))
+    loop = AgentLoop(
+        llm_client=client, model="model-x", policies=AgentPolicies(max_turns=1)
+    )
     state = AgentState(
         session_id="sess_agent",
         turn_id="turn_high",
@@ -86,9 +88,14 @@ async def test_loop_passes_full_history_to_llm() -> None:
         )
     )
     # 设置极小的 max_context_messages，但期望 history 不被截断
-    loop = AgentLoop(llm_client=client, model="model-x", policies=AgentPolicies(max_context_messages=1))
+    loop = AgentLoop(
+        llm_client=client,
+        model="model-x",
+        policies=AgentPolicies(max_context_messages=1),
+    )
 
     from agent.core.types import Message
+
     history = tuple(
         Message(message_id=f"msg-{i}", role="user", content=f"msg {i}")
         for i in range(5)

@@ -1,4 +1,5 @@
 """Prompt assembly utilities for runtime/system/tool context injection."""
+
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -121,8 +122,12 @@ def build_prompt_messages(
         current_datetime=current_datetime,
         current_working_directory=current_working_directory,
     )
-    chat_messages = list(build_chat_messages(history_messages=history_messages, user_text=user_text))
-    return tuple([LLMMessage(role="system", content=active_system_prompt), *chat_messages])
+    chat_messages = list(
+        build_chat_messages(history_messages=history_messages, user_text=user_text)
+    )
+    return tuple(
+        [LLMMessage(role="system", content=active_system_prompt), *chat_messages]
+    )
 
 
 def build_system_prompt(
@@ -173,9 +178,7 @@ def build_system_prompt(
 
     # Inject self-evolution guidance constants for the stable tier.
     # Only when the matching tool is in the session's active toolset.
-    tool_names: frozenset[str] = frozenset(
-        t.name for t in (available_tools or ())
-    )
+    tool_names: frozenset[str] = frozenset(t.name for t in (available_tools or ()))
     guidance_parts: list[str] = []
     if "memory" in tool_names:
         guidance_parts.append(MEMORY_GUIDANCE)
@@ -201,7 +204,9 @@ def _fill_runtime_placeholders(
     current_datetime: datetime | str | None,
     current_working_directory: Path | None,
 ) -> str:
-    active_tools = tuple(available_tools) if available_tools is not None else _default_tool_specs()
+    active_tools = (
+        tuple(available_tools) if available_tools is not None else _default_tool_specs()
+    )
     rendered_tools = _format_available_tools(active_tools)
     timestamp = _resolve_prompt_timestamp(current_datetime)
     cwd = str((current_working_directory or Path.cwd()).expanduser().resolve())
@@ -321,8 +326,6 @@ def _coalesce_assistant_group(messages: tuple[Message, ...]) -> tuple[Message, .
     if not messages:
         return messages
 
-    from agent.core.types import ToolCall
-
     result: list[Message] = []
     # Map group_id → index in result for fast lookup of the canonical row.
     assistant_group_index: dict[str, int] = {}
@@ -335,7 +338,10 @@ def _coalesce_assistant_group(messages: tuple[Message, ...]) -> tuple[Message, .
                 # Merge tool_calls from both rows.
                 prev_calls = list(prev.metadata.get("tool_calls", []))
                 new_calls = list(msg.metadata.get("tool_calls", []))
-                merged_meta = {**dict(prev.metadata), "tool_calls": prev_calls + new_calls}
+                merged_meta = {
+                    **dict(prev.metadata),
+                    "tool_calls": prev_calls + new_calls,
+                }
                 # replace() preserves prev's identity/structure fields and only
                 # overrides the merged ones; any field added to Message later is
                 # carried automatically instead of being silently dropped here.
@@ -344,7 +350,8 @@ def _coalesce_assistant_group(messages: tuple[Message, ...]) -> tuple[Message, .
                     content=(prev.content or "") + (msg.content or ""),
                     metadata=merged_meta,
                     reasoning_content=prev.reasoning_content or msg.reasoning_content,
-                    reasoning_signature=prev.reasoning_signature or msg.reasoning_signature,
+                    reasoning_signature=prev.reasoning_signature
+                    or msg.reasoning_signature,
                 )
             else:
                 assistant_group_index[msg.group_id] = len(result)

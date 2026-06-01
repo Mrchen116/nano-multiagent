@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.background_tasks.interfaces import (
@@ -62,7 +62,9 @@ def wire_background_tasks(
     subagent_runner = (
         RuntimeRunner(
             runtime=runtime,
-            event_loop=runs_registry.get_event_loop() if runs_registry is not None else None,
+            event_loop=runs_registry.get_event_loop()
+            if runs_registry is not None
+            else None,
         )
         if runtime is not None
         else _NoOpSubagentRunner()
@@ -106,7 +108,10 @@ def _wire_notification_callbacks(
 
         def update(self, record: BackgroundTaskRecord) -> None:
             self._delegate.update(record)
-            if record.status in {"completed", "failed", "killed"} and not record.notified:
+            if (
+                record.status in {"completed", "failed", "killed"}
+                and not record.notified
+            ):
                 _deliver_notification(record, runs_registry)
 
         def get(self, task_id: str) -> BackgroundTaskRecord | None:

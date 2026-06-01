@@ -63,8 +63,13 @@ class _FakeKernel:
         session = _FakeSession(session_id)
         session.workspace_root = str(workspace_root) if workspace_root else None
         self.create_session_calls.append(
-            {"title": title, "workspace_root": workspace_root, "skills": skills,
-             "tool_allowlist": tool_allowlist, "metadata": metadata}
+            {
+                "title": title,
+                "workspace_root": workspace_root,
+                "skills": skills,
+                "tool_allowlist": tool_allowlist,
+                "metadata": metadata,
+            }
         )
         self._sessions[session_id] = session
         return session
@@ -107,8 +112,16 @@ class _FakeKernel:
         async def _gen() -> AsyncIterator[dict[str, Any]]:
             if last_run_id:
                 text = "reply from sdk kernel"
-                yield {"event": "assistant_message", "run_id": last_run_id, "content": text}
-                yield {"event": "run_status", "run_id": last_run_id, "status": "completed"}
+                yield {
+                    "event": "assistant_message",
+                    "run_id": last_run_id,
+                    "content": text,
+                }
+                yield {
+                    "event": "run_status",
+                    "run_id": last_run_id,
+                    "status": "completed",
+                }
 
         return _gen()
 
@@ -118,7 +131,9 @@ class _FakeKernel:
     def close(self) -> None:
         pass
 
-    def get_session(self, session_id: str, *, workspace_root: str | None = None) -> dict[str, Any]:
+    def get_session(
+        self, session_id: str, *, workspace_root: str | None = None
+    ) -> dict[str, Any]:
         """Return session payload mirroring real Kernel.get_session contract.
 
         workspace_root is exposed as a top-level key (not inside metadata) to
@@ -139,7 +154,9 @@ def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
     agent_a = tmp_path / "agent-a"
     agent_a.mkdir()
     return (
-        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=agent_a, title="Agent A"),
+        AgentWorkspaceConfig(
+            agent_id="agent-a", workspace_root=agent_a, title="Agent A"
+        ),
     )
 
 

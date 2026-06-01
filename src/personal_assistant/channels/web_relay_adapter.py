@@ -1,4 +1,5 @@
 """Web IM relay channel adapter fed by IM websocket downstream frames."""
+
 from __future__ import annotations
 
 import sqlite3
@@ -9,7 +10,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
-from personal_assistant.channels.base import InboundHandler, InboundMessage, OutboundMessage
+from personal_assistant.channels.base import (
+    InboundHandler,
+    InboundMessage,
+    OutboundMessage,
+)
 
 _SEEN_KEYS_MAX = 1000
 _DEDUP_TTL_SECONDS = 7 * 24 * 60 * 60
@@ -110,7 +115,6 @@ class RelayDeduplicationStore:
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(str(self._db_path))
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,7 +220,9 @@ class WebRelayAdapter:
             self._seen_idempotency_keys.popleft()
 
 
-def _build_inbound(envelope: RelayEnvelope, payload: Mapping[str, object]) -> InboundMessage:
+def _build_inbound(
+    envelope: RelayEnvelope, payload: Mapping[str, object]
+) -> InboundMessage:
     conversation_type = envelope.metadata.get("conversation_type")
     message_id = _optional_text(payload.get("message_id"))
     if message_id is None:
@@ -254,13 +260,21 @@ def _build_inbound(envelope: RelayEnvelope, payload: Mapping[str, object]) -> In
 
 
 def _parse_relay_payload(payload: Mapping[str, object]) -> RelayEnvelope:
-    relay_task_id = _require_text(payload.get("relay_task_id"), field_name="relay_task_id")
-    idempotency_key = _require_text(payload.get("idempotency_key"), field_name="idempotency_key")
+    relay_task_id = _require_text(
+        payload.get("relay_task_id"), field_name="relay_task_id"
+    )
+    idempotency_key = _require_text(
+        payload.get("idempotency_key"), field_name="idempotency_key"
+    )
     message = payload.get("message")
     if not isinstance(message, Mapping):
         raise ValueError("message must be an object")
-    sender_user_id = _require_text(message.get("sender_user_id"), field_name="message.sender_user_id")
-    conversation_id = _require_text(message.get("conversation_id"), field_name="message.conversation_id")
+    sender_user_id = _require_text(
+        message.get("sender_user_id"), field_name="message.sender_user_id"
+    )
+    conversation_id = _require_text(
+        message.get("conversation_id"), field_name="message.conversation_id"
+    )
     content = _require_text(message.get("content"), field_name="message.content")
     metadata = payload.get("metadata")
     if metadata is None:
@@ -274,11 +288,13 @@ def _parse_relay_payload(payload: Mapping[str, object]) -> RelayEnvelope:
             if isinstance(item, Mapping):
                 url = item.get("url")
                 if isinstance(url, str) and url.strip():
-                    attachments.append({
-                        "url": url,
-                        "content_type": item.get("content_type"),
-                        "file_name": item.get("file_name"),
-                    })
+                    attachments.append(
+                        {
+                            "url": url,
+                            "content_type": item.get("content_type"),
+                            "file_name": item.get("file_name"),
+                        }
+                    )
     # M247: parse optional sender.display_name (absent in pre-M247 payloads).
     sender_display_name: str | None = None
     raw_sender = payload.get("sender")

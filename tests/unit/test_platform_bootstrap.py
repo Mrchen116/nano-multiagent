@@ -22,7 +22,9 @@ def test_bootstrap_product_returns_resolved_config(tmp_path: Path) -> None:
     assert isinstance(resolved, ResolvedProductConfig)
 
 
-def test_bootstrap_product_resolved_system_prompt_matches_profile(tmp_path: Path) -> None:
+def test_bootstrap_product_resolved_system_prompt_matches_profile(
+    tmp_path: Path,
+) -> None:
     expected_prompt = "You are a test assistant."
     profile = ProductProfile(
         product_id="test",
@@ -126,8 +128,13 @@ def test_bootstrap_product_exposes_config_resolver(tmp_path: Path) -> None:
     resolved = bootstrap_product(profile=profile, repo_root=tmp_path)
 
     assert resolved.config_resolver is not None
-    assert resolved.config_resolver.workspace_config_root() == tmp_path / ".test-workspace"
-    assert resolved.config_resolver.global_config_root() == (tmp_path / ".test-global").resolve()
+    assert (
+        resolved.config_resolver.workspace_config_root() == tmp_path / ".test-workspace"
+    )
+    assert (
+        resolved.config_resolver.global_config_root()
+        == (tmp_path / ".test-global").resolve()
+    )
 
 
 def test_bootstrap_product_builds_profile_session_store(tmp_path: Path) -> None:
@@ -165,7 +172,9 @@ def test_session_jsonl_falls_in_workspace_root_not_process_cwd(tmp_path: Path) -
 
     session = manager.create_session(workspace_root=workspace_root)
 
-    expected_path = workspace_root / ".nano" / "sessions" / f"{session.session_id}.jsonl"
+    expected_path = (
+        workspace_root / ".nano" / "sessions" / f"{session.session_id}.jsonl"
+    )
     assert expected_path.exists(), (
         f"JSONL must be at {{workspace_root}}/.nano/sessions/{{session_id}}.jsonl, "
         f"but not found at {expected_path}"
@@ -173,7 +182,10 @@ def test_session_jsonl_falls_in_workspace_root_not_process_cwd(tmp_path: Path) -
 
     # Sanity: must NOT be in process cwd
     import os
-    wrong_path = Path(os.getcwd()) / ".nano" / "sessions" / f"{session.session_id}.jsonl"
+
+    wrong_path = (
+        Path(os.getcwd()) / ".nano" / "sessions" / f"{session.session_id}.jsonl"
+    )
     assert not wrong_path.exists(), (
         f"JSONL must not fall in process cwd, but found at {wrong_path}"
     )
@@ -201,7 +213,9 @@ def test_workspace_aware_store_multiple_workspaces_isolated(tmp_path: Path) -> N
     assert not (ws1 / ".nano" / "sessions" / f"{sess2.session_id}.jsonl").exists()
 
 
-def test_stateless_store_load_and_append_with_caller_workspace_root(tmp_path: Path) -> None:
+def test_stateless_store_load_and_append_with_caller_workspace_root(
+    tmp_path: Path,
+) -> None:
     """load() and append() work when the caller passes workspace_root explicitly."""
     from agent.core.session.manager import SessionManager
 
@@ -211,7 +225,9 @@ def test_stateless_store_load_and_append_with_caller_workspace_root(tmp_path: Pa
     store = JsonlSessionStore(data_dir=None)
     manager = SessionManager(store=store)
 
-    session = manager.create_session(workspace_root=workspace_root, title="test-session")
+    session = manager.create_session(
+        workspace_root=workspace_root, title="test-session"
+    )
 
     # load must succeed when the caller supplies workspace_root
     result = store.load(session.session_id, workspace_root=workspace_root)
@@ -221,8 +237,13 @@ def test_stateless_store_load_and_append_with_caller_workspace_root(tmp_path: Pa
     # append must write to the same workspace-scoped file
     store.append(
         session.session_id,
-        {"type": "turn", "uuid": "msg_1", "role": "user", "content": "hi",
-         "timestamp": "2026-01-01T00:00:00+00:00"},
+        {
+            "type": "turn",
+            "uuid": "msg_1",
+            "role": "user",
+            "content": "hi",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        },
         workspace_root=workspace_root,
     )
     store.writer.flush()
@@ -246,11 +267,18 @@ def test_stateless_store_load_survives_process_restart(tmp_path: Path) -> None:
     # --- process lifetime A: create + write a turn ---
     store_a = JsonlSessionStore(data_dir=None)
     manager_a = SessionManager(store=store_a)
-    session = manager_a.create_session(workspace_root=workspace_root, title="cross-restart")
+    session = manager_a.create_session(
+        workspace_root=workspace_root, title="cross-restart"
+    )
     store_a.append(
         session.session_id,
-        {"type": "turn", "uuid": "msg_a", "role": "user", "content": "hello from A",
-         "timestamp": "2026-01-01T00:00:00+00:00"},
+        {
+            "type": "turn",
+            "uuid": "msg_a",
+            "role": "user",
+            "content": "hello from A",
+            "timestamp": "2026-01-01T00:00:00+00:00",
+        },
         workspace_root=workspace_root,
     )
     store_a.writer.flush()
@@ -267,13 +295,22 @@ def test_stateless_store_load_survives_process_restart(tmp_path: Path) -> None:
 
     # resolve_path points at the original workspace, not raises.
     resolved = store_b.resolve_path(session.session_id, workspace_root=workspace_root)
-    assert resolved == workspace_root / ".nano" / "sessions" / f"{session.session_id}.jsonl"
+    assert (
+        resolved
+        == workspace_root / ".nano" / "sessions" / f"{session.session_id}.jsonl"
+    )
 
     # append() after restart keeps writing to the same file.
     store_b.append(
         session.session_id,
-        {"type": "turn", "uuid": "msg_b", "parent_uuid": "msg_a", "role": "assistant",
-         "content": "hello from B", "timestamp": "2026-01-01T00:01:00+00:00"},
+        {
+            "type": "turn",
+            "uuid": "msg_b",
+            "parent_uuid": "msg_a",
+            "role": "assistant",
+            "content": "hello from B",
+            "timestamp": "2026-01-01T00:01:00+00:00",
+        },
         workspace_root=workspace_root,
     )
     store_b.writer.flush()
@@ -281,7 +318,9 @@ def test_stateless_store_load_survives_process_restart(tmp_path: Path) -> None:
     assert [m.content for m in result2.messages] == ["hello from A", "hello from B"]
 
 
-def test_stateless_store_raises_without_workspace_root_and_without_data_dir(tmp_path: Path) -> None:
+def test_stateless_store_raises_without_workspace_root_and_without_data_dir(
+    tmp_path: Path,
+) -> None:
     """A data_dir=None store must raise loudly when the caller omits workspace_root.
 
     No silent cwd fallback — that silent fallback is exactly the bugfix-348 bug.
@@ -295,7 +334,9 @@ def test_stateless_store_raises_without_workspace_root_and_without_data_dir(tmp_
         store.resolve_path("sess_whatever")
 
 
-def test_stateless_store_raises_when_jsonl_missing_workspace_root_field(tmp_path: Path) -> None:
+def test_stateless_store_raises_when_jsonl_missing_workspace_root_field(
+    tmp_path: Path,
+) -> None:
     """A JSONL whose session_created entry omits workspace_root must raise loudly.
 
     Same-family bug as bugfix-348: silently filling the missing field with
@@ -312,11 +353,14 @@ def test_stateless_store_raises_when_jsonl_missing_workspace_root_field(tmp_path
     jsonl_path = sessions_dir / "sess_legacy.jsonl"
     # Simulate a pre-bugfix-348 file: session_created entry without workspace_root.
     jsonl_path.write_text(
-        json.dumps({
-            "type": "session_created",
-            "session_id": "sess_legacy",
-            "created_at": "2026-01-01T00:00:00+00:00",
-        }) + "\n",
+        json.dumps(
+            {
+                "type": "session_created",
+                "session_id": "sess_legacy",
+                "created_at": "2026-01-01T00:00:00+00:00",
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
 
@@ -354,7 +398,9 @@ def test_stateless_store_list_sessions_scoped_to_workspace_root(tmp_path: Path) 
 # ---------------------------------------------------------------------------
 
 
-def test_bootstrap_registers_skill_manage_when_config_resolver_available(tmp_path: Path) -> None:
+def test_bootstrap_registers_skill_manage_when_config_resolver_available(
+    tmp_path: Path,
+) -> None:
     """When global_config_home + workspace_config_dirname are set, skill_manage is in the registry."""
     profile = ProductProfile(
         product_id="test",
@@ -369,7 +415,9 @@ def test_bootstrap_registers_skill_manage_when_config_resolver_available(tmp_pat
     assert "skill_manage" in tool_names
 
 
-def test_bootstrap_registers_memory_when_config_resolver_available(tmp_path: Path) -> None:
+def test_bootstrap_registers_memory_when_config_resolver_available(
+    tmp_path: Path,
+) -> None:
     """When global_config_home + workspace_config_dirname are set, memory is in the registry."""
     profile = ProductProfile(
         product_id="test",
@@ -384,7 +432,9 @@ def test_bootstrap_registers_memory_when_config_resolver_available(tmp_path: Pat
     assert "memory" in tool_names
 
 
-def test_bootstrap_default_session_metadata_no_workspace_config_uses_defaults(tmp_path: Path) -> None:
+def test_bootstrap_default_session_metadata_no_workspace_config_uses_defaults(
+    tmp_path: Path,
+) -> None:
     """When no workspace config file exists, default_session_metadata.self_evolution is all-enabled."""
     profile = ProductProfile(
         product_id="test",
@@ -406,7 +456,9 @@ def test_bootstrap_reads_self_evolution_from_workspace_config(tmp_path: Path) ->
     config_dir.mkdir(parents=True)
     config_file = config_dir / "config.yaml"
     config_file.write_text(
-        yaml.safe_dump({"self_evolution": {"enabled": False, "skill_nudge_interval": 20}}),
+        yaml.safe_dump(
+            {"self_evolution": {"enabled": False, "skill_nudge_interval": 20}}
+        ),
         encoding="utf-8",
     )
 

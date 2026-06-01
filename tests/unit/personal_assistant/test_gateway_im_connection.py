@@ -34,7 +34,9 @@ class _FakeWebSocket:
 
 
 class _FailOnNthSendWebSocket(_FakeWebSocket):
-    def __init__(self, *, fail_on_send_number: int, incoming: list[str] | None = None) -> None:
+    def __init__(
+        self, *, fail_on_send_number: int, incoming: list[str] | None = None
+    ) -> None:
         super().__init__(incoming=incoming)
         self._fail_on_send_number = fail_on_send_number
         self._send_count = 0
@@ -73,7 +75,11 @@ async def _connect_fake(
 
 def test_config_sync_client_records_latest_versions() -> None:
     seen: list[tuple[str, int]] = []
-    client = ConfigSyncClient(fetcher=lambda agent_id, profile_version: seen.append((agent_id, profile_version)))
+    client = ConfigSyncClient(
+        fetcher=lambda agent_id, profile_version: seen.append(
+            (agent_id, profile_version)
+        )
+    )
 
     request = client.handle_notification({"agent_id": "agent-a", "profile_version": 3})
 
@@ -82,7 +88,9 @@ def test_config_sync_client_records_latest_versions() -> None:
     assert seen == [("agent-a", 3)]
 
 
-def test_im_connection_connects_registers_and_handles_downstream_frames(tmp_path: Path) -> None:
+def test_im_connection_connects_registers_and_handles_downstream_frames(
+    tmp_path: Path,
+) -> None:
     inbound_seen = []
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(inbound_seen.append)
@@ -107,8 +115,18 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(tmp_path
                     },
                 }
             ),
-            json.dumps({"type": "config.sync", "payload": {"agent_id": "agent-a", "profile_version": 5}}),
-            json.dumps({"type": "heartbeat.trigger", "payload": {"agent_id": "agent-a", "reason": "manual"}}),
+            json.dumps(
+                {
+                    "type": "config.sync",
+                    "payload": {"agent_id": "agent-a", "profile_version": 5},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "heartbeat.trigger",
+                    "payload": {"agent_id": "agent-a", "reason": "manual"},
+                }
+            ),
         ]
     )
     connect_calls: list[tuple[str, dict[str, str]]] = []
@@ -122,7 +140,9 @@ def test_im_connection_connects_registers_and_handles_downstream_frames(tmp_path
         reporter=reporter,
         relay_adapter=relay_adapter,
         sync_client=sync_client,
-        heartbeat_trigger=lambda agent_id, reason: heartbeat_seen.append((agent_id, reason)),
+        heartbeat_trigger=lambda agent_id, reason: heartbeat_seen.append(
+            (agent_id, reason)
+        ),
         connect=lambda url, headers: _connect_fake(socket, connect_calls, url, headers),
     )
 
@@ -210,17 +230,25 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
     }
 
 
-def test_im_connection_sends_periodic_node_heartbeats_while_connected(tmp_path: Path) -> None:
+def test_im_connection_sends_periodic_node_heartbeats_while_connected(
+    tmp_path: Path,
+) -> None:
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(lambda _message: None)
-    socket = _FakeWebSocket(incoming=[json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})])
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1"),
         agents=_agents(tmp_path),
         send_frame=lambda _message_type, _payload: None,
     )
     manager = IMConnectionManager(
-        config=IMConnectionConfig(url="http://im.local:9000", heartbeat_interval_seconds=0.01),
+        config=IMConnectionConfig(
+            url="http://im.local:9000", heartbeat_interval_seconds=0.01
+        ),
         reporter=reporter,
         relay_adapter=relay_adapter,
         connect=lambda url, headers: _connect_fake(socket, [], url, headers),
@@ -281,9 +309,17 @@ def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) ->
         ("ws://im.local:9000/im/ws/gateway", {"User-Agent": "nano-multiagent-gateway"}),
         ("ws://im.local:9000/im/ws/gateway", {"User-Agent": "nano-multiagent-gateway"}),
     ]
-    assert [json.loads(frame)["type"] for frame in first_socket.sent] == ["node.register"]
-    assert [json.loads(frame)["type"] for frame in second_socket.sent] == ["node.register", "node.report"]
-    assert json.loads(second_socket.sent[1])["payload"] == {"run_id": "run-1", "status": "running"}
+    assert [json.loads(frame)["type"] for frame in first_socket.sent] == [
+        "node.register"
+    ]
+    assert [json.loads(frame)["type"] for frame in second_socket.sent] == [
+        "node.register",
+        "node.report",
+    ]
+    assert json.loads(second_socket.sent[1])["payload"] == {
+        "run_id": "run-1",
+        "status": "running",
+    }
 
 
 def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) -> None:
@@ -296,7 +332,14 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
     relay_adapter.start(lambda _message: None)
     first_socket = _FakeWebSocket()
     second_socket = _FakeWebSocket(
-        incoming=[json.dumps({"type": "ack", "payload": {"message_type": "node.report", "node_id": "node-1"}})]
+        incoming=[
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {"message_type": "node.report", "node_id": "node-1"},
+                }
+            )
+        ]
     )
     sockets = [first_socket, second_socket]
 
@@ -312,12 +355,20 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
 
     async def _exercise() -> None:
         await manager.connect_once()
-        await manager.send_json("node.report", {"run_id": "run-1", "status": "completed"})
+        await manager.send_json(
+            "node.report", {"run_id": "run-1", "status": "completed"}
+        )
         assert manager._awaiting_ack_type == "node.report"  # noqa: SLF001
-        assert [json.loads(frame)["type"] for frame in first_socket.sent] == ["node.register", "node.report"]
+        assert [json.loads(frame)["type"] for frame in first_socket.sent] == [
+            "node.register",
+            "node.report",
+        ]
         await manager._disconnect_current_websocket(RuntimeError("socket dropped"))  # noqa: SLF001
         await manager.connect_once()
-        assert [json.loads(frame)["type"] for frame in second_socket.sent] == ["node.register", "node.report"]
+        assert [json.loads(frame)["type"] for frame in second_socket.sent] == [
+            "node.register",
+            "node.report",
+        ]
         await manager._listen_once()  # noqa: SLF001
         assert manager._awaiting_ack_type is None  # noqa: SLF001
         assert list(manager._pending_frames) == []  # noqa: SLF001
@@ -325,7 +376,9 @@ def test_im_connection_retries_unacked_frame_after_disconnect(tmp_path: Path) ->
     asyncio.run(_exercise())
 
 
-def test_im_connection_retries_with_exponential_backoff_until_cap(tmp_path: Path) -> None:
+def test_im_connection_retries_with_exponential_backoff_until_cap(
+    tmp_path: Path,
+) -> None:
     attempts = 0
     sleeps: list[float] = []
     reporter = UpstreamReporter(
@@ -347,7 +400,11 @@ def test_im_connection_retries_with_exponential_backoff_until_cap(tmp_path: Path
             manager._stop_requested = True  # noqa: SLF001
 
     manager = IMConnectionManager(
-        config=IMConnectionConfig(url="http://im.local:9000", reconnect_initial_seconds=1.0, reconnect_max_seconds=5.0),
+        config=IMConnectionConfig(
+            url="http://im.local:9000",
+            reconnect_initial_seconds=1.0,
+            reconnect_max_seconds=5.0,
+        ),
         reporter=reporter,
         relay_adapter=relay_adapter,
         connect=_connect,
@@ -397,7 +454,9 @@ def test_im_connection_send_agent_message_returns_dispatch_ack(tmp_path: Path) -
     async def _exercise() -> None:
         await manager.connect_once()
         await manager._listen_once()  # noqa: SLF001 - consume node.register ack first
-        ack_task = asyncio.create_task(manager.send_agent_message({"to": "user-1", "text": "hi"}))
+        ack_task = asyncio.create_task(
+            manager.send_agent_message({"to": "user-1", "text": "hi"})
+        )
         await asyncio.sleep(0)
         await manager._listen_once()  # noqa: SLF001 - consume agent.message ack
         ack = await ack_task
@@ -410,7 +469,9 @@ def test_im_connection_send_agent_message_returns_dispatch_ack(tmp_path: Path) -
     asyncio.run(_exercise())
 
 
-def test_im_connection_send_json_await_ack_returns_raw_ack_payload(tmp_path: Path) -> None:
+def test_im_connection_send_json_await_ack_returns_raw_ack_payload(
+    tmp_path: Path,
+) -> None:
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1"),
         agents=_agents(tmp_path),
@@ -421,7 +482,16 @@ def test_im_connection_send_json_await_ack_returns_raw_ack_payload(tmp_path: Pat
     socket = _FakeWebSocket(
         incoming=[
             json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-            json.dumps({"type": "ack", "payload": {"message_type": "node.report", "status": "ok", "run_id": "run-1"}}),
+            json.dumps(
+                {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.report",
+                        "status": "ok",
+                        "run_id": "run-1",
+                    },
+                }
+            ),
         ]
     )
     manager = IMConnectionManager(
@@ -434,7 +504,9 @@ def test_im_connection_send_json_await_ack_returns_raw_ack_payload(tmp_path: Pat
     async def _exercise() -> None:
         await manager.connect_once()
         await manager._listen_once()  # noqa: SLF001
-        ack_task = asyncio.create_task(manager.send_json_await_ack("node.report", {"run_id": "run-1"}))
+        ack_task = asyncio.create_task(
+            manager.send_json_await_ack("node.report", {"run_id": "run-1"})
+        )
         await asyncio.sleep(0)
         await manager._listen_once()  # noqa: SLF001
         ack = await ack_task
@@ -443,7 +515,9 @@ def test_im_connection_send_json_await_ack_returns_raw_ack_payload(tmp_path: Pat
     asyncio.run(_exercise())
 
 
-def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp_path: Path) -> None:
+def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(
+    tmp_path: Path,
+) -> None:
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1"),
         agents=_agents(tmp_path),
@@ -451,7 +525,11 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp
     )
     relay_adapter = WebRelayAdapter()
     relay_adapter.start(lambda _message: None)
-    socket = _FakeWebSocket(incoming=[json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})])
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}})
+        ]
+    )
     manager = IMConnectionManager(
         config=IMConnectionConfig(url="http://im.local:9000"),
         reporter=reporter,
@@ -461,7 +539,9 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp
 
     async def _exercise() -> None:
         await manager.connect_once()
-        task = asyncio.create_task(manager.send_agent_message({"to": "user-1", "text": "hi"}))
+        task = asyncio.create_task(
+            manager.send_agent_message({"to": "user-1", "text": "hi"})
+        )
         await asyncio.sleep(0)
         await manager._disconnect_current_websocket(RuntimeError("socket dropped"))  # noqa: SLF001
         with pytest.raises(RuntimeError, match="before ack"):
@@ -472,7 +552,9 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp
     asyncio.run(_exercise())
 
 
-def test_im_connection_does_not_disconnect_on_downstream_error_frame(tmp_path: Path) -> None:
+def test_im_connection_does_not_disconnect_on_downstream_error_frame(
+    tmp_path: Path,
+) -> None:
     """IM 回送 type=error 下行帧（如畸形 node.report 被 IM 拒绝时），Gateway 不应抛 ValueError 触发断线重连。
 
     根因：_listen_once 对未知 message_type 执行 `raise ValueError`，而 run_forever 的
@@ -485,22 +567,32 @@ def test_im_connection_does_not_disconnect_on_downstream_error_frame(tmp_path: P
             # 1. 注册 ack
             json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
             # 2. IM 对某个帧回送 error（例如对畸形 heartbeat node.report 的拒绝）
-            json.dumps({"type": "error", "payload": {"code": "bad_payload", "message": "node_id must be non-empty"}}),
-            # 3. 正常 relay.message ——证明连接仍然存活
-            json.dumps({
-                "type": "relay.message",
-                "payload": {
-                    "relay_task_id": "relay-ok",
-                    "idempotency_key": "idem-ok",
-                    "message": {
-                        "id": "msg-ok",
-                        "sender_user_id": "user-1",
-                        "conversation_id": "conv-1",
-                        "content": "still alive",
+            json.dumps(
+                {
+                    "type": "error",
+                    "payload": {
+                        "code": "bad_payload",
+                        "message": "node_id must be non-empty",
                     },
-                    "metadata": {"conversation_type": "direct"},
-                },
-            }),
+                }
+            ),
+            # 3. 正常 relay.message ——证明连接仍然存活
+            json.dumps(
+                {
+                    "type": "relay.message",
+                    "payload": {
+                        "relay_task_id": "relay-ok",
+                        "idempotency_key": "idem-ok",
+                        "message": {
+                            "id": "msg-ok",
+                            "sender_user_id": "user-1",
+                            "conversation_id": "conv-1",
+                            "content": "still alive",
+                        },
+                        "metadata": {"conversation_type": "direct"},
+                    },
+                }
+            ),
         ]
     )
     inbound_seen: list = []

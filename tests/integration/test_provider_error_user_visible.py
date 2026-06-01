@@ -27,7 +27,10 @@ from agent.core.hooks.runner import HookRunner
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
-from agent.core.tools.base import set_tool_safety_config_factory, set_tool_safety_factory
+from agent.core.tools.base import (
+    set_tool_safety_config_factory,
+    set_tool_safety_factory,
+)
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 set_tool_safety_factory(ToolSafety)
@@ -37,7 +40,10 @@ set_tool_safety_config_factory(ToolSafetyConfig)
 class SseErrorLLMClient(LLMClient):
     """LLM client that simulates an upstream SSE error (quota exceeded)."""
 
-    def __init__(self, error_message: str = "You've reached your usage limit for this billing cycle.") -> None:
+    def __init__(
+        self,
+        error_message: str = "You've reached your usage limit for this billing cycle.",
+    ) -> None:
         self._error_message = error_message
 
     async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
@@ -49,7 +55,9 @@ class SseErrorLLMClient(LLMClient):
         yield  # make this an async generator
 
 
-async def test_provider_sse_error_persists_error_assistant_message(tmp_path: Path) -> None:
+async def test_provider_sse_error_persists_error_assistant_message(
+    tmp_path: Path,
+) -> None:
     """SSE error → 持久化带 is_provider_error=True 的 assistant 消息，内容含错误文案。"""
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
@@ -71,13 +79,20 @@ async def test_provider_sse_error_persists_error_assistant_message(tmp_path: Pat
 
     # 验证 JSONL 里有 is_provider_error=True 的 assistant 消息
     messages = manager.list_turn_messages(session.session_id)
-    error_msgs = [m for m in messages if m.role == "assistant" and m.metadata.get("is_provider_error")]
-    assert len(error_msgs) == 1, f"应有 1 条 is_provider_error 消息，实际: {len(error_msgs)}"
+    error_msgs = [
+        m
+        for m in messages
+        if m.role == "assistant" and m.metadata.get("is_provider_error")
+    ]
+    assert len(error_msgs) == 1, (
+        f"应有 1 条 is_provider_error 消息，实际: {len(error_msgs)}"
+    )
     error_msg = error_msgs[0]
     assert "⚠️" in error_msg.content, "错误消息应包含 ⚠️"
     assert "模型调用失败" in error_msg.content, "错误消息应包含 '模型调用失败'"
-    assert "usage limit" in error_msg.content or "billing" in error_msg.content, \
+    assert "usage limit" in error_msg.content or "billing" in error_msg.content, (
         f"错误消息应包含 provider 原文，实际: {error_msg.content!r}"
+    )
 
 
 async def test_provider_error_not_in_next_llm_history(tmp_path: Path) -> None:
@@ -102,7 +117,9 @@ async def test_provider_error_not_in_next_llm_history(tmp_path: Path) -> None:
     captured_requests: list[LLMGenerateRequest] = []
 
     class CapturingLLMClient(LLMClient):
-        async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
+        async def generate(
+            self, request: LLMGenerateRequest
+        ) -> AsyncIterator[LLMMessage]:
             captured_requests.append(request)
             yield LLMMessage(role="assistant", content="normal response")
             yield LLMMessage(role="assistant", content="", finish_reason="stop")
@@ -117,17 +134,18 @@ async def test_provider_error_not_in_next_llm_history(tmp_path: Path) -> None:
     assert captured_requests, "第二轮应该发出 LLM 请求"
     messages_sent = captured_requests[-1].messages
     error_assistant_msgs = [
-        m for m in messages_sent
-        if m.role == "assistant" and "⚠️" in (m.content or "")
+        m for m in messages_sent if m.role == "assistant" and "⚠️" in (m.content or "")
     ]
-    assert not error_assistant_msgs, \
+    assert not error_assistant_msgs, (
         f"is_provider_error 消息不应出现在下一轮 LLM history 中: {error_assistant_msgs}"
+    )
 
     # 但第一轮的 user message 应该保留
     user_msgs = [m for m in messages_sent if m.role == "user"]
     user_contents = [m.content for m in user_msgs]
-    assert "first" in user_contents, \
+    assert "first" in user_contents, (
         f"第一轮的 user message 应保留在 history 中，实际 user 消息: {user_contents}"
+    )
 
 
 async def test_happy_path_not_broken_by_bugfix380(tmp_path: Path) -> None:
@@ -139,7 +157,9 @@ async def test_happy_path_not_broken_by_bugfix380(tmp_path: Path) -> None:
     session = manager.create_session(workspace_root=workspace.resolve())
 
     class NormalLLMClient(LLMClient):
-        async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
+        async def generate(
+            self, request: LLMGenerateRequest
+        ) -> AsyncIterator[LLMMessage]:
             yield LLMMessage(role="assistant", content="hello")
             yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
@@ -180,17 +200,25 @@ async def test_provider_error_message_truncated_at_1kb(tmp_path: Path) -> None:
     manager.writer.flush()
 
     messages = manager.list_turn_messages(session.session_id)
-    error_msgs = [m for m in messages if m.role == "assistant" and m.metadata.get("is_provider_error")]
+    error_msgs = [
+        m
+        for m in messages
+        if m.role == "assistant" and m.metadata.get("is_provider_error")
+    ]
     assert error_msgs, "应有 is_provider_error 消息"
     content = error_msgs[0].content
-    assert len(content) < 2100, f"错误消息被截断后不应超过 2100 字符，实际: {len(content)}"
+    assert len(content) < 2100, (
+        f"错误消息被截断后不应超过 2100 字符，实际: {len(content)}"
+    )
     assert "truncated" in content or "…" in content, "截断的消息应包含截断标记"
 
 
 # --- bugfix-380 fast-lane round 3: 事件顺序测试 ---
 
 
-async def test_provider_error_hook_event_order_message_end_before_turn_end(tmp_path: Path) -> None:
+async def test_provider_error_hook_event_order_message_end_before_turn_end(
+    tmp_path: Path,
+) -> None:
     """ModelError 路径下 message_end 必须在 turn_end 之前；turn_end 必须携带 completed=False。
 
     这个测试验证 Gateway observer 能正确渲染错误气泡（先收到 assistant 内容，再收到 turn_end）。
@@ -255,7 +283,9 @@ async def test_provider_error_hook_event_order_message_end_before_turn_end(tmp_p
     )
 
 
-async def test_gateway_observer_does_not_lock_bubble_on_provider_error(tmp_path: Path) -> None:
+async def test_gateway_observer_does_not_lock_bubble_on_provider_error(
+    tmp_path: Path,
+) -> None:
     """turn_end(completed=False) 时 Gateway observer 应发 message_completed(delivery_status=failed)。
 
     这个测试模拟 _build_kernel_event_observer 的行为：
@@ -292,32 +322,40 @@ async def test_gateway_observer_does_not_lock_bubble_on_provider_error(tmp_path:
     )
 
     # 正常路径：turn_end(completed=True) 应发 message_completed
-    coro = observer({
-        "event": "turn_end",
-        "run_id": "test-run-1",
-        "completed": True,
-    })
+    coro = observer(
+        {
+            "event": "turn_end",
+            "run_id": "test-run-1",
+            "completed": True,
+        }
+    )
     if coro is not None:
         await coro
     await asyncio.sleep(0.01)  # 等 create_task 完成
 
     completed_msgs_before = [
-        m for m in sent_messages if m.get("payload", {}).get("kind") == "message_completed"
+        m
+        for m in sent_messages
+        if m.get("payload", {}).get("kind") == "message_completed"
     ]
 
     # 错误路径：turn_end(completed=False) 应发 message_completed(delivery_status=failed)
     sent_messages.clear()
-    coro = observer({
-        "event": "turn_end",
-        "run_id": "test-run-1",
-        "completed": False,
-    })
+    coro = observer(
+        {
+            "event": "turn_end",
+            "run_id": "test-run-1",
+            "completed": False,
+        }
+    )
     if coro is not None:
         await coro
     await asyncio.sleep(0.01)
 
     completed_msgs_after = [
-        m for m in sent_messages if m.get("payload", {}).get("kind") == "message_completed"
+        m
+        for m in sent_messages
+        if m.get("payload", {}).get("kind") == "message_completed"
     ]
     assert len(completed_msgs_after) == 1, (
         f"turn_end(completed=False) 应触发 1 条 message_completed，实际: {completed_msgs_after}"

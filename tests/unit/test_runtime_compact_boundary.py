@@ -10,7 +10,11 @@ import pytest
 
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.agent.compaction.types import CompactionSettings
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+)
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 from agent.core.types import Message
@@ -47,7 +51,8 @@ class _FakeCompactionPlanner:
         from agent.core.session.entries import SessionEntry, SessionEntryKind
 
         turn_events = tuple(
-            e for e in events
+            e
+            for e in events
             if isinstance(e, SessionEntry) and e.kind is SessionEntryKind.TURN_APPENDED
         )
         if not turn_events:
@@ -73,7 +78,9 @@ def _make_workspace_session(manager: SessionManager, tmp_path: Path):
     return manager.create_session(workspace_root=workspace_root.resolve())
 
 
-async def test_runtime_writes_compact_boundary_when_consuming_summary_msg(tmp_path: Path) -> None:
+async def test_runtime_writes_compact_boundary_when_consuming_summary_msg(
+    tmp_path: Path,
+) -> None:
     """Exit criterion 4: runtime 消费 summary msg 时正确写 compact_boundary."""
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
@@ -100,35 +107,47 @@ async def test_runtime_writes_compact_boundary_when_consuming_summary_msg(tmp_pa
         session_manager=manager,
         llm_client=_FakeLLMClient(content="after-compact"),
         model="mock-model",
-        compaction_settings=CompactionSettings(enabled=True, context_window=100, reserve_tokens=10),
+        compaction_settings=CompactionSettings(
+            enabled=True, context_window=100, reserve_tokens=10
+        ),
     )
     # Replace loop's planner/summarizer with fakes
     runtime._loop = AgentRuntime(
         session_manager=manager,
         llm_client=_FakeLLMClient(content="after-compact"),
         model="mock-model",
-        compaction_settings=CompactionSettings(enabled=True, context_window=100, reserve_tokens=10),
+        compaction_settings=CompactionSettings(
+            enabled=True, context_window=100, reserve_tokens=10
+        ),
     )._loop
     # Manually inject fakes into the loop
     from agent.core.agent.loop import AgentLoop
+
     loop = AgentLoop(
         llm_client=_FakeLLMClient(content="after-compact"),
         model="mock-model",
-        compaction_settings=CompactionSettings(enabled=True, context_window=100, reserve_tokens=10),
+        compaction_settings=CompactionSettings(
+            enabled=True, context_window=100, reserve_tokens=10
+        ),
         compaction_planner=_FakeCompactionPlanner(),
         compaction_summarizer=_FakeCompactionSummarizer(),
         session_manager=manager,
     )
     runtime._loop = loop
 
-    result = await runtime.run(session.session_id, [{"type": "text", "text": "trigger"}], stream=False)
+    result = await runtime.run(
+        session.session_id, [{"type": "text", "text": "trigger"}], stream=False
+    )
     manager.writer.flush()
 
     # Check JSONL entries for compact_boundary
     entries = manager.list_entries(session.session_id)
     # list_entries converts compact_boundary lines into CompactionEntry objects
     from agent.core.session.entries import CompactionEntry
+
     compact_boundaries = [e for e in entries if isinstance(e, CompactionEntry)]
-    assert len(compact_boundaries) == 1, f"Expected 1 compact_boundary, got {len(compact_boundaries)}"
+    assert len(compact_boundaries) == 1, (
+        f"Expected 1 compact_boundary, got {len(compact_boundaries)}"
+    )
     boundary = compact_boundaries[0]
     assert boundary.data.get("reason") == "threshold"

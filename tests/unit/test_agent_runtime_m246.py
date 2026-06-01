@@ -9,7 +9,11 @@ from typing import Any, Mapping
 import pytest
 
 from agent.core.agent.runtime import AgentRuntime
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+)
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
@@ -29,7 +33,9 @@ class _FakeLLMClient:
         yield LLMMessage(role="assistant", content="", finish_reason="end_turn")
 
 
-def _make_session_manager(tmp_path: Path, *, workspace_root: str | None = None) -> tuple[SessionManager, str]:
+def _make_session_manager(
+    tmp_path: Path, *, workspace_root: str | None = None
+) -> tuple[SessionManager, str]:
     """Create a session manager via SessionService and return (manager, session_id)."""
     service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
     root = Path(workspace_root) if workspace_root else tmp_path
@@ -37,7 +43,9 @@ def _make_session_manager(tmp_path: Path, *, workspace_root: str | None = None) 
     return service.manager, session.session_id
 
 
-async def test_single_part_creates_single_user_message_in_llm_history(tmp_path: Path) -> None:
+async def test_single_part_creates_single_user_message_in_llm_history(
+    tmp_path: Path,
+) -> None:
     """单条 part（向后兼容路径）→ LLM history 末尾只有一条 user message。"""
     manager, session_id = _make_session_manager(tmp_path)
     llm = _FakeLLMClient()
@@ -55,7 +63,9 @@ async def test_single_part_creates_single_user_message_in_llm_history(tmp_path: 
     assert user_messages[-1].content == "hello"
 
 
-async def test_multiple_parts_become_independent_user_messages_in_llm_history(tmp_path: Path) -> None:
+async def test_multiple_parts_become_independent_user_messages_in_llm_history(
+    tmp_path: Path,
+) -> None:
     """多条 parts → LLM history 中每条 part 对应一条独立 user message（而非 \n join）。"""
     manager, session_id = _make_session_manager(tmp_path)
     llm = _FakeLLMClient()

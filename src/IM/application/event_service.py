@@ -43,7 +43,9 @@ class EventService:
             after_event_id=after_event_id,
             limit=limit,
         )
-        return self._enrich_relay_identity(conversation_id=conversation_id, events=events)
+        return self._enrich_relay_identity(
+            conversation_id=conversation_id, events=events
+        )
 
     def _enrich_relay_identity(
         self,
@@ -75,12 +77,17 @@ class EventService:
             changed = False
             if event.event_type in {"relay.processing", "relay.report"}:
                 run_id = self._optional_text(payload.get("run_id"))
-                identity = run_identity_by_run_id.get(run_id) if run_id is not None else None
+                identity = (
+                    run_identity_by_run_id.get(run_id) if run_id is not None else None
+                )
                 if identity is not None:
                     if identity.agent_id is not None and "agent_id" not in payload:
                         payload["agent_id"] = identity.agent_id
                         changed = True
-                    if identity.relay_task_id is not None and "relay_task_id" not in payload:
+                    if (
+                        identity.relay_task_id is not None
+                        and "relay_task_id" not in payload
+                    ):
                         payload["relay_task_id"] = identity.relay_task_id
                         changed = True
             agent_id = self._optional_text(payload.get("agent_id"))
@@ -90,7 +97,12 @@ class EventService:
                     payload["sender_display_name"] = sender_display_name
                     changed = True
             if changed:
-                event = replace(event, payload_json=json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
+                event = replace(
+                    event,
+                    payload_json=json.dumps(
+                        payload, ensure_ascii=True, separators=(",", ":")
+                    ),
+                )
             enriched_events.append(event)
         return enriched_events
 
@@ -137,7 +149,9 @@ class EventService:
         return {
             str(row["agent_id"]): str(row["display_name"])
             for row in rows
-            if row["agent_id"] is not None and row["display_name"] is not None and str(row["display_name"]).strip()
+            if row["agent_id"] is not None
+            and row["display_name"] is not None
+            and str(row["display_name"]).strip()
         }
 
     @staticmethod

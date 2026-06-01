@@ -30,7 +30,9 @@ class BackgroundRunEventProcessor:
         self.pending_events.setdefault(run_id, []).append(event)
         return []
 
-    def _process_run_status(self, *, event: dict[str, object], run_id: object) -> list[str]:
+    def _process_run_status(
+        self, *, event: dict[str, object], run_id: object
+    ) -> list[str]:
         origin = event.get("origin")
         if not isinstance(origin, str) or origin.strip() in ("", "user"):
             return []
@@ -54,7 +56,11 @@ def format_origin_header(event: dict[str, object]) -> str | None:
     if not isinstance(origin, str) or origin.strip() == "" or origin == "user":
         return None
     source_task_id = event.get("source_task_id")
-    if origin == "background_task" and isinstance(source_task_id, str) and source_task_id.strip():
+    if (
+        origin == "background_task"
+        and isinstance(source_task_id, str)
+        and source_task_id.strip()
+    ):
         return f"── background wake (task_id={source_task_id.strip()}) ──"
     if origin == "heartbeat":
         return "── heartbeat ──"

@@ -15,7 +15,17 @@ class _BlockingRuntime:
         self.started = Event()
         self.release = Event()
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None, origin=None):  # noqa: ANN001, ANN201
+    async def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+        controller=None,
+        workspace_root=None,
+        origin=None,
+    ):  # noqa: ANN001, ANN201
         del session_id
         del parts
         del stream
@@ -26,7 +36,9 @@ class _BlockingRuntime:
         return TurnResult(
             session_id="sess_cancel_unit",
             turn_id="turn_cancel_unit",
-            messages=(Message(message_id="msg_cancel_unit", role="assistant", content="ok"),),
+            messages=(
+                Message(message_id="msg_cancel_unit", role="assistant", content="ok"),
+            ),
             completed=True,
             stop_reason="completed",
         )
@@ -38,7 +50,17 @@ class _AbortableBlockingRuntime:
     def __init__(self) -> None:
         self.started = Event()
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None, origin=None):  # noqa: ANN001, ANN201
+    async def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+        controller=None,
+        workspace_root=None,
+        origin=None,
+    ):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id, origin, workspace_root
         self.started.set()
         # Poll abort signal with short sleeps
@@ -47,7 +69,13 @@ class _AbortableBlockingRuntime:
                 return TurnResult(
                     session_id="sess_abort_unit",
                     turn_id="turn_abort_unit",
-                    messages=(Message(message_id="msg_abort", role="assistant", content="interrupted"),),
+                    messages=(
+                        Message(
+                            message_id="msg_abort",
+                            role="assistant",
+                            content="interrupted",
+                        ),
+                    ),
                     completed=False,
                     stop_reason="aborted",
                 )
@@ -55,7 +83,9 @@ class _AbortableBlockingRuntime:
         return TurnResult(
             session_id="sess_abort_unit",
             turn_id="turn_abort_unit",
-            messages=(Message(message_id="msg_timeout", role="assistant", content="ok"),),
+            messages=(
+                Message(message_id="msg_timeout", role="assistant", content="ok"),
+            ),
             completed=True,
             stop_reason="completed",
         )
@@ -64,7 +94,17 @@ class _AbortableBlockingRuntime:
 class _FailureRuntime:
     """Runtime that raises a non-retryable ModelError (simulates loop exhausting retries)."""
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None, origin=None):  # noqa: ANN001, ANN201
+    async def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+        controller=None,
+        workspace_root=None,
+        origin=None,
+    ):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id, origin, workspace_root
         # Retryable errors are exhausted inside loop; what reaches registry is non-retryable.
         raise ModelError("retries exhausted", retryable=False)
@@ -141,7 +181,10 @@ def test_interrupt_signals_active_run_to_abort(tmp_path: Path) -> None:
 
         # aborted runs are marked CANCELLED (stop_reason="aborted"), not FAILED/COMPLETED
         _wait_for(
-            lambda: registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED, RunStatus.CANCELLED},
+            lambda: (
+                registry.get(submitted.run_id).status
+                in {RunStatus.FAILED, RunStatus.COMPLETED, RunStatus.CANCELLED}
+            ),
             timeout_seconds=2.0,
         )
 
@@ -155,7 +198,9 @@ def test_interrupt_signals_active_run_to_abort(tmp_path: Path) -> None:
 def test_interrupt_no_active_run_returns_none(tmp_path: Path) -> None:
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
-    registry = RunsRegistry(runtime=_AbortableBlockingRuntime(), session_manager=manager)
+    registry = RunsRegistry(
+        runtime=_AbortableBlockingRuntime(), session_manager=manager
+    )
 
     try:
         assert registry.interrupt("sess_no_active") is None
@@ -180,7 +225,13 @@ def test_model_error_from_runtime_marks_run_failed(tmp_path: Path) -> None:
             parts=[{"type": "text", "text": "will fail"}],
         )
 
-        _wait_for(lambda: registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED}, timeout_seconds=2.0)
+        _wait_for(
+            lambda: (
+                registry.get(submitted.run_id).status
+                in {RunStatus.FAILED, RunStatus.COMPLETED}
+            ),
+            timeout_seconds=2.0,
+        )
 
         final = registry.get(submitted.run_id)
         assert final is not None

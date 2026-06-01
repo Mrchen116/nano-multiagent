@@ -67,9 +67,12 @@ def _register_gate() -> Any:
 # 1. End-to-end gate branches
 # ---------------------------------------------------------------------------
 
+
 class TestGatePathSandboxBranches:
     @pytest.mark.asyncio
-    async def test_dangerously_mode_bypasses_outside_workspace_write(self, tmp_path: Path) -> None:
+    async def test_dangerously_mode_bypasses_outside_workspace_write(
+        self, tmp_path: Path
+    ) -> None:
         """Workspace-external write + dangerously → pass through (no classifier, no ask).
 
         Spec contract: dangerously-skip-permissions语义是不进行任何权限管控。
@@ -81,13 +84,18 @@ class TestGatePathSandboxBranches:
 
         event = {
             "name": "write",
-            "args": {"file_path": str(tmp_path.parent / "outside" / "x.py"), "content": "x"},
+            "args": {
+                "file_path": str(tmp_path.parent / "outside" / "x.py"),
+                "content": "x",
+            },
         }
         result = await handler(event, ctx)
         assert result is None, "dangerously should pass through with no intercept"
 
     @pytest.mark.asyncio
-    async def test_outside_workspace_with_classifier_allow(self, tmp_path: Path) -> None:
+    async def test_outside_workspace_with_classifier_allow(
+        self, tmp_path: Path
+    ) -> None:
         """Workspace-external write + classifier allow → pass through.
 
         Classifier receives the standard prompt (no OUTSIDE NOTE prepended — W2
@@ -101,17 +109,26 @@ class TestGatePathSandboxBranches:
 
         with patch(
             "agent.platform.hooks.builtins.auto_mode_gate._classify_action",
-            new=AsyncMock(return_value=PermissionDecision(behavior="allow", reason="user explicit")),
+            new=AsyncMock(
+                return_value=PermissionDecision(
+                    behavior="allow", reason="user explicit"
+                )
+            ),
         ) as mock_classify:
             event = {
                 "name": "write",
-                "args": {"file_path": str(tmp_path.parent / "outside-allow" / "x.py"), "content": "x"},
+                "args": {
+                    "file_path": str(tmp_path.parent / "outside-allow" / "x.py"),
+                    "content": "x",
+                },
             }
             result = await handler(event, ctx)
 
         assert result is None, "classifier allow should pass through"
         # Classifier was called; verify the OUTSIDE NOTE is NOT injected (W2 change).
-        assert mock_classify.called, "classifier should have been called for unlisted write tool"
+        assert mock_classify.called, (
+            "classifier should have been called for unlisted write tool"
+        )
         call_args = mock_classify.call_args
         user_prompt = call_args.args[2]  # (ctx, system_prompt, user_prompt)
         assert "OUTSIDE the agent's workspace" not in user_prompt, (
@@ -119,7 +136,9 @@ class TestGatePathSandboxBranches:
         )
 
     @pytest.mark.asyncio
-    async def test_outside_workspace_with_classifier_ask_triggers_broker(self, tmp_path: Path) -> None:
+    async def test_outside_workspace_with_classifier_ask_triggers_broker(
+        self, tmp_path: Path
+    ) -> None:
         """Workspace-external write + classifier ask → broker.register_request + emit SSE."""
         handler = _register_gate()
         config = AutoModeConfig()
@@ -133,7 +152,10 @@ class TestGatePathSandboxBranches:
             },
         )
 
-        from agent.platform.permissions.broker import PermissionDecision, PermissionResponse
+        from agent.platform.permissions.broker import (
+            PermissionDecision,
+            PermissionResponse,
+        )
 
         # Stub broker future to resolve immediately with allow_once.
         async def _fake_request(req: Any) -> PermissionResponse:
@@ -144,11 +166,18 @@ class TestGatePathSandboxBranches:
 
         with patch(
             "agent.platform.hooks.builtins.auto_mode_gate._classify_action",
-            new=AsyncMock(return_value=PermissionDecision(behavior="ask", reason="path is outside workspace")),
+            new=AsyncMock(
+                return_value=PermissionDecision(
+                    behavior="ask", reason="path is outside workspace"
+                )
+            ),
         ):
             event = {
                 "name": "write",
-                "args": {"file_path": str(tmp_path.parent / "outside-ask" / "x.py"), "content": "x"},
+                "args": {
+                    "file_path": str(tmp_path.parent / "outside-ask" / "x.py"),
+                    "content": "x",
+                },
             }
             result = await handler(event, ctx)
 
@@ -156,7 +185,9 @@ class TestGatePathSandboxBranches:
         assert result is None or result.get("block") is False
 
     @pytest.mark.asyncio
-    async def test_inside_workspace_write_goes_through_existing_flow(self, tmp_path: Path) -> None:
+    async def test_inside_workspace_write_goes_through_existing_flow(
+        self, tmp_path: Path
+    ) -> None:
         """Inside-workspace write + always_allow → pass through, no classifier called."""
         handler = _register_gate()
         config = AutoModeConfig(always_allow_tools=("write",))
@@ -188,7 +219,9 @@ class PermissionBrokerStub:
     def add_session_allowlist(self, sid: str, tool: str) -> None:
         pass
 
-    def is_deny_limit_exceeded(self, run_id: str, tool: str, *, deny_limit: int | None = None) -> bool:
+    def is_deny_limit_exceeded(
+        self, run_id: str, tool: str, *, deny_limit: int | None = None
+    ) -> bool:
         return False
 
     def get_deny_count(self, run_id: str, tool: str) -> int:
@@ -206,6 +239,7 @@ class PermissionBrokerStub:
 # 2. Contract: deleted symbols are gone, new architecture is in place
 # ---------------------------------------------------------------------------
 
+
 class TestContract:
     def test_detect_outside_workspace_path_is_deleted(self) -> None:
         """_detect_outside_workspace_path must not exist — it was removed in bugfix-355 M1 (Anchor F).
@@ -214,6 +248,7 @@ class TestContract:
         This test is a canary: if someone accidentally re-adds the helper, this will fail.
         """
         import agent.platform.hooks.builtins.auto_mode_gate as gate_module
+
         assert not hasattr(gate_module, "_detect_outside_workspace_path"), (
             "Anchor F: _detect_outside_workspace_path must be deleted — "
             "path routing now via tool.check_permissions"
@@ -222,6 +257,7 @@ class TestContract:
     def test_write_tools_with_path_input_is_deleted(self) -> None:
         """_WRITE_TOOLS_WITH_PATH_INPUT constant must not exist — removed with _detect_outside_workspace_path."""
         import agent.platform.hooks.builtins.auto_mode_gate as gate_module
+
         assert not hasattr(gate_module, "_WRITE_TOOLS_WITH_PATH_INPUT"), (
             "_WRITE_TOOLS_WITH_PATH_INPUT was part of the old path-detection approach and must be deleted"
         )

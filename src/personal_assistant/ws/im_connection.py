@@ -1,4 +1,5 @@
 """Gateway-side IM websocket client with reconnect/backoff and downstream dispatch."""
+
 from __future__ import annotations
 
 import asyncio
@@ -12,7 +13,10 @@ from urllib.parse import urlparse
 
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.sync_client import ConfigSyncClient
-from personal_assistant.reporter.upstream_reporter import UpstreamReporter, build_node_capabilities_payload, build_runtime_capabilities
+from personal_assistant.reporter.upstream_reporter import (
+    UpstreamReporter,
+    build_node_capabilities_payload,
+)
 
 
 @dataclass(slots=True)
@@ -21,7 +25,9 @@ class PendingFrame:
 
     message_type: str
     payload: dict[str, object]
-    ack_future: asyncio.Future[dict[str, object]] | None = field(default=None, repr=False)
+    ack_future: asyncio.Future[dict[str, object]] | None = field(
+        default=None, repr=False
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,11 +43,19 @@ class IMDispatchAck:
     @classmethod
     def from_payload(cls, payload: Mapping[str, object]) -> "IMDispatchAck":
         return cls(
-            conversation_id=_require_text(payload.get("conversation_id"), field_name="conversation_id"),
-            message_id=_require_text(payload.get("message_id"), field_name="message_id"),
-            target_kind=_require_text(payload.get("target_kind"), field_name="target_kind"),
+            conversation_id=_require_text(
+                payload.get("conversation_id"), field_name="conversation_id"
+            ),
+            message_id=_require_text(
+                payload.get("message_id"), field_name="message_id"
+            ),
+            target_kind=_require_text(
+                payload.get("target_kind"), field_name="target_kind"
+            ),
             target_id=_require_text(payload.get("target_id"), field_name="target_id"),
-            source_agent_id=_require_text(payload.get("source_agent_id"), field_name="source_agent_id"),
+            source_agent_id=_require_text(
+                payload.get("source_agent_id"), field_name="source_agent_id"
+            ),
         )
 
     def as_dict(self) -> dict[str, object]:
@@ -71,8 +85,13 @@ ConnectFn = Callable[[str, Mapping[str, str]], Awaitable[ClientWebSocket]]
 SleepFn = Callable[[float], Awaitable[None]]
 HeartbeatTrigger = Callable[[str, str], None]
 AgentConfigProvider = Callable[[str], Mapping[str, object] | None]
-AgentCreateHandler = Callable[[Mapping[str, object]], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None]
-AgentCapabilitiesProvider = Callable[[str, str], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None]
+AgentCreateHandler = Callable[
+    [Mapping[str, object]],
+    Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None,
+]
+AgentCapabilitiesProvider = Callable[
+    [str, str], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None
+]
 # feat-379-M2 R5: (agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids) → preview dict | None
 # feat-383-M1: added skill_ids parameter so kernel can resolve real skill descriptions
 PromptPreviewProvider = Callable[
@@ -250,16 +269,22 @@ class IMConnectionManager:
     async def send_json(self, message_type: str, payload: Mapping[str, object]) -> None:
         """Queue one gateway -> IM protocol frame and flush it when the socket is available."""
 
-        self._pending_frames.append(PendingFrame(message_type=message_type, payload=dict(payload)))
+        self._pending_frames.append(
+            PendingFrame(message_type=message_type, payload=dict(payload))
+        )
         await self._flush_pending_frames()
 
-    async def send_json_await_ack(self, message_type: str, payload: Mapping[str, object]) -> dict[str, object]:
+    async def send_json_await_ack(
+        self, message_type: str, payload: Mapping[str, object]
+    ) -> dict[str, object]:
         """Queue one frame and wait until the matching ack payload arrives."""
 
         loop = asyncio.get_running_loop()
         ack_future: asyncio.Future[dict[str, object]] = loop.create_future()
         self._pending_frames.append(
-            PendingFrame(message_type=message_type, payload=dict(payload), ack_future=ack_future)
+            PendingFrame(
+                message_type=message_type, payload=dict(payload), ack_future=ack_future
+            )
         )
         await self._flush_pending_frames()
         return await ack_future
@@ -283,7 +308,9 @@ class IMConnectionManager:
                 if self._stop_requested:
                     break
                 await self._sleep(self._reconnect_delay)
-                self._reconnect_delay = min(self._reconnect_delay * 2, self._config.reconnect_max_seconds)
+                self._reconnect_delay = min(
+                    self._reconnect_delay * 2, self._config.reconnect_max_seconds
+                )
 
     async def _listen_once(self) -> None:
         websocket = self._require_websocket()
@@ -335,13 +362,17 @@ class IMConnectionManager:
             agent_payload = _require_mapping(body.get("agent"), field_name="agent")
             created_payload = None
             if self._agent_create_handler is not None:
-                created_payload = await _maybe_await(self._agent_create_handler(agent_payload))
+                created_payload = await _maybe_await(
+                    self._agent_create_handler(agent_payload)
+                )
             await self.send_json(
                 "agent.created",
                 {
                     "request_id": request_id,
                     "node_id": self._reporter.node_id,
-                    "agent": dict(created_payload) if isinstance(created_payload, Mapping) else {},
+                    "agent": dict(created_payload)
+                    if isinstance(created_payload, Mapping)
+                    else {},
                 },
             )
             return
@@ -362,10 +393,14 @@ class IMConnectionManager:
         if message_type == "agent.capabilities.resolve":
             request_id = _require_text(body.get("request_id"), field_name="request_id")
             agent_id = _require_text(body.get("agent_id"), field_name="agent_id")
-            workspace_root = _require_text(body.get("workspace_root"), field_name="workspace_root")
+            workspace_root = _require_text(
+                body.get("workspace_root"), field_name="workspace_root"
+            )
             capability_payload = None
             if self._agent_capabilities_provider is not None:
-                capability_payload = await _maybe_await(self._agent_capabilities_provider(agent_id, workspace_root))
+                capability_payload = await _maybe_await(
+                    self._agent_capabilities_provider(agent_id, workspace_root)
+                )
             await self.send_json(
                 "agent.capabilities",
                 {
@@ -373,7 +408,9 @@ class IMConnectionManager:
                     "node_id": self._reporter.node_id,
                     "agent_id": agent_id,
                     "workspace_root": workspace_root,
-                    "capabilities": dict(capability_payload) if isinstance(capability_payload, Mapping) else {},
+                    "capabilities": dict(capability_payload)
+                    if isinstance(capability_payload, Mapping)
+                    else {},
                 },
             )
             return
@@ -382,22 +419,42 @@ class IMConnectionManager:
             # Gateway calls agent HTTP /v1/prompt-preview and returns the result.
             request_id = _require_text(body.get("request_id"), field_name="request_id")
             agent_id = _require_text(body.get("agent_id"), field_name="agent_id")
-            workspace_root = _require_text(body.get("workspace_root"), field_name="workspace_root")
+            workspace_root = _require_text(
+                body.get("workspace_root"), field_name="workspace_root"
+            )
             features = body.get("features") or {}
             if not isinstance(features, dict):
                 features = {}
             custom_prompt_raw = body.get("custom_prompt")
-            custom_prompt = custom_prompt_raw if isinstance(custom_prompt_raw, str) else None
+            custom_prompt = (
+                custom_prompt_raw if isinstance(custom_prompt_raw, str) else None
+            )
             tool_ids_raw = body.get("tool_ids") or []
-            tool_ids = [t for t in tool_ids_raw if isinstance(t, str)] if isinstance(tool_ids_raw, list) else []
+            tool_ids = (
+                [t for t in tool_ids_raw if isinstance(t, str)]
+                if isinstance(tool_ids_raw, list)
+                else []
+            )
             skill_ids_raw = body.get("skill_ids") or []
-            skill_ids = [s for s in skill_ids_raw if isinstance(s, str)] if isinstance(skill_ids_raw, list) else []
+            skill_ids = (
+                [s for s in skill_ids_raw if isinstance(s, str)]
+                if isinstance(skill_ids_raw, list)
+                else []
+            )
             scenario_raw = body.get("scenario")
             scenario = scenario_raw if isinstance(scenario_raw, str) else "direct"
             preview_result: dict[str, object] = {}
             if self._prompt_preview_provider is not None:
                 result = await _maybe_await(
-                    self._prompt_preview_provider(agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids)
+                    self._prompt_preview_provider(
+                        agent_id,
+                        workspace_root,
+                        features,
+                        custom_prompt,
+                        tool_ids,
+                        scenario,
+                        skill_ids,
+                    )
                 )
                 if isinstance(result, Mapping):
                     preview_result = dict(result)
@@ -416,22 +473,44 @@ class IMConnectionManager:
             request_id = _require_text(body.get("request_id"), field_name="request_id")
             # workspace_root may be empty string when agent_id_hint was absent in the IM request.
             node_workspace_root_raw = body.get("workspace_root")
-            node_workspace_root = node_workspace_root_raw if isinstance(node_workspace_root_raw, str) else ""
+            node_workspace_root = (
+                node_workspace_root_raw
+                if isinstance(node_workspace_root_raw, str)
+                else ""
+            )
             features = body.get("features") or {}
             if not isinstance(features, dict):
                 features = {}
             custom_prompt_raw = body.get("custom_prompt")
-            custom_prompt = custom_prompt_raw if isinstance(custom_prompt_raw, str) else None
+            custom_prompt = (
+                custom_prompt_raw if isinstance(custom_prompt_raw, str) else None
+            )
             tool_ids_raw = body.get("tool_ids") or []
-            tool_ids = [t for t in tool_ids_raw if isinstance(t, str)] if isinstance(tool_ids_raw, list) else []
+            tool_ids = (
+                [t for t in tool_ids_raw if isinstance(t, str)]
+                if isinstance(tool_ids_raw, list)
+                else []
+            )
             skill_ids_raw = body.get("skill_ids") or []
-            skill_ids = [s for s in skill_ids_raw if isinstance(s, str)] if isinstance(skill_ids_raw, list) else []
+            skill_ids = (
+                [s for s in skill_ids_raw if isinstance(s, str)]
+                if isinstance(skill_ids_raw, list)
+                else []
+            )
             scenario_raw = body.get("scenario")
             scenario = scenario_raw if isinstance(scenario_raw, str) else "direct"
             node_preview_result: dict[str, object] = {}
             if self._prompt_preview_provider is not None:
                 result = await _maybe_await(
-                    self._prompt_preview_provider("", node_workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids)
+                    self._prompt_preview_provider(
+                        "",
+                        node_workspace_root,
+                        features,
+                        custom_prompt,
+                        tool_ids,
+                        scenario,
+                        skill_ids,
+                    )
                 )
                 if isinstance(result, Mapping):
                     node_preview_result = dict(result)
@@ -449,7 +528,10 @@ class IMConnectionManager:
             # Other kinds (turn_start, message_delta, …) are PA→IM only and would be
             # unexpected inbound; they are safely ignored.
             kind = body.get("kind")
-            if kind == "permission_response" and self._permission_response_handler is not None:
+            if (
+                kind == "permission_response"
+                and self._permission_response_handler is not None
+            ):
                 self._permission_response_handler(body)
             return
         if message_type == "error":
@@ -461,7 +543,14 @@ class IMConnectionManager:
             # delivered. The upstream frame that triggered the error was already sent; nothing to ack.
             error_code = body.get("code")
             error_message = body.get("message")
-            self._events.append({"event": "error_ack", "type": "error", "code": error_code, "message": error_message})
+            self._events.append(
+                {
+                    "event": "error_ack",
+                    "type": "error",
+                    "code": error_code,
+                    "message": error_message,
+                }
+            )
             return
         raise ValueError(f"unsupported downstream message type: {message_type}")
 
@@ -471,7 +560,9 @@ class IMConnectionManager:
                 return
             pending_frame = self._pending_frames[0]
             try:
-                await self._send_frame(pending_frame.message_type, pending_frame.payload)
+                await self._send_frame(
+                    pending_frame.message_type, pending_frame.payload
+                )
             except Exception as exc:  # noqa: BLE001
                 await self._disconnect_current_websocket(exc)
                 if raise_on_disconnect:
@@ -479,9 +570,13 @@ class IMConnectionManager:
                 return
             self._awaiting_ack_type = pending_frame.message_type
 
-    async def _send_frame(self, message_type: str, payload: Mapping[str, object]) -> None:
+    async def _send_frame(
+        self, message_type: str, payload: Mapping[str, object]
+    ) -> None:
         websocket = self._require_websocket()
-        frame = json.dumps({"type": message_type, "payload": dict(payload)}, ensure_ascii=False)
+        frame = json.dumps(
+            {"type": message_type, "payload": dict(payload)}, ensure_ascii=False
+        )
         await websocket.send(frame)
         self._events.append({"event": "sent", "type": message_type})
 
@@ -518,7 +613,9 @@ class IMConnectionManager:
         existing = self._heartbeat_task
         if existing is not None and not existing.done():
             return
-        self._heartbeat_task = asyncio.create_task(self._heartbeat_loop(interval), name="personal-assistant-im-heartbeat")
+        self._heartbeat_task = asyncio.create_task(
+            self._heartbeat_loop(interval), name="personal-assistant-im-heartbeat"
+        )
 
     def _stop_heartbeat_loop(self) -> None:
         task = self._heartbeat_task
@@ -533,7 +630,9 @@ class IMConnectionManager:
                 if not self._connected or self._stop_requested:
                     break
                 try:
-                    await self._send_frame("node.heartbeat", self._reporter.send_heartbeat(status="online"))
+                    await self._send_frame(
+                        "node.heartbeat", self._reporter.send_heartbeat(status="online")
+                    )
                 except Exception as exc:  # noqa: BLE001
                     await self._disconnect_current_websocket(exc)
                     return
@@ -547,8 +646,14 @@ class IMConnectionManager:
         self._websocket = None
         self._awaiting_ack_type = None
         self._stop_heartbeat_loop()
-        if pending_frame is not None and pending_frame.ack_future is not None and not pending_frame.ack_future.done():
-            pending_frame.ack_future.set_exception(RuntimeError("IM websocket disconnected before ack"))
+        if (
+            pending_frame is not None
+            and pending_frame.ack_future is not None
+            and not pending_frame.ack_future.done()
+        ):
+            pending_frame.ack_future.set_exception(
+                RuntimeError("IM websocket disconnected before ack")
+            )
         if had_connection:
             event: dict[str, object] = {"event": "disconnected"}
             if exc is not None:
@@ -562,7 +667,9 @@ class IMConnectionManager:
         return websocket
 
 
-async def _maybe_await(value: Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None) -> Mapping[str, object] | None:
+async def _maybe_await(
+    value: Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None,
+) -> Mapping[str, object] | None:
     if asyncio.iscoroutine(value) or isinstance(value, Awaitable):
         return await value
     return value

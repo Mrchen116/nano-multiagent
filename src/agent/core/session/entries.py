@@ -19,7 +19,6 @@ class SessionEntryKind(StrEnum):
     RUN_STATUS = "session.run.status"
 
 
-
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 

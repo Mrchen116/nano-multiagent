@@ -9,8 +9,8 @@ def test_create_session_generates_prefixed_id() -> None:
 
     session = service.create_session(workspace_root=Path.cwd())
 
-    assert session.session_id.startswith('sess_')
-    assert session.status == 'active'
+    assert session.session_id.startswith("sess_")
+    assert session.status == "active"
 
 
 # ---------------------------------------------------------------------------
@@ -23,7 +23,9 @@ def _service_with_default(tmp_path: Path, default_metadata: dict) -> SessionServ
     return SessionService(store=store, default_session_metadata=default_metadata)
 
 
-def test_create_session_inherits_default_metadata_when_caller_passes_none(tmp_path: Path) -> None:
+def test_create_session_inherits_default_metadata_when_caller_passes_none(
+    tmp_path: Path,
+) -> None:
     """No caller-supplied metadata → session.metadata equals the bootstrap default.
 
     Regression for feat-349 M6: bootstrap_product wrote `default_session_metadata`
@@ -42,7 +44,9 @@ def test_create_session_inherits_default_metadata_when_caller_passes_none(tmp_pa
     }
 
 
-def test_create_session_caller_metadata_overrides_default_top_level_key(tmp_path: Path) -> None:
+def test_create_session_caller_metadata_overrides_default_top_level_key(
+    tmp_path: Path,
+) -> None:
     """Caller-supplied keys win; unspecified keys keep the bootstrap default."""
     default = {
         "self_evolution": {"enabled": True, "skill_nudge_interval": 3},
@@ -63,7 +67,9 @@ def test_create_session_caller_metadata_overrides_default_top_level_key(tmp_path
     }
 
 
-def test_create_session_no_default_no_caller_metadata_yields_no_self_evolution(tmp_path: Path) -> None:
+def test_create_session_no_default_no_caller_metadata_yields_no_self_evolution(
+    tmp_path: Path,
+) -> None:
     """Without a default and without caller metadata, no self_evolution key leaks in."""
     service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / ".nano"))
 

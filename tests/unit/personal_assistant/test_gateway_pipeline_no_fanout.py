@@ -46,19 +46,38 @@ class _FakeKernelClient:
         self._session_count += 1
         sid = f"sess-{self._session_count}"
         self.create_session_calls.append(
-            {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
+            {
+                "workspace_root": workspace_root,
+                "product_id": product_id,
+                "title": title,
+                "metadata": metadata,
+            }
         )
         return {"session_id": sid}
 
     def submit_message(self, *, session_id, texts, image_urls=None, **_kwargs):
         self._run_count += 1
         run_id = f"run-{self._run_count}"
-        self.send_calls.append({"session_id": session_id, "texts": texts, "run_id": run_id})
-        return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
+        self.send_calls.append(
+            {"session_id": session_id, "texts": texts, "run_id": run_id}
+        )
+        return {
+            "run_id": run_id,
+            "anchor_sequence": 1,
+            "injected": False,
+            "status": "queued",
+        }
 
-    async def stream_session(self, *, session_id, last_event_id=None, workspace_root=None, **_kwargs):
+    async def stream_session(
+        self, *, session_id, last_event_id=None, workspace_root=None, **_kwargs
+    ):
         run_id = self.send_calls[-1]["run_id"] if self.send_calls else "run-1"
-        yield {"event": "run_status", "run_id": run_id, "status": "completed", "output_text": "ok"}
+        yield {
+            "event": "run_status",
+            "run_id": run_id,
+            "status": "completed",
+            "output_text": "ok",
+        }
 
     def get_run(self, *, run_id):
         return {"status": "completed", "output_text": "ok"}
@@ -107,7 +126,9 @@ def test_no_mention_message_buffers_only_for_current_agent(tmp_path: Path) -> No
     not to agent-b's buffer key.
     """
     agents = _two_agents(tmp_path)
-    pipeline, store, kernel = _build_pipeline(tmp_path, agents=agents, default_agent_id="agent-a")
+    pipeline, store, kernel = _build_pipeline(
+        tmp_path, agents=agents, default_agent_id="agent-a"
+    )
 
     plain = InboundMessage(
         channel_name="web_relay",
@@ -131,18 +152,26 @@ def test_no_mention_message_buffers_only_for_current_agent(tmp_path: Path) -> No
     drained_b = store.drain(buf_key_b)
 
     # drain returns (sender, text) tuples since M246
-    assert any(text == "hello everyone" for _, text in drained_a), f"agent-a buffer missing message: {drained_a}"
-    assert drained_b == [], f"agent-b buffer must not be populated by agent-a's relay, got: {drained_b}"
+    assert any(text == "hello everyone" for _, text in drained_a), (
+        f"agent-a buffer missing message: {drained_a}"
+    )
+    assert drained_b == [], (
+        f"agent-b buffer must not be populated by agent-a's relay, got: {drained_b}"
+    )
 
 
-def test_mention_message_does_not_broadcast_to_non_target_agent_buffer(tmp_path: Path) -> None:
+def test_mention_message_does_not_broadcast_to_non_target_agent_buffer(
+    tmp_path: Path,
+) -> None:
     """群聊 @agent-b 消息时，agent-a 的 relay 只缓冲到自己的 buffer，不写入 agent-b 的 buffer。
 
     The @agent-b mention relay targets agent-b (should_process=True).
     After fan-out removal, the pipeline must NOT append to agent-a's buffer key.
     """
     agents = _two_agents(tmp_path)
-    pipeline, store, kernel = _build_pipeline(tmp_path, agents=agents, default_agent_id="agent-a")
+    pipeline, store, kernel = _build_pipeline(
+        tmp_path, agents=agents, default_agent_id="agent-a"
+    )
 
     mention_b = InboundMessage(
         channel_name="web_relay",
@@ -161,7 +190,9 @@ def test_mention_message_does_not_broadcast_to_non_target_agent_buffer(tmp_path:
     buf_key_a = pipeline._group_buf_key_for_agent(mention_b, "agent-a")
     # After fan-out removal: agent-a's buffer must NOT contain the @agent-b message
     drained_a = store.drain(buf_key_a)
-    assert drained_a == [], f"agent-a buffer must not receive @agent-b relay's message, got: {drained_a}"
+    assert drained_a == [], (
+        f"agent-a buffer must not receive @agent-b relay's message, got: {drained_a}"
+    )
 
 
 def test_peer_agent_reply_relay_buffers_when_self_not_mentioned(tmp_path: Path) -> None:
@@ -174,7 +205,9 @@ def test_peer_agent_reply_relay_buffers_when_self_not_mentioned(tmp_path: Path) 
     into group_context_store without allocating a run.
     """
     agents = _two_agents(tmp_path)
-    pipeline, store, kernel = _build_pipeline(tmp_path, agents=agents, default_agent_id="agent-a")
+    pipeline, store, kernel = _build_pipeline(
+        tmp_path, agents=agents, default_agent_id="agent-a"
+    )
 
     peer_reply_for_a = InboundMessage(
         channel_name="web_relay",
@@ -202,7 +235,16 @@ def test_peer_agent_reply_relay_buffers_when_self_not_mentioned(tmp_path: Path) 
     assert mention_result is not None
     assert mention_result.agent_id == "agent-a"
     # Since M246: each group message is prefixed with [sender_id] before being sent to the kernel.
-    assert kernel.send_calls == [{"session_id": "sess-1", "texts": ["[agent-b-user] here is the answer", "[user-1] @agent-a continue"], "run_id": "run-1"}]
+    assert kernel.send_calls == [
+        {
+            "session_id": "sess-1",
+            "texts": [
+                "[agent-b-user] here is the answer",
+                "[user-1] @agent-a continue",
+            ],
+            "run_id": "run-1",
+        }
+    ]
 
     buf_key_a = pipeline._group_buf_key_for_agent(peer_reply_for_a, "agent-a")
     assert store.drain(buf_key_a) == []
@@ -215,7 +257,9 @@ def test_own_agent_buffer_drain_still_works(tmp_path: Path) -> None:
     agent-b must still drain its own buffer before processing the mention.
     """
     agents = _two_agents(tmp_path)
-    pipeline, store, kernel = _build_pipeline(tmp_path, agents=agents, default_agent_id="agent-b")
+    pipeline, store, kernel = _build_pipeline(
+        tmp_path, agents=agents, default_agent_id="agent-b"
+    )
 
     # Step 1: plain message relay for agent-b → should_process=False, buffers for agent-b
     plain = InboundMessage(
@@ -247,7 +291,10 @@ def test_own_agent_buffer_drain_still_works(tmp_path: Path) -> None:
     # agent-b must have sent both the plain message and the mention as texts.
     # Since M246: each group message is prefixed with [sender_id] by the gateway layer.
     assert len(kernel.send_calls) == 1
-    assert kernel.send_calls[0]["texts"] == ["[user-1] hello everyone", "[user-1] @agent-b what time is it?"]
+    assert kernel.send_calls[0]["texts"] == [
+        "[user-1] hello everyone",
+        "[user-1] @agent-b what time is it?",
+    ]
 
 
 def test_non_mentioned_group_relay_buffers_for_its_target_agent(tmp_path: Path) -> None:
@@ -260,7 +307,9 @@ def test_non_mentioned_group_relay_buffers_for_its_target_agent(tmp_path: Path) 
     - on a later @agent-a turn, agent-a should drain that buffered @agent-b message as prior context
     """
     agents = _two_agents(tmp_path)
-    pipeline, store, kernel = _build_pipeline(tmp_path, agents=agents, default_agent_id="agent-a")
+    pipeline, store, kernel = _build_pipeline(
+        tmp_path, agents=agents, default_agent_id="agent-a"
+    )
 
     relay_for_a = InboundMessage(
         channel_name="web_relay",
@@ -302,7 +351,10 @@ def test_non_mentioned_group_relay_buffers_for_its_target_agent(tmp_path: Path) 
     # Since M246: each group message is prefixed with [sender_id] by the gateway layer.
     assert len(kernel.send_calls) == 2
     assert kernel.send_calls[0]["texts"] == ["[user-1] @agent-b first turn"]
-    assert kernel.send_calls[1]["texts"] == ["[user-1] @agent-b first turn", "[user-1] @agent-a second turn"]
+    assert kernel.send_calls[1]["texts"] == [
+        "[user-1] @agent-b first turn",
+        "[user-1] @agent-a second turn",
+    ]
 
     buf_key_a = pipeline._group_buf_key_for_agent(relay_for_a, "agent-a")
     assert store.drain(buf_key_a) == []

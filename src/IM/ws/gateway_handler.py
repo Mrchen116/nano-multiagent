@@ -24,8 +24,23 @@ from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayService
 from collections.abc import Callable
 
-from IM.domain.models import Actor, ConversationEvent, Message, NodeStatus, TokenUsage, ToolCall, managed_workspace_root
-from IM.infra.repositories import AgentProfileRepository, ConversationRepository, EventRepository, MessageRepository, NodeRepository, UserRepository
+from IM.domain.models import (
+    Actor,
+    ConversationEvent,
+    Message,
+    NodeStatus,
+    TokenUsage,
+    ToolCall,
+    managed_workspace_root,
+)
+from IM.infra.repositories import (
+    AgentProfileRepository,
+    ConversationRepository,
+    EventRepository,
+    MessageRepository,
+    NodeRepository,
+    UserRepository,
+)
 from IM.ws.user_stream import UserStreamRegistry
 
 
@@ -78,9 +93,15 @@ class GatewayHandler:
         self._event_repository = event_repository
         self._metrics_service = metrics_service
         self._conversation_repository = conversation_repository
-        self._user_repository = UserRepository(conversation_repository._connection) if conversation_repository is not None else None
+        self._user_repository = (
+            UserRepository(conversation_repository._connection)
+            if conversation_repository is not None
+            else None
+        )
         self._message_repository = (
-            MessageRepository(conversation_repository._connection, notify=user_event_notify)
+            MessageRepository(
+                conversation_repository._connection, notify=user_event_notify
+            )
             if conversation_repository is not None
             else None
         )
@@ -89,7 +110,9 @@ class GatewayHandler:
         # External injection takes priority (tests / explicit wiring); auto-build from repos as fallback.
         if event_bridge is not None:
             self._event_bridge: EventBridge | None = event_bridge
-        elif self._message_repository is not None and self._event_repository is not None:
+        elif (
+            self._message_repository is not None and self._event_repository is not None
+        ):
             self._event_bridge = EventBridge(
                 message_repository=self._message_repository,
                 event_repository=self._event_repository,
@@ -102,14 +125,26 @@ class GatewayHandler:
         self._agent_message_lock = asyncio.Lock()
         self._connections: dict[str, GatewayConnection] = {}
         self._reports: list[dict[str, object]] = []
-        self._agent_config_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
-        self._agent_create_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
-        self._agent_capabilities_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
-        self._node_capabilities_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
+        self._agent_config_waiters: dict[
+            str, asyncio.Future[dict[str, object] | None]
+        ] = {}
+        self._agent_create_waiters: dict[
+            str, asyncio.Future[dict[str, object] | None]
+        ] = {}
+        self._agent_capabilities_waiters: dict[
+            str, asyncio.Future[dict[str, object] | None]
+        ] = {}
+        self._node_capabilities_waiters: dict[
+            str, asyncio.Future[dict[str, object] | None]
+        ] = {}
         # feat-379-M2 R5: prompt-preview request→response futures
-        self._prompt_preview_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
+        self._prompt_preview_waiters: dict[
+            str, asyncio.Future[dict[str, object] | None]
+        ] = {}
         # feat-379-M9 (決策 11): node-level prompt-preview — no per-agent workspace needed
-        self._node_prompt_preview_waiters: dict[str, asyncio.Future[dict[str, object] | None]] = {}
+        self._node_prompt_preview_waiters: dict[
+            str, asyncio.Future[dict[str, object] | None]
+        ] = {}
         self._ensure_agent_message_dispatch_table()
 
     async def serve(self, websocket: WebSocket) -> None:
@@ -176,7 +211,9 @@ class GatewayHandler:
             "payload": {"code": "unsupported_message_type", "message": message_type},
         }
 
-    async def push_relay_message(self, *, relay_task_id: str, target_node_id: str, payload: dict[str, object]) -> bool:
+    async def push_relay_message(
+        self, *, relay_task_id: str, target_node_id: str, payload: dict[str, object]
+    ) -> bool:
         """Push one relay.message frame to a connected gateway node.
 
         Returns:
@@ -199,7 +236,9 @@ class GatewayHandler:
         self._relay_service.mark_dispatched(relay_task_id=relay_task_id)
         return True
 
-    async def push_config_sync(self, *, target_node_id: str, agent_id: str, profile_version: int) -> bool:
+    async def push_config_sync(
+        self, *, target_node_id: str, agent_id: str, profile_version: int
+    ) -> bool:
         """Push one config.sync notification to a connected gateway node."""
         return await self._push_downstream(
             target_node_id=target_node_id,
@@ -207,7 +246,9 @@ class GatewayHandler:
             payload={"agent_id": agent_id, "profile_version": profile_version},
         )
 
-    async def push_heartbeat_trigger(self, *, target_node_id: str, agent_id: str, reason: str) -> bool:
+    async def push_heartbeat_trigger(
+        self, *, target_node_id: str, agent_id: str, reason: str
+    ) -> bool:
         """Push one heartbeat.trigger notification to a connected gateway node."""
         return await self._push_downstream(
             target_node_id=target_node_id,
@@ -475,7 +516,11 @@ class GatewayHandler:
         agent_ids = self._list_node_agent_ids(node_id=node_id)
         self._node_repository.mark_disconnected(node_id=node_id)
         next_node = self._node_repository.get_node(node_id=node_id)
-        if prior is not None and next_node is not None and prior.status != next_node.status:
+        if (
+            prior is not None
+            and next_node is not None
+            and prior.status != next_node.status
+        ):
             await self._broadcast_status_change(
                 owner_id=next_node.owner_id,
                 node=next_node,
@@ -557,7 +602,9 @@ class GatewayHandler:
         )
         await self._user_stream_registry.broadcast_to_user(
             owner_id,
-            _encode_status_frame(event_type=EVENT_NODE_STATUS_CHANGED, payload=node_payload),
+            _encode_status_frame(
+                event_type=EVENT_NODE_STATUS_CHANGED, payload=node_payload
+            ),
         )
         for agent_id in agent_ids:
             agent_seq = await self._next_status_seq(owner_id=owner_id)
@@ -568,7 +615,9 @@ class GatewayHandler:
             )
             await self._user_stream_registry.broadcast_to_user(
                 owner_id,
-                _encode_status_frame(event_type=EVENT_AGENT_STATUS_CHANGED, payload=agent_payload),
+                _encode_status_frame(
+                    event_type=EVENT_AGENT_STATUS_CHANGED, payload=agent_payload
+                ),
             )
 
     async def is_connected(self, *, node_id: str) -> bool:
@@ -586,7 +635,9 @@ class GatewayHandler:
         async with self._lock:
             return set(self._connections.keys())
 
-    async def _handle_register(self, *, websocket: WebSocket, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_register(
+        self, *, websocket: WebSocket, payload: dict[str, object]
+    ) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
         agents = _require_string_list(payload.get("agents", []), field_name="agents")
         cap_raw = payload.get("capabilities")
@@ -615,10 +666,16 @@ class GatewayHandler:
                 version=version,
                 agent_count=len(agents),
             )
-            profile_repository = AgentProfileRepository(self._node_repository._connection)
+            profile_repository = AgentProfileRepository(
+                self._node_repository._connection
+            )
             for agent_id in agents:
                 existing = profile_repository.get_profile(agent_id=agent_id)
-                owner_id = existing.owner_id if existing is not None and existing.owner_id.strip() else (node.owner_id or "")
+                owner_id = (
+                    existing.owner_id
+                    if existing is not None and existing.owner_id.strip()
+                    else (node.owner_id or "")
+                )
                 if existing is None:
                     runtime_display_name = agent_id
                     runtime_description = f"Runtime agent advertised by {node_name}."
@@ -636,14 +693,20 @@ class GatewayHandler:
                     runtime_tool_allowlist = existing.tool_allowlist
                     runtime_group_reply_policy = existing.group_reply_policy
                     runtime_default_model = existing.default_model
-                    runtime_workspace_root = existing.workspace_root or managed_workspace_root(agent_id)
+                    runtime_workspace_root = (
+                        existing.workspace_root or managed_workspace_root(agent_id)
+                    )
                 if runtime_display_name == agent_id and agent_id.startswith("agent-"):
-                    runtime_display_name = agent_id.replace("agent-", "", 1).replace("-", " ").title()
+                    runtime_display_name = (
+                        agent_id.replace("agent-", "", 1).replace("-", " ").title()
+                    )
                 # feat-379-M6 (ISSUE-2): preserve features/custom_prompt from the existing
                 # DB row when re-registering. node.register only carries agent_ids, not
                 # per-agent config, so passing None would overwrite user edits with defaults.
                 runtime_features = existing.features if existing is not None else None
-                runtime_custom_prompt = existing.custom_prompt if existing is not None else None
+                runtime_custom_prompt = (
+                    existing.custom_prompt if existing is not None else None
+                )
                 profile_repository.upsert_profile(
                     agent_id=agent_id,
                     owner_id=owner_id,
@@ -674,9 +737,14 @@ class GatewayHandler:
                     node=node,
                     agent_ids=list(agents),
                 )
-        return {"type": "ack", "payload": {"message_type": "node.register", "node_id": node_id}}
+        return {
+            "type": "ack",
+            "payload": {"message_type": "node.register", "node_id": node_id},
+        }
 
-    async def _handle_heartbeat(self, *, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_heartbeat(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
         async with self._lock:
             connection = self._connections.get(node_id)
@@ -699,7 +767,10 @@ class GatewayHandler:
                     node=next_node,
                     agent_ids=self._list_node_agent_ids(node_id=node_id),
                 )
-        return {"type": "ack", "payload": {"message_type": "node.heartbeat", "node_id": node_id}}
+        return {
+            "type": "ack",
+            "payload": {"message_type": "node.heartbeat", "node_id": node_id},
+        }
 
     async def _handle_report(self, *, payload: dict[str, object]) -> dict[str, object]:
         # Validate node_id first; a missing or empty node_id means the payload is structurally
@@ -708,7 +779,10 @@ class GatewayHandler:
         try:
             node_id = _require_text(payload.get("node_id"), field_name="node_id")
         except (RuntimeError, ValueError) as exc:
-            return {"type": "error", "payload": {"code": "bad_payload", "message": str(exc)}}
+            return {
+                "type": "error",
+                "payload": {"code": "bad_payload", "message": str(exc)},
+            }
         async with self._lock:
             connection = self._connections.get(node_id)
             if connection is None:
@@ -726,10 +800,17 @@ class GatewayHandler:
         except Exception as exc:  # noqa: BLE001
             # Non-fatal: persistence failed (likely FK violation from synthetic IDs).
             # Log via events so the failure is visible without severing the connection.
-            _logger.warning("node.report persist failed for node_id=%s: %s", node_id, exc)
-        return {"type": "ack", "payload": {"message_type": "node.report", "node_id": node_id}}
+            _logger.warning(
+                "node.report persist failed for node_id=%s: %s", node_id, exc
+            )
+        return {
+            "type": "ack",
+            "payload": {"message_type": "node.report", "node_id": node_id},
+        }
 
-    async def _handle_streaming_delta(self, *, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_streaming_delta(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
         """Translate gateway streaming events into IM WS fan-out via EventBridge.
 
         The gateway (personal_assistant) calls this with sub-types keyed by ``kind``:
@@ -749,7 +830,9 @@ class GatewayHandler:
         kind = _optional_text(payload.get("kind")) or ""
 
         if kind == "turn_start":
-            conversation_id = _require_text(payload.get("conversation_id"), field_name="conversation_id")
+            conversation_id = _require_text(
+                payload.get("conversation_id"), field_name="conversation_id"
+            )
             agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
             # Resolve IM user ID from agent_id; gateway sends agent_id (e.g. "alpha"),
             # IM stores the agent as username="agent:<agent_id>" in the users table.
@@ -762,7 +845,14 @@ class GatewayHandler:
                 if row is not None:
                     agent_user_id = str(row["id"])
             if agent_user_id is None:
-                return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "skipped": "agent_user_id_not_found"}}
+                return {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.streaming_delta",
+                        "kind": kind,
+                        "skipped": "agent_user_id_not_found",
+                    },
+                }
             created_message = self._event_bridge.on_turn_start(
                 conversation_id=conversation_id,
                 agent_user_id=agent_user_id,
@@ -770,15 +860,28 @@ class GatewayHandler:
             )
             # Return message_id in ack so PA observer can update run_context_store;
             # without this, observer keeps empty message_id and delta targets user message.
-            return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "message_id": created_message.id}}
+            return {
+                "type": "ack",
+                "payload": {
+                    "message_type": "node.streaming_delta",
+                    "kind": kind,
+                    "message_id": created_message.id,
+                },
+            }
 
         elif kind == "message_delta":
-            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            message_id = _require_text(
+                payload.get("message_id"), field_name="message_id"
+            )
             delta_text = _optional_text(payload.get("delta_text")) or ""
-            self._event_bridge.on_message_delta(message_id=message_id, delta_text=delta_text)
+            self._event_bridge.on_message_delta(
+                message_id=message_id, delta_text=delta_text
+            )
 
         elif kind == "message_completed":
-            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            message_id = _require_text(
+                payload.get("message_id"), field_name="message_id"
+            )
             final_content = _optional_text(payload.get("final_content"))
             token_usage = _parse_token_usage(payload.get("token_usage"))
             raw_ds = _optional_text(payload.get("delivery_status"))
@@ -803,19 +906,29 @@ class GatewayHandler:
             )
 
         elif kind == "tool_call_upserted":
-            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            message_id = _require_text(
+                payload.get("message_id"), field_name="message_id"
+            )
             tc = _parse_tool_call(payload.get("tool_call"))
-            self._event_bridge.on_tool_call_upserted(message_id=message_id, tool_call=tc)
+            self._event_bridge.on_tool_call_upserted(
+                message_id=message_id, tool_call=tc
+            )
 
         elif kind == "tool_call_completed":
-            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            message_id = _require_text(
+                payload.get("message_id"), field_name="message_id"
+            )
             tc = _parse_tool_call(payload.get("tool_call"))
-            self._event_bridge.on_tool_call_completed(message_id=message_id, tool_call=tc)
+            self._event_bridge.on_tool_call_completed(
+                message_id=message_id, tool_call=tc
+            )
 
         elif kind == "permission_request":
             # PA → IM: agent is awaiting a user decision; EventBridge persists the pending
             # request and fans out permission.request to connected browser clients.
-            message_id = _require_text(payload.get("message_id"), field_name="message_id")
+            message_id = _require_text(
+                payload.get("message_id"), field_name="message_id"
+            )
             permission_request = payload.get("permission_request")
             if not isinstance(permission_request, dict):
                 raise ValueError("permission_request must be a dict")
@@ -827,8 +940,12 @@ class GatewayHandler:
         elif kind == "permission_resolved":
             # PA → IM: user's decision has been forwarded to the agent; update persisted
             # status and notify browser clients so the card can settle.
-            message_id = _require_text(payload.get("message_id"), field_name="message_id")
-            request_id = _require_text(payload.get("request_id"), field_name="request_id")
+            message_id = _require_text(
+                payload.get("message_id"), field_name="message_id"
+            )
+            request_id = _require_text(
+                payload.get("request_id"), field_name="request_id"
+            )
             decision = _require_text(payload.get("decision"), field_name="decision")
             self._event_bridge.on_permission_resolved(
                 message_id=message_id,
@@ -842,12 +959,21 @@ class GatewayHandler:
             # + GatewayHandler.send_to_node); streaming_delta is only PA→IM.
             pass
 
-        return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind}}
+        return {
+            "type": "ack",
+            "payload": {"message_type": "node.streaming_delta", "kind": kind},
+        }
 
-    async def _handle_delivery_receipt(self, *, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_delivery_receipt(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
-        relay_task_id = _require_text(payload.get("relay_task_id"), field_name="relay_task_id")
-        delivery_status = _require_text(payload.get("delivery_status"), field_name="delivery_status")
+        relay_task_id = _require_text(
+            payload.get("relay_task_id"), field_name="relay_task_id"
+        )
+        delivery_status = _require_text(
+            payload.get("delivery_status"), field_name="delivery_status"
+        )
         detail = payload.get("detail")
         if detail is not None and not isinstance(detail, str):
             raise ValueError("detail must be a string when provided")
@@ -861,7 +987,9 @@ class GatewayHandler:
         )
         self._persist_receipt_events(task=task, node_id=node_id, detail=detail)
         if delivery_status == "completed":
-            await self._broadcast_group_reply_context(task=task, node_id=node_id, detail=detail)
+            await self._broadcast_group_reply_context(
+                task=task, node_id=node_id, detail=detail
+            )
         return {
             "type": "ack",
             "payload": {
@@ -872,18 +1000,30 @@ class GatewayHandler:
             },
         }
 
-    async def _broadcast_group_reply_context(self, *, task, node_id: str, detail: str | None) -> None:  # noqa: ANN001
+    async def _broadcast_group_reply_context(
+        self, *, task, node_id: str, detail: str | None
+    ) -> None:  # noqa: ANN001
         if self._conversation_repository is None or self._user_repository is None:
             return
-        if detail is None or not detail.strip() or detail.strip() == "NO_REPLY" or "suppressed_by=no_reply_token" in detail:
+        if (
+            detail is None
+            or not detail.strip()
+            or detail.strip() == "NO_REPLY"
+            or "suppressed_by=no_reply_token" in detail
+        ):
             return
         relay_metadata = task.payload.get("metadata", {})
-        if not isinstance(relay_metadata, dict) or relay_metadata.get("conversation_type") != "group":
+        if (
+            not isinstance(relay_metadata, dict)
+            or relay_metadata.get("conversation_type") != "group"
+        ):
             return
         source_agent_id = task.payload.get("agent_id")
         if not isinstance(source_agent_id, str) or not source_agent_id.strip():
             return
-        conversation = self._conversation_repository.get_conversation(conversation_id=task.conversation_id)
+        conversation = self._conversation_repository.get_conversation(
+            conversation_id=task.conversation_id
+        )
         if conversation is None:
             return
         participant_ids = [
@@ -967,19 +1107,25 @@ class GatewayHandler:
                     payload=result.relay_task.payload,
                 )
 
-    async def _push_downstream(self, *, target_node_id: str, message_type: str, payload: dict[str, object]) -> bool:
+    async def _push_downstream(
+        self, *, target_node_id: str, message_type: str, payload: dict[str, object]
+    ) -> bool:
         async with self._lock:
             connection = self._connections.get(target_node_id)
         if connection is None:
             return False
         try:
-            await connection.websocket.send_json({"type": message_type, "payload": payload})
+            await connection.websocket.send_json(
+                {"type": message_type, "payload": payload}
+            )
         except (RuntimeError, WebSocketDisconnect):
             await self.disconnect(node_id=target_node_id)
             return False
         return True
 
-    async def _handle_agent_config(self, *, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_agent_config(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
         request_id = _require_text(payload.get("request_id"), field_name="request_id")
         agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
         agent_payload = payload.get("agent")
@@ -988,7 +1134,9 @@ class GatewayHandler:
         async with self._lock:
             waiter = self._agent_config_waiters.get(request_id)
         if waiter is not None and not waiter.done():
-            waiter.set_result(dict(agent_payload) if isinstance(agent_payload, dict) else None)
+            waiter.set_result(
+                dict(agent_payload) if isinstance(agent_payload, dict) else None
+            )
         return {
             "type": "ack",
             "payload": {
@@ -998,7 +1146,9 @@ class GatewayHandler:
             },
         }
 
-    async def _handle_agent_created(self, *, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_agent_created(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
         request_id = _require_text(payload.get("request_id"), field_name="request_id")
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
         agent_payload = _require_dict(payload.get("agent"), field_name="agent")
@@ -1015,12 +1165,17 @@ class GatewayHandler:
             },
         }
 
-    async def _handle_agent_capabilities(self, *, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_agent_capabilities(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
         request_id = _require_text(payload.get("request_id"), field_name="request_id")
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
         agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
-        workspace_root = _require_text(payload.get("workspace_root"), field_name="workspace_root")
-        capabilities = _require_dict(payload.get("capabilities"), field_name="capabilities")
+        # Validate workspace_root is present even though this handler doesn't use it directly.
+        _require_text(payload.get("workspace_root"), field_name="workspace_root")
+        capabilities = _require_dict(
+            payload.get("capabilities"), field_name="capabilities"
+        )
         async with self._lock:
             waiter = self._agent_capabilities_waiters.get(request_id)
         if waiter is not None and not waiter.done():
@@ -1035,10 +1190,14 @@ class GatewayHandler:
             },
         }
 
-    async def _handle_node_capabilities(self, *, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_node_capabilities(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
         request_id = _require_text(payload.get("request_id"), field_name="request_id")
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
-        capabilities = _require_dict(payload.get("capabilities"), field_name="capabilities")
+        capabilities = _require_dict(
+            payload.get("capabilities"), field_name="capabilities"
+        )
         async with self._lock:
             waiter = self._node_capabilities_waiters.get(request_id)
         if waiter is not None and not waiter.done():
@@ -1052,7 +1211,9 @@ class GatewayHandler:
             },
         }
 
-    async def _handle_prompt_preview(self, *, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_prompt_preview(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
         """Resolve prompt-preview waiter when Gateway returns assembled preview text.
 
         feat-379-M2 R5: Gateway calls agent HTTP /v1/prompt-preview and sends
@@ -1076,7 +1237,9 @@ class GatewayHandler:
             },
         }
 
-    async def _handle_node_prompt_preview(self, *, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_node_prompt_preview(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
         """Resolve node-level prompt-preview waiter when Gateway returns assembled preview.
 
         feat-379-M9 (決策 11): Gateway sends ``node.prompt.preview`` in response to
@@ -1100,9 +1263,15 @@ class GatewayHandler:
             },
         }
 
-    async def _handle_agent_message(self, *, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_agent_message(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
         """Persist one gateway-dispatched send_message payload into IM conversations."""
-        if self._conversation_repository is None or self._user_repository is None or self._message_repository is None:
+        if (
+            self._conversation_repository is None
+            or self._user_repository is None
+            or self._message_repository is None
+        ):
             return {
                 "type": "error",
                 "payload": {
@@ -1114,29 +1283,41 @@ class GatewayHandler:
         try:
             text = _require_text(payload.get("text"), field_name="text").strip()
             target = _require_text(payload.get("to"), field_name="to").strip()
-            source_raw = _require_text(payload.get("from_session_id"), field_name="from_session_id").strip()
-            source_agent_id, dispatch_request_id = self._resolve_dispatch_source_from_session_id(source_raw=source_raw)
+            source_raw = _require_text(
+                payload.get("from_session_id"), field_name="from_session_id"
+            ).strip()
+            source_agent_id, dispatch_request_id = (
+                self._resolve_dispatch_source_from_session_id(source_raw=source_raw)
+            )
             resolved_target, conversation_id = self.resolve_send_message_target(
                 source_agent_id=source_agent_id,
                 target=target,
             )
             dispatch_request_key = (
-                f"{source_agent_id}:{dispatch_request_id}" if dispatch_request_id is not None else None
+                f"{source_agent_id}:{dispatch_request_id}"
+                if dispatch_request_id is not None
+                else None
             )
             existing = (
-                self._find_dispatched_agent_message(dispatch_request_key=dispatch_request_key)
+                self._find_dispatched_agent_message(
+                    dispatch_request_key=dispatch_request_key
+                )
                 if dispatch_request_key is not None
                 else None
             )
             if existing is None:
                 async with self._agent_message_lock:
                     existing = (
-                        self._find_dispatched_agent_message(dispatch_request_key=dispatch_request_key)
+                        self._find_dispatched_agent_message(
+                            dispatch_request_key=dispatch_request_key
+                        )
                         if dispatch_request_key is not None
                         else None
                     )
                     if existing is None:
-                        sender_user_id = self._require_user_id_by_username(username=f"agent:{source_agent_id}")
+                        sender_user_id = self._require_user_id_by_username(
+                            username=f"agent:{source_agent_id}"
+                        )
                         message = self._message_repository.create_message(
                             conversation_id=conversation_id,
                             sender_user_id=sender_user_id,
@@ -1152,7 +1333,10 @@ class GatewayHandler:
                                 conversation_id=conversation_id,
                                 message_id=message.id,
                             )
-                        if resolved_target.kind == "agent_id" and self._relay_service is not None:
+                        if (
+                            resolved_target.kind == "agent_id"
+                            and self._relay_service is not None
+                        ):
                             _profile = self._conversation_repository._connection.execute(  # noqa: SLF001
                                 "SELECT node_id FROM agent_profiles WHERE agent_id = ?",
                                 (resolved_target.id,),
@@ -1221,11 +1405,15 @@ class GatewayHandler:
     @staticmethod
     def _resolve_source_agent_id_from_dispatch(*, source_raw: str) -> str:
         """Resolve source agent id forwarded in dispatch payload."""
-        source_agent_id, _ = GatewayHandler._resolve_dispatch_source_from_session_id(source_raw=source_raw)
+        source_agent_id, _ = GatewayHandler._resolve_dispatch_source_from_session_id(
+            source_raw=source_raw
+        )
         return source_agent_id
 
     @staticmethod
-    def _resolve_dispatch_source_from_session_id(*, source_raw: str) -> tuple[str, str | None]:
+    def _resolve_dispatch_source_from_session_id(
+        *, source_raw: str
+    ) -> tuple[str, str | None]:
         """Resolve source agent id and optional dispatch request id from one source payload."""
         normalized = source_raw.strip()
         if normalized.startswith("agent:"):
@@ -1241,7 +1429,9 @@ class GatewayHandler:
             raise ValueError("from_session_id must carry source agent id")
         return (normalized, dispatch_request_id)
 
-    async def _handle_system_message(self, *, payload: dict[str, object]) -> dict[str, object]:
+    async def _handle_system_message(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
         """Persist one server-originated system notification into an IM conversation.
 
         System messages are non-first-person notifications injected by the gateway
@@ -1264,7 +1454,9 @@ class GatewayHandler:
             }
 
         try:
-            conversation_id = _require_text(payload.get("conversation_id"), field_name="conversation_id").strip()
+            conversation_id = _require_text(
+                payload.get("conversation_id"), field_name="conversation_id"
+            ).strip()
             text = _require_text(payload.get("text"), field_name="text").strip()
 
             # Resolve or lazily create the well-known system user.
@@ -1282,7 +1474,10 @@ class GatewayHandler:
             if system_user is None:
                 return {
                     "type": "error",
-                    "payload": {"code": "system_user_unavailable", "message": "could not resolve system user"},
+                    "payload": {
+                        "code": "system_user_unavailable",
+                        "message": "could not resolve system user",
+                    },
                 }
 
             message = self._message_repository.create_message(
@@ -1293,7 +1488,10 @@ class GatewayHandler:
             )
             return {
                 "type": "ack",
-                "payload": {"message_type": "node.system_message", "message_id": message.id},
+                "payload": {
+                    "message_type": "node.system_message",
+                    "message_id": message.id,
+                },
             }
         except ValueError as exc:
             return {
@@ -1319,7 +1517,9 @@ class GatewayHandler:
         )
         self._conversation_repository._connection.commit()  # noqa: SLF001
 
-    def _find_dispatched_agent_message(self, *, dispatch_request_key: str | None) -> dict[str, str] | None:
+    def _find_dispatched_agent_message(
+        self, *, dispatch_request_key: str | None
+    ) -> dict[str, str] | None:
         if dispatch_request_key is None or self._conversation_repository is None:
             return None
         row = self._conversation_repository._connection.execute(  # noqa: SLF001
@@ -1357,7 +1557,14 @@ class GatewayHandler:
                 dispatch_request_key, source_agent_id, target_kind, target_id, conversation_id, message_id, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
             """,
-            (dispatch_request_key, source_agent_id, target_kind, target_id, conversation_id, message_id),
+            (
+                dispatch_request_key,
+                source_agent_id,
+                target_kind,
+                target_id,
+                conversation_id,
+                message_id,
+            ),
         )
         self._conversation_repository._connection.commit()  # noqa: SLF001
 
@@ -1369,16 +1576,24 @@ class GatewayHandler:
     ) -> tuple[DispatchTarget, str]:
         """Resolve one send_message target into kind + landed conversation_id."""
         if self._conversation_repository is None or self._user_repository is None:
-            raise RuntimeError("conversation_repository and user_repository must be configured")
-        source_user_id = self._require_user_id_by_username(username=f"agent:{source_agent_id}")
+            raise RuntimeError(
+                "conversation_repository and user_repository must be configured"
+            )
+        source_user_id = self._require_user_id_by_username(
+            username=f"agent:{source_agent_id}"
+        )
         resolved_target = self._classify_dispatch_target(target=target)
         if resolved_target.kind == "conversation_id":
-            conversation = self._conversation_repository.get_conversation(conversation_id=resolved_target.id)
+            conversation = self._conversation_repository.get_conversation(
+                conversation_id=resolved_target.id
+            )
             if conversation is None:
                 raise ValueError("conversation_id not found")
             return (resolved_target, conversation.id)
         if resolved_target.kind == "agent_id":
-            target_user_id = self._require_user_id_by_username(username=f"agent:{resolved_target.id}")
+            target_user_id = self._require_user_id_by_username(
+                username=f"agent:{resolved_target.id}"
+            )
             landed = self._find_or_create_direct_conversation(
                 left_user_id=source_user_id,
                 right_user_id=target_user_id,
@@ -1410,13 +1625,18 @@ class GatewayHandler:
                     raise ValueError("target id must be non-empty")
                 return DispatchTarget(kind=kind, id=resolved_id)
 
-        conversation = self._conversation_repository.get_conversation(conversation_id=normalized)
+        conversation = self._conversation_repository.get_conversation(
+            conversation_id=normalized
+        )
         if conversation is not None:
             return DispatchTarget(kind="conversation_id", id=normalized)
         by_id = self._user_repository.get_user(user_id=normalized)
         if by_id is not None:
             if by_id.username.startswith("agent:"):
-                return DispatchTarget(kind="agent_id", id=by_id.username[len("agent:") :].strip() or by_id.id)
+                return DispatchTarget(
+                    kind="agent_id",
+                    id=by_id.username[len("agent:") :].strip() or by_id.id,
+                )
             return DispatchTarget(kind="user_id", id=by_id.id)
         agent_row = self._find_user_by_username(username=f"agent:{normalized}")
         if agent_row is not None:
@@ -1485,7 +1705,11 @@ class GatewayHandler:
                     if agent_name:
                         return agent_name
 
-        return _display_name(right_user) or _display_name(left_user) or "Direct conversation"
+        return (
+            _display_name(right_user)
+            or _display_name(left_user)
+            or "Direct conversation"
+        )
 
     def _find_canonical_direct_conversation(
         self,
@@ -1499,9 +1723,15 @@ class GatewayHandler:
         direct_candidates = [
             item
             for item in self._conversation_repository.list_conversations()
-            if item.type == "direct" and len(item.participant_ids) == 2 and set(item.participant_ids) == pair
+            if item.type == "direct"
+            and len(item.participant_ids) == 2
+            and set(item.participant_ids) == pair
         ]
-        kind_matches = [item for item in direct_candidates if item.direct_kind == expected_direct_kind]
+        kind_matches = [
+            item
+            for item in direct_candidates
+            if item.direct_kind == expected_direct_kind
+        ]
         candidates = kind_matches or direct_candidates
         if not candidates:
             return None
@@ -1572,7 +1802,9 @@ class GatewayHandler:
             delivery_status="failed",
         )
 
-    def _persist_receipt_events(self, *, task, node_id: str, detail: str | None) -> None:  # noqa: ANN001
+    def _persist_receipt_events(
+        self, *, task, node_id: str, detail: str | None
+    ) -> None:  # noqa: ANN001
         if self._event_repository is None:
             return
         progress_map = {
@@ -1580,7 +1812,9 @@ class GatewayHandler:
             "completed": ("relay.completed", "completed", "agent_run_completed"),
             "failed": ("relay.failed", "failed", "agent_run_failed"),
         }
-        event_type, progress_state, semantic = progress_map[task.receipt_status or task.status]
+        event_type, progress_state, semantic = progress_map[
+            task.receipt_status or task.status
+        ]
         payload = {
             "conversation_id": task.conversation_id,
             "message_id": task.message_id,
@@ -1637,15 +1871,27 @@ class GatewayHandler:
     def _persist_report_event(self, *, payload: dict[str, object]) -> None:
         if self._event_repository is None:
             return
-        conversation_id = _require_text(payload.get("conversation_id"), field_name="conversation_id")
+        conversation_id = _require_text(
+            payload.get("conversation_id"), field_name="conversation_id"
+        )
         message_id = _require_text(payload.get("message_id"), field_name="message_id")
         status = _require_text(payload.get("status"), field_name="status")
         summary = _optional_text(payload.get("summary"))
         run_id = _optional_text(payload.get("run_id"))
         guidance = _optional_text(payload.get("guidance"))
-        progress_state = "processing" if status == "running" else ("completed" if status == "completed" else "failed")
-        semantic = "agent_run_processing" if progress_state == "processing" else (
-            "agent_run_completed" if progress_state == "completed" else "agent_run_failed"
+        progress_state = (
+            "processing"
+            if status == "running"
+            else ("completed" if status == "completed" else "failed")
+        )
+        semantic = (
+            "agent_run_processing"
+            if progress_state == "processing"
+            else (
+                "agent_run_completed"
+                if progress_state == "completed"
+                else "agent_run_failed"
+            )
         )
         report_payload: dict[str, object] = {
             "conversation_id": conversation_id,
@@ -1669,7 +1915,9 @@ class GatewayHandler:
         self._event_repository.append_event(
             conversation_id=conversation_id,
             message_id=message_id,
-            event_type="relay.processing" if progress_state == "processing" else "relay.report",
+            event_type="relay.processing"
+            if progress_state == "processing"
+            else "relay.report",
             delivery_status=status,
             payload=report_payload,
         )
@@ -1687,7 +1935,8 @@ class GatewayHandler:
                     "status": status,
                     "progress_state": "failed",
                     "semantic": "agent_run_failed",
-                    "guidance": guidance or "检查节点连接和执行日志后重试；如需要可重新发送消息。",
+                    "guidance": guidance
+                    or "检查节点连接和执行日志后重试；如需要可重新发送消息。",
                     "notice_type": "action_required",
                 },
             )
@@ -1705,7 +1954,9 @@ class GatewayHandler:
         usage = _optional_usage(payload.get("usage"))
         if conversation_id is None or usage is None:
             return
-        conversation = self._conversation_repository.get_conversation(conversation_id=conversation_id)
+        conversation = self._conversation_repository.get_conversation(
+            conversation_id=conversation_id
+        )
         owner_id = conversation.owner_id if conversation is not None else None
         self._metrics_service.record_usage(
             owner_id=owner_id,

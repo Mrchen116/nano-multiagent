@@ -18,7 +18,9 @@ def _llm_proxy_available() -> bool:
 @pytest.mark.e2e
 def test_openai_compat_non_stream_generate_against_local_proxy() -> None:
     if os.getenv("NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E") != "1":
-        pytest.skip("set NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 to run live proxy e2e tests")
+        pytest.skip(
+            "set NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 to run live proxy e2e tests"
+        )
 
     if not _llm_proxy_available():
         pytest.skip("LLM_PROXY is unavailable on http://127.0.0.1:4000")

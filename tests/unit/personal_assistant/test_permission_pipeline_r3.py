@@ -24,6 +24,7 @@ import pytest
 # Test 1: kernel_event_observer forwards permission_request → node.streaming_delta
 # ---------------------------------------------------------------------------
 
+
 class _FakeManager:
     """Minimal IMConnectionManager double for observer tests."""
 
@@ -35,12 +36,16 @@ class _FakeManager:
     async def send_json(self, message_type: str, payload: Mapping[str, Any]) -> None:
         self.sent.append((message_type, dict(payload)))
 
-    async def send_json_await_ack(self, message_type: str, payload: Mapping[str, Any]) -> dict:
+    async def send_json_await_ack(
+        self, message_type: str, payload: Mapping[str, Any]
+    ) -> dict:
         self.sent.append((message_type, dict(payload)))
         return {"payload": {"message_id": "msg-from-ack"}}
 
 
-def _make_observer_with_run_ctx(run_id: str, conversation_id: str, message_id: str, agent_id: str):
+def _make_observer_with_run_ctx(
+    run_id: str, conversation_id: str, message_id: str, agent_id: str
+):
     """Build a kernel_event_observer with a pre-seeded run context."""
     from personal_assistant.main import _build_kernel_event_observer
 
@@ -79,7 +84,11 @@ class TestKernelObserverPermissionRequest:
             "tool_input": {"command": "rm -rf /tmp/old"},
             "question": "Allow bash?",
             "options": [
-                {"id": "allow_once", "label": "Allow once", "description": "Allow this single action"},
+                {
+                    "id": "allow_once",
+                    "label": "Allow once",
+                    "description": "Allow this single action",
+                },
                 {"id": "deny", "label": "Deny", "description": "Block this action"},
             ],
         }
@@ -91,11 +100,17 @@ class TestKernelObserverPermissionRequest:
 
         # Check that the manager received the permission_request streaming delta
         sent_types = [msg_type for msg_type, _ in manager.sent]
-        assert "node.streaming_delta" in sent_types, f"expected node.streaming_delta, got {sent_types}"
+        assert "node.streaming_delta" in sent_types, (
+            f"expected node.streaming_delta, got {sent_types}"
+        )
 
         delta_payloads = [p for t, p in manager.sent if t == "node.streaming_delta"]
-        perm_req_payloads = [p for p in delta_payloads if p.get("kind") == "permission_request"]
-        assert len(perm_req_payloads) >= 1, f"no permission_request kind found in: {delta_payloads}"
+        perm_req_payloads = [
+            p for p in delta_payloads if p.get("kind") == "permission_request"
+        ]
+        assert len(perm_req_payloads) >= 1, (
+            f"no permission_request kind found in: {delta_payloads}"
+        )
 
         payload = perm_req_payloads[0]
         assert payload["message_id"] == "msg-1"
@@ -136,7 +151,11 @@ class TestKernelObserverPermissionRequest:
             await result
         await asyncio.sleep(0)
         # No node.streaming_delta should have been sent
-        delta_payloads = [p for t, p in manager.sent if t == "node.streaming_delta" and p.get("kind") == "permission_request"]
+        delta_payloads = [
+            p
+            for t, p in manager.sent
+            if t == "node.streaming_delta" and p.get("kind") == "permission_request"
+        ]
         assert len(delta_payloads) == 0
 
     @pytest.mark.asyncio
@@ -161,8 +180,12 @@ class TestKernelObserverPermissionRequest:
         await asyncio.sleep(0)
 
         delta_payloads = [p for t, p in manager.sent if t == "node.streaming_delta"]
-        resolved_payloads = [p for p in delta_payloads if p.get("kind") == "permission_resolved"]
-        assert len(resolved_payloads) >= 1, f"no permission_resolved kind found in: {delta_payloads}"
+        resolved_payloads = [
+            p for p in delta_payloads if p.get("kind") == "permission_resolved"
+        ]
+        assert len(resolved_payloads) >= 1, (
+            f"no permission_resolved kind found in: {delta_payloads}"
+        )
 
         payload = resolved_payloads[0]
         assert payload["message_id"] == "msg-2"
@@ -173,6 +196,7 @@ class TestKernelObserverPermissionRequest:
 # ---------------------------------------------------------------------------
 # Test 2: IMConnectionManager handles permission_response from IM
 # ---------------------------------------------------------------------------
+
 
 class _FakeWebSocket:
     """Minimal websocket double for im_connection tests."""
@@ -199,7 +223,10 @@ class TestIMConnectionPermissionResponse:
     @pytest.mark.asyncio
     async def test_permission_response_calls_callback(self) -> None:
         """When IM pushes node.streaming_delta kind=permission_response, PA callback is called."""
-        from personal_assistant.ws.im_connection import IMConnectionManager, IMConnectionConfig
+        from personal_assistant.ws.im_connection import (
+            IMConnectionManager,
+            IMConnectionConfig,
+        )
         from personal_assistant.reporter.upstream_reporter import UpstreamReporter
         from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 
@@ -253,6 +280,7 @@ class TestIMConnectionPermissionResponse:
 # Test 4: Heartbeat scheduler passes origin=heartbeat
 # ---------------------------------------------------------------------------
 
+
 class TestHeartbeatOrigin:
     """Heartbeat scheduler passes origin='heartbeat' when submitting runs."""
 
@@ -270,18 +298,30 @@ class TestHeartbeatOrigin:
         submit_calls: list[dict] = []
 
         class _FakeKernel:
-            async def create_session(self, *, workspace_root, product_id, title=None, metadata=None):
+            async def create_session(
+                self, *, workspace_root, product_id, title=None, metadata=None
+            ):
                 return {"session_id": "sess-1"}
 
             def get_session(self, *, session_id):
-                return {"session_id": session_id, "status": "active", "metadata": {"workspace_root": str(tmp_path)}}
+                return {
+                    "session_id": session_id,
+                    "status": "active",
+                    "metadata": {"workspace_root": str(tmp_path)},
+                }
 
             def submit_message(self, *, session_id, texts, **kwargs):
-                submit_calls.append({"session_id": session_id, "texts": texts, **kwargs})
+                submit_calls.append(
+                    {"session_id": session_id, "texts": texts, **kwargs}
+                )
                 return {"run_id": "run-hb-1", "anchor_sequence": 1}
 
-        agent = AgentWorkspaceConfig(agent_id="alpha", workspace_root=tmp_path, title="Alpha")
-        state_store = HeartbeatSchedulerStateStore(state_path=tmp_path / "hb_state.json")
+        agent = AgentWorkspaceConfig(
+            agent_id="alpha", workspace_root=tmp_path, title="Alpha"
+        )
+        state_store = HeartbeatSchedulerStateStore(
+            state_path=tmp_path / "hb_state.json"
+        )
         scheduler = HeartbeatScheduler(
             kernel_client=_FakeKernel(),
             agents=(agent,),
@@ -291,7 +331,9 @@ class TestHeartbeatOrigin:
         # Create a HEARTBEAT.md so the scheduler has something to evaluate.
         # Use a past @at datetime so the run is immediately due.
         heartbeat_file = tmp_path / "HEARTBEAT.md"
-        heartbeat_file.write_text("# HEARTBEAT\n\nat: 2020-01-01T00:00:00+00:00\n\nCheck the workspace.\n")
+        heartbeat_file.write_text(
+            "# HEARTBEAT\n\nat: 2020-01-01T00:00:00+00:00\n\nCheck the workspace.\n"
+        )
 
         await scheduler.tick()
 

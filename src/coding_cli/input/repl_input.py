@@ -166,7 +166,9 @@ def _build_key_reader(
 ) -> Callable[[], str | None]:
     """Build a key reader that returns _KEY_IDLE when no input arrives within the interval."""
     if on_idle is not None:
-        return _IdleFdKeyReader(stdin=stdin, idle_interval_seconds=idle_interval_seconds).read_key
+        return _IdleFdKeyReader(
+            stdin=stdin, idle_interval_seconds=idle_interval_seconds
+        ).read_key
 
     def _read_key() -> str | None:
         return _read_terminal_key(stdin)
@@ -180,7 +182,9 @@ class _IdleFdKeyReader:
     def __init__(self, *, stdin: TextIO, idle_interval_seconds: float) -> None:
         self._stdin = stdin
         self._idle_interval_seconds = idle_interval_seconds
-        encoding = getattr(stdin, "encoding", None) or sys.getdefaultencoding() or "utf-8"
+        encoding = (
+            getattr(stdin, "encoding", None) or sys.getdefaultencoding() or "utf-8"
+        )
         self._decoder = codecs.getincrementaldecoder(encoding)(errors="replace")
         self._tokens: list[str] = []
         self._pending_escape = ""
@@ -275,7 +279,9 @@ def read_interactive_line_from_terminal(
 ) -> str:
     """Read one line from real terminal with raw-key handling."""
     with _stdin_raw_mode(sys.stdin):
-        key_reader = _build_key_reader(sys.stdin, on_idle=on_idle, idle_interval_seconds=idle_interval_seconds)
+        key_reader = _build_key_reader(
+            sys.stdin, on_idle=on_idle, idle_interval_seconds=idle_interval_seconds
+        )
         return read_interactive_line(
             prompt=prompt,
             history=history,
@@ -370,14 +376,20 @@ def read_interactive_line(
         _clear_active_render_state(out=out)
 
 
-def _initial_input_state(*, history: Sequence[str], command_items: Sequence[str]) -> _InputState:
+def _initial_input_state(
+    *, history: Sequence[str], command_items: Sequence[str]
+) -> _InputState:
     state = _InputState(
         chars=(),
         cursor=0,
         history_items=tuple(item for item in history if isinstance(item, str)),
         history_index=None,
         draft_before_history=(),
-        command_items=tuple(item for item in command_items if isinstance(item, str) and item.startswith("/")),
+        command_items=tuple(
+            item
+            for item in command_items
+            if isinstance(item, str) and item.startswith("/")
+        ),
         command_menu_index=None,
     )
     return _next_input_state(state)
@@ -404,7 +416,9 @@ def _apply_input_key(*, state: _InputState, key: str) -> _InputStep:
                     state,
                     chars=tuple(next_chars),
                     cursor=state.cursor + 1,
-                    history_index=None if state.history_index is not None else _KEEP_STATE,
+                    history_index=None
+                    if state.history_index is not None
+                    else _KEEP_STATE,
                     command_menu_index_seed=None,
                 ),
                 needs_redraw=True,
@@ -412,7 +426,9 @@ def _apply_input_key(*, state: _InputState, key: str) -> _InputStep:
             )
         return _InputStep(state=state, needs_redraw=False, final_line="")
     if key == "\x03":
-        return _InputStep(state=state, needs_redraw=False, raises_keyboard_interrupt=True)
+        return _InputStep(
+            state=state, needs_redraw=False, raises_keyboard_interrupt=True
+        )
     if key == "\x04":
         if state.chars:
             return _InputStep(state=state, needs_redraw=False)
@@ -454,7 +470,8 @@ def _apply_input_key(*, state: _InputState, key: str) -> _InputStep:
         if state.command_menu_index is not None and state.command_items:
             next_state = _next_input_state(
                 state,
-                command_menu_index_seed=(state.command_menu_index - 1) % len(state.command_items),
+                command_menu_index_seed=(state.command_menu_index - 1)
+                % len(state.command_items),
             )
             return _InputStep(
                 state=next_state,
@@ -484,7 +501,8 @@ def _apply_input_key(*, state: _InputState, key: str) -> _InputStep:
         if state.command_menu_index is not None and state.command_items:
             next_state = _next_input_state(
                 state,
-                command_menu_index_seed=(state.command_menu_index + 1) % len(state.command_items),
+                command_menu_index_seed=(state.command_menu_index + 1)
+                % len(state.command_items),
             )
             return _InputStep(
                 state=next_state,
@@ -537,9 +555,19 @@ def _next_input_state(
 ) -> _InputState:
     next_chars = state.chars if chars is _KEEP_STATE else chars
     next_cursor = state.cursor if cursor is _KEEP_STATE else cursor
-    next_history_index = state.history_index if history_index is _KEEP_STATE else history_index
-    next_draft = state.draft_before_history if draft_before_history is _KEEP_STATE else draft_before_history
-    next_command_seed = state.command_menu_index if command_menu_index_seed is _KEEP_STATE else command_menu_index_seed
+    next_history_index = (
+        state.history_index if history_index is _KEEP_STATE else history_index
+    )
+    next_draft = (
+        state.draft_before_history
+        if draft_before_history is _KEEP_STATE
+        else draft_before_history
+    )
+    next_command_seed = (
+        state.command_menu_index
+        if command_menu_index_seed is _KEEP_STATE
+        else command_menu_index_seed
+    )
     return _InputState(
         chars=next_chars,
         cursor=next_cursor,
@@ -585,7 +613,9 @@ def render_interactive_line(
         )
 
 
-def _emit_terminal_text_block(*, out: TextIO, text: str, replace_previous: bool) -> None:
+def _emit_terminal_text_block(
+    *, out: TextIO, text: str, replace_previous: bool
+) -> None:
     """Emit one terminal message block without corrupting interactive prompt layout."""
     global _LAST_EXTERNAL_TEXT_LINES
     with _RENDER_LOCK:
@@ -625,7 +655,9 @@ def _emit_terminal_text_block(*, out: TextIO, text: str, replace_previous: bool)
         if callable(flush):
             flush()
 
-        _LAST_EXTERNAL_TEXT_LINES = _count_terminal_lines(normalized_text) if replace_previous else 0
+        _LAST_EXTERNAL_TEXT_LINES = (
+            _count_terminal_lines(normalized_text) if replace_previous else 0
+        )
 
 
 def emit_external_text(*, out: TextIO, text: str) -> None:

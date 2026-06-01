@@ -38,7 +38,9 @@ def test_user_stream_rejects_invalid_token(tmp_path: Path) -> None:
                 websocket.receive_text()
 
 
-def test_user_stream_accepts_valid_token_and_replays_owners_events(tmp_path: Path) -> None:
+def test_user_stream_accepts_valid_token_and_replays_owners_events(
+    tmp_path: Path,
+) -> None:
     """Valid token → connection accepted; user receives their own conversation events on resume."""
     with make_app_client(tmp_path) as client:
         alice = register_user(client, username="alice")
@@ -54,7 +56,9 @@ def test_user_stream_accepts_valid_token_and_replays_owners_events(tmp_path: Pat
             json={"sender_user_id": alice.id, "content": "first"},
         )
 
-        with client.websocket_connect(f"/im/ws/user?token={alice.access_token}") as websocket:
+        with client.websocket_connect(
+            f"/im/ws/user?token={alice.access_token}"
+        ) as websocket:
             websocket.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
             seen: list[str] = []
             for _ in range(6):
@@ -72,5 +76,7 @@ def test_user_stream_rejects_legacy_user_id_param(tmp_path: Path) -> None:
     with make_app_client(tmp_path) as client:
         alice = register_user(client, username="alice")
         with pytest.raises(Exception):  # noqa: PT011
-            with client.websocket_connect(f"/im/ws/user?user_id={alice.id}") as websocket:
+            with client.websocket_connect(
+                f"/im/ws/user?user_id={alice.id}"
+            ) as websocket:
                 websocket.receive_text()

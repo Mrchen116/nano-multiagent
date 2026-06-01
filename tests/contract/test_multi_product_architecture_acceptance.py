@@ -37,9 +37,9 @@ EXPECTED_EXISTING_PATHS = (
     "core/hooks/runner.py",
     "core/hooks/types.py",
     "core/ids.py",
-    "core/events/__init__.py",        # new: events package (R1 migration)
-    "core/events/hub.py",             # new: EventStreamHub in core (R1 migration)
-    "core/events/types.py",           # new: RuntimeEvent types moved here (R1)
+    "core/events/__init__.py",  # new: events package (R1 migration)
+    "core/events/hub.py",  # new: EventStreamHub in core (R1 migration)
+    "core/events/types.py",  # new: RuntimeEvent types moved here (R1)
     "core/llm/factory.py",
     "core/llm/interfaces.py",
     "core/llm/model_registry.py",
@@ -132,10 +132,10 @@ ARCHITECTURE_REQUIRED_DOC_SNIPPETS = (
     "### agent — 执行内核",
 )
 END_TO_END_DOCS = {
-    "architecture": ARCHITECTURE_REQUIRED_DOC_SNIPPETS + TOP_LEVEL_REQUIRED_DOC_SNIPPETS,
+    "architecture": ARCHITECTURE_REQUIRED_DOC_SNIPPETS
+    + TOP_LEVEL_REQUIRED_DOC_SNIPPETS,
     "kernel_spec": KERNEL_REQUIRED_DOC_SNIPPETS,
 }
-
 
 
 def test_architecture_docs_describe_zero_residue_target_state() -> None:
@@ -148,7 +148,9 @@ def test_architecture_docs_describe_zero_residue_target_state() -> None:
 
     architecture_doc = docs["architecture"]
     for line in EXPECTED_TARGET_TREE_LINES:
-        assert line in architecture_doc, f"target tree line missing from architecture doc: {line}"
+        assert line in architecture_doc, (
+            f"target tree line missing from architecture doc: {line}"
+        )
 
     for doc_name, required_snippets in END_TO_END_DOCS.items():
         content = docs[doc_name]
@@ -157,23 +159,31 @@ def test_architecture_docs_describe_zero_residue_target_state() -> None:
 
     for doc_name, content in docs.items():
         for snippet in LEGACY_DOC_SNIPPETS:
-            assert snippet not in content, f"{doc_name} still references legacy path: {snippet}"
-
+            assert snippet not in content, (
+                f"{doc_name} still references legacy path: {snippet}"
+            )
 
 
 def test_final_target_tree_paths_exist_and_legacy_roots_are_removed() -> None:
     for relative_path in EXPECTED_EXISTING_PATHS:
-        assert (SRC_ROOT / relative_path).exists(), f"missing target-state path: {relative_path}"
+        assert (SRC_ROOT / relative_path).exists(), (
+            f"missing target-state path: {relative_path}"
+        )
 
     coding_cli_root = PROJECT_ROOT / "src" / "coding_cli"
     for relative_path in EXPECTED_TOP_LEVEL_CODING_CLI_PATHS:
-        assert (coding_cli_root / relative_path).exists(), f"missing top-level coding_cli path: {relative_path}"
+        assert (coding_cli_root / relative_path).exists(), (
+            f"missing top-level coding_cli path: {relative_path}"
+        )
 
     for root_name in REMOVED_LEGACY_ROOTS:
-        assert not (SRC_ROOT / root_name).exists(), f"legacy nested root should be removed in M90: {root_name}"
-
+        assert not (SRC_ROOT / root_name).exists(), (
+            f"legacy nested root should be removed in M90: {root_name}"
+        )
 
 
 def test_removed_legacy_module_roots_are_not_importable() -> None:
     for module_name in LEGACY_MODULE_ROOTS:
-        assert find_spec(module_name) is None, f"removed legacy module should not be importable: {module_name}"
+        assert find_spec(module_name) is None, (
+            f"removed legacy module should not be importable: {module_name}"
+        )

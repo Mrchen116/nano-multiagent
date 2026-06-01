@@ -43,15 +43,22 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
             name="anthropic",
             base_url="http://127.0.0.1:4000",
             models=(
-                LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}),
+                LLMModelPayload(
+                    name="kimiCoding:K2.6",
+                    extra_request_body={"thinking": {"type": "adaptive"}},
+                ),
             ),
         ),
     ),
 )
 
 
-def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_im() -> None:
-    reporter = UpstreamReporter(node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None)
+def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_im() -> (
+    None
+):
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None
+    )
     manager = _FakeIMManager([])
     callback = _build_relay_lifecycle_callback(
         reporter=reporter,
@@ -64,7 +71,12 @@ def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_
     async def _exercise() -> None:
         await callback(
             message,
-            RelayLifecycleUpdate(phase="accepted", agent_id="agent-a", session_key="web:user:agent-a", run_id="run-1"),
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-1",
+            ),
         )
         await callback(
             message,
@@ -108,11 +120,15 @@ def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_
     assert manager.sent_frames[3][1]["detail"] == "hello from agent"
 
 
-def test_build_relay_lifecycle_callback_marks_no_reply_suppression_in_completed_receipt() -> None:
+def test_build_relay_lifecycle_callback_marks_no_reply_suppression_in_completed_receipt() -> (
+    None
+):
     sent_frames: list[tuple[str, dict[str, object]]] = []
 
     class _Reporter:
-        def send_delivery_receipt(self, *, relay_task_id: str, delivery_status: str, detail: str | None = None):
+        def send_delivery_receipt(
+            self, *, relay_task_id: str, delivery_status: str, detail: str | None = None
+        ):
             return {
                 "relay_task_id": relay_task_id,
                 "delivery_status": delivery_status,
@@ -122,7 +138,9 @@ def test_build_relay_lifecycle_callback_marks_no_reply_suppression_in_completed_
     class _Manager:
         connected = True
 
-        async def send_json(self, message_type: str, payload: dict[str, object]) -> None:
+        async def send_json(
+            self, message_type: str, payload: dict[str, object]
+        ) -> None:
             sent_frames.append((message_type, payload))
 
     callback = _build_relay_lifecycle_callback(
@@ -160,7 +178,9 @@ def test_build_relay_lifecycle_callback_marks_no_reply_suppression_in_completed_
     ]
 
 
-def test_build_relay_lifecycle_callback_keeps_completed_updates_when_im_is_reconnecting() -> None:
+def test_build_relay_lifecycle_callback_keeps_completed_updates_when_im_is_reconnecting() -> (
+    None
+):
     sent_frames: list[tuple[str, dict[str, object]]] = []
 
     class _Reporter:
@@ -192,7 +212,9 @@ def test_build_relay_lifecycle_callback_keeps_completed_updates_when_im_is_recon
                 payload["usage"] = usage
             return payload
 
-        def send_delivery_receipt(self, *, relay_task_id: str, delivery_status: str, detail: str | None = None):
+        def send_delivery_receipt(
+            self, *, relay_task_id: str, delivery_status: str, detail: str | None = None
+        ):
             return {
                 "relay_task_id": relay_task_id,
                 "delivery_status": delivery_status,
@@ -202,7 +224,9 @@ def test_build_relay_lifecycle_callback_keeps_completed_updates_when_im_is_recon
     class _Manager:
         connected = False
 
-        async def send_json(self, message_type: str, payload: dict[str, object]) -> None:
+        async def send_json(
+            self, message_type: str, payload: dict[str, object]
+        ) -> None:
             sent_frames.append((message_type, payload))
 
     callback = _build_relay_lifecycle_callback(
@@ -239,7 +263,11 @@ def test_build_relay_lifecycle_callback_keeps_completed_updates_when_im_is_recon
                 "conversation_id": "conv-1",
                 "message_id": "msg-1",
                 "summary": "hello from agent",
-                "usage": {"prompt_tokens": 11, "completion_tokens": 7, "total_tokens": 18},
+                "usage": {
+                    "prompt_tokens": 11,
+                    "completion_tokens": 7,
+                    "total_tokens": 18,
+                },
             },
         ),
         (
@@ -269,7 +297,9 @@ def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:
     exit_code = run_gateway(
         config_path=tmp_path / "node-config.yaml",
         factories=RuntimeFactories(
-            load_config=lambda path: config if path == tmp_path / "node-config.yaml" else None,
+            load_config=lambda path: (
+                config if path == tmp_path / "node-config.yaml" else None
+            ),
             build_runtime=lambda loaded_config: _Runtime(loaded_config),
         ),
     )
@@ -278,7 +308,9 @@ def test_run_gateway_loads_config_and_starts_runtime(tmp_path: Path) -> None:
     assert seen == {"config": config, "ran": True}
 
 
-def test_build_runtime_returns_gateway_runtime_with_no_process_manager(tmp_path: Path) -> None:
+def test_build_runtime_returns_gateway_runtime_with_no_process_manager(
+    tmp_path: Path,
+) -> None:
     """refactor-387 M3: build_runtime no longer spawns a kernel subprocess.
 
     GatewayRuntime.process_manager must be None — the kernel runs in-process.
@@ -287,7 +319,9 @@ def test_build_runtime_returns_gateway_runtime_with_no_process_manager(tmp_path:
     workspace_root.mkdir()
     config = LocalConfig(
         node=NodeConfig(node_id="node-local"),
-        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        agents=(
+            AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
+        ),
         channels=(),
         kernel=KernelConfig(
             token=None,
@@ -322,12 +356,16 @@ def test_build_channel_registry_passes_dedup_db_path(tmp_path: Path) -> None:
     assert relay_adapter._dedup_store._db_path == tmp_path / "relay-dedup.sqlite3"  # noqa: SLF001
 
 
-def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     workspace_root = tmp_path / "agent-a"
     workspace_root.mkdir()
     config = LocalConfig(
         node=NodeConfig(node_id="node-local"),
-        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        agents=(
+            AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
+        ),
         channels=(ChannelConfig(name="web_relay", enabled=True),),
         kernel=KernelConfig(
             token=None,
@@ -344,7 +382,9 @@ def test_build_runtime_wires_web_relay_dedup_db_under_config_dir(tmp_path: Path,
 
     monkeypatch.setattr(
         "personal_assistant.main._build_im_connection_manager",
-        lambda **kwargs: type("_Manager", (), {"connected": True, "close": lambda self: None})(),
+        lambda **kwargs: type(
+            "_Manager", (), {"connected": True, "close": lambda self: None}
+        )(),
     )
 
     runtime = build_runtime(config)
@@ -364,15 +404,23 @@ def test_im_bootstrap_client_opens_browser_for_unbound_node() -> None:
         if request.method == "GET" and request.url.path == "/im/v1/nodes":
             return httpx.Response(200, json=[{"node_id": "node-local", "owner_id": ""}])
         if request.method == "POST" and request.url.path == "/im/v1/bind":
-            return httpx.Response(201, json={"bind_url": "http://127.0.0.1:4173/bind/confirm?token=t-1"})
+            return httpx.Response(
+                201, json={"bind_url": "http://127.0.0.1:4173/bind/confirm?token=t-1"}
+            )
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
-    client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
+    client = httpx.Client(
+        transport=httpx.MockTransport(_handler),
+        base_url="http://im.local",
+        trust_env=False,
+    )
     bootstrap = _IMBootstrapClient(
         base_url="http://im.local",
         token=None,
         client=client,
-        browser_opener=lambda url, new=0, autoraise=True: opened.append((url, new, autoraise)) or True,
+        browser_opener=lambda url, new=0, autoraise=True: (
+            opened.append((url, new, autoraise)) or True
+        ),
     )
 
     bind_url = bootstrap.ensure_node_binding(node_id="node-local")
@@ -389,15 +437,23 @@ def test_im_bootstrap_client_skips_browser_for_bound_node() -> None:
     def _handler(request: httpx.Request) -> httpx.Response:
         calls.append(f"{request.method} {request.url.path}")
         if request.method == "GET" and request.url.path == "/im/v1/nodes":
-            return httpx.Response(200, json=[{"node_id": "node-local", "owner_id": "owner-1"}])
+            return httpx.Response(
+                200, json=[{"node_id": "node-local", "owner_id": "owner-1"}]
+            )
         raise AssertionError(f"unexpected request: {request.method} {request.url}")
 
-    client = httpx.Client(transport=httpx.MockTransport(_handler), base_url="http://im.local", trust_env=False)
+    client = httpx.Client(
+        transport=httpx.MockTransport(_handler),
+        base_url="http://im.local",
+        trust_env=False,
+    )
     bootstrap = _IMBootstrapClient(
         base_url="http://im.local",
         token=None,
         client=client,
-        browser_opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("browser should not open")),
+        browser_opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("browser should not open")
+        ),
     )
 
     bind_url = bootstrap.ensure_node_binding(node_id="node-local")
@@ -416,18 +472,24 @@ def test_im_bootstrap_client_only_uses_configured_im_base_url() -> None:
             requests.append((base_url, request.url.path))
             return httpx.Response(200, json=[])
 
-        return httpx.Client(base_url=base_url, transport=httpx.MockTransport(_handler), trust_env=False)
+        return httpx.Client(
+            base_url=base_url, transport=httpx.MockTransport(_handler), trust_env=False
+        )
 
     bootstrap = _IMBootstrapClient(
         base_url="http://127.0.0.1:8021",
         token=None,
         client_factory=_client_factory,
-        browser_opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("browser should not open")),
+        browser_opener=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("browser should not open")
+        ),
         monotonic=iter([0.0, 0.0, 5.1]).__next__,
         sleep=lambda _seconds: None,
     )
 
-    with pytest.raises(GatewayStartupError, match="node node-local did not appear in IM bootstrap"):
+    with pytest.raises(
+        GatewayStartupError, match="node node-local did not appear in IM bootstrap"
+    ):
         bootstrap.ensure_node_binding(node_id="node-local")
 
     assert requests == [("http://127.0.0.1:8021", "/im/v1/nodes")]
@@ -458,7 +520,9 @@ def test_build_runtime_wires_prompt_preview_provider_when_im_service_configured(
     workspace_root.mkdir()
     config = LocalConfig(
         node=NodeConfig(node_id="node-local"),
-        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        agents=(
+            AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
+        ),
         channels=(ChannelConfig(name="web_relay", enabled=True),),
         kernel=KernelConfig(
             token=None,
@@ -493,28 +557,36 @@ def test_build_runtime_wires_prompt_preview_provider_when_im_service_configured(
     assert callable(provider), "prompt_preview_provider must be callable"
 
     # Call the provider and verify it returns the expected schema.
-    result = asyncio.run(
-        provider(
+    result = (
+        asyncio.run(
+            provider(
+                "agent-a",
+                str(workspace_root),
+                {},  # features
+                None,  # custom_prompt
+                [],  # tool_ids
+                "direct",  # scenario
+                [],  # skill_ids
+            )
+        )
+        if asyncio.iscoroutinefunction(provider)
+        else provider(
             "agent-a",
             str(workspace_root),
-            {},    # features
-            None,  # custom_prompt
-            [],    # tool_ids
-            "direct",  # scenario
-            [],    # skill_ids
+            {},
+            None,
+            [],
+            "direct",
+            [],
         )
-    ) if asyncio.iscoroutinefunction(provider) else provider(
-        "agent-a",
-        str(workspace_root),
-        {},
-        None,
-        [],
-        "direct",
-        [],
     )
     assert isinstance(result, dict), f"provider must return dict, got {type(result)}"
-    assert "prompt" in result, f"provider result must contain 'prompt', got {list(result)}"
-    assert "section_count" in result, f"provider result must contain 'section_count', got {list(result)}"
+    assert "prompt" in result, (
+        f"provider result must contain 'prompt', got {list(result)}"
+    )
+    assert "section_count" in result, (
+        f"provider result must contain 'section_count', got {list(result)}"
+    )
     assert result["prompt"], "prompt_preview_provider must return non-empty prompt"
     assert isinstance(result["section_count"], int) and result["section_count"] > 0, (
         f"section_count must be positive int, got {result['section_count']!r}"

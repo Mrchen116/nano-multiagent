@@ -28,7 +28,6 @@ class RetryingLLMClient:
 
     async def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         backoff_index = 0
-        last_error: ModelError | None = None
         for attempt in range(_MAX_RETRIES + 1):
             try:
                 async for msg in self._client.generate(request):
@@ -37,7 +36,6 @@ class RetryingLLMClient:
             except ModelError as exc:
                 if not exc.retryable:
                     raise
-                last_error = exc
                 if attempt >= _MAX_RETRIES:
                     raise ModelError(
                         f"LLM generate exceeded {_MAX_RETRIES} retries: {exc.message}",

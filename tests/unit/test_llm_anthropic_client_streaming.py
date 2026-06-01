@@ -27,7 +27,9 @@ def _make_anthropic_sse(events: list[dict[str, Any]]) -> bytes:
     return "".join(lines).encode()
 
 
-async def _collect(client: AnthropicClient, request: LLMGenerateRequest) -> list[LLMMessage]:
+async def _collect(
+    client: AnthropicClient, request: LLMGenerateRequest
+) -> list[LLMMessage]:
     messages: list[LLMMessage] = []
     async for msg in client.generate(request):
         messages.append(msg)
@@ -38,23 +40,49 @@ async def test_stream_response_carries_thinking_into_tool_call() -> None:
     thinking_text = "运行 `pwd && ls -la` 命令，我需要使用 bash 工具"
     events = [
         {"type": "message_start", "message": {"role": "assistant", "content": []}},
-        {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}},
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": thinking_text}},
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": thinking_text},
+        },
         {"type": "content_block_stop", "index": 0},
         {
             "type": "content_block_start",
             "index": 1,
-            "content_block": {"type": "tool_use", "id": "tool_1", "name": "bash", "input": {}},
+            "content_block": {
+                "type": "tool_use",
+                "id": "tool_1",
+                "name": "bash",
+                "input": {},
+            },
         },
-        {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": '{"command":"pwd && ls -la"}'}},
+        {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {
+                "type": "input_json_delta",
+                "partial_json": '{"command":"pwd && ls -la"}',
+            },
+        },
         {"type": "content_block_stop", "index": 1},
-        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"input_tokens": 10, "output_tokens": 5}},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "tool_use"},
+            "usage": {"input_tokens": 10, "output_tokens": 5},
+        },
         {"type": "message_stop"},
     ]
     body = _make_anthropic_sse(events)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",
@@ -88,22 +116,65 @@ async def test_stream_response_shares_thinking_across_parallel_tool_calls() -> N
     thinking_text = "我需要并行运行两个命令"
     events = [
         {"type": "message_start", "message": {"role": "assistant", "content": []}},
-        {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}},
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": thinking_text}},
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": thinking_text},
+        },
         {"type": "content_block_stop", "index": 0},
-        {"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use", "id": "tool_1", "name": "bash", "input": {}}},
-        {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": '{"command":"pwd"}'}},
+        {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {
+                "type": "tool_use",
+                "id": "tool_1",
+                "name": "bash",
+                "input": {},
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {"type": "input_json_delta", "partial_json": '{"command":"pwd"}'},
+        },
         {"type": "content_block_stop", "index": 1},
-        {"type": "content_block_start", "index": 2, "content_block": {"type": "tool_use", "id": "tool_2", "name": "bash", "input": {}}},
-        {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": '{"command":"ls -la"}'}},
+        {
+            "type": "content_block_start",
+            "index": 2,
+            "content_block": {
+                "type": "tool_use",
+                "id": "tool_2",
+                "name": "bash",
+                "input": {},
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": 2,
+            "delta": {
+                "type": "input_json_delta",
+                "partial_json": '{"command":"ls -la"}',
+            },
+        },
         {"type": "content_block_stop", "index": 2},
-        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"input_tokens": 10, "output_tokens": 8}},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "tool_use"},
+            "usage": {"input_tokens": 10, "output_tokens": 8},
+        },
         {"type": "message_stop"},
     ]
     body = _make_anthropic_sse(events)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",
@@ -131,16 +202,30 @@ async def test_stream_response_shares_thinking_across_parallel_tool_calls() -> N
 async def test_stream_response_omits_reasoning_when_no_thinking_block() -> None:
     events = [
         {"type": "message_start", "message": {"role": "assistant", "content": []}},
-        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hi"}},
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "hi"},
+        },
         {"type": "content_block_stop", "index": 0},
-        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"input_tokens": 3, "output_tokens": 1}},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {"input_tokens": 3, "output_tokens": 1},
+        },
         {"type": "message_stop"},
     ]
     body = _make_anthropic_sse(events)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",
@@ -173,24 +258,54 @@ async def test_stream_response_carries_signature_into_tool_call() -> None:
     real_signature = "EqoBCkgIARgCIkDxyz_real_signature_token_abc123"
     events = [
         {"type": "message_start", "message": {"role": "assistant", "content": []}},
-        {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}},
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": thinking_text}},
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": real_signature}},
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": thinking_text},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": real_signature},
+        },
         {"type": "content_block_stop", "index": 0},
         {
             "type": "content_block_start",
             "index": 1,
-            "content_block": {"type": "tool_use", "id": "tool_1", "name": "bash", "input": {}},
+            "content_block": {
+                "type": "tool_use",
+                "id": "tool_1",
+                "name": "bash",
+                "input": {},
+            },
         },
-        {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": '{"command":"gh log --oneline -10"}'}},
+        {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {
+                "type": "input_json_delta",
+                "partial_json": '{"command":"gh log --oneline -10"}',
+            },
+        },
         {"type": "content_block_stop", "index": 1},
-        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"input_tokens": 15, "output_tokens": 8}},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "tool_use"},
+            "usage": {"input_tokens": 15, "output_tokens": 8},
+        },
         {"type": "message_stop"},
     ]
     body = _make_anthropic_sse(events)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",
@@ -240,7 +355,9 @@ async def test_stream_response_sse_error_event_raises_model_error() -> None:
     body = _make_anthropic_sse(events)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",
@@ -258,7 +375,11 @@ async def test_stream_response_sse_error_event_raises_model_error() -> None:
             ),
         )
     err_str = str(exc_info.value)
-    assert "usage limit" in err_str or "permission_error" in err_str or "permission" in err_str.lower()
+    assert (
+        "usage limit" in err_str
+        or "permission_error" in err_str
+        or "permission" in err_str.lower()
+    )
 
 
 async def test_stream_response_incomplete_stream_raises_model_error() -> None:
@@ -269,7 +390,9 @@ async def test_stream_response_incomplete_stream_raises_model_error() -> None:
     body = _make_anthropic_sse(events)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",
@@ -292,16 +415,30 @@ async def test_stream_response_happy_path_not_affected_by_bugfix380() -> None:
     """happy path(正常完整流)必须不受 bugfix-380 影响,仍正常 yield 消息。"""
     events = [
         {"type": "message_start", "message": {"role": "assistant", "content": []}},
-        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hello"}},
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "hello"},
+        },
         {"type": "content_block_stop", "index": 0},
-        {"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"input_tokens": 3, "output_tokens": 1}},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {"input_tokens": 3, "output_tokens": 1},
+        },
         {"type": "message_stop"},
     ]
     body = _make_anthropic_sse(events)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",
@@ -327,23 +464,70 @@ async def test_stream_response_shares_signature_across_parallel_tool_calls() -> 
     real_signature = "EqoBCkgIARgCIkD_parallel_sig_token_xyz789"
     events = [
         {"type": "message_start", "message": {"role": "assistant", "content": []}},
-        {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": "", "signature": ""}},
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": thinking_text}},
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": real_signature}},
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "thinking", "thinking": "", "signature": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "thinking_delta", "thinking": thinking_text},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "signature_delta", "signature": real_signature},
+        },
         {"type": "content_block_stop", "index": 0},
-        {"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use", "id": "tool_1", "name": "bash", "input": {}}},
-        {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": '{"command":"pwd"}'}},
+        {
+            "type": "content_block_start",
+            "index": 1,
+            "content_block": {
+                "type": "tool_use",
+                "id": "tool_1",
+                "name": "bash",
+                "input": {},
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": 1,
+            "delta": {"type": "input_json_delta", "partial_json": '{"command":"pwd"}'},
+        },
         {"type": "content_block_stop", "index": 1},
-        {"type": "content_block_start", "index": 2, "content_block": {"type": "tool_use", "id": "tool_2", "name": "bash", "input": {}}},
-        {"type": "content_block_delta", "index": 2, "delta": {"type": "input_json_delta", "partial_json": '{"command":"ls -la"}'}},
+        {
+            "type": "content_block_start",
+            "index": 2,
+            "content_block": {
+                "type": "tool_use",
+                "id": "tool_2",
+                "name": "bash",
+                "input": {},
+            },
+        },
+        {
+            "type": "content_block_delta",
+            "index": 2,
+            "delta": {
+                "type": "input_json_delta",
+                "partial_json": '{"command":"ls -la"}',
+            },
+        },
         {"type": "content_block_stop", "index": 2},
-        {"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"input_tokens": 10, "output_tokens": 10}},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "tool_use"},
+            "usage": {"input_tokens": 10, "output_tokens": 10},
+        },
         {"type": "message_stop"},
     ]
     body = _make_anthropic_sse(events)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",
@@ -377,7 +561,9 @@ async def test_http_401_raises_model_error() -> None:
     """HTTP 401 鉴权失败必须 raise ModelError，状态码体现在 error details。"""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(401, text="Unauthorized", headers={"content-type": "application/json"})
+        return httpx.Response(
+            401, text="Unauthorized", headers={"content-type": "application/json"}
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",
@@ -404,7 +590,9 @@ async def test_http_429_raises_model_error() -> None:
     """HTTP 429 限流必须 raise ModelError。"""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(429, text="Too Many Requests", headers={"content-type": "application/json"})
+        return httpx.Response(
+            429, text="Too Many Requests", headers={"content-type": "application/json"}
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",
@@ -431,7 +619,11 @@ async def test_http_500_raises_model_error() -> None:
     """HTTP 500 服务端错误必须 raise ModelError。"""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, text="Internal Server Error", headers={"content-type": "application/json"})
+        return httpx.Response(
+            500,
+            text="Internal Server Error",
+            headers={"content-type": "application/json"},
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",
@@ -481,9 +673,11 @@ async def test_connect_timeout_raises_model_error() -> None:
             ),
         )
     err = exc_info.value
-    assert "transport" in str(err).lower() or "timeout" in str(err).lower() or err.details.get("error"), (
-        f"ModelError 应反映传输层超时，实际: {err!r}"
-    )
+    assert (
+        "transport" in str(err).lower()
+        or "timeout" in str(err).lower()
+        or err.details.get("error")
+    ), f"ModelError 应反映传输层超时，实际: {err!r}"
 
 
 async def test_connect_error_raises_model_error() -> None:
@@ -508,6 +702,8 @@ async def test_connect_error_raises_model_error() -> None:
             ),
         )
     err = exc_info.value
-    assert "transport" in str(err).lower() or "connect" in str(err).lower() or err.details.get("error"), (
-        f"ModelError 应反映连接被拒，实际: {err!r}"
-    )
+    assert (
+        "transport" in str(err).lower()
+        or "connect" in str(err).lower()
+        or err.details.get("error")
+    ), f"ModelError 应反映连接被拒，实际: {err!r}"

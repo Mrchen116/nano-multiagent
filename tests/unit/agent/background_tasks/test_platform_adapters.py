@@ -16,7 +16,10 @@ from agent.core.background_tasks.models import (
     BackgroundTaskStatus,
     BackgroundTaskType,
 )
-from agent.platform.background_tasks.file_output import BACKGROUND_BASH_MAX_OUTPUT_BYTES, BashFileOutput
+from agent.platform.background_tasks.file_output import (
+    BACKGROUND_BASH_MAX_OUTPUT_BYTES,
+    BashFileOutput,
+)
 from agent.platform.background_tasks.shell_runner import ShellRunner
 from agent.platform.background_tasks.task_store import InMemoryTaskStore
 from agent.platform.background_tasks.wiring import _SystemClock
@@ -174,7 +177,9 @@ def test_file_output_256mib_cap() -> None:
             written += len(big.encode("utf-8"))
         path = output._resolve_path("sess-1", "b1")
         size = path.stat().st_size
-        assert size <= BACKGROUND_BASH_MAX_OUTPUT_BYTES + 200  # truncation notice overhead
+        assert (
+            size <= BACKGROUND_BASH_MAX_OUTPUT_BYTES + 200
+        )  # truncation notice overhead
         content = path.read_text(encoding="utf-8")
         assert "exceeded 256 MiB limit" in content
 
@@ -190,7 +195,14 @@ def test_shell_runner_completes_with_exit_0() -> None:
         runner = ShellRunner()
         completed = []
 
-        def on_complete(*, task_id: str, result_text: str | None, usage, duration_ms: int, tool_use_count: int) -> None:
+        def on_complete(
+            *,
+            task_id: str,
+            result_text: str | None,
+            usage,
+            duration_ms: int,
+            tool_use_count: int,
+        ) -> None:
             completed.append((task_id, duration_ms))
 
         def on_fail(*, task_id: str, error: str) -> None:
@@ -220,7 +232,9 @@ def test_shell_runner_fails_on_nonzero_exit() -> None:
         runner = ShellRunner()
         failed = []
 
-        def on_complete(*, task_id: str, result_text, usage, duration_ms, tool_use_count) -> None:
+        def on_complete(
+            *, task_id: str, result_text, usage, duration_ms, tool_use_count
+        ) -> None:
             pytest.fail("unexpected complete")
 
         def on_fail(*, task_id: str, error: str) -> None:
@@ -246,7 +260,9 @@ def test_shell_runner_stop_terminates_process() -> None:
         runner = ShellRunner()
         failed = []
 
-        def on_complete(*, task_id, result_text, usage, duration_ms, tool_use_count) -> None:
+        def on_complete(
+            *, task_id, result_text, usage, duration_ms, tool_use_count
+        ) -> None:
             pass
 
         def on_fail(*, task_id: str, error: str) -> None:
@@ -306,7 +322,9 @@ def test_shell_runner_output_ready_when_complete_callback_fires() -> None:
 
         path = output.open("sess-1", "b1")
 
-        def on_complete(*, task_id: str, result_text, usage, duration_ms, tool_use_count) -> None:
+        def on_complete(
+            *, task_id: str, result_text, usage, duration_ms, tool_use_count
+        ) -> None:
             observed["content"] = path.read_text(encoding="utf-8")
             done.set()
 
@@ -337,7 +355,9 @@ def test_shell_runner_timeout_kills_process() -> None:
         runner = ShellRunner()
         failed = []
 
-        def on_complete(*, task_id, result_text, usage, duration_ms, tool_use_count) -> None:
+        def on_complete(
+            *, task_id, result_text, usage, duration_ms, tool_use_count
+        ) -> None:
             pass
 
         def on_fail(*, task_id: str, error: str) -> None:

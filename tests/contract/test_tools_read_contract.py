@@ -20,7 +20,14 @@ def test_read_image_contract_returns_text_plus_image_parts(tmp_path: Path) -> No
     (tmp_path / "pixel.png").write_bytes(image_bytes)
     result = ReadTool().run({"path": "pixel.png"}, _context(tmp_path))
 
-    assert set(result.keys()) == {"path", "offset", "next_offset", "total_lines", "truncated", "content"}
+    assert set(result.keys()) == {
+        "path",
+        "offset",
+        "next_offset",
+        "total_lines",
+        "truncated",
+        "content",
+    }
     assert isinstance(result["content"], list)
     assert result["content"][0]["type"] == "text"
     assert result["content"][0]["text"].startswith("Read image file [image/png]")
@@ -37,7 +44,9 @@ def test_read_truncation_contract_returns_truncated_content(tmp_path: Path) -> N
     (tmp_path / "note.txt").write_text("a\nb\nc\nd\n", encoding="utf-8")
     result = ReadTool().run(
         {"path": "note.txt", "offset": 1, "limit": 4},
-        _context(tmp_path, config=ToolSafetyConfig(read_max_lines=2, read_max_bytes=1024)),
+        _context(
+            tmp_path, config=ToolSafetyConfig(read_max_lines=2, read_max_bytes=1024)
+        ),
     )
 
     assert result["truncated"] is True

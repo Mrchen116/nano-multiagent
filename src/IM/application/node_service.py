@@ -16,7 +16,9 @@ class NodeService:
         """Bind service to the node repository used by IM routes and WS handlers."""
         self._nodes = nodes
 
-    def list_nodes(self, *, connected_node_ids: set[str] | None = None) -> list[NodeStatus]:
+    def list_nodes(
+        self, *, connected_node_ids: set[str] | None = None
+    ) -> list[NodeStatus]:
         """List node snapshots with read-time online/offline projection."""
         nodes = self._nodes.list_nodes()
         return [
@@ -38,9 +40,13 @@ class NodeService:
         """
         nodes = self._nodes.list_nodes_for_owner(owner_id=owner_id)
         ownerless = [item for item in self._nodes.list_nodes() if not item.owner_id]
-        merged = list(nodes) + [item for item in ownerless if item.node_id not in {n.node_id for n in nodes}]
+        merged = list(nodes) + [
+            item for item in ownerless if item.node_id not in {n.node_id for n in nodes}
+        ]
         return [
-            self._project_effective_node_status(node=node, connected_node_ids=connected_node_ids)
+            self._project_effective_node_status(
+                node=node, connected_node_ids=connected_node_ids
+            )
             for node in merged
         ]
 

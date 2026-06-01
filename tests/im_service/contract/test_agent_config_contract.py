@@ -53,7 +53,9 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "features",
             "custom_prompt",
         }
-        assert response.json()["workspace_root"].endswith("/nano-assistant/workspace/agent-1")
+        assert response.json()["workspace_root"].endswith(
+            "/nano-assistant/workspace/agent-1"
+        )
         assert response.json()["workspace_is_default"] is True
 
 
@@ -100,8 +102,12 @@ def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) 
         assert patch_resp.status_code == 200, patch_resp.text
         body = patch_resp.json()
         # Response must echo back the written features + custom_prompt
-        assert body["features"] == {"memory_curation": False}, f"features not persisted: {body}"
-        assert body["custom_prompt"] == "You are a helpful chef.", f"custom_prompt not persisted: {body}"
+        assert body["features"] == {"memory_curation": False}, (
+            f"features not persisted: {body}"
+        )
+        assert body["custom_prompt"] == "You are a helpful chef.", (
+            f"custom_prompt not persisted: {body}"
+        )
 
         # GET must return the same values (proves DB write, not just response echo)
         get_resp = client.get("/im/v1/agents/agent-persist/config?source=mirror")
@@ -111,10 +117,14 @@ def test_patch_agent_config_persists_features_and_custom_prompt(tmp_path: Path) 
         assert get_body["custom_prompt"] == "You are a helpful chef."
 
 
-def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_node_capabilities_contract_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Expose stable node capability fields for node-first agent creation (按需向网关拉取)."""
 
-    async def _fake_node_capabilities(self, *, target_node_id: str, timeout_seconds: float = 15.0):  # noqa: ARG002
+    async def _fake_node_capabilities(
+        self, *, target_node_id: str, timeout_seconds: float = 15.0
+    ):  # noqa: ARG002
         return {
             "models": ["codex_oauth:gpt-5.5"],
             "skills": ["plan"],
@@ -123,7 +133,9 @@ def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.Mo
             "default_system_prompt": "",
         }
 
-    monkeypatch.setattr(GatewayHandler, "request_node_capabilities", _fake_node_capabilities)
+    monkeypatch.setattr(
+        GatewayHandler, "request_node_capabilities", _fake_node_capabilities
+    )
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -149,7 +161,9 @@ def test_node_capabilities_contract_shape(tmp_path: Path, monkeypatch: pytest.Mo
 
 # feat-379-M6 (ISSUE-1): node capabilities must expose features list so create page
 # can render the Features toggles without a per-agent capabilities call.
-def test_node_capabilities_includes_features_list(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_node_capabilities_includes_features_list(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """GET /im/v1/nodes/{id}/capabilities must include a features list from Gateway.
 
     The agent-create page calls getNodeCapabilities (not getAgentCapabilities) because
@@ -157,7 +171,9 @@ def test_node_capabilities_includes_features_list(tmp_path: Path, monkeypatch: p
     the frontend capabilityFeatures array is empty and the Features section is hidden.
     """
 
-    async def _fake_node_capabilities_with_features(self, *, target_node_id: str, timeout_seconds: float = 15.0):  # noqa: ARG002
+    async def _fake_node_capabilities_with_features(
+        self, *, target_node_id: str, timeout_seconds: float = 15.0
+    ):  # noqa: ARG002
         return {
             "models": ["gpt-4"],
             "skills": [],
@@ -176,7 +192,11 @@ def test_node_capabilities_includes_features_list(tmp_path: Path, monkeypatch: p
             ],
         }
 
-    monkeypatch.setattr(GatewayHandler, "request_node_capabilities", _fake_node_capabilities_with_features)
+    monkeypatch.setattr(
+        GatewayHandler,
+        "request_node_capabilities",
+        _fake_node_capabilities_with_features,
+    )
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -188,7 +208,9 @@ def test_node_capabilities_includes_features_list(tmp_path: Path, monkeypatch: p
 
     assert response.status_code == 200
     body = response.json()
-    assert "features" in body, "node capabilities must contain a features list (ISSUE-1 regression)"
+    assert "features" in body, (
+        "node capabilities must contain a features list (ISSUE-1 regression)"
+    )
     assert isinstance(body["features"], list)
     assert len(body["features"]) >= 1
     feat = body["features"][0]
@@ -214,7 +236,12 @@ def test_get_agent_config_live_merge_preserves_features_and_custom_prompt(
     async def _fake_agent_config(self, *, target_node_id: str, agent_id: str):  # noqa: ARG001, ARG002
         # Live snapshot from Gateway — intentionally omits features/custom_prompt,
         # which is the real-world case (Gateway doesn't carry IM-owned config fields).
-        return {"display_name": "Live Agent", "system_prompt": "Live prompt", "skills": [], "tool_allowlist": ["memory"]}
+        return {
+            "display_name": "Live Agent",
+            "system_prompt": "Live prompt",
+            "skills": [],
+            "tool_allowlist": ["memory"],
+        }
 
     monkeypatch.setattr(GatewayHandler, "request_agent_config", _fake_agent_config)
 
@@ -254,7 +281,9 @@ def test_get_agent_config_live_merge_preserves_features_and_custom_prompt(
         )
 
 
-def test_agent_prompt_preview_proxy_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_agent_prompt_preview_proxy_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """IM proxy route POST /im/v1/agents/{id}/prompt-preview forwards to Gateway.
 
     feat-379-M2 R5: IM must forward the request to Gateway via
@@ -276,7 +305,9 @@ def test_agent_prompt_preview_proxy_contract(tmp_path: Path, monkeypatch: pytest
     ) -> dict:
         return {"prompt": "You are a helpful assistant.", "section_count": 2}
 
-    monkeypatch.setattr(GatewayHandler, "request_prompt_preview", _fake_request_prompt_preview)
+    monkeypatch.setattr(
+        GatewayHandler, "request_prompt_preview", _fake_request_prompt_preview
+    )
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -316,7 +347,9 @@ def test_agent_prompt_preview_proxy_contract(tmp_path: Path, monkeypatch: pytest
     assert body["section_count"] == 2
 
 
-def test_agent_capabilities_features_contract(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_agent_capabilities_features_contract(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Agent capabilities response must include features list forwarded from Gateway.
 
     feat-379-M2 (decision 7): IM forwards the FEATURE_REGISTRY projection
@@ -359,7 +392,9 @@ def test_agent_capabilities_features_contract(tmp_path: Path, monkeypatch: pytes
             "features": _GATEWAY_FEATURES,
         }
 
-    monkeypatch.setattr(GatewayHandler, "request_agent_capabilities", _fake_agent_capabilities)
+    monkeypatch.setattr(
+        GatewayHandler, "request_agent_capabilities", _fake_agent_capabilities
+    )
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -391,7 +426,13 @@ def test_agent_capabilities_features_contract(tmp_path: Path, monkeypatch: pytes
     assert isinstance(features, list)
     assert len(features) == 2
     # each feature item must carry required fields
-    required_feature_fields = {"key", "label_i18n", "help_i18n", "default_on", "available"}
+    required_feature_fields = {
+        "key",
+        "label_i18n",
+        "help_i18n",
+        "default_on",
+        "available",
+    }
     for feat in features:
         assert required_feature_fields.issubset(set(feat)), f"missing fields in {feat}"
     # spot-check first feature values round-tripped correctly
@@ -432,7 +473,9 @@ def test_agent_prompt_preview_forwards_skill_ids_to_gateway(
         captured.append({"skill_ids": list(skill_ids or [])})
         return {"prompt": "preview", "section_count": 1}
 
-    monkeypatch.setattr(GatewayHandler, "request_prompt_preview", _fake_request_prompt_preview)
+    monkeypatch.setattr(
+        GatewayHandler, "request_prompt_preview", _fake_request_prompt_preview
+    )
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
@@ -494,10 +537,14 @@ def test_node_prompt_preview_derives_workspace_root_from_agent_id_hint(
         skill_ids: list | None = None,  # noqa: ARG001
         timeout_seconds: float = 10.0,  # noqa: ARG001
     ) -> dict:
-        captured.append({"workspace_root": workspace_root, "skill_ids": list(skill_ids or [])})
+        captured.append(
+            {"workspace_root": workspace_root, "skill_ids": list(skill_ids or [])}
+        )
         return {"prompt": "node-preview", "section_count": 1}
 
-    monkeypatch.setattr(GatewayHandler, "request_node_prompt_preview", _fake_request_node_prompt_preview)
+    monkeypatch.setattr(
+        GatewayHandler, "request_node_prompt_preview", _fake_request_node_prompt_preview
+    )
 
     from IM.domain.models import managed_workspace_root
 
@@ -506,7 +553,9 @@ def test_node_prompt_preview_derives_workspace_root_from_agent_id_hint(
         owner = register_user(client, username="owner", display_name="Owner")
         authorize(client, owner)
         nodes = NodeRepository(app.state.connection)
-        nodes.upsert_node(node_id="node-create", node_name="MacBook", owner_id=owner.owner_id)
+        nodes.upsert_node(
+            node_id="node-create", node_name="MacBook", owner_id=owner.owner_id
+        )
 
         response = client.post(
             "/im/v1/nodes/node-create/prompt-preview",
@@ -556,14 +605,18 @@ def test_node_prompt_preview_workspace_root_empty_when_no_agent_id_hint(
         captured.append({"workspace_root": workspace_root})
         return {"prompt": "node-preview-empty", "section_count": 1}
 
-    monkeypatch.setattr(GatewayHandler, "request_node_prompt_preview", _fake_request_node_prompt_preview)
+    monkeypatch.setattr(
+        GatewayHandler, "request_node_prompt_preview", _fake_request_node_prompt_preview
+    )
 
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         owner = register_user(client, username="owner", display_name="Owner")
         authorize(client, owner)
         nodes = NodeRepository(app.state.connection)
-        nodes.upsert_node(node_id="node-empty", node_name="MacBook", owner_id=owner.owner_id)
+        nodes.upsert_node(
+            node_id="node-empty", node_name="MacBook", owner_id=owner.owner_id
+        )
 
         response = client.post(
             "/im/v1/nodes/node-empty/prompt-preview",

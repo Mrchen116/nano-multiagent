@@ -16,11 +16,15 @@ from personal_assistant.gateway.session_keys import SessionBindingStore
 from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
 
-def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_for_new_conversations(tmp_path: Path) -> None:
+def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_for_new_conversations(
+    tmp_path: Path,
+) -> None:
     agent_a_dir = tmp_path / "agent-a"
     agent_a_dir.mkdir()
     initial_agent = AgentWorkspaceConfig(
-        agent_id="agent-a", workspace_root=agent_a_dir, title="Agent A",
+        agent_id="agent-a",
+        workspace_root=agent_a_dir,
+        title="Agent A",
         system_prompt="You are Agent A v1.",
     )
     channel = _FakeChannel("web")
@@ -54,7 +58,9 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
     refreshed_workspace.mkdir()
     pipeline.register_agent(
         AgentWorkspaceConfig(
-            agent_id="agent-a", workspace_root=refreshed_workspace, title="Agent A v2",
+            agent_id="agent-a",
+            workspace_root=refreshed_workspace,
+            title="Agent A v2",
             system_prompt="You are Agent A v2.",
         )
     )
@@ -158,11 +164,15 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
     }
 
 
-def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_session(tmp_path: Path) -> None:
+def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_session(
+    tmp_path: Path,
+) -> None:
     agent_a_dir = tmp_path / "agent-a"
     agent_a_dir.mkdir()
     initial_agent = AgentWorkspaceConfig(
-        agent_id="agent-a", workspace_root=agent_a_dir, title="Agent A",
+        agent_id="agent-a",
+        workspace_root=agent_a_dir,
+        title="Agent A",
         system_prompt="Reply with ALPHA_ACK_M170.",
     )
     channel = _FakeChannel("web_relay")
@@ -200,7 +210,9 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
     # Simulate config sync: update system_prompt via register_agent + drop stale sessions.
     pipeline.register_agent(
         AgentWorkspaceConfig(
-            agent_id="agent-a", workspace_root=agent_a_dir, title="Agent A",
+            agent_id="agent-a",
+            workspace_root=agent_a_dir,
+            title="Agent A",
             system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
         )
     )
@@ -265,7 +277,9 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
     ]
 
 
-def test_session_run_queue_serializes_same_session_and_allows_cross_session_parallelism() -> None:
+def test_session_run_queue_serializes_same_session_and_allows_cross_session_parallelism() -> (
+    None
+):
     queue = SessionRunQueue()
     events: list[str] = []
     same_session_active = 0
@@ -290,9 +304,13 @@ def test_session_run_queue_serializes_same_session_and_allows_cross_session_para
         return name
 
     async def exercise_queue() -> tuple[list[str], int, int, list[str]]:
-        first_task = asyncio.create_task(queue.submit("sess-a", lambda: same_session_job("one")))
+        first_task = asyncio.create_task(
+            queue.submit("sess-a", lambda: same_session_job("one"))
+        )
         await asyncio.sleep(0)
-        second_task = asyncio.create_task(queue.submit("sess-a", lambda: same_session_job("two")))
+        second_task = asyncio.create_task(
+            queue.submit("sess-a", lambda: same_session_job("two"))
+        )
         await asyncio.sleep(0.01)
         assert not second_started.is_set()
         gate.set()
@@ -311,7 +329,12 @@ def test_session_run_queue_serializes_same_session_and_allows_cross_session_para
             queue.submit("sess-b", lambda: cross_session_job("b")),
             queue.submit("sess-c", lambda: cross_session_job("c")),
         )
-        return events, same_session_peak, cross_session_peak, [first_result, second_result, *parallel_results]
+        return (
+            events,
+            same_session_peak,
+            cross_session_peak,
+            [first_result, second_result, *parallel_results],
+        )
 
     recorded_events, same_peak, cross_peak, results = asyncio.run(exercise_queue())
 

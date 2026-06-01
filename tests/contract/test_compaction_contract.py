@@ -9,7 +9,11 @@ from agent.core.agent.runtime import AgentRuntime
 
 
 def test_compaction_reason_values_contract() -> None:
-    assert [reason.value for reason in CompactionReason] == ["threshold", "overflow", "manual"]
+    assert [reason.value for reason in CompactionReason] == [
+        "threshold",
+        "overflow",
+        "manual",
+    ]
 
 
 def test_compaction_settings_fields_contract() -> None:

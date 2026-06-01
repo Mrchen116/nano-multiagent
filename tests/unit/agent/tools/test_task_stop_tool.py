@@ -26,7 +26,9 @@ def _make_tool() -> TaskStopTool:
 
 def _make_ctx(tmpdir: str) -> ToolContext:
     safety = ToolSafety(repo_root=Path(tmpdir), config=ToolSafetyConfig())
-    return ToolContext(repo_root=Path(tmpdir), cwd=Path(tmpdir), safety=safety, session_id="parent_1")
+    return ToolContext(
+        repo_root=Path(tmpdir), cwd=Path(tmpdir), safety=safety, session_id="parent_1"
+    )
 
 
 def test_stop_running_bash_task() -> None:
@@ -117,12 +119,14 @@ def test_stop_already_terminal_raises_tool_error() -> None:
 
 def test_serialize_killed() -> None:
     tool = _make_tool()
-    text = tool.serialize_result({
-        "status": "killed",
-        "task_id": "b1",
-        "task_type": "bash",
-        "output_file": "/tmp/b1.output",
-    })
+    text = tool.serialize_result(
+        {
+            "status": "killed",
+            "task_id": "b1",
+            "task_type": "bash",
+            "output_file": "/tmp/b1.output",
+        }
+    )
     assert "Task stopped." in text
     assert "b1" in text
     assert "/tmp/b1.output" in text

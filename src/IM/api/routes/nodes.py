@@ -3,7 +3,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
-from IM.api.deps import current_user, get_config_service, get_gateway_handler, get_node_service
+from IM.api.deps import (
+    current_user,
+    get_config_service,
+    get_gateway_handler,
+    get_node_service,
+)
 from IM.api.routes.agents import (
     AgentConfigResponse,
     AllowlistOptionResponse,
@@ -129,7 +134,9 @@ async def list_nodes(
     ]
 
 
-@router.get("/im/v1/nodes/{node_id}/capabilities", response_model=NodeCapabilitiesResponse)
+@router.get(
+    "/im/v1/nodes/{node_id}/capabilities", response_model=NodeCapabilitiesResponse
+)
 async def get_node_capabilities(
     node_id: str,
     user: User = Depends(current_user),
@@ -138,7 +145,9 @@ async def get_node_capabilities(
 ) -> NodeCapabilitiesResponse:
     """向已连接的网关节点当场请求运行时能力（不在 IM 库中缓存目录数据）。"""
     if service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found"
+        )
     live = await gateway_handler.request_node_capabilities(target_node_id=node_id)
     if live is None:
         raise HTTPException(
@@ -150,15 +159,21 @@ async def get_node_capabilities(
         models=_coerce_string_list(live.get("models")),
         skills=coerce_allowlist_options(live.get("skills")),
         tools=coerce_allowlist_options(live.get("tools")),
-        platform_default_model=_coerce_optional_text(live.get("platform_default_model"), fallback=None),
-        default_system_prompt=_coerce_text(live.get("default_system_prompt"), fallback=""),
+        platform_default_model=_coerce_optional_text(
+            live.get("platform_default_model"), fallback=None
+        ),
+        default_system_prompt=_coerce_text(
+            live.get("default_system_prompt"), fallback=""
+        ),
         # feat-379-M6 (ISSUE-1): forward features from Gateway so agent-create page
         # can render the Features section without a per-agent capabilities call.
         features=_coerce_feature_list(live.get("features")),
     )
 
 
-@router.post("/im/v1/nodes/{node_id}/prompt-preview", response_model=PromptPreviewResponse)
+@router.post(
+    "/im/v1/nodes/{node_id}/prompt-preview", response_model=PromptPreviewResponse
+)
 async def node_prompt_preview(
     node_id: str,
     payload: NodePromptPreviewRequest,
@@ -173,9 +188,13 @@ async def node_prompt_preview(
     skill_ids are forwarded so the kernel can resolve real skill descriptions.
     """
     if service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found"
+        )
     # Derive workspace_root from agent_id_hint (IM owns this mapping per decision 1).
-    workspace_root = managed_workspace_root(payload.agent_id_hint) if payload.agent_id_hint else ""
+    workspace_root = (
+        managed_workspace_root(payload.agent_id_hint) if payload.agent_id_hint else ""
+    )
     result = await gateway_handler.request_node_prompt_preview(
         target_node_id=node_id,
         features=payload.features,
@@ -186,7 +205,10 @@ async def node_prompt_preview(
         skill_ids=payload.skill_ids,
     )
     if result is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="target_node_id is not connected")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="target_node_id is not connected",
+        )
     raw_prompt = result.get("prompt")
     prompt = raw_prompt if isinstance(raw_prompt, str) else ""
     raw_count = result.get("section_count")
@@ -194,7 +216,11 @@ async def node_prompt_preview(
     return PromptPreviewResponse(prompt=prompt, section_count=section_count)
 
 
-@router.post("/im/v1/nodes/{node_id}/agents", response_model=AgentConfigResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/im/v1/nodes/{node_id}/agents",
+    response_model=AgentConfigResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def create_node_agent(
     node_id: str,
     payload: CreateNodeAgentRequest,
@@ -209,7 +235,9 @@ async def create_node_agent(
     fresh runtime). Cross-tenant access returns 404.
     """
     if node_service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found"
+        )
     created_payload = await gateway_handler.request_agent_create(
         target_node_id=node_id,
         payload={
@@ -225,28 +253,55 @@ async def create_node_agent(
         },
     )
     if created_payload is None:
-        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="target_node_id is not connected")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="target_node_id is not connected",
+        )
     workspace_root = created_payload.get("workspace_root")
     if not isinstance(workspace_root, str) or not workspace_root.strip():
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="node did not return workspace_root")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="node did not return workspace_root",
+        )
     try:
         created = service.create_profile(
             agent_id=payload.agent_id,
             owner_id=payload.owner_id,
             node_id=node_id,
-            display_name=_coerce_text(created_payload.get("display_name"), fallback=payload.display_name),
-            description=_coerce_text(created_payload.get("description"), fallback=payload.description),
-            system_prompt=_coerce_text(created_payload.get("system_prompt"), fallback=payload.system_prompt),
-            skills=_coerce_string_list(created_payload.get("skills"), fallback=payload.skills),
-            tool_allowlist=_coerce_string_list(created_payload.get("tool_allowlist"), fallback=payload.tool_allowlist),
-            group_reply_policy=_coerce_text(created_payload.get("group_reply_policy"), fallback=payload.group_reply_policy),
-            default_model=_coerce_optional_text(created_payload.get("default_model"), fallback=payload.default_model),
+            display_name=_coerce_text(
+                created_payload.get("display_name"), fallback=payload.display_name
+            ),
+            description=_coerce_text(
+                created_payload.get("description"), fallback=payload.description
+            ),
+            system_prompt=_coerce_text(
+                created_payload.get("system_prompt"), fallback=payload.system_prompt
+            ),
+            skills=_coerce_string_list(
+                created_payload.get("skills"), fallback=payload.skills
+            ),
+            tool_allowlist=_coerce_string_list(
+                created_payload.get("tool_allowlist"), fallback=payload.tool_allowlist
+            ),
+            group_reply_policy=_coerce_text(
+                created_payload.get("group_reply_policy"),
+                fallback=payload.group_reply_policy,
+            ),
+            default_model=_coerce_optional_text(
+                created_payload.get("default_model"), fallback=payload.default_model
+            ),
             workspace_root=workspace_root,
         )
     except LookupError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     except ValueError as exc:
-        status_code = status.HTTP_409_CONFLICT if str(exc) == "agent_id already exists" else status.HTTP_422_UNPROCESSABLE_ENTITY
+        status_code = (
+            status.HTTP_409_CONFLICT
+            if str(exc) == "agent_id already exists"
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
         raise HTTPException(status_code=status_code, detail=str(exc)) from exc
     return to_agent_config_response(created, service=service)
 
@@ -260,7 +315,9 @@ def update_node_config(
 ) -> NodeResponse:
     """Update one node's center-config knobs and return the new snapshot (owner-scoped)."""
     if service.get_node_for_owner(node_id=node_id, owner_id=user.owner_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="node_id not found"
+        )
     try:
         updated = service.update_node_config(
             node_id=node_id,
@@ -269,7 +326,9 @@ def update_node_config(
             reporting_enabled=payload.reporting_enabled,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     return to_node_response(updated)
 
 

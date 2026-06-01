@@ -45,7 +45,9 @@ def setup(hooks):  # noqa: ANN001, ANN201
         latest_usage = _extract_usage_metrics(event.get("latest_usage")) or usage
         if usage is None or latest_usage is None:
             return
-        session_id = _resolve_session_id(event=event, fallback_session_id=ctx.session_id)
+        session_id = _resolve_session_id(
+            event=event, fallback_session_id=ctx.session_id
+        )
         if session_id is None:
             return
         turn_id = event.get("turn_id")
@@ -72,7 +74,9 @@ def setup(hooks):  # noqa: ANN001, ANN201
                 ),
             )
             prompt_tokens, completion_tokens, total_tokens = usage
-            latest_prompt_tokens, latest_completion_tokens, latest_total_tokens = latest_usage
+            latest_prompt_tokens, latest_completion_tokens, latest_total_tokens = (
+                latest_usage
+            )
             totals_by_session[session_id] = SessionUsageSnapshot(
                 prompt_tokens=previous.prompt_tokens + prompt_tokens,
                 completion_tokens=previous.completion_tokens + completion_tokens,
@@ -84,7 +88,9 @@ def setup(hooks):  # noqa: ANN001, ANN201
             )
 
     def on_session_shutdown(event, ctx):  # noqa: ANN001
-        session_id = _resolve_session_id(event=event, fallback_session_id=ctx.session_id)
+        session_id = _resolve_session_id(
+            event=event, fallback_session_id=ctx.session_id
+        )
         if session_id is None:
             return
         with state_lock:

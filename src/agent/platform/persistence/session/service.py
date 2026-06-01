@@ -60,7 +60,9 @@ class SessionService:
         # the product default. Without this wire, the bootstrap output was a
         # dead field — feat-349 self-evolution hook silently fell back to
         # interval=10 defaults regardless of user config.
-        self._default_session_metadata: dict[str, Any] = dict(default_session_metadata or {})
+        self._default_session_metadata: dict[str, Any] = dict(
+            default_session_metadata or {}
+        )
 
     @property
     def manager(self) -> SessionManager:
@@ -143,9 +145,13 @@ class SessionService:
             raise ValueError(f"session does not exist: {session_id}")
 
         normalized_metadata = dict(metadata or {})
-        normalized_idempotency_key = idempotency_key.strip() if isinstance(idempotency_key, str) else ""
+        normalized_idempotency_key = (
+            idempotency_key.strip() if isinstance(idempotency_key, str) else ""
+        )
         if normalized_idempotency_key:
-            normalized_metadata.setdefault("idempotency_key", normalized_idempotency_key)
+            normalized_metadata.setdefault(
+                "idempotency_key", normalized_idempotency_key
+            )
             existing = self._find_message_by_idempotency_key(
                 session_id=session_id,
                 idempotency_key=normalized_idempotency_key,
@@ -167,10 +173,19 @@ class SessionService:
         return AppendMessageResult(entry=entry, created=True)
 
     def _find_message_by_idempotency_key(
-        self, *, session_id: str, idempotency_key: str, workspace_root: Path | None = None
+        self,
+        *,
+        session_id: str,
+        idempotency_key: str,
+        workspace_root: Path | None = None,
     ) -> SessionEntry | None:
-        for entry in self._manager.list_entries(session_id, workspace_root=workspace_root):
-            if not isinstance(entry, SessionEntry) or entry.kind is not SessionEntryKind.TURN_APPENDED:
+        for entry in self._manager.list_entries(
+            session_id, workspace_root=workspace_root
+        ):
+            if (
+                not isinstance(entry, SessionEntry)
+                or entry.kind is not SessionEntryKind.TURN_APPENDED
+            ):
                 continue
             metadata = entry.data.get("metadata")
             if not isinstance(metadata, Mapping):

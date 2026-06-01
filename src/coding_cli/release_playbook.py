@@ -103,7 +103,9 @@ def _build_rollback_steps() -> list[dict[str, str]]:
 
 
 def _default_runner(command: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, shell=True, check=False, capture_output=True, text=True)
+    return subprocess.run(
+        command, shell=True, check=False, capture_output=True, text=True
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:

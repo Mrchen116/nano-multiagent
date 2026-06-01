@@ -59,7 +59,11 @@ def extract_context_budget_metrics(payload: object) -> tuple[int, int, float] | 
     usage_ratio = payload.get("usage_ratio")
     if isinstance(used_tokens, bool) or not isinstance(used_tokens, int):
         return None
-    if isinstance(max_tokens, bool) or not isinstance(max_tokens, int) or max_tokens <= 0:
+    if (
+        isinstance(max_tokens, bool)
+        or not isinstance(max_tokens, int)
+        or max_tokens <= 0
+    ):
         return None
 
     resolved_ratio: float

@@ -9,10 +9,15 @@ import pytest
 
 
 def _make_dispatch_handler(
-    im_manager=None, *, kernel_client=None, session_store=None, agent_workspace_roots=None
+    im_manager=None,
+    *,
+    kernel_client=None,
+    session_store=None,
+    agent_workspace_roots=None,
 ):
     """Build a minimal InternalDispatchHandler for testing."""
     from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
+
     return InternalDispatchHandler(
         im_connection_manager=im_manager,
         kernel_client=kernel_client,
@@ -39,7 +44,9 @@ def test_dispatch_handler_returns_ok_when_im_manager_available() -> None:
     )
 
     handler = _make_dispatch_handler(im_manager=manager)
-    result = asyncio.run(handler.handle({"text": "hi", "to": "agent_b", "from_session_id": "sess_1"}))
+    result = asyncio.run(
+        handler.handle({"text": "hi", "to": "agent_b", "from_session_id": "sess_1"})
+    )
     assert result["ok"] is True
     assert result["conversation_id"] == "conv-1"
     manager.send_agent_message.assert_called_once()
@@ -51,7 +58,9 @@ def test_dispatch_handler_returns_error_when_no_im_manager() -> None:
     from personal_assistant.gateway.internal_dispatch import InternalDispatchHandler
 
     handler = InternalDispatchHandler(im_connection_manager=None)
-    result = asyncio.run(handler.handle({"text": "hi", "to": "agent_b", "from_session_id": "sess_1"}))
+    result = asyncio.run(
+        handler.handle({"text": "hi", "to": "agent_b", "from_session_id": "sess_1"})
+    )
     assert result["ok"] is False
     assert "error" in result
 
@@ -65,7 +74,9 @@ def test_dispatch_handler_returns_error_when_im_manager_disconnected() -> None:
     manager.connected = False
 
     handler = InternalDispatchHandler(im_connection_manager=manager)
-    result = asyncio.run(handler.handle({"text": "hi", "to": "agent_b", "from_session_id": "sess_1"}))
+    result = asyncio.run(
+        handler.handle({"text": "hi", "to": "agent_b", "from_session_id": "sess_1"})
+    )
     assert result["ok"] is False
     assert "error" in result
 
@@ -103,7 +114,9 @@ def test_dispatch_handler_binds_direct_conversation_and_appends_history() -> Non
         )
     )
     kernel_client = MagicMock()
-    session_store = PersistentSessionBindingStore(db_path=Path("/tmp/test-dispatch-bindings.sqlite3"))
+    session_store = PersistentSessionBindingStore(
+        db_path=Path("/tmp/test-dispatch-bindings.sqlite3")
+    )
     handler = _make_dispatch_handler(
         im_manager=manager,
         kernel_client=kernel_client,

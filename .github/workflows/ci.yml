@@ -1,0 +1,55 @@
+# feat-388 触点 (c) — 远端兜底 CI：push/PR 时前后端双门任一红阻止合并
+# 两个并行 job：python（ruff + pytest）+ frontend（vitest）互不依赖，失败各自独立。
+name: CI
+
+on:
+  # push 仅限主干：功能分支由 pull_request 跑一次，避免开 PR 后同一 commit 被 push+pull_request 双触发。
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    name: Python checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: ruff check
+        run: ruff check .
+
+      - name: ruff format check
+        run: ruff format --check .
+
+      - name: pytest (not e2e)
+        run: pytest -m "not e2e"
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: src/IM/frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # vitest 3.x + jsdom 27 require Node >= 20
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: src/IM/frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # npm run test = vitest run；不跑 npm run build（不引入 tsc 类型检查）
+      - name: vitest run
+        run: npm run test

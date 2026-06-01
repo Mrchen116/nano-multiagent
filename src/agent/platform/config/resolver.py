@@ -35,7 +35,11 @@ class ConfigResolver:
         workspace_root: Path | None = None,
     ) -> None:
         self._profile = profile
-        self._workspace_root = workspace_root.expanduser().resolve() if workspace_root is not None else None
+        self._workspace_root = (
+            workspace_root.expanduser().resolve()
+            if workspace_root is not None
+            else None
+        )
 
     def global_config_root(self) -> Path:
         """Return the absolute product-global config directory.

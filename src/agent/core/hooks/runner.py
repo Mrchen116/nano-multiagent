@@ -197,7 +197,9 @@ class HookRunner:
                             },
                         )
 
-                asyncio.create_task(_run(), name=f"bg-hook:{normalized_event}:{reg.hook_id}")
+                asyncio.create_task(
+                    _run(), name=f"bg-hook:{normalized_event}:{reg.hook_id}"
+                )
 
             _make_task(registration)
 

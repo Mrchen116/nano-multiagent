@@ -30,7 +30,9 @@ class ReplRunQueue:
         self._state_lock = Lock()
         self._active = False
         self._closed = False
-        self._worker = Thread(target=self._run, name="nano-cli-repl-run-queue", daemon=True)
+        self._worker = Thread(
+            target=self._run, name="nano-cli-repl-run-queue", daemon=True
+        )
         self._worker.start()
 
     def enqueue(self, *, session_id: str, text: str) -> int:
@@ -69,7 +71,9 @@ class ReplRunQueue:
         with self._state_lock:
             if self._closed:
                 return True
-            preserve_head = wait_for_drain and not self._active and self._queue.qsize() > 0
+            preserve_head = (
+                wait_for_drain and not self._active and self._queue.qsize() > 0
+            )
             self._closed = True
         if discard_pending:
             self._discard_pending_items(preserve_head=preserve_head)
@@ -119,7 +123,11 @@ class ReplRunQueue:
         Returns:
             True when queue drained, False when timeout reached.
         """
-        deadline = None if timeout_seconds is None else (time.monotonic() + max(timeout_seconds, 0.0))
+        deadline = (
+            None
+            if timeout_seconds is None
+            else (time.monotonic() + max(timeout_seconds, 0.0))
+        )
         while True:
             if self.backlog_size() == 0:
                 return True

@@ -16,7 +16,17 @@ from agent.platform.tools.registry import ToolRegistry
 
 
 class _RuntimeStub:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, origin=None, workspace_root=None):  # noqa: ANN001, ANN201
+    async def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+        controller=None,
+        origin=None,
+        workspace_root=None,
+    ):  # noqa: ANN001, ANN201
         del parts, stream, origin
         return TurnResult(
             session_id=session_id,
@@ -56,11 +66,17 @@ async def test_run_tool_hook_logs_share_correlation_fields(tmp_path: Path) -> No
         raise RuntimeError("boom")
 
     hooks.on("tool_execution_start", break_on_tool_start, source="runtime")
-    tools = build_tool_registry(repo_root=tmp_path, hook_runner=HookRunner(registry=hooks))
+    tools = build_tool_registry(
+        repo_root=tmp_path, hook_runner=HookRunner(registry=hooks)
+    )
     tools.register(_EchoTool())
 
     with capture_logs() as records:
-        with bind_correlation(session_id=session.session_id, turn_id="turn_obs_integration", trace_id="trace_obs_integration"):
+        with bind_correlation(
+            session_id=session.session_id,
+            turn_id="turn_obs_integration",
+            trace_id="trace_obs_integration",
+        ):
             run_record = runs.submit(
                 session_id=session.session_id,
                 parts=[{"type": "text", "text": "ping"}],
@@ -69,25 +85,31 @@ async def test_run_tool_hook_logs_share_correlation_fields(tmp_path: Path) -> No
             deadline = time.time() + 1.0
             while time.time() < deadline:
                 current = runs.get(run_record.run_id)
-                if current is not None and current.status.value in {"completed", "failed", "cancelled"}:
+                if current is not None and current.status.value in {
+                    "completed",
+                    "failed",
+                    "cancelled",
+                }:
                     break
                 time.sleep(0.01)
 
             await tools.execute(
-                    "echo",
-                    {"text": "hi"},
-                    hook_context=HookContext(
-                        session_id=session.session_id,
-                        turn_id="turn_obs_integration",
-                        repo_root=Path.cwd(),
-                        metadata={"tool_call_id": "call_obs_integration"},
-                    ),
-                )
+                "echo",
+                {"text": "hi"},
+                hook_context=HookContext(
+                    session_id=session.session_id,
+                    turn_id="turn_obs_integration",
+                    repo_root=Path.cwd(),
+                    metadata={"tool_call_id": "call_obs_integration"},
+                ),
+            )
 
     by_message = {item["message"] for item in records}
     assert "run_submitted" in by_message
     assert "tool_execution_start" in by_message
-    hook_logs = [item for item in records if item["message"] == "hook execution isolated"]
+    hook_logs = [
+        item for item in records if item["message"] == "hook execution isolated"
+    ]
     assert hook_logs
 
     hook_fields = hook_logs[0]["fields"]

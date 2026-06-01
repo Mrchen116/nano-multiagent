@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from typing import Literal
 
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.config.local_store import AgentWorkspaceConfig
-from personal_assistant.gateway.background_session_events import BackgroundSessionEventSubscriber
+from personal_assistant.gateway.background_session_events import (
+    BackgroundSessionEventSubscriber,
+)
 from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
@@ -67,7 +67,9 @@ class RelayLifecycleUpdate:
     kernel_session_id: str | None = None
 
 
-RelayLifecycleCallback = Callable[[InboundMessage, RelayLifecycleUpdate], Awaitable[None]]
+RelayLifecycleCallback = Callable[
+    [InboundMessage, RelayLifecycleUpdate], Awaitable[None]
+]
 
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 # Default port for the Gateway's internal HTTP dispatch endpoint.
@@ -112,7 +114,8 @@ class InboundPipeline:
         group_context_store: GroupContextStore | None = None,
         gateway_internal_port: int = _DEFAULT_GATEWAY_INTERNAL_PORT,
         kernel_event_observer: Callable[[Mapping[str, Any]], None] | None = None,
-        session_event_callback: Callable[[str, Mapping[str, Any]], Awaitable[None]] | None = None,
+        session_event_callback: Callable[[str, Mapping[str, Any]], Awaitable[None]]
+        | None = None,
     ) -> None:
         self._kernel = kernel
         self._agents = {agent.agent_id: agent for agent in agents}
@@ -120,7 +123,9 @@ class InboundPipeline:
         self._run_queue = run_queue
         self._session_store = session_store
         self._channel_bindings = dict(channel_bindings or {})
-        self._default_agent_id = default_agent_id or (agents[0].agent_id if agents else None)
+        self._default_agent_id = default_agent_id or (
+            agents[0].agent_id if agents else None
+        )
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._group_context_store = group_context_store
         self._gateway_internal_port = gateway_internal_port
@@ -146,7 +151,9 @@ class InboundPipeline:
 
         agent_id = self._resolve_agent(message)
         agent_config = self._agents.get(agent_id)
-        should_process = self._should_process(message, agent_id=agent_id, agent_config=agent_config)
+        should_process = self._should_process(
+            message, agent_id=agent_id, agent_config=agent_config
+        )
 
         # M247: prefer sender_display_name from relay metadata over raw external_user_id (UUID).
         # Relay metadata supplies display_name when the IM service could resolve it.
@@ -170,12 +177,16 @@ class InboundPipeline:
         session_key = build_session_key(message, agent_id=agent_id)
 
         if self._is_stop_command(message, agent_id=agent_id):
-            return await self._handle_stop_command(message, agent_id=agent_id, session_key=session_key)
+            return await self._handle_stop_command(
+                message, agent_id=agent_id, session_key=session_key
+            )
 
         async def _run() -> PipelineResult:
             run_id: str | None = None
             try:
-                binding = await self._ensure_binding(message, agent_id=agent_id, session_key=session_key)
+                binding = await self._ensure_binding(
+                    message, agent_id=agent_id, session_key=session_key
+                )
                 buf_key = self._group_buf_key_for_agent(message, agent_id)
                 # drain() returns (sender, text) tuples since M246; format each as "[sender] text"
                 # so the kernel receives sender-prefixed, independently-structured context messages.
@@ -184,7 +195,9 @@ class InboundPipeline:
                     if message.is_group and self._group_context_store
                     else []
                 )
-                buffered_texts = [_format_sender_text(sender, text) for sender, text in buffered_pairs]
+                buffered_texts = [
+                    _format_sender_text(sender, text) for sender, text in buffered_pairs
+                ]
                 # Group messages get a sender prefix so the kernel can identify who spoke.
                 # Direct messages remain unchanged — no sender prefix needed.
                 if message.is_group:
@@ -194,17 +207,21 @@ class InboundPipeline:
                 texts = buffered_texts + [current_text]
                 attachments = message.metadata.get("attachments")
                 # Build parts list from texts and optional image attachments.
-                parts: list[dict[str, Any]] = [{"type": "text", "text": t} for t in texts]
+                parts: list[dict[str, Any]] = [
+                    {"type": "text", "text": t} for t in texts
+                ]
                 if isinstance(attachments, list) and attachments:
                     for item in attachments:
                         if isinstance(item, dict) and isinstance(item.get("url"), str):
-                            img_part: dict[str, Any] = {"type": "image", "image_url": item["url"]}
+                            img_part: dict[str, Any] = {
+                                "type": "image",
+                                "image_url": item["url"],
+                            }
                             mime = item.get("content_type")
                             if isinstance(mime, str) and mime.strip():
                                 img_part["mime_type"] = mime.strip()
                             parts.append(img_part)
                 agent_workspace_root_path = self._agents[agent_id].workspace_root
-                agent_workspace_root = str(agent_workspace_root_path)
                 # submit() is sync, non-blocking — schedules the turn on RunsRegistry's
                 # background loop and returns immediately with a RunRecord.
                 run_record = self._kernel.submit(
@@ -229,6 +246,7 @@ class InboundPipeline:
                         kernel_session_id=binding.kernel_session_id,
                     ),
                 )
+
                 async def _on_other_event(event: Mapping[str, object]) -> None:
                     event_name = event.get("event")
                     # Handle session-level events (no origin, no run_id) such as
@@ -244,7 +262,10 @@ class InboundPipeline:
                     if event_name == "assistant_message":
                         content = event.get("content")
                         if isinstance(content, str) and content.strip():
-                            self._outbound_router.send_text(text=content.strip(), reply_context=binding.reply_context)
+                            self._outbound_router.send_text(
+                                text=content.strip(),
+                                reply_context=binding.reply_context,
+                            )
 
                 run_state, reply_text = await self._await_terminal_run_async(
                     kernel_session_id=binding.kernel_session_id,
@@ -272,7 +293,9 @@ class InboundPipeline:
                 outbound: OutboundMessage | None = None
                 lifecycle_detail: Mapping[str, Any] | None = None
                 if not self._should_suppress_no_reply(message, reply_text=reply_text):
-                    outbound = self._outbound_router.send_text(text=reply_text, reply_context=binding.reply_context)
+                    outbound = self._outbound_router.send_text(
+                        text=reply_text, reply_context=binding.reply_context
+                    )
                 else:
                     lifecycle_detail = {"suppressed_by": "no_reply_token"}
                 result = PipelineResult(
@@ -320,7 +343,9 @@ class InboundPipeline:
     def _group_buf_key_for_agent(message: InboundMessage, agent_id: str) -> str:
         return f"{agent_id}:{message.channel_name}:{message.external_chat_id}"
 
-    async def _emit_relay_lifecycle(self, message: InboundMessage, update: RelayLifecycleUpdate) -> None:
+    async def _emit_relay_lifecycle(
+        self, message: InboundMessage, update: RelayLifecycleUpdate
+    ) -> None:
         callback = self._relay_lifecycle_callback
         if callback is None:
             return
@@ -349,7 +374,9 @@ class InboundPipeline:
             raise LookupError("no default agent configured")
         return self._require_known_agent(self._default_agent_id)
 
-    async def _ensure_binding(self, message: InboundMessage, *, agent_id: str, session_key: str) -> SessionBinding:
+    async def _ensure_binding(
+        self, message: InboundMessage, *, agent_id: str, session_key: str
+    ) -> SessionBinding:
         existing = self._session_store.get(session_key)
         agent = self._agents[agent_id]
         if existing is not None and self._binding_matches_workspace_root(
@@ -364,7 +391,9 @@ class InboundPipeline:
         # Resolve per-agent config into session parameters.
         session_metadata = self._build_session_metadata(message, agent_id=agent_id)
         agent_skills = list(agent.skills) if agent.skills else None
-        agent_tool_allowlist = list(agent.tool_allowlist) if agent.tool_allowlist else None
+        agent_tool_allowlist = (
+            list(agent.tool_allowlist) if agent.tool_allowlist else None
+        )
         session = await self._kernel.create_session(
             title=agent.title,
             workspace_root=agent.workspace_root,
@@ -381,7 +410,9 @@ class InboundPipeline:
             reply_context=build_reply_context(message),
         )
 
-    def _build_session_metadata(self, message: InboundMessage, *, agent_id: str) -> dict[str, object] | None:
+    def _build_session_metadata(
+        self, message: InboundMessage, *, agent_id: str
+    ) -> dict[str, object] | None:
         """Build kernel session metadata from local agent config and message routing fields.
 
         Args:
@@ -441,7 +472,9 @@ class InboundPipeline:
                     str(aid) for aid in participant_agent_ids if isinstance(aid, str)
                 ]
             elif normalized_participants:
-                session_metadata["participant_agent_ids"] = _extract_participant_agent_ids(normalized_participants)
+                session_metadata["participant_agent_ids"] = (
+                    _extract_participant_agent_ids(normalized_participants)
+                )
             else:
                 session_metadata["participant_agent_ids"] = [agent_id]
         else:
@@ -471,7 +504,11 @@ class InboundPipeline:
         if not message.is_group:
             return True
         metadata = dict(message.metadata)
-        policy = (agent_config.group_reply_policy or "MENTION").upper() if agent_config else "MENTION"
+        policy = (
+            (agent_config.group_reply_policy or "MENTION").upper()
+            if agent_config
+            else "MENTION"
+        )
         if policy == "ALWAYS":
             return True
         # MENTION policy: check explicit mention metadata or plain-text @agent
@@ -488,7 +525,9 @@ class InboundPipeline:
         return text.strip() == "NO_REPLY"
 
     @classmethod
-    def _should_suppress_no_reply(cls, message: InboundMessage, *, reply_text: str) -> bool:
+    def _should_suppress_no_reply(
+        cls, message: InboundMessage, *, reply_text: str
+    ) -> bool:
         return message.is_group and cls._is_no_reply_token(reply_text)
 
     def _is_stop_command(self, message: InboundMessage, *, agent_id: str) -> bool:
@@ -513,11 +552,15 @@ class InboundPipeline:
         async with self._active_runs_lock:
             active_run_id = self._active_runs.get(session_key)
 
-        binding = await self._ensure_binding(message, agent_id=agent_id, session_key=session_key)
+        binding = await self._ensure_binding(
+            message, agent_id=agent_id, session_key=session_key
+        )
 
         if active_run_id is None:
             reply_text = "当前没有正在执行的操作。"
-            outbound = self._outbound_router.send_text(text=reply_text, reply_context=binding.reply_context)
+            outbound = self._outbound_router.send_text(
+                text=reply_text, reply_context=binding.reply_context
+            )
             return PipelineResult(
                 agent_id=agent_id,
                 session_key=session_key,
@@ -534,11 +577,15 @@ class InboundPipeline:
         # because the session has no pending run after interrupt).
         self._kernel.submit(
             session_id=binding.kernel_session_id,
-            parts=[{"type": "text", "text": "用户发送了 /stop 命令，要求终止当前操作。"}],
+            parts=[
+                {"type": "text", "text": "用户发送了 /stop 命令，要求终止当前操作。"}
+            ],
             workspace_root=agent_workspace_root_path,
         )
         reply_text = "已停止当前操作。"
-        outbound = self._outbound_router.send_text(text=reply_text, reply_context=binding.reply_context)
+        outbound = self._outbound_router.send_text(
+            text=reply_text, reply_context=binding.reply_context
+        )
         return PipelineResult(
             agent_id=agent_id,
             session_key=session_key,
@@ -554,7 +601,9 @@ class InboundPipeline:
         if self._default_agent_id is None:
             self._default_agent_id = agent.agent_id
 
-    def _binding_matches_workspace_root(self, session_id: str, *, expected_workspace_root: str) -> bool:
+    def _binding_matches_workspace_root(
+        self, session_id: str, *, expected_workspace_root: str
+    ) -> bool:
         """Return whether one bound kernel session carries the expected workspace metadata.
 
         Notes:
@@ -582,7 +631,10 @@ class InboundPipeline:
         # metadata would require the gateway to inject a redundant copy on
         # create_session, creating two sources of truth — refactor-387 regression.
         workspace_root = session_payload.get("workspace_root")
-        return isinstance(workspace_root, str) and workspace_root.strip() == expected_workspace_root.strip()
+        return (
+            isinstance(workspace_root, str)
+            and workspace_root.strip() == expected_workspace_root.strip()
+        )
 
     def drop_agent_sessions(self, agent_id: str) -> None:
         """Drop existing kernel-session bindings for one agent after config sync."""
@@ -642,7 +694,8 @@ class InboundPipeline:
         kernel_session_id: str,
         run_id: str,
         anchor_sequence: int | None = None,
-        on_other: Callable[[Mapping[str, object]], Awaitable[None] | None] | None = None,
+        on_other: Callable[[Mapping[str, object]], Awaitable[None] | None]
+        | None = None,
     ) -> tuple[Mapping[str, object], str]:
         """Consume in-process event stream until terminal run_status for run_id.
 
@@ -691,7 +744,9 @@ class InboundPipeline:
 
         status = run_state.get("status")
         if status != "completed":
-            raise RuntimeError(self._extract_run_error(run_state, fallback_status=str(status or "")))
+            raise RuntimeError(
+                self._extract_run_error(run_state, fallback_status=str(status or ""))
+            )
 
         return run_state, reply_text
 
@@ -732,7 +787,9 @@ class InboundPipeline:
         return ""
 
     @staticmethod
-    def _extract_run_error(run_state: Mapping[str, object], *, fallback_status: str) -> str:
+    def _extract_run_error(
+        run_state: Mapping[str, object], *, fallback_status: str
+    ) -> str:
         error = run_state.get("error")
         if isinstance(error, str) and error.strip():
             return error.strip()
@@ -751,7 +808,9 @@ class InboundPipeline:
         return f"{current}{delta}"
 
     @classmethod
-    def _extract_reply_text(cls, run_state: Mapping[str, object], *, streamed_text: str = "") -> str:
+    def _extract_reply_text(
+        cls, run_state: Mapping[str, object], *, streamed_text: str = ""
+    ) -> str:
         output_text = run_state.get("output_text")
         normalized_output = output_text.strip() if isinstance(output_text, str) else ""
         if cls._is_no_reply_token(normalized_output):
@@ -838,12 +897,16 @@ def _normalize_group_participants(raw_participants: object) -> list[dict[str, st
             continue
         display_name = _optional_stripped_text(item.get("display_name"))
         if participant_type == "agent":
-            agent_id = _optional_stripped_text(item.get("agent_id")) or _optional_stripped_text(item.get("id"))
+            agent_id = _optional_stripped_text(
+                item.get("agent_id")
+            ) or _optional_stripped_text(item.get("id"))
             if agent_id is None:
                 continue
             entry: dict[str, str] = {"type": "agent", "agent_id": agent_id}
         else:
-            user_id = _optional_stripped_text(item.get("user_id")) or _optional_stripped_text(item.get("id"))
+            user_id = _optional_stripped_text(
+                item.get("user_id")
+            ) or _optional_stripped_text(item.get("id"))
             if user_id is None:
                 continue
             entry = {"type": "user", "user_id": user_id}

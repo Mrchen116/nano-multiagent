@@ -110,7 +110,11 @@ class TestBashToolUsesRunnerNotSafety:
         2. BashTool.run succeeds (uses BashRunner internally)
         """
         from agent.platform.tools.builtins.bash import BashTool
-        from agent.core.tools.base import ToolContext, set_tool_safety_factory, set_tool_safety_config_factory
+        from agent.core.tools.base import (
+            ToolContext,
+            set_tool_safety_factory,
+            set_tool_safety_config_factory,
+        )
         from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
         from agent.platform.tools.builtins.bash_runner import BashRunner
 
@@ -131,6 +135,9 @@ class TestBashToolUsesRunnerNotSafety:
         # Verify BashRunner.run_stream is invoked by patching it
         with patch.object(BashRunner, "run_stream") as mock_run_stream:
             from agent.platform.tools.safety import CommandExecution as CE
-            mock_run_stream.return_value = CE(exit_code=0, text="test_m6\n", truncated=False)
+
+            mock_run_stream.return_value = CE(
+                exit_code=0, text="test_m6\n", truncated=False
+            )
             result = tool.run({"command": "echo test_m6"}, ctx)
             mock_run_stream.assert_called_once()

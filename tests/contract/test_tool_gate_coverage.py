@@ -30,7 +30,7 @@ EXPECTED_GATE_POSITION: dict[str, str] = {
     "read": "allowlist",
     "agent": "allowlist",
     "task_stop": "allowlist",
-    "memory": "allowlist",        # bugfix-368
+    "memory": "allowlist",  # bugfix-368
     "bash": "check",
     "edit": "check",
     "write": "check",
@@ -44,7 +44,9 @@ def _builtin_tool_classes() -> dict[str, type]:
 
     found: dict[str, type] = {}
     for _, cls in inspect.getmembers(builtins_pkg, inspect.isclass):
-        if cls.__module__ and not cls.__module__.startswith("agent.platform.tools.builtins"):
+        if cls.__module__ and not cls.__module__.startswith(
+            "agent.platform.tools.builtins"
+        ):
             continue
         tool_name = getattr(cls, "name", None)
         if isinstance(tool_name, str) and tool_name:
@@ -75,11 +77,7 @@ def test_each_builtin_tool_matches_its_declared_gate_position() -> None:
             continue  # caught by the previous test
         in_allowlist = tool_name in SAFE_TOOL_ALLOWLIST
         has_check = callable(getattr(cls, "check_permissions", None))
-        actual = (
-            "allowlist" if in_allowlist
-            else "check" if has_check
-            else "classifier"
-        )
+        actual = "allowlist" if in_allowlist else "check" if has_check else "classifier"
         if actual != expected:
             mismatches.append(
                 f"{tool_name}: declared={expected} actual={actual} "

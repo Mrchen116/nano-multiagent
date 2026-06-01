@@ -57,7 +57,9 @@ async def test_fork_conversation_none_in_fork_context():
 
     ctx = HookContext(session_id="test", fork_conversation=make_fork)
     # Call fork_conversation — result context must have fork_conversation=None
-    result = await ctx.fork_conversation("review", tool_allowlist=("memory",), max_turns=16)
+    result = await ctx.fork_conversation(
+        "review", tool_allowlist=("memory",), max_turns=16
+    )
 
     # The fork itself must record fork_conversation=None in its own context
     assert fork_ctx_fork_conversation_values == [None]
@@ -74,10 +76,18 @@ class _CapturingContextFork:
     def __init__(self):
         self.captured = {}
 
-    async def execute(self, *, state, max_turns=None, session_file_state=None,
-                      hook_ctx=None, system_prompt_override=None,
-                      available_skills_override=None,
-                      available_tools_override=None, tool_execution_allowlist=None):
+    async def execute(
+        self,
+        *,
+        state,
+        max_turns=None,
+        session_file_state=None,
+        hook_ctx=None,
+        system_prompt_override=None,
+        available_skills_override=None,
+        available_tools_override=None,
+        tool_execution_allowlist=None,
+    ):
         self.captured = {
             "state": state,
             "max_turns": max_turns,
@@ -139,7 +149,9 @@ async def test_fork_conversation_inherits_parent_active_tools_byte_for_byte():
         ToolSpec(name="bash", description="run bash", input_schema={"type": "object"}),
         ToolSpec(name="read", description="read file", input_schema={"type": "object"}),
         ToolSpec(name="memory", description="memory", input_schema={"type": "object"}),
-        ToolSpec(name="skill_manage", description="skills", input_schema={"type": "object"}),
+        ToolSpec(
+            name="skill_manage", description="skills", input_schema={"type": "object"}
+        ),
     )
     fake_fork = _CapturingContextFork()
 
@@ -160,7 +172,10 @@ async def test_fork_conversation_inherits_parent_active_tools_byte_for_byte():
         f"got {passed_tools!r} — narrowing the tool list breaks prefix cache"
     )
     # The allowlist is enforced separately, via tool_execution_allowlist.
-    assert fake_fork.captured["tool_execution_allowlist"] == ("memory", "skill_manage"), (
+    assert fake_fork.captured["tool_execution_allowlist"] == (
+        "memory",
+        "skill_manage",
+    ), (
         "tool_allowlist must be forwarded as tool_execution_allowlist (execution-layer "
         "interception), not used to reshape the LLM tool list"
     )
@@ -195,7 +210,11 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
         def __init__(self, name):
             self.name = name
             self.description = f"{name} tool"
-            self.input_schema = {"type": "object", "properties": {}, "additionalProperties": True}
+            self.input_schema = {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": True,
+            }
             self.is_concurrency_safe = True
 
         def run(self, args, ctx):
@@ -213,6 +232,7 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
     class _LLMMsgWithCalls:
         role = "assistant"
         content = ""
+
         def __init__(self, calls):
             self.tool_calls = calls
             self.finish_reason = None
@@ -248,14 +268,17 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
 
             async def _stream():
                 if round_no == 1:
-                    yield _LLMMsgWithCalls([
-                        _LLMToolCall("c1", "bash"),
-                        _LLMToolCall("c2", "memory"),
-                    ])
+                    yield _LLMMsgWithCalls(
+                        [
+                            _LLMToolCall("c1", "bash"),
+                            _LLMToolCall("c2", "memory"),
+                        ]
+                    )
                     yield _LLMTerminal()
                 else:
                     yield _LLMFinalText()
                     yield _LLMTerminal()
+
             return _stream()
 
     with tempfile.TemporaryDirectory() as tmpdir:

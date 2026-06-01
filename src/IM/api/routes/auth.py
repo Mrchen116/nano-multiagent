@@ -86,7 +86,9 @@ def _to_pair_response(pair: TokenPair) -> TokenPairResponse:
     )
 
 
-@router.post("/register", response_model=TokenPairResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/register", response_model=TokenPairResponse, status_code=status.HTTP_201_CREATED
+)
 def register(
     payload: RegisterRequest,
     service: AuthService = Depends(get_auth_service),
@@ -101,7 +103,11 @@ def register(
         )
     except RegistrationError as exc:
         detail = str(exc)
-        code = status.HTTP_409_CONFLICT if "exists" in detail else status.HTTP_422_UNPROCESSABLE_ENTITY
+        code = (
+            status.HTTP_409_CONFLICT
+            if "exists" in detail
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
         raise HTTPException(status_code=code, detail=detail) from exc
     return _to_pair_response(pair)
 
@@ -113,9 +119,13 @@ def login(
 ) -> TokenPairResponse:
     """Verify credentials and return a fresh token pair."""
     try:
-        pair = service.login(username=payload.username.strip(), password=payload.password)
+        pair = service.login(
+            username=payload.username.strip(), password=payload.password
+        )
     except InvalidCredentialsError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials") from exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid credentials"
+        ) from exc
     return _to_pair_response(pair)
 
 
@@ -128,7 +138,9 @@ def refresh(
     try:
         pair = service.refresh(payload.refresh_token)
     except InvalidTokenError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+        ) from exc
     return _to_pair_response(pair)
 
 
@@ -141,7 +153,9 @@ def logout(
     try:
         service.logout(payload.refresh_token)
     except InvalidTokenError as exc:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)
+        ) from exc
     return LogoutResponse(ok=True)
 
 

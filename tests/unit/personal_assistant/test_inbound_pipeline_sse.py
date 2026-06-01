@@ -15,7 +15,9 @@ from personal_assistant.gateway.session_keys import SessionBindingStore
 from ._pipeline_helpers import _FakeChannel, _FakeSseKernel, _agents
 
 
-def test_inbound_pipeline_uses_sse_path_when_submit_and_stream_available(tmp_path: Path) -> None:
+def test_inbound_pipeline_uses_sse_path_when_submit_and_stream_available(
+    tmp_path: Path,
+) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
@@ -61,7 +63,9 @@ def test_inbound_pipeline_uses_sse_path_when_submit_and_stream_available(tmp_pat
     ]
 
 
-def test_inbound_pipeline_sse_path_extracts_reply_from_assistant_message(tmp_path: Path) -> None:
+def test_inbound_pipeline_sse_path_extracts_reply_from_assistant_message(
+    tmp_path: Path,
+) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
@@ -102,7 +106,12 @@ def test_inbound_pipeline_sse_path_raises_on_failed_run(tmp_path: Path) -> None:
     kernel_client = _FakeSseKernel(
         events=[
             {"event": "assistant_message", "run_id": "run-1", "content": "oops"},
-            {"event": "run_status", "run_id": "run-1", "status": "failed", "error": "boom"},
+            {
+                "event": "run_status",
+                "run_id": "run-1",
+                "status": "failed",
+                "error": "boom",
+            },
         ]
     )
     pipeline = InboundPipeline(
@@ -128,7 +137,9 @@ def test_inbound_pipeline_sse_path_raises_on_failed_run(tmp_path: Path) -> None:
         assert "boom" in str(exc)
 
 
-def test_inbound_pipeline_sse_path_routes_non_user_origin_events(tmp_path: Path) -> None:
+def test_inbound_pipeline_sse_path_routes_non_user_origin_events(
+    tmp_path: Path,
+) -> None:
     """Events with origin != user and mismatched run_id are routed outbound.
 
     This verifies the session_key serial queue handles background-wake / cron
@@ -139,7 +150,12 @@ def test_inbound_pipeline_sse_path_routes_non_user_origin_events(tmp_path: Path)
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeSseKernel(
         events=[
-            {"event": "assistant_message", "run_id": "run-other", "content": "background", "origin": "background_task"},
+            {
+                "event": "assistant_message",
+                "run_id": "run-other",
+                "content": "background",
+                "origin": "background_task",
+            },
             {"event": "assistant_message", "run_id": "run-1", "content": "user reply"},
             {"event": "run_status", "run_id": "run-1", "status": "completed"},
         ]
@@ -167,14 +183,25 @@ def test_inbound_pipeline_sse_path_routes_non_user_origin_events(tmp_path: Path)
     assert "background" in [msg.text for msg in channel.sent]
 
 
-def test_inbound_pipeline_sse_path_relay_lifecycle_emits_completed_with_usage(tmp_path: Path) -> None:
+def test_inbound_pipeline_sse_path_relay_lifecycle_emits_completed_with_usage(
+    tmp_path: Path,
+) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
     kernel_client = _FakeSseKernel(
         events=[
             {"event": "assistant_message", "run_id": "run-1", "content": "ok"},
-            {"event": "run_status", "run_id": "run-1", "status": "completed", "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}},
+            {
+                "event": "run_status",
+                "run_id": "run-1",
+                "status": "completed",
+                "usage": {
+                    "prompt_tokens": 5,
+                    "completion_tokens": 3,
+                    "total_tokens": 8,
+                },
+            },
         ]
     )
     seen: list = []
@@ -205,20 +232,57 @@ def test_inbound_pipeline_sse_path_relay_lifecycle_emits_completed_with_usage(tm
     assert result is not None
     phases = [u.phase for u in seen]
     assert phases == ["accepted", "running", "completed"]
-    assert seen[-1].usage == {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
+    assert seen[-1].usage == {
+        "prompt_tokens": 5,
+        "completion_tokens": 3,
+        "total_tokens": 8,
+    }
 
 
 def test_map_kernel_event_to_run_activity() -> None:
     from personal_assistant.gateway.inbound_pipeline import InboundPipeline
 
-    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "run_status", "status": "running"}) == "agent.run.started"
-    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "run_status", "status": "completed"}) == "agent.run.completed"
-    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "run_status", "status": "failed"}) == "agent.run.failed"
-    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "run_status", "status": "cancelled"}) == "agent.run.failed"
-    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "assistant_message"}) == "agent.text.message"
-    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "tool_start"}) == "agent.tool.started"
-    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "tool_end"}) == "agent.tool.completed"
-    assert InboundPipeline._map_kernel_event_to_run_activity({"event": "turn_end"}) is None
+    assert (
+        InboundPipeline._map_kernel_event_to_run_activity(
+            {"event": "run_status", "status": "running"}
+        )
+        == "agent.run.started"
+    )
+    assert (
+        InboundPipeline._map_kernel_event_to_run_activity(
+            {"event": "run_status", "status": "completed"}
+        )
+        == "agent.run.completed"
+    )
+    assert (
+        InboundPipeline._map_kernel_event_to_run_activity(
+            {"event": "run_status", "status": "failed"}
+        )
+        == "agent.run.failed"
+    )
+    assert (
+        InboundPipeline._map_kernel_event_to_run_activity(
+            {"event": "run_status", "status": "cancelled"}
+        )
+        == "agent.run.failed"
+    )
+    assert (
+        InboundPipeline._map_kernel_event_to_run_activity(
+            {"event": "assistant_message"}
+        )
+        == "agent.text.message"
+    )
+    assert (
+        InboundPipeline._map_kernel_event_to_run_activity({"event": "tool_start"})
+        == "agent.tool.started"
+    )
+    assert (
+        InboundPipeline._map_kernel_event_to_run_activity({"event": "tool_end"})
+        == "agent.tool.completed"
+    )
+    assert (
+        InboundPipeline._map_kernel_event_to_run_activity({"event": "turn_end"}) is None
+    )
     assert InboundPipeline._map_kernel_event_to_run_activity({"event": "error"}) is None
 
 
@@ -241,7 +305,9 @@ def test_inbound_pipeline_stream_called_with_session_id(tmp_path: Path) -> None:
 
     class _TrackingFakeSseKernel(_FakeSseKernel):
         def stream(self, session_id: str, *, after_sequence: int = 0):  # type: ignore[override]
-            stream_calls.append({"session_id": session_id, "after_sequence": after_sequence})
+            stream_calls.append(
+                {"session_id": session_id, "after_sequence": after_sequence}
+            )
             preset = [
                 {"event": "assistant_message", "run_id": "run-1", "content": "ok"},
                 {"event": "run_status", "run_id": "run-1", "status": "completed"},

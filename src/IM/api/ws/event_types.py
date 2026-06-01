@@ -64,7 +64,9 @@ def token_usage_to_dict(usage: TokenUsage | None) -> dict[str, int] | None:
         "context_window": int(usage.context_window),
         # M17/R8-3: per-turn total (prompt+completion). Falls back to
         # context_used+output for old persisted rows where total wasn't stored.
-        "total": int(usage.total) if usage.total else int(usage.context_used) + int(usage.output),
+        "total": int(usage.total)
+        if usage.total
+        else int(usage.context_used) + int(usage.output),
     }
 
 

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import shlex
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Mapping
 
@@ -121,14 +121,13 @@ BASH_BLOCKED_COMMANDS: tuple[str, ...] = (
 # without a base command. Fork-bomb function literal ":(){" is the canonical
 # example — it is a function definition, not an executable, so base-command
 # matching cannot catch it.
-BASH_BLOCKED_FRAGMENTS: tuple[str, ...] = (
-    ":(){",
-)
+BASH_BLOCKED_FRAGMENTS: tuple[str, ...] = (":(){",)
 
 
 # ---------------------------------------------------------------------------
 # Configuration override (from .nano/policy.toml — backward compat, Anchor R)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class BashPolicyOverrides:
@@ -176,6 +175,7 @@ def load_bash_policy_overrides(repo_root: Path) -> BashPolicyOverrides:
 # Policy decision
 # ---------------------------------------------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class CommandPolicyDecision:
     """Policy classification result for a shell command."""
@@ -204,9 +204,21 @@ def check_command_policy(
                    module-level constants are used.
     """
     if overrides is not None:
-        allowed_prefixes = overrides.allow_prefixes if overrides.allow_prefixes is not None else BASH_ALLOWED_PREFIXES
-        blocked_commands = overrides.blocked_commands if overrides.blocked_commands is not None else BASH_BLOCKED_COMMANDS
-        blocked_fragments = overrides.blocked_fragments if overrides.blocked_fragments is not None else BASH_BLOCKED_FRAGMENTS
+        allowed_prefixes = (
+            overrides.allow_prefixes
+            if overrides.allow_prefixes is not None
+            else BASH_ALLOWED_PREFIXES
+        )
+        blocked_commands = (
+            overrides.blocked_commands
+            if overrides.blocked_commands is not None
+            else BASH_BLOCKED_COMMANDS
+        )
+        blocked_fragments = (
+            overrides.blocked_fragments
+            if overrides.blocked_fragments is not None
+            else BASH_BLOCKED_FRAGMENTS
+        )
     else:
         allowed_prefixes = BASH_ALLOWED_PREFIXES
         blocked_commands = BASH_BLOCKED_COMMANDS
@@ -240,7 +252,9 @@ def check_command_policy(
     # Step 4: Prefix allowlist — every &&-segment must match
     unmatched: list[str] = []
     for segment in _split_and_segments(command):
-        if not _matches_any_allowed_prefix(segment=segment, allow_prefixes=allowed_prefixes):
+        if not _matches_any_allowed_prefix(
+            segment=segment, allow_prefixes=allowed_prefixes
+        ):
             unmatched.append(segment)
 
     if unmatched:
@@ -280,6 +294,7 @@ def enforce_command_policy(
 # Private helpers (migrated from safety.py, behaviour-identical)
 # ---------------------------------------------------------------------------
 
+
 def _ensure_command_parseable(command: str) -> None:
     try:
         parsed = shlex.split(command, posix=True)
@@ -303,15 +318,19 @@ def _extract_base_command(segment: str) -> str:
     for token in tokens:
         if "=" in token:
             head, _, _ = token.partition("=")
-            if head and (head[0].isalpha() or head[0] == "_") and all(
-                ch.isalnum() or ch == "_" for ch in head
+            if (
+                head
+                and (head[0].isalpha() or head[0] == "_")
+                and all(ch.isalnum() or ch == "_" for ch in head)
             ):
                 continue
         return token.lower()
     return ""
 
 
-def _matches_any_allowed_prefix(*, segment: str, allow_prefixes: tuple[str, ...]) -> bool:
+def _matches_any_allowed_prefix(
+    *, segment: str, allow_prefixes: tuple[str, ...]
+) -> bool:
     lowered_segment = segment.strip().lower()
     for prefix in allow_prefixes:
         lowered_prefix = prefix.strip().lower()

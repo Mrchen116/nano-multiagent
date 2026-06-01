@@ -11,7 +11,10 @@ from agent.platform.tools.builtins.read import ReadTool
 from agent.platform.tools.builtins.write import WriteTool
 from agent.platform.tools.safety import ToolSafety
 from agent.platform.tools.safety import ToolSafetyConfig
-from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.base import (
+    set_tool_safety_factory,
+    set_tool_safety_config_factory,
+)
 from agent.core.tools.session_file_state import SessionFileState
 
 set_tool_safety_factory(ToolSafety)
@@ -22,7 +25,9 @@ def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolC
     return ToolContext.create(repo_root=tmp_path, safety_config=config)
 
 
-def _context_with_state(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> tuple[ToolContext, SessionFileState]:
+def _context_with_state(
+    tmp_path: Path, *, config: ToolSafetyConfig | None = None
+) -> tuple[ToolContext, SessionFileState]:
     base = ToolContext.create(repo_root=tmp_path, safety_config=config)
     state = SessionFileState()
     ctx = base.with_session("test-session", session_file_state=state)
@@ -95,7 +100,9 @@ def test_edit_fails_when_old_text_not_found(tmp_path: Path) -> None:
     ctx = _context(tmp_path)
 
     with pytest.raises(ToolError, match="Could not find the exact text"):
-        EditTool().run({"path": "missing.txt", "oldText": "gamma", "newText": "GAMMA"}, ctx)
+        EditTool().run(
+            {"path": "missing.txt", "oldText": "gamma", "newText": "GAMMA"}, ctx
+        )
 
 
 def test_edit_fails_when_replacement_makes_no_change(tmp_path: Path) -> None:
@@ -131,6 +138,7 @@ def test_write_serialize_result_fallback_for_unknown_type() -> None:
     output = {"type": "unknown", "filePath": "/tmp/baz.py", "displayPath": "baz.py"}
     result = tool.serialize_result(output)
     import json
+
     assert json.loads(result) == output
 
 
@@ -146,8 +154,7 @@ def test_edit_serialize_result_replace_all() -> None:
     output = {"filePath": "/tmp/bar.py", "displayPath": "bar.py", "replaceAll": True}
     result = tool.serialize_result(output)
     assert result == (
-        "The file bar.py has been updated. "
-        "All occurrences were successfully replaced."
+        "The file bar.py has been updated. All occurrences were successfully replaced."
     )
 
 
@@ -183,7 +190,13 @@ class TestWriteReadBeforeWrite:
         (tmp_path / "existing.txt").write_text("original", encoding="utf-8")
         ctx, state = _context_with_state(tmp_path)
         stat = (tmp_path / "existing.txt").stat()
-        state.record_read(str(tmp_path / "existing.txt"), stat.st_mtime_ns, stat.st_size, offset=1, limit=None)
+        state.record_read(
+            str(tmp_path / "existing.txt"),
+            stat.st_mtime_ns,
+            stat.st_size,
+            offset=1,
+            limit=None,
+        )
 
         # Simulate external modification
         (tmp_path / "existing.txt").write_text("externally changed", encoding="utf-8")
@@ -229,7 +242,9 @@ class TestEditReadBeforeWrite:
         ctx, _state = _context_with_state(tmp_path)
 
         with pytest.raises(ToolError) as exc_info:
-            EditTool().run({"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx)
+            EditTool().run(
+                {"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx
+            )
 
         assert exc_info.value.details.get("errorCode") == 6
         assert "has not been read yet" in str(exc_info.value)
@@ -238,12 +253,20 @@ class TestEditReadBeforeWrite:
         (tmp_path / "existing.txt").write_text("hello world", encoding="utf-8")
         ctx, state = _context_with_state(tmp_path)
         stat = (tmp_path / "existing.txt").stat()
-        state.record_read(str(tmp_path / "existing.txt"), stat.st_mtime_ns, stat.st_size, offset=1, limit=None)
+        state.record_read(
+            str(tmp_path / "existing.txt"),
+            stat.st_mtime_ns,
+            stat.st_size,
+            offset=1,
+            limit=None,
+        )
 
         (tmp_path / "existing.txt").write_text("externally changed", encoding="utf-8")
 
         with pytest.raises(ToolError) as exc_info:
-            EditTool().run({"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx)
+            EditTool().run(
+                {"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx
+            )
 
         assert exc_info.value.details.get("errorCode") == 7
         assert "modified externally" in str(exc_info.value)
@@ -253,7 +276,9 @@ class TestEditReadBeforeWrite:
         ctx, _state = _context_with_state(tmp_path)
         ReadTool().run({"path": "existing.txt"}, ctx)
 
-        result = EditTool().run({"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx)
+        result = EditTool().run(
+            {"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx
+        )
 
         assert result["displayPath"] == "existing.txt"
         assert (tmp_path / "existing.txt").read_text(encoding="utf-8") == "hi world"
@@ -262,8 +287,12 @@ class TestEditReadBeforeWrite:
         (tmp_path / "existing.txt").write_text("hello world", encoding="utf-8")
         ctx, _state = _context_with_state(tmp_path)
         ReadTool().run({"path": "existing.txt"}, ctx)
-        EditTool().run({"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx)
+        EditTool().run(
+            {"path": "existing.txt", "oldText": "hello", "newText": "hi"}, ctx
+        )
 
         # Second edit should succeed because first edit updated the state.
-        result = EditTool().run({"path": "existing.txt", "oldText": "hi", "newText": "hey"}, ctx)
+        result = EditTool().run(
+            {"path": "existing.txt", "oldText": "hi", "newText": "hey"}, ctx
+        )
         assert result["displayPath"] == "existing.txt"

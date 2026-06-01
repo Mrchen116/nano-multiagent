@@ -5,7 +5,9 @@ from pathlib import Path
 from IM.infra.db import connect, initialize_schema
 
 
-def test_initialize_schema_backfills_missing_agent_workspace_roots(tmp_path: Path) -> None:
+def test_initialize_schema_backfills_missing_agent_workspace_roots(
+    tmp_path: Path,
+) -> None:
     """Backfill legacy profiles that still have a NULL managed workspace root."""
     db_path = tmp_path / "im.db"
     connection = connect(db_path)
@@ -58,7 +60,9 @@ def test_initialize_schema_backfills_missing_agent_workspace_roots(tmp_path: Pat
     assert row["workspace_root"].endswith("/nano-assistant/workspace/agent-legacy")
 
 
-def test_initialize_schema_backfills_last_message_preview_from_latest_message(tmp_path: Path) -> None:
+def test_initialize_schema_backfills_last_message_preview_from_latest_message(
+    tmp_path: Path,
+) -> None:
     """Backfill last_message_preview so inbox list data survives restarts without N message fetches."""
     db_path = tmp_path / "im.db"
     connection = connect(db_path)
@@ -76,7 +80,18 @@ def test_initialize_schema_backfills_last_message_preview_from_latest_message(tm
             id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_at, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("conv-1", "Alpha", "direct", "owner-1", "user-1", 0, 0, 1, "2026-03-26T00:02:00Z", "2026-03-26T00:00:00Z"),
+        (
+            "conv-1",
+            "Alpha",
+            "direct",
+            "owner-1",
+            "user-1",
+            0,
+            0,
+            1,
+            "2026-03-26T00:02:00Z",
+            "2026-03-26T00:00:00Z",
+        ),
     )
     connection.execute(
         """
@@ -91,7 +106,16 @@ def test_initialize_schema_backfills_last_message_preview_from_latest_message(tm
             id, conversation_id, sender_user_id, sender_type, content, attachments_json, delivery_status, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("msg-1", "conv-1", "user-1", "user", "latest preview", "[]", "completed", "2026-03-26T00:02:00Z"),
+        (
+            "msg-1",
+            "conv-1",
+            "user-1",
+            "user",
+            "latest preview",
+            "[]",
+            "completed",
+            "2026-03-26T00:02:00Z",
+        ),
     )
     connection.commit()
 
@@ -108,7 +132,9 @@ def test_initialize_schema_backfills_last_message_preview_from_latest_message(tm
     assert row["last_message_preview"] == "latest preview"
 
 
-def test_initialize_schema_reconciles_old_relay_preview_mismatches(tmp_path: Path) -> None:
+def test_initialize_schema_reconciles_old_relay_preview_mismatches(
+    tmp_path: Path,
+) -> None:
     """Recompute stale conversation previews from the latest visible relay event on startup."""
     db_path = tmp_path / "im.db"
     connection = connect(db_path)
@@ -126,7 +152,19 @@ def test_initialize_schema_reconciles_old_relay_preview_mismatches(tmp_path: Pat
             id, title, type, owner_id, creator_id, is_pinned, is_muted, unread_count, last_message_preview, last_message_at, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("conv-1", "Alpha", "direct", "owner-1", "user-1", 0, 0, 1, "11", "2026-03-26T00:01:00Z", "2026-03-26T00:00:00Z"),
+        (
+            "conv-1",
+            "Alpha",
+            "direct",
+            "owner-1",
+            "user-1",
+            0,
+            0,
+            1,
+            "11",
+            "2026-03-26T00:01:00Z",
+            "2026-03-26T00:00:00Z",
+        ),
     )
     connection.execute(
         """
@@ -141,7 +179,16 @@ def test_initialize_schema_reconciles_old_relay_preview_mismatches(tmp_path: Pat
             id, conversation_id, sender_user_id, sender_type, content, attachments_json, delivery_status, created_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        ("msg-1", "conv-1", "user-1", "user", "11", "[]", "completed", "2026-03-26T00:01:00Z"),
+        (
+            "msg-1",
+            "conv-1",
+            "user-1",
+            "user",
+            "11",
+            "[]",
+            "completed",
+            "2026-03-26T00:01:00Z",
+        ),
     )
     connection.execute(
         """

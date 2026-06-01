@@ -6,7 +6,6 @@ so that registry, notifications, and queue logic stay testable.
 
 from __future__ import annotations
 
-from typing import Any, Mapping
 
 from agent.core.background_tasks.interfaces import (
     BackgroundBashRunner,

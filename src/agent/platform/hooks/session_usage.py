@@ -36,7 +36,9 @@ def set_session_usage_snapshot_reader(
     registry.set_extension_state(SESSION_USAGE_SNAPSHOT_READER_STATE_KEY, reader)
 
 
-def get_session_usage_snapshot(*, registry: HookRegistry, session_id: str) -> SessionUsageSnapshot | None:
+def get_session_usage_snapshot(
+    *, registry: HookRegistry, session_id: str
+) -> SessionUsageSnapshot | None:
     """Resolve usage snapshot for a session from one hook registry."""
 
     reader = registry.get_extension_state(SESSION_USAGE_SNAPSHOT_READER_STATE_KEY)

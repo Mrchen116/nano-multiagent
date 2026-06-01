@@ -13,14 +13,26 @@ import pytest
 
 from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import AgentProfileRepository, ConversationRepository, MessageRepository, UserRepository
+from IM.repositories import (
+    AgentProfileRepository,
+    ConversationRepository,
+    MessageRepository,
+    UserRepository,
+)
 
 
 # ─── fixture builder ────────────────────────────────────────────────────────
 
+
 def _build_fixture(
     tmp_path: Path,
-) -> tuple[RelayService, MessageRepository, ConversationRepository, UserRepository, AgentProfileRepository]:
+) -> tuple[
+    RelayService,
+    MessageRepository,
+    ConversationRepository,
+    UserRepository,
+    AgentProfileRepository,
+]:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     users = UserRepository(connection)
@@ -33,12 +45,17 @@ def _build_fixture(
 
 # ─── R1: participants schema ─────────────────────────────────────────────────
 
+
 class TestParticipantsSchema:
     """relay payload.participants 携带 agent_id / user_id, 不再有 id=<synth_uuid> 字段。"""
 
-    def test_agent_participant_carries_agent_id_not_synth_uuid(self, tmp_path: Path) -> None:
+    def test_agent_participant_carries_agent_id_not_synth_uuid(
+        self, tmp_path: Path
+    ) -> None:
         """agent 参与者的字典必须包含 agent_id 字段，不能只有 id 字段（synth user UUID）。"""
-        relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
+        relay_service, messages, conversations, users, profiles = _build_fixture(
+            tmp_path
+        )
         alice = users.create_user(username="alice", display_name="Alice")
         arch_user = users.create_user(username="agent:Arch", display_name="架构")
         profiles.upsert_profile(
@@ -78,15 +95,23 @@ class TestParticipantsSchema:
         agent_p = agent_entries[0]
 
         # 必须有 agent_id 字段，值为真实 agent_id（不是 synth UUID）
-        assert "agent_id" in agent_p, f"participants agent entry missing agent_id field: {agent_p}"
-        assert agent_p["agent_id"] == "Arch", f"agent_id should be 'Arch', got {agent_p}"
+        assert "agent_id" in agent_p, (
+            f"participants agent entry missing agent_id field: {agent_p}"
+        )
+        assert agent_p["agent_id"] == "Arch", (
+            f"agent_id should be 'Arch', got {agent_p}"
+        )
 
         # 不应含 id 字段（旧的 synth user UUID 字段）
-        assert "id" not in agent_p, f"agent participant should not have old 'id' field: {agent_p}"
+        assert "id" not in agent_p, (
+            f"agent participant should not have old 'id' field: {agent_p}"
+        )
 
     def test_user_participant_carries_user_id_not_id(self, tmp_path: Path) -> None:
         """user 参与者的字典必须包含 user_id 字段。"""
-        relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
+        relay_service, messages, conversations, users, profiles = _build_fixture(
+            tmp_path
+        )
         alice = users.create_user(username="alice", display_name="Alice")
         arch_user = users.create_user(username="agent:Arch", display_name="架构")
         profiles.upsert_profile(
@@ -127,14 +152,20 @@ class TestParticipantsSchema:
 
         # 必须有 user_id 字段
         assert "user_id" in user_p, f"user participant missing user_id field: {user_p}"
-        assert user_p["user_id"] == alice.id, f"user_id should be alice's real UUID, got {user_p}"
+        assert user_p["user_id"] == alice.id, (
+            f"user_id should be alice's real UUID, got {user_p}"
+        )
 
         # 不应含 id 字段
-        assert "id" not in user_p, f"user participant should not have old 'id' field: {user_p}"
+        assert "id" not in user_p, (
+            f"user participant should not have old 'id' field: {user_p}"
+        )
 
     def test_sender_info_agent_carries_agent_id(self, tmp_path: Path) -> None:
         """agent 发送者的 sender 字典应含 agent_id，不含 id=<synth_uuid>。"""
-        relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
+        relay_service, messages, conversations, users, profiles = _build_fixture(
+            tmp_path
+        )
         alice = users.create_user(username="alice", display_name="Alice")
         arch_user = users.create_user(username="agent:Arch", display_name="架构")
         profiles.upsert_profile(
@@ -178,17 +209,22 @@ class TestParticipantsSchema:
         assert sender["agent_id"] == "Arch"
 
         # 不应含旧 id 字段
-        assert "id" not in sender, f"agent sender should not have old 'id' field: {sender}"
+        assert "id" not in sender, (
+            f"agent sender should not have old 'id' field: {sender}"
+        )
 
 
 # ─── R2: mention tag parsing ─────────────────────────────────────────────────
+
 
 class TestMentionTagParsing:
     """mention 解析只认 <mention type='agent' target_id='X'/> 标签，删除 display_name fallback。"""
 
     def test_mention_tag_agent_extracted(self, tmp_path: Path) -> None:
         """content 中合法 inline tag 被正确提取为 mentioned_agent_ids。"""
-        relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
+        relay_service, messages, conversations, users, profiles = _build_fixture(
+            tmp_path
+        )
         alice = users.create_user(username="alice", display_name="Alice")
         arch_user = users.create_user(username="agent:Arch", display_name="架构")
         profiles.upsert_profile(
@@ -230,7 +266,9 @@ class TestMentionTagParsing:
 
     def test_at_display_name_no_longer_resolves(self, tmp_path: Path) -> None:
         """旧式 @display_name 文本不再被解析为 mention；mentioned_agent_ids 为空。"""
-        relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
+        relay_service, messages, conversations, users, profiles = _build_fixture(
+            tmp_path
+        )
         alice = users.create_user(username="alice", display_name="Alice")
         arch_user = users.create_user(username="agent:Arch", display_name="架构")
         profiles.upsert_profile(
@@ -272,7 +310,9 @@ class TestMentionTagParsing:
 
     def test_mention_tag_outside_participants_ignored(self, tmp_path: Path) -> None:
         """target_id 不在 participants 中的标签被过滤掉，不进 mentioned_agent_ids。"""
-        relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
+        relay_service, messages, conversations, users, profiles = _build_fixture(
+            tmp_path
+        )
         alice = users.create_user(username="alice", display_name="Alice")
         arch_user = users.create_user(username="agent:Arch", display_name="架构")
         profiles.upsert_profile(
@@ -314,7 +354,9 @@ class TestMentionTagParsing:
 
     def test_multiple_mention_tags_all_extracted(self, tmp_path: Path) -> None:
         """content 中多个 mention 标签全部提取。"""
-        relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
+        relay_service, messages, conversations, users, profiles = _build_fixture(
+            tmp_path
+        )
         alice = users.create_user(username="alice", display_name="Alice")
         arch_user = users.create_user(username="agent:Arch", display_name="架构")
         archa_user = users.create_user(username="agent:ArchA", display_name="Q")
@@ -357,7 +399,9 @@ class TestMentionTagParsing:
 
     def test_duplicate_display_name_no_orphan_hijack(self, tmp_path: Path) -> None:
         """孤儿 agent display_name 与当前群 agent 重名时，inline tag 仍正确路由到目标 agent。"""
-        relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
+        relay_service, messages, conversations, users, profiles = _build_fixture(
+            tmp_path
+        )
         alice = users.create_user(username="alice", display_name="Alice")
         # 真实 agent
         real_user = users.create_user(username="agent:ArchA", display_name="Q")

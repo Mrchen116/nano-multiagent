@@ -51,9 +51,13 @@ def build_hook_registry(
             include_default_workspace=False,
         )
         if product_hook_dir is not None:
-            _load_hook_dir_into_registry(registry, product_hook_dir, source="product", replace=True)
+            _load_hook_dir_into_registry(
+                registry, product_hook_dir, source="product", replace=True
+            )
         for extra_root in reversed(config_resolver.user_hook_roots()):
-            _load_hook_dir_into_registry(registry, extra_root, source="workspace", replace=True)
+            _load_hook_dir_into_registry(
+                registry, extra_root, source="workspace", replace=True
+            )
         return registry
     else:
         registry, _ = load_hooks_from_directories(
@@ -63,7 +67,9 @@ def build_hook_registry(
             registry=HookRegistry(),
         )
         if product_hook_dir is not None:
-            _load_hook_dir_into_registry(registry, product_hook_dir, source="product", replace=True)
+            _load_hook_dir_into_registry(
+                registry, product_hook_dir, source="product", replace=True
+            )
         return registry
 
 
@@ -93,7 +99,11 @@ def load_hooks_from_directories(
 
     resolved_repo_root = repo_root.expanduser().resolve()
     active_registry = registry or HookRegistry()
-    builtin_root = (builtins_dir or Path(__file__).resolve().parent / "builtins").expanduser().resolve()
+    builtin_root = (
+        (builtins_dir or Path(__file__).resolve().parent / "builtins")
+        .expanduser()
+        .resolve()
+    )
     workspace_root = None
     if workspace_dir is not None:
         workspace_root = workspace_dir.expanduser().resolve()
@@ -140,15 +150,26 @@ def _load_hook_dir_into_registry(
 
     for file_path in discover_hook_files(directory):
         if replace:
-            _remove_existing_hook_registrations(registry, source=source, file_name=file_path.name)
+            _remove_existing_hook_registrations(
+                registry, source=source, file_name=file_path.name
+            )
         module = _import_hook_module(file_path, source=source)
         setup = getattr(module, "setup", None)
         if not callable(setup):
             raise RuntimeError(f"hook module missing setup(hooks): {file_path}")
-        setup(HookAPI(registry, source=source, module_name=module.__name__, file_path=file_path))
+        setup(
+            HookAPI(
+                registry,
+                source=source,
+                module_name=module.__name__,
+                file_path=file_path,
+            )
+        )
 
 
-def _remove_existing_hook_registrations(registry: HookRegistry, *, source: str, file_name: str) -> None:
+def _remove_existing_hook_registrations(
+    registry: HookRegistry, *, source: str, file_name: str
+) -> None:
     removable_sources = {source}
     if source == "workspace":
         removable_sources.add("product")

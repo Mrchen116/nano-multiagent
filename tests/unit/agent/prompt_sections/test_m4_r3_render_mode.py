@@ -12,6 +12,7 @@ M4 退出标准:
 
 这些测试在 R3 实施之前是红的。
 """
+
 from __future__ import annotations
 
 import enum
@@ -28,9 +29,11 @@ from pathlib import Path
 # R3-A: PromptContext 有 render_mode 字段
 # ---------------------------------------------------------------------------
 
+
 def test_prompt_context_has_render_mode_field():
     """决策 18: PromptContext 必须有 render_mode 字段。"""
     import dataclasses
+
     fields = {f.name for f in dataclasses.fields(PromptContext)}
     assert "render_mode" in fields, (
         "PromptContext must have render_mode field after M4 R3"
@@ -40,6 +43,7 @@ def test_prompt_context_has_render_mode_field():
 def test_render_mode_is_enum_with_runtime_and_preview():
     """render_mode 必须支持 RUNTIME 和 PREVIEW 两个值。"""
     from agent.core.agent.prompt_sections.base import RenderMode
+
     assert hasattr(RenderMode, "RUNTIME")
     assert hasattr(RenderMode, "PREVIEW")
 
@@ -48,9 +52,11 @@ def test_render_mode_is_enum_with_runtime_and_preview():
 # R3-B: PromptContext 使用 memory_content 而非 memory_block
 # ---------------------------------------------------------------------------
 
+
 def test_prompt_context_has_memory_content_field():
     """决策 18: PromptContext 改为 memory_content (纯内容，无 banner)。"""
     import dataclasses
+
     fields = {f.name for f in dataclasses.fields(PromptContext)}
     assert "memory_content" in fields, (
         "PromptContext must have memory_content field (pure content, no banner)"
@@ -60,6 +66,7 @@ def test_prompt_context_has_memory_content_field():
 def test_prompt_context_has_user_profile_content_field():
     """决策 18: user_profile_block → user_profile_content。"""
     import dataclasses
+
     fields = {f.name for f in dataclasses.fields(PromptContext)}
     assert "user_profile_content" in fields, (
         "PromptContext must have user_profile_content field"
@@ -70,7 +77,10 @@ def test_prompt_context_has_user_profile_content_field():
 # R3-C: MemoryStore.format_for_prompt 不再包含 banner
 # ---------------------------------------------------------------------------
 
-def _build_store_with_entries(entries: list[str], target: str = "memory") -> MemoryStore:
+
+def _build_store_with_entries(
+    entries: list[str], target: str = "memory"
+) -> MemoryStore:
     tmp = Path(tempfile.mkdtemp())
     store = MemoryStore(memory_root=tmp)
     src = MemorySource(session_id="test", timestamp=0.0)
@@ -105,6 +115,7 @@ def test_memory_store_format_for_prompt_still_has_content():
 # R3-D: core.memory_block render 三态 — 需要 render_mode
 # ---------------------------------------------------------------------------
 
+
 def _get_memory_block_section():
     for s in CORE_SECTIONS:
         if s.name == "core.memory_block":
@@ -114,6 +125,7 @@ def _get_memory_block_section():
 
 def _ctx_runtime_with_content(content: str) -> PromptContext:
     from agent.core.agent.prompt_sections.base import RenderMode
+
     return PromptContext(
         memory_content=content,
         render_mode=RenderMode.RUNTIME,
@@ -122,6 +134,7 @@ def _ctx_runtime_with_content(content: str) -> PromptContext:
 
 def _ctx_preview() -> PromptContext:
     from agent.core.agent.prompt_sections.base import RenderMode
+
     return PromptContext(
         memory_content=None,
         render_mode=RenderMode.PREVIEW,
@@ -130,6 +143,7 @@ def _ctx_preview() -> PromptContext:
 
 def _ctx_runtime_no_content() -> PromptContext:
     from agent.core.agent.prompt_sections.base import RenderMode
+
     return PromptContext(
         memory_content=None,
         render_mode=RenderMode.RUNTIME,
@@ -143,7 +157,9 @@ def test_memory_block_render_runtime_with_content_has_banner():
     result = seg.render(ctx)
     assert result is not None
     assert "══" in result, "RUNTIME render must include banner separators"
-    assert "MEMORY (your personal notes)" in result, "RUNTIME render must include banner title"
+    assert "MEMORY (your personal notes)" in result, (
+        "RUNTIME render must include banner title"
+    )
     assert "some fact" in result, "RUNTIME render must include actual content"
 
 
@@ -162,8 +178,12 @@ def test_memory_block_render_preview_has_banner_and_placeholder():
     result = seg.render(ctx)
     assert result is not None, "PREVIEW: segment must render (not None)"
     assert "══" in result, "PREVIEW render must include banner separators"
-    assert "MEMORY (your personal notes)" in result, "PREVIEW render must include banner title"
-    assert "运行时注入" in result, "PREVIEW render must include '运行时注入' placeholder text"
+    assert "MEMORY (your personal notes)" in result, (
+        "PREVIEW render must include banner title"
+    )
+    assert "运行时注入" in result, (
+        "PREVIEW render must include '运行时注入' placeholder text"
+    )
 
 
 def test_memory_block_render_preview_banner_bytes_same_as_runtime():

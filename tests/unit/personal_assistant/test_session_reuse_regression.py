@@ -27,7 +27,10 @@ import pytest
 # Contract test 1: Kernel.get_session exposes top-level workspace_root
 # ---------------------------------------------------------------------------
 
-def test_kernel_get_session_exposes_workspace_root_as_top_level_key(tmp_path: Path) -> None:
+
+def test_kernel_get_session_exposes_workspace_root_as_top_level_key(
+    tmp_path: Path,
+) -> None:
     """SDK Kernel.get_session must include 'workspace_root' at the top level.
 
     This is the source-of-truth contract: _binding_matches_workspace_root relies
@@ -39,6 +42,7 @@ def test_kernel_get_session_exposes_workspace_root_as_top_level_key(tmp_path: Pa
 
     async def _allow(_tool: str, _input: Any, _ctx: Any) -> Any:
         from agent.platform.permissions.broker import PermissionDecision
+
         return PermissionDecision(behavior="allow")
 
     kernel = build_kernel(
@@ -95,18 +99,22 @@ def test_binding_matches_workspace_root_reads_top_level_key(tmp_path: Path) -> N
 
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    agent = AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace, title="A")
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-a", workspace_root=workspace, title="A"
+    )
 
     expected_workspace_root = str(workspace)
 
     # get_session response with workspace_root at TOP LEVEL only (not in metadata)
     class _StubKernel:
-        def get_session(self, session_id: str, *, workspace_root: Any = None) -> dict[str, Any]:
+        def get_session(
+            self, session_id: str, *, workspace_root: Any = None
+        ) -> dict[str, Any]:
             return {
                 "session_id": session_id,
                 "status": "active",
-                "workspace_root": expected_workspace_root,   # top-level key
-                "metadata": {"agent_id": "agent-a"},         # no workspace_root here
+                "workspace_root": expected_workspace_root,  # top-level key
+                "metadata": {"agent_id": "agent-a"},  # no workspace_root here
             }
 
     class _FakeChan:
@@ -150,11 +158,16 @@ def test_session_reuse_across_consecutive_messages(tmp_path: Path) -> None:
     from personal_assistant.gateway.run_queue import SessionRunQueue
     from personal_assistant.gateway.session_keys import SessionBindingStore
 
-    from tests.unit.personal_assistant._pipeline_helpers import _FakeChannel, _FakeKernel
+    from tests.unit.personal_assistant._pipeline_helpers import (
+        _FakeChannel,
+        _FakeKernel,
+    )
 
     workspace = tmp_path / "ws"
     workspace.mkdir()
-    agent = AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace, title="A")
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-a", workspace_root=workspace, title="A"
+    )
 
     kernel = _FakeKernel()
     chan = _FakeChannel("web")

@@ -2,7 +2,6 @@
 
 import signal
 import threading
-import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -19,16 +18,56 @@ from agent.platform.permissions.broker import PermissionDecision
 # Foreground budget before auto-backgrounding (seconds)
 _DEFAULT_FOREGROUND_BUDGET = 120.0
 
-_READ_ONLY_COMMANDS = frozenset({
-    "ls", "cat", "grep", "rg", "find", "head", "tail", "echo", "pwd", "wc",
-    "file", "stat", "readlink", "sort", "uniq", "cut", "tr", "which", "whoami",
-    "id", "uname", "date", "ps", "df", "du", "env", "printenv", "hostname",
-})
+_READ_ONLY_COMMANDS = frozenset(
+    {
+        "ls",
+        "cat",
+        "grep",
+        "rg",
+        "find",
+        "head",
+        "tail",
+        "echo",
+        "pwd",
+        "wc",
+        "file",
+        "stat",
+        "readlink",
+        "sort",
+        "uniq",
+        "cut",
+        "tr",
+        "which",
+        "whoami",
+        "id",
+        "uname",
+        "date",
+        "ps",
+        "df",
+        "du",
+        "env",
+        "printenv",
+        "hostname",
+    }
+)
 
-_READ_ONLY_GIT_SUBCOMMANDS = frozenset({
-    "status", "log", "diff", "show", "branch", "remote", "config", "rev-parse",
-    "ls-files", "blame", "stash", "tag", "describe",
-})
+_READ_ONLY_GIT_SUBCOMMANDS = frozenset(
+    {
+        "status",
+        "log",
+        "diff",
+        "show",
+        "branch",
+        "remote",
+        "config",
+        "rev-parse",
+        "ls-files",
+        "blame",
+        "stash",
+        "tag",
+        "describe",
+    }
+)
 
 
 class BashTool:
@@ -40,7 +79,6 @@ class BashTool:
     """
 
     name = "bash"
-    is_concurrency_safe = False
     max_result_size_chars = 30_000
     description = (
         "Execute a bash command in the current working directory. Returns stdout and stderr. "
@@ -60,7 +98,10 @@ class BashTool:
                 "type": "string",
                 "description": "Short description for background task tracking (3-5 words).",
             },
-            "timeout": {"type": "number", "description": "Timeout in seconds (optional, no default timeout)"},
+            "timeout": {
+                "type": "number",
+                "description": "Timeout in seconds (optional, no default timeout)",
+            },
             "run_in_background": {
                 "type": "boolean",
                 "description": (
@@ -121,12 +162,20 @@ class BashTool:
             return PermissionDecision(
                 behavior="deny",
                 reason=f"bash policy denied: {decision.details.get('blocked_command', decision.details.get('blocked_fragment', ''))}",
-                decision_reason={"type": "command_policy", "matched": "denied", **dict(decision.details)},
+                decision_reason={
+                    "type": "command_policy",
+                    "matched": "denied",
+                    **dict(decision.details),
+                },
             )
         # status == "review" — pass through to classifier
         return PermissionDecision(
             behavior="passthrough",
-            decision_reason={"type": "command_policy", "matched": "review", **dict(decision.details)},
+            decision_reason={
+                "type": "command_policy",
+                "matched": "review",
+                **dict(decision.details),
+            },
         )
 
     def is_concurrency_safe(self, args: Mapping[str, Any]) -> bool:
@@ -216,7 +265,7 @@ class BashTool:
 
         output_file = wiring.output.open(parent_session_id, task_id)
 
-        record = registry.register_bash(
+        registry.register_bash(
             task_id=task_id,
             parent_session_id=parent_session_id,
             description=effective_description,
@@ -267,7 +316,14 @@ class BashTool:
         completed_event = threading.Event()
         result_holder: dict[str, Any] = {}
 
-        def on_complete(*, task_id: str, result_text: str | None, usage: Mapping[str, Any] | None, duration_ms: int, tool_use_count: int) -> None:
+        def on_complete(
+            *,
+            task_id: str,
+            result_text: str | None,
+            usage: Mapping[str, Any] | None,
+            duration_ms: int,
+            tool_use_count: int,
+        ) -> None:
             # For foreground tasks, suppress the background notification: the result is
             # delivered synchronously via completed_event rather than via notification.
             # For auto-backgrounded tasks (foreground budget exceeded), is_foreground is False
@@ -431,13 +487,15 @@ class BashTool:
                 lines = raw.splitlines()
                 if len(lines) > cfg.bash_max_output_lines:
                     # Keep last N lines (tail) to preserve most relevant recent output.
-                    lines = lines[-cfg.bash_max_output_lines:]
+                    lines = lines[-cfg.bash_max_output_lines :]
                     line_truncated = True
                 stdout = "\n".join(lines)
                 # Re-check byte ceiling after line truncation.
                 encoded = stdout.encode("utf-8")
                 if len(encoded) > cfg.bash_max_output_bytes:
-                    stdout = encoded[-cfg.bash_max_output_bytes:].decode("utf-8", errors="replace")
+                    stdout = encoded[-cfg.bash_max_output_bytes :].decode(
+                        "utf-8", errors="replace"
+                    )
                     line_truncated = True
                 # Only unlink when not truncated — fullOutputPath should be accessible
                 # by the caller when the full output exceeds the display budget.
@@ -515,14 +573,16 @@ class BashTool:
             ]
             if output.get("description"):
                 lines.append(f"description: {output['description']}")
-            lines.extend([
-                "status: running",
-                f"output_file: {output.get('output_file', '')}",
-                "",
-                "The command is running in the background. You will be notified automatically when it completes.",
-                "Use Read on output_file to inspect progress or final output.",
-                f'Use task_stop with task_id="{output.get("task_id", "")}" to stop it.',
-            ])
+            lines.extend(
+                [
+                    "status: running",
+                    f"output_file: {output.get('output_file', '')}",
+                    "",
+                    "The command is running in the background. You will be notified automatically when it completes.",
+                    "Use Read on output_file to inspect progress or final output.",
+                    f'Use task_stop with task_id="{output.get("task_id", "")}" to stop it.',
+                ]
+            )
             return "\n".join(lines)
 
         stdout = output.get("stdout", "") or ""
@@ -539,12 +599,21 @@ class BashTool:
 
     def _require_wiring(self) -> Any:
         if self._wiring is None:
-            raise ToolError("background task wiring is not configured", tool_name=self.name)
+            raise ToolError(
+                "background task wiring is not configured", tool_name=self.name
+            )
         return self._wiring
 
 
 def _make_bash_on_complete(registry: Any, task_id: str) -> Any:
-    def _on_complete(*, task_id: str, result_text: str | None, usage: Mapping[str, Any] | None, duration_ms: int, tool_use_count: int) -> None:
+    def _on_complete(
+        *,
+        task_id: str,
+        result_text: str | None,
+        usage: Mapping[str, Any] | None,
+        duration_ms: int,
+        tool_use_count: int,
+    ) -> None:
         registry.complete(
             task_id,
             result_text=result_text,
@@ -552,12 +621,14 @@ def _make_bash_on_complete(registry: Any, task_id: str) -> Any:
             duration_ms=duration_ms,
             tool_use_count=tool_use_count,
         )
+
     return _on_complete
 
 
 def _make_bash_on_fail(registry: Any, task_id: str) -> Any:
     def _on_fail(*, task_id: str, error: str) -> None:
         registry.fail(task_id, error=error)
+
     return _on_fail
 
 
@@ -579,7 +650,7 @@ def _parse_exit_code_from_error(error: str) -> int:
     """Best-effort parse of exit code from shell runner error strings."""
     if error.startswith("exit code "):
         try:
-            return int(error[len("exit code "):])
+            return int(error[len("exit code ") :])
         except ValueError:
             pass
     if error.startswith("timed out after "):

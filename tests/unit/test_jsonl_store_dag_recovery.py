@@ -9,6 +9,7 @@ from agent.core.session.jsonl_store import JsonlSessionStore
 
 def _write_turn(path: Path, **fields: object) -> None:
     import json
+
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(fields, ensure_ascii=False) + "\n")
 
@@ -20,10 +21,23 @@ async def test_load_recovers_orphaned_parallel_tool_results(tmp_path: Path) -> N
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # session_created
-    _write_turn(path, type="session_created", session_id="sess_1", created_at="2026-01-01T00:00:00+00:00", workspace_root=str(tmp_path / "data"))
+    _write_turn(
+        path,
+        type="session_created",
+        session_id="sess_1",
+        created_at="2026-01-01T00:00:00+00:00",
+        workspace_root=str(tmp_path / "data"),
+    )
 
     # Turn 1: user -> assistant -> tool_a + tool_b (parallel, same group_id)
-    _write_turn(path, type="turn", uuid="u1", role="user", content="hello", timestamp="2026-01-01T00:01:00+00:00")
+    _write_turn(
+        path,
+        type="turn",
+        uuid="u1",
+        role="user",
+        content="hello",
+        timestamp="2026-01-01T00:01:00+00:00",
+    )
     _write_turn(
         path,
         type="turn",
@@ -59,7 +73,15 @@ async def test_load_recovers_orphaned_parallel_tool_results(tmp_path: Path) -> N
     )
 
     # Turn 2: user -> assistant (no tool calls)
-    _write_turn(path, type="turn", uuid="u2", parent_uuid="a1", role="user", content="next", timestamp="2026-01-01T00:02:00+00:00")
+    _write_turn(
+        path,
+        type="turn",
+        uuid="u2",
+        parent_uuid="a1",
+        role="user",
+        content="next",
+        timestamp="2026-01-01T00:02:00+00:00",
+    )
     _write_turn(
         path,
         type="turn",
@@ -95,10 +117,23 @@ async def test_load_excludes_dead_branches_from_rewind(tmp_path: Path) -> None:
     path = store.resolve_path("sess_2")
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    _write_turn(path, type="session_created", session_id="sess_2", created_at="2026-01-01T00:00:00+00:00", workspace_root=str(tmp_path / "data"))
+    _write_turn(
+        path,
+        type="session_created",
+        session_id="sess_2",
+        created_at="2026-01-01T00:00:00+00:00",
+        workspace_root=str(tmp_path / "data"),
+    )
 
     # Active path: u1 -> a1 -> u2 -> a2
-    _write_turn(path, type="turn", uuid="u1", role="user", content="hello", timestamp="2026-01-01T00:01:00+00:00")
+    _write_turn(
+        path,
+        type="turn",
+        uuid="u1",
+        role="user",
+        content="hello",
+        timestamp="2026-01-01T00:01:00+00:00",
+    )
     _write_turn(
         path,
         type="turn",
@@ -109,7 +144,15 @@ async def test_load_excludes_dead_branches_from_rewind(tmp_path: Path) -> None:
         content="ack",
         timestamp="2026-01-01T00:01:01+00:00",
     )
-    _write_turn(path, type="turn", uuid="u2", parent_uuid="a1", role="user", content="next", timestamp="2026-01-01T00:02:00+00:00")
+    _write_turn(
+        path,
+        type="turn",
+        uuid="u2",
+        parent_uuid="a1",
+        role="user",
+        content="next",
+        timestamp="2026-01-01T00:02:00+00:00",
+    )
     _write_turn(
         path,
         type="turn",
@@ -159,19 +202,55 @@ async def test_load_excludes_dead_branches_from_rewind(tmp_path: Path) -> None:
     assert "t_dead" not in uuids
 
 
-async def test_load_without_parent_links_uses_chronological_order(tmp_path: Path) -> None:
+async def test_load_without_parent_links_uses_chronological_order(
+    tmp_path: Path,
+) -> None:
     """Backward-compatible flat turns (no parent_uuid) fall back to chronological order."""
     store = JsonlSessionStore(data_dir=tmp_path / "data")
     path = store.resolve_path("sess_3")
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    _write_turn(path, type="session_created", session_id="sess_3", created_at="2026-01-01T00:00:00+00:00", workspace_root=str(tmp_path / "data"))
+    _write_turn(
+        path,
+        type="session_created",
+        session_id="sess_3",
+        created_at="2026-01-01T00:00:00+00:00",
+        workspace_root=str(tmp_path / "data"),
+    )
 
     # Flat turns without parent_uuid
-    _write_turn(path, type="turn", uuid="u1", role="user", content="first", timestamp="2026-01-01T00:01:00+00:00")
-    _write_turn(path, type="turn", uuid="a1", role="assistant", content="ack1", timestamp="2026-01-01T00:01:01+00:00")
-    _write_turn(path, type="turn", uuid="u2", role="user", content="second", timestamp="2026-01-01T00:02:00+00:00")
-    _write_turn(path, type="turn", uuid="a2", role="assistant", content="ack2", timestamp="2026-01-01T00:02:01+00:00")
+    _write_turn(
+        path,
+        type="turn",
+        uuid="u1",
+        role="user",
+        content="first",
+        timestamp="2026-01-01T00:01:00+00:00",
+    )
+    _write_turn(
+        path,
+        type="turn",
+        uuid="a1",
+        role="assistant",
+        content="ack1",
+        timestamp="2026-01-01T00:01:01+00:00",
+    )
+    _write_turn(
+        path,
+        type="turn",
+        uuid="u2",
+        role="user",
+        content="second",
+        timestamp="2026-01-01T00:02:00+00:00",
+    )
+    _write_turn(
+        path,
+        type="turn",
+        uuid="a2",
+        role="assistant",
+        content="ack2",
+        timestamp="2026-01-01T00:02:01+00:00",
+    )
 
     result = store.load("sess_3")
     messages = result.messages
@@ -180,16 +259,31 @@ async def test_load_without_parent_links_uses_chronological_order(tmp_path: Path
     assert [m.message_id for m in messages] == ["u1", "a1", "u2", "a2"]
 
 
-async def test_load_with_compact_boundary_skips_pre_boundary_orphans(tmp_path: Path) -> None:
+async def test_load_with_compact_boundary_skips_pre_boundary_orphans(
+    tmp_path: Path,
+) -> None:
     """Orphans before compact_boundary are ignored even if group_id matches."""
     store = JsonlSessionStore(data_dir=tmp_path / "data")
     path = store.resolve_path("sess_4")
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    _write_turn(path, type="session_created", session_id="sess_4", created_at="2026-01-01T00:00:00+00:00", workspace_root=str(tmp_path / "data"))
+    _write_turn(
+        path,
+        type="session_created",
+        session_id="sess_4",
+        created_at="2026-01-01T00:00:00+00:00",
+        workspace_root=str(tmp_path / "data"),
+    )
 
     # Pre-boundary: user -> assistant -> tool_a + tool_b
-    _write_turn(path, type="turn", uuid="u_old", role="user", content="old", timestamp="2026-01-01T00:01:00+00:00")
+    _write_turn(
+        path,
+        type="turn",
+        uuid="u_old",
+        role="user",
+        content="old",
+        timestamp="2026-01-01T00:01:00+00:00",
+    )
     _write_turn(
         path,
         type="turn",
@@ -230,7 +324,14 @@ async def test_load_with_compact_boundary_skips_pre_boundary_orphans(tmp_path: P
     )
 
     # Post-boundary: user -> assistant
-    _write_turn(path, type="turn", uuid="u_new", role="user", content="new", timestamp="2026-01-01T00:03:00+00:00")
+    _write_turn(
+        path,
+        type="turn",
+        uuid="u_new",
+        role="user",
+        content="new",
+        timestamp="2026-01-01T00:03:00+00:00",
+    )
     _write_turn(
         path,
         type="turn",
@@ -256,8 +357,21 @@ async def test_reasoning_fields_survive_jsonl_roundtrip(tmp_path: Path) -> None:
     path = store.resolve_path("sess_rc")
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    _write_turn(path, type="session_created", session_id="sess_rc", created_at="2026-01-01T00:00:00+00:00", workspace_root=str(tmp_path / "data"))
-    _write_turn(path, type="turn", uuid="u1", role="user", content="hello", timestamp="2026-01-01T00:01:00+00:00")
+    _write_turn(
+        path,
+        type="session_created",
+        session_id="sess_rc",
+        created_at="2026-01-01T00:00:00+00:00",
+        workspace_root=str(tmp_path / "data"),
+    )
+    _write_turn(
+        path,
+        type="turn",
+        uuid="u1",
+        role="user",
+        content="hello",
+        timestamp="2026-01-01T00:01:00+00:00",
+    )
     _write_turn(
         path,
         type="turn",
@@ -289,8 +403,21 @@ async def test_tool_call_id_survives_jsonl_roundtrip(tmp_path: Path) -> None:
     path = store.resolve_path("sess_tc")
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    _write_turn(path, type="session_created", session_id="sess_tc", created_at="2026-01-01T00:00:00+00:00", workspace_root=str(tmp_path / "data"))
-    _write_turn(path, type="turn", uuid="u1", role="user", content="read a file", timestamp="2026-01-01T00:01:00+00:00")
+    _write_turn(
+        path,
+        type="session_created",
+        session_id="sess_tc",
+        created_at="2026-01-01T00:00:00+00:00",
+        workspace_root=str(tmp_path / "data"),
+    )
+    _write_turn(
+        path,
+        type="turn",
+        uuid="u1",
+        role="user",
+        content="read a file",
+        timestamp="2026-01-01T00:01:00+00:00",
+    )
     _write_turn(
         path,
         type="turn",

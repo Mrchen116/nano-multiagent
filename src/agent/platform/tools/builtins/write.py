@@ -22,8 +22,14 @@ class WriteTool:
     input_schema = {
         "type": "object",
         "properties": {
-            "path": {"type": "string", "description": "Path to the file to write (relative or absolute)"},
-            "content": {"type": "string", "description": "Content to write to the file"},
+            "path": {
+                "type": "string",
+                "description": "Path to the file to write (relative or absolute)",
+            },
+            "content": {
+                "type": "string",
+                "description": "Content to write to the file",
+            },
         },
         "required": ["path", "content"],
         "additionalProperties": False,
@@ -68,7 +74,9 @@ class WriteTool:
 
         # -- Read-Before-Write enforcement (only when overwriting existing file) --
         if file_exists and ctx.session_file_state is not None:
-            can_write, error_code = ctx.session_file_state.can_write(str(file_path.resolve()))
+            can_write, error_code = ctx.session_file_state.can_write(
+                str(file_path.resolve())
+            )
             if not can_write:
                 if error_code == 6:
                     raise ToolError(

@@ -28,7 +28,9 @@ async def _event_stream(*events: dict[str, Any]) -> AsyncIterator[dict[str, Any]
     await asyncio.sleep(10)
 
 
-async def _finite_event_stream(*events: dict[str, Any]) -> AsyncIterator[dict[str, Any]]:
+async def _finite_event_stream(
+    *events: dict[str, Any],
+) -> AsyncIterator[dict[str, Any]]:
     """Yield events and then end the stream."""
     for event in events:
         yield event
@@ -71,14 +73,21 @@ async def test_background_subscriber_calls_callback_on_self_evolution_review() -
         received.append(dict(event))
 
     kernel_client = MagicMock()
-    kernel_client.stream_session = MagicMock(return_value=_finite_event_stream(
-        {"event": "run_status", "run_id": "r1", "status": "completed", "origin": "user"},
-        {
-            "event": "self_evolution_review",
-            "session_id": "sess1",
-            "data": {"reviewed_skills": True, "reviewed_memory": False},
-        },
-    ))
+    kernel_client.stream_session = MagicMock(
+        return_value=_finite_event_stream(
+            {
+                "event": "run_status",
+                "run_id": "r1",
+                "status": "completed",
+                "origin": "user",
+            },
+            {
+                "event": "self_evolution_review",
+                "session_id": "sess1",
+                "data": {"reviewed_skills": True, "reviewed_memory": False},
+            },
+        )
+    )
 
     subscriber = BackgroundSessionEventSubscriber(
         kernel_client=kernel_client,
@@ -109,10 +118,12 @@ async def test_background_subscriber_ignores_non_session_events() -> None:
         received.append(dict(event))
 
     kernel_client = MagicMock()
-    kernel_client.stream_session = MagicMock(return_value=_finite_event_stream(
-        {"event": "run_status", "run_id": "r1", "status": "completed"},
-        {"event": "assistant_message", "run_id": "r1", "content": "hello"},
-    ))
+    kernel_client.stream_session = MagicMock(
+        return_value=_finite_event_stream(
+            {"event": "run_status", "run_id": "r1", "status": "completed"},
+            {"event": "assistant_message", "run_id": "r1", "content": "hello"},
+        )
+    )
 
     subscriber = BackgroundSessionEventSubscriber(
         kernel_client=kernel_client,
@@ -137,7 +148,13 @@ async def test_background_subscriber_reconnects_on_stream_error() -> None:
     call_count = 0
     stop_event = asyncio.Event()
 
-    async def _failing_then_ok_stream(*, session_id: str, last_event_id: int | None = None, workspace_root: str | None = None, **_kwargs):
+    async def _failing_then_ok_stream(
+        *,
+        session_id: str,
+        last_event_id: int | None = None,
+        workspace_root: str | None = None,
+        **_kwargs,
+    ):
         nonlocal call_count
         call_count += 1
         if call_count == 1:
@@ -188,9 +205,11 @@ def test_gateway_handler_handles_node_system_message() -> None:
     from IM.ws.gateway_handler import GatewayHandler
 
     # handler is dispatch-table driven; we just verify the method exists
-    assert hasattr(GatewayHandler, "_handle_system_message") or callable(
-        getattr(GatewayHandler, "_handle_system_message", None)
-    ) or True  # checked via integration test below
+    assert (
+        hasattr(GatewayHandler, "_handle_system_message")
+        or callable(getattr(GatewayHandler, "_handle_system_message", None))
+        or True
+    )  # checked via integration test below
 
 
 @pytest.mark.asyncio
@@ -253,7 +272,9 @@ async def test_gateway_handler_node_system_message_creates_system_message() -> N
 
 
 @pytest.mark.asyncio
-async def test_background_subscriber_forwards_workspace_root_to_stream_session() -> None:
+async def test_background_subscriber_forwards_workspace_root_to_stream_session() -> (
+    None
+):
     """BackgroundSessionEventSubscriber must pass workspace_root to stream_session.
 
     Refs #64: without workspace_root the kernel cannot locate the session JSONL and

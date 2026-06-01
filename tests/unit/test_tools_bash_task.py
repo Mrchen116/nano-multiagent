@@ -11,7 +11,10 @@ from agent.platform.tools.builtins.task import TaskTool
 from agent.platform.tools.safety import CommandExecution
 from agent.platform.tools.safety import ToolSafety
 from agent.platform.tools.safety import ToolSafetyConfig
-from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.base import (
+    set_tool_safety_factory,
+    set_tool_safety_config_factory,
+)
 
 set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
@@ -30,7 +33,7 @@ def test_bash_reports_non_zero_exit(tmp_path: Path) -> None:
     ctx = _context(tmp_path)
 
     with pytest.raises(ToolError) as exc_info:
-        BashTool().run({"command": "python -c \"import sys;sys.exit(7)\""}, ctx)
+        BashTool().run({"command": 'python -c "import sys;sys.exit(7)"'}, ctx)
 
     assert str(exc_info.value).endswith("Command exited with code 7")
     assert exc_info.value.details["exitCode"] == 7
@@ -41,13 +44,15 @@ def test_bash_reports_non_zero_exit(tmp_path: Path) -> None:
 def test_bash_handles_timeout(tmp_path: Path) -> None:
     ctx = _context(tmp_path)
 
-    with pytest.raises(ToolError, match="Command timed out after 0.05 seconds") as exc_info:
+    with pytest.raises(
+        ToolError, match="Command timed out after 0.05 seconds"
+    ) as exc_info:
         BashTool().run(
             {
                 "command": (
-                    "python -c \"import time; "
+                    'python -c "import time; '
                     "print('before-timeout', flush=True); "
-                    "time.sleep(0.3)\""
+                    'time.sleep(0.3)"'
                 ),
                 "timeout": 0.05,
             },
@@ -68,6 +73,7 @@ def test_bash_rejects_disallowed_command_via_check_permissions(tmp_path: Path) -
     is now made by the auto_mode_gate hook which calls check_permissions first.
     """
     from agent.platform.permissions.broker import PermissionDecision
+
     ctx = _context(tmp_path)
     tool = BashTool()
 
@@ -112,11 +118,14 @@ def test_bash_file_mode_1mb_hard_limit(tmp_path: Path) -> None:
     assert len(result["stdout"]) <= 2 * 1024 * 1024
 
 
-def test_bash_without_timeout_does_not_inject_default(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_bash_without_timeout_does_not_inject_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """After M6, BashTool uses BashRunner.run_stream, not ctx.safety.run_command_stream.
     Patch BashRunner.run_stream to verify timeout=None is passed through.
     """
     from agent.platform.tools.builtins.bash_runner import BashRunner
+
     captured: dict[str, object] = {}
 
     def fake_run_stream(  # noqa: ANN202
@@ -150,7 +159,7 @@ def test_bash_success_merges_stdout_and_stderr_into_stdout(tmp_path: Path) -> No
     result = BashTool().run(
         {
             "command": (
-                "python -c \"import sys; "
+                'python -c "import sys; '
                 "print('out-1'); "
                 "sys.stderr.write('err-1\\\\n'); "
                 "print('out-2')\""
@@ -166,14 +175,19 @@ def test_bash_success_merges_stdout_and_stderr_into_stdout(tmp_path: Path) -> No
     assert "stderr" in result
 
 
-def test_bash_aborted_contract_message_and_details(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_bash_aborted_contract_message_and_details(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """After M6, BashTool uses BashRunner; patch BashRunner.run_stream to simulate abort."""
     from agent.platform.tools.builtins.bash_runner import BashRunner
+
     ctx = _context(tmp_path)
 
     def fake_run_stream(self, **kwargs):  # noqa: ANN001, ANN003
         del self, kwargs
-        raise ToolError("keyboard interrupt", tool_name="bash", details={"aborted": True})
+        raise ToolError(
+            "keyboard interrupt", tool_name="bash", details={"aborted": True}
+        )
 
     monkeypatch.setattr(BashRunner, "run_stream", fake_run_stream)
 

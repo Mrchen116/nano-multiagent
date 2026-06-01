@@ -4,7 +4,10 @@ from pathlib import Path
 import pytest
 
 from agent.core.errors import ToolError
-from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.base import (
+    set_tool_safety_factory,
+    set_tool_safety_config_factory,
+)
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.loader import discover_tool_files, load_tools_from_directory
 from agent.platform.tools.registry import ToolRegistry

@@ -70,13 +70,21 @@ class _FakeToolRegistryConcurrent:
             ToolSpec(
                 name="echo",
                 description="echo text",
-                input_schema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+                input_schema={
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
                 is_concurrency_safe=True,
             ),
             ToolSpec(
                 name="reverse",
                 description="reverse text",
-                input_schema={"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+                input_schema={
+                    "type": "object",
+                    "properties": {"text": {"type": "string"}},
+                    "required": ["text"],
+                },
                 is_concurrency_safe=True,
             ),
         )
@@ -102,8 +110,14 @@ async def test_loop_parallel_tool_calls_share_parent_and_group_id() -> None:
                     role="assistant",
                     content="",
                     tool_calls=(
-                        LLMToolCall(call_id="call_1", name="echo", arguments={"text": "hello"}),
-                        LLMToolCall(call_id="call_2", name="reverse", arguments={"text": "world"}),
+                        LLMToolCall(
+                            call_id="call_1", name="echo", arguments={"text": "hello"}
+                        ),
+                        LLMToolCall(
+                            call_id="call_2",
+                            name="reverse",
+                            arguments={"text": "world"},
+                        ),
                     ),
                 ),
                 finish_reason="tool_calls",
@@ -169,7 +183,11 @@ class _OversizedTool:
     is_concurrency_safe = True
     max_result_size_chars = 100
     description = "returns large text"
-    input_schema = {"type": "object", "properties": {"size": {"type": "integer"}}, "required": ["size"]}
+    input_schema = {
+        "type": "object",
+        "properties": {"size": {"type": "integer"}},
+        "required": ["size"],
+    }
 
     def run(self, args, ctx):  # noqa: ANN001
         return {"text": "x" * args["size"]}
@@ -185,7 +203,11 @@ class _UnlimitedTool:
     is_concurrency_safe = True
     max_result_size_chars = None
     description = "returns large text without limit"
-    input_schema = {"type": "object", "properties": {"size": {"type": "integer"}}, "required": ["size"]}
+    input_schema = {
+        "type": "object",
+        "properties": {"size": {"type": "integer"}},
+        "required": ["size"],
+    }
 
     def run(self, args, ctx):  # noqa: ANN001
         return {"text": "x" * args["size"]}
@@ -244,7 +266,11 @@ async def test_loop_compresses_oversized_tool_result() -> None:
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(LLMToolCall(call_id="call_1", name="oversized", arguments={"size": 500}),),
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="call_1", name="oversized", arguments={"size": 500}
+                        ),
+                    ),
                 ),
                 finish_reason="tool_calls",
             ),
@@ -296,7 +322,11 @@ async def test_loop_skips_compression_for_unlimited_tool() -> None:
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(LLMToolCall(call_id="call_2", name="unlimited", arguments={"size": 500}),),
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="call_2", name="unlimited", arguments={"size": 500}
+                        ),
+                    ),
                 ),
                 finish_reason="tool_calls",
             ),
@@ -338,7 +368,11 @@ async def test_loop_under_limit_no_compression() -> None:
                 message=LLMMessage(
                     role="assistant",
                     content="",
-                    tool_calls=(LLMToolCall(call_id="call_3", name="oversized", arguments={"size": 50}),),
+                    tool_calls=(
+                        LLMToolCall(
+                            call_id="call_3", name="oversized", arguments={"size": 50}
+                        ),
+                    ),
                 ),
                 finish_reason="tool_calls",
             ),

@@ -27,6 +27,7 @@ def _make_stream_event(data: dict[str, Any], *, seq: int = 1) -> dict[str, Any]:
 @dataclass
 class _FakeSession:
     """Minimal session stub returned by _FakeKernel.create_session."""
+
     session_id: str
 
 
@@ -94,7 +95,9 @@ class _FakeKernel:
         # Extract texts from parts and join as legacy send_calls["text"].
         texts = [p["text"] for p in parts if p.get("type") == "text"]
         rendered_text = "\n".join(texts)
-        self.send_calls.append({"session_id": session_id, "text": rendered_text, "run_id": run_id})
+        self.send_calls.append(
+            {"session_id": session_id, "text": rendered_text, "run_id": run_id}
+        )
         output_text = self.default_output_text.format(text=rendered_text)
         self.run_states[run_id] = {
             "run_id": run_id,
@@ -104,7 +107,12 @@ class _FakeKernel:
         # Pre-seed stream events: pipeline consumes stream instead of polling get_run.
         sse_events: list[dict] = [
             {"event": "assistant_message", "run_id": run_id, "content": output_text},
-            {"event": "run_status", "run_id": run_id, "status": "completed", "output_text": output_text},
+            {
+                "event": "run_status",
+                "run_id": run_id,
+                "status": "completed",
+                "output_text": output_text,
+            },
         ]
         self.session_events.setdefault(session_id, []).append(sse_events)
         record = MagicMock()
@@ -124,11 +132,18 @@ class _FakeKernel:
 
         return _gen()
 
-    def get_session(self, session_id: str, *, workspace_root: Any = None, **_kwargs) -> dict[str, Any]:
+    def get_session(
+        self, session_id: str, *, workspace_root: Any = None, **_kwargs
+    ) -> dict[str, Any]:
         # workspace_root exposed as top-level key to match Kernel.get_session contract
         # (df319bee) — _binding_matches_workspace_root reads this directly.
         ws = self._session_workspace.get(session_id, "")
-        return {"session_id": session_id, "status": "active", "workspace_root": ws, "metadata": {}}
+        return {
+            "session_id": session_id,
+            "status": "active",
+            "workspace_root": ws,
+            "metadata": {},
+        }
 
     def interrupt(self, session_id: str) -> None:
         pass
@@ -143,7 +158,11 @@ _FakeKernelClient = _FakeKernel
 
 def seed_user(client: TestClient, username: str) -> str:
     """Auth-aware seeding: first call registers + authorizes; subsequent calls seed under tenant."""
-    from tests.im_service._auth_helpers import authorize, register_user, seed_user_under_owner
+    from tests.im_service._auth_helpers import (
+        authorize,
+        register_user,
+        seed_user_under_owner,
+    )
 
     if client.headers.get("Authorization") is None:
         user = register_user(client, username=username, display_name=username.title())
@@ -151,7 +170,10 @@ def seed_user(client: TestClient, username: str) -> str:
         return user.id
     me = client.get("/im/v1/me").json()
     return seed_user_under_owner(
-        client, username=username, display_name=username.title(), owner_id=me["owner_id"]
+        client,
+        username=username,
+        display_name=username.title(),
+        owner_id=me["owner_id"],
     )
 
 
@@ -186,7 +208,9 @@ def send_delivery_receipt(
         continue
 
 
-def seed_node_and_profiles(app, *, owner_id: str = "", agent_ids: tuple[str, ...]) -> None:
+def seed_node_and_profiles(
+    app, *, owner_id: str = "", agent_ids: tuple[str, ...]
+) -> None:
     """Register node-1 and upsert profiles for the given agent_ids."""
     nodes = NodeRepository(app.state.connection)
     nodes.upsert_node(node_id="node-1", node_name="MacBook")
@@ -211,13 +235,17 @@ def seed_node_and_profiles(app, *, owner_id: str = "", agent_ids: tuple[str, ...
     app.state.connection.commit()
 
 
-def make_agent_configs(tmp_path: Path, *agent_ids: str) -> tuple[AgentWorkspaceConfig, ...]:
+def make_agent_configs(
+    tmp_path: Path, *agent_ids: str
+) -> tuple[AgentWorkspaceConfig, ...]:
     """Create workspace directories and AgentWorkspaceConfig for each agent_id."""
     agents: list[AgentWorkspaceConfig] = []
     for agent_id in agent_ids:
         workspace_root = tmp_path / agent_id
         workspace_root.mkdir()
         agents.append(
-            AgentWorkspaceConfig(agent_id=agent_id, workspace_root=workspace_root, title=agent_id.title())
+            AgentWorkspaceConfig(
+                agent_id=agent_id, workspace_root=workspace_root, title=agent_id.title()
+            )
         )
     return tuple(agents)

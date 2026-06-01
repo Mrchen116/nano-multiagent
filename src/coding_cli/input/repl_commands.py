@@ -8,8 +8,19 @@ from dataclasses import dataclass
 from typing import Any, Callable, Sequence, TextIO
 
 _DEFAULT_HISTORY_LIMIT = 20
-REPL_COMMANDS = ("/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit")
-HELP_LINE = "Commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit"
+REPL_COMMANDS = (
+    "/help",
+    "/new",
+    "/use",
+    "/session",
+    "/tools",
+    "/compact",
+    "/history",
+    "/exit",
+)
+HELP_LINE = (
+    "Commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +92,9 @@ def handle_repl_command(
                 usage="/exit",
             )
             return ReplCommandResult(handled=True, active_session_id=active_session_id)
-        return ReplCommandResult(handled=True, active_session_id=active_session_id, should_exit=True)
+        return ReplCommandResult(
+            handled=True, active_session_id=active_session_id, should_exit=True
+        )
 
     try:
         if command == "/new":
@@ -92,7 +105,9 @@ def handle_repl_command(
                     suggestion="try /new.",
                     usage="/new",
                 )
-                return ReplCommandResult(handled=True, active_session_id=active_session_id)
+                return ReplCommandResult(
+                    handled=True, active_session_id=active_session_id
+                )
             payload = client.create_session(skills=[])
             next_session_id = extract_session_id(payload)
             print_session_created(out=out, session_id=next_session_id)
@@ -106,7 +121,9 @@ def handle_repl_command(
                     message="missing session_id for /use.",
                     suggestion="try /use <session_id>.",
                 )
-                return ReplCommandResult(handled=True, active_session_id=active_session_id)
+                return ReplCommandResult(
+                    handled=True, active_session_id=active_session_id
+                )
             if len(argument_tokens) != 1:
                 print_actionable_error(
                     out=out,
@@ -114,7 +131,9 @@ def handle_repl_command(
                     suggestion="try /use <session_id>.",
                     usage="/use <session_id>",
                 )
-                return ReplCommandResult(handled=True, active_session_id=active_session_id)
+                return ReplCommandResult(
+                    handled=True, active_session_id=active_session_id
+                )
             next_session_id = argument_tokens[0]
             print_session_switched(out=out, session_id=next_session_id)
             print_active_session(out=out, session_id=next_session_id)
@@ -128,7 +147,9 @@ def handle_repl_command(
                     suggestion="try /session.",
                     usage="/session",
                 )
-                return ReplCommandResult(handled=True, active_session_id=active_session_id)
+                return ReplCommandResult(
+                    handled=True, active_session_id=active_session_id
+                )
             print_active_session(out=out, session_id=active_session_id)
             return ReplCommandResult(handled=True, active_session_id=active_session_id)
 
@@ -140,14 +161,18 @@ def handle_repl_command(
                     suggestion="try /tools.",
                     usage="/tools",
                 )
-                return ReplCommandResult(handled=True, active_session_id=active_session_id)
+                return ReplCommandResult(
+                    handled=True, active_session_id=active_session_id
+                )
             if not active_session_id:
                 print_actionable_error(
                     out=out,
                     message="no active session.",
                     suggestion="run /new or /use <session_id>.",
                 )
-                return ReplCommandResult(handled=True, active_session_id=active_session_id)
+                return ReplCommandResult(
+                    handled=True, active_session_id=active_session_id
+                )
             payload = client.list_session_tools(session_id=active_session_id)
             print_tools_summary(out=out, payload=payload)
             return ReplCommandResult(handled=True, active_session_id=active_session_id)
@@ -160,14 +185,18 @@ def handle_repl_command(
                     suggestion="try /compact.",
                     usage="/compact",
                 )
-                return ReplCommandResult(handled=True, active_session_id=active_session_id)
+                return ReplCommandResult(
+                    handled=True, active_session_id=active_session_id
+                )
             if not active_session_id:
                 print_actionable_error(
                     out=out,
                     message="no active session.",
                     suggestion="run /new or /use <session_id>.",
                 )
-                return ReplCommandResult(handled=True, active_session_id=active_session_id)
+                return ReplCommandResult(
+                    handled=True, active_session_id=active_session_id
+                )
             payload = client.compact_session(session_id=active_session_id)
             print_compact_summary(out=out, payload=payload)
             print_context_budget_snapshot(
@@ -186,8 +215,12 @@ def handle_repl_command(
                     suggestion="try /history 10.",
                     usage="/history [n]",
                 )
-                return ReplCommandResult(handled=True, active_session_id=active_session_id)
-            history_limit, error = _parse_history_limit(argument_tokens[0] if argument_tokens else None)
+                return ReplCommandResult(
+                    handled=True, active_session_id=active_session_id
+                )
+            history_limit, error = _parse_history_limit(
+                argument_tokens[0] if argument_tokens else None
+            )
             if error is not None:
                 print_actionable_error(
                     out=out,
@@ -195,14 +228,18 @@ def handle_repl_command(
                     suggestion="try /history 10.",
                     usage="/history [n]",
                 )
-                return ReplCommandResult(handled=True, active_session_id=active_session_id)
+                return ReplCommandResult(
+                    handled=True, active_session_id=active_session_id
+                )
             if not active_session_id:
                 print_actionable_error(
                     out=out,
                     message="no active session.",
                     suggestion="run /new or /use <session_id>.",
                 )
-                return ReplCommandResult(handled=True, active_session_id=active_session_id)
+                return ReplCommandResult(
+                    handled=True, active_session_id=active_session_id
+                )
             _print_history(
                 out=out,
                 session_id=active_session_id,

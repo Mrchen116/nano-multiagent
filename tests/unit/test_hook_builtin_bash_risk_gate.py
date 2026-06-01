@@ -16,14 +16,19 @@ from agent.core.hooks.runner import HookRunner
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
 from agent.platform.tools.registry import ToolRegistry
-from agent.core.tools.base import set_tool_safety_config_factory, set_tool_safety_factory
+from agent.core.tools.base import (
+    set_tool_safety_config_factory,
+    set_tool_safety_factory,
+)
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
 set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
 
 
-async def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(tmp_path: Path) -> None:
+async def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(
+    tmp_path: Path,
+) -> None:
     """Read-only commands allowed by command policy pass without needing classification."""
     hooks = build_hook_registry(repo_root=tmp_path)
     registry = ToolRegistry(
@@ -47,7 +52,9 @@ async def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(
     assert result.get("exitCode") == 0 or "content" in result or "stdout" in result
 
 
-async def test_builtin_bash_risk_hook_blocks_unlisted_unsafe_command(tmp_path: Path) -> None:
+async def test_builtin_bash_risk_hook_blocks_unlisted_unsafe_command(
+    tmp_path: Path,
+) -> None:
     """Commands matching the hardcoded denylist are blocked without classifier."""
     hooks = build_hook_registry(repo_root=tmp_path)
     registry = ToolRegistry(
@@ -69,7 +76,9 @@ async def test_builtin_bash_risk_hook_blocks_unlisted_unsafe_command(tmp_path: P
         )
 
 
-async def test_builtin_bash_risk_hook_blocks_when_model_caller_is_missing(tmp_path: Path) -> None:
+async def test_builtin_bash_risk_hook_blocks_when_model_caller_is_missing(
+    tmp_path: Path,
+) -> None:
     """Commands needing classification are blocked fail-closed when model caller unavailable."""
     hooks = build_hook_registry(repo_root=tmp_path)
     registry = ToolRegistry(

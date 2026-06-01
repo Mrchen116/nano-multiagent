@@ -12,9 +12,10 @@ LC does not have group chat, heartbeat, user_custom, or communication_context.
 Core segments (runtime_tools, skills_listing, memory/skill guidance, background
 tasks, runtime_footer, memory_block) are shared with PA via CORE_SECTIONS.
 """
+
 from __future__ import annotations
 
-from agent.core.agent.prompt_sections.base import PromptContext, PromptSection
+from agent.core.agent.prompt_sections.base import PromptSection
 
 
 # Provenance: new — migrated verbatim from LOCAL_CODING_SYSTEM_PROMPT opening
@@ -73,6 +74,7 @@ LC_SECTIONS: tuple[PromptSection, ...] = (
 # M4 Decision 15: explicit assembly function (mirrors CC getSystemPrompt)
 # ---------------------------------------------------------------------------
 
+
 def build_lc_system_prompt() -> list[PromptSection]:
     """Return the explicit, ordered list of segments for the Local Coding product.
 
@@ -94,6 +96,7 @@ def build_lc_system_prompt() -> list[PromptSection]:
         CORE_MEMORY_BLOCK,
         CORE_USER_PROFILE_BLOCK,
     )
+
     return [
         # ── Stable prefix (cache_safe=True) ──────────────────────────────────
         # Product identity
@@ -114,6 +117,6 @@ def build_lc_system_prompt() -> list[PromptSection]:
         CORE_BACKGROUND_TASKS,
         CORE_RUNTIME_FOOTER,
         # ── Volatile tail (cache_safe=False) ─────────────────────────────────
-        CORE_MEMORY_BLOCK,          # MEMORY.md snapshot
-        CORE_USER_PROFILE_BLOCK,    # USER.md snapshot
+        CORE_MEMORY_BLOCK,  # MEMORY.md snapshot
+        CORE_USER_PROFILE_BLOCK,  # USER.md snapshot
     ]

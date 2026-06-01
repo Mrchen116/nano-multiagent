@@ -13,6 +13,7 @@ the actual kernel assembly path (build_kernel → AgentRuntime + RunsRegistry
 + EventStreamHub + PermissionBroker), so they validate that the wiring is
 correct, not just that the stubs work.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,6 +34,7 @@ from agent.products.local_coding.profile import LOCAL_CODING_PROFILE
 async def _allow_all(tool, input, ctx) -> Any:  # noqa: ANN001
     """Async can_use_tool strategy that allows all tools."""
     from agent.platform.permissions.broker import PermissionDecision
+
     return PermissionDecision(behavior="allow")
 
 
@@ -42,6 +44,7 @@ def _fake_llm_client() -> Any:
     The runtime calls ``client.generate(request)`` and iterates the async generator.
     We return a new generator object on every call so the client is reusable across runs.
     """
+
     class _FakeClient:
         def generate(self, request: Any):  # noqa: ANN001, ANN201
             return _async_stub_messages()
@@ -146,7 +149,10 @@ async def test_cross_loop_streaming_receives_run_status_event(tmp_path: Path) ->
         async for ev in kernel.stream(session.session_id, after_sequence=0):
             events.append(ev)
             # Stop when terminal run_status arrives
-            if ev.get("event") == "run_status" and ev.get("status") in {"completed", "failed"}:
+            if ev.get("event") == "run_status" and ev.get("status") in {
+                "completed",
+                "failed",
+            }:
                 break
             if asyncio.get_event_loop().time() > deadline:
                 break
@@ -156,15 +162,19 @@ async def test_cross_loop_streaming_receives_run_status_event(tmp_path: Path) ->
             f"expected run_status event, got: {event_names}"
         )
         terminal = [
-            ev for ev in events
-            if ev.get("event") == "run_status" and ev.get("status") in {"completed", "failed"}
+            ev
+            for ev in events
+            if ev.get("event") == "run_status"
+            and ev.get("status") in {"completed", "failed"}
         ]
         assert terminal, f"no terminal run_status event, events: {event_names}"
     finally:
         kernel.close()
 
 
-async def test_can_use_tool_callback_is_invoked_via_permission_requester(tmp_path: Path) -> None:
+async def test_can_use_tool_callback_is_invoked_via_permission_requester(
+    tmp_path: Path,
+) -> None:
     """The SDK-injected permission_requester must call can_use_tool and use its decision.
 
     This validates the callback wiring: when a permission request arrives at the
@@ -175,6 +185,7 @@ async def test_can_use_tool_callback_is_invoked_via_permission_requester(tmp_pat
 
     async def recording_can_use_tool(tool, input, ctx) -> Any:  # noqa: ANN001
         from agent.platform.permissions.broker import PermissionDecision
+
         called.append(str(tool))
         return PermissionDecision(behavior="allow")
 
@@ -196,7 +207,9 @@ async def test_can_use_tool_callback_is_invoked_via_permission_requester(tmp_pat
         from agent.platform.permissions.broker import PermissionRequest
 
         requester = kernel._c.runtime._permission_requester  # noqa: SLF001
-        assert requester is not None, "SDK must inject a permission_requester into runtime"
+        assert requester is not None, (
+            "SDK must inject a permission_requester into runtime"
+        )
 
         # Build a minimal PermissionRequest
         req = PermissionRequest(
@@ -215,7 +228,9 @@ async def test_can_use_tool_callback_is_invoked_via_permission_requester(tmp_pat
         kernel.close()
 
 
-async def test_interrupt_while_waiting_for_permission_cancels_turn(tmp_path: Path) -> None:
+async def test_interrupt_while_waiting_for_permission_cancels_turn(
+    tmp_path: Path,
+) -> None:
     """interrupt() while can_use_tool is pending must cancel the pending future.
 
     This validates risk 3 from design.md: when interrupt fires, cancel_all_pending
@@ -228,6 +243,7 @@ async def test_interrupt_while_waiting_for_permission_cancels_turn(tmp_path: Pat
         # Block until released — simulates slow user decision
         await asyncio.wait_for(blocking_event.wait(), timeout=5.0)
         from agent.platform.permissions.broker import PermissionDecision
+
         return PermissionDecision(behavior="allow")
 
     kernel = build_kernel(
@@ -315,11 +331,21 @@ def test_kernel_exposes_assemble_prompt_preview(tmp_path: Path) -> None:
             skill_ids=[],
         )
         assert isinstance(result, dict), f"must return dict, got {type(result)}"
-        assert "prompt" in result, f"result must contain 'prompt', got keys: {list(result)}"
-        assert "section_count" in result, f"result must contain 'section_count', got keys: {list(result)}"
-        assert isinstance(result["prompt"], str), f"prompt must be str, got {type(result['prompt'])}"
-        assert isinstance(result["section_count"], int), f"section_count must be int, got {type(result['section_count'])}"
+        assert "prompt" in result, (
+            f"result must contain 'prompt', got keys: {list(result)}"
+        )
+        assert "section_count" in result, (
+            f"result must contain 'section_count', got keys: {list(result)}"
+        )
+        assert isinstance(result["prompt"], str), (
+            f"prompt must be str, got {type(result['prompt'])}"
+        )
+        assert isinstance(result["section_count"], int), (
+            f"section_count must be int, got {type(result['section_count'])}"
+        )
         assert result["prompt"], "assemble_prompt_preview must return non-empty prompt"
-        assert result["section_count"] > 0, "assemble_prompt_preview must report at least one section"
+        assert result["section_count"] > 0, (
+            "assemble_prompt_preview must report at least one section"
+        )
     finally:
         kernel.close()

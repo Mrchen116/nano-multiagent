@@ -6,10 +6,18 @@ import pytest
 
 
 def _make_minimal_payload():
-    from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
 
-    model = LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}})
-    provider = LLMProviderPayload(name="anthropic", base_url="http://127.0.0.1:4000", models=(model,))
+    model = LLMModelPayload(
+        name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}
+    )
+    provider = LLMProviderPayload(
+        name="anthropic", base_url="http://127.0.0.1:4000", models=(model,)
+    )
     return LLMConfigPayload(default_model="kimiCoding:K2.6", providers=(provider,))
 
 
@@ -26,15 +34,23 @@ def test_llm_config_payload_roundtrip():
     assert restored.providers[0].base_url == "http://127.0.0.1:4000"
     assert len(restored.providers[0].models) == 1
     assert restored.providers[0].models[0].name == "kimiCoding:K2.6"
-    assert restored.providers[0].models[0].extra_request_body == {"thinking": {"type": "adaptive"}}
+    assert restored.providers[0].models[0].extra_request_body == {
+        "thinking": {"type": "adaptive"}
+    }
 
 
 def test_llm_config_payload_null_extra_request_body():
-    from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
 
     model = LLMModelPayload(name="codex_oauth:gpt-5.5", extra_request_body=None)
     provider = LLMProviderPayload(name="openai_compat", base_url=None, models=(model,))
-    payload = LLMConfigPayload(default_model="codex_oauth:gpt-5.5", providers=(provider,))
+    payload = LLMConfigPayload(
+        default_model="codex_oauth:gpt-5.5", providers=(provider,)
+    )
 
     restored = LLMConfigPayload.from_json(payload.to_json())
     assert restored.providers[0].models[0].extra_request_body is None
@@ -42,13 +58,27 @@ def test_llm_config_payload_null_extra_request_body():
 
 
 def test_llm_config_payload_multiple_providers():
-    from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
 
-    anthropic_model = LLMModelPayload(name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}})
+    anthropic_model = LLMModelPayload(
+        name="kimiCoding:K2.6", extra_request_body={"thinking": {"type": "adaptive"}}
+    )
     openai_model = LLMModelPayload(name="codex_oauth:gpt-5.5")
     providers = (
-        LLMProviderPayload(name="anthropic", base_url="http://127.0.0.1:4000", models=(anthropic_model,)),
-        LLMProviderPayload(name="openai_compat", base_url="http://127.0.0.1:4000", models=(openai_model,)),
+        LLMProviderPayload(
+            name="anthropic",
+            base_url="http://127.0.0.1:4000",
+            models=(anthropic_model,),
+        ),
+        LLMProviderPayload(
+            name="openai_compat",
+            base_url="http://127.0.0.1:4000",
+            models=(openai_model,),
+        ),
     )
     payload = LLMConfigPayload(default_model="kimiCoding:K2.6", providers=providers)
 

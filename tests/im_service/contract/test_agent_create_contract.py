@@ -16,9 +16,16 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
     with TestClient(app) as client:
         owner = register_user(client, username="owner", display_name="Owner")
         authorize(client, owner)
-        NodeRepository(app.state.connection).upsert_node(node_id="node-1", node_name="MacBook")
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-1", node_name="MacBook"
+        )
 
-        async def fake_request_agent_create(*, target_node_id: str, payload: dict[str, object], timeout_seconds: float = 5.0):
+        async def fake_request_agent_create(
+            *,
+            target_node_id: str,
+            payload: dict[str, object],
+            timeout_seconds: float = 5.0,
+        ):
             del timeout_seconds
             if target_node_id != "node-1":
                 return None

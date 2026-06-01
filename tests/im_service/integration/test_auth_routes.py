@@ -42,12 +42,20 @@ def test_register_rejects_duplicate_username(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         first = client.post(
             "/im/v1/auth/register",
-            json={"username": "alice", "password": "hunter2-strong", "display_name": "Alice"},
+            json={
+                "username": "alice",
+                "password": "hunter2-strong",
+                "display_name": "Alice",
+            },
         )
         assert first.status_code == 201
         second = client.post(
             "/im/v1/auth/register",
-            json={"username": "alice", "password": "hunter2-strong", "display_name": "Alice 2"},
+            json={
+                "username": "alice",
+                "password": "hunter2-strong",
+                "display_name": "Alice 2",
+            },
         )
         assert second.status_code == 409
 
@@ -57,7 +65,11 @@ def test_login_then_me_returns_current_user(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         client.post(
             "/im/v1/auth/register",
-            json={"username": "alice", "password": "hunter2-strong", "display_name": "Alice"},
+            json={
+                "username": "alice",
+                "password": "hunter2-strong",
+                "display_name": "Alice",
+            },
         )
         login_resp = client.post(
             "/im/v1/auth/login",
@@ -81,7 +93,11 @@ def test_login_wrong_password_returns_401(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         client.post(
             "/im/v1/auth/register",
-            json={"username": "alice", "password": "hunter2-strong", "display_name": "Alice"},
+            json={
+                "username": "alice",
+                "password": "hunter2-strong",
+                "display_name": "Alice",
+            },
         )
         response = client.post(
             "/im/v1/auth/login",
@@ -112,15 +128,23 @@ def test_refresh_returns_new_pair_and_invalidates_old(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         register = client.post(
             "/im/v1/auth/register",
-            json={"username": "alice", "password": "hunter2-strong", "display_name": "Alice"},
+            json={
+                "username": "alice",
+                "password": "hunter2-strong",
+                "display_name": "Alice",
+            },
         ).json()
         refresh_token = register["refresh_token"]
-        first = client.post("/im/v1/auth/refresh", json={"refresh_token": refresh_token})
+        first = client.post(
+            "/im/v1/auth/refresh", json={"refresh_token": refresh_token}
+        )
         assert first.status_code == 200
         new_refresh = first.json()["refresh_token"]
         assert new_refresh != refresh_token
         # Reusing the original refresh token must now fail.
-        replay = client.post("/im/v1/auth/refresh", json={"refresh_token": refresh_token})
+        replay = client.post(
+            "/im/v1/auth/refresh", json={"refresh_token": refresh_token}
+        )
         assert replay.status_code == 401
 
 
@@ -129,10 +153,18 @@ def test_logout_revokes_refresh_token(tmp_path: Path) -> None:
     with _make_client(tmp_path) as client:
         register = client.post(
             "/im/v1/auth/register",
-            json={"username": "alice", "password": "hunter2-strong", "display_name": "Alice"},
+            json={
+                "username": "alice",
+                "password": "hunter2-strong",
+                "display_name": "Alice",
+            },
         ).json()
         refresh_token = register["refresh_token"]
-        logout_resp = client.post("/im/v1/auth/logout", json={"refresh_token": refresh_token})
+        logout_resp = client.post(
+            "/im/v1/auth/logout", json={"refresh_token": refresh_token}
+        )
         assert logout_resp.status_code == 200
-        replay = client.post("/im/v1/auth/refresh", json={"refresh_token": refresh_token})
+        replay = client.post(
+            "/im/v1/auth/refresh", json={"refresh_token": refresh_token}
+        )
         assert replay.status_code == 401

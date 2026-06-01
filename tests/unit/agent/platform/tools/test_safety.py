@@ -125,6 +125,7 @@ class TestReadToolUsesNormalizePathOnly:
 # M6: ToolSafetyConfig and ToolSafety cleanup assertions
 # ---------------------------------------------------------------------------
 
+
 class TestToolSafetyConfigM6Cleanup:
     """After M6, ToolSafetyConfig must NOT have bash_* fields — they live in bash_policy.py."""
 
@@ -180,12 +181,16 @@ class TestToolSafetyConfigM6Cleanup:
     def test_config_retains_read_max_bytes(self):
         """read_max_bytes must still exist in ToolSafetyConfig."""
         config = ToolSafetyConfig()
-        assert hasattr(config, "read_max_bytes"), "read_max_bytes must remain in ToolSafetyConfig"
+        assert hasattr(config, "read_max_bytes"), (
+            "read_max_bytes must remain in ToolSafetyConfig"
+        )
 
     def test_config_retains_read_max_lines(self):
         """read_max_lines must still exist in ToolSafetyConfig."""
         config = ToolSafetyConfig()
-        assert hasattr(config, "read_max_lines"), "read_max_lines must remain in ToolSafetyConfig"
+        assert hasattr(config, "read_max_lines"), (
+            "read_max_lines must remain in ToolSafetyConfig"
+        )
 
 
 class TestToolSafetyM6MethodCleanup:

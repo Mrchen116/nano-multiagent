@@ -1,7 +1,6 @@
 """Canonical session aggregate manager built on JSONL event store."""
 
 import json
-from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -12,13 +11,18 @@ from agent.core.types import Message
 from .entries import (
     CompactionEntry,
     SessionEntry,
-    SessionEntryKind,
     new_compaction_entry,
     new_run_status_entry,
     new_session_created_entry,
     new_turn_appended_entry,
 )
-from .jsonl_store import JsonlSessionStore, JsonlWriter, LoadResult, SessionConfig, SessionNotFoundError
+from .jsonl_store import (
+    JsonlSessionStore,
+    JsonlWriter,
+    LoadResult,
+    SessionConfig,
+    SessionNotFoundError,
+)
 from .models import Session
 
 
@@ -94,7 +98,9 @@ class SessionManager:
         guess it. Omit it only when the store has a ``data_dir`` default base.
         """
         return self._store.load(
-            session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
+            session_id,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
         )
 
     def get_session(
@@ -227,25 +233,33 @@ class SessionManager:
 
         summary_uuid = ids.make_message_id()
         # 1. compact_boundary (marks the cut; turns after this are retained)
-        self._store.append(session_id, {
-            "type": "compact_boundary",
-            "session_id": session_id,
-            "timestamp": _utc_now_iso(),
-            "summary_uuid": summary_uuid,
-            "data": dict(data or {}),
-        }, workspace_root=workspace_root)
+        self._store.append(
+            session_id,
+            {
+                "type": "compact_boundary",
+                "session_id": session_id,
+                "timestamp": _utc_now_iso(),
+                "summary_uuid": summary_uuid,
+                "data": dict(data or {}),
+            },
+            workspace_root=workspace_root,
+        )
         # 2. Summary turn (is_compact_summary + is_meta) — written AFTER boundary
-        self._store.append(session_id, {
-            "type": "turn",
-            "uuid": summary_uuid,
-            "parent_uuid": first_kept_event_id,
-            "session_id": session_id,
-            "role": "user",
-            "content": summary,
-            "timestamp": _utc_now_iso(),
-            "is_meta": True,
-            "is_compact_summary": True,
-        }, workspace_root=workspace_root)
+        self._store.append(
+            session_id,
+            {
+                "type": "turn",
+                "uuid": summary_uuid,
+                "parent_uuid": first_kept_event_id,
+                "session_id": session_id,
+                "role": "user",
+                "content": summary,
+                "timestamp": _utc_now_iso(),
+                "is_meta": True,
+                "is_compact_summary": True,
+            },
+            workspace_root=workspace_root,
+        )
 
         # Backward-compatible return value
         return new_compaction_entry(
@@ -282,7 +296,8 @@ class SessionManager:
 
         # uuid -> turn entry lookup for compact_boundary resolution
         turn_by_uuid: dict[str, dict[str, Any]] = {
-            line["uuid"]: line for line in raw_lines
+            line["uuid"]: line
+            for line in raw_lines
             if line.get("type") == "turn" and "uuid" in line
         }
 
@@ -290,39 +305,48 @@ class SessionManager:
         for raw in raw_lines:
             etype = raw.get("type")
             if etype == "session_created":
-                entries.append(new_session_created_entry(
-                    session_id=raw.get("session_id", session_id),
-                    created_at=raw.get("created_at") or raw.get("timestamp", _utc_now_iso()),
-                    data=raw,
-                ))
+                entries.append(
+                    new_session_created_entry(
+                        session_id=raw.get("session_id", session_id),
+                        created_at=raw.get("created_at")
+                        or raw.get("timestamp", _utc_now_iso()),
+                        data=raw,
+                    )
+                )
             elif etype == "turn":
-                entries.append(new_turn_appended_entry(
-                    session_id=raw.get("session_id", session_id),
-                    turn_id=raw.get("turn_id", ""),
-                    role=raw["role"],
-                    content=raw["content"],
-                    message_id=raw["uuid"],
-                    metadata=_build_turn_metadata(raw),
-                    created_at=raw.get("timestamp", _utc_now_iso()),
-                ))
+                entries.append(
+                    new_turn_appended_entry(
+                        session_id=raw.get("session_id", session_id),
+                        turn_id=raw.get("turn_id", ""),
+                        role=raw["role"],
+                        content=raw["content"],
+                        message_id=raw["uuid"],
+                        metadata=_build_turn_metadata(raw),
+                        created_at=raw.get("timestamp", _utc_now_iso()),
+                    )
+                )
             elif etype == "compact_boundary":
                 summary_uuid = raw.get("summary_uuid")
                 summary_text = ""
                 if summary_uuid and summary_uuid in turn_by_uuid:
                     summary_text = turn_by_uuid[summary_uuid].get("content", "")
-                entries.append(new_compaction_entry(
-                    session_id=raw.get("session_id", session_id),
-                    first_kept_event_id="",
-                    summary=summary_text,
-                    data=raw.get("data", {}),
-                    created_at=raw.get("timestamp", _utc_now_iso()),
-                ))
+                entries.append(
+                    new_compaction_entry(
+                        session_id=raw.get("session_id", session_id),
+                        first_kept_event_id="",
+                        summary=summary_text,
+                        data=raw.get("data", {}),
+                        created_at=raw.get("timestamp", _utc_now_iso()),
+                    )
+                )
             elif etype == "config_update":
-                entries.append(new_session_created_entry(
-                    session_id=raw.get("session_id", session_id),
-                    created_at=raw.get("timestamp", _utc_now_iso()),
-                    data=raw,
-                ))
+                entries.append(
+                    new_session_created_entry(
+                        session_id=raw.get("session_id", session_id),
+                        created_at=raw.get("timestamp", _utc_now_iso()),
+                        data=raw,
+                    )
+                )
 
         return tuple(entries)
 
@@ -361,6 +385,7 @@ class SessionManager:
 # Helpers
 # ------------------------------------------------------------------
 
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -383,7 +408,16 @@ def _build_turn_metadata(raw: dict[str, Any]) -> dict[str, Any]:
     """Rebuild metadata dict from flattened JSONL turn fields."""
 
     meta: dict[str, Any] = {}
-    for key in ("is_meta", "is_compact_summary", "is_provider_error", "entrypoint", "tool_calls", "tool_name", "tool_error", "tool_output"):
+    for key in (
+        "is_meta",
+        "is_compact_summary",
+        "is_provider_error",
+        "entrypoint",
+        "tool_calls",
+        "tool_name",
+        "tool_error",
+        "tool_output",
+    ):
         if key in raw:
             meta[key] = raw[key]
     if "tool_call_id" in raw:

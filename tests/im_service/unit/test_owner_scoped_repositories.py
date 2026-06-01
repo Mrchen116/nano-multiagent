@@ -22,7 +22,9 @@ from IM.infra.repositories import (
 
 
 @pytest.fixture()
-def repos(tmp_path: Path) -> tuple[
+def repos(
+    tmp_path: Path,
+) -> tuple[
     UserRepository,
     ConversationRepository,
     MessageRepository,
@@ -60,16 +62,24 @@ def test_get_conversation_for_owner_returns_none_for_other_owner(repos) -> None:
     users, conversations, _, _, _ = repos
     alice = users.create_user(username="alice", display_name="Alice")
     bob = users.create_user(username="bob", display_name="Bob")
-    bob_conv = conversations.create_conversation(title="B-only", participant_ids=[bob.id])
+    bob_conv = conversations.create_conversation(
+        title="B-only", participant_ids=[bob.id]
+    )
 
-    assert conversations.get_conversation_for_owner(
-        conversation_id=bob_conv.id,
-        owner_id=alice.owner_id,
-    ) is None
-    assert conversations.get_conversation_for_owner(
-        conversation_id=bob_conv.id,
-        owner_id=bob.owner_id,
-    ) is not None
+    assert (
+        conversations.get_conversation_for_owner(
+            conversation_id=bob_conv.id,
+            owner_id=alice.owner_id,
+        )
+        is None
+    )
+    assert (
+        conversations.get_conversation_for_owner(
+            conversation_id=bob_conv.id,
+            owner_id=bob.owner_id,
+        )
+        is not None
+    )
 
 
 def test_list_runtime_selectable_profiles_for_owner_filters(repos) -> None:
@@ -77,8 +87,15 @@ def test_list_runtime_selectable_profiles_for_owner_filters(repos) -> None:
     users, _, _, profiles, nodes = repos
     alice = users.create_user(username="alice", display_name="Alice")
     bob = users.create_user(username="bob", display_name="Bob")
-    nodes.upsert_node(node_id="node-A", owner_id=alice.owner_id, node_name="Alice Mac", version="1.0.0")
-    nodes.upsert_node(node_id="node-B", owner_id=bob.owner_id, node_name="Bob Mac", version="1.0.0")
+    nodes.upsert_node(
+        node_id="node-A",
+        owner_id=alice.owner_id,
+        node_name="Alice Mac",
+        version="1.0.0",
+    )
+    nodes.upsert_node(
+        node_id="node-B", owner_id=bob.owner_id, node_name="Bob Mac", version="1.0.0"
+    )
     profiles.upsert_profile(
         agent_id="agent-A",
         owner_id=alice.owner_id,
@@ -106,8 +123,12 @@ def test_list_runtime_selectable_profiles_for_owner_filters(repos) -> None:
         workspace_root="/tmp/b",
     )
 
-    alice_agents = profiles.list_runtime_selectable_profiles_for_owner(owner_id=alice.owner_id)
-    bob_agents = profiles.list_runtime_selectable_profiles_for_owner(owner_id=bob.owner_id)
+    alice_agents = profiles.list_runtime_selectable_profiles_for_owner(
+        owner_id=alice.owner_id
+    )
+    bob_agents = profiles.list_runtime_selectable_profiles_for_owner(
+        owner_id=bob.owner_id
+    )
     assert [item.agent_id for item in alice_agents] == ["agent-A"]
     assert [item.agent_id for item in bob_agents] == ["agent-B"]
 
@@ -130,8 +151,14 @@ def test_get_profile_for_owner_returns_none_for_other_owner(repos) -> None:
         default_model=None,
         workspace_root="/tmp/b",
     )
-    assert profiles.get_profile_for_owner(agent_id="agent-B", owner_id=alice.owner_id) is None
-    assert profiles.get_profile_for_owner(agent_id="agent-B", owner_id=bob.owner_id) is not None
+    assert (
+        profiles.get_profile_for_owner(agent_id="agent-B", owner_id=alice.owner_id)
+        is None
+    )
+    assert (
+        profiles.get_profile_for_owner(agent_id="agent-B", owner_id=bob.owner_id)
+        is not None
+    )
 
 
 def test_list_nodes_for_owner_filters(repos) -> None:

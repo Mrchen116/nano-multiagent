@@ -140,7 +140,9 @@ class JsonlSessionStore:
         """
 
         path = self._resolve_path(
-            session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
+            session_id,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
         )
         self._writer.enqueue(path, entry)
 
@@ -161,7 +163,9 @@ class JsonlSessionStore:
         """
 
         path = self._resolve_path(
-            session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
+            session_id,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
         )
         if not path.exists():
             raise SessionNotFoundError(session_id)
@@ -189,12 +193,18 @@ class JsonlSessionStore:
 
         # Only keep turns after the latest compact_boundary
         if boundary_idx >= 0:
-            turns = [entry for entry in raw_lines[boundary_idx + 1:] if entry.get("type") == "turn"]
+            turns = [
+                entry
+                for entry in raw_lines[boundary_idx + 1 :]
+                if entry.get("type") == "turn"
+            ]
         else:
             turns = [entry for entry in raw_lines if entry.get("type") == "turn"]
 
         if not turns:
-            return LoadResult(config=_to_session_config(session_id, config), messages=[])
+            return LoadResult(
+                config=_to_session_config(session_id, config), messages=[]
+            )
 
         # Build uuid -> entry mapping
         entry_by_uuid: dict[str, dict] = {t["uuid"]: t for t in turns}
@@ -222,7 +232,9 @@ class JsonlSessionStore:
         if not has_links:
             chain = sorted(turns, key=lambda t: t.get("timestamp", ""))
             messages = [_to_message(t) for t in chain]
-            return LoadResult(config=_to_session_config(session_id, config), messages=messages)
+            return LoadResult(
+                config=_to_session_config(session_id, config), messages=messages
+            )
 
         chain.reverse()
 
@@ -231,9 +243,7 @@ class JsonlSessionStore:
         # This handles parallel tool results that all point to the same assistant
         # parent (the linked-list walk only keeps one branch) while avoiding
         # resurrection of dead branches from a previous rewind.
-        active_groups: set[str] = {
-            t["group_id"] for t in chain if t.get("group_id")
-        }
+        active_groups: set[str] = {t["group_id"] for t in chain if t.get("group_id")}
         while True:
             newly_found = False
             for turn in turns:
@@ -253,11 +263,15 @@ class JsonlSessionStore:
                 break
 
         chain_uuids = {e["uuid"] for e in chain}
-        all_entries = chain + [t for t in turns if t["uuid"] in seen and t["uuid"] not in chain_uuids]
+        all_entries = chain + [
+            t for t in turns if t["uuid"] in seen and t["uuid"] not in chain_uuids
+        ]
         all_entries.sort(key=lambda t: t.get("timestamp", ""))
 
         messages = [_to_message(t) for t in all_entries]
-        return LoadResult(config=_to_session_config(session_id, config), messages=messages)
+        return LoadResult(
+            config=_to_session_config(session_id, config), messages=messages
+        )
 
     def update_config(
         self,
@@ -346,7 +360,9 @@ class JsonlSessionStore:
         parent_session_id: str | None = None,
     ) -> Path:
         return self._resolve_path(
-            session_id, workspace_root=workspace_root, parent_session_id=parent_session_id
+            session_id,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
         )
 
     # ------------------------------------------------------------------
@@ -389,7 +405,13 @@ class JsonlSessionStore:
     ) -> Path:
         base = self._resolve_base(workspace_root)
         if parent_session_id:
-            return base / "sessions" / parent_session_id / "subagents" / f"{session_id}.jsonl"
+            return (
+                base
+                / "sessions"
+                / parent_session_id
+                / "subagents"
+                / f"{session_id}.jsonl"
+            )
         return base / "sessions" / f"{session_id}.jsonl"
 
     def find_session_by_metadata(
@@ -485,6 +507,7 @@ class JsonlSessionStore:
 # Helpers
 # ------------------------------------------------------------------
 
+
 def _utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -493,7 +516,14 @@ def _extract_config(entry: dict[str, Any]) -> dict[str, Any]:
     """Extract config fields from a session_created or config_update entry."""
 
     config: dict[str, Any] = {}
-    for key in ("workspace_root", "system_prompt", "skills", "tool_allowlist", "metadata", "created_at"):
+    for key in (
+        "workspace_root",
+        "system_prompt",
+        "skills",
+        "tool_allowlist",
+        "metadata",
+        "created_at",
+    ):
         if key in entry:
             config[key] = entry[key]
     return config
@@ -527,12 +557,16 @@ def _to_session_config(session_id: str, config: dict[str, Any]) -> SessionConfig
 
     raw_skills = config.get("skills")
     skills: tuple[str, ...] | None = (
-        tuple(s for s in raw_skills if isinstance(s, str)) if isinstance(raw_skills, list) else None
+        tuple(s for s in raw_skills if isinstance(s, str))
+        if isinstance(raw_skills, list)
+        else None
     )
 
     raw_allowlist = config.get("tool_allowlist")
     tool_allowlist: tuple[str, ...] | None = (
-        tuple(s for s in raw_allowlist if isinstance(s, str)) if isinstance(raw_allowlist, list) else None
+        tuple(s for s in raw_allowlist if isinstance(s, str))
+        if isinstance(raw_allowlist, list)
+        else None
     )
 
     metadata = config.get("metadata")

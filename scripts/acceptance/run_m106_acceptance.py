@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import json
-import sys
 from pathlib import Path
 
 import pytest
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-ACCEPTANCE_TEST = REPO_ROOT / "tests" / "acceptance" / "test_im_gateway_real_acceptance.py"
+ACCEPTANCE_TEST = (
+    REPO_ROOT / "tests" / "acceptance" / "test_im_gateway_real_acceptance.py"
+)
 
 
 def main() -> int:

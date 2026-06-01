@@ -1,4 +1,5 @@
 """Conversation routes for IM HTTP APIs."""
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, model_validator
 
@@ -88,7 +89,9 @@ def to_conversation_response(conversation: Conversation) -> ConversationResponse
                 type=item.type,
                 id=item.id,
                 display_name=item.display_name,
-                is_stale=item.is_stale if item.type == "agent" and item.is_stale else None,
+                is_stale=item.is_stale
+                if item.type == "agent" and item.is_stale
+                else None,
             )
             for item in conversation.participants
         ],
@@ -143,7 +146,9 @@ def create_conversation(
             caller_owner_id=user.owner_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
     return to_conversation_response(created)
 
 
@@ -176,7 +181,9 @@ def sync_im_state(
     return ImSyncResponse(items=items, max_event_id=max_event_id)
 
 
-@router.get("/im/v1/conversations/{conversation_id}", response_model=ConversationResponse)
+@router.get(
+    "/im/v1/conversations/{conversation_id}", response_model=ConversationResponse
+)
 def get_conversation(
     conversation_id: str,
     user: User = Depends(current_user),
@@ -189,7 +196,9 @@ def get_conversation(
     return to_conversation_response(conversation)
 
 
-@router.patch("/im/v1/conversations/{conversation_id}", response_model=ConversationResponse)
+@router.patch(
+    "/im/v1/conversations/{conversation_id}", response_model=ConversationResponse
+)
 def update_conversation(
     conversation_id: str,
     payload: UpdateConversationRequest,
@@ -209,7 +218,11 @@ def update_conversation(
         )
     except ValueError as exc:
         detail = str(exc)
-        http_status = status.HTTP_404_NOT_FOUND if detail == "conversation_id not found" else status.HTTP_400_BAD_REQUEST
+        http_status = (
+            status.HTTP_404_NOT_FOUND
+            if detail == "conversation_id not found"
+            else status.HTTP_400_BAD_REQUEST
+        )
         raise HTTPException(status_code=http_status, detail=detail) from exc
     return to_conversation_response(updated)
 
@@ -238,9 +251,13 @@ def delete_conversation(
             requester_id=user.id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
     except PermissionError as exc:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)
+        ) from exc
 
 
 @router.delete(
@@ -267,10 +284,14 @@ def leave_conversation(
             user_id=user_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
 
 
-def _resolve_create_conversation_participants(payload: CreateConversationRequest) -> list[str]:
+def _resolve_create_conversation_participants(
+    payload: CreateConversationRequest,
+) -> list[str]:
     """Normalize actor-first participants to repository-compatible references."""
     if payload.participants is not None:
         references: list[str] = []

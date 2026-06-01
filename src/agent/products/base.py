@@ -73,7 +73,9 @@ class ProductProfile:
     # this to get the full ordered section list (replaces CORE_SECTIONS +
     # prompt_sections concatenation).  Set to build_<product>_system_prompt in
     # each product's profile.  None means legacy merge path (backwards compat).
-    prompt_sections_builder: "object | None" = None  # Callable[[], list[PromptSection]] | None
+    prompt_sections_builder: "object | None" = (
+        None  # Callable[[], list[PromptSection]] | None
+    )
 
     # None means "keep platform default behavior"; lists make product defaults explicit.
     default_tool_ids: list[str] | None = None

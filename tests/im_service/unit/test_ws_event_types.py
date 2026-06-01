@@ -100,7 +100,12 @@ def test_build_tool_call_upserted_payload() -> None:
 
 def test_build_tool_call_completed_payload() -> None:
     tc = ToolCall(
-        id="tc1", name="read_file", status="completed", duration_ms=22, input={}, output="ok"
+        id="tc1",
+        name="read_file",
+        status="completed",
+        duration_ms=22,
+        input={},
+        output="ok",
     )
     payload = build_tool_call_completed_payload(
         conversation_id="c1", message_id="m1", tool_call=tc
@@ -162,5 +167,7 @@ def test_build_node_status_changed_payload_offline_with_error() -> None:
 
 
 def test_build_agent_status_changed_payload() -> None:
-    payload = build_agent_status_changed_payload(seq=3, agent_id="agent-x", status="online")
+    payload = build_agent_status_changed_payload(
+        seq=3, agent_id="agent-x", status="online"
+    )
     assert payload == {"seq": 3, "agent_id": "agent-x", "status": "online"}

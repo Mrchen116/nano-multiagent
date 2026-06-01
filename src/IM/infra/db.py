@@ -171,7 +171,9 @@ def connect(db_path: Path) -> sqlite3.Connection:
         stale row reads on the shared handle.
     """
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    connection = sqlite3.connect(str(db_path), check_same_thread=False, cached_statements=0)
+    connection = sqlite3.connect(
+        str(db_path), check_same_thread=False, cached_statements=0
+    )
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
@@ -206,17 +208,21 @@ def _migrate_users_owner_id(connection: sqlite3.Connection) -> None:
     column_names = {row["name"] for row in rows}
     if "owner_id" not in column_names:
         connection.execute("ALTER TABLE users ADD COLUMN owner_id TEXT")
-        connection.execute("UPDATE users SET owner_id = id WHERE owner_id IS NULL OR owner_id = ''")
-        connection.execute("UPDATE users SET owner_id = id WHERE owner_id IS NULL OR owner_id = ''")
+        connection.execute(
+            "UPDATE users SET owner_id = id WHERE owner_id IS NULL OR owner_id = ''"
+        )
+        connection.execute(
+            "UPDATE users SET owner_id = id WHERE owner_id IS NULL OR owner_id = ''"
+        )
     if "default_entry_node_id" not in column_names:
         connection.execute("ALTER TABLE users ADD COLUMN default_entry_node_id TEXT")
     # feat-340-M1: multi-user auth — credentials and i18n locale per user.
     if "password_hash" not in column_names:
         connection.execute("ALTER TABLE users ADD COLUMN password_hash TEXT")
     if "locale" not in column_names:
-        connection.execute("ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'")
-
-
+        connection.execute(
+            "ALTER TABLE users ADD COLUMN locale TEXT NOT NULL DEFAULT 'en'"
+        )
 
 
 def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
@@ -228,7 +234,9 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
             "ALTER TABLE conversations ADD COLUMN type TEXT NOT NULL DEFAULT 'group'"
         )
     if "owner_id" not in column_names:
-        connection.execute("ALTER TABLE conversations ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''")
+        connection.execute(
+            "ALTER TABLE conversations ADD COLUMN owner_id TEXT NOT NULL DEFAULT ''"
+        )
         connection.execute(
             """
             UPDATE conversations
@@ -272,7 +280,9 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
             """
         )
     if "last_message_preview" not in column_names:
-        connection.execute("ALTER TABLE conversations ADD COLUMN last_message_preview TEXT")
+        connection.execute(
+            "ALTER TABLE conversations ADD COLUMN last_message_preview TEXT"
+        )
         connection.execute(
             """
             UPDATE conversations
@@ -292,13 +302,19 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
     if "config_agent_id" not in column_names:
         connection.execute("ALTER TABLE conversations ADD COLUMN config_agent_id TEXT")
     if "config_profile_version" not in column_names:
-        connection.execute("ALTER TABLE conversations ADD COLUMN config_profile_version INTEGER")
+        connection.execute(
+            "ALTER TABLE conversations ADD COLUMN config_profile_version INTEGER"
+        )
     if "config_system_prompt" not in column_names:
-        connection.execute("ALTER TABLE conversations ADD COLUMN config_system_prompt TEXT")
+        connection.execute(
+            "ALTER TABLE conversations ADD COLUMN config_system_prompt TEXT"
+        )
     # M234: creator_id records who created the conversation for dissolve-permission checks.
     # Legacy rows are backfilled with the first participant (owner_id fallback).
     if "creator_id" not in column_names:
-        connection.execute("ALTER TABLE conversations ADD COLUMN creator_id TEXT NOT NULL DEFAULT ''")
+        connection.execute(
+            "ALTER TABLE conversations ADD COLUMN creator_id TEXT NOT NULL DEFAULT ''"
+        )
         connection.execute(
             """
             UPDATE conversations
@@ -342,7 +358,9 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE messages ADD COLUMN token_usage_json TEXT")
     # feat-333-M2: embeds permission_request payload (pending/resolved) alongside tool_calls.
     if "permission_request_json" not in column_names:
-        connection.execute("ALTER TABLE messages ADD COLUMN permission_request_json TEXT")
+        connection.execute(
+            "ALTER TABLE messages ADD COLUMN permission_request_json TEXT"
+        )
 
 
 def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
@@ -355,7 +373,10 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
         )
     if agent_rows and "workspace_root" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN workspace_root TEXT")
-    if agent_rows and "workspace_root" in {row["name"] for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()}:
+    if agent_rows and "workspace_root" in {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()
+    }:
         rows = connection.execute(
             "SELECT agent_id FROM agent_profiles WHERE workspace_root IS NULL OR TRIM(workspace_root) = ''"
         ).fetchall()
@@ -366,16 +387,26 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
             )
 
     # bugfix-362: soft-stale columns for ghost-agent reconcile
-    agent_column_names = {row["name"] for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()}
+    agent_column_names = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()
+    }
     if agent_column_names and "is_stale" not in agent_column_names:
-        connection.execute("ALTER TABLE agent_profiles ADD COLUMN is_stale INTEGER NOT NULL DEFAULT 0")
+        connection.execute(
+            "ALTER TABLE agent_profiles ADD COLUMN is_stale INTEGER NOT NULL DEFAULT 0"
+        )
     if agent_column_names and "staled_at" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN staled_at TEXT")
 
     # feat-379-M2: per-agent feature flags and custom prompt supplement
-    agent_column_names = {row["name"] for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()}
+    agent_column_names = {
+        row["name"]
+        for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()
+    }
     if agent_column_names and "features_json" not in agent_column_names:
-        connection.execute("ALTER TABLE agent_profiles ADD COLUMN features_json TEXT NOT NULL DEFAULT '{}'")
+        connection.execute(
+            "ALTER TABLE agent_profiles ADD COLUMN features_json TEXT NOT NULL DEFAULT '{}'"
+        )
     if agent_column_names and "custom_prompt" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN custom_prompt TEXT")
 
@@ -390,9 +421,13 @@ def _migrate_nodes_metadata(connection: sqlite3.Connection) -> None:
     rows = connection.execute("PRAGMA table_info(nodes)").fetchall()
     column_names = {row["name"] for row in rows}
     if rows and "relay_enabled" not in column_names:
-        connection.execute("ALTER TABLE nodes ADD COLUMN relay_enabled INTEGER NOT NULL DEFAULT 1")
+        connection.execute(
+            "ALTER TABLE nodes ADD COLUMN relay_enabled INTEGER NOT NULL DEFAULT 1"
+        )
     if rows and "reporting_enabled" not in column_names:
-        connection.execute("ALTER TABLE nodes ADD COLUMN reporting_enabled INTEGER NOT NULL DEFAULT 1")
+        connection.execute(
+            "ALTER TABLE nodes ADD COLUMN reporting_enabled INTEGER NOT NULL DEFAULT 1"
+        )
     if rows and "alias" not in column_names:
         connection.execute("ALTER TABLE nodes ADD COLUMN alias TEXT")
 
@@ -415,7 +450,10 @@ def _migrate_drop_nodes_capabilities_column(connection: sqlite3.Connection) -> N
 def _migrate_relay_tasks(connection: sqlite3.Connection) -> None:
     """Backfill relay task storage introduced by IM-SPEC §4."""
     tables = {
-        row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        row["name"]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
     }
     if "relay_tasks" not in tables:
         connection.execute(
@@ -462,7 +500,10 @@ def _migrate_relay_tasks(connection: sqlite3.Connection) -> None:
 def _migrate_usage_metrics(connection: sqlite3.Connection) -> None:
     """Create usage metrics table for M99 token/turn aggregation when missing."""
     tables = {
-        row["name"] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        row["name"]
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
     }
     if "usage_metrics" in tables:
         return
@@ -494,14 +535,24 @@ def _is_no_reply_protocol_token(value: str | None) -> bool:
     if value is None:
         return False
     normalized = value.strip()
-    return normalized == "NO_REPLY" or normalized.startswith("suppressed_by=no_reply_token") or "suppressed_by=no_reply_token" in normalized
+    return (
+        normalized == "NO_REPLY"
+        or normalized.startswith("suppressed_by=no_reply_token")
+        or "suppressed_by=no_reply_token" in normalized
+    )
 
 
 def _preview_from_event(event_type: str, payload: dict[str, object]) -> str | None:
     content = _optional_text(payload.get("content"))
     if event_type in {"message.sent", "message_created"} and content is not None:
         return content
-    if event_type in {"relay.processing", "relay.report", "relay.completed", "relay.failed", "message.delivered"}:
+    if event_type in {
+        "relay.processing",
+        "relay.report",
+        "relay.completed",
+        "relay.failed",
+        "message.delivered",
+    }:
         summary = _optional_text(payload.get("summary"))
         detail = _optional_text(payload.get("detail"))
         preview = summary or detail or content

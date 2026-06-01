@@ -52,7 +52,11 @@ def test_format_turn_summary_with_repl_view() -> None:
         "status": "completed",
         "_repl_view": {
             "status_updates": ["status=queued", "attempt 2", "status=completed"],
-            "tool_updates": ["Tool: bash start", "Tool: bash output", "Tool: bash start"],
+            "tool_updates": [
+                "Tool: bash start",
+                "Tool: bash output",
+                "Tool: bash start",
+            ],
         },
     }
     summary = format_turn_summary(payload=payload)
@@ -85,7 +89,9 @@ def test_print_turn_summary_writes_output_and_budget() -> None:
     }
     mock_client = MagicMock()
 
-    with patch("coding_cli.render.repl_summary.print_context_budget_snapshot") as mock_budget:
+    with patch(
+        "coding_cli.render.repl_summary.print_context_budget_snapshot"
+    ) as mock_budget:
         print_turn_summary(out=out, payload=payload, context_budget_client=mock_client)
 
     text = out.getvalue()
@@ -100,7 +106,9 @@ def test_print_turn_summary_skips_budget_when_no_session_id() -> None:
     payload = {"status": "completed"}
     mock_client = MagicMock()
 
-    with patch("coding_cli.render.repl_summary.print_context_budget_snapshot") as mock_budget:
+    with patch(
+        "coding_cli.render.repl_summary.print_context_budget_snapshot"
+    ) as mock_budget:
         print_turn_summary(out=out, payload=payload, context_budget_client=mock_client)
 
     mock_budget.assert_not_called()
@@ -116,7 +124,10 @@ def test_print_repl_turn_summary_renders_ordered_updates_before_state() -> None:
             "status_updates": [],
             "tool_updates": ["Tool: read output={...}"],
             "ordered_updates": [
-                {"kind": "assistant", "text": "Let's check the README file to learn about the project."},
+                {
+                    "kind": "assistant",
+                    "text": "Let's check the README file to learn about the project.",
+                },
                 {"kind": "tool", "text": "Tool: read output={...}"},
                 {"kind": "assistant", "text": "Okay, I've checked the README!"},
             ],
@@ -126,7 +137,11 @@ def test_print_repl_turn_summary_renders_ordered_updates_before_state() -> None:
     print_repl_turn_summary(out=out, payload=payload)
     text = out.getvalue()
 
-    assert text.index("Let's check the README file") < text.index("Tool: read output={...}")
-    assert text.index("Tool: read output={...}") < text.index("Okay, I've checked the README!")
+    assert text.index("Let's check the README file") < text.index(
+        "Tool: read output={...}"
+    )
+    assert text.index("Tool: read output={...}") < text.index(
+        "Okay, I've checked the README!"
+    )
     assert text.count("Tool: read output={...}") == 1
     assert "State: completed | stop=stop" in text

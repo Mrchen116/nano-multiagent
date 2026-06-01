@@ -37,6 +37,7 @@ def test_hook_event_mode_has_three_modes():
 def test_hook_registration_has_mode_field():
     """HookRegistration must carry a mode field defaulting to observe."""
     from agent.core.hooks.types import DEFAULT_HOOK_TIMEOUT_MS
+
     reg = HookRegistration(
         event="agent_end",
         handler=lambda p, c: None,
@@ -127,7 +128,9 @@ async def test_dispatch_background_does_not_await_handler():
     elapsed = time.monotonic() - t0
 
     # dispatch_background returns immediately (fire-and-forget)
-    assert elapsed < 0.04, f"dispatch_background blocked for {elapsed:.3f}s — must be near-instant"
+    assert elapsed < 0.04, (
+        f"dispatch_background blocked for {elapsed:.3f}s — must be near-instant"
+    )
     # The handler should not have finished yet (we didn't await)
     assert len(finished) == 0
 
@@ -207,7 +210,9 @@ async def test_dispatch_background_only_fires_background_handlers():
     await asyncio.sleep(0.05)
 
     assert len(background_called) == 1
-    assert len(observe_called) == 0, "dispatch_background must not fire observe handlers"
+    assert len(observe_called) == 0, (
+        "dispatch_background must not fire observe handlers"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -253,7 +258,9 @@ async def test_fork_conversation_none_in_fork_context():
 
     ctx = HookContext(session_id="test", fork_conversation=make_fork)
     # Call fork_conversation — result context must have fork_conversation=None
-    result = await ctx.fork_conversation("review", tool_allowlist=("memory",), max_turns=16)
+    result = await ctx.fork_conversation(
+        "review", tool_allowlist=("memory",), max_turns=16
+    )
 
     # The fork itself must record fork_conversation=None in its own context
     assert fork_ctx_fork_conversation_values == [None]
@@ -270,10 +277,18 @@ class _CapturingContextFork:
     def __init__(self):
         self.captured = {}
 
-    async def execute(self, *, state, max_turns=None, session_file_state=None,
-                      system_prompt_override=None, available_skills_override=None,
-                      available_tools_override=None, tool_execution_allowlist=None,
-                      hook_ctx=None):
+    async def execute(
+        self,
+        *,
+        state,
+        max_turns=None,
+        session_file_state=None,
+        system_prompt_override=None,
+        available_skills_override=None,
+        available_tools_override=None,
+        tool_execution_allowlist=None,
+        hook_ctx=None,
+    ):
         self.captured = {
             "state": state,
             "max_turns": max_turns,
@@ -335,7 +350,9 @@ async def test_fork_conversation_inherits_parent_active_tools_byte_for_byte():
         ToolSpec(name="bash", description="run bash", input_schema={"type": "object"}),
         ToolSpec(name="read", description="read file", input_schema={"type": "object"}),
         ToolSpec(name="memory", description="memory", input_schema={"type": "object"}),
-        ToolSpec(name="skill_manage", description="skills", input_schema={"type": "object"}),
+        ToolSpec(
+            name="skill_manage", description="skills", input_schema={"type": "object"}
+        ),
     )
     fake_fork = _CapturingContextFork()
 
@@ -356,7 +373,10 @@ async def test_fork_conversation_inherits_parent_active_tools_byte_for_byte():
         f"got {passed_tools!r} — narrowing the tool list breaks prefix cache"
     )
     # The allowlist is enforced separately, via tool_execution_allowlist.
-    assert fake_fork.captured["tool_execution_allowlist"] == ("memory", "skill_manage"), (
+    assert fake_fork.captured["tool_execution_allowlist"] == (
+        "memory",
+        "skill_manage",
+    ), (
         "tool_allowlist must be forwarded as tool_execution_allowlist (execution-layer "
         "interception), not used to reshape the LLM tool list"
     )
@@ -391,7 +411,11 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
         def __init__(self, name):
             self.name = name
             self.description = f"{name} tool"
-            self.input_schema = {"type": "object", "properties": {}, "additionalProperties": True}
+            self.input_schema = {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": True,
+            }
             self.is_concurrency_safe = True
 
         def run(self, args, ctx):
@@ -409,6 +433,7 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
     class _LLMMsgWithCalls:
         role = "assistant"
         content = ""
+
         def __init__(self, calls):
             self.tool_calls = calls
             self.finish_reason = None
@@ -444,14 +469,17 @@ async def test_fork_executor_denies_unlisted_tool_at_execution_layer():
 
             async def _stream():
                 if round_no == 1:
-                    yield _LLMMsgWithCalls([
-                        _LLMToolCall("c1", "bash"),
-                        _LLMToolCall("c2", "memory"),
-                    ])
+                    yield _LLMMsgWithCalls(
+                        [
+                            _LLMToolCall("c1", "bash"),
+                            _LLMToolCall("c2", "memory"),
+                        ]
+                    )
                     yield _LLMTerminal()
                 else:
                     yield _LLMFinalText()
                     yield _LLMTerminal()
+
             return _stream()
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -547,6 +575,7 @@ async def test_agent_loop_turn_meta_includes_tool_iterations():
             async def _stream():
                 yield FakeLLMResponse()
                 yield FakeLLMTerminal()
+
             return _stream()
 
     loop = AgentLoop(
@@ -623,6 +652,7 @@ async def test_runtime_agent_end_payload_includes_tool_iterations(tmp_path):
             async def _stream():
                 yield FakeLLMResponse()
                 yield FakeLLMTerminal()
+
             return _stream()
 
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
@@ -720,7 +750,7 @@ def test_bind_tool_registry_propagates_to_context_fork(tmp_path):
         async def generate(self, request):
             # Minimal: yields nothing — only construction matters
             return
-            yield  # noqa: unreachable
+            yield  # makes generate() an async generator (protocol requirement)
 
     # Construct with tool_registry=None (mirrors app.py construction order)
     runtime = AgentRuntime(
@@ -776,12 +806,20 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
                     yield LLMMessage(
                         role="assistant",
                         content="",
-                        tool_calls=(LLMToolCall(call_id="c1", name="skill_manage", arguments={}),),
+                        tool_calls=(
+                            LLMToolCall(
+                                call_id="c1", name="skill_manage", arguments={}
+                            ),
+                        ),
                         finish_reason=None,
                     )
-                    yield LLMMessage(role="assistant", content="", finish_reason="tool_calls")
+                    yield LLMMessage(
+                        role="assistant", content="", finish_reason="tool_calls"
+                    )
                 else:
-                    yield LLMMessage(role="assistant", content="review done", finish_reason=None)
+                    yield LLMMessage(
+                        role="assistant", content="review done", finish_reason=None
+                    )
                     yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
             return _stream()
@@ -790,7 +828,11 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
         def __init__(self):
             self.name = "skill_manage"
             self.description = "manage skills"
-            self.input_schema = {"type": "object", "properties": {}, "additionalProperties": True}
+            self.input_schema = {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": True,
+            }
             self.is_concurrency_safe = True
 
         def run(self, args, ctx):
@@ -801,11 +843,16 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
     class _StubRegistry:
         def list_specs(self):
             from agent.core.types import ToolSpec
+
             return (
                 ToolSpec(
                     name="skill_manage",
                     description="manage skills",
-                    input_schema={"type": "object", "properties": {}, "additionalProperties": True},
+                    input_schema={
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": True,
+                    },
                 ),
             )
 
@@ -814,7 +861,9 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
                 return _stub_tool_instance
             return None
 
-        async def execute(self, name, args, *, hook_context=None, session_file_state=None):
+        async def execute(
+            self, name, args, *, hook_context=None, session_file_state=None
+        ):
             executed_tools.append(name)
             return {"result": "ok"}
 
@@ -908,8 +957,12 @@ async def test_fork_inherits_parent_execution_context():
     assert fork_ctx.permission_requester is parent_requester, (
         "fork must inherit parent permission_requester"
     )
-    assert fork_ctx.fork_conversation is None, "anti-recursion: fork ctx must null fork_conversation"
+    assert fork_ctx.fork_conversation is None, (
+        "anti-recursion: fork ctx must null fork_conversation"
+    )
     assert fork_ctx.metadata.get("run_origin") == RunOrigin.BACKGROUND_TASK.value, (
         "fork must run as unattended background task so gate ask uses fallback"
     )
-    assert "tool_call_id" not in fork_ctx.metadata, "stale parent tool_call_id must not leak into fork"
+    assert "tool_call_id" not in fork_ctx.metadata, (
+        "stale parent tool_call_id must not leak into fork"
+    )

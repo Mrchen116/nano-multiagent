@@ -1,4 +1,5 @@
 """Integration tests for end-to-end human chat API chain."""
+
 from pathlib import Path
 
 from IM.repositories import UserRepository
@@ -6,7 +7,9 @@ from IM.repositories import UserRepository
 from .conftest import authorize, make_app_client, register_user, seed_user_under_owner
 
 
-def test_human_chat_roundtrip_with_history_and_conversation_list(tmp_path: Path) -> None:
+def test_human_chat_roundtrip_with_history_and_conversation_list(
+    tmp_path: Path,
+) -> None:
     """Cover create->send->history->conversations chain through HTTP API."""
     with make_app_client(tmp_path) as client:
         alice = register_user(client, username="alice", display_name="Alice")
@@ -45,7 +48,10 @@ def test_human_chat_roundtrip_with_history_and_conversation_list(tmp_path: Path)
         assert messages_resp.status_code == 200
         messages = messages_resp.json()["items"]
         assert [item["content"] for item in messages] == ["hello", "hi"]
-        assert [item["delivery_status"] for item in messages] == ["completed", "completed"]
+        assert [item["delivery_status"] for item in messages] == [
+            "completed",
+            "completed",
+        ]
 
         conversation_detail = client.get(f"/im/v1/conversations/{conversation_id}")
         assert conversation_detail.status_code == 200

@@ -101,7 +101,9 @@ class BackgroundTaskRegistry:
             old = self._records[task_id]
             if self._guard_terminal(old):
                 return old
-            new = replace(old, status=BackgroundTaskStatus.RUNNING, started_at=self._now_iso())
+            new = replace(
+                old, status=BackgroundTaskStatus.RUNNING, started_at=self._now_iso()
+            )
             self._records[task_id] = new
         self._persist(new)
         return new
@@ -182,8 +184,7 @@ class BackgroundTaskRegistry:
     def list_non_terminal(self) -> list[BackgroundTaskRecord]:
         with self._lock:
             return [
-                r for r in self._records.values()
-                if r.status not in _TERMINAL_STATUSES
+                r for r in self._records.values() if r.status not in _TERMINAL_STATUSES
             ]
 
     # ------------------------------------------------------------------
@@ -199,7 +200,10 @@ class BackgroundTaskRegistry:
             record = self._records.get(task_id)
         if record is None:
             return False
-        if record.status not in (BackgroundTaskStatus.QUEUED, BackgroundTaskStatus.RUNNING):
+        if record.status not in (
+            BackgroundTaskStatus.QUEUED,
+            BackgroundTaskStatus.RUNNING,
+        ):
             return False
         if handle is not None:
             handle.stop()
@@ -235,6 +239,7 @@ class BackgroundTaskRegistry:
     def _now_iso(self) -> str:
         if self._clock is None:
             from datetime import UTC, datetime
+
             return datetime.now(UTC).isoformat()
         return self._clock.now_iso()
 

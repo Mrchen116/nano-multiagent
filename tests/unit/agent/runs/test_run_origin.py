@@ -14,7 +14,16 @@ from agent.core.types import Message, TurnResult
 
 
 class _RuntimeStub:
-    async def run(self, session_id, parts, *, stream=True, run_id=None, controller=None, workspace_root=None):  # noqa: ANN001, ANN201
+    async def run(
+        self,
+        session_id,
+        parts,
+        *,
+        stream=True,
+        run_id=None,
+        controller=None,
+        workspace_root=None,
+    ):  # noqa: ANN001, ANN201
         del parts, stream, run_id, controller
         return TurnResult(
             session_id=session_id,
@@ -129,6 +138,7 @@ def test_submit_defaults_to_user_origin(tmp_path: Path) -> None:
 # R4: RunRecord.origin thread-through to runtime.run (feat-333-M1)
 # ---------------------------------------------------------------------------
 
+
 def test_submit_threads_origin_to_runtime_run(tmp_path: Path) -> None:
     """RunsRegistry._run_worker_async must pass origin to runtime.run()."""
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
@@ -145,6 +155,7 @@ def test_submit_threads_origin_to_runtime_run(tmp_path: Path) -> None:
         )
         # Wait for the async worker to complete
         import time
+
         deadline = time.monotonic() + 5.0
         while time.monotonic() < deadline:
             if runtime_stub.captured_kwargs:

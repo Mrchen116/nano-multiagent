@@ -55,18 +55,33 @@ class _FakeKernelClient:
         self._session_index += 1
         session_id = f"sess-{self._session_index}"
         self.create_session_calls.append(
-            {"workspace_root": workspace_root, "product_id": product_id, "title": title, "metadata": metadata}
+            {
+                "workspace_root": workspace_root,
+                "product_id": product_id,
+                "title": title,
+                "metadata": metadata,
+            }
         )
-        self._session_metadata_by_id[session_id] = {**dict(metadata or {}), "workspace_root": workspace_root}
+        self._session_metadata_by_id[session_id] = {
+            **dict(metadata or {}),
+            "workspace_root": workspace_root,
+        }
         return {"session_id": session_id}
 
     def get_session(self, *, session_id: str, **_kwargs):
         metadata = self._session_metadata_by_id.get(session_id)
         if metadata is None:
             raise RuntimeError(f"missing session: {session_id}")
-        return {"session_id": session_id, "status": "active", "created_at": "now", "metadata": dict(metadata)}
+        return {
+            "session_id": session_id,
+            "status": "active",
+            "created_at": "now",
+            "metadata": dict(metadata),
+        }
 
-    def submit_message(self, *, session_id: str, texts: list[str], image_urls=None, **_kwargs):
+    def submit_message(
+        self, *, session_id: str, texts: list[str], image_urls=None, **_kwargs
+    ):
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         text = texts[-1] if texts else ""
@@ -74,14 +89,29 @@ class _FakeKernelClient:
         if image_urls is not None:
             call["image_urls"] = image_urls
         self.send_calls.append(call)
-        self.run_states.setdefault(run_id, {"run_id": run_id, "status": "completed", "output_text": f"reply:{text}"})
-        return {"run_id": run_id, "anchor_sequence": 1, "injected": False, "status": "queued"}
+        self.run_states.setdefault(
+            run_id,
+            {"run_id": run_id, "status": "completed", "output_text": f"reply:{text}"},
+        )
+        return {
+            "run_id": run_id,
+            "anchor_sequence": 1,
+            "injected": False,
+            "status": "queued",
+        }
 
-    async def stream_session(self, *, session_id, last_event_id=None, workspace_root=None, **_kwargs):
+    async def stream_session(
+        self, *, session_id, last_event_id=None, workspace_root=None, **_kwargs
+    ):
         run_id = self.send_calls[-1]["run_id"] if self.send_calls else "run-1"
         text = self.run_states.get(run_id, {}).get("output_text", "")
         yield {"event": "assistant_message", "run_id": run_id, "content": text}
-        yield {"event": "run_status", "run_id": run_id, "status": "completed", "output_text": text}
+        yield {
+            "event": "run_status",
+            "run_id": run_id,
+            "status": "completed",
+            "output_text": text,
+        }
 
     def get_run(self, *, run_id: str):
         return self.run_states[run_id]
@@ -115,7 +145,15 @@ class _FakeKernelClient:
                 "idempotency_key": idempotency_key,
             }
         )
-        return {"session_id": session_id, "entry_id": "entry-1", "kind": "turn_appended", "created_at": "now", "turn_id": "", "role": role, "content": content}
+        return {
+            "session_id": session_id,
+            "entry_id": "entry-1",
+            "kind": "turn_appended",
+            "created_at": "now",
+            "turn_id": "",
+            "role": role,
+            "content": content,
+        }
 
 
 def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
@@ -124,12 +162,18 @@ def _agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
     agent_a.mkdir()
     agent_b.mkdir()
     return (
-        AgentWorkspaceConfig(agent_id="agent-a", workspace_root=agent_a, title="Agent A"),
-        AgentWorkspaceConfig(agent_id="agent-b", workspace_root=agent_b, title="Agent B"),
+        AgentWorkspaceConfig(
+            agent_id="agent-a", workspace_root=agent_a, title="Agent A"
+        ),
+        AgentWorkspaceConfig(
+            agent_id="agent-b", workspace_root=agent_b, title="Agent B"
+        ),
     )
 
 
-def test_stop_command_with_no_active_run_returns_friendly_message(tmp_path: Path) -> None:
+def test_stop_command_with_no_active_run_returns_friendly_message(
+    tmp_path: Path,
+) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
@@ -166,7 +210,11 @@ def test_stop_command_with_no_active_run_returns_friendly_message(tmp_path: Path
     ]
     assert kernel_client.interrupt_calls == []
     # M3: no message submitted when there is no active run to stop
-    stop_text_calls = [c for c in kernel_client.send_calls if any("stop" in t.lower() for t in c.get("texts", []))]
+    stop_text_calls = [
+        c
+        for c in kernel_client.send_calls
+        if any("stop" in t.lower() for t in c.get("texts", []))
+    ]
     assert stop_text_calls == []
 
 
@@ -186,7 +234,9 @@ def test_stop_command_interrupts_active_run_and_appends_message(tmp_path: Path) 
     # Seed an existing session binding so /stop can resolve the kernel session.
     session_key = "web:chat-1:agent-a"
     kernel_client.seed_session = lambda session_id, metadata=None: None
-    kernel_client._session_metadata_by_id["sess-1"] = {"workspace_root": str(agents[0].workspace_root)}
+    kernel_client._session_metadata_by_id["sess-1"] = {
+        "workspace_root": str(agents[0].workspace_root)
+    }
 
     # Simulate an active run by injecting it directly.
     pipeline._active_runs[session_key] = "run-active"
@@ -216,7 +266,11 @@ def test_stop_command_interrupts_active_run_and_appends_message(tmp_path: Path) 
     assert len(kernel_client.interrupt_calls) == 1
     assert kernel_client.interrupt_calls[0]["session_id"] == "sess-1"
     # M3: /stop logs via kernel.submit (in send_calls) instead of append_message.
-    stop_submits = [c for c in kernel_client.send_calls if any("stop" in t.lower() or "终止" in t for t in c.get("texts", []))]
+    stop_submits = [
+        c
+        for c in kernel_client.send_calls
+        if any("stop" in t.lower() or "终止" in t for t in c.get("texts", []))
+    ]
     assert len(stop_submits) == 1
     assert stop_submits[0]["session_id"] == "sess-1"
     assert "用户发送了 /stop 命令，要求终止当前操作。" in stop_submits[0]["texts"]
@@ -236,7 +290,9 @@ def test_stop_command_in_group_chat_with_mention_is_recognized(tmp_path: Path) -
         default_agent_id="agent-a",
     )
     session_key = "web_relay:grp-1:agent-a"
-    kernel_client._session_metadata_by_id["sess-1"] = {"workspace_root": str(agents[0].workspace_root)}
+    kernel_client._session_metadata_by_id["sess-1"] = {
+        "workspace_root": str(agents[0].workspace_root)
+    }
     pipeline._active_runs[session_key] = "run-active"
 
     inbound = InboundMessage(
@@ -269,7 +325,9 @@ def test_stop_command_with_agent_after_slash_is_recognized(tmp_path: Path) -> No
         default_agent_id="agent-a",
     )
     session_key = "web_relay:grp-1:agent-a"
-    kernel_client._session_metadata_by_id["sess-1"] = {"workspace_root": str(agents[0].workspace_root)}
+    kernel_client._session_metadata_by_id["sess-1"] = {
+        "workspace_root": str(agents[0].workspace_root)
+    }
     pipeline._active_runs[session_key] = "run-active"
 
     inbound = InboundMessage(
@@ -306,7 +364,9 @@ def test_stop_command_does_not_enter_group_context_buffer(tmp_path: Path) -> Non
         group_context_store=group_store,
     )
     session_key = "web_relay:grp-1:agent-a"
-    kernel_client._session_metadata_by_id["sess-1"] = {"workspace_root": str(agents[0].workspace_root)}
+    kernel_client._session_metadata_by_id["sess-1"] = {
+        "workspace_root": str(agents[0].workspace_root)
+    }
     pipeline._active_runs[session_key] = "run-active"
 
     inbound = InboundMessage(

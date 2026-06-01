@@ -23,7 +23,19 @@ def _bind_node_to_owner(client, *, node_id: str, owner_id: str) -> None:
                           alias, last_error)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (node_id, owner_id, node_id, "offline", "1970-01-01T00:00:00Z", 0, "", 1, 1, None, None),
+        (
+            node_id,
+            owner_id,
+            node_id,
+            "offline",
+            "1970-01-01T00:00:00Z",
+            0,
+            "",
+            1,
+            1,
+            None,
+            None,
+        ),
     )
     connection.commit()
 
@@ -53,7 +65,9 @@ def test_register_broadcasts_node_online_to_owner_via_real_ws(tmp_path: Path) ->
         authorize(client, owner)
         _bind_node_to_owner(client, node_id="node-1", owner_id=owner.owner_id)
 
-        with client.websocket_connect(f"/im/ws/user?token={owner.access_token}") as user_ws:
+        with client.websocket_connect(
+            f"/im/ws/user?token={owner.access_token}"
+        ) as user_ws:
             # Skip the resume reply (an empty/initial frame may or may not arrive).
             user_ws.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
 
@@ -85,7 +99,9 @@ def test_register_broadcasts_node_online_to_owner_via_real_ws(tmp_path: Path) ->
         agent_frames = [f for f in frames if f["event_type"] == "agent.status_changed"]
         assert any(f["data"]["status"] == "online" for f in node_frames), event_types
         assert any(f["data"]["status"] == "offline" for f in node_frames), event_types
-        assert any(f["data"]["agent_id"] == "agent-a" for f in agent_frames), event_types
+        assert any(f["data"]["agent_id"] == "agent-a" for f in agent_frames), (
+            event_types
+        )
 
 
 def test_cross_owner_isolation_real_ws(tmp_path: Path) -> None:
@@ -95,8 +111,12 @@ def test_cross_owner_isolation_real_ws(tmp_path: Path) -> None:
         owner_b = register_user(client, username="owner-b")
         _bind_node_to_owner(client, node_id="node-a", owner_id=owner_a.owner_id)
 
-        with client.websocket_connect(f"/im/ws/user?token={owner_a.access_token}") as ws_a:
-            with client.websocket_connect(f"/im/ws/user?token={owner_b.access_token}") as ws_b:
+        with client.websocket_connect(
+            f"/im/ws/user?token={owner_a.access_token}"
+        ) as ws_a:
+            with client.websocket_connect(
+                f"/im/ws/user?token={owner_b.access_token}"
+            ) as ws_b:
                 ws_a.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
                 ws_b.send_text(json.dumps({"op": "resume", "after_event_id": 0}))
 
@@ -105,7 +125,11 @@ def test_cross_owner_isolation_real_ws(tmp_path: Path) -> None:
                         json.dumps(
                             {
                                 "type": "node.register",
-                                "payload": {"node_id": "node-a", "agents": [], "capabilities": {}},
+                                "payload": {
+                                    "node_id": "node-a",
+                                    "agents": [],
+                                    "capabilities": {},
+                                },
                             }
                         )
                     )

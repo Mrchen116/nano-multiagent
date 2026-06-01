@@ -15,12 +15,17 @@ from agent.core.ids import make_message_id
 from agent.core.types import Message
 from agent.core.agent.runtime import _message_to_entry
 from agent.core.agent.prompting import build_chat_messages
-from agent.core.session.entries import message_from_turn_entry, SessionEntry, SessionEntryKind
+from agent.core.session.entries import (
+    message_from_turn_entry,
+    SessionEntry,
+    SessionEntryKind,
+)
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_assistant_msg(
     *,
@@ -97,6 +102,7 @@ def _roundtrip(msg: Message) -> Message:
 # ---------------------------------------------------------------------------
 # C1-R1: reasoning_content is written to JSONL and restored
 # ---------------------------------------------------------------------------
+
 
 class TestReasoningPersistence:
     def test_reasoning_content_written_to_jsonl_entry(self):
@@ -177,6 +183,7 @@ class TestReasoningPersistence:
 # C1-R2: tool_use ↔ tool_result pairing survives persist→restore
 # ---------------------------------------------------------------------------
 
+
 class TestToolResultPairingFidelity:
     def test_tool_call_id_written_to_jsonl_entry(self):
         msg = _make_tool_msg(call_id="call-A", tool_name="read", result="file contents")
@@ -222,8 +229,12 @@ class TestToolResultPairingFidelity:
         assert len(tool_msgs) == 2, f"expected 2 tool messages, got {len(tool_msgs)}"
 
         tool_call_ids = {m.tool_call_id for m in tool_msgs}
-        assert call_id_a in tool_call_ids, "call-parallel-A must appear in restored tool results"
-        assert call_id_b in tool_call_ids, "call-parallel-B must appear in restored tool results"
+        assert call_id_a in tool_call_ids, (
+            "call-parallel-A must appear in restored tool results"
+        )
+        assert call_id_b in tool_call_ids, (
+            "call-parallel-B must appear in restored tool results"
+        )
 
     def test_assistant_tool_calls_restored_from_jsonl(self):
         """tool_calls metadata must survive JSONL roundtrip and appear in LLMMessage."""
@@ -251,7 +262,9 @@ class TestToolResultPairingFidelity:
                 {"call_id": call_id, "name": "read", "arguments": {"path": "x.py"}},
             ],
         )
-        tool_result = _make_tool_msg(call_id=call_id, tool_name="read", result="x content")
+        tool_result = _make_tool_msg(
+            call_id=call_id, tool_name="read", result="x content"
+        )
 
         history = (
             _roundtrip(assistant_msg),
@@ -264,7 +277,9 @@ class TestToolResultPairingFidelity:
         asst_msgs = [m for m in llm_messages if m.role == "assistant"]
         assert asst_msgs, "expected at least one assistant LLMMessage after roundtrip"
         asst = asst_msgs[0]
-        assert asst.tool_calls, "assistant LLMMessage must have tool_calls after roundtrip"
+        assert asst.tool_calls, (
+            "assistant LLMMessage must have tool_calls after roundtrip"
+        )
         assert asst.tool_calls[0].call_id == call_id
 
 
@@ -275,6 +290,7 @@ class TestToolResultPairingFidelity:
 # future field can't silently vanish on persist→restore the way reasoning_*
 # once did.
 # ---------------------------------------------------------------------------
+
 
 def test_message_jsonl_roundtrip_field_conservation_guard():
     import dataclasses

@@ -42,7 +42,16 @@ def _insert_conversation_and_message(
     connection.execute(
         "INSERT INTO messages(id, conversation_id, sender_user_id, sender_type, content, attachments_json, "
         "delivery_status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (message_id, conversation_id, "agent-row-1", "agent", "", "[]", delivery_status, created_at),
+        (
+            message_id,
+            conversation_id,
+            "agent-row-1",
+            "agent",
+            "",
+            "[]",
+            delivery_status,
+            created_at,
+        ),
     )
     connection.commit()
 
@@ -141,7 +150,9 @@ def test_scan_skips_already_terminal_messages(tmp_path: Path) -> None:
     assert captured == []
 
 
-def test_scan_inherits_prior_relay_processing_payload_for_id_continuity(tmp_path: Path) -> None:
+def test_scan_inherits_prior_relay_processing_payload_for_id_continuity(
+    tmp_path: Path,
+) -> None:
     """The synthetic `relay.failed` payload mirrors the prior `relay.processing` so the frontend's
     synthetic-message id stays stable and the bubble flips in place rather than duplicating."""
     connection = connect(tmp_path / "im.db")
@@ -165,16 +176,18 @@ def test_scan_inherits_prior_relay_processing_payload_for_id_continuity(tmp_path
             "conv-1",
             "relay.processing",
             "running",
-            json.dumps({
-                "conversation_id": "conv-1",
-                "message_id": "msg-stuck",
-                "relay_task_id": "task-abc",
-                "agent_id": "agent-A",
-                "node_id": "node-1",
-                "run_id": "run-xyz",
-                "progress_state": "processing",
-                "semantic": "agent_run_processing",
-            }),
+            json.dumps(
+                {
+                    "conversation_id": "conv-1",
+                    "message_id": "msg-stuck",
+                    "relay_task_id": "task-abc",
+                    "agent_id": "agent-A",
+                    "node_id": "node-1",
+                    "run_id": "run-xyz",
+                    "progress_state": "processing",
+                    "semantic": "agent_run_processing",
+                }
+            ),
             stale_at,
         ),
     )
@@ -264,7 +277,9 @@ def test_scan_appends_error_note_to_partial_streamed_content(tmp_path: Path) -> 
     assert "[error] relay idle for 300s with no new event" in row["content"]
 
 
-def test_scan_recovers_agent_identity_when_relay_processing_missing(tmp_path: Path) -> None:
+def test_scan_recovers_agent_identity_when_relay_processing_missing(
+    tmp_path: Path,
+) -> None:
     """bugfix-365: when no prior `relay.processing` exists (gateway crashed before
     emitting it), watchdog must still recover `agent_id` and `sender_display_name`
     from the `messages.sender_user_id` -> `users.username = agent:<id>` chain.

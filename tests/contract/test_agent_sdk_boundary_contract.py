@@ -14,6 +14,7 @@ Architecture invariant enforced here:
   agent.core / agent.platform / agent.products ↛ agent.sdk  (no upward dep)
   coding_cli / personal_assistant → only agent.sdk          (target, M2/M3/M4)
 """
+
 from __future__ import annotations
 
 import ast
@@ -52,11 +53,15 @@ def _collect_product_agent_imports(package_root: Path) -> list[tuple[str, int, s
                     if any(m.startswith(p) for p in _FORBIDDEN_INTERNAL_PREFIXES):
                         violations.append((rel, node.lineno, m))
                 continue
-            if module and any(module.startswith(p) for p in _FORBIDDEN_INTERNAL_PREFIXES):
+            if module and any(
+                module.startswith(p) for p in _FORBIDDEN_INTERNAL_PREFIXES
+            ):
                 # Check if this is in the known M2/M3 violations whitelist.
                 if rel not in _M2_M3_KNOWN_VIOLATIONS:
                     violations.append((rel, node.lineno, module))
-                elif not any(module.startswith(v) for v in _M2_M3_KNOWN_VIOLATIONS[rel]):
+                elif not any(
+                    module.startswith(v) for v in _M2_M3_KNOWN_VIOLATIONS[rel]
+                ):
                     # The file is known to violate, but this specific prefix is NEW.
                     violations.append((rel, node.lineno, module))
     return violations
@@ -107,7 +112,10 @@ def test_no_new_unexpected_product_agent_internal_imports() -> None:
             all_violations.extend(_collect_product_agent_imports(root))
 
     if all_violations:
-        lines = [f"  {rel}:{lineno}: imports {module!r}" for rel, lineno, module in all_violations]
+        lines = [
+            f"  {rel}:{lineno}: imports {module!r}"
+            for rel, lineno, module in all_violations
+        ]
         raise AssertionError(
             "Product files have UNEXPECTED new agent internal imports "
             "(not in M2/M3 whitelist — add to _M2_M3_KNOWN_VIOLATIONS if legitimately deferred):\n"

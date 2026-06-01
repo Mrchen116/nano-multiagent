@@ -11,12 +11,10 @@ from coding_cli import commands as app_commands
 from coding_cli.main import run_cli as app_main_run_cli
 
 
-
 def test_apps_coding_cli_commands_surface_matches_stable_entrypoints() -> None:
     assert app_main_run_cli is app_commands.run_cli
     assert app_commands.build_parser.__module__ == "coding_cli.commands"
     assert app_commands.run_cli.__module__ == "coding_cli.commands"
-
 
 
 def test_apps_coding_cli_package_root_exports_agent_sdk_surface() -> None:
@@ -32,7 +30,6 @@ def test_apps_coding_cli_package_root_exports_agent_sdk_surface() -> None:
     assert not hasattr(coding_cli_app, "ManagedServerProcess"), (
         "ManagedServerProcess should not be re-exported from coding_cli"
     )
-
 
 
 def test_legacy_cli_root_is_removed() -> None:

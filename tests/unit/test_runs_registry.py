@@ -15,7 +15,17 @@ class _RuntimeStub:
         self._fail = fail
         self._timeout = timeout
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None, origin=None):  # noqa: ANN001, ANN201
+    async def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+        controller=None,
+        workspace_root=None,
+        origin=None,
+    ):  # noqa: ANN001, ANN201
         del parts
         del stream
         del origin
@@ -27,14 +37,26 @@ class _RuntimeStub:
         return TurnResult(
             session_id=session_id,
             turn_id="turn_async_unit",
-            messages=(Message(message_id="msg_async_unit", role="assistant", content="ok"),),
+            messages=(
+                Message(message_id="msg_async_unit", role="assistant", content="ok"),
+            ),
             completed=True,
             stop_reason="completed",
         )
 
 
 class _RuntimeWithUsageStub:
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None, origin=None):  # noqa: ANN001, ANN201
+    async def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+        controller=None,
+        workspace_root=None,
+        origin=None,
+    ):  # noqa: ANN001, ANN201
         del parts
         del stream
         del origin
@@ -42,7 +64,9 @@ class _RuntimeWithUsageStub:
         return TurnResult(
             session_id=session_id,
             turn_id="turn_async_usage",
-            messages=(Message(message_id="msg_async_usage", role="assistant", content="ok"),),
+            messages=(
+                Message(message_id="msg_async_usage", role="assistant", content="ok"),
+            ),
             completed=True,
             stop_reason="completed",
             usage=TokenUsage(prompt_tokens=200, completion_tokens=20, total_tokens=220),
@@ -52,7 +76,17 @@ class _RuntimeWithUsageStub:
 class _RetryableModelErrorRuntime:
     """Runtime that raises a retryable ModelError, simulating loop-exhausted errors reaching registry."""
 
-    async def run(self, session_id: str, parts, *, stream: bool = True, run_id: str | None = None, controller=None, workspace_root=None, origin=None):  # noqa: ANN001, ANN201
+    async def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+        controller=None,
+        workspace_root=None,
+        origin=None,
+    ):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id, origin, workspace_root
         # After M251 retry lives in loop; retryable errors that reach registry are terminal.
         raise ModelError("transient upstream blip", retryable=True)
@@ -83,8 +117,10 @@ def test_runs_registry_transitions_status_entries(tmp_path: Path) -> None:
         assert submitted.status is RunStatus.QUEUED
 
         _wait_for(
-            lambda: registry.get(submitted.run_id) is not None
-            and registry.get(submitted.run_id).status is RunStatus.COMPLETED
+            lambda: (
+                registry.get(submitted.run_id) is not None
+                and registry.get(submitted.run_id).status is RunStatus.COMPLETED
+            )
         )
         completed = registry.get(submitted.run_id)
         assert completed is not None
@@ -115,8 +151,10 @@ def test_runs_registry_marks_failed_when_runtime_raises(tmp_path: Path) -> None:
             parts=[{"type": "text", "text": "hello"}],
         )
         _wait_for(
-            lambda: registry.get(submitted.run_id) is not None
-            and registry.get(submitted.run_id).status is RunStatus.FAILED
+            lambda: (
+                registry.get(submitted.run_id) is not None
+                and registry.get(submitted.run_id).status is RunStatus.FAILED
+            )
         )
 
         failed = registry.get(submitted.run_id)
@@ -140,8 +178,10 @@ def test_runs_registry_tracks_completed_run_usage(tmp_path: Path) -> None:
             parts=[{"type": "text", "text": "hello"}],
         )
         _wait_for(
-            lambda: registry.get(submitted.run_id) is not None
-            and registry.get(submitted.run_id).status is RunStatus.COMPLETED
+            lambda: (
+                registry.get(submitted.run_id) is not None
+                and registry.get(submitted.run_id).status is RunStatus.COMPLETED
+            )
         )
 
         completed = registry.get(submitted.run_id)
@@ -154,14 +194,17 @@ def test_runs_registry_tracks_completed_run_usage(tmp_path: Path) -> None:
         completed_entries = [
             event
             for event in entries
-            if getattr(event.kind, "value", "") == "session.run.status" and event.data.get("status") == "completed"
+            if getattr(event.kind, "value", "") == "session.run.status"
+            and event.data.get("status") == "completed"
         ]
         assert completed_entries == []
     finally:
         registry.shutdown()
 
 
-def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(tmp_path: Path) -> None:
+def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(
+    tmp_path: Path,
+) -> None:
     observed_events: list[dict[str, object]] = []
     hooks = HookRegistry()
 
@@ -186,8 +229,10 @@ def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(tmp
             parts=[{"type": "text", "text": "hello"}],
         )
         _wait_for(
-            lambda: registry.get(submitted.run_id) is not None
-            and registry.get(submitted.run_id).status is RunStatus.FAILED
+            lambda: (
+                registry.get(submitted.run_id) is not None
+                and registry.get(submitted.run_id).status is RunStatus.FAILED
+            )
         )
 
         failed = registry.get(submitted.run_id)
@@ -205,7 +250,9 @@ def test_runs_registry_dispatches_run_error_observe_hook_when_runtime_raises(tmp
         registry.shutdown()
 
 
-def test_runs_registry_dispatches_run_timeout_observe_hook_when_runtime_times_out(tmp_path: Path) -> None:
+def test_runs_registry_dispatches_run_timeout_observe_hook_when_runtime_times_out(
+    tmp_path: Path,
+) -> None:
     observed_events: list[dict[str, object]] = []
     hooks = HookRegistry()
 
@@ -230,8 +277,10 @@ def test_runs_registry_dispatches_run_timeout_observe_hook_when_runtime_times_ou
             parts=[{"type": "text", "text": "hello"}],
         )
         _wait_for(
-            lambda: registry.get(submitted.run_id) is not None
-            and registry.get(submitted.run_id).status is RunStatus.FAILED
+            lambda: (
+                registry.get(submitted.run_id) is not None
+                and registry.get(submitted.run_id).status is RunStatus.FAILED
+            )
         )
 
         failed = registry.get(submitted.run_id)
@@ -262,7 +311,9 @@ def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     session = manager.create_session(workspace_root=tmp_path)
-    registry = RunsRegistry(runtime=_RetryableModelErrorRuntime(), session_manager=manager)
+    registry = RunsRegistry(
+        runtime=_RetryableModelErrorRuntime(), session_manager=manager
+    )
 
     try:
         submitted = registry.submit(
@@ -271,8 +322,11 @@ def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
         )
 
         _wait_for(
-            lambda: registry.get(submitted.run_id) is not None
-            and registry.get(submitted.run_id).status in {RunStatus.FAILED, RunStatus.COMPLETED},
+            lambda: (
+                registry.get(submitted.run_id) is not None
+                and registry.get(submitted.run_id).status
+                in {RunStatus.FAILED, RunStatus.COMPLETED}
+            ),
             timeout_seconds=2.0,
         )
 
@@ -290,6 +344,8 @@ def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
         ]
         assert run_statuses == []
         retry_attempts = [e for e in entries if e.data.get("attempt") is not None]
-        assert retry_attempts == [], "registry must not emit retry attempt entries after M251"
+        assert retry_attempts == [], (
+            "registry must not emit retry attempt entries after M251"
+        )
     finally:
         registry.shutdown()

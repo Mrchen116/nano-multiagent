@@ -41,7 +41,9 @@ def test_delete_conversation_by_creator_cascades_data(tmp_path: Path) -> None:
     assert conversations.list_conversations() == []
 
 
-def test_delete_conversation_by_non_creator_raises_permission_error(tmp_path: Path) -> None:
+def test_delete_conversation_by_non_creator_raises_permission_error(
+    tmp_path: Path,
+) -> None:
     """Non-creator cannot delete a conversation; raises PermissionError."""
     users, conversations = _build_repos(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
@@ -65,7 +67,9 @@ def test_delete_conversation_not_found_raises(tmp_path: Path) -> None:
     _, conversations = _build_repos(tmp_path)
 
     with pytest.raises(ValueError, match="conversation_id not found"):
-        conversations.delete_conversation(conversation_id="nonexistent", requester_id="any")
+        conversations.delete_conversation(
+            conversation_id="nonexistent", requester_id="any"
+        )
 
 
 # ---------------------------------------------------------------------------

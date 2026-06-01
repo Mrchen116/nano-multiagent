@@ -30,7 +30,11 @@ def test_builtin_usage_metrics_hook_accumulates_and_deduplicates_turn_usage() ->
             {
                 "session_id": "sess_usage_1",
                 "turn_id": "turn_1",
-                "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "total_tokens": 120,
+                },
             },
             HookContext(session_id="sess_usage_1", turn_id="turn_1"),
         )
@@ -41,7 +45,11 @@ def test_builtin_usage_metrics_hook_accumulates_and_deduplicates_turn_usage() ->
             {
                 "session_id": "sess_usage_1",
                 "turn_id": "turn_1",
-                "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 20,
+                    "total_tokens": 120,
+                },
             },
             HookContext(session_id="sess_usage_1", turn_id="turn_1"),
         )
@@ -52,7 +60,11 @@ def test_builtin_usage_metrics_hook_accumulates_and_deduplicates_turn_usage() ->
             {
                 "session_id": "sess_usage_1",
                 "turn_id": "turn_2",
-                "usage": {"prompt_tokens": 90, "completion_tokens": 10, "total_tokens": 100},
+                "usage": {
+                    "prompt_tokens": 90,
+                    "completion_tokens": 10,
+                    "total_tokens": 100,
+                },
             },
             HookContext(session_id="sess_usage_1", turn_id="turn_2"),
         )
@@ -79,12 +91,19 @@ def test_builtin_usage_metrics_hook_cleans_session_state_on_shutdown() -> None:
             {
                 "session_id": "sess_usage_2",
                 "turn_id": "turn_1",
-                "usage": {"prompt_tokens": 50, "completion_tokens": 5, "total_tokens": 55},
+                "usage": {
+                    "prompt_tokens": 50,
+                    "completion_tokens": 5,
+                    "total_tokens": 55,
+                },
             },
             HookContext(session_id="sess_usage_2", turn_id="turn_1"),
         )
     )
-    assert get_session_usage_snapshot(registry=registry, session_id="sess_usage_2") is not None
+    assert (
+        get_session_usage_snapshot(registry=registry, session_id="sess_usage_2")
+        is not None
+    )
 
     asyncio.run(
         runner.dispatch_observe(
@@ -93,7 +112,9 @@ def test_builtin_usage_metrics_hook_cleans_session_state_on_shutdown() -> None:
             HookContext(session_id="sess_usage_2"),
         )
     )
-    assert get_session_usage_snapshot(registry=registry, session_id="sess_usage_2") is None
+    assert (
+        get_session_usage_snapshot(registry=registry, session_id="sess_usage_2") is None
+    )
 
 
 def test_builtin_usage_metrics_prefers_latest_usage_for_last_counters() -> None:
@@ -106,8 +127,16 @@ def test_builtin_usage_metrics_prefers_latest_usage_for_last_counters() -> None:
             {
                 "session_id": "sess_usage_3",
                 "turn_id": "turn_1",
-                "usage": {"prompt_tokens": 1000, "completion_tokens": 200, "total_tokens": 1200},
-                "latest_usage": {"prompt_tokens": 120, "completion_tokens": 30, "total_tokens": 150},
+                "usage": {
+                    "prompt_tokens": 1000,
+                    "completion_tokens": 200,
+                    "total_tokens": 1200,
+                },
+                "latest_usage": {
+                    "prompt_tokens": 120,
+                    "completion_tokens": 30,
+                    "total_tokens": 150,
+                },
             },
             HookContext(session_id="sess_usage_3", turn_id="turn_1"),
         )

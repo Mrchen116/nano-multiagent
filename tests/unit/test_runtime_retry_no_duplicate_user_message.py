@@ -7,7 +7,11 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 
 from agent.core.agent.runtime import AgentRuntime
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+)
 from agent.core.session.entries import SessionEntryKind
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
@@ -62,14 +66,17 @@ async def test_runtime_run_user_message_appears_once(tmp_path: Path) -> None:
         model="test-model",
     )
 
-    result = await runtime.run(session.session_id, [{"type": "text", "text": "hello"}], stream=False)
+    result = await runtime.run(
+        session.session_id, [{"type": "text", "text": "hello"}], stream=False
+    )
 
     assert result.completed is True
 
     # Verify user message appears exactly once in session history
     entries = manager.list_entries(session.session_id)
     user_turn_entries = [
-        e for e in entries
+        e
+        for e in entries
         if e.kind is SessionEntryKind.TURN_APPENDED and e.data.get("role") == "user"
     ]
     assert len(user_turn_entries) == 1, (

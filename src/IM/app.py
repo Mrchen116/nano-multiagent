@@ -25,9 +25,22 @@ from IM.application.relay_service import RelayService
 from IM.application.relay_watchdog import run_relay_watchdog
 from IM.domain.models import ConversationEvent
 from IM.infra.db import connect, initialize_schema
-from IM.infra.repositories import ConversationRepository, EventRepository, MessageRepository, NodeRepository, UsageMetricsRepository, UserRepository
+from IM.infra.repositories import (
+    ConversationRepository,
+    EventRepository,
+    MessageRepository,
+    NodeRepository,
+    UsageMetricsRepository,
+    UserRepository,
+)
 from IM.ws.gateway_handler import GatewayHandler
-from IM.ws.user_stream import UserStreamRegistry, build_notify_enqueue, pump_user_stream_outbound, run_offline_guard, serve_user_websocket
+from IM.ws.user_stream import (
+    UserStreamRegistry,
+    build_notify_enqueue,
+    pump_user_stream_outbound,
+    run_offline_guard,
+    serve_user_websocket,
+)
 
 
 def _normalize_runtime_path(path: Path) -> Path:
@@ -62,7 +75,9 @@ def _discover_repo_root(start_dir: Path) -> Path | None:
         current = current.parent
 
 
-def _resolve_frontend_dist_candidates(frontend_dist_dir: Path | None) -> tuple[Path, ...]:
+def _resolve_frontend_dist_candidates(
+    frontend_dist_dir: Path | None,
+) -> tuple[Path, ...]:
     """Return ordered frontend dist candidates for runtime serving and fallback."""
     source_root = Path(__file__).resolve().parents[2]
     module_frontend_dist_dir = Path(__file__).resolve().parent / "frontend" / "dist"
@@ -95,7 +110,9 @@ def _resolve_frontend_dist_dir(frontend_dist_dir: Path | None) -> Path:
     return _resolve_frontend_dist_candidates(frontend_dist_dir)[0]
 
 
-def _resolve_frontend_file(frontend_dist_dirs: tuple[Path, ...], relative_path: Path) -> Path | None:
+def _resolve_frontend_file(
+    frontend_dist_dirs: tuple[Path, ...], relative_path: Path
+) -> Path | None:
     """Return the first available frontend file across runtime dist candidates."""
     for frontend_dist_dir in frontend_dist_dirs:
         candidate_path = frontend_dist_dir / relative_path
@@ -104,15 +121,21 @@ def _resolve_frontend_file(frontend_dist_dirs: tuple[Path, ...], relative_path: 
     return None
 
 
-def _resolve_frontend_asset_file(frontend_dist_dirs: tuple[Path, ...], asset_path: str) -> Path | None:
+def _resolve_frontend_asset_file(
+    frontend_dist_dirs: tuple[Path, ...], asset_path: str
+) -> Path | None:
     """Return the first available frontend asset file while rejecting path traversal."""
     requested_asset_path = Path(asset_path)
     if requested_asset_path.is_absolute() or ".." in requested_asset_path.parts:
         return None
-    return _resolve_frontend_file(frontend_dist_dirs, Path("assets") / requested_asset_path)
+    return _resolve_frontend_file(
+        frontend_dist_dirs, Path("assets") / requested_asset_path
+    )
 
 
-def _build_frontend_redirect_url(request: Request, *, frontend_dev_base_url: str) -> str:
+def _build_frontend_redirect_url(
+    request: Request, *, frontend_dev_base_url: str
+) -> str:
     """Preserve path/query when redirecting entry traffic to the frontend dev server."""
     target = f"{frontend_dev_base_url.rstrip('/')}{request.url.path}"
     if request.url.query:
@@ -143,7 +166,9 @@ def _install_frontend_entrypoints(
         if index_html_path is not None:
             return FileResponse(index_html_path)
         return RedirectResponse(
-            url=_build_frontend_redirect_url(request, frontend_dev_base_url=frontend_dev_base_url),
+            url=_build_frontend_redirect_url(
+                request, frontend_dev_base_url=frontend_dev_base_url
+            ),
             status_code=307,
         )
 
@@ -224,10 +249,16 @@ def create_app(
     Side Effects:
         Creates the SQLite file if missing and initializes schema at startup.
     """
-    resolved_db_path = db_path or Path(os.getenv("IM_DB_PATH", "data/im_service.sqlite3"))
+    resolved_db_path = db_path or Path(
+        os.getenv("IM_DB_PATH", "data/im_service.sqlite3")
+    )
     resolved_frontend_dist_dirs = _resolve_frontend_dist_candidates(frontend_dist_dir)
-    resolved_frontend_dev_base_url = frontend_dev_base_url or os.getenv("IM_FRONTEND_DEV_BASE_URL", "http://127.0.0.1:4173")
-    resolved_upload_dir = _resolve_upload_dir(upload_dir=upload_dir, db_path=resolved_db_path)
+    resolved_frontend_dev_base_url = frontend_dev_base_url or os.getenv(
+        "IM_FRONTEND_DEV_BASE_URL", "http://127.0.0.1:4173"
+    )
+    resolved_upload_dir = _resolve_upload_dir(
+        upload_dir=upload_dir, db_path=resolved_db_path
+    )
     resolved_upload_dir.mkdir(parents=True, exist_ok=True)
     # One AuthService per FastAPI app instance so each TestClient gets an isolated
     # refresh-token blacklist; production runs as a single instance.
@@ -272,7 +303,9 @@ def create_app(
         app_instance.state.event_repository = event_repository
         app_instance.state.message_repository = message_repository
 
-        pump_task = asyncio.create_task(pump_user_stream_outbound(registry=registry, outbound_queue=outbound_queue))
+        pump_task = asyncio.create_task(
+            pump_user_stream_outbound(registry=registry, outbound_queue=outbound_queue)
+        )
         app_instance.state.user_stream_pump_task = pump_task
 
         node_repository = NodeRepository(connection)
@@ -294,8 +327,12 @@ def create_app(
         app_instance.state.offline_guard_task = offline_guard_task
 
         # bugfix-361: reap orphan `running` placeholders if Gateway never emits a terminal event.
-        relay_watchdog_interval = int(os.getenv("IM_RELAY_WATCHDOG_INTERVAL_SECONDS", "30"))
-        relay_watchdog_timeout = int(os.getenv("IM_RELAY_WATCHDOG_TIMEOUT_SECONDS", "120"))
+        relay_watchdog_interval = int(
+            os.getenv("IM_RELAY_WATCHDOG_INTERVAL_SECONDS", "30")
+        )
+        relay_watchdog_timeout = int(
+            os.getenv("IM_RELAY_WATCHDOG_TIMEOUT_SECONDS", "120")
+        )
         relay_watchdog_task = asyncio.create_task(
             run_relay_watchdog(
                 connection=connection,
@@ -326,7 +363,9 @@ def create_app(
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    app.mount("/im/uploads", StaticFiles(directory=resolved_upload_dir), name="im-uploads")
+    app.mount(
+        "/im/uploads", StaticFiles(directory=resolved_upload_dir), name="im-uploads"
+    )
     app.include_router(auth_router)
     app.include_router(account_router)
     app.include_router(agent_router)

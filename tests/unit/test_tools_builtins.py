@@ -26,7 +26,10 @@ from agent.platform.tools.constants import (
 from agent.platform.tools.safety import CommandExecution
 from agent.platform.tools.safety import ToolSafety
 from agent.platform.tools.safety import ToolSafetyConfig
-from agent.core.tools.base import set_tool_safety_factory, set_tool_safety_config_factory
+from agent.core.tools.base import (
+    set_tool_safety_factory,
+    set_tool_safety_config_factory,
+)
 from agent.core.tools.session_file_state import SessionFileState
 
 set_tool_safety_factory(ToolSafety)
@@ -37,7 +40,9 @@ def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolC
     return ToolContext.create(repo_root=tmp_path, safety_config=config)
 
 
-def _context_with_state(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> tuple[ToolContext, SessionFileState]:
+def _context_with_state(
+    tmp_path: Path, *, config: ToolSafetyConfig | None = None
+) -> tuple[ToolContext, SessionFileState]:
     base = ToolContext.create(repo_root=tmp_path, safety_config=config)
     state = SessionFileState()
     ctx = base.with_session("test-session", session_file_state=state)
@@ -78,18 +83,18 @@ def test_builtin_tool_descriptions_align_with_tool_design_doc() -> None:
     assert TaskTool.description == (
         "Spawn agent task with category-based or direct agent selection.\n\n"
         "MUTUALLY EXCLUSIVE: Provide EITHER category OR subagent_type, not both (unless continuing a session).\n\n"
-        "- load_skills: ALWAYS REQUIRED. Pass at least one skill name (e.g., [\"playwright\"], [\"git-master\", \"frontend-ui-ux\"]).\n"
+        '- load_skills: ALWAYS REQUIRED. Pass at least one skill name (e.g., ["playwright"], ["git-master", "frontend-ui-ux"]).\n'
         "- category: Use predefined category → Spawns Sisyphus-Junior with category config\n"
         "  Available categories:\n"
         "${categoryList}\n"
-        "- subagent_type: Use specific agent directly (e.g., \"oracle\", \"explore\")\n"
+        '- subagent_type: Use specific agent directly (e.g., "oracle", "explore")\n'
         "- run_in_background: true=async (returns task_id), false=sync (waits for result). Default: false. "
         "Use background=true ONLY for parallel exploration with 5+ independent queries.\n"
         "- session_id: Existing Task session to continue (from previous task output). Continues agent with FULL CONTEXT PRESERVED - "
         "saves tokens, maintains continuity.\n"
         "- command: The command that triggered this task (optional, for slash command tracking).\n\n"
         "**WHEN TO USE session_id:**\n"
-        "- Task failed/incomplete → session_id with \"fix: [specific issue]\"\n"
+        '- Task failed/incomplete → session_id with "fix: [specific issue]"\n'
         "- Need follow-up on previous result → session_id with additional question\n"
         "- Multi-turn conversation with same agent → always session_id instead of new task\n\n"
         "Prompts MUST be in English."
@@ -98,41 +103,79 @@ def test_builtin_tool_descriptions_align_with_tool_design_doc() -> None:
 
 def test_builtin_tool_parameter_descriptions_align_with_tool_design_doc() -> None:
     read_properties = ReadTool.input_schema["properties"]
-    assert read_properties["path"]["description"] == "Path to the file to read (relative or absolute)"
-    assert read_properties["offset"]["description"] == "Line number to start reading from (1-indexed)"
+    assert (
+        read_properties["path"]["description"]
+        == "Path to the file to read (relative or absolute)"
+    )
+    assert (
+        read_properties["offset"]["description"]
+        == "Line number to start reading from (1-indexed)"
+    )
     assert read_properties["limit"]["description"] == "Maximum number of lines to read"
 
     bash_properties = BashTool.input_schema["properties"]
     assert bash_properties["command"]["description"] == "Bash command to execute"
-    assert bash_properties["description"]["description"] == "Short description for background task tracking (3-5 words)."
-    assert bash_properties["timeout"]["description"] == "Timeout in seconds (optional, no default timeout)"
+    assert (
+        bash_properties["description"]["description"]
+        == "Short description for background task tracking (3-5 words)."
+    )
+    assert (
+        bash_properties["timeout"]["description"]
+        == "Timeout in seconds (optional, no default timeout)"
+    )
     assert "run_in_background" in bash_properties
 
     edit_properties = EditTool.input_schema["properties"]
-    assert edit_properties["path"]["description"] == "Path to the file to edit (relative or absolute)"
-    assert edit_properties["oldText"]["description"] == "Exact text to find and replace (must match exactly)"
-    assert edit_properties["newText"]["description"] == "New text to replace the old text with"
+    assert (
+        edit_properties["path"]["description"]
+        == "Path to the file to edit (relative or absolute)"
+    )
+    assert (
+        edit_properties["oldText"]["description"]
+        == "Exact text to find and replace (must match exactly)"
+    )
+    assert (
+        edit_properties["newText"]["description"]
+        == "New text to replace the old text with"
+    )
 
     write_properties = WriteTool.input_schema["properties"]
-    assert write_properties["path"]["description"] == "Path to the file to write (relative or absolute)"
+    assert (
+        write_properties["path"]["description"]
+        == "Path to the file to write (relative or absolute)"
+    )
     assert write_properties["content"]["description"] == "Content to write to the file"
 
     task_properties = TaskTool.input_schema["properties"]
     assert task_properties["load_skills"]["description"] == (
         "Skill names to inject. REQUIRED - pass [] if no skills needed, but IT IS HIGHLY RECOMMENDED to pass "
-        "proper skills like [\"playwright\"], [\"git-master\"] for best results."
+        'proper skills like ["playwright"], ["git-master"] for best results.'
     )
-    assert task_properties["description"]["description"] == "Short task description (3-5 words)"
-    assert task_properties["prompt"]["description"] == "Full detailed prompt for the agent"
-    assert task_properties["run_in_background"]["description"] == "true=async (returns task_id), false=sync (waits). Default: false"
+    assert (
+        task_properties["description"]["description"]
+        == "Short task description (3-5 words)"
+    )
+    assert (
+        task_properties["prompt"]["description"] == "Full detailed prompt for the agent"
+    )
+    assert (
+        task_properties["run_in_background"]["description"]
+        == "true=async (returns task_id), false=sync (waits). Default: false"
+    )
     assert task_properties["category"]["description"] == (
         "Category (e.g., ${categoryExamples}). Mutually exclusive with subagent_type."
     )
     assert task_properties["subagent_type"]["description"] == (
         "Agent name (e.g., 'oracle', 'explore'). Mutually exclusive with category."
     )
-    assert task_properties["session_id"]["description"] == "Existing Task session to continue"
-    assert task_properties["command"]["description"] == "The command that triggered this task"
+    assert (
+        task_properties["session_id"]["description"]
+        == "Existing Task session to continue"
+    )
+    assert (
+        task_properties["command"]["description"]
+        == "The command that triggered this task"
+    )
 
 
 def test_tool_safety_default_limits_follow_shared_tool_constants() -> None:

@@ -4,10 +4,23 @@ from pathlib import Path
 
 from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import AgentProfileRepository, ConversationRepository, MessageRepository, UserRepository
+from IM.repositories import (
+    AgentProfileRepository,
+    ConversationRepository,
+    MessageRepository,
+    UserRepository,
+)
 
 
-def _build_fixture(tmp_path: Path) -> tuple[RelayService, MessageRepository, ConversationRepository, UserRepository, AgentProfileRepository]:
+def _build_fixture(
+    tmp_path: Path,
+) -> tuple[
+    RelayService,
+    MessageRepository,
+    ConversationRepository,
+    UserRepository,
+    AgentProfileRepository,
+]:
     connection = connect(tmp_path / "im.db")
     initialize_schema(connection)
     users = UserRepository(connection)
@@ -22,7 +35,9 @@ def test_enqueue_message_relay_is_idempotent(tmp_path: Path) -> None:
     """Reuse the same relay task when idempotency_key repeats."""
     relay_service, messages, conversations, users, _profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
-    conversation = conversations.create_conversation(title="chat", participant_ids=[alice.id])
+    conversation = conversations.create_conversation(
+        title="chat", participant_ids=[alice.id]
+    )
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
@@ -52,7 +67,9 @@ def test_apply_delivery_receipt_updates_task_status(tmp_path: Path) -> None:
     """Persist sent/completed receipt states on relay tasks."""
     relay_service, messages, conversations, users, _profiles = _build_fixture(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
-    conversation = conversations.create_conversation(title="chat", participant_ids=[alice.id])
+    conversation = conversations.create_conversation(
+        title="chat", participant_ids=[alice.id]
+    )
     message = messages.create_message(
         conversation_id=conversation.id,
         sender_user_id=alice.id,
@@ -65,7 +82,9 @@ def test_apply_delivery_receipt_updates_task_status(tmp_path: Path) -> None:
         sender_user_id=alice.id,
     )
 
-    dispatched = relay_service.mark_dispatched(relay_task_id=created.relay_task.relay_task_id)
+    dispatched = relay_service.mark_dispatched(
+        relay_task_id=created.relay_task.relay_task_id
+    )
     sent = relay_service.apply_delivery_receipt(
         relay_task_id=created.relay_task.relay_task_id,
         delivery_status="sent",
@@ -85,11 +104,15 @@ def test_apply_delivery_receipt_updates_task_status(tmp_path: Path) -> None:
     assert completed.receipt_detail == "ok"
 
 
-def test_direct_conversation_relay_keeps_old_snapshot_while_new_conversation_uses_updated_profile(tmp_path: Path) -> None:
+def test_direct_conversation_relay_keeps_old_snapshot_while_new_conversation_uses_updated_profile(
+    tmp_path: Path,
+) -> None:
     """Freeze old direct-chat relay metadata after profile edits while new direct chats use the latest config."""
     relay_service, messages, conversations, users, profiles = _build_fixture(tmp_path)
     owner = users.create_user(username="owner", display_name="Owner")
-    agent_alias = users.create_user(username="agent:agent-a", display_name="Agent A Alias")
+    agent_alias = users.create_user(
+        username="agent:agent-a", display_name="Agent A Alias"
+    )
     profiles.upsert_profile(
         agent_id="agent-a",
         owner_id=owner.owner_id,

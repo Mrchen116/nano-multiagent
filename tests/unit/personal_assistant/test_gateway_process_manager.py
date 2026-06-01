@@ -43,10 +43,14 @@ def test_gateway_process_manager_waits_for_kernel_health(tmp_path: Path) -> None
     assert manager.process is process
 
 
-def test_gateway_process_manager_raises_when_health_never_becomes_ready(tmp_path: Path) -> None:
+def test_gateway_process_manager_raises_when_health_never_becomes_ready(
+    tmp_path: Path,
+) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=0)
-    client = _FakeKernelClient([RuntimeError("down"), RuntimeError("down"), RuntimeError("down")])
+    client = _FakeKernelClient(
+        [RuntimeError("down"), RuntimeError("down"), RuntimeError("down")]
+    )
     times = iter([0.0, 0.05, 0.15, 0.25])
     manager = GatewayProcessManager(
         config=config.kernel,
@@ -60,7 +64,9 @@ def test_gateway_process_manager_raises_when_health_never_becomes_ready(tmp_path
         manager.start_kernel_process()
 
 
-def test_gateway_process_manager_shutdown_uses_kill_after_terminate_timeout(tmp_path: Path) -> None:
+def test_gateway_process_manager_shutdown_uses_kill_after_terminate_timeout(
+    tmp_path: Path,
+) -> None:
     config = build_config(tmp_path)
     process = _FakeProcess(wait_result=TimeoutError())
     client = _FakeKernelClient([{"healthy": True}])
@@ -92,7 +98,10 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
         post_im_connect=lambda: events.append("im.bootstrap"),
     )
     outcome: dict[str, int] = {}
-    thread = threading.Thread(target=lambda: outcome.setdefault("exit_code", runtime.run_forever()), daemon=True)
+    thread = threading.Thread(
+        target=lambda: outcome.setdefault("exit_code", runtime.run_forever()),
+        daemon=True,
+    )
 
     thread.start()
 
@@ -126,7 +135,9 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
     ]
 
 
-def test_gateway_runtime_cleans_up_reverse_order_when_im_start_fails(tmp_path: Path) -> None:
+def test_gateway_runtime_cleans_up_reverse_order_when_im_start_fails(
+    tmp_path: Path,
+) -> None:
     config = build_config(tmp_path)
     events: list[str] = []
     runtime = GatewayRuntime(

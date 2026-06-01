@@ -24,7 +24,11 @@ def test_idle_callback_renders_background_events() -> None:
         if not isinstance(origin, str) or origin.strip() == "" or origin == "user":
             return None
         source_task_id = event.get("source_task_id")
-        if origin == "background_task" and isinstance(source_task_id, str) and source_task_id.strip():
+        if (
+            origin == "background_task"
+            and isinstance(source_task_id, str)
+            and source_task_id.strip()
+        ):
             return f"── background wake (task_id={source_task_id.strip()}) ──"
         return f"── origin: {origin.strip()} ──"
 
@@ -72,8 +76,17 @@ def test_idle_callback_renders_background_events() -> None:
 
     # Simulate events arriving: first run_status, then assistant_message
     events = [
-        {"event": "run_status", "run_id": "run_bg1", "origin": "background_task", "source_task_id": "task_123"},
-        {"event": "assistant_message", "run_id": "run_bg1", "content": "Subagent finished!\nIt found 3 files.\n"},
+        {
+            "event": "run_status",
+            "run_id": "run_bg1",
+            "origin": "background_task",
+            "source_task_id": "task_123",
+        },
+        {
+            "event": "assistant_message",
+            "run_id": "run_bg1",
+            "content": "Subagent finished!\nIt found 3 files.\n",
+        },
         {"event": "tool_start", "run_id": "run_bg1", "name": "read"},
         {"event": "tool_end", "run_id": "run_bg1", "name": "read", "duration_ms": 150},
     ]
@@ -204,7 +217,9 @@ def test_idle_key_reader_drains_multichar_ime_commit(monkeypatch) -> None:
         select_calls += 1
         if select_calls == 1:
             return ([42], [], [])
-        raise AssertionError("queued IME characters should be returned before polling fd again")
+        raise AssertionError(
+            "queued IME characters should be returned before polling fd again"
+        )
 
     def _fake_read(fd: int, size: int) -> bytes:
         assert fd == 42

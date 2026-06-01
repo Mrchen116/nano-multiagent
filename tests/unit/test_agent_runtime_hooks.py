@@ -4,7 +4,11 @@ from pathlib import Path
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
-from agent.core.llm.interfaces import LLMGenerateRequest, LLMGenerateResponse, LLMMessage
+from agent.core.llm.interfaces import (
+    LLMGenerateRequest,
+    LLMGenerateResponse,
+    LLMMessage,
+)
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 
@@ -74,7 +78,9 @@ async def test_runtime_and_loop_emit_hook_events_in_expected_order() -> None:
         repo_root=Path.cwd(),
     )
 
-    await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
 
     assert events == [
         "input",
@@ -116,7 +122,9 @@ async def test_input_transform_chain_affects_runtime_main_flow() -> None:
         repo_root=Path.cwd(),
     )
 
-    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
 
     assert llm.requests[-1].messages[-1].content == "prefix:ping:suffix"
     assert result.messages[0].content == "ack:prefix:ping:suffix"
@@ -146,7 +154,9 @@ async def test_before_agent_start_message_override_affects_runtime_main_flow() -
         repo_root=Path.cwd(),
     )
 
-    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
 
     assert llm.requests[-1].messages[-1].content == "before:ping"
     assert result.messages[0].content == "ack:before:ping"
@@ -158,7 +168,10 @@ async def test_before_agent_start_message_override_affects_runtime_main_flow() -
 async def test_session_metadata_system_prompt_is_used_for_every_turn() -> None:
     store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
-    session = manager.create_session(workspace_root=Path.cwd(), system_prompt="You are the prompt frozen for this chat.")
+    session = manager.create_session(
+        workspace_root=Path.cwd(),
+        system_prompt="You are the prompt frozen for this chat.",
+    )
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -167,16 +180,30 @@ async def test_session_metadata_system_prompt_is_used_for_every_turn() -> None:
         repo_root=Path.cwd(),
     )
 
-    first = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
-    second = await runtime.run(session.session_id, [{"type": "text", "text": "pong"}], stream=False)
+    first = await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
+    second = await runtime.run(
+        session.session_id, [{"type": "text", "text": "pong"}], stream=False
+    )
 
     assert first.messages[0].content == "ack:ping"
     assert second.messages[0].content == "ack:pong"
-    assert llm.requests[0].messages[0].content.startswith("You are the prompt frozen for this chat.")
-    assert llm.requests[1].messages[0].content.startswith("You are the prompt frozen for this chat.")
+    assert (
+        llm.requests[0]
+        .messages[0]
+        .content.startswith("You are the prompt frozen for this chat.")
+    )
+    assert (
+        llm.requests[1]
+        .messages[0]
+        .content.startswith("You are the prompt frozen for this chat.")
+    )
 
 
-async def test_before_agent_start_blank_override_does_not_drop_session_frozen_system_prompt() -> None:
+async def test_before_agent_start_blank_override_does_not_drop_session_frozen_system_prompt() -> (
+    None
+):
     registry = HookRegistry()
 
     async def clear_prompt(event, ctx):
@@ -187,7 +214,10 @@ async def test_before_agent_start_blank_override_does_not_drop_session_frozen_sy
 
     store = JsonlSessionStore(data_dir=Path.cwd() / "sessions")
     manager = SessionManager(store=store)
-    session = manager.create_session(workspace_root=Path.cwd(), system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.")
+    session = manager.create_session(
+        workspace_root=Path.cwd(),
+        system_prompt="When mentioned in a group chat, reply exactly with NO_REPLY.",
+    )
     llm = EchoLLMClient()
     runtime = AgentRuntime(
         session_manager=manager,
@@ -197,10 +227,18 @@ async def test_before_agent_start_blank_override_does_not_drop_session_frozen_sy
         repo_root=Path.cwd(),
     )
 
-    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
 
     assert result.messages[0].content == "ack:ping"
-    assert llm.requests[-1].messages[0].content.startswith("When mentioned in a group chat, reply exactly with NO_REPLY.")
+    assert (
+        llm.requests[-1]
+        .messages[0]
+        .content.startswith(
+            "When mentioned in a group chat, reply exactly with NO_REPLY."
+        )
+    )
 
 
 async def test_input_handled_short_circuits_runtime_flow() -> None:
@@ -224,7 +262,9 @@ async def test_input_handled_short_circuits_runtime_flow() -> None:
         repo_root=Path.cwd(),
     )
 
-    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
 
     assert result.messages == ()
     assert result.stop_reason == "handled_by_hook"
@@ -254,7 +294,9 @@ async def test_hook_exceptions_are_isolated_and_fail_open() -> None:
         repo_root=Path.cwd(),
     )
 
-    result = await runtime.run(session.session_id, [{"type": "text", "text": "ping"}], stream=False)
+    result = await runtime.run(
+        session.session_id, [{"type": "text", "text": "ping"}], stream=False
+    )
 
     assert result.messages[0].content == "ack:ping"
     assert llm.requests[-1].messages[-1].content == "ping"

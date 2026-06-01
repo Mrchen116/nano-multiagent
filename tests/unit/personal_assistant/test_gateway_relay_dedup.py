@@ -34,7 +34,9 @@ def test_relay_dedup_store_expired_keys_not_loaded(tmp_path: Path) -> None:
     store = RelayDeduplicationStore(db_path=db_path, ttl_seconds=1)
     store.add("idem-expired")
     with sqlite3.connect(db_path) as conn:
-        conn.execute("UPDATE relay_deduplication_keys SET expires_at = ?", (time.time() - 10,))
+        conn.execute(
+            "UPDATE relay_deduplication_keys SET expires_at = ?", (time.time() - 10,)
+        )
         conn.commit()
 
     reloaded = RelayDeduplicationStore(db_path=db_path)
@@ -66,7 +68,9 @@ def test_relay_dedup_store_purge_removes_expired_rows(tmp_path: Path) -> None:
 
 
 def test_relay_dedup_store_deque_rolls_over_at_max(tmp_path: Path) -> None:
-    store = RelayDeduplicationStore(db_path=tmp_path / "relay-dedup.sqlite3", seen_keys=deque(["old"]))
+    store = RelayDeduplicationStore(
+        db_path=tmp_path / "relay-dedup.sqlite3", seen_keys=deque(["old"])
+    )
     store._seen_idempotency_keys = deque([str(index) for index in range(1000)])  # noqa: SLF001
 
     store.add("overflow")

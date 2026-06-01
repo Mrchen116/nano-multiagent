@@ -5,7 +5,9 @@ from pathlib import Path
 from agent.platform.worktree_runtime import prepare_shared_runtime_files
 
 
-def test_prepare_shared_runtime_files_converts_dev_tasks_file_to_repo_symlink(tmp_path: Path) -> None:
+def test_prepare_shared_runtime_files_converts_dev_tasks_file_to_repo_symlink(
+    tmp_path: Path,
+) -> None:
     repo_root = tmp_path / "repo"
     repo_data = repo_root / "data"
     repo_data.mkdir(parents=True)
@@ -33,7 +35,9 @@ def test_prepare_shared_runtime_files_converts_dev_tasks_file_to_repo_symlink(tm
     assert local_locks.resolve() == shared_locks.resolve()
 
 
-def test_prepare_shared_runtime_files_is_idempotent_for_existing_symlink(tmp_path: Path) -> None:
+def test_prepare_shared_runtime_files_is_idempotent_for_existing_symlink(
+    tmp_path: Path,
+) -> None:
     repo_root = tmp_path / "repo"
     repo_data = repo_root / "data"
     repo_data.mkdir(parents=True)
@@ -58,7 +62,9 @@ def test_prepare_shared_runtime_files_is_idempotent_for_existing_symlink(tmp_pat
     assert local_locks.resolve() == shared_locks.resolve()
 
 
-def test_prepare_shared_runtime_files_recreates_worktree_local_data_dir_for_private_runtime_files(tmp_path: Path) -> None:
+def test_prepare_shared_runtime_files_recreates_worktree_local_data_dir_for_private_runtime_files(
+    tmp_path: Path,
+) -> None:
     repo_root = tmp_path / "repo"
     repo_data = repo_root / "data"
     repo_data.mkdir(parents=True)

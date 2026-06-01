@@ -62,7 +62,9 @@ def test_observe_timeout_and_exception_are_isolated_fail_open() -> None:
     registry.on("turn_start", survivor, priority=30, timeout_ms=200)
     runner = HookRunner(registry=registry)
 
-    diagnostics = asyncio.run(runner.dispatch_observe("turn_start", {}, _context("s-2")))
+    diagnostics = asyncio.run(
+        runner.dispatch_observe("turn_start", {}, _context("s-2"))
+    )
 
     assert called == ["exploding", "timeout", "survivor"]
     assert {item.status for item in diagnostics} == {"error", "timeout", "ok"}
@@ -75,7 +77,11 @@ def test_intercept_input_short_circuit_and_tool_result_merge() -> None:
     async def transform_input(event, ctx):
         del ctx
         order.append("transform")
-        return {"action": "transform", "text": event["text"].upper(), "images": event.get("images")}
+        return {
+            "action": "transform",
+            "text": event["text"].upper(),
+            "images": event.get("images"),
+        }
 
     async def handled_input(event, ctx):
         del event, ctx
@@ -89,7 +95,11 @@ def test_intercept_input_short_circuit_and_tool_result_merge() -> None:
 
     async def rewrite_a(event, ctx):
         del ctx
-        return {"content": [{"type": "text", "text": "A"}], "details": {"a": 1}, "is_error": False}
+        return {
+            "content": [{"type": "text", "text": "A"}],
+            "details": {"a": 1},
+            "is_error": False,
+        }
 
     async def rewrite_b(event, ctx):
         del event, ctx
@@ -103,12 +113,18 @@ def test_intercept_input_short_circuit_and_tool_result_merge() -> None:
     runner = HookRunner(registry=registry)
 
     input_result = asyncio.run(
-        runner.dispatch_intercept("input", {"text": "hello", "images": []}, _context("s-3"))
+        runner.dispatch_intercept(
+            "input", {"text": "hello", "images": []}, _context("s-3")
+        )
     )
     tool_result = asyncio.run(
         runner.dispatch_intercept(
             "tool_result",
-            {"content": [{"type": "text", "text": "orig"}], "details": {"raw": 1}, "is_error": False},
+            {
+                "content": [{"type": "text", "text": "orig"}],
+                "details": {"raw": 1},
+                "is_error": False,
+            },
             _context("s-3"),
         )
     )
@@ -147,7 +163,9 @@ def test_tool_call_block_short_circuits_following_handlers() -> None:
     runner = HookRunner(registry=registry)
 
     result = asyncio.run(
-        runner.dispatch_intercept("tool_call", {"name": "bash", "args": {}}, _context("s-4"))
+        runner.dispatch_intercept(
+            "tool_call", {"name": "bash", "args": {}}, _context("s-4")
+        )
     )
 
     assert called == ["allow", "block"]
@@ -160,6 +178,7 @@ def test_tool_call_block_short_circuits_following_handlers() -> None:
 # R3: HookContext extensions — message_history + permission_requester +
 #     request_permission (R3 of feat-333-M1)
 # ---------------------------------------------------------------------------
+
 
 class TestHookContextMessageHistory:
     """message_history field: tuple of LLM messages for classifier transcript."""
@@ -190,7 +209,10 @@ class TestHookContextPermissionRequester:
     @pytest.mark.asyncio
     async def test_request_permission_without_requester_returns_deny(self) -> None:
         """When no permission_requester is set, request_permission fail-closes to deny."""
-        from agent.platform.permissions.broker import PermissionRequest, PermissionOption
+        from agent.platform.permissions.broker import (
+            PermissionRequest,
+            PermissionOption,
+        )
 
         ctx = HookContext(session_id="s-pr-1")
         req = PermissionRequest(
@@ -301,16 +323,26 @@ def test_dispatch_observe_skips_intercept_mode_handlers() -> None:
     registry.on("tool_call", gate, mode=HookEventMode.INTERCEPT)
     runner = HookRunner(registry=registry)
 
-    asyncio.run(runner.dispatch_observe("tool_call", {"name": "bash"}, _context("s-obs")))
-    assert ran == ["observe"], f"intercept handler must not run in observe dispatch, got {ran}"
+    asyncio.run(
+        runner.dispatch_observe("tool_call", {"name": "bash"}, _context("s-obs"))
+    )
+    assert ran == ["observe"], (
+        f"intercept handler must not run in observe dispatch, got {ran}"
+    )
 
     # And the intercept handler DOES run during dispatch_intercept.
     ran.clear()
-    asyncio.run(runner.dispatch_intercept("tool_call", {"name": "bash", "block": False}, _context("s-int")))
+    asyncio.run(
+        runner.dispatch_intercept(
+            "tool_call", {"name": "bash", "block": False}, _context("s-int")
+        )
+    )
     assert "intercept" in ran, "intercept handler must run in intercept dispatch"
 
 
-def test_strip_fork_conversation_preserves_message_history_and_permission_requester() -> None:
+def test_strip_fork_conversation_preserves_message_history_and_permission_requester() -> (
+    None
+):
     """_strip_fork_conversation must null ONLY fork_conversation, keeping every
     other field — notably message_history and permission_requester.
 

@@ -15,7 +15,11 @@ from ._im_connection_helpers import _FakeWebSocket, _connect_fake, _minimal_repo
 
 def test_config_sync_client_records_latest_versions() -> None:
     seen: list[tuple[str, int]] = []
-    client = ConfigSyncClient(fetcher=lambda agent_id, profile_version: seen.append((agent_id, profile_version)))
+    client = ConfigSyncClient(
+        fetcher=lambda agent_id, profile_version: seen.append(
+            (agent_id, profile_version)
+        )
+    )
 
     request = client.handle_notification({"agent_id": "agent-a", "profile_version": 3})
 
@@ -24,14 +28,18 @@ def test_config_sync_client_records_latest_versions() -> None:
     assert seen == [("agent-a", 3)]
 
 
-def test_connect_once_calls_token_getter_and_uses_returned_token(tmp_path: Path) -> None:
+def test_connect_once_calls_token_getter_and_uses_returned_token(
+    tmp_path: Path,
+) -> None:
     """token_getter 返回值应被写入 Authorization 请求头，而非使用 config.token。"""
     reporter = _minimal_reporter(tmp_path)
     relay_adapter = WebRelayAdapter()
     connect_calls: list[tuple[str, dict[str, str]]] = []
-    socket = _FakeWebSocket(incoming=[
-        json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-    ])
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+        ]
+    )
 
     async def _token_getter() -> str | None:
         return "dynamic-access-token"
@@ -52,14 +60,18 @@ def test_connect_once_calls_token_getter_and_uses_returned_token(tmp_path: Path)
     assert headers.get("Authorization") == "Bearer dynamic-access-token"
 
 
-def test_connect_once_falls_back_to_config_token_when_no_token_getter(tmp_path: Path) -> None:
+def test_connect_once_falls_back_to_config_token_when_no_token_getter(
+    tmp_path: Path,
+) -> None:
     """token_getter 未提供时使用 config.token（向后兼容）。"""
     reporter = _minimal_reporter(tmp_path)
     relay_adapter = WebRelayAdapter()
     connect_calls: list[tuple[str, dict[str, str]]] = []
-    socket = _FakeWebSocket(incoming=[
-        json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-    ])
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+        ]
+    )
 
     manager = IMConnectionManager(
         config=IMConnectionConfig(url="http://im.local:9000", token="config-token"),
@@ -74,14 +86,18 @@ def test_connect_once_falls_back_to_config_token_when_no_token_getter(tmp_path: 
     assert headers.get("Authorization") == "Bearer config-token"
 
 
-def test_connect_once_skips_auth_header_when_token_getter_returns_none(tmp_path: Path) -> None:
+def test_connect_once_skips_auth_header_when_token_getter_returns_none(
+    tmp_path: Path,
+) -> None:
     """token_getter 返回 None 时不发送 Authorization 头（config.token 也为 None）。"""
     reporter = _minimal_reporter(tmp_path)
     relay_adapter = WebRelayAdapter()
     connect_calls: list[tuple[str, dict[str, str]]] = []
-    socket = _FakeWebSocket(incoming=[
-        json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
-    ])
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+        ]
+    )
 
     async def _token_getter() -> str | None:
         return None

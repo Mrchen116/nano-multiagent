@@ -10,7 +10,9 @@ from tests.im_service._auth_helpers import (  # noqa: F401
 )
 
 
-def make_authed_client(tmp_path, *, username: str = "alice", display_name: str | None = None):
+def make_authed_client(
+    tmp_path, *, username: str = "alice", display_name: str | None = None
+):
     """Construct a TestClient, register one user, and authorize the client.
 
     Tests that only need a single authenticated owner can use this in one line.

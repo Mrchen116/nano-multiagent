@@ -74,6 +74,7 @@ async def test_agent_loop_turn_meta_includes_tool_iterations():
             async def _stream():
                 yield FakeLLMResponse()
                 yield FakeLLMTerminal()
+
             return _stream()
 
     loop = AgentLoop(
@@ -150,6 +151,7 @@ async def test_runtime_agent_end_payload_includes_tool_iterations(tmp_path):
             async def _stream():
                 yield FakeLLMResponse()
                 yield FakeLLMTerminal()
+
             return _stream()
 
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
@@ -247,7 +249,7 @@ def test_bind_tool_registry_propagates_to_context_fork(tmp_path):
         async def generate(self, request):
             # Minimal: yields nothing — only construction matters
             return
-            yield  # noqa: unreachable
+            yield  # makes generate() an async generator (protocol requirement)
 
     # Construct with tool_registry=None (mirrors app.py construction order)
     runtime = AgentRuntime(
@@ -303,12 +305,20 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
                     yield LLMMessage(
                         role="assistant",
                         content="",
-                        tool_calls=(LLMToolCall(call_id="c1", name="skill_manage", arguments={}),),
+                        tool_calls=(
+                            LLMToolCall(
+                                call_id="c1", name="skill_manage", arguments={}
+                            ),
+                        ),
                         finish_reason=None,
                     )
-                    yield LLMMessage(role="assistant", content="", finish_reason="tool_calls")
+                    yield LLMMessage(
+                        role="assistant", content="", finish_reason="tool_calls"
+                    )
                 else:
-                    yield LLMMessage(role="assistant", content="review done", finish_reason=None)
+                    yield LLMMessage(
+                        role="assistant", content="review done", finish_reason=None
+                    )
                     yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
             return _stream()
@@ -317,7 +327,11 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
         def __init__(self):
             self.name = "skill_manage"
             self.description = "manage skills"
-            self.input_schema = {"type": "object", "properties": {}, "additionalProperties": True}
+            self.input_schema = {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": True,
+            }
             self.is_concurrency_safe = True
 
         def run(self, args, ctx):
@@ -328,11 +342,16 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
     class _StubRegistry:
         def list_specs(self):
             from agent.core.types import ToolSpec
+
             return (
                 ToolSpec(
                     name="skill_manage",
                     description="manage skills",
-                    input_schema={"type": "object", "properties": {}, "additionalProperties": True},
+                    input_schema={
+                        "type": "object",
+                        "properties": {},
+                        "additionalProperties": True,
+                    },
                 ),
             )
 
@@ -341,7 +360,9 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
                 return _stub_tool_instance
             return None
 
-        async def execute(self, name, args, *, hook_context=None, session_file_state=None):
+        async def execute(
+            self, name, args, *, hook_context=None, session_file_state=None
+        ):
             executed_tools.append(name)
             return {"result": "ok"}
 

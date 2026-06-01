@@ -21,6 +21,7 @@ class TestWebFetchConfig:
 
     def test_default_all_empty(self):
         from agent.platform.config.auto_mode import WebFetchConfig  # noqa: PLC0415
+
         cfg = WebFetchConfig()
         assert cfg.preapproved_hosts_extra == ()
         assert cfg.deny_hosts == ()
@@ -29,6 +30,7 @@ class TestWebFetchConfig:
 
     def test_with_values(self):
         from agent.platform.config.auto_mode import WebFetchConfig  # noqa: PLC0415
+
         cfg = WebFetchConfig(
             preapproved_hosts_extra=("mycompany.com",),
             deny_hosts=("evil.com",),
@@ -42,6 +44,7 @@ class TestWebFetchConfig:
 
     def test_is_frozen(self):
         from agent.platform.config.auto_mode import WebFetchConfig  # noqa: PLC0415
+
         cfg = WebFetchConfig()
         with pytest.raises((AttributeError, TypeError)):
             cfg.allow_hosts = ("x.com",)  # type: ignore[misc]
@@ -52,12 +55,14 @@ class TestAutoModeConfigWebFetchField:
 
     def test_default_web_fetch_field(self):
         from agent.platform.config.auto_mode import AutoModeConfig, WebFetchConfig  # noqa: PLC0415
+
         cfg = AutoModeConfig()
         assert hasattr(cfg, "web_fetch")
         assert isinstance(cfg.web_fetch, WebFetchConfig)
 
     def test_web_fetch_defaults_are_empty(self):
         from agent.platform.config.auto_mode import AutoModeConfig  # noqa: PLC0415
+
         cfg = AutoModeConfig()
         assert cfg.web_fetch.deny_hosts == ()
         assert cfg.web_fetch.allow_hosts == ()
@@ -68,6 +73,7 @@ class TestParseAutoModeConfigWebFetch:
 
     def _parse(self, raw: dict):
         from agent.platform.config.auto_mode import _parse_auto_mode_config  # noqa: PLC0415
+
         return _parse_auto_mode_config(raw)
 
     def test_no_web_fetch_key_gives_defaults(self):
@@ -76,7 +82,9 @@ class TestParseAutoModeConfigWebFetch:
         assert cfg.web_fetch.deny_hosts == ()
 
     def test_web_fetch_allow_hosts_parsed(self):
-        cfg = self._parse({"web_fetch": {"allow_hosts": ["example.org", "trusted.com"]}})
+        cfg = self._parse(
+            {"web_fetch": {"allow_hosts": ["example.org", "trusted.com"]}}
+        )
         assert cfg.web_fetch.allow_hosts == ("example.org", "trusted.com")
 
     def test_web_fetch_deny_hosts_parsed(self):
@@ -88,7 +96,9 @@ class TestParseAutoModeConfigWebFetch:
         assert cfg.web_fetch.ask_hosts == ("review.me",)
 
     def test_web_fetch_preapproved_extra_parsed(self):
-        cfg = self._parse({"web_fetch": {"preapproved_hosts_extra": ["internal.company.com"]}})
+        cfg = self._parse(
+            {"web_fetch": {"preapproved_hosts_extra": ["internal.company.com"]}}
+        )
         assert cfg.web_fetch.preapproved_hosts_extra == ("internal.company.com",)
 
     def test_web_fetch_invalid_type_falls_to_defaults(self):
@@ -102,11 +112,13 @@ class TestParseAutoModeConfigWebFetch:
 
     def test_existing_fields_unaffected(self):
         """Adding web_fetch must not break existing AutoModeConfig fields."""
-        cfg = self._parse({
-            "enabled": False,
-            "deny_limit": 5,
-            "web_fetch": {"allow_hosts": ["x.com"]},
-        })
+        cfg = self._parse(
+            {
+                "enabled": False,
+                "deny_limit": 5,
+                "web_fetch": {"allow_hosts": ["x.com"]},
+            }
+        )
         assert cfg.enabled is False
         assert cfg.deny_limit == 5
         assert cfg.web_fetch.allow_hosts == ("x.com",)
@@ -117,41 +129,56 @@ class TestLoadAutoModeConfigWebFetch:
 
     def _write_config(self, config_dir: Path, content: str) -> None:
         config_dir.mkdir(parents=True, exist_ok=True)
-        (config_dir / "config.yaml").write_text(textwrap.dedent(content), encoding="utf-8")
+        (config_dir / "config.yaml").write_text(
+            textwrap.dedent(content), encoding="utf-8"
+        )
 
     def test_yaml_web_fetch_allow_hosts(self):
         from agent.platform.config.auto_mode import load_auto_mode_config  # noqa: PLC0415
+
         with tempfile.TemporaryDirectory() as tmp:
             global_dir = Path(tmp) / "global"
-            self._write_config(global_dir, """
+            self._write_config(
+                global_dir,
+                """
                 auto_mode:
                   web_fetch:
                     allow_hosts:
                       - example.org
-            """)
-            cfg = load_auto_mode_config(global_config_dir=global_dir, workspace_config_dir=None)
+            """,
+            )
+            cfg = load_auto_mode_config(
+                global_config_dir=global_dir, workspace_config_dir=None
+            )
             assert "example.org" in cfg.web_fetch.allow_hosts
 
     def test_workspace_overrides_global_web_fetch(self):
         """Workspace web_fetch section wholly overrides global (simple merge)."""
         from agent.platform.config.auto_mode import load_auto_mode_config  # noqa: PLC0415
+
         with tempfile.TemporaryDirectory() as tmp:
             global_dir = Path(tmp) / "global"
             workspace_dir = Path(tmp) / "workspace"
-            self._write_config(global_dir, """
+            self._write_config(
+                global_dir,
+                """
                 auto_mode:
                   web_fetch:
                     deny_hosts:
                       - blocked-global.com
                     allow_hosts:
                       - global-allowed.org
-            """)
-            self._write_config(workspace_dir, """
+            """,
+            )
+            self._write_config(
+                workspace_dir,
+                """
                 auto_mode:
                   web_fetch:
                     allow_hosts:
                       - workspace-allowed.org
-            """)
+            """,
+            )
             cfg = load_auto_mode_config(
                 global_config_dir=global_dir,
                 workspace_config_dir=workspace_dir,
@@ -163,12 +190,18 @@ class TestLoadAutoModeConfigWebFetch:
 
     def test_no_web_fetch_in_yaml_gives_defaults(self):
         from agent.platform.config.auto_mode import load_auto_mode_config  # noqa: PLC0415
+
         with tempfile.TemporaryDirectory() as tmp:
             global_dir = Path(tmp) / "global"
-            self._write_config(global_dir, """
+            self._write_config(
+                global_dir,
+                """
                 auto_mode:
                   enabled: true
-            """)
-            cfg = load_auto_mode_config(global_config_dir=global_dir, workspace_config_dir=None)
+            """,
+            )
+            cfg = load_auto_mode_config(
+                global_config_dir=global_dir, workspace_config_dir=None
+            )
             assert cfg.web_fetch.allow_hosts == ()
             assert cfg.web_fetch.deny_hosts == ()

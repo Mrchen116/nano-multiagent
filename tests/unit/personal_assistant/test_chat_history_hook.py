@@ -36,12 +36,16 @@ def _setup_registry() -> tuple[HookRegistry, Any]:
     from agent.products.personal_assistant.hooks import chat_history
 
     registry = HookRegistry()
-    api = HookAPI(registry, source="product", module_name="chat_history", file_path=None)
+    api = HookAPI(
+        registry, source="product", module_name="chat_history", file_path=None
+    )
     chat_history.setup(api)
     return registry, chat_history
 
 
-def _call_handler(registry: HookRegistry, event: str, payload: dict, ctx: HookContext) -> Any:
+def _call_handler(
+    registry: HookRegistry, event: str, payload: dict, ctx: HookContext
+) -> Any:
     """Invoke the first registered handler for an event synchronously."""
     handlers = registry.handlers_for(event)
     assert handlers, f"no handler registered for {event}"
@@ -59,8 +63,29 @@ def _simulate_turn(
     """Drive one full turn: input -> message_end -> agent_end."""
     ctx = _make_ctx(session_id=session_id, cwd=cwd)
     _call_handler(registry, "input", {"text": user_text}, ctx)
-    _call_handler(registry, "message_end", {"content": assistant_text, "role": "assistant", "session_id": session_id, "turn_id": "turn-1", "message_id": "msg-1"}, ctx)
-    _call_handler(registry, "agent_end", {"session_id": session_id, "turn_id": "turn-1", "completed": True, "stop_reason": "completed"}, ctx)
+    _call_handler(
+        registry,
+        "message_end",
+        {
+            "content": assistant_text,
+            "role": "assistant",
+            "session_id": session_id,
+            "turn_id": "turn-1",
+            "message_id": "msg-1",
+        },
+        ctx,
+    )
+    _call_handler(
+        registry,
+        "agent_end",
+        {
+            "session_id": session_id,
+            "turn_id": "turn-1",
+            "completed": True,
+            "stop_reason": "completed",
+        },
+        ctx,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -84,7 +109,9 @@ def test_writes_user_and_assistant_lines_after_agent_end(tmp_path: Path) -> None
 
     jsonl_path = tmp_path / "chat_history" / f"{session_id}.jsonl"
     assert jsonl_path.exists(), "JSONL file not created"
-    lines = [json.loads(line) for line in jsonl_path.read_text().splitlines() if line.strip()]
+    lines = [
+        json.loads(line) for line in jsonl_path.read_text().splitlines() if line.strip()
+    ]
     assert len(lines) == 2
     assert lines[0]["role"] == "user"
     assert lines[0]["content"] == "hello"
@@ -131,7 +158,9 @@ def test_appends_across_multiple_turns(tmp_path: Path) -> None:
         )
 
     jsonl_path = tmp_path / "chat_history" / f"{session_id}.jsonl"
-    lines = [json.loads(line) for line in jsonl_path.read_text().splitlines() if line.strip()]
+    lines = [
+        json.loads(line) for line in jsonl_path.read_text().splitlines() if line.strip()
+    ]
     # 3 turns × 2 lines = 6 lines
     assert len(lines) == 6
     roles = [line["role"] for line in lines]
@@ -148,8 +177,29 @@ def test_skips_gracefully_when_no_cwd(tmp_path: Path) -> None:
 
     # Should not raise
     _call_handler(registry, "input", {"text": "hello"}, ctx)
-    _call_handler(registry, "message_end", {"content": "hi", "role": "assistant", "session_id": session_id, "turn_id": "t1", "message_id": "m1"}, ctx)
-    _call_handler(registry, "agent_end", {"session_id": session_id, "turn_id": "t1", "completed": True, "stop_reason": "completed"}, ctx)
+    _call_handler(
+        registry,
+        "message_end",
+        {
+            "content": "hi",
+            "role": "assistant",
+            "session_id": session_id,
+            "turn_id": "t1",
+            "message_id": "m1",
+        },
+        ctx,
+    )
+    _call_handler(
+        registry,
+        "agent_end",
+        {
+            "session_id": session_id,
+            "turn_id": "t1",
+            "completed": True,
+            "stop_reason": "completed",
+        },
+        ctx,
+    )
 
     # No file should be created anywhere under tmp_path
     assert not list(tmp_path.glob("**/*.jsonl"))
@@ -170,11 +220,15 @@ def test_jsonl_line_fields_valid(tmp_path: Path) -> None:
     )
 
     jsonl_path = tmp_path / "chat_history" / f"{session_id}.jsonl"
-    lines = [json.loads(line) for line in jsonl_path.read_text().splitlines() if line.strip()]
+    lines = [
+        json.loads(line) for line in jsonl_path.read_text().splitlines() if line.strip()
+    ]
     for line in lines:
         assert "ts" in line, "missing 'ts'"
         assert "role" in line, "missing 'role'"
         assert "content" in line, "missing 'content'"
-        assert isinstance(line["ts"], str) and line["ts"], "'ts' must be a non-empty string"
+        assert isinstance(line["ts"], str) and line["ts"], (
+            "'ts' must be a non-empty string"
+        )
         assert line["role"] in ("user", "assistant"), f"unexpected role: {line['role']}"
         assert isinstance(line["content"], str), "'content' must be a string"

@@ -11,7 +11,9 @@ from agent.products.base import ProductProfile
 from agent.platform.tools.loader import build_tool_registry
 
 
-def _make_resolver(global_home: Path, workspace_root: Path | None = None) -> ConfigResolver:
+def _make_resolver(
+    global_home: Path, workspace_root: Path | None = None
+) -> ConfigResolver:
     profile = ProductProfile(
         product_id="test",
         display_name="Test",
@@ -72,11 +74,11 @@ def test_build_tool_registry_uses_resolver_global_tool_root(tmp_path: Path) -> N
     """build_tool_registry loads tools from resolver global tool dir."""
     global_tool_dir = tmp_path / ".global" / "tools"
     global_tool_dir.mkdir(parents=True)
-    (global_tool_dir / "global_tool.py").write_text(_TOOL_CODE.replace(
-        "resolver_test_tool", "global_resolver_tool"
-    ).replace(
-        "ResolverTool", "GlobalResolverTool"
-    ))
+    (global_tool_dir / "global_tool.py").write_text(
+        _TOOL_CODE.replace("resolver_test_tool", "global_resolver_tool").replace(
+            "ResolverTool", "GlobalResolverTool"
+        )
+    )
 
     resolver = _make_resolver(global_home=tmp_path / ".global")
     registry = build_tool_registry(
@@ -99,7 +101,9 @@ def test_build_tool_registry_falls_back_to_nano_tools(tmp_path: Path) -> None:
     assert "legacy_nano_tool" in tool_names
 
 
-def test_build_tool_registry_with_resolver_does_not_load_nano_tools(tmp_path: Path) -> None:
+def test_build_tool_registry_with_resolver_does_not_load_nano_tools(
+    tmp_path: Path,
+) -> None:
     """When resolver is provided, legacy .nano/tools dir is NOT searched.
 
     This ensures the resolver fully controls tool discovery without the old
@@ -117,16 +121,22 @@ def test_build_tool_registry_with_resolver_does_not_load_nano_tools(tmp_path: Pa
     assert "legacy_nano_tool" not in tool_names
 
 
-def test_build_tool_registry_allows_workspace_override_of_global_tool(tmp_path: Path) -> None:
+def test_build_tool_registry_allows_workspace_override_of_global_tool(
+    tmp_path: Path,
+) -> None:
     workspace_dir = tmp_path / ".testprod" / "tools"
     global_dir = tmp_path / ".global" / "tools"
     workspace_dir.mkdir(parents=True)
     global_dir.mkdir(parents=True)
     (global_dir / "shared_tool.py").write_text(
-        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "GlobalSharedTool")
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace(
+            "ResolverTool", "GlobalSharedTool"
+        )
     )
     (workspace_dir / "shared_tool.py").write_text(
-        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "WorkspaceSharedTool")
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace(
+            "ResolverTool", "WorkspaceSharedTool"
+        )
     )
 
     resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
@@ -138,11 +148,15 @@ def test_build_tool_registry_allows_workspace_override_of_global_tool(tmp_path: 
     assert type(tool).__name__ == "WorkspaceSharedTool"
 
 
-def test_build_tool_registry_includes_product_root_between_builtin_and_user_layers(tmp_path: Path) -> None:
+def test_build_tool_registry_includes_product_root_between_builtin_and_user_layers(
+    tmp_path: Path,
+) -> None:
     product_dir = tmp_path / "products" / "sample" / "tools"
     product_dir.mkdir(parents=True)
     (product_dir / "product_tool.py").write_text(
-        _TOOL_CODE.replace("resolver_test_tool", "product_tool").replace("ResolverTool", "ProductTool")
+        _TOOL_CODE.replace("resolver_test_tool", "product_tool").replace(
+            "ResolverTool", "ProductTool"
+        )
     )
 
     resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
@@ -162,12 +176,16 @@ def test_build_tool_registry_workspace_overrides_product_tool(tmp_path: Path) ->
     product_dir = tmp_path / "products" / "sample" / "tools"
     product_dir.mkdir(parents=True)
     (product_dir / "shared_tool.py").write_text(
-        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "ProductSharedTool")
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace(
+            "ResolverTool", "ProductSharedTool"
+        )
     )
     workspace_dir = tmp_path / ".testprod" / "tools"
     workspace_dir.mkdir(parents=True)
     (workspace_dir / "shared_tool.py").write_text(
-        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "WorkspaceSharedTool")
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace(
+            "ResolverTool", "WorkspaceSharedTool"
+        )
     )
 
     resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
@@ -179,19 +197,27 @@ def test_build_tool_registry_workspace_overrides_product_tool(tmp_path: Path) ->
 
     tool = registry.get("shared_tool")
     assert type(tool).__name__ == "WorkspaceSharedTool"
-    assert len([spec for spec in registry.list_specs() if spec.name == "shared_tool"]) == 1
+    assert (
+        len([spec for spec in registry.list_specs() if spec.name == "shared_tool"]) == 1
+    )
 
 
-def test_build_tool_registry_global_overrides_product_tool_when_workspace_missing(tmp_path: Path) -> None:
+def test_build_tool_registry_global_overrides_product_tool_when_workspace_missing(
+    tmp_path: Path,
+) -> None:
     product_dir = tmp_path / "products" / "sample" / "tools"
     product_dir.mkdir(parents=True)
     (product_dir / "shared_tool.py").write_text(
-        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "ProductSharedTool")
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace(
+            "ResolverTool", "ProductSharedTool"
+        )
     )
     global_dir = tmp_path / ".global" / "tools"
     global_dir.mkdir(parents=True)
     (global_dir / "shared_tool.py").write_text(
-        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace("ResolverTool", "GlobalSharedTool")
+        _TOOL_CODE.replace("resolver_test_tool", "shared_tool").replace(
+            "ResolverTool", "GlobalSharedTool"
+        )
     )
 
     resolver = _make_resolver(global_home=tmp_path / ".global", workspace_root=tmp_path)
@@ -203,7 +229,9 @@ def test_build_tool_registry_global_overrides_product_tool_when_workspace_missin
 
     tool = registry.get("shared_tool")
     assert type(tool).__name__ == "GlobalSharedTool"
-    assert len([spec for spec in registry.list_specs() if spec.name == "shared_tool"]) == 1
+    assert (
+        len([spec for spec in registry.list_specs() if spec.name == "shared_tool"]) == 1
+    )
 
 
 def test_build_tool_registry_product_root_is_optional(tmp_path: Path) -> None:

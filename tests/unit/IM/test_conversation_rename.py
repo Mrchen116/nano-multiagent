@@ -199,7 +199,11 @@ def test_patch_title_nonexistent_returns_404(tmp_path: Path) -> None:
     with TestClient(app) as client:
         reg = client.post(
             "/im/v1/auth/register",
-            json={"username": "alice", "password": "pw12345678", "display_name": "Alice"},
+            json={
+                "username": "alice",
+                "password": "pw12345678",
+                "display_name": "Alice",
+            },
         )
         token = reg.json()["access_token"]
         auth = {"Authorization": f"Bearer {token}"}

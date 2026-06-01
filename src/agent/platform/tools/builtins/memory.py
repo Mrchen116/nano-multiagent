@@ -150,7 +150,11 @@ class MemoryTool:
         raise ValueError(f"Unhandled action '{action}'")  # unreachable
 
     def _add(
-        self, target: str, args: Mapping[str, Any], store: MemoryStore, source: MemorySource
+        self,
+        target: str,
+        args: Mapping[str, Any],
+        store: MemoryStore,
+        source: MemorySource,
     ) -> Mapping[str, Any]:
         content = args.get("content")
         if not content:
@@ -160,7 +164,11 @@ class MemoryTool:
         return {"success": True, "message": f"added entry to '{target}'"}
 
     def _replace(
-        self, target: str, args: Mapping[str, Any], store: MemoryStore, source: MemorySource
+        self,
+        target: str,
+        args: Mapping[str, Any],
+        store: MemoryStore,
+        source: MemorySource,
     ) -> Mapping[str, Any]:
         content = args.get("content")
         old_text = args.get("old_text")
@@ -172,7 +180,9 @@ class MemoryTool:
         store.replace(target, old_text=str(old_text), new_entry=new_entry)  # type: ignore[arg-type]
         return {"success": True, "message": f"replaced entry in '{target}'"}
 
-    def _remove(self, target: str, args: Mapping[str, Any], store: MemoryStore) -> Mapping[str, Any]:
+    def _remove(
+        self, target: str, args: Mapping[str, Any], store: MemoryStore
+    ) -> Mapping[str, Any]:
         old_text = args.get("old_text")
         if not old_text:
             return {"success": False, "error": "remove action requires 'old_text'"}
