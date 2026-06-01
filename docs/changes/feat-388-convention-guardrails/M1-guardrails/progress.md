@@ -130,3 +130,35 @@ CI 首次在 clean Linux runner（Python 3.11）上暴露 5 个存量失败，�
 - PostToolUse hook 实测：F401 自动修（exit 0）+ import agent.core exit 2 回喂
 - stop-require-explicit-ok.py 自门控：普通会话放行，受管会话 gate 不变
 - .github/workflows/ci.yml 两 job 并行，前端不含 tsc
+
+## Cleanup-fix: web_search fail-loud + P1 noqa/dead-import（2026-06-01）
+
+小修快车道（reviewer 反馈循环），省略三提交拆分——fix 自包含，单 commit 可 revert。
+
+### P0 — web_search fail-loud 修复
+
+- 根因：`duckduckgo_search` 旧包（2024-09 改名为 `ddgs`，旧包触发 RuntimeWarning），且从未进入 pyproject 依赖；`except Exception: return []` 把「包没装 / provider 不可用」静默吞成「搜不到」，潜伏至今。
+- 修法：
+  1. 迁移 `from duckduckgo_search import DDGS` → `from ddgs import DDGS`（亲自 clean venv `pip install ddgs` 实测确认 API：`DDGS().text(query, max_results=N)` 返回 title/href/body 字段）
+  2. 删除 `_search_duckduckgo` 的 `try/except Exception: return []`，ImportError 和调用失败直接传播
+  3. `_search_brave` fallback 链末端（ddg 也失败）同样传播，不返回空
+  4. `ddgs>=9,<11` 加入 pyproject 核心依赖（默认注册工具，开箱即用）
+- 测试：5 个单测（`tests/unit/personal_assistant/test_web_search_tool.py`）：import 缺失抛错（sys.modules 阻断）、调用失败抛错（patch._PROVIDERS）、真实零结果返回 []、fallback 链失败传播、集成测试（ddgs 已装时真实搜索返回结果）
+- clean venv 验证：`/tmp/cleanup-venv` 安装 ddgs 后 `pytest tests/unit/personal_assistant/test_web_search_tool.py` 5 passed
+
+### P1 — 顺手清理
+
+- 删 `tests/contract/test_cli_http_only_contract.py` 的 `import pytest`（未使用，tests/** 豁免 F401 静默屏蔽故未被 ruff 报出）
+- `tests/unit/test_background_hook_fork.py:723` 和 `test_background_hook_turn_meta.py:250` 的 `# noqa: unreachable` 改为正确注释（`unreachable` 是 mypy error code，ruff 的无效 noqa code，ruff 打 warning）
+
+### P2 — 评估结论
+
+- `test_frontend_runtime_bundle_exposes_mark_as_read_flow`：让该测试在 CI 真生效需要 frontend job 加 `npm run build`，但 design 决策 D3 明确不引入 tsc（与 Python 侧不做 mypy 对称），加 build 会把 tsc 类型检查偷偷带进门。需 team-lead 拍板决策，此处仅评估，不擅自改变 CI 设计。
+- ruff-guardrail.py hook 单测：可做，需 subprocess 模拟 hook stdin/stdout；不影响当前门禁，可后续单独补。
+
+### CI 验证证据
+
+- Run URL: https://github.com/Mrchen116/nano-multiagent/actions/runs/26754425258
+- Python job: ✓ — ruff check / ruff format --check / pytest (not e2e) 全绿（2346 passed，新增 5 个 web_search 单测）
+- Frontend job: ✓ — npm ci / vitest run 全绿
+- Commits: test C1=e397b7cc, fix C2=d9743a66, merge=a896ad8e
