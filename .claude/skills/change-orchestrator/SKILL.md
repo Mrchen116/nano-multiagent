@@ -17,7 +17,7 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 
 1. **门禁 2 没过不能启动**。检查 `docs/changes/<unit>/design.md`:无 `<!-- 模板说明 -->`、Milestone 表完整、空目录数量 = 表行数。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 收口。
 2. **Sync Gate 不通过不动作**。启动第一件事是 main 同步检查(§2),分叉直接停下让人介入,不要强制 reset。
-3. **不写代码、不改 design / spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**唯一例外**:在 PR body / Changelog 这类调度产物里写文字。
+3. **不写代码、不改 design / 变更稿 spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**两个例外**:(a) 在 PR body / Changelog 这类调度产物里写文字;(b) §7.0 收尾归并:把本 unit 行为增量编辑进**长青行为契约层** `docs/specs/<包>/spec.md`(顶层 canonical,你是单一 owner)——注意这与 `docs/changes/<unit>/spec.md`(变更稿,禁改)是两回事。
 4. **Agent 工具派发时不设置 isolation 参数**。worktree 由本 skill 分配路径并指示 worker 自建。设了 `isolation=worktree` 会在 `.claude/worktrees/` 创建冲突 worktree,破坏整个流程。
 5. **一个 milestone 一个 worker**。不让同一个 worker 串跑多个 milestone(上下文窗口风险 + 失败定位难)。
 6. **默认并行**。无依赖、无文件冲突的 milestone 必须并行派发;不并行才需要理由。
@@ -533,6 +533,42 @@ Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 
 unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acceptance bar 允许):
 
+### §7.0 收尾归并:把行为增量写回长青契约层
+
+提 PR 前的最后一道实质动作——把本 unit 的对外行为增量**直接编辑进**长青行为契约层
+`docs/specs/<包>/spec.md`,让它保持 current。规范见 `docs/SPEC_GUIDE.md`「收尾归并 checklist」。
+**这是 §0.3「不改 spec」的唯一例外**:此处的 `docs/specs/<包>/` 是长青契约层(顶层 canonical),
+不是 `docs/changes/<unit>/spec.md`(变更稿);改后者仍禁止。
+
+> **`docs/specs/` 是 unit_worktree 里 `unit/<unit_id>` 分支上的文件**,和源码 diff 同处一棵树——
+> 在 `$unit_worktree` 里直接编辑 + commit,随 PR 一起进 main。不动主仓 HEAD(§0.15)。
+
+对本 unit 触及的**每个包**(kernel / im / gateway / cli),按下面两步走:
+
+**① 软对账(follow OpenSpec,advisory)** —— 复用已派的 reviewer / verifier 做,不另起机制。
+你在派 §5 reviewer / verifier 时(或本步现派一轮)让其对该包**当前** `docs/specs/<包>/spec.md` 的每条
+Requirement/Scenario **搜代码 + 测试**,报告三类:契约与实现一致 / 契约声明的行为代码已背离 /
+代码新增了契约未覆盖的对外行为。背离与缺口**显式列在报告里**(advisory,不出红测、不机械硬卡)。
+这等价于 OpenSpec 的 `/opsx:verify` 软对账——靠 agent 尽责,不靠绑定。
+
+**② 归并行为增量(orchestrator 亲自编辑 canonical,无 delta 工件)**:
+
+- 依据本 unit `docs/changes/<unit_dir>/design.md`(尤其 §关键决策 + 接口与数据流)+ 代码 diff +
+  上一步对账报告,判断"经 `agent.sdk` / 产品入口的消费者,可观察行为变了吗":
+  - **无对外行为变化**(纯内部重构)→ 契约层不动,在 PR body / 收尾记录显式注明 **"no spec delta"**。
+  - **有** → 把增量直接编辑进对应 `docs/specs/<包>/spec.md`:新增行为加 `Requirement`/`Scenario`、
+    改了行为改对应条目、移除行为删条目。每条仍过 SPEC_GUIDE 的「两问判据」+「库契约四纪律」
+    (WHEN/THEN 主语=消费者、CDC 裁剪、纯 `Purpose + Requirement/Scenario`,**无** `覆盖:` 行 /
+    `[可执行]` 标签 / freshness 测试)。
+- bump 该文件头部 `> 对齐:` 行到本 unit-id。
+- **不产出独立 delta-spec 文件**(决策:增量直接进 canonical,省一个工件)。
+- commit:`docs(<unit_id>): 收尾归并契约层 docs/specs/<包>`(或多包分别 commit)。
+
+> 你是单一 owner、串行收尾,无并行写冲突。手改的非确定性由固定骨架 + 上一步软对账兜——真飘了
+> 下个 unit 收尾再修(纯增量、advisory,不阻塞本 PR)。
+
+归并完成后,继续 §7.1。
+
 ### §7.1 sync gate 重跑
 
 ```bash
@@ -545,6 +581,8 @@ git -C "$unit_worktree" push --force-with-lease origin "unit/<unit_id>"
 ### §7.2 组装 PR body
 
 从 unit 文档自动抽,按模式选模板——**full**(从 spec/design/acceptance/verification 抽)、**lite**(只从 fix.md 抽)。两套完整 markdown 模板 + 逐字段抽取来源见 `references/pr-body-templates.md`,提 PR 时读它照填。每个字段都从 unit 文档抽,不手写新内容。
+
+PR body 里附一行 **Spec delta**:列 §7.0 收尾归并改了哪些 `docs/specs/<包>/spec.md`(或 "no spec delta",纯内部 unit)。
 
 ### §7.3 提 PR
 

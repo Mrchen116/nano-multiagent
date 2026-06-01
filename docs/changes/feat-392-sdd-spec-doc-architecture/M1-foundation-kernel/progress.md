@@ -113,4 +113,34 @@
 
 ## R4 — change-* skill 接入读写闭环
 
-<!-- 待填 -->
+- Context: 长青层只有被读写闭环接进 change-* 才有价值。design 决策 6 + M1 范围:spec-author/
+  design-author 读侧指向 `docs/specs/<包>`(design 阶段对代码 grounding);orchestrator §7 提 PR 前加
+  收尾归并步 + reviewer/verifier 软对账。
+- Decision:
+  · **change-spec-author**:§3.1 澄清"基于项目现状"处加引文——取项目现状读 `docs/specs/<包>/spec.md`
+    (current 行为契约单一权威),明确 spec 阶段是读侧、代码 grounding 留给 design 阶段。
+  · **change-design-author**:§3.0.1 必读清单表新增「长青行为契约层(current)」行指向 `docs/specs/
+    <包>`;架构总图行的 SPEC.md 注"跨包顶点"。§3.0.1 末加「契约层 grounding(design 阶段强制)」段:
+    读契约层并与 `src/<包>/` 代码核对,发现 drift 在 §3.0.2 现状摘要显式报出。§3.0.2 摘要模板加
+    「契约层 grounding 结论」行 + 把旧的"只能 HTTP 访问 agent"约束例改成"只能 import agent.sdk"
+    (refactor-387 后正确口径)。
+  · **change-orchestrator**:§0.3 硬规则加第二个例外(收尾归并长青契约层 ≠ 改变更稿 spec);新增
+    **§7.0 收尾归并步**(§6.1 pass 后、§7.1 sync gate 前):① 软对账(复用 reviewer/verifier 对每条
+    Requirement/Scenario 搜代码+测试,报一致/背离/缺口,advisory 不出红测)② 归并(orchestrator 依据
+    design.md + 代码 diff + 对账报告,直接编辑 `docs/specs/<包>`,过两问判据+库契约四纪律,bump 对齐行,
+    无对外行为变化记 "no spec delta",**无独立 delta 工件**);§7.2 PR body 加 Spec delta 行。
+- Rationale: 严格遵循决策 3(无 delta 工件,orchestrator 收尾直接改 canonical)+ 决策 4(软对账
+  follow OpenSpec,不机械绑定/freshness)。§7.0 明文重申契约层格式纪律(无 覆盖: / 标签 / freshness)
+  防 worker 收尾时违格式。§0.3 加例外是必须的——否则 §7.0 与"orchestrator 不改 spec"硬规则打架;
+  用"长青契约层 ≠ 变更稿 spec"消歧。
+- Evidence:
+  - Tests: N/A(skill 文本,无可执行断言)。
+  - Entry(grep 命中):spec-author 命中 docs/specs ×1、design-author ×3、orchestrator ×8;orchestrator
+    收尾纪律关键词(no spec delta / 无独立 delta / 软对账 / 对齐: / 两问判据)命中 8;design-author 必读
+    清单表新行渲染正常(7 列对齐)。
+  - Frontend State Matrix / Browser QA / E2E / Visual: N/A(skill 文本)
+- 衔接残口(reviewer 模板,已问 leader):change-reviewer 的 acceptance.md/regression.md/SKILL.md 还有
+  指向退役 `docs/内核设计SPEC.md` 的「长青文档更新清单」行。change-reviewer 不在 M1 范围(design 只点
+  名三 skill)→ 等 leader 拍板是否 M1 内顺手更新(选项 a)或留后续(选项 b)。本 R 先提交确定的三 skill。
+- Rollback: 三 skill 改动可单独 `git revert`(集成路径不变)。
+- Commits: 见 git log(R4)。
