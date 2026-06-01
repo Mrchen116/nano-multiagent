@@ -188,8 +188,10 @@ describe("agent edit page", () => {
     });
 
     await waitFor(() => {
-      // feat-379-M3: PATCH now includes custom_prompt; system_prompt is preserved for
-      // API compat but not user-editable. features absent → not sent (undefined).
+      // feat-379-M3: PATCH now includes features and custom_prompt; system_prompt is preserved for
+      // API compat but not user-editable.
+      // bugfix-390: features:{} is present because Behavior card initializes effectiveFeatures
+      // from capabilityFeatures; with no capability features declared the resolved map is {}.
       expect(fetchMock).toHaveBeenCalledWith(
         "/im/v1/agents/agent-core-1/config",
         expect.objectContaining({
@@ -199,6 +201,7 @@ describe("agent edit page", () => {
             display_name: "Core Planner X",
             description: "Milestone execution coordinator",
             system_prompt: "You are the planning core for IM and SDK tasks.",
+            features: {},
             custom_prompt: "",
             skills: ["tdd-execution-worker", "plan"],
             tool_allowlist: ["read_file"],

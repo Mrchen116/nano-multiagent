@@ -2556,11 +2556,21 @@ def _decode_token_usage(value: object) -> TokenUsage | None:
     if not isinstance(parsed, dict):
         return None
     try:
+        output = int(parsed["output"])
+        context_used = int(parsed["context_used"])
+        context_window = int(parsed["context_window"])
+        # bugfix-390 FIX-1: pre-M17 rows have "total": null in JSON.
+        # parsed.get("total", 0) returns None when the key exists with a null value
+        # (dict.get default only fires when the key is absent), so int(None) would
+        # raise TypeError → the except block silently returned None → chip not rendered.
+        # Derive total here — this is the single authoritative decode entry point.
+        _raw_total = parsed.get("total")
+        total = int(_raw_total) if _raw_total is not None else context_used + output
         return TokenUsage(
-            output=int(parsed["output"]),
-            context_used=int(parsed["context_used"]),
-            context_window=int(parsed["context_window"]),
-            total=int(parsed.get("total", 0)),
+            output=output,
+            context_used=context_used,
+            context_window=context_window,
+            total=total,
         )
     except (KeyError, TypeError, ValueError):
         return None

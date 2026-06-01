@@ -156,7 +156,14 @@ def to_message_response(message: Message) -> MessageResponse:
             output=message.token_usage.output,
             context_used=message.token_usage.context_used,
             context_window=message.token_usage.context_window,
-            total=message.token_usage.total,
+            # bugfix-390: align REST total-fallback with WS path (event_types.py:67).
+            # Pre-M17 persisted rows may have total=None; derive from context_used+output
+            # so that total is always non-None — frontend takes total without view-layer fallback.
+            total=(
+                message.token_usage.total
+                if message.token_usage.total is not None
+                else message.token_usage.context_used + message.token_usage.output
+            ),
         ) if message.token_usage is not None else None,
         # bugfix-367: pass-through list 形态。前端 reducer / 渲染按 request_id
         # 索引每张卡,key 用 request_id remount,刷新后历史小条全部还原。
