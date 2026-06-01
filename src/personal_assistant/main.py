@@ -58,7 +58,6 @@ from personal_assistant.reporter.upstream_reporter import (
 from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatScheduler,
     HeartbeatSchedulerStateStore,
-    HeartbeatTickSummary,
 )
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import AgentCreateHandler, IMConnectionConfig, IMConnectionManager, PromptPreviewProvider
@@ -153,15 +152,6 @@ class HeartbeatRunner(Protocol):
 
     async def close(self) -> None:
         """Stop background scheduler ticking and wait for drain."""
-
-    def build_product_reports(self) -> list[dict[str, object]]:
-        """Return IM-facing heartbeat report payloads ready for `node.report`.
-
-        Returns:
-            Report payloads that should be forwarded to IM after heartbeat work has produced
-            a user-visible result. Implementations may return an empty list when there is
-            nothing new to publish.
-        """
 
 
 class IMConnectionManagerLike(Protocol):
@@ -790,7 +780,6 @@ class PollingHeartbeatRunner:
         self._stop_requested = False
         self._wake_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
-        self._product_reports: list[dict[str, object]] = []
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -817,21 +806,9 @@ class PollingHeartbeatRunner:
 
         self._wake_event.set()
 
-    def build_product_reports(self) -> list[dict[str, object]]:
-        """Return heartbeat report payloads ready for IM publication.
-
-        Returns:
-            Newly accumulated heartbeat summaries and clears the local queue so the runtime
-            publishes each heartbeat result to IM at most once.
-        """
-        payloads = list(self._product_reports)
-        self._product_reports.clear()
-        return payloads
-
     async def _run_loop(self) -> None:
         while not self._stop_requested:
-            summary = await self._scheduler.tick()
-            self._product_reports.extend(_build_heartbeat_product_reports(summary))
+            await self._scheduler.tick()
             if self._stop_requested:
                 break
             try:
@@ -986,10 +963,8 @@ class GatewayRuntime:
                     except GatewayStartupError as exc:
                         await self._publish_startup_failure(exc)
                         raise
-                await self._publish_heartbeat_product_reports()
                 im_task = asyncio.create_task(self._im_connection_manager.run_forever(), name="personal-assistant-im")
             await asyncio.to_thread(self._shutdown_requested.wait)
-            await self._publish_heartbeat_product_reports()
             return 0
         finally:
             self._ready_event.clear()
@@ -1029,29 +1004,6 @@ class GatewayRuntime:
             await manager.send_json("node.heartbeat", payload)
         except Exception:  # noqa: BLE001
             return
-
-    async def _publish_heartbeat_product_reports(self) -> None:
-        """Forward any newly produced heartbeat summaries to IM as user-visible reports.
-
-        Notes:
-            Heartbeat scheduling itself stays local to the gateway process. This bridge only
-            ships already-prepared report payloads into the existing IM `node.report` path so
-            the result becomes visible in the same product conversation surface as normal relay
-            work.
-        """
-        manager = self._im_connection_manager
-        runner = self._heartbeat_runner
-        if manager is None or not manager.connected or runner is None:
-            return
-        build_reports = getattr(runner, "build_product_reports", None)
-        if build_reports is None:
-            return
-        for payload in build_reports():
-            try:
-                await manager.send_json("node.report", payload)
-            except Exception:  # noqa: BLE001
-                return
-
 
 def _load_runtime_config(
     config_path: str | Path,
@@ -2299,34 +2251,6 @@ def _build_session_event_callback(
             pass
 
     return _callback
-
-
-def _build_heartbeat_product_reports(summary: HeartbeatTickSummary) -> list[dict[str, object]]:
-    """Translate heartbeat tick results into IM-visible `node.report` payloads.
-
-    Args:
-        summary: Scheduler tick result containing newly triggered heartbeat runs.
-
-    Returns:
-        One completed report payload per triggered heartbeat run. The payload is shaped to fit
-        the existing IM `node.report` persistence path so heartbeat outcomes appear in the same
-        product event stream as other agent execution updates.
-    """
-    payloads: list[dict[str, object]] = []
-    for run in summary.triggered_runs:
-        payloads.append(
-            {
-                "run_id": run.run_id,
-                "status": "completed",
-                "agent_id": run.agent_id,
-                "session_key": f"{run.agent_id}::heartbeat",
-                "conversation_id": f"heartbeat:{run.agent_id}",
-                "message_id": run.run_id,
-                "summary": f"Heartbeat complete for main agent {run.agent_id} at {run.due_at.isoformat()}.",
-                "guidance": "Open your main agent thread in Web IM to review the latest heartbeat result.",
-            }
-        )
-    return payloads
 
 
 def _metadata_text(metadata: Mapping[str, object], *, key: str) -> str | None:
