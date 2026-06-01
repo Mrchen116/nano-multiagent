@@ -77,7 +77,7 @@ _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
 
 
 class InboundPipeline:
-    """Execute the NodeGateway-SPEC §4 four-step decision flow.
+    """Execute the gateway four-step inbound decision flow (see docs/specs/gateway/spec.md).
 
     Args:
         kernel: In-process Kernel SDK instance (refactor-387 M3+).
@@ -95,7 +95,7 @@ class InboundPipeline:
             outbound messages back through the Gateway without a separate discovery step.
 
     Notes:
-        Group-chat traffic honors the NodeGateway-SPEC @mention gate before any kernel
+        Group-chat traffic honors the gateway @mention gate (see docs/specs/gateway/spec.md) before any kernel
         session or run is created. Only direct chats, explicit mentions, replies to the
         agent, or control-command triggers are allowed to proceed.
     """

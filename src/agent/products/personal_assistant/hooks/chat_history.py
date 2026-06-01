@@ -1,6 +1,6 @@
-"""Chat history persistence hook for personal_assistant (NodeGateway-SPEC §12).
+"""Chat history persistence hook for personal_assistant (see docs/specs/gateway/spec.md).
 
-Implements the `after_agent_reply` semantics (as defined in NodeGateway-SPEC §12)
+Implements the `after_agent_reply` semantics (as defined in docs/specs/gateway/spec.md)
 using three existing hook events, because `after_agent_reply` is not yet a
 registered event type in core and core/ is outside this product layer's scope.
 
