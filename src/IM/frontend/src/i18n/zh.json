@@ -151,6 +151,34 @@
         "unsavedChanges": "有未保存改动",
         "saveFailed": "保存失败:{{detail}}"
       }
+    },
+    "policies": {
+      "title": "策略",
+      "subtitle": "全局运行时限制与安全配置。",
+      "loading": "加载策略中…",
+      "fields": {
+        "defaultModel": "默认模型",
+        "defaultModelHint": "未设置 agent 级覆盖时使用的模型。",
+        "auditLevel": "审计级别",
+        "auditLevelOff": "关闭",
+        "auditLevelBasic": "基础",
+        "auditLevelStrict": "严格",
+        "maxTurnPerRun": "每轮最大轮次",
+        "maxTurnPerRunHint": "单次运行允许的最大 agent 轮次数。",
+        "rateLimitPerMin": "每分钟限流",
+        "rateLimitPerMinHint": "每用户每分钟最大消息数。",
+        "maxAttachmentSizeMb": "附件最大体积（MB）",
+        "maxAttachmentSizeMbHint": "超过此大小的文件将被拒绝。",
+        "retentionDays": "消息留存天数",
+        "retentionDaysHint": "消息历史记录的保留时长。"
+      },
+      "actions": {
+        "save": "保存策略",
+        "saving": "保存中…",
+        "discard": "放弃",
+        "unsavedChanges": "有未保存改动",
+        "saveFailed": "保存失败:{{detail}}"
+      }
     }
   },
   "agents": {

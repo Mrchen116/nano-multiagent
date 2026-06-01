@@ -153,6 +153,34 @@
         "unsavedChanges": "Unsaved changes",
         "saveFailed": "Save failed: {{detail}}"
       }
+    },
+    "policies": {
+      "title": "Policies",
+      "subtitle": "Global runtime limits and safety configuration.",
+      "loading": "Loading policies…",
+      "fields": {
+        "defaultModel": "Default Model",
+        "defaultModelHint": "Model used when no agent-level override is set.",
+        "auditLevel": "Audit Level",
+        "auditLevelOff": "off",
+        "auditLevelBasic": "basic",
+        "auditLevelStrict": "strict",
+        "maxTurnPerRun": "Max Turn Per Run",
+        "maxTurnPerRunHint": "Maximum agentic turns allowed in a single run.",
+        "rateLimitPerMin": "Rate Limit / Min",
+        "rateLimitPerMinHint": "Maximum messages per minute per user.",
+        "maxAttachmentSizeMb": "Max Attachment Size (MB)",
+        "maxAttachmentSizeMbHint": "Files larger than this are rejected.",
+        "retentionDays": "Retention Days",
+        "retentionDaysHint": "How long message history is stored."
+      },
+      "actions": {
+        "save": "Save Policies",
+        "saving": "Saving…",
+        "discard": "Discard",
+        "unsavedChanges": "Unsaved changes",
+        "saveFailed": "Save failed: {{detail}}"
+      }
     }
   },
   "agents": {
