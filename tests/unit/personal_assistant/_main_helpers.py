@@ -93,26 +93,15 @@ class _FakeChannel:
 
 
 class _FakeHeartbeatRunner:
-    def __init__(self, events: list[str], *, report_payloads: list[dict[str, object]] | None = None) -> None:
-        self._events = events
-        self.report_payloads = list(report_payloads or [])
+    """Minimal HeartbeatRunner test double.
 
-    async def start(self) -> None:
-        self._events.append("heartbeat.start")
+    Note: build_product_reports was removed from the HeartbeatRunner protocol in
+    fix/refactor-387-heartbeat-im-report. The heartbeat-to-IM node.report bridge
+    used synthetic conversation_id/message_id values that violated the IM events
+    table FK constraints (messages table), causing IntegrityError on every tick.
+    The bridge was confirmed to have never successfully delivered a report.
+    """
 
-    async def close(self) -> None:
-        self._events.append("heartbeat.stop")
-
-    def request_tick(self) -> None:
-        self._events.append("heartbeat.tick")
-
-    def build_product_reports(self) -> list[dict[str, object]]:
-        payloads = list(self.report_payloads)
-        self.report_payloads.clear()
-        return payloads
-
-
-class _FakeHeartbeatRunnerMissingProductHook:
     def __init__(self, events: list[str]) -> None:
         self._events = events
 
@@ -124,27 +113,6 @@ class _FakeHeartbeatRunnerMissingProductHook:
 
     def request_tick(self) -> None:
         self._events.append("heartbeat.tick")
-
-
-class _FakeHeartbeatRunnerMinimal:
-    def __init__(self, events: list[str], *, report_payloads: list[dict[str, object]] | None = None) -> None:
-        self._delegate = _FakeHeartbeatRunner(events, report_payloads=report_payloads)
-
-    async def start(self) -> None:
-        await self._delegate.start()
-
-    async def close(self) -> None:
-        await self._delegate.close()
-
-    def request_tick(self) -> None:
-        self._delegate.request_tick()
-
-    def build_product_reports(self) -> list[dict[str, object]]:
-        return self._delegate.build_product_reports()
-
-
-class _FakeHeartbeatRunnerMain(_FakeHeartbeatRunner):
-    pass
 
 
 class _FakeIMManager:
