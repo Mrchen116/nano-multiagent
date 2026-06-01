@@ -206,14 +206,14 @@ current);本 `SPEC.md` 只讲跨包架构,不与契约层重复。文档体系�
 
 ### 旧子系统 SPEC（迁移退役中）
 
-> 旧的混合高度子系统设计文档，正被长青契约层取代。`内核设计SPEC` 已随 feat-392-M1 退役（移入
-> `docs/archive/`，内核契约改看 `docs/specs/kernel/spec.md`）；IM / Node Gateway / Coding CLI 三份
-> 由 feat-392-M2/M3/M4 蒸馏进 `docs/specs/<包>/` 后退役。在各自迁移完成前仅作历史参考，可能已陈旧。
+> 旧的混合高度子系统设计文档，正被长青契约层取代。`内核设计SPEC` 已随 feat-392-M1 退役、
+> `NodeGateway-SPEC` 已随 feat-392-M3 退役（均移入 `docs/archive/`，对应契约改看
+> `docs/specs/<包>/spec.md`）；IM / Coding CLI 两份由 feat-392-M2/M4 蒸馏进 `docs/specs/<包>/` 后退役。
+> 在各自迁移完成前仅作历史参考，可能已陈旧。
 
 | 文档 | 路径 | 状态 |
 |---|---|---|
 | Coding CLI SPEC | `docs/CodingCLI-SPEC.md` | 待 M4 迁移退役 |
-| Node Gateway SPEC | `docs/NodeGateway-SPEC.md` | 待 M3 迁移退役 |
 | IM 服务 SPEC | `docs/IM-SPEC.md` | 待 M2 迁移退役 |
 | IM 前端蓝图 | `docs/IM前端蓝图.md` | 前端信息架构、响应式设计 |
 | 需求文档 | `docs/需求.md` | 内核 vs 助手产品需求定义 |
