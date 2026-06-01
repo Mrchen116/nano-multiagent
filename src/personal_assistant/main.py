@@ -828,6 +828,15 @@ class PollingHeartbeatRunner:
         scheduler: Existing scheduler implementation that evaluates `HEARTBEAT.md`.
         config: Local heartbeat runtime settings.
         sleep: Async sleep function used between tick passes.
+        kernel: In-process kernel used to stream heartbeat run events (feat-393).
+            When provided alongside run_context_store and owner_user_id, the runner
+            seeds run_context_store and awaits each run to terminal state, driving the
+            kernel_event_observer to create the heartbeat IM message if there is content.
+        run_context_store: Shared run-context map seeded with heartbeat run metadata
+            (feat-393).  Observer reads this to route streaming events to IM.
+        owner_user_id: IM user_id of the gateway node owner; used as to_user_id in
+            turn_start so the heartbeat message lands in the owner's direct conversation
+            with the agent (feat-393).
 
     Notes:
         The runner keeps scheduler semantics local and configuration-driven. It does not
@@ -841,6 +850,10 @@ class PollingHeartbeatRunner:
         scheduler: HeartbeatScheduler,
         config: HeartbeatConfig,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        kernel: Any | None = None,
+        run_context_store: "dict[str, dict[str, str]] | None" = None,
+        owner_user_id: str = "",
+        kernel_event_observer: Any | None = None,
     ) -> None:
         self._scheduler = scheduler
         self._config = config
@@ -848,6 +861,11 @@ class PollingHeartbeatRunner:
         self._stop_requested = False
         self._wake_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        # feat-393: kernel + run_context_store enable streaming delivery of heartbeat results.
+        self._kernel = kernel
+        self._run_context_store = run_context_store
+        self._owner_user_id = owner_user_id
+        self._kernel_event_observer = kernel_event_observer
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -878,7 +896,14 @@ class PollingHeartbeatRunner:
 
     async def _run_loop(self) -> None:
         while not self._stop_requested:
-            await self._scheduler.tick()
+            summary = await self._scheduler.tick()
+            # feat-393: consume each triggered heartbeat run through the shared observer so
+            # results are delivered to the owner's canonical IM direct conversation.
+            if self._kernel is not None and self._run_context_store is not None and self._owner_user_id:
+                for record in summary.triggered_runs:
+                    if self._stop_requested:
+                        break
+                    await self._consume_heartbeat_run(record)
             if self._stop_requested:
                 break
             try:
@@ -889,6 +914,55 @@ class PollingHeartbeatRunner:
                 continue
             finally:
                 self._wake_event.clear()
+
+    async def _consume_heartbeat_run(self, record: "HeartbeatRunRecord") -> None:
+        """Stream one heartbeat run to completion, driving the kernel_event_observer for IM delivery.
+
+        Seeds run_context_store with heartbeat variant (to_user_id instead of conversation_id)
+        then replays the kernel event stream until terminal run_status.  The observer handles
+        lazy turn_start creation and NO_REPLY/empty suppression.
+
+        Args:
+            record: HeartbeatRunRecord returned by the scheduler tick.
+
+        Notes:
+            Failures are logged and swallowed; the next tick will re-evaluate and re-report
+            if the condition persists.  This matches design decision 6: heartbeat delivery
+            inherits normal-chat failure behavior (no persistent retry).
+        """
+        import logging as _logging
+        _hb_logger = _logging.getLogger(__name__)
+
+        run_id = record.run_id
+        kernel_session_id = record.session_id
+        agent_id = record.agent_id
+
+        # Seed run_context_store with heartbeat variant: to_user_id drives lazy conv resolution.
+        assert self._run_context_store is not None  # guard (checked in _run_loop)
+        self._run_context_store[run_id] = {
+            "conversation_id": "",   # lazy: filled by IM turn_start ack
+            "message_id": "",        # lazy: filled by IM turn_start ack
+            "agent_id": agent_id,
+            "to_user_id": self._owner_user_id,
+            "kernel_session_id": kernel_session_id,
+        }
+        try:
+            async for event in self._kernel.stream(kernel_session_id, after_sequence=0):
+                if event.get("run_id") != run_id:
+                    continue
+                if self._kernel_event_observer is not None:
+                    result = self._kernel_event_observer(event)
+                    if asyncio.iscoroutine(result):
+                        await result
+                event_name = event.get("event")
+                if event_name == "run_status":
+                    status = event.get("status")
+                    if status in ("completed", "failed", "cancelled", "error"):
+                        break
+        except Exception:  # noqa: BLE001  — delivery failure does not disrupt gateway loop
+            _hb_logger.exception("heartbeat run delivery failed: agent=%s run_id=%s", agent_id, run_id)
+        finally:
+            self._run_context_store.pop(run_id, None)
 
 
 class _InboundDispatcher:
@@ -1526,15 +1600,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
     )
     outbound_router = OutboundRouter(channel_registry)
-    heartbeat_runner = PollingHeartbeatRunner(
-        scheduler=HeartbeatScheduler(
-            agents=config.agents,
-            kernel_client=kernel_shim,
-            state_store=HeartbeatSchedulerStateStore(
-                _default_heartbeat_state_path(config)
-            ),
-        ),
-        config=config.heartbeat,
+    _heartbeat_scheduler = HeartbeatScheduler(
+        agents=config.agents,
+        kernel_client=kernel_shim,
+        state_store=HeartbeatSchedulerStateStore(_default_heartbeat_state_path(config)),
     )
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
@@ -1542,6 +1611,17 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     im_config_sync_client: _IMConfigSyncClient | None = None
     post_im_connect: Callable[[], None] | None = None
     _run_context_store: dict[str, dict[str, str]] = {}
+    # feat-393: heartbeat_runner is built here (before im_connection_manager which references it),
+    # but the kernel_event_observer is wired after im_service block via attribute set below.
+    _owner_user_id = config.node.user_id or ""
+    heartbeat_runner = PollingHeartbeatRunner(
+        scheduler=_heartbeat_scheduler,
+        config=config.heartbeat,
+        kernel=kernel if _owner_user_id else None,
+        run_context_store=_run_context_store if _owner_user_id else None,
+        owner_user_id=_owner_user_id,
+        # kernel_event_observer is set below after _build_kernel_event_observer runs.
+    )
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
     # (NodeGateway-SPEC §4.2).  Live session validation is done via kernel.get_session
     # inside InboundPipeline._binding_matches_workspace_root — no kernel_client needed.
@@ -1627,10 +1707,19 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         run_context_store=_run_context_store,
     )
     if config.im_service is not None:
-        pipeline._kernel_event_observer = _build_kernel_event_observer(
+        _kernel_event_observer = _build_kernel_event_observer(
             im_connection_manager_factory=lambda: im_connection_manager,
             run_context_store=_run_context_store,
         )
+        pipeline._kernel_event_observer = _kernel_event_observer
+        # feat-393: wire observer into heartbeat_runner now that it's built.
+        # When im_service is absent the runner runs fire-and-forget (no observer, no delivery).
+        if _owner_user_id:
+            heartbeat_runner._kernel_event_observer = _kernel_event_observer  # noqa: SLF001
+        else:
+            # No owner bound → heartbeat delivery disabled; clear kernel reference.
+            heartbeat_runner._kernel = None  # noqa: SLF001
+            heartbeat_runner._run_context_store = None  # noqa: SLF001
         # feat-349-M3: wire background session event callback so self_evolution_review
         # events published by background hooks reach IM as system/meta messages.
         pipeline._session_event_callback = _build_session_event_callback(
@@ -2099,6 +2188,12 @@ def _build_kernel_event_observer(
     - tool_start          → node.streaming_delta kind=tool_call_upserted
     - tool_end            → node.streaming_delta kind=tool_call_completed
     - turn_end            → node.streaming_delta kind=message_completed (with token_usage if available)
+
+    Heartbeat lazy-bubble path (feat-393):
+    - run_context_store entries with ``to_user_id`` (no ``conversation_id``) are heartbeat runs.
+    - turn_start is deferred until the first non-empty, non-NO_REPLY assistant_message arrives.
+    - NO_REPLY/empty content → no turn_start is ever sent → zero IM trace (silent tick).
+    - Normal chat (conversation_id present) is unchanged (eager placeholder on run_status=running).
     """
 
     async def _send(
@@ -2123,10 +2218,18 @@ def _build_kernel_event_observer(
         message_id = ctx.get("message_id") or ""
         agent_id = ctx.get("agent_id") or ""
 
+        # feat-393: heartbeat runs carry to_user_id instead of conversation_id.
+        # The lazy-bubble gate: skip eager turn_start; defer to assistant_message.
+        to_user_id = ctx.get("to_user_id") or ""
+
         event_name = str(event.get("event") or "").strip()
         loop = asyncio.get_event_loop()
 
         if event_name == "run_status" and event.get("status") == "running":
+            if to_user_id:
+                # Heartbeat: skip eager turn_start; bubble is created lazily on first
+                # real content (see assistant_message branch below).
+                return None
             if conversation_id and agent_id:
                 # Return a coroutine so the pipeline awaits turn_start ack before processing
                 # the following assistant_message; without awaiting, message_id would still be
@@ -2170,6 +2273,51 @@ def _build_kernel_event_observer(
                 return None
             kernel_msg_id = str(event.get("message_id") or "").strip()
             prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
+
+            # feat-393 heartbeat lazy-bubble path:
+            # When to_user_id is set and no bubble exists yet, this is the first real
+            # content event.  Gate on NO_REPLY: if agent chose to be quiet → stay silent.
+            # Otherwise fire turn_start{to_user_id}, get back the resolved conversation_id
+            # and message_id, store them, then emit the delta so streaming starts.
+            if to_user_id and not message_id:
+                from personal_assistant.gateway.inbound_pipeline import InboundPipeline as _IP
+                if _IP._is_no_reply_token(content):
+                    # NO_REPLY: heartbeat has nothing to report; do not create any IM trace.
+                    return None
+                async def _heartbeat_lazy_turn_start(
+                    mgr: IMConnectionManager = manager,
+                    rid: str = run_id,
+                    aid: str = agent_id,
+                    uid: str = to_user_id,
+                    text: str = content,
+                    new_kernel_id: str = kernel_msg_id,
+                ) -> None:
+                    try:
+                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
+                            "kind": "turn_start",
+                            "to_user_id": uid,
+                            "agent_id": aid,
+                            "run_id": rid,
+                        })
+                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
+                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
+                        returned_conv_id = ack_payload.get("conversation_id") if isinstance(ack_payload, dict) else None
+                        if returned_msg_id and rid in run_context_store:
+                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                        if returned_conv_id and rid in run_context_store:
+                            run_context_store[rid]["conversation_id"] = str(returned_conv_id)
+                        if new_kernel_id and rid in run_context_store:
+                            run_context_store[rid]["kernel_message_id"] = new_kernel_id
+                        if returned_msg_id:
+                            await mgr.send_json("node.streaming_delta", {
+                                "kind": "message_delta",
+                                "message_id": str(returned_msg_id),
+                                "delta_text": text,
+                                "run_id": rid,
+                            })
+                    except Exception:  # noqa: BLE001
+                        pass
+                return _heartbeat_lazy_turn_start()
 
             # Detect a new assistant message within the same run (e.g. textA → tool_calls → textB).
             # The kernel's while-loop generates a fresh assistant_msg_id per iteration; when it

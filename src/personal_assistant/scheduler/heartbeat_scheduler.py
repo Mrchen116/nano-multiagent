@@ -137,8 +137,11 @@ class HeartbeatScheduler:
 
     Notes:
         The scheduler stays intentionally quiet when HEARTBEAT.md has no actionable body.
-        Each due heartbeat creates a fresh kernel session, matching the spec requirement that
-        heartbeat execution is independent from normal chat sessions.
+        Each agent has one stable :heartbeat kernel session that is created on first use and
+        reused across all subsequent ticks (feat-393 decision 4).  Reuse preserves standing-task
+        context continuity and avoids creating a fresh session per tick, which was the root cause
+        of the M138 report bridge failure (no real IM conversation could be derived from a
+        session that did not exist at delivery time).
     """
 
     def __init__(
@@ -151,6 +154,8 @@ class HeartbeatScheduler:
         self._agents = agents
         self._kernel_client = kernel_client
         self._state_store = state_store
+        # One stable :heartbeat session per agent_id; created on first tick, reused thereafter.
+        self._heartbeat_sessions: dict[str, str] = {}
 
     async def tick(self, *, now: datetime | None = None) -> HeartbeatTickSummary:
         """Run one scheduler evaluation pass.
@@ -204,20 +209,35 @@ class HeartbeatScheduler:
             triggered_runs=tuple(triggered_runs), skipped_agents=tuple(skipped_agents)
         )
 
-    async def _submit_run(
-        self, *, agent: AgentWorkspaceConfig, due_at: datetime, instructions: str
-    ) -> HeartbeatRunRecord:
+    async def _get_or_create_heartbeat_session(self, *, agent: AgentWorkspaceConfig) -> str:
+        """Return the stable :heartbeat session for one agent, creating it if not yet present.
+
+        Returns:
+            session_id to use for this tick's heartbeat run.
+
+        Raises:
+            RuntimeError: When the kernel session creation returns an empty or malformed session_id.
+        """
+        session_id = self._heartbeat_sessions.get(agent.agent_id)
+        if session_id:
+            return session_id
         session_payload = await self._kernel_client.create_session(
             workspace_root=str(agent.workspace_root),
             product_id="personal_assistant",
             title=agent.title,
         )
-        session_id = str(session_payload.get("session_id", "")).strip()
-        if not session_id:
+        new_session_id = str(session_payload.get("session_id", "")).strip()
+        if not new_session_id:
             raise RuntimeError("kernel session creation did not return session_id")
-        message = _build_heartbeat_message(
-            agent_id=agent.agent_id, due_at=due_at, instructions=instructions
-        )
+        self._heartbeat_sessions[agent.agent_id] = new_session_id
+        return new_session_id
+
+    async def _submit_run(self, *, agent: AgentWorkspaceConfig, due_at: datetime, instructions: str) -> HeartbeatRunRecord:
+        # feat-393 decision 4: stable :heartbeat session reused across ticks instead of
+        # fresh session per tick.  Reuse preserves standing-task context continuity and
+        # ensures heartbeat runs are never detached from a resolvable IM conversation target.
+        session_id = await self._get_or_create_heartbeat_session(agent=agent)
+        message = _build_heartbeat_message(agent_id=agent.agent_id, due_at=due_at, instructions=instructions)
         # The stateless kernel needs workspace_root to locate the session JSONL;
         # origin=heartbeat lets auto_mode_gate detect unattended context and skip
         # blocking permission requests that nobody is around to answer.
