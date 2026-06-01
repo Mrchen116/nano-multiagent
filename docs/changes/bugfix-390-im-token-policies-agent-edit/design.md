@@ -8,6 +8,8 @@
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-06-01 (round 1 fix): reviewer 发现 total 恒非 None 的真正单一收口点在 decode 层 `repositories.py:_decode_token_usage`(持久化行 → 领域对象的唯一入口),而非各消费方(WS event_types / REST messages)。`"total":null` 时 `int(None)` 抛错使整个 token_usage decode 失败、旧消息 chip 不渲染。修复落 decode 层;下游兜底保留为防御。同步删除 §既有约束 中残留的"主数字必须回退 output"矛盾句(决策 1 已否决回退)。
+
 ## 现状分析
 
 三处缺陷主要落在 IM React 前端,互不耦合。缺陷 1 额外含一处后端 REST 序列化对齐(使 token `total` 成为契约必有字段,见下);策略页所需后端 endpoint 已现成,缺陷 2/3 无后端改动。
@@ -29,7 +31,7 @@
 
 - 纯 IM 前端改动,**不碰后端 / 内核 / 其它顶层包**。遵守 AGENTS.md 模块边界(`IM` 不调用 `agent`)。
 - 沿用既有 `appRoutes` 嵌套结构、`user-menu` 的 `<Link>` + i18n `t("shell.userMenu.*")` 约定、i18n EN/ZH 双份 key 对齐约定——不引入新风格。
-- `TokenUsage.total` 为可选字段(`chat-types.ts`):旧消息(total 引入前持久化)无此字段,主数字必须回退 `output`,不能报错/空白。
+- `TokenUsage.total` 为可选字段(`chat-types.ts`):旧消息(total 引入前持久化)`total` 字段为 null。本 unit 在后端令 total 恒非 None(见决策 1),前端不做视图层回退,旧消息也不得报错/空白。
 
 ### 可复用能力
 
