@@ -89,3 +89,91 @@
 **fix-implementation**
 
 主路径（heartbeat 有内容→IM 直聊出现消息）完全未生效：heartbeat run 执行了 142 次、每次 LLM 产生真实内容，但 IM WS 连接立即断开、消息 0 条到达。需调查 Gateway 的 heartbeat observer 为何没有通过稳定 WS 连接向 IM 发送 `node.streaming_delta`，以及 WS 频繁立刻断连的根因。
+
+---
+
+# Round 2 — 2026-06-02
+
+## 环境信息
+
+- Unit branch: `unit/feat-393`（commit `ad8fdbdd`，三项 fix 已合入）
+- 验收环境: worktree `unit-feat-393` + `scripts/e2e-up.sh`（隔离端口 60380）
+- Gateway config: `.gateway-config.yaml`（e2e-up.sh 已同步 node.user_id=`73a1d3bcd1314b77851d1e180a960766`）
+- Agent: `default-agent`，workspace: `.gateway-workspace/default-agent/`
+- HEARTBEAT.md: `interval: 15s`，指令"[heartbeat-r2] 当前时间汇报，一切正常。不要用 NO_REPLY"
+
+## 三项修复验证
+
+| Fix | 验证证据 | 结果 |
+|---|---|---|
+| Fix1: IM turn_start owner_unresolved 返回 skipped ack 不关 WS | IM 日志：1次 `connection open` 无对应 `connection closed`，WS 持久连接 | pass |
+| Fix2: e2e-up.sh 同步 node.user_id | 启动输出 `node.user_id synced to ephemeral IM user 73a1d3...`；config user_id == IM nano user_id | pass |
+| Fix3: heartbeat_runner.start() 移到 im.connect_once() 之后 | IM 直聊出现消息（93 条）；Gateway log 无 observer connected=False 相关错误 | pass |
+
+## User Journeys Exercised (Round 2)
+
+| # | 旅程 | 覆盖 Scenario | 结果 |
+|---|---|---|---|
+| J1 | HEARTBEAT.md interval:15s 有内容指令，等待 tick，检查 IM 直聊 | S1, S6, S7 | S1/S6/S7 pass |
+| J2 | 新建 group 类型第二条会话，等待 tick，检查 heartbeat 是否污染 | S5（部分） | group 会话未被污染 |
+| J3 | HEARTBEAT.md 改为 NO_REPLY 指令，等待 tick，观察 IM 消息数变化 | S4 | inconclusive（LLM 因历史上下文未产生 NO_REPLY） |
+| J4 | 检查 IM messages API 返回消息时间戳（留存验证） | S3 | pass |
+| J5 | 消息频率统计（213s 内 63 条，avg 3.4s/条 vs interval 15s）| 新发现 major | major issue |
+
+## 关键观测 (Round 2)
+
+1. **WS 连接稳定**：IM 日志仅 1 次 `connection open`，无立刻 `connection closed`，Fix1+Fix3 生效。
+2. **直聊自动新建**：heartbeat 首次触发后自动新建了 `type=direct` 会话（`id=82b22e...`），S6 pass。
+3. **消息到达 IM**：最终 93 条 agent 消息在直聊里，S1/S3/S7 pass。
+4. **消息频率异常**：213 秒内 63 条消息（avg 3.4s/条），远超 `interval: 15s`（预期约 14 条）。这与 verification.md 的 SUGGESTION（`after_sequence=0` 导致历史 run 事件重播）相符，已从"建议"变成用户可观察的 **major issue**。
+
+## 问题清单 (Round 2)
+
+| # | 严重度 | 现象 | Recommended Action | Action Rationale |
+|---|---|---|---|---|
+| R1-1 | 已修 | 见 Round 1 blocking issue（WS 立刻断开，消息 0 条） | — | Fix1+Fix3 已解决 |
+| R2-1 | major | 消息投递频率远超 HEARTBEAT.md 设置的 interval：实测 213s 内 63 条（avg 3.4s/条），设置为 15s 预期约 14 条。用户体验严重异常——打开直聊会看到大量重复消息。根因与 verification.md SUGGESTION 一致：`_consume_heartbeat_run` 每次从 `after_sequence=0` 重播 heartbeat session 历史，每个历史 run 的 assistant_message 事件都被重新作为新消息投递到 IM。 | fix-implementation | 用户可直接观察到：direct 会话里 15s 内涌入 4-5 条消息而非 1 条；与 spec "汇报"语义严重不符。 |
+
+## 验收标准覆盖 (Round 2)
+
+继承 Round 1 所有 fail/inconclusive，逐条给出 Round 2 结论：
+
+### Requirement: 定时 heartbeat 运行结果以 agent 消息形式出现在 owner 直聊 — 组内结论: fail（因 R2-1 major）
+
+| Scenario | 期望来源 | 验证方式（覆盖旅程） | 证据 | Round 1 结果 | Round 2 结果 | 备注 |
+|---|---|---|---|---|---|---|
+| 本轮有内容可汇报 | spec.md §验收标准 S1 | J1: HEARTBEAT.md interval:15s，等待 tick，检查 IM 直聊 | 直聊 `82b22e...` 出现 `[heartbeat-r2]` 消息 93 条，sender_type=agent | fail | **pass（主路径生效）** | 但消息频率异常（R2-1），每次 heartbeat run 产生多条重复消息 |
+| 会话开着时实时呈现 | spec.md §验收标准 S2 | WS 连接稳定（1 次 open 无 close），设计上 message_delta 走同一 WS；browse 工具不可用无法用浏览器验证 | IM WS 1次持久 connection open；无法用浏览器确认实时流式效果 | fail | **inconclusive** | WS 稳定是必要条件已满足，实时呈现的充分验证需浏览器 |
+| 会话没开时作为已完成消息留存 | spec.md §验收标准 S3 | J4: IM messages API 返回历史消息 93 条，有 created_at 时间戳 | `GET /im/v1/conversations/{id}/messages?limit=200` 返回 93 条持久化 agent 消息 | fail | **pass** | 消息已持久化，用户打开会话可见 |
+
+### Requirement: 本轮无内容可报时静默，不打扰用户 — 组内结论: inconclusive
+
+| Scenario | 期望来源 | 验证方式（覆盖旅程） | 证据 | Round 1 结果 | Round 2 结果 | 备注 |
+|---|---|---|---|---|---|---|
+| 无可汇报内容 | spec.md §验收标准 S4 | J3: 改写 HEARTBEAT.md 为"直接回复 NO_REPLY"，等待 tick，检查 IM 消息数变化 | HEARTBEAT.md 改写后，稳定 session 历史上下文使 LLM 仍产生 `[heartbeat-r2]` 而非 NO_REPLY；无法制造真正 NO_REPLY 场景 | inconclusive | **inconclusive** | 无法在有大量历史上下文的稳定 session 里可靠触发 NO_REPLY；真实场景下"无事不报"任务才能观察到静默 |
+
+### Requirement: 汇报始终落到 canonical（最早建的）直聊，不污染其它任务单聊 — 组内结论: pass（部分）
+
+| Scenario | 期望来源 | 验证方式（覆盖旅程） | 证据 | Round 1 结果 | Round 2 结果 | 备注 |
+|---|---|---|---|---|---|---|
+| owner 与同一 agent 有多条单聊 | spec.md §验收标准 S5 | J2: 新建 group 会话（`853a01...`），等待 tick，检查是否被污染 | group 会话 `853a01...` 消息数 = 0；heartbeat 落在 direct 会话 `82b22e...` | fail | **pass（部分）** | 新建的 group 会话未被污染；但无法用 API 建第二条 direct 直聊来测试两条 direct 间的 canonical 选择 |
+| 尚无任何直聊（首次/空态）| spec.md §验收标准 S6 | J1: e2e 起后 IM 无直聊，等待第一次 tick | heartbeat 触发后 IM 自动建了 `type=direct` 会话 `82b22e...` | fail | **pass** | 首次自动新建 direct 直聊验证通过 |
+
+### Requirement: 用户只看到汇报内容，看不到驱动运行的内部触发指令 — 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式（覆盖旅程） | 证据 | Round 1 结果 | Round 2 结果 | 备注 |
+|---|---|---|---|---|---|---|
+| 触发指令对用户不可见 | spec.md §验收标准 S7 | J1: 检查 IM 消息内容，验证无触发文本 | `GET /messages` 93 条全为 `sender_type=agent`；无 `Heartbeat scheduler trigger`、`Due at:`、`Read the workspace` 等触发文本 | inconclusive | **pass** | 触发指令仅存在于 kernel session，IM 消息里仅有 agent 汇报内容 |
+
+## Round 2 Verdict
+
+**fail**
+
+主路径（S1/S3/S6/S7）已通，但 R2-1（消息投递频率远超 interval，3.4s/条 vs 15s）是 major issue：用户在会话里会看到大量重复消息，与 heartbeat "定时汇报"语义严重不符。S2 inconclusive（需浏览器验证）；S4 inconclusive（稳定 session 历史上下文干扰）。
+
+## 上层文档同步 (Round 2)
+
+- [x] `SPEC.md`：无需更新（功能验收未完全通过）
+- [x] `docs/内核设计SPEC.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/NodeGateway-SPEC.md`：无需更新（等 R2-1 修复后更新）
