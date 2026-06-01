@@ -830,10 +830,54 @@ class GatewayHandler:
         kind = _optional_text(payload.get("kind")) or ""
 
         if kind == "turn_start":
-            conversation_id = _require_text(
-                payload.get("conversation_id"), field_name="conversation_id"
-            )
             agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
+            to_user_id = _optional_text(payload.get("to_user_id"))
+            raw_conversation_id = _optional_text(payload.get("conversation_id"))
+
+            if to_user_id is not None and raw_conversation_id is None:
+                # feat-393: heartbeat/cron lazy-resolution mode.  Gateway sends to_user_id
+                # (the owner) instead of conversation_id; we resolve/create the canonical
+                # (owner, agent) direct conversation here, then fall through to the shared
+                # on_turn_start path.  The ack returns both conversation_id and message_id
+                # so the gateway can seed run_context_store with both values.
+                #
+                # Two modes are mutually exclusive: conversation_id → normal eager-bubble
+                # path (unchanged); to_user_id → lazy canonical-conv resolution path.
+                if self._conversation_repository is None or self._user_repository is None:
+                    return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "skipped": "repositories_not_configured"}}
+                agent_user_id = _optional_text(payload.get("agent_user_id"))
+                if agent_user_id is None:
+                    row = self._user_repository._connection.execute(  # noqa: SLF001
+                        "SELECT id FROM users WHERE username = ?",
+                        (f"agent:{agent_id}",),
+                    ).fetchone()
+                    if row is None:
+                        return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "skipped": "agent_user_id_not_found"}}
+                    agent_user_id = str(row["id"])
+                canonical_conv = self._find_or_create_direct_conversation(
+                    left_user_id=to_user_id,
+                    right_user_id=agent_user_id,
+                    expected_direct_kind="user-agent",
+                )
+                created_message = self._event_bridge.on_turn_start(
+                    conversation_id=canonical_conv.id,
+                    agent_user_id=agent_user_id,
+                    agent_id=agent_id,
+                )
+                # Return both conversation_id and message_id so the gateway can update
+                # run_context_store with the resolved canonical conversation (feat-393 design §接口与数据流).
+                return {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.streaming_delta",
+                        "kind": kind,
+                        "conversation_id": canonical_conv.id,
+                        "message_id": created_message.id,
+                    },
+                }
+
+            # Normal path: conversation_id is provided (eager placeholder for regular chat).
+            conversation_id = _require_text(payload.get("conversation_id"), field_name="conversation_id")
             # Resolve IM user ID from agent_id; gateway sends agent_id (e.g. "alpha"),
             # IM stores the agent as username="agent:<agent_id>" in the users table.
             agent_user_id = _optional_text(payload.get("agent_user_id"))
