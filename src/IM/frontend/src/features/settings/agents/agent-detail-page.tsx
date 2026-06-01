@@ -7,7 +7,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { createDirectChatByAgentUserId, listAgents } from "../../chat/chat-api";
-import { Avatar } from "../../chat/v2/components/avatar";
+import { Avatar, colorForAgent } from "../../chat/v2/components/avatar";
 import { PillSelector } from "./pill-selector";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import {
@@ -68,16 +68,6 @@ function initialsOf(displayName: string): string {
   const trimmed = displayName.trim();
   if (!trimmed) return "AG";
   return trimmed.slice(0, 2).toUpperCase();
-}
-
-function colorForAgent(agent: AgentSummary): string {
-  return colorForSeed(agent.agent_id || agent.display_name);
-}
-
-function colorForSeed(seedValue: string): string {
-  let hash = 0;
-  for (let i = 0; i < seedValue.length; i += 1) hash = (hash << 5) - hash + seedValue.charCodeAt(i);
-  return `oklch(0.52 0.14 ${Math.abs(hash) % 360})`;
 }
 
 function resolveModelOptions(modelOptions: string[] | undefined, currentModel: string | null) {
@@ -656,7 +646,7 @@ export function AgentDetailPage() {
           )}
           <Avatar
             initials={initialsOf(draft.display_name)}
-            color={colorForSeed(draft.agent_id || draft.display_name)}
+            color={colorForAgent(draft)}
             size={isMobile ? 38 : 42}
             status={displayedNodeStatus === "online" ? "online" : "offline"}
           />

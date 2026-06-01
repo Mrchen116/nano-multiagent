@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
-import { Avatar } from "../../chat/v2/components/avatar";
+import { Avatar, colorForAgent } from "../../chat/v2/components/avatar";
 import { useAgentStatusBroadcastConsumer } from "./agent-status-ws-consumer";
 import { listAgentSummaries, listNodes, type AgentSummary, type NodeSummary } from "./im-agent-config-api";
 
@@ -11,13 +11,6 @@ function initialsOf(displayName: string): string {
   const trimmed = displayName.trim();
   if (!trimmed) return "AG";
   return trimmed.slice(0, 2).toUpperCase();
-}
-
-function colorForAgent(agent: AgentSummary): string {
-  const seed = agent.agent_id || agent.display_name;
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) hash = (hash << 5) - hash + seed.charCodeAt(i);
-  return `oklch(0.52 0.14 ${Math.abs(hash) % 360})`;
 }
 
 function statusOf(agent: AgentSummary, nodes: NodeSummary[]): "online" | "offline" {
