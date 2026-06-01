@@ -180,7 +180,7 @@ current);本 `SPEC.md` 只讲跨包架构,不与契约层重复。文档体系�
 | **kernel (agent)** | [`docs/specs/kernel/spec.md`](docs/specs/kernel/spec.md) | 内核经 `agent.sdk` 暴露的对外行为契约：装配/会话/运行/许可/压缩/工具/Hook/Skill/持久化 |
 | **im** | `docs/specs/im/spec.md` | IM 服务对外行为契约（feat-392-M2 建立） |
 | **gateway** | `docs/specs/gateway/spec.md` | Node Gateway 对外行为契约（feat-392-M3 建立） |
-| **cli** | `docs/specs/cli/spec.md` | Coding CLI 对外行为契约（feat-392-M4 建立） |
+| **cli** | [`docs/specs/cli/spec.md`](docs/specs/cli/spec.md) | Coding CLI 对外行为契约：REPL 运行模式/会话懒创建与 resume/斜杠命令/事件流与预算/错误分层/单命令与 --text/边界 |
 
 ### 文档规范与约定
 
@@ -206,14 +206,13 @@ current);本 `SPEC.md` 只讲跨包架构,不与契约层重复。文档体系�
 
 ### 旧子系统 SPEC（迁移退役中）
 
-> 旧的混合高度子系统设计文档，正被长青契约层取代。`内核设计SPEC` 已随 feat-392-M1 退役、
-> `NodeGateway-SPEC` 已随 feat-392-M3 退役（均移入 `docs/archive/`，对应契约改看
-> `docs/specs/<包>/spec.md`）；IM / Coding CLI 两份由 feat-392-M2/M4 蒸馏进 `docs/specs/<包>/` 后退役。
+> 旧的混合高度子系统设计文档，正被长青契约层取代。`内核设计SPEC`（feat-392-M1）、
+> `NodeGateway-SPEC`（feat-392-M3）、`CodingCLI-SPEC`（feat-392-M4）已退役（均移入 `docs/archive/`，
+> 对应契约改看 `docs/specs/<包>/spec.md`）；IM 一份由 feat-392-M2 蒸馏进 `docs/specs/im/` 后退役。
 > 在各自迁移完成前仅作历史参考，可能已陈旧。
 
 | 文档 | 路径 | 状态 |
 |---|---|---|
-| Coding CLI SPEC | `docs/CodingCLI-SPEC.md` | 待 M4 迁移退役 |
 | IM 服务 SPEC | `docs/IM-SPEC.md` | 待 M2 迁移退役 |
 | IM 前端蓝图 | `docs/IM前端蓝图.md` | 前端信息架构、响应式设计 |
 | 需求文档 | `docs/需求.md` | 内核 vs 助手产品需求定义 |
@@ -222,6 +221,7 @@ current);本 `SPEC.md` 只讲跨包架构,不与契约层重复。文档体系�
 
 | 文档 | 路径 |
 |---|---|
+| Coding CLI SPEC（已退役，契约见 `docs/specs/cli/spec.md`） | `docs/archive/CodingCLI-SPEC.md` |
 | 内核设计蓝图 | `docs/archive/内核设计蓝图.md` |
 | 多产品架构调整建议 | `docs/archive/多产品架构调整建议.md` |
 | Agent 助手蓝图 | `docs/archive/Agent 助手（基于 SDK 的上层应用）蓝图.md` |

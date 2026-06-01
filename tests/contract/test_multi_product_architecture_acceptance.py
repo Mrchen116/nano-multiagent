@@ -8,7 +8,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src" / "agent"
 ARCHITECTURE_DOC = PROJECT_ROOT / "SPEC.md"
 README = PROJECT_ROOT / "README.md"
-CODING_CLI_SPEC = PROJECT_ROOT / "docs" / "CodingCLI-SPEC.md"
+# feat-392-M4: docs/CodingCLI-SPEC.md 退役（移入 docs/archive/）。CLI 对外行为契约迁入长青契约层
+# docs/specs/cli/spec.md（current 单一权威）；架构验收锚到该契约层（同 M1 内核 retarget 模式）。
+CODING_CLI_SPEC = PROJECT_ROOT / "docs" / "specs" / "cli" / "spec.md"
 # feat-392-M1: docs/内核设计SPEC.md 退役（移入 docs/archive/）。内核分层 + 依赖方向 +
 # 库形态（无 HTTP）是跨包架构属性，SPEC_GUIDE 判定不进单包契约层——canonical 家是顶点 SPEC.md。
 # 故架构验收锚回 SPEC.md（同一份顶点既验顶层结构又验内核终态，不再读已退役的子系统 SPEC）。

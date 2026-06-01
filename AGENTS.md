@@ -325,13 +325,14 @@ Gateway 第一次连一个新 IM 实例时,IM 要求确认绑定 owner,默认会
 | **内核契约层** | docs/specs/kernel/spec.md | 内核经 `agent.sdk` 暴露的对外行为契约（current） |
 | IM 契约层 | docs/specs/im/spec.md | IM 对外行为契约（feat-392-M2 建立） |
 | Gateway 契约层 | docs/specs/gateway/spec.md | Node Gateway 对外行为契约（feat-392-M3 建立） |
-| CLI 契约层 | docs/specs/cli/spec.md | Coding CLI 对外行为契约（feat-392-M4 建立） |
+| CLI 契约层 | docs/specs/cli/spec.md | Coding CLI 对外行为契约（current） |
 | 测试规范 | docs/TESTING_GUIDE.md | 测什么/不测什么、命名落层、临时验收 vs 回归、tasks.md 测试策略必填 |
 | 操作手册 | docs/operator-runbook.md | 启动、调试、常见问题 |
 | LLM 联调 | docs/可用LLM_API与联调说明.md | 可用模型、本地代理地址、验证 curl |
 
-> 旧子系统 SPEC（`docs/{IM,CodingCLI}-SPEC.md`）正被上面契约层取代，迁移完成前仅作历史
-> 参考，可能已陈旧；`内核设计SPEC`（feat-392-M1）、`NodeGateway-SPEC`（feat-392-M3）已退役至 `docs/archive/`。
+> 旧子系统 SPEC（`docs/IM-SPEC.md`）正被上面契约层取代，迁移完成前仅作历史
+> 参考，可能已陈旧；`内核设计SPEC`（feat-392-M1）、`NodeGateway-SPEC`（feat-392-M3）、
+> `CodingCLI-SPEC`（feat-392-M4）已退役至 `docs/archive/`。
 
 ## Agent workflow
 
