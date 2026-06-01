@@ -200,3 +200,119 @@ Round 1 中现代消息（total=2429）的 chip 渲染 Round 2 同一浏览器�
 ## Highest Required Action
 
 **pass**
+
+---
+
+# Round 3 — 2026-06-01
+
+## Verdict
+
+**pass**
+
+## 澄清记录
+
+无待澄清项。本轮聚焦 M2 新增的 Requirement「策略页视觉与其他 settings 页一致」三个 Scenario。M1 的 4 个 Scenario 继承 Round 2 pass 结论，并通过回归验证确认无退化。
+
+## 服务接管说明
+
+本轮为 M2（前端视觉重写）验收。操作：
+1. 在 worktree 内重建前端产物：`cd src/IM/frontend && npm run build`（tsc + vite build 成功，JS chunk 为 `index-K8f0FINm.js`）
+2. 起 Vite dev server（端口 58071，`VITE_IM_PROXY_TARGET=http://127.0.0.1:52904`）
+3. IM 后端（52904）延用上轮已启动的进程，M2 不改后端代码，无需重启
+4. 产物指纹核验：JS hash `K8f0FINm` 为本次 build 产物，Vite dev server 以源码热更新模式提供，确认加载 M2 源码
+
+## User Journeys Exercised
+
+| Journey | 覆盖 Scenario |
+|---|---|
+| J4: 策略页桌面视口与 account 页对照观感 | Scenario: 策略页观感与同级 settings 页一致（桌面） |
+| J5: 策略页移动视口（375×812） | Scenario: 移动视口可用 |
+| J6: 触发 loading/dirty/save-error 反馈状态 | Scenario: 加载与保存反馈 |
+| J-回归: token chip 渲染（M1 pass 确认无回归） | Scenario: 回复带 total |
+| J-回归: 用户菜单进入策略页（M1 pass 确认无回归） | Scenario: 从用户下拉菜单进入 |
+
+## 验收标准覆盖表（Round 3）
+
+### Requirement: token 用量牌显示这一轮的总消耗
+
+#### Scenario: 回复带 total
+
+继承 Round 2 结论：**pass**（回归验证：截图 `/tmp/bugfix390-r3-chat-token-chip.png`，token chip 显示 `▸ 13.9k tok · ctx 98%` / `▸ 2.8k tok · ctx 99%`，total 渲染正常，M2 未引入回归）
+
+#### Scenario: 旧回复（pre-M17 持久化行）经历史加载
+
+继承 Round 2 结论：**pass**（M2 不涉及后端改动，REST 兜底逻辑未改动）
+
+---
+
+### Requirement: 全局策略页可从用户菜单进入并使用
+
+#### Scenario: 从用户下拉菜单进入
+
+继承 Round 2 结论：**pass**（回归验证：截图 `/tmp/bugfix390-r3-user-menu.png`，菜单项顺序 Account → Nodes → Policies → Language → Sign out，点击后跳转 `/settings/policies`，M2 未影响路由）
+
+#### Scenario: 查看与保存全局策略
+
+继承 Round 2 结论：**pass**（回归验证：save PATCH 200，字段持久化正常，详见 J6 旅程）
+
+---
+
+### Requirement: 全局策略页视觉与其他 settings 页一致
+
+#### Scenario: 策略页观感与同级 settings 页一致（桌面）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md § Requirement: 全局策略页视觉与其他 settings 页一致 |
+| WHEN/THEN | GIVEN 用户进入策略页（桌面视口）；WHEN 与 account/nodes 页对照；THEN 采用一致的卡片外壳、标题+描述区、设计系统配色，不再格格不入；字段功能与保存不变 |
+| 验证方式 | 浏览器 1280×720 截图策略页 + account 页，同屏对照布局结构与配色 |
+| 策略页证据 | 截图 `/tmp/bugfix390-r3-policies-desktop.png`：大标题"Policies" + 副标题"Global runtime limits and safety configuration." + `oklch(0.95)` 灰底 + 两张白色圆角卡（字段分组）+ 底部 Discard/Save Policies 按钮区 |
+| Account 页对照证据 | 截图 `/tmp/bugfix390-r3-account-desktop.png`：大标题"Account" + 副标题 + 同款灰底 + 白色圆角卡 + 底部操作区 |
+| 结果 | **pass** |
+| 备注 | 布局结构完全一致（大标题+副标题 → 白色圆角卡分组 → 底部操作区）；配色一致（`oklch(0.95)` 背景、白卡、深色标签文字）；字段集（Default Model / Audit Level / Max Turn Per Run / Rate Limit / Max Attachment Size / Retention Days）功能与保存行为不变，保存后持久化验证通过（PATCH 200，reload 后显示已保存值） |
+
+#### Scenario: 移动视口可用
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md § Requirement: 全局策略页视觉与其他 settings 页一致 |
+| WHEN/THEN | GIVEN 用户在移动视口进入策略页；THEN 与同级页一致地呈现（顶部返回栏 / 单列布局），不溢出、不错位 |
+| 验证方式 | 浏览器 375×812 截图策略页 + account 页对照 |
+| 策略页证据 | 截图 `/tmp/bugfix390-r3-policies-mobile.png`：sticky 顶栏（`‹ Policies`）+ 单列白色圆角卡（Default Model → Audit Level → Max Turn Per Run → Rate Limit → Max Attachment Size → Retention Days，垂直排列）+ 底部 Discard/Save 区 + 底部导航栏，无溢出无错位 |
+| Account 页对照证据 | 截图 `/tmp/bugfix390-r3-account-mobile.png`：sticky 顶栏（`‹ Account`）+ 单列卡片 + 同款底部导航栏，结构完全一致 |
+| 结果 | **pass** |
+| 备注 | 移动端 sticky 顶栏返回箭头与标题、单列布局、底部保存区均与 account/nodes 页一致 |
+
+#### Scenario: 加载与保存反馈
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md § Requirement: 全局策略页视觉与其他 settings 页一致 |
+| WHEN/THEN | WHEN 策略加载中 / 保存失败；THEN 呈现与同级页一致的 loading / error 反馈，而非裸文本 |
+| 验证方式 | 观察正常加载后页面状态；注入 fetch 拦截器使 PATCH 返回 500，截图 error alert |
+| loading 态 | GET /im/v1/policies 加载极快（3ms），loading 态转瞬即逝；源码含 loading 检测（`useQuery isLoading`）；在正常网络下转瞬显示数据，符合预期 |
+| dirty 态证据 | 截图 `/tmp/bugfix390-r3-policies-dirty.png`：修改字段后底部出现橙色圆点"Unsaved changes"样式化指示 + Discard/Save 按钮激活 |
+| save-error 证据 | 截图 `/tmp/bugfix390-r3-policies-save-error-final.png`：注入 fetch 拦截器触发 500 响应后，标题下方出现粉红色背景 + 红色文字的样式化 error alert："Save failed: PATCH /im/v1/policies failed: 500 (Internal Server Error)" |
+| 结果 | **pass** |
+| 备注 | save-error alert 通过 `role="alert"` 的 DOM 元素呈现，配色采用 oklch 红色系与整体设计系统一致，非裸文本 |
+
+---
+
+## 回归验证
+
+M1 的 4 个 Scenario 均无回归：
+- token chip（回复带 total）：截图 `/tmp/bugfix390-r3-chat-token-chip.png`，chip 正常渲染 total
+- 用户菜单 Policies 入口：截图 `/tmp/bugfix390-r3-user-menu.png`，菜单项顺序正确
+- 查看与保存全局策略：PATCH 200，reload 后字段 claude-sonnet-4-6 持久化
+- pre-M17 旧消息 total 兜底：M2 不涉及后端，兜底路径未改动
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新（前端视觉对齐，不涉及架构变化）
+- [x] `docs/内核设计SPEC.md`：无需更新（IM 前端改动）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/IM-SPEC.md`：无需更新（策略页视觉对齐属于实现层，SPEC 已描述策略页存在）
+
+## Highest Required Action
+
+**pass**
