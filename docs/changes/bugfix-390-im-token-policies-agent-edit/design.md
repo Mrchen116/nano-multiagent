@@ -8,6 +8,7 @@
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
 
+- 2026-06-01 (M2 追加): 测试期用户在临时环境看到策略页"丑到格格不入"——孤儿页从未过设计,M1 只接回路由。用户决定并入本 unit。incident.md 补 Requirement「策略页视觉与其他 settings 页一致」+ 收窄非目标(只对齐视觉、不改功能/字段)。design 加决策 4 + 新增 M2-restyle-policies-page,以 account-page 为 house-style 参考重写外壳。
 - 2026-06-01 (round 1 fix): reviewer 发现 total 恒非 None 的真正单一收口点在 decode 层 `repositories.py:_decode_token_usage`(持久化行 → 领域对象的唯一入口),而非各消费方(WS event_types / REST messages)。`"total":null` 时 `int(None)` 抛错使整个 token_usage decode 失败、旧消息 chip 不渲染。修复落 decode 层;下游兜底保留为防御。同步删除 §既有约束 中残留的"主数字必须回退 output"矛盾句(决策 1 已否决回退)。
 
 ## 现状分析
@@ -87,6 +88,13 @@
 - **拒绝**: 改产品代码去掉 `features:{}`(会回退 Behavior card 的合理演进,属砍功能);放宽断言为部分匹配(掩盖回归检测能力)。
 - **风险**: 无产品行为变更。
 
+### 决策 4: 策略页视觉重写 — 对齐 account-page 的 settings house style(M2)
+
+- **选择**: 以 `account-page.tsx` 为 house-style 参考重写 `policies-page.tsx` 的呈现层:外层 `flex flex-1 flex-col overflow-y-auto` + 设计系统 `oklch` 背景;表单用居中窄卡 `mx-auto w-full max-w-[620px]`;`<header>` 大标题 + subtitle;桌面/移动分支(移动 sticky 顶栏 + 返回);字段沿用既有 `im-input` 但纳入卡片分组;loading/error 态对齐 account-page 的样式化反馈;新增 i18n key(`settings.policies.*`,EN/ZH 双份)替换硬编码英文。**字段集、`getPolicies`/`updatePolicies` 调用、保存语义全部不动**。
+- **理由**: 策略页是从未过设计的孤儿页,M1 接回路由后暴露给用户即显得格格不入。account-page 是同级页里最完整的 house-style 范本(卡片壳 + i18n + oklch token + 移动适配),直接对标复用,不另造风格。
+- **拒绝**: 自创一套新样式(违背"对齐既有 house style",且会再引入第三种风格);把策略字段塞进 account 页(两者是不同设置域,合并破坏信息架构);只补 i18n 不动布局(解决不了"裸表单无外壳"的核心观感问题)。
+- **风险**: 纯呈现层重写,字段双向绑定逻辑保持不变;风险在 i18n key EN/ZH 对齐 + 移动断点。reviewer 轨走视觉对照(与 account/nodes 同屏对比)。
+
 ## 接口与数据流
 
 无对外接口形态变更、无数据结构变更:
@@ -114,8 +122,9 @@
 
 ## Milestones
 
-单 M1——三处均为小范围前端修正(远 < 800 行 / 10 文件),互不耦合、一个 worker 一趟完成,无并行收益,不拆。
+M1 已交付三处缺陷修复(已合并 + round 2 双 pass)。M2 是测试期暴露的策略页视觉重写,作为 post-acceptance 追加 milestone(依赖 M1 已接回路由)。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
+| bugfix-390-M2 | restyle-policies-page (post-M1, 测试期暴露) | M1 | A | `features/settings/policies/policies-page.tsx`（呈现层重写）、`i18n/{en,zh}.json`（新增 `settings.policies.*`）、`features/settings/policies/policies-page.test.tsx`（按需更新断言，路由仍可达）；参考只读 `account-page.tsx` | `[reviewer]` 策略页观感与同级 account/nodes 页一致——卡片外壳/标题+描述/设计系统配色，不再格格不入（覆盖 Req-策略页视觉一致 / Scenario-桌面观感一致）<br>`[reviewer]` 移动视口呈现与同级页一致、不溢出错位（覆盖 Scenario-移动视口可用）<br>`[reviewer]` loading/save-error 有样式化反馈、字段功能与保存不变（覆盖 Scenario-加载与保存反馈 + 字段不变）<br>`[worker]` 策略页文案全走 i18n，EN/ZH 均补 `settings.policies.*`，无硬编码英文、无缺失 key<br>`[worker]` `npx vitest run` 全绿（policies-page 测试随重写保持绿、不新增失败）<br>`[worker]` `npm run build` tsc 通过<br>`[worker]` progress.md Evidence 含桌面+移动两视口截图，与 account-page 对照结论 |
 | bugfix-390-M1 | fix-frontend-three-defects | — | A | `token-chip.tsx`、`api/ws/event_types.py`（确认/复用现有兜底）、`api/routes/messages.py`（REST total 兜底对齐）、`router.tsx`、`user-menu.tsx`、`i18n/{en,zh}.json`、`agent-edit.test.tsx`（其余涉及文件只读不改） | `[reviewer]` token 牌主数字显示这一轮总消耗 total（覆盖 Req-token 用量牌显示总消耗 / Scenario-回复带 total；旧回复经 REST 加载同样显示 total，不显示 output）<br>`[reviewer]` 用户菜单「节点」下出现「策略」入口、点击打开全局策略页不再 404、可查看/保存（覆盖 Req-全局策略页可从用户菜单进入并使用 / 两个 Scenario）<br>`[worker]` token 牌主数字取 `usage.total`，前端无 `?? output` 回退；REST(`messages.py`)与 WS(`event_types.py`) total 兜底口径一致，total 恒有值<br>`[worker]` `cd src/IM/frontend && npm test` 全绿（token-chip / policies-page / agent-edit 三处由失败转绿，且不新增失败）<br>`[worker]` `npm run build` tsc 类型检查通过 + 后端 `pytest -m "not e2e"` 涉 total 序列化的测试全绿<br>`[worker]` i18n EN/ZH 均补 `shell.userMenu.policies`，无缺失 key |
