@@ -854,11 +854,26 @@ class GatewayHandler:
                     if row is None:
                         return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "skipped": "agent_user_id_not_found"}}
                     agent_user_id = str(row["id"])
-                canonical_conv = self._find_or_create_direct_conversation(
-                    left_user_id=to_user_id,
-                    right_user_id=agent_user_id,
-                    expected_direct_kind="user-agent",
-                )
+                # feat-393 fix-r1: owner lookup / canonical-conv creation can fail when
+                # config.node.user_id is stale or the ephemeral IM DB has no such user yet.
+                # Must NOT raise out of this handler — that would close the WS connection and
+                # cause the Gateway to reconnect immediately, producing the 413-open/close flap
+                # seen in round-1 acceptance (refactor-387 "坏帧关连接" pattern re-introduced).
+                # Per design decision-6: delivery failure ≠ run failure; log and return skipped
+                # ack so the Gateway can continue and this heartbeat run completes normally.
+                try:
+                    canonical_conv = self._find_or_create_direct_conversation(
+                        left_user_id=to_user_id,
+                        right_user_id=agent_user_id,
+                        expected_direct_kind="user-agent",
+                    )
+                except (ValueError, Exception) as exc:  # noqa: BLE001
+                    _logger.warning(
+                        "turn_start to_user_id=%s owner_unresolved — skipping delivery: %s",
+                        to_user_id,
+                        exc,
+                    )
+                    return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "skipped": "owner_unresolved"}}
                 created_message = self._event_bridge.on_turn_start(
                     conversation_id=canonical_conv.id,
                     agent_user_id=agent_user_id,

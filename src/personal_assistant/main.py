@@ -2302,6 +2302,17 @@ def _build_kernel_event_observer(
                         ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
                         returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
                         returned_conv_id = ack_payload.get("conversation_id") if isinstance(ack_payload, dict) else None
+                        skipped_reason = ack_payload.get("skipped") if isinstance(ack_payload, dict) else None
+                        if skipped_reason:
+                            # feat-393 fix-r1: IM skipped delivery (e.g. owner_unresolved).
+                            # Per design decision-6: delivery failure ≠ run failure; log and
+                            # let this heartbeat run finish normally — no exception, no retry.
+                            import logging as _obs_logging  # noqa: PLC0415
+                            _obs_logging.getLogger(__name__).warning(
+                                "heartbeat delivery skipped for run_id=%s agent=%s: %s",
+                                rid, aid, skipped_reason,
+                            )
+                            return
                         if returned_msg_id and rid in run_context_store:
                             run_context_store[rid]["message_id"] = str(returned_msg_id)
                         if returned_conv_id and rid in run_context_store:

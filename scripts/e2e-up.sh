@@ -132,6 +132,35 @@ curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/register" \
   -d '{"username":"nano","password":"nano1234","display_name":"Test User"}' \
   >/dev/null 2>&1 || true  # ignore if already registered
 
+# Resolve the nano user's real id in this ephemeral IM and patch config.node.user_id.
+# feat-393 fix-r1: the main config carries a stale user_id from a prior persistent IM
+# instance; the ephemeral IM is a fresh DB so that id does not exist (→ 404), causing
+# heartbeat to pass a nonexistent to_user_id and never deliver messages to the owner.
+# We login to obtain the authenticated profile which includes the real id, then update
+# the worktree config copy so Gateway uses the correct owner for heartbeat delivery.
+NANO_USER_ID="$(
+  curl -sf -X POST "http://127.0.0.1:$IM_PORT/im/v1/auth/login" \
+    -H "Content-Type: application/json" \
+    -d '{"username":"nano","password":"nano1234"}' 2>/dev/null \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('user',{}).get('id') or d.get('id',''))" 2>/dev/null
+)" || true
+if [[ -n "$NANO_USER_ID" ]]; then
+  if command -v yq >/dev/null 2>&1; then
+    yq -i ".node.user_id = \"$NANO_USER_ID\"" "$WT_CFG"
+  else
+    NANO_USER_ID="$NANO_USER_ID" WT_CFG_PY="$WT_CFG" python3 - <<'PY'
+import os, yaml
+path = os.environ["WT_CFG_PY"]
+with open(path) as f: cfg = yaml.safe_load(f)
+cfg.setdefault("node", {})["user_id"] = os.environ["NANO_USER_ID"]
+with open(path, "w") as f: yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+PY
+  fi
+  echo "e2e config: node.user_id synced to ephemeral IM user $NANO_USER_ID"
+else
+  echo "WARNING: could not resolve nano user id from ephemeral IM; heartbeat delivery may fail" >&2
+fi
+
 # ─── validate llm config before starting Gateway ─────────────────────────────
 # refactor-387 M3: kernel runs in-process inside Gateway; no separate Kernel API.
 
