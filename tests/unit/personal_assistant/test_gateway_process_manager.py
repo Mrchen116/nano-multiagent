@@ -110,12 +110,16 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
     deadline = time.time() + 1.0
     while "im.bootstrap" not in events and time.time() < deadline:
         time.sleep(0.01)
+    # feat-393 fix-r1: heartbeat must start AFTER im.connect so the kernel_event_observer
+    # sees manager.connected=True on the very first heartbeat tick.  Starting before
+    # connect_once means any heartbeat run that completes before the WS is established
+    # finds connected=False and silently skips IM delivery (verified by debug log).
     assert events[:5] == [
         "kernel.start",
         "channel.start:web_relay",
-        "heartbeat.start",
         "im.connect",
         "im.bootstrap",
+        "heartbeat.start",
     ]
 
     runtime.request_shutdown()
@@ -125,9 +129,9 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
     assert events == [
         "kernel.start",
         "channel.start:web_relay",
-        "heartbeat.start",
         "im.connect",
         "im.bootstrap",
+        "heartbeat.start",
         "heartbeat.stop",
         "channel.stop:web_relay",
         "im.close",
@@ -151,12 +155,12 @@ def test_gateway_runtime_cleans_up_reverse_order_when_im_start_fails(
     with pytest.raises(RuntimeError, match="im offline"):
         runtime.run_forever()
 
+    # feat-393 fix-r1: heartbeat starts after im.connect attempt; if im.connect fails,
+    # heartbeat was never started so only cleanup for channels/kernel is needed.
     assert events == [
         "kernel.start",
         "channel.start:web_relay",
-        "heartbeat.start",
         "im.connect",
-        "heartbeat.stop",
         "channel.stop:web_relay",
         "kernel.stop",
     ]

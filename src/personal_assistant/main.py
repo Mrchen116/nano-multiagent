@@ -1082,9 +1082,6 @@ class GatewayRuntime:
                 self._process_manager.start_kernel_process()
             start_channels(self._channel_registry, self._on_inbound)
             channels_started = True
-            if self._heartbeat_runner is not None:
-                await self._heartbeat_runner.start()
-                heartbeat_started = True
             if self._internal_dispatch_handler is not None:
                 try:
                     from aiohttp import web as _aiohttp_web
@@ -1112,10 +1109,15 @@ class GatewayRuntime:
                     except GatewayStartupError as exc:
                         await self._publish_startup_failure(exc)
                         raise
-                im_task = asyncio.create_task(
-                    self._im_connection_manager.run_forever(),
-                    name="personal-assistant-im",
-                )
+                im_task = asyncio.create_task(self._im_connection_manager.run_forever(), name="personal-assistant-im")
+            # feat-393 fix-r1: heartbeat must start AFTER im.connect_once so that
+            # manager.connected=True when the first tick's kernel_event_observer fires.
+            # Starting before connect_once was the root cause of 0 IM deliveries:
+            # fast local LLM responses completed before the WS was established, and
+            # observer saw connected=False, silently skipping every heartbeat delivery.
+            if self._heartbeat_runner is not None:
+                await self._heartbeat_runner.start()
+                heartbeat_started = True
             await asyncio.to_thread(self._shutdown_requested.wait)
             return 0
         finally:
