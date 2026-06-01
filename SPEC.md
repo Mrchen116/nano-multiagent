@@ -5,8 +5,9 @@
 > 单包"现在怎么表现"看长青行为契约层 `docs/specs/<包>/spec.md`（§6）；文档体系怎么分层见
 > `docs/SPEC_GUIDE.md`。若与其他设计文档冲突，以本文档为准。
 >
-> **v1.4 变更（feat-392）**：§6 文档索引重定位到长青行为契约层 `docs/specs/`；内核设计 SPEC 退役
-> 移入 `docs/archive/`，内核契约改看 `docs/specs/kernel/spec.md`。
+> **v1.4 变更（feat-392）**：§6 文档索引重定位到长青行为契约层 `docs/specs/`；四份混合高度子系统
+> 设计 SPEC（内核设计 / IM / NodeGateway / CodingCLI）蒸馏进契约层后**全部退役**移入 `docs/archive/`，
+> 对应契约改看 `docs/specs/<包>/spec.md`。
 >
 > **v1.3 变更（refactor-387）**：内核移除内置 HTTP API，改为纯库形态——对外只暴露
 > `agent.sdk`（进程内 `build_kernel()` → `Kernel`）。两个产品由「spawn 内核 uvicorn 子进程
@@ -178,7 +179,7 @@ current);本 `SPEC.md` 只讲跨包架构,不与契约层重复。文档体系�
 | 包 | 路径 | 内容 |
 |---|---|---|
 | **kernel (agent)** | [`docs/specs/kernel/spec.md`](docs/specs/kernel/spec.md) | 内核经 `agent.sdk` 暴露的对外行为契约：装配/会话/运行/许可/压缩/工具/Hook/Skill/持久化 |
-| **im** | `docs/specs/im/spec.md` | IM 服务对外行为契约（feat-392-M2 建立） |
+| **im** | [`docs/specs/im/spec.md`](docs/specs/im/spec.md) | IM 服务对外行为契约：account/auth、会话消息、Agent 配置中心、节点管理、device binding、用户维/gateway WebSocket、relay 幂等、多租 owner 隔离 |
 | **gateway** | `docs/specs/gateway/spec.md` | Node Gateway 对外行为契约（feat-392-M3 建立） |
 | **cli** | [`docs/specs/cli/spec.md`](docs/specs/cli/spec.md) | Coding CLI 对外行为契约：REPL 运行模式/会话懒创建与 resume/斜杠命令/事件流与预算/错误分层/单命令与 --text/边界 |
 
@@ -204,16 +205,15 @@ current);本 `SPEC.md` 只讲跨包架构,不与契约层重复。文档体系�
 | Skill 体系细化 | `docs/内核设计细化/Skill体系设计细化.md` | 自动/显式 skill 机制 |
 | 系统提示词模板 | `docs/内核设计细化/系统提示词.md` | Runtime 填充的 prompt 模板 |
 
-### 旧子系统 SPEC（迁移退役中）
+### 其他实现层 / 信息架构文档
 
-> 旧的混合高度子系统设计文档，正被长青契约层取代。`内核设计SPEC`（feat-392-M1）、
-> `NodeGateway-SPEC`（feat-392-M3）、`CodingCLI-SPEC`（feat-392-M4）已退役（均移入 `docs/archive/`，
-> 对应契约改看 `docs/specs/<包>/spec.md`）；IM 一份由 feat-392-M2 蒸馏进 `docs/specs/im/` 后退役。
-> 在各自迁移完成前仅作历史参考，可能已陈旧。
+> 四份混合高度子系统设计 SPEC（`内核设计SPEC` feat-392-M1、`IM-SPEC` feat-392-M2、
+> `NodeGateway-SPEC` feat-392-M3、`CodingCLI-SPEC` feat-392-M4）已**全部退役**，蒸馏进长青契约层
+> 后移入 `docs/archive/`，对应契约改看 `docs/specs/<包>/spec.md`。下表两份不是子系统契约，
+> 不在退役范围内：
 
-| 文档 | 路径 | 状态 |
+| 文档 | 路径 | 内容 |
 |---|---|---|
-| IM 服务 SPEC | `docs/IM-SPEC.md` | 待 M2 迁移退役 |
 | IM 前端蓝图 | `docs/IM前端蓝图.md` | 前端信息架构、响应式设计 |
 | 需求文档 | `docs/需求.md` | 内核 vs 助手产品需求定义 |
 
@@ -221,6 +221,9 @@ current);本 `SPEC.md` 只讲跨包架构,不与契约层重复。文档体系�
 
 | 文档 | 路径 |
 |---|---|
+| 内核设计 SPEC（已退役，契约见 `docs/specs/kernel/spec.md`） | `docs/archive/内核设计SPEC.md` |
+| IM 服务 SPEC（已退役，契约见 `docs/specs/im/spec.md`） | `docs/archive/IM-SPEC.md` |
+| NodeGateway SPEC（已退役，契约见 `docs/specs/gateway/spec.md`） | `docs/archive/NodeGateway-SPEC.md` |
 | Coding CLI SPEC（已退役，契约见 `docs/specs/cli/spec.md`） | `docs/archive/CodingCLI-SPEC.md` |
 | 内核设计蓝图 | `docs/archive/内核设计蓝图.md` |
 | 多产品架构调整建议 | `docs/archive/多产品架构调整建议.md` |

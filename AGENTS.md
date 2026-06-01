@@ -330,9 +330,9 @@ Gateway 第一次连一个新 IM 实例时,IM 要求确认绑定 owner,默认会
 | 操作手册 | docs/operator-runbook.md | 启动、调试、常见问题 |
 | LLM 联调 | docs/可用LLM_API与联调说明.md | 可用模型、本地代理地址、验证 curl |
 
-> 旧子系统 SPEC（`docs/IM-SPEC.md`）正被上面契约层取代，迁移完成前仅作历史
-> 参考，可能已陈旧；`内核设计SPEC`（feat-392-M1）、`NodeGateway-SPEC`（feat-392-M3）、
-> `CodingCLI-SPEC`（feat-392-M4）已退役至 `docs/archive/`。
+> 四份混合高度子系统 SPEC（`内核设计SPEC` feat-392-M1、`IM-SPEC` feat-392-M2、
+> `NodeGateway-SPEC` feat-392-M3、`CodingCLI-SPEC` feat-392-M4）已**全部退役**至
+> `docs/archive/`，对应契约改看 `docs/specs/<包>/spec.md`。
 
 ## Agent workflow
 
