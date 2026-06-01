@@ -6,12 +6,14 @@ import { TokenChip } from "./token-chip";
 
 describe("TokenChip", () => {
   it("renders low usage as the default variant", () => {
-    render(<TokenChip usage={{ output: 312, context_used: 14_800, context_window: 200_000 }} />);
+    // bugfix-390: total is backend-contract-guaranteed; fixtures must include it.
+    render(<TokenChip usage={{ output: 312, context_used: 14_800, context_window: 200_000, total: 15_112 }} />);
     const chip = screen.getByRole("button");
     expect(chip).toHaveClass("chat-token-chip");
     expect(chip).not.toHaveClass("chat-token-chip--warn");
     expect(chip).not.toHaveClass("chat-token-chip--critical");
-    expect(chip.textContent).toMatch(/312/);
+    // chip shows total (15_112 → "15.1k"), not just output
+    expect(chip.textContent).toMatch(/15\.1k/);
   });
 
   it("switches to the warning variant at 70% context usage", () => {
