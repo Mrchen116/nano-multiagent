@@ -249,7 +249,7 @@ def test_bind_tool_registry_propagates_to_context_fork(tmp_path):
         async def generate(self, request):
             # Minimal: yields nothing — only construction matters
             return
-            yield  # noqa: unreachable
+            yield  # makes generate() an async generator (protocol requirement)
 
     # Construct with tool_registry=None (mirrors app.py construction order)
     runtime = AgentRuntime(

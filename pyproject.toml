@@ -16,14 +16,15 @@ dependencies = [
   "markdownify>=0.13,<1.0",
   "bcrypt>=4.0,<6.0",
   "pyjwt>=2.8,<3.0",
-  # feat-388: 以下三个此前未声明、靠本地全局包的传递依赖碰巧带入，clean CI runner 缺失即报错。
+  # feat-388: 以下四个此前未声明、靠本地全局包的传递依赖碰巧带入，clean CI runner 缺失即报错。
   # yaml: config 解析（auto_mode/local_store/commands），模块顶层 import → 缺失时 collection 全红；
   # websockets: personal_assistant relay；aiohttp: gateway internal_dispatch / main，函数内延迟
-  # import → 缺失时运行该测试才报 ModuleNotFoundError（曾被误判为 flaky）。
-  # 注：duckduckgo_search（web_search 工具）有 try/except 降级、不阻塞，故不入核心依赖。
+  # import → 缺失时运行该测试才报 ModuleNotFoundError（曾被误判为 flaky）；
+  # ddgs: web_search 工具默认注册在 personal_assistant，开箱即用，不做 optional。
   "pyyaml>=6.0,<7.0",
   "websockets>=13,<17.0",
   "aiohttp>=3.10,<4.0",
+  "ddgs>=9,<11",
 ]
 
 [project.optional-dependencies]
