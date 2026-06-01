@@ -47,8 +47,15 @@ select = ["F", "B006", "E722"]
 ignore = ["B008"]
 
 [tool.ruff.lint.per-file-ignores]
-# tests/ 里 fixture 变量可能被 pytest 解析而不直接使用
-"tests/**" = ["F401", "F811"]
+# tests/ 里 fixture/helper 变量可能被 pytest 解析而不直接使用；F821 forward ref 在 string annotation 里合法
+"tests/**" = ["F401", "F811", "F841", "F821"]
+# 以下文件使用 string annotation forward ref 避免循环 import（ruff F821 不识别此模式）
+"src/agent/core/hooks/types.py" = ["F821"]
+"src/agent/core/tools/base.py" = ["F821"]
+"src/agent/platform/background_tasks/wiring.py" = ["F821"]
+"src/personal_assistant/main.py" = ["F821"]
+# commands.py bridge 导入：模块属性供契约测试用 `is` 检查，不是真正的"未用 import"
+"src/coding_cli/commands.py" = ["F401"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src", "tests"]
