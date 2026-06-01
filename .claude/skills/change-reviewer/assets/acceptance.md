@@ -52,9 +52,12 @@ Requirement 作分组表头,组内所有 Scenario 全 pass,该 Requirement 才�
 不需要改的文档也要勾"无需更新"，证明检查过。
 -->
 
-- [ ] `SPEC.md`（架构总览）：__需要更新 / 无需更新__
-- [ ] `docs/内核设计SPEC.md`（agent 内核）：__需要更新 / 无需更新__
+- [ ] `SPEC.md`（跨包顶点架构）：__需要更新 / 无需更新__
+- [ ] `docs/specs/<包>/spec.md`（长青行为契约层，本 unit 触及的包；通常由 orchestrator §7.0 收尾归并写入）：__需要更新 / 无需更新__
 - [ ] `AGENTS.md` / `CLAUDE.md`：__需要更新 / 无需更新__
-- [ ] 相关产品 SPEC（CodingCLI / NodeGateway / IM 等）：__需要更新 / 无需更新__
+- [ ] `docs/SPEC_GUIDE.md`（文档规范，仅当本 unit 改了文档体系本身时）：__需要更新 / 无需更新__
+
+> 长青契约层的写回是 orchestrator §7.0 收尾归并的职责（软对账 + 直接编辑 canonical）；reviewer 这里
+> 只勾"是否已反映本 unit 行为增量"，不亲自重写契约层。
 
 需要更新的，列出 PR/commit 链接。

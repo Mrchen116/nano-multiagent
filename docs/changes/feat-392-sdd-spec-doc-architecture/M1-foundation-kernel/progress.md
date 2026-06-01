@@ -140,7 +140,50 @@
     清单表新行渲染正常(7 列对齐)。
   - Frontend State Matrix / Browser QA / E2E / Visual: N/A(skill 文本)
 - 衔接残口(reviewer 模板,已问 leader):change-reviewer 的 acceptance.md/regression.md/SKILL.md 还有
-  指向退役 `docs/内核设计SPEC.md` 的「长青文档更新清单」行。change-reviewer 不在 M1 范围(design 只点
-  名三 skill)→ 等 leader 拍板是否 M1 内顺手更新(选项 a)或留后续(选项 b)。本 R 先提交确定的三 skill。
+  指向退役 `docs/内核设计SPEC.md` 的「长青文档更新清单」行 → leader 拍板**选项 a(M1 内顺手更新)**,
+  连同退役内核 SPEC 的另一处连带修法(架构测试 KERNEL_SPEC)一并在 **R5** 收掉。本 R 先提交确定的三 skill。
 - Rollback: 三 skill 改动可单独 `git revert`(集成路径不变)。
 - Commits: 见 git log(R4)。
+
+## R5 — 退役内核 SPEC 的连带修法(架构测试 retarget + reviewer 模板)
+
+- Context: R3 把 `docs/内核设计SPEC.md` git mv 退役进 `docs/archive/` 后,留下两处硬指向退役文档,
+  会 FileNotFoundError / 误导 reviewer:① 架构验收测试 `tests/contract/test_multi_product_architecture_
+  acceptance.py` 的 `KERNEL_SPEC` 仍 = `docs/内核设计SPEC.md`(R3 一退役即变 FileNotFoundError);
+  ② `change-reviewer` 的 `SKILL.md` §7 + `assets/{acceptance,regression}.md` 文档同步清单仍点名退役的
+  `内核设计SPEC` 及旧子系统 SPEC(R4 衔接残口段已记)。orchestrator 拍板:#1 走 (b)(测试在 `tests/`)、
+  #2 走 (a)(模板在 `.claude/skills/`),本 R 一并收尾。
+
+- Decision:
+  · **修法 #1 — 架构测试 retarget 到 SPEC.md(走 b)**:`KERNEL_SPEC = PROJECT_ROOT / "SPEC.md"`(原
+    `docs/内核设计SPEC.md`)。`KERNEL_REQUIRED_DOC_SNIPPETS` 改为 SPEC.md §4「agent — 执行内核」实际措辞,
+    逐字验三条内核终态属性:①「内部分四层(core / platform / products / sdk)」+ 目录树 `└── sdk/ # 对外面:
+    build_kernel() → Kernel`;②「`core` 纯逻辑,不依赖 `platform` / `products`」;③「对外**只暴露 `agent.sdk`**」
+    +「内核是库不是服务,**不内置任何对外网络 API**」。`docs/` 字典里 `kernel_spec` key 随之读 SPEC.md。
+  · **修法 #2 — reviewer 模板改指向(走 a)**:`SKILL.md` §7 上层文档同步清单 + `assets/{acceptance,
+    regression}.md` 文档同步勾选项,从「`SPEC.md` + `docs/内核设计SPEC.md` + 相关产品 SPEC」改为「`SPEC.md`
+    (跨包顶点) + `docs/specs/<包>/spec.md`(长青契约层,本 unit 触及的包) + `SPEC_GUIDE.md`(仅当改了文档体系)」,
+    并加一句:长青契约层写回是 orchestrator §7.0 收尾归并的职责,reviewer 只勾"是否已反映本 unit 行为增量",
+    不亲自重写契约层。acceptance.md 接续前一实例起的头改完。
+
+- Rationale:
+  · **#1 为何走 (b) 指 SPEC.md 而非契约层**:该测试断言的是内核**内部分层 + 依赖方向(core↛platform) + 库形态
+    (无 HTTP / 只暴露 agent.sdk)**。按 SPEC_GUIDE 判据,这些是**跨包架构属性**(实现能变而对外行为不变的不进
+    spec,但分层/依赖方向是"系统怎么搭"的架构事实,不是单包对外行为契约)——SPEC_GUIDE 的分流表把"跨包架构"
+    判去 `SPEC.md`,故 canonical 家是顶点 SPEC.md,不是 `docs/specs/kernel/spec.md`。第三条(无 HTTP / 只暴露
+    agent.sdk)本质偏对外契约,但它在 SPEC.md §4 已有干净 canonical 句,就地验更内聚,无需再分裂到契约层。
+  · **红线守住**:retarget 后三条断言仍逐字命中 SPEC.md 实际措辞,实质守内核四层 + 依赖方向 + 库形态终态,
+    **未为转绿掏空成 trivial**(片段都是 SPEC.md 里表达这三条属性的精确语句,改 SPEC.md 删任一条都会红)。
+  · **#2 为何走 (a)**:reviewer 模板是 skill 文本,直接改引用/清单指向即可,不触碰 reviewer 的验收逻辑/评分
+    模型。指向新长青体系(SPEC.md 顶点 + docs/specs 契约层 + SPEC_GUIDE)与 R3/R4 已建立的读写闭环一致。
+
+- Evidence:
+  - Tests: `pytest tests/contract/test_multi_product_architecture_acceptance.py` → 3 passed(retarget 后
+    三条属性断言全绿,非 trivial)。
+  - Entry(残留核验): `grep -rE '内核设计SPEC|*-SPEC' .claude/skills/ tests/` → `.claude/skills/` 无活引用;
+    `tests/` 仅余 `KERNEL_SPEC` 上方注释里的退役说明文字,无活路径。`TASKS/` `PROGRESS/` `docs/需求.md`
+    的旧 SPEC 引用属冻结历史归档,R3 已界定不动。
+  - E2E/Regression: 全树 `pytest -m "not e2e"` → **2342 passed**, 4 deselected(与基线一致,不破坏)。
+  - Frontend State Matrix / Browser QA / Visual: N/A(测试 + skill 文本,无界面)。
+- Rollback: 测试改动 + 三 reviewer 模板改动均可单独 `git revert`(纯文本/断言指向,无运行时耦合)。
+- Commits: 见 git log(R5)。

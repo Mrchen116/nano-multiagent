@@ -357,12 +357,12 @@ minor out-of-unit **不立 issue**,只写到报告 Side Findings 段。
 
 acceptance / regression 模板都有"上层文档同步"段。逐项核对:
 
-- `SPEC.md`(架构总览)
-- `docs/内核设计SPEC.md`(若项目有)
+- `SPEC.md`(跨包顶点架构)
+- `docs/specs/<包>/spec.md`(长青行为契约层,本 unit 触及的包)
 - `AGENTS.md` / `CLAUDE.md`
-- 相关产品 SPEC(`docs/CodingCLI-SPEC.md` 等,若项目有)
+- `docs/SPEC_GUIDE.md`(文档规范,仅当本 unit 改了文档体系本身时)
 
-**每一项都要勾**,即使是"无需更新"——证明你检查了。需要更新的,在报告里标记,但**不要自己改**——交给 orchestrator 在 PR 阶段或下一个文档同步 unit 处理。
+**每一项都要勾**,即使是"无需更新"——证明你检查了。需要更新的,在报告里标记,但**不要自己改**——交给 orchestrator 在 PR 阶段或下一个文档同步 unit 处理。长青契约层的写回本就是 orchestrator §7.0 收尾归并的职责(软对账 + 直接编辑 canonical),reviewer 只勾"是否已反映本 unit 行为增量",不亲自重写契约层。
 
 ---
 
