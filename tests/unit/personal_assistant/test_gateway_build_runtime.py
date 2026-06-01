@@ -30,19 +30,9 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
 
 def test_build_runtime_uses_persistent_session_binding_store(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """build_runtime 构造的 pipeline 使用 PersistentSessionBindingStore。"""
     config = make_minimal_config(tmp_path)
-
-    class _DummyKernelClient:
-        def __init__(self, *, config, transport=None) -> None:  # noqa: ANN001
-            del config, transport
-
-        def close(self) -> None:
-            return None
-
-    monkeypatch.setattr("personal_assistant.main.KernelApiClient", _DummyKernelClient)
 
     runtime = build_runtime(config)
 
@@ -52,19 +42,9 @@ def test_build_runtime_uses_persistent_session_binding_store(
 
 def test_build_runtime_session_store_db_path_is_under_config_dir(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """session_bindings.sqlite3 与 relay_dedup.sqlite3 同目录（config_path 的父目录）。"""
     config = make_minimal_config(tmp_path)
-
-    class _DummyKernelClient:
-        def __init__(self, *, config, transport=None) -> None:  # noqa: ANN001
-            del config, transport
-
-        def close(self) -> None:
-            return None
-
-    monkeypatch.setattr("personal_assistant.main.KernelApiClient", _DummyKernelClient)
 
     runtime = build_runtime(config)
 
@@ -74,11 +54,16 @@ def test_build_runtime_session_store_db_path_is_under_config_dir(
     assert store._db_path == expected_db_path  # noqa: SLF001
 
 
-def test_build_runtime_injects_kernel_client_into_session_store(
+def test_build_runtime_does_not_call_set_kernel_client(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """build_runtime 在构造后将 kernel_client 注入 PersistentSessionBindingStore。"""
+    """refactor-387 M3: build_runtime no longer calls set_kernel_client.
+
+    Session validation is handled in-process via kernel.get_session inside
+    InboundPipeline._binding_matches_workspace_root.  The old HTTP-based
+    injection path is removed.
+    """
     config = make_minimal_config(tmp_path)
     injected_clients: list[object] = []
 
@@ -89,19 +74,11 @@ def test_build_runtime_injects_kernel_client_into_session_store(
 
     monkeypatch.setattr("personal_assistant.main.PersistentSessionBindingStore", _TrackingStore)
 
-    class _DummyKernelClient:
-        def __init__(self, *, config, transport=None) -> None:  # noqa: ANN001
-            del config, transport
-
-        def close(self) -> None:
-            return None
-
-    monkeypatch.setattr("personal_assistant.main.KernelApiClient", _DummyKernelClient)
-
     build_runtime(config)
 
-    assert len(injected_clients) == 1, "kernel_client должен быть инъецирован один раз"
-    assert isinstance(injected_clients[0], _DummyKernelClient)
+    assert len(injected_clients) == 0, (
+        "M3: set_kernel_client must not be called — session validation is now in-process"
+    )
 
 
 def test_make_token_getter_is_importable() -> None:

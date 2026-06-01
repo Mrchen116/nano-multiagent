@@ -8,8 +8,6 @@ by name without actually importing it.
 import re
 from pathlib import Path
 
-import pytest
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src" / "agent"
@@ -27,13 +25,6 @@ FORBIDDEN_PREFIXES = [
 ]
 
 
-@pytest.mark.xfail(
-    reason=(
-        "agent.core.llm.factory imports agent.platform.llm.providers (concrete LLM clients), "
-        "violating the core-does-not-depend-on-platform constraint; tracked in #40"
-    ),
-    strict=True,
-)
 def test_core_packages_do_not_import_platform_product_or_app_surfaces() -> None:
     checked = 0
     for path in CORE_ROOT.rglob("*.py"):

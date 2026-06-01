@@ -34,20 +34,7 @@ FORBIDDEN_IMPORTS = {
         "agent.llm.translator",
     ),
     "products/base.py": ("agent.tools.registry",),
-    "platform/http_api/app.py": (
-        "agent.agent",
-        "agent.runs",
-        "agent.observability",
-    ),
-    "platform/http_api/deps.py": (
-        "agent.agent",
-        "agent.runs",
-    ),
-    "platform/http_api/routes/session.py": (
-        "agent.agent",
-        "agent.runs",
-    ),
-    "platform/http_api/routes/run.py": ("agent.runs",),
+    # platform/http_api/ deleted in refactor-387-M4; entries removed.
     "platform/tools/registry.py": ("agent.observability",),
     "platform/hooks/builtins/usage_metrics.py": ("agent.hooks.session_usage",),
     "platform/hooks/builtins/auto_mode_gate.py": ("agent.tools.safety",),

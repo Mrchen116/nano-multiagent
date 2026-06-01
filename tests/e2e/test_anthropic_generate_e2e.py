@@ -5,7 +5,8 @@ import os
 import httpx
 import pytest
 
-from agent.core.llm.factory import LLMFactoryConfig, create_llm_client
+from agent.core.llm.factory import LLMFactoryConfig
+from agent.platform.llm.factory import create_llm_client
 from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 
 

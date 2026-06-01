@@ -1,8 +1,13 @@
 # SPEC.md — nano-multiagent 架构规约
 
-> **版本** v1.2 | **日期** 2026-03-10 | **对齐** M84
+> **版本** v1.3 | **日期** 2026-05-29 | **对齐** refactor-387
 > 本文档是 nano-multiagent 的唯一架构权威文件。
 > 若与其他设计文档冲突，以本文档为准。
+>
+> **v1.3 变更（refactor-387）**：内核移除内置 HTTP API，改为纯库形态——对外只暴露
+> `agent.sdk`（进程内 `build_kernel()` → `Kernel`）。两个产品由「spawn 内核 uvicorn 子进程
+> + loopback HTTP」改为「import `agent.sdk` 进程内直调」。**内核与产品形态正交**：产品呈现为
+> 终端软件、常驻 gateway 还是（未来的）云 API，是产品层决策，内核不内置任何形态偏好。
 
 ---
 
@@ -45,40 +50,25 @@ nano-multiagent 是一个 Python 多模型 Agent 框架，由四个独立可部�
 ┌─────────────────────────────────────────────────────────────────┐
 │                USER MACHINE (每台部署机器)                        │
 │                                                                  │
-│  ┌─ Node Gateway (src/personal_assistant/) ───────────────────┐ │
-│  │                                                             │ │
-│  │  Channels (嵌入式适配器，进程内插件)                         │ │
-│  │    WebIM Relay (P0) │ 飞书 (P1) │ QQ│TG│Slack (P2)         │ │
-│  │         │                                                   │ │
-│  │         ▼                                                   │ │
-│  │  Inbound Pipeline (四步决策)                                 │ │
-│  │    1.Agent路由 → 2.会话键 → 3.串行队列 → 4.出站回发         │ │
-│  │                                                             │ │
-│  │  Heartbeat Scheduler (cron / interval / at)                 │ │
-│  │  send_message(text, to) — Agent 间通信工具                  │ │
-│  │  WebSocket Client → IM Service (可选)                       │ │
-│  └──────────────────────────┬──────────────────────────────────┘ │
-│                              │ HTTP (localhost)                   │
-│                              ▼                                   │
-│  ┌─ Agent Kernel (src/agent/) ─────────────────────────────────┐ │
-│  │                                                              │ │
-│  │  HTTP API  /v1/*                                             │ │
-│  │    sessions│messages│events(SSE)│runs│tools│hooks            │ │
-│  │                                                              │ │
-│  │  Core     AgentRuntime → AgentLoop (state machine)          │ │
-│  │           ToolRegistry│HookRunner│SkillRegistry│Compaction  │ │
-│  │           SessionManager│LLMClient (abstract)               │──→ LLM API
-│  │                                                              │ │
-│  │  Platform LLM Providers (OpenAI-compat / Anthropic)         │ │
-│  │           Built-in: read│write│edit│bash│task                │ │
-│  │           Persistence (SQLite)│Safety│Bootstrap              │ │
-│  │                                                              │ │
-│  │  Products local_coding│personal_assistant                   │ │
-│  │           (ProductProfile + tools + hooks + skills)          │ │
-│  └──────────────────────────▲──────────────────────────────────┘ │
-│                              │ HTTP (localhost)                   │
-│  ┌─ Coding CLI (src/coding_cli/) ──────────────────────────────┐ │
-│  │  Terminal REPL│Managed mode (auto-start kernel)│Single cmd  │ │
+│  两个产品平级、各自独立 import agent.sdk（互不依赖）：           │
+│  ┌─ Node Gateway (personal_assistant/) ┐  ┌─ Coding CLI (coding_cli/) ─┐ │
+│  │  Channels · Inbound Pipeline         │  │  async-native Terminal REPL │ │
+│  │  Heartbeat · send_message · WS→IM    │  │                             │ │
+│  │  持有 Kernel = import agent.sdk      │  │  持有 Kernel = import agent.sdk│ │
+│  └─────────────────┬────────────────────┘  └──────────────┬──────────────┘ │
+│                    │ await kernel.*（进程内）              │ await kernel.*  │
+│                    └───────────────────┬───────────────────┘               │
+│                                        ▼ （二者各自调用同一份内核库）       │
+│  ┌─ Agent Kernel 库 (src/agent/) ──────────────────────────────┐ │
+│  │  sdk      build_kernel() → Kernel  ← 唯一对外面（进程内）    │ │
+│  │           create_session│submit│stream│interrupt│cancel│... │ │
+│  │           权限 = 注入的 can_use_tool 回调                    │ │
+│  │  core     AgentRuntime→AgentLoop·RunsRegistry·EventStreamHub │ │
+│  │           ToolRegistry│HookRunner│SkillRegistry│Compaction  │──→ LLM API
+│  │           SessionManager│LLMClient (port，仅接口)           │ │
+│  │  platform LLMClientFactory(OpenAI-compat/Anthropic 具体实现)│ │
+│  │           Built-in tools│Persistence(SQLite)│Safety│Bootstrap│ │
+│  │  products local_coding│personal_assistant (ProductProfile)  │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │                                                                  │
 │  ┌─ Agent Workspaces ─────────────────────────────────────────┐  │
@@ -91,16 +81,24 @@ nano-multiagent 是一个 Python 多模型 Agent 框架，由四个独立可部�
 └──────────────────────────────────────────────────────────────────┘
 ```
 
+内核是**库**，不是服务：`agent.sdk.build_kernel()` 返回进程内的 `Kernel`，产品 import 后直调（async）。
+内核不内置 HTTP API；未来若要云化，由独立产品包 import `agent.sdk` 按需包一层 API，而非内核内置。
+IM Service 是唯一对外网络服务（多用户 / Web 前端 / 消息中继，HTTP+WS 名正言顺），不直接调内核。
+
 ---
 
 ## 3. 顶层结构
 
 ```text
 src/
-├── agent/                        # Agent 内核（对外只暴露 HTTP API）
-├── coding_cli/                   # 本地编码 CLI 应用
-├── personal_assistant/           # 个人助手 Node Gateway
-└── IM/                           # IM 前后端（独立服务）
+├── agent/                        # Agent 内核库（对外只暴露 agent.sdk，进程内调用）
+│   ├── core/                     # 纯逻辑：runtime/loop/runs/tools/hooks/skills/session
+│   ├── platform/                 # 集成层：LLM providers、persistence、safety、bootstrap
+│   ├── products/                 # 产品 profile：local_coding、personal_assistant
+│   └── sdk/                      # 对外面：build_kernel() → Kernel
+├── coding_cli/                   # 本地编码 CLI 应用（import agent.sdk 进程内直跑）
+├── personal_assistant/           # 个人助手 Node Gateway（import agent.sdk 进程内持有 Kernel）
+└── IM/                           # IM 前后端（独立网络服务）
     ├── app.py                   # 后端服务入口
     ├── api/                     # HTTP 路由
     ├── ws/                      # WebSocket 连接管理
@@ -114,24 +112,30 @@ src/
 
 ## 4. 各包职责与边界
 
-### agent — 执行内核
+### agent — 执行内核（库）
 
 IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + 可扩展 + 可持久化 + 可观测"。
 
-对外**只暴露 HTTP API**，禁止外部直接 import 内部模块。
+对外**只暴露 `agent.sdk`**（`build_kernel()` → 进程内 `Kernel`），禁止外部直接 import `agent.core` / `agent.platform` 内部模块。内核是库不是服务，**不内置任何对外网络 API**。
 
-内部分三层（core / platform / products），详见 [`docs/内核设计SPEC.md`](docs/内核设计SPEC.md)。
+内部分四层（core / platform / products / sdk）：
+- `core` 纯逻辑，不依赖 `platform` / `products`；只持 `LLMClient` 端口（接口）。
+- `platform` 接环境（LLM provider 具体实现、持久化、安全、bootstrap），依赖 `core` + `products`。
+- `products` 产品 profile（默认工具 / hook / prompt / skill 策略）。
+- `sdk` 唯一对外装配面，依赖 `core` + `platform` + `products`，暴露 `build_kernel()` / `Kernel`。
+
+详见 [`docs/内核设计SPEC.md`](docs/内核设计SPEC.md)。
 
 ### coding_cli — 本地编码助手
 
-终端 CLI 应用。用户输入 → HTTP 调同机 agent → 渲染流式响应。
+终端 CLI 应用（async-native REPL）。`import agent.sdk` 在进程内持有 `Kernel`，用户输入 → `await kernel.*` → 渲染流式响应。
 
 ### personal_assistant — 个人助手 Node Gateway
 
-常驻进程。负责：
+常驻进程。`import agent.sdk` 在 gateway 进程内持有 `Kernel`。负责：
 - Channel 接入外部 IM（QQ / Slack / Telegram 等）
 - 本地 heartbeat 调度与执行
-- 通过 HTTP 调用同机 agent 内核
+- 进程内调用 `Kernel`（`await kernel.*`）
 - 与 IM 服务交互（配置同步、消息中继、状态上报）
 
 ### IM — 独立中心服务
@@ -145,16 +149,17 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 ## 5. 依赖方向
 
 ```
-用户 ──→ IM（Web IM）──→ personal_assistant ──HTTP──→ agent
-用户 ──→ coding_cli ──HTTP──→ agent
-外部 IM ──→ personal_assistant ──HTTP──→ agent
+用户 ──→ IM（Web IM）──WS──→ personal_assistant ──import agent.sdk（进程内）──→ agent
+用户 ──→ coding_cli ──import agent.sdk（进程内）──→ agent
+外部 IM ──→ personal_assistant ──import agent.sdk（进程内）──→ agent
 ```
 
 **硬规则**：
-- `coding_cli` 和 `personal_assistant` 通过 HTTP 调用同机 agent，禁止直接 import
-- `IM` 不直接调用 agent，只与用户和 `personal_assistant` 交互
-- 四个包之间无 Python import 依赖，各自独立部署
-- 验收口径：`src/agent/`、`src/coding_cli/`、`src/personal_assistant/`、`src/IM/` 源码不得 import 其它顶层包；相关断言由 `tests/contract/test_cli_http_only_contract.py` 自动执行
+- `coding_cli` 和 `personal_assistant` 通过 **`import agent.sdk` 进程内调用** agent；**只允许 import `agent.sdk`**，禁止 import `agent.core` / `agent.platform` 内部模块
+- `IM` 不调用 agent，只与用户浏览器和各机器上的 `personal_assistant` 交互（HTTP/WS）
+- 内核分层：`core` 不依赖 `platform` / `products`；`platform → core + products`；`sdk → core + platform + products`（唯一对外面）
+- `agent.sdk` 不被任何内核内部层反向依赖；`coding_cli` / `personal_assistant` / `IM` 三者之间无相互 import
+- 验收口径：`src/coding_cli/`、`src/personal_assistant/` 只许 import `agent.sdk`，不得 import `agent.core` / `agent.platform`；`src/IM/` 不得 import `agent`；`src/agent/core/` 不得 import `agent.platform` / `agent.products`。相关断言由 `tests/contract/test_cli_http_only_contract.py` 与 `test_core_no_platform_imports.py` 自动执行
 
 ---
 

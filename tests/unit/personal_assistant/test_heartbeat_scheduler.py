@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -13,13 +14,15 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
 
 
 class _FakeKernelClient:
+    """Sync fake client — used by existing tests that don't exercise the async path."""
+
     def __init__(self) -> None:
         self.created_sessions: list[dict[str, object]] = []
         self.sent_messages: list[dict[str, object]] = []
         self._session_counter = 0
         self._run_counter = 0
 
-    def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, object]:
+    async def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None) -> dict[str, object]:
         self._session_counter += 1
         payload = {
             "session_id": f"sess-{self._session_counter}",
@@ -67,7 +70,7 @@ def test_scheduler_skips_quietly_when_heartbeat_has_no_actionable_task(tmp_path:
         state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
     )
 
-    summary = scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
 
     assert summary.triggered_runs == ()
     assert summary.skipped_agents == (agent.agent_id,)
@@ -85,9 +88,9 @@ def test_scheduler_runs_interval_schedule_and_persists_last_due(tmp_path: Path) 
     kernel = _FakeKernelClient()
     scheduler = HeartbeatScheduler(agents=(agent,), kernel_client=kernel, state_store=state_store)
 
-    first = scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
-    second = scheduler.tick(now=datetime(2026, 3, 11, 9, 10, tzinfo=UTC))
-    third = scheduler.tick(now=datetime(2026, 3, 11, 9, 30, tzinfo=UTC))
+    first = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+    second = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 10, tzinfo=UTC)))
+    third = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 30, tzinfo=UTC)))
 
     assert len(first.triggered_runs) == 1
     assert second.triggered_runs == ()
@@ -106,10 +109,10 @@ def test_scheduler_runs_at_schedule_only_once_even_across_restart(tmp_path: Path
     kernel = _FakeKernelClient()
 
     scheduler = HeartbeatScheduler(agents=(agent,), kernel_client=kernel, state_store=state_store)
-    first = scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
+    first = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
 
     restarted = HeartbeatScheduler(agents=(agent,), kernel_client=kernel, state_store=state_store)
-    second = restarted.tick(now=datetime(2026, 3, 11, 10, 0, tzinfo=UTC))
+    second = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 10, 0, tzinfo=UTC)))
 
     assert len(first.triggered_runs) == 1
     assert second.triggered_runs == ()
@@ -129,8 +132,8 @@ def test_scheduler_runs_cron_schedule_on_matching_minute(tmp_path: Path) -> None
         state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
     )
 
-    before = scheduler.tick(now=datetime(2026, 3, 11, 8, 59, tzinfo=UTC))
-    due = scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
+    before = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 8, 59, tzinfo=UTC)))
+    due = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
 
     assert before.triggered_runs == ()
     assert len(due.triggered_runs) == 1
@@ -147,12 +150,12 @@ def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) 
     first_kernel = _FakeKernelClient()
     first_scheduler = HeartbeatScheduler(agents=(agent,), kernel_client=first_kernel, state_store=state_store)
 
-    first = first_scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
+    first = asyncio.run(first_scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
     assert len(first.triggered_runs) == 1
 
     second_kernel = _FakeKernelClient()
     restarted = HeartbeatScheduler(agents=(agent,), kernel_client=second_kernel, state_store=state_store)
-    catch_up = restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC))
+    catch_up = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC)))
 
     assert [run.due_at.isoformat() for run in catch_up.triggered_runs] == [
         "2026-03-11T09:30:00+00:00",
@@ -175,4 +178,36 @@ def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(tmp_path: Pa
     )
 
     with pytest.raises(ValueError, match="exactly one schedule mode"):
-        scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
+        asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+
+@pytest.mark.asyncio
+async def test_scheduler_tick_from_async_context_completes_without_event_loop_error(tmp_path: Path) -> None:
+    """tick() must be awaitable from an async context without RuntimeError.
+
+    Regression: _KernelClientShim used run_until_complete inside an already-running
+    loop, causing 'This event loop is already running' — heartbeat runs were silently
+    never submitted.  After the fix, tick() is a coroutine and create_session is async
+    so the call chain is properly awaited end-to-end.
+    """
+    agent = _agent(tmp_path)
+    _write_heartbeat(
+        agent.workspace_root,
+        "# Heartbeat\n\ninterval: 1m\n\n- Check status\n",
+    )
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    # This must not raise RuntimeError("This event loop is already running")
+    summary = await scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
+
+    # The run was actually submitted — not silently dropped
+    assert len(summary.triggered_runs) == 1
+    assert len(kernel.created_sessions) == 1
+    assert kernel.created_sessions[0]["session_id"] == "sess-1"
+    assert len(kernel.sent_messages) == 1
+    assert kernel.sent_messages[0]["run_id"] == "run-1"

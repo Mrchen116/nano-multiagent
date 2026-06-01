@@ -5,8 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import asyncio
 import json
+import logging
 from typing import Any
 from uuid import uuid4
+
+_logger = logging.getLogger(__name__)
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -699,15 +702,31 @@ class GatewayHandler:
         return {"type": "ack", "payload": {"message_type": "node.heartbeat", "node_id": node_id}}
 
     async def _handle_report(self, *, payload: dict[str, object]) -> dict[str, object]:
-        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        # Validate node_id first; a missing or empty node_id means the payload is structurally
+        # invalid and we cannot even look up the connection. Return an error frame so the Gateway
+        # knows the frame was rejected, but keep the WS connection alive.
+        try:
+            node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        except (RuntimeError, ValueError) as exc:
+            return {"type": "error", "payload": {"code": "bad_payload", "message": str(exc)}}
         async with self._lock:
             connection = self._connections.get(node_id)
             if connection is None:
                 return _not_registered_error(node_id=node_id)
             connection.reports.append(payload)
             self._reports.append(payload)
-        self._persist_report_event(payload=payload)
-        self._persist_report_usage(payload=payload)
+        # Persist errors (e.g. FK violations from synthetic conversation_id/message_id) must not
+        # propagate out of the WS dispatch layer. A malformed heartbeat payload lacking real FK
+        # rows in the messages table would raise sqlite3.IntegrityError here and close the
+        # connection. The correct behaviour is to record the failure and return a normal ack
+        # so the Gateway's connection stays alive.
+        try:
+            self._persist_report_event(payload=payload)
+            self._persist_report_usage(payload=payload)
+        except Exception as exc:  # noqa: BLE001
+            # Non-fatal: persistence failed (likely FK violation from synthetic IDs).
+            # Log via events so the failure is visible without severing the connection.
+            _logger.warning("node.report persist failed for node_id=%s: %s", node_id, exc)
         return {"type": "ack", "payload": {"message_type": "node.report", "node_id": node_id}}
 
     async def _handle_streaming_delta(self, *, payload: dict[str, object]) -> dict[str, object]:

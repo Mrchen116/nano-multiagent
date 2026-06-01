@@ -453,8 +453,9 @@ def test_repl_input_state_machine_skips_redraw_when_history_up_hits_top_boundary
     assert second_up.state == first_up.state
 
 
-def test_run_cli_repl_up_recalls_previous_command_line() -> None:
-    stub = _StubClient()
+def test_run_cli_repl_up_recalls_previous_command_line(tmp_path) -> None:
+    from tests.unit._cli_kernel_stubs import _BaseKernelStub, _make_kernel_factory
+    stub = _BaseKernelStub()
     output = io.StringIO()
     scripted_reader = _ScriptedReplInputReader(
         scripted_lines=[
@@ -466,10 +467,11 @@ def test_run_cli_repl_up_recalls_previous_command_line() -> None:
     )
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: stub,
+        kernel_factory=_make_kernel_factory(stub),
         repl_input_reader_factory=lambda: scripted_reader,
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0

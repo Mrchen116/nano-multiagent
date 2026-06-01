@@ -1,8 +1,10 @@
-"""Context-budget presentation helpers for interactive CLI feedback."""
+"""Context-budget presentation helpers for interactive CLI feedback.
 
-from typing import TextIO
+``client`` accepts any Kernel-compatible object with a ``get_context_budget``
+method.  No HTTP dependency.
+"""
 
-from coding_cli.client import ServerClient
+from typing import Any, TextIO
 
 _SHORT_ERROR_MAX_LEN = 120
 _CONTEXT_BUDGET_HINTS = (
@@ -15,7 +17,7 @@ _CONTEXT_BUDGET_HINTS = (
 def print_context_budget_snapshot(
     *,
     out: TextIO,
-    client: ServerClient,
+    client: Any,
     session_id: str,
     context_label: str | None = None,
 ) -> None:

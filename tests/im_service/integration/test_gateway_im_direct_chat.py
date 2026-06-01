@@ -36,7 +36,7 @@ def test_direct_chat_recreates_legacy_kernel_session_without_workspace_metadata(
     registry = ChannelRegistry((relay_adapter,))
     session_store = SessionBindingStore()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -134,7 +134,7 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
     registry = ChannelRegistry((relay_adapter,))
     session_store = SessionBindingStore()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),

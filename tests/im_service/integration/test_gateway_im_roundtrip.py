@@ -34,7 +34,7 @@ def test_web_im_message_roundtrip_browserless(tmp_path: Path) -> None:
     agents = make_agent_configs(tmp_path, "agent-a")
     registry = ChannelRegistry((relay_adapter,))
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -223,3 +223,102 @@ def test_agent_config_sync_notifies_connected_gateway(tmp_path: Path) -> None:
 
     assert request.agent_id == "agent-a"
     assert sync_client.latest_profile_version("agent-a") == 2
+
+
+# ---------------------------------------------------------------------------
+# Session reuse integration (W4 fix: stub gap)
+# ---------------------------------------------------------------------------
+
+
+def test_same_session_key_reuses_session_create_session_called_once(tmp_path: Path) -> None:
+    """Two messages on the same session_key must trigger create_session exactly once.
+
+    W4 regression (refactor-387): _FakeKernel.get_session lacked workspace_root at
+    the top level, so _binding_matches_workspace_root always fell through and the
+    session-reuse path was never exercised by integration tests.  After the fix,
+    the stub returns the correct shape and this test validates that the pipeline
+    reuses the session for the second message instead of creating a new one.
+    """
+    app = create_app(db_path=tmp_path / "im.db")
+    kernel_client = _FakeKernelClient()
+    relay_adapter = WebRelayAdapter()
+    agents = make_agent_configs(tmp_path, "agent-a")
+    registry = ChannelRegistry((relay_adapter,))
+    pipeline = InboundPipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    relay_adapter.start(lambda inbound: asyncio.run(pipeline.handle_inbound(inbound)))
+
+    with TestClient(app) as client:
+        user_id = seed_user(client, "alice")
+        agent_user_id = seed_user(client, "agent:agent-a")
+        seed_node_and_profiles(app, agent_ids=("agent-a",))
+        conversation = client.post(
+            "/im/v1/conversations",
+            json={"title": "session-reuse-chat", "participant_ids": [user_id, agent_user_id]},
+        )
+        assert conversation.status_code == 201
+        conversation_id = conversation.json()["id"]
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json({
+                "type": "node.register",
+                "payload": {
+                    "node_id": "node-1",
+                    "node_name": "test-node",
+                    "version": "1.0.0",
+                    "agents": ["agent-a"],
+                    "capabilities": {"relay": True},
+                },
+            })
+            assert websocket.receive_json()["type"] == "ack"
+
+            # First message — creates a new session.
+            msg1 = client.post(
+                f"/im/v1/conversations/{conversation_id}/messages",
+                headers={"Idempotency-Key": "idem-session-reuse-1"},
+                json={
+                    "sender_user_id": user_id,
+                    "content": "first message",
+                    "target_node_id": "node-1",
+                },
+            )
+            assert msg1.status_code == 201
+            frame1 = websocket.receive_json()
+            assert frame1["type"] == "relay.message"
+            relay_adapter.accept_relay(frame1["payload"])
+
+            # Second message in the same conversation (same session_key) — must reuse.
+            msg2 = client.post(
+                f"/im/v1/conversations/{conversation_id}/messages",
+                headers={"Idempotency-Key": "idem-session-reuse-2"},
+                json={
+                    "sender_user_id": user_id,
+                    "content": "second message",
+                    "target_node_id": "node-1",
+                },
+            )
+            assert msg2.status_code == 201
+            frame2 = websocket.receive_json()
+            assert frame2["type"] == "relay.message"
+            relay_adapter.accept_relay(frame2["payload"])
+
+    # create_session must have been called exactly once: second message reuses session.
+    assert len(kernel_client.create_session_calls) == 1, (
+        f"create_session must be called once for session reuse; "
+        f"got {len(kernel_client.create_session_calls)} calls: {kernel_client.create_session_calls}"
+    )
+    assert len(kernel_client.send_calls) == 2, (
+        f"both messages must have been dispatched to the kernel; "
+        f"got {len(kernel_client.send_calls)} calls"
+    )
+    # Both messages must land in the same session.
+    session_ids_used = {c["session_id"] for c in kernel_client.send_calls}
+    assert len(session_ids_used) == 1, (
+        f"both messages must use the same session_id, got: {session_ids_used}"
+    )

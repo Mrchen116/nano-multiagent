@@ -26,7 +26,7 @@ def _make_pipeline(gateway_internal_port: int = 8089) -> InboundPipeline:
     registry = MagicMock()
     router = OutboundRouter(registry)
     return InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=(agent,),
         outbound_router=router,
         run_queue=SessionRunQueue(),
@@ -88,7 +88,7 @@ def test_inbound_pipeline_default_gateway_internal_port() -> None:
     registry = MagicMock()
     router = OutboundRouter(registry)
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=(agent,),
         outbound_router=router,
         run_queue=SessionRunQueue(),

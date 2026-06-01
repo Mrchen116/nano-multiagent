@@ -470,3 +470,67 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(tmp
         assert manager._pending_frames[0].message_type == "agent.message"  # noqa: SLF001
 
     asyncio.run(_exercise())
+
+
+def test_im_connection_does_not_disconnect_on_downstream_error_frame(tmp_path: Path) -> None:
+    """IM 回送 type=error 下行帧（如畸形 node.report 被 IM 拒绝时），Gateway 不应抛 ValueError 触发断线重连。
+
+    根因：_listen_once 对未知 message_type 执行 `raise ValueError`，而 run_forever 的
+    `except Exception` 捕获后调用 _mark_disconnected 进入重连循环。正确行为是记录并跳过。
+    """
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(
+        incoming=[
+            # 1. 注册 ack
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            # 2. IM 对某个帧回送 error（例如对畸形 heartbeat node.report 的拒绝）
+            json.dumps({"type": "error", "payload": {"code": "bad_payload", "message": "node_id must be non-empty"}}),
+            # 3. 正常 relay.message ——证明连接仍然存活
+            json.dumps({
+                "type": "relay.message",
+                "payload": {
+                    "relay_task_id": "relay-ok",
+                    "idempotency_key": "idem-ok",
+                    "message": {
+                        "id": "msg-ok",
+                        "sender_user_id": "user-1",
+                        "conversation_id": "conv-1",
+                        "content": "still alive",
+                    },
+                    "metadata": {"conversation_type": "direct"},
+                },
+            }),
+        ]
+    )
+    inbound_seen: list = []
+    relay_adapter2 = WebRelayAdapter()
+    relay_adapter2.start(inbound_seen.append)
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000", token="secret"),
+        reporter=reporter,
+        relay_adapter=relay_adapter2,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        # node.register → ack
+        await manager._listen_once()  # noqa: SLF001
+        # error frame ——不应抛 ValueError、不应标记断线
+        await manager._listen_once()  # noqa: SLF001
+        # relay.message ——连接仍然存活，正常被分发
+        await manager._listen_once()  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+    # 连接未被标记为断开
+    assert manager.connected is True
+    # 后续 relay.message 正常被分发，说明 error 帧没有打断流程
+    assert len(inbound_seen) == 1
+    assert inbound_seen[0].text == "still alive"

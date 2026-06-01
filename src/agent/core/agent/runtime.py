@@ -5,14 +5,14 @@ import json
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, Sequence
 
 from agent.core.errors import ModelError
 from agent.core.ids import make_message_id, make_turn_id
 from agent.core.types import Message, TokenUsage, ToolCall, ToolResult, ToolSpec, TurnResult
 from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from agent.core.hooks.runner import HookExecution, HookRunner
-from agent.core.llm.factory import LLMFactoryConfig, create_llm_client
+from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from agent.core.session.entries import SessionEntry
 from agent.core.session.jsonl_store import SessionConfig
@@ -82,6 +82,7 @@ class AgentRuntime:
         *,
         session_manager: SessionManager,
         llm_client: LLMClient | None = None,
+        llm_client_factory: Callable[[LLMFactoryConfig], LLMClient] | None = None,
         model: str | None = None,
         policies: AgentPolicies | None = None,
         hook_runner: HookRunner | None = None,
@@ -103,7 +104,19 @@ class AgentRuntime:
             api_key=env_llm_config.api_key,
             timeout_seconds=env_llm_config.timeout_seconds,
         )
-        active_llm_client = llm_client or create_llm_client(config=self._llm_config)
+        # Prefer explicit client > factory > error.
+        # unit tests pass llm_client directly and do not need a factory.
+        # Production paths (create_app, build_kernel) must inject llm_client_factory.
+        if llm_client is not None:
+            active_llm_client = llm_client
+        elif llm_client_factory is not None:
+            active_llm_client = llm_client_factory(self._llm_config)
+        else:
+            raise ValueError(
+                "AgentRuntime requires either llm_client or llm_client_factory; "
+                "pass llm_client for unit tests, llm_client_factory for production wiring"
+            )
+        self._llm_client_factory = llm_client_factory
         self._llm_client = active_llm_client
         self._hook_runner = hook_runner
         self._repo_root = (repo_root or Path.cwd()).expanduser().resolve()
@@ -739,7 +752,12 @@ class AgentRuntime:
             timeout_seconds=timeout_seconds if timeout_seconds is not None else self._llm_config.timeout_seconds,
         )
 
-        active_llm_client = create_llm_client(config=next_config)
+        if self._llm_client_factory is None:
+            raise ValueError(
+                "reconfigure_llm requires llm_client_factory; "
+                "runtime was constructed without a factory (unit test path)"
+            )
+        active_llm_client = self._llm_client_factory(next_config)
         self._llm_config = next_config
         self._llm_client = active_llm_client
         self._loop.bind_llm_client(

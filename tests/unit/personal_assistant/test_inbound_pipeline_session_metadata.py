@@ -13,7 +13,7 @@ from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
 
-from ._pipeline_helpers import _FakeChannel, _FakeKernelClient, _agents
+from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
 
 def test_build_session_metadata_reads_system_prompt_from_local_agent_config(tmp_path: Path) -> None:
@@ -31,9 +31,9 @@ def test_build_session_metadata_reads_system_prompt_from_local_agent_config(tmp_
     )
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -73,9 +73,9 @@ def test_build_session_metadata_reads_skills_and_tool_allowlist_from_local_agent
     )
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -115,9 +115,9 @@ def test_build_session_metadata_ignores_message_metadata_for_prompt_fields(tmp_p
     )
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -159,9 +159,9 @@ def test_build_session_metadata_still_reads_conversation_id_from_message_metadat
     )
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -194,9 +194,9 @@ def test_session_metadata_group_fields(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -229,9 +229,9 @@ def test_session_metadata_direct_fields(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),

@@ -68,7 +68,10 @@ REMOVED_ROOTS = (
     "llm",
     "observability",
     "runs",
-    "sdk",
+    # "sdk" removed from this list in refactor-387-M1: agent/sdk/ is now the
+    # public surface for products (build_kernel → Kernel).  The old "agent.sdk"
+    # legacy root referenced here was a prior shallow alias; the new agent/sdk/
+    # package is architecturally correct and intentional.
     "server",
     "session",
     "skills",

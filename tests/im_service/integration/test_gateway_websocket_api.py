@@ -443,6 +443,71 @@ def test_gateway_websocket_persists_heartbeat_report_into_conversation_events(tm
 
 
 
+def test_gateway_websocket_malformed_node_report_does_not_close_connection(tmp_path: Path) -> None:
+    """IM 收到缺少 node_id 的畸形 node.report 时，返回 error ack 但 WS 连接继续存活。
+
+    根因：`_handle_report` 中 `_require_text(payload.get("node_id"), ...)` 对畸形 payload
+    会抛出异常；若异常冒泡出 dispatch 层则 WS 关闭。正确行为是捕获异常、返回 error 帧，
+    连接本身不受影响——后续合法 heartbeat 仍然可以送达。
+    """
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        agent_id = _create_user(client, "agent-b")
+        conversation_id = _create_conversation(client, agent_id)
+        created = client.post(
+            f"/im/v1/conversations/{conversation_id}/messages",
+            json={"sender_user_id": agent_id, "content": "placeholder", "sender_type": "agent"},
+        )
+        assert created.status_code == 201
+        message_id = created.json()["id"]
+
+        with client.websocket_connect("/im/ws/gateway") as websocket:
+            websocket.send_json({
+                "type": "node.register",
+                "payload": {
+                    "node_id": "node-1",
+                    "node_name": "Gateway Node",
+                    "version": "1.0.0",
+                    "agents": ["agent-b"],
+                    "capabilities": {"relay": True},
+                },
+            })
+            assert websocket.receive_json()["type"] == "ack"
+
+            # 畸形 node.report：缺少 node_id
+            websocket.send_json({
+                "type": "node.report",
+                "payload": {
+                    # node_id 故意缺失
+                    "run_id": "heartbeat-bad-run",
+                    "status": "completed",
+                    "agent_id": "agent-b",
+                    "conversation_id": "heartbeat:agent-b",
+                    "message_id": "heartbeat-bad-run",
+                    "summary": "malformed heartbeat report",
+                },
+            })
+            bad_response = websocket.receive_json()
+            # IM 应返回 error 帧（不应关闭连接）
+            assert bad_response["type"] == "error"
+
+            # 连接仍然存活：合法的 node.report 仍然可以送达
+            websocket.send_json({
+                "type": "node.report",
+                "payload": {
+                    "node_id": "node-1",
+                    "run_id": "run-ok",
+                    "status": "completed",
+                    "agent_id": "agent-b",
+                    "conversation_id": conversation_id,
+                    "message_id": message_id,
+                    "summary": "connection still alive after malformed report",
+                },
+            })
+            ok_ack = websocket.receive_json()
+            assert ok_ack == {"type": "ack", "payload": {"message_type": "node.report", "node_id": "node-1"}}
+
+
 def test_message_post_with_broken_gateway_socket_returns_503_instead_of_500(tmp_path: Path) -> None:
     """Degrade broken websocket pushes into actionable 503 feedback instead of Internal Server Error."""
     app = create_app(db_path=tmp_path / "im.db")

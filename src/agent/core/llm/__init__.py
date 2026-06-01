@@ -1,4 +1,9 @@
-"""Canonical shared LLM package with lazy top-level exports."""
+"""Canonical shared LLM package with lazy top-level exports.
+
+Core exports: LLMClient interface + LLMFactoryConfig dataclass + model registry.
+Concrete LLM client instantiation lives in agent.platform.llm.factory — core
+does not import platform (hardened by tests/contract/test_core_no_platform_imports.py).
+"""
 
 from importlib import import_module
 from typing import Any
@@ -11,7 +16,6 @@ __all__ = [
     "LLMMessage",
     "LLMToolCall",
     "ModelMetadata",
-    "create_llm_client",
     "get_default_base_url",
     "get_default_model",
     "get_default_provider",
@@ -21,7 +25,7 @@ __all__ = [
 ]
 
 
-_FACTORY_EXPORTS = {"LLMFactoryConfig", "create_llm_client"}
+_FACTORY_EXPORTS = {"LLMFactoryConfig"}
 _INTERFACE_EXPORTS = {
     "LLMClient",
     "LLMGenerateRequest",

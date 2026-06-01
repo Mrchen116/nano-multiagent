@@ -12,10 +12,11 @@ from typing import Any
 
 import yaml
 
-from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+from agent.sdk import LLMConfigPayload, LLMModelPayload, LLMProviderPayload  # refactor-387-M4
 
 _DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
-_DEFAULT_KERNEL_ENTRYPOINT = "python -m uvicorn personal_assistant.kernel_app:app"
+# refactor-387 M3: kernel_app.py deleted; KernelConfig.command is retained for M4 cleanup.
+_DEFAULT_KERNEL_ENTRYPOINT = ""
 _DEFAULT_KERNEL_HEALTH_PATH = "/v1/health"
 DEFAULT_LOCAL_KERNEL_TOKEN = "nano-local-gateway"
 DEFAULT_LOCAL_CONFIG_DIR = Path("~/.nano-assistant").expanduser()
@@ -181,18 +182,23 @@ class IMServiceConfig:
 
 @dataclass(frozen=True, slots=True)
 class KernelConfig:
-    """Describe how the gateway reaches and manages the local agent kernel.
+    """Legacy gateway-to-kernel connectivity settings retained for config compatibility.
+
+    refactor-387: the kernel is now in-process (agent.sdk); these fields are no
+    longer used at runtime.  Preserved so that existing config files with a
+    ``kernel:`` section parse without error; fields will be removed when the
+    config schema is trimmed in a follow-up unit.
 
     Args:
-        base_url: Base HTTP URL exposed by the local kernel process.
-        token: Optional bearer token required by the kernel HTTP API.
-        request_id: Optional fixed request id prefix for probes.
-        timeout_seconds: Per-request HTTP timeout.
-        command: Child-process command used to spawn the kernel in managed mode.
-        health_path: Relative health endpoint used for readiness polling.
-        startup_timeout_seconds: Maximum readiness wait time after spawning the child.
-        shutdown_grace_seconds: Grace period between terminate and forced kill.
-        health_poll_interval_seconds: Delay between readiness probe attempts.
+        base_url: Unused (was: HTTP URL of the standalone kernel process).
+        token: Unused (was: bearer token for the kernel HTTP API).
+        request_id: Unused (was: fixed request id prefix for health probes).
+        timeout_seconds: Unused (was: per-request HTTP timeout).
+        command: Unused (was: command used to spawn the kernel subprocess).
+        health_path: Unused (was: health endpoint for readiness polling).
+        startup_timeout_seconds: Unused (was: maximum readiness wait after spawn).
+        shutdown_grace_seconds: Unused (was: grace period before forced kill).
+        health_poll_interval_seconds: Unused (was: delay between health probe attempts).
     """
 
     base_url: str = _DEFAULT_KERNEL_BASE_URL
@@ -225,7 +231,7 @@ class LocalConfig:
         node: Node identity and ownership metadata.
         agents: Agent workspace definitions managed by this gateway.
         channels: Configured inbound/outbound channel adapters.
-        kernel: Local kernel process and HTTP connectivity settings.
+        kernel: Legacy kernel connectivity settings (unused since refactor-387; retained for config-file backward compatibility).
         heartbeat: Local heartbeat scheduler polling settings.
         im_service: Optional upstream IM service configuration.
         llm: LLM registry configuration (required; no hardcoded fallback).
@@ -477,15 +483,15 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
 
 
 def resolve_kernel_token(token: str | None) -> str:
-    """Return the effective bearer token used for local kernel HTTP calls.
+    """Return the effective bearer token sourced from config or environment.
 
     Args:
-        token: Explicit token configured in `node-config.yaml`.
+        token: Explicit token configured in the gateway config file.
 
     Returns:
         Explicit token when provided, otherwise the shared process token from
-        `NANO_MULTIAGENT_API_TOKEN`, and finally a stable local default that
-        satisfies the kernel's bearer-header requirement for loopback startup.
+        ``NANO_MULTIAGENT_API_TOKEN``, and finally ``DEFAULT_LOCAL_KERNEL_TOKEN``
+        as a stable fallback.
     """
 
     if isinstance(token, str) and token.strip():

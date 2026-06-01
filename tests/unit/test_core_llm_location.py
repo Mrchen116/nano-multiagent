@@ -1,4 +1,8 @@
-"""Verify core/llm is the canonical home for shared LLM abstractions."""
+"""Verify core/llm is the canonical home for shared LLM abstractions.
+
+Post-#40 (refactor-387-M1): create_llm_client moved to agent.platform.llm.factory.
+Core only holds the LLMClient port + LLMFactoryConfig dataclass.
+"""
 
 from importlib.util import find_spec
 
@@ -10,7 +14,6 @@ from agent.core.llm import (
     LLMMessage,
     LLMToolCall,
     ModelMetadata,
-    create_llm_client,
     get_default_base_url,
     get_default_model,
     get_default_provider,
@@ -19,7 +22,6 @@ from agent.core.llm import (
     resolve_model_metadata,
 )
 from agent.core.llm.factory import LLMFactoryConfig as CoreLLMFactoryConfig
-from agent.core.llm.factory import create_llm_client as CoreCreateLLMClient
 from agent.core.llm.interfaces import LLMClient as CoreLLMClient
 from agent.core.llm.interfaces import LLMGenerateRequest as CoreLLMGenerateRequest
 from agent.core.llm.interfaces import LLMGenerateResponse as CoreLLMGenerateResponse
@@ -34,9 +36,11 @@ from agent.core.llm.model_registry import list_supported_providers as CoreListSu
 from agent.core.llm.model_registry import resolve_model_metadata as CoreResolveModelMetadata
 
 
-
 def test_core_llm_is_canonical_home() -> None:
-    """Core llm exports must originate from core-owned modules."""
+    """Core llm exports must originate from core-owned modules.
+
+    create_llm_client is no longer in core (moved to platform in #40/refactor-387-M1).
+    """
     assert LLMClient is CoreLLMClient
     assert LLMGenerateRequest is CoreLLMGenerateRequest
     assert LLMGenerateResponse is CoreLLMGenerateResponse
@@ -44,7 +48,6 @@ def test_core_llm_is_canonical_home() -> None:
     assert LLMToolCall is CoreLLMToolCall
     assert LLMFactoryConfig is CoreLLMFactoryConfig
     assert ModelMetadata is CoreModelMetadata
-    assert create_llm_client is CoreCreateLLMClient
     assert get_default_model is CoreGetDefaultModel
     assert get_default_base_url is CoreGetDefaultBaseUrl
     assert list_supported_providers is CoreListSupportedProviders
@@ -59,13 +62,18 @@ def test_core_llm_is_canonical_home() -> None:
     assert LLMToolCall.__module__ == "agent.core.llm.interfaces"
     assert LLMFactoryConfig.__module__ == "agent.core.llm.factory"
     assert ModelMetadata.__module__ == "agent.core.llm.model_registry"
-    assert create_llm_client.__module__ == "agent.core.llm.factory"
     assert get_default_model.__module__ == "agent.core.llm.model_registry"
     assert get_default_base_url.__module__ == "agent.core.llm.model_registry"
     assert list_supported_providers.__module__ == "agent.core.llm.model_registry"
     assert list_provider_models.__module__ == "agent.core.llm.model_registry"
     assert resolve_model_metadata.__module__ == "agent.core.llm.model_registry"
 
+
+def test_create_llm_client_lives_in_platform() -> None:
+    """create_llm_client must be in agent.platform.llm.factory, not core (#40)."""
+    from agent.platform.llm.factory import create_llm_client
+
+    assert create_llm_client.__module__ == "agent.platform.llm.factory"
 
 
 def test_legacy_llm_root_is_removed() -> None:

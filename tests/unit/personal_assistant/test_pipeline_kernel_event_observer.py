@@ -36,41 +36,49 @@ class _FakeChannel:
         return None
 
 
+class _FakeSession:
+    def __init__(self, session_id: str) -> None:
+        self.session_id = session_id
+
+
 class _StreamingKernel:
-    """Kernel double emitting a scripted run event stream."""
+    """Kernel SDK double emitting a scripted run event stream (refactor-387 M3+)."""
 
     def __init__(self, events: list[dict[str, Any]]) -> None:
         self._events = events
         self._session_counter = 0
         self.run_id: str = "run-1"
+        self._run_counter = 0
 
-    def create_session(self, **_kwargs: Any) -> dict[str, Any]:
+    async def create_session(self, **_kwargs: Any) -> _FakeSession:
         self._session_counter += 1
-        return {"session_id": f"sess-{self._session_counter}"}
+        return _FakeSession(session_id=f"sess-{self._session_counter}")
 
-    def get_session(self, *, session_id: str, **_kwargs) -> dict[str, Any]:
+    def get_session(self, session_id: str, *, workspace_root: Any = None, **_kwargs) -> dict[str, Any]:
         return {
             "session_id": session_id,
             "status": "active",
             "metadata": {"workspace_root": "/tmp"},
         }
 
-    def submit_message(self, **_kwargs: Any) -> dict[str, Any]:
-        return {"run_id": self.run_id, "status": "queued"}
+    def submit(self, *, session_id: str, parts: Any = None, **_kwargs: Any) -> Any:
+        self._run_counter += 1
+        from unittest.mock import MagicMock
+        record = MagicMock()
+        record.run_id = self.run_id
+        return record
 
-    async def stream_session(
-        self, *, session_id: str, last_event_id: int | None = None, workspace_root: str | None = None, **_kwargs
-    ):
-        del session_id, last_event_id, workspace_root
-        for ev in self._events:
-            yield dict(ev)
+    def stream(self, session_id: str, *, after_sequence: int = 0) -> Any:
+        events = list(self._events)
 
-    def interrupt_session(self, *, session_id: str, **_kwargs) -> dict[str, Any]:
+        async def _gen():
+            for ev in events:
+                yield dict(ev)
+
+        return _gen()
+
+    def interrupt(self, session_id: str) -> None:
         del session_id
-        return {"status": "interrupted"}
-
-    def append_message(self, **_kwargs: Any) -> dict[str, Any]:
-        return {"status": "appended"}
 
 
 def test_kernel_event_observer_receives_each_run_event_in_order(tmp_path: Path) -> None:
@@ -101,7 +109,7 @@ def test_kernel_event_observer_receives_each_run_event_in_order(tmp_path: Path) 
     observed: list[Mapping[str, Any]] = []
 
     pipeline = InboundPipeline(
-        kernel_client=kernel,
+        kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),

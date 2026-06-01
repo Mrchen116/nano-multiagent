@@ -13,7 +13,7 @@ from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
 
-from ._pipeline_helpers import _FakeChannel, _FakeKernelClient, _agents
+from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
 
 def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_for_new_conversations(tmp_path: Path) -> None:
@@ -25,10 +25,10 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
     )
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     store = SessionBindingStore()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=(initial_agent,),
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -167,10 +167,10 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
     )
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     store = SessionBindingStore()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=(initial_agent,),
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),

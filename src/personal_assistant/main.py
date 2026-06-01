@@ -26,8 +26,8 @@ from websockets.asyncio.client import ClientConnection
 
 from personal_assistant.channels.base import InboundMessage
 from personal_assistant.channels.web_relay_adapter import RelayDeduplicationStore, WebRelayAdapter
-from personal_assistant.client.kernel_api_client import KernelApiClient, KernelApiClientConfig
-from agent.core.llm.model_registry import init_model_registry
+# refactor-387-M4: import from agent.sdk (public surface) instead of agent.core internals.
+from agent.sdk import init_model_registry
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     ChannelConfig,
@@ -58,10 +58,9 @@ from personal_assistant.reporter.upstream_reporter import (
 from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatScheduler,
     HeartbeatSchedulerStateStore,
-    HeartbeatTickSummary,
 )
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
-from personal_assistant.ws.im_connection import AgentCreateHandler, IMConnectionConfig, IMConnectionManager
+from personal_assistant.ws.im_connection import AgentCreateHandler, IMConnectionConfig, IMConnectionManager, PromptPreviewProvider
 
 
 ProcessLike = subprocess.Popen[Any]
@@ -153,15 +152,6 @@ class HeartbeatRunner(Protocol):
 
     async def close(self) -> None:
         """Stop background scheduler ticking and wait for drain."""
-
-    def build_product_reports(self) -> list[dict[str, object]]:
-        """Return IM-facing heartbeat report payloads ready for `node.report`.
-
-        Returns:
-            Report payloads that should be forwarded to IM after heartbeat work has produced
-            a user-visible result. Implementations may return an empty list when there is
-            nothing new to publish.
-        """
 
 
 class IMConnectionManagerLike(Protocol):
@@ -675,12 +665,18 @@ class _IMBootstrapClient:
 
 
 class GatewayProcessManager:
-    """Manage the local agent kernel child process for the gateway.
+    """Legacy kernel subprocess manager — unused since refactor-387.
+
+    refactor-387 M3: the kernel runs in-process via agent.sdk; no child process
+    is spawned.  This class is retained only because GatewayRuntime still
+    accepts a ``process_manager`` parameter typed as ``GatewayProcessManager | None``
+    for backward compatibility with tests that pass None.  It will be removed
+    in a follow-up unit that trims the dead config+process management layer.
 
     Args:
-        config: Kernel process and health-probe settings loaded from local config.
-        kernel_client: HTTP client used for readiness probes.
-        process_factory: Factory used to spawn the kernel child process.
+        config: Legacy KernelConfig (unused at runtime).
+        kernel_client: Unused (was: HTTP client for readiness probes).
+        process_factory: Unused (was: factory to spawn the kernel subprocess).
         monotonic: Monotonic clock source for timeout accounting.
         sleep: Sleep function used between readiness probes.
     """
@@ -689,7 +685,7 @@ class GatewayProcessManager:
         self,
         *,
         config: KernelConfig,
-        kernel_client: KernelApiClient,
+        kernel_client: Any,   # KernelApiClient removed in M3; GatewayProcessManager is dead code until M4
         process_factory: ProcessFactory | None = None,
         monotonic: Monotonic = time.monotonic,
         sleep: Sleep = time.sleep,
@@ -702,16 +698,15 @@ class GatewayProcessManager:
         self.process: ProcessLike | None = None
 
     def start_kernel_process(self) -> ProcessLike:
-        """Spawn the local kernel child and wait until `/v1/health` reports ready.
+        """Spawn the kernel subprocess and poll until ``/v1/health`` reports ready.
+
+        Legacy method — not called since refactor-387 (kernel runs in-process).
 
         Returns:
             The spawned process handle once health probing succeeds.
 
         Raises:
             RuntimeError: When the kernel does not become healthy before timeout.
-
-        Side Effects:
-            Starts a subprocess and performs repeated HTTP health checks.
         """
 
         if self.process is not None:
@@ -785,7 +780,6 @@ class PollingHeartbeatRunner:
         self._stop_requested = False
         self._wake_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
-        self._product_reports: list[dict[str, object]] = []
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -812,21 +806,9 @@ class PollingHeartbeatRunner:
 
         self._wake_event.set()
 
-    def build_product_reports(self) -> list[dict[str, object]]:
-        """Return heartbeat report payloads ready for IM publication.
-
-        Returns:
-            Newly accumulated heartbeat summaries and clears the local queue so the runtime
-            publishes each heartbeat result to IM at most once.
-        """
-        payloads = list(self._product_reports)
-        self._product_reports.clear()
-        return payloads
-
     async def _run_loop(self) -> None:
         while not self._stop_requested:
-            summary = self._scheduler.tick()
-            self._product_reports.extend(_build_heartbeat_product_reports(summary))
+            await self._scheduler.tick()
             if self._stop_requested:
                 break
             try:
@@ -876,7 +858,9 @@ class GatewayRuntime:
 
     Args:
         config: Parsed immutable local gateway config.
-        process_manager: Kernel child-process lifecycle manager.
+        process_manager: Optional kernel child-process lifecycle manager.
+            Pass ``None`` (M3+) when the kernel runs in-process; the
+            runtime then skips subprocess spawn/stop.
         channel_registry: Registry containing configured channel adapters.
         heartbeat_runner: Background heartbeat loop wrapper.
         im_connection_manager: Optional IM websocket connector.
@@ -888,7 +872,7 @@ class GatewayRuntime:
     def __init__(
         self,
         config: LocalConfig,
-        process_manager: GatewayProcessManager,
+        process_manager: GatewayProcessManager | None,
         *,
         channel_registry: ChannelRegistry | None = None,
         heartbeat_runner: HeartbeatRunner | None = None,
@@ -946,7 +930,8 @@ class GatewayRuntime:
         dispatch_runner: Any | None = None
         im_task: asyncio.Task[None] | None = None
         try:
-            self._process_manager.start_kernel_process()
+            if self._process_manager is not None:
+                self._process_manager.start_kernel_process()
             start_channels(self._channel_registry, self._on_inbound)
             channels_started = True
             if self._heartbeat_runner is not None:
@@ -978,10 +963,8 @@ class GatewayRuntime:
                     except GatewayStartupError as exc:
                         await self._publish_startup_failure(exc)
                         raise
-                await self._publish_heartbeat_product_reports()
                 im_task = asyncio.create_task(self._im_connection_manager.run_forever(), name="personal-assistant-im")
             await asyncio.to_thread(self._shutdown_requested.wait)
-            await self._publish_heartbeat_product_reports()
             return 0
         finally:
             self._ready_event.clear()
@@ -1000,7 +983,8 @@ class GatewayRuntime:
                 im_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await im_task
-            self._process_manager.stop_kernel_process()
+            if self._process_manager is not None:
+                self._process_manager.stop_kernel_process()
             for closer in self._resource_closers:
                 closer()
 
@@ -1020,29 +1004,6 @@ class GatewayRuntime:
             await manager.send_json("node.heartbeat", payload)
         except Exception:  # noqa: BLE001
             return
-
-    async def _publish_heartbeat_product_reports(self) -> None:
-        """Forward any newly produced heartbeat summaries to IM as user-visible reports.
-
-        Notes:
-            Heartbeat scheduling itself stays local to the gateway process. This bridge only
-            ships already-prepared report payloads into the existing IM `node.report` path so
-            the result becomes visible in the same product conversation surface as normal relay
-            work.
-        """
-        manager = self._im_connection_manager
-        runner = self._heartbeat_runner
-        if manager is None or not manager.connected or runner is None:
-            return
-        build_reports = getattr(runner, "build_product_reports", None)
-        if build_reports is None:
-            return
-        for payload in build_reports():
-            try:
-                await manager.send_json("node.report", payload)
-            except Exception:  # noqa: BLE001
-                return
-
 
 def _load_runtime_config(
     config_path: str | Path,
@@ -1161,7 +1122,9 @@ def launch_gateway_in_background(
         ) from exc
     result = BackgroundLaunchResult(
         pid=process.pid,
-        health_url=f"{config.kernel.base_url}{config.kernel.health_path}",
+        # refactor-387 M3: kernel is in-process; no separate health endpoint.
+        # Use the IM service URL as the operator-facing health hint when available.
+        health_url=config.im_service.url if config.im_service is not None else f"pid={process.pid}",
         log_path=log_path,
         im_service_url=config.im_service.url if config.im_service is not None else None,
     )
@@ -1271,6 +1234,102 @@ def _healthcheck_reports_healthy(health_url: str) -> bool:
     return response.status_code == 200 and isinstance(payload, dict) and bool(payload.get("healthy"))
 
 
+class _KernelClientShim:
+    """Adapt agent.sdk.Kernel to the kernel_client protocol.
+
+    HeartbeatScheduler and InternalDispatchHandler use the old kernel_client
+    interface (create_session/submit_message/append_message).  This shim
+    bridges them to the in-process Kernel SDK.
+
+    create_session is async so it can be properly awaited from the gateway's
+    async event loop — run_until_complete on an already-running loop raises
+    RuntimeError (refactor-387 M4 fix; previously the shim used that approach
+    which silently prevented all heartbeat/cron runs from being submitted).
+    """
+
+    def __init__(self, kernel: "Kernel") -> None:
+        self._kernel = kernel
+
+    async def create_session(
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        session = await self._kernel.create_session(
+            title=title,
+            workspace_root=Path(workspace_root),
+            metadata=metadata,
+        )
+        return {"session_id": session.session_id}
+
+    def submit_message(
+        self,
+        *,
+        session_id: str,
+        texts: list[str],
+        image_urls: list[dict[str, object]] | None = None,
+        workspace_root: str | None = None,
+        origin: str | None = None,
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        from agent.sdk import RunOrigin as _RunOrigin  # refactor-387-M4
+        parts: list[dict] = [{"type": "text", "text": t} for t in texts]
+        for img in image_urls or []:
+            url = img.get("url")
+            if isinstance(url, str) and url.strip():
+                img_part: dict = {"type": "image", "image_url": url.strip()}
+                mime = img.get("content_type")
+                if isinstance(mime, str) and mime.strip():
+                    img_part["mime_type"] = mime.strip()
+                parts.append(img_part)
+        # Map string origin → RunOrigin enum; default to SYSTEM for heartbeat/background.
+        run_origin = _RunOrigin.HEARTBEAT if origin == "heartbeat" else _RunOrigin.SYSTEM
+        run_record = self._kernel.submit(
+            session_id=session_id,
+            parts=parts,
+            origin=run_origin,
+            workspace_root=Path(workspace_root) if workspace_root else None,
+        )
+        return {"run_id": run_record.run_id, "anchor_sequence": 0, "status": "queued"}
+
+    def append_message(
+        self,
+        *,
+        session_id: str,
+        role: str,
+        content: str,
+        message_id: str | None = None,
+        workspace_root: str | None = None,
+        idempotency_key: str | None = None,
+        metadata: dict[str, object] | None = None,
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        self._kernel.append_message(
+            session_id,
+            role=role,
+            content=content,
+            message_id=message_id,
+            workspace_root=Path(workspace_root) if workspace_root else None,
+            idempotency_key=idempotency_key,
+            metadata=metadata,
+        )
+        return {"status": "appended"}
+
+    def get_session(
+        self, *, session_id: str, workspace_root: str | None = None
+    ) -> dict[str, object]:
+        return self._kernel.get_session(
+            session_id,
+            workspace_root=Path(workspace_root) if workspace_root else None,
+        )
+
+    def close(self) -> None:
+        pass
+
+
 def _verify_stopped_health_url(health_url: str, *, timeout_seconds: float, sleep_seconds: float) -> bool:
     deadline = time.monotonic() + timeout_seconds
     while time.monotonic() <= deadline:
@@ -1280,34 +1339,78 @@ def _verify_stopped_health_url(health_url: str, *, timeout_seconds: float, sleep
     return not _healthcheck_reports_healthy(health_url)
 
 
-def build_runtime(config: LocalConfig) -> GatewayRuntime:
-    """Construct the default long-running gateway runtime from parsed local config."""
+def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
+    """Build a PromptPreviewProvider backed by Kernel.assemble_prompt_preview.
 
-    kernel_token = resolve_kernel_token(config.kernel.token)
-    kernel_client = KernelApiClient(
-        config=KernelApiClientConfig(
-            base_url=config.kernel.base_url,
-            token=kernel_token,
-            request_id=config.kernel.request_id,
-            timeout_seconds=config.kernel.timeout_seconds,
+    sdk-fix-prompt-preview: in-process replacement for the removed kernel HTTP
+    /v1/prompt-preview endpoint (refactor-387 M3 regression).  The returned
+    callable matches PromptPreviewProvider signature so IMConnectionManager can
+    call it transparently.
+
+    Args:
+        kernel: Assembled Kernel instance (agent.sdk.Kernel).
+
+    Returns:
+        Sync callable matching PromptPreviewProvider: (agent_id, workspace_root,
+        features, custom_prompt, tool_ids, scenario, skill_ids) → dict.
+    """
+    from pathlib import Path as _Path  # noqa: PLC0415 — local import avoids circular risk
+
+    def _provider(
+        agent_id: str,
+        workspace_root: str,
+        features: dict,
+        custom_prompt: "str | None",
+        tool_ids: list,
+        scenario: str,
+        skill_ids: list = (),
+    ) -> dict:
+        return kernel.assemble_prompt_preview(
+            workspace_root=_Path(workspace_root) if workspace_root else None,
+            features=features or {},
+            custom_prompt=custom_prompt,
+            tool_ids=list(tool_ids) if tool_ids else [],
+            scenario=scenario or "direct",
+            skill_ids=list(skill_ids) if skill_ids else [],
         )
-    )
-    _llm_config_json = config.llm.to_json()
 
-    def _spawn_kernel_with_llm_env(command: str) -> ProcessLike:
-        import copy
-        env = copy.copy(os.environ.copy())
-        env["NANO_MULTIAGENT_LLM_CONFIG_JSON"] = _llm_config_json
-        _kernel_log = Path("~/.nano-assistant/kernel.log").expanduser()
-        _kernel_log.parent.mkdir(parents=True, exist_ok=True)
-        _log_file = _kernel_log.open("ab")
-        return subprocess.Popen(shlex.split(command), stdout=_log_file, stderr=_log_file, env=env)
+    return _provider  # type: ignore[return-value]
 
-    process_manager = GatewayProcessManager(
-        config=config.kernel,
-        kernel_client=kernel_client,
-        process_factory=_spawn_kernel_with_llm_env,
+
+def build_runtime(config: LocalConfig) -> GatewayRuntime:
+    """Construct the default long-running gateway runtime from parsed local config.
+
+    refactor-387 M3: kernel is now in-process via agent.sdk.  No kernel child
+    process is spawned; GatewayProcessManager is no longer used here.
+    """
+    # refactor-387-M4: import from agent.sdk only
+    from agent.sdk import build_kernel, PermissionDecision as _PermissionDecision, LLMFactoryConfig as _LLMFactoryConfig, PERSONAL_ASSISTANT_PROFILE
+
+    # PA permission strategy: unattended gateway — auto-allow all tools.
+    # The gateway is primarily a relay for heartbeat/cron and user-triggered turns;
+    # blocking for a user who may be absent would deadlock the run.
+    async def _pa_can_use_tool(
+        tool_name: str,
+        tool_input: object,
+        ctx: object,
+    ) -> "_PermissionDecision":
+        return _PermissionDecision(behavior="allow")
+
+    # init_model_registry(config.llm) is called by run_gateway before build_runtime;
+    # LLMFactoryConfig.from_env() reads from the global model registry.
+    llm_factory_config = _LLMFactoryConfig.from_env()
+
+    kernel = build_kernel(
+        product_profile=PERSONAL_ASSISTANT_PROFILE,
+        llm_config=llm_factory_config,
+        can_use_tool=_pa_can_use_tool,
     )
+
+    # Wrap Kernel as a _KernelClientLike shim so HeartbeatScheduler and
+    # InternalDispatchHandler (which still use kernel_client protocol) work
+    # without modification until M4 cleanup.
+    kernel_shim = _KernelClientShim(kernel)
+
     runtime_dir = config.source_path.parent
     channel_registry = _build_channel_registry(
         config.channels,
@@ -1317,7 +1420,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     heartbeat_runner = PollingHeartbeatRunner(
         scheduler=HeartbeatScheduler(
             agents=config.agents,
-            kernel_client=kernel_client,
+            kernel_client=kernel_shim,
             state_store=HeartbeatSchedulerStateStore(_default_heartbeat_state_path(config)),
         ),
         config=config.heartbeat,
@@ -1329,15 +1432,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     post_im_connect: Callable[[], None] | None = None
     _run_context_store: dict[str, dict[str, str]] = {}
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
-    # (NodeGateway-SPEC §4.2).  The kernel_client is injected below after construction
-    # so that live session validation (GET /v1/sessions/{id}) is enabled at runtime.
+    # (NodeGateway-SPEC §4.2).  Live session validation is done via kernel.get_session
+    # inside InboundPipeline._binding_matches_workspace_root — no kernel_client needed.
     session_store = PersistentSessionBindingStore(
         db_path=runtime_dir / "session_bindings.sqlite3"
     )
-    session_store.set_kernel_client(kernel_client)
     _gateway_internal_port = 8089
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel,
         agents=config.agents,
         outbound_router=outbound_router,
         run_queue=SessionRunQueue(),
@@ -1372,10 +1474,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             local_config=config,
             auth_client=_auth_client,
         )
-        _permission_response_handler = _build_permission_response_handler(
-            kernel_client=kernel_client,
-            run_context_store=_run_context_store,
-        )
+        # M3: permission response handler is no longer wired — the SDK's can_use_tool
+        # callback handles all permission decisions in-process (design decision 3).
         im_connection_manager = _build_im_connection_manager(
             config=config,
             relay_adapter=relay_adapter,
@@ -1387,23 +1487,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 workspace_root=workspace_root,
                 tool_allowlist=_resolve_agent_tool_allowlist(im_config_sync_client, agent_id),
             ),
-            # feat-379-M2 R5: prompt_preview_provider calls agent HTTP /v1/prompt-preview
-            # so the IM frontend can display a preview of the assembled system prompt.
-            # feat-383-M1: lambda now forwards workspace_root and skill_ids so the kernel
-            # can resolve real tool descriptions and skill content.
-            prompt_preview_provider=lambda agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids: (  # noqa: ARG005
-                kernel_client.prompt_preview(
-                    features=features,
-                    custom_prompt=custom_prompt,
-                    tool_ids=tool_ids,
-                    scenario=scenario,
-                    workspace_root=workspace_root or None,
-                    skill_ids=list(skill_ids) if skill_ids else [],
-                )
-            ),
+            # sdk-fix-prompt-preview: assemble_prompt_preview is now available on the
+            # in-process Kernel (refactor-387 M3 regression fix).  The provider
+            # signature matches PromptPreviewProvider: (agent_id, workspace_root,
+            # features, custom_prompt, tool_ids, scenario, skill_ids) → preview dict.
+            prompt_preview_provider=_make_prompt_preview_provider(kernel),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
-            permission_response_handler=_permission_response_handler,
+            permission_response_handler=None,
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -1428,14 +1519,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             session_store=pipeline._session_store,
         )
     inbound_dispatcher = _InboundDispatcher(pipeline)
-    closers: list[Callable[[], None]] = [kernel_client.close]
+    closers: list[Callable[[], None]] = [kernel.close]
     if im_bootstrap_client is not None:
         closers.append(im_bootstrap_client.close)
     if im_config_sync_client is not None:
         closers.append(im_config_sync_client.close)
     internal_dispatch_handler = InternalDispatchHandler(
         im_connection_manager=im_connection_manager,
-        kernel_client=kernel_client,
+        kernel_client=kernel_shim,
         session_store=session_store,
         agent_workspace_roots={
             agent.agent_id: str(agent.workspace_root) for agent in config.agents
@@ -1443,7 +1534,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
     return GatewayRuntime(
         config,
-        process_manager,
+        None,   # no kernel subprocess — kernel runs in-process (M3+)
         channel_registry=channel_registry,
         heartbeat_runner=heartbeat_runner,
         im_connection_manager=im_connection_manager,
@@ -1669,7 +1760,7 @@ def _build_im_connection_manager(
 
 def _build_permission_response_handler(
     *,
-    kernel_client: KernelAPIClient,
+    kernel_client: Any,   # KernelAPIClient removed in M3; this function is dead code until M4 cleanup
     run_context_store: dict[str, dict[str, str]],
 ) -> Callable[[Mapping[str, object]], None]:
     """Build handler that routes IM permission_response frames to the kernel.
@@ -2162,34 +2253,6 @@ def _build_session_event_callback(
     return _callback
 
 
-def _build_heartbeat_product_reports(summary: HeartbeatTickSummary) -> list[dict[str, object]]:
-    """Translate heartbeat tick results into IM-visible `node.report` payloads.
-
-    Args:
-        summary: Scheduler tick result containing newly triggered heartbeat runs.
-
-    Returns:
-        One completed report payload per triggered heartbeat run. The payload is shaped to fit
-        the existing IM `node.report` persistence path so heartbeat outcomes appear in the same
-        product event stream as other agent execution updates.
-    """
-    payloads: list[dict[str, object]] = []
-    for run in summary.triggered_runs:
-        payloads.append(
-            {
-                "run_id": run.run_id,
-                "status": "completed",
-                "agent_id": run.agent_id,
-                "session_key": f"{run.agent_id}::heartbeat",
-                "conversation_id": f"heartbeat:{run.agent_id}",
-                "message_id": run.run_id,
-                "summary": f"Heartbeat complete for main agent {run.agent_id} at {run.due_at.isoformat()}.",
-                "guidance": "Open your main agent thread in Web IM to review the latest heartbeat result.",
-            }
-        )
-    return payloads
-
-
 def _metadata_text(metadata: Mapping[str, object], *, key: str) -> str | None:
     value = metadata.get(key)
     if not isinstance(value, str):
@@ -2383,27 +2446,21 @@ def _spawn_background_gateway_process(argv: list[str], log_path: Path) -> Proces
 
 
 def _wait_for_gateway_ready(process: ProcessLike, config: LocalConfig, timeout_seconds: float) -> None:
+    """Wait for the background gateway to write its PID file (ready signal).
+
+    refactor-387 M3: the kernel is in-process and has no HTTP health endpoint.
+    We detect readiness by waiting for the gateway PID file to appear on disk —
+    run_gateway() writes it via _write_gateway_pid() after runtime.run_forever() starts.
+    """
+    pid_path = _gateway_pid_path(config)
     deadline = time.monotonic() + timeout_seconds
-    last_error: Exception | None = None
     while time.monotonic() <= deadline:
         if process.poll() is not None:
             raise RuntimeError(f"gateway exited before ready with return code {process.poll()}")
-        try:
-            response = httpx.get(
-                f"{config.kernel.base_url}{config.kernel.health_path}",
-                timeout=1.0,
-                trust_env=False,
-            )
-            payload = response.json()
-            if isinstance(payload, dict) and bool(payload.get("healthy")):
-                return
-            last_error = RuntimeError(f"unexpected health payload: {payload}")
-        except Exception as exc:  # noqa: BLE001
-            last_error = exc
-        time.sleep(config.kernel.health_poll_interval_seconds)
-    if last_error is not None:
-        raise RuntimeError("timed out waiting for gateway readiness") from last_error
-    raise RuntimeError("timed out waiting for gateway readiness")
+        if pid_path.exists():
+            return
+        time.sleep(config.kernel.health_poll_interval_seconds or 0.2)
+    raise RuntimeError("timed out waiting for gateway readiness (pid file never appeared)")
 
 
 def _stop_background_process(process: ProcessLike, *, timeout_seconds: float) -> None:

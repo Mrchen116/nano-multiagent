@@ -13,16 +13,16 @@ from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore, build_session_key
 
-from ._pipeline_helpers import _FakeChannel, _FakeKernelClient, _agents
+from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
 
 def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -87,9 +87,9 @@ def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_
     (tmp_path / "agent-a").mkdir(exist_ok=True)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -134,10 +134,10 @@ def test_inbound_pipeline_recreates_bound_session_when_workspace_mismatches(tmp_
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     session_store = SessionBindingStore()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -181,14 +181,14 @@ def test_inbound_pipeline_emits_running_and_completed_relay_lifecycle_reports_wh
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     seen: list[tuple[str, str | None, str | None]] = []
 
     async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
         seen.append((update.phase, update.run_id, message.metadata.get("message_id")))
 
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -219,14 +219,14 @@ def test_inbound_pipeline_emits_relay_lifecycle_updates_for_web_relay_messages(t
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     seen: list[tuple[str, str | None, str | None]] = []
 
     async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
         seen.append((update.phase, update.run_id, message.metadata.get("message_id")))
 
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -257,7 +257,7 @@ def test_inbound_pipeline_emits_real_usage_in_completed_relay_update(tmp_path: P
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     seen: list[object] = []
 
     async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
@@ -266,7 +266,7 @@ def test_inbound_pipeline_emits_real_usage_in_completed_relay_update(tmp_path: P
             seen.append(update.usage)
 
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -299,9 +299,9 @@ def test_inbound_pipeline_treats_statusless_run_snapshot_with_output_as_complete
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -337,14 +337,14 @@ def test_inbound_pipeline_builds_reply_text_from_session_events_when_run_snapsho
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     seen: list[tuple[str, str | None, str | None, str | None]] = []
 
     async def _capture(message: InboundMessage, update) -> None:  # noqa: ANN001
         seen.append((update.phase, update.run_id, message.metadata.get("message_id"), update.reply_text))
 
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -398,9 +398,9 @@ def test_inbound_pipeline_prefers_completed_run_output_text_over_streamed_text(t
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -435,9 +435,9 @@ def test_inbound_pipeline_prefers_completed_no_reply_token_even_when_streamed_te
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -474,9 +474,9 @@ def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_defau
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
 
-    explicit_kernel = _FakeKernelClient()
+    explicit_kernel = _FakeKernel()
     explicit_pipeline = InboundPipeline(
-        kernel_client=explicit_kernel,
+        kernel=explicit_kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -494,9 +494,9 @@ def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_defau
         )
     ))
 
-    bound_kernel = _FakeKernelClient()
+    bound_kernel = _FakeKernel()
     bound_pipeline = InboundPipeline(
-        kernel_client=bound_kernel,
+        kernel=bound_kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -515,9 +515,9 @@ def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_defau
         )
     ))
 
-    default_kernel = _FakeKernelClient()
+    default_kernel = _FakeKernel()
     default_pipeline = InboundPipeline(
-        kernel_client=default_kernel,
+        kernel=default_kernel,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -543,9 +543,9 @@ def test_inbound_pipeline_trusts_group_relay_target_agent_over_mentions(tmp_path
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -581,9 +581,9 @@ def test_inbound_pipeline_freezes_group_agent_id_even_without_additional_snapsho
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -632,10 +632,10 @@ def test_inbound_pipeline_reuses_existing_session_binding_per_session_key(tmp_pa
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     store = SessionBindingStore()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -662,10 +662,10 @@ def test_inbound_pipeline_refreshes_legacy_binding_without_workspace_root(tmp_pa
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     store = SessionBindingStore()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),

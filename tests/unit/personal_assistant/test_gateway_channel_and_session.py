@@ -14,7 +14,7 @@ from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore, build_session_key
 
-from ._pipeline_helpers import _FakeChannel, _FakeKernelClient, _agents
+from ._pipeline_helpers import _FakeChannel, _FakeKernel, _agents
 
 
 def test_channel_registry_and_bootstrap_manage_adapter_lifecycle() -> None:
@@ -63,10 +63,10 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
     )
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeKernelClient()
+    kernel_client = _FakeKernel()
     store = SessionBindingStore()
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=(initial_agent,),
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),

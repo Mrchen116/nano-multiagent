@@ -28,8 +28,8 @@ _WHITELIST: frozenset[str] = frozenset({
     # bootstrap.py: JsonlSessionStore fallback dirname — platform default, not product-specific
     "src/agent/platform/bootstrap.py:133",
     # runtime.py: tool-results dir uses .nano — platform default dir, not per-workspace
-    # Line shifted from 131 to 136 after M4 MemorySnapshot TypedDict expansion
-    "src/agent/core/agent/runtime.py:136",
+    # Line shifted from 136 to 149 after refactor-387-M1 llm_client_factory DI insertion
+    "src/agent/core/agent/runtime.py:149",
     # skills/discovery.py: .nano skill search root — platform default, pre-185
     "src/agent/core/skills/discovery.py:45",
     # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
@@ -47,8 +47,9 @@ _WHITELIST: frozenset[str] = frozenset({
     # auto_mode_gate.py: .nanocode workspace_config_dir — this IS a hardcode, but pre-existing
     "src/agent/platform/hooks/builtins/auto_mode_gate.py:679",
     # coding_cli/commands.py: .nanocode global/workspace config — CLI UX, pre-existing
-    "src/coding_cli/commands.py:655",
-    "src/coding_cli/commands.py:659",
+    # Line numbers shifted after refactor-387-M2 fix2 (_build_llm_config_payload added)
+    "src/coding_cli/commands.py:1070",
+    "src/coding_cli/commands.py:1071",
 })
 
 # Patterns to detect (as string literals in code)

@@ -73,10 +73,7 @@ PYTHONPATH=src python -m personal_assistant.main restart
 ### 启动 Coding CLI
 
 ```bash
-# Managed 模式（自动起本地 API）
-PYTHONPATH=src python3 -m coding_cli.main \
-  --mode managed \
-  --base-url http://127.0.0.1:8000
+PYTHONPATH=src python3 -m coding_cli.main
 
 # 或指定模型
 PYTHONPATH=src python3 -m coding_cli.main --model volcanoArk:doubao-seed-2-0-code-preview-260215
@@ -152,38 +149,42 @@ llm:
 
 ### 非交互式 CLI 命令
 
-```bash
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 health
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 create-session --title "demo"
-PYTHONPATH=src python3 -m coding_cli.main --mode remote --base-url http://127.0.0.1:8000 send-message --session-id <id> --text "hello"
-```
+> refactor-387 起：内核无 HTTP API。`--mode managed/remote`、`--base-url`，以及
+> `health` / `create-session` / `send-message` 等「对 HTTP 端点喊话」的子命令已移除——
+> 它们只为旧的内核 HTTP server 而存在。CLI 即进程内 REPL（见上节）。
 
 ## 架构总览
 
-四个独立顶层包，无 Python import 依赖，各自独立部署：
+四个顶层包。内核（agent）是**库**，对外只暴露 `agent.sdk`；两个产品 import 它进程内直跑：
 
 ```
 src/
-├── agent/                # Agent 执行内核（HTTP API  only）
-│   ├── core/             # 纯逻辑：runtime, loop, tools, hooks, skills, session
-│   ├── platform/         # 集成层：HTTP API, LLM providers, persistence, safety
-│   └── products/         # 产品 profile：local_coding, personal_assistant
-├── coding_cli/           # 本地编码 CLI（终端 REPL）
-├── personal_assistant/   # 个人助手 Node Gateway（常驻进程，Channel + Heartbeat）
+├── agent/                # Agent 内核库（对外只暴露 agent.sdk，不内置 HTTP API）
+│   ├── core/             # 纯逻辑：runtime/loop/runs/tools/hooks/skills/session；只持 LLMClient 端口
+│   ├── platform/         # 集成层：LLM provider 具体实现、persistence、safety、bootstrap
+│   ├── products/         # 产品 profile：local_coding, personal_assistant
+│   └── sdk/              # 唯一对外面：build_kernel() → Kernel
+├── coding_cli/           # 本地编码 CLI（async-native REPL，import agent.sdk 进程内直跑）
+├── personal_assistant/   # 个人助手 Node Gateway（常驻进程，import agent.sdk 进程内持有 Kernel）
 └── IM/                   # IM 中心服务（Web IM + 配置中心 + 消息中继）
     └── frontend/         # React + TS + Vite
 ```
 
 依赖方向硬规则（由 `tests/contract/` 自动验收）：
-- `coding_cli` → `agent`（HTTP only，禁止直接 import）
-- `personal_assistant` → `agent`（HTTP only，禁止直接 import）
-- `IM` 不直接调用 `agent`，只与用户和 `personal_assistant` 交互
-- 四个包之间禁止相互 import
+- `coding_cli` / `personal_assistant` → **只许 import `agent.sdk`**，禁止 import `agent.core` / `agent.platform` 内部
+- `IM` 不调用 `agent`，只与用户和 `personal_assistant` 交互
+- `coding_cli` / `personal_assistant` / `IM` 三者之间禁止相互 import
 
-agent 内核三层：`core`（纯逻辑）→ `platform`（接环境）→ `products`（装配方案）。
-依赖方向：`platform → products + core`，禁止反向。`core` 不依赖 `platform` / `products`。
+agent 内核四层：`core`（纯逻辑）→ `platform`（接环境）→ `products`（装配方案）→ `sdk`（对外面）。
+依赖方向：`platform → core + products`；`sdk → core + platform + products`（唯一对外面）；`core` 不依赖 `platform` / `products`。
 
 ## 运行时服务并行启动
+
+> **refactor-387 过渡说明**：内核已改为进程内库（无独立 HTTP API）。本节下文出现的「Kernel API
+> (uvicorn)」「Coding CLI managed API」「gateway spawn kernel uvicorn」均为**旧架构遗留**——
+> 内核不再单独起进程，Gateway 进程内持有内核，CLI 进程内直跑。`scripts/e2e-up.sh`、端口分配、
+> 启停范式等 e2e 运维细节随脚本改写在本 unit 内（M3/M4）一并更新；在那之前，下面带「Kernel API」
+> 的条目按历史内容理解，不要据其新起独立内核进程。
 
 **在 worktree 内起任何监听端口的服务,都必须分配空闲端口,并 kill 自己起的进程**——主仓默认端口(8011 / 8000 / 5173)保留给用户手起的"主"实例,worktree 走 ephemeral 高位口,这样 `lsof -i :8011` 看到的永远是主实例,不会误把分支代码当成主仓。
 
@@ -308,7 +309,7 @@ Gateway 第一次连一个新 IM 实例时,IM 要求确认绑定 owner,默认会
 - **注释规范**：见 COMMENTING_GUIDE.md。public API 必须写 Google 风格 docstring；注释写"为什么/约束"而非"做什么"。
 - **TODO/FIXME 格式**：`TODO(<issue-id>): <改进> — <删除条件>` / `FIXME(<issue-id>): <缺陷> — <影响/风险>`
 - **Commit message 格式**：`<type>(<unit>/<milestone>/<roadpoint>): <desc>`，scope 用 unit 实际目录下的 id（如 `bugfix-355/M5/R1`）。milestone 级 commit 省 roadpoint（`bugfix-355/M5`），unit 级省 milestone（`bugfix-355`）。phase 通过 type 体现：C1 红测=`test`、C2 实现=`feat`/`fix`/`refactor`、C3 文档=`docs`。
-- **模块边界**：CLI 只能通过 `ServerClient` 访问 API；不要在 `commands.py` 里重新导出内部实现。
+- **模块边界**：产品（CLI / Gateway）只能 import `agent.sdk`，不得 import `agent.core` / `agent.platform` 内部；不要在 `commands.py` 里重新导出内核内部实现。
 - **单测优先**：修改后先跑最窄的单元测试，再跑集成/contract。
 - **前端产物**：`src/IM/frontend/dist/` 是构建产物，不提交；需要时在前端目录执行 `npm run build`。
 

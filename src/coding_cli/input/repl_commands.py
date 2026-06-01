@@ -1,9 +1,11 @@
-"""REPL slash-command parsing and execution helpers."""
+"""REPL slash-command parsing and execution helpers.
+
+``client`` parameters accept any Kernel-compatible object — the async REPL in
+commands.py dispatches through Kernel SDK directly.  All helpers are HTTP-free.
+"""
 
 from dataclasses import dataclass
-from typing import Callable, Sequence, TextIO
-
-from coding_cli.client import ServerClient
+from typing import Any, Callable, Sequence, TextIO
 
 _DEFAULT_HISTORY_LIMIT = 20
 REPL_COMMANDS = ("/help", "/new", "/use", "/session", "/tools", "/compact", "/history", "/exit")
@@ -44,7 +46,7 @@ def handle_repl_command(
     *,
     line: str,
     out: TextIO,
-    client: ServerClient,
+    client: Any,
     active_session_id: str | None,
     history_by_session: dict[str, list[tuple[str, str]]],
     extract_session_id: Callable[[dict[str, object]], str],

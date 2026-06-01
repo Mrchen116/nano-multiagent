@@ -57,7 +57,9 @@ def test_commands_delegates_error_layer_and_suggestion_mapping_to_apps_module() 
 
 
 
-def test_run_repl_passes_supported_commands_to_apps_input_reader(monkeypatch) -> None:
+def test_run_repl_passes_supported_commands_to_apps_input_reader(monkeypatch, tmp_path) -> None:
+    from tests.unit._cli_kernel_stubs import _BaseKernelStub, _make_kernel_factory
+
     captured: dict[str, tuple[str, ...]] = {}
 
     def _fake_build_reader(*, out, input_fn, repl_input_reader_factory, command_suggestions, **_kwargs):
@@ -69,9 +71,10 @@ def test_run_repl_passes_supported_commands_to_apps_input_reader(monkeypatch) ->
     output = io.StringIO()
 
     exit_code = run_cli(
-        ["--base-url", "http://127.0.0.1:8000"],
+        [],
         stdout=output,
-        client_factory=lambda _: _ExitOnlyStubClient(),
+        kernel_factory=_make_kernel_factory(_BaseKernelStub()),
+        workspace_root=tmp_path,
     )
 
     assert exit_code == 0

@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from agent.core.agent.runtime import AgentRuntime
-from agent.core.llm.factory import create_llm_client
+from agent.platform.llm.factory import create_llm_client
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 from agent.platform.persistence.session.service import SessionService

@@ -245,12 +245,10 @@ class HookContext:
         requester = self.permission_requester
         if requester is None:
             # Fail-closed: no interactive permission channel → deny.
-            # Import here (only reached at runtime when permission requested
-            # but no broker is wired) to keep the class definition clean.
-            # This import is intentionally deferred — see TYPE_CHECKING guard.
-            from agent.platform.permissions.broker import PermissionResponse  # noqa: PLC0415
-
-            return PermissionResponse(
+            # Return a duck-typed namespace matching PermissionResponse.decision
+            # to avoid a core → platform import violation (#40).
+            import types  # noqa: PLC0415
+            return types.SimpleNamespace(
                 decision="deny",
                 reason="no permission channel (fail-closed)",
             )

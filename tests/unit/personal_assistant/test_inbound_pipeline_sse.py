@@ -12,21 +12,21 @@ from personal_assistant.gateway.outbound_router import OutboundRouter
 from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import SessionBindingStore
 
-from ._pipeline_helpers import _FakeChannel, _FakeSseKernelClient, _agents
+from ._pipeline_helpers import _FakeChannel, _FakeSseKernel, _agents
 
 
 def test_inbound_pipeline_uses_sse_path_when_submit_and_stream_available(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeSseKernelClient(
+    kernel_client = _FakeSseKernel(
         events=[
             {"event": "assistant_message", "run_id": "run-1", "content": "sse reply"},
             {"event": "run_status", "run_id": "run-1", "status": "completed"},
         ]
     )
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -46,7 +46,10 @@ def test_inbound_pipeline_uses_sse_path_when_submit_and_stream_available(tmp_pat
     assert result is not None
     assert result.agent_id == "agent-a"
     assert result.reply_text == "sse reply"
-    assert kernel_client.submit_calls == [{"session_id": "sess-1", "texts": ["ping"], "run_id": "run-1", "priority": "next"}]
+    # M3: kernel.submit replaces submit_message; priority is not exposed on the SDK interface.
+    assert len(kernel_client.submit_calls) == 1
+    assert kernel_client.submit_calls[0]["session_id"] == "sess-1"
+    assert kernel_client.submit_calls[0]["texts"] == ["ping"]
     assert channel.sent == [
         OutboundMessage(
             channel_name="web",
@@ -62,7 +65,7 @@ def test_inbound_pipeline_sse_path_extracts_reply_from_assistant_message(tmp_pat
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeSseKernelClient(
+    kernel_client = _FakeSseKernel(
         events=[
             {"event": "tool_start", "run_id": "run-1", "tool_name": "web_search"},
             {"event": "assistant_message", "run_id": "run-1", "content": "found it"},
@@ -71,7 +74,7 @@ def test_inbound_pipeline_sse_path_extracts_reply_from_assistant_message(tmp_pat
         ]
     )
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -96,14 +99,14 @@ def test_inbound_pipeline_sse_path_raises_on_failed_run(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeSseKernelClient(
+    kernel_client = _FakeSseKernel(
         events=[
             {"event": "assistant_message", "run_id": "run-1", "content": "oops"},
             {"event": "run_status", "run_id": "run-1", "status": "failed", "error": "boom"},
         ]
     )
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -134,7 +137,7 @@ def test_inbound_pipeline_sse_path_routes_non_user_origin_events(tmp_path: Path)
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeSseKernelClient(
+    kernel_client = _FakeSseKernel(
         events=[
             {"event": "assistant_message", "run_id": "run-other", "content": "background", "origin": "background_task"},
             {"event": "assistant_message", "run_id": "run-1", "content": "user reply"},
@@ -142,7 +145,7 @@ def test_inbound_pipeline_sse_path_routes_non_user_origin_events(tmp_path: Path)
         ]
     )
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -168,7 +171,7 @@ def test_inbound_pipeline_sse_path_relay_lifecycle_emits_completed_with_usage(tm
     agents = _agents(tmp_path)
     channel = _FakeChannel("web_relay")
     registry = ChannelRegistry((channel,))
-    kernel_client = _FakeSseKernelClient(
+    kernel_client = _FakeSseKernel(
         events=[
             {"event": "assistant_message", "run_id": "run-1", "content": "ok"},
             {"event": "run_status", "run_id": "run-1", "status": "completed", "usage": {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}},
@@ -181,7 +184,7 @@ def test_inbound_pipeline_sse_path_relay_lifecycle_emits_completed_with_usage(tm
         seen.append(update)
 
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(registry),
         run_queue=SessionRunQueue(),
@@ -220,39 +223,44 @@ def test_map_kernel_event_to_run_activity() -> None:
 
 
 # ---------------------------------------------------------------------------
-# feat-385-M3-fix-r2 B1: pipeline must pass workspace_root through to stream_session
+# refactor-387 M3: workspace_root is no longer forwarded to stream() — in-process mode
+# resolves session JSONL at create_session time via the agent workspace configuration.
 # ---------------------------------------------------------------------------
 
 
-def test_inbound_pipeline_stream_session_receives_workspace_root(tmp_path: Path) -> None:
-    """_await_terminal_run_async must forward agent workspace_root to stream_session.
+def test_inbound_pipeline_stream_called_with_session_id(tmp_path: Path) -> None:
+    """_await_terminal_run_async must call kernel.stream(session_id, ...).
 
-    Refs #64: session is per-workspace_root scoped; the kernel needs workspace_root
-    as a query param to locate the session JSONL.  Without it multi-agent Gateway
-    gets session_not_found 404 when agents have distinct workspace_root values.
+    refactor-387 M3: workspace_root is not passed to stream() — the in-process
+    Kernel already knows where session data lives (set at create_session time).
     """
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
 
-    # Track kwargs passed to stream_session so we can assert workspace_root is forwarded.
-    stream_kwargs_log: list[dict] = []
+    stream_calls: list[dict] = []
 
-    class _TrackingFakeSseClient(_FakeSseKernelClient):
-        async def stream_session(self, *, session_id: str, last_event_id=None, **kwargs):  # type: ignore[override]
-            stream_kwargs_log.append({"session_id": session_id, "last_event_id": last_event_id, **kwargs})
-            # Yield minimal terminal events so the pipeline can complete.
-            run_id_val = "run-1"
-            yield {"event": "assistant_message", "run_id": run_id_val, "content": "ok"}
-            yield {"event": "run_status", "run_id": run_id_val, "status": "completed"}
+    class _TrackingFakeSseKernel(_FakeSseKernel):
+        def stream(self, session_id: str, *, after_sequence: int = 0):  # type: ignore[override]
+            stream_calls.append({"session_id": session_id, "after_sequence": after_sequence})
+            preset = [
+                {"event": "assistant_message", "run_id": "run-1", "content": "ok"},
+                {"event": "run_status", "run_id": "run-1", "status": "completed"},
+            ]
 
-    kernel_client = _TrackingFakeSseClient()
+            async def _gen():
+                for event in preset:
+                    yield dict(event)
+
+            return _gen()
+
+    kernel_client = _TrackingFakeSseKernel()
     from personal_assistant.gateway.channel_registry import ChannelRegistry
     from personal_assistant.gateway.outbound_router import OutboundRouter
     from personal_assistant.gateway.run_queue import SessionRunQueue
     from personal_assistant.gateway.session_keys import SessionBindingStore
 
     pipeline = InboundPipeline(
-        kernel_client=kernel_client,
+        kernel=kernel_client,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
         run_queue=SessionRunQueue(),
@@ -270,11 +278,5 @@ def test_inbound_pipeline_stream_session_receives_workspace_root(tmp_path: Path)
     result = asyncio.run(pipeline.handle_inbound(inbound))
 
     assert result is not None
-    # The agent-a workspace_root is tmp_path/agent-a (from _agents helper).
-    expected_workspace_root = str(tmp_path / "agent-a")
-    assert stream_kwargs_log, "stream_session must have been called"
-    forwarded_ws = stream_kwargs_log[0].get("workspace_root")
-    assert forwarded_ws == expected_workspace_root, (
-        "pipeline must forward agent workspace_root to stream_session (Refs #64); "
-        f"expected {expected_workspace_root!r}, got {forwarded_ws!r}"
-    )
+    assert stream_calls, "kernel.stream() must have been called"
+    assert stream_calls[0]["session_id"] == "sess-1"
