@@ -25,8 +25,12 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
   const hasWindow = usage.context_window > 0;
   const pct = hasWindow ? usage.context_used / usage.context_window : 0;
   const variant = hasWindow && pct >= 0.9 ? "critical" : hasWindow && pct >= 0.7 ? "warn" : "normal";
-  // Prototype (im-components.jsx) always shows output tokens in the chip button.
-  const displayed = usage.output;
+  // R4 intent (f1cc8881): show total tokens consumed this turn — context+output.
+  // Backend guarantees total is always present via server-side fallback on both WS
+  // (event_types.py:67) and REST (messages.py); `!` asserts the backend contract.
+  // Do NOT fall back to output — it severely underestimates real cost (bugfix-390 decision 1).
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+  const displayed = usage.total!
   const pctInt = Math.round(pct * 100);
 
   const barColor =
