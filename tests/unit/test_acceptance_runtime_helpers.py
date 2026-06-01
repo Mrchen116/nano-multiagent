@@ -234,9 +234,7 @@ def test_stop_runtime_terminates_duplicate_gateway_and_kernel_processes(
 
 
 def test_resolve_canonical_repo_root_keeps_main_checkout_path() -> None:
-    script_path = Path(
-        "/repo/nano-multiagent/scripts/acceptance/m170_runtime.py"
-    )
+    script_path = Path("/repo/nano-multiagent/scripts/acceptance/m170_runtime.py")
 
     resolved = m170_runtime._resolve_canonical_repo_root(script_path)
 
