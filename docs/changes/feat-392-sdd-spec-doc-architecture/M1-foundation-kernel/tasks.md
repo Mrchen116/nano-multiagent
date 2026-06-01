@@ -47,7 +47,7 @@
 - 步骤:照 R1 GUIDE 骨架,从 ① `tests/contract/`(尤其 `test_agent_sdk_surface_contract.py` / `test_kernel_sdk_behavior_contract.py` / `test_agent_sdk_boundary_contract.py` / `test_core_no_platform_imports.py`)② `src/agent/sdk/kernel.py` 逆向出内核对外契约。每条 Requirement/Scenario 主语 = 经 `agent.sdk` 调用内核的消费者(产品/contract 测试)。旧 `docs/内核设计SPEC.md` 仅作 checklist 逐条拿代码重核,核不上即弃(§12 HTTP API 已删,不写)。
 - 验证:逐条 Requirement 对照 `kernel.py` 方法签名 + contract 测试断言,确认可被代码/测试印证;无实现走查、无库选型、无内部数据结构。
 
-### R3 — 顶点 SPEC.md 重定位 + AGENTS.md 索引 + 退役旧内核 SPEC
+### R3 — 顶点 SPEC.md 重定位 + AGENTS.md 索引 + 退役旧内核 SPEC — DONE
 
 - 步骤:`SPEC.md` §6 文档索引改为指向 `docs/specs/`(去掉对 `docs/内核设计SPEC.md` 等的直接索引,内核 §4 的「详见」链接同步);`AGENTS.md`「关键文档索引」表加 `docs/specs/<包>/` + `SPEC_GUIDE.md`,去掉对四份旧子系统 SPEC 的索引(M2-M4 退役其余三份);`git mv docs/内核设计SPEC.md docs/archive/内核设计SPEC.md`。
 - 验证:`grep 内核设计SPEC SPEC.md AGENTS.md` 无残留活引用;SPEC.md 仍是纯跨包内容,不下钻单包行为契约。

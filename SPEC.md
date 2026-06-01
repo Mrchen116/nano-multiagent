@@ -1,8 +1,12 @@
 # SPEC.md — nano-multiagent 架构规约
 
-> **版本** v1.3 | **日期** 2026-05-29 | **对齐** refactor-387
-> 本文档是 nano-multiagent 的唯一架构权威文件。
-> 若与其他设计文档冲突，以本文档为准。
+> **版本** v1.4 | **日期** 2026-06-01 | **对齐** feat-392
+> 本文档是 nano-multiagent 的**跨包顶点**架构权威文件（包 / 依赖方向 / 部署拓扑）。
+> 单包"现在怎么表现"看长青行为契约层 `docs/specs/<包>/spec.md`（§6）；文档体系怎么分层见
+> `docs/SPEC_GUIDE.md`。若与其他设计文档冲突，以本文档为准。
+>
+> **v1.4 变更（feat-392）**：§6 文档索引重定位到长青行为契约层 `docs/specs/`；内核设计 SPEC 退役
+> 移入 `docs/archive/`，内核契约改看 `docs/specs/kernel/spec.md`。
 >
 > **v1.3 变更（refactor-387）**：内核移除内置 HTTP API，改为纯库形态——对外只暴露
 > `agent.sdk`（进程内 `build_kernel()` → `Kernel`）。两个产品由「spawn 内核 uvicorn 子进程
@@ -124,7 +128,7 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 - `products` 产品 profile（默认工具 / hook / prompt / skill 策略）。
 - `sdk` 唯一对外装配面，依赖 `core` + `platform` + `products`，暴露 `build_kernel()` / `Kernel`。
 
-详见 [`docs/内核设计SPEC.md`](docs/内核设计SPEC.md)。
+内核对外行为契约详见 [`docs/specs/kernel/spec.md`](docs/specs/kernel/spec.md)。
 
 ### coding_cli — 本地编码助手
 
@@ -165,31 +169,54 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 
 ## 6. 文档索引
 
-### 内核（agent）
+本节是顶点索引。**单包的"系统现在怎么表现"看长青行为契约层** `docs/specs/<包>/spec.md`(收尾归并保持
+current);本 `SPEC.md` 只讲跨包架构,不与契约层重复。文档体系怎么分层、契约层怎么写,见
+[`docs/SPEC_GUIDE.md`](docs/SPEC_GUIDE.md)。
+
+### 长青行为契约层（current，单一权威）
+
+| 包 | 路径 | 内容 |
+|---|---|---|
+| **kernel (agent)** | [`docs/specs/kernel/spec.md`](docs/specs/kernel/spec.md) | 内核经 `agent.sdk` 暴露的对外行为契约：装配/会话/运行/许可/压缩/工具/Hook/Skill/持久化 |
+| **im** | `docs/specs/im/spec.md` | IM 服务对外行为契约（feat-392-M2 建立） |
+| **gateway** | `docs/specs/gateway/spec.md` | Node Gateway 对外行为契约（feat-392-M3 建立） |
+| **cli** | `docs/specs/cli/spec.md` | Coding CLI 对外行为契约（feat-392-M4 建立） |
+
+### 文档规范与约定
 
 | 文档 | 路径 | 内容 |
 |---|---|---|
-| **内核设计 SPEC** | `docs/内核设计SPEC.md` | agent 包三层架构、模块归属、Runtime API、HTTP API、工具/Hook/Skill/Session/LLM 契约、硬约束、验收标准 |
+| **文档规范 SPEC_GUIDE** | [`docs/SPEC_GUIDE.md`](docs/SPEC_GUIDE.md) | 长青 spec 放什么/不放什么、判据、契约层骨架、收尾归并与 grounding checklist |
+| 测试规范 | `docs/TESTING_GUIDE.md` | 测什么/不测什么、命名落层、临时验收 vs 回归 |
+| 注释规范 | `COMMENTING_GUIDE.md` | docstring 风格、注释写"为什么/约束" |
+| 操作手册 | `docs/operator-runbook.md` | 启动、调试、常见问题 |
+| LLM API 联调 | `docs/可用LLM_API与联调说明.md` | 可用模型、本地代理地址、验证 curl |
+
+### 内核实现细化（实现叙事，非契约层）
+
+> 这些是实现层细化文档，不是对外契约。"内核现在怎么表现"以 `docs/specs/kernel/spec.md` 为准；下面几份
+> 描述内部参数/事件清单等实现细节，作实现参考。
+
+| 文档 | 路径 | 内容 |
+|---|---|---|
 | 工具设计细化 | `docs/内核设计细化/工具设计细化.md` | 5 工具参数、返回值、安全策略 |
-| Hook 体系细化 | `docs/内核设计细化/Hook体系设计细化.md` | 19 事件清单、拦截/观察契约、闭包模型 |
+| Hook 体系细化 | `docs/内核设计细化/Hook体系设计细化.md` | 事件清单、拦截/观察契约、闭包模型 |
 | Skill 体系细化 | `docs/内核设计细化/Skill体系设计细化.md` | 自动/显式 skill 机制 |
 | 系统提示词模板 | `docs/内核设计细化/系统提示词.md` | Runtime 填充的 prompt 模板 |
 
-### 应用与服务
+### 旧子系统 SPEC（迁移退役中）
 
-| 文档 | 路径 | 内容 |
+> 旧的混合高度子系统设计文档，正被长青契约层取代。`内核设计SPEC` 已随 feat-392-M1 退役（移入
+> `docs/archive/`，内核契约改看 `docs/specs/kernel/spec.md`）；IM / Node Gateway / Coding CLI 三份
+> 由 feat-392-M2/M3/M4 蒸馏进 `docs/specs/<包>/` 后退役。在各自迁移完成前仅作历史参考，可能已陈旧。
+
+| 文档 | 路径 | 状态 |
 |---|---|---|
-| **Coding CLI SPEC** | `docs/CodingCLI-SPEC.md` | coding_cli 运行模式、REPL 交互、模块结构、硬约束、验收标准 |
-| **Node Gateway SPEC** | `docs/NodeGateway-SPEC.md` | personal_assistant 进程模型、Channel、入站四步决策、Heartbeat、多 Agent 路由、硬约束、验收标准 |
-| **IM 服务 SPEC** | `docs/IM-SPEC.md` | IM 服务 Web IM、配置中心、设备绑定、节点管理、消息中继、前端、硬约束、验收标准 |
+| Coding CLI SPEC | `docs/CodingCLI-SPEC.md` | 待 M4 迁移退役 |
+| Node Gateway SPEC | `docs/NodeGateway-SPEC.md` | 待 M3 迁移退役 |
+| IM 服务 SPEC | `docs/IM-SPEC.md` | 待 M2 迁移退役 |
 | IM 前端蓝图 | `docs/IM前端蓝图.md` | 前端信息架构、响应式设计 |
-
-### 综合
-
-| 文档 | 路径 | 内容 |
-|---|---|---|
 | 需求文档 | `docs/需求.md` | 内核 vs 助手产品需求定义 |
-| LLM API 联调 | `docs/可用LLM_API与联调说明.md` | 可用模型、本地代理地址、验证 curl |
 
 ### 归档（历史参考，已被 SPEC 覆盖）
 

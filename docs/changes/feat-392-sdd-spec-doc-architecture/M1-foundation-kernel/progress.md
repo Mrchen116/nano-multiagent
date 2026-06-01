@@ -83,7 +83,33 @@
 
 ## R3 — 顶点 SPEC.md 重定位 + AGENTS.md 索引 + 退役旧内核 SPEC
 
-<!-- 待填 -->
+- Context: SPEC.md 已基本是顶点形态(决策 6),只需轻度重定位:§6 文档索引指向新 `docs/specs/`,
+  去掉对旧内核 SPEC 的活索引;AGENTS.md「关键文档索引」同步;`内核设计SPEC.md` git mv 退役。
+- Decision:
+  · SPEC.md §4 内核「详见」链接 `docs/内核设计SPEC.md` → `docs/specs/kernel/spec.md`。
+  · SPEC.md §6 重构为四块:长青行为契约层(kernel current + im/gateway/cli 标注 M2-M4 建立)、
+    文档规范与约定(SPEC_GUIDE/TESTING_GUIDE/COMMENTING/runbook/LLM)、内核实现细化(细化目录,
+    标注"非契约层")、旧子系统 SPEC(标注迁移退役中,M2-M4 退役其余三份)。顶部版本 bump v1.4 / 对齐 feat-392。
+  · AGENTS.md「关键文档索引」表:置顶文档规范 + 长青契约层指向,内核行换 `docs/specs/kernel/spec.md`,
+    旧子系统 SPEC 标注迁移中。
+  · `git mv docs/内核设计SPEC.md docs/archive/内核设计SPEC.md`。
+- Rationale: 决策 6——SPEC.md 收口顶点、去重(同一事实单一 canonical 落点);旧内核 SPEC 是混合高度 +
+  已 rot(§12 HTTP API 在 refactor-387 已删),退役而非保留并存。M2-M4 才退役其余三份子系统 SPEC,
+  故本 R 只退役内核一份,其余在 §6 标注"待迁移"避免越界(范围列只点名 `docs/内核设计SPEC.md`)。
+  内核实现细化目录(工具/Hook/Skill/系统提示词细化)不在 M1 范围,保留索引但归为"实现叙事,非契约层"。
+- Evidence:
+  - Tests: N/A(纯文档)。收尾复跑全树确认不破坏。
+  - Entry(链接完整性):SPEC.md/AGENTS.md 新指向的 6 个文件(specs/kernel/spec.md、SPEC_GUIDE.md、
+    TESTING_GUIDE.md、COMMENTING_GUIDE.md、operator-runbook.md、archive/内核设计SPEC.md)均存在(grep -e 全 OK)。
+    SPEC.md 仍纯顶点:`grep -cE 'def |class|函数|内部数据结构'` = 0,无下钻单包内部行为。
+    `grep 内核设计SPEC SPEC.md AGENTS.md` 仅剩两处"退役说明"文字,无活链接。
+  - Frontend State Matrix / Browser QA / E2E / Visual: N/A(纯文档)
+  - 衔接发现(已问 leader):`.claude/skills/change-reviewer/` 的 acceptance.md / regression.md / SKILL.md
+    含指向 `docs/内核设计SPEC.md` 的"文档更新清单"行,该文档已退役。change-reviewer 不在 M1 范围
+    (design 只点名 spec/design/orchestrator 三 skill)→ 见 R3 末「衔接问题」段处置。
+    `TASKS/`、`PROGRESS/` 历史归档 + `docs/需求.md` 的引用属冻结历史/M2 退役范畴,不动。
+- Rollback: `git mv` 回退 + 还原 SPEC.md/AGENTS.md 两处编辑(单 commit `git revert`)。
+- Commits: 见 git log(R3)。
 
 ## R4 — change-* skill 接入读写闭环
 
