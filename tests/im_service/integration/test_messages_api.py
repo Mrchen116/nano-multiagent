@@ -4,6 +4,7 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
@@ -114,7 +115,17 @@ def test_list_messages_mark_as_read_clears_conversation_unread_counter(
 
 
 def test_frontend_runtime_bundle_exposes_mark_as_read_flow(tmp_path: Path) -> None:
-    """Ensure IM-hosted frontend bundle includes unread read-ack query flow used in real runtime."""
+    """Ensure IM-hosted frontend bundle includes unread read-ack query flow used in real runtime.
+
+    CI python job does not build the frontend (vitest is guarded by the separate
+    ``frontend`` job).  Skip when dist/ is absent so the python job stays clean
+    while the guard still fires in any environment that has a real build.
+    """
+    dist_dir = Path(__file__).resolve().parents[4] / "src" / "IM" / "frontend" / "dist"
+    if not dist_dir.is_dir():
+        pytest.skip(
+            "frontend dist/ not present — build first or run in an env with a dist"
+        )
     app = create_app(db_path=tmp_path / "im.db")
     with TestClient(app) as client:
         entry = client.get("/chat/5e82e46169d044d18662e5bc853065bb")

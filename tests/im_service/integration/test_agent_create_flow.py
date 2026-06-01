@@ -6,6 +6,7 @@ import threading
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
+from IM.domain.models import managed_workspace_root
 from IM.repositories import NodeRepository, UserRepository
 
 from .conftest import authorize, register_user
@@ -280,7 +281,7 @@ def test_create_agent_without_workspace_persists_managed_default_workspace_root(
                 "tool_allowlist": payload["tool_allowlist"],
                 "group_reply_policy": payload["group_reply_policy"],
                 "default_model": payload["default_model"],
-                "workspace_root": f"/Users/czj/nano-assistant/workspace/{payload['agent_id']}",
+                "workspace_root": managed_workspace_root(str(payload["agent_id"])),
             }
 
         app.state.gateway_handler.request_agent_create = fake_request_agent_create

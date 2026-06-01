@@ -39,13 +39,15 @@ _LEAK_NEEDLES = (
 def _scan_leaked_pids(*, exclude: Iterable[int] = ()) -> list[tuple[int, str]]:
     """Return ``(pid, cmdline)`` for processes whose cmdline matches a pytest tmpdir.
 
-    用 ``ps -eo pid=,command=`` 跨平台拿当前用户的进程表。``=`` 后缀去掉表头。
+    用 ``ps -ww -eo pid=,command=`` 跨平台拿当前用户的进程表。``=`` 后缀去掉表头。
+    ``-ww`` 取消列宽截断 — Linux 非 tty 下 ``ps`` 默认按终端宽度裁列,含长 pytest
+    tmpdir 路径的 cmdline 会被截掉,导致漏报泄漏进程;macOS 不截断故本地不暴露。
     匹配条件:cmdline 同时含 pytest 临时目录标识 + Gateway/kernel 关键词。
     """
     exclude_set = set(exclude)
     try:
         completed = subprocess.run(
-            ["ps", "-eo", "pid=,command="],
+            ["ps", "-ww", "-eo", "pid=,command="],
             capture_output=True,
             text=True,
             check=False,
