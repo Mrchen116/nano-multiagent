@@ -106,12 +106,13 @@ class _FakeKernelClient:
 
 
 def test_cron_runner_class_exists() -> None:
-    """CronRunner must be importable from personal_assistant.main or scheduler."""
+    """CronRunner must be importable from personal_assistant.scheduler.cron_runner."""
     from personal_assistant.scheduler.cron_runner import CronRunner
     assert CronRunner is not None
 
 
-def test_cron_runner_submit_uses_isolated_session(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_cron_runner_submit_uses_isolated_session(tmp_path: Path) -> None:
     """CronRunner must submit with origin=cron in session metadata.
 
     feat-394 decision 4: cron jobs run in isolated sessions (no conversation context).
@@ -124,9 +125,6 @@ def test_cron_runner_submit_uses_isolated_session(tmp_path: Path) -> None:
     job = _make_job(job_id="jx")
     store.add(job)
 
-    state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
-
-    import asyncio
     runner = CronRunner(
         agent_id="agent-1",
         workspace_root=tmp_path,
@@ -134,10 +132,7 @@ def test_cron_runner_submit_uses_isolated_session(tmp_path: Path) -> None:
         session_binding_store=None,
     )
 
-    async def _run():
-        await runner._submit_cron_job(job=job)
-
-    asyncio.get_event_loop().run_until_complete(_run())
+    await runner._submit_cron_job(job=job)
 
     assert len(kernel_client.created_sessions) >= 1
     # The submit must pass origin=cron
@@ -146,7 +141,8 @@ def test_cron_runner_submit_uses_isolated_session(tmp_path: Path) -> None:
     assert origin == "cron", f"cron runs must use origin=cron, got: {origin!r}"
 
 
-def test_cron_runner_awareness_appended_to_canonical_session(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_cron_runner_awareness_appended_to_canonical_session(tmp_path: Path) -> None:
     """After cron result, System(untrusted) is appended to canonical direct-chat JSONL.
 
     feat-394 decision C-awareness: result text appended to canonical direct chat
@@ -177,15 +173,10 @@ def test_cron_runner_awareness_appended_to_canonical_session(tmp_path: Path) -> 
         canonical_session_id=canonical_session_id,
     )
 
-    job = _make_job(job_id="j1", instruction="Summarize GitHub notifications")
-
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(
-        runner._append_awareness(
-            session_id=canonical_session_id,
-            result_text=result_text,
-            workspace_root=tmp_path,
-        )
+    await runner._append_awareness(
+        session_id=canonical_session_id,
+        result_text=result_text,
+        workspace_root=tmp_path,
     )
 
     # Canonical JSONL must contain the System(untrusted) entry
@@ -204,7 +195,8 @@ def test_cron_runner_awareness_appended_to_canonical_session(tmp_path: Path) -> 
     )
 
 
-def test_cron_runner_isolated_turns_not_in_canonical(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_cron_runner_isolated_turns_not_in_canonical(tmp_path: Path) -> None:
     """Isolated cron session turns must NOT be appended to canonical direct-chat session.
 
     feat-394 decision C-awareness: only the final result text (as System(untrusted))
@@ -241,13 +233,10 @@ def test_cron_runner_isolated_turns_not_in_canonical(tmp_path: Path) -> None:
         canonical_session_id=canonical_session_id,
     )
 
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(
-        runner._append_awareness(
-            session_id=canonical_session_id,
-            result_text="Final answer",
-            workspace_root=tmp_path,
-        )
+    await runner._append_awareness(
+        session_id=canonical_session_id,
+        result_text="Final answer",
+        workspace_root=tmp_path,
     )
 
     # Canonical JSONL must only have header + awareness (NOT the cron session turns)
@@ -266,7 +255,8 @@ def test_cron_runner_isolated_turns_not_in_canonical(tmp_path: Path) -> None:
             )
 
 
-def test_cron_runner_delete_after_run(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_cron_runner_delete_after_run(tmp_path: Path) -> None:
     """Jobs with delete_after_run=True must be removed after first execution.
 
     feat-394 decision 4: one-shot 'at' jobs with deleteAfterRun are cleaned up.
@@ -284,8 +274,7 @@ def test_cron_runner_delete_after_run(tmp_path: Path) -> None:
         session_binding_store=None,
     )
 
-    import asyncio
-    asyncio.get_event_loop().run_until_complete(runner._submit_cron_job(job=job))
+    await runner._submit_cron_job(job=job)
 
     # Job must be gone from the store after execution
     remaining = store.list_jobs(include_disabled=True)
