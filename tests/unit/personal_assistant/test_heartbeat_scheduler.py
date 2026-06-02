@@ -160,6 +160,14 @@ def test_scheduler_runs_cron_schedule_on_matching_minute(tmp_path: Path) -> None
 
 
 def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) -> None:
+    """After a long gap, catch-up must produce at most ONE run (not a backlog per missed interval).
+
+    feat-393 fix-r2: the original implementation returned every missed due-time in the gap,
+    causing the agent to flood IM with a burst of messages on restart (213s gap → 63 messages
+    in round-2 acceptance).  The correct semantics for a periodic heartbeat is: one catch-up
+    run for the most recent missed period, then resume the normal cadence.  Replaying the full
+    backlog is anti-social and violates the "periodic summary" contract.
+    """
     agent = _agent(tmp_path)
     _write_heartbeat(
         agent.workspace_root,
@@ -177,19 +185,50 @@ def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) 
     assert len(first.triggered_runs) == 1
 
     second_kernel = _FakeKernelClient()
-    restarted = HeartbeatScheduler(
-        agents=(agent,), kernel_client=second_kernel, state_store=state_store
-    )
-    catch_up = asyncio.run(
-        restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC))
-    )
+    restarted = HeartbeatScheduler(agents=(agent,), kernel_client=second_kernel, state_store=state_store)
+    # 1h31m gap → 3 missed intervals (09:30, 10:00, 10:30); must collapse to exactly 1 run.
+    catch_up = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC)))
 
-    assert [run.due_at.isoformat() for run in catch_up.triggered_runs] == [
-        "2026-03-11T09:30:00+00:00",
-        "2026-03-11T10:00:00+00:00",
-        "2026-03-11T10:30:00+00:00",
-    ]
-    assert len(second_kernel.sent_messages) == 3
+    assert len(catch_up.triggered_runs) == 1, (
+        "catch-up after a long gap must produce exactly 1 run (most recent due), not a backlog"
+    )
+    # The single run must be the most recent aligned due time (10:30).
+    assert catch_up.triggered_runs[0].due_at.isoformat() == "2026-03-11T10:30:00+00:00"
+    assert len(second_kernel.sent_messages) == 1
+
+
+def test_scheduler_normal_cadence_produces_exactly_one_run_per_interval(tmp_path: Path) -> None:
+    """Continuous operation: each on-time tick produces exactly 1 triggered run."""
+    agent = _agent(tmp_path)
+    _write_heartbeat(agent.workspace_root, "interval: 10s\n\nReport status.\n")
+    state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
+    scheduler = HeartbeatScheduler(agents=(agent,), kernel_client=_FakeKernelClient(), state_store=state_store)
+
+    t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+    for offset_s in (0, 10, 20, 30):
+        result = asyncio.run(scheduler.tick(now=t0 + timedelta(seconds=offset_s)))
+        assert len(result.triggered_runs) == 1, f"at +{offset_s}s expected 1 run, got {len(result.triggered_runs)}"
+
+
+def test_scheduler_cron_catchup_collapses_to_one_run(tmp_path: Path) -> None:
+    """Cron catch-up after a long gap must also produce at most 1 run (most recent match)."""
+    agent = _agent(tmp_path)
+    _write_heartbeat(agent.workspace_root, "cron: * * * * *\n\nMinute heartbeat.\n")
+    state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(agents=(agent,), kernel_client=kernel, state_store=state_store)
+
+    # First tick at 09:00 — establishes last_due_at.
+    asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+    # Restart after a 5-minute gap — 5 cron hits missed; must produce exactly 1 run.
+    restarted = HeartbeatScheduler(agents=(agent,), kernel_client=_FakeKernelClient(), state_store=state_store)
+    catch_up = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 9, 5, tzinfo=UTC)))
+
+    assert len(catch_up.triggered_runs) == 1, (
+        "cron catch-up must collapse multiple missed hits to 1 run (most recent), not a burst"
+    )
+    assert catch_up.triggered_runs[0].due_at == datetime(2026, 3, 11, 9, 5, tzinfo=UTC)
 
 
 def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(
