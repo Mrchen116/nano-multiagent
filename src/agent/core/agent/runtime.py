@@ -1245,8 +1245,13 @@ class AgentRuntime:
                                     "decision": getattr(result, "decision", "deny"),
                                 },
                             )
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            # Delivery failure must not abort the permission flow; log so
+                            # the drop is observable (refactor-395-M1).
+                            import logging
+                            logging.getLogger("agent.core.agent.runtime").warning(
+                                "permission_resolved event delivery failed: %s", exc
+                            )
                 return response
 
             permission_requester = _permission_requester

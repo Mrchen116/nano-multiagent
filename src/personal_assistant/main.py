@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import shlex
 import signal
@@ -19,6 +20,8 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
+
+_log = logging.getLogger("personal_assistant.main")
 
 import httpx
 import websockets
@@ -1047,8 +1050,12 @@ class GatewayRuntime:
         finally:
             self._ready_event.clear()
             if dispatch_runner is not None:
-                with suppress(Exception):
+                try:
                     await dispatch_runner.cleanup()
+                except Exception as exc:
+                    # Cleanup failure (e.g. socket already closed) must not prevent
+                    # further shutdown steps; log so the error is observable (refactor-395-M1).
+                    _log.warning("dispatch runner cleanup failed during shutdown: %s", exc)
             if heartbeat_started and self._heartbeat_runner is not None:
                 await self._heartbeat_runner.close()
             if channels_started:
@@ -2106,8 +2113,10 @@ def _build_kernel_event_observer(
     ) -> None:
         try:
             await manager.send_json(message_type, payload)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # IM send failure must not propagate into the event stream; log so the
+            # drop is observable (refactor-395-M1).
+            _log.warning("IM observer send failed for %s: %s", message_type, exc)
 
     def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
         manager = im_connection_manager_factory()
@@ -2159,8 +2168,8 @@ def _build_kernel_event_observer(
                         )
                         if returned_msg_id and rid in run_context_store:
                             run_context_store[rid]["message_id"] = str(returned_msg_id)
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        _log.warning("IM observer turn_start send/ack failed: %s", exc)
 
                 return _send_turn_start_and_store()
 
@@ -2233,8 +2242,8 @@ def _build_kernel_event_observer(
                                     "run_id": rid,
                                 },
                             )
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        _log.warning("IM observer close/restart delta send failed: %s", exc)
 
                 return _close_old_and_restart()
 
@@ -2300,8 +2309,8 @@ def _build_kernel_event_observer(
                                     "run_id": rid,
                                 },
                             )
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        _log.warning("IM observer turn_start_then_delta send failed: %s", exc)
 
                 return _turn_start_then_delta()
 
@@ -2833,8 +2842,12 @@ async def _await_background_task(task: asyncio.Task[None]) -> None:
 
 
 def _consume_task_exception(task: asyncio.Task[object]) -> None:
-    with suppress(asyncio.CancelledError):
+    try:
         task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        _log.exception("background task raised unexpected exception: %s", exc)
 
 
 def _consume_future_exception(future: object) -> None:

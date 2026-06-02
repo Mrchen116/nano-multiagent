@@ -15,9 +15,12 @@ import argparse
 import asyncio
 import io
 import json
+import logging
 import os
 import sys
 from pathlib import Path
+
+_log = logging.getLogger("coding_cli.commands")
 from typing import Any, Callable, Sequence, TextIO
 
 from coding_cli.events.background_runs import BackgroundRunEventProcessor
@@ -412,7 +415,9 @@ async def _ask_permission_async(
         try:
             header += f"\n  {json.dumps(tool_input, ensure_ascii=False)[:120]}"
         except Exception:
-            pass
+            # JSON serialization failed (e.g. non-serializable types); show repr so user
+            # always sees the tool input rather than a blank permission request.
+            header += f"\n  {repr(tool_input)[:120]}"
 
     loop = asyncio.get_event_loop()
     chosen_id = await loop.run_in_executor(
@@ -716,9 +721,6 @@ async def _run_repl(
                 _print_repl_turn_summary(out=buffer, payload=payload)
                 _emit_repl_block(buffer.getvalue())
             except Exception as exc:
-                import traceback
-
-                traceback.print_exc()
                 layer = _error_layer_for_exception(exc)
                 suggestion = _suggestion_for_exception(
                     exc,
@@ -1153,8 +1155,8 @@ def _load_auto_mode_config_for_repl() -> object:
                 section = raw.get("auto_mode", {})
                 if isinstance(section, dict):
                     return section
-        except Exception:
-            pass
+        except Exception as exc:
+            _log.warning("failed to parse auto_mode config from %s: %s", config_path, exc)
         return {}
 
     global_config_file = Path.home() / ".nanocode" / "config.yaml"
