@@ -69,3 +69,4 @@
 | R5 | ConfigSyncNotifier / config_service.py heartbeat 字段同步 | DONE |
 | R6 | HeartbeatScheduler 跑 canonical 直聊 session（改决策3） + tasks: 多子节律 | DONE |
 | R7 | activeHours + 忙会话跳过 + transcript 修剪 + NodeGateway-SPEC §6 更新 | DONE |
+| ABC | 补齐三条退出标准：A-tick-time canonical session / B-transcript修剪 / C-heartbeat_json落库 | DONE |

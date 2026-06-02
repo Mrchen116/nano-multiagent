@@ -146,3 +146,74 @@ Unit branch: unit/feat-394
 - Rollback: c70abb6f (C1 红测试)
 - Commits: C1=c70abb6f, C2=fbe109b1
 - Next: 所有 R 完成，进入集成
+
+---
+
+## M1 续补：A/B/C 三条退出标准（m1-worker-2）
+
+前一个 worker 在三处核心退出标准不达标被换：A(canonical session 鸡生蛋)、B(transcript 修剪缺失)、C(heartbeat_json 未落库)。本段记录补齐过程。
+
+### A — tick-time 主动查询 canonical session（替换 reactive 反填）
+
+- Context: commit 54380e31 的 reactive 做法（turn_start ack → session_store 反查 → 填 canonical_session_store）有根本性缺陷：静默轮询（HEARTBEAT_OK）从不触发 turn_start ack，所以首拍/重启/安静期 canonical_session_store 永远为空，heartbeat 永远在 fallback 的隔离 session 里跑，不带历史。
+- Decision:
+  - `PersistentSessionBindingStore` 加 `created_at` 列（migration，首次 INSERT 写入，ON CONFLICT 保留不动），与 IM `_find_canonical_direct_conversation(sorted(key=created_at)[0])` 语义对齐。
+  - 新增 `find_direct_by_agent(channel_name, agent_id)`，按 `created_at ASC, rowid ASC` 取最旧 binding（不用 updated_at，那会随消息活动漂移）。
+  - `HeartbeatScheduler.__init__` 接收 `session_store` 参数，`tick()` 在每个 agent 的调度评估开始前调 `find_direct_by_agent` 更新 `canonical_session_store`——tick-time 纯 gateway 只读，无 IM HTTP 依赖。
+  - `main.py` 移除 `_build_kernel_event_observer` 的 `session_store`/`canonical_session_store` 参数和 ack-time 反填逻辑；先建 `session_store` 再建 `HeartbeatScheduler`（注入顺序调整）。
+  - 删除原 reactive 测试 `test_build_kernel_event_observer_populates_canonical_session_from_session_store`（行为已不存在），替换注释指向新测试。
+- Rationale: 纯 gateway read，无鸡生蛋依赖；与 IM canonical 排序语义一致（created_at，非 updated_at）。
+- Progress.md caveat: gateway `binding.created_at`（首次绑定时刻 = 首条消息触发时刻）作为 IM 会话 `created_at` 的代理，对"有过消息的直聊"排序一致。没有消息的直聊没有 gateway binding，也无历史可跑，不影响。多直聊时 heartbeat run session 和 IM 投递目标（最旧直聊）都按"最旧创建"选，保持一致。
+- Evidence:
+  - Tests: test_heartbeat_m1_abc.py A 组（4 个）全绿；2383 全套通过
+  - Entry: 单元测试覆盖 find_direct_by_agent 方法和 tick-time 更新逻辑
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Commits: C1=adbf89e8 (红测试), C2=b1e060dc (实现)
+
+### B — transcript 即时修剪（静默轮询后会话无噪声）
+
+- Context: 静默轮询（HEARTBEAT_OK/空）的触发 prompt 和 ack turn 如果留在 canonical 直聊 JSONL，下一次 LLM 调用会看到它们，污染上下文（尤其多次静默后堆积）。design 明确"净零残留"且不许推给 compaction 层。
+- Decision:
+  - `PollingHeartbeatRunner.trim_silent_tick(session_file, pre_submit_line_count)` 静态方法：读 JSONL 所有行，保留前 `pre_submit_line_count` 个非空行，原子写回（tmp file + os.replace）。
+  - `_consume_heartbeat_run` 在 submit 前用 `kernel.get_session` 获取 `workspace_root`，推断 JSONL 路径（via `WORKSPACE_CONFIG_DIRNAME` from `local_store`），记录当前行数 `pre_submit_line_count`。
+  - run 完成后检查 `run_context_store[run_id]["conversation_id"]` 是否仍为空（空 = 无 turn_start 发出 = 静默），若是则调 `trim_silent_tick`。
+  - `WORKSPACE_CONFIG_DIRNAME` 从 `personal_assistant.config.local_store` 导出（避免跨 `agent.products.*` 包边界）。
+- Rationale: JSONL append-only 架构下，trim = 截断文件是最简洁的实现；对 silent tick 生效后下一次 LLM context 无新增 heartbeat 噪声。heartbeat-only 轮询不刷新 session idle（trim 仅截断文件，不触发任何 session 存活刷新 API）。
+- Evidence:
+  - Tests: test_heartbeat_m1_abc.py B 组（2 个）全绿；2383 全套通过
+  - Entry: B 测试直接在 JSONL 文件上验证截断效果，无 mock
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A（纯 gateway 层逻辑）
+  - Visual/Interaction: N/A
+- Commits: C1=adbf89e8 (红测试), C2=b1e060dc (实现)
+
+### C — IM heartbeat_json 落库 round-trip
+
+- Context: 前端 PATCH 传 heartbeat 配置，IM 静默丢弃，gateway 无法读取开关状态。需要全链路：DB 列 → AgentProfile 字段 → 持久化 → 路由读写 → ConfigSyncNotifier 下发。
+- Decision:
+  - DB migration: `agent_profiles` 加 `heartbeat_json TEXT` 列（nullable，`_migrate_agent_profile_tables`）
+  - `AgentProfile` domain model 加 `heartbeat_json: str | None = None` 字段
+  - `_row_to_profile` 解析 `heartbeat_json`；所有 SELECT 语句加列
+  - `AgentProfileRepository.update_profile` + `ConfigService.update_profile` 加 `heartbeat_json` 参数
+  - `AgentConfigResponse` / `UpdateAgentConfigRequest` 加 `heartbeat_json: str | None = None`
+  - `to_agent_config_response` 映射；PATCH 路由传 `payload.heartbeat_json`
+  - `gateway sync_agent` 优先从 `heartbeat_json`（JSON 字符串）解析，兼容老 `heartbeat` dict 字段
+- Rationale: heartbeat_json 存原始 JSON 字符串，gateway 转发无需重新序列化；`update_profile` None 语义 = 保留现有值（与 custom_prompt 一致）。
+- Evidence:
+  - Tests: test_heartbeat_m1_abc.py C 组（5 个含路由集成测试）全绿；2383 全套通过
+  - Entry: `test_agents_patch_route_accepts_heartbeat_json` 用真实 TestClient 验证 PATCH→GET round-trip
+  - Frontend State Matrix: N/A（后端变更）
+  - Browser QA: N/A
+  - E2E/Regression: 合约测试 test_agent_config_contract / test_agent_create_contract 更新含 heartbeat_json 字段断言
+  - Visual/Interaction: N/A
+- Commits: C1=adbf89e8 (红测试), C2=b1e060dc (实现)
+
+## 最终基线（M1 收口后）
+
+- Python 测试：2383 通过，2 个预存失败（issue #75 macOS /tmp vs /private/tmp）
+- Frontend vitest：347/347 通过（54 测试文件）
+- 三条退出标准全部达标
