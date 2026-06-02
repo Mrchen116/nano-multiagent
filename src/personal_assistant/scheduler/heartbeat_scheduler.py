@@ -202,6 +202,7 @@ class HeartbeatScheduler:
         kernel_client: _KernelClientLike,
         state_store: HeartbeatSchedulerStateStore,
         canonical_session_store: dict[str, str] | None = None,
+        busy_sessions: set[str] | None = None,
     ) -> None:
         self._agents = agents
         self._kernel_client = kernel_client
@@ -211,6 +212,12 @@ class HeartbeatScheduler:
         # Falls back to the legacy _heartbeat_sessions dict when canonical_session_store is None.
         self._canonical_session_store: dict[str, str] = (
             canonical_session_store if canonical_session_store is not None else {}
+        )
+        # feat-394 decision 3: busy session set — kernel sessions currently running a turn.
+        # Heartbeat skips when the agent's canonical session is busy to avoid concurrent runs.
+        # Shared with PollingHeartbeatRunner / InboundPipeline; updated externally.
+        self._busy_sessions: set[str] = (
+            busy_sessions if busy_sessions is not None else set()
         )
         # Legacy fallback session store (for when canonical_session_store is not provided).
         # In feat-393 mode, one stable :heartbeat session per agent was used.
@@ -245,6 +252,21 @@ class HeartbeatScheduler:
             # feat-394 decision 5: per-agent heartbeat gate — skip without reading HEARTBEAT.md
             # when the agent's heartbeat_enabled flag is False (synced from IM via ConfigSyncNotifier).
             if not agent.heartbeat_enabled:
+                skipped_agents.append(agent.agent_id)
+                continue
+            # feat-394 decision 3: activeHours gate — skip when outside the configured active window.
+            if not _is_within_active_hours(
+                now=current_time,
+                start_hhmm=agent.heartbeat_active_hours_start,
+                end_hhmm=agent.heartbeat_active_hours_end,
+                timezone_name=agent.heartbeat_active_hours_timezone,
+            ):
+                skipped_agents.append(agent.agent_id)
+                continue
+            # feat-394 decision 3: busy-session gate — skip when canonical session is running
+            # a turn (avoid concurrent runs in the same direct-chat kernel session).
+            canonical_session = self._canonical_session_store.get(agent.agent_id)
+            if canonical_session and canonical_session in self._busy_sessions:
                 skipped_agents.append(agent.agent_id)
                 continue
             heartbeat_path = agent.workspace_root / "HEARTBEAT.md"
@@ -753,6 +775,48 @@ def _parse_cron_number(raw_value: str, *, allow_names: bool) -> int:
     if allow_names and value == 7:
         return 0
     return value
+
+
+def _is_within_active_hours(
+    *,
+    now: datetime,
+    start_hhmm: str | None,
+    end_hhmm: str | None,
+    timezone_name: str | None,
+) -> bool:
+    """Return True when ``now`` falls inside the configured active-hours window.
+
+    feat-394 decision 3: activeHours gate mirrors openclaw's "activeHours" check —
+    heartbeat is suppressed outside the window so agents don't wake users at night.
+    If no window is configured (all params None/empty), always returns True.
+
+    Args:
+        now: Current UTC datetime for the tick.
+        start_hhmm: Window start in "HH:MM" (local time).  None → no gate.
+        end_hhmm: Window end in "HH:MM" (local time).  None → no gate.
+        timezone_name: IANA timezone string (e.g. "Asia/Shanghai").  None → UTC.
+
+    Returns:
+        True when the current local time is at-or-after start AND before end,
+        or when no window is configured.
+    """
+    if not start_hhmm or not end_hhmm:
+        return True  # no window configured → always active
+
+    try:
+        import zoneinfo as _zoneinfo  # noqa: PLC0415 — stdlib, lazy import avoids startup cost
+
+        tz = _zoneinfo.ZoneInfo(timezone_name) if timezone_name else UTC
+    except Exception:  # noqa: BLE001 — invalid timezone → treat as UTC to avoid silent skip
+        tz = UTC
+
+    local_now = now.astimezone(tz)
+    local_hhmm = local_now.strftime("%H:%M")
+
+    # Simple HH:MM string comparison works for non-midnight-crossing windows.
+    # For midnight-crossing windows (e.g. 22:00-06:00), logic would be inverted;
+    # nano spec only documents daytime windows so we keep this simple for now.
+    return start_hhmm <= local_hhmm < end_hhmm
 
 
 def _parse_optional_datetime(value: str | None) -> datetime | None:
