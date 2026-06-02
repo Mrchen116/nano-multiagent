@@ -305,6 +305,8 @@ def test_agent_prompt_preview_proxy_contract(
         scenario: str,  # noqa: ARG001
         skill_ids: list | None = None,  # noqa: ARG001
         timeout_seconds: float = 10.0,  # noqa: ARG001
+        heartbeat_enabled: bool | None = None,  # noqa: ARG001  feat-394-M4
+        cron_enabled: bool | None = None,  # noqa: ARG001  feat-394-M4
     ) -> dict:
         return {"prompt": "You are a helpful assistant.", "section_count": 2}
 
@@ -472,6 +474,8 @@ def test_agent_prompt_preview_forwards_skill_ids_to_gateway(
         scenario: str,  # noqa: ARG001
         skill_ids: list | None = None,  # noqa: ARG001
         timeout_seconds: float = 10.0,  # noqa: ARG001
+        heartbeat_enabled: bool | None = None,  # noqa: ARG001  feat-394-M4
+        cron_enabled: bool | None = None,  # noqa: ARG001  feat-394-M4
     ) -> dict:
         captured.append({"skill_ids": list(skill_ids or [])})
         return {"prompt": "preview", "section_count": 1}

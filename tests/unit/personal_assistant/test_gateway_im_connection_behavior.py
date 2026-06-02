@@ -511,6 +511,8 @@ def test_im_connection_agent_preview_passes_skill_ids_to_provider(
         tool_ids,
         scenario,
         skill_ids=(),
+        heartbeat_enabled=None,  # feat-394-M4 R2-2
+        cron_enabled=None,  # feat-394-M4 R2-2
     ):  # type: ignore[misc]
         provider_calls.append(
             {

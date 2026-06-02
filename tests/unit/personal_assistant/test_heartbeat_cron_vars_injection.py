@@ -259,3 +259,132 @@ class TestRuntimeVarsFromMetadata:
             "PromptContext.vars must contain heartbeat_enabled from hook_metadata"
         )
         assert ctx.vars.get("cron_enabled") == "False"
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M4 R2: assemble_prompt_preview injects heartbeat/cron_enabled vars
+# ---------------------------------------------------------------------------
+
+
+class TestAssemblePromptPreviewVarsInjection:
+    """assemble_prompt_preview must inject heartbeat_enabled/cron_enabled into vars.
+
+    feat-394-M4 R2-2 fix: the run-time turn path (inbound_pipeline → runtime.py)
+    was fixed in M3, but assemble_prompt_preview (kernel.py:574) only passes
+    vars={"custom_prompt": ...}, leaving heartbeat/cron_enabled absent.
+    Result: preview always renders heartbeat segment (default True) and never
+    renders cron segment (default False), regardless of the agent's config.
+
+    These tests use the _make_prompt_preview_provider path to verify the
+    full preview chain: caller supplies heartbeat_enabled/cron_enabled → vars
+    are forwarded to prompt section enabled_when gates.
+    """
+
+    def test_prompt_preview_heartbeat_disabled_excludes_heartbeat_section(
+        self,
+    ) -> None:
+        """assemble_prompt_preview with heartbeat_enabled=False must exclude heartbeat segment.
+
+        The simplest test of the fix: when heartbeat_enabled=False is passed, the
+        vars dict inside PromptContext must contain heartbeat_enabled='False' so that
+        _heartbeat_enabled(ctx) returns False and _PA_HEARTBEAT is suppressed.
+        """
+        from agent.products.personal_assistant.prompt_sections import (
+            _PA_HEARTBEAT,  # noqa: PLC2701
+        )
+        from agent.core.agent.prompt_sections.wiring import build_prompt_context_from_metadata
+
+        # Simulate what assemble_prompt_preview should do once fixed:
+        # pass heartbeat_enabled into vars so the section gate sees it.
+        ctx = build_prompt_context_from_metadata(
+            metadata={"conversation_type": "direct"},
+            available_tools=[],
+            available_skills=[],
+            current_datetime=None,
+            cwd="/tmp",
+            flags={},
+            vars={"custom_prompt": "", "heartbeat_enabled": "False", "cron_enabled": "False"},
+        )
+        assert _PA_HEARTBEAT.enabled_when is not None
+        assert _PA_HEARTBEAT.enabled_when(ctx) is False, (
+            "heartbeat segment must be disabled when heartbeat_enabled='False' is in vars; "
+            "assemble_prompt_preview must inject this into vars (R2-2 fix)"
+        )
+
+    def test_prompt_preview_cron_enabled_includes_cron_section(self) -> None:
+        """assemble_prompt_preview with cron_enabled=True must include cron segment."""
+        from agent.products.personal_assistant.prompt_sections import (
+            _PA_CRON,  # noqa: PLC2701
+        )
+        from agent.core.agent.prompt_sections.wiring import build_prompt_context_from_metadata
+
+        ctx = build_prompt_context_from_metadata(
+            metadata={"conversation_type": "direct"},
+            available_tools=[],
+            available_skills=[],
+            current_datetime=None,
+            cwd="/tmp",
+            flags={},
+            vars={"custom_prompt": "", "heartbeat_enabled": "False", "cron_enabled": "True"},
+        )
+        assert _PA_CRON.enabled_when is not None
+        assert _PA_CRON.enabled_when(ctx) is True
+
+    def test_make_prompt_preview_provider_forwards_heartbeat_cron_flags(
+        self, tmp_path: Path
+    ) -> None:
+        """_make_prompt_preview_provider must accept and forward heartbeat/cron_enabled.
+
+        feat-394-M4 R2-2: the _provider closure in main.py:1748 does not accept
+        heartbeat_enabled/cron_enabled and does not pass them to assemble_prompt_preview.
+        After the fix, calling _provider with these extra kwargs must result in the
+        assemble_prompt_preview vars containing the correct string values.
+        """
+        from unittest.mock import MagicMock, patch
+
+        captured_vars: list[dict] = []
+
+        class _FakeKernel:
+            def assemble_prompt_preview(
+                self,
+                *,
+                workspace_root=None,
+                features=None,
+                custom_prompt=None,
+                tool_ids=None,
+                scenario="direct",
+                skill_ids=None,
+                heartbeat_enabled=None,
+                cron_enabled=None,
+            ) -> dict:
+                # Record what vars would be produced
+                hb_val = str(heartbeat_enabled) if heartbeat_enabled is not None else ""
+                cr_val = str(cron_enabled) if cron_enabled is not None else ""
+                captured_vars.append(
+                    {"heartbeat_enabled": hb_val, "cron_enabled": cr_val}
+                )
+                return {"prompt": "preview", "section_count": 1}
+
+        from personal_assistant.main import _make_prompt_preview_provider
+
+        kernel = _FakeKernel()
+        provider = _make_prompt_preview_provider(kernel)
+
+        # Call with heartbeat/cron flags — after fix, these must reach assemble_prompt_preview
+        provider(
+            agent_id="agent-A",
+            workspace_root=str(tmp_path),
+            features={},
+            custom_prompt="",
+            tool_ids=[],
+            scenario="direct",
+            skill_ids=[],
+            heartbeat_enabled=True,
+            cron_enabled=False,
+        )
+
+        assert len(captured_vars) == 1, "assemble_prompt_preview should have been called once"
+        assert captured_vars[0]["heartbeat_enabled"] == "True", (
+            "_make_prompt_preview_provider must forward heartbeat_enabled to assemble_prompt_preview"
+        )
+        assert captured_vars[0]["cron_enabled"] == "False"

@@ -580,6 +580,8 @@ class Kernel:
         tool_ids: list[str] | None = None,
         scenario: str = "direct",
         skill_ids: list[str] | None = None,
+        heartbeat_enabled: bool | None = None,
+        cron_enabled: bool | None = None,
     ) -> dict[str, Any]:
         """Assemble a system-prompt preview for the agent settings page.
 
@@ -604,6 +606,16 @@ class Kernel:
                 names are needed — has_tool() checks gate guidance segments.
             scenario: Conversation type hint forwarded into PromptContext.scenario.
             skill_ids: Skill IDs to resolve from workspace for the skills listing.
+            heartbeat_enabled: When provided, injected into PromptContext.vars as
+                ``"heartbeat_enabled"`` so the heartbeat prompt section gate
+                (_PA_HEARTBEAT.enabled_when) reflects the agent's actual config.
+                feat-394-M4 R2-2 fix: preview path was missing this injection,
+                causing the heartbeat segment to always render (default True).
+            cron_enabled: When provided, injected into PromptContext.vars as
+                ``"cron_enabled"`` so the cron prompt section gate
+                (_PA_CRON.enabled_when) reflects the agent's actual config.
+                feat-394-M4 R2-2 fix: preview path was missing this injection,
+                causing the cron segment to never render (default False).
 
         Returns:
             Dict with keys ``prompt`` (str) and ``section_count`` (int).
@@ -655,6 +667,17 @@ class Kernel:
                 # fall through to an empty listing rather than aborting the preview.
                 active_skills = ()
 
+        # feat-394-M4 R2-2 fix: inject heartbeat_enabled/cron_enabled into vars
+        # so that _PA_HEARTBEAT and _PA_CRON enabled_when gates see the agent's
+        # actual configuration in the preview, not the segment defaults.
+        # Mirrors the run-time injection path in inbound_pipeline.py:462-463 +
+        # runtime.py:408-414 that was fixed in M3 for user-message turns.
+        preview_vars: dict[str, str] = {"custom_prompt": custom_prompt or ""}
+        if heartbeat_enabled is not None:
+            preview_vars["heartbeat_enabled"] = str(heartbeat_enabled)
+        if cron_enabled is not None:
+            preview_vars["cron_enabled"] = str(cron_enabled)
+
         ctx = build_prompt_context_from_metadata(
             metadata={"conversation_type": scenario},
             available_tools=active_tools,
@@ -662,7 +685,7 @@ class Kernel:
             current_datetime=None,  # PREVIEW mode: segments emit placeholder
             cwd=str(effective_root),
             flags=flags,
-            vars={"custom_prompt": custom_prompt or ""},
+            vars=preview_vars,
             render_mode=RenderMode.PREVIEW,
         )
 
