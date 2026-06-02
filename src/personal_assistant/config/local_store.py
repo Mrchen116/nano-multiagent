@@ -147,6 +147,10 @@ class AgentWorkspaceConfig:
         heartbeat_active_hours_end: Optional end of active window in "HH:MM" format.
         heartbeat_active_hours_timezone: Timezone string for active-hours window (e.g.
             "Asia/Shanghai").  Defaults to UTC when absent.
+        cron_enabled: Whether the cron scheduler should evaluate jobs for this agent.
+            False means the scheduler skips this agent entirely.  Sourced from
+            AgentProfile.cron.enabled (IM) and propagated via ConfigSyncNotifier
+            (feat-394-M2 decision 5).
     """
 
     agent_id: str
@@ -166,6 +170,8 @@ class AgentWorkspaceConfig:
     heartbeat_active_hours_start: str | None = None
     heartbeat_active_hours_end: str | None = None
     heartbeat_active_hours_timezone: str | None = None
+    # feat-394-M2 decision 5: per-agent cron enable/disable
+    cron_enabled: bool = False
 
 
 @dataclass(frozen=True, slots=True)
