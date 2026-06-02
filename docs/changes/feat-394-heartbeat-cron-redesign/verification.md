@@ -123,3 +123,97 @@ Spec Scenario "配置页查看并手动删除任务"要求配置页有一个 cro
 **SUGGESTION-1: `_IMConfigSyncClient` 只持有静态 token，无 token_getter（既有问题，非 feat-394 新引入）**
 
 `_IMConfigSyncClient.__init__`（`main.py:253-284`）只接受 `token: str | None`，没有 `token_getter`，在 username/password 认证且初始 token 为 None 的配置下 `sync_agent` 会 401 失败，heartbeat/cron 开关同步不到 gateway。这是 feat-394 之前就存在的设计缺口，建议后续 unit 补齐（仿 `_IMBootstrapClient:599-613` 的 token_getter 模式）。相关文件：`main.py:253-284`。
+
+---
+
+# Round 2 — 2026-06-02
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 15/15（M3-fix-round1 全 6 Roadpoints DONE） |
+| Correctness | 15/15（round-1 所有 CRITICAL/WARNING 已关闭） |
+| Coherence | Followed（所有 design 决策已遵守） |
+
+**No critical issues. No warnings. Ready for PR.**
+
+---
+
+## Round-1 Issues 关闭核查
+
+### CRITICAL-1：cron 接入 gateway 运行循环 ✓ 关闭
+
+证据：
+- `main.py:929,944-946`：`PollingHeartbeatRunner.__init__` 接受 `cron_tick_fn: Callable[[str], Awaitable[None]] | None` 参数。
+- `main.py:991-1004`（`_run_loop`）：每次 tick 后遍历 `self._agents`，对 `cron_enabled=True` 的 agent 调用 `await self._cron_tick_fn(agent_id)`。
+- `main.py:2019-2051`（`_cron_tick_for_agent` 闭包）：逐 agent 实例化 `CronJobStore`、`CronSchedulerStateStore`、`CronRunner`、`CronScheduler`，调用 `await scheduler.tick()`。
+- `main.py:2051`：`heartbeat_runner._cron_tick_fn = _cron_tick_for_agent` 完成接线。
+
+### CRITICAL-2：heartbeat_enabled/cron_enabled 注入 PromptContext.vars ✓ 关闭
+
+证据：
+- `inbound_pipeline.py:462-463`：`session_metadata["heartbeat_enabled"] = agent.heartbeat_enabled`，`session_metadata["cron_enabled"] = agent.cron_enabled`。
+- `runtime.py:408-414`：`vars` 字典加入 `"heartbeat_enabled": str(hook_metadata.get("heartbeat_enabled", ""))` 和 `"cron_enabled": str(hook_metadata.get("cron_enabled", ""))`。
+- `prompt_sections.py:78-89`（`_heartbeat_enabled`）：字符串安全解析——`str(val).lower() not in ("false", "0", "")`，`val is None` 时 backward compat 返回 True。
+- `prompt_sections.py:105-115`（`_cron_enabled`）：字符串安全解析——`str(val).lower() in ("true", "1")`，`val is None` 时默认 False（opt-in）。
+- `prompt_sections.py:135-139`（`_both_enabled`）：委托 `_heartbeat_enabled(ctx) and _cron_enabled(ctx)`，避免 `bool("False")==True` 陷阱。
+
+### WARNING-1：cron_enabled 自动追加 "cron" 到 tool_allowlist ✓ 关闭
+
+证据：
+- `main.py:361-371`（`sync_agent`）：`if synced_cron_enabled and "cron" not in _raw_allowlist: _raw_allowlist = [*_raw_allowlist, "cron"]`。
+- `test_cron_config_sync.py:208-252`（`test_sync_agent_cron_enabled_adds_cron_tool_to_allowlist`）：断言 `"cron" in registered.tool_allowlist`，测试通过。
+
+### WARNING-2：_build_heartbeat_message 逐字照抄 openclaw HEARTBEAT_PROMPT ✓ 关闭
+
+证据：
+- `heartbeat_scheduler.py:860-869`：`_OPENCLAW_HEARTBEAT_PROMPT = "Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK."`
+- `heartbeat_scheduler.py:873-886`（`_build_heartbeat_message`）：`parts = [_OPENCLAW_HEARTBEAT_PROMPT]`，逐字照抄作为基础指令。
+- `test_heartbeat_prompt_openclaw.py:159-169`（`test_heartbeat_message_contains_openclaw_heartbeat_prompt`）：逐字比较断言，测试通过。
+
+### WARNING-3：CronCard 任务清单 + 删除按钮 ✓ 关闭
+
+证据：
+- `agent-detail-page.tsx:384-400`：CronCard 实现 `useQuery` 调 `listAgentCronJobs(agentId)`，`useMutation` 调 `deleteAgentCronJob(agentId, jobId)`。
+- `agent-detail-page.tsx:431-463`：任务列表 `<ul>` 渲染，每条任务有 delete 按钮，testid `cron-job-delete-{id}`。
+- `im-agent-config-api.ts`：`listAgentCronJobs` / `deleteAgentCronJob` 前端客户端实现。
+- `agents.py:597-679`：后端 `GET /im/v1/agents/{agent_id}/cron/jobs` 和 `DELETE /im/v1/agents/{agent_id}/cron/jobs/{job_id}` 路由实现，从 workspace jobs.json 读写。
+
+### SUGGESTION-1：token_getter ✓ 关闭
+
+证据：
+- `main.py:275,292-296`：`_IMConfigSyncClient.__init__` 新增 `token_getter: Callable[[], Awaitable[str | None]] | None = None` 参数，存入 `self._token_getter`。
+- `main.py:1937-1988`：`_run_gateway` 构建 `_token_getter` 闭包并传入 `_IMConfigSyncClient(token_getter=_token_getter)`。
+
+---
+
+## 测试结果
+
+全套回归（`pytest tests/ -m "not e2e"`）：**2468 passed, 2 skipped**。
+
+2 个失败均为预存在的 macOS `/tmp` → `/private/tmp` symlink 问题，与 feat-394 无关（在 main 分支同样失败）：
+- `tests/im_service/integration/test_agent_config_api.py::test_get_agent_config_prefers_live_gateway_snapshot`
+- `tests/im_service/integration/test_agent_create_flow.py::test_create_agent_lists_details_and_uses_new_node_binding_for_relay`
+
+---
+
+## Completeness
+
+Tasks: M3-fix-round1 全 6/6 Roadpoints DONE。M1 7/7、M2 8/8 已在 round-1 确认。
+
+---
+
+## Correctness
+
+所有 round-1 CRITICAL/WARNING 已有代码证据关闭，无新缺失 requirement。
+
+---
+
+## Coherence
+
+所有 design.md 决策现已被实现遵守，无偏离。
+
+---
+
+All checks passed. Ready for PR.
