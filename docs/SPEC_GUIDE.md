@@ -1,8 +1,9 @@
 # SPEC_GUIDE — 长青 spec 文档怎么写、什么进、什么不进
 
-> 本指南规定本仓**长青行为契约层** `docs/specs/<包>/spec.md` 的写法,以及单元收尾如何把行为
-> 增量归并回去。它服务两类作者:写契约的人/agent(判断"这条该不该进 spec、怎么落"),以及
-> orchestrator 收尾归并(把本单元的行为增量编辑进 canonical)。
+> 本指南规定本仓**长青行为契约层** `docs/specs/<包>/spec.md` 的写法,以及单元如何把行为增量经
+> **delta-spec** 归并回去。它服务三类作者:写契约的人/agent(判断"这条该不该进 spec、怎么落");
+> `change-design-author`(design 阶段产出本单元的 delta-spec —— 对 canonical 的 ADDED/MODIFIED/REMOVED);
+> `change-orchestrator`(收尾据实际代码 diff 校正 delta 后,合并进 canonical)。
 >
 > 顶点架构(包、依赖方向、部署拓扑)在 [`SPEC.md`](SPEC.md);本指南只管单包行为契约层。
 
@@ -12,7 +13,10 @@
 顶点架构      SPEC.md                          跨包:包 / 依赖方向 / 部署拓扑(手维护,极少变)
 长青行为契约  docs/specs/{kernel,im,gateway,cli}/spec.md
                                                单包对外可观察行为(Purpose + Requirement/Scenario)
-                                               —— 收尾归并保持 current,本指南管这一层
+                                               —— 经 delta-spec 归并保持 current,本指南管这一层
+契约层增量    docs/changes/<unit>/specs/<包>/spec.md   (delta-spec,镜像 canonical 目录)
+                                               per-unit 对 canonical 的 ADDED/MODIFIED/REMOVED Requirements;
+                                               design 阶段产,收尾据实际 diff 校正后合并进长青层,随变更稿归档
 变更稿        docs/changes/<unit>/{spec,design,tasks}.md
                                                per-unit,易逝,ship 后归档;架构决策记在 design.md §关键决策
 ```
@@ -96,25 +100,68 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 4. **spec-anchored**:契约 spec 有文档价值、可对账,但**不要求**代码从 spec 全量生成。维护方式 =
    文档化 + 与代码对账,不是 regenerate。
 
+## 契约层增量(delta-spec):何时产、放哪、怎么写
+
+长青层**不靠**"每个单元收尾全量重扫 canonical"维护(每单元全量既不现实也无必要),而是学 OpenSpec 的
+**delta 归并**:每个单元只声明它对 canonical 的**增量**,收尾把增量并回去。
+
+**何时产 / 谁产**:`change-design-author` 在 design 阶段产出——那时已握有首文档【验收标准】+ 关键决策 +
+契约层 grounding 三份输入,能投影出"本单元对 canonical 改什么"。它是 design 的**派生产物**,不是首文档,
+不回头改用户场景(发现验收标准有疏漏仍按规矩停下回 `change-spec-author`)。
+
+**放哪**:`docs/changes/<unit>/specs/<包>/spec.md` —— **镜像** canonical `docs/specs/<包>/spec.md` 的
+目录结构(包 ∈ {kernel,im,gateway,cli}),与变更稿 `spec.md`/`design.md` 同处 unit 目录、随其归档。本单元
+没碰的包不建对应文件。
+
+**怎么写**:一份"迷你 canonical",同骨架(可选 `## Purpose`)+ 三个 delta 段,只写**变更的** Requirement:
+
+```markdown
+# <包> Specification (delta for <unit-id>)
+
+## ADDED Requirements
+### Requirement: <新增的契约>
+#### Scenario: ...
+
+## MODIFIED Requirements
+### Requirement: <被改的契约,写改后的完整条目>
+#### Scenario: ...
+
+## REMOVED Requirements
+### Requirement: <被删的契约名>
+```
+
+- 每条仍过本指南「两问判据」+「库契约四纪律」(尤其 kernel:主语=消费者,把用户视角的验收标准
+  **翻译**成 sdk 消费者视角,不照抄)。
+- 终端产品(im/gateway/cli)的 delta 多是验收标准 Scenario 的契约层镜像;kernel 需视角翻译。
+- 本单元无对外行为变化(纯内部重构)→ **不产 delta 文件**,在 design.md 显式注明 "no spec delta"。
+
+**它和首文档【验收标准】的关系**:验收标准是**用户视角**的本单元验收清单(给 reviewer 走旅程);delta-spec
+是**契约视角**的 canonical 增量(给收尾合并)。两者对终端产品内容重合,是**视角投影**不是冗余——delta 由
+design-author 从【验收标准】+ 决策投影而来。
+
+**为什么是草案、收尾要校正**:design 期产的 delta 是"预计要改什么"。worker 实现时会偏(加了没预见的对外
+行为、或某条没落地),所以收尾(orchestrator §7.0)**先拿实际代码 diff 校正 delta,再合并**——这步对应
+OpenSpec 在 archive 前 verify delta vs 代码。
+
 ## 收尾归并 checklist(orchestrator 在提 PR 前执行)
 
-单元的行为增量在 orchestrator 收尾时**直接编辑进 canonical**——**不产出独立 delta-spec 工件**。
-对每个被本单元触及的包:
+单元的行为增量经 design 阶段产的 **delta-spec**(`docs/changes/<unit>/specs/<包>/spec.md`)合并回
+canonical——**不全量重扫**,只动 delta 列的条目。对每个有 delta 文件的包:
 
-- [ ] **判定有无对外行为变化**:依据本单元 `design.md` + 代码 diff,问"经 `agent.sdk` / 产品入口
-      的消费者,可观察行为变了吗"。
-  - 无 → 在收尾记录显式注明 **"no spec delta"**,不动契约层。纯内部重构属此类。
-  - 有 → 继续。
-- [ ] **把增量编辑进对应 `docs/specs/<包>/spec.md`**:新增行为 → 加 `Requirement`/`Scenario`;改了
-      行为 → 改对应条目;移除行为 → 删对应条目。每条仍过「两问判据」+「库契约四纪律」。
+- [ ] **校正 delta(design 草案 → 实际代码)**:delta 是 design 期预测,worker 实现可能偏。拿实际代码
+      diff 核对 delta 每条 ADDED/MODIFIED/REMOVED——实现期新增的对外行为补进 delta、design 写了但没
+      落地的删掉。无 delta 文件(design 注 "no spec delta")且 diff 也无对外行为变化 → 跳过本包。
+- [ ] **软对账(follow OpenSpec,advisory)**:复用 reviewer 旅程 + verifier——对**校正后 delta 的每条**
+      Requirement/Scenario 搜代码 + 测试,确认契约与实现一致,背离则在报告里**显式报出**(改实现或改
+      delta),不静默累积。**软对账,不出红测、不机械硬卡**;靠 reviewer/verifier 尽责兜。范围 = 本单元
+      delta,**不是 canonical 全量**(canonical 其余条目由各自所属单元收尾时已对过账)。
+- [ ] **把 delta 合并进 `docs/specs/<包>/spec.md`**:ADDED 追加、MODIFIED 替换对应条目、REMOVED 删
+      对应条目(机械对应,因 delta 与 canonical 同骨架)。每条进 canonical 前再过「两问判据」+「库契约四纪律」。
 - [ ] **bump 头部 `> 对齐:` 行**到本 unit-id。
-- [ ] **软对账(follow OpenSpec,advisory)**:复用 reviewer 旅程 + verifier——对每条 Requirement/
-      Scenario 搜代码 + 测试,确认契约与实现一致,背离则在报告里**显式报出**(改实现或改 spec),
-      不静默累积。**这是软对账,不出红测、不机械硬卡**;靠 reviewer/verifier 尽责兜。
 
-> 为什么手改 + 软对账够用:`tests/contract/` 的硬不变量测试本就每次 pytest 跑,与 spec 是否声明
-> 链无关——放弃显式 `覆盖:` 绑定损失很小,换来契约层格式干净。手改的非确定性由固定骨架 +
-> 收尾软对账兜。
+> 为什么 delta + 软对账够用:`tests/contract/` 的硬不变量测试本就每次 pytest 跑,与 spec 是否声明链
+> 无关——放弃显式 `覆盖:` 绑定损失很小,换来契约层格式干净。delta 把"该验 / 该合并什么"限定到本单元
+> 增量,收尾不必全量重扫;手改的非确定性由 delta 固定骨架 + 收尾校正 / 软对账兜。
 
 ## 读侧 grounding checklist(change-* 作者在各自阶段执行)
 
@@ -124,8 +171,9 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
       取词汇 / 对齐既有行为,而非读会误导的过期子系统设计叙事。
 - [ ] **design 阶段**(`change-design-author`):读 `docs/specs/<包>` **并对当前代码做 grounding**——
       拿契约层声明的行为与 `src/<包>/` 实际代码核对;发现契约层与代码**不一致**即在「现状摘要」里
-      报出(契约层可能已 drift,本单元不一定负责修,但要让人看见)。
-- [ ] **收尾阶段**(orchestrator):见上「收尾归并 checklist」。
+      报出(契约层可能已 drift,本单元不一定负责修,但要让人看见)。**并据【验收标准】+ 关键决策产出
+      本单元 delta-spec**(`docs/changes/<unit>/specs/<包>/spec.md`,见上「契约层增量」节)。
+- [ ] **收尾阶段**(orchestrator):见上「收尾归并 checklist」——校正 delta、软对账、合并进 canonical。
 
 ## 迁移料源优先级(逆向已有包的当前契约时)
 

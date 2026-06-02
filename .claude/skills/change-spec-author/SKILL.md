@@ -264,6 +264,8 @@ Q1: <一句话问题>
 
 后果很硬:**Scenario 里只要混进实现 / 协议 / 接口 / 内部状态条目,会让整轮 reviewer 验收作废**——reviewer 拿到协议级标准就会去翻源码 / 抓帧 / 加日志定位,滑进 engineer 模式,这轮证据全部失效。
 
+还有一个下游:`change-design-author` 会把【验收标准】**投影**成本 unit 的 canonical **delta-spec**(对长青契约层 `docs/specs/<包>/spec.md` 的增量),收尾由 orchestrator 并进 canonical。所以你的验收标准写得准、Scenario 拆得全,长青契约层最终才准——这是它进入"系统 current 权威"的源头之一。
+
 所以 §4 说的"实现层标准不进 spec"不是风格建议,是**流程硬约束**。实现层的东西归 `design.md`,那里有 worker 单测和架构师 PR review 来验——各有各的 verifier,不要挤进同一段。
 
 ---

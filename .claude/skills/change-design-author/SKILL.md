@@ -347,6 +347,36 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
 
 ---
 
+## §4.8 产出 canonical delta-spec(本 unit 对长青契约层的增量)
+
+关键决策 + Milestone 定了之后,产出本 unit 对长青行为契约层的 **delta-spec**——声明"本 unit 要给
+`docs/specs/<包>/spec.md` 加 / 改 / 删哪些 Requirement"。它是收尾(orchestrator §7.0)据以**软对账 +
+合并进 canonical** 的依据;**不写它,收尾就只能全量重扫 canonical**(每单元全量不现实)。
+
+**判定**:对本 unit 触及的每个包(kernel / im / gateway / cli),问"经 `agent.sdk` / 产品入口的消费者,
+可观察行为变了吗":
+
+- **变了** → 产出 `docs/changes/<unit_dir>/specs/<包>/spec.md`。
+- **没变**(纯内部重构) → 不产该包文件,在 design.md 对应决策处显式注明 "no spec delta"。
+
+**怎么写**(完整规范见 [`docs/SPEC_GUIDE.md`](../../../docs/SPEC_GUIDE.md)「契约层增量(delta-spec)」节):
+
+- 镜像 canonical 目录:`docs/changes/<unit_dir>/specs/<包>/spec.md`。
+- 一份"迷你 canonical":`## ADDED / MODIFIED / REMOVED Requirements`,只写**变更的** Requirement
+  (改的写改后完整条目、删的只写名)。
+- **从【验收标准】+ 关键决策投影**——终端产品(im/gateway/cli)多是验收标准 Scenario 的契约层镜像;
+  **kernel 要把用户视角翻译成 `agent.sdk` 消费者视角**(主语=消费者),不照抄。
+- 每条过 SPEC_GUIDE「两问判据」+「库契约四纪律」。
+
+> 它是 design 期的**草案**:声明"预计改什么"。worker 实现可能偏,收尾会拿实际 diff 校正——所以这里
+> 不必追求和最终代码逐字一致,**把对外行为增量说全**即可。
+
+```bash
+mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的包建
+```
+
+---
+
 ## §5 整体自检(必做,不是可选)
 
 逐段对齐完成 + Milestone 表敲定后,**不能直接交付**。必须把 spec.md(或首文档)+ design.md 整体重读一遍,做一次自洽性自检——这一步不做,后面 worker 跑起来会撞到很多本可避免的坑。
@@ -360,6 +390,7 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
 - [ ] spec 每个验收 Scenario 都能在 design + Milestone 表里找到对应实现路径——任何"无人认领"的 Scenario 是漏
 - [ ] design 的关键决策都有对应的 spec 用户场景驱动——找不到驱动的决策可能是过度设计
 - [ ] 范围与非目标:design 没有偷偷扩到 spec 写的"非目标"里去
+- [ ] **delta-spec 覆盖对外行为增量**(§4.8):每个有对外行为变化的包都产了 `docs/changes/<unit_dir>/specs/<包>/spec.md`,纯内部包显式注 "no spec delta";delta 每条能追溯到某条验收标准或关键决策(kernel 已做用户→消费者视角翻译)
 
 **design 内部自洽**:
 
@@ -428,6 +459,7 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
 - [ ] `§Runbook for Reviewer` 段已填(列出本 unit 涉及的常驻服务 + 停止/启动/健康检查命令,或显式"无常驻服务")
 - [ ] Milestone 表完整(每行字段都填),数量 = mkdir 出的子目录数
 - [ ] 子目录全空(没有预填 tasks.md / progress.md)
+- [ ] 对外行为有变化的包都产了 delta-spec `docs/changes/<unit_dir>/specs/<包>/spec.md`(§4.8);纯内部 unit 在 design.md 注 "no spec delta"
 - [ ] 已 commit 到 `main`(`docs/changes/<unit_dir>/` 含 design.md 与 milestone 空目录)
 
 通过后,在主仓 `main` 上 commit + push `docs/changes/<unit_dir>/`(勿建 `unit/*` 分支)。
@@ -466,6 +498,7 @@ mkdir -p docs/changes/<unit_dir>/M2-<title>/
   - Milestone 表(orchestrator 据此派发 worker;每行 → 一个派发包)
   - 空 Changelog(orchestrator 在实施期偏差时由 worker 维护)
 - `docs/changes/<unit_dir>/M*/` 空目录(orchestrator 据此校验 milestone 数量一致)
+- `docs/changes/<unit_dir>/specs/<包>/spec.md` delta-spec(§4.8,仅有对外行为变化的包;orchestrator §7.0 据此校正 + 软对账 + 合并进 canonical。纯内部 unit 无此文件,design.md 注 "no spec delta")
 
 下游(orchestrator + worker + reviewer)对你的依赖:
 

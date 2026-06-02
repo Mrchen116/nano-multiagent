@@ -362,7 +362,7 @@ acceptance / regression 模板都有"上层文档同步"段。逐项核对:
 - `AGENTS.md` / `CLAUDE.md`
 - `docs/SPEC_GUIDE.md`(文档规范,仅当本 unit 改了文档体系本身时)
 
-**每一项都要勾**,即使是"无需更新"——证明你检查了。需要更新的,在报告里标记,但**不要自己改**——交给 orchestrator 在 PR 阶段或下一个文档同步 unit 处理。长青契约层的写回本就是 orchestrator §7.0 收尾归并的职责(软对账 + 直接编辑 canonical),reviewer 只勾"是否已反映本 unit 行为增量",不亲自重写契约层。
+**每一项都要勾**,即使是"无需更新"——证明你检查了。需要更新的,在报告里标记,但**不要自己改**——交给 orchestrator 在 PR 阶段或下一个文档同步 unit 处理。长青契约层的写回本就是 orchestrator §7.0 收尾归并的职责(据 delta-spec 校正 + 软对账 + 合并进 canonical),reviewer 只勾"是否已反映本 unit 行为增量",不亲自重写契约层。
 
 ---
 

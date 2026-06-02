@@ -51,6 +51,17 @@
 
 <!-- 对外 API、模块间调用、关键数据结构。 -->
 
+## 契约层增量 (delta-spec)
+
+<!-- §4.8：本 unit 对长青契约层 docs/specs/<包>/spec.md 的增量状态。逐包一行。
+     有对外行为变化 → 产 docs/changes/<unit_dir>/specs/<包>/spec.md，这里指向它；
+     纯内部无变化 → 写 "no spec delta"。规范见 docs/SPEC_GUIDE.md「契约层增量」。 -->
+
+- kernel: <specs/kernel/spec.md | no spec delta>
+- im:     <specs/im/spec.md | no spec delta>
+- gateway: <specs/gateway/spec.md | no spec delta>
+- cli:    <specs/cli/spec.md | no spec delta>
+
 ## 风险与回退
 
 <!-- 已知风险、降级路径、回滚方案。 -->
