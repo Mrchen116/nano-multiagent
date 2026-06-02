@@ -34,12 +34,12 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | token_getter 修复 + vars 注入（后端链路修复）| TODO |
-| R2 | cron 接入 polling runner（最大关键修复）| TODO |
-| R3 | cron 工具自动门控 + HEARTBEAT_PROMPT 逐字（决策补全）| TODO |
-| R4 | CronCard 任务清单 UI（spec Scenario 补全）| TODO |
-| R5 | 前端类型修复 + Cadence select-all（minor）| TODO |
-| R6 | Runbook 运行时验证 | TODO |
+| R1 | token_getter 修复 + vars 注入（后端链路修复）| DONE |
+| R2 | cron 接入 polling runner（最大关键修复）| DONE |
+| R3 | cron 工具自动门控 + HEARTBEAT_PROMPT 逐字（决策补全）| DONE |
+| R4 | CronCard 任务清单 UI（spec Scenario 补全）| DONE |
+| R5 | 前端类型修复 + Cadence select-all（minor）| DONE |
+| R6 | Runbook 运行时验证 | DONE |
 
 ## UI 状态矩阵
 
