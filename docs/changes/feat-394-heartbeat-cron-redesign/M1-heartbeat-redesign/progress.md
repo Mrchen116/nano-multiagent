@@ -64,4 +64,23 @@ Unit branch: unit/feat-394
   - Visual/Interaction: N/A
 - Rollback: d3548078 (C1 红测试)
 - Commits: C1=d3548078, C2=593cb9ac
-- Next: R4 — IM frontend heartbeat 开关 UI + API 字段 + vitest
+- Next: R4 完成
+
+### R4 — IM frontend heartbeat 开关 UI + API 字段 + vitest
+
+- Context: 需要配置页开关让用户 per-agent 启用 heartbeat；API 类型需要携带 heartbeat 字段
+- Decision:
+  - `im-agent-config-api.ts`: `HeartbeatConfig` interface + `AgentConfig.heartbeat?` + `UpdateAgentConfigRequest.heartbeat?` + `updateAgentConfig` PATCH body 携带 heartbeat
+  - `agent-detail-page.tsx`: `HeartbeatCard` 组件（checkbox toggle + every 输入框），插入 BehaviorCard 和 Access 之间
+  - i18n: en.json / zh.json 新增 `agents.form.heartbeat.*` 键
+- Rationale: 用户视角的"打开 heartbeat 开关"入口；UI 改动用普通 checkbox 与现有 feature checkbox 风格一致
+- Evidence:
+  - Tests: 15/15 vitest passed（含 2 个新 heartbeat 测试）；347/347 vitest 总测试全绿；Python 2357 全套通过
+  - Entry: vitest 证明 UI 行为正确；浏览器启动无 JS 错误（console 干净）
+  - Frontend State Matrix: default(disabled)=已验收; enabled=已验收（toggle click）; 其他 N/A
+  - Browser QA: 前端 localhost:59040 启动 200，console 无错误；登录页面渲染正常；需完整 IM 服务才能进入 agent 详情页
+  - E2E/Regression: vitest 组件测试覆盖 toggle 交互和 PATCH payload 含 heartbeat 字段
+  - Visual/Interaction: 截图 /tmp/agents-settings-feat394.png（登录页），无 JS 错误
+- Rollback: 2f3cd4d1 (C1 红测试)
+- Commits: C1=2f3cd4d1, C2=a3619813
+- Next: R5 — ConfigSyncNotifier / config_service.py heartbeat 字段同步
