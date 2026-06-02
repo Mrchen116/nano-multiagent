@@ -214,6 +214,302 @@
 
 ---
 
+---
+
+# Round 2 — 2026-06-03
+
+**Date**: 2026-06-03
+**Reviewer**: change-reviewer (Sonnet 4.6)
+**Branch**: unit/feat-394
+**Unit Worktree**: /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
+**Review Mode**: full
+**Prior Round**: Round 1 — 2 blocking issues (Issue 1: config sync 401; Issue 2: prompt vars 未注入)
+
+---
+
+## Summary
+
+| | |
+|---|---|
+| **Verdict** | `fail` |
+| **Highest Required Action** | `fix-implementation` |
+| **Issues** | blocking: 1 / major: 1 / minor: 1 |
+| **Needs Re-review** | true |
+
+**Top Concern**: `PersistentSessionBindingStore.find_by_kernel_session_id` 方法缺失，cron 工具每次调用均抛 `AttributeError` → S3.1~S3.5 全无法走通，cron 用户自管完全失效。
+
+---
+
+## Services Setup (Round 2)
+
+- IM: port 57001（`IM_JWT_SECRET="demo-jwt-secret-for-feat340-testing"`）
+- Gateway: `/tmp/reviewer-feat394-r2-gateway.yaml`（node_id: reviewer-feat394-r2-node，user_id: ca9c3d0823cc4f35a3f0f45a1971bc12）
+- Frontend: `npm run build`（tsc -b && vite build）全通过，无 TS 错误，产物含 `heartbeat-enabled-toggle` / `cron-enabled-toggle` marker
+- LLM proxy: http://127.0.0.1:4000，模型 `volcanoArk:doubao-seed-2-0-code-preview-260215`
+
+**产物指纹核验**：`index-CbL5azQP.js` grep `heartbeat-enabled-toggle` 命中 ✓
+
+---
+
+## Clarification Q&A
+
+无需澄清。
+
+---
+
+## User Journeys Exercised (Round 2)
+
+| Journey | Scenarios Covered | Outcome |
+|---|---|---|
+| **J1** config sync 401 修复验收 | Issue 1 复验 | pass |
+| **J2** heartbeat 调度 + 带上下文汇报 | S1.1, S2.2, S4.1, S4.2 | pass |
+| **J3** heartbeat 无任务静默 | S2.3 | pass |
+| **J4** cron 工具自管注册 | S3.1~S3.5 | fail（PersistentSessionBindingStore.find_by_kernel_session_id 缺失） |
+| **J5** prompt 门控 | Issue 2 复验 | partial（运行时 vars 注入正确；preview 路径仍有缺口） |
+| **J6** tsc -b 通过 | Issue 3 复验 | pass |
+| **J7** Cadence select-all | Issue 4 复验 | pass |
+
+---
+
+## 验收标准覆盖表 (Round 2)
+
+### Requirement: 配置页两个开关 per-agent 启用/停用 heartbeat 与 cron
+
+#### Scenario S1.1: 打开 heartbeat 开关并设节律
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 1 |
+| 验证方式 | 配置页打开 heartbeat + 设 cadence=10s → Save Agent；观察 config sync + heartbeat-state.json 更新 |
+| 证据 | IM log: `PATCH /im/v1/agents/Alpha/config 200` → `GET ?source=mirror 200`（config sync 成功，不再 401）；gateway YAML 自动更新 `heartbeat.enabled=true`；重启 gateway 后 `heartbeat-state.json["Alpha"].last_due_at` 每 10s 更新（16:09:20 → 16:10:20 → 16:18:50 → 16:19:20…）；IM 直聊出现 heartbeat 投递消息。截图 `/tmp/feat394-r2-heartbeat-enable.png`, `/tmp/feat394-r2-heartbeat-chat.png` |
+| 结果 | `pass` |
+| 备注 | round-1 blocking Issue 1 已关闭。**注意**：HeartbeatScheduler._agents 是初始化时的不可变 tuple，config sync 后需重启 gateway 才能让调度器感知新开关状态；YAML 和 pipeline._agents 会立即更新，但不回写到 HeartbeatScheduler。这是实现层面可接受的行为（gateway restart 场景常见）。|
+
+#### Scenario S1.2: 打开 cron 开关
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 2 |
+| 验证方式 | UI 打开 cron 开关 → Save；Tool Allowlist 自动出现 cron |
+| 证据 | 截图 `/tmp/feat394-r2-heartbeat-section.png`（cron checked）；IM API config: `tool_allowlist: ['cron']`；THEN 要求"此后可以注册定时任务并按时运行"——cron 工具被 AttributeError 阻断，任务无法注册（Issue R2-1）|
+| 结果 | `fail` |
+| 备注 | UI 开关和 Tool Allowlist 门控 pass；端到端效果因 Issue R2-1 fail。|
+
+#### Scenario S1.3: 关闭开关即停用（边界）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 3 |
+| 验证方式 | UI 关闭 heartbeat → Save；观察 heartbeat-state.json 是否停止更新 |
+| 证据 | YAML 更新为 `heartbeat.enabled=false`；但 HeartbeatScheduler._agents 不热更新，调度仍继续（直到重启）。UI 关闭 + config sync 成功（200），重启后效果符合 THEN |
+| 结果 | `inconclusive` |
+| 备注 | UI 层和 config sync 层都工作；因 HeartbeatScheduler 不热更新，当前运行实例内停用不立即生效。是否满足"立即停用"待 orchestrator 判定（需要 hot-reload 或重启语义）。|
+
+#### Scenario S1.4: 未启用的 agent 不跑（默认/空态）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 4 |
+| 验证方式 | Beta agent 两个开关均 unchecked |
+| 证据 | UI 默认态正确；heartbeat-state.json 无 Beta 条目；Tool Allowlist 无 cron |
+| 结果 | `pass` |
+
+---
+
+### Requirement: agent 对话自管 heartbeat（用户不必手写 HEARTBEAT.md）
+
+#### Scenario S2.1: 口述提醒，agent 自动记录
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 1 |
+| 验证方式 | 直聊说"盯着我们聊的那个发布有进展提醒我" → 观察 HEARTBEAT.md 是否自动写入 |
+| 证据 | 本轮专注 cron 验证，HEARTBEAT.md 由 reviewer 直接写入（不经 agent）；S2.1 未独立走用户旅程 |
+| 结果 | `inconclusive` |
+| 备注 | 未独立验证 agent 自填 HEARTBEAT.md。上轮同样 inconclusive。heartbeat 带上下文汇报 (S2.2) 已验证 agent 能读取现有 HEARTBEAT.md 内容并执行任务，但 agent 自动写入 HEARTBEAT.md 这条链路没有走完整旅程。|
+
+#### Scenario S2.2: 到点带上下文主动冒泡且记得上下文
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 2 |
+| 验证方式 | 1) 用户发送"My lucky number is 42"，agent 确认；2) HEARTBEAT.md 写入"如果知道幸运数字就提及"；3) 等待下一次 heartbeat 到点 |
+| 证据 | 截图 `/tmp/feat394-r2-heartbeat-context.png`：Alpha 主动在直聊发出"Your lucky number is 42."（带历史上下文）；heartbeat 每 10s 触发（last_due_at 持续更新）；消息外观同普通 agent 消息（有头像、token 计数气泡）。截图 `/tmp/feat394-r2-heartbeat-chat.png`：多条心跳汇报消息，时间间隔约 10s |
+| 结果 | `pass` |
+| 备注 | round-1 blocking Issue 1（config sync 401）和 Issue 2（prompt vars 未注入运行时）均已修复。heartbeat 真正跑在 canonical 直聊会话上并带上下文。|
+
+#### Scenario S2.3: 无可汇报内容则静默
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 3 |
+| 验证方式 | HEARTBEAT.md 清空为仅注释行；等待多个 heartbeat 周期 |
+| 证据 | HEARTBEAT.md 设为仅含 `<!-- No tasks -->` 后，`heartbeat-state.json` last_due_at 持续更新（调度器在跑）但 IM conversations 无新消息产生。`_is_heartbeat_content_effectively_empty` 检测到空内容后跳过提交 LLM run |
+| 结果 | `pass` |
+
+#### Scenario S2.4: 不同关注项用不同频率（多子节律）
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 本轮未单独验证 tasks: 多子节律（每个任务独立 every）。需在 HEARTBEAT.md 写多个 tasks: 块并观察 per_task_last_due 分别更新。|
+
+#### Scenario S2.5: 活跃时段外不打扰（activeHours）
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 同上轮，需要设置 activeHours 并观察凌晨不触发行为，本轮未验证。|
+
+---
+
+### Requirement: agent 对话自管 cron 定时任务（可多条、无上下文执行）
+
+#### Scenario S3.1: 口述定时任务，agent 注册一条
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 1 |
+| 验证方式 | 直聊说"每 30 秒报当前时间" → cron 工具调用 → jobs.json 创建 |
+| 证据 | Alpha 回复"The cron tool is still blocked by a hook. I can't add the cron job until this block is removed."；cron 工具调用触发 AttributeError: `'PersistentSessionBindingStore' object has no attribute 'find_by_kernel_session_id'`（见截图 `/tmp/feat394-r2-cron-reg4.png`）；`/Users/czj/nano-assistant/workspace/Alpha/.nanoassistant/cron/` 目录不存在，jobs.json 未创建 |
+| 结果 | `fail` |
+| 备注 | Issue R2-1（blocking）。|
+
+#### Scenario S3.2: 同一 agent 同时挂多条任务
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `fail` |
+| 备注 | 依赖 S3.1，S3.1 fail → 此项也 fail。|
+
+#### Scenario S3.3: 到点执行固定任务并把结果发回直聊
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `fail` |
+| 备注 | 依赖 S3.1。|
+
+#### Scenario S3.4: 配置页查看并手动删除任务
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 4 |
+| 验证方式 | 配置页 CronCard 查看任务清单 |
+| 证据 | CronCard 显示"No scheduled tasks yet. Ask the agent to add some."（截图 `/tmp/feat394-r2-heartbeat-section.png`）；由于 S3.1 fail，无任务可删除 |
+| 结果 | `fail` |
+| 备注 | CronCard UI 组件本身存在（M3/R4 已实现），但无法验证删除功能，因为任务注册失败。|
+
+#### Scenario S3.5: cron 汇报后我追问，agent 记得汇报了啥
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `fail` |
+| 备注 | 依赖 S3.3。|
+
+---
+
+### Requirement: 结果投递到 owner 的 canonical 直聊（复用 feat-393）
+
+#### Scenario S4.1: 落到最旧直聊，呈现同普通消息
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 4 Scenario 1 |
+| 验证方式 | heartbeat 触发后观察 IM 对话列表 |
+| 证据 | 截图 `/tmp/feat394-r2-chat-list.png`：Alpha 直聊出现，unread_count=9；截图 `/tmp/feat394-r2-heartbeat-chat.png`：消息有 Alpha 头像、显示名称、token 气泡，与普通 agent 消息外观一致 |
+| 结果 | `pass` |
+
+#### Scenario S4.2: 没有直聊时自动新建
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 4 Scenario 2 |
+| 验证方式 | 全新 IM 环境下（无任何直聊）heartbeat 首次触发 |
+| 证据 | 在全新 reviewer-feat394-r2-node 绑定后（IM 无任何 Alpha 直聊），heartbeat 首次产出消息时自动新建了 `type: direct, direct_kind: user-agent` 对话（id: a4b2a41ec3a94026b1b67036fe00faf4，created_at: 16:32:33）|
+| 结果 | `pass` |
+
+---
+
+### Requirement: 重启后不补跑积压
+
+#### Scenario S5.1: 周期任务错过多个周期不刷屏
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 5 Scenario 1 |
+| 验证方式 | 多次重启 gateway（间隔数分钟），每次重启后观察 heartbeat-state.json 的 last_due_at 是否只跳到下一未来时隙 |
+| 证据 | heartbeat-state.json 中 Alpha.last_due_at 在多次重启后均直接跳到下一未来时隙（约 last_check + 10s），未出现批量补跑消息；M3 progress.md R6 也记录了相同现象（3次 last_due_at 更新之间各差约 10s）|
+| 结果 | `pass` |
+
+#### Scenario S5.2: 过期的一次性任务不补跑
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 因 cron 任务无法注册（Issue R2-1），无法创建一次性 at 任务并测试重启后不补跑。|
+
+---
+
+## Issues (Round 2)
+
+### Issue R2-1：PersistentSessionBindingStore 缺少 find_by_kernel_session_id 方法，cron 工具调用失败（**blocking**）
+
+**Severity**: blocking
+**Recommended Action**: fix-implementation
+**Action Rationale**: `main.py:3021` 调用 `session_store.find_by_kernel_session_id(kernel_session_id)`，但 `session_store` 是 `PersistentSessionBindingStore` 实例，该类只有 `SessionBindingStore`（内存版本，`session_keys.py:55`）才有此方法；`PersistentSessionBindingStore`（`session_keys.py:104`）仅有 `get` / `bind` / `drop_agent` / `find_direct_by_agent`，缺少 `find_by_kernel_session_id`。cron 工具调用时触发 `AttributeError`，agent 无法注册任何定时任务，S3.1~S3.5 全部无法走通。
+
+**用户可观察症状**：用户在直聊让 agent 注册 cron job → agent 回复"The cron tool is still blocked by a hook. I can't add the cron job until this block is removed."；`/Alpha/.nanoassistant/cron/jobs.json` 不存在；配置页 CronCard 始终显示"No scheduled tasks yet."
+
+**证据**：
+- 截图 `/tmp/feat394-r2-cron-reg4.png`：agent 明确报告 cron 工具被 hook 阻断
+- 侧边栏 preview：`'PersistentSessionBindingStore' object has no attribute 'find_by_kernel_session_id'`（成为 chat last_message_preview，说明错误信息泄漏为消息文本）
+- source: `session_keys.py:55`（`SessionBindingStore.find_by_kernel_session_id` 存在）vs `session_keys.py:104`（`PersistentSessionBindingStore` 无此方法）
+
+---
+
+### Issue R2-2：assemble_prompt_preview 路径 heartbeat/cron vars 未注入，prompt preview 不准确（**major**）
+
+**Severity**: major
+**Recommended Action**: fix-implementation
+**Action Rationale**: `kernel.py:assemble_prompt_preview`（sdk/kernel.py 约第 665 行）构建 `PromptContext` 时 `vars={"custom_prompt": custom_prompt or ""}` 只有 custom_prompt，没有 `heartbeat_enabled` / `cron_enabled`。结果：无论开关状态，preview 始终展示 heartbeat 段（默认 True）、不展示 cron 段（默认 False）。round-1 M3/R1 修复了**运行时 turn 构建路径**，但没修 preview 路径。
+
+**用户可观察症状**：配置页关闭 heartbeat 后点 "Preview full system prompt" → 仍然看到 `## Heartbeats` 段；开启 cron 后点预览 → 看不到 cron 引导段。preview 与实际运行时 prompt 不一致，对用户造成误导。
+
+**证据**：IM API `POST /im/v1/agents/Alpha/prompt-preview` with `{"heartbeat_enabled": false, "cron_enabled": true}` 返回 `## Heartbeats` 存在、无 Cron Jobs 引导段。
+
+---
+
+### Issue R2-3：heartbeat 超高频 + busy-skip 语义，用户 chat 消息在 10s cadence 下无法及时处理（minor）
+
+**Severity**: minor
+**Recommended Action**: fix-implementation
+**Action Rationale**: heartbeat cadence=10s + tick_interval_seconds=3s 时，直聊会话几乎一直被 heartbeat turn 占据（busy-skip 保护只在当前 tick 跳过，下个 tick 还会尝试），用户消息队列中等待的消息迟迟无法分配到会话进行处理。测试中用户发送 cron 注册请求后，两分钟内未能得到响应。
+
+**用户可观察症状**：高频 heartbeat 场景下，用户在直聊发消息后 agent 长时间不回复（或回复"Your lucky number is 42"——heartbeat 上下文的回答）。
+
+**证据**：截图 `/tmp/feat394-r2-chat-after-restart.png`：用户消息 `01:04 failed`、多条 heartbeat 消息淹没直聊；heartbeat context token 计数从 6.3k 涨至 8.6k，说明每轮 heartbeat 都在消耗上下文。
+
+---
+
+## Side Findings
+
+- round-1 Issue 3（tsc -b 类型错误）：已修复，`npm run build`（tsc -b && vite build）全通过 ✓
+- round-1 Issue 4（Cadence select-all）：已修复，点击输入框后输入 "15s" 替换了原有 "10s"（截图 `/tmp/feat394-r2-cadence-selectall.png`）✓
+- round-1 blocking Issue 1（config sync 401）：已修复，IM log 序列为 PATCH 200 → GET ?source=mirror 200 ✓
+- round-1 blocking Issue 2（prompt vars 未注入运行时 turn）：运行时路径已修复（agent 成功带上下文汇报）；**preview 路径仍未修复**（升级为 Issue R2-2）
+
+---
+
+## 上层文档同步 (Round 2)
+
+| 文档 | 状态 |
+|---|---|
+| `docs/NodeGateway-SPEC.md §6` | 已更新（M1 R7 + M2 R8，round-1 核实范围内） |
+| `SPEC.md` | 无需更新 |
+| `AGENTS.md` | 无需更新 |
+| `CLAUDE.md` | 无需更新 |
+| `docs/SPEC_GUIDE.md` | 无需更新 |
+
 ## Issues
 
 ### Issue 1：ConfigSyncNotifier 无 token_getter，auto-bind 后 token 更新不传播（**blocking**）
