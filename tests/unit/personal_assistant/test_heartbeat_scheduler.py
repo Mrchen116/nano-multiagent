@@ -321,3 +321,89 @@ async def test_scheduler_tick_from_async_context_completes_without_event_loop_er
     assert kernel.created_sessions[0]["session_id"] == "sess-1"
     assert len(kernel.sent_messages) == 1
     assert kernel.sent_messages[0]["run_id"] == "run-1"
+
+
+# ---------------------------------------------------------------------------
+# R2: per-agent heartbeat_enabled gate
+# ---------------------------------------------------------------------------
+
+def _agent_with_heartbeat(
+    tmp_path: Path, name: str = "agent-a", *, heartbeat_enabled: bool = True
+) -> AgentWorkspaceConfig:
+    """Create an agent fixture with explicit heartbeat_enabled flag."""
+    workspace_root = tmp_path / name
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    return AgentWorkspaceConfig(
+        agent_id=name,
+        workspace_root=workspace_root,
+        title=f"Title for {name}",
+        heartbeat_enabled=heartbeat_enabled,
+    )
+
+
+def test_scheduler_skips_agent_when_heartbeat_disabled(tmp_path: Path) -> None:
+    """Agents with heartbeat_enabled=False must be entirely skipped by the scheduler tick.
+
+    feat-394 decision 5: the heartbeat scheduler must gate on the per-agent
+    heartbeat_enabled flag from AgentWorkspaceConfig.  When disabled, the scheduler
+    must not read HEARTBEAT.md, not submit any run, and report the agent as skipped.
+    """
+    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=False)
+    _write_heartbeat(
+        agent.workspace_root,
+        "interval: 1m\n\n- Check something\n",
+    )
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+    assert summary.triggered_runs == ()
+    assert agent.agent_id in summary.skipped_agents
+    assert kernel.sent_messages == []
+
+
+def test_scheduler_runs_agent_when_heartbeat_enabled(tmp_path: Path) -> None:
+    """Agents with heartbeat_enabled=True must be evaluated normally."""
+    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
+    _write_heartbeat(
+        agent.workspace_root,
+        "interval: 1m\n\n- Check something\n",
+    )
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+    assert len(summary.triggered_runs) == 1
+    assert summary.skipped_agents == ()
+
+
+def test_scheduler_skips_disabled_among_mixed_agents(tmp_path: Path) -> None:
+    """Mixed agent list: disabled agents skipped, enabled agents run normally."""
+    enabled = _agent_with_heartbeat(tmp_path, name="enabled-agent", heartbeat_enabled=True)
+    disabled = _agent_with_heartbeat(tmp_path, name="disabled-agent", heartbeat_enabled=False)
+    for agent in (enabled, disabled):
+        _write_heartbeat(agent.workspace_root, "interval: 1m\n\n- Check\n")
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(enabled, disabled),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+    # Only the enabled agent submits a run; the disabled one is skipped.
+    triggered_ids = {r.agent_id for r in summary.triggered_runs}
+    assert "enabled-agent" in triggered_ids
+    assert "disabled-agent" not in triggered_ids
+    assert "disabled-agent" in summary.skipped_agents
