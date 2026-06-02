@@ -16,6 +16,7 @@ from agent.core.agent.prompt_sections.base import PromptContext
 from agent.products.personal_assistant.prompt_sections import (
     _PA_HEARTBEAT,  # noqa: PLC2701
     _PA_CRON,  # noqa: PLC2701
+    _PA_CRON_ROUTING,  # noqa: PLC2701
 )
 
 
@@ -71,6 +72,38 @@ class TestHeartbeatCronVarsGate:
         ctx = self._ctx_with_vars(cron_enabled="False")
         assert _PA_CRON.enabled_when is not None
         assert _PA_CRON.enabled_when(ctx) is False
+
+    def test_both_disabled_routing_segment_not_injected(self) -> None:
+        """_PA_CRON_ROUTING must NOT be injected when both vars are 'False'.
+
+        feat-394-M3 hotfix: _both_enabled used bare bool() which treats the string
+        "False" as truthy. Must use the same string-safe parse as _heartbeat_enabled
+        and _cron_enabled.
+        """
+        ctx = self._ctx_with_vars(heartbeat_enabled="False", cron_enabled="False")
+        assert _PA_CRON_ROUTING.enabled_when is not None
+        assert _PA_CRON_ROUTING.enabled_when(ctx) is False, (
+            "_PA_CRON_ROUTING must NOT be injected when both vars are 'False' "
+            "(bool('False')==True bug in _both_enabled)"
+        )
+
+    def test_both_enabled_routing_segment_injected(self) -> None:
+        """_PA_CRON_ROUTING must be injected when both vars are 'True'."""
+        ctx = self._ctx_with_vars(heartbeat_enabled="True", cron_enabled="True")
+        assert _PA_CRON_ROUTING.enabled_when is not None
+        assert _PA_CRON_ROUTING.enabled_when(ctx) is True
+
+    def test_only_heartbeat_routing_not_injected(self) -> None:
+        """_PA_CRON_ROUTING must NOT be injected when only heartbeat is enabled."""
+        ctx = self._ctx_with_vars(heartbeat_enabled="True", cron_enabled="False")
+        assert _PA_CRON_ROUTING.enabled_when is not None
+        assert _PA_CRON_ROUTING.enabled_when(ctx) is False
+
+    def test_only_cron_routing_not_injected(self) -> None:
+        """_PA_CRON_ROUTING must NOT be injected when only cron is enabled."""
+        ctx = self._ctx_with_vars(heartbeat_enabled="False", cron_enabled="True")
+        assert _PA_CRON_ROUTING.enabled_when is not None
+        assert _PA_CRON_ROUTING.enabled_when(ctx) is False
 
 
 # ---------------------------------------------------------------------------
