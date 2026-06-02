@@ -68,6 +68,12 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatScheduler,
     HeartbeatSchedulerStateStore,
 )
+from personal_assistant.scheduler.cron_scheduler import (
+    CronJobStore,
+    CronScheduler,
+    CronSchedulerStateStore,
+)
+from personal_assistant.scheduler.cron_runner import CronRunner
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import (
     AgentCreateHandler,
@@ -913,6 +919,8 @@ class PollingHeartbeatRunner:
         run_context_store: "dict[str, dict[str, str]] | None" = None,
         owner_user_id: str = "",
         kernel_event_observer: Any | None = None,
+        cron_tick_fn: Callable[[str], Awaitable[None]] | None = None,
+        agents: "dict[str, Any] | None" = None,
     ) -> None:
         self._scheduler = scheduler
         self._config = config
@@ -925,6 +933,11 @@ class PollingHeartbeatRunner:
         self._run_context_store = run_context_store
         self._owner_user_id = owner_user_id
         self._kernel_event_observer = kernel_event_observer
+        # feat-394-M3 CRITICAL-1 fix: wire cron into the unified polling tick.
+        # cron_tick_fn(agent_id) is called once per tick for each cron_enabled agent.
+        # When None, cron is skipped (backward compat, no cron subsystem configured).
+        self._cron_tick_fn = cron_tick_fn
+        self._agents = agents or {}
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -967,6 +980,22 @@ class PollingHeartbeatRunner:
                     if self._stop_requested:
                         break
                     await self._consume_heartbeat_run(record)
+            # feat-394-M3 CRITICAL-1 fix: unified polling tick also drives cron scheduling.
+            # Design §架构总览: "统一 Polling 调度 tick（扩展现 PollingHeartbeatRunner）".
+            # For each agent with cron_enabled=True, invoke the cron tick function.
+            if self._cron_tick_fn is not None and not self._stop_requested:
+                for agent_id, agent in list(self._agents.items()):
+                    if self._stop_requested:
+                        break
+                    cron_enabled = getattr(agent, "cron_enabled", False)
+                    if cron_enabled:
+                        try:
+                            await self._cron_tick_fn(agent_id)
+                        except Exception:  # noqa: BLE001
+                            import logging as _logging  # noqa: PLC0415
+                            _logging.getLogger(__name__).exception(
+                                "cron tick failed: agent=%s", agent_id
+                            )
             if self._stop_requested:
                 break
             try:
@@ -1979,6 +2008,42 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             im_connection_manager_factory=lambda: im_connection_manager,
             session_store=pipeline._session_store,
         )
+    # feat-394-M3 CRITICAL-1 fix: wire cron tick into the unified polling runner.
+    # Build a cron_tick_fn closure that creates per-agent CronScheduler+CronRunner and
+    # calls CronScheduler.tick(). The fn reads the live pipeline._agents so it picks up
+    # dynamically-registered agents (via IM config sync) without restart.
+    _cron_state_path = runtime_dir / "cron-state.json"
+
+    async def _cron_tick_for_agent(agent_id: str) -> None:
+        """Evaluate cron jobs for one agent and submit due runs."""
+        agent_cfg = pipeline._agents.get(agent_id)  # noqa: SLF001
+        if agent_cfg is None or not getattr(agent_cfg, "cron_enabled", False):
+            return
+        ws_root = agent_cfg.workspace_root
+        job_store = CronJobStore(workspace_root=ws_root)
+        state_store = CronSchedulerStateStore(state_path=_cron_state_path)
+        _cron_runner = CronRunner(
+            agent_id=agent_id,
+            workspace_root=ws_root,
+            kernel_client=kernel_shim,
+            session_binding_store=session_store,
+        )
+
+        async def _submit_fn(*, agent_id: str, job: object) -> None:  # type: ignore[override]
+            await _cron_runner._submit_cron_job(job=job)  # noqa: SLF001
+
+        scheduler = CronScheduler(
+            agent_id=agent_id,
+            job_store=job_store,
+            state_store=state_store,
+            submit_fn=_submit_fn,
+        )
+        await scheduler.tick()
+
+    # Provide agents dict reference (closure over pipeline for dynamic updates).
+    heartbeat_runner._cron_tick_fn = _cron_tick_for_agent  # noqa: SLF001
+    heartbeat_runner._agents = pipeline._agents  # noqa: SLF001
+
     inbound_dispatcher = _InboundDispatcher(pipeline)
     closers: list[Callable[[], None]] = [kernel.close]
     if im_bootstrap_client is not None:
