@@ -105,8 +105,8 @@ Read <skill_dir>/assets/<template>.md → 替换 <type-id> 占位符 + 标题 �
 对**每个轴**,你心里先有个推荐答案(基于原始需求 + 项目现状)。然后挨个问。
 
 > **取"项目现状"读契约层**:要核对本变更涉及的包"现在对外怎么表现"、对齐既有词汇时,读
-> `docs/specs/<包>/spec.md`(包 ∈ {kernel, im, gateway, cli})——这是 current 行为契约的单一权威,
-> 比散落的旧子系统设计叙事新且准。它是 spec 阶段的读侧;深入到代码 grounding 是 design 阶段的事。
+> `docs/specs/<包>/spec.md`(包 ∈ {kernel, im, gateway, cli})——这是 current 行为契约的单一权威。
+> 它是 spec 阶段的读侧;深入到代码 grounding 是 design 阶段的事。
 
 ### §3.2 一轮一问的格式
 
