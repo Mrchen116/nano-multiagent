@@ -63,7 +63,7 @@
 | R | 标题 | 状态 |
 |---|---|---|
 | R1 | _IntervalSchedule 不补跑 + _CronSchedule 不补跑 单测 | DONE |
-| R2 | AgentWorkspaceConfig heartbeat 字段 + 调度器 per-agent 开关过滤 | TODO |
+| R2 | AgentWorkspaceConfig heartbeat 字段 + 调度器 per-agent 开关过滤 | DONE |
 | R3 | HEARTBEAT_OK 静默 + 空文件跳过 + prompt 段照抄 openclaw | TODO |
 | R4 | IM frontend heartbeat 开关 UI + API 字段 + vitest | TODO |
 | R5 | ConfigSyncNotifier / config_service.py heartbeat 字段同步 | TODO |
