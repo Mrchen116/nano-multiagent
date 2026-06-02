@@ -482,7 +482,8 @@ def test_heartbeat_scheduler_reuses_stable_heartbeat_session_across_ticks(
 # ---------------------------------------------------------------------------
 
 
-def test_build_kernel_event_observer_populates_canonical_session_from_session_store(
+@pytest.mark.asyncio
+async def test_build_kernel_event_observer_populates_canonical_session_from_session_store(
     tmp_path: Path,
 ) -> None:
     """After a heartbeat turn_start ack returns conv_id, canonical_session_store must be
@@ -499,7 +500,6 @@ def test_build_kernel_event_observer_populates_canonical_session_from_session_st
     returns a conversation_id, looks up that conv_id in session_store and writes the
     kernel_session_id into canonical_session_store[agent_id].
     """
-    import asyncio
     from collections.abc import Mapping
     from typing import Any
 
@@ -581,7 +581,7 @@ def test_build_kernel_event_observer_populates_canonical_session_from_session_st
     }
     coro = observer(event)
     assert coro is not None, "heartbeat lazy-bubble must return a coroutine"
-    asyncio.run(coro)
+    await coro
 
     # After ack, canonical_session_store must be populated with the kernel_session_id
     # from session_store for the returned conv_id — not the fresh-session from the run.

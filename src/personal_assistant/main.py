@@ -1672,10 +1672,18 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
     )
     outbound_router = OutboundRouter(channel_registry)
+    # feat-394 decision 3: canonical direct-chat kernel session store, shared between
+    # HeartbeatScheduler (reads → uses the session) and _build_kernel_event_observer
+    # (writes → populates after turn_start ack returns the conversation_id).
+    # Starts empty; populated on first heartbeat delivery that establishes a canonical
+    # direct chat, then used by every subsequent tick to run in the same session (with
+    # user conversation history, like openclaw "main-session turn").
+    _canonical_session_store: dict[str, str] = {}
     _heartbeat_scheduler = HeartbeatScheduler(
         agents=config.agents,
         kernel_client=kernel_shim,
         state_store=HeartbeatSchedulerStateStore(_default_heartbeat_state_path(config)),
+        canonical_session_store=_canonical_session_store,
     )
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
@@ -1782,6 +1790,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         _kernel_event_observer = _build_kernel_event_observer(
             im_connection_manager_factory=lambda: im_connection_manager,
             run_context_store=_run_context_store,
+            # feat-394 decision 3: wire session_store + canonical_session_store so the
+            # observer can promote the heartbeat's kernel session to canonical after the
+            # first turn_start ack returns the owner↔agent direct chat conversation_id.
+            session_store=session_store,
+            canonical_session_store=_canonical_session_store,
         )
         pipeline._kernel_event_observer = _kernel_event_observer
         # feat-393: wire observer into heartbeat_runner now that it's built.
@@ -2247,6 +2260,8 @@ def _build_kernel_event_observer(
     *,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]],
+    session_store: "SessionBindingStore | None" = None,
+    canonical_session_store: "dict[str, str] | None" = None,
 ) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
@@ -2266,6 +2281,13 @@ def _build_kernel_event_observer(
     - turn_start is deferred until the first non-empty, non-NO_REPLY assistant_message arrives.
     - NO_REPLY/empty content → no turn_start is ever sent → zero IM trace (silent tick).
     - Normal chat (conversation_id present) is unchanged (eager placeholder on run_status=running).
+
+    Canonical session promotion (feat-394 decision 3):
+    - After a heartbeat turn_start ack returns ``conversation_id``, the observer looks up
+      that conv_id in ``session_store`` to find the kernel session the user's direct chat
+      is bound to, then writes it into ``canonical_session_store[agent_id]``.
+    - This ensures subsequent heartbeat ticks reuse the same kernel session as the user's
+      normal direct chat, giving the model conversation history context.
     """
 
     async def _send(
@@ -2417,6 +2439,30 @@ def _build_kernel_event_observer(
                             run_context_store[rid]["conversation_id"] = str(
                                 returned_conv_id
                             )
+                            # feat-394 decision 3: canonical session promotion.
+                            # After the heartbeat turn_start ack returns the conv_id of the
+                            # owner↔agent canonical direct chat, look up session_store for the
+                            # kernel session already bound to that conversation (by normal chat
+                            # or by the first heartbeat delivery that just created the conv).
+                            # Store it so subsequent heartbeat ticks run in this session and
+                            # carry user conversation history (openclaw "main-session turn").
+                            if (
+                                session_store is not None
+                                and canonical_session_store is not None
+                                and aid
+                            ):
+                                from personal_assistant.gateway.session_keys import (  # noqa: PLC0415
+                                    build_conversation_session_key as _build_cskey,
+                                )
+                                _conv_id_str = str(returned_conv_id)
+                                _cskey = _build_cskey(
+                                    channel_name="web_relay",
+                                    conversation_id=_conv_id_str,
+                                    agent_id=aid,
+                                )
+                                _binding = session_store.get(_cskey)
+                                if _binding is not None and _binding.kernel_session_id:
+                                    canonical_session_store[aid] = _binding.kernel_session_id
                         if new_kernel_id and rid in run_context_store:
                             run_context_store[rid]["kernel_message_id"] = new_kernel_id
                         if returned_msg_id:
