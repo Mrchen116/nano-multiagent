@@ -38,6 +38,7 @@ from agent.core.llm.model_registry import (
     list_supported_providers,
 )
 from agent.core.runs.origin import RunOrigin
+from agent.core.runs.registry import TERMINAL_RUN_STATUSES
 from agent.core.skills.discovery import default_skill_search_roots
 from agent.core.skills.registry import SkillRegistry
 from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
@@ -64,8 +65,9 @@ __all__ = [
     "get_default_provider",
     "list_provider_models",
     "list_supported_providers",
-    # Run origin
+    # Run origin and terminal statuses
     "RunOrigin",
+    "TERMINAL_RUN_STATUSES",
     # Skills
     "default_skill_search_roots",
     "SkillRegistry",

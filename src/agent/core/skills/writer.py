@@ -13,10 +13,10 @@ Path injection via constructor; caller (platform/tools) resolves the path.
 
 from __future__ import annotations
 
-import os
 import re
-import tempfile
 from pathlib import Path
+
+from agent.core.utils.fileio import atomic_write as _atomic_write
 
 from .registry import SkillRegistry
 
@@ -335,26 +335,3 @@ def _validate_content_size(content: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# File utilities
-# ---------------------------------------------------------------------------
-
-
-def _atomic_write(path: Path, content: str) -> None:
-    """Write content to path via temp file + os.replace for atomicity."""
-    fd, tmp_path = tempfile.mkstemp(
-        dir=str(path.parent),
-        prefix=f".{path.name}.tmp.",
-        suffix="",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(content)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp_path, path)
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise

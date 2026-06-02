@@ -14,12 +14,12 @@ from __future__ import annotations
 
 import fcntl
 import json
-import os
-import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+
+from agent.core.utils.fileio import atomic_write as _atomic_write
 
 # § is the canonical entry separator (matches hermes ENTRY_DELIMITER)
 _ENTRY_DELIMITER = "\n§\n"
@@ -441,27 +441,3 @@ def _parse_entries(raw: str) -> list[MemoryEntry]:
     return entries
 
 
-def _atomic_write(path: Path, content: str) -> None:
-    """Write ``content`` to ``path`` via temp file + os.replace for atomicity.
-
-    The temp file is created in the same directory as the target to guarantee
-    same-filesystem rename semantics (os.replace is atomic on POSIX).
-    fsync ensures durability before rename.
-    """
-    fd, tmp_path = tempfile.mkstemp(
-        dir=str(path.parent),
-        prefix=f".{path.name}.tmp.",
-        suffix="",
-    )
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(content)
-            fh.flush()
-            os.fsync(fh.fileno())
-        os.replace(tmp_path, path)
-    except Exception:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
-        raise

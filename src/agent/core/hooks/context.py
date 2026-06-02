@@ -86,6 +86,13 @@ class HookLogger:
         self._emit("info", message, fields)
 
     def warn(self, message: str, **fields: Any) -> None:
+        """Emit a warning-level hook log entry.
+
+        Deprecated: Use warning() instead — matches the standard logging.Logger API.
+        """
+        self._emit("warning", message, fields)
+
+    def warning(self, message: str, **fields: Any) -> None:
         """Emit a warning-level hook log entry."""
 
         self._emit("warning", message, fields)
