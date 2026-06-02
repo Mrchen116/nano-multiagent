@@ -26,6 +26,7 @@ description: 用于作为 subagent 执行单个 milestone 的编码实现,或处
 9. **worktree 路径锚定主仓**。`$(git rev-parse --show-toplevel)/.worktrees/<milestone_id>`,绝对路径,禁止嵌套 worktree。
 10. **前端 UI 变更必须真实浏览器验收**。任何影响用户界面的改动,不能只依赖 jsdom、组件测试、类型检查或截图脑补。必须用真实浏览器打开相关页面/状态,完成关键交互,检查 console error / network failure,并在 progress.md 记录证据。核心业务路径和历史 bug 必须留下可重复的 regression 保护;若项目已有浏览器 E2E 体系,核心路径优先沉淀为 E2E 用例;没有则补适合现有测试体系的交互/回归测试,不为单个 milestone 强行引入新基础设施。视觉/样式细节以截图证据和状态覆盖为主,不强行用 E2E 测样式。
 11. **假设主机被并发使用,自取并回收运行时资源**。任何占端口 / 绑 socket / 起长驻服务的动作:**之前**分配空闲端口(项目 AGENTS.md 应有端口 helper 和服务参数化清单),**之后**退出/HANDOFF 前 kill 自己起的进程。资源被占且无法切换 → 阻塞,按 §8.2 HANDOFF,不准改写 evidence 标准回避。
+12. **撞到 bug 先找根因再修**。遇到非平凡 bug / 测试失败 / 意外行为 → **动手修之前先 invoke `systematic-debugging` skill 走根因纪律**,禁止「猜一个改一下试试」。与 §0.2(禁兜底)同源:都要求修根因、不修症状、不让错误静默蔓延。根因定位后回 §5 三提交(C1 写复现测试再修)。展开见 §7.2。
 
 ---
 
@@ -410,6 +411,8 @@ git add <resolved> → git rebase --continue → 重复直到完成
 
 分析原因 → 修复 → 重跑 → 全绿 → 提交修复。**不许 skip 测试 / 加 `xfail` 蒙混过关**。
 
+「分析原因」不是扫一眼报错就改——**invoke `systematic-debugging` skill 走根因纪律**:逐字读报错 → 稳定复现 → 多组件系统先打边界日志定位是哪层断 → 反向追到坏值源头 → 写下单一假设最小验证。根因定位后才回 §5 三提交(C1 写复现测试)动手修。撞到 flaky 别加 `sleep`/重试蒙,按 skill 的 condition-based-waiting 根治。
+
 ### §7.3 连续失败回退
 
 同一 roadpoint 连续失败 > 6 次:
@@ -419,6 +422,8 @@ git add <resolved> → git rebase --continue → 重复直到完成
 3. roadpoint 拆小,从 Verify/Red 重做
 
 如果第二次重拆又卡住——**停手通知 orchestrator**,这通常是 design 层的问题,走 Pause-on-design-issue。
+
+> 注意区分两个**并列**的轴:本节的「同一 roadpoint 6 次失败 → 回退重拆」是 **roadpoint 级机械重试上限**;而 `systematic-debugging` skill 里的「同一个 bug、同类修复连续 3 次失败、每次在别处冒新问题 → 停手质疑架构」是 **架构信号**(更早触发,指向方向选错)。两者各管各的,数值不通用——调单个 bug 时按 skill 的 3-strike 判架构,roadpoint 整体卡死时按本节 6 次回退。两条都通向「停手上报 orchestrator」。
 
 ---
 
