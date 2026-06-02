@@ -331,6 +331,78 @@ async def test_scheduler_tick_from_async_context_completes_without_event_loop_er
 # R2: per-agent heartbeat_enabled gate
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# R6: tasks: multi-sub-rhythm + canonical session
+# ---------------------------------------------------------------------------
+
+
+def test_heartbeat_spec_parses_tasks_block_multi_rhythm(tmp_path: Path) -> None:
+    """_load_heartbeat_spec must parse HEARTBEAT.md tasks: block into per-task schedules.
+
+    Provenance: openclaw/src/auto-reply/heartbeat.ts:parseHeartbeatTasks
+    feat-394 decision 3: tasks: block defines multiple sub-rhythms, each independently
+    tracked with its own last_due_at.
+    """
+    from personal_assistant.scheduler.heartbeat_scheduler import _load_heartbeat_spec
+
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    hb_path = agent_dir / "HEARTBEAT.md"
+    hb_path.write_text(
+        "# Heartbeat\n\n"
+        "tasks:\n"
+        "  - name: inbox-check\n"
+        "    interval: 30m\n"
+        '    prompt: "Check for urgent emails"\n'
+        "  - name: schedule-review\n"
+        "    interval: 2h\n"
+        '    prompt: "Review upcoming schedule"\n',
+        encoding="utf-8",
+    )
+
+    spec = _load_heartbeat_spec(hb_path)
+
+    assert spec is not None, "spec must not be None for non-empty tasks: block"
+    # Multi-task spec should have multiple tasks
+    assert hasattr(spec, "tasks"), "spec must have a tasks attribute for tasks: block"
+    assert len(spec.tasks) == 2
+    task_names = [t.name for t in spec.tasks]
+    assert "inbox-check" in task_names
+    assert "schedule-review" in task_names
+
+
+def test_heartbeat_scheduler_uses_provided_canonical_session(tmp_path: Path) -> None:
+    """HeartbeatScheduler must use the canonical session_id when provided, not create a new one.
+
+    feat-394 decision 3: heartbeat runs in the (owner, agent) canonical direct chat
+    kernel session.  When a canonical session_id is pre-known, the scheduler must
+    not call create_session.
+    """
+    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
+    _write_heartbeat(agent.workspace_root, "interval: 1m\n\n- Check status\n")
+    kernel = _FakeKernelClient()
+
+    # Pre-supply a canonical session_id as if it was established by a prior direct chat.
+    canonical_sessions: dict[str, str] = {"agent-a": "canonical-sess-123"}
+
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+        canonical_session_store=canonical_sessions,
+    )
+
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+    # Session creation must be skipped — canonical session used directly
+    assert kernel.created_sessions == [], (
+        "create_session must not be called when canonical_session_store has a session for this agent"
+    )
+    assert len(summary.triggered_runs) == 1
+    # The run must use the canonical session_id
+    assert summary.triggered_runs[0].session_id == "canonical-sess-123"
+
+
 def _agent_with_heartbeat(
     tmp_path: Path, name: str = "agent-a", *, heartbeat_enabled: bool = True
 ) -> AgentWorkspaceConfig:
