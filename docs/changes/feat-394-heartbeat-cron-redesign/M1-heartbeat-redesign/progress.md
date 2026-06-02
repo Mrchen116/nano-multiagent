@@ -83,4 +83,23 @@ Unit branch: unit/feat-394
   - Visual/Interaction: 截图 /tmp/agents-settings-feat394.png（登录页），无 JS 错误
 - Rollback: 2f3cd4d1 (C1 红测试)
 - Commits: C1=2f3cd4d1, C2=a3619813
-- Next: R5 — ConfigSyncNotifier / config_service.py heartbeat 字段同步
+- Next: R5 完成
+
+### R5 — ConfigSyncNotifier / config_service.py heartbeat 字段同步
+
+- Context: IM payload 中的 heartbeat 字段需要流到 gateway AgentWorkspaceConfig，调度器才能正确门控
+- Decision:
+  - 在 `main.py` 新增 `_parse_heartbeat_from_im_payload()` helper，解析 `{"enabled": bool, "every": str, "active_hours": {...}}`
+  - `_IMConfigSyncClient.sync_agent()` 调用该 helper，将解析结果写入 `AgentWorkspaceConfig.heartbeat_*` 字段
+  - 未带 heartbeat 块的 payload → heartbeat_enabled=False（默认禁用，安全默认）
+- Rationale: 同步链路必须完整，否则前端开关无效（数据写入 IM DB 但不传 gateway）
+- Evidence:
+  - Tests: 9/9 test_gateway_im_config_sync; 2359 全套通过
+  - Entry: 单元测试模拟 IM HTTP 响应；N/A（非前端变更）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A（单元层覆盖同步路径）
+  - Visual/Interaction: N/A
+- Rollback: b3a6328d (C1 红测试)
+- Commits: C1=b3a6328d, C2=f2356bd8
+- Next: R6 — HeartbeatScheduler 跑 canonical 直聊 session（改决策3）+ tasks: 多子节律
