@@ -278,7 +278,11 @@
         "title": "Cron Jobs",
         "sub": "Scheduled tasks that run without conversation context.",
         "enabledLabel": "Enable cron",
-        "enabledHelp": "Agent can register and manage scheduled tasks (add/list/remove via conversation)."
+        "enabledHelp": "Agent can register and manage scheduled tasks (add/list/remove via conversation).",
+        "loadError": "Could not load scheduled tasks.",
+        "noJobs": "No scheduled tasks yet. Ask the agent to add some.",
+        "jobsListLabel": "Scheduled tasks",
+        "deleteJob": "Delete"
       },
       "workspace": {
         "title": "Workspace & Runtime",

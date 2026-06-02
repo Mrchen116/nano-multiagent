@@ -275,7 +275,11 @@
         "title": "定时任务",
         "sub": "无需对话上下文即可定时运行的后台任务。",
         "enabledLabel": "启用 cron",
-        "enabledHelp": "Agent 可通过对话注册和管理定时任务（增/查/删）。"
+        "enabledHelp": "Agent 可通过对话注册和管理定时任务（增/查/删）。",
+        "loadError": "加载定时任务失败。",
+        "noJobs": "暂无定时任务，可在对话中让 Agent 添加。",
+        "jobsListLabel": "定时任务列表",
+        "deleteJob": "删除"
       },
       "workspace": {
         "title": "工作区与运行时",

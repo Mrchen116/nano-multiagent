@@ -330,10 +330,15 @@ export async function listAgentSummaries() {
  *
  * Exported for unit testing only — prefer calling getAgentConfig / updateAgentConfig.
  */
+/** Response shape that includes the backend's raw JSON string fields alongside structured ones. */
+type AgentConfigRaw = AgentConfig & { heartbeat_json?: string | null; cron_json?: string | null };
+
 export function normalizeAgentConfigResponse(
   raw: Record<string, unknown>
 ): AgentConfig {
-  const config = raw as AgentConfig & { heartbeat_json?: string | null; cron_json?: string | null };
+  // Two-step cast: Record<string,unknown> → unknown → target type avoids the TS2352
+  // error that a direct overlap-insufficient cast would produce (minor Issue 3 fix).
+  const config = (raw as unknown) as AgentConfigRaw;
 
   // Parse heartbeat_json → heartbeat when present and not already set.
   let heartbeat: HeartbeatConfig | undefined = config.heartbeat;
@@ -491,4 +496,29 @@ export async function nodePromptPreview(
     })
   });
   return result.prompt;
+}
+
+// ---------------------------------------------------------------------------
+// feat-394-M3 WARNING-3: cron job list + delete APIs
+// (spec Scenario: 配置页查看并手动删除任务)
+// ---------------------------------------------------------------------------
+
+export interface CronJobSummary {
+  id: string;
+  name: string;
+  schedule: Record<string, unknown>;
+  instruction: string;
+  enabled: boolean;
+  delete_after_run: boolean;
+}
+
+export async function listAgentCronJobs(agentId: string): Promise<CronJobSummary[]> {
+  return requestJson<CronJobSummary[]>(`/im/v1/agents/${agentId}/cron/jobs`);
+}
+
+export async function deleteAgentCronJob(agentId: string, jobId: string): Promise<void> {
+  const res = await authFetch(`/im/v1/agents/${agentId}/cron/jobs/${jobId}`, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`delete cron job failed: ${res.status}`);
+  }
 }

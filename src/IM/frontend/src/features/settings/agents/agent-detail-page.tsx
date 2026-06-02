@@ -14,8 +14,11 @@ import {
   AgentConfig,
   AgentFeature,
   AgentSummary,
+  CronJobSummary,
   getAgentDetailState,
   listAgentSummaries,
+  listAgentCronJobs,
+  deleteAgentCronJob,
   promptPreview,
   updateAgentConfig
 } from "./im-agent-config-api";
@@ -357,6 +360,9 @@ function HeartbeatCard({ draft, onToggle, onEveryChange }: HeartbeatCardProps) {
             placeholder="30m"
             aria-describedby="heartbeat-every-help"
             onChange={(e) => onEveryChange(e.target.value)}
+            // feat-394-M3 minor Issue 4: select-all on focus so typing replaces the old value
+            // rather than appending to it (standard UX for numeric/interval input fields).
+            onFocus={(e) => e.target.select()}
           />
           <p id="heartbeat-every-help" className="im-agent-field-help">
             {t("agents.form.heartbeat.everyHelp")}
@@ -368,15 +374,34 @@ function HeartbeatCard({ draft, onToggle, onEveryChange }: HeartbeatCardProps) {
 }
 
 // feat-394-M2 decision 5: CronCard — per-agent cron enable/disable.
-// Shows a single toggle to enable/disable cron scheduling for this agent.
+// feat-394-M3 WARNING-3: also shows task list + delete (spec Scenario: 配置页查看并手动删除任务).
 interface CronCardProps {
+  agentId: string;
   draft: AgentConfigFormState;
   onToggle: (enabled: boolean) => void;
 }
 
-function CronCard({ draft, onToggle }: CronCardProps) {
+function CronCard({ agentId, draft, onToggle }: CronCardProps) {
   const { t } = useTranslation();
   const enabled = draft.cron?.enabled ?? false;
+  const queryClient = useQueryClient();
+
+  // feat-394-M3: fetch cron jobs list for this agent
+  const jobsQuery = useQuery({
+    queryKey: ["cron-jobs", agentId],
+    queryFn: () => listAgentCronJobs(agentId),
+    enabled: enabled,  // only fetch when cron is on
+    staleTime: 30_000,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (jobId: string) => deleteAgentCronJob(agentId, jobId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["cron-jobs", agentId] });
+    },
+  });
+
+  const jobs = jobsQuery.data ?? [];
 
   return (
     <section className="im-agent-card">
@@ -403,6 +428,46 @@ function CronCard({ draft, onToggle }: CronCardProps) {
           </div>
         </label>
       </div>
+      {/* feat-394-M3: cron jobs task list (spec Scenario: 配置页查看并手动删除任务) */}
+      {enabled && (
+        <div className="im-agent-field" data-testid="cron-jobs-list">
+          {jobsQuery.isError && (
+            <p className="text-[12px] text-red-500">{t("agents.form.cron.loadError")}</p>
+          )}
+          {!jobsQuery.isError && jobs.length === 0 && (
+            <p className="text-[12px] text-slate-400 italic">{t("agents.form.cron.noJobs")}</p>
+          )}
+          {jobs.length > 0 && (
+            <ul className="space-y-2" role="list" aria-label={t("agents.form.cron.jobsListLabel")}>
+              {jobs.map((job: CronJobSummary) => (
+                <li
+                  key={job.id}
+                  className="flex items-start justify-between gap-2 p-2 bg-slate-50 rounded border border-slate-200"
+                  data-testid={`cron-job-${job.id}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-medium text-slate-800 truncate">{job.name}</p>
+                    <p className="text-[11px] text-slate-500 truncate">{job.instruction}</p>
+                    <p className="text-[10px] text-slate-400 font-mono">
+                      {JSON.stringify(job.schedule)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid={`cron-job-delete-${job.id}`}
+                    className="shrink-0 text-[12px] text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                    onClick={() => deleteMutation.mutate(job.id)}
+                    disabled={deleteMutation.isPending}
+                    aria-label={`${t("agents.form.cron.deleteJob")} ${job.name}`}
+                  >
+                    {t("agents.form.cron.deleteJob")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </section>
   );
 }
@@ -887,7 +952,9 @@ export function AgentDetailPage() {
         />
 
         {/* feat-394-M2 decision 5: CronCard — per-agent cron enable/disable */}
+        {/* feat-394-M3: also shows task list + delete (spec Scenario: 配置页查看并手动删除任务) */}
         <CronCard
+          agentId={agentId}
           draft={draft}
           onToggle={(enabled) => {
             setSaved(false);
