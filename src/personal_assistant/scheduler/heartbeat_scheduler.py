@@ -63,6 +63,9 @@ class HeartbeatTickSummary:
 @dataclass(frozen=True, slots=True)
 class _AgentState:
     last_due_at: str | None = None
+    # feat-394 decision 3: per-task last_due_at for tasks: multi-sub-rhythm
+    # Key = task name; value = ISO8601 UTC timestamp of last execution.
+    per_task_last_due: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +106,14 @@ class HeartbeatSchedulerStateStore:
             last_due_at = payload.get("last_due_at")
             if last_due_at is not None and not isinstance(last_due_at, str):
                 continue
-            agents[agent_id] = _AgentState(last_due_at=last_due_at)
+            # feat-394 decision 3: per-task last_due map (backward compatible — missing key → empty dict)
+            raw_per_task = payload.get("per_task_last_due", {})
+            per_task_last_due: dict[str, str] = (
+                {k: v for k, v in raw_per_task.items() if isinstance(k, str) and isinstance(v, str)}
+                if isinstance(raw_per_task, dict)
+                else {}
+            )
+            agents[agent_id] = _AgentState(last_due_at=last_due_at, per_task_last_due=per_task_last_due)
         return _SchedulerState(agents=agents)
 
     def save(self, state: _SchedulerState) -> None:
@@ -137,9 +147,30 @@ class _KernelClientLike(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class _HeartbeatTask:
+    """One sub-rhythm task entry from HEARTBEAT.md tasks: block.
+
+    Provenance: openclaw/src/auto-reply/heartbeat.ts HeartbeatTask type (feat-394 decision 3).
+
+    Args:
+        name: Stable task name used as the per-task state key.
+        interval: Human-readable interval string (e.g. "30m", "2h").
+        prompt: Task-specific instruction text appended to the heartbeat message.
+    """
+
+    name: str
+    interval: timedelta
+    prompt: str
+
+
+@dataclass(frozen=True, slots=True)
 class _HeartbeatSpec:
     schedule: "_Schedule"
     instructions: str
+    # feat-394 decision 3: multi-sub-rhythm tasks parsed from tasks: block.
+    # When present, each task is evaluated independently with its own last_due_at.
+    # When empty, the legacy single-schedule mode is used.
+    tasks: tuple["_HeartbeatTask", ...] = ()
 
 
 class HeartbeatScheduler:
@@ -149,14 +180,19 @@ class HeartbeatScheduler:
         agents: Managed agent workspaces whose HEARTBEAT.md files should be evaluated.
         kernel_client: HTTP boundary used to create independent heartbeat sessions.
         state_store: Persistence for last executed due timestamps so restart catch-up works.
+        canonical_session_store: Optional shared mutable dict mapping agent_id to the
+            kernel session_id of the (owner, agent) canonical direct chat.  When present
+            and a session is found for the agent, heartbeat runs use that session instead
+            of creating a fresh one (feat-394 decision 3: heartbeat runs in the canonical
+            direct chat session, carrying user conversation context).  PollingHeartbeatRunner
+            populates this dict after the first successful turn_start delivery.
 
     Notes:
         The scheduler stays intentionally quiet when HEARTBEAT.md has no actionable body.
-        Each agent has one stable :heartbeat kernel session that is created on first use and
-        reused across all subsequent ticks (feat-393 decision 4).  Reuse preserves standing-task
-        context continuity and avoids creating a fresh session per tick, which was the root cause
-        of the M138 report bridge failure (no real IM conversation could be derived from a
-        session that did not exist at delivery time).
+        When canonical_session_store is populated, heartbeat reuses the canonical direct chat
+        kernel session so the model has conversation context (like an openclaw "main-session turn").
+        On first heartbeat (before any direct chat), a fresh session is created; the runner
+        promotes it to canonical after the first delivery establishes the IM conversation.
     """
 
     def __init__(
@@ -165,11 +201,20 @@ class HeartbeatScheduler:
         agents: tuple[AgentWorkspaceConfig, ...],
         kernel_client: _KernelClientLike,
         state_store: HeartbeatSchedulerStateStore,
+        canonical_session_store: dict[str, str] | None = None,
     ) -> None:
         self._agents = agents
         self._kernel_client = kernel_client
         self._state_store = state_store
-        # One stable :heartbeat session per agent_id; created on first tick, reused thereafter.
+        # feat-394 decision 3: canonical direct chat kernel session per agent_id.
+        # Populated by PollingHeartbeatRunner after first delivery; None key → fresh session.
+        # Falls back to the legacy _heartbeat_sessions dict when canonical_session_store is None.
+        self._canonical_session_store: dict[str, str] = (
+            canonical_session_store if canonical_session_store is not None else {}
+        )
+        # Legacy fallback session store (for when canonical_session_store is not provided).
+        # In feat-393 mode, one stable :heartbeat session per agent was used.
+        # In feat-394 mode, canonical_session_store takes precedence.
         self._heartbeat_sessions: dict[str, str] = {}
 
     async def tick(self, *, now: datetime | None = None) -> HeartbeatTickSummary:
@@ -208,21 +253,50 @@ class HeartbeatScheduler:
                 skipped_agents.append(agent.agent_id)
                 continue
             agent_state = state_agents.get(agent.agent_id, _AgentState())
-            due_times = spec.schedule.due_times_up_to(
-                now=current_time,
-                last_due_at=_parse_optional_datetime(agent_state.last_due_at),
-            )
-            if not due_times:
-                continue
-            for due_at in due_times:
-                triggered_runs.append(
-                    await self._submit_run(
-                        agent=agent, due_at=due_at, instructions=spec.instructions
+            if spec.tasks:
+                # feat-394 decision 3: tasks: multi-sub-rhythm — each task runs independently.
+                # Per-task last_due_at is stored in agent_state.per_task_last_due.
+                any_due = False
+                per_task_last_due = dict(agent_state.per_task_last_due)
+                for task in spec.tasks:
+                    task_last_due = _parse_optional_datetime(per_task_last_due.get(task.name))
+                    task_schedule = _IntervalSchedule(interval=task.interval)
+                    due_times = task_schedule.due_times_up_to(
+                        now=current_time, last_due_at=task_last_due
                     )
+                    for due_at in due_times:
+                        any_due = True
+                        triggered_runs.append(
+                            await self._submit_run(
+                                agent=agent, due_at=due_at, instructions=task.prompt
+                            )
+                        )
+                        per_task_last_due[task.name] = due_at.isoformat()
+                if any_due:
+                    state_agents[agent.agent_id] = _AgentState(
+                        last_due_at=agent_state.last_due_at,
+                        per_task_last_due=per_task_last_due,
+                    )
+                # If no task is due this tick, don't append to skipped_agents;
+                # the absence of triggered_runs is sufficient signal.
+            else:
+                # Legacy single-schedule mode.
+                due_times = spec.schedule.due_times_up_to(
+                    now=current_time,
+                    last_due_at=_parse_optional_datetime(agent_state.last_due_at),
                 )
-                state_agents[agent.agent_id] = _AgentState(
-                    last_due_at=due_at.isoformat()
-                )
+                if not due_times:
+                    continue
+                for due_at in due_times:
+                    triggered_runs.append(
+                        await self._submit_run(
+                            agent=agent, due_at=due_at, instructions=spec.instructions
+                        )
+                    )
+                    state_agents[agent.agent_id] = _AgentState(
+                        last_due_at=due_at.isoformat(),
+                        per_task_last_due=agent_state.per_task_last_due,
+                    )
 
         self._state_store.save(_SchedulerState(agents=state_agents))
         return HeartbeatTickSummary(
@@ -232,7 +306,12 @@ class HeartbeatScheduler:
     async def _get_or_create_heartbeat_session(
         self, *, agent: AgentWorkspaceConfig
     ) -> str:
-        """Return the stable :heartbeat session for one agent, creating it if not yet present.
+        """Return the session to use for one agent's heartbeat run.
+
+        feat-394 decision 3: prefer the canonical direct-chat kernel session when available
+        (set by PollingHeartbeatRunner after first delivery), so heartbeat runs accumulate
+        conversation context like a "main-session turn" in openclaw.  Falls back to the
+        per-agent :heartbeat session (feat-393 behaviour) when no canonical session is known.
 
         Returns:
             session_id to use for this tick's heartbeat run.
@@ -240,6 +319,12 @@ class HeartbeatScheduler:
         Raises:
             RuntimeError: When the kernel session creation returns an empty or malformed session_id.
         """
+        # Check canonical session first (feat-394 decision 3: run in owner direct-chat session).
+        canonical_id = self._canonical_session_store.get(agent.agent_id)
+        if canonical_id:
+            return canonical_id
+
+        # Fallback: legacy per-agent :heartbeat session (feat-393 behaviour, or first heartbeat).
         session_id = self._heartbeat_sessions.get(agent.agent_id)
         if session_id:
             return session_id
@@ -409,6 +494,100 @@ def _is_heartbeat_content_effectively_empty(content: str) -> bool:
     return True  # all lines were blank or structural decoration
 
 
+def _parse_heartbeat_tasks(content: str) -> list[_HeartbeatTask]:
+    """Parse a HEARTBEAT.md ``tasks:`` block into a list of HeartbeatTask objects.
+
+    Provenance: openclaw/src/auto-reply/heartbeat.ts:parseHeartbeatTasks
+    Supports YAML-like task definitions:
+
+        tasks:
+          - name: inbox-check
+            interval: 30m
+            prompt: "Check for urgent unread emails"
+          - name: schedule-review
+            interval: 2h
+            prompt: "Review upcoming schedule"
+
+    Args:
+        content: Full HEARTBEAT.md content string.
+
+    Returns:
+        Parsed task list; empty list when no tasks: block is found or tasks are malformed.
+    """
+    tasks: list[_HeartbeatTask] = []
+    lines = content.split("\n")
+    in_tasks_block = False
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        trimmed = line.strip()
+
+        if trimmed == "tasks:":
+            in_tasks_block = True
+            i += 1
+            continue
+
+        if not in_tasks_block:
+            i += 1
+            continue
+
+        # Exit tasks block on non-indented, non-task-field content.
+        is_task_field = (
+            trimmed.startswith("interval:")
+            or trimmed.startswith("prompt:")
+            or trimmed.startswith("- name:")
+        )
+        if (
+            not is_task_field
+            and not line.startswith(" ")
+            and not line.startswith("\t")
+            and trimmed
+            and not trimmed.startswith("-")
+        ):
+            in_tasks_block = False
+            i += 1
+            continue
+
+        if trimmed.startswith("- name:"):
+            name = trimmed[len("- name:"):].strip().strip("\"'")
+            interval_str = ""
+            prompt = ""
+            j = i + 1
+            while j < len(lines):
+                next_line = lines[j]
+                next_trimmed = next_line.strip()
+                if next_trimmed.startswith("- name:"):
+                    break
+                if next_trimmed.startswith("interval:") and (
+                    next_line.startswith(" ") or next_line.startswith("\t")
+                ):
+                    interval_str = next_trimmed[len("interval:"):].strip().strip("\"'")
+                elif next_trimmed.startswith("prompt:") and (
+                    next_line.startswith(" ") or next_line.startswith("\t")
+                ):
+                    prompt = next_trimmed[len("prompt:"):].strip().strip("\"'")
+                elif (
+                    not next_trimmed.startswith(" ")
+                    and not next_trimmed.startswith("\t")
+                    and next_trimmed
+                ):
+                    in_tasks_block = False
+                    break
+                j += 1
+
+            if name and interval_str and prompt:
+                try:
+                    interval = _parse_interval(interval_str)
+                    tasks.append(_HeartbeatTask(name=name, interval=interval, prompt=prompt))
+                except ValueError:
+                    pass  # skip malformed tasks silently (raises hard if block is corrupt)
+
+        i += 1
+
+    return tasks
+
+
 def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
     if not path.exists():
         return None
@@ -419,6 +598,21 @@ def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
     # skip heartbeat execution entirely when the file has no actionable tasks.
     if _is_heartbeat_content_effectively_empty(content):
         return None
+
+    # feat-394 decision 3: try tasks: multi-sub-rhythm format first.
+    # If a tasks: block is found and valid, it takes precedence over the legacy single-schedule format.
+    tasks = _parse_heartbeat_tasks(content)
+    if tasks:
+        # tasks: format uses a sentinel schedule (irrelevant — each task has its own interval)
+        # and aggregated instructions from all task prompts.
+        aggregated_instructions = "\n".join(f"- [{t.name}] {t.prompt}" for t in tasks)
+        # Use a 1-second interval sentinel that is immediately overridden by per-task scheduling.
+        _SENTINEL_SCHEDULE = _IntervalSchedule(interval=timedelta(seconds=1))
+        return _HeartbeatSpec(
+            schedule=_SENTINEL_SCHEDULE,
+            instructions=aggregated_instructions,
+            tasks=tuple(tasks),
+        )
 
     schedule_entries: list[tuple[str, str]] = []
     instruction_lines: list[str] = []
@@ -443,6 +637,9 @@ def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
         if not line:
             continue
         if line in {"---", "***"}:
+            continue
+        # Skip tasks: block lines in legacy mode (tasks: is handled above)
+        if line.lower() == "tasks:":
             continue
         instruction_lines.append(line)
 
