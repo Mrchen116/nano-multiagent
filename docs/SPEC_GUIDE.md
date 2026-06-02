@@ -30,8 +30,6 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 要给长青层加/改一句话,先过两问:
 
 1. **再过 5 个 unit 还成立吗?**(稳定性)实现能换而对外行为不变的东西,不进 spec。
-   > 借 OpenSpec 的 quick test:*If implementation can change without changing externally
-   > visible behavior, it likely does not belong in the spec.*
 2. **生手读几分钟代码能否自己还原?**(不可廉价重建)代码/注释里一看就懂的,不进 spec。
 
 任一为 no → 不进契约层,按下面的分流表各归其位。
@@ -102,7 +100,7 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 
 ## 契约层增量(delta-spec):何时产、放哪、怎么写
 
-长青层**不靠**"每个单元收尾全量重扫 canonical"维护(每单元全量既不现实也无必要),而是学 OpenSpec 的
+长青层**不靠**"每个单元收尾全量重扫 canonical"维护(每单元全量既不现实也无必要),而是用
 **delta 归并**:每个单元只声明它对 canonical 的**增量**,收尾把增量并回去。
 
 **何时产 / 谁产**:`change-design-author` 在 design 阶段产出——那时已握有首文档【验收标准】+ 关键决策 +
@@ -140,8 +138,7 @@ design,也不建独立 ADR 层(`docs/decisions/`);决策的家是 per-unit `desi
 design-author 从【验收标准】+ 决策投影而来。
 
 **为什么是草案、收尾要校正**:design 期产的 delta 是"预计要改什么"。worker 实现时会偏(加了没预见的对外
-行为、或某条没落地),所以收尾(orchestrator §7.0)**先拿实际代码 diff 校正 delta,再合并**——这步对应
-OpenSpec 在 archive 前 verify delta vs 代码。
+行为、或某条没落地),所以收尾(orchestrator §7.0)**先拿实际代码 diff 校正 delta,再合并**。
 
 ## 收尾归并 checklist(orchestrator 在提 PR 前执行)
 
@@ -151,7 +148,7 @@ canonical——**不全量重扫**,只动 delta 列的条目。对每个有 delt
 - [ ] **校正 delta(design 草案 → 实际代码)**:delta 是 design 期预测,worker 实现可能偏。拿实际代码
       diff 核对 delta 每条 ADDED/MODIFIED/REMOVED——实现期新增的对外行为补进 delta、design 写了但没
       落地的删掉。无 delta 文件(design 注 "no spec delta")且 diff 也无对外行为变化 → 跳过本包。
-- [ ] **软对账(follow OpenSpec,advisory)**:复用 reviewer 旅程 + verifier——对**校正后 delta 的每条**
+- [ ] **软对账(advisory,不出红测)**:复用 reviewer 旅程 + verifier——对**校正后 delta 的每条**
       Requirement/Scenario 搜代码 + 测试,确认契约与实现一致,背离则在报告里**显式报出**(改实现或改
       delta),不静默累积。**软对账,不出红测、不机械硬卡**;靠 reviewer/verifier 尽责兜。范围 = 本单元
       delta,**不是 canonical 全量**(canonical 其余条目由各自所属单元收尾时已对过账)。

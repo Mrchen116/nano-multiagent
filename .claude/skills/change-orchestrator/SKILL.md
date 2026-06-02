@@ -550,12 +550,11 @@ unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acce
 核对 delta 每条 ADDED/MODIFIED/REMOVED——实现期新增的对外行为补进 delta、design 写了但没落地的删掉。
 design 注 "no spec delta" 且 diff 也无对外行为变化 → 该包跳过(PR body 记 "no spec delta")。
 
-**② 软对账(follow OpenSpec,advisory)** —— 复用已派的 reviewer / verifier 做,不另起机制。派 §5
+**② 软对账(advisory,不出红测)** —— 复用已派的 reviewer / verifier 做,不另起机制。派 §5
 reviewer / verifier 时(或本步现派一轮)让其对**校正后 delta 的每条** Requirement/Scenario **搜代码 +
 测试**,报告三类:契约与实现一致 / 契约声明的行为代码已背离 / 本 unit 新增代码产生了 delta 未覆盖的对外
 行为。背离与缺口**显式列在报告里**(advisory,不出红测、不机械硬卡)。范围 = 本 unit delta,**不是
-canonical 全量**。这对齐 OpenSpec `/opsx:verify`(它也只验本次 change 的 delta spec)——靠 agent 尽责,
-不靠绑定。
+canonical 全量**。靠 agent 尽责对账,不靠机械绑定。
 
 **③ 合并 delta 进 canonical**:把校正后 delta 机械合并进对应 `docs/specs/<包>/spec.md`——ADDED 追加、
 MODIFIED 替换对应条目、REMOVED 删对应条目(delta 与 canonical 同骨架,对应是机械的)。每条进 canonical
