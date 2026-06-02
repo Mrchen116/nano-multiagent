@@ -404,7 +404,8 @@ class TestNonBackfillAtSchedule:
 
 
 class TestCronSchedulerTick:
-    def test_tick_submits_due_job(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_tick_submits_due_job(self, tmp_path: Path) -> None:
         submitted: list[dict] = []
 
         async def fake_submit(*, agent_id: str, job: CronJob) -> None:
@@ -421,13 +422,13 @@ class TestCronSchedulerTick:
             state_store=state_store,
             submit_fn=fake_submit,
         )
-        import asyncio
         now = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
-        asyncio.get_event_loop().run_until_complete(scheduler.tick(now=now))
+        await scheduler.tick(now=now)
         assert len(submitted) == 1
         assert submitted[0]["job_id"] == "j1"
 
-    def test_tick_skips_disabled_job(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_tick_skips_disabled_job(self, tmp_path: Path) -> None:
         submitted: list[dict] = []
 
         async def fake_submit(*, agent_id: str, job: CronJob) -> None:
@@ -443,13 +444,11 @@ class TestCronSchedulerTick:
         scheduler = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit
         )
-        import asyncio
-        asyncio.get_event_loop().run_until_complete(
-            scheduler.tick(now=datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC))
-        )
+        await scheduler.tick(now=datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC))
         assert submitted == [], "Disabled job must not be submitted"
 
-    def test_tick_updates_state_after_submission(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_tick_updates_state_after_submission(self, tmp_path: Path) -> None:
         """After a tick fires a job, last_due_at is persisted so next tick doesn't re-fire."""
 
         async def fake_submit(*, agent_id: str, job: CronJob) -> None:
@@ -461,9 +460,8 @@ class TestCronSchedulerTick:
         scheduler = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit
         )
-        import asyncio
         now = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
-        asyncio.get_event_loop().run_until_complete(scheduler.tick(now=now))
+        await scheduler.tick(now=now)
 
         # Re-tick at same time — should not fire again
         fired_second_time: list[str] = []
@@ -474,10 +472,11 @@ class TestCronSchedulerTick:
         scheduler2 = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit2
         )
-        asyncio.get_event_loop().run_until_complete(scheduler2.tick(now=now))
+        await scheduler2.tick(now=now)
         assert fired_second_time == [], "Should not re-fire after state is persisted"
 
-    def test_tick_multiple_jobs_independent(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_tick_multiple_jobs_independent(self, tmp_path: Path) -> None:
         """Multiple jobs are evaluated independently; partial due jobs fire independently."""
         submitted: list[str] = []
 
@@ -491,18 +490,18 @@ class TestCronSchedulerTick:
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
 
         from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
-        # j1 last ran 65s ago, j2 last ran 65s ago (not yet due for 120s interval)
+        # j1 (60s): last_ran=9:57:00, elapsed=180s, steps=ceil(180/60)=3, next=9:57:00+180s=10:00:00 → DUE
+        # j2 (120s): last_ran=9:57:00, elapsed=180s, steps=ceil(180/120)=2, next=9:57:00+240s=10:01:00 → NOT DUE
         t_base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
         state_store.save(_CronState(jobs={
-            "j1": _CronRunState(last_due_at=datetime(2026, 1, 1, 9, 58, 55, tzinfo=UTC).isoformat()),
-            "j2": _CronRunState(last_due_at=datetime(2026, 1, 1, 9, 58, 55, tzinfo=UTC).isoformat()),
+            "j1": _CronRunState(last_due_at=datetime(2026, 1, 1, 9, 57, 0, tzinfo=UTC).isoformat()),
+            "j2": _CronRunState(last_due_at=datetime(2026, 1, 1, 9, 57, 0, tzinfo=UTC).isoformat()),
         }))
 
         scheduler = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit
         )
-        import asyncio
-        asyncio.get_event_loop().run_until_complete(scheduler.tick(now=t_base))
-        # j1 (60s interval, 65s elapsed) is due; j2 (120s interval, 65s elapsed) is not
+        await scheduler.tick(now=t_base)
+        # j1 (60s interval, 180s elapsed) is due; j2 (120s interval, 180s elapsed) is not
         assert "j1" in submitted
         assert "j2" not in submitted
