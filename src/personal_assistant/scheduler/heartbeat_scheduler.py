@@ -384,11 +384,40 @@ class _CronSchedule:
         )
 
 
+def _is_heartbeat_content_effectively_empty(content: str) -> bool:
+    """Return True if HEARTBEAT.md has no actionable tasks (only headers, empty list items, fences).
+
+    Provenance: openclaw/src/auto-reply/heartbeat.ts:isHeartbeatContentEffectivelyEmpty
+    Mirrors the openclaw check so that a workspace-default empty HEARTBEAT.md template
+    does not trigger a heartbeat run (which would just output HEARTBEAT_OK every tick).
+    """
+    import re as _re  # noqa: PLC0415 — local import: this function is called rarely, avoids top-level dep
+    _HEADER_RE = _re.compile(r"^#+(\s|$)")
+    _EMPTY_LIST_RE = _re.compile(r"^[-*+]\s*(\[[\sXx]?\]\s*)?$")
+    _FENCE_RE = _re.compile(r"^```[A-Za-z0-9_-]*$")
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _HEADER_RE.match(stripped):
+            continue
+        if _EMPTY_LIST_RE.match(stripped):
+            continue
+        if _FENCE_RE.match(stripped):
+            continue
+        return False  # found at least one non-empty, non-comment line
+    return True  # all lines were blank or structural decoration
+
+
 def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
     if not path.exists():
         return None
     content = path.read_text(encoding="utf-8")
     if not content.strip():
+        return None
+    # Provenance: openclaw/src/auto-reply/heartbeat.ts:isHeartbeatContentEffectivelyEmpty —
+    # skip heartbeat execution entirely when the file has no actionable tasks.
+    if _is_heartbeat_content_effectively_empty(content):
         return None
 
     schedule_entries: list[tuple[str, str]] = []
