@@ -1,7 +1,10 @@
 """Agent configuration and capability routes for IM HTTP APIs."""
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from typing import Any
 
 from IM.api.deps import (
     current_user,
@@ -43,10 +46,15 @@ class AgentConfigResponse(BaseModel):
     # feat-394: heartbeat configuration persisted as raw JSON string.
     # Shape: {"enabled": bool, "every": str, "active_hours": {...} | null}
     heartbeat_json: str | None = None
+    # feat-394-M2: cron configuration persisted as raw JSON string.
+    # Shape: {"enabled": bool}
+    cron_json: str | None = None
 
 
 class UpdateAgentConfigRequest(BaseModel):
     """Request payload for updating one agent profile."""
+
+    model_config = {"extra": "ignore"}
 
     profile_version: int = Field(ge=1)
     display_name: str = Field(min_length=1)
@@ -59,8 +67,37 @@ class UpdateAgentConfigRequest(BaseModel):
     # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
     features: dict[str, bool] = Field(default_factory=dict)
     custom_prompt: str | None = None
-    # feat-394: heartbeat configuration as raw JSON string (forwarded to gateway via ConfigSyncNotifier)
+    # feat-394: heartbeat configuration as raw JSON string (forwarded to gateway via ConfigSyncNotifier).
+    # Also accepts ``heartbeat: {...}`` dict from the frontend (converted via model_validator below).
     heartbeat_json: str | None = None
+    # feat-394-M2: cron configuration as raw JSON string.
+    # Also accepts ``cron: {...}`` dict from the frontend (converted via model_validator below).
+    cron_json: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_config_dicts(cls, data: Any) -> Any:
+        """Convert frontend-style ``heartbeat: {...}`` and ``cron: {...}`` dicts to JSON strings.
+
+        The frontend sends nested objects; the backend stores raw JSON strings so the gateway
+        can forward them without re-serialization.  Both the raw-string form (from tests/gateway)
+        and the dict form (from the UI) are accepted.
+        """
+        if not isinstance(data, dict):
+            return data
+        if "heartbeat" in data and data["heartbeat"] is not None and "heartbeat_json" not in data:
+            data = dict(data)
+            data["heartbeat_json"] = json.dumps(data.pop("heartbeat"))
+        elif "heartbeat" in data:
+            data = dict(data)
+            data.pop("heartbeat", None)
+        if "cron" in data and data["cron"] is not None and "cron_json" not in data:
+            data = dict(data)
+            data["cron_json"] = json.dumps(data.pop("cron"))
+        elif "cron" in data:
+            data = dict(data)
+            data.pop("cron", None)
+        return data
 
 
 class AgentSummaryResponse(BaseModel):
@@ -144,6 +181,7 @@ def to_agent_config_response(
         features=dict(profile.features) if profile.features else {},
         custom_prompt=profile.custom_prompt,
         heartbeat_json=profile.heartbeat_json,
+        cron_json=profile.cron_json,
     )
 
 
@@ -376,6 +414,7 @@ def update_agent_config(
             features=payload.features if payload.features is not None else None,
             custom_prompt=payload.custom_prompt,
             heartbeat_json=payload.heartbeat_json,
+            cron_json=payload.cron_json,
         )
     except AgentProfileVersionConflictError as exc:
         raise HTTPException(

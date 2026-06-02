@@ -739,4 +739,67 @@ describe("feat-379-M9 preview tool_ids regression", () => {
       expect.arrayContaining(["code-review", "plan"])
     );
   });
+
+  // feat-394-M2/R7: cron 开关测试
+  it("feat-394-M2: Cron card 显示并可开关", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        cron: { enabled: false }
+      }
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    // Cron card 应有 "Cron Jobs" 标题
+    expect(screen.getByRole("heading", { name: /Cron Jobs/i })).toBeInTheDocument();
+
+    // 开关应存在且初始为关闭
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]');
+    expect(toggle, "cron-enabled-toggle 应存在").not.toBeNull();
+    expect(toggle?.checked).toBe(false);
+
+    // 打开开关
+    if (toggle) await user.click(toggle);
+
+    expect(document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]')?.checked).toBe(true);
+  });
+
+  it("feat-394-M2: Cron 开关开启后保存时 PATCH payload 包含 cron.enabled=true", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        cron: { enabled: false }
+      }
+    });
+    apiMocks.updateAgentConfigMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist().config,
+      cron: { enabled: true },
+      profile_version: 2
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    // 打开开关
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]');
+    if (toggle) await user.click(toggle);
+
+    // 保存
+    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
+        "agent-core-1",
+        expect.objectContaining({
+          cron: expect.objectContaining({ enabled: true })
+        })
+      );
+    });
+  });
 });

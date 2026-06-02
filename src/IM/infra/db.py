@@ -417,6 +417,8 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
     }
     if agent_column_names and "heartbeat_json" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN heartbeat_json TEXT")
+    if agent_column_names and "cron_json" not in agent_column_names:
+        connection.execute("ALTER TABLE agent_profiles ADD COLUMN cron_json TEXT")
 
     node_rows = connection.execute("PRAGMA table_info(nodes)").fetchall()
     node_column_names = {row["name"] for row in node_rows}

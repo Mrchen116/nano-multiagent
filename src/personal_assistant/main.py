@@ -335,7 +335,16 @@ class _IMConfigSyncClient:
                     _parse_heartbeat_from_im_payload(_hb_raw)
                 )
                 # feat-394-M2 decision 5: parse per-agent cron config from IM mirror payload.
-                _cron_raw = payload.get("cron")
+                # Prefer cron_json (raw JSON string) over the legacy cron dict key.
+                _cron_raw_str = payload.get("cron_json")
+                if isinstance(_cron_raw_str, str) and _cron_raw_str.strip():
+                    import json as _json2  # noqa: PLC0415
+                    try:
+                        _cron_raw = _json2.loads(_cron_raw_str)
+                    except (ValueError, TypeError):
+                        _cron_raw = payload.get("cron")
+                else:
+                    _cron_raw = payload.get("cron")
                 synced_cron_enabled = _parse_cron_enabled_from_im_payload(_cron_raw)
                 agent_config = AgentWorkspaceConfig(
                     agent_id=agent_id,

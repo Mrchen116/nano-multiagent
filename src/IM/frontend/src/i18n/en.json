@@ -274,6 +274,12 @@
         "everyLabel": "Cadence",
         "everyHelp": "How often the agent wakes up (e.g. 30m, 1h, 2h)."
       },
+      "cron": {
+        "title": "Cron Jobs",
+        "sub": "Scheduled tasks that run without conversation context.",
+        "enabledLabel": "Enable cron",
+        "enabledHelp": "Agent can register and manage scheduled tasks (add/list/remove via conversation)."
+      },
       "workspace": {
         "title": "Workspace & Runtime",
         "sub": "Read-only. Managed by the owning node.",
