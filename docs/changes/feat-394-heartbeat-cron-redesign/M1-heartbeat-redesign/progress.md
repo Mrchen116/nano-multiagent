@@ -102,4 +102,26 @@ Unit branch: unit/feat-394
   - Visual/Interaction: N/A
 - Rollback: b3a6328d (C1 红测试)
 - Commits: C1=b3a6328d, C2=f2356bd8
-- Next: R6 — HeartbeatScheduler 跑 canonical 直聊 session（改决策3）+ tasks: 多子节律
+- Next: R6 完成
+
+### R6 — HeartbeatScheduler canonical session + tasks: 多子节律
+
+- Context: design 决策3：heartbeat 应跑在 owner 直聊 kernel session（带历史），而非隔离 :heartbeat session；同时支持 tasks: 多子节律
+- Decision:
+  - `HeartbeatScheduler` 新增 `canonical_session_store: dict[str, str]`（agent_id → kernel_session_id）参数；`_get_or_create_heartbeat_session` 优先使用 canonical session，无则 fallback 到旧 :heartbeat session（向后兼容）
+  - `_AgentState` 新增 `per_task_last_due: dict[str, str]`（per-task 独立 last_due，向后兼容 load）
+  - `_HeartbeatSpec` 新增 `tasks: tuple[_HeartbeatTask, ...]`
+  - `_HeartbeatTask` dataclass（Provenance: openclaw heartbeat.ts HeartbeatTask）
+  - `_parse_heartbeat_tasks()` 解析 tasks: 块（Provenance: openclaw parseHeartbeatTasks）
+  - `tick()` 区分 tasks: 模式（per-task 独立评估）和 legacy 单调度模式
+- Rationale: canonical session 让 heartbeat 带上下文（决策3）；tasks: 多子节律满足"不同关注项不同频率" reviewer scenario
+- Evidence:
+  - Tests: 14/14 test_heartbeat_scheduler; 2361 全套通过
+  - Entry: 单元测试；N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A（调度器纯逻辑）
+  - Visual/Interaction: N/A
+- Rollback: 55bfcedb (C1 红测试)
+- Commits: C1=55bfcedb, C2=7ea6ff9b
+- Next: R7 — activeHours + 忙会话跳过 + transcript 修剪 + NodeGateway-SPEC §6 更新
