@@ -28,11 +28,28 @@
 - BackgroundTaskStatus 枚举版 `{COMPLETED,FAILED,KILLED}`（成员异于上组）：`core/background_tasks/registry.py` + `platform/background_tasks/task_store.py` ×2。
 - 字符串版 `{"completed","failed","cancelled"}`：`coding_cli`（text_runner/commands/events.repl_events ×3）+ `personal_assistant/gateway/inbound_pipeline.py` ×1。
 
-**吞异常修复（motivation 锁定 5 处，非 fire-and-forget）**
+**吞异常修复（motivation 扩为 10 处，非 fire-and-forget）**
+
+原始 5 处：
 - `coding_cli/commands.py`：`_read_section` 配置解析 `except Exception: pass`、REPL 发送循环 `traceback.print_exc()` 混入 broad except
 - `agent/core/agent/compaction/summarizer.py`：`except Exception: return _fallback_summary()`
 - `agent/products/personal_assistant/tools/web_search.py`：`_search_duckduckgo` + `_search_brave` 两处裸 except
 - `personal_assistant/main.py`：`_consume_task_exception` 静默丢后台任务异常
+
+design 阶段补全 5 处（同性质静默 except，已核实）：
+- `agent/core/agent/runtime.py:1152`：permission_resolved 发布器 `except: pass`
+- `personal_assistant/main.py`：IM 流式 observer **5 个** `except: pass`（line 1931/1973/2024/2068 附近）
+- `personal_assistant/main.py:972`：gateway shutdown `suppress(Exception)` 清理失败
+- `personal_assistant/gateway/background_session_events.py:89`：subscriber stop 吞异常
+- `coding_cli/commands.py:374`：权限请求 JSON 序列化失败 `except: pass`
+
+**废弃 API（11 处，已核实，dist/ 构建产物不计）**
+- `logger.warn()` → `logger.warning()`：`agent/core/tools/registry.py`、`agent/core/agent/runtime.py`、`agent/core/agent/loop.py`、`agent/core/runs/registry.py`、`agent/platform/hooks/builtins/default_status.py`
+
+**死代码删除（4 项，已核实零生产引用）**
+- 删 `IM/models.py`（23 行 facade）、`IM/repositories.py`（25 行 facade）：生产零引用，~28 个测试文件 import → 重定向到 `IM.domain.models` / `IM.infra.repositories`
+- 删 `personal_assistant/smoke_runtime.py`（全仓零引用）
+- 清理 `IM/domain/__init__.py` 死 re-export（保留 docstring + package，删 re-export 块；无 `from IM.domain import X` 用法）
 
 **测试去重（3 对）**
 - `tests/unit/personal_assistant/test_inbound_pipeline_session.py` ↔ `test_inbound_pipeline_dispatch.py`（15 函数 ~700 行）
@@ -120,24 +137,43 @@ after：单包内收敛到唯一真源；跨包按边界收敛到每包一份（
 - **拒绝**: 为共享强行新建跨包公共包——会引入新的依赖边，破坏现有干净分层，得不偿失。
 - **风险**: ⚠️ **行为差异**。报告指出 `_require_text` 各副本 RuntimeError vs ValueError 不一致、`_optional_text` 各副本"抛 ValueError vs 静默 None"不一致。**本 unit 是纯重构，不在此修 bug**：提取时按**每个调用点**核对它当前依赖哪种行为，若同包内副本行为一致则取该行为；若同包内副本已有分歧，保持各调用点语义不变（必要时保留两个命名变体而非强统一）。任何"统一行为"的动作都要确认无调用点依赖旧分歧，否则属行为变更，超范围。
 
-### 决策 4: 5 处吞异常 — 只动错误路径，正常路径零改动
+### 决策 4: 10 处吞异常 — 只动错误路径，正常路径零改动
 
 - **选择**: 各处策略——
-  - 配置解析（`commands.py _read_section`）：捕获后 `logger.warning` 含异常详情再返回 fallback（或对不可恢复者直接 raise）；不再静默当文件不存在。
+  - 配置解析（`commands.py _read_section`）：捕获后 `logger.warning` 含异常详情再返回 fallback（不直接 raise，避免破坏"坏配置当缺省"启动路径）；不再完全静默。
   - REPL 发送循环（`commands.py`）：去掉 `traceback.print_exc()`，改走既有 `_print_repl_turn_error_block`，错误归入结构化展示层。
+  - 权限请求 JSON 序列化（`commands.py:374`）：`except` 后 fallback 到 `repr(tool_input)`，确保用户总能看到内容（不再静默丢 tool_input）。
   - compaction summarizer：捕获后 `logger.exception` 记录，**保持返回 `_fallback_summary()` 不变**（不改返回值契约，只加可观测）。
   - web_search 两 provider：捕获后 `logger.warning` 含 provider + 错误，再返回空列表（保持空列表契约）。
   - `_consume_task_exception`：`except asyncio.CancelledError: pass` + `except Exception: logger.exception(...)`。
-- **理由**: motivation Q3 锁定"只修真正隐藏问题处，策略因情况而异（raise/log/sentinel），不一刀切"；fire-and-forget 不动。compaction/web_search 保留原返回值是为不破坏调用方正常路径。
-- **拒绝**: ①给所有 broad-except 加日志——超 motivation 锁定的 5 处范围。②compaction 改 sentinel 让调用方区分真摘要/fallback——会改变调用方契约，属行为变更，本 unit 仅加日志可观测。
-- **风险**: 配置解析改 raise 需确认无调用方依赖"坏配置当不存在"的旧行为；以现有测试为护栏。
+  - permission_resolved 发布器（`runtime.py:1152`）：捕获后 `logger.warning`/`debug` 记录投递失败，不改控制流。
+  - IM 流式 observer 5 个 `except: pass`（`main.py`）：各加 `logger.warning` 记录断连/发送失败，保持吞掉不上抛（observer 不能让一次发送失败炸掉整个事件流）。
+  - gateway shutdown `suppress(Exception)`（`main.py:972`）：suppress 前 `logger.warning` 记录清理失败。
+  - subscriber stop（`background_session_events.py:89`）：非 CancelledError 加 `logger.debug`/`warning`。
+- **理由**: motivation Q3 锁定"只修真正隐藏问题处，策略因情况而异（raise/log/fallback），不一刀切"；fire-and-forget 不动。补全的 5 处与原 5 处同性质（静默 except → 失败不可见），改法一致：加可观测、不改控制流/返回值。
+- **拒绝**: ①compaction 改 sentinel 让调用方区分真摘要/fallback——会改变调用方契约，属行为变更，本 unit 仅加日志可观测。②observer 失败改上抛/重试——会改变事件流控制行为，超纯重构范围，仅加日志。
+- **风险**: 配置解析倾向 warning+fallback 而非 raise，规避越界；observer/shutdown 保持 suppress 语义只加日志，确保控制流不变。以现有测试为护栏。
 
-### 决策 5: milestone 颗粒度 — 单 M1，worker 内按包走 roadpoint
+### 决策 5: 废弃 API `logger.warn()` → `logger.warning()`
 
-- **选择**: 单 M1，不拆 multi-milestone。worker 内部按 R1 core utils + sdk 暴露 → R2 platform → R3 IM → R4 personal_assistant → R5 吞异常 → R6 测试去重 顺序推进。
-- **理由**: 纯行为保持重构无任何用户可观察里程碑（§4.4 试金石两条均不满足）；跨包共享符号 `TERMINAL_RUN_STATUSES`（core→sdk→products）使"按包并行"的模块并非真独立；并行 worktree 集成历史上不可靠。单 worker 持全局上下文一致落跨包决策、一次性可审 PR、无并行合并风险。
+- **选择**: 5 个 agent 文件 11 处机械替换 `.warn(` → `.warning(`。
+- **理由**: `logger.warn` 自 Python 3.3 废弃，`warning` 是正确名，行为等价，零风险。
+- **拒绝**: 无备选——这是纯正确性修复。
+- **风险**: 无（前端 `dist/` 构建产物不在源码改动范围）。
+
+### 决策 6: 死代码删除 — 删 facade/孤立模块 + 测试 import 重定向
+
+- **选择**: 删 `IM/models.py`、`IM/repositories.py`、`personal_assistant/smoke_runtime.py`；清理 `IM/domain/__init__.py` 的 re-export 块（保留 docstring + 空 `__all__` 或直接留 package docstring）。~28 个测试文件 `from IM.models import` / `from IM.repositories import` 重定向到 `IM.domain.models` / `IM.infra.repositories`。
+- **理由**: 两 facade 生产代码零引用（已 grep 核实），仅测试经它们绕一道；删除让"哪个是真源"无歧义。`smoke_runtime.py` 全仓零引用。`IM/domain/__init__.py` re-export 无 `from IM.domain import X` 消费者。
+- **拒绝**: ①保留 facade 加 `@deprecated`——死代码留着只增 CI/认知噪音，无收益。②连 `IM/domain/__init__.py` 整个删除——会破坏 package，只删 re-export 块。
+- **风险**: 测试 import 重定向漏改会让对应测试 collect 失败——`pytest --collect-only` 即暴露，护栏明确。worker 须 grep 确认无残留 `from IM.models`/`from IM.repositories` 引用。
+
+### 决策 7: milestone 颗粒度 — 单 M1，worker 内按包走 roadpoint
+
+- **选择**: 单 M1，不拆 multi-milestone。worker 内部按 R1 core utils + sdk 暴露（含废弃 API） → R2 platform → R3 IM（含死代码删除 + 测试 import 重定向） → R4 personal_assistant → R5 吞异常 10 处 → R6 测试去重 顺序推进。
+- **理由**: 纯行为保持重构无任何用户可观察里程碑（§4.4 试金石两条均不满足）；跨包共享符号 `TERMINAL_RUN_STATUSES`（core→sdk→products）使"按包并行"的模块并非真独立；并行 worktree 集成历史上不可靠。单 worker 持全局上下文一致落跨包决策、一次性可审 PR、无并行合并风险。即便扩范围后体量增大，新增项（废弃 API/死代码/吞异常补全）均为机械修复，不改变单 worker 可承载的判断。
 - **拒绝**: 按包拆 4-5 个并行 milestone——横切式拆分变体，每片无独立价值，且被跨包共享符号耦合。
-- **风险**: 单 PR 体量较大（~40 文件）。缓解：worker 按 roadpoint 分多次 commit（每包一组），reviewer/architect 可逐 commit 审。
+- **风险**: 单 PR 体量较大（扩范围后 ~50+ 文件，含 ~28 测试 import 重定向）。缓解：worker 按 roadpoint 分多次 commit（每包/每类一组），reviewer/architect 可逐 commit 审。
 
 ## 接口与数据流
 
@@ -154,6 +190,11 @@ after：单包内收敛到唯一真源；跨包按边界收敛到每包一份（
 
 数据流无变化——所有提取都是"把 N 份相同实现换成 1 份 import"，调用顺序、参数、返回值在正常路径上逐字节等价。
 
+扩范围三类对接口的影响：
+- **废弃 API**：纯方法名 `.warn`→`.warning`，无签名/行为变化。
+- **死代码删除**：移除的是测试可见的 import 路径（`IM.models`/`IM.repositories`/`smoke_runtime`），真源 `IM.domain.models`/`IM.infra.repositories` 不动；对 `agent.sdk` 与产品入口的对外面零影响。
+- **吞异常补全**：仅在错误分支增加日志/`repr` fallback，不新增对外接口、不改返回值与控制流。
+
 ## 契约层增量 (delta-spec)
 
 纯行为保持重构。对 `agent.sdk` / 各产品入口的**正常路径**消费者可观察行为零变化；5 处吞异常修复只增强**失败路径**可观测性（日志 / 报错），不新增/改/删任何对外 Requirement。
@@ -163,7 +204,7 @@ after：单包内收敛到唯一真源；跨包按边界收敛到每包一份（
 - gateway: no spec delta
 - cli: no spec delta
 
-> 边界案例说明：决策 4 中 coding_cli 配置损坏从"静默忽略"变"warning/报错"，属 CLI 失败路径健壮性增强，不构成 CLI 契约层 Requirement 变更，故不产 cli delta-spec。
+> 边界案例说明：决策 4 中 coding_cli 配置损坏从"静默忽略"变"warning/报错"，属 CLI 失败路径健壮性增强，不构成 CLI 契约层 Requirement 变更，故不产 cli delta-spec。扩范围三类同理无契约增量：废弃 API 是内部方法名修正；死代码删除移除的是测试可见 import 路径（IM 对外运行时行为不变，真源 `IM.domain.models`/`IM.infra.repositories` 不动）；吞异常补全只增强失败路径可观测性。
 
 ## 风险与回退
 
@@ -172,6 +213,8 @@ after：单包内收敛到唯一真源；跨包按边界收敛到每包一份（
 - **派生集合漂移**（决策 1）：`TERMINAL_RUN_STATUSES` 派生表达式与原字面量不一致会引入隐性 bug。缓解：单测断言 `TERMINAL_RUN_STATUSES == frozenset({"completed","failed","cancelled"})`。
 - **配置 raise 越界**（决策 4）：配置解析改 raise 若有调用方依赖旧"静默当不存在"会破坏启动路径。缓解：以现有 config 测试护栏，倾向 warning + fallback 优先于直接 raise。
 - **contract 测试**：跨包 import 落点错误会被 `tests/contract/` 拦截——这是护栏不是风险，但 worker 须先跑 contract 验证落点合法。
+- **测试 import 重定向漏改**（决策 6）：~28 个测试文件改 `IM.models`/`IM.repositories` import，漏一处即该测试 collect 失败。缓解：`pytest --collect-only` + `grep -r "from IM.models\|from IM.repositories"` 零残留双重确认。
+- **observer/shutdown 加日志改变控制流**（决策 4 补全项）：这些 `except: pass` 原本就是"吞掉不上抛"，加日志须保持 suppress 语义，不能改成 re-raise。缓解：只在 except 块内插 log 语句，不动 except 结构。
 
 **降级路径**：纯重构无运行时降级概念——若某处提取导致测试红，原地回退该处副本即可，不影响其余收敛。
 
@@ -189,4 +232,4 @@ after：单包内收敛到唯一真源；跨包按边界收敛到每包一份（
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| refactor-395-M1 | dedup-and-exception-fixes | — | A | 全部 14 处 Copy-paste 收敛（生产 9 + 测试 3 + 常量 2）+ 5 处吞异常修复；涉及 `agent/core`、`agent/platform`、`agent/products`、`IM`、`coding_cli`、`personal_assistant` 及 `tests/unit` 对应文件 | `[worker]` `pytest -m "not e2e"` 全绿、`pytest tests/contract` 全绿（依赖方向未破）；`[worker]` 14 处重复每处仅剩单一真源（跨包 `_require_text`/`_optional_text` 收敛到每包一份），`grep` 确认旧副本已删；`[worker]` 单测锁定 `TERMINAL_RUN_STATUSES == frozenset({"completed","failed","cancelled"})`；`[worker]` 5 处吞异常各有日志/报错且**正常路径返回值不变**（既有测试不变更通过）；`[reviewer]` IM 收发消息 / 群聊、agent 对话 / 工具调用、Coding CLI REPL / 权限请求、Gateway 启停 / 配置解析 全部与变更前一致（motivation 验收标准全部 Scenario） |
+| refactor-395-M1 | dedup-and-exception-fixes | — | A | 全部 14 处 Copy-paste 收敛（生产 9 + 测试 3 + 常量 2）+ 10 处吞异常修复 + 11 处废弃 API 替换 + 4 项死代码删除（含 ~28 测试 import 重定向）；涉及 `agent/core`、`agent/platform`、`agent/products`、`IM`、`coding_cli`、`personal_assistant` 及 `tests/` 对应文件 | `[worker]` `pytest -m "not e2e"` 全绿、`pytest tests/contract` 全绿（依赖方向未破）；`[worker]` 14 处重复每处仅剩单一真源（跨包 `_require_text`/`_optional_text` 收敛到每包一份），`grep` 确认旧副本已删；`[worker]` 单测锁定 `TERMINAL_RUN_STATUSES == frozenset({"completed","failed","cancelled"})`；`[worker]` 10 处吞异常各有日志/报错/fallback 且**正常路径返回值与控制流不变**（既有测试不变更通过）；`[worker]` `grep -r "logger.warn(" src/` 仅余 dist/ 构建产物（0 处源码）；`[worker]` `grep -r "from IM.models\|from IM.repositories\|smoke_runtime" src/ tests/` 零残留、`pytest --collect-only` 无 import 错误；`[reviewer]` IM 收发消息 / 群聊、agent 对话 / 工具调用、Coding CLI REPL / 权限请求、Gateway 启停 / 配置解析 全部与变更前一致（motivation 验收标准全部 Scenario） |

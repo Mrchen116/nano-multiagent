@@ -36,6 +36,10 @@
   A(原话): 一起。方案你先别急，spec阶段不定方案
   Agent 解读: 全部纳入。用户明确提醒 spec 阶段不讨论实现方案。
 
+- Q6（design 阶段补充对齐）: 范围"有点少"，报告里哪些是毫无疑问、无需讨论的问题也一起做？
+  A(原话): 就做这点有点少。再去看看报告，看有哪些是不需要讨论，毫无疑问是问题的 → 选定"第二类 废弃API, 第三类 死代码删除"
+  Agent 解读: 本 unit 从"Copy-paste + 吞异常"扩为"机械型坏味道清扫"。新增三块：①吞异常补全（同主题，报告里漏掉的同类非 fire-and-forget 静默 except，5→10 处）；②废弃 API（logger.warn→warning）；③死代码删除（未使用 facade / 孤立模块）。明确排除一切需架构讨论的项（God function/class 拆分、dataclass 打包、加锁/连接池、安全 token、超时/事务、前端组件、/tmp 测试 sweep、worktree_runtime 非死、safety.py TODO 待查）——这些仍各自独立 unit。第四类 print→logger 未纳入。
+
 ## 现状痛点
 
 全仓库代码审查发现 99 个代码坏味道，其中 Copy-paste 重复和吞异常两类问题影响面最广：
@@ -45,19 +49,38 @@
 - 3 处测试文件重复（~1200 行），维护成本翻倍，掩盖 source of truth
 - 2 处常量/模式重复（`_TERMINAL_STATUSES` 7文件、atomic-write 2文件）
 
-**吞异常（5 处真正有问题的）：**
+**吞异常（10 处真正有问题的，非 fire-and-forget）：**
+
+原始 5 处：
 - 配置解析 `except Exception: pass`：配置坏了用户完全不知道
 - REPL `traceback.print_exc()` 混入 broad except：stderr 打乱结构化输出
 - compaction summarizer fallback：调用方分不清真摘要和 fallback
 - web search 两个 provider：网络错误、auth 失败全不可见
 - `_consume_task_exception`：后台任务失败零可观测
 
+design 阶段补全的同类 5 处（报告里被首版遗漏的同性质静默 except）：
+- `runtime.py:1152` permission_resolved 发布器 `except: pass`：权限投递失败完全不可见
+- `main.py` IM 流式 observer **5 个** `except: pass`：一次瞬时 IM 断连完全不可见
+- `main.py:972` gateway shutdown `suppress(Exception)`：清理失败（句柄泄漏/状态损坏）被吞
+- `background_session_events.py:89` subscriber stop 吞异常：停止时关键事件失败不可见
+- `commands.py:374` 权限请求 JSON 序列化失败 `except: pass`：用户看到截断的权限请求
+
+**废弃 API（11 处）：**
+- `logger.warn()`（Python 3.3 起废弃）散布在 5 个 agent 文件 11 处，正确写法 `logger.warning()`
+
+**死代码（4 项）：**
+- `IM/models.py`（23 行未使用 facade）、`IM/repositories.py`（25 行未使用 facade）：生产代码零引用，仅测试 import
+- `smoke_runtime.py`：全仓零引用的孤立模块
+- `IM/domain/__init__.py` 死 re-export：无任何 `from IM.domain import X` 用法
+
 ## 目标状态
 
-- 所有重复的工具函数/常量/模式只定义一处，其他位置统一 import
+- 所有重复的工具函数/常量/模式只定义一处（跨包不可共享处收敛到每包一份），其他位置统一 import
 - 测试文件零重复，共享逻辑提取到公共 helper
-- 5 处吞异常各自按恰当策略处理（raise / log / sentinel），不再静默丢失错误信息
-- 全部已有行为不变——这是纯重构，用户无感知
+- 10 处吞异常各自按恰当策略处理（raise / log / fallback），不再静默丢失错误信息
+- `logger.warn()` 全部改 `logger.warning()`，无废弃 API 调用
+- 未使用 facade / 孤立模块全部删除，测试 import 重定向到真源
+- 全部已有正常路径行为不变——这是纯重构 + 失败路径可观测性增强，用户正常使用无感知
 
 ## 用户侧验收标准（不变性）
 
@@ -122,11 +145,21 @@
 - `src/IM/ws/gateway_handler.py`, `src/IM/application/event_service.py`
 - 新增共享模块（具体位置由 design 阶段决定）
 
-**吞异常修复涉及：**
-- `src/coding_cli/commands.py` — _read_section, REPL send loop
+**吞异常修复涉及（10 处）：**
+- `src/coding_cli/commands.py` — _read_section, REPL send loop, 权限请求 JSON 序列化(line 374)
 - `src/agent/core/agent/compaction/summarizer.py`
 - `src/agent/products/personal_assistant/tools/web_search.py`
-- `src/personal_assistant/main.py` — _consume_task_exception
+- `src/agent/core/agent/runtime.py` — permission_resolved 发布器(line 1152)
+- `src/personal_assistant/main.py` — _consume_task_exception, IM observer ×5, gateway shutdown suppress
+- `src/personal_assistant/gateway/background_session_events.py` — subscriber stop
+
+**废弃 API 修复涉及：**
+- `src/agent/core/tools/registry.py`、`src/agent/core/agent/runtime.py`、`src/agent/core/agent/loop.py`、`src/agent/core/runs/registry.py`、`src/agent/platform/hooks/builtins/default_status.py`
+
+**死代码删除涉及：**
+- 删 `src/IM/models.py`、`src/IM/repositories.py`、`src/personal_assistant/smoke_runtime.py`
+- 清理 `src/IM/domain/__init__.py` 死 re-export
+- ~28 个 `tests/im_service/` 及 `tests/unit/IM/` 测试文件的 import 重定向到 `IM.domain.models` / `IM.infra.repositories`
 
 **测试去重涉及：**
 - `tests/unit/personal_assistant/test_inbound_pipeline_session.py`
@@ -138,19 +171,25 @@
 
 ## 范围与非目标
 
-**本期做：**
+**本期做（design 阶段扩范围后）：**
 - 14 处 Copy-paste 重复消除（生产代码 9 + 测试 3 + 常量/模式 2）
-- 5 处真正有问题的吞异常修复（非 fire-and-forget）
+- 10 处真正有问题的吞异常修复（非 fire-and-forget）
+- 废弃 API 修复（`logger.warn()` → `logger.warning()` 11 处）
+- 死代码删除（2 个未使用 facade + 1 个孤立模块 + 1 处死 re-export，含测试 import 重定向）
 - 确保全测试套件通过
 
 **本期不做：**
 - God function / God class 拆分（runtime.py, main.py, gateway_handler.py 等——独立 unit）
 - Mega file 拆分（main.py 2558行, repositories.py 2700行——独立 unit）
-- 前端代码坏味道（超大组件、useEffect 问题、缺少 error boundary 等——独立 unit）
-- 测试质量问题（flaky 测试、setup 过大、硬编码路径/端口等——独立 unit）
+- 构造函数/参数爆炸 dataclass 打包、深层嵌套 dispatch table 重构（有设计权衡——独立 unit）
+- 资源泄漏（日志句柄、SQLite 连接池）、竞态/全局可变状态加锁（需设计——独立 unit）
+- 硬编码 token 安全策略、URL scheme 校验、缺超时/事务（需决策——独立 unit）
+- 前端代码坏味道（超大组件、useEffect 问题、缺少 error boundary、v1 死代码删除等——独立 unit）
+- 测试质量问题（flaky 测试、setup 过大、/tmp 硬编码路径 sweep 需逐一判断——独立 unit）
+- print() → logger（第四类，本期未纳入）
+- `worktree_runtime.py`（经核实非死，有 3 个活测试）、`safety.py` TODO(bugfix-355)（需先查迁移完成与否）
 - 架构违规（本次审查发现 0 个，无需处理）
 - Fire-and-forget 类吞异常（有意为之，保持原样）
-- 其他代码坏味道类别（参数爆炸、深层嵌套、全局可变状态等——各自独立 unit）
 
 ## 迁移与回滚策略
 
