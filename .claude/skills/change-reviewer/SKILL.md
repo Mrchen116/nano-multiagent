@@ -31,7 +31,7 @@ description: 用于从产品视角独立验收一个 unit 的所有 milestone �
    - 给 `revise-design` 时必须**引用 design.md 具体段落**指出矛盾
    - 必须**至少经过 2 轮 fix-implementation 仍未解决**
 7. **out-of-unit 立 issue 不带情绪**:blocking / major 必立,minor 只在报告"Side Findings"段记录,不立(防 issue 队列污染)。
-8. **不 invoke `systematic-debugging`(或任何调试纪律)**。那套纪律会驱动你去 trace 数据流、打边界日志、读源码定位根因——正是 §0.2 / §0.3 明令禁止的 debug-by-editing。你走旅程,用户面看不到符合预期的结果就直接判 `fail`,把现象写清楚;**根因归因是 fix worker 的事,不是你的**。一旦调起调试纪律滑进 engineer 模式,本轮全部证据失效。
+8. **不 invoke `systematic-debugging`**。它会驱动你 trace/读源码/加日志——违反 §0.2/§0.3。看不到就判 fail,归因是 fix worker 的事。
 
 ---
 
