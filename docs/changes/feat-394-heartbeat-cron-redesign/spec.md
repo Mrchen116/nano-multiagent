@@ -107,6 +107,16 @@
 - **WHEN** 节律到点但没有任何值得汇报/提醒的事
 - **THEN** 我收不到任何消息（不打扰）
 
+#### Scenario: 不同关注项用不同频率（多子节律）
+- **GIVEN** 我让某 agent"每 30 分钟带上下文看一眼收件箱""每 2 小时扫一遍日程"
+- **WHEN** 时间流逝
+- **THEN** 两件关注项各按自己的频率被检查，且都带着我俩直聊的上下文（不是整份清单被同一个节律一锅评估）
+
+#### Scenario: 活跃时段外不打扰（activeHours）
+- **GIVEN** 我在配置页给某 agent 的 heartbeat 设了活跃时段 09:00–22:00
+- **WHEN** 到了凌晨 3 点、heartbeat 节律本应到点
+- **THEN** 该 agent 不在活跃时段内被唤醒、不给我发消息；下一个落在窗口内的节律点才正常运行
+
 ### Requirement: agent 对话自管 cron 定时任务（可多条、无上下文执行）
 
 #### Scenario: 口述定时任务，agent 注册一条
@@ -127,6 +137,11 @@
 - **GIVEN** 某 agent 挂着若干条 cron 任务
 - **WHEN** 我在配置页查看其任务清单并删除其中一条
 - **THEN** 被删的任务不再触发，其余任务照常
+
+#### Scenario: cron 汇报后我追问，agent 记得汇报了啥
+- **GIVEN** 一条 cron 任务刚把一份汇总作为消息发进了我和该 agent 的直聊
+- **WHEN** 我在这条直聊里接着追问（如"第 3 条展开说说"）
+- **THEN** agent 知道刚那份汇总的内容并据此回答，同时我和它之前的对话也照常都在（cron 这次执行的中间过程它不必保留）
 
 ### Requirement: 结果投递到 owner 的 canonical 直聊（复用 feat-393）
 
@@ -154,9 +169,21 @@
 
 ## 范围与非目标
 
+**口径：默认全量采纳 openclaw 的 heartbeat/cron 能力面。** 排除项只剩两类，每类都有硬理由——不以"控范围/省工作量"为由削减用户可感知能力。
+
+- **只 gateway 落地**：本特性仅 personal_assistant（Node Gateway）产品引入；**coding_cli 不落 heartbeat/cron**（调度器、PA prompt 段、cron 工具均挂 personal_assistant 产品下，门控段/工具不得泄漏到 coding_cli）。
 - **不动普通聊天路径**：普通直聊/群聊行为保持现状（沿用 feat-393 已定的边界）。
-- **复用 feat-393 投递闭环**：本期不重做"结果回发 IM"的投递机制，复用 PR #74（`node.streaming_delta` 流式 → owner canonical 直聊 → 惰性建泡 → 静默 NO_REPLY）。重点在"调度/任务模型 + agent 自管 + 配置页两开关"。
-- **投递目标只到 owner canonical 直聊**：不抄 openclaw 的多渠道/多账号投递目标（channel target、多账号 accountId）。
-- **不做外部触发器**：openclaw 的 webhook、Gmail PubSub 等外部触发，本期不抄。
-- **不做高级调度/可见性调优**：active hours（活跃时段限制）、时区高级处理、includeReasoning（单独发推理消息）、lightContext 等 openclaw 调优开关，本期不做，留待后续。
-- **cron 上下文风格本期只做两端**：heartbeat＝带 owner 直聊上下文；cron＝默认无上下文（isolated）。openclaw 的 `current`（把 cron 绑定到任意一条会话）本期不做。
+- **复用 feat-393 投递闭环**：本期不重做"结果回发 IM"的投递机制，复用其 `node.streaming_delta` 流式 → owner canonical 直聊 → 惰性建泡 → 静默。重点在"调度/任务模型 + agent 自管 + 配置页两开关"。
+
+**排除类 1 —— 定义性排除**（与"两套机制"的定义本身冲突，给反向开关＝自毁定义）：
+
+- cron **仅无上下文**（isolated）：不做 openclaw 的 `main`/`current`/`session:<id>` 等带上下文执行变体。
+- heartbeat **恒带上下文**：不做 openclaw 的 `isolatedSession` 反向开关。
+- 理由：是否承载会话上下文＝heartbeat 与 cron 的定义分界线（见澄清记录 Q1/Q4）。
+
+**排除类 2 —— 载体缺失**（nano 根本没有对应入口，非削减）：
+
+- 多渠道/多账号投递目标（`target`/`to`/`accountId`/`directPolicy`、每渠道可见性 `showOk`/`showAlerts`）：nano 投递目标只有 owner canonical 直聊这一个渠道。
+- 外部触发器 webhook / Gmail PubSub：nano 无外部触发 ingress。
+
+**显式纳入（曾在早期草拟中误列为非目标，现确认采纳）**：activeHours 活跃时段、HEARTBEAT.md `tasks:` 多子节律、at/every/cron 全调度、一次性任务自动删、heartbeat/cron 的 model/thinking 覆盖、includeReasoning、lightContext。
