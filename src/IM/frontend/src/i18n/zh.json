@@ -263,6 +263,14 @@
         "modelPlatformDefaultPlain": "平台默认",
         "modelDefaultSuffix": "(默认)"
       },
+      "heartbeat": {
+        "title": "Heartbeat",
+        "sub": "定期唤醒 agent 并带上你们的对话上下文。",
+        "enabledLabel": "启用 heartbeat",
+        "enabledHelp": "Agent 会定期唤醒，检查 HEARTBEAT.md 中的任务清单。",
+        "everyLabel": "节律",
+        "everyHelp": "唤醒频率（例如 30m、1h、2h）。"
+      },
       "workspace": {
         "title": "工作区与运行时",
         "sub": "只读。由所属节点托管。",

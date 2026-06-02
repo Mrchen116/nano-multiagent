@@ -308,6 +308,65 @@ function BehaviorCard({
   );
 }
 
+// feat-394 decision 5: HeartbeatCard — per-agent heartbeat enable/disable + cadence.
+// Shows a toggle for heartbeat_enabled and an optional "every" interval input when enabled.
+interface HeartbeatCardProps {
+  draft: AgentConfigFormState;
+  onToggle: (enabled: boolean) => void;
+  onEveryChange: (every: string) => void;
+}
+
+function HeartbeatCard({ draft, onToggle, onEveryChange }: HeartbeatCardProps) {
+  const { t } = useTranslation();
+  const heartbeat = draft.heartbeat ?? { enabled: false, every: "30m" };
+  const enabled = heartbeat.enabled ?? false;
+  const every = heartbeat.every ?? "30m";
+
+  return (
+    <section className="im-agent-card">
+      <div>
+        <h3 className="im-agent-card-title">{t("agents.form.heartbeat.title")}</h3>
+        <p className="im-agent-card-sub">{t("agents.form.heartbeat.sub")}</p>
+      </div>
+      <div className="im-agent-field">
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            data-testid="heartbeat-enabled-toggle"
+            checked={enabled}
+            className="im-feature-checkbox"
+            onChange={(e) => onToggle(e.target.checked)}
+          />
+          <div>
+            <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">
+              {t("agents.form.heartbeat.enabledLabel")}
+            </p>
+            <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">
+              {t("agents.form.heartbeat.enabledHelp")}
+            </p>
+          </div>
+        </label>
+      </div>
+      {enabled && (
+        <div className="im-agent-field">
+          <Label.Root htmlFor="heartbeat-every">{t("agents.form.heartbeat.everyLabel")}</Label.Root>
+          <input
+            id="heartbeat-every"
+            className="im-input"
+            value={every}
+            placeholder="30m"
+            aria-describedby="heartbeat-every-help"
+            onChange={(e) => onEveryChange(e.target.value)}
+          />
+          <p id="heartbeat-every-help" className="im-agent-field-help">
+            {t("agents.form.heartbeat.everyHelp")}
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // M20/R12-bis-1: desktop split layout — left 240px dark agent rail.
 // Prototype `im-settings-page.jsx::AgentListView` desktop: 240px dark sidebar
 // (`oklch(0.24 0.012 240)` bg) with clickable agent rows, active highlight.
@@ -769,6 +828,21 @@ export function AgentDetailPage() {
             setSaved(false);
             setErrorMessage(null);
             setDraft({ ...draft, group_reply_policy: value as AgentConfig["group_reply_policy"] });
+          }}
+        />
+
+        {/* feat-394 decision 5: HeartbeatCard — per-agent heartbeat enable/cadence */}
+        <HeartbeatCard
+          draft={draft}
+          onToggle={(enabled) => {
+            setSaved(false);
+            setErrorMessage(null);
+            setDraft({ ...draft, heartbeat: { ...(draft.heartbeat ?? { every: "30m" }), enabled } });
+          }}
+          onEveryChange={(every) => {
+            setSaved(false);
+            setErrorMessage(null);
+            setDraft({ ...draft, heartbeat: { ...(draft.heartbeat ?? { enabled: false }), every } });
           }}
         />
 

@@ -16,6 +16,17 @@ export interface AgentSummary {
   updated_at?: string | null;
 }
 
+// feat-394 decision 5: heartbeat per-agent config (enabled + every cadence + active hours)
+export interface HeartbeatConfig {
+  enabled: boolean;
+  every?: string;
+  active_hours?: {
+    start?: string;
+    end?: string;
+    timezone?: string;
+  };
+}
+
 export interface AgentConfig {
   agent_id: string;
   owner_id: string;
@@ -26,6 +37,8 @@ export interface AgentConfig {
   features?: Record<string, boolean>;
   // feat-379-M3: user custom instructions appended as pa.user_custom segment
   custom_prompt?: string;
+  // feat-394 decision 5: per-agent heartbeat config; absent from older IM responses → treat as disabled
+  heartbeat?: HeartbeatConfig;
   skills: string[];
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
@@ -125,6 +138,8 @@ export interface UpdateAgentConfigRequest {
   // feat-379-M3: per-agent feature flags; omitted → server keeps existing
   features?: Record<string, boolean>;
   custom_prompt?: string;
+  // feat-394 decision 5: heartbeat per-agent config; omitted → server keeps existing
+  heartbeat?: HeartbeatConfig;
   skills: string[];
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
@@ -364,6 +379,8 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       // feat-379-M3: pass features and custom_prompt when present
       ...(next.features !== undefined ? { features: next.features } : {}),
       ...(next.custom_prompt !== undefined ? { custom_prompt: next.custom_prompt } : {}),
+      // feat-394 decision 5: pass heartbeat config when present
+      ...(next.heartbeat !== undefined ? { heartbeat: next.heartbeat } : {}),
       skills: next.skills,
       tool_allowlist: next.tool_allowlist,
       group_reply_policy: next.group_reply_policy,
