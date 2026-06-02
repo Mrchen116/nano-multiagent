@@ -947,7 +947,9 @@ class PollingHeartbeatRunner:
             "kernel_session_id": kernel_session_id,
         }
         try:
-            async for event in self._kernel.stream(kernel_session_id, after_sequence=0):
+            # feat-393 fix-r2 Fix B: stream from the pre-submit anchor to skip replaying
+            # history from prior ticks.  Falls back to 0 when anchor is absent (test path).
+            async for event in self._kernel.stream(kernel_session_id, after_sequence=record.stream_anchor):
                 if event.get("run_id") != run_id:
                     continue
                 if self._kernel_event_observer is not None:
@@ -1472,6 +1474,14 @@ class _KernelClientShim:
             workspace_root=Path(workspace_root) if workspace_root else None,
         )
         return {"run_id": run_record.run_id, "anchor_sequence": 0, "status": "queued"}
+
+    def current_event_sequence(self) -> int:
+        """Return the kernel's current max event sequence for use as a stream anchor.
+
+        Delegated to Kernel.current_event_sequence() which reads the EventStreamHub
+        without requiring access to agent.core internals.
+        """
+        return self._kernel.current_event_sequence()
 
     def append_message(
         self,

@@ -553,6 +553,20 @@ class Kernel:
             "metadata": dict(metadata),
         }
 
+    def current_event_sequence(self) -> int:
+        """Return the current maximum published event sequence number.
+
+        Used by heartbeat runner to capture a submit-time anchor so subsequent
+        ``stream(after_sequence=anchor)`` calls skip replaying history that
+        predates the current run (perf: avoids O(history) scan on every tick).
+
+        Returns:
+            The sequence number of the most recently published event, or 0 when
+            no events have been published yet.  Callers should pass this value
+            as ``after_sequence`` to the next ``stream()`` call.
+        """
+        return self._c.event_hub.current_sequence()
+
     def close(self) -> None:
         """Shut down background loops and release resources."""
         self._c.runs_registry.shutdown()

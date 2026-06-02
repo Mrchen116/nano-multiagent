@@ -33,12 +33,18 @@ class HeartbeatRunRecord:
         due_at: Canonical due instant being executed or caught up.
         run_id: Kernel async run identifier returned by submission.
         session_id: Kernel session created for the heartbeat execution.
+        stream_anchor: Event sequence number captured immediately before the run
+            was submitted.  Used as ``after_sequence`` when streaming events for
+            this run so the consumer skips replaying history from prior runs
+            (perf: avoids O(history) scan on each tick).  0 = no anchor captured
+            (legacy / test path) — stream from the beginning.
     """
 
     agent_id: str
     due_at: datetime
     run_id: str
     session_id: str
+    stream_anchor: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +125,15 @@ class _KernelClientLike(Protocol):
     def submit_message(
         self, *, session_id: str, texts: list[str], workspace_root: str | None = None
     ) -> dict[str, object]: ...
+
+    def current_event_sequence(self) -> int:
+        """Return the current max published event sequence (0 when no events yet).
+
+        Capturing this before submitting a run lets the consumer skip replaying
+        history that predates the run (see HeartbeatRunRecord.stream_anchor).
+        Optional: implementations may return 0 to fall back to full-history scan.
+        """
+        return 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +253,13 @@ class HeartbeatScheduler:
         # ensures heartbeat runs are never detached from a resolvable IM conversation target.
         session_id = await self._get_or_create_heartbeat_session(agent=agent)
         message = _build_heartbeat_message(agent_id=agent.agent_id, due_at=due_at, instructions=instructions)
+        # feat-393 fix-r2 Fix B: capture the event sequence before submitting so the
+        # consumer can stream from this anchor instead of replaying all history.
+        # This avoids an O(history) re-scan on each tick as the :heartbeat session grows.
+        # getattr fallback: test fakes and legacy callers that don't implement
+        # current_event_sequence get anchor=0 (full-history scan, functionally correct).
+        _get_seq = getattr(self._kernel_client, "current_event_sequence", None)
+        stream_anchor = _get_seq() if callable(_get_seq) else 0
         # The stateless kernel needs workspace_root to locate the session JSONL;
         # origin=heartbeat lets auto_mode_gate detect unattended context and skip
         # blocking permission requests that nobody is around to answer.
@@ -250,9 +272,7 @@ class HeartbeatScheduler:
         run_id = str(run_payload.get("run_id", "")).strip()
         if not run_id:
             raise RuntimeError("heartbeat submission did not return run_id")
-        return HeartbeatRunRecord(
-            agent_id=agent.agent_id, due_at=due_at, run_id=run_id, session_id=session_id
-        )
+        return HeartbeatRunRecord(agent_id=agent.agent_id, due_at=due_at, run_id=run_id, session_id=session_id, stream_anchor=stream_anchor)
 
 
 class _Schedule(Protocol):
@@ -284,12 +304,18 @@ class _IntervalSchedule:
     ) -> list[datetime]:
         if last_due_at is None:
             return [_floor_datetime(now, self.interval)]
-        due_times: list[datetime] = []
+        # feat-393 fix-r2: collapse multiple missed intervals to a single catch-up run.
+        # Replaying every missed due-time floods IM after a gap (e.g. 213s gap at 5s
+        # interval → 42 backlog runs in round-2 acceptance).  "Periodic summary" semantics:
+        # at most one catch-up for the most recent period, then resume normal cadence.
         cursor = last_due_at + self.interval
-        while cursor <= now:
-            due_times.append(cursor)
-            cursor += self.interval
-        return due_times
+        if cursor > now:
+            # Nothing due yet.
+            return []
+        # Advance cursor to the most recent aligned due time without looping.
+        intervals_elapsed = int((now - last_due_at) / self.interval)
+        most_recent = last_due_at + self.interval * intervals_elapsed
+        return [most_recent]
 
 
 @dataclass(frozen=True, slots=True)
@@ -307,13 +333,16 @@ class _CronSchedule:
         if last_due_at is None:
             candidates = [current] if self._matches(current) else []
             return candidates
-        due_times: list[datetime] = []
+        # feat-393 fix-r2: collapse multiple missed cron hits to the most recent one.
+        # Same rationale as _IntervalSchedule: a backlog burst violates "periodic summary"
+        # semantics and floods IM after any gap.
+        most_recent: datetime | None = None
         cursor = (last_due_at + timedelta(minutes=1)).replace(second=0, microsecond=0)
         while cursor <= current:
             if self._matches(cursor):
-                due_times.append(cursor)
+                most_recent = cursor
             cursor += timedelta(minutes=1)
-        return due_times
+        return [most_recent] if most_recent is not None else []
 
     def _matches(self, candidate: datetime) -> bool:
         cron_weekday = (candidate.weekday() + 1) % 7

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -35,9 +35,11 @@ class _FakeKernelClient:
         self.created_sessions.append(payload)
         return payload
 
-    def submit_message(
-        self, *, session_id: str, texts: list[str], **kwargs: object
-    ) -> dict[str, object]:
+    def current_event_sequence(self) -> int:
+        """Return 0 as a stub anchor (tests do not exercise stream-from-anchor path)."""
+        return 0
+
+    def submit_message(self, *, session_id: str, texts: list[str], **kwargs: object) -> dict[str, object]:
         self._run_counter += 1
         payload: dict[str, object] = {
             "run_id": f"run-{self._run_counter}",

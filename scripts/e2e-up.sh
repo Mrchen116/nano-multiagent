@@ -113,6 +113,9 @@ PY
 # created by a previous run (with different owner_id) do not pollute the new instance.
 # The DB path is cwd-relative (data/im_service.sqlite3) so we remove it from $WT_ROOT.
 rm -f "$WT_ROOT/data/im_service.sqlite3"
+# feat-393 fix-r2: remove stale heartbeat-state.json so a previous run's last_due_at
+# does not trigger catch-up backlog on restart (that was the root cause of the 4x burst).
+rm -f "$WT_ROOT/heartbeat-state.json"
 
 cd "$WT_ROOT"
 IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH=src \
