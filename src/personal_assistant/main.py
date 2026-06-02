@@ -319,6 +319,11 @@ class _IMConfigSyncClient:
                     and synced_custom_prompt_val.strip()
                     else None
                 )
+                # feat-394 decision 5: parse per-agent heartbeat config from IM mirror payload.
+                # heartbeat block: {enabled: bool, every?: str, active_hours?: {start, end, timezone}}
+                synced_heartbeat_enabled, synced_heartbeat_every, synced_hb_start, synced_hb_end, synced_hb_tz = (
+                    _parse_heartbeat_from_im_payload(payload.get("heartbeat"))
+                )
                 agent_config = AgentWorkspaceConfig(
                     agent_id=agent_id,
                     workspace_root=workspace_root,
@@ -353,6 +358,11 @@ class _IMConfigSyncClient:
                     ),
                     features=synced_features,
                     custom_prompt=synced_custom_prompt,
+                    heartbeat_enabled=synced_heartbeat_enabled,
+                    heartbeat_every=synced_heartbeat_every,
+                    heartbeat_active_hours_start=synced_hb_start,
+                    heartbeat_active_hours_end=synced_hb_end,
+                    heartbeat_active_hours_timezone=synced_hb_tz,
                 )
                 self._pipeline.register_agent(agent_config)
                 self._persist_agent_config(agent_config)
@@ -1577,6 +1587,44 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
         )
 
     return _provider  # type: ignore[return-value]
+
+
+def _parse_heartbeat_from_im_payload(
+    raw: object,
+) -> tuple[bool, str | None, str | None, str | None, str | None]:
+    """Parse the ``heartbeat`` block from an IM agent config payload.
+
+    feat-394 decision 5: IM AgentProfile carries {enabled, every?, active_hours?} which
+    flows to gateway AgentWorkspaceConfig.heartbeat_* fields so the scheduler gate works.
+
+    Args:
+        raw: The raw value of ``payload["heartbeat"]`` from an IM API response.
+
+    Returns:
+        5-tuple of (heartbeat_enabled, heartbeat_every, active_hours_start, active_hours_end,
+        active_hours_timezone).  All optional fields are None when absent.
+    """
+    if not isinstance(raw, dict):
+        return False, None, None, None, None
+    enabled_raw = raw.get("enabled")
+    heartbeat_enabled = bool(enabled_raw) if isinstance(enabled_raw, bool) else False
+    every_raw = raw.get("every")
+    heartbeat_every = (
+        every_raw.strip()
+        if isinstance(every_raw, str) and every_raw.strip()
+        else None
+    )
+    active_hours_raw = raw.get("active_hours")
+    if isinstance(active_hours_raw, dict):
+        start_raw = active_hours_raw.get("start")
+        end_raw = active_hours_raw.get("end")
+        tz_raw = active_hours_raw.get("timezone")
+        hb_start = start_raw.strip() if isinstance(start_raw, str) and start_raw.strip() else None
+        hb_end = end_raw.strip() if isinstance(end_raw, str) and end_raw.strip() else None
+        hb_tz = tz_raw.strip() if isinstance(tz_raw, str) and tz_raw.strip() else None
+    else:
+        hb_start, hb_end, hb_tz = None, None, None
+    return heartbeat_enabled, heartbeat_every, hb_start, hb_end, hb_tz
 
 
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
