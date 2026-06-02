@@ -1,11 +1,11 @@
 """Canonical session aggregate manager built on JSONL event store."""
 
 import json
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from agent.core import ids
+from agent.core.utils.time import utc_now_iso as _utc_now_iso
 from agent.core.types import Message
 
 from .entries import (
@@ -58,7 +58,7 @@ class SessionManager:
         """Create a new session and persist session_created line."""
 
         session_id = ids.make_session_id()
-        created_at = datetime.now(UTC).isoformat()
+        created_at = _utc_now_iso()
         clean_metadata = dict(metadata or {})
         if title is not None:
             clean_metadata["title"] = title
@@ -384,10 +384,6 @@ class SessionManager:
 # ------------------------------------------------------------------
 # Helpers
 # ------------------------------------------------------------------
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 def _session_from_config(config: SessionConfig) -> Session:
