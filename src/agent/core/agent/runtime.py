@@ -405,7 +405,14 @@ class AgentRuntime:
                 user_pct=snapshot["user_pct"],
                 render_mode=RenderMode.RUNTIME,
                 flags=flags,
-                vars={"custom_prompt": str(hook_metadata.get("custom_prompt", ""))},
+                vars={
+                    "custom_prompt": str(hook_metadata.get("custom_prompt", "")),
+                    # feat-394-M3 CRITICAL-2 fix: heartbeat/cron enabled flags flow from
+                    # inbound_pipeline._build_session_metadata through hook_metadata into
+                    # PromptContext.vars so _heartbeat_enabled/_cron_enabled gates work.
+                    "heartbeat_enabled": str(hook_metadata.get("heartbeat_enabled", "")),
+                    "cron_enabled": str(hook_metadata.get("cron_enabled", "")),
+                },
             )
             pre_rendered_system_prompt = resolve_effective_prompt(
                 sections=self._prompt_sections,

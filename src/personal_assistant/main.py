@@ -266,6 +266,7 @@ class _IMConfigSyncClient:
         max_attempts: int = 50,
         monotonic: Monotonic = time.monotonic,
         sleep: Sleep = time.sleep,
+        token_getter: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         self._base_url = _im_http_base_url(base_url)
         self._base_headers = _im_http_headers(token)
@@ -282,6 +283,11 @@ class _IMConfigSyncClient:
         self._client = client
         self._monotonic = monotonic
         self._sleep = sleep
+        # feat-394-M3 fix: accept token_getter so auto-bind token refresh propagates
+        # to config sync requests. Without this, sync_agent calls 401 after auto-bind
+        # because the initial token is empty and is never updated. Mirrors the pattern
+        # used by _IMBootstrapClient (main.py:599-613).
+        self._token_getter = token_getter
 
     def sync_agent(self, *, agent_id: str, profile_version: int) -> None:
         deadline = self._monotonic() + self._timeout_seconds
@@ -565,6 +571,26 @@ class _IMConfigSyncClient:
                 trust_env=False,
             )
         return self._client
+
+    def update_token(self, token: str | None) -> None:
+        """Propagate a refreshed access token so future sync requests use it.
+
+        feat-394-M3 fix: called by the token_getter wrapper in _run_gateway after
+        each successful token refresh so this client does not hold a stale/empty
+        Bearer token when auto-bind has rotated credentials.  Mirrors the
+        _refresh_token pattern in _IMBootstrapClient (main.py:621-628).
+
+        Args:
+            token: New access token, or None to clear.
+        """
+        self._base_headers = _im_http_headers(token)
+        # Propagate updated headers to any live client instance so in-flight
+        # connections also pick up the new token without a full reconnect.
+        # Injected test clients (passed via constructor) are updated in-place;
+        # self-built clients are rebuilt by _get_client() on the next request
+        # if they were previously None (first call) or by headers update here.
+        if self._client is not None:
+            self._client.headers.update(self._base_headers)
 
     @staticmethod
     def _default_workspace_root(agent_id: str) -> Path:
@@ -1875,11 +1901,23 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
         _auth_client = IMAuthClient(base_url=_im_http_base_url(config.im_service.url))
-        _token_getter = _make_token_getter(
+        _raw_token_getter = _make_token_getter(
             im_service=config.im_service,
             local_config=config,
             auth_client=_auth_client,
         )
+        # feat-394-M3 fix: wrap token_getter so each successful token refresh also
+        # propagates the new token to im_config_sync_client.  Without this, auto-bind
+        # refreshes the token for WS reconnection but the sync client keeps the old
+        # empty token, causing every sync_agent call to return 401.
+        _sync_client_ref = im_config_sync_client
+
+        async def _token_getter() -> str | None:
+            token = await _raw_token_getter()
+            if token is not None:
+                _sync_client_ref.update_token(token)
+            return token
+
         # M3: permission response handler is no longer wired — the SDK's can_use_tool
         # callback handles all permission decisions in-process (design decision 3).
         im_connection_manager = _build_im_connection_manager(
