@@ -23,6 +23,7 @@
 - Q1: 本 unit 范围是只创建 skill 文件,还是 skill + call-in 一起?含 call-in 的话本期接入哪几处?
   A(原话): 一起
   Agent 解读: 确认推荐——skill + call-in 一起;本期接入 change-impl-worker / change-orchestrator / change-spec-author 三处,并在 change-reviewer 显式声明「不接入」。
+  （design 阶段细化：orchestrator 作为 Project Lead 不亲自 debug，其 §6.2 已覆盖「判根因在哪层」的路由判断，该处 call-in 砍掉；真正执行 fix 的 fix worker 本就跑 worker 那条纪律。最终落点 = worker + spec-author 两处 + reviewer 不接入。）
 
 - Q2: 本 unit 只产出 skill markdown,验收标准写到什么程度?静态(文档存在 + 自洽)还是要动态演示撞 bug 场景?
   A(原话): ok
@@ -46,7 +47,7 @@
 
 本变更后,工作流里多了一条 `systematic-debugging` 技法 skill,把「根因优先」的调试纪律写成可被任意角色随时 invoke 的展开手法:**没找到根因之前不许动手修**;按「读完整报错 → 稳定复现 → 多组件系统先打边界日志定位是哪层断 → 反向追到坏值源头 → 写下单一假设最小验证 → 修根因不修症状」的顺序走;同类修复连续失败若干次就停手质疑架构、找人。配套三个子技法:反向追调用栈、找到根因后多层加校验、用条件轮询替代写死 timeout 治 flaky。
 
-而且这条纪律在**真正会用到它的地方被接上**:worker 实施中撞 bug 时(主场)、orchestrator 给 reviewer 反馈打包 fix 判根因在哪层时、spec-author 写 bugfix RCA 做根因调查时,都被引导去走这套纪律。**唯独 reviewer 显式不接它** —— reviewer 只走产品旅程、报用户可观察现象,一旦让它调起调试纪律就会去翻源码/抓帧/加日志,滑进 engineer 模式让整轮验收作废,正是工作流要防的事。
+而且这条纪律在**真正会用到它的地方被接上**:worker 实施中撞 bug 时(主场)、spec-author 写 bugfix 根因(RCA)做调查时,都被引导去走这套纪律。**唯独 reviewer 显式不接它** —— reviewer 只走产品旅程、报用户可观察现象,一旦让它调起调试纪律就会去翻源码/抓帧/加日志,滑进 engineer 模式让整轮验收作废,正是工作流要防的事。(orchestrator 作为 Project Lead 不亲自 debug、§6.2 已覆盖「判根因在哪层」的路由判断,不另设 call-in;真正执行 fix 的 fix worker 本就跑 worker 那条纪律。)
 
 于是下次任何角色撞到 bug,不再是凭手感乱试,而是有一份照着走就能稳定定位根因的手册;同时现有 worker §7 / spec RCA 里那些和它重复的调试碎片被收敛过去,工作流里不再有两套打架的调试说法。
 
@@ -78,12 +79,6 @@
 - **WHEN** worker 按指引走完根因定位、进入修复
 - **THEN** 修复仍回到现有三提交循环(C1 写复现测试),调试 skill 不另起一套提交流程与之打架
 
-### Requirement: orchestrator 打包 fix 时引用根因纪律
-
-#### Scenario: fix 路由引用调试纪律
-- **WHEN** orchestrator 处理 reviewer/verifier 反馈、准备打包 fix
-- **THEN** 对应段落引用 `systematic-debugging`,说明 reviewer 给的「最小路径 / 改第 X 行」是现象线索,要按根因纪律判根因在哪层
-
 ### Requirement: spec-author 写 bugfix RCA 时用调查纪律(仅调查)
 
 #### Scenario: RCA 调用调查部分
@@ -106,7 +101,7 @@
 
 - 在范围：
   - 新建 `systematic-debugging` 技法 skill(中文;效果优先,不受现有 change-* skill 写法约束):4 阶段根因纪律 + Red Flags + 「3 次质疑架构」停手条件 + 三个子技法
-  - 三处 call-in:change-impl-worker(实施中撞 bug,主场)、change-orchestrator(fix 根因路由)、change-spec-author(bugfix RCA,仅调查阶段)
+  - 两处 call-in:change-impl-worker(实施中撞 bug,主场)、change-spec-author(bugfix RCA,仅调查阶段)；orchestrator 不接入(Project Lead 不亲自 debug,§6.2 已覆盖根因路由)
   - change-reviewer 显式「不接入」声明
   - 收敛现有「调试相关」的重复内容(可改 worker §7 调试段、spec RCA 与新 skill 重叠处,含「连续失败停手」阈值的去冲突)
 - 非目标：

@@ -125,6 +125,6 @@ superpowers 到 `finishing-a-development-branch` 给选项就收;change-orchestr
 
 **引入要点**(留给 design 阶段细化):
 - 定位为**技法 skill**(非被派发角色):无 worktree、无门禁、无产出文档、不被 orchestrator 当 milestone 派发。某角色执行中途用 Skill 调起,走完回原角色。
-- call-in 三处:`change-impl-worker`(主场,§0 + §7 异常处理)、`change-orchestrator`(§6.2 fix 根因路由 + §3.4 worker 卡住)、`change-spec-author`(bugfix RCA,**仅调查部分 Phase 1–2,不调 Phase 4 修复**——spec-author 禁碰代码)。
+- call-in 两处:`change-impl-worker`(主场,§0 + §7 异常处理)、`change-spec-author`(bugfix RCA,**仅调查部分 Phase 1–2,不调 Phase 4 修复**——spec-author 禁碰代码)。`change-orchestrator` 经 design 评估**不接入**:Project Lead 不亲自 debug,其 §6.2 已覆盖「判根因在哪层」的路由判断,真正执行 fix 的 fix worker 本就跑 worker 那条纪律。
 - 明确**不接入** `change-reviewer`(会破坏其用户可观察边界,推进 engineer 模式)。
 - 需调和的冲突:① Phase 4「先写复现测试」与 worker 三提交 C1 重叠 → call-in 写「回到 §5 三提交」不重抄;② 失败阈值(superpowers 3 次质疑架构 vs worker §7.3 的 6 次回退)如何分层;③ 与 worker §0.2 禁兜底是同向加强。
