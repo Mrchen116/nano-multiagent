@@ -45,4 +45,23 @@ Unit branch: unit/feat-394
   - Visual/Interaction: N/A
 - Rollback: 0aaec6d9 (C1 红测试)
 - Commits: C1=0aaec6d9, C2=49375325
-- Next: R3 — HEARTBEAT_OK 静默 + 空文件跳过 + prompt 段照抄 openclaw
+- Next: R3 完成
+
+### R3 — HEARTBEAT_OK 静默 + 空文件跳过 + prompt 段照抄 openclaw
+
+- Context: feat-393 用 NO_REPLY 静默，openclaw 用 HEARTBEAT_OK；prompt 段旧版本是旧文本，design 要求逐字照抄
+- Decision:
+  - `InboundPipeline._is_no_reply_token()` 新增 `HEARTBEAT_OK` 作为额外静默 token（Provenance 注释标 openclaw/src/auto-reply/tokens.ts:3）
+  - `_is_heartbeat_content_effectively_empty()` 新增到 heartbeat_scheduler.py（照抄 openclaw isHeartbeatContentEffectivelyEmpty）
+  - `_PA_HEARTBEAT` 重写为 openclaw buildHeartbeatSection 逐字文本；加 `enabled_when=_heartbeat_enabled` 门控（通过 ctx.vars.heartbeat_enabled）
+- Rationale: 与 openclaw 行为精确对齐（decision 6）；HEARTBEAT_OK 让无事静默的 heartbeat 不产生 IM 消息
+- Evidence:
+  - Tests: 7/7 passed (test_heartbeat_prompt_openclaw); 2357 全套通过
+  - Entry: 单元测试；N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: d3548078 (C1 红测试)
+- Commits: C1=d3548078, C2=593cb9ac
+- Next: R4 — IM frontend heartbeat 开关 UI + API 字段 + vitest
