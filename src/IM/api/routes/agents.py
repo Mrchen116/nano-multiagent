@@ -1,6 +1,7 @@
 """Agent configuration and capability routes for IM HTTP APIs."""
 
 import json
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_validator
@@ -572,3 +573,107 @@ async def agent_prompt_preview(
     raw_count = result.get("section_count")
     section_count = int(raw_count) if isinstance(raw_count, int) else 0
     return PromptPreviewResponse(prompt=prompt, section_count=section_count)
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M3 WARNING-3: cron jobs list + delete (Scenario: 配置页查看并手动删除任务)
+# ---------------------------------------------------------------------------
+
+_CRON_JOBS_PATH = ".nanoassistant/cron/jobs.json"
+
+
+class CronJobSummary(BaseModel):
+    """Serialized cron job for the frontend task list."""
+
+    id: str
+    name: str
+    schedule: dict
+    instruction: str
+    enabled: bool
+    delete_after_run: bool = False
+
+
+@router.get(
+    "/im/v1/agents/{agent_id}/cron/jobs",
+    response_model=list[CronJobSummary],
+    summary="List cron jobs for an agent",
+)
+def list_agent_cron_jobs(
+    agent_id: str,
+    service: ConfigService = Depends(get_config_service),
+    user: User = Depends(current_user),
+) -> list[CronJobSummary]:
+    """Return all cron jobs registered for an agent.
+
+    Jobs are read from <workspace_root>/.nanoassistant/cron/jobs.json.
+    Returns an empty list when no jobs file exists yet.
+
+    feat-394-M3 WARNING-3: spec Scenario "配置页查看并手动删除任务".
+    """
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+    workspace_root = service.workspace_root_for_profile(profile)
+    jobs_path = Path(workspace_root) / _CRON_JOBS_PATH
+    if not jobs_path.exists():
+        return []
+    try:
+        data = json.loads(jobs_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    result: list[CronJobSummary] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        try:
+            result.append(CronJobSummary(
+                id=str(item.get("id", "")),
+                name=str(item.get("name", "")),
+                schedule=item.get("schedule", {}),
+                instruction=str(item.get("instruction", "")),
+                enabled=bool(item.get("enabled", True)),
+                delete_after_run=bool(item.get("delete_after_run", False)),
+            ))
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+@router.delete(
+    "/im/v1/agents/{agent_id}/cron/jobs/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a cron job for an agent",
+)
+def delete_agent_cron_job(
+    agent_id: str,
+    job_id: str,
+    service: ConfigService = Depends(get_config_service),
+    user: User = Depends(current_user),
+) -> None:
+    """Remove one cron job from the agent's jobs.json.
+
+    feat-394-M3 WARNING-3: spec Scenario "配置页查看并手动删除任务".
+    """
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
+    if profile is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+    workspace_root = service.workspace_root_for_profile(profile)
+    jobs_path = Path(workspace_root) / _CRON_JOBS_PATH
+    if not jobs_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found")
+    try:
+        data = json.loads(jobs_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="could not read jobs") from exc
+    if not isinstance(data, list):
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="malformed jobs file")
+    original_len = len(data)
+    filtered = [item for item in data if isinstance(item, dict) and str(item.get("id", "")) != job_id]
+    if len(filtered) == original_len:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found")
+    try:
+        jobs_path.write_text(json.dumps(filtered, indent=2, ensure_ascii=False), encoding="utf-8")
+    except OSError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="could not write jobs") from exc

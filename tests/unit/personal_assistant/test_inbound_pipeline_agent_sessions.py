@@ -122,6 +122,9 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         },
         {
@@ -136,6 +139,9 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         },
         {
@@ -150,6 +156,9 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         },
     ]
@@ -256,6 +265,9 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
                 "external_chat_id": "conv-group-1",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         },
         {
@@ -272,6 +284,9 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
                 "external_chat_id": "conv-group-1",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         },
     ]

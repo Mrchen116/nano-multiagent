@@ -456,6 +456,11 @@ class InboundPipeline:
         session_metadata["agent_features"] = dict(agent.features)
         if agent.custom_prompt:
             session_metadata["agent_custom_prompt"] = agent.custom_prompt
+        # feat-394-M3 CRITICAL-2 fix: inject heartbeat/cron enabled flags so runtime.py
+        # can populate PromptContext.vars["heartbeat_enabled"] / ["cron_enabled"],
+        # which drive the _PA_HEARTBEAT / _PA_CRON segment enabled_when gates.
+        session_metadata["heartbeat_enabled"] = agent.heartbeat_enabled
+        session_metadata["cron_enabled"] = agent.cron_enabled
         # SPEC §7: inject group chat routing context into session metadata so the
         # before_agent_start hook can append a communication context block.
         if message.is_group:

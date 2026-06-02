@@ -68,6 +68,9 @@ def test_inbound_pipeline_runs_four_steps_and_replies_via_origin_channel(
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         }
     ]
@@ -136,6 +139,9 @@ def test_inbound_pipeline_passes_local_config_metadata_when_creating_new_kernel_
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         }
     ]
@@ -188,6 +194,9 @@ def test_inbound_pipeline_recreates_bound_session_when_workspace_mismatches(
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         }
     ]
@@ -714,6 +723,9 @@ def test_inbound_pipeline_freezes_group_agent_id_even_without_additional_snapsho
                 "external_chat_id": "conv-2",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         }
     ]
@@ -911,6 +923,9 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         },
         {
@@ -925,6 +940,9 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         },
         {
@@ -939,6 +957,9 @@ def test_register_agent_keeps_existing_direct_sessions_and_uses_new_workspace_fo
                 "conversation_type": "direct",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
+                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+                "heartbeat_enabled": False,
+                "cron_enabled": False,
             },
         },
     ]

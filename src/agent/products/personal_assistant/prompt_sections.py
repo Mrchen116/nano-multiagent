@@ -76,7 +76,14 @@ _PA_RUNTIME = PromptSection(
 # enabled_when gate added in feat-394 decision 5: segment is injected only when the agent's
 # heartbeat feature is enabled (heartbeat_enabled=True in PromptContext.vars).
 def _heartbeat_enabled(ctx: PromptContext) -> bool:
-    return bool(ctx.vars.get("heartbeat_enabled", True))  # default True for backward compat
+    # feat-394-M3 CRITICAL-2 fix: vars values are strings injected from session metadata.
+    # bool("False") is True (non-empty string), so we must parse the string explicitly.
+    # Default True only when the key is absent entirely (backward compat for non-PA sessions);
+    # an explicit "False" must suppress the segment.
+    val = ctx.vars.get("heartbeat_enabled")
+    if val is None:
+        return True  # backward compat: no key → show segment
+    return str(val).lower() not in ("false", "0", "")
 
 
 _PA_HEARTBEAT = PromptSection(
@@ -96,7 +103,12 @@ _PA_HEARTBEAT = PromptSection(
 # cron = explicit named jobs, isolated sessions, no conversation context.
 # enabled_when gate: injected only when cron_enabled=True in PromptContext.vars.
 def _cron_enabled(ctx: PromptContext) -> bool:
-    return bool(ctx.vars.get("cron_enabled", False))
+    # feat-394-M3 CRITICAL-2 fix: vars values are strings injected from session metadata.
+    # Default False when key absent (cron is opt-in, unlike heartbeat).
+    val = ctx.vars.get("cron_enabled")
+    if val is None:
+        return False  # default off: cron is opt-in
+    return str(val).lower() in ("true", "1")
 
 
 _PA_CRON = PromptSection(

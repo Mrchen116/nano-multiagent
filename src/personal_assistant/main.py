@@ -68,6 +68,12 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatScheduler,
     HeartbeatSchedulerStateStore,
 )
+from personal_assistant.scheduler.cron_scheduler import (
+    CronJobStore,
+    CronScheduler,
+    CronSchedulerStateStore,
+)
+from personal_assistant.scheduler.cron_runner import CronRunner
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import (
     AgentCreateHandler,
@@ -266,6 +272,7 @@ class _IMConfigSyncClient:
         max_attempts: int = 50,
         monotonic: Monotonic = time.monotonic,
         sleep: Sleep = time.sleep,
+        token_getter: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         self._base_url = _im_http_base_url(base_url)
         self._base_headers = _im_http_headers(token)
@@ -282,6 +289,11 @@ class _IMConfigSyncClient:
         self._client = client
         self._monotonic = monotonic
         self._sleep = sleep
+        # feat-394-M3 fix: accept token_getter so auto-bind token refresh propagates
+        # to config sync requests. Without this, sync_agent calls 401 after auto-bind
+        # because the initial token is empty and is never updated. Mirrors the pattern
+        # used by _IMBootstrapClient (main.py:599-613).
+        self._token_getter = token_getter
 
     def sync_agent(self, *, agent_id: str, profile_version: int) -> None:
         deadline = self._monotonic() + self._timeout_seconds
@@ -346,6 +358,17 @@ class _IMConfigSyncClient:
                 else:
                     _cron_raw = payload.get("cron")
                 synced_cron_enabled = _parse_cron_enabled_from_im_payload(_cron_raw)
+                # feat-394-M3 WARNING-1 fix: cron_enabled=True gates the 'cron' tool
+                # into the agent's tool_allowlist automatically (decision 5).  The user
+                # should not have to manually add 'cron' to the allowlist after enabling
+                # the cron switch.
+                _raw_allowlist = [
+                    item.strip()
+                    for item in payload.get("tool_allowlist", [])
+                    if isinstance(item, str) and item.strip()
+                ]
+                if synced_cron_enabled and "cron" not in _raw_allowlist:
+                    _raw_allowlist = [*_raw_allowlist, "cron"]
                 agent_config = AgentWorkspaceConfig(
                     agent_id=agent_id,
                     workspace_root=workspace_root,
@@ -355,11 +378,7 @@ class _IMConfigSyncClient:
                         for item in payload.get("skills", [])
                         if isinstance(item, str) and item.strip()
                     ),
-                    tool_allowlist=tuple(
-                        item.strip()
-                        for item in payload.get("tool_allowlist", [])
-                        if isinstance(item, str) and item.strip()
-                    ),
+                    tool_allowlist=tuple(_raw_allowlist),
                     system_prompt=(
                         payload.get("system_prompt").strip()
                         if isinstance(payload.get("system_prompt"), str)
@@ -565,6 +584,26 @@ class _IMConfigSyncClient:
                 trust_env=False,
             )
         return self._client
+
+    def update_token(self, token: str | None) -> None:
+        """Propagate a refreshed access token so future sync requests use it.
+
+        feat-394-M3 fix: called by the token_getter wrapper in _run_gateway after
+        each successful token refresh so this client does not hold a stale/empty
+        Bearer token when auto-bind has rotated credentials.  Mirrors the
+        _refresh_token pattern in _IMBootstrapClient (main.py:621-628).
+
+        Args:
+            token: New access token, or None to clear.
+        """
+        self._base_headers = _im_http_headers(token)
+        # Propagate updated headers to any live client instance so in-flight
+        # connections also pick up the new token without a full reconnect.
+        # Injected test clients (passed via constructor) are updated in-place;
+        # self-built clients are rebuilt by _get_client() on the next request
+        # if they were previously None (first call) or by headers update here.
+        if self._client is not None:
+            self._client.headers.update(self._base_headers)
 
     @staticmethod
     def _default_workspace_root(agent_id: str) -> Path:
@@ -887,6 +926,8 @@ class PollingHeartbeatRunner:
         run_context_store: "dict[str, dict[str, str]] | None" = None,
         owner_user_id: str = "",
         kernel_event_observer: Any | None = None,
+        cron_tick_fn: Callable[[str], Awaitable[None]] | None = None,
+        agents: "dict[str, Any] | None" = None,
     ) -> None:
         self._scheduler = scheduler
         self._config = config
@@ -899,6 +940,11 @@ class PollingHeartbeatRunner:
         self._run_context_store = run_context_store
         self._owner_user_id = owner_user_id
         self._kernel_event_observer = kernel_event_observer
+        # feat-394-M3 CRITICAL-1 fix: wire cron into the unified polling tick.
+        # cron_tick_fn(agent_id) is called once per tick for each cron_enabled agent.
+        # When None, cron is skipped (backward compat, no cron subsystem configured).
+        self._cron_tick_fn = cron_tick_fn
+        self._agents = agents or {}
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -941,6 +987,22 @@ class PollingHeartbeatRunner:
                     if self._stop_requested:
                         break
                     await self._consume_heartbeat_run(record)
+            # feat-394-M3 CRITICAL-1 fix: unified polling tick also drives cron scheduling.
+            # Design §架构总览: "统一 Polling 调度 tick（扩展现 PollingHeartbeatRunner）".
+            # For each agent with cron_enabled=True, invoke the cron tick function.
+            if self._cron_tick_fn is not None and not self._stop_requested:
+                for agent_id, agent in list(self._agents.items()):
+                    if self._stop_requested:
+                        break
+                    cron_enabled = getattr(agent, "cron_enabled", False)
+                    if cron_enabled:
+                        try:
+                            await self._cron_tick_fn(agent_id)
+                        except Exception:  # noqa: BLE001
+                            import logging as _logging  # noqa: PLC0415
+                            _logging.getLogger(__name__).exception(
+                                "cron tick failed: agent=%s", agent_id
+                            )
             if self._stop_requested:
                 break
             try:
@@ -1875,11 +1937,23 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
         _auth_client = IMAuthClient(base_url=_im_http_base_url(config.im_service.url))
-        _token_getter = _make_token_getter(
+        _raw_token_getter = _make_token_getter(
             im_service=config.im_service,
             local_config=config,
             auth_client=_auth_client,
         )
+        # feat-394-M3 fix: wrap token_getter so each successful token refresh also
+        # propagates the new token to im_config_sync_client.  Without this, auto-bind
+        # refreshes the token for WS reconnection but the sync client keeps the old
+        # empty token, causing every sync_agent call to return 401.
+        _sync_client_ref = im_config_sync_client
+
+        async def _token_getter() -> str | None:
+            token = await _raw_token_getter()
+            if token is not None:
+                _sync_client_ref.update_token(token)
+            return token
+
         # M3: permission response handler is no longer wired — the SDK's can_use_tool
         # callback handles all permission decisions in-process (design decision 3).
         im_connection_manager = _build_im_connection_manager(
@@ -1941,6 +2015,42 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             im_connection_manager_factory=lambda: im_connection_manager,
             session_store=pipeline._session_store,
         )
+    # feat-394-M3 CRITICAL-1 fix: wire cron tick into the unified polling runner.
+    # Build a cron_tick_fn closure that creates per-agent CronScheduler+CronRunner and
+    # calls CronScheduler.tick(). The fn reads the live pipeline._agents so it picks up
+    # dynamically-registered agents (via IM config sync) without restart.
+    _cron_state_path = runtime_dir / "cron-state.json"
+
+    async def _cron_tick_for_agent(agent_id: str) -> None:
+        """Evaluate cron jobs for one agent and submit due runs."""
+        agent_cfg = pipeline._agents.get(agent_id)  # noqa: SLF001
+        if agent_cfg is None or not getattr(agent_cfg, "cron_enabled", False):
+            return
+        ws_root = agent_cfg.workspace_root
+        job_store = CronJobStore(workspace_root=ws_root)
+        state_store = CronSchedulerStateStore(state_path=_cron_state_path)
+        _cron_runner = CronRunner(
+            agent_id=agent_id,
+            workspace_root=ws_root,
+            kernel_client=kernel_shim,
+            session_binding_store=session_store,
+        )
+
+        async def _submit_fn(*, agent_id: str, job: object) -> None:  # type: ignore[override]
+            await _cron_runner._submit_cron_job(job=job)  # noqa: SLF001
+
+        scheduler = CronScheduler(
+            agent_id=agent_id,
+            job_store=job_store,
+            state_store=state_store,
+            submit_fn=_submit_fn,
+        )
+        await scheduler.tick()
+
+    # Provide agents dict reference (closure over pipeline for dynamic updates).
+    heartbeat_runner._cron_tick_fn = _cron_tick_for_agent  # noqa: SLF001
+    heartbeat_runner._agents = pipeline._agents  # noqa: SLF001
+
     inbound_dispatcher = _InboundDispatcher(pipeline)
     closers: list[Callable[[], None]] = [kernel.close]
     if im_bootstrap_client is not None:

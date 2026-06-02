@@ -198,3 +198,98 @@ def test_agentworkspaceconfig_has_cron_enabled_field() -> None:
         "AgentWorkspaceConfig must have 'cron_enabled' field (feat-394-M2 R4)"
     )
     assert cfg.cron_enabled is False
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M3 WARNING-1: cron_enabled=True → cron 工具自动进 tool_allowlist
+# ---------------------------------------------------------------------------
+
+
+def test_sync_agent_cron_enabled_adds_cron_tool_to_allowlist(tmp_path: Path) -> None:
+    """When cron_enabled=True, sync_agent must ensure 'cron' is in tool_allowlist.
+
+    feat-394 decision 5 WARNING-1 fix: opening cron switch in IM config should
+    automatically gate the cron tool into the agent, without the user manually
+    adding it to the allowlist.
+    """
+    workspace_root = tmp_path / "ws-crongate"
+    workspace_root.mkdir()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "gate-agent",
+                "display_name": "Gate Agent",
+                "profile_version": 1,
+                "workspace_root": str(workspace_root),
+                "cron": {"enabled": True},
+                "tool_allowlist": ["read", "write"],  # 'cron' not explicitly listed
+            },
+        )
+
+    pipeline = _NullPipeline()
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+    sync.sync_agent(agent_id="gate-agent", profile_version=1)
+
+    registered = next(a for a in pipeline.registered if a.agent_id == "gate-agent")
+    assert registered.cron_enabled is True
+    assert "cron" in registered.tool_allowlist, (
+        "When cron_enabled=True, 'cron' must be automatically added to tool_allowlist "
+        "(feat-394 decision 5 / WARNING-1)"
+    )
+
+
+def test_sync_agent_cron_disabled_does_not_add_cron_tool(tmp_path: Path) -> None:
+    """When cron_enabled=False, 'cron' must NOT be automatically added to tool_allowlist."""
+    workspace_root = tmp_path / "ws-cronnogate"
+    workspace_root.mkdir()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "nogate-agent",
+                "display_name": "No Gate Agent",
+                "profile_version": 1,
+                "workspace_root": str(workspace_root),
+                "cron": {"enabled": False},
+                "tool_allowlist": ["read", "write"],
+            },
+        )
+
+    pipeline = _NullPipeline()
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+    sync.sync_agent(agent_id="nogate-agent", profile_version=1)
+
+    registered = next(a for a in pipeline.registered if a.agent_id == "nogate-agent")
+    assert registered.cron_enabled is False
+    assert "cron" not in registered.tool_allowlist, (
+        "'cron' must NOT be added to tool_allowlist when cron_enabled=False"
+    )
