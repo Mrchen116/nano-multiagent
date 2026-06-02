@@ -600,3 +600,291 @@ AgentWorkspaceConfig.cron_enabled        →  ?  →  PromptContext.vars["cron_e
 ```
 
 目前这两条链路在 `inbound_pipeline.py`（处理用户消息的 turn 构建路径）和 `assemble_prompt_preview`（preview 路径）中均缺失。修复点：在构建 `PromptContext` 时把 `agent_config.heartbeat_enabled` / `agent_config.cron_enabled` 写入 `vars`，同时 `assemble_prompt_preview` 接收并转发这两个参数。
+
+---
+
+# Round 3 — 2026-06-03
+
+**Date**: 2026-06-03
+**Reviewer**: change-reviewer (Sonnet 4.6)
+**Branch**: unit/feat-394
+**Unit Worktree**: /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
+**Review Mode**: full
+**Prior Round**: Round 2 — blocking R2-1（cron AttributeError）, major R2-2（prompt preview 不受开关控制）, inconclusive S1.3
+**M4 Fixes**: R1 find_by_kernel_session_id, R2 assemble_prompt_preview vars 注入, R3 per-tick live agents_getter, R4 busy-skip 缓解
+
+---
+
+## Summary
+
+| | |
+|---|---|
+| **Verdict** | `fail` |
+| **Highest Required Action** | `fix-implementation` |
+| **Issues** | blocking: 1 / major: 1 / minor: 1 |
+| **Needs Re-review** | true |
+
+**Top Concern**: cron 工具被 `auto_mode_gate` 拦截（`blocked_by_hook=True`），无论 M4 R1 修了 `find_by_kernel_session_id`，cron tool 注册依然完全无法走通——classifier 评估后 deny/block，S3.1~S3.5 全程 fail。R2-2（prompt preview 不受开关控制）经全量 4 组合测试仍然失败。
+
+---
+
+## Services Setup (Round 3)
+
+- IM: port 58001（IM_JWT_SECRET="demo-jwt-secret-for-feat340-testing"，db 复用 round-2 data/im_service.sqlite3）
+- Gateway: `/tmp/reviewer-feat394-r3-gateway.yaml`（node_id: reviewer-feat394-r3-node）重启后 r3-node 在线
+- Frontend: `npm run build`（tsc -b && vite build）全通过；`vite dev --port 5177 VITE_IM_PROXY_TARGET=http://127.0.0.1:58001`
+- LLM proxy: http://127.0.0.1:4000，模型 volcanoArk:doubao-seed-2-0-code-preview-260215
+
+**产物指纹核验**：`index-CbL5azQP.js` grep `heartbeat-enabled-toggle` 命中 ✓
+
+**备注**：vite preview 不启用 API 代理，需 vite dev 并设 VITE_IM_PROXY_TARGET 才能正常登录。gateway 首次启动时 WS 连接超时 offline，重启后恢复 online（node status 从 offline→online）。
+
+---
+
+## Clarification Q&A
+
+无需澄清。
+
+---
+
+## User Journeys Exercised (Round 3)
+
+| Journey | Scenarios Covered | Outcome |
+|---|---|---|
+| **J1** Alpha 与 gateway 联通性 | 基础 agent 回复 | pass（"YES I CAN HEAR YOU"） |
+| **J2** cron 工具注册完整旅程 | S3.1~S3.5 | fail（blocked_by_hook） |
+| **J3** prompt preview 4 组合测试 | R2-2 复验 | fail（4/4 组合均返回相同内容） |
+| **J4** heartbeat 调度器观察 | S1.1, S2.3 | heartbeat-state.json 未更新（无有效任务） |
+| **J5** 配置页两开关 UI | S1.1, S1.2, S1.4 | pass |
+
+---
+
+## 验收标准覆盖表 (Round 3)
+
+### Requirement: 配置页两个开关 per-agent 启用/停用 heartbeat 与 cron
+
+#### Scenario S1.1: 打开 heartbeat 开关并设节律
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 1 |
+| 验证方式 | 配置页 Enable heartbeat ✅ + Cadence=10s 保存；检查 IM config sync + heartbeat-state.json 更新 |
+| 证据 | 截图 `/tmp/feat394-r3-final-config.png`：Enable heartbeat ✅, Cadence=10s, Enable cron ✅；IM API `GET /config?source=mirror` 返回 `heartbeat_json={"enabled":true,"every":"10s"}`；YAML `heartbeat.enabled=true, every=10s`；但 `heartbeat-state.json` 的 Alpha.last_due_at 始终是旧值 `2026-06-02T17:02:40`，r3 gateway 重启后从未更新 |
+| 结果 | `fail` |
+| 备注 | Alpha HEARTBEAT.md 为空模板（无实际任务），heartbeat 每次执行静默（S2.3 正确），但 heartbeat-state.json 的 last_due_at 也应随每次 tick 更新，然而未更新——调度器可能未在新 gateway 实例内对 Alpha 生效（per-tick live getter 从 pipeline._agents 读，gateway 重启后 pipeline._agents 可能为空直到下次 config sync）。|
+
+#### Scenario S1.2: 打开 cron 开关
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 2 |
+| 验证方式 | 配置页 Enable cron ✅ 已保存；Tool Allowlist 含 cron |
+| 证据 | 截图 `/tmp/feat394-r3-final-config.png`：Enable cron ✅；Tool Allowlist 显示 `cron`；IM API `GET /config?source=mirror` 返回 `cron_json={"enabled":true}`；但 THEN 要求"此后可以注册定时任务"——cron 工具被 auto_mode_gate 拦截，任务无法注册（Issue R3-1） |
+| 结果 | `fail` |
+| 备注 | UI 保存/Tool Allowlist pass；端到端效果 fail（Issue R3-1） |
+
+#### Scenario S1.3: 关闭开关即停用（边界）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 3 |
+| 验证方式 | M4 R3 已实现 per-tick live agents_getter；关闭 heartbeat 开关后不重启验 heartbeat 停止 |
+| 证据 | heartbeat-state.json 在 r3 gateway 内从未更新，无法通过 last_due_at 变化来观察"停用后停止更新"。M4 R3 单测通过（`test_scheduler_uses_live_agents_getter_on_each_tick`），但用户可观察面无法在本轮验证（依赖 heartbeat 先正常运行，再关闭对比） |
+| 结果 | `inconclusive` |
+| 备注 | 调度器本身未在 r3 实例生效（S1.1 issue），无法做前后对比。R3 的单测证据充分，但用户可观察旅程不可验。待 heartbeat 调度器先跑通再复验。|
+
+#### Scenario S1.4: 未启用的 agent 不跑（默认/空态）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 4 |
+| 验证方式 | Beta agent 两个开关均 unchecked |
+| 证据 | 配置页 Beta：两开关 unchecked；heartbeat-state.json 无 Beta 条目；Tool Allowlist 无 cron |
+| 结果 | `pass` |
+
+---
+
+### Requirement: agent 对话自管 heartbeat（用户不必手写 HEARTBEAT.md）
+
+#### Scenario S2.1: 口述提醒，agent 自动记录
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 本轮未走独立旅程（依赖 heartbeat 调度先跑通），上轮同样 inconclusive。|
+
+#### Scenario S2.2: 到点带上下文主动冒泡且记得上下文
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 2 |
+| 验证方式 | 等待 heartbeat 触发；观察 IM 直聊是否出现 Alpha 主动消息 |
+| 证据 | r3 gateway 运行期间（约 25 分钟），heartbeat-state.json Alpha.last_due_at 始终是旧值 2026-06-02T17:02:40，IM 直聊无任何新 heartbeat 消息；Alpha HEARTBEAT.md 为空模板（无任务），即使调度器跑也应静默（S2.3）。无法区分"调度器未触发"和"调度器触发但静默"。|
+| 结果 | `inconclusive` |
+| 备注 | round-2 已 pass（带上下文汇报，用 HEARTBEAT.md 有任务的场景），本轮 gateway 启动方式不同（新 node_id），调度器行为待确认。|
+
+#### Scenario S2.3: 无可汇报内容则静默
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | 继承 round-2 pass；Alpha HEARTBEAT.md 为空，r3 期间无消息投递，符合静默预期。|
+
+#### Scenario S2.4: 不同关注项用不同频率（多子节律）
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 同 round-2，本轮未独立验证。|
+
+#### Scenario S2.5: 活跃时段外不打扰（activeHours）
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 同 round-2，本轮未独立验证。|
+
+---
+
+### Requirement: agent 对话自管 cron 定时任务（可多条、无上下文执行）
+
+#### Scenario S3.1: 口述定时任务，agent 注册一条
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 1 |
+| 验证方式 | 在直聊说"Please register a cron job that runs every 30 seconds and reports the current time."→ 观察 agent 回复和 `.nanoassistant/cron/jobs.json` |
+| 证据 | 截图 `/tmp/feat394-r3-cron-blocked-evidence.png`：Alpha 回复 "It looks like the cron job registration was blocked by a hook. Could you please check your hooks configuration to allow cron job creation?"（1 tool call · 4.9s）；gateway log: `tool_execution_error \| blocked_by_hook=True ... tool_name='cron'`；`/tmp/reviewer-feat394-r3-workspace/Alpha/.nanoassistant/cron/` 目录不存在，jobs.json 未创建 |
+| 结果 | `fail` |
+| 备注 | Issue R3-1（blocking）。M4 R1 修复了 `find_by_kernel_session_id` AttributeError，但 cron 工具仍被 `auto_mode_gate` classifier 拦截（block=True）。根因：cron tool 未在 `always_allow_tools` 或 `SAFE_TOOL_ALLOWLIST` 中，classifier 评估后返回 deny/ask；在 gateway agent turn 上下文中无有效权限频道，gate 拒绝执行。|
+
+#### Scenario S3.2: 同一 agent 同时挂多条任务
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `fail` |
+| 备注 | 依赖 S3.1，S3.1 fail → 此项也 fail。|
+
+#### Scenario S3.3: 到点执行固定任务并把结果发回直聊
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `fail` |
+| 备注 | 依赖 S3.1。|
+
+#### Scenario S3.4: 配置页查看并手动删除任务
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 4 |
+| 验证方式 | 配置页 CronCard 状态 |
+| 证据 | 截图 `/tmp/feat394-r3-final-config.png`：CronCard 显示 "No scheduled tasks yet. Ask the agent to add some."；无任务可删除（S3.1 fail） |
+| 结果 | `fail` |
+| 备注 | CronCard UI 组件存在（M3/R4）；但 S3.1 fail 导致无法演练删除功能。|
+
+#### Scenario S3.5: cron 汇报后我追问，agent 记得汇报了啥
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `fail` |
+| 备注 | 依赖 S3.3。|
+
+---
+
+### Requirement: 结果投递到 owner 的 canonical 直聊（复用 feat-393）
+
+#### Scenario S4.1: 落到最旧直聊，呈现同普通消息
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | 继承 round-2 pass；本轮 Alpha 直接消息（"YES I CAN HEAR YOU"）外观正常（有头像、token 气泡）。|
+
+#### Scenario S4.2: 没有直聊时自动新建
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | 继承 round-2 pass。|
+
+---
+
+### Requirement: 重启后不补跑积压
+
+#### Scenario S5.1: 周期任务错过多个周期不刷屏
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | 继承 round-2 pass（heartbeat 重启后只排下一时隙）。cron 因 S3.1 fail 无法独立验证，但单测层有保证。|
+
+#### Scenario S5.2: 过期的一次性任务不补跑
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 同 round-2，cron 任务无法注册。|
+
+---
+
+## Issues (Round 3)
+
+### Issue R3-1：cron 工具被 auto_mode_gate 拦截，无法注册任何定时任务（**blocking**，持续 R2-1 类问题）
+
+**Severity**: blocking
+**Recommended Action**: fix-implementation
+**Action Rationale**: M4 R1 修复了 `find_by_kernel_session_id` AttributeError，但 `auto_mode_gate` 在 `tool_call` 事件上对 `cron` 工具的拦截依然有效：cron tool 无 `check_permissions`（passthrough→classifier），classifier 评估 cron tool 调用后返回 deny 或 ask，而 gateway 的 agent turn 无有效权限频道应答 ask，最终 `block=True`。根本修复方向：将 `cron` 工具加入 `always_allow_tools`（workspace config.yaml 或 `SAFE_TOOL_ALLOWLIST`），或给 cron tool 实现 `check_permissions` 返回 `behavior="allow"`（当 agent 的 `cron_enabled=True` 时）。
+
+**用户可观察症状**：在直聊让 Alpha 注册 cron job → agent 回复 "the cron job registration was blocked by a hook. Could you please check your hooks configuration to allow cron job creation?"；`.nanoassistant/cron/jobs.json` 不存在；配置页 CronCard 始终显示 "No scheduled tasks yet."
+
+**证据**：
+- 截图 `/tmp/feat394-r3-cron-blocked-evidence.png`：agent 回复明确报告 blocked by hook
+- gateway log: `tool_execution_error | blocked_by_hook=True ... tool_name='cron'`
+- M4 R1 evidence（progress.md）：`find_by_kernel_session_id` 单测通过——说明 AttributeError 已修，但 auto_mode_gate 拦截是独立路径
+
+---
+
+### Issue R3-2：assemble_prompt_preview 路径 heartbeat/cron vars 未注入，prompt preview 不受开关控制（**major**，持续 R2-2）
+
+**Severity**: major
+**Recommended Action**: fix-implementation
+**Action Rationale**: 测试 4 种组合（hb=true/false × cron=true/false），`POST /im/v1/agents/Alpha/prompt-preview` 的返回内容全部相同：始终包含 `## Heartbeats`、`## Cron Jobs`、`## Scheduling Routing` 三段。M4 R2 progress.md 说 "全套 2477 passed"，但用户可观察面（配置页 Preview full system prompt 展开内容）仍不受开关控制。
+
+**用户可观察症状**：配置页关闭 heartbeat + 关闭 cron → 点 "Preview full system prompt" → 仍然看到 `## Heartbeats` 和 `## Cron Jobs` 段；任何开关组合下 preview 内容相同。
+
+**证据**：
+- 4 组合 API 测试（`/tmp/r3-preview-hb{true/false}-cron{true/false}.bin`）：所有 4 份 prompt 均含相同 headers（`## Heartbeats`, `## Cron Jobs`, `## Scheduling Routing`）
+- UI 验证：截图 `/tmp/feat394-r3-preview-both-off.png`（hb=false,cron=false 时 preview 仍显示 `## Heartbeats`）
+
+---
+
+### Issue R3-3：HeartbeatScheduler 在 r3 gateway 实例内未对 Alpha 触发 tick（minor）
+
+**Severity**: minor
+**Recommended Action**: fix-implementation
+**Action Rationale**: r3 gateway 运行约 25 分钟，YAML 中 Alpha `heartbeat.enabled=true`，IM config sync `?source=mirror` 也返回 `heartbeat_json={"enabled":true,"every":"10s"}`，但 `/tmp/heartbeat-state.json` Alpha `last_due_at` 始终是旧值（2026-06-02T17:02:40，来自 round-2）。gateway log 中无 heartbeat tick 相关输出。M4 R3 增加了 per-tick live agents_getter，但可能 pipeline._agents 在 auto-bind 后的 config sync 之前是空的，或者 HeartbeatScheduler 初始化时 YAML agents 被静默跳过（Alpha HEARTBEAT.md 无任务）。由于无法区分"调度器未触发"与"调度器触发但静默"，标 minor。
+
+**用户可观察症状**：heartbeat 开启后，即使 HEARTBEAT.md 有任务，也可能不触发（可能被 alpha/Alpha 大小写不一致或初始化顺序问题静默跳过）。
+
+---
+
+## Side Findings
+
+- **Gateway WS 连接首次失效**：r3 gateway 首次启动后 IM 侧 node status 为 offline（WS 未成功建立），重启后恢复。WS 连接稳定性可能受 token 过期影响（auto-bind refresh_token 机制）；属 reviewer 环境问题，不立 issue。
+- **vite preview 不支持 API proxy**：`vite preview` 不启用 vite.config.ts 的 proxy 规则，需用 `vite dev` 才能连接 IM API。AGENTS.md 可补充说明。
+- round-2 Issue 3（tsc 类型错误）已修复 ✓
+- round-2 Issue 4（Cadence select-all）已修复 ✓
+- round-2 blocking Issue 1（config sync 401）已修复 ✓
+- round-2 blocking Issue 2（runtime turn vars 注入）已修复 ✓；但 preview 路径（Issue R3-2）仍未修
+
+---
+
+## 上层文档同步 (Round 3)
+
+| 文档 | 状态 |
+|---|---|
+| `docs/NodeGateway-SPEC.md §6` | 需核实 cron auto_mode_gate 授权语义是否已记录；暂标待确认 |
+| `SPEC.md` | 无需更新 |
+| `AGENTS.md` | 可补充：`vite preview` 不启用 API proxy，本地验收须用 `vite dev` + `VITE_IM_PROXY_TARGET` |
+| `CLAUDE.md` | 无需更新 |
+| `docs/SPEC_GUIDE.md` | 无需更新 |
