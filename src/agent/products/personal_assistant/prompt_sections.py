@@ -133,7 +133,10 @@ _PA_CRON = PromptSection(
 # Provenance: feat-394-M2 decision 5 — routing segment when both heartbeat and cron are on.
 # Helps the agent decide which mechanism to use for time-based tasks.
 def _both_enabled(ctx: PromptContext) -> bool:
-    return bool(ctx.vars.get("heartbeat_enabled", False)) and bool(ctx.vars.get("cron_enabled", False))
+    # feat-394-M3 hotfix: use the same string-safe parse as _heartbeat_enabled/_cron_enabled.
+    # bare bool() treats the string "False" as truthy (non-empty string), so we must
+    # delegate to the sibling gate functions rather than calling bool() directly.
+    return _heartbeat_enabled(ctx) and _cron_enabled(ctx)
 
 
 _PA_CRON_ROUTING = PromptSection(
