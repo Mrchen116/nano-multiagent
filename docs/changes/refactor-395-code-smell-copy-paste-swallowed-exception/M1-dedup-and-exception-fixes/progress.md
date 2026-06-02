@@ -22,4 +22,20 @@
 - Commits: C1=26fdcc44, C2=b777ab67, C3=（本次）
 - Next: R2 platform 共享 helper 提取
 
+### R2 — platform 共享 helper 提取
+
+- Context: 4 个 LLM provider 各有私有 `_extract_non_negative_int`；write/edit/read 各有 `_display_path`；bash/task_stop/agent 各有 `bind_wiring`/`_require_wiring`；task/agent 各有 `_normalize_optional_text`。
+- Decision: 新建 `providers/common.py`（`extract_non_negative_int`）、`builtins/_shared.py`（`_normalize_optional_text`）；扩展 `presentation.py`（`display_path`）、`base.py`（`WiringMixin`）。
+- Rationale: 各副本逐字节等价，落点遵守模块职责（presenters → presentation.py，工具 mixin → base.py）。
+- Evidence:
+  - Tests: 相关单测全绿（tools_builtins/write_edit/read/llm_mappers/task/agent/memory/skill_writer）；contract 97 passed
+  - Entry: N/A（内部实现）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: fde3894c
+- Commits: C1=（R2 无新失败测试，复用 R1 的 C1 作为进入态），C2=fde3894c, C3=（本次）
+- Next: R3 IM 死代码删除 + 三件套提取 + 测试 import 重定向
+
 <!-- 每个 roadpoint 完成后在此追加 -->
