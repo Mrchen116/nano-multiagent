@@ -6,6 +6,9 @@
 
 ## Changelog
 
+- 2026-06-02 (M1, post-acceptance fix round 2): heartbeat interval/cron **catch-up 折叠**——一段 gap（含网关停机后重启）后最多补发 1 条（最近一个 due）、然后恢复正常节奏，不再为每个漏掉的 interval 各投一条。原 design 只定了投递机制、未涉及 catch-up 语义；reviewer round 2 暴露"停机后重启刷屏"违背"定时汇报"意图，按 spec 意图定为折叠。详见 M1-heartbeat-im-delivery/progress.md「post-acceptance fix round 2」。
+- 2026-06-02 (M1, post-acceptance fix round 1): 三项运行时修复——①IM `turn_start{to_user_id}` 分支健壮化（owner 解析失败返 skipped ack、绝不关 WS，落实决策3「owner 未绑定→不投递记日志」+ refactor-387 加固原则）；②`heartbeat_runner.start()` 移到 `connect_once()` 之后（首次 tick 前 WS 已连，否则 observer `connected=False` 丢投递）；③e2e-up.sh 同步 `node.user_id` 为 ephemeral IM 真实用户 id。详见 progress.md「post-acceptance fix round 1」。
+
 ## 现状分析
 
 ### 涉及范围
