@@ -15,8 +15,7 @@
 不起子进程(refactor-387)。它对外呈现两种面:面向人的交互式异步 REPL,以及面向脚本/CI 的非交互输出
 (`--text` 流式 NDJSON、`llm-config` 单命令 JSON)。
 
-它的交互与整体体验对标成熟商业 Coding Agent CLI(如 Claude Code / Codex CLI)的一致性与低心智负担:
-默认无参启动即可用,内部连接/端口参数不得成为日常必填项。
+它面向低心智负担的日常使用:默认无参启动即可用,内部连接/端口参数不得成为日常必填项。
 
 **显式不负责**:不实现 Agent Loop、不直接调 LLM、不管会话持久化(均由内核承担);不做 IM 接入 / channel
 路由 / heartbeat(那是 Gateway)。
@@ -32,11 +31,6 @@
 - **GIVEN** 一个开发者在终端
 - **WHEN** 他不带任何子命令运行 CLI(`python -m coding_cli.main`)
 - **THEN** 进入交互式 REPL 等待输入;全程在本进程内运行,不连任何 loopback HTTP、不起 agent 子进程
-
-#### Scenario: 不存在 managed / remote 运行模式与连接参数
-- **WHEN** 用户查看 CLI 的可用参数
-- **THEN** 不存在 `--mode`(managed/remote)、`--base-url` 这类"连远端/管子进程"参数;也不存在
-  `health` / `create-session` / `send-message` 这类对 HTTP 端点喊话的子命令
 
 ### Requirement: REPL 会话懒创建并绑定当前工作目录,可经 --resume 复用既有会话
 

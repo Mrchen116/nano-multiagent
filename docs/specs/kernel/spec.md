@@ -138,9 +138,9 @@
 - **WHEN** 消费者 `await kernel.compact(session_id)`
 - **THEN** 返回压缩结果(或在无需压缩时返回 None),压缩落盘后会话仍可由事件重放重建
 
-### Requirement: 内核内置 5 个工具,执行受工作区安全约束
+### Requirement: 内核内置基础工具集,执行受工作区安全约束
 
-内核内置 `read` / `write` / `edit` / `bash` / `task` 五个工具,默认启用工作区安全约束;所有工具执行经
+内核内置 `read` / `write` / `edit` / `bash` / `task` 等基础工具,默认启用工作区安全约束;所有工具执行经
 工具注册表分发。产品可经产品 profile + 工作区配置目录追加/筛选工具。
 
 #### Scenario: bash 工具输出超限被截断且暴露完整输出路径

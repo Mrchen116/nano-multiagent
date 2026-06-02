@@ -103,9 +103,9 @@ refresh 轮换或登出后立即失效。错误凭证大声失败(401/拒绝),�
 
 #### Scenario: 读配置暴露稳定字段集
 - **WHEN** 前端 `GET /im/v1/agents/{id}/config`
-- **THEN** 200 响应键恰为 `{agent_id, owner_id, node_id, display_name, description, system_prompt,
+- **THEN** 200 响应至少含 `{agent_id, owner_id, node_id, display_name, description, system_prompt,
   skills, tool_allowlist, group_reply_policy, default_model, workspace_root, workspace_is_default,
-  profile_version, updated_at, features, custom_prompt}`
+  profile_version, updated_at, features, custom_prompt}` 等字段(随产品演进可增,不应静默删/改名)
 
 #### Scenario: PATCH 持久化 features 与 custom_prompt(乐观锁)
 - **WHEN** 前端带 `profile_version` `PATCH /im/v1/agents/{id}/config { ..., features, custom_prompt }`
@@ -158,10 +158,10 @@ refresh 轮换或登出后立即失效。错误凭证大声失败(401/拒绝),�
 ### Requirement: 浏览器经用户维 WebSocket 收事件流,鉴权后只回放本租事件
 
 浏览器经 `/im/ws/user` 建用户维事件流;身份取自 JWT(`?token=<jwt>` 查询串或 `Sec-WebSocket-Protocol:
-bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭,**不再接受 `?user_id=` 作信任锚**。握手后发
-`{op:"resume", after_event_id:N}` 即回放该用户 owner 范围内、`event_id > N` 的事件帧(`op:"event"`),
-跨租事件不投递。`GET /im/v1/sync` 给出会话列表快照 + 全局 `max_event_id`,供前端在 `resync_required`
-后对齐游标(取代旧的按会话 SSE)。
+bearer.<jwt>` 子协议),无 token / 非法 token 立即关闭;身份只认 JWT,单凭 `?user_id=` 不构成信任锚。
+握手后发 `{op:"resume", after_event_id:N}` 即回放该用户 owner 范围内、`event_id > N` 的事件帧
+(`op:"event"`),跨租事件不投递。`GET /im/v1/sync` 给出会话列表快照 + 全局 `max_event_id`,供前端在
+`resync_required` 后对齐游标。
 
 #### Scenario: 无 token / 非法 token / 仅 user_id 的连接被拒
 - **WHEN** 浏览器 `websocket_connect("/im/ws/user")`(无 token,或 `?token=not-a-jwt`,或仅 `?user_id=`)
