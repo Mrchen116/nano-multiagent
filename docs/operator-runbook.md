@@ -293,5 +293,5 @@ PYTHONPATH=src python -m pytest tests/e2e/test_m112_real_process_roundtrip_e2e.p
 ```
 
 覆盖的核心验收面：
-- NodeGateway-SPEC §16：channel 启动、四步决策、回发原目标、heartbeat、IM 离线降级。
-- IM-SPEC §12：消息往返、设备绑定、节点状态、离线降级、幂等。
+- 见 docs/specs/gateway/spec.md：channel 启动、四步决策、回发原目标、heartbeat、IM 离线降级。
+- 见 docs/specs/im/spec.md：消息往返、设备绑定、节点状态、离线降级、幂等。

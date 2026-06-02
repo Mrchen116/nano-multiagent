@@ -4,8 +4,8 @@
 
 范围：
 - `docs/需求.md`
-- `docs/IM-SPEC.md`
-- `docs/NodeGateway-SPEC.md`
+- `docs/specs/im/spec.md`
+- `docs/specs/gateway/spec.md`
 - `docs/内核设计细化/系统提示词.md`
 
 说明：

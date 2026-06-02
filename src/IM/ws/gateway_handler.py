@@ -1,4 +1,4 @@
-"""Gateway WebSocket connection manager for IM-SPEC §4."""
+"""Gateway WebSocket connection manager (see docs/specs/im/spec.md)."""
 
 from __future__ import annotations
 

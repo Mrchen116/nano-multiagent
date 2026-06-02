@@ -8,8 +8,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_ROOT = PROJECT_ROOT / "src" / "agent"
 ARCHITECTURE_DOC = PROJECT_ROOT / "SPEC.md"
 README = PROJECT_ROOT / "README.md"
-CODING_CLI_SPEC = PROJECT_ROOT / "docs" / "CodingCLI-SPEC.md"
-KERNEL_SPEC = PROJECT_ROOT / "docs" / "内核设计SPEC.md"
+# feat-392-M4: docs/CodingCLI-SPEC.md 退役（移入 docs/archive/）。CLI 对外行为契约迁入长青契约层
+# docs/specs/cli/spec.md（current 单一权威）；架构验收锚到该契约层（同 M1 内核 retarget 模式）。
+CODING_CLI_SPEC = PROJECT_ROOT / "docs" / "specs" / "cli" / "spec.md"
+# feat-392-M1: docs/内核设计SPEC.md 退役（移入 docs/archive/）。内核分层 + 依赖方向 +
+# 库形态（无 HTTP）是跨包架构属性，SPEC_GUIDE 判定不进单包契约层——canonical 家是顶点 SPEC.md。
+# 故架构验收锚回 SPEC.md（同一份顶点既验顶层结构又验内核终态，不再读已退役的子系统 SPEC）。
+KERNEL_SPEC = PROJECT_ROOT / "SPEC.md"
 
 EXPECTED_TARGET_TREE_LINES = (
     "src/",
@@ -118,14 +123,18 @@ TOP_LEVEL_REQUIRED_DOC_SNIPPETS = (
     "├── coding_cli/                   # 本地编码 CLI 应用",
     "├── personal_assistant/           # 个人助手 Node Gateway",
 )
+# feat-392-M1: 锚回 SPEC.md（KERNEL_SPEC 退役后顶点是 canonical 家）。仍实质验三条内核终态属性：
+# ① 内核四层 core/platform/products/sdk；② 依赖方向 core ↛ platform/products；
+# ③ 库形态——只暴露 agent.sdk、不内置 HTTP。片段取 SPEC.md §4「agent — 执行内核」实际措辞。
 KERNEL_REQUIRED_DOC_SNIPPETS = (
-    "src/agent/",
-    "core/        # 执行内核（纯逻辑，无 IO）",
-    "platform/    # 集成层（接外部环境）",
-    "products/    # 产品 profile（装配方案）",
-    "sdk/         # 对外面：build_kernel() → Kernel（唯一产品接口）",
-    "依赖方向：`platform → products + core`（禁止反向）。`core` 不依赖 `platform` / `products`。",
-    "sdk` 依赖 `platform + products + core`；产品只 import `agent.sdk`，禁止 import 内部层",
+    # ① 内核四层
+    "内部分四层（core / platform / products / sdk）",
+    "└── sdk/                      # 对外面：build_kernel() → Kernel",
+    # ② 依赖方向 core 不依赖 platform/products
+    "`core` 纯逻辑，不依赖 `platform` / `products`",
+    # ③ 库形态：只暴露 agent.sdk + 无 HTTP
+    "对外**只暴露 `agent.sdk`**",
+    "内核是库不是服务，**不内置任何对外网络 API**",
 )
 ARCHITECTURE_REQUIRED_DOC_SNIPPETS = (
     "顶层结构",

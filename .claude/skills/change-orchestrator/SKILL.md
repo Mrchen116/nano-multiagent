@@ -17,7 +17,7 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 
 1. **门禁 2 没过不能启动**。检查 `docs/changes/<unit>/design.md`:无 `<!-- 模板说明 -->`、Milestone 表完整、空目录数量 = 表行数。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 收口。
 2. **Sync Gate 不通过不动作**。启动第一件事是 main 同步检查(§2),分叉直接停下让人介入,不要强制 reset。
-3. **不写代码、不改 design / spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**唯一例外**:在 PR body / Changelog 这类调度产物里写文字。
+3. **不写代码、不改 design / 变更稿 spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**两个例外**:(a) 在 PR body / Changelog 这类调度产物里写文字;(b) §7.0 收尾归并:据本 unit delta-spec 把行为增量合并进**长青行为契约层** `docs/specs/<包>/spec.md`(顶层 canonical,你是单一 owner),并可校正 delta 文件 `docs/changes/<unit>/specs/<包>/spec.md`——注意这两者与 `docs/changes/<unit>/spec.md`(变更稿,禁改)是两回事。
 4. **Agent 工具派发时不设置 isolation 参数**。worktree 由本 skill 分配路径并指示 worker 自建。设了 `isolation=worktree` 会在 `.claude/worktrees/` 创建冲突 worktree,破坏整个流程。
 5. **一个 milestone 一个 worker**。不让同一个 worker 串跑多个 milestone(上下文窗口风险 + 失败定位难)。
 6. **默认并行**。无依赖、无文件冲突的 milestone 必须并行派发;不并行才需要理由。
@@ -533,6 +533,42 @@ Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 
 unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acceptance bar 允许):
 
+### §7.0 收尾归并:据 delta-spec 把行为增量并进长青契约层
+
+提 PR 前的最后一道实质动作——把本 unit 的对外行为增量并进长青行为契约层 `docs/specs/<包>/spec.md`,
+让它保持 current。**不全量重扫 canonical**,而是据 design 阶段产的 **delta-spec**
+(`docs/changes/<unit_dir>/specs/<包>/spec.md`)合并。规范见 `docs/SPEC_GUIDE.md`「契约层增量」+
+「收尾归并 checklist」。
+
+> **canonical `docs/specs/` 与 delta `docs/changes/<unit>/specs/` 都在 unit_worktree 的
+> `unit/<unit_id>` 分支上**,和源码 diff 同处一棵树——在 `$unit_worktree` 里编辑 + commit,随 PR 一起
+> 进 main。不动主仓 HEAD(§0.15)。
+
+对本 unit **有 delta 文件的每个包**(kernel / im / gateway / cli),按下面三步走:
+
+**① 校正 delta(design 草案 → 实际代码)**:delta 是 design 期的预测,worker 实现可能偏。拿实际代码 diff
+核对 delta 每条 ADDED/MODIFIED/REMOVED——实现期新增的对外行为补进 delta、design 写了但没落地的删掉。
+design 注 "no spec delta" 且 diff 也无对外行为变化 → 该包跳过(PR body 记 "no spec delta")。
+
+**② 软对账(advisory,不出红测)** —— 复用已派的 reviewer / verifier 做,不另起机制。派 §5
+reviewer / verifier 时(或本步现派一轮)让其对**校正后 delta 的每条** Requirement/Scenario **搜代码 +
+测试**,报告三类:契约与实现一致 / 契约声明的行为代码已背离 / 本 unit 新增代码产生了 delta 未覆盖的对外
+行为。背离与缺口**显式列在报告里**(advisory,不出红测、不机械硬卡)。范围 = 本 unit delta,**不是
+canonical 全量**。靠 agent 尽责对账,不靠机械绑定。
+
+**③ 合并 delta 进 canonical**:把校正后 delta 机械合并进对应 `docs/specs/<包>/spec.md`——ADDED 追加、
+MODIFIED 替换对应条目、REMOVED 删对应条目(delta 与 canonical 同骨架,对应是机械的)。每条进 canonical
+前再过 SPEC_GUIDE 的「两问判据」+「库契约四纪律」(WHEN/THEN 主语=消费者、CDC 裁剪、纯
+`Purpose + Requirement/Scenario`,**无** `覆盖:` 行 / `[可执行]` 标签 / freshness 测试)。然后 bump 该
+文件头部 `> 对齐:` 行到本 unit-id。commit:`docs(<unit_id>): 收尾归并契约层 docs/specs/<包>`
+(或多包分别 commit)。
+
+> 你是单一 owner、串行收尾,无并行写冲突。delta 把"该验 / 该合并什么"限定到本 unit 增量,不必全量
+> 重扫;非确定性由 delta 固定骨架 + 校正 / 软对账兜——真飘了下个 unit 收尾再修(纯增量、advisory,
+> 不阻塞本 PR)。
+
+归并完成后,继续 §7.1。
+
 ### §7.1 sync gate 重跑
 
 ```bash
@@ -545,6 +581,8 @@ git -C "$unit_worktree" push --force-with-lease origin "unit/<unit_id>"
 ### §7.2 组装 PR body
 
 从 unit 文档自动抽,按模式选模板——**full**(从 spec/design/acceptance/verification 抽)、**lite**(只从 fix.md 抽)。两套完整 markdown 模板 + 逐字段抽取来源见 `references/pr-body-templates.md`,提 PR 时读它照填。每个字段都从 unit 文档抽,不手写新内容。
+
+PR body 里附一行 **Spec delta**:列 §7.0 收尾归并改了哪些 `docs/specs/<包>/spec.md`(或 "no spec delta",纯内部 unit)。
 
 ### §7.3 提 PR
 

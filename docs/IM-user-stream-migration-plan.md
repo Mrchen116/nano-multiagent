@@ -15,7 +15,7 @@
 | 区域 | 迁移前 |
 |------|--------|
 | 会话事件持久化 | `conversation_events.event_id` 为表级 `AUTOINCREMENT`，**全局单调**；`EventRepository.append_event` 写库即得 `event_id`。 |
-| 按会话 SSE | `GET /im/v1/conversations/{id}/events`（`messages.py`）等；**已删除**，见 `IM-SPEC` §5。 |
+| 按会话 SSE | `GET /im/v1/conversations/{id}/events`（`messages.py`）等；**已删除**，见 `docs/specs/im/spec.md`。 |
 | 前端 | 曾用 `EventSource` 按会话拉流；现改为共享 **`/im/ws/user`** + `sessionStorage` 全局 `event_id` 游标 + `GET /im/v1/sync` 对齐。 |
 | Gateway | `app.py`：`/im/ws/gateway`，与浏览器用户流 **独立**。 |
 | 会话成员 | `conversation_participants(conversation_id, user_id)`；广播收件人与参与者一致（见 `user_stream.resolve_recipient_user_ids`）。 |
@@ -90,7 +90,7 @@
 4. **`WebSocket` 路由**：握手鉴权 → `resume` 回放循环 → 长连接 `receive` 处理 ping/pong；异常断开清理 registry。
 5. **`GET /im/v1/sync`**：SQL 聚合「用户相关会话 + `event_id > cursor` 的变更」或直接基于现有表字段-diff（实现选简单且正确者优先）。
 6. **删除或废弃**：`GET .../events` SSE 路由（一次性切换可删；若有外部依赖则先 grep 全仓后再删）。
-7. **`IM-SPEC.md` / `IM前端蓝图.md`**：追认 WSS 与 `/sync` 为 P0 行为；Gateway 章节不动。
+7. **`docs/specs/im/spec.md` / `IM前端蓝图.md`**：追认 WSS 与 `/sync` 为 P0 行为；Gateway 章节不动。
 
 ---
 

@@ -315,16 +315,24 @@ Gateway 第一次连一个新 IM 实例时,IM 要求确认绑定 owner,默认会
 
 ## 关键文档索引
 
+> 单包"现在怎么表现"看**长青行为契约层** `docs/specs/<包>/spec.md`（current 权威，收尾归并保持）；
+> 文档体系怎么分层、契约层怎么写见 `docs/SPEC_GUIDE.md`；跨包架构看 `SPEC.md`。
+
 | 文档 | 路径 | 内容 |
 |---|---|---|
+| **文档规范** | docs/SPEC_GUIDE.md | 长青 spec 放什么/不放什么、判据、契约层骨架、收尾归并 + grounding checklist |
+| **架构总览（顶点）** | SPEC.md | 四个包职责、依赖方向、部署图（跨包，不下钻单包行为） |
+| **内核契约层** | docs/specs/kernel/spec.md | 内核经 `agent.sdk` 暴露的对外行为契约（current） |
+| IM 契约层 | docs/specs/im/spec.md | IM 对外行为契约（feat-392-M2 建立） |
+| Gateway 契约层 | docs/specs/gateway/spec.md | Node Gateway 对外行为契约（feat-392-M3 建立） |
+| CLI 契约层 | docs/specs/cli/spec.md | Coding CLI 对外行为契约（current） |
 | 测试规范 | docs/TESTING_GUIDE.md | 测什么/不测什么、命名落层、临时验收 vs 回归、tasks.md 测试策略必填 |
-| 架构总览 | SPEC.md | 四个包职责、依赖方向、部署图 |
-| 内核设计 | docs/内核设计SPEC.md | agent 三层架构、模块归属、HTTP API、工具/Hook/Skill/Session 契约 |
-| Coding CLI | docs/CodingCLI-SPEC.md | CLI 运行模式、REPL 交互、模块结构、硬约束 |
-| Node Gateway | docs/NodeGateway-SPEC.md | Gateway 进程模型、Channel、入站四步决策、Heartbeat |
-| IM 服务 | docs/IM-SPEC.md | IM Web IM、配置中心、设备绑定、节点管理、前端 |
 | 操作手册 | docs/operator-runbook.md | 启动、调试、常见问题 |
 | LLM 联调 | docs/可用LLM_API与联调说明.md | 可用模型、本地代理地址、验证 curl |
+
+> 四份混合高度子系统 SPEC（`内核设计SPEC` feat-392-M1、`IM-SPEC` feat-392-M2、
+> `NodeGateway-SPEC` feat-392-M3、`CodingCLI-SPEC` feat-392-M4）已**全部退役**至
+> `docs/archive/`，对应契约改看 `docs/specs/<包>/spec.md`。
 
 ## Agent workflow
 

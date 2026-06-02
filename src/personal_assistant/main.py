@@ -1543,7 +1543,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     post_im_connect: Callable[[], None] | None = None
     _run_context_store: dict[str, dict[str, str]] = {}
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
-    # (NodeGateway-SPEC §4.2).  Live session validation is done via kernel.get_session
+    # (see docs/specs/gateway/spec.md).  Live session validation is done via kernel.get_session
     # inside InboundPipeline._binding_matches_workspace_root — no kernel_client needed.
     session_store = PersistentSessionBindingStore(
         db_path=runtime_dir / "session_bindings.sqlite3"

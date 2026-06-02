@@ -163,7 +163,7 @@ class IMConnectionManager:
     Notes:
         When the socket drops, this manager only updates local state and retries later.
         It does not interrupt the gateway's local IM/channel execution path, preserving
-        the NodeGateway-SPEC local-autonomy requirement.
+        the gateway local-autonomy requirement (see docs/specs/gateway/spec.md).
     """
 
     def __init__(
