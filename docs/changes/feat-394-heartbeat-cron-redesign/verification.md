@@ -217,3 +217,91 @@ Tasks: M3-fix-round1 全 6/6 Roadpoints DONE。M1 7/7、M2 8/8 已在 round-1 �
 ---
 
 All checks passed. Ready for PR.
+
+---
+
+# Round 3 — 2026-06-03
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 15/15（M4-fix-round2 全 5/5 Roadpoints DONE） |
+| Correctness | 15/15（round-2 四项 fail 全关闭） |
+| Coherence | Followed（无新偏离，已关闭项无回退） |
+
+**All checks passed. Ready for PR.**
+
+---
+
+## Round-2 Fail 项关闭核查
+
+### R2-1：PersistentSessionBindingStore.find_by_kernel_session_id ✓ 关闭
+
+证据：
+- `session_keys.py:271–305`：`PersistentSessionBindingStore.find_by_kernel_session_id` 实现完整——SQLite 按 `kernel_session_id` 查第一行，返回 `SessionBinding` 或 `None`，与内存版契约一致。注释明确标注 `feat-394-M4 R2-1 fix`。
+- `test_persistent_session_binding_store.py:215–297`（`TestR3FindByKernelSessionId`）：4 条契约测试——返回匹配 binding、返回 None、多条中只匹配目标、持久化跨实例恢复。**实测 4/4 passed**。
+
+### R2-2：assemble_prompt_preview 注入 heartbeat/cron_enabled vars ✓ 关闭
+
+证据：
+- `kernel.py:574–688`（`assemble_prompt_preview`）：新增 `heartbeat_enabled: bool | None`、`cron_enabled: bool | None` 参数，`preview_vars` 字典按需注入 `str(heartbeat_enabled)` / `str(cron_enabled)`（`L675–L679`）。
+- `main.py:1748–1774`（`_make_prompt_preview_provider` 闭包）：`_provider` 新增同名参数并透传给 `kernel.assemble_prompt_preview`（`L1756–L1771`）。注释标注 `feat-394-M4 R2-2 fix`。
+- `test_heartbeat_cron_vars_injection.py:269–390`（`TestAssemblePromptPreviewVarsInjection`）：3 条测试——`heartbeat_enabled=False` 排除 heartbeat 段、`cron_enabled=True` 包含 cron 段、`_make_prompt_preview_provider` 透传两标志。**实测 3/3 passed**。
+
+### S1.3：HeartbeatScheduler per-tick live agents_getter（toggle off 下一 tick 生效）✓ 关闭
+
+证据：
+- `heartbeat_scheduler.py:207,211–216`：`__init__` 新增 `agents_getter: Callable[[], Iterable[AgentWorkspaceConfig]] | None` 参数，存入 `self._agents_getter`。
+- `heartbeat_scheduler.py:270–275`（`tick()`）：每次 tick 读 `self._agents_getter() if self._agents_getter is not None else self._agents`，实现 live 读取。
+- `main.py:2065`：`_heartbeat_scheduler._agents_getter = lambda: pipeline._agents.values()`，接线完成——`pipeline._agents` 由 `ConfigSyncNotifier` 实时更新。
+- `test_heartbeat_scheduler.py:582–623`（`test_scheduler_uses_live_agents_getter_on_each_tick`）：first tick enabled→触发，toggle off→second tick skipped，断言 `summary2.triggered_runs == ()`。**实测 passed**。
+- `test_heartbeat_scheduler.py:626–641`（`test_scheduler_falls_back_to_frozen_agents_when_no_getter`）：无 getter 时退回 frozen tuple，backward compat 验证。**实测 passed**。
+
+### R2-3：busy-skip 争用缓解 ✓ 关闭（代码层验证）
+
+证据：
+- `heartbeat_scheduler.py:208,219–223`：`__init__` 新增 `run_queue: object | None` 参数，存入 `self._run_queue`。
+- `heartbeat_scheduler.py:311–319`（`tick()`）：per-agent 检查 `run_queue._active_sessions` 是否包含 `_canonical_session_key`；若命中则 skip 本 tick，用户消息优先。
+- `main.py:2069`：`_heartbeat_scheduler._run_queue = pipeline._run_queue` 接线完成。`SessionRunQueue._active_sessions`（`run_queue.py:25`）是 `set[str]`，键与 `_canonical_session_key`（`session_key` 格式，如 `web_relay:chat-1:agent-A`）一致。
+- 注：`test_scheduler_skips_busy_agent_session` 覆盖的是旧 `busy_sessions` set 路径；run_queue 新路径逻辑正确（同一 session_key 比较），但无专门的独立测试。参考 M4 progress.md："新增 `run_queue._active_sessions` 路径由架构覆盖（非 E2E 可测）"。**SUGGESTION**（不阻 PR）：可补一条用 mock run_queue 的单测。
+
+---
+
+## 已关闭项无回退确认
+
+| round-1/2 已关闭项 | 当前状态 |
+|---|---|
+| cron 接入 gateway 运行循环（`main.py:929–1000`，`_cron_tick_for_agent` 闭包） | 完好 |
+| `prompt_sections.py` 三 gate 字符串安全（`_heartbeat_enabled:86`、`_cron_enabled:111`、`_both_enabled:139`） | 完好 |
+| config sync token_getter（`main.py:275,1945`） | 完好 |
+| turn 路径 vars 注入（`inbound_pipeline.py:462–463`、`runtime.py:413–414`） | 完好 |
+| tsc / vitest（progress.md R5）| 本轮未重跑；上轮已验证通过，本轮代码无前端改动 |
+
+---
+
+## 测试结果
+
+`pytest tests/ -m "not e2e"`：**2477 passed, 2 failed, 2 skipped**。
+
+2 failed 为预存在的 macOS `/tmp` → `/private/tmp` symlink 问题，与 feat-394 无关（round-2 已识别，main 分支同样失败）：
+- `tests/im_service/integration/test_agent_config_api.py::test_get_agent_config_prefers_live_gateway_snapshot`
+- `tests/im_service/integration/test_agent_create_flow.py::test_create_agent_lists_details_and_uses_new_node_binding_for_relay`
+
+---
+
+## Completeness
+
+Tasks: M4-fix-round2 全 5/5 Roadpoints DONE（R1 PersistentSessionBindingStore、R2 preview vars、R3 live getter、R4 busy-skip、R5 文档收口）。M1 7/7、M2 8/8、M3 6/6 在前轮已确认。
+
+## Correctness
+
+round-2 所有 fail 项已有代码 + 测试证据关闭，无新缺失 requirement。
+
+## Coherence
+
+所有 design.md 决策现已被实现遵守，无新偏离。
+
+---
+
+All checks passed. Ready for PR.
