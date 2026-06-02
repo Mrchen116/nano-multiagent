@@ -57,6 +57,37 @@
 
 ---
 
+## post-acceptance fix (round 2) — 2026-06-02
+
+### Context / 根因
+
+round-2 reviewer 验收：213s 内出现 63 条消息（15s interval 应约 14 条）。
+
+根因：`_IntervalSchedule.due_times_up_to` 返回 last_due_at 到 now 之间**所有**漏掉的 due 时刻，`tick()` 对每个 due 各 submit 一个 run，每个 run 各投一条消息。round-2 e2e 继承了 round-1 留下的 heartbeat-state.json（last_due_at 远早于 now）→ catch-up 一次性补发 49 条 backlog + 正常 14 条 ≈ 63。`_CronSchedule.due_times_up_to` 有同样问题。
+
+### Decision
+
+**Fix A（scheduler）**：`_IntervalSchedule.due_times_up_to` 改为直接用 floor division 找最近对齐点，只返回 1 条。`_CronSchedule.due_times_up_to` 改为扫历史找最后一个命中点，只返回 1 条。语义：长 gap 后至多补 1 条，恢复正常节奏。
+
+**Fix B（perf hygiene）**：`HeartbeatRunRecord` 新增 `stream_anchor` 字段；`_submit_run` submit 前调 `kernel_client.current_event_sequence()` 捕获 hub sequence；`_consume_heartbeat_run` 改用 `after_sequence=stream_anchor` 替代 0，跳过历史事件重扫。Kernel SDK 新增 `current_event_sequence()` 公开方法。
+
+**e2e hygiene**：`e2e-up.sh` 每次启动前删除 `heartbeat-state.json`，防止跨运行 stale state 触发 catch-up backlog。
+
+### Evidence
+
+- `pytest -m "not e2e" -q` — 2354 passed（+2 新 scheduler 测试），4 deselected
+- 更新回归：`test_scheduler_catches_up_missed_interval_run_after_restart` 改为断言 1 条（非 3 条）
+- 新增：`test_scheduler_normal_cadence_produces_exactly_one_run_per_interval`（正常节奏 1 条/interval）
+- 新增：`test_scheduler_cron_catchup_collapses_to_one_run`（cron 长 gap → 折叠 1 条）
+- e2e 冒烟（干净运行）：15s interval，5 条消息无 burst，WS 1 次 open 0 次 close
+
+### Commits
+
+- `bcb36c39` — test: 红测试 — catch-up 长 gap 折叠为单条
+- `687f9100` — fix: FixA catch-up 折叠；FixB stream anchor；e2e-up.sh 清 heartbeat-state
+
+---
+
 ## post-acceptance fix (round 1) — 2026-06-02
 
 ### Context / 根因
