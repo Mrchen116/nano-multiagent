@@ -63,11 +63,11 @@
 
 | R | 标题 | 状态 |
 |---|---|---|
-| R1 | cron 调度不补跑单测（at/every/cron 三种调度语义，复用 M1 _Schedule 类）| TODO |
-| R2 | CronJob 持久化 + CronScheduler 多任务调度（jobs.json + per-job last_due）| TODO |
-| R3 | cron 工具（照抄 openclaw schema/描述 + Provenance 注释）+ toolsets 门控 | TODO |
-| R4 | cron_enabled 字段同步链路（IM domain → AgentWorkspaceConfig + sync_agent）| TODO |
-| R5 | cron 隔离执行 + awareness System(untrusted) append 进直聊 JSONL + delete_after_run | TODO |
-| R6 | coding_cli 隔离断言（无 cron 工具/无 heartbeat·cron prompt 段）| TODO |
-| R7 | IM 前端 cron 开关 UI + vitest + API 字段 | TODO |
-| R8 | prompt 段（cron 引导段 + 都开时路由段）+ SPEC §6 cron 部分 | TODO |
+| R1 | cron 调度不补跑单测（at/every/cron 三种调度语义，复用 M1 _Schedule 类）| DONE |
+| R2 | CronJob 持久化 + CronScheduler 多任务调度（jobs.json + per-job last_due）| DONE |
+| R3 | cron 工具（照抄 openclaw schema/描述 + Provenance 注释）+ toolsets 门控 | DONE |
+| R4 | cron_enabled 字段同步链路（IM domain → AgentWorkspaceConfig + sync_agent）| DONE |
+| R5 | cron 隔离执行 + awareness System(untrusted) append 进直聊 JSONL + delete_after_run | DONE |
+| R6 | coding_cli 隔离断言（无 cron 工具/无 heartbeat·cron prompt 段）| DONE |
+| R7 | IM 前端 cron 开关 UI + vitest + API 字段 | DONE |
+| R8 | prompt 段（cron 引导段 + 都开时路由段）+ SPEC §6 cron 部分 | DONE |
