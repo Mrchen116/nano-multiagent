@@ -802,4 +802,40 @@ describe("feat-379-M9 preview tool_ids regression", () => {
       );
     });
   });
+
+  // feat-394 round-trip: 已保存的 heartbeat.enabled=true 重开配置页时开关应显示「开」
+  it("feat-394 round-trip: heartbeat 已启用时重开配置页开关初始态为 checked=true", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        heartbeat: { enabled: true, every: "30m" }
+      }
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]');
+    expect(toggle, "heartbeat-enabled-toggle 应存在").not.toBeNull();
+    expect(toggle?.checked).toBe(true);
+  });
+
+  // feat-394-M2 round-trip: 已保存的 cron.enabled=true 重开配置页时开关应显示「开」
+  it("feat-394-M2 round-trip: cron 已启用时重开配置页开关初始态为 checked=true", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        cron: { enabled: true }
+      }
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]');
+    expect(toggle, "cron-enabled-toggle 应存在").not.toBeNull();
+    expect(toggle?.checked).toBe(true);
+  });
 });

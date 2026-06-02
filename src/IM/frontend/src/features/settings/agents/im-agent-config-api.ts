@@ -318,8 +318,49 @@ export async function listAgentSummaries() {
   return normalizeItemsEnvelope(payload);
 }
 
-export async function getAgentConfig(agentId: string) {
-  return requestJson<AgentConfig>(`/im/v1/agents/${agentId}/config?source=mirror`);
+/**
+ * Normalize a raw backend AgentConfig response: parse heartbeat_json / cron_json
+ * raw JSON strings back into structured HeartbeatConfig / CronConfig objects so that
+ * HeartbeatCard / CronCard read the correct initial state from draft.heartbeat / draft.cron.
+ *
+ * feat-394 / feat-394-M2: backend stores heartbeat/cron as raw JSON strings
+ * (heartbeat_json / cron_json); the frontend AgentConfig type exposes them as
+ * heartbeat / cron structured objects. This function bridges the gap on the
+ * response path (the request path is handled by the model_validator in agents.py).
+ *
+ * Exported for unit testing only — prefer calling getAgentConfig / updateAgentConfig.
+ */
+export function normalizeAgentConfigResponse(
+  raw: Record<string, unknown>
+): AgentConfig {
+  const config = raw as AgentConfig & { heartbeat_json?: string | null; cron_json?: string | null };
+
+  // Parse heartbeat_json → heartbeat when present and not already set.
+  let heartbeat: HeartbeatConfig | undefined = config.heartbeat;
+  if (heartbeat === undefined && typeof config.heartbeat_json === "string" && config.heartbeat_json.trim()) {
+    try {
+      heartbeat = JSON.parse(config.heartbeat_json) as HeartbeatConfig;
+    } catch {
+      // malformed JSON: leave as undefined
+    }
+  }
+
+  // Parse cron_json → cron when present and not already set.
+  let cron: CronConfig | undefined = config.cron;
+  if (cron === undefined && typeof config.cron_json === "string" && config.cron_json.trim()) {
+    try {
+      cron = JSON.parse(config.cron_json) as CronConfig;
+    } catch {
+      // malformed JSON: leave as undefined
+    }
+  }
+
+  return { ...config, heartbeat, cron };
+}
+
+export async function getAgentConfig(agentId: string): Promise<AgentConfig> {
+  const raw = await requestJson<Record<string, unknown>>(`/im/v1/agents/${agentId}/config?source=mirror`);
+  return normalizeAgentConfigResponse(raw);
 }
 
 export async function getAgentCapabilities(agentId: string) {
@@ -377,8 +418,8 @@ export async function getNodeCreateState(nodeId: string): Promise<NodeCreateStat
   return { node, capabilities: toCapabilitySnapshot(capabilities, node) };
 }
 
-export async function updateAgentConfig(agentId: string, next: UpdateAgentConfigRequest) {
-  return requestJson<AgentConfig>(`/im/v1/agents/${agentId}/config`, {
+export async function updateAgentConfig(agentId: string, next: UpdateAgentConfigRequest): Promise<AgentConfig> {
+  const raw = await requestJson<Record<string, unknown>>(`/im/v1/agents/${agentId}/config`, {
     method: "PATCH",
     body: JSON.stringify({
       profile_version: next.profile_version,
@@ -398,6 +439,7 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       default_model: next.default_model
     })
   });
+  return normalizeAgentConfigResponse(raw);
 }
 
 // feat-379-M3: preview assembled system prompt for an agent with given feature flags and custom text.
