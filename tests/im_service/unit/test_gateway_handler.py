@@ -628,7 +628,9 @@ def _build_handler_with_event_bridge(tmp_path: Path) -> tuple["GatewayHandler", 
     initialize_schema(connection)
     msg_repo = MessageRepository(connection)
     evt_repo = EventRepository(connection)
-    bridge = EventBridge(message_repository=msg_repo, event_repository=evt_repo, notify=None)
+    bridge = EventBridge(
+        message_repository=msg_repo, event_repository=evt_repo, notify=None
+    )
     # user_repository is auto-derived from conversation_repository._connection in GatewayHandler.__init__
     handler = GatewayHandler(
         relay_service=RelayService(connection),
@@ -639,7 +641,9 @@ def _build_handler_with_event_bridge(tmp_path: Path) -> tuple["GatewayHandler", 
     return handler, connection
 
 
-def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_creates_message(tmp_path: Path) -> None:
+def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_creates_message(
+    tmp_path: Path,
+) -> None:
     """turn_start with to_user_id finds/creates the canonical (owner,agent) direct conv and persists a real message row.
 
     FK-enforced DB path: messages row must exist before events row is written.
@@ -676,9 +680,13 @@ def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_create
     ack_payload = response["payload"]
     assert ack_payload["kind"] == "turn_start"
     message_id = ack_payload.get("message_id")
-    assert message_id, "turn_start ack must return message_id so gateway can store it in run_context_store"
+    assert message_id, (
+        "turn_start ack must return message_id so gateway can store it in run_context_store"
+    )
     conversation_id = ack_payload.get("conversation_id")
-    assert conversation_id, "turn_start ack must return conversation_id for heartbeat run context"
+    assert conversation_id, (
+        "turn_start ack must return conversation_id for heartbeat run context"
+    )
 
     # Verify the canonical direct conversation and real message row exist in FK-enforced DB.
     conversations = ConversationRepository(connection)
@@ -694,7 +702,9 @@ def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_create
     assert messages[0].sender_type == "agent"
 
 
-def test_turn_start_to_user_id_creates_direct_conversation_when_none_exists(tmp_path: Path) -> None:
+def test_turn_start_to_user_id_creates_direct_conversation_when_none_exists(
+    tmp_path: Path,
+) -> None:
     """turn_start with to_user_id auto-creates the canonical direct conversation when owner has no prior chat."""
     handler, connection = _build_handler_with_event_bridge(tmp_path)
     websocket = StubWebSocket()
@@ -733,7 +743,9 @@ def test_turn_start_to_user_id_creates_direct_conversation_when_none_exists(tmp_
     assert conv.direct_kind == "user-agent"
 
 
-def test_turn_start_to_user_id_uses_oldest_conversation_when_multiple_exist(tmp_path: Path) -> None:
+def test_turn_start_to_user_id_uses_oldest_conversation_when_multiple_exist(
+    tmp_path: Path,
+) -> None:
     """turn_start with to_user_id selects the canonical (oldest) direct conversation when owner has multiple."""
     import time
 
@@ -777,10 +789,14 @@ def test_turn_start_to_user_id_uses_oldest_conversation_when_multiple_exist(tmp_
 
     assert response["type"] == "ack"
     returned_conv_id = response["payload"].get("conversation_id")
-    assert returned_conv_id == first_conv.id, "must land on the oldest (canonical) direct conversation"
+    assert returned_conv_id == first_conv.id, (
+        "must land on the oldest (canonical) direct conversation"
+    )
 
 
-def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(tmp_path: Path) -> None:
+def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(
+    tmp_path: Path,
+) -> None:
     """turn_start with conversation_id follows the existing eager-bubble path (regression guard).
 
     Ensures the to_user_id branch does not interfere with normal chat eager placeholder behavior.
@@ -791,7 +807,9 @@ def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(tmp_path: Pa
     convs = ConversationRepository(connection)
     owner = users.create_user(username="chat-owner", display_name="Chat Owner")
     agent_user = users.create_user(username="agent:delta", display_name="Delta")
-    conv = convs.create_conversation(title="chat", participant_ids=[owner.id, agent_user.id])
+    conv = convs.create_conversation(
+        title="chat", participant_ids=[owner.id, agent_user.id]
+    )
 
     asyncio.run(
         handler.handle_message(
@@ -823,7 +841,9 @@ def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(tmp_path: Pa
     assert messages[0].id == str(msg_id)
 
 
-def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception(tmp_path: Path) -> None:
+def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception(
+    tmp_path: Path,
+) -> None:
     """turn_start with a to_user_id that does not exist in the DB must return a skipped ack, never raise.
 
     Root cause of feat-393 round-1 WS flap: _find_or_create_direct_conversation calls
@@ -871,4 +891,6 @@ def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception
     )
     # No message rows must have been created (owner does not exist, nothing to deliver).
     all_convs = ConversationRepository(connection).list_conversations()
-    assert all_convs == [], "No conversation should have been created for a nonexistent owner"
+    assert all_convs == [], (
+        "No conversation should have been created for a nonexistent owner"
+    )

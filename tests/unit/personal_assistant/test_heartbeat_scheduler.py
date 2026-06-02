@@ -39,7 +39,9 @@ class _FakeKernelClient:
         """Return 0 as a stub anchor (tests do not exercise stream-from-anchor path)."""
         return 0
 
-    def submit_message(self, *, session_id: str, texts: list[str], **kwargs: object) -> dict[str, object]:
+    def submit_message(
+        self, *, session_id: str, texts: list[str], **kwargs: object
+    ) -> dict[str, object]:
         self._run_counter += 1
         payload: dict[str, object] = {
             "run_id": f"run-{self._run_counter}",
@@ -187,9 +189,13 @@ def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) 
     assert len(first.triggered_runs) == 1
 
     second_kernel = _FakeKernelClient()
-    restarted = HeartbeatScheduler(agents=(agent,), kernel_client=second_kernel, state_store=state_store)
+    restarted = HeartbeatScheduler(
+        agents=(agent,), kernel_client=second_kernel, state_store=state_store
+    )
     # 1h31m gap → 3 missed intervals (09:30, 10:00, 10:30); must collapse to exactly 1 run.
-    catch_up = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC)))
+    catch_up = asyncio.run(
+        restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC))
+    )
 
     assert len(catch_up.triggered_runs) == 1, (
         "catch-up after a long gap must produce exactly 1 run (most recent due), not a backlog"
@@ -199,17 +205,23 @@ def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) 
     assert len(second_kernel.sent_messages) == 1
 
 
-def test_scheduler_normal_cadence_produces_exactly_one_run_per_interval(tmp_path: Path) -> None:
+def test_scheduler_normal_cadence_produces_exactly_one_run_per_interval(
+    tmp_path: Path,
+) -> None:
     """Continuous operation: each on-time tick produces exactly 1 triggered run."""
     agent = _agent(tmp_path)
     _write_heartbeat(agent.workspace_root, "interval: 10s\n\nReport status.\n")
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
-    scheduler = HeartbeatScheduler(agents=(agent,), kernel_client=_FakeKernelClient(), state_store=state_store)
+    scheduler = HeartbeatScheduler(
+        agents=(agent,), kernel_client=_FakeKernelClient(), state_store=state_store
+    )
 
     t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
     for offset_s in (0, 10, 20, 30):
         result = asyncio.run(scheduler.tick(now=t0 + timedelta(seconds=offset_s)))
-        assert len(result.triggered_runs) == 1, f"at +{offset_s}s expected 1 run, got {len(result.triggered_runs)}"
+        assert len(result.triggered_runs) == 1, (
+            f"at +{offset_s}s expected 1 run, got {len(result.triggered_runs)}"
+        )
 
 
 def test_scheduler_cron_catchup_collapses_to_one_run(tmp_path: Path) -> None:
@@ -218,13 +230,17 @@ def test_scheduler_cron_catchup_collapses_to_one_run(tmp_path: Path) -> None:
     _write_heartbeat(agent.workspace_root, "cron: * * * * *\n\nMinute heartbeat.\n")
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
     kernel = _FakeKernelClient()
-    scheduler = HeartbeatScheduler(agents=(agent,), kernel_client=kernel, state_store=state_store)
+    scheduler = HeartbeatScheduler(
+        agents=(agent,), kernel_client=kernel, state_store=state_store
+    )
 
     # First tick at 09:00 — establishes last_due_at.
     asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
 
     # Restart after a 5-minute gap — 5 cron hits missed; must produce exactly 1 run.
-    restarted = HeartbeatScheduler(agents=(agent,), kernel_client=_FakeKernelClient(), state_store=state_store)
+    restarted = HeartbeatScheduler(
+        agents=(agent,), kernel_client=_FakeKernelClient(), state_store=state_store
+    )
     catch_up = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 9, 5, tzinfo=UTC)))
 
     assert len(catch_up.triggered_runs) == 1, (

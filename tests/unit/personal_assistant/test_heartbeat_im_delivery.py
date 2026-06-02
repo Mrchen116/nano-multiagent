@@ -98,7 +98,9 @@ def _build_im_db_and_handler(tmp_path: Path):  # noqa: ANN202
     initialize_schema(connection)
     msg_repo = MessageRepository(connection)
     evt_repo = EventRepository(connection)
-    bridge = EventBridge(message_repository=msg_repo, event_repository=evt_repo, notify=None)
+    bridge = EventBridge(
+        message_repository=msg_repo, event_repository=evt_repo, notify=None
+    )
     convs = ConversationRepository(connection)
     handler = GatewayHandler(
         relay_service=RelayService(connection),
@@ -114,7 +116,9 @@ def _build_im_db_and_handler(tmp_path: Path):  # noqa: ANN202
 # ---------------------------------------------------------------------------
 
 
-def test_heartbeat_with_content_creates_real_message_row_in_fk_enforced_db(tmp_path: Path) -> None:
+def test_heartbeat_with_content_creates_real_message_row_in_fk_enforced_db(
+    tmp_path: Path,
+) -> None:
     """Heartbeat run that produces real content → a real message row appears in IM DB.
 
     This is the M138 fake-green guard: FK is ON; any synthetic message_id would
@@ -143,8 +147,8 @@ def test_heartbeat_with_content_creates_real_message_row_in_fk_enforced_db(tmp_p
     # This is what the heartbeat runner will do after feat-393 (R2 gateway side).
     run_id = "run-hb-content-1"
     run_context_store[run_id] = {
-        "conversation_id": "",   # empty: not yet resolved (lazy)
-        "message_id": "",        # empty: not yet created (lazy)
+        "conversation_id": "",  # empty: not yet resolved (lazy)
+        "message_id": "",  # empty: not yet created (lazy)
         "agent_id": "alpha",
         "to_user_id": owner.id,  # heartbeat variant: owner_id drives canonical conv lookup
         "kernel_session_id": "sess-hb-1",
@@ -164,7 +168,13 @@ def test_heartbeat_with_content_creates_real_message_row_in_fk_enforced_db(tmp_p
 
         # assistant_message with real content → observer should lazily send turn_start{to_user_id}
         # then message_delta.
-        coro = observer({"run_id": run_id, "event": "assistant_message", "content": "Daily summary: all good."})
+        coro = observer(
+            {
+                "run_id": run_id,
+                "event": "assistant_message",
+                "content": "Daily summary: all good.",
+            }
+        )
         if asyncio.iscoroutine(coro):
             await coro
 
@@ -178,14 +188,19 @@ def test_heartbeat_with_content_creates_real_message_row_in_fk_enforced_db(tmp_p
     # The IM DB must have a real message row (FK-enforced path passed).
     # Find the canonical direct conversation created by turn_start to_user_id handler.
     convs = ConversationRepository(connection)
-    agent_user_row = UserRepository(connection)._connection.execute(  # noqa: SLF001
-        "SELECT id FROM users WHERE username = ?", ("agent:alpha",)
-    ).fetchone()
+    agent_user_row = (
+        UserRepository(connection)
+        ._connection.execute(  # noqa: SLF001
+            "SELECT id FROM users WHERE username = ?", ("agent:alpha",)
+        )
+        .fetchone()
+    )
     assert agent_user_row is not None
     agent_user_id = str(agent_user_row["id"])
 
     direct_convs = [
-        c for c in convs.list_conversations()
+        c
+        for c in convs.list_conversations()
         if c.type == "direct" and set(c.participant_ids) == {owner.id, agent_user_id}
     ]
     assert len(direct_convs) >= 1, (
@@ -239,7 +254,9 @@ def test_heartbeat_no_reply_produces_zero_message_rows(tmp_path: Path) -> None:
         if asyncio.iscoroutine(coro):
             await coro
         # NO_REPLY content → observer must not send turn_start; silent
-        coro = observer({"run_id": run_id, "event": "assistant_message", "content": "NO_REPLY"})
+        coro = observer(
+            {"run_id": run_id, "event": "assistant_message", "content": "NO_REPLY"}
+        )
         if asyncio.iscoroutine(coro):
             await coro
         coro = observer({"run_id": run_id, "event": "turn_end", "completed": True})
@@ -294,7 +311,9 @@ def test_heartbeat_empty_content_produces_zero_message_rows(tmp_path: Path) -> N
         coro = observer({"run_id": run_id, "event": "run_status", "status": "running"})
         if asyncio.iscoroutine(coro):
             await coro
-        coro = observer({"run_id": run_id, "event": "assistant_message", "content": "   "})
+        coro = observer(
+            {"run_id": run_id, "event": "assistant_message", "content": "   "}
+        )
         if asyncio.iscoroutine(coro):
             await coro
         coro = observer({"run_id": run_id, "event": "turn_end", "completed": True})
@@ -323,7 +342,9 @@ def test_normal_chat_run_context_store_eager_bubble_unchanged(tmp_path: Path) ->
     owner = users.create_user(username="chat-user", display_name="Chat User")
     agent_user = users.create_user(username="agent:delta", display_name="Delta")
     convs = ConversationRepository(connection)
-    conv = convs.create_conversation(title="chat", participant_ids=[owner.id, agent_user.id])
+    conv = convs.create_conversation(
+        title="chat", participant_ids=[owner.id, agent_user.id]
+    )
 
     asyncio.run(
         handler.handle_message(
@@ -355,7 +376,9 @@ def test_normal_chat_run_context_store_eager_bubble_unchanged(tmp_path: Path) ->
         coro = observer({"run_id": run_id, "event": "run_status", "status": "running"})
         if asyncio.iscoroutine(coro):
             await coro
-        coro = observer({"run_id": run_id, "event": "assistant_message", "content": "hello"})
+        coro = observer(
+            {"run_id": run_id, "event": "assistant_message", "content": "hello"}
+        )
         if asyncio.iscoroutine(coro):
             await coro
         coro = observer({"run_id": run_id, "event": "turn_end", "completed": True})
@@ -376,7 +399,9 @@ def test_normal_chat_run_context_store_eager_bubble_unchanged(tmp_path: Path) ->
 # ---------------------------------------------------------------------------
 
 
-def test_heartbeat_scheduler_reuses_stable_heartbeat_session_across_ticks(tmp_path: Path) -> None:
+def test_heartbeat_scheduler_reuses_stable_heartbeat_session_across_ticks(
+    tmp_path: Path,
+) -> None:
     """HeartbeatScheduler uses a stable per-agent ':heartbeat' session, not a fresh session per tick.
 
     After feat-393 M1, _submit_run must reuse the same session for successive ticks
@@ -385,7 +410,10 @@ def test_heartbeat_scheduler_reuses_stable_heartbeat_session_across_ticks(tmp_pa
     """
     from datetime import UTC, datetime
     from personal_assistant.config.local_store import AgentWorkspaceConfig
-    from personal_assistant.scheduler.heartbeat_scheduler import HeartbeatScheduler, HeartbeatSchedulerStateStore
+    from personal_assistant.scheduler.heartbeat_scheduler import (
+        HeartbeatScheduler,
+        HeartbeatSchedulerStateStore,
+    )
 
     class _FakeKernelClient:
         def __init__(self) -> None:
@@ -394,7 +422,14 @@ def test_heartbeat_scheduler_reuses_stable_heartbeat_session_across_ticks(tmp_pa
             self._session_counter = 0
             self._run_counter = 0
 
-        async def create_session(self, *, workspace_root: str, product_id: str, title: str | None = None, **_kw) -> dict:
+        async def create_session(
+            self,
+            *,
+            workspace_root: str,
+            product_id: str,
+            title: str | None = None,
+            **_kw,
+        ) -> dict:
             self._session_counter += 1
             session_id = f"sess-{self._session_counter}"
             self.created_sessions.append({"session_id": session_id})
@@ -408,7 +443,9 @@ def test_heartbeat_scheduler_reuses_stable_heartbeat_session_across_ticks(tmp_pa
 
     agent_dir = tmp_path / "agent-a"
     agent_dir.mkdir()
-    (agent_dir / "HEARTBEAT.md").write_text("interval: 1s\n\n- Check status\n", encoding="utf-8")
+    (agent_dir / "HEARTBEAT.md").write_text(
+        "interval: 1s\n\n- Check status\n", encoding="utf-8"
+    )
 
     agent = AgentWorkspaceConfig(agent_id="agent-a", workspace_root=agent_dir)
     kernel = _FakeKernelClient()
@@ -419,6 +456,7 @@ def test_heartbeat_scheduler_reuses_stable_heartbeat_session_across_ticks(tmp_pa
     )
 
     from datetime import timedelta
+
     t0 = datetime(2026, 6, 1, 9, 0, 0, tzinfo=UTC)
     await_tick = asyncio.run
 

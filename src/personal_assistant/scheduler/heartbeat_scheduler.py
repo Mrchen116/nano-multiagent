@@ -224,7 +224,9 @@ class HeartbeatScheduler:
             triggered_runs=tuple(triggered_runs), skipped_agents=tuple(skipped_agents)
         )
 
-    async def _get_or_create_heartbeat_session(self, *, agent: AgentWorkspaceConfig) -> str:
+    async def _get_or_create_heartbeat_session(
+        self, *, agent: AgentWorkspaceConfig
+    ) -> str:
         """Return the stable :heartbeat session for one agent, creating it if not yet present.
 
         Returns:
@@ -247,12 +249,16 @@ class HeartbeatScheduler:
         self._heartbeat_sessions[agent.agent_id] = new_session_id
         return new_session_id
 
-    async def _submit_run(self, *, agent: AgentWorkspaceConfig, due_at: datetime, instructions: str) -> HeartbeatRunRecord:
+    async def _submit_run(
+        self, *, agent: AgentWorkspaceConfig, due_at: datetime, instructions: str
+    ) -> HeartbeatRunRecord:
         # feat-393 decision 4: stable :heartbeat session reused across ticks instead of
         # fresh session per tick.  Reuse preserves standing-task context continuity and
         # ensures heartbeat runs are never detached from a resolvable IM conversation target.
         session_id = await self._get_or_create_heartbeat_session(agent=agent)
-        message = _build_heartbeat_message(agent_id=agent.agent_id, due_at=due_at, instructions=instructions)
+        message = _build_heartbeat_message(
+            agent_id=agent.agent_id, due_at=due_at, instructions=instructions
+        )
         # feat-393 fix-r2 Fix B: capture the event sequence before submitting so the
         # consumer can stream from this anchor instead of replaying all history.
         # This avoids an O(history) re-scan on each tick as the :heartbeat session grows.
@@ -272,7 +278,13 @@ class HeartbeatScheduler:
         run_id = str(run_payload.get("run_id", "")).strip()
         if not run_id:
             raise RuntimeError("heartbeat submission did not return run_id")
-        return HeartbeatRunRecord(agent_id=agent.agent_id, due_at=due_at, run_id=run_id, session_id=session_id, stream_anchor=stream_anchor)
+        return HeartbeatRunRecord(
+            agent_id=agent.agent_id,
+            due_at=due_at,
+            run_id=run_id,
+            session_id=session_id,
+            stream_anchor=stream_anchor,
+        )
 
 
 class _Schedule(Protocol):

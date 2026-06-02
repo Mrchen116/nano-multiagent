@@ -843,8 +843,18 @@ class GatewayHandler:
                 #
                 # Two modes are mutually exclusive: conversation_id → normal eager-bubble
                 # path (unchanged); to_user_id → lazy canonical-conv resolution path.
-                if self._conversation_repository is None or self._user_repository is None:
-                    return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "skipped": "repositories_not_configured"}}
+                if (
+                    self._conversation_repository is None
+                    or self._user_repository is None
+                ):
+                    return {
+                        "type": "ack",
+                        "payload": {
+                            "message_type": "node.streaming_delta",
+                            "kind": kind,
+                            "skipped": "repositories_not_configured",
+                        },
+                    }
                 agent_user_id = _optional_text(payload.get("agent_user_id"))
                 if agent_user_id is None:
                     row = self._user_repository._connection.execute(  # noqa: SLF001
@@ -852,7 +862,14 @@ class GatewayHandler:
                         (f"agent:{agent_id}",),
                     ).fetchone()
                     if row is None:
-                        return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "skipped": "agent_user_id_not_found"}}
+                        return {
+                            "type": "ack",
+                            "payload": {
+                                "message_type": "node.streaming_delta",
+                                "kind": kind,
+                                "skipped": "agent_user_id_not_found",
+                            },
+                        }
                     agent_user_id = str(row["id"])
                 # feat-393 fix-r1: owner lookup / canonical-conv creation can fail when
                 # config.node.user_id is stale or the ephemeral IM DB has no such user yet.
@@ -878,7 +895,14 @@ class GatewayHandler:
                         to_user_id,
                         exc,
                     )
-                    return {"type": "ack", "payload": {"message_type": "node.streaming_delta", "kind": kind, "skipped": "owner_unresolved"}}
+                    return {
+                        "type": "ack",
+                        "payload": {
+                            "message_type": "node.streaming_delta",
+                            "kind": kind,
+                            "skipped": "owner_unresolved",
+                        },
+                    }
                 created_message = self._event_bridge.on_turn_start(
                     conversation_id=canonical_conv.id,
                     agent_user_id=agent_user_id,
@@ -897,7 +921,9 @@ class GatewayHandler:
                 }
 
             # Normal path: conversation_id is provided (eager placeholder for regular chat).
-            conversation_id = _require_text(payload.get("conversation_id"), field_name="conversation_id")
+            conversation_id = _require_text(
+                payload.get("conversation_id"), field_name="conversation_id"
+            )
             # Resolve IM user ID from agent_id; gateway sends agent_id (e.g. "alpha"),
             # IM stores the agent as username="agent:<agent_id>" in the users table.
             agent_user_id = _optional_text(payload.get("agent_user_id"))

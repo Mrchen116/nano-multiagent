@@ -899,7 +899,11 @@ class PollingHeartbeatRunner:
             summary = await self._scheduler.tick()
             # feat-393: consume each triggered heartbeat run through the shared observer so
             # results are delivered to the owner's canonical IM direct conversation.
-            if self._kernel is not None and self._run_context_store is not None and self._owner_user_id:
+            if (
+                self._kernel is not None
+                and self._run_context_store is not None
+                and self._owner_user_id
+            ):
                 for record in summary.triggered_runs:
                     if self._stop_requested:
                         break
@@ -931,6 +935,7 @@ class PollingHeartbeatRunner:
             inherits normal-chat failure behavior (no persistent retry).
         """
         import logging as _logging
+
         _hb_logger = _logging.getLogger(__name__)
 
         run_id = record.run_id
@@ -940,8 +945,8 @@ class PollingHeartbeatRunner:
         # Seed run_context_store with heartbeat variant: to_user_id drives lazy conv resolution.
         assert self._run_context_store is not None  # guard (checked in _run_loop)
         self._run_context_store[run_id] = {
-            "conversation_id": "",   # lazy: filled by IM turn_start ack
-            "message_id": "",        # lazy: filled by IM turn_start ack
+            "conversation_id": "",  # lazy: filled by IM turn_start ack
+            "message_id": "",  # lazy: filled by IM turn_start ack
             "agent_id": agent_id,
             "to_user_id": self._owner_user_id,
             "kernel_session_id": kernel_session_id,
@@ -949,7 +954,9 @@ class PollingHeartbeatRunner:
         try:
             # feat-393 fix-r2 Fix B: stream from the pre-submit anchor to skip replaying
             # history from prior ticks.  Falls back to 0 when anchor is absent (test path).
-            async for event in self._kernel.stream(kernel_session_id, after_sequence=record.stream_anchor):
+            async for event in self._kernel.stream(
+                kernel_session_id, after_sequence=record.stream_anchor
+            ):
                 if event.get("run_id") != run_id:
                     continue
                 if self._kernel_event_observer is not None:
@@ -962,7 +969,9 @@ class PollingHeartbeatRunner:
                     if status in ("completed", "failed", "cancelled", "error"):
                         break
         except Exception:  # noqa: BLE001  — delivery failure does not disrupt gateway loop
-            _hb_logger.exception("heartbeat run delivery failed: agent=%s run_id=%s", agent_id, run_id)
+            _hb_logger.exception(
+                "heartbeat run delivery failed: agent=%s run_id=%s", agent_id, run_id
+            )
         finally:
             self._run_context_store.pop(run_id, None)
 
@@ -1111,7 +1120,10 @@ class GatewayRuntime:
                     except GatewayStartupError as exc:
                         await self._publish_startup_failure(exc)
                         raise
-                im_task = asyncio.create_task(self._im_connection_manager.run_forever(), name="personal-assistant-im")
+                im_task = asyncio.create_task(
+                    self._im_connection_manager.run_forever(),
+                    name="personal-assistant-im",
+                )
             # feat-393 fix-r1: heartbeat must start AFTER im.connect_once so that
             # manager.connected=True when the first tick's kernel_event_observer fires.
             # Starting before connect_once was the root cause of 0 IM deliveries:
@@ -2292,10 +2304,14 @@ def _build_kernel_event_observer(
             # Otherwise fire turn_start{to_user_id}, get back the resolved conversation_id
             # and message_id, store them, then emit the delta so streaming starts.
             if to_user_id and not message_id:
-                from personal_assistant.gateway.inbound_pipeline import InboundPipeline as _IP
+                from personal_assistant.gateway.inbound_pipeline import (
+                    InboundPipeline as _IP,
+                )
+
                 if _IP._is_no_reply_token(content):
                     # NO_REPLY: heartbeat has nothing to report; do not create any IM trace.
                     return None
+
                 async def _heartbeat_lazy_turn_start(
                     mgr: IMConnectionManager = manager,
                     rid: str = run_id,
@@ -2305,41 +2321,69 @@ def _build_kernel_event_observer(
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
-                        ack = await mgr.send_json_await_ack("node.streaming_delta", {
-                            "kind": "turn_start",
-                            "to_user_id": uid,
-                            "agent_id": aid,
-                            "run_id": rid,
-                        })
-                        ack_payload = ack.get("payload") if isinstance(ack.get("payload"), dict) else ack
-                        returned_msg_id = ack_payload.get("message_id") if isinstance(ack_payload, dict) else None
-                        returned_conv_id = ack_payload.get("conversation_id") if isinstance(ack_payload, dict) else None
-                        skipped_reason = ack_payload.get("skipped") if isinstance(ack_payload, dict) else None
+                        ack = await mgr.send_json_await_ack(
+                            "node.streaming_delta",
+                            {
+                                "kind": "turn_start",
+                                "to_user_id": uid,
+                                "agent_id": aid,
+                                "run_id": rid,
+                            },
+                        )
+                        ack_payload = (
+                            ack.get("payload")
+                            if isinstance(ack.get("payload"), dict)
+                            else ack
+                        )
+                        returned_msg_id = (
+                            ack_payload.get("message_id")
+                            if isinstance(ack_payload, dict)
+                            else None
+                        )
+                        returned_conv_id = (
+                            ack_payload.get("conversation_id")
+                            if isinstance(ack_payload, dict)
+                            else None
+                        )
+                        skipped_reason = (
+                            ack_payload.get("skipped")
+                            if isinstance(ack_payload, dict)
+                            else None
+                        )
                         if skipped_reason:
                             # feat-393 fix-r1: IM skipped delivery (e.g. owner_unresolved).
                             # Per design decision-6: delivery failure ≠ run failure; log and
                             # let this heartbeat run finish normally — no exception, no retry.
                             import logging as _obs_logging  # noqa: PLC0415
+
                             _obs_logging.getLogger(__name__).warning(
                                 "heartbeat delivery skipped for run_id=%s agent=%s: %s",
-                                rid, aid, skipped_reason,
+                                rid,
+                                aid,
+                                skipped_reason,
                             )
                             return
                         if returned_msg_id and rid in run_context_store:
                             run_context_store[rid]["message_id"] = str(returned_msg_id)
                         if returned_conv_id and rid in run_context_store:
-                            run_context_store[rid]["conversation_id"] = str(returned_conv_id)
+                            run_context_store[rid]["conversation_id"] = str(
+                                returned_conv_id
+                            )
                         if new_kernel_id and rid in run_context_store:
                             run_context_store[rid]["kernel_message_id"] = new_kernel_id
                         if returned_msg_id:
-                            await mgr.send_json("node.streaming_delta", {
-                                "kind": "message_delta",
-                                "message_id": str(returned_msg_id),
-                                "delta_text": text,
-                                "run_id": rid,
-                            })
+                            await mgr.send_json(
+                                "node.streaming_delta",
+                                {
+                                    "kind": "message_delta",
+                                    "message_id": str(returned_msg_id),
+                                    "delta_text": text,
+                                    "run_id": rid,
+                                },
+                            )
                     except Exception:  # noqa: BLE001
                         pass
+
                 return _heartbeat_lazy_turn_start()
 
             # Detect a new assistant message within the same run (e.g. textA → tool_calls → textB).
