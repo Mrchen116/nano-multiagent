@@ -266,6 +266,14 @@
         "modelPlatformDefaultPlain": "Platform default",
         "modelDefaultSuffix": "(default)"
       },
+      "heartbeat": {
+        "title": "Heartbeat",
+        "sub": "Periodic agent wake-ups with your conversation context.",
+        "enabledLabel": "Enable heartbeat",
+        "enabledHelp": "Agent will wake periodically and check its HEARTBEAT.md task list.",
+        "everyLabel": "Cadence",
+        "everyHelp": "How often the agent wakes up (e.g. 30m, 1h, 2h)."
+      },
       "workspace": {
         "title": "Workspace & Runtime",
         "sub": "Read-only. Managed by the owning node.",

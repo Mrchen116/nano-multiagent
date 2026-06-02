@@ -63,6 +63,9 @@ class HeartbeatTickSummary:
 @dataclass(frozen=True, slots=True)
 class _AgentState:
     last_due_at: str | None = None
+    # feat-394 decision 3: per-task last_due_at for tasks: multi-sub-rhythm
+    # Key = task name; value = ISO8601 UTC timestamp of last execution.
+    per_task_last_due: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +106,14 @@ class HeartbeatSchedulerStateStore:
             last_due_at = payload.get("last_due_at")
             if last_due_at is not None and not isinstance(last_due_at, str):
                 continue
-            agents[agent_id] = _AgentState(last_due_at=last_due_at)
+            # feat-394 decision 3: per-task last_due map (backward compatible — missing key → empty dict)
+            raw_per_task = payload.get("per_task_last_due", {})
+            per_task_last_due: dict[str, str] = (
+                {k: v for k, v in raw_per_task.items() if isinstance(k, str) and isinstance(v, str)}
+                if isinstance(raw_per_task, dict)
+                else {}
+            )
+            agents[agent_id] = _AgentState(last_due_at=last_due_at, per_task_last_due=per_task_last_due)
         return _SchedulerState(agents=agents)
 
     def save(self, state: _SchedulerState) -> None:
@@ -137,9 +147,30 @@ class _KernelClientLike(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class _HeartbeatTask:
+    """One sub-rhythm task entry from HEARTBEAT.md tasks: block.
+
+    Provenance: openclaw/src/auto-reply/heartbeat.ts HeartbeatTask type (feat-394 decision 3).
+
+    Args:
+        name: Stable task name used as the per-task state key.
+        interval: Human-readable interval string (e.g. "30m", "2h").
+        prompt: Task-specific instruction text appended to the heartbeat message.
+    """
+
+    name: str
+    interval: timedelta
+    prompt: str
+
+
+@dataclass(frozen=True, slots=True)
 class _HeartbeatSpec:
     schedule: "_Schedule"
     instructions: str
+    # feat-394 decision 3: multi-sub-rhythm tasks parsed from tasks: block.
+    # When present, each task is evaluated independently with its own last_due_at.
+    # When empty, the legacy single-schedule mode is used.
+    tasks: tuple["_HeartbeatTask", ...] = ()
 
 
 class HeartbeatScheduler:
@@ -149,14 +180,19 @@ class HeartbeatScheduler:
         agents: Managed agent workspaces whose HEARTBEAT.md files should be evaluated.
         kernel_client: HTTP boundary used to create independent heartbeat sessions.
         state_store: Persistence for last executed due timestamps so restart catch-up works.
+        canonical_session_store: Optional shared mutable dict mapping agent_id to the
+            kernel session_id of the (owner, agent) canonical direct chat.  When present
+            and a session is found for the agent, heartbeat runs use that session instead
+            of creating a fresh one (feat-394 decision 3: heartbeat runs in the canonical
+            direct chat session, carrying user conversation context).  PollingHeartbeatRunner
+            populates this dict after the first successful turn_start delivery.
 
     Notes:
         The scheduler stays intentionally quiet when HEARTBEAT.md has no actionable body.
-        Each agent has one stable :heartbeat kernel session that is created on first use and
-        reused across all subsequent ticks (feat-393 decision 4).  Reuse preserves standing-task
-        context continuity and avoids creating a fresh session per tick, which was the root cause
-        of the M138 report bridge failure (no real IM conversation could be derived from a
-        session that did not exist at delivery time).
+        When canonical_session_store is populated, heartbeat reuses the canonical direct chat
+        kernel session so the model has conversation context (like an openclaw "main-session turn").
+        On first heartbeat (before any direct chat), a fresh session is created; the runner
+        promotes it to canonical after the first delivery establishes the IM conversation.
     """
 
     def __init__(
@@ -165,11 +201,27 @@ class HeartbeatScheduler:
         agents: tuple[AgentWorkspaceConfig, ...],
         kernel_client: _KernelClientLike,
         state_store: HeartbeatSchedulerStateStore,
+        canonical_session_store: dict[str, str] | None = None,
+        busy_sessions: set[str] | None = None,
     ) -> None:
         self._agents = agents
         self._kernel_client = kernel_client
         self._state_store = state_store
-        # One stable :heartbeat session per agent_id; created on first tick, reused thereafter.
+        # feat-394 decision 3: canonical direct chat kernel session per agent_id.
+        # Populated by PollingHeartbeatRunner after first delivery; None key → fresh session.
+        # Falls back to the legacy _heartbeat_sessions dict when canonical_session_store is None.
+        self._canonical_session_store: dict[str, str] = (
+            canonical_session_store if canonical_session_store is not None else {}
+        )
+        # feat-394 decision 3: busy session set — kernel sessions currently running a turn.
+        # Heartbeat skips when the agent's canonical session is busy to avoid concurrent runs.
+        # Shared with PollingHeartbeatRunner / InboundPipeline; updated externally.
+        self._busy_sessions: set[str] = (
+            busy_sessions if busy_sessions is not None else set()
+        )
+        # Legacy fallback session store (for when canonical_session_store is not provided).
+        # In feat-393 mode, one stable :heartbeat session per agent was used.
+        # In feat-394 mode, canonical_session_store takes precedence.
         self._heartbeat_sessions: dict[str, str] = {}
 
     async def tick(self, *, now: datetime | None = None) -> HeartbeatTickSummary:
@@ -197,27 +249,76 @@ class HeartbeatScheduler:
         skipped_agents: list[str] = []
 
         for agent in self._agents:
+            # feat-394 decision 5: per-agent heartbeat gate — skip without reading HEARTBEAT.md
+            # when the agent's heartbeat_enabled flag is False (synced from IM via ConfigSyncNotifier).
+            if not agent.heartbeat_enabled:
+                skipped_agents.append(agent.agent_id)
+                continue
+            # feat-394 decision 3: activeHours gate — skip when outside the configured active window.
+            if not _is_within_active_hours(
+                now=current_time,
+                start_hhmm=agent.heartbeat_active_hours_start,
+                end_hhmm=agent.heartbeat_active_hours_end,
+                timezone_name=agent.heartbeat_active_hours_timezone,
+            ):
+                skipped_agents.append(agent.agent_id)
+                continue
+            # feat-394 decision 3: busy-session gate — skip when canonical session is running
+            # a turn (avoid concurrent runs in the same direct-chat kernel session).
+            canonical_session = self._canonical_session_store.get(agent.agent_id)
+            if canonical_session and canonical_session in self._busy_sessions:
+                skipped_agents.append(agent.agent_id)
+                continue
             heartbeat_path = agent.workspace_root / "HEARTBEAT.md"
             spec = _load_heartbeat_spec(heartbeat_path)
             if spec is None:
                 skipped_agents.append(agent.agent_id)
                 continue
             agent_state = state_agents.get(agent.agent_id, _AgentState())
-            due_times = spec.schedule.due_times_up_to(
-                now=current_time,
-                last_due_at=_parse_optional_datetime(agent_state.last_due_at),
-            )
-            if not due_times:
-                continue
-            for due_at in due_times:
-                triggered_runs.append(
-                    await self._submit_run(
-                        agent=agent, due_at=due_at, instructions=spec.instructions
+            if spec.tasks:
+                # feat-394 decision 3: tasks: multi-sub-rhythm — each task runs independently.
+                # Per-task last_due_at is stored in agent_state.per_task_last_due.
+                any_due = False
+                per_task_last_due = dict(agent_state.per_task_last_due)
+                for task in spec.tasks:
+                    task_last_due = _parse_optional_datetime(per_task_last_due.get(task.name))
+                    task_schedule = _IntervalSchedule(interval=task.interval)
+                    due_times = task_schedule.due_times_up_to(
+                        now=current_time, last_due_at=task_last_due
                     )
+                    for due_at in due_times:
+                        any_due = True
+                        triggered_runs.append(
+                            await self._submit_run(
+                                agent=agent, due_at=due_at, instructions=task.prompt
+                            )
+                        )
+                        per_task_last_due[task.name] = due_at.isoformat()
+                if any_due:
+                    state_agents[agent.agent_id] = _AgentState(
+                        last_due_at=agent_state.last_due_at,
+                        per_task_last_due=per_task_last_due,
+                    )
+                # If no task is due this tick, don't append to skipped_agents;
+                # the absence of triggered_runs is sufficient signal.
+            else:
+                # Legacy single-schedule mode.
+                due_times = spec.schedule.due_times_up_to(
+                    now=current_time,
+                    last_due_at=_parse_optional_datetime(agent_state.last_due_at),
                 )
-                state_agents[agent.agent_id] = _AgentState(
-                    last_due_at=due_at.isoformat()
-                )
+                if not due_times:
+                    continue
+                for due_at in due_times:
+                    triggered_runs.append(
+                        await self._submit_run(
+                            agent=agent, due_at=due_at, instructions=spec.instructions
+                        )
+                    )
+                    state_agents[agent.agent_id] = _AgentState(
+                        last_due_at=due_at.isoformat(),
+                        per_task_last_due=agent_state.per_task_last_due,
+                    )
 
         self._state_store.save(_SchedulerState(agents=state_agents))
         return HeartbeatTickSummary(
@@ -227,7 +328,12 @@ class HeartbeatScheduler:
     async def _get_or_create_heartbeat_session(
         self, *, agent: AgentWorkspaceConfig
     ) -> str:
-        """Return the stable :heartbeat session for one agent, creating it if not yet present.
+        """Return the session to use for one agent's heartbeat run.
+
+        feat-394 decision 3: prefer the canonical direct-chat kernel session when available
+        (set by PollingHeartbeatRunner after first delivery), so heartbeat runs accumulate
+        conversation context like a "main-session turn" in openclaw.  Falls back to the
+        per-agent :heartbeat session (feat-393 behaviour) when no canonical session is known.
 
         Returns:
             session_id to use for this tick's heartbeat run.
@@ -235,6 +341,12 @@ class HeartbeatScheduler:
         Raises:
             RuntimeError: When the kernel session creation returns an empty or malformed session_id.
         """
+        # Check canonical session first (feat-394 decision 3: run in owner direct-chat session).
+        canonical_id = self._canonical_session_store.get(agent.agent_id)
+        if canonical_id:
+            return canonical_id
+
+        # Fallback: legacy per-agent :heartbeat session (feat-393 behaviour, or first heartbeat).
         session_id = self._heartbeat_sessions.get(agent.agent_id)
         if session_id:
             return session_id
@@ -314,20 +426,30 @@ class _IntervalSchedule:
     def due_times_up_to(
         self, *, now: datetime, last_due_at: datetime | None
     ) -> list[datetime]:
+        # Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "every" branch —
+        # steps = ceil(elapsed / everyMs), next = anchor + steps * everyMs.
+        # Result is always strictly in the future relative to anchor; we only trigger
+        # when that future point has actually arrived (next_due_at <= now).
+        # This means a restart after a gap never catches up past due-times — it waits
+        # for the next aligned future slot.  (feat-394 decision 3/4, replaces feat-393
+        # fix-r2 "fold to most-recent" semantics)
+        #
+        # First-ever tick (last_due_at is None): trigger immediately at floor(now, interval).
+        # The first execution is always the clock-aligned slot at or before now; this is the
+        # anchor that subsequent ticks use to compute the next future slot.
         if last_due_at is None:
             return [_floor_datetime(now, self.interval)]
-        # feat-393 fix-r2: collapse multiple missed intervals to a single catch-up run.
-        # Replaying every missed due-time floods IM after a gap (e.g. 213s gap at 5s
-        # interval → 42 backlog runs in round-2 acceptance).  "Periodic summary" semantics:
-        # at most one catch-up for the most recent period, then resume normal cadence.
-        cursor = last_due_at + self.interval
-        if cursor > now:
-            # Nothing due yet.
+        elapsed = now - last_due_at
+        if elapsed <= timedelta(0):
             return []
-        # Advance cursor to the most recent aligned due time without looping.
-        intervals_elapsed = int((now - last_due_at) / self.interval)
-        most_recent = last_due_at + self.interval * intervals_elapsed
-        return [most_recent]
+        interval_secs = int(self.interval.total_seconds())
+        elapsed_secs = int(elapsed.total_seconds())
+        # steps = ceil(elapsed / interval) — gives the first step that is strictly after anchor.
+        steps = max(1, (elapsed_secs + interval_secs - 1) // interval_secs)
+        next_due_at = last_due_at + self.interval * steps
+        if next_due_at > now:
+            return []
+        return [next_due_at]
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,20 +463,22 @@ class _CronSchedule:
     def due_times_up_to(
         self, *, now: datetime, last_due_at: datetime | None
     ) -> list[datetime]:
+        # Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "cron" branch —
+        # openclaw's scheduler checks "now >= job.next_run_at" per tick, and after firing
+        # immediately updates next_run_at = computeNextRunAtMs(schedule, now) which is always
+        # strictly in the future.  The net effect: only the minute that cron matches AND has
+        # not already been executed triggers a run.  A restart after a gap does NOT replay
+        # missed cron slots — the first future-matching minute is the next run.
+        # (feat-394 decision 3/4; replaces feat-393 fix-r2 "most-recent" backfill semantics)
+        #
+        # Implementation: trigger when the current minute matches the cron expression AND
+        # differs from last_due_at (dedup guard prevents double-fire in the same minute).
         current = now.replace(second=0, microsecond=0)
-        if last_due_at is None:
-            candidates = [current] if self._matches(current) else []
-            return candidates
-        # feat-393 fix-r2: collapse multiple missed cron hits to the most recent one.
-        # Same rationale as _IntervalSchedule: a backlog burst violates "periodic summary"
-        # semantics and floods IM after any gap.
-        most_recent: datetime | None = None
-        cursor = (last_due_at + timedelta(minutes=1)).replace(second=0, microsecond=0)
-        while cursor <= current:
-            if self._matches(cursor):
-                most_recent = cursor
-            cursor += timedelta(minutes=1)
-        return [most_recent] if most_recent is not None else []
+        if not self._matches(current):
+            return []
+        if last_due_at is not None and last_due_at.replace(second=0, microsecond=0) == current:
+            return []
+        return [current]
 
     def _matches(self, candidate: datetime) -> bool:
         cron_weekday = (candidate.weekday() + 1) % 7
@@ -367,12 +491,150 @@ class _CronSchedule:
         )
 
 
+def _is_heartbeat_content_effectively_empty(content: str) -> bool:
+    """Return True if HEARTBEAT.md has no actionable tasks (only headers, empty list items, fences).
+
+    Provenance: openclaw/src/auto-reply/heartbeat.ts:isHeartbeatContentEffectivelyEmpty
+    Mirrors the openclaw check so that a workspace-default empty HEARTBEAT.md template
+    does not trigger a heartbeat run (which would just output HEARTBEAT_OK every tick).
+    """
+    import re as _re  # noqa: PLC0415 — local import: this function is called rarely, avoids top-level dep
+    _HEADER_RE = _re.compile(r"^#+(\s|$)")
+    _EMPTY_LIST_RE = _re.compile(r"^[-*+]\s*(\[[\sXx]?\]\s*)?$")
+    _FENCE_RE = _re.compile(r"^```[A-Za-z0-9_-]*$")
+    for line in content.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if _HEADER_RE.match(stripped):
+            continue
+        if _EMPTY_LIST_RE.match(stripped):
+            continue
+        if _FENCE_RE.match(stripped):
+            continue
+        return False  # found at least one non-empty, non-comment line
+    return True  # all lines were blank or structural decoration
+
+
+def _parse_heartbeat_tasks(content: str) -> list[_HeartbeatTask]:
+    """Parse a HEARTBEAT.md ``tasks:`` block into a list of HeartbeatTask objects.
+
+    Provenance: openclaw/src/auto-reply/heartbeat.ts:parseHeartbeatTasks
+    Supports YAML-like task definitions:
+
+        tasks:
+          - name: inbox-check
+            interval: 30m
+            prompt: "Check for urgent unread emails"
+          - name: schedule-review
+            interval: 2h
+            prompt: "Review upcoming schedule"
+
+    Args:
+        content: Full HEARTBEAT.md content string.
+
+    Returns:
+        Parsed task list; empty list when no tasks: block is found or tasks are malformed.
+    """
+    tasks: list[_HeartbeatTask] = []
+    lines = content.split("\n")
+    in_tasks_block = False
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        trimmed = line.strip()
+
+        if trimmed == "tasks:":
+            in_tasks_block = True
+            i += 1
+            continue
+
+        if not in_tasks_block:
+            i += 1
+            continue
+
+        # Exit tasks block on non-indented, non-task-field content.
+        is_task_field = (
+            trimmed.startswith("interval:")
+            or trimmed.startswith("prompt:")
+            or trimmed.startswith("- name:")
+        )
+        if (
+            not is_task_field
+            and not line.startswith(" ")
+            and not line.startswith("\t")
+            and trimmed
+            and not trimmed.startswith("-")
+        ):
+            in_tasks_block = False
+            i += 1
+            continue
+
+        if trimmed.startswith("- name:"):
+            name = trimmed[len("- name:"):].strip().strip("\"'")
+            interval_str = ""
+            prompt = ""
+            j = i + 1
+            while j < len(lines):
+                next_line = lines[j]
+                next_trimmed = next_line.strip()
+                if next_trimmed.startswith("- name:"):
+                    break
+                if next_trimmed.startswith("interval:") and (
+                    next_line.startswith(" ") or next_line.startswith("\t")
+                ):
+                    interval_str = next_trimmed[len("interval:"):].strip().strip("\"'")
+                elif next_trimmed.startswith("prompt:") and (
+                    next_line.startswith(" ") or next_line.startswith("\t")
+                ):
+                    prompt = next_trimmed[len("prompt:"):].strip().strip("\"'")
+                elif (
+                    not next_trimmed.startswith(" ")
+                    and not next_trimmed.startswith("\t")
+                    and next_trimmed
+                ):
+                    in_tasks_block = False
+                    break
+                j += 1
+
+            if name and interval_str and prompt:
+                try:
+                    interval = _parse_interval(interval_str)
+                    tasks.append(_HeartbeatTask(name=name, interval=interval, prompt=prompt))
+                except ValueError:
+                    pass  # skip malformed tasks silently (raises hard if block is corrupt)
+
+        i += 1
+
+    return tasks
+
+
 def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
     if not path.exists():
         return None
     content = path.read_text(encoding="utf-8")
     if not content.strip():
         return None
+    # Provenance: openclaw/src/auto-reply/heartbeat.ts:isHeartbeatContentEffectivelyEmpty —
+    # skip heartbeat execution entirely when the file has no actionable tasks.
+    if _is_heartbeat_content_effectively_empty(content):
+        return None
+
+    # feat-394 decision 3: try tasks: multi-sub-rhythm format first.
+    # If a tasks: block is found and valid, it takes precedence over the legacy single-schedule format.
+    tasks = _parse_heartbeat_tasks(content)
+    if tasks:
+        # tasks: format uses a sentinel schedule (irrelevant — each task has its own interval)
+        # and aggregated instructions from all task prompts.
+        aggregated_instructions = "\n".join(f"- [{t.name}] {t.prompt}" for t in tasks)
+        # Use a 1-second interval sentinel that is immediately overridden by per-task scheduling.
+        _SENTINEL_SCHEDULE = _IntervalSchedule(interval=timedelta(seconds=1))
+        return _HeartbeatSpec(
+            schedule=_SENTINEL_SCHEDULE,
+            instructions=aggregated_instructions,
+            tasks=tuple(tasks),
+        )
 
     schedule_entries: list[tuple[str, str]] = []
     instruction_lines: list[str] = []
@@ -397,6 +659,9 @@ def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
         if not line:
             continue
         if line in {"---", "***"}:
+            continue
+        # Skip tasks: block lines in legacy mode (tasks: is handled above)
+        if line.lower() == "tasks:":
             continue
         instruction_lines.append(line)
 
@@ -510,6 +775,48 @@ def _parse_cron_number(raw_value: str, *, allow_names: bool) -> int:
     if allow_names and value == 7:
         return 0
     return value
+
+
+def _is_within_active_hours(
+    *,
+    now: datetime,
+    start_hhmm: str | None,
+    end_hhmm: str | None,
+    timezone_name: str | None,
+) -> bool:
+    """Return True when ``now`` falls inside the configured active-hours window.
+
+    feat-394 decision 3: activeHours gate mirrors openclaw's "activeHours" check —
+    heartbeat is suppressed outside the window so agents don't wake users at night.
+    If no window is configured (all params None/empty), always returns True.
+
+    Args:
+        now: Current UTC datetime for the tick.
+        start_hhmm: Window start in "HH:MM" (local time).  None → no gate.
+        end_hhmm: Window end in "HH:MM" (local time).  None → no gate.
+        timezone_name: IANA timezone string (e.g. "Asia/Shanghai").  None → UTC.
+
+    Returns:
+        True when the current local time is at-or-after start AND before end,
+        or when no window is configured.
+    """
+    if not start_hhmm or not end_hhmm:
+        return True  # no window configured → always active
+
+    try:
+        import zoneinfo as _zoneinfo  # noqa: PLC0415 — stdlib, lazy import avoids startup cost
+
+        tz = _zoneinfo.ZoneInfo(timezone_name) if timezone_name else UTC
+    except Exception:  # noqa: BLE001 — invalid timezone → treat as UTC to avoid silent skip
+        tz = UTC
+
+    local_now = now.astimezone(tz)
+    local_hhmm = local_now.strftime("%H:%M")
+
+    # Simple HH:MM string comparison works for non-midnight-crossing windows.
+    # For midnight-crossing windows (e.g. 22:00-06:00), logic would be inverted;
+    # nano spec only documents daytime windows so we keep this simple for now.
+    return start_hhmm <= local_hhmm < end_hhmm
 
 
 def _parse_optional_datetime(value: str | None) -> datetime | None:

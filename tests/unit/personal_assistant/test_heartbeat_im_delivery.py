@@ -447,7 +447,7 @@ def test_heartbeat_scheduler_reuses_stable_heartbeat_session_across_ticks(
         "interval: 1s\n\n- Check status\n", encoding="utf-8"
     )
 
-    agent = AgentWorkspaceConfig(agent_id="agent-a", workspace_root=agent_dir)
+    agent = AgentWorkspaceConfig(agent_id="agent-a", workspace_root=agent_dir, heartbeat_enabled=True)
     kernel = _FakeKernelClient()
     scheduler = HeartbeatScheduler(
         agents=(agent,),

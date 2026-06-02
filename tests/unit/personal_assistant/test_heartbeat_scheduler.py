@@ -59,8 +59,12 @@ class _FakeKernelClient:
 def _agent(tmp_path: Path, name: str = "agent-a") -> AgentWorkspaceConfig:
     workspace_root = tmp_path / name
     workspace_root.mkdir(parents=True, exist_ok=True)
+    # heartbeat_enabled=True: tests that exercise scheduling logic need the gate open.
     return AgentWorkspaceConfig(
-        agent_id=name, workspace_root=workspace_root, title=f"Title for {name}"
+        agent_id=name,
+        workspace_root=workspace_root,
+        title=f"Title for {name}",
+        heartbeat_enabled=True,
     )
 
 
@@ -163,14 +167,13 @@ def test_scheduler_runs_cron_schedule_on_matching_minute(tmp_path: Path) -> None
     assert len(kernel.sent_messages) == 1
 
 
-def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) -> None:
-    """After a long gap, catch-up must produce at most ONE run (not a backlog per missed interval).
+def test_interval_no_backfill_after_restart(tmp_path: Path) -> None:
+    """After a long gap, restart must NOT run any missed due-times — only wait for next future slot.
 
-    feat-393 fix-r2: the original implementation returned every missed due-time in the gap,
-    causing the agent to flood IM with a burst of messages on restart (213s gap → 63 messages
-    in round-2 acceptance).  The correct semantics for a periodic heartbeat is: one catch-up
-    run for the most recent missed period, then resume the normal cadence.  Replaying the full
-    backlog is anti-social and violates the "periodic summary" contract.
+    feat-394 decision 3/4 (openclaw computeNextRunAtMs semantics): "every" skips to the
+    next *future* aligned slot; it never executes past due-times.  This is stricter than
+    feat-393 fix-r2 which still allowed one catch-up run — openclaw does not emit any run
+    for the gap period.
     """
     agent = _agent(tmp_path)
     _write_heartbeat(
@@ -192,17 +195,22 @@ def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) 
     restarted = HeartbeatScheduler(
         agents=(agent,), kernel_client=second_kernel, state_store=state_store
     )
-    # 1h31m gap → 3 missed intervals (09:30, 10:00, 10:30); must collapse to exactly 1 run.
+    # 1h31m gap — 3 missed intervals (09:30, 10:00, 10:30).
+    # openclaw semantics: none of those past due-times are run; next run is at 11:00.
     catch_up = asyncio.run(
         restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC))
     )
 
-    assert len(catch_up.triggered_runs) == 1, (
-        "catch-up after a long gap must produce exactly 1 run (most recent due), not a backlog"
+    assert catch_up.triggered_runs == (), (
+        "restart after a long gap must NOT run any missed intervals — wait for the next future slot"
     )
-    # The single run must be the most recent aligned due time (10:30).
-    assert catch_up.triggered_runs[0].due_at.isoformat() == "2026-03-11T10:30:00+00:00"
-    assert len(second_kernel.sent_messages) == 1
+    assert len(second_kernel.sent_messages) == 0
+
+    # Next tick at 11:00 (first future aligned slot) must fire.
+    next_tick = asyncio.run(
+        restarted.tick(now=datetime(2026, 3, 11, 11, 0, tzinfo=UTC))
+    )
+    assert len(next_tick.triggered_runs) == 1
 
 
 def test_scheduler_normal_cadence_produces_exactly_one_run_per_interval(
@@ -224,29 +232,47 @@ def test_scheduler_normal_cadence_produces_exactly_one_run_per_interval(
         )
 
 
-def test_scheduler_cron_catchup_collapses_to_one_run(tmp_path: Path) -> None:
-    """Cron catch-up after a long gap must also produce at most 1 run (most recent match)."""
+def test_cron_no_backfill_after_restart(tmp_path: Path) -> None:
+    """Cron restart must run exactly the CURRENT minute if it matches, not past missed minutes.
+
+    feat-394 decision 3/4 (openclaw semantics): cron checks whether the current tick's
+    minute matches the expression AND has not already been executed.  It does NOT replay
+    past missed slots.  So "* * * * *" after a 5-minute gap fires exactly once for the
+    current minute — not 5 separate runs for the gap.
+
+    Contrast: the old feat-393 fix-r2 approach scanned from last_due_at to now and would
+    yield the most-recent match (still a form of backfill).  openclaw fires only the
+    present minute, leaving the gap silently un-executed.
+    """
     agent = _agent(tmp_path)
-    _write_heartbeat(agent.workspace_root, "cron: * * * * *\n\nMinute heartbeat.\n")
+    _write_heartbeat(agent.workspace_root, "cron: 0 9 * * *\n\nDaily 09:00 heartbeat.\n")
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
     kernel = _FakeKernelClient()
     scheduler = HeartbeatScheduler(
         agents=(agent,), kernel_client=kernel, state_store=state_store
     )
 
-    # First tick at 09:00 — establishes last_due_at.
-    asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+    # First tick at 09:00 on day 1 — fires, establishes last_due_at.
+    first = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+    assert len(first.triggered_runs) == 1
 
-    # Restart after a 5-minute gap — 5 cron hits missed; must produce exactly 1 run.
+    # Restart after 25h gap — missed the 09:00 on day 2.
+    # openclaw semantics: 10:00 on day 2 does NOT match "0 9 * * *", so no run.
     restarted = HeartbeatScheduler(
         agents=(agent,), kernel_client=_FakeKernelClient(), state_store=state_store
     )
-    catch_up = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 9, 5, tzinfo=UTC)))
+    catch_up = asyncio.run(restarted.tick(now=datetime(2026, 3, 12, 10, 0, tzinfo=UTC)))
 
-    assert len(catch_up.triggered_runs) == 1, (
-        "cron catch-up must collapse multiple missed hits to 1 run (most recent), not a burst"
+    assert catch_up.triggered_runs == (), (
+        "cron restart must NOT backfill past missed slots — only fire on the current matching minute"
     )
-    assert catch_up.triggered_runs[0].due_at == datetime(2026, 3, 11, 9, 5, tzinfo=UTC)
+
+    # Next cron slot (09:00 on day 3) must fire when the tick lands on that minute.
+    next_tick = asyncio.run(
+        restarted.tick(now=datetime(2026, 3, 13, 9, 0, tzinfo=UTC))
+    )
+    assert len(next_tick.triggered_runs) == 1
+    assert next_tick.triggered_runs[0].due_at == datetime(2026, 3, 13, 9, 0, tzinfo=UTC)
 
 
 def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(
@@ -299,3 +325,250 @@ async def test_scheduler_tick_from_async_context_completes_without_event_loop_er
     assert kernel.created_sessions[0]["session_id"] == "sess-1"
     assert len(kernel.sent_messages) == 1
     assert kernel.sent_messages[0]["run_id"] == "run-1"
+
+
+# ---------------------------------------------------------------------------
+# R2: per-agent heartbeat_enabled gate
+# ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# R6: tasks: multi-sub-rhythm + canonical session
+# ---------------------------------------------------------------------------
+
+
+def test_heartbeat_spec_parses_tasks_block_multi_rhythm(tmp_path: Path) -> None:
+    """_load_heartbeat_spec must parse HEARTBEAT.md tasks: block into per-task schedules.
+
+    Provenance: openclaw/src/auto-reply/heartbeat.ts:parseHeartbeatTasks
+    feat-394 decision 3: tasks: block defines multiple sub-rhythms, each independently
+    tracked with its own last_due_at.
+    """
+    from personal_assistant.scheduler.heartbeat_scheduler import _load_heartbeat_spec
+
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    hb_path = agent_dir / "HEARTBEAT.md"
+    hb_path.write_text(
+        "# Heartbeat\n\n"
+        "tasks:\n"
+        "  - name: inbox-check\n"
+        "    interval: 30m\n"
+        '    prompt: "Check for urgent emails"\n'
+        "  - name: schedule-review\n"
+        "    interval: 2h\n"
+        '    prompt: "Review upcoming schedule"\n',
+        encoding="utf-8",
+    )
+
+    spec = _load_heartbeat_spec(hb_path)
+
+    assert spec is not None, "spec must not be None for non-empty tasks: block"
+    # Multi-task spec should have multiple tasks
+    assert hasattr(spec, "tasks"), "spec must have a tasks attribute for tasks: block"
+    assert len(spec.tasks) == 2
+    task_names = [t.name for t in spec.tasks]
+    assert "inbox-check" in task_names
+    assert "schedule-review" in task_names
+
+
+def test_heartbeat_scheduler_uses_provided_canonical_session(tmp_path: Path) -> None:
+    """HeartbeatScheduler must use the canonical session_id when provided, not create a new one.
+
+    feat-394 decision 3: heartbeat runs in the (owner, agent) canonical direct chat
+    kernel session.  When a canonical session_id is pre-known, the scheduler must
+    not call create_session.
+    """
+    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
+    _write_heartbeat(agent.workspace_root, "interval: 1m\n\n- Check status\n")
+    kernel = _FakeKernelClient()
+
+    # Pre-supply a canonical session_id as if it was established by a prior direct chat.
+    canonical_sessions: dict[str, str] = {"agent-a": "canonical-sess-123"}
+
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+        canonical_session_store=canonical_sessions,
+    )
+
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+    # Session creation must be skipped — canonical session used directly
+    assert kernel.created_sessions == [], (
+        "create_session must not be called when canonical_session_store has a session for this agent"
+    )
+    assert len(summary.triggered_runs) == 1
+    # The run must use the canonical session_id
+    assert summary.triggered_runs[0].session_id == "canonical-sess-123"
+
+
+def _agent_with_heartbeat(
+    tmp_path: Path, name: str = "agent-a", *, heartbeat_enabled: bool = True
+) -> AgentWorkspaceConfig:
+    """Create an agent fixture with explicit heartbeat_enabled flag."""
+    workspace_root = tmp_path / name
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    return AgentWorkspaceConfig(
+        agent_id=name,
+        workspace_root=workspace_root,
+        title=f"Title for {name}",
+        heartbeat_enabled=heartbeat_enabled,
+    )
+
+
+def test_scheduler_skips_agent_when_heartbeat_disabled(tmp_path: Path) -> None:
+    """Agents with heartbeat_enabled=False must be entirely skipped by the scheduler tick.
+
+    feat-394 decision 5: the heartbeat scheduler must gate on the per-agent
+    heartbeat_enabled flag from AgentWorkspaceConfig.  When disabled, the scheduler
+    must not read HEARTBEAT.md, not submit any run, and report the agent as skipped.
+    """
+    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=False)
+    _write_heartbeat(
+        agent.workspace_root,
+        "interval: 1m\n\n- Check something\n",
+    )
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+    assert summary.triggered_runs == ()
+    assert agent.agent_id in summary.skipped_agents
+    assert kernel.sent_messages == []
+
+
+def test_scheduler_runs_agent_when_heartbeat_enabled(tmp_path: Path) -> None:
+    """Agents with heartbeat_enabled=True must be evaluated normally."""
+    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
+    _write_heartbeat(
+        agent.workspace_root,
+        "interval: 1m\n\n- Check something\n",
+    )
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+    assert len(summary.triggered_runs) == 1
+    assert summary.skipped_agents == ()
+
+
+def test_scheduler_skips_disabled_among_mixed_agents(tmp_path: Path) -> None:
+    """Mixed agent list: disabled agents skipped, enabled agents run normally."""
+    enabled = _agent_with_heartbeat(tmp_path, name="enabled-agent", heartbeat_enabled=True)
+    disabled = _agent_with_heartbeat(tmp_path, name="disabled-agent", heartbeat_enabled=False)
+    for agent in (enabled, disabled):
+        _write_heartbeat(agent.workspace_root, "interval: 1m\n\n- Check\n")
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(enabled, disabled),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+    # Only the enabled agent submits a run; the disabled one is skipped.
+    triggered_ids = {r.agent_id for r in summary.triggered_runs}
+    assert "enabled-agent" in triggered_ids
+    assert "disabled-agent" not in triggered_ids
+    assert "disabled-agent" in summary.skipped_agents
+
+
+# ---------------------------------------------------------------------------
+# R7: activeHours + busy-skip
+# ---------------------------------------------------------------------------
+
+
+def test_scheduler_skips_agent_outside_active_hours(tmp_path: Path) -> None:
+    """Agents with activeHours must be skipped when the current time is outside the window.
+
+    feat-394 decision 3: activeHours from AgentWorkspaceConfig.heartbeat_active_hours_*
+    gates the heartbeat tick so out-of-window times don't wake the agent.
+    """
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-ah",
+        workspace_root=tmp_path / "agent-ah",
+        heartbeat_enabled=True,
+        heartbeat_active_hours_start="09:00",
+        heartbeat_active_hours_end="22:00",
+        # No timezone → UTC
+    )
+    (tmp_path / "agent-ah").mkdir(parents=True, exist_ok=True)
+    _write_heartbeat(agent.workspace_root, "interval: 30m\n\n- Check status\n")
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    # 03:00 UTC is outside 09:00-22:00 window → skip
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 3, 0, tzinfo=UTC)))
+
+    assert summary.triggered_runs == ()
+    assert agent.agent_id in summary.skipped_agents
+    assert kernel.sent_messages == []
+
+
+def test_scheduler_runs_agent_inside_active_hours(tmp_path: Path) -> None:
+    """Agents with activeHours must run normally when the current time is inside the window."""
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-ah",
+        workspace_root=tmp_path / "agent-ah",
+        heartbeat_enabled=True,
+        heartbeat_active_hours_start="09:00",
+        heartbeat_active_hours_end="22:00",
+    )
+    (tmp_path / "agent-ah").mkdir(parents=True, exist_ok=True)
+    _write_heartbeat(agent.workspace_root, "interval: 30m\n\n- Check status\n")
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    # 10:00 UTC is inside 09:00-22:00 window → run
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 10, 0, tzinfo=UTC)))
+
+    assert len(summary.triggered_runs) == 1
+
+
+def test_scheduler_skips_busy_agent_session(tmp_path: Path) -> None:
+    """Scheduler must skip an agent when its canonical session is busy (another run in progress).
+
+    feat-394 decision 3: when the canonical direct chat is busy (a user message is being
+    processed), the heartbeat must not fire to avoid concurrent runs on the same session.
+    """
+    # busy_sessions: set of session_ids currently running a kernel job
+    busy_sessions: set[str] = {"busy-session-id"}
+
+    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
+    _write_heartbeat(agent.workspace_root, "interval: 1m\n\n- Check\n")
+    kernel = _FakeKernelClient()
+    canonical_sessions = {"agent-a": "busy-session-id"}
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+        canonical_session_store=canonical_sessions,
+        busy_sessions=busy_sessions,
+    )
+
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+    # Busy canonical session → skip this tick
+    assert summary.triggered_runs == ()
+    assert agent.agent_id in summary.skipped_agents
+    assert kernel.sent_messages == []

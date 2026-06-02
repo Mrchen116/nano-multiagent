@@ -70,18 +70,24 @@ _PA_RUNTIME = PromptSection(
 # The old segment pointed agents to <workspace>/MEMORY.md (read tool), which conflicts
 # with the actual MemoryTool write path at <memory_root>/MEMORY.md — kept here only as comment.
 
-# Provenance: new — migrated verbatim from ## Heartbeat block in prompts.py
+# Provenance: openclaw/src/agents/system-prompt.ts:124-138 buildHeartbeatSection(...)
+# Text is verbatim from the non-minimal, heartbeatPrompt-present branch of that function.
+# feat-394 decision 6: prompt segment copied verbatim so model behaviour matches openclaw.
+# enabled_when gate added in feat-394 decision 5: segment is injected only when the agent's
+# heartbeat feature is enabled (heartbeat_enabled=True in PromptContext.vars).
+def _heartbeat_enabled(ctx: PromptContext) -> bool:
+    return bool(ctx.vars.get("heartbeat_enabled", True))  # default True for backward compat
+
+
 _PA_HEARTBEAT = PromptSection(
     name="pa.heartbeat",
     render=lambda ctx: (
-        "## Heartbeat\n"
-        "You may have a `HEARTBEAT.md` file in your workspace describing scheduled tasks.\n"
-        "- Heartbeat runs are independent sessions triggered on a schedule "
-        "(interval, cron, or one-shot).\n"
-        "- If a heartbeat run has no actionable work, produce no output."
+        "## Heartbeats\n"
+        "If the current user message is a heartbeat poll and nothing needs attention, reply exactly:\n"
+        "HEARTBEAT_OK\n"
+        'If something needs attention, do NOT include "HEARTBEAT_OK"; reply with the alert text instead.'
     ),
-    # Always-on for PA: heartbeat is declared in the profile regardless of
-    # whether a HEARTBEAT.md exists; the agent discovers it at runtime.
+    enabled_when=_heartbeat_enabled,
     cache_safe=True,
 )
 

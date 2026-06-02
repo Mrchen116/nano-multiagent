@@ -522,7 +522,12 @@ class InboundPipeline:
 
     @staticmethod
     def _is_no_reply_token(text: str) -> bool:
-        return text.strip() == "NO_REPLY"
+        # Provenance: openclaw/src/auto-reply/tokens.ts:3 HEARTBEAT_TOKEN = "HEARTBEAT_OK"
+        # feat-394 decision 3: HEARTBEAT_OK is the heartbeat silence token (replaces NO_REPLY
+        # in heartbeat turns); both are recognised here so the heartbeat delivery path and
+        # the group-chat path share the same gate without special-casing the origin.
+        stripped = text.strip()
+        return stripped == "NO_REPLY" or stripped == "HEARTBEAT_OK"
 
     @classmethod
     def _should_suppress_no_reply(

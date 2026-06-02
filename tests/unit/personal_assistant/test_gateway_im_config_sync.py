@@ -496,6 +496,95 @@ def test_handle_agent_create_passes_through_features(tmp_path: Path) -> None:
     assert registered.custom_prompt == "You are a chef."
 
 
+# ---------------------------------------------------------------------------
+# feat-394-M1/R5: heartbeat fields sync from IM → AgentWorkspaceConfig
+# ---------------------------------------------------------------------------
+
+
+def test_sync_agent_passes_through_heartbeat_enabled(tmp_path: Path) -> None:
+    """sync_agent must write heartbeat_enabled from IM payload into AgentWorkspaceConfig.
+
+    feat-394 decision 5: heartbeat config from AgentProfile in IM must flow to
+    AgentWorkspaceConfig.heartbeat_enabled so the scheduler gate works correctly.
+    """
+    workspace_root = tmp_path / "ws-hb"
+    workspace_root.mkdir()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "hb-agent",
+                "display_name": "HB Agent",
+                "profile_version": 1,
+                "workspace_root": str(workspace_root),
+                "heartbeat": {"enabled": True, "every": "10m"},
+            },
+        )
+
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    sync.sync_agent(agent_id="hb-agent", profile_version=1)
+
+    registered = next(a for a in pipeline.registered if a.agent_id == "hb-agent")
+    assert registered.heartbeat_enabled is True
+    assert registered.heartbeat_every == "10m"
+
+
+def test_sync_agent_heartbeat_disabled_by_default(tmp_path: Path) -> None:
+    """When IM payload has no heartbeat block, heartbeat_enabled must default to False."""
+    workspace_root = tmp_path / "ws-no-hb"
+    workspace_root.mkdir()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "no-hb-agent",
+                "display_name": "No HB",
+                "profile_version": 1,
+                "workspace_root": str(workspace_root),
+            },
+        )
+
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    sync.sync_agent(agent_id="no-hb-agent", profile_version=1)
+
+    registered = next(a for a in pipeline.registered if a.agent_id == "no-hb-agent")
+    assert registered.heartbeat_enabled is False
+
+
 def test_current_agent_payload_includes_features(tmp_path: Path) -> None:
     """current_agent_payload must expose features + custom_prompt for capabilities reporting."""
     workspace_root = tmp_path / "ws"

@@ -130,6 +130,18 @@ class AgentWorkspaceConfig:
         custom_prompt: Optional user-written text appended as the pa.user_custom segment
             (order=800).  None or empty string means the segment is omitted entirely.
             See feat-379 decision 5/6.
+        heartbeat_enabled: Whether the heartbeat scheduler should run periodic turns for
+            this agent.  False means the scheduler skips this agent entirely regardless of
+            HEARTBEAT.md content.  Sourced from AgentProfile.heartbeat.enabled (IM) and
+            propagated via ConfigSyncNotifier (feat-394 decision 5).
+        heartbeat_every: Interval string for the heartbeat cadence (e.g. "30m", "1h").
+            Overrides the HEARTBEAT.md top-level every: line when set; falls back to
+            HEARTBEAT.md parsing when None.  Sourced from AgentProfile.heartbeat.every.
+        heartbeat_active_hours_start: Optional start of active window in "HH:MM" format
+            (local time when combined with heartbeat_active_hours_timezone).
+        heartbeat_active_hours_end: Optional end of active window in "HH:MM" format.
+        heartbeat_active_hours_timezone: Timezone string for active-hours window (e.g.
+            "Asia/Shanghai").  Defaults to UTC when absent.
     """
 
     agent_id: str
@@ -143,6 +155,12 @@ class AgentWorkspaceConfig:
     # feat-379-M2: per-agent feature flags and custom prompt supplement
     features: dict[str, bool] = field(default_factory=dict)
     custom_prompt: str | None = None
+    # feat-394 decision 5: per-agent heartbeat enable/disable + cadence + active hours
+    heartbeat_enabled: bool = False
+    heartbeat_every: str | None = None
+    heartbeat_active_hours_start: str | None = None
+    heartbeat_active_hours_end: str | None = None
+    heartbeat_active_hours_timezone: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -402,6 +420,28 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             agent_dict["features"] = dict(agent.features)
         if agent.custom_prompt is not None:
             agent_dict["custom_prompt"] = agent.custom_prompt
+        # feat-394 decision 5: only emit heartbeat block when enabled or non-default fields set
+        if (
+            agent.heartbeat_enabled
+            or agent.heartbeat_every is not None
+            or agent.heartbeat_active_hours_start is not None
+        ):
+            hb_dict: dict[str, Any] = {"enabled": agent.heartbeat_enabled}
+            if agent.heartbeat_every is not None:
+                hb_dict["every"] = agent.heartbeat_every
+            if (
+                agent.heartbeat_active_hours_start is not None
+                or agent.heartbeat_active_hours_end is not None
+            ):
+                active_hours: dict[str, Any] = {}
+                if agent.heartbeat_active_hours_start is not None:
+                    active_hours["start"] = agent.heartbeat_active_hours_start
+                if agent.heartbeat_active_hours_end is not None:
+                    active_hours["end"] = agent.heartbeat_active_hours_end
+                if agent.heartbeat_active_hours_timezone is not None:
+                    active_hours["timezone"] = agent.heartbeat_active_hours_timezone
+                hb_dict["active_hours"] = active_hours
+            agent_dict["heartbeat"] = hb_dict
         agents_list.append(agent_dict)
     data["agents"] = agents_list
 
@@ -653,6 +693,33 @@ def _parse_agents(
         custom_prompt = _optional_string(
             item.get("custom_prompt"), field_name=f"agents[{index}].custom_prompt"
         )
+        # feat-394 decision 5: parse per-agent heartbeat config block
+        heartbeat_raw = item.get("heartbeat")
+        heartbeat_enabled = False
+        heartbeat_every: str | None = None
+        heartbeat_active_hours_start: str | None = None
+        heartbeat_active_hours_end: str | None = None
+        heartbeat_active_hours_timezone: str | None = None
+        if isinstance(heartbeat_raw, dict):
+            hb_enabled_raw = heartbeat_raw.get("enabled")
+            heartbeat_enabled = bool(hb_enabled_raw) if isinstance(hb_enabled_raw, bool) else False
+            heartbeat_every = _optional_string(
+                heartbeat_raw.get("every"), field_name=f"agents[{index}].heartbeat.every"
+            )
+            active_hours_raw = heartbeat_raw.get("active_hours")
+            if isinstance(active_hours_raw, dict):
+                heartbeat_active_hours_start = _optional_string(
+                    active_hours_raw.get("start"),
+                    field_name=f"agents[{index}].heartbeat.active_hours.start",
+                )
+                heartbeat_active_hours_end = _optional_string(
+                    active_hours_raw.get("end"),
+                    field_name=f"agents[{index}].heartbeat.active_hours.end",
+                )
+                heartbeat_active_hours_timezone = _optional_string(
+                    active_hours_raw.get("timezone"),
+                    field_name=f"agents[{index}].heartbeat.active_hours.timezone",
+                )
         agents.append(
             AgentWorkspaceConfig(
                 agent_id=agent_id,
@@ -665,6 +732,11 @@ def _parse_agents(
                 default_model=default_model,
                 features=features,
                 custom_prompt=custom_prompt,
+                heartbeat_enabled=heartbeat_enabled,
+                heartbeat_every=heartbeat_every,
+                heartbeat_active_hours_start=heartbeat_active_hours_start,
+                heartbeat_active_hours_end=heartbeat_active_hours_end,
+                heartbeat_active_hours_timezone=heartbeat_active_hours_timezone,
             )
         )
     return tuple(agents)

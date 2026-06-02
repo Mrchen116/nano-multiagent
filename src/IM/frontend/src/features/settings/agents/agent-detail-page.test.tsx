@@ -646,6 +646,69 @@ describe("feat-379-M9 preview tool_ids regression", () => {
     expect(body.tool_ids, "tool_ids 应来自 draft.tool_allowlist").toContain("memory");
   });
 
+  // feat-394-M1/R4: heartbeat 开关测试
+  it("feat-394-M1: Heartbeat card 显示并可开关", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        heartbeat: { enabled: false, every: "30m" }
+      }
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    // Heartbeat card 应有 "Heartbeat" 标题
+    expect(screen.getByRole("heading", { name: /Heartbeat/i })).toBeInTheDocument();
+
+    // 开关应存在且初始为关闭
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]');
+    expect(toggle, "heartbeat-enabled-toggle 应存在").not.toBeNull();
+    expect(toggle?.checked).toBe(false);
+
+    // 打开开关
+    if (toggle) await user.click(toggle);
+
+    expect(document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]')?.checked).toBe(true);
+  });
+
+  it("feat-394-M1: Heartbeat 开关开启后保存时 PATCH payload 包含 heartbeat.enabled=true", async () => {
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        heartbeat: { enabled: false, every: "30m" }
+      }
+    });
+    apiMocks.updateAgentConfigMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist().config,
+      heartbeat: { enabled: true, every: "30m" },
+      profile_version: 2
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    // 打开开关
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]');
+    if (toggle) await user.click(toggle);
+
+    // 保存
+    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
+        "agent-core-1",
+        expect.objectContaining({
+          heartbeat: expect.objectContaining({ enabled: true })
+        })
+      );
+    });
+  });
+
   // feat-383-M1: preview 请求必须包含 skill_ids
   it("feat-383-M1: preview 请求 skill_ids 来自 draft.skills", async () => {
     const user = userEvent.setup();
