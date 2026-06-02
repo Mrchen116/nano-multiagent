@@ -334,6 +334,18 @@ class _IMConfigSyncClient:
                 synced_heartbeat_enabled, synced_heartbeat_every, synced_hb_start, synced_hb_end, synced_hb_tz = (
                     _parse_heartbeat_from_im_payload(_hb_raw)
                 )
+                # feat-394-M2 decision 5: parse per-agent cron config from IM mirror payload.
+                # Prefer cron_json (raw JSON string) over the legacy cron dict key.
+                _cron_raw_str = payload.get("cron_json")
+                if isinstance(_cron_raw_str, str) and _cron_raw_str.strip():
+                    import json as _json2  # noqa: PLC0415
+                    try:
+                        _cron_raw = _json2.loads(_cron_raw_str)
+                    except (ValueError, TypeError):
+                        _cron_raw = payload.get("cron")
+                else:
+                    _cron_raw = payload.get("cron")
+                synced_cron_enabled = _parse_cron_enabled_from_im_payload(_cron_raw)
                 agent_config = AgentWorkspaceConfig(
                     agent_id=agent_id,
                     workspace_root=workspace_root,
@@ -373,6 +385,7 @@ class _IMConfigSyncClient:
                     heartbeat_active_hours_start=synced_hb_start,
                     heartbeat_active_hours_end=synced_hb_end,
                     heartbeat_active_hours_timezone=synced_hb_tz,
+                    cron_enabled=synced_cron_enabled,
                 )
                 self._pipeline.register_agent(agent_config)
                 self._persist_agent_config(agent_config)
@@ -1727,6 +1740,24 @@ def _parse_heartbeat_from_im_payload(
     else:
         hb_start, hb_end, hb_tz = None, None, None
     return heartbeat_enabled, heartbeat_every, hb_start, hb_end, hb_tz
+
+
+def _parse_cron_enabled_from_im_payload(raw: object) -> bool:
+    """Parse the ``cron`` block from an IM agent config payload.
+
+    feat-394-M2 decision 5: IM AgentProfile carries {enabled} which flows to
+    gateway AgentWorkspaceConfig.cron_enabled so the scheduler and prompt gate work.
+
+    Args:
+        raw: The raw value of ``payload["cron"]`` from an IM API response.
+
+    Returns:
+        cron_enabled bool; False when absent or malformed.
+    """
+    if not isinstance(raw, dict):
+        return False
+    enabled_raw = raw.get("enabled")
+    return bool(enabled_raw) if isinstance(enabled_raw, bool) else False
 
 
 def build_runtime(config: LocalConfig) -> GatewayRuntime:

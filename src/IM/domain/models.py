@@ -127,6 +127,11 @@ class AgentProfile:
     # Stored as raw JSON so the gateway can forward it without re-serialization;
     # None means not yet configured (heartbeat disabled / no config set by user).
     heartbeat_json: str | None = None
+    # feat-394-M2: cron configuration persisted as JSON string.
+    # Shape: {"enabled": bool}
+    # Stored as raw JSON so the gateway can forward it via ConfigSyncNotifier;
+    # None means cron is not yet configured (disabled / no config set by user).
+    cron_json: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -367,6 +367,46 @@ function HeartbeatCard({ draft, onToggle, onEveryChange }: HeartbeatCardProps) {
   );
 }
 
+// feat-394-M2 decision 5: CronCard — per-agent cron enable/disable.
+// Shows a single toggle to enable/disable cron scheduling for this agent.
+interface CronCardProps {
+  draft: AgentConfigFormState;
+  onToggle: (enabled: boolean) => void;
+}
+
+function CronCard({ draft, onToggle }: CronCardProps) {
+  const { t } = useTranslation();
+  const enabled = draft.cron?.enabled ?? false;
+
+  return (
+    <section className="im-agent-card">
+      <div>
+        <h3 className="im-agent-card-title">{t("agents.form.cron.title")}</h3>
+        <p className="im-agent-card-sub">{t("agents.form.cron.sub")}</p>
+      </div>
+      <div className="im-agent-field">
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            data-testid="cron-enabled-toggle"
+            checked={enabled}
+            className="im-feature-checkbox"
+            onChange={(e) => onToggle(e.target.checked)}
+          />
+          <div>
+            <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">
+              {t("agents.form.cron.enabledLabel")}
+            </p>
+            <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">
+              {t("agents.form.cron.enabledHelp")}
+            </p>
+          </div>
+        </label>
+      </div>
+    </section>
+  );
+}
+
 // M20/R12-bis-1: desktop split layout — left 240px dark agent rail.
 // Prototype `im-settings-page.jsx::AgentListView` desktop: 240px dark sidebar
 // (`oklch(0.24 0.012 240)` bg) with clickable agent rows, active highlight.
@@ -843,6 +883,16 @@ export function AgentDetailPage() {
             setSaved(false);
             setErrorMessage(null);
             setDraft({ ...draft, heartbeat: { ...(draft.heartbeat ?? { enabled: false }), every } });
+          }}
+        />
+
+        {/* feat-394-M2 decision 5: CronCard — per-agent cron enable/disable */}
+        <CronCard
+          draft={draft}
+          onToggle={(enabled) => {
+            setSaved(false);
+            setErrorMessage(null);
+            setDraft({ ...draft, cron: { enabled } });
           }}
         />
 

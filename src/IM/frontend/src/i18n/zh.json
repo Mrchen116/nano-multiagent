@@ -271,6 +271,12 @@
         "everyLabel": "节律",
         "everyHelp": "唤醒频率（例如 30m、1h、2h）。"
       },
+      "cron": {
+        "title": "定时任务",
+        "sub": "无需对话上下文即可定时运行的后台任务。",
+        "enabledLabel": "启用 cron",
+        "enabledHelp": "Agent 可通过对话注册和管理定时任务（增/查/删）。"
+      },
       "workspace": {
         "title": "工作区与运行时",
         "sub": "只读。由所属节点托管。",

@@ -192,6 +192,39 @@ class ChannelAdapter(Protocol):
 - 重启后不补跑（只排下一未来时隙）——取代旧 SPEC 的"补跑错过到期任务"
 - Heartbeat 只在 `personal_assistant` 产品启用，`coding_cli` 无此能力
 
+### Cron 调度模型（M2）
+
+- **per-agent 启用**：IM 配置页 cron 开关（`cron.enabled`）同步到 gateway `AgentWorkspaceConfig.cron_enabled`
+- **持久化**：每 agent workspace `<workspace>/.nanoassistant/cron/jobs.json`（job 定义）+ `cron-state.json`（per-job last_due 运行态）
+- **Job 格式**：`{id, name, schedule:{kind:at|every|cron,...}, instruction, enabled, delete_after_run}`
+- **调度不补跑**：与 heartbeat 相同，重启后只排下一个未来时隙（openclaw `computeNextRunAtMs` 语义）
+
+### Cron 执行流程
+
+1. 调度器 tick → 检查 `cron_enabled`（门控）
+2. 读取该 agent 的 `jobs.json`，评估所有 enabled job 是否到期
+3. 到期 job → 在隔离会话 `cron:<jobId>` 中提交 run（origin=cron，无上下文）
+4. 投递结果到 owner 与 agent 的 canonical 直聊（复用 feat-393 闭环）
+5. 同时将结果文本以 `System(untrusted)` 旁注 append 进直聊 kernel session JSONL（awareness 注入）
+6. `delete_after_run=True` 的 job → 运行后从 `jobs.json` 删除
+
+### Cron 工具
+
+Agent 通过 `cron` 工具（PA 专属，`agent/products/personal_assistant/tools/cron.py`）自管任务：
+- **add**：注册新任务（schedule + payload.message）
+- **list**：列出当前任务（含 disabled）
+- **update**：更新已有任务
+- **remove**：删除任务
+- **run**：立即触发一次
+- **runs**：查看运行历史
+
+### Cron 硬规则
+
+- Cron 只在 `personal_assistant` 产品启用；`coding_cli` 不含 cron 工具和 cron prompt 段
+- Cron job 运行在**隔离会话**（无对话上下文）；结果通过 awareness 注入供用户追问
+- 重启后不补跑；过期的一次性 `at` job 不执行
+- 工具描述逐字照抄 openclaw `cron-tool.ts` 并标注 Provenance 注释（feat-394 decision 6）
+
 ---
 
 ## 7. 多 Agent 支持

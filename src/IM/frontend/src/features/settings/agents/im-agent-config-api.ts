@@ -27,6 +27,11 @@ export interface HeartbeatConfig {
   };
 }
 
+// feat-394-M2 decision 5: cron per-agent config (enabled toggle only)
+export interface CronConfig {
+  enabled: boolean;
+}
+
 export interface AgentConfig {
   agent_id: string;
   owner_id: string;
@@ -39,6 +44,8 @@ export interface AgentConfig {
   custom_prompt?: string;
   // feat-394 decision 5: per-agent heartbeat config; absent from older IM responses → treat as disabled
   heartbeat?: HeartbeatConfig;
+  // feat-394-M2 decision 5: per-agent cron config; absent from older IM responses → treat as disabled
+  cron?: CronConfig;
   skills: string[];
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
@@ -140,6 +147,8 @@ export interface UpdateAgentConfigRequest {
   custom_prompt?: string;
   // feat-394 decision 5: heartbeat per-agent config; omitted → server keeps existing
   heartbeat?: HeartbeatConfig;
+  // feat-394-M2 decision 5: cron per-agent config; omitted → server keeps existing
+  cron?: CronConfig;
   skills: string[];
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
@@ -381,6 +390,8 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       ...(next.custom_prompt !== undefined ? { custom_prompt: next.custom_prompt } : {}),
       // feat-394 decision 5: pass heartbeat config when present
       ...(next.heartbeat !== undefined ? { heartbeat: next.heartbeat } : {}),
+      // feat-394-M2 decision 5: pass cron config when present
+      ...(next.cron !== undefined ? { cron: next.cron } : {}),
       skills: next.skills,
       tool_allowlist: next.tool_allowlist,
       group_reply_policy: next.group_reply_policy,

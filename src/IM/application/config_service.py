@@ -178,6 +178,7 @@ class ConfigService:
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
         heartbeat_json: str | None = None,
+        cron_json: str | None = None,
     ) -> AgentProfile:
         """Update one agent profile using profile_version optimistic locking.
 
@@ -187,6 +188,8 @@ class ConfigService:
 
         feat-394: heartbeat_json stores the heartbeat block as a raw JSON string
         so the gateway ConfigSyncNotifier can forward it without re-serialization.
+
+        feat-394-M2: cron_json stores the cron config block as a raw JSON string.
         """
         if self._profiles.get_profile(agent_id=agent_id) is None:
             raise LookupError("agent_id not found")
@@ -206,6 +209,7 @@ class ConfigService:
             features=features,
             custom_prompt=custom_prompt,
             heartbeat_json=heartbeat_json,
+            cron_json=cron_json,
         )
         self._notify_config_sync(
             agent_id=agent_id, profile_version=updated.profile_version

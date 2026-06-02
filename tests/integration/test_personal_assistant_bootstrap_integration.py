@@ -46,7 +46,9 @@ def test_bootstrap_personal_assistant_tool_registry_keeps_send_message_opt_in(
     assert {"read", "write", "edit", "bash", "web_fetch", "web_search"}.issubset(
         tool_names
     )
-    assert PERSONAL_ASSISTANT_PROFILE.optional_tool_ids == ["send_message"]
+    # feat-394-M2: cron added; test membership not exact list
+    assert "send_message" in PERSONAL_ASSISTANT_PROFILE.optional_tool_ids
+    assert "cron" in PERSONAL_ASSISTANT_PROFILE.optional_tool_ids
 
 
 def test_bootstrap_personal_assistant_hook_registry_no_bash_risk_gate(
