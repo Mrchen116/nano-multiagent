@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, TextIO
 
-_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
+from agent.sdk import TERMINAL_RUN_STATUSES as _TERMINAL_STATUSES
 
 
 async def run_text(

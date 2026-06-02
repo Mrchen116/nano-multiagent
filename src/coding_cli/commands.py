@@ -60,6 +60,7 @@ from coding_cli.render.repl_render import (
 )
 from coding_cli.render.terminal_output import emit_lines as _emit_terminal_lines
 from coding_cli.render.terminal_output import write_tty_line as _write_tty_line
+from agent.sdk import TERMINAL_RUN_STATUSES as _TERMINAL_STATUSES
 
 _CLI_HELP_EPILOG = (
     "REPL quick commands: /help /new /use <session_id> /session /tools /compact /history [n] /exit\n"
@@ -71,8 +72,6 @@ _CLI_HELP_EPILOG = (
     "LLM usage: shown per turn when provider usage is available.\n"
     "Error layers: input / runtime."
 )
-
-_TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
 # Test-injectable factory type: callable that returns a Kernel-compatible object.
 KernelFactory = Callable[..., Any]
