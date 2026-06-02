@@ -163,14 +163,13 @@ def test_scheduler_runs_cron_schedule_on_matching_minute(tmp_path: Path) -> None
     assert len(kernel.sent_messages) == 1
 
 
-def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) -> None:
-    """After a long gap, catch-up must produce at most ONE run (not a backlog per missed interval).
+def test_interval_no_backfill_after_restart(tmp_path: Path) -> None:
+    """After a long gap, restart must NOT run any missed due-times — only wait for next future slot.
 
-    feat-393 fix-r2: the original implementation returned every missed due-time in the gap,
-    causing the agent to flood IM with a burst of messages on restart (213s gap → 63 messages
-    in round-2 acceptance).  The correct semantics for a periodic heartbeat is: one catch-up
-    run for the most recent missed period, then resume the normal cadence.  Replaying the full
-    backlog is anti-social and violates the "periodic summary" contract.
+    feat-394 decision 3/4 (openclaw computeNextRunAtMs semantics): "every" skips to the
+    next *future* aligned slot; it never executes past due-times.  This is stricter than
+    feat-393 fix-r2 which still allowed one catch-up run — openclaw does not emit any run
+    for the gap period.
     """
     agent = _agent(tmp_path)
     _write_heartbeat(
@@ -192,17 +191,22 @@ def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) 
     restarted = HeartbeatScheduler(
         agents=(agent,), kernel_client=second_kernel, state_store=state_store
     )
-    # 1h31m gap → 3 missed intervals (09:30, 10:00, 10:30); must collapse to exactly 1 run.
+    # 1h31m gap — 3 missed intervals (09:30, 10:00, 10:30).
+    # openclaw semantics: none of those past due-times are run; next run is at 11:00.
     catch_up = asyncio.run(
         restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC))
     )
 
-    assert len(catch_up.triggered_runs) == 1, (
-        "catch-up after a long gap must produce exactly 1 run (most recent due), not a backlog"
+    assert catch_up.triggered_runs == (), (
+        "restart after a long gap must NOT run any missed intervals — wait for the next future slot"
     )
-    # The single run must be the most recent aligned due time (10:30).
-    assert catch_up.triggered_runs[0].due_at.isoformat() == "2026-03-11T10:30:00+00:00"
-    assert len(second_kernel.sent_messages) == 1
+    assert len(second_kernel.sent_messages) == 0
+
+    # Next tick at 11:00 (first future aligned slot) must fire.
+    next_tick = asyncio.run(
+        restarted.tick(now=datetime(2026, 3, 11, 11, 0, tzinfo=UTC))
+    )
+    assert len(next_tick.triggered_runs) == 1
 
 
 def test_scheduler_normal_cadence_produces_exactly_one_run_per_interval(
@@ -224,8 +228,12 @@ def test_scheduler_normal_cadence_produces_exactly_one_run_per_interval(
         )
 
 
-def test_scheduler_cron_catchup_collapses_to_one_run(tmp_path: Path) -> None:
-    """Cron catch-up after a long gap must also produce at most 1 run (most recent match)."""
+def test_cron_no_backfill_after_restart(tmp_path: Path) -> None:
+    """Cron catch-up after a gap must produce ZERO runs — only wait for the next future match.
+
+    feat-394 decision 3/4 (openclaw computeNextRunAtMs semantics): cron picks the next
+    *future* matching point via nextRun(now); it never re-runs past matches.
+    """
     agent = _agent(tmp_path)
     _write_heartbeat(agent.workspace_root, "cron: * * * * *\n\nMinute heartbeat.\n")
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
@@ -237,16 +245,23 @@ def test_scheduler_cron_catchup_collapses_to_one_run(tmp_path: Path) -> None:
     # First tick at 09:00 — establishes last_due_at.
     asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
 
-    # Restart after a 5-minute gap — 5 cron hits missed; must produce exactly 1 run.
+    # Restart after a 5-minute gap — 5 cron hits missed.
+    # openclaw semantics: none of those past matches are run; next run is at 09:06.
     restarted = HeartbeatScheduler(
         agents=(agent,), kernel_client=_FakeKernelClient(), state_store=state_store
     )
     catch_up = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 9, 5, tzinfo=UTC)))
 
-    assert len(catch_up.triggered_runs) == 1, (
-        "cron catch-up must collapse multiple missed hits to 1 run (most recent), not a burst"
+    assert catch_up.triggered_runs == (), (
+        "cron restart must NOT run any missed matches — wait for the next future cron slot"
     )
-    assert catch_up.triggered_runs[0].due_at == datetime(2026, 3, 11, 9, 5, tzinfo=UTC)
+
+    # Next future cron slot (09:06) must fire.
+    next_tick = asyncio.run(
+        restarted.tick(now=datetime(2026, 3, 11, 9, 6, tzinfo=UTC))
+    )
+    assert len(next_tick.triggered_runs) == 1
+    assert next_tick.triggered_runs[0].due_at == datetime(2026, 3, 11, 9, 6, tzinfo=UTC)
 
 
 def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(
