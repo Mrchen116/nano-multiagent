@@ -177,3 +177,89 @@
 - [x] `docs/内核设计SPEC.md`：无需更新
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新
 - [x] `docs/NodeGateway-SPEC.md`：无需更新（等 R2-1 修复后更新）
+
+---
+
+# Round 3 — 2026-06-02
+
+## 环境信息
+
+- Unit branch: `unit/feat-393`（commit `d349eb37`，R2-1 catch-up 折叠 + stream anchor + e2e hygiene 已合入）
+- 验收环境: worktree `verify-feat-393` + `scripts/e2e-up.sh`（隔离端口 64649，全新 IM 实例）
+- e2e hygiene 验证：`heartbeat-state.json` 启动时已清空（`{"agents": {}}`）
+- Agent: `default-agent`，workspace: `.gateway-workspace/default-agent/`
+- HEARTBEAT.md: `interval: 15s`，指令"[heartbeat-r3] 当前时间汇报，一切正常。不要用 NO_REPLY"
+- T0: 2026-06-02T01:50:23Z
+
+## R2-1 关闭证据
+
+| 指标 | Round 2 | Round 3 | 预期 |
+|---|---|---|---|
+| 消息条数 / 时间跨度 | 63条/213s | 5条/106s | interval=15s，约1条/35s（LLM执行约20s） |
+| 平均间隔 | 3.4s（burst刷屏） | 34.8s（正常节奏） | ~35s（15s interval + ~20s LLM） |
+| 每次tick是否产生多条 | 是（历史重播导致burst） | 否（每tick严格1条） | 否 |
+
+**R2-1 已关闭**：catch-up 折叠有效，每次 heartbeat tick 只产生 1 条 IM 消息，无 burst。
+
+## 额外观察（启动时序，minor）
+
+第一次 tick（Gateway 刚启动时）出现 `heartbeat delivery skipped: agent_user_id_not_found`，IM 跳过该次投递。从第二次 tick 起正常。这是一次性启动时序 skip（agent 注册完成前就 tick 了），之后自动恢复，不影响主路径正确性。
+
+## User Journeys Exercised (Round 3)
+
+| # | 旅程 | 覆盖 Scenario | 结果 |
+|---|---|---|---|
+| J1 | HEARTBEAT.md interval:15s，全新 IM 实例（无历史），等 5 条消息（约 106s），检查频率 | R2-1, S1, S6, S7 | R2-1关闭/S1/S6/S7 pass |
+| J2 | 新建 Conv2（group），等下一次 tick，检查是否被污染 | S5 | pass |
+| J3 | 检查历史消息持久化 | S3 | pass |
+
+## 验收标准覆盖 (Round 3)
+
+### Requirement: 定时 heartbeat 运行结果以 agent 消息形式出现在 owner 直聊 — 组内结论: pass
+
+| Scenario | R1 | R2 | R3结果 | R3证据 |
+|---|---|---|---|---|
+| 本轮有内容可汇报（S1） | fail | pass | **pass** | Conv1 `aa25565d...` (type=direct) 出现 5 条 `[heartbeat-r3]` agent 消息 |
+| 会话开着时实时呈现（S2） | fail | inconclusive | **inconclusive** | WS 1次持久连接，browse 不可用，无法浏览器确认流式效果 |
+| 会话没开时作为已完成消息留存（S3） | fail | pass | **pass** | messages API 返回 5 条持久化消息，有 created_at 时间戳 |
+
+### Requirement: 本轮无内容可报时静默，不打扰用户 — 组内结论: inconclusive
+
+| Scenario | R1 | R2 | R3结果 | R3证据 |
+|---|---|---|---|---|
+| 无可汇报内容（S4） | inconclusive | inconclusive | **inconclusive** | 稳定 session 历史上下文干扰，LLM 无法可靠产生 NO_REPLY；核心逻辑有单测覆盖，reviewer 层无法复现真实静默场景 |
+
+### Requirement: 汇报始终落到 canonical（最早建的）直聊，不污染其它任务单聊 — 组内结论: pass
+
+| Scenario | R1 | R2 | R3结果 | R3证据 |
+|---|---|---|---|---|
+| owner 与同一 agent 有多条单聊（S5） | fail | pass(部分) | **pass** | Conv2（group，task B）0条消息；Conv1（direct）5条；heartbeat 只落 Conv1 |
+| 尚无任何直聊（首次/空态）（S6） | fail | pass | **pass** | 全新 IM 实例，heartbeat 触发后自动新建 `type=direct` 会话 `aa25565d...` |
+
+### Requirement: 用户只看到汇报内容，看不到驱动运行的内部触发指令 — 组内结论: pass
+
+| Scenario | R1 | R2 | R3结果 | R3证据 |
+|---|---|---|---|---|
+| 触发指令对用户不可见（S7） | inconclusive | pass | **pass** | 5条消息全为 sender_type=agent；无触发文本（Heartbeat scheduler trigger/Due at:/Read the workspace 均未出现） |
+
+## Round 3 Issues
+
+| # | 严重度 | 状态 | 说明 |
+|---|---|---|---|
+| R1-1（WS 立刻断开） | blocking | **已关闭**（R2） | Fix1+Fix3 解决 |
+| R2-1（消息频率刷屏） | major | **已关闭**（R3） | 5条/106s，avg 34.8s/条，无 burst |
+
+## Round 3 Verdict
+
+**pass-with-issues**
+
+主路径（S1/S3/S5/S6/S7）全部通过，R1-1 和 R2-1 均已关闭。S2（实时流式）和 S4（静默）标 inconclusive，不阻塞整体 pass：
+- S2：WS 连接稳定（必要条件已验证），实时流式效果需浏览器前端，工具不可用；设计路径正确。
+- S4：NO_REPLY 静默逻辑有 worker 单测覆盖，reviewer 层在稳定 session 历史上下文下无法可靠复现；不阻塞 pass。
+
+## 上层文档同步 (Round 3)
+
+- [x] `SPEC.md`：无需更新
+- [x] `docs/内核设计SPEC.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新（heartbeat 功能说明可在 PR 合并后补充）
+- [x] `docs/NodeGateway-SPEC.md`：建议 PR 阶段由 worker 补充 heartbeat→canonical 直聊行为描述，不阻塞本 unit
