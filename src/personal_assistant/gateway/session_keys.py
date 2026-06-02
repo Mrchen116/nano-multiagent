@@ -88,11 +88,16 @@ session_binding_store = SessionBindingStore()
 
 _CREATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS session_bindings (
-    session_key       TEXT PRIMARY KEY,
-    kernel_session_id TEXT NOT NULL,
+    session_key        TEXT PRIMARY KEY,
+    kernel_session_id  TEXT NOT NULL,
     reply_context_json TEXT NOT NULL,
-    updated_at        TEXT NOT NULL
+    updated_at         TEXT NOT NULL,
+    created_at         TEXT NOT NULL DEFAULT ''
 )
+"""
+
+_MIGRATE_ADD_CREATED_AT_SQL = """
+ALTER TABLE session_bindings ADD COLUMN created_at TEXT NOT NULL DEFAULT ''
 """
 
 
@@ -131,6 +136,16 @@ class PersistentSessionBindingStore:
         # WAL mode reduces write contention; safe for single-process gateway.
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.execute(_CREATE_TABLE_SQL)
+        # feat-394 migration: add created_at column if absent (existing databases).
+        # created_at records when the binding was first established (proxy for the
+        # direct chat's creation time, used by find_direct_by_agent to select the
+        # oldest / canonical conversation consistent with IM's sorted-by-created_at policy).
+        existing_cols = {
+            row[1]
+            for row in self._conn.execute("PRAGMA table_info(session_bindings)").fetchall()
+        }
+        if "created_at" not in existing_cols:
+            self._conn.execute(_MIGRATE_ADD_CREATED_AT_SQL)
         self._conn.commit()
         self._kernel_client: Any | None = None  # KernelApiClient removed in M3
 
@@ -212,17 +227,22 @@ class PersistentSessionBindingStore:
         import datetime
 
         rc_json = _serialize_reply_context(reply_context)
-        updated_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        # feat-394: created_at is written once on first INSERT and never overwritten.
+        # It acts as a proxy for the direct-chat conversation creation time so that
+        # find_direct_by_agent can select the canonical (oldest) binding consistent
+        # with IM's _find_canonical_direct_conversation (sorted by created_at[0]).
         self._conn.execute(
             """
-            INSERT INTO session_bindings (session_key, kernel_session_id, reply_context_json, updated_at)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO session_bindings
+                (session_key, kernel_session_id, reply_context_json, updated_at, created_at)
+            VALUES (?, ?, ?, ?, ?)
             ON CONFLICT(session_key) DO UPDATE SET
-                kernel_session_id = excluded.kernel_session_id,
+                kernel_session_id  = excluded.kernel_session_id,
                 reply_context_json = excluded.reply_context_json,
-                updated_at = excluded.updated_at
+                updated_at         = excluded.updated_at
             """,
-            (session_key, kernel_session_id, rc_json, updated_at),
+            (session_key, kernel_session_id, rc_json, now_iso, now_iso),
         )
         self._conn.commit()
         return SessionBinding(
@@ -247,6 +267,73 @@ class PersistentSessionBindingStore:
             (f"%{suffix}",),
         )
         self._conn.commit()
+
+    def find_direct_by_agent(
+        self, *, channel_name: str, agent_id: str
+    ) -> SessionBinding | None:
+        """Return the oldest direct-chat binding for one agent on one channel.
+
+        Searches for all session keys matching ``{channel_name}:%:{agent_id}``
+        (same LIKE pattern as :meth:`drop_agent`) and returns the binding with
+        the smallest ``updated_at`` timestamp — the oldest (canonical) direct chat,
+        consistent with IM's ``_find_canonical_direct_conversation`` which takes
+        ``sorted(key=created_at)[0]``.
+
+        feat-394 decision 3: called by :class:`PollingHeartbeatRunner` **before**
+        submitting each heartbeat run, so the scheduler always has the most recent
+        canonical session from a gateway-only read — no IM HTTP call needed, no
+        dependency on a prior turn_start ack.
+
+        Args:
+            channel_name: Gateway channel name (e.g. ``"web_relay"``).
+            agent_id: Agent whose direct-chat binding to look up.
+
+        Returns:
+            The oldest :class:`SessionBinding` for this agent on this channel,
+            or ``None`` when no binding exists yet (first heartbeat before any
+            direct chat has taken place).
+
+        Notes:
+            ``updated_at`` is used as the sort key because ``created_at`` is not
+            stored in ``session_bindings``.  For direct chats the first-created
+            binding is also the last-written before any newer chat is created, so
+            the smallest ``updated_at`` reliably selects the oldest conversation.
+            The assumption holds for single direct-chat per agent (the common case);
+            when multiple direct chats exist, both heartbeat runs **and** IM
+            delivery use the oldest-binding heuristic, so they stay consistent.
+        """
+
+        # Session key format: ``{channel_name}:{conversation_id}:{agent_id}``
+        # LIKE pattern mirrors drop_agent's ``%:{agent_id}`` suffix but further
+        # constrains to the correct channel prefix.
+        pattern = f"{channel_name}:%:{agent_id}"
+        # feat-394: ORDER BY created_at ASC (not updated_at) so the result matches
+        # IM's _find_canonical_direct_conversation(sorted(key=created_at)[0]).
+        # created_at is written once at first INSERT and never updated on upsert,
+        # so it reliably reflects when the binding (and therefore the direct chat)
+        # was first established — independent of subsequent message activity.
+        row = self._conn.execute(
+            """
+            SELECT session_key, kernel_session_id, reply_context_json
+            FROM session_bindings
+            WHERE session_key LIKE ?
+            ORDER BY created_at ASC, rowid ASC
+            LIMIT 1
+            """,
+            (pattern,),
+        ).fetchone()
+        if row is None:
+            return None
+        # Use positional indices: PersistentSessionBindingStore._conn has no row_factory.
+        session_key_val: str = row[0]
+        kernel_session_id_val: str = row[1]
+        reply_context_json_val: str = row[2]
+        reply_context = _deserialize_reply_context(reply_context_json_val)
+        return SessionBinding(
+            session_key=session_key_val,
+            kernel_session_id=kernel_session_id_val,
+            reply_context=reply_context,
+        )
 
 
 def _serialize_reply_context(rc: ReplyContext) -> str:

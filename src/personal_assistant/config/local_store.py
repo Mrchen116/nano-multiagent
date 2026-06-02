@@ -40,6 +40,11 @@ _DEFAULT_WORKSPACE_HEARTBEAT_CONTENT = (
 # MemoryStore can read/write them without path gymnastics (feat-349-M3).
 # HEARTBEAT.md stays at workspace root (heartbeat scheduler reads it there).
 _WORKSPACE_MEMORY_SUBDIR = ".nanoassistant/memory"
+# feat-394: expose the per-workspace config directory name for intra-package callers
+# that need to locate session JSONL files (e.g. PollingHeartbeatRunner transcript trim).
+# Mirrors agent.products.personal_assistant.defaults.WORKSPACE_CONFIG_DIRNAME without
+# crossing the personal_assistant → agent.products import boundary.
+WORKSPACE_CONFIG_DIRNAME: str = _WORKSPACE_MEMORY_SUBDIR.split("/")[0]
 
 DEFAULT_WORKSPACE_MEMORY_FILES: tuple[tuple[str, str], ...] = (
     ("MEMORY.md", _DEFAULT_WORKSPACE_MEMORY_CONTENT),

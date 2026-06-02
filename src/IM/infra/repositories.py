@@ -1594,7 +1594,7 @@ class AgentProfileRepository:
             """
             SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
-                   is_stale, features_json, custom_prompt
+                   is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
             ORDER BY created_at, rowid
             """
@@ -1614,7 +1614,7 @@ class AgentProfileRepository:
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
-                   ap.is_stale, ap.features_json, ap.custom_prompt
+                   ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
@@ -1645,7 +1645,7 @@ class AgentProfileRepository:
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
-                   ap.is_stale, ap.features_json, ap.custom_prompt
+                   ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
@@ -1689,7 +1689,7 @@ class AgentProfileRepository:
             """
             SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
-                   is_stale, features_json, custom_prompt
+                   is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
             WHERE agent_id = ?
             """,
@@ -1838,6 +1838,7 @@ class AgentProfileRepository:
         workspace_root: str | None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
+        heartbeat_json: str | None = None,
     ) -> "AgentProfile":
         """Update a profile with optimistic locking on profile_version."""
         current = self.get_profile(agent_id=agent_id)
@@ -1855,6 +1856,10 @@ class AgentProfileRepository:
         resolved_custom_prompt = (
             custom_prompt if custom_prompt is not None else current.custom_prompt
         )
+        # feat-394: heartbeat_json is a raw JSON string; None preserves existing value.
+        resolved_heartbeat_json = (
+            heartbeat_json if heartbeat_json is not None else current.heartbeat_json
+        )
         with self._connection:
             self._connection.execute(
                 """
@@ -1870,7 +1875,8 @@ class AgentProfileRepository:
                     profile_version = ?,
                     updated_at = ?,
                     features_json = ?,
-                    custom_prompt = ?
+                    custom_prompt = ?,
+                    heartbeat_json = ?
                 WHERE agent_id = ?
                 """,
                 (
@@ -1886,6 +1892,7 @@ class AgentProfileRepository:
                     updated_at,
                     features_json,
                     resolved_custom_prompt,
+                    resolved_heartbeat_json,
                     agent_id,
                 ),
             )
@@ -1929,6 +1936,9 @@ class AgentProfileRepository:
             if isinstance(custom_prompt_raw, str) and custom_prompt_raw.strip()
             else None
         )
+        # feat-394: heartbeat config JSON string (raw, not decoded; forwarded to gateway as-is)
+        heartbeat_json_raw = row["heartbeat_json"] if "heartbeat_json" in keys else None
+        heartbeat_json = heartbeat_json_raw if isinstance(heartbeat_json_raw, str) and heartbeat_json_raw.strip() else None
         return AgentProfile(
             agent_id=row["agent_id"],
             owner_id=row["owner_id"],
@@ -1945,6 +1955,7 @@ class AgentProfileRepository:
             is_stale=is_stale,
             features=features,
             custom_prompt=custom_prompt,
+            heartbeat_json=heartbeat_json,
         )
 
 

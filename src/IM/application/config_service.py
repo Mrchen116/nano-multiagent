@@ -177,12 +177,16 @@ class ConfigService:
         workspace_root: str | None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
+        heartbeat_json: str | None = None,
     ) -> AgentProfile:
         """Update one agent profile using profile_version optimistic locking.
 
         feat-379-M5 (ISSUE-2): features + custom_prompt are now accepted so
         the IM mirror stores them and subsequent GET /config calls return the
         persisted values; Gateway picks them up on next config.sync.
+
+        feat-394: heartbeat_json stores the heartbeat block as a raw JSON string
+        so the gateway ConfigSyncNotifier can forward it without re-serialization.
         """
         if self._profiles.get_profile(agent_id=agent_id) is None:
             raise LookupError("agent_id not found")
@@ -201,6 +205,7 @@ class ConfigService:
             ),
             features=features,
             custom_prompt=custom_prompt,
+            heartbeat_json=heartbeat_json,
         )
         self._notify_config_sync(
             agent_id=agent_id, profile_version=updated.profile_version

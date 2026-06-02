@@ -203,13 +203,14 @@ class HeartbeatScheduler:
         state_store: HeartbeatSchedulerStateStore,
         canonical_session_store: dict[str, str] | None = None,
         busy_sessions: set[str] | None = None,
+        session_store: object | None = None,
     ) -> None:
         self._agents = agents
         self._kernel_client = kernel_client
         self._state_store = state_store
         # feat-394 decision 3: canonical direct chat kernel session per agent_id.
-        # Populated by PollingHeartbeatRunner after first delivery; None key → fresh session.
-        # Falls back to the legacy _heartbeat_sessions dict when canonical_session_store is None.
+        # Updated by _refresh_canonical_sessions before each tick submission.
+        # Falls back to the legacy _heartbeat_sessions dict when no binding is found.
         self._canonical_session_store: dict[str, str] = (
             canonical_session_store if canonical_session_store is not None else {}
         )
@@ -219,9 +220,14 @@ class HeartbeatScheduler:
         self._busy_sessions: set[str] = (
             busy_sessions if busy_sessions is not None else set()
         )
-        # Legacy fallback session store (for when canonical_session_store is not provided).
-        # In feat-393 mode, one stable :heartbeat session per agent was used.
-        # In feat-394 mode, canonical_session_store takes precedence.
+        # feat-394 decision 3: gateway session store for tick-time canonical session lookup.
+        # find_direct_by_agent reads the SQLite session_bindings table (pure gateway read,
+        # no IM HTTP call) and updates canonical_session_store before each heartbeat run.
+        # This replaces the prior reactive approach (turn_start ack → fill) which failed for
+        # first-tick / restart / silent polling (chicken-egg: silent polling never acks → never fills).
+        self._session_store: object | None = session_store
+        # Legacy fallback session store (for when no canonical session binding is found yet).
+        # In feat-394 mode, session_store lookup takes precedence.
         self._heartbeat_sessions: dict[str, str] = {}
 
     async def tick(self, *, now: datetime | None = None) -> HeartbeatTickSummary:
@@ -263,6 +269,17 @@ class HeartbeatScheduler:
             ):
                 skipped_agents.append(agent.agent_id)
                 continue
+            # feat-394 decision 3: tick-time canonical session refresh.
+            # Read the agent's oldest direct-chat binding from the gateway SQLite store
+            # BEFORE checking busy-skip or submitting a run.  This replaces the prior
+            # reactive approach (turn_start ack → fill) which failed for first-tick,
+            # restart, and silent-polling scenarios (silent polls never ack → never fill).
+            # Pure gateway read — no IM HTTP call required.
+            _find_fn = getattr(self._session_store, "find_direct_by_agent", None)
+            if _find_fn is not None:
+                _binding = _find_fn(channel_name="web_relay", agent_id=agent.agent_id)
+                if _binding is not None and _binding.kernel_session_id:
+                    self._canonical_session_store[agent.agent_id] = _binding.kernel_session_id
             # feat-394 decision 3: busy-session gate — skip when canonical session is running
             # a turn (avoid concurrent runs in the same direct-chat kernel session).
             canonical_session = self._canonical_session_store.get(agent.agent_id)
