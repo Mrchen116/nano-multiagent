@@ -229,39 +229,46 @@ def test_scheduler_normal_cadence_produces_exactly_one_run_per_interval(
 
 
 def test_cron_no_backfill_after_restart(tmp_path: Path) -> None:
-    """Cron catch-up after a gap must produce ZERO runs — only wait for the next future match.
+    """Cron restart must run exactly the CURRENT minute if it matches, not past missed minutes.
 
-    feat-394 decision 3/4 (openclaw computeNextRunAtMs semantics): cron picks the next
-    *future* matching point via nextRun(now); it never re-runs past matches.
+    feat-394 decision 3/4 (openclaw semantics): cron checks whether the current tick's
+    minute matches the expression AND has not already been executed.  It does NOT replay
+    past missed slots.  So "* * * * *" after a 5-minute gap fires exactly once for the
+    current minute — not 5 separate runs for the gap.
+
+    Contrast: the old feat-393 fix-r2 approach scanned from last_due_at to now and would
+    yield the most-recent match (still a form of backfill).  openclaw fires only the
+    present minute, leaving the gap silently un-executed.
     """
     agent = _agent(tmp_path)
-    _write_heartbeat(agent.workspace_root, "cron: * * * * *\n\nMinute heartbeat.\n")
+    _write_heartbeat(agent.workspace_root, "cron: 0 9 * * *\n\nDaily 09:00 heartbeat.\n")
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
     kernel = _FakeKernelClient()
     scheduler = HeartbeatScheduler(
         agents=(agent,), kernel_client=kernel, state_store=state_store
     )
 
-    # First tick at 09:00 — establishes last_due_at.
-    asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+    # First tick at 09:00 on day 1 — fires, establishes last_due_at.
+    first = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+    assert len(first.triggered_runs) == 1
 
-    # Restart after a 5-minute gap — 5 cron hits missed.
-    # openclaw semantics: none of those past matches are run; next run is at 09:06.
+    # Restart after 25h gap — missed the 09:00 on day 2.
+    # openclaw semantics: 10:00 on day 2 does NOT match "0 9 * * *", so no run.
     restarted = HeartbeatScheduler(
         agents=(agent,), kernel_client=_FakeKernelClient(), state_store=state_store
     )
-    catch_up = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 9, 5, tzinfo=UTC)))
+    catch_up = asyncio.run(restarted.tick(now=datetime(2026, 3, 12, 10, 0, tzinfo=UTC)))
 
     assert catch_up.triggered_runs == (), (
-        "cron restart must NOT run any missed matches — wait for the next future cron slot"
+        "cron restart must NOT backfill past missed slots — only fire on the current matching minute"
     )
 
-    # Next future cron slot (09:06) must fire.
+    # Next cron slot (09:00 on day 3) must fire when the tick lands on that minute.
     next_tick = asyncio.run(
-        restarted.tick(now=datetime(2026, 3, 11, 9, 6, tzinfo=UTC))
+        restarted.tick(now=datetime(2026, 3, 13, 9, 0, tzinfo=UTC))
     )
     assert len(next_tick.triggered_runs) == 1
-    assert next_tick.triggered_runs[0].due_at == datetime(2026, 3, 11, 9, 6, tzinfo=UTC)
+    assert next_tick.triggered_runs[0].due_at == datetime(2026, 3, 13, 9, 0, tzinfo=UTC)
 
 
 def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(

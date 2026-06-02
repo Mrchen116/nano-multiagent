@@ -314,20 +314,30 @@ class _IntervalSchedule:
     def due_times_up_to(
         self, *, now: datetime, last_due_at: datetime | None
     ) -> list[datetime]:
+        # Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "every" branch —
+        # steps = ceil(elapsed / everyMs), next = anchor + steps * everyMs.
+        # Result is always strictly in the future relative to anchor; we only trigger
+        # when that future point has actually arrived (next_due_at <= now).
+        # This means a restart after a gap never catches up past due-times — it waits
+        # for the next aligned future slot.  (feat-394 decision 3/4, replaces feat-393
+        # fix-r2 "fold to most-recent" semantics)
+        #
+        # First-ever tick (last_due_at is None): trigger immediately at floor(now, interval).
+        # The first execution is always the clock-aligned slot at or before now; this is the
+        # anchor that subsequent ticks use to compute the next future slot.
         if last_due_at is None:
             return [_floor_datetime(now, self.interval)]
-        # feat-393 fix-r2: collapse multiple missed intervals to a single catch-up run.
-        # Replaying every missed due-time floods IM after a gap (e.g. 213s gap at 5s
-        # interval → 42 backlog runs in round-2 acceptance).  "Periodic summary" semantics:
-        # at most one catch-up for the most recent period, then resume normal cadence.
-        cursor = last_due_at + self.interval
-        if cursor > now:
-            # Nothing due yet.
+        elapsed = now - last_due_at
+        if elapsed <= timedelta(0):
             return []
-        # Advance cursor to the most recent aligned due time without looping.
-        intervals_elapsed = int((now - last_due_at) / self.interval)
-        most_recent = last_due_at + self.interval * intervals_elapsed
-        return [most_recent]
+        interval_secs = int(self.interval.total_seconds())
+        elapsed_secs = int(elapsed.total_seconds())
+        # steps = ceil(elapsed / interval) — gives the first step that is strictly after anchor.
+        steps = max(1, (elapsed_secs + interval_secs - 1) // interval_secs)
+        next_due_at = last_due_at + self.interval * steps
+        if next_due_at > now:
+            return []
+        return [next_due_at]
 
 
 @dataclass(frozen=True, slots=True)
@@ -341,20 +351,22 @@ class _CronSchedule:
     def due_times_up_to(
         self, *, now: datetime, last_due_at: datetime | None
     ) -> list[datetime]:
+        # Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "cron" branch —
+        # openclaw's scheduler checks "now >= job.next_run_at" per tick, and after firing
+        # immediately updates next_run_at = computeNextRunAtMs(schedule, now) which is always
+        # strictly in the future.  The net effect: only the minute that cron matches AND has
+        # not already been executed triggers a run.  A restart after a gap does NOT replay
+        # missed cron slots — the first future-matching minute is the next run.
+        # (feat-394 decision 3/4; replaces feat-393 fix-r2 "most-recent" backfill semantics)
+        #
+        # Implementation: trigger when the current minute matches the cron expression AND
+        # differs from last_due_at (dedup guard prevents double-fire in the same minute).
         current = now.replace(second=0, microsecond=0)
-        if last_due_at is None:
-            candidates = [current] if self._matches(current) else []
-            return candidates
-        # feat-393 fix-r2: collapse multiple missed cron hits to the most recent one.
-        # Same rationale as _IntervalSchedule: a backlog burst violates "periodic summary"
-        # semantics and floods IM after any gap.
-        most_recent: datetime | None = None
-        cursor = (last_due_at + timedelta(minutes=1)).replace(second=0, microsecond=0)
-        while cursor <= current:
-            if self._matches(cursor):
-                most_recent = cursor
-            cursor += timedelta(minutes=1)
-        return [most_recent] if most_recent is not None else []
+        if not self._matches(current):
+            return []
+        if last_due_at is not None and last_due_at.replace(second=0, microsecond=0) == current:
+            return []
+        return [current]
 
     def _matches(self, candidate: datetime) -> bool:
         cron_weekday = (candidate.weekday() + 1) % 7
