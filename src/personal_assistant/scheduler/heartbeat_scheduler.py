@@ -857,13 +857,29 @@ def _floor_datetime(value: datetime, interval: timedelta) -> datetime:
     return datetime.fromtimestamp(floored, tz=UTC)
 
 
+# Provenance: openclaw/src/auto-reply/heartbeat.ts:14 HEARTBEAT_PROMPT
+# Text is verbatim from that constant (the default heartbeat trigger instruction).
+# feat-394 decision 6: heartbeat trigger message must use this verbatim text so model
+# behaviour matches openclaw expectations (HEARTBEAT_OK silence + HEARTBEAT.md follow).
+# feat-394-M3 WARNING-2 fix: replace custom rewording with the openclaw original.
+_OPENCLAW_HEARTBEAT_PROMPT = (
+    "Read HEARTBEAT.md if it exists (workspace context). "
+    "Follow it strictly. "
+    "Do not infer or repeat old tasks from prior chats. "
+    "If nothing needs attention, reply HEARTBEAT_OK."
+)
+
+
 def _build_heartbeat_message(
     *, agent_id: str, due_at: datetime, instructions: str
 ) -> str:
-    return (
-        "Heartbeat scheduler trigger.\n\n"
-        f"Agent: {agent_id}\n"
-        f"Due at: {due_at.isoformat()}\n\n"
-        "Read the workspace HEARTBEAT.md intent below, perform only valid actionable tasks, and stay quiet if there is nothing useful to report.\n\n"
-        f"{instructions}"
-    )
+    """Build the heartbeat trigger message for a scheduled heartbeat run.
+
+    The base instruction text is the verbatim openclaw HEARTBEAT_PROMPT
+    (openclaw/src/auto-reply/heartbeat.ts:14).  When the task has explicit
+    HEARTBEAT.md instructions they are appended after the base prompt.
+    """
+    parts = [_OPENCLAW_HEARTBEAT_PROMPT]
+    if instructions and instructions.strip():
+        parts.append(f"\n\n{instructions.strip()}")
+    return "\n".join(parts)

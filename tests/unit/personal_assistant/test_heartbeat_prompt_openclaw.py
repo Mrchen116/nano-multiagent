@@ -119,3 +119,68 @@ class TestHeartbeatPromptOpenclawParity:
             "openclaw/src/agents/system-prompt.ts for the _PA_HEARTBEAT segment "
             "(feat-394 decision 6)"
         )
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M3 WARNING-2: _build_heartbeat_message 逐字照抄 openclaw HEARTBEAT_PROMPT
+# ---------------------------------------------------------------------------
+
+
+class TestHeartbeatMessageOpenclawVerbatim:
+    """_build_heartbeat_message must embed the verbatim openclaw HEARTBEAT_PROMPT.
+
+    Provenance: openclaw/src/auto-reply/heartbeat.ts:14
+    HEARTBEAT_PROMPT = "Read HEARTBEAT.md if it exists (workspace context). Follow it
+    strictly. Do not infer or repeat old tasks from prior chats. If nothing needs
+    attention, reply HEARTBEAT_OK."
+
+    feat-394 decision 6: heartbeat trigger message must use this verbatim text, not a
+    custom rewording, so model behaviour matches openclaw expectations.
+    """
+
+    # Verbatim from openclaw/src/auto-reply/heartbeat.ts:14
+    HEARTBEAT_PROMPT_VERBATIM = (
+        "Read HEARTBEAT.md if it exists (workspace context). "
+        "Follow it strictly. "
+        "Do not infer or repeat old tasks from prior chats. "
+        "If nothing needs attention, reply HEARTBEAT_OK."
+    )
+
+    def _call_build_message(self) -> str:
+        from datetime import UTC, datetime
+        from personal_assistant.scheduler.heartbeat_scheduler import _build_heartbeat_message  # noqa: PLC2701
+
+        return _build_heartbeat_message(
+            agent_id="test-agent",
+            due_at=datetime(2026, 6, 2, 12, 0, 0, tzinfo=UTC),
+            instructions="",
+        )
+
+    def test_heartbeat_message_contains_openclaw_heartbeat_prompt(self) -> None:
+        """_build_heartbeat_message must include the openclaw HEARTBEAT_PROMPT verbatim.
+
+        Currently fails because _build_heartbeat_message uses a custom rewording.
+        feat-394-M3 WARNING-2 / decision 6 fix.
+        """
+        message = self._call_build_message()
+        assert self.HEARTBEAT_PROMPT_VERBATIM in message, (
+            f"_build_heartbeat_message must embed the verbatim openclaw HEARTBEAT_PROMPT "
+            f"(feat-394 decision 6 / WARNING-2):\n"
+            f"  Expected to contain: {self.HEARTBEAT_PROMPT_VERBATIM!r}\n"
+            f"  Actual message:\n{message}"
+        )
+
+    def test_heartbeat_message_provenance_comment_in_source(self) -> None:
+        """heartbeat_scheduler.py must contain a Provenance comment for HEARTBEAT_PROMPT.
+
+        feat-394 decision 6: code comment must reference openclaw source file and line.
+        """
+        import inspect
+        import personal_assistant.scheduler.heartbeat_scheduler as hs_module
+
+        source = inspect.getsource(hs_module)
+        assert "openclaw/src/auto-reply/heartbeat.ts" in source, (
+            "heartbeat_scheduler.py must contain a 'Provenance:' comment referencing "
+            "openclaw/src/auto-reply/heartbeat.ts for HEARTBEAT_PROMPT "
+            "(feat-394 decision 6)"
+        )

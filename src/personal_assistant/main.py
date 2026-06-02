@@ -358,6 +358,17 @@ class _IMConfigSyncClient:
                 else:
                     _cron_raw = payload.get("cron")
                 synced_cron_enabled = _parse_cron_enabled_from_im_payload(_cron_raw)
+                # feat-394-M3 WARNING-1 fix: cron_enabled=True gates the 'cron' tool
+                # into the agent's tool_allowlist automatically (decision 5).  The user
+                # should not have to manually add 'cron' to the allowlist after enabling
+                # the cron switch.
+                _raw_allowlist = [
+                    item.strip()
+                    for item in payload.get("tool_allowlist", [])
+                    if isinstance(item, str) and item.strip()
+                ]
+                if synced_cron_enabled and "cron" not in _raw_allowlist:
+                    _raw_allowlist = [*_raw_allowlist, "cron"]
                 agent_config = AgentWorkspaceConfig(
                     agent_id=agent_id,
                     workspace_root=workspace_root,
@@ -367,11 +378,7 @@ class _IMConfigSyncClient:
                         for item in payload.get("skills", [])
                         if isinstance(item, str) and item.strip()
                     ),
-                    tool_allowlist=tuple(
-                        item.strip()
-                        for item in payload.get("tool_allowlist", [])
-                        if isinstance(item, str) and item.strip()
-                    ),
+                    tool_allowlist=tuple(_raw_allowlist),
                     system_prompt=(
                         payload.get("system_prompt").strip()
                         if isinstance(payload.get("system_prompt"), str)
