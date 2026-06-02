@@ -21,6 +21,7 @@ from agent.core.llm.interfaces import (
 )
 from agent.core.llm.model_registry import resolve_model_metadata
 from agent.core.types import TokenUsage
+from agent.platform.llm.providers.common import extract_non_negative_int as _extract_non_negative_int
 from agent.platform.llm.providers.translator import LLMTranslator
 
 from .mapper import AnthropicMapper
@@ -311,14 +312,6 @@ def _parse_anthropic_usage(payload: dict[str, Any] | None) -> TokenUsage | None:
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
     )
-
-
-def _extract_non_negative_int(value: Any) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value if value >= 0 else None
-    return None
 
 
 def _should_trust_env(base_url: str) -> bool:

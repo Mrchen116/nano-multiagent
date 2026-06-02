@@ -12,6 +12,7 @@ from agent.core.llm.interfaces import (
     LLMToolCall,
 )
 from agent.core.types import TokenUsage
+from agent.platform.llm.providers.common import extract_non_negative_int as _extract_non_negative_int
 
 
 class OpenAICompatMapper:
@@ -314,14 +315,6 @@ def _parse_openai_usage(payload: Any) -> TokenUsage | None:
         completion_tokens=resolved_completion,
         total_tokens=resolved_total,
     )
-
-
-def _extract_non_negative_int(value: Any) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value if value >= 0 else None
-    return None
 
 
 _LEGACY_OPENAI_COMPAT_MAPPER_MODULE = (

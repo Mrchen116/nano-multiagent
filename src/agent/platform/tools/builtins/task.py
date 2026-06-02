@@ -13,6 +13,7 @@ from agent.core.skills import resolve_available_skills
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.core.types import Message, TurnResult
+from agent.platform.tools.builtins._shared import _normalize_optional_text
 
 
 class TaskRuntime(Protocol):
@@ -565,15 +566,6 @@ def _runtime_session_exists(runtime: TaskRuntime, session_id: str) -> bool | Non
         return getter(session_id) is not None
     except Exception:  # noqa: BLE001
         return None
-
-
-def _normalize_optional_text(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    text = value.strip()
-    if not text:
-        return None
-    return text
 
 
 def _normalize_skill_names(value: Any, *, tool_name: str) -> tuple[str, ...]:

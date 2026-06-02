@@ -9,6 +9,7 @@ from agent.core.background_tasks.ids import generate_bash_task_id
 from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
+from agent.platform.tools.base import WiringMixin
 from agent.platform.tools.builtins.bash_policy import (
     check_command_policy,
 )
@@ -70,7 +71,7 @@ _READ_ONLY_GIT_SUBCOMMANDS = frozenset(
 )
 
 
-class BashTool:
+class BashTool(WiringMixin):
     """Execute shell commands within `ToolSafety` command and timeout policy.
 
     Supports synchronous execution (default), explicit background execution
@@ -120,10 +121,6 @@ class BashTool:
         # Lazy-constructed BashRunner for the legacy sync path.
         # The wiring's bash_runner handles async/background paths separately.
         self._bash_runner: BashRunner | None = None
-
-    def bind_wiring(self, wiring: Any | None) -> None:
-        """Bind background task wiring after bootstrap."""
-        self._wiring = wiring
 
     def check_permissions(
         self,
@@ -596,14 +593,6 @@ class BashTool:
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
-
-    def _require_wiring(self) -> Any:
-        if self._wiring is None:
-            raise ToolError(
-                "background task wiring is not configured", tool_name=self.name
-            )
-        return self._wiring
-
 
 def _make_bash_on_complete(registry: Any, task_id: str) -> Any:
     def _on_complete(

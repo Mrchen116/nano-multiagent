@@ -9,6 +9,7 @@ from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.tools.dangerous_paths import check_dangerous_path
+from agent.platform.tools.presentation import display_path as _display_path
 
 
 class EditTool:
@@ -173,8 +174,3 @@ class EditTool:
         return f"The file {file_path} has been updated successfully."
 
 
-def _display_path(path: Path, repo_root: Path) -> str:
-    try:
-        return str(path.relative_to(repo_root))
-    except ValueError:
-        return str(path)
