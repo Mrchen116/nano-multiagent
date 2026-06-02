@@ -150,3 +150,14 @@ R2 范围（CronJobStore 持久化 + CronScheduler 多任务调度）已全部�
 
 2447 通过，2 跳过，2 预存失败（macOS /tmp issue #75），4 deselected
 前端 vitest: 349/349 通过
+
+---
+
+## Reviewer 反馈修复：heartbeat/cron 开关回显 round-trip
+
+- 根因：`getAgentConfig` 返回的响应含 `heartbeat_json`/`cron_json`（字符串），但 `HeartbeatCard`/`CronCard` 读 `draft.heartbeat`/`draft.cron`（对象）。两者之间没有 parse 桥接，导致重开配置页时开关恒为关。
+- 修复：新增 `normalizeAgentConfigResponse` 函数（`im-agent-config-api.ts`），在 `getAgentConfig` 和 `updateAgentConfig` 响应处统一 JSON.parse `heartbeat_json`→`heartbeat`、`cron_json`→`cron`。heartbeat 和 cron 一并修复。
+- 测试：`im-agent-config-api.test.ts` 10 条单测（heartbeat/cron 各 5 条 round-trip 断言）+ `agent-detail-page.test.tsx` 2 条 round-trip 回归守卫（初始态 checked=true）
+- 回归：pytest -m "not e2e" 2447/2447，vitest 361/361
+- Commit: 11c92c7b
+
