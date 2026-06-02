@@ -320,9 +320,19 @@ class _IMConfigSyncClient:
                     else None
                 )
                 # feat-394 decision 5: parse per-agent heartbeat config from IM mirror payload.
-                # heartbeat block: {enabled: bool, every?: str, active_hours?: {start, end, timezone}}
+                # Prefer heartbeat_json (raw JSON string, feat-394 C) over the legacy heartbeat
+                # dict key so both old and new IM versions work transparently.
+                _hb_raw_str = payload.get("heartbeat_json")
+                if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
+                    import json as _json  # noqa: PLC0415
+                    try:
+                        _hb_raw = _json.loads(_hb_raw_str)
+                    except (ValueError, TypeError):
+                        _hb_raw = payload.get("heartbeat")
+                else:
+                    _hb_raw = payload.get("heartbeat")
                 synced_heartbeat_enabled, synced_heartbeat_every, synced_hb_start, synced_hb_end, synced_hb_tz = (
-                    _parse_heartbeat_from_im_payload(payload.get("heartbeat"))
+                    _parse_heartbeat_from_im_payload(_hb_raw)
                 )
                 agent_config = AgentWorkspaceConfig(
                     agent_id=agent_id,
@@ -929,6 +939,60 @@ class PollingHeartbeatRunner:
             finally:
                 self._wake_event.clear()
 
+    @staticmethod
+    async def trim_silent_tick(
+        *,
+        session_file: "Path",
+        pre_submit_line_count: int,
+    ) -> None:
+        """Truncate a JSONL session file to remove heartbeat turns added by a silent tick.
+
+        feat-394 decision 3 (transcript trim): after a silent heartbeat run (HEARTBEAT_OK
+        or empty response), the triggering prompt and ack turns are removed from the
+        canonical direct-chat session so they do not pollute the next LLM context window.
+        "Silent" is detected by the caller when run_context_store[run_id]["conversation_id"]
+        remains empty after the run completes (no turn_start was ever sent — zero IM trace).
+
+        The trim reads all lines, keeps only the first ``pre_submit_line_count`` non-empty
+        lines, and rewrites the file atomically (rename after write).  Lines beyond that
+        count are the heartbeat trigger prompt + HEARTBEAT_OK (or empty) assistant turn.
+
+        This approach is safe because:
+        - JSONL append is the only mutation normally done; we own the file.
+        - The rewrite is atomic (tmp file → rename) so a crash mid-write does not
+          corrupt existing history.
+        - heartbeat-only turns do not refresh session idle time (design §B requirement).
+
+        Args:
+            session_file: Absolute path to the session ``.jsonl`` file.
+            pre_submit_line_count: Number of non-empty lines present before the heartbeat
+                run was submitted.  Lines beyond this index are removed.
+        """
+
+        import os  # noqa: PLC0415
+
+        if not session_file.exists():
+            return  # nothing to trim
+        raw_text = session_file.read_text(encoding="utf-8")
+        all_lines = raw_text.splitlines(keepends=True)
+        # Count only non-empty lines to match the pre-submit count.
+        non_empty_indices: list[int] = []
+        for idx, line in enumerate(all_lines):
+            if line.strip():
+                non_empty_indices.append(idx)
+        if len(non_empty_indices) <= pre_submit_line_count:
+            return  # nothing to trim (no heartbeat lines were appended)
+        # Keep lines up to and including the last pre-submit non-empty line.
+        last_kept_line_idx = non_empty_indices[pre_submit_line_count - 1] if pre_submit_line_count > 0 else -1
+        kept_lines = all_lines[: last_kept_line_idx + 1]
+        tmp_path = session_file.with_suffix(".jsonl.trim_tmp")
+        try:
+            tmp_path.write_text("".join(kept_lines), encoding="utf-8")
+            os.replace(tmp_path, session_file)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
+
     async def _consume_heartbeat_run(self, record: "HeartbeatRunRecord") -> None:
         """Stream one heartbeat run to completion, driving the kernel_event_observer for IM delivery.
 
@@ -961,6 +1025,28 @@ class PollingHeartbeatRunner:
             "to_user_id": self._owner_user_id,
             "kernel_session_id": kernel_session_id,
         }
+
+        # feat-394 decision 3 transcript trim (B): snapshot session file line count before run.
+        # After a silent tick (HEARTBEAT_OK / empty), the triggered prompt + ack turns are
+        # removed so they don't pollute the canonical session's next LLM context window.
+        # We also don't refresh session idle time for heartbeat-only ticks.
+        _session_file_for_trim: "Path | None" = None
+        _pre_submit_line_count = 0
+        try:
+            _get_session_fn = getattr(self._kernel, "get_session", None)
+            if _get_session_fn is not None:
+                _sess_info = _get_session_fn(kernel_session_id)
+                _ws_root = _sess_info.get("workspace_root") if isinstance(_sess_info, dict) else None
+                if _ws_root:
+                    from personal_assistant.config.local_store import WORKSPACE_CONFIG_DIRNAME as _WCD  # noqa: PLC0415
+                    _sess_path = Path(_ws_root) / _WCD / "sessions" / f"{kernel_session_id}.jsonl"
+                    if _sess_path.exists():
+                        _session_file_for_trim = _sess_path
+                        _content = _sess_path.read_text(encoding="utf-8")
+                        _pre_submit_line_count = sum(1 for ln in _content.splitlines() if ln.strip())
+        except Exception:  # noqa: BLE001
+            pass  # trim snapshot failure is non-fatal; trim skipped for this tick
+
         try:
             # feat-393 fix-r2 Fix B: stream from the pre-submit anchor to skip replaying
             # history from prior ticks.  Falls back to 0 when anchor is absent (test path).
@@ -983,7 +1069,23 @@ class PollingHeartbeatRunner:
                 "heartbeat run delivery failed: agent=%s run_id=%s", agent_id, run_id
             )
         finally:
-            self._run_context_store.pop(run_id, None)
+            ctx = self._run_context_store.pop(run_id, None)
+            # feat-394 B: silent-tick transcript trim.
+            # If conversation_id was never filled (no turn_start sent → zero IM trace → silent tick),
+            # truncate the session JSONL back to the pre-submit state.
+            _was_silent = ctx is not None and not ctx.get("conversation_id")
+            if _was_silent and _session_file_for_trim is not None and _pre_submit_line_count > 0:
+                try:
+                    await self.trim_silent_tick(
+                        session_file=_session_file_for_trim,
+                        pre_submit_line_count=_pre_submit_line_count,
+                    )
+                except Exception:  # noqa: BLE001
+                    _hb_logger.debug(
+                        "heartbeat transcript trim failed (non-fatal): agent=%s run_id=%s",
+                        agent_id,
+                        run_id,
+                    )
 
 
 class _InboundDispatcher:
@@ -1672,18 +1774,26 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
     )
     outbound_router = OutboundRouter(channel_registry)
-    # feat-394 decision 3: canonical direct-chat kernel session store, shared between
-    # HeartbeatScheduler (reads → uses the session) and _build_kernel_event_observer
-    # (writes → populates after turn_start ack returns the conversation_id).
-    # Starts empty; populated on first heartbeat delivery that establishes a canonical
-    # direct chat, then used by every subsequent tick to run in the same session (with
-    # user conversation history, like openclaw "main-session turn").
+    # Use SQLite-backed store so kernel session mappings survive gateway restarts
+    # (NodeGateway-SPEC §4.2).  Live session validation is done via kernel.get_session
+    # inside InboundPipeline._binding_matches_workspace_root — no kernel_client needed.
+    # Must be created before HeartbeatScheduler so the store can be injected for
+    # tick-time canonical session lookup (feat-394 decision 3).
+    session_store = PersistentSessionBindingStore(
+        db_path=runtime_dir / "session_bindings.sqlite3"
+    )
+    # feat-394 decision 3: canonical direct-chat kernel session store.
+    # Updated by HeartbeatScheduler.tick() via session_store.find_direct_by_agent()
+    # BEFORE each run submission (tick-time read, no reactive ack dependency).
+    # This replaces the prior approach of populating from turn_start ack, which failed
+    # for first-tick / restart / silent-polling scenarios (silent polls never ack → never fill).
     _canonical_session_store: dict[str, str] = {}
     _heartbeat_scheduler = HeartbeatScheduler(
         agents=config.agents,
         kernel_client=kernel_shim,
         state_store=HeartbeatSchedulerStateStore(_default_heartbeat_state_path(config)),
         canonical_session_store=_canonical_session_store,
+        session_store=session_store,
     )
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
@@ -1701,12 +1811,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         run_context_store=_run_context_store if _owner_user_id else None,
         owner_user_id=_owner_user_id,
         # kernel_event_observer is set below after _build_kernel_event_observer runs.
-    )
-    # Use SQLite-backed store so kernel session mappings survive gateway restarts
-    # (NodeGateway-SPEC §4.2).  Live session validation is done via kernel.get_session
-    # inside InboundPipeline._binding_matches_workspace_root — no kernel_client needed.
-    session_store = PersistentSessionBindingStore(
-        db_path=runtime_dir / "session_bindings.sqlite3"
     )
     _gateway_internal_port = 8089
     pipeline = InboundPipeline(
@@ -1790,11 +1894,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         _kernel_event_observer = _build_kernel_event_observer(
             im_connection_manager_factory=lambda: im_connection_manager,
             run_context_store=_run_context_store,
-            # feat-394 decision 3: wire session_store + canonical_session_store so the
-            # observer can promote the heartbeat's kernel session to canonical after the
-            # first turn_start ack returns the owner↔agent direct chat conversation_id.
-            session_store=session_store,
-            canonical_session_store=_canonical_session_store,
         )
         pipeline._kernel_event_observer = _kernel_event_observer
         # feat-393: wire observer into heartbeat_runner now that it's built.
@@ -2260,8 +2359,6 @@ def _build_kernel_event_observer(
     *,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]],
-    session_store: "SessionBindingStore | None" = None,
-    canonical_session_store: "dict[str, str] | None" = None,
 ) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
@@ -2282,12 +2379,9 @@ def _build_kernel_event_observer(
     - NO_REPLY/empty content → no turn_start is ever sent → zero IM trace (silent tick).
     - Normal chat (conversation_id present) is unchanged (eager placeholder on run_status=running).
 
-    Canonical session promotion (feat-394 decision 3):
-    - After a heartbeat turn_start ack returns ``conversation_id``, the observer looks up
-      that conv_id in ``session_store`` to find the kernel session the user's direct chat
-      is bound to, then writes it into ``canonical_session_store[agent_id]``.
-    - This ensures subsequent heartbeat ticks reuse the same kernel session as the user's
-      normal direct chat, giving the model conversation history context.
+    Canonical session (feat-394 decision 3):
+    - HeartbeatScheduler.tick() calls session_store.find_direct_by_agent() BEFORE each run
+      submission to update canonical_session_store — tick-time read, no ack dependency.
     """
 
     async def _send(
@@ -2439,30 +2533,6 @@ def _build_kernel_event_observer(
                             run_context_store[rid]["conversation_id"] = str(
                                 returned_conv_id
                             )
-                            # feat-394 decision 3: canonical session promotion.
-                            # After the heartbeat turn_start ack returns the conv_id of the
-                            # owner↔agent canonical direct chat, look up session_store for the
-                            # kernel session already bound to that conversation (by normal chat
-                            # or by the first heartbeat delivery that just created the conv).
-                            # Store it so subsequent heartbeat ticks run in this session and
-                            # carry user conversation history (openclaw "main-session turn").
-                            if (
-                                session_store is not None
-                                and canonical_session_store is not None
-                                and aid
-                            ):
-                                from personal_assistant.gateway.session_keys import (  # noqa: PLC0415
-                                    build_conversation_session_key as _build_cskey,
-                                )
-                                _conv_id_str = str(returned_conv_id)
-                                _cskey = _build_cskey(
-                                    channel_name="web_relay",
-                                    conversation_id=_conv_id_str,
-                                    agent_id=aid,
-                                )
-                                _binding = session_store.get(_cskey)
-                                if _binding is not None and _binding.kernel_session_id:
-                                    canonical_session_store[aid] = _binding.kernel_session_id
                         if new_kernel_id and rid in run_context_store:
                             run_context_store[rid]["kernel_message_id"] = new_kernel_id
                         if returned_msg_id:

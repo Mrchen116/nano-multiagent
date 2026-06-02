@@ -40,6 +40,9 @@ class AgentConfigResponse(BaseModel):
     # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
     features: dict[str, bool] = Field(default_factory=dict)
     custom_prompt: str | None = None
+    # feat-394: heartbeat configuration persisted as raw JSON string.
+    # Shape: {"enabled": bool, "every": str, "active_hours": {...} | null}
+    heartbeat_json: str | None = None
 
 
 class UpdateAgentConfigRequest(BaseModel):
@@ -56,6 +59,8 @@ class UpdateAgentConfigRequest(BaseModel):
     # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
     features: dict[str, bool] = Field(default_factory=dict)
     custom_prompt: str | None = None
+    # feat-394: heartbeat configuration as raw JSON string (forwarded to gateway via ConfigSyncNotifier)
+    heartbeat_json: str | None = None
 
 
 class AgentSummaryResponse(BaseModel):
@@ -138,6 +143,7 @@ def to_agent_config_response(
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
         features=dict(profile.features) if profile.features else {},
         custom_prompt=profile.custom_prompt,
+        heartbeat_json=profile.heartbeat_json,
     )
 
 
@@ -369,6 +375,7 @@ def update_agent_config(
             workspace_root=None,
             features=payload.features if payload.features is not None else None,
             custom_prompt=payload.custom_prompt,
+            heartbeat_json=payload.heartbeat_json,
         )
     except AgentProfileVersionConflictError as exc:
         raise HTTPException(

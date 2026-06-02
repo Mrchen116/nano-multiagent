@@ -122,6 +122,11 @@ class AgentProfile:
     # and optional custom prompt supplement.  Absent keys inherit gateway defaults.
     features: dict[str, bool] = field(default_factory=dict)
     custom_prompt: str | None = None
+    # feat-394: heartbeat configuration persisted as JSON string.
+    # Shape: {"enabled": bool, "every": str, "active_hours": {...} | null}
+    # Stored as raw JSON so the gateway can forward it without re-serialization;
+    # None means not yet configured (heartbeat disabled / no config set by user).
+    heartbeat_json: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

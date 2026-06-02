@@ -30,35 +30,40 @@ def test_persistent_store_has_find_direct_by_agent_method(tmp_path: Path) -> Non
 
 
 def test_find_direct_by_agent_returns_oldest_binding(tmp_path: Path) -> None:
-    """find_direct_by_agent 按 updated_at 最旧取第一条（语义对齐 _find_canonical_direct_conversation）."""
-    import datetime
+    """find_direct_by_agent 按 created_at 最旧取第一条（语义对齐 _find_canonical_direct_conversation）.
+
+    重要：用 created_at（首次绑定时间），不是 updated_at（每次消息后刷新）。
+    updated_at 随聊天活动漂移，会导致心跳跑了 A 聊天历史却投递到 IM 的 canonical B 聊天。
+    created_at 不动，与 IM created_at 排序一致。
+    """
+    import datetime as dt
     from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
     from personal_assistant.channels.base import ReplyContext
 
     store = PersistentSessionBindingStore(db_path=tmp_path / "sess.db")
 
-    rc = ReplyContext(channel_name="web_relay", target_chat_id="conv-1", thread_id=None, metadata={})
-
-    # 先绑定两条 (newer)，后绑定的 updated_at 更大
+    # 先用正常 bind() 注入 newer 那条（created_at = 当前时间）
     store.bind(
         session_key="web_relay:conv-newer:agent-x",
         kernel_session_id="sess-newer",
         reply_context=ReplyContext(channel_name="web_relay", target_chat_id="conv-newer", thread_id=None, metadata={}),
     )
-    # 手动注入一条更旧的（updated_at 更小）
-    import datetime as dt
+    # 手动注入一条更旧的（created_at 2020，但 updated_at 2024 — 即该会话最近更新，但更早创建）
+    # 验证：find_direct_by_agent 按 created_at 而非 updated_at 排序
     old_ts = dt.datetime(2020, 1, 1, tzinfo=dt.timezone.utc).isoformat()
+    newer_ts = dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc).isoformat()
     store._conn.execute(
         """
-        INSERT INTO session_bindings (session_key, kernel_session_id, reply_context_json, updated_at)
-        VALUES (?, ?, ?, ?)
-        ON CONFLICT(session_key) DO UPDATE SET updated_at = excluded.updated_at
+        INSERT INTO session_bindings
+            (session_key, kernel_session_id, reply_context_json, updated_at, created_at)
+        VALUES (?, ?, ?, ?, ?)
         """,
         (
             "web_relay:conv-oldest:agent-x",
             "sess-oldest",
             '{"channel_name":"web_relay","target_chat_id":"conv-oldest","thread_id":null,"metadata":{}}',
-            old_ts,
+            newer_ts,   # updated_at 较新（有活动）
+            old_ts,     # created_at 最旧（canonical 判据）
         ),
     )
     store._conn.commit()
@@ -66,7 +71,7 @@ def test_find_direct_by_agent_returns_oldest_binding(tmp_path: Path) -> None:
     binding = store.find_direct_by_agent(channel_name="web_relay", agent_id="agent-x")
     assert binding is not None, "find_direct_by_agent 应返回 binding，不是 None"
     assert binding.kernel_session_id == "sess-oldest", (
-        f"应返回最旧的 binding (sess-oldest)，实际返回 {binding.kernel_session_id!r}"
+        f"应按 created_at ASC 返回最旧 binding (sess-oldest)，实际返回 {binding.kernel_session_id!r}"
     )
 
 
@@ -170,52 +175,62 @@ def test_heartbeat_scheduler_uses_find_direct_by_agent_before_submit(tmp_path: P
 # ---------------------------------------------------------------------------
 
 
-def test_heartbeat_scheduler_has_trim_silent_tick_method(tmp_path: Path) -> None:
-    """HeartbeatScheduler 必须有 trim_silent_tick_from_session 方法供 PollingHeartbeatRunner 调用."""
-    from personal_assistant.scheduler.heartbeat_scheduler import HeartbeatScheduler
+def test_polling_runner_has_trim_silent_tick_method(tmp_path: Path) -> None:
+    """PollingHeartbeatRunner 必须有 trim_silent_tick 方法."""
+    from personal_assistant.main import PollingHeartbeatRunner
 
-    assert hasattr(HeartbeatScheduler, "trim_silent_tick_from_session"), (
-        "HeartbeatScheduler 缺少 trim_silent_tick_from_session 方法"
+    assert hasattr(PollingHeartbeatRunner, "trim_silent_tick"), (
+        "PollingHeartbeatRunner 缺少 trim_silent_tick 方法"
     )
 
 
-def test_polling_runner_trims_silent_tick(tmp_path: Path) -> None:
-    """PollingHeartbeatRunner 在 HEARTBEAT_OK/空静默后调用 kernel trim 移除触发 prompt + ack turn.
+def test_polling_runner_trims_silent_tick_truncates_jsonl(tmp_path: Path) -> None:
+    """PollingHeartbeatRunner.trim_silent_tick 截断 JSONL 到 pre_submit_line_count 行.
 
-    验证方式：观察 kernel_client.delete_run_transcript 被调用（或等效接口），
-    且传入了正确的 session_id + run_id。
+    这是 B 条退出标准的核心：静默轮询完成后，JSONL 文件被截断到 run 之前的行数，
+    消除 heartbeat 触发 prompt + ack turn（net zero residual）。
     """
     from personal_assistant.main import PollingHeartbeatRunner
 
-    trim_calls: list[dict] = []
+    # 准备一个包含 3 行的 JSONL 文件（模拟 run 前的 session 历史）
+    session_dir = tmp_path / ".nanoassistant" / "sessions"
+    session_dir.mkdir(parents=True)
+    session_file = session_dir / "sess-b1.jsonl"
+    pre_submit_lines = [
+        '{"type":"session_created","session_id":"sess-b1","created_at":"2026-01-01T00:00:00Z"}\n',
+        '{"type":"turn","uuid":"msg-1","role":"user","content":"hello","timestamp":"2026-01-01T00:01:00Z"}\n',
+        '{"type":"turn","uuid":"msg-2","role":"assistant","content":"hi there","timestamp":"2026-01-01T00:01:01Z"}\n',
+    ]
+    session_file.write_text("".join(pre_submit_lines), encoding="utf-8")
 
-    class _FakeKernelClient:
-        async def create_session(self, **_kw: object) -> dict:
-            return {"session_id": "sess-trim-test"}
+    # 模拟 heartbeat run 追加了触发 prompt 和 ack turn（2 行）
+    with session_file.open("a", encoding="utf-8") as f:
+        f.write('{"type":"turn","uuid":"hb-prompt","role":"user","content":"Read HEARTBEAT.md...","timestamp":"2026-01-01T01:00:00Z"}\n')
+        f.write('{"type":"turn","uuid":"hb-ok","role":"assistant","content":"HEARTBEAT_OK","timestamp":"2026-01-01T01:00:01Z"}\n')
 
-        def current_event_sequence(self) -> int:
-            return 0
-
-        def submit_message(self, **_kw: object) -> dict:
-            return {"run_id": "run-trim-1"}
-
-        def trim_heartbeat_turn(self, *, session_id: str, run_id: str) -> None:
-            """Called by PollingHeartbeatRunner after a silent tick."""
-            trim_calls.append({"session_id": session_id, "run_id": run_id})
+    assert session_file.read_text(encoding="utf-8").count("\n") == 5, "setup: should be 5 lines"
 
     runner = PollingHeartbeatRunner.__new__(PollingHeartbeatRunner)
-    runner._kernel_client = _FakeKernelClient()  # type: ignore[attr-defined]
 
-    # 调用 trim_silent_tick — 对应静默轮询后修剪路径
+    # trim_silent_tick(session_file, pre_submit_line_count) 应截断到 pre_submit_line_count 行
     asyncio.run(
-        runner.trim_silent_tick(session_id="sess-trim-test", run_id="run-trim-1")
+        runner.trim_silent_tick(
+            session_file=session_file,
+            pre_submit_line_count=len(pre_submit_lines),
+        )
     )
 
-    assert len(trim_calls) == 1, (
-        f"trim_heartbeat_turn 应被调用一次，实际 {len(trim_calls)} 次"
+    remaining = session_file.read_text(encoding="utf-8")
+    remaining_lines = [l for l in remaining.splitlines() if l.strip()]
+    assert len(remaining_lines) == 3, (
+        f"截断后应剩 3 行（run 前的历史）；实际剩 {len(remaining_lines)} 行:\n{remaining}"
     )
-    assert trim_calls[0]["session_id"] == "sess-trim-test"
-    assert trim_calls[0]["run_id"] == "run-trim-1"
+    assert "HEARTBEAT_OK" not in remaining, (
+        "静默 tick 修剪后 HEARTBEAT_OK ack turn 不应残留"
+    )
+    assert "HEARTBEAT.md" not in remaining, (
+        "静默 tick 修剪后 heartbeat 触发 prompt 不应残留"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -309,55 +324,59 @@ def test_agents_patch_route_accepts_heartbeat_json(tmp_path: Path) -> None:
     """PATCH /im/v1/agents/{id}/config 接受并返回 heartbeat_json 字段."""
     import json
     from fastapi.testclient import TestClient
-    from IM.infra.db import connect, initialize_schema
-    from IM.infra.repositories import AgentProfileRepository
     from IM.app import create_app
-
-    db = connect(tmp_path / "im_route.db")
-    initialize_schema(db)
-
-    repo = AgentProfileRepository(db)
-    repo.upsert_profile(
-        agent_id="agent-route-1",
-        owner_id="owner-route",
-        node_id=None,
-        display_name="Route Agent",
-        description="",
-        system_prompt="",
-        skills=[],
-        tool_allowlist=[],
-        group_reply_policy="manual",
-        default_model=None,
-        workspace_root=str(tmp_path / "ws-route"),
-    )
+    from IM.repositories import AgentProfileRepository, NodeRepository, UserRepository
+    from im_service.integration.conftest import register_user, authorize  # noqa: PLC0415
 
     app = create_app(db_path=tmp_path / "im_route.db")
-    client = TestClient(app)
+    with TestClient(app) as client:
+        owner = register_user(client, username="hb-owner", display_name="HB Owner")
+        authorize(client, owner)
 
-    # 先注册 / 登录获取 token
-    from im_service._auth_helpers import make_auth_headers  # noqa: PLC0415
+        profiles = AgentProfileRepository(app.state.connection)
+        NodeRepository(app.state.connection).upsert_node(
+            node_id="node-hb",
+            node_name="HB Node",
+            status="online",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+        profiles.upsert_profile(
+            agent_id="agent-hb-1",
+            owner_id=owner.owner_id,
+            display_name="HB Agent",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=None,
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-hb", "agent-hb-1"),
+        )
+        app.state.connection.commit()
 
-    headers = make_auth_headers(db, owner_id="owner-route")
-
-    heartbeat_payload = {"enabled": True, "every": "30m"}
-    resp = client.patch(
-        "/im/v1/agents/agent-route-1/config",
-        json={
-            "profile_version": 1,
-            "display_name": "Route Agent",
-            "description": "",
-            "system_prompt": "",
-            "skills": [],
-            "tool_allowlist": [],
-            "group_reply_policy": "manual",
-            "heartbeat_json": json.dumps(heartbeat_payload),
-        },
-        headers=headers,
-    )
-    assert resp.status_code == 200, f"PATCH 应返回 200；实际 {resp.status_code}: {resp.text}"
-    body = resp.json()
-    assert "heartbeat_json" in body, f"响应应包含 heartbeat_json；实际键: {list(body.keys())}"
-    assert body["heartbeat_json"] == json.dumps(heartbeat_payload)
+        heartbeat_payload = {"enabled": True, "every": "30m"}
+        resp = client.patch(
+            "/im/v1/agents/agent-hb-1/config",
+            json={
+                "profile_version": 1,
+                "display_name": "HB Agent",
+                "description": "",
+                "system_prompt": "",
+                "skills": [],
+                "tool_allowlist": [],
+                "group_reply_policy": "manual",
+                "heartbeat_json": json.dumps(heartbeat_payload),
+            },
+        )
+        assert resp.status_code == 200, f"PATCH 应返回 200；实际 {resp.status_code}: {resp.text}"
+        body = resp.json()
+        assert "heartbeat_json" in body, f"响应应包含 heartbeat_json；实际键: {list(body.keys())}"
+        assert body["heartbeat_json"] == json.dumps(heartbeat_payload)
 
 
 def test_config_sync_notifier_includes_heartbeat_json(tmp_path: Path) -> None:
