@@ -294,13 +294,17 @@ class PersistentSessionBindingStore:
             direct chat has taken place).
 
         Notes:
-            ``updated_at`` is used as the sort key because ``created_at`` is not
-            stored in ``session_bindings``.  For direct chats the first-created
-            binding is also the last-written before any newer chat is created, so
-            the smallest ``updated_at`` reliably selects the oldest conversation.
-            The assumption holds for single direct-chat per agent (the common case);
-            when multiple direct chats exist, both heartbeat runs **and** IM
-            delivery use the oldest-binding heuristic, so they stay consistent.
+            ``created_at`` is the sort key.  It is written once when the binding is
+            first inserted (see :meth:`bind`) and never overwritten on subsequent
+            upserts — it records the moment the direct chat's kernel session was
+            first established, which serves as a reliable proxy for the IM
+            conversation's own ``created_at``.  Sorting by ``created_at ASC``
+            therefore produces the same "oldest conversation" selection as IM's
+            ``_find_canonical_direct_conversation(sorted(key=created_at)[0])``,
+            keeping the heartbeat run session and the IM delivery target consistent.
+            When multiple direct chats exist both sides use the oldest-by-creation
+            heuristic, so run context and delivery target always refer to the same
+            conversation.
         """
 
         # Session key format: ``{channel_name}:{conversation_id}:{agent_id}``
