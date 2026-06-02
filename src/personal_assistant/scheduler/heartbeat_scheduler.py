@@ -197,6 +197,11 @@ class HeartbeatScheduler:
         skipped_agents: list[str] = []
 
         for agent in self._agents:
+            # feat-394 decision 5: per-agent heartbeat gate — skip without reading HEARTBEAT.md
+            # when the agent's heartbeat_enabled flag is False (synced from IM via ConfigSyncNotifier).
+            if not agent.heartbeat_enabled:
+                skipped_agents.append(agent.agent_id)
+                continue
             heartbeat_path = agent.workspace_root / "HEARTBEAT.md"
             spec = _load_heartbeat_spec(heartbeat_path)
             if spec is None:

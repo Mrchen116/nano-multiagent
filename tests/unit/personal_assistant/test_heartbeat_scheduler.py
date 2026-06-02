@@ -59,8 +59,12 @@ class _FakeKernelClient:
 def _agent(tmp_path: Path, name: str = "agent-a") -> AgentWorkspaceConfig:
     workspace_root = tmp_path / name
     workspace_root.mkdir(parents=True, exist_ok=True)
+    # heartbeat_enabled=True: tests that exercise scheduling logic need the gate open.
     return AgentWorkspaceConfig(
-        agent_id=name, workspace_root=workspace_root, title=f"Title for {name}"
+        agent_id=name,
+        workspace_root=workspace_root,
+        title=f"Title for {name}",
+        heartbeat_enabled=True,
     )
 
 
