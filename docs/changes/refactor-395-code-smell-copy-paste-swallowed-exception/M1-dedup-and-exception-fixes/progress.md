@@ -38,4 +38,20 @@
 - Commits: C1=（R2 无新失败测试，复用 R1 的 C1 作为进入态），C2=fde3894c, C3=（本次）
 - Next: R3 IM 死代码删除 + 三件套提取 + 测试 import 重定向
 
+### R3 — IM 死代码删除 + 三件套提取 + 测试 import 重定向
+
+- Context: `IM/models.py`+`IM/repositories.py` 是零生产引用的 facade，27个测试经它们绕道；`smoke_runtime.py` 全仓零引用；`IM/domain/__init__.py` re-export 无消费者；db.py/repositories.py/event_service.py 各持私有 `_optional_text` + db/repositories 各持 `_is_no_reply_protocol_token`/`_preview_from_event`。
+- Decision: 新建 `IM/infra/_helpers.py`（含静默版 `_optional_text`/`_is_no_reply_protocol_token`/`_preview_from_event`）；删除三个死代码文件；清空 `IM/domain/__init__.py` re-export；27 个测试文件 import 重定向到 `IM.domain.models`/`IM.infra.repositories`；注意 `gateway_handler.py` 的 `_optional_text` 抛 ValueError（行为差异），不替换为共享版。
+- Rationale: 遵循决策 3（行为差异保留），遵循决策 6（死代码删除）。
+- Evidence:
+  - Tests: IM tests 313 passed (2 个基线失败)；collect-only 316 tests 无 import 错误
+  - Entry: N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: R3 commit hash（本次）
+- Commits: C1=（同 R1）, C2=（本次 R3 实现）, C3=（本次文档）
+- Next: R4 personal_assistant _utils.py 提取
+
 <!-- 每个 roadpoint 完成后在此追加 -->

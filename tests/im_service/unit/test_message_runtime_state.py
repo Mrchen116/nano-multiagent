@@ -6,7 +6,7 @@ import pytest
 
 from IM.domain.models import ToolCall, TokenUsage
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import (
+from IM.infra.repositories import (
     ConversationRepository,
     MessageRepository,
     UserRepository,

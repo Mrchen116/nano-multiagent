@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from IM.app import create_app
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import (
+from IM.infra.repositories import (
     AgentProfileRepository,
     ConversationRepository,
     UserRepository,

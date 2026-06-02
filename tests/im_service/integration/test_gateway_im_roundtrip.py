@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.repositories import UserRepository
+from IM.infra.repositories import UserRepository
 from personal_assistant.channels.base import OutboundMessage
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.sync_client import ConfigSyncClient

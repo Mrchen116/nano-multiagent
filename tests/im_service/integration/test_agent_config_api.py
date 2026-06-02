@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from IM.api.routes import agents as agent_routes
 from IM.app import create_app
-from IM.repositories import AgentProfileRepository, NodeRepository, UserRepository
+from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
 
 from .conftest import authorize, register_user
 
