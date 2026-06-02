@@ -90,3 +90,106 @@ No critical issues. 1 suggestion. Ready for PR (with noted improvements).
 ---
 
 All checks passed. Ready for PR.
+
+---
+
+# Round 3 — 2026-06-02
+
+> 针对 fix-r1 / fix-r2 两轮 post-acceptance fix 后的重新核验。核查重点：两轮 fix 是否引入 spec/design 偏离；catch-up 折叠决策的设计文档缺口；Kernel.current_event_sequence() SDK 分层合规；fix 路径测试覆盖。
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 3/3 tasks（两轮 fix 均有配套红→绿测试）|
+| Correctness | 7/7 scenarios 仍 covered；fix-r1/r2 新引入边界均有测试 |
+| Coherence | Followed（6/6 original decisions）；catch-up 折叠与 spec 意图一致但 design.md Changelog 未记录 |
+
+No critical issues. 1 warning (design.md Changelog 空白). 1 suggestion (stream_anchor 非零路径无断言). Ready for PR (with noted improvements).
+
+---
+
+## fix-r1 核验
+
+### Fix1: owner_unresolved 返回 skipped ack，不关 WS
+
+- **实现**：`src/IM/ws/gateway_handler.py:783-800` — `_find_or_create_direct_conversation` 外包 `try/except (ValueError, Exception)`，失败时返回 `{"skipped": "owner_unresolved"}` ack 而非冒泡。`src/personal_assistant/main.py:2132-2142` — observer 收到 `skipped` 字段时记日志、直接 return，heartbeat run 正常收尾。
+- **spec/design 对齐**：design.md 决策 6"投递行为继承普通流式路径，失败记日志不重试"明确覆盖此语义；`skipped ack` 而非抛异常是对该决策的正确延伸，无偏离。
+- **测试**：`test_gateway_handler.py::test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception`（FK-enforced DB，nonexistent owner_id → `IntegrityError` → `skipped=owner_unresolved` ack，断言无 conversation 被创建）。覆盖充分，失败路径真实走到 DB 层。
+
+### Fix2: e2e-up.sh 同步 node.user_id
+
+- 纯测试基础设施修复，不涉及 unit 功能代码，无 spec/design 偏离风险。
+
+### Fix3: heartbeat_runner.start() 移到 im.connect_once() 之后
+
+- **实现**：`src/personal_assistant/main.py:1040-1046` — heartbeat runner 的 start 在 `im_connection_manager.connect_once()` 和 `post_im_connect` 回调完成之后才执行。
+- **spec/design 对齐**：design.md 未规定启动顺序；修复属于 gateway 运行时序修正，与 spec 的"投递走普通 WS 路径"语义完全一致，无偏离。
+- **测试**：`test_gateway_process_manager.py::test_gateway_runtime_keeps_running_until_shutdown_requested` + `test_gateway_runtime_cleans_up_reverse_order_when_im_start_fails` 断言事件顺序（heartbeat.start 在 im.connect/im.bootstrap 之后），时序倒退会失败。
+
+### Fix1b: _find_or_create_direct_conversation 补 caller_owner_id
+
+- **实现**：`gateway_handler.py:792` — `caller_owner_id=to_user_id` 确保新建 direct conversation 的 owner_id 正确指向 heartbeat 目标 owner，而非从 users 表动态推断（跨 e2e 运行可能取到旧 id）。
+- **spec/design 对齐**：符合决策 3"canonical 直聊惰性创建，inert 时 auto-create"，参数补全无语义变化。
+
+---
+
+## fix-r2 核验
+
+### FixA: catch-up 折叠（interval/cron 长 gap → 最多 1 条）
+
+- **实现**：
+  - `heartbeat_scheduler.py:280-297` (`_IntervalSchedule.due_times_up_to`)：用 floor division 直接算最近 due time，不再枚举 backlog。
+  - `heartbeat_scheduler.py:308-322` (`_CronSchedule.due_times_up_to`)：扫历史取最后一个命中点，只返回那一条。
+- **spec 对齐**：spec 描述 heartbeat 为"定时汇报"（"到点后 agent 跑一轮"），不含"补跑历史所有漏掉的轮次"语义。用户场景描述"没什么可说的就闭嘴"，可类推为长 gap 后也只报最近状态一次。catch-up 折叠与 spec 意图一致。
+- **design.md 记录**：design.md `## Changelog` 为空，catch-up 折叠这一行为决策（属于 scheduler 运行语义，非仅性能）**未在 design.md 中留档**。（详见 WARNING 段。）
+- **测试**：
+  - `test_scheduler_catches_up_missed_interval_run_after_restart`：1h31m gap → 断言 1 条 run，且 due_at = 最近对齐点 10:30，`sent_messages=1`。
+  - `test_scheduler_normal_cadence_produces_exactly_one_run_per_interval`：连续正常节奏每 interval 恰好 1 条，防止折叠过度压制正常轮次。
+  - `test_scheduler_cron_catchup_collapses_to_one_run`：cron 5 分钟 gap → 1 条 run，due_at = 最近命中点。
+  - 三个测试充分覆盖 catch-up 折叠的核心路径和正常节奏不受影响的回归。
+
+### FixB: stream anchor（Kernel.current_event_sequence()）
+
+- **实现**：
+  - `agent/sdk/kernel.py:551-563` — `Kernel.current_event_sequence()` 方法，委托 `self._c.event_hub.current_sequence()`（`agent/core/events/hub.py:162-165`，原子读 `_next_sequence_num - 1`）。
+  - `personal_assistant/main.py:1379-1385` — `_KernelClientShim.current_event_sequence()` 委托到 `Kernel.current_event_sequence()`。
+  - `heartbeat_scheduler.py:246-247` — `_submit_run` 在 submit 前通过 `getattr` 安全取锚点（不实现此方法的 test fake 回落 0）。
+  - `personal_assistant/main.py:880` — `_consume_heartbeat_run` 传 `after_sequence=record.stream_anchor`。
+- **SDK 分层合规**：`Kernel.current_event_sequence()` 是 `Kernel` 类的实例方法，定义于 `agent/sdk/kernel.py`（SDK 层），读 `_KernelComponents.event_hub`（SDK 内部组装，`agent/core` 不暴露给外层）。`personal_assistant` 通过 `_KernelClientShim` 持有 `Kernel` 实例并调用其 public 方法——未 import `agent.core` 或 `agent.platform` 内部，符合 AGENTS.md 依赖方向硬规则。
+- **初始值边界**：`EventStreamHub._next_sequence_num` 初始为 1；无 events 时 `current_sequence()` 返回 0。`stream(after_sequence=0)` 语义为"从头"，即 fallback 全历史扫描，功能正确。
+- **测试覆盖**：scheduler 测试中 `_FakeKernelClient.current_event_sequence()` 固定返回 0（注释注明"tests do not exercise stream-from-anchor path"），`test_heartbeat_im_delivery.py` 也未注入非零 anchor 验证流式消费实际跳过历史事件。（详见 SUGGESTION 段。）
+
+---
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（应该修）
+
+**W1: design.md Changelog 未记录 catch-up 折叠决策**
+
+catch-up 折叠是 fix-r2 引入的 scheduler 运行语义决策，不仅是性能优化——它决定了"重启/长 gap 后用户只收到 1 条汇报"这一可观察行为（对应 spec 的"定时汇报"用户体验）。design.md 的 `## Changelog` 目前为空，未记录此决策。
+
+建议：在 `docs/changes/feat-393-heartbeat-cron-im-delivery/design.md` 的 `## Changelog` 段补一条，说明 fix-r2 引入 catch-up 折叠语义（interval/cron 长 gap 后最多补 1 条最近 due run）及其理由（避免 backlog 刷屏，符合"定时汇报"语义）。
+
+注：verifier 不改 design.md，建议由 worker 补一笔。
+
+### SUGGESTION（可以修）
+
+**S1: stream_anchor 非零路径无测试断言**
+
+`test_heartbeat_scheduler.py` 的 `_FakeKernelClient.current_event_sequence()` 固定返回 0；`test_heartbeat_im_delivery.py` 同样未验证非零 anchor 实际使消费者跳过历史事件。当 anchor > 0 时，`_consume_heartbeat_run` 中 `stream(after_sequence=record.stream_anchor)` 的跳过逻辑未经测试断言。
+
+正确性靠 run_id 过滤兜底（即使 anchor=0 也不会漏投或重投），但长期运行的性能保证没有测试作安全网。
+
+建议：在 `test_heartbeat_im_delivery.py` 或 `test_heartbeat_scheduler.py` 中增加一个测试，验证非零 anchor 时消费者只处理 anchor 之后的事件（可通过在 `HeartbeatRunRecord` 中注入一个 `stream_anchor > 0` 的 fake kernel，断言 anchor 前的 run events 不被处理）。
+
+---
+
+全量测试: `pytest -m "not e2e"` — 2354 passed, 4 deselected, 16 warnings.
+
+No critical issues. Ready for PR (with WARNING W1 noted for design.md update).
