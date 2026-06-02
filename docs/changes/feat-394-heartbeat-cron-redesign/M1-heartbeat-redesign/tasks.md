@@ -68,4 +68,4 @@
 | R4 | IM frontend heartbeat 开关 UI + API 字段 + vitest | DONE |
 | R5 | ConfigSyncNotifier / config_service.py heartbeat 字段同步 | DONE |
 | R6 | HeartbeatScheduler 跑 canonical 直聊 session（改决策3） + tasks: 多子节律 | DONE |
-| R7 | activeHours + 忙会话跳过 + transcript 修剪 + NodeGateway-SPEC §6 更新 | TODO |
+| R7 | activeHours + 忙会话跳过 + transcript 修剪 + NodeGateway-SPEC §6 更新 | DONE |

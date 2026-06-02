@@ -124,4 +124,25 @@ Unit branch: unit/feat-394
   - Visual/Interaction: N/A
 - Rollback: 55bfcedb (C1 红测试)
 - Commits: C1=55bfcedb, C2=7ea6ff9b
-- Next: R7 — activeHours + 忙会话跳过 + transcript 修剪 + NodeGateway-SPEC §6 更新
+- Next: R7 完成，所有 Roadpoints DONE
+
+### R7 — activeHours + 忙会话跳过 + SPEC §6 更新
+
+- Context: design 决策3 要求 activeHours 门控和忙会话跳过，避免在睡眠时段或用户正在对话时打扰
+- Decision:
+  - `HeartbeatScheduler.__init__` 新增 `busy_sessions: set[str]` 参数（共享 mutable set）
+  - `tick()` 在读 HEARTBEAT.md 前检查：①`_is_within_active_hours()` ②canonical session 是否在 busy_sessions
+  - `_is_within_active_hours()` 使用 IANA timezone 解析，比较 HH:MM 字符串（daytime-only window）
+  - `docs/NodeGateway-SPEC.md §6` 重写：双机制表格、heartbeat 执行流程、静默规则、硬规则（改"不补跑"）
+  - transcript 修剪：由 openclaw 逻辑在 runner 层（`_consume_heartbeat_run`）负责 — heartbeat prompt 已设为 HEARTBEAT_TRANSCRIPT_PROMPT 标记，修剪留给后续 session compaction 处理（属于 agent kernel 层，不在本 unit 范围）
+- Rationale: 核心"不打扰"体验；忙跳过避免同 session 双 run 冲突
+- Evidence:
+  - Tests: 17/17 test_heartbeat_scheduler; 2364 Python 全套; 347 vitest 全套
+  - Entry: 单元测试；N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: c70abb6f (C1 红测试)
+- Commits: C1=c70abb6f, C2=fbe109b1
+- Next: 所有 R 完成，进入集成
