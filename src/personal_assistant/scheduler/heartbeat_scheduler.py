@@ -204,10 +204,23 @@ class HeartbeatScheduler:
         canonical_session_store: dict[str, str] | None = None,
         busy_sessions: set[str] | None = None,
         session_store: object | None = None,
+        agents_getter: "Callable[[], Iterable[AgentWorkspaceConfig]] | None" = None,
+        run_queue: "object | None" = None,
     ) -> None:
         self._agents = agents
+        # feat-394-M4 R3 S1.3 fix: when provided, agents_getter() is called on
+        # each tick to read the live agent configuration from pipeline._agents.
+        # This allows toggle changes (heartbeat_enabled=False) to take effect on
+        # the next tick without requiring a gateway restart.
+        # When None, tick falls back to the frozen self._agents tuple (backward compat).
+        self._agents_getter = agents_getter
         self._kernel_client = kernel_client
         self._state_store = state_store
+        # feat-394-M4 R2-3 cron/heartbeat busy-skip: SessionRunQueue reference.
+        # When provided, tick checks run_queue._active_sessions for the agent's
+        # canonical session_key before submitting a heartbeat run.
+        # This prevents heartbeat from stacking while user messages are in flight.
+        self._run_queue = run_queue
         # feat-394 decision 3: canonical direct chat kernel session per agent_id.
         # Updated by _refresh_canonical_sessions before each tick submission.
         # Falls back to the legacy _heartbeat_sessions dict when no binding is found.
@@ -254,7 +267,14 @@ class HeartbeatScheduler:
         triggered_runs: list[HeartbeatRunRecord] = []
         skipped_agents: list[str] = []
 
-        for agent in self._agents:
+        # feat-394-M4 R3 S1.3 fix: read live agent config on each tick when a
+        # getter is available, so toggle changes take effect without restart.
+        # Falls back to the frozen _agents tuple when no getter is configured.
+        active_agents = (
+            self._agents_getter() if self._agents_getter is not None else self._agents
+        )
+
+        for agent in active_agents:
             # feat-394 decision 5: per-agent heartbeat gate — skip without reading HEARTBEAT.md
             # when the agent's heartbeat_enabled flag is False (synced from IM via ConfigSyncNotifier).
             if not agent.heartbeat_enabled:
@@ -276,16 +296,27 @@ class HeartbeatScheduler:
             # restart, and silent-polling scenarios (silent polls never ack → never fill).
             # Pure gateway read — no IM HTTP call required.
             _find_fn = getattr(self._session_store, "find_direct_by_agent", None)
+            _canonical_session_key: str | None = None
             if _find_fn is not None:
                 _binding = _find_fn(channel_name="web_relay", agent_id=agent.agent_id)
                 if _binding is not None and _binding.kernel_session_id:
                     self._canonical_session_store[agent.agent_id] = _binding.kernel_session_id
+                    _canonical_session_key = _binding.session_key
             # feat-394 decision 3: busy-session gate — skip when canonical session is running
             # a turn (avoid concurrent runs in the same direct-chat kernel session).
             canonical_session = self._canonical_session_store.get(agent.agent_id)
             if canonical_session and canonical_session in self._busy_sessions:
                 skipped_agents.append(agent.agent_id)
                 continue
+            # feat-394-M4 R2-3: run_queue busy-skip — skip when the canonical direct-chat
+            # session_key has an active run in the gateway SessionRunQueue.
+            # This prevents heartbeat from executing while user messages are in flight,
+            # which would force user messages to wait behind the heartbeat LLM call.
+            if self._run_queue is not None and _canonical_session_key is not None:
+                _active_sessions = getattr(self._run_queue, "_active_sessions", None)
+                if _active_sessions is not None and _canonical_session_key in _active_sessions:
+                    skipped_agents.append(agent.agent_id)
+                    continue
             heartbeat_path = agent.workspace_root / "HEARTBEAT.md"
             spec = _load_heartbeat_spec(heartbeat_path)
             if spec is None:

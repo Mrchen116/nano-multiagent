@@ -417,12 +417,16 @@ class GatewayHandler:
         scenario: str,
         skill_ids: list[str] | None = None,
         timeout_seconds: float = 10.0,
+        heartbeat_enabled: bool | None = None,
+        cron_enabled: bool | None = None,
     ) -> dict[str, object] | None:
         """Send an agent.prompt.preview.request frame and await the assembled result.
 
         feat-379-M2 R5: IM proxy path — IM sends this request to the Gateway
         which calls agent HTTP /v1/prompt-preview and returns the result.
         feat-383-M1: skill_ids forwarded so Gateway→kernel can resolve real skills.
+        feat-394-M4 R2-2: heartbeat_enabled/cron_enabled forwarded so preview
+        correctly reflects the agent's heartbeat/cron toggle state.
 
         Returns:
             Preview payload dict or None when the node is not connected or times out.
@@ -432,20 +436,27 @@ class GatewayHandler:
         waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
         async with self._lock:
             self._prompt_preview_waiters[request_id] = waiter
+        payload: dict[str, object] = {
+            "request_id": request_id,
+            "agent_id": agent_id,
+            "workspace_root": workspace_root,
+            "features": features,
+            "custom_prompt": custom_prompt,
+            "tool_ids": tool_ids,
+            "skill_ids": skill_ids or [],
+            "scenario": scenario,
+        }
+        # feat-394-M4 R2-2: include heartbeat/cron flags only when provided so
+        # the gateway-side handler can forward them to assemble_prompt_preview.
+        if heartbeat_enabled is not None:
+            payload["heartbeat_enabled"] = heartbeat_enabled
+        if cron_enabled is not None:
+            payload["cron_enabled"] = cron_enabled
         try:
             pushed = await self._push_downstream(
                 target_node_id=target_node_id,
                 message_type="agent.prompt.preview.request",
-                payload={
-                    "request_id": request_id,
-                    "agent_id": agent_id,
-                    "workspace_root": workspace_root,
-                    "features": features,
-                    "custom_prompt": custom_prompt,
-                    "tool_ids": tool_ids,
-                    "skill_ids": skill_ids or [],
-                    "scenario": scenario,
-                },
+                payload=payload,
             )
             if not pushed:
                 return None

@@ -572,3 +572,69 @@ def test_scheduler_skips_busy_agent_session(tmp_path: Path) -> None:
     assert summary.triggered_runs == ()
     assert agent.agent_id in summary.skipped_agents
     assert kernel.sent_messages == []
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M4 R3: per-tick live agent config (S1.3 hot-reload)
+# ---------------------------------------------------------------------------
+
+
+def test_scheduler_uses_live_agents_getter_on_each_tick(tmp_path: Path) -> None:
+    """HeartbeatScheduler must read live agent config from agents_getter on each tick.
+
+    S1.3 fix: HeartbeatScheduler._agents was an immutable tuple frozen at init
+    time.  ConfigSyncNotifier updates pipeline._agents dynamically, but the
+    scheduler never saw the changes — toggle off required gateway restart.
+
+    After the fix, when agents_getter is provided it is called on each tick so
+    the scheduler immediately picks up changes (e.g. heartbeat_enabled=False).
+    """
+    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
+    _write_heartbeat(agent.workspace_root, "interval: 1m\n\n- Check\n")
+    kernel = _FakeKernelClient()
+
+    # Start with heartbeat_enabled=True
+    live_agents: dict[str, AgentWorkspaceConfig] = {agent.agent_id: agent}
+
+    scheduler = HeartbeatScheduler(
+        agents=(),  # empty frozen tuple — all reads come from getter
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+        agents_getter=lambda: list(live_agents.values()),
+    )
+
+    # First tick: agent is enabled → should fire
+    summary1 = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+    assert len(summary1.triggered_runs) == 1, "agent should fire when enabled"
+
+    # Simulate config toggle: heartbeat_enabled=False
+    disabled_agent = AgentWorkspaceConfig(
+        agent_id=agent.agent_id,
+        workspace_root=agent.workspace_root,
+        heartbeat_enabled=False,
+    )
+    live_agents[agent.agent_id] = disabled_agent
+
+    # Second tick (1 minute later): agent is now disabled → must NOT fire
+    summary2 = asyncio.run(
+        scheduler.tick(now=datetime(2026, 3, 11, 9, 1, tzinfo=UTC))
+    )
+    assert summary2.triggered_runs == (), "agent must be skipped after toggle off"
+    assert disabled_agent.agent_id in summary2.skipped_agents
+
+
+def test_scheduler_falls_back_to_frozen_agents_when_no_getter(tmp_path: Path) -> None:
+    """When agents_getter is None, scheduler uses the frozen _agents tuple (backward compat)."""
+    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
+    _write_heartbeat(agent.workspace_root, "interval: 1m\n\n- Check\n")
+    kernel = _FakeKernelClient()
+
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+        # no agents_getter — uses frozen tuple
+    )
+
+    summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+    assert len(summary.triggered_runs) == 1

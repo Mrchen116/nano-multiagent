@@ -553,6 +553,20 @@ async def agent_prompt_preview(
             detail="agent_id is not bound to a node",
         )
     workspace_root = service.workspace_root_for_profile(profile)
+    # feat-394-M4 R2-2 fix: derive heartbeat/cron enabled state from the agent's
+    # stored profile JSON so the preview reflects the actual toggle configuration.
+    # Uses safe json.loads fallback to avoid crashing on malformed/absent config.
+    import json as _json  # noqa: PLC0415
+
+    def _extract_enabled(json_str: str | None) -> bool:
+        if not json_str:
+            return False
+        try:
+            obj = _json.loads(json_str)
+            return bool(obj.get("enabled", False)) if isinstance(obj, dict) else False
+        except (ValueError, TypeError):
+            return False
+
     result = await gateway_handler.request_prompt_preview(
         target_node_id=profile.node_id,
         agent_id=agent_id,
@@ -562,6 +576,8 @@ async def agent_prompt_preview(
         tool_ids=payload.tool_ids,
         scenario=payload.scenario,
         skill_ids=payload.skill_ids,
+        heartbeat_enabled=_extract_enabled(profile.heartbeat_json),
+        cron_enabled=_extract_enabled(profile.cron_json),
     )
     if result is None:
         raise HTTPException(

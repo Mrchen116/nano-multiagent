@@ -268,6 +268,44 @@ class PersistentSessionBindingStore:
         )
         self._conn.commit()
 
+    def find_by_kernel_session_id(
+        self, kernel_session_id: str
+    ) -> SessionBinding | None:
+        """Return the first binding whose kernel_session_id matches, or None.
+
+        feat-394-M4 R2-1 fix: mirrors the in-memory SessionBindingStore contract
+        so that callers (e.g. main.py:_callback for self_evolution_review events
+        and cron tool chain lookups) work correctly with the production SQLite
+        store used at runtime, not just the in-memory test double.
+
+        Args:
+            kernel_session_id: Kernel session identifier to search for.
+
+        Returns:
+            First matching :class:`SessionBinding`, or ``None`` when no row
+            is found with the given kernel_session_id.
+        """
+
+        row = self._conn.execute(
+            """
+            SELECT session_key, kernel_session_id, reply_context_json
+            FROM session_bindings
+            WHERE kernel_session_id = ?
+            LIMIT 1
+            """,
+            (kernel_session_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        session_key_val: str = row[0]
+        kernel_session_id_val: str = row[1]
+        reply_context = _deserialize_reply_context(row[2])
+        return SessionBinding(
+            session_key=session_key_val,
+            kernel_session_id=kernel_session_id_val,
+            reply_context=reply_context,
+        )
+
     def find_direct_by_agent(
         self, *, channel_name: str, agent_id: str
     ) -> SessionBinding | None:
