@@ -539,8 +539,6 @@ unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acce
 让它保持 current。**不全量重扫 canonical**,而是据 design 阶段产的 **delta-spec**
 (`docs/changes/<unit_dir>/specs/<包>/spec.md`)合并。规范见 `docs/SPEC_GUIDE.md`「契约层增量」+
 「收尾归并 checklist」。
-**这是 §0.3「不改 spec」的唯一例外**:此处的 `docs/specs/<包>/` 是长青契约层(顶层 canonical),
-不是 `docs/changes/<unit>/spec.md`(变更稿);改后者仍禁止。
 
 > **canonical `docs/specs/` 与 delta `docs/changes/<unit>/specs/` 都在 unit_worktree 的
 > `unit/<unit_id>` 分支上**,和源码 diff 同处一棵树——在 `$unit_worktree` 里编辑 + commit,随 PR 一起
