@@ -24,7 +24,12 @@ _logger = logging.getLogger(__name__)
 
 
 class _KernelClientLike(Protocol):
-    """Kernel client interface needed by CronRunner."""
+    """Kernel client interface needed by CronRunner.
+
+    Mirrors _KernelClientShim.create_session exactly — no session_id parameter.
+    The kernel assigns session IDs; callers read the id from the returned payload.
+    feat-394-M6 R2 fix: removed session_id kwarg that caused TypeError in round-4.
+    """
 
     async def create_session(
         self,
@@ -32,7 +37,7 @@ class _KernelClientLike(Protocol):
         workspace_root: str,
         product_id: str,
         title: str | None = None,
-        session_id: str | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> dict[str, object]: ...
 
     def submit_message(
@@ -87,13 +92,14 @@ class CronRunner:
         Returns:
             run_id returned by kernel.submit_message, or None on failure.
         """
-        isolated_session_id = f"cron:{job.id}"
+        # feat-394-M6 R2 fix: do not pass session_id to create_session — _KernelClientShim
+        # has no such parameter.  Kernel generates the session id; we read it from the payload.
+        # The title "cron:<jobId>" is purely cosmetic (visible in session list).
         try:
             session_payload = await self._kernel_client.create_session(
                 workspace_root=str(self._workspace_root),
                 product_id="personal_assistant",
                 title=f"cron:{job.id}",
-                session_id=isolated_session_id,
             )
         except Exception:  # noqa: BLE001
             _logger.exception(
@@ -101,7 +107,13 @@ class CronRunner:
             )
             return None
 
-        session_id = str(session_payload.get("session_id", isolated_session_id)).strip()
+        session_id = str(session_payload.get("session_id", "")).strip()
+        if not session_id:
+            _logger.error(
+                "cron: create_session returned no session_id: agent=%s job=%s payload=%r",
+                self._agent_id, job.id, session_payload,
+            )
+            return None
 
         try:
             run_payload = self._kernel_client.submit_message(
