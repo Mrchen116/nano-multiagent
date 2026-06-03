@@ -1,6 +1,7 @@
 """High-level runtime orchestration over sessions, hooks, loop, and compaction."""
 
 import asyncio
+import logging
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, Sequence
@@ -51,6 +52,8 @@ from agent.core.agent.prompt_sections.wiring import (
 from agent.core.memory.path import derive_memory_root
 from agent.core.memory.store import MemoryStore
 from typing import TypedDict
+
+logger = logging.getLogger(__name__)
 
 
 class MemorySnapshot(TypedDict):
@@ -1248,8 +1251,7 @@ class AgentRuntime:
                         except Exception as exc:
                             # Delivery failure must not abort the permission flow; log so
                             # the drop is observable (refactor-395-M1).
-                            import logging
-                            logging.getLogger("agent.core.agent.runtime").warning(
+                            logger.warning(
                                 "permission_resolved event delivery failed: %s", exc
                             )
                 return response

@@ -54,6 +54,22 @@
 - Commits: C1=（同 R1）, C2=（本次 R3 实现）, C3=（本次文档）
 - Next: R4 personal_assistant _utils.py 提取
 
+### R4 — PA _utils.py 提取 + coding_cli TERMINAL_RUN_STATUSES 行内 import
+
+- Context: `personal_assistant` 的 `web_relay_adapter.py` / `config/sync_client.py` / `ws/im_connection.py` 各持私有 `_require_text`（抛 ValueError）和 `_optional_text`（抛 ValueError）副本；`inbound_pipeline.py` 自定义了 `_TERMINAL_RUN_STATUSES` 字面量；`coding_cli` 的 `text_runner.py` / `commands.py` / `events/repl_events.py` 三处也各持私有 `_TERMINAL_STATUSES` 字面量。`main.py` 有 `_require_text` 变体但抛 `RuntimeError`（行为差异），不纳入提取范围。
+- Decision: 新建 `personal_assistant/_utils.py`，提取统一的 `_require_text`（ValueError）和 `_optional_text`（ValueError）；`inbound_pipeline.py` 的 `_TERMINAL_RUN_STATUSES` 及 coding_cli 三处 `_TERMINAL_STATUSES` 改为 `from agent.sdk import TERMINAL_RUN_STATUSES`；`main.py` 的 RuntimeError 变体按行为差异保留原处。
+- Rationale: PA 三处 helper 逐字节等价，提取唯一真源；`TERMINAL_RUN_STATUSES` 已在 R1 经 sdk re-export，消费侧直接 import 可消除字面量副本并保证终态集合定义单一权威。`main.py` 变体行为不同（RuntimeError vs ValueError），强行合并会改变公共接口语义，故保留。
+- Evidence:
+  - Tests: `pytest -m "not e2e"` 2321 passed (2 baseline fails)；contract 97 passed；10 changed files，67 insertions / 34 deletions
+  - Entry: N/A（内部实现重构）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: 7394a4bd
+- Commits: C2=7394a4bd
+- Next: R5 吞异常 10 处修复
+
 ### R5 — 吞异常 10 处修复
 
 - Context: commands.py 3 处(silent pass/traceback混用/json silent)；summarizer.py 1 处；web_search.py 1 处；runtime.py 1 处；main.py 6 处（_consume_task+4个observer+shutdown）；background_session_events.py 1 处。
