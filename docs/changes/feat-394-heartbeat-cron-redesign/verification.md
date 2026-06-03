@@ -305,3 +305,93 @@ round-2 所有 fail 项已有代码 + 测试证据关闭，无新缺失 requirem
 ---
 
 All checks passed. Ready for PR.
+
+---
+
+# Round 4 — 2026-06-03
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 15/15（M5-fix-round3 全 Roadpoints DONE） |
+| Correctness | 15/15（round-3 所有 fail 项已关闭） |
+| Coherence | Followed（无新偏离，r1-r3 所有已关闭项无回退） |
+
+**No critical issues. No warnings. Ready for PR.**
+
+---
+
+## Round-3 Fail 项关闭核查
+
+### R3-1：cron 工具被 auto_mode_gate 拦截 ✓ 关闭
+
+证据：
+- `cron.py:39-50`：新增 `_AllowDecision` 轻量类，`behavior: str = "allow"`；`_CRON_TOOL_ALLOW = _AllowDecision()`。
+- `cron.py:283-307`（`CronTool.check_permissions`）：无条件返回 `_CRON_TOOL_ALLOW`；docstring 明确标注 `feat-394-M5 R3-1 fix`。
+- `auto_mode_gate.py:776-782`（Step 5）：`tool_behavior = getattr(tool_result, "behavior", "passthrough")` → `"allow"` → `return None`（通过，不进 classifier）。
+- `auto_mode_gate.py:742-747`（safety_locked 检查）：`_AllowDecision.behavior = "allow"`，不等于 `"ask"`，`safety_locked = False`，不触达 `decision_reason` 属性，无 `AttributeError` 风险。
+- `tests/unit/personal_assistant/test_cron_tool_permissions.py`：覆盖 `check_permissions` 返回 behavior="allow"、auto_mode_gate 消费路径、`_AllowDecision` 无 `decision_reason` 属性的鸭子类型兼容性。**实测全部 passed**。
+
+### R3-2：assemble_prompt_preview 路径 heartbeat/cron vars 未注入 ✓ 关闭
+
+证据：
+- `agents.py:503-526`（`PromptPreviewRequest`）：新增 `heartbeat_enabled: bool | None = None` 和 `cron_enabled: bool | None = None` 字段；docstring 标注 `feat-394-M5 R3-2 fix`。
+- `agents.py:578-593`（handler）：`effective_hb = payload.heartbeat_enabled if payload.heartbeat_enabled is not None else _extract_enabled(profile.heartbeat_json)`，`effective_cron` 同理；请求参数覆盖 profile 值，向后兼容（None 时回退到 profile）。
+- `agents.py:595-606`：`gateway_handler.request_prompt_preview(..., heartbeat_enabled=effective_hb, cron_enabled=effective_cron)` 透传。
+- `gateway_handler.py:420-454`：`request_prompt_preview` 接受 `heartbeat_enabled/cron_enabled`，注入到 payload 转发给 Gateway。
+- `kernel.py:583-584,677-679`（`assemble_prompt_preview`）：接受 `heartbeat_enabled/cron_enabled: bool | None`，`preview_vars["heartbeat_enabled"] = str(heartbeat_enabled)` 注入 PromptContext.vars。
+- `tests/unit/personal_assistant/test_preview_heartbeat_cron_params.py`：3 条测试——`heartbeat_enabled=False` 排除 heartbeat 段、`cron_enabled=True` 包含 cron 段、IM 路由层请求参数覆盖 profile 值。**实测全部 passed**。
+
+### R3-3：HeartbeatScheduler 在 r3 gateway 实例内未对 Alpha 触发 tick（minor，误报）✓ 无代码问题
+
+reviewer 将此项标为 minor，根因描述为"无法区分调度器未触发 vs 触发但静默"。代码复核确认：
+- `heartbeat_scheduler.py:320-323`：当 HEARTBEAT.md 不存在或为空（`spec is None`），调度器正确静默跳过，不提交 run，也不更新 `last_due_at`（因为没有执行）。这是预期行为，与 `_is_heartbeat_content_effectively_empty` 的设计一致。
+- r3 review 场景中 Alpha HEARTBEAT.md 为空模板，调度器静默是正确语义——`last_due_at` 不更新不是 bug，而是"无任务→不执行→无 due 时间戳"的正确反映。
+- 无需修复代码，R3-3 是误报。
+
+---
+
+## r1-r3 已关闭项无回退确认
+
+| 历史已关闭项 | 当前状态 |
+|---|---|
+| cron 接入 gateway 运行循环（`main.py:944-1000`，`_cron_tick_fn`） | 完好 |
+| heartbeat_enabled/cron_enabled 注入 PromptContext.vars（`inbound_pipeline.py:462-463`，`runtime.py:413-414`） | 完好 |
+| `prompt_sections.py` 三 gate 字符串安全（`_heartbeat_enabled`、`_cron_enabled`、`_both_enabled`） | 完好 |
+| cron_enabled 自动追加 "cron" 到 tool_allowlist（`main.py:360-407`） | 完好 |
+| config sync token_getter（`main.py:275,1945`） | 完好 |
+| `PersistentSessionBindingStore.find_by_kernel_session_id`（`session_keys.py:271-305`） | 完好 |
+| `assemble_prompt_preview` 接受 heartbeat/cron_enabled 参数（`kernel.py:583-584,677-679`） | 完好 |
+| per-tick live agents_getter（`heartbeat_scheduler.py:207,270-275`，`main.py:2065`） | 完好 |
+| busy-skip run_queue 缓解（`heartbeat_scheduler.py:315-319`，`main.py:2069`） | 完好 |
+| openclaw HEARTBEAT_PROMPT 逐字照抄（`heartbeat_scheduler.py:897`，单测） | 完好 |
+| CronCard 任务清单 + 删除按钮（`agent-detail-page.tsx:431-463`，IM 后端 CRUD 路由） | 完好（代码层；前端本轮未重跑 tsc/vitest，round-3 已验证通过，本轮无前端改动） |
+
+---
+
+## 测试结果
+
+`PYTHONPATH=src pytest tests/ -m "not e2e"`：**2491 passed, 2 failed, 2 skipped**。
+
+2 failed 为预存在的 macOS `/tmp` → `/private/tmp` symlink 问题，与 feat-394 无关（round-2 已识别，main 分支同样失败）：
+- `tests/im_service/integration/test_agent_config_api.py::test_get_agent_config_prefers_live_gateway_snapshot`
+- `tests/im_service/integration/test_agent_create_flow.py::test_create_agent_lists_details_and_uses_new_node_binding_for_relay`
+
+---
+
+## Completeness
+
+Tasks: M5-fix-round3 所有 Roadpoints DONE。M1 7/7、M2 8/8、M3 6/6、M4 5/5 在前轮已确认。
+
+## Correctness
+
+round-3 所有 fail/major/minor 项均有代码证据关闭，R3-3 确认为误报（正确静默行为），无新缺失 requirement，无回退。
+
+## Coherence
+
+所有 design.md 决策现已被实现遵守，r1-r3 所有已关闭项均完好，无新偏离。
+
+---
+
+All checks passed. Ready for PR.
