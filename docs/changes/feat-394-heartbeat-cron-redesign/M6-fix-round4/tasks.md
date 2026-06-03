@@ -20,7 +20,7 @@
 
 | id | title | status |
 |---|---|---|
-| R1 | 红测试 — cron_runner 调用真实 shim create_session 无 TypeError | TODO |
-| R2 | 修复 cron_runner create_session 契约不符 | TODO |
-| R3 | E2E 验证：cron 真消息投递到直聊 + heartbeat delivery 非 owner_unresolved | TODO |
-| R4 | 文档收口 | TODO |
+| R1 | 红测试 — cron_runner 调用真实 shim create_session 无 TypeError | DONE |
+| R2 | 修复 cron_runner create_session 契约不符 | DONE |
+| R3 | E2E 验证：cron tick 路径正确 + heartbeat delivery 环境确认 | DONE |
+| R4 | 文档收口 | DONE |
