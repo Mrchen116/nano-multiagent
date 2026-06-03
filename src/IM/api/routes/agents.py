@@ -509,6 +509,12 @@ class PromptPreviewRequest(BaseModel):
         tool_ids: Tool names to treat as active for the preview turn.
         scenario: Conversation type hint; defaults to ``direct``.
         skill_ids: Skill names to resolve from workspace.  forwarded to kernel.
+        heartbeat_enabled: When provided, overrides the stored profile value for the
+            preview.  Enables the frontend to show "what would the prompt look like
+            with heartbeat ON/OFF" without persisting the change.
+            feat-394-M5 R3-2 fix: absent in M4 — only profile was read, so all 4
+            toggle combinations produced identical previews.
+        cron_enabled: Same as heartbeat_enabled but for the cron prompt segment.
     """
 
     features: dict[str, bool] = Field(default_factory=dict)
@@ -516,6 +522,8 @@ class PromptPreviewRequest(BaseModel):
     tool_ids: list[str] = Field(default_factory=list)
     scenario: str = "direct"
     skill_ids: list[str] = Field(default_factory=list)
+    heartbeat_enabled: bool | None = None
+    cron_enabled: bool | None = None
 
 
 class PromptPreviewResponse(BaseModel):
@@ -567,6 +575,23 @@ async def agent_prompt_preview(
         except (ValueError, TypeError):
             return False
 
+    # feat-394-M5 R3-2 fix: when the request body provides explicit heartbeat_enabled /
+    # cron_enabled, those values override the stored profile values.  This lets the
+    # frontend (and callers like the reviewer) preview "what would the prompt look like
+    # with heartbeat=OFF and cron=ON" without persisting any change.
+    # When the request params are absent (None), fall back to the profile-stored values
+    # (backward-compatible: old callers that omit these fields still see profile state).
+    effective_hb = (
+        payload.heartbeat_enabled
+        if payload.heartbeat_enabled is not None
+        else _extract_enabled(profile.heartbeat_json)
+    )
+    effective_cron = (
+        payload.cron_enabled
+        if payload.cron_enabled is not None
+        else _extract_enabled(profile.cron_json)
+    )
+
     result = await gateway_handler.request_prompt_preview(
         target_node_id=profile.node_id,
         agent_id=agent_id,
@@ -576,8 +601,8 @@ async def agent_prompt_preview(
         tool_ids=payload.tool_ids,
         scenario=payload.scenario,
         skill_ids=payload.skill_ids,
-        heartbeat_enabled=_extract_enabled(profile.heartbeat_json),
-        cron_enabled=_extract_enabled(profile.cron_json),
+        heartbeat_enabled=effective_hb,
+        cron_enabled=effective_cron,
     )
     if result is None:
         raise HTTPException(

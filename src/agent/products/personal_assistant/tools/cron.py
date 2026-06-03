@@ -27,6 +27,30 @@ from agent.core.tools.base import ToolContext
 
 
 # ---------------------------------------------------------------------------
+# Lightweight permission result (inlined to avoid platform layer import)
+# ---------------------------------------------------------------------------
+# feat-394-M5 R3-1 fix: CronTool needs a check_permissions return value.
+# The platform-layer PermissionDecision class cannot be imported here
+# (AGENTS.md dependency direction: products must not import platform internals).
+# auto_mode_gate only reads getattr(result, "behavior", "passthrough"), so a minimal
+# object with a "behavior" attribute satisfies the protocol.
+
+
+class _AllowDecision:
+    """Minimal permission-allow result for CronTool.check_permissions.
+
+    auto_mode_gate dispatches on result.behavior; "allow" bypasses the classifier
+    (Step 5 in auto_mode_gate.on_tool_call).
+    """
+
+    behavior: str = "allow"
+    reason: str = "cron tool: authorized at registration time (cron_enabled gate)"
+
+
+_CRON_TOOL_ALLOW = _AllowDecision()
+
+
+# ---------------------------------------------------------------------------
 # Lightweight job types (inlined due to agent→personal_assistant boundary)
 # ---------------------------------------------------------------------------
 
@@ -255,6 +279,32 @@ class CronTool:
     # Provenance: openclaw/src/agents/tools/cron-tool.ts:527-595 (trimmed, see module docstring)
     description = _DESCRIPTION
     input_schema = _INPUT_SCHEMA
+
+    def check_permissions(
+        self,
+        tool_input: Mapping[str, Any],
+        ctx: Any,
+    ) -> _AllowDecision:
+        """Allow all cron tool calls unconditionally.
+
+        Authorization happens at tool registration time: cron tool is only injected
+        into an agent's tool table when cron_enabled=True (enforced by toolsets.py).
+        An agent that has cron in its tool table has already been authorized by the user.
+
+        Without this method, auto_mode_gate falls through to the classifier (Step 7),
+        which denies cron calls as "Unauthorized Persistence" (the classifier sees
+        "modify cron jobs" and blocks it regardless of the agent's configuration).
+
+        feat-394-M5 R3-1 fix: closes acceptance.md Round 3 Issue R3-1.
+
+        Args:
+            tool_input: Cron tool arguments (action, job definition, etc.).
+            ctx: Tool execution context (not used; authorization is static).
+
+        Returns:
+            _AllowDecision with behavior="allow" so auto_mode_gate bypasses classifier.
+        """
+        return _CRON_TOOL_ALLOW
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         """Execute one cron action.
