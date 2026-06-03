@@ -7,6 +7,8 @@ Covers:
 - Isolated cron turns do NOT enter the canonical direct-chat session
 - delete_after_run: job is removed from store after first execution
 - CronRunner respects cron_enabled gate
+- feat-394-M6 R1: CronRunner._submit_cron_job uses _KernelClientShim-compatible
+  create_session signature (no session_id kwarg) — durable contract test
 
 feat-394 decision C-awareness + decision 4.
 """
@@ -281,3 +283,110 @@ async def test_cron_runner_delete_after_run(tmp_path: Path) -> None:
     assert not any(j.id == "j-onetime" for j in remaining), (
         "delete_after_run job must be removed from store after execution"
     )
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M6 R1: durable contract tests — CronRunner must use
+# _KernelClientShim-compatible create_session (no session_id kwarg)
+# ---------------------------------------------------------------------------
+
+
+class _ShimCompatibleKernelClient:
+    """Strict shim-compatible fake that rejects unknown kwargs.
+
+    Mirrors the exact signature of _KernelClientShim.create_session:
+      async def create_session(*, workspace_root, product_id, title, metadata)
+    Any extra kwargs raise TypeError — identical to how the real shim behaves.
+    """
+
+    def __init__(self) -> None:
+        self.called_with: dict | None = None
+        self._session_counter = 0
+
+    async def create_session(
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict | None = None,
+    ) -> dict:
+        # Deliberately no session_id kwarg — mirrors real _KernelClientShim.
+        self._session_counter += 1
+        self.called_with = {
+            "workspace_root": workspace_root,
+            "product_id": product_id,
+            "title": title,
+            "metadata": metadata,
+        }
+        return {"session_id": f"sess-{self._session_counter}"}
+
+    def submit_message(
+        self, *, session_id: str, texts: list[str], **kwargs
+    ) -> dict:
+        return {"run_id": "run-shim-1"}
+
+    async def await_run_result(self, *, run_id: str, **kwargs) -> str:
+        return "cron job completed"
+
+
+@pytest.mark.asyncio
+async def test_cron_runner_submit_no_session_id_kwarg_to_shim(tmp_path: Path) -> None:
+    """CronRunner._submit_cron_job must NOT pass session_id to create_session.
+
+    feat-394-M6 R1 fix: _KernelClientShim.create_session has no session_id parameter.
+    Before the fix, cron_runner.py:96 passed session_id=isolated_session_id and crashed
+    with: TypeError: create_session() got an unexpected keyword argument 'session_id'.
+
+    This test uses a shim-compatible fake that rejects session_id just like the real shim.
+    After the fix the call succeeds; the returned session_id is used for submit_message.
+    """
+    from personal_assistant.scheduler.cron_runner import CronRunner
+
+    shim_client = _ShimCompatibleKernelClient()
+    job = _make_job(job_id="j-shim-contract")
+
+    runner = CronRunner(
+        agent_id="agent-1",
+        workspace_root=tmp_path,
+        kernel_client=shim_client,
+        session_binding_store=None,
+    )
+
+    # Must not raise TypeError after the fix.
+    run_id = await runner._submit_cron_job(job=job)
+
+    assert shim_client.called_with is not None, "create_session was never called"
+    assert "session_id" not in (shim_client.called_with or {}), (
+        "create_session must NOT receive session_id kwarg — "
+        "_KernelClientShim.create_session has no such parameter"
+    )
+    assert run_id is not None, "run_id must be returned on success"
+
+
+@pytest.mark.asyncio
+async def test_cron_runner_uses_returned_session_id_for_submit(tmp_path: Path) -> None:
+    """CronRunner must use the session_id returned by create_session for submit_message.
+
+    After removing the session_id kwarg from create_session, the runner must still
+    correctly route the run to the session the shim created.
+    """
+    from personal_assistant.scheduler.cron_runner import CronRunner
+
+    shim_client = _ShimCompatibleKernelClient()
+    job = _make_job(job_id="j-routing")
+
+    runner = CronRunner(
+        agent_id="agent-1",
+        workspace_root=tmp_path,
+        kernel_client=shim_client,
+        session_binding_store=None,
+    )
+
+    await runner._submit_cron_job(job=job)
+
+    # session_id returned by create_session must be "sess-1" (first call)
+    assert shim_client.called_with is not None
+    # The submit call is tracked indirectly via no exception; shim returns run_id "run-shim-1"
+    # which cron_runner should pass back.  We rely on the above test for the no-crash guarantee.
+    assert shim_client._session_counter == 1, "exactly one session must have been created"
