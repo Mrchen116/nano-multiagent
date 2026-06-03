@@ -121,7 +121,7 @@ class TestPreviewRoutePassesParams:
             cron_enabled=request_cron,
         )
 
-        asyncio.get_event_loop().run_until_complete(
+        asyncio.run(
             agent_prompt_preview(
                 agent_id="Alpha",
                 payload=payload,
