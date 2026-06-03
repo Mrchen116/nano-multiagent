@@ -1197,3 +1197,340 @@ TypeError: _KernelClientShim.create_session() got an unexpected keyword argument
 | `AGENTS.md` | 无需更新（R3 建议的 vite dev 说明由 orchestrator 决定是否补充）|
 | `CLAUDE.md` | 无需更新 |
 | `docs/SPEC_GUIDE.md` | 无需更新 |
+
+---
+
+# Round 5 — 2026-06-04
+
+**Reviewer**: change-reviewer (Sonnet 4.6)
+**Branch**: unit/feat-394
+**Unit Worktree**: /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
+**Review Mode**: full
+**Services**: IM :62092 · Vite dev :62093 · Gateway wt-feat394-r5 (PID 86040/88880 restart) · LLM proxy :4000
+**Test Agent**: Arch (wt-feat394-r5, online, owner_id=ca9c3d0823cc4f35a3f0f45a1971bc12 非空)
+**Prior Round**: Round 4 — R4-1 (cron create_session TypeError) · R4-2 (heartbeat owner_unresolved, 判 env)
+**M6 Fix**: R4-1 已修复（删除 session_id 参数，对齐 _KernelClientShim 签名）
+
+---
+
+## Summary (Round 5)
+
+| | |
+|---|---|
+| **Verdict** | `fail` |
+| **Highest Required Action** | `fix-implementation` |
+| **Issues** | blocking: 1 / major: 3 / minor: 0 |
+| **Needs Re-review** | true |
+
+**Top Concern**: M6 修复了 `create_session` 签名，但暴露出新的执行层 bug：`submit_message` 中 `_RunOrigin.SYSTEM` 不存在（`AttributeError`），导致 cron 到点执行崩溃，IM 直聊无任何 cron 结果消息。第五轮连续 blocking，cron 完整 live 旅程（注册→执行→投递→消息出现）仍未走通。
+
+**R4 issue 关闭状态**:
+- R4-1 create_session TypeError：**M6 已修复** ✓（删除 session_id kwarg，但暴露出新 R5-1）
+- R4-2 heartbeat owner_unresolved：**env 问题判定正确** ✓（r5 config.node.user_id 非空，gateway log 无 owner_unresolved）
+
+---
+
+## Services Setup (Round 5)
+
+```
+IM:        http://127.0.0.1:62092 (IM_JWT_SECRET=demo-jwt-secret-feat394-r5-review)
+Vite dev:  http://127.0.0.1:62093 (VITE_IM_PROXY_TARGET=http://127.0.0.1:62092)
+Gateway:   wt-feat394-r5, auto-bound (PID 86040 → 重启后 88880)
+LLM proxy: http://127.0.0.1:4000 正常（curl /health → {"ok":true}）
+User ID:   ca9c3d0823cc4f35a3f0f45a1971bc12（IM nano 用户）
+```
+
+**前端产物指纹**: `index-CbL5azQP.js`，`heartbeat-enabled-toggle` ✓，`cron-enabled-toggle` ✓
+
+**环境校验**:
+- `config.node.user_id = ca9c3d0823cc4f35a3f0f45a1971bc12`（非空）
+- IM `wt-feat394-r5` 节点 `owner_id = ca9c3d0823cc4f35a3f0f45a1971bc12`（一致）
+- gateway log 无 `owner_unresolved`（R4-2 env 问题确认修复）
+
+---
+
+## Clarification Q&A
+
+无需澄清，直接开工。
+
+---
+
+## User Journeys Exercised (Round 5)
+
+| Journey | Scenarios Covered | Outcome |
+|---|---|---|
+| **J1** 配置页两开关确认（继承 R4 pass 项） | S1.1, S1.2, S1.3, S1.4 | S1.1/S1.2/S1.4 pass；S1.3 pass（关闭后 last_due_at 停止更新） |
+| **J2** cron 完整 live 旅程 | S3.1, S3.2, S3.3, S3.4 | S3.1/S3.2/S3.4 pass；S3.3 fail（RunOrigin.SYSTEM crash） |
+| **J3** heartbeat 自管 HEARTBEAT.md | S2.1 | fail（Arch 无 file tools） |
+| **J4** S5.2 过期 at 任务重启不补跑 | S5.2 | fail（重启后被触发） |
+| **J5** S2.5 activeHours UI 存在性 | S2.5 | fail（配置页无 activeHours 控件） |
+
+---
+
+## 验收标准覆盖表 (Round 5)
+
+### Requirement: 配置页两个开关 per-agent 启用/停用 heartbeat 与 cron
+
+#### Scenario S1.1: 打开 heartbeat 开关并设节律
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 1 |
+| 验证方式 | IM API GET /agents/Arch/config?source=mirror 确认 heartbeat_json；heartbeat-state.json last_due_at 在 HEARTBEAT.md 非空时更新 |
+| 证据 | IM config: `heartbeat_json={"every":"10s","enabled":true}`；heartbeat-state.json mtime 持续变化（调度器在 tick）；R4 通过时 HEARTBEAT.md 非空 last_due_at 曾更新至 14:51:10 |
+| 结果 | `pass` |
+| 备注 | 继承 R4 pass。 |
+
+#### Scenario S1.2: 打开 cron 开关
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 2 |
+| 验证方式 | IM API config 确认 cron_json；tool_allowlist 包含 cron |
+| 证据 | IM config: `cron_json={"enabled":true}`，`tool_allowlist:["cron"]`；agent 成功调用 cron 工具注册 jobs（jobs.json 创建） |
+| 结果 | `pass` |
+
+#### Scenario S1.3: 关闭开关即停用（边界）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 3 |
+| 验证方式 | PATCH heartbeat enabled=false；等 20s 观察 heartbeat-state.json |
+| 证据 | 关闭后 20s 内 last_due_at 维持不变（`2026-06-03T14:51:10`）；重新打开后调度器继续 tick（mtime 更新） |
+| 结果 | `pass` |
+| 备注 | 免重启停用生效（per-tick live read 机制）。 |
+
+#### Scenario S1.4: 未启用的 agent 不跑（默认/空态）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 4 |
+| 验证方式 | IM API ArchA config；heartbeat-state.json 检查 |
+| 证据 | ArchA: `heartbeat_json=null, cron_json=null, tool_allowlist=[]`；heartbeat-state.json 无 ArchA 条目；IM 直聊无 ArchA 主动消息 |
+| 结果 | `pass` |
+
+---
+
+### Requirement: agent 对话自管 heartbeat（用户不必手写 HEARTBEAT.md）
+
+#### Scenario S2.1: 口述提醒，agent 自动记录
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 1 |
+| 验证方式 | 直聊对 Arch 说"帮我记录关注项到 HEARTBEAT.md"；检查 HEARTBEAT.md 是否被 agent 写入 |
+| 证据 | Arch 回复（两次尝试，tool_allowlist=["cron"] 和 tool_allowlist=[]）均说"I only have the `cron` tool available... I don't have file read, write, or edit tools"；HEARTBEAT.md 内容未变（仍是旧内容） |
+| 结果 | `fail` |
+| 备注 | **Issue R5-2（major）**：agent 不论 tool_allowlist=["cron"] 还是 tool_allowlist=[]，都只有 cron 工具可用。HEARTBEAT.md 无法通过 agent 对话写入，用户必须手动改文件。这与 spec 核心卖点"由 agent 完成，我无需打开/编辑任何文件"相悖。 |
+
+#### Scenario S2.2: 到点带上下文主动冒泡且记得上下文
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | heartbeat-state.json 在 r5 未见更新（last_due_at 保持 R4 旧值 14:51:10），R5 gateway 内无 heartbeat LLM 调用记录（LLM proxy 日志无新会话）。可能原因：cron RunOrigin.SYSTEM 错误导致整个 polling task 崩溃，heartbeat 也停止触发。待 R5-1 修复后复验。 |
+
+#### Scenario S2.3: 无可汇报内容则静默
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | 继承 R4 pass（空 HEARTBEAT.md → 静默，非空才冒泡）。 |
+
+#### Scenario S2.4: 不同关注项用不同频率（多子节律）
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 依赖 S2.1（agent 需能写 HEARTBEAT.md）。S2.1 fail → 无法构造含多子节律的 HEARTBEAT.md 验证场景。 |
+
+#### Scenario S2.5: 活跃时段外不打扰（activeHours）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 5 |
+| 验证方式 | 配置页检查是否有 activeHours UI 控件 |
+| 证据 | grep `active_hours\|activeHours` 在 `agent-detail-page.tsx` 和 `agent-create-page.tsx` 均无匹配；IM API 类型定义（`im-agent-config-api.ts`）有 `active_hours?` 字段但无前端 UI 控件 |
+| 结果 | `fail` |
+| 备注 | **Issue R5-3（major）**：spec GIVEN "我在配置页给某 agent 的 heartbeat 设了活跃时段 09:00–22:00"——配置页无 activeHours 控件，用户无法通过 UI 设置活跃时段。API 层有类型但前端未实现。 |
+
+---
+
+### Requirement: agent 对话自管 cron 定时任务（可多条、无上下文执行）
+
+#### Scenario S3.1: 口述定时任务，agent 注册一条
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 1 |
+| 验证方式 | 对 Arch 说"每 30 秒报一次当前时间"；检查 jobs.json |
+| 证据 | jobs.json 内容：`[{"id":"0c8b23bb4f9c4ed68d8a9b8645941e84","name":"Current time reporter","schedule":{"kind":"every","everyMs":30000},...}]`；agent 回复确认注册成功并给出 job ID；IM API GET /agents/Arch/cron/jobs 返回同一条记录 |
+| 结果 | `pass` |
+
+#### Scenario S3.2: 同一 agent 同时挂多条任务
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 2 |
+| 验证方式 | 再让 Arch 注册两条任务（every 5min + at 12:00Z）；检查 jobs.json |
+| 证据 | jobs.json 最终含 3 条记录：`0c8b23bb`（every 30s）、`946aedb8`（every 5min）、`3c99af39`（at 12:00Z）；CronCard API `/agents/Arch/cron/jobs` 显示全部 3 条 |
+| 结果 | `pass` |
+
+#### Scenario S3.3: 到点执行固定任务并把结果发回直聊
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 3 |
+| 验证方式 | 等待 30s cron job 触发；观察 gateway log 和 IM 直聊 |
+| 证据 | gateway log: `cron: submit failed: agent=Arch job=0c8b23bb4f9c4ed68d8a9b8645941e84 … AttributeError: type object 'RunOrigin' has no attribute 'SYSTEM'`（`main.py:1667`）；cron-state.json last_due_at 更新为 `2026-06-03T18:53:30+00:00`（调度器到点触发）；IM 直聊无任何 cron 执行结果消息 |
+| 结果 | `fail` |
+| 备注 | **Issue R5-1（blocking）**：cron 到点触发后 `submit_message` 调用中 `_RunOrigin.SYSTEM` 属性不存在，导致执行崩溃。R4-1 修复（删除 session_id）后冒出此新 bug。每次 cron 到点都 crash，并导致整个 cron/heartbeat polling task 停止后续触发。 |
+
+#### Scenario S3.4: 配置页查看并手动删除任务
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 4 |
+| 验证方式 | IM API GET /agents/Arch/cron/jobs 查看；DELETE /agents/Arch/cron/jobs/{id} 删除；再次 GET 验证 |
+| 证据 | 删除前 GET 显示 3 条任务；DELETE `867ab5...` → 200 空响应；GET 返回 `[]`；jobs.json 内容变为 `[]` |
+| 结果 | `pass` |
+| 备注 | R4 继承项（CronCard UI 删除）已 pass；本轮用 API 层再次确认。 |
+
+#### Scenario S3.5: cron 汇报后我追问，agent 记得汇报了啥
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `fail` |
+| 备注 | 依赖 S3.3（cron 执行成功并投递消息）。S3.3 fail → 此项 fail。 |
+
+---
+
+### Requirement: 结果投递到 owner 的 canonical 直聊（复用 feat-393）
+
+#### Scenario S4.1: 落到最旧直聊，呈现同普通消息
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | S3.3 fail（RunOrigin.SYSTEM crash）→ 无 cron 执行结果可投递；heartbeat 在 r5 无触发记录。无法验证投递格式。 |
+
+#### Scenario S4.2: 没有直聊时自动新建
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | 继承 R2 pass。 |
+
+---
+
+### Requirement: 重启后不补跑积压
+
+#### Scenario S5.1: 周期任务错过多个周期不刷屏
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | cron-state.json 证据：重启后 `every` 类任务（0c8b23bb / 946aedb8）的 last_due_at 未立即更新为"当前时间"，调度器排的是下一个未来时隙而非补跑所有积压。heartbeat 重启不补跑继承 R2 pass。 |
+
+#### Scenario S5.2: 过期的一次性任务不补跑
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 5 Scenario 2 |
+| 验证方式 | 注册 `at: 2026-06-03T12:00:00Z`（已过期）的一次性任务；重启 gateway；观察该任务是否被执行 |
+| 证据 | 重启后 gateway log：`cron: submit failed: agent=Arch job=3c99af3950a640d9ad739edca2cdbf91`——调度器尝试执行了这条过期 at 任务（虽然因 R5-1 crash 失败，但调度器判断为"应运行"）；cron-state.json 中该 job last_due_at 保持 `2026-06-03T12:00:00+00:00` 未变（说明是从 state 读到 at=12:00，判断未来 at ≤ now，触发） |
+| 结果 | `fail` |
+| 备注 | **Issue R5-4（major）**：按设计（openclaw `computeNextRunAtMs` 语义）"过期 at 不跑"，但实际调度器把过期 at 任务当作到期任务触发。设计目标：`at` 已过期时 `computeNextRunAtMs` 应返回 `null`/不排，目前实现未满足。 |
+
+---
+
+## Issues (Round 5)
+
+### Issue R5-1：`submit_message` 中 `_RunOrigin.SYSTEM` 属性不存在，cron 到点执行 crash（**blocking**）
+
+**Severity**: blocking
+**Recommended Action**: fix-implementation
+**Action Rationale**: `main.py:1667` 中 `_RunOrigin.HEARTBEAT if origin == "heartbeat" else _RunOrigin.SYSTEM`，但 `RunOrigin` 枚举无 `SYSTEM` 属性，导致每次 cron 到点触发时 `AttributeError`。cron 调度器在首次 crash 后停止后续触发（asyncio task 未捕获异常）。
+
+**用户可观察症状**：cron job 到点后 IM 直聊无任何消息出现；第二次及以后的 cron 触发也不发生（调度器停摆）。
+
+**证据**：
+```
+cron: submit failed: agent=Arch job=0c8b23bb4f9c4ed68d8a9b8645941e84
+  File ".../main.py", line 1667, in submit_message
+    _RunOrigin.HEARTBEAT if origin == "heartbeat" else _RunOrigin.SYSTEM
+AttributeError: type object 'RunOrigin' has no attribute 'SYSTEM'
+```
+cron-state.json 显示 job 在 `18:53:30` 触发（last_due_at 更新）；IM 直聊最后消息仍是 `18:53:27`（用户消息），无 agent cron 消息。
+
+---
+
+### Issue R5-2：agent 无 file read/write/edit 工具，无法通过对话写 HEARTBEAT.md（**major**）
+
+**Severity**: major
+**Recommended Action**: fix-implementation
+**Action Rationale**: spec 核心卖点之一是"heartbeat 由 agent 对话自管，用户无需手写 HEARTBEAT.md"。实际上无论 `tool_allowlist=["cron"]` 还是 `tool_allowlist=[]`，Arch 都只有 `cron` 工具，无 file 工具。PA 产品默认工具集未被注入（或 `cron_enabled=true` 时 cron 工具注入覆盖了其他工具）。
+
+**用户可观察症状**：对 agent 说"帮我记录关注项到 HEARTBEAT.md" → agent 回复"I only have the `cron` tool... I don't have file read, write, or edit tools"；HEARTBEAT.md 不更新。
+
+**证据**：
+```
+[2026-06-03T18:58:03.531278Z] [agent]
+  I only have the `cron` tool available in this environment — 
+  I don't have file read, write, or edit tools.
+```
+
+---
+
+### Issue R5-3：配置页无 activeHours UI 控件，用户无法通过 UI 设置活跃时段（**major**）
+
+**Severity**: major
+**Recommended Action**: fix-implementation
+**Action Rationale**: spec S2.5 GIVEN "我在配置页给某 agent 的 heartbeat 设了活跃时段 09:00–22:00"——但 `agent-detail-page.tsx` 和 `agent-create-page.tsx` 中均无 activeHours 相关控件（grep 无匹配）。API 类型定义（`im-agent-config-api.ts`）有 `active_hours?` 字段，说明后端支持，但前端 UI 缺失。
+
+**用户可观察症状**：打开 agent 配置页，找不到设置 heartbeat 活跃时段的入口。
+
+---
+
+### Issue R5-4：过期 `at` 类一次性任务在 gateway 重启后被重新触发（**major**）
+
+**Severity**: major
+**Recommended Action**: fix-implementation
+**Action Rationale**: spec 要求"过期的一次性任务不补跑"，openclaw `computeNextRunAtMs` 语义：`at` 已过期则不排。但重启后调度器把过期 at 任务判为"应运行"并触发。
+
+**用户可观察症状**：注册一条时间已过的 `at` 一次性任务后重启 gateway → 任务被触发执行（若 R5-1 修复后将产生重复执行）。
+
+**证据**：gateway log（重启后）：`cron: submit failed: agent=Arch job=3c99af3950a640d9ad739edca2cdbf91`（该 job 的 `at=2026-06-03T12:00:00Z`，远早于当前时间）。
+
+---
+
+## R4 Issues 关闭状态 (Round 5)
+
+### Issue R4-1：cron_runner.py `create_session()` 签名错误 → **已修复** ✓
+
+**关闭证据**：M6 R2 commit 3225a719 删除了 `session_id` kwarg；R5 gateway log 无 `unexpected keyword argument 'session_id'`；cron 调度器确实到点触发（cron-state.json last_due_at 更新）——现在 crash 在更下游的 `submit_message` 层。
+
+### Issue R4-2：heartbeat owner_unresolved → **env 问题确认，代码无需修改** ✓
+
+**关闭证据**：R5 config `node.user_id=ca9c3d0823cc4f35a3f0f45a1971bc12`（非空）；gateway log 无 `owner_unresolved`。
+
+---
+
+## Side Findings (Round 5)
+
+- **cron 调度器在首次 crash 后停止**：R5-1 的 AttributeError 导致 asyncio task 未捕获异常，cron/heartbeat polling task 停止。每轮只在启动时触发一次，之后静默。修复 R5-1 时需同时确保 task crash recovery（异常捕获后重试）。
+- **cron-state.json 保留已删 job 的记录**：867ab5... 已从 jobs.json 删除，但 cron-state.json 仍有该 job 的 last_due_at 记录，重启后被尝试触发。建议 fix worker 清理 orphan state 记录（minor）。
+- **R4 旧 worktrees 进程残留**：系统上仍有 3 个旧 worktree gateway 进程（PIDs 39424 / 38869 / 35181 等），连接旧 IM :59214 / :62251，不影响 R5 验收（端口隔离），但消耗资源。
+
+---
+
+## 上层文档同步 (Round 5)
+
+| 文档 | 状态 |
+|---|---|
+| `docs/NodeGateway-SPEC.md §6` | 需在所有 cron/heartbeat 执行 issues 修复后更新（RunOrigin、at 过期语义、activeHours）|
+| `SPEC.md` | 无需更新 |
+| `docs/specs/gateway/spec.md` | 需在功能稳定后补充 heartbeat activeHours + cron at 语义 |
+| `AGENTS.md` | 无需更新 |
+| `CLAUDE.md` | 无需更新 |
+| `docs/SPEC_GUIDE.md` | 无需更新 |
