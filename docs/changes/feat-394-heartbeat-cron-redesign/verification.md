@@ -395,3 +395,92 @@ round-3 所有 fail/major/minor 项均有代码证据关闭，R3-3 确认为误�
 ---
 
 All checks passed. Ready for PR.
+
+---
+
+# Round 5 — 2026-06-04
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 15/15（M6-fix-round4 全 4/4 Roadpoints DONE） |
+| Correctness | 15/15（round-4 R4-1/R4-2 全关闭） |
+| Coherence | Followed（无新偏离，r1-r4 所有已关闭项无回退） |
+
+**All checks passed. Ready for PR.**
+
+---
+
+## Round-4 Issues 关闭核查
+
+### R4-1：cron_runner.py create_session 不再传 session_id，Protocol 与真实 shim 签名一致 ✓ 关闭
+
+代码证据：
+
+- `cron_runner.py:26-41`（`_KernelClientLike` Protocol）：`create_session` 签名为 `workspace_root, product_id, title, metadata`，**无 session_id 参数**；docstring 明确标注 `feat-394-M6 R2 fix`。
+- `cron_runner.py:99-103`（`_submit_cron_job`）：调用 `create_session(workspace_root=..., product_id=..., title=...)` 不传 `session_id=`；session_id 完全从返回值 `session_payload.get("session_id")` 读取（`cron_runner.py:110`）。
+- `main.py:1629-1642`（`_KernelClientShim.create_session`）：签名同为 `workspace_root, product_id, title, metadata`，无 session_id 参数——Protocol 与 Shim 完全对齐。
+- `test_cron_awareness.py:294-327`（`_ShimCompatibleKernelClient`）：精确镜像真实 shim 签名（keyword-only，无 session_id），任何 extra kwarg 将触发 TypeError。
+- `test_cron_awareness.py:333-364`（`test_cron_runner_submit_no_session_id_kwarg_to_shim`）：端到端集成测试——断言 `"session_id" not in shim_client.called_with` 且 `run_id is not None`，**实测 PASS**。
+- `test_cron_awareness.py:367-392`（`test_cron_runner_uses_returned_session_id_for_submit`）：断言 `shim_client._session_counter == 1`（正好一次 create_session），**实测 PASS**。
+- 全套 `test_cron_awareness.py`：7/7 passed。
+
+### R4-2：_owner_user_id = config.node.user_id，reviewer worktree 空才 skip ✓ 关闭（env 问题，代码无需改）
+
+代码证据：
+
+- `main.py:1907`：`_owner_user_id = config.node.user_id or ""`——直接从 config 读取，无条件。
+- `main.py:1911-1913`：`kernel=kernel if _owner_user_id else None`——`user_id` 非空时才传 kernel，空时安全降级（不传 kernel，heartbeat delivery skip 但不 crash）。
+- R4-2 症状（heartbeat delivery skipped `owner_unresolved`）根因为 reviewer worktree config 的 `node.user_id` 未绑定（空字符串）；主 config 有 `user_id`，正式环境 heartbeat delivery 路径正常。
+- progress.md R3 E2E 证据：gateway config 有 `node.user_id: 7a078a02...`，`heartbeat-state.json` 有 `last_due_at` 更新，delivery 正常。
+- **代码无修改**，判定为 env 问题。
+
+---
+
+## r1-r4 已关闭项无回退确认
+
+| 历史已关闭项 | 当前状态 |
+|---|---|
+| cron 接入 gateway 运行循环（`main.py:944-1000`，`_cron_tick_fn`） | 完好 |
+| heartbeat_enabled/cron_enabled 注入 PromptContext.vars（`inbound_pipeline.py:462-463`） | 完好 |
+| `prompt_sections.py` 三 gate 字符串安全（`_heartbeat_enabled:86`、`_cron_enabled:111`、`_both_enabled:139`） | 完好 |
+| cron_enabled 自动追加 "cron" 到 tool_allowlist（`main.py:360-407`） | 完好 |
+| config sync token_getter（`main.py:275,1945`） | 完好 |
+| `PersistentSessionBindingStore.find_by_kernel_session_id`（`session_keys.py:271-305`） | 完好 |
+| `assemble_prompt_preview` 接受 heartbeat/cron_enabled 参数（`kernel.py:583-584,677-679`） | 完好 |
+| per-tick live agents_getter（`heartbeat_scheduler.py:207,270-275`，`main.py:2065`） | 完好 |
+| busy-skip run_queue 缓解（`heartbeat_scheduler.py:315-319`，`main.py:2069`） | 完好 |
+| openclaw HEARTBEAT_PROMPT 逐字照抄（`heartbeat_scheduler.py:860-869`，单测） | 完好 |
+| CronCard 任务清单 + 删除按钮（`agent-detail-page.tsx:431-463`，IM 后端 CRUD 路由） | 完好（前端本轮未重跑 tsc/vitest，round-4 已验证通过，本轮无前端改动） |
+| `cron_runner.py` 不传 session_id 给 shim（本轮新增，`cron_runner.py:99-103`，2 条单测） | 完好 |
+
+---
+
+## 测试结果
+
+`PYTHONPATH=src pytest tests/ -m "not e2e"`：**2494 passed, 2 failed, 1 skipped**。
+
+测试数量较 round-4 增加 3 条（来自 M6 新增的 shim 契约测试）。
+
+2 failed 为预存在的 macOS `/tmp` → `/private/tmp` symlink 问题，与 feat-394 无关（round-2 已识别，main 分支同样失败）：
+- `tests/im_service/integration/test_agent_config_api.py::test_get_agent_config_prefers_live_gateway_snapshot`
+- `tests/im_service/integration/test_agent_create_flow.py::test_create_agent_lists_details_and_uses_new_node_binding_for_relay`
+
+---
+
+## Completeness
+
+Tasks: M6-fix-round4 全 4/4 Roadpoints DONE（R1 红测、R2 修复、R3 E2E 验证、R4 文档收口）。M1 7/7、M2 8/8、M3 6/6、M4 5/5、M5 全 Roadpoints 在前轮已确认。
+
+## Correctness
+
+round-4 R4-1 有代码 + 测试证据关闭，R4-2 确认为 env 问题（代码正确，reviewer worktree 未绑定 user_id），无新缺失 requirement，无回退。
+
+## Coherence
+
+所有 design.md 决策现已被实现遵守，r1-r4 所有已关闭项均完好，无新偏离。
+
+---
+
+All checks passed. Ready for PR.
