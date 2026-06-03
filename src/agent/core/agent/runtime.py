@@ -17,7 +17,7 @@ from agent.core.types import (
     TurnResult,
 )
 from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
-from agent.core.hooks.runner import HookExecution, HookRunner, log_hook_diagnostics
+from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from agent.core.session.jsonl_store import SessionConfig

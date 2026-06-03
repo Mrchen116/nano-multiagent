@@ -15,7 +15,7 @@ from agent.core.llm.interfaces import LLMMessage
 from agent.core.runs.origin import RunOrigin
 from agent.core.types import TokenUsage, TurnResult
 from agent.core.hooks.context import HookContext
-from agent.core.hooks.runner import HookExecution, HookRunner, log_hook_diagnostics
+from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.observability.logger import log_error, log_info
 from agent.core.observability.tracing import bind_correlation, current_trace_id, span
 from agent.core.session.manager import SessionManager

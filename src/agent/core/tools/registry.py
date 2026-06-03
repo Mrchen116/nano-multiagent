@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from agent.core.errors import ToolError
 from agent.core.hooks.context import HookContext
-from agent.core.hooks.runner import HookExecution, HookRunner, log_hook_diagnostics
+from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.observability.logger import log_error, log_info
 from agent.core.observability.tracing import bind_correlation
 from agent.core.types import ToolSpec

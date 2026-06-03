@@ -90,7 +90,8 @@ class BackgroundSessionEventSubscriber:
                 pass
             except Exception as exc:
                 _log.debug(
-                    "background session event subscriber stop raised: %s", exc,
+                    "background session event subscriber stop raised: %s",
+                    exc,
                     extra={"session_id": self._session_id},
                 )
         self._task = None

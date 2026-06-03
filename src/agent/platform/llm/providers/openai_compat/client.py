@@ -17,7 +17,9 @@ from agent.core.llm.interfaces import (
     LLMToolCall,
 )
 from agent.core.types import TokenUsage
-from agent.platform.llm.providers.common import extract_non_negative_int as _extract_non_negative_int
+from agent.platform.llm.providers.common import (
+    extract_non_negative_int as _extract_non_negative_int,
+)
 from agent.platform.llm.providers.translator import LLMTranslator
 
 from .mapper import OpenAICompatMapper

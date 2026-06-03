@@ -1,7 +1,6 @@
 """Built-in `edit` tool for one-shot exact text replacement."""
 
 import difflib
-from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.errors import ToolError
@@ -172,5 +171,3 @@ class EditTool:
                 "All occurrences were successfully replaced."
             )
         return f"The file {file_path} has been updated successfully."
-
-

@@ -74,7 +74,9 @@ def _search_brave(query: str, count: int) -> list[dict[str, str]]:
     except Exception as exc:
         # Brave API failed — log so the error is visible, then fall through to ddg;
         # if ddg also raises, propagate (genuine unavailability must not be silenced).
-        _log.warning("Brave Search API request failed, falling back to DuckDuckGo: %s", exc)
+        _log.warning(
+            "Brave Search API request failed, falling back to DuckDuckGo: %s", exc
+        )
         return _search_duckduckgo(query, count)
 
 

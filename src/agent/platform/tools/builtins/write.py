@@ -1,6 +1,5 @@
 """Built-in `write` tool for sandboxed file creation and overwrite."""
 
-from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.errors import ToolError
@@ -130,5 +129,3 @@ class WriteTool:
             return f"The file {file_path} has been updated successfully."
         else:
             return json_serialize(output)
-
-

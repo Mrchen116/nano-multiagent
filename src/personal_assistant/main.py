@@ -1055,7 +1055,9 @@ class GatewayRuntime:
                 except Exception as exc:
                     # Cleanup failure (e.g. socket already closed) must not prevent
                     # further shutdown steps; log so the error is observable (refactor-395-M1).
-                    _log.warning("dispatch runner cleanup failed during shutdown: %s", exc)
+                    _log.warning(
+                        "dispatch runner cleanup failed during shutdown: %s", exc
+                    )
             if heartbeat_started and self._heartbeat_runner is not None:
                 await self._heartbeat_runner.close()
             if channels_started:
@@ -2243,7 +2245,9 @@ def _build_kernel_event_observer(
                                 },
                             )
                     except Exception as exc:  # noqa: BLE001
-                        _log.warning("IM observer close/restart delta send failed: %s", exc)
+                        _log.warning(
+                            "IM observer close/restart delta send failed: %s", exc
+                        )
 
                 return _close_old_and_restart()
 
@@ -2310,7 +2314,9 @@ def _build_kernel_event_observer(
                                 },
                             )
                     except Exception as exc:  # noqa: BLE001
-                        _log.warning("IM observer turn_start_then_delta send failed: %s", exc)
+                        _log.warning(
+                            "IM observer turn_start_then_delta send failed: %s", exc
+                        )
 
                 return _turn_start_then_delta()
 

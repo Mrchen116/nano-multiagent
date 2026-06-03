@@ -56,8 +56,9 @@ _WHITELIST: frozenset[str] = frozenset(
         "src/agent/platform/hooks/builtins/auto_mode_gate.py:703",
         # coding_cli/commands.py: .nanocode global/workspace config — CLI UX, pre-existing
         # refactor-395-M1: logging import + _log added, lines shifted to 1162/1163
-        "src/coding_cli/commands.py:1162",
-        "src/coding_cli/commands.py:1163",
+        # refactor-395 ruff fix: TERMINAL_RUN_STATUSES dead import removed, lines shifted to 1164/1165
+        "src/coding_cli/commands.py:1164",
+        "src/coding_cli/commands.py:1165",
     }
 )
 

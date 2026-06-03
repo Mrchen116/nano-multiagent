@@ -85,5 +85,8 @@ class TestTerminalRunStatuses:
         from agent.core.runs.registry import RunStatus
         from agent.sdk import TERMINAL_RUN_STATUSES  # type: ignore[attr-defined]
 
-        derived = frozenset(s.value for s in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED))
+        derived = frozenset(
+            s.value
+            for s in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED)
+        )
         assert TERMINAL_RUN_STATUSES == derived

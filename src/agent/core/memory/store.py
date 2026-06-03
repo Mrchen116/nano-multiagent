@@ -439,5 +439,3 @@ def _parse_entries(raw: str) -> list[MemoryEntry]:
             # Malformed block — skip rather than crash; data integrity issue logged upstream
             continue
     return entries
-
-

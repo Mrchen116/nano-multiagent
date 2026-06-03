@@ -322,5 +322,3 @@ def _parse_relay_payload(payload: Mapping[str, object]) -> RelayEnvelope:
         sender_display_name=sender_display_name,
         participants=participants,
     )
-
-

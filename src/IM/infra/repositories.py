@@ -24,7 +24,6 @@ from IM.domain.models import (
 )
 from IM.infra.db import DEFAULT_SETTINGS_POLICIES
 from IM.infra._helpers import (
-    _is_no_reply_protocol_token,
     _optional_text,
     _preview_from_event,
 )

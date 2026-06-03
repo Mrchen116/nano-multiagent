@@ -4,8 +4,8 @@ import json
 from typing import Callable
 from typing import TextIO
 
-from agent.sdk import TERMINAL_RUN_STATUSES as _TERMINAL_RUN_STATUSES
 from coding_cli.events.event_pipeline import replay_fallback_dedupe_key
+
 _EVENT_PREVIEW_MAX_LEN = 120
 _EVENT_PREVIEW_HEAD_LEN = 72
 _EVENT_PREVIEW_TAIL_LEN = 45

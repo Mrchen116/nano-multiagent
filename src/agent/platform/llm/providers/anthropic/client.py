@@ -21,7 +21,9 @@ from agent.core.llm.interfaces import (
 )
 from agent.core.llm.model_registry import resolve_model_metadata
 from agent.core.types import TokenUsage
-from agent.platform.llm.providers.common import extract_non_negative_int as _extract_non_negative_int
+from agent.platform.llm.providers.common import (
+    extract_non_negative_int as _extract_non_negative_int,
+)
 from agent.platform.llm.providers.translator import LLMTranslator
 
 from .mapper import AnthropicMapper

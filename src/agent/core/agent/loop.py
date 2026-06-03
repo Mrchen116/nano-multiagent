@@ -16,7 +16,7 @@ from agent.core.types import (
     ToolSpec,
 )
 from agent.core.hooks.context import HookContext
-from agent.core.hooks.runner import HookExecution, HookRunner, log_hook_diagnostics
+from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.interfaces import (
     LLMClient,
     LLMGenerateRequest,

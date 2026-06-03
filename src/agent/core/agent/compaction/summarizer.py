@@ -70,7 +70,9 @@ class CompactionSummarizer:
             summary = result.messages[-1].content.strip() if result.messages else ""
             return format_compact_summary(summary) if summary else _fallback_summary()
         except Exception as exc:
-            _log.exception("compaction summarizer failed; using fallback summary: %s", exc)
+            _log.exception(
+                "compaction summarizer failed; using fallback summary: %s", exc
+            )
             return _fallback_summary()
 
 

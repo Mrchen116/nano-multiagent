@@ -1156,7 +1156,9 @@ def _load_auto_mode_config_for_repl() -> object:
                 if isinstance(section, dict):
                     return section
         except Exception as exc:
-            _log.warning("failed to parse auto_mode config from %s: %s", config_path, exc)
+            _log.warning(
+                "failed to parse auto_mode config from %s: %s", config_path, exc
+            )
         return {}
 
     global_config_file = Path.home() / ".nanocode" / "config.yaml"

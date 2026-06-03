@@ -237,5 +237,3 @@ class EventStreamHub:
                 self._subscribers = [
                     item for item in self._subscribers if item is not subscriber
                 ]
-
-

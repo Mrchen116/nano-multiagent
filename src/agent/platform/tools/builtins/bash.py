@@ -594,6 +594,7 @@ class BashTool(WiringMixin):
     # Internal helpers
     # ------------------------------------------------------------------
 
+
 def _make_bash_on_complete(registry: Any, task_id: str) -> Any:
     def _on_complete(
         *,

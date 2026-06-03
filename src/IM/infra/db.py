@@ -6,7 +6,6 @@ import sqlite3
 
 from IM.domain.models import managed_workspace_root
 from IM.infra._helpers import (
-    _is_no_reply_protocol_token,
     _optional_text,
     _preview_from_event,
 )
@@ -527,8 +526,6 @@ def _migrate_usage_metrics(connection: sqlite3.Connection) -> None:
         )
         """
     )
-
-
 
 
 def _preview_from_message_row(row: sqlite3.Row) -> str:
