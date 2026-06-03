@@ -178,6 +178,9 @@ design 阶段补全的同类 5 处（报告里被首版遗漏的同性质静默 
 - 死代码删除（2 个未使用 facade + 1 个孤立模块 + 1 处死 re-export，含测试 import 重定向）
 - 确保全测试套件通过
 
+**本期扩入（用户拍板并入本 PR，不加 contract 护栏）：**
+- 测试流水号命名治理：`tests/` 下文件名/函数名/类名中 `_mN`/`_rN`/`_bugfixN`/`_featN`/`acceptance`/`corrigendum` 等流水号全部清除，改为行为描述命名。涉及改名 16 处、删除 3 处（纯一次性证据文件）、合并 2 处（目标名冲突时并入已有文件）。
+
 **本期不做：**
 - God function / God class 拆分（runtime.py, main.py, gateway_handler.py 等——独立 unit）
 - Mega file 拆分（main.py 2558行, repositories.py 2700行——独立 unit）

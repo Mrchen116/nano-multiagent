@@ -75,7 +75,7 @@ def test_rebuild_runtime_clears_stale_artifacts_and_recreates_layout(
     assert (runtime_root / "workspace" / "agent-m170-beta").is_dir() is True
 
 
-def test_rebuild_runtime_writes_canonical_m170_node_config(
+def test_rebuild_runtime_writes_canonical_node_config(
     monkeypatch, tmp_path: Path
 ) -> None:
     runtime_root = tmp_path / "m170-runtime"

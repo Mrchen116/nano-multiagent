@@ -73,10 +73,10 @@ def test_build_context_block_direct_contains_agent_id_only() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_hook_does_not_register_before_agent_start_after_m1() -> None:
-    """After M1, setup() must NOT register a before_agent_start handler.
+def test_hook_does_not_register_before_agent_start() -> None:
+    """setup() must NOT register a before_agent_start handler.
 
-    Group-chat context is now provided by the pa.communication_context segment,
+    Group-chat context is provided by the pa.communication_context segment,
     not by a hook that modifies the system_prompt override.
     """
     from agent.core.hooks.registry import HookRegistry, HookAPI

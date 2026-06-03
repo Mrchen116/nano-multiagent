@@ -411,8 +411,8 @@ async def test_stream_response_incomplete_stream_raises_model_error() -> None:
         )
 
 
-async def test_stream_response_happy_path_not_affected_by_bugfix380() -> None:
-    """happy path(正常完整流)必须不受 bugfix-380 影响,仍正常 yield 消息。"""
+async def test_stream_response_happy_path() -> None:
+    """happy path(正常完整流)正常 yield 消息。"""
     events = [
         {"type": "message_start", "message": {"role": "assistant", "content": []}},
         {

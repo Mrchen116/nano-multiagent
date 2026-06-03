@@ -148,8 +148,8 @@ async def test_provider_error_not_in_next_llm_history(tmp_path: Path) -> None:
     )
 
 
-async def test_happy_path_not_broken_by_bugfix380(tmp_path: Path) -> None:
-    """happy path(LLM 上游正常)的行为不应受 bugfix-380 影响。"""
+async def test_happy_path(tmp_path: Path) -> None:
+    """happy path(LLM 上游正常)的基线行为。"""
     store = JsonlSessionStore(data_dir=tmp_path / "sessions")
     manager = SessionManager(store=store)
     workspace = tmp_path / "workspace"
