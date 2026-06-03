@@ -888,3 +888,312 @@ AgentWorkspaceConfig.cron_enabled        →  ?  →  PromptContext.vars["cron_e
 | `AGENTS.md` | 可补充：`vite preview` 不启用 API proxy，本地验收须用 `vite dev` + `VITE_IM_PROXY_TARGET` |
 | `CLAUDE.md` | 无需更新 |
 | `docs/SPEC_GUIDE.md` | 无需更新 |
+
+---
+
+# Round 4 — 2026-06-03
+
+**Reviewer**: change-reviewer (Sonnet 4.6)
+**Services**: IM :58346 · Vite dev :58347 · Gateway wt-feat394-r4 (auto-bound) · LLM proxy :4000 (kimiCoding:K2.6)
+**Test Agent**: Arch (wt-feat394-r4 节点，online)
+**Prior issues addressed**: R3-1 (cron blocked_by_hook) · R3-2 (preview 4 组合) · R3-3 (heartbeat tick 误报)
+
+---
+
+## Summary (Round 4)
+
+| | |
+|---|---|
+| **Verdict** | `fail` |
+| **Highest Required Action** | `fix-implementation` |
+| **Issues** | blocking: 1 / major: 1 / minor: 0 |
+| **Needs Re-review** | true |
+
+**Top Concern**: cron job 到点触发后 `_KernelClientShim.create_session()` 签名不匹配 (`unexpected keyword argument 'session_id'`)，导致 cron 任务到点无法执行、结果无法投递（S3.3 fail）。此外 chat 回复在 LLM 调用成功后无法投递（owner_unresolved，S3.1 partial / heartbeat S2.2）。
+
+**R3 issue 关闭状态**:
+- R3-1 cron 权限门：**已修复** ✓（gateway log 无 blocked_by_hook，cron tool 成功调用，jobs.json 创建）
+- R3-2 preview 4 组合：**已修复** ✓（API 4 组合不同，UI 保存后 preview 正确）
+- R3-3 heartbeat 误报：**确认设计行为** ✓（空 HEARTBEAT.md 静默，非空则 last_due_at 更新）
+
+---
+
+## Services Setup (Round 4)
+
+```
+IM:      http://127.0.0.1:58346 (IM_JWT_SECRET=demo-jwt-secret-feat394-r4-review)
+Vite:    http://localhost:58347 (dev server with proxy)
+Gateway: wt-feat394-r4, PID 57741 (--foreground --auto-bind)
+LLM:     http://127.0.0.1:4000 (python start_proxy.py, kimiCoding:K2.6)
+WorkTree: /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
+```
+
+**Frontend 产物指纹**: `npm run build` 成功, `index-CbL5azQP.js`
+
+**服务健康**: IM 200, Gateway auto-bound (node wt-feat394-r4 online), LLM proxy /v1/messages 200 OK
+
+---
+
+## User Journeys Exercised (Round 4)
+
+**Journey 1: 配置页开关 + heartbeat 调度器验证**
+覆盖: S1.1, S1.2, S1.3, S1.4, S2.3 (partial)
+
+**Journey 2: preview 4 组合验证（R3-2 fix）**
+覆盖: R3-2 前端 + API 验证
+
+**Journey 3: cron 完整 live 旅程**
+覆盖: S3.1, S3.2, S3.3, S3.4, S3.5
+
+**Journey 4: R3-1 cron 权限门验证**
+覆盖: gateway log 分析，cron tool 不再 blocked_by_hook
+
+---
+
+## 验收标准覆盖 (Round 4)
+
+### Requirement: 配置页两个开关 per-agent 启用/停用 heartbeat 与 cron
+
+#### Scenario S1.1: 打开 heartbeat 开关并设节律
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 1 |
+| 验证方式 | 配置页 Arch agent，勾选 Enable heartbeat，设 Cadence=10s，保存 |
+| 证据 | 截图 `/tmp/feat394-r4-arch-hb-checked.png`：heartbeat checkbox 已选中，cadence 10s；IM config API: `heartbeat_json={"every":"10s","enabled":true}`；heartbeat-state.json `last_due_at` 更新（Arch 调度器 tick 触发）|
+| 结果 | `pass` |
+
+#### Scenario S1.2: 打开 cron 开关
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 2 |
+| 验证方式 | 配置页 Arch agent，勾选 Enable cron，保存 |
+| 证据 | 截图 `/tmp/feat394-r4-arch-current-state.png`：Enable cron checkbox 已选中；IM config API: `cron_json={"enabled":true}`；Tool Allowlist 包含 `cron` |
+| 结果 | `pass` |
+
+#### Scenario S1.3: 关闭开关即停用（边界）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 3 |
+| 验证方式 | Arch heartbeat=true 状态下，关闭 Enable heartbeat 并保存，等 20s 检查 heartbeat-state.json 是否更新 |
+| 证据 | 关闭后 20s 内 `last_due_at` 维持 `2026-06-03T14:51:10+00:00` 不变；gateway log 无新 heartbeat tick 条目 |
+| 结果 | `pass` |
+| 备注 | 免重启即停用（per-tick live read 机制）生效 |
+
+#### Scenario S1.4: 未启用的 agent 不跑（默认/空态）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 4 |
+| 验证方式 | ArchA 两开关均关闭；heartbeat-state.json 检查 |
+| 证据 | 截图 `/tmp/feat394-r4-archa-config.png`：ArchA heartbeat/cron 均未选中；heartbeat-state.json `agents` 中无 ArchA 条目 |
+| 结果 | `pass` |
+
+---
+
+### Requirement: agent 对话自管 heartbeat（用户不必手写 HEARTBEAT.md）
+
+#### Scenario S2.1: 口述提醒，agent 自动记录
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 本轮 Arch chat 消息有 LLM 调用失败（run_failed：heartbeat delivery skipped owner_unresolved），无法在 chat 中让 agent 自动写 HEARTBEAT.md 并确认写入。LLM proxy 启动后 chat 回复也未投递（delivery blocked）。 |
+
+#### Scenario S2.2: 到点带上下文主动冒泡且记得上下文
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 2 |
+| 验证方式 | 等待 heartbeat tick，检查 IM 直聊是否出现 Arch 主动消息 |
+| 证据 | heartbeat 调度器已 tick（last_due_at 更新为 2026-06-03T14:51:10+00:00），LLM proxy 有 5 次成功调用，但 gateway log 显示 `heartbeat delivery skipped: owner_unresolved`；IM 直聊无 Arch 主动消息出现 |
+| 结果 | `fail` |
+| 备注 | **Issue R4-2（major）**：heartbeat LLM 调用成功，但投递因 `owner_unresolved` 被 skipped。用户面完全看不到 heartbeat 主动消息。 |
+
+#### Scenario S2.3: 无可汇报内容则静默
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 3 |
+| 验证方式 | 空 HEARTBEAT.md 时观察是否有 heartbeat 消息 |
+| 证据 | 继承 round-3 pass（R3-3 确认：空 HEARTBEAT.md 导致 `_is_heartbeat_content_effectively_empty=True`，调度器静默跳过，heartbeat-state.json 不更新）；R4 用非空 HEARTBEAT.md 时 last_due_at 更新确认调度器工作正常 |
+| 结果 | `pass` |
+
+#### Scenario S2.4: 不同关注项用不同频率（多子节律）
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 同 round-3，本轮未独立验证。 |
+
+#### Scenario S2.5: 活跃时段外不打扰（activeHours）
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 同 round-3，本轮未独立验证。 |
+
+---
+
+### Requirement: agent 对话自管 cron 定时任务（可多条、无上下文执行）
+
+#### Scenario S3.1: 口述定时任务，agent 注册一条
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 1 |
+| 验证方式 | 对 Arch 说"register a cron job every 30 seconds reporting current time"；检查 jobs.json |
+| 证据 | `jobs.json` 已创建：`{"id":"a396f1733de44ddda1cb887f654210f0","name":"Current time reporter","schedule":{"kind":"every","everyMs":30000},"instruction":"Report the current time in ISO 8601 format.","enabled":true}`；R3-1 fix 确认：gateway log 无 blocked_by_hook，cron tool 成功调用 |
+| 结果 | `pass` |
+| 备注 | **agent 注册成功（jobs.json 创建）**；但 Arch 的聊天回复未在 UI 呈现（run 中 LLM 成功后 delivery 有问题）。注册本身成功，`pass` 以 jobs.json 为证据。配置页显示任务截图 `/tmp/feat394-r4-cron-card-with-job.png` |
+
+#### Scenario S3.2: 同一 agent 同时挂多条任务
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 本轮只注册了一条任务（第二条注册未尝试），无法验证多条并存。 |
+
+#### Scenario S3.3: 到点执行固定任务并把结果发回直聊
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 3 |
+| 验证方式 | 等待 30s cron job 触发，观察直聊是否出现 agent 消息 |
+| 证据 | gateway log: `cron: session creation failed: agent=Arch job=a396f1733de44ddda1cb887f654210f0 TypeError: _KernelClientShim.create_session() got an unexpected keyword argument 'session_id'`（cron_runner.py:92）；IM 直聊无 cron 执行结果消息 |
+| 结果 | `fail` |
+| 备注 | **Issue R4-1（blocking）**：cron job 调度器已检测到到点触发，但 `cron_runner.py` 中 `_KernelClientShim.create_session()` API 调用签名错误，执行阶段 crash。 |
+
+#### Scenario S3.4: 配置页查看并手动删除任务
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 4 |
+| 验证方式 | 配置页 CronCard 查看任务，点 Delete，检查 jobs.json |
+| 证据 | 截图 `/tmp/feat394-r4-cron-card-with-job.png`：CronCard 显示 "Current time reporter"（every 30s）+ Delete 按钮；删除后截图 `/tmp/feat394-r4-after-delete.png`：CronCard 回到 "No scheduled tasks yet"；jobs.json 删除后为 `[]` |
+| 结果 | `pass` |
+
+#### Scenario S3.5: cron 汇报后我追问，agent 记得汇报了啥
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `fail` |
+| 备注 | 依赖 S3.3（cron 执行成功）。S3.3 fail → 此项也 fail。 |
+
+---
+
+### Requirement: 结果投递到 owner 的 canonical 直聊（复用 feat-393）
+
+#### Scenario S4.1: 落到最旧直聊，呈现同普通消息
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | S3.3 fail → cron 执行结果无法投递验证。Heartbeat 虽然 tick，但 `heartbeat delivery skipped: owner_unresolved`，也无法验证投递格式。 |
+
+#### Scenario S4.2: 没有直聊时自动新建
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | 继承 round-2 pass。 |
+
+---
+
+### Requirement: 重启后不补跑积压
+
+#### Scenario S5.1: 周期任务错过多个周期不刷屏
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | 继承 round-2 pass（heartbeat 重启后只排下一时隙）。cron 因 S3.3 fail 无法独立验证，单测层有保证。 |
+
+#### Scenario S5.2: 过期的一次性任务不补跑
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 同 round-3，cron 执行阶段失败，无法注册 at 类型任务验证。 |
+
+---
+
+## Issues (Round 4)
+
+### Issue R4-1：cron_runner.py `create_session()` 签名错误，cron 任务到点无法执行（**blocking**）
+
+**Severity**: blocking
+**Recommended Action**: fix-implementation
+**Action Rationale**: `cron_runner.py:92` 调用 `self._kernel_client.create_session(session_id=...)` 时传了 `session_id` 关键字参数，但 `_KernelClientShim.create_session()` 不接受该参数（`TypeError: unexpected keyword argument 'session_id'`）。API 签名不匹配是实现层 bug，需要 fix worker 修复参数名或 API。
+
+**用户可观察症状**：cron job 到点后，IM 直聊中无任何消息出现；jobs.json 存在但任务从未产生输出。配置页显示任务，但永远不触发。
+
+**证据**：
+```
+cron: session creation failed: agent=Arch job=a396f1733de44ddda1cb887f654210f0
+TypeError: _KernelClientShim.create_session() got an unexpected keyword argument 'session_id'
+  File ".../cron_runner.py", line 92, in _submit_cron_job
+    session_payload = await self._kernel_client.create_session(
+```
+
+---
+
+### Issue R4-2：heartbeat delivery 因 owner_unresolved 被 skipped，用户面完全看不到 heartbeat 主动消息（**major**）
+
+**Severity**: major
+**Recommended Action**: fix-implementation
+**Action Rationale**: gateway log 显示 `heartbeat delivery skipped for run_id=... agent=Arch: owner_unresolved`。heartbeat LLM 调用成功（5 次 POST /v1/messages 200 OK），但投递阶段因 owner（owner_id / user_id）解析失败而 skipped。这导致 S2.2（带上下文主动冒泡）完全不可用。
+
+**用户可观察症状**：heartbeat 节律到点，LLM 有回应内容，但 IM 直聊中不出现任何 heartbeat 主动消息；用户感受不到 agent 的"主动性"。
+
+**证据**：
+- gateway log: `heartbeat delivery skipped for run_id=run_528d0a69a053c58a agent=Arch: owner_unresolved`
+- LLM proxy log: 多次 `POST /v1/messages HTTP/1.1" 200 OK`（LLM 调用成功）
+- IM 直聊无任何 heartbeat 消息出现
+
+---
+
+## R3 Issues 关闭状态 (Round 4)
+
+### Issue R3-1：cron 工具被 auto_mode_gate 拦截 → **已修复** ✓
+
+**关闭证据**：
+- gateway log 中无 `blocked_by_hook` 相关条目
+- jobs.json 成功创建（cron tool 调用成功：`id: a396f1733de44ddda1cb887f654210f0`）
+- LLM 调用失败时的错误是 `LLM generate exceeded 20 retries`，不是 hook 拦截
+
+### Issue R3-2：preview 4 组合不受开关控制 → **已修复** ✓
+
+**关闭证据**：
+- API 测试 4 组合：
+  - `hb=T cron=T` → Runtime|Heartbeats|Cron Jobs|Scheduling Routing|...
+  - `hb=T cron=F` → Runtime|Heartbeats|...（无 Cron Jobs）
+  - `hb=F cron=T` → Runtime|Cron Jobs|...（无 Heartbeats）
+  - `hb=F cron=F` → Runtime|...（无 Heartbeats/Cron Jobs）
+- UI 层面：保存 `hb=false cron=true` 后，点 Preview 展开内容仅含 `## Cron Jobs`，不含 `## Heartbeats`
+
+### Issue R3-3：heartbeat 调度器未触发 → **确认设计行为** ✓
+
+**关闭证据**：空 HEARTBEAT.md（仅有 comment 模板）→ `_is_heartbeat_content_effectively_empty=True` → 调度器静默（spec 预期行为）；非空 HEARTBEAT.md（含 `every:10s` + 任务）→ `last_due_at` 更新（调度器工作正常）。
+
+---
+
+## Side Findings (Round 4)
+
+- **chat 回复未在 UI 呈现**：向 Arch 发送 chat 消息（cron 注册），LLM 调用成功（有 200 OK），但 Arch 的回复文字没有出现在 chat UI 中。具体 session `sess_c9ad5d4dde15eb5b` 无对应的 run_failed/run_success log。可能是 streaming delivery 管道的问题，与 R4-2 (owner_unresolved) 相关。建议 fix worker 同时检查。
+- **旧 M5 gateway 进程残留**：系统上有 3 个旧 M5 gateway 进程（PIDs 35181, 39424, 38869）连接旧 IM 端口 62251，不影响本 R4 验收（端口隔离），但会消耗系统资源。
+- **R3-2 fix 注意**：frontend preview 响应的是 *saved* 状态的开关，不是未保存的表单状态——这是合理的 UX（保存前预览无意义），但用户可能期望实时预览。minor 建议，不影响验收。
+
+---
+
+## 上层文档同步 (Round 4)
+
+| 文档 | 状态 |
+|---|---|
+| `docs/NodeGateway-SPEC.md §6` | 需在 cron 触发执行链路修复后更新 `create_session` 接口语义 |
+| `SPEC.md` | 无需更新 |
+| `AGENTS.md` | 无需更新（R3 建议的 vite dev 说明由 orchestrator 决定是否补充）|
+| `CLAUDE.md` | 无需更新 |
+| `docs/SPEC_GUIDE.md` | 无需更新 |
