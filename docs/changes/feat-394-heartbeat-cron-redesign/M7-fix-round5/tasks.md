@@ -32,4 +32,4 @@
 | R3 | file 工具缺失：cron 追加不覆盖 DEFAULT_TOOL_IDS | DONE |
 | R4 | activeHours UI 控件（agent-detail/create page） | DONE |
 | R5 | _AtSchedule 过期 at 不补跑 | DONE |
-| R6 | 端到端验证 + 文档收口 | DONE |
+| R6 | local_store YAML cron 解析 + e2e 验证 + 文档收口 | DONE |
