@@ -59,6 +59,7 @@ class _FakeKernelClient:
         self.created_sessions: list[dict] = []
         self.submitted_messages: list[dict] = []
         self.awaited_runs: list[str] = []
+        self.appended_messages: list[dict] = []
         self._session_counter = 0
         self._result_text = session_result_text
         self._submit_run_id = submit_run_id
@@ -92,6 +93,26 @@ class _FakeKernelClient:
         }
         self.submitted_messages.append(payload)
         return payload
+
+    def append_message(
+        self,
+        *,
+        session_id: str,
+        role: str,
+        content: str,
+        workspace_root: str | None = None,
+        metadata: dict | None = None,
+        **_kwargs: object,
+    ) -> dict:
+        """feat-394-M9: awareness injection path."""
+        self.appended_messages.append({
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "workspace_root": workspace_root,
+            "metadata": metadata,
+        })
+        return {"status": "appended"}
 
     def current_event_sequence(self) -> int:
         return 0
@@ -145,27 +166,19 @@ async def test_cron_runner_submit_uses_isolated_session(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_cron_runner_awareness_appended_to_canonical_session(tmp_path: Path) -> None:
-    """After cron result, System(untrusted) is appended to canonical direct-chat JSONL.
+    """After cron result, System(untrusted) is appended to canonical direct-chat session.
 
     feat-394 decision C-awareness: result text appended to canonical direct chat
-    kernel session JSONL as System(untrusted) so user can ask follow-up questions.
+    kernel session as System(untrusted) so user can ask follow-up questions.
+    feat-394-M9 fix: uses kernel.append_message() (not raw JSONL) so kernel cache
+    stays consistent and the LLM sees the awareness in the next turn.
     """
     from personal_assistant.scheduler.cron_runner import CronRunner
 
     result_text = "Here is your GitHub summary: 3 new PRs."
     kernel_client = _FakeKernelClient(session_result_text=result_text)
 
-    # Set up canonical direct-chat session JSONL
-    workspace_config_dir = tmp_path / ".nanoassistant"
-    sessions_dir = workspace_config_dir / "sessions"
-    sessions_dir.mkdir(parents=True)
     canonical_session_id = "sess-canonical"
-    canonical_jsonl = sessions_dir / f"{canonical_session_id}.jsonl"
-    # Write a header entry so file exists
-    canonical_jsonl.write_text(
-        json.dumps({"type": "config", "session_id": canonical_session_id}) + "\n",
-        encoding="utf-8",
-    )
 
     runner = CronRunner(
         agent_id="agent-1",
@@ -181,14 +194,16 @@ async def test_cron_runner_awareness_appended_to_canonical_session(tmp_path: Pat
         workspace_root=tmp_path,
     )
 
-    # Canonical JSONL must contain the System(untrusted) entry
-    lines = canonical_jsonl.read_text(encoding="utf-8").strip().split("\n")
-    assert len(lines) == 2, f"Expected 2 lines (config + awareness), got {len(lines)}"
-    awareness_entry = json.loads(lines[1])
-    assert awareness_entry.get("role") in ("user", "system"), (
-        f"awareness entry must have role=user or system, got: {awareness_entry.get('role')!r}"
+    # kernel.append_message must have been called with the awareness content
+    assert len(kernel_client.appended_messages) == 1, (
+        f"Expected 1 append_message call, got {len(kernel_client.appended_messages)}"
     )
-    content = awareness_entry.get("content", "")
+    appended = kernel_client.appended_messages[0]
+    assert appended["session_id"] == canonical_session_id
+    assert appended["role"] in ("user", "system"), (
+        f"awareness must have role=user or system, got: {appended['role']!r}"
+    )
+    content = appended["content"]
     assert "System (untrusted)" in content or "System(untrusted)" in content, (
         f"awareness content must contain 'System (untrusted)', got: {content!r}"
     )
@@ -202,35 +217,19 @@ async def test_cron_runner_isolated_turns_not_in_canonical(tmp_path: Path) -> No
     """Isolated cron session turns must NOT be appended to canonical direct-chat session.
 
     feat-394 decision C-awareness: only the final result text (as System(untrusted))
-    enters the canonical session; the isolated cron run's intermediate turns are discarded.
+    enters the canonical session via kernel.append_message; the isolated cron run's
+    intermediate turns (cron instruction, tool calls, thinking) are discarded.
+    feat-394-M9: awareness goes through kernel API, not raw file append.
     """
     from personal_assistant.scheduler.cron_runner import CronRunner
 
-    # Canonical JSONL starts empty (just a header)
-    workspace_config_dir = tmp_path / ".nanoassistant"
-    sessions_dir = workspace_config_dir / "sessions"
-    sessions_dir.mkdir(parents=True)
     canonical_session_id = "sess-canonical"
-    canonical_jsonl = sessions_dir / f"{canonical_session_id}.jsonl"
-    canonical_jsonl.write_text(
-        json.dumps({"type": "config", "session_id": canonical_session_id}) + "\n",
-        encoding="utf-8",
-    )
-
-    # Isolated cron session gets its own JSONL (simulating cron run turns)
-    cron_session_id = "cron:j1"
-    cron_jsonl = sessions_dir / f"{cron_session_id}.jsonl"
-    cron_jsonl.write_text(
-        json.dumps({"type": "config", "session_id": cron_session_id}) + "\n"
-        + json.dumps({"type": "turn", "role": "user", "content": "cron instruction"}) + "\n"
-        + json.dumps({"type": "turn", "role": "assistant", "content": "cron thinking..."}) + "\n",
-        encoding="utf-8",
-    )
+    kernel_client = _FakeKernelClient()
 
     runner = CronRunner(
         agent_id="agent-1",
         workspace_root=tmp_path,
-        kernel_client=_FakeKernelClient(),
+        kernel_client=kernel_client,
         session_binding_store=None,
         canonical_session_id=canonical_session_id,
     )
@@ -241,20 +240,21 @@ async def test_cron_runner_isolated_turns_not_in_canonical(tmp_path: Path) -> No
         workspace_root=tmp_path,
     )
 
-    # Canonical JSONL must only have header + awareness (NOT the cron session turns)
-    canonical_lines = canonical_jsonl.read_text("utf-8").strip().split("\n")
-    assert len(canonical_lines) == 2, (
-        f"Canonical JSONL must have exactly 2 lines (header + awareness), "
-        f"got {len(canonical_lines)}: {canonical_lines}"
+    # Exactly one append_message call — only the final result text
+    assert len(kernel_client.appended_messages) == 1, (
+        "Only the final result text must be appended to the canonical session"
     )
-    for line in canonical_lines:
-        entry = json.loads(line)
-        # No cron intermediate turns (the cron instruction or thinking) must appear
-        if entry.get("type") == "turn":
-            content = entry.get("content", "")
-            assert "cron thinking..." not in content, (
-                "Isolated cron intermediate turns must NOT appear in canonical session"
-            )
+    appended = kernel_client.appended_messages[0]
+    assert appended["session_id"] == canonical_session_id
+    # No cron intermediate content should appear
+    content = appended["content"]
+    assert "cron thinking..." not in content, (
+        "Isolated cron intermediate turns must NOT appear in canonical session"
+    )
+    assert "cron instruction" not in content, (
+        "Isolated cron instruction turns must NOT appear in canonical session"
+    )
+    assert "Final answer" in content, "The final result text must appear in the awareness entry"
 
 
 @pytest.mark.asyncio
@@ -394,3 +394,117 @@ async def test_cron_runner_uses_returned_session_id_for_submit(tmp_path: Path) -
     # The submit call is tracked indirectly via no exception; shim returns run_id "run-shim-1"
     # which cron_runner should pass back.  We rely on the above test for the no-crash guarantee.
     assert shim_client._session_counter == 1, "exactly one session must have been created"
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M9: awareness must go through kernel.append_message (cache-first)
+# ---------------------------------------------------------------------------
+
+
+class _AppendTrackingKernelClient(_FakeKernelClient):
+    """Extend fake with append_message tracking for M9 regression."""
+
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self.appended_messages: list[dict] = []
+
+    def append_message(
+        self,
+        *,
+        session_id: str,
+        role: str,
+        content: str,
+        workspace_root: str | None = None,
+        metadata: dict | None = None,
+        **_kwargs: object,
+    ) -> dict:
+        self.appended_messages.append({
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "workspace_root": workspace_root,
+            "metadata": metadata,
+        })
+        return {"status": "appended"}
+
+
+@pytest.mark.asyncio
+async def test_awareness_uses_kernel_append_message_not_raw_file(tmp_path: Path) -> None:
+    """_append_awareness must call kernel.append_message, NOT write to JSONL directly.
+
+    feat-394-M9 fix: raw JSONL append bypasses kernel session cache; kernel returns
+    stale context to LLM → awareness invisible to subsequent turns.
+    Using kernel.append_message() updates the cache so the next LLM call sees the entry.
+    """
+    from personal_assistant.scheduler.cron_runner import CronRunner
+
+    result_text = "Status report: all systems OK."
+    kernel_client = _AppendTrackingKernelClient(session_result_text=result_text)
+
+    canonical_session_id = "sess-canonical-m9"
+
+    runner = CronRunner(
+        agent_id="agent-1",
+        workspace_root=tmp_path,
+        kernel_client=kernel_client,
+        session_binding_store=None,
+        canonical_session_id=canonical_session_id,
+    )
+
+    await runner._append_awareness(
+        session_id=canonical_session_id,
+        result_text=result_text,
+        workspace_root=tmp_path,
+    )
+
+    # kernel.append_message must have been called (not raw file write)
+    assert len(kernel_client.appended_messages) == 1, (
+        "_append_awareness must call kernel.append_message() exactly once; "
+        f"got {len(kernel_client.appended_messages)} calls. "
+        "Raw JSONL append bypasses kernel cache → awareness invisible to LLM."
+    )
+    appended = kernel_client.appended_messages[0]
+    assert appended["session_id"] == canonical_session_id
+    assert "System (untrusted)" in appended["content"] or "System(untrusted)" in appended["content"]
+    assert result_text in appended["content"]
+    assert appended.get("metadata", {}).get("is_cron_awareness") is True, (
+        "awareness metadata must include is_cron_awareness=True"
+    )
+
+
+@pytest.mark.asyncio
+async def test_awareness_does_not_write_raw_jsonl(tmp_path: Path) -> None:
+    """_append_awareness must NOT directly write to session JSONL files.
+
+    After M9 fix, the implementation must exclusively use kernel.append_message.
+    Bypassing kernel session management causes cache staleness bugs.
+    """
+    from personal_assistant.scheduler.cron_runner import CronRunner
+
+    kernel_client = _AppendTrackingKernelClient()
+    canonical_session_id = "sess-no-direct-write"
+
+    # Simulate: canonical session JSONL does NOT pre-exist (no file to write to)
+    sessions_dir = tmp_path / ".nanoassistant" / "sessions"
+    sessions_dir.mkdir(parents=True)
+    canonical_jsonl = sessions_dir / f"{canonical_session_id}.jsonl"
+    # File does NOT exist before awareness injection
+
+    runner = CronRunner(
+        agent_id="agent-1",
+        workspace_root=tmp_path,
+        kernel_client=kernel_client,
+        session_binding_store=None,
+        canonical_session_id=canonical_session_id,
+    )
+
+    await runner._append_awareness(
+        session_id=canonical_session_id,
+        result_text="Some result",
+        workspace_root=tmp_path,
+    )
+
+    # append_message was called (new path goes through kernel regardless of file existence)
+    assert len(kernel_client.appended_messages) == 1, (
+        "awareness must call kernel.append_message even when JSONL file does not exist"
+    )

@@ -107,6 +107,7 @@ class _FakeShimForCron:
 
     def __init__(self) -> None:
         self.submitted: list[dict] = []
+        self.appended_messages: list[dict] = []
 
     async def create_session(
         self,
@@ -136,6 +137,26 @@ class _FakeShimForCron:
 
     def current_event_sequence(self) -> int:
         return 0
+
+    def append_message(
+        self,
+        *,
+        session_id: str,
+        role: str,
+        content: str,
+        workspace_root: str | None = None,
+        metadata: dict | None = None,
+        **_kwargs: object,
+    ) -> dict:
+        """feat-394-M9: awareness injection via kernel.append_message."""
+        self.appended_messages.append({
+            "session_id": session_id,
+            "role": role,
+            "content": content,
+            "workspace_root": workspace_root,
+            "metadata": metadata,
+        })
+        return {"status": "appended"}
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +317,8 @@ async def test_cron_delivery_extracts_result_for_awareness(tmp_path: Path) -> No
         f"final_result must be extracted from stream, got: {final_result!r}"
     )
 
-    # Now call _append_awareness with the result (simulating full delivery chain)
+    # Now call _append_awareness with the result (simulating full delivery chain).
+    # feat-394-M9: awareness goes through kernel.append_message, not raw JSONL.
     from personal_assistant.scheduler.cron_runner import CronRunner
 
     shim = _FakeShimForCron()
@@ -308,25 +330,17 @@ async def test_cron_delivery_extracts_result_for_awareness(tmp_path: Path) -> No
         canonical_session_id="sess-canonical",
     )
 
-    # Set up canonical JSONL
-    sessions_dir = tmp_path / ".nanoassistant" / "sessions"
-    sessions_dir.mkdir(parents=True)
-    canonical_jsonl = sessions_dir / "sess-canonical.jsonl"
-    canonical_jsonl.write_text(
-        '{"type":"config","session_id":"sess-canonical"}\n', encoding="utf-8"
-    )
-
     await runner._append_awareness(
         session_id="sess-canonical",
         result_text=final_result,
         workspace_root=tmp_path,
     )
 
-    import json
-
-    lines = canonical_jsonl.read_text("utf-8").strip().split("\n")
-    assert len(lines) == 2
-    awareness = json.loads(lines[1])
-    assert "It is now 14:05 UTC" in awareness.get("content", ""), (
+    # Verify via kernel.append_message call (not raw file)
+    assert len(shim.appended_messages) == 1, (
+        f"Expected 1 append_message call, got {len(shim.appended_messages)}"
+    )
+    appended = shim.appended_messages[0]
+    assert "It is now 14:05 UTC" in appended.get("content", ""), (
         "awareness must contain the cron result text"
     )

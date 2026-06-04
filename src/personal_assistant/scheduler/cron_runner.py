@@ -1,23 +1,23 @@
 """Cron job execution runner for the personal assistant gateway.
 
 Handles per-job isolated session submission and awareness injection
-(System(untrusted) append to canonical direct-chat kernel session JSONL).
+(System(untrusted) append to canonical direct-chat kernel session via kernel API).
 
 feat-394 decision 4: cron jobs run in isolated sessions (origin=cron, no context).
 feat-394 decision C-awareness: result text appended to canonical session as
 System(untrusted) so the user can ask follow-up questions about cron output.
+feat-394-M9 fix: awareness injection uses kernel.append_message() (cache-aware)
+instead of raw JSONL file append (which bypasses kernel session cache and makes
+awareness invisible to subsequent LLM turns).
 """
 
 from __future__ import annotations
 
-import json
 import logging
-import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Protocol
 
-from personal_assistant.config.local_store import WORKSPACE_CONFIG_DIRNAME as _WORKSPACE_CONFIG_DIRNAME
 from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
 
 _logger = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ class _KernelClientLike(Protocol):
     Mirrors _KernelClientShim.create_session exactly — no session_id parameter.
     The kernel assigns session IDs; callers read the id from the returned payload.
     feat-394-M6 R2 fix: removed session_id kwarg that caused TypeError in round-4.
+    feat-394-M9 fix: append_message added for cache-aware awareness injection.
     """
 
     async def create_session(
@@ -48,6 +49,24 @@ class _KernelClientLike(Protocol):
         workspace_root: str | None = None,
         origin: str | None = None,
     ) -> dict[str, object]: ...
+
+    def append_message(
+        self,
+        *,
+        session_id: str,
+        role: str,
+        content: str,
+        workspace_root: str | None = None,
+        metadata: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        """Append a message to a session without triggering a model run.
+
+        Provided by _KernelClientShim (main.py:1690).  Updating the session via
+        this method keeps the kernel's in-process session cache consistent; raw
+        JSONL writes bypass the cache and make new entries invisible to the next
+        LLM turn (feat-394-M9 root cause).
+        """
+        ...
 
 
 class CronRunner:
@@ -151,49 +170,46 @@ class CronRunner:
         result_text: str,
         workspace_root: Path,
     ) -> None:
-        """Append a System(untrusted) entry to the canonical direct-chat session JSONL.
+        """Append a System(untrusted) entry to the canonical direct-chat session.
 
         Provenance: openclaw delivery-dispatch.ts:335 queueCronAwarenessSystemEvent —
         takes final result text → enqueueSystemEvent(text, {sessionKey:main, trusted:false}).
-        In nano, the event is persisted directly to the session JSONL (more stable than
-        an in-memory queue), with the same untrusted semantics.
 
-        The entry is formatted as a ``user``-role turn with content:
-        ``System (untrusted): [<ISO-timestamp>] <result_text>``
-        so the next LLM turn sees it as context without treating it as a trusted instruction.
+        feat-394-M9 fix: delegates to kernel.append_message() instead of writing
+        directly to the session JSONL file.  The kernel holds an in-process session
+        cache (cache-first load); bypassing it via raw file append leaves the cache
+        stale — the next LLM turn reads from cache and never sees the awareness entry,
+        so the agent replies "hasn't run yet" to follow-up questions.
+        append_message() updates both the persistent JSONL and the live cache atomically.
+
+        The entry role is ``user`` with content ``System (untrusted): [ts] <result>``
+        so the LLM sees it as background context without treating it as a trusted instruction.
 
         Args:
             session_id: Canonical direct-chat kernel session ID to append to.
             result_text: Final assistant response text from the cron isolated run.
-            workspace_root: Agent workspace root (locates session JSONL directory).
+            workspace_root: Agent workspace root passed through to kernel for session lookup.
         """
-        sessions_dir = workspace_root / _WORKSPACE_CONFIG_DIRNAME / "sessions"
-        jsonl_path = sessions_dir / f"{session_id}.jsonl"
-
-        if not jsonl_path.exists():
+        if not session_id:
             _logger.debug(
-                "cron: awareness skip — canonical session JSONL not found: %s", jsonl_path
+                "cron: awareness skip — empty session_id: agent=%s", self._agent_id
             )
             return
 
         ts = datetime.now(tz=UTC).isoformat()
         awareness_content = f"System (untrusted): [{ts}] {result_text}"
-        entry = {
-            "type": "turn",
-            "uuid": uuid.uuid4().hex,
-            "parent_uuid": None,
-            "session_id": session_id,
-            "role": "user",
-            "content": awareness_content,
-            "timestamp": ts,
-            "is_cron_awareness": True,  # marker for transcript trim / compaction skip
-        }
-        # Append to the JSONL (after the existing entries, never modifying them).
-        with jsonl_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+        self._kernel_client.append_message(
+            session_id=session_id,
+            role="user",
+            content=awareness_content,
+            workspace_root=str(workspace_root),
+            metadata={"is_cron_awareness": True},
+        )
 
         _logger.debug(
-            "cron: awareness appended: agent=%s session=%s", self._agent_id, session_id
+            "cron: awareness appended via kernel: agent=%s session=%s",
+            self._agent_id, session_id,
         )
 
     def _resolve_canonical_session_id(self) -> str | None:
