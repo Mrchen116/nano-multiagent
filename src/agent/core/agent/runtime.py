@@ -410,7 +410,9 @@ class AgentRuntime:
                     # feat-394-M3 CRITICAL-2 fix: heartbeat/cron enabled flags flow from
                     # inbound_pipeline._build_session_metadata through hook_metadata into
                     # PromptContext.vars so _heartbeat_enabled/_cron_enabled gates work.
-                    "heartbeat_enabled": str(hook_metadata.get("heartbeat_enabled", "")),
+                    "heartbeat_enabled": str(
+                        hook_metadata.get("heartbeat_enabled", "")
+                    ),
                     "cron_enabled": str(hook_metadata.get("cron_enabled", "")),
                 },
             )
@@ -959,6 +961,26 @@ class AgentRuntime:
         self._session_file_states.pop(session_id, None)
         self._session_locks.pop(session_id, None)
         self._memory_snapshots.pop(session_id, None)
+
+    def invalidate_session_cache(self, session_id: str) -> None:
+        """Drop cached in-memory history/config/path for one session.
+
+        Called after an out-of-band JSONL append (see ``Kernel.append_message``)
+        so the next turn re-reads the transcript instead of serving the stale
+        cache populated by an earlier run. Without this, a message appended
+        between turns (e.g. cron awareness injection) is written to JSONL but
+        never seen by the model, which reads ``_session_histories`` cache-first.
+
+        Plain dict pops: atomic in CPython and therefore safe to call from sync
+        code without the asyncio session lock. An in-flight turn holds its own
+        local reference to the history list, so dropping the cache key cannot
+        corrupt it — the turn finishes and persists normally, and the following
+        turn reloads from JSONL (which by then contains both sets of messages).
+        """
+
+        self._session_histories.pop(session_id, None)
+        self._session_configs.pop(session_id, None)
+        self._session_paths.pop(session_id, None)
 
     async def fork_session(
         self, source_session_id: str, *, workspace_root: Path | None = None

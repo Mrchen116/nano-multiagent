@@ -160,16 +160,37 @@ class SessionService:
             if existing is not None:
                 return AppendMessageResult(entry=existing, created=False)
 
+        # Link this out-of-band message to the current tail of the conversation
+        # chain so load() reaches it when backtracking from the leaf. Without a
+        # parent it is written as an orphan and dropped from history — the next
+        # turn extends from the old tail and never sees it (feat-394 awareness).
+        #
+        # The JSONL writer is an async background thread: turns are enqueued, not
+        # written synchronously. Flush before reading the tail (so prior turns
+        # are on disk and the parent link is correct) and again after enqueueing
+        # (so the appended entry is durable before the next turn's reload reads
+        # disk — otherwise it sits in the queue and the follow-up turn misses it).
+        writer = getattr(self._manager, "writer", None)
+        if writer is not None:
+            writer.flush()
+        existing = self._manager.list_turn_messages(
+            session_id, workspace_root=workspace_root
+        )
+        parent_uuid = existing[-1].message_id if existing else None
+
         entry = self._manager.append_turn_message(
             session_id,
             turn_id=turn_id or ids.make_turn_id(),
             role=normalized_role,
             content=content,
             message_id=message_id or ids.make_message_id(),
+            parent_uuid=parent_uuid,
             parts=parts,
             metadata=normalized_metadata,
             workspace_root=workspace_root,
         )
+        if writer is not None:
+            writer.flush()
         return AppendMessageResult(entry=entry, created=True)
 
     def _find_message_by_idempotency_key(

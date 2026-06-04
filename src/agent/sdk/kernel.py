@@ -506,7 +506,7 @@ class Kernel:
             AppendMessageResult with the persisted entry.
         """
         effective_root = workspace_root or self._repo_root
-        return self._c.session_service.append_message(
+        result = self._c.session_service.append_message(
             session_id,
             role=role,
             content=content,
@@ -516,6 +516,13 @@ class Kernel:
             idempotency_key=idempotency_key,
             workspace_root=effective_root,
         )
+        # Keep the runtime's cache-first history coherent with this out-of-band
+        # JSONL write. The runtime serves _session_histories cache-first, so a
+        # message appended between turns is invisible to the next run unless the
+        # stale entry is dropped and the transcript re-read (feat-394: cron
+        # awareness injection was written but never seen by the model).
+        self._c.runtime.invalidate_session_cache(session_id)
+        return result
 
     def get_session(
         self,
