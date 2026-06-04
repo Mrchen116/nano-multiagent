@@ -1,6 +1,5 @@
 """Built-in `write` tool for sandboxed file creation and overwrite."""
 
-from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.errors import ToolError
@@ -8,6 +7,7 @@ from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.tools.dangerous_paths import check_dangerous_path
+from agent.platform.tools.presentation import display_path as _display_path
 
 
 class WriteTool:
@@ -129,10 +129,3 @@ class WriteTool:
             return f"The file {file_path} has been updated successfully."
         else:
             return json_serialize(output)
-
-
-def _display_path(path: Path, repo_root: Path) -> str:
-    try:
-        return str(path.relative_to(repo_root))
-    except ValueError:
-        return str(path)

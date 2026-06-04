@@ -86,8 +86,14 @@ class BackgroundSessionEventSubscriber:
             self._task.cancel()
             try:
                 await self._task
-            except (asyncio.CancelledError, Exception):
+            except asyncio.CancelledError:
                 pass
+            except Exception as exc:
+                _log.debug(
+                    "background session event subscriber stop raised: %s",
+                    exc,
+                    extra={"session_id": self._session_id},
+                )
         self._task = None
 
     async def _run_loop(self) -> None:

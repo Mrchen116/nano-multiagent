@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping
 
+from personal_assistant._utils import _optional_text, _require_text
 from personal_assistant.channels.base import (
     InboundHandler,
     InboundMessage,
@@ -321,18 +322,3 @@ def _parse_relay_payload(payload: Mapping[str, object]) -> RelayEnvelope:
         sender_display_name=sender_display_name,
         participants=participants,
     )
-
-
-def _require_text(value: object, *, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a non-empty string")
-    return value.strip()
-
-
-def _optional_text(value: object) -> str | None:
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError("optional text fields must be strings when provided")
-    stripped = value.strip()
-    return stripped or None

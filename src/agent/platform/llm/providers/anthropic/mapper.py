@@ -15,6 +15,9 @@ from agent.core.llm.interfaces import (
     LLMToolCall,
 )
 from agent.core.types import TokenUsage
+from agent.platform.llm.providers.common import (
+    extract_non_negative_int as _extract_non_negative_int,
+)
 
 _DEFAULT_MAX_TOKENS = 1024 * 32
 
@@ -312,14 +315,6 @@ def _parse_anthropic_usage(payload: Any) -> TokenUsage | None:
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
     )
-
-
-def _extract_non_negative_int(value: Any) -> int | None:
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return value if value >= 0 else None
-    return None
 
 
 _LEGACY_ANTHROPIC_MAPPER_MODULE = "agent" + ".llm.providers" + ".anthropic.mapper"

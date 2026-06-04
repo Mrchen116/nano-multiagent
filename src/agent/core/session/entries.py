@@ -1,12 +1,12 @@
 """Canonical session event entry models and constructors."""
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any, Mapping, Sequence
 
 from agent.core.ids import make_event_id
 from agent.core.types import Message
+from agent.core.utils.time import utc_now_iso as _utc_now_iso
 
 
 class SessionEntryKind(StrEnum):
@@ -17,10 +17,6 @@ class SessionEntryKind(StrEnum):
     SESSION_ARCHIVED = "session.archived"
     COMPACTION = "session.compaction"
     RUN_STATUS = "session.run.status"
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 @dataclass(frozen=True, slots=True)

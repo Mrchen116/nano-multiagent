@@ -13,7 +13,7 @@ _FIXTURE = (
 )
 
 
-def test_default_system_prompt_is_empty_string_after_feat385() -> None:
+def test_default_system_prompt_is_empty_string() -> None:
     # Empty string is the sentinel for segment assembly; ProductProfile sets this
     # and the runtime detects it to switch from the legacy string-template path.
     assert DEFAULT_SYSTEM_PROMPT == ""

@@ -104,13 +104,13 @@ def test_build_prompt_context_empty_metadata():
 # ---------------------------------------------------------------------------
 
 
-def test_communication_context_hook_module_removed_after_m1():
-    """The communication_context hook module is fully removed after feat-379-M1.
+def test_communication_context_hook_module_removed():
+    """The communication_context hook module must not exist.
 
-    The [Communication Context] block is now assembled by the pa.communication_context
+    The [Communication Context] block is assembled by the pa.communication_context
     segment (prompt_sections.py, order=900). No hook registration is needed, so
-    hooks/communication_context.py is deleted. This test guards against accidental
-    re-introduction.
+    hooks/communication_context.py must remain deleted. This test guards against
+    accidental re-introduction.
     """
     import importlib
     import importlib.util

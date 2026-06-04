@@ -9,8 +9,8 @@ from typing import Any, Sequence
 
 from agent.core.background_tasks.models import (
     BackgroundTaskRecord,
-    BackgroundTaskStatus,
 )
+from agent.core.background_tasks.registry import _TERMINAL_STATUSES
 
 
 class InMemoryTaskStore:
@@ -53,13 +53,6 @@ class InMemoryTaskStore:
                 f.write(json.dumps(_record_to_dict(record), ensure_ascii=False) + "\n")
         except Exception:
             pass
-
-
-_TERMINAL_STATUSES = {
-    BackgroundTaskStatus.COMPLETED,
-    BackgroundTaskStatus.FAILED,
-    BackgroundTaskStatus.KILLED,
-}
 
 
 def _record_to_dict(record: BackgroundTaskRecord) -> dict[str, Any]:

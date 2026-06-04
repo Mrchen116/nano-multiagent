@@ -17,12 +17,14 @@ from agent.core.skills import resolve_available_skills
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.core.types import TurnResult
+from agent.platform.tools.base import WiringMixin
+from agent.platform.tools.builtins._shared import _normalize_optional_text
 
 # Foreground budget before auto-backgrounding (seconds)
 _DEFAULT_FOREGROUND_BUDGET = 120.0
 
 
-class AgentTool:
+class AgentTool(WiringMixin):
     """Launch autonomous subagents with background/foreground/continuation support."""
 
     name = "agent"
@@ -112,10 +114,6 @@ class AgentTool:
     def bind_runtime(self, runtime: Any | None) -> None:
         """Bind runtime after bootstrap."""
         self._runtime = runtime
-
-    def bind_wiring(self, wiring: Any | None) -> None:
-        """Bind background task wiring after bootstrap."""
-        self._wiring = wiring
 
     # ------------------------------------------------------------------
     # Entry point
@@ -495,14 +493,6 @@ class AgentTool:
             raise ToolError("agent runtime is not configured", tool_name=self.name)
         return runtime
 
-    def _require_wiring(self) -> Any:
-        wiring = self._wiring
-        if wiring is None:
-            raise ToolError(
-                "background task wiring is not configured", tool_name=self.name
-            )
-        return wiring
-
     def _validate_new_agent_args(
         self, args: Mapping[str, Any], *, ctx: ToolContext
     ) -> None:
@@ -688,15 +678,6 @@ def _make_on_fail(registry: BackgroundTaskRegistry, agent_id: str) -> Any:
 # ------------------------------------------------------------------
 # Text / argument helpers
 # ------------------------------------------------------------------
-
-
-def _normalize_optional_text(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    text = value.strip()
-    if not text:
-        return None
-    return text
 
 
 def _normalize_run_in_background(value: Any) -> bool:

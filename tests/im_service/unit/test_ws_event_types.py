@@ -20,7 +20,7 @@ from IM.api.ws.event_types import (
 )
 from IM.domain.models import Message, TokenUsage, ToolCall
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import (
+from IM.infra.repositories import (
     ConversationRepository,
     MessageRepository,
     UserRepository,

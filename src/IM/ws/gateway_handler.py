@@ -2010,6 +2010,12 @@ def _require_message_type(payload: dict[str, Any]) -> str:
     return _require_text(payload.get("type"), field_name="type")
 
 
+# WS-layer strict field helpers — intentionally NOT unified with IM/infra/_helpers.py.
+# At the WS boundary a missing or non-string required field means the gateway sent a
+# malformed frame, which is a protocol error.  Fail-fast here (raise ValueError/
+# RuntimeError) prevents silently routing bad data into the domain layer.
+# The _helpers.py variants return None on missing values; that lenient behaviour is
+# correct for HTTP request parsing, not for WS frames where the schema is contract-level.
 def _require_text(value: object, *, field_name: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"{field_name} must be a non-empty string")

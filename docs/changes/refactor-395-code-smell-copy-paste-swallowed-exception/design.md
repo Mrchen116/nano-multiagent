@@ -7,6 +7,7 @@
 ## Changelog
 
 <!-- 按时间倒序追加。格式：YYYY-MM-DD (Mx): 一句话 — 详见 Mx/progress.md -->
+2026-06-03: 扩范围 — 测试流水号命名治理（用户拍板并入本 PR，不加 contract 护栏）
 
 ## 现状分析
 

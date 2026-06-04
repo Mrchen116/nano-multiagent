@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
+from personal_assistant._utils import _require_text
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.reporter.upstream_reporter import (
@@ -683,12 +684,6 @@ def _decode_message(raw: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError("message must be a JSON object")
     return parsed
-
-
-def _require_text(value: object, *, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a non-empty string")
-    return value.strip()
 
 
 def _require_mapping(value: object, *, field_name: str) -> Mapping[str, object]:

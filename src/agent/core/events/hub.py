@@ -13,11 +13,11 @@ import asyncio
 import queue
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from threading import Lock
 from typing import Any, AsyncIterator, Iterator
 
 from agent.core.ids import make_event_id
+from agent.core.utils.time import utc_now_iso as _utc_now_iso
 
 
 @dataclass(frozen=True, slots=True)
@@ -237,7 +237,3 @@ class EventStreamHub:
                 self._subscribers = [
                     item for item in self._subscribers if item is not subscriber
                 ]
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat()

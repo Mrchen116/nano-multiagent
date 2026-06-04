@@ -4,18 +4,18 @@ import asyncio
 import contextvars
 import threading
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from threading import Lock
 from typing import Any, Mapping, Protocol, Sequence
 
 from agent.core.ids import make_run_id
+from agent.core.utils.time import utc_now_iso as _utc_now_iso
 from agent.core.llm.interfaces import LLMMessage
 from agent.core.runs.origin import RunOrigin
 from agent.core.types import TokenUsage, TurnResult
 from agent.core.hooks.context import HookContext
-from agent.core.hooks.runner import HookExecution, HookRunner
+from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.observability.logger import log_error, log_info
 from agent.core.observability.tracing import bind_correlation, current_trace_id, span
 from agent.core.session.manager import SessionManager
@@ -516,30 +516,11 @@ class RunsRegistry:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn(
+            hook_ctx.logger.warning(
                 "hook observe dispatch failed", event=event, error=str(exc)
             )
             return
-        self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
-
-    @staticmethod
-    def _log_hook_diagnostics(
-        hook_ctx: HookContext,
-        *,
-        event: str,
-        diagnostics: tuple[HookExecution, ...],
-    ) -> None:
-        for item in diagnostics:
-            if item.status == "ok":
-                continue
-            hook_ctx.logger.warn(
-                "hook execution isolated",
-                event=event,
-                hook_id=item.hook_id,
-                status=item.status,
-                duration_ms=item.duration_ms,
-                error=item.error,
-            )
+        log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
 
     def _persist_run_status_entry(self, record: RunRecord) -> None:
         status_data = _run_status_data(record)
@@ -582,11 +563,14 @@ class RunsRegistry:
         )
 
 
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat()
-
-
 _TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED}
+
+# Canonical string-form terminal run status set derived from the RunStatus enum.
+# Exposed via agent.sdk so products can import a single source instead of
+# duplicating the {"completed","failed","cancelled"} literal. (refactor-395-M1)
+TERMINAL_RUN_STATUSES: frozenset[str] = frozenset(
+    s.value for s in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED)
+)
 
 
 def _serialize_usage(usage: TokenUsage | None) -> dict[str, int] | None:

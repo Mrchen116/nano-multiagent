@@ -19,7 +19,7 @@ import pytest
 
 from IM.application.relay_service import RelayService
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import (
+from IM.infra.repositories import (
     AgentProfileRepository,
     ConversationRepository,
     MessageRepository,

@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import (
+from IM.infra.repositories import (
     AgentProfileRepository,
     AgentProfileVersionConflictError,
     BindRepository,
@@ -161,7 +161,7 @@ def test_agent_profile_features_and_custom_prompt_roundtrip(tmp_path: Path) -> N
 def test_upsert_profile_stores_features_and_custom_prompt(tmp_path: Path) -> None:
     """upsert_profile must persist features and custom_prompt."""
     _, _, _, profiles, _, _ = _build_repositories(tmp_path)
-    from IM.repositories import UserRepository
+    from IM.infra.repositories import UserRepository
 
     connection = profiles._connection
     users = UserRepository(connection)
@@ -195,7 +195,7 @@ def test_upsert_profile_stores_features_and_custom_prompt(tmp_path: Path) -> Non
 def test_update_profile_stores_features_and_custom_prompt(tmp_path: Path) -> None:
     """update_profile must persist features and custom_prompt changes."""
     _, _, _, profiles, _, _ = _build_repositories(tmp_path)
-    from IM.repositories import UserRepository
+    from IM.infra.repositories import UserRepository
 
     connection = profiles._connection
     users = UserRepository(connection)
@@ -244,7 +244,7 @@ def test_upsert_profile_preserves_features_on_re_register(tmp_path: Path) -> Non
     existing row and leave features_json/custom_prompt untouched.
     """
     _, _, _, profiles, _, _ = _build_repositories(tmp_path)
-    from IM.repositories import UserRepository
+    from IM.infra.repositories import UserRepository
 
     connection = profiles._connection
     users = UserRepository(connection)
