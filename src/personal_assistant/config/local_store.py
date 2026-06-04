@@ -731,6 +731,15 @@ def _parse_agents(
                     active_hours_raw.get("timezone"),
                     field_name=f"agents[{index}].heartbeat.active_hours.timezone",
                 )
+        # feat-394-M7: parse per-agent cron config block from YAML.
+        # Previously only synced from IM (via sync_agent), so a freshly-loaded config
+        # always had cron_enabled=False even when the YAML contained cron.enabled=true.
+        # Now both paths (YAML startup and IM sync) populate cron_enabled.
+        cron_raw = item.get("cron")
+        cron_enabled = False
+        if isinstance(cron_raw, dict):
+            cr_enabled_raw = cron_raw.get("enabled")
+            cron_enabled = bool(cr_enabled_raw) if isinstance(cr_enabled_raw, bool) else False
         agents.append(
             AgentWorkspaceConfig(
                 agent_id=agent_id,
@@ -748,6 +757,7 @@ def _parse_agents(
                 heartbeat_active_hours_start=heartbeat_active_hours_start,
                 heartbeat_active_hours_end=heartbeat_active_hours_end,
                 heartbeat_active_hours_timezone=heartbeat_active_hours_timezone,
+                cron_enabled=cron_enabled,
             )
         )
     return tuple(agents)
