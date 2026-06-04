@@ -1662,10 +1662,15 @@ class _KernelClientShim:
                 if isinstance(mime, str) and mime.strip():
                     img_part["mime_type"] = mime.strip()
                 parts.append(img_part)
-        # Map string origin → RunOrigin enum; default to SYSTEM for heartbeat/background.
-        run_origin = (
-            _RunOrigin.HEARTBEAT if origin == "heartbeat" else _RunOrigin.SYSTEM
-        )
+        # Map string origin → RunOrigin enum.
+        # feat-394-M7 R5-1 fix: cron is an unattended isolated origin (no user present);
+        # RunOrigin.SYSTEM does not exist — use per-origin explicit mapping.
+        if origin == "heartbeat":
+            run_origin: _RunOrigin = _RunOrigin.HEARTBEAT
+        elif origin == "cron":
+            run_origin = _RunOrigin.CRON
+        else:
+            run_origin = _RunOrigin.USER
         run_record = self._kernel.submit(
             session_id=session_id,
             parts=parts,
