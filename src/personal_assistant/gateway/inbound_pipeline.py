@@ -391,9 +391,18 @@ class InboundPipeline:
         # Resolve per-agent config into session parameters.
         session_metadata = self._build_session_metadata(message, agent_id=agent_id)
         agent_skills = list(agent.skills) if agent.skills else None
-        agent_tool_allowlist = (
-            list(agent.tool_allowlist) if agent.tool_allowlist else None
-        )
+        # feat-394-M7 R5-2 fix: IM tool_allowlist carries optional extras (e.g. "cron")
+        # but must NOT replace DEFAULT_TOOL_IDS (read/write/edit/bash etc.).
+        # When an explicit allowlist is present, merge DEFAULT_TOOL_IDS + allowlist so
+        # the runtime sees file tools AND the optional gated tool.
+        # When allowlist is absent/empty, pass None so runtime applies DEFAULT_TOOL_IDS gate.
+        if agent.tool_allowlist:
+            from agent.sdk import PERSONAL_ASSISTANT_PROFILE as _PA_PROFILE  # noqa: PLC0415
+            _base = list(_PA_PROFILE.default_tool_ids or [])
+            _extras = [t for t in agent.tool_allowlist if t not in _base]
+            agent_tool_allowlist: list[str] | None = _base + _extras
+        else:
+            agent_tool_allowlist = None
         session = await self._kernel.create_session(
             title=agent.title,
             workspace_root=agent.workspace_root,

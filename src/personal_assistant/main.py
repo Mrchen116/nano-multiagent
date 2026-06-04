@@ -1662,10 +1662,15 @@ class _KernelClientShim:
                 if isinstance(mime, str) and mime.strip():
                     img_part["mime_type"] = mime.strip()
                 parts.append(img_part)
-        # Map string origin → RunOrigin enum; default to SYSTEM for heartbeat/background.
-        run_origin = (
-            _RunOrigin.HEARTBEAT if origin == "heartbeat" else _RunOrigin.SYSTEM
-        )
+        # Map string origin → RunOrigin enum.
+        # feat-394-M7 R5-1 fix: cron is an unattended isolated origin (no user present);
+        # RunOrigin.SYSTEM does not exist — use per-origin explicit mapping.
+        if origin == "heartbeat":
+            run_origin: _RunOrigin = _RunOrigin.HEARTBEAT
+        elif origin == "cron":
+            run_origin = _RunOrigin.CRON
+        else:
+            run_origin = _RunOrigin.USER
         run_record = self._kernel.submit(
             session_id=session_id,
             parts=parts,
@@ -2030,7 +2035,17 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     _cron_state_path = runtime_dir / "cron-state.json"
 
     async def _cron_tick_for_agent(agent_id: str) -> None:
-        """Evaluate cron jobs for one agent and submit due runs."""
+        """Evaluate cron jobs for one agent and submit due runs.
+
+        feat-394-M7 R6 fix: after submitting each due job, seed run_context_store with
+        {to_user_id=owner, agent_id, kernel_session_id} then consume kernel.stream to
+        terminal state, driving kernel_event_observer so the result appears in the owner's
+        direct conversation. Mirrors _consume_heartbeat_run semantics (decision C-awareness).
+        """
+        import logging as _cron_log  # noqa: PLC0415
+
+        _log = _cron_log.getLogger(__name__)
+
         agent_cfg = pipeline._agents.get(agent_id)  # noqa: SLF001
         if agent_cfg is None or not getattr(agent_cfg, "cron_enabled", False):
             return
@@ -2044,14 +2059,94 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             session_binding_store=session_store,
         )
 
-        async def _submit_fn(*, agent_id: str, job: object) -> None:  # type: ignore[override]
-            await _cron_runner._submit_cron_job(job=job)  # noqa: SLF001
+        # Observer is set on heartbeat_runner after im_service block (line 2020).
+        # Accessing via heartbeat_runner ensures late binding (value available at call time).
+        _observer = heartbeat_runner._kernel_event_observer  # noqa: SLF001
+
+        async def _submit_and_deliver_fn(*, agent_id: str, job: object) -> None:  # type: ignore[override]
+            """Submit cron job then consume stream so result reaches IM direct chat.
+
+            feat-394-M7 R6 fix: replaces fire-and-forget _submit_cron_job with full
+            delivery chain: submit → seed run_context_store → consume kernel.stream →
+            drive observer → node.streaming_delta → IM visible message.
+            Mirrors _consume_heartbeat_run semantics for the cron path.
+            """
+            # _submit_cron_job now returns (run_id, kernel_session_id) or None.
+            result = await _cron_runner._submit_cron_job(job=job)  # noqa: SLF001
+            if result is None:
+                _log.warning(
+                    "cron: submit returned no result: agent=%s job=%s",
+                    agent_id, getattr(job, "id", "?"),
+                )
+                return
+            run_id, kernel_session_id = result
+
+            if not _owner_user_id or _observer is None:
+                # No IM delivery path (no owner or no observer): fire-and-forget is correct.
+                _log.debug(
+                    "cron: no delivery path configured (owner=%r), skipping stream",
+                    _owner_user_id,
+                )
+                return
+
+            # Seed run_context_store so kernel_event_observer routes events to the owner's
+            # direct conversation via the lazy-bubble turn_start path (same as heartbeat).
+            _run_context_store[run_id] = {
+                "conversation_id": "",   # lazy: filled by IM turn_start ack
+                "message_id": "",        # lazy: filled by IM turn_start ack
+                "agent_id": agent_id,
+                "to_user_id": _owner_user_id,
+                "kernel_session_id": kernel_session_id,
+            }
+
+            # Consume kernel.stream to terminal state, driving observer for each event.
+            # This is the same pattern as _consume_heartbeat_run; observer creates the
+            # IM placeholder message and forwards streaming content via node.streaming_delta.
+            final_result_text = ""
+            try:
+                async for event in kernel.stream(kernel_session_id, after_sequence=0):
+                    if event.get("run_id") != run_id:
+                        continue
+                    # Capture last assistant_message content for C-awareness injection.
+                    if event.get("event") == "assistant_message":
+                        content = str(event.get("content") or "").strip()
+                        if content:
+                            final_result_text = content
+                    obs_result = _observer(event)
+                    if asyncio.iscoroutine(obs_result):
+                        await obs_result
+                    if event.get("event") == "run_status" and event.get("status") in (
+                        "completed", "failed", "cancelled", "error"
+                    ):
+                        break
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "cron: stream consume failed: agent=%s job=%s run=%s",
+                    agent_id, getattr(job, "id", "?"), run_id,
+                )
+            finally:
+                _run_context_store.pop(run_id, None)
+
+            # Decision C-awareness: append result text as System(untrusted) to canonical
+            # direct-chat JSONL so user can ask follow-up questions about cron output.
+            if final_result_text:
+                try:
+                    await _cron_runner._append_awareness(  # noqa: SLF001
+                        session_id=_cron_runner._resolve_canonical_session_id() or "",  # noqa: SLF001
+                        result_text=final_result_text,
+                        workspace_root=ws_root,
+                    )
+                except Exception:  # noqa: BLE001
+                    _log.debug(
+                        "cron: awareness inject failed (non-fatal): agent=%s job=%s",
+                        agent_id, getattr(job, "id", "?"),
+                    )
 
         scheduler = CronScheduler(
             agent_id=agent_id,
             job_store=job_store,
             state_store=state_store,
-            submit_fn=_submit_fn,
+            submit_fn=_submit_and_deliver_fn,
         )
         await scheduler.tick()
 

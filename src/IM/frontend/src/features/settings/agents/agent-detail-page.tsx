@@ -311,19 +311,24 @@ function BehaviorCard({
   );
 }
 
-// feat-394 decision 5: HeartbeatCard — per-agent heartbeat enable/disable + cadence.
-// Shows a toggle for heartbeat_enabled and an optional "every" interval input when enabled.
+// feat-394 decision 5: HeartbeatCard — per-agent heartbeat enable/disable + cadence + activeHours.
+// Shows a toggle for heartbeat_enabled, an optional "every" interval input and optional
+// active-hours start/end time inputs when enabled.
+// feat-394-M7 R5-3 fix: added activeHours start/end UI (spec S2.5 requirement).
 interface HeartbeatCardProps {
   draft: AgentConfigFormState;
   onToggle: (enabled: boolean) => void;
   onEveryChange: (every: string) => void;
+  onActiveHoursChange: (start: string, end: string) => void;
 }
 
-function HeartbeatCard({ draft, onToggle, onEveryChange }: HeartbeatCardProps) {
+function HeartbeatCard({ draft, onToggle, onEveryChange, onActiveHoursChange }: HeartbeatCardProps) {
   const { t } = useTranslation();
   const heartbeat = draft.heartbeat ?? { enabled: false, every: "30m" };
   const enabled = heartbeat.enabled ?? false;
   const every = heartbeat.every ?? "30m";
+  const activeStart = heartbeat.active_hours?.start ?? "";
+  const activeEnd = heartbeat.active_hours?.end ?? "";
 
   return (
     <section className="im-agent-card">
@@ -351,23 +356,57 @@ function HeartbeatCard({ draft, onToggle, onEveryChange }: HeartbeatCardProps) {
         </label>
       </div>
       {enabled && (
-        <div className="im-agent-field">
-          <Label.Root htmlFor="heartbeat-every">{t("agents.form.heartbeat.everyLabel")}</Label.Root>
-          <input
-            id="heartbeat-every"
-            className="im-input"
-            value={every}
-            placeholder="30m"
-            aria-describedby="heartbeat-every-help"
-            onChange={(e) => onEveryChange(e.target.value)}
-            // feat-394-M3 minor Issue 4: select-all on focus so typing replaces the old value
-            // rather than appending to it (standard UX for numeric/interval input fields).
-            onFocus={(e) => e.target.select()}
-          />
-          <p id="heartbeat-every-help" className="im-agent-field-help">
-            {t("agents.form.heartbeat.everyHelp")}
-          </p>
-        </div>
+        <>
+          <div className="im-agent-field">
+            <Label.Root htmlFor="heartbeat-every">{t("agents.form.heartbeat.everyLabel")}</Label.Root>
+            <input
+              id="heartbeat-every"
+              className="im-input"
+              value={every}
+              placeholder="30m"
+              aria-describedby="heartbeat-every-help"
+              onChange={(e) => onEveryChange(e.target.value)}
+              // feat-394-M3 minor Issue 4: select-all on focus so typing replaces the old value
+              // rather than appending to it (standard UX for numeric/interval input fields).
+              onFocus={(e) => e.target.select()}
+            />
+            <p id="heartbeat-every-help" className="im-agent-field-help">
+              {t("agents.form.heartbeat.everyHelp")}
+            </p>
+          </div>
+          {/* feat-394-M7 R5-3 fix: activeHours UI — spec S2.5 "活跃时段外不打扰" */}
+          <div className="im-agent-field">
+            <Label.Root htmlFor="heartbeat-active-start">
+              {t("agents.form.heartbeat.activeHoursLabel", "Active hours (optional)")}
+            </Label.Root>
+            <div className="flex gap-2 items-center">
+              <input
+                id="heartbeat-active-start"
+                className="im-input"
+                data-testid="heartbeat-active-hours-start"
+                type="time"
+                value={activeStart}
+                placeholder="09:00"
+                aria-label="Active hours start"
+                onChange={(e) => onActiveHoursChange(e.target.value, activeEnd)}
+              />
+              <span className="text-slate-500 text-sm">–</span>
+              <input
+                id="heartbeat-active-end"
+                className="im-input"
+                data-testid="heartbeat-active-hours-end"
+                type="time"
+                value={activeEnd}
+                placeholder="22:00"
+                aria-label="Active hours end"
+                onChange={(e) => onActiveHoursChange(activeStart, e.target.value)}
+              />
+            </div>
+            <p className="im-agent-field-help">
+              {t("agents.form.heartbeat.activeHoursHelp", "Heartbeat only triggers within this time window (leave blank for always-on)")}
+            </p>
+          </div>
+        </>
       )}
     </section>
   );
@@ -937,6 +976,7 @@ export function AgentDetailPage() {
         />
 
         {/* feat-394 decision 5: HeartbeatCard — per-agent heartbeat enable/cadence */}
+        {/* feat-394-M7 R5-3 fix: added onActiveHoursChange for activeHours UI */}
         <HeartbeatCard
           draft={draft}
           onToggle={(enabled) => {
@@ -948,6 +988,15 @@ export function AgentDetailPage() {
             setSaved(false);
             setErrorMessage(null);
             setDraft({ ...draft, heartbeat: { ...(draft.heartbeat ?? { enabled: false }), every } });
+          }}
+          onActiveHoursChange={(start, end) => {
+            setSaved(false);
+            setErrorMessage(null);
+            const prevHb = draft.heartbeat ?? { enabled: false, every: "30m" };
+            const active_hours = start || end
+              ? { ...(prevHb.active_hours ?? {}), start, end }
+              : undefined;
+            setDraft({ ...draft, heartbeat: { ...prevHb, active_hours } });
           }}
         />
 

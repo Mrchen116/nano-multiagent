@@ -354,14 +354,18 @@ async def test_cron_runner_submit_no_session_id_kwarg_to_shim(tmp_path: Path) ->
     )
 
     # Must not raise TypeError after the fix.
-    run_id = await runner._submit_cron_job(job=job)
+    # feat-394-M7 R6 fix: _submit_cron_job now returns (run_id, kernel_session_id) or None.
+    result = await runner._submit_cron_job(job=job)
 
     assert shim_client.called_with is not None, "create_session was never called"
     assert "session_id" not in (shim_client.called_with or {}), (
         "create_session must NOT receive session_id kwarg — "
         "_KernelClientShim.create_session has no such parameter"
     )
-    assert run_id is not None, "run_id must be returned on success"
+    assert result is not None, "run result must be returned on success"
+    run_id, kernel_session_id = result
+    assert run_id is not None, "run_id must be non-empty"
+    assert kernel_session_id is not None, "kernel_session_id must be returned alongside run_id"
 
 
 @pytest.mark.asyncio

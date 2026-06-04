@@ -78,11 +78,15 @@ class CronRunner:
         self._session_binding_store = session_binding_store
         self._canonical_session_id = canonical_session_id
 
-    async def _submit_cron_job(self, *, job: CronJob) -> str | None:
-        """Submit one cron job as an isolated run and return the run_id.
+    async def _submit_cron_job(self, *, job: CronJob) -> tuple[str, str] | None:
+        """Submit one cron job as an isolated run and return (run_id, kernel_session_id).
 
         The session key is ``cron:<jobId>`` — an ephemeral isolated session that
         carries no conversation context (feat-394 decision 4).
+
+        feat-394-M7 R6 fix: now returns (run_id, kernel_session_id) so the caller
+        (_cron_tick_for_agent) can seed run_context_store and consume kernel.stream
+        to deliver the result to the owner's direct conversation (decision C-awareness).
 
         Side effects:
             - Creates an isolated kernel session.
@@ -90,7 +94,7 @@ class CronRunner:
             - Removes the job from CronJobStore if delete_after_run is True.
 
         Returns:
-            run_id returned by kernel.submit_message, or None on failure.
+            (run_id, kernel_session_id) on success, or None on failure.
         """
         # feat-394-M6 R2 fix: do not pass session_id to create_session — _KernelClientShim
         # has no such parameter.  Kernel generates the session id; we read it from the payload.
@@ -129,6 +133,8 @@ class CronRunner:
             return None
 
         run_id = str(run_payload.get("run_id", "")).strip()
+        if not run_id:
+            return None
 
         # delete_after_run: remove the job from store now (before awaiting delivery).
         # feat-394 decision 4: one-shot 'at' jobs are cleaned up after submission.
@@ -136,7 +142,7 @@ class CronRunner:
             job_store = CronJobStore(workspace_root=self._workspace_root)
             job_store.remove(job.id)
 
-        return run_id or None
+        return run_id, session_id
 
     async def _append_awareness(
         self,

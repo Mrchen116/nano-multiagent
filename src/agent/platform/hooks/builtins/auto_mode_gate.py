@@ -205,12 +205,16 @@ TOOL_PROJECTIONS: dict[str, Callable[[dict], str]] = {
     ),
 }
 
-# Unattended run origins (no human present to answer ask prompts)
+# Unattended run origins (no human present to answer ask prompts).
+# feat-394-M7 R5-1 fix: cron runs are isolated and unattended; tool ask has no human
+# to answer, so they must walk the unattended fallback path (auto-deny or auto-allow).
 _UNATTENDED_ORIGINS: frozenset[str] = frozenset(
     {
         RunOrigin.HEARTBEAT.value,
         "heartbeat",  # string form
         RunOrigin.BACKGROUND_TASK.value,
+        RunOrigin.CRON.value,
+        "cron",  # string form
     }
 )
 

@@ -242,6 +242,13 @@ class _Schedule(Protocol):
     ) -> list[datetime]: ...
 
 
+# Maximum latency between an 'at' job's due time and a tick before it is treated as expired.
+# 60 seconds covers any reasonable polling interval; anything longer means the gateway
+# missed the window (was offline or heavily loaded) and the job should not fire.
+# feat-394-M7 R5-4 fix.
+_AT_SCHEDULE_EXPIRED_GRACE: timedelta = timedelta(seconds=60)
+
+
 @dataclass(frozen=True, slots=True)
 class _AtSchedule:
     """One-shot schedule: fires once when time arrives, never after already executed.
@@ -249,6 +256,13 @@ class _AtSchedule:
     Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "at" branch —
     returns undefined when atMs <= nowMs (meaning job is not future, skip).
     feat-394 decision 4: expired 'at' jobs are not re-run after gateway restart.
+
+    feat-394-M7 R5-4 fix: if last_due_at is None and the at time has passed by more
+    than _AT_SCHEDULE_EXPIRED_GRACE (60s), the job is treated as expired (missed window).
+    This prevents stale at jobs from firing after a gateway restart when the run was
+    never recorded (e.g. due to crash before state persistence).
+    The grace period allows normal scheduler latency (a few seconds per tick) without
+    falsely marking jobs as expired.
     """
 
     due_at: datetime
@@ -259,6 +273,11 @@ class _AtSchedule:
         if now < self.due_at:
             return []
         if last_due_at is not None and last_due_at >= self.due_at:
+            return []
+        # feat-394-M7 R5-4 fix: reject expired at jobs.
+        # If the at time passed more than the grace period ago and we have no run record,
+        # the gateway missed the window (e.g. was offline).  Do not fire.
+        if last_due_at is None and (now - self.due_at) > _AT_SCHEDULE_EXPIRED_GRACE:
             return []
         return [self.due_at]
 
