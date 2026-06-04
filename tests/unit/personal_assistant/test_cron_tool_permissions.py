@@ -12,6 +12,7 @@ check_permissions therefore unconditionally allows the call — the gate for
 
 See acceptance.md Round 3 Issue R3-1.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -23,6 +24,7 @@ class TestCronToolCheckPermissions:
 
     def _get_cron_tool(self):
         from agent.products.personal_assistant.tools.cron import CronTool
+
         return CronTool()
 
     def test_cron_tool_has_check_permissions(self) -> None:
@@ -48,7 +50,9 @@ class TestCronToolCheckPermissions:
 
         for action in ("list", "add", "update", "remove", "run", "runs"):
             result = tool.check_permissions({"action": action}, ctx)
-            assert result is not None, f"check_permissions returned None for action={action}"
+            assert result is not None, (
+                f"check_permissions returned None for action={action}"
+            )
             behavior = getattr(result, "behavior", None)
             assert behavior == "allow", (
                 f"check_permissions must return allow for action={action}, got {behavior!r}. "
@@ -89,7 +93,9 @@ class TestCronToolCheckPermissions:
         import sys
 
         # Verify the cron module does not import platform.permissions.broker at load time
-        cron_module = importlib.import_module("agent.products.personal_assistant.tools.cron")
+        cron_module = importlib.import_module(
+            "agent.products.personal_assistant.tools.cron"
+        )
         module_source = open(cron_module.__file__).read()
         # Should not directly import from platform layer (would violate dep direction)
         assert "from agent.platform" not in module_source, (

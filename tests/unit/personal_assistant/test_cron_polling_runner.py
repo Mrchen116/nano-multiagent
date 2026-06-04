@@ -10,6 +10,7 @@ These tests verify that:
 
 feat-394 architecture: 统一 polling tick 驱动 heartbeat + cron 两套（design 架构图）。
 """
+
 from __future__ import annotations
 
 import asyncio

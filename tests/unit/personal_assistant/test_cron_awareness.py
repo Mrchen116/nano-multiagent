@@ -12,6 +12,7 @@ Covers:
 
 feat-394 decision C-awareness + decision 4.
 """
+
 from __future__ import annotations
 
 import json
@@ -82,9 +83,7 @@ class _FakeKernelClient:
         self.created_sessions.append(payload)
         return payload
 
-    def submit_message(
-        self, *, session_id: str, texts: list[str], **kwargs
-    ) -> dict:
+    def submit_message(self, *, session_id: str, texts: list[str], **kwargs) -> dict:
         payload = {
             "run_id": self._submit_run_id,
             "session_id": session_id,
@@ -105,13 +104,15 @@ class _FakeKernelClient:
         **_kwargs: object,
     ) -> dict:
         """feat-394-M9: awareness injection path."""
-        self.appended_messages.append({
-            "session_id": session_id,
-            "role": role,
-            "content": content,
-            "workspace_root": workspace_root,
-            "metadata": metadata,
-        })
+        self.appended_messages.append(
+            {
+                "session_id": session_id,
+                "role": role,
+                "content": content,
+                "workspace_root": workspace_root,
+                "metadata": metadata,
+            }
+        )
         return {"status": "appended"}
 
     def current_event_sequence(self) -> int:
@@ -131,6 +132,7 @@ class _FakeKernelClient:
 def test_cron_runner_class_exists() -> None:
     """CronRunner must be importable from personal_assistant.scheduler.cron_runner."""
     from personal_assistant.scheduler.cron_runner import CronRunner
+
     assert CronRunner is not None
 
 
@@ -165,7 +167,9 @@ async def test_cron_runner_submit_uses_isolated_session(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cron_runner_awareness_appended_to_canonical_session(tmp_path: Path) -> None:
+async def test_cron_runner_awareness_appended_to_canonical_session(
+    tmp_path: Path,
+) -> None:
     """After cron result, System(untrusted) is appended to canonical direct-chat session.
 
     feat-394 decision C-awareness: result text appended to canonical direct chat
@@ -254,7 +258,9 @@ async def test_cron_runner_isolated_turns_not_in_canonical(tmp_path: Path) -> No
     assert "cron instruction" not in content, (
         "Isolated cron instruction turns must NOT appear in canonical session"
     )
-    assert "Final answer" in content, "The final result text must appear in the awareness entry"
+    assert "Final answer" in content, (
+        "The final result text must appear in the awareness entry"
+    )
 
 
 @pytest.mark.asyncio
@@ -321,9 +327,7 @@ class _ShimCompatibleKernelClient:
         }
         return {"session_id": f"sess-{self._session_counter}"}
 
-    def submit_message(
-        self, *, session_id: str, texts: list[str], **kwargs
-    ) -> dict:
+    def submit_message(self, *, session_id: str, texts: list[str], **kwargs) -> dict:
         return {"run_id": "run-shim-1"}
 
     async def await_run_result(self, *, run_id: str, **kwargs) -> str:
@@ -365,7 +369,9 @@ async def test_cron_runner_submit_no_session_id_kwarg_to_shim(tmp_path: Path) ->
     assert result is not None, "run result must be returned on success"
     run_id, kernel_session_id = result
     assert run_id is not None, "run_id must be non-empty"
-    assert kernel_session_id is not None, "kernel_session_id must be returned alongside run_id"
+    assert kernel_session_id is not None, (
+        "kernel_session_id must be returned alongside run_id"
+    )
 
 
 @pytest.mark.asyncio
@@ -393,7 +399,9 @@ async def test_cron_runner_uses_returned_session_id_for_submit(tmp_path: Path) -
     assert shim_client.called_with is not None
     # The submit call is tracked indirectly via no exception; shim returns run_id "run-shim-1"
     # which cron_runner should pass back.  We rely on the above test for the no-crash guarantee.
-    assert shim_client._session_counter == 1, "exactly one session must have been created"
+    assert shim_client._session_counter == 1, (
+        "exactly one session must have been created"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -418,18 +426,22 @@ class _AppendTrackingKernelClient(_FakeKernelClient):
         metadata: dict | None = None,
         **_kwargs: object,
     ) -> dict:
-        self.appended_messages.append({
-            "session_id": session_id,
-            "role": role,
-            "content": content,
-            "workspace_root": workspace_root,
-            "metadata": metadata,
-        })
+        self.appended_messages.append(
+            {
+                "session_id": session_id,
+                "role": role,
+                "content": content,
+                "workspace_root": workspace_root,
+                "metadata": metadata,
+            }
+        )
         return {"status": "appended"}
 
 
 @pytest.mark.asyncio
-async def test_awareness_uses_kernel_append_message_not_raw_file(tmp_path: Path) -> None:
+async def test_awareness_uses_kernel_append_message_not_raw_file(
+    tmp_path: Path,
+) -> None:
     """_append_awareness must call kernel.append_message, NOT write to JSONL directly.
 
     feat-394-M9 fix: raw JSONL append bypasses kernel session cache; kernel returns
@@ -465,7 +477,10 @@ async def test_awareness_uses_kernel_append_message_not_raw_file(tmp_path: Path)
     )
     appended = kernel_client.appended_messages[0]
     assert appended["session_id"] == canonical_session_id
-    assert "System (untrusted)" in appended["content"] or "System(untrusted)" in appended["content"]
+    assert (
+        "System (untrusted)" in appended["content"]
+        or "System(untrusted)" in appended["content"]
+    )
     assert result_text in appended["content"]
     assert appended.get("metadata", {}).get("is_cron_awareness") is True, (
         "awareness metadata must include is_cron_awareness=True"

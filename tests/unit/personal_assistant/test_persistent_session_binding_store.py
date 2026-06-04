@@ -276,9 +276,7 @@ class TestR3FindByKernelSessionId:
         assert result.kernel_session_id == "ksess-bbb"
         assert result.session_key == "web_relay:c2:agent-B"
 
-    def test_find_by_kernel_session_id_survives_restart(
-        self, tmp_path: Path
-    ) -> None:
+    def test_find_by_kernel_session_id_survives_restart(self, tmp_path: Path) -> None:
         """持久化后重新创建 store 实例仍能查到 binding。"""
         db_path = tmp_path / "sb.sqlite3"
         rc = _make_reply_context("chat-persist")

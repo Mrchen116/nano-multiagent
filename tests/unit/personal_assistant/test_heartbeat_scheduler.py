@@ -253,7 +253,9 @@ def test_cron_no_backfill_after_restart(tmp_path: Path) -> None:
     present minute, leaving the gap silently un-executed.
     """
     agent = _agent(tmp_path)
-    _write_heartbeat(agent.workspace_root, "cron: 0 9 * * *\n\nDaily 09:00 heartbeat.\n")
+    _write_heartbeat(
+        agent.workspace_root, "cron: 0 9 * * *\n\nDaily 09:00 heartbeat.\n"
+    )
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
     kernel = _FakeKernelClient()
     scheduler = HeartbeatScheduler(
@@ -276,9 +278,7 @@ def test_cron_no_backfill_after_restart(tmp_path: Path) -> None:
     )
 
     # Next cron slot (09:00 on day 3) must fire when the tick lands on that minute.
-    next_tick = asyncio.run(
-        restarted.tick(now=datetime(2026, 3, 13, 9, 0, tzinfo=UTC))
-    )
+    next_tick = asyncio.run(restarted.tick(now=datetime(2026, 3, 13, 9, 0, tzinfo=UTC)))
     assert len(next_tick.triggered_runs) == 1
     assert next_tick.triggered_runs[0].due_at == datetime(2026, 3, 13, 9, 0, tzinfo=UTC)
 
@@ -473,8 +473,12 @@ def test_scheduler_runs_agent_when_heartbeat_enabled(tmp_path: Path) -> None:
 
 def test_scheduler_skips_disabled_among_mixed_agents(tmp_path: Path) -> None:
     """Mixed agent list: disabled agents skipped, enabled agents run normally."""
-    enabled = _agent_with_heartbeat(tmp_path, name="enabled-agent", heartbeat_enabled=True)
-    disabled = _agent_with_heartbeat(tmp_path, name="disabled-agent", heartbeat_enabled=False)
+    enabled = _agent_with_heartbeat(
+        tmp_path, name="enabled-agent", heartbeat_enabled=True
+    )
+    disabled = _agent_with_heartbeat(
+        tmp_path, name="disabled-agent", heartbeat_enabled=False
+    )
     for agent in (enabled, disabled):
         _write_heartbeat(agent.workspace_root, "interval: 1m\n\n- Check\n")
     kernel = _FakeKernelClient()
@@ -624,9 +628,7 @@ def test_scheduler_uses_live_agents_getter_on_each_tick(tmp_path: Path) -> None:
     live_agents[agent.agent_id] = disabled_agent
 
     # Second tick (1 minute later): agent is now disabled → must NOT fire
-    summary2 = asyncio.run(
-        scheduler.tick(now=datetime(2026, 3, 11, 9, 1, tzinfo=UTC))
-    )
+    summary2 = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 1, tzinfo=UTC)))
     assert summary2.triggered_runs == (), "agent must be skipped after toggle off"
     assert disabled_agent.agent_id in summary2.skipped_agents
 
@@ -648,14 +650,19 @@ def test_scheduler_falls_back_to_frozen_agents_when_no_getter(tmp_path: Path) ->
     assert len(summary.triggered_runs) == 1
 
 
-def test_heartbeat_interval_triggers_on_second_tick_with_overhead(tmp_path: Path) -> None:
+def test_heartbeat_interval_triggers_on_second_tick_with_overhead(
+    tmp_path: Path,
+) -> None:
     """Regression for R6-1 ceil bug in heartbeat _IntervalSchedule.
 
     Scenario: interval=30s, LLM call + overhead makes elapsed=32s on second tick.
     ceil(32/30)=2 → next_due=last+60s > now+32s → NOT triggered (the bug).
     floor(32/30)=1 → next_due=last+30s <= now+32s → triggered (correct).
     """
-    from personal_assistant.scheduler.heartbeat_scheduler import _AgentState, _SchedulerState
+    from personal_assistant.scheduler.heartbeat_scheduler import (
+        _AgentState,
+        _SchedulerState,
+    )
 
     agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
     _write_heartbeat(agent.workspace_root, "interval: 30s\n\n- Check task\n")
@@ -665,9 +672,13 @@ def test_heartbeat_interval_triggers_on_second_tick_with_overhead(tmp_path: Path
     # Set last_due_at to T; simulate second tick at T+32s (30s sleep + 2s LLM overhead)
     t_last = datetime(2026, 3, 11, 9, 0, 0, tzinfo=UTC)
     t_second_tick = t_last + timedelta(seconds=32)
-    state_store.save(_SchedulerState(agents={
-        agent.agent_id: _AgentState(last_due_at=t_last.isoformat()),
-    }))
+    state_store.save(
+        _SchedulerState(
+            agents={
+                agent.agent_id: _AgentState(last_due_at=t_last.isoformat()),
+            }
+        )
+    )
 
     scheduler = HeartbeatScheduler(
         agents=(agent,),
@@ -686,7 +697,10 @@ def test_heartbeat_large_gap_triggers_only_once(tmp_path: Path) -> None:
 
     Verifies the floor fix does not re-introduce round-2 backfill flood.
     """
-    from personal_assistant.scheduler.heartbeat_scheduler import _AgentState, _SchedulerState
+    from personal_assistant.scheduler.heartbeat_scheduler import (
+        _AgentState,
+        _SchedulerState,
+    )
 
     agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
     _write_heartbeat(agent.workspace_root, "interval: 30s\n\n- Check task\n")
@@ -695,9 +709,13 @@ def test_heartbeat_large_gap_triggers_only_once(tmp_path: Path) -> None:
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
     t_last = datetime(2026, 3, 11, 9, 0, 0, tzinfo=UTC)
     t_now = t_last + timedelta(seconds=150)  # 5 missed intervals of 30s
-    state_store.save(_SchedulerState(agents={
-        agent.agent_id: _AgentState(last_due_at=t_last.isoformat()),
-    }))
+    state_store.save(
+        _SchedulerState(
+            agents={
+                agent.agent_id: _AgentState(last_due_at=t_last.isoformat()),
+            }
+        )
+    )
 
     scheduler = HeartbeatScheduler(
         agents=(agent,),

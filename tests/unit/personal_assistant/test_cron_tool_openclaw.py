@@ -11,6 +11,7 @@ Also verifies:
 - cron tool is NOT in coding_cli toolsets (decision 7 isolation)
 - cron tool source file contains 'Provenance:' comment referencing openclaw cron-tool.ts
 """
+
 from __future__ import annotations
 
 import inspect
@@ -26,6 +27,7 @@ class TestCronToolOpenclawSchema:
 
     def _get_cron_tool(self):
         from agent.products.personal_assistant.tools.cron import get_tool
+
         return get_tool()
 
     def test_cron_tool_has_name_cron(self) -> None:
@@ -123,16 +125,16 @@ class TestCronToolProvenanceComment:
 
     def test_cron_tool_source_contains_provenance_comment(self) -> None:
         import agent.products.personal_assistant.tools.cron as cron_module
+
         source = inspect.getsource(cron_module)
-        assert "Provenance:" in source, (
-            "cron.py must contain a 'Provenance:' comment"
-        )
+        assert "Provenance:" in source, "cron.py must contain a 'Provenance:' comment"
         assert "cron-tool.ts" in source, (
             "cron.py Provenance comment must reference openclaw/src/agents/tools/cron-tool.ts"
         )
 
     def test_cron_tool_source_references_openclaw(self) -> None:
         import agent.products.personal_assistant.tools.cron as cron_module
+
         source = inspect.getsource(cron_module)
         assert "openclaw" in source, (
             "cron.py must mention 'openclaw' in Provenance comment"
@@ -151,6 +153,7 @@ class TestCronToolIsolation:
             DEFAULT_TOOL_IDS,
             OPTIONAL_TOOL_IDS,
         )
+
         all_pa_tools = list(DEFAULT_TOOL_IDS) + list(OPTIONAL_TOOL_IDS)
         assert "cron" in all_pa_tools, (
             "cron tool must be listed in PA DEFAULT_TOOL_IDS or OPTIONAL_TOOL_IDS"
@@ -161,7 +164,11 @@ class TestCronToolIsolation:
 
         feat-394 decision 7: coding_cli must not contain cron tool.
         """
-        from agent.products.local_coding.toolsets import DEFAULT_TOOL_IDS, OPTIONAL_TOOL_IDS
+        from agent.products.local_coding.toolsets import (
+            DEFAULT_TOOL_IDS,
+            OPTIONAL_TOOL_IDS,
+        )
+
         all_cli_tools = list(DEFAULT_TOOL_IDS) + list(OPTIONAL_TOOL_IDS)
         assert "cron" not in all_cli_tools, (
             "cron tool MUST NOT be in coding_cli toolsets (feat-394 decision 7)"

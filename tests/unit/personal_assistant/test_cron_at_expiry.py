@@ -22,6 +22,7 @@ import pytest
 
 def _make_at_schedule(due_at: datetime):
     from personal_assistant.scheduler.cron_scheduler import _AtSchedule  # noqa: PLC2701
+
     return _AtSchedule(due_at=due_at)
 
 

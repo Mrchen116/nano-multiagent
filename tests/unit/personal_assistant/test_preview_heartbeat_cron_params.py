@@ -13,6 +13,7 @@ the route handler uses them when present, falling back to profile-stored values.
 The IM gateway_handler.request_prompt_preview already forwarded these; the IM route
 was the missing link.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,6 +25,7 @@ class TestPromptPreviewRequestModel:
 
     def _get_model(self):
         from IM.api.routes.agents import PromptPreviewRequest
+
         return PromptPreviewRequest
 
     def test_accepts_heartbeat_enabled_true(self) -> None:
@@ -133,14 +135,14 @@ class TestPreviewRoutePassesParams:
 
     def test_request_params_override_profile_when_explicit(self) -> None:
         """When request provides heartbeat_enabled=False, it overrides profile True."""
-        profile_hb = json.dumps({"enabled": True})   # profile says heartbeat ON
+        profile_hb = json.dumps({"enabled": True})  # profile says heartbeat ON
         profile_cron = json.dumps({"enabled": True})  # profile says cron ON
 
         calls: list = []
         self._call_route(
             profile_hb_json=profile_hb,
             profile_cron_json=profile_cron,
-            request_hb=False,   # request says OFF — must override profile
+            request_hb=False,  # request says OFF — must override profile
             request_cron=False,  # request says OFF — must override profile
             captured_calls=calls,
         )
@@ -163,8 +165,8 @@ class TestPreviewRoutePassesParams:
         self._call_route(
             profile_hb_json=profile_hb,
             profile_cron_json=profile_cron,
-            request_hb=None,    # absent: fall back to profile
-            request_cron=None,   # absent: fall back to profile
+            request_hb=None,  # absent: fall back to profile
+            request_cron=None,  # absent: fall back to profile
             captured_calls=calls,
         )
         assert len(calls) == 1

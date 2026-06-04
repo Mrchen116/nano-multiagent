@@ -359,9 +359,9 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "agent_features": {},
-                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
-                "heartbeat_enabled": False,
-                "cron_enabled": False,
+            # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+            "heartbeat_enabled": False,
+            "cron_enabled": False,
             "config_profile_version": 1,
             "system_prompt": "You are agent-a.",
             "conversation_type": "direct",
@@ -370,9 +370,9 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "agent_features": {},
-                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
-                "heartbeat_enabled": False,
-                "cron_enabled": False,
+            # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+            "heartbeat_enabled": False,
+            "cron_enabled": False,
             "config_profile_version": 1,
             "system_prompt": "You are upgraded.",
             "skills": ["plan"],
@@ -383,9 +383,9 @@ def test_direct_chat_keeps_old_session_after_config_sync_while_new_conversation_
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "agent_features": {},
-                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
-                "heartbeat_enabled": False,
-                "cron_enabled": False,
+            # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
+            "heartbeat_enabled": False,
+            "cron_enabled": False,
             "config_profile_version": 2,
             "system_prompt": "You are upgraded.",
             "skills": ["plan"],

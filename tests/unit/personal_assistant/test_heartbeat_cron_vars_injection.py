@@ -6,6 +6,7 @@ must read them into PromptContext.vars so prompt segment enabled_when gates work
 
 These tests are red until the R1 implementation lands.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -234,7 +235,9 @@ class TestRuntimeVarsFromMetadata:
 
         Currently fails because runtime.py only puts 'custom_prompt' in vars.
         """
-        from agent.core.agent.prompt_sections.wiring import build_prompt_context_from_metadata
+        from agent.core.agent.prompt_sections.wiring import (
+            build_prompt_context_from_metadata,
+        )
 
         metadata = {
             "custom_prompt": "",
@@ -292,7 +295,9 @@ class TestAssemblePromptPreviewVarsInjection:
         from agent.products.personal_assistant.prompt_sections import (
             _PA_HEARTBEAT,  # noqa: PLC2701
         )
-        from agent.core.agent.prompt_sections.wiring import build_prompt_context_from_metadata
+        from agent.core.agent.prompt_sections.wiring import (
+            build_prompt_context_from_metadata,
+        )
 
         # Simulate what assemble_prompt_preview should do once fixed:
         # pass heartbeat_enabled into vars so the section gate sees it.
@@ -303,7 +308,11 @@ class TestAssemblePromptPreviewVarsInjection:
             current_datetime=None,
             cwd="/tmp",
             flags={},
-            vars={"custom_prompt": "", "heartbeat_enabled": "False", "cron_enabled": "False"},
+            vars={
+                "custom_prompt": "",
+                "heartbeat_enabled": "False",
+                "cron_enabled": "False",
+            },
         )
         assert _PA_HEARTBEAT.enabled_when is not None
         assert _PA_HEARTBEAT.enabled_when(ctx) is False, (
@@ -316,7 +325,9 @@ class TestAssemblePromptPreviewVarsInjection:
         from agent.products.personal_assistant.prompt_sections import (
             _PA_CRON,  # noqa: PLC2701
         )
-        from agent.core.agent.prompt_sections.wiring import build_prompt_context_from_metadata
+        from agent.core.agent.prompt_sections.wiring import (
+            build_prompt_context_from_metadata,
+        )
 
         ctx = build_prompt_context_from_metadata(
             metadata={"conversation_type": "direct"},
@@ -325,7 +336,11 @@ class TestAssemblePromptPreviewVarsInjection:
             current_datetime=None,
             cwd="/tmp",
             flags={},
-            vars={"custom_prompt": "", "heartbeat_enabled": "False", "cron_enabled": "True"},
+            vars={
+                "custom_prompt": "",
+                "heartbeat_enabled": "False",
+                "cron_enabled": "True",
+            },
         )
         assert _PA_CRON.enabled_when is not None
         assert _PA_CRON.enabled_when(ctx) is True
@@ -383,7 +398,9 @@ class TestAssemblePromptPreviewVarsInjection:
             cron_enabled=False,
         )
 
-        assert len(captured_vars) == 1, "assemble_prompt_preview should have been called once"
+        assert len(captured_vars) == 1, (
+            "assemble_prompt_preview should have been called once"
+        )
         assert captured_vars[0]["heartbeat_enabled"] == "True", (
             "_make_prompt_preview_provider must forward heartbeat_enabled to assemble_prompt_preview"
         )

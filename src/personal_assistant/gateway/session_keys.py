@@ -142,7 +142,9 @@ class PersistentSessionBindingStore:
         # oldest / canonical conversation consistent with IM's sorted-by-created_at policy).
         existing_cols = {
             row[1]
-            for row in self._conn.execute("PRAGMA table_info(session_bindings)").fetchall()
+            for row in self._conn.execute(
+                "PRAGMA table_info(session_bindings)"
+            ).fetchall()
         }
         if "created_at" not in existing_cols:
             self._conn.execute(_MIGRATE_ADD_CREATED_AT_SQL)

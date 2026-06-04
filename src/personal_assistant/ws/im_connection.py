@@ -454,9 +454,7 @@ class IMConnectionManager:
             )
             cron_enabled_raw = body.get("cron_enabled")
             cron_enabled: bool | None = (
-                bool(cron_enabled_raw)
-                if isinstance(cron_enabled_raw, bool)
-                else None
+                bool(cron_enabled_raw) if isinstance(cron_enabled_raw, bool) else None
             )
             preview_result: dict[str, object] = {}
             if self._prompt_preview_provider is not None:

@@ -72,9 +72,7 @@ class _FakeKernelForCron:
 
         return _FakeRecord()
 
-    async def stream(
-        self, session_id: str, after_sequence: int = 0
-    ):
+    async def stream(self, session_id: str, after_sequence: int = 0):
         """Yield a minimal event sequence: run_status running → assistant_message → run_status completed."""
         self.stream_calls.append((session_id, after_sequence))
 
@@ -128,11 +126,13 @@ class _FakeShimForCron:
         origin: str | None = None,
         **kwargs: Any,
     ) -> dict:
-        self.submitted.append({
-            "session_id": session_id,
-            "texts": texts,
-            "origin": origin,
-        })
+        self.submitted.append(
+            {
+                "session_id": session_id,
+                "texts": texts,
+                "origin": origin,
+            }
+        )
         return {"run_id": "run-cron-test-1", "anchor_sequence": 0}
 
     def current_event_sequence(self) -> int:
@@ -149,13 +149,15 @@ class _FakeShimForCron:
         **_kwargs: object,
     ) -> dict:
         """feat-394-M9: awareness injection via kernel.append_message."""
-        self.appended_messages.append({
-            "session_id": session_id,
-            "role": role,
-            "content": content,
-            "workspace_root": workspace_root,
-            "metadata": metadata,
-        })
+        self.appended_messages.append(
+            {
+                "session_id": session_id,
+                "role": role,
+                "content": content,
+                "workspace_root": workspace_root,
+                "metadata": metadata,
+            }
+        )
         return {"status": "appended"}
 
 
@@ -223,7 +225,9 @@ async def test_cron_delivery_seeds_run_context_store(tmp_path: Path) -> None:
     }
 
     # Verify seeding
-    assert run_id in run_context_store, "run_context_store must be seeded after cron submit"
+    assert run_id in run_context_store, (
+        "run_context_store must be seeded after cron submit"
+    )
     ctx = run_context_store[run_id]
     assert ctx["to_user_id"] == owner_user_id, f"to_user_id must be {owner_user_id!r}"
     assert ctx["agent_id"] == agent_id
@@ -265,7 +269,10 @@ async def test_cron_delivery_observer_called_on_stream_events(tmp_path: Path) ->
         if asyncio.iscoroutine(result):
             await result
         if event.get("event") == "run_status" and event.get("status") in (
-            "completed", "failed", "cancelled", "error"
+            "completed",
+            "failed",
+            "cancelled",
+            "error",
         ):
             break
 
@@ -309,7 +316,10 @@ async def test_cron_delivery_extracts_result_for_awareness(tmp_path: Path) -> No
             if content:
                 final_result = content
         if event.get("event") == "run_status" and event.get("status") in (
-            "completed", "failed", "cancelled", "error"
+            "completed",
+            "failed",
+            "cancelled",
+            "error",
         ):
             break
 

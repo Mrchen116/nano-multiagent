@@ -1866,9 +1866,7 @@ class AgentProfileRepository:
             heartbeat_json if heartbeat_json is not None else current.heartbeat_json
         )
         # feat-394-M2: cron_json is a raw JSON string; None preserves existing value.
-        resolved_cron_json = (
-            cron_json if cron_json is not None else current.cron_json
-        )
+        resolved_cron_json = cron_json if cron_json is not None else current.cron_json
         with self._connection:
             self._connection.execute(
                 """
@@ -1949,10 +1947,18 @@ class AgentProfileRepository:
         )
         # feat-394: heartbeat config JSON string (raw, not decoded; forwarded to gateway as-is)
         heartbeat_json_raw = row["heartbeat_json"] if "heartbeat_json" in keys else None
-        heartbeat_json = heartbeat_json_raw if isinstance(heartbeat_json_raw, str) and heartbeat_json_raw.strip() else None
+        heartbeat_json = (
+            heartbeat_json_raw
+            if isinstance(heartbeat_json_raw, str) and heartbeat_json_raw.strip()
+            else None
+        )
         # feat-394-M2: cron config JSON string (raw, not decoded; forwarded to gateway as-is)
         cron_json_raw = row["cron_json"] if "cron_json" in keys else None
-        cron_json = cron_json_raw if isinstance(cron_json_raw, str) and cron_json_raw.strip() else None
+        cron_json = (
+            cron_json_raw
+            if isinstance(cron_json_raw, str) and cron_json_raw.strip()
+            else None
+        )
         return AgentProfile(
             agent_id=row["agent_id"],
             owner_id=row["owner_id"],

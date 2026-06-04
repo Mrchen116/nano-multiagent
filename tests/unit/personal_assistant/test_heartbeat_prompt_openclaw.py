@@ -6,6 +6,7 @@ Covers two exit criteria from M1:
 
 These tests are red until R3 implementation lands.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -17,6 +18,7 @@ from agent.products.personal_assistant.prompt_sections import _PA_HEARTBEAT  # n
 # ---------------------------------------------------------------------------
 # HEARTBEAT_OK silence token
 # ---------------------------------------------------------------------------
+
 
 class TestHeartbeatOkSilenceToken:
     """HEARTBEAT_OK must be recognised as a silence token in the heartbeat delivery path.
@@ -58,6 +60,7 @@ class TestHeartbeatOkSilenceToken:
 # ---------------------------------------------------------------------------
 # Prompt segment verbatim parity with openclaw
 # ---------------------------------------------------------------------------
+
 
 class TestHeartbeatPromptOpenclawParity:
     """_PA_HEARTBEAT segment text must be verbatim identical to openclaw buildHeartbeatSection.
@@ -148,7 +151,9 @@ class TestHeartbeatMessageOpenclawVerbatim:
 
     def _call_build_message(self) -> str:
         from datetime import UTC, datetime
-        from personal_assistant.scheduler.heartbeat_scheduler import _build_heartbeat_message  # noqa: PLC2701
+        from personal_assistant.scheduler.heartbeat_scheduler import (
+            _build_heartbeat_message,
+        )  # noqa: PLC2701
 
         return _build_heartbeat_message(
             agent_id="test-agent",

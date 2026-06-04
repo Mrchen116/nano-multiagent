@@ -401,6 +401,7 @@ class InboundPipeline:
         # When allowlist is absent/empty, pass None so runtime applies DEFAULT_TOOL_IDS gate.
         if agent.tool_allowlist:
             from agent.sdk import PERSONAL_ASSISTANT_PROFILE as _PA_PROFILE  # noqa: PLC0415
+
             _base = list(_PA_PROFILE.default_tool_ids or [])
             _extras = [t for t in agent.tool_allowlist if t not in _base]
             agent_tool_allowlist: list[str] | None = _base + _extras

@@ -86,7 +86,11 @@ class UpdateAgentConfigRequest(BaseModel):
         """
         if not isinstance(data, dict):
             return data
-        if "heartbeat" in data and data["heartbeat"] is not None and "heartbeat_json" not in data:
+        if (
+            "heartbeat" in data
+            and data["heartbeat"] is not None
+            and "heartbeat_json" not in data
+        ):
             data = dict(data)
             data["heartbeat_json"] = json.dumps(data.pop("heartbeat"))
         elif "heartbeat" in data:
@@ -653,7 +657,9 @@ def list_agent_cron_jobs(
     """
     profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
     if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
+        )
     workspace_root = service.workspace_root_for_profile(profile)
     jobs_path = Path(workspace_root) / _CRON_JOBS_PATH
     if not jobs_path.exists():
@@ -669,14 +675,16 @@ def list_agent_cron_jobs(
         if not isinstance(item, dict):
             continue
         try:
-            result.append(CronJobSummary(
-                id=str(item.get("id", "")),
-                name=str(item.get("name", "")),
-                schedule=item.get("schedule", {}),
-                instruction=str(item.get("instruction", "")),
-                enabled=bool(item.get("enabled", True)),
-                delete_after_run=bool(item.get("delete_after_run", False)),
-            ))
+            result.append(
+                CronJobSummary(
+                    id=str(item.get("id", "")),
+                    name=str(item.get("name", "")),
+                    schedule=item.get("schedule", {}),
+                    instruction=str(item.get("instruction", "")),
+                    enabled=bool(item.get("enabled", True)),
+                    delete_after_run=bool(item.get("delete_after_run", False)),
+                )
+            )
         except (TypeError, ValueError):
             continue
     return result
@@ -699,22 +707,43 @@ def delete_agent_cron_job(
     """
     profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
     if profile is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
+        )
     workspace_root = service.workspace_root_for_profile(profile)
     jobs_path = Path(workspace_root) / _CRON_JOBS_PATH
     if not jobs_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found"
+        )
     try:
         data = json.loads(jobs_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="could not read jobs") from exc
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="could not read jobs",
+        ) from exc
     if not isinstance(data, list):
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="malformed jobs file")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="malformed jobs file",
+        )
     original_len = len(data)
-    filtered = [item for item in data if isinstance(item, dict) and str(item.get("id", "")) != job_id]
+    filtered = [
+        item
+        for item in data
+        if isinstance(item, dict) and str(item.get("id", "")) != job_id
+    ]
     if len(filtered) == original_len:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found"
+        )
     try:
-        jobs_path.write_text(json.dumps(filtered, indent=2, ensure_ascii=False), encoding="utf-8")
+        jobs_path.write_text(
+            json.dumps(filtered, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
     except OSError as exc:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="could not write jobs") from exc
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="could not write jobs",
+        ) from exc

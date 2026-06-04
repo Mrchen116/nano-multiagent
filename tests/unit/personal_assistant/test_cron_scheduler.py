@@ -7,6 +7,7 @@ Covers:
 - cron_enabled per-agent gate
 - delete_after_run for one-shot at jobs
 """
+
 from __future__ import annotations
 
 import json
@@ -86,7 +87,9 @@ class TestCronJobStore:
 
     def test_jobs_persisted_to_disk(self, tmp_path: Path) -> None:
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 3600_000}))
+        store.add(
+            _make_job(job_id="j1", schedule={"kind": "every", "everyMs": 3600_000})
+        )
         # Re-create store to verify persistence
         store2 = CronJobStore(workspace_root=tmp_path)
         jobs = store2.list_jobs()
@@ -103,14 +106,18 @@ class TestCronJobStore:
     def test_add_multiple_jobs(self, tmp_path: Path) -> None:
         store = CronJobStore(workspace_root=tmp_path)
         store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 60_000}))
-        store.add(_make_job(job_id="j2", schedule={"kind": "cron", "expr": "0 9 * * *"}))
+        store.add(
+            _make_job(job_id="j2", schedule={"kind": "cron", "expr": "0 9 * * *"})
+        )
         jobs = store.list_jobs()
         assert {j.id for j in jobs} == {"j1", "j2"}
 
     def test_remove_job(self, tmp_path: Path) -> None:
         store = CronJobStore(workspace_root=tmp_path)
         store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 60_000}))
-        store.add(_make_job(job_id="j2", schedule={"kind": "every", "everyMs": 120_000}))
+        store.add(
+            _make_job(job_id="j2", schedule={"kind": "every", "everyMs": 120_000})
+        )
         store.remove("j1")
         jobs = store.list_jobs()
         assert len(jobs) == 1
@@ -118,7 +125,11 @@ class TestCronJobStore:
 
     def test_update_job(self, tmp_path: Path) -> None:
         store = CronJobStore(workspace_root=tmp_path)
-        job = _make_job(job_id="j1", schedule={"kind": "every", "everyMs": 60_000}, instruction="old")
+        job = _make_job(
+            job_id="j1",
+            schedule={"kind": "every", "everyMs": 60_000},
+            instruction="old",
+        )
         store.add(job)
         updated_job = CronJob(
             id="j1",
@@ -136,16 +147,36 @@ class TestCronJobStore:
 
     def test_list_disabled_excluded_by_default(self, tmp_path: Path) -> None:
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 60_000}, enabled=True))
-        store.add(_make_job(job_id="j2", schedule={"kind": "every", "everyMs": 60_000}, enabled=False))
+        store.add(
+            _make_job(
+                job_id="j1", schedule={"kind": "every", "everyMs": 60_000}, enabled=True
+            )
+        )
+        store.add(
+            _make_job(
+                job_id="j2",
+                schedule={"kind": "every", "everyMs": 60_000},
+                enabled=False,
+            )
+        )
         jobs = store.list_jobs(include_disabled=False)
         assert len(jobs) == 1
         assert jobs[0].id == "j1"
 
     def test_list_with_disabled_included(self, tmp_path: Path) -> None:
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 60_000}, enabled=True))
-        store.add(_make_job(job_id="j2", schedule={"kind": "every", "everyMs": 60_000}, enabled=False))
+        store.add(
+            _make_job(
+                job_id="j1", schedule={"kind": "every", "everyMs": 60_000}, enabled=True
+            )
+        )
+        store.add(
+            _make_job(
+                job_id="j2",
+                schedule={"kind": "every", "everyMs": 60_000},
+                enabled=False,
+            )
+        )
         jobs = store.list_jobs(include_disabled=True)
         assert len(jobs) == 2
 
@@ -171,10 +202,15 @@ class TestCronSchedulerStateStore:
         assert state.jobs == {}
 
     def test_save_and_reload(self, tmp_path: Path) -> None:
-        from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
+        from personal_assistant.scheduler.cron_scheduler import (
+            _CronRunState,
+            _CronState,
+        )
 
         store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
-        state = _CronState(jobs={"j1": _CronRunState(last_due_at="2026-01-01T00:00:00+00:00")})
+        state = _CronState(
+            jobs={"j1": _CronRunState(last_due_at="2026-01-01T00:00:00+00:00")}
+        )
         store.save(state)
         loaded = store.load()
         assert loaded.jobs["j1"].last_due_at == "2026-01-01T00:00:00+00:00"
@@ -219,7 +255,10 @@ class TestNonBackfillEverySchedule:
         Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "every" branch —
         steps = ceil(elapsed/everyMs) always lands on the next future slot after anchor.
         """
-        from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
+        from personal_assistant.scheduler.cron_scheduler import (
+            _CronRunState,
+            _CronState,
+        )
 
         # Last ran at 10:00; now it's 10:05 — gap = 5 minutes, interval = 60s → 5 missed ticks.
         last_ran = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
@@ -247,17 +286,22 @@ class TestNonBackfillEverySchedule:
         assert len(due) == 1, f"Expected 1 due job (not backfill), got {len(due)}"
 
     def test_not_due_when_interval_not_reached(self, tmp_path: Path) -> None:
-        from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
+        from personal_assistant.scheduler.cron_scheduler import (
+            _CronRunState,
+            _CronState,
+        )
 
         last_ran = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
-        now = datetime(2026, 1, 1, 10, 0, 30, tzinfo=UTC)  # only 30s elapsed, interval=60s
+        now = datetime(
+            2026, 1, 1, 10, 0, 30, tzinfo=UTC
+        )  # only 30s elapsed, interval=60s
 
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(
-            job_id="j1", schedule={"kind": "every", "everyMs": 60_000}
-        ))
+        store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 60_000}))
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
-        state_store.save(_CronState(jobs={"j1": _CronRunState(last_due_at=last_ran.isoformat())}))
+        state_store.save(
+            _CronState(jobs={"j1": _CronRunState(last_due_at=last_ran.isoformat())})
+        )
 
         scheduler = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=None
@@ -275,7 +319,9 @@ class TestNonBackfillCronSchedule:
 
     def test_cron_fires_when_matching_minute(self, tmp_path: Path) -> None:
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(job_id="j1", schedule={"kind": "cron", "expr": "0 9 * * *"}))
+        store.add(
+            _make_job(job_id="j1", schedule={"kind": "cron", "expr": "0 9 * * *"})
+        )
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
         scheduler = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=None
@@ -286,16 +332,23 @@ class TestNonBackfillCronSchedule:
 
     def test_cron_no_backfill_after_missed_slots(self, tmp_path: Path) -> None:
         """After missing 10 firing slots, only the current minute is checked."""
-        from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
+        from personal_assistant.scheduler.cron_scheduler import (
+            _CronRunState,
+            _CronState,
+        )
 
         # Last ran at 09:00 day 1; now it's 09:00 day 2 — 24 hours later.
         last_ran = datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC)
         now = datetime(2026, 1, 2, 9, 0, 0, tzinfo=UTC)
 
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(job_id="j1", schedule={"kind": "cron", "expr": "0 9 * * *"}))
+        store.add(
+            _make_job(job_id="j1", schedule={"kind": "cron", "expr": "0 9 * * *"})
+        )
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
-        state_store.save(_CronState(jobs={"j1": _CronRunState(last_due_at=last_ran.isoformat())}))
+        state_store.save(
+            _CronState(jobs={"j1": _CronRunState(last_due_at=last_ran.isoformat())})
+        )
 
         scheduler = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=None
@@ -305,16 +358,23 @@ class TestNonBackfillCronSchedule:
         assert len(due) == 1
 
     def test_cron_no_double_fire_same_minute(self, tmp_path: Path) -> None:
-        from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
+        from personal_assistant.scheduler.cron_scheduler import (
+            _CronRunState,
+            _CronState,
+        )
 
         # Already ran at 09:00 exactly — another tick at 09:00:30 must not re-fire.
         last_ran = datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC)
         now = datetime(2026, 1, 1, 9, 0, 30, tzinfo=UTC)
 
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(job_id="j1", schedule={"kind": "cron", "expr": "0 9 * * *"}))
+        store.add(
+            _make_job(job_id="j1", schedule={"kind": "cron", "expr": "0 9 * * *"})
+        )
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
-        state_store.save(_CronState(jobs={"j1": _CronRunState(last_due_at=last_ran.isoformat())}))
+        state_store.save(
+            _CronState(jobs={"j1": _CronRunState(last_due_at=last_ran.isoformat())})
+        )
 
         scheduler = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=None
@@ -324,7 +384,9 @@ class TestNonBackfillCronSchedule:
 
     def test_cron_no_fire_when_not_matching(self, tmp_path: Path) -> None:
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(job_id="j1", schedule={"kind": "cron", "expr": "0 9 * * *"}))
+        store.add(
+            _make_job(job_id="j1", schedule={"kind": "cron", "expr": "0 9 * * *"})
+        )
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
         scheduler = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=None
@@ -343,11 +405,13 @@ class TestNonBackfillAtSchedule:
 
     def test_at_fires_when_time_arrived(self, tmp_path: Path) -> None:
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(
-            job_id="j1",
-            schedule={"kind": "at", "at": "2026-01-01T10:00:00Z"},
-            delete_after_run=True,
-        ))
+        store.add(
+            _make_job(
+                job_id="j1",
+                schedule={"kind": "at", "at": "2026-01-01T10:00:00Z"},
+                delete_after_run=True,
+            )
+        )
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
         scheduler = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=None
@@ -362,19 +426,26 @@ class TestNonBackfillAtSchedule:
         Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "at" branch —
         atMs <= nowMs and job already executed → undefined (skip).
         """
-        from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
+        from personal_assistant.scheduler.cron_scheduler import (
+            _CronRunState,
+            _CronState,
+        )
 
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(
-            job_id="j1",
-            schedule={"kind": "at", "at": "2026-01-01T10:00:00Z"},
-            delete_after_run=True,
-        ))
+        store.add(
+            _make_job(
+                job_id="j1",
+                schedule={"kind": "at", "at": "2026-01-01T10:00:00Z"},
+                delete_after_run=True,
+            )
+        )
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
         # Simulate: job ran at exactly its scheduled time
-        state_store.save(_CronState(jobs={
-            "j1": _CronRunState(last_due_at="2026-01-01T10:00:00+00:00")
-        }))
+        state_store.save(
+            _CronState(
+                jobs={"j1": _CronRunState(last_due_at="2026-01-01T10:00:00+00:00")}
+            )
+        )
         scheduler = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=None
         )
@@ -385,10 +456,12 @@ class TestNonBackfillAtSchedule:
 
     def test_at_not_yet_due_not_fired(self, tmp_path: Path) -> None:
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(
-            job_id="j1",
-            schedule={"kind": "at", "at": "2026-01-01T11:00:00Z"},
-        ))
+        store.add(
+            _make_job(
+                job_id="j1",
+                schedule={"kind": "at", "at": "2026-01-01T11:00:00Z"},
+            )
+        )
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
         scheduler = CronScheduler(
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=None
@@ -412,9 +485,13 @@ class TestCronSchedulerTick:
             submitted.append({"agent_id": agent_id, "job_id": job.id})
 
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(
-            job_id="j1", schedule={"kind": "every", "everyMs": 60_000}, instruction="ping"
-        ))
+        store.add(
+            _make_job(
+                job_id="j1",
+                schedule={"kind": "every", "everyMs": 60_000},
+                instruction="ping",
+            )
+        )
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
         scheduler = CronScheduler(
             agent_id="agent-1",
@@ -435,14 +512,19 @@ class TestCronSchedulerTick:
             submitted.append({"job_id": job.id})
 
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(
-            job_id="j1",
-            schedule={"kind": "every", "everyMs": 60_000},
-            enabled=False,
-        ))
+        store.add(
+            _make_job(
+                job_id="j1",
+                schedule={"kind": "every", "everyMs": 60_000},
+                enabled=False,
+            )
+        )
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
         scheduler = CronScheduler(
-            agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit
+            agent_id="agent-1",
+            job_store=store,
+            state_store=state_store,
+            submit_fn=fake_submit,
         )
         await scheduler.tick(now=datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC))
         assert submitted == [], "Disabled job must not be submitted"
@@ -458,7 +540,10 @@ class TestCronSchedulerTick:
         store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 60_000}))
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
         scheduler = CronScheduler(
-            agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit
+            agent_id="agent-1",
+            job_store=store,
+            state_store=state_store,
+            submit_fn=fake_submit,
         )
         now = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
         await scheduler.tick(now=now)
@@ -470,7 +555,10 @@ class TestCronSchedulerTick:
             fired_second_time.append(job.id)
 
         scheduler2 = CronScheduler(
-            agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit2
+            agent_id="agent-1",
+            job_store=store,
+            state_store=state_store,
+            submit_fn=fake_submit2,
         )
         await scheduler2.tick(now=now)
         assert fired_second_time == [], "Should not re-fire after state is persisted"
@@ -486,20 +574,41 @@ class TestCronSchedulerTick:
         store = CronJobStore(workspace_root=tmp_path)
         # j1 fires every 60s, j2 fires every 120s
         store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 60_000}))
-        store.add(_make_job(job_id="j2", schedule={"kind": "every", "everyMs": 120_000}))
+        store.add(
+            _make_job(job_id="j2", schedule={"kind": "every", "everyMs": 120_000})
+        )
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
 
-        from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
+        from personal_assistant.scheduler.cron_scheduler import (
+            _CronRunState,
+            _CronState,
+        )
+
         # j1 (60s): last_ran=9:57:00, elapsed=180s, steps=floor(180/60)=3, next=9:57:00+180s=10:00:00 → DUE
         # j2 (120s): last_ran=9:57:00, elapsed=180s, steps=floor(180/120)=1, next=9:57:00+120s=9:59:00 → DUE
         t_base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
-        state_store.save(_CronState(jobs={
-            "j1": _CronRunState(last_due_at=datetime(2026, 1, 1, 9, 57, 0, tzinfo=UTC).isoformat()),
-            "j2": _CronRunState(last_due_at=datetime(2026, 1, 1, 9, 57, 0, tzinfo=UTC).isoformat()),
-        }))
+        state_store.save(
+            _CronState(
+                jobs={
+                    "j1": _CronRunState(
+                        last_due_at=datetime(
+                            2026, 1, 1, 9, 57, 0, tzinfo=UTC
+                        ).isoformat()
+                    ),
+                    "j2": _CronRunState(
+                        last_due_at=datetime(
+                            2026, 1, 1, 9, 57, 0, tzinfo=UTC
+                        ).isoformat()
+                    ),
+                }
+            )
+        )
 
         scheduler = CronScheduler(
-            agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit
+            agent_id="agent-1",
+            job_store=store,
+            state_store=state_store,
+            submit_fn=fake_submit,
         )
         await scheduler.tick(now=t_base)
         # j1 (60s interval, 180s elapsed) is due; j2 (120s interval, 180s elapsed) is also due
@@ -525,7 +634,10 @@ class TestCronSchedulerTick:
         store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 15_000}))
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
 
-        from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
+        from personal_assistant.scheduler.cron_scheduler import (
+            _CronRunState,
+            _CronState,
+        )
 
         # Simulate: first tick triggered at T+0 (last_due_at set to T).
         # Second tick: now = T + 17s (15s sleep + 2s LLM overhead).
@@ -533,12 +645,19 @@ class TestCronSchedulerTick:
         # With ceil:  steps=ceil(17/15)=2, next_due=T+30s > T+17s → NOT triggered (bug).
         t_last = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
         t_second_tick = t_last + timedelta(seconds=17)  # 17s > interval of 15s
-        state_store.save(_CronState(jobs={
-            "j1": _CronRunState(last_due_at=t_last.isoformat()),
-        }))
+        state_store.save(
+            _CronState(
+                jobs={
+                    "j1": _CronRunState(last_due_at=t_last.isoformat()),
+                }
+            )
+        )
 
         scheduler = CronScheduler(
-            agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit
+            agent_id="agent-1",
+            job_store=store,
+            state_store=state_store,
+            submit_fn=fake_submit,
         )
         await scheduler.tick(now=t_second_tick)
         assert "j1" in submitted, (
@@ -562,17 +681,27 @@ class TestCronSchedulerTick:
         store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 30_000}))
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
 
-        from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
+        from personal_assistant.scheduler.cron_scheduler import (
+            _CronRunState,
+            _CronState,
+        )
 
         # 5 missed intervals: elapsed = 5 * 30s = 150s
         t_last = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
         t_now = t_last + timedelta(seconds=150)
-        state_store.save(_CronState(jobs={
-            "j1": _CronRunState(last_due_at=t_last.isoformat()),
-        }))
+        state_store.save(
+            _CronState(
+                jobs={
+                    "j1": _CronRunState(last_due_at=t_last.isoformat()),
+                }
+            )
+        )
 
         scheduler = CronScheduler(
-            agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit
+            agent_id="agent-1",
+            job_store=store,
+            state_store=state_store,
+            submit_fn=fake_submit,
         )
         await scheduler.tick(now=t_now)
         # Must fire exactly once — no backfill flood

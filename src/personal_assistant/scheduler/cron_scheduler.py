@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import re
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol
@@ -232,7 +232,13 @@ class CronSchedulerStateStore:
 
 _INTERVAL_PATTERN = re.compile(r"^\s*(\d+)\s*([smhd])\s*$", re.IGNORECASE)
 _WEEKDAY_NAME_TO_CRON = {
-    "sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6,
+    "sun": 0,
+    "mon": 1,
+    "tue": 2,
+    "wed": 3,
+    "thu": 4,
+    "fri": 5,
+    "sat": 6,
 }
 
 
@@ -343,7 +349,10 @@ class _CronSchedule:
         current = now.replace(second=0, microsecond=0)
         if not self._matches(current):
             return []
-        if last_due_at is not None and last_due_at.replace(second=0, microsecond=0) == current:
+        if (
+            last_due_at is not None
+            and last_due_at.replace(second=0, microsecond=0) == current
+        ):
             return []
         return [current]
 
@@ -435,7 +444,11 @@ def _parse_cron_field(
                 start = _parse_cron_number(start_text, allow_names=allow_names)
                 end = _parse_cron_number(end_text, allow_names=allow_names)
             else:
-                start = minimum if base == "*" else _parse_cron_number(base, allow_names=allow_names)
+                start = (
+                    minimum
+                    if base == "*"
+                    else _parse_cron_number(base, allow_names=allow_names)
+                )
                 end = maximum
             values.update(range(start, end + 1, step))
         elif "-" in item:
@@ -541,7 +554,9 @@ class CronScheduler:
         jobs = self._job_store.list_jobs(include_disabled=False)
         due: list[CronJob] = []
         for job in jobs:
-            last_run = _parse_optional_datetime(state.jobs.get(job.id, _CronRunState()).last_due_at)
+            last_run = _parse_optional_datetime(
+                state.jobs.get(job.id, _CronRunState()).last_due_at
+            )
             try:
                 schedule = _parse_schedule_dict(job.schedule)
             except (ValueError, KeyError):
@@ -553,7 +568,9 @@ class CronScheduler:
     def _compute_single_due_time(
         self, job: CronJob, *, state: _CronState, now: datetime
     ) -> datetime | None:
-        last_run = _parse_optional_datetime(state.jobs.get(job.id, _CronRunState()).last_due_at)
+        last_run = _parse_optional_datetime(
+            state.jobs.get(job.id, _CronRunState()).last_due_at
+        )
         try:
             schedule = _parse_schedule_dict(job.schedule)
         except (ValueError, KeyError):

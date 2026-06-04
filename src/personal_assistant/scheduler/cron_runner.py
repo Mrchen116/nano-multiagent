@@ -134,7 +134,9 @@ class CronRunner:
         if not session_id:
             _logger.error(
                 "cron: create_session returned no session_id: agent=%s job=%s payload=%r",
-                self._agent_id, job.id, session_payload,
+                self._agent_id,
+                job.id,
+                session_payload,
             )
             return None
 
@@ -209,7 +211,8 @@ class CronRunner:
 
         _logger.debug(
             "cron: awareness appended via kernel: agent=%s session=%s",
-            self._agent_id, session_id,
+            self._agent_id,
+            session_id,
         )
 
     def _resolve_canonical_session_id(self) -> str | None:

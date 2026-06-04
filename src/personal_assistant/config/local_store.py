@@ -713,9 +713,12 @@ def _parse_agents(
         heartbeat_active_hours_timezone: str | None = None
         if isinstance(heartbeat_raw, dict):
             hb_enabled_raw = heartbeat_raw.get("enabled")
-            heartbeat_enabled = bool(hb_enabled_raw) if isinstance(hb_enabled_raw, bool) else False
+            heartbeat_enabled = (
+                bool(hb_enabled_raw) if isinstance(hb_enabled_raw, bool) else False
+            )
             heartbeat_every = _optional_string(
-                heartbeat_raw.get("every"), field_name=f"agents[{index}].heartbeat.every"
+                heartbeat_raw.get("every"),
+                field_name=f"agents[{index}].heartbeat.every",
             )
             active_hours_raw = heartbeat_raw.get("active_hours")
             if isinstance(active_hours_raw, dict):
@@ -739,7 +742,9 @@ def _parse_agents(
         cron_enabled = False
         if isinstance(cron_raw, dict):
             cr_enabled_raw = cron_raw.get("enabled")
-            cron_enabled = bool(cr_enabled_raw) if isinstance(cr_enabled_raw, bool) else False
+            cron_enabled = (
+                bool(cr_enabled_raw) if isinstance(cr_enabled_raw, bool) else False
+            )
         agents.append(
             AgentWorkspaceConfig(
                 agent_id=agent_id,

@@ -6,6 +6,7 @@ and prompt enabled_when gate work correctly.
 
 Mirrors the heartbeat_enabled sync tests in test_gateway_im_config_sync.py (R5).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -40,7 +41,9 @@ _DEFAULT_TEST_LLM = LLMConfigPayload(
 def _make_local_config(tmp_path: Path, workspace_root: Path) -> LocalConfig:
     return LocalConfig(
         node=NodeConfig(node_id="node-local"),
-        agents=(AgentWorkspaceConfig(agent_id="test-agent", workspace_root=workspace_root),),
+        agents=(
+            AgentWorkspaceConfig(agent_id="test-agent", workspace_root=workspace_root),
+        ),
         channels=(),
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),

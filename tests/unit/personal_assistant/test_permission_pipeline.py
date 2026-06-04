@@ -317,7 +317,9 @@ class TestHeartbeatOrigin:
                 return {"run_id": "run-hb-1", "anchor_sequence": 1}
 
         agent = AgentWorkspaceConfig(
-            agent_id="alpha", workspace_root=tmp_path, title="Alpha",
+            agent_id="alpha",
+            workspace_root=tmp_path,
+            title="Alpha",
             heartbeat_enabled=True,
         )
         state_store = HeartbeatSchedulerStateStore(

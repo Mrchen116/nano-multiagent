@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -109,11 +110,17 @@ class HeartbeatSchedulerStateStore:
             # feat-394 decision 3: per-task last_due map (backward compatible — missing key → empty dict)
             raw_per_task = payload.get("per_task_last_due", {})
             per_task_last_due: dict[str, str] = (
-                {k: v for k, v in raw_per_task.items() if isinstance(k, str) and isinstance(v, str)}
+                {
+                    k: v
+                    for k, v in raw_per_task.items()
+                    if isinstance(k, str) and isinstance(v, str)
+                }
                 if isinstance(raw_per_task, dict)
                 else {}
             )
-            agents[agent_id] = _AgentState(last_due_at=last_due_at, per_task_last_due=per_task_last_due)
+            agents[agent_id] = _AgentState(
+                last_due_at=last_due_at, per_task_last_due=per_task_last_due
+            )
         return _SchedulerState(agents=agents)
 
     def save(self, state: _SchedulerState) -> None:
@@ -300,7 +307,9 @@ class HeartbeatScheduler:
             if _find_fn is not None:
                 _binding = _find_fn(channel_name="web_relay", agent_id=agent.agent_id)
                 if _binding is not None and _binding.kernel_session_id:
-                    self._canonical_session_store[agent.agent_id] = _binding.kernel_session_id
+                    self._canonical_session_store[agent.agent_id] = (
+                        _binding.kernel_session_id
+                    )
                     _canonical_session_key = _binding.session_key
             # feat-394 decision 3: busy-session gate — skip when canonical session is running
             # a turn (avoid concurrent runs in the same direct-chat kernel session).
@@ -314,7 +323,10 @@ class HeartbeatScheduler:
             # which would force user messages to wait behind the heartbeat LLM call.
             if self._run_queue is not None and _canonical_session_key is not None:
                 _active_sessions = getattr(self._run_queue, "_active_sessions", None)
-                if _active_sessions is not None and _canonical_session_key in _active_sessions:
+                if (
+                    _active_sessions is not None
+                    and _canonical_session_key in _active_sessions
+                ):
                     skipped_agents.append(agent.agent_id)
                     continue
             heartbeat_path = agent.workspace_root / "HEARTBEAT.md"
@@ -329,7 +341,9 @@ class HeartbeatScheduler:
                 any_due = False
                 per_task_last_due = dict(agent_state.per_task_last_due)
                 for task in spec.tasks:
-                    task_last_due = _parse_optional_datetime(per_task_last_due.get(task.name))
+                    task_last_due = _parse_optional_datetime(
+                        per_task_last_due.get(task.name)
+                    )
                     task_schedule = _IntervalSchedule(interval=task.interval)
                     due_times = task_schedule.due_times_up_to(
                         now=current_time, last_due_at=task_last_due
@@ -524,7 +538,10 @@ class _CronSchedule:
         current = now.replace(second=0, microsecond=0)
         if not self._matches(current):
             return []
-        if last_due_at is not None and last_due_at.replace(second=0, microsecond=0) == current:
+        if (
+            last_due_at is not None
+            and last_due_at.replace(second=0, microsecond=0) == current
+        ):
             return []
         return [current]
 
@@ -547,6 +564,7 @@ def _is_heartbeat_content_effectively_empty(content: str) -> bool:
     does not trigger a heartbeat run (which would just output HEARTBEAT_OK every tick).
     """
     import re as _re  # noqa: PLC0415 — local import: this function is called rarely, avoids top-level dep
+
     _HEADER_RE = _re.compile(r"^#+(\s|$)")
     _EMPTY_LIST_RE = _re.compile(r"^[-*+]\s*(\[[\sXx]?\]\s*)?$")
     _FENCE_RE = _re.compile(r"^```[A-Za-z0-9_-]*$")
@@ -620,7 +638,7 @@ def _parse_heartbeat_tasks(content: str) -> list[_HeartbeatTask]:
             continue
 
         if trimmed.startswith("- name:"):
-            name = trimmed[len("- name:"):].strip().strip("\"'")
+            name = trimmed[len("- name:") :].strip().strip("\"'")
             interval_str = ""
             prompt = ""
             j = i + 1
@@ -632,11 +650,11 @@ def _parse_heartbeat_tasks(content: str) -> list[_HeartbeatTask]:
                 if next_trimmed.startswith("interval:") and (
                     next_line.startswith(" ") or next_line.startswith("\t")
                 ):
-                    interval_str = next_trimmed[len("interval:"):].strip().strip("\"'")
+                    interval_str = next_trimmed[len("interval:") :].strip().strip("\"'")
                 elif next_trimmed.startswith("prompt:") and (
                     next_line.startswith(" ") or next_line.startswith("\t")
                 ):
-                    prompt = next_trimmed[len("prompt:"):].strip().strip("\"'")
+                    prompt = next_trimmed[len("prompt:") :].strip().strip("\"'")
                 elif (
                     not next_trimmed.startswith(" ")
                     and not next_trimmed.startswith("\t")
@@ -649,7 +667,9 @@ def _parse_heartbeat_tasks(content: str) -> list[_HeartbeatTask]:
             if name and interval_str and prompt:
                 try:
                     interval = _parse_interval(interval_str)
-                    tasks.append(_HeartbeatTask(name=name, interval=interval, prompt=prompt))
+                    tasks.append(
+                        _HeartbeatTask(name=name, interval=interval, prompt=prompt)
+                    )
                 except ValueError:
                     pass  # skip malformed tasks silently (raises hard if block is corrupt)
 

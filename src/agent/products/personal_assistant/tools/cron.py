@@ -84,14 +84,18 @@ def _read_jobs(workspace_root: Path) -> list[_CronJob]:
         if not isinstance(item, dict):
             continue
         try:
-            result.append(_CronJob(
-                id=str(item["id"]),
-                name=str(item.get("name", "")),
-                schedule=dict(item["schedule"]) if isinstance(item.get("schedule"), dict) else {},
-                instruction=str(item.get("instruction", "")),
-                enabled=bool(item.get("enabled", True)),
-                delete_after_run=bool(item.get("delete_after_run", False)),
-            ))
+            result.append(
+                _CronJob(
+                    id=str(item["id"]),
+                    name=str(item.get("name", "")),
+                    schedule=dict(item["schedule"])
+                    if isinstance(item.get("schedule"), dict)
+                    else {},
+                    instruction=str(item.get("instruction", "")),
+                    enabled=bool(item.get("enabled", True)),
+                    delete_after_run=bool(item.get("delete_after_run", False)),
+                )
+            )
         except (KeyError, TypeError, ValueError):
             continue
     return result
@@ -199,11 +203,26 @@ _INPUT_SCHEMA: dict[str, Any] = {
                             "enum": ["at", "every", "cron"],
                             "description": "Schedule type",
                         },
-                        "at": {"type": "string", "description": "ISO-8601 timestamp (kind=at)"},
-                        "everyMs": {"type": "number", "description": "Interval in milliseconds (kind=every)"},
-                        "anchorMs": {"type": "number", "description": "Optional start anchor in ms (kind=every)"},
-                        "expr": {"type": "string", "description": "Cron expression (kind=cron)"},
-                        "tz": {"type": "string", "description": "IANA timezone (kind=cron)"},
+                        "at": {
+                            "type": "string",
+                            "description": "ISO-8601 timestamp (kind=at)",
+                        },
+                        "everyMs": {
+                            "type": "number",
+                            "description": "Interval in milliseconds (kind=every)",
+                        },
+                        "anchorMs": {
+                            "type": "number",
+                            "description": "Optional start anchor in ms (kind=every)",
+                        },
+                        "expr": {
+                            "type": "string",
+                            "description": "Cron expression (kind=cron)",
+                        },
+                        "tz": {
+                            "type": "string",
+                            "description": "IANA timezone (kind=cron)",
+                        },
                     },
                     "additionalProperties": True,
                 },
@@ -216,10 +235,22 @@ _INPUT_SCHEMA: dict[str, Any] = {
                             "enum": ["agentTurn"],
                             "description": "Payload type (agentTurn only)",
                         },
-                        "message": {"type": "string", "description": "Agent instruction/prompt"},
-                        "model": {"type": "string", "description": "Optional model override"},
-                        "thinking": {"type": "string", "description": "Optional thinking mode"},
-                        "timeoutSeconds": {"type": "number", "description": "Timeout; 0 = no timeout"},
+                        "message": {
+                            "type": "string",
+                            "description": "Agent instruction/prompt",
+                        },
+                        "model": {
+                            "type": "string",
+                            "description": "Optional model override",
+                        },
+                        "thinking": {
+                            "type": "string",
+                            "description": "Optional thinking mode",
+                        },
+                        "timeoutSeconds": {
+                            "type": "number",
+                            "description": "Timeout; 0 = no timeout",
+                        },
                     },
                     "additionalProperties": True,
                 },
@@ -365,7 +396,9 @@ class CronTool:
             raise ValueError("cron add: 'job' field is required and must be an object")
         schedule = job_raw.get("schedule")
         if not isinstance(schedule, dict) or not schedule.get("kind"):
-            raise ValueError("cron add: job.schedule is required and must include 'kind'")
+            raise ValueError(
+                "cron add: job.schedule is required and must include 'kind'"
+            )
         payload = job_raw.get("payload")
         if not isinstance(payload, dict):
             raise ValueError("cron add: job.payload is required")
@@ -399,10 +432,24 @@ class CronTool:
         if idx is None:
             raise LookupError(f"cron update: job not found: {job_id!r}")
         existing = jobs[idx]
-        new_schedule = dict(patch["schedule"]) if isinstance(patch.get("schedule"), dict) else existing.schedule
-        new_name = str(patch["name"]) if isinstance(patch.get("name"), str) else existing.name
-        new_enabled = bool(patch["enabled"]) if isinstance(patch.get("enabled"), bool) else existing.enabled
-        new_delete_after = bool(patch["deleteAfterRun"]) if isinstance(patch.get("deleteAfterRun"), bool) else existing.delete_after_run
+        new_schedule = (
+            dict(patch["schedule"])
+            if isinstance(patch.get("schedule"), dict)
+            else existing.schedule
+        )
+        new_name = (
+            str(patch["name"]) if isinstance(patch.get("name"), str) else existing.name
+        )
+        new_enabled = (
+            bool(patch["enabled"])
+            if isinstance(patch.get("enabled"), bool)
+            else existing.enabled
+        )
+        new_delete_after = (
+            bool(patch["deleteAfterRun"])
+            if isinstance(patch.get("deleteAfterRun"), bool)
+            else existing.delete_after_run
+        )
         new_instruction = (
             _build_instruction_from_payload(patch["payload"])
             if isinstance(patch.get("payload"), dict)
@@ -453,6 +500,7 @@ class CronTool:
                 "Ensure the Gateway inbound pipeline injects gateway_cron_url."
             )
         import httpx  # noqa: PLC0415 — deferred: avoids import cost on list/add/update
+
         agent_id = str(ctx.session_metadata.get("agent_id", ""))
         payload = {"agent_id": agent_id, "job_id": job_id}
         timeout = httpx.Timeout(connect=3.0, write=10.0, read=None, pool=3.0)
@@ -461,21 +509,28 @@ class CronTool:
             body = response.json()
         except ValueError as exc:
             raise RuntimeError("cron run: gateway returned non-JSON response") from exc
-        if response.status_code >= 400 or (isinstance(body, dict) and body.get("ok") is not True):
+        if response.status_code >= 400 or (
+            isinstance(body, dict) and body.get("ok") is not True
+        ):
             error = body.get("error") if isinstance(body, dict) else None
             if isinstance(error, str) and error.strip():
                 raise RuntimeError(f"cron run: {error.strip()}")
-            raise RuntimeError(f"cron run: gateway returned status {response.status_code}")
+            raise RuntimeError(
+                f"cron run: gateway returned status {response.status_code}"
+            )
         return {"ok": True, "jobId": job_id, "triggered": True}
 
-    def _action_runs(
-        self, args: Mapping[str, Any], ctx: ToolContext
-    ) -> dict[str, Any]:
+    def _action_runs(self, args: Mapping[str, Any], ctx: ToolContext) -> dict[str, Any]:
         """Return job run history from state store."""
         job_id = _resolve_job_id(args)
         state_path_str = ctx.session_metadata.get("cron_state_path")
         if not isinstance(state_path_str, str) or not state_path_str.strip():
-            return {"ok": True, "jobId": job_id, "runs": [], "note": "no run state available"}
+            return {
+                "ok": True,
+                "jobId": job_id,
+                "runs": [],
+                "note": "no run state available",
+            }
         state_path = Path(state_path_str.strip())
         if not state_path.exists():
             return {"ok": True, "jobId": job_id, "runs": []}

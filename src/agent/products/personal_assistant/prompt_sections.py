@@ -70,6 +70,7 @@ _PA_RUNTIME = PromptSection(
 # The old segment pointed agents to <workspace>/MEMORY.md (read tool), which conflicts
 # with the actual MemoryTool write path at <memory_root>/MEMORY.md — kept here only as comment.
 
+
 # Provenance: openclaw/src/agents/system-prompt.ts:124-138 buildHeartbeatSection(...)
 # Text is verbatim from the non-minimal, heartbeatPrompt-present branch of that function.
 # feat-394 decision 6: prompt segment copied verbatim so model behaviour matches openclaw.
@@ -98,6 +99,7 @@ _PA_HEARTBEAT = PromptSection(
     cache_safe=True,
 )
 
+
 # Provenance: feat-394-M2 decision 5/6 — cron tool guidance segment.
 # Based on openclaw cron-tool.ts description and the "two mechanisms" design:
 # cron = explicit named jobs, isolated sessions, no conversation context.
@@ -117,9 +119,9 @@ _PA_CRON = PromptSection(
         "## Cron Jobs\n"
         "You have access to a `cron` tool for managing scheduled tasks.\n"
         "Use it when the user asks you to:\n"
-        "- Run something at a specific time (\"every day at 9am\")\n"
-        "- Run something on a recurring schedule (\"every 5 minutes\", \"every hour\")\n"
-        "- Perform a one-shot background task at a future time (\"in 30 minutes\")\n\n"
+        '- Run something at a specific time ("every day at 9am")\n'
+        '- Run something on a recurring schedule ("every 5 minutes", "every hour")\n'
+        '- Perform a one-shot background task at a future time ("in 30 minutes")\n\n'
         "Cron jobs run in isolated sessions with NO conversation context — they execute a\n"
         "fixed instruction and deliver the result to this chat.\n"
         "After a cron job runs, its result will appear as context so you can answer follow-ups.\n\n"
@@ -146,9 +148,9 @@ _PA_CRON_ROUTING = PromptSection(
         "You have both heartbeat and cron available. Use the right one:\n"
         "- **Heartbeat** (带上下文): for open-ended monitoring, reminders that need conversation\n"
         "  context, or tasks where you must remember what you discussed with the user.\n"
-        "  Example: \"Remind me about our discussion on the release\" → heartbeat (HEARTBEAT.md).\n"
+        '  Example: "Remind me about our discussion on the release" → heartbeat (HEARTBEAT.md).\n'
         "- **Cron** (无上下文): for deterministic scheduled tasks with a fixed instruction.\n"
-        "  Example: \"Every day at 9am summarize my GitHub notifications\" → cron job."
+        '  Example: "Every day at 9am summarize my GitHub notifications" → cron job.'
     ),
     enabled_when=_both_enabled,
     cache_safe=True,
@@ -361,8 +363,8 @@ PA_SECTIONS: tuple[PromptSection, ...] = (
     _PA_IDENTITY,
     _PA_RUNTIME,
     _PA_HEARTBEAT,
-    _PA_CRON,            # feat-394-M2: cron tool guidance (gated by cron_enabled)
-    _PA_CRON_ROUTING,    # feat-394-M2: routing guidance (gated by both heartbeat+cron)
+    _PA_CRON,  # feat-394-M2: cron tool guidance (gated by cron_enabled)
+    _PA_CRON_ROUTING,  # feat-394-M2: routing guidance (gated by both heartbeat+cron)
     _PA_PLATFORM_POLICY,
     _PA_GUIDELINES,
     _PA_ROUTING,
@@ -415,8 +417,8 @@ def build_pa_system_prompt() -> list[PromptSection]:
         CORE_TONE_STYLE,
         # Product-specific behaviour
         _PA_HEARTBEAT,
-        _PA_CRON,            # feat-394-M2: cron tool guidance (gated by cron_enabled)
-        _PA_CRON_ROUTING,    # feat-394-M2: routing guidance (gated by both heartbeat+cron)
+        _PA_CRON,  # feat-394-M2: cron tool guidance (gated by cron_enabled)
+        _PA_CRON_ROUTING,  # feat-394-M2: routing guidance (gated by both heartbeat+cron)
         _PA_PLATFORM_POLICY,
         _PA_GUIDELINES,
         _PA_ROUTING,
