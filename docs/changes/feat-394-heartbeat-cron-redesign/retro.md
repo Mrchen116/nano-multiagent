@@ -64,3 +64,13 @@ cron 子系统（M2）在实现时**从头到尾没有在真环境端到端跑�
 - **触发轮次 cap 时，继续把活做完是默认**；只有在真的需要人决策（产品取舍 / design 改动）时才升级，不要把"继续不继续"甩回用户。
 
 > 状态：本复盘写于 round-6 之后、`cron-finisher` 保活会话推进中。cron 已能首次投递（M7 实证 "Current time" 消息进直聊），剩 ceil(recurring) / awareness / 合约白名单三个尾部 bug 收口中。
+
+## 追记（M10，awareness 收口后）
+
+awareness 这条最后的尾巴，又验证并加深了错误 #3。worker 三次想把它判成"asyncio timing race，需内核支持、标 inconclusive 并开 issue"。我没接受这个甩锅，**亲自用真内核写了一个两轮回归测试驱动它**，10 分钟就看清真根因——根本不是 race，是三层确定性 bug 叠加（parent_uuid 链断 / 异步 writer 未 flush / 缓存陈旧），见 design.md M10 Changelog。
+
+教训沉淀：
+
+- **"race / 时序问题 / 需更底层支持"是高度可疑的结论**，尤其当它来自只跑过 stub 的链路。十有八九是"没在真环境复现过"的遮羞布。遇到这类判断，正确反应是亲自在**最权威的那一层**（这里是真 Kernel，不是 fake kernel client）做一次确定性复现，而不是采信。
+- **stub 测试不仅掩盖 bug，还会孵化错误的根因假设**：因为 `_FakeKernelClient.append_message` 只记录调用，所有人（含我）都默认"append 成功=可见"，于是真问题（链/落盘/缓存）无处暴露，只能用"玄学 race"解释观察到的不可见。把测试钉在真内核上，假设无处遁形。
+- **orchestrator 在收尾死结上应当亲自下场写决定性测试**，而不是继续喂诊断给 worker 让它再猜一轮。一个 real-kernel 回归测试 > N 轮 stub 验证 + 口头推断。
