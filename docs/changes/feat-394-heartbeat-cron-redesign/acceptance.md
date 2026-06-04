@@ -1534,3 +1534,330 @@ cron-state.json 显示 job 在 `18:53:30` 触发（last_due_at 更新）；IM �
 | `AGENTS.md` | 无需更新 |
 | `CLAUDE.md` | 无需更新 |
 | `docs/SPEC_GUIDE.md` | 无需更新 |
+
+---
+
+# Round 6 — 2026-06-04
+
+**Date**: 2026-06-04
+**Reviewer**: change-reviewer (Sonnet 4.6)
+**Branch**: unit/feat-394
+**Unit Worktree**: /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
+**Review Mode**: full
+**Services**: IM :58037 · Vite dev :58038 · Gateway wt-feat394-r6 (PID 31555/33700/37835 重启两次) · LLM proxy :4000
+**Test Agent**: Arch (wt-feat394-r6, owner_id=ca9c3d0823cc4f35a3f0f45a1971bc12 非空)
+**Prior Issues Addressed (R5)**: R5-1 (RunOrigin.CRON) · R5-2 (file 工具缺失) · R5-3 (activeHours UI) · R5-4 (过期 at 重跑) · cron 可见投递链
+
+---
+
+## Summary (Round 6)
+
+| | |
+|---|---|
+| **Verdict** | `fail` |
+| **Highest Required Action** | `fix-implementation` |
+| **Issues** | blocking: 1 / major: 1 / minor: 0 |
+| **Needs Re-review** | true |
+
+**Top Concern**: `_IntervalSchedule.due_times_up_to` 的 ceil 逻辑导致 heartbeat/cron 首次触发后永不再触发——每次 LLM 调用约 2s 的开销使 elapsed 不是 interval 整数倍，ceil 向上跳一步，next_due 始终落在 now 之后，下次 tick 不触发。R5-2/R5-3 已修复（file 工具合并、activeHours UI），但 S3.3（cron 持续执行）、S2.2（heartbeat 持续冒泡）、S3.5（cron awareness 注入）仍 fail。
+
+**R5 issue 关闭状态**:
+- R5-1 RunOrigin.CRON crash：**已修复** ✓（M7 R1，cron 能触发一次）
+- R5-2 file 工具缺失：**已修复** ✓（M7 R3，agent 工具列表含 read/write/edit/bash/cron）
+- R5-3 activeHours UI 缺失：**已修复** ✓（M7 R4，产物含 heartbeat-active-hours-start/end，API 保存/读回正确）
+- R5-4 过期 at 重跑：**inconclusive** — 调度器不持续运行，S5.2 无法验证
+
+---
+
+## Services Setup (Round 6)
+
+```
+IM:        http://127.0.0.1:58037 (IM_JWT_SECRET=demo-jwt-secret-feat394-r6-review)
+Vite dev:  http://127.0.0.1:58038 (VITE_IM_PROXY_TARGET=http://127.0.0.1:58037)
+Gateway:   wt-feat394-r6, owner_id=ca9c3d0823cc4f35a3f0f45a1971bc12 (非空), online
+LLM proxy: http://127.0.0.1:4000 (kimiCoding:K2.6)
+WorkTree:  /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
+```
+
+**Frontend 产物指纹**: `npm run build` 通过 (tsc -b && vite build)，产物 `index-Dp7egDFH.js`
+- `heartbeat-enabled-toggle`: FOUND ✓
+- `cron-enabled-toggle`: FOUND ✓
+- `heartbeat-active-hours`: FOUND ✓（M7 R4 新增，R5-3 修复验证）
+
+---
+
+## Clarification Q&A
+
+无需澄清，直接开工。
+
+---
+
+## User Journeys Exercised (Round 6)
+
+| Journey | Scenarios Covered | Outcome |
+|---|---|---|
+| **J1** 配置页开关验证 | S1.1, S1.2, S1.4 | UI 层 pass，调度器持续性 fail |
+| **J2** cron 完整旅程 | S3.1, S3.2, S3.3, S3.4 | S3.1/S3.2/S3.4 pass；S3.3 fail（首次触发，之后停止）|
+| **J3** heartbeat 触发与静默 | S2.1, S2.2, S2.3, S2.5 | S2.1/S2.3/S2.5 pass；S2.2 fail |
+| **J4** S3.5 cron awareness | S3.5 | fail（session 无 System untrusted 注入）|
+| **J5** activeHours UI 设置 | S2.5 | pass（API 层 + 产物指纹）|
+| **J6** R5-2 file 工具验证 | S2.1 | pass（agent 工具列表含 read/write/edit/bash/cron）|
+
+---
+
+## 验收标准覆盖表 (Round 6)
+
+### Requirement: 配置页两个开关 per-agent 启用/停用 heartbeat 与 cron
+
+#### Scenario S1.1: 打开 heartbeat 开关并设节律
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 1 |
+| 验证方式 | IM API PATCH heartbeat_json={"enabled":true,"every":"15s"}；检查 IM mirror config；观察调度器是否持续运行 |
+| 证据 | IM config: `heartbeat_json={"enabled":true,"every":"15s"}` ✓；heartbeat-state.json 首次更新到 04:02:15（清空 state 后 gateway 重启触发一次 HEARTBEAT_OK）；但之后 120s+ 内 heartbeat 不再触发（heartbeat-state.json 停在 04:02:15）；LLM proxy 12:02 一次请求，response=HEARTBEAT_OK，之后无后续请求 |
+| 结果 | `fail` |
+| 备注 | UI/IM 配置层 pass；THEN "该 agent 此后每约 30 分钟被唤醒一次"——heartbeat 首次触发后因 _IntervalSchedule ceil bug 永不再触发（Issue R6-1）。|
+
+#### Scenario S1.2: 打开 cron 开关
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 2 |
+| 验证方式 | IM API PATCH cron_json={"enabled":true}，tool_allowlist 含 cron；观察 cron 任务是否按时持续运行 |
+| 证据 | IM config: `cron_json={"enabled":true}`；Tool Allowlist 含 cron ✓；cron 首次触发（03:22 "Current time: 03:22:01 UTC"）；之后 4+ 分钟不触发（cron-state job 4f8b last_due_at 停在 03:22）|
+| 结果 | `fail` |
+| 备注 | UI/IM 配置层 pass；THEN "此后可以让该 agent 注册定时任务，且这些任务会按时运行"——"按时运行"的持续性失败（Issue R6-1）。|
+
+#### Scenario S1.3: 关闭开关即停用（边界）
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | 继承 R4 pass（per-tick live read 机制，关闭后 20s 内 last_due_at 不更新）。|
+
+#### Scenario S1.4: 未启用的 agent 不跑（默认/空态）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 1 Scenario 4 |
+| 验证方式 | IM API GET ArchA/config?source=mirror |
+| 证据 | `heartbeat_json=null, cron_json=null, tool_allowlist=[]`；heartbeat-state.json 无 ArchA 条目 |
+| 结果 | `pass` |
+
+---
+
+### Requirement: agent 对话自管 heartbeat（用户不必手写 HEARTBEAT.md）
+
+#### Scenario S2.1: 口述提醒，agent 自动记录
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 1 |
+| 验证方式 | 对 Arch 说"请把新任务添加到 HEARTBEAT.md"；检查 HEARTBEAT.md 是否被 agent 写入 |
+| 证据 | Arch 工具列表：read/write/edit/bash/agent/task_stop/web_fetch/web_search/cron/skill_manage/memory（含 file 工具）✓；对话："Add: Check if there are any new emails every 10 minutes" → agent 回复"Done. Added the task to `HEARTBEAT.md`"；HEARTBEAT.md AFTER 含"- Check if there are any new emails every 10 minutes"（agent 写入，用户未手动改）|
+| 结果 | `pass` |
+| 备注 | **R5-2 修复验证通过**：M7 R3 合并 DEFAULT_TOOL_IDS + tool_allowlist extras，agent 现拥有完整工具集。|
+
+#### Scenario S2.2: 到点带上下文主动冒泡且记得上下文
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 2 |
+| 验证方式 | 清空 heartbeat-state.json → 重启 gateway → 等待 heartbeat 触发 → 观察 IM 直聊是否出现主动消息 |
+| 证据 | heartbeat-state.json 首次更新到 04:02:15（gateway 重启后，state 清空后立即触发）；LLM proxy sess_3c6dd579 12:02 有一次 LLM 调用（19 条消息上下文，带历史）→ response=HEARTBEAT_OK（LLM 判断无内容冒泡）；之后 120s+ heartbeat 不再触发（heartbeat-state.json 停在 04:02:15）；IM 直聊无 heartbeat 主动消息 |
+| 结果 | `fail` |
+| 备注 | heartbeat 首次以带上下文方式触发（sess_3c6dd579 有 19 条历史）；但 _IntervalSchedule ceil bug 导致首次后停止（Issue R6-1）。S2.2 THEN 要求"此后每隔节律就…主动发消息"，"此后持续"失败。|
+
+#### Scenario S2.3: 无可汇报内容则静默
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 3 |
+| 验证方式 | heartbeat 触发后 LLM 回 HEARTBEAT_OK → IM 无消息 |
+| 证据 | LLM proxy 12:02 response=HEARTBEAT_OK；IM 直聊无对应时段消息 |
+| 结果 | `pass` |
+| 备注 | 继承 R3/R4 pass；本轮首次触发也确认：HEARTBEAT_OK → 静默。|
+
+#### Scenario S2.4: 不同关注项用不同频率（多子节律）
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `inconclusive` |
+| 备注 | 依赖 heartbeat 持续触发（S2.2 fail），无法在 HEARTBEAT.md 里创建多个 tasks: 块并观察 per_task 触发。|
+
+#### Scenario S2.5: 活跃时段外不打扰（activeHours）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 2 Scenario 5 |
+| 验证方式 | 1) 产物指纹核验 heartbeat-active-hours 控件；2) API 层 PATCH/GET active_hours 字段 |
+| 证据 | 产物 `index-Dp7egDFH.js` grep `heartbeat-active-hours`: FOUND ✓（M7 R4 新增 start/end time inputs）；API PATCH `heartbeat_json={"enabled":true,"every":"15s","active_hours":{"start":"09:00","end":"22:00"}}` → 200；GET mirror 返回 `active_hours: {start: "09:00", end: "22:00"}` ✓ |
+| 结果 | `pass` |
+| 备注 | **R5-3 修复验证通过**：UI 控件存在（产物指纹），API 层保存/读回正确。因 S2.2 fail 无法走 "窗口外不打扰" 的完整旅程，但 spec S2.5 的 GIVEN 聚焦在"配置页能配 activeHours"，产物指纹 + API 层证据足以通过。|
+
+---
+
+### Requirement: agent 对话自管 cron 定时任务（可多条、无上下文执行）
+
+#### Scenario S3.1: 口述定时任务，agent 注册一条
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 1 |
+| 验证方式 | 对 Arch 说"每 30 秒报当前时间"；检查 jobs.json 和 IM API cron/jobs |
+| 证据 | jobs.json: `[{"id":"4f8b3b3a","name":"Time reporter","schedule":{"kind":"every","everyMs":30000},...}]`；IM API GET `/agents/Arch/cron/jobs` 返回同一条；agent 回复确认注册 |
+| 结果 | `pass` |
+
+#### Scenario S3.2: 同一 agent 同时挂多条任务
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 2 |
+| 验证方式 | 继续注册 "status-check every 2min"；检查 jobs.json 有 2 条 |
+| 证据 | IM API GET cron/jobs: 2 条（4f8b3b3a "Time reporter" + adb92104 "status-check"）；两条各自独立 schedule；agent 回复"Done. The cron job **status-check** is registered and runs every 2 minutes." |
+| 结果 | `pass` |
+
+#### Scenario S3.3: 到点执行固定任务并把结果发回直聊
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 3 |
+| 验证方式 | 注册多条 cron job；等待多次触发；观察 IM 直聊多条消息 |
+| 证据 | 03:22:07 "Current time: 03:22:01 UTC"（首次，Time reporter）；03:34:19 "PING OK"（首次，ping-test）；03:44:51 "STATUS OK"（首次，status-check）；**之后各 job 均不再触发**：cron-state 各 job last_due_at 停在首次触发时间，120s+ 内无新 IM 消息 |
+| 结果 | `fail` |
+| 备注 | **Issue R6-1（blocking）**：_IntervalSchedule.due_times_up_to 的 ceil 逻辑导致每个 cron job 首次触发后永不再触发。根因：LLM 调用约耗时 2s，使 elapsed 不是 interval 整数倍（如 elapsed=32s，interval=15s → steps=ceil(32/15)=3 → next_due=last+45s > now+32s → 不触发）。用户可观察：注册 "每 30s 报时" 后只收到一条时间消息，之后直聊无任何 agent 主动消息。|
+
+#### Scenario S3.4: 配置页查看并手动删除任务
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 4 |
+| 验证方式 | IM API GET /agents/Arch/cron/jobs；DELETE ping-test；再次 GET 验证 |
+| 证据 | DELETE `37b984c65103481a8e20776d44419ccc` → 200；GET 返回 1 条（4f8b3b3a）；ping-test 不再出现 |
+| 结果 | `pass` |
+| 备注 | CronCard UI 删除（R4 pass）+ API 层本轮确认。|
+
+#### Scenario S3.5: cron 汇报后我追问，agent 记得汇报了啥
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 3 Scenario 5 |
+| 验证方式 | 03:44:51 "STATUS OK" 出现后，追问"What was the last message the status-check cron job sent you?" |
+| 证据 | agent 回复："It hasn't run yet — there are no executions in its history so far."（03:48:50）；kernel session sess_3c6dd579 无 System(untrusted) 条目，cron 结果文本从未注入直聊 JSONL |
+| 结果 | `fail` |
+| 备注 | **Issue R6-2（major）**：_append_awareness 调用失败或未触发，cron 结果文本没有以 System(untrusted) 注入直聊 session JSONL。agent 对刚发出的 cron 消息无感知，S3.5 THEN 要求"agent 知道刚那份汇总的内容"完全不满足。|
+
+---
+
+### Requirement: 结果投递到 owner 的 canonical 直聊（复用 feat-393）
+
+#### Scenario S4.1: 落到最旧直聊，呈现同普通消息
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 4 Scenario 1 |
+| 验证方式 | cron 触发后检查 IM conversations/messages |
+| 证据 | `[2026-06-04T03:22:07] sender=agent content="Current time: 03:22:01 UTC"`；消息在直聊 `06e7408bdd1a4c4ea82cb77f9528f110`（最旧 Arch 直聊）；sender_type=agent，外观与普通 agent 消息一致 |
+| 结果 | `pass` |
+
+#### Scenario S4.2: 没有直聊时自动新建
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | 继承 R2 pass。|
+
+---
+
+### Requirement: 重启后不补跑积压
+
+#### Scenario S5.1: 周期任务错过多个周期不刷屏
+
+| 字段 | 内容 |
+|---|---|
+| 结果 | `pass` |
+| 备注 | 继承 R2 pass（heartbeat 重启后只排下一时隙）。cron 由于 Issue R6-1，实际没有积压补跑，单测层（M2 passed）保证语义正确。|
+
+#### Scenario S5.2: 过期的一次性任务不补跑
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | spec.md Requirement 5 Scenario 2 |
+| 验证方式 | 检查 cron-state.json 里的过期 at 任务 3c99af39（at=2026-06-03T12:00:00Z）是否在 r6 触发 |
+| 证据 | cron-state.json 里 job 3c99af39 last_due_at=2026-06-03T12:00:00+00:00，r6 期间 IM 直聊无对应 cron 消息；但因 S3.3 fail（调度器不持续运行），不能确认是 M7 R5 修复生效还是调度器根本没跑 |
+| 结果 | `inconclusive` |
+| 备注 | 调度器持续性 bug（R6-1）使 S5.2 无法真实验证。M7 R5 单测（test_cron_at_expiry.py 5 个测试）通过，但用户可观察面验证依赖调度器持续运行。|
+
+---
+
+## Issues (Round 6)
+
+### Issue R6-1：`_IntervalSchedule.due_times_up_to` ceil 逻辑导致首次触发后 heartbeat/cron 永不再触发（**blocking**）
+
+**Severity**: blocking
+**Recommended Action**: fix-implementation
+**Action Rationale**: `_IntervalSchedule.due_times_up_to` 用 `steps = ceil(elapsed / interval)` 计算下一次运行时隙，再判断 `next_due_at = last_due + steps * interval <= now`。当 LLM 调用耗时约 2s，sleep(30s) 后 elapsed ≈ 32s（interval=15s）：steps=ceil(32/15)=3，next_due=last+45s，而 now=last+32s，45>32 → 不触发。下次 tick 也一样（elapsed=62s，steps=ceil(62/15)=5，next_due=last+75s=now+13s）。修复方向：将 `steps = max(1, ceil(elapsed/interval))` 改为 `steps = max(1, floor(elapsed/interval))`，使 next_due <= now 时触发。
+
+**用户可观察症状**：注册 cron "每 30s 报时" → 收到一条 "Current time: 03:22:01 UTC" → 之后 6+ 分钟直聊无任何 agent 主动消息；heartbeat 设 every=15s → 首次 HEARTBEAT_OK（静默）→ 之后不再触发。
+
+**证据**：
+- cron-state.json: job 4f8b3b3a(every 30s) last_due_at 停在 `2026-06-04T03:22:00`；job 37b984c6(every 20s) 停在 `03:34`；job adb92104(every 2min) 停在 `03:44`——三个不同 interval 的 job 均只触发一次
+- heartbeat-state.json: Arch last_due_at 停在 `2026-06-04T04:02:15`，120s+ 不更新
+- 数学验证：elapsed=32s, interval=15s → steps=ceil(32/15)=3 → next_due=last+45s > now(last+32s) → not triggered；与 M7 worker 首次触发一致（last_due_at=None → floor(now,15s) → 立即触发）
+
+---
+
+### Issue R6-2：cron 执行结果不注入直聊 JSONL（_append_awareness 不生效）（**major**）
+
+**Severity**: major
+**Recommended Action**: fix-implementation
+**Action Rationale**: design 决策 C-awareness 要求 cron 执行后把结果文本以 `System(untrusted)` append 进直聊 kernel session JSONL，供用户追问时 agent 感知。实际上 sess_3c6dd579006ff900.jsonl 无任何 System(untrusted) 条目（"STATUS OK" 消息出现在 IM 后，session 无对应注入），agent 追问时回复"It hasn't run yet"。可能原因：`_cron_runner._resolve_canonical_session_id()` 返回 None/空 → awareness skip；或 `_append_awareness` 内部异常被 `except BLE001` 静默吞掉。
+
+**用户可观察症状**：cron "STATUS OK" 出现在直聊 → 追问"what was the last message?" → agent 回复"hasn't run yet"，无感知。
+
+**证据**：
+- IM 消息 `[2026-06-04T03:44:51] sender=agent content="STATUS OK"`（cron 执行成功投递）
+- 追问 `[2026-06-04T03:48:50]`：agent 回 "It hasn't run yet — there are no executions in its history so far."
+- sess_3c6dd579006ff900.jsonl grep "System\|untrusted\|STATUS OK"：只找到 user/assistant 普通轮次，无 System(untrusted) 条目
+
+---
+
+## R5 Issues 关闭状态 (Round 6)
+
+### Issue R5-1：RunOrigin.CRON crash → **已修复** ✓
+
+**关闭证据**：cron 触发后无 AttributeError 日志；IM 直聊出现 "Current time: 03:22:01 UTC"（首次执行成功）；cron-state.json 显示 job 触发并更新 last_due_at。
+
+### Issue R5-2：agent 缺 file 工具 → **已修复** ✓
+
+**关闭证据**：agent 工具列表（对话验证）= read/write/edit/bash/agent/task_stop/web_fetch/web_search/cron/skill_manage/memory；HEARTBEAT.md 通过 agent 对话成功写入（S2.1 pass）。
+
+### Issue R5-3：配置页无 activeHours UI → **已修复** ✓
+
+**关闭证据**：产物 index-Dp7egDFH.js grep `heartbeat-active-hours`: FOUND；API PATCH active_hours={start:"09:00",end:"22:00"} → GET 读回正确（S2.5 pass）。
+
+### Issue R5-4：过期 at 任务重启重跑 → **inconclusive**
+
+**原因**：Issue R6-1（调度器不持续运行）导致 S5.2 无法走完整旅程验证。M7 R5 单测通过，用户可观察面无法确认。
+
+---
+
+## Side Findings (Round 6)
+
+- **ceil bug 完整分析**：heartbeat.every=15s, tick_interval=30s 组合下，当 last_due_at 设为 None（全新状态）时，heartbeat 每 30s 触发一次（steps=floor(30/15)=2，next_due=last+30s=now）；当 LLM 耗时 2s 后（elapsed=32s），steps=ceil(32/15)=3，next_due=last+45s > now → 不触发，且此后每次 tick 也不触发（next_due 总是比 now 晚约 13s）。M7 worker 的 live e2e 用的是全新 gateway（state 从 None 开始），所以验证了首次触发，但没有验证第二次（30s 后）。
+- **三个不同 interval 的 cron job 均只触发一次**：Time reporter(30s) 03:22 停；ping-test(20s) 03:34 停；status-check(2min) 03:44 停——完全吻合 ceil bug，与 interval 值无关。
+- **gateway --foreground 日志重定向问题**：标准输出未写入重定向文件（0 bytes），debugging 需通过 LLM proxy 日志和 state 文件间接确认。
+
+---
+
+## 上层文档同步 (Round 6)
+
+| 文档 | 状态 |
+|---|---|
+| `docs/NodeGateway-SPEC.md §6` | 需在 R6-1 (_IntervalSchedule ceil fix) + R6-2 (awareness inject) 修复后更新 |
+| `SPEC.md` | 无需更新 |
+| `docs/specs/gateway/spec.md` | 需在功能稳定后补充 heartbeat/cron 调度行为 |
+| `AGENTS.md` | 无需更新 |
+| `CLAUDE.md` | 无需更新 |
+| `docs/SPEC_GUIDE.md` | 无需更新 |
