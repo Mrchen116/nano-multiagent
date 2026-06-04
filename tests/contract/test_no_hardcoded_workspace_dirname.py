@@ -52,8 +52,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # feat-388 ruff format: line shifted to 158
         "src/agent/platform/tools/builtins/bash_policy.py:158",
         # auto_mode_gate.py: .nanocode workspace_config_dir — this IS a hardcode, but pre-existing
-        # feat-388 ruff format: line shifted to 703
-        "src/agent/platform/hooks/builtins/auto_mode_gate.py:703",
+        # feat-394-M7 _UNATTENDED_ORIGINS insert shifted line from 703 to 707
+        "src/agent/platform/hooks/builtins/auto_mode_gate.py:707",
         # coding_cli/commands.py: .nanocode global/workspace config — CLI UX, pre-existing
         # feat-388: bridge imports added, line shifted to 1161/1162
         "src/coding_cli/commands.py:1161",

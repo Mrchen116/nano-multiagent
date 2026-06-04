@@ -2130,16 +2130,35 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             # Decision C-awareness: append result text as System(untrusted) to canonical
             # direct-chat JSONL so user can ask follow-up questions about cron output.
             if final_result_text:
-                try:
-                    await _cron_runner._append_awareness(  # noqa: SLF001
-                        session_id=_cron_runner._resolve_canonical_session_id() or "",  # noqa: SLF001
-                        result_text=final_result_text,
-                        workspace_root=ws_root,
-                    )
-                except Exception:  # noqa: BLE001
+                # feat-394-M8 R6-2 fix: resolve canonical session via two sources in priority order.
+                # (1) _canonical_session_store[agent_id] — populated by HeartbeatScheduler.tick()
+                #     via session_store.find_direct_by_agent() on each heartbeat tick.  This is
+                #     the most reliable source: it is filled even when the user has never sent a
+                #     message (heartbeat creates the direct chat and heartbeat_runner fills the store).
+                # (2) _cron_runner._resolve_canonical_session_id() — queries SQLite session_bindings
+                #     which is only populated when the user sends a message (inbound_pipeline bind).
+                #     Falls back to this for cases where heartbeat has never run but user has chatted.
+                # When both return None, skip awareness (no canonical session established yet).
+                _awareness_session_id = (
+                    _canonical_session_store.get(agent_id)
+                    or _cron_runner._resolve_canonical_session_id()  # noqa: SLF001
+                )
+                if _awareness_session_id:
+                    try:
+                        await _cron_runner._append_awareness(  # noqa: SLF001
+                            session_id=_awareness_session_id,
+                            result_text=final_result_text,
+                            workspace_root=ws_root,
+                        )
+                    except Exception:  # noqa: BLE001
+                        _log.warning(
+                            "cron: awareness inject failed: agent=%s job=%s session=%s",
+                            agent_id, getattr(job, "id", "?"), _awareness_session_id,
+                        )
+                else:
                     _log.debug(
-                        "cron: awareness inject failed (non-fatal): agent=%s job=%s",
-                        agent_id, getattr(job, "id", "?"),
+                        "cron: awareness skip — no canonical session for agent=%s",
+                        agent_id,
                     )
 
         scheduler = CronScheduler(

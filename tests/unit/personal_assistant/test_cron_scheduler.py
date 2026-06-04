@@ -490,8 +490,8 @@ class TestCronSchedulerTick:
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
 
         from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
-        # j1 (60s): last_ran=9:57:00, elapsed=180s, steps=ceil(180/60)=3, next=9:57:00+180s=10:00:00 → DUE
-        # j2 (120s): last_ran=9:57:00, elapsed=180s, steps=ceil(180/120)=2, next=9:57:00+240s=10:01:00 → NOT DUE
+        # j1 (60s): last_ran=9:57:00, elapsed=180s, steps=floor(180/60)=3, next=9:57:00+180s=10:00:00 → DUE
+        # j2 (120s): last_ran=9:57:00, elapsed=180s, steps=floor(180/120)=1, next=9:57:00+120s=9:59:00 → DUE
         t_base = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
         state_store.save(_CronState(jobs={
             "j1": _CronRunState(last_due_at=datetime(2026, 1, 1, 9, 57, 0, tzinfo=UTC).isoformat()),
@@ -502,6 +502,80 @@ class TestCronSchedulerTick:
             agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit
         )
         await scheduler.tick(now=t_base)
-        # j1 (60s interval, 180s elapsed) is due; j2 (120s interval, 180s elapsed) is not
+        # j1 (60s interval, 180s elapsed) is due; j2 (120s interval, 180s elapsed) is also due
         assert "j1" in submitted
-        assert "j2" not in submitted
+        assert "j2" in submitted
+
+    @pytest.mark.asyncio
+    async def test_interval_triggers_on_second_tick_with_lll_overhead(
+        self, tmp_path: Path
+    ) -> None:
+        """Regression for R6-1 ceil bug: elapsed=interval+2s must trigger on second tick.
+
+        Scenario: interval=15s, LLM call takes 2s, so elapsed after sleep(15s) ≈ 17s.
+        ceil(17/15)=2 → next_due=last+30s > now+17s → NOT triggered (the bug).
+        floor(17/15)=1 → next_due=last+15s <= now+17s → triggered (correct).
+        """
+        submitted: list[str] = []
+
+        async def fake_submit(*, agent_id: str, job: CronJob) -> None:
+            submitted.append(job.id)
+
+        store = CronJobStore(workspace_root=tmp_path)
+        store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 15_000}))
+        state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
+
+        from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
+
+        # Simulate: first tick triggered at T+0 (last_due_at set to T).
+        # Second tick: now = T + 17s (15s sleep + 2s LLM overhead).
+        # With floor: steps=floor(17/15)=1, next_due=T+15s <= T+17s → trigger.
+        # With ceil:  steps=ceil(17/15)=2, next_due=T+30s > T+17s → NOT triggered (bug).
+        t_last = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
+        t_second_tick = t_last + timedelta(seconds=17)  # 17s > interval of 15s
+        state_store.save(_CronState(jobs={
+            "j1": _CronRunState(last_due_at=t_last.isoformat()),
+        }))
+
+        scheduler = CronScheduler(
+            agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit
+        )
+        await scheduler.tick(now=t_second_tick)
+        assert "j1" in submitted, (
+            "Second tick (elapsed=17s, interval=15s) must trigger; "
+            "ceil bug would produce steps=2, next_due=T+30s > now=T+17s → not fired"
+        )
+
+    @pytest.mark.asyncio
+    async def test_large_gap_triggers_only_once(self, tmp_path: Path) -> None:
+        """Regression: large gap (5 missed intervals) must trigger exactly once, not backfill.
+
+        Verifies that the floor-based fix does not re-introduce the round-2 backfill flood:
+        one submission per tick regardless of how many intervals were missed while offline.
+        """
+        submitted: list[str] = []
+
+        async def fake_submit(*, agent_id: str, job: CronJob) -> None:
+            submitted.append(job.id)
+
+        store = CronJobStore(workspace_root=tmp_path)
+        store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 30_000}))
+        state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
+
+        from personal_assistant.scheduler.cron_scheduler import _CronRunState, _CronState
+
+        # 5 missed intervals: elapsed = 5 * 30s = 150s
+        t_last = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
+        t_now = t_last + timedelta(seconds=150)
+        state_store.save(_CronState(jobs={
+            "j1": _CronRunState(last_due_at=t_last.isoformat()),
+        }))
+
+        scheduler = CronScheduler(
+            agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=fake_submit
+        )
+        await scheduler.tick(now=t_now)
+        # Must fire exactly once — no backfill flood
+        assert submitted.count("j1") == 1, (
+            f"Large gap must trigger exactly 1 run, got {submitted.count('j1')}"
+        )

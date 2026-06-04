@@ -168,12 +168,14 @@ def test_scheduler_runs_cron_schedule_on_matching_minute(tmp_path: Path) -> None
 
 
 def test_interval_no_backfill_after_restart(tmp_path: Path) -> None:
-    """After a long gap, restart must NOT run any missed due-times — only wait for next future slot.
+    """After a long gap, restart fires exactly once (most-recent slot) — no backfill flood.
 
-    feat-394 decision 3/4 (openclaw computeNextRunAtMs semantics): "every" skips to the
-    next *future* aligned slot; it never executes past due-times.  This is stricter than
-    feat-393 fix-r2 which still allowed one catch-up run — openclaw does not emit any run
-    for the gap period.
+    feat-394-M8 R6-1 fix: floor(elapsed/interval) semantics.
+    Before fix (ceil): restart after large gap jumped to next *future* slot → no run at all.
+    After fix (floor): restart fires the most-recent past slot exactly once (not all N missed),
+    then advances last_due_at to that slot so the next tick waits a full interval.
+
+    The key invariant is "no flood" (exactly 1 run per tick) — not "never run anything past".
     """
     agent = _agent(tmp_path)
     _write_heartbeat(
@@ -196,17 +198,23 @@ def test_interval_no_backfill_after_restart(tmp_path: Path) -> None:
         agents=(agent,), kernel_client=second_kernel, state_store=state_store
     )
     # 1h31m gap — 3 missed intervals (09:30, 10:00, 10:30).
-    # openclaw semantics: none of those past due-times are run; next run is at 11:00.
+    # floor semantics: steps=floor(91/30)=3, next_due=09:00+90m=10:30 ≤ 10:31 → fires once.
+    # Not 3 times (no flood). last_due_at advances to 10:30.
     catch_up = asyncio.run(
         restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC))
     )
-
-    assert catch_up.triggered_runs == (), (
-        "restart after a long gap must NOT run any missed intervals — wait for the next future slot"
+    assert len(catch_up.triggered_runs) == 1, (
+        "restart after large gap must fire exactly once (most-recent slot), not N times"
     )
-    assert len(second_kernel.sent_messages) == 0
 
-    # Next tick at 11:00 (first future aligned slot) must fire.
+    # Next tick at 10:31 again — already fired this slot, must not fire again.
+    # (elapsed from 10:30 to 10:31 = 1m < 30m → no trigger)
+    no_double = asyncio.run(
+        restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC))
+    )
+    assert no_double.triggered_runs == (), "must not double-fire the same slot"
+
+    # Next tick at 11:00 (full interval after 10:30 last_due) must fire.
     next_tick = asyncio.run(
         restarted.tick(now=datetime(2026, 3, 11, 11, 0, tzinfo=UTC))
     )
@@ -638,3 +646,65 @@ def test_scheduler_falls_back_to_frozen_agents_when_no_getter(tmp_path: Path) ->
 
     summary = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
     assert len(summary.triggered_runs) == 1
+
+
+def test_heartbeat_interval_triggers_on_second_tick_with_overhead(tmp_path: Path) -> None:
+    """Regression for R6-1 ceil bug in heartbeat _IntervalSchedule.
+
+    Scenario: interval=30s, LLM call + overhead makes elapsed=32s on second tick.
+    ceil(32/30)=2 → next_due=last+60s > now+32s → NOT triggered (the bug).
+    floor(32/30)=1 → next_due=last+30s <= now+32s → triggered (correct).
+    """
+    from personal_assistant.scheduler.heartbeat_scheduler import _AgentState, _SchedulerState
+
+    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
+    _write_heartbeat(agent.workspace_root, "interval: 30s\n\n- Check task\n")
+    kernel = _FakeKernelClient()
+
+    state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
+    # Set last_due_at to T; simulate second tick at T+32s (30s sleep + 2s LLM overhead)
+    t_last = datetime(2026, 3, 11, 9, 0, 0, tzinfo=UTC)
+    t_second_tick = t_last + timedelta(seconds=32)
+    state_store.save(_SchedulerState(agents={
+        agent.agent_id: _AgentState(last_due_at=t_last.isoformat()),
+    }))
+
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=state_store,
+    )
+    summary = asyncio.run(scheduler.tick(now=t_second_tick))
+    assert len(summary.triggered_runs) == 1, (
+        "Second heartbeat tick (elapsed=32s, interval=30s) must trigger; "
+        "ceil bug gives steps=2, next_due=last+60s > now → not fired"
+    )
+
+
+def test_heartbeat_large_gap_triggers_only_once(tmp_path: Path) -> None:
+    """Regression: large gap (5 missed heartbeat intervals) must fire exactly once.
+
+    Verifies the floor fix does not re-introduce round-2 backfill flood.
+    """
+    from personal_assistant.scheduler.heartbeat_scheduler import _AgentState, _SchedulerState
+
+    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
+    _write_heartbeat(agent.workspace_root, "interval: 30s\n\n- Check task\n")
+    kernel = _FakeKernelClient()
+
+    state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
+    t_last = datetime(2026, 3, 11, 9, 0, 0, tzinfo=UTC)
+    t_now = t_last + timedelta(seconds=150)  # 5 missed intervals of 30s
+    state_store.save(_SchedulerState(agents={
+        agent.agent_id: _AgentState(last_due_at=t_last.isoformat()),
+    }))
+
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=state_store,
+    )
+    summary = asyncio.run(scheduler.tick(now=t_now))
+    assert len(summary.triggered_runs) == 1, (
+        f"Large gap must trigger exactly 1 heartbeat, got {len(summary.triggered_runs)}"
+    )
