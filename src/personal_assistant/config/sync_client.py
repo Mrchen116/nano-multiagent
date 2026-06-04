@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Mapping
 
+from personal_assistant._utils import _require_text
+
 
 @dataclass(frozen=True, slots=True)
 class ConfigSyncRequest:
@@ -58,12 +60,6 @@ class ConfigSyncClient:
         """Return all seen config sync notifications in arrival order."""
 
         return tuple(self._history)
-
-
-def _require_text(value: object, *, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a non-empty string")
-    return value.strip()
 
 
 def _require_int(value: object, *, field_name: str) -> int:

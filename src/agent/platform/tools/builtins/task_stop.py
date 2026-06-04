@@ -5,9 +5,10 @@ from typing import Any, Mapping
 from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
+from agent.platform.tools.base import WiringMixin
 
 
-class TaskStopTool:
+class TaskStopTool(WiringMixin):
     """Stop a running background task (subagent or bash) by ID."""
 
     name = "task_stop"
@@ -31,10 +32,6 @@ class TaskStopTool:
     }
 
     def __init__(self, *, wiring: Any | None = None) -> None:
-        self._wiring = wiring
-
-    def bind_wiring(self, wiring: Any | None) -> None:
-        """Bind background task wiring after bootstrap."""
         self._wiring = wiring
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
@@ -103,10 +100,3 @@ class TaskStopTool:
             return "\n".join(lines)
 
         return json_serialize(output)
-
-    def _require_wiring(self) -> Any:
-        if self._wiring is None:
-            raise ToolError(
-                "background task wiring is not configured", tool_name=self.name
-            )
-        return self._wiring

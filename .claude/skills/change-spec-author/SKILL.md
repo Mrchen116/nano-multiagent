@@ -104,6 +104,10 @@ Read <skill_dir>/assets/<template>.md → 替换 <type-id> 占位符 + 标题 �
 
 对**每个轴**,你心里先有个推荐答案(基于原始需求 + 项目现状)。然后挨个问。
 
+> **取"项目现状"读契约层**:要核对本变更涉及的包"现在对外怎么表现"、对齐既有词汇时,读
+> `docs/specs/<包>/spec.md`(包 ∈ {kernel, im, gateway, cli})——这是 current 行为契约的单一权威。
+> 它是 spec 阶段的读侧;深入到代码 grounding 是 design 阶段的事。
+
 ### §3.2 一轮一问的格式
 
 每轮在对话中向用户抛**一个**问题,格式如下(逐字示范):
@@ -186,7 +190,7 @@ Q1: <一句话问题>
 ### bugfix-full 额外要写的
 
 - **影响范围**:谁受影响、多严重、是否数据损坏
-- **根因分析(RCA)**:不止"哪行写错了",还要"为什么这种错能进来"——是 review 漏了?测试没覆盖?约束没说清楚?
+- **根因分析(RCA)**:不止"哪行写错了",还要"为什么这种错能进来"——是 review 漏了?测试没覆盖?约束没说清楚?挖"哪行错了"到"为什么能进来"这一步,用 `systematic-debugging` skill 的**调查阶段**(逐字读报错 → 稳定复现 → 反向追到坏值源头)。**注意:只用它的调查阶段(Phase 1–2),不进修复阶段**——spec-author 禁碰代码(§0.6),你产出的是 RCA 文字,不是补丁。
 - **原始设计意图追溯**(RCA 的一部分,但单独拎出来防遗漏):出错的这块代码不是凭空来的——它属于某个原始 change unit。先 grep `docs/changes/` 找到引入/拥有这个功能的 unit,读它的 spec/design,**写下这块功能本来要达成什么**,以及"修复必须保住的不变量"。为什么这步关键:不知道原意图时,最省事的修法往往是把触发出错的那条路径直接砍掉——症状是消了,但功能被阉割成了残废。把"原意图 + 不变量"落进 RCA,这条约束才会随文档流到下游(design / worker),拦住"为消症状而砍功能"。
 
 ### 所有类型都要写的
@@ -259,6 +263,8 @@ Q1: <一句话问题>
 你写的【用户场景】+【验收标准】不只给 `change-design-author` 看。unit 实施完成后,`change-orchestrator` 会把【验收标准】**逐字透传**给 `change-reviewer` 当验收清单。reviewer 的**覆盖表逐个 Scenario 验收**(每个 `#### Scenario` 一行,判 pass / fail / inconclusive / not-applicable),并直接拿 Scenario 的 WHEN/THEN 当旅程脚本走——所以你 Scenario 拆得越全(尤其失败 / 边界 / 空态),reviewer 漏验越少。reviewer **只能验用户可观察的东西**(在产品上走旅程、看结果)。
 
 后果很硬:**Scenario 里只要混进实现 / 协议 / 接口 / 内部状态条目,会让整轮 reviewer 验收作废**——reviewer 拿到协议级标准就会去翻源码 / 抓帧 / 加日志定位,滑进 engineer 模式,这轮证据全部失效。
+
+还有一个下游:`change-design-author` 会把【验收标准】**投影**成本 unit 的 canonical **delta-spec**(对长青契约层 `docs/specs/<包>/spec.md` 的增量),收尾由 orchestrator 并进 canonical。所以你的验收标准写得准、Scenario 拆得全,长青契约层最终才准——这是它进入"系统 current 权威"的源头之一。
 
 所以 §4 说的"实现层标准不进 spec"不是风格建议,是**流程硬约束**。实现层的东西归 `design.md`,那里有 worker 单测和架构师 PR review 来验——各有各的 verifier,不要挤进同一段。
 

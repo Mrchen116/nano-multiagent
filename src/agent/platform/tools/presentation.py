@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import difflib
 import json
+from pathlib import Path
 from typing import Any, Mapping
 
 from agent.core.tools.presentation import ToolPresentationEvent, ToolPresenter
@@ -452,3 +453,23 @@ def _stringify(value: Any) -> str:
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
     except TypeError:
         return str(value)
+
+
+def display_path(path: Path, repo_root: Path) -> str:
+    """Return a repo-relative display path, falling back to the absolute path.
+
+    Three builtins (write, edit, read) each carried a private copy — consolidated
+    here as refactor-395-M1.
+
+    Args:
+        path: The absolute file path to display.
+        repo_root: The repository root used as the relative-path anchor.
+
+    Returns:
+        The relative path string if path is inside repo_root; otherwise the
+        absolute path string.
+    """
+    try:
+        return str(path.relative_to(repo_root))
+    except ValueError:
+        return str(path)

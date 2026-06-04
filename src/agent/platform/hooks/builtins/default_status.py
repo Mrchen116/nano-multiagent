@@ -11,7 +11,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
         )
 
     def on_run_timeout(event, ctx):  # noqa: ANN001
-        ctx.logger.warn(
+        ctx.logger.warning(
             "builtin run timeout observed",
             session_id=event.get("session_id"),
             run_id=event.get("run_id"),

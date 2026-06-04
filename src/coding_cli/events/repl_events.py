@@ -6,7 +6,6 @@ from typing import TextIO
 
 from coding_cli.events.event_pipeline import replay_fallback_dedupe_key
 
-_TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
 _EVENT_PREVIEW_MAX_LEN = 120
 _EVENT_PREVIEW_HEAD_LEN = 72
 _EVENT_PREVIEW_TAIL_LEN = 45

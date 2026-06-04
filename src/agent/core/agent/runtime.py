@@ -1,8 +1,8 @@
 """High-level runtime orchestration over sessions, hooks, loop, and compaction."""
 
 import asyncio
+import logging
 from dataclasses import replace
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, Sequence
 
@@ -17,7 +17,7 @@ from agent.core.types import (
     TurnResult,
 )
 from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
-from agent.core.hooks.runner import HookExecution, HookRunner
+from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
 from agent.core.session.jsonl_store import SessionConfig
@@ -27,6 +27,7 @@ from agent.core.skills import SkillMetadata, resolve_available_skills
 from agent.core.skills.discovery import SkillRootResolver
 from agent.core.tools.result_budget import ToolResultCompressor
 from agent.core.tools.session_file_state import SessionFileState, read_file_slice
+from agent.core.utils.time import utc_now_iso as _utc_now_iso
 
 from .compaction.applier import CompactionApplier
 from .compaction.planner import CompactionPlanner
@@ -51,6 +52,8 @@ from agent.core.agent.prompt_sections.wiring import (
 from agent.core.memory.path import derive_memory_root
 from agent.core.memory.store import MemoryStore
 from typing import TypedDict
+
+logger = logging.getLogger(__name__)
 
 
 class MemorySnapshot(TypedDict):
@@ -1169,11 +1172,11 @@ class AgentRuntime:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn(
+            hook_ctx.logger.warning(
                 "hook intercept dispatch failed", event=event, error=str(exc)
             )
             return dict(payload), False
-        self._log_hook_diagnostics(
+        log_hook_diagnostics(
             hook_ctx, event=event, diagnostics=dispatch_result.diagnostics
         )
         return dispatch_result.payload, dispatch_result.stopped
@@ -1193,30 +1196,11 @@ class AgentRuntime:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn(
+            hook_ctx.logger.warning(
                 "hook observe dispatch failed", event=event, error=str(exc)
             )
             return
-        self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
-
-    @staticmethod
-    def _log_hook_diagnostics(
-        hook_ctx: HookContext,
-        *,
-        event: str,
-        diagnostics: tuple[HookExecution, ...],
-    ) -> None:
-        for item in diagnostics:
-            if item.status == "ok":
-                continue
-            hook_ctx.logger.warn(
-                "hook execution isolated",
-                event=event,
-                hook_id=item.hook_id,
-                status=item.status,
-                duration_ms=item.duration_ms,
-                error=item.error,
-            )
+        log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
 
     def _build_hook_context(
         self,
@@ -1293,8 +1277,12 @@ class AgentRuntime:
                                     "decision": getattr(result, "decision", "deny"),
                                 },
                             )
-                        except Exception:
-                            pass
+                        except Exception as exc:
+                            # Delivery failure must not abort the permission flow; log so
+                            # the drop is observable (refactor-395-M1).
+                            logger.warning(
+                                "permission_resolved event delivery failed: %s", exc
+                            )
                 return response
 
             permission_requester = _permission_requester
@@ -1791,10 +1779,6 @@ def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
     if msg.reasoning_signature is not None:
         entry["reasoning_signature"] = msg.reasoning_signature
     return entry
-
-
-def _utc_now_iso() -> str:
-    return datetime.now(UTC).isoformat()
 
 
 # bugfix-380: maximum length for provider error text embedded in the assistant message content.

@@ -203,8 +203,8 @@ async def test_stream_response_incomplete_stream_raises_model_error() -> None:
         )
 
 
-async def test_stream_response_happy_path_not_affected_by_bugfix380() -> None:
-    """happy path 正常流必须不受 bugfix-380 影响。"""
+async def test_stream_response_happy_path() -> None:
+    """happy path 正常流正常 yield 消息。"""
     chunks = [
         {
             "id": "chatcmpl-2",

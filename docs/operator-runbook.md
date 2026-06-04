@@ -107,7 +107,7 @@ Gateway stop 反馈语义：
 Gateway ready 信号：
 - 默认路径下，终端会先返回 `STARTED ...`；后续 readiness/绑定反馈写入 `gateway.log`，并可能自动打开绑定页。
 - 若你改用 `--foreground` 调试路径，终端会保持常驻，并直接看到 `ACTION ...` / `NEXT ...`。
-- 如果你使用 smoke 脚本，看到 `READY` / `RUNNING` / `SHUTDOWN exit_code=0` 就表示默认生命周期闭环正常。
+- 验证 Gateway 生命周期闭环，推荐用 `./scripts/e2e-up.sh` 一键起停后轮询 `/im/v1/nodes` 看到 `online` 即可（详见 §6）。
 
 ## 4. 观察未绑定 / 已绑定行为
 
@@ -171,22 +171,31 @@ curl -s http://127.0.0.1:8011/im/v1/nodes | python -m json.tool
 - 已启动且已连上 IM 的节点显示为 `online`。
 - 若启动失败但节点板仍可见，会带上 actionable `last_error`。
 
-运行 smoke 脚本验证 Gateway 生命周期：
+验证 Gateway 生命周期（`smoke_runtime` 已在 refactor-395 中作为死代码删除，等价替代如下）：
+
+**方式 A：用 e2e 脚本全链路自检**
 
 ```bash
-PYTHONPATH=src python -m personal_assistant.smoke_runtime \
-  --config ./node-config.yaml \
-  --ready-timeout 20 \
-  --steady-seconds 0.5 \
-  --shutdown-timeout 10
+./scripts/e2e-up.sh          # 起 IM + Gateway，自动分配端口、config 隔离、auto-bind
+source .e2e-ports.env        # 拿到 $IM_URL
+curl -s "$IM_URL/im/v1/nodes" | python -m json.tool   # 应看到至少一个 online 节点
+./scripts/e2e-down.sh        # 停掉
 ```
 
-预期输出：
+预期：节点列表含 `"status": "online"` 的条目。
 
-```text
-READY pid=<pid> url=http://127.0.0.1:8000/v1/health
-RUNNING steady_seconds=0.5 alive=true
-SHUTDOWN exit_code=0
+**方式 B：手动启动 + 健康轮询**
+
+```bash
+PYTHONPATH=src python -m personal_assistant.main --config ~/.nano-assistant/config.yaml &
+# 等待 Gateway 连上 IM，轮询节点状态（最多 20 秒）
+for i in $(seq 1 20); do
+  status=$(curl -s http://127.0.0.1:8011/im/v1/nodes | python -m json.tool 2>/dev/null)
+  echo "$status" | grep -q '"online"' && echo "READY" && break
+  sleep 1
+done
+# 用完后：
+PYTHONPATH=src python -m personal_assistant.main stop
 ```
 
 ## 7. 故障排查
@@ -293,5 +302,5 @@ PYTHONPATH=src python -m pytest tests/e2e/test_m112_real_process_roundtrip_e2e.p
 ```
 
 覆盖的核心验收面：
-- NodeGateway-SPEC §16：channel 启动、四步决策、回发原目标、heartbeat、IM 离线降级。
-- IM-SPEC §12：消息往返、设备绑定、节点状态、离线降级、幂等。
+- 见 docs/specs/gateway/spec.md：channel 启动、四步决策、回发原目标、heartbeat、IM 离线降级。
+- 见 docs/specs/im/spec.md：消息往返、设备绑定、节点状态、离线降级、幂等。

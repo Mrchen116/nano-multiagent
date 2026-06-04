@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 import json
 
 from IM.domain.models import ConversationEvent
+from IM.infra._helpers import _optional_text
 from IM.infra.repositories import EventRepository
 
 
@@ -76,7 +77,7 @@ class EventService:
 
             changed = False
             if event.event_type in {"relay.processing", "relay.report"}:
-                run_id = self._optional_text(payload.get("run_id"))
+                run_id = _optional_text(payload.get("run_id"))
                 identity = (
                     run_identity_by_run_id.get(run_id) if run_id is not None else None
                 )
@@ -90,7 +91,7 @@ class EventService:
                     ):
                         payload["relay_task_id"] = identity.relay_task_id
                         changed = True
-            agent_id = self._optional_text(payload.get("agent_id"))
+            agent_id = _optional_text(payload.get("agent_id"))
             if agent_id is not None and "sender_display_name" not in payload:
                 sender_display_name = agent_display_names.get(agent_id)
                 if sender_display_name is not None:
@@ -133,8 +134,8 @@ class EventService:
             if run_id is None:
                 continue
             run_identity_by_run_id[run_id] = _RelayRunIdentity(
-                relay_task_id=self._optional_text(payload.get("relay_task_id")),
-                agent_id=self._optional_text(payload.get("agent_id")),
+                relay_task_id=_optional_text(payload.get("relay_task_id")),
+                agent_id=_optional_text(payload.get("agent_id")),
             )
         return run_identity_by_run_id
 
@@ -166,20 +167,13 @@ class EventService:
 
     @classmethod
     def _parse_run_id(cls, payload: dict[str, object]) -> str | None:
-        direct_run_id = cls._optional_text(payload.get("run_id"))
+        direct_run_id = _optional_text(payload.get("run_id"))
         if direct_run_id is not None:
             return direct_run_id
-        detail = cls._optional_text(payload.get("detail"))
+        detail = _optional_text(payload.get("detail"))
         if detail is None or not detail.startswith("run_id="):
             return None
-        return cls._optional_text(detail[len("run_id=") :])
-
-    @staticmethod
-    def _optional_text(value: object) -> str | None:
-        if not isinstance(value, str):
-            return None
-        stripped = value.strip()
-        return stripped or None
+        return _optional_text(detail[len("run_id=") :])
 
 
 __all__ = ["EventService"]

@@ -5,6 +5,10 @@ import json
 import sqlite3
 
 from IM.domain.models import managed_workspace_root
+from IM.infra._helpers import (
+    _optional_text,
+    _preview_from_event,
+)
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS users (
@@ -226,7 +230,7 @@ def _migrate_users_owner_id(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
-    """Backfill conversation metadata columns introduced by IM-SPEC §6."""
+    """Backfill conversation metadata columns introduced by docs/specs/im/spec.md."""
     rows = connection.execute("PRAGMA table_info(conversations)").fetchall()
     column_names = {row["name"] for row in rows}
     if "type" not in column_names:
@@ -335,7 +339,7 @@ def _migrate_conversations_metadata(connection: sqlite3.Connection) -> None:
 
 
 def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
-    """Backfill message metadata columns introduced by IM-SPEC §6."""
+    """Backfill message metadata columns introduced by docs/specs/im/spec.md."""
     rows = connection.execute("PRAGMA table_info(messages)").fetchall()
     column_names = {row["name"] for row in rows}
     if "sender_type" not in column_names:
@@ -458,7 +462,7 @@ def _migrate_drop_nodes_capabilities_column(connection: sqlite3.Connection) -> N
 
 
 def _migrate_relay_tasks(connection: sqlite3.Connection) -> None:
-    """Backfill relay task storage introduced by IM-SPEC §4."""
+    """Backfill relay task storage introduced by docs/specs/im/spec.md."""
     tables = {
         row["name"]
         for row in connection.execute(
@@ -532,50 +536,6 @@ def _migrate_usage_metrics(connection: sqlite3.Connection) -> None:
         )
         """
     )
-
-
-def _optional_text(value: object) -> str | None:
-    if not isinstance(value, str):
-        return None
-    stripped = value.strip()
-    return stripped or None
-
-
-def _is_no_reply_protocol_token(value: str | None) -> bool:
-    if value is None:
-        return False
-    normalized = value.strip()
-    return (
-        normalized == "NO_REPLY"
-        or normalized.startswith("suppressed_by=no_reply_token")
-        or "suppressed_by=no_reply_token" in normalized
-    )
-
-
-def _preview_from_event(event_type: str, payload: dict[str, object]) -> str | None:
-    content = _optional_text(payload.get("content"))
-    if event_type in {"message.sent", "message_created"} and content is not None:
-        return content
-    if event_type in {
-        "relay.processing",
-        "relay.report",
-        "relay.completed",
-        "relay.failed",
-        "message.delivered",
-    }:
-        summary = _optional_text(payload.get("summary"))
-        detail = _optional_text(payload.get("detail"))
-        preview = summary or detail or content
-        if preview is None or _is_no_reply_protocol_token(preview):
-            return None
-        return preview
-    file_name = _optional_text(payload.get("file_name"))
-    if file_name is not None:
-        return file_name
-    attachments = payload.get("attachments")
-    if isinstance(attachments, list) and attachments:
-        return "Attachment"
-    return None
 
 
 def _preview_from_message_row(row: sqlite3.Row) -> str:

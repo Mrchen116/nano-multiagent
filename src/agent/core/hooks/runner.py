@@ -265,6 +265,35 @@ class HookRunner:
         return result
 
 
+def log_hook_diagnostics(
+    hook_ctx: "HookContext",
+    *,
+    event: str,
+    diagnostics: tuple["HookExecution", ...],
+) -> None:
+    """Log a warning for each hook execution that did not finish with status 'ok'.
+
+    Previously duplicated as a private static method in AgentRuntime, AgentLoop,
+    ToolRegistry, and RunsRegistry — consolidated here as refactor-395-M1.
+
+    Args:
+        hook_ctx: The hook context whose logger will receive the warning.
+        event: The hook event name (e.g. 'tool.call.before').
+        diagnostics: Execution records returned by the hook runner.
+    """
+    for item in diagnostics:
+        if item.status == "ok":
+            continue
+        hook_ctx.logger.warning(
+            "hook execution isolated",
+            event=event,
+            hook_id=item.hook_id,
+            status=item.status,
+            duration_ms=item.duration_ms,
+            error=item.error,
+        )
+
+
 def _strip_fork_conversation(ctx: HookContext) -> HookContext:
     """Return a copy of ctx with fork_conversation=None.
 

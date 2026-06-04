@@ -31,6 +31,7 @@ description: 用于从产品视角独立验收一个 unit 的所有 milestone �
    - 给 `revise-design` 时必须**引用 design.md 具体段落**指出矛盾
    - 必须**至少经过 2 轮 fix-implementation 仍未解决**
 7. **out-of-unit 立 issue 不带情绪**:blocking / major 必立,minor 只在报告"Side Findings"段记录,不立(防 issue 队列污染)。
+8. **不 invoke `systematic-debugging`**。它会驱动你 trace/读源码/加日志——违反 §0.2/§0.3。看不到就判 fail,归因是 fix worker 的事。
 
 ---
 
@@ -357,12 +358,12 @@ minor out-of-unit **不立 issue**,只写到报告 Side Findings 段。
 
 acceptance / regression 模板都有"上层文档同步"段。逐项核对:
 
-- `SPEC.md`(架构总览)
-- `docs/内核设计SPEC.md`(若项目有)
+- `SPEC.md`(跨包顶点架构)
+- `docs/specs/<包>/spec.md`(长青行为契约层,本 unit 触及的包)
 - `AGENTS.md` / `CLAUDE.md`
-- 相关产品 SPEC(`docs/CodingCLI-SPEC.md` 等,若项目有)
+- `docs/SPEC_GUIDE.md`(文档规范,仅当本 unit 改了文档体系本身时)
 
-**每一项都要勾**,即使是"无需更新"——证明你检查了。需要更新的,在报告里标记,但**不要自己改**——交给 orchestrator 在 PR 阶段或下一个文档同步 unit 处理。
+**每一项都要勾**,即使是"无需更新"——证明你检查了。需要更新的,在报告里标记,但**不要自己改**——交给 orchestrator 在 PR 阶段或下一个文档同步 unit 处理。长青契约层的写回本就是 orchestrator §7.0 收尾归并的职责(据 delta-spec 校正 + 软对账 + 合并进 canonical),reviewer 只勾"是否已反映本 unit 行为增量",不亲自重写契约层。
 
 ---
 

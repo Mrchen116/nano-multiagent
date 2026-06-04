@@ -17,7 +17,7 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 
 1. **门禁 2 没过不能启动**。检查 `docs/changes/<unit>/design.md`:无 `<!-- 模板说明 -->`、Milestone 表完整、空目录数量 = 表行数。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 收口。
 2. **Sync Gate 不通过不动作**。启动第一件事是 main 同步检查(§2),分叉直接停下让人介入,不要强制 reset。
-3. **不写代码、不改 design / spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**唯一例外**:在 PR body / Changelog 这类调度产物里写文字。
+3. **不写代码、不改 design / 变更稿 spec**。escalation 时通知人介入,由 design-author / spec-author 修订。**两个例外**:(a) 在 PR body / Changelog 这类调度产物里写文字;(b) §7.0 收尾归并:据本 unit delta-spec 把行为增量合并进**长青行为契约层** `docs/specs/<包>/spec.md`(顶层 canonical,你是单一 owner),并可校正 delta 文件 `docs/changes/<unit>/specs/<包>/spec.md`——注意这两者与 `docs/changes/<unit>/spec.md`(变更稿,禁改)是两回事。
 4. **Agent 工具派发时不设置 isolation 参数**。worktree 由本 skill 分配路径并指示 worker 自建。设了 `isolation=worktree` 会在 `.claude/worktrees/` 创建冲突 worktree,破坏整个流程。
 5. **一个 milestone 一个 worker**。不让同一个 worker 串跑多个 milestone(上下文窗口风险 + 失败定位难)。
 6. **默认并行**。无依赖、无文件冲突的 milestone 必须并行派发;不并行才需要理由。
@@ -26,11 +26,11 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 9. **reviewer / verifier 越界硬处置**。这两个验收角色都严禁写源码/测试/提 commit(详见 change-reviewer §0 / change-verifier §0)。若回报时 unit 分支多了非报告类 commit,**强制 revert** 这些 commit(`git reset` 到该 agent 派发前的 HEAD,`push --force-with-lease`)后,把该轮该 agent 的 verdict **作废**,issues 重新打包派 fix worker 实施(参见 §6.6)。不要"接受验收 agent 顺手修的代码"——既验又改不可信。
 10. **退出标准必须逐条严格核对**。worker 回报 DONE 时,orchestrator **必须**对 design.md 该 milestone 行"退出标准"列里的每一条,在 progress.md 找到对应证据并判定是否真的达标(详见 §3.3)。这一步**不许跳过、不许走过场、不许只看证据存不存在**。任一项不达标 → 不算 DONE,退回 worker 补齐。
 11. **派发 reviewer 的 prompt 口径净化**。orchestrator 在派发包里**只许**透传 design.md 已有的"用户可观察"验收语,**严禁**手写"WS 帧必须有 X / API 必须返回 Y / 函数必须被调用"这类协议/接口/实现级标准——这会把 reviewer 推进 engineer 模式。详见 §5。
-12. **PR 提完即退出**。不等 merge、不等 CI——交棒给人。
+12. **CI 绿了才退出,但不等 merge**——提 PR 后等远端 CI,红了走 fix 循环修到绿再交棒;merge 由人做(§7)。
 13. **派发必须后台运行**。Agent 工具派发 worker / reviewer / verifier 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
-14. **必须开 team 派发**。启动时先 `TeamCreate` 建一个 unit 专属 team(名字用 `unit-<unit_id>`),之后所有 Agent 派发都带 `team_name`。否则子 agent 结束后实例销毁,失败循环 / Fast-lane 复验 / PR 反馈处理(§6.FL / §7.4)就无法 `SendMessage` 续跑,只能新开实例丢上下文。unit 完成(§7.4 退出前)`TeamDelete` 清理。
+14. **必须开 team 派发**。启动时先 `TeamCreate` 建一个 unit 专属 team(名字用 `unit-<unit_id>`),之后所有 Agent 派发都带 `team_name`。否则子 agent 结束后实例销毁,失败循环 / Fast-lane 复验 / PR 反馈处理(§6.FL / §7.5)就无法 `SendMessage` 续跑,只能新开实例丢上下文。unit 完成(§7.5 退出前)`TeamDelete` 清理。
 15. **主仓 HEAD 不动**。整个 unit 生命周期内,所有针对 `unit/<unit_id>` 分支的 checkout / pull / merge / push / rebase / PR 一律在专属 `unit_worktree_dir`(§2.3)里跑,**严禁**在主仓 `git checkout unit/<id>`——多 orchestrator 并发时主仓 HEAD 会被互相踩翻,用户也可能正在主仓做别的事。Sync Gate(§2.2)操作的是主仓的 main,不在此限。
-16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.4 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep snippet 见项目 AGENTS.md;§7.4 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
+16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.5 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep snippet 见项目 AGENTS.md;§7.5 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
 
 ---
 
@@ -181,7 +181,7 @@ def main_loop(unit_id):
     while review_round <= 7:
         v_report, r_report = dispatch_verify_and_review(review_round)  # §5,两个后台 agent 并行
         if both_pass(v_report, r_report):     # verifier verdict=pass 且 reviewer verdict 允许
-            submit_pr_and_exit()              # §7
+            submit_pr_watch_ci_exit()         # §7：本地 CI 门禁 → 提 PR → 等远端 CI 绿 → 退；红则 §6.2
             return
         action = decide_action(v_report, r_report)   # §6,合并两份报告路由
         if action == "fix":
@@ -447,7 +447,7 @@ in-unit fix 默认**优先 `SendMessage` 唤醒原 milestone worker**(实例还�
 
 **硬边界**(破任一即退回 §6.2 完整路径):
 1. reviewer 仍独立验收
-2. PR body 仍列本 unit 所有 fix 历史(数量、轮次、复用还是新派;§7.2 不放松)
+2. PR body 仍列本 unit 所有 fix 历史(数量、轮次、复用还是新派;§7.3 不放松)
 3. reviewer 复用实例零写入(reviewer §0.1)
 4. 集成路径不变
 5. 失败可回退
@@ -533,6 +533,42 @@ Resume: 修订完成后调 orchestrator,带 unit_id 即可续跑
 
 unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acceptance bar 允许):
 
+### §7.0 收尾归并:据 delta-spec 把行为增量并进长青契约层
+
+提 PR 前的最后一道实质动作——把本 unit 的对外行为增量并进长青行为契约层 `docs/specs/<包>/spec.md`,
+让它保持 current。**不全量重扫 canonical**,而是据 design 阶段产的 **delta-spec**
+(`docs/changes/<unit_dir>/specs/<包>/spec.md`)合并。规范见 `docs/SPEC_GUIDE.md`「契约层增量」+
+「收尾归并 checklist」。
+
+> **canonical `docs/specs/` 与 delta `docs/changes/<unit>/specs/` 都在 unit_worktree 的
+> `unit/<unit_id>` 分支上**,和源码 diff 同处一棵树——在 `$unit_worktree` 里编辑 + commit,随 PR 一起
+> 进 main。不动主仓 HEAD(§0.15)。
+
+对本 unit **有 delta 文件的每个包**(kernel / im / gateway / cli),按下面三步走:
+
+**① 校正 delta(design 草案 → 实际代码)**:delta 是 design 期的预测,worker 实现可能偏。拿实际代码 diff
+核对 delta 每条 ADDED/MODIFIED/REMOVED——实现期新增的对外行为补进 delta、design 写了但没落地的删掉。
+design 注 "no spec delta" 且 diff 也无对外行为变化 → 该包跳过(PR body 记 "no spec delta")。
+
+**② 软对账(advisory,不出红测)** —— 复用已派的 reviewer / verifier 做,不另起机制。派 §5
+reviewer / verifier 时(或本步现派一轮)让其对**校正后 delta 的每条** Requirement/Scenario **搜代码 +
+测试**,报告三类:契约与实现一致 / 契约声明的行为代码已背离 / 本 unit 新增代码产生了 delta 未覆盖的对外
+行为。背离与缺口**显式列在报告里**(advisory,不出红测、不机械硬卡)。范围 = 本 unit delta,**不是
+canonical 全量**。靠 agent 尽责对账,不靠机械绑定。
+
+**③ 合并 delta 进 canonical**:把校正后 delta 机械合并进对应 `docs/specs/<包>/spec.md`——ADDED 追加、
+MODIFIED 替换对应条目、REMOVED 删对应条目(delta 与 canonical 同骨架,对应是机械的)。每条进 canonical
+前再过 SPEC_GUIDE 的「两问判据」+「库契约四纪律」(WHEN/THEN 主语=消费者、CDC 裁剪、纯
+`Purpose + Requirement/Scenario`,**无** `覆盖:` 行 / `[可执行]` 标签 / freshness 测试)。然后 bump 该
+文件头部 `> 对齐:` 行到本 unit-id。commit:`docs(<unit_id>): 收尾归并契约层 docs/specs/<包>`
+(或多包分别 commit)。
+
+> 你是单一 owner、串行收尾,无并行写冲突。delta 把"该验 / 该合并什么"限定到本 unit 增量,不必全量
+> 重扫;非确定性由 delta 固定骨架 + 校正 / 软对账兜——真飘了下个 unit 收尾再修(纯增量、advisory,
+> 不阻塞本 PR)。
+
+归并完成后,继续 §7.1。
+
 ### §7.1 sync gate 重跑
 
 ```bash
@@ -542,11 +578,17 @@ git -C "$unit_worktree" rebase origin/main           # 期间 main 可能被别�
 git -C "$unit_worktree" push --force-with-lease origin "unit/<unit_id>"
 ```
 
-### §7.2 组装 PR body
+### §7.2 本地 CI 门禁(绿才提 PR)
+
+提 PR 前在 `$unit_worktree` 把项目 CI 等价跑一遍。从 CI 配置(`.github/workflows/` 或同类**照搬**每个 job 的命令逐条复现,别凭记忆——format 用「只验不改」版、依赖按锁文件装,否则本地绿、CI 红。任一 job 红当 bug 走 §6.2,修到全绿才进 §7.3。
+
+### §7.3 组装 PR body
 
 从 unit 文档自动抽,按模式选模板——**full**(从 spec/design/acceptance/verification 抽)、**lite**(只从 fix.md 抽)。两套完整 markdown 模板 + 逐字段抽取来源见 `references/pr-body-templates.md`,提 PR 时读它照填。每个字段都从 unit 文档抽,不手写新内容。
 
-### §7.3 提 PR
+PR body 里附一行 **Spec delta**:列 §7.0 收尾归并改了哪些 `docs/specs/<包>/spec.md`(或 "no spec delta",纯内部 unit)。
+
+### §7.4 提 PR + 等 CI
 
 ```bash
 gh pr create \
@@ -561,12 +603,14 @@ EOF
 
 PR title 格式:`[<type>] <短描述> (<unit_id>)`,例:`[feat] chat mention picker (feat-104)`、`[bugfix] session leak on restart (bugfix-200)`。
 
-### §7.4 退出
+提 PR 后等远端 CI 跑完(`gh pr checks --watch`)——本地门禁只防低级红,环境差异 / 并发 main 推进仍可能红。全绿 → §7.5。有红当 bug 走 §6.2(`gh run view --log-failed` 取失败详情作线索,派 worker 修;push 后 CI 自动重跑,再 watch),修到绿才退。
+
+### §7.5 退出
 
 输出 PR URL,告诉用户:
 
 ```
-Unit <unit-id> 实施完成,PR 已提交:<url>
+Unit <unit-id> 实施完成,CI 全绿,PR 已提交:<url>
 
 请人审查后 merge。merge 后:
 - GitHub 会自动关 Closes 列表里的 issue
@@ -587,7 +631,7 @@ git worktree remove "$unit_worktree"
 
 PID sweep 兜底(§0.16):reviewer / worker 自 kill 通常已干净,但崩溃残留必须 orchestrator 这一步收掉,否则用户会把孤儿进程当主仓服务。
 
-orchestrator **不等 CI、不等 merge**,退出。等 merge 是浪费上下文。
+orchestrator 等 CI 绿后退出,不等 merge。
 
 如果 PR 被人 request changes / comment,用户调 orchestrator 时带 prompt "address PR <url>",orchestrator `gh pr view --json comments,reviews` 读反馈,把每条当 issue 走 §6.2 fix-implementation,push 后 PR 自动更新,通知用户重审,退出。
 
@@ -598,7 +642,7 @@ orchestrator **不等 CI、不等 merge**,退出。等 merge 是浪费上下文�
 - **不要在 orchestrator 里做颗粒度判断**。design-author 已经决定。你觉得拆得不对 → 通知人介入,不自己合并/重拆。
 - **不要代写 worker / reviewer 的产出**。worker 的 progress.md / reviewer 的 acceptance.md 不许你代笔——代笔等于自我验收。
 - **不要在 sync gate 分叉时强制 reset**。这会丢提交。永远停下让人决定。
-- **不要等 PR merge**。提 PR 即交棒。久占上下文是浪费。
+- **不要等 PR merge**。CI 绿即交棒,merge 由人做。
 - **不要在 orchestrator 里启动多个 unit**。一次只跑一个 unit。要并行多 unit → 用户开多个 orchestrator session(不同 unit 在不同 unit/ 分支上,天然不冲突)。
 - **不要把 reviewer 的 revise-design 不假思索升级**。三道闸全过才行。降级是默认值。
 

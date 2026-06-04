@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import shlex
 import signal
@@ -19,6 +20,8 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import parse_qs, urlparse
+
+_log = logging.getLogger("personal_assistant.main")
 
 import httpx
 import websockets
@@ -337,20 +340,26 @@ class _IMConfigSyncClient:
                 _hb_raw_str = payload.get("heartbeat_json")
                 if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
                     import json as _json  # noqa: PLC0415
+
                     try:
                         _hb_raw = _json.loads(_hb_raw_str)
                     except (ValueError, TypeError):
                         _hb_raw = payload.get("heartbeat")
                 else:
                     _hb_raw = payload.get("heartbeat")
-                synced_heartbeat_enabled, synced_heartbeat_every, synced_hb_start, synced_hb_end, synced_hb_tz = (
-                    _parse_heartbeat_from_im_payload(_hb_raw)
-                )
+                (
+                    synced_heartbeat_enabled,
+                    synced_heartbeat_every,
+                    synced_hb_start,
+                    synced_hb_end,
+                    synced_hb_tz,
+                ) = _parse_heartbeat_from_im_payload(_hb_raw)
                 # feat-394-M2 decision 5: parse per-agent cron config from IM mirror payload.
                 # Prefer cron_json (raw JSON string) over the legacy cron dict key.
                 _cron_raw_str = payload.get("cron_json")
                 if isinstance(_cron_raw_str, str) and _cron_raw_str.strip():
                     import json as _json2  # noqa: PLC0415
+
                     try:
                         _cron_raw = _json2.loads(_cron_raw_str)
                     except (ValueError, TypeError):
@@ -1000,6 +1009,7 @@ class PollingHeartbeatRunner:
                             await self._cron_tick_fn(agent_id)
                         except Exception:  # noqa: BLE001
                             import logging as _logging  # noqa: PLC0415
+
                             _logging.getLogger(__name__).exception(
                                 "cron tick failed: agent=%s", agent_id
                             )
@@ -1058,7 +1068,11 @@ class PollingHeartbeatRunner:
         if len(non_empty_indices) <= pre_submit_line_count:
             return  # nothing to trim (no heartbeat lines were appended)
         # Keep lines up to and including the last pre-submit non-empty line.
-        last_kept_line_idx = non_empty_indices[pre_submit_line_count - 1] if pre_submit_line_count > 0 else -1
+        last_kept_line_idx = (
+            non_empty_indices[pre_submit_line_count - 1]
+            if pre_submit_line_count > 0
+            else -1
+        )
         kept_lines = all_lines[: last_kept_line_idx + 1]
         tmp_path = session_file.with_suffix(".jsonl.trim_tmp")
         try:
@@ -1111,14 +1125,28 @@ class PollingHeartbeatRunner:
             _get_session_fn = getattr(self._kernel, "get_session", None)
             if _get_session_fn is not None:
                 _sess_info = _get_session_fn(kernel_session_id)
-                _ws_root = _sess_info.get("workspace_root") if isinstance(_sess_info, dict) else None
+                _ws_root = (
+                    _sess_info.get("workspace_root")
+                    if isinstance(_sess_info, dict)
+                    else None
+                )
                 if _ws_root:
-                    from personal_assistant.config.local_store import WORKSPACE_CONFIG_DIRNAME as _WCD  # noqa: PLC0415
-                    _sess_path = Path(_ws_root) / _WCD / "sessions" / f"{kernel_session_id}.jsonl"
+                    from personal_assistant.config.local_store import (
+                        WORKSPACE_CONFIG_DIRNAME as _WCD,
+                    )  # noqa: PLC0415
+
+                    _sess_path = (
+                        Path(_ws_root)
+                        / _WCD
+                        / "sessions"
+                        / f"{kernel_session_id}.jsonl"
+                    )
                     if _sess_path.exists():
                         _session_file_for_trim = _sess_path
                         _content = _sess_path.read_text(encoding="utf-8")
-                        _pre_submit_line_count = sum(1 for ln in _content.splitlines() if ln.strip())
+                        _pre_submit_line_count = sum(
+                            1 for ln in _content.splitlines() if ln.strip()
+                        )
         except Exception:  # noqa: BLE001
             pass  # trim snapshot failure is non-fatal; trim skipped for this tick
 
@@ -1149,7 +1177,11 @@ class PollingHeartbeatRunner:
             # If conversation_id was never filled (no turn_start sent → zero IM trace → silent tick),
             # truncate the session JSONL back to the pre-submit state.
             _was_silent = ctx is not None and not ctx.get("conversation_id")
-            if _was_silent and _session_file_for_trim is not None and _pre_submit_line_count > 0:
+            if (
+                _was_silent
+                and _session_file_for_trim is not None
+                and _pre_submit_line_count > 0
+            ):
                 try:
                     await self.trim_silent_tick(
                         session_file=_session_file_for_trim,
@@ -1324,8 +1356,14 @@ class GatewayRuntime:
         finally:
             self._ready_event.clear()
             if dispatch_runner is not None:
-                with suppress(Exception):
+                try:
                     await dispatch_runner.cleanup()
+                except Exception as exc:
+                    # Cleanup failure (e.g. socket already closed) must not prevent
+                    # further shutdown steps; log so the error is observable (refactor-395-M1).
+                    _log.warning(
+                        "dispatch runner cleanup failed during shutdown: %s", exc
+                    )
             if heartbeat_started and self._heartbeat_runner is not None:
                 await self._heartbeat_runner.close()
             if channels_started:
@@ -1800,17 +1838,21 @@ def _parse_heartbeat_from_im_payload(
     heartbeat_enabled = bool(enabled_raw) if isinstance(enabled_raw, bool) else False
     every_raw = raw.get("every")
     heartbeat_every = (
-        every_raw.strip()
-        if isinstance(every_raw, str) and every_raw.strip()
-        else None
+        every_raw.strip() if isinstance(every_raw, str) and every_raw.strip() else None
     )
     active_hours_raw = raw.get("active_hours")
     if isinstance(active_hours_raw, dict):
         start_raw = active_hours_raw.get("start")
         end_raw = active_hours_raw.get("end")
         tz_raw = active_hours_raw.get("timezone")
-        hb_start = start_raw.strip() if isinstance(start_raw, str) and start_raw.strip() else None
-        hb_end = end_raw.strip() if isinstance(end_raw, str) and end_raw.strip() else None
+        hb_start = (
+            start_raw.strip()
+            if isinstance(start_raw, str) and start_raw.strip()
+            else None
+        )
+        hb_end = (
+            end_raw.strip() if isinstance(end_raw, str) and end_raw.strip() else None
+        )
         hb_tz = tz_raw.strip() if isinstance(tz_raw, str) and tz_raw.strip() else None
     else:
         hb_start, hb_end, hb_tz = None, None, None
@@ -1909,6 +1951,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     _run_context_store: dict[str, dict[str, str]] = {}
     # feat-393: heartbeat_runner is built here (before im_connection_manager which references it),
     # but the kernel_event_observer is wired after im_service block via attribute set below.
+    # NOTE: session_store + _heartbeat_scheduler are constructed earlier (feat-394 moved
+    # them up so HeartbeatScheduler can take the store for tick-time canonical lookup);
+    # this supersedes origin/main's simpler heartbeat_runner/session_store block here.
     _owner_user_id = config.node.user_id or ""
     heartbeat_runner = PollingHeartbeatRunner(
         scheduler=_heartbeat_scheduler,
@@ -2076,7 +2121,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             if result is None:
                 _log.warning(
                     "cron: submit returned no result: agent=%s job=%s",
-                    agent_id, getattr(job, "id", "?"),
+                    agent_id,
+                    getattr(job, "id", "?"),
                 )
                 return
             run_id, kernel_session_id = result
@@ -2092,8 +2138,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             # Seed run_context_store so kernel_event_observer routes events to the owner's
             # direct conversation via the lazy-bubble turn_start path (same as heartbeat).
             _run_context_store[run_id] = {
-                "conversation_id": "",   # lazy: filled by IM turn_start ack
-                "message_id": "",        # lazy: filled by IM turn_start ack
+                "conversation_id": "",  # lazy: filled by IM turn_start ack
+                "message_id": "",  # lazy: filled by IM turn_start ack
                 "agent_id": agent_id,
                 "to_user_id": _owner_user_id,
                 "kernel_session_id": kernel_session_id,
@@ -2116,13 +2162,18 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     if asyncio.iscoroutine(obs_result):
                         await obs_result
                     if event.get("event") == "run_status" and event.get("status") in (
-                        "completed", "failed", "cancelled", "error"
+                        "completed",
+                        "failed",
+                        "cancelled",
+                        "error",
                     ):
                         break
             except Exception:  # noqa: BLE001
                 _log.exception(
                     "cron: stream consume failed: agent=%s job=%s run=%s",
-                    agent_id, getattr(job, "id", "?"), run_id,
+                    agent_id,
+                    getattr(job, "id", "?"),
+                    run_id,
                 )
             finally:
                 _run_context_store.pop(run_id, None)
@@ -2153,7 +2204,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     except Exception:  # noqa: BLE001
                         _log.warning(
                             "cron: awareness inject failed: agent=%s job=%s session=%s",
-                            agent_id, getattr(job, "id", "?"), _awareness_session_id,
+                            agent_id,
+                            getattr(job, "id", "?"),
+                            _awareness_session_id,
                         )
                 else:
                     _log.debug(
@@ -2661,8 +2714,10 @@ def _build_kernel_event_observer(
     ) -> None:
         try:
             await manager.send_json(message_type, payload)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            # IM send failure must not propagate into the event stream; log so the
+            # drop is observable (refactor-395-M1).
+            _log.warning("IM observer send failed for %s: %s", message_type, exc)
 
     def observer(event: Mapping[str, Any]) -> "Coroutine[Any, Any, None] | None":
         manager = im_connection_manager_factory()
@@ -2722,8 +2777,8 @@ def _build_kernel_event_observer(
                         )
                         if returned_msg_id and rid in run_context_store:
                             run_context_store[rid]["message_id"] = str(returned_msg_id)
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        _log.warning("IM observer turn_start send/ack failed: %s", exc)
 
                 return _send_turn_start_and_store()
 
@@ -2884,8 +2939,10 @@ def _build_kernel_event_observer(
                                     "run_id": rid,
                                 },
                             )
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        _log.warning(
+                            "IM observer close/restart delta send failed: %s", exc
+                        )
 
                 return _close_old_and_restart()
 
@@ -2951,8 +3008,10 @@ def _build_kernel_event_observer(
                                     "run_id": rid,
                                 },
                             )
-                    except Exception:  # noqa: BLE001
-                        pass
+                    except Exception as exc:  # noqa: BLE001
+                        _log.warning(
+                            "IM observer turn_start_then_delta send failed: %s", exc
+                        )
 
                 return _turn_start_then_delta()
 
@@ -3180,9 +3239,13 @@ def _build_session_event_callback(
                     "text": text,
                 },
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             # Background notification delivery must never crash the gateway.
-            pass
+            _log.warning(
+                "session event notification delivery failed (conversation_id=%s): %s",
+                conversation_id,
+                exc,
+            )
 
     return _callback
 
@@ -3484,8 +3547,12 @@ async def _await_background_task(task: asyncio.Task[None]) -> None:
 
 
 def _consume_task_exception(task: asyncio.Task[object]) -> None:
-    with suppress(asyncio.CancelledError):
+    try:
         task.result()
+    except asyncio.CancelledError:
+        pass
+    except Exception as exc:
+        _log.exception("background task raised unexpected exception: %s", exc)
 
 
 def _consume_future_exception(future: object) -> None:

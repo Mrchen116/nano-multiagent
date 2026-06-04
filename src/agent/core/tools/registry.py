@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 from agent.core.errors import ToolError
 from agent.core.hooks.context import HookContext
-from agent.core.hooks.runner import HookExecution, HookRunner
+from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.observability.logger import log_error, log_info
 from agent.core.observability.tracing import bind_correlation
 from agent.core.types import ToolSpec
@@ -346,11 +346,11 @@ class ToolRegistry:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn(
+            hook_ctx.logger.warning(
                 "hook intercept dispatch failed", event=event, error=str(exc)
             )
             return dict(payload), False
-        self._log_hook_diagnostics(
+        log_hook_diagnostics(
             hook_ctx, event=event, diagnostics=dispatch_result.diagnostics
         )
         return dispatch_result.payload, dispatch_result.stopped
@@ -372,30 +372,11 @@ class ToolRegistry:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn(
+            hook_ctx.logger.warning(
                 "hook observe dispatch failed", event=event, error=str(exc)
             )
             return
-        self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
-
-    @staticmethod
-    def _log_hook_diagnostics(
-        hook_ctx: HookContext,
-        *,
-        event: str,
-        diagnostics: tuple[HookExecution, ...],
-    ) -> None:
-        for item in diagnostics:
-            if item.status == "ok":
-                continue
-            hook_ctx.logger.warn(
-                "hook execution isolated",
-                event=event,
-                hook_id=item.hook_id,
-                status=item.status,
-                duration_ms=item.duration_ms,
-                error=item.error,
-            )
+        log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
 
 
 def _validate_args(

@@ -273,7 +273,7 @@ src/IM/frontend/
    - `node-scoped agent creation`
    - `account`
 2. **用户流**与历史对齐（原按会话 SSE 已移除）：
-   - 帧形态见 `IM-SPEC` §5：Wire `data` 与持久化 `conversation_events` 的 `event_type` + payload 尽量一致
+   - 帧形态见 `docs/specs/im/spec.md`：Wire `data` 与持久化 `conversation_events` 的 `event_type` + payload 尽量一致
    - 客户端以 **全局 `event_id`** 去重；多 tab 可重复收到同一事件
    - `resync_required` 后调 `GET /im/v1/sync` 对齐游标并刷新会话列表
 3. 配置保存并发控制：

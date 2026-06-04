@@ -83,7 +83,7 @@ class SessionBindingStore:
 session_binding_store = SessionBindingStore()
 
 # ---------------------------------------------------------------------------
-# SQLite-backed persistent binding store (NodeGateway-SPEC §4.2)
+# SQLite-backed persistent binding store (see docs/specs/gateway/spec.md)
 # ---------------------------------------------------------------------------
 
 _CREATE_TABLE_SQL = """

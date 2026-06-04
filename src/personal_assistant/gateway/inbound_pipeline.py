@@ -24,6 +24,8 @@ from personal_assistant.gateway.session_keys import (
     session_binding_store,
 )
 
+from agent.sdk import TERMINAL_RUN_STATUSES
+
 if TYPE_CHECKING:
     from agent.sdk.kernel import Kernel
 
@@ -71,13 +73,14 @@ RelayLifecycleCallback = Callable[
     [InboundMessage, RelayLifecycleUpdate], Awaitable[None]
 ]
 
-_TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled"}
+# TERMINAL_RUN_STATUSES imported from agent.sdk (canonical string-form, derived from RunStatus enum).
+_TERMINAL_RUN_STATUSES = TERMINAL_RUN_STATUSES
 # Default port for the Gateway's internal HTTP dispatch endpoint.
 _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
 
 
 class InboundPipeline:
-    """Execute the NodeGateway-SPEC §4 four-step decision flow.
+    """Execute the gateway four-step inbound decision flow (see docs/specs/gateway/spec.md).
 
     Args:
         kernel: In-process Kernel SDK instance (refactor-387 M3+).
@@ -95,7 +98,7 @@ class InboundPipeline:
             outbound messages back through the Gateway without a separate discovery step.
 
     Notes:
-        Group-chat traffic honors the NodeGateway-SPEC @mention gate before any kernel
+        Group-chat traffic honors the gateway @mention gate (see docs/specs/gateway/spec.md) before any kernel
         session or run is created. Only direct chats, explicit mentions, replies to the
         agent, or control-command triggers are allowed to proceed.
     """

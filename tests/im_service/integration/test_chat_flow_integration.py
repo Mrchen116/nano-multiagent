@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from IM.repositories import UserRepository
+from IM.infra.repositories import UserRepository
 
 from .conftest import authorize, make_app_client, register_user, seed_user_under_owner
 

@@ -46,7 +46,16 @@ repo_root=$(git rev-parse --show-toplevel)
 ```
 显式从 `origin/unit/<unit_id>` 拉,拿到最新合并态。verifier 不开新分支(只读核对),报告 commit 直接提到 unit 分支(§5.2)。
 
-读上下文(只读):spec.md(requirement / scenario)、design.md(关键决策)、各 milestone `M<N>-*/tasks.md`、历轮 `verification.md`(若 round > 1,继承未关闭项)。
+读上下文(只读),分两类:
+
+**① 本 unit 文档**(核对对象):`spec.md`(requirement / scenario)、`design.md`(关键决策)、各 milestone `M<N>-*/tasks.md`、历轮 `verification.md`(round > 1 继承未关闭项)。
+
+**② 项目权威规范**(若有；判据,不是背景):§2/§3/§4 判定靠的标尺在项目级规范里,不在 unit 局部文档里。至少找齐这几类再读:
+- **测试规范** —— 判「测试覆盖够不够、该不该有、写在哪层、是不是临时验收证据冒充永久回归」(§3.2/§3.3)。
+- **架构总览 / 长青行为契约** —— requirement 的最终权威。核对实现既要对上 unit 的 `spec.md`,也要对上项目长青契约 + 跨包依赖方向 / 模块边界(§2.2/§3.1)。
+- **注释规范 / 贡献约定** —— 判 §4 Coherence「是否沿用既有模式」:命名、注释、错误处理、import 边界、commit / TODO 格式。
+
+这些文档因项目而异,通常在仓库根或 `docs/` 下;`CLAUDE.md` / `AGENTS.md` 一般是索引入口,从那里找对应的规范文档再读。
 
 **若 tasks 为空 / 不存在**:报告 "No tasks to verify",退出。
 
@@ -79,7 +88,7 @@ repo_root=$(git rev-parse --show-toplevel)
 ### §3.2 Scenario 覆盖检查
 对 spec 里**每个 scenario**:
 - 检查 scenario 的条件(WHEN/THEN)是否在代码里被处理。
-- 检查是否有测试覆盖该 scenario。
+- 检查是否有测试覆盖该 scenario。**覆盖是否达标按 §1② 项目测试规范判**——区分真回归测试 vs 临时验收证据,后者不计入覆盖。
 - 报告覆盖状态。
 
 ### §3.3 判定与分级
@@ -101,7 +110,7 @@ repo_root=$(git rev-parse --show-toplevel)
 ### §4.2 判定与分级
 - **决策被遵守** → 报告确认,并引用代码证据。
 - **决策被违背**(实现和某条 design 决策矛盾)→ 标 **WARNING**,说明矛盾,建议:要么改实现、要么改 design.md。
-- **代码模式一致性** → 检查新代码是否沿用项目既有模式(命名 / 错误处理 / 结构等),任何明显偏离标 **SUGGESTION**。
+- **代码模式一致性** → 按 §1② 项目注释规范 / 贡献约定,检查新代码是否沿用既有模式(命名 / 注释 / 错误处理 / import 边界 / commit·TODO 格式 / 结构等),任何明显偏离标 **SUGGESTION**;违反硬性边界(如模块依赖方向)标 **WARNING**。
 
 ---
 

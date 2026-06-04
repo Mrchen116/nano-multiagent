@@ -79,7 +79,7 @@ REMOVED_ROOTS = (
 )
 
 
-def test_m86_directory_canonical_homes_do_not_reference_legacy_modules() -> None:
+def test_canonical_homes_do_not_reference_legacy_modules() -> None:
     for relative_dir, forbidden_snippets in DIRECTORY_GUARDS.items():
         for path in sorted((SRC_ROOT / relative_dir).rglob("*.py")):
             source = path.read_text(encoding="utf-8")
@@ -90,7 +90,7 @@ def test_m86_directory_canonical_homes_do_not_reference_legacy_modules() -> None
                 )
 
 
-def test_m86_active_wiring_layers_do_not_reference_removed_roots() -> None:
+def test_active_wiring_layers_do_not_reference_removed_roots() -> None:
     for relative_path, forbidden_snippets in FILE_GUARDS.items():
         source = (SRC_ROOT / relative_path).read_text(encoding="utf-8")
         for snippet in forbidden_snippets:
@@ -99,7 +99,7 @@ def test_m86_active_wiring_layers_do_not_reference_removed_roots() -> None:
             )
 
 
-def test_m86_removed_legacy_roots_are_physically_absent() -> None:
+def test_legacy_roots_are_physically_absent() -> None:
     for root_name in REMOVED_ROOTS:
         assert not (SRC_ROOT / root_name).exists(), (
             f"legacy root should be deleted in M88: {root_name}"

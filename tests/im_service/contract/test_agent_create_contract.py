@@ -5,7 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.repositories import NodeRepository
+from IM.infra.repositories import NodeRepository
 
 from tests.im_service._auth_helpers import authorize, register_user
 

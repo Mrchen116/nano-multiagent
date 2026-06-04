@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 
 from fastapi.testclient import TestClient
 
-from IM.repositories import AgentProfileRepository, NodeRepository
+from IM.infra.repositories import AgentProfileRepository, NodeRepository
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 
 

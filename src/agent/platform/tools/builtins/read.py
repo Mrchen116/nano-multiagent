@@ -12,6 +12,7 @@ from agent.platform.tools.constants import (
     DEFAULT_MAX_KILOBYTES,
     DEFAULT_MAX_LINES,
 )
+from agent.platform.tools.presentation import display_path as _display_path
 
 _IMAGE_MIME_BY_SUFFIX = {
     ".jpg": "image/jpeg",
@@ -251,13 +252,6 @@ def _format_line_number(line_num: int, line: str) -> str:
     if len(num_str) >= 6:
         return f"{num_str}\u2192{line}"
     return f"{num_str:>6}\u2192{line}"
-
-
-def _display_path(path: Path, repo_root: Path) -> str:
-    try:
-        return str(path.relative_to(repo_root))
-    except ValueError:
-        return str(path)
 
 
 def _image_mime_type(path: Path) -> str | None:

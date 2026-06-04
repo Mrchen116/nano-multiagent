@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Mapping, Protocol
 from urllib.parse import urlparse
 
+from personal_assistant._utils import _require_text
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.reporter.upstream_reporter import (
@@ -163,7 +164,7 @@ class IMConnectionManager:
     Notes:
         When the socket drops, this manager only updates local state and retries later.
         It does not interrupt the gateway's local IM/channel execution path, preserving
-        the NodeGateway-SPEC local-autonomy requirement.
+        the gateway local-autonomy requirement (see docs/specs/gateway/spec.md).
     """
 
     def __init__(
@@ -699,12 +700,6 @@ def _decode_message(raw: str) -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError("message must be a JSON object")
     return parsed
-
-
-def _require_text(value: object, *, field_name: str) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"{field_name} must be a non-empty string")
-    return value.strip()
 
 
 def _require_mapping(value: object, *, field_name: str) -> Mapping[str, object]:

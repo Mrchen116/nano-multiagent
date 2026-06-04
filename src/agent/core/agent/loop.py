@@ -16,7 +16,7 @@ from agent.core.types import (
     ToolSpec,
 )
 from agent.core.hooks.context import HookContext
-from agent.core.hooks.runner import HookExecution, HookRunner
+from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.interfaces import (
     LLMClient,
     LLMGenerateRequest,
@@ -573,11 +573,11 @@ class AgentLoop:
                 hook_ctx,
             )
         except Exception as exc:  # pragma: no cover - defensive fail-open fallback.
-            hook_ctx.logger.warn(
+            hook_ctx.logger.warning(
                 "hook observe dispatch failed", event=event, error=str(exc)
             )
             return
-        self._log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
+        log_hook_diagnostics(hook_ctx, event=event, diagnostics=diagnostics)
 
     def active_tool_specs(self) -> tuple[ToolSpec, ...]:
         if self._tool_registry is not None:
@@ -662,25 +662,6 @@ class AgentLoop:
                 "tool_result": result,
             },
         )
-
-    @staticmethod
-    def _log_hook_diagnostics(
-        hook_ctx: HookContext,
-        *,
-        event: str,
-        diagnostics: tuple[HookExecution, ...],
-    ) -> None:
-        for item in diagnostics:
-            if item.status == "ok":
-                continue
-            hook_ctx.logger.warn(
-                "hook execution isolated",
-                event=event,
-                hook_id=item.hook_id,
-                status=item.status,
-                duration_ms=item.duration_ms,
-                error=item.error,
-            )
 
     def _should_compact(
         self,

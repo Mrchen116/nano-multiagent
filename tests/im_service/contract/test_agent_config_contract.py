@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from IM.app import create_app
-from IM.repositories import AgentProfileRepository, NodeRepository, UserRepository
+from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRepository
 from IM.ws.gateway_handler import GatewayHandler
 
 from tests.im_service._auth_helpers import authorize, register_user

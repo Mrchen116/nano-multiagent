@@ -46,7 +46,12 @@ def test_find_direct_by_agent_returns_oldest_binding(tmp_path: Path) -> None:
     store.bind(
         session_key="web_relay:conv-newer:agent-x",
         kernel_session_id="sess-newer",
-        reply_context=ReplyContext(channel_name="web_relay", target_chat_id="conv-newer", thread_id=None, metadata={}),
+        reply_context=ReplyContext(
+            channel_name="web_relay",
+            target_chat_id="conv-newer",
+            thread_id=None,
+            metadata={},
+        ),
     )
     # 手动注入一条更旧的（created_at 2020，但 updated_at 2024 — 即该会话最近更新，但更早创建）
     # 验证：find_direct_by_agent 按 created_at 而非 updated_at 排序
@@ -62,8 +67,8 @@ def test_find_direct_by_agent_returns_oldest_binding(tmp_path: Path) -> None:
             "web_relay:conv-oldest:agent-x",
             "sess-oldest",
             '{"channel_name":"web_relay","target_chat_id":"conv-oldest","thread_id":null,"metadata":{}}',
-            newer_ts,   # updated_at 较新（有活动）
-            old_ts,     # created_at 最旧（canonical 判据）
+            newer_ts,  # updated_at 较新（有活动）
+            old_ts,  # created_at 最旧（canonical 判据）
         ),
     )
     store._conn.commit()
@@ -80,11 +85,15 @@ def test_find_direct_by_agent_returns_none_when_no_binding(tmp_path: Path) -> No
     from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
 
     store = PersistentSessionBindingStore(db_path=tmp_path / "sess.db")
-    result = store.find_direct_by_agent(channel_name="web_relay", agent_id="agent-no-conv")
+    result = store.find_direct_by_agent(
+        channel_name="web_relay", agent_id="agent-no-conv"
+    )
     assert result is None
 
 
-def test_heartbeat_scheduler_uses_find_direct_by_agent_before_submit(tmp_path: Path) -> None:
+def test_heartbeat_scheduler_uses_find_direct_by_agent_before_submit(
+    tmp_path: Path,
+) -> None:
     """HeartbeatScheduler tick 在提交 run 之前必须调用 find_direct_by_agent 更新 canonical session.
 
     验证方式：给 scheduler 注入一个带 find_direct_by_agent 的 session store，
@@ -113,7 +122,9 @@ def test_heartbeat_scheduler_uses_find_direct_by_agent_before_submit(tmp_path: P
     class _FakeSessionStore:
         """Minimal session store fake with find_direct_by_agent."""
 
-        def find_direct_by_agent(self, *, channel_name: str, agent_id: str) -> SessionBinding | None:  # noqa: ARG002
+        def find_direct_by_agent(
+            self, *, channel_name: str, agent_id: str
+        ) -> SessionBinding | None:  # noqa: ARG002
             if agent_id == "agent-tick":
                 return SessionBinding(
                     session_key=f"web_relay:conv-direct:{agent_id}",
@@ -205,10 +216,16 @@ def test_polling_runner_trims_silent_tick_truncates_jsonl(tmp_path: Path) -> Non
 
     # 模拟 heartbeat run 追加了触发 prompt 和 ack turn（2 行）
     with session_file.open("a", encoding="utf-8") as f:
-        f.write('{"type":"turn","uuid":"hb-prompt","role":"user","content":"Read HEARTBEAT.md...","timestamp":"2026-01-01T01:00:00Z"}\n')
-        f.write('{"type":"turn","uuid":"hb-ok","role":"assistant","content":"HEARTBEAT_OK","timestamp":"2026-01-01T01:00:01Z"}\n')
+        f.write(
+            '{"type":"turn","uuid":"hb-prompt","role":"user","content":"Read HEARTBEAT.md...","timestamp":"2026-01-01T01:00:00Z"}\n'
+        )
+        f.write(
+            '{"type":"turn","uuid":"hb-ok","role":"assistant","content":"HEARTBEAT_OK","timestamp":"2026-01-01T01:00:01Z"}\n'
+        )
 
-    assert session_file.read_text(encoding="utf-8").count("\n") == 5, "setup: should be 5 lines"
+    assert session_file.read_text(encoding="utf-8").count("\n") == 5, (
+        "setup: should be 5 lines"
+    )
 
     runner = PollingHeartbeatRunner.__new__(PollingHeartbeatRunner)
 
@@ -244,9 +261,7 @@ def test_agent_profile_has_heartbeat_json_field() -> None:
     from dataclasses import fields
 
     field_names = {f.name for f in fields(AgentProfile)}
-    assert "heartbeat_json" in field_names, (
-        "AgentProfile 缺少 heartbeat_json 字段"
-    )
+    assert "heartbeat_json" in field_names, "AgentProfile 缺少 heartbeat_json 字段"
 
 
 def test_agent_profiles_db_has_heartbeat_json_column(tmp_path: Path) -> None:
@@ -292,6 +307,7 @@ def test_update_profile_persists_heartbeat_json(tmp_path: Path) -> None:
     # update_profile 应接受 heartbeat_json 参数
     heartbeat_payload = {"enabled": True, "every": "30m", "active_hours": None}
     import json
+
     heartbeat_json_str = json.dumps(heartbeat_payload)
 
     updated = repo.update_profile(
@@ -325,7 +341,11 @@ def test_agents_patch_route_accepts_heartbeat_json(tmp_path: Path) -> None:
     import json
     from fastapi.testclient import TestClient
     from IM.app import create_app
-    from IM.repositories import AgentProfileRepository, NodeRepository, UserRepository
+    from IM.infra.repositories import (
+        AgentProfileRepository,
+        NodeRepository,
+        UserRepository,
+    )
     from im_service.integration.conftest import register_user, authorize  # noqa: PLC0415
 
     app = create_app(db_path=tmp_path / "im_route.db")
@@ -373,9 +393,13 @@ def test_agents_patch_route_accepts_heartbeat_json(tmp_path: Path) -> None:
                 "heartbeat_json": json.dumps(heartbeat_payload),
             },
         )
-        assert resp.status_code == 200, f"PATCH 应返回 200；实际 {resp.status_code}: {resp.text}"
+        assert resp.status_code == 200, (
+            f"PATCH 应返回 200；实际 {resp.status_code}: {resp.text}"
+        )
         body = resp.json()
-        assert "heartbeat_json" in body, f"响应应包含 heartbeat_json；实际键: {list(body.keys())}"
+        assert "heartbeat_json" in body, (
+            f"响应应包含 heartbeat_json；实际键: {list(body.keys())}"
+        )
         assert body["heartbeat_json"] == json.dumps(heartbeat_payload)
 
 
@@ -390,6 +414,7 @@ def test_config_sync_notifier_includes_heartbeat_json(tmp_path: Path) -> None:
 
     repo = AgentProfileRepository(db)
     import json
+
     heartbeat_json_str = json.dumps({"enabled": True, "every": "10m"})
 
     repo.upsert_profile(

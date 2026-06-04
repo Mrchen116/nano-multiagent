@@ -6,7 +6,7 @@ from pathlib import Path
 from IM.application.event_bridge import EventBridge
 from IM.domain.models import Actor, ConversationEvent, TokenUsage, ToolCall
 from IM.infra.db import connect, initialize_schema
-from IM.repositories import (
+from IM.infra.repositories import (
     ConversationRepository,
     EventRepository,
     MessageRepository,
