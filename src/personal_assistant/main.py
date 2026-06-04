@@ -2544,9 +2544,13 @@ def _build_session_event_callback(
                     "text": text,
                 },
             )
-        except Exception:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001
             # Background notification delivery must never crash the gateway.
-            pass
+            _log.warning(
+                "session event notification delivery failed (conversation_id=%s): %s",
+                conversation_id,
+                exc,
+            )
 
     return _callback
 
