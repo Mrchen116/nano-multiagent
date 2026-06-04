@@ -287,9 +287,12 @@ class _IntervalSchedule:
     """Recurring interval schedule with no backfill.
 
     Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "every" branch —
-    steps = ceil(elapsed / everyMs), next = anchor + steps * everyMs.
-    Result is always the first future slot; a restart gap never replays past ticks.
+    original used ceil(elapsed / everyMs); this implementation uses floor to allow
+    LLM execution overhead without skipping subsequent ticks.  The semantics match
+    openclaw's intent (next aligned slot at-or-before now fires), adapted for the
+    reality that elapsed is rarely a perfect multiple of interval.
     feat-394 decision 4: only ONE run emitted per tick regardless of missed intervals.
+    feat-394-M8 R6-1 fix: ceil → floor so elapsed=interval+overhead still triggers.
     """
 
     interval: timedelta
@@ -304,7 +307,13 @@ class _IntervalSchedule:
             return []
         interval_secs = int(self.interval.total_seconds())
         elapsed_secs = int(elapsed.total_seconds())
-        steps = max(1, (elapsed_secs + interval_secs - 1) // interval_secs)
+        # feat-394-M8 R6-1 fix: floor(elapsed / interval) gives the most-recent aligned slot
+        # that is at-or-before now.  ceil would give the next future slot, causing a skip when
+        # elapsed is not a perfect multiple (e.g. elapsed=32s, interval=30s → ceil=2 → next=+60s
+        # which is after now, so not triggered).  floor(32/30)=1 → next=+30s ≤ now → triggered.
+        # Large-gap invariant: floor(150/30)=5 → next=last+150s=now → still fires exactly once
+        # because due_times_up_to returns at most one datetime per call.
+        steps = max(1, elapsed_secs // interval_secs)
         next_due_at = last_due_at + self.interval * steps
         if next_due_at > now:
             return []

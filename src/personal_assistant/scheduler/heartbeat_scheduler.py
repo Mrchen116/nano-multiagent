@@ -474,17 +474,17 @@ class _IntervalSchedule:
     def due_times_up_to(
         self, *, now: datetime, last_due_at: datetime | None
     ) -> list[datetime]:
-        # Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "every" branch —
-        # steps = ceil(elapsed / everyMs), next = anchor + steps * everyMs.
-        # Result is always strictly in the future relative to anchor; we only trigger
-        # when that future point has actually arrived (next_due_at <= now).
-        # This means a restart after a gap never catches up past due-times — it waits
-        # for the next aligned future slot.  (feat-394 decision 3/4, replaces feat-393
-        # fix-r2 "fold to most-recent" semantics)
+        # Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "every" branch.
+        # feat-394-M8 R6-1 fix: use floor(elapsed/interval) instead of ceil to allow
+        # LLM execution overhead without skipping subsequent ticks.  Previous ceil logic:
+        # elapsed=32s, interval=30s → ceil=2 → next=last+60s > now → NOT triggered (bug).
+        # Floor fix: elapsed=32s, interval=30s → floor=1 → next=last+30s ≤ now → triggered.
+        # Large-gap invariant: floor(150/30)=5 → next=last+150s=now → fires exactly once
+        # (due_times_up_to returns at most one datetime, no backfill flood).
         #
         # First-ever tick (last_due_at is None): trigger immediately at floor(now, interval).
         # The first execution is always the clock-aligned slot at or before now; this is the
-        # anchor that subsequent ticks use to compute the next future slot.
+        # anchor that subsequent ticks use to compute the next aligned slot.
         if last_due_at is None:
             return [_floor_datetime(now, self.interval)]
         elapsed = now - last_due_at
@@ -492,8 +492,8 @@ class _IntervalSchedule:
             return []
         interval_secs = int(self.interval.total_seconds())
         elapsed_secs = int(elapsed.total_seconds())
-        # steps = ceil(elapsed / interval) — gives the first step that is strictly after anchor.
-        steps = max(1, (elapsed_secs + interval_secs - 1) // interval_secs)
+        # floor(elapsed / interval): gives the most-recent aligned slot at-or-before now.
+        steps = max(1, elapsed_secs // interval_secs)
         next_due_at = last_due_at + self.interval * steps
         if next_due_at > now:
             return []
