@@ -106,7 +106,9 @@ class TestPreviewRoutePassesParams:
                 return False
             try:
                 obj = json.loads(s)
-                return bool(obj.get("enabled", False)) if isinstance(obj, dict) else False
+                return (
+                    bool(obj.get("enabled", False)) if isinstance(obj, dict) else False
+                )
             except (ValueError, TypeError):
                 return False
 
