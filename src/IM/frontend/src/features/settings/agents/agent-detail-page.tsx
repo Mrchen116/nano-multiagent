@@ -327,8 +327,9 @@ interface HeartbeatCardProps {
 
 function HeartbeatCard({ draft, onToggle, onEveryChange, onActiveHoursChange, hideEnableToggle = false }: HeartbeatCardProps) {
   const { t } = useTranslation();
-  const heartbeat = draft.heartbeat ?? { enabled: false, every: "30m" };
-  const enabled = heartbeat.enabled ?? false;
+  const heartbeat = draft.heartbeat ?? { every: "30m" };
+  // feat-394 M9-E: enable is the single-true-source in features["heartbeat"], not heartbeat.enabled.
+  const enabled = draft.features?.heartbeat ?? false;
   const every = heartbeat.every ?? "30m";
   const activeStart = heartbeat.active_hours?.start ?? "";
   const activeEnd = heartbeat.active_hours?.end ?? "";
@@ -432,7 +433,8 @@ interface CronCardProps {
 
 function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCardProps) {
   const { t } = useTranslation();
-  const enabled = draft.cron?.enabled ?? false;
+  // feat-394 M9-E: enable is the single-true-source in features["cron_scheduling"]; no draft.cron object.
+  const enabled = draft.features?.cron_scheduling ?? false;
   const queryClient = useQueryClient();
 
   // feat-394-M3: fetch cron jobs list for this agent
@@ -985,14 +987,10 @@ export function AgentDetailPage() {
               value && requiresTool && !draft.tool_allowlist.includes(requiresTool)
                 ? [...draft.tool_allowlist, requiresTool]
                 : draft.tool_allowlist;
-            // feat-394 M9 R6: heartbeat/cron Features toggle also syncs draft.heartbeat.enabled
-            // / draft.cron.enabled so the cards and serialization stay in sync.
-            let nextDraft = { ...draft, features: { ...(draft.features ?? {}), [key]: value }, tool_allowlist: nextAllowlist };
-            if (key === "heartbeat") {
-              nextDraft = { ...nextDraft, heartbeat: { ...(nextDraft.heartbeat ?? { every: "30m" }), enabled: value } };
-            } else if (key === "cron_scheduling") {
-              nextDraft = { ...nextDraft, cron: { ...(nextDraft.cron ?? {}), enabled: value } };
-            }
+            // feat-394 M9-E: features is the single-true-source for enable state.
+            // HeartbeatCard reads features["heartbeat"]; CronCard reads features["cron_scheduling"].
+            // No parallel sync into draft.heartbeat.enabled or draft.cron needed.
+            const nextDraft = { ...draft, features: { ...(draft.features ?? {}), [key]: value }, tool_allowlist: nextAllowlist };
             setDraft(nextDraft);
           }}
           onPolicyChange={(value) => {
@@ -1014,19 +1012,20 @@ export function AgentDetailPage() {
             <HeartbeatCard
               draft={draft}
               onToggle={(enabled) => {
+                // feat-394 M9-E: enable is in features["heartbeat"]; toggle via features only.
                 setSaved(false);
                 setErrorMessage(null);
-                setDraft({ ...draft, heartbeat: { ...(draft.heartbeat ?? { every: "30m" }), enabled } });
+                setDraft({ ...draft, features: { ...(draft.features ?? {}), heartbeat: enabled } });
               }}
               onEveryChange={(every) => {
                 setSaved(false);
                 setErrorMessage(null);
-                setDraft({ ...draft, heartbeat: { ...(draft.heartbeat ?? { enabled: false }), every } });
+                setDraft({ ...draft, heartbeat: { ...(draft.heartbeat ?? {}), every } });
               }}
               onActiveHoursChange={(start, end) => {
                 setSaved(false);
                 setErrorMessage(null);
-                const prevHb = draft.heartbeat ?? { enabled: false, every: "30m" };
+                const prevHb = draft.heartbeat ?? { every: "30m" };
                 const active_hours = start || end
                   ? { ...(prevHb.active_hours ?? {}), start, end }
                   : undefined;
@@ -1048,9 +1047,10 @@ export function AgentDetailPage() {
               agentId={agentId}
               draft={draft}
               onToggle={(enabled) => {
+                // feat-394 M9-E: enable is in features["cron_scheduling"]; no draft.cron object.
                 setSaved(false);
                 setErrorMessage(null);
-                setDraft({ ...draft, cron: { enabled } });
+                setDraft({ ...draft, features: { ...(draft.features ?? {}), cron_scheduling: enabled } });
               }}
               hideEnableToggle={cronInFeatures}
             />

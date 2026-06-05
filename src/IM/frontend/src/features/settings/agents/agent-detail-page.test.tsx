@@ -647,13 +647,15 @@ describe("feat-379-M9 preview tool_ids regression", () => {
   });
 
   // feat-394-M1/R4: heartbeat 开关测试
-  it("feat-394-M1: Heartbeat card 显示并可开关", async () => {
+  it("feat-394-M9-E: Heartbeat card 显示并可开关 (enable via features)", async () => {
+    // feat-394 M9-E: enable is in features["heartbeat"]; heartbeat only has cadence.
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue({
       ...makeStateWithMemoryInAllowlist(),
       config: {
         ...makeStateWithMemoryInAllowlist().config,
-        heartbeat: { enabled: false, every: "30m" }
+        features: { heartbeat: false },
+        heartbeat: { every: "30m" }
       }
     });
 
@@ -663,7 +665,7 @@ describe("feat-379-M9 preview tool_ids regression", () => {
     // Heartbeat card 应有 "Heartbeat" 标题
     expect(screen.getByRole("heading", { name: /Heartbeat/i })).toBeInTheDocument();
 
-    // 开关应存在且初始为关闭
+    // 开关应存在且初始为关闭 (reads features["heartbeat"])
     const toggle = document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]');
     expect(toggle, "heartbeat-enabled-toggle 应存在").not.toBeNull();
     expect(toggle?.checked).toBe(false);
@@ -674,25 +676,28 @@ describe("feat-379-M9 preview tool_ids regression", () => {
     expect(document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]')?.checked).toBe(true);
   });
 
-  it("feat-394-M1: Heartbeat 开关开启后保存时 PATCH payload 包含 heartbeat.enabled=true", async () => {
+  it("feat-394-M9-E: Heartbeat 开关开启后保存时 PATCH payload 包含 features.heartbeat=true", async () => {
+    // feat-394 M9-E: enable lives in features["heartbeat"], not heartbeat.enabled.
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue({
       ...makeStateWithMemoryInAllowlist(),
       config: {
         ...makeStateWithMemoryInAllowlist().config,
-        heartbeat: { enabled: false, every: "30m" }
+        features: { heartbeat: false },
+        heartbeat: { every: "30m" }
       }
     });
     apiMocks.updateAgentConfigMock.mockResolvedValue({
       ...makeStateWithMemoryInAllowlist().config,
-      heartbeat: { enabled: true, every: "30m" },
+      features: { heartbeat: true },
+      heartbeat: { every: "30m" },
       profile_version: 2
     });
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Mem Agent" });
 
-    // 打开开关
+    // 打开开关 (inline toggle when not in capabilityFeatures)
     const toggle = document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]');
     if (toggle) await user.click(toggle);
 
@@ -703,7 +708,7 @@ describe("feat-379-M9 preview tool_ids regression", () => {
       expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
         "agent-core-1",
         expect.objectContaining({
-          heartbeat: expect.objectContaining({ enabled: true })
+          features: expect.objectContaining({ heartbeat: true })
         })
       );
     });
@@ -741,13 +746,14 @@ describe("feat-379-M9 preview tool_ids regression", () => {
   });
 
   // feat-394-M2/R7: cron 开关测试
-  it("feat-394-M2: Cron card 显示并可开关", async () => {
+  it("feat-394-M9-E: Cron card 显示并可开关 (enable via features)", async () => {
+    // feat-394 M9-E: enable is in features["cron_scheduling"]; no cron config object.
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue({
       ...makeStateWithMemoryInAllowlist(),
       config: {
         ...makeStateWithMemoryInAllowlist().config,
-        cron: { enabled: false }
+        features: { cron_scheduling: false }
       }
     });
 
@@ -757,7 +763,7 @@ describe("feat-379-M9 preview tool_ids regression", () => {
     // Cron card 应有 "Cron Jobs" 标题
     expect(screen.getByRole("heading", { name: /Cron Jobs/i })).toBeInTheDocument();
 
-    // 开关应存在且初始为关闭
+    // 开关应存在且初始为关闭 (reads features["cron_scheduling"])
     const toggle = document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]');
     expect(toggle, "cron-enabled-toggle 应存在").not.toBeNull();
     expect(toggle?.checked).toBe(false);
@@ -768,25 +774,26 @@ describe("feat-379-M9 preview tool_ids regression", () => {
     expect(document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]')?.checked).toBe(true);
   });
 
-  it("feat-394-M2: Cron 开关开启后保存时 PATCH payload 包含 cron.enabled=true", async () => {
+  it("feat-394-M9-E: Cron 开关开启后保存时 PATCH payload 包含 features.cron_scheduling=true", async () => {
+    // feat-394 M9-E: enable lives in features["cron_scheduling"]; no cron config object.
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue({
       ...makeStateWithMemoryInAllowlist(),
       config: {
         ...makeStateWithMemoryInAllowlist().config,
-        cron: { enabled: false }
+        features: { cron_scheduling: false }
       }
     });
     apiMocks.updateAgentConfigMock.mockResolvedValue({
       ...makeStateWithMemoryInAllowlist().config,
-      cron: { enabled: true },
+      features: { cron_scheduling: true },
       profile_version: 2
     });
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Mem Agent" });
 
-    // 打开开关
+    // 打开开关 (inline toggle when not in capabilityFeatures)
     const toggle = document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]');
     if (toggle) await user.click(toggle);
 
@@ -797,19 +804,20 @@ describe("feat-379-M9 preview tool_ids regression", () => {
       expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
         "agent-core-1",
         expect.objectContaining({
-          cron: expect.objectContaining({ enabled: true })
+          features: expect.objectContaining({ cron_scheduling: true })
         })
       );
     });
   });
 
-  // feat-394 round-trip: 已保存的 heartbeat.enabled=true 重开配置页时开关应显示「开」
-  it("feat-394 round-trip: heartbeat 已启用时重开配置页开关初始态为 checked=true", async () => {
+  // feat-394 M9-E round-trip: features["heartbeat"]=true 重开配置页时开关应显示「开」
+  it("feat-394-M9-E round-trip: heartbeat 已启用(features)时重开配置页开关初始态为 checked=true", async () => {
     apiMocks.getAgentDetailStateMock.mockResolvedValue({
       ...makeStateWithMemoryInAllowlist(),
       config: {
         ...makeStateWithMemoryInAllowlist().config,
-        heartbeat: { enabled: true, every: "30m" }
+        features: { heartbeat: true },
+        heartbeat: { every: "30m" }
       }
     });
 
@@ -821,13 +829,13 @@ describe("feat-379-M9 preview tool_ids regression", () => {
     expect(toggle?.checked).toBe(true);
   });
 
-  // feat-394-M2 round-trip: 已保存的 cron.enabled=true 重开配置页时开关应显示「开」
-  it("feat-394-M2 round-trip: cron 已启用时重开配置页开关初始态为 checked=true", async () => {
+  // feat-394-M9-E round-trip: features["cron_scheduling"]=true 重开配置页时开关应显示「开」
+  it("feat-394-M9-E round-trip: cron 已启用(features)时重开配置页开关初始态为 checked=true", async () => {
     apiMocks.getAgentDetailStateMock.mockResolvedValue({
       ...makeStateWithMemoryInAllowlist(),
       config: {
         ...makeStateWithMemoryInAllowlist().config,
-        cron: { enabled: true }
+        features: { cron_scheduling: true }
       }
     });
 

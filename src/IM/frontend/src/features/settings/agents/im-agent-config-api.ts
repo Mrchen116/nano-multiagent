@@ -16,9 +16,8 @@ export interface AgentSummary {
   updated_at?: string | null;
 }
 
-// feat-394 decision 5: heartbeat per-agent config (enabled + every cadence + active hours)
+// feat-394 M9-E decision 5: heartbeat cadence config — enable lives in features["heartbeat"].
 export interface HeartbeatConfig {
-  enabled: boolean;
   every?: string;
   active_hours?: {
     start?: string;
@@ -27,10 +26,7 @@ export interface HeartbeatConfig {
   };
 }
 
-// feat-394-M2 decision 5: cron per-agent config (enabled toggle only)
-export interface CronConfig {
-  enabled: boolean;
-}
+// feat-394 M9-E: CronConfig removed — cron has no per-agent config; enable lives in features["cron_scheduling"].
 
 export interface AgentConfig {
   agent_id: string;
@@ -42,10 +38,9 @@ export interface AgentConfig {
   features?: Record<string, boolean>;
   // feat-379-M3: user custom instructions appended as pa.user_custom segment
   custom_prompt?: string;
-  // feat-394 decision 5: per-agent heartbeat config; absent from older IM responses → treat as disabled
+  // feat-394 M9-E: heartbeat carries only cadence; enable lives in features["heartbeat"].
   heartbeat?: HeartbeatConfig;
-  // feat-394-M2 decision 5: per-agent cron config; absent from older IM responses → treat as disabled
-  cron?: CronConfig;
+  // feat-394 M9-E: cron field removed — no per-agent cron config; enable in features["cron_scheduling"].
   skills: string[];
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
@@ -147,10 +142,9 @@ export interface UpdateAgentConfigRequest {
   // feat-379-M3: per-agent feature flags; omitted → server keeps existing
   features?: Record<string, boolean>;
   custom_prompt?: string;
-  // feat-394 decision 5: heartbeat per-agent config; omitted → server keeps existing
+  // feat-394 M9-E: heartbeat carries only cadence; enable in features["heartbeat"].
   heartbeat?: HeartbeatConfig;
-  // feat-394-M2 decision 5: cron per-agent config; omitted → server keeps existing
-  cron?: CronConfig;
+  // feat-394 M9-E: cron removed from update request; enable in features["cron_scheduling"].
   skills: string[];
   tool_allowlist: string[];
   group_reply_policy: "ALWAYS" | "MENTION" | "NO_REPLY" | string;
@@ -241,7 +235,7 @@ function toCapabilitySnapshot(
     platform_default_model: raw.platform_default_model ?? null,
     default_system_prompt: raw.default_system_prompt ?? "",
     // feat-379-M3: carry through feature toggles; NodeCapabilitiesWire has no features field → []
-    features: "features" in raw && Array.isArray(raw.features) ? raw.features : []
+    features: "features" in raw && Array.isArray(raw.features) ? raw.features : [],
   };
 }
 
@@ -262,7 +256,7 @@ function enrichCapabilitySnapshot(
     tools: toAllowlistOptions(raw.tools ?? []),
     model_options: raw.models ?? [],
     platform_default_model: null,
-    default_system_prompt: ""
+    default_system_prompt: "",
   };
 }
 
@@ -296,8 +290,8 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
+      ...(init?.headers ?? {}),
+    },
   });
   if (!response.ok) {
     const method = init?.method ?? "GET";
@@ -322,48 +316,43 @@ export async function listAgentSummaries() {
 }
 
 /**
- * Normalize a raw backend AgentConfig response: parse heartbeat_json / cron_json
- * raw JSON strings back into structured HeartbeatConfig / CronConfig objects so that
- * HeartbeatCard / CronCard read the correct initial state from draft.heartbeat / draft.cron.
+ * Normalize a raw backend AgentConfig response: parse heartbeat_json raw JSON string
+ * back into a structured HeartbeatConfig object (cadence only) so HeartbeatCard reads
+ * correct cadence.
  *
- * feat-394 / feat-394-M2: backend stores heartbeat/cron as raw JSON strings
- * (heartbeat_json / cron_json); the frontend AgentConfig type exposes them as
- * heartbeat / cron structured objects. This function bridges the gap on the
- * response path (the request path is handled by the model_validator in agents.py).
+ * feat-394 M9-E: heartbeat enable lives in features["heartbeat"]; heartbeat_json only
+ * carries cadence fields (every / active_hours). cron has no config object.
  *
  * Exported for unit testing only — prefer calling getAgentConfig / updateAgentConfig.
  */
-/** Response shape that includes the backend's raw JSON string fields alongside structured ones. */
-type AgentConfigRaw = AgentConfig & { heartbeat_json?: string | null; cron_json?: string | null };
+/** Response shape that includes the backend's raw heartbeat_json string field. */
+type AgentConfigRaw = AgentConfig & { heartbeat_json?: string | null };
 
-export function normalizeAgentConfigResponse(
-  raw: Record<string, unknown>
-): AgentConfig {
+export function normalizeAgentConfigResponse(raw: Record<string, unknown>): AgentConfig {
   // Two-step cast: Record<string,unknown> → unknown → target type avoids the TS2352
   // error that a direct overlap-insufficient cast would produce (minor Issue 3 fix).
-  const config = (raw as unknown) as AgentConfigRaw;
+  const config = raw as unknown as AgentConfigRaw;
 
-  // Parse heartbeat_json → heartbeat when present and not already set.
+  // Parse heartbeat_json → heartbeat cadence when present and not already set.
+  // feat-394 M9-E: only extract cadence fields; enabled is not stored in heartbeat_json.
   let heartbeat: HeartbeatConfig | undefined = config.heartbeat;
   if (heartbeat === undefined && typeof config.heartbeat_json === "string" && config.heartbeat_json.trim()) {
     try {
-      heartbeat = JSON.parse(config.heartbeat_json) as HeartbeatConfig;
+      const parsed = JSON.parse(config.heartbeat_json) as Record<string, unknown>;
+      // Only keep cadence fields — drop any legacy "enabled" field that may be in stored JSON.
+      const { every, active_hours } = parsed;
+      const cadence: HeartbeatConfig = {};
+      if (typeof every === "string") cadence.every = every;
+      if (active_hours && typeof active_hours === "object") {
+        cadence.active_hours = active_hours as HeartbeatConfig["active_hours"];
+      }
+      heartbeat = Object.keys(cadence).length > 0 ? cadence : undefined;
     } catch {
       // malformed JSON: leave as undefined
     }
   }
 
-  // Parse cron_json → cron when present and not already set.
-  let cron: CronConfig | undefined = config.cron;
-  if (cron === undefined && typeof config.cron_json === "string" && config.cron_json.trim()) {
-    try {
-      cron = JSON.parse(config.cron_json) as CronConfig;
-    } catch {
-      // malformed JSON: leave as undefined
-    }
-  }
-
-  return { ...config, heartbeat, cron };
+  return { ...config, heartbeat };
 }
 
 export async function getAgentConfig(agentId: string): Promise<AgentConfig> {
@@ -386,7 +375,7 @@ export async function getNodeCapabilities(nodeId: string) {
 export async function createNodeAgent(nodeId: string, next: NodeAgentCreateRequest) {
   return requestJson<AgentConfig>(`/im/v1/nodes/${nodeId}/agents`, {
     method: "POST",
-    body: JSON.stringify(next)
+    body: JSON.stringify(next),
   });
 }
 
@@ -402,21 +391,21 @@ export async function getAgentDetailState(agentId: string): Promise<AgentDetailS
     skills: config.skills,
     tools: config.tool_allowlist,
     platform_default_model: null,
-    default_system_prompt: ""
+    default_system_prompt: "",
   };
   const capabilities = capabilitiesResult.status === "fulfilled" ? capabilitiesResult.value : fallbackCapabilities;
   const owningNodeId = config.node_id ?? capabilities.node_id;
-  const owningNode = owningNodeId ? nodes.find((node) => node.node_id === owningNodeId) ?? null : null;
+  const owningNode = owningNodeId ? (nodes.find((node) => node.node_id === owningNodeId) ?? null) : null;
   const enrichedConfig: AgentConfig = {
     ...config,
     node_id: config.node_id ?? owningNode?.node_id ?? capabilities.node_id,
     node_name: owningNode?.node_name ?? null,
-    node_status: owningNode?.status ?? null
+    node_status: owningNode?.status ?? null,
   };
   return {
     config: enrichedConfig,
     capabilities: toCapabilitySnapshot(capabilities, owningNode),
-    owningNode
+    owningNode,
   };
 }
 
@@ -437,15 +426,14 @@ export async function updateAgentConfig(agentId: string, next: UpdateAgentConfig
       // feat-379-M3: pass features and custom_prompt when present
       ...(next.features !== undefined ? { features: next.features } : {}),
       ...(next.custom_prompt !== undefined ? { custom_prompt: next.custom_prompt } : {}),
-      // feat-394 decision 5: pass heartbeat config when present
+      // feat-394 M9-E: pass heartbeat cadence when present; enable is in features.
       ...(next.heartbeat !== undefined ? { heartbeat: next.heartbeat } : {}),
-      // feat-394-M2 decision 5: pass cron config when present
-      ...(next.cron !== undefined ? { cron: next.cron } : {}),
+      // feat-394 M9-E: cron has no config object; enable is in features["cron_scheduling"].
       skills: next.skills,
       tool_allowlist: next.tool_allowlist,
       group_reply_policy: next.group_reply_policy,
-      default_model: next.default_model
-    })
+      default_model: next.default_model,
+    }),
   });
   return normalizeAgentConfigResponse(raw);
 }
@@ -470,8 +458,8 @@ export async function promptPreview(
       ...body,
       scenario: "direct",
       tool_ids: body.tool_ids ?? [],
-      skill_ids: body.skill_ids ?? []
-    })
+      skill_ids: body.skill_ids ?? [],
+    }),
   });
   return result.prompt;
 }
@@ -495,8 +483,8 @@ export async function nodePromptPreview(
       ...body,
       scenario: "direct",
       tool_ids: body.tool_ids ?? [],
-      skill_ids: body.skill_ids ?? []
-    })
+      skill_ids: body.skill_ids ?? [],
+    }),
   });
   return result.prompt;
 }

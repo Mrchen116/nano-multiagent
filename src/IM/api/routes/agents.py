@@ -82,6 +82,9 @@ class UpdateAgentConfigRequest(BaseModel):
         """
         if not isinstance(data, dict):
             return data
+        # feat-394 决策 D: enable 单一真源是 features（features["heartbeat"] /
+        # features["cron_scheduling"]）。heartbeat 块只承载节律（every/active_hours），
+        # 转存 heartbeat_json，**不**回写 features。cron 无 per-agent 配置块。
         if (
             "heartbeat" in data
             and data["heartbeat"] is not None
@@ -90,34 +93,9 @@ class UpdateAgentConfigRequest(BaseModel):
             data = dict(data)
             hb_dict = data.pop("heartbeat")
             data["heartbeat_json"] = json.dumps(hb_dict)
-            # feat-394 M9 R5: sync heartbeat.enabled → features["heartbeat"] so Gateway
-            # reads gate state from features (M9 decision D) rather than heartbeat_json.
-            hb_enabled = (
-                hb_dict.get("enabled", False) if isinstance(hb_dict, dict) else False
-            )
-            features = dict(data.get("features") or {})
-            features["heartbeat"] = bool(hb_enabled)
-            data["features"] = features
         elif "heartbeat" in data:
             data = dict(data)
             data.pop("heartbeat", None)
-        if "cron" in data and data["cron"] is not None:
-            data = dict(data)
-            cron_dict = data.pop("cron")
-            # feat-394 M9-B: cron_json retired as enable-state store.
-            # cron enable lives exclusively in features["cron_scheduling"].
-            # cron_json is no longer written; features is the single source of truth.
-            cron_enabled = (
-                cron_dict.get("enabled", False)
-                if isinstance(cron_dict, dict)
-                else False
-            )
-            features = dict(data.get("features") or {})
-            features["cron_scheduling"] = bool(cron_enabled)
-            data["features"] = features
-        elif "cron" in data:
-            data = dict(data)
-            data.pop("cron", None)
         return data
 
 

@@ -94,7 +94,7 @@ function makeM9CState(opts: {
   configFeatures?: Record<string, boolean>;
   capFeatures?: object[];
   heartbeat?: object;
-  cron?: object;
+  // feat-394 M9-E: cron field removed from AgentConfig; enable in features["cron_scheduling"].
 } = {}) {
   return {
     config: {
@@ -117,7 +117,7 @@ function makeM9CState(opts: {
       node_status: "online",
       updated_at: "2026-03-13T10:00:00Z",
       ...(opts.heartbeat !== undefined ? { heartbeat: opts.heartbeat } : {}),
-      ...(opts.cron !== undefined ? { cron: opts.cron } : {}),
+      // feat-394 M9-E: no cron config field; enable in features["cron_scheduling"].
     },
     capabilities: {
       node_id: "node-1",
