@@ -204,11 +204,13 @@ class TestInboundPipelineVarsInjection:
             "(feat-379 contract: resolve_flags_from_metadata reads this key)"
         )
 
-    def test_session_metadata_contains_heartbeat_enabled(self, tmp_path: Path) -> None:
-        """session_metadata still contains 'heartbeat_enabled' key (R4 cleanup pending).
+    def test_session_metadata_no_standalone_heartbeat_enabled(self, tmp_path: Path) -> None:
+        """session_metadata must NOT contain standalone 'heartbeat_enabled' key after M9 R4.
 
-        Note: runtime.py no longer reads this into vars after M9.  The key
-        is present but has no effect on prompt gates.  R4 will remove the injection.
+        feat-394 M9 R4: heartbeat/cron gate state is already captured in
+        agent_features (injected at line above).  The redundant standalone
+        heartbeat_enabled/cron_enabled keys are removed — reading them from
+        metadata was retired in M9 R2.
         """
         from personal_assistant.gateway.inbound_pipeline import InboundPipeline
         from unittest.mock import MagicMock
@@ -227,11 +229,13 @@ class TestInboundPipelineVarsInjection:
         )
 
         assert metadata is not None
-        assert "heartbeat_enabled" in metadata
-        assert metadata["heartbeat_enabled"] is True
+        assert "heartbeat_enabled" not in metadata, (
+            "_build_session_metadata must not inject standalone heartbeat_enabled "
+            "after M9 R4 — gate state lives in agent_features"
+        )
 
-    def test_session_metadata_contains_cron_enabled(self, tmp_path: Path) -> None:
-        """session_metadata still contains 'cron_enabled' key (R4 cleanup pending)."""
+    def test_session_metadata_no_standalone_cron_enabled(self, tmp_path: Path) -> None:
+        """session_metadata must NOT contain standalone 'cron_enabled' key after M9 R4."""
         from personal_assistant.gateway.inbound_pipeline import InboundPipeline
         from unittest.mock import MagicMock
 
@@ -249,17 +253,19 @@ class TestInboundPipelineVarsInjection:
         )
 
         assert metadata is not None
-        assert "cron_enabled" in metadata
-        assert metadata["cron_enabled"] is True
+        assert "cron_enabled" not in metadata, (
+            "_build_session_metadata must not inject standalone cron_enabled "
+            "after M9 R4 — gate state lives in agent_features"
+        )
 
-    def test_session_metadata_heartbeat_cron_false_by_default(
+    def test_session_metadata_agent_features_encodes_heartbeat_cron(
         self, tmp_path: Path
     ) -> None:
-        """heartbeat_enabled and cron_enabled must both be False when agent has defaults."""
+        """agent_features dict encodes heartbeat/cron state after R4 (no standalone keys)."""
         from personal_assistant.gateway.inbound_pipeline import InboundPipeline
         from unittest.mock import MagicMock
 
-        agent = self._make_agent_config(tmp_path)
+        agent = self._make_agent_config(tmp_path, heartbeat_enabled=True, cron_enabled=True)
         pipeline = MagicMock(spec=InboundPipeline)
         pipeline._agents = {"test-agent": agent}
         pipeline._gateway_internal_port = 9999
@@ -273,8 +279,13 @@ class TestInboundPipelineVarsInjection:
         )
 
         assert metadata is not None
-        assert metadata.get("heartbeat_enabled") is False
-        assert metadata.get("cron_enabled") is False
+        features = metadata.get("agent_features", {})
+        assert features.get("heartbeat") is True, (
+            "heartbeat state must be encoded in agent_features after R4"
+        )
+        assert features.get("cron_scheduling") is True, (
+            "cron_scheduling state must be encoded in agent_features after R4"
+        )
 
 
 # ---------------------------------------------------------------------------
