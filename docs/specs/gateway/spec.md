@@ -12,12 +12,12 @@
 
 `personal_assistant`(Node Gateway)是个人助手产品的**常驻进程节点网关**:把外部 IM / 内置 Web IM 的入站
 消息路由到正确的 Agent、进程内持有 `agent` 内核(经 `agent.sdk`)执行、把结果回发原通道,并跑本地
-heartbeat 定时巡检、与可选的中心 IM 服务做配置同步与状态上报。它运行在用户机器上,通常在 NAT 后面。
+heartbeat / cron 两套主动机制、与可选的中心 IM 服务做配置同步与状态上报。它运行在用户机器上,通常在 NAT 后面。
 
 它对外承担的可观察职责:① 终端用户在任一通道发消息能被正确的 Agent 处理、回复回到原通道原目标;
 ② 群聊只在被 @提及 / 回复 Agent / 控制命令时才触发 Agent;③ 运维者用启停命令把它当后台服务管理;
 ④ IM 服务在线时它主动连出、注册节点、周期心跳、同步配置、中继 Web IM 消息;⑤ IM 服务离线时外部 IM
-主路径仍可用(本地自治);⑥ 进程重启后会话映射与错过的 heartbeat 自动恢复。
+主路径仍可用(本地自治);⑥ 进程重启后会话映射自动恢复,错过的 heartbeat / cron 周期不补跑回填。
 
 **显式不负责**:不实现 Agent Loop、不直接调 LLM、不管会话持久化(都由内核负责);不做全局用户/组织
 管理(IM 服务负责);不提供终端 CLI 交互(coding_cli 负责)。它**只经 `agent.sdk`** 持有内核,禁止
@@ -175,25 +175,44 @@ Gateway 首次连一个尚无 owner 的 IM 节点时需确认绑定。默认打�
 - **WHEN** Gateway 启动时该节点在 IM 侧已有 owner
 - **THEN** 不打开浏览器、不发起绑定,直接进入就绪
 
-### Requirement: Heartbeat 调度完全在本地,无有效任务时安静跳过
+### Requirement: Heartbeat 与 Cron 是两套独立的本地主动机制,各由 per-agent 开关启停
 
-每个 Agent 可有独立 `HEARTBEAT.md`,定义周期巡检。调度完全在本地按周期触发(IM 服务不作调度源),支持
-一次性 / 固定间隔 / Cron 三种模式;无有效任务时安静跳过、不打扰用户;进程重启后补跑错过的到期任务。
+Gateway 提供两套**相互独立**的本地主动行为机制,均完全在本地调度(IM 服务不作调度源),各自由 IM 配置页上
+一个 per-agent 开关启停(配置经 IM→Gateway 同步生效):
 
-#### Scenario: 无可行动任务时安静跳过
-- **GIVEN** 某 Agent 的 `HEARTBEAT.md` 当前 tick 无可行动任务
-- **WHEN** 调度器到点触发该 Agent
-- **THEN** 不创建运行、不发任何用户可见消息(安静跳过)
+- **Heartbeat**:周期性"带上下文"唤醒。携带该 Agent 与 owner 的 canonical 直聊上下文,由 Agent 工作区的
+  `HEARTBEAT.md` 驱动(Agent 可经对话自管写入)。支持单一节律与多子节律(`tasks:` 各自独立频率)、活跃时段
+  (activeHours)限制;无可冒泡内容时回 `HEARTBEAT_OK` 静默、不打扰用户。
+- **Cron**:无上下文的定时任务。可挂多条,各在隔离 session 执行(不带对话上下文),由 Agent 经 cron 工具自管
+  (注册/查看/删除)。结果文本回发 owner 的 canonical 直聊;用户可就该结果追问,Agent 记得自己汇报过什么。
 
-#### Scenario: 重启后补跑错过的到期任务
-- **GIVEN** 一个固定间隔的 heartbeat 在 Gateway 停机期间已到期
+两套机制**均不补跑积压**:停机/空闲错过多个周期后,恢复只推进到最近一次边界触发一次(不刷屏回填);
+已过期的一次性(`at`)任务恢复后不补跑。
+
+#### Scenario: 未启用的 Agent 两套机制都不跑
+- **GIVEN** 某 Agent 的 heartbeat 与 cron 开关均关闭
+- **WHEN** 调度器周期 tick
+- **THEN** 不为该 Agent 创建任何 heartbeat / cron 运行
+
+#### Scenario: Heartbeat 无可行动任务时安静跳过
+- **GIVEN** 某 Agent 的 `HEARTBEAT.md` 当前 tick 无可冒泡内容
+- **WHEN** 调度器到点触发该 Agent 的 heartbeat
+- **THEN** 不发任何用户可见消息(回 `HEARTBEAT_OK` 静默)
+
+#### Scenario: 周期任务错过多个周期不刷屏回填
+- **GIVEN** 一个固定间隔的 heartbeat/cron 在 Gateway 停机或空闲期间错过了多个周期
+- **WHEN** 调度器恢复
+- **THEN** 只在最近一次边界触发一次,不为每个错过的周期各补跑一次
+
+#### Scenario: 过期的一次性任务不补跑
+- **GIVEN** 一个一次性(`at`)cron/heartbeat 的触发时刻在 Gateway 停机期间已过
 - **WHEN** Gateway 重启后调度器恢复
-- **THEN** 错过的那次到期任务被补跑一次,而非永久跳过
+- **THEN** 该任务被视为错过窗口、不补跑(已执行过的同样不重复)
 
-#### Scenario: 同一 at 任务跨重启只执行一次
-- **GIVEN** 一个一次性(`at`)heartbeat 已执行过且状态已持久化
-- **WHEN** Gateway 重启后调度器恢复
-- **THEN** 该 `at` 任务不再重复执行
+#### Scenario: Cron 汇报后用户追问,Agent 记得汇报内容
+- **GIVEN** 某 Agent 的 cron 任务已执行并把结果发回 canonical 直聊
+- **WHEN** 用户在该直聊就此结果追问
+- **THEN** Agent 的回复能引用该 cron 结果(结果以 `System(untrusted)` 注入 canonical 会话且对后续轮可见)
 
 ### Requirement: 内核中的产品工具可把 Agent 产出的消息投递到目标会话
 

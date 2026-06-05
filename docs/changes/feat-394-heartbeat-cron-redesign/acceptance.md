@@ -1861,3 +1861,74 @@ WorkTree:  /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
 | `AGENTS.md` | 无需更新 |
 | `CLAUDE.md` | 无需更新 |
 | `docs/SPEC_GUIDE.md` | 无需更新 |
+
+---
+
+# Round 7 — 2026-06-05（收口验证）
+
+**Date**: 2026-06-05
+**Reviewer**: change-orchestrator（亲自下场收口，非新一轮 change-reviewer 全旅程；针对 Round 6 两个 blocking/major 的定向闭环验证）
+**Branch**: unit/feat-394（已 merge origin/main，behind 0 / ahead 137）
+**Services**: LLM proxy :4000（kimiCoding:K2.6）；其余 live 证据见下
+
+---
+
+## Summary (Round 7)
+
+| | |
+|---|---|
+| **Verdict** | `pass` |
+| **Highest Required Action** | `none`（可合并） |
+| **Issues** | blocking: 0 / major: 0 / minor: 0 |
+| **Needs Re-review** | false |
+
+**结论**：Round 6 的两条阻塞项（R6-1 `_IntervalSchedule` ceil 不 recurring、R6-2 cron awareness 不可见）均已在 M8/M10 修复并验证关闭。本轮补齐 Round 6 遗留的文档滞后（cursor[bot] 在 PR #78 指出）。
+
+---
+
+## Round 6 issue 关闭状态
+
+### R6-1（blocking）：`_IntervalSchedule.due_times_up_to` ceil → 只触发一次 → **已修复并验证** ✓
+
+- **修复**（M8）：`ceil` → `steps = max(1, elapsed // interval)`（floor），并保 no-flood：大 gap 只推进到最近边界、不补跑。
+- **验证**：单测覆盖"第二拍触发"+"大 gap 只跑一次"（前轮 live 只验首次故漏，本修复专钉第二拍）；M7/M8 live 已实证 cron 连续投递、heartbeat 连续 tick（≥2 次）。
+
+### R6-2（major）：cron awareness 注入后 LLM 不可见 → **已修复并三重验证** ✓
+
+真根因是三层确定性 bug 叠加（**非**前轮怀疑的 asyncio race），详见 `design.md` M10 Changelog 与 `retro.md` 追记：
+1. `append_turn_message` 硬编码 `parent_uuid=None` → awareness 写成游离 orphan，被 `load()` 链回溯丢弃；
+2. `store.append` 入异步 writer 队列、`load` 读磁盘 → 未 flush 读不到；
+3. runtime `_session_histories` cache-first → 旧缓存不含 out-of-band append。
+
+修复（对所有 out-of-band append 通用，非 cron 专用）：`service.append_message` 读 chain tail 设 `parent_uuid` + flush 前后；`Kernel.append_message` 调 `Runtime.invalidate_session_cache`。
+
+**三重验证证据**：
+
+| 证据 | 结果 |
+|---|---|
+| real-kernel 回归测试 `test_append_message_visible_to_next_turn`（驱动真内核两轮、非 FakeKernel，旧码三处任一未修都挂） | ✅ pass |
+| 全树 `pytest -m "not e2e"` | ✅ 2214 passed, 1 skipped |
+| **live 烟测**（真 Personal Assistant kernel + 真 LLM :4000）：cron run 产出 `STATUS-TOKEN-7391 all systems nominal` → awareness 经 `kernel.append_message` 注入 canonical 直聊 → 真模型追问"上条 cron 报了啥"答出 `STATUS-TOKEN-7391` | ✅ pass（S3.5 承接成立） |
+| CI on Actions（PR #78：Python `ruff check` + `ruff format --check` + `pytest -m "not e2e"`，Frontend `vitest`） | ✅ 2 passed / 0 failed |
+
+### R5-4（过期 at 重跑）：之前 inconclusive → 单测覆盖，调度器持续性问题已随 R6-1 修复解除阻塞。
+
+---
+
+## 验收标准最终覆盖（Round 7 收口）
+
+5 Requirements / 18 Scenarios 全部有实现 + 测试覆盖；Round 6 fail 的 S2.2（heartbeat 持续冒泡）、S3.3（cron 连续执行）、S3.5（cron awareness 追问）随 M8/M10 转 pass。详见 `verification.md`（Round 5 = 15/15）+ 上述三重证据。
+
+---
+
+## 上层文档同步 (Round 7)
+
+| 文档 | 状态 |
+|---|---|
+| `acceptance.md` | 本轮更新（补 Round 7 收口，关闭 Round 6 滞后） |
+| `design.md` Changelog | 已含 M8/M10 条目 ✓ |
+| `retro.md` | 已含 M10 追记（"race/需更底层支持"是高度可疑结论） ✓ |
+| `docs/specs/gateway/spec.md` | 本轮更新 ✓ — 重写 heartbeat Requirement 为 heartbeat/cron 两套独立机制 + per-agent 开关 + **不补跑**（修正原契约"重启补跑错过任务"与 feat-394 no-catchup 决策的矛盾）+ awareness 追问 Scenario；同步 Purpose 段 |
+| `SPEC.md` / `AGENTS.md` / `CLAUDE.md` | 无需更新 |
+
+> 注：`docs/NodeGateway-SPEC.md`（Round 6 表中提及）已于 feat-392 退役至 `docs/archive/`，gateway 契约改看 `docs/specs/gateway/spec.md`。
