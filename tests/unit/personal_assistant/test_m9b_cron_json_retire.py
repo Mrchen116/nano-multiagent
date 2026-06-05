@@ -61,17 +61,22 @@ class TestCoerceConfigDictsCronJsonRetire:
             f"Got cron_json={result.get('cron_json')!r}"
         )
 
-    def test_cron_enabled_true_sets_features_cron_scheduling(self) -> None:
-        """cron.enabled=True → features['cron_scheduling']=True (unchanged from M9 R5)."""
-        data = {"cron": {"enabled": True}}
-        result = self._coerce(data)
-        assert result.get("features", {}).get("cron_scheduling") is True
+    def test_cron_block_is_ignored_features_is_sole_source(self) -> None:
+        """决策 D 单一真源: cron 无 per-agent 块; enable 只来自 features 字段。
 
-    def test_cron_enabled_false_sets_features_cron_scheduling_false(self) -> None:
-        """cron.enabled=False → features['cron_scheduling']=False."""
-        data = {"cron": {"enabled": False}}
-        result = self._coerce(data)
-        assert result.get("features", {}).get("cron_scheduling") is False
+        发送 legacy ``cron`` 块**不**写 features['cron_scheduling']（块被忽略），
+        避免 dual-source。enable 由前端经 features 字段直接给。
+        """
+        # legacy cron 块单独发 → 不应注入 features
+        result = self._coerce({"cron": {"enabled": True}})
+        assert "cron_scheduling" not in (result.get("features") or {}), (
+            "cron 块不应再回写 features；features 字段是 cron enable 的唯一真源"
+        )
+
+    def test_features_field_is_cron_enable_source(self) -> None:
+        """features['cron_scheduling'] 经 features 字段直传、被保留（唯一真源）。"""
+        result = self._coerce({"features": {"cron_scheduling": True}})
+        assert result.get("features", {}).get("cron_scheduling") is True
 
     def test_heartbeat_dict_still_produces_heartbeat_json(self) -> None:
         """heartbeat dict → heartbeat_json STILL written (cadence data retained).
@@ -88,10 +93,19 @@ class TestCoerceConfigDictsCronJsonRetire:
         parsed = json.loads(result["heartbeat_json"])
         assert parsed.get("every") == "30m"
 
-    def test_heartbeat_enabled_in_features_unchanged(self) -> None:
-        """heartbeat.enabled → features['heartbeat'] (unchanged from M9 R5)."""
-        data = {"heartbeat": {"enabled": True, "every": "1h"}}
-        result = self._coerce(data)
+    def test_heartbeat_block_does_not_touch_features(self) -> None:
+        """决策 D 单一真源: heartbeat 块只写 heartbeat_json（节律），**不**回写 features。
+
+        enable 由前端经 features 字段直传；heartbeat 块只承载 cadence。
+        """
+        result = self._coerce({"heartbeat": {"every": "1h"}})
+        assert "heartbeat" not in (result.get("features") or {}), (
+            "heartbeat 块不应回写 features['heartbeat']；features 字段是 enable 唯一真源"
+        )
+
+    def test_features_field_is_heartbeat_enable_source(self) -> None:
+        """features['heartbeat'] 经 features 字段直传、被保留（唯一真源）。"""
+        result = self._coerce({"features": {"heartbeat": True}})
         assert result.get("features", {}).get("heartbeat") is True
 
 
