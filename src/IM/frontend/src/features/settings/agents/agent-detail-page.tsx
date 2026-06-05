@@ -619,6 +619,9 @@ export function AgentDetailPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  // feat-394 M9-C: once the user manually edits tool_allowlist, stop treating empty as
+  // "use product defaults" — the empty list becomes a genuine empty whitelist.
+  const [allowlistUserTouched, setAllowlistUserTouched] = useState(false);
 
   const detailQuery = useQuery({
     queryKey: ["settings", "agents", agentId, "detail-state"],
@@ -644,6 +647,8 @@ export function AgentDetailPage() {
     if (detailQuery.data?.config) {
       setDraft(detailQuery.data.config);
       setErrorMessage(null);
+      // Reset touched flag when server data (re)loads — fresh state, back to "empty = defaults".
+      setAllowlistUserTouched(false);
     }
   }, [detailQuery.data]);
 
@@ -1080,13 +1085,23 @@ export function AgentDetailPage() {
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
-              useDefaultOn={true}
+              useDefaultOn={!allowlistUserTouched}
               onChange={(toolAllowlist) => {
                 setSaved(false);
                 setErrorMessage(null);
+                // feat-394 M9-C: mark as touched so empty list means "no tools" not "defaults".
+                setAllowlistUserTouched(true);
                 // feat-379-M9 (決策 12): removed tool → uncheck any feature that requires it.
                 const capFeats = capabilities?.features ?? [];
-                const removed = draft.tool_allowlist.filter((t) => !toolAllowlist.includes(t));
+                // When transitioning from default mode (empty allowlist), the "removed" set is
+                // derived from the effective defaults rather than the stored empty list.
+                const effectiveAllowlist =
+                  !allowlistUserTouched && draft.tool_allowlist.length === 0
+                    ? (capabilities?.tools ?? [])
+                        .filter((t: { default_on?: boolean }) => t.default_on === true)
+                        .map((t: { name: string }) => t.name)
+                    : draft.tool_allowlist;
+                const removed = effectiveAllowlist.filter((t: string) => !toolAllowlist.includes(t));
                 const nextFeatures = { ...(draft.features ?? {}) };
                 for (const tool of removed) {
                   for (const feat of capFeats) {
