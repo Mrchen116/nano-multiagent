@@ -50,14 +50,15 @@ class TestCoerceConfigDictsCronJsonRetire:
     def test_cron_dict_does_not_produce_cron_json(self) -> None:
         """cron dict → features["cron_scheduling"] written, cron_json NOT written.
 
-        After M9-B the cron_json key must be absent from the coerced output.
+        After M9-B the cron_json field must be None (not populated) in the result.
+        model_dump() always includes all fields; the key is that cron_json value is None.
         """
         data = {"cron": {"enabled": True}}
         result = self._coerce(data)
-        assert "cron_json" not in result, (
+        assert result.get("cron_json") is None, (
             "_coerce_config_dicts must NOT write cron_json after M9-B. "
             "cron enable state lives in features['cron_scheduling'] only. "
-            f"Got keys: {list(result.keys())}"
+            f"Got cron_json={result.get('cron_json')!r}"
         )
 
     def test_cron_enabled_true_sets_features_cron_scheduling(self) -> None:

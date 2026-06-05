@@ -105,13 +105,12 @@ class UpdateAgentConfigRequest(BaseModel):
         elif "heartbeat" in data:
             data = dict(data)
             data.pop("heartbeat", None)
-        if "cron" in data and data["cron"] is not None and "cron_json" not in data:
+        if "cron" in data and data["cron"] is not None:
             data = dict(data)
             cron_dict = data.pop("cron")
-            data["cron_json"] = json.dumps(cron_dict)
-            # feat-394 M9 R5: sync cron.enabled → features["cron_scheduling"] so the
-            # Gateway reads gate state from features (M9 decision D) rather than cron_json.
-            # cron_json is kept for backward compat; features is the primary source.
+            # feat-394 M9-B: cron_json retired as enable-state store.
+            # cron enable lives exclusively in features["cron_scheduling"].
+            # cron_json is no longer written; features is the single source of truth.
             cron_enabled = (
                 cron_dict.get("enabled", False)
                 if isinstance(cron_dict, dict)
