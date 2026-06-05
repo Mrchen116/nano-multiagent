@@ -82,7 +82,6 @@ _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
 def resolve_effective_tool_allowlist(
     tool_allowlist: Sequence[str],
     *,
-    cron_enabled: bool,
     default_tool_ids: Sequence[str],
 ) -> list[str] | None:
     """Resolve a per-session tool allowlist as a TRUE whitelist.
@@ -93,14 +92,15 @@ def resolve_effective_tool_allowlist(
     - Non-empty ``tool_allowlist`` → exactly those tools. A user may select a subset
       of the product defaults, so default file/web tools CAN be disabled.
     - Empty ``tool_allowlist`` → the product default tool set (unconfigured agent).
-    - ``cron`` is a gated capability controlled solely by ``cron_enabled``; it is
-      appended on top of the resolved set when enabled and is NEVER persisted into
-      the stored whitelist. Decoupling cron from the whitelist is what removes the
-      need for the R5-2 default-merge (which made defaults impossible to disable).
+
+    feat-394 M9 R4: ``cron_enabled`` param removed. The call-site reads
+    ``agent.cron_enabled`` (@property from features dict) and appends ``"cron"``
+    before passing the list here, keeping this function free of feature-model state.
 
     Args:
         tool_allowlist: The agent's stored explicit tool whitelist (may be empty).
-        cron_enabled: Whether the per-agent cron capability switch is on.
+            Call-site must append gated capabilities (e.g. ``"cron"``) before
+            passing when the relevant feature flag is on.
         default_tool_ids: Product default tool ids used when the whitelist is empty.
 
     Returns:
@@ -108,8 +108,6 @@ def resolve_effective_tool_allowlist(
         ``None`` only in the degenerate case of an empty resolved set.
     """
     effective = list(tool_allowlist) if tool_allowlist else list(default_tool_ids)
-    if cron_enabled and "cron" not in effective:
-        effective.append("cron")
     return effective or None
 
 
@@ -430,14 +428,16 @@ class InboundPipeline:
         agent_skills = list(agent.skills) if agent.skills else None
         # feat-394 fix: tool_allowlist is a TRUE whitelist — a non-empty list means
         # exactly those tools, so default file/web tools CAN be disabled. cron is a
-        # gated capability appended via cron_enabled, never part of the stored
-        # whitelist. This supersedes the M7 R5-2 force-merge (which made defaults
-        # impossible to disable). See resolve_effective_tool_allowlist.
+        # gated capability; M9 R4: we read agent.cron_enabled (@property from features
+        # dict) here and append "cron" before resolving, keeping the function signature
+        # free of feature-model booleans.
         from agent.sdk import PERSONAL_ASSISTANT_PROFILE as _PA_PROFILE  # noqa: PLC0415
 
+        raw_allowlist = list(agent.tool_allowlist) if agent.tool_allowlist else []
+        if agent.cron_enabled and "cron" not in raw_allowlist:
+            raw_allowlist.append("cron")
         agent_tool_allowlist = resolve_effective_tool_allowlist(
-            agent.tool_allowlist,
-            cron_enabled=agent.cron_enabled,
+            raw_allowlist,
             default_tool_ids=_PA_PROFILE.default_tool_ids or (),
         )
         session = await self._kernel.create_session(
@@ -502,11 +502,9 @@ class InboundPipeline:
         session_metadata["agent_features"] = dict(agent.features)
         if agent.custom_prompt:
             session_metadata["agent_custom_prompt"] = agent.custom_prompt
-        # feat-394-M3 CRITICAL-2 fix: inject heartbeat/cron enabled flags so runtime.py
-        # can populate PromptContext.vars["heartbeat_enabled"] / ["cron_enabled"],
-        # which drive the _PA_HEARTBEAT / _PA_CRON segment enabled_when gates.
-        session_metadata["heartbeat_enabled"] = agent.heartbeat_enabled
-        session_metadata["cron_enabled"] = agent.cron_enabled
+        # feat-394 M9 R4: standalone heartbeat_enabled/cron_enabled metadata keys removed.
+        # Gate state lives in agent_features (injected above) and is read by
+        # resolve_flags_from_metadata → ctx.flags in runtime.py.
         # SPEC §7: inject group chat routing context into session metadata so the
         # before_agent_start hook can append a communication context block.
         if message.is_group:

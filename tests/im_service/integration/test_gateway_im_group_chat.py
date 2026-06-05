@@ -226,9 +226,6 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "agent_features": {},
-            # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
-            "heartbeat_enabled": False,
-            "cron_enabled": False,
             "config_profile_version": 1,
             "system_prompt": "You are agent-a.",
             "conversation_type": "group",
@@ -244,9 +241,6 @@ def test_group_chat_uses_live_updated_profile_after_config_sync_in_same_conversa
             "agent_id": "agent-a",
             "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
             "agent_features": {},
-            # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
-            "heartbeat_enabled": False,
-            "cron_enabled": False,
             "config_profile_version": 2,
             "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
             "conversation_type": "group",
@@ -435,9 +429,6 @@ def test_group_chat_keeps_no_reply_when_completed_snapshot_and_late_stream_delta
                 "agent_id": "agent-a",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
                 "agent_features": {},
-                # feat-394-M3: heartbeat/cron enabled flags injected into session metadata
-                "heartbeat_enabled": False,
-                "cron_enabled": False,
                 "config_profile_version": 2,
                 "system_prompt": "When mentioned in a group chat, reply exactly with NO_REPLY.",
                 "conversation_type": "group",
