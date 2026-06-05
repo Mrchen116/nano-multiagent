@@ -17,6 +17,7 @@ class TestBuildToolNamesStructure:
 
     def _get_tool_names(self):
         from personal_assistant.reporter.upstream_reporter import _build_tool_names
+
         return _build_tool_names()
 
     def test_tools_are_dicts_not_strings(self) -> None:
@@ -43,7 +44,9 @@ class TestBuildToolNamesStructure:
         """Each tool entry must have 'description' key."""
         tools = self._get_tool_names()
         for tool in tools:
-            assert "description" in tool, f"tool entry missing 'description' key: {tool}"
+            assert "description" in tool, (
+                f"tool entry missing 'description' key: {tool}"
+            )
 
     def test_tools_have_default_on_key(self) -> None:
         """Each tool entry must have 'default_on' key (feat-394 M9 R5)."""
@@ -61,7 +64,7 @@ class TestBuildToolNamesStructure:
 
         tools = _build_tool_names()
         tool_map = {t["name"]: t for t in tools}
-        for tool_id in (PERSONAL_ASSISTANT_PROFILE.default_tool_ids or []):
+        for tool_id in PERSONAL_ASSISTANT_PROFILE.default_tool_ids or []:
             if tool_id in tool_map:
                 assert tool_map[tool_id]["default_on"] is True, (
                     f"default tool '{tool_id}' must have default_on=True "
@@ -75,7 +78,7 @@ class TestBuildToolNamesStructure:
 
         tools = _build_tool_names()
         tool_map = {t["name"]: t for t in tools}
-        for tool_id in (PERSONAL_ASSISTANT_PROFILE.optional_tool_ids or []):
+        for tool_id in PERSONAL_ASSISTANT_PROFILE.optional_tool_ids or []:
             if tool_id in tool_map:
                 assert tool_map[tool_id]["default_on"] is False, (
                     f"optional tool '{tool_id}' must have default_on=False "
@@ -86,7 +89,9 @@ class TestBuildToolNamesStructure:
         """memory must still appear in _build_tool_names() after R5 format change."""
         tools = self._get_tool_names()
         names = {t["name"] for t in tools}
-        assert "memory" in names, "memory must be in capabilities.tools after R5 format change"
+        assert "memory" in names, (
+            "memory must be in capabilities.tools after R5 format change"
+        )
 
     def test_feature_registry_required_tools_still_present(self) -> None:
         """FEATURE_REGISTRY requires_tool entries must still appear in tools list."""
@@ -109,7 +114,9 @@ class TestBuildNodeCapabilitiesToolsFormat:
 
     def test_node_capabilities_tools_are_dicts(self) -> None:
         """build_node_capabilities_payload()['tools'] must be list of dicts."""
-        from personal_assistant.reporter.upstream_reporter import build_node_capabilities_payload
+        from personal_assistant.reporter.upstream_reporter import (
+            build_node_capabilities_payload,
+        )
 
         payload = build_node_capabilities_payload()
         tools = payload["tools"]

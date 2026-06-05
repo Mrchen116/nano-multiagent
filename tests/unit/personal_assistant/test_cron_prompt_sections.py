@@ -34,7 +34,11 @@ class TestCronPromptSegment:
             flags["cron_scheduling"] = True
         if heartbeat_enabled:
             flags["heartbeat"] = True
-        tools = (ToolSpec(name="cron", description="", input_schema={}),) if cron_enabled else ()
+        tools = (
+            (ToolSpec(name="cron", description="", input_schema={}),)
+            if cron_enabled
+            else ()
+        )
         return PromptContext(vars={}, scenario={}, flags=flags, available_tools=tools)
 
     def test_pa_cron_segment_exists(self) -> None:

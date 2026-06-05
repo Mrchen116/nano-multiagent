@@ -49,7 +49,9 @@ class TestHeartbeatCronVarsGate:
         tool_specs = tuple(
             ToolSpec(name=t, description="", input_schema={}) for t in tools
         )
-        return PromptContext(vars={}, scenario={}, flags=flags, available_tools=tool_specs)
+        return PromptContext(
+            vars={}, scenario={}, flags=flags, available_tools=tool_specs
+        )
 
     # M9: vars no longer enable heartbeat — only flags do
     def test_heartbeat_segment_disabled_by_default_no_flags(self) -> None:
@@ -204,7 +206,9 @@ class TestInboundPipelineVarsInjection:
             "(feat-379 contract: resolve_flags_from_metadata reads this key)"
         )
 
-    def test_session_metadata_no_standalone_heartbeat_enabled(self, tmp_path: Path) -> None:
+    def test_session_metadata_no_standalone_heartbeat_enabled(
+        self, tmp_path: Path
+    ) -> None:
         """session_metadata must NOT contain standalone 'heartbeat_enabled' key after M9 R4.
 
         feat-394 M9 R4: heartbeat/cron gate state is already captured in
@@ -265,7 +269,9 @@ class TestInboundPipelineVarsInjection:
         from personal_assistant.gateway.inbound_pipeline import InboundPipeline
         from unittest.mock import MagicMock
 
-        agent = self._make_agent_config(tmp_path, heartbeat_enabled=True, cron_enabled=True)
+        agent = self._make_agent_config(
+            tmp_path, heartbeat_enabled=True, cron_enabled=True
+        )
         pipeline = MagicMock(spec=InboundPipeline)
         pipeline._agents = {"test-agent": agent}
         pipeline._gateway_internal_port = 9999

@@ -129,20 +129,32 @@ class TestLocalStoreParserFeaturesMapping:
                 item["workspace_root"] = str(ws)
 
         # Minimal LLM config for validation
-        llm = _parse_llm({
-            "default_model": "test-model",
-            "providers": [{"name": "openai_compat", "base_url": "http://127.0.0.1:4000",
-                           "models": [{"name": "test-model"}]}],
-        })
+        llm = _parse_llm(
+            {
+                "default_model": "test-model",
+                "providers": [
+                    {
+                        "name": "openai_compat",
+                        "base_url": "http://127.0.0.1:4000",
+                        "models": [{"name": "test-model"}],
+                    }
+                ],
+            }
+        )
         return _parse_agents(agents_list, llm)
 
     def test_heartbeat_enabled_written_to_features(self, tmp_path: Path) -> None:
         """When YAML has heartbeat.enabled=true, features['heartbeat'] must be True."""
-        agents = self._parse_agents_from_list([{
-            "agent_id": "test-agent",
-            "workspace_root": "placeholder",
-            "heartbeat": {"enabled": True},
-        }], tmp_path)
+        agents = self._parse_agents_from_list(
+            [
+                {
+                    "agent_id": "test-agent",
+                    "workspace_root": "placeholder",
+                    "heartbeat": {"enabled": True},
+                }
+            ],
+            tmp_path,
+        )
         agent = agents[0]
 
         assert agent.features.get("heartbeat") is True, (
@@ -155,11 +167,16 @@ class TestLocalStoreParserFeaturesMapping:
 
     def test_cron_enabled_written_to_features(self, tmp_path: Path) -> None:
         """When YAML has cron.enabled=true, features['cron_scheduling'] must be True."""
-        agents = self._parse_agents_from_list([{
-            "agent_id": "test-agent",
-            "workspace_root": "placeholder",
-            "cron": {"enabled": True},
-        }], tmp_path)
+        agents = self._parse_agents_from_list(
+            [
+                {
+                    "agent_id": "test-agent",
+                    "workspace_root": "placeholder",
+                    "cron": {"enabled": True},
+                }
+            ],
+            tmp_path,
+        )
         agent = agents[0]
 
         assert agent.features.get("cron_scheduling") is True, (
@@ -172,10 +189,15 @@ class TestLocalStoreParserFeaturesMapping:
 
     def test_heartbeat_disabled_by_default(self, tmp_path: Path) -> None:
         """When YAML has no heartbeat block, features['heartbeat'] must be absent/False."""
-        agents = self._parse_agents_from_list([{
-            "agent_id": "test-agent",
-            "workspace_root": "placeholder",
-        }], tmp_path)
+        agents = self._parse_agents_from_list(
+            [
+                {
+                    "agent_id": "test-agent",
+                    "workspace_root": "placeholder",
+                }
+            ],
+            tmp_path,
+        )
         agent = agents[0]
 
         assert agent.heartbeat_enabled is False
@@ -183,10 +205,15 @@ class TestLocalStoreParserFeaturesMapping:
 
     def test_cron_disabled_by_default(self, tmp_path: Path) -> None:
         """When YAML has no cron block, features['cron_scheduling'] must be absent/False."""
-        agents = self._parse_agents_from_list([{
-            "agent_id": "test-agent",
-            "workspace_root": "placeholder",
-        }], tmp_path)
+        agents = self._parse_agents_from_list(
+            [
+                {
+                    "agent_id": "test-agent",
+                    "workspace_root": "placeholder",
+                }
+            ],
+            tmp_path,
+        )
         agent = agents[0]
 
         assert agent.cron_enabled is False

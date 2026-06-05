@@ -20,9 +20,7 @@ def _ctx_with_flags(**flags: bool) -> PromptContext:
 def _ctx_with_flags_and_tools(flags: dict, tools: list[str]) -> PromptContext:
     """Build a PromptContext with given flags and available ToolSpec stubs."""
     # has_tool() checks getattr(t, "name", None), so we must pass ToolSpec objects.
-    tool_specs = tuple(
-        ToolSpec(name=t, description="", input_schema={}) for t in tools
-    )
+    tool_specs = tuple(ToolSpec(name=t, description="", input_schema={}) for t in tools)
     return PromptContext(vars={}, scenario={}, flags=flags, available_tools=tool_specs)
 
 
@@ -174,13 +172,17 @@ class TestCronRoutingFlagsGate:
     def test_routing_disabled_when_only_heartbeat(self) -> None:
         from agent.products.personal_assistant.prompt_sections import _PA_CRON_ROUTING  # noqa: PLC2701
 
-        ctx = _ctx_with_flags_and_tools({"heartbeat": True, "cron_scheduling": False}, ["cron"])
+        ctx = _ctx_with_flags_and_tools(
+            {"heartbeat": True, "cron_scheduling": False}, ["cron"]
+        )
         assert _PA_CRON_ROUTING.enabled_when(ctx) is False
 
     def test_routing_disabled_when_only_cron(self) -> None:
         from agent.products.personal_assistant.prompt_sections import _PA_CRON_ROUTING  # noqa: PLC2701
 
-        ctx = _ctx_with_flags_and_tools({"heartbeat": False, "cron_scheduling": True}, ["cron"])
+        ctx = _ctx_with_flags_and_tools(
+            {"heartbeat": False, "cron_scheduling": True}, ["cron"]
+        )
         assert _PA_CRON_ROUTING.enabled_when(ctx) is False
 
     def test_routing_enabled_when_both_flags_and_cron_tool(self) -> None:

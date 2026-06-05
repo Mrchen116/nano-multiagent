@@ -131,9 +131,13 @@ def test_cron_scheduling_entry_shape():
     assert entry["requires_tool"] == "cron", (
         "cron_scheduling.requires_tool must be 'cron' so feature→tool invariant works"
     )
-    assert "pa.cron" in entry["sections"], "cron_scheduling.sections must contain 'pa.cron'"
+    assert "pa.cron" in entry["sections"], (
+        "cron_scheduling.sections must contain 'pa.cron'"
+    )
     assert entry["default_on"] is False, "cron_scheduling is opt-in (default_on=False)"
-    assert entry["layer"] == "product", "cron_scheduling is a product-layer feature (PA only)"
+    assert entry["layer"] == "product", (
+        "cron_scheduling is a product-layer feature (PA only)"
+    )
 
 
 def test_heartbeat_entry_shape():
@@ -144,7 +148,9 @@ def test_heartbeat_entry_shape():
     assert entry["requires_tool"] is None, (
         "heartbeat.requires_tool must be None — heartbeat uses file tools, no dedicated tool"
     )
-    assert "pa.heartbeat" in entry["sections"], "heartbeat.sections must contain 'pa.heartbeat'"
+    assert "pa.heartbeat" in entry["sections"], (
+        "heartbeat.sections must contain 'pa.heartbeat'"
+    )
     assert entry["default_on"] is False, "heartbeat is opt-in (default_on=False)"
     assert entry["layer"] == "product", "heartbeat is a product-layer feature (PA only)"
 

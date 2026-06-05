@@ -54,9 +54,7 @@ def test_explicit_whitelist_excludes_default_tools() -> None:
 
 def test_empty_whitelist_resolves_to_product_defaults() -> None:
     """Empty whitelist (unconfigured agent) → product default tool set, no cron."""
-    resolved = resolve_effective_tool_allowlist(
-        [], default_tool_ids=_DEFAULTS
-    )
+    resolved = resolve_effective_tool_allowlist([], default_tool_ids=_DEFAULTS)
     assert resolved is not None
     assert set(resolved) == set(_DEFAULTS)
     assert "cron" not in resolved
@@ -64,9 +62,7 @@ def test_empty_whitelist_resolves_to_product_defaults() -> None:
 
 def test_cron_in_explicit_whitelist_is_preserved() -> None:
     """Call-site may include 'cron' in the list; function must preserve it."""
-    resolved = resolve_effective_tool_allowlist(
-        [], default_tool_ids=_DEFAULTS
-    )
+    resolved = resolve_effective_tool_allowlist([], default_tool_ids=_DEFAULTS)
     # simulate caller appending cron after the call
     assert resolved is not None
     resolved_with_cron = list(resolved) + ["cron"]
