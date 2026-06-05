@@ -41,7 +41,10 @@ class ReporterCapabilities:
     config_sync: bool = True
     models: tuple[str, ...] = ()
     skills: tuple[dict[str, str], ...] = ()
-    tools: tuple[str, ...] = ()
+    # feat-394 M9 R5: tools changed from bare str tuple to rich dict tuple carrying
+    # {name, description, default_on}.  IM frontend uses default_on to render tool
+    # pills as "selected by default" when the agent's tool_allowlist is empty.
+    tools: tuple[dict[str, object], ...] = ()
     platform_default_model: str | None = None
     default_system_prompt: str = ""
 
@@ -112,17 +115,30 @@ def _build_skill_capability_entries() -> tuple[dict[str, str], ...]:
     )
 
 
-def _build_tool_names() -> tuple[str, ...]:
+def _build_tool_names() -> tuple[dict[str, object], ...]:
     # feat-379-M9 (決策 13): advertise-phase only needs the declared tool names;
     # build_tool_registry(runtime=None) omits memory/skill_manage because those tools
     # require bootstrap path injection before they appear in list_specs().  Taking names
     # directly from the profile guarantees the full declared surface is advertised,
     # regardless of whether a live runtime is present.
-    allowed_ids = [
-        *PERSONAL_ASSISTANT_PROFILE.default_tool_ids,
-        *PERSONAL_ASSISTANT_PROFILE.optional_tool_ids,
-    ]
-    return _dedupe_preserve_order(allowed_ids)
+    #
+    # feat-394 M9 R5: return rich dicts {name, description, default_on} so the IM
+    # frontend can render tool pills with their default selection state.
+    # default_on=True for default_tool_ids (selected when allowlist is empty),
+    # default_on=False for optional_tool_ids (must be explicitly added).
+    default_ids = list(PERSONAL_ASSISTANT_PROFILE.default_tool_ids or [])
+    optional_ids = list(PERSONAL_ASSISTANT_PROFILE.optional_tool_ids or [])
+    seen: set[str] = set()
+    result: list[dict[str, object]] = []
+    for tool_id in default_ids:
+        if tool_id not in seen:
+            seen.add(tool_id)
+            result.append({"name": tool_id, "description": "", "default_on": True})
+    for tool_id in optional_ids:
+        if tool_id not in seen:
+            seen.add(tool_id)
+            result.append({"name": tool_id, "description": "", "default_on": False})
+    return tuple(result)
 
 
 def _build_model_names() -> tuple[str, ...]:
