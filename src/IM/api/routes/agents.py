@@ -92,13 +92,28 @@ class UpdateAgentConfigRequest(BaseModel):
             and "heartbeat_json" not in data
         ):
             data = dict(data)
-            data["heartbeat_json"] = json.dumps(data.pop("heartbeat"))
+            hb_dict = data.pop("heartbeat")
+            data["heartbeat_json"] = json.dumps(hb_dict)
+            # feat-394 M9 R5: sync heartbeat.enabled → features["heartbeat"] so Gateway
+            # reads gate state from features (M9 decision D) rather than heartbeat_json.
+            hb_enabled = hb_dict.get("enabled", False) if isinstance(hb_dict, dict) else False
+            features = dict(data.get("features") or {})
+            features["heartbeat"] = bool(hb_enabled)
+            data["features"] = features
         elif "heartbeat" in data:
             data = dict(data)
             data.pop("heartbeat", None)
         if "cron" in data and data["cron"] is not None and "cron_json" not in data:
             data = dict(data)
-            data["cron_json"] = json.dumps(data.pop("cron"))
+            cron_dict = data.pop("cron")
+            data["cron_json"] = json.dumps(cron_dict)
+            # feat-394 M9 R5: sync cron.enabled → features["cron_scheduling"] so the
+            # Gateway reads gate state from features (M9 decision D) rather than cron_json.
+            # cron_json is kept for backward compat; features is the primary source.
+            cron_enabled = cron_dict.get("enabled", False) if isinstance(cron_dict, dict) else False
+            features = dict(data.get("features") or {})
+            features["cron_scheduling"] = bool(cron_enabled)
+            data["features"] = features
         elif "cron" in data:
             data = dict(data)
             data.pop("cron", None)
@@ -588,12 +603,17 @@ async def agent_prompt_preview(
     effective_hb = (
         payload.heartbeat_enabled
         if payload.heartbeat_enabled is not None
-        else _extract_enabled(profile.heartbeat_json)
+        # feat-394 M9 R5: prefer features["heartbeat"] (FEATURE_REGISTRY source of truth);
+        # fall back to heartbeat_json for backward compat with old Gateway profiles not yet
+        # migrated (profiles where features dict was not synced from heartbeat_json on save).
+        else bool((profile.features or {}).get("heartbeat", False))
+        or _extract_enabled(profile.heartbeat_json)
     )
     effective_cron = (
         payload.cron_enabled
         if payload.cron_enabled is not None
-        else _extract_enabled(profile.cron_json)
+        # feat-394 M9 R5: prefer features["cron_scheduling"] (cron_json retired as gate source).
+        else bool((profile.features or {}).get("cron_scheduling", False))
     )
 
     result = await gateway_handler.request_prompt_preview(
