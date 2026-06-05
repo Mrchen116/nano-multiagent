@@ -229,6 +229,29 @@ Gateway 提供两套**相互独立**的本地主动行为机制,均完全在本�
 - **WHEN** 用户在该直聊就此结果追问
 - **THEN** Agent 的回复能引用刚发出的 cron 汇报内容(该结果对后续对话轮次可见)
 
+### Requirement: Agent 工具集由 tool_allowlist 真白名单决定，能力特性按 requires_tool 联动其工具
+
+Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：非空时
+Agent 工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；为空时取
+产品默认工具集（未配置语义）。能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动
+已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——Agent 工具集与配置侧存储的
+`tool_allowlist` 一致，无分裂。
+
+#### Scenario: 用户禁用某默认工具后该工具不再提供
+- **GIVEN** 某 Agent 的 `tool_allowlist` 被设为不含某默认工具（如不含 `read`）的非空显式集
+- **WHEN** Gateway 为该 Agent 构建会话
+- **THEN** 该 Agent 工具集不含被禁的默认工具（下发给模型的工具列表里没有它）
+
+#### Scenario: 未配置 allowlist 的 Agent 拿到产品默认工具集
+- **GIVEN** 某 Agent 的 `tool_allowlist` 为空
+- **WHEN** Gateway 为该 Agent 构建会话
+- **THEN** 该 Agent 工具集 = 产品默认工具集
+
+#### Scenario: 启用 cron 能力使 cron 工具进入该 Agent 工具集
+- **GIVEN** 某 Agent 启用了 cron 能力特性（其 `requires_tool="cron"` 已联动进 `tool_allowlist`）
+- **WHEN** Gateway 为该 Agent 构建会话
+- **THEN** 该 Agent 工具集包含 `cron` 工具；停用 cron 能力则 `cron` 工具随之移出
+
 ### Requirement: 内核中的产品工具可把 Agent 产出的消息投递到目标会话
 
 内核中运行的产品工具(如 `send_message`)可把 Agent 产出的消息投递到另一目标会话;`to` 为稳定业务标识
