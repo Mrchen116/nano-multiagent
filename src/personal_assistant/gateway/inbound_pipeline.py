@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from typing import Literal
@@ -77,6 +77,40 @@ RelayLifecycleCallback = Callable[
 _TERMINAL_RUN_STATUSES = TERMINAL_RUN_STATUSES
 # Default port for the Gateway's internal HTTP dispatch endpoint.
 _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
+
+
+def resolve_effective_tool_allowlist(
+    tool_allowlist: Sequence[str],
+    *,
+    cron_enabled: bool,
+    default_tool_ids: Sequence[str],
+) -> list[str] | None:
+    """Resolve a per-session tool allowlist as a TRUE whitelist.
+
+    feat-394 fix (supersedes M7 R5-2 force-merge): ``tool_allowlist`` is the user's
+    explicit tool whitelist, not an additive extras list.
+
+    - Non-empty ``tool_allowlist`` → exactly those tools. A user may select a subset
+      of the product defaults, so default file/web tools CAN be disabled.
+    - Empty ``tool_allowlist`` → the product default tool set (unconfigured agent).
+    - ``cron`` is a gated capability controlled solely by ``cron_enabled``; it is
+      appended on top of the resolved set when enabled and is NEVER persisted into
+      the stored whitelist. Decoupling cron from the whitelist is what removes the
+      need for the R5-2 default-merge (which made defaults impossible to disable).
+
+    Args:
+        tool_allowlist: The agent's stored explicit tool whitelist (may be empty).
+        cron_enabled: Whether the per-agent cron capability switch is on.
+        default_tool_ids: Product default tool ids used when the whitelist is empty.
+
+    Returns:
+        Explicit tool-id list for ``Kernel.create_session(tool_allowlist=...)``, or
+        ``None`` only in the degenerate case of an empty resolved set.
+    """
+    effective = list(tool_allowlist) if tool_allowlist else list(default_tool_ids)
+    if cron_enabled and "cron" not in effective:
+        effective.append("cron")
+    return effective or None
 
 
 class InboundPipeline:
@@ -394,19 +428,18 @@ class InboundPipeline:
         # Resolve per-agent config into session parameters.
         session_metadata = self._build_session_metadata(message, agent_id=agent_id)
         agent_skills = list(agent.skills) if agent.skills else None
-        # feat-394-M7 R5-2 fix: IM tool_allowlist carries optional extras (e.g. "cron")
-        # but must NOT replace DEFAULT_TOOL_IDS (read/write/edit/bash etc.).
-        # When an explicit allowlist is present, merge DEFAULT_TOOL_IDS + allowlist so
-        # the runtime sees file tools AND the optional gated tool.
-        # When allowlist is absent/empty, pass None so runtime applies DEFAULT_TOOL_IDS gate.
-        if agent.tool_allowlist:
-            from agent.sdk import PERSONAL_ASSISTANT_PROFILE as _PA_PROFILE  # noqa: PLC0415
+        # feat-394 fix: tool_allowlist is a TRUE whitelist — a non-empty list means
+        # exactly those tools, so default file/web tools CAN be disabled. cron is a
+        # gated capability appended via cron_enabled, never part of the stored
+        # whitelist. This supersedes the M7 R5-2 force-merge (which made defaults
+        # impossible to disable). See resolve_effective_tool_allowlist.
+        from agent.sdk import PERSONAL_ASSISTANT_PROFILE as _PA_PROFILE  # noqa: PLC0415
 
-            _base = list(_PA_PROFILE.default_tool_ids or [])
-            _extras = [t for t in agent.tool_allowlist if t not in _base]
-            agent_tool_allowlist: list[str] | None = _base + _extras
-        else:
-            agent_tool_allowlist = None
+        agent_tool_allowlist = resolve_effective_tool_allowlist(
+            agent.tool_allowlist,
+            cron_enabled=agent.cron_enabled,
+            default_tool_ids=_PA_PROFILE.default_tool_ids or (),
+        )
         session = await self._kernel.create_session(
             title=agent.title,
             workspace_root=agent.workspace_root,

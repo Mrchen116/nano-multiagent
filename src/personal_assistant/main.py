@@ -367,17 +367,17 @@ class _IMConfigSyncClient:
                 else:
                     _cron_raw = payload.get("cron")
                 synced_cron_enabled = _parse_cron_enabled_from_im_payload(_cron_raw)
-                # feat-394-M3 WARNING-1 fix: cron_enabled=True gates the 'cron' tool
-                # into the agent's tool_allowlist automatically (decision 5).  The user
-                # should not have to manually add 'cron' to the allowlist after enabling
-                # the cron switch.
+                # feat-394 fix: cron is a gated capability decoupled from the user tool
+                # whitelist — cron_enabled must NEVER be written into tool_allowlist.
+                # The cron tool is appended to the effective session toolset at
+                # session-build time (see resolve_effective_tool_allowlist), so the
+                # stored whitelist stays the user's explicit intent. (Supersedes the
+                # M3 WARNING-1 auto-inject, which broke disable-a-default semantics.)
                 _raw_allowlist = [
                     item.strip()
                     for item in payload.get("tool_allowlist", [])
                     if isinstance(item, str) and item.strip()
                 ]
-                if synced_cron_enabled and "cron" not in _raw_allowlist:
-                    _raw_allowlist = [*_raw_allowlist, "cron"]
                 agent_config = AgentWorkspaceConfig(
                     agent_id=agent_id,
                     workspace_root=workspace_root,
