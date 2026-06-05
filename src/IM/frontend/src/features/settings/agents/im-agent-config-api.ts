@@ -62,6 +62,8 @@ export interface AgentConfig {
 export interface AgentAllowlistOption {
   name: string;
   description: string;
+  // feat-394 M9 R5/R6: default_on=true → rendered as selected when tool_allowlist is empty.
+  default_on?: boolean;
 }
 
 // feat-379-M3: feature toggle descriptor from FEATURE_REGISTRY (decision 7).
@@ -201,7 +203,8 @@ function normalizeAllowlistOptions(values: Array<string | AgentAllowlistOption> 
       return name ? [{ name, description: "" }] : [];
     }
     if (value && typeof value.name === "string" && value.name.trim()) {
-      return [{ name: value.name.trim(), description: value.description ?? "" }];
+      // feat-394 M9 R5/R6: preserve default_on if the backend provides it.
+      return [{ name: value.name.trim(), description: value.description ?? "", default_on: value.default_on }];
     }
     return [];
   });

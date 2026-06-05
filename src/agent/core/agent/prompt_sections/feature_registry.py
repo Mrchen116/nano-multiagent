@@ -68,4 +68,37 @@ FEATURE_REGISTRY: dict[str, FeatureEntry] = {
         label_i18n="feature.skill_creation.label",
         help_i18n="feature.skill_creation.help",
     ),
+    # ---------------------------------------------------------------------------
+    # Personal Assistant product-layer features (feat-394 decision D)
+    # ---------------------------------------------------------------------------
+    # Both entries are layer="product" and default_on=False:
+    #   - layer="product" → coding_cli capabilities projection omits them (decision 7)
+    #   - default_on=False → opt-in per-agent; not enabled for coding_cli or by default
+    #
+    # cron_scheduling gates pa.cron segment AND wires cron into the agent's tool
+    # allowlist via the standard feature→requires_tool invariant (same mechanism as
+    # memory_curation→memory / skill_creation→skill_manage).
+    # heartbeat has no dedicated tool (agent self-manages via file tools); it only
+    # gates the pa.heartbeat prompt segment.
+    # ---------------------------------------------------------------------------
+    # Provenance: feat-394 decision D — cron_scheduling/heartbeat unified into
+    #   FEATURE_REGISTRY; prompt text verbatim from openclaw (see prompt_sections.py)
+    "cron_scheduling": FeatureEntry(
+        sections=("pa.cron",),
+        default_on=False,
+        requires_tool="cron",
+        layer="product",
+        label_i18n="feature.cron_scheduling.label",
+        help_i18n="feature.cron_scheduling.help",
+    ),
+    # Provenance: feat-394 decision D — heartbeat prompt text verbatim from
+    #   openclaw/src/agents/system-prompt.ts:124-138 buildHeartbeatSection
+    "heartbeat": FeatureEntry(
+        sections=("pa.heartbeat",),
+        default_on=False,
+        requires_tool=None,
+        layer="product",
+        label_i18n="feature.heartbeat.label",
+        help_i18n="feature.heartbeat.help",
+    ),
 }

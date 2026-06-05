@@ -381,6 +381,14 @@
     "skill_creation": {
       "label": "技能创建",
       "help": "允许 agent 在其工作区创建和管理 skill。"
+    },
+    "heartbeat": {
+      "label": "定期汇报（Heartbeat）",
+      "help": "按计划节律主动汇报，无需用户触发。可配置频率和活跃时段。"
+    },
+    "cron_scheduling": {
+      "label": "定时任务（Cron）",
+      "help": "按 cron 表达式调度任务，到期后自动执行。"
     }
   }
 }

@@ -14,21 +14,32 @@ from __future__ import annotations
 import inspect
 
 from agent.core.agent.prompt_sections.base import PromptContext
+from agent.core.types import ToolSpec
 
 
 class TestCronPromptSegment:
-    """pa.cron segment must exist and be gated by cron_enabled."""
+    """pa.cron segment must exist and be gated by cron_scheduling flag + cron tool.
+
+    feat-394-M9: gate migrated from ctx.vars["cron_enabled"] to
+    ctx.flags["cron_scheduling"] + ctx.has_tool("cron") (decision D).
+    """
 
     def _make_ctx(
         self, *, cron_enabled: bool = True, heartbeat_enabled: bool = False
     ) -> PromptContext:
-        return PromptContext(
-            vars={
-                "cron_enabled": cron_enabled,
-                "heartbeat_enabled": heartbeat_enabled,
-            },
-            scenario={},
+        # M9: gate is flags["cron_scheduling"] + has_tool("cron"); heartbeat is flags["heartbeat"].
+        # Translate legacy bool params to the new flags/tools contract.
+        flags = {}
+        if cron_enabled:
+            flags["cron_scheduling"] = True
+        if heartbeat_enabled:
+            flags["heartbeat"] = True
+        tools = (
+            (ToolSpec(name="cron", description="", input_schema={}),)
+            if cron_enabled
+            else ()
         )
+        return PromptContext(vars={}, scenario={}, flags=flags, available_tools=tools)
 
     def test_pa_cron_segment_exists(self) -> None:
         """PA prompt sections must contain a segment named 'pa.cron'."""

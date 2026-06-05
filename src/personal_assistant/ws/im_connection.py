@@ -444,18 +444,9 @@ class IMConnectionManager:
             )
             scenario_raw = body.get("scenario")
             scenario = scenario_raw if isinstance(scenario_raw, str) else "direct"
-            # feat-394-M4 R2-2: extract heartbeat/cron enabled flags forwarded by IM
-            # so assemble_prompt_preview can inject them into PromptContext.vars.
-            heartbeat_enabled_raw = body.get("heartbeat_enabled")
-            heartbeat_enabled: bool | None = (
-                bool(heartbeat_enabled_raw)
-                if isinstance(heartbeat_enabled_raw, bool)
-                else None
-            )
-            cron_enabled_raw = body.get("cron_enabled")
-            cron_enabled: bool | None = (
-                bool(cron_enabled_raw) if isinstance(cron_enabled_raw, bool) else None
-            )
+            # feat-394-M9: heartbeat/cron gates moved to ctx.flags (FEATURE_REGISTRY).
+            # heartbeat_enabled/cron_enabled extraction and forwarding retired;
+            # callers pass {"heartbeat": true} in the features dict instead.
             preview_result: dict[str, object] = {}
             if self._prompt_preview_provider is not None:
                 result = await _maybe_await(
@@ -467,8 +458,6 @@ class IMConnectionManager:
                         tool_ids,
                         scenario,
                         skill_ids,
-                        heartbeat_enabled,
-                        cron_enabled,
                     )
                 )
                 if isinstance(result, Mapping):

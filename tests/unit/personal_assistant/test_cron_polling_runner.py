@@ -92,7 +92,7 @@ async def test_polling_runner_calls_cron_tick_for_cron_enabled_agent(
     agent = AgentWorkspaceConfig(
         agent_id="cron-agent",
         workspace_root=ws,
-        cron_enabled=True,
+        features={"cron_scheduling": True},
     )
 
     cron_ticks: list[str] = []
@@ -135,7 +135,7 @@ async def test_polling_runner_skips_cron_tick_for_cron_disabled_agent(
     agent = AgentWorkspaceConfig(
         agent_id="nocron-agent",
         workspace_root=ws,
-        cron_enabled=False,
+        features={},
     )
 
     cron_ticks: list[str] = []

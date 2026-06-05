@@ -150,7 +150,9 @@ def test_build_tool_names_includes_memory_and_skill_manage() -> None:
     """
     from personal_assistant.reporter.upstream_reporter import _build_tool_names
 
-    names = _build_tool_names()
+    # feat-394 M9 R5: _build_tool_names now returns dicts, extract names for membership check.
+    tools = _build_tool_names()
+    names = {t["name"] for t in tools}
     assert "memory" in names, (
         "memory 必须在 capabilities.tools 中 — 否则前端联动无法把 memory 工具变绿 (feat-379-M9 决策13)"
     )
@@ -168,7 +170,9 @@ def test_build_tool_names_contains_all_feature_registry_requires_tool() -> None:
     from personal_assistant.reporter.upstream_reporter import _build_tool_names
     from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
 
-    names_set = set(_build_tool_names())
+    # feat-394 M9 R5: _build_tool_names now returns dicts.
+    tools = _build_tool_names()
+    names_set = {t["name"] for t in tools}
     for entry in FEATURE_REGISTRY.values():
         rt = entry.get("requires_tool")
         if rt is not None:
