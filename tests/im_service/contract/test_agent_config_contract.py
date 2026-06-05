@@ -152,8 +152,9 @@ def test_node_capabilities_contract_shape(
     body = response.json()
     # feat-379-M6 (ISSUE-1): features list added; other fields unchanged
     assert body["node_id"] == "node-1"
-    assert body["skills"] == [{"name": "plan", "description": ""}]
-    assert body["tools"] == [{"name": "read", "description": ""}]
+    # feat-394 M9 R5: AllowlistOptionResponse now carries default_on (False by default).
+    assert body["skills"] == [{"name": "plan", "description": "", "default_on": False}]
+    assert body["tools"] == [{"name": "read", "description": "", "default_on": False}]
     assert body["models"] == ["codex_oauth:gpt-5.5"]
     assert body["platform_default_model"] is None
     assert body["default_system_prompt"] == ""

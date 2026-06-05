@@ -146,10 +146,18 @@ class AgentSummaryResponse(BaseModel):
 
 
 class AllowlistOptionResponse(BaseModel):
-    """一项可选技能或工具的展示元数据（IM 设置页复用）。"""
+    """一项可选技能或工具的展示元数据（IM 设置页复用）。
+
+    feat-394 M9 R5: default_on — when True the tool is selected by default when
+    tool_allowlist is empty (product default tool set).  The IM frontend uses this
+    to render tool pills with their effective selection state before the user makes
+    any explicit choice.
+    """
 
     name: str
     description: str = ""
+    # feat-394 M9 R5: default_on=True → selected by default when allowlist is empty.
+    default_on: bool = False
 
 
 class FeatureCapabilityResponse(BaseModel):
@@ -513,8 +521,12 @@ def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:
                 continue
             raw_desc = item.get("description")
             desc = raw_desc.strip() if isinstance(raw_desc, str) else ""
+            # feat-394 M9 R5: forward default_on from Gateway heartbeat payload.
+            default_on = bool(item.get("default_on", False))
             result.append(
-                AllowlistOptionResponse(name=raw_name.strip(), description=desc)
+                AllowlistOptionResponse(
+                    name=raw_name.strip(), description=desc, default_on=default_on
+                )
             )
     return result
 
