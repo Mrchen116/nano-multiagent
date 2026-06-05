@@ -6,7 +6,13 @@ import * as Label from "@radix-ui/react-label";
 // 替换 `allowlist-selector.tsx` 的 fieldset+checkbox grid (R11 reviewer 标
 // "60+ 列 checkbox,违反 §95 视觉对齐")。
 
-export type PillOption = { name: string; description?: string };
+export type PillOption = {
+  name: string;
+  description?: string;
+  // feat-394 M9 R6: default_on=true → pill renders as selected when tool_allowlist is empty
+  // (empty allowlist means "use product defaults", so default tools appear as selected).
+  default_on?: boolean;
+};
 
 type PillSelectorProps = {
   testId: string;
@@ -17,6 +23,8 @@ type PillSelectorProps = {
   errorMessage?: string | null;
   onRetry?: () => void;
   onChange: (next: string[]) => void;
+  // When true, empty selected list uses each option's default_on to determine display state.
+  useDefaultOn?: boolean;
 };
 
 export function PillSelector({
@@ -27,11 +35,33 @@ export function PillSelector({
   isLoading = false,
   errorMessage = null,
   onRetry,
-  onChange
+  onChange,
+  useDefaultOn = false,
 }: PillSelectorProps) {
+  // feat-394 M9 R6: when useDefaultOn is active and selected is empty, treat each
+  // option's default_on as its effective selection state (empty allowlist = defaults).
+  const emptyMeansDefault = useDefaultOn && selected.length === 0;
+
+  function isSelected(opt: PillOption): boolean {
+    if (emptyMeansDefault) {
+      return opt.default_on === true;
+    }
+    return selected.includes(opt.name);
+  }
+
   function toggle(name: string) {
-    const isOn = selected.includes(name);
-    onChange(isOn ? selected.filter((n) => n !== name) : [...selected, name]);
+    if (emptyMeansDefault) {
+      // Materialise the defaults into an explicit list, then toggle the clicked item.
+      const currentEffective = options
+        .filter((o) => o.default_on === true)
+        .map((o) => o.name);
+      const isOn = currentEffective.includes(name);
+      const next = isOn ? currentEffective.filter((n) => n !== name) : [...currentEffective, name];
+      onChange(next);
+    } else {
+      const isOn = selected.includes(name);
+      onChange(isOn ? selected.filter((n) => n !== name) : [...selected, name]);
+    }
   }
 
   return (
@@ -59,7 +89,7 @@ export function PillSelector({
             <p className="text-sm text-slate-500">—</p>
           ) : (
             options.map((opt) => {
-              const isOn = selected.includes(opt.name);
+              const isOn = isSelected(opt);
               return (
                 <button
                   key={opt.name}

@@ -96,7 +96,9 @@ class UpdateAgentConfigRequest(BaseModel):
             data["heartbeat_json"] = json.dumps(hb_dict)
             # feat-394 M9 R5: sync heartbeat.enabled → features["heartbeat"] so Gateway
             # reads gate state from features (M9 decision D) rather than heartbeat_json.
-            hb_enabled = hb_dict.get("enabled", False) if isinstance(hb_dict, dict) else False
+            hb_enabled = (
+                hb_dict.get("enabled", False) if isinstance(hb_dict, dict) else False
+            )
             features = dict(data.get("features") or {})
             features["heartbeat"] = bool(hb_enabled)
             data["features"] = features
@@ -110,7 +112,11 @@ class UpdateAgentConfigRequest(BaseModel):
             # feat-394 M9 R5: sync cron.enabled → features["cron_scheduling"] so the
             # Gateway reads gate state from features (M9 decision D) rather than cron_json.
             # cron_json is kept for backward compat; features is the primary source.
-            cron_enabled = cron_dict.get("enabled", False) if isinstance(cron_dict, dict) else False
+            cron_enabled = (
+                cron_dict.get("enabled", False)
+                if isinstance(cron_dict, dict)
+                else False
+            )
             features = dict(data.get("features") or {})
             features["cron_scheduling"] = bool(cron_enabled)
             data["features"] = features
