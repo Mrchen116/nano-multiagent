@@ -2,6 +2,36 @@
 
 > 本单元对 canonical `docs/specs/gateway/spec.md` 的增量。收尾归并已合并进 canonical（§7.0）。
 
+## ADDED Requirements
+
+### Requirement: Agent 工具集由 tool_allowlist 真白名单决定，能力特性按 requires_tool 联动其工具
+
+> post-acceptance 决策 D：纠正原实现把 `tool_allowlist` 当"默认集 + 加项"（默认工具无法禁用）、且把
+> cron 工具靠 gateway 运行时注入 allowlist（导致 IM 侧存储与运行时分裂）。
+
+Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为**白名单单一来源**：
+
+- `tool_allowlist` **非空** → Agent 工具集**恰为**列出的这些；列表外的默认工具**不**提供（默认文件/web 工具
+  **可被用户禁用**）。
+- `tool_allowlist` **为空** → 取产品默认工具集（未配置语义）。
+- 能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动**已落在该 Agent 的 `tool_allowlist`
+  里**，Gateway 不在运行时另行注入；Agent 工具集与 IM 侧存储的 `tool_allowlist` 一致（无分裂）。
+
+#### Scenario: 用户禁用某默认工具后该工具不再提供
+- **GIVEN** 某 Agent 的 `tool_allowlist` 被设为不含某默认工具（如不含 `read`）的非空显式集
+- **WHEN** Gateway 为该 Agent 构建会话
+- **THEN** 该 Agent 工具集不含被禁的默认工具（下发给模型的工具列表里没有它）
+
+#### Scenario: 未配置 allowlist 的 Agent 拿到产品默认工具集
+- **GIVEN** 某 Agent 的 `tool_allowlist` 为空
+- **WHEN** Gateway 为该 Agent 构建会话
+- **THEN** 该 Agent 工具集 = 产品默认工具集
+
+#### Scenario: 启用 cron 能力使 cron 工具进入该 Agent 工具集
+- **GIVEN** 某 Agent 启用了 cron 能力特性（其 `requires_tool="cron"` 已联动进 `tool_allowlist`）
+- **WHEN** Gateway 为该 Agent 构建会话
+- **THEN** 该 Agent 工具集包含 `cron` 工具；停用 cron 能力则 `cron` 工具随之移出
+
 ## MODIFIED Requirements
 
 ### Requirement: Heartbeat 与 Cron 是两套独立的本地主动机制,各由 per-agent 开关启停
