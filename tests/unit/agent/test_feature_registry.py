@@ -96,3 +96,72 @@ def test_skill_creation_defaults():
     assert entry["default_on"] is True
     assert entry["requires_tool"] == "skill_manage"
     assert "core.skills_guidance" in entry["sections"]
+
+
+# ---------------------------------------------------------------------------
+# feat-394 decision D: cron_scheduling and heartbeat as product-layer features
+# ---------------------------------------------------------------------------
+
+
+def test_feature_registry_has_cron_scheduling_entry():
+    """FEATURE_REGISTRY must contain the cron_scheduling feature (decision D)."""
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
+
+    assert "cron_scheduling" in FEATURE_REGISTRY, (
+        "cron_scheduling must be in FEATURE_REGISTRY — decision D requires "
+        "heartbeat/cron to use the same FEATURE_REGISTRY model as memory/skill"
+    )
+
+
+def test_feature_registry_has_heartbeat_entry():
+    """FEATURE_REGISTRY must contain the heartbeat feature (decision D)."""
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
+
+    assert "heartbeat" in FEATURE_REGISTRY, (
+        "heartbeat must be in FEATURE_REGISTRY — decision D requires "
+        "heartbeat/cron to use the same FEATURE_REGISTRY model as memory/skill"
+    )
+
+
+def test_cron_scheduling_entry_shape():
+    """cron_scheduling: requires_tool=cron, sections=(pa.cron,), default_on=False, layer=product."""
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
+
+    entry = FEATURE_REGISTRY["cron_scheduling"]
+    assert entry["requires_tool"] == "cron", (
+        "cron_scheduling.requires_tool must be 'cron' so feature→tool invariant works"
+    )
+    assert "pa.cron" in entry["sections"], "cron_scheduling.sections must contain 'pa.cron'"
+    assert entry["default_on"] is False, "cron_scheduling is opt-in (default_on=False)"
+    assert entry["layer"] == "product", "cron_scheduling is a product-layer feature (PA only)"
+
+
+def test_heartbeat_entry_shape():
+    """heartbeat: requires_tool=None, sections=(pa.heartbeat,), default_on=False, layer=product."""
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
+
+    entry = FEATURE_REGISTRY["heartbeat"]
+    assert entry["requires_tool"] is None, (
+        "heartbeat.requires_tool must be None — heartbeat uses file tools, no dedicated tool"
+    )
+    assert "pa.heartbeat" in entry["sections"], "heartbeat.sections must contain 'pa.heartbeat'"
+    assert entry["default_on"] is False, "heartbeat is opt-in (default_on=False)"
+    assert entry["layer"] == "product", "heartbeat is a product-layer feature (PA only)"
+
+
+def test_cron_scheduling_is_not_default_on_for_coding_cli_isolation():
+    """cron_scheduling must NOT be default_on so coding_cli doesn't advertise it.
+
+    Decision 7 / Decision D: cron/heartbeat are PA-only. default_on=False +
+    layer='product' means coding_cli's capabilities projection omits them.
+    """
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
+
+    assert FEATURE_REGISTRY["cron_scheduling"]["default_on"] is False
+
+
+def test_heartbeat_is_not_default_on_for_coding_cli_isolation():
+    """heartbeat must NOT be default_on so coding_cli doesn't advertise it."""
+    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
+
+    assert FEATURE_REGISTRY["heartbeat"]["default_on"] is False
