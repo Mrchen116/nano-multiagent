@@ -2061,3 +2061,192 @@ WorkTree:  /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
 
 > M9 属于配置 UX + 内部模型统一（feature model 归一，退役 cron_json），无新增跨包行为契约，delta-spec 为空。
 > 注：`docs/NodeGateway-SPEC.md`（Round 6 表中提及）已于 feat-392 退役至 `docs/archive/`，gateway 契约改看 `docs/specs/gateway/spec.md`。
+
+---
+
+# feat-394 — Round 9 Acceptance Review (M9 独立验收)
+
+**Date**: 2026-06-05
+**Reviewer**: change-reviewer (Sonnet 4.6, 独立验收者)
+**Branch**: unit/feat-394
+**Unit Worktree**: /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
+**Review Mode**: full
+**Review Focus**: M9 决策 D — heartbeat/cron 并入 FEATURE_REGISTRY 统一模型
+
+---
+
+## Summary
+
+| | |
+|---|---|
+| **Verdict** | `pass` |
+| **Blocking Issues** | 0 |
+| **Major Issues** | 0 |
+| **Minor Issues** | 0 |
+| **Needs Re-review** | false |
+
+M9 所有 6 项用户可观察项均独立走真实用户旅程验证通过，无遗漏。
+
+---
+
+## Services Setup
+
+- IM: port 57566（worktree 隔离实例，`e2e-up.sh` 启动）
+- Gateway: `.gateway-config.yaml`（worktree 副本，node_id=wt-unit-feat-394-12095）
+- Frontend: port 57712（Vite dev server，产物 hash `index-CiN-KgAT.js`）
+- 前端构建：`npm run build` 成功（tsc -b + vite build）
+- API 验收用 curl + Bearer token（nano/nano1234）
+
+---
+
+## 验收项逐一记录
+
+### Standard 1 — 默认工具可禁用
+
+**操作路径**：Settings → Agents → Arch → Tool Allowlist → 点击 `read` pill 取消选中 → Save Agent → reload 页面
+
+**截图证据**：
+- reload 后 pill 区：write/edit/bash/agent/task_stop/web_search/skill_manage/memory（绿色选中），`read` **不显示**，send_message 灰色
+- API 验证 `GET /im/v1/agents/Arch/config`：`tool_allowlist: ['write','edit','bash','agent','task_stop','web_fetch','web_search','skill_manage','memory']`（不含 read）
+
+**LLM tools 数组验证**：
+- 发送消息 "hello, reply with just the word OK" → LLM proxy 日志 `2026-06-05_20-11-52_598-req-anthropic_messages.json`
+- tools 数组（10 个）：write / edit / bash / agent / task_stop / web_fetch / cron / web_search / skill_manage / memory
+- **`read` 不在 tools 数组** ✅
+
+**结论**：PASS — 用户原始 bug（UI 显示没选却带 11 个工具）已修复
+
+---
+
+### Standard 2 — 工具 pill 有效态
+
+**操作路径**：Settings → Agents → Arch → Tool Allowlist 区域目视检查
+
+**快照证据**（reload 后）：
+```
+@e63 [button] "write"   [pressed]   # default_on=true → 绿色选中
+@e64 [button] "edit"    [pressed]
+@e65 [button] "bash"    [pressed]
+@e66 [button] "agent"   [pressed]
+@e67 [button] "task_stop" [pressed]
+@e71 [button] "web_search" [pressed]
+@e72 [button] "skill_manage" [pressed]
+@e73 [button] "memory"  [pressed]
+@e74 [button] "send_message"         # 无 [pressed] → 灰色未选
+@e75 [button] "cron"                 # 无 [pressed] → 灰色未选（feature 未启用）
+```
+
+**结论**：PASS — 默认工具（default_on=true）空白名单时显示选中（绿色），可选工具（cron/send_message）显示未选（灰色）；用户原始 bug "全灰" 已修复
+
+---
+
+### Standard 3 — Features 列表含 heartbeat/cron，勾选后展开配置面板
+
+**Feature 列表截图**（Settings → Agents → Arch → Behavior → Features）：
+- Memory Curation ✅（勾选）
+- Skill Creation ✅（勾选）
+- **Scheduled Tasks (Cron)**（未勾选）
+- **Scheduled Check-in (Heartbeat)**（未勾选）
+
+heartbeat/cron 与 memory/skill 并列，无独立开关，符合 FEATURE_REGISTRY 统一模型。
+
+**Heartbeat 展开面板**：勾选 @e17 → 展开 **Heartbeat** 配置区，包含：
+- Cadence 输入框（默认 30m）
+- Active hours (optional) 时间选择器
+
+**Cron 展开面板**：勾选 @e16 → 展开 **Cron Jobs** 配置区（"No scheduled tasks yet, add to get started."）
+
+**结论**：PASS — Features 列表含 heartbeat/cron，勾选后各自配置面板正确展开
+
+---
+
+### Standard 4 — 勾 cron 特性 → cron 工具即时进工具 pill 区
+
+**操作路径**：勾选 Scheduled Tasks (Cron) checkbox（@e16）→ 观察 Tool Allowlist pill 区变化
+
+**快照对比**：
+- 勾选前：`@e73 [button] "cron"` （无 [pressed]，灰色）
+- 勾选后：`@e76 [button] "cron" [pressed]`（绿色选中）
+
+API 验证（保存后）：
+```json
+{
+  "features": {"cron_scheduling": true, "heartbeat": true},
+  "tool_allowlist": ["write","edit","bash","agent","task_stop","web_fetch","web_search","skill_manage","memory","cron"]
+}
+```
+
+**结论**：PASS — cron feature 勾选后 cron 工具立即出现在 pill 区（requires_tool 联动正常）；取消则移出
+
+---
+
+### Standard 5 — Preview full system prompt 随 features 切换变化
+
+**操作路径**：勾选 heartbeat + cron → 点击 "Preview full system prompt" 按钮
+
+**heartbeat + cron 均勾选时**（JS 内容查询）：
+- `## Heartbeats` 段：**存在** ✅
+  - 内容："If the current user message is a heartbeat poll and nothing needs attention, reply exactly: HEARTBEAT_OK..."
+- `## Cron Jobs` 段：**存在** ✅
+  - 内容："You have access to a `cron` tool for managing scheduled tasks..."
+
+**heartbeat + cron 均取消勾选后**：
+- `heartbeat_found: false` ✅
+- `cron_found: false` ✅
+
+**结论**：PASS — 勾选/取消对应 `## Heartbeats` / `## Cron Jobs` 段在 Preview 中正确出现/消失；用户原始 bug "勾选 preview 不变" 已修复
+
+---
+
+### Standard 6 — enable 持久化经 features dict（非 cron_json）
+
+**操作路径**：勾选 heartbeat + cron → Save Agent → reload → 观察状态
+
+**reload 后快照**：
+```
+@e16 [checkbox] "Scheduled Tasks (Cron)..." [checked]
+@e17 [checkbox] "Scheduled Check-in (Heartbeat)..." [checked]
+@e76 [button] "cron" [pressed]
+```
+
+**API 验证**（`GET /im/v1/agents/Arch/config`）：
+```json
+{
+  "features": {"heartbeat": true, "cron_scheduling": true},
+  "cron_json": null,
+  "heartbeat_json": null,
+  "tool_allowlist": ["write","edit","bash","agent","task_stop","web_fetch","web_search","skill_manage","memory","cron"]
+}
+```
+
+**结论**：PASS — enable 状态经 `features` dict 持久化，`cron_json` / `heartbeat_json` 均为 null（已退役），reload 后仍正确还原
+
+---
+
+## 用户旅程汇总
+
+| Standard | 描述 | 结论 |
+|---|---|---|
+| S1 | 默认工具可禁用（LLM 请求不含被禁工具） | ✅ PASS |
+| S2 | 工具 pill 有效态（default_on 绿色，可选灰色） | ✅ PASS |
+| S3 | Features 列表含 heartbeat/cron + 勾选展开配置面板 | ✅ PASS |
+| S4 | 勾 cron 特性 → cron 工具即时进 pill 区 | ✅ PASS |
+| S5 | Preview 随 features 切换变化（heartbeat/cron 段出现/消失） | ✅ PASS |
+| S6 | enable 持久化经 features dict，cron_json 已退役 | ✅ PASS |
+
+---
+
+## 测试门禁（worker 已验收）
+
+| 检查项 | 结果 |
+|---|---|
+| `pytest -m "not e2e"` 全树 | 2535 passed, 2 macOS /tmp flaky（pre-existing，非 M9 引入） |
+| `tsc -b --noEmit` | pass |
+| `vitest run` | 361 passed |
+| `ruff check + ruff format --check` | pass |
+
+---
+
+## 上层文档同步 (Round 9)
+
+无新 delta — M9 属于配置 UX + 内部模型统一，无新增跨包行为契约。Round 8 文档状态已完整，本轮验收仅追加验收记录。
