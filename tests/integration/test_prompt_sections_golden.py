@@ -151,8 +151,9 @@ def test_pa_golden_direct_no_memory_no_skill():
     # when memory tool is active). Direct check for the old "## Memory" / "MEMORY.md"
     # header removed since that segment is gone.
 
-    # Heartbeat present (always-on in PA).
-    assert "## Heartbeat" in new_prompt
+    # feat-394 M9: heartbeat is now feature-gated (ctx.flags["heartbeat"]).
+    # With flags={} (default off), the Heartbeat section must NOT appear.
+    assert "## Heartbeat" not in new_prompt
 
     # Platform policy present.
     assert "Platform Policy" in new_prompt

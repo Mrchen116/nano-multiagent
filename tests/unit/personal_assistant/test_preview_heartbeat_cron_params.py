@@ -99,10 +99,27 @@ class TestPreviewRoutePassesParams:
         import asyncio
         from IM.api.routes.agents import PromptPreviewRequest, agent_prompt_preview
 
+        # feat-394 M9: effective_hb/cron now reads profile.features (not hb/cron_json).
+        # Derive the features dict from the json payloads so the fallback path works.
+        def _extract_enabled_from_json(s: "str | None") -> bool:
+            if not s:
+                return False
+            try:
+                obj = json.loads(s)
+                return bool(obj.get("enabled", False)) if isinstance(obj, dict) else False
+            except (ValueError, TypeError):
+                return False
+
+        profile_features = {
+            "heartbeat": _extract_enabled_from_json(profile_hb_json),
+            "cron_scheduling": _extract_enabled_from_json(profile_cron_json),
+        }
+
         mock_profile = MagicMock()
         mock_profile.node_id = "test-node"
         mock_profile.heartbeat_json = profile_hb_json
         mock_profile.cron_json = profile_cron_json
+        mock_profile.features = profile_features
 
         mock_service = MagicMock()
         mock_service.get_profile_for_owner.return_value = mock_profile
