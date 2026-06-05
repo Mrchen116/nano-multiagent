@@ -1796,13 +1796,9 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
         tool_ids: list,
         scenario: str,
         skill_ids: list = (),
-        heartbeat_enabled: "bool | None" = None,
-        cron_enabled: "bool | None" = None,
     ) -> dict:
-        # feat-394-M4 R2-2 fix: forward heartbeat_enabled/cron_enabled so that
-        # assemble_prompt_preview can inject them into PromptContext.vars.
-        # Without this the preview always showed heartbeat (default True) and
-        # never showed cron (default False), regardless of agent config.
+        # feat-394-M9: heartbeat/cron gates are now driven by ctx.flags via
+        # features dict; heartbeat_enabled/cron_enabled params retired.
         return kernel.assemble_prompt_preview(
             workspace_root=_Path(workspace_root) if workspace_root else None,
             features=features or {},
@@ -1810,8 +1806,6 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
             tool_ids=list(tool_ids) if tool_ids else [],
             scenario=scenario or "direct",
             skill_ids=list(skill_ids) if skill_ids else [],
-            heartbeat_enabled=heartbeat_enabled,
-            cron_enabled=cron_enabled,
         )
 
     return _provider  # type: ignore[return-value]

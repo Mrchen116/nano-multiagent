@@ -410,13 +410,8 @@ class AgentRuntime:
                 flags=flags,
                 vars={
                     "custom_prompt": str(hook_metadata.get("custom_prompt", "")),
-                    # feat-394-M3 CRITICAL-2 fix: heartbeat/cron enabled flags flow from
-                    # inbound_pipeline._build_session_metadata through hook_metadata into
-                    # PromptContext.vars so _heartbeat_enabled/_cron_enabled gates work.
-                    "heartbeat_enabled": str(
-                        hook_metadata.get("heartbeat_enabled", "")
-                    ),
-                    "cron_enabled": str(hook_metadata.get("cron_enabled", "")),
+                    # feat-394-M9: heartbeat/cron gates moved to ctx.flags via
+                    # FEATURE_REGISTRY (decision D).  vars injection retired.
                 },
             )
             pre_rendered_system_prompt = resolve_effective_prompt(

@@ -9,6 +9,7 @@ These tests are RED until M9 implementation lands.
 from __future__ import annotations
 
 from agent.core.agent.prompt_sections.base import PromptContext
+from agent.core.types import ToolSpec
 
 
 def _ctx_with_flags(**flags: bool) -> PromptContext:
@@ -17,8 +18,12 @@ def _ctx_with_flags(**flags: bool) -> PromptContext:
 
 
 def _ctx_with_flags_and_tools(flags: dict, tools: list[str]) -> PromptContext:
-    """Build a PromptContext with given flags and available tools."""
-    return PromptContext(vars={}, scenario={}, flags=flags, available_tools=tools)
+    """Build a PromptContext with given flags and available ToolSpec stubs."""
+    # has_tool() checks getattr(t, "name", None), so we must pass ToolSpec objects.
+    tool_specs = tuple(
+        ToolSpec(name=t, description="", input_schema={}) for t in tools
+    )
+    return PromptContext(vars={}, scenario={}, flags=flags, available_tools=tool_specs)
 
 
 # ---------------------------------------------------------------------------

@@ -74,17 +74,11 @@ _PA_RUNTIME = PromptSection(
 # Provenance: openclaw/src/agents/system-prompt.ts:124-138 buildHeartbeatSection(...)
 # Text is verbatim from the non-minimal, heartbeatPrompt-present branch of that function.
 # feat-394 decision 6: prompt segment copied verbatim so model behaviour matches openclaw.
-# enabled_when gate added in feat-394 decision 5: segment is injected only when the agent's
-# heartbeat feature is enabled (heartbeat_enabled=True in PromptContext.vars).
+# feat-394 decision D (M9): gate migrated from ctx.vars to ctx.flags.get("heartbeat", False)
+# to unify with FEATURE_REGISTRY model (same pattern as _memory_guidance_enabled).
+# heartbeat is opt-in (default_on=False), so absent flag = disabled.
 def _heartbeat_enabled(ctx: PromptContext) -> bool:
-    # feat-394-M3 CRITICAL-2 fix: vars values are strings injected from session metadata.
-    # bool("False") is True (non-empty string), so we must parse the string explicitly.
-    # Default True only when the key is absent entirely (backward compat for non-PA sessions);
-    # an explicit "False" must suppress the segment.
-    val = ctx.vars.get("heartbeat_enabled")
-    if val is None:
-        return True  # backward compat: no key → show segment
-    return str(val).lower() not in ("false", "0", "")
+    return ctx.flags.get("heartbeat", False)
 
 
 _PA_HEARTBEAT = PromptSection(
@@ -103,14 +97,12 @@ _PA_HEARTBEAT = PromptSection(
 # Provenance: feat-394-M2 decision 5/6 — cron tool guidance segment.
 # Based on openclaw cron-tool.ts description and the "two mechanisms" design:
 # cron = explicit named jobs, isolated sessions, no conversation context.
-# enabled_when gate: injected only when cron_enabled=True in PromptContext.vars.
+# feat-394 decision D (M9): gate migrated from ctx.vars to ctx.flags + ctx.has_tool,
+# matching _memory_guidance_enabled (requires both feature flag AND tool presence).
+# cron_scheduling is opt-in (default_on=False), and requires cron tool to be in the
+# session's active toolset (so the agent can actually use it).
 def _cron_enabled(ctx: PromptContext) -> bool:
-    # feat-394-M3 CRITICAL-2 fix: vars values are strings injected from session metadata.
-    # Default False when key absent (cron is opt-in, unlike heartbeat).
-    val = ctx.vars.get("cron_enabled")
-    if val is None:
-        return False  # default off: cron is opt-in
-    return str(val).lower() in ("true", "1")
+    return ctx.flags.get("cron_scheduling", False) and ctx.has_tool("cron")
 
 
 _PA_CRON = PromptSection(
@@ -134,10 +126,8 @@ _PA_CRON = PromptSection(
 
 # Provenance: feat-394-M2 decision 5 — routing segment when both heartbeat and cron are on.
 # Helps the agent decide which mechanism to use for time-based tasks.
+# feat-394 M9: delegates to _heartbeat_enabled/_cron_enabled (both now read ctx.flags).
 def _both_enabled(ctx: PromptContext) -> bool:
-    # feat-394-M3 hotfix: use the same string-safe parse as _heartbeat_enabled/_cron_enabled.
-    # bare bool() treats the string "False" as truthy (non-empty string), so we must
-    # delegate to the sibling gate functions rather than calling bool() directly.
     return _heartbeat_enabled(ctx) and _cron_enabled(ctx)
 
 
