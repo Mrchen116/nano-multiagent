@@ -367,12 +367,18 @@ class _IMConfigSyncClient:
                 else:
                     _cron_raw = payload.get("cron")
                 synced_cron_enabled = _parse_cron_enabled_from_im_payload(_cron_raw)
+                # feat-394-M9: merge heartbeat/cron enable state into features dict.
+                # heartbeat_enabled/cron_enabled are now @property on AgentWorkspaceConfig.
+                if synced_heartbeat_enabled:
+                    synced_features = dict(synced_features)
+                    synced_features["heartbeat"] = True
+                if synced_cron_enabled:
+                    synced_features = dict(synced_features)
+                    synced_features["cron_scheduling"] = True
                 # feat-394 fix: cron is a gated capability decoupled from the user tool
                 # whitelist — cron_enabled must NEVER be written into tool_allowlist.
-                # The cron tool is appended to the effective session toolset at
-                # session-build time (see resolve_effective_tool_allowlist), so the
-                # stored whitelist stays the user's explicit intent. (Supersedes the
-                # M3 WARNING-1 auto-inject, which broke disable-a-default semantics.)
+                # The cron tool is appended to the effective session toolset via the
+                # feature→requires_tool invariant (feat-394 M9 decision D).
                 _raw_allowlist = [
                     item.strip()
                     for item in payload.get("tool_allowlist", [])
@@ -408,12 +414,10 @@ class _IMConfigSyncClient:
                     ),
                     features=synced_features,
                     custom_prompt=synced_custom_prompt,
-                    heartbeat_enabled=synced_heartbeat_enabled,
                     heartbeat_every=synced_heartbeat_every,
                     heartbeat_active_hours_start=synced_hb_start,
                     heartbeat_active_hours_end=synced_hb_end,
                     heartbeat_active_hours_timezone=synced_hb_tz,
-                    cron_enabled=synced_cron_enabled,
                 )
                 self._pipeline.register_agent(agent_config)
                 self._persist_agent_config(agent_config)

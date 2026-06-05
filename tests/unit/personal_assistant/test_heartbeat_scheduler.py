@@ -59,12 +59,13 @@ class _FakeKernelClient:
 def _agent(tmp_path: Path, name: str = "agent-a") -> AgentWorkspaceConfig:
     workspace_root = tmp_path / name
     workspace_root.mkdir(parents=True, exist_ok=True)
-    # heartbeat_enabled=True: tests that exercise scheduling logic need the gate open.
+    # features={"heartbeat": True}: tests that exercise scheduling logic need the gate open.
+    # M9: heartbeat_enabled is @property from features["heartbeat"].
     return AgentWorkspaceConfig(
         agent_id=name,
         workspace_root=workspace_root,
         title=f"Title for {name}",
-        heartbeat_enabled=True,
+        features={"heartbeat": True},
     )
 
 
@@ -414,14 +415,19 @@ def test_heartbeat_scheduler_uses_provided_canonical_session(tmp_path: Path) -> 
 def _agent_with_heartbeat(
     tmp_path: Path, name: str = "agent-a", *, heartbeat_enabled: bool = True
 ) -> AgentWorkspaceConfig:
-    """Create an agent fixture with explicit heartbeat_enabled flag."""
+    """Create an agent fixture with explicit heartbeat enable state via features dict.
+
+    M9: heartbeat_enabled param maps to features["heartbeat"] (not a direct field).
+    """
     workspace_root = tmp_path / name
     workspace_root.mkdir(parents=True, exist_ok=True)
+    # M9: use features dict; heartbeat_enabled is @property from features["heartbeat"]
+    features = {"heartbeat": True} if heartbeat_enabled else {}
     return AgentWorkspaceConfig(
         agent_id=name,
         workspace_root=workspace_root,
         title=f"Title for {name}",
-        heartbeat_enabled=heartbeat_enabled,
+        features=features,
     )
 
 
@@ -511,7 +517,7 @@ def test_scheduler_skips_agent_outside_active_hours(tmp_path: Path) -> None:
     agent = AgentWorkspaceConfig(
         agent_id="agent-ah",
         workspace_root=tmp_path / "agent-ah",
-        heartbeat_enabled=True,
+        features={"heartbeat": True},
         heartbeat_active_hours_start="09:00",
         heartbeat_active_hours_end="22:00",
         # No timezone → UTC
@@ -538,7 +544,7 @@ def test_scheduler_runs_agent_inside_active_hours(tmp_path: Path) -> None:
     agent = AgentWorkspaceConfig(
         agent_id="agent-ah",
         workspace_root=tmp_path / "agent-ah",
-        heartbeat_enabled=True,
+        features={"heartbeat": True},
         heartbeat_active_hours_start="09:00",
         heartbeat_active_hours_end="22:00",
     )
@@ -619,11 +625,11 @@ def test_scheduler_uses_live_agents_getter_on_each_tick(tmp_path: Path) -> None:
     summary1 = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
     assert len(summary1.triggered_runs) == 1, "agent should fire when enabled"
 
-    # Simulate config toggle: heartbeat_enabled=False
+    # Simulate config toggle: heartbeat_enabled=False (M9: use features={} not heartbeat_enabled field)
     disabled_agent = AgentWorkspaceConfig(
         agent_id=agent.agent_id,
         workspace_root=agent.workspace_root,
-        heartbeat_enabled=False,
+        features={},
     )
     live_agents[agent.agent_id] = disabled_agent
 

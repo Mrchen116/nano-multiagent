@@ -320,7 +320,7 @@ class TestHeartbeatOrigin:
             agent_id="alpha",
             workspace_root=tmp_path,
             title="Alpha",
-            heartbeat_enabled=True,
+            features={"heartbeat": True},
         )
         state_store = HeartbeatSchedulerStateStore(
             state_path=tmp_path / "hb_state.json"

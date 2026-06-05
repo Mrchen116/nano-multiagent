@@ -162,11 +162,19 @@ class TestInboundPipelineVarsInjection:
     ) -> "object":
         from personal_assistant.config.local_store import AgentWorkspaceConfig
 
+        # feat-394 M9: heartbeat_enabled/cron_enabled are now @property derived from
+        # features dict; constructor params removed — build features dict instead.
+        features: dict = {}
+        if heartbeat_enabled:
+            features["heartbeat"] = True
+        if cron_enabled:
+            features["cron_scheduling"] = True
+        ws = tmp_path / "ws"
+        ws.mkdir(exist_ok=True)
         return AgentWorkspaceConfig(
             agent_id="test-agent",
-            workspace_root=tmp_path / "ws",
-            heartbeat_enabled=heartbeat_enabled,
-            cron_enabled=cron_enabled,
+            workspace_root=ws,
+            features=features,
         )
 
     def test_session_metadata_contains_agent_features(self, tmp_path: Path) -> None:

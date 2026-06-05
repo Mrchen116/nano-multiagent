@@ -114,7 +114,7 @@ def test_heartbeat_scheduler_uses_find_direct_by_agent_before_submit(
         "interval: 1s\n\n- Check status\n", encoding="utf-8"
     )
     agent = AgentWorkspaceConfig(
-        agent_id="agent-tick", workspace_root=agent_dir, heartbeat_enabled=True
+        agent_id="agent-tick", workspace_root=agent_dir, features={"heartbeat": True}
     )
 
     EXPECTED_SESSION = "sess-from-direct-chat"
