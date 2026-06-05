@@ -1938,5 +1938,126 @@ WorkTree:  /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
 > - `docs/changes/feat-394-heartbeat-cron-redesign/specs/gateway/spec.md` — MODIFIED（heartbeat Requirement 重写）
 > - `docs/changes/feat-394-heartbeat-cron-redesign/specs/kernel/spec.md` — ADDED（append_message 带外可见）
 > - im / cli：no spec delta。
->
+
+---
+
+# Round 8 — 2026-06-05（M9 unify-feature-model 验收）
+
+**Date**: 2026-06-05
+**Reviewer**: change-reviewer（M9 专项，覆盖 Features 列表 + 工具默认态 + cron_json 退役）
+**Branch**: unit/feat-394（HEAD = `273a8303`）
+**Services**: IM ephemeral 端口；Gateway `--foreground --auto-bind`；前端 Vite dev server
+
+---
+
+## Summary (Round 8)
+
+| | |
+|---|---|
+| **Verdict** | `pass` |
+| **Highest Required Action** | `none`（可合并） |
+| **Issues** | blocking: 0 / major: 0 / minor: 0 |
+| **Needs Re-review** | false |
+
+**结论**：M9 unify-feature-model 全部 `[reviewer]` 标准已覆盖。heartbeat/cron 两个特性成功移入 Features 复选列表，勾选后展开对应配置面板；cron 工具与 Features 联动；默认工具可禁；Preview 即变；cron_json 完全退役。
+
+---
+
+## M9 验收标准覆盖
+
+### `[reviewer]` Features 列表含 heartbeat/cron 复选，勾选后展开配置面板
+
+**验证方式**：前端 Vite dev server + 真实 IM + Gateway live 环境；用代码静态分析补充。
+
+| 场景 | 结果 |
+|---|---|
+| 打开 Agent 配置页 → Features 区域显示 Heartbeat 和 Cron Scheduling 两个复选项（初始未勾）| ✅ pass |
+| 勾选 Heartbeat → 下方展开 HeartbeatCard（含 Cadence 输入框，默认 "30m"）| ✅ pass |
+| 取消勾选 Heartbeat → HeartbeatCard 隐藏 | ✅ pass |
+| 勾选 Cron Scheduling → 下方展开 CronCard（含已有调度任务列表）| ✅ pass |
+| HeartbeatCard / CronCard 内**不再**显示独立 Enable 开关（`hideEnableToggle=true`）| ✅ pass |
+
+**代码证据**：
+- `agent-detail-page.tsx`：渲染 `HeartbeatCard` 仅当 `hbInFeatures && draft.features?.heartbeat`；`CronCard` 同理
+- `heartbeat-card.tsx` / `cron-card.tsx`：接受 `hideEnableToggle` prop，勾路由下隐藏独立开关
+- `agent-m9c-features-panel.test.tsx`：10 个 vitest 测试覆盖面板条件渲染（全 pass）
+
+---
+
+### `[reviewer]` 勾 cron 特性 → cron 工具即时现身工具 pill 区
+
+| 场景 | 结果 |
+|---|---|
+| 勾 Cron Scheduling → 工具 pill 区中 cron pill 变绿（active）| ✅ pass |
+| 取消勾 Cron Scheduling → cron pill 恢复灰色 | ✅ pass |
+| 保存配置 → 重进页面 cron pill 状态与 features 勾选一致 | ✅ pass |
+
+**代码证据**：`agent-detail-page.tsx` onChange 内：`removed` 工具触发对应 feature 关闭；feature 勾选触发 `requires_tool` 工具加入 allowlist。`FEATURE_REGISTRY` 中 `cron_scheduling.requires_tool = "cron"`，`heartbeat.requires_tool = None`。
+
+---
+
+### `[reviewer]` 取消任一默认工具 → 保存后不下发、重进仍显未选
+
+| 场景 | 结果 |
+|---|---|
+| 初始进入配置页 → 默认工具（read/write/edit/bash）显示为绿色（`default_on=true`）| ✅ pass |
+| 取消勾选 "read" → pill 变灰 | ✅ pass |
+| 保存 → IM DB 中 tool_allowlist 包含其余默认工具，不含 "read" | ✅ pass |
+| 重进页面 → "read" 仍显灰 | ✅ pass |
+
+**关键修复**：`AllowlistOptionResponse` 补 `default_on: bool = False` 字段（`agents.py`）；`PillSelector` 新增 `useDefaultOn` prop；`AgentDetailPage` 新增 `allowlistUserTouched` 状态，防"取消唯一默认工具→空列表→又回显默认"的循环 bug。
+
+---
+
+### `[reviewer]` Preview full system prompt 勾选 heartbeat/cron 即变
+
+| 场景 | 结果 |
+|---|---|
+| 初始（heartbeat/cron 均未勾）→ Preview 无 `## Heartbeats` 和 `## Scheduled Tasks` 段 | ✅ pass |
+| 勾 Heartbeat → Preview 出现 `## Heartbeats` 段 | ✅ pass |
+| 取消勾 Heartbeat → `## Heartbeats` 消失 | ✅ pass |
+| 勾 Cron Scheduling → Preview 出现 `## Scheduled Tasks` 段 | ✅ pass |
+
+**代码证据**：`promptPreview` endpoint 接收 `features` dict；`_PA_HEARTBEAT`/`_PA_CRON`/`_PA_CRON_ROUTING` 段经 `ctx.flags` (`heartbeat`/`cron_scheduling`) 门控。前端 vitest `agent-m9c-features-panel.test.tsx` Part D 覆盖此路径。
+
+---
+
+### `[reviewer]` 关 cron 特性 → cron 工具与 cron 段同时消失、调度停
+
+| 场景 | 结果 |
+|---|---|
+| 已开 cron 的 agent → 取消 Cron Scheduling 勾 → cron pill 灰 + preview cron 段消失 | ✅ pass |
+| 保存后 Gateway 调度器收到 `cron_enabled=false` → cron job 不再触发 | ✅ pass（代码路径：`features["cron_scheduling"]` → `agent.cron_enabled` @property → inbound_pipeline 门控） |
+
+---
+
+## `[worker]` 标准验证（单测覆盖）
+
+| 标准 | 验证方式 | 结果 |
+|---|---|---|
+| FEATURE_REGISTRY 含 `cron_scheduling`（requires_tool=cron）/ `heartbeat`（requires_tool=None）、prompt 段经 `ctx.flags` 门控 | `tests/unit/agent/test_feature_registry.py` + `tests/unit/personal_assistant/test_preview_heartbeat_cron_params.py` | ✅ 46 passed |
+| `resolve_effective_tool_allowlist` 纯白名单（非空精确含禁默认、空=默认集、无 cron-append） | `tests/unit/personal_assistant/test_cron_file_tools.py` | ✅ pass |
+| cron/heartbeat enable 经 features dict 持久化 + `cron_json` 退役 | `tests/unit/personal_assistant/test_m9b_cron_json_retire.py` | ✅ pass |
+| `capabilities.tools` 带 `default_on` + IM 透传 | `tests/im_service/contract/test_agent_config_contract.py` | ✅ pass |
+| promptPreview 携 features 使 cron/heartbeat 段反映 | `agent-m9c-features-panel.test.tsx` Part D | ✅ 10/10 vitest pass |
+| `pytest -m "not e2e"` 全树 | 全树（含 im_service / contract） | ✅ 2546 passed, 2 skipped（macOS /tmp symlink 预存在 flaky，非 M9 引入） |
+| ruff check + ruff format --check | — | ✅ no issues |
+| tsc -b | — | ✅ 无类型错误 |
+| vitest | 371 passed (371) | ✅ pass |
+
+---
+
+## 上层文档同步 (Round 8)
+
+| 文档 | 状态 |
+|---|---|
+| `acceptance.md` | 本轮更新（补 Round 8 M9 验收） |
+| `design.md` Changelog | 已含 M9 条目（R1-R7 记录在 progress.md；Changelog 中有 M9 milestone 描述） ✓ |
+| `docs/specs/gateway/spec.md` | 无新 delta — features 模型统一是内部实现，对外 Gateway 行为契约不变 |
+| `docs/specs/im/spec.md` | 无 delta — `default_on` 字段落在既有「字段随产品演进可增」契约下 |
+| `docs/specs/kernel/spec.md` | 无 delta — M9 不改内核对外行为 |
+| `docs/specs/cli/spec.md` | 无 delta — M9 不触及 coding_cli |
+| `SPEC.md` / `AGENTS.md` / `CLAUDE.md` | 无需更新 |
+
+> M9 属于配置 UX + 内部模型统一（feature model 归一，退役 cron_json），无新增跨包行为契约，delta-spec 为空。
 > 注：`docs/NodeGateway-SPEC.md`（Round 6 表中提及）已于 feat-392 退役至 `docs/archive/`，gateway 契约改看 `docs/specs/gateway/spec.md`。
