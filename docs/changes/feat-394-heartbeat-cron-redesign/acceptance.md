@@ -1928,7 +1928,8 @@ WorkTree:  /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
 | `acceptance.md` | 本轮更新（补 Round 7 收口，关闭 Round 6 滞后） |
 | `design.md` Changelog | 已含 M8/M10 条目 ✓ |
 | `retro.md` | 已含 M10 追记（"race/需更底层支持"是高度可疑结论） ✓ |
-| `docs/specs/gateway/spec.md` | 本轮更新 ✓ — 重写 heartbeat Requirement 为 heartbeat/cron 两套独立机制 + per-agent 开关 + **不补跑**（修正原契约"重启补跑错过任务"与 feat-394 no-catchup 决策的矛盾）+ awareness 追问 Scenario；同步 Purpose 段 |
+| `docs/specs/gateway/spec.md` | 本轮更新 ✓ — 重写 heartbeat Requirement 为 heartbeat/cron 两套独立机制 + per-agent 开关 + **不补跑**（修正原契约"重启补跑错过任务"与 feat-394 no-catchup 决策的矛盾）+ awareness 追问 Scenario；同步 Purpose 段。**cursor[bot] 二次审查后补**：`> 对齐: feat-392→feat-394`（SPEC_GUIDE 收尾必 bump）；补正向 Scenario（heartbeat 有内容带上下文冒泡 / activeHours 窗外不唤醒 / cron 多条各自触发）；awareness Scenario 改用户视角（`System(untrusted)` 实现细节归 design） |
+| `docs/specs/im/spec.md` | 无需更新 — heartbeat/cron 字段落在既有「Agent 配置中心…字段随产品演进可增」契约下，非行为变更，故 `对齐` 不 bump |
 | `SPEC.md` / `AGENTS.md` / `CLAUDE.md` | 无需更新 |
 
 > 注：`docs/NodeGateway-SPEC.md`（Round 6 表中提及）已于 feat-392 退役至 `docs/archive/`，gateway 契约改看 `docs/specs/gateway/spec.md`。

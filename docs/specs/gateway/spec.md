@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-392
+> 对齐: feat-394
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -194,10 +194,25 @@ Gateway 提供两套**相互独立**的本地主动行为机制,均完全在本�
 - **WHEN** 调度器周期 tick
 - **THEN** 不为该 Agent 创建任何 heartbeat / cron 运行
 
+#### Scenario: Heartbeat 有内容时带上下文主动冒泡
+- **GIVEN** 某 Agent 的 heartbeat 已启用,且当前 tick 有可冒泡内容
+- **WHEN** 调度器到点触发该 Agent 的 heartbeat
+- **THEN** 在该 Agent 与 owner 的 canonical 直聊里像普通 Agent 消息一样发出,且能引用此前的对话上下文
+
 #### Scenario: Heartbeat 无可行动任务时安静跳过
 - **GIVEN** 某 Agent 的 `HEARTBEAT.md` 当前 tick 无可冒泡内容
 - **WHEN** 调度器到点触发该 Agent 的 heartbeat
 - **THEN** 不发任何用户可见消息(回 `HEARTBEAT_OK` 静默)
+
+#### Scenario: 活跃时段外不唤醒
+- **GIVEN** 某 Agent 的 heartbeat 配了 activeHours,当前时刻落在窗口外
+- **WHEN** 调度器周期 tick
+- **THEN** 不触发该 Agent 的 heartbeat,不打扰用户
+
+#### Scenario: 同一 Agent 多条 cron 任务各自按时触发
+- **GIVEN** 某 Agent 挂了多条不同节律的 cron 任务
+- **WHEN** 各任务到点
+- **THEN** 每条任务独立触发并把各自结果发回 canonical 直聊,互不干扰
 
 #### Scenario: 周期任务错过多个周期不刷屏回填
 - **GIVEN** 一个固定间隔的 heartbeat/cron 在 Gateway 停机或空闲期间错过了多个周期
@@ -212,7 +227,7 @@ Gateway 提供两套**相互独立**的本地主动行为机制,均完全在本�
 #### Scenario: Cron 汇报后用户追问,Agent 记得汇报内容
 - **GIVEN** 某 Agent 的 cron 任务已执行并把结果发回 canonical 直聊
 - **WHEN** 用户在该直聊就此结果追问
-- **THEN** Agent 的回复能引用该 cron 结果(结果以 `System(untrusted)` 注入 canonical 会话且对后续轮可见)
+- **THEN** Agent 的回复能引用刚发出的 cron 汇报内容(该结果对后续对话轮次可见)
 
 ### Requirement: 内核中的产品工具可把 Agent 产出的消息投递到目标会话
 
