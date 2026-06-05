@@ -1,97 +1,85 @@
-"""Tests for feat-394-M7 R3: file tools must not be excluded when cron is in tool_allowlist.
+"""Tests for tool_allowlist as a TRUE whitelist + cron-as-gated-capability.
 
-When cron_enabled=True, the IM tool_allowlist contains ["cron"]. The inbound pipeline
-must NOT pass only ["cron"] to create_session — it must merge DEFAULT_TOOL_IDS + allowlist
-so read/write/edit/bash etc. remain available alongside the cron tool.
+feat-394 fix (supersedes M7 R5-2): ``tool_allowlist`` is the user's explicit tool
+whitelist — NOT an additive extras list. A user may select a subset of the product
+defaults, i.e. default file/web tools CAN be disabled. ``cron`` is a gated capability
+controlled by ``cron_enabled`` and appended on top; it is never part of the stored
+whitelist.
 
-R5-2 root cause: agent.tool_allowlist=("cron",) → create_session(tool_allowlist=["cron"])
-→ runtime picks only tools in {"cron"} set → agent has no file tools.
+These tests exercise the real ``resolve_effective_tool_allowlist`` function (single
+source of truth used by the inbound pipeline), not an inline copy of the logic.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from personal_assistant.gateway.inbound_pipeline import (
+    resolve_effective_tool_allowlist,
+)
+
+# A representative product default set (order-independent for assertions).
+_DEFAULTS = ["read", "write", "edit", "bash", "agent", "task_stop", "web_fetch"]
 
 
-def _pa_default_tool_ids() -> list[str]:
-    from agent.products.personal_assistant.toolsets import DEFAULT_TOOL_IDS
+def test_explicit_whitelist_excludes_default_tools() -> None:
+    """A non-empty whitelist resolves to EXACTLY those tools — defaults are disablable.
 
-    return list(DEFAULT_TOOL_IDS)
-
-
-def test_file_tools_present_when_cron_in_allowlist() -> None:
-    """When agent.tool_allowlist=('cron',), session allowlist must include DEFAULT_TOOL_IDS.
-
-    The inbound pipeline must merge DEFAULT_TOOL_IDS + ['cron'] so the agent has
-    both file tools AND the cron tool. Passing only ['cron'] silently removes file tools.
+    This is the core regression: selecting ['read', 'bash'] must NOT silently re-add
+    the other default file/web tools (the R5-2 force-merge bug).
     """
-    # Simulate the inbound_pipeline logic (feat-394-M7 R5-2 fix)
-    tool_allowlist_from_im = ("cron",)
-
-    from agent.products.personal_assistant.toolsets import (
-        DEFAULT_TOOL_IDS as _PA_DEFAULT,
+    resolved = resolve_effective_tool_allowlist(
+        ["read", "bash"], cron_enabled=False, default_tool_ids=_DEFAULTS
     )
-
-    if tool_allowlist_from_im:
-        _base = list(_PA_DEFAULT)
-        _extras = [t for t in tool_allowlist_from_im if t not in _base]
-        resolved_allowlist: list[str] | None = _base + _extras
-    else:
-        resolved_allowlist = None
-
-    assert resolved_allowlist is not None
-    assert "cron" in resolved_allowlist, "cron must be in resolved allowlist"
-    assert "read" in resolved_allowlist, (
-        "read (file tool) must be in resolved allowlist"
-    )
-    assert "write" in resolved_allowlist, (
-        "write (file tool) must be in resolved allowlist"
-    )
-    assert "edit" in resolved_allowlist, (
-        "edit (file tool) must be in resolved allowlist"
-    )
-    assert "bash" in resolved_allowlist, (
-        "bash (file tool) must be in resolved allowlist"
+    assert resolved is not None
+    assert set(resolved) == {"read", "bash"}, (
+        "non-empty whitelist must be exact; default tools must be excludable"
     )
 
 
-def test_empty_allowlist_passes_none_to_session() -> None:
-    """When agent.tool_allowlist is empty, None must be passed (runtime uses DEFAULT_TOOL_IDS gate)."""
-    tool_allowlist_from_im: tuple[str, ...] = ()
-
-    from agent.products.personal_assistant.toolsets import (
-        DEFAULT_TOOL_IDS as _PA_DEFAULT,
+def test_empty_whitelist_resolves_to_product_defaults() -> None:
+    """Empty whitelist (unconfigured agent) → product default tool set, no cron."""
+    resolved = resolve_effective_tool_allowlist(
+        [], cron_enabled=False, default_tool_ids=_DEFAULTS
     )
+    assert resolved is not None
+    assert set(resolved) == set(_DEFAULTS)
+    assert "cron" not in resolved
 
-    if tool_allowlist_from_im:
-        _base = list(_PA_DEFAULT)
-        _extras = [t for t in tool_allowlist_from_im if t not in _base]
-        resolved_allowlist: list[str] | None = _base + _extras
-    else:
-        resolved_allowlist = None
 
-    assert resolved_allowlist is None, (
-        "Empty allowlist must pass None so runtime uses DEFAULT_TOOL_IDS gate"
+def test_empty_whitelist_with_cron_enabled_appends_cron() -> None:
+    """Empty whitelist + cron on → defaults + cron (cron appended as a capability)."""
+    resolved = resolve_effective_tool_allowlist(
+        [], cron_enabled=True, default_tool_ids=_DEFAULTS
     )
+    assert resolved is not None
+    assert set(resolved) == set(_DEFAULTS) | {"cron"}
 
 
-def test_cron_only_not_duplicated() -> None:
-    """When cron is already in DEFAULT_TOOL_IDS (if ever), it must not be duplicated."""
-    tool_allowlist_from_im = ("cron", "send_message")
+def test_cron_appends_on_top_without_pulling_back_defaults() -> None:
+    """Whitelist ['read'] + cron on → {read, cron} only.
 
-    from agent.products.personal_assistant.toolsets import (
-        DEFAULT_TOOL_IDS as _PA_DEFAULT,
+    cron is appended on top of the explicit whitelist; it must NOT trigger re-adding
+    the other defaults (that conflation was the R5-2 root cause).
+    """
+    resolved = resolve_effective_tool_allowlist(
+        ["read"], cron_enabled=True, default_tool_ids=_DEFAULTS
     )
+    assert resolved is not None
+    assert set(resolved) == {"read", "cron"}
 
-    _base = list(_PA_DEFAULT)
-    _extras = [t for t in tool_allowlist_from_im if t not in _base]
-    resolved_allowlist = _base + _extras
 
-    # Count occurrences
-    cron_count = resolved_allowlist.count("cron")
-    assert cron_count == 1, f"cron must appear exactly once, got {cron_count}"
-
-    send_message_count = resolved_allowlist.count("send_message")
-    assert send_message_count == 1, (
-        f"send_message must appear exactly once, got {send_message_count}"
+def test_cron_not_duplicated_when_already_listed() -> None:
+    """If 'cron' is somehow already in the whitelist, cron_enabled must not duplicate it."""
+    resolved = resolve_effective_tool_allowlist(
+        ["read", "cron"], cron_enabled=True, default_tool_ids=_DEFAULTS
     )
+    assert resolved is not None
+    assert resolved.count("cron") == 1
+
+
+def test_cron_capability_never_persisted_into_whitelist_semantics() -> None:
+    """cron off → cron absent even if defaults are used (capability strictly gated)."""
+    resolved = resolve_effective_tool_allowlist(
+        ["read", "write"], cron_enabled=False, default_tool_ids=_DEFAULTS
+    )
+    assert resolved is not None
+    assert "cron" not in resolved

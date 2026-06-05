@@ -204,16 +204,23 @@ def test_agentworkspaceconfig_has_cron_enabled_field() -> None:
 
 
 # ---------------------------------------------------------------------------
-# feat-394-M3 WARNING-1: cron_enabled=True → cron 工具自动进 tool_allowlist
+# feat-394 fix (supersedes M3 WARNING-1): cron is a gated capability decoupled
+# from the user tool whitelist. cron_enabled must NEVER be written into
+# tool_allowlist — it flows only via AgentWorkspaceConfig.cron_enabled and is
+# appended to the effective session toolset at session-build time (see
+# resolve_effective_tool_allowlist). Conflating the two turned an "unconfigured"
+# allowlist into a configured ["cron"], which forced the R5-2 default-merge and
+# made default tools impossible to disable.
 # ---------------------------------------------------------------------------
 
 
-def test_sync_agent_cron_enabled_adds_cron_tool_to_allowlist(tmp_path: Path) -> None:
-    """When cron_enabled=True, sync_agent must ensure 'cron' is in tool_allowlist.
+def test_sync_agent_cron_enabled_does_not_pollute_tool_allowlist(
+    tmp_path: Path,
+) -> None:
+    """cron_enabled=True must leave tool_allowlist untouched (no implicit 'cron').
 
-    feat-394 decision 5 WARNING-1 fix: opening cron switch in IM config should
-    automatically gate the cron tool into the agent, without the user manually
-    adding it to the allowlist.
+    The user's saved whitelist is their explicit intent; cron is gated separately by
+    cron_enabled. Injecting 'cron' here is what broke the whitelist semantics.
     """
     workspace_root = tmp_path / "ws-crongate"
     workspace_root.mkdir()
@@ -227,7 +234,7 @@ def test_sync_agent_cron_enabled_adds_cron_tool_to_allowlist(tmp_path: Path) -> 
                 "profile_version": 1,
                 "workspace_root": str(workspace_root),
                 "cron": {"enabled": True},
-                "tool_allowlist": ["read", "write"],  # 'cron' not explicitly listed
+                "tool_allowlist": ["read", "write"],
             },
         )
 
@@ -250,14 +257,21 @@ def test_sync_agent_cron_enabled_adds_cron_tool_to_allowlist(tmp_path: Path) -> 
 
     registered = next(a for a in pipeline.registered if a.agent_id == "gate-agent")
     assert registered.cron_enabled is True
-    assert "cron" in registered.tool_allowlist, (
-        "When cron_enabled=True, 'cron' must be automatically added to tool_allowlist "
-        "(feat-394 decision 5 / WARNING-1)"
+    assert tuple(registered.tool_allowlist) == ("read", "write"), (
+        "cron_enabled must NOT mutate the stored tool_allowlist — cron is a gated "
+        "capability appended at session-build, not a whitelist entry"
     )
 
 
-def test_sync_agent_cron_disabled_does_not_add_cron_tool(tmp_path: Path) -> None:
-    """When cron_enabled=False, 'cron' must NOT be automatically added to tool_allowlist."""
+def test_sync_agent_empty_allowlist_stays_empty_when_cron_enabled(
+    tmp_path: Path,
+) -> None:
+    """Empty whitelist + cron on → tool_allowlist stays empty (cron not injected).
+
+    This is the exact reported state: user enabled the CronCard switch without
+    selecting any tool; the stored whitelist must remain empty so the UI faithfully
+    reflects 'using defaults', not a phantom ['cron'] selection.
+    """
     workspace_root = tmp_path / "ws-cronnogate"
     workspace_root.mkdir()
 
@@ -269,8 +283,8 @@ def test_sync_agent_cron_disabled_does_not_add_cron_tool(tmp_path: Path) -> None
                 "display_name": "No Gate Agent",
                 "profile_version": 1,
                 "workspace_root": str(workspace_root),
-                "cron": {"enabled": False},
-                "tool_allowlist": ["read", "write"],
+                "cron": {"enabled": True},
+                "tool_allowlist": [],
             },
         )
 
@@ -292,7 +306,7 @@ def test_sync_agent_cron_disabled_does_not_add_cron_tool(tmp_path: Path) -> None
     sync.sync_agent(agent_id="nogate-agent", profile_version=1)
 
     registered = next(a for a in pipeline.registered if a.agent_id == "nogate-agent")
-    assert registered.cron_enabled is False
-    assert "cron" not in registered.tool_allowlist, (
-        "'cron' must NOT be added to tool_allowlist when cron_enabled=False"
+    assert registered.cron_enabled is True
+    assert tuple(registered.tool_allowlist) == (), (
+        "empty whitelist must stay empty; cron_enabled must not inject 'cron'"
     )
