@@ -105,25 +105,32 @@ def test_gateway_runtime_keeps_running_until_shutdown_requested(tmp_path: Path) 
 
     thread.start()
 
-    assert runtime.wait_until_ready(timeout=1.0) is True
-    assert thread.is_alive() is True
-    deadline = time.time() + 1.0
-    while "im.bootstrap" not in events and time.time() < deadline:
-        time.sleep(0.01)
-    # feat-393 fix-r1: heartbeat must start AFTER im.connect so the kernel_event_observer
-    # sees manager.connected=True on the very first heartbeat tick.  Starting before
-    # connect_once means any heartbeat run that completes before the WS is established
-    # finds connected=False and silently skips IM delivery (verified by debug log).
-    assert events[:5] == [
-        "kernel.start",
-        "channel.start:web_relay",
-        "im.connect",
-        "im.bootstrap",
-        "heartbeat.start",
-    ]
-
-    runtime.request_shutdown()
-    thread.join(timeout=1.0)
+    try:
+        assert runtime.wait_until_ready(timeout=1.0) is True
+        assert thread.is_alive() is True
+        # heartbeat.start is appended AFTER im.bootstrap (run_forever starts the heartbeat
+        # runner only after im.connect_once, feat-393 fix-r1). Wait for the LAST expected
+        # event — not im.bootstrap — otherwise the assertion races the runner.start() append
+        # and fails intermittently under slow CI (which then skips request_shutdown and
+        # leaks the non-daemon asyncio.to_thread worker → process hangs to the 6h job cap).
+        deadline = time.time() + 1.0
+        while "heartbeat.start" not in events and time.time() < deadline:
+            time.sleep(0.01)
+        # feat-393 fix-r1: heartbeat must start AFTER im.connect so the kernel_event_observer
+        # sees manager.connected=True on the very first heartbeat tick.
+        assert events[:5] == [
+            "kernel.start",
+            "channel.start:web_relay",
+            "im.connect",
+            "im.bootstrap",
+            "heartbeat.start",
+        ]
+    finally:
+        # Always request shutdown so run_forever returns and its asyncio.to_thread
+        # wait()-worker (non-daemon) is released; otherwise a failed assertion above
+        # would orphan that thread and hang the interpreter on exit.
+        runtime.request_shutdown()
+        thread.join(timeout=1.0)
 
     assert outcome == {"exit_code": 0}
     assert events == [
