@@ -1929,7 +1929,14 @@ WorkTree:  /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
 | `design.md` Changelog | 已含 M8/M10 条目 ✓ |
 | `retro.md` | 已含 M10 追记（"race/需更底层支持"是高度可疑结论） ✓ |
 | `docs/specs/gateway/spec.md` | 本轮更新 ✓ — 重写 heartbeat Requirement 为 heartbeat/cron 两套独立机制 + per-agent 开关 + **不补跑**（修正原契约"重启补跑错过任务"与 feat-394 no-catchup 决策的矛盾）+ awareness 追问 Scenario；同步 Purpose 段。**cursor[bot] 二次审查后补**：`> 对齐: feat-392→feat-394`（SPEC_GUIDE 收尾必 bump）；补正向 Scenario（heartbeat 有内容带上下文冒泡 / activeHours 窗外不唤醒 / cron 多条各自触发）；awareness Scenario 改用户视角（`System(untrusted)` 实现细节归 design） |
+| `docs/specs/kernel/spec.md` | 本轮更新 ✓ — 新增 Requirement「经 append_message 带外写入的消息对后续轮次可见」（M10 修复的对外契约 + `invalidate_session_cache`）；`> 对齐: feat-392→feat-394` |
 | `docs/specs/im/spec.md` | 无需更新 — heartbeat/cron 字段落在既有「Agent 配置中心…字段随产品演进可增」契约下，非行为变更，故 `对齐` 不 bump |
+| `docs/specs/cli/spec.md` | 无需更新 — feat-394 不触及 coding_cli（no spec delta） |
 | `SPEC.md` / `AGENTS.md` / `CLAUDE.md` | 无需更新 |
 
+> **§7.0 收尾归并 delta-spec**（cursor[bot] 二次审查指出原缺失，已补——这是主仓 change-orchestrator skill 的现行要求）：
+> - `docs/changes/feat-394-heartbeat-cron-redesign/specs/gateway/spec.md` — MODIFIED（heartbeat Requirement 重写）
+> - `docs/changes/feat-394-heartbeat-cron-redesign/specs/kernel/spec.md` — ADDED（append_message 带外可见）
+> - im / cli：no spec delta。
+>
 > 注：`docs/NodeGateway-SPEC.md`（Round 6 表中提及）已于 feat-392 退役至 `docs/archive/`，gateway 契约改看 `docs/specs/gateway/spec.md`。
