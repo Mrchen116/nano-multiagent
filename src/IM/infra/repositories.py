@@ -1598,7 +1598,7 @@ class AgentProfileRepository:
             """
             SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
-                   is_stale, features_json, custom_prompt, heartbeat_json, cron_json
+                   is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
             ORDER BY created_at, rowid
             """
@@ -1618,7 +1618,7 @@ class AgentProfileRepository:
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
-                   ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json, ap.cron_json
+                   ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
@@ -1649,7 +1649,7 @@ class AgentProfileRepository:
             """
             SELECT ap.agent_id, ap.owner_id, ap.node_id, ap.display_name, ap.description, ap.system_prompt, ap.skills_json,
                    ap.tool_allowlist_json, ap.group_reply_policy, ap.default_model, ap.workspace_root, ap.profile_version,
-                   ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json, ap.cron_json
+                   ap.is_stale, ap.features_json, ap.custom_prompt, ap.heartbeat_json
             FROM agent_profiles ap
             JOIN nodes n ON n.node_id = ap.node_id
             WHERE ap.node_id IS NOT NULL
@@ -1693,7 +1693,7 @@ class AgentProfileRepository:
             """
             SELECT agent_id, owner_id, node_id, display_name, description, system_prompt, skills_json,
                    tool_allowlist_json, group_reply_policy, default_model, workspace_root, profile_version,
-                   is_stale, features_json, custom_prompt, heartbeat_json, cron_json
+                   is_stale, features_json, custom_prompt, heartbeat_json
             FROM agent_profiles
             WHERE agent_id = ?
             """,
@@ -1843,7 +1843,6 @@ class AgentProfileRepository:
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
         heartbeat_json: str | None = None,
-        cron_json: str | None = None,
     ) -> "AgentProfile":
         """Update a profile with optimistic locking on profile_version."""
         current = self.get_profile(agent_id=agent_id)
@@ -1861,12 +1860,11 @@ class AgentProfileRepository:
         resolved_custom_prompt = (
             custom_prompt if custom_prompt is not None else current.custom_prompt
         )
-        # feat-394: heartbeat_json is a raw JSON string; None preserves existing value.
+        # feat-394: heartbeat_json carries cadence (every/active_hours); None preserves existing.
+        # feat-394 M9-E: cron_json removed — cron enable lives in features_json["cron_scheduling"].
         resolved_heartbeat_json = (
             heartbeat_json if heartbeat_json is not None else current.heartbeat_json
         )
-        # feat-394-M2: cron_json is a raw JSON string; None preserves existing value.
-        resolved_cron_json = cron_json if cron_json is not None else current.cron_json
         with self._connection:
             self._connection.execute(
                 """
@@ -1883,8 +1881,7 @@ class AgentProfileRepository:
                     updated_at = ?,
                     features_json = ?,
                     custom_prompt = ?,
-                    heartbeat_json = ?,
-                    cron_json = ?
+                    heartbeat_json = ?
                 WHERE agent_id = ?
                 """,
                 (
@@ -1901,7 +1898,6 @@ class AgentProfileRepository:
                     features_json,
                     resolved_custom_prompt,
                     resolved_heartbeat_json,
-                    resolved_cron_json,
                     agent_id,
                 ),
             )
@@ -1945,18 +1941,12 @@ class AgentProfileRepository:
             if isinstance(custom_prompt_raw, str) and custom_prompt_raw.strip()
             else None
         )
-        # feat-394: heartbeat config JSON string (raw, not decoded; forwarded to gateway as-is)
+        # feat-394: heartbeat cadence JSON string (raw, not decoded; forwarded to gateway as-is)
+        # feat-394 M9-E: cron_json removed — cron enable lives in features["cron_scheduling"].
         heartbeat_json_raw = row["heartbeat_json"] if "heartbeat_json" in keys else None
         heartbeat_json = (
             heartbeat_json_raw
             if isinstance(heartbeat_json_raw, str) and heartbeat_json_raw.strip()
-            else None
-        )
-        # feat-394-M2: cron config JSON string (raw, not decoded; forwarded to gateway as-is)
-        cron_json_raw = row["cron_json"] if "cron_json" in keys else None
-        cron_json = (
-            cron_json_raw
-            if isinstance(cron_json_raw, str) and cron_json_raw.strip()
             else None
         )
         return AgentProfile(
@@ -1976,7 +1966,6 @@ class AgentProfileRepository:
             features=features,
             custom_prompt=custom_prompt,
             heartbeat_json=heartbeat_json,
-            cron_json=cron_json,
         )
 
 

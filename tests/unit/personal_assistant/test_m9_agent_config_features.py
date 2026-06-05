@@ -234,29 +234,20 @@ class TestMainSyncFeaturesMapping:
     """
 
     def test_heartbeat_json_maps_to_features_heartbeat(self) -> None:
-        """When IM sends heartbeat_json with enabled=true, agent.heartbeat_enabled must be True.
+        """Enable in features["heartbeat"] → agent.heartbeat_enabled is True.
 
-        After M9: sync path writes features['heartbeat']=True (not heartbeat_enabled field).
-        Validates the full transformation: IM payload → AgentWorkspaceConfig.heartbeat_enabled.
+        After M9-E: _parse_heartbeat_from_im_payload no longer returns enabled;
+        enable comes from features dict directly. This test validates the sync path
+        result: features["heartbeat"]=True → agent.heartbeat_enabled=True.
         """
-        import json
-        import importlib
         from personal_assistant.config.local_store import AgentWorkspaceConfig
         from pathlib import Path
 
-        main_mod = importlib.import_module("personal_assistant.main")
-        hb_raw = json.loads(json.dumps({"enabled": True}))
-        (hb_enabled, *_) = main_mod._parse_heartbeat_from_im_payload(hb_raw)
-
-        # After M9: build agent with hb_enabled written into features
-        features: dict = {}
-        if hb_enabled:
-            features["heartbeat"] = True
-
+        # M9-E: enable is in features, not derived from heartbeat_json parsing
         agent = AgentWorkspaceConfig(
             agent_id="test-agent",
             workspace_root=Path("/tmp/ws"),
-            features=features,
+            features={"heartbeat": True},
         )
         assert agent.heartbeat_enabled is True, (
             "sync path must write heartbeat.enabled into features['heartbeat'], "
@@ -264,28 +255,19 @@ class TestMainSyncFeaturesMapping:
         )
 
     def test_cron_json_maps_to_features_cron_scheduling(self) -> None:
-        """When IM sends cron_json with enabled=true, agent.cron_enabled must be True.
+        """Enable in features["cron_scheduling"] → agent.cron_enabled is True.
 
-        After M9: sync path writes features['cron_scheduling']=True (not cron_enabled field).
+        After M9-E: _parse_cron_enabled_from_im_payload deleted; enable comes
+        from features dict (payload["features"]["cron_scheduling"]).
         """
-        import json
-        import importlib
         from personal_assistant.config.local_store import AgentWorkspaceConfig
         from pathlib import Path
 
-        main_mod = importlib.import_module("personal_assistant.main")
-        cron_raw = json.loads(json.dumps({"enabled": True}))
-        cron_enabled = main_mod._parse_cron_enabled_from_im_payload(cron_raw)
-
-        # After M9: build agent with cron_enabled written into features
-        features: dict = {}
-        if cron_enabled:
-            features["cron_scheduling"] = True
-
+        # M9-E: enable is in features, not derived from cron_json parsing
         agent = AgentWorkspaceConfig(
             agent_id="test-agent",
             workspace_root=Path("/tmp/ws"),
-            features=features,
+            features={"cron_scheduling": True},
         )
         assert agent.cron_enabled is True, (
             "sync path must write cron.enabled into features['cron_scheduling'], "

@@ -44,12 +44,10 @@ class AgentConfigResponse(BaseModel):
     # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
     features: dict[str, bool] = Field(default_factory=dict)
     custom_prompt: str | None = None
-    # feat-394: heartbeat configuration persisted as raw JSON string.
-    # Shape: {"enabled": bool, "every": str, "active_hours": {...} | null}
+    # feat-394: heartbeat cadence persisted as raw JSON string.
+    # Shape: {"every": str, "active_hours": {...} | null}
+    # feat-394 M9-E: cron_json removed — cron enable lives in features["cron_scheduling"].
     heartbeat_json: str | None = None
-    # feat-394-M2: cron configuration persisted as raw JSON string.
-    # Shape: {"enabled": bool}
-    cron_json: str | None = None
 
 
 class UpdateAgentConfigRequest(BaseModel):
@@ -68,12 +66,10 @@ class UpdateAgentConfigRequest(BaseModel):
     # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
     features: dict[str, bool] = Field(default_factory=dict)
     custom_prompt: str | None = None
-    # feat-394: heartbeat configuration as raw JSON string (forwarded to gateway via ConfigSyncNotifier).
+    # feat-394: heartbeat cadence as raw JSON string (forwarded to gateway via ConfigSyncNotifier).
     # Also accepts ``heartbeat: {...}`` dict from the frontend (converted via model_validator below).
+    # feat-394 M9-E: cron_json removed — cron enable lives in features["cron_scheduling"].
     heartbeat_json: str | None = None
-    # feat-394-M2: cron configuration as raw JSON string.
-    # Also accepts ``cron: {...}`` dict from the frontend (converted via model_validator below).
-    cron_json: str | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -214,7 +210,6 @@ def to_agent_config_response(
         features=dict(profile.features) if profile.features else {},
         custom_prompt=profile.custom_prompt,
         heartbeat_json=profile.heartbeat_json,
-        cron_json=profile.cron_json,
     )
 
 
@@ -447,7 +442,6 @@ def update_agent_config(
             features=payload.features if payload.features is not None else None,
             custom_prompt=payload.custom_prompt,
             heartbeat_json=payload.heartbeat_json,
-            cron_json=payload.cron_json,
         )
     except AgentProfileVersionConflictError as exc:
         raise HTTPException(
@@ -597,39 +591,20 @@ async def agent_prompt_preview(
             detail="agent_id is not bound to a node",
         )
     workspace_root = service.workspace_root_for_profile(profile)
-    # feat-394-M4 R2-2 fix: derive heartbeat/cron enabled state from the agent's
-    # stored profile JSON so the preview reflects the actual toggle configuration.
-    # Uses safe json.loads fallback to avoid crashing on malformed/absent config.
-    import json as _json  # noqa: PLC0415
-
-    def _extract_enabled(json_str: str | None) -> bool:
-        if not json_str:
-            return False
-        try:
-            obj = _json.loads(json_str)
-            return bool(obj.get("enabled", False)) if isinstance(obj, dict) else False
-        except (ValueError, TypeError):
-            return False
-
     # feat-394-M5 R3-2 fix: when the request body provides explicit heartbeat_enabled /
     # cron_enabled, those values override the stored profile values.  This lets the
     # frontend (and callers like the reviewer) preview "what would the prompt look like
     # with heartbeat=OFF and cron=ON" without persisting any change.
-    # When the request params are absent (None), fall back to the profile-stored values
-    # (backward-compatible: old callers that omit these fields still see profile state).
+    # When the request params are absent (None), fall back to the profile-stored features.
+    # feat-394 M9-E: features is the single source of truth; heartbeat_json enable fallback removed.
     effective_hb = (
         payload.heartbeat_enabled
         if payload.heartbeat_enabled is not None
-        # feat-394 M9 R5: prefer features["heartbeat"] (FEATURE_REGISTRY source of truth);
-        # fall back to heartbeat_json for backward compat with old Gateway profiles not yet
-        # migrated (profiles where features dict was not synced from heartbeat_json on save).
         else bool((profile.features or {}).get("heartbeat", False))
-        or _extract_enabled(profile.heartbeat_json)
     )
     effective_cron = (
         payload.cron_enabled
         if payload.cron_enabled is not None
-        # feat-394 M9 R5: prefer features["cron_scheduling"] (cron_json retired as gate source).
         else bool((profile.features or {}).get("cron_scheduling", False))
     )
 

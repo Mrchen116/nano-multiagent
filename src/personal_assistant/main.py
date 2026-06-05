@@ -334,9 +334,8 @@ class _IMConfigSyncClient:
                     and synced_custom_prompt_val.strip()
                     else None
                 )
-                # feat-394 decision 5: parse per-agent heartbeat config from IM mirror payload.
-                # Prefer heartbeat_json (raw JSON string, feat-394 C) over the legacy heartbeat
-                # dict key so both old and new IM versions work transparently.
+                # feat-394 decision 5: parse heartbeat cadence (every / active_hours) from
+                # heartbeat_json; enable state lives in features["heartbeat"] (M9 decision D).
                 _hb_raw_str = payload.get("heartbeat_json")
                 if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
                     import json as _json  # noqa: PLC0415
@@ -348,33 +347,11 @@ class _IMConfigSyncClient:
                 else:
                     _hb_raw = payload.get("heartbeat")
                 (
-                    synced_heartbeat_enabled,
                     synced_heartbeat_every,
                     synced_hb_start,
                     synced_hb_end,
                     synced_hb_tz,
                 ) = _parse_heartbeat_from_im_payload(_hb_raw)
-                # feat-394-M2 decision 5: parse per-agent cron config from IM mirror payload.
-                # Prefer cron_json (raw JSON string) over the legacy cron dict key.
-                _cron_raw_str = payload.get("cron_json")
-                if isinstance(_cron_raw_str, str) and _cron_raw_str.strip():
-                    import json as _json2  # noqa: PLC0415
-
-                    try:
-                        _cron_raw = _json2.loads(_cron_raw_str)
-                    except (ValueError, TypeError):
-                        _cron_raw = payload.get("cron")
-                else:
-                    _cron_raw = payload.get("cron")
-                synced_cron_enabled = _parse_cron_enabled_from_im_payload(_cron_raw)
-                # feat-394-M9: merge heartbeat/cron enable state into features dict.
-                # heartbeat_enabled/cron_enabled are now @property on AgentWorkspaceConfig.
-                if synced_heartbeat_enabled:
-                    synced_features = dict(synced_features)
-                    synced_features["heartbeat"] = True
-                if synced_cron_enabled:
-                    synced_features = dict(synced_features)
-                    synced_features["cron_scheduling"] = True
                 # feat-394 fix: cron is a gated capability decoupled from the user tool
                 # whitelist — cron_enabled must NEVER be written into tool_allowlist.
                 # The cron tool is appended to the effective session toolset via the
@@ -1817,23 +1794,21 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
 
 def _parse_heartbeat_from_im_payload(
     raw: object,
-) -> tuple[bool, str | None, str | None, str | None, str | None]:
-    """Parse the ``heartbeat`` block from an IM agent config payload.
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Parse heartbeat cadence fields from an IM agent config payload.
 
-    feat-394 decision 5: IM AgentProfile carries {enabled, every?, active_hours?} which
-    flows to gateway AgentWorkspaceConfig.heartbeat_* fields so the scheduler gate works.
+    feat-394 decision 5 / M9-E: enable state lives in features["heartbeat"] (decision D).
+    This function only extracts cadence data: every, active_hours_{start,end,timezone}.
 
     Args:
         raw: The raw value of ``payload["heartbeat"]`` from an IM API response.
 
     Returns:
-        5-tuple of (heartbeat_enabled, heartbeat_every, active_hours_start, active_hours_end,
-        active_hours_timezone).  All optional fields are None when absent.
+        4-tuple of (heartbeat_every, active_hours_start, active_hours_end,
+        active_hours_timezone).  All fields are None when absent.
     """
     if not isinstance(raw, dict):
-        return False, None, None, None, None
-    enabled_raw = raw.get("enabled")
-    heartbeat_enabled = bool(enabled_raw) if isinstance(enabled_raw, bool) else False
+        return None, None, None, None
     every_raw = raw.get("every")
     heartbeat_every = (
         every_raw.strip() if isinstance(every_raw, str) and every_raw.strip() else None
@@ -1854,25 +1829,7 @@ def _parse_heartbeat_from_im_payload(
         hb_tz = tz_raw.strip() if isinstance(tz_raw, str) and tz_raw.strip() else None
     else:
         hb_start, hb_end, hb_tz = None, None, None
-    return heartbeat_enabled, heartbeat_every, hb_start, hb_end, hb_tz
-
-
-def _parse_cron_enabled_from_im_payload(raw: object) -> bool:
-    """Parse the ``cron`` block from an IM agent config payload.
-
-    feat-394-M2 decision 5: IM AgentProfile carries {enabled} which flows to
-    gateway AgentWorkspaceConfig.cron_enabled so the scheduler and prompt gate work.
-
-    Args:
-        raw: The raw value of ``payload["cron"]`` from an IM API response.
-
-    Returns:
-        cron_enabled bool; False when absent or malformed.
-    """
-    if not isinstance(raw, dict):
-        return False
-    enabled_raw = raw.get("enabled")
-    return bool(enabled_raw) if isinstance(enabled_raw, bool) else False
+    return heartbeat_every, hb_start, hb_end, hb_tz
 
 
 def build_runtime(config: LocalConfig) -> GatewayRuntime:

@@ -518,7 +518,9 @@ def test_sync_agent_passes_through_heartbeat_enabled(tmp_path: Path) -> None:
                 "display_name": "HB Agent",
                 "profile_version": 1,
                 "workspace_root": str(workspace_root),
-                "heartbeat": {"enabled": True, "every": "10m"},
+                # M9-E: enable comes from features, cadence from heartbeat dict
+                "features": {"heartbeat": True},
+                "heartbeat": {"every": "10m"},
             },
         )
 

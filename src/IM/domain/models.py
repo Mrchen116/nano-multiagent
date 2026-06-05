@@ -122,16 +122,12 @@ class AgentProfile:
     # and optional custom prompt supplement.  Absent keys inherit gateway defaults.
     features: dict[str, bool] = field(default_factory=dict)
     custom_prompt: str | None = None
-    # feat-394: heartbeat configuration persisted as JSON string.
-    # Shape: {"enabled": bool, "every": str, "active_hours": {...} | null}
-    # Stored as raw JSON so the gateway can forward it without re-serialization;
-    # None means not yet configured (heartbeat disabled / no config set by user).
+    # feat-394: heartbeat cadence persisted as JSON string.
+    # Shape: {"every": str, "active_hours": {...} | null}
+    # Stored as raw JSON so the gateway can forward cadence config without re-serialization;
+    # enable state lives in features["heartbeat"] (feat-394 M9-E decision D).
+    # None means not yet configured (no cadence set by user).
     heartbeat_json: str | None = None
-    # feat-394-M2: cron configuration persisted as JSON string.
-    # Shape: {"enabled": bool}
-    # Stored as raw JSON so the gateway can forward it via ConfigSyncNotifier;
-    # None means cron is not yet configured (disabled / no config set by user).
-    cron_json: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -72,10 +72,10 @@ class _NullPipeline:
 
 
 def test_sync_agent_passes_through_cron_enabled(tmp_path: Path) -> None:
-    """sync_agent must write cron_enabled=True when IM payload has cron.enabled=true.
+    """sync_agent must write cron_enabled=True when IM payload has features.cron_scheduling=true.
 
-    feat-394 decision 5: cron config from AgentProfile in IM must flow to
-    AgentWorkspaceConfig.cron_enabled so the scheduler and prompt gate work.
+    feat-394 M9-E: cron enable lives in features["cron_scheduling"]; the sync path reads
+    it directly from payload["features"] without parsing the legacy cron JSON block.
     """
     workspace_root = tmp_path / "ws-cron"
     workspace_root.mkdir()
@@ -88,7 +88,8 @@ def test_sync_agent_passes_through_cron_enabled(tmp_path: Path) -> None:
                 "display_name": "Cron Agent",
                 "profile_version": 1,
                 "workspace_root": str(workspace_root),
-                "cron": {"enabled": True},
+                # M9-E: enable comes from features, not cron JSON block
+                "features": {"cron_scheduling": True},
             },
         )
 
@@ -233,7 +234,8 @@ def test_sync_agent_cron_enabled_does_not_pollute_tool_allowlist(
                 "display_name": "Gate Agent",
                 "profile_version": 1,
                 "workspace_root": str(workspace_root),
-                "cron": {"enabled": True},
+                # M9-E: enable comes from features, not cron JSON block
+                "features": {"cron_scheduling": True},
                 "tool_allowlist": ["read", "write"],
             },
         )
@@ -283,7 +285,8 @@ def test_sync_agent_empty_allowlist_stays_empty_when_cron_enabled(
                 "display_name": "No Gate Agent",
                 "profile_version": 1,
                 "workspace_root": str(workspace_root),
-                "cron": {"enabled": True},
+                # M9-E: enable comes from features, not cron JSON block
+                "features": {"cron_scheduling": True},
                 "tool_allowlist": [],
             },
         )

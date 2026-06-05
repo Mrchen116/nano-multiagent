@@ -414,15 +414,15 @@ def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
     if agent_column_names and "custom_prompt" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN custom_prompt TEXT")
 
-    # feat-394: heartbeat config persisted as JSON string per agent profile.
+    # feat-394: heartbeat cadence persisted as JSON string per agent profile.
+    # feat-394 M9-E: cron_json column intentionally not added — enable state lives in
+    # features_json["cron_scheduling"]; the column was never merged to main.
     agent_column_names = {
         row["name"]
         for row in connection.execute("PRAGMA table_info(agent_profiles)").fetchall()
     }
     if agent_column_names and "heartbeat_json" not in agent_column_names:
         connection.execute("ALTER TABLE agent_profiles ADD COLUMN heartbeat_json TEXT")
-    if agent_column_names and "cron_json" not in agent_column_names:
-        connection.execute("ALTER TABLE agent_profiles ADD COLUMN cron_json TEXT")
 
     node_rows = connection.execute("PRAGMA table_info(nodes)").fetchall()
     node_column_names = {row["name"] for row in node_rows}

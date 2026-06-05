@@ -153,8 +153,8 @@ class TestConfigSyncNotifierReadsFeaturesNotCronJson:
                 _hb_raw = None
         else:
             _hb_raw = None
+        # M9-E: _parse_heartbeat_from_im_payload returns 4-tuple (no enabled)
         (
-            _,
             heartbeat_every,
             hb_start,
             hb_end,

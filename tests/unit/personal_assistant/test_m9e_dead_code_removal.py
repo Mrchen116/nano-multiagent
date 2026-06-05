@@ -148,25 +148,25 @@ class TestRepositoryNoCronJson:
 
 
 class TestConfigServiceNoCronJson:
-    """AgentConfigService.update_profile_config must not accept cron_json."""
+    """ConfigService.update_profile must not accept cron_json."""
 
-    def test_update_profile_config_signature_no_cron_json(self) -> None:
-        """update_profile_config must not have cron_json parameter."""
-        from IM.application.config_service import AgentConfigService
+    def test_update_profile_signature_no_cron_json(self) -> None:
+        """update_profile must not have cron_json parameter."""
+        from IM.application.config_service import ConfigService
 
-        sig = inspect.signature(AgentConfigService.update_profile_config)
+        sig = inspect.signature(ConfigService.update_profile)
         assert "cron_json" not in sig.parameters, (
-            "AgentConfigService.update_profile_config still accepts cron_json; "
+            "ConfigService.update_profile still accepts cron_json; "
             "must be removed in M9-E"
         )
 
-    def test_update_profile_config_signature_keeps_heartbeat_json(self) -> None:
-        """update_profile_config must still accept heartbeat_json (cadence)."""
-        from IM.application.config_service import AgentConfigService
+    def test_update_profile_signature_keeps_heartbeat_json(self) -> None:
+        """update_profile must still accept heartbeat_json (cadence)."""
+        from IM.application.config_service import ConfigService
 
-        sig = inspect.signature(AgentConfigService.update_profile_config)
+        sig = inspect.signature(ConfigService.update_profile)
         assert "heartbeat_json" in sig.parameters, (
-            "update_profile_config lost heartbeat_json; must be retained for cadence"
+            "ConfigService.update_profile lost heartbeat_json; must be retained for cadence"
         )
 
 
@@ -259,7 +259,11 @@ class TestEnableRoundTripAfterRipOut:
         import importlib
 
         main_mod = importlib.import_module("personal_assistant.main")
-        raw = {"enabled": False, "every": "15m", "active_hours": {"start": "09:00", "end": "17:00", "timezone": "UTC"}}
+        raw = {
+            "enabled": False,
+            "every": "15m",
+            "active_hours": {"start": "09:00", "end": "17:00", "timezone": "UTC"},
+        }
         every, start, end, tz = main_mod._parse_heartbeat_from_im_payload(raw)
         assert every == "15m"
         assert start == "09:00"

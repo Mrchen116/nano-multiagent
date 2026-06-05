@@ -59,7 +59,8 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
         )
         assert created.status_code == 201
         # feat-379-M5: features + custom_prompt are now part of AgentConfigResponse
-        # feat-394: heartbeat_json / feat-394-M2: cron_json added for per-agent config round-trip
+        # feat-394: heartbeat_json carries cadence (every/active_hours).
+        # feat-394 M9-E: cron_json removed — cron enable lives in features["cron_scheduling"].
         assert set(created.json()) == {
             "agent_id",
             "owner_id",
@@ -78,7 +79,6 @@ def test_agent_create_contract_shape_and_validation(tmp_path: Path) -> None:
             "features",
             "custom_prompt",
             "heartbeat_json",
-            "cron_json",
         }
         assert created.json()["node_id"] == "node-1"
         assert created.json()["workspace_root"] == "/srv/agents/agent-1"

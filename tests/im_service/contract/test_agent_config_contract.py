@@ -35,7 +35,8 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
         response = client.get("/im/v1/agents/agent-1/config")
         assert response.status_code == 200
         # feat-379-M5: features + custom_prompt must now appear in config response
-        # feat-394: heartbeat_json / feat-394-M2: cron_json added for per-agent config round-trip
+        # feat-394: heartbeat_json carries cadence (every/active_hours).
+        # feat-394 M9-E: cron_json removed — cron enable lives in features["cron_scheduling"].
         assert set(response.json()) == {
             "agent_id",
             "owner_id",
@@ -54,7 +55,6 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "features",
             "custom_prompt",
             "heartbeat_json",
-            "cron_json",
         }
         assert response.json()["workspace_root"].endswith(
             "/nano-assistant/workspace/agent-1"
