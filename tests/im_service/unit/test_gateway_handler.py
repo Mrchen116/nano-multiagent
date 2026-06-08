@@ -1032,13 +1032,13 @@ def test_handle_cron_jobs_resolves_waiter_with_job_list(tmp_path: Path) -> None:
     assert future.result() == jobs_payload
 
 
-def test_request_node_cron_delete_returns_false_when_node_offline(
+def test_request_node_cron_delete_returns_none_when_node_offline(
     tmp_path: Path,
 ) -> None:
-    """Cron-delete RPC returns False when target node is not connected.
+    """Cron-delete RPC returns None when target node is not connected.
 
     feat-394-M13: delete must also go via RPC, not direct file write on IM host.
-    Offline node → False (graceful, caller maps to 404).
+    Offline node → None (graceful degradation); route layer maps to 503/404.
     """
     handler = _build_handler(tmp_path)
 
@@ -1052,7 +1052,7 @@ def test_request_node_cron_delete_returns_false_when_node_offline(
         )
     )
 
-    assert result is False
+    assert result is None
 
 
 def test_handle_cron_delete_resolves_waiter_with_deleted_flag(

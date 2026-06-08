@@ -145,6 +145,11 @@ class GatewayHandler:
         self._node_prompt_preview_waiters: dict[
             str, asyncio.Future[dict[str, object] | None]
         ] = {}
+        # feat-394-M13 (决策 G): gateway-side state via WS RPC — IM never directly reads
+        # gateway workspace files because IM and gateway may run on different hosts.
+        self._heartbeat_md_waiters: dict[str, asyncio.Future[str | None]] = {}
+        self._cron_jobs_waiters: dict[str, asyncio.Future[list | None]] = {}
+        self._cron_delete_waiters: dict[str, asyncio.Future[bool | None]] = {}
         self._ensure_agent_message_dispatch_table()
 
     async def serve(self, websocket: WebSocket) -> None:
@@ -200,6 +205,12 @@ class GatewayHandler:
             return await self._handle_prompt_preview(payload=payload)
         if message_type == "node.prompt.preview":
             return await self._handle_node_prompt_preview(payload=payload)
+        if message_type == "node.heartbeat.md":
+            return await self._handle_heartbeat_md(payload=payload)
+        if message_type == "node.cron.jobs":
+            return await self._handle_cron_jobs(payload=payload)
+        if message_type == "node.cron.delete":
+            return await self._handle_cron_delete(payload=payload)
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
         if message_type == "node.streaming_delta":
@@ -516,6 +527,135 @@ class GatewayHandler:
         finally:
             async with self._lock:
                 self._node_prompt_preview_waiters.pop(request_id, None)
+
+    async def request_node_heartbeat_md(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        timeout_seconds: float = 10.0,
+    ) -> str | None:
+        """Send a node.heartbeat.md.request frame and await the HEARTBEAT.md content.
+
+        feat-394-M13 (决策 G): IM must never directly read gateway workspace files.
+        This RPC asks the target gateway node to read <workspace>/HEARTBEAT.md and
+        return its raw content.  The IM host and gateway may run on different machines,
+        so direct file access from IM is not viable.
+
+        Returns:
+            Raw HEARTBEAT.md text, empty string when the file does not exist, or None
+            when the node is not connected / times out (graceful degradation).
+        """
+        request_id = f"heartbeat-md-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[str | None] = loop.create_future()
+        async with self._lock:
+            self._heartbeat_md_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="node.heartbeat.md.request",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._heartbeat_md_waiters.pop(request_id, None)
+
+    async def request_node_cron_jobs(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        timeout_seconds: float = 10.0,
+    ) -> list | None:
+        """Send a node.cron.jobs.request frame and await the job list.
+
+        feat-394-M13 (决策 G): replaces direct IM-side read of
+        <workspace>/.nanoassistant/cron/jobs.json.  The gateway reads its own file
+        and returns the job list; IM never touches the workspace directory.
+
+        Returns:
+            List of job dicts, empty list when no jobs file exists yet, or None when
+            the node is not connected / times out (graceful degradation).
+        """
+        request_id = f"cron-jobs-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[list | None] = loop.create_future()
+        async with self._lock:
+            self._cron_jobs_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="node.cron.jobs.request",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._cron_jobs_waiters.pop(request_id, None)
+
+    async def request_node_cron_delete(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        job_id: str,
+        timeout_seconds: float = 10.0,
+    ) -> bool | None:
+        """Send a node.cron.delete.request frame and await the deletion result.
+
+        feat-394-M13 (决策 G): replaces direct IM-side write of
+        <workspace>/.nanoassistant/cron/jobs.json.  The gateway performs the delete
+        on its own filesystem and reports whether the job was found and removed.
+
+        Returns:
+            True when the job was found and deleted, False when job_id was not found,
+            or None when the node is not connected / times out (graceful degradation).
+        """
+        request_id = f"cron-delete-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[bool | None] = loop.create_future()
+        async with self._lock:
+            self._cron_delete_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="node.cron.delete.request",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                    "job_id": job_id,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._cron_delete_waiters.pop(request_id, None)
 
     async def disconnect(self, *, node_id: str) -> None:
         """Remove one node from the active connection map and broadcast offline if needed."""
@@ -1361,6 +1501,77 @@ class GatewayHandler:
                 "message_type": "node.prompt.preview",
                 "request_id": request_id,
                 "node_id": node_id,
+            },
+        }
+
+    async def _handle_heartbeat_md(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve heartbeat-md waiter when gateway returns HEARTBEAT.md content.
+
+        feat-394-M13 (决策 G): gateway sends ``node.heartbeat.md`` in response to
+        ``node.heartbeat.md.request`` with {request_id, content}.
+        Empty string signals file does not exist; both are valid.
+        """
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        content_raw = payload.get("content")
+        content = content_raw if isinstance(content_raw, str) else ""
+        async with self._lock:
+            waiter = self._heartbeat_md_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(content)
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.heartbeat.md",
+                "request_id": request_id,
+            },
+        }
+
+    async def _handle_cron_jobs(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve cron-jobs waiter when gateway returns the job list.
+
+        feat-394-M13 (决策 G): gateway sends ``node.cron.jobs`` in response to
+        ``node.cron.jobs.request`` with {request_id, jobs:[...]}.
+        """
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        jobs_raw = payload.get("jobs")
+        jobs: list = jobs_raw if isinstance(jobs_raw, list) else []
+        async with self._lock:
+            waiter = self._cron_jobs_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(jobs)
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.cron.jobs",
+                "request_id": request_id,
+            },
+        }
+
+    async def _handle_cron_delete(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve cron-delete waiter when gateway reports deletion result.
+
+        feat-394-M13 (决策 G): gateway sends ``node.cron.delete`` in response to
+        ``node.cron.delete.request`` with {request_id, deleted: bool}.
+        deleted=True means job was found and removed; False means not found.
+        """
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        deleted_raw = payload.get("deleted")
+        deleted: bool = bool(deleted_raw)
+        async with self._lock:
+            waiter = self._cron_delete_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(deleted)
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.cron.delete",
+                "request_id": request_id,
             },
         }
 
