@@ -1,15 +1,11 @@
 /**
- * feat-394 M9-C: vitest tests for features-driven heartbeat/cron panel behavior.
+ * Features-driven heartbeat/cron panel behavior.
  *
  * When capabilities.features includes "heartbeat" or "cron_scheduling", the agent
  * detail page must:
  *   1. Remove the independent enable toggle from HeartbeatCard / CronCard.
  *   2. Show/hide the config panels based on draft.features (controlled by the
  *      Features checkbox list).
- *   3. Render tool pills with default_on state (empty allowlist → default tools
- *      appear selected).
- *
- * These tests are RED until M9-C implementation is verified end-to-end.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -68,7 +64,7 @@ function renderDetailPage() {
   );
 }
 
-// Capability features that include heartbeat + cron_scheduling (M9-C Gateway).
+// Capability features that include heartbeat + cron_scheduling.
 const HB_CAP_FEATURE = {
   key: "heartbeat",
   label_i18n: "agents.features.heartbeat.label",
@@ -90,11 +86,11 @@ const CRON_CAP_FEATURE = {
 const TOOL_DEFAULT = { name: "read", description: "Read files", default_on: true };
 const TOOL_OPTIONAL = { name: "cron", description: "Cron scheduling", default_on: false };
 
-function makeM9CState(opts: {
+function makeAgentState(opts: {
   configFeatures?: Record<string, boolean>;
   capFeatures?: object[];
   heartbeat?: object;
-  // feat-394 M9-E: cron field removed from AgentConfig; enable in features["cron_scheduling"].
+  // cron field removed from AgentConfig; enable lives in features["cron_scheduling"].
 } = {}) {
   return {
     config: {
@@ -160,7 +156,7 @@ describe("heartbeat controlled by Features list", () => {
   it("heartbeat-enabled-toggle is hidden when heartbeat is in capabilities.features", async () => {
     // heartbeat is a registered capability feature → toggle moves to Features list
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({ capFeatures: [HB_CAP_FEATURE, CRON_CAP_FEATURE] })
+      makeAgentState({ capFeatures: [HB_CAP_FEATURE, CRON_CAP_FEATURE] })
     );
 
     renderDetailPage();
@@ -175,7 +171,7 @@ describe("heartbeat controlled by Features list", () => {
   it("HeartbeatCard is not rendered when features.heartbeat is false/absent", async () => {
     // heartbeat in cap features but not in draft.features → card hidden
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({
+      makeAgentState({
         capFeatures: [HB_CAP_FEATURE],
         configFeatures: {}, // heartbeat not enabled
       })
@@ -191,7 +187,7 @@ describe("heartbeat controlled by Features list", () => {
   it("HeartbeatCard appears when features.heartbeat is toggled on via Features list", async () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({
+      makeAgentState({
         capFeatures: [HB_CAP_FEATURE],
         configFeatures: {}, // initially off
       })
@@ -221,7 +217,7 @@ describe("heartbeat controlled by Features list", () => {
   it("HeartbeatCard shows cadence config (every input) when enabled via features", async () => {
     // heartbeat on via features → cadence panel always visible (no separate enable toggle)
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({
+      makeAgentState({
         capFeatures: [HB_CAP_FEATURE],
         configFeatures: { heartbeat: true }, // pre-enabled
         heartbeat: { enabled: true, every: "1h" },
@@ -244,7 +240,7 @@ describe("heartbeat controlled by Features list", () => {
 describe("cron controlled by Features list", () => {
   it("cron-enabled-toggle is hidden when cron_scheduling is in capabilities.features", async () => {
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({ capFeatures: [HB_CAP_FEATURE, CRON_CAP_FEATURE] })
+      makeAgentState({ capFeatures: [HB_CAP_FEATURE, CRON_CAP_FEATURE] })
     );
 
     renderDetailPage();
@@ -258,7 +254,7 @@ describe("cron controlled by Features list", () => {
 
   it("CronCard is not rendered when features.cron_scheduling is false/absent", async () => {
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({
+      makeAgentState({
         capFeatures: [CRON_CAP_FEATURE],
         configFeatures: {}, // cron not enabled
       })
@@ -273,7 +269,7 @@ describe("cron controlled by Features list", () => {
   it("CronCard appears when features.cron_scheduling toggled on via Features list", async () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({
+      makeAgentState({
         capFeatures: [CRON_CAP_FEATURE],
         configFeatures: {},
       })
@@ -296,8 +292,4 @@ describe("cron controlled by Features list", () => {
     });
   });
 });
-
-// ---------------------------------------------------------------------------
-// Part C: Tool pills render with default_on state
-// ---------------------------------------------------------------------------
 

@@ -1,15 +1,8 @@
 /**
- * feat-394 M9-C: vitest tests for features-driven heartbeat/cron panel behavior.
+ * Tool pills render with default_on state.
  *
- * When capabilities.features includes "heartbeat" or "cron_scheduling", the agent
- * detail page must:
- *   1. Remove the independent enable toggle from HeartbeatCard / CronCard.
- *   2. Show/hide the config panels based on draft.features (controlled by the
- *      Features checkbox list).
- *   3. Render tool pills with default_on state (empty allowlist → default tools
- *      appear selected).
- *
- * These tests are RED until M9-C implementation is verified end-to-end.
+ * Empty tool_allowlist → default tools appear selected; non-default tools appear
+ * unselected.  Pills follow true whitelist semantics (can deselect defaults).
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -68,7 +61,7 @@ function renderDetailPage() {
   );
 }
 
-// Capability features that include heartbeat + cron_scheduling (M9-C Gateway).
+// Capability features that include heartbeat + cron_scheduling.
 const HB_CAP_FEATURE = {
   key: "heartbeat",
   label_i18n: "agents.features.heartbeat.label",
@@ -90,11 +83,11 @@ const CRON_CAP_FEATURE = {
 const TOOL_DEFAULT = { name: "read", description: "Read files", default_on: true };
 const TOOL_OPTIONAL = { name: "cron", description: "Cron scheduling", default_on: false };
 
-function makeM9CState(opts: {
+function makeAgentState(opts: {
   configFeatures?: Record<string, boolean>;
   capFeatures?: object[];
   heartbeat?: object;
-  // feat-394 M9-E: cron field removed from AgentConfig; enable in features["cron_scheduling"].
+  // cron field removed from AgentConfig; enable lives in features["cron_scheduling"].
 } = {}) {
   return {
     config: {
@@ -161,7 +154,7 @@ describe("tool pills render default_on state", () => {
     // empty tool_allowlist → pills show 'read' (default_on=true) as selected,
     // 'cron' (default_on=false) as unselected
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({ configFeatures: {} })
+      makeAgentState({ configFeatures: {} })
     );
 
     renderDetailPage();
@@ -186,7 +179,7 @@ describe("tool pills render default_on state", () => {
   it("default tool can be deselected (true whitelist semantics)", async () => {
     const user = userEvent.setup();
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({ configFeatures: {} })
+      makeAgentState({ configFeatures: {} })
     );
 
     renderDetailPage();
@@ -209,8 +202,4 @@ describe("tool pills render default_on state", () => {
     });
   });
 });
-
-// ---------------------------------------------------------------------------
-// Part D: promptPreview sends features (heartbeat/cron_scheduling via features dict)
-// ---------------------------------------------------------------------------
 

@@ -577,7 +577,7 @@ describe("feat-379-M3 Behavior card", () => {
 // 根因回顾：M8 用 effectiveToolIds = union(capabilityFeatures.available.requires_tool, draft.tool_allowlist)
 // 绕过了 M8 缺陷；M9 R1 修复了 _build_tool_names()，capabilities.tools 现在含 memory，
 // 联动逻辑（决策 12）确保勾特性时工具自动进 allowlist，故直接用 draft.tool_allowlist 即正确。
-describe("feat-379-M9 preview tool_ids regression", () => {
+describe("preview tool_ids regression: uses draft.tool_allowlist directly", () => {
   const memoryCapFeature = {
     key: "memory_curation",
     label_i18n: "agents.features.memory_curation.label",
