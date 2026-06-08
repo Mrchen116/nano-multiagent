@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-392
+> 对齐: feat-394
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 **IM 的消费者真正依赖的对外行为**：
 > 浏览器前端（内置 Web IM）、Node Gateway（`personal_assistant`）、终端用户，以及 `tests/im_service/`
@@ -116,6 +116,11 @@ refresh 轮换或登出后立即失效。错误凭证大声失败(401/拒绝),�
 - **GIVEN** 持久化 profile 含 `features={memory_curation:false}` / `custom_prompt` 非空,网关在线
 - **WHEN** 前端 `GET /im/v1/agents/{id}/config?source=live`(IM 向网关取 live 快照后合并)
 - **THEN** 即便 live 快照不带这两字段,响应仍保留持久化的 `features` 与 `custom_prompt`(不回落默认)
+
+#### Scenario: heartbeat cadence 返回真实配置值(feat-394 决策 E)
+- **WHEN** 前端 `GET /im/v1/agents/{id}/config` 读某 Agent 的 heartbeat cadence
+- **THEN** 返回该 Agent 的真实 `heartbeat.every` 配置值;未配置时体现为默认 `30m`(由后端/前端据此渲染,
+  cadence 显示值不是前端写死的占位)
 
 ### Requirement: HEARTBEAT.md 只读预览与 cron 任务管理经 WS RPC 代理到 gateway（feat-394-M13 决策 G）
 

@@ -194,9 +194,10 @@ Gateway 首次连一个尚无 owner 的 IM 节点时需确认绑定。默认打�
 Gateway 提供两套**相互独立**的本地主动行为机制,均完全在本地调度(IM 服务不作调度源),各自由 IM 配置页上
 一个 per-agent 开关启停(配置经 IM→Gateway 同步生效):
 
-- **Heartbeat**:周期性"带上下文"唤醒。携带该 Agent 与 owner 的 canonical 直聊上下文,由 Agent 工作区的
-  `HEARTBEAT.md` 驱动(Agent 可经对话自管写入)。支持单一节律与多子节律(`tasks:` 各自独立频率)、活跃时段
-  (activeHours)限制;无可冒泡内容时回 `HEARTBEAT_OK` 静默、不打扰用户。
+- **Heartbeat**:周期性"带上下文"唤醒。携带该 Agent 与 owner 的 canonical 直聊上下文。**顶层节律
+  (多久唤醒一次)来自 agent 配置 `heartbeat.every`(未配置默认 30m),不来自 HEARTBEAT.md**;
+  `HEARTBEAT.md`(Agent 可经对话自管写入)承载任务内容:freeform 任务清单 + 可选 `tasks:` 块的 per-task
+  独立频率子节律。活跃时段(activeHours)限制来自配置;无可冒泡内容时回 `HEARTBEAT_OK` 静默、不打扰用户。
 - **Cron**:无上下文的定时任务。可挂多条,各在隔离 session 执行(不带对话上下文),由 Agent 经 cron 工具自管
   (注册/查看/删除)。结果文本回发 owner 的 canonical 直聊;用户可就该结果追问,Agent 记得自己汇报过什么。
 
@@ -242,6 +243,21 @@ Gateway 提供两套**相互独立**的本地主动行为机制,均完全在本�
 - **GIVEN** 某 Agent 的 cron 任务已执行并把结果发回 canonical 直聊
 - **WHEN** 用户在该直聊就此结果追问
 - **THEN** Agent 的回复能引用刚发出的 cron 汇报内容(该结果对后续对话轮次可见)
+
+#### Scenario: Heartbeat 顶层节律由配置决定,忽略 HEARTBEAT.md 顶层 every
+- **GIVEN** 某 Agent 配置 `heartbeat.every=10m`,其 HEARTBEAT.md 顶层又写了 `every: 15s`
+- **WHEN** 调度器评估该 Agent 的 heartbeat 顶层节律
+- **THEN** 按 10m 触发;HEARTBEAT.md 顶层 `every:` 不生效(未配置则按默认 30m)
+
+#### Scenario: Agent 配置变更在活连接即时生效,无需重启 Gateway
+- **GIVEN** Gateway 与 IM 活连接,owner 在配置页关闭某 Agent 的 heartbeat
+- **WHEN** 该变更经 IM→Gateway 同步到达
+- **THEN** Gateway 无需重启,数个 tick 内停止该 Agent 的 heartbeat(enable/cadence 等配置变更同理即时生效)
+
+#### Scenario: 断连期间的配置变更在重连对账时收敛
+- **GIVEN** Gateway 断连期间 owner 改了某 Agent 的 enable / cadence(增量同步未送达)
+- **WHEN** Gateway 重连 IM 并完成全量对账
+- **THEN** 该 Agent 的调度行为收敛到 IM 当前真值
 
 ### Requirement: Agent 工具集由 tool_allowlist 真白名单决定，能力特性按 requires_tool 联动其工具
 
