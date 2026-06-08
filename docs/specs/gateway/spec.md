@@ -136,6 +136,20 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 - **THEN** Gateway 返回该 Agent 的 live 配置快照(display_name / system_prompt / skills / tool_allowlist /
   group_reply_policy / default_model / workspace_root / features / custom_prompt)
 
+#### Scenario: IM 经 RPC 请求读取 HEARTBEAT.md 预览内容（feat-394-M13 决策 G）
+- **WHEN** IM 服务下发 `node.heartbeat.md.request`（含 agent_id / workspace_root）
+- **THEN** Gateway 读取 `<workspace_root>/HEARTBEAT.md`，回帧 `node.heartbeat.md`（含 content；文件不存在则 content 为空串）；
+  IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨机）
+
+#### Scenario: IM 经 RPC 请求列出 cron 任务（feat-394-M13 决策 G）
+- **WHEN** IM 服务下发 `node.cron.jobs.request`（含 agent_id / workspace_root）
+- **THEN** Gateway 读取 `<workspace_root>/.nanoassistant/cron/jobs.json`，回帧 `node.cron.jobs`（含 jobs 列表；文件不存在则 jobs 为空列表）
+
+#### Scenario: IM 经 RPC 请求删除某条 cron 任务（feat-394-M13 决策 G）
+- **WHEN** IM 服务下发 `node.cron.delete.request`（含 agent_id / workspace_root / job_id）
+- **THEN** Gateway 从 `jobs.json` 中移除匹配 job_id 的条目并回写，回帧 `node.cron.delete`（含 deleted: true/false）；
+  job_id 不存在时 deleted 为 false，不报错
+
 ### Requirement: 断线后自动重连并补发未确认帧,期间外部 IM 主路径不受影响
 
 WebSocket 断开后 Gateway 自动重连(指数退避,有上限),重连后重发 `node.register`;断开前未收到 ack 的
