@@ -205,7 +205,9 @@ class TestCronSchedule:
         Asia/Shanghai is UTC+8, so 01:00 UTC == 09:00 CST. A "0 9 * * *" schedule
         with tz="Asia/Shanghai" must fire at 01:00 UTC, not at 09:00 UTC.
         """
-        utc_instant_matches_cst_9am = datetime(2026, 1, 1, 1, 0, 0, tzinfo=UTC)  # 09:00 CST
+        utc_instant_matches_cst_9am = datetime(
+            2026, 1, 1, 1, 0, 0, tzinfo=UTC
+        )  # 09:00 CST
         utc_instant_at_utc_9am = datetime(2026, 1, 1, 9, 0, 0, tzinfo=UTC)  # 17:00 CST
 
         sched_cst = _daily_at_9am_cron(tz="Asia/Shanghai")

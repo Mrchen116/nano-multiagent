@@ -217,26 +217,28 @@ class TestCronSchedulerStateStore:
 
 
 # ---------------------------------------------------------------------------
-# Non-backfill scheduling semantics (openclaw computeNextRunAtMs)
+# CronScheduler integration smoke: schedule primitive wiring
 # ---------------------------------------------------------------------------
 
 
-class TestNonBackfillEverySchedule:
-    """Verify 'every' schedule (interval) does not backfill after restart.
+class TestCronSchedulerScheduleWiring:
+    """Smoke: _compute_due_jobs correctly routes a job.schedule dict to the primitive.
 
-    Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "every" branch
-    feat-394 decision 4.
+    Interval/cron/at timing semantics are authoritative in test_schedule_primitives.py.
+    This layer only verifies that CronScheduler._compute_due_jobs correctly translates
+    a job.schedule dict into a primitive call and returns the due CronJob.
     """
 
-    def test_first_tick_triggers_immediately(self, tmp_path: Path) -> None:
-        """First tick with no last_due triggers at floor(now, interval)."""
+    def test_compute_due_jobs_fires_due_interval_job(self, tmp_path: Path) -> None:
+        """An interval job with no prior state is returned by _compute_due_jobs on first tick."""
         store = CronJobStore(workspace_root=tmp_path)
-        job = _make_job(
-            job_id="j1",
-            schedule={"kind": "every", "everyMs": 60_000},  # every 60s
-            instruction="check",
+        store.add(
+            _make_job(
+                job_id="j1",
+                schedule={"kind": "every", "everyMs": 60_000},
+                instruction="check",
+            )
         )
-        store.add(job)
         state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
         scheduler = CronScheduler(
             agent_id="agent-1",
@@ -244,67 +246,7 @@ class TestNonBackfillEverySchedule:
             state_store=state_store,
             submit_fn=None,
         )
-        now = datetime(2026, 1, 1, 10, 0, 30, tzinfo=UTC)  # 10:00:30
+        now = datetime(2026, 1, 1, 10, 0, 30, tzinfo=UTC)
         due = scheduler._compute_due_jobs(now=now)
         assert len(due) == 1
         assert due[0].id == "j1"
-
-    def test_no_backfill_after_long_gap(self, tmp_path: Path) -> None:
-        """After a restart gap of 5 intervals, only 1 run is emitted (not 5).
-
-        Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "every" branch —
-        steps = ceil(elapsed/everyMs) always lands on the next future slot after anchor.
-        """
-        from personal_assistant.scheduler.cron_scheduler import (
-            _CronRunState,
-            _CronState,
-        )
-
-        # Last ran at 10:00; now it's 10:05 — gap = 5 minutes, interval = 60s → 5 missed ticks.
-        last_ran = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
-        now = datetime(2026, 1, 1, 10, 5, 0, tzinfo=UTC)
-
-        store = CronJobStore(workspace_root=tmp_path)
-        job = _make_job(
-            job_id="j1",
-            schedule={"kind": "every", "everyMs": 60_000},
-        )
-        store.add(job)
-
-        state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
-        state = _CronState(jobs={"j1": _CronRunState(last_due_at=last_ran.isoformat())})
-        state_store.save(state)
-
-        scheduler = CronScheduler(
-            agent_id="agent-1",
-            job_store=store,
-            state_store=state_store,
-            submit_fn=None,
-        )
-        due = scheduler._compute_due_jobs(now=now)
-        # openclaw semantics: only ONE run at the next aligned slot, not 5
-        assert len(due) == 1, f"Expected 1 due job (not backfill), got {len(due)}"
-
-    def test_not_due_when_interval_not_reached(self, tmp_path: Path) -> None:
-        from personal_assistant.scheduler.cron_scheduler import (
-            _CronRunState,
-            _CronState,
-        )
-
-        last_ran = datetime(2026, 1, 1, 10, 0, 0, tzinfo=UTC)
-        now = datetime(
-            2026, 1, 1, 10, 0, 30, tzinfo=UTC
-        )  # only 30s elapsed, interval=60s
-
-        store = CronJobStore(workspace_root=tmp_path)
-        store.add(_make_job(job_id="j1", schedule={"kind": "every", "everyMs": 60_000}))
-        state_store = CronSchedulerStateStore(state_path=tmp_path / "cron-state.json")
-        state_store.save(
-            _CronState(jobs={"j1": _CronRunState(last_due_at=last_ran.isoformat())})
-        )
-
-        scheduler = CronScheduler(
-            agent_id="agent-1", job_store=store, state_store=state_store, submit_fn=None
-        )
-        due = scheduler._compute_due_jobs(now=now)
-        assert due == [], "Job not yet due — interval not reached"
