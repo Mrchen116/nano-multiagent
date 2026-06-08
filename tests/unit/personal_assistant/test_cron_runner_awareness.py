@@ -7,8 +7,7 @@ Covers:
 - Isolated cron turns do NOT enter the canonical direct-chat session
 - delete_after_run: job is removed from store after first execution
 - CronRunner respects cron_enabled gate
-- feat-394-M6 R1: CronRunner._submit_cron_job uses _KernelClientShim-compatible
-  create_session signature (no session_id kwarg) — durable contract test
+- feat-394-M6 R1: CronRunner._submit_cron_job uses _KernelClientShim-compatible create_session signature
 
 feat-394 decision C-awareness + decision 4.
 """
@@ -395,10 +394,7 @@ async def test_cron_runner_uses_returned_session_id_for_submit(tmp_path: Path) -
 
     await runner._submit_cron_job(job=job)
 
-    # session_id returned by create_session must be "sess-1" (first call)
     assert shim_client.called_with is not None
-    # The submit call is tracked indirectly via no exception; shim returns run_id "run-shim-1"
-    # which cron_runner should pass back.  We rely on the above test for the no-crash guarantee.
     assert shim_client._session_counter == 1, (
         "exactly one session must have been created"
     )
