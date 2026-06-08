@@ -2250,3 +2250,143 @@ API 验证（保存后）：
 ## 上层文档同步 (Round 9)
 
 无新 delta — M9 属于配置 UX + 内部模型统一，无新增跨包行为契约。Round 8 文档状态已完整，本轮验收仅追加验收记录。
+
+---
+
+# Round N — 2026-06-08（决策 E/F/G 验收，M11 / M12 / M13）
+
+**Date**: 2026-06-08
+**Reviewer**: change-reviewer (Sonnet 4.6)
+**Branch**: unit/feat-394
+**Unit Worktree**: /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
+**Review Mode**: full
+**Prior Rounds**: Round 1–9（M1–M10）已接受。本轮专注三个 post-acceptance 新里程碑：
+- M11（决策 E / cadence 真源）
+- M12（决策 F / 关闭即停）
+- M13（决策 G / md 预览 + cron 列表 via WS RPC）
+
+**已知环境坑（issue #79，非 unit 缺陷）**：e2e-up.sh workspace_root 改写可能失效，默认 agent 读取主仓工作区 `/Users/czj/nano-assistant/workspace/default-agent`。本轮在主仓工作区的 HEARTBEAT.md 中添加了可操作内容以触发调度器（仅测试用途），不影响 unit 回归判断。
+
+---
+
+## Services Setup (Round N)
+
+- IM: port 58052（ephemeral，`e2e-up.sh` 启动）
+- Gateway: pid=27951，`--foreground --auto-bind`，config: `.gateway-config.yaml`（node_id: wt-unit-feat-394-27918）
+- Frontend: 已构建产物（`npm run build` tsc+vite 全通过），含 `heartbeat-md`、`heartbeatMd`、`heartbeat-enabled-toggle`、`cron-enabled-toggle` marker
+- 环境坑：default-agent workspace_root 指向 `/Users/czj/nano-assistant/workspace/default-agent`（issue #79），HEARTBEAT.md 需在主仓工作区中有可操作内容
+
+---
+
+## 验收标准覆盖表（M11 / M12 / M13）
+
+### M11：cadence 真源（决策 E）
+
+#### 场景：config page 设 cadence → gateway 以该值调度；HEARTBEAT.md 的 every:/interval: 行被忽略
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | design.md 决策 E；M11 progress.md |
+| 验证方式 | 配置页打开 heartbeat → 设 Cadence=15s → Save → 确认前端无 hardcode fallback；观察 heartbeat-state.json 按 15s 更新 |
+| 证据 1（无 hardcode fallback） | browser 快照：cadence 输入框 `placeholder="30m", value=""` — 无 `?? "30m"` hardcode 默认值（M11 R2 已清除） |
+| 证据 2（config 写入） | 保存后 `.gateway-config.yaml` 含 `heartbeat.every: 15s`；`features.heartbeat: true` |
+| 证据 3（调度器使用 config cadence） | HEARTBEAT.md 无任何 every:/interval: 行（仅含 `<!-- ... -->` 注释 + 可操作行）；heartbeat-state.json 从 `{}` 更新到 `{"default-agent": {"last_due_at": "2026-06-08T04:27:45+00:00"}}` — 约 30s 一次 tick 内在 15s 内触发第一次（符合 floor 语义） |
+| 结果 | `pass` |
+| 备注 | M11 unit tests: 25 passed。scheduler 代码路径：spec.schedule=None（无 at:/cron: 行）→ `_every_str = agent.heartbeat_every or _DEFAULT_HEARTBEAT_EVERY` → `15s` from config。HEARTBEAT.md every:/interval: 行已归入 `_RETIRED_PREFIXES` 静默跳过。|
+
+---
+
+### M12：关闭即停（决策 F）
+
+#### 场景：配置页关闭 heartbeat → 无需重启 gateway，数个 tick 内停止打 heartbeat
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | design.md 决策 F；M12 progress.md；spec.md S1.3 |
+| 验证方式 | 1) heartbeat enabled + 15s cadence 正在运行；2) 配置页取消勾选 heartbeat → Save；3) 等待 75s（2.5 个 30s tick）；4) 观察 heartbeat-state.json 的 last_due_at 是否停止推进 |
+| 证据 | 禁用前 `last_due_at: 2026-06-08T04:28:15Z`；禁用后 75s：`last_due_at: 2026-06-08T04:30:00Z`（仍在推进）；再等 5 分钟：`last_due_at: 2026-06-08T04:39:30Z`（持续推进，距禁用 11 分钟后仍在运行） |
+| 结果 | `fail` |
+| 根因分析 | M12 机制链路：IM PATCH 200 → `config.sync` WS push → `ConfigSyncClient.handle_notification` → `sync_agent` HTTP fetch → `register_agent(features={heartbeat:False})` → `pipeline._agents` 更新 → `agents_getter` 返回新配置。单测全通过（7 passed）；IM-side 数据正确（`/config?source=mirror` 返回 `features:{heartbeat:False}`，pv=3）；YAML 已正确落盘（`heartbeat: false`）。但调度器 tick 仍持续触发，说明 `pipeline._agents[default-agent].heartbeat_enabled` 在实际运行时未被置 False。可能根因：WS `config.sync` 帧被接收后 `sync_agent` 同步阻塞 asyncio 事件循环，期间调度器 tick 已在等待队列中，阻塞结束后 `register_agent` 调用成功但 tick 仍用旧 agent 对象；或 `pipeline._agents` 与 `agents_getter` 闭包所引用的 dict 在某种边缘情况下不是同一实例。网关日志静默（只有 2 行），无法进一步追踪。|
+| 建议 | 需要 worker 增加集成层诊断日志（`sync_agent` 前后打印 `agent.heartbeat_enabled`）后定位。本项是 M12 的核心功能，当前状态为实现存在但运行时不生效。|
+
+---
+
+### M13：md 预览 + cron 列表 via WS RPC（决策 G）
+
+#### 场景 G1：配置页 heartbeat 区有只读 HEARTBEAT.md 预览面板
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | design.md 决策 G；M13 progress.md R4 |
+| 验证方式 | 配置页启用 heartbeat → 点击 "View HEARTBEAT.md" → 确认展开显示内容 |
+| 证据 | browser snapshot：`@e26 [button] "View HEARTBEAT.md"` 存在；点击后展开面板，内容为 `# HEARTBEAT\n\n<!-- Add one schedule ... -->` |
+| 结果 | `pass` |
+| 备注 | IM `GET /im/v1/agents/default-agent/heartbeat-md` 调用 `gateway_handler.request_node_heartbeat_md`（WS RPC），不直接读文件。符合决策 G（IM 不接触 gateway 文件系统）。|
+
+#### 场景 G2：配置页 cron 区显示任务列表（无任务时显示 "No scheduled tasks yet."）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | design.md 决策 G；M13 progress.md |
+| 验证方式 | 配置页启用 cron + Save → 观察 Cron 区 |
+| 证据 | 页面文本含 `"No scheduled tasks yet. Ask the agent to add some."` — cron panel 正确渲染空态 |
+| 结果 | `pass` |
+
+#### 场景 G3：cron jobs API 通过 WS RPC（不直接读 gateway 文件）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | design.md 决策 G |
+| 验证方式 | 代码审查：`GET /im/v1/agents/{id}/cron/jobs` 实现 |
+| 证据 | `agents.py:list_agent_cron_jobs` 调用 `gateway_handler.request_node_cron_jobs`（WS RPC），有 M13 注释；`agents.py:get_agent_heartbeat_md` 调用 `gateway_handler.request_node_heartbeat_md`（WS RPC）。IM 不直接读文件。 |
+| 结果 | `pass` |
+
+---
+
+## 测试门禁（Round N）
+
+| 检查项 | 结果 |
+|---|---|
+| `pytest -m "not e2e"` 全树（M11/M12/M13 后） | M13 R5 progress.md: `2594 passed, 2 failed`（2 failed 是 macOS /tmp pre-existing flaky，非本 unit 引入） |
+| M11 unit tests | 25 passed |
+| M12 unit tests（test_gateway_reconcile_on_connect.py） | 7 passed |
+| M13 integration tests（test_agent_config_sync_notifies_connected_gateway 等） | pass |
+| `tsc -b --noEmit` | pass（M13 R4 frontend 通过） |
+
+---
+
+## Issues (Round N)
+
+### Issue N-1：M12 关闭即停在运行时不生效（**blocking**）
+
+**Severity**: blocking
+**Recommended Action**: fix-implementation
+
+**症状**：在配置页关闭 heartbeat → Save 后，gateway 内 heartbeat 持续触发，11 分钟内 heartbeat-state.json 仍在推进（last_due_at 从 04:28:15 推进到 04:39:30），无法满足决策 F "无需重启、数个 tick 内停止" 的要求。
+
+**已排除原因**：
+1. IM 端数据正确：`/im/v1/agents/default-agent/config?source=mirror` 返回 `features:{heartbeat:false}`, pv=3 ✓
+2. YAML 落盘正确：`.gateway-config.yaml` 含 `features.heartbeat: false` ✓
+3. 单元测试全通过：`test_gateway_reconcile_on_connect.py` 7 passed，`test_heartbeat_scheduler.py` agents_getter 测试 pass ✓
+4. WS 连接正常：IM log 无 disconnect 记录，gateway node WS `/im/ws/gateway` accepted ✓
+5. M12 集成测试 `test_agent_config_sync_notifies_connected_gateway` pass ✓
+
+**待定位根因**：`sync_agent` 调用 `register_agent` 后，`pipeline._agents[default-agent]` 的 `heartbeat_enabled` 属性在实际运行时 tick 中仍为 True。需要在 `sync_agent` 完成前后打印 `features` 状态，以确认是 `register_agent` 未更新对象，还是 `agents_getter` 引用到不同 dict，还是调度器在 sync 完成前已提交了一个 tick 且 last_due_at 写入发生在 sync 之后（时序问题）。
+
+**用户可观察影响**：heartbeat 无法在不重启 gateway 的情况下停用；"关了还一直打、烧 token" 的核心 bug 未修复。
+
+---
+
+## 整体评判（Round N）
+
+| 里程碑 | 状态 |
+|---|---|
+| M11（决策 E / cadence 真源） | **pass** |
+| M12（决策 F / 关闭即停） | **fail** — 运行时不生效（Issue N-1 blocking） |
+| M13（决策 G / md 预览 + cron 列表 WS RPC） | **pass** |
+
+**Verdict**: `fail`（M12 blocking 未解决）
+**Highest Required Action**: `fix-implementation`
+**Needs Re-review**: true
+
+---
