@@ -181,6 +181,7 @@ class IMConnectionManager:
         prompt_preview_provider: PromptPreviewProvider | None = None,
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
+        on_connected: Callable[[], Awaitable[None]] | None = None,
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -199,6 +200,10 @@ class IMConnectionManager:
         # token_getter is called on each connect attempt to supply a fresh access token.
         # When absent the static config.token is used (backwards-compatible behaviour).
         self._token_getter = token_getter
+        # feat-394-M12 决策 F: async callback invoked after each successful WS bind
+        # (node.register ack received). Used to trigger reconcile_all_agents so gateway
+        # config converges to IM truth on connect and every reconnect.
+        self._on_connected = on_connected
         self._connect = connect
         self._sleep = sleep
         self._websocket: ClientWebSocket | None = None
@@ -250,6 +255,14 @@ class IMConnectionManager:
         except Exception as exc:  # noqa: BLE001
             await self._disconnect_current_websocket(exc)
             raise
+        # feat-394-M12 决策 F: fire on_connected after WS bind succeeds so reconcile
+        # runs on every connect and reconnect. Errors in the callback are logged and
+        # suppressed — a reconcile failure must not tear down the WS connection.
+        if self._on_connected is not None:
+            try:
+                await self._on_connected()
+            except Exception as exc:  # noqa: BLE001
+                self._events.append({"event": "on_connected_error", "error": str(exc)})
 
     async def close(self) -> None:
         """Stop reconnect attempts and close the current websocket if present."""
