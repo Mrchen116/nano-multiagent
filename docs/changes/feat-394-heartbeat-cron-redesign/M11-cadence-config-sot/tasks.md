@@ -41,4 +41,4 @@ heartbeat 特性下加可折叠 HEARTBEAT.md 只读预览（仿 promptPreview �
 | ID | 标题 | 状态 |
 |---|---|---|
 | R1 | 后端：scheduler 读 config.every，退役 md 顶层 every | DONE |
-| R2 | 前端：删硬编码兜底 + HEARTBEAT.md 只读预览 | TODO |
+| R2 | 前端：删硬编码兜底 + HEARTBEAT.md 只读预览 | DONE |
