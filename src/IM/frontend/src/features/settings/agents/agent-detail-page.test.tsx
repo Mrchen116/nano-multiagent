@@ -930,17 +930,18 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     renderDetailPage();
     await screen.findByRole("heading", { name: "Cron Agent" });
 
-    // 勾选 cron_scheduling 特性（BehaviorCard 里的 features checkbox）
+    // 勾选 cron_scheduling 特性（BehaviorCard 里的 features checkbox，用 data-feature-key 定位）
     const cronCheckbox = document.querySelector<HTMLInputElement>(
-      '[data-testid="feature-toggle-cron_scheduling"]'
+      '[data-feature-key="cron_scheduling"]'
     );
     expect(cronCheckbox, "cron_scheduling checkbox 应存在").not.toBeNull();
     await user.click(cronCheckbox!);
 
     // 保存配置，观察 PATCH payload 中的 tool_allowlist
     apiMocks.updateAgentConfigMock.mockResolvedValue({});
-    const saveBtn = screen.getByRole("button", { name: /Save/i });
-    await user.click(saveBtn);
+    const saveBtn = document.querySelector<HTMLButtonElement>('button[type="submit"]');
+    expect(saveBtn, "submit 按钮应存在").not.toBeNull();
+    await user.click(saveBtn!);
 
     await waitFor(() => {
       expect(apiMocks.updateAgentConfigMock).toHaveBeenCalled();

@@ -1080,10 +1080,23 @@ export function AgentDetailPage() {
             // feat-379-M9 (決策 12): tick → add requires_tool to allowlist; untick → keep tool.
             const capFeats = capabilities?.features ?? [];
             const requiresTool = capFeats.find((f) => f.key === key)?.requires_tool ?? null;
-            const nextAllowlist =
-              value && requiresTool && !draft.tool_allowlist.includes(requiresTool)
-                ? [...draft.tool_allowlist, requiresTool]
+            // bugfix: mirror the materialize logic in PillSelector onChange — when the allowlist is
+            // in default mode (untouched + empty), ticking a feature must first expand the effective
+            // defaults before appending requires_tool, otherwise all default tools are dropped and
+            // the pill selector shows only the newly-added tool as selected.
+            const effectiveBase =
+              !allowlistUserTouched && draft.tool_allowlist.length === 0
+                ? (capabilities?.tools ?? [])
+                    .filter((t: { default_on?: boolean }) => t.default_on === true)
+                    .map((t: { name: string }) => t.name)
                 : draft.tool_allowlist;
+            const didMaterialize = effectiveBase !== draft.tool_allowlist;
+            const nextAllowlist =
+              value && requiresTool && !effectiveBase.includes(requiresTool)
+                ? [...effectiveBase, requiresTool]
+                : effectiveBase;
+            // Mark as touched only when we actually materialized defaults (same rule as onChange).
+            if (didMaterialize) setAllowlistUserTouched(true);
             // feat-394 M9-E: features is the single-true-source for enable state.
             // HeartbeatCard reads features["heartbeat"]; CronCard reads features["cron_scheduling"].
             // No parallel sync into draft.heartbeat.enabled or draft.cron needed.
