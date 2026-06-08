@@ -118,7 +118,8 @@ def test_reconcile_updates_disabled_heartbeat_when_missed_incremental_push(
     )
 
     client = httpx.Client(
-        transport=httpx.MockTransport(lambda req: next(responses))
+        base_url="http://im.local:9000",
+        transport=httpx.MockTransport(lambda req: next(responses)),
     )
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
@@ -178,7 +179,8 @@ def test_reconcile_skips_update_when_im_profile_version_is_older(
         ]
     )
     client = httpx.Client(
-        transport=httpx.MockTransport(lambda req: next(responses))
+        base_url="http://im.local:9000",
+        transport=httpx.MockTransport(lambda req: next(responses)),
     )
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
@@ -227,7 +229,8 @@ def test_reconcile_updates_when_im_profile_version_is_equal_or_newer(
         ]
     )
     client = httpx.Client(
-        transport=httpx.MockTransport(lambda req: next(responses))
+        base_url="http://im.local:9000",
+        transport=httpx.MockTransport(lambda req: next(responses)),
     )
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
@@ -349,7 +352,10 @@ def test_reconcile_http_failure_does_not_raise(tmp_path: Path) -> None:
     def _always_500(req: httpx.Request) -> httpx.Response:
         return httpx.Response(500, json={"detail": "server error"})
 
-    client = httpx.Client(transport=httpx.MockTransport(_always_500))
+    client = httpx.Client(
+        base_url="http://im.local:9000",
+        transport=httpx.MockTransport(_always_500),
+    )
     sync_client = _IMConfigSyncClient(
         base_url="http://im.local:9000",
         token="tok",
@@ -366,70 +372,65 @@ def test_reconcile_http_failure_does_not_raise(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 场景 7：对账在重连时也触发（run_forever 每次 connect_once 都调 on_connected）
+# 场景 7：connect_once 每次被调用均触发对账（覆盖重连场景语义）
 # ---------------------------------------------------------------------------
 
 
-def test_reconcile_callback_invoked_on_each_reconnect(tmp_path: Path) -> None:
-    """每次 reconnect（connect_once 成功）都触发对账回调，断线后重连时同样生效。"""
+def test_reconcile_callback_invoked_on_each_connect_once_call(tmp_path: Path) -> None:
+    """connect_once 每次成功调用都触发 on_connected 回调，覆盖重连场景语义。
+
+    run_forever 每次重连都会调 connect_once；此测试直接调两次 connect_once 验证
+    回调被触发两次，等价于「首次连接 + 断线重连」两个 bind 事件均触发对账。
+    """
     from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
     from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 
-    from tests.unit.personal_assistant._im_connection_helpers import _minimal_reporter
+    from tests.unit.personal_assistant._im_connection_helpers import (
+        _FakeWebSocket,
+        _connect_fake,
+        _minimal_reporter,
+    )
 
     reporter = _minimal_reporter(tmp_path)
     relay_adapter = WebRelayAdapter()
-
-    connect_count = 0
+    connect_calls: list[tuple[str, dict[str, str]]] = []
     reconcile_calls: list[None] = []
 
-    async def _connecting_socket(url: str, headers: Any) -> Any:
-        nonlocal connect_count
-        connect_count += 1
-        if connect_count == 1:
-            # 首次连接成功，收完 node.register ack 后马上抛异常模拟断线
-            import json as _json
+    def _make_socket() -> _FakeWebSocket:
+        return _FakeWebSocket(
+            incoming=[
+                json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            ]
+        )
 
-            class _OneFrameThenDrop:
-                async def send(self, data: str) -> None:
-                    pass
+    call_count = 0
 
-                async def recv(self) -> str:
-                    if connect_count == 1:
-                        return _json.dumps(
-                            {
-                                "type": "ack",
-                                "payload": {"message_type": "node.register"},
-                            }
-                        )
-                    raise RuntimeError("dropped")
-
-                async def close(self) -> None:
-                    pass
-
-            return _OneFrameThenDrop()
-        # 第二次连接也成功，但 recv 立即断（让 run_forever 退出）
-        raise StopIteration("stop test")
+    async def _connect_new_socket(url: str, headers: Any) -> _FakeWebSocket:
+        nonlocal call_count
+        call_count += 1
+        socket = _make_socket()
+        connect_calls.append((url, dict(headers)))
+        return socket
 
     async def _reconcile_callback() -> None:
         reconcile_calls.append(None)
 
     manager = IMConnectionManager(
-        config=IMConnectionConfig(url="http://im.local:9000", reconnect_initial_seconds=0.001),
+        config=IMConnectionConfig(url="http://im.local:9000"),
         reporter=reporter,
         relay_adapter=relay_adapter,
-        connect=_connecting_socket,
+        connect=_connect_new_socket,
         on_connected=_reconcile_callback,
     )
 
-    async def _run_limited() -> None:
-        """跑 run_forever 直到第二次 connect 失败（StopIteration 终止测试循环）。"""
-        try:
-            await manager.run_forever()
-        except StopIteration:
-            pass
+    async def _two_connects() -> None:
+        await manager.connect_once()
+        # 模拟断线后重连：强制重置连接状态，再调一次 connect_once
+        manager._connected = False  # noqa: SLF001
+        manager._websocket = None  # noqa: SLF001
+        await manager.connect_once()
 
-    asyncio.run(_run_limited())
+    asyncio.run(_two_connects())
 
-    # 首次连接成功时对账触发一次
-    assert len(reconcile_calls) >= 1
+    # 两次 connect_once 各触发一次对账
+    assert len(reconcile_calls) == 2

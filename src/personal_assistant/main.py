@@ -507,6 +507,134 @@ class _IMConfigSyncClient:
             client.close()
             self._client = None
 
+    def reconcile_all_agents(
+        self,
+        *,
+        memory_versions: dict[str, int] | None = None,
+    ) -> None:
+        """拉 IM 权威 profile 做全量对账，按 profile_version 取大覆盖内存 config。
+
+        feat-394-M12 决策 F：gateway WS bind 完成（含重连）后调用一次，消除「漏一次
+        增量推送即永久停在旧状态」的问题。对每个 local_config.agents 拉 source=mirror
+        profile；若 IM 返回的 profile_version >= memory_versions[agent_id] 则
+        register_agent 覆盖内存，否则保留内存（取大原则，避免回退新版本）。HTTP 失败
+        时记录警告并跳过该 agent——不抛出，WS 连接生命周期不受影响。
+
+        Args:
+            memory_versions: 可选的 agent_id → 当前内存 profile_version 映射（由
+                ConfigSyncClient 维护）。缺失或无对应 key 时视作内存版本为 0，即接受
+                任意 IM 版本。
+        """
+        if memory_versions is None:
+            memory_versions = {}
+        for agent in self._local_config.agents:
+            agent_id = agent.agent_id
+            mem_ver = memory_versions.get(agent_id, 0)
+            try:
+                payload = self._fetch_agent_config(agent_id=agent_id)
+            except (httpx.HTTPError, ValueError):
+                _log.warning(
+                    "reconcile_all_agents: failed to fetch profile for agent %s, skipping",
+                    agent_id,
+                )
+                continue
+            im_version = int(payload.get("profile_version", 0))
+            if im_version < mem_ver:
+                # IM 版本落后内存（增量推送已带来更新版本），保留内存不回退
+                _log.debug(
+                    "reconcile_all_agents: skipping agent %s — IM version %d < memory %d",
+                    agent_id,
+                    im_version,
+                    mem_ver,
+                )
+                continue
+            # IM 版本 >= 内存版本：覆盖内存 config 使其收敛到 IM 真值
+            workspace_root_text = payload.get("workspace_root")
+            if isinstance(workspace_root_text, str) and workspace_root_text.strip():
+                workspace_root = Path(workspace_root_text).expanduser().resolve()
+            else:
+                workspace_root = self._workspace_root_factory(agent_id)
+            workspace_root = ensure_workspace_defaults(workspace_root)
+            raw_features = payload.get("features")
+            synced_features = (
+                {
+                    k: v
+                    for k, v in raw_features.items()
+                    if isinstance(k, str) and isinstance(v, bool)
+                }
+                if isinstance(raw_features, dict)
+                else {}
+            )
+            synced_custom_prompt_val = payload.get("custom_prompt")
+            synced_custom_prompt = (
+                synced_custom_prompt_val.strip()
+                if isinstance(synced_custom_prompt_val, str)
+                and synced_custom_prompt_val.strip()
+                else None
+            )
+            _hb_raw_str = payload.get("heartbeat_json")
+            if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
+                import json as _json  # noqa: PLC0415
+
+                try:
+                    _hb_raw = _json.loads(_hb_raw_str)
+                except (ValueError, TypeError):
+                    _hb_raw = payload.get("heartbeat")
+            else:
+                _hb_raw = payload.get("heartbeat")
+            (
+                synced_heartbeat_every,
+                synced_hb_start,
+                synced_hb_end,
+                synced_hb_tz,
+            ) = _parse_heartbeat_from_im_payload(_hb_raw)
+            _raw_allowlist = [
+                item.strip()
+                for item in payload.get("tool_allowlist", [])
+                if isinstance(item, str) and item.strip()
+            ]
+            agent_config = AgentWorkspaceConfig(
+                agent_id=agent_id,
+                workspace_root=workspace_root,
+                title=str(payload.get("display_name") or agent_id),
+                skills=tuple(
+                    item.strip()
+                    for item in payload.get("skills", [])
+                    if isinstance(item, str) and item.strip()
+                ),
+                tool_allowlist=tuple(_raw_allowlist),
+                system_prompt=(
+                    payload.get("system_prompt").strip()
+                    if isinstance(payload.get("system_prompt"), str)
+                    and payload.get("system_prompt").strip()
+                    else None
+                ),
+                group_reply_policy=(
+                    payload.get("group_reply_policy").strip()
+                    if isinstance(payload.get("group_reply_policy"), str)
+                    and payload.get("group_reply_policy").strip()
+                    else None
+                ),
+                default_model=(
+                    payload.get("default_model").strip()
+                    if isinstance(payload.get("default_model"), str)
+                    and payload.get("default_model").strip()
+                    else None
+                ),
+                features=synced_features,
+                custom_prompt=synced_custom_prompt,
+                heartbeat_every=synced_heartbeat_every,
+                heartbeat_active_hours_start=synced_hb_start,
+                heartbeat_active_hours_end=synced_hb_end,
+                heartbeat_active_hours_timezone=synced_hb_tz,
+            )
+            self._pipeline.register_agent(agent_config)
+            _log.debug(
+                "reconcile_all_agents: updated agent %s to IM version %d",
+                agent_id,
+                im_version,
+            )
+
     def _persist_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
         agents = list(self._local_config.agents)
         for index, existing in enumerate(agents):
@@ -1969,12 +2097,28 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
 
         # M3: permission response handler is no longer wired — the SDK's can_use_tool
         # callback handles all permission decisions in-process (design decision 3).
+        _im_sync_client = ConfigSyncClient(fetcher=im_config_sync_client.sync_agent)
+
+        # feat-394-M12 决策 F: reconcile 回调——WS bind 完成后（含重连）拉全量 profile
+        # 对账，消除漏推送导致的内存状态滞留。reconcile_all_agents 是同步 HTTP 调用，
+        # 用 asyncio.to_thread 包装使其在 WS 事件循环中安全运行。
+        async def _reconcile_on_connect() -> None:
+            memory_versions = {
+                agent_id: ver
+                for agent_id in (a.agent_id for a in config.agents)
+                if (ver := _im_sync_client.latest_profile_version(agent_id)) is not None
+            }
+            await asyncio.to_thread(
+                im_config_sync_client.reconcile_all_agents,
+                memory_versions=memory_versions,
+            )
+
         im_connection_manager = _build_im_connection_manager(
             config=config,
             relay_adapter=relay_adapter,
             reporter=reporter,
             heartbeat_runner=heartbeat_runner,
-            sync_client=ConfigSyncClient(fetcher=im_config_sync_client.sync_agent),
+            sync_client=_im_sync_client,
             agent_config_provider=lambda agent_id: (
                 im_config_sync_client.current_agent_payload(agent_id=agent_id)
             ),
@@ -1994,6 +2138,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
             permission_response_handler=None,
+            on_connected=_reconcile_on_connect,
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -2446,6 +2591,7 @@ def _build_im_connection_manager(
     agent_create_handler: AgentCreateHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
     permission_response_handler: Callable[[Mapping[str, object]], None] | None = None,
+    on_connected: Callable[[], Awaitable[None]] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -2463,6 +2609,7 @@ def _build_im_connection_manager(
         token_getter=token_getter,
         connect=_connect_websocket,
         permission_response_handler=permission_response_handler,
+        on_connected=on_connected,
     )
 
 
