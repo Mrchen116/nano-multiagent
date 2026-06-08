@@ -2390,3 +2390,89 @@ API 验证（保存后）：
 **Needs Re-review**: true
 
 ---
+
+# Round 7 — 2026-06-08
+
+**Date**: 2026-06-08
+**Reviewer**: change-reviewer (Sonnet 4.6)
+**Branch**: unit/feat-394
+**Unit Worktree**: /Users/czj/Repos/nano-multiagent/.worktrees/unit-feat-394
+**Review Mode**: 复验（仅 M12）
+**Fix commit**: 59436399（run_coroutine_threadsafe 修复 config.sync 帧投递）
+
+---
+
+## Summary
+
+| | |
+|---|---|
+| **Verdict** | `pass` |
+| **Highest Required Action** | `pass` |
+| **Issues** | blocking: 0 / major: 0 / minor: 0 |
+| **Needs Re-review** | false |
+
+**Top Concern**: 无。M12 关闭即停在本轮 e2e 复验中通过——关闭 heartbeat 后 `last_due_at` 立即冻结，3 分钟内（12 个 15s tick）未推进。
+
+---
+
+## Services Setup (Round 7)
+
+- IM: port 61179（e2e-up.sh 启动，node_id: wt-unit-feat-394-39814）
+- Gateway: pid=39847，`--foreground --auto-bind`，config: `.gateway-config.yaml`
+- 关键说明：e2e-up 自带的 `default-agent` 受 issue #79 影响（workspace_root 泄漏到主仓），调度器未对其触发 heartbeat。改用 `Arch` agent（同为主仓路径，但不受 issue #79 阻塞调度）验证——heartbeat 正常触发，证明调度器机制有效，issue #79 不影响本 unit 的核心机制验收。
+
+---
+
+## 验收标准覆盖表（Round 7，仅 M12）
+
+### M12：关闭即停（决策 F）—— Round 7 复验
+
+#### 场景：配置页关闭 heartbeat → 无需重启 gateway，数个 tick 内停止打 heartbeat
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | design.md 决策 F；spec.md S1.3 |
+| 验证方式 | 1) 启用 Arch agent heartbeat（every=15s）→ 确认调度器触发；2) 关闭 heartbeat → Save；3) 等待 3 分钟（12 个 15s tick）；4) 观察 heartbeat-state.json 的 last_due_at 是否冻结 |
+| 证据 1（heartbeat 正常运行） | heartbeat-state.json 在启用后 45s 内从 `{}` 更新为 `Arch: last_due_at=2026-06-08T07:06:00Z`，再到 `07:06:30Z`（约 30s 一次 tick） |
+| 证据 2（关闭时间点） | `2026-06-08T07:06:57Z` —— PATCH features.heartbeat=false → 200；IM `GET ?source=mirror` 确认 `features:{heartbeat:False}`, pv=3；gateway-config.yaml Arch 段 `features.heartbeat: false` 写回 |
+| 证据 3（关闭后冻结，3 分钟 12 次观察） | `[1]07:07:20Z=07:06:30 [2]07:07:35Z=07:06:30 [3]07:07:50Z=07:06:30 [4]07:08:05Z=07:06:30 [5]07:08:20Z=07:06:30 [6]07:08:35Z=07:06:30 [7]07:08:50Z=07:06:30 [8]07:09:05Z=07:06:30 [9]07:09:20Z=07:06:30 [10]07:09:36Z=07:06:30 [11]07:09:51Z=07:06:30 [12]07:10:06Z=07:06:30` — last_due_at **始终停在 07:06:30，从未推进** |
+| 结果 | `pass` |
+| 备注 | 上一轮（Round N）：关闭后 11 分钟 last_due_at 仍在推进（04:28:15→04:39:30）。本轮：关闭后即时冻结，3 分钟内 0 次推进。fix commit 59436399（run_coroutine_threadsafe）修复有效。 |
+
+**S1.1 / S1.2 / S1.4（继承上一轮 pass 状态）**：本轮不重复验，M11/M13 上一轮已 pass，无需复验。
+
+---
+
+## M11 / M13 状态（继承）
+
+| 里程碑 | 状态 |
+|---|---|
+| M11（决策 E / cadence 真源） | **pass**（Round N 通过，未改动） |
+| M12（决策 F / 关闭即停） | **pass**（Round 7 通过） |
+| M13（决策 G / md 预览 + cron 列表 WS RPC） | **pass**（Round N 通过，未改动） |
+
+---
+
+## Issues (Round 7)
+
+无。
+
+---
+
+## 上层文档同步 (Round 7)
+
+| 文档 | 状态 |
+|---|---|
+| `SPEC.md` | 无需更新（heartbeat/cron 是 PA 专属） |
+| `docs/specs/gateway/spec.md` | 已在历轮更新（含 M12 关闭即停行为） |
+| `docs/specs/im/spec.md` | 已在历轮更新 |
+| `AGENTS.md` | 无需更新 |
+| `CLAUDE.md` | 无需更新 |
+
+---
+
+## 整体评判（Round 7）
+
+**Verdict**: `pass`
+**Highest Required Action**: `pass`
+**Needs Re-review**: false
