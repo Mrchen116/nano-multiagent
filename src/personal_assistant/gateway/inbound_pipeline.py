@@ -531,7 +531,6 @@ class InboundPipeline:
         return session_metadata
 
     @staticmethod
-    @staticmethod
     def _should_process(
         message: InboundMessage,
         *,
