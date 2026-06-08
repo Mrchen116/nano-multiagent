@@ -3,6 +3,7 @@
 ## Relations
 
 - Related: feat-349-self-evolving-skills-memory   # 引入后台 self-evolution review fork + 通知的 unit
+- Related: refactor-387                            # 引入本回归的 unit(gateway 进程内化时丢失 anchor 语义)
 
 ## 原始报告
 
@@ -51,6 +52,27 @@ session 历史,把过去真正发生过的 `self_evolution_review` 旧事件当�
 "后台自进化**真正发生**了一次,已更新 skills/memory"。修复要消除的是**重放/重复**,而不是
 通知本身——每发生一次真实 fork,用户仍应**恰好收到一次**通知,且能区分 skills / memory。
 不能为了消掉刷屏把通知整条砍掉。
+
+**为什么这种错能进来(回归引入点,非原始设计遗漏)**:feat-349 的事件投递设计本身**正确**,
+不是设计遗漏。回归是 **refactor-387/M3**(commit `8840e42f`,2026-05-29,gateway 进程内化)
+引入的。重构**前**(HTTP/SSE 时代)这段锚点逻辑是对的:
+
+```python
+# anchor_sequence is captured before the run starts; use it as Last-Event-ID
+raw_anchor = run_payload.get("anchor_sequence")
+anchor_sequence = int(raw_anchor) if isinstance(raw_anchor, int) else None
+```
+
+即:run 携带一个"开始前捕获的 anchor",订阅只取本 run 之后的事件,历史不会被重放。重构把内核
+从 HTTP API 改成进程内库时,删掉了 HTTP 的 `run_payload`、改用 `kernel.submit()` 返回的
+`run_record`,却**没有把 anchor 语义一起迁移**,而是写死成 `0`,并配了误导性注释
+"in-process mode: no SSE replay needed"——判断恰好反了:进程内 `EventStreamHub` 同样保留
+历史,`after_sequence=0` 等于"重放全部历史"。
+
+根本教训:**重构丢失了一个隐式契约**。anchor 当年藏在 HTTP `run_payload` 里,是个未被显式
+建模的约定,从没成为 run 的一等属性,所以换传输层时最容易蒸发。本次修复把它提升为
+`RunRecord.start_sequence`(run 自带起始序号),正是把这条隐式契约显式化,以后再换底层传输
+也不会再丢——这也是选"run 携带起点"而非"消费方事后去重"的根因所在。
 
 ## 修复
 
