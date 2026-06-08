@@ -640,9 +640,7 @@ def test_list_cron_jobs_calls_rpc_not_direct_file_read(
         workspace_root: str,
         timeout_seconds: float = 10.0,
     ) -> list:
-        rpc_calls.append(
-            {"target_node_id": target_node_id, "agent_id": agent_id}
-        )
+        rpc_calls.append({"target_node_id": target_node_id, "agent_id": agent_id})
         return [
             {
                 "id": "job-rpc-1",
@@ -662,7 +660,10 @@ def test_list_cron_jobs_calls_rpc_not_direct_file_read(
         authorize(client, owner)
         nodes = NodeRepository(app.state.connection)
         nodes.upsert_node(
-            node_id="node-1", node_name="MacBook", status="online", version="1.0.0",
+            node_id="node-1",
+            node_name="MacBook",
+            status="online",
+            version="1.0.0",
             owner_id=owner.owner_id,
         )
         profiles = AgentProfileRepository(app.state.connection)
@@ -702,8 +703,9 @@ def test_list_cron_jobs_returns_empty_when_node_offline(
     """GET /im/v1/agents/{id}/cron/jobs returns [] when node is offline (RPC → None)."""
     from IM.ws.gateway_handler import GatewayHandler
 
-    async def _offline_rpc(self, *, target_node_id, agent_id, workspace_root,
-                           timeout_seconds=10.0) -> None:
+    async def _offline_rpc(
+        self, *, target_node_id, agent_id, workspace_root, timeout_seconds=10.0
+    ) -> None:
         return None  # node offline / timeout
 
     monkeypatch.setattr(GatewayHandler, "request_node_cron_jobs", _offline_rpc)
@@ -714,7 +716,10 @@ def test_list_cron_jobs_returns_empty_when_node_offline(
         authorize(client, owner)
         nodes = NodeRepository(app.state.connection)
         nodes.upsert_node(
-            node_id="node-2", node_name="Node2", status="offline", version="1.0.0",
+            node_id="node-2",
+            node_name="Node2",
+            status="offline",
+            version="1.0.0",
             owner_id=owner.owner_id,
         )
         profiles = AgentProfileRepository(app.state.connection)
@@ -772,7 +777,10 @@ def test_delete_cron_job_calls_rpc_not_direct_file_write(
         authorize(client, owner)
         nodes = NodeRepository(app.state.connection)
         nodes.upsert_node(
-            node_id="node-3", node_name="Node3", status="online", version="1.0.0",
+            node_id="node-3",
+            node_name="Node3",
+            status="online",
+            version="1.0.0",
             owner_id=owner.owner_id,
         )
         profiles = AgentProfileRepository(app.state.connection)
@@ -807,8 +815,9 @@ def test_delete_cron_job_returns_404_when_node_offline(
     """DELETE returns 404 when node is offline (RPC → None)."""
     from IM.ws.gateway_handler import GatewayHandler
 
-    async def _offline_rpc(self, *, target_node_id, agent_id, workspace_root, job_id,
-                           timeout_seconds=10.0):
+    async def _offline_rpc(
+        self, *, target_node_id, agent_id, workspace_root, job_id, timeout_seconds=10.0
+    ):
         return None
 
     monkeypatch.setattr(GatewayHandler, "request_node_cron_delete", _offline_rpc)
@@ -819,7 +828,10 @@ def test_delete_cron_job_returns_404_when_node_offline(
         authorize(client, owner)
         nodes = NodeRepository(app.state.connection)
         nodes.upsert_node(
-            node_id="node-4", node_name="Node4", status="offline", version="1.0.0",
+            node_id="node-4",
+            node_name="Node4",
+            status="offline",
+            version="1.0.0",
             owner_id=owner.owner_id,
         )
         profiles = AgentProfileRepository(app.state.connection)
@@ -870,7 +882,10 @@ def test_get_heartbeat_md_calls_rpc(
         authorize(client, owner)
         nodes = NodeRepository(app.state.connection)
         nodes.upsert_node(
-            node_id="node-5", node_name="Node5", status="online", version="1.0.0",
+            node_id="node-5",
+            node_name="Node5",
+            status="online",
+            version="1.0.0",
             owner_id=owner.owner_id,
         )
         profiles = AgentProfileRepository(app.state.connection)
@@ -905,8 +920,9 @@ def test_get_heartbeat_md_returns_empty_when_node_offline(
     """GET /heartbeat-md returns empty content when node is offline (RPC → None)."""
     from IM.ws.gateway_handler import GatewayHandler
 
-    async def _offline_rpc(self, *, target_node_id, agent_id, workspace_root,
-                           timeout_seconds=10.0):
+    async def _offline_rpc(
+        self, *, target_node_id, agent_id, workspace_root, timeout_seconds=10.0
+    ):
         return None
 
     monkeypatch.setattr(GatewayHandler, "request_node_heartbeat_md", _offline_rpc)
@@ -917,7 +933,10 @@ def test_get_heartbeat_md_returns_empty_when_node_offline(
         authorize(client, owner)
         nodes = NodeRepository(app.state.connection)
         nodes.upsert_node(
-            node_id="node-6", node_name="Node6", status="offline", version="1.0.0",
+            node_id="node-6",
+            node_name="Node6",
+            status="offline",
+            version="1.0.0",
             owner_id=owner.owner_id,
         )
         profiles = AgentProfileRepository(app.state.connection)

@@ -922,5 +922,7 @@ def test_scheduler_tasks_per_task_rhythm_unaffected_by_config_every(
     second = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 9, 15, tzinfo=UTC)))
 
     assert len(first.triggered_runs) == 1, "tasks: task fires on first tick"
-    assert len(second.triggered_runs) == 1, "15m task interval elapsed — should fire again"
+    assert len(second.triggered_runs) == 1, (
+        "15m task interval elapsed — should fire again"
+    )
     assert len(kernel.sent_messages) == 2

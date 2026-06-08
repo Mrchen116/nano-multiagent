@@ -846,7 +846,9 @@ def test_im_connection_handles_cron_jobs_request(tmp_path: Path) -> None:
     workspace = tmp_path / "agent-ws"
     cron_dir = workspace / ".nanoassistant" / "cron"
     cron_dir.mkdir(parents=True)
-    jobs_data = [{"id": "job-1", "name": "tick", "schedule": {"kind": "every", "every": "30m"}}]
+    jobs_data = [
+        {"id": "job-1", "name": "tick", "schedule": {"kind": "every", "every": "30m"}}
+    ]
     (cron_dir / "jobs.json").write_text(
         __import__("json").dumps(jobs_data), encoding="utf-8"
     )
@@ -961,7 +963,9 @@ def test_im_connection_handles_cron_delete_request_job_not_found(
     cron_dir.mkdir(parents=True)
     import json as _json
 
-    (cron_dir / "jobs.json").write_text(_json.dumps([{"id": "job-other"}]), encoding="utf-8")
+    (cron_dir / "jobs.json").write_text(
+        _json.dumps([{"id": "job-other"}]), encoding="utf-8"
+    )
 
     socket = _FakeWebSocket(
         incoming=[

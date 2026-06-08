@@ -764,7 +764,9 @@ def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
     if not instruction_lines:
         return None
     if len(schedule_entries) > 1:
-        raise ValueError("HEARTBEAT.md must declare at most one explicit schedule mode (at:/cron:)")
+        raise ValueError(
+            "HEARTBEAT.md must declare at most one explicit schedule mode (at:/cron:)"
+        )
     if schedule_entries:
         schedule_kind, schedule_value = schedule_entries[0]
         return _HeartbeatSpec(

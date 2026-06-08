@@ -1,7 +1,6 @@
 """Agent configuration and capability routes for IM HTTP APIs."""
 
 import json
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field, model_validator

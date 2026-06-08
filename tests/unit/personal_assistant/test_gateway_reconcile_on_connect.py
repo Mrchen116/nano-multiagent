@@ -260,7 +260,10 @@ def test_reconcile_callback_invoked_after_connect_once(tmp_path: Path) -> None:
     验证对账触发时机绑定在 WS bind 完成（node.register ack 收到）之后。
     """
     from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
-    from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
+    from personal_assistant.ws.im_connection import (
+        IMConnectionConfig,
+        IMConnectionManager,
+    )
 
     from tests.unit.personal_assistant._im_connection_helpers import (
         _FakeWebSocket,
@@ -304,7 +307,10 @@ def test_reconcile_callback_invoked_after_connect_once(tmp_path: Path) -> None:
 def test_reconcile_callback_not_invoked_when_connect_fails(tmp_path: Path) -> None:
     """WS 连接失败时，对账回调不应被触发。"""
     from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
-    from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
+    from personal_assistant.ws.im_connection import (
+        IMConnectionConfig,
+        IMConnectionManager,
+    )
 
     from tests.unit.personal_assistant._im_connection_helpers import _minimal_reporter
 
@@ -383,7 +389,10 @@ def test_reconcile_callback_invoked_on_each_connect_once_call(tmp_path: Path) ->
     回调被触发两次，等价于「首次连接 + 断线重连」两个 bind 事件均触发对账。
     """
     from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
-    from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
+    from personal_assistant.ws.im_connection import (
+        IMConnectionConfig,
+        IMConnectionManager,
+    )
 
     from tests.unit.personal_assistant._im_connection_helpers import (
         _FakeWebSocket,
@@ -399,7 +408,9 @@ def test_reconcile_callback_invoked_on_each_connect_once_call(tmp_path: Path) ->
     def _make_socket() -> _FakeWebSocket:
         return _FakeWebSocket(
             incoming=[
-                json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+                json.dumps(
+                    {"type": "ack", "payload": {"message_type": "node.register"}}
+                ),
             ]
         )
 

@@ -14,7 +14,9 @@ from urllib.parse import urlparse
 from personal_assistant._utils import _require_text
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.sync_client import ConfigSyncClient
-from personal_assistant.defaults import WORKSPACE_CONFIG_DIRNAME as _PA_WORKSPACE_CFG_DIR
+from personal_assistant.defaults import (
+    WORKSPACE_CONFIG_DIRNAME as _PA_WORKSPACE_CFG_DIR,
+)
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_node_capabilities_payload,
@@ -582,7 +584,9 @@ class IMConnectionManager:
                 import json as _json  # noqa: PLC0415
                 from pathlib import Path as _Path  # noqa: PLC0415
 
-                jobs_path = _Path(workspace_root) / _PA_WORKSPACE_CFG_DIR / "cron" / "jobs.json"
+                jobs_path = (
+                    _Path(workspace_root) / _PA_WORKSPACE_CFG_DIR / "cron" / "jobs.json"
+                )
                 if jobs_path.exists():
                     try:
                         data = _json.loads(jobs_path.read_text(encoding="utf-8"))
@@ -615,7 +619,9 @@ class IMConnectionManager:
                 import json as _json  # noqa: PLC0415
                 from pathlib import Path as _Path  # noqa: PLC0415
 
-                jobs_path = _Path(workspace_root) / _PA_WORKSPACE_CFG_DIR / "cron" / "jobs.json"
+                jobs_path = (
+                    _Path(workspace_root) / _PA_WORKSPACE_CFG_DIR / "cron" / "jobs.json"
+                )
                 if jobs_path.exists():
                     try:
                         data = _json.loads(jobs_path.read_text(encoding="utf-8"))

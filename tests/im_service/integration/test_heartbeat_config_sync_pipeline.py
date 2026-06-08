@@ -33,7 +33,12 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
 )
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
-from ._gateway_helpers import _FakeKernelClient, make_agent_configs, seed_node_and_profiles, seed_user
+from ._gateway_helpers import (
+    _FakeKernelClient,
+    make_agent_configs,
+    seed_node_and_profiles,
+    seed_user,
+)
 
 
 def _seed_heartbeat_enabled_agent(app, *, agent_id: str, owner_id: str) -> None:
@@ -76,9 +81,7 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
         # Setup: register owner, node, agent with heartbeat ON
         owner_id = seed_user(client, "owner")
         real_owner_id = (
-            UserRepository(app.state.connection)
-            .get_user(user_id=owner_id)
-            .owner_id
+            UserRepository(app.state.connection).get_user(user_id=owner_id).owner_id
         )
         NodeRepository(app.state.connection).upsert_node(
             node_id="node-1",
@@ -101,6 +104,7 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
         kernel_client = _FakeKernelClient()
         from personal_assistant.gateway.channel_registry import ChannelRegistry
         from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
+
         relay_adapter = WebRelayAdapter()
         run_queue = SessionRunQueue()
         pipeline = InboundPipeline(
@@ -119,7 +123,9 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
         # so sync_agent can GET /im/v1/agents/{id}/config?source=mirror from the
         # real IM app without a network port.
         # Access token from the client's current headers (set by seed_user).
-        auth_token = (client.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+        auth_token = (
+            (client.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+        )
 
         # Use TestClient's own sync transport so sync_agent can reach the real IM app
         # without a listening port.  The transport is the same one TestClient uses for
@@ -257,5 +263,3 @@ def test_patch_heartbeat_disabled_reaches_scheduler(tmp_path: Path) -> None:
             f"but skipped_agents={summary.skipped_agents!r}."
         )
         assert len(summary.triggered_runs) == 0
-
-
