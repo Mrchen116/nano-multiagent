@@ -15,8 +15,8 @@ DEFAULT_TOOL_IDS = [
 ]
 OPTIONAL_TOOL_IDS = [
     "send_message",
-    # feat-394 decision 7: cron is PA-only; coding_cli must not include this.
-    # Gated by cron_enabled per-agent flag (injected via tool_allowlist at session creation time).
+    # cron is opt-in per agent: only reaches a session when that agent's cron_enabled
+    # flag materialises it into the tool_allowlist at session-creation time.
     "cron",
 ]
 
