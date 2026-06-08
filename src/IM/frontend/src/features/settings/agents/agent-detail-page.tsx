@@ -16,6 +16,7 @@ import {
   AgentSummary,
   CronJobSummary,
   getAgentDetailState,
+  getAgentHeartbeatMd,
   listAgentSummaries,
   listAgentCronJobs,
   deleteAgentCronJob,
@@ -315,7 +316,10 @@ function BehaviorCard({
 // Shows a toggle for heartbeat_enabled, an optional "every" interval input and optional
 // active-hours start/end time inputs when enabled.
 // feat-394-M7 R5-3 fix: added activeHours start/end UI (spec S2.5 requirement).
+// feat-394-M11 decision E: cadence input binds to backend config value (no hardcoded 30m fallback);
+// collapsible HEARTBEAT.md read-only preview added (task content managed in md, not in form).
 interface HeartbeatCardProps {
+  agentId: string;
   draft: AgentConfigFormState;
   onToggle: (enabled: boolean) => void;
   onEveryChange: (every: string) => void;
@@ -325,14 +329,37 @@ interface HeartbeatCardProps {
   hideEnableToggle?: boolean;
 }
 
-function HeartbeatCard({ draft, onToggle, onEveryChange, onActiveHoursChange, hideEnableToggle = false }: HeartbeatCardProps) {
+function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursChange, hideEnableToggle = false }: HeartbeatCardProps) {
   const { t } = useTranslation();
-  const heartbeat = draft.heartbeat ?? { every: "30m" };
+  // feat-394-M11 decision E: no hardcoded fallback — cadence binds directly to backend value.
+  // When heartbeat is not configured, every is undefined → input shows empty (placeholder "30m").
+  const heartbeat = draft.heartbeat;
   // feat-394 M9-E: enable is the single-true-source in features["heartbeat"], not heartbeat.enabled.
   const enabled = draft.features?.heartbeat ?? false;
-  const every = heartbeat.every ?? "30m";
-  const activeStart = heartbeat.active_hours?.start ?? "";
-  const activeEnd = heartbeat.active_hours?.end ?? "";
+  const every = heartbeat?.every ?? "";
+  const activeStart = heartbeat?.active_hours?.start ?? "";
+  const activeEnd = heartbeat?.active_hours?.end ?? "";
+
+  // feat-394-M11: HEARTBEAT.md collapsible read-only preview state.
+  const [mdOpen, setMdOpen] = useState(false);
+  const [mdContent, setMdContent] = useState<string | null>(null);
+  const [mdLoading, setMdLoading] = useState(false);
+  const [mdError, setMdError] = useState<string | null>(null);
+
+  function handleMdToggle() {
+    if (mdOpen) {
+      setMdOpen(false);
+      return;
+    }
+    setMdOpen(true);
+    if (mdContent !== null) return;  // already fetched
+    setMdLoading(true);
+    setMdError(null);
+    getAgentHeartbeatMd(agentId)
+      .then((text) => { setMdContent(text ?? ""); })
+      .catch((err: unknown) => { setMdError(err instanceof Error ? err.message : "fetch failed"); })
+      .finally(() => { setMdLoading(false); });
+  }
 
   return (
     <section className="im-agent-card">
@@ -414,6 +441,64 @@ function HeartbeatCard({ draft, onToggle, onEveryChange, onActiveHoursChange, hi
             <p className="im-agent-field-help">
               {t("agents.form.heartbeat.activeHoursHelp", "Heartbeat only triggers within this time window (leave blank for always-on)")}
             </p>
+          </div>
+
+          {/* feat-394-M11: HEARTBEAT.md read-only preview — task content lives in md, not in form.
+              Mirrors prompt-preview toggle pattern (▸/▾ + aria-expanded). */}
+          <div>
+            <button
+              type="button"
+              data-testid="heartbeat-md-preview-toggle"
+              onClick={handleMdToggle}
+              aria-expanded={mdOpen}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                background: "none",
+                border: "none",
+                padding: "6px 0",
+                cursor: "pointer",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                color: "var(--im-accent, oklch(0.55 0.18 180))"
+              }}
+            >
+              <span aria-hidden="true">{mdOpen ? "▾" : "▸"}</span>
+              <span>{t("agents.form.heartbeat.mdPreviewToggle", "HEARTBEAT.md")}</span>
+            </button>
+            {mdOpen && (
+              <div style={{ marginTop: 8 }}>
+                {mdLoading && (
+                  <p className="text-[11px] text-slate-500">{t("agents.form.heartbeat.mdPreviewLoading", "Loading...")}</p>
+                )}
+                {mdError && (
+                  <p className="text-[11px] text-rose-600">{mdError}</p>
+                )}
+                {!mdLoading && !mdError && (
+                  <pre
+                    style={{
+                      fontSize: "0.72rem",
+                      lineHeight: 1.5,
+                      color: "var(--im-muted, oklch(0.50 0.01 240))",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      background: "oklch(0.96 0.004 240)",
+                      border: "1px solid var(--im-border)",
+                      borderRadius: 8,
+                      padding: "10px 12px",
+                      maxHeight: 360,
+                      overflowY: "auto",
+                      margin: 0
+                    }}
+                  >
+                    {mdContent === "" || mdContent === null
+                      ? t("agents.form.heartbeat.mdPreviewEmpty", "(HEARTBEAT.md not found)")
+                      : mdContent}
+                  </pre>
+                )}
+              </div>
+            )}
           </div>
         </>
       )}
@@ -1010,6 +1095,7 @@ export function AgentDetailPage() {
           if (hbInFeatures && !draft.features?.heartbeat) return null;
           return (
             <HeartbeatCard
+              agentId={agentId}
               draft={draft}
               onToggle={(enabled) => {
                 // feat-394 M9-E: enable is in features["heartbeat"]; toggle via features only.
@@ -1025,7 +1111,8 @@ export function AgentDetailPage() {
               onActiveHoursChange={(start, end) => {
                 setSaved(false);
                 setErrorMessage(null);
-                const prevHb = draft.heartbeat ?? { every: "30m" };
+                // feat-394-M11: no hardcoded "30m" fallback when spreading prev heartbeat.
+                const prevHb = draft.heartbeat ?? {};
                 const active_hours = start || end
                   ? { ...(prevHb.active_hours ?? {}), start, end }
                   : undefined;

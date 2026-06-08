@@ -25,6 +25,7 @@ const apiMocks = vi.hoisted(() => ({
   listAgentsMock: vi.fn(),
   navigateMock: vi.fn(),
   promptPreviewMock: vi.fn(),
+  getAgentHeartbeatMdMock: vi.fn(),
   createDirectChatByAgentUserIdMock: vi.fn(),
   createDirectConversationMock: vi.fn(),
 }));
@@ -53,6 +54,7 @@ vi.mock("./im-agent-config-api", () => ({
   updateAgentConfig: apiMocks.updateAgentConfigMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
   promptPreview: apiMocks.promptPreviewMock,
+  getAgentHeartbeatMd: apiMocks.getAgentHeartbeatMdMock,
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
