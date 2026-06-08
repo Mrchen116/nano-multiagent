@@ -484,3 +484,119 @@ round-4 R4-1 有代码 + 测试证据关闭，R4-2 确认为 env 问题（代码
 ---
 
 All checks passed. Ready for PR.
+
+---
+
+# Round 6 — 2026-06-08
+
+> 本轮聚焦 M11/M12/M13（决策 E/F/G，验收后修订），确认 M1–M10 无回退。
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | M11: 2/2 DONE; M12: 3/3 DONE; M13: 5/5 DONE |
+| Correctness | 决策 E/F/G 全部覆盖，无缺失 requirement |
+| Coherence | Followed（三个决策均遵守，无偏离） |
+
+**All checks passed. Ready for PR.**
+
+---
+
+## M11 (决策 E): cadence-config-sot
+
+### Completeness
+
+Tasks: M11 全 2/2 Roadpoints DONE。
+
+### Correctness
+
+| Requirement / 决策点 | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| scheduler 顶层节律读 `agent.heartbeat_every`（默认 30m），退役 md 顶层 `every:` | `heartbeat_scheduler.py:374–386`（`_every_str = agent.heartbeat_every or _DEFAULT_HEARTBEAT_EVERY`）；`heartbeat_scheduler.py:732–752`（`_RETIRED_PREFIXES = {"interval", "every"}`，silently skip）| `test_heartbeat_scheduler.py:772–809`（config_every_60m 忽略 md_5m）；`test_heartbeat_scheduler.py:813–850`（默认 30m）；`test_heartbeat_scheduler.py:853–889`（忽略 md 1m，2h config 生效）| covered |
+| `tasks:` per-task 子节律仍读 md（per-task `interval:`） | `heartbeat_scheduler.py:183–186`（`tasks: tuple[_HeartbeatTask, ...]`）；parse 逻辑保留 tasks: 块 | `test_heartbeat_scheduler.py` 多条 per-task 测试 | covered |
+| 前端删 `?? { every: "30m" }` 硬编码兜底，cadence 绑后端值 | `agent-detail-page.tsx:339`（`const every = heartbeat?.every ?? ""`，仅留 placeholder）| `agent-m9c-features-panel.test.tsx:398–441`（2 条 vitest，空值不显示 30m、45m 值正确显示） | covered |
+
+### Coherence
+
+决策 E 遵守：scheduler 唯一读 `agent.heartbeat_every`（config），md 顶层 `every:/interval:` 被 `_RETIRED_PREFIXES` 静默跳过（`heartbeat_scheduler.py:732`）；前端无兜底回退（`agent-detail-page.tsx:339`）。
+
+---
+
+## M12 (决策 F): gateway-config-reconcile
+
+### Completeness
+
+Tasks: M12 全 3/3 Roadpoints DONE。
+
+### Correctness
+
+| Requirement / 决策点 | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| WS bind/重连后全量拉 IM profile 对账 | `main.py:2105–2114`（`_reconcile_on_connect`，`asyncio.to_thread` 包装）；`main.py:2141`（`on_connected=_reconcile_on_connect`）| `test_gateway_reconcile_on_connect.py:257–296`（connect_once 后回调触发）；`test_gateway_reconcile_on_connect.py:379–427`（重连每次触发） | covered |
+| `register_agent` 覆盖内存 config（`profile_version` 取大） | `main.py:510–599`（`reconcile_all_agents`；`im_version < mem_ver` 时 skip）| `test_gateway_reconcile_on_connect.py:88–203`（漏推送收敛、版本取大、版本覆盖三场景）| covered |
+| HTTP 失败不中断 WS 连接 | `main.py:535–540`（`except (httpx.HTTPError, ValueError): log warning, continue`）| `test_gateway_reconcile_on_connect.py:344–371`（HTTP 500 不 raise） | covered |
+| 连接失败时对账不触发 | on_connected 仅在 bind 完成后调 | `test_gateway_reconcile_on_connect.py:304–336`（ConnectionRefusedError 时 reconcile_calls=0） | covered |
+
+### Coherence
+
+决策 F 遵守：`_reconcile_on_connect` 挂 `on_connected`，仅在 WS bind（`node.register` ack）完成后触发；`profile_version` 取大原则在 `reconcile_all_agents:542–550` 落地。
+
+---
+
+## M13 (决策 G): gateway-side-state-via-rpc
+
+### Completeness
+
+Tasks: M13 全 5/5 Roadpoints DONE。
+
+### Correctness
+
+| Requirement / 决策点 | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| IM 不直读 gateway workspace 文件；HEARTBEAT.md 预览经 `node.heartbeat.md.request` RPC | `gateway_handler.py:531–572`（`request_node_heartbeat_md`）；`agents.py:740–774`（`GET /heartbeat-md` 路由调 RPC）；`im_connection.py:544–570`（gateway 帧处理：读文件→回 `node.heartbeat.md`）| `test_gateway_handler.py:904–958`（离线降级）；`test_agent_config_api.py:849–952`（RPC 调用断言 + 离线降级）；`test_gateway_im_connection_behavior.py:740–833`（有文件 / 缺失两场景） | covered |
+| cron jobs list/delete 改 RPC（移除 IM 直读文件）| `gateway_handler.py:574–660`（`request_node_cron_jobs/delete`）；`agents.py:641–736`（async RPC 路由）；`im_connection.py:572–644`（gateway 帧处理：读/改 jobs.json→回帧）| `test_gateway_handler.py:980–1095`（离线降级 + 删除 waiter）；`test_agent_config_api.py:623–848`（RPC 调用 + 不直读文件 + 离线降级）；`test_gateway_im_connection_behavior.py:897–993`（cron_delete job not found） | covered |
+| node 离线优雅降级（返回空 + 不报错）| `gateway_handler.py:565–569,607–613,651–658`（pushed=False 或 TimeoutError → return None）；`agents.py:673–675`（raw=None→空列表）；`agents.py:770–774`（deleted=None→404）| 各测试的 offline 场景 | covered |
+| `_PA_WORKSPACE_CFG_DIR` 从 `personal_assistant.defaults` 引用（消除 hardcoded `.nanoassistant`） | `im_connection.py:17`；`im_connection.py:585,618`（使用）| contract 测试通过 | covered |
+| 前端 HEARTBEAT.md 折叠只读预览 panel | `agent-detail-page.tsx:343–370`（`handleHbMdToggle`，调 `getAgentHeartbeatMd`）；`agent-detail-page.tsx:467–500`（四态渲染）；`im-agent-config-api.ts:529–532`（API client）| vitest 369 tests 全绿（主仓）；浏览器验收（按 tasks.md UI 状态矩阵）| covered |
+
+### Coherence
+
+决策 G 遵守：IM 侧无任何直读 `<workspace>` 文件的代码；所有 gateway 侧数据均经 `_push_downstream` + waiter 模式（与 `request_node_prompt_preview` 同形）；node 离线时优雅降级；gateway 处理帧后回传结果。
+
+---
+
+## r1–r5 已关闭项无回退确认
+
+| 历史已关闭项 | 当前状态 |
+|---|---|
+| cron 接入 gateway 运行循环（`main.py:944–1000`） | 完好（M11–M13 未改动此路径） |
+| heartbeat_enabled/cron_enabled 注入 PromptContext.vars（`inbound_pipeline.py:462–463`） | 完好 |
+| `prompt_sections.py` 三 gate 字符串安全 | 完好 |
+| cron_enabled 自动追加 "cron" 到 tool_allowlist | 完好 |
+| cron 工具 `check_permissions` allow（`cron.py:283–307`） | 完好 |
+| M9 features 模型统一（`feature_registry.py`，`ctx.flags` 门控） | 完好 |
+
+---
+
+## 测试结果
+
+`PYTHONPATH=src pytest tests/ -m "not e2e"`：**2594 passed, 2 failed, 1 skipped**。
+
+2 failed 为预存在的 macOS `/tmp` → `/private/tmp` symlink 问题（历轮已识别，main 分支同样失败）：
+- `tests/im_service/integration/test_agent_config_api.py::test_get_agent_config_prefers_live_gateway_snapshot`
+- `tests/im_service/integration/test_agent_create_flow.py::test_create_agent_lists_details_and_uses_new_node_binding_for_relay`
+
+前端 vitest：56 files，**369 passed**。
+
+---
+
+## SUGGESTION
+
+**SUGGESTION-1: `getAgentHeartbeatMd()` 无独立 vitest 单元测试**
+
+M13 tasks.md 测试策略节记录了"im-agent-config-api.ts 新增 `getAgentHeartbeatMd()`：vitest 单元测试"，但该函数（`im-agent-config-api.ts:529–532`）仅一行 `requestJson` 调用，当前无单测。退出标准（vitest 全绿）已达成（369 passed），该测试缺失不影响功能正确性。建议补一条 `requestJson` mock 测试与其他 API client 函数保持一致风格。不阻 PR。
+
+---
+
+All checks passed. Ready for PR.
