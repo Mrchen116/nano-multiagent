@@ -730,3 +730,268 @@ def test_im_connection_does_not_disconnect_on_downstream_error_frame(
     # 后续 relay.message 正常被分发，说明 error 帧没有打断流程
     assert len(inbound_seen) == 1
     assert inbound_seen[0].text == "still alive"
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M13: gateway-side request frame handlers in im_connection.py
+# ---------------------------------------------------------------------------
+
+
+def test_im_connection_handles_heartbeat_md_request(tmp_path: Path) -> None:
+    """node.heartbeat.md.request triggers provider and sends node.heartbeat.md back.
+
+    feat-394-M13 (决策 G): gateway receives the RPC request, reads HEARTBEAT.md
+    from its own workspace, and sends a node.heartbeat.md response frame.
+    """
+    workspace = tmp_path / "agent-ws"
+    workspace.mkdir()
+    md_content = "# HEARTBEAT\n- Watch server uptime daily"
+    (workspace / "HEARTBEAT.md").write_text(md_content)
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "node.heartbeat.md.request",
+                    "payload": {
+                        "request_id": "req-hbmd-1",
+                        "agent_id": "agent-x",
+                        "workspace_root": str(workspace),
+                    },
+                }
+            ),
+        ]
+    )
+
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _: None)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 — ack for node.register
+        await manager._listen_once()  # noqa: SLF001 — process heartbeat-md request
+
+    asyncio.run(_exercise())
+
+    sent_types = [m.get("type") for m in socket.sent_json]
+    assert "node.heartbeat.md" in sent_types, (
+        f"Expected node.heartbeat.md frame but got: {sent_types!r}"
+    )
+    hb_frame = next(m for m in socket.sent_json if m.get("type") == "node.heartbeat.md")
+    assert hb_frame["payload"]["request_id"] == "req-hbmd-1"
+    assert hb_frame["payload"]["content"] == md_content
+
+
+def test_im_connection_heartbeat_md_returns_empty_when_file_missing(
+    tmp_path: Path,
+) -> None:
+    """node.heartbeat.md.request responds with empty content when HEARTBEAT.md absent."""
+    workspace = tmp_path / "agent-ws"
+    workspace.mkdir()
+    # No HEARTBEAT.md created.
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "node.heartbeat.md.request",
+                    "payload": {
+                        "request_id": "req-hbmd-2",
+                        "agent_id": "agent-x",
+                        "workspace_root": str(workspace),
+                    },
+                }
+            ),
+        ]
+    )
+
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _: None)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+    hb_frame = next(m for m in socket.sent_json if m.get("type") == "node.heartbeat.md")
+    assert hb_frame["payload"]["content"] == ""
+
+
+def test_im_connection_handles_cron_jobs_request(tmp_path: Path) -> None:
+    """node.cron.jobs.request triggers jobs.json read and sends node.cron.jobs back.
+
+    feat-394-M13 (决策 G): gateway reads its own cron/jobs.json and returns the list.
+    IM never directly reads workspace files.
+    """
+    workspace = tmp_path / "agent-ws"
+    cron_dir = workspace / ".nanoassistant" / "cron"
+    cron_dir.mkdir(parents=True)
+    jobs_data = [{"id": "job-1", "name": "tick", "schedule": {"kind": "every", "every": "30m"}}]
+    (cron_dir / "jobs.json").write_text(
+        __import__("json").dumps(jobs_data), encoding="utf-8"
+    )
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "node.cron.jobs.request",
+                    "payload": {
+                        "request_id": "req-cj-1",
+                        "agent_id": "agent-x",
+                        "workspace_root": str(workspace),
+                    },
+                }
+            ),
+        ]
+    )
+
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _: None)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+    sent_types = [m.get("type") for m in socket.sent_json]
+    assert "node.cron.jobs" in sent_types, (
+        f"Expected node.cron.jobs frame but got: {sent_types!r}"
+    )
+    cj_frame = next(m for m in socket.sent_json if m.get("type") == "node.cron.jobs")
+    assert cj_frame["payload"]["request_id"] == "req-cj-1"
+    assert cj_frame["payload"]["jobs"] == jobs_data
+
+
+def test_im_connection_handles_cron_delete_request_job_found(tmp_path: Path) -> None:
+    """node.cron.delete.request removes matching job and sends deleted=True."""
+    workspace = tmp_path / "agent-ws"
+    cron_dir = workspace / ".nanoassistant" / "cron"
+    cron_dir.mkdir(parents=True)
+    jobs_data = [
+        {"id": "job-1", "name": "tick"},
+        {"id": "job-2", "name": "check"},
+    ]
+    import json as _json
+
+    (cron_dir / "jobs.json").write_text(_json.dumps(jobs_data), encoding="utf-8")
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "node.cron.delete.request",
+                    "payload": {
+                        "request_id": "req-cd-1",
+                        "agent_id": "agent-x",
+                        "workspace_root": str(workspace),
+                        "job_id": "job-1",
+                    },
+                }
+            ),
+        ]
+    )
+
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _: None)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+    cd_frame = next(m for m in socket.sent_json if m.get("type") == "node.cron.delete")
+    assert cd_frame["payload"]["request_id"] == "req-cd-1"
+    assert cd_frame["payload"]["deleted"] is True
+
+    # Verify the file was actually updated on the gateway side.
+    remaining = _json.loads((cron_dir / "jobs.json").read_text())
+    assert len(remaining) == 1
+    assert remaining[0]["id"] == "job-2"
+
+
+def test_im_connection_handles_cron_delete_request_job_not_found(
+    tmp_path: Path,
+) -> None:
+    """node.cron.delete.request sends deleted=False when job_id is not in the file."""
+    workspace = tmp_path / "agent-ws"
+    cron_dir = workspace / ".nanoassistant" / "cron"
+    cron_dir.mkdir(parents=True)
+    import json as _json
+
+    (cron_dir / "jobs.json").write_text(_json.dumps([{"id": "job-other"}]), encoding="utf-8")
+
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "node.cron.delete.request",
+                    "payload": {
+                        "request_id": "req-cd-2",
+                        "agent_id": "agent-x",
+                        "workspace_root": str(workspace),
+                        "job_id": "job-missing",
+                    },
+                }
+            ),
+        ]
+    )
+
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _: None)
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="ws://localhost:9999/ws", token="t"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001
+        await manager._listen_once()  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+    cd_frame = next(m for m in socket.sent_json if m.get("type") == "node.cron.delete")
+    assert cd_frame["payload"]["deleted"] is False
