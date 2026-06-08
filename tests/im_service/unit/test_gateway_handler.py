@@ -1109,3 +1109,102 @@ def test_handle_cron_delete_resolves_waiter_with_not_found(tmp_path: Path) -> No
         loop.close()
 
     assert future.result() is False
+
+
+# ---------------------------------------------------------------------------
+# heartbeat schema 防回归（feat-394）
+# ---------------------------------------------------------------------------
+
+
+def test_heartbeat_json_field_present_in_agent_profile() -> None:
+    """AgentProfile domain model must have heartbeat_json field (cadence data)."""
+    from IM.domain.models import AgentProfile
+    from dataclasses import fields
+
+    field_names = {f.name for f in fields(AgentProfile)}
+    assert "heartbeat_json" in field_names, "AgentProfile missing heartbeat_json field"
+
+
+def test_heartbeat_json_column_in_agent_profiles_table(tmp_path) -> None:
+    """agent_profiles table must have heartbeat_json column (DB migration guard)."""
+    from IM.infra.db import connect, initialize_schema
+
+    db_path = tmp_path / "hb_schema.db"
+    conn = connect(db_path)
+    initialize_schema(conn)
+
+    cols = conn.execute("PRAGMA table_info(agent_profiles)").fetchall()
+    col_names = {row["name"] for row in cols}
+    assert "heartbeat_json" in col_names, (
+        f"agent_profiles table missing heartbeat_json column; columns: {sorted(col_names)}"
+    )
+
+
+def test_heartbeat_json_persisted_and_readable(tmp_path) -> None:
+    """update_profile persists heartbeat_json; GET reads back same value."""
+    import json
+    from IM.infra.db import connect, initialize_schema
+    from IM.infra.repositories import AgentProfileRepository
+
+    db = connect(tmp_path / "hb_persist.db")
+    initialize_schema(db)
+
+    repo = AgentProfileRepository(db)
+    repo.upsert_profile(
+        agent_id="agent-hb",
+        owner_id="owner-1",
+        node_id=None,
+        display_name="HB Agent",
+        description="",
+        system_prompt="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+        workspace_root=str(tmp_path / "ws-hb"),
+    )
+
+    hb_json_str = json.dumps({"enabled": True, "every": "30m"})
+    updated = repo.update_profile(
+        agent_id="agent-hb",
+        profile_version=1,
+        display_name="HB Agent",
+        description="",
+        system_prompt="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+        workspace_root=str(tmp_path / "ws-hb"),
+        heartbeat_json=hb_json_str,
+    )
+    assert updated.heartbeat_json == hb_json_str
+
+    refetched = repo.get_profile(agent_id="agent-hb")
+    assert refetched is not None
+    assert refetched.heartbeat_json == hb_json_str
+
+
+def test_update_profile_accepts_heartbeat_json_param() -> None:
+    """AgentProfileRepository.update_profile must accept heartbeat_json parameter."""
+    import inspect
+    from IM.infra.repositories import AgentProfileRepository
+
+    sig = inspect.signature(AgentProfileRepository.update_profile)
+    assert "heartbeat_json" in sig.parameters, (
+        "update_profile must accept heartbeat_json for cadence data"
+    )
+
+
+def test_update_request_and_response_have_heartbeat_json_field() -> None:
+    """UpdateAgentConfigRequest and AgentConfigResponse must carry heartbeat_json."""
+    from IM.api.routes.agents import UpdateAgentConfigRequest, AgentConfigResponse
+
+    req_fields = UpdateAgentConfigRequest.model_fields
+    resp_fields = AgentConfigResponse.model_fields
+    assert "heartbeat_json" in req_fields, (
+        "UpdateAgentConfigRequest missing heartbeat_json field"
+    )
+    assert "heartbeat_json" in resp_fields, (
+        "AgentConfigResponse missing heartbeat_json field"
+    )

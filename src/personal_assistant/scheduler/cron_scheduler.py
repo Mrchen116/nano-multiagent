@@ -10,12 +10,20 @@ feat-394 decision 4: restart never replays missed ticks — only the next future
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Protocol
+from typing import Any, Awaitable, Callable
+
+from personal_assistant.scheduler._schedule_primitives import (
+    _AtSchedule,
+    _IntervalSchedule,
+    _Schedule,
+    _normalize_datetime,
+    _parse_cron,
+    _parse_optional_datetime,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -227,147 +235,6 @@ class CronSchedulerStateStore:
 
 
 # ---------------------------------------------------------------------------
-# Schedule primitives (non-backfill, openclaw computeNextRunAtMs semantics)
-# ---------------------------------------------------------------------------
-
-_INTERVAL_PATTERN = re.compile(r"^\s*(\d+)\s*([smhd])\s*$", re.IGNORECASE)
-_WEEKDAY_NAME_TO_CRON = {
-    "sun": 0,
-    "mon": 1,
-    "tue": 2,
-    "wed": 3,
-    "thu": 4,
-    "fri": 5,
-    "sat": 6,
-}
-
-
-class _Schedule(Protocol):
-    def due_times_up_to(
-        self, *, now: datetime, last_due_at: datetime | None
-    ) -> list[datetime]: ...
-
-
-# Maximum latency between an 'at' job's due time and a tick before it is treated as expired.
-# 60 seconds covers any reasonable polling interval; anything longer means the gateway
-# missed the window (was offline or heavily loaded) and the job should not fire.
-# feat-394-M7 R5-4 fix.
-_AT_SCHEDULE_EXPIRED_GRACE: timedelta = timedelta(seconds=60)
-
-
-@dataclass(frozen=True, slots=True)
-class _AtSchedule:
-    """One-shot schedule: fires once when time arrives, never after already executed.
-
-    Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "at" branch —
-    returns undefined when atMs <= nowMs (meaning job is not future, skip).
-    feat-394 decision 4: expired 'at' jobs are not re-run after gateway restart.
-
-    feat-394-M7 R5-4 fix: if last_due_at is None and the at time has passed by more
-    than _AT_SCHEDULE_EXPIRED_GRACE (60s), the job is treated as expired (missed window).
-    This prevents stale at jobs from firing after a gateway restart when the run was
-    never recorded (e.g. due to crash before state persistence).
-    The grace period allows normal scheduler latency (a few seconds per tick) without
-    falsely marking jobs as expired.
-    """
-
-    due_at: datetime
-
-    def due_times_up_to(
-        self, *, now: datetime, last_due_at: datetime | None
-    ) -> list[datetime]:
-        if now < self.due_at:
-            return []
-        if last_due_at is not None and last_due_at >= self.due_at:
-            return []
-        # feat-394-M7 R5-4 fix: reject expired at jobs.
-        # If the at time passed more than the grace period ago and we have no run record,
-        # the gateway missed the window (e.g. was offline).  Do not fire.
-        if last_due_at is None and (now - self.due_at) > _AT_SCHEDULE_EXPIRED_GRACE:
-            return []
-        return [self.due_at]
-
-
-@dataclass(frozen=True, slots=True)
-class _IntervalSchedule:
-    """Recurring interval schedule with no backfill.
-
-    Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "every" branch —
-    original used ceil(elapsed / everyMs); this implementation uses floor to allow
-    LLM execution overhead without skipping subsequent ticks.  The semantics match
-    openclaw's intent (next aligned slot at-or-before now fires), adapted for the
-    reality that elapsed is rarely a perfect multiple of interval.
-    feat-394 decision 4: only ONE run emitted per tick regardless of missed intervals.
-    feat-394-M8 R6-1 fix: ceil → floor so elapsed=interval+overhead still triggers.
-    """
-
-    interval: timedelta
-
-    def due_times_up_to(
-        self, *, now: datetime, last_due_at: datetime | None
-    ) -> list[datetime]:
-        if last_due_at is None:
-            return [_floor_datetime(now, self.interval)]
-        elapsed = now - last_due_at
-        if elapsed <= timedelta(0):
-            return []
-        interval_secs = int(self.interval.total_seconds())
-        elapsed_secs = int(elapsed.total_seconds())
-        # feat-394-M8 R6-1 fix: floor(elapsed / interval) gives the most-recent aligned slot
-        # that is at-or-before now.  ceil would give the next future slot, causing a skip when
-        # elapsed is not a perfect multiple (e.g. elapsed=32s, interval=30s → ceil=2 → next=+60s
-        # which is after now, so not triggered).  floor(32/30)=1 → next=+30s ≤ now → triggered.
-        # Large-gap invariant: floor(150/30)=5 → next=last+150s=now → still fires exactly once
-        # because due_times_up_to returns at most one datetime per call.
-        steps = max(1, elapsed_secs // interval_secs)
-        next_due_at = last_due_at + self.interval * steps
-        if next_due_at > now:
-            return []
-        return [next_due_at]
-
-
-@dataclass(frozen=True, slots=True)
-class _CronSchedule:
-    """Cron-expression schedule; fires at most once per matching minute, no backfill.
-
-    Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "cron" branch —
-    openclaw checks now >= next_run_at per tick then immediately advances to the next
-    future match.  Net effect: only the current minute fires if it matches AND hasn't
-    already fired.  A restart never replays past matching minutes.
-    feat-394 decision 4.
-    """
-
-    minute_values: tuple[int, ...]
-    hour_values: tuple[int, ...]
-    day_values: tuple[int, ...]
-    month_values: tuple[int, ...]
-    weekday_values: tuple[int, ...]
-
-    def due_times_up_to(
-        self, *, now: datetime, last_due_at: datetime | None
-    ) -> list[datetime]:
-        current = now.replace(second=0, microsecond=0)
-        if not self._matches(current):
-            return []
-        if (
-            last_due_at is not None
-            and last_due_at.replace(second=0, microsecond=0) == current
-        ):
-            return []
-        return [current]
-
-    def _matches(self, candidate: datetime) -> bool:
-        cron_weekday = (candidate.weekday() + 1) % 7
-        return (
-            candidate.minute in self.minute_values
-            and candidate.hour in self.hour_values
-            and candidate.day in self.day_values
-            and candidate.month in self.month_values
-            and cron_weekday in self.weekday_values
-        )
-
-
-# ---------------------------------------------------------------------------
 # Schedule parsing
 # ---------------------------------------------------------------------------
 
@@ -387,6 +254,8 @@ def _parse_schedule_dict(schedule: dict[str, Any]) -> _Schedule:
         if not isinstance(at_str, str) or not at_str.strip():
             raise ValueError("'at' schedule requires 'at' field (ISO-8601 string)")
         due_at = _normalize_datetime(datetime.fromisoformat(at_str.strip()))
+        # check_expiry=True (default): cron at-jobs treat old at-times as expired
+        # (feat-394-M7 R5-4 fix). Heartbeat at-lines pass check_expiry=False instead.
         return _AtSchedule(due_at=due_at)
     elif kind == "every":
         every_ms_raw = schedule.get("everyMs")
@@ -401,92 +270,13 @@ def _parse_schedule_dict(schedule: dict[str, Any]) -> _Schedule:
         expr = schedule.get("expr")
         if not isinstance(expr, str) or not expr.strip():
             raise ValueError("'cron' schedule requires 'expr' field")
-        return _parse_cron(expr.strip())
+        # W7: optional IANA tz name; None means UTC (matches pre-W7 behaviour).
+        tz = schedule.get("tz") or None
+        if tz is not None and not isinstance(tz, str):
+            raise ValueError("'cron' schedule 'tz' must be a string IANA timezone name")
+        return _parse_cron(expr.strip(), tz=tz)
     else:
         raise ValueError(f"unsupported cron schedule kind: {kind!r}")
-
-
-def _parse_cron(raw_value: str) -> _CronSchedule:
-    parts = raw_value.split()
-    if len(parts) != 5:
-        raise ValueError(f"cron expression must have 5 fields: {raw_value!r}")
-    minute, hour, day, month, weekday = parts
-    return _CronSchedule(
-        minute_values=_parse_cron_field(minute, minimum=0, maximum=59),
-        hour_values=_parse_cron_field(hour, minimum=0, maximum=23),
-        day_values=_parse_cron_field(day, minimum=1, maximum=31),
-        month_values=_parse_cron_field(month, minimum=1, maximum=12),
-        weekday_values=_parse_cron_field(
-            weekday, minimum=0, maximum=6, allow_names=True
-        ),
-    )
-
-
-def _parse_cron_field(
-    field_str: str,
-    *,
-    minimum: int,
-    maximum: int,
-    allow_names: bool = False,
-) -> tuple[int, ...]:
-    if field_str == "*":
-        return tuple(range(minimum, maximum + 1))
-    values: set[int] = set()
-    for item in field_str.split(","):
-        item = item.strip()
-        if "/" in item:
-            base, step_str = item.split("/", 1)
-            step = int(step_str)
-            if step <= 0:
-                raise ValueError(f"cron step must be positive: {step_str!r}")
-            if "-" in base:
-                start_text, end_text = base.split("-", 1)
-                start = _parse_cron_number(start_text, allow_names=allow_names)
-                end = _parse_cron_number(end_text, allow_names=allow_names)
-            else:
-                start = (
-                    minimum
-                    if base == "*"
-                    else _parse_cron_number(base, allow_names=allow_names)
-                )
-                end = maximum
-            values.update(range(start, end + 1, step))
-        elif "-" in item:
-            start_text, end_text = item.split("-", 1)
-            start = _parse_cron_number(start_text, allow_names=allow_names)
-            end = _parse_cron_number(end_text, allow_names=allow_names)
-            values.update(range(start, end + 1))
-        else:
-            values.add(_parse_cron_number(item, allow_names=allow_names))
-    return tuple(sorted(v for v in values if minimum <= v <= maximum))
-
-
-def _parse_cron_number(text: str, *, allow_names: bool = False) -> int:
-    text = text.strip().lower()
-    if allow_names and text in _WEEKDAY_NAME_TO_CRON:
-        return _WEEKDAY_NAME_TO_CRON[text]
-    return int(text)
-
-
-def _normalize_datetime(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
-
-def _parse_optional_datetime(text: str | None) -> datetime | None:
-    if text is None:
-        return None
-    return _normalize_datetime(datetime.fromisoformat(text))
-
-
-def _floor_datetime(value: datetime, interval: timedelta) -> datetime:
-    seconds = int(interval.total_seconds())
-    if seconds <= 0:
-        raise ValueError("interval must be positive")
-    timestamp = int(value.timestamp())
-    floored = timestamp - (timestamp % seconds)
-    return datetime.fromtimestamp(floored, tz=UTC)
 
 
 # ---------------------------------------------------------------------------

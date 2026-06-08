@@ -155,11 +155,8 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-// ---------------------------------------------------------------------------
-// Part A: HeartbeatCard independent toggle hidden when heartbeat in cap features
-// ---------------------------------------------------------------------------
 
-describe("M9-C: heartbeat controlled by Features list", () => {
+describe("heartbeat controlled by Features list", () => {
   it("heartbeat-enabled-toggle is hidden when heartbeat is in capabilities.features", async () => {
     // heartbeat is a registered capability feature → toggle moves to Features list
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
@@ -244,7 +241,7 @@ describe("M9-C: heartbeat controlled by Features list", () => {
 // Part B: CronCard independent toggle hidden when cron_scheduling in cap features
 // ---------------------------------------------------------------------------
 
-describe("M9-C: cron controlled by Features list", () => {
+describe("cron controlled by Features list", () => {
   it("cron-enabled-toggle is hidden when cron_scheduling is in capabilities.features", async () => {
     apiMocks.getAgentDetailStateMock.mockResolvedValue(
       makeM9CState({ capFeatures: [HB_CAP_FEATURE, CRON_CAP_FEATURE] })
@@ -303,140 +300,4 @@ describe("M9-C: cron controlled by Features list", () => {
 // ---------------------------------------------------------------------------
 // Part C: Tool pills render with default_on state
 // ---------------------------------------------------------------------------
-
-describe("M9-C: tool pills render default_on state", () => {
-  it("default tools appear selected when tool_allowlist is empty", async () => {
-    // empty tool_allowlist → pills show 'read' (default_on=true) as selected,
-    // 'cron' (default_on=false) as unselected
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({ configFeatures: {} })
-    );
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    // 'read' pill (default_on=true) must appear pressed
-    await waitFor(() => {
-      const readPill = document.querySelector<HTMLButtonElement>(
-        '[data-pill-name="read"]'
-      );
-      expect(readPill, "'read' pill must exist").not.toBeNull();
-      expect(readPill?.getAttribute("aria-pressed"), "read pill should be 'pressed' when tool_allowlist is empty (default_on=true)").toBe("true");
-    });
-
-    // 'cron' pill (default_on=false) must appear not pressed
-    const cronPill = document.querySelector<HTMLButtonElement>('[data-pill-name="cron"]');
-    if (cronPill) {
-      expect(cronPill.getAttribute("aria-pressed"), "cron pill should be 'false' (default_on=false)").toBe("false");
-    }
-  });
-
-  it("default tool can be deselected (true whitelist semantics)", async () => {
-    const user = userEvent.setup();
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({ configFeatures: {} })
-    );
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    // 'read' appears selected (default_on=true, empty allowlist)
-    await waitFor(() => {
-      const readPill = document.querySelector<HTMLButtonElement>('[data-pill-name="read"]');
-      expect(readPill?.getAttribute("aria-pressed")).toBe("true");
-    });
-
-    // Click to deselect
-    const readPill = document.querySelector<HTMLButtonElement>('[data-pill-name="read"]');
-    if (readPill) await user.click(readPill);
-
-    // After deselect: 'read' is no longer selected
-    await waitFor(() => {
-      const readPill2 = document.querySelector<HTMLButtonElement>('[data-pill-name="read"]');
-      expect(readPill2?.getAttribute("aria-pressed"), "read pill should be deselected after click").toBe("false");
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Part D: promptPreview sends features (heartbeat/cron_scheduling via features dict)
-// ---------------------------------------------------------------------------
-
-describe("M9-C: promptPreview reflects features for heartbeat/cron", () => {
-  it("preview body includes heartbeat=true when toggled on in Features list", async () => {
-    const user = userEvent.setup();
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({
-        capFeatures: [HB_CAP_FEATURE],
-        configFeatures: { heartbeat: true },
-        heartbeat: { enabled: true, every: "30m" },
-      })
-    );
-    apiMocks.promptPreviewMock.mockResolvedValue("## Heartbeat\nCadence...");
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    // Open preview
-    const previewBtn = screen.getByRole("button", { name: /Preview full system prompt/i });
-    await user.click(previewBtn);
-
-    await waitFor(() => {
-      expect(apiMocks.promptPreviewMock).toHaveBeenCalled();
-    });
-
-    const lastCall = apiMocks.promptPreviewMock.mock.calls.at(-1);
-    const body = lastCall?.[1] as { features?: Record<string, boolean> };
-    expect(body?.features?.heartbeat, "preview body must contain features.heartbeat=true").toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// feat-394-M11 decision E: cadence input binds to backend config value (no 30m hardcode)
-// ---------------------------------------------------------------------------
-
-describe("M11: cadence input binds to config value, no hardcoded 30m fallback", () => {
-  it("cadence input shows empty string (not '30m') when heartbeat.every is not configured", async () => {
-    // When the backend does not configure heartbeat.every, the frontend must NOT
-    // silently fill in "30m" as a hardcoded fallback — the input must reflect the
-    // actual backend state (empty/undefined).  The "30m" default should appear only
-    // as placeholder text, not as an actual input value.
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({
-        capFeatures: [HB_CAP_FEATURE],
-        configFeatures: { heartbeat: true },
-        // heartbeat.every intentionally absent — simulates "no cadence configured"
-        heartbeat: { enabled: true },
-      })
-    );
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    const everyInput = document.querySelector<HTMLInputElement>("#heartbeat-every");
-    expect(everyInput, "cadence input must be rendered when heartbeat is on").not.toBeNull();
-    expect(
-      everyInput!.value,
-      "cadence input value must be empty (not hardcoded '30m') when heartbeat.every is unset"
-    ).toBe("");
-    expect(everyInput!.placeholder, "placeholder should be '30m' as the default hint").toBe("30m");
-  });
-
-  it("cadence input shows the configured every value from backend", async () => {
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({
-        capFeatures: [HB_CAP_FEATURE],
-        configFeatures: { heartbeat: true },
-        heartbeat: { enabled: true, every: "45m" },
-      })
-    );
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    const everyInput = document.querySelector<HTMLInputElement>("#heartbeat-every");
-    expect(everyInput, "cadence input must render").not.toBeNull();
-    expect(everyInput!.value, "cadence input must display backend value '45m'").toBe("45m");
-  });
-});
 

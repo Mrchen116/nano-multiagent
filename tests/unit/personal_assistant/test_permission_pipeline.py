@@ -331,14 +331,15 @@ class TestHeartbeatOrigin:
             state_store=state_store,
         )
 
-        # Create a HEARTBEAT.md so the scheduler has something to evaluate.
-        # Use a past @at datetime so the run is immediately due.
+        # Create a HEARTBEAT.md with an at: schedule due exactly at the tick time.
+        # feat-394 non-backfill semantics reject at: jobs older than a 60s grace, so
+        # the at: time and the injected tick now must line up (see test_heartbeat_scheduler).
         heartbeat_file = tmp_path / "HEARTBEAT.md"
         heartbeat_file.write_text(
-            "# HEARTBEAT\n\nat: 2020-01-01T00:00:00+00:00\n\nCheck the workspace.\n"
+            "# HEARTBEAT\n\nat: 2026-03-11T09:00:00+00:00\n\nCheck the workspace.\n"
         )
 
-        await scheduler.tick()
+        await scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=timezone.utc))
 
         assert len(submit_calls) == 1
         # origin should be "heartbeat"

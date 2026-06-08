@@ -1011,6 +1011,84 @@ class GatewayProcessManager:
         raise RuntimeError(message)
 
 
+async def _stream_run_to_completion(
+    *,
+    run_id: str,
+    kernel_session_id: str,
+    agent_id: str,
+    owner_user_id: str,
+    kernel: Any,
+    run_context_store: dict,
+    observer: Callable[..., Any] | None,
+    stream_anchor: int = 0,
+) -> tuple[str, dict | None]:
+    """Stream one kernel run to terminal state, driving the event observer.
+
+    Seeds run_context_store with the standard heartbeat/cron context (empty
+    conversation_id triggers lazy IM turn_start creation), then replays the
+    kernel event stream until a terminal run_status.
+
+    Args:
+        run_id: Kernel run ID to track.
+        kernel_session_id: Kernel session the run lives in.
+        agent_id: Agent ID, forwarded into run_context_store for routing.
+        owner_user_id: IM user_id of the gateway owner; drives lazy direct-chat
+            creation via to_user_id in the context entry.
+        kernel: In-process kernel; must implement stream(session_id, after_sequence).
+        run_context_store: Shared dict seeded here and popped in finally.
+        observer: kernel_event_observer callable (sync or async); None skips driving.
+        stream_anchor: after_sequence passed to kernel.stream; 0 means replay all.
+
+    Returns:
+        Tuple of (last_assistant_text, popped_ctx).  last_assistant_text is the last
+        assistant_message content seen, stripped (empty string on silence).
+        popped_ctx is the context entry that was removed from run_context_store on
+        completion — callers can inspect e.g. conversation_id to detect silent ticks.
+
+    Raises:
+        Nothing — stream failures are re-raised to the caller for per-path logging.
+    """
+    run_context_store[run_id] = {
+        "conversation_id": "",  # lazy: filled by IM turn_start ack
+        "message_id": "",  # lazy: filled by IM turn_start ack
+        "agent_id": agent_id,
+        "to_user_id": owner_user_id,
+        "kernel_session_id": kernel_session_id,
+    }
+
+    final_result_text = ""
+    popped_ctx: dict | None = None
+    try:
+        async for event in kernel.stream(
+            kernel_session_id, after_sequence=stream_anchor
+        ):
+            if event.get("run_id") != run_id:
+                continue
+            if event.get("event") == "assistant_message":
+                content = str(event.get("content") or "").strip()
+                if content:
+                    final_result_text = content
+            if observer is not None:
+                obs_result = observer(event)
+                if asyncio.iscoroutine(obs_result):
+                    await obs_result
+            if event.get("event") == "run_status" and event.get("status") in (
+                "completed",
+                "failed",
+                "cancelled",
+                "error",
+            ):
+                break
+    except Exception:
+        # Re-raise so caller can log with per-path context (agent/job/run identifiers).
+        run_context_store.pop(run_id, None)
+        raise
+    finally:
+        popped_ctx = run_context_store.pop(run_id, None)
+
+    return final_result_text, popped_ctx
+
+
 class PollingHeartbeatRunner:
     """Run the existing heartbeat scheduler as a background tick loop.
 
@@ -1194,9 +1272,9 @@ class PollingHeartbeatRunner:
     async def _consume_heartbeat_run(self, record: "HeartbeatRunRecord") -> None:
         """Stream one heartbeat run to completion, driving the kernel_event_observer for IM delivery.
 
-        Seeds run_context_store with heartbeat variant (to_user_id instead of conversation_id)
-        then replays the kernel event stream until terminal run_status.  The observer handles
-        lazy turn_start creation and NO_REPLY/empty suppression.
+        Delegates streaming to the module-level _stream_run_to_completion helper, then applies
+        heartbeat-specific post-processing: silent-tick transcript trim (feat-394 decision 3-B).
+        The observer handles lazy turn_start creation and NO_REPLY/empty suppression.
 
         Args:
             record: HeartbeatRunRecord returned by the scheduler tick.
@@ -1206,23 +1284,13 @@ class PollingHeartbeatRunner:
             if the condition persists.  This matches design decision 6: heartbeat delivery
             inherits normal-chat failure behavior (no persistent retry).
         """
-        import logging as _logging
-
-        _hb_logger = _logging.getLogger(__name__)
+        _hb_logger = _log  # module-level logger; no per-call import needed
 
         run_id = record.run_id
         kernel_session_id = record.session_id
         agent_id = record.agent_id
 
-        # Seed run_context_store with heartbeat variant: to_user_id drives lazy conv resolution.
         assert self._run_context_store is not None  # guard (checked in _run_loop)
-        self._run_context_store[run_id] = {
-            "conversation_id": "",  # lazy: filled by IM turn_start ack
-            "message_id": "",  # lazy: filled by IM turn_start ack
-            "agent_id": agent_id,
-            "to_user_id": self._owner_user_id,
-            "kernel_session_id": kernel_session_id,
-        }
 
         # feat-394 decision 3 transcript trim (B): snapshot session file line count before run.
         # After a silent tick (HEARTBEAT_OK / empty), the triggered prompt + ack turns are
@@ -1262,46 +1330,42 @@ class PollingHeartbeatRunner:
         try:
             # feat-393 fix-r2 Fix B: stream from the pre-submit anchor to skip replaying
             # history from prior ticks.  Falls back to 0 when anchor is absent (test path).
-            async for event in self._kernel.stream(
-                kernel_session_id, after_sequence=record.stream_anchor
-            ):
-                if event.get("run_id") != run_id:
-                    continue
-                if self._kernel_event_observer is not None:
-                    result = self._kernel_event_observer(event)
-                    if asyncio.iscoroutine(result):
-                        await result
-                event_name = event.get("event")
-                if event_name == "run_status":
-                    status = event.get("status")
-                    if status in ("completed", "failed", "cancelled", "error"):
-                        break
+            _, ctx = await _stream_run_to_completion(
+                run_id=run_id,
+                kernel_session_id=kernel_session_id,
+                agent_id=agent_id,
+                owner_user_id=self._owner_user_id,
+                kernel=self._kernel,
+                run_context_store=self._run_context_store,
+                observer=self._kernel_event_observer,
+                stream_anchor=record.stream_anchor,
+            )
         except Exception:  # noqa: BLE001  — delivery failure does not disrupt gateway loop
             _hb_logger.exception(
                 "heartbeat run delivery failed: agent=%s run_id=%s", agent_id, run_id
             )
-        finally:
-            ctx = self._run_context_store.pop(run_id, None)
-            # feat-394 B: silent-tick transcript trim.
-            # If conversation_id was never filled (no turn_start sent → zero IM trace → silent tick),
-            # truncate the session JSONL back to the pre-submit state.
-            _was_silent = ctx is not None and not ctx.get("conversation_id")
-            if (
-                _was_silent
-                and _session_file_for_trim is not None
-                and _pre_submit_line_count > 0
-            ):
-                try:
-                    await self.trim_silent_tick(
-                        session_file=_session_file_for_trim,
-                        pre_submit_line_count=_pre_submit_line_count,
-                    )
-                except Exception:  # noqa: BLE001
-                    _hb_logger.debug(
-                        "heartbeat transcript trim failed (non-fatal): agent=%s run_id=%s",
-                        agent_id,
-                        run_id,
-                    )
+            return
+
+        # feat-394 B: silent-tick transcript trim.
+        # If conversation_id was never filled (no turn_start sent → zero IM trace → silent tick),
+        # truncate the session JSONL back to the pre-submit state.
+        _was_silent = ctx is not None and not ctx.get("conversation_id")
+        if (
+            _was_silent
+            and _session_file_for_trim is not None
+            and _pre_submit_line_count > 0
+        ):
+            try:
+                await self.trim_silent_tick(
+                    session_file=_session_file_for_trim,
+                    pre_submit_line_count=_pre_submit_line_count,
+                )
+            except Exception:  # noqa: BLE001
+                _hb_logger.debug(
+                    "heartbeat transcript trim failed (non-fatal): agent=%s run_id=%s",
+                    agent_id,
+                    run_id,
+                )
 
 
 class _InboundDispatcher:
@@ -2173,12 +2237,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             im_connection_manager_factory=lambda: im_connection_manager,
             session_store=pipeline._session_store,
         )
+
     # feat-394-M3 CRITICAL-1 fix: wire cron tick into the unified polling runner.
     # Build a cron_tick_fn closure that creates per-agent CronScheduler+CronRunner and
     # calls CronScheduler.tick(). The fn reads the live pipeline._agents so it picks up
     # dynamically-registered agents (via IM config sync) without restart.
-    _cron_state_path = runtime_dir / "cron-state.json"
-
     async def _cron_tick_for_agent(agent_id: str) -> None:
         """Evaluate cron jobs for one agent and submit due runs.
 
@@ -2187,16 +2250,18 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         terminal state, driving kernel_event_observer so the result appears in the owner's
         direct conversation. Mirrors _consume_heartbeat_run semantics (decision C-awareness).
         """
-        import logging as _cron_log  # noqa: PLC0415
-
-        _log = _cron_log.getLogger(__name__)
-
         agent_cfg = pipeline._agents.get(agent_id)  # noqa: SLF001
         if agent_cfg is None or not getattr(agent_cfg, "cron_enabled", False):
             return
         ws_root = agent_cfg.workspace_root
         job_store = CronJobStore(workspace_root=ws_root)
-        state_store = CronSchedulerStateStore(state_path=_cron_state_path)
+        # C1 fix: per-agent state path so job last_due timestamps are isolated per agent.
+        # Previously all agents shared runtime_dir/cron-state.json; with UUID job IDs
+        # collisions are rare but the design is inconsistent with CronJobStore's
+        # per-workspace isolation.  Match CronJobStore path convention.
+        state_store = CronSchedulerStateStore(
+            state_path=ws_root / _WCD / "cron" / "state.json"
+        )
         _cron_runner = CronRunner(
             agent_id=agent_id,
             workspace_root=ws_root,
@@ -2235,39 +2300,20 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 )
                 return
 
-            # Seed run_context_store so kernel_event_observer routes events to the owner's
-            # direct conversation via the lazy-bubble turn_start path (same as heartbeat).
-            _run_context_store[run_id] = {
-                "conversation_id": "",  # lazy: filled by IM turn_start ack
-                "message_id": "",  # lazy: filled by IM turn_start ack
-                "agent_id": agent_id,
-                "to_user_id": _owner_user_id,
-                "kernel_session_id": kernel_session_id,
-            }
-
-            # Consume kernel.stream to terminal state, driving observer for each event.
-            # This is the same pattern as _consume_heartbeat_run; observer creates the
-            # IM placeholder message and forwards streaming content via node.streaming_delta.
+            # Delegate streaming to shared helper (seeds run_context_store, drives observer,
+            # pops context on completion).  Captures last assistant_message for C-awareness.
             final_result_text = ""
             try:
-                async for event in kernel.stream(kernel_session_id, after_sequence=0):
-                    if event.get("run_id") != run_id:
-                        continue
-                    # Capture last assistant_message content for C-awareness injection.
-                    if event.get("event") == "assistant_message":
-                        content = str(event.get("content") or "").strip()
-                        if content:
-                            final_result_text = content
-                    obs_result = _observer(event)
-                    if asyncio.iscoroutine(obs_result):
-                        await obs_result
-                    if event.get("event") == "run_status" and event.get("status") in (
-                        "completed",
-                        "failed",
-                        "cancelled",
-                        "error",
-                    ):
-                        break
+                final_result_text, _ = await _stream_run_to_completion(
+                    run_id=run_id,
+                    kernel_session_id=kernel_session_id,
+                    agent_id=agent_id,
+                    owner_user_id=_owner_user_id,
+                    kernel=kernel,
+                    run_context_store=_run_context_store,
+                    observer=_observer,
+                    stream_anchor=0,
+                )
             except Exception:  # noqa: BLE001
                 _log.exception(
                     "cron: stream consume failed: agent=%s job=%s run=%s",
@@ -2275,8 +2321,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     getattr(job, "id", "?"),
                     run_id,
                 )
-            finally:
-                _run_context_store.pop(run_id, None)
+                return
 
             # Decision C-awareness: append result text as System(untrusted) to canonical
             # direct-chat JSONL so user can ask follow-up questions about cron output.

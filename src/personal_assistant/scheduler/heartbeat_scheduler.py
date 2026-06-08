@@ -3,29 +3,26 @@
 from __future__ import annotations
 
 import json
-import re
 from collections.abc import Callable, Iterable
+from typing import Protocol
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Protocol
-
 from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.scheduler._schedule_primitives import (
+    _INTERVAL_PATTERN,
+    _AtSchedule,
+    _IntervalSchedule,
+    _Schedule,
+    _normalize_datetime,
+    _parse_cron,
+    _parse_optional_datetime,
+)
 
-_INTERVAL_PATTERN = re.compile(r"^\s*(\d+)\s*([smhd])\s*$", re.IGNORECASE)
 _SCHEDULE_PREFIXES = ("interval:", "every:", "cron:", "at:")
 # feat-394-M11 decision E: default heartbeat cadence when agent.heartbeat_every is not set.
 # Provenance: openclaw/src/auto-reply/heartbeat.ts DEFAULT_HEARTBEAT_EVERY = "30m".
 _DEFAULT_HEARTBEAT_EVERY = "30m"
-_WEEKDAY_NAME_TO_CRON = {
-    "sun": 0,
-    "mon": 1,
-    "tue": 2,
-    "wed": 3,
-    "thu": 4,
-    "fri": 5,
-    "sat": 6,
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,101 +477,6 @@ class HeartbeatScheduler:
         )
 
 
-class _Schedule(Protocol):
-    def due_times_up_to(
-        self, *, now: datetime, last_due_at: datetime | None
-    ) -> list[datetime]: ...
-
-
-@dataclass(frozen=True, slots=True)
-class _AtSchedule:
-    due_at: datetime
-
-    def due_times_up_to(
-        self, *, now: datetime, last_due_at: datetime | None
-    ) -> list[datetime]:
-        if now < self.due_at:
-            return []
-        if last_due_at is not None and last_due_at >= self.due_at:
-            return []
-        return [self.due_at]
-
-
-@dataclass(frozen=True, slots=True)
-class _IntervalSchedule:
-    interval: timedelta
-
-    def due_times_up_to(
-        self, *, now: datetime, last_due_at: datetime | None
-    ) -> list[datetime]:
-        # Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "every" branch.
-        # feat-394-M8 R6-1 fix: use floor(elapsed/interval) instead of ceil to allow
-        # LLM execution overhead without skipping subsequent ticks.  Previous ceil logic:
-        # elapsed=32s, interval=30s → ceil=2 → next=last+60s > now → NOT triggered (bug).
-        # Floor fix: elapsed=32s, interval=30s → floor=1 → next=last+30s ≤ now → triggered.
-        # Large-gap invariant: floor(150/30)=5 → next=last+150s=now → fires exactly once
-        # (due_times_up_to returns at most one datetime, no backfill flood).
-        #
-        # First-ever tick (last_due_at is None): trigger immediately at floor(now, interval).
-        # The first execution is always the clock-aligned slot at or before now; this is the
-        # anchor that subsequent ticks use to compute the next aligned slot.
-        if last_due_at is None:
-            return [_floor_datetime(now, self.interval)]
-        elapsed = now - last_due_at
-        if elapsed <= timedelta(0):
-            return []
-        interval_secs = int(self.interval.total_seconds())
-        elapsed_secs = int(elapsed.total_seconds())
-        # floor(elapsed / interval): gives the most-recent aligned slot at-or-before now.
-        steps = max(1, elapsed_secs // interval_secs)
-        next_due_at = last_due_at + self.interval * steps
-        if next_due_at > now:
-            return []
-        return [next_due_at]
-
-
-@dataclass(frozen=True, slots=True)
-class _CronSchedule:
-    minute_values: tuple[int, ...]
-    hour_values: tuple[int, ...]
-    day_values: tuple[int, ...]
-    month_values: tuple[int, ...]
-    weekday_values: tuple[int, ...]
-
-    def due_times_up_to(
-        self, *, now: datetime, last_due_at: datetime | None
-    ) -> list[datetime]:
-        # Provenance: openclaw/src/cron/schedule.ts:computeNextRunAtMs "cron" branch —
-        # openclaw's scheduler checks "now >= job.next_run_at" per tick, and after firing
-        # immediately updates next_run_at = computeNextRunAtMs(schedule, now) which is always
-        # strictly in the future.  The net effect: only the minute that cron matches AND has
-        # not already been executed triggers a run.  A restart after a gap does NOT replay
-        # missed cron slots — the first future-matching minute is the next run.
-        # (feat-394 decision 3/4; replaces feat-393 fix-r2 "most-recent" backfill semantics)
-        #
-        # Implementation: trigger when the current minute matches the cron expression AND
-        # differs from last_due_at (dedup guard prevents double-fire in the same minute).
-        current = now.replace(second=0, microsecond=0)
-        if not self._matches(current):
-            return []
-        if (
-            last_due_at is not None
-            and last_due_at.replace(second=0, microsecond=0) == current
-        ):
-            return []
-        return [current]
-
-    def _matches(self, candidate: datetime) -> bool:
-        cron_weekday = (candidate.weekday() + 1) % 7
-        return (
-            candidate.minute in self.minute_values
-            and candidate.hour in self.hour_values
-            and candidate.day in self.day_values
-            and candidate.month in self.month_values
-            and cron_weekday in self.weekday_values
-        )
-
-
 def _is_heartbeat_content_effectively_empty(content: str) -> bool:
     """Return True if HEARTBEAT.md has no actionable tasks (only headers, empty list items, fences).
 
@@ -712,13 +614,15 @@ def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
     # If a tasks: block is found and valid, it takes precedence over the legacy single-schedule format.
     tasks = _parse_heartbeat_tasks(content)
     if tasks:
-        # tasks: format uses a sentinel schedule (irrelevant — each task has its own interval)
-        # and aggregated instructions from all task prompts.
+        # tasks: format — each task has its own interval; no top-level schedule applies.
+        # C2 fix: use schedule=None instead of a 1-second sentinel.  The sentinel was
+        # harmless only while tasks was non-empty, but if _parse_heartbeat_tasks strips
+        # all malformed entries the returned spec would have tasks=() with schedule=1s,
+        # causing the tick's else branch to fire at 1-second intervals — never intended.
+        # With schedule=None the tick's else branch falls through to config.every safely.
         aggregated_instructions = "\n".join(f"- [{t.name}] {t.prompt}" for t in tasks)
-        # Use a 1-second interval sentinel that is immediately overridden by per-task scheduling.
-        _SENTINEL_SCHEDULE = _IntervalSchedule(interval=timedelta(seconds=1))
         return _HeartbeatSpec(
-            schedule=_SENTINEL_SCHEDULE,
+            schedule=None,
             instructions=aggregated_instructions,
             tasks=tuple(tasks),
         )
@@ -784,8 +688,11 @@ def _parse_schedule(kind: str, raw_value: str) -> _Schedule:
     if kind in {"interval", "every"}:
         return _IntervalSchedule(interval=_parse_interval(raw_value))
     if kind == "at":
+        # Heartbeat at-lines fire even if the at-time is past (no expiry check);
+        # cron at-jobs use check_expiry=True (feat-394-M7 R5-4 is cron-only).
         return _AtSchedule(
-            due_at=_normalize_datetime(datetime.fromisoformat(raw_value))
+            due_at=_normalize_datetime(datetime.fromisoformat(raw_value)),
+            check_expiry=False,
         )
     if kind == "cron":
         return _parse_cron(raw_value)
@@ -809,76 +716,6 @@ def _parse_interval(raw_value: str) -> timedelta:
     if unit == "d":
         return timedelta(days=value)
     raise ValueError(f"unsupported interval unit: {unit}")
-
-
-def _parse_cron(raw_value: str) -> _CronSchedule:
-    fields = raw_value.split()
-    if len(fields) != 5:
-        raise ValueError("cron schedule must contain five fields")
-    minute, hour, day, month, weekday = fields
-    return _CronSchedule(
-        minute_values=_parse_cron_field(minute, minimum=0, maximum=59),
-        hour_values=_parse_cron_field(hour, minimum=0, maximum=23),
-        day_values=_parse_cron_field(day, minimum=1, maximum=31),
-        month_values=_parse_cron_field(month, minimum=1, maximum=12),
-        weekday_values=_parse_cron_field(
-            weekday, minimum=0, maximum=6, allow_names=True
-        ),
-    )
-
-
-def _parse_cron_field(
-    raw_value: str, *, minimum: int, maximum: int, allow_names: bool = False
-) -> tuple[int, ...]:
-    values: set[int] = set()
-    for part in raw_value.split(","):
-        item = part.strip().lower()
-        if not item:
-            raise ValueError(f"invalid cron field: {raw_value}")
-        if item == "*":
-            values.update(range(minimum, maximum + 1))
-            continue
-        if "/" in item:
-            base, step_text = item.split("/", 1)
-            step = int(step_text)
-            if step <= 0:
-                raise ValueError(f"invalid cron step: {raw_value}")
-            if base == "*":
-                start, end = minimum, maximum
-            elif "-" in base:
-                start_text, end_text = base.split("-", 1)
-                start = _parse_cron_number(start_text, allow_names=allow_names)
-                end = _parse_cron_number(end_text, allow_names=allow_names)
-            else:
-                start = _parse_cron_number(base, allow_names=allow_names)
-                end = maximum
-            values.update(
-                number
-                for number in range(start, end + 1)
-                if (number - start) % step == 0
-            )
-            continue
-        if "-" in item:
-            start_text, end_text = item.split("-", 1)
-            start = _parse_cron_number(start_text, allow_names=allow_names)
-            end = _parse_cron_number(end_text, allow_names=allow_names)
-            values.update(range(start, end + 1))
-            continue
-        values.add(_parse_cron_number(item, allow_names=allow_names))
-
-    filtered = tuple(sorted(value for value in values if minimum <= value <= maximum))
-    if not filtered:
-        raise ValueError(f"cron field has no valid values: {raw_value}")
-    return filtered
-
-
-def _parse_cron_number(raw_value: str, *, allow_names: bool) -> int:
-    if allow_names and raw_value in _WEEKDAY_NAME_TO_CRON:
-        return _WEEKDAY_NAME_TO_CRON[raw_value]
-    value = int(raw_value)
-    if allow_names and value == 7:
-        return 0
-    return value
 
 
 def _is_within_active_hours(
@@ -921,27 +758,6 @@ def _is_within_active_hours(
     # For midnight-crossing windows (e.g. 22:00-06:00), logic would be inverted;
     # nano spec only documents daytime windows so we keep this simple for now.
     return start_hhmm <= local_hhmm < end_hhmm
-
-
-def _parse_optional_datetime(value: str | None) -> datetime | None:
-    if value is None:
-        return None
-    return _normalize_datetime(datetime.fromisoformat(value))
-
-
-def _normalize_datetime(value: datetime) -> datetime:
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
-
-
-def _floor_datetime(value: datetime, interval: timedelta) -> datetime:
-    seconds = int(interval.total_seconds())
-    if seconds <= 0:
-        raise ValueError("interval must be positive")
-    timestamp = int(value.timestamp())
-    floored = timestamp - (timestamp % seconds)
-    return datetime.fromtimestamp(floored, tz=UTC)
 
 
 # Provenance: openclaw/src/auto-reply/heartbeat.ts:14 HEARTBEAT_PROMPT
