@@ -957,4 +957,94 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     expect(patchBody.tool_allowlist, "默认工具 bash 不应从 allowlist 丢失").toContain("bash");
     expect(patchBody.tool_allowlist, "cron 所需工具应被加入 allowlist").toContain("cron_tool");
   });
+
+  // 收紧: 勾 heartbeat（requires_tool=null）不应触发 materialize，agent 应留在默认模式
+  it("默认模式下勾 heartbeat 特性(无 requires_tool) → tool_allowlist 仍为空、不离开默认模式", async () => {
+    const user = userEvent.setup();
+
+    const state = {
+      config: {
+        agent_id: "agent-hb-1",
+        owner_id: "owner-1",
+        display_name: "HB Agent",
+        description: "",
+        system_prompt: "",
+        custom_prompt: "",
+        features: {},
+        skills: [],
+        tool_allowlist: [] as string[],   // 默认模式
+        group_reply_policy: "MENTION" as const,
+        default_model: null,
+        workspace_root: "/tmp",
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        updated_at: "2026-03-13T10:00:00Z"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [
+          { name: "read", description: "Read tool", default_on: true },
+          { name: "bash", description: "Bash tool", default_on: true }
+        ],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: "",
+        features: [
+          {
+            key: "heartbeat",
+            label_i18n: "agents.features.heartbeat.label",
+            help_i18n: "agents.features.heartbeat.help",
+            default_on: false,
+            available: true,
+            requires_tool: null   // heartbeat 不需要工具
+          }
+        ]
+      },
+      owningNode: null
+    };
+
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
+    apiMocks.listAgentCronJobsMock.mockResolvedValue([]);
+    apiMocks.getAgentHeartbeatMdMock.mockResolvedValue({ content: "" });
+    apiMocks.listAgentSummariesMock.mockResolvedValue([
+      { agent_id: "agent-hb-1", display_name: "HB Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
+    ]);
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    apiMocks.updateAgentConfigMock.mockResolvedValue({});
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "HB Agent" });
+
+    const hbCheckbox = document.querySelector<HTMLInputElement>(
+      '[data-feature-key="heartbeat"]'
+    );
+    expect(hbCheckbox, "heartbeat checkbox 应存在").not.toBeNull();
+    await user.click(hbCheckbox!);
+
+    apiMocks.updateAgentConfigMock.mockResolvedValue({});
+    const saveBtn = document.querySelector<HTMLButtonElement>('button[type="submit"]');
+    expect(saveBtn, "submit 按钮应存在").not.toBeNull();
+    await user.click(saveBtn!);
+
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalled();
+    });
+
+    const calls = apiMocks.updateAgentConfigMock.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    const patchBody = lastCall[1] as { tool_allowlist?: string[] };
+
+    // 勾 heartbeat(requires_tool=null) 不该 materialize，tool_allowlist 应仍为空（默认模式不变）
+    expect(
+      patchBody.tool_allowlist,
+      "heartbeat 无 requires_tool，tool_allowlist 不应被 materialize"
+    ).toEqual([]);
+  });
 });
