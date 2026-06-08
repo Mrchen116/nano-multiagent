@@ -47,8 +47,8 @@ UI 状态矩阵（heartbeat 预览 panel）：
 
 | ID | 标题 | 状态 | 说明 |
 |---|---|---|---|
-| R1 | IM WS RPC — heartbeat-md + cron 三方法（红测 + 实现） | TODO | gateway_handler.py 新增 3 个 RPC + 3 个 handle 方法；IM 单测红→绿 |
-| R2 | gateway 侧帧处理（红测 + 实现） | TODO | im_connection.py 新增 2 个 request 帧处理；gateway 单测红→绿 |
-| R3 | IM 路由层（红测 + 实现）：新 heartbeat-md 端点 + 改 cron jobs 路由 | TODO | agents.py 改旧 2 路由 + 新增 1 路由；IM 集成测试红→绿；不直读文件 |
-| R4 | 前端：heartbeat-md 折叠预览 panel + API client | TODO | im-agent-config-api.ts + agent-detail-page.tsx；vitest + 浏览器验收 |
-| R5 | 全树验证 + delta-spec 更新 | TODO | pytest 全绿 + tsc -b + vitest；更新 docs/specs/{im,gateway}/spec.md |
+| R1 | IM WS RPC — heartbeat-md + cron 三方法（红测 + 实现） | DONE | gateway_handler.py 新增 3 个 RPC + 3 个 handle 方法；IM 单测红→绿 |
+| R2 | gateway 侧帧处理（红测 + 实现） | DONE | im_connection.py 新增 3 个 request 帧处理；gateway 单测红→绿；新建 personal_assistant/defaults.py |
+| R3 | IM 路由层（红测 + 实现）：新 heartbeat-md 端点 + 改 cron jobs 路由 | DONE | agents.py 改旧 2 路由 + 新增 1 路由；IM 集成测试红→绿；不直读文件 |
+| R4 | 前端：heartbeat-md 折叠预览 panel + API client | DONE | im-agent-config-api.ts + agent-detail-page.tsx；tsc -b 干净；vitest(主仓) 绿 |
+| R5 | 全树验证 + delta-spec 更新 | DONE | 2594 passed, 2 baseline failures；tsc -b 干净；docs/specs/{im,gateway}/spec.md 已更新 |
