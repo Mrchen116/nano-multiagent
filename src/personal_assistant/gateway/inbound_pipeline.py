@@ -73,7 +73,6 @@ RelayLifecycleCallback = Callable[
     [InboundMessage, RelayLifecycleUpdate], Awaitable[None]
 ]
 
-# TERMINAL_RUN_STATUSES imported from agent.sdk (canonical string-form, derived from RunStatus enum).
 _TERMINAL_RUN_STATUSES = TERMINAL_RUN_STATUSES
 # Default port for the Gateway's internal HTTP dispatch endpoint.
 _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
