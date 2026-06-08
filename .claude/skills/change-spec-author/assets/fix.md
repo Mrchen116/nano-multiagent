@@ -25,6 +25,7 @@ bugfix lite 的单一文档。默认走 lite。
 <!-- 不止"哪行错了"，还要"为什么这种错能进来"。
      并追溯原始设计意图：grep docs/changes/ 找到引入这块功能的 unit，读它的 spec/design，
      写下"这块功能本来要达成什么"+"修复必须保住的不变量"。
+     若是回归：git blame 出引入坏行为的那次变更（落到 commit），与"功能引入 unit"分开记。
      lite 没有 design 阶段，worker 只读这份 fix.md——不在这里写下意图，修复就容易把功能阉割掉来消症状。 -->
 
 ## 修复
