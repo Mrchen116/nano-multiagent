@@ -340,7 +340,6 @@ class HeartbeatScheduler:
             agent_state = state_agents.get(agent.agent_id, _AgentState())
             if spec.tasks:
                 # feat-394 decision 3: tasks: multi-sub-rhythm — each task runs independently.
-                # Per-task last_due_at is stored in agent_state.per_task_last_due.
                 any_due = False
                 per_task_last_due = dict(agent_state.per_task_last_due)
                 for task in spec.tasks:
