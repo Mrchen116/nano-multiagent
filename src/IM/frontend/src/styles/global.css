@@ -873,6 +873,12 @@ body {
   min-width: 0;
 }
 
+/* 卡片直接子项（.im-agent-field 等）同样是 grid item，默认 min-width:auto
+   会被内容撑开；统一设 0 让 truncate 在卡内正常生效。 */
+.im-agent-card > * {
+  min-width: 0;
+}
+
 .im-agent-card-title {
   margin: 0;
   font-size: 0.95rem;
