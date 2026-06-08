@@ -14,10 +14,15 @@
 
 ## ADDED Requirements
 
-### Requirement: 提供 agent 当前 HEARTBEAT.md 全文的只读查看
+### Requirement: gateway 侧 per-agent 运行态经 IM→gateway 通道取，IM 不直读 workspace 文件
 
-- 配置页可只读查看某 agent 工作区当前 `HEARTBEAT.md` 全文（经 IM 取自该 agent 所在 node 的 gateway，
+> 决策 G：HEARTBEAT.md 预览、cron jobs 列表/删除都涉及 gateway 侧 workspace 文件；IM 与 gateway 可能跨机，
+> IM 不直读这些文件，而是经 IM↔gateway 通道向 agent 所在 node 请求（与 prompt-preview 同形）。
+
+- 配置页可只读查看某 agent 工作区当前 `HEARTBEAT.md` 全文（IM 经通道取自该 agent 所在 node 的 gateway，
   仿系统提示词预览的折叠展示）。该视图**只读**——HEARTBEAT.md 由 agent 经文件工具自管，配置页不写它。
+- 配置页的 cron jobs 列表/删除同样经 IM→gateway 通道作用于 agent 所在 node 的 jobs 文件（对外行为不变）。
 - **Scenario**：owner 在某 agent 的 heartbeat 区展开 HEARTBEAT.md 预览 → 看到该 agent 工作区
   HEARTBEAT.md 的当前全文（含 freeform 清单与 `tasks:` 块）。
 - **Scenario**：agent 工作区无 HEARTBEAT.md 或为空 → 预览显示空/占位，不报错。
+- **Scenario**：agent 所在 node 离线 → 预览 / cron 列表返回空 + "node 不在线"提示，不报错。

@@ -131,3 +131,26 @@ Gateway 与 IM 建立连接并完成 bind 后（含断线重连），对本 node
 - **GIVEN** Gateway 断连期间 owner 改了某 Agent 的 cadence 或 enable
 - **WHEN** Gateway 重连并对账
 - **THEN** 该 Agent 的调度行为与 IM 当前真值一致
+
+## ADDED Requirements（2026-06-08 验收修订：决策 G）
+
+### Requirement: Gateway 应 IM 请求返回自身 workspace 的 per-agent 运行态
+
+IM 不直读 gateway 侧 workspace 文件；gateway 通过 IM↔gateway 通道响应 IM 的请求，读自己机器上的
+workspace 文件并回传：HEARTBEAT.md 全文（只读预览用）、cron jobs 列表、cron job 删除。这保证 IM 与
+gateway 跨机部署时这些视图/操作仍正确（数据来自 agent 实际所在 node）。
+
+#### Scenario: 返回 HEARTBEAT.md 全文供预览
+- **GIVEN** IM 请求某 agent 的 HEARTBEAT.md 内容
+- **WHEN** 该 agent 所在 node 的 gateway 在线
+- **THEN** gateway 读自己 `<workspace>/HEARTBEAT.md` 并回传全文（不存在/空则回空）
+
+#### Scenario: cron 列表/删除作用于 gateway 自身的 jobs 文件
+- **GIVEN** IM 请求某 agent 的 cron jobs 列表或删除某 job
+- **WHEN** 该 agent 所在 node 的 gateway 在线
+- **THEN** gateway 读/改自己 `<workspace>/.nanoassistant/cron/jobs.json` 并回传结果
+
+#### Scenario: node 离线时优雅降级
+- **GIVEN** 某 agent 所在 node 的 gateway 不在线
+- **WHEN** IM 请求其 HEARTBEAT.md 预览或 cron jobs
+- **THEN** 返回空 + "node 不在线"语义，不报错（沿用 prompt-preview 的 timeout 降级）
