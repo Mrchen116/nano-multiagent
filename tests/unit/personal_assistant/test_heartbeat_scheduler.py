@@ -732,3 +732,158 @@ def test_heartbeat_large_gap_triggers_only_once(tmp_path: Path) -> None:
     assert len(summary.triggered_runs) == 1, (
         f"Large gap must trigger exactly 1 heartbeat, got {len(summary.triggered_runs)}"
     )
+
+
+# feat-394-M11 decision E: cadence is the single source of truth — scheduler reads
+# agent.heartbeat_every from config, not HEARTBEAT.md top-level every: line.
+
+
+def test_scheduler_uses_config_every_when_heartbeat_every_is_set(
+    tmp_path: Path,
+) -> None:
+    """Toplevel node rhythm comes from agent.heartbeat_every (config), not HEARTBEAT.md every:.
+
+    When HEARTBEAT.md has a top-level "every: 5m" line but agent.heartbeat_every is "60m",
+    the scheduler must use the config value (60m) and ignore the md line.
+    This is the openclaw-aligned behaviour: md top-level every is retired, config is SoT.
+    """
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-cfg-sot",
+        workspace_root=tmp_path / "agent-cfg-sot",
+        heartbeat_every="60m",
+        features={"heartbeat": True},
+    )
+    (tmp_path / "agent-cfg-sot").mkdir()
+    # md file declares "every: 5m" — must be ignored in favour of config "60m"
+    _write_heartbeat(
+        agent.workspace_root,
+        "# Heartbeat\n\nevery: 5m\n\n- Check inbox\n",
+    )
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    # First tick at T=0 — should fire (no prior state)
+    first = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 9, 0, tzinfo=UTC)))
+    # 30 minutes later — within 60m window, must NOT fire again
+    mid = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 9, 30, tzinfo=UTC)))
+    # 60 minutes after first — must fire again
+    second = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 10, 0, tzinfo=UTC)))
+
+    assert len(first.triggered_runs) == 1, "first tick should fire"
+    assert mid.triggered_runs == (), "30m < 60m config cadence — must not fire"
+    assert len(second.triggered_runs) == 1, "60m elapsed — should fire again"
+    assert len(kernel.sent_messages) == 2
+
+
+def test_scheduler_uses_default_30m_when_heartbeat_every_is_none(
+    tmp_path: Path,
+) -> None:
+    """When agent.heartbeat_every is None, default to 30m (openclaw DEFAULT_HEARTBEAT_EVERY).
+
+    The HEARTBEAT.md has only freeform instructions (no top-level every: line); the
+    scheduler must infer 30m from the absent config field and run accordingly.
+    """
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-default30",
+        workspace_root=tmp_path / "agent-default30",
+        heartbeat_every=None,  # not configured — scheduler should default to 30m
+        features={"heartbeat": True},
+    )
+    (tmp_path / "agent-default30").mkdir()
+    # md has tasks content but NO top-level every: line — freeform instructions only
+    _write_heartbeat(
+        agent.workspace_root,
+        "# Heartbeat\n\n- Check for new messages\n",
+    )
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    # T=0 — fires
+    first = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 9, 0, tzinfo=UTC)))
+    # T=20m — within 30m default, must not fire
+    early = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 9, 20, tzinfo=UTC)))
+    # T=30m — must fire (default 30m elapsed)
+    second = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 9, 30, tzinfo=UTC)))
+
+    assert len(first.triggered_runs) == 1
+    assert early.triggered_runs == (), "20m < 30m default — must not fire"
+    assert len(second.triggered_runs) == 1
+    assert len(kernel.sent_messages) == 2
+
+
+def test_scheduler_ignores_md_top_level_every_when_config_every_set(
+    tmp_path: Path,
+) -> None:
+    """md top-level every: is completely ignored when agent.heartbeat_every is set.
+
+    Even if the md file contains a conflicting schedule (e.g. every: 1m), the config
+    value takes precedence and the md line is silently skipped — not treated as an error.
+    """
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-ignore-md",
+        workspace_root=tmp_path / "agent-ignore-md",
+        heartbeat_every="2h",
+        features={"heartbeat": True},
+    )
+    (tmp_path / "agent-ignore-md").mkdir()
+    # md declares very short every: 1m — must be fully ignored
+    _write_heartbeat(
+        agent.workspace_root,
+        "# Heartbeat\n\nevery: 1m\n\n- Check something\n",
+    )
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    first = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 9, 0, tzinfo=UTC)))
+    # 90m later — still within 2h config cadence
+    mid = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 10, 30, tzinfo=UTC)))
+
+    assert len(first.triggered_runs) == 1
+    assert mid.triggered_runs == (), "90m < 2h config cadence — md every:1m must be ignored"
+
+
+def test_scheduler_tasks_per_task_rhythm_unaffected_by_config_every(
+    tmp_path: Path,
+) -> None:
+    """tasks: per-task sub-rhythms are read from md and unaffected by agent.heartbeat_every.
+
+    When HEARTBEAT.md has a tasks: block, each task's own interval: is used.
+    agent.heartbeat_every applies to the top-level fallback only (no tasks: block).
+    """
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-tasks-rhythm",
+        workspace_root=tmp_path / "agent-tasks-rhythm",
+        heartbeat_every="2h",  # top-level cadence — irrelevant when tasks: block present
+        features={"heartbeat": True},
+    )
+    (tmp_path / "agent-tasks-rhythm").mkdir()
+    _write_heartbeat(
+        agent.workspace_root,
+        "# Heartbeat\n\ntasks:\n  - name: inbox\n    interval: 15m\n    prompt: Check inbox\n",
+    )
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    first = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 9, 0, tzinfo=UTC)))
+    # 15m later — task interval due, must fire
+    second = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 9, 15, tzinfo=UTC)))
+
+    assert len(first.triggered_runs) == 1, "tasks: task fires on first tick"
+    assert len(second.triggered_runs) == 1, "15m task interval elapsed — should fire again"
+    assert len(kernel.sent_messages) == 2
