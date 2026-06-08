@@ -1,22 +1,14 @@
-"""Tests for heartbeat/cron gate behavior — updated for feat-394-M9.
+"""heartbeat/cron gate behavior tests.
 
-History:
-  M3 CRITICAL-2 fix (original): inbound_pipeline injected heartbeat_enabled/cron_enabled
-    into session_metadata, runtime.py read them into PromptContext.vars, and gates read vars.
-  M9 decision D: gate mechanism migrated from ctx.vars to ctx.flags (FEATURE_REGISTRY).
-    vars injection in runtime.py retired; flags now drive the gates.
-
-This file is updated in M9 to test the new flags-based behavior.
-Comprehensive flags gate tests live in test_m9_feature_model_gate.py;
-this file retains tests for the inbound_pipeline session_metadata contract
-and verifies that vars no longer control the segment gates.
+Covers the inbound_pipeline session_metadata contract and verifies that vars
+no longer control the segment gates (gate migrated from ctx.vars to ctx.flags
+via FEATURE_REGISTRY).  Comprehensive flags gate tests live in
+test_prompt_section_feature_flags.py.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-
-import pytest
 
 from agent.core.agent.prompt_sections.base import PromptContext
 from agent.core.types import ToolSpec
@@ -92,20 +84,20 @@ class TestInboundPipelineVarsInjection:
             "(feat-379 contract: resolve_flags_from_metadata reads this key)"
         )
 
-    def test_session_metadata_no_standalone_heartbeat_enabled(
+    def test_session_metadata_no_standalone_heartbeat_cron_keys(
         self, tmp_path: Path
     ) -> None:
-        """session_metadata must NOT contain standalone 'heartbeat_enabled' key after M9 R4.
+        """session_metadata must NOT contain standalone heartbeat_enabled/cron_enabled keys.
 
-        feat-394 M9 R4: heartbeat/cron gate state is already captured in
-        agent_features (injected at line above).  The redundant standalone
-        heartbeat_enabled/cron_enabled keys are removed — reading them from
-        metadata was retired in M9 R2.
+        Gate state lives in agent_features; standalone keys were retired when the
+        vars-injection path was removed.
         """
         from personal_assistant.gateway.inbound_pipeline import InboundPipeline
         from unittest.mock import MagicMock
 
-        agent = self._make_agent_config(tmp_path, heartbeat_enabled=True)
+        agent = self._make_agent_config(
+            tmp_path, heartbeat_enabled=True, cron_enabled=True
+        )
         pipeline = MagicMock(spec=InboundPipeline)
         pipeline._agents = {"test-agent": agent}
         pipeline._gateway_internal_port = 9999
@@ -121,31 +113,11 @@ class TestInboundPipelineVarsInjection:
         assert metadata is not None
         assert "heartbeat_enabled" not in metadata, (
             "_build_session_metadata must not inject standalone heartbeat_enabled "
-            "after M9 R4 — gate state lives in agent_features"
+            "— gate state lives in agent_features"
         )
-
-    def test_session_metadata_no_standalone_cron_enabled(self, tmp_path: Path) -> None:
-        """session_metadata must NOT contain standalone 'cron_enabled' key after M9 R4."""
-        from personal_assistant.gateway.inbound_pipeline import InboundPipeline
-        from unittest.mock import MagicMock
-
-        agent = self._make_agent_config(tmp_path, cron_enabled=True)
-        pipeline = MagicMock(spec=InboundPipeline)
-        pipeline._agents = {"test-agent": agent}
-        pipeline._gateway_internal_port = 9999
-
-        message = MagicMock()
-        message.metadata = {}
-        message.is_group = False
-
-        metadata = InboundPipeline._build_session_metadata(
-            pipeline, message, agent_id="test-agent"
-        )
-
-        assert metadata is not None
         assert "cron_enabled" not in metadata, (
             "_build_session_metadata must not inject standalone cron_enabled "
-            "after M9 R4 — gate state lives in agent_features"
+            "— gate state lives in agent_features"
         )
 
     def test_session_metadata_agent_features_encodes_heartbeat_cron(

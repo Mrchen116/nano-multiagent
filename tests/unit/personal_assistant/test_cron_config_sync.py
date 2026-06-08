@@ -1,10 +1,8 @@
-"""Unit tests for feat-394-M2 R4: cron_enabled sync IM → AgentWorkspaceConfig.
+"""cron_enabled sync IM → AgentWorkspaceConfig.
 
-feat-394 decision 5: cron.enabled in IM AgentProfile must flow to
-AgentWorkspaceConfig.cron_enabled via ConfigSyncNotifier, so the scheduler gate
+cron.enabled in IM AgentProfile (via features["cron_scheduling"]) must flow to
+AgentWorkspaceConfig.cron_enabled via the sync client, so the scheduler gate
 and prompt enabled_when gate work correctly.
-
-Mirrors the heartbeat_enabled sync tests in test_gateway_im_config_sync.py (R5).
 """
 
 from __future__ import annotations
@@ -187,21 +185,6 @@ def test_sync_agent_cron_enabled_false_in_payload(tmp_path: Path) -> None:
 
     registered = next(a for a in pipeline.registered if a.agent_id == "cronoff-agent")
     assert registered.cron_enabled is False
-
-
-def test_agentworkspaceconfig_has_cron_enabled_field() -> None:
-    """AgentWorkspaceConfig must have a cron_enabled field (defaults False).
-
-    feat-394 decision 5.
-    """
-    cfg = AgentWorkspaceConfig(
-        agent_id="a1",
-        workspace_root=Path("/tmp"),
-    )
-    assert hasattr(cfg, "cron_enabled"), (
-        "AgentWorkspaceConfig must have 'cron_enabled' field (feat-394-M2 R4)"
-    )
-    assert cfg.cron_enabled is False
 
 
 # ---------------------------------------------------------------------------

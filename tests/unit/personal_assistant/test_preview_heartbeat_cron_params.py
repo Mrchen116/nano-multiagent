@@ -1,17 +1,8 @@
-"""Tests for feat-394-M5 R2: prompt preview endpoint respects heartbeat/cron params.
+"""prompt preview endpoint respects heartbeat/cron params.
 
-R3-2 fix: PromptPreviewRequest must accept heartbeat_enabled/cron_enabled fields
-so the preview reflects the requested toggle state, not just the stored profile state.
-
-Background: acceptance.md Round 3 Issue R3-2 found that POST /im/v1/agents/{id}/prompt-preview
-with {"heartbeat_enabled": false, "cron_enabled": true} in the body was ignored —
-_extract_enabled reads from profile.heartbeat_json/cron_json regardless of request params.
-All 4 combinations (hb T/F × cron T/F) returned identical prompts.
-
-Fix: PromptPreviewRequest adds optional heartbeat_enabled / cron_enabled fields;
+PromptPreviewRequest accepts optional heartbeat_enabled/cron_enabled fields;
 the route handler uses them when present, falling back to profile-stored values.
-The IM gateway_handler.request_prompt_preview already forwarded these; the IM route
-was the missing link.
+This lets the preview reflect the requested toggle state, not just stored state.
 """
 
 from __future__ import annotations
@@ -28,35 +19,17 @@ class TestPromptPreviewRequestModel:
 
         return PromptPreviewRequest
 
-    def test_accepts_heartbeat_enabled_true(self) -> None:
-        """PromptPreviewRequest must accept heartbeat_enabled=True."""
+    def test_heartbeat_cron_fields_accept_all_states(self) -> None:
+        """PromptPreviewRequest must accept True/False/None for heartbeat_enabled and cron_enabled."""
         model = self._get_model()
-        req = model(heartbeat_enabled=True)
-        assert req.heartbeat_enabled is True
-
-    def test_accepts_heartbeat_enabled_false(self) -> None:
-        """PromptPreviewRequest must accept heartbeat_enabled=False."""
-        model = self._get_model()
-        req = model(heartbeat_enabled=False)
-        assert req.heartbeat_enabled is False
-
-    def test_accepts_cron_enabled_true(self) -> None:
-        """PromptPreviewRequest must accept cron_enabled=True."""
-        model = self._get_model()
-        req = model(cron_enabled=True)
-        assert req.cron_enabled is True
-
-    def test_accepts_cron_enabled_false(self) -> None:
-        model = self._get_model()
-        req = model(cron_enabled=False)
-        assert req.cron_enabled is False
-
-    def test_defaults_to_none_when_absent(self) -> None:
-        """When heartbeat_enabled/cron_enabled not provided, should be None (use profile)."""
-        model = self._get_model()
-        req = model()
-        assert req.heartbeat_enabled is None
-        assert req.cron_enabled is None
+        assert model(heartbeat_enabled=True).heartbeat_enabled is True
+        assert model(heartbeat_enabled=False).heartbeat_enabled is False
+        assert model(cron_enabled=True).cron_enabled is True
+        assert model(cron_enabled=False).cron_enabled is False
+        # When absent, must default to None so the route falls back to profile values.
+        req_default = model()
+        assert req_default.heartbeat_enabled is None
+        assert req_default.cron_enabled is None
 
     def test_existing_fields_still_present(self) -> None:
         """Adding new fields must not remove existing ones."""

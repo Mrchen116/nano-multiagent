@@ -1,9 +1,8 @@
-"""Tests for feat-394-M9: heartbeat/cron prompt segments gated by ctx.flags (decision D).
+"""heartbeat/cron prompt segments gated by ctx.flags (FEATURE_REGISTRY).
 
-M9 replaces the ctx.vars["heartbeat_enabled"/"cron_enabled"] gate with the
-FEATURE_REGISTRY ctx.flags model, matching memory_curation / skill_creation.
-
-These tests are RED until M9 implementation lands.
+The gate mechanism uses ctx.flags["heartbeat"] / ctx.flags["cron_scheduling"],
+matching the memory_curation / skill_creation pattern.  The legacy
+ctx.vars gate is retired.
 """
 
 from __future__ import annotations
