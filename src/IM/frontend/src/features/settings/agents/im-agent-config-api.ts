@@ -513,14 +513,3 @@ export async function deleteAgentCronJob(agentId: string, jobId: string): Promis
     throw new Error(`delete cron job failed: ${res.status}`);
   }
 }
-
-// feat-394-M11 decision E: read-only HEARTBEAT.md preview.
-// Calls GET /im/v1/agents/{id}/heartbeat-md (IM proxies to Gateway → agent workspace).
-// Returns the raw markdown text, or null when the file does not exist.
-export async function getAgentHeartbeatMd(agentId: string): Promise<string | null> {
-  const res = await authFetch(`/im/v1/agents/${agentId}/heartbeat-md`);
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`heartbeat-md fetch failed: ${res.status}`);
-  const body = await res.json() as { content: string | null };
-  return body.content ?? null;
-}

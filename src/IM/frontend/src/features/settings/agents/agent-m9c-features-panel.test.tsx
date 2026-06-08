@@ -25,7 +25,6 @@ const apiMocks = vi.hoisted(() => ({
   listAgentsMock: vi.fn(),
   navigateMock: vi.fn(),
   promptPreviewMock: vi.fn(),
-  getAgentHeartbeatMdMock: vi.fn(),
   createDirectChatByAgentUserIdMock: vi.fn(),
   createDirectConversationMock: vi.fn(),
 }));
@@ -54,7 +53,6 @@ vi.mock("./im-agent-config-api", () => ({
   updateAgentConfig: apiMocks.updateAgentConfigMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
   promptPreview: apiMocks.promptPreviewMock,
-  getAgentHeartbeatMd: apiMocks.getAgentHeartbeatMdMock,
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
@@ -442,29 +440,3 @@ describe("M11: cadence input binds to config value, no hardcoded 30m fallback", 
   });
 });
 
-// ---------------------------------------------------------------------------
-// feat-394-M11 decision E: HEARTBEAT.md read-only preview panel
-// ---------------------------------------------------------------------------
-
-describe("M11: HEARTBEAT.md read-only preview in HeartbeatCard", () => {
-  it("shows a collapsible HEARTBEAT.md preview when heartbeat feature is on", async () => {
-    apiMocks.getAgentDetailStateMock.mockResolvedValue(
-      makeM9CState({
-        capFeatures: [HB_CAP_FEATURE],
-        configFeatures: { heartbeat: true },
-        heartbeat: { enabled: true, every: "30m" },
-      })
-    );
-
-    renderDetailPage();
-    await screen.findByRole("heading", { name: "M9C Agent" });
-
-    // A button/details element labelled around "HEARTBEAT.md" must be present
-    // to expand the read-only preview.
-    const previewTrigger = document.querySelector<HTMLElement>("[data-testid='heartbeat-md-preview-toggle']");
-    expect(
-      previewTrigger,
-      "HEARTBEAT.md collapsible preview toggle must be present when heartbeat is on"
-    ).not.toBeNull();
-  });
-});
