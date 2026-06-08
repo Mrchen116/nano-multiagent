@@ -14,6 +14,9 @@ from personal_assistant.config.local_store import AgentWorkspaceConfig
 
 _INTERVAL_PATTERN = re.compile(r"^\s*(\d+)\s*([smhd])\s*$", re.IGNORECASE)
 _SCHEDULE_PREFIXES = ("interval:", "every:", "cron:", "at:")
+# feat-394-M11 decision E: default heartbeat cadence when agent.heartbeat_every is not set.
+# Provenance: openclaw/src/auto-reply/heartbeat.ts DEFAULT_HEARTBEAT_EVERY = "30m".
+_DEFAULT_HEARTBEAT_EVERY = "30m"
 _WEEKDAY_NAME_TO_CRON = {
     "sun": 0,
     "mon": 1,
@@ -172,7 +175,10 @@ class _HeartbeatTask:
 
 @dataclass(frozen=True, slots=True)
 class _HeartbeatSpec:
-    schedule: "_Schedule"
+    # feat-394-M11 decision E: schedule is None when no explicit at:/cron: is present in md.
+    # In that case the top-level cadence comes from AgentWorkspaceConfig.heartbeat_every (config).
+    # every:/interval: lines are no longer parsed from md; they are silently skipped.
+    schedule: "_Schedule | None"
     instructions: str
     # feat-394 decision 3: multi-sub-rhythm tasks parsed from tasks: block.
     # When present, each task is evaluated independently with its own last_due_at.
@@ -364,8 +370,21 @@ class HeartbeatScheduler:
                 # If no task is due this tick, don't append to skipped_agents;
                 # the absence of triggered_runs is sufficient signal.
             else:
-                # Legacy single-schedule mode.
-                due_times = spec.schedule.due_times_up_to(
+                # feat-394-M11 decision E: when spec.schedule is None (no explicit at:/cron: in md),
+                # derive the top-level cadence from agent.heartbeat_every (config).
+                # Falls back to DEFAULT_HEARTBEAT_EVERY ("30m") when the config field is absent,
+                # matching openclaw's DEFAULT_HEARTBEAT_EVERY constant.
+                # Provenance: openclaw/src/config/zod-schema.agent-runtime.ts HeartbeatSchema.every
+                # (default "30m") and infra/heartbeat-summary.ts:resolveHeartbeatIntervalMs.
+                effective_schedule: "_Schedule"
+                if spec.schedule is not None:
+                    effective_schedule = spec.schedule
+                else:
+                    _every_str = agent.heartbeat_every or _DEFAULT_HEARTBEAT_EVERY
+                    effective_schedule = _IntervalSchedule(
+                        interval=_parse_interval(_every_str)
+                    )
+                due_times = effective_schedule.due_times_up_to(
                     now=current_time,
                     last_due_at=_parse_optional_datetime(agent_state.last_due_at),
                 )
@@ -704,6 +723,13 @@ def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
             tasks=tuple(tasks),
         )
 
+    # feat-394-M11 decision E: every:/interval: lines in md are retired as a top-level
+    # cadence source.  They are silently ignored here — the scheduler reads cadence from
+    # AgentWorkspaceConfig.heartbeat_every (config, default 30m).  Only at: and cron:
+    # schedules in md are still collected (they express a specific point in time, not a
+    # simple recurrence — keeping them allows advanced md-authored scheduling if ever needed,
+    # though the canonical path for cadence is now config).
+    _RETIRED_PREFIXES = {"interval", "every"}
     schedule_entries: list[tuple[str, str]] = []
     instruction_lines: list[str] = []
     for raw_line in content.splitlines():
@@ -720,9 +746,11 @@ def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
             None,
         )
         if matched_prefix is not None:
-            schedule_entries.append(
-                (matched_prefix[:-1], line.split(":", 1)[1].strip())
-            )
+            kind = matched_prefix[:-1]
+            if kind in _RETIRED_PREFIXES:
+                # Silently skip every:/interval: — cadence is now the config's responsibility.
+                continue
+            schedule_entries.append((kind, line.split(":", 1)[1].strip()))
             continue
         if not line:
             continue
@@ -735,11 +763,17 @@ def _load_heartbeat_spec(path: Path) -> _HeartbeatSpec | None:
 
     if not instruction_lines:
         return None
-    if len(schedule_entries) != 1:
-        raise ValueError("HEARTBEAT.md must declare exactly one schedule mode")
-    schedule_kind, schedule_value = schedule_entries[0]
+    if len(schedule_entries) > 1:
+        raise ValueError("HEARTBEAT.md must declare at most one explicit schedule mode (at:/cron:)")
+    if schedule_entries:
+        schedule_kind, schedule_value = schedule_entries[0]
+        return _HeartbeatSpec(
+            schedule=_parse_schedule(schedule_kind, schedule_value),
+            instructions="\n".join(instruction_lines),
+        )
+    # No explicit at:/cron: in md — top-level cadence comes from config (decision E).
     return _HeartbeatSpec(
-        schedule=_parse_schedule(schedule_kind, schedule_value),
+        schedule=None,
         instructions="\n".join(instruction_lines),
     )
 

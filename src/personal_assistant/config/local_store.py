@@ -138,8 +138,10 @@ class AgentWorkspaceConfig:
             (order=800).  None or empty string means the segment is omitted entirely.
             See feat-379 decision 5/6.
         heartbeat_every: Interval string for the heartbeat cadence (e.g. "30m", "1h").
-            Overrides the HEARTBEAT.md top-level every: line when set; falls back to
-            HEARTBEAT.md parsing when None.  Sourced from AgentProfile.heartbeat.every.
+            Single source of truth for the top-level heartbeat rhythm (decision E, feat-394-M11).
+            Defaults to 30m when None (openclaw DEFAULT_HEARTBEAT_EVERY).
+            HEARTBEAT.md top-level every:/interval: lines are retired and ignored by the scheduler.
+            Sourced from AgentProfile.heartbeat.every via ConfigSyncNotifier.
         heartbeat_active_hours_start: Optional start of active window in "HH:MM" format
             (local time when combined with heartbeat_active_hours_timezone).
         heartbeat_active_hours_end: Optional end of active window in "HH:MM" format.

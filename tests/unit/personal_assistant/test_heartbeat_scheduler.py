@@ -225,9 +225,19 @@ def test_interval_no_backfill_after_restart(tmp_path: Path) -> None:
 def test_scheduler_normal_cadence_produces_exactly_one_run_per_interval(
     tmp_path: Path,
 ) -> None:
-    """Continuous operation: each on-time tick produces exactly 1 triggered run."""
-    agent = _agent(tmp_path)
-    _write_heartbeat(agent.workspace_root, "interval: 10s\n\nReport status.\n")
+    """Continuous operation: each on-time tick produces exactly 1 triggered run.
+
+    feat-394-M11 decision E: cadence comes from agent.heartbeat_every (config), not md.
+    md contains only freeform instructions; interval: line is retired.
+    """
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-a",
+        workspace_root=tmp_path / "agent-a",
+        heartbeat_every="10s",  # config is SoT for cadence (decision E)
+        features={"heartbeat": True},
+    )
+    (tmp_path / "agent-a").mkdir()
+    _write_heartbeat(agent.workspace_root, "Report status.\n")  # no interval: line
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
     scheduler = HeartbeatScheduler(
         agents=(agent,), kernel_client=_FakeKernelClient(), state_store=state_store
@@ -284,13 +294,20 @@ def test_cron_no_backfill_after_restart(tmp_path: Path) -> None:
     assert next_tick.triggered_runs[0].due_at == datetime(2026, 3, 13, 9, 0, tzinfo=UTC)
 
 
-def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(
+def test_scheduler_rejects_multiple_explicit_schedule_modes_in_one_heartbeat(
     tmp_path: Path,
 ) -> None:
+    """HEARTBEAT.md must not declare more than one at:/cron: entry.
+
+    feat-394-M11 decision E: every:/interval: lines are retired (silently ignored).
+    at: and cron: lines are still parsed and must not conflict.
+    A file with two at: entries (or two cron: entries) raises ValueError.
+    """
     agent = _agent(tmp_path)
+    # Two cron: entries — must raise (only at:/cron: entries are counted now)
     _write_heartbeat(
         agent.workspace_root,
-        "# Heartbeat\n\ninterval: 30m\ncron: 0 9 * * *\n\n- invalid\n",
+        "# Heartbeat\n\ncron: 0 9 * * *\ncron: 0 18 * * *\n\n- invalid\n",
     )
     scheduler = HeartbeatScheduler(
         agents=(agent,),
@@ -298,7 +315,7 @@ def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(
         state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
     )
 
-    with pytest.raises(ValueError, match="exactly one schedule mode"):
+    with pytest.raises(ValueError, match="at most one explicit schedule mode"):
         asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
 
 
@@ -670,8 +687,15 @@ def test_heartbeat_interval_triggers_on_second_tick_with_overhead(
         _SchedulerState,
     )
 
-    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
-    _write_heartbeat(agent.workspace_root, "interval: 30s\n\n- Check task\n")
+    # feat-394-M11 decision E: cadence from config, not md.
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-a",
+        workspace_root=tmp_path / "agent-a",
+        heartbeat_every="30s",  # config is SoT (decision E)
+        features={"heartbeat": True},
+    )
+    (tmp_path / "agent-a").mkdir()
+    _write_heartbeat(agent.workspace_root, "- Check task\n")  # no interval: line
     kernel = _FakeKernelClient()
 
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
@@ -708,8 +732,15 @@ def test_heartbeat_large_gap_triggers_only_once(tmp_path: Path) -> None:
         _SchedulerState,
     )
 
-    agent = _agent_with_heartbeat(tmp_path, heartbeat_enabled=True)
-    _write_heartbeat(agent.workspace_root, "interval: 30s\n\n- Check task\n")
+    # feat-394-M11 decision E: cadence from config, not md.
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-a",
+        workspace_root=tmp_path / "agent-a",
+        heartbeat_every="30s",  # config is SoT (decision E)
+        features={"heartbeat": True},
+    )
+    (tmp_path / "agent-a").mkdir()
+    _write_heartbeat(agent.workspace_root, "- Check task\n")  # no interval: line
     kernel = _FakeKernelClient()
 
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
@@ -824,8 +855,9 @@ def test_scheduler_ignores_md_top_level_every_when_config_every_set(
 ) -> None:
     """md top-level every: is completely ignored when agent.heartbeat_every is set.
 
-    Even if the md file contains a conflicting schedule (e.g. every: 1m), the config
-    value takes precedence and the md line is silently skipped — not treated as an error.
+    If md "every: 1m" were honoured, the scheduler would fire every minute.
+    With config "2h", a tick 90 seconds after the first must NOT fire a second run.
+    This proves the md every: line is silenced and config cadence governs.
     """
     agent = AgentWorkspaceConfig(
         agent_id="agent-ignore-md",
@@ -847,11 +879,16 @@ def test_scheduler_ignores_md_top_level_every_when_config_every_set(
     )
 
     first = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 9, 0, tzinfo=UTC)))
-    # 90m later — still within 2h config cadence
-    mid = asyncio.run(scheduler.tick(now=datetime(2026, 6, 8, 10, 30, tzinfo=UTC)))
+    # 90 seconds later — if md "every: 1m" were used, a second run would fire.
+    # With config "2h", this must remain silent.
+    ninety_sec = asyncio.run(
+        scheduler.tick(now=datetime(2026, 6, 8, 9, 1, 30, tzinfo=UTC))
+    )
 
     assert len(first.triggered_runs) == 1
-    assert mid.triggered_runs == (), "90m < 2h config cadence — md every:1m must be ignored"
+    assert ninety_sec.triggered_runs == (), (
+        "90s after first tick — md every:1m must be ignored; config 2h must not fire yet"
+    )
 
 
 def test_scheduler_tasks_per_task_rhythm_unaffected_by_config_every(
