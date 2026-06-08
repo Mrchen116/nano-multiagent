@@ -540,6 +540,108 @@ class IMConnectionManager:
                 },
             )
             return
+        if message_type == "node.heartbeat.md.request":
+            # feat-394-M13 (决策 G): IM asked gateway to read HEARTBEAT.md from the
+            # agent's workspace.  IM never directly reads gateway-side workspace files
+            # because IM and gateway may run on different hosts.
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            workspace_root_raw = body.get("workspace_root")
+            workspace_root = (
+                workspace_root_raw if isinstance(workspace_root_raw, str) else ""
+            )
+            content = ""
+            if workspace_root:
+                from pathlib import Path as _Path  # noqa: PLC0415 — avoid top-level import
+
+                hb_path = _Path(workspace_root) / "HEARTBEAT.md"
+                if hb_path.exists():
+                    try:
+                        content = hb_path.read_text(encoding="utf-8")
+                    except OSError:
+                        content = ""
+            await self.send_json(
+                "node.heartbeat.md",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "content": content,
+                },
+            )
+            return
+        if message_type == "node.cron.jobs.request":
+            # feat-394-M13 (决策 G): IM asked gateway to read cron/jobs.json from the
+            # agent's workspace.  Gateway reads its own file and returns the list.
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            workspace_root_raw = body.get("workspace_root")
+            workspace_root = (
+                workspace_root_raw if isinstance(workspace_root_raw, str) else ""
+            )
+            jobs: list = []
+            if workspace_root:
+                import json as _json  # noqa: PLC0415
+                from pathlib import Path as _Path  # noqa: PLC0415
+
+                jobs_path = _Path(workspace_root) / ".nanoassistant" / "cron" / "jobs.json"
+                if jobs_path.exists():
+                    try:
+                        data = _json.loads(jobs_path.read_text(encoding="utf-8"))
+                        if isinstance(data, list):
+                            jobs = data
+                    except (OSError, _json.JSONDecodeError):
+                        jobs = []
+            await self.send_json(
+                "node.cron.jobs",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "jobs": jobs,
+                },
+            )
+            return
+        if message_type == "node.cron.delete.request":
+            # feat-394-M13 (決策 G): IM asked gateway to remove a specific job from
+            # cron/jobs.json.  Gateway performs the file mutation and reports whether
+            # the job was found and removed.
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            job_id_raw = body.get("job_id")
+            job_id = job_id_raw if isinstance(job_id_raw, str) else ""
+            workspace_root_raw = body.get("workspace_root")
+            workspace_root = (
+                workspace_root_raw if isinstance(workspace_root_raw, str) else ""
+            )
+            deleted = False
+            if workspace_root and job_id:
+                import json as _json  # noqa: PLC0415
+                from pathlib import Path as _Path  # noqa: PLC0415
+
+                jobs_path = _Path(workspace_root) / ".nanoassistant" / "cron" / "jobs.json"
+                if jobs_path.exists():
+                    try:
+                        data = _json.loads(jobs_path.read_text(encoding="utf-8"))
+                        if isinstance(data, list):
+                            filtered = [
+                                item
+                                for item in data
+                                if isinstance(item, dict)
+                                and str(item.get("id", "")) != job_id
+                            ]
+                            if len(filtered) < len(data):
+                                jobs_path.write_text(
+                                    _json.dumps(filtered, indent=2, ensure_ascii=False),
+                                    encoding="utf-8",
+                                )
+                                deleted = True
+                    except (OSError, _json.JSONDecodeError):
+                        deleted = False
+            await self.send_json(
+                "node.cron.delete",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "deleted": deleted,
+                },
+            )
+            return
         if message_type == "node.streaming_delta":
             # IM → PA direction: currently only permission_response kind is routed here.
             # Other kinds (turn_start, message_delta, …) are PA→IM only and would be

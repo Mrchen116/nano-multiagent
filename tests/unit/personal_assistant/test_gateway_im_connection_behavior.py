@@ -781,11 +781,12 @@ def test_im_connection_handles_heartbeat_md_request(tmp_path: Path) -> None:
 
     asyncio.run(_exercise())
 
-    sent_types = [m.get("type") for m in socket.sent_json]
+    sent_frames = [json.loads(f) for f in socket.sent]
+    sent_types = [m.get("type") for m in sent_frames]
     assert "node.heartbeat.md" in sent_types, (
         f"Expected node.heartbeat.md frame but got: {sent_types!r}"
     )
-    hb_frame = next(m for m in socket.sent_json if m.get("type") == "node.heartbeat.md")
+    hb_frame = next(m for m in sent_frames if m.get("type") == "node.heartbeat.md")
     assert hb_frame["payload"]["request_id"] == "req-hbmd-1"
     assert hb_frame["payload"]["content"] == md_content
 
@@ -831,7 +832,8 @@ def test_im_connection_heartbeat_md_returns_empty_when_file_missing(
 
     asyncio.run(_exercise())
 
-    hb_frame = next(m for m in socket.sent_json if m.get("type") == "node.heartbeat.md")
+    sent_frames = [json.loads(f) for f in socket.sent]
+    hb_frame = next(m for m in sent_frames if m.get("type") == "node.heartbeat.md")
     assert hb_frame["payload"]["content"] == ""
 
 
@@ -882,11 +884,12 @@ def test_im_connection_handles_cron_jobs_request(tmp_path: Path) -> None:
 
     asyncio.run(_exercise())
 
-    sent_types = [m.get("type") for m in socket.sent_json]
+    sent_frames = [json.loads(f) for f in socket.sent]
+    sent_types = [m.get("type") for m in sent_frames]
     assert "node.cron.jobs" in sent_types, (
         f"Expected node.cron.jobs frame but got: {sent_types!r}"
     )
-    cj_frame = next(m for m in socket.sent_json if m.get("type") == "node.cron.jobs")
+    cj_frame = next(m for m in sent_frames if m.get("type") == "node.cron.jobs")
     assert cj_frame["payload"]["request_id"] == "req-cj-1"
     assert cj_frame["payload"]["jobs"] == jobs_data
 
@@ -938,7 +941,8 @@ def test_im_connection_handles_cron_delete_request_job_found(tmp_path: Path) -> 
 
     asyncio.run(_exercise())
 
-    cd_frame = next(m for m in socket.sent_json if m.get("type") == "node.cron.delete")
+    sent_frames = [json.loads(f) for f in socket.sent]
+    cd_frame = next(m for m in sent_frames if m.get("type") == "node.cron.delete")
     assert cd_frame["payload"]["request_id"] == "req-cd-1"
     assert cd_frame["payload"]["deleted"] is True
 
@@ -993,5 +997,6 @@ def test_im_connection_handles_cron_delete_request_job_not_found(
 
     asyncio.run(_exercise())
 
-    cd_frame = next(m for m in socket.sent_json if m.get("type") == "node.cron.delete")
+    sent_frames = [json.loads(f) for f in socket.sent]
+    cd_frame = next(m for m in sent_frames if m.get("type") == "node.cron.delete")
     assert cd_frame["payload"]["deleted"] is False
