@@ -894,3 +894,218 @@ def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception
     assert all_convs == [], (
         "No conversation should have been created for a nonexistent owner"
     )
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M13: gateway-side state via WS RPC
+# ---------------------------------------------------------------------------
+
+
+def test_request_node_heartbeat_md_returns_none_when_node_offline(
+    tmp_path: Path,
+) -> None:
+    """Heartbeat-md RPC returns None when target node is not connected.
+
+    feat-394-M13 (决策 G): IM must never directly read gateway workspace files.
+    request_node_heartbeat_md is the RPC path; offline node → None (graceful).
+    """
+    handler = _build_handler(tmp_path)
+
+    result = asyncio.run(
+        handler.request_node_heartbeat_md(
+            target_node_id="offline-node",
+            agent_id="agent-x",
+            workspace_root="/fake/workspace",
+            timeout_seconds=0.1,
+        )
+    )
+
+    assert result is None
+
+
+def test_handle_heartbeat_md_resolves_waiter(tmp_path: Path) -> None:
+    """_handle_heartbeat_md resolves the matching future with content.
+
+    feat-394-M13: gateway sends node.heartbeat.md back with {request_id, content}.
+    The IM waiter must receive the content string.
+    """
+    handler = _build_handler(tmp_path)
+    loop = asyncio.new_event_loop()
+    try:
+        future: asyncio.Future[str | None] = loop.create_future()
+
+        async def _run() -> dict[str, object]:
+            async with handler._lock:  # noqa: SLF001
+                handler._heartbeat_md_waiters["req-hb-1"] = future  # noqa: SLF001
+            return await handler._handle_heartbeat_md(  # noqa: SLF001
+                payload={
+                    "request_id": "req-hb-1",
+                    "node_id": "node-1",
+                    "content": "# HEARTBEAT\n- Watch server uptime",
+                }
+            )
+
+        ack = loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    assert ack == {
+        "type": "ack",
+        "payload": {"message_type": "node.heartbeat.md", "request_id": "req-hb-1"},
+    }
+    assert future.result() == "# HEARTBEAT\n- Watch server uptime"
+
+
+def test_handle_heartbeat_md_accepts_empty_content(tmp_path: Path) -> None:
+    """Gateway may return empty string when HEARTBEAT.md does not exist yet."""
+    handler = _build_handler(tmp_path)
+    loop = asyncio.new_event_loop()
+    try:
+        future: asyncio.Future[str | None] = loop.create_future()
+
+        async def _run() -> None:
+            async with handler._lock:  # noqa: SLF001
+                handler._heartbeat_md_waiters["req-hb-2"] = future  # noqa: SLF001
+            await handler._handle_heartbeat_md(  # noqa: SLF001
+                payload={"request_id": "req-hb-2", "node_id": "n1", "content": ""}
+            )
+
+        loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    assert future.result() == ""
+
+
+def test_request_node_cron_jobs_returns_none_when_node_offline(
+    tmp_path: Path,
+) -> None:
+    """Cron-jobs RPC returns None when target node is not connected.
+
+    feat-394-M13: cron jobs list must be fetched from gateway via RPC, not read
+    directly from the IM host filesystem.  Offline node → None (graceful).
+    """
+    handler = _build_handler(tmp_path)
+
+    result = asyncio.run(
+        handler.request_node_cron_jobs(
+            target_node_id="offline-node",
+            agent_id="agent-x",
+            workspace_root="/fake/workspace",
+            timeout_seconds=0.1,
+        )
+    )
+
+    assert result is None
+
+
+def test_handle_cron_jobs_resolves_waiter_with_job_list(tmp_path: Path) -> None:
+    """_handle_cron_jobs resolves the matching future with the job list payload.
+
+    feat-394-M13: gateway sends node.cron.jobs back with {request_id, jobs:[...]}.
+    """
+    handler = _build_handler(tmp_path)
+    loop = asyncio.new_event_loop()
+    jobs_payload = [{"id": "job-1", "name": "tick", "schedule": {"kind": "every"}}]
+    try:
+        future: asyncio.Future[list | None] = loop.create_future()
+
+        async def _run() -> dict[str, object]:
+            async with handler._lock:  # noqa: SLF001
+                handler._cron_jobs_waiters["req-cj-1"] = future  # noqa: SLF001
+            return await handler._handle_cron_jobs(  # noqa: SLF001
+                payload={
+                    "request_id": "req-cj-1",
+                    "node_id": "node-1",
+                    "jobs": jobs_payload,
+                }
+            )
+
+        ack = loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    assert ack == {
+        "type": "ack",
+        "payload": {"message_type": "node.cron.jobs", "request_id": "req-cj-1"},
+    }
+    assert future.result() == jobs_payload
+
+
+def test_request_node_cron_delete_returns_false_when_node_offline(
+    tmp_path: Path,
+) -> None:
+    """Cron-delete RPC returns False when target node is not connected.
+
+    feat-394-M13: delete must also go via RPC, not direct file write on IM host.
+    Offline node → False (graceful, caller maps to 404).
+    """
+    handler = _build_handler(tmp_path)
+
+    result = asyncio.run(
+        handler.request_node_cron_delete(
+            target_node_id="offline-node",
+            agent_id="agent-x",
+            workspace_root="/fake/workspace",
+            job_id="job-1",
+            timeout_seconds=0.1,
+        )
+    )
+
+    assert result is False
+
+
+def test_handle_cron_delete_resolves_waiter_with_deleted_flag(
+    tmp_path: Path,
+) -> None:
+    """_handle_cron_delete resolves the future with deleted=True when job was found."""
+    handler = _build_handler(tmp_path)
+    loop = asyncio.new_event_loop()
+    try:
+        future: asyncio.Future[bool | None] = loop.create_future()
+
+        async def _run() -> dict[str, object]:
+            async with handler._lock:  # noqa: SLF001
+                handler._cron_delete_waiters["req-cd-1"] = future  # noqa: SLF001
+            return await handler._handle_cron_delete(  # noqa: SLF001
+                payload={
+                    "request_id": "req-cd-1",
+                    "node_id": "node-1",
+                    "deleted": True,
+                }
+            )
+
+        ack = loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    assert ack == {
+        "type": "ack",
+        "payload": {"message_type": "node.cron.delete", "request_id": "req-cd-1"},
+    }
+    assert future.result() is True
+
+
+def test_handle_cron_delete_resolves_waiter_with_not_found(tmp_path: Path) -> None:
+    """Gateway returns deleted=False when job_id was not found in the file."""
+    handler = _build_handler(tmp_path)
+    loop = asyncio.new_event_loop()
+    try:
+        future: asyncio.Future[bool | None] = loop.create_future()
+
+        async def _run() -> None:
+            async with handler._lock:  # noqa: SLF001
+                handler._cron_delete_waiters["req-cd-2"] = future  # noqa: SLF001
+            await handler._handle_cron_delete(  # noqa: SLF001
+                payload={
+                    "request_id": "req-cd-2",
+                    "node_id": "n1",
+                    "deleted": False,
+                }
+            )
+
+        loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    assert future.result() is False
