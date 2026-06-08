@@ -944,4 +944,3 @@ def test_get_heartbeat_md_returns_empty_when_node_offline(
     assert resp.status_code == 200
     assert resp.json()["content"] == ""
     assert resp.json()["node_online"] is False
-    assert response.json()["models"] == ["kimiCoding:K2.6", "codex_oauth:gpt-5.5"]

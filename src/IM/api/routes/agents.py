@@ -611,10 +611,13 @@ async def agent_prompt_preview(
 
 
 # ---------------------------------------------------------------------------
-# feat-394-M3 WARNING-3: cron jobs list + delete (Scenario: 配置页查看并手动删除任务)
+# feat-394-M13 (决策 G): cron jobs list + delete + heartbeat-md — via WS RPC
 # ---------------------------------------------------------------------------
-
-_CRON_JOBS_PATH = ".nanoassistant/cron/jobs.json"
+# These routes previously read/wrote <workspace_root> files directly from IM.
+# That is invalid when IM and gateway run on different hosts.  All three routes
+# now delegate to the gateway node via WS RPC and never touch the workspace on
+# the IM host.  Offline / timeout → graceful degradation (empty list / 404).
+# ---------------------------------------------------------------------------
 
 
 class CronJobSummary(BaseModel):
@@ -628,20 +631,29 @@ class CronJobSummary(BaseModel):
     delete_after_run: bool = False
 
 
+class HeartbeatMdResponse(BaseModel):
+    """HEARTBEAT.md content response for the agent detail page preview panel."""
+
+    content: str
+    node_online: bool
+
+
 @router.get(
     "/im/v1/agents/{agent_id}/cron/jobs",
     response_model=list[CronJobSummary],
     summary="List cron jobs for an agent",
 )
-def list_agent_cron_jobs(
+async def list_agent_cron_jobs(
     agent_id: str,
     service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
     user: User = Depends(current_user),
 ) -> list[CronJobSummary]:
-    """Return all cron jobs registered for an agent.
+    """Return all cron jobs registered for an agent via gateway WS RPC.
 
-    Jobs are read from <workspace_root>/.nanoassistant/cron/jobs.json.
-    Returns an empty list when no jobs file exists yet.
+    feat-394-M13 (决策 G): replaces direct IM-host file read.  Gateway reads its
+    own <workspace>/.nanoassistant/cron/jobs.json and returns the list.
+    Returns an empty list when the node is offline or the file does not exist.
 
     feat-394-M3 WARNING-3: spec Scenario "配置页查看并手动删除任务".
     """
@@ -650,18 +662,19 @@ def list_agent_cron_jobs(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
         )
+    if not profile.node_id:
+        return []
     workspace_root = service.workspace_root_for_profile(profile)
-    jobs_path = Path(workspace_root) / _CRON_JOBS_PATH
-    if not jobs_path.exists():
-        return []
-    try:
-        data = json.loads(jobs_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
-    if not isinstance(data, list):
+    raw = await gateway_handler.request_node_cron_jobs(
+        target_node_id=profile.node_id,
+        agent_id=agent_id,
+        workspace_root=workspace_root,
+    )
+    if raw is None:
+        # Node offline or timed out — graceful degradation.
         return []
     result: list[CronJobSummary] = []
-    for item in data:
+    for item in raw:
         if not isinstance(item, dict):
             continue
         try:
@@ -685,13 +698,18 @@ def list_agent_cron_jobs(
     status_code=status.HTTP_204_NO_CONTENT,
     summary="Delete a cron job for an agent",
 )
-def delete_agent_cron_job(
+async def delete_agent_cron_job(
     agent_id: str,
     job_id: str,
     service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
     user: User = Depends(current_user),
 ) -> None:
-    """Remove one cron job from the agent's jobs.json.
+    """Remove one cron job via gateway WS RPC.
+
+    feat-394-M13 (决策 G): replaces direct IM-host file write.  Gateway removes
+    the job from its own <workspace>/.nanoassistant/cron/jobs.json.
+    Returns 404 when the job is not found or when the node is offline.
 
     feat-394-M3 WARNING-3: spec Scenario "配置页查看并手动删除任务".
     """
@@ -700,40 +718,57 @@ def delete_agent_cron_job(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
         )
+    if not profile.node_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found"
+        )
     workspace_root = service.workspace_root_for_profile(profile)
-    jobs_path = Path(workspace_root) / _CRON_JOBS_PATH
-    if not jobs_path.exists():
+    deleted = await gateway_handler.request_node_cron_delete(
+        target_node_id=profile.node_id,
+        agent_id=agent_id,
+        workspace_root=workspace_root,
+        job_id=job_id,
+    )
+    if not deleted:
+        # None (node offline) or False (job not found) both map to 404.
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found"
         )
-    try:
-        data = json.loads(jobs_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+
+
+@router.get(
+    "/im/v1/agents/{agent_id}/heartbeat-md",
+    response_model=HeartbeatMdResponse,
+    summary="Get HEARTBEAT.md content for an agent",
+)
+async def get_agent_heartbeat_md(
+    agent_id: str,
+    service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    user: User = Depends(current_user),
+) -> HeartbeatMdResponse:
+    """Return raw HEARTBEAT.md content for the agent detail preview panel.
+
+    feat-394-M13 (决策 G): read via gateway WS RPC so the IM host never touches
+    gateway-side workspace files.  When the node is offline or the file does not
+    exist, returns empty content with node_online=False.
+
+    feat-394-M11: moved from M11 to M13 (architecture fix, decision G).
+    """
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
+    if profile is None:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="could not read jobs",
-        ) from exc
-    if not isinstance(data, list):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="malformed jobs file",
+            status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
         )
-    original_len = len(data)
-    filtered = [
-        item
-        for item in data
-        if isinstance(item, dict) and str(item.get("id", "")) != job_id
-    ]
-    if len(filtered) == original_len:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found"
-        )
-    try:
-        jobs_path.write_text(
-            json.dumps(filtered, indent=2, ensure_ascii=False), encoding="utf-8"
-        )
-    except OSError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="could not write jobs",
-        ) from exc
+    if not profile.node_id:
+        return HeartbeatMdResponse(content="", node_online=False)
+    workspace_root = service.workspace_root_for_profile(profile)
+    content = await gateway_handler.request_node_heartbeat_md(
+        target_node_id=profile.node_id,
+        agent_id=agent_id,
+        workspace_root=workspace_root,
+    )
+    if content is None:
+        # Node offline or timed out.
+        return HeartbeatMdResponse(content="", node_online=False)
+    return HeartbeatMdResponse(content=content, node_online=True)
