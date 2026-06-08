@@ -513,3 +513,20 @@ export async function deleteAgentCronJob(agentId: string, jobId: string): Promis
     throw new Error(`delete cron job failed: ${res.status}`);
   }
 }
+
+// ---------------------------------------------------------------------------
+// feat-394-M13 (决策 G): HEARTBEAT.md read-only preview via WS RPC.
+// Data comes from the gateway node — IM never reads workspace files directly.
+// ---------------------------------------------------------------------------
+
+export interface HeartbeatMdResponse {
+  /** Raw HEARTBEAT.md content from the gateway workspace, empty when absent. */
+  content: string;
+  /** False when the gateway node is offline or timed out. */
+  node_online: boolean;
+}
+
+/** Fetch the raw HEARTBEAT.md content for an agent via the WS RPC path. */
+export async function getAgentHeartbeatMd(agentId: string): Promise<HeartbeatMdResponse> {
+  return requestJson<HeartbeatMdResponse>(`/im/v1/agents/${agentId}/heartbeat-md`);
+}

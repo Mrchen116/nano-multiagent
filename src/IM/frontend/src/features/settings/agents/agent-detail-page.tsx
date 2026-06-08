@@ -16,6 +16,7 @@ import {
   AgentSummary,
   CronJobSummary,
   getAgentDetailState,
+  getAgentHeartbeatMd,
   listAgentSummaries,
   listAgentCronJobs,
   deleteAgentCronJob,
@@ -316,7 +317,9 @@ function BehaviorCard({
 // active-hours start/end time inputs when enabled.
 // feat-394-M7 R5-3 fix: added activeHours start/end UI (spec S2.5 requirement).
 // feat-394-M11 decision E: cadence input binds to backend config value (no hardcoded 30m fallback).
+// feat-394-M13: adds collapsible HEARTBEAT.md read-only preview panel via RPC (Decision G).
 interface HeartbeatCardProps {
+  agentId: string;
   draft: AgentConfigFormState;
   onToggle: (enabled: boolean) => void;
   onEveryChange: (every: string) => void;
@@ -326,7 +329,7 @@ interface HeartbeatCardProps {
   hideEnableToggle?: boolean;
 }
 
-function HeartbeatCard({ draft, onToggle, onEveryChange, onActiveHoursChange, hideEnableToggle = false }: HeartbeatCardProps) {
+function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursChange, hideEnableToggle = false }: HeartbeatCardProps) {
   const { t } = useTranslation();
   // feat-394-M11 decision E: no hardcoded fallback — cadence binds directly to backend value.
   // When heartbeat is not configured, every is undefined → input shows empty (placeholder "30m").
@@ -336,6 +339,32 @@ function HeartbeatCard({ draft, onToggle, onEveryChange, onActiveHoursChange, hi
   const every = heartbeat?.every ?? "";
   const activeStart = heartbeat?.active_hours?.start ?? "";
   const activeEnd = heartbeat?.active_hours?.end ?? "";
+
+  // feat-394-M13: HEARTBEAT.md collapsible read-only preview — fetched via RPC, not direct file access.
+  // Decision G: IM process must never directly read gateway-side workspace files.
+  const [hbMdOpen, setHbMdOpen] = useState(false);
+  const [hbMdContent, setHbMdContent] = useState<string | null>(null);
+  const [hbMdLoading, setHbMdLoading] = useState(false);
+  const [hbMdNodeOnline, setHbMdNodeOnline] = useState(true);
+
+  async function handleHbMdToggle() {
+    if (!hbMdOpen) {
+      setHbMdOpen(true);
+      setHbMdLoading(true);
+      try {
+        const resp = await getAgentHeartbeatMd(agentId);
+        setHbMdContent(resp.content);
+        setHbMdNodeOnline(resp.node_online);
+      } catch {
+        setHbMdContent(null);
+        setHbMdNodeOnline(false);
+      } finally {
+        setHbMdLoading(false);
+      }
+    } else {
+      setHbMdOpen(false);
+    }
+  }
 
   return (
     <section className="im-agent-card">
@@ -417,6 +446,70 @@ function HeartbeatCard({ draft, onToggle, onEveryChange, onActiveHoursChange, hi
             <p className="im-agent-field-help">
               {t("agents.form.heartbeat.activeHoursHelp", "Heartbeat only triggers within this time window (leave blank for always-on)")}
             </p>
+          </div>
+
+          {/* feat-394-M13: HEARTBEAT.md read-only preview — content fetched from gateway via RPC
+              so IM never directly reads gateway-side workspace files (Decision G). */}
+          <div>
+            <button
+              type="button"
+              className={`im-behavior-preview-toggle ${hbMdOpen ? "im-behavior-preview-toggle--open" : ""}`}
+              onClick={() => { void handleHbMdToggle(); }}
+              aria-expanded={hbMdOpen}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                background: "none",
+                border: "none",
+                padding: "6px 0",
+                cursor: "pointer",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                color: "var(--im-accent, oklch(0.55 0.18 180))"
+              }}
+            >
+              <span aria-hidden="true">{hbMdOpen ? "▾" : "▸"}</span>
+              <span>{t("agents.form.heartbeat.heartbeatMdToggle", "View HEARTBEAT.md")}</span>
+            </button>
+
+            {hbMdOpen && (
+              <div className="im-behavior-preview-panel im-behavior-preview-panel--open" style={{ marginTop: 8 }}>
+                {hbMdLoading && (
+                  <p className="text-[11px] text-slate-500">{t("agents.form.heartbeat.heartbeatMdLoading", "Loading...")}</p>
+                )}
+                {!hbMdLoading && !hbMdNodeOnline && (
+                  <p className="text-[11px] text-slate-400 italic">
+                    {t("agents.form.heartbeat.heartbeatMdOffline", "Node is offline — HEARTBEAT.md unavailable")}
+                  </p>
+                )}
+                {!hbMdLoading && hbMdNodeOnline && hbMdContent !== null && hbMdContent === "" && (
+                  <p className="text-[11px] text-slate-400 italic">
+                    {t("agents.form.heartbeat.heartbeatMdEmpty", "HEARTBEAT.md not found")}
+                  </p>
+                )}
+                {!hbMdLoading && hbMdNodeOnline && hbMdContent !== null && hbMdContent !== "" && (
+                  <pre
+                    style={{
+                      fontSize: "0.72rem",
+                      lineHeight: 1.5,
+                      color: "var(--im-muted, oklch(0.50 0.01 240))",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      background: "oklch(0.96 0.004 240)",
+                      border: "1px solid var(--im-border)",
+                      borderRadius: 8,
+                      padding: "10px 12px",
+                      maxHeight: 360,
+                      overflowY: "auto",
+                      margin: 0
+                    }}
+                  >
+                    {hbMdContent}
+                  </pre>
+                )}
+              </div>
+            )}
           </div>
 
         </>
@@ -1014,6 +1107,7 @@ export function AgentDetailPage() {
           if (hbInFeatures && !draft.features?.heartbeat) return null;
           return (
             <HeartbeatCard
+              agentId={agentId}
               draft={draft}
               onToggle={(enabled) => {
                 // feat-394 M9-E: enable is in features["heartbeat"]; toggle via features only.
