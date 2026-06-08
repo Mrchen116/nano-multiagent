@@ -868,6 +868,9 @@ body {
   padding: 14px 16px;
   display: grid;
   gap: 14px;
+  /* grid item 默认 min-width:auto，长内容会撑宽 grid track；
+     min-width:0 允许收缩到容器宽度，使 truncate 子元素正常截断。 */
+  min-width: 0;
 }
 
 .im-agent-card-title {

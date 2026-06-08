@@ -600,7 +600,7 @@ function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCa
                   <div className="min-w-0 flex-1">
                     <p className="text-[13px] font-medium text-slate-800 truncate">{job.name}</p>
                     <p className="text-[11px] text-slate-500 truncate">{job.instruction}</p>
-                    <p className="text-[10px] text-slate-400 font-mono">
+                    <p className="text-[10px] text-slate-400 font-mono truncate">
                       {JSON.stringify(job.schedule)}
                     </p>
                   </div>
