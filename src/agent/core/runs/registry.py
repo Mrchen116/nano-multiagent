@@ -52,6 +52,13 @@ class RunRecord:
     # Session workspace root, threaded from the request so the stateless kernel
     # can locate the session JSONL on first load of this process lifetime.
     workspace_root: Path | None = None
+    # Event-hub sequence captured at submit() time, immediately before this run's
+    # first (QUEUED) status event is published.  Consumers stream with
+    # ``after_sequence=start_sequence`` to receive exactly this run's events and
+    # nothing from earlier turns — this is the single source of truth for "where
+    # does this run begin in the session stream", so no consumer needs to dedup
+    # replayed history (e.g. stale self_evolution_review) on every new turn.
+    start_sequence: int = 0
 
 
 class RuntimeRunner(Protocol):
@@ -72,6 +79,8 @@ class EventHubLike(Protocol):
     def publish(
         self, *, event: str, session_id: str, data: dict[str, Any]
     ) -> object: ...
+
+    def current_sequence(self) -> int: ...
 
 
 class RunsRegistry:
@@ -141,6 +150,11 @@ class RunsRegistry:
         run_id = make_run_id()
         now = _utc_now_iso()
         resolved_trace_id = trace_id or current_trace_id()
+        # Snapshot the hub position before publishing this run's first event, so
+        # the run carries its own stream origin (see RunRecord.start_sequence).
+        start_sequence = (
+            self._event_hub.current_sequence() if self._event_hub is not None else 0
+        )
         record = RunRecord(
             run_id=run_id,
             session_id=session_id,
@@ -151,6 +165,7 @@ class RunsRegistry:
             origin=origin,
             source_task_id=source_task_id,
             workspace_root=workspace_root,
+            start_sequence=start_sequence,
         )
         self._persist_run_status_entry(record)
         with self._lock:

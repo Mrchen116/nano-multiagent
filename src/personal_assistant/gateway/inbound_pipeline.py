@@ -233,9 +233,11 @@ class InboundPipeline:
                     workspace_root=agent_workspace_root_path,
                 )
                 run_id = run_record.run_id
-                # In-process mode: no SSE replay needed (events are published synchronously
-                # to EventStreamHub which we subscribe to below).  Use after_sequence=0.
-                anchor_sequence = 0
+                # Anchor the per-turn event stream to this run's own start position.
+                # Using 0 here would replay the ENTIRE in-memory session history every
+                # turn, re-surfacing stale session-level events (e.g. self_evolution_review)
+                # as if they were fresh — the source of the repeated "updated" notifications.
+                anchor_sequence = run_record.start_sequence
                 if run_id:
                     async with self._active_runs_lock:
                         self._active_runs[session_key] = run_id
@@ -252,13 +254,10 @@ class InboundPipeline:
 
                 async def _on_other_event(event: Mapping[str, object]) -> None:
                     event_name = event.get("event")
-                    # Handle session-level events (no origin, no run_id) such as
-                    # self_evolution_review published by background hooks during the turn.
-                    if event_name == "self_evolution_review":
-                        cb = self._session_event_callback
-                        if cb is not None:
-                            await cb(binding.kernel_session_id, event)
-                        return
+                    # Session-level events (e.g. self_evolution_review) are owned solely
+                    # by the persistent background subscriber started below, so they are
+                    # forwarded exactly once regardless of fork timing.  The main loop
+                    # deliberately ignores them here.
                     origin = event.get("origin")
                     if origin == "user" or not origin:
                         return

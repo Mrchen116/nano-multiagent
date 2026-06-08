@@ -2521,11 +2521,12 @@ def _build_session_event_callback(
             return
 
         # Format a human-readable system notification matching the CLI style.
-        data = event.get("data") or {}
-        if not isinstance(data, dict):
-            data = {}
-        reviewed_skills: bool = bool(data.get("reviewed_skills", False))
-        reviewed_memory: bool = bool(data.get("reviewed_memory", False))
+        # The SSE event dict is flat: the hook's payload fields (reviewed_skills,
+        # reviewed_memory) are merged to the top level by the kernel stream, not
+        # nested under "data".  Reading event["data"] here always missed them and
+        # degraded every notification to the generic "self-evolution" subject.
+        reviewed_skills: bool = bool(event.get("reviewed_skills", False))
+        reviewed_memory: bool = bool(event.get("reviewed_memory", False))
         if reviewed_skills and reviewed_memory:
             subject = "skills + memory"
         elif reviewed_skills:
