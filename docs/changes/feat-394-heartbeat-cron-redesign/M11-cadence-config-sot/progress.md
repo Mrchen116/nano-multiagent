@@ -26,18 +26,25 @@
 
 ---
 
-### R2 — 前端：删硬编码兜底 + HEARTBEAT.md 只读预览
+### R2 — 前端：删硬编码兜底，cadence 绑后端值
 
-- Context: `agent-detail-page.tsx` HeartbeatCard 有 `?? { every: "30m" }` 和 `?? "30m"` 硬编码兜底，导致 cadence 输入展示 UI 值而非 backend 真值；缺少 HEARTBEAT.md 只读预览 panel。
+- Context: `agent-detail-page.tsx` HeartbeatCard 有 `?? { every: "30m" }` 和 `?? "30m"` 硬编码兜底，导致 cadence 输入展示 UI 值而非 backend 真值。
 - Decision:
   - 删两处 hardcoded fallback，cadence 输入直接绑 `draft.heartbeat?.every ?? ""`（empty 时展示 placeholder "30m"）。
-  - HeartbeatCard 新增 `agentId` prop，加可折叠 HEARTBEAT.md 只读预览 button（data-testid="heartbeat-md-preview-toggle"，仿 promptPreview pattern）。
-  - IM 端 `GET /im/v1/agents/{id}/heartbeat-md` 新端点直读 workspace HEARTBEAT.md（与 cron jobs 读文件模式一致，不走 Gateway WS）。
-  - 前端 `getAgentHeartbeatMd()` API 函数调对应端点。
-- Rationale: HEARTBEAT.md 由 agent 写入，UI 只需只读预览；cadence 绑 config 值为 decision E 核心要求。
+  - HEARTBEAT.md 只读预览因架构问题回退（决策 G：IM 不直读 gateway workspace，须走 WS RPC）→ 移交 M13。
+- Rationale: cadence 绑 config 值为 decision E 核心要求；md 预览须由 gateway 侧读文件经 WS 通道回传。
 - Evidence:
-  - Tests: 3 个 M11 vitest 新测全绿（370 passed，基线 367）；2 个 M11 C1 红测（cadence + md preview）变绿
+  - Tests: 2 个 M11 cadence vitest 全绿（共 369 passed）
   - tsc -b: 通过
-  - E2E/Regression: 全树 `pytest -m "not e2e"` 2567 passed（+8，排除 macOS /private/tmp 预存失败 2 个）
-- Commits: C1=test(红测), C2=fix(实现)
-- Status: DONE
+  - E2E/Regression: 全树 `pytest -m "not e2e"` 2567 passed（排除 macOS /private/tmp 预存失败 2 个）
+- Commits: C1=test(红测), C2=fix(实现), revert(回退 md 预览直读)
+- Status: DONE（md 预览部分 → M13）
+
+---
+
+### M11 收尾
+
+- rebase 到 `origin/unit/feat-394`（tip 1de83364，含决策 G 文档）：无冲突
+- FF merge 合入 `unit/feat-394`，push origin
+- milestone/feat-394-M11 分支（remote + local）已删，worktree 已移除
+- Status: CLOSED
