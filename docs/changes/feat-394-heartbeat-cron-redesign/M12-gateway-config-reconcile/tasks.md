@@ -38,5 +38,5 @@ N/A（纯后端）
 | ID | 标题 | 状态 |
 |----|------|------|
 | R1 | 红测：reconcile-on-connect 场景 | DONE |
-| R2 | 实现：_reconcile_all_agents 方法 + 连接生命周期接线 | DONE |
-| R3 | 文档：progress.md + spec.md delta + 全树验证 | DONE |
+| R2 | 实现：reconcile_all_agents + on_connected 回调接线 | DONE |
+| R3 | 文档：progress.md + spec delta 已存在 + 全树验证 | DONE |
