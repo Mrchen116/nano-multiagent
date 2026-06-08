@@ -862,6 +862,33 @@ describe("feat-379-M9 preview tool_ids regression", () => {
 // 直接用空 allowlist 计算 nextAllowlist，导致 [] → ["cron"]，默认工具全灰。
 // 修法: 镜像 onChange 的 materialize 逻辑，先把 default_on 工具展开再加 requires_tool。
 describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
+  // updateAgentConfig 必须返回完整 config，否则 onSuccess 把 draft 设成含 undefined 字段的对象
+  // 导致 normalizeAgentConfig(draft) → normalizeText(undefined) → TypeError（exit 1）。
+  function makeCronBugfixConfig(overrides: Partial<{
+    agent_id: string; display_name: string; tool_allowlist: string[]
+  }> = {}) {
+    return {
+      agent_id: overrides.agent_id ?? "bugfix-cron-1",
+      owner_id: "owner-1",
+      display_name: overrides.display_name ?? "Bugfix Agent",
+      description: "",
+      system_prompt: "",
+      custom_prompt: "",
+      features: {} as Record<string, boolean>,
+      skills: [] as string[],
+      tool_allowlist: overrides.tool_allowlist ?? ([] as string[]),
+      group_reply_policy: "MENTION" as const,
+      default_model: null,
+      workspace_root: "/tmp",
+      workspace_is_default: false,
+      profile_version: 1,
+      node_id: "node-1",
+      node_name: "MacBook",
+      node_status: "online" as const,
+      updated_at: "2026-03-13T10:00:00Z"
+    };
+  }
+
   // 场景: 初始未触碰 allowlist（工具列表处于默认模式），勾选 cron_scheduling 特性
   // 期望: tool_allowlist 含全部 default_on 工具 + cron 所需工具，而不是只有 cron 工具
   it("默认模式下勾 cron 特性 → tool_allowlist 含全部 default_on 工具 + cron 所需工具", async () => {
@@ -869,27 +896,9 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
 
     // capabilities: read(default_on) + bash(default_on) + cron_tool(NOT default_on)
     // 初始 tool_allowlist=[] 表示"未触碰，走默认模式"
+    const baseConfig = makeCronBugfixConfig({ agent_id: "bugfix-cron-1", display_name: "Cron Agent" });
     const state = {
-      config: {
-        agent_id: "agent-core-1",
-        owner_id: "owner-1",
-        display_name: "Cron Agent",
-        description: "",
-        system_prompt: "",
-        custom_prompt: "",
-        features: {},
-        skills: [],
-        tool_allowlist: [] as string[],      // 默认模式：空 = 用 default_on
-        group_reply_policy: "MENTION" as const,
-        default_model: null,
-        workspace_root: "/tmp",
-        workspace_is_default: false,
-        profile_version: 1,
-        node_id: "node-1",
-        node_name: "MacBook",
-        node_status: "online",
-        updated_at: "2026-03-13T10:00:00Z"
-      },
+      config: baseConfig,
       capabilities: {
         node_id: "node-1",
         node_name: "MacBook",
@@ -922,10 +931,11 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     // listAgentCronJobs returns empty list so CronCard doesn't error
     apiMocks.listAgentCronJobsMock.mockResolvedValue([]);
     apiMocks.listAgentSummariesMock.mockResolvedValue([
-      { agent_id: "agent-core-1", display_name: "Cron Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
+      { agent_id: "bugfix-cron-1", display_name: "Cron Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
     ]);
     apiMocks.listAgentsMock.mockResolvedValue([]);
-    apiMocks.updateAgentConfigMock.mockResolvedValue({});
+    // 必须返回完整 config，否则 onSuccess setDraft(updated) → normalizeText(undefined) crash
+    apiMocks.updateAgentConfigMock.mockResolvedValue(baseConfig);
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "Cron Agent" });
@@ -938,7 +948,6 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     await user.click(cronCheckbox!);
 
     // 保存配置，观察 PATCH payload 中的 tool_allowlist
-    apiMocks.updateAgentConfigMock.mockResolvedValue({});
     const saveBtn = document.querySelector<HTMLButtonElement>('button[type="submit"]');
     expect(saveBtn, "submit 按钮应存在").not.toBeNull();
     await user.click(saveBtn!);
@@ -962,27 +971,9 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
   it("默认模式下勾 heartbeat 特性(无 requires_tool) → tool_allowlist 仍为空、不离开默认模式", async () => {
     const user = userEvent.setup();
 
+    const baseConfig = makeCronBugfixConfig({ agent_id: "bugfix-hb-1", display_name: "HB Agent" });
     const state = {
-      config: {
-        agent_id: "agent-hb-1",
-        owner_id: "owner-1",
-        display_name: "HB Agent",
-        description: "",
-        system_prompt: "",
-        custom_prompt: "",
-        features: {},
-        skills: [],
-        tool_allowlist: [] as string[],   // 默认模式
-        group_reply_policy: "MENTION" as const,
-        default_model: null,
-        workspace_root: "/tmp",
-        workspace_is_default: false,
-        profile_version: 1,
-        node_id: "node-1",
-        node_name: "MacBook",
-        node_status: "online",
-        updated_at: "2026-03-13T10:00:00Z"
-      },
+      config: baseConfig,
       capabilities: {
         node_id: "node-1",
         node_name: "MacBook",
@@ -1014,10 +1005,11 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     apiMocks.listAgentCronJobsMock.mockResolvedValue([]);
     apiMocks.getAgentHeartbeatMdMock.mockResolvedValue({ content: "" });
     apiMocks.listAgentSummariesMock.mockResolvedValue([
-      { agent_id: "agent-hb-1", display_name: "HB Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
+      { agent_id: "bugfix-hb-1", display_name: "HB Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
     ]);
     apiMocks.listAgentsMock.mockResolvedValue([]);
-    apiMocks.updateAgentConfigMock.mockResolvedValue({});
+    // 必须返回完整 config，否则 onSuccess setDraft(updated) → normalizeText(undefined) crash
+    apiMocks.updateAgentConfigMock.mockResolvedValue(baseConfig);
 
     renderDetailPage();
     await screen.findByRole("heading", { name: "HB Agent" });
@@ -1028,7 +1020,6 @@ describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
     expect(hbCheckbox, "heartbeat checkbox 应存在").not.toBeNull();
     await user.click(hbCheckbox!);
 
-    apiMocks.updateAgentConfigMock.mockResolvedValue({});
     const saveBtn = document.querySelector<HTMLButtonElement>('button[type="submit"]');
     expect(saveBtn, "submit 按钮应存在").not.toBeNull();
     await user.click(saveBtn!);
