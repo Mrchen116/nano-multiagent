@@ -6,6 +6,7 @@
 
 ## Changelog
 
+- 2026-06-08 (post-acceptance 验收修订 → 决策 E + F，新增 M11/M12): PR #78 验收暴露 3 缺陷。**bug A**（cadence 真源割裂）：scheduler 顶层节律误从 `HEARTBEAT.md` 顶层 `every:` 行解析，而 config `heartbeat_every`（`local_store.py` docstring 声明的 "override md / md 兜底"）**从未被 scheduler 消费** → UI 显示 config 默认 30m、实际跑 md 写的 15s，两者割裂。核实 openclaw 源码（`config/zod-schema.agent-runtime.ts` `HeartbeatSchema`、`infra/heartbeat-summary.ts:resolveHeartbeatIntervalMs`、`auto-reply/heartbeat.ts`）：**顶层 `every` 与 `activeHours` 均在 agent config（默认 `DEFAULT_HEARTBEAT_EVERY="30m"`），HEARTBEAT.md 只承载 freeform 任务清单 + 可选 `tasks:` per-task 子节律**。→ 决策 E。**bug C**（关 heartbeat 不经重启不生效）：IM 已持久化 `features.heartbeat=False`，但 gateway 仅靠增量 config.sync 推送、**无 reconcile-on-connect** → 漏一次推送即永久停在旧 enabled=True 直到重启（验收实测一直打、烧 token）。→ 决策 F。**bug B**（e2e 隔离：`e2e-up.sh` 的 `workspace_root` 改写失效，worktree gateway 读写主仓 workspace）与 PR 内容无关 → 单独 `gh issue`，不在本 unit。
 - 2026-06-05 (post-acceptance design revision → 新增决策 D + M9): acceptance 测出 **capability↔tool↔prompt 模型三套并存**。feat-394 把 heartbeat/cron 做成平行 ad-hoc（`cron_json`/`heartbeat_json` + CronCard/HeartbeatCard + `ctx.vars` 门控 prompt + gateway 把 cron 注入 `tool_allowlist`），与 feat-379 的 FEATURE_REGISTRY（memory/skill 走 `ctx.flags` + `requires_tool` 联动）不一致，连带三个 bug：①默认工具无法禁用（M7 R5-2 在 inbound_pipeline 强制 merge DEFAULT_TOOL_IDS，allowlist 退化成纯加项）；②`tool_allowlist` 的 mirror/live 分裂（cron 仅运行时注入，IM mirror=`[]`、live=`["cron"]`，前端读 mirror → 工具 pill 全灰）；③Preview full system prompt 漏 cron/heartbeat（promptPreview 只发 features/custom_prompt/tool_ids/skill_ids，不发 cron/heartbeat 开关 → 勾选不变；runtime 实际正确注入）。决策 D：**cron/heartbeat 并入 FEATURE_REGISTRY**（cron `requires_tool="cron"` / heartbeat `requires_tool=None`，prompt 段统一 `ctx.flags` 门控、退役 `ctx.vars`），UX 进 Behavior 的 Features 列表勾选 + 勾后展开各自配置面板，所有工具统一 pill 且默认工具可禁。M_fix1（真白名单：删 R5-2 强制 merge + 删 gateway cron 注入）已落 `unit/feat-394`；新增 **M9-unify-feature-model** 实施其余。openclaw 实证（已核源码）：无 FEATURE_REGISTRY，模型是「prompt 跟工具走」，仅 prompt 段文案逐字照抄不变、结构模型保留本项目 FEATURE_REGISTRY。
 - 2026-06-04 (M10): R6-2 awareness 彻底收口 — orchestrator 亲自驱动真内核定位，**推翻"asyncio race"误判**。真根因是三层叠加，缺一不可：(1) `SessionManager.append_turn_message` 硬编码 `parent_uuid=None`，awareness 被写成游离 orphan，被 `JsonlSessionStore.load` 的 parent_uuid 链回溯丢弃，后续 user turn 从旧 tail 延伸永远绕过它；(2) `store.append` 入异步后台 writer 队列、`load` 读磁盘 → 紧随的 load 读不到未落盘的项（这才是被误认作 race 的现象，本质缺一次同步 flush）；(3) runtime `_session_histories` cache-first，turn1 填的缓存不含 out-of-band append。修复：`service.append_message` 读 chain tail 设 parent_uuid + flush 前后各一次；`Kernel.append_message` 调新增的 `runtime.invalidate_session_cache`。该修复对所有 out-of-band append（含 send_message 持久化）通用，非 cron 专用。新增 real-kernel 回归测试 `test_append_message_visible_to_next_turn`（驱动真内核两轮、断言 append 进下一轮 prompt，旧码三处任一未修都挂）——纠正 retro 错误#3：此前所有 awareness 测试用 `_FakeKernelClient` 只记录 append 调用，完全掩盖真实缓存/链/落盘问题。全树 2249 passed。
 - 2026-06-04 (M8): round-6 verifier+reviewer fail（R5 全关闭、cron 首次投递成功，暴露尾部运行时 bug）→ 新增 M8-fix-round6。R6-1(blocking) `_IntervalSchedule.due_times_up_to` 用 ceil → 首次触发后 next_due 恒晚于 now → heartbeat/cron 只跑一次再不触发（前轮 live 只验首次故漏；改 floor，但保 round-2 不补跑：大 gap 只跑一次推进到最近边界）；R6-2(major) cron `_append_awareness` 未生效(疑 _resolve_canonical_session_id 返空/BLE001 吞异常)→ 追问 agent 不知；CRITICAL-1 合约白名单 auto_mode_gate.py 703→707 行号失配(M7 插 4 行)→ CI 红。详见 M8-fix-round6/progress.md。
@@ -197,7 +198,31 @@ IM agent 配置页  ──[两开关: heartbeat{enabled,every} / cron{enabled}]�
 - **拒绝**: ①保留平行 ad-hoc（三套机制并存——mirror/live 分裂、preview 漏、默认不可禁的根）；②改用 openclaw"prompt 跟工具走"（要连 memory/skill 一起重做、丢"行为特性"区分、偏离 feat-379 已有投资）。
 - **风险**: 退役 `cron_json` + `ctx.vars` 门控触及 feat-394 既有 M2–M8 的 cron/heartbeat 存储与门控测试，须同步改；heartbeat `enabled` 从 `heartbeat_json` 迁到 features，注意老 profile backward compat（无 features 键→`default_on`）；前端卡片改"勾后展开"需同时处理 create/detail 两页。
 
+### 决策 E: heartbeat 顶层节律真源对齐 openclaw——config `every`（默认 30m），退役 md 顶层 `every:`
+
+修订决策 5 / 接口数据流的**实现**。原设计本就是「`every` 在 config、调度器读 config.every」（决策 5、接口数据流「调度器读 `every`」），但实现里 scheduler 漏接此读、改从 `HEARTBEAT.md` 顶层 `every:` 解析；`local_store.py` docstring 声明的 config-override-md 从未接上 → bug A。核实 openclaw 源码后定调（按用户「改成 openclaw 的」要求）：
+
+- **顶层 `every`**：唯一真源 = config `AgentWorkspaceConfig.heartbeat_every`（经 `AgentProfile.heartbeat.every` → `ConfigSyncNotifier` 同步，链路已存在）。无配置时默认 **30m**（对齐 openclaw `DEFAULT_HEARTBEAT_EVERY`）。
+- **退役 md 顶层 `every:`**：scheduler **不再解析** HEARTBEAT.md 顶层 `every:` 行——**直接忽略，不迁移**（用户已拍板）。HEARTBEAT.md 只承载 freeform 任务清单 + 可选 `tasks:` per-task 子节律（per-task `interval:` 保留，openclaw 一致）。
+- **`activeHours`**：维持 config（决策 3 已落，openclaw 一致），不进 md。
+- **`enabled`**：维持 `features["heartbeat"]`（决策 D），不进 md。
+- **UI**：① cadence 字段绑 config 的 `every`，**删除前端 `draft.heartbeat ?? { every: "30m" }` 硬编码兜底**，改为后端真值（未配置即显示 30m）；② heartbeat 特性描述（"Heartbeat 定期唤醒 agent 并带上你们的对话上下文。"）下加**可折叠 HEARTBEAT.md 只读预览**（仿"展开完整系统提示词预览"），展示文件全文供 owner 查看。md 仍由 agent 文件工具自管，**UI 不写 md**。
+- **拒绝**：①「md 做顶层 every 真源 + UI 双向写回 md」——偏离 openclaw（openclaw 顶层 every 在 config），且需 gateway 写回 md 引入双写者冲突（agent 文件工具 vs owner UI）；②保留 md 顶层 `every:` 作 fallback——与「唯一真源」矛盾、留两个源。
+- **理由**：openclaw-faithful；既有 config 同步链已搭好，仅补 scheduler 一处读 + UI 绑定 + 只读预览，最小改动消除「UI 显示 vs 实际节律」割裂。
+- **风险**：现有 HEARTBEAT.md 写了顶层 `every:` 的 agent（如主仓 Arch `every:15s`），改后该行被忽略、节律回落 config（默认 30m）——已定「直接退役忽略」接受此行为变更；spec/runbook 须说明 md 顶层 every 不再生效。
+
+### 决策 F: gateway 配置全量对账（reconcile-on-connect）——修 toggle 关闭不经重启不生效
+
+- **现象（bug C）**：owner 在 IM 关闭 heartbeat → IM 持久化 `features.heartbeat=False` ✓，但 gateway 仍按旧 enabled=True 持续打 heartbeat。
+- **根因**：IM→gateway 同步是「PATCH→推 `profile_version`→gateway 回拉」的纯增量推送（`config_sync_notifier` 已接、scheduler per-tick 读 live `pipeline._agents` 已接），但 gateway **无任何启动/重连后的全量对账**——漏一次推送（gateway 当时离线 / WS 重连 / IM 重启）即永久停在旧内存状态直到重启。
+- **选择**：gateway 连上（含重连）IM 完成 bind 后，对该 node 下所有 agent 拉一次 IM 权威 profile（`source=mirror`）做全量对账，`register_agent` 覆盖本地内存 config，使 enabled/features/cadence/active_hours 收敛到 IM 真值。
+- **理由**：增量推送只对「连接期间的变更」有效，对「断连期间/连接建立前的变更」无能为力；对账是补此缺口的标准手段，且对所有同步字段（不止 heartbeat）通用。
+- **拒绝**：①只修 heartbeat 单字段（治标，其它同步字段同样漏）；②靠缩短重启周期绕过（不解决）。
+- **风险**：对账与增量推送竞态（对账拉到旧版、推送带新版）——用 `profile_version` 取大者；对账时机须在 WS bind 完成后。
+
 ## 接口与数据流
+
+> **决策 E/F 修订（2026-06-08）**：顶层 `every` 真源 = config `heartbeat_every`（默认 30m，决策 E），scheduler 退役 md 顶层 `every:` 解析；UI cadence 绑 config + 加 HEARTBEAT.md 只读预览。gateway 连/重连 IM 后做全量 profile 对账（决策 F）。以下「调度器读 `every`」即指读 config.heartbeat_every。
 
 > **决策 D 修订**：下文原"两开关字段流"按 ad-hoc 落地描述（cron_json/heartbeat_json + ctx.vars + cron 注入 allowlist）。M9 按决策 D 改为：enable 走 `features` dict、prompt 段门控读 `ctx.flags`、cron 工具经特性→requires_tool 联动落 tool_allowlist、heartbeat 的 every/active_hours 仍单独存。以下保留作历史，实施以决策 D 为准。
 
@@ -209,6 +234,7 @@ IM agent 配置页  ──[两开关: heartbeat{enabled,every} / cron{enabled}]�
 
 **Heartbeat 调度/执行（gateway）**
 - `HeartbeatScheduler`：单脉冲节律 `every` + 可选 `tasks:` 多子节律；状态 `每 agent → 每 task last_due`（不补跑：`_IntervalSchedule` 改 openclaw `computeNextRunAtMs` 语义）。activeHours：tick 时判窗口外则跳过。
+  - **（决策 E 修订）顶层节律 `every` 取 `agent.heartbeat_every`（config，默认 30m），不再解析 HEARTBEAT.md 顶层 `every:`。`tasks:` per-task 子节律仍读 md（per-task `interval:`）。**
 - 执行：submit(origin=heartbeat) 跑在 (owner,agent) canonical 直聊 kernel session；空文件 / `HEARTBEAT_OK` / 空内容 → 静默（复用 feat-393 惰性建泡）；轮询 turn 在该 session 做 transcript 修剪、不延长存活；主会话忙 → 跳过本 tick。
 
 **Cron 调度/执行（gateway，新增）**
@@ -220,8 +246,15 @@ IM agent 配置页  ──[两开关: heartbeat{enabled,every} / cron{enabled}]�
 **投递闭环（复用 feat-393，不改协议）**
 - heartbeat/cron run 事件 → `kernel_event_observer` → `node.streaming_delta`（`turn_start{to_user_id=owner}` 惰性解析 canonical 直聊）→ IM `EventBridge` 建真实 message 行扇出。owner = `config.node.user_id`。
 
+**配置真源与对账（决策 E/F，2026-06-08 新增）**
+- **cadence 写（UI→config，已有链路）**：UI cadence 改 `every` → `PATCH /im/v1/agents/{id}/config {heartbeat.every}` → `ConfigService.update_agent`（`profile_version` 乐观锁）→ `_notify_config_sync` → gateway `register_agent`（`heartbeat_every`）→ scheduler per-tick 读。
+- **cadence 读 + md 预览（→UI）**：UI `getAgentConfig` 取 config 的 `heartbeat.every`（未配置=30m，去前端硬编码兜底）；HEARTBEAT.md 全文经只读预览端点展示（gateway 读 `<workspace>/HEARTBEAT.md` raw 文本回传 IM → UI 折叠面板，仿 `prompt-preview`）。**只读，UI 不写 md。**
+- **全量对账（决策 F）**：gateway WS bind 完成（含重连）后，对本 node 所有 agent 拉 `GET /im/v1/agents/{id}/config?source=mirror` → `register_agent` 覆盖内存 config（`profile_version` 取大）→ 增量推送漏掉的 enable/cadence 变更在此收敛。
+
 ## 风险与回退
 
+- **（决策 E）退役 md 顶层 `every:` 的行为变更**：已写顶层 `every:` 的现存 HEARTBEAT.md，改后该行被忽略、节律回落 config（默认 30m）。缓解：spec/runbook 显式说明；M11 补"md 顶层 every 不再影响节律、节律取 config" 的断言。
+- **（决策 F）对账与增量推送竞态**：对账拉到旧 `profile_version`、增量推送带新版可能交错。缓解：`register_agent` 按 `profile_version` 取大覆盖；对账仅在 WS bind 完成后触发。
 - **heartbeat 跑在直聊会话 → 上下文污染**：静默轮询的触发 prompt/`HEARTBEAT_OK` 若不修剪会堆积。缓解：决策3 的 transcript 修剪 + 不延长存活；补"静默轮询后该会话 LLM 上下文无新增噪声"的断言。
 - **heartbeat 与普通聊天并发同会话**：用户正在直聊、heartbeat tick 撞上 → 双 run 抢同一 session。缓解：主会话忙则跳过本 tick（照抄 openclaw busy-skip）。
 - **不补跑的副作用**：长时间停机后只跑一次，期间该报的中间态丢失。接受（spec 已定"不刷屏"优先；周期机制下个 tick 自然补位）。
@@ -248,7 +281,10 @@ IM agent 配置页  ──[两开关: heartbeat{enabled,every} / cron{enabled}]�
 ```mermaid
 graph LR
   M1[M1 heartbeat-redesign] --> M2[M2 cron-subsystem]
+  M11[M11 cadence-config-sot] --> M12[M12 gateway-reconcile]
 ```
+
+> **2026-06-08 追加（验收修订）**：M11/M12 为 PR #78 验收暴露的 bug A/C 的修复 milestone，跑在已实施完毕的 M1–M9 之上。M11（决策 E）与 M12（决策 F）逻辑独立，但都改 `main.py`/`local_store.py`/IM `agents.py` 同批文件 → 同并行组 A、串行（M12 在 M11 后），避免 worktree 冲突。bug B（e2e workspace_root 泄漏）不在表内，单独 `gh issue`。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
@@ -261,3 +297,5 @@ graph LR
 | feat-394-M7 | fix-round5 (post-acceptance fix, round 5；orchestrator 已 trace 全接缝) | feat-394-M6 | A | `src/agent/core/runs/origin.py`(加 CRON)、`auto_mode_gate.py`(_UNATTENDED_ORIGINS 加 CRON)、`main.py` _KernelClientShim.submit_message(origin=="cron"→CRON)、**`cron_runner.py`/`main.py` cron 可见投递链(run_context_store 播种 origin=cron+to_user_id=owner、消费 run stream 复用/仿 _consume_heartbeat_run、observer→node.streaming_delta→IM 可见消息、run 完成调 _append_awareness)**、toolsets/allowlist(cron_enabled 不覆盖默认 file 工具)、CronScheduler(过期 at 不重跑)、`agent-detail/create-page.tsx`(activeHours UI)、相关 tests | `[reviewer]` **cron 完整 live 旅程真投递：开 cron→注册→到点→真消息进直聊→awareness 追问→删除**；`[reviewer]` 对话让 agent 写 HEARTBEAT.md(R5-2)；`[reviewer]` activeHours 可配且窗口外不打扰(R5-3)；`[reviewer]` 过期 at 重启不重跑(R5-4)；`[worker]` **亲起 live(proxy 已在:4000)跑出真 cron 投递消息、贴证据才 DONE**；`[worker]` cron 投递链走真 _KernelClientShim 的端到端集成测试(注册→消费→observer 发 delta)；`[worker]` RunOrigin.CRON + 不补跑 at 单测；`[worker]` pytest -m "not e2e" + tsc -b + vitest 全绿 |
 | feat-394-M8 | fix-round6 (post-acceptance fix, round 6) | feat-394-M7 | A | `_IntervalSchedule.due_times_up_to`(ceil→floor，保不补跑：大 gap 只跑一次推进到最近边界)、cron `_append_awareness` 生效修复(canonical session 解析/异常吞没)、`auto_mode_gate.py` 合约白名单行号对齐、相关 tests | `[reviewer]` heartbeat/cron 持续触发(非只首次一次)；`[reviewer]` cron awareness 发后追问 agent 知道；`[worker]` `due_times_up_to` floor + round-2 不补跑单测；`[worker]` CI 合约白名单行号对齐；`[worker]` pytest -m "not e2e" 全绿 |
 | feat-394-M9 | unify-feature-model (post-acceptance design revision，决策 D) | feat-394-M8 | A | `src/agent/core/agent/prompt_sections/feature_registry.py`(加 `cron_scheduling`/`heartbeat` 两 FeatureEntry)、`src/agent/products/personal_assistant/prompt_sections.py`(`_PA_HEARTBEAT`/`_PA_CRON`/`_PA_CRON_ROUTING` 门控改 `ctx.flags`、退役 `_heartbeat_enabled`/`_cron_enabled` 的 `ctx.vars` 读法；文案不动)、`src/personal_assistant/gateway/inbound_pipeline.py`(`resolve_effective_tool_allowlist` 去 cron-append 改纯白名单；session_metadata 注 `agent_features` 让 flags 生效)、`src/personal_assistant/config/local_store.py`+`src/personal_assistant/main.py`(cron/heartbeat `enabled` 收进 features dict、调度器门控读 features、`cron_json` 退役、heartbeat every/active_hours 仍存)、`src/IM/application/config_service.py`+`src/IM/domain/models.py`+`src/IM/api/routes/agents.py`(features 承载 cron/heartbeat enable、`cron_json` 退役、`capabilities.tools` 带 `default_on`)、`src/personal_assistant/reporter/upstream_reporter.py`(`_build_tool_names` 带 `default_on`)、`src/IM/frontend/src/features/settings/agents/`(cron/heartbeat 进 Features 列表复选 + 勾后展开配置面板、移除 CronCard/HeartbeatCard 独立开关、工具 pill 按 `default_on` 渲染有效态 + 真白名单可禁默认、`CronConfig` 退役、promptPreview 经 features 反映 cron/heartbeat)、相关 tests | `[reviewer]` Features 列表含 heartbeat/cron 复选，勾选后下方展开配置面板(cadence / scheduled tasks)；`[reviewer]` 勾 cron 特性→cron 工具即时现身工具 pill 区并能保存(沿用 memory/skill 同款联动)；`[reviewer]` 取消任一默认工具→保存后该工具不下发(LLM 请求 tools 不含)、重进仍显未选；`[reviewer]` Preview full system prompt 勾选 heartbeat/cron **即变**(对应段出现/消失)；`[reviewer]` 关 cron 特性→cron 工具与 cron 段同时消失、调度停；`[worker]` FEATURE_REGISTRY 含 `cron_scheduling`(requires_tool=cron)/`heartbeat`(requires_tool=None)、prompt 段经 `ctx.flags` 门控 的单测；`[worker]` `resolve_effective_tool_allowlist` 纯白名单(非空精确含禁默认、空=默认集、无 cron-append) 单测；`[worker]` cron/heartbeat enable 经 features dict 持久化+同步、`cron_json` 退役、老 profile backward compat 的测试；`[worker]` `capabilities.tools` 带 `default_on`+IM 透传+前端有效态渲染 的测试(后端单测 + 前端 vitest)；`[worker]` promptPreview 携 features 使 cron/heartbeat 段反映 的前端测试；`[worker]` prompt 段文案与 openclaw 逐字一致不变 的单测；`[worker]` coding_cli 不广告 cron/heartbeat 特性、无 cron 工具/无 pa.heartbeat·pa.cron 段 的隔离断言(扩展决策 7)；`[worker]` `pytest -m "not e2e"` 全绿(含 im_service) + contract + tsc -b + vitest 绿 |
+| feat-394-M11 | cadence-config-sot (post-acceptance fix, 决策 E) | feat-394-M9 | A | `src/personal_assistant/scheduler/heartbeat_scheduler.py`（顶层节律改读 `agent.heartbeat_every`、默认 30m、**退役 md 顶层 `every:` 解析**；`tasks:` 子节律不动）、`src/personal_assistant/config/local_store.py`（`heartbeat_every` 默认值/docstring 更新，去"override md / md 兜底"措辞）、`src/IM/api/routes/agents.py`+`src/IM/application/config_service.py`（如需 HEARTBEAT.md raw 只读预览端点）、`src/IM/frontend/src/features/settings/agents/agent-detail-page.tsx`+`agent-create-page.tsx`（删 `?? { every: "30m" }` 硬编码兜底、cadence 绑 config 真值、heartbeat 特性下加可折叠 HEARTBEAT.md 只读预览仿 prompt-preview）、`im-agent-config-api.ts`、`docs/specs/{gateway,im}/spec.md` delta、相关 tests | `[reviewer]` 配置页 cadence 显示 config 真实 `every`（未配置=30m），改后实际节律随之变；`[reviewer]` HEARTBEAT.md 顶层写 `every:` 不再影响节律（按 config 跑）；`[reviewer]` heartbeat 特性下可展开只读查看当前 HEARTBEAT.md 全文；`[worker]` scheduler 顶层节律取 `config.heartbeat_every`（默认 30m）、忽略 md 顶层 `every:` 的单测；`[worker]` `tasks:` per-task 子节律仍读 md、不受影响 的单测；`[worker]` 前端删硬编码 30m 兜底、cadence 绑后端值 的 vitest；`[worker]` `pytest -m "not e2e"` 全绿（含 im_service）+ tsc -b + vitest 绿 |
+| feat-394-M12 | gateway-config-reconcile (post-acceptance fix, 决策 F) | feat-394-M11 | A | `src/personal_assistant/main.py`（WS bind/重连后全量拉本 node 所有 agent `?source=mirror` profile 对账、`register_agent` 按 `profile_version` 取大覆盖内存 config）、相关连接生命周期/重连代码、相关 tests；`docs/specs/gateway/spec.md` delta | `[reviewer]` 在 IM 关闭 heartbeat 后**无需重启 gateway**，数个 tick 内停止打 heartbeat；`[reviewer]` gateway 断连重连 IM 后，agent 配置（enable/cadence/active_hours）收敛到 IM 真值；`[worker]` reconcile-on-connect 拉全量 profile 覆盖内存 config 的单测（模拟"漏一次增量推送"场景，断言对账后 enabled 收敛）；`[worker]` 对账与增量推送竞态用 `profile_version` 取大 的断言；`[worker]` `pytest -m "not e2e"` 全绿（含 im_service） |

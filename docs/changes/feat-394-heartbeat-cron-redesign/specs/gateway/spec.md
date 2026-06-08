@@ -91,3 +91,43 @@ Gateway 提供两套**相互独立**的本地主动行为机制,均完全在本�
 - **GIVEN** 某 Agent 的 cron 任务已执行并把结果发回 canonical 直聊
 - **WHEN** 用户在该直聊就此结果追问
 - **THEN** Agent 的回复能引用刚发出的 cron 汇报内容(该结果对后续对话轮次可见)
+
+---
+
+## MODIFIED Requirements（2026-06-08 验收修订：决策 E）
+
+### Requirement: Heartbeat 顶层节律来自 agent 配置，HEARTBEAT.md 承载任务内容
+
+> 修订上文「Heartbeat … 由 `HEARTBEAT.md` 驱动 … 支持单一节律与多子节律」中"顶层节律由文件驱动"的部分。
+
+Heartbeat 的**顶层节律**（多久唤醒一次）来自 agent 配置 `heartbeat.every`（经 IM `AgentProfile` 同步），
+未配置时默认 **30m**。HEARTBEAT.md 承载任务内容：freeform 任务清单 + 可选 `tasks:` 块的 per-task
+`interval:` 子节律（子节律读自文件）。
+
+#### Scenario: 顶层节律由配置决定
+- **GIVEN** 某 Agent 配置 `heartbeat.every=10m`
+- **WHEN** 调度器评估该 Agent 的 heartbeat 顶层节律
+- **THEN** 按 10m 触发
+
+#### Scenario: 未配置 every 时默认 30m
+- **GIVEN** 某 Agent 未配置 `heartbeat.every`
+- **WHEN** 调度器评估其顶层节律
+- **THEN** 按默认 30m 触发
+
+## ADDED Requirements（2026-06-08 验收修订：决策 F）
+
+### Requirement: Gateway 连接/重连 IM 后做全量配置对账
+
+Gateway 与 IM 建立连接并完成 bind 后（含断线重连），对本 node 下所有 agent 拉取 IM 权威配置做一次全量对账，
+使本地配置（heartbeat enable / cadence / active_hours 等同步字段）收敛到 IM 当前真值；与增量推送并存时以
+`profile_version` 较大者为准。
+
+#### Scenario: 关闭 heartbeat 后无需重启即停
+- **GIVEN** owner 在 IM 关闭某 Agent 的 heartbeat（即使该次增量推送未送达 Gateway）
+- **WHEN** Gateway 下次连接/重连 IM 完成对账
+- **THEN** 该 Agent 的 heartbeat 停止触发，无需重启 Gateway
+
+#### Scenario: 重连后配置收敛到 IM 真值
+- **GIVEN** Gateway 断连期间 owner 改了某 Agent 的 cadence 或 enable
+- **WHEN** Gateway 重连并对账
+- **THEN** 该 Agent 的调度行为与 IM 当前真值一致
