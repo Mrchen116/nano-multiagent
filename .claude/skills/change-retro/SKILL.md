@@ -1,6 +1,6 @@
 ---
 name: change-retro
-description: 用于对一个用 change-* SDD 流程做完(或半途)的变更单元(feat/bugfix/refactor)做取证式开发复盘——从用户每条反馈倒推到真正引入问题的那个节点,定位是哪个 skill 阶段/哪条流程缺口/哪次 agent 自作主张,并产出按 skill 的改进清单。触发条件:用户说"复盘 feat-X / 这次开发哪里出了问题 / 为什么这个需求做这么久这么多问题 / retro 这个 unit / 分析这次 SDD 全 agent 开发 / 这次开发是个灾难帮我深挖"等任何"回看一次已发生的开发、找根因"的信号。即使只说"看看 feat-X 为什么拖这么久"也要触发——拖延/反复本身就是要复盘的症状。不要用于:正向做需求(change-spec/design/orchestrator)、单纯读代码找 bug(systematic-debugging)、产品验收(change-reviewer)。
+description: 对一个走 change-* SDD 流程的变更单元(feat/bugfix/refactor)做取证式开发复盘:从用户每条反馈和日志倒推到真正引入问题的节点(哪个 skill 阶段 / 哪个 agent),证据落到 session/subagent jsonl 与沉淀文档,产出按 skill 的改进清单。用户说"复盘 feat-X / 这次开发哪里出了问题 / feat-X 为什么拖这么久、这么多反复 / 这次 SDD 开发是个灾难帮我深挖根因"等回看已发生开发、找根因的信号时触发。
 ---
 
 # Change Retro — 取证式 SDD 开发复盘
