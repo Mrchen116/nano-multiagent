@@ -24,7 +24,7 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 7. **轮次上限**。同 issue 5 轮 / 同 unit 7 轮验收没 pass → 强制全停,通知人。
 8. **revise-design 三道闸**。reviewer 给的 `revise-design` 不合规(首轮 / 没引用 design.md 段落 / fix-implementation < 2 轮)直接降级回 fix-implementation,详见 §6.3。
 9. **reviewer / verifier 越界硬处置**。这两个验收角色都严禁写源码/测试/提 commit(详见 change-reviewer §0 / change-verifier §0)。若回报时 unit 分支多了非报告类 commit,**强制 revert** 这些 commit(`git reset` 到该 agent 派发前的 HEAD,`push --force-with-lease`)后,把该轮该 agent 的 verdict **作废**,issues 重新打包派 fix worker 实施(参见 §6.6)。不要"接受验收 agent 顺手修的代码"——既验又改不可信。
-10. **退出标准必须逐条严格核对**。worker 回报 DONE 时,orchestrator **必须**对 design.md 该 milestone 行"退出标准"列里的每一条,在 progress.md 找到对应证据并判定是否真的达标(详见 §3.3)。这一步**不许跳过、不许走过场、不许只看证据存不存在**。任一项不达标 → 不算 DONE,退回 worker 补齐。
+10. **退出标准必须逐条严格核对**。worker 回报 DONE 时,orchestrator **必须**对 design.md 该 milestone 行"退出标准"列里的每一条,在 progress.md 找到对应证据并判定是否真的达标(详见 §3.3)。这一步**不许跳过、不许走过场、不许只看证据存不存在**。任一项不达标 → 不算 DONE,退回 worker 补齐。**尤其:live-critical 工作(运行时行为 / 投递 / 跨进程集成)的达标证据必须是真端到端跑到用户可见结果——pytest / stub 绿不算。worker 没给 live 证据时(常因 env 坏了它自降证据),自己把 env 修好或打回 worker 真跑,绝不签收后把 live 验证甩给下一轮 reviewer——那正是 worker→reviewer 往返轮的来源(详见 §3.3 live 签收闸)。**
 11. **派发 reviewer 的 prompt 口径净化**。orchestrator 在派发包里**只许**透传 design.md 已有的"用户可观察"验收语,**严禁**手写"WS 帧必须有 X / API 必须返回 Y / 函数必须被调用"这类协议/接口/实现级标准——这会把 reviewer 推进 engineer 模式。详见 §5。
 12. **CI 绿了才退出,但不等 merge**——提 PR 后等远端 CI,红了走 fix 循环修到绿再交棒;merge 由人做(§7)。
 13. **派发必须后台运行**。Agent 工具派发 worker / reviewer / verifier 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
@@ -288,6 +288,19 @@ worker 回报 DONE 时,逐项验:
 
 严格不等于挑剔。视觉质量、功能是否完美仍由 reviewer 判定。你判定的是:design 要观察什么、有没有真的去观察、有没有给出真正对得上的证据。
 
+#### live 签收闸(live-critical 工作专用)
+
+很多 milestone(尤其 fix 轮、新子系统)的"works"取决于跨进程系统真跑起来(gateway + IM + proxy + 绑定)。对这类工作:
+
+- **DONE 的硬证据 = 真端到端跑到用户可见结果**(真消息进直聊 / 页面真出现 / 命令真返回)。pytest 绿、stub 绿、"进程内 tick 无异常"都**不算**。
+- worker 报 DONE 但只给单测 / 集成证据,或 progress 里露出"env 起不来 / WS 不通 / proxy 没起"——**别签收,更别签收后把 live 验证甩给 reviewer 轮**。看是哪种(都不涉及人):
+  1. **worker 撞了 env、自己摸不准来问你**(它该按 worker §0.11 报 BLOCKED / `SendMessage` 求助,而非降级凑 DONE):用你的**全局视野**接住——env 怎么起、proxy / 绑定在哪、要不要换端口,你比单个 worker 清楚;解决后让它(保活、复用上下文)在通的环境重跑到可见结果。
+  2. **worker 没暴露问题却也没 live 证据**(闷头降级报了 DONE):打回,要求贴真端到端证据再报 DONE。
+
+> env 由 worker 自己起、自己管;它撞到解决不了的环境问题再 `SendMessage` 来问,你用全局视野接(解决后让同一 worker 复用上下文续跑,§6.FL ①)。你在 env 上的职责就两条:**worker 求助时接得住,没 live 证据不签收**。
+
+> 为什么这条是结构性的:把 live 验证留到 reviewer 轮 = "worker 交代码 → reviewer 跑 → 挂 → 打回 → 再来",每个未自证 live 的 fix 都生成一个重型往返轮。把 live 拉到 worker 签收前,往返轮塌缩成 worker 自己的 fix-rerun;reviewer 轮只在"已自证 live 通"之后做独立确认。
+
 ### §3.4 异常处理
 
 | 情况 | 处置 |
@@ -432,10 +445,10 @@ worker 完成后,回到 §5 派下一轮 reviewer。
 reviewer 出 fix 反馈后,派 fix 不必默认走 §6.2 的完整重型路径。有三条**正交**的轻量化,各有独立判据,可单独用也可叠加(典型最优:三条全中)。不要把它们焊成"trivial 才全走 / 否则全不走"——按各自判据分别判断。
 
 **① 复用上下文(省冷启动)** —— 本节最该优先做的一条。
-in-unit fix 默认**优先 `SendMessage` 唤醒原 milestone worker**(实例还在 team、worktree/上下文全热),而不是新派一个去重爬背景。
-- **判据**:原 worker 还活着(team 里)、且 fix 落在它做过的模块。
-- **新派是兜底**:原 worker 已死 / fix 跨它没碰过的模块。新派的 fix worker **不享受省读**——该读的上下文必须读全,否则不懂架构容易治标(见 ③)。
-- 前提靠 §0.14 team:实例不销毁才能唤醒。
+in-unit fix 默认**优先 `SendMessage` 唤醒已有热上下文的 worker**,而不是新派一个去重爬背景。两种:
+- **fix 落在某 milestone 做过的模块** → 唤醒那个 milestone worker(它最懂那块)。
+- **某 fix worker 的修复没解决完、同一问题(或它引出的下一层)又冒出来** → 唤醒**同一个 fix worker**(它带着这次修复的上下文),别冷启动新 fix worker 从头爬。
+- **只有 fix 跨到没人碰过的模块才新派**;新派 worker 不享受省读——上下文该读全,否则不懂架构容易治标(见 ③)。
 
 **② 减流程仪式(省调度税)** —— fix 单点、自包含时:
 - 不建 fix milestone 子目录、不动 design.md Milestone 表;fix 痕迹归并位置自决(acceptance 同级 / PR body / commit 链)。

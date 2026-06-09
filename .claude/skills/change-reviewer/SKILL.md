@@ -152,31 +152,30 @@ git pull --ff-only origin "unit/<unit_id>"
 
 发现问题立即开始填报告(不要等全跑完)。
 
+**每一步别只核它该出的那条结果,要扫整屏 / 整个响应有没有明显不合理**:你正盯着的界面里若有"本不该这样"的东西(整列按钮塌成灰、布局错位、报错、相邻功能坏了),哪怕不是本条 Scenario 要验的,也记下来,按 §3.3 分流(本次顺带打坏的默认 in-unit)。验收不是"对着 Scenario 逐条打勾就完"——答案对了、旁边塌了也是问题,人走一遍会一眼发现的异常,别因为只盯那一条而漏掉。(更强的 reviewer 还会在 Scenario 之外主动 poke、整体审视产品观感,抓没有任何 Scenario 覆盖的违和——这是进阶;基线是先把上面这条"同屏副作用"做到。)
+
 如果某条验收标准要求用户观察到某个结果,你必须验证这个用户可观察结果本身。单测全绿、API 200、页面元素出现、代码里有实现,都只能作为辅助证据;除非首文档或验收报告明确说明替代验证足以证明该用户结果成立,否则不能把替代验证计为 `pass`。
 
 如果某条验收标准要求对齐 reference,必须用真实产品截图/录屏/可观察输出与 reference 对照,记录 viewport/状态、reference 路径或名称、当前证据路径和结论。页面"能渲染"、布局元素"存在"、组件测试通过,都不能替代 reference 对照。无法完成对照时标 `inconclusive`,不能标 `pass`。
 
-### §3.3 判定每条问题的归属
+### §3.3 判定每条问题的归属(先判可接受性,再判责任边界)
 
-每个发现的问题,从**用户视角**回答两个问题(不要去翻源码):
+每个发现的问题,reviewer 不读源码、不做根因定位,只从用户面判。**你不需要证明 bug 是不是本次造成的——那是 fix worker / orchestrator 的事;你只判"影不影响本 unit 可接受性"和"像不像本次变更的副作用"。** 按顺序:
 
-```
-1. 这个症状的"域"在本 unit 范围里吗?
-   判据:首文档的"用户场景 / 验收标准"里有没有覆盖这个能力?
-   - 首文档里这条能力是本 unit 要交付的 → in-unit
-   - 这条症状属于完全不相关的领域(例:你在验"群聊 @ 选择器",
-     但发现"登录页样式错乱") → out-of-unit
-   分不清时默认 in-unit。reviewer 不靠"读代码定位根因模块"判定归属。
+1. **影响本 unit 可接受性吗?** 以下一律 in-unit(`fix-implementation`):
+   - 直接违反本 unit Scenario / Requirement;
+   - 阻塞本 unit 的前置 / 主 / 收尾路径;
+   - 出现在本 unit 操作后的**同屏 / 同响应 / 相邻功能**,且明显不像正常产品状态(整列塌灰、报错、相邻功能坏);
+   - 分不清是不是本次引入,但不修就没法判断本 unit 能不能交付。
+   其中"本功能没违反、但顺带把别的打坏了"的,在 issue 标 **`Regression Relation: suspected-regression`**——**本 unit 把别的能力打坏,也是本 unit 的回归**,默认 in-unit,因果交给 fix worker 查。
+2. **不影响本 unit 可接受性,再看 out-of-unit**(全满足才算):能力域明显不在本 unit、不在本轮旅程关键链路、不像本次副作用、严重度 blocking / major → `out-of-unit` + `gh issue create`。
+3. **明显无关且只是 minor** → 不立 issue,记 Side Findings。
 
-2. 问题严重度?
-   blocking: 用户主路径走不通
-   major: 主路径能走但体验严重不可接受 / 边界路径无法恢复
-   minor: 主路径能走,polish 级别
-```
+**判不准时**:影响本 unit 可接受性 → 默认 in-unit(让 fix worker 去查);完全不影响、只是顺路看到的旧问题 → Side Findings / out-of-unit。
 
-默认 `Recommended Action = fix-implementation`。`revise-design` 走三道闸(§5.3),三道闸由 orchestrator 校验,reviewer 不需要自己判"是实现错还是 design 错"。
+严重度:`blocking` 主路径走不通 / `major` 主路径能走但体验严重不可接受或边界无法恢复 / `minor` polish 级。`revise-design` 走三道闸(§5.3),由 orchestrator 校验,reviewer 不自己判"实现错还是 design 错"。
 
-这个判定不在报告里展开写,只决定 Recommended Action 字段。
+> 一句话:别因为"症状属于别的能力域"就自动 out-of-unit——reviewer 的职责不是证明 bug 谁造的,是**防止坏体验(含本次顺带打坏的)被带进交付**。
 
 ---
 
@@ -242,7 +241,8 @@ bugfix lite 没有独立 reviewer 阶段,worker 完成后直接合 unit→main(�
 - **验收标准覆盖**:**逐 Scenario** 列出(`### Requirement` 分组表头 + 组下每个 `#### Scenario` 一行),记录期望来源、验证方式、证据、结果(`pass / fail / inconclusive / not-applicable`)和备注。组内全 pass 该 Requirement 才算过。涉及 reference 的项必须写 reference 路径/名称
 - **Issues** 段每条:
   - `Severity`: blocking | major | minor
-  - **`Recommended Action`**: fix-implementation | revise-design | out-of-unit
+  - `Regression Relation`: direct(直接违反本 unit 验收) | suspected-regression(疑似本次顺带打坏的副作用) | unrelated-existing(明显无关旧问题) | unclear
+  - **`Recommended Action`**: fix-implementation | revise-design | out-of-unit(路由见 §3.3:direct / suspected-regression / unclear-但影响可接受性 → fix-implementation;unrelated-existing → out-of-unit / Side Findings)
   - **`Action Rationale`**: 一句话说明为什么是这一档(revise-design 必须引用 design.md 段落,见 §5.3)
 - **Side Findings** 段:minor out-of-unit + 不立 issue 的零碎观察
 - **上层文档同步**:项目级架构文档 / agent 约定文档 / 各产品 SPEC 是否需要更新
@@ -406,7 +406,7 @@ orchestrator 据此决定:
 ## §9 反 anti-pattern
 
 - **不要从代码推断"应该能用"**。源码看上去对 ≠ 用户能用。永远以真实入口验证。
-- **不要扩大范围到全产品回归**。只验 caller 指定的 unit 范围,别人的功能哪怕看上去坏了,记 Side Findings 就行,不要顺手测全栈。
+- **不主动扫全栈,但也别对撞见的副作用装没看见**。验收范围 = caller 指定的 unit + 本轮旅程 + 同屏 / 同响应 / 相邻功能,不主动去测无关的全栈。但旅程中**撞见**的明显异常按 §3.3 分流:疑似本次顺带打坏的 → in-unit(suspected-regression);明显无关的大问题 → out-of-unit 立 issue;明显无关的小瑕疵 → Side Findings。别因为"是别人的功能"就一律记 Side Findings 放走——本 unit 打坏的也是本 unit 的回归。
 - **不要把 issue 翻译成实现指令**。"建议改成 X" 只在 Action Rationale 里点一下方向,具体怎么改是 worker 的事。reviewer 给方向,不给实现。
 - **不要轻易给 revise-design**。三道闸全过才行。给不出闸 3 的引用 → 改成 fix-implementation。
 - **不要在第 1 轮把 minor 写成 blocking** 来逼修。严重度判定要诚实——blocking 是"用户主路径走不通",不是"我觉得这里不爽"。
