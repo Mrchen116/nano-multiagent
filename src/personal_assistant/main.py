@@ -1431,6 +1431,7 @@ class GatewayRuntime:
         feedback_sink: FeedbackSink = _emit_gateway_feedback,
         internal_dispatch_handler: InternalDispatchHandler | None = None,
         gateway_internal_port: int = 8089,
+        kernel: object | None = None,
     ) -> None:
         self._config = config
         self._process_manager = process_manager
@@ -1443,6 +1444,10 @@ class GatewayRuntime:
         self._feedback_sink = feedback_sink
         self._internal_dispatch_handler = internal_dispatch_handler
         self._gateway_internal_port = gateway_internal_port
+        # bugfix-402-M3 R3: explicit kernel reference for ordered async shutdown
+        # (Decision 7). Kernel is closed via aclose() between producers and consumers,
+        # not via the untyped resource_closers list.
+        self._kernel = kernel
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
 
@@ -1538,6 +1543,14 @@ class GatewayRuntime:
                 await self._heartbeat_runner.close()
             if channels_started:
                 stop_channels(self._channel_registry)
+            # bugfix-402-M3 R3: drain in-flight runs before closing the IM transport
+            # (Decision 7). Producers are already stopped above; aclose() waits for
+            # the Registry to reach CLOSED before returning.
+            if self._kernel is not None and hasattr(self._kernel, "aclose"):
+                try:
+                    await self._kernel.aclose()
+                except Exception as exc:  # noqa: BLE001
+                    _log.warning("kernel.aclose() raised during shutdown: %s", exc)
             if im_connected and self._im_connection_manager is not None:
                 await self._im_connection_manager.close()
                 if im_task is not None:
@@ -2371,7 +2384,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     _heartbeat_scheduler._run_queue = pipeline._run_queue  # noqa: SLF001
 
     inbound_dispatcher = _InboundDispatcher(pipeline)
-    closers: list[Callable[[], None]] = [kernel.close]
+    # bugfix-402-M3 R3: kernel is closed explicitly via GatewayRuntime(kernel=) and
+    # its aclose() in the ordered shutdown phase (Decision 7). It must not be in
+    # resource_closers — that list only holds lightweight sync cleanup (HTTP clients).
+    closers: list[Callable[[], None]] = []
     if im_bootstrap_client is not None:
         closers.append(im_bootstrap_client.close)
     if im_config_sync_client is not None:
@@ -2394,6 +2410,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         post_im_connect=post_im_connect,
         resource_closers=tuple(closers),
         internal_dispatch_handler=internal_dispatch_handler,
+        kernel=kernel,
         gateway_internal_port=_gateway_internal_port,
     )
 
