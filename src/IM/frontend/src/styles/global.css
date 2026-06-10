@@ -868,6 +868,15 @@ body {
   padding: 14px 16px;
   display: grid;
   gap: 14px;
+  /* grid item 默认 min-width:auto，长内容会撑宽 grid track；
+     min-width:0 允许收缩到容器宽度，使 truncate 子元素正常截断。 */
+  min-width: 0;
+}
+
+/* 卡片直接子项（.im-agent-field 等）同样是 grid item，默认 min-width:auto
+   会被内容撑开；统一设 0 让 truncate 在卡内正常生效。 */
+.im-agent-card > * {
+  min-width: 0;
 }
 
 .im-agent-card-title {

@@ -40,6 +40,11 @@ _DEFAULT_WORKSPACE_HEARTBEAT_CONTENT = (
 # MemoryStore can read/write them without path gymnastics (feat-349-M3).
 # HEARTBEAT.md stays at workspace root (heartbeat scheduler reads it there).
 _WORKSPACE_MEMORY_SUBDIR = ".nanoassistant/memory"
+# feat-394: expose the per-workspace config directory name for intra-package callers
+# that need to locate session JSONL files (e.g. PollingHeartbeatRunner transcript trim).
+# Mirrors agent.products.personal_assistant.defaults.WORKSPACE_CONFIG_DIRNAME without
+# crossing the personal_assistant → agent.products import boundary.
+WORKSPACE_CONFIG_DIRNAME: str = _WORKSPACE_MEMORY_SUBDIR.split("/")[0]
 
 DEFAULT_WORKSPACE_MEMORY_FILES: tuple[tuple[str, str], ...] = (
     ("MEMORY.md", _DEFAULT_WORKSPACE_MEMORY_CONTENT),
@@ -126,10 +131,28 @@ class AgentWorkspaceConfig:
         default_model: Default LLM model identifier for this agent.
         features: Per-agent feature-flag overrides keyed by FEATURE_REGISTRY key.
             Absent keys inherit the registry default_on value at session creation time.
+            Heartbeat and cron enabling lives here: features["heartbeat"] and
+            features["cron_scheduling"] (feat-394 decision D / M9).
             See feat-379 decision 3 and FEATURE_REGISTRY in prompt_sections/feature_registry.py.
         custom_prompt: Optional user-written text appended as the pa.user_custom segment
             (order=800).  None or empty string means the segment is omitted entirely.
             See feat-379 decision 5/6.
+        heartbeat_every: Interval string for the heartbeat cadence (e.g. "30m", "1h").
+            Single source of truth for the top-level heartbeat rhythm (decision E, feat-394-M11).
+            Defaults to 30m when None (openclaw DEFAULT_HEARTBEAT_EVERY).
+            HEARTBEAT.md top-level every:/interval: lines are retired and ignored by the scheduler.
+            Sourced from AgentProfile.heartbeat.every via ConfigSyncNotifier.
+        heartbeat_active_hours_start: Optional start of active window in "HH:MM" format
+            (local time when combined with heartbeat_active_hours_timezone).
+        heartbeat_active_hours_end: Optional end of active window in "HH:MM" format.
+        heartbeat_active_hours_timezone: Timezone string for active-hours window (e.g.
+            "Asia/Shanghai").  Defaults to UTC when absent.
+
+    Properties:
+        heartbeat_enabled: Derived from features["heartbeat"]; True when the heartbeat
+            scheduler should run periodic turns for this agent (feat-394 M9 decision D).
+        cron_enabled: Derived from features["cron_scheduling"]; True when the cron
+            scheduler should evaluate jobs for this agent (feat-394 M9 decision D).
     """
 
     agent_id: str
@@ -140,9 +163,32 @@ class AgentWorkspaceConfig:
     system_prompt: str | None = None
     group_reply_policy: str | None = None
     default_model: str | None = None
-    # feat-379-M2: per-agent feature flags and custom prompt supplement
+    # feat-379-M2: per-agent feature flags and custom prompt supplement.
+    # feat-394-M9: heartbeat/cron enable state lives here (features["heartbeat"] /
+    # features["cron_scheduling"]) — no separate heartbeat_enabled/cron_enabled fields.
     features: dict[str, bool] = field(default_factory=dict)
     custom_prompt: str | None = None
+    # feat-394 decision 5: per-agent heartbeat cadence + active hours
+    heartbeat_every: str | None = None
+    heartbeat_active_hours_start: str | None = None
+    heartbeat_active_hours_end: str | None = None
+    heartbeat_active_hours_timezone: str | None = None
+
+    @property
+    def heartbeat_enabled(self) -> bool:
+        """Whether heartbeat scheduler should run for this agent.
+
+        Derived from features["heartbeat"] (feat-394 M9 decision D).
+        """
+        return bool(self.features.get("heartbeat", False))
+
+    @property
+    def cron_enabled(self) -> bool:
+        """Whether cron scheduler should evaluate jobs for this agent.
+
+        Derived from features["cron_scheduling"] (feat-394 M9 decision D).
+        """
+        return bool(self.features.get("cron_scheduling", False))
 
 
 @dataclass(frozen=True, slots=True)
@@ -397,11 +443,36 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
             agent_dict["group_reply_policy"] = agent.group_reply_policy
         if agent.default_model is not None:
             agent_dict["default_model"] = agent.default_model
-        # feat-379-M2: only emit when non-empty to keep config.yaml readable
+        # feat-379-M2: only emit when non-empty to keep config.yaml readable.
+        # feat-394-M9: features dict now carries heartbeat/cron_scheduling state;
+        # heartbeat_enabled/cron_enabled are @property derived from features — no
+        # separate fields to serialize.
         if agent.features:
             agent_dict["features"] = dict(agent.features)
         if agent.custom_prompt is not None:
             agent_dict["custom_prompt"] = agent.custom_prompt
+        # feat-394 decision 5: emit heartbeat cadence block when non-default fields set.
+        # heartbeat.enabled is no longer written separately — it lives in features dict.
+        if (
+            agent.heartbeat_every is not None
+            or agent.heartbeat_active_hours_start is not None
+        ):
+            hb_dict: dict[str, Any] = {}
+            if agent.heartbeat_every is not None:
+                hb_dict["every"] = agent.heartbeat_every
+            if (
+                agent.heartbeat_active_hours_start is not None
+                or agent.heartbeat_active_hours_end is not None
+            ):
+                active_hours: dict[str, Any] = {}
+                if agent.heartbeat_active_hours_start is not None:
+                    active_hours["start"] = agent.heartbeat_active_hours_start
+                if agent.heartbeat_active_hours_end is not None:
+                    active_hours["end"] = agent.heartbeat_active_hours_end
+                if agent.heartbeat_active_hours_timezone is not None:
+                    active_hours["timezone"] = agent.heartbeat_active_hours_timezone
+                hb_dict["active_hours"] = active_hours
+            agent_dict["heartbeat"] = hb_dict
         agents_list.append(agent_dict)
     data["agents"] = agents_list
 
@@ -653,6 +724,45 @@ def _parse_agents(
         custom_prompt = _optional_string(
             item.get("custom_prompt"), field_name=f"agents[{index}].custom_prompt"
         )
+        # feat-394 decision 5: parse per-agent heartbeat config block.
+        # feat-394-M9: heartbeat.enabled is merged into the features dict
+        # (features["heartbeat"]) rather than stored as a separate field.
+        heartbeat_raw = item.get("heartbeat")
+        heartbeat_every: str | None = None
+        heartbeat_active_hours_start: str | None = None
+        heartbeat_active_hours_end: str | None = None
+        heartbeat_active_hours_timezone: str | None = None
+        if isinstance(heartbeat_raw, dict):
+            hb_enabled_raw = heartbeat_raw.get("enabled")
+            if isinstance(hb_enabled_raw, bool) and hb_enabled_raw:
+                features = dict(features)
+                features["heartbeat"] = True
+            heartbeat_every = _optional_string(
+                heartbeat_raw.get("every"),
+                field_name=f"agents[{index}].heartbeat.every",
+            )
+            active_hours_raw = heartbeat_raw.get("active_hours")
+            if isinstance(active_hours_raw, dict):
+                heartbeat_active_hours_start = _optional_string(
+                    active_hours_raw.get("start"),
+                    field_name=f"agents[{index}].heartbeat.active_hours.start",
+                )
+                heartbeat_active_hours_end = _optional_string(
+                    active_hours_raw.get("end"),
+                    field_name=f"agents[{index}].heartbeat.active_hours.end",
+                )
+                heartbeat_active_hours_timezone = _optional_string(
+                    active_hours_raw.get("timezone"),
+                    field_name=f"agents[{index}].heartbeat.active_hours.timezone",
+                )
+        # feat-394-M7: parse per-agent cron config block from YAML.
+        # feat-394-M9: cron.enabled merged into features["cron_scheduling"].
+        cron_raw = item.get("cron")
+        if isinstance(cron_raw, dict):
+            cr_enabled_raw = cron_raw.get("enabled")
+            if isinstance(cr_enabled_raw, bool) and cr_enabled_raw:
+                features = dict(features)
+                features["cron_scheduling"] = True
         agents.append(
             AgentWorkspaceConfig(
                 agent_id=agent_id,
@@ -665,6 +775,10 @@ def _parse_agents(
                 default_model=default_model,
                 features=features,
                 custom_prompt=custom_prompt,
+                heartbeat_every=heartbeat_every,
+                heartbeat_active_hours_start=heartbeat_active_hours_start,
+                heartbeat_active_hours_end=heartbeat_active_hours_end,
+                heartbeat_active_hours_timezone=heartbeat_active_hours_timezone,
             )
         )
     return tuple(agents)

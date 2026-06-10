@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from typing import Literal
@@ -73,10 +73,41 @@ RelayLifecycleCallback = Callable[
     [InboundMessage, RelayLifecycleUpdate], Awaitable[None]
 ]
 
-# TERMINAL_RUN_STATUSES imported from agent.sdk (canonical string-form, derived from RunStatus enum).
 _TERMINAL_RUN_STATUSES = TERMINAL_RUN_STATUSES
 # Default port for the Gateway's internal HTTP dispatch endpoint.
 _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
+
+
+def resolve_effective_tool_allowlist(
+    tool_allowlist: Sequence[str],
+    *,
+    default_tool_ids: Sequence[str],
+) -> list[str] | None:
+    """Resolve a per-session tool allowlist as a TRUE whitelist.
+
+    feat-394 fix (supersedes M7 R5-2 force-merge): ``tool_allowlist`` is the user's
+    explicit tool whitelist, not an additive extras list.
+
+    - Non-empty ``tool_allowlist`` → exactly those tools. A user may select a subset
+      of the product defaults, so default file/web tools CAN be disabled.
+    - Empty ``tool_allowlist`` → the product default tool set (unconfigured agent).
+
+    feat-394 M9 R4: ``cron_enabled`` param removed. The call-site reads
+    ``agent.cron_enabled`` (@property from features dict) and appends ``"cron"``
+    before passing the list here, keeping this function free of feature-model state.
+
+    Args:
+        tool_allowlist: The agent's stored explicit tool whitelist (may be empty).
+            Call-site must append gated capabilities (e.g. ``"cron"``) before
+            passing when the relevant feature flag is on.
+        default_tool_ids: Product default tool ids used when the whitelist is empty.
+
+    Returns:
+        Explicit tool-id list for ``Kernel.create_session(tool_allowlist=...)``, or
+        ``None`` only in the degenerate case of an empty resolved set.
+    """
+    effective = list(tool_allowlist) if tool_allowlist else list(default_tool_ids)
+    return effective or None
 
 
 class InboundPipeline:
@@ -393,8 +424,19 @@ class InboundPipeline:
         # Resolve per-agent config into session parameters.
         session_metadata = self._build_session_metadata(message, agent_id=agent_id)
         agent_skills = list(agent.skills) if agent.skills else None
-        agent_tool_allowlist = (
-            list(agent.tool_allowlist) if agent.tool_allowlist else None
+        # feat-394 fix: tool_allowlist is a TRUE whitelist — a non-empty list means
+        # exactly those tools, so default file/web tools CAN be disabled. cron is a
+        # gated capability; M9 R4: we read agent.cron_enabled (@property from features
+        # dict) here and append "cron" before resolving, keeping the function signature
+        # free of feature-model booleans.
+        from agent.sdk import PERSONAL_ASSISTANT_PROFILE as _PA_PROFILE  # noqa: PLC0415
+
+        raw_allowlist = list(agent.tool_allowlist) if agent.tool_allowlist else []
+        if agent.cron_enabled and "cron" not in raw_allowlist:
+            raw_allowlist.append("cron")
+        agent_tool_allowlist = resolve_effective_tool_allowlist(
+            raw_allowlist,
+            default_tool_ids=_PA_PROFILE.default_tool_ids or (),
         )
         session = await self._kernel.create_session(
             title=agent.title,
@@ -458,6 +500,9 @@ class InboundPipeline:
         session_metadata["agent_features"] = dict(agent.features)
         if agent.custom_prompt:
             session_metadata["agent_custom_prompt"] = agent.custom_prompt
+        # feat-394 M9 R4: standalone heartbeat_enabled/cron_enabled metadata keys removed.
+        # Gate state lives in agent_features (injected above) and is read by
+        # resolve_flags_from_metadata → ctx.flags in runtime.py.
         # SPEC §7: inject group chat routing context into session metadata so the
         # before_agent_start hook can append a communication context block.
         if message.is_group:
@@ -483,7 +528,6 @@ class InboundPipeline:
             session_metadata["conversation_type"] = "direct"
         return session_metadata
 
-    @staticmethod
     @staticmethod
     def _should_process(
         message: InboundMessage,
@@ -524,7 +568,12 @@ class InboundPipeline:
 
     @staticmethod
     def _is_no_reply_token(text: str) -> bool:
-        return text.strip() == "NO_REPLY"
+        # Provenance: openclaw/src/auto-reply/tokens.ts:3 HEARTBEAT_TOKEN = "HEARTBEAT_OK"
+        # feat-394 decision 3: HEARTBEAT_OK is the heartbeat silence token (replaces NO_REPLY
+        # in heartbeat turns); both are recognised here so the heartbeat delivery path and
+        # the group-chat path share the same gate without special-casing the origin.
+        stripped = text.strip()
+        return stripped == "NO_REPLY" or stripped == "HEARTBEAT_OK"
 
     @classmethod
     def _should_suppress_no_reply(

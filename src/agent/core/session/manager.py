@@ -155,11 +155,19 @@ class SessionManager:
         role: str,
         content: str,
         message_id: str,
+        parent_uuid: str | None = None,
         parts: Sequence[Mapping[str, Any]] | None = None,
         metadata: Mapping[str, Any] | None = None,
         workspace_root: Path | None = None,
     ) -> SessionEntry:
         """Append one turn message as a JSONL turn entry.
+
+        ``parent_uuid`` links the entry into the conversation chain that
+        ``JsonlSessionStore.load`` reconstructs by backtracking from the leaf.
+        Leave it ``None`` only for a chain root; an out-of-band append to an
+        existing session must pass the current tail's uuid, otherwise the entry
+        is an unreachable orphan that load() silently drops (feat-394: cron
+        awareness was persisted but never seen by later turns).
 
         ``workspace_root`` locates the session file.
         Returns a backward-compatible SessionEntry for callers that expect it.
@@ -168,7 +176,7 @@ class SessionManager:
         entry: dict[str, Any] = {
             "type": "turn",
             "uuid": message_id,
-            "parent_uuid": None,
+            "parent_uuid": parent_uuid,
             "session_id": session_id,
             "role": role,
             "content": content,

@@ -42,6 +42,7 @@ from personal_assistant.config.local_store import (
     IMServiceConfig,
     KernelConfig,
     LocalConfig,
+    WORKSPACE_CONFIG_DIRNAME as _WCD,
     default_local_config_path,
     ensure_workspace_defaults,
     load_local_config,
@@ -71,6 +72,12 @@ from personal_assistant.scheduler.heartbeat_scheduler import (
     HeartbeatScheduler,
     HeartbeatSchedulerStateStore,
 )
+from personal_assistant.scheduler.cron_scheduler import (
+    CronJobStore,
+    CronScheduler,
+    CronSchedulerStateStore,
+)
+from personal_assistant.scheduler.cron_runner import CronRunner
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import (
     AgentCreateHandler,
@@ -269,6 +276,7 @@ class _IMConfigSyncClient:
         max_attempts: int = 50,
         monotonic: Monotonic = time.monotonic,
         sleep: Sleep = time.sleep,
+        token_getter: Callable[[], Awaitable[str | None]] | None = None,
     ) -> None:
         self._base_url = _im_http_base_url(base_url)
         self._base_headers = _im_http_headers(token)
@@ -285,6 +293,11 @@ class _IMConfigSyncClient:
         self._client = client
         self._monotonic = monotonic
         self._sleep = sleep
+        # feat-394-M3 fix: accept token_getter so auto-bind token refresh propagates
+        # to config sync requests. Without this, sync_agent calls 401 after auto-bind
+        # because the initial token is empty and is never updated. Mirrors the pattern
+        # used by _IMBootstrapClient (main.py:599-613).
+        self._token_getter = token_getter
 
     def sync_agent(self, *, agent_id: str, profile_version: int) -> None:
         deadline = self._monotonic() + self._timeout_seconds
@@ -322,6 +335,33 @@ class _IMConfigSyncClient:
                     and synced_custom_prompt_val.strip()
                     else None
                 )
+                # feat-394 decision 5: parse heartbeat cadence (every / active_hours) from
+                # heartbeat_json; enable state lives in features["heartbeat"] (M9 decision D).
+                _hb_raw_str = payload.get("heartbeat_json")
+                if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
+                    import json as _json  # noqa: PLC0415
+
+                    try:
+                        _hb_raw = _json.loads(_hb_raw_str)
+                    except (ValueError, TypeError):
+                        _hb_raw = payload.get("heartbeat")
+                else:
+                    _hb_raw = payload.get("heartbeat")
+                (
+                    synced_heartbeat_every,
+                    synced_hb_start,
+                    synced_hb_end,
+                    synced_hb_tz,
+                ) = _parse_heartbeat_from_im_payload(_hb_raw)
+                # feat-394 fix: cron is a gated capability decoupled from the user tool
+                # whitelist — cron_enabled must NEVER be written into tool_allowlist.
+                # The cron tool is appended to the effective session toolset via the
+                # feature→requires_tool invariant (feat-394 M9 decision D).
+                _raw_allowlist = [
+                    item.strip()
+                    for item in payload.get("tool_allowlist", [])
+                    if isinstance(item, str) and item.strip()
+                ]
                 agent_config = AgentWorkspaceConfig(
                     agent_id=agent_id,
                     workspace_root=workspace_root,
@@ -331,11 +371,7 @@ class _IMConfigSyncClient:
                         for item in payload.get("skills", [])
                         if isinstance(item, str) and item.strip()
                     ),
-                    tool_allowlist=tuple(
-                        item.strip()
-                        for item in payload.get("tool_allowlist", [])
-                        if isinstance(item, str) and item.strip()
-                    ),
+                    tool_allowlist=tuple(_raw_allowlist),
                     system_prompt=(
                         payload.get("system_prompt").strip()
                         if isinstance(payload.get("system_prompt"), str)
@@ -356,6 +392,10 @@ class _IMConfigSyncClient:
                     ),
                     features=synced_features,
                     custom_prompt=synced_custom_prompt,
+                    heartbeat_every=synced_heartbeat_every,
+                    heartbeat_active_hours_start=synced_hb_start,
+                    heartbeat_active_hours_end=synced_hb_end,
+                    heartbeat_active_hours_timezone=synced_hb_tz,
                 )
                 self._pipeline.register_agent(agent_config)
                 self._persist_agent_config(agent_config)
@@ -468,6 +508,134 @@ class _IMConfigSyncClient:
             client.close()
             self._client = None
 
+    def reconcile_all_agents(
+        self,
+        *,
+        memory_versions: dict[str, int] | None = None,
+    ) -> None:
+        """拉 IM 权威 profile 做全量对账，按 profile_version 取大覆盖内存 config。
+
+        feat-394-M12 决策 F：gateway WS bind 完成（含重连）后调用一次，消除「漏一次
+        增量推送即永久停在旧状态」的问题。对每个 local_config.agents 拉 source=mirror
+        profile；若 IM 返回的 profile_version >= memory_versions[agent_id] 则
+        register_agent 覆盖内存，否则保留内存（取大原则，避免回退新版本）。HTTP 失败
+        时记录警告并跳过该 agent——不抛出，WS 连接生命周期不受影响。
+
+        Args:
+            memory_versions: 可选的 agent_id → 当前内存 profile_version 映射（由
+                ConfigSyncClient 维护）。缺失或无对应 key 时视作内存版本为 0，即接受
+                任意 IM 版本。
+        """
+        if memory_versions is None:
+            memory_versions = {}
+        for agent in self._local_config.agents:
+            agent_id = agent.agent_id
+            mem_ver = memory_versions.get(agent_id, 0)
+            try:
+                payload = self._fetch_agent_config(agent_id=agent_id)
+            except (httpx.HTTPError, ValueError):
+                _log.warning(
+                    "reconcile_all_agents: failed to fetch profile for agent %s, skipping",
+                    agent_id,
+                )
+                continue
+            im_version = int(payload.get("profile_version", 0))
+            if im_version < mem_ver:
+                # IM 版本落后内存（增量推送已带来更新版本），保留内存不回退
+                _log.debug(
+                    "reconcile_all_agents: skipping agent %s — IM version %d < memory %d",
+                    agent_id,
+                    im_version,
+                    mem_ver,
+                )
+                continue
+            # IM 版本 >= 内存版本：覆盖内存 config 使其收敛到 IM 真值
+            workspace_root_text = payload.get("workspace_root")
+            if isinstance(workspace_root_text, str) and workspace_root_text.strip():
+                workspace_root = Path(workspace_root_text).expanduser().resolve()
+            else:
+                workspace_root = self._workspace_root_factory(agent_id)
+            workspace_root = ensure_workspace_defaults(workspace_root)
+            raw_features = payload.get("features")
+            synced_features = (
+                {
+                    k: v
+                    for k, v in raw_features.items()
+                    if isinstance(k, str) and isinstance(v, bool)
+                }
+                if isinstance(raw_features, dict)
+                else {}
+            )
+            synced_custom_prompt_val = payload.get("custom_prompt")
+            synced_custom_prompt = (
+                synced_custom_prompt_val.strip()
+                if isinstance(synced_custom_prompt_val, str)
+                and synced_custom_prompt_val.strip()
+                else None
+            )
+            _hb_raw_str = payload.get("heartbeat_json")
+            if isinstance(_hb_raw_str, str) and _hb_raw_str.strip():
+                import json as _json  # noqa: PLC0415
+
+                try:
+                    _hb_raw = _json.loads(_hb_raw_str)
+                except (ValueError, TypeError):
+                    _hb_raw = payload.get("heartbeat")
+            else:
+                _hb_raw = payload.get("heartbeat")
+            (
+                synced_heartbeat_every,
+                synced_hb_start,
+                synced_hb_end,
+                synced_hb_tz,
+            ) = _parse_heartbeat_from_im_payload(_hb_raw)
+            _raw_allowlist = [
+                item.strip()
+                for item in payload.get("tool_allowlist", [])
+                if isinstance(item, str) and item.strip()
+            ]
+            agent_config = AgentWorkspaceConfig(
+                agent_id=agent_id,
+                workspace_root=workspace_root,
+                title=str(payload.get("display_name") or agent_id),
+                skills=tuple(
+                    item.strip()
+                    for item in payload.get("skills", [])
+                    if isinstance(item, str) and item.strip()
+                ),
+                tool_allowlist=tuple(_raw_allowlist),
+                system_prompt=(
+                    payload.get("system_prompt").strip()
+                    if isinstance(payload.get("system_prompt"), str)
+                    and payload.get("system_prompt").strip()
+                    else None
+                ),
+                group_reply_policy=(
+                    payload.get("group_reply_policy").strip()
+                    if isinstance(payload.get("group_reply_policy"), str)
+                    and payload.get("group_reply_policy").strip()
+                    else None
+                ),
+                default_model=(
+                    payload.get("default_model").strip()
+                    if isinstance(payload.get("default_model"), str)
+                    and payload.get("default_model").strip()
+                    else None
+                ),
+                features=synced_features,
+                custom_prompt=synced_custom_prompt,
+                heartbeat_every=synced_heartbeat_every,
+                heartbeat_active_hours_start=synced_hb_start,
+                heartbeat_active_hours_end=synced_hb_end,
+                heartbeat_active_hours_timezone=synced_hb_tz,
+            )
+            self._pipeline.register_agent(agent_config)
+            _log.debug(
+                "reconcile_all_agents: updated agent %s to IM version %d",
+                agent_id,
+                im_version,
+            )
+
     def _persist_agent_config(self, agent_config: AgentWorkspaceConfig) -> None:
         agents = list(self._local_config.agents)
         for index, existing in enumerate(agents):
@@ -535,6 +703,26 @@ class _IMConfigSyncClient:
                 trust_env=False,
             )
         return self._client
+
+    def update_token(self, token: str | None) -> None:
+        """Propagate a refreshed access token so future sync requests use it.
+
+        feat-394-M3 fix: called by the token_getter wrapper in _run_gateway after
+        each successful token refresh so this client does not hold a stale/empty
+        Bearer token when auto-bind has rotated credentials.  Mirrors the
+        _refresh_token pattern in _IMBootstrapClient (main.py:621-628).
+
+        Args:
+            token: New access token, or None to clear.
+        """
+        self._base_headers = _im_http_headers(token)
+        # Propagate updated headers to any live client instance so in-flight
+        # connections also pick up the new token without a full reconnect.
+        # Injected test clients (passed via constructor) are updated in-place;
+        # self-built clients are rebuilt by _get_client() on the next request
+        # if they were previously None (first call) or by headers update here.
+        if self._client is not None:
+            self._client.headers.update(self._base_headers)
 
     @staticmethod
     def _default_workspace_root(agent_id: str) -> Path:
@@ -824,6 +1012,84 @@ class GatewayProcessManager:
         raise RuntimeError(message)
 
 
+async def _stream_run_to_completion(
+    *,
+    run_id: str,
+    kernel_session_id: str,
+    agent_id: str,
+    owner_user_id: str,
+    kernel: Any,
+    run_context_store: dict,
+    observer: Callable[..., Any] | None,
+    stream_anchor: int = 0,
+) -> tuple[str, dict | None]:
+    """Stream one kernel run to terminal state, driving the event observer.
+
+    Seeds run_context_store with the standard heartbeat/cron context (empty
+    conversation_id triggers lazy IM turn_start creation), then replays the
+    kernel event stream until a terminal run_status.
+
+    Args:
+        run_id: Kernel run ID to track.
+        kernel_session_id: Kernel session the run lives in.
+        agent_id: Agent ID, forwarded into run_context_store for routing.
+        owner_user_id: IM user_id of the gateway owner; drives lazy direct-chat
+            creation via to_user_id in the context entry.
+        kernel: In-process kernel; must implement stream(session_id, after_sequence).
+        run_context_store: Shared dict seeded here and popped in finally.
+        observer: kernel_event_observer callable (sync or async); None skips driving.
+        stream_anchor: after_sequence passed to kernel.stream; 0 means replay all.
+
+    Returns:
+        Tuple of (last_assistant_text, popped_ctx).  last_assistant_text is the last
+        assistant_message content seen, stripped (empty string on silence).
+        popped_ctx is the context entry that was removed from run_context_store on
+        completion — callers can inspect e.g. conversation_id to detect silent ticks.
+
+    Raises:
+        Nothing — stream failures are re-raised to the caller for per-path logging.
+    """
+    run_context_store[run_id] = {
+        "conversation_id": "",  # lazy: filled by IM turn_start ack
+        "message_id": "",  # lazy: filled by IM turn_start ack
+        "agent_id": agent_id,
+        "to_user_id": owner_user_id,
+        "kernel_session_id": kernel_session_id,
+    }
+
+    final_result_text = ""
+    popped_ctx: dict | None = None
+    try:
+        async for event in kernel.stream(
+            kernel_session_id, after_sequence=stream_anchor
+        ):
+            if event.get("run_id") != run_id:
+                continue
+            if event.get("event") == "assistant_message":
+                content = str(event.get("content") or "").strip()
+                if content:
+                    final_result_text = content
+            if observer is not None:
+                obs_result = observer(event)
+                if asyncio.iscoroutine(obs_result):
+                    await obs_result
+            if event.get("event") == "run_status" and event.get("status") in (
+                "completed",
+                "failed",
+                "cancelled",
+                "error",
+            ):
+                break
+    except Exception:
+        # Re-raise so caller can log with per-path context (agent/job/run identifiers).
+        run_context_store.pop(run_id, None)
+        raise
+    finally:
+        popped_ctx = run_context_store.pop(run_id, None)
+
+    return final_result_text, popped_ctx
+
+
 class PollingHeartbeatRunner:
     """Run the existing heartbeat scheduler as a background tick loop.
 
@@ -831,6 +1097,15 @@ class PollingHeartbeatRunner:
         scheduler: Existing scheduler implementation that evaluates `HEARTBEAT.md`.
         config: Local heartbeat runtime settings.
         sleep: Async sleep function used between tick passes.
+        kernel: In-process kernel used to stream heartbeat run events (feat-393).
+            When provided alongside run_context_store and owner_user_id, the runner
+            seeds run_context_store and awaits each run to terminal state, driving the
+            kernel_event_observer to create the heartbeat IM message if there is content.
+        run_context_store: Shared run-context map seeded with heartbeat run metadata
+            (feat-393).  Observer reads this to route streaming events to IM.
+        owner_user_id: IM user_id of the gateway node owner; used as to_user_id in
+            turn_start so the heartbeat message lands in the owner's direct conversation
+            with the agent (feat-393).
 
     Notes:
         The runner keeps scheduler semantics local and configuration-driven. It does not
@@ -844,6 +1119,12 @@ class PollingHeartbeatRunner:
         scheduler: HeartbeatScheduler,
         config: HeartbeatConfig,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+        kernel: Any | None = None,
+        run_context_store: "dict[str, dict[str, str]] | None" = None,
+        owner_user_id: str = "",
+        kernel_event_observer: Any | None = None,
+        cron_tick_fn: Callable[[str], Awaitable[None]] | None = None,
+        agents: "dict[str, Any] | None" = None,
     ) -> None:
         self._scheduler = scheduler
         self._config = config
@@ -851,6 +1132,16 @@ class PollingHeartbeatRunner:
         self._stop_requested = False
         self._wake_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        # feat-393: kernel + run_context_store enable streaming delivery of heartbeat results.
+        self._kernel = kernel
+        self._run_context_store = run_context_store
+        self._owner_user_id = owner_user_id
+        self._kernel_event_observer = kernel_event_observer
+        # feat-394-M3 CRITICAL-1 fix: wire cron into the unified polling tick.
+        # cron_tick_fn(agent_id) is called once per tick for each cron_enabled agent.
+        # When None, cron is skipped (backward compat, no cron subsystem configured).
+        self._cron_tick_fn = cron_tick_fn
+        self._agents = agents or {}
 
     async def start(self) -> None:
         """Start background scheduler ticking exactly once."""
@@ -881,7 +1172,35 @@ class PollingHeartbeatRunner:
 
     async def _run_loop(self) -> None:
         while not self._stop_requested:
-            await self._scheduler.tick()
+            summary = await self._scheduler.tick()
+            # feat-393: consume each triggered heartbeat run through the shared observer so
+            # results are delivered to the owner's canonical IM direct conversation.
+            if (
+                self._kernel is not None
+                and self._run_context_store is not None
+                and self._owner_user_id
+            ):
+                for record in summary.triggered_runs:
+                    if self._stop_requested:
+                        break
+                    await self._consume_heartbeat_run(record)
+            # feat-394-M3 CRITICAL-1 fix: unified polling tick also drives cron scheduling.
+            # Design §架构总览: "统一 Polling 调度 tick（扩展现 PollingHeartbeatRunner）".
+            # For each agent with cron_enabled=True, invoke the cron tick function.
+            if self._cron_tick_fn is not None and not self._stop_requested:
+                for agent_id, agent in list(self._agents.items()):
+                    if self._stop_requested:
+                        break
+                    cron_enabled = getattr(agent, "cron_enabled", False)
+                    if cron_enabled:
+                        try:
+                            await self._cron_tick_fn(agent_id)
+                        except Exception:  # noqa: BLE001
+                            import logging as _logging  # noqa: PLC0415
+
+                            _logging.getLogger(__name__).exception(
+                                "cron tick failed: agent=%s", agent_id
+                            )
             if self._stop_requested:
                 break
             try:
@@ -892,6 +1211,158 @@ class PollingHeartbeatRunner:
                 continue
             finally:
                 self._wake_event.clear()
+
+    @staticmethod
+    async def trim_silent_tick(
+        *,
+        session_file: "Path",
+        pre_submit_line_count: int,
+    ) -> None:
+        """Truncate a JSONL session file to remove heartbeat turns added by a silent tick.
+
+        feat-394 decision 3 (transcript trim): after a silent heartbeat run (HEARTBEAT_OK
+        or empty response), the triggering prompt and ack turns are removed from the
+        canonical direct-chat session so they do not pollute the next LLM context window.
+        "Silent" is detected by the caller when run_context_store[run_id]["conversation_id"]
+        remains empty after the run completes (no turn_start was ever sent — zero IM trace).
+
+        The trim reads all lines, keeps only the first ``pre_submit_line_count`` non-empty
+        lines, and rewrites the file atomically (rename after write).  Lines beyond that
+        count are the heartbeat trigger prompt + HEARTBEAT_OK (or empty) assistant turn.
+
+        This approach is safe because:
+        - JSONL append is the only mutation normally done; we own the file.
+        - The rewrite is atomic (tmp file → rename) so a crash mid-write does not
+          corrupt existing history.
+        - heartbeat-only turns do not refresh session idle time (design §B requirement).
+
+        Args:
+            session_file: Absolute path to the session ``.jsonl`` file.
+            pre_submit_line_count: Number of non-empty lines present before the heartbeat
+                run was submitted.  Lines beyond this index are removed.
+        """
+
+        import os  # noqa: PLC0415
+
+        if not session_file.exists():
+            return  # nothing to trim
+        raw_text = session_file.read_text(encoding="utf-8")
+        all_lines = raw_text.splitlines(keepends=True)
+        # Count only non-empty lines to match the pre-submit count.
+        non_empty_indices: list[int] = []
+        for idx, line in enumerate(all_lines):
+            if line.strip():
+                non_empty_indices.append(idx)
+        if len(non_empty_indices) <= pre_submit_line_count:
+            return  # nothing to trim (no heartbeat lines were appended)
+        # Keep lines up to and including the last pre-submit non-empty line.
+        last_kept_line_idx = (
+            non_empty_indices[pre_submit_line_count - 1]
+            if pre_submit_line_count > 0
+            else -1
+        )
+        kept_lines = all_lines[: last_kept_line_idx + 1]
+        tmp_path = session_file.with_suffix(".jsonl.trim_tmp")
+        try:
+            tmp_path.write_text("".join(kept_lines), encoding="utf-8")
+            os.replace(tmp_path, session_file)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink(missing_ok=True)
+
+    async def _consume_heartbeat_run(self, record: "HeartbeatRunRecord") -> None:
+        """Stream one heartbeat run to completion, driving the kernel_event_observer for IM delivery.
+
+        Delegates streaming to the module-level _stream_run_to_completion helper, then applies
+        heartbeat-specific post-processing: silent-tick transcript trim (feat-394 decision 3-B).
+        The observer handles lazy turn_start creation and NO_REPLY/empty suppression.
+
+        Args:
+            record: HeartbeatRunRecord returned by the scheduler tick.
+
+        Notes:
+            Failures are logged and swallowed; the next tick will re-evaluate and re-report
+            if the condition persists.  This matches design decision 6: heartbeat delivery
+            inherits normal-chat failure behavior (no persistent retry).
+        """
+        _hb_logger = _log  # module-level logger; no per-call import needed
+
+        run_id = record.run_id
+        kernel_session_id = record.session_id
+        agent_id = record.agent_id
+
+        assert self._run_context_store is not None  # guard (checked in _run_loop)
+
+        # feat-394 decision 3 transcript trim (B): snapshot session file line count before run.
+        # After a silent tick (HEARTBEAT_OK / empty), the triggered prompt + ack turns are
+        # removed so they don't pollute the canonical session's next LLM context window.
+        # We also don't refresh session idle time for heartbeat-only ticks.
+        _session_file_for_trim: "Path | None" = None
+        _pre_submit_line_count = 0
+        try:
+            _get_session_fn = getattr(self._kernel, "get_session", None)
+            if _get_session_fn is not None:
+                _sess_info = _get_session_fn(kernel_session_id)
+                _ws_root = (
+                    _sess_info.get("workspace_root")
+                    if isinstance(_sess_info, dict)
+                    else None
+                )
+                if _ws_root:
+                    _sess_path = (
+                        Path(_ws_root)
+                        / _WCD
+                        / "sessions"
+                        / f"{kernel_session_id}.jsonl"
+                    )
+                    if _sess_path.exists():
+                        _session_file_for_trim = _sess_path
+                        _content = _sess_path.read_text(encoding="utf-8")
+                        _pre_submit_line_count = sum(
+                            1 for ln in _content.splitlines() if ln.strip()
+                        )
+        except Exception:  # noqa: BLE001
+            pass  # trim snapshot failure is non-fatal; trim skipped for this tick
+
+        try:
+            # feat-393 fix-r2 Fix B: stream from the pre-submit anchor to skip replaying
+            # history from prior ticks.  Falls back to 0 when anchor is absent (test path).
+            _, ctx = await _stream_run_to_completion(
+                run_id=run_id,
+                kernel_session_id=kernel_session_id,
+                agent_id=agent_id,
+                owner_user_id=self._owner_user_id,
+                kernel=self._kernel,
+                run_context_store=self._run_context_store,
+                observer=self._kernel_event_observer,
+                stream_anchor=record.stream_anchor,
+            )
+        except Exception:  # noqa: BLE001  — delivery failure does not disrupt gateway loop
+            _hb_logger.exception(
+                "heartbeat run delivery failed: agent=%s run_id=%s", agent_id, run_id
+            )
+            return
+
+        # feat-394 B: silent-tick transcript trim.
+        # If conversation_id was never filled (no turn_start sent → zero IM trace → silent tick),
+        # truncate the session JSONL back to the pre-submit state.
+        _was_silent = ctx is not None and not ctx.get("conversation_id")
+        if (
+            _was_silent
+            and _session_file_for_trim is not None
+            and _pre_submit_line_count > 0
+        ):
+            try:
+                await self.trim_silent_tick(
+                    session_file=_session_file_for_trim,
+                    pre_submit_line_count=_pre_submit_line_count,
+                )
+            except Exception:  # noqa: BLE001
+                _hb_logger.debug(
+                    "heartbeat transcript trim failed (non-fatal): agent=%s run_id=%s",
+                    agent_id,
+                    run_id,
+                )
 
 
 class _InboundDispatcher:
@@ -1011,9 +1482,6 @@ class GatewayRuntime:
                 self._process_manager.start_kernel_process()
             start_channels(self._channel_registry, self._on_inbound)
             channels_started = True
-            if self._heartbeat_runner is not None:
-                await self._heartbeat_runner.start()
-                heartbeat_started = True
             if self._internal_dispatch_handler is not None:
                 try:
                     from aiohttp import web as _aiohttp_web
@@ -1045,6 +1513,14 @@ class GatewayRuntime:
                     self._im_connection_manager.run_forever(),
                     name="personal-assistant-im",
                 )
+            # feat-393 fix-r1: heartbeat must start AFTER im.connect_once so that
+            # manager.connected=True when the first tick's kernel_event_observer fires.
+            # Starting before connect_once was the root cause of 0 IM deliveries:
+            # fast local LLM responses completed before the WS was established, and
+            # observer saw connected=False, silently skipping every heartbeat delivery.
+            if self._heartbeat_runner is not None:
+                await self._heartbeat_runner.start()
+                heartbeat_started = True
             await asyncio.to_thread(self._shutdown_requested.wait)
             return 0
         finally:
@@ -1394,10 +1870,15 @@ class _KernelClientShim:
                 if isinstance(mime, str) and mime.strip():
                     img_part["mime_type"] = mime.strip()
                 parts.append(img_part)
-        # Map string origin → RunOrigin enum; default to SYSTEM for heartbeat/background.
-        run_origin = (
-            _RunOrigin.HEARTBEAT if origin == "heartbeat" else _RunOrigin.SYSTEM
-        )
+        # Map string origin → RunOrigin enum.
+        # feat-394-M7 R5-1 fix: cron is an unattended isolated origin (no user present);
+        # RunOrigin.SYSTEM does not exist — use per-origin explicit mapping.
+        if origin == "heartbeat":
+            run_origin: _RunOrigin = _RunOrigin.HEARTBEAT
+        elif origin == "cron":
+            run_origin = _RunOrigin.CRON
+        else:
+            run_origin = _RunOrigin.USER
         run_record = self._kernel.submit(
             session_id=session_id,
             parts=parts,
@@ -1405,6 +1886,14 @@ class _KernelClientShim:
             workspace_root=Path(workspace_root) if workspace_root else None,
         )
         return {"run_id": run_record.run_id, "anchor_sequence": 0, "status": "queued"}
+
+    def current_event_sequence(self) -> int:
+        """Return the kernel's current max event sequence for use as a stream anchor.
+
+        Delegated to Kernel.current_event_sequence() which reads the EventStreamHub
+        without requiring access to agent.core internals.
+        """
+        return self._kernel.current_event_sequence()
 
     def append_message(
         self,
@@ -1478,6 +1967,8 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
         scenario: str,
         skill_ids: list = (),
     ) -> dict:
+        # feat-394-M9: heartbeat/cron gates are now driven by ctx.flags via
+        # features dict; heartbeat_enabled/cron_enabled params retired.
         return kernel.assemble_prompt_preview(
             workspace_root=_Path(workspace_root) if workspace_root else None,
             features=features or {},
@@ -1490,6 +1981,46 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
     return _provider  # type: ignore[return-value]
 
 
+def _parse_heartbeat_from_im_payload(
+    raw: object,
+) -> tuple[str | None, str | None, str | None, str | None]:
+    """Parse heartbeat cadence fields from an IM agent config payload.
+
+    feat-394 decision 5 / M9-E: enable state lives in features["heartbeat"] (decision D).
+    This function only extracts cadence data: every, active_hours_{start,end,timezone}.
+
+    Args:
+        raw: The raw value of ``payload["heartbeat"]`` from an IM API response.
+
+    Returns:
+        4-tuple of (heartbeat_every, active_hours_start, active_hours_end,
+        active_hours_timezone).  All fields are None when absent.
+    """
+    if not isinstance(raw, dict):
+        return None, None, None, None
+    every_raw = raw.get("every")
+    heartbeat_every = (
+        every_raw.strip() if isinstance(every_raw, str) and every_raw.strip() else None
+    )
+    active_hours_raw = raw.get("active_hours")
+    if isinstance(active_hours_raw, dict):
+        start_raw = active_hours_raw.get("start")
+        end_raw = active_hours_raw.get("end")
+        tz_raw = active_hours_raw.get("timezone")
+        hb_start = (
+            start_raw.strip()
+            if isinstance(start_raw, str) and start_raw.strip()
+            else None
+        )
+        hb_end = (
+            end_raw.strip() if isinstance(end_raw, str) and end_raw.strip() else None
+        )
+        hb_tz = tz_raw.strip() if isinstance(tz_raw, str) and tz_raw.strip() else None
+    else:
+        hb_start, hb_end, hb_tz = None, None, None
+    return heartbeat_every, hb_start, hb_end, hb_tz
+
+
 def build_runtime(config: LocalConfig) -> GatewayRuntime:
     """Construct the default long-running gateway runtime from parsed local config.
 
@@ -1499,29 +2030,20 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # refactor-387-M4: import from agent.sdk only
     from agent.sdk import (
         build_kernel,
-        PermissionDecision as _PermissionDecision,
         LLMFactoryConfig as _LLMFactoryConfig,
         PERSONAL_ASSISTANT_PROFILE,
     )
 
-    # PA permission strategy: unattended gateway — auto-allow all tools.
-    # The gateway is primarily a relay for heartbeat/cron and user-triggered turns;
-    # blocking for a user who may be absent would deadlock the run.
-    async def _pa_can_use_tool(
-        tool_name: str,
-        tool_input: object,
-        ctx: object,
-    ) -> "_PermissionDecision":
-        return _PermissionDecision(behavior="allow")
-
-    # init_model_registry(config.llm) is called by run_gateway before build_runtime;
-    # LLMFactoryConfig.from_env() reads from the global model registry.
+    # PA does not supply can_use_tool: permission ask always parks on broker future
+    # and is resolved by the user clicking Allow/Deny on the IM card via
+    # kernel.submit_permission_decision.  Unattended origins (heartbeat/cron) short-circuit
+    # before reaching ask via auto_mode_gate's unattended_fallback — they never park.
     llm_factory_config = _LLMFactoryConfig.from_env()
 
     kernel = build_kernel(
         product_profile=PERSONAL_ASSISTANT_PROFILE,
         llm_config=llm_factory_config,
-        can_use_tool=_pa_can_use_tool,
+        # can_use_tool=None: IM card flow; see submit_permission_decision.
     )
 
     # Wrap Kernel as a _KernelClientLike shim so HeartbeatScheduler and
@@ -1535,15 +2057,26 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
     )
     outbound_router = OutboundRouter(channel_registry)
-    heartbeat_runner = PollingHeartbeatRunner(
-        scheduler=HeartbeatScheduler(
-            agents=config.agents,
-            kernel_client=kernel_shim,
-            state_store=HeartbeatSchedulerStateStore(
-                _default_heartbeat_state_path(config)
-            ),
-        ),
-        config=config.heartbeat,
+    # Use SQLite-backed store so kernel session mappings survive gateway restarts
+    # (NodeGateway-SPEC §4.2).  Live session validation is done via kernel.get_session
+    # inside InboundPipeline._binding_matches_workspace_root — no kernel_client needed.
+    # Must be created before HeartbeatScheduler so the store can be injected for
+    # tick-time canonical session lookup (feat-394 decision 3).
+    session_store = PersistentSessionBindingStore(
+        db_path=runtime_dir / "session_bindings.sqlite3"
+    )
+    # feat-394 decision 3: canonical direct-chat kernel session store.
+    # Updated by HeartbeatScheduler.tick() via session_store.find_direct_by_agent()
+    # BEFORE each run submission (tick-time read, no reactive ack dependency).
+    # This replaces the prior approach of populating from turn_start ack, which failed
+    # for first-tick / restart / silent-polling scenarios (silent polls never ack → never fill).
+    _canonical_session_store: dict[str, str] = {}
+    _heartbeat_scheduler = HeartbeatScheduler(
+        agents=config.agents,
+        kernel_client=kernel_shim,
+        state_store=HeartbeatSchedulerStateStore(_default_heartbeat_state_path(config)),
+        canonical_session_store=_canonical_session_store,
+        session_store=session_store,
     )
     reporter: UpstreamReporter | None = None
     im_connection_manager: IMConnectionManager | None = None
@@ -1551,11 +2084,19 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     im_config_sync_client: _IMConfigSyncClient | None = None
     post_im_connect: Callable[[], None] | None = None
     _run_context_store: dict[str, dict[str, str]] = {}
-    # Use SQLite-backed store so kernel session mappings survive gateway restarts
-    # (see docs/specs/gateway/spec.md).  Live session validation is done via kernel.get_session
-    # inside InboundPipeline._binding_matches_workspace_root — no kernel_client needed.
-    session_store = PersistentSessionBindingStore(
-        db_path=runtime_dir / "session_bindings.sqlite3"
+    # feat-393: heartbeat_runner is built here (before im_connection_manager which references it),
+    # but the kernel_event_observer is wired after im_service block via attribute set below.
+    # NOTE: session_store + _heartbeat_scheduler are constructed earlier (feat-394 moved
+    # them up so HeartbeatScheduler can take the store for tick-time canonical lookup);
+    # this supersedes origin/main's simpler heartbeat_runner/session_store block here.
+    _owner_user_id = config.node.user_id or ""
+    heartbeat_runner = PollingHeartbeatRunner(
+        scheduler=_heartbeat_scheduler,
+        config=config.heartbeat,
+        kernel=kernel if _owner_user_id else None,
+        run_context_store=_run_context_store if _owner_user_id else None,
+        owner_user_id=_owner_user_id,
+        # kernel_event_observer is set below after _build_kernel_event_observer runs.
     )
     _gateway_internal_port = 8089
     pipeline = InboundPipeline(
@@ -1589,19 +2130,47 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.
         _auth_client = IMAuthClient(base_url=_im_http_base_url(config.im_service.url))
-        _token_getter = _make_token_getter(
+        _raw_token_getter = _make_token_getter(
             im_service=config.im_service,
             local_config=config,
             auth_client=_auth_client,
         )
+        # feat-394-M3 fix: wrap token_getter so each successful token refresh also
+        # propagates the new token to im_config_sync_client.  Without this, auto-bind
+        # refreshes the token for WS reconnection but the sync client keeps the old
+        # empty token, causing every sync_agent call to return 401.
+        _sync_client_ref = im_config_sync_client
+
+        async def _token_getter() -> str | None:
+            token = await _raw_token_getter()
+            if token is not None:
+                _sync_client_ref.update_token(token)
+            return token
+
         # M3: permission response handler is no longer wired — the SDK's can_use_tool
         # callback handles all permission decisions in-process (design decision 3).
+        _im_sync_client = ConfigSyncClient(fetcher=im_config_sync_client.sync_agent)
+
+        # feat-394-M12 决策 F: reconcile 回调——WS bind 完成后（含重连）拉全量 profile
+        # 对账，消除漏推送导致的内存状态滞留。reconcile_all_agents 是同步 HTTP 调用，
+        # 用 asyncio.to_thread 包装使其在 WS 事件循环中安全运行。
+        async def _reconcile_on_connect() -> None:
+            memory_versions = {
+                agent_id: ver
+                for agent_id in (a.agent_id for a in config.agents)
+                if (ver := _im_sync_client.latest_profile_version(agent_id)) is not None
+            }
+            await asyncio.to_thread(
+                im_config_sync_client.reconcile_all_agents,
+                memory_versions=memory_versions,
+            )
+
         im_connection_manager = _build_im_connection_manager(
             config=config,
             relay_adapter=relay_adapter,
             reporter=reporter,
             heartbeat_runner=heartbeat_runner,
-            sync_client=ConfigSyncClient(fetcher=im_config_sync_client.sync_agent),
+            sync_client=_im_sync_client,
             agent_config_provider=lambda agent_id: (
                 im_config_sync_client.current_agent_payload(agent_id=agent_id)
             ),
@@ -1620,7 +2189,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             prompt_preview_provider=_make_prompt_preview_provider(kernel),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
-            permission_response_handler=None,
+            permission_response_handler=_build_permission_response_handler(
+                kernel=kernel
+            ),
+            on_connected=_reconcile_on_connect,
         )
         im_bootstrap_client = _IMBootstrapClient(
             base_url=_im_http_base_url(config.im_service.url),
@@ -1636,16 +2208,168 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         run_context_store=_run_context_store,
     )
     if config.im_service is not None:
-        pipeline._kernel_event_observer = _build_kernel_event_observer(
+        _kernel_event_observer = _build_kernel_event_observer(
             im_connection_manager_factory=lambda: im_connection_manager,
             run_context_store=_run_context_store,
         )
+        pipeline._kernel_event_observer = _kernel_event_observer
+        # feat-393: wire observer into heartbeat_runner now that it's built.
+        # When im_service is absent the runner runs fire-and-forget (no observer, no delivery).
+        if _owner_user_id:
+            heartbeat_runner._kernel_event_observer = _kernel_event_observer  # noqa: SLF001
+        else:
+            # No owner bound → heartbeat delivery disabled; clear kernel reference.
+            heartbeat_runner._kernel = None  # noqa: SLF001
+            heartbeat_runner._run_context_store = None  # noqa: SLF001
         # feat-349-M3: wire background session event callback so self_evolution_review
         # events published by background hooks reach IM as system/meta messages.
         pipeline._session_event_callback = _build_session_event_callback(
             im_connection_manager_factory=lambda: im_connection_manager,
             session_store=pipeline._session_store,
         )
+
+    # feat-394-M3 CRITICAL-1 fix: wire cron tick into the unified polling runner.
+    # Build a cron_tick_fn closure that creates per-agent CronScheduler+CronRunner and
+    # calls CronScheduler.tick(). The fn reads the live pipeline._agents so it picks up
+    # dynamically-registered agents (via IM config sync) without restart.
+    async def _cron_tick_for_agent(agent_id: str) -> None:
+        """Evaluate cron jobs for one agent and submit due runs.
+
+        feat-394-M7 R6 fix: after submitting each due job, seed run_context_store with
+        {to_user_id=owner, agent_id, kernel_session_id} then consume kernel.stream to
+        terminal state, driving kernel_event_observer so the result appears in the owner's
+        direct conversation. Mirrors _consume_heartbeat_run semantics (decision C-awareness).
+        """
+        agent_cfg = pipeline._agents.get(agent_id)  # noqa: SLF001
+        if agent_cfg is None or not getattr(agent_cfg, "cron_enabled", False):
+            return
+        ws_root = agent_cfg.workspace_root
+        job_store = CronJobStore(workspace_root=ws_root)
+        # C1 fix: per-agent state path so job last_due timestamps are isolated per agent.
+        # Previously all agents shared runtime_dir/cron-state.json; with UUID job IDs
+        # collisions are rare but the design is inconsistent with CronJobStore's
+        # per-workspace isolation.  Match CronJobStore path convention.
+        state_store = CronSchedulerStateStore(
+            state_path=ws_root / _WCD / "cron" / "state.json"
+        )
+        _cron_runner = CronRunner(
+            agent_id=agent_id,
+            workspace_root=ws_root,
+            kernel_client=kernel_shim,
+            session_binding_store=session_store,
+        )
+
+        # Observer is set on heartbeat_runner after im_service block (line 2020).
+        # Accessing via heartbeat_runner ensures late binding (value available at call time).
+        _observer = heartbeat_runner._kernel_event_observer  # noqa: SLF001
+
+        async def _submit_and_deliver_fn(*, agent_id: str, job: object) -> None:  # type: ignore[override]
+            """Submit cron job then consume stream so result reaches IM direct chat.
+
+            feat-394-M7 R6 fix: replaces fire-and-forget _submit_cron_job with full
+            delivery chain: submit → seed run_context_store → consume kernel.stream →
+            drive observer → node.streaming_delta → IM visible message.
+            Mirrors _consume_heartbeat_run semantics for the cron path.
+            """
+            # _submit_cron_job now returns (run_id, kernel_session_id) or None.
+            result = await _cron_runner._submit_cron_job(job=job)  # noqa: SLF001
+            if result is None:
+                _log.warning(
+                    "cron: submit returned no result: agent=%s job=%s",
+                    agent_id,
+                    getattr(job, "id", "?"),
+                )
+                return
+            run_id, kernel_session_id = result
+
+            if not _owner_user_id or _observer is None:
+                # No IM delivery path (no owner or no observer): fire-and-forget is correct.
+                _log.debug(
+                    "cron: no delivery path configured (owner=%r), skipping stream",
+                    _owner_user_id,
+                )
+                return
+
+            # Delegate streaming to shared helper (seeds run_context_store, drives observer,
+            # pops context on completion).  Captures last assistant_message for C-awareness.
+            final_result_text = ""
+            try:
+                final_result_text, _ = await _stream_run_to_completion(
+                    run_id=run_id,
+                    kernel_session_id=kernel_session_id,
+                    agent_id=agent_id,
+                    owner_user_id=_owner_user_id,
+                    kernel=kernel,
+                    run_context_store=_run_context_store,
+                    observer=_observer,
+                    stream_anchor=0,
+                )
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "cron: stream consume failed: agent=%s job=%s run=%s",
+                    agent_id,
+                    getattr(job, "id", "?"),
+                    run_id,
+                )
+                return
+
+            # Decision C-awareness: append result text as System(untrusted) to canonical
+            # direct-chat JSONL so user can ask follow-up questions about cron output.
+            if final_result_text:
+                # feat-394-M8 R6-2 fix: resolve canonical session via two sources in priority order.
+                # (1) _canonical_session_store[agent_id] — populated by HeartbeatScheduler.tick()
+                #     via session_store.find_direct_by_agent() on each heartbeat tick.  This is
+                #     the most reliable source: it is filled even when the user has never sent a
+                #     message (heartbeat creates the direct chat and heartbeat_runner fills the store).
+                # (2) _cron_runner._resolve_canonical_session_id() — queries SQLite session_bindings
+                #     which is only populated when the user sends a message (inbound_pipeline bind).
+                #     Falls back to this for cases where heartbeat has never run but user has chatted.
+                # When both return None, skip awareness (no canonical session established yet).
+                _awareness_session_id = (
+                    _canonical_session_store.get(agent_id)
+                    or _cron_runner._resolve_canonical_session_id()  # noqa: SLF001
+                )
+                if _awareness_session_id:
+                    try:
+                        await _cron_runner._append_awareness(  # noqa: SLF001
+                            session_id=_awareness_session_id,
+                            result_text=final_result_text,
+                            workspace_root=ws_root,
+                        )
+                    except Exception:  # noqa: BLE001
+                        _log.warning(
+                            "cron: awareness inject failed: agent=%s job=%s session=%s",
+                            agent_id,
+                            getattr(job, "id", "?"),
+                            _awareness_session_id,
+                        )
+                else:
+                    _log.debug(
+                        "cron: awareness skip — no canonical session for agent=%s",
+                        agent_id,
+                    )
+
+        scheduler = CronScheduler(
+            agent_id=agent_id,
+            job_store=job_store,
+            state_store=state_store,
+            submit_fn=_submit_and_deliver_fn,
+        )
+        await scheduler.tick()
+
+    # Provide agents dict reference (closure over pipeline for dynamic updates).
+    heartbeat_runner._cron_tick_fn = _cron_tick_for_agent  # noqa: SLF001
+    heartbeat_runner._agents = pipeline._agents  # noqa: SLF001
+    # feat-394-M4 R3 S1.3 fix: wire a live agents_getter into the heartbeat scheduler
+    # so each tick reads the current agent config from pipeline._agents rather than the
+    # frozen config.agents tuple captured at init time.  This lets heartbeat_enabled=False
+    # take effect on the next tick without requiring a gateway restart.
+    _heartbeat_scheduler._agents_getter = lambda: pipeline._agents.values()  # noqa: SLF001
+    # feat-394-M4 R2-3 fix: wire SessionRunQueue into scheduler so heartbeat skips
+    # when a user message is currently being processed on the canonical session.
+    # This prevents the heartbeat LLM call from blocking user message responses.
+    _heartbeat_scheduler._run_queue = pipeline._run_queue  # noqa: SLF001
+
     inbound_dispatcher = _InboundDispatcher(pipeline)
     closers: list[Callable[[], None]] = [kernel.close]
     if im_bootstrap_client is not None:
@@ -1902,6 +2626,7 @@ def _build_im_connection_manager(
     agent_create_handler: AgentCreateHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
     permission_response_handler: Callable[[Mapping[str, object]], None] | None = None,
+    on_connected: Callable[[], Awaitable[None]] | None = None,
 ) -> IMConnectionManager:
     im_service = config.im_service
     if im_service is None:
@@ -1919,53 +2644,34 @@ def _build_im_connection_manager(
         token_getter=token_getter,
         connect=_connect_websocket,
         permission_response_handler=permission_response_handler,
+        on_connected=on_connected,
     )
 
 
 def _build_permission_response_handler(
     *,
-    kernel_client: Any,  # KernelAPIClient removed in M3; this function is dead code until M4 cleanup
-    run_context_store: dict[str, dict[str, str]],
+    kernel: Any,
 ) -> Callable[[Mapping[str, object]], None]:
     """Build handler that routes IM permission_response frames to the kernel.
 
-    The frame carries ``request_id``, ``decision``, and the IM-side
-    ``message_id``. The kernel session is recovered by scanning
-    ``run_context_store`` for a matching ``message_id`` — the same store
-    already maintained by the kernel event observer.
+    The frame carries ``request_id``, ``decision``, and an optional ``reason``.
+    request_id is globally unique (assigned by auto_mode_gate at ask time), so
+    no session lookup is required — the broker finds the pending future by id.
     """
 
     def _handler(body: Mapping[str, object]) -> None:
         request_id = str(body.get("request_id") or "").strip()
         decision = str(body.get("decision") or "").strip()
-        message_id = str(body.get("message_id") or "").strip()
         if not request_id or not decision:
             return
-        kernel_session_id = ""
-        if message_id:
-            for ctx in run_context_store.values():
-                if ctx.get("message_id") == message_id:
-                    kernel_session_id = ctx.get("kernel_session_id") or ""
-                    break
-        # Fallback: if message_id lookup misses (e.g. ack not yet stored),
-        # use the only active kernel session when there's exactly one.
-        if not kernel_session_id:
-            distinct = {
-                ctx.get("kernel_session_id")
-                for ctx in run_context_store.values()
-                if ctx.get("kernel_session_id")
-            }
-            if len(distinct) == 1:
-                kernel_session_id = next(iter(distinct))  # type: ignore[assignment]
-        if not kernel_session_id:
-            return
+        reason = str(body.get("reason") or "").strip()
         try:
-            kernel_client.submit_permission_decision(
-                session_id=kernel_session_id,
+            kernel.submit_permission_decision(
                 request_id=request_id,
                 decision=decision,
+                reason=reason,
             )
-        except Exception:  # noqa: BLE001 — IM-bound side-effect; failure can't cascade
+        except Exception:  # noqa: BLE001 — IM-bound side-effect; failure must not cascade
             return
 
     return _handler
@@ -2108,6 +2814,16 @@ def _build_kernel_event_observer(
     - tool_start          → node.streaming_delta kind=tool_call_upserted
     - tool_end            → node.streaming_delta kind=tool_call_completed
     - turn_end            → node.streaming_delta kind=message_completed (with token_usage if available)
+
+    Heartbeat lazy-bubble path (feat-393):
+    - run_context_store entries with ``to_user_id`` (no ``conversation_id``) are heartbeat runs.
+    - turn_start is deferred until the first non-empty, non-NO_REPLY assistant_message arrives.
+    - NO_REPLY/empty content → no turn_start is ever sent → zero IM trace (silent tick).
+    - Normal chat (conversation_id present) is unchanged (eager placeholder on run_status=running).
+
+    Canonical session (feat-394 decision 3):
+    - HeartbeatScheduler.tick() calls session_store.find_direct_by_agent() BEFORE each run
+      submission to update canonical_session_store — tick-time read, no ack dependency.
     """
 
     async def _send(
@@ -2134,10 +2850,18 @@ def _build_kernel_event_observer(
         message_id = ctx.get("message_id") or ""
         agent_id = ctx.get("agent_id") or ""
 
+        # feat-393: heartbeat runs carry to_user_id instead of conversation_id.
+        # The lazy-bubble gate: skip eager turn_start; defer to assistant_message.
+        to_user_id = ctx.get("to_user_id") or ""
+
         event_name = str(event.get("event") or "").strip()
         loop = asyncio.get_event_loop()
 
         if event_name == "run_status" and event.get("status") == "running":
+            if to_user_id:
+                # Heartbeat: skip eager turn_start; bubble is created lazily on first
+                # real content (see assistant_message branch below).
+                return None
             if conversation_id and agent_id:
                 # Return a coroutine so the pipeline awaits turn_start ack before processing
                 # the following assistant_message; without awaiting, message_id would still be
@@ -2181,6 +2905,94 @@ def _build_kernel_event_observer(
                 return None
             kernel_msg_id = str(event.get("message_id") or "").strip()
             prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
+
+            # feat-393 heartbeat lazy-bubble path:
+            # When to_user_id is set and no bubble exists yet, this is the first real
+            # content event.  Gate on NO_REPLY: if agent chose to be quiet → stay silent.
+            # Otherwise fire turn_start{to_user_id}, get back the resolved conversation_id
+            # and message_id, store them, then emit the delta so streaming starts.
+            if to_user_id and not message_id:
+                from personal_assistant.gateway.inbound_pipeline import (
+                    InboundPipeline as _IP,
+                )
+
+                if _IP._is_no_reply_token(content):
+                    # NO_REPLY: heartbeat has nothing to report; do not create any IM trace.
+                    return None
+
+                async def _heartbeat_lazy_turn_start(
+                    mgr: IMConnectionManager = manager,
+                    rid: str = run_id,
+                    aid: str = agent_id,
+                    uid: str = to_user_id,
+                    text: str = content,
+                    new_kernel_id: str = kernel_msg_id,
+                ) -> None:
+                    try:
+                        ack = await mgr.send_json_await_ack(
+                            "node.streaming_delta",
+                            {
+                                "kind": "turn_start",
+                                "to_user_id": uid,
+                                "agent_id": aid,
+                                "run_id": rid,
+                            },
+                        )
+                        ack_payload = (
+                            ack.get("payload")
+                            if isinstance(ack.get("payload"), dict)
+                            else ack
+                        )
+                        returned_msg_id = (
+                            ack_payload.get("message_id")
+                            if isinstance(ack_payload, dict)
+                            else None
+                        )
+                        returned_conv_id = (
+                            ack_payload.get("conversation_id")
+                            if isinstance(ack_payload, dict)
+                            else None
+                        )
+                        skipped_reason = (
+                            ack_payload.get("skipped")
+                            if isinstance(ack_payload, dict)
+                            else None
+                        )
+                        if skipped_reason:
+                            # feat-393 fix-r1: IM skipped delivery (e.g. owner_unresolved).
+                            # Per design decision-6: delivery failure ≠ run failure; log and
+                            # let this heartbeat run finish normally — no exception, no retry.
+                            import logging as _obs_logging  # noqa: PLC0415
+
+                            _obs_logging.getLogger(__name__).warning(
+                                "heartbeat delivery skipped for run_id=%s agent=%s: %s",
+                                rid,
+                                aid,
+                                skipped_reason,
+                            )
+                            return
+                        if returned_msg_id and rid in run_context_store:
+                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                        if returned_conv_id and rid in run_context_store:
+                            run_context_store[rid]["conversation_id"] = str(
+                                returned_conv_id
+                            )
+                        if new_kernel_id and rid in run_context_store:
+                            run_context_store[rid]["kernel_message_id"] = new_kernel_id
+                        if returned_msg_id:
+                            await mgr.send_json(
+                                "node.streaming_delta",
+                                {
+                                    "kind": "message_delta",
+                                    "message_id": str(returned_msg_id),
+                                    "delta_text": text,
+                                    "run_id": rid,
+                                },
+                            )
+                    except Exception:  # noqa: BLE001
+                        pass
+
+                return _heartbeat_lazy_turn_start()
 
             # Detect a new assistant message within the same run (e.g. textA → tool_calls → textB).
             # The kernel's while-loop generates a fresh assistant_msg_id per iteration; when it

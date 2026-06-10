@@ -279,6 +279,10 @@ def create_app(
         registry = UserStreamRegistry()
         outbound_queue: asyncio.Queue[tuple[frozenset[str], str]] = asyncio.Queue()
         loop = asyncio.get_running_loop()
+        # feat-394 bugfix: save main event loop for thread-safe coroutine submission.
+        # Sync routes run in a thread pool and cannot use asyncio.get_running_loop();
+        # asyncio.run_coroutine_threadsafe(coro, app.state.event_loop) bridges the gap.
+        app_instance.state.event_loop = loop
 
         # EventService 依赖 EventRepository；notify 又需 EventService 做 enrich，故用桥接稍后注入实现。
         _user_notify_impl: list[object] = [None]

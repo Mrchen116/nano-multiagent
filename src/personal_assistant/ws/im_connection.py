@@ -14,6 +14,9 @@ from urllib.parse import urlparse
 from personal_assistant._utils import _require_text
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.sync_client import ConfigSyncClient
+from personal_assistant.defaults import (
+    WORKSPACE_CONFIG_DIRNAME as _PA_WORKSPACE_CFG_DIR,
+)
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_node_capabilities_payload,
@@ -181,6 +184,7 @@ class IMConnectionManager:
         prompt_preview_provider: PromptPreviewProvider | None = None,
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
+        on_connected: Callable[[], Awaitable[None]] | None = None,
         connect: ConnectFn,
         sleep: SleepFn = asyncio.sleep,
     ) -> None:
@@ -199,6 +203,10 @@ class IMConnectionManager:
         # token_getter is called on each connect attempt to supply a fresh access token.
         # When absent the static config.token is used (backwards-compatible behaviour).
         self._token_getter = token_getter
+        # feat-394-M12 决策 F: async callback invoked after each successful WS bind
+        # (node.register ack received). Used to trigger reconcile_all_agents so gateway
+        # config converges to IM truth on connect and every reconnect.
+        self._on_connected = on_connected
         self._connect = connect
         self._sleep = sleep
         self._websocket: ClientWebSocket | None = None
@@ -250,6 +258,14 @@ class IMConnectionManager:
         except Exception as exc:  # noqa: BLE001
             await self._disconnect_current_websocket(exc)
             raise
+        # feat-394-M12 决策 F: fire on_connected after WS bind succeeds so reconcile
+        # runs on every connect and reconnect. Errors in the callback are logged and
+        # suppressed — a reconcile failure must not tear down the WS connection.
+        if self._on_connected is not None:
+            try:
+                await self._on_connected()
+            except Exception as exc:  # noqa: BLE001
+                self._events.append({"event": "on_connected_error", "error": str(exc)})
 
     async def close(self) -> None:
         """Stop reconnect attempts and close the current websocket if present."""
@@ -444,6 +460,9 @@ class IMConnectionManager:
             )
             scenario_raw = body.get("scenario")
             scenario = scenario_raw if isinstance(scenario_raw, str) else "direct"
+            # feat-394-M9: heartbeat/cron gates moved to ctx.flags (FEATURE_REGISTRY).
+            # heartbeat_enabled/cron_enabled extraction and forwarding retired;
+            # callers pass {"heartbeat": true} in the features dict instead.
             preview_result: dict[str, object] = {}
             if self._prompt_preview_provider is not None:
                 result = await _maybe_await(
@@ -521,6 +540,112 @@ class IMConnectionManager:
                     "request_id": request_id,
                     "node_id": self._reporter.node_id,
                     "preview": node_preview_result,
+                },
+            )
+            return
+        if message_type == "node.heartbeat.md.request":
+            # feat-394-M13 (决策 G): IM asked gateway to read HEARTBEAT.md from the
+            # agent's workspace.  IM never directly reads gateway-side workspace files
+            # because IM and gateway may run on different hosts.
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            workspace_root_raw = body.get("workspace_root")
+            workspace_root = (
+                workspace_root_raw if isinstance(workspace_root_raw, str) else ""
+            )
+            content = ""
+            if workspace_root:
+                from pathlib import Path as _Path  # noqa: PLC0415 — avoid top-level import
+
+                hb_path = _Path(workspace_root) / "HEARTBEAT.md"
+                if hb_path.exists():
+                    try:
+                        content = hb_path.read_text(encoding="utf-8")
+                    except OSError:
+                        content = ""
+            await self.send_json(
+                "node.heartbeat.md",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "content": content,
+                },
+            )
+            return
+        if message_type == "node.cron.jobs.request":
+            # feat-394-M13 (决策 G): IM asked gateway to read cron/jobs.json from the
+            # agent's workspace.  Gateway reads its own file and returns the list.
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            workspace_root_raw = body.get("workspace_root")
+            workspace_root = (
+                workspace_root_raw if isinstance(workspace_root_raw, str) else ""
+            )
+            jobs: list = []
+            if workspace_root:
+                import json as _json  # noqa: PLC0415
+                from pathlib import Path as _Path  # noqa: PLC0415
+
+                jobs_path = (
+                    _Path(workspace_root) / _PA_WORKSPACE_CFG_DIR / "cron" / "jobs.json"
+                )
+                if jobs_path.exists():
+                    try:
+                        data = _json.loads(jobs_path.read_text(encoding="utf-8"))
+                        if isinstance(data, list):
+                            jobs = data
+                    except (OSError, _json.JSONDecodeError):
+                        jobs = []
+            await self.send_json(
+                "node.cron.jobs",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "jobs": jobs,
+                },
+            )
+            return
+        if message_type == "node.cron.delete.request":
+            # feat-394-M13 (決策 G): IM asked gateway to remove a specific job from
+            # cron/jobs.json.  Gateway performs the file mutation and reports whether
+            # the job was found and removed.
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            job_id_raw = body.get("job_id")
+            job_id = job_id_raw if isinstance(job_id_raw, str) else ""
+            workspace_root_raw = body.get("workspace_root")
+            workspace_root = (
+                workspace_root_raw if isinstance(workspace_root_raw, str) else ""
+            )
+            deleted = False
+            if workspace_root and job_id:
+                import json as _json  # noqa: PLC0415
+                from pathlib import Path as _Path  # noqa: PLC0415
+
+                jobs_path = (
+                    _Path(workspace_root) / _PA_WORKSPACE_CFG_DIR / "cron" / "jobs.json"
+                )
+                if jobs_path.exists():
+                    try:
+                        data = _json.loads(jobs_path.read_text(encoding="utf-8"))
+                        if isinstance(data, list):
+                            filtered = [
+                                item
+                                for item in data
+                                if isinstance(item, dict)
+                                and str(item.get("id", "")) != job_id
+                            ]
+                            if len(filtered) < len(data):
+                                jobs_path.write_text(
+                                    _json.dumps(filtered, indent=2, ensure_ascii=False),
+                                    encoding="utf-8",
+                                )
+                                deleted = True
+                    except (OSError, _json.JSONDecodeError):
+                        deleted = False
+            await self.send_json(
+                "node.cron.delete",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    "deleted": deleted,
                 },
             )
             return

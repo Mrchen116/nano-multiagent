@@ -14,8 +14,12 @@ import {
   AgentConfig,
   AgentFeature,
   AgentSummary,
+  CronJobSummary,
   getAgentDetailState,
+  getAgentHeartbeatMd,
   listAgentSummaries,
+  listAgentCronJobs,
+  deleteAgentCronJob,
   promptPreview,
   updateAgentConfig
 } from "./im-agent-config-api";
@@ -308,6 +312,361 @@ function BehaviorCard({
   );
 }
 
+// feat-394 decision 5: HeartbeatCard — per-agent heartbeat enable/disable + cadence + activeHours.
+// Shows a toggle for heartbeat_enabled, an optional "every" interval input and optional
+// active-hours start/end time inputs when enabled.
+// feat-394-M7 R5-3 fix: added activeHours start/end UI (spec S2.5 requirement).
+// feat-394-M11 decision E: cadence input binds to backend config value (no hardcoded 30m fallback).
+// feat-394-M13: adds collapsible HEARTBEAT.md read-only preview panel via RPC (Decision G).
+// feat-394 followup: cadence is edited as a number stepper + unit dropdown rather than
+// a free-text duration box.  This guarantees the stored value is always in the backend's
+// strict `<int><unit>` shape (scheduler parser is `\d+[smhd]`), so an invalid duration that
+// only blows up at tick time can never be produced from the UI.
+const HEARTBEAT_UNITS = ["m", "h", "d"] as const;
+type HeartbeatUnit = "s" | "m" | "h" | "d";
+
+function parseCadence(every: string): { amount: string; unit: HeartbeatUnit } {
+  const match = /^\s*(\d+)\s*([smhd])\s*$/i.exec(every);
+  if (!match) return { amount: "", unit: "m" };
+  return { amount: match[1], unit: match[2].toLowerCase() as HeartbeatUnit };
+}
+
+interface HeartbeatCardProps {
+  agentId: string;
+  draft: AgentConfigFormState;
+  onToggle: (enabled: boolean) => void;
+  onEveryChange: (every: string) => void;
+  onActiveHoursChange: (start: string, end: string) => void;
+  // feat-394 M9 R6: when heartbeat enable is managed by the Features checkbox list
+  // (heartbeat is in capabilityFeatures), hide the redundant inline enable toggle.
+  hideEnableToggle?: boolean;
+}
+
+function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursChange, hideEnableToggle = false }: HeartbeatCardProps) {
+  const { t } = useTranslation();
+  // feat-394-M11 decision E: no hardcoded fallback — cadence binds directly to backend value.
+  // When heartbeat is not configured, every is undefined → input shows empty (placeholder "30m").
+  const heartbeat = draft.heartbeat;
+  // feat-394 M9-E: enable is the single-true-source in features["heartbeat"], not heartbeat.enabled.
+  const enabled = draft.features?.heartbeat ?? false;
+  const every = heartbeat?.every ?? "";
+  const { amount: cadenceAmount, unit: cadenceUnit } = parseCadence(every);
+  // Show m/h/d; keep a legacy "s" value as an extra option so opening the form never
+  // silently rewrites a seconds-based cadence into minutes.
+  const cadenceUnitOptions: HeartbeatUnit[] = (HEARTBEAT_UNITS as readonly string[]).includes(cadenceUnit)
+    ? [...HEARTBEAT_UNITS]
+    : [cadenceUnit, ...HEARTBEAT_UNITS];
+  const emitCadence = (amount: string, unit: HeartbeatUnit) => {
+    const trimmed = amount.trim();
+    // Empty amount → unconfigured (backend falls back to default 30m); never emit a unit-only string.
+    onEveryChange(trimmed === "" ? "" : `${trimmed}${unit}`);
+  };
+  const activeStart = heartbeat?.active_hours?.start ?? "";
+  const activeEnd = heartbeat?.active_hours?.end ?? "";
+
+  // feat-394-M13: HEARTBEAT.md collapsible read-only preview — fetched via RPC, not direct file access.
+  // Decision G: IM process must never directly read gateway-side workspace files.
+  const [hbMdOpen, setHbMdOpen] = useState(false);
+  const [hbMdContent, setHbMdContent] = useState<string | null>(null);
+  const [hbMdLoading, setHbMdLoading] = useState(false);
+  const [hbMdNodeOnline, setHbMdNodeOnline] = useState(true);
+
+  async function handleHbMdToggle() {
+    if (!hbMdOpen) {
+      setHbMdOpen(true);
+      setHbMdLoading(true);
+      try {
+        const resp = await getAgentHeartbeatMd(agentId);
+        setHbMdContent(resp.content);
+        setHbMdNodeOnline(resp.node_online);
+      } catch {
+        setHbMdContent(null);
+        setHbMdNodeOnline(false);
+      } finally {
+        setHbMdLoading(false);
+      }
+    } else {
+      setHbMdOpen(false);
+    }
+  }
+
+  return (
+    <section className="im-agent-card">
+      <div>
+        <h3 className="im-agent-card-title">{t("agents.form.heartbeat.title")}</h3>
+        <p className="im-agent-card-sub">{t("agents.form.heartbeat.sub")}</p>
+      </div>
+      {/* feat-394 M9 R6: enable toggle shown only when not managed by Features list */}
+      {!hideEnableToggle && (
+        <div className="im-agent-field">
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              data-testid="heartbeat-enabled-toggle"
+              checked={enabled}
+              className="im-feature-checkbox"
+              onChange={(e) => onToggle(e.target.checked)}
+            />
+            <div>
+              <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">
+                {t("agents.form.heartbeat.enabledLabel")}
+              </p>
+              <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">
+                {t("agents.form.heartbeat.enabledHelp")}
+              </p>
+            </div>
+          </label>
+        </div>
+      )}
+      {/* When hideEnableToggle, the card is only rendered when enabled=true (controlled externally),
+          so we always show cadence/activeHours config panels. */}
+      {(enabled || hideEnableToggle) && (
+        <>
+          <div className="im-agent-field">
+            <Label.Root htmlFor="heartbeat-every">{t("agents.form.heartbeat.everyLabel")}</Label.Root>
+            <div className="flex gap-2 items-center">
+              <input
+                id="heartbeat-every"
+                className="im-input"
+                type="number"
+                min={1}
+                step={1}
+                value={cadenceAmount}
+                placeholder="30"
+                aria-describedby="heartbeat-every-help"
+                onChange={(e) => emitCadence(e.target.value, cadenceUnit)}
+                // feat-394-M3 minor Issue 4: select-all on focus so typing replaces the old value
+                // rather than appending to it (standard UX for numeric input fields).
+                onFocus={(e) => e.target.select()}
+              />
+              <select
+                id="heartbeat-every-unit"
+                className="im-input"
+                data-testid="heartbeat-every-unit"
+                value={cadenceUnit}
+                aria-label={t("agents.form.heartbeat.everyUnitLabel")}
+                onChange={(e) => emitCadence(cadenceAmount, e.target.value as HeartbeatUnit)}
+              >
+                {cadenceUnitOptions.map((u) => (
+                  <option key={u} value={u}>
+                    {t(`agents.form.heartbeat.unit.${u}`)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p id="heartbeat-every-help" className="im-agent-field-help">
+              {t("agents.form.heartbeat.everyHelp")}
+            </p>
+          </div>
+          {/* feat-394-M7 R5-3 fix: activeHours UI — spec S2.5 "活跃时段外不打扰" */}
+          <div className="im-agent-field">
+            <Label.Root htmlFor="heartbeat-active-start">
+              {t("agents.form.heartbeat.activeHoursLabel", "Active hours (optional)")}
+            </Label.Root>
+            <div className="flex gap-2 items-center">
+              <input
+                id="heartbeat-active-start"
+                className="im-input"
+                data-testid="heartbeat-active-hours-start"
+                type="time"
+                value={activeStart}
+                placeholder="09:00"
+                aria-label="Active hours start"
+                onChange={(e) => onActiveHoursChange(e.target.value, activeEnd)}
+              />
+              <span className="text-slate-500 text-sm">–</span>
+              <input
+                id="heartbeat-active-end"
+                className="im-input"
+                data-testid="heartbeat-active-hours-end"
+                type="time"
+                value={activeEnd}
+                placeholder="22:00"
+                aria-label="Active hours end"
+                onChange={(e) => onActiveHoursChange(activeStart, e.target.value)}
+              />
+            </div>
+            <p className="im-agent-field-help">
+              {t("agents.form.heartbeat.activeHoursHelp", "Heartbeat only triggers within this time window (leave blank for always-on)")}
+            </p>
+          </div>
+
+          {/* feat-394-M13: HEARTBEAT.md read-only preview — content fetched from gateway via RPC
+              so IM never directly reads gateway-side workspace files (Decision G). */}
+          <div>
+            <button
+              type="button"
+              className={`im-behavior-preview-toggle ${hbMdOpen ? "im-behavior-preview-toggle--open" : ""}`}
+              onClick={() => { void handleHbMdToggle(); }}
+              aria-expanded={hbMdOpen}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+                background: "none",
+                border: "none",
+                padding: "6px 0",
+                cursor: "pointer",
+                fontSize: "0.8rem",
+                fontWeight: 600,
+                color: "var(--im-accent, oklch(0.55 0.18 180))"
+              }}
+            >
+              <span aria-hidden="true">{hbMdOpen ? "▾" : "▸"}</span>
+              <span>{t("agents.form.heartbeat.heartbeatMdToggle", "View HEARTBEAT.md")}</span>
+            </button>
+
+            {hbMdOpen && (
+              <div className="im-behavior-preview-panel im-behavior-preview-panel--open" style={{ marginTop: 8 }}>
+                {hbMdLoading && (
+                  <p className="text-[11px] text-slate-500">{t("agents.form.heartbeat.heartbeatMdLoading", "Loading...")}</p>
+                )}
+                {!hbMdLoading && !hbMdNodeOnline && (
+                  <p className="text-[11px] text-slate-400 italic">
+                    {t("agents.form.heartbeat.heartbeatMdOffline", "Node is offline — HEARTBEAT.md unavailable")}
+                  </p>
+                )}
+                {!hbMdLoading && hbMdNodeOnline && hbMdContent !== null && hbMdContent === "" && (
+                  <p className="text-[11px] text-slate-400 italic">
+                    {t("agents.form.heartbeat.heartbeatMdEmpty", "HEARTBEAT.md not found")}
+                  </p>
+                )}
+                {!hbMdLoading && hbMdNodeOnline && hbMdContent !== null && hbMdContent !== "" && (
+                  <pre
+                    style={{
+                      fontSize: "0.72rem",
+                      lineHeight: 1.5,
+                      color: "var(--im-muted, oklch(0.50 0.01 240))",
+                      whiteSpace: "pre-wrap",
+                      wordBreak: "break-word",
+                      background: "oklch(0.96 0.004 240)",
+                      border: "1px solid var(--im-border)",
+                      borderRadius: 8,
+                      padding: "10px 12px",
+                      maxHeight: 360,
+                      overflowY: "auto",
+                      margin: 0
+                    }}
+                  >
+                    {hbMdContent}
+                  </pre>
+                )}
+              </div>
+            )}
+          </div>
+
+        </>
+      )}
+    </section>
+  );
+}
+
+// feat-394-M2 decision 5: CronCard — per-agent cron enable/disable.
+// feat-394-M3 WARNING-3: also shows task list + delete (spec Scenario: 配置页查看并手动删除任务).
+interface CronCardProps {
+  agentId: string;
+  draft: AgentConfigFormState;
+  onToggle: (enabled: boolean) => void;
+  // feat-394 M9 R6: when cron enable is managed by the Features checkbox list, hide inline toggle.
+  hideEnableToggle?: boolean;
+}
+
+function CronCard({ agentId, draft, onToggle, hideEnableToggle = false }: CronCardProps) {
+  const { t } = useTranslation();
+  // feat-394 M9-E: enable is the single-true-source in features["cron_scheduling"]; no draft.cron object.
+  const enabled = draft.features?.cron_scheduling ?? false;
+  const queryClient = useQueryClient();
+
+  // feat-394-M3: fetch cron jobs list for this agent
+  // When hideEnableToggle the card only renders when cron is on, so enabled||hideEnableToggle.
+  const jobsQuery = useQuery({
+    queryKey: ["cron-jobs", agentId],
+    queryFn: () => listAgentCronJobs(agentId),
+    enabled: enabled || hideEnableToggle,  // when controlled externally, always fetch
+    staleTime: 30_000,
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (jobId: string) => deleteAgentCronJob(agentId, jobId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["cron-jobs", agentId] });
+    },
+  });
+
+  const jobs = jobsQuery.data ?? [];
+
+  return (
+    <section className="im-agent-card">
+      <div>
+        <h3 className="im-agent-card-title">{t("agents.form.cron.title")}</h3>
+        <p className="im-agent-card-sub">{t("agents.form.cron.sub")}</p>
+      </div>
+      {/* feat-394 M9 R6: enable toggle shown only when not managed by Features list */}
+      {!hideEnableToggle && (
+        <div className="im-agent-field">
+          <label className="flex items-center gap-3 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              data-testid="cron-enabled-toggle"
+              checked={enabled}
+              className="im-feature-checkbox"
+              onChange={(e) => onToggle(e.target.checked)}
+            />
+            <div>
+              <p className="m-0 text-[13px] font-semibold text-slate-900 leading-5">
+                {t("agents.form.cron.enabledLabel")}
+              </p>
+              <p className="m-0 text-[11px] text-slate-500 leading-[1.4]">
+                {t("agents.form.cron.enabledHelp")}
+              </p>
+            </div>
+          </label>
+        </div>
+      )}
+      {/* feat-394-M3: cron jobs task list (spec Scenario: 配置页查看并手动删除任务) */}
+      {(enabled || hideEnableToggle) && (
+        <div className="im-agent-field" data-testid="cron-jobs-list">
+          {jobsQuery.isError && (
+            <p className="text-[12px] text-red-500">{t("agents.form.cron.loadError")}</p>
+          )}
+          {!jobsQuery.isError && jobs.length === 0 && (
+            <p className="text-[12px] text-slate-400 italic">{t("agents.form.cron.noJobs")}</p>
+          )}
+          {jobs.length > 0 && (
+            <ul className="space-y-2" role="list" aria-label={t("agents.form.cron.jobsListLabel")}>
+              {jobs.map((job: CronJobSummary) => (
+                <li
+                  key={job.id}
+                  className="flex items-start justify-between gap-2 p-2 bg-slate-50 rounded border border-slate-200"
+                  data-testid={`cron-job-${job.id}`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13px] font-medium text-slate-800 truncate">{job.name}</p>
+                    <p className="text-[11px] text-slate-500 truncate">{job.instruction}</p>
+                    <p className="text-[10px] text-slate-400 font-mono truncate">
+                      {JSON.stringify(job.schedule)}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    data-testid={`cron-job-delete-${job.id}`}
+                    className="shrink-0 text-[12px] text-red-500 hover:text-red-700 px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                    onClick={() => deleteMutation.mutate(job.id)}
+                    disabled={deleteMutation.isPending}
+                    aria-label={`${t("agents.form.cron.deleteJob")} ${job.name}`}
+                  >
+                    {t("agents.form.cron.deleteJob")}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // M20/R12-bis-1: desktop split layout — left 240px dark agent rail.
 // Prototype `im-settings-page.jsx::AgentListView` desktop: 240px dark sidebar
 // (`oklch(0.24 0.012 240)` bg) with clickable agent rows, active highlight.
@@ -402,6 +761,9 @@ export function AgentDetailPage() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [hasAttemptedSave, setHasAttemptedSave] = useState(false);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
+  // feat-394 M9-C: once the user manually edits tool_allowlist, stop treating empty as
+  // "use product defaults" — the empty list becomes a genuine empty whitelist.
+  const [allowlistUserTouched, setAllowlistUserTouched] = useState(false);
 
   const detailQuery = useQuery({
     queryKey: ["settings", "agents", agentId, "detail-state"],
@@ -427,6 +789,8 @@ export function AgentDetailPage() {
     if (detailQuery.data?.config) {
       setDraft(detailQuery.data.config);
       setErrorMessage(null);
+      // Reset touched flag when server data (re)loads — fresh state, back to "empty = defaults".
+      setAllowlistUserTouched(false);
     }
   }, [detailQuery.data]);
 
@@ -759,11 +1123,26 @@ export function AgentDetailPage() {
             // feat-379-M9 (決策 12): tick → add requires_tool to allowlist; untick → keep tool.
             const capFeats = capabilities?.features ?? [];
             const requiresTool = capFeats.find((f) => f.key === key)?.requires_tool ?? null;
-            const nextAllowlist =
-              value && requiresTool && !draft.tool_allowlist.includes(requiresTool)
-                ? [...draft.tool_allowlist, requiresTool]
+            // bugfix: mirror the materialize logic in PillSelector onChange — only materialize the
+            // default set when we are actually about to add a requires_tool entry. This guards against
+            // ticking a feature that has no requires_tool (e.g. heartbeat) incorrectly kicking the
+            // agent out of default mode and freezing its tool_allowlist as an explicit set.
+            const willAddTool =
+              value && requiresTool && !draft.tool_allowlist.includes(requiresTool);
+            const effectiveBase =
+              willAddTool && !allowlistUserTouched && draft.tool_allowlist.length === 0
+                ? (capabilities?.tools ?? [])
+                    .filter((t: { default_on?: boolean }) => t.default_on === true)
+                    .map((t: { name: string }) => t.name)
                 : draft.tool_allowlist;
-            setDraft({ ...draft, features: { ...(draft.features ?? {}), [key]: value }, tool_allowlist: nextAllowlist });
+            const nextAllowlist = willAddTool ? [...effectiveBase, requiresTool!] : effectiveBase;
+            // Mark as touched only when defaults were actually materialized.
+            if (effectiveBase !== draft.tool_allowlist) setAllowlistUserTouched(true);
+            // feat-394 M9-E: features is the single-true-source for enable state.
+            // HeartbeatCard reads features["heartbeat"]; CronCard reads features["cron_scheduling"].
+            // No parallel sync into draft.heartbeat.enabled or draft.cron needed.
+            const nextDraft = { ...draft, features: { ...(draft.features ?? {}), [key]: value }, tool_allowlist: nextAllowlist };
+            setDraft(nextDraft);
           }}
           onPolicyChange={(value) => {
             setSaved(false);
@@ -771,6 +1150,65 @@ export function AgentDetailPage() {
             setDraft({ ...draft, group_reply_policy: value as AgentConfig["group_reply_policy"] });
           }}
         />
+
+        {/* feat-394 M9 R6: HeartbeatCard — show cadence/activeHours config panel.
+            When heartbeat is in capabilityFeatures (M9+), enable is controlled by
+            the Features checkbox list above; the card renders only when enabled. */}
+        {(() => {
+          const hbInFeatures = capabilities?.features?.some((f: { key: string }) => f.key === "heartbeat") ?? false;
+          // When heartbeat is a registered feature, show card only when the feature is on.
+          // Otherwise (old Gateway), always show (backward compat).
+          if (hbInFeatures && !draft.features?.heartbeat) return null;
+          return (
+            <HeartbeatCard
+              agentId={agentId}
+              draft={draft}
+              onToggle={(enabled) => {
+                // feat-394 M9-E: enable is in features["heartbeat"]; toggle via features only.
+                setSaved(false);
+                setErrorMessage(null);
+                setDraft({ ...draft, features: { ...(draft.features ?? {}), heartbeat: enabled } });
+              }}
+              onEveryChange={(every) => {
+                setSaved(false);
+                setErrorMessage(null);
+                setDraft({ ...draft, heartbeat: { ...(draft.heartbeat ?? {}), every } });
+              }}
+              onActiveHoursChange={(start, end) => {
+                setSaved(false);
+                setErrorMessage(null);
+                // feat-394-M11: no hardcoded "30m" fallback when spreading prev heartbeat.
+                const prevHb = draft.heartbeat ?? {};
+                const active_hours = start || end
+                  ? { ...(prevHb.active_hours ?? {}), start, end }
+                  : undefined;
+                setDraft({ ...draft, heartbeat: { ...prevHb, active_hours } });
+              }}
+              hideEnableToggle={hbInFeatures}
+            />
+          );
+        })()}
+
+        {/* feat-394-M2 decision 5: CronCard — per-agent cron enable/disable.
+            feat-394 M9 R6: when cron_scheduling is in capabilityFeatures, the enable
+            toggle moves to the Features list; card renders only when cron feature is on. */}
+        {(() => {
+          const cronInFeatures = capabilities?.features?.some((f: { key: string }) => f.key === "cron_scheduling") ?? false;
+          if (cronInFeatures && !draft.features?.cron_scheduling) return null;
+          return (
+            <CronCard
+              agentId={agentId}
+              draft={draft}
+              onToggle={(enabled) => {
+                // feat-394 M9-E: enable is in features["cron_scheduling"]; no draft.cron object.
+                setSaved(false);
+                setErrorMessage(null);
+                setDraft({ ...draft, features: { ...(draft.features ?? {}), cron_scheduling: enabled } });
+              }}
+              hideEnableToggle={cronInFeatures}
+            />
+          );
+        })()}
 
         <section className="im-agent-card">
           <div>
@@ -800,12 +1238,23 @@ export function AgentDetailPage() {
               isLoading={detailQuery.isLoading}
               errorMessage={detailQuery.isError ? queryErrorDetail : null}
               onRetry={() => void detailQuery.refetch()}
+              useDefaultOn={!allowlistUserTouched}
               onChange={(toolAllowlist) => {
                 setSaved(false);
                 setErrorMessage(null);
+                // feat-394 M9-C: mark as touched so empty list means "no tools" not "defaults".
+                setAllowlistUserTouched(true);
                 // feat-379-M9 (決策 12): removed tool → uncheck any feature that requires it.
                 const capFeats = capabilities?.features ?? [];
-                const removed = draft.tool_allowlist.filter((t) => !toolAllowlist.includes(t));
+                // When transitioning from default mode (empty allowlist), the "removed" set is
+                // derived from the effective defaults rather than the stored empty list.
+                const effectiveAllowlist =
+                  !allowlistUserTouched && draft.tool_allowlist.length === 0
+                    ? (capabilities?.tools ?? [])
+                        .filter((t: { default_on?: boolean }) => t.default_on === true)
+                        .map((t: { name: string }) => t.name)
+                    : draft.tool_allowlist;
+                const removed = effectiveAllowlist.filter((t: string) => !toolAllowlist.includes(t));
                 const nextFeatures = { ...(draft.features ?? {}) };
                 for (const tool of removed) {
                   for (const feat of capFeats) {

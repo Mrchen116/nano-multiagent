@@ -201,14 +201,18 @@ async def test_can_use_tool_callback_is_invoked_via_permission_requester(
         _llm_client_override=_fake_llm_client(),
     )
     try:
-        # Simulate a permission request coming through the runtime's hook context.
-        # The SDK wires a permission_requester into the runtime; we call it directly
-        # to verify that can_use_tool is invoked and the decision is returned.
+        # Simulate a permission request through the runtime's hook context.
+        # The SDK wires _can_use_tool into runtime; _build_hook_context builds a
+        # per-call permission_requester closure that races can_use_tool.
         from agent.platform.permissions.broker import PermissionRequest
 
-        requester = kernel._c.runtime._permission_requester  # noqa: SLF001
-        assert requester is not None, (
-            "SDK must inject a permission_requester into runtime"
+        session = await kernel.create_session(workspace_root=tmp_path)
+        hook_ctx = kernel._c.runtime._build_hook_context(  # noqa: SLF001
+            session_id=session.session_id
+        )
+        assert hook_ctx.permission_requester is not None, (
+            "SDK must wire a permission_requester into the hook context when "
+            "_can_use_tool is set"
         )
 
         # Build a minimal PermissionRequest
@@ -219,7 +223,7 @@ async def test_can_use_tool_callback_is_invoked_via_permission_requester(
             question="Allow bash?",
             options=(),
         )
-        response = await asyncio.wait_for(requester(req), timeout=2.0)
+        response = await asyncio.wait_for(hook_ctx.request_permission(req), timeout=2.0)
 
         # can_use_tool returned allow → response should be allow_once
         assert response.decision == "allow_once"
@@ -267,8 +271,10 @@ async def test_interrupt_while_waiting_for_permission_cancels_turn(
 
         from agent.platform.permissions.broker import PermissionRequest
 
-        requester = kernel._c.runtime._permission_requester  # noqa: SLF001
-        assert requester is not None
+        hook_ctx = kernel._c.runtime._build_hook_context(  # noqa: SLF001
+            session_id=session.session_id
+        )
+        assert hook_ctx.permission_requester is not None
 
         req = PermissionRequest(
             id="req-interrupt-perm",
@@ -279,7 +285,7 @@ async def test_interrupt_while_waiting_for_permission_cancels_turn(
         )
 
         # Start awaiting permission in background — will block on blocking_can_use_tool
-        perm_task = asyncio.create_task(requester(req))
+        perm_task = asyncio.create_task(hook_ctx.request_permission(req))
 
         # Give the task a moment to start and park in broker
         await asyncio.sleep(0.05)

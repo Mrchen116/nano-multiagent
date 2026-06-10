@@ -132,6 +132,38 @@ def test_disconnect_removes_active_connection(tmp_path: Path) -> None:
     assert asyncio.run(handler.is_connected(node_id="node-1")) is False
 
 
+def test_stale_disconnect_preserves_replacement_connection(tmp_path: Path) -> None:
+    """Keep a newer websocket when delayed cleanup arrives from the replaced socket."""
+    handler = _build_handler(tmp_path)
+    old_websocket = StubWebSocket()
+    new_websocket = StubWebSocket()
+    register_payload = {
+        "node_id": "node-1",
+        "agents": [],
+        "capabilities": {},
+    }
+    asyncio.run(
+        handler.handle_message(
+            websocket=old_websocket,
+            message_type="node.register",
+            payload=register_payload,
+        )
+    )
+    asyncio.run(
+        handler.handle_message(
+            websocket=new_websocket,
+            message_type="node.register",
+            payload=register_payload,
+        )
+    )
+
+    asyncio.run(handler.disconnect(node_id="node-1", expected_websocket=old_websocket))
+
+    snapshot = asyncio.run(handler.snapshot_connection(node_id="node-1"))
+    assert snapshot is not None
+    assert snapshot.websocket is new_websocket
+
+
 def test_completed_report_persists_real_usage_metrics(tmp_path: Path) -> None:
     """Store completed relay usage under the conversation owner and agent scope."""
     connection = connect(tmp_path / "im.db")
@@ -608,3 +640,603 @@ def test_parse_token_usage_derives_total_when_missing() -> None:
     parsed = _parse_token_usage({"prompt": 12, "completion": 30})
     assert parsed is not None
     assert parsed.total == 42
+
+
+# ---------------------------------------------------------------------------
+# feat-393: turn_start to_user_id 模式 — heartbeat canonical 直聊解析
+# ---------------------------------------------------------------------------
+
+
+def _build_handler_with_event_bridge(tmp_path: Path) -> tuple["GatewayHandler", object]:
+    """Build a GatewayHandler with a real EventBridge wired to a FK-enforced DB.
+
+    FK enforcement comes from initialize_schema which calls PRAGMA foreign_keys=ON.
+    This is the guard against M138-style fake-green tests that used mocks bypassing FK.
+    """
+    from IM.application.event_bridge import EventBridge
+    from IM.infra.repositories import EventRepository
+
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    msg_repo = MessageRepository(connection)
+    evt_repo = EventRepository(connection)
+    bridge = EventBridge(
+        message_repository=msg_repo, event_repository=evt_repo, notify=None
+    )
+    # user_repository is auto-derived from conversation_repository._connection in GatewayHandler.__init__
+    handler = GatewayHandler(
+        relay_service=RelayService(connection),
+        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+        conversation_repository=ConversationRepository(connection),
+        event_bridge=bridge,
+    )
+    return handler, connection
+
+
+def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_creates_message(
+    tmp_path: Path,
+) -> None:
+    """turn_start with to_user_id finds/creates the canonical (owner,agent) direct conv and persists a real message row.
+
+    FK-enforced DB path: messages row must exist before events row is written.
+    M138 fake-green guard: initialize_schema sets PRAGMA foreign_keys=ON; any synthetic FK would raise here.
+    """
+    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    owner = users.create_user(username="nano", display_name="Nano")
+    agent_user = users.create_user(username="agent:alpha", display_name="Alpha")
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["alpha"], "capabilities": {}},
+        )
+    )
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "turn_start",
+                "to_user_id": owner.id,
+                "agent_id": "alpha",
+                "run_id": "run-heartbeat-1",
+            },
+        )
+    )
+
+    assert response["type"] == "ack"
+    ack_payload = response["payload"]
+    assert ack_payload["kind"] == "turn_start"
+    message_id = ack_payload.get("message_id")
+    assert message_id, (
+        "turn_start ack must return message_id so gateway can store it in run_context_store"
+    )
+    conversation_id = ack_payload.get("conversation_id")
+    assert conversation_id, (
+        "turn_start ack must return conversation_id for heartbeat run context"
+    )
+
+    # Verify the canonical direct conversation and real message row exist in FK-enforced DB.
+    conversations = ConversationRepository(connection)
+    conv = conversations.get_conversation(conversation_id=str(conversation_id))
+    assert conv is not None
+    assert conv.type == "direct"
+    assert conv.direct_kind == "user-agent"
+    assert set(conv.participant_ids) == {owner.id, agent_user.id}
+
+    messages = MessageRepository(connection).list_messages(conversation_id=conv.id)
+    assert len(messages) == 1
+    assert messages[0].id == str(message_id)
+    assert messages[0].sender_type == "agent"
+
+
+def test_turn_start_to_user_id_creates_direct_conversation_when_none_exists(
+    tmp_path: Path,
+) -> None:
+    """turn_start with to_user_id auto-creates the canonical direct conversation when owner has no prior chat."""
+    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    owner = users.create_user(username="new-owner", display_name="New Owner")
+    users.create_user(username="agent:beta", display_name="Beta")
+
+    assert len(ConversationRepository(connection).list_conversations()) == 0
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["beta"], "capabilities": {}},
+        )
+    )
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "turn_start",
+                "to_user_id": owner.id,
+                "agent_id": "beta",
+                "run_id": "run-heartbeat-2",
+            },
+        )
+    )
+
+    assert response["type"] == "ack"
+    conversations_after = ConversationRepository(connection).list_conversations()
+    assert len(conversations_after) == 1
+    conv = conversations_after[0]
+    assert conv.type == "direct"
+    assert conv.direct_kind == "user-agent"
+
+
+def test_turn_start_to_user_id_uses_oldest_conversation_when_multiple_exist(
+    tmp_path: Path,
+) -> None:
+    """turn_start with to_user_id selects the canonical (oldest) direct conversation when owner has multiple."""
+    import time
+
+    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    convs = ConversationRepository(connection)
+    owner = users.create_user(username="multi-owner", display_name="Multi Owner")
+    agent_user = users.create_user(username="agent:gamma", display_name="Gamma")
+
+    first_conv = convs.create_conversation(
+        title="first-direct",
+        participant_ids=[owner.id, agent_user.id],
+    )
+    time.sleep(0.01)  # ensure different created_at
+    convs.create_conversation(
+        title="second-direct",
+        participant_ids=[owner.id, agent_user.id],
+    )
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["gamma"], "capabilities": {}},
+        )
+    )
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "turn_start",
+                "to_user_id": owner.id,
+                "agent_id": "gamma",
+                "run_id": "run-heartbeat-3",
+            },
+        )
+    )
+
+    assert response["type"] == "ack"
+    returned_conv_id = response["payload"].get("conversation_id")
+    assert returned_conv_id == first_conv.id, (
+        "must land on the oldest (canonical) direct conversation"
+    )
+
+
+def test_turn_start_conversation_id_mode_unchanged_normal_chat_path(
+    tmp_path: Path,
+) -> None:
+    """turn_start with conversation_id follows the existing eager-bubble path (regression guard).
+
+    Ensures the to_user_id branch does not interfere with normal chat eager placeholder behavior.
+    """
+    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    convs = ConversationRepository(connection)
+    owner = users.create_user(username="chat-owner", display_name="Chat Owner")
+    agent_user = users.create_user(username="agent:delta", display_name="Delta")
+    conv = convs.create_conversation(
+        title="chat", participant_ids=[owner.id, agent_user.id]
+    )
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["delta"], "capabilities": {}},
+        )
+    )
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "turn_start",
+                "conversation_id": conv.id,
+                "agent_id": "delta",
+                "run_id": "run-chat-1",
+            },
+        )
+    )
+
+    assert response["type"] == "ack"
+    msg_id = response["payload"].get("message_id")
+    assert msg_id, "existing eager-bubble path must still return message_id immediately"
+    # Verify real message row created (FK path unbroken for normal chat)
+    messages = MessageRepository(connection).list_messages(conversation_id=conv.id)
+    assert len(messages) == 1
+    assert messages[0].id == str(msg_id)
+
+
+def test_turn_start_to_user_id_owner_not_in_db_returns_skipped_ack_not_exception(
+    tmp_path: Path,
+) -> None:
+    """turn_start with a to_user_id that does not exist in the DB must return a skipped ack, never raise.
+
+    Root cause of feat-393 round-1 WS flap: _find_or_create_direct_conversation calls
+    create_conversation with a nonexistent left_user_id; SQLite FK enforcement raises
+    IntegrityError which propagated out of serve() and closed the connection — causing
+    413 open/close cycles.
+
+    The fix must stay per-handler (not a broad except in serve()) so that other frame
+    types' real exceptions still surface.  This test uses a FK-enforced DB (foreign_keys=ON
+    via initialize_schema) to ensure the FK violation path is exercised, not mocked away.
+    """
+    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    websocket = StubWebSocket()
+    # Register agent user so agent lookup succeeds; owner user intentionally absent.
+    users = UserRepository(connection)
+    users.create_user(username="agent:epsilon", display_name="Epsilon")
+
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": ["epsilon"], "capabilities": {}},
+        )
+    )
+
+    nonexistent_owner_id = "00000000000000000000000000000000"
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "turn_start",
+                "to_user_id": nonexistent_owner_id,
+                "agent_id": "epsilon",
+                "run_id": "run-heartbeat-bad-owner",
+            },
+        )
+    )
+
+    # Must be a skipped ack, not an exception.  WS connection must stay alive.
+    assert response["type"] == "ack"
+    ack_payload = response["payload"]
+    assert ack_payload.get("skipped") == "owner_unresolved", (
+        f"Expected skipped='owner_unresolved' but got: {ack_payload!r}"
+    )
+    # No message rows must have been created (owner does not exist, nothing to deliver).
+    all_convs = ConversationRepository(connection).list_conversations()
+    assert all_convs == [], (
+        "No conversation should have been created for a nonexistent owner"
+    )
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M13: gateway-side state via WS RPC
+# ---------------------------------------------------------------------------
+
+
+def test_request_node_heartbeat_md_returns_none_when_node_offline(
+    tmp_path: Path,
+) -> None:
+    """Heartbeat-md RPC returns None when target node is not connected.
+
+    feat-394-M13 (决策 G): IM must never directly read gateway workspace files.
+    request_node_heartbeat_md is the RPC path; offline node → None (graceful).
+    """
+    handler = _build_handler(tmp_path)
+
+    result = asyncio.run(
+        handler.request_node_heartbeat_md(
+            target_node_id="offline-node",
+            agent_id="agent-x",
+            workspace_root="/fake/workspace",
+            timeout_seconds=0.1,
+        )
+    )
+
+    assert result is None
+
+
+def test_handle_heartbeat_md_resolves_waiter(tmp_path: Path) -> None:
+    """_handle_heartbeat_md resolves the matching future with content.
+
+    feat-394-M13: gateway sends node.heartbeat.md back with {request_id, content}.
+    The IM waiter must receive the content string.
+    """
+    handler = _build_handler(tmp_path)
+    loop = asyncio.new_event_loop()
+    try:
+        future: asyncio.Future[str | None] = loop.create_future()
+
+        async def _run() -> dict[str, object]:
+            async with handler._lock:  # noqa: SLF001
+                handler._heartbeat_md_waiters["req-hb-1"] = future  # noqa: SLF001
+            return await handler._handle_heartbeat_md(  # noqa: SLF001
+                payload={
+                    "request_id": "req-hb-1",
+                    "node_id": "node-1",
+                    "content": "# HEARTBEAT\n- Watch server uptime",
+                }
+            )
+
+        ack = loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    assert ack == {
+        "type": "ack",
+        "payload": {"message_type": "node.heartbeat.md", "request_id": "req-hb-1"},
+    }
+    assert future.result() == "# HEARTBEAT\n- Watch server uptime"
+
+
+def test_handle_heartbeat_md_accepts_empty_content(tmp_path: Path) -> None:
+    """Gateway may return empty string when HEARTBEAT.md does not exist yet."""
+    handler = _build_handler(tmp_path)
+    loop = asyncio.new_event_loop()
+    try:
+        future: asyncio.Future[str | None] = loop.create_future()
+
+        async def _run() -> None:
+            async with handler._lock:  # noqa: SLF001
+                handler._heartbeat_md_waiters["req-hb-2"] = future  # noqa: SLF001
+            await handler._handle_heartbeat_md(  # noqa: SLF001
+                payload={"request_id": "req-hb-2", "node_id": "n1", "content": ""}
+            )
+
+        loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    assert future.result() == ""
+
+
+def test_request_node_cron_jobs_returns_none_when_node_offline(
+    tmp_path: Path,
+) -> None:
+    """Cron-jobs RPC returns None when target node is not connected.
+
+    feat-394-M13: cron jobs list must be fetched from gateway via RPC, not read
+    directly from the IM host filesystem.  Offline node → None (graceful).
+    """
+    handler = _build_handler(tmp_path)
+
+    result = asyncio.run(
+        handler.request_node_cron_jobs(
+            target_node_id="offline-node",
+            agent_id="agent-x",
+            workspace_root="/fake/workspace",
+            timeout_seconds=0.1,
+        )
+    )
+
+    assert result is None
+
+
+def test_handle_cron_jobs_resolves_waiter_with_job_list(tmp_path: Path) -> None:
+    """_handle_cron_jobs resolves the matching future with the job list payload.
+
+    feat-394-M13: gateway sends node.cron.jobs back with {request_id, jobs:[...]}.
+    """
+    handler = _build_handler(tmp_path)
+    loop = asyncio.new_event_loop()
+    jobs_payload = [{"id": "job-1", "name": "tick", "schedule": {"kind": "every"}}]
+    try:
+        future: asyncio.Future[list | None] = loop.create_future()
+
+        async def _run() -> dict[str, object]:
+            async with handler._lock:  # noqa: SLF001
+                handler._cron_jobs_waiters["req-cj-1"] = future  # noqa: SLF001
+            return await handler._handle_cron_jobs(  # noqa: SLF001
+                payload={
+                    "request_id": "req-cj-1",
+                    "node_id": "node-1",
+                    "jobs": jobs_payload,
+                }
+            )
+
+        ack = loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    assert ack == {
+        "type": "ack",
+        "payload": {"message_type": "node.cron.jobs", "request_id": "req-cj-1"},
+    }
+    assert future.result() == jobs_payload
+
+
+def test_request_node_cron_delete_returns_none_when_node_offline(
+    tmp_path: Path,
+) -> None:
+    """Cron-delete RPC returns None when target node is not connected.
+
+    feat-394-M13: delete must also go via RPC, not direct file write on IM host.
+    Offline node → None (graceful degradation); route layer maps to 503/404.
+    """
+    handler = _build_handler(tmp_path)
+
+    result = asyncio.run(
+        handler.request_node_cron_delete(
+            target_node_id="offline-node",
+            agent_id="agent-x",
+            workspace_root="/fake/workspace",
+            job_id="job-1",
+            timeout_seconds=0.1,
+        )
+    )
+
+    assert result is None
+
+
+def test_handle_cron_delete_resolves_waiter_with_deleted_flag(
+    tmp_path: Path,
+) -> None:
+    """_handle_cron_delete resolves the future with deleted=True when job was found."""
+    handler = _build_handler(tmp_path)
+    loop = asyncio.new_event_loop()
+    try:
+        future: asyncio.Future[bool | None] = loop.create_future()
+
+        async def _run() -> dict[str, object]:
+            async with handler._lock:  # noqa: SLF001
+                handler._cron_delete_waiters["req-cd-1"] = future  # noqa: SLF001
+            return await handler._handle_cron_delete(  # noqa: SLF001
+                payload={
+                    "request_id": "req-cd-1",
+                    "node_id": "node-1",
+                    "deleted": True,
+                }
+            )
+
+        ack = loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    assert ack == {
+        "type": "ack",
+        "payload": {"message_type": "node.cron.delete", "request_id": "req-cd-1"},
+    }
+    assert future.result() is True
+
+
+def test_handle_cron_delete_resolves_waiter_with_not_found(tmp_path: Path) -> None:
+    """Gateway returns deleted=False when job_id was not found in the file."""
+    handler = _build_handler(tmp_path)
+    loop = asyncio.new_event_loop()
+    try:
+        future: asyncio.Future[bool | None] = loop.create_future()
+
+        async def _run() -> None:
+            async with handler._lock:  # noqa: SLF001
+                handler._cron_delete_waiters["req-cd-2"] = future  # noqa: SLF001
+            await handler._handle_cron_delete(  # noqa: SLF001
+                payload={
+                    "request_id": "req-cd-2",
+                    "node_id": "n1",
+                    "deleted": False,
+                }
+            )
+
+        loop.run_until_complete(_run())
+    finally:
+        loop.close()
+
+    assert future.result() is False
+
+
+# ---------------------------------------------------------------------------
+# heartbeat schema 防回归（feat-394）
+# ---------------------------------------------------------------------------
+
+
+def test_heartbeat_json_field_present_in_agent_profile() -> None:
+    """AgentProfile domain model must have heartbeat_json field (cadence data)."""
+    from IM.domain.models import AgentProfile
+    from dataclasses import fields
+
+    field_names = {f.name for f in fields(AgentProfile)}
+    assert "heartbeat_json" in field_names, "AgentProfile missing heartbeat_json field"
+
+
+def test_heartbeat_json_column_in_agent_profiles_table(tmp_path) -> None:
+    """agent_profiles table must have heartbeat_json column (DB migration guard)."""
+    from IM.infra.db import connect, initialize_schema
+
+    db_path = tmp_path / "hb_schema.db"
+    conn = connect(db_path)
+    initialize_schema(conn)
+
+    cols = conn.execute("PRAGMA table_info(agent_profiles)").fetchall()
+    col_names = {row["name"] for row in cols}
+    assert "heartbeat_json" in col_names, (
+        f"agent_profiles table missing heartbeat_json column; columns: {sorted(col_names)}"
+    )
+
+
+def test_heartbeat_json_persisted_and_readable(tmp_path) -> None:
+    """update_profile persists heartbeat_json; GET reads back same value."""
+    import json
+    from IM.infra.db import connect, initialize_schema
+    from IM.infra.repositories import AgentProfileRepository
+
+    db = connect(tmp_path / "hb_persist.db")
+    initialize_schema(db)
+
+    repo = AgentProfileRepository(db)
+    repo.upsert_profile(
+        agent_id="agent-hb",
+        owner_id="owner-1",
+        node_id=None,
+        display_name="HB Agent",
+        description="",
+        system_prompt="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+        workspace_root=str(tmp_path / "ws-hb"),
+    )
+
+    hb_json_str = json.dumps({"enabled": True, "every": "30m"})
+    updated = repo.update_profile(
+        agent_id="agent-hb",
+        profile_version=1,
+        display_name="HB Agent",
+        description="",
+        system_prompt="",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="manual",
+        default_model=None,
+        workspace_root=str(tmp_path / "ws-hb"),
+        heartbeat_json=hb_json_str,
+    )
+    assert updated.heartbeat_json == hb_json_str
+
+    refetched = repo.get_profile(agent_id="agent-hb")
+    assert refetched is not None
+    assert refetched.heartbeat_json == hb_json_str
+
+
+def test_update_profile_accepts_heartbeat_json_param() -> None:
+    """AgentProfileRepository.update_profile must accept heartbeat_json parameter."""
+    import inspect
+    from IM.infra.repositories import AgentProfileRepository
+
+    sig = inspect.signature(AgentProfileRepository.update_profile)
+    assert "heartbeat_json" in sig.parameters, (
+        "update_profile must accept heartbeat_json for cadence data"
+    )
+
+
+def test_update_request_and_response_have_heartbeat_json_field() -> None:
+    """UpdateAgentConfigRequest and AgentConfigResponse must carry heartbeat_json."""
+    from IM.api.routes.agents import UpdateAgentConfigRequest, AgentConfigResponse
+
+    req_fields = UpdateAgentConfigRequest.model_fields
+    resp_fields = AgentConfigResponse.model_fields
+    assert "heartbeat_json" in req_fields, (
+        "UpdateAgentConfigRequest missing heartbeat_json field"
+    )
+    assert "heartbeat_json" in resp_fields, (
+        "AgentConfigResponse missing heartbeat_json field"
+    )

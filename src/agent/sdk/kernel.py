@@ -6,14 +6,15 @@ a ready-to-use Kernel without exposing any HTTP/FastAPI surface.
 Design (refactor-387 M1):
 - Mirrors create_app() assembly logic with FastAPI/routes/middleware removed.
 - LLMClientFactory injected into AgentRuntime (decision 4, #40).
-- can_use_tool callback wired as permission_requester (decision 3).
+- Permission flow: runtime._build_hook_context races optional can_use_tool
+  callback against a PermissionBroker future; gateway resolves the future
+  externally via Kernel.submit_permission_decision (feat-394-M14).
 - All methods async-native; RunsRegistry runs in its own background loop
   (decision 2 — pre-condition for M2 async-native CLI).
 """
 
 from __future__ import annotations
 
-import asyncio
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,8 +39,6 @@ from agent.platform.llm.factory import create_llm_client as _platform_create_llm
 from agent.platform.permissions.broker import (
     PermissionBroker,
     PermissionDecision,
-    PermissionRequest,
-    PermissionResponse,
 )
 from agent.platform.persistence.session.service import SessionService
 from agent.platform.tools.loader import build_tool_registry
@@ -69,7 +68,7 @@ def build_kernel(
     *,
     product_profile: "ProductProfile",
     llm_config: LLMFactoryConfig,
-    can_use_tool: CanUseToolFn,
+    can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
     # Internal escape hatch for tests: skip LLM client construction and use
     # this fake instead.  Not part of the public API.
@@ -84,8 +83,10 @@ def build_kernel(
     Args:
         product_profile: Product-specific defaults (tools, hooks, system prompt).
         llm_config: LLM provider/model/endpoint configuration.
-        can_use_tool: Async callback invoked when the agent needs permission to
-            use a tool; the callback returns a PermissionDecision.
+        can_use_tool: Optional async callback invoked when the agent needs
+            permission to use a tool; returns a PermissionDecision.
+            When None, all permission decisions must arrive via
+            ``submit_permission_decision`` (IM card flow).
         repo_root: Repository/workspace root for tool and hook discovery.
         _llm_client_override: Test-only; if provided, skips constructing an
             LLM client from llm_config and uses this instead.
@@ -232,18 +233,18 @@ class Kernel:
         self,
         *,
         components: _KernelComponents,
-        can_use_tool: CanUseToolFn,
+        can_use_tool: CanUseToolFn | None,
         repo_root: Path,
     ) -> None:
         self._c = components
-        self._can_use_tool = can_use_tool
         self._repo_root = repo_root
 
-        # Wire can_use_tool as the permission_requester on the runtime.
-        # The auto_mode_gate hook calls HookContext.request_permission(req),
-        # which delegates to permission_requester — this is where the SDK
-        # bridges the hook layer to the consumer's permission strategy.
-        self._c.runtime._permission_requester = self._make_permission_requester()  # type: ignore[attr-defined]
+        # Inject can_use_tool into runtime so _build_hook_context can race it
+        # against the broker future when building _permission_requester closures.
+        # None = no consumer callback; permission gates rely solely on broker futures
+        # (resolved externally via submit_permission_decision).
+        if can_use_tool is not None:
+            self._c.runtime._can_use_tool = can_use_tool  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # Public API — mirrors design.md §接口与数据流
@@ -410,6 +411,54 @@ class Kernel:
         self._c.permission_broker.cancel_all_pending(run_id=None)
         return run_id
 
+    def submit_permission_decision(
+        self,
+        *,
+        request_id: str,
+        decision: str,
+        reason: str = "",
+    ) -> bool:
+        """Resolve a pending permission request with a user decision.
+
+        Called by the gateway when the user clicks Allow/Deny on an IM
+        permission card. Resolves the broker future so the parked run can
+        resume or be denied.
+
+        Args:
+            request_id: The unique request id from the permission_request event.
+            decision: One of ``allow_once``, ``deny``, ``allow_session``,
+                ``allow_always``.
+            reason: Optional human-readable reason forwarded to the run.
+
+        Returns:
+            True when the request was pending and has been resolved; False when
+            request_id is unknown or already resolved (idempotent).
+        """
+        from agent.platform.permissions.broker import PermissionResponse  # noqa: PLC0415
+
+        _VALID_DECISIONS = frozenset(
+            {"allow_once", "deny", "allow_session", "allow_always"}
+        )
+        if decision not in _VALID_DECISIONS:
+            import logging as _logging  # noqa: PLC0415
+
+            _logging.getLogger(__name__).warning(
+                "submit_permission_decision: invalid decision %r (must be one of %s)",
+                decision,
+                sorted(_VALID_DECISIONS),
+            )
+            return False
+
+        broker = self._c.permission_broker
+        response = PermissionResponse(
+            decision=decision,  # type: ignore[arg-type]
+            request_id=request_id,
+            reason=reason,
+        )
+        # broker.resolve pops atomically under lock; its bool return replaces the
+        # TOCTOU-prone is_pending pre-check (feat-394-M14 finding 7).
+        return broker.resolve(request_id, response)
+
     def cancel(self, run_id: str) -> RunRecord | None:
         """Cancel a queued or running run by id.
 
@@ -506,7 +555,7 @@ class Kernel:
             AppendMessageResult with the persisted entry.
         """
         effective_root = workspace_root or self._repo_root
-        return self._c.session_service.append_message(
+        result = self._c.session_service.append_message(
             session_id,
             role=role,
             content=content,
@@ -516,6 +565,13 @@ class Kernel:
             idempotency_key=idempotency_key,
             workspace_root=effective_root,
         )
+        # Keep the runtime's cache-first history coherent with this out-of-band
+        # JSONL write. The runtime serves _session_histories cache-first, so a
+        # message appended between turns is invisible to the next run unless the
+        # stale entry is dropped and the transcript re-read (feat-394: cron
+        # awareness injection was written but never seen by the model).
+        self._c.runtime.invalidate_session_cache(session_id)
+        return result
 
     def get_session(
         self,
@@ -553,6 +609,20 @@ class Kernel:
             "metadata": dict(metadata),
         }
 
+    def current_event_sequence(self) -> int:
+        """Return the current maximum published event sequence number.
+
+        Used by heartbeat runner to capture a submit-time anchor so subsequent
+        ``stream(after_sequence=anchor)`` calls skip replaying history that
+        predates the current run (perf: avoids O(history) scan on every tick).
+
+        Returns:
+            The sequence number of the most recently published event, or 0 when
+            no events have been published yet.  Callers should pass this value
+            as ``after_sequence`` to the next ``stream()`` call.
+        """
+        return self._c.event_hub.current_sequence()
+
     def close(self) -> None:
         """Shut down background loops and release resources."""
         self._c.runs_registry.shutdown()
@@ -579,11 +649,17 @@ class Kernel:
         so the frontend receives the same ``{prompt, section_count}`` shape as
         in the HTTP era.
 
+        feat-394-M9: heartbeat/cron gates are now driven by ctx.flags via
+        FEATURE_REGISTRY (decision D).  The old heartbeat_enabled/cron_enabled
+        params (which injected into vars) are retired.  Pass them in ``features``
+        instead: ``features={"heartbeat": True, "cron_scheduling": True}``.
+
         Args:
             workspace_root: Workspace root for skill resolution.  Falls back to
                 the kernel's repo_root when None.
             features: Per-agent feature-flag overrides (key → bool).  Merged with
-                FEATURE_REGISTRY defaults — same as runtime wiring.
+                FEATURE_REGISTRY defaults — same as runtime wiring.  Controls
+                heartbeat/cron segments via features["heartbeat"]/["cron_scheduling"].
             custom_prompt: Optional user-supplied custom instructions injected into
                 the pa.user_custom segment via ``vars["custom_prompt"]``.
             tool_ids: Tool names to treat as active for the preview turn.  Only
@@ -641,6 +717,10 @@ class Kernel:
                 # fall through to an empty listing rather than aborting the preview.
                 active_skills = ()
 
+        # feat-394-M9: heartbeat/cron gates now driven by ctx.flags (via features dict
+        # above).  vars only carries custom_prompt; no heartbeat/cron injection needed.
+        preview_vars: dict[str, str] = {"custom_prompt": custom_prompt or ""}
+
         ctx = build_prompt_context_from_metadata(
             metadata={"conversation_type": scenario},
             available_tools=active_tools,
@@ -648,7 +728,7 @@ class Kernel:
             current_datetime=None,  # PREVIEW mode: segments emit placeholder
             cwd=str(effective_root),
             flags=flags,
-            vars={"custom_prompt": custom_prompt or ""},
+            vars=preview_vars,
             render_mode=RenderMode.PREVIEW,
         )
 
@@ -663,101 +743,10 @@ class Kernel:
 
         return {"prompt": assembled, "section_count": section_count}
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _make_permission_requester(self) -> Callable[[Any], Awaitable[Any]]:
-        """Build the permission_requester callable injected into runtime hook contexts.
-
-        The auto_mode_gate hook calls ``HookContext.request_permission(req)``,
-        which calls this requester.  We register the request with the broker
-        (so cancel_all_pending on interrupt can abort it) while simultaneously
-        awaiting the consumer's can_use_tool callback.
-
-        The first to resolve wins: if interrupt fires before can_use_tool
-        returns, cancel_all_pending sets the Future to deny, and we use that
-        decision.  If can_use_tool returns first, we use its PermissionDecision
-        (mapped to PermissionResponse) and resolve the broker Future ourselves.
-        """
-        broker = self._c.permission_broker
-        can_use_tool = self._can_use_tool
-
-        async def _requester(req: PermissionRequest) -> PermissionResponse:
-            loop = asyncio.get_event_loop()
-            # Park a Future in the broker so interrupt → cancel_all_pending can
-            # resolve it to deny and abort the permission wait (risk 3).
-            broker_future: asyncio.Future[PermissionResponse] = loop.create_future()
-            with broker._lock:  # noqa: SLF001  (SDK is the privileged assembler)
-                broker._pending[req.id] = (broker_future, None)  # noqa: SLF001
-
-            # Wrap can_use_tool in a task so it can be raced against the broker Future.
-            can_use_task: asyncio.Task[PermissionDecision] = asyncio.create_task(
-                can_use_tool(req.tool_name, req.tool_input, req)
-            )
-
-            try:
-                done, pending = await asyncio.wait(
-                    {can_use_task, asyncio.ensure_future(_wait_future(broker_future))},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-            except asyncio.CancelledError:
-                can_use_task.cancel()
-                raise
-
-            # Cancel the loser.
-            for task in pending:
-                task.cancel()
-
-            # Determine the winning decision.
-            if broker_future.done() and not broker_future.cancelled():
-                # Broker future resolved first (interrupt path): use its deny/cancel response.
-                return broker_future.result()
-
-            # can_use_tool returned first: map PermissionDecision → PermissionResponse.
-            try:
-                decision: PermissionDecision = can_use_task.result()
-            except Exception:
-                # If can_use_tool raised, fail-closed.
-                decision = PermissionDecision(
-                    behavior="deny", reason="can_use_tool raised"
-                )
-
-            response = _decision_to_response(decision)
-            # Resolve broker future so any lingering cancel_all_pending call sees it done.
-            if not broker_future.done():
-                broker_future.get_loop().call_soon_threadsafe(
-                    broker_future.set_result, response
-                )
-            return response
-
-        return _requester
-
     @property
     def _broker(self) -> PermissionBroker:
         """Expose broker for testing purposes."""
         return self._c.permission_broker
-
-
-async def _wait_future(future: "asyncio.Future[Any]") -> Any:
-    """Await a Future as a coroutine (usable in asyncio.wait with tasks)."""
-    return await asyncio.shield(future)
-
-
-def _decision_to_response(decision: PermissionDecision) -> PermissionResponse:
-    """Map SDK PermissionDecision to broker PermissionResponse.
-
-    Behavior mapping:
-    - allow → allow_once (single-use grant; SDK consumers may override policy)
-    - deny  → deny
-    - ask   → deny  (shouldn't reach here; ask means broker should handle)
-    - passthrough → allow_once (tool defers → allow by default)
-    """
-    if decision.behavior == "allow":
-        return PermissionResponse(decision="allow_once")
-    if decision.behavior in ("ask", "passthrough"):
-        return PermissionResponse(decision="allow_once")
-    return PermissionResponse(decision="deny", reason=decision.reason)
 
 
 def _bind_runtime_to_tool_registry(

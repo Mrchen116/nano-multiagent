@@ -1,7 +1,10 @@
 """Agent configuration and capability routes for IM HTTP APIs."""
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+from typing import Any
 
 from IM.api.deps import (
     current_user,
@@ -40,10 +43,16 @@ class AgentConfigResponse(BaseModel):
     # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
     features: dict[str, bool] = Field(default_factory=dict)
     custom_prompt: str | None = None
+    # feat-394: heartbeat cadence persisted as raw JSON string.
+    # Shape: {"every": str, "active_hours": {...} | null}
+    # feat-394 M9-E: cron_json removed — cron enable lives in features["cron_scheduling"].
+    heartbeat_json: str | None = None
 
 
 class UpdateAgentConfigRequest(BaseModel):
     """Request payload for updating one agent profile."""
+
+    model_config = {"extra": "ignore"}
 
     profile_version: int = Field(ge=1)
     display_name: str = Field(min_length=1)
@@ -56,6 +65,37 @@ class UpdateAgentConfigRequest(BaseModel):
     # feat-379-M5 (ISSUE-2): per-agent feature flags and custom prompt supplement
     features: dict[str, bool] = Field(default_factory=dict)
     custom_prompt: str | None = None
+    # feat-394: heartbeat cadence as raw JSON string (forwarded to gateway via ConfigSyncNotifier).
+    # Also accepts ``heartbeat: {...}`` dict from the frontend (converted via model_validator below).
+    # feat-394 M9-E: cron_json removed — cron enable lives in features["cron_scheduling"].
+    heartbeat_json: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_config_dicts(cls, data: Any) -> Any:
+        """Convert frontend-style ``heartbeat: {...}`` and ``cron: {...}`` dicts to JSON strings.
+
+        The frontend sends nested objects; the backend stores raw JSON strings so the gateway
+        can forward them without re-serialization.  Both the raw-string form (from tests/gateway)
+        and the dict form (from the UI) are accepted.
+        """
+        if not isinstance(data, dict):
+            return data
+        # feat-394 决策 D: enable 单一真源是 features（features["heartbeat"] /
+        # features["cron_scheduling"]）。heartbeat 块只承载节律（every/active_hours），
+        # 转存 heartbeat_json，**不**回写 features。cron 无 per-agent 配置块。
+        if (
+            "heartbeat" in data
+            and data["heartbeat"] is not None
+            and "heartbeat_json" not in data
+        ):
+            data = dict(data)
+            hb_dict = data.pop("heartbeat")
+            data["heartbeat_json"] = json.dumps(hb_dict)
+        elif "heartbeat" in data:
+            data = dict(data)
+            data.pop("heartbeat", None)
+        return data
 
 
 class AgentSummaryResponse(BaseModel):
@@ -79,10 +119,18 @@ class AgentSummaryResponse(BaseModel):
 
 
 class AllowlistOptionResponse(BaseModel):
-    """一项可选技能或工具的展示元数据（IM 设置页复用）。"""
+    """一项可选技能或工具的展示元数据（IM 设置页复用）。
+
+    feat-394 M9 R5: default_on — when True the tool is selected by default when
+    tool_allowlist is empty (product default tool set).  The IM frontend uses this
+    to render tool pills with their effective selection state before the user makes
+    any explicit choice.
+    """
 
     name: str
     description: str = ""
+    # feat-394 M9 R5: default_on=True → selected by default when allowlist is empty.
+    default_on: bool = False
 
 
 class FeatureCapabilityResponse(BaseModel):
@@ -138,6 +186,7 @@ def to_agent_config_response(
         updated_at=service.get_updated_at(agent_id=profile.agent_id),
         features=dict(profile.features) if profile.features else {},
         custom_prompt=profile.custom_prompt,
+        heartbeat_json=profile.heartbeat_json,
     )
 
 
@@ -369,6 +418,7 @@ def update_agent_config(
             workspace_root=None,
             features=payload.features if payload.features is not None else None,
             custom_prompt=payload.custom_prompt,
+            heartbeat_json=payload.heartbeat_json,
         )
     except AgentProfileVersionConflictError as exc:
         raise HTTPException(
@@ -442,8 +492,12 @@ def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:
                 continue
             raw_desc = item.get("description")
             desc = raw_desc.strip() if isinstance(raw_desc, str) else ""
+            # feat-394 M9 R5: forward default_on from Gateway heartbeat payload.
+            default_on = bool(item.get("default_on", False))
             result.append(
-                AllowlistOptionResponse(name=raw_name.strip(), description=desc)
+                AllowlistOptionResponse(
+                    name=raw_name.strip(), description=desc, default_on=default_on
+                )
             )
     return result
 
@@ -462,6 +516,12 @@ class PromptPreviewRequest(BaseModel):
         tool_ids: Tool names to treat as active for the preview turn.
         scenario: Conversation type hint; defaults to ``direct``.
         skill_ids: Skill names to resolve from workspace.  forwarded to kernel.
+        heartbeat_enabled: When provided, overrides the stored profile value for the
+            preview.  Enables the frontend to show "what would the prompt look like
+            with heartbeat ON/OFF" without persisting the change.
+            feat-394-M5 R3-2 fix: absent in M4 — only profile was read, so all 4
+            toggle combinations produced identical previews.
+        cron_enabled: Same as heartbeat_enabled but for the cron prompt segment.
     """
 
     features: dict[str, bool] = Field(default_factory=dict)
@@ -469,6 +529,8 @@ class PromptPreviewRequest(BaseModel):
     tool_ids: list[str] = Field(default_factory=list)
     scenario: str = "direct"
     skill_ids: list[str] = Field(default_factory=list)
+    heartbeat_enabled: bool | None = None
+    cron_enabled: bool | None = None
 
 
 class PromptPreviewResponse(BaseModel):
@@ -506,6 +568,23 @@ async def agent_prompt_preview(
             detail="agent_id is not bound to a node",
         )
     workspace_root = service.workspace_root_for_profile(profile)
+    # feat-394-M5 R3-2 fix: when the request body provides explicit heartbeat_enabled /
+    # cron_enabled, those values override the stored profile values.  This lets the
+    # frontend (and callers like the reviewer) preview "what would the prompt look like
+    # with heartbeat=OFF and cron=ON" without persisting any change.
+    # When the request params are absent (None), fall back to the profile-stored features.
+    # feat-394 M9-E: features is the single source of truth; heartbeat_json enable fallback removed.
+    effective_hb = (
+        payload.heartbeat_enabled
+        if payload.heartbeat_enabled is not None
+        else bool((profile.features or {}).get("heartbeat", False))
+    )
+    effective_cron = (
+        payload.cron_enabled
+        if payload.cron_enabled is not None
+        else bool((profile.features or {}).get("cron_scheduling", False))
+    )
+
     result = await gateway_handler.request_prompt_preview(
         target_node_id=profile.node_id,
         agent_id=agent_id,
@@ -515,6 +594,8 @@ async def agent_prompt_preview(
         tool_ids=payload.tool_ids,
         scenario=payload.scenario,
         skill_ids=payload.skill_ids,
+        heartbeat_enabled=effective_hb,
+        cron_enabled=effective_cron,
     )
     if result is None:
         raise HTTPException(
@@ -526,3 +607,167 @@ async def agent_prompt_preview(
     raw_count = result.get("section_count")
     section_count = int(raw_count) if isinstance(raw_count, int) else 0
     return PromptPreviewResponse(prompt=prompt, section_count=section_count)
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M13 (决策 G): cron jobs list + delete + heartbeat-md — via WS RPC
+# ---------------------------------------------------------------------------
+# These routes previously read/wrote <workspace_root> files directly from IM.
+# That is invalid when IM and gateway run on different hosts.  All three routes
+# now delegate to the gateway node via WS RPC and never touch the workspace on
+# the IM host.  Offline / timeout → graceful degradation (empty list / 404).
+# ---------------------------------------------------------------------------
+
+
+class CronJobSummary(BaseModel):
+    """Serialized cron job for the frontend task list."""
+
+    id: str
+    name: str
+    schedule: dict
+    instruction: str
+    enabled: bool
+    delete_after_run: bool = False
+
+
+class HeartbeatMdResponse(BaseModel):
+    """HEARTBEAT.md content response for the agent detail page preview panel."""
+
+    content: str
+    node_online: bool
+
+
+@router.get(
+    "/im/v1/agents/{agent_id}/cron/jobs",
+    response_model=list[CronJobSummary],
+    summary="List cron jobs for an agent",
+)
+async def list_agent_cron_jobs(
+    agent_id: str,
+    service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    user: User = Depends(current_user),
+) -> list[CronJobSummary]:
+    """Return all cron jobs registered for an agent via gateway WS RPC.
+
+    feat-394-M13 (决策 G): replaces direct IM-host file read.  Gateway reads its
+    own <workspace>/.nanoassistant/cron/jobs.json and returns the list.
+    Returns an empty list when the node is offline or the file does not exist.
+
+    feat-394-M3 WARNING-3: spec Scenario "配置页查看并手动删除任务".
+    """
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
+        )
+    if not profile.node_id:
+        return []
+    workspace_root = service.workspace_root_for_profile(profile)
+    raw = await gateway_handler.request_node_cron_jobs(
+        target_node_id=profile.node_id,
+        agent_id=agent_id,
+        workspace_root=workspace_root,
+    )
+    if raw is None:
+        # Node offline or timed out — graceful degradation.
+        return []
+    result: list[CronJobSummary] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        try:
+            result.append(
+                CronJobSummary(
+                    id=str(item.get("id", "")),
+                    name=str(item.get("name", "")),
+                    schedule=item.get("schedule", {}),
+                    instruction=str(item.get("instruction", "")),
+                    enabled=bool(item.get("enabled", True)),
+                    delete_after_run=bool(item.get("delete_after_run", False)),
+                )
+            )
+        except (TypeError, ValueError):
+            continue
+    return result
+
+
+@router.delete(
+    "/im/v1/agents/{agent_id}/cron/jobs/{job_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a cron job for an agent",
+)
+async def delete_agent_cron_job(
+    agent_id: str,
+    job_id: str,
+    service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    user: User = Depends(current_user),
+) -> None:
+    """Remove one cron job via gateway WS RPC.
+
+    feat-394-M13 (决策 G): replaces direct IM-host file write.  Gateway removes
+    the job from its own <workspace>/.nanoassistant/cron/jobs.json.
+    Returns 404 when the job is not found or when the node is offline.
+
+    feat-394-M3 WARNING-3: spec Scenario "配置页查看并手动删除任务".
+    """
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
+        )
+    if not profile.node_id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found"
+        )
+    workspace_root = service.workspace_root_for_profile(profile)
+    deleted = await gateway_handler.request_node_cron_delete(
+        target_node_id=profile.node_id,
+        agent_id=agent_id,
+        workspace_root=workspace_root,
+        job_id=job_id,
+    )
+    if not deleted:
+        # None (node offline) or False (job not found) both map to 404.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="job_id not found"
+        )
+
+
+@router.get(
+    "/im/v1/agents/{agent_id}/heartbeat-md",
+    response_model=HeartbeatMdResponse,
+    summary="Get HEARTBEAT.md content for an agent",
+)
+async def get_agent_heartbeat_md(
+    agent_id: str,
+    service: ConfigService = Depends(get_config_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+    user: User = Depends(current_user),
+) -> HeartbeatMdResponse:
+    """Return raw HEARTBEAT.md content for the agent detail preview panel.
+
+    feat-394-M13 (决策 G): read via gateway WS RPC so the IM host never touches
+    gateway-side workspace files.  When the node is offline or the file does not
+    exist, returns empty content with node_online=False.
+
+    feat-394-M11: moved from M11 to M13 (architecture fix, decision G).
+    """
+    profile = service.get_profile_for_owner(agent_id=agent_id, owner_id=user.owner_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="agent_id not found"
+        )
+    if not profile.node_id:
+        return HeartbeatMdResponse(content="", node_online=False)
+    workspace_root = service.workspace_root_for_profile(profile)
+    content = await gateway_handler.request_node_heartbeat_md(
+        target_node_id=profile.node_id,
+        agent_id=agent_id,
+        workspace_root=workspace_root,
+    )
+    if content is None:
+        # Node offline or timed out.
+        return HeartbeatMdResponse(content="", node_online=False)
+    return HeartbeatMdResponse(content=content, node_online=True)

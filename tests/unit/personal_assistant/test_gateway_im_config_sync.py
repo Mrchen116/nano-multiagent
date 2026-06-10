@@ -496,6 +496,97 @@ def test_handle_agent_create_passes_through_features(tmp_path: Path) -> None:
     assert registered.custom_prompt == "You are a chef."
 
 
+# ---------------------------------------------------------------------------
+# feat-394-M1/R5: heartbeat fields sync from IM → AgentWorkspaceConfig
+# ---------------------------------------------------------------------------
+
+
+def test_sync_agent_passes_through_heartbeat_enabled(tmp_path: Path) -> None:
+    """sync_agent must write heartbeat_enabled from IM payload into AgentWorkspaceConfig.
+
+    feat-394 decision 5: heartbeat config from AgentProfile in IM must flow to
+    AgentWorkspaceConfig.heartbeat_enabled so the scheduler gate works correctly.
+    """
+    workspace_root = tmp_path / "ws-hb"
+    workspace_root.mkdir()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "hb-agent",
+                "display_name": "HB Agent",
+                "profile_version": 1,
+                "workspace_root": str(workspace_root),
+                # M9-E: enable comes from features, cadence from heartbeat dict
+                "features": {"heartbeat": True},
+                "heartbeat": {"every": "10m"},
+            },
+        )
+
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    sync.sync_agent(agent_id="hb-agent", profile_version=1)
+
+    registered = next(a for a in pipeline.registered if a.agent_id == "hb-agent")
+    assert registered.heartbeat_enabled is True
+    assert registered.heartbeat_every == "10m"
+
+
+def test_sync_agent_heartbeat_disabled_by_default(tmp_path: Path) -> None:
+    """When IM payload has no heartbeat block, heartbeat_enabled must default to False."""
+    workspace_root = tmp_path / "ws-no-hb"
+    workspace_root.mkdir()
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "no-hb-agent",
+                "display_name": "No HB",
+                "profile_version": 1,
+                "workspace_root": str(workspace_root),
+            },
+        )
+
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    sync.sync_agent(agent_id="no-hb-agent", profile_version=1)
+
+    registered = next(a for a in pipeline.registered if a.agent_id == "no-hb-agent")
+    assert registered.heartbeat_enabled is False
+
+
 def test_current_agent_payload_includes_features(tmp_path: Path) -> None:
     """current_agent_payload must expose features + custom_prompt for capabilities reporting."""
     workspace_root = tmp_path / "ws"
@@ -536,3 +627,115 @@ def test_current_agent_payload_includes_features(tmp_path: Path) -> None:
     assert payload is not None
     assert payload["features"] == {"memory_curation": True}
     assert payload["custom_prompt"] == "You are a tutor."
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M3/R1: token_getter 修复 — auto-bind 后 token 刷新传播到 sync client
+# ---------------------------------------------------------------------------
+
+
+def test_im_config_sync_client_update_token_propagates_to_requests(
+    tmp_path: Path,
+) -> None:
+    """update_token() must refresh _base_headers so subsequent sync_agent calls use the new token.
+
+    feat-394-M3 fix: _IMConfigSyncClient.update_token() is called by the token_getter
+    wrapper in main.py after each auto-bind token refresh. Without this, config sync
+    holds a stale/empty Bearer token and every sync_agent returns 401.
+    """
+    workspace_root = tmp_path / "ws-tg"
+    workspace_root.mkdir()
+
+    tokens_seen: list[str] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        auth = request.headers.get("Authorization", "")
+        tokens_seen.append(auth)
+        if auth != "Bearer refreshed-token-123":
+            return httpx.Response(401, json={"detail": "Unauthorized"})
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "tg-agent",
+                "display_name": "TG Agent",
+                "profile_version": 1,
+                "workspace_root": str(workspace_root),
+            },
+        )
+
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,  # initial token is empty (pre-bind)
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    # Simulate what the token_getter wrapper in main.py does: call update_token()
+    # after each successful token refresh so the sync client picks it up.
+    sync.update_token("refreshed-token-123")
+
+    sync.sync_agent(agent_id="tg-agent", profile_version=1)
+
+    registered = next(a for a in pipeline.registered if a.agent_id == "tg-agent")
+    assert registered.agent_id == "tg-agent"
+    # All requests must have used the refreshed token, not the empty initial one.
+    assert all(t == "Bearer refreshed-token-123" for t in tokens_seen), (
+        f"Expected all requests to use refreshed token, got: {tokens_seen}"
+    )
+
+
+def test_im_config_sync_client_update_token_none_clears_auth(
+    tmp_path: Path,
+) -> None:
+    """update_token(None) must clear the Authorization header from sync requests."""
+    workspace_root = tmp_path / "ws-tg-clear"
+    workspace_root.mkdir()
+
+    tokens_seen: list[str] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        tokens_seen.append(request.headers.get("Authorization", ""))
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "tg-clear",
+                "display_name": "TG Clear",
+                "profile_version": 1,
+                "workspace_root": str(workspace_root),
+            },
+        )
+
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    local_config = _make_local_config(tmp_path, workspace_root)
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token="old-token",
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(_handler),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    sync.update_token(None)
+    sync.sync_agent(agent_id="tg-clear", profile_version=1)
+
+    # After update_token(None), no Authorization header should be sent.
+    assert all(t == "" for t in tokens_seen), (
+        f"Expected no auth header after update_token(None), got: {tokens_seen}"
+    )

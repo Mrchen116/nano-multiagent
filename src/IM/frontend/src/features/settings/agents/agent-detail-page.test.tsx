@@ -12,7 +12,10 @@ const apiMocks = vi.hoisted(() => ({
   listAgentsMock: vi.fn(),
   listAgentSummariesMock: vi.fn(),
   navigateMock: vi.fn(),
-  promptPreviewMock: vi.fn()
+  promptPreviewMock: vi.fn(),
+  listAgentCronJobsMock: vi.fn(),
+  deleteAgentCronJobMock: vi.fn(),
+  getAgentHeartbeatMdMock: vi.fn()
 }));
 
 vi.mock("react-router-dom", async () => {
@@ -38,7 +41,10 @@ vi.mock("./im-agent-config-api", () => ({
   getAgentDetailState: apiMocks.getAgentDetailStateMock,
   updateAgentConfig: apiMocks.updateAgentConfigMock,
   listAgentSummaries: apiMocks.listAgentSummariesMock,
-  promptPreview: apiMocks.promptPreviewMock
+  promptPreview: apiMocks.promptPreviewMock,
+  listAgentCronJobs: apiMocks.listAgentCronJobsMock,
+  deleteAgentCronJob: apiMocks.deleteAgentCronJobMock,
+  getAgentHeartbeatMd: apiMocks.getAgentHeartbeatMdMock
 }));
 
 import { AgentDetailPage } from "./agent-detail-page";
@@ -68,6 +74,9 @@ afterEach(() => {
   apiMocks.listAgentSummariesMock.mockReset();
   apiMocks.navigateMock.mockReset();
   apiMocks.promptPreviewMock.mockReset();
+  apiMocks.listAgentCronJobsMock.mockReset();
+  apiMocks.deleteAgentCronJobMock.mockReset();
+  apiMocks.getAgentHeartbeatMdMock.mockReset();
 });
 
 // Default listAgentSummaries so the desktop rail (R12-bis-1) doesn't break tests.
@@ -568,7 +577,7 @@ describe("feat-379-M3 Behavior card", () => {
 // 根因回顾：M8 用 effectiveToolIds = union(capabilityFeatures.available.requires_tool, draft.tool_allowlist)
 // 绕过了 M8 缺陷；M9 R1 修复了 _build_tool_names()，capabilities.tools 现在含 memory，
 // 联动逻辑（决策 12）确保勾特性时工具自动进 allowlist，故直接用 draft.tool_allowlist 即正确。
-describe("feat-379-M9 preview tool_ids regression", () => {
+describe("preview tool_ids regression: uses draft.tool_allowlist directly", () => {
   const memoryCapFeature = {
     key: "memory_curation",
     label_i18n: "agents.features.memory_curation.label",
@@ -646,6 +655,74 @@ describe("feat-379-M9 preview tool_ids regression", () => {
     expect(body.tool_ids, "tool_ids 应来自 draft.tool_allowlist").toContain("memory");
   });
 
+  // feat-394-M1/R4: heartbeat 开关测试
+  it("feat-394-M9-E: Heartbeat card 显示并可开关 (enable via features)", async () => {
+    // feat-394 M9-E: enable is in features["heartbeat"]; heartbeat only has cadence.
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        features: { heartbeat: false },
+        heartbeat: { every: "30m" }
+      }
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    // Heartbeat card 应有 "Heartbeat" 标题
+    expect(screen.getByRole("heading", { name: /Heartbeat/i })).toBeInTheDocument();
+
+    // 开关应存在且初始为关闭 (reads features["heartbeat"])
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]');
+    expect(toggle, "heartbeat-enabled-toggle 应存在").not.toBeNull();
+    expect(toggle?.checked).toBe(false);
+
+    // 打开开关
+    if (toggle) await user.click(toggle);
+
+    expect(document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]')?.checked).toBe(true);
+  });
+
+  it("feat-394-M9-E: Heartbeat 开关开启后保存时 PATCH payload 包含 features.heartbeat=true", async () => {
+    // feat-394 M9-E: enable lives in features["heartbeat"], not heartbeat.enabled.
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        features: { heartbeat: false },
+        heartbeat: { every: "30m" }
+      }
+    });
+    apiMocks.updateAgentConfigMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist().config,
+      features: { heartbeat: true },
+      heartbeat: { every: "30m" },
+      profile_version: 2
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    // 打开开关 (inline toggle when not in capabilityFeatures)
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]');
+    if (toggle) await user.click(toggle);
+
+    // 保存
+    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
+        "agent-core-1",
+        expect.objectContaining({
+          features: expect.objectContaining({ heartbeat: true })
+        })
+      );
+    });
+  });
+
   // feat-383-M1: preview 请求必须包含 skill_ids
   it("feat-383-M1: preview 请求 skill_ids 来自 draft.skills", async () => {
     const user = userEvent.setup();
@@ -675,5 +752,290 @@ describe("feat-379-M9 preview tool_ids regression", () => {
     expect(body.skill_ids, "skill_ids 必须来自 draft.skills").toEqual(
       expect.arrayContaining(["code-review", "plan"])
     );
+  });
+
+  // feat-394-M2/R7: cron 开关测试
+  it("feat-394-M9-E: Cron card 显示并可开关 (enable via features)", async () => {
+    // feat-394 M9-E: enable is in features["cron_scheduling"]; no cron config object.
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        features: { cron_scheduling: false }
+      }
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    // Cron card 应有 "Cron Jobs" 标题
+    expect(screen.getByRole("heading", { name: /Cron Jobs/i })).toBeInTheDocument();
+
+    // 开关应存在且初始为关闭 (reads features["cron_scheduling"])
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]');
+    expect(toggle, "cron-enabled-toggle 应存在").not.toBeNull();
+    expect(toggle?.checked).toBe(false);
+
+    // 打开开关
+    if (toggle) await user.click(toggle);
+
+    expect(document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]')?.checked).toBe(true);
+  });
+
+  it("feat-394-M9-E: Cron 开关开启后保存时 PATCH payload 包含 features.cron_scheduling=true", async () => {
+    // feat-394 M9-E: enable lives in features["cron_scheduling"]; no cron config object.
+    const user = userEvent.setup();
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        features: { cron_scheduling: false }
+      }
+    });
+    apiMocks.updateAgentConfigMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist().config,
+      features: { cron_scheduling: true },
+      profile_version: 2
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    // 打开开关 (inline toggle when not in capabilityFeatures)
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]');
+    if (toggle) await user.click(toggle);
+
+    // 保存
+    await user.click(screen.getByRole("button", { name: /Save Agent/i }));
+
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalledWith(
+        "agent-core-1",
+        expect.objectContaining({
+          features: expect.objectContaining({ cron_scheduling: true })
+        })
+      );
+    });
+  });
+
+  // feat-394 M9-E round-trip: features["heartbeat"]=true 重开配置页时开关应显示「开」
+  it("feat-394-M9-E round-trip: heartbeat 已启用(features)时重开配置页开关初始态为 checked=true", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        features: { heartbeat: true },
+        heartbeat: { every: "30m" }
+      }
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="heartbeat-enabled-toggle"]');
+    expect(toggle, "heartbeat-enabled-toggle 应存在").not.toBeNull();
+    expect(toggle?.checked).toBe(true);
+  });
+
+  // feat-394-M9-E round-trip: features["cron_scheduling"]=true 重开配置页时开关应显示「开」
+  it("feat-394-M9-E round-trip: cron 已启用(features)时重开配置页开关初始态为 checked=true", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      ...makeStateWithMemoryInAllowlist(),
+      config: {
+        ...makeStateWithMemoryInAllowlist().config,
+        features: { cron_scheduling: true }
+      }
+    });
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Mem Agent" });
+
+    const toggle = document.querySelector<HTMLInputElement>('[data-testid="cron-enabled-toggle"]');
+    expect(toggle, "cron-enabled-toggle 应存在").not.toBeNull();
+    expect(toggle?.checked).toBe(true);
+  });
+});
+
+// bugfix: 默认工具模式下勾选 cron 特性不应导致其他默认工具 pill 变灰
+// 根因: feature-toggle handler 在默认模式(allowlistUserTouched=false, tool_allowlist=[])下
+// 直接用空 allowlist 计算 nextAllowlist，导致 [] → ["cron"]，默认工具全灰。
+// 修法: 镜像 onChange 的 materialize 逻辑，先把 default_on 工具展开再加 requires_tool。
+describe("bugfix: cron 特性勾选后默认工具 pill 不应变灰", () => {
+  // updateAgentConfig 必须返回完整 config，否则 onSuccess 把 draft 设成含 undefined 字段的对象
+  // 导致 normalizeAgentConfig(draft) → normalizeText(undefined) → TypeError（exit 1）。
+  function makeCronBugfixConfig(overrides: Partial<{
+    agent_id: string; display_name: string; tool_allowlist: string[]
+  }> = {}) {
+    return {
+      agent_id: overrides.agent_id ?? "bugfix-cron-1",
+      owner_id: "owner-1",
+      display_name: overrides.display_name ?? "Bugfix Agent",
+      description: "",
+      system_prompt: "",
+      custom_prompt: "",
+      features: {} as Record<string, boolean>,
+      skills: [] as string[],
+      tool_allowlist: overrides.tool_allowlist ?? ([] as string[]),
+      group_reply_policy: "MENTION" as const,
+      default_model: null,
+      workspace_root: "/tmp",
+      workspace_is_default: false,
+      profile_version: 1,
+      node_id: "node-1",
+      node_name: "MacBook",
+      node_status: "online" as const,
+      updated_at: "2026-03-13T10:00:00Z"
+    };
+  }
+
+  // 场景: 初始未触碰 allowlist（工具列表处于默认模式），勾选 cron_scheduling 特性
+  // 期望: tool_allowlist 含全部 default_on 工具 + cron 所需工具，而不是只有 cron 工具
+  it("默认模式下勾 cron 特性 → tool_allowlist 含全部 default_on 工具 + cron 所需工具", async () => {
+    const user = userEvent.setup();
+
+    // capabilities: read(default_on) + bash(default_on) + cron_tool(NOT default_on)
+    // 初始 tool_allowlist=[] 表示"未触碰，走默认模式"
+    const baseConfig = makeCronBugfixConfig({ agent_id: "bugfix-cron-1", display_name: "Cron Agent" });
+    const state = {
+      config: baseConfig,
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [
+          { name: "read", description: "Read tool", default_on: true },
+          { name: "bash", description: "Bash tool", default_on: true },
+          { name: "cron_tool", description: "Cron tool", default_on: false }
+        ],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: "",
+        features: [
+          {
+            key: "cron_scheduling",
+            label_i18n: "agents.features.cron_scheduling.label",
+            help_i18n: "agents.features.cron_scheduling.help",
+            default_on: false,
+            available: true,
+            requires_tool: "cron_tool"
+          }
+        ]
+      },
+      owningNode: null
+    };
+
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
+    // listAgentCronJobs returns empty list so CronCard doesn't error
+    apiMocks.listAgentCronJobsMock.mockResolvedValue([]);
+    apiMocks.listAgentSummariesMock.mockResolvedValue([
+      { agent_id: "bugfix-cron-1", display_name: "Cron Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
+    ]);
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    // 必须返回完整 config，否则 onSuccess setDraft(updated) → normalizeText(undefined) crash
+    apiMocks.updateAgentConfigMock.mockResolvedValue(baseConfig);
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "Cron Agent" });
+
+    // 勾选 cron_scheduling 特性（BehaviorCard 里的 features checkbox，用 data-feature-key 定位）
+    const cronCheckbox = document.querySelector<HTMLInputElement>(
+      '[data-feature-key="cron_scheduling"]'
+    );
+    expect(cronCheckbox, "cron_scheduling checkbox 应存在").not.toBeNull();
+    await user.click(cronCheckbox!);
+
+    // 保存配置，观察 PATCH payload 中的 tool_allowlist
+    const saveBtn = document.querySelector<HTMLButtonElement>('button[type="submit"]');
+    expect(saveBtn, "submit 按钮应存在").not.toBeNull();
+    await user.click(saveBtn!);
+
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalled();
+    });
+
+    const calls = apiMocks.updateAgentConfigMock.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    const patchBody = lastCall[1] as { tool_allowlist?: string[] };
+
+    // 修复前: tool_allowlist = ["cron_tool"]（默认工具 read/bash 丢失）
+    // 修复后: tool_allowlist 含 default_on 工具(read, bash) + cron 所需工具(cron_tool)
+    expect(patchBody.tool_allowlist, "默认工具 read 不应从 allowlist 丢失").toContain("read");
+    expect(patchBody.tool_allowlist, "默认工具 bash 不应从 allowlist 丢失").toContain("bash");
+    expect(patchBody.tool_allowlist, "cron 所需工具应被加入 allowlist").toContain("cron_tool");
+  });
+
+  // 收紧: 勾 heartbeat（requires_tool=null）不应触发 materialize，agent 应留在默认模式
+  it("默认模式下勾 heartbeat 特性(无 requires_tool) → tool_allowlist 仍为空、不离开默认模式", async () => {
+    const user = userEvent.setup();
+
+    const baseConfig = makeCronBugfixConfig({ agent_id: "bugfix-hb-1", display_name: "HB Agent" });
+    const state = {
+      config: baseConfig,
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [
+          { name: "read", description: "Read tool", default_on: true },
+          { name: "bash", description: "Bash tool", default_on: true }
+        ],
+        model_options: [],
+        platform_default_model: null,
+        default_system_prompt: "",
+        features: [
+          {
+            key: "heartbeat",
+            label_i18n: "agents.features.heartbeat.label",
+            help_i18n: "agents.features.heartbeat.help",
+            default_on: false,
+            available: true,
+            requires_tool: null   // heartbeat 不需要工具
+          }
+        ]
+      },
+      owningNode: null
+    };
+
+    apiMocks.getAgentDetailStateMock.mockResolvedValue(state);
+    apiMocks.listAgentCronJobsMock.mockResolvedValue([]);
+    apiMocks.getAgentHeartbeatMdMock.mockResolvedValue({ content: "" });
+    apiMocks.listAgentSummariesMock.mockResolvedValue([
+      { agent_id: "bugfix-hb-1", display_name: "HB Agent", owner_id: "owner-1", description: "", profile_version: 1, default_model: null, workspace_root: "", workspace_is_default: false }
+    ]);
+    apiMocks.listAgentsMock.mockResolvedValue([]);
+    // 必须返回完整 config，否则 onSuccess setDraft(updated) → normalizeText(undefined) crash
+    apiMocks.updateAgentConfigMock.mockResolvedValue(baseConfig);
+
+    renderDetailPage();
+    await screen.findByRole("heading", { name: "HB Agent" });
+
+    const hbCheckbox = document.querySelector<HTMLInputElement>(
+      '[data-feature-key="heartbeat"]'
+    );
+    expect(hbCheckbox, "heartbeat checkbox 应存在").not.toBeNull();
+    await user.click(hbCheckbox!);
+
+    const saveBtn = document.querySelector<HTMLButtonElement>('button[type="submit"]');
+    expect(saveBtn, "submit 按钮应存在").not.toBeNull();
+    await user.click(saveBtn!);
+
+    await waitFor(() => {
+      expect(apiMocks.updateAgentConfigMock).toHaveBeenCalled();
+    });
+
+    const calls = apiMocks.updateAgentConfigMock.mock.calls;
+    const lastCall = calls[calls.length - 1];
+    const patchBody = lastCall[1] as { tool_allowlist?: string[] };
+
+    // 勾 heartbeat(requires_tool=null) 不该 materialize，tool_allowlist 应仍为空（默认模式不变）
+    expect(
+      patchBody.tool_allowlist,
+      "heartbeat 无 requires_tool，tool_allowlist 不应被 materialize"
+    ).toEqual([]);
   });
 });

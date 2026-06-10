@@ -90,8 +90,13 @@ def test_personal_assistant_profile_default_tool_ids() -> None:
 
 
 def test_personal_assistant_profile_optional_tool_ids_include_send_message() -> None:
-    """personal_assistant must advertise send_message as a supported optional tool."""
-    assert PERSONAL_ASSISTANT_PROFILE.optional_tool_ids == ["send_message"]
+    """personal_assistant must advertise send_message and cron as supported optional tools.
+
+    feat-394-M2: cron added as optional PA tool (decision 7: PA-only, gated by cron_enabled).
+    """
+    optional = set(PERSONAL_ASSISTANT_PROFILE.optional_tool_ids)
+    assert "send_message" in optional
+    assert "cron" in optional
 
 
 def test_personal_assistant_profile_default_hook_modules_no_bash_risk_gate() -> None:

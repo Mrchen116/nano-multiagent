@@ -629,6 +629,7 @@ export function AgentCreatePage() {
               isLoading={createStateQuery.isLoading}
               errorMessage={createStateQuery.isError ? queryErrorDetail : null}
               onRetry={() => void createStateQuery.refetch()}
+              useDefaultOn={true}
               onChange={(toolAllowlist) => {
                 setErrorMessage(null);
                 // feat-379-M9 (決策 12): removed tool → uncheck any feature that requires it.

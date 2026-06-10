@@ -292,6 +292,87 @@ async def test_message_sync_completes_and_updates_run(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
+# append_message cache coherence (feat-394 cron awareness regression)
+# ---------------------------------------------------------------------------
+
+
+def _flatten_msg_text(message: Any) -> str:
+    """Join an LLMMessage's content into a plain string (content may be str or parts)."""
+    content = getattr(message, "content", "")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(
+            str(part.get("text", "")) if isinstance(part, dict) else str(part)
+            for part in content
+        )
+    return str(content)
+
+
+async def test_append_message_visible_to_next_turn(tmp_path: Path) -> None:
+    """A message appended out-of-band must be visible to the next turn's prompt.
+
+    feat-394 cron awareness regression. ``Kernel.append_message`` writes the
+    entry to the session JSONL, but the runtime serves history from an in-memory
+    cache (``_session_histories``) populated by the previous turn. Without cache
+    invalidation the appended message is persisted yet never reaches the model —
+    the user asks a cron follow-up and the agent has no memory of its own report.
+
+    This drives the REAL kernel (not a fake client recording append calls), so it
+    fails on the pre-fix code (stale cache) and passes once append_message drops
+    the cached history for the session.
+    """
+    captured_requests: list[Any] = []
+
+    class _CapturingClient:
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            captured_requests.append(request)
+            return _async_stub_messages("ack")
+
+    kernel = _build_kernel(tmp_path, _llm_client_override=_CapturingClient())
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        sid = session.session_id
+
+        # Turn 1 populates the runtime in-memory history cache for this session.
+        run1 = kernel.submit(
+            session_id=sid,
+            parts=[{"type": "text", "text": "first turn"}],
+            workspace_root=tmp_path,
+        )
+        await _wait_for_terminal_run(kernel, run1.run_id)
+
+        # Out-of-band append — the cron awareness injection path.
+        marker = "CRON-AWARENESS-MARKER-42"
+        kernel.append_message(
+            sid,
+            role="user",
+            content=f"System (untrusted): [ts] {marker}",
+            workspace_root=tmp_path,
+            metadata={"is_cron_awareness": True},
+        )
+
+        # Turn 2 must assemble its prompt from a history that includes the append.
+        run2 = kernel.submit(
+            session_id=sid,
+            parts=[{"type": "text", "text": "what did you just report?"}],
+            workspace_root=tmp_path,
+        )
+        await _wait_for_terminal_run(kernel, run2.run_id)
+
+        assert len(captured_requests) >= 2, "expected two model turns"
+        second_turn_text = " ".join(
+            _flatten_msg_text(m) for m in captured_requests[-1].messages
+        )
+        assert marker in second_turn_text, (
+            "out-of-band appended message must be visible to the next turn's "
+            "prompt; stale _session_histories cache hid the cron awareness entry"
+        )
+    finally:
+        kernel.close()
+
+
+# ---------------------------------------------------------------------------
 # Global capabilities (get_llm_config ↔ capabilities parity)
 # ---------------------------------------------------------------------------
 

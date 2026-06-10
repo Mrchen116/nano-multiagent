@@ -205,3 +205,91 @@ class TestR2KernelValidation:
 
         assert result is None
         mock_client.get_session.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# R3 feat-394-M4: find_by_kernel_session_id — 与内存版契约一致
+# ---------------------------------------------------------------------------
+
+
+class TestR3FindByKernelSessionId:
+    """PersistentSessionBindingStore.find_by_kernel_session_id 契约测试。
+
+    feat-394-M4 R2-1 fix: cron 工具链调用 session_store.find_by_kernel_session_id
+    (main.py:3021)，但 PersistentSessionBindingStore 只有内存版 SessionBindingStore
+    有该方法。运行时抛 AttributeError → agent 报"cron tool is blocked by a hook"。
+
+    契约与内存版 SessionBindingStore.find_by_kernel_session_id(:55) 一致：
+    - 存在则返回第一个匹配的 SessionBinding
+    - 不存在则返回 None
+    - 多个绑定只匹配 kernel_session_id 的那一个
+    """
+
+    def test_find_by_kernel_session_id_returns_matching_binding(
+        self, tmp_path: Path
+    ) -> None:
+        """bind 后按 kernel_session_id 能查回同一 binding。"""
+        store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
+        rc = _make_reply_context("chat-1")
+        store.bind(
+            session_key="web_relay:chat-1:agent-A",
+            kernel_session_id="ksess-xyz",
+            reply_context=rc,
+        )
+
+        result = store.find_by_kernel_session_id("ksess-xyz")
+
+        assert result is not None
+        assert result.kernel_session_id == "ksess-xyz"
+        assert result.session_key == "web_relay:chat-1:agent-A"
+
+    def test_find_by_kernel_session_id_returns_none_when_missing(
+        self, tmp_path: Path
+    ) -> None:
+        """不存在的 kernel_session_id 返回 None。"""
+        store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
+
+        result = store.find_by_kernel_session_id("no-such-ksess")
+
+        assert result is None
+
+    def test_find_by_kernel_session_id_ignores_other_bindings(
+        self, tmp_path: Path
+    ) -> None:
+        """多条 binding 中只返回匹配的那一条。"""
+        store = PersistentSessionBindingStore(db_path=tmp_path / "sb.sqlite3")
+        rc = _make_reply_context()
+        store.bind(
+            session_key="web_relay:c1:agent-A",
+            kernel_session_id="ksess-aaa",
+            reply_context=rc,
+        )
+        store.bind(
+            session_key="web_relay:c2:agent-B",
+            kernel_session_id="ksess-bbb",
+            reply_context=rc,
+        )
+
+        result = store.find_by_kernel_session_id("ksess-bbb")
+
+        assert result is not None
+        assert result.kernel_session_id == "ksess-bbb"
+        assert result.session_key == "web_relay:c2:agent-B"
+
+    def test_find_by_kernel_session_id_survives_restart(self, tmp_path: Path) -> None:
+        """持久化后重新创建 store 实例仍能查到 binding。"""
+        db_path = tmp_path / "sb.sqlite3"
+        rc = _make_reply_context("chat-persist")
+        store1 = PersistentSessionBindingStore(db_path=db_path)
+        store1.bind(
+            session_key="web_relay:chat-persist:agent-X",
+            kernel_session_id="ksess-persist",
+            reply_context=rc,
+        )
+        del store1
+
+        store2 = PersistentSessionBindingStore(db_path=db_path)
+        result = store2.find_by_kernel_session_id("ksess-persist")
+
+        assert result is not None
+        assert result.kernel_session_id == "ksess-persist"

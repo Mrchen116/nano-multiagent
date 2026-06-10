@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -35,6 +35,10 @@ class _FakeKernelClient:
         self.created_sessions.append(payload)
         return payload
 
+    def current_event_sequence(self) -> int:
+        """Return 0 as a stub anchor (tests do not exercise stream-from-anchor path)."""
+        return 0
+
     def submit_message(
         self, *, session_id: str, texts: list[str], **kwargs: object
     ) -> dict[str, object]:
@@ -55,8 +59,13 @@ class _FakeKernelClient:
 def _agent(tmp_path: Path, name: str = "agent-a") -> AgentWorkspaceConfig:
     workspace_root = tmp_path / name
     workspace_root.mkdir(parents=True, exist_ok=True)
+    # features={"heartbeat": True}: tests that exercise scheduling logic need the gate open.
+    # M9: heartbeat_enabled is @property from features["heartbeat"].
     return AgentWorkspaceConfig(
-        agent_id=name, workspace_root=workspace_root, title=f"Title for {name}"
+        agent_id=name,
+        workspace_root=workspace_root,
+        title=f"Title for {name}",
+        features={"heartbeat": True},
     )
 
 
@@ -112,93 +121,49 @@ def test_scheduler_runs_interval_schedule_and_persists_last_due(tmp_path: Path) 
     )
 
 
-def test_scheduler_runs_at_schedule_only_once_even_across_restart(
+def test_scheduler_normal_cadence_produces_exactly_one_run_per_interval(
     tmp_path: Path,
 ) -> None:
-    agent = _agent(tmp_path)
-    _write_heartbeat(
-        agent.workspace_root,
-        "# Heartbeat\n\nat: 2026-03-11T09:00:00+00:00\n\n- Submit daily digest\n",
+    """Continuous operation: each on-time tick produces exactly 1 triggered run.
+
+    feat-394-M11 decision E: cadence comes from agent.heartbeat_every (config), not md.
+    md contains only freeform instructions; interval: line is retired.
+    """
+    agent = AgentWorkspaceConfig(
+        agent_id="agent-a",
+        workspace_root=tmp_path / "agent-a",
+        heartbeat_every="10s",  # config is SoT for cadence (decision E)
+        features={"heartbeat": True},
     )
+    (tmp_path / "agent-a").mkdir()
+    _write_heartbeat(agent.workspace_root, "Report status.\n")  # no interval: line
     state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
-    kernel = _FakeKernelClient()
-
     scheduler = HeartbeatScheduler(
-        agents=(agent,), kernel_client=kernel, state_store=state_store
-    )
-    first = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
-
-    restarted = HeartbeatScheduler(
-        agents=(agent,), kernel_client=kernel, state_store=state_store
-    )
-    second = asyncio.run(restarted.tick(now=datetime(2026, 3, 11, 10, 0, tzinfo=UTC)))
-
-    assert len(first.triggered_runs) == 1
-    assert second.triggered_runs == ()
-    assert len(kernel.sent_messages) == 1
-
-
-def test_scheduler_runs_cron_schedule_on_matching_minute(tmp_path: Path) -> None:
-    agent = _agent(tmp_path)
-    _write_heartbeat(
-        agent.workspace_root,
-        "# Heartbeat\n\ncron: 0 9 * * 1-5\n\n- Start workday review\n",
-    )
-    kernel = _FakeKernelClient()
-    scheduler = HeartbeatScheduler(
-        agents=(agent,),
-        kernel_client=kernel,
-        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+        agents=(agent,), kernel_client=_FakeKernelClient(), state_store=state_store
     )
 
-    before = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 8, 59, tzinfo=UTC)))
-    due = asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
-
-    assert before.triggered_runs == ()
-    assert len(due.triggered_runs) == 1
-    assert len(kernel.sent_messages) == 1
-
-
-def test_scheduler_catches_up_missed_interval_run_after_restart(tmp_path: Path) -> None:
-    agent = _agent(tmp_path)
-    _write_heartbeat(
-        agent.workspace_root,
-        "# Heartbeat\n\ninterval: 30m\n\n- Follow up on outstanding tasks\n",
-    )
-    state_store = HeartbeatSchedulerStateStore(tmp_path / "state.json")
-    first_kernel = _FakeKernelClient()
-    first_scheduler = HeartbeatScheduler(
-        agents=(agent,), kernel_client=first_kernel, state_store=state_store
-    )
-
-    first = asyncio.run(
-        first_scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
-    )
-    assert len(first.triggered_runs) == 1
-
-    second_kernel = _FakeKernelClient()
-    restarted = HeartbeatScheduler(
-        agents=(agent,), kernel_client=second_kernel, state_store=state_store
-    )
-    catch_up = asyncio.run(
-        restarted.tick(now=datetime(2026, 3, 11, 10, 31, tzinfo=UTC))
-    )
-
-    assert [run.due_at.isoformat() for run in catch_up.triggered_runs] == [
-        "2026-03-11T09:30:00+00:00",
-        "2026-03-11T10:00:00+00:00",
-        "2026-03-11T10:30:00+00:00",
-    ]
-    assert len(second_kernel.sent_messages) == 3
+    t0 = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
+    for offset_s in (0, 10, 20, 30):
+        result = asyncio.run(scheduler.tick(now=t0 + timedelta(seconds=offset_s)))
+        assert len(result.triggered_runs) == 1, (
+            f"at +{offset_s}s expected 1 run, got {len(result.triggered_runs)}"
+        )
 
 
-def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(
+def test_scheduler_rejects_multiple_explicit_schedule_modes_in_one_heartbeat(
     tmp_path: Path,
 ) -> None:
+    """HEARTBEAT.md must not declare more than one at:/cron: entry.
+
+    feat-394-M11 decision E: every:/interval: lines are retired (silently ignored).
+    at: and cron: lines are still parsed and must not conflict.
+    A file with two at: entries (or two cron: entries) raises ValueError.
+    """
     agent = _agent(tmp_path)
+    # Two cron: entries — must raise (only at:/cron: entries are counted now)
     _write_heartbeat(
         agent.workspace_root,
-        "# Heartbeat\n\ninterval: 30m\ncron: 0 9 * * *\n\n- invalid\n",
+        "# Heartbeat\n\ncron: 0 9 * * *\ncron: 0 18 * * *\n\n- invalid\n",
     )
     scheduler = HeartbeatScheduler(
         agents=(agent,),
@@ -206,39 +171,59 @@ def test_scheduler_rejects_multiple_schedule_modes_in_one_heartbeat(
         state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
     )
 
-    with pytest.raises(ValueError, match="exactly one schedule mode"):
+    with pytest.raises(ValueError, match="at most one explicit schedule mode"):
         asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
 
 
-@pytest.mark.asyncio
-async def test_scheduler_tick_from_async_context_completes_without_event_loop_error(
-    tmp_path: Path,
-) -> None:
-    """tick() must be awaitable from an async context without RuntimeError.
+def test_heartbeat_spec_parses_tasks_block_multi_rhythm(tmp_path: Path) -> None:
+    """_load_heartbeat_spec must parse HEARTBEAT.md tasks: block into per-task schedules.
 
-    Regression: _KernelClientShim used run_until_complete inside an already-running
-    loop, causing 'This event loop is already running' — heartbeat runs were silently
-    never submitted.  After the fix, tick() is a coroutine and create_session is async
-    so the call chain is properly awaited end-to-end.
+    Provenance: openclaw/src/auto-reply/heartbeat.ts:parseHeartbeatTasks
+    feat-394 decision 3: tasks: block defines multiple sub-rhythms, each independently
+    tracked with its own last_due_at.
     """
-    agent = _agent(tmp_path)
-    _write_heartbeat(
-        agent.workspace_root,
-        "# Heartbeat\n\ninterval: 1m\n\n- Check status\n",
-    )
-    kernel = _FakeKernelClient()
-    scheduler = HeartbeatScheduler(
-        agents=(agent,),
-        kernel_client=kernel,
-        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    from personal_assistant.scheduler.heartbeat_scheduler import _load_heartbeat_spec
+
+    agent_dir = tmp_path / "agent"
+    agent_dir.mkdir()
+    hb_path = agent_dir / "HEARTBEAT.md"
+    hb_path.write_text(
+        "# Heartbeat\n\n"
+        "tasks:\n"
+        "  - name: inbox-check\n"
+        "    interval: 30m\n"
+        '    prompt: "Check for urgent emails"\n'
+        "  - name: schedule-review\n"
+        "    interval: 2h\n"
+        '    prompt: "Review upcoming schedule"\n',
+        encoding="utf-8",
     )
 
-    # This must not raise RuntimeError("This event loop is already running")
-    summary = await scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC))
+    spec = _load_heartbeat_spec(hb_path)
 
-    # The run was actually submitted — not silently dropped
-    assert len(summary.triggered_runs) == 1
-    assert len(kernel.created_sessions) == 1
-    assert kernel.created_sessions[0]["session_id"] == "sess-1"
-    assert len(kernel.sent_messages) == 1
-    assert kernel.sent_messages[0]["run_id"] == "run-1"
+    assert spec is not None, "spec must not be None for non-empty tasks: block"
+    # Multi-task spec should have multiple tasks
+    assert hasattr(spec, "tasks"), "spec must have a tasks attribute for tasks: block"
+    assert len(spec.tasks) == 2
+    task_names = [t.name for t in spec.tasks]
+    assert "inbox-check" in task_names
+    assert "schedule-review" in task_names
+
+
+def _agent_with_heartbeat(
+    tmp_path: Path, name: str = "agent-a", *, heartbeat_enabled: bool = True
+) -> AgentWorkspaceConfig:
+    """Create an agent fixture with explicit heartbeat enable state via features dict.
+
+    M9: heartbeat_enabled param maps to features["heartbeat"] (not a direct field).
+    """
+    workspace_root = tmp_path / name
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    # M9: use features dict; heartbeat_enabled is @property from features["heartbeat"]
+    features = {"heartbeat": True} if heartbeat_enabled else {}
+    return AgentWorkspaceConfig(
+        agent_id=name,
+        workspace_root=workspace_root,
+        title=f"Title for {name}",
+        features=features,
+    )

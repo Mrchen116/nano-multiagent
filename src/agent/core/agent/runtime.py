@@ -140,6 +140,12 @@ class AgentRuntime:
         # don't support the ask flow (unit tests, CI without interactive terminal).
         # Stored here so _build_hook_context can inject permission_requester per call.
         self._permission_broker = permission_broker
+        # Optional consumer-supplied can_use_tool callback. When set (injected by
+        # Kernel.__init__ for CLI products), _build_hook_context races the callback
+        # against the broker future so the CLI's interactive prompt resolves the ask
+        # without needing an IM card.  PA products leave this None and resolve via
+        # Kernel.submit_permission_decision (IM card flow).
+        self._can_use_tool: Any | None = None
         # Product default tool ids used when no per-session tool_allowlist is set.
         # None means "all tools in registry" (platform default behavior).
         self._default_tool_ids = default_tool_ids
@@ -408,7 +414,11 @@ class AgentRuntime:
                 user_pct=snapshot["user_pct"],
                 render_mode=RenderMode.RUNTIME,
                 flags=flags,
-                vars={"custom_prompt": str(hook_metadata.get("custom_prompt", ""))},
+                vars={
+                    "custom_prompt": str(hook_metadata.get("custom_prompt", "")),
+                    # feat-394-M9: heartbeat/cron gates moved to ctx.flags via
+                    # FEATURE_REGISTRY (decision D).  vars injection retired.
+                },
             )
             pre_rendered_system_prompt = resolve_effective_prompt(
                 sections=self._prompt_sections,
@@ -956,6 +966,26 @@ class AgentRuntime:
         self._session_locks.pop(session_id, None)
         self._memory_snapshots.pop(session_id, None)
 
+    def invalidate_session_cache(self, session_id: str) -> None:
+        """Drop cached in-memory history/config/path for one session.
+
+        Called after an out-of-band JSONL append (see ``Kernel.append_message``)
+        so the next turn re-reads the transcript instead of serving the stale
+        cache populated by an earlier run. Without this, a message appended
+        between turns (e.g. cron awareness injection) is written to JSONL but
+        never seen by the model, which reads ``_session_histories`` cache-first.
+
+        Plain dict pops: atomic in CPython and therefore safe to call from sync
+        code without the asyncio session lock. An in-flight turn holds its own
+        local reference to the history list, so dropping the cache key cannot
+        corrupt it — the turn finishes and persists normally, and the following
+        turn reloads from JSONL (which by then contains both sets of messages).
+        """
+
+        self._session_histories.pop(session_id, None)
+        self._session_configs.pop(session_id, None)
+        self._session_paths.pop(session_id, None)
+
     async def fork_session(
         self, source_session_id: str, *, workspace_root: Path | None = None
     ) -> Session:
@@ -1198,6 +1228,8 @@ class AgentRuntime:
             run_id_for_broker = resolved_metadata.get("run_id")
             publisher_for_broker = session_event_publisher
 
+            can_use_tool = self._can_use_tool
+
             async def _permission_requester(req: Any) -> Any:
                 # Register the future before emitting the SSE event so the
                 # inbound endpoint can immediately resolve it if it arrives fast.
@@ -1229,23 +1261,120 @@ class AgentRuntime:
                             ],
                         },
                     )
+                response: Any = None
                 try:
-                    response = await future
-                finally:
-                    # Emit 'permission_resolved' SSE event so IM card updates to resolved state.
-                    if (
-                        publisher_for_broker is not None
-                        and future.done()
-                        and not future.cancelled()
-                    ):
+                    if can_use_tool is not None:
+                        # Race can_use_tool callback against broker future.
+                        # CLI products supply can_use_tool for interactive prompts;
+                        # PA leaves it None and resolves via submit_permission_decision.
+                        can_use_task: asyncio.Task[Any] = asyncio.create_task(
+                            can_use_tool(
+                                req.tool_name, getattr(req, "tool_input", {}), req
+                            )
+                        )
+
+                        async def _await_future(f: "asyncio.Future[Any]") -> Any:
+                            return await asyncio.shield(f)
+
                         try:
-                            result = future.result()
+                            done, pending = await asyncio.wait(
+                                {
+                                    can_use_task,
+                                    asyncio.ensure_future(_await_future(future)),
+                                },
+                                return_when=asyncio.FIRST_COMPLETED,
+                            )
+                        except asyncio.CancelledError:
+                            # Outer coroutine cancelled — clean up can_use_task to
+                            # prevent task leak (feat-394-M14 finding 2).
+                            can_use_task.cancel()
+                            await asyncio.gather(can_use_task, return_exceptions=True)
+                            raise
+
+                        for t in pending:
+                            t.cancel()
+                        # Drain cancelled losers so they don't generate unhandled
+                        # exceptions after this coroutine exits.
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
+
+                        if future.done() and not future.cancelled():
+                            # Broker future resolved first (interrupt/external decision).
+                            response = future.result()
+                        else:
+                            # can_use_tool returned first — map decision to response.
+                            # Build a minimal duck-typed response: architecture boundary
+                            # forbids core from importing platform types (see contract
+                            # test_core_no_platform_imports); broker only reads
+                            # .decision / .reason / .request_id.
+                            try:
+                                raw_decision: Any = can_use_task.result()
+                            except asyncio.CancelledError:
+                                # can_use_task was cancelled (e.g. run interrupt raced
+                                # asyncio.wait before broker future resolved).
+                                # CancelledError is BaseException, not Exception — must
+                                # be caught explicitly (feat-394-M14 finding 2b).
+                                # Treat as deny; re-raise is NOT needed here because we
+                                # already cleaned up pending in the except block above.
+                                raw_decision = type(
+                                    "_D",
+                                    (),
+                                    {
+                                        "behavior": "deny",
+                                        "reason": "can_use_tool cancelled",
+                                    },
+                                )()
+                            except Exception:
+                                raw_decision = type(
+                                    "_D",
+                                    (),
+                                    {
+                                        "behavior": "deny",
+                                        "reason": "can_use_tool raised",
+                                    },
+                                )()
+                            behavior = getattr(raw_decision, "behavior", "deny")
+                            reason = getattr(raw_decision, "reason", "")
+                            response = type(
+                                "_R",
+                                (),
+                                {
+                                    "decision": "deny"
+                                    if behavior == "deny"
+                                    else "allow_once",
+                                    "reason": reason,
+                                    "request_id": req.id,
+                                    "rule_update": None,
+                                },
+                            )()
+                            # "Whoever pops owns it" — same semantic as
+                            # cancel_all_pending.  If cancel_all_pending already
+                            # popped and scheduled deny via call_soon_threadsafe,
+                            # owned is None here and we skip set_result entirely,
+                            # closing the double-set_result → InvalidStateError
+                            # window (feat-394-M14 findings 1 + 3 + last).
+                            with broker._lock:  # noqa: SLF001
+                                owned = broker._pending.pop(req.id, None)  # noqa: SLF001
+                            if owned is not None and not future.done():
+                                future.get_loop().call_soon_threadsafe(
+                                    future.set_result, response
+                                )
+                    else:
+                        response = await future
+                finally:
+                    # Emit 'permission_resolved' SSE event so IM card updates to
+                    # resolved state.  Use the local `response` variable rather than
+                    # re-reading future.done(): call_soon_threadsafe is asynchronous,
+                    # so future.done() may still be False at this point even when we
+                    # just scheduled a set_result (feat-394-M14 finding 1).
+                    if publisher_for_broker is not None and response is not None:
+                        try:
                             publisher_for_broker(
                                 "permission_resolved",
                                 {
                                     "run_id": run_id_for_broker,
                                     "request_id": req.id,
-                                    "decision": getattr(result, "decision", "deny"),
+                                    "decision": getattr(response, "decision", "deny"),
                                 },
                             )
                         except Exception as exc:

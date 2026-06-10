@@ -145,6 +145,11 @@ class GatewayHandler:
         self._node_prompt_preview_waiters: dict[
             str, asyncio.Future[dict[str, object] | None]
         ] = {}
+        # feat-394-M13 (决策 G): gateway-side state via WS RPC — IM never directly reads
+        # gateway workspace files because IM and gateway may run on different hosts.
+        self._heartbeat_md_waiters: dict[str, asyncio.Future[str | None]] = {}
+        self._cron_jobs_waiters: dict[str, asyncio.Future[list | None]] = {}
+        self._cron_delete_waiters: dict[str, asyncio.Future[bool | None]] = {}
         self._ensure_agent_message_dispatch_table()
 
     async def serve(self, websocket: WebSocket) -> None:
@@ -170,7 +175,10 @@ class GatewayHandler:
             pass
         finally:
             if node_id is not None:
-                await self.disconnect(node_id=node_id)
+                await self.disconnect(
+                    node_id=node_id,
+                    expected_websocket=websocket,
+                )
 
     async def handle_message(
         self,
@@ -200,6 +208,12 @@ class GatewayHandler:
             return await self._handle_prompt_preview(payload=payload)
         if message_type == "node.prompt.preview":
             return await self._handle_node_prompt_preview(payload=payload)
+        if message_type == "node.heartbeat.md":
+            return await self._handle_heartbeat_md(payload=payload)
+        if message_type == "node.cron.jobs":
+            return await self._handle_cron_jobs(payload=payload)
+        if message_type == "node.cron.delete":
+            return await self._handle_cron_delete(payload=payload)
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
         if message_type == "node.streaming_delta":
@@ -231,7 +245,10 @@ class GatewayHandler:
                 }
             )
         except (RuntimeError, WebSocketDisconnect):
-            await self.disconnect(node_id=target_node_id)
+            await self.disconnect(
+                node_id=target_node_id,
+                expected_websocket=connection.websocket,
+            )
             return False
         self._relay_service.mark_dispatched(relay_task_id=relay_task_id)
         return True
@@ -417,12 +434,16 @@ class GatewayHandler:
         scenario: str,
         skill_ids: list[str] | None = None,
         timeout_seconds: float = 10.0,
+        heartbeat_enabled: bool | None = None,
+        cron_enabled: bool | None = None,
     ) -> dict[str, object] | None:
         """Send an agent.prompt.preview.request frame and await the assembled result.
 
         feat-379-M2 R5: IM proxy path — IM sends this request to the Gateway
         which calls agent HTTP /v1/prompt-preview and returns the result.
         feat-383-M1: skill_ids forwarded so Gateway→kernel can resolve real skills.
+        feat-394-M4 R2-2: heartbeat_enabled/cron_enabled forwarded so preview
+        correctly reflects the agent's heartbeat/cron toggle state.
 
         Returns:
             Preview payload dict or None when the node is not connected or times out.
@@ -432,20 +453,27 @@ class GatewayHandler:
         waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
         async with self._lock:
             self._prompt_preview_waiters[request_id] = waiter
+        payload: dict[str, object] = {
+            "request_id": request_id,
+            "agent_id": agent_id,
+            "workspace_root": workspace_root,
+            "features": features,
+            "custom_prompt": custom_prompt,
+            "tool_ids": tool_ids,
+            "skill_ids": skill_ids or [],
+            "scenario": scenario,
+        }
+        # feat-394-M4 R2-2: include heartbeat/cron flags only when provided so
+        # the gateway-side handler can forward them to assemble_prompt_preview.
+        if heartbeat_enabled is not None:
+            payload["heartbeat_enabled"] = heartbeat_enabled
+        if cron_enabled is not None:
+            payload["cron_enabled"] = cron_enabled
         try:
             pushed = await self._push_downstream(
                 target_node_id=target_node_id,
                 message_type="agent.prompt.preview.request",
-                payload={
-                    "request_id": request_id,
-                    "agent_id": agent_id,
-                    "workspace_root": workspace_root,
-                    "features": features,
-                    "custom_prompt": custom_prompt,
-                    "tool_ids": tool_ids,
-                    "skill_ids": skill_ids or [],
-                    "scenario": scenario,
-                },
+                payload=payload,
             )
             if not pushed:
                 return None
@@ -506,9 +534,155 @@ class GatewayHandler:
             async with self._lock:
                 self._node_prompt_preview_waiters.pop(request_id, None)
 
-    async def disconnect(self, *, node_id: str) -> None:
-        """Remove one node from the active connection map and broadcast offline if needed."""
+    async def request_node_heartbeat_md(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        timeout_seconds: float = 10.0,
+    ) -> str | None:
+        """Send a node.heartbeat.md.request frame and await the HEARTBEAT.md content.
+
+        feat-394-M13 (决策 G): IM must never directly read gateway workspace files.
+        This RPC asks the target gateway node to read <workspace>/HEARTBEAT.md and
+        return its raw content.  The IM host and gateway may run on different machines,
+        so direct file access from IM is not viable.
+
+        Returns:
+            Raw HEARTBEAT.md text, empty string when the file does not exist, or None
+            when the node is not connected / times out (graceful degradation).
+        """
+        request_id = f"heartbeat-md-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[str | None] = loop.create_future()
         async with self._lock:
+            self._heartbeat_md_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="node.heartbeat.md.request",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._heartbeat_md_waiters.pop(request_id, None)
+
+    async def request_node_cron_jobs(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        timeout_seconds: float = 10.0,
+    ) -> list | None:
+        """Send a node.cron.jobs.request frame and await the job list.
+
+        feat-394-M13 (决策 G): replaces direct IM-side read of
+        <workspace>/.nanoassistant/cron/jobs.json.  The gateway reads its own file
+        and returns the job list; IM never touches the workspace directory.
+
+        Returns:
+            List of job dicts, empty list when no jobs file exists yet, or None when
+            the node is not connected / times out (graceful degradation).
+        """
+        request_id = f"cron-jobs-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[list | None] = loop.create_future()
+        async with self._lock:
+            self._cron_jobs_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="node.cron.jobs.request",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._cron_jobs_waiters.pop(request_id, None)
+
+    async def request_node_cron_delete(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        job_id: str,
+        timeout_seconds: float = 10.0,
+    ) -> bool | None:
+        """Send a node.cron.delete.request frame and await the deletion result.
+
+        feat-394-M13 (决策 G): replaces direct IM-side write of
+        <workspace>/.nanoassistant/cron/jobs.json.  The gateway performs the delete
+        on its own filesystem and reports whether the job was found and removed.
+
+        Returns:
+            True when the job was found and deleted, False when job_id was not found,
+            or None when the node is not connected / times out (graceful degradation).
+        """
+        request_id = f"cron-delete-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[bool | None] = loop.create_future()
+        async with self._lock:
+            self._cron_delete_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="node.cron.delete.request",
+                payload={
+                    "request_id": request_id,
+                    "agent_id": agent_id,
+                    "workspace_root": workspace_root,
+                    "job_id": job_id,
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._cron_delete_waiters.pop(request_id, None)
+
+    async def disconnect(
+        self,
+        *,
+        node_id: str,
+        expected_websocket: WebSocket | None = None,
+    ) -> None:
+        """Remove one active node connection and broadcast offline if needed.
+
+        Args:
+            node_id: Node whose active connection should be removed.
+            expected_websocket: When provided, remove the mapping only if it still
+                belongs to this websocket. This prevents delayed cleanup from an old
+                connection from deleting a newer registration for the same node.
+        """
+        async with self._lock:
+            current = self._connections.get(node_id)
+            if expected_websocket is not None and (
+                current is None or current.websocket is not expected_websocket
+            ):
+                return
             self._connections.pop(node_id, None)
         if self._node_repository is None:
             return
@@ -830,10 +1004,100 @@ class GatewayHandler:
         kind = _optional_text(payload.get("kind")) or ""
 
         if kind == "turn_start":
+            agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
+            to_user_id = _optional_text(payload.get("to_user_id"))
+            raw_conversation_id = _optional_text(payload.get("conversation_id"))
+
+            if to_user_id is not None and raw_conversation_id is None:
+                # feat-393: heartbeat/cron lazy-resolution mode.  Gateway sends to_user_id
+                # (the owner) instead of conversation_id; we resolve/create the canonical
+                # (owner, agent) direct conversation here, then fall through to the shared
+                # on_turn_start path.  The ack returns both conversation_id and message_id
+                # so the gateway can seed run_context_store with both values.
+                #
+                # Two modes are mutually exclusive: conversation_id → normal eager-bubble
+                # path (unchanged); to_user_id → lazy canonical-conv resolution path.
+                if (
+                    self._conversation_repository is None
+                    or self._user_repository is None
+                ):
+                    return {
+                        "type": "ack",
+                        "payload": {
+                            "message_type": "node.streaming_delta",
+                            "kind": kind,
+                            "skipped": "repositories_not_configured",
+                        },
+                    }
+                agent_user_id = _optional_text(payload.get("agent_user_id"))
+                if agent_user_id is None:
+                    row = self._user_repository._connection.execute(  # noqa: SLF001
+                        "SELECT id FROM users WHERE username = ?",
+                        (f"agent:{agent_id}",),
+                    ).fetchone()
+                    if row is None:
+                        return {
+                            "type": "ack",
+                            "payload": {
+                                "message_type": "node.streaming_delta",
+                                "kind": kind,
+                                "skipped": "agent_user_id_not_found",
+                            },
+                        }
+                    agent_user_id = str(row["id"])
+                # feat-393 fix-r1: owner lookup / canonical-conv creation can fail when
+                # config.node.user_id is stale or the ephemeral IM DB has no such user yet.
+                # Must NOT raise out of this handler — that would close the WS connection and
+                # cause the Gateway to reconnect immediately, producing the 413-open/close flap
+                # seen in round-1 acceptance (refactor-387 "坏帧关连接" pattern re-introduced).
+                # Per design decision-6: delivery failure ≠ run failure; log and return skipped
+                # ack so the Gateway can continue and this heartbeat run completes normally.
+                try:
+                    canonical_conv = self._find_or_create_direct_conversation(
+                        left_user_id=to_user_id,
+                        right_user_id=agent_user_id,
+                        expected_direct_kind="user-agent",
+                        # Pass the owner's own id as caller_owner_id so the created
+                        # conversation is visible via list_conversations_for_owner.
+                        # Without this, the conversation is created with the owner_id
+                        # derived from the users table, which may be stale across e2e runs.
+                        caller_owner_id=to_user_id,
+                    )
+                except (ValueError, Exception) as exc:  # noqa: BLE001
+                    _logger.warning(
+                        "turn_start to_user_id=%s owner_unresolved — skipping delivery: %s",
+                        to_user_id,
+                        exc,
+                    )
+                    return {
+                        "type": "ack",
+                        "payload": {
+                            "message_type": "node.streaming_delta",
+                            "kind": kind,
+                            "skipped": "owner_unresolved",
+                        },
+                    }
+                created_message = self._event_bridge.on_turn_start(
+                    conversation_id=canonical_conv.id,
+                    agent_user_id=agent_user_id,
+                    agent_id=agent_id,
+                )
+                # Return both conversation_id and message_id so the gateway can update
+                # run_context_store with the resolved canonical conversation (feat-393 design §接口与数据流).
+                return {
+                    "type": "ack",
+                    "payload": {
+                        "message_type": "node.streaming_delta",
+                        "kind": kind,
+                        "conversation_id": canonical_conv.id,
+                        "message_id": created_message.id,
+                    },
+                }
+
+            # Normal path: conversation_id is provided (eager placeholder for regular chat).
             conversation_id = _require_text(
                 payload.get("conversation_id"), field_name="conversation_id"
             )
-            agent_id = _require_text(payload.get("agent_id"), field_name="agent_id")
             # Resolve IM user ID from agent_id; gateway sends agent_id (e.g. "alpha"),
             # IM stores the agent as username="agent:<agent_id>" in the users table.
             agent_user_id = _optional_text(payload.get("agent_user_id"))
@@ -1119,7 +1383,10 @@ class GatewayHandler:
                 {"type": message_type, "payload": payload}
             )
         except (RuntimeError, WebSocketDisconnect):
-            await self.disconnect(node_id=target_node_id)
+            await self.disconnect(
+                node_id=target_node_id,
+                expected_websocket=connection.websocket,
+            )
             return False
         return True
 
@@ -1260,6 +1527,77 @@ class GatewayHandler:
                 "message_type": "node.prompt.preview",
                 "request_id": request_id,
                 "node_id": node_id,
+            },
+        }
+
+    async def _handle_heartbeat_md(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve heartbeat-md waiter when gateway returns HEARTBEAT.md content.
+
+        feat-394-M13 (决策 G): gateway sends ``node.heartbeat.md`` in response to
+        ``node.heartbeat.md.request`` with {request_id, content}.
+        Empty string signals file does not exist; both are valid.
+        """
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        content_raw = payload.get("content")
+        content = content_raw if isinstance(content_raw, str) else ""
+        async with self._lock:
+            waiter = self._heartbeat_md_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(content)
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.heartbeat.md",
+                "request_id": request_id,
+            },
+        }
+
+    async def _handle_cron_jobs(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve cron-jobs waiter when gateway returns the job list.
+
+        feat-394-M13 (决策 G): gateway sends ``node.cron.jobs`` in response to
+        ``node.cron.jobs.request`` with {request_id, jobs:[...]}.
+        """
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        jobs_raw = payload.get("jobs")
+        jobs: list = jobs_raw if isinstance(jobs_raw, list) else []
+        async with self._lock:
+            waiter = self._cron_jobs_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(jobs)
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.cron.jobs",
+                "request_id": request_id,
+            },
+        }
+
+    async def _handle_cron_delete(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        """Resolve cron-delete waiter when gateway reports deletion result.
+
+        feat-394-M13 (决策 G): gateway sends ``node.cron.delete`` in response to
+        ``node.cron.delete.request`` with {request_id, deleted: bool}.
+        deleted=True means job was found and removed; False means not found.
+        """
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        deleted_raw = payload.get("deleted")
+        deleted: bool = bool(deleted_raw)
+        async with self._lock:
+            waiter = self._cron_delete_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(deleted)
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "node.cron.delete",
+                "request_id": request_id,
             },
         }
 
@@ -1649,8 +1987,16 @@ class GatewayHandler:
         left_user_id: str,
         right_user_id: str,
         expected_direct_kind: str,
+        caller_owner_id: str | None = None,
     ):  # noqa: ANN202
-        """Resolve one canonical direct conversation, creating it when absent."""
+        """Resolve one canonical direct conversation, creating it when absent.
+
+        Args:
+            caller_owner_id: The authenticated caller's owner_id.  When supplied, the
+                created conversation's owner_id is set to this value so that
+                ``list_conversations_for_owner`` can surface it to the caller.
+                For heartbeat delivery the caller is the owner user (to_user_id).
+        """
         existing = self._find_canonical_direct_conversation(
             left_user_id=left_user_id,
             right_user_id=right_user_id,
@@ -1666,6 +2012,7 @@ class GatewayHandler:
             ),
             participant_ids=[left_user_id, right_user_id],
             creator_id=left_user_id,
+            caller_owner_id=caller_owner_id,
         )
 
     def _build_default_direct_conversation_title(

@@ -35,6 +35,8 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
         response = client.get("/im/v1/agents/agent-1/config")
         assert response.status_code == 200
         # feat-379-M5: features + custom_prompt must now appear in config response
+        # feat-394: heartbeat_json carries cadence (every/active_hours).
+        # feat-394 M9-E: cron_json removed — cron enable lives in features["cron_scheduling"].
         assert set(response.json()) == {
             "agent_id",
             "owner_id",
@@ -52,6 +54,7 @@ def test_agent_config_contract_shape_and_conflict_status(tmp_path: Path) -> None
             "updated_at",
             "features",
             "custom_prompt",
+            "heartbeat_json",
         }
         assert response.json()["workspace_root"].endswith(
             "/nano-assistant/workspace/agent-1"
@@ -149,8 +152,9 @@ def test_node_capabilities_contract_shape(
     body = response.json()
     # feat-379-M6 (ISSUE-1): features list added; other fields unchanged
     assert body["node_id"] == "node-1"
-    assert body["skills"] == [{"name": "plan", "description": ""}]
-    assert body["tools"] == [{"name": "read", "description": ""}]
+    # feat-394 M9 R5: AllowlistOptionResponse now carries default_on (False by default).
+    assert body["skills"] == [{"name": "plan", "description": "", "default_on": False}]
+    assert body["tools"] == [{"name": "read", "description": "", "default_on": False}]
     assert body["models"] == ["codex_oauth:gpt-5.5"]
     assert body["platform_default_model"] is None
     assert body["default_system_prompt"] == ""
@@ -302,6 +306,8 @@ def test_agent_prompt_preview_proxy_contract(
         scenario: str,  # noqa: ARG001
         skill_ids: list | None = None,  # noqa: ARG001
         timeout_seconds: float = 10.0,  # noqa: ARG001
+        heartbeat_enabled: bool | None = None,  # noqa: ARG001  feat-394-M4
+        cron_enabled: bool | None = None,  # noqa: ARG001  feat-394-M4
     ) -> dict:
         return {"prompt": "You are a helpful assistant.", "section_count": 2}
 
@@ -469,6 +475,8 @@ def test_agent_prompt_preview_forwards_skill_ids_to_gateway(
         scenario: str,  # noqa: ARG001
         skill_ids: list | None = None,  # noqa: ARG001
         timeout_seconds: float = 10.0,  # noqa: ARG001
+        heartbeat_enabled: bool | None = None,  # noqa: ARG001  feat-394-M4
+        cron_enabled: bool | None = None,  # noqa: ARG001  feat-394-M4
     ) -> dict:
         captured.append({"skill_ids": list(skill_ids or [])})
         return {"prompt": "preview", "section_count": 1}

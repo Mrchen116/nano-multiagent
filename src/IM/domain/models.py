@@ -122,6 +122,12 @@ class AgentProfile:
     # and optional custom prompt supplement.  Absent keys inherit gateway defaults.
     features: dict[str, bool] = field(default_factory=dict)
     custom_prompt: str | None = None
+    # feat-394: heartbeat cadence persisted as JSON string.
+    # Shape: {"every": str, "active_hours": {...} | null}
+    # Stored as raw JSON so the gateway can forward cadence config without re-serialization;
+    # enable state lives in features["heartbeat"] (feat-394 M9-E decision D).
+    # None means not yet configured (no cadence set by user).
+    heartbeat_json: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

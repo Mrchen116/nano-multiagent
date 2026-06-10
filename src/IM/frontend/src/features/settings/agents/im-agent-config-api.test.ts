@@ -1,0 +1,78 @@
+/**
+ * Tests for feat-394 round-trip: heartbeat_json (raw JSON string from backend) must be
+ * parsed back to a HeartbeatConfig cadence object so HeartbeatCard renders correct cadence.
+ *
+ * feat-394 M9-E: heartbeat enable lives in features["heartbeat"]; heartbeat_json only
+ * carries cadence (every / active_hours). cron_json and CronConfig are retired.
+ *
+ * These tests call normalizeAgentConfigResponse directly (no HTTP mock needed).
+ */
+import { describe, it, expect } from "vitest";
+import { normalizeAgentConfigResponse } from "./im-agent-config-api";
+
+const BASE_RAW = {
+  agent_id: "a1",
+  owner_id: "o1",
+  node_id: null,
+  display_name: "Test",
+  description: "",
+  system_prompt: "",
+  skills: [],
+  tool_allowlist: [],
+  group_reply_policy: "MENTION",
+  default_model: null,
+  workspace_root: "/tmp/ws",
+  workspace_is_default: true,
+  profile_version: 1,
+  updated_at: null,
+  features: {},
+  custom_prompt: null,
+  heartbeat_json: null,
+};
+
+describe("normalizeAgentConfigResponse — heartbeat_json cadence round-trip", () => {
+  it("parses heartbeat_json string into cadence-only heartbeat object", () => {
+    const raw = { ...BASE_RAW, heartbeat_json: JSON.stringify({ every: "10m" }) };
+    const result = normalizeAgentConfigResponse(raw);
+    expect(result.heartbeat).toEqual({ every: "10m" });
+  });
+
+  it("extracts only cadence fields — drops legacy enabled field from stored JSON", () => {
+    // Legacy heartbeat_json may contain "enabled"; M9-E: only cadence fields are kept.
+    const raw = { ...BASE_RAW, heartbeat_json: JSON.stringify({ enabled: true, every: "30m" }) };
+    const result = normalizeAgentConfigResponse(raw);
+    // "enabled" must NOT appear on heartbeat — it lives in features["heartbeat"].
+    expect(result.heartbeat).toEqual({ every: "30m" });
+    expect((result.heartbeat as Record<string, unknown>)?.enabled).toBeUndefined();
+  });
+
+  it("extracts active_hours cadence from heartbeat_json", () => {
+    const hb = { every: "1h", active_hours: { start: "09:00", end: "22:00" } };
+    const raw = { ...BASE_RAW, heartbeat_json: JSON.stringify(hb) };
+    const result = normalizeAgentConfigResponse(raw);
+    expect(result.heartbeat).toEqual(hb);
+  });
+
+  it("null heartbeat_json produces undefined heartbeat", () => {
+    const raw = { ...BASE_RAW, heartbeat_json: null };
+    const result = normalizeAgentConfigResponse(raw);
+    expect(result.heartbeat).toBeUndefined();
+  });
+
+  it("absent heartbeat_json key produces undefined heartbeat", () => {
+    const { heartbeat_json: _, ...rawWithout } = BASE_RAW;
+    const result = normalizeAgentConfigResponse(rawWithout);
+    expect(result.heartbeat).toBeUndefined();
+  });
+
+  it("heartbeat_json with only enabled and no cadence produces undefined heartbeat", () => {
+    // Pure-enable JSON with no cadence fields → nothing useful to keep.
+    const raw = { ...BASE_RAW, heartbeat_json: JSON.stringify({ enabled: true }) };
+    const result = normalizeAgentConfigResponse(raw);
+    expect(result.heartbeat).toBeUndefined();
+  });
+});
+
+// feat-394 M9-E: cron_json round-trip tests removed — cron enable lives in
+// features["cron_scheduling"]; cron_json parsing path deleted from normalizeAgentConfigResponse.
+// feat-394 M9-E: heartbeat.enabled round-trip tests removed — enable lives in features["heartbeat"].

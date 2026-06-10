@@ -192,3 +192,31 @@ class TestPermissionBroker:
         broker = self._make_broker()
         # Should not raise
         broker.resolve("nonexistent", PermissionResponse(decision="deny"))
+
+    # ------------------------------------------------------------------
+    # Finding 7: broker.resolve must return bool (TOCTOU fix)
+    # ------------------------------------------------------------------
+
+    @pytest.mark.asyncio
+    async def test_resolve_returns_true_when_found(self):
+        """broker.resolve must return True when request_id was pending (finding 7)."""
+        broker = self._make_broker()
+        broker.register_request("req-bool")
+        result = broker.resolve("req-bool", PermissionResponse(decision="allow_once"))
+        assert result is True
+
+    def test_resolve_returns_false_when_not_found(self):
+        """broker.resolve must return False for unknown/already-resolved id (finding 7)."""
+        broker = self._make_broker()
+        result = broker.resolve("nonexistent", PermissionResponse(decision="deny"))
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_resolve_idempotent_second_call_returns_false(self):
+        """Second resolve call for same id must return False — no double set_result (finding 7)."""
+        broker = self._make_broker()
+        broker.register_request("req-dup")
+        first = broker.resolve("req-dup", PermissionResponse(decision="allow_once"))
+        second = broker.resolve("req-dup", PermissionResponse(decision="deny"))
+        assert first is True
+        assert second is False

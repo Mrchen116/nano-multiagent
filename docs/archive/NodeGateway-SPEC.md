@@ -150,28 +150,80 @@ class ChannelAdapter(Protocol):
 
 ## 6. Heartbeat 调度
 
-每个配置级 Agent 支持独立的 `HEARTBEAT.md`，定义周期巡检待办与执行规则。
+> **feat-394 重设计**：Heartbeat 是带上下文的单脉冲主动唤醒机制，与 Cron（feat-394-M2，多任务无上下文定时执行）分别设计。
 
-### 调度模型
+每个 Agent 支持 per-agent 启用的 heartbeat，在 IM 配置页打开开关后生效。
 
-- Gateway 本地维护 heartbeat 调度器，按可配置周期触发
-- 支持三种调度方式（参考 OpenClaw Cron 模型）：
-  - **一次性**（`at`）：指定时间执行
-  - **固定间隔**（`every`）：如每 30 分钟
-  - **Cron 表达式**（`cron`）：如 `0 9 * * 1-5`（工作日早 9 点）
+### 两套机制区分
 
-### 执行流程
+| 机制 | 上下文 | 任务数 | 管理方式 | 持久化 |
+|---|---|---|---|---|
+| **Heartbeat** | 带 owner 直聊历史 | 单节律（可 tasks: 多子节律） | Agent 写 HEARTBEAT.md | workspace 文件 |
+| **Cron**（M2） | 无上下文隔离执行 | 多条具名 job | Agent 用 cron 工具 CRUD | `.nanoassistant/cron/jobs.json` |
 
-1. 调度器 tick → 读取 `HEARTBEAT.md` 判断是否需要行动
-2. 若需要行动，新建独立 session 执行任务（`POST /v1/sessions` + `POST /v1/sessions/{id}/messages:async`）
-3. 若无有效任务，安静跳过，不打扰用户
-4. 执行完成后汇报：普通 Agent 汇报给用户替身 Agent；替身 Agent 直接汇报给用户
+### Heartbeat 调度模型
+
+- **per-agent 启用**：IM 配置页 heartbeat 开关 + every 节律同步到 gateway `AgentWorkspaceConfig`
+- **调度不补跑**：重启后只排下一个未来时隙（openclaw `computeNextRunAtMs` 语义），避免补跑刷屏
+- **HEARTBEAT.md 格式**：
+  - 单节律：`every: 30m` + 任务描述
+  - 多子节律：`tasks:` 块（每 task 独立 interval + prompt，per-task 独立 last_due 状态）
+  - 空文件 / 仅注释 → 静默跳过（openclaw `isHeartbeatContentEffectivelyEmpty` 语义）
+
+### Heartbeat 执行流程
+
+1. 调度器 tick → 检查 `heartbeat_enabled`（门控）、activeHours 窗口、canonical session 是否忙
+2. 读取 `HEARTBEAT.md`，评估各 task/单节律是否到期
+3. 若到期，在 (owner, agent) canonical 直聊 kernel session 上提交 heartbeat run（带历史上下文）
+4. 模型输出 `HEARTBEAT_OK` → 静默；有实质内容 → 投递到 owner 与 agent 的 canonical 直聊
+5. 首次无直聊 → 创建新 session；turn_start ack 返回 conv_id → 后续 tick 复用该 session
+
+### 静默规则
+
+- `HEARTBEAT_OK` token：模型认为无需汇报时回复此 token，系统识别后不产生任何 IM 消息
+- 空 HEARTBEAT.md（仅 header/空列表）：调度器跳过，不提交 run
+- activeHours 外：调度器跳过本 tick
+- canonical session 忙（用户正在对话）：跳过本 tick，下次再评估
 
 ### 硬规则
 
-- IM 服务不触发 heartbeat，调度完全在本地
+- IM 服务不触发 heartbeat，调度完全在 gateway 本地
 - `task` 临时子 Agent 不具备独立 heartbeat
-- 进程重启后补跑错过的到期任务
+- 重启后不补跑（只排下一未来时隙）——取代旧 SPEC 的"补跑错过到期任务"
+- Heartbeat 只在 `personal_assistant` 产品启用，`coding_cli` 无此能力
+
+### Cron 调度模型（M2）
+
+- **per-agent 启用**：IM 配置页 cron 开关（`cron.enabled`）同步到 gateway `AgentWorkspaceConfig.cron_enabled`
+- **持久化**：每 agent workspace `<workspace>/.nanoassistant/cron/jobs.json`（job 定义）+ `cron-state.json`（per-job last_due 运行态）
+- **Job 格式**：`{id, name, schedule:{kind:at|every|cron,...}, instruction, enabled, delete_after_run}`
+- **调度不补跑**：与 heartbeat 相同，重启后只排下一个未来时隙（openclaw `computeNextRunAtMs` 语义）
+
+### Cron 执行流程
+
+1. 调度器 tick → 检查 `cron_enabled`（门控）
+2. 读取该 agent 的 `jobs.json`，评估所有 enabled job 是否到期
+3. 到期 job → 在隔离会话 `cron:<jobId>` 中提交 run（origin=cron，无上下文）
+4. 投递结果到 owner 与 agent 的 canonical 直聊（复用 feat-393 闭环）
+5. 同时将结果文本以 `System(untrusted)` 旁注 append 进直聊 kernel session JSONL（awareness 注入）
+6. `delete_after_run=True` 的 job → 运行后从 `jobs.json` 删除
+
+### Cron 工具
+
+Agent 通过 `cron` 工具（PA 专属，`agent/products/personal_assistant/tools/cron.py`）自管任务：
+- **add**：注册新任务（schedule + payload.message）
+- **list**：列出当前任务（含 disabled）
+- **update**：更新已有任务
+- **remove**：删除任务
+- **run**：立即触发一次
+- **runs**：查看运行历史
+
+### Cron 硬规则
+
+- Cron 只在 `personal_assistant` 产品启用；`coding_cli` 不含 cron 工具和 cron prompt 段
+- Cron job 运行在**隔离会话**（无对话上下文）；结果通过 awareness 注入供用户追问
+- 重启后不补跑；过期的一次性 `at` job 不执行
+- 工具描述逐字照抄 openclaw `cron-tool.ts` 并标注 Provenance 注释（feat-394 decision 6）
 
 ---
 

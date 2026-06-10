@@ -148,6 +148,8 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
                 "participant_agent_ids": ["agent-a"],
                 "external_chat_id": "conv-group-1",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                # feat-394 M9 R4: standalone heartbeat_enabled/cron_enabled removed;
+                # gate state encoded in agent_features (empty here = both disabled).
                 "agent_features": {},
             },
         },
@@ -164,6 +166,8 @@ def test_drop_agent_sessions_forces_group_mentions_to_create_a_fresh_kernel_sess
                 "participant_agent_ids": ["agent-a"],
                 "external_chat_id": "conv-group-1",
                 "gateway_dispatch_url": "http://127.0.0.1:8089/internal/dispatch",
+                # feat-394 M9 R4: standalone heartbeat_enabled/cron_enabled removed;
+                # gate state encoded in agent_features (empty here = both disabled).
                 "agent_features": {},
             },
         },

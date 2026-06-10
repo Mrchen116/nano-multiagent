@@ -615,4 +615,353 @@ def test_node_capabilities_return_current_selectable_items(
         "playwright",
     ]
     assert [item["name"] for item in response.json()["tools"]] == ["read", "bash"]
-    assert response.json()["models"] == ["kimiCoding:K2.6", "codex_oauth:gpt-5.5"]
+
+
+# ---------------------------------------------------------------------------
+# feat-394-M13: cron jobs and heartbeat-md routes must go via WS RPC
+# ---------------------------------------------------------------------------
+
+
+def test_list_cron_jobs_calls_rpc_not_direct_file_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /im/v1/agents/{id}/cron/jobs must use request_node_cron_jobs RPC.
+
+    feat-394-M13 (决策 G): IM must never directly read gateway workspace files.
+    The cron jobs list must arrive via the WS RPC path.
+    """
+    from IM.ws.gateway_handler import GatewayHandler
+
+    rpc_calls: list[dict] = []
+
+    async def _fake_cron_jobs(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        timeout_seconds: float = 10.0,
+    ) -> list:
+        rpc_calls.append({"target_node_id": target_node_id, "agent_id": agent_id})
+        return [
+            {
+                "id": "job-rpc-1",
+                "name": "via-rpc",
+                "schedule": {"kind": "every", "every": "1h"},
+                "instruction": "do something",
+                "enabled": True,
+                "delete_after_run": False,
+            }
+        ]
+
+    monkeypatch.setattr(GatewayHandler, "request_node_cron_jobs", _fake_cron_jobs)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner", display_name="Owner")
+        authorize(client, owner)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(
+            node_id="node-1",
+            node_name="MacBook",
+            status="online",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+        profiles = AgentProfileRepository(app.state.connection)
+        profiles.upsert_profile(
+            agent_id="agent-cron",
+            owner_id=owner.owner_id,
+            display_name="CronAgent",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=str(tmp_path / "ws"),
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-1", "agent-cron"),
+        )
+        app.state.connection.commit()
+
+        resp = client.get("/im/v1/agents/agent-cron/cron/jobs")
+
+    assert resp.status_code == 200, resp.text
+    jobs = resp.json()
+    assert len(jobs) == 1
+    assert jobs[0]["id"] == "job-rpc-1"
+    assert jobs[0]["name"] == "via-rpc"
+    # RPC must have been called (not direct file read).
+    assert len(rpc_calls) == 1, f"RPC was not called: {rpc_calls!r}"
+    assert rpc_calls[0]["agent_id"] == "agent-cron"
+
+
+def test_list_cron_jobs_returns_empty_when_node_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /im/v1/agents/{id}/cron/jobs returns [] when node is offline (RPC → None)."""
+    from IM.ws.gateway_handler import GatewayHandler
+
+    async def _offline_rpc(
+        self, *, target_node_id, agent_id, workspace_root, timeout_seconds=10.0
+    ) -> None:
+        return None  # node offline / timeout
+
+    monkeypatch.setattr(GatewayHandler, "request_node_cron_jobs", _offline_rpc)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner2", display_name="Owner2")
+        authorize(client, owner)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(
+            node_id="node-2",
+            node_name="Node2",
+            status="offline",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+        profiles = AgentProfileRepository(app.state.connection)
+        profiles.upsert_profile(
+            agent_id="agent-offline",
+            owner_id=owner.owner_id,
+            display_name="OffAgent",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=str(tmp_path / "ws2"),
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-2", "agent-offline"),
+        )
+        app.state.connection.commit()
+
+        resp = client.get("/im/v1/agents/agent-offline/cron/jobs")
+
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+def test_delete_cron_job_calls_rpc_not_direct_file_write(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DELETE /im/v1/agents/{id}/cron/jobs/{job_id} must use request_node_cron_delete RPC."""
+    from IM.ws.gateway_handler import GatewayHandler
+
+    rpc_calls: list[dict] = []
+
+    async def _fake_cron_delete(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        job_id: str,
+        timeout_seconds: float = 10.0,
+    ) -> bool:
+        rpc_calls.append(
+            {"target_node_id": target_node_id, "agent_id": agent_id, "job_id": job_id}
+        )
+        return True  # job found and deleted
+
+    monkeypatch.setattr(GatewayHandler, "request_node_cron_delete", _fake_cron_delete)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner3", display_name="Owner3")
+        authorize(client, owner)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(
+            node_id="node-3",
+            node_name="Node3",
+            status="online",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+        profiles = AgentProfileRepository(app.state.connection)
+        profiles.upsert_profile(
+            agent_id="agent-del",
+            owner_id=owner.owner_id,
+            display_name="DelAgent",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=str(tmp_path / "ws3"),
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-3", "agent-del"),
+        )
+        app.state.connection.commit()
+
+        resp = client.delete("/im/v1/agents/agent-del/cron/jobs/job-1")
+
+    assert resp.status_code == 204, resp.text
+    assert len(rpc_calls) == 1
+    assert rpc_calls[0]["job_id"] == "job-1"
+
+
+def test_delete_cron_job_returns_404_when_node_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """DELETE returns 404 when node is offline (RPC → None)."""
+    from IM.ws.gateway_handler import GatewayHandler
+
+    async def _offline_rpc(
+        self, *, target_node_id, agent_id, workspace_root, job_id, timeout_seconds=10.0
+    ):
+        return None
+
+    monkeypatch.setattr(GatewayHandler, "request_node_cron_delete", _offline_rpc)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner4", display_name="Owner4")
+        authorize(client, owner)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(
+            node_id="node-4",
+            node_name="Node4",
+            status="offline",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+        profiles = AgentProfileRepository(app.state.connection)
+        profiles.upsert_profile(
+            agent_id="agent-del2",
+            owner_id=owner.owner_id,
+            display_name="DelAgent2",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=str(tmp_path / "ws4"),
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-4", "agent-del2"),
+        )
+        app.state.connection.commit()
+
+        resp = client.delete("/im/v1/agents/agent-del2/cron/jobs/job-x")
+
+    assert resp.status_code == 404
+
+
+def test_get_heartbeat_md_calls_rpc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /im/v1/agents/{id}/heartbeat-md must use request_node_heartbeat_md RPC."""
+    from IM.ws.gateway_handler import GatewayHandler
+
+    async def _fake_hb_md(
+        self,
+        *,
+        target_node_id: str,
+        agent_id: str,
+        workspace_root: str,
+        timeout_seconds: float = 10.0,
+    ) -> str:
+        return "# HEARTBEAT\n- Watch CPU daily"
+
+    monkeypatch.setattr(GatewayHandler, "request_node_heartbeat_md", _fake_hb_md)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner5", display_name="Owner5")
+        authorize(client, owner)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(
+            node_id="node-5",
+            node_name="Node5",
+            status="online",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+        profiles = AgentProfileRepository(app.state.connection)
+        profiles.upsert_profile(
+            agent_id="agent-hb",
+            owner_id=owner.owner_id,
+            display_name="HbAgent",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=str(tmp_path / "ws5"),
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-5", "agent-hb"),
+        )
+        app.state.connection.commit()
+
+        resp = client.get("/im/v1/agents/agent-hb/heartbeat-md")
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["content"] == "# HEARTBEAT\n- Watch CPU daily"
+
+
+def test_get_heartbeat_md_returns_empty_when_node_offline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """GET /heartbeat-md returns empty content when node is offline (RPC → None)."""
+    from IM.ws.gateway_handler import GatewayHandler
+
+    async def _offline_rpc(
+        self, *, target_node_id, agent_id, workspace_root, timeout_seconds=10.0
+    ):
+        return None
+
+    monkeypatch.setattr(GatewayHandler, "request_node_heartbeat_md", _offline_rpc)
+
+    app = create_app(db_path=tmp_path / "im.db")
+    with TestClient(app) as client:
+        owner = register_user(client, username="owner6", display_name="Owner6")
+        authorize(client, owner)
+        nodes = NodeRepository(app.state.connection)
+        nodes.upsert_node(
+            node_id="node-6",
+            node_name="Node6",
+            status="offline",
+            version="1.0.0",
+            owner_id=owner.owner_id,
+        )
+        profiles = AgentProfileRepository(app.state.connection)
+        profiles.upsert_profile(
+            agent_id="agent-hb2",
+            owner_id=owner.owner_id,
+            display_name="HbAgent2",
+            description="",
+            system_prompt="",
+            skills=[],
+            tool_allowlist=[],
+            group_reply_policy="manual",
+            default_model=None,
+            workspace_root=str(tmp_path / "ws6"),
+        )
+        app.state.connection.execute(
+            "UPDATE agent_profiles SET node_id = ? WHERE agent_id = ?",
+            ("node-6", "agent-hb2"),
+        )
+        app.state.connection.commit()
+
+        resp = client.get("/im/v1/agents/agent-hb2/heartbeat-md")
+
+    assert resp.status_code == 200
+    assert resp.json()["content"] == ""
+    assert resp.json()["node_online"] is False

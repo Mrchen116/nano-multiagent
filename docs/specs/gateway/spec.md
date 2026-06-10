@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-392
+> 对齐: feat-394
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -12,12 +12,12 @@
 
 `personal_assistant`(Node Gateway)是个人助手产品的**常驻进程节点网关**:把外部 IM / 内置 Web IM 的入站
 消息路由到正确的 Agent、进程内持有 `agent` 内核(经 `agent.sdk`)执行、把结果回发原通道,并跑本地
-heartbeat 定时巡检、与可选的中心 IM 服务做配置同步与状态上报。它运行在用户机器上,通常在 NAT 后面。
+heartbeat / cron 两套主动机制、与可选的中心 IM 服务做配置同步与状态上报。它运行在用户机器上,通常在 NAT 后面。
 
 它对外承担的可观察职责:① 终端用户在任一通道发消息能被正确的 Agent 处理、回复回到原通道原目标;
 ② 群聊只在被 @提及 / 回复 Agent / 控制命令时才触发 Agent;③ 运维者用启停命令把它当后台服务管理;
 ④ IM 服务在线时它主动连出、注册节点、周期心跳、同步配置、中继 Web IM 消息;⑤ IM 服务离线时外部 IM
-主路径仍可用(本地自治);⑥ 进程重启后会话映射与错过的 heartbeat 自动恢复。
+主路径仍可用(本地自治);⑥ 进程重启后会话映射自动恢复,错过的 heartbeat / cron 周期不补跑回填。
 
 **显式不负责**:不实现 Agent Loop、不直接调 LLM、不管会话持久化(都由内核负责);不做全局用户/组织
 管理(IM 服务负责);不提供终端 CLI 交互(coding_cli 负责)。它**只经 `agent.sdk`** 持有内核,禁止
@@ -136,6 +136,20 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 - **THEN** Gateway 返回该 Agent 的 live 配置快照(display_name / system_prompt / skills / tool_allowlist /
   group_reply_policy / default_model / workspace_root / features / custom_prompt)
 
+#### Scenario: IM 经 RPC 请求读取 HEARTBEAT.md 预览内容（feat-394-M13 决策 G）
+- **WHEN** IM 服务下发 `node.heartbeat.md.request`（含 agent_id / workspace_root）
+- **THEN** Gateway 读取 `<workspace_root>/HEARTBEAT.md`，回帧 `node.heartbeat.md`（含 content；文件不存在则 content 为空串）；
+  IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨机）
+
+#### Scenario: IM 经 RPC 请求列出 cron 任务（feat-394-M13 决策 G）
+- **WHEN** IM 服务下发 `node.cron.jobs.request`（含 agent_id / workspace_root）
+- **THEN** Gateway 读取 `<workspace_root>/.nanoassistant/cron/jobs.json`，回帧 `node.cron.jobs`（含 jobs 列表；文件不存在则 jobs 为空列表）
+
+#### Scenario: IM 经 RPC 请求删除某条 cron 任务（feat-394-M13 决策 G）
+- **WHEN** IM 服务下发 `node.cron.delete.request`（含 agent_id / workspace_root / job_id）
+- **THEN** Gateway 从 `jobs.json` 中移除匹配 job_id 的条目并回写，回帧 `node.cron.delete`（含 deleted: true/false）；
+  job_id 不存在时 deleted 为 false，不报错
+
 ### Requirement: 断线后自动重连并补发未确认帧,期间外部 IM 主路径不受影响
 
 WebSocket 断开后 Gateway 自动重连(指数退避,有上限),重连后重发 `node.register`;断开前未收到 ack 的
@@ -175,25 +189,98 @@ Gateway 首次连一个尚无 owner 的 IM 节点时需确认绑定。默认打�
 - **WHEN** Gateway 启动时该节点在 IM 侧已有 owner
 - **THEN** 不打开浏览器、不发起绑定,直接进入就绪
 
-### Requirement: Heartbeat 调度完全在本地,无有效任务时安静跳过
+### Requirement: Heartbeat 与 Cron 是两套独立的本地主动机制,各由 per-agent 开关启停
 
-每个 Agent 可有独立 `HEARTBEAT.md`,定义周期巡检。调度完全在本地按周期触发(IM 服务不作调度源),支持
-一次性 / 固定间隔 / Cron 三种模式;无有效任务时安静跳过、不打扰用户;进程重启后补跑错过的到期任务。
+Gateway 提供两套**相互独立**的本地主动行为机制,均完全在本地调度(IM 服务不作调度源),各自由 IM 配置页上
+一个 per-agent 开关启停(配置经 IM→Gateway 同步生效):
 
-#### Scenario: 无可行动任务时安静跳过
-- **GIVEN** 某 Agent 的 `HEARTBEAT.md` 当前 tick 无可行动任务
-- **WHEN** 调度器到点触发该 Agent
-- **THEN** 不创建运行、不发任何用户可见消息(安静跳过)
+- **Heartbeat**:周期性"带上下文"唤醒。携带该 Agent 与 owner 的 canonical 直聊上下文。**顶层节律
+  (多久唤醒一次)来自 agent 配置 `heartbeat.every`(未配置默认 30m),不来自 HEARTBEAT.md**;
+  `HEARTBEAT.md`(Agent 可经对话自管写入)承载任务内容:freeform 任务清单 + 可选 `tasks:` 块的 per-task
+  独立频率子节律。活跃时段(activeHours)限制来自配置;无可冒泡内容时回 `HEARTBEAT_OK` 静默、不打扰用户。
+- **Cron**:无上下文的定时任务。可挂多条,各在隔离 session 执行(不带对话上下文),由 Agent 经 cron 工具自管
+  (注册/查看/删除)。结果文本回发 owner 的 canonical 直聊;用户可就该结果追问,Agent 记得自己汇报过什么。
 
-#### Scenario: 重启后补跑错过的到期任务
-- **GIVEN** 一个固定间隔的 heartbeat 在 Gateway 停机期间已到期
+两套机制**均不补跑积压**:停机/空闲错过多个周期后,恢复只推进到最近一次边界触发一次(不刷屏回填);
+已过期的一次性(`at`)任务恢复后不补跑。
+
+#### Scenario: 未启用的 Agent 两套机制都不跑
+- **GIVEN** 某 Agent 的 heartbeat 与 cron 开关均关闭
+- **WHEN** 调度器周期 tick
+- **THEN** 不为该 Agent 创建任何 heartbeat / cron 运行
+
+#### Scenario: Heartbeat 有内容时带上下文主动冒泡
+- **GIVEN** 某 Agent 的 heartbeat 已启用,且当前 tick 有可冒泡内容
+- **WHEN** 调度器到点触发该 Agent 的 heartbeat
+- **THEN** 在该 Agent 与 owner 的 canonical 直聊里像普通 Agent 消息一样发出,且能引用此前的对话上下文
+
+#### Scenario: Heartbeat 无可行动任务时安静跳过
+- **GIVEN** 某 Agent 的 `HEARTBEAT.md` 当前 tick 无可冒泡内容
+- **WHEN** 调度器到点触发该 Agent 的 heartbeat
+- **THEN** 不发任何用户可见消息(回 `HEARTBEAT_OK` 静默)
+
+#### Scenario: 活跃时段外不唤醒
+- **GIVEN** 某 Agent 的 heartbeat 配了 activeHours,当前时刻落在窗口外
+- **WHEN** 调度器周期 tick
+- **THEN** 不触发该 Agent 的 heartbeat,不打扰用户
+
+#### Scenario: 同一 Agent 多条 cron 任务各自按时触发
+- **GIVEN** 某 Agent 挂了多条不同节律的 cron 任务
+- **WHEN** 各任务到点
+- **THEN** 每条任务独立触发并把各自结果发回 canonical 直聊,互不干扰
+
+#### Scenario: 周期任务错过多个周期不刷屏回填
+- **GIVEN** 一个固定间隔的 heartbeat/cron 在 Gateway 停机或空闲期间错过了多个周期
+- **WHEN** 调度器恢复
+- **THEN** 只在最近一次边界触发一次,不为每个错过的周期各补跑一次
+
+#### Scenario: 过期的一次性任务不补跑
+- **GIVEN** 一个一次性(`at`)cron/heartbeat 的触发时刻在 Gateway 停机期间已过
 - **WHEN** Gateway 重启后调度器恢复
-- **THEN** 错过的那次到期任务被补跑一次,而非永久跳过
+- **THEN** 该任务被视为错过窗口、不补跑(已执行过的同样不重复)
 
-#### Scenario: 同一 at 任务跨重启只执行一次
-- **GIVEN** 一个一次性(`at`)heartbeat 已执行过且状态已持久化
-- **WHEN** Gateway 重启后调度器恢复
-- **THEN** 该 `at` 任务不再重复执行
+#### Scenario: Cron 汇报后用户追问,Agent 记得汇报内容
+- **GIVEN** 某 Agent 的 cron 任务已执行并把结果发回 canonical 直聊
+- **WHEN** 用户在该直聊就此结果追问
+- **THEN** Agent 的回复能引用刚发出的 cron 汇报内容(该结果对后续对话轮次可见)
+
+#### Scenario: Heartbeat 顶层节律由配置决定,忽略 HEARTBEAT.md 顶层 every
+- **GIVEN** 某 Agent 配置 `heartbeat.every=10m`,其 HEARTBEAT.md 顶层又写了 `every: 15s`
+- **WHEN** 调度器评估该 Agent 的 heartbeat 顶层节律
+- **THEN** 按 10m 触发;HEARTBEAT.md 顶层 `every:` 不生效(未配置则按默认 30m)
+
+#### Scenario: Agent 配置变更在活连接即时生效,无需重启 Gateway
+- **GIVEN** Gateway 与 IM 活连接,owner 在配置页关闭某 Agent 的 heartbeat
+- **WHEN** 该变更经 IM→Gateway 同步到达
+- **THEN** Gateway 无需重启,数个 tick 内停止该 Agent 的 heartbeat(enable/cadence 等配置变更同理即时生效)
+
+#### Scenario: 断连期间的配置变更在重连对账时收敛
+- **GIVEN** Gateway 断连期间 owner 改了某 Agent 的 enable / cadence(增量同步未送达)
+- **WHEN** Gateway 重连 IM 并完成全量对账
+- **THEN** 该 Agent 的调度行为收敛到 IM 当前真值
+
+### Requirement: Agent 工具集由 tool_allowlist 真白名单决定，能力特性按 requires_tool 联动其工具
+
+Gateway 为某 Agent 构建会话工具集时，以该 Agent 配置的 `tool_allowlist` 为白名单单一来源：非空时
+Agent 工具集**恰为**列出的这些（列表外的默认工具不提供，即默认文件/web 工具可被用户禁用）；为空时取
+产品默认工具集（未配置语义）。能力特性（如 cron）启用时，其 `requires_tool` 工具经"特性→工具"联动
+已落在该 Agent 的 `tool_allowlist` 里，Gateway 不在运行时另行注入——Agent 工具集与配置侧存储的
+`tool_allowlist` 一致，无分裂。
+
+#### Scenario: 用户禁用某默认工具后该工具不再提供
+- **GIVEN** 某 Agent 的 `tool_allowlist` 被设为不含某默认工具（如不含 `read`）的非空显式集
+- **WHEN** Gateway 为该 Agent 构建会话
+- **THEN** 该 Agent 工具集不含被禁的默认工具（下发给模型的工具列表里没有它）
+
+#### Scenario: 未配置 allowlist 的 Agent 拿到产品默认工具集
+- **GIVEN** 某 Agent 的 `tool_allowlist` 为空
+- **WHEN** Gateway 为该 Agent 构建会话
+- **THEN** 该 Agent 工具集 = 产品默认工具集
+
+#### Scenario: 启用 cron 能力使 cron 工具进入该 Agent 工具集
+- **GIVEN** 某 Agent 启用了 cron 能力特性（其 `requires_tool="cron"` 已联动进 `tool_allowlist`）
+- **WHEN** Gateway 为该 Agent 构建会话
+- **THEN** 该 Agent 工具集包含 `cron` 工具；停用 cron 能力则 `cron` 工具随之移出
 
 ### Requirement: 内核中的产品工具可把 Agent 产出的消息投递到目标会话
 

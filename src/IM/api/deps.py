@@ -1,5 +1,6 @@
 """Dependency helpers for IM API routes."""
 
+import asyncio
 import os
 
 from fastapi import Depends, HTTPException, Request, status
@@ -157,17 +158,39 @@ def get_event_service(request: Request) -> EventService:
 def get_config_service(request: Request) -> ConfigService:
     """Build the agent config application service from app-scoped dependencies."""
     gateway_handler = get_gateway_handler(request)
+    # feat-394 bugfix: update_agent_config is a sync route (runs in a thread pool).
+    # asyncio.get_running_loop() fails in the thread, so the previous code fell back to
+    # asyncio.run(push_config_sync(...)), creating an isolated event loop that cannot
+    # drive the main loop's WebSocket transport — the config.sync WS frame was never sent.
+    # Fix: use asyncio.run_coroutine_threadsafe with the main event loop stored at
+    # app startup so the coroutine is submitted to the correct loop from any thread.
+    event_loop: asyncio.AbstractEventLoop | None = getattr(
+        request.app.state, "event_loop", None
+    )
+
+    def _push_config_sync(node_id: str, agent_id: str, profile_version: int) -> None:
+        coro = gateway_handler.push_config_sync(
+            target_node_id=node_id,
+            agent_id=agent_id,
+            profile_version=profile_version,
+        )
+        if event_loop is not None and not event_loop.is_closed():
+            asyncio.run_coroutine_threadsafe(coro, event_loop)
+        # When no loop is available (e.g. TestClient without lifespan), fall back to
+        # asyncio.run so the WS frame is still sent synchronously in the test context.
+        else:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                asyncio.run(coro)
+            else:
+                loop.create_task(coro)
+
     return ConfigService(
         profiles=_build_profile_repository(request),
         nodes=_build_node_repository(request),
         users=_build_user_repository(request),
-        config_sync_notifier=lambda node_id, agent_id, profile_version: (
-            gateway_handler.push_config_sync(
-                target_node_id=node_id,
-                agent_id=agent_id,
-                profile_version=profile_version,
-            )
-        ),
+        config_sync_notifier=_push_config_sync,
     )
 
 
