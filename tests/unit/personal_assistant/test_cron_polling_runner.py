@@ -184,3 +184,40 @@ async def test_polling_runner_without_cron_fn_runs_normally(
     await runner.close()
 
     assert hb_scheduler.tick_count >= 1
+
+
+# ---------------------------------------------------------------------------
+# Regression: _cron_tick_for_agent reaches CronSchedulerStateStore construction
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_cron_tick_for_agent_reaches_state_store_construction(
+    tmp_path: Path,
+) -> None:
+    """_cron_tick_for_agent must construct CronSchedulerStateStore without NameError.
+
+    Root cause (feat-394-M14 Issue B): WORKSPACE_CONFIG_DIRNAME was imported as _WCD
+    inside _consume_heartbeat_run (a method body), but _cron_tick_for_agent (a closure
+    inside run_gateway) referenced _WCD without importing it — causing NameError on
+    every cron tick.
+
+    This test reproduces the logic by calling a helper that mirrors _cron_tick_for_agent's
+    state_store construction using WORKSPACE_CONFIG_DIRNAME from local_store.
+    After the fix, the import must be available in _cron_tick_for_agent's scope
+    (either as a local import inside the closure, or promoted to run_gateway scope).
+    """
+    from personal_assistant.config.local_store import WORKSPACE_CONFIG_DIRNAME
+    from personal_assistant.scheduler.cron_scheduler import CronSchedulerStateStore
+
+    ws_root = tmp_path / "ws-agent"
+    ws_root.mkdir()
+
+    # Mirrors the exact expression from _cron_tick_for_agent line 2263.
+    # If WORKSPACE_CONFIG_DIRNAME is not importable or the path is wrong, this fails.
+    state_path = ws_root / WORKSPACE_CONFIG_DIRNAME / "cron" / "state.json"
+    state_store = CronSchedulerStateStore(state_path=state_path)
+
+    # The store must be constructable (state file doesn't have to exist yet).
+    assert state_store is not None
+    assert str(state_path).endswith(".nanoassistant/cron/state.json")

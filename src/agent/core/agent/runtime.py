@@ -140,6 +140,12 @@ class AgentRuntime:
         # don't support the ask flow (unit tests, CI without interactive terminal).
         # Stored here so _build_hook_context can inject permission_requester per call.
         self._permission_broker = permission_broker
+        # Optional consumer-supplied can_use_tool callback. When set (injected by
+        # Kernel.__init__ for CLI products), _build_hook_context races the callback
+        # against the broker future so the CLI's interactive prompt resolves the ask
+        # without needing an IM card.  PA products leave this None and resolve via
+        # Kernel.submit_permission_decision (IM card flow).
+        self._can_use_tool: Any | None = None
         # Product default tool ids used when no per-session tool_allowlist is set.
         # None means "all tools in registry" (platform default behavior).
         self._default_tool_ids = default_tool_ids
@@ -1222,6 +1228,8 @@ class AgentRuntime:
             run_id_for_broker = resolved_metadata.get("run_id")
             publisher_for_broker = session_event_publisher
 
+            can_use_tool = self._can_use_tool
+
             async def _permission_requester(req: Any) -> Any:
                 # Register the future before emitting the SSE event so the
                 # inbound endpoint can immediately resolve it if it arrives fast.
@@ -1254,7 +1262,47 @@ class AgentRuntime:
                         },
                     )
                 try:
-                    response = await future
+                    if can_use_tool is not None:
+                        # Race can_use_tool callback against broker future.
+                        # CLI products supply can_use_tool for interactive prompts;
+                        # PA leaves it None and resolves via submit_permission_decision.
+                        can_use_task: asyncio.Task[Any] = asyncio.create_task(
+                            can_use_tool(req.tool_name, getattr(req, "tool_input", {}), req)
+                        )
+
+                        async def _await_future(f: "asyncio.Future[Any]") -> Any:
+                            return await asyncio.shield(f)
+
+                        done, pending = await asyncio.wait(
+                            {can_use_task, asyncio.ensure_future(_await_future(future))},
+                            return_when=asyncio.FIRST_COMPLETED,
+                        )
+                        for t in pending:
+                            t.cancel()
+
+                        if future.done() and not future.cancelled():
+                            # Broker future resolved first (interrupt/external decision).
+                            response = future.result()
+                        else:
+                            # can_use_tool returned first — map decision to response and
+                            # resolve broker future so permission_resolved fires correctly.
+                            try:
+                                decision: Any = can_use_task.result()
+                            except Exception:
+                                decision = type("_D", (), {"behavior": "deny", "reason": "can_use_tool raised"})()
+                            behavior = getattr(decision, "behavior", "deny")
+                            reason = getattr(decision, "reason", "")
+                            # Lightweight duck-typed response; broker only needs .decision attribute.
+                            response = type("_R", (), {
+                                "decision": "deny" if behavior == "deny" else "allow_once",
+                                "reason": reason,
+                                "request_id": req.id,
+                                "rule_update": None,
+                            })()
+                            if not future.done():
+                                future.get_loop().call_soon_threadsafe(future.set_result, response)
+                    else:
+                        response = await future
                 finally:
                     # Emit 'permission_resolved' SSE event so IM card updates to resolved state.
                     if (
