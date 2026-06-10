@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -1434,6 +1435,7 @@ class GatewayRuntime:
         internal_dispatch_handler: InternalDispatchHandler | None = None,
         gateway_internal_port: int = 8089,
         kernel: object | None = None,
+        cron_dispatcher: GatewayCronDispatcher | None = None,
     ) -> None:
         self._config = config
         self._process_manager = process_manager
@@ -1450,6 +1452,9 @@ class GatewayRuntime:
         # (Decision 7). Kernel is closed via aclose() between producers and consumers,
         # not via the untyped resource_closers list.
         self._kernel = kernel
+        # bugfix-402-M4: inject gateway loop into cron services so enqueue() from
+        # worker threads (asyncio.to_thread) can schedule execute_fn correctly.
+        self._cron_dispatcher = cron_dispatcher
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
 
@@ -1478,6 +1483,11 @@ class GatewayRuntime:
         loop = asyncio.get_running_loop()
         if isinstance(self._on_inbound, _InboundDispatcher):
             self._on_inbound.bind_loop(loop)
+        # bugfix-402-M4: wire gateway loop into cron dispatcher so enqueue()
+        # called from asyncio.to_thread (tool.run) can schedule execute_fn on
+        # this loop rather than silently dropping (no-running-loop path).
+        if self._cron_dispatcher is not None:
+            self._cron_dispatcher.set_gateway_loop(loop)
 
         channels_started = False
         heartbeat_started = False
@@ -2278,7 +2288,13 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
 
             bugfix-402-M4 Decision 2: replaces per-tick _submit_and_deliver_fn.
             Both scheduled and manual triggers enter here via CronExecutionService.enqueue().
+            Writes accepted→running→(completed|failed) state transitions to runs.jsonl.
             """
+            from personal_assistant.scheduler.cron_execution_service import CronRunsStore  # noqa: PLC0415
+
+            _runs_store = CronRunsStore(workspace_root=ws_root)
+            _now = datetime.now(timezone.utc).isoformat()
+
             job_store = CronJobStore(workspace_root=ws_root)
             job = job_store.get(job_id)
             if job is None:
@@ -2288,7 +2304,15 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     job_id,
                     request_id,
                 )
+                _runs_store.update_status(
+                    request_id,
+                    "failed",
+                    finished_at=_now,
+                    error="job_not_found",
+                )
                 return
+
+            _runs_store.update_status(request_id, "running", started_at=_now)
 
             # _submit_cron_job returns (run_id, kernel_session_id) or None.
             result = await _cron_runner._submit_cron_job(job=job)  # noqa: SLF001
@@ -2299,8 +2323,15 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     job_id,
                     request_id,
                 )
+                _runs_store.update_status(
+                    request_id,
+                    "failed",
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                    error="submit_failed",
+                )
                 return
             run_id, kernel_session_id = result
+            _runs_store.update_status(request_id, "running", kernel_run_id=run_id)
 
             # Observer is set on heartbeat_runner after im_service block; read at call time.
             _observer = heartbeat_runner._kernel_event_observer  # noqa: SLF001
@@ -2310,6 +2341,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 _log.debug(
                     "cron: no delivery path configured (owner=%r), skipping stream",
                     _owner_user_id,
+                )
+                _runs_store.update_status(
+                    request_id,
+                    "completed",
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                    result_summary="no_delivery_path",
                 )
                 return
 
@@ -2333,7 +2370,20 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                     job_id,
                     run_id,
                 )
+                _runs_store.update_status(
+                    request_id,
+                    "failed",
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                    error="stream_failed",
+                )
                 return
+
+            _runs_store.update_status(
+                request_id,
+                "completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                result_summary=(final_result_text[:200] if final_result_text else ""),
+            )
 
             # Decision C-awareness: append result text as System(untrusted) to canonical
             # direct-chat JSONL so user can ask follow-up questions about cron output.
@@ -2477,6 +2527,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         resource_closers=tuple(closers),
         internal_dispatch_handler=internal_dispatch_handler,
         kernel=kernel,
+        cron_dispatcher=_cron_dispatcher,
         gateway_internal_port=_gateway_internal_port,
     )
 

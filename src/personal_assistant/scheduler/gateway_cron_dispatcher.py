@@ -15,6 +15,7 @@ carries the agent's workspace_root at call time.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -64,6 +65,16 @@ class GatewayCronDispatcher(HostCapabilityDispatcher):
         Called by Gateway assembly code once per agent during startup.
         """
         self._services[str(workspace_root.expanduser().resolve())] = service
+
+    def set_gateway_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        """Inject the Gateway asyncio loop into all registered services.
+
+        Called from GatewayRuntime._run_until_shutdown() once the loop is
+        running so enqueue() called from worker threads (asyncio.to_thread)
+        can schedule execute_fn on the correct loop.
+        """
+        for service in self._services.values():
+            service._gateway_loop = loop  # noqa: SLF001
 
     def invoke(
         self,

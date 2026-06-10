@@ -18,6 +18,7 @@ as failed(gateway_restarted) so they never stay permanently "in progress".
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from dataclasses import asdict, dataclass, field
@@ -297,10 +298,16 @@ class CronExecutionService:
         agent_id: str,
         workspace_root: Path,
         execute_fn: Callable[..., Awaitable[None]],
+        gateway_loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         self._agent_id = agent_id
         self._workspace_root = Path(workspace_root).expanduser().resolve()
         self._execute_fn = execute_fn
+        # Gateway asyncio loop reference for scheduling execute_fn when enqueue()
+        # is called from a sync thread (e.g. tool.run() via asyncio.to_thread).
+        # Without this, asyncio.get_event_loop() in the worker thread has no
+        # running loop, and ensure_future silently drops the execution.
+        self._gateway_loop = gateway_loop
         self._job_store = CronJobStore(workspace_root=self._workspace_root)
         self._runs_store = CronRunsStore(workspace_root=self._workspace_root)
 
@@ -362,27 +369,33 @@ class CronExecutionService:
 
         # Schedule execution (fire-and-forget from caller's perspective).
         # execute_fn is responsible for calling runs_store.update_status().
-        import asyncio  # noqa: PLC0415
+        #
+        # enqueue() can be called from two contexts:
+        #   A. Gateway asyncio loop (scheduled cron ticks): ensure_future directly.
+        #   B. Worker thread via asyncio.to_thread (tool.run() from kernel): use
+        #      call_soon_threadsafe on the injected gateway_loop so the coroutine
+        #      lands on the correct loop.
+        coro = self._execute_fn(
+            agent_id=self._agent_id,
+            job_id=job_id,
+            request_id=request_id,
+            trigger=trigger,
+        )
 
         try:
-            loop = asyncio.get_event_loop()
+            running_loop = asyncio.get_running_loop()
         except RuntimeError:
-            loop = None
+            running_loop = None
 
-        if loop is not None and loop.is_running():
-            # Called from Gateway asyncio loop: schedule coroutine directly.
-            asyncio.ensure_future(
-                self._execute_fn(
-                    agent_id=self._agent_id,
-                    job_id=job_id,
-                    request_id=request_id,
-                    trigger=trigger,
-                )
+        if running_loop is not None:
+            # Context A: already inside an asyncio loop (e.g. scheduled tick).
+            asyncio.ensure_future(coro, loop=running_loop)
+        elif self._gateway_loop is not None and self._gateway_loop.is_running():
+            # Context B: called from a sync thread; schedule on the Gateway loop.
+            self._gateway_loop.call_soon_threadsafe(
+                self._gateway_loop.create_task, coro
             )
         else:
-            # Called from background thread (RunsRegistry): schedule via loop.call_soon_threadsafe.
-            # The executor is responsible for providing a loop via _gateway_loop injection.
-            # For now, log a warning — this path is not reached in normal Gateway operation.
             _log.warning(
                 "cron enqueue: no running event loop; execute_fn not scheduled "
                 "(agent=%s job=%s request=%s)",

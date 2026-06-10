@@ -77,3 +77,57 @@ worktree: /Users/czj/Repos/nano-multiagent/.worktrees/bugfix-402-M4
 - Rollback: C1 hash (test(bugfix-402/M4/R5))
 - Commits: C1=test(R5), C2=fix(R5), C3=docs(R5)
 - Next: milestone 全部 roadpoints DONE → rebase + merge + spec delta
+
+---
+
+## Live E2E 验证证据
+
+**Date**: 2026-06-10
+
+**Stack**: `scripts/e2e-up.sh --wt .worktrees/bugfix-402-M4`
+- IM port: 59086
+- Gateway node: `wt-bugfix-402-M4-50035` (online)
+- LLM upstream: local proxy http://127.0.0.1:4000
+
+**Test setup**:
+1. `default-agent` workspace: `/Users/czj/nano-assistant/workspace/default-agent`
+2. Cron job `test-echo-job` created in `.nanoassistant/cron/jobs.json` with `instruction: "Reply with exactly this text: CRON_RUN_OK - e2e validation complete."`
+3. `features.cron_scheduling=true` set via `PATCH /im/v1/agents/default-agent/config`
+4. **Fix applied**: Gateway loop injection (`GatewayCronDispatcher.set_gateway_loop()`) so `enqueue()` called from `asyncio.to_thread` (tool.run) schedules `execute_fn` on the Gateway loop instead of silently dropping.
+5. **Fix applied**: `_execute` now writes `running`→`completed`/`failed` state transitions to `runs.jsonl`.
+
+**Evidence 1 — Immediate ack on run**:
+User message: "Run test-echo-job now using cron tool: action=run jobId=test-echo-job..."
+Agent response (from cron tool):
+```
+requestId: b56a964222a9409aa8f8e3a97b49521f — accepted successfully
+```
+
+**Evidence 2 — runs.jsonl three-phase transitions**:
+```
+status=accepted  trigger=manual  request_id=b56a964222a9409a  started=None    finished=None   run_id=None
+status=running   trigger=manual  request_id=b56a964222a9409a  started=13:40:39 finished=None  run_id=None
+status=running   trigger=manual  request_id=b56a964222a9409a  started=13:40:39 finished=None  run_id=run_72efe4882e4a4b9b
+status=completed trigger=manual  request_id=b56a964222a9409a  started=13:40:39 finished=13:40:42 run_id=run_72efe4882e4a4b9b
+```
+Total elapsed: 3 seconds (accepted → completed).
+
+**Evidence 3 — Kernel run executed, result in target conversation**:
+IM conversation `bee3e40fb18046d1873f1b43d57e297e` received agent reply:
+```
+CRON_RUN_OK - e2e validation complete.
+```
+This is the exact `instruction` text from the cron job, delivered to the same conversation the user sent the trigger from.
+
+**Evidence 4 — cron runs history (agent reply)**:
+Agent `action=runs` reply:
+```
+1 run record found.
+Status: running  (materializer read mid-execution, before completed record written)
+Trigger: manual
+Accepted: 13:40:39 UTC
+Started: 13:40:39 UTC
+kernel_run_id: run_72efe4882e4a4b9b
+```
+
+**Test count**: 2656 passed (unit + contract, non-e2e) after all M4 fixes including gateway loop injection + state tracking.
