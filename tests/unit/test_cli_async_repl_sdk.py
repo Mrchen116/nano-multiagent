@@ -457,3 +457,115 @@ def test_cli_llm_config_get_real_path_does_not_report_registry_error(
 
     payload = json.loads(output)
     assert "provider" in payload, f"Expected provider in payload: {payload}"
+
+
+# ---------------------------------------------------------------------------
+# bugfix-402-M3: R2 — Kernel.aclose() 幂等关闭 + coding_cli 退出路径
+# ---------------------------------------------------------------------------
+
+def test_coding_cli_async_main_uses_aclose_not_close(tmp_path: Path) -> None:
+    """_async_main finally block must await kernel.aclose() not kernel.close()."""
+    import ast
+    import inspect
+    from coding_cli import commands as _cmd_module
+
+    source = inspect.getsource(_cmd_module._async_main)
+    tree = ast.parse(source)
+
+    # Walk the finally-body of the outermost try statement.
+    found_aclose = False
+    found_sync_close = False
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Try):
+            continue
+        for stmt in node.finalbody:
+            # Check for "await kernel.aclose()"
+            for sub in ast.walk(stmt):
+                if isinstance(sub, ast.Await):
+                    call = sub.value
+                    if isinstance(call, ast.Call):
+                        func = call.func
+                        if (
+                            isinstance(func, ast.Attribute)
+                            and func.attr == "aclose"
+                        ):
+                            found_aclose = True
+                        if (
+                            isinstance(func, ast.Attribute)
+                            and func.attr == "close"
+                        ):
+                            found_sync_close = True
+            # Direct sync call: "kernel.close()"
+            for sub in ast.walk(stmt):
+                if isinstance(sub, ast.Call) and not isinstance(sub, ast.Await):
+                    func = getattr(sub, "func", None)
+                    if isinstance(func, ast.Attribute) and func.attr == "close":
+                        parent_expr = stmt
+                        if isinstance(parent_expr, ast.Expr):
+                            found_sync_close = True
+
+    assert found_aclose, (
+        "_async_main finally must contain 'await kernel.aclose()' — bugfix-402-M3"
+    )
+    assert not found_sync_close, (
+        "_async_main finally must NOT call sync 'kernel.close()' — use aclose() instead"
+    )
+
+
+def test_kernel_aclose_is_coroutine(tmp_path: Path) -> None:
+    """Kernel.aclose() must be an async method callable with await."""
+    import inspect
+    from agent.sdk import build_kernel
+
+    # Verify it's defined as async on the class.
+    from agent.sdk.kernel import Kernel
+    aclose_method = getattr(Kernel, "aclose", None)
+    assert aclose_method is not None, "Kernel must have an aclose() method"
+    assert inspect.iscoroutinefunction(aclose_method), (
+        "Kernel.aclose() must be a coroutine function"
+    )
+
+
+def test_kernel_close_is_still_callable(tmp_path: Path) -> None:
+    """Kernel.close() must still be a callable (sync compat wrapper)."""
+    from agent.sdk.kernel import Kernel
+    close_method = getattr(Kernel, "close", None)
+    assert close_method is not None, "Kernel must still have sync close() method"
+    import inspect
+    assert not inspect.iscoroutinefunction(close_method), (
+        "Kernel.close() must remain synchronous for backward compat"
+    )
+
+
+def test_kernel_aclose_idempotent(tmp_path: Path) -> None:
+    """Multiple aclose/close calls must not raise."""
+    import asyncio
+    from agent.sdk.kernel import Kernel
+
+    # Create a minimal stub kernel using the stored components pattern.
+    class _FakeRegistry:
+        def __init__(self):
+            self.shutdown_count = 0
+        def shutdown(self, **kwargs):
+            self.shutdown_count += 1
+
+    fake_reg = _FakeRegistry()
+
+    class _FakeComponents:
+        runs_registry = fake_reg
+        permission_broker = None
+
+    k = Kernel.__new__(Kernel)
+    object.__setattr__(k, "_c", _FakeComponents())
+    object.__setattr__(k, "_repo_root", tmp_path)
+    object.__setattr__(k, "_closed", False)
+
+    async def _run():
+        await k.aclose()
+        await k.aclose()  # second call must be no-op
+
+    asyncio.run(_run())
+    # shutdown called exactly once despite two aclose calls
+    assert fake_reg.shutdown_count == 1, (
+        f"shutdown must be called once; got {fake_reg.shutdown_count}"
+    )
