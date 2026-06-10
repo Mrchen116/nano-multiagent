@@ -39,7 +39,9 @@ def test_handler_routes_to_kernel_submit_permission_decision() -> None:
 
     handler({"request_id": "req-abc", "decision": "allow_once"})
 
-    assert kernel.calls == [{"request_id": "req-abc", "decision": "allow_once", "reason": ""}]
+    assert kernel.calls == [
+        {"request_id": "req-abc", "decision": "allow_once", "reason": ""}
+    ]
 
 
 def test_handler_passes_reason_field() -> None:
@@ -49,7 +51,9 @@ def test_handler_passes_reason_field() -> None:
 
     handler({"request_id": "req-1", "decision": "deny", "reason": "user said no"})
 
-    assert kernel.calls == [{"request_id": "req-1", "decision": "deny", "reason": "user said no"}]
+    assert kernel.calls == [
+        {"request_id": "req-1", "decision": "deny", "reason": "user said no"}
+    ]
 
 
 def test_handler_ignores_malformed_frames() -> None:

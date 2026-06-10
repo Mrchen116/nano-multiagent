@@ -61,7 +61,9 @@ class TestKernelSubmitPermissionDecision:
             decision="allow_once",
         )
 
-        assert result is True, "submit_permission_decision must return True for known request_id"
+        assert result is True, (
+            "submit_permission_decision must return True for known request_id"
+        )
         # broker.resolve uses call_soon_threadsafe; give the loop one iteration to process.
         await asyncio.sleep(0)
         assert future.done(), "broker future must be resolved after submit"
@@ -96,7 +98,9 @@ class TestKernelSubmitPermissionDecision:
             decision="allow_once",
         )
 
-        assert result is False, "submit_permission_decision must return False for unknown id"
+        assert result is False, (
+            "submit_permission_decision must return False for unknown id"
+        )
 
     @pytest.mark.asyncio
     async def test_submit_permission_decision_allow_session(self):
@@ -170,3 +174,120 @@ class TestPermissionResponseHandlerUsesKernel:
             decision="deny",
             reason="sensitive",
         )
+
+
+# ---------------------------------------------------------------------------
+# Finding 4: submit_permission_decision must validate decision whitelist
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitPermissionDecisionValidation:
+    """SDK boundary must reject illegal decision strings (finding 4)."""
+
+    def _make_kernel_with_pending(self):
+        from agent.platform.config.auto_mode import AutoModeConfig
+        from agent.platform.permissions.broker import PermissionBroker
+        from agent.sdk.kernel import Kernel, _KernelComponents
+
+        broker = PermissionBroker(config=AutoModeConfig())
+        broker.register_request("req-v", run_id="run-v")
+
+        components = MagicMock(spec=_KernelComponents)
+        components.permission_broker = broker
+
+        kernel = Kernel.__new__(Kernel)
+        kernel._c = components
+        kernel._can_use_tool = None
+        return kernel
+
+    @pytest.mark.asyncio
+    async def test_valid_allow_once_accepted(self):
+        kernel = self._make_kernel_with_pending()
+        result = kernel.submit_permission_decision(
+            request_id="req-v", decision="allow_once"
+        )
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_valid_deny_accepted(self):
+        kernel = self._make_kernel_with_pending()
+        result = kernel.submit_permission_decision(request_id="req-v", decision="deny")
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_valid_allow_session_accepted(self):
+        kernel = self._make_kernel_with_pending()
+        result = kernel.submit_permission_decision(
+            request_id="req-v", decision="allow_session"
+        )
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_valid_allow_always_accepted(self):
+        kernel = self._make_kernel_with_pending()
+        result = kernel.submit_permission_decision(
+            request_id="req-v", decision="allow_always"
+        )
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_invalid_decision_returns_false(self):
+        """Invalid decision string must return False without resolving broker (finding 4)."""
+        kernel = self._make_kernel_with_pending()
+        result = kernel.submit_permission_decision(
+            request_id="req-v", decision="Allow_Once"
+        )
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_garbage_decision_returns_false(self):
+        """Garbage decision string must return False (finding 4)."""
+        kernel = self._make_kernel_with_pending()
+        result = kernel.submit_permission_decision(
+            request_id="req-v", decision="yes_please"
+        )
+        assert result is False
+
+
+# ---------------------------------------------------------------------------
+# Finding 7: submit_permission_decision uses broker.resolve return value (TOCTOU)
+# ---------------------------------------------------------------------------
+
+
+class TestSubmitPermissionDecisionTOCTOU:
+    """submit_permission_decision must use broker.resolve bool, not is_pending pre-check (finding 7)."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_calls_idempotent(self):
+        """Concurrent submit calls for same request_id: exactly one returns True (finding 7)."""
+        import asyncio as _asyncio
+
+        from agent.platform.config.auto_mode import AutoModeConfig
+        from agent.platform.permissions.broker import PermissionBroker
+        from agent.sdk.kernel import Kernel, _KernelComponents
+
+        broker = PermissionBroker(config=AutoModeConfig())
+        broker.register_request("req-concurrent")
+
+        components = MagicMock(spec=_KernelComponents)
+        components.permission_broker = broker
+
+        kernel = Kernel.__new__(Kernel)
+        kernel._c = components
+        kernel._can_use_tool = None
+
+        # Run two concurrent resolves for same id
+        results = await _asyncio.gather(
+            _asyncio.to_thread(
+                kernel.submit_permission_decision,
+                request_id="req-concurrent",
+                decision="allow_once",
+            ),
+            _asyncio.to_thread(
+                kernel.submit_permission_decision,
+                request_id="req-concurrent",
+                decision="deny",
+            ),
+        )
+        # Exactly one must succeed (True), one must fail (False)
+        assert sorted(results) == [False, True]

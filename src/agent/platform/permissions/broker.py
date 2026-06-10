@@ -166,22 +166,30 @@ class PermissionBroker:
         with self._lock:
             return request_id in self._pending
 
-    def resolve(self, request_id: str, response: PermissionResponse) -> None:
+    def resolve(self, request_id: str, response: PermissionResponse) -> bool:
         """Resolve a pending permission request with the given response.
 
-        No-op if request_id is not registered (idempotent by design).
+        The pop-then-schedule is atomic under the lock, so two concurrent
+        callers for the same request_id cannot both return True — exactly one
+        wins the pop and returns True; the other gets None and returns False.
+        This eliminates the TOCTOU window of a separate is_pending pre-check.
 
         Args:
             request_id: The request to resolve.
             response: The user or timeout decision.
+
+        Returns:
+            True when the request was found and scheduled for resolution;
+            False when request_id was not pending (unknown or already resolved).
         """
         with self._lock:
             entry = self._pending.pop(request_id, None)
         if entry is None:
-            return
+            return False
         future, _ = entry
         if not future.done():
             future.get_loop().call_soon_threadsafe(future.set_result, response)
+        return True
 
     def cancel_all_pending(self, *, run_id: str | None) -> None:
         """Resolve all pending futures in scope to deny.

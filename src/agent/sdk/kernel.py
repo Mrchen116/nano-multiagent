@@ -6,14 +6,15 @@ a ready-to-use Kernel without exposing any HTTP/FastAPI surface.
 Design (refactor-387 M1):
 - Mirrors create_app() assembly logic with FastAPI/routes/middleware removed.
 - LLMClientFactory injected into AgentRuntime (decision 4, #40).
-- can_use_tool callback wired as permission_requester (decision 3).
+- Permission flow: runtime._build_hook_context races optional can_use_tool
+  callback against a PermissionBroker future; gateway resolves the future
+  externally via Kernel.submit_permission_decision (feat-394-M14).
 - All methods async-native; RunsRegistry runs in its own background loop
   (decision 2 — pre-condition for M2 async-native CLI).
 """
 
 from __future__ import annotations
 
-import asyncio
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,8 +39,6 @@ from agent.platform.llm.factory import create_llm_client as _platform_create_llm
 from agent.platform.permissions.broker import (
     PermissionBroker,
     PermissionDecision,
-    PermissionRequest,
-    PermissionResponse,
 )
 from agent.platform.persistence.session.service import SessionService
 from agent.platform.tools.loader import build_tool_registry
@@ -238,7 +237,6 @@ class Kernel:
         repo_root: Path,
     ) -> None:
         self._c = components
-        self._can_use_tool = can_use_tool
         self._repo_root = repo_root
 
         # Inject can_use_tool into runtime so _build_hook_context can race it
@@ -438,16 +436,28 @@ class Kernel:
         """
         from agent.platform.permissions.broker import PermissionResponse  # noqa: PLC0415
 
-        broker = self._c.permission_broker
-        if not broker.is_pending(request_id):
+        _VALID_DECISIONS = frozenset(
+            {"allow_once", "deny", "allow_session", "allow_always"}
+        )
+        if decision not in _VALID_DECISIONS:
+            import logging as _logging  # noqa: PLC0415
+
+            _logging.getLogger(__name__).warning(
+                "submit_permission_decision: invalid decision %r (must be one of %s)",
+                decision,
+                sorted(_VALID_DECISIONS),
+            )
             return False
+
+        broker = self._c.permission_broker
         response = PermissionResponse(
             decision=decision,  # type: ignore[arg-type]
             request_id=request_id,
             reason=reason,
         )
-        broker.resolve(request_id, response)
-        return True
+        # broker.resolve pops atomically under lock; its bool return replaces the
+        # TOCTOU-prone is_pending pre-check (feat-394-M14 finding 7).
+        return broker.resolve(request_id, response)
 
     def cancel(self, run_id: str) -> RunRecord | None:
         """Cancel a queued or running run by id.
@@ -733,101 +743,10 @@ class Kernel:
 
         return {"prompt": assembled, "section_count": section_count}
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
-    def _make_permission_requester(self) -> Callable[[Any], Awaitable[Any]]:
-        """Build the permission_requester callable injected into runtime hook contexts.
-
-        The auto_mode_gate hook calls ``HookContext.request_permission(req)``,
-        which calls this requester.  We register the request with the broker
-        (so cancel_all_pending on interrupt can abort it) while simultaneously
-        awaiting the consumer's can_use_tool callback.
-
-        The first to resolve wins: if interrupt fires before can_use_tool
-        returns, cancel_all_pending sets the Future to deny, and we use that
-        decision.  If can_use_tool returns first, we use its PermissionDecision
-        (mapped to PermissionResponse) and resolve the broker Future ourselves.
-        """
-        broker = self._c.permission_broker
-        can_use_tool = self._can_use_tool
-
-        async def _requester(req: PermissionRequest) -> PermissionResponse:
-            loop = asyncio.get_event_loop()
-            # Park a Future in the broker so interrupt → cancel_all_pending can
-            # resolve it to deny and abort the permission wait (risk 3).
-            broker_future: asyncio.Future[PermissionResponse] = loop.create_future()
-            with broker._lock:  # noqa: SLF001  (SDK is the privileged assembler)
-                broker._pending[req.id] = (broker_future, None)  # noqa: SLF001
-
-            # Wrap can_use_tool in a task so it can be raced against the broker Future.
-            can_use_task: asyncio.Task[PermissionDecision] = asyncio.create_task(
-                can_use_tool(req.tool_name, req.tool_input, req)
-            )
-
-            try:
-                done, pending = await asyncio.wait(
-                    {can_use_task, asyncio.ensure_future(_wait_future(broker_future))},
-                    return_when=asyncio.FIRST_COMPLETED,
-                )
-            except asyncio.CancelledError:
-                can_use_task.cancel()
-                raise
-
-            # Cancel the loser.
-            for task in pending:
-                task.cancel()
-
-            # Determine the winning decision.
-            if broker_future.done() and not broker_future.cancelled():
-                # Broker future resolved first (interrupt path): use its deny/cancel response.
-                return broker_future.result()
-
-            # can_use_tool returned first: map PermissionDecision → PermissionResponse.
-            try:
-                decision: PermissionDecision = can_use_task.result()
-            except Exception:
-                # If can_use_tool raised, fail-closed.
-                decision = PermissionDecision(
-                    behavior="deny", reason="can_use_tool raised"
-                )
-
-            response = _decision_to_response(decision)
-            # Resolve broker future so any lingering cancel_all_pending call sees it done.
-            if not broker_future.done():
-                broker_future.get_loop().call_soon_threadsafe(
-                    broker_future.set_result, response
-                )
-            return response
-
-        return _requester
-
     @property
     def _broker(self) -> PermissionBroker:
         """Expose broker for testing purposes."""
         return self._c.permission_broker
-
-
-async def _wait_future(future: "asyncio.Future[Any]") -> Any:
-    """Await a Future as a coroutine (usable in asyncio.wait with tasks)."""
-    return await asyncio.shield(future)
-
-
-def _decision_to_response(decision: PermissionDecision) -> PermissionResponse:
-    """Map SDK PermissionDecision to broker PermissionResponse.
-
-    Behavior mapping:
-    - allow → allow_once (single-use grant; SDK consumers may override policy)
-    - deny  → deny
-    - ask   → deny  (shouldn't reach here; ask means broker should handle)
-    - passthrough → allow_once (tool defers → allow by default)
-    """
-    if decision.behavior == "allow":
-        return PermissionResponse(decision="allow_once")
-    if decision.behavior in ("ask", "passthrough"):
-        return PermissionResponse(decision="allow_once")
-    return PermissionResponse(decision="deny", reason=decision.reason)
 
 
 def _bind_runtime_to_tool_registry(

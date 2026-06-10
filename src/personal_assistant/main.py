@@ -2189,7 +2189,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             prompt_preview_provider=_make_prompt_preview_provider(kernel),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
-            permission_response_handler=_build_permission_response_handler(kernel=kernel),
+            permission_response_handler=_build_permission_response_handler(
+                kernel=kernel
+            ),
             on_connected=_reconcile_on_connect,
         )
         im_bootstrap_client = _IMBootstrapClient(

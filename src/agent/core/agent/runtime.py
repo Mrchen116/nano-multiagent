@@ -1261,63 +1261,103 @@ class AgentRuntime:
                             ],
                         },
                     )
+                response: Any = None
                 try:
                     if can_use_tool is not None:
                         # Race can_use_tool callback against broker future.
                         # CLI products supply can_use_tool for interactive prompts;
                         # PA leaves it None and resolves via submit_permission_decision.
                         can_use_task: asyncio.Task[Any] = asyncio.create_task(
-                            can_use_tool(req.tool_name, getattr(req, "tool_input", {}), req)
+                            can_use_tool(
+                                req.tool_name, getattr(req, "tool_input", {}), req
+                            )
                         )
 
                         async def _await_future(f: "asyncio.Future[Any]") -> Any:
                             return await asyncio.shield(f)
 
-                        done, pending = await asyncio.wait(
-                            {can_use_task, asyncio.ensure_future(_await_future(future))},
-                            return_when=asyncio.FIRST_COMPLETED,
-                        )
+                        try:
+                            done, pending = await asyncio.wait(
+                                {
+                                    can_use_task,
+                                    asyncio.ensure_future(_await_future(future)),
+                                },
+                                return_when=asyncio.FIRST_COMPLETED,
+                            )
+                        except asyncio.CancelledError:
+                            # Outer coroutine cancelled — clean up can_use_task to
+                            # prevent task leak (feat-394-M14 finding 2).
+                            can_use_task.cancel()
+                            await asyncio.gather(can_use_task, return_exceptions=True)
+                            raise
+
                         for t in pending:
                             t.cancel()
+                        # Drain cancelled losers so they don't generate unhandled
+                        # exceptions after this coroutine exits.
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
 
                         if future.done() and not future.cancelled():
                             # Broker future resolved first (interrupt/external decision).
                             response = future.result()
                         else:
-                            # can_use_tool returned first — map decision to response and
-                            # resolve broker future so permission_resolved fires correctly.
+                            # can_use_tool returned first — map decision to response.
+                            # Build a minimal duck-typed response: architecture boundary
+                            # forbids core from importing platform types (see contract
+                            # test_core_no_platform_imports); broker only reads
+                            # .decision / .reason / .request_id.
                             try:
-                                decision: Any = can_use_task.result()
+                                raw_decision: Any = can_use_task.result()
                             except Exception:
-                                decision = type("_D", (), {"behavior": "deny", "reason": "can_use_tool raised"})()
-                            behavior = getattr(decision, "behavior", "deny")
-                            reason = getattr(decision, "reason", "")
-                            # Lightweight duck-typed response; broker only needs .decision attribute.
-                            response = type("_R", (), {
-                                "decision": "deny" if behavior == "deny" else "allow_once",
-                                "reason": reason,
-                                "request_id": req.id,
-                                "rule_update": None,
-                            })()
+                                raw_decision = type(
+                                    "_D",
+                                    (),
+                                    {
+                                        "behavior": "deny",
+                                        "reason": "can_use_tool raised",
+                                    },
+                                )()
+                            behavior = getattr(raw_decision, "behavior", "deny")
+                            reason = getattr(raw_decision, "reason", "")
+                            response = type(
+                                "_R",
+                                (),
+                                {
+                                    "decision": "deny"
+                                    if behavior == "deny"
+                                    else "allow_once",
+                                    "reason": reason,
+                                    "request_id": req.id,
+                                    "rule_update": None,
+                                },
+                            )()
+                            # Pop the broker entry atomically so cancel_all_pending
+                            # cannot race with a second set_result
+                            # (feat-394-M14 findings 1 + 3).  We own the future
+                            # reference here; schedule set_result after the pop.
+                            with broker._lock:  # noqa: SLF001
+                                broker._pending.pop(req.id, None)  # noqa: SLF001
                             if not future.done():
-                                future.get_loop().call_soon_threadsafe(future.set_result, response)
+                                future.get_loop().call_soon_threadsafe(
+                                    future.set_result, response
+                                )
                     else:
                         response = await future
                 finally:
-                    # Emit 'permission_resolved' SSE event so IM card updates to resolved state.
-                    if (
-                        publisher_for_broker is not None
-                        and future.done()
-                        and not future.cancelled()
-                    ):
+                    # Emit 'permission_resolved' SSE event so IM card updates to
+                    # resolved state.  Use the local `response` variable rather than
+                    # re-reading future.done(): call_soon_threadsafe is asynchronous,
+                    # so future.done() may still be False at this point even when we
+                    # just scheduled a set_result (feat-394-M14 finding 1).
+                    if publisher_for_broker is not None and response is not None:
                         try:
-                            result = future.result()
                             publisher_for_broker(
                                 "permission_resolved",
                                 {
                                     "run_id": run_id_for_broker,
                                     "request_id": req.id,
-                                    "decision": getattr(result, "decision", "deny"),
+                                    "decision": getattr(response, "decision", "deny"),
                                 },
                             )
                         except Exception as exc:
