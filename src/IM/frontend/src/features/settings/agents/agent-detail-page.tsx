@@ -318,6 +318,19 @@ function BehaviorCard({
 // feat-394-M7 R5-3 fix: added activeHours start/end UI (spec S2.5 requirement).
 // feat-394-M11 decision E: cadence input binds to backend config value (no hardcoded 30m fallback).
 // feat-394-M13: adds collapsible HEARTBEAT.md read-only preview panel via RPC (Decision G).
+// feat-394 followup: cadence is edited as a number stepper + unit dropdown rather than
+// a free-text duration box.  This guarantees the stored value is always in the backend's
+// strict `<int><unit>` shape (scheduler parser is `\d+[smhd]`), so an invalid duration that
+// only blows up at tick time can never be produced from the UI.
+const HEARTBEAT_UNITS = ["m", "h", "d"] as const;
+type HeartbeatUnit = "s" | "m" | "h" | "d";
+
+function parseCadence(every: string): { amount: string; unit: HeartbeatUnit } {
+  const match = /^\s*(\d+)\s*([smhd])\s*$/i.exec(every);
+  if (!match) return { amount: "", unit: "m" };
+  return { amount: match[1], unit: match[2].toLowerCase() as HeartbeatUnit };
+}
+
 interface HeartbeatCardProps {
   agentId: string;
   draft: AgentConfigFormState;
@@ -337,6 +350,17 @@ function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursC
   // feat-394 M9-E: enable is the single-true-source in features["heartbeat"], not heartbeat.enabled.
   const enabled = draft.features?.heartbeat ?? false;
   const every = heartbeat?.every ?? "";
+  const { amount: cadenceAmount, unit: cadenceUnit } = parseCadence(every);
+  // Show m/h/d; keep a legacy "s" value as an extra option so opening the form never
+  // silently rewrites a seconds-based cadence into minutes.
+  const cadenceUnitOptions: HeartbeatUnit[] = (HEARTBEAT_UNITS as readonly string[]).includes(cadenceUnit)
+    ? [...HEARTBEAT_UNITS]
+    : [cadenceUnit, ...HEARTBEAT_UNITS];
+  const emitCadence = (amount: string, unit: HeartbeatUnit) => {
+    const trimmed = amount.trim();
+    // Empty amount → unconfigured (backend falls back to default 30m); never emit a unit-only string.
+    onEveryChange(trimmed === "" ? "" : `${trimmed}${unit}`);
+  };
   const activeStart = heartbeat?.active_hours?.start ?? "";
   const activeEnd = heartbeat?.active_hours?.end ?? "";
 
@@ -400,17 +424,36 @@ function HeartbeatCard({ agentId, draft, onToggle, onEveryChange, onActiveHoursC
         <>
           <div className="im-agent-field">
             <Label.Root htmlFor="heartbeat-every">{t("agents.form.heartbeat.everyLabel")}</Label.Root>
-            <input
-              id="heartbeat-every"
-              className="im-input"
-              value={every}
-              placeholder="30m"
-              aria-describedby="heartbeat-every-help"
-              onChange={(e) => onEveryChange(e.target.value)}
-              // feat-394-M3 minor Issue 4: select-all on focus so typing replaces the old value
-              // rather than appending to it (standard UX for numeric/interval input fields).
-              onFocus={(e) => e.target.select()}
-            />
+            <div className="flex gap-2 items-center">
+              <input
+                id="heartbeat-every"
+                className="im-input"
+                type="number"
+                min={1}
+                step={1}
+                value={cadenceAmount}
+                placeholder="30"
+                aria-describedby="heartbeat-every-help"
+                onChange={(e) => emitCadence(e.target.value, cadenceUnit)}
+                // feat-394-M3 minor Issue 4: select-all on focus so typing replaces the old value
+                // rather than appending to it (standard UX for numeric input fields).
+                onFocus={(e) => e.target.select()}
+              />
+              <select
+                id="heartbeat-every-unit"
+                className="im-input"
+                data-testid="heartbeat-every-unit"
+                value={cadenceUnit}
+                aria-label={t("agents.form.heartbeat.everyUnitLabel")}
+                onChange={(e) => emitCadence(cadenceAmount, e.target.value as HeartbeatUnit)}
+              >
+                {cadenceUnitOptions.map((u) => (
+                  <option key={u} value={u}>
+                    {t(`agents.form.heartbeat.unit.${u}`)}
+                  </option>
+                ))}
+              </select>
+            </div>
             <p id="heartbeat-every-help" className="im-agent-field-help">
               {t("agents.form.heartbeat.everyHelp")}
             </p>

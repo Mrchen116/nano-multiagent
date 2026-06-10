@@ -201,12 +201,15 @@ describe("cadence input shows actual backend value", () => {
     await screen.findByRole("heading", { name: "M9C Agent" });
 
     const everyInput = document.querySelector<HTMLInputElement>("#heartbeat-every");
-    expect(everyInput, "cadence input must be rendered when heartbeat is on").not.toBeNull();
+    const unitSelect = document.querySelector<HTMLSelectElement>("#heartbeat-every-unit");
+    expect(everyInput, "cadence amount input must be rendered when heartbeat is on").not.toBeNull();
     expect(
       everyInput!.value,
-      "cadence input value must be empty (not hardcoded '30m') when heartbeat.every is unset"
+      "cadence amount must be empty (not hardcoded '30') when heartbeat.every is unset"
     ).toBe("");
-    expect(everyInput!.placeholder, "placeholder should be '30m' as the default hint").toBe("30m");
+    expect(everyInput!.placeholder, "placeholder should be '30' as the default hint").toBe("30");
+    expect(unitSelect, "cadence unit dropdown must be rendered").not.toBeNull();
+    expect(unitSelect!.value, "unit dropdown defaults to minutes when unset").toBe("m");
   });
 
   it("cadence input shows the configured every value from backend", async () => {
@@ -222,8 +225,10 @@ describe("cadence input shows actual backend value", () => {
     await screen.findByRole("heading", { name: "M9C Agent" });
 
     const everyInput = document.querySelector<HTMLInputElement>("#heartbeat-every");
-    expect(everyInput, "cadence input must render").not.toBeNull();
-    expect(everyInput!.value, "cadence input must display backend value '45m'").toBe("45m");
+    const unitSelect = document.querySelector<HTMLSelectElement>("#heartbeat-every-unit");
+    expect(everyInput, "cadence amount input must render").not.toBeNull();
+    expect(everyInput!.value, "cadence amount must display backend value '45'").toBe("45");
+    expect(unitSelect!.value, "cadence unit must display backend unit 'm'").toBe("m");
   });
 });
 

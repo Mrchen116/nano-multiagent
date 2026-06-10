@@ -269,7 +269,14 @@
         "enabledLabel": "启用 heartbeat",
         "enabledHelp": "Agent 会定期唤醒，检查 HEARTBEAT.md 中的任务清单。",
         "everyLabel": "节律",
-        "everyHelp": "唤醒频率（例如 30m、1h、2h）。"
+        "everyHelp": "agent 多久唤醒一次。",
+        "everyUnitLabel": "节律单位",
+        "unit": {
+          "s": "秒",
+          "m": "分钟",
+          "h": "小时",
+          "d": "天"
+        }
       },
       "cron": {
         "title": "定时任务",
