@@ -85,7 +85,7 @@
 
 ### R4 — 中断/取消/shutdown 写 tool_call_recovery 终态
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   1. C1: 在 test_session_manager.py 增加 TestInterruptCancelRecovery：
      - interrupt/cancel/shutdown 调用 recovery writer，load 后 build_chat_messages 合法

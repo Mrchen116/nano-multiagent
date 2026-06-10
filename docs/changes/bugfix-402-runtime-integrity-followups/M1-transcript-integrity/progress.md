@@ -44,3 +44,17 @@
   - Visual/Interaction: N/A
 - Rollback: revert C2 commit
 - Commits: C1=红测试, C2=实现（jsonl_store + runtime）
+
+## R4 — 中断/取消/shutdown 写 tool_call_recovery 终态
+
+- Context: 运行被 cancel/interrupt/shutdown 时，已持久化的 assistant tool_calls 没有对应 result。需要有机制让这些 call_ids 获得终态 recovery entry，使下次 load + build_chat_messages 合法。
+- Decision: R1 已实现 `append_tool_call_recovery()`（轻量版，直接 append 已知 call_id），R3 中 load() 已能物化 recovery entry 为合成 tool result。R4 补充了三条 regression test，验证 interrupt/cancelled/shutdown 三种 reason 的完整链路（append → flush → load → build_chat_messages 合法）。runtime 层调用 `append_tool_call_recovery` 的时机由 R3 的 cache-miss prepare + 运行结束后 prepare 共同覆盖（进程内中断后 cache 失效，下次 cache-miss 时触发 prepare）。
+- Evidence:
+  - Tests: `pytest tests/unit/test_session_manager.py::TestInterruptCancelRecovery -xvs` — 3 passed
+  - Entry: N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: regression coverage 落在 TestInterruptCancelRecovery
+  - Visual/Interaction: N/A
+- Rollback: revert C1 commit（仅 test 文件，无风险）
+- Commits: C1=测试（tests 直接绿，因为 R1/R3 已实现机制）
