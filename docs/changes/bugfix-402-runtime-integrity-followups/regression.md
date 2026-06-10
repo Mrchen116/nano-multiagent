@@ -144,3 +144,51 @@
 - [x] `docs/specs/im/spec.md`：无需更新（M5 只修复前端迁移遗漏，Actor 长期契约已存在）
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新
 - [x] `docs/SPEC_GUIDE.md`：无需更新（本 unit 未改文档体系）
+
+---
+
+# Round 2 — 2026-06-11
+
+## Verdict
+
+**fail**
+
+**Highest Required Action**: fix-implementation
+
+**Issues**: blocking: 1, major: 0, minor: 0
+
+## Fast-lane 说明
+
+复用上轮上下文做轻量复验。重点验证 Round 1 blocking Issue 1（M4 手动 cron）对应的三个 Scenario；其余上轮 pass 的 Requirement 轻量抽验。
+
+## 验收标准覆盖（Round 2 更新）
+
+### Requirement: 手动运行复用 cron 原有任务语义
+
+| Scenario | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 立即运行已有任务 | 重启 e2e 栈（HEAD=0aee0928），向 default-agent 发消息 "Run cron job test-echo-job now" | Agent 回复 "cron execution service is currently unavailable"；`.gateway.log` 仍有 "cron tick: no CronExecutionService for agent=default-agent ws=..." | **fail** | M6 Fix 1 在 e2e 实机仍未生效，见 Issue 1（Round 2） |
+| 手动任务完成 | 依赖前条通过 | 未验证（前置 fail） | **inconclusive** | — |
+| 手动运行未知任务 | 依赖 cron service 可用 | 未验证（前置 fail） | **inconclusive** | — |
+
+**Requirement 结论**: fail（同 Round 1，blocking issue 未解除）
+
+### 其余 Requirement（轻量抽验）
+
+- **异常终结不会永久损坏会话（M1）**：全树测试 2667 passed（M6 progress 记录），较 Round 1 新增 Fix 3 修复 `load()` 静默丢弃 recovery 的 bug 并新增测试，**维持 pass**。
+- **模型错误按可恢复语义重试（M2）**：Fix 4 修正了 billing text 优先级（结构化永久类型/code 优先于 billing 文本），避免 `invalid_request_error` + body 含 "credit" 被误判为可重试；新增 4 个测试。**维持 pass**。
+- **Gateway 有序关闭（M3）**：Fix 2 修正 `aclose()` 绕过状态机问题；Fix 5 修正 `e2e-down.sh` grace 计时（`elapsed+=1` → `elapsed_ticks` 正确计数）；Fix 6 新增 `CronExecutionService.drain()`。**维持 pass**。
+- **Web IM 不再依赖全局用户目录（M5）**：上轮 pass，本轮无相关修改，**维持 pass**。
+
+## Issues（Round 2）
+
+### Issue 1: 手动 cron 运行时 cron execution service 仍不可用（M6 Fix 1 未生效）
+
+- **Severity**: blocking
+- **Regression Relation**: direct（同 Round 1 Issue 1，Requirement: 手动运行复用 cron 原有任务语义）
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: M6 Fix 1 的 worker 验证是直接调用 `GatewayCronDispatcher.invoke()` 绕过完整 Gateway 启动流程，没有覆盖 `build_runtime()` 循环注册路径在真实 e2e 场景下的表现。实机验证：重启 e2e 栈后 Gateway log 仍输出 "cron tick: no CronExecutionService for agent=default-agent ws=/Users/czj/nano-assistant/workspace/default-agent"，agent 对 cron run 请求的回复仍为 "cron execution service is currently unavailable"。
+
+**复现**：启动 e2e 栈 → 向 default-agent 发 cron run 请求 → 收到 cron_unavailable 回复；`.gateway.log` 有 no-CronExecutionService 警告。
+
+**定位方向（供 fix worker 参考）**：M6 Fix 1 增加了 `on_agent_created` callback 路径，解决了动态注册的 agent；但静态注册路径（`build_runtime()` 启动循环遍历 `config.agents`）仍可能存在路径不匹配。e2e config 中 default-agent 的 `workspace_root` = `/Users/czj/nano-assistant/workspace/default-agent`；注册调用 `Path(ws).expanduser().resolve()` 后得到的 key 应与 dispatcher 调用时 `context.workspace_root` 的值一致——需要确认 `HostCapabilityContext.workspace_root` 在 cron tool 调用时传入的是什么路径，与注册时用的 key 是否完全相同。
