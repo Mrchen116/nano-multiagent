@@ -6,10 +6,8 @@
 
 Gateway 默认可作为后台常驻服务启动，使用持久化 config 和单实例 PID 锁。`stop`/`restart`
 必须先停止新入站、heartbeat、cron 和 dispatch 生产者，再收拢内核运行，最后关闭 IM/channel
-资源。Gateway 必须异步等待 Kernel 和自己拥有的 run-stream/delivery consumer，不得在主 event
-loop 直接执行阻塞式 Kernel close。进行中的操作进入明确终态；关闭阶段的次要错误不得覆盖导致
-进程退出的最早真实错误。项目提供的 e2e 停止脚本也必须先等待 Gateway grace shutdown，再停止
-其依赖的 IM 服务，只有 Gateway 超时不退出时才强制终止。
+资源。进行中的操作进入明确终态，终态事件有机会完成投递；关闭阶段的次要错误不得覆盖导致进程
+退出的最早真实错误。
 
 #### Scenario: 默认启动后台常驻并尽快返回
 

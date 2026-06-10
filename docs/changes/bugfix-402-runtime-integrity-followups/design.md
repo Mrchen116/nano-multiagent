@@ -429,7 +429,9 @@ new direct/group      -> POST /im/v1/conversations {participants:[Actor...]}
 ## 契约层增量 (delta-spec)
 
 - kernel: `specs/kernel/spec.md`
-- im: `specs/im/spec.md`
+- im: no spec delta；M5 只修复前端对已退役接口的迁移遗漏，Actor、Agent `user_id` 和
+  conversation participants 的长期契约已存在于 canonical IM spec。旧端点名称、兼容清理和
+  “本 unit 不新增真人发现”只保留在 incident/design/回归标准，不归并到长青 spec。
 - gateway: `specs/gateway/spec.md`
 - cli: no spec delta
 
