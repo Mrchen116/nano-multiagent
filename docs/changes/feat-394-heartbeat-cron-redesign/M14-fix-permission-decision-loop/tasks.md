@@ -22,6 +22,6 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | cron NameError 修复（Issue B） | TODO |
-| R2 | 权限回路修复（Issue A）— SDK + runtime + gateway | TODO |
-| R3 | 全量测试 + contract 白名单 + live e2e | TODO |
+| R1 | cron NameError 修复（Issue B） | DONE |
+| R2 | 权限回路修复（Issue A）— SDK + runtime + gateway | DONE |
+| R3 | 全量测试 + contract 白名单 + live e2e | DONE |

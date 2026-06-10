@@ -30,14 +30,14 @@ pytest -m "not e2e" → 全绿（排除 2 个预存 IM 集成测试失败）
 
 ### Issue A — 权限卡片 live e2e（playwright 截图证明）
 
-截图路径（相对 worktree 根）：
+截图路径（归档至主仓 `ACCEPTANCE/feat-394-m14/`）：
 
 | 截图 | 内容 |
 |---|---|
-| `output/playwright/05-perm-card-wait.png` | 权限 ask 卡片出现，状态 "running"，按钮 Allow once / Deny / Allow for session |
-| `output/playwright/06-allow-once-result.png` | 点击 Allow once 后，卡片显示 "Allowed · write"，agent 回复 "Done — wrote to /tmp/m14-perm-test.txt" |
-| `output/playwright/07b-deny-card-visible.png` | 第二次触发，权限 ask 卡片出现 |
-| `output/playwright/08-deny-result.png` | 点击 Deny 后，卡片显示 "Denied · write"，agent 回复 "The write was blocked by a hook." |
+| `ACCEPTANCE/feat-394-m14/05-perm-card-wait.png` | 权限 ask 卡片出现，状态 "running"，按钮 Allow once / Deny / Allow for session |
+| `ACCEPTANCE/feat-394-m14/06-allow-once-result.png` | 点击 Allow once 后，卡片显示 "Allowed · write"，agent 回复 "Done — wrote to /tmp/m14-perm-test.txt" |
+| `ACCEPTANCE/feat-394-m14/07b-deny-card-visible.png` | 第二次触发，权限 ask 卡片出现 |
+| `ACCEPTANCE/feat-394-m14/08-deny-result.png` | 点击 Deny 后，卡片显示 "Denied · write"，agent 回复 "The write was blocked by a hook." |
 
 文件存在验证：
 - `/tmp/m14-perm-test.txt` ✓ 存在（Allow once 后工具真实执行）
@@ -73,7 +73,7 @@ state.json 写入（cron scheduler 正常运转）：
 }
 ```
 
-IM 直聊截图：`output/playwright/cron-05-delivery-proof.png`
+IM 直聊截图：`ACCEPTANCE/feat-394-m14/cron-05-delivery-proof.png`
 - 12:15 消息：default-agent 复述了 cron instruction "cron tick OK - feat-394-M14 cron regression test"
 - 12:16 消息：下一次 cron tick 再次执行
 
