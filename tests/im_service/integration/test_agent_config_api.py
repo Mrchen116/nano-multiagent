@@ -12,7 +12,9 @@ from IM.infra.repositories import AgentProfileRepository, NodeRepository, UserRe
 
 from .conftest import authorize, register_user
 
-_WORKSPACE_PATH_SETTING = "/tmp/nano-test/workspace/test-agent"
+# resolve() 与实现侧的 realpath 规范化(feat-388 路径治理)同口径:macOS 上 /tmp 是
+# /private/tmp 的符号链接,API 回显规范化路径,期望值不 resolve 则仅 Linux 上成立。
+_WORKSPACE_PATH_SETTING = str(Path("/tmp/nano-test/workspace/test-agent").resolve())
 
 
 def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
