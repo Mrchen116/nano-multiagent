@@ -1503,12 +1503,15 @@ export async function listDiscoverableAgents(): Promise<DiscoverableAgent[]> {
 
 export async function listDiscoverableGroupParticipants(): Promise<GroupChatParticipantOption[]> {
   // Actor-first: build candidate list directly from /im/v1/agents.
-  // No /im/v1/users call; agent.user_id is used as the participant id when
-  // the backend requires a concrete user row, falling back to the agent_id.
+  // IM spec guarantees agent.user_id is always non-null (each AgentProfile has
+  // a backing users row, lazy-created on first list). Filter out any agent that
+  // somehow lacks user_id — that indicates a data integrity issue, not a normal
+  // state that the frontend should paper over with a synthetic id.
   const agents = await listAgentsRaw();
   return agents
+    .filter((agent) => agent.user_id != null)
     .map((agent): GroupChatParticipantOption => ({
-      user_id: agent.user_id ?? `agent:${agent.agent_id}`,
+      user_id: agent.user_id as string,
       label: agent.display_name || agent.agent_id,
       kind: "agent",
       description: agent.description?.trim() || "Configured agent available for shared group chat."
@@ -1616,17 +1619,18 @@ export async function createGroupConversation(input: {
     throw new Error("select at least two participants to create a group chat");
   }
   const agents = await listAgentsRaw();
+  // agentsByUserId is the only lookup path: IM spec guarantees user_id is non-null,
+  // and listDiscoverableGroupParticipants only emits agents with a real user_id.
   const agentsByUserId = new Map(agents.filter((a) => a.user_id).map((a) => [a.user_id as string, a]));
-  const agentsByFallbackId = new Map(agents.map((a) => [`agent:${a.agent_id}`, a]));
   const participantLabels = selectedIds.map((participantId) => {
-    const agent = agentsByUserId.get(participantId) ?? agentsByFallbackId.get(participantId);
+    const agent = agentsByUserId.get(participantId);
     return agent?.display_name || participantId;
   });
   const title = resolveGroupConversationTitle({ groupName: input.groupName, participantLabels });
   const participants: ImActorRef[] = [
     { type: "user", id: selfUserId },
     ...selectedIds.map<ImActorRef>((participantId) => {
-      const agent = agentsByUserId.get(participantId) ?? agentsByFallbackId.get(participantId);
+      const agent = agentsByUserId.get(participantId);
       if (agent) {
         return { type: "agent", id: agent.agent_id, display_name: agent.display_name };
       }

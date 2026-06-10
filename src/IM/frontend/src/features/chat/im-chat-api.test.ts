@@ -430,7 +430,8 @@ describe("im chat api helpers", () => {
 
   it("derives selectable group participants from runtime agents (Actor-first, no /im/v1/users)", async () => {
     // Actor-first: listDiscoverableGroupParticipants uses /im/v1/agents directly.
-    // user_id field comes from agent.user_id when present; falls back to "agent:<agent_id>".
+    // Agents with user_id are included; agents with null user_id (data integrity
+    // issue, should never occur in production) are silently filtered out.
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url === "/im/v1/agents") {
@@ -459,16 +460,11 @@ describe("im chat api helpers", () => {
 
     const participants = await listDiscoverableGroupParticipants();
 
+    // agent-b has null user_id and is filtered out
     expect(participants).toEqual([
       {
         user_id: "agent-a-uid",
         label: "Agent A",
-        kind: "agent",
-        description: "runtime selectable"
-      },
-      {
-        user_id: "agent:agent-b",
-        label: "Agent B",
         kind: "agent",
         description: "runtime selectable"
       }
