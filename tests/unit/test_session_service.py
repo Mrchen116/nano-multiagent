@@ -76,3 +76,99 @@ def test_create_session_no_default_no_caller_metadata_yields_no_self_evolution(
     session = service.create_session(workspace_root=tmp_path)
 
     assert "self_evolution" not in session.metadata
+
+
+# ---------------------------------------------------------------------------
+# C1-R2: SessionService.prepare_transcript_for_run (RED tests)
+# ---------------------------------------------------------------------------
+
+
+import json
+
+
+def _write_raw(path: Path, lines: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        for entry in lines:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _read_raw(path: Path) -> list[dict]:
+    result = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                result.append(json.loads(line))
+    return result
+
+
+class TestServicePrepareTranscript:
+    """SessionService.prepare_transcript_for_run 委托 store，幂等。"""
+
+    def test_service_prepare_orphaned_tool_call(self, tmp_path: Path) -> None:
+        """service.prepare_transcript_for_run 补写未闭合 tool_call recovery entry。"""
+        store = JsonlSessionStore(data_dir=tmp_path)
+        service = SessionService(store=store)
+
+        session = service.create_session(workspace_root=tmp_path)
+        call_id = "call-svc-001"
+        path = store.resolve_path(session.session_id)
+        _write_raw(
+            path,
+            [
+                {
+                    "type": "turn",
+                    "uuid": "msg-svc-asst-1",
+                    "parent_uuid": None,
+                    "session_id": session.session_id,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "bash", "arguments": {}}
+                    ],
+                }
+            ],
+        )
+
+        service.prepare_transcript_for_run(session.session_id, reason="interrupted")
+
+        raw = _read_raw(path)
+        recovery = [e for e in raw if e.get("type") == "tool_call_recovery"]
+        assert len(recovery) == 1
+        assert recovery[0]["tool_call_id"] == call_id
+        assert recovery[0]["idempotency_key"] == f"tool-call-recovery:{call_id}"
+
+    def test_service_prepare_idempotent(self, tmp_path: Path) -> None:
+        """两次 prepare 产生且仅产生一个 recovery entry。"""
+        store = JsonlSessionStore(data_dir=tmp_path)
+        service = SessionService(store=store)
+
+        session = service.create_session(workspace_root=tmp_path)
+        call_id = "call-svc-idem-002"
+        path = store.resolve_path(session.session_id)
+        _write_raw(
+            path,
+            [
+                {
+                    "type": "turn",
+                    "uuid": "msg-svc-2",
+                    "parent_uuid": None,
+                    "session_id": session.session_id,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "read", "arguments": {}}
+                    ],
+                }
+            ],
+        )
+
+        service.prepare_transcript_for_run(session.session_id, reason="cancelled")
+        service.prepare_transcript_for_run(session.session_id, reason="cancelled")
+
+        raw = _read_raw(path)
+        recovery = [e for e in raw if e.get("type") == "tool_call_recovery"]
+        assert len(recovery) == 1, "幂等: 两次 prepare 只产生一个 recovery entry"
