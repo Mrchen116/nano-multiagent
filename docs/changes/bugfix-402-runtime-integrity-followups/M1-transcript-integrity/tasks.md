@@ -47,7 +47,7 @@
 
 ### R1 — tool_call_recovery entry schema + JsonlSessionStore.prepare_transcript_for_run
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   1. C1: 在 test_session_manager.py 新增 TestPrepareTranscript 测试类（红）：
      - 未闭合 tool_call → prepare 写 recovery entry，再次 load 时 build_chat_messages 合法
