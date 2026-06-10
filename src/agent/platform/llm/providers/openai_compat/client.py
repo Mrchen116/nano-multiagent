@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import httpx
 
 from agent.core.errors import ModelError
+from agent.core.llm.error_classifier import ProviderErrorFacts, classify_retryability
 from agent.core.llm.interfaces import (
     LLMClient,
     LLMGenerateRequest,
@@ -76,16 +77,22 @@ class OpenAICompatClient(LLMClient):
                 async for msg in self._stream_response(response):
                     yield msg
         except httpx.HTTPStatusError as exc:
+            facts = _extract_http_error_facts(exc)
             raise ModelError(
-                "openai_compat request failed",
+                facts.message,
+                retryable=classify_retryability(facts),
                 details={
-                    "status_code": exc.response.status_code,
-                    "response": exc.response.text,
+                    "status_code": facts.http_status,
+                    "provider_code": facts.provider_code,
+                    "provider_type": facts.provider_type,
+                    "response": facts.raw_body,
                 },
             ) from exc
         except httpx.HTTPError as exc:
+            facts = ProviderErrorFacts(message=f"openai_compat transport error: {exc}")
             raise ModelError(
-                "openai_compat transport error",
+                facts.message,
+                retryable=classify_retryability(facts),
                 details={"error": str(exc)},
             ) from exc
 
@@ -103,17 +110,23 @@ class OpenAICompatClient(LLMClient):
         got_terminal_event = False
 
         async for event in _iter_sse_events(response):
-            # bugfix-380: top-level {"error":{...}} frame — surface as ModelError.
+            # bugfix-380: top-level {"error":{...}} frame — classify via shared classifier.
             if "error" in event and "choices" not in event:
                 error_obj = event["error"] if isinstance(event["error"], dict) else {}
                 error_msg = (
                     error_obj.get("message") or str(event["error"]) or "upstream error"
                 )
                 error_type = error_obj.get("type") or "error"
+                error_code = error_obj.get("code") if isinstance(error_obj, dict) else None
+                facts = ProviderErrorFacts(
+                    message=f"openai_compat: {error_msg}",
+                    provider_type=error_type,
+                    provider_code=error_code,
+                )
                 raise ModelError(
-                    f"openai_compat: {error_msg}",
+                    facts.message,
+                    retryable=classify_retryability(facts),
                     details={"error_type": error_type, "raw": error_obj},
-                    retryable=False,
                 )
 
             choice = _first_choice(event)
@@ -302,6 +315,34 @@ def _should_trust_env(base_url: str) -> bool:
     host = (urlparse(base_url).hostname or "").strip().lower()
     local_hosts = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
     return host not in local_hosts
+
+
+def _extract_http_error_facts(exc: httpx.HTTPStatusError) -> ProviderErrorFacts:
+    """Extract ProviderErrorFacts from an OpenAI-compatible HTTP error response."""
+    status = exc.response.status_code
+    raw_body = exc.response.text
+    provider_code: str | None = None
+    provider_type: str | None = None
+    message = f"openai_compat request failed: HTTP {status}"
+    try:
+        body = json.loads(raw_body)
+        if isinstance(body, dict):
+            error_obj = body.get("error") or {}
+            if isinstance(error_obj, dict):
+                provider_type = error_obj.get("type")
+                provider_code = str(error_obj["code"]) if error_obj.get("code") is not None else None
+                text = error_obj.get("message") or ""
+                if text:
+                    message = f"openai_compat: {text}"
+    except (ValueError, KeyError):
+        pass
+    return ProviderErrorFacts(
+        message=message,
+        http_status=status,
+        provider_code=provider_code,
+        provider_type=provider_type,
+        raw_body=raw_body,
+    )
 
 
 _LEGACY_OPENAI_COMPAT_CLIENT_MODULE = (
