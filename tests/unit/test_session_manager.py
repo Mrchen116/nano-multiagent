@@ -355,3 +355,146 @@ class TestPrepareTranscript:
         raw = _read_raw_lines(path)
         recovery_entries = [e for e in raw if e.get("type") == "tool_call_recovery"]
         assert len(recovery_entries) == 0, "已闭合 call_id 不应产生 recovery"
+
+
+# ---------------------------------------------------------------------------
+# C1-R4: interrupt/cancel/shutdown 写 tool_call_recovery 终态 (RED tests)
+# ---------------------------------------------------------------------------
+
+
+class TestInterruptCancelRecovery:
+    """append_tool_call_recovery: 中断/取消/shutdown 写 recovery entry 使 load 后合法。"""
+
+    def test_append_tool_call_recovery_writes_entry(self, tmp_path: Path) -> None:
+        """append_tool_call_recovery 直接 append 一个 recovery entry 到 JSONL。"""
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+
+        session = manager.create_session(workspace_root=tmp_path)
+        call_id = "call-live-cancel-001"
+        path = store.resolve_path(session.session_id)
+
+        # 写 assistant tool_call（模拟 run 中已持久化）
+        _write_raw_lines(
+            path,
+            [
+                {
+                    "type": "turn",
+                    "uuid": "msg-live-asst",
+                    "parent_uuid": None,
+                    "session_id": session.session_id,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "bash", "arguments": {}}
+                    ],
+                }
+            ],
+        )
+
+        # 取消时调用 append_tool_call_recovery
+        store.append_tool_call_recovery(
+            session.session_id,
+            tool_call_id=call_id,
+            tool_name="bash",
+            reason="cancelled",
+        )
+        store.writer.flush()
+
+        raw = _read_raw_lines(path)
+        recovery_entries = [e for e in raw if e.get("type") == "tool_call_recovery"]
+        assert len(recovery_entries) == 1
+        rec = recovery_entries[0]
+        assert rec["tool_call_id"] == call_id
+        assert rec["reason"] == "cancelled"
+        assert rec["tool_name"] == "bash"
+        assert rec["idempotency_key"] == f"tool-call-recovery:{call_id}"
+
+    def test_load_after_interrupt_recovery_is_valid(self, tmp_path: Path) -> None:
+        """append_tool_call_recovery + load -> build_chat_messages 合法。"""
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+        from agent.core.agent.prompting import build_chat_messages
+
+        session = manager.create_session(workspace_root=tmp_path)
+        call_id = "call-live-interrupt-002"
+        path = store.resolve_path(session.session_id)
+
+        _write_raw_lines(
+            path,
+            [
+                {
+                    "type": "turn",
+                    "uuid": "msg-live-2",
+                    "parent_uuid": None,
+                    "session_id": session.session_id,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "read", "arguments": {}}
+                    ],
+                }
+            ],
+        )
+
+        store.append_tool_call_recovery(
+            session.session_id,
+            tool_call_id=call_id,
+            tool_name="read",
+            reason="interrupted",
+        )
+        store.writer.flush()
+
+        result = manager.load(session.session_id)
+        messages = tuple(result.messages)
+        # Should not raise; all assistant tool_calls have corresponding results
+        llm_msgs = build_chat_messages(history_messages=messages, user_text="继续")
+
+        call_ids_with_result = {
+            m.tool_call_id for m in llm_msgs if m.role == "tool" and m.tool_call_id
+        }
+        call_ids_in_asst = {
+            tc.call_id
+            for m in llm_msgs if m.role == "assistant" and m.tool_calls
+            for tc in m.tool_calls
+        }
+        assert call_ids_in_asst == call_ids_with_result
+
+    def test_multiple_reasons_valid(self, tmp_path: Path) -> None:
+        """interrupted/cancelled/shutdown 三种 reason 都能写入且 load 合法。"""
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+
+        for reason in ("interrupted", "cancelled", "shutdown"):
+            session = manager.create_session(workspace_root=tmp_path)
+            call_id = f"call-{reason}"
+            path = store.resolve_path(session.session_id)
+            _write_raw_lines(
+                path,
+                [
+                    {
+                        "type": "turn",
+                        "uuid": f"msg-{reason}",
+                        "parent_uuid": None,
+                        "session_id": session.session_id,
+                        "role": "assistant",
+                        "content": "",
+                        "timestamp": "2026-01-01T00:00:00+00:00",
+                        "tool_calls": [
+                            {"call_id": call_id, "name": "bash", "arguments": {}}
+                        ],
+                    }
+                ],
+            )
+            store.append_tool_call_recovery(
+                session.session_id,
+                tool_call_id=call_id,
+                reason=reason,
+            )
+            store.writer.flush()
+            raw = _read_raw_lines(path)
+            recovery = [e for e in raw if e.get("type") == "tool_call_recovery"]
+            assert len(recovery) == 1, f"reason={reason}: 应有 1 个 recovery entry"
+            assert recovery[0]["reason"] == reason
