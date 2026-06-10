@@ -59,8 +59,9 @@ _WHITELIST: frozenset[str] = frozenset(
         # coding_cli/commands.py: .nanocode global/workspace config — CLI UX, pre-existing
         # refactor-395-M1: logging import + _log added, lines shifted to 1162/1163
         # refactor-395 ruff fix: TERMINAL_RUN_STATUSES dead import removed, lines shifted to 1164/1165
-        "src/coding_cli/commands.py:1164",
-        "src/coding_cli/commands.py:1165",
+        # bugfix-402-M3 R2: finally block comment+await kernel.aclose() inserted in _async_main, lines shifted to 1166/1167
+        "src/coding_cli/commands.py:1166",
+        "src/coding_cli/commands.py:1167",
     }
 )
 

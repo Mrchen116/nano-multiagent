@@ -175,6 +175,9 @@ class _BaseKernelStub:
     def close(self) -> None:
         self.calls.append(("close", None))
 
+    async def aclose(self) -> None:
+        self.calls.append(("aclose", None))
+
     def get_llm_config(self) -> _StubLLMConfig:
         self.calls.append(("get_llm_config", None))
         return self._llm_config
