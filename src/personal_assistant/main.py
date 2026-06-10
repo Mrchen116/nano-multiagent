@@ -78,6 +78,8 @@ from personal_assistant.scheduler.cron_scheduler import (
     CronSchedulerStateStore,
 )
 from personal_assistant.scheduler.cron_runner import CronRunner
+from personal_assistant.scheduler.cron_execution_service import CronExecutionService
+from personal_assistant.scheduler.gateway_cron_dispatcher import GatewayCronDispatcher
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import (
     AgentCreateHandler,
@@ -2053,9 +2055,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # before reaching ask via auto_mode_gate's unattended_fallback — they never park.
     llm_factory_config = _LLMFactoryConfig.from_env()
 
+    # bugfix-402-M4 R4: create a mutable GatewayCronDispatcher before build_kernel so the
+    # dispatcher reference can be injected into the kernel's base ToolContext immediately.
+    # Per-agent CronExecutionService instances are registered after kernel_shim is ready
+    # (execute_fn captures kernel_shim; services dict is mutable so register() works post-build).
+    _cron_dispatcher = GatewayCronDispatcher()
+
     kernel = build_kernel(
         product_profile=PERSONAL_ASSISTANT_PROFILE,
         llm_config=llm_factory_config,
+        host_capabilities=_cron_dispatcher,
         # can_use_tool=None: IM card flow; see submit_permission_decision.
     )
 
@@ -2241,30 +2250,22 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             session_store=pipeline._session_store,
         )
 
-    # feat-394-M3 CRITICAL-1 fix: wire cron tick into the unified polling runner.
-    # Build a cron_tick_fn closure that creates per-agent CronScheduler+CronRunner and
-    # calls CronScheduler.tick(). The fn reads the live pipeline._agents so it picks up
-    # dynamically-registered agents (via IM config sync) without restart.
-    async def _cron_tick_for_agent(agent_id: str) -> None:
-        """Evaluate cron jobs for one agent and submit due runs.
+    # bugfix-402-M4 R4: build per-agent CronExecutionService and register with dispatcher.
+    # execute_fn is a closure that captures kernel_shim, kernel, heartbeat_runner, etc.
+    # All captured references are set before the first cron tick fires.
+    # _canonical_session_store and heartbeat_runner._kernel_event_observer use late
+    # binding: they may be None at construction time but are populated by the im_service
+    # block before any tick runs.
+    def _build_cron_execute_fn(
+        agent_id: str,
+        ws_root: Path,
+    ):
+        """Return the execute_fn for a single agent's CronExecutionService.
 
-        feat-394-M7 R6 fix: after submitting each due job, seed run_context_store with
-        {to_user_id=owner, agent_id, kernel_session_id} then consume kernel.stream to
-        terminal state, driving kernel_event_observer so the result appears in the owner's
-        direct conversation. Mirrors _consume_heartbeat_run semantics (decision C-awareness).
+        bugfix-402-M4: both scheduled ticks and manual tool calls share this
+        execution chain.  CronRunner is instantiated once per agent (not per tick)
+        so session binding state is preserved across runs.
         """
-        agent_cfg = pipeline._agents.get(agent_id)  # noqa: SLF001
-        if agent_cfg is None or not getattr(agent_cfg, "cron_enabled", False):
-            return
-        ws_root = agent_cfg.workspace_root
-        job_store = CronJobStore(workspace_root=ws_root)
-        # C1 fix: per-agent state path so job last_due timestamps are isolated per agent.
-        # Previously all agents shared runtime_dir/cron-state.json; with UUID job IDs
-        # collisions are rare but the design is inconsistent with CronJobStore's
-        # per-workspace isolation.  Match CronJobStore path convention.
-        state_store = CronSchedulerStateStore(
-            state_path=ws_root / _WCD / "cron" / "state.json"
-        )
         _cron_runner = CronRunner(
             agent_id=agent_id,
             workspace_root=ws_root,
@@ -2272,39 +2273,47 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             session_binding_store=session_store,
         )
 
-        # Observer is set on heartbeat_runner after im_service block (line 2020).
-        # Accessing via heartbeat_runner ensures late binding (value available at call time).
-        _observer = heartbeat_runner._kernel_event_observer  # noqa: SLF001
+        async def _execute(*, agent_id: str, job_id: str, request_id: str, trigger: str) -> None:
+            """Submit cron job then stream result to IM direct chat.
 
-        async def _submit_and_deliver_fn(*, agent_id: str, job: object) -> None:  # type: ignore[override]
-            """Submit cron job then consume stream so result reaches IM direct chat.
-
-            feat-394-M7 R6 fix: replaces fire-and-forget _submit_cron_job with full
-            delivery chain: submit → seed run_context_store → consume kernel.stream →
-            drive observer → node.streaming_delta → IM visible message.
-            Mirrors _consume_heartbeat_run semantics for the cron path.
+            bugfix-402-M4 Decision 2: replaces per-tick _submit_and_deliver_fn.
+            Both scheduled and manual triggers enter here via CronExecutionService.enqueue().
             """
-            # _submit_cron_job now returns (run_id, kernel_session_id) or None.
+            job_store = CronJobStore(workspace_root=ws_root)
+            job = job_store.get(job_id)
+            if job is None:
+                _log.warning(
+                    "cron execute: job not found at execution time: agent=%s job=%s request=%s",
+                    agent_id,
+                    job_id,
+                    request_id,
+                )
+                return
+
+            # _submit_cron_job returns (run_id, kernel_session_id) or None.
             result = await _cron_runner._submit_cron_job(job=job)  # noqa: SLF001
             if result is None:
                 _log.warning(
-                    "cron: submit returned no result: agent=%s job=%s",
+                    "cron: submit returned no result: agent=%s job=%s request=%s",
                     agent_id,
-                    getattr(job, "id", "?"),
+                    job_id,
+                    request_id,
                 )
                 return
             run_id, kernel_session_id = result
 
+            # Observer is set on heartbeat_runner after im_service block; read at call time.
+            _observer = heartbeat_runner._kernel_event_observer  # noqa: SLF001
+
             if not _owner_user_id or _observer is None:
-                # No IM delivery path (no owner or no observer): fire-and-forget is correct.
+                # No IM delivery path: fire-and-forget is correct.
                 _log.debug(
                     "cron: no delivery path configured (owner=%r), skipping stream",
                     _owner_user_id,
                 )
                 return
 
-            # Delegate streaming to shared helper (seeds run_context_store, drives observer,
-            # pops context on completion).  Captures last assistant_message for C-awareness.
+            # Deliver result to IM by consuming the kernel stream.
             final_result_text = ""
             try:
                 final_result_text, _ = await _stream_run_to_completion(
@@ -2321,7 +2330,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 _log.exception(
                     "cron: stream consume failed: agent=%s job=%s run=%s",
                     agent_id,
-                    getattr(job, "id", "?"),
+                    job_id,
                     run_id,
                 )
                 return
@@ -2329,15 +2338,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             # Decision C-awareness: append result text as System(untrusted) to canonical
             # direct-chat JSONL so user can ask follow-up questions about cron output.
             if final_result_text:
-                # feat-394-M8 R6-2 fix: resolve canonical session via two sources in priority order.
-                # (1) _canonical_session_store[agent_id] — populated by HeartbeatScheduler.tick()
-                #     via session_store.find_direct_by_agent() on each heartbeat tick.  This is
-                #     the most reliable source: it is filled even when the user has never sent a
-                #     message (heartbeat creates the direct chat and heartbeat_runner fills the store).
-                # (2) _cron_runner._resolve_canonical_session_id() — queries SQLite session_bindings
-                #     which is only populated when the user sends a message (inbound_pipeline bind).
-                #     Falls back to this for cases where heartbeat has never run but user has chatted.
-                # When both return None, skip awareness (no canonical session established yet).
+                # feat-394-M8 R6-2 fix: two-source canonical session resolution (priority order).
+                # (1) _canonical_session_store — populated by HeartbeatScheduler.tick().
+                # (2) _cron_runner._resolve_canonical_session_id() — SQLite session_bindings.
                 _awareness_session_id = (
                     _canonical_session_store.get(agent_id)
                     or _cron_runner._resolve_canonical_session_id()  # noqa: SLF001
@@ -2353,7 +2356,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                         _log.warning(
                             "cron: awareness inject failed: agent=%s job=%s session=%s",
                             agent_id,
-                            getattr(job, "id", "?"),
+                            job_id,
                             _awareness_session_id,
                         )
                 else:
@@ -2362,11 +2365,70 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                         agent_id,
                     )
 
+        return _execute
+
+    # Create one CronExecutionService per configured agent and register with dispatcher.
+    for _agent_cfg in config.agents:
+        _agent_ws_root = Path(_agent_cfg.workspace_root).expanduser().resolve()
+        _cron_execute_fn = _build_cron_execute_fn(
+            agent_id=_agent_cfg.agent_id,
+            ws_root=_agent_ws_root,
+        )
+        _agent_cron_service = CronExecutionService(
+            agent_id=_agent_cfg.agent_id,
+            workspace_root=_agent_ws_root,
+            execute_fn=_cron_execute_fn,
+        )
+        _cron_dispatcher.register(_agent_ws_root, _agent_cron_service)
+
+    # feat-394-M3 CRITICAL-1 fix: wire cron tick into the unified polling runner.
+    # bugfix-402-M4 R4: _cron_tick_for_agent now uses CronExecutionService.enqueue()
+    # instead of building a submit_fn closure per tick.  Both scheduled and manual
+    # triggers share the same execute chain via the dispatcher.
+    async def _cron_tick_for_agent(agent_id: str) -> None:
+        """Evaluate cron jobs for one agent and enqueue due runs via CronExecutionService.
+
+        bugfix-402-M4 R4: replaces per-tick CronRunner+submit_fn with a call to the
+        shared CronExecutionService.enqueue(trigger="scheduled") for each due job.
+        CronScheduler still handles due-time computation and last_due_at persistence.
+        """
+        agent_cfg = pipeline._agents.get(agent_id)  # noqa: SLF001
+        if agent_cfg is None or not getattr(agent_cfg, "cron_enabled", False):
+            return
+        ws_root = Path(agent_cfg.workspace_root).expanduser().resolve()
+
+        # Route to the CronExecutionService for this agent.
+        _service = _cron_dispatcher._resolve_service(str(ws_root))  # noqa: SLF001
+        if _service is None:
+            # Agent was dynamically registered after startup (IM config sync) without a
+            # corresponding CronExecutionService.  Warn and skip — the service will be
+            # created on the next Gateway restart when the agent appears in config.agents.
+            _log.warning(
+                "cron tick: no CronExecutionService for agent=%s ws=%s; skipping",
+                agent_id,
+                ws_root,
+            )
+            return
+
+        job_store = CronJobStore(workspace_root=ws_root)
+        # Per-agent state path so job last_due timestamps are isolated per agent.
+        state_store = CronSchedulerStateStore(
+            state_path=ws_root / _WCD / "cron" / "state.json"
+        )
+
+        # Use CronScheduler only for due-time computation; submit via CronExecutionService.
+        async def _enqueue_via_service(*, agent_id: str, job: object) -> None:
+            """Bridge CronScheduler.tick() → CronExecutionService.enqueue()."""
+            job_id = getattr(job, "id", None)
+            if not job_id:
+                return
+            _service.enqueue(job_id=job_id, trigger="scheduled")
+
         scheduler = CronScheduler(
             agent_id=agent_id,
             job_store=job_store,
             state_store=state_store,
-            submit_fn=_submit_and_deliver_fn,
+            submit_fn=_enqueue_via_service,
         )
         await scheduler.tick()
 
