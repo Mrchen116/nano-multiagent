@@ -321,3 +321,143 @@ class TestCronToolRunHostCapability:
         assert "gateway_cron_url" not in source, (
             "cron.py must not reference gateway_cron_url after bugfix-402-M4 R2"
         )
+
+
+# cron runs action: reads structured run history from runs.jsonl (bugfix-402-M4 R5)
+# ---------------------------------------------------------------------------
+
+
+class TestCronRunsActionFromJsonl:
+    """cron runs action must return structured CronRunRecord data from runs.jsonl.
+
+    bugfix-402-M4 R5: _action_runs() must query CronRunsStore.list_by_job() instead of
+    the old state.json last_due_at.  Records are returned as structured dicts with at
+    minimum status, trigger, accepted_at, request_id fields.
+    """
+
+    def _make_ctx(self, workspace_root):
+        from pathlib import Path
+        from unittest.mock import MagicMock
+        from agent.core.tools.base import ToolContext
+
+        mock_safety = MagicMock()
+        mock_safety.repo_root = Path(workspace_root)
+        return ToolContext(
+            repo_root=Path(workspace_root),
+            cwd=Path(workspace_root),
+            safety=mock_safety,
+            session_id="sess-runs-1",
+            session_metadata={},
+        )
+
+    def test_runs_returns_empty_list_when_no_history(self, tmp_path) -> None:
+        """runs action returns ok=True with empty runs list when no runs.jsonl exists."""
+        from agent.products.personal_assistant.tools.cron import CronTool
+        from personal_assistant.scheduler.cron_scheduler import CronJobStore, CronJob
+
+        tool = CronTool()
+        job_store = CronJobStore(workspace_root=tmp_path)
+        job_store.add(CronJob(
+            id="job-r5-1",
+            name="R5 Job",
+            schedule={"kind": "every", "everyMs": 60000},
+            instruction="test",
+        ))
+
+        ctx = self._make_ctx(workspace_root=tmp_path)
+        result = tool.run({"action": "runs", "jobId": "job-r5-1"}, ctx)
+        assert result.get("ok") is True
+        assert result.get("runs") == [] or isinstance(result.get("runs"), list)
+
+    def test_runs_returns_structured_records_from_runs_jsonl(self, tmp_path) -> None:
+        """runs action returns CronRunRecord dicts from runs.jsonl (not state.json)."""
+        from agent.products.personal_assistant.tools.cron import CronTool
+        from personal_assistant.scheduler.cron_scheduler import CronJobStore, CronJob
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronRunsStore,
+            CronRunRecord,
+        )
+
+        tool = CronTool()
+        job_store = CronJobStore(workspace_root=tmp_path)
+        job_store.add(CronJob(
+            id="job-r5-2",
+            name="R5 Structured Job",
+            schedule={"kind": "every", "everyMs": 60000},
+            instruction="test",
+        ))
+        # Write a completed run record to runs.jsonl.
+        store = CronRunsStore(workspace_root=tmp_path)
+        store.append(CronRunRecord(
+            request_id="req-r5-completed",
+            job_id="job-r5-2",
+            trigger="scheduled",
+            status="completed",
+            accepted_at="2026-06-01T10:00:00+00:00",
+            started_at="2026-06-01T10:00:01+00:00",
+            finished_at="2026-06-01T10:00:30+00:00",
+            result_summary="Done: 42 items processed",
+        ))
+
+        ctx = self._make_ctx(workspace_root=tmp_path)
+        result = tool.run({"action": "runs", "jobId": "job-r5-2"}, ctx)
+        assert result.get("ok") is True
+        runs = result.get("runs", [])
+        assert len(runs) >= 1
+        rec = runs[0]
+        # Must include structured fields from CronRunRecord, not just last_due_at.
+        assert rec.get("request_id") == "req-r5-completed"
+        assert rec.get("status") == "completed"
+        assert rec.get("trigger") == "scheduled"
+        assert rec.get("accepted_at") == "2026-06-01T10:00:00+00:00"
+
+    def test_runs_returns_latest_first(self, tmp_path) -> None:
+        """runs action returns records sorted by accepted_at descending (newest first)."""
+        from agent.products.personal_assistant.tools.cron import CronTool
+        from personal_assistant.scheduler.cron_scheduler import CronJobStore, CronJob
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronRunsStore,
+            CronRunRecord,
+        )
+
+        tool = CronTool()
+        job_store = CronJobStore(workspace_root=tmp_path)
+        job_store.add(CronJob(
+            id="job-r5-3",
+            name="Sort Job",
+            schedule={"kind": "every", "everyMs": 60000},
+            instruction="test",
+        ))
+        store = CronRunsStore(workspace_root=tmp_path)
+        store.append(CronRunRecord(
+            request_id="req-older",
+            job_id="job-r5-3",
+            trigger="scheduled",
+            status="completed",
+            accepted_at="2026-06-01T09:00:00+00:00",
+        ))
+        store.append(CronRunRecord(
+            request_id="req-newer",
+            job_id="job-r5-3",
+            trigger="manual",
+            status="completed",
+            accepted_at="2026-06-01T10:00:00+00:00",
+        ))
+
+        ctx = self._make_ctx(workspace_root=tmp_path)
+        result = tool.run({"action": "runs", "jobId": "job-r5-3"}, ctx)
+        runs = result.get("runs", [])
+        assert len(runs) >= 2
+        assert runs[0].get("request_id") == "req-newer", "newest record must be first"
+        assert runs[1].get("request_id") == "req-older"
+
+    def test_runs_action_does_not_read_state_json(self, tmp_path) -> None:
+        """runs action must NOT read cron_state_path / state.json for run history."""
+        import inspect
+        from agent.products.personal_assistant.tools.cron import CronTool
+
+        source = inspect.getsource(CronTool._action_runs)
+        # The old implementation read session_metadata["cron_state_path"] and state.json.
+        assert "cron_state_path" not in source, (
+            "_action_runs must not read cron_state_path session_metadata after bugfix-402-M4 R5"
+        )

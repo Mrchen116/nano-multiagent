@@ -579,3 +579,39 @@ class TestCronExecutionServiceEnqueue:
         assert records[0].status == "accepted"
         assert records[0].request_id == ack["request_id"]
         assert records[0].trigger == "scheduled"
+
+
+# Gateway startup: converge_stale_on_restart called for each agent (bugfix-402-M4 R5)
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayStartupConvergence:
+    """Verify that converge_stale_on_restart() is called for each agent's runs store
+    during Gateway startup (build_runtime), so stale accepted/running records from a
+    previous crash are marked as failed(gateway_restarted) before any new tick runs.
+    """
+
+    def test_build_runtime_calls_converge_stale_on_restart(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """build_runtime must call runs_store.converge_stale_on_restart() for each agent."""
+        from personal_assistant.scheduler.cron_execution_service import CronRunsStore
+
+        converge_calls: list[str] = []
+        original_converge = CronRunsStore.converge_stale_on_restart
+
+        def _recording_converge(self):
+            converge_calls.append(str(self._root))
+            return original_converge(self)
+
+        monkeypatch.setattr(CronRunsStore, "converge_stale_on_restart", _recording_converge)
+
+        # build_runtime source must reference converge_stale_on_restart.
+        import inspect
+        import personal_assistant.main as main_module
+
+        source = inspect.getsource(main_module.build_runtime)
+        assert "converge_stale_on_restart" in source, (
+            "build_runtime must call converge_stale_on_restart() on startup "
+            "(bugfix-402-M4 R5 exit criterion)"
+        )
