@@ -623,8 +623,42 @@ class Kernel:
         """
         return self._c.event_hub.current_sequence()
 
+    async def aclose(self) -> None:
+        """Shut down background loops and release resources (async-native path).
+
+        Awaitable by async consumers (Gateway, coding_cli event loop) so the
+        caller's event loop is not blocked while waiting for the Registry drain.
+        Multiple calls are idempotent — only the first call triggers shutdown.
+        """
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        import asyncio as _asyncio  # noqa: PLC0415
+        import concurrent.futures  # noqa: PLC0415
+        loop = self._c.runs_registry.get_event_loop()
+        if loop is not None and loop.is_running():
+            # Schedule drain on the Registry loop and await via a thread-safe future
+            # so the caller's event loop is not blocked during Registry drain.
+            drain_future: concurrent.futures.Future = concurrent.futures.Future()
+            loop.call_soon_threadsafe(
+                lambda: loop.create_task(
+                    self._c.runs_registry._drain_and_stop(drain_future, 30.0),
+                    name="kernel-aclose-drain",
+                )
+            )
+            await _asyncio.wrap_future(drain_future)
+        else:
+            self._c.runs_registry.shutdown()
+
     def close(self) -> None:
-        """Shut down background loops and release resources."""
+        """Shut down background loops (sync-compat wrapper for non-async consumers).
+
+        Callers inside an event loop must use ``aclose()`` to avoid blocking.
+        This method is retained for backward compatibility with sync-only call sites.
+        """
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
         self._c.runs_registry.shutdown()
 
     def assemble_prompt_preview(

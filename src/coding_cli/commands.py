@@ -281,7 +281,9 @@ async def _async_main(
             workspace_root=workspace_root,
         )
     finally:
-        kernel.close()
+        # bugfix-402-M3: use aclose() so the Registry drain runs inside the
+        # Registry's own loop without blocking the CLI's event loop (Decision 6).
+        await kernel.aclose()
 
 
 def _build_kernel(

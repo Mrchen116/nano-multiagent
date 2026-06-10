@@ -97,6 +97,10 @@ class _StubKernel:
     def close(self):
         self.calls.append(("close", None))
 
+    async def aclose(self):
+        # bugfix-402-M3: stub for async-native close path
+        self.calls.append(("aclose", None))
+
     def get_llm_config(self):
         return MagicMock(provider="anthropic", model="kimiCoding:K2.6")
 
@@ -316,7 +320,7 @@ def test_run_cli_no_health_subcommand() -> None:
 
 
 def test_run_cli_kernel_closed_on_exit(tmp_path) -> None:
-    """REPL 退出时调用 kernel.close() 释放后台循环资源。"""
+    """REPL 退出时调用 kernel.aclose() 释放后台循环资源（bugfix-402-M3 改为 aclose）。"""
     from coding_cli.commands import run_cli
 
     stub = _StubKernel()
@@ -331,8 +335,9 @@ def test_run_cli_kernel_closed_on_exit(tmp_path) -> None:
         workspace_root=tmp_path,
     )
 
-    assert any(call[0] == "close" for call in stub.calls), (
-        f"expected kernel.close() call on exit, got: {stub.calls}"
+    # bugfix-402-M3: finally block now uses aclose() not close().
+    assert any(call[0] == "aclose" for call in stub.calls), (
+        f"expected kernel.aclose() call on exit, got: {stub.calls}"
     )
 
 
@@ -538,7 +543,7 @@ def test_kernel_close_is_still_callable(tmp_path: Path) -> None:
 
 
 def test_kernel_aclose_idempotent(tmp_path: Path) -> None:
-    """Multiple aclose/close calls must not raise."""
+    """Multiple aclose/close calls must not raise; shutdown is called only once."""
     import asyncio
     from agent.sdk.kernel import Kernel
 
@@ -546,6 +551,9 @@ def test_kernel_aclose_idempotent(tmp_path: Path) -> None:
     class _FakeRegistry:
         def __init__(self):
             self.shutdown_count = 0
+        def get_event_loop(self):
+            # Return None so aclose falls back to synchronous shutdown().
+            return None
         def shutdown(self, **kwargs):
             self.shutdown_count += 1
 
