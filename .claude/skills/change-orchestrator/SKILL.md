@@ -98,7 +98,7 @@ mkdir -p docs/changes/<unit_dir>/M1-fix/
 
 milestone_id = `<unit_id>-M1`、milestone_dir = `M1-fix`、单个 milestone、无依赖、并行组 A、范围 = TBD(worker explore 后写入 tasks.md)。
 
-lite 模式后续流程:派 worker(mode: lite,提示回填 fix.md 后两段)→ DONE → **跳过 reviewer 阶段** → 直接走 §7 提 PR(PR body 引用 fix.md 而非 spec/design/acceptance)。
+lite 模式后续流程:派 worker(mode: lite,提示回填 fix.md 后两段)→ DONE → **跳过 verifier / reviewer,但仍跑 code review 闸**(§5)→ 过了走 §7 提 PR(PR body 引用 fix.md 而非 spec/design/acceptance)。
 
 ### §2.2 Sync Gate(main 同步)
 
@@ -176,14 +176,15 @@ def main_loop(unit_id):
         verify_completed()                     # §3.3
         handle_failures()                      # §3.4
 
-    # 所有实现型 milestone done → 并行派 verifier + reviewer
+    # 所有实现型 milestone done → 并行派 verifier + reviewer,自己跑 code review
     review_round = 1
     while review_round <= 7:
         v_report, r_report = dispatch_verify_and_review(review_round)  # §5,两个后台 agent 并行
-        if both_pass(v_report, r_report):     # verifier verdict=pass 且 reviewer verdict 允许
+        c_findings = run_code_review()        # §5.0,change-code-review 由你主会话执行
+        if all_pass(v_report, r_report, c_findings):  # verifier pass 且 reviewer 允许 且 code review 无阻塞发现
             submit_pr_watch_ci_exit()         # §7：本地 CI 门禁 → 提 PR → 等远端 CI 绿 → 退；红则 §6.2
             return
-        action = decide_action(v_report, r_report)   # §6,合并两份报告路由
+        action = decide_action(v_report, r_report, c_findings)   # §6,合并三份结果路由
         if action == "fix":
             create_fix_milestone(v_report, r_report)  # 两份 issues 打包成一个 fix milestone
         elif action == "escalate":
@@ -323,12 +324,13 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
 
 ---
 
-## §5 派发验收阶段(verifier + reviewer,并行)
+## §5 派发验收阶段(verifier + reviewer + code review,并行)
 
-所有实现型 milestone DONE 后,**并行**派两个独立验收 agent,各跑各的、各出一份报告:
+所有实现型 milestone DONE 后,**并行**跑三道独立验收闸:
 
 - **verifier** —— 读代码核对实现是否匹配 spec / design / tasks(Completeness / Correctness / Coherence 三维)。`change-verifier` skill。
 - **reviewer** —— 跑产品走旅程,验用户可观察。`change-reviewer` skill。
+- **code review** —— 对 unit 分支的代码 diff 做精确率导向的多角度审查(7 finder 角度 × 1 票验证 → ≤8 findings)。`change-code-review` skill,**由你在主会话内执行**——它要通过 Agent 工具派发 finder / verifier 子 agent,而 subagent 无法再派生 subagent,所以不能像前两者那样派给独立验收 agent。在 `$unit_worktree` 内跑,diff 目标传 `main...unit/<unit_id>`。
 
 两者只读、互不依赖,默认**同时后台派发**(`run_in_background: true`、model sonnet、带 `team_name`)。它们物理隔离(verifier 用 `verify_worktree_dir` 读代码,reviewer 用 `unit_worktree_dir` 跑产品),不抢资源。
 
@@ -336,7 +338,9 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
 
 **派 reviewer 的情形**:full 模式且有用户可观察验收项。两种跳过 reviewer:**lite 模式**(worker 自填 fix.md "验证"段)、**零用户面 unit**(无可走旅程——但 verifier 仍派)。
 
-所以:full 普通 unit → 两个都派;零用户面 unit → 只派 verifier;lite → 都不派,直接 §7。
+**code review 各模式都跑**——它只看 diff,不依赖 spec/design,lite 模式也是提 PR 前的闸。
+
+所以:full 普通 unit → 三道闸全跑;零用户面 unit → verifier + code review;lite → 只跑 code review,过了直接 §7。
 
 **派发包 — verifier**:
 ```
@@ -360,7 +364,9 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   mode: full
 ```
 
-两个 agent 启动后都会先报开工信、可能来口径澄清,按 §3.1.1 回应。等**两份报告都回**再进 §5.2 / §6 路由(其中一个先回就先收着,等齐再决策)。
+**code review 的执行时机**:派出 verifier + reviewer 后,你立即按 `change-code-review` skill 在主会话内开跑——finder / verifier 子 agent 同样 `run_in_background: true`、model sonnet、带 `team_name`,和两个验收 agent 的工作天然并行。零写入:不 commit、不改代码,findings 只进 §6 路由。
+
+两个 agent 启动后都会先报开工信、可能来口径澄清,按 §3.1.1 回应。等**两份报告 + code review findings 都齐**再进 §5.2 / §6 路由(谁先回就先收着,等齐再决策)。
 
 ### §5.1 派发口径净化(防 reviewer 滑进 engineer 模式)
 
@@ -394,16 +400,17 @@ NEW_COMMITS=$(git -C "$unit_worktree" log --oneline "$BEFORE..$AFTER")
 
 ## §6 失败循环路由
 
-### §6.0 合并两份报告
+### §6.0 合并三份结果
 
-两个 agent 性质不同:**reviewer** 回报 `Highest Required Action`(fix-implementation / revise-design / out-of-unit / pass);**verifier** 回报 `verdict`(pass/fail)+ 严重度计数(critical / warning / suggestion),无 Required Action 字段。合并规则:
+三道闸性质不同:**reviewer** 回报 `Highest Required Action`(fix-implementation / revise-design / out-of-unit / pass);**verifier** 回报 `verdict`(pass/fail)+ 严重度计数(critical / warning / suggestion),无 Required Action 字段;**code review**(你自己跑的)回报 ≤8 条 findings 的 JSON 数组,每条带 CONFIRMED / PLAUSIBLE 验证态。合并规则:
 
-- **两份都 pass**(reviewer pass 且 verifier verdict=pass / 无 critical)→ §6.1(各做完整性检查)→ §7 提 PR。
-- **verifier 有 CRITICAL,或 reviewer 给 fix-implementation** → §6.2:**把 verifier 的 CRITICAL/WARNING issues + reviewer 的 fix issues 合并打包进同一个 fix milestone**,一个 fix worker 改完,下一轮**两个 agent 一起复验**。verifier 报"缺测试"(WARNING)的,worker 必须补上对应测试。
+- **code review findings 的判定**:返回 `[]` → 该闸 pass。非空时由你逐条判:CONFIRMED 的 correctness bug **按 CRITICAL 对待**,必须并入 fix;PLAUSIBLE 及 cleanup / altitude 类发现你用技术领导者判断——值得修的并入同一个 fix milestone,不值得阻塞 PR 的记入 PR body 已知事项(并说明不修理由)。
+- **三份都 pass**(reviewer pass 且 verifier verdict=pass / 无 critical 且 code review 无阻塞发现)→ §6.1(各做完整性检查)→ §7 提 PR。
+- **verifier 有 CRITICAL,或 reviewer 给 fix-implementation,或 code review 有阻塞发现** → §6.2:**把 verifier 的 CRITICAL/WARNING issues + reviewer 的 fix issues + code review 的阻塞 findings 合并打包进同一个 fix milestone**,一个 fix worker 改完,下一轮**三道闸一起复验**(code review 对 fix 后的新 diff 重跑)。verifier 报"缺测试"(WARNING)的,worker 必须补上对应测试。
 - **reviewer 给 `revise-design`** → §6.3 三道闸。(verifier 不给 revise-design;它若把某 design 决策违背报成 WARNING,默认走 fix-implementation 让实现去对齐 design;真要改 design 仍由 reviewer 的 revise-design 三道闸驱动。)
 - **reviewer 给 `out-of-unit`** → §6.5。
 
-两份报告里**同一个底层问题**(verifier 说"requirement X 缺实现"、reviewer 说"走 X 旅程没结果")合并去重成一条,别打包成两个 fix。
+三份结果里**同一个底层问题**(verifier 说"requirement X 缺实现"、reviewer 说"走 X 旅程没结果"、code review 标了同一处代码)合并去重成一条,别打包成多个 fix。
 
 `review_round` 对两个 agent **同步递增**(同一轮派出去的算同一轮)。
 
