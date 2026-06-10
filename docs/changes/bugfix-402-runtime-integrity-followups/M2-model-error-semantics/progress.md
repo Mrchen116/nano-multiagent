@@ -14,4 +14,21 @@
   - Visual/Interaction: N/A
 - Rollback: git revert C2 commit
 - Commits: C1=test commit, C2=feat commit
+- Next: R2
+
+## R2 — RetryingLLMClient 已产出内容不重试 + 保留原始错误
+
+- Context: 当前 `RetryingLLMClient` 在流已产出内容后如果发生 retryable 错误仍然重试整个请求（最多 21 次），会导致内容重复输出和 transcript 损坏。重试耗尽后创建了新的 "exceeded N retries" 包装文案，丢失了真实 provider 错误。
+- Decision: 在 `generate()` 中追踪 `yielded_content` 标志；一旦有内容 yield 后遇到错误，直接 re-raise（不重试）。耗尽时保留 `exc.message` 和 `exc.details`，只追加 `retry_exhausted=True`/`attempts`/`delay` 诊断字段。
+- Rationale: 已产出内容意味着调用方（agent loop）已经将其流给用户或持久化；重放整个请求会重复这些内容。保留原始错误让用户看到真实 provider 原因，不被重试基础设施遮盖。
+- Evidence:
+  - Tests: `pytest -xvs tests/unit/test_retrying_llm_client.py tests/unit/test_loop_retry.py tests/integration/test_provider_error_user_visible.py` — 60 passed（新增 6 个 RetryingLLMClient 专项测试）
+  - Entry: 纯逻辑层改动；全测试树 `tests/unit/ tests/contract/ tests/integration/` — 2310 passed
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: git revert R2 C2 commit
+- Commits: C1=test commit, C2=fix commit
+- Next: milestone DONE
 

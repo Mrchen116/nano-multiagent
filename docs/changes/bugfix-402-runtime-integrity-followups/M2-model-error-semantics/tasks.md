@@ -38,7 +38,7 @@ UI 状态矩阵：N/A（纯后端逻辑）
 
 ## Roadpoints
 
-### R1 — provider-neutral 错误事实提取与共享分类器
+### R1 — provider-neutral 错误事实提取与共享分类器 `DONE`
 
 - 步骤：
   1. 在 `src/agent/core/llm/` 新增 `error_classifier.py`，定义 `ProviderErrorFacts` dataclass 和 `classify_retryability()` 函数
@@ -47,7 +47,7 @@ UI 状态矩阵：N/A（纯后端逻辑）
   4. 修改 HTTP 错误提取，提取 status/code/type/body 到 ProviderErrorFacts 再分类
 - 验证：`pytest -xvs tests/contract/test_llm_provider_contract.py` 中添加 error classification 测试
 
-### R2 — RetryingLLMClient 增强：已产出内容不重试 + 保留原始错误
+### R2 — RetryingLLMClient 增强：已产出内容不重试 + 保留原始错误 `DONE`
 
 - 步骤：
   1. 修改 `RetryingLLMClient.generate()` 追踪是否已 yield 内容
