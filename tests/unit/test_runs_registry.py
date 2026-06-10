@@ -349,3 +349,99 @@ def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
         )
     finally:
         registry.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# bugfix-402-M3: R1 — Task 登记 + DRAINING 状态机
+# ---------------------------------------------------------------------------
+
+import asyncio as _asyncio
+
+
+def test_registry_submit_rejected_after_shutdown(tmp_path: Path) -> None:
+    """submit() after shutdown must raise RegistryClosedError immediately."""
+    from agent.core.runs.registry import RegistryClosedError
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
+    registry.shutdown()
+
+    import pytest
+    with pytest.raises(RegistryClosedError):
+        registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "too late"}],
+        )
+
+
+def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
+    """shutdown() must wait for all running Tasks to reach terminal state before stopping loop."""
+    import threading
+
+    gate_holder: list[_asyncio.Event] = []
+
+    class _GatedRuntime:
+        async def run(
+            self,
+            session_id: str,
+            parts,
+            *,
+            stream: bool = True,
+            run_id: str | None = None,
+            controller=None,
+            workspace_root=None,
+            origin=None,
+        ):  # noqa: ANN001, ANN201
+            await gate_holder[0].wait()
+            return TurnResult(
+                session_id=session_id,
+                turn_id="turn_gated",
+                messages=(
+                    Message(message_id="msg_gated", role="assistant", content="done"),
+                ),
+                completed=True,
+                stop_reason="completed",
+            )
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_GatedRuntime(), session_manager=manager)
+
+    # Create an asyncio.Event on registry's dedicated loop so it is compatible.
+    loop = registry.get_event_loop()
+    ev_future = _asyncio.run_coroutine_threadsafe(
+        _create_asyncio_event(), loop
+    )
+    ev = ev_future.result(timeout=2.0)
+    gate_holder.append(ev)
+
+    submitted = registry.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": "gated"}],
+    )
+
+    # Release the gate from a separate thread ~50ms after shutdown begins.
+    def _release_after_delay() -> None:
+        time.sleep(0.05)
+        _asyncio.run_coroutine_threadsafe(_set_event(ev), loop)
+
+    releaser = threading.Thread(target=_release_after_delay, daemon=True)
+    releaser.start()
+
+    registry.shutdown()  # must block until gated task completes
+    releaser.join(timeout=2.0)
+
+    final = registry.get(submitted.run_id)
+    assert final is not None
+    assert final.status is RunStatus.COMPLETED, f"expected COMPLETED, got {final.status}"
+
+
+async def _create_asyncio_event() -> _asyncio.Event:
+    return _asyncio.Event()
+
+
+async def _set_event(ev: _asyncio.Event) -> None:
+    ev.set()
