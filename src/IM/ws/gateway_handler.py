@@ -175,7 +175,10 @@ class GatewayHandler:
             pass
         finally:
             if node_id is not None:
-                await self.disconnect(node_id=node_id)
+                await self.disconnect(
+                    node_id=node_id,
+                    expected_websocket=websocket,
+                )
 
     async def handle_message(
         self,
@@ -242,7 +245,10 @@ class GatewayHandler:
                 }
             )
         except (RuntimeError, WebSocketDisconnect):
-            await self.disconnect(node_id=target_node_id)
+            await self.disconnect(
+                node_id=target_node_id,
+                expected_websocket=connection.websocket,
+            )
             return False
         self._relay_service.mark_dispatched(relay_task_id=relay_task_id)
         return True
@@ -657,9 +663,26 @@ class GatewayHandler:
             async with self._lock:
                 self._cron_delete_waiters.pop(request_id, None)
 
-    async def disconnect(self, *, node_id: str) -> None:
-        """Remove one node from the active connection map and broadcast offline if needed."""
+    async def disconnect(
+        self,
+        *,
+        node_id: str,
+        expected_websocket: WebSocket | None = None,
+    ) -> None:
+        """Remove one active node connection and broadcast offline if needed.
+
+        Args:
+            node_id: Node whose active connection should be removed.
+            expected_websocket: When provided, remove the mapping only if it still
+                belongs to this websocket. This prevents delayed cleanup from an old
+                connection from deleting a newer registration for the same node.
+        """
         async with self._lock:
+            current = self._connections.get(node_id)
+            if expected_websocket is not None and (
+                current is None or current.websocket is not expected_websocket
+            ):
+                return
             self._connections.pop(node_id, None)
         if self._node_repository is None:
             return
@@ -1360,7 +1383,10 @@ class GatewayHandler:
                 {"type": message_type, "payload": payload}
             )
         except (RuntimeError, WebSocketDisconnect):
-            await self.disconnect(node_id=target_node_id)
+            await self.disconnect(
+                node_id=target_node_id,
+                expected_websocket=connection.websocket,
+            )
             return False
         return True
 

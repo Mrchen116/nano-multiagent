@@ -20,27 +20,23 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-killed_any=0
+stopped_pids=()
 for pidfile in "$WT_ROOT/.gateway.pid" "$WT_ROOT/.api.pid" "$WT_ROOT/.im.pid"; do
   if [[ -f "$pidfile" ]]; then
     pid=$(cat "$pidfile")
     if kill -0 "$pid" 2>/dev/null; then
       kill "$pid" 2>/dev/null || true
-      killed_any=1
+      stopped_pids+=("$pid")
     fi
     rm -f "$pidfile"
   fi
 done
 
 # Give shutdown a moment, then force-kill stragglers.
-if [[ $killed_any -eq 1 ]]; then
+if [[ ${#stopped_pids[@]} -gt 0 ]]; then
   sleep 0.5
-  for pidfile in "$WT_ROOT/.gateway.pid" "$WT_ROOT/.api.pid" "$WT_ROOT/.im.pid"; do
-    if [[ -f "$pidfile" ]]; then
-      pid=$(cat "$pidfile" 2>/dev/null || echo)
-      [[ -n "$pid" ]] && kill -9 "$pid" 2>/dev/null || true
-      rm -f "$pidfile"
-    fi
+  for pid in "${stopped_pids[@]}"; do
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
   done
 fi
 

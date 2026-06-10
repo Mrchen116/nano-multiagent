@@ -221,6 +221,26 @@ read IM_PORT VITE_PORT < <(scripts/free-ports.sh 2)
 
 服务分两类,生死管理范式不一样:
 
+手工管理外部 PID 文件时统一用下面的 helper。不能在发送 SIGTERM 后立刻删 PID
+文件，否则失去对未退出进程的追踪，后续重启可能留下两个使用同一 `node_id` 的 Gateway:
+
+```bash
+stop_pidfile() {
+  local pidfile=$1 pid
+  [[ -f "$pidfile" ]] || return 0
+  pid=$(cat "$pidfile")
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    for _ in {1..20}; do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.1
+    done
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+  fi
+  rm -f "$pidfile"
+}
+```
+
 **A. 裸 ASGI 服务**(IM、Kernel API、Vite,本质就是 uvicorn + ASGI app):
 通用 `& echo $! > .pid` 范式,外部脚本完全说了算。
 
@@ -229,7 +249,7 @@ PYTHONPATH=src python -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
   > .im.log 2>&1 & echo $! > .im.pid
 
 # 关:
-kill "$(cat .im.pid)" 2>/dev/null; rm -f .im.pid
+stop_pidfile .im.pid
 ```
 
 **B. wrapper 启动器**(Gateway, `python -m personal_assistant.main`):
@@ -248,7 +268,7 @@ PYTHONPATH=src python -m personal_assistant.main \
   > .gateway.log 2>&1 & echo $! > .gateway.pid
 
 # 关(因为 --foreground 不写启动器内部 pid 文件,可以走通用范式):
-kill "$(cat .gateway.pid)" 2>/dev/null; rm -f .gateway.pid
+stop_pidfile .gateway.pid
 ```
 
 主仓用户手起的 Gateway(非 worktree e2e)继续用启动器自己的命令更顺手:
@@ -265,7 +285,7 @@ worktree 退出 / unit 完成时一律:
 
 ```bash
 for f in .im.pid .api.pid .gateway.pid .vite.pid .coding-cli.pid; do
-  [[ -f $f ]] && kill "$(cat "$f")" 2>/dev/null; rm -f "$f"
+  stop_pidfile "$f"
 done
 ```
 

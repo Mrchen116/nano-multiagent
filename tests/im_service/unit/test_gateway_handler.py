@@ -132,6 +132,38 @@ def test_disconnect_removes_active_connection(tmp_path: Path) -> None:
     assert asyncio.run(handler.is_connected(node_id="node-1")) is False
 
 
+def test_stale_disconnect_preserves_replacement_connection(tmp_path: Path) -> None:
+    """Keep a newer websocket when delayed cleanup arrives from the replaced socket."""
+    handler = _build_handler(tmp_path)
+    old_websocket = StubWebSocket()
+    new_websocket = StubWebSocket()
+    register_payload = {
+        "node_id": "node-1",
+        "agents": [],
+        "capabilities": {},
+    }
+    asyncio.run(
+        handler.handle_message(
+            websocket=old_websocket,
+            message_type="node.register",
+            payload=register_payload,
+        )
+    )
+    asyncio.run(
+        handler.handle_message(
+            websocket=new_websocket,
+            message_type="node.register",
+            payload=register_payload,
+        )
+    )
+
+    asyncio.run(handler.disconnect(node_id="node-1", expected_websocket=old_websocket))
+
+    snapshot = asyncio.run(handler.snapshot_connection(node_id="node-1"))
+    assert snapshot is not None
+    assert snapshot.websocket is new_websocket
+
+
 def test_completed_report_persists_real_usage_metrics(tmp_path: Path) -> None:
     """Store completed relay usage under the conversation owner and agent scope."""
     connection = connect(tmp_path / "im.db")

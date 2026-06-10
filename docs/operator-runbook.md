@@ -206,6 +206,7 @@ PYTHONPATH=src python -m personal_assistant.main stop
 | Gateway 启动后立刻退出 | kernel 健康检查失败或 IM bootstrap 失败 | 看终端里的 `NEXT ...`，再核对 `http://127.0.0.1:8011/im/v1/nodes` 的 `last_error` |
 | 未绑定时没有完成关联 | 绑定页未打开或未确认 | 从终端复制 `NEXT Open ...` 链接，完成绑定后刷新 `/chat` |
 | Web IM 能打开但发消息时报无可用节点 | Gateway 未连上 IM，或节点还未 `online` | 先看 Gateway 是否常驻，再看 `/im/v1/nodes` 是否已有在线节点 |
+| Gateway 进程存在，但能力/技能列表为空或能力接口返回 503 | 上一次 Gateway 未完全退出，新旧进程使用同一 `node_id` 重连 | worktree 环境先运行 `./scripts/e2e-down.sh`，确认旧 Gateway 已退出后再 `./scripts/e2e-up.sh`；手工管理 PID 时按 `AGENTS.md` 的 `stop_pidfile` 范式等待退出 |
 | 401 Unauthorized | 你改成了自定义 kernel token，但 Gateway/Kernel 不一致 | 对齐 `kernel.token` 与 kernel 进程实际使用的 token；默认本地路径无需手工设置 |
 | `workspace_root does not exist` | 显式配置了不存在的目录 | 创建该目录，或删掉配置让 Gateway 使用默认路径 |
 

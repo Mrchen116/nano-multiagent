@@ -82,3 +82,31 @@ IM 直聊截图：`ACCEPTANCE/feat-394-m14/cron-05-delivery-proof.png`
 ### 清理
 
 启动的所有服务（IM PID 82324、Gateway PID 87725）在 worktree 完成后通过通用 PID sweep 清理。
+
+## Post-M14 — Gateway 能力列表 503 现场修复
+
+2026-06-10 下午的 live 环境出现 Gateway 进程仍在，但 Web IM 的 Features / Skills
+为空、能力接口返回 503。排查确认下午 15:10、15:28、15:37 的 M14 commits 没有改动
+Gateway 连接生命周期；问题由重启时残留 Gateway 与新 Gateway 使用同一 `node_id`
+同时连接触发。
+
+根因有两层：
+
+1. IM 用新 WebSocket 替换同节点连接后，旧 WebSocket 的延迟清理仍按 `node_id`
+   无条件删除映射，把新连接误标为离线。
+2. `scripts/e2e-down.sh` 发送 SIGTERM 后先删除 PID 文件，随后强杀阶段重新读取这些
+   已删除文件，因此未退出的进程不会被清理。
+
+修复：
+
+- `GatewayHandler.disconnect()` 增加 WebSocket 身份校验；旧连接只能清理自己，不能删除
+  后注册的连接。
+- `scripts/e2e-down.sh` 在删除 PID 文件前保存已停止 PID，并在等待后强杀仍存活的进程。
+- `AGENTS.md` 的手工清理范式同步为“SIGTERM、等待、必要时 SIGKILL、最后删除 PID 文件”。
+
+验证：
+
+- `tests/im_service/unit/test_gateway_handler.py` 与
+  `tests/im_service/unit/test_gateway_websocket_api.py` 共 41 项通过。
+- 用忽略 SIGTERM 的测试进程验证 `e2e-down.sh` 能清理残留进程。
+- live 重启后能力接口恢复，Web IM 显示 4 个 Features、39 个 Skills。
