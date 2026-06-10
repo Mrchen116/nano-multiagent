@@ -37,4 +37,17 @@ worktree: /Users/czj/Repos/nano-multiagent/.worktrees/bugfix-402-M4
   - Visual/Interaction: N/A
 - Rollback: C1 hash (test(bugfix-402/M4/R2))
 - Commits: C1=test(R2), C2=fix(R2), C3=docs(R2)
-- Next: R3 — CronExecutionService + runs.jsonl 三阶段历史
+- Next: R3 DONE → R4
+
+### R3 — CronExecutionService + runs.jsonl 三阶段历史
+
+- Context: 旧 `_cron_tick_for_agent` 是内联闭包，手动/定时路径有各自的执行逻辑，`_action_runs` 只读旧的 state.json（仅 last_due_at）。需要统一入口和结构化运行历史。
+- Decision: 新建 `personal_assistant/scheduler/cron_execution_service.py`，包含：`CronRunRecord` dataclass（七个字段）、`CronRunsStore`（append-only runs.jsonl，materialize-on-read，update_status，list_by_job，converge_stale_on_restart）、`CronExecutionService`（enqueue() 同步返回 ack，validate+persist accepted+schedule execute_fn）。
+- Rationale: accepted→running→terminal 三阶段历史让两条触发路径共用同一数据源；converge_stale_on_restart 确保重启后没有永久进行中的记录。
+- Evidence:
+  - Tests: 64 passed (含新增 TestCronRunsStore 5 用例 + TestCronExecutionServiceEnqueue 5 用例)
+  - Entry: N/A（单元）
+  - Frontend State Matrix: N/A; Browser QA: N/A; E2E: N/A; Visual: N/A
+- Rollback: C1 hash (test(bugfix-402/M4/R3))
+- Commits: C1=test(R3), C2=feat(R3), C3=docs(R3)
+- Next: R4 — Gateway composition 改用 CronExecutionService
