@@ -1347,13 +1347,15 @@ class AgentRuntime:
                                     "rule_update": None,
                                 },
                             )()
-                            # Pop the broker entry atomically so cancel_all_pending
-                            # cannot race with a second set_result
-                            # (feat-394-M14 findings 1 + 3).  We own the future
-                            # reference here; schedule set_result after the pop.
+                            # "Whoever pops owns it" — same semantic as
+                            # cancel_all_pending.  If cancel_all_pending already
+                            # popped and scheduled deny via call_soon_threadsafe,
+                            # owned is None here and we skip set_result entirely,
+                            # closing the double-set_result → InvalidStateError
+                            # window (feat-394-M14 findings 1 + 3 + last).
                             with broker._lock:  # noqa: SLF001
-                                broker._pending.pop(req.id, None)  # noqa: SLF001
-                            if not future.done():
+                                owned = broker._pending.pop(req.id, None)  # noqa: SLF001
+                            if owned is not None and not future.done():
                                 future.get_loop().call_soon_threadsafe(
                                     future.set_result, response
                                 )
