@@ -1309,6 +1309,21 @@ class AgentRuntime:
                             # .decision / .reason / .request_id.
                             try:
                                 raw_decision: Any = can_use_task.result()
+                            except asyncio.CancelledError:
+                                # can_use_task was cancelled (e.g. run interrupt raced
+                                # asyncio.wait before broker future resolved).
+                                # CancelledError is BaseException, not Exception — must
+                                # be caught explicitly (feat-394-M14 finding 2b).
+                                # Treat as deny; re-raise is NOT needed here because we
+                                # already cleaned up pending in the except block above.
+                                raw_decision = type(
+                                    "_D",
+                                    (),
+                                    {
+                                        "behavior": "deny",
+                                        "reason": "can_use_tool cancelled",
+                                    },
+                                )()
                             except Exception:
                                 raw_decision = type(
                                     "_D",
