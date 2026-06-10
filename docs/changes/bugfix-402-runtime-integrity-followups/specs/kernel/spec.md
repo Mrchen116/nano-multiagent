@@ -37,7 +37,8 @@
 
 内核对所有 LLM provider 使用同一 provider-neutral 错误事实与重试策略。网络、超时、限流、
 额度/余额及无法明确判定为永久的错误默认可重试；明确参数/格式错误、无效凭证、权限拒绝、
-资源或能力不存在/不支持不可重试。HTTP 状态码本身不单独决定 4xx 是否可重试。
+资源或能力不存在/不支持不可重试。HTTP 状态码本身不单独决定 4xx 是否可重试。重试不得造成
+重复输出：一次请求已向消费者产出部分内容后，中途故障按最终失败处理，不原位重放该请求。
 
 #### Scenario: 语义不明或可能恢复的 4xx 继续重试
 
@@ -48,6 +49,12 @@
 
 - **WHEN** provider 或本地 mapper 明确报告参数/格式、凭证、权限、not-found 或 unsupported 错误
 - **THEN** 内核不重复发送相同请求，并把实际错误交给消费者
+
+#### Scenario: 已产出内容后的中途故障不重复输出
+
+- **GIVEN** 一次模型响应已向消费者产出部分内容
+- **WHEN** 流在到达终态前故障
+- **THEN** 内核不重放该请求、不产生重复内容，本轮以真实上游错误失败
 
 #### Scenario: 重试耗尽返回最后真实错误
 
@@ -107,7 +114,9 @@
 #### Scenario: Kernel 暴露稳定的对外方法集
 
 - **GIVEN** 一个已装配的 `Kernel`
-- **THEN** 它保留既有会话、运行、配置方法，并同时暴露供异步消费者使用的 `aclose()` 与同步兼容的
+- **THEN** 它暴露异步会话生命周期方法 `create_session` / `fork_session` / `compact`，以及非阻塞方法
+  `submit` / `stream` / `interrupt` / `cancel` / `get_run` / `list_session_tools` /
+  `get_llm_config` / `reconfigure_llm`，并同时暴露供异步消费者使用的 `aclose()` 与同步兼容的
   `close()`
 
 #### Scenario: 宿主注入能力

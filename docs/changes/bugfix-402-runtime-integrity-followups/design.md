@@ -135,7 +135,9 @@ flowchart LR
 ### 决策 1: 通用 SDK 只提供宿主能力 dispatcher
 
 - **选择**: 在 `agent.sdk.build_kernel()` 增加可选的 `HostCapabilityDispatcher`，并把它作为
-  `ToolContext` 的非持久化字段注入工具执行。SDK 只定义
+  `ToolContext` 的非持久化字段注入工具执行。`HostCapabilityDispatcher` 与
+  `HostCapabilityContext` 的类型定义落在 `agent.core.tools`（`ToolContext` 所在层，core 不得
+  反向 import sdk），`agent.sdk` 仅 re-export 作为公开面。协议只定义
   `invoke(capability, payload, context) -> Mapping`，其中 context 只含 Kernel 可信的 session、
   workspace 和 product identity；personal assistant 的 cron 工具和 Gateway 约定 namespaced
   capability `personal_assistant.cron.enqueue`，命令、ack 和错误码由产品两端校验，不进入
@@ -193,9 +195,14 @@ flowchart LR
   本地序列化/mapper 错误、明确参数或格式错误、无效凭证、明确权限拒绝、资源/模型/能力不存在
   或不支持。其余包括网络、超时、429、余额/额度/欠费、服务端错误以及语义不明的 4xx 均默认
   可重试。
+  重试有一条硬不变量：**仅当本次请求尚未向下游产出任何消息时才允许原位重试**。一旦流已产出
+  部分内容，中途故障按最终失败处理（保留真实错误），不得重放整个流——重放会让 agent loop 已
+  流出/持久化的内容重复，制造新的 transcript 损坏。当前代码靠构造满足此不变量（中途错误均
+  不可重试），本 unit 扩大可重试集合后必须把它显式化并测试覆盖。
 - **理由**: 状态码不能表达 Kimi、火山等兼容 API 的恢复语义；默认重试符合产品取舍，否定清单
   将误判成本放在可接受的一侧。
-- **拒绝**: 按 HTTP 4xx/5xx 切分；按 provider/model 维护分类表；对所有错误无限重试。
+- **拒绝**: 按 HTTP 4xx/5xx 切分；按 provider/model 维护分类表；对所有错误无限重试；
+  已产出部分内容后从头重放流（turn 级丢弃重放属于更大改动，不在本 unit 范围）。
 - **风险**: 文本匹配会产生误重试，因此规则只能使用高置信度的永久语义，并保留结构化匹配原因
   供日志和测试诊断。
 
@@ -218,7 +225,10 @@ flowchart LR
   grace timeout 后才 cancel 剩余 Task，并显式标记 run cancelled，最后 shutdown async
   resources、stop/close loop、join thread。`Kernel.aclose()` 是异步消费者的正式公共接口，
   通过 thread-safe future 等待 Registry loop 的 drain，不阻塞调用方 event loop；
-  `Kernel.close()` 仅作为同步消费者兼容包装，两者共享同一幂等关闭状态。
+  `Kernel.close()` 仅作为同步消费者兼容包装，两者共享同一幂等关闭状态。coding_cli 是
+  async-native 消费者，其退出路径（`commands.py` 的 `kernel.close()`，当前在自身 event loop
+  内同步调用）随本决策改为 `await kernel.aclose()`；同步 `close()` 只留给真正无 event loop
+  的同步调用方。CLI 对外行为不变，无 CLI delta-spec。
 - **理由**: ContextVar token 必须在创建它的 Task Context 中 reset。等待 Task 自己退出，而不是
   stop loop 后由析构清理，是消除二次 tracing 异常的根本方式。
 - **拒绝**: 捕获并忽略 `ValueError`；直接 stop loop；只等待线程但不等待 Task；关闭时让 run
@@ -257,7 +267,8 @@ flowchart LR
 
 ### 宿主能力 dispatcher
 
-`agent.sdk` 只暴露通用 dispatcher 协议。dispatcher 不进入 session metadata、JSONL 或 prompt：
+`agent.sdk` 只暴露通用 dispatcher 协议（类型定义于 `agent.core.tools`，sdk re-export）。
+dispatcher 不进入 session metadata、JSONL 或 prompt：
 
 ```text
 build_kernel(..., host_capabilities=HostCapabilityDispatcher | None) -> Kernel
@@ -374,6 +385,7 @@ HTTP/SSE/transport exception
        explicit permanent => retryable=false
        otherwise          => retryable=true
   -> RetryingLLMClient
+       already yielded content this attempt => no in-place retry, raise real error
        retry budget available => retry same request
        exhausted => raise last error + retry metadata
   -> runtime persists/displays actual provider message
@@ -482,7 +494,7 @@ SDK composition root 和 Web frontend，明显超过单 worker 窗口。M1/M2/M5
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | bugfix-402-M1 | transcript-integrity | — | A | `src/agent/core/session/`; `src/agent/platform/persistence/session/`; `src/agent/core/agent/runtime.py`; transcript materialization/prompting；对应 session/runtime tests | `[reviewer]` 权限等待中断后同一会话可继续，已有悬空 tool call 自动恢复且多次打开不重复（覆盖 incident 三个会话 Scenario）。<br>`[worker]` 只读 load 不写文件；run 前 prepare 在 per-session 锁内完成 flush/replay/check/append/flush，确定性 recovery id 去重，并发 prepare 只产生一个逻辑结果；Anthropic/OpenAI 映射均收到合法顺序；`pytest -xvs tests/unit/test_session_manager.py tests/unit/test_session_service.py tests/unit/test_agent_prompting.py tests/unit/test_session_persistence_fidelity.py tests/integration/test_session_store_persistence_integration.py` 全绿。 |
-| bugfix-402-M2 | model-error-semantics | — | A | `src/agent/core/errors.py`; `src/agent/core/llm/retry.py`; `src/agent/platform/llm/providers/`; provider/retry/error-visible tests | `[reviewer]` 网络、限流、额度和未知错误按预算重试；明确永久错误快速失败；耗尽后展示最后真实原因。<br>`[worker]` HTTP/SSE/transport 共用 provider-neutral facts/classifier，无 provider-name 分支；Kimi/火山代表性 4xx fixtures、永久错误和 exhaustion tests 覆盖；`pytest -xvs tests/unit/test_loop_retry.py tests/unit/test_runtime_retry_no_duplicate_user_message.py tests/contract/test_llm_provider_contract.py tests/integration/test_provider_error_user_visible.py` 全绿。 |
-| bugfix-402-M3 | owned-run-shutdown | bugfix-402-M1 | B | `src/agent/core/runs/registry.py`; `src/agent/sdk/kernel.py`; Gateway shutdown order and consumer task ownership in `src/personal_assistant/main.py`; `scripts/e2e-down.sh`; registry/gateway lifecycle tests | `[reviewer]` 有活动 run 或权限等待时 stop/restart 进入明确终态，最终状态可投递，日志无 cross-Context 二次异常，真实首因保留。<br>`[worker]` Registry 登记并清空所有 owned Tasks，`Kernel.aclose()` 不阻塞 Gateway loop，sync/async close 共享幂等状态，关闭后拒绝 submit；Gateway 等待 run-stream/delivery consumers 后再断 IM；e2e-down 先等 Gateway grace exit 再停 IM、超时才强杀；`bash -n scripts/e2e-down.sh` 及 `pytest -xvs tests/unit/test_runs_registry.py tests/unit/test_runs_registry_transport_lifecycle.py tests/unit/personal_assistant/test_gateway_stop_command.py tests/unit/personal_assistant/test_gateway_pid_lifecycle.py` 全绿。 |
-| bugfix-402-M4 | unified-cron-run | bugfix-402-M3 | C | `src/agent/sdk` 通用 host capability 契约；`src/agent/core/tools` context wiring；`src/agent/products/personal_assistant/tools/cron.py`; `src/personal_assistant/scheduler/`; Gateway composition；cron tests | `[reviewer]` 手动运行立即返回入队，完成结果进入原目标会话、结构化运行历史和后续 awareness；未知任务明确失败。<br>`[worker]` SDK/core 无 cron 类型或语义；scheduled/manual 只调用同一 execution service，不存在 `gateway_cron_url` 或 loopback HTTP；run history 覆盖 accepted→running→terminal、manual/scheduled、失败与重启遗留状态，`cron runs` 返回最新 records；一次性 job 保持成功 submit 后删除；`pytest -xvs tests/unit/personal_assistant/test_cron_tool_openclaw.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/unit/personal_assistant/test_cron_runner_awareness.py tests/unit/personal_assistant/test_cron_scheduler_tick.py tests/contract/test_cron_coding_cli_isolation.py tests/contract/test_agent_sdk_surface_contract.py` 全绿。 |
+| bugfix-402-M2 | model-error-semantics | — | A | `src/agent/core/errors.py`; `src/agent/core/llm/retry.py`; `src/agent/platform/llm/providers/`; provider/retry/error-visible tests | `[reviewer]` 网络、限流、额度和未知错误按预算重试；明确永久错误快速失败；耗尽后展示最后真实原因。<br>`[worker]` HTTP/SSE/transport 共用 provider-neutral facts/classifier，无 provider-name 分支；已产出部分内容后的中途故障不原位重试、不重复输出（测试覆盖）；Kimi/火山代表性 4xx fixtures、永久错误和 exhaustion tests 覆盖；`pytest -xvs tests/unit/test_loop_retry.py tests/unit/test_runtime_retry_no_duplicate_user_message.py tests/contract/test_llm_provider_contract.py tests/integration/test_provider_error_user_visible.py` 全绿。 |
+| bugfix-402-M3 | owned-run-shutdown | bugfix-402-M1 | B | `src/agent/core/runs/registry.py`; `src/agent/sdk/kernel.py`; Gateway shutdown order and consumer task ownership in `src/personal_assistant/main.py`; `src/coding_cli/commands.py` 退出路径改用 `aclose()`; `scripts/e2e-down.sh`; registry/gateway lifecycle tests | `[reviewer]` 有活动 run 或权限等待时 stop/restart 进入明确终态，最终状态可投递，日志无 cross-Context 二次异常，真实首因保留。<br>`[worker]` Registry 登记并清空所有 owned Tasks，`Kernel.aclose()` 不阻塞 Gateway loop，sync/async close 共享幂等状态，关闭后拒绝 submit；coding_cli 退出路径使用 `aclose()`，不在其 event loop 内阻塞；Gateway 等待 run-stream/delivery consumers 后再断 IM；e2e-down 先等 Gateway grace exit 再停 IM、超时才强杀；`bash -n scripts/e2e-down.sh` 及 `pytest -xvs tests/unit/test_runs_registry.py tests/unit/test_runs_registry_transport_lifecycle.py tests/unit/personal_assistant/test_gateway_stop_command.py tests/unit/personal_assistant/test_gateway_pid_lifecycle.py` 全绿。 |
+| bugfix-402-M4 | unified-cron-run | bugfix-402-M3 | C | `src/agent/core/tools` host capability 类型定义与 context wiring；`src/agent/sdk` re-export 与 build_kernel 注入；`src/agent/products/personal_assistant/tools/cron.py`; `src/personal_assistant/scheduler/`; Gateway composition；cron tests | `[reviewer]` 手动运行立即返回入队，完成结果进入原目标会话、结构化运行历史和后续 awareness；未知任务明确失败。<br>`[worker]` SDK/core 无 cron 类型或语义；scheduled/manual 只调用同一 execution service，不存在 `gateway_cron_url` 或 loopback HTTP；run history 覆盖 accepted→running→terminal、manual/scheduled、失败与重启遗留状态，`cron runs` 返回最新 records；一次性 job 保持成功 submit 后删除；`pytest -xvs tests/unit/personal_assistant/test_cron_tool_openclaw.py tests/unit/personal_assistant/test_cron_delivery_chain.py tests/unit/personal_assistant/test_cron_runner_awareness.py tests/unit/personal_assistant/test_cron_scheduler_tick.py tests/contract/test_cron_coding_cli_isolation.py tests/contract/test_agent_sdk_surface_contract.py` 全绿。 |
 | bugfix-402-M5 | actor-first-web-im | — | A | `src/IM/frontend/src/features/chat/im-chat-api.ts`; chat facade/components as required；frontend chat tests/contract tests | `[reviewer]` 打开、浏览、进入 Agent 或已有真人会话及创建 Agent direct/group 均无 `/users` 404；无真人发现入口。<br>`[worker]` frontend source 不含 `/im/v1/users` 调用或 alias bootstrap；在 `src/IM/frontend` 执行 `npm run test -- --run` 与 `npm run build` 全绿。 |
