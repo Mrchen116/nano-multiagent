@@ -554,34 +554,79 @@ class CronTool:
         }
 
     def _action_runs(self, args: Mapping[str, Any], ctx: ToolContext) -> dict[str, Any]:
-        """Return job run history from state store."""
+        """Return job run history from runs.jsonl (bugfix-402-M4 R5).
+
+        Reads the append-only runs.jsonl log and materializes the latest state per
+        request_id.  Returns the most recent records for the requested job, sorted by
+        accepted_at descending.
+
+        The old state.json approach only tracked last_due_at; this implementation returns
+        structured accepted→running→terminal lifecycle records.
+        """
         job_id = _resolve_job_id(args)
-        state_path_str = ctx.session_metadata.get("cron_state_path")
-        if not isinstance(state_path_str, str) or not state_path_str.strip():
-            return {
-                "ok": True,
-                "jobId": job_id,
-                "runs": [],
-                "note": "no run state available",
-            }
-        state_path = Path(state_path_str.strip())
-        if not state_path.exists():
+        workspace_root = ctx.repo_root if ctx.repo_root else None
+        if workspace_root is None:
             return {"ok": True, "jobId": job_id, "runs": []}
-        try:
-            raw = json.loads(state_path.read_text(encoding="utf-8"))
-        except (ValueError, TypeError):
+
+        runs_path = workspace_root / _CRON_SUBDIR / "runs.jsonl"
+        if not runs_path.exists():
             return {"ok": True, "jobId": job_id, "runs": []}
-        jobs_state = raw.get("jobs", {}) if isinstance(raw, dict) else {}
-        run_entry = jobs_state.get(job_id, {}) if isinstance(jobs_state, dict) else {}
-        runs = []
-        if isinstance(run_entry, dict) and run_entry.get("last_due_at"):
-            runs.append({"last_due_at": run_entry["last_due_at"]})
-        return {"ok": True, "jobId": job_id, "runs": runs}
+
+        records = _read_runs_for_job(runs_path, job_id, limit=20)
+        return {"ok": True, "jobId": job_id, "runs": records}
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _read_runs_for_job(
+    runs_path: Path,
+    job_id: str,
+    *,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Materialize the latest CronRunRecord state per request_id for a job.
+
+    Reads the append-only runs.jsonl log inline — does not import personal_assistant.*
+    (agent→personal_assistant import boundary: AGENTS.md dependency direction rule).
+
+    Returns a list of record dicts sorted by accepted_at descending, capped at limit.
+    Each dict mirrors CronRunRecord fields (request_id, job_id, trigger, status,
+    accepted_at, started_at, finished_at, kernel_run_id, result_summary, error).
+
+    Args:
+        runs_path: Path to runs.jsonl.
+        job_id: Job whose records to return.
+        limit: Maximum records to return.
+    """
+    try:
+        raw = runs_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    latest: dict[str, dict[str, Any]] = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        rid = data.get("request_id")
+        if not isinstance(rid, str) or not rid:
+            continue
+        if data.get("job_id") != job_id:
+            continue
+        latest[rid] = data
+
+    records = list(latest.values())
+    records.sort(key=lambda r: r.get("accepted_at") or "", reverse=True)
+    return records[:limit]
 
 
 def _require_str(value: object, *, field_name: str) -> str:

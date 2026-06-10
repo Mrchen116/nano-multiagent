@@ -2380,6 +2380,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             execute_fn=_cron_execute_fn,
         )
         _cron_dispatcher.register(_agent_ws_root, _agent_cron_service)
+        # bugfix-402-M4 R5: converge stale accepted/running records from any previous crash
+        # so they are never permanently in-progress.  Called once per agent at startup,
+        # before the first tick can fire.
+        _agent_cron_service.runs_store.converge_stale_on_restart()
 
     # feat-394-M3 CRITICAL-1 fix: wire cron tick into the unified polling runner.
     # bugfix-402-M4 R4: _cron_tick_for_agent now uses CronExecutionService.enqueue()
