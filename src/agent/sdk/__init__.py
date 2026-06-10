@@ -30,7 +30,10 @@ Extended surface for personal_assistant (reporter / upstream_reporter):
 """
 
 from .kernel import CanUseToolFn, Kernel, build_kernel
-from agent.core.tools.host_capability import HostCapabilityContext, HostCapabilityDispatcher
+from agent.core.tools.host_capability import (
+    HostCapabilityContext,
+    HostCapabilityDispatcher,
+)
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 from agent.core.llm.model_registry import (

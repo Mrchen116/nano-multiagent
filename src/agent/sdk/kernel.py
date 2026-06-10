@@ -260,7 +260,9 @@ class Kernel:
         # tool executions have access to the dispatcher without importing
         # personal_assistant (bugfix-402 Decision 1).
         if host_capabilities is not None:
-            _inject_host_capabilities(runtime=self._c.runtime, dispatcher=host_capabilities)
+            _inject_host_capabilities(
+                runtime=self._c.runtime, dispatcher=host_capabilities
+            )
 
     # ------------------------------------------------------------------
     # Public API — mirrors design.md §接口与数据流
@@ -645,26 +647,26 @@ class Kernel:
         Awaitable by async consumers (Gateway, coding_cli event loop) so the
         caller's event loop is not blocked while waiting for the Registry drain.
         Multiple calls are idempotent — only the first call triggers shutdown.
+
+        bugfix-402-M6: delegates to RunsRegistry.shutdown() via the same
+        OPEN→DRAINING→CLOSED state machine used by the sync close() path so
+        that submit() rejects new requests during drain and the two paths cannot
+        race to call _drain_and_stop simultaneously.
         """
         if getattr(self, "_closed", False):
             return
         self._closed = True
         import asyncio as _asyncio  # noqa: PLC0415
-        import concurrent.futures  # noqa: PLC0415
-        loop = self._c.runs_registry.get_event_loop()
+
+        registry = self._c.runs_registry
+        loop = registry.get_event_loop()
         if loop is not None and loop.is_running():
-            # Schedule drain on the Registry loop and await via a thread-safe future
-            # so the caller's event loop is not blocked during Registry drain.
-            drain_future: concurrent.futures.Future = concurrent.futures.Future()
-            loop.call_soon_threadsafe(
-                lambda: loop.create_task(
-                    self._c.runs_registry._drain_and_stop(drain_future, 30.0),
-                    name="kernel-aclose-drain",
-                )
-            )
-            await _asyncio.wrap_future(drain_future)
+            # Run shutdown() in a thread so the Registry's blocking drain_future.result()
+            # does not block this event loop.  shutdown() itself handles DRAINING→CLOSED
+            # and awaiting owned tasks before stopping the Registry loop.
+            await _asyncio.to_thread(registry.shutdown)
         else:
-            self._c.runs_registry.shutdown()
+            registry.shutdown()
 
     def close(self) -> None:
         """Shut down background loops (sync-compat wrapper for non-async consumers).

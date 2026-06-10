@@ -263,6 +263,11 @@ class GatewayRuntimeState:
 class _IMConfigSyncClient:
     """Fetch IM agent config snapshots and extend the live gateway agent registry."""
 
+    # bugfix-402-M6: optional callback invoked at the end of handle_agent_create
+    # so build_runtime can register a CronExecutionService for dynamically created
+    # agents without handle_agent_create needing to know about the cron subsystem.
+    on_agent_created: Callable[[str, Path], None] | None = None
+
     def __init__(
         self,
         *,
@@ -491,6 +496,18 @@ class _IMConfigSyncClient:
         self._persist_agent_config(agent_config)
         if self._reporter is not None:
             self._reporter.replace_agents(tuple(self._local_config.agents))
+        # bugfix-402-M6: notify build_runtime so it can register a
+        # CronExecutionService for this newly created agent.  The callback is
+        # wired after im_config_sync_client is constructed (see build_runtime).
+        if self.on_agent_created is not None:
+            try:
+                self.on_agent_created(agent_id, workspace_root)
+            except Exception:  # noqa: BLE001
+                _log.warning(
+                    "on_agent_created callback failed for agent=%s; "
+                    "cron execution service may not be registered",
+                    agent_id,
+                )
         return {
             "agent_id": agent_id,
             "display_name": title,
@@ -1563,6 +1580,15 @@ class GatewayRuntime:
                     await self._kernel.aclose()
                 except Exception as exc:  # noqa: BLE001
                     _log.warning("kernel.aclose() raised during shutdown: %s", exc)
+            # bugfix-402-M6 W-1: drain in-flight cron executions after kernel is
+            # closed (no new runs accepted) but before IM transport is torn down.
+            if self._cron_dispatcher is not None:
+                try:
+                    await self._cron_dispatcher.drain_all()
+                except Exception as exc:  # noqa: BLE001
+                    _log.warning(
+                        "cron dispatcher drain_all() raised during shutdown: %s", exc
+                    )
             if im_connected and self._im_connection_manager is not None:
                 await self._im_connection_manager.close()
                 if im_task is not None:
@@ -2183,6 +2209,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # callback handles all permission decisions in-process (design decision 3).
         _im_sync_client = ConfigSyncClient(fetcher=im_config_sync_client.sync_agent)
 
+        # bugfix-402-M6: wire cron service registration into the agent-create callback
+        # so dynamically created agents (via IM agent.create push) also get a
+        # CronExecutionService registered before their first cron tick fires.
+        def _on_agent_created(agent_id: str, workspace_root: Path) -> None:
+            _register_cron_service(agent_id, workspace_root)
+
+        im_config_sync_client.on_agent_created = _on_agent_created
+
         # feat-394-M12 决策 F: reconcile 回调——WS bind 完成后（含重连）拉全量 profile
         # 对账，消除漏推送导致的内存状态滞留。reconcile_all_agents 是同步 HTTP 调用，
         # 用 asyncio.to_thread 包装使其在 WS 事件循环中安全运行。
@@ -2260,12 +2294,51 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             session_store=pipeline._session_store,
         )
 
-    # bugfix-402-M4 R4: build per-agent CronExecutionService and register with dispatcher.
-    # execute_fn is a closure that captures kernel_shim, kernel, heartbeat_runner, etc.
-    # All captured references are set before the first cron tick fires.
-    # _canonical_session_store and heartbeat_runner._kernel_event_observer use late
-    # binding: they may be None at construction time but are populated by the im_service
-    # block before any tick runs.
+    # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and
+    # register with dispatcher.  execute_fn is a closure that captures kernel_shim,
+    # kernel, heartbeat_runner, etc.  All captured references are set before the
+    # first cron tick fires.  _canonical_session_store and
+    # heartbeat_runner._kernel_event_observer use late binding: they may be None
+    # at construction time but are populated by the im_service block before any
+    # tick runs.
+    #
+    # bugfix-402-M6 key fix: workspace_root key normalisation.  register() always
+    # stores the key as str(Path.expanduser().resolve()).  _resolve_service() does
+    # the same normalisation.  Both static (config.agents) and dynamic
+    # (handle_agent_create) registration paths go through _register_cron_service
+    # so the key is always consistent.
+    def _register_cron_service(agent_id: str, ws_root: Path) -> None:
+        """Create a CronExecutionService for agent and register it with the dispatcher.
+
+        bugfix-402-M6: extracted from the startup loop so handle_agent_create can
+        call the same path for dynamically created agents.
+        workspace_root must already be resolved (expanduser().resolve()).
+        """
+        # Skip if already registered (idempotent — reconcile may call multiple times).
+        if _cron_dispatcher._resolve_service(str(ws_root)) is not None:  # noqa: SLF001
+            return
+        execute_fn = _build_cron_execute_fn(agent_id=agent_id, ws_root=ws_root)
+        service = CronExecutionService(
+            agent_id=agent_id,
+            workspace_root=ws_root,
+            execute_fn=execute_fn,
+        )
+        _cron_dispatcher.register(ws_root, service)
+        # Converge stale accepted/running records from any previous crash so they
+        # are never permanently in-progress.
+        service.runs_store.converge_stale_on_restart()
+        # If the Gateway loop is already running (dynamic agent create path),
+        # inject it immediately so enqueue() can schedule execute_fn.
+        try:
+            import asyncio as _asyncio  # noqa: PLC0415
+
+            running_loop = _asyncio.get_running_loop()
+            service._gateway_loop = running_loop  # noqa: SLF001
+        except RuntimeError:
+            # Not inside a running event loop — loop will be injected later
+            # via GatewayCronDispatcher.set_gateway_loop() in _run_until_shutdown.
+            pass
+
     def _build_cron_execute_fn(
         agent_id: str,
         ws_root: Path,
@@ -2283,14 +2356,18 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             session_binding_store=session_store,
         )
 
-        async def _execute(*, agent_id: str, job_id: str, request_id: str, trigger: str) -> None:
+        async def _execute(
+            *, agent_id: str, job_id: str, request_id: str, trigger: str
+        ) -> None:
             """Submit cron job then stream result to IM direct chat.
 
             bugfix-402-M4 Decision 2: replaces per-tick _submit_and_deliver_fn.
             Both scheduled and manual triggers enter here via CronExecutionService.enqueue().
             Writes accepted→running→(completed|failed) state transitions to runs.jsonl.
             """
-            from personal_assistant.scheduler.cron_execution_service import CronRunsStore  # noqa: PLC0415
+            from personal_assistant.scheduler.cron_execution_service import (
+                CronRunsStore,
+            )  # noqa: PLC0415
 
             _runs_store = CronRunsStore(workspace_root=ws_root)
             _now = datetime.now(timezone.utc).isoformat()
@@ -2418,22 +2495,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         return _execute
 
     # Create one CronExecutionService per configured agent and register with dispatcher.
+    # bugfix-402-M6: use _register_cron_service so dynamic (handle_agent_create) and
+    # static (startup) paths share the same key normalisation.
     for _agent_cfg in config.agents:
         _agent_ws_root = Path(_agent_cfg.workspace_root).expanduser().resolve()
-        _cron_execute_fn = _build_cron_execute_fn(
-            agent_id=_agent_cfg.agent_id,
-            ws_root=_agent_ws_root,
-        )
-        _agent_cron_service = CronExecutionService(
-            agent_id=_agent_cfg.agent_id,
-            workspace_root=_agent_ws_root,
-            execute_fn=_cron_execute_fn,
-        )
-        _cron_dispatcher.register(_agent_ws_root, _agent_cron_service)
-        # bugfix-402-M4 R5: converge stale accepted/running records from any previous crash
-        # so they are never permanently in-progress.  Called once per agent at startup,
-        # before the first tick can fire.
-        _agent_cron_service.runs_store.converge_stale_on_restart()
+        _register_cron_service(_agent_cfg.agent_id, _agent_ws_root)
 
     # feat-394-M3 CRITICAL-1 fix: wire cron tick into the unified polling runner.
     # bugfix-402-M4 R4: _cron_tick_for_agent now uses CronExecutionService.enqueue()

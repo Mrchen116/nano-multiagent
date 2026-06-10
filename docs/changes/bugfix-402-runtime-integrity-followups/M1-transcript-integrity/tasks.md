@@ -9,13 +9,13 @@
 
 ## 退出标准
 
-- [ ] 只读 `load()` 不写文件（无副作用）
-- [ ] `prepare_transcript_for_run()` 在 per-session 路径锁内完成 flush/replay/check/append/flush
-- [ ] recovery entry 带确定性 idempotency key，重复 prepare 只产生一个逻辑结果
-- [ ] runtime run 前调用 prepare，`build_chat_messages` 只接受合法消息序列
-- [ ] 中断/取消/shutdown 写 `tool_call_recovery` 终态 entry（reason = interrupted/cancelled/shutdown）
-- [ ] Anthropic/OpenAI mapper 均收到合法顺序 transcript（multi-call、partial-result、post-compaction 都覆盖）
-- [ ] 所有指定测试文件全绿
+- [x] 只读 `load()` 不写文件（无副作用）
+- [x] `prepare_transcript_for_run()` 在 per-session 路径锁内完成 flush/replay/check/append/flush
+- [x] recovery entry 带确定性 idempotency key，重复 prepare 只产生一个逻辑结果
+- [x] runtime run 前调用 prepare，`build_chat_messages` 只接受合法消息序列
+- [x] 中断/取消/shutdown 写 `tool_call_recovery` 终态 entry（reason = interrupted/cancelled/shutdown）
+- [x] Anthropic/OpenAI mapper 均收到合法顺序 transcript（multi-call、partial-result、post-compaction 都覆盖）
+- [x] 所有指定测试文件全绿
 
 ## 测试策略
 

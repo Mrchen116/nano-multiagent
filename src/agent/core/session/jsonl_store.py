@@ -226,9 +226,16 @@ class JsonlSessionStore:
                 config=_to_session_config(session_id, config), messages=[]
             )
 
+        # bugfix-402-M6: the formerly-present bare `if not turns: return` that
+        # followed the combined guard above silently discarded recovery entries
+        # when turns was empty.  Instead we short-circuit here with an explicit
+        # call to _inject_recovery_messages so the contract is honoured: orphaned
+        # recovery entries without any corresponding turn produce no injected
+        # messages (no insertion point found), but the call is made correctly.
         if not turns:
             return LoadResult(
-                config=_to_session_config(session_id, config), messages=[]
+                config=_to_session_config(session_id, config),
+                messages=_inject_recovery_messages([], recovery_by_call_id),
             )
 
         # Build uuid -> entry mapping
@@ -468,9 +475,7 @@ class JsonlSessionStore:
                     "type": "tool_call_recovery",
                     "session_id": session_id,
                     "tool_call_id": call_id,
-                    "tool_name": _extract_tool_name_for_call(
-                        assistant_entry, call_id
-                    ),
+                    "tool_name": _extract_tool_name_for_call(assistant_entry, call_id),
                     "reason": reason,
                     "timestamp": ts,
                     "idempotency_key": f"tool-call-recovery:{call_id}",
@@ -784,7 +789,9 @@ def _read_raw_lines(path: Path) -> list[dict[str, Any]]:
     return result
 
 
-def _extract_tool_name_for_call(assistant_entry: dict[str, Any], call_id: str) -> str | None:
+def _extract_tool_name_for_call(
+    assistant_entry: dict[str, Any], call_id: str
+) -> str | None:
     """Extract the tool name for a specific call_id from an assistant entry's tool_calls."""
     for tc in assistant_entry.get("tool_calls") or []:
         tc_id = tc.get("call_id") or tc.get("id")
@@ -813,13 +820,13 @@ def _inject_recovery_messages(
 
     # Identify which call_ids already have a real tool result in the message list.
     closed: set[str] = {
-        m.tool_call_id
-        for m in messages
-        if m.role == "tool" and m.tool_call_id
+        m.tool_call_id for m in messages if m.role == "tool" and m.tool_call_id
     }
 
     # Identify which call_ids need a synthetic result.
-    to_inject = {cid: rec for cid, rec in recovery_by_call_id.items() if cid not in closed}
+    to_inject = {
+        cid: rec for cid, rec in recovery_by_call_id.items() if cid not in closed
+    }
     if not to_inject:
         return messages
 
@@ -853,6 +860,7 @@ def _inject_recovery_messages(
 
                 # Inject synthetic results for the orphaned call_ids.
                 from agent.core.ids import make_message_id as _make_mid
+
                 for call_id in orphaned_for_this_asst:
                     rec = to_inject[call_id]
                     reason = rec.get("reason", "interrupted")

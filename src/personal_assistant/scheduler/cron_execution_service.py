@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping
@@ -162,7 +162,8 @@ class CronRunsStore:
             started_at=started_at or existing.started_at,
             finished_at=finished_at or existing.finished_at,
             kernel_run_id=kernel_run_id or existing.kernel_run_id,
-            target_conversation_id=target_conversation_id or existing.target_conversation_id,
+            target_conversation_id=target_conversation_id
+            or existing.target_conversation_id,
             result_summary=result_summary or existing.result_summary,
             error=error or existing.error,
         )
@@ -199,10 +200,7 @@ class CronRunsStore:
         permanently in progress.
         """
         all_records = self._materialize_all()
-        stale = [
-            r for r in all_records.values()
-            if r.status in ("accepted", "running")
-        ]
+        stale = [r for r in all_records.values() if r.status in ("accepted", "running")]
         now = _utc_now()
         for rec in stale:
             self.update_status(
@@ -310,6 +308,9 @@ class CronExecutionService:
         self._gateway_loop = gateway_loop
         self._job_store = CronJobStore(workspace_root=self._workspace_root)
         self._runs_store = CronRunsStore(workspace_root=self._workspace_root)
+        # bugfix-402-M6 W-1: track pending execute_fn Tasks so drain() can
+        # await them before the IM connection is closed (Decision 7).
+        self._pending_tasks: list[asyncio.Task] = []
 
     @property
     def runs_store(self) -> CronRunsStore:
@@ -359,13 +360,15 @@ class CronExecutionService:
         now = _utc_now()
 
         # Persist accepted record before dispatching execute_fn.
-        self._runs_store.append(CronRunRecord(
-            request_id=request_id,
-            job_id=job_id,
-            trigger=trigger,
-            status="accepted",
-            accepted_at=now,
-        ))
+        self._runs_store.append(
+            CronRunRecord(
+                request_id=request_id,
+                job_id=job_id,
+                trigger=trigger,
+                status="accepted",
+                accepted_at=now,
+            )
+        )
 
         # Schedule execution (fire-and-forget from caller's perspective).
         # execute_fn is responsible for calling runs_store.update_status().
@@ -389,12 +392,29 @@ class CronExecutionService:
 
         if running_loop is not None:
             # Context A: already inside an asyncio loop (e.g. scheduled tick).
-            asyncio.ensure_future(coro, loop=running_loop)
+            # bugfix-402-M6 W-1: use create_task so we get a Task handle for drain().
+            task = running_loop.create_task(coro, name=f"cron-execute-{request_id}")
+            self._pending_tasks.append(task)
+            task.add_done_callback(
+                lambda t: (
+                    self._pending_tasks.remove(t) if t in self._pending_tasks else None
+                )
+            )
         elif self._gateway_loop is not None and self._gateway_loop.is_running():
             # Context B: called from a sync thread; schedule on the Gateway loop.
-            self._gateway_loop.call_soon_threadsafe(
-                self._gateway_loop.create_task, coro
-            )
+            # bugfix-402-M6 W-1: create_task via call_soon_threadsafe for drain tracking.
+            def _schedule_with_tracking(c=coro) -> None:
+                t = self._gateway_loop.create_task(c, name=f"cron-execute-{request_id}")  # type: ignore[union-attr]
+                self._pending_tasks.append(t)
+                t.add_done_callback(
+                    lambda done: (
+                        self._pending_tasks.remove(done)
+                        if done in self._pending_tasks
+                        else None
+                    )
+                )
+
+            self._gateway_loop.call_soon_threadsafe(_schedule_with_tracking)
         else:
             _log.warning(
                 "cron enqueue: no running event loop; execute_fn not scheduled "
@@ -410,3 +430,43 @@ class CronExecutionService:
             "request_id": request_id,
             "error_code": None,
         }
+
+    async def drain(self, timeout: float = 30.0) -> None:
+        """Await all pending execute_fn tasks before the Gateway closes IM.
+
+        bugfix-402-M6 W-1: Decision 7 requires Gateway to drain in-flight cron
+        executions before closing the IM transport so result delivery completes.
+        Called from GatewayRuntime._run_until_shutdown() after kernel.aclose()
+        and before im_connection_manager.close().
+
+        Args:
+            timeout: Maximum seconds to wait for pending tasks.  Tasks exceeding
+                this are cancelled (best-effort — they have already been persisted
+                as running; converge_stale_on_restart will clean them on next
+                Gateway startup).
+        """
+        if not self._pending_tasks:
+            return
+        pending = list(self._pending_tasks)
+        _log.debug(
+            "cron drain: waiting for %d pending task(s) (agent=%s timeout=%.1fs)",
+            len(pending),
+            self._agent_id,
+            timeout,
+        )
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(*pending, return_exceptions=True),
+                timeout=timeout,
+            )
+        except (asyncio.TimeoutError, TimeoutError):
+            _log.warning(
+                "cron drain: %d task(s) exceeded timeout %.1fs — cancelling (agent=%s)",
+                len(self._pending_tasks),
+                timeout,
+                self._agent_id,
+            )
+            for task in list(self._pending_tasks):
+                task.cancel()
+            with asyncio.suppress(Exception):
+                await asyncio.gather(*list(self._pending_tasks), return_exceptions=True)

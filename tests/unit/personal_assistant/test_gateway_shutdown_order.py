@@ -101,7 +101,9 @@ def _make_config(tmp_path: Path) -> LocalConfig:
     workspace_root.mkdir(exist_ok=True)
     return LocalConfig(
         node=NodeConfig(node_id="node-local"),
-        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        agents=(
+            AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
+        ),
         channels=(),
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),
@@ -223,7 +225,9 @@ def test_build_runtime_does_not_add_kernel_close_to_resource_closers(
     workspace_root.mkdir()
     config = LocalConfig(
         node=NodeConfig(node_id="node-local"),
-        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        agents=(
+            AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
+        ),
         channels=(),
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),

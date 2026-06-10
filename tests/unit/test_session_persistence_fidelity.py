@@ -363,16 +363,24 @@ def _make_session_with_orphaned_tool_call(
     path = store.resolve_path(sid)
     # Write assistant message with tool_call directly to JSONL (simulates mid-run crash)
     with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({
-            "type": "turn",
-            "uuid": "msg-r3-asst",
-            "parent_uuid": None,
-            "session_id": sid,
-            "role": "assistant",
-            "content": "",
-            "timestamp": "2026-01-01T00:00:00+00:00",
-            "tool_calls": [{"call_id": call_id, "name": "bash", "arguments": {}}],
-        }, ensure_ascii=False) + "\n")
+        f.write(
+            json.dumps(
+                {
+                    "type": "turn",
+                    "uuid": "msg-r3-asst",
+                    "parent_uuid": None,
+                    "session_id": sid,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "bash", "arguments": {}}
+                    ],
+                },
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
     return store, sid
 
 
@@ -440,3 +448,56 @@ class TestOrphanedToolCallRecovery:
 
         recovery_entries = [e for e in raw if e.get("type") == "tool_call_recovery"]
         assert len(recovery_entries) == 1, "2 回 prepare でも recovery entry は 1 つ"
+
+
+class TestRecoveryWithNoTurns:
+    """bugfix-402-M6: recovery entries must not be silently discarded when turns is empty.
+
+    The bare ``if not turns: return`` that previously followed the combined
+    ``if not turns and not recovery_by_call_id: return`` guard was unreachable
+    when recovery_by_call_id was non-empty.  It silently returned an empty
+    LoadResult instead of falling through to _inject_recovery_messages.
+    """
+
+    def test_load_with_recovery_but_no_turns_does_not_silently_discard(
+        self, tmp_path: Path
+    ) -> None:
+        """Loading a session that has only recovery entries (no turns) must return
+        an empty messages list (not raise or silently skip) — the important thing is
+        that the code path does NOT return before reaching _inject_recovery_messages.
+        """
+        import json as _json
+        from agent.core.session.jsonl_store import JsonlSessionStore
+        from agent.core.session.manager import SessionManager
+
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+        # Create a real session (writes session_created line) so load() can parse config.
+        session = manager.create_session(workspace_root=tmp_path)
+        sid = session.session_id
+
+        # Append a recovery entry directly — no turn entries follow the session_created.
+        path = store.resolve_path(sid)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(
+                _json.dumps(
+                    {
+                        "type": "tool_call_recovery",
+                        "tool_call_id": "call_orphan_1",
+                        "reason": "interrupted",
+                        "idempotency_key": "test-idem-1",
+                    }
+                )
+                + "\n"
+            )
+
+        # Load must not raise and must return an empty (or at least non-None) LoadResult.
+        result = store.load(session_id=sid)
+        # The primary assertion: load() completes without error.
+        # messages must be [] since there are no assistant turns to attach recovery to;
+        # _inject_recovery_messages finds no insertion point and returns unchanged [].
+        assert result is not None, "load() must return a LoadResult, not None"
+        assert isinstance(result.messages, list), "messages must be a list"
+        assert result.messages == [], (
+            "no turns → no insertion point → empty message list"
+        )

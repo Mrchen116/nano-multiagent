@@ -10,14 +10,14 @@ HTTP/SSE/transport 错误由两个 provider 独立解析统一为共享的 provi
 
 ## 退出标准
 
-- [ ] HTTP/SSE/transport 共用 `extract_provider_error_facts()` + `classify_retryability()`，无 provider-name 分支
-- [ ] 明确永久错误（凭证无效、参数错误、资源不存在等）返回 `retryable=False`，立即 fail-fast
-- [ ] 网络、超时、429、5xx、quota/billing 语义均默认 `retryable=True`
-- [ ] `RetryingLLMClient` 在已产出部分内容后中途故障时不原位重试，保留真实错误
-- [ ] 重试耗尽后抛出保留最后一次真实 provider 错误（message/code/status），不替换为 "exceeded N retries"
-- [ ] 新增 `retry_exhausted=True` + `attempts` + `delay` 到 details 作为诊断元数据
-- [ ] Kimi/火山代表性 4xx fixtures、永久错误和 exhaustion 测试覆盖
-- [ ] `pytest -xvs tests/unit/test_loop_retry.py tests/unit/test_runtime_retry_no_duplicate_user_message.py tests/contract/test_llm_provider_contract.py tests/integration/test_provider_error_user_visible.py` 全绿
+- [x] HTTP/SSE/transport 共用 `extract_provider_error_facts()` + `classify_retryability()`，无 provider-name 分支
+- [x] 明确永久错误（凭证无效、参数错误、资源不存在等）返回 `retryable=False`，立即 fail-fast
+- [x] 网络、超时、429、5xx、quota/billing 语义均默认 `retryable=True`
+- [x] `RetryingLLMClient` 在已产出部分内容后中途故障时不原位重试，保留真实错误
+- [x] 重试耗尽后抛出保留最后一次真实 provider 错误（message/code/status），不替换为 "exceeded N retries"
+- [x] 新增 `retry_exhausted=True` + `attempts` + `delay` 到 details 作为诊断元数据
+- [x] Kimi/火山代表性 4xx fixtures、永久错误和 exhaustion 测试覆盖
+- [x] `pytest -xvs tests/unit/test_loop_retry.py tests/unit/test_runtime_retry_no_duplicate_user_message.py tests/contract/test_llm_provider_contract.py tests/integration/test_provider_error_user_visible.py` 全绿
 
 ## 测试策略
 

@@ -468,6 +468,7 @@ def test_cli_llm_config_get_real_path_does_not_report_registry_error(
 # bugfix-402-M3: R2 — Kernel.aclose() 幂等关闭 + coding_cli 退出路径
 # ---------------------------------------------------------------------------
 
+
 def test_coding_cli_async_main_uses_aclose_not_close(tmp_path: Path) -> None:
     """_async_main finally block must await kernel.aclose() not kernel.close()."""
     import ast
@@ -490,15 +491,9 @@ def test_coding_cli_async_main_uses_aclose_not_close(tmp_path: Path) -> None:
                     call = sub.value
                     if isinstance(call, ast.Call):
                         func = call.func
-                        if (
-                            isinstance(func, ast.Attribute)
-                            and func.attr == "aclose"
-                        ):
+                        if isinstance(func, ast.Attribute) and func.attr == "aclose":
                             found_aclose = True
-                        if (
-                            isinstance(func, ast.Attribute)
-                            and func.attr == "close"
-                        ):
+                        if isinstance(func, ast.Attribute) and func.attr == "close":
                             found_sync_close = True
             # Direct sync call: "kernel.close()"
             for sub in ast.walk(stmt):
@@ -524,6 +519,7 @@ def test_kernel_aclose_is_coroutine(tmp_path: Path) -> None:
 
     # Verify it's defined as async on the class.
     from agent.sdk.kernel import Kernel
+
     aclose_method = getattr(Kernel, "aclose", None)
     assert aclose_method is not None, "Kernel must have an aclose() method"
     assert inspect.iscoroutinefunction(aclose_method), (
@@ -534,9 +530,11 @@ def test_kernel_aclose_is_coroutine(tmp_path: Path) -> None:
 def test_kernel_close_is_still_callable(tmp_path: Path) -> None:
     """Kernel.close() must still be a callable (sync compat wrapper)."""
     from agent.sdk.kernel import Kernel
+
     close_method = getattr(Kernel, "close", None)
     assert close_method is not None, "Kernel must still have sync close() method"
     import inspect
+
     assert not inspect.iscoroutinefunction(close_method), (
         "Kernel.close() must remain synchronous for backward compat"
     )
@@ -551,9 +549,11 @@ def test_kernel_aclose_idempotent(tmp_path: Path) -> None:
     class _FakeRegistry:
         def __init__(self):
             self.shutdown_count = 0
+
         def get_event_loop(self):
             # Return None so aclose falls back to synchronous shutdown().
             return None
+
         def shutdown(self, **kwargs):
             self.shutdown_count += 1
 
@@ -576,4 +576,51 @@ def test_kernel_aclose_idempotent(tmp_path: Path) -> None:
     # shutdown called exactly once despite two aclose calls
     assert fake_reg.shutdown_count == 1, (
         f"shutdown must be called once; got {fake_reg.shutdown_count}"
+    )
+
+
+def test_kernel_aclose_uses_registry_shutdown_state_machine(tmp_path: Path) -> None:
+    """bugfix-402-M6: aclose() must delegate to RunsRegistry.shutdown() so the
+    OPEN→DRAINING→CLOSED state machine executes and submit() is rejected during drain.
+
+    Previously aclose() called _drain_and_stop() directly, bypassing the state
+    transition that sets _state = DRAINING before drain begins.
+    """
+    import asyncio
+    import threading
+    from unittest.mock import MagicMock
+    from agent.sdk.kernel import Kernel
+
+    shutdown_called_from_thread: list[str] = []
+
+    class _TrackingRegistry:
+        def __init__(self):
+            self._shutdown_event = threading.Event()
+
+        def get_event_loop(self):
+            # Simulate running loop so aclose uses asyncio.to_thread path.
+            return MagicMock(is_running=lambda: True)
+
+        def shutdown(self, **_kwargs):
+            shutdown_called_from_thread.append(threading.current_thread().name)
+            self._shutdown_event.set()
+
+    reg = _TrackingRegistry()
+
+    class _FakeComponents:
+        runs_registry = reg
+        permission_broker = None
+
+    k = Kernel.__new__(Kernel)
+    object.__setattr__(k, "_c", _FakeComponents())
+    object.__setattr__(k, "_repo_root", tmp_path)
+    object.__setattr__(k, "_closed", False)
+
+    async def _run():
+        await k.aclose()
+
+    asyncio.run(_run())
+    # shutdown() must have been invoked (state machine path)
+    assert len(shutdown_called_from_thread) == 1, (
+        "RunsRegistry.shutdown() must be called exactly once by aclose()"
     )

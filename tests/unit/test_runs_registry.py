@@ -369,6 +369,7 @@ def test_registry_submit_rejected_after_shutdown(tmp_path: Path) -> None:
     registry.shutdown()
 
     import pytest
+
     with pytest.raises(RegistryClosedError):
         registry.submit(
             session_id=session.session_id,
@@ -412,9 +413,7 @@ def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
 
     # Create an asyncio.Event on registry's dedicated loop so it is compatible.
     loop = registry.get_event_loop()
-    ev_future = _asyncio.run_coroutine_threadsafe(
-        _create_asyncio_event(), loop
-    )
+    ev_future = _asyncio.run_coroutine_threadsafe(_create_asyncio_event(), loop)
     ev = ev_future.result(timeout=2.0)
     gate_holder.append(ev)
 
@@ -436,7 +435,9 @@ def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
 
     final = registry.get(submitted.run_id)
     assert final is not None
-    assert final.status is RunStatus.COMPLETED, f"expected COMPLETED, got {final.status}"
+    assert final.status is RunStatus.COMPLETED, (
+        f"expected COMPLETED, got {final.status}"
+    )
 
 
 async def _create_asyncio_event() -> _asyncio.Event:

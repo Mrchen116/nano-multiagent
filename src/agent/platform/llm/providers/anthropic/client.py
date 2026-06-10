@@ -23,6 +23,7 @@ from agent.core.llm.interfaces import (
 from agent.core.llm.model_registry import resolve_model_metadata
 from agent.core.types import TokenUsage
 from agent.platform.llm.providers.common import (
+    extract_http_error_facts as _extract_http_error_facts,
     extract_non_negative_int as _extract_non_negative_int,
 )
 from agent.platform.llm.providers.translator import LLMTranslator
@@ -90,7 +91,7 @@ class AnthropicClient(LLMClient):
                 async for msg in self._stream_response(response):
                     yield msg
         except httpx.HTTPStatusError as exc:
-            facts = _extract_http_error_facts(exc)
+            facts = _extract_http_error_facts(exc, provider="anthropic")
             raise ModelError(
                 facts.message,
                 retryable=classify_retryability(facts),
@@ -142,7 +143,9 @@ class AnthropicClient(LLMClient):
                     error_obj.get("message") or str(error_obj) or "upstream error"
                 )
                 error_type = error_obj.get("type") or "error"
-                error_code = error_obj.get("code") if isinstance(error_obj, dict) else None
+                error_code = (
+                    error_obj.get("code") if isinstance(error_obj, dict) else None
+                )
                 facts = ProviderErrorFacts(
                     message=f"anthropic: {error_msg}",
                     provider_type=error_type,
@@ -333,34 +336,6 @@ def _should_trust_env(base_url: str) -> bool:
     host = (urlparse(base_url).hostname or "").strip().lower()
     local_hosts = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
     return host not in local_hosts
-
-
-def _extract_http_error_facts(exc: httpx.HTTPStatusError) -> ProviderErrorFacts:
-    """Extract ProviderErrorFacts from an Anthropic HTTP error response."""
-    status = exc.response.status_code
-    raw_body = exc.response.text
-    provider_code: str | None = None
-    provider_type: str | None = None
-    message = f"anthropic request failed: HTTP {status}"
-    try:
-        body = json.loads(raw_body)
-        if isinstance(body, dict):
-            error_obj = body.get("error") or {}
-            if isinstance(error_obj, dict):
-                provider_type = error_obj.get("type")
-                provider_code = error_obj.get("code")
-                text = error_obj.get("message") or ""
-                if text:
-                    message = f"anthropic: {text}"
-    except (ValueError, KeyError):
-        pass
-    return ProviderErrorFacts(
-        message=message,
-        http_status=status,
-        provider_code=provider_code,
-        provider_type=provider_type,
-        raw_body=raw_body,
-    )
 
 
 _LEGACY_ANTHROPIC_CLIENT_MODULE = "agent" + ".llm.providers" + ".anthropic.client"

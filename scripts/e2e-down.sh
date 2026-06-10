@@ -35,15 +35,19 @@ if [[ -f "$gateway_pid_file" ]]; then
   if kill -0 "$gw_pid" 2>/dev/null; then
     kill "$gw_pid" 2>/dev/null || true
     # Wait for graceful exit, then force-kill on timeout.
-    elapsed=0
+    # bugfix-402-M6: elapsed was incremented by 1 per 0.2s sleep, so the loop
+    # exited after GATEWAY_GRACE_SECONDS × 0.2s (≈ 1s) instead of the intended
+    # GATEWAY_GRACE_SECONDS (5s).  Track ticks at 0.2s granularity.
+    elapsed_ticks=0
+    max_ticks=$(( GATEWAY_GRACE_SECONDS * 5 ))
     while kill -0 "$gw_pid" 2>/dev/null; do
-      if [[ $elapsed -ge $GATEWAY_GRACE_SECONDS ]]; then
+      if [[ $elapsed_ticks -ge $max_ticks ]]; then
         echo "gateway pid=$gw_pid did not exit within ${GATEWAY_GRACE_SECONDS}s — force-killing" >&2
         kill -9 "$gw_pid" 2>/dev/null || true
         break
       fi
       sleep 0.2
-      elapsed=$(( elapsed + 1 ))
+      elapsed_ticks=$(( elapsed_ticks + 1 ))
     done
   fi
   rm -f "$gateway_pid_file"

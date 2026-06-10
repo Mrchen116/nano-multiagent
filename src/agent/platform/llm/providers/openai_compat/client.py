@@ -19,6 +19,7 @@ from agent.core.llm.interfaces import (
 )
 from agent.core.types import TokenUsage
 from agent.platform.llm.providers.common import (
+    extract_http_error_facts as _extract_http_error_facts,
     extract_non_negative_int as _extract_non_negative_int,
 )
 from agent.platform.llm.providers.translator import LLMTranslator
@@ -77,7 +78,7 @@ class OpenAICompatClient(LLMClient):
                 async for msg in self._stream_response(response):
                     yield msg
         except httpx.HTTPStatusError as exc:
-            facts = _extract_http_error_facts(exc)
+            facts = _extract_http_error_facts(exc, provider="openai_compat")
             raise ModelError(
                 facts.message,
                 retryable=classify_retryability(facts),
@@ -117,7 +118,9 @@ class OpenAICompatClient(LLMClient):
                     error_obj.get("message") or str(event["error"]) or "upstream error"
                 )
                 error_type = error_obj.get("type") or "error"
-                error_code = error_obj.get("code") if isinstance(error_obj, dict) else None
+                error_code = (
+                    error_obj.get("code") if isinstance(error_obj, dict) else None
+                )
                 facts = ProviderErrorFacts(
                     message=f"openai_compat: {error_msg}",
                     provider_type=error_type,
@@ -315,34 +318,6 @@ def _should_trust_env(base_url: str) -> bool:
     host = (urlparse(base_url).hostname or "").strip().lower()
     local_hosts = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
     return host not in local_hosts
-
-
-def _extract_http_error_facts(exc: httpx.HTTPStatusError) -> ProviderErrorFacts:
-    """Extract ProviderErrorFacts from an OpenAI-compatible HTTP error response."""
-    status = exc.response.status_code
-    raw_body = exc.response.text
-    provider_code: str | None = None
-    provider_type: str | None = None
-    message = f"openai_compat request failed: HTTP {status}"
-    try:
-        body = json.loads(raw_body)
-        if isinstance(body, dict):
-            error_obj = body.get("error") or {}
-            if isinstance(error_obj, dict):
-                provider_type = error_obj.get("type")
-                provider_code = str(error_obj["code"]) if error_obj.get("code") is not None else None
-                text = error_obj.get("message") or ""
-                if text:
-                    message = f"openai_compat: {text}"
-    except (ValueError, KeyError):
-        pass
-    return ProviderErrorFacts(
-        message=message,
-        http_status=status,
-        provider_code=provider_code,
-        provider_type=provider_type,
-        raw_body=raw_body,
-    )
 
 
 _LEGACY_OPENAI_COMPAT_CLIENT_MODULE = (

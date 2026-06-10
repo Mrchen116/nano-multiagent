@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -250,10 +251,15 @@ class TestGatewayCronDispatcher:
 
         assert issubclass(GatewayCronDispatcher, HostCapabilityDispatcher)
 
-    def test_dispatcher_invoke_enqueue_delegates_to_service(
+    async def test_dispatcher_invoke_enqueue_delegates_to_service(
         self, tmp_path: Path
     ) -> None:
-        """invoke('personal_assistant.cron.enqueue', ...) must call service.enqueue()."""
+        """invoke('personal_assistant.cron.enqueue', ...) must call service.enqueue().
+
+        bugfix-402-M6: test is async so that asyncio.ensure_future inside enqueue()
+        has a running event loop and the execute_fn coroutine is properly awaited,
+        eliminating the 'coroutine was never awaited' RuntimeWarning.
+        """
         from agent.sdk import HostCapabilityContext
         from personal_assistant.scheduler.gateway_cron_dispatcher import (
             GatewayCronDispatcher,
@@ -265,8 +271,9 @@ class TestGatewayCronDispatcher:
 
         calls: list[dict] = []
 
-        async def _noop_execute(**kwargs) -> None:
-            pass
+        _noop_execute = (
+            AsyncMock()
+        )  # bugfix-402-M6: AsyncMock avoids unawaited-coroutine RuntimeWarning
 
         service = CronExecutionService(
             agent_id="agent-1",
@@ -275,12 +282,14 @@ class TestGatewayCronDispatcher:
         )
         # Seed a job so enqueue() does not return job_not_found.
         job_store = CronJobStore(workspace_root=tmp_path)
-        job_store.add(CronJob(
-            id="job-manual-1",
-            name="Manual Test",
-            schedule={"kind": "every", "everyMs": 60000},
-            instruction="test",
-        ))
+        job_store.add(
+            CronJob(
+                id="job-manual-1",
+                name="Manual Test",
+                schedule={"kind": "every", "everyMs": 60000},
+                instruction="test",
+            )
+        )
 
         original_enqueue = service.enqueue
 
@@ -316,8 +325,9 @@ class TestGatewayCronDispatcher:
             CronExecutionService,
         )
 
-        async def _noop_execute(**kwargs) -> None:
-            pass
+        _noop_execute = (
+            AsyncMock()
+        )  # bugfix-402-M6: AsyncMock avoids unawaited-coroutine RuntimeWarning
 
         service = CronExecutionService(
             agent_id="agent-1",
@@ -345,8 +355,9 @@ class TestGatewayCronDispatcher:
             CronExecutionService,
         )
 
-        async def _noop_execute(**kwargs) -> None:
-            pass
+        _noop_execute = (
+            AsyncMock()
+        )  # bugfix-402-M6: AsyncMock avoids unawaited-coroutine RuntimeWarning
 
         service = CronExecutionService(
             agent_id="agent-1",
@@ -367,3 +378,169 @@ class TestGatewayCronDispatcher:
         )
         assert result.get("accepted") is False
         assert result.get("error_code") == "job_not_found"
+
+
+class TestCronExecutionServiceDrain:
+    """Verify that CronExecutionService.drain() awaits tracked pending tasks.
+
+    bugfix-402-M6 W-1: enqueue() must track create_task() handles and drain()
+    must gather them before the caller proceeds to tear down the IM transport.
+    """
+
+    @pytest.mark.asyncio
+    async def test_drain_awaits_pending_tasks(self, tmp_path: Path) -> None:
+        """drain() must complete only after all tracked execute_fn tasks finish."""
+        import asyncio
+
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )
+        from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
+
+        finished: list[str] = []
+
+        async def slow_execute(
+            *, agent_id: str, job_id: str, request_id: str, trigger: str
+        ) -> None:
+            await asyncio.sleep(0.05)
+            finished.append(job_id)
+
+        service = CronExecutionService(
+            agent_id="agent-drain",
+            workspace_root=tmp_path,
+            execute_fn=slow_execute,
+        )
+        job_store = CronJobStore(workspace_root=tmp_path)
+        job_store.add(
+            CronJob(
+                id="job-drain-1",
+                name="Drain Test",
+                schedule={"kind": "every", "everyMs": 60000},
+                instruction="drain test",
+            )
+        )
+
+        service.enqueue(job_id="job-drain-1", trigger="manual")
+        assert len(finished) == 0, "task must not have finished before drain()"
+
+        await service.drain(timeout=5.0)
+        assert "job-drain-1" in finished, "drain() must await tracked execute_fn task"
+
+    @pytest.mark.asyncio
+    async def test_drain_no_tasks_returns_immediately(self, tmp_path: Path) -> None:
+        """drain() with no pending tasks must return without hanging."""
+        import asyncio
+
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )
+
+        service = CronExecutionService(
+            agent_id="agent-drain-empty",
+            workspace_root=tmp_path,
+            execute_fn=AsyncMock(),
+        )
+        # Should return before timeout.
+        await asyncio.wait_for(service.drain(timeout=1.0), timeout=2.0)
+
+
+class TestGatewayCronDispatcherDrainAll:
+    """Verify that GatewayCronDispatcher.drain_all() drains all registered services.
+
+    bugfix-402-M6 W-1: drain_all() is called after kernel.aclose() and before
+    im_connection_manager.close() in GatewayRuntime._run_until_shutdown().
+    """
+
+    @pytest.mark.asyncio
+    async def test_drain_all_drains_all_services(self, tmp_path: Path) -> None:
+        """drain_all() must call drain() on each unique registered service."""
+        import asyncio
+
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )
+        from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
+        from personal_assistant.scheduler.gateway_cron_dispatcher import (
+            GatewayCronDispatcher,
+        )
+
+        finished: list[str] = []
+
+        async def make_slow_execute(label: str):
+            async def _exec(
+                *, agent_id: str, job_id: str, request_id: str, trigger: str
+            ) -> None:
+                await asyncio.sleep(0.05)
+                finished.append(label)
+
+            return _exec
+
+        ws1 = tmp_path / "agent1"
+        ws1.mkdir()
+        ws2 = tmp_path / "agent2"
+        ws2.mkdir()
+
+        svc1 = CronExecutionService(
+            agent_id="agent-1",
+            workspace_root=ws1,
+            execute_fn=await make_slow_execute("svc1"),
+        )
+        svc2 = CronExecutionService(
+            agent_id="agent-2",
+            workspace_root=ws2,
+            execute_fn=await make_slow_execute("svc2"),
+        )
+
+        for ws, svc, label in [(ws1, svc1, "job-a1"), (ws2, svc2, "job-a2")]:
+            store = CronJobStore(workspace_root=ws)
+            store.add(
+                CronJob(
+                    id=label,
+                    name=label,
+                    schedule={"kind": "every", "everyMs": 60000},
+                    instruction="test",
+                )
+            )
+            svc.enqueue(job_id=label, trigger="manual")
+
+        dispatcher = GatewayCronDispatcher()
+        dispatcher.register(ws1, svc1)
+        dispatcher.register(ws2, svc2)
+
+        assert len(finished) == 0
+        await dispatcher.drain_all(timeout=5.0)
+        assert "svc1" in finished and "svc2" in finished
+
+    @pytest.mark.asyncio
+    async def test_drain_all_deduplicates_single_service_mode(
+        self, tmp_path: Path
+    ) -> None:
+        """drain_all() must not drain the same service twice (single-service mode registers under two keys)."""
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )
+        from personal_assistant.scheduler.gateway_cron_dispatcher import (
+            GatewayCronDispatcher,
+        )
+
+        drain_count = 0
+        original_drain = None
+
+        service = CronExecutionService(
+            agent_id="agent-dedup",
+            workspace_root=tmp_path,
+            execute_fn=AsyncMock(),
+        )
+
+        async def _count_drain(timeout: float = 30.0) -> None:
+            nonlocal drain_count
+            drain_count += 1
+
+        service.drain = _count_drain  # type: ignore[method-assign]
+
+        dispatcher = GatewayCronDispatcher(service=service)
+        # Single-service mode registers under "_single" and workspace path — two keys.
+        await dispatcher.drain_all()
+        assert drain_count == 1, (
+            "drain_all() must deduplicate and call drain() exactly once"
+        )

@@ -374,7 +374,10 @@ class TestCronRunsStore:
 
     def test_runs_store_append_and_query(self, tmp_path: Path) -> None:
         """Appending a record and querying returns it in accepted_at desc order."""
-        from personal_assistant.scheduler.cron_execution_service import CronRunRecord, CronRunsStore
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronRunRecord,
+            CronRunsStore,
+        )
 
         store = CronRunsStore(workspace_root=tmp_path)
         rec = CronRunRecord(
@@ -392,7 +395,10 @@ class TestCronRunsStore:
 
     def test_runs_store_status_update(self, tmp_path: Path) -> None:
         """update_status must change the status of a specific request_id record."""
-        from personal_assistant.scheduler.cron_execution_service import CronRunRecord, CronRunsStore
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronRunRecord,
+            CronRunsStore,
+        )
 
         store = CronRunsStore(workspace_root=tmp_path)
         rec = CronRunRecord(
@@ -403,25 +409,37 @@ class TestCronRunsStore:
             accepted_at="2026-01-01T11:00:00+00:00",
         )
         store.append(rec)
-        store.update_status("req-upd", "running", started_at="2026-01-01T11:00:01+00:00")
-        store.update_status("req-upd", "completed", finished_at="2026-01-01T11:01:00+00:00", result_summary="done")
+        store.update_status(
+            "req-upd", "running", started_at="2026-01-01T11:00:01+00:00"
+        )
+        store.update_status(
+            "req-upd",
+            "completed",
+            finished_at="2026-01-01T11:01:00+00:00",
+            result_summary="done",
+        )
         results = store.list_by_job("job-b")
         assert results[0].status == "completed"
         assert results[0].result_summary == "done"
 
     def test_runs_store_list_by_job_returns_latest_first(self, tmp_path: Path) -> None:
         """list_by_job must return records sorted by accepted_at descending."""
-        from personal_assistant.scheduler.cron_execution_service import CronRunRecord, CronRunsStore
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronRunRecord,
+            CronRunsStore,
+        )
 
         store = CronRunsStore(workspace_root=tmp_path)
         for i in range(3):
-            store.append(CronRunRecord(
-                request_id=f"req-{i}",
-                job_id="job-c",
-                trigger="scheduled",
-                status="completed",
-                accepted_at=f"2026-01-0{i+1}T00:00:00+00:00",
-            ))
+            store.append(
+                CronRunRecord(
+                    request_id=f"req-{i}",
+                    job_id="job-c",
+                    trigger="scheduled",
+                    status="completed",
+                    accepted_at=f"2026-01-0{i + 1}T00:00:00+00:00",
+                )
+            )
         results = store.list_by_job("job-c")
         # latest first
         assert results[0].request_id == "req-2"
@@ -429,31 +447,40 @@ class TestCronRunsStore:
 
     def test_runs_store_convergence_on_restart(self, tmp_path: Path) -> None:
         """converge_stale_on_restart must mark accepted/running records as failed."""
-        from personal_assistant.scheduler.cron_execution_service import CronRunRecord, CronRunsStore
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronRunRecord,
+            CronRunsStore,
+        )
 
         store = CronRunsStore(workspace_root=tmp_path)
-        store.append(CronRunRecord(
-            request_id="req-stale-1",
-            job_id="job-d",
-            trigger="scheduled",
-            status="accepted",
-            accepted_at="2026-01-01T00:00:00+00:00",
-        ))
-        store.append(CronRunRecord(
-            request_id="req-stale-2",
-            job_id="job-d",
-            trigger="manual",
-            status="running",
-            accepted_at="2026-01-01T00:01:00+00:00",
-            started_at="2026-01-01T00:01:01+00:00",
-        ))
-        store.append(CronRunRecord(
-            request_id="req-done",
-            job_id="job-d",
-            trigger="scheduled",
-            status="completed",
-            accepted_at="2025-12-31T23:00:00+00:00",
-        ))
+        store.append(
+            CronRunRecord(
+                request_id="req-stale-1",
+                job_id="job-d",
+                trigger="scheduled",
+                status="accepted",
+                accepted_at="2026-01-01T00:00:00+00:00",
+            )
+        )
+        store.append(
+            CronRunRecord(
+                request_id="req-stale-2",
+                job_id="job-d",
+                trigger="manual",
+                status="running",
+                accepted_at="2026-01-01T00:01:00+00:00",
+                started_at="2026-01-01T00:01:01+00:00",
+            )
+        )
+        store.append(
+            CronRunRecord(
+                request_id="req-done",
+                job_id="job-d",
+                trigger="scheduled",
+                status="completed",
+                accepted_at="2025-12-31T23:00:00+00:00",
+            )
+        )
         store.converge_stale_on_restart()
         results = {r.request_id: r for r in store.list_by_job("job-d")}
         assert results["req-stale-1"].status == "failed"
@@ -484,19 +511,25 @@ class TestCronExecutionServiceEnqueue:
 
     def test_cron_execution_service_importable(self) -> None:
         """CronExecutionService must be importable from personal_assistant.scheduler."""
-        from personal_assistant.scheduler.cron_execution_service import CronExecutionService  # noqa: F401
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )  # noqa: F401
 
         assert CronExecutionService is not None
 
     @pytest.mark.asyncio
     async def test_enqueue_returns_accepted_ack(self, tmp_path: Path) -> None:
         """enqueue() must return accepted=True ack for a known enabled job."""
-        from personal_assistant.scheduler.cron_execution_service import CronExecutionService
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )
 
         self._make_job_store(tmp_path)
         executed: list[str] = []
 
-        async def _fake_execute(*, agent_id: str, job_id: str, request_id: str, trigger: str) -> None:
+        async def _fake_execute(
+            *, agent_id: str, job_id: str, request_id: str, trigger: str
+        ) -> None:
             executed.append(request_id)
 
         svc = CronExecutionService(
@@ -513,7 +546,9 @@ class TestCronExecutionServiceEnqueue:
     @pytest.mark.asyncio
     async def test_enqueue_unknown_job_returns_error(self, tmp_path: Path) -> None:
         """enqueue() for unknown job must return accepted=False with job_not_found."""
-        from personal_assistant.scheduler.cron_execution_service import CronExecutionService
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )
 
         async def _fake_execute(**kwargs):
             pass
@@ -530,18 +565,22 @@ class TestCronExecutionServiceEnqueue:
     @pytest.mark.asyncio
     async def test_enqueue_disabled_job_returns_error(self, tmp_path: Path) -> None:
         """enqueue() for disabled job must return accepted=False with job_disabled."""
-        from personal_assistant.scheduler.cron_execution_service import CronExecutionService
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )
         from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
 
         store = CronJobStore(workspace_root=tmp_path)
-        store.add(CronJob(
-            id="job-disabled",
-            name="disabled",
-            schedule={"kind": "every", "everyMs": 60000},
-            instruction="x",
-            enabled=False,
-            delete_after_run=False,
-        ))
+        store.add(
+            CronJob(
+                id="job-disabled",
+                name="disabled",
+                schedule={"kind": "every", "everyMs": 60000},
+                instruction="x",
+                enabled=False,
+                delete_after_run=False,
+            )
+        )
 
         async def _fake_execute(**kwargs):
             pass
@@ -558,7 +597,10 @@ class TestCronExecutionServiceEnqueue:
     @pytest.mark.asyncio
     async def test_enqueue_persists_accepted_record(self, tmp_path: Path) -> None:
         """enqueue() must write an accepted record to runs.jsonl."""
-        from personal_assistant.scheduler.cron_execution_service import CronExecutionService, CronRunsStore
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+            CronRunsStore,
+        )
 
         self._make_job_store(tmp_path)
 
@@ -604,7 +646,9 @@ class TestGatewayStartupConvergence:
             converge_calls.append(str(self._root))
             return original_converge(self)
 
-        monkeypatch.setattr(CronRunsStore, "converge_stale_on_restart", _recording_converge)
+        monkeypatch.setattr(
+            CronRunsStore, "converge_stale_on_restart", _recording_converge
+        )
 
         # build_runtime source must reference converge_stale_on_restart.
         import inspect

@@ -130,6 +130,46 @@ class TestPermanentErrors:
         )
         assert classify_retryability(facts) is False
 
+    def test_structured_permanent_type_overrides_billing_text(self) -> None:
+        """bugfix-402-M6: invalid_request_error is permanent even when body says 'credit card required'.
+
+        Previously billing-quota text was checked before structured permanent
+        types, so 'credit card required' + invalid_request_error was retryable.
+        Structured permanent type now takes priority.
+        """
+        facts = ProviderErrorFacts(
+            message="Your payment method is invalid: credit card required",
+            http_status=400,
+            provider_type="invalid_request_error",
+        )
+        assert classify_retryability(facts) is False
+
+    def test_structured_permanent_code_overrides_billing_text(self) -> None:
+        """bugfix-402-M6: permanent provider_code beats billing text."""
+        facts = ProviderErrorFacts(
+            message="invalid api key — please check your credit balance",
+            http_status=401,
+            provider_code="invalid_api_key",
+        )
+        assert classify_retryability(facts) is False
+
+    def test_bare_credit_word_without_billing_context(self) -> None:
+        """bugfix-402-M6: bare 'credit' no longer matches; requires compound phrase."""
+        facts = ProviderErrorFacts(
+            message="credit card required to activate account",
+            http_status=400,
+            provider_type="invalid_request_error",
+        )
+        assert classify_retryability(facts) is False
+
+    def test_credit_balance_compound_still_retryable(self) -> None:
+        """bugfix-402-M6: 'insufficient credit' and 'credit balance' stay retryable."""
+        facts = ProviderErrorFacts(
+            message="Insufficient credit: please top up your credit balance",
+            http_status=402,
+        )
+        assert classify_retryability(facts) is True
+
 
 # ---------------------------------------------------------------------------
 # Transient / unknown errors → retryable=True

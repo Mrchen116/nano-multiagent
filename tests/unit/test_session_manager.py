@@ -200,9 +200,7 @@ class TestPrepareTranscript:
             ],
         )
 
-        store.prepare_transcript_for_run(
-            session.session_id, reason="interrupted"
-        )
+        store.prepare_transcript_for_run(session.session_id, reason="interrupted")
 
         raw = _read_raw_lines(path)
         recovery_entries = [e for e in raw if e.get("type") == "tool_call_recovery"]
@@ -457,7 +455,8 @@ class TestInterruptCancelRecovery:
         }
         call_ids_in_asst = {
             tc.call_id
-            for m in llm_msgs if m.role == "assistant" and m.tool_calls
+            for m in llm_msgs
+            if m.role == "assistant" and m.tool_calls
             for tc in m.tool_calls
         }
         assert call_ids_in_asst == call_ids_with_result

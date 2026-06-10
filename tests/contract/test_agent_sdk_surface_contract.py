@@ -397,9 +397,7 @@ def test_host_capability_dispatcher_invoke_protocol() -> None:
             invocations.append((capability, payload, context))
             return {"accepted": True, "request_id": "req-1", "error_code": None}
 
-    ctx = HostCapabilityContext(
-        session_id="s1", workspace_root="/ws", product_id="pa"
-    )
+    ctx = HostCapabilityContext(session_id="s1", workspace_root="/ws", product_id="pa")
     dispatcher = _TestDispatcher()
     result = dispatcher.invoke("personal_assistant.cron.enqueue", {"job_id": "j1"}, ctx)
     assert result["accepted"] is True
@@ -447,8 +445,7 @@ def test_no_cron_type_exported_from_agent_sdk() -> None:
     import agent.sdk as sdk_module
 
     cron_names = [
-        name for name in dir(sdk_module)
-        if "cron" in name.lower() or "Cron" in name
+        name for name in dir(sdk_module) if "cron" in name.lower() or "Cron" in name
     ]
     assert not cron_names, (
         f"agent.sdk must not export cron-specific names; found: {cron_names}"
@@ -460,8 +457,7 @@ def test_no_cron_type_in_agent_core_tools() -> None:
     import agent.core.tools as core_tools
 
     cron_names = [
-        name for name in dir(core_tools)
-        if "cron" in name.lower() or "Cron" in name
+        name for name in dir(core_tools) if "cron" in name.lower() or "Cron" in name
     ]
     assert not cron_names, (
         f"agent.core.tools must not export cron-specific names; found: {cron_names}"

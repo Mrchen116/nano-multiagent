@@ -29,7 +29,9 @@ def _make_request() -> LLMGenerateRequest:
     )
 
 
-async def _collect(client: RetryingLLMClient, request: LLMGenerateRequest) -> list[LLMMessage]:
+async def _collect(
+    client: RetryingLLMClient, request: LLMGenerateRequest
+) -> list[LLMMessage]:
     msgs: list[LLMMessage] = []
     async for msg in client.generate(request):
         msgs.append(msg)
@@ -137,7 +139,9 @@ async def test_pre_content_retryable_errors_are_retried() -> None:
 class _AlwaysFailClient:
     """Always raises a retryable error with a distinctive message."""
 
-    def __init__(self, *, error_message: str = "real provider error: quota exceeded") -> None:
+    def __init__(
+        self, *, error_message: str = "real provider error: quota exceeded"
+    ) -> None:
         self.call_count = 0
         self._error_message = error_message
         self._last_details: dict = {"provider_code": "quota_exceeded", "status": 429}

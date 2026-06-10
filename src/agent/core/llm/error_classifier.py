@@ -20,7 +20,7 @@ itself.  The asymmetry favours the retryable default.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,9 +86,14 @@ _PERMANENT_PROVIDER_CODES: frozenset[str] = frozenset(
 _PERMANENT_HTTP_STATUSES: frozenset[int] = frozenset({401, 403, 404, 405, 422})
 
 # High-confidence substrings that indicate billing / quota / rate-limit
-# conditions that *can* resolve without caller changes.  Checked before
-# permanent HTTP status classification so that e.g. a 403 "overdue" response
-# stays retryable.  Case-insensitive.
+# conditions that *can* resolve without caller changes.  Checked after
+# structured permanent signals (provider_type/provider_code) so that e.g.
+# invalid_request_error with "credit card required" body is still permanent.
+# Case-insensitive.
+# bugfix-402-M6: "credit" replaced with precise compound phrases to avoid
+# matching "credit card required" (which is a permanent billing-setup error
+# that a retry cannot fix), while retaining "insufficient credit",
+# "credit balance", "credit limit", etc. which are transient quota conditions.
 _BILLING_QUOTA_FRAGMENTS: tuple[str, ...] = (
     "billing",
     "balance",
@@ -98,7 +103,10 @@ _BILLING_QUOTA_FRAGMENTS: tuple[str, ...] = (
     "rate limit",
     "rate_limit",
     "usage limit",
-    "credit",
+    "insufficient credit",
+    "credit balance",
+    "credit limit",
+    "credit expired",
     "throttl",
 )
 
@@ -135,28 +143,45 @@ def classify_retryability(facts: ProviderErrorFacts) -> bool:
     Returns:
         True if the caller should retry the request, False if the error is
         unambiguously permanent and retrying cannot help.
-    """
-    # Priority 4 (billing/quota) is checked first so that ambiguous HTTP
-    # status codes (403, 429) used for billing/quota responses stay retryable.
-    msg_lower = facts.message.lower()
-    if any(fragment in msg_lower for fragment in _BILLING_QUOTA_FRAGMENTS):
-        return True
 
-    # Priority 2a: structured provider_type signals an explicit permanent error
+    Classification priority (highest wins):
+      1. Structured permanent provider_type (e.g. invalid_request_error) → permanent
+      2. Structured permanent provider_code (e.g. invalid_api_key) → permanent
+      3. Billing/quota/rate-limit text → retryable (overrides permanent HTTP status)
+      4. Permanent HTTP status (401/403/404/…) → permanent
+      5. High-confidence permanent text → permanent
+      6. Everything else → retryable (default)
+
+    bugfix-402-M6: structured permanent signals (provider_type/provider_code)
+    now take priority over billing-quota text so that a response whose body
+    mentions billing-adjacent words but carries an explicit permanent type
+    (e.g. invalid_request_error + "credit card required") is correctly
+    classified as permanent rather than retryable.
+    """
+    msg_lower = facts.message.lower()
+
+    # Priority 1: structured provider_type signals an explicit permanent error.
+    # Checked first so that e.g. invalid_request_error is permanent even when
+    # the message body contains billing-adjacent words.
     if facts.provider_type and facts.provider_type in _PERMANENT_PROVIDER_TYPES:
         return False
 
-    # Priority 2b: structured provider_code signals an explicit permanent error
+    # Priority 2: structured provider_code signals an explicit permanent error.
     if facts.provider_code and facts.provider_code in _PERMANENT_PROVIDER_CODES:
         return False
 
-    # Priority 2c: HTTP status that is unambiguously permanent (401/403/404/…)
+    # Priority 3 (billing/quota): checked before HTTP status so that a 403
+    # "overdue" or 429 "quota" response stays retryable despite the status.
+    if any(fragment in msg_lower for fragment in _BILLING_QUOTA_FRAGMENTS):
+        return True
+
+    # Priority 4: HTTP status that is unambiguously permanent (401/403/404/…)
     if facts.http_status in _PERMANENT_HTTP_STATUSES:
         return False
 
-    # Priority 2d: high-confidence permanent text when no structured signal
+    # Priority 5: high-confidence permanent text when no structured signal
     if any(fragment in msg_lower for fragment in _PERMANENT_TEXT_FRAGMENTS):
         return False
 
-    # Priority 3 / 5: transient or unknown — default retryable
+    # Priority 6: transient or unknown — default retryable
     return True

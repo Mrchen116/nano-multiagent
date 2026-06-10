@@ -211,16 +211,18 @@ class TestCronToolRunHostCapability:
         cron_dir.mkdir(parents=True, exist_ok=True)
         jobs_path = cron_dir / "jobs.json"
         jobs_path.write_text(
-            json.dumps([
-                {
-                    "id": job_id,
-                    "name": "test job",
-                    "schedule": {"kind": "every", "everyMs": 3600000},
-                    "instruction": "do something",
-                    "enabled": True,
-                    "delete_after_run": False,
-                }
-            ]),
+            json.dumps(
+                [
+                    {
+                        "id": job_id,
+                        "name": "test job",
+                        "schedule": {"kind": "every", "everyMs": 3600000},
+                        "instruction": "do something",
+                        "enabled": True,
+                        "delete_after_run": False,
+                    }
+                ]
+            ),
             encoding="utf-8",
         )
 
@@ -291,7 +293,9 @@ class TestCronToolRunHostCapability:
         tool = CronTool()
         ctx = self._make_ctx(workspace_root=tmp_path, dispatcher=_RejectDispatcher())
         result = tool.run({"action": "run", "jobId": "job-1"}, ctx)
-        assert result.get("ok") is not True, f"expected ok!=true for rejected enqueue: {result}"
+        assert result.get("ok") is not True, (
+            f"expected ok!=true for rejected enqueue: {result}"
+        )
 
     def test_run_action_unknown_job_returns_error(self, tmp_path) -> None:
         """run action for non-existent job must fail before invoking dispatcher."""
@@ -308,6 +312,7 @@ class TestCronToolRunHostCapability:
         tool = CronTool()
         ctx = self._make_ctx(workspace_root=tmp_path, dispatcher=_RecordDispatcher())
         import pytest as _pytest
+
         with _pytest.raises((LookupError, ValueError)):
             tool.run({"action": "run", "jobId": "nonexistent-job"}, ctx)
         assert not dispatcher_called, "dispatcher must not be invoked for unknown job"
@@ -357,12 +362,14 @@ class TestCronRunsActionFromJsonl:
 
         tool = CronTool()
         job_store = CronJobStore(workspace_root=tmp_path)
-        job_store.add(CronJob(
-            id="job-r5-1",
-            name="R5 Job",
-            schedule={"kind": "every", "everyMs": 60000},
-            instruction="test",
-        ))
+        job_store.add(
+            CronJob(
+                id="job-r5-1",
+                name="R5 Job",
+                schedule={"kind": "every", "everyMs": 60000},
+                instruction="test",
+            )
+        )
 
         ctx = self._make_ctx(workspace_root=tmp_path)
         result = tool.run({"action": "runs", "jobId": "job-r5-1"}, ctx)
@@ -380,24 +387,28 @@ class TestCronRunsActionFromJsonl:
 
         tool = CronTool()
         job_store = CronJobStore(workspace_root=tmp_path)
-        job_store.add(CronJob(
-            id="job-r5-2",
-            name="R5 Structured Job",
-            schedule={"kind": "every", "everyMs": 60000},
-            instruction="test",
-        ))
+        job_store.add(
+            CronJob(
+                id="job-r5-2",
+                name="R5 Structured Job",
+                schedule={"kind": "every", "everyMs": 60000},
+                instruction="test",
+            )
+        )
         # Write a completed run record to runs.jsonl.
         store = CronRunsStore(workspace_root=tmp_path)
-        store.append(CronRunRecord(
-            request_id="req-r5-completed",
-            job_id="job-r5-2",
-            trigger="scheduled",
-            status="completed",
-            accepted_at="2026-06-01T10:00:00+00:00",
-            started_at="2026-06-01T10:00:01+00:00",
-            finished_at="2026-06-01T10:00:30+00:00",
-            result_summary="Done: 42 items processed",
-        ))
+        store.append(
+            CronRunRecord(
+                request_id="req-r5-completed",
+                job_id="job-r5-2",
+                trigger="scheduled",
+                status="completed",
+                accepted_at="2026-06-01T10:00:00+00:00",
+                started_at="2026-06-01T10:00:01+00:00",
+                finished_at="2026-06-01T10:00:30+00:00",
+                result_summary="Done: 42 items processed",
+            )
+        )
 
         ctx = self._make_ctx(workspace_root=tmp_path)
         result = tool.run({"action": "runs", "jobId": "job-r5-2"}, ctx)
@@ -422,27 +433,33 @@ class TestCronRunsActionFromJsonl:
 
         tool = CronTool()
         job_store = CronJobStore(workspace_root=tmp_path)
-        job_store.add(CronJob(
-            id="job-r5-3",
-            name="Sort Job",
-            schedule={"kind": "every", "everyMs": 60000},
-            instruction="test",
-        ))
+        job_store.add(
+            CronJob(
+                id="job-r5-3",
+                name="Sort Job",
+                schedule={"kind": "every", "everyMs": 60000},
+                instruction="test",
+            )
+        )
         store = CronRunsStore(workspace_root=tmp_path)
-        store.append(CronRunRecord(
-            request_id="req-older",
-            job_id="job-r5-3",
-            trigger="scheduled",
-            status="completed",
-            accepted_at="2026-06-01T09:00:00+00:00",
-        ))
-        store.append(CronRunRecord(
-            request_id="req-newer",
-            job_id="job-r5-3",
-            trigger="manual",
-            status="completed",
-            accepted_at="2026-06-01T10:00:00+00:00",
-        ))
+        store.append(
+            CronRunRecord(
+                request_id="req-older",
+                job_id="job-r5-3",
+                trigger="scheduled",
+                status="completed",
+                accepted_at="2026-06-01T09:00:00+00:00",
+            )
+        )
+        store.append(
+            CronRunRecord(
+                request_id="req-newer",
+                job_id="job-r5-3",
+                trigger="manual",
+                status="completed",
+                accepted_at="2026-06-01T10:00:00+00:00",
+            )
+        )
 
         ctx = self._make_ctx(workspace_root=tmp_path)
         result = tool.run({"action": "runs", "jobId": "job-r5-3"}, ctx)

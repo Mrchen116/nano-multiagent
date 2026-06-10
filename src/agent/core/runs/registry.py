@@ -161,7 +161,11 @@ class RunsRegistry:
             with self._lock:
                 self._state = _RegistryState.CLOSED
             return
-        timeout = grace_timeout_seconds if grace_timeout_seconds is not None else self._drain_timeout_seconds
+        timeout = (
+            grace_timeout_seconds
+            if grace_timeout_seconds is not None
+            else self._drain_timeout_seconds
+        )
         drain_future: concurrent.futures.Future = concurrent.futures.Future()
         loop.call_soon_threadsafe(
             lambda: loop.create_task(

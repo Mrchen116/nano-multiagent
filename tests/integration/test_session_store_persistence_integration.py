@@ -31,6 +31,7 @@ def test_prepare_transcript_idempotent_across_process_restart(tmp_path: Path) ->
     data_dir = tmp_path / "sessions"
     store = JsonlSessionStore(data_dir=data_dir)
     from agent.core.session.manager import SessionManager
+
     manager = SessionManager(store=store)
 
     session = manager.create_session(workspace_root=tmp_path)
@@ -40,16 +41,24 @@ def test_prepare_transcript_idempotent_across_process_restart(tmp_path: Path) ->
     # 模拟 run 中已持久化的 assistant tool_call
     path = store.resolve_path(sid)
     with path.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({
-            "type": "turn",
-            "uuid": "msg-restart-asst",
-            "parent_uuid": None,
-            "session_id": sid,
-            "role": "assistant",
-            "content": "",
-            "timestamp": "2026-01-01T00:00:00+00:00",
-            "tool_calls": [{"call_id": call_id, "name": "bash", "arguments": {}}],
-        }, ensure_ascii=False) + "\n")
+        f.write(
+            json.dumps(
+                {
+                    "type": "turn",
+                    "uuid": "msg-restart-asst",
+                    "parent_uuid": None,
+                    "session_id": sid,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "bash", "arguments": {}}
+                    ],
+                },
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
 
     # 第一次 prepare（模拟第一次进程重启）
     store1 = JsonlSessionStore(data_dir=data_dir)
@@ -72,7 +81,8 @@ def test_prepare_transcript_idempotent_across_process_restart(tmp_path: Path) ->
     }
     call_ids_in_asst = {
         tc.call_id
-        for m in llm_msgs if m.role == "assistant" and m.tool_calls
+        for m in llm_msgs
+        if m.role == "assistant" and m.tool_calls
         for tc in m.tool_calls
     }
     assert call_ids_in_asst == call_ids_with_result, (

@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] `im-chat-api.ts` 源码不含 `/im/v1/users` 调用（`listUsersRaw`、`createUserRaw`、`ensureUser`、alias bootstrap 已全部删除）
-- [ ] `loadUserMap` 已删除；使用 `conversation.participants` 作为参与者解析来源
-- [ ] `ensureBootstrap` 不再调用 `ensureUser` 创建 alias 用户
-- [ ] 新增 contract test 验证 im-chat-api.ts 不含 `/im/v1/users` 字符串
-- [ ] `npm run test -- --run` 全绿
-- [ ] `npm run build` 全绿
+- [x] `im-chat-api.ts` 源码不含 `/im/v1/users` 调用（`listUsersRaw`、`createUserRaw`、`ensureUser`、alias bootstrap 已全部删除）
+- [x] `loadUserMap` 已删除；使用 `conversation.participants` 作为参与者解析来源
+- [x] `ensureBootstrap` 不再调用 `ensureUser` 创建 alias 用户
+- [x] 新增 contract test 验证 im-chat-api.ts 不含 `/im/v1/users` 字符串
+- [x] `npm run test -- --run` 全绿
+- [x] `npm run build` 全绿
 
 ## 测试策略
 

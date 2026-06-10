@@ -76,6 +76,26 @@ class GatewayCronDispatcher(HostCapabilityDispatcher):
         for service in self._services.values():
             service._gateway_loop = loop  # noqa: SLF001
 
+    async def drain_all(self, timeout: float = 30.0) -> None:
+        """Drain pending execute_fn tasks across all registered services.
+
+        bugfix-402-M6 W-1: called from GatewayRuntime._run_until_shutdown() after
+        kernel.aclose() and before im_connection_manager.close() so that in-flight
+        cron executions (stream consume + IM delivery) complete before the IM
+        transport is torn down (Decision 7).
+
+        Args:
+            timeout: Maximum seconds to wait per registered service.
+        """
+        seen_ids: set[int] = set()
+        for service in self._services.values():
+            svc_id = id(service)
+            if svc_id in seen_ids:
+                # Skip duplicate — single-service mode registers under two keys.
+                continue
+            seen_ids.add(svc_id)
+            await service.drain(timeout=timeout)
+
     def invoke(
         self,
         capability: str,
