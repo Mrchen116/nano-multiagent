@@ -13,4 +13,19 @@
   - E2E/Regression: N/A — unit tests 覆盖 orphaned/partial/idempotent/readonly/closed
   - Visual/Interaction: N/A
 - Rollback: revert C2 commit
-- Commits: C1=<pending>, C2=<pending>, C3=<pending>
+- Commits: C1=前一 commit, C2=fix commit, C3=docs commit
+
+## R2 — SessionService/SessionManager 暴露 prepare_transcript_for_run
+
+- Context: 上层调用方（runtime）通过 SessionService/SessionManager 访问 store，不直接持 JsonlSessionStore 引用。
+- Decision: 在 SessionManager 和 SessionService 各加一个同名方法，透传 reason/workspace_root/parent_session_id，委托 store。
+- Rationale: 保持调用层不需要 downcast 到 store 即可调用 prepare；与现有 append/load 等方法风格一致。
+- Evidence:
+  - Tests: `pytest tests/unit/test_session_service.py -xvs` — 6 passed
+  - Entry: N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A
+  - Visual/Interaction: N/A
+- Rollback: revert C2 commit
+- Commits: C1=红测试 commit, C2=实现 commit

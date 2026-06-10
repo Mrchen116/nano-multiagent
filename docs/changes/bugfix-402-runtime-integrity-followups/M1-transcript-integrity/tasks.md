@@ -66,7 +66,7 @@
 
 ### R2 — SessionService/SessionManager 暴露 prepare_transcript_for_run
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   1. C1: 在 test_session_service.py 新增测试（红）：service.prepare_transcript_for_run() 透传 + 幂等
   2. C2: SessionManager + SessionService 增加 prepare_transcript_for_run 方法，委托 store
