@@ -287,6 +287,17 @@ class AgentRuntime:
                 workspace_root=workspace_root,
                 parent_session_id=parent_session_id,
             )
+            # Repair any orphaned tool_calls from a previous interrupted run before
+            # loading history into the in-process cache.  This ensures the LLM never
+            # sees a transcript with unclosed tool_calls (which most providers reject).
+            # Only necessary on the first load of this session in this process; on
+            # cache-hit the history is already known-good in memory.
+            self._session_manager.prepare_transcript_for_run(
+                session_id,
+                reason="orphaned",
+                workspace_root=workspace_root,
+                parent_session_id=parent_session_id,
+            )
             try:
                 result = self._session_manager.load(
                     session_id,

@@ -197,6 +197,20 @@ class JsonlSessionStore:
             elif etype == "compact_boundary":
                 boundary_idx = i
 
+        # Collect tool_call_recovery entries (all of them — not boundary-scoped,
+        # because a recovery for a pre-boundary tool_call would be appended after
+        # the boundary and we want to honour it during replay).
+        recovery_entries: list[dict] = [
+            e for e in raw_lines if e.get("type") == "tool_call_recovery"
+        ]
+        # Build a set of tool_call_ids that already have a recovery entry so
+        # _inject_recovery_messages can deduplicate by idempotency_key.
+        recovery_by_call_id: dict[str, dict] = {}
+        for rec in recovery_entries:
+            cid = rec.get("tool_call_id")
+            if cid and cid not in recovery_by_call_id:
+                recovery_by_call_id[cid] = rec
+
         # Only keep turns after the latest compact_boundary
         if boundary_idx >= 0:
             turns = [
@@ -206,6 +220,11 @@ class JsonlSessionStore:
             ]
         else:
             turns = [entry for entry in raw_lines if entry.get("type") == "turn"]
+
+        if not turns and not recovery_by_call_id:
+            return LoadResult(
+                config=_to_session_config(session_id, config), messages=[]
+            )
 
         if not turns:
             return LoadResult(
@@ -238,6 +257,7 @@ class JsonlSessionStore:
         if not has_links:
             chain = sorted(turns, key=lambda t: t.get("timestamp", ""))
             messages = [_to_message(t) for t in chain]
+            messages = _inject_recovery_messages(messages, recovery_by_call_id)
             return LoadResult(
                 config=_to_session_config(session_id, config), messages=messages
             )
@@ -275,6 +295,7 @@ class JsonlSessionStore:
         all_entries.sort(key=lambda t: t.get("timestamp", ""))
 
         messages = [_to_message(t) for t in all_entries]
+        messages = _inject_recovery_messages(messages, recovery_by_call_id)
         return LoadResult(
             config=_to_session_config(session_id, config), messages=messages
         )
@@ -770,3 +791,86 @@ def _extract_tool_name_for_call(assistant_entry: dict[str, Any], call_id: str) -
         if tc_id == call_id:
             return tc.get("name")
     return None
+
+
+def _inject_recovery_messages(
+    messages: list[Message],
+    recovery_by_call_id: dict[str, dict[str, Any]],
+) -> list[Message]:
+    """Insert synthetic tool result Messages for tool_call_recovery entries.
+
+    For each orphaned tool_call_id in ``recovery_by_call_id`` that does NOT
+    already have a matching ``role="tool"`` Message, a synthetic tool Message is
+    created and inserted immediately after the assistant Message that carried the
+    corresponding tool_call.  This satisfies the provider contract that every
+    tool_call must be followed by a tool result before the next non-tool turn.
+
+    The insertion is idempotent: if a tool result already exists for a call_id,
+    the recovery entry for that call_id is silently skipped.
+    """
+    if not recovery_by_call_id:
+        return messages
+
+    # Identify which call_ids already have a real tool result in the message list.
+    closed: set[str] = {
+        m.tool_call_id
+        for m in messages
+        if m.role == "tool" and m.tool_call_id
+    }
+
+    # Identify which call_ids need a synthetic result.
+    to_inject = {cid: rec for cid, rec in recovery_by_call_id.items() if cid not in closed}
+    if not to_inject:
+        return messages
+
+    # Build a map from assistant group/message to the call_ids it owns.
+    # We need to find the right insertion point for each orphaned call_id.
+    # Strategy: after converting to Messages, scan for assistant messages whose
+    # tool_calls include the orphaned call_id, then insert the synthetic result
+    # after the last consecutive tool message following that assistant message.
+    result: list[Message] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        result.append(msg)
+
+        if msg.role == "assistant":
+            # Collect call_ids declared by this assistant message that need injection.
+            asst_calls = msg.metadata.get("tool_calls") or []
+            orphaned_for_this_asst = [
+                tc.get("call_id") or tc.get("id")
+                for tc in asst_calls
+                if (tc.get("call_id") or tc.get("id")) in to_inject
+            ]
+
+            if orphaned_for_this_asst:
+                # Skip over any real tool results that already follow this assistant.
+                j = i + 1
+                while j < len(messages) and messages[j].role == "tool":
+                    result.append(messages[j])
+                    j += 1
+                i = j  # resume after the existing tool messages
+
+                # Inject synthetic results for the orphaned call_ids.
+                from agent.core.ids import make_message_id as _make_mid
+                for call_id in orphaned_for_this_asst:
+                    rec = to_inject[call_id]
+                    reason = rec.get("reason", "interrupted")
+                    tool_name = rec.get("tool_name") or call_id
+                    synthetic = Message(
+                        message_id=_make_mid(),
+                        role="tool",
+                        content=f"[{reason}]",
+                        tool_call_id=call_id,
+                        metadata={
+                            "tool_name": tool_name,
+                            "is_recovery": True,
+                            "recovery_reason": reason,
+                        },
+                    )
+                    result.append(synthetic)
+                continue
+
+        i += 1
+
+    return result
