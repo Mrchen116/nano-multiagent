@@ -184,3 +184,76 @@ M1/M2/M5 的 tasks.md checkboxes 均未从 `- [ ]` 更新为 `- [x]`，但通过
 ---
 
 No critical issues. 1 warning to consider. Ready for PR (with noted improvements).
+
+---
+
+# Round 2
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 8/8 M6 fixes 全部完成；M6 tasks.md 全 `[x]`；全量测试 2667 passed |
+| Correctness | Round 1 W-1 已修复；8 个 fix 均有代码证据和测试覆盖 |
+| Coherence | 所有 8 条 design 决策遵守（含 W-1 修复后的决策 7）；无新偏离 |
+
+All checks passed. Ready for PR.
+
+---
+
+## Round 1 W-1 修复核对
+
+**W-1：CronExecutionService execute_fn tasks not drained on Gateway shutdown**
+
+修复状态：**已解决**
+
+修复由 Fix 6 实现，分三层：
+
+1. `CronExecutionService.enqueue()` 改用 `loop.create_task()`，并通过 done callback 跟踪 `_pending_tasks` 列表（`src/personal_assistant/scheduler/cron_execution_service.py:396-416`）
+
+2. `CronExecutionService.drain(timeout)` 新增方法，用 `asyncio.wait_for(asyncio.gather(...))` 等待 pending tasks，超时后 cancel（`cron_execution_service.py:434-472`）
+
+3. `GatewayCronDispatcher.drain_all()` 新增方法，对 unique services 调用 `drain()`，正确去重 single-service 模式下的重复注册（`gateway_cron_dispatcher.py:79-97`）
+
+Gateway 关闭序列：`main.py:1583-1591` 在 `kernel.aclose()` 之后、`im_connection_manager.close()` 之前调用 `await self._cron_dispatcher.drain_all()`，与 design 决策 7 完全一致。
+
+测试覆盖：
+- `TestCronExecutionServiceDrain::test_drain_awaits_pending_tasks` — 验证 drain 等待 pending tasks
+- `TestCronExecutionServiceDrain::test_drain_no_tasks_returns_immediately` — 空 pending 场景
+- `TestGatewayCronDispatcherDrainAll::test_drain_all_drains_all_services` — 多 service drain
+- `TestGatewayCronDispatcherDrainAll::test_drain_all_deduplicates_single_service_mode` — 去重路径
+
+---
+
+## M6 Fix 逐项核对
+
+| Fix | 描述 | 代码证据 | 测试覆盖 | 状态 |
+|---|---|---|---|---|
+| Fix 1 | 动态创建 agent 的 CronExecutionService 注册 | `main.py:2310-2325`（`_register_cron_service` 提取），`main.py:2215-2218`（`on_agent_created` 回调） | `test_cron_delivery_chain.py::TestGatewayStartupConvergence` | resolved |
+| Fix 2 | `Kernel.aclose()` 委托 `RunsRegistry.shutdown()` 状态机 | `kernel.py:660-669`（`asyncio.to_thread(registry.shutdown)`，不再绕过 DRAINING 状态） | `test_runs_registry.py`，`test_cli_async_repl_sdk.py` | resolved |
+| Fix 3 | jsonl_store turns=empty 时不丢弃 recovery entries | `jsonl_store.py:224-239`（combined guard + explicit `_inject_recovery_messages([], recovery_by_call_id)`） | `test_session_persistence_fidelity.py` 新增 empty-turns recovery 测试 | resolved |
+| Fix 4 | `classify_retryability` 结构化 permanent 信号优先于 billing 文本 | `error_classifier.py:163-171`（priority 1/2 在 billing text 之前）；`_BILLING_QUOTA_FRAGMENTS` 删 bare "credit"，改精确 compound phrases | `test_llm_error_classifier.py::test_structured_permanent_type_overrides_billing_text`，`test_bare_credit_word_without_billing_context` | resolved |
+| Fix 5 | e2e-down.sh grace 计时：tick-based 计数修复 | `e2e-down.sh:41-50`（`max_ticks=$(( GRACE * 5 ))`，`elapsed_ticks+=1` per 0.2s） | `bash -n` 语法验证 | resolved |
+| Fix 6 | CronExecutionService drain（W-1 主体修复） | 见上节 W-1 详细核对 | `TestCronExecutionServiceDrain`，`TestGatewayCronDispatcherDrainAll` | resolved |
+| Fix 7 | M1/M2/M5 tasks.md checkboxes；test RuntimeWarning | 全三个 tasks.md 均已全 `[x]`；`test_cron_scheduler_tick.py:254` 改为 `async def` + `AsyncMock`，RuntimeWarning 消除 | 全量测试无 RuntimeWarning | resolved |
+| Fix 8 | `_extract_http_error_facts` 去重到 `common.py` | `platform/llm/providers/common.py:40`（`extract_http_error_facts` 定义）；两 provider 均 import alias | `test_llm_provider_contract.py` 全绿 | resolved |
+
+---
+
+## Round 1 Delta 未覆盖行为 — M6 后状态（advisory）
+
+**行为 1：`CronExecutionService.enqueue()` 无 event loop 时静默 drop（`cron_execution_service.py:418-425`）**
+
+M6 后状态：该路径**仍存在**，但 context 已弱化。Fix 1 确保所有 agent（静态 + 动态创建）在 cron tick 前均已注册并注入 `gateway_loop`，因此 Context B（tool.run 线程）在正常 Gateway 运行时总有 `gateway_loop` 可用。无 loop 的 warning 路径只在 Gateway 构建不完整（测试 mock 或进程异常）时触发。
+
+**delta spec 是否需要补条目（advisory）**：不需要。spec 要求"enqueue 立即返回 accepted 确认"，隐含"scheduler 已初始化"的 precondition；warning drop 是防御性降级，不是被告知消费者的契约语义。建议在代码注释处补充"此路径仅在 Gateway 未完成初始化时触发"以明示场景，但不需要进入 spec。
+
+**行为 2：`retry.py` 的 `_COOLDOWN_EVERY`/`_COOLDOWN_SECONDS` 冷却语义**
+
+M6 后状态：**未改变**，冷却逻辑仍存在（`retry.py:10-15`）。
+
+**delta spec 是否需要补条目（advisory）**：建议在 kernel spec.md 的"模型错误按统一可恢复语义重试并保留原始原因"requirement 下补一句"重试策略含指数退避，连续失败可能触发额外冷却等待"——这是消费者（Gateway 运维者）在调优 grace timeout 时需要知道的行为边界。属于 advisory，不阻塞 PR。
+
+---
+
+All checks passed. Ready for PR.
