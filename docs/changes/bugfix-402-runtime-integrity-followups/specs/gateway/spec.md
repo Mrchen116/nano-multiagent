@@ -6,7 +6,10 @@
 
 Gateway 默认可作为后台常驻服务启动，使用持久化 config 和单实例 PID 锁。`stop`/`restart`
 必须先停止新入站、heartbeat、cron 和 dispatch 生产者，再收拢内核运行，最后关闭 IM/channel
-资源。进行中的操作进入明确终态；关闭阶段的次要错误不得覆盖导致进程退出的最早真实错误。
+资源。Gateway 必须异步等待 Kernel 和自己拥有的 run-stream/delivery consumer，不得在主 event
+loop 直接执行阻塞式 Kernel close。进行中的操作进入明确终态；关闭阶段的次要错误不得覆盖导致
+进程退出的最早真实错误。项目提供的 e2e 停止脚本也必须先等待 Gateway grace shutdown，再停止
+其依赖的 IM 服务，只有 Gateway 超时不退出时才强制终止。
 
 #### Scenario: 默认启动后台常驻并尽快返回
 
@@ -36,7 +39,9 @@ Gateway 默认可作为后台常驻服务启动，使用持久化 config 和单�
 Heartbeat 是带 canonical 对话上下文的周期巡检；Cron 是可挂多条、在隔离 session 执行的无上下文
 任务。两者由各自 per-agent feature 控制。Cron 的定时触发和 Agent 手动触发必须进入同一个
 Gateway execution service，复用 Kernel 提交、IM 投递、运行历史和 canonical-session awareness；
-手动触发只改变触发时机并立即返回入队确认。
+手动触发只改变触发时机并立即返回入队确认。运行历史必须区分 trigger，记录
+accepted/running/terminal 状态、Kernel run、目标会话、结果或错误；scheduler 的 last-due 状态不
+得冒充运行历史。
 
 #### Scenario: 手动运行已有 cron 任务立即入队
 
@@ -49,6 +54,12 @@ Gateway execution service，复用 Kernel 提交、IM 投递、运行历史和 c
 - **WHEN** 手动入队的 cron job 执行完成
 - **THEN** 结果按该 job 原规则投递到目标会话、记录运行历史，并写入 canonical session awareness，
   后续用户追问可引用该结果
+
+#### Scenario: 查询 cron 运行历史
+
+- **WHEN** Agent 查询某 job 的运行历史
+- **THEN** Gateway 返回手动和定时触发的最新结构化记录，包含触发来源、状态、时间、结果或错误，
+  不只返回 scheduler 的 `last_due_at`
 
 #### Scenario: 手动运行未知或不可运行任务
 
@@ -66,21 +77,3 @@ Gateway execution service，复用 Kernel 提交、IM 投递、运行历史和 c
 - **GIVEN** 某 Agent 的定时或手动 cron 任务已执行并把结果发回 canonical 直聊
 - **WHEN** 用户在该直聊追问任务结果
 - **THEN** Agent 的回复能引用刚发出的 cron 汇报内容
-
-## ADDED Requirements
-
-### Requirement: 产品工具通过正式运行时能力端口请求 Gateway 副作用
-
-Gateway 在装配 `agent.sdk.Kernel` 时可注入进程内、非持久化的产品运行时能力。cron 等产品工具
-通过该端口提交命令，不使用 loopback HTTP、不把 callback/URL 写入 session metadata，也不要求
-内核反向依赖 Gateway。
-
-#### Scenario: Gateway 注入 cron enqueue 能力
-
-- **WHEN** Gateway 为 personal_assistant profile 构建 Kernel
-- **THEN** cron 工具执行上下文获得线程安全 enqueue 能力，能力对象不进入 JSONL、prompt 或 session metadata
-
-#### Scenario: 不支持 cron 的宿主未注入能力
-
-- **WHEN** 其他宿主构建 Kernel 且未注入 cron 能力
-- **THEN** cron run 返回 capability unavailable 的明确错误，不尝试访问虚构 URL
