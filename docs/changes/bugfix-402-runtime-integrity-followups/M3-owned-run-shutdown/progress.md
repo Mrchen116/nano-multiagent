@@ -59,3 +59,43 @@
   `GATEWAY_GRACE_SECONDS=5` in a polling loop, force-kill on timeout, then stop IM and API.
   Previously all services were killed simultaneously at 0.5s.
 - `bash -n scripts/e2e-down.sh` → exit 0 (syntax clean).
+
+## Live E2E Shutdown Evidence (unit worktree)
+
+**Date**: 2026-06-10
+
+**Command sequence**:
+```
+./scripts/e2e-up.sh --wt /Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-402
+# → "e2e stack ready … IM 59734 … GW pid=33767"
+# → "e2e config: node.user_id synced to ephemeral IM user 0553ef507aa54f5e915e4aa05a2f2619"
+
+./scripts/e2e-down.sh --wt /Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-402
+# → "e2e stack stopped (wt=…)" in 1s
+```
+
+**Shutdown timing**: Completed in 1s (well within 5s grace — no force-kill path triggered).
+
+**Gateway process exit**: `kill -0 $GW_PID` → "gateway pid=33767 exited cleanly" (process gone before pid file cleanup).
+
+**Error pattern scan**:
+```
+rg -n "different Context|Task was destroyed but it is pending|Traceback" .gateway.log
+→ 0 matches
+```
+
+**Gateway log (full)**:
+```
+INFO node wt-unit-bugfix-402-33671 auto-bound to IM
+  → NANO_MULTIAGENT_AUTO_BIND=1 confirmed bind for http://127.0.0.1:59734.
+```
+No cross-Context errors, no pending task destruction errors, no tracebacks.
+
+**IM log (tail)**:
+```
+INFO:     Shutting down
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+INFO:     Finished server process [33720]
+```
+IM shut down after Gateway exited, confirming correct shutdown order.
