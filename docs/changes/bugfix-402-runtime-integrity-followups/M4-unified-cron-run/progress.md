@@ -63,4 +63,17 @@ worktree: /Users/czj/Repos/nano-multiagent/.worktrees/bugfix-402-M4
   - Frontend State Matrix: N/A; Browser QA: N/A; E2E: N/A; Visual: N/A
 - Rollback: C1 hash (test(bugfix-402/M4/R4))
 - Commits: C1=test(R4), C2=feat(R4), C3=docs(R4)
-- Next: R5 — 启动遗留记录收敛 + cron runs 从 runs.jsonl 返回最新 records
+- Next: R5 DONE → Milestone 完成
+
+### R5 — 启动遗留记录收敛 + cron runs 从 runs.jsonl 返回最新 records
+
+- Context: 旧 `_action_runs` 只能返回 `state.json` 中的 `last_due_at`，无结构化历史；Gateway 重启后 accepted/running 记录永久留在非终态。
+- Decision: `_action_runs()` 改为 inline 读取 `workspace/.nanoassistant/cron/runs.jsonl` 并 materialize-on-read（添加 `_read_runs_for_job()` helper，不 import personal_assistant，遵守模块边界）；`build_runtime()` 在注册每个 agent CronExecutionService 后调用 `runs_store.converge_stale_on_restart()`。
+- Rationale: 两个修改共同满足 M4 退出标准：runs 查询返回最新结构化 records；重启后无永久进行中状态。
+- Evidence:
+  - Tests: 74 passed (含新增 TestCronRunsActionFromJsonl 4 用例 + TestGatewayStartupConvergence 1 用例)
+  - Entry: N/A（单元）
+  - Frontend State Matrix: N/A; Browser QA: N/A; E2E: N/A; Visual: N/A
+- Rollback: C1 hash (test(bugfix-402/M4/R5))
+- Commits: C1=test(R5), C2=fix(R5), C3=docs(R5)
+- Next: milestone 全部 roadpoints DONE → rebase + merge + spec delta

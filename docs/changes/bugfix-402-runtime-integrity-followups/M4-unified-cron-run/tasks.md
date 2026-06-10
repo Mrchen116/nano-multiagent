@@ -36,4 +36,4 @@
 | R2 | cron tool run 动作改用 host capability dispatch，删除 gateway_cron_url | DONE |
 | R3 | CronExecutionService + runs.jsonl 三阶段历史 | DONE |
 | R4 | Gateway composition 改用 CronExecutionService (scheduled+manual 共用 enqueue) | DONE |
-| R5 | 启动遗留记录收敛 + cron runs 从 runs.jsonl 返回最新 records | TODO |
+| R5 | 启动遗留记录收敛 + cron runs 从 runs.jsonl 返回最新 records | DONE |
