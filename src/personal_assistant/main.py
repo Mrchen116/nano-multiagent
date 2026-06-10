@@ -42,6 +42,7 @@ from personal_assistant.config.local_store import (
     IMServiceConfig,
     KernelConfig,
     LocalConfig,
+    WORKSPACE_CONFIG_DIRNAME as _WCD,
     default_local_config_path,
     ensure_workspace_defaults,
     load_local_config,
@@ -1308,10 +1309,6 @@ class PollingHeartbeatRunner:
                     else None
                 )
                 if _ws_root:
-                    from personal_assistant.config.local_store import (
-                        WORKSPACE_CONFIG_DIRNAME as _WCD,
-                    )  # noqa: PLC0415
-
                     _sess_path = (
                         Path(_ws_root)
                         / _WCD
