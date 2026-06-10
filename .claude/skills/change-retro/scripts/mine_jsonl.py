@@ -20,6 +20,7 @@
 
 注：<session_dir> 是去掉 .jsonl 的同名目录（subagents/ 在其下）。
 """
+
 import json, sys, os, glob, re
 from datetime import datetime
 
@@ -40,9 +41,16 @@ def _iter(jf):
                 continue
 
 
-_NOISE = ("<teammate-message", "<task-notification", "idle_notification", "<local-command",
-          "This session is being continued", "Base directory for this skill",
-          "Your tool call was malformed", "[Request interrupted")
+_NOISE = (
+    "<teammate-message",
+    "<task-notification",
+    "idle_notification",
+    "<local-command",
+    "This session is being continued",
+    "Base directory for this skill",
+    "Your tool call was malformed",
+    "[Request interrupted",
+)
 
 
 def _human_text(o):
@@ -53,7 +61,11 @@ def _human_text(o):
     if isinstance(c, str):
         t = c
     elif isinstance(c, list):
-        parts = [b.get("text", "") for b in c if isinstance(b, dict) and b.get("type") == "text"]
+        parts = [
+            b.get("text", "")
+            for b in c
+            if isinstance(b, dict) and b.get("type") == "text"
+        ]
         t = "\n".join(parts)
     else:
         return None
@@ -78,7 +90,7 @@ def cmd_sessions(projects_dir, unit_id):
             for line in fh:
                 n += line.count(unit_id)
         if n:
-            tss = [(_parse(o.get("timestamp")) ) for o in _iter(jf)]
+            tss = [(_parse(o.get("timestamp"))) for o in _iter(jf)]
             tss = [t for t in tss if t]
             first = min(tss) if tss else None
             last = max(tss) if tss else None
@@ -145,9 +157,11 @@ def cmd_subagents(session_dir):
     for role, (f, l, peak, nf) in agg.items():
         span = (l - f).total_seconds() / 60 if f and l else 0
         rows.append((f, role, peak, span, nf))
-    rows.sort(key=lambda r: (r[0] or datetime.max.replace(tzinfo=None)))
+    rows.sort(key=lambda r: r[0] or datetime.max.replace(tzinfo=None))
     print(f"{'start':16}  {'role':22}  {'peakAsst':>8}  {'span_min':>8}  {'forks':>5}")
-    print("# peakAsst=单实例assistant轮数峰值(失控信号,正常milestone~100-300); forks=该角色transcript文件数")
+    print(
+        "# peakAsst=单实例assistant轮数峰值(失控信号,正常milestone~100-300); forks=该角色transcript文件数"
+    )
     for f, role, peak, span, nf in rows:
         print(f"{str(f)[:16]:16}  {role[:22]:22}  {peak:8}  {span:8.0f}  {nf:5}")
 
@@ -180,8 +194,12 @@ def cmd_churn(jf, min_gap=40.0):
                 if ts:
                     acts.append(ts)
     acts.sort()
-    print(f"# 相邻真人输入间隔 > {min_gap:.0f}min 的段。活动量=窗口内 assistant 轮数(主+子)：")
-    print(f"#   高=真在磨(自主空转,问题); 接近0=用户离开/闲置(不算)。具体磨在哪段→去读原文。")
+    print(
+        f"# 相邻真人输入间隔 > {min_gap:.0f}min 的段。活动量=窗口内 assistant 轮数(主+子)："
+    )
+    print(
+        "#   高=真在磨(自主空转,问题); 接近0=用户离开/闲置(不算)。具体磨在哪段→去读原文。"
+    )
     for i in range(1, len(msgs)):
         gap = (msgs[i][0] - msgs[i - 1][0]).total_seconds() / 60
         if gap <= min_gap:
@@ -189,7 +207,9 @@ def cmd_churn(jf, min_gap=40.0):
         s, e = msgs[i - 1][0], msgs[i][0]
         nturns = sum(1 for t in acts if s <= t <= e)
         last = max((t for t in acts if s <= t <= e), default=s)
-        print(f"  {str(s)[5:16]} → {str(e)[5:16]} | 间隔{gap:6.0f}m({gap/60:4.1f}h) | 活动量={nturns:4d}轮 末活动{str(last)[5:16]} | 之后: {msgs[i][1]}")
+        print(
+            f"  {str(s)[5:16]} → {str(e)[5:16]} | 间隔{gap:6.0f}m({gap / 60:4.1f}h) | 活动量={nturns:4d}轮 末活动{str(last)[5:16]} | 之后: {msgs[i][1]}"
+        )
 
 
 def cmd_dispatches(jf):
@@ -229,7 +249,11 @@ def cmd_dialogue(session_dir):
                     inc += 1
                 elif isinstance(c, list):
                     for b in c:
-                        if isinstance(b, dict) and b.get("type") == "text" and len(b.get("text", "").strip()) > 20:
+                        if (
+                            isinstance(b, dict)
+                            and b.get("type") == "text"
+                            and len(b.get("text", "").strip()) > 20
+                        ):
                             inc += 1
         a = agg.setdefault(role, [0, 0])
         a[0] = max(a[0], out)
