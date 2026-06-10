@@ -415,7 +415,6 @@ interface ConversationPreviewSnapshot {
 
 const conversationPreviewSnapshotById = new Map<string, ConversationPreviewSnapshot>();
 
-const SELF_USERNAME = "you";
 const PEER_USERNAME = "peer";
 const DEFAULT_CONVERSATION_TITLE = "You & Teammate";
 const DIRECT_CONVERSATION_PLACEHOLDER_TITLE = "Direct conversation";
@@ -780,17 +779,6 @@ export function buildCreateMessageRequest(input: {
   return payload;
 }
 
-async function listUsersRaw() {
-  return requestJson<ImUser[]>("/im/v1/users");
-}
-
-async function createUserRaw(payload: { username: string; display_name: string }) {
-  return requestJson<ImUser>("/im/v1/users", {
-    method: "POST",
-    body: JSON.stringify(payload)
-  });
-}
-
 async function listConversationsRaw() {
   const payload = await requestJson<ItemsEnvelope<ImConversation> | ImConversation[]>("/im/v1/conversations");
   return normalizeItemsEnvelope(payload);
@@ -848,39 +836,18 @@ export async function getUsageMetrics(input: { ownerId?: string; conversationId?
   return requestJson<UsageMetricRow[]>(`/im/v1/metrics/usage${suffix}`);
 }
 
-async function ensureUser(username: string, displayName: string): Promise<ImUser> {
-  const users = await listUsersRaw();
-  const found = users.find((item) => item.username === username);
-  if (found) {
-    return found;
-  }
-  try {
-    return await createUserRaw({ username, display_name: displayName });
-  } catch {
-    const refreshed = await listUsersRaw();
-    const fallback = refreshed.find((item) => item.username === username);
-    if (fallback) {
-      return fallback;
-    }
-    throw new Error(`cannot ensure user ${username}`);
-  }
-}
-
-async function ensureSelfUser() {
-  // feat-340-M3: prefer the authenticated user from the auth store; fall back to the
-  // legacy "you" lookup only when no session is present (e.g. unauthenticated tests).
-  // M4 will fully migrate bootstrap onto the auth store and remove the fallback.
+async function ensureSelfUser(): Promise<ImUser> {
   const { useAuthStore } = await import("../auth/auth-store");
   const session = useAuthStore.getState().user;
-  if (session) {
-    return {
-      id: session.id,
-      username: session.username,
-      display_name: session.display_name,
-      owner_id: session.owner_id
-    } as ImUser;
+  if (!session) {
+    throw new Error("ensureSelfUser: not authenticated");
   }
-  return ensureUser(SELF_USERNAME, "You");
+  return {
+    id: session.id,
+    username: session.username,
+    display_name: session.display_name,
+    owner_id: session.owner_id
+  } as ImUser;
 }
 
 function pickStarterAgent(agents: ImAgent[]): ImAgent {
@@ -996,23 +963,16 @@ export function pickCanonicalDirectConversation(input: {
 function findStarterConversation(input: {
   conversations: ImConversation[];
   selfUserId: string;
-  peerUserId: string;
   starterAgentId: string;
-  userById: Map<string, ImUser>;
   starterTitle: string;
 }): ImConversation | null {
+  // Actor-first lookup: find by agent participant, then by title, then first available.
+  // No longer falls back to peerUserId alias lookup (alias bootstrap removed in bugfix-402-M5).
   return (
     pickCanonicalDirectConversation({
       conversations: input.conversations,
       selfUserId: input.selfUserId,
-      peerAgentId: input.starterAgentId,
-      userById: input.userById
-    }) ??
-    pickCanonicalDirectConversation({
-      conversations: input.conversations,
-      selfUserId: input.selfUserId,
-      peerUserId: input.peerUserId,
-      userById: input.userById
+      peerAgentId: input.starterAgentId
     }) ??
     input.conversations.find((item) => item.title === input.starterTitle) ??
     input.conversations[0] ??
@@ -1025,19 +985,13 @@ async function ensureBootstrap(): Promise<BootstrapState> {
     bootstrapPromise = (async () => {
       const [self, agents, nodes] = await Promise.all([ensureSelfUser(), listAgentsRaw(), listNodesRaw()]);
       const starterAgent = pickStarterAgent(agents);
-      const starterPeer = await ensureUser(
-        buildStarterPeerUsername(starterAgent.agent_id),
-        starterAgent.display_name || DEFAULT_AGENT_NAME
-      );
       const starterTitle = buildStarterConversationTitle(starterAgent.display_name || DEFAULT_AGENT_NAME);
-      const [existingConversations, userById] = await Promise.all([listConversationsRaw(), loadUserMap()]);
+      const existingConversations = await listConversationsRaw();
       const starterConversation =
         findStarterConversation({
           conversations: existingConversations,
           selfUserId: self.id,
-          peerUserId: starterPeer.id,
           starterAgentId: starterAgent.agent_id,
-          userById,
           starterTitle
         }) ??
         (await createConversationRaw({
@@ -1045,8 +999,7 @@ async function ensureBootstrap(): Promise<BootstrapState> {
           participants: [
             { type: "user", id: self.id },
             { type: "agent", id: starterAgent.agent_id, display_name: starterAgent.display_name }
-          ],
-          participant_ids: [self.id, starterPeer.id]
+          ]
         }));
       const agentName = starterAgent.display_name || DEFAULT_AGENT_NAME;
       const ownedNodeId = pickPrimaryOwnedNodeId(self);
@@ -1326,10 +1279,12 @@ function toConversationSummary(input: {
   };
 }
 
-async function loadUserMap() {
-  const users = await listUsersRaw();
-  return new Map(users.map((item) => [item.id, item]));
-}
+// Empty map used wherever userById was previously populated from /im/v1/users.
+// resolveConversationParticipants already prefers conversation.participants
+// (the Actor-first source) over the legacy participant_ids + userById fallback,
+// so this map will only be consulted for conversations that still use the old
+// participant_ids-only shape, where it silently falls back to stable-id display.
+const EMPTY_USER_MAP = new Map<string, ImUser>();
 
 function resolveDirectAgentId(input: {
   conversation: ImConversation;
@@ -1453,9 +1408,8 @@ export async function resolveConversationSendNodeState(input: {
       targetNodeStatus: activeSummary?.node_status ?? null
     };
   }
-  const [conversations, userById, agents, nodes] = await Promise.all([
+  const [conversations, agents, nodes] = await Promise.all([
     listConversationsRaw(),
-    loadUserMap(),
     listAgentsRaw(),
     listNodesRaw()
   ]);
@@ -1465,7 +1419,7 @@ export async function resolveConversationSendNodeState(input: {
   }
   const directNodeState = resolveDirectConversationNodeState({
     conversation,
-    userById,
+    userById: EMPTY_USER_MAP,
     selfUserId: input.selfUserId,
     agentsById: new Map(agents.map((agent) => [agent.agent_id, agent])),
     nodes
@@ -1503,9 +1457,8 @@ export async function getChatStarter(): Promise<ChatStarter> {
 
 export async function listConversations(): Promise<ConversationSummary[]> {
   const { selfUserId, starter, ownership } = await ensureBootstrap();
-  const [conversations, userById, agents, nodes] = await Promise.all([
+  const [conversations, agents, nodes] = await Promise.all([
     listConversationsRaw(),
-    loadUserMap(),
     listAgentsRaw(),
     listNodesRaw()
   ]);
@@ -1514,12 +1467,12 @@ export async function listConversations(): Promise<ConversationSummary[]> {
     .map((conversation) =>
       toConversationSummary({
         conversation,
-        userById,
+        userById: EMPTY_USER_MAP,
         selfUserId,
         starterTitle: starter.title,
         ownership: resolveConversationOwnershipForSummary({
           conversation,
-          userById,
+          userById: EMPTY_USER_MAP,
           selfUserId,
           defaultOwnership: ownership,
           agentsById,
@@ -1532,26 +1485,13 @@ export async function listConversations(): Promise<ConversationSummary[]> {
 
 export async function listDiscoverableAgents(): Promise<DiscoverableAgent[]> {
   const { selfUserId } = await ensureBootstrap();
-  const [agents, users, conversations] = await Promise.all([listAgentsRaw(), listUsersRaw(), listConversationsRaw()]);
-  const userById = new Map(users.map((item) => [item.id, item]));
-  const usersByUsername = new Map(users.map((item) => [item.username, item]));
+  const [agents, conversations] = await Promise.all([listAgentsRaw(), listConversationsRaw()]);
   return agents.map((agent) => {
-    const peer = usersByUsername.get(buildStarterPeerUsername(agent.agent_id));
-    const existingConversation =
-      pickCanonicalDirectConversation({
-        conversations,
-        selfUserId,
-        peerAgentId: agent.agent_id,
-        userById
-      }) ??
-      (peer
-        ? pickCanonicalDirectConversation({
-            conversations,
-            selfUserId,
-            peerUserId: peer.id,
-            userById
-          })
-        : null);
+    const existingConversation = pickCanonicalDirectConversation({
+      conversations,
+      selfUserId,
+      peerAgentId: agent.agent_id
+    });
     return {
       agent_id: agent.agent_id,
       display_name: agent.display_name,
@@ -1562,47 +1502,31 @@ export async function listDiscoverableAgents(): Promise<DiscoverableAgent[]> {
 }
 
 export async function listDiscoverableGroupParticipants(): Promise<GroupChatParticipantOption[]> {
-  const { selfUserId } = await ensureBootstrap();
+  // Actor-first: build candidate list directly from /im/v1/agents.
+  // No /im/v1/users call; agent.user_id is used as the participant id when
+  // the backend requires a concrete user row, falling back to the agent_id.
   const agents = await listAgentsRaw();
-  await Promise.all(
-    agents.map((agent) => ensureUser(buildStarterPeerUsername(agent.agent_id), agent.display_name || agent.agent_id))
-  );
-  const users = await listUsersRaw();
-  const agentById = new Map(agents.map((agent) => [agent.agent_id, agent]));
-  return users
-    .map((user) =>
-      toGroupParticipantOption({
-        user,
-        selfUserId,
-        agentById
-      })
-    )
-    .filter((item): item is GroupChatParticipantOption => Boolean(item))
+  return agents
+    .map((agent): GroupChatParticipantOption => ({
+      user_id: agent.user_id ?? `agent:${agent.agent_id}`,
+      label: agent.display_name || agent.agent_id,
+      kind: "agent",
+      description: agent.description?.trim() || "Configured agent available for shared group chat."
+    }))
     .sort(compareParticipantOptions);
 }
 
 export async function createDirectConversation(input: { agentId: string }): Promise<{ conversation_id: string }> {
   const { selfUserId } = await ensureBootstrap();
-  const agents = await listAgentsRaw();
+  const [agents, conversations] = await Promise.all([listAgentsRaw(), listConversationsRaw()]);
   const agent = agents.find((item) => item.agent_id === input.agentId);
   if (!agent) {
     throw new Error(`agent not found: ${input.agentId}`);
   }
-  const [peer, conversations, userById] = await Promise.all([
-    ensureUser(buildStarterPeerUsername(agent.agent_id), agent.display_name || agent.agent_id),
-    listConversationsRaw(),
-    loadUserMap()
-  ]);
   const existing = pickCanonicalDirectConversation({
     conversations,
     selfUserId,
-    peerAgentId: agent.agent_id,
-    userById
-  }) ?? pickCanonicalDirectConversation({
-    conversations,
-    selfUserId,
-    peerUserId: peer.id,
-    userById
+    peerAgentId: agent.agent_id
   });
   if (existing) {
     return { conversation_id: existing.id };
@@ -1613,12 +1537,7 @@ export async function createDirectConversation(input: { agentId: string }): Prom
   ];
   const created = await createConversationRaw({
     title: agent.display_name || agent.agent_id,
-    participants,
-    participant_ids: buildLegacyParticipantIds({
-      participants,
-      selfUserId,
-      peerUserId: peer.id
-    })
+    participants
   });
   return { conversation_id: created.id };
 }
@@ -1671,19 +1590,13 @@ export async function createFreshDirectConversation(input: { agentId: string }):
   if (!agent) {
     throw new Error(`agent not found: ${input.agentId}`);
   }
-  const peer = await ensureUser(buildStarterPeerUsername(agent.agent_id), agent.display_name || agent.agent_id);
   const participants: ImActorRef[] = [
     { type: "user", id: selfUserId },
     { type: "agent", id: agent.agent_id, display_name: agent.display_name || agent.agent_id }
   ];
   const created = await createConversationRaw({
     title: `${agent.display_name || agent.agent_id} · Fresh session`,
-    participants,
-    participant_ids: buildLegacyParticipantIds({
-      participants,
-      selfUserId,
-      peerUserId: peer.id
-    })
+    participants
   });
   return { conversation_id: created.id };
 }
@@ -1693,42 +1606,45 @@ export async function createGroupConversation(input: {
   /** Optional custom group name; leave blank to auto-generate from participant names. */
   groupName?: string;
 }): Promise<{ conversation_id: string }> {
+  // participantIds are agent user_id values (or "agent:<agent_id>" fallbacks)
+  // produced by listDiscoverableGroupParticipants (Actor-first).
   const { selfUserId } = await ensureBootstrap();
-  const participantIds = Array.from(
+  const selectedIds = Array.from(
     new Set(input.participantIds.filter((participantId) => participantId && participantId !== selfUserId))
   );
-  if (participantIds.length < 2) {
+  if (selectedIds.length < 2) {
     throw new Error("select at least two participants to create a group chat");
   }
-  const userById = await loadUserMap();
-  const participantLabels = participantIds.map((participantId) => userById.get(participantId)?.display_name ?? participantId);
+  const agents = await listAgentsRaw();
+  const agentsByUserId = new Map(agents.filter((a) => a.user_id).map((a) => [a.user_id as string, a]));
+  const agentsByFallbackId = new Map(agents.map((a) => [`agent:${a.agent_id}`, a]));
+  const participantLabels = selectedIds.map((participantId) => {
+    const agent = agentsByUserId.get(participantId) ?? agentsByFallbackId.get(participantId);
+    return agent?.display_name || participantId;
+  });
   const title = resolveGroupConversationTitle({ groupName: input.groupName, participantLabels });
   const participants: ImActorRef[] = [
     { type: "user", id: selfUserId },
-    ...participantIds.map<ImActorRef>((participantId) => {
-      const user = userById.get(participantId);
-      if (!user) {
-        return { type: "user", id: participantId };
+    ...selectedIds.map<ImActorRef>((participantId) => {
+      const agent = agentsByUserId.get(participantId) ?? agentsByFallbackId.get(participantId);
+      if (agent) {
+        return { type: "agent", id: agent.agent_id, display_name: agent.display_name };
       }
-      return toActorFromUser(user);
+      return { type: "user", id: participantId };
     })
   ];
   const created = await createConversationRaw({
     title,
     participants,
-    participant_ids: buildLegacyParticipantIds({
-      participants,
-      selfUserId
-    })
+    participant_ids: buildLegacyParticipantIds({ participants, selfUserId })
   });
   return { conversation_id: created.id };
 }
 
 export async function getConversation(conversationId: string): Promise<ConversationDetail | null> {
   const { selfUserId, starter } = await ensureBootstrap();
-  const [conversations, userById, messages] = await Promise.all([
+  const [conversations, messages] = await Promise.all([
     listConversationsRaw(),
-    loadUserMap(),
     listMessagesRaw(conversationId, { markAsRead: true })
   ]);
   const conversation = conversations.find((item) => item.id === conversationId);
@@ -1738,7 +1654,7 @@ export async function getConversation(conversationId: string): Promise<Conversat
   updateConversationPreviewFromMessages({ conversationId, messages });
   const participants = resolveConversationParticipants({
     conversation,
-    userById
+    userById: EMPTY_USER_MAP
   });
   const resolvedTitle = resolveConversationTitle({
     conversation,
@@ -1777,18 +1693,18 @@ export async function getConversation(conversationId: string): Promise<Conversat
     creator_id: conversation.creator_id ?? undefined,
     mention_candidates: toMentionCandidates({
       conversation,
-      userById,
+      userById: EMPTY_USER_MAP,
       selfUserId
     }),
     direct_agent_id: resolveDirectAgentId({
       conversation,
-      userById,
+      userById: EMPTY_USER_MAP,
       selfUserId
     }),
     messages: messages.map((message) =>
       toChatMessage({
         message,
-        userById,
+        userById: EMPTY_USER_MAP,
         selfUserId,
         defaultStatus: "completed"
       })
@@ -1813,20 +1729,17 @@ export async function sendMessage(input: {
   if (!isNodeReadyForSend({ targetNodeId: sendNodeState.targetNodeId, nodeStatus: sendNodeState.targetNodeStatus })) {
     throw new Error(SEND_FAILURE_UNAVAILABLE_HELPER);
   }
-  const [created, userById] = await Promise.all([
-    requestJson<ImMessage>(`/im/v1/conversations/${input.conversationId}/messages`, {
-      method: "POST",
-      body: JSON.stringify(
-        buildCreateMessageRequest({
-          selfUserId: bootstrap.selfUserId,
-          content: input.content,
-          attachments: input.attachments,
-          targetNodeId: null
-        })
-      )
-    }),
-    loadUserMap()
-  ]);
+  const created = await requestJson<ImMessage>(`/im/v1/conversations/${input.conversationId}/messages`, {
+    method: "POST",
+    body: JSON.stringify(
+      buildCreateMessageRequest({
+        selfUserId: bootstrap.selfUserId,
+        content: input.content,
+        attachments: input.attachments,
+        targetNodeId: null
+      })
+    )
+  });
   updateConversationPreviewSnapshot({
     conversationId: input.conversationId,
     preview: toMessagePreview(created),
@@ -1834,7 +1747,7 @@ export async function sendMessage(input: {
   });
   return toChatMessage({
     message: created,
-    userById,
+    userById: EMPTY_USER_MAP,
     selfUserId: bootstrap.selfUserId,
     defaultStatus: "sent"
   });

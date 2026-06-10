@@ -22,9 +22,54 @@ import {
   streamConversationEvents
 } from "./im-chat-api";
 
+// Inject a fake authenticated session so ensureSelfUser() resolves from the
+// auth store instead of falling through to the removed /im/v1/users fallback.
+// The mock exposes setSession/clear so existing tests that call those methods
+// directly keep working.
+let _fakeSession: Record<string, unknown> | null = {
+  id: "user-self",
+  username: "nano",
+  display_name: "You",
+  owner_id: "owner-1",
+  owned_node_ids: ["node-1"]
+};
+let _fakeAccessToken: string | null = null;
+
+vi.mock("../auth/auth-store", () => ({
+  useAuthStore: {
+    getState: () => ({
+      get user() { return _fakeSession; },
+      get accessToken() { return _fakeAccessToken; },
+      setSession(session: { access_token: string; user: Record<string, unknown> }) {
+        _fakeAccessToken = session.access_token;
+        _fakeSession = session.user;
+      },
+      setTokens(tokens: { access_token: string }) {
+        _fakeAccessToken = tokens.access_token;
+      },
+      clear() {
+        _fakeAccessToken = null;
+        _fakeSession = null;
+      },
+      isAuthenticated() {
+        return Boolean(_fakeAccessToken && _fakeSession);
+      }
+    })
+  }
+}));
+
 afterEach(() => {
   resetChatBootstrapState();
   vi.restoreAllMocks();
+  // Reset fake auth state to default between tests.
+  _fakeSession = {
+    id: "user-self",
+    username: "nano",
+    display_name: "You",
+    owner_id: "owner-1",
+    owned_node_ids: ["node-1"]
+  };
+  _fakeAccessToken = null;
 });
 
 describe("im chat api helpers", () => {
@@ -194,31 +239,9 @@ describe("im chat api helpers", () => {
   });
 
   it("falls back to the peer agent display name when a direct chat still stores the placeholder title", async () => {
+    // Actor-first: participants from conversation.participants, no /im/v1/users call.
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url === "/im/v1/users") {
-        return new Response(
-          JSON.stringify([
-            {
-              id: "user-self",
-              username: "you",
-              display_name: "You",
-              owner_id: "owner-1",
-              owned_node_ids: ["node-1"],
-              created_at: "2026-03-14T00:00:00Z"
-            },
-            {
-              id: "agent-user",
-              username: "agent:ops-bot",
-              display_name: "Ops Bot",
-              owner_id: "owner-1",
-              owned_node_ids: [],
-              created_at: "2026-03-14T00:00:00Z"
-            }
-          ]),
-          { status: 200 }
-        );
-      }
       if (url === "/im/v1/agents") {
         return new Response(JSON.stringify([{ agent_id: "ops-bot", display_name: "Ops Bot", description: "starter agent" }]), {
           status: 200
@@ -235,7 +258,10 @@ describe("im chat api helpers", () => {
             {
               id: "conv-1",
               title: "Direct conversation",
-              participant_ids: ["user-self", "agent-user"],
+              participants: [
+                { type: "user", id: "user-self", display_name: "You" },
+                { type: "agent", id: "ops-bot", display_name: "Ops Bot" }
+              ],
               type: "direct",
               owner_id: "owner-1",
               created_at: "2026-03-14T00:00:00Z"
@@ -260,31 +286,9 @@ describe("im chat api helpers", () => {
   });
 
   it("lists conversation summaries without fetching every conversation's messages", async () => {
+    // Actor-first: self from auth store, participants from conversation.participants.
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url === "/im/v1/users" && (!init?.method || init.method === "GET")) {
-        return new Response(
-          JSON.stringify([
-            {
-              id: "user-self",
-              username: "you",
-              display_name: "You",
-              owner_id: "owner-1",
-              owned_node_ids: ["node-1"],
-              created_at: "2026-03-14T00:00:00Z"
-            },
-            {
-              id: "agent-user",
-              username: "agent:ops-bot",
-              display_name: "Ops Bot",
-              owner_id: "owner-1",
-              owned_node_ids: [],
-              created_at: "2026-03-14T00:00:00Z"
-            }
-          ]),
-          { status: 200 }
-        );
-      }
       if (url === "/im/v1/agents") {
         return new Response(JSON.stringify([{ agent_id: "ops-bot", display_name: "Ops Bot", description: "starter agent" }]), {
           status: 200
@@ -301,7 +305,10 @@ describe("im chat api helpers", () => {
             {
               id: "conv-1",
               title: "Direct conversation",
-              participant_ids: ["user-self", "agent-user"],
+              participants: [
+                { type: "user", id: "user-self", display_name: "You" },
+                { type: "agent", id: "ops-bot", display_name: "Ops Bot" }
+              ],
               type: "direct",
               owner_id: "owner-1",
               unread_count: 2,
@@ -336,39 +343,9 @@ describe("im chat api helpers", () => {
   });
 
   it("falls back to the peer teammate display name when a direct user chat keeps the default placeholder", async () => {
+    // Actor-first: participants from conversation.participants, no /im/v1/users call.
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url === "/im/v1/users" && (!init?.method || init.method === "GET")) {
-        return new Response(
-          JSON.stringify([
-            {
-              id: "user-self",
-              username: "you",
-              display_name: "You",
-              owner_id: "owner-1",
-              owned_node_ids: ["node-1"],
-              created_at: "2026-03-14T00:00:00Z"
-            },
-            {
-              id: "agent-user",
-              username: "agent:ops-bot",
-              display_name: "Ops Bot",
-              owner_id: "owner-1",
-              owned_node_ids: [],
-              created_at: "2026-03-14T00:00:00Z"
-            },
-            {
-              id: "user-peer",
-              username: "alex",
-              display_name: "Alex",
-              owner_id: "owner-1",
-              owned_node_ids: [],
-              created_at: "2026-03-14T00:00:00Z"
-            }
-          ]),
-          { status: 200 }
-        );
-      }
       if (url === "/im/v1/agents") {
         return new Response(JSON.stringify([{ agent_id: "ops-bot", display_name: "Ops Bot", description: "starter agent" }]), {
           status: 200
@@ -385,7 +362,10 @@ describe("im chat api helpers", () => {
             {
               id: "starter-conv",
               title: "主 Agent · OpsBot",
-              participant_ids: ["user-self", "agent-user"],
+              participants: [
+                { type: "user", id: "user-self", display_name: "You" },
+                { type: "agent", id: "ops-bot", display_name: "Ops Bot" }
+              ],
               type: "direct",
               owner_id: "owner-1",
               created_at: "2026-03-13T00:00:00Z"
@@ -393,7 +373,10 @@ describe("im chat api helpers", () => {
             {
               id: "conv-user",
               title: "You & Teammate",
-              participant_ids: ["user-self", "user-peer"],
+              participants: [
+                { type: "user", id: "user-self", display_name: "You" },
+                { type: "user", id: "user-peer", display_name: "Alex" }
+              ],
               type: "direct",
               owner_id: "owner-1",
               created_at: "2026-03-14T00:00:00Z"
@@ -417,22 +400,9 @@ describe("im chat api helpers", () => {
   });
 
   it("returns the confirmed self user id so the browser can invalidate stale chat bootstrap state", async () => {
-    let usersResponse = [
-      {
-        id: "user-self",
-        username: "you",
-        display_name: "You",
-        owner_id: "owner-1",
-        owned_node_ids: ["node-1"],
-        created_at: "2026-03-14T00:00:00Z"
-      }
-    ];
-
+    // Actor-first: self id comes from the auth store mock (user-self), no /im/v1/users call.
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url === "/im/v1/users" && (!init?.method || init.method === "GET")) {
-        return new Response(JSON.stringify(usersResponse), { status: 200 });
-      }
       if (url === "/im/v1/bind" && init?.method === "POST") {
         return new Response(JSON.stringify({ node_id: "node-1" }), { status: 201 });
       }
@@ -458,66 +428,29 @@ describe("im chat api helpers", () => {
     );
   });
 
-  it("derives selectable group participants from runtime agents after bootstrap creates aliases", async () => {
-    let usersResponse = [
-      {
-        id: "user-self",
-        username: "you",
-        display_name: "You",
-        owner_id: "owner-1",
-        owned_node_ids: ["node-1"],
-        created_at: "2026-03-14T00:00:00Z"
-      }
-    ];
-
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+  it("derives selectable group participants from runtime agents (Actor-first, no /im/v1/users)", async () => {
+    // Actor-first: listDiscoverableGroupParticipants uses /im/v1/agents directly.
+    // user_id field comes from agent.user_id when present; falls back to "agent:<agent_id>".
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = typeof input === "string" ? input : input.toString();
-      if (url === "/im/v1/users" && (!init?.method || init.method === "GET")) {
-        return new Response(JSON.stringify(usersResponse), { status: 200 });
-      }
-      if (url === "/im/v1/users" && init?.method === "POST") {
-        const payload = JSON.parse(String(init.body));
-        const created = {
-          id: `${payload.username}-id`,
-          username: payload.username,
-          display_name: payload.display_name,
-          owner_id: payload.username === "you" ? "owner-1" : `${payload.username}-id`,
-          owned_node_ids: [],
-          created_at: "2026-03-14T00:00:01Z"
-        };
-        usersResponse = [...usersResponse, created];
-        return new Response(JSON.stringify(created), { status: 201 });
-      }
       if (url === "/im/v1/agents") {
         return new Response(
           JSON.stringify([
             {
               agent_id: "agent-a",
               display_name: "Agent A",
-              description: "runtime selectable"
+              description: "runtime selectable",
+              user_id: "agent-a-uid"
             },
             {
               agent_id: "agent-b",
               display_name: "Agent B",
-              description: "runtime selectable"
+              description: "runtime selectable",
+              user_id: null
             }
           ]),
           { status: 200 }
         );
-      }
-      if (url === "/im/v1/nodes") {
-        return new Response(
-          JSON.stringify([
-            { node_id: "node-1", node_name: "MacBook", status: "online", relay_enabled: true, owner_id: "owner-1" }
-          ]),
-          { status: 200 }
-        );
-      }
-      if (url === "/im/v1/conversations") {
-        return new Response(JSON.stringify([]), { status: 200 });
-      }
-      if (url.startsWith("/im/v1/conversations/") && url.endsWith("/messages")) {
-        return new Response(JSON.stringify([]), { status: 200 });
       }
       return new Response(null, { status: 404 });
     });
@@ -528,21 +461,21 @@ describe("im chat api helpers", () => {
 
     expect(participants).toEqual([
       {
-        user_id: "agent:agent-a-id",
+        user_id: "agent-a-uid",
         label: "Agent A",
         kind: "agent",
         description: "runtime selectable"
       },
       {
-        user_id: "agent:agent-b-id",
+        user_id: "agent:agent-b",
         label: "Agent B",
         kind: "agent",
         description: "runtime selectable"
       }
     ]);
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/im/v1/users",
-      expect.objectContaining({ method: "POST" })
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringContaining("/im/v1/users"),
+      expect.anything()
     );
   });
 });
