@@ -2030,29 +2030,20 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # refactor-387-M4: import from agent.sdk only
     from agent.sdk import (
         build_kernel,
-        PermissionDecision as _PermissionDecision,
         LLMFactoryConfig as _LLMFactoryConfig,
         PERSONAL_ASSISTANT_PROFILE,
     )
 
-    # PA permission strategy: unattended gateway — auto-allow all tools.
-    # The gateway is primarily a relay for heartbeat/cron and user-triggered turns;
-    # blocking for a user who may be absent would deadlock the run.
-    async def _pa_can_use_tool(
-        tool_name: str,
-        tool_input: object,
-        ctx: object,
-    ) -> "_PermissionDecision":
-        return _PermissionDecision(behavior="allow")
-
-    # init_model_registry(config.llm) is called by run_gateway before build_runtime;
-    # LLMFactoryConfig.from_env() reads from the global model registry.
+    # PA does not supply can_use_tool: permission ask always parks on broker future
+    # and is resolved by the user clicking Allow/Deny on the IM card via
+    # kernel.submit_permission_decision.  Unattended origins (heartbeat/cron) short-circuit
+    # before reaching ask via auto_mode_gate's unattended_fallback — they never park.
     llm_factory_config = _LLMFactoryConfig.from_env()
 
     kernel = build_kernel(
         product_profile=PERSONAL_ASSISTANT_PROFILE,
         llm_config=llm_factory_config,
-        can_use_tool=_pa_can_use_tool,
+        # can_use_tool=None: IM card flow; see submit_permission_decision.
     )
 
     # Wrap Kernel as a _KernelClientLike shim so HeartbeatScheduler and
@@ -2198,7 +2189,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             prompt_preview_provider=_make_prompt_preview_provider(kernel),
             agent_create_handler=im_config_sync_client.handle_agent_create,
             token_getter=_token_getter,
-            permission_response_handler=None,
+            permission_response_handler=_build_permission_response_handler(kernel=kernel),
             on_connected=_reconcile_on_connect,
         )
         im_bootstrap_client = _IMBootstrapClient(
@@ -2657,48 +2648,28 @@ def _build_im_connection_manager(
 
 def _build_permission_response_handler(
     *,
-    kernel_client: Any,  # KernelAPIClient removed in M3; this function is dead code until M4 cleanup
-    run_context_store: dict[str, dict[str, str]],
+    kernel: Any,
 ) -> Callable[[Mapping[str, object]], None]:
     """Build handler that routes IM permission_response frames to the kernel.
 
-    The frame carries ``request_id``, ``decision``, and the IM-side
-    ``message_id``. The kernel session is recovered by scanning
-    ``run_context_store`` for a matching ``message_id`` — the same store
-    already maintained by the kernel event observer.
+    The frame carries ``request_id``, ``decision``, and an optional ``reason``.
+    request_id is globally unique (assigned by auto_mode_gate at ask time), so
+    no session lookup is required — the broker finds the pending future by id.
     """
 
     def _handler(body: Mapping[str, object]) -> None:
         request_id = str(body.get("request_id") or "").strip()
         decision = str(body.get("decision") or "").strip()
-        message_id = str(body.get("message_id") or "").strip()
         if not request_id or not decision:
             return
-        kernel_session_id = ""
-        if message_id:
-            for ctx in run_context_store.values():
-                if ctx.get("message_id") == message_id:
-                    kernel_session_id = ctx.get("kernel_session_id") or ""
-                    break
-        # Fallback: if message_id lookup misses (e.g. ack not yet stored),
-        # use the only active kernel session when there's exactly one.
-        if not kernel_session_id:
-            distinct = {
-                ctx.get("kernel_session_id")
-                for ctx in run_context_store.values()
-                if ctx.get("kernel_session_id")
-            }
-            if len(distinct) == 1:
-                kernel_session_id = next(iter(distinct))  # type: ignore[assignment]
-        if not kernel_session_id:
-            return
+        reason = str(body.get("reason") or "").strip()
         try:
-            kernel_client.submit_permission_decision(
-                session_id=kernel_session_id,
+            kernel.submit_permission_decision(
                 request_id=request_id,
                 decision=decision,
+                reason=reason,
             )
-        except Exception:  # noqa: BLE001 — IM-bound side-effect; failure can't cascade
+        except Exception:  # noqa: BLE001 — IM-bound side-effect; failure must not cascade
             return
 
     return _handler

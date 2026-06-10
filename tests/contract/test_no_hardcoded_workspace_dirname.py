@@ -32,7 +32,8 @@ _WHITELIST: frozenset[str] = frozenset(
         "src/agent/platform/bootstrap.py:136",
         # runtime.py: tool-results dir uses .nano — platform default dir, not per-workspace
         # feat-388 ruff format: line shifted to 156; refactor-395 import logging: shifted to 159
-        "src/agent/core/agent/runtime.py:159",
+        # feat-394-M14: _can_use_tool attr added in __init__; shifted to 165
+        "src/agent/core/agent/runtime.py:165",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode

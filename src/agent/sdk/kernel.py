@@ -69,7 +69,7 @@ def build_kernel(
     *,
     product_profile: "ProductProfile",
     llm_config: LLMFactoryConfig,
-    can_use_tool: CanUseToolFn,
+    can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
     # Internal escape hatch for tests: skip LLM client construction and use
     # this fake instead.  Not part of the public API.
@@ -84,8 +84,10 @@ def build_kernel(
     Args:
         product_profile: Product-specific defaults (tools, hooks, system prompt).
         llm_config: LLM provider/model/endpoint configuration.
-        can_use_tool: Async callback invoked when the agent needs permission to
-            use a tool; the callback returns a PermissionDecision.
+        can_use_tool: Optional async callback invoked when the agent needs
+            permission to use a tool; returns a PermissionDecision.
+            When None, all permission decisions must arrive via
+            ``submit_permission_decision`` (IM card flow).
         repo_root: Repository/workspace root for tool and hook discovery.
         _llm_client_override: Test-only; if provided, skips constructing an
             LLM client from llm_config and uses this instead.
@@ -232,18 +234,19 @@ class Kernel:
         self,
         *,
         components: _KernelComponents,
-        can_use_tool: CanUseToolFn,
+        can_use_tool: CanUseToolFn | None,
         repo_root: Path,
     ) -> None:
         self._c = components
         self._can_use_tool = can_use_tool
         self._repo_root = repo_root
 
-        # Wire can_use_tool as the permission_requester on the runtime.
-        # The auto_mode_gate hook calls HookContext.request_permission(req),
-        # which delegates to permission_requester — this is where the SDK
-        # bridges the hook layer to the consumer's permission strategy.
-        self._c.runtime._permission_requester = self._make_permission_requester()  # type: ignore[attr-defined]
+        # Inject can_use_tool into runtime so _build_hook_context can race it
+        # against the broker future when building _permission_requester closures.
+        # None = no consumer callback; permission gates rely solely on broker futures
+        # (resolved externally via submit_permission_decision).
+        if can_use_tool is not None:
+            self._c.runtime._can_use_tool = can_use_tool  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # Public API — mirrors design.md §接口与数据流
@@ -409,6 +412,42 @@ class Kernel:
         # scoped to a run_id — all pending permissions should be aborted on interrupt.
         self._c.permission_broker.cancel_all_pending(run_id=None)
         return run_id
+
+    def submit_permission_decision(
+        self,
+        *,
+        request_id: str,
+        decision: str,
+        reason: str = "",
+    ) -> bool:
+        """Resolve a pending permission request with a user decision.
+
+        Called by the gateway when the user clicks Allow/Deny on an IM
+        permission card. Resolves the broker future so the parked run can
+        resume or be denied.
+
+        Args:
+            request_id: The unique request id from the permission_request event.
+            decision: One of ``allow_once``, ``deny``, ``allow_session``,
+                ``allow_always``.
+            reason: Optional human-readable reason forwarded to the run.
+
+        Returns:
+            True when the request was pending and has been resolved; False when
+            request_id is unknown or already resolved (idempotent).
+        """
+        from agent.platform.permissions.broker import PermissionResponse  # noqa: PLC0415
+
+        broker = self._c.permission_broker
+        if not broker.is_pending(request_id):
+            return False
+        response = PermissionResponse(
+            decision=decision,  # type: ignore[arg-type]
+            request_id=request_id,
+            reason=reason,
+        )
+        broker.resolve(request_id, response)
+        return True
 
     def cancel(self, run_id: str) -> RunRecord | None:
         """Cancel a queued or running run by id.
