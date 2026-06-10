@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextvars
 import threading
+from contextlib import suppress
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
@@ -20,6 +22,23 @@ from agent.core.observability.logger import log_error, log_info
 from agent.core.observability.tracing import bind_correlation, current_trace_id, span
 from agent.core.session.manager import SessionManager
 from agent.core.agent.run_control import RunController
+
+
+class RegistryClosedError(RuntimeError):
+    """Raised when submit() is called after the registry has been shut down.
+
+    Consumers should treat this as a stable signal that the kernel is closing
+    and no new work will be accepted.
+    """
+
+
+class _RegistryState(StrEnum):
+    # Accepting new runs normally.
+    OPEN = "open"
+    # Draining: no new submissions; waiting for owned Tasks to reach terminal state.
+    DRAINING = "draining"
+    # Loop and thread have stopped.
+    CLOSED = "closed"
 
 
 class RunStatus(StrEnum):
@@ -91,6 +110,7 @@ class RunsRegistry:
         session_manager: SessionManager,
         event_hub: EventHubLike | None = None,
         hook_runner: HookRunner | None = None,
+        drain_timeout_seconds: float = 30.0,
     ) -> None:
         self._runtime = runtime
         self._session_manager = session_manager
@@ -101,6 +121,15 @@ class RunsRegistry:
         self._controllers: dict[str, RunController] = {}
         # session_id → run_id for the currently-executing run (RUNNING state only).
         self._active_run_by_session: dict[str, str] = {}
+        # bugfix-402-M3: owned Task handles so drain_async() can await each to
+        # terminal state before stopping the loop.  Keyed by run_id; cleared in
+        # the Task done-callback so the dict never outlives a completed Task.
+        self._owned_tasks: dict[str, asyncio.Task] = {}
+        # Lifecycle state: OPEN → DRAINING → CLOSED (see _RegistryState).
+        self._state: _RegistryState = _RegistryState.OPEN
+        # Signal that fires once all owned Tasks have completed (set inside loop).
+        self._drain_done: asyncio.Future | None = None
+        self._drain_timeout_seconds = drain_timeout_seconds
         # Dedicated async event-loop thread so that httpx.AsyncClient transport
         # is not torn down by per-call asyncio.run() (feat-335).
         self._async_loop: asyncio.AbstractEventLoop | None = None
@@ -116,12 +145,75 @@ class RunsRegistry:
         asyncio.set_event_loop(self._async_loop)
         self._async_loop.run_forever()
 
-    def shutdown(self) -> None:
-        """Stop the dedicated async loop and join its thread."""
-        if self._async_loop is not None and self._async_loop.is_running():
-            self._async_loop.call_soon_threadsafe(self._async_loop.stop)
+    def shutdown(self, *, grace_timeout_seconds: float | None = None) -> None:
+        """Drain owned Tasks then stop the dedicated async loop.
+
+        Transitions the registry OPEN → DRAINING → CLOSED.  All queued/running
+        Tasks are waited (up to drain_timeout_seconds) before the loop stops.
+        Calling shutdown() on an already-closed registry is a no-op.
+        """
+        with self._lock:
+            if self._state is _RegistryState.CLOSED:
+                return
+            self._state = _RegistryState.DRAINING
+        loop = self._async_loop
+        if loop is None or not loop.is_running():
+            with self._lock:
+                self._state = _RegistryState.CLOSED
+            return
+        timeout = grace_timeout_seconds if grace_timeout_seconds is not None else self._drain_timeout_seconds
+        drain_future: concurrent.futures.Future = concurrent.futures.Future()
+        loop.call_soon_threadsafe(
+            lambda: loop.create_task(
+                self._drain_and_stop(drain_future, timeout), name="registry-drain"
+            )
+        )
+        try:
+            drain_future.result(timeout=timeout + 5.0)
+        except concurrent.futures.TimeoutError:
+            # Force-stop the loop if drain exceeded total wait budget.
+            if loop.is_running():
+                loop.call_soon_threadsafe(loop.stop)
         if self._async_thread is not None:
-            self._async_thread.join(timeout=5.0)
+            self._async_thread.join(timeout=2.0)
+        with self._lock:
+            self._state = _RegistryState.CLOSED
+
+    async def _drain_and_stop(
+        self,
+        done_future: "concurrent.futures.Future[None]",
+        timeout_seconds: float,
+    ) -> None:
+        """Await owned Tasks then stop the event loop.
+
+        Runs inside the registry's dedicated loop so Task awaits happen in the
+        correct Context.  Cancels tasks that exceed the grace timeout.
+        """
+        with self._lock:
+            pending = list(self._owned_tasks.values())
+
+        if pending:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending, return_exceptions=True),
+                    timeout=timeout_seconds,
+                )
+            except (asyncio.TimeoutError, TimeoutError):
+                # Grace period exceeded — cancel remaining tasks.
+                with self._lock:
+                    remaining = list(self._owned_tasks.values())
+                for task in remaining:
+                    task.cancel()
+                with suppress(Exception):
+                    await asyncio.gather(*remaining, return_exceptions=True)
+
+        self._async_loop.stop()
+        done_future.set_result(None)
+
+    def _on_task_done(self, run_id: str) -> None:
+        """Remove a completed Task from the owned-tasks map (done-callback)."""
+        with self._lock:
+            self._owned_tasks.pop(run_id, None)
 
     def submit(
         self,
@@ -139,6 +231,12 @@ class RunsRegistry:
         can locate the session JSONL; it is required (in production) for the
         existence check below and for the runtime's first load of the session.
         """
+        # bugfix-402-M3: reject new submissions once the registry is draining/closed.
+        with self._lock:
+            if self._state is not _RegistryState.OPEN:
+                raise RegistryClosedError(
+                    "registry is shutting down; no new runs will be accepted"
+                )
         if (
             self._session_manager.get_session(session_id, workspace_root=workspace_root)
             is None
@@ -195,9 +293,16 @@ class RunsRegistry:
         # _context.reset(token) raises "token was created in a different Context"
         # (Issue #3, refactor-387 sdk-fix-r3).
         ctx = contextvars.copy_context()
-        self._async_loop.call_soon_threadsafe(
-            lambda: self._async_loop.create_task(coro, context=ctx)
-        )
+
+        # bugfix-402-M3: register Task handle so drain_async() can await it.
+        # The done-callback removes the Task from _owned_tasks when it finishes.
+        def _schedule_and_register() -> None:
+            task = self._async_loop.create_task(coro, context=ctx, name=f"run-{run_id}")
+            with self._lock:
+                self._owned_tasks[run_id] = task
+            task.add_done_callback(lambda _t: self._on_task_done(run_id))
+
+        self._async_loop.call_soon_threadsafe(_schedule_and_register)
         return record
 
     def get_event_loop(self) -> asyncio.AbstractEventLoop | None:
