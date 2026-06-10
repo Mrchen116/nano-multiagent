@@ -193,6 +193,28 @@ class SessionService:
             writer.flush()
         return AppendMessageResult(entry=entry, created=True)
 
+    def prepare_transcript_for_run(
+        self,
+        session_id: str,
+        *,
+        reason: str = "interrupted",
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> None:
+        """Ensure every assistant tool_call has a corresponding result before a run.
+
+        Must be called by the runtime before building chat messages.  Delegates to
+        ``SessionManager.prepare_transcript_for_run``.
+
+        ``workspace_root`` locates the session file.
+        """
+        self._manager.prepare_transcript_for_run(
+            session_id,
+            reason=reason,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
+        )
+
     def _find_message_by_idempotency_key(
         self,
         *,

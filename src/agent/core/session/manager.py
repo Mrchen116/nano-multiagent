@@ -359,6 +359,29 @@ class SessionManager:
         return tuple(entries)
 
     # ------------------------------------------------------------------
+    # Transcript integrity
+    # ------------------------------------------------------------------
+
+    def prepare_transcript_for_run(
+        self,
+        session_id: str,
+        *,
+        reason: str = "interrupted",
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> None:
+        """Ensure every assistant tool_call has a corresponding result before a run.
+
+        Delegates to ``JsonlSessionStore.prepare_transcript_for_run``.
+        """
+        self._store.prepare_transcript_for_run(
+            session_id,
+            reason=reason,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
+        )
+
+    # ------------------------------------------------------------------
     # Run status (no-op: RUN_STATUS is not persisted in JSONL)
     # ------------------------------------------------------------------
 
