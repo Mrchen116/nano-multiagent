@@ -58,3 +58,18 @@
   - Visual/Interaction: N/A
 - Rollback: revert C1 commit（仅 test 文件，无风险）
 - Commits: C1=测试（tests 直接绿，因为 R1/R3 已实现机制）
+
+## R5 — 集成：prepare + load 全流程 + 全套测试绿
+
+- Context: 验证跨 store 实例（模拟进程重启）的 prepare 幂等性，以及全部指定测试全绿。
+- Decision: 在 test_session_store_persistence_integration.py 新增 `test_prepare_transcript_idempotent_across_process_restart`：3 个不同 JsonlSessionStore 实例，前两个各 prepare 一次，第三个 load，验证只有 1 条 recovery entry 且 transcript 合法。
+- Rationale: 与 unit 层 idempotency 测试互补——unit 测试同一 store 实例两次 prepare，integration 测试不同 store 实例（依赖文件锁全局 _PATH_LOCKS，需验证不同实例间也生效）。
+- Evidence:
+  - Tests: 所有 tests/unit/*.py tests/integration/*.py tests/contract/*.py tests/im_service/*.py 逐文件全绿（总计 300+ passed，0 failed）
+  - Entry: N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: N/A — e2e 需要 IM + Gateway 运行环境
+  - Visual/Interaction: N/A
+- Rollback: revert integration test commit
+- Commits: C1=集成测试

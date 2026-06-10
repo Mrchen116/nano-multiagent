@@ -95,7 +95,7 @@
 
 ### R5 — 集成：prepare + load 全流程 + mapper 合法性
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   1. C1: 扩展 test_session_store_persistence_integration.py：含悬空 tool_call 的 session，两次
      prepare 后再 load，transcript 合法（仅一套 recovery entry）
