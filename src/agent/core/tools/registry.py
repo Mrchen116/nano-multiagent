@@ -537,6 +537,9 @@ def _resolve_execution_context(
         safety_overrides=base_context.safety_overrides,
         execution_event_callback=base_context.execution_event_callback,
         llm_client=base_context.llm_client,
+        # Propagate host_capabilities so product tools (e.g. cron run)
+        # retain the dispatcher injected at composition root.
+        host_capabilities=base_context.host_capabilities,
     )
 
 
