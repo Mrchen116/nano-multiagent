@@ -37,7 +37,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
-        "src/agent/core/session/jsonl_store.py:75",
+        # bugfix-402-M1: prepare_transcript_for_run + append_tool_call_recovery added, line shifted to 81
+        "src/agent/core/session/jsonl_store.py:81",
         # tools/loader.py: .nano/tools platform dir
         # feat-388 ruff format: line shifted to 95
         "src/agent/platform/tools/loader.py:95",

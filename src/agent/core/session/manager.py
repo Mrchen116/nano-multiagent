@@ -381,6 +381,31 @@ class SessionManager:
             parent_session_id=parent_session_id,
         )
 
+    def append_tool_call_recovery(
+        self,
+        session_id: str,
+        *,
+        tool_call_id: str,
+        tool_name: str | None = None,
+        reason: str,
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> None:
+        """Append a single tool_call_recovery entry for an in-progress call.
+
+        Lightweight eager path used by the runtime when a run ends with
+        cancelled/aborted stop_reason.  Delegates to
+        ``JsonlSessionStore.append_tool_call_recovery``.
+        """
+        self._store.append_tool_call_recovery(
+            session_id,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            reason=reason,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
+        )
+
     # ------------------------------------------------------------------
     # Run status (no-op: RUN_STATUS is not persisted in JSONL)
     # ------------------------------------------------------------------
