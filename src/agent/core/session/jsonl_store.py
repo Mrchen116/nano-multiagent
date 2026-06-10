@@ -1,6 +1,7 @@
 """Canonical JSONL session store for the new session context storage architecture."""
 
 import json
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -9,6 +10,11 @@ from agent.core.types import Message
 from agent.core.utils.time import utc_now_iso as _utc_now_iso
 
 from .jsonl_writer import JsonlWriter
+
+# Per-path threading.Lock registry so that concurrent prepare_transcript_for_run
+# calls on the same session file are serialized without blocking unrelated sessions.
+_PATH_LOCKS: dict[Path, threading.Lock] = {}
+_PATH_LOCKS_META: threading.Lock = threading.Lock()
 
 
 class SessionNotFoundError(ValueError):
@@ -365,6 +371,129 @@ class JsonlSessionStore:
             parent_session_id=parent_session_id,
         )
 
+    def prepare_transcript_for_run(
+        self,
+        session_id: str,
+        *,
+        reason: str = "interrupted",
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> None:
+        """Ensure every assistant tool_call has a corresponding result before a run.
+
+        Reads the JSONL under a per-path lock, finds any assistant tool_calls that
+        lack a matching tool result or tool_call_recovery entry, and appends a
+        synthetic recovery entry for each.  Uses a deterministic idempotency_key
+        so repeated calls on the same session produce exactly one recovery entry
+        per orphaned call_id — the second call is a no-op.
+
+        Callers must invoke this before building chat messages for a new run.
+        Plain ``load()`` is read-only and does NOT call this method.
+
+        Args:
+            session_id: The session to prepare.
+            reason: One of ``"interrupted"``, ``"cancelled"``, ``"shutdown"``,
+                ``"orphaned"``.  Stored in the recovery entry for diagnostics.
+            workspace_root: Locates the session file (omit when store has data_dir).
+            parent_session_id: For subagent sessions.
+        """
+        path = self._resolve_path(
+            session_id,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
+        )
+        if not path.exists():
+            # Nothing to prepare — session file not yet created.
+            return
+
+        lock = _get_path_lock(path)
+        with lock:
+            # Flush any enqueued but not-yet-written entries before reading.
+            self._writer.flush()
+
+            raw_lines = _read_raw_lines(path)
+
+            # Build map of tool_call_id -> closed (has result or recovery).
+            pending: dict[str, dict] = {}  # call_id -> assistant_entry
+            closed: set[str] = set()
+
+            for entry in raw_lines:
+                etype = entry.get("type")
+                if etype == "turn":
+                    role = entry.get("role")
+                    if role == "assistant":
+                        for tc in entry.get("tool_calls") or []:
+                            call_id = tc.get("call_id") or tc.get("id")
+                            if call_id:
+                                # Register as pending; may be closed by a later entry.
+                                pending[call_id] = entry
+                    elif role == "tool":
+                        tcid = entry.get("tool_call_id")
+                        if tcid:
+                            closed.add(tcid)
+                elif etype == "tool_call_recovery":
+                    tcid = entry.get("tool_call_id")
+                    if tcid:
+                        closed.add(tcid)
+
+            orphaned = [cid for cid in pending if cid not in closed]
+            if not orphaned:
+                return
+
+            ts = _utc_now_iso()
+            for call_id in orphaned:
+                assistant_entry = pending[call_id]
+                recovery: dict[str, Any] = {
+                    "type": "tool_call_recovery",
+                    "session_id": session_id,
+                    "tool_call_id": call_id,
+                    "tool_name": _extract_tool_name_for_call(
+                        assistant_entry, call_id
+                    ),
+                    "reason": reason,
+                    "timestamp": ts,
+                    "idempotency_key": f"tool-call-recovery:{call_id}",
+                }
+                self._writer.enqueue(path, recovery)
+
+            # Flush immediately so the next load() sees the recovery entries.
+            self._writer.flush()
+
+    def append_tool_call_recovery(
+        self,
+        session_id: str,
+        *,
+        tool_call_id: str,
+        tool_name: str | None = None,
+        reason: str,
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> None:
+        """Append a single tool_call_recovery entry for an active call that is
+        being cancelled/interrupted/shut-down while the run is still live.
+
+        Unlike ``prepare_transcript_for_run`` (which scans the full file under lock),
+        this lighter variant is called by the runtime's cancel/interrupt path where
+        the call_id is already known.  It does NOT check for existing recovery
+        entries — the caller must ensure idempotency if needed.
+        """
+        path = self._resolve_path(
+            session_id,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
+        )
+        recovery: dict[str, Any] = {
+            "type": "tool_call_recovery",
+            "session_id": session_id,
+            "tool_call_id": tool_call_id,
+            "reason": reason,
+            "timestamp": _utc_now_iso(),
+            "idempotency_key": f"tool-call-recovery:{tool_call_id}",
+        }
+        if tool_name:
+            recovery["tool_name"] = tool_name
+        self._writer.enqueue(path, recovery)
+
     # ------------------------------------------------------------------
     # Internal
     # ------------------------------------------------------------------
@@ -605,3 +734,39 @@ def _extract_message_metadata(entry: dict[str, Any]) -> dict[str, Any]:
     if "tool_calls" in entry:
         meta["tool_calls"] = entry["tool_calls"]
     return meta
+
+
+# ------------------------------------------------------------------
+# Module-level helpers for prepare_transcript_for_run
+# ------------------------------------------------------------------
+
+
+def _get_path_lock(path: Path) -> threading.Lock:
+    """Return the per-path lock, creating it if necessary."""
+    with _PATH_LOCKS_META:
+        if path not in _PATH_LOCKS:
+            _PATH_LOCKS[path] = threading.Lock()
+        return _PATH_LOCKS[path]
+
+
+def _read_raw_lines(path: Path) -> list[dict[str, Any]]:
+    """Read all non-empty JSONL lines from path."""
+    result: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    result.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    return result
+
+
+def _extract_tool_name_for_call(assistant_entry: dict[str, Any], call_id: str) -> str | None:
+    """Extract the tool name for a specific call_id from an assistant entry's tool_calls."""
+    for tc in assistant_entry.get("tool_calls") or []:
+        tc_id = tc.get("call_id") or tc.get("id")
+        if tc_id == call_id:
+            return tc.get("name")
+    return None
