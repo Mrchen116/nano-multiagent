@@ -50,4 +50,17 @@ worktree: /Users/czj/Repos/nano-multiagent/.worktrees/bugfix-402-M4
   - Frontend State Matrix: N/A; Browser QA: N/A; E2E: N/A; Visual: N/A
 - Rollback: C1 hash (test(bugfix-402/M4/R3))
 - Commits: C1=test(R3), C2=feat(R3), C3=docs(R3)
-- Next: R4 — Gateway composition 改用 CronExecutionService
+- Next: R4 DONE → R5
+
+### R4 — Gateway composition 改用 CronExecutionService (scheduled+manual 共用 enqueue)
+
+- Context: 旧 `_cron_tick_for_agent` 为每个 tick 内联创建 CronRunner + submit_fn 闭包，与 manual cron tool 路径完全割裂，无共享历史。
+- Decision: 新建 `GatewayCronDispatcher(HostCapabilityDispatcher)` — 按 workspace_root 路由到 per-agent `CronExecutionService`；`build_runtime()` 在 `build_kernel()` 前创建空 dispatcher 并注入 `host_capabilities=_cron_dispatcher`；为每个 `config.agents` 创建 `CronExecutionService(execute_fn=...)` 并注册；`_cron_tick_for_agent` 改为 `_service.enqueue(trigger="scheduled")`；execute_fn 封装完整执行链(submit→stream→deliver→awareness)。
+- Rationale: scheduled/manual 触发共用同一 execute_fn，保证历史一致性；GatewayCronDispatcher 延迟注册（build_kernel 前创建空 dispatcher，kernel_shim 创建后注册 services），无需分两个阶段。
+- Evidence:
+  - Tests: 69 passed (含新增 TestGatewayCronDispatcher 5 用例)
+  - Entry: N/A（单元）
+  - Frontend State Matrix: N/A; Browser QA: N/A; E2E: N/A; Visual: N/A
+- Rollback: C1 hash (test(bugfix-402/M4/R4))
+- Commits: C1=test(R4), C2=feat(R4), C3=docs(R4)
+- Next: R5 — 启动遗留记录收敛 + cron runs 从 runs.jsonl 返回最新 records
