@@ -1,5 +1,8 @@
+import json
 import tempfile
 from pathlib import Path
+
+import pytest
 
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
@@ -138,3 +141,217 @@ def test_append_run_status_is_no_op() -> None:
         # JSONL should still only have session_created
         result = manager.load(session.session_id)
         assert len(result.messages) == 0
+
+
+# ---------------------------------------------------------------------------
+# C1-R1: prepare_transcript_for_run + tool_call_recovery entry (RED tests)
+# ---------------------------------------------------------------------------
+
+
+def _write_raw_lines(path: Path, lines: list[dict]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        for entry in lines:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+
+def _read_raw_lines(path: Path) -> list[dict]:
+    result = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                result.append(json.loads(line))
+    return result
+
+
+class TestPrepareTranscript:
+    """prepare_transcript_for_run: 补齐未闭合 tool_call，幂等，load 后 transcript 合法。"""
+
+    def _setup_store(self, tmpdir: str) -> tuple[JsonlSessionStore, SessionManager]:
+        store = JsonlSessionStore(data_dir=Path(tmpdir))
+        manager = SessionManager(store=store)
+        return store, manager
+
+    def test_orphaned_tool_call_gets_recovery_entry(self, tmp_path: Path) -> None:
+        """未闭合 tool_call 经 prepare 后，JSONL 包含 tool_call_recovery entry。"""
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+
+        session = manager.create_session(workspace_root=tmp_path)
+        # 写入 assistant 消息带 tool_call，无对应 tool result
+        call_id = "call-orphan-001"
+        path = store.resolve_path(session.session_id)
+        _write_raw_lines(
+            path,
+            [
+                {
+                    "type": "turn",
+                    "uuid": "msg-asst-1",
+                    "parent_uuid": None,
+                    "session_id": session.session_id,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "bash", "arguments": {}}
+                    ],
+                }
+            ],
+        )
+
+        store.prepare_transcript_for_run(
+            session.session_id, reason="interrupted"
+        )
+
+        raw = _read_raw_lines(path)
+        recovery_entries = [e for e in raw if e.get("type") == "tool_call_recovery"]
+        assert len(recovery_entries) == 1, "应有 1 个 recovery entry"
+        rec = recovery_entries[0]
+        assert rec["tool_call_id"] == call_id
+        assert rec["reason"] == "interrupted"
+        assert rec["idempotency_key"] == f"tool-call-recovery:{call_id}"
+
+    def test_prepare_idempotent_no_duplicate_recovery(self, tmp_path: Path) -> None:
+        """prepare 两次不产生重复 recovery entry。"""
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+
+        session = manager.create_session(workspace_root=tmp_path)
+        call_id = "call-idem-002"
+        path = store.resolve_path(session.session_id)
+        _write_raw_lines(
+            path,
+            [
+                {
+                    "type": "turn",
+                    "uuid": "msg-asst-2",
+                    "parent_uuid": None,
+                    "session_id": session.session_id,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "read", "arguments": {}}
+                    ],
+                }
+            ],
+        )
+
+        store.prepare_transcript_for_run(session.session_id, reason="interrupted")
+        store.prepare_transcript_for_run(session.session_id, reason="interrupted")
+
+        raw = _read_raw_lines(path)
+        recovery_entries = [e for e in raw if e.get("type") == "tool_call_recovery"]
+        assert len(recovery_entries) == 1, "重复 prepare 只产生 1 个 recovery entry"
+
+    def test_partial_results_only_repairs_missing(self, tmp_path: Path) -> None:
+        """部分有结果时只补缺失的 call_id。"""
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+
+        session = manager.create_session(workspace_root=tmp_path)
+        call_a = "call-partial-A"
+        call_b = "call-partial-B"
+        path = store.resolve_path(session.session_id)
+        _write_raw_lines(
+            path,
+            [
+                {
+                    "type": "turn",
+                    "uuid": "msg-asst-3",
+                    "parent_uuid": None,
+                    "session_id": session.session_id,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_a, "name": "bash", "arguments": {}},
+                        {"call_id": call_b, "name": "read", "arguments": {}},
+                    ],
+                },
+                # call_a 有结果，call_b 没有
+                {
+                    "type": "turn",
+                    "uuid": "msg-tool-A",
+                    "parent_uuid": "msg-asst-3",
+                    "session_id": session.session_id,
+                    "role": "tool",
+                    "content": "output A",
+                    "timestamp": "2026-01-01T00:00:01+00:00",
+                    "tool_call_id": call_a,
+                },
+            ],
+        )
+
+        store.prepare_transcript_for_run(session.session_id, reason="cancelled")
+
+        raw = _read_raw_lines(path)
+        recovery_entries = [e for e in raw if e.get("type") == "tool_call_recovery"]
+        assert len(recovery_entries) == 1, "只有 call_b 需要恢复"
+        assert recovery_entries[0]["tool_call_id"] == call_b
+
+    def test_load_is_readonly_no_writes(self, tmp_path: Path) -> None:
+        """普通 load() 不写文件，mtime 不变。"""
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+
+        session = manager.create_session(workspace_root=tmp_path)
+        manager.append_turn_message(
+            session.session_id,
+            turn_id="turn-1",
+            role="user",
+            content="hello",
+            message_id="msg-user-1",
+        )
+        manager.writer.flush()
+
+        path = store.resolve_path(session.session_id)
+        mtime_before = path.stat().st_mtime
+
+        manager.load(session.session_id)
+
+        mtime_after = path.stat().st_mtime
+        assert mtime_before == mtime_after, "load() 不应写文件"
+
+    def test_closed_tool_call_skipped_by_prepare(self, tmp_path: Path) -> None:
+        """已有 tool result 的 call_id 不被 prepare 再次补 recovery。"""
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+
+        session = manager.create_session(workspace_root=tmp_path)
+        call_id = "call-closed-005"
+        path = store.resolve_path(session.session_id)
+        _write_raw_lines(
+            path,
+            [
+                {
+                    "type": "turn",
+                    "uuid": "msg-asst-5",
+                    "parent_uuid": None,
+                    "session_id": session.session_id,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "bash", "arguments": {}}
+                    ],
+                },
+                {
+                    "type": "turn",
+                    "uuid": "msg-tool-5",
+                    "parent_uuid": "msg-asst-5",
+                    "session_id": session.session_id,
+                    "role": "tool",
+                    "content": "done",
+                    "timestamp": "2026-01-01T00:00:01+00:00",
+                    "tool_call_id": call_id,
+                },
+            ],
+        )
+
+        store.prepare_transcript_for_run(session.session_id, reason="interrupted")
+
+        raw = _read_raw_lines(path)
+        recovery_entries = [e for e in raw if e.get("type") == "tool_call_recovery"]
+        assert len(recovery_entries) == 0, "已闭合 call_id 不应产生 recovery"
