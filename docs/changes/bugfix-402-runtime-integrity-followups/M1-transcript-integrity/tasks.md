@@ -75,7 +75,7 @@
 
 ### R3 — runtime._run 调用 prepare_transcript_for_run（run 前准备）
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   1. C1: 在 test_session_persistence_fidelity.py 新增 TestOrphanedToolCallRecovery：
      - session JSONL 中含悬空 tool_call，run 前 prepare 修复后 build_chat_messages 合法
