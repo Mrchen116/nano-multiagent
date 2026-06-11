@@ -268,6 +268,7 @@ class BashTool(WiringMixin):
             description=effective_description,
             command=command,
             output_file=str(output_file),
+            workspace_root=str(ctx.repo_root),
         )
         registry.mark_running(task_id)
 
@@ -349,6 +350,7 @@ class BashTool(WiringMixin):
             description=effective_description,
             command=command,
             output_file=str(output_file),
+            workspace_root=str(ctx.repo_root),
         )
         registry.mark_running(task_id)
 
