@@ -385,3 +385,125 @@ def test_register_bash_workspace_root_defaults_none() -> None:
         output_file="/tmp/out.output",
     )
     assert record.workspace_root is None
+
+
+# ---------------------------------------------------------------------------
+# BashTool / AgentTool 注册时传入 workspace_root（bugfix-404-M1 R2 回归）
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_wiring(registry: BackgroundTaskRegistry) -> Any:
+    """构造最小 BackgroundTaskWiring stub，让 BashTool._run_background 能运行。"""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import MagicMock
+    from agent.platform.background_tasks.file_output import BashFileOutput
+
+    tmpdir = tempfile.mkdtemp()
+    output = BashFileOutput(workspace_root=Path(tmpdir))
+
+    runner_stub = MagicMock()
+
+    class _FakeStopper:
+        def stop(self) -> None:
+            pass
+
+    runner_stub.start.return_value = _FakeStopper()
+
+    wiring = MagicMock()
+    wiring.registry = registry
+    wiring.output = output
+    wiring.bash_runner = runner_stub
+    return wiring
+
+
+def test_bash_tool_run_background_passes_workspace_root_to_registry() -> None:
+    """BashTool._run_background 调用 register_bash 时必须传 workspace_root=str(ctx.repo_root)。"""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from agent.platform.tools.builtins.bash import BashTool
+
+    reg = BackgroundTaskRegistry()
+    wiring = _make_fake_wiring(reg)
+
+    tool = BashTool(wiring=wiring)
+
+    workspace = Path(tempfile.mkdtemp())
+    ctx = MagicMock()
+    ctx.session_id = "sess-custom"
+    ctx.repo_root = workspace
+    ctx.cwd = workspace
+
+    tool._run_background(
+        command="echo hi",
+        description="test bg",
+        timeout_value=None,
+        ctx=ctx,
+    )
+
+    # 取到注册的 record，断言 workspace_root 与 ctx.repo_root 一致
+    records = list(reg._records.values())
+    assert len(records) == 1
+    assert records[0].workspace_root == str(workspace)
+
+
+def test_agent_tool_run_background_passes_workspace_root_to_registry() -> None:
+    """AgentTool._run_background 调用 register_subagent 时必须传 workspace_root。"""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from agent.platform.tools.builtins.agent import AgentTool
+
+    reg = BackgroundTaskRegistry()
+
+    workspace = Path(tempfile.mkdtemp())
+
+    # 构造 wiring stub
+    wiring = MagicMock()
+    wiring.registry = reg
+
+    class _FakeStopper:
+        def stop(self) -> None:
+            pass
+
+    wiring.subagent_runner.start.return_value = _FakeStopper()
+
+    # runtime stub：create_session 返回带 session_id 的对象
+    runtime_stub = MagicMock()
+    session_stub = MagicMock()
+    session_stub.session_id = "sub-sess-1"
+
+    import asyncio
+
+    async def _create_session(**kwargs: Any) -> Any:
+        return session_stub
+
+    runtime_stub.create_session = _create_session
+
+    store_stub = MagicMock()
+    store_stub.resolve_path.return_value = workspace / "out.jsonl"
+    runtime_stub._session_manager.store = store_stub
+
+    tool = AgentTool(runtime=runtime_stub, wiring=wiring)
+
+    ctx = MagicMock()
+    ctx.session_id = "parent-sess"
+    ctx.repo_root = workspace
+    ctx.cwd = workspace
+
+    args = {
+        "description": "test agent",
+        "prompt": "do something",
+        "subagent_type": "explore",
+        "load_skills": [],
+    }
+
+    tool._run_background(args=args, ctx=ctx)
+
+    # 取到注册的 record，断言 workspace_root 传入
+    records = list(reg._records.values())
+    assert len(records) == 1
+    assert records[0].workspace_root == str(workspace)
