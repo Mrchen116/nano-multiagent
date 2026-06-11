@@ -739,3 +739,81 @@ def test_im_config_sync_client_update_token_none_clears_auth(
     assert all(t == "" for t in tokens_seen), (
         f"Expected no auth header after update_token(None), got: {tokens_seen}"
     )
+
+
+# ---------------------------------------------------------------------------
+# bugfix-404-M2 R2: sync_agent 不采用 IM mirror workspace_root
+# ---------------------------------------------------------------------------
+
+
+def test_sync_agent_ignores_mirror_workspace_root_and_uses_local_config(
+    tmp_path: Path,
+) -> None:
+    """sync_agent 必须使用本地 config 的 workspace_root，IM 给的脏值不得污染 runtime。
+
+    bugfix-404-M2 决策 4：workspace_root 唯一来源是本地 config；IM mirror 值用于展示，
+    不进 runtime。哪怕 IM 持有旧的/错误的路径（存量脏 DB），runtime 也不受影响。
+    """
+    local_ws = tmp_path / "correct-local-workspace"
+    dirty_im_ws = tmp_path / "dirty-im-workspace"
+
+    seen: list[tuple[str, str]] = []
+
+    class _Pipeline:
+        def __init__(self) -> None:
+            self.dropped: list[str] = []
+
+        def register_agent(self, agent: AgentWorkspaceConfig) -> None:
+            seen.append((agent.agent_id, str(agent.workspace_root)))
+
+        def drop_agent_sessions(self, agent_id: str) -> None:
+            self.dropped.append(agent_id)
+
+    response = httpx.Response(
+        200,
+        json={
+            "agent_id": "Arch",
+            "display_name": "Arch",
+            "profile_version": 1,
+            # IM mirror 携带脏值（主仓 managed default），与本地 config 不一致
+            "workspace_root": str(dirty_im_ws),
+        },
+    )
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        return response
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(_handler),
+        base_url="http://im.local",
+        trust_env=False,
+    )
+    config_path = tmp_path / "config.yaml"
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="node-1"),
+        agents=(
+            AgentWorkspaceConfig(agent_id="Arch", workspace_root=local_ws),
+        ),
+        channels=(),
+        kernel=KernelConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=_DEFAULT_TEST_LLM,
+        source_path=config_path,
+    )
+    pipeline = _Pipeline()
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=client,
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+    sync.sync_agent(agent_id="Arch", profile_version=1)
+
+    assert seen == [("Arch", str(local_ws))], (
+        f"sync_agent 应使用本地 config workspace {local_ws!r}，"
+        f"实际注册了 {seen}（IM 脏值 {dirty_im_ws!r} 不应渗入 runtime）"
+    )
