@@ -176,6 +176,7 @@ class AgentTool(WiringMixin):
             prompt=prompt,
             agent_type=agent_type,
             output_file=str(output_file),
+            workspace_root=str(ctx.repo_root),
         )
         registry.mark_running(agent_id)
 
@@ -252,6 +253,7 @@ class AgentTool(WiringMixin):
                 prompt=prompt,
                 agent_type=agent_type,
                 output_file=str(output_file),
+                workspace_root=str(ctx.repo_root),
             )
             registry.mark_running(agent_id)
 
@@ -408,6 +410,7 @@ class AgentTool(WiringMixin):
             prompt=prompt,
             agent_type=agent_type,
             output_file=output_file,
+            workspace_root=str(workspace_root) if workspace_root is not None else None,
         )
         registry.mark_running(agent_id)
 
