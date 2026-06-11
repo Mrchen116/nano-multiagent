@@ -239,6 +239,94 @@ def test_inbound_pipeline_sse_path_relay_lifecycle_emits_completed_with_usage(
     }
 
 
+def test_idle_run_is_cancelled_and_next_same_session_message_continues(
+    tmp_path: Path,
+) -> None:
+    """A silent kernel run must not permanently block the session FIFO."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+
+    class _IdleThenSuccessfulKernel(_FakeSseKernel):
+        def __init__(self) -> None:
+            super().__init__(events=[])
+            self.cancelled_run_ids: list[str] = []
+
+        def cancel(self, run_id: str):  # noqa: ANN201
+            self.cancelled_run_ids.append(run_id)
+            return None
+
+        def stream(self, session_id: str, *, after_sequence: int = 0):  # noqa: ANN201
+            del session_id, after_sequence
+            run_id = self.send_calls[-1]["run_id"]
+
+            async def _gen():  # noqa: ANN202
+                yield {
+                    "event": "run_status",
+                    "run_id": run_id,
+                    "status": "running",
+                }
+                if run_id == "run-1":
+                    await asyncio.Event().wait()
+                yield {
+                    "event": "assistant_message",
+                    "run_id": run_id,
+                    "content": "second reply",
+                }
+                yield {
+                    "event": "run_status",
+                    "run_id": run_id,
+                    "status": "completed",
+                }
+
+            return _gen()
+
+    kernel = _IdleThenSuccessfulKernel()
+    pipeline = InboundPipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        run_idle_timeout_seconds=0.01,
+    )
+    first = InboundMessage(
+        channel_name="web_relay",
+        text="first",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+    )
+    second = InboundMessage(
+        channel_name="web_relay",
+        text="second",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=False,
+    )
+
+    async def _exercise() -> tuple[BaseException | None, object]:
+        first_task = asyncio.create_task(pipeline.handle_inbound(first))
+        await asyncio.sleep(0)
+        second_task = asyncio.create_task(pipeline.handle_inbound(second))
+        first_result, second_result = await asyncio.gather(
+            first_task, second_task, return_exceptions=True
+        )
+        return (
+            first_result if isinstance(first_result, BaseException) else None,
+            second_result,
+        )
+
+    first_error, second_result = asyncio.run(_exercise())
+
+    assert isinstance(first_error, TimeoutError)
+    assert kernel.cancelled_run_ids == ["run-1"]
+    assert second_result is not None
+    assert second_result.reply_text == "second reply"
+    assert channel.sent[-1].text == "second reply"
+
+
 def test_map_kernel_event_to_run_activity() -> None:
     from personal_assistant.gateway.inbound_pipeline import InboundPipeline
 

@@ -359,6 +359,54 @@ class SessionManager:
         return tuple(entries)
 
     # ------------------------------------------------------------------
+    # Transcript integrity
+    # ------------------------------------------------------------------
+
+    def prepare_transcript_for_run(
+        self,
+        session_id: str,
+        *,
+        reason: str = "interrupted",
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> None:
+        """Ensure every assistant tool_call has a corresponding result before a run.
+
+        Delegates to ``JsonlSessionStore.prepare_transcript_for_run``.
+        """
+        self._store.prepare_transcript_for_run(
+            session_id,
+            reason=reason,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
+        )
+
+    def append_tool_call_recovery(
+        self,
+        session_id: str,
+        *,
+        tool_call_id: str,
+        tool_name: str | None = None,
+        reason: str,
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> None:
+        """Append a single tool_call_recovery entry for an in-progress call.
+
+        Lightweight eager path used by the runtime when a run ends with
+        cancelled/aborted stop_reason.  Delegates to
+        ``JsonlSessionStore.append_tool_call_recovery``.
+        """
+        self._store.append_tool_call_recovery(
+            session_id,
+            tool_call_id=tool_call_id,
+            tool_name=tool_name,
+            reason=reason,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
+        )
+
+    # ------------------------------------------------------------------
     # Run status (no-op: RUN_STATUS is not persisted in JSONL)
     # ------------------------------------------------------------------
 

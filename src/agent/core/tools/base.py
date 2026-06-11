@@ -12,6 +12,7 @@ from typing import (
     runtime_checkable,
 )
 
+from .host_capability import HostCapabilityDispatcher
 from .safety_types import (
     ToolSafetyConfigFactory,
     ToolSafetyConfigLike,
@@ -142,6 +143,10 @@ class ToolContext:
     session_file_state: Optional["SessionFileState"] = None
     # Optional LLM client for tools that need on-the-fly model calls (e.g. web_fetch prompt processing).
     llm_client: Optional["LLMClient"] = None
+    # Optional product-owned capability dispatcher injected at build_kernel() time.
+    # Allows product tools (e.g. cron run action) to invoke product-side side effects
+    # without importing personal_assistant directly (bugfix-402 Decision 1).
+    host_capabilities: Optional[HostCapabilityDispatcher] = None
 
     @classmethod
     def create(
@@ -151,6 +156,7 @@ class ToolContext:
         cwd: Path | None = None,
         safety_config: ToolSafetyConfigLike | None = None,
         llm_client: Optional["LLMClient"] = None,
+        host_capabilities: Optional[HostCapabilityDispatcher] = None,
     ) -> "ToolContext":
         """Build a context rooted at the resolved repository sandbox."""
 
@@ -169,6 +175,7 @@ class ToolContext:
             cwd=resolved_cwd,
             safety=safety,
             llm_client=llm_client,
+            host_capabilities=host_capabilities,
         )
 
     def with_session(
@@ -196,6 +203,9 @@ class ToolContext:
             else dict(self.session_metadata),
             session_file_state=session_file_state,
             llm_client=self.llm_client,
+            # host_capabilities propagated from parent context so product tools
+            # have access to the dispatcher throughout the run lifecycle.
+            host_capabilities=self.host_capabilities,
         )
 
     def emit_execution_event(self, payload: Mapping[str, Any]) -> None:

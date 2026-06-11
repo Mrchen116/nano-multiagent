@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextvars
 import threading
 from dataclasses import dataclass, replace
@@ -20,6 +21,23 @@ from agent.core.observability.logger import log_error, log_info
 from agent.core.observability.tracing import bind_correlation, current_trace_id, span
 from agent.core.session.manager import SessionManager
 from agent.core.agent.run_control import RunController
+
+
+class RegistryClosedError(RuntimeError):
+    """Raised when submit() is called after the registry has been shut down.
+
+    Consumers should treat this as a stable signal that the kernel is closing
+    and no new work will be accepted.
+    """
+
+
+class _RegistryState(StrEnum):
+    # Accepting new runs normally.
+    OPEN = "open"
+    # Draining: no new submissions; waiting for owned Tasks to reach terminal state.
+    DRAINING = "draining"
+    # Loop and thread have stopped.
+    CLOSED = "closed"
 
 
 class RunStatus(StrEnum):
@@ -91,6 +109,7 @@ class RunsRegistry:
         session_manager: SessionManager,
         event_hub: EventHubLike | None = None,
         hook_runner: HookRunner | None = None,
+        drain_timeout_seconds: float = 30.0,
     ) -> None:
         self._runtime = runtime
         self._session_manager = session_manager
@@ -101,6 +120,15 @@ class RunsRegistry:
         self._controllers: dict[str, RunController] = {}
         # session_id → run_id for the currently-executing run (RUNNING state only).
         self._active_run_by_session: dict[str, str] = {}
+        # bugfix-402-M3: owned Task handles so drain_async() can await each to
+        # terminal state before stopping the loop.  Keyed by run_id; cleared in
+        # the Task done-callback so the dict never outlives a completed Task.
+        self._owned_tasks: dict[str, asyncio.Task] = {}
+        # Lifecycle state: OPEN → DRAINING → CLOSED (see _RegistryState).
+        self._state: _RegistryState = _RegistryState.OPEN
+        # Signal that fires once all owned Tasks have completed (set inside loop).
+        self._drain_done: asyncio.Future | None = None
+        self._drain_timeout_seconds = drain_timeout_seconds
         # Dedicated async event-loop thread so that httpx.AsyncClient transport
         # is not torn down by per-call asyncio.run() (feat-335).
         self._async_loop: asyncio.AbstractEventLoop | None = None
@@ -116,12 +144,157 @@ class RunsRegistry:
         asyncio.set_event_loop(self._async_loop)
         self._async_loop.run_forever()
 
-    def shutdown(self) -> None:
-        """Stop the dedicated async loop and join its thread."""
-        if self._async_loop is not None and self._async_loop.is_running():
-            self._async_loop.call_soon_threadsafe(self._async_loop.stop)
+    def begin_shutdown(self) -> bool:
+        """Atomically stop accepting new runs before the blocking drain starts.
+
+        Returns:
+            True while the registry still requires draining, or False when it
+            was already fully closed.
+        """
+        with self._lock:
+            if self._state is _RegistryState.CLOSED:
+                return False
+            self._state = _RegistryState.DRAINING
+            return True
+
+    def shutdown(self, *, grace_timeout_seconds: float | None = None) -> None:
+        """Drain owned Tasks then stop the dedicated async loop.
+
+        Transitions the registry OPEN → DRAINING → CLOSED.  All queued/running
+        Tasks are waited (up to drain_timeout_seconds) before the loop stops.
+        Calling shutdown() on an already-closed registry is a no-op.
+        """
+        if not self.begin_shutdown():
+            return
+        loop = self._async_loop
+        if loop is None or not loop.is_running():
+            with self._lock:
+                self._state = _RegistryState.CLOSED
+            return
+        timeout = (
+            grace_timeout_seconds
+            if grace_timeout_seconds is not None
+            else self._drain_timeout_seconds
+        )
+        drain_future: concurrent.futures.Future = concurrent.futures.Future()
+        loop.call_soon_threadsafe(
+            lambda: loop.create_task(
+                self._drain_and_stop(drain_future, timeout), name="registry-drain"
+            )
+        )
+        try:
+            drain_future.result(timeout=timeout + 5.0)
+        except concurrent.futures.TimeoutError:
+            # Force-stop the loop if drain exceeded total wait budget.
+            if loop.is_running():
+                loop.call_soon_threadsafe(loop.stop)
         if self._async_thread is not None:
-            self._async_thread.join(timeout=5.0)
+            self._async_thread.join(timeout=2.0)
+        with self._lock:
+            self._state = _RegistryState.CLOSED
+
+    async def _drain_and_stop(
+        self,
+        done_future: "concurrent.futures.Future[None]",
+        timeout_seconds: float,
+    ) -> None:
+        """Await owned Tasks then stop the event loop.
+
+        Runs inside the registry's dedicated loop so Task awaits happen in the
+        correct Context.  Cancels tasks that exceed the grace timeout.
+        """
+        try:
+            with self._lock:
+                owned = list(self._owned_tasks.items())
+                controllers = dict(self._controllers)
+                statuses = {
+                    run_id: record.status for run_id, record in self._runs.items()
+                }
+
+            # Give each run a chance to exit in its own Task Context before the
+            # hard timeout. Queued runs can become terminal immediately; active
+            # runs observe abort at the next loop boundary.
+            for run_id, _task in owned:
+                controller = controllers.get(run_id)
+                status = statuses.get(run_id)
+                if controller is None:
+                    continue
+                if status is RunStatus.QUEUED:
+                    controller.cancel()
+                    controller.abort()
+                    self._set_status(
+                        run_id,
+                        status=RunStatus.CANCELLED,
+                        stop_reason="shutdown",
+                        only_if={RunStatus.QUEUED, RunStatus.RUNNING},
+                    )
+                elif status is RunStatus.RUNNING:
+                    controller.abort()
+
+            if owned:
+                tasks = [task for _run_id, task in owned]
+                _done, pending = await asyncio.wait(
+                    tasks,
+                    timeout=timeout_seconds,
+                )
+                if pending:
+                    forced = [
+                        (run_id, task) for run_id, task in owned if task in pending
+                    ]
+                    for _run_id, task in forced:
+                        task.cancel()
+                    await asyncio.gather(
+                        *(task for _run_id, task in forced),
+                        return_exceptions=True,
+                    )
+                    for run_id, _task in forced:
+                        self._mark_shutdown_cancelled(run_id)
+                        self._recover_shutdown_cancelled_session(run_id)
+        finally:
+            self._async_loop.stop()
+            if not done_future.done():
+                done_future.set_result(None)
+
+    def _mark_shutdown_cancelled(self, run_id: str) -> RunRecord | None:
+        """Persist a terminal state for a Task force-cancelled during shutdown."""
+        return self._set_status(
+            run_id,
+            status=RunStatus.CANCELLED,
+            stop_reason="shutdown",
+            error={
+                "code": "run_cancelled_on_shutdown",
+                "message": "run was cancelled while the kernel was shutting down",
+                "retryable": False,
+            },
+            only_if={RunStatus.QUEUED, RunStatus.RUNNING},
+        )
+
+    def _recover_shutdown_cancelled_session(self, run_id: str) -> None:
+        """Close orphaned tool calls left by a force-cancelled run."""
+        record = self.get(run_id)
+        if record is None:
+            return
+        try:
+            self._session_manager.prepare_transcript_for_run(
+                record.session_id,
+                reason="shutdown",
+                workspace_root=record.workspace_root,
+            )
+            invalidate = getattr(self._runtime, "invalidate_session_cache", None)
+            if callable(invalidate):
+                invalidate(record.session_id)
+        except Exception as exc:  # noqa: BLE001
+            log_error(
+                "run_shutdown_recovery_failed",
+                run_id=run_id,
+                session_id=record.session_id,
+                error=str(exc),
+            )
+
+    def _on_task_done(self, run_id: str) -> None:
+        """Remove a completed Task from the owned-tasks map (done-callback)."""
+        with self._lock:
+            self._owned_tasks.pop(run_id, None)
 
     def submit(
         self,
@@ -139,6 +312,13 @@ class RunsRegistry:
         can locate the session JSONL; it is required (in production) for the
         existence check below and for the runtime's first load of the session.
         """
+        # Fast rejection avoids session I/O once shutdown has begun. The state is
+        # checked again at record insertion because shutdown may race this work.
+        with self._lock:
+            if self._state is not _RegistryState.OPEN:
+                raise RegistryClosedError(
+                    "registry is shutting down; no new runs will be accepted"
+                )
         if (
             self._session_manager.get_session(session_id, workspace_root=workspace_root)
             is None
@@ -167,10 +347,14 @@ class RunsRegistry:
             workspace_root=workspace_root,
             start_sequence=start_sequence,
         )
-        self._persist_run_status_entry(record)
         with self._lock:
+            if self._state is not _RegistryState.OPEN:
+                raise RegistryClosedError(
+                    "registry is shutting down; no new runs will be accepted"
+                )
             self._runs[run_id] = record
             self._controllers[run_id] = RunController()
+        self._persist_run_status_entry(record)
         self._publish_run_status_event(record)
         log_info(
             "run_submitted",
@@ -180,14 +364,6 @@ class RunsRegistry:
         )
 
         normalized_parts = [dict(part) for part in parts]
-        coro = self._run_worker_async(
-            run_id,
-            session_id,
-            normalized_parts,
-            resolved_trace_id,
-            workspace_root=workspace_root,
-            origin=origin,
-        )
         # Capture the caller's Context now (at submit() time) and pass it to the
         # Task so that bind_correlation's ContextVar set/reset both happen inside
         # the same copied Context.  Without this, ensure_future schedules the
@@ -195,9 +371,40 @@ class RunsRegistry:
         # _context.reset(token) raises "token was created in a different Context"
         # (Issue #3, refactor-387 sdk-fix-r3).
         ctx = contextvars.copy_context()
-        self._async_loop.call_soon_threadsafe(
-            lambda: self._async_loop.create_task(coro, context=ctx)
-        )
+
+        # bugfix-402-M3: register Task handle so drain_async() can await it.
+        # The done-callback removes the Task from _owned_tasks when it finishes.
+        def _schedule_and_register() -> None:
+            with self._lock:
+                if self._state is not _RegistryState.OPEN:
+                    task = None
+                else:
+                    task = self._async_loop.create_task(
+                        self._run_worker_async(
+                            run_id,
+                            session_id,
+                            normalized_parts,
+                            resolved_trace_id,
+                            workspace_root=workspace_root,
+                            origin=origin,
+                        ),
+                        context=ctx,
+                        name=f"run-{run_id}",
+                    )
+                    self._owned_tasks[run_id] = task
+            if task is None:
+                self._mark_shutdown_cancelled(run_id)
+                return
+            task.add_done_callback(lambda _t: self._on_task_done(run_id))
+
+        with self._lock:
+            if self._state is _RegistryState.OPEN:
+                self._async_loop.call_soon_threadsafe(_schedule_and_register)
+                scheduled = True
+            else:
+                scheduled = False
+        if not scheduled:
+            self._mark_shutdown_cancelled(run_id)
         return record
 
     def get_event_loop(self) -> asyncio.AbstractEventLoop | None:

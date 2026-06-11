@@ -37,8 +37,9 @@
 
 内核对所有 LLM provider 使用同一 provider-neutral 错误事实与重试策略。网络、超时、限流、
 额度/余额及无法明确判定为永久的错误默认可重试；明确参数/格式错误、无效凭证、权限拒绝、
-资源或能力不存在/不支持不可重试。HTTP 状态码本身不单独决定 4xx 是否可重试。重试不得造成
-重复输出：一次请求已向消费者产出部分内容后，中途故障按最终失败处理，不原位重放该请求。
+资源或能力不存在/不支持不可重试。HTTP 状态码本身不单独决定 4xx 是否可重试。重试策略含
+退避，连续失败可能引入额外冷却等待——消费者观察到的恢复延迟可能超过单次重试间隔。重试不得
+造成重复输出：一次请求已向消费者产出部分内容后，中途故障按最终失败处理，不原位重放该请求。
 
 #### Scenario: 语义不明或可能恢复的 4xx 继续重试
 
@@ -101,8 +102,10 @@
 `agent.sdk.build_kernel(product_profile, llm_config, can_use_tool, repo_root, host_capabilities)`
 得到一个装配完成、可直接使用的 `Kernel`；无需起任何子进程或 HTTP 服务。可选的
 `host_capabilities` 是通用 dispatcher：SDK/core 只定义按 namespaced capability、结构化 payload
-和可信 session/workspace context 调用宿主的机制，不声明 cron 或其他具体产品命令；dispatcher
-不进入 session metadata、持久化记录或 prompt。
+和可信 context 调用宿主的机制，不声明 cron 或其他具体产品命令；dispatcher 不进入 session
+metadata、持久化记录或 prompt。可信 context 携带 session、workspace、product 与 agent 身份；
+agent 身份取自消费者在创建会话时提供的元数据，未提供时为空——按 agent 身份路由的宿主能力在
+空身份下返回稳定的 capability unavailable 错误，而非误路由。
 
 #### Scenario: 用产品 profile + LLM 配置装配 Kernel
 

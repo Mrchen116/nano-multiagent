@@ -68,7 +68,7 @@ def test_run_cli_enters_repl_directly_without_mode(tmp_path) -> None:
 
 
 def test_run_cli_kernel_closed_on_exit(tmp_path) -> None:
-    """kernel.close() must be called when REPL exits normally."""
+    """kernel.aclose() must be called when REPL exits normally (bugfix-402-M3 R2)."""
     stub = _BaseKernelStub()
     output = io.StringIO()
     inputs = iter(["/exit"])
@@ -81,11 +81,12 @@ def test_run_cli_kernel_closed_on_exit(tmp_path) -> None:
         workspace_root=tmp_path,
     )
 
-    assert any(call[0] == "close" for call in stub.calls)
+    # bugfix-402-M3 R2: _async_main finally now calls aclose() (async), not close()
+    assert any(call[0] == "aclose" for call in stub.calls)
 
 
 def test_run_cli_kernel_closed_on_eof(tmp_path) -> None:
-    """kernel.close() must be called when REPL exits via EOF."""
+    """kernel.aclose() must be called when REPL exits via EOF (bugfix-402-M3 R2)."""
     stub = _BaseKernelStub()
     output = io.StringIO()
 
@@ -100,7 +101,8 @@ def test_run_cli_kernel_closed_on_eof(tmp_path) -> None:
         workspace_root=tmp_path,
     )
 
-    assert any(call[0] == "close" for call in stub.calls)
+    # bugfix-402-M3 R2: _async_main finally now calls aclose() (async), not close()
+    assert any(call[0] == "aclose" for call in stub.calls)
 
 
 def test_run_cli_auto_mode_banner_shown_at_startup(tmp_path) -> None:

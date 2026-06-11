@@ -15,6 +15,8 @@ Public API:
     LOCAL_CODING_PROFILE  — default product profile for coding_cli
     PERSONAL_ASSISTANT_PROFILE — default product profile for personal_assistant
     RunOrigin             — run origin enum (USER / GATEWAY / AGENT)
+    HostCapabilityDispatcher — abstract base for product-owned capability dispatch
+    HostCapabilityContext    — kernel-trusted context passed to capability invocations
 
 Extended surface for personal_assistant (reporter / upstream_reporter):
     init_model_registry         — initialize LLM model registry from config
@@ -28,6 +30,10 @@ Extended surface for personal_assistant (reporter / upstream_reporter):
 """
 
 from .kernel import CanUseToolFn, Kernel, build_kernel
+from agent.core.tools.host_capability import (
+    HostCapabilityContext,
+    HostCapabilityDispatcher,
+)
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 from agent.core.llm.model_registry import (
@@ -78,4 +84,7 @@ __all__ = [
     # Product profiles
     "LOCAL_CODING_PROFILE",
     "PERSONAL_ASSISTANT_PROFILE",
+    # Host capability dispatcher (product-neutral, types in agent.core.tools)
+    "HostCapabilityDispatcher",
+    "HostCapabilityContext",
 ]

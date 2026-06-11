@@ -71,6 +71,7 @@ class _FakeKernelClient:
         product_id: str,
         title: str | None = None,
         session_id: str | None = None,
+        metadata: dict | None = None,
     ) -> dict:
         self._session_counter += 1
         sid = session_id or f"sess-{self._session_counter}"
@@ -78,6 +79,7 @@ class _FakeKernelClient:
             "session_id": sid,
             "workspace_root": workspace_root,
             "product_id": product_id,
+            "metadata": metadata,
         }
         self.created_sessions.append(payload)
         return payload
@@ -397,4 +399,34 @@ async def test_cron_runner_uses_returned_session_id_for_submit(tmp_path: Path) -
     assert shim_client.called_with is not None
     assert shim_client._session_counter == 1, (
         "exactly one session must have been created"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cron_runner_session_metadata_contains_agent_id(tmp_path: Path) -> None:
+    """_submit_cron_job must pass metadata={"agent_id": ...} to create_session.
+
+    Without agent_id in session metadata, cron.run inside the isolated session
+    gets ctx.session_metadata.get("agent_id") == None, routing to an empty string
+    → GatewayCronDispatcher resolves no CronExecutionService → cron_unavailable.
+    bugfix-402 cr3 fix.
+    """
+    from personal_assistant.scheduler.cron_runner import CronRunner
+
+    kernel_client = _FakeKernelClient()
+    job = _make_job(job_id="job-meta")
+
+    runner = CronRunner(
+        agent_id="agent-x",
+        workspace_root=tmp_path,
+        kernel_client=kernel_client,
+        session_binding_store=None,
+    )
+
+    await runner._submit_cron_job(job=job)
+
+    assert len(kernel_client.created_sessions) == 1
+    metadata = kernel_client.created_sessions[0].get("metadata") or {}
+    assert metadata.get("agent_id") == "agent-x", (
+        f"create_session must receive metadata={{agent_id: 'agent-x'}}, got: {metadata!r}"
     )

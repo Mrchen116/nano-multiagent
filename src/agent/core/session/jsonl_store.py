@@ -1,6 +1,7 @@
 """Canonical JSONL session store for the new session context storage architecture."""
 
 import json
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping
@@ -9,6 +10,11 @@ from agent.core.types import Message
 from agent.core.utils.time import utc_now_iso as _utc_now_iso
 
 from .jsonl_writer import JsonlWriter
+
+# Per-path threading.Lock registry so that concurrent prepare_transcript_for_run
+# calls on the same session file are serialized without blocking unrelated sessions.
+_PATH_LOCKS: dict[Path, threading.Lock] = {}
+_PATH_LOCKS_META: threading.Lock = threading.Lock()
 
 
 class SessionNotFoundError(ValueError):
@@ -191,6 +197,20 @@ class JsonlSessionStore:
             elif etype == "compact_boundary":
                 boundary_idx = i
 
+        # Collect tool_call_recovery entries (all of them — not boundary-scoped,
+        # because a recovery for a pre-boundary tool_call would be appended after
+        # the boundary and we want to honour it during replay).
+        recovery_entries: list[dict] = [
+            e for e in raw_lines if e.get("type") == "tool_call_recovery"
+        ]
+        # Build a set of tool_call_ids that already have a recovery entry so
+        # _inject_recovery_messages can deduplicate by idempotency_key.
+        recovery_by_call_id: dict[str, dict] = {}
+        for rec in recovery_entries:
+            cid = rec.get("tool_call_id")
+            if cid and cid not in recovery_by_call_id:
+                recovery_by_call_id[cid] = rec
+
         # Only keep turns after the latest compact_boundary
         if boundary_idx >= 0:
             turns = [
@@ -201,9 +221,21 @@ class JsonlSessionStore:
         else:
             turns = [entry for entry in raw_lines if entry.get("type") == "turn"]
 
-        if not turns:
+        if not turns and not recovery_by_call_id:
             return LoadResult(
                 config=_to_session_config(session_id, config), messages=[]
+            )
+
+        # bugfix-402-M6: the formerly-present bare `if not turns: return` that
+        # followed the combined guard above silently discarded recovery entries
+        # when turns was empty.  Instead we short-circuit here with an explicit
+        # call to _inject_recovery_messages so the contract is honoured: orphaned
+        # recovery entries without any corresponding turn produce no injected
+        # messages (no insertion point found), but the call is made correctly.
+        if not turns:
+            return LoadResult(
+                config=_to_session_config(session_id, config),
+                messages=_inject_recovery_messages([], recovery_by_call_id),
             )
 
         # Build uuid -> entry mapping
@@ -232,6 +264,7 @@ class JsonlSessionStore:
         if not has_links:
             chain = sorted(turns, key=lambda t: t.get("timestamp", ""))
             messages = [_to_message(t) for t in chain]
+            messages = _inject_recovery_messages(messages, recovery_by_call_id)
             return LoadResult(
                 config=_to_session_config(session_id, config), messages=messages
             )
@@ -269,6 +302,7 @@ class JsonlSessionStore:
         all_entries.sort(key=lambda t: t.get("timestamp", ""))
 
         messages = [_to_message(t) for t in all_entries]
+        messages = _inject_recovery_messages(messages, recovery_by_call_id)
         return LoadResult(
             config=_to_session_config(session_id, config), messages=messages
         )
@@ -364,6 +398,127 @@ class JsonlSessionStore:
             workspace_root=workspace_root,
             parent_session_id=parent_session_id,
         )
+
+    def prepare_transcript_for_run(
+        self,
+        session_id: str,
+        *,
+        reason: str = "interrupted",
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> None:
+        """Ensure every assistant tool_call has a corresponding result before a run.
+
+        Reads the JSONL under a per-path lock, finds any assistant tool_calls that
+        lack a matching tool result or tool_call_recovery entry, and appends a
+        synthetic recovery entry for each.  Uses a deterministic idempotency_key
+        so repeated calls on the same session produce exactly one recovery entry
+        per orphaned call_id — the second call is a no-op.
+
+        Callers must invoke this before building chat messages for a new run.
+        Plain ``load()`` is read-only and does NOT call this method.
+
+        Args:
+            session_id: The session to prepare.
+            reason: One of ``"interrupted"``, ``"cancelled"``, ``"shutdown"``,
+                ``"orphaned"``.  Stored in the recovery entry for diagnostics.
+            workspace_root: Locates the session file (omit when store has data_dir).
+            parent_session_id: For subagent sessions.
+        """
+        path = self._resolve_path(
+            session_id,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
+        )
+        if not path.exists():
+            # Nothing to prepare — session file not yet created.
+            return
+
+        lock = _get_path_lock(path)
+        with lock:
+            # Flush any enqueued but not-yet-written entries before reading.
+            self._writer.flush()
+
+            raw_lines = _read_raw_lines(path)
+
+            # Build map of tool_call_id -> closed (has result or recovery).
+            pending: dict[str, dict] = {}  # call_id -> assistant_entry
+            closed: set[str] = set()
+
+            for entry in raw_lines:
+                etype = entry.get("type")
+                if etype == "turn":
+                    role = entry.get("role")
+                    if role == "assistant":
+                        for tc in entry.get("tool_calls") or []:
+                            call_id = tc.get("call_id") or tc.get("id")
+                            if call_id:
+                                # Register as pending; may be closed by a later entry.
+                                pending[call_id] = entry
+                    elif role == "tool":
+                        tcid = entry.get("tool_call_id")
+                        if tcid:
+                            closed.add(tcid)
+                elif etype == "tool_call_recovery":
+                    tcid = entry.get("tool_call_id")
+                    if tcid:
+                        closed.add(tcid)
+
+            orphaned = [cid for cid in pending if cid not in closed]
+            if not orphaned:
+                return
+
+            ts = _utc_now_iso()
+            for call_id in orphaned:
+                assistant_entry = pending[call_id]
+                recovery: dict[str, Any] = {
+                    "type": "tool_call_recovery",
+                    "session_id": session_id,
+                    "tool_call_id": call_id,
+                    "tool_name": _extract_tool_name_for_call(assistant_entry, call_id),
+                    "reason": reason,
+                    "timestamp": ts,
+                    "idempotency_key": f"tool-call-recovery:{call_id}",
+                }
+                self._writer.enqueue(path, recovery)
+
+            # Flush immediately so the next load() sees the recovery entries.
+            self._writer.flush()
+
+    def append_tool_call_recovery(
+        self,
+        session_id: str,
+        *,
+        tool_call_id: str,
+        tool_name: str | None = None,
+        reason: str,
+        workspace_root: Path | None = None,
+        parent_session_id: str | None = None,
+    ) -> None:
+        """Append a single tool_call_recovery entry for an active call that is
+        being cancelled/interrupted/shut-down while the run is still live.
+
+        Unlike ``prepare_transcript_for_run`` (which scans the full file under lock),
+        this lighter variant is called by the runtime's cancel/interrupt path where
+        the call_id is already known.  It does NOT check for existing recovery
+        entries — the caller must ensure idempotency if needed.
+        """
+        path = self._resolve_path(
+            session_id,
+            workspace_root=workspace_root,
+            parent_session_id=parent_session_id,
+        )
+        recovery: dict[str, Any] = {
+            "type": "tool_call_recovery",
+            "session_id": session_id,
+            "tool_call_id": tool_call_id,
+            "reason": reason,
+            "timestamp": _utc_now_iso(),
+            "idempotency_key": f"tool-call-recovery:{tool_call_id}",
+        }
+        if tool_name:
+            recovery["tool_name"] = tool_name
+        self._writer.enqueue(path, recovery)
 
     # ------------------------------------------------------------------
     # Internal
@@ -605,3 +760,125 @@ def _extract_message_metadata(entry: dict[str, Any]) -> dict[str, Any]:
     if "tool_calls" in entry:
         meta["tool_calls"] = entry["tool_calls"]
     return meta
+
+
+# ------------------------------------------------------------------
+# Module-level helpers for prepare_transcript_for_run
+# ------------------------------------------------------------------
+
+
+def _get_path_lock(path: Path) -> threading.Lock:
+    """Return the per-path lock, creating it if necessary."""
+    with _PATH_LOCKS_META:
+        if path not in _PATH_LOCKS:
+            _PATH_LOCKS[path] = threading.Lock()
+        return _PATH_LOCKS[path]
+
+
+def _read_raw_lines(path: Path) -> list[dict[str, Any]]:
+    """Read all non-empty JSONL lines from path."""
+    result: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    result.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    return result
+
+
+def _extract_tool_name_for_call(
+    assistant_entry: dict[str, Any], call_id: str
+) -> str | None:
+    """Extract the tool name for a specific call_id from an assistant entry's tool_calls."""
+    for tc in assistant_entry.get("tool_calls") or []:
+        tc_id = tc.get("call_id") or tc.get("id")
+        if tc_id == call_id:
+            return tc.get("name")
+    return None
+
+
+def _inject_recovery_messages(
+    messages: list[Message],
+    recovery_by_call_id: dict[str, dict[str, Any]],
+) -> list[Message]:
+    """Insert synthetic tool result Messages for tool_call_recovery entries.
+
+    For each orphaned tool_call_id in ``recovery_by_call_id`` that does NOT
+    already have a matching ``role="tool"`` Message, a synthetic tool Message is
+    created and inserted immediately after the assistant Message that carried the
+    corresponding tool_call.  This satisfies the provider contract that every
+    tool_call must be followed by a tool result before the next non-tool turn.
+
+    The insertion is idempotent: if a tool result already exists for a call_id,
+    the recovery entry for that call_id is silently skipped.
+    """
+    if not recovery_by_call_id:
+        return messages
+
+    # Identify which call_ids already have a real tool result in the message list.
+    closed: set[str] = {
+        m.tool_call_id for m in messages if m.role == "tool" and m.tool_call_id
+    }
+
+    # Identify which call_ids need a synthetic result.
+    to_inject = {
+        cid: rec for cid, rec in recovery_by_call_id.items() if cid not in closed
+    }
+    if not to_inject:
+        return messages
+
+    # Build a map from assistant group/message to the call_ids it owns.
+    # We need to find the right insertion point for each orphaned call_id.
+    # Strategy: after converting to Messages, scan for assistant messages whose
+    # tool_calls include the orphaned call_id, then insert the synthetic result
+    # after the last consecutive tool message following that assistant message.
+    result: list[Message] = []
+    i = 0
+    while i < len(messages):
+        msg = messages[i]
+        result.append(msg)
+
+        if msg.role == "assistant":
+            # Collect call_ids declared by this assistant message that need injection.
+            asst_calls = msg.metadata.get("tool_calls") or []
+            orphaned_for_this_asst = [
+                tc.get("call_id") or tc.get("id")
+                for tc in asst_calls
+                if (tc.get("call_id") or tc.get("id")) in to_inject
+            ]
+
+            if orphaned_for_this_asst:
+                # Skip over any real tool results that already follow this assistant.
+                j = i + 1
+                while j < len(messages) and messages[j].role == "tool":
+                    result.append(messages[j])
+                    j += 1
+                i = j  # resume after the existing tool messages
+
+                # Inject synthetic results for the orphaned call_ids.
+                from agent.core.ids import make_message_id as _make_mid
+
+                for call_id in orphaned_for_this_asst:
+                    rec = to_inject[call_id]
+                    reason = rec.get("reason", "interrupted")
+                    tool_name = rec.get("tool_name") or call_id
+                    synthetic = Message(
+                        message_id=_make_mid(),
+                        role="tool",
+                        content=f"[{reason}]",
+                        tool_call_id=call_id,
+                        metadata={
+                            "tool_name": tool_name,
+                            "is_recovery": True,
+                            "recovery_reason": reason,
+                        },
+                    )
+                    result.append(synthetic)
+                continue
+
+        i += 1
+
+    return result

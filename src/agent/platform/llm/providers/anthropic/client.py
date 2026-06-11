@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 import httpx
 
 from agent.core.errors import ModelError
+from agent.core.llm.error_classifier import ProviderErrorFacts, classify_retryability
 from agent.core.llm.interfaces import (
     LLMClient,
     LLMGenerateRequest,
@@ -22,6 +23,7 @@ from agent.core.llm.interfaces import (
 from agent.core.llm.model_registry import resolve_model_metadata
 from agent.core.types import TokenUsage
 from agent.platform.llm.providers.common import (
+    extract_http_error_facts as _extract_http_error_facts,
     extract_non_negative_int as _extract_non_negative_int,
 )
 from agent.platform.llm.providers.translator import LLMTranslator
@@ -89,16 +91,22 @@ class AnthropicClient(LLMClient):
                 async for msg in self._stream_response(response):
                     yield msg
         except httpx.HTTPStatusError as exc:
+            facts = _extract_http_error_facts(exc, provider="anthropic")
             raise ModelError(
-                "anthropic request failed",
+                facts.message,
+                retryable=classify_retryability(facts),
                 details={
-                    "status_code": exc.response.status_code,
-                    "response": exc.response.text,
+                    "status_code": facts.http_status,
+                    "provider_code": facts.provider_code,
+                    "provider_type": facts.provider_type,
+                    "response": facts.raw_body,
                 },
             ) from exc
         except httpx.HTTPError as exc:
+            facts = ProviderErrorFacts(message=f"anthropic transport error: {exc}")
             raise ModelError(
-                "anthropic transport error",
+                facts.message,
+                retryable=classify_retryability(facts),
                 details={"error": str(exc)},
             ) from exc
 
@@ -128,17 +136,25 @@ class AnthropicClient(LLMClient):
         async for event in _iter_sse_events(response):
             event_type = event.get("type")
 
-            # bugfix-380: upstream error event — surface as ModelError immediately.
+            # bugfix-380: upstream error event — classify via shared classifier.
             if event_type == "error":
                 error_obj = event.get("error") or {}
                 error_msg = (
                     error_obj.get("message") or str(error_obj) or "upstream error"
                 )
                 error_type = error_obj.get("type") or "error"
+                error_code = (
+                    error_obj.get("code") if isinstance(error_obj, dict) else None
+                )
+                facts = ProviderErrorFacts(
+                    message=f"anthropic: {error_msg}",
+                    provider_type=error_type,
+                    provider_code=error_code,
+                )
                 raise ModelError(
-                    f"anthropic: {error_msg}",
+                    facts.message,
+                    retryable=classify_retryability(facts),
                     details={"error_type": error_type, "raw": error_obj},
-                    retryable=False,
                 )
 
             if event_type == "content_block_start":

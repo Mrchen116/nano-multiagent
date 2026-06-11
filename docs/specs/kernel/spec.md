@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: feat-394
+> 对齐: bugfix-402
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -42,12 +42,19 @@
 
 ### Requirement: build_kernel 装配出可用的进程内 Kernel
 
-消费者调 `agent.sdk.build_kernel(product_profile, llm_config, can_use_tool, repo_root)` 得到一个
-装配完成、可直接使用的 `Kernel`;无需起任何子进程或 HTTP 服务。
+消费者调
+`agent.sdk.build_kernel(product_profile, llm_config, can_use_tool, repo_root, host_capabilities)`
+得到一个装配完成、可直接使用的 `Kernel`;无需起任何子进程或 HTTP 服务。可选的
+`host_capabilities` 是通用 dispatcher:SDK/core 只定义按 namespaced capability、结构化 payload
+和可信 context 调用宿主的机制,不声明 cron 或其他具体产品命令;dispatcher 不进入 session
+metadata、持久化记录或 prompt。可信 context 携带 session、workspace、product 与 agent 身份;
+agent 身份取自消费者在创建会话时提供的元数据,未提供时为空——按 agent 身份路由的宿主能力在
+空身份下返回稳定的 capability unavailable 错误,而非误路由。
 
 #### Scenario: 用产品 profile + LLM 配置装配 Kernel
 - **GIVEN** 一个 `ProductProfile`(如 `LOCAL_CODING_PROFILE` / `PERSONAL_ASSISTANT_PROFILE`)、一份
-  `LLMFactoryConfig`(provider + model + base_url)、一个 `can_use_tool` 回调
+  `LLMFactoryConfig`(provider + model + base_url)、一个 `can_use_tool` 回调,以及可选的
+  host capability dispatcher
 - **WHEN** 消费者调 `build_kernel(...)`
 - **THEN** 返回一个 `Kernel` 实例,其后所有会话/运行均在进程内执行(无子进程、无 loopback HTTP)
 
@@ -55,7 +62,16 @@
 - **GIVEN** 一个已装配的 `Kernel`
 - **THEN** 它暴露异步会话生命周期方法 `create_session` / `fork_session` / `compact`,以及非阻塞方法
   `submit` / `stream` / `interrupt` / `cancel` / `get_run` / `list_session_tools` /
-  `get_llm_config` / `reconfigure_llm` / `close`
+  `get_llm_config` / `reconfigure_llm`,并同时暴露供异步消费者使用的 `aclose()` 与同步兼容的
+  `close()`
+
+#### Scenario: 宿主注入能力
+- **WHEN** 消费者构建 Kernel 并提供 host capability dispatcher
+- **THEN** 工具可通过通用 dispatcher 调用已注册能力,SDK 不需要理解该能力的产品语义
+
+#### Scenario: 宿主未提供能力
+- **WHEN** 工具请求未注册的 host capability
+- **THEN** 返回稳定的 capability unavailable 错误,不访问 loopback HTTP 或持久化 callback
 
 ### Requirement: 创建会话必须绑定 workspace_root
 
@@ -200,3 +216,83 @@ observe 事件只观察;单个 hook 异常/超时不中断主流程(fail-open)�
 - **GIVEN** 一个已运行过至少一轮的会话
 - **WHEN** 消费者经 `append_message` 向该会话追加一条消息,随后再提交一轮运行
 - **THEN** 该追加消息出现在这一轮的模型上下文里(不被陈旧缓存或历史链断裂遮蔽)
+
+### Requirement: 持久化 transcript 在进入模型前保持 tool call 闭合
+
+消费者中断、取消或关闭包含工具调用的运行后,内核必须使已持久化的每个 assistant tool call
+具有对应的 tool result。进程异常退出留下的历史悬空调用在下次提交运行前自动恢复为取消终态;
+恢复保持 append-only、按 tool call id 幂等,并向 provider 物化为合法消息顺序。只读加载、
+列表和预览不得因检查完整性而改写会话。
+
+#### Scenario: 中断权限等待后继续同一会话
+- **GIVEN** 一个运行已经持久化 assistant tool call,正在等待权限决定
+- **WHEN** 消费者调用 `kernel.interrupt(session_id)`,随后向同一会话再次 `submit`
+- **THEN** 原 tool call 以取消结果闭合,新一轮模型请求收到合法 transcript 并可继续运行
+
+#### Scenario: 重启后恢复悬空 tool call
+- **GIVEN** JSONL 历史中存在没有对应 tool result 的 assistant tool call
+- **WHEN** 新 Kernel 实例加载该 session 并提交下一轮
+- **THEN** 内核自动追加一次引用原 call id 的恢复记录,并把取消结果物化到合法位置
+
+#### Scenario: 重复准备恢复保持幂等
+- **GIVEN** 某个 call id 已有恢复记录
+- **WHEN** session 被并发或重复准备、fork 或继续运行
+- **THEN** 不为该 call id 产生第二条恢复结果,transcript 仍保持闭合
+
+#### Scenario: 只读加载没有修复副作用
+- **GIVEN** session 含有悬空 tool call
+- **WHEN** 消费者只执行列表、预览或其他只读加载
+- **THEN** 会话文件不发生变化;下一次实际提交运行时才原子地写入恢复结果
+
+### Requirement: 模型错误按统一可恢复语义重试并保留原始原因
+
+内核对所有 LLM provider 使用同一 provider-neutral 错误事实与重试策略。网络、超时、限流、
+额度/余额及无法明确判定为永久的错误默认可重试;明确参数/格式错误、无效凭证、权限拒绝、
+资源或能力不存在/不支持不可重试。HTTP 状态码本身不单独决定 4xx 是否可重试。重试策略含
+退避,连续失败可能引入额外冷却等待——消费者观察到的恢复延迟可能超过单次重试间隔。重试不得
+造成重复输出:一次请求已向消费者产出部分内容后,中途故障按最终失败处理,不原位重放该请求。
+
+#### Scenario: 语义不明或可能恢复的 4xx 继续重试
+- **WHEN** provider 返回限流、额度/余额或没有明确永久语义的 4xx
+- **THEN** 内核在既定预算内重试同一请求
+
+#### Scenario: 明确永久错误快速失败
+- **WHEN** provider 或本地 mapper 明确报告参数/格式、凭证、权限、not-found 或 unsupported 错误
+- **THEN** 内核不重复发送相同请求,并把实际错误交给消费者
+
+#### Scenario: 已产出内容后的中途故障不重复输出
+- **GIVEN** 一次模型响应已向消费者产出部分内容
+- **WHEN** 流在到达终态前故障
+- **THEN** 内核不重放该请求、不产生重复内容,本轮以真实上游错误失败
+
+#### Scenario: 重试耗尽返回最后真实错误
+- **WHEN** 可重试错误耗尽重试预算
+- **THEN** 最终 `ModelError` 保留最后一次上游 message/code/type/status,重试次数仅作为附加诊断,
+  不用通用 exhaustion 或 stream-ended 文案替换真实原因
+
+### Requirement: Kernel 关闭会收拢所有 owned runs
+
+`Kernel.aclose()` 与同步兼容接口 `Kernel.close()` 必须共享幂等关闭状态,停止接受新运行,
+解除权限等待,中断或取消仍在执行/排队的 run,等待 RunsRegistry 自己创建的 Task 在所属
+event loop 与 Context 中进入终态,再停止并关闭 loop。关闭开始后不得创建新的 queued run;
+异步消费者使用 `aclose()` 时不得阻塞其 event loop。
+
+#### Scenario: 有活动运行时关闭
+- **GIVEN** Kernel 存在 running run 或权限等待
+- **WHEN** 异步消费者 await `kernel.aclose()` 或同步消费者调用 `kernel.close()`
+- **THEN** 相关 run 在有限 grace period 内进入 completed/failed/cancelled 之一,Registry 不遗留
+  Task,tracing scope 在原 Task Context 中退出
+
+#### Scenario: 异步关闭不阻塞消费者 loop
+- **GIVEN** 消费者的 event loop 还有 heartbeat、IM 或 UI 状态任务
+- **WHEN** 消费者 await `kernel.aclose()`
+- **THEN** Registry 在自己的 loop/thread 中 drain,消费者 loop 在等待期间仍可调度其他任务
+
+#### Scenario: 关闭期间拒绝新提交
+- **GIVEN** Kernel 已进入 draining 或 closed 状态
+- **WHEN** 消费者调用 `submit`
+- **THEN** 返回稳定的 closed error,不创建 queued run 或后台 Task
+
+#### Scenario: 重复关闭
+- **WHEN** 消费者多次调用或混用 `kernel.aclose()` 与 `kernel.close()`
+- **THEN** 后续调用安全返回,不重复停止 loop、不抛 secondary exception

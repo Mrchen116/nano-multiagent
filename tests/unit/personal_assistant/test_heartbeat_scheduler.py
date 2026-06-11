@@ -23,14 +23,20 @@ class _FakeKernelClient:
         self._run_counter = 0
 
     async def create_session(
-        self, *, workspace_root: str, product_id: str, title: str | None = None
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> dict[str, object]:
         self._session_counter += 1
-        payload = {
+        payload: dict[str, object] = {
             "session_id": f"sess-{self._session_counter}",
             "workspace_root": workspace_root,
             "product_id": product_id,
             "title": title,
+            "metadata": metadata,
         }
         self.created_sessions.append(payload)
         return payload
@@ -226,4 +232,45 @@ def _agent_with_heartbeat(
         workspace_root=workspace_root,
         title=f"Title for {name}",
         features=features,
+    )
+
+
+@pytest.mark.asyncio
+async def test_heartbeat_session_metadata_contains_agent_id(tmp_path: Path) -> None:
+    """_get_or_create_heartbeat_session must pass metadata={"agent_id": ...} to create_session.
+
+    Without agent_id in session metadata, heartbeat instructions that invoke cron.run
+    get ctx.session_metadata.get("agent_id") == None → empty-string routing →
+    GatewayCronDispatcher finds no CronExecutionService → cron_unavailable.
+    bugfix-402 cr3 fix.
+    """
+    from personal_assistant.scheduler.heartbeat_scheduler import (
+        HeartbeatScheduler,
+        HeartbeatSchedulerStateStore,
+    )
+
+    agent = _agent(tmp_path, name="hb-agent")
+    _write_heartbeat(
+        agent.workspace_root,
+        "# Heartbeat\n\ntasks:\n- name: check\n  instruction: Run cron job.\n",
+    )
+
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    # Trigger a tick so _get_or_create_heartbeat_session is called.
+    await scheduler.tick(now=datetime(2026, 6, 11, 9, 0, tzinfo=UTC))
+
+    # Heartbeat must have created at least one session.
+    assert len(kernel.created_sessions) >= 1, (
+        "heartbeat tick must create a kernel session"
+    )
+    metadata = kernel.created_sessions[0].get("metadata") or {}
+    assert metadata.get("agent_id") == agent.agent_id, (
+        f"create_session must receive metadata={{agent_id: {agent.agent_id!r}}}, "
+        f"got: {metadata!r}"
     )

@@ -23,10 +23,15 @@ class _FakeKernelClient:
         self._run_counter = 0
 
     async def create_session(
-        self, *, workspace_root: str, product_id: str, title: str | None = None
+        self,
+        *,
+        workspace_root: str,
+        product_id: str,
+        title: str | None = None,
+        metadata: dict[str, object] | None = None,
     ) -> dict[str, object]:
         self._session_counter += 1
-        payload = {
+        payload: dict[str, object] = {
             "session_id": f"sess-{self._session_counter}",
             "workspace_root": workspace_root,
             "product_id": product_id,

@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import httpx
 
 from agent.core.errors import ModelError
+from agent.core.llm.error_classifier import ProviderErrorFacts, classify_retryability
 from agent.core.llm.interfaces import (
     LLMClient,
     LLMGenerateRequest,
@@ -18,6 +19,7 @@ from agent.core.llm.interfaces import (
 )
 from agent.core.types import TokenUsage
 from agent.platform.llm.providers.common import (
+    extract_http_error_facts as _extract_http_error_facts,
     extract_non_negative_int as _extract_non_negative_int,
 )
 from agent.platform.llm.providers.translator import LLMTranslator
@@ -76,16 +78,22 @@ class OpenAICompatClient(LLMClient):
                 async for msg in self._stream_response(response):
                     yield msg
         except httpx.HTTPStatusError as exc:
+            facts = _extract_http_error_facts(exc, provider="openai_compat")
             raise ModelError(
-                "openai_compat request failed",
+                facts.message,
+                retryable=classify_retryability(facts),
                 details={
-                    "status_code": exc.response.status_code,
-                    "response": exc.response.text,
+                    "status_code": facts.http_status,
+                    "provider_code": facts.provider_code,
+                    "provider_type": facts.provider_type,
+                    "response": facts.raw_body,
                 },
             ) from exc
         except httpx.HTTPError as exc:
+            facts = ProviderErrorFacts(message=f"openai_compat transport error: {exc}")
             raise ModelError(
-                "openai_compat transport error",
+                facts.message,
+                retryable=classify_retryability(facts),
                 details={"error": str(exc)},
             ) from exc
 
@@ -103,17 +111,25 @@ class OpenAICompatClient(LLMClient):
         got_terminal_event = False
 
         async for event in _iter_sse_events(response):
-            # bugfix-380: top-level {"error":{...}} frame — surface as ModelError.
+            # bugfix-380: top-level {"error":{...}} frame — classify via shared classifier.
             if "error" in event and "choices" not in event:
                 error_obj = event["error"] if isinstance(event["error"], dict) else {}
                 error_msg = (
                     error_obj.get("message") or str(event["error"]) or "upstream error"
                 )
                 error_type = error_obj.get("type") or "error"
+                error_code = (
+                    error_obj.get("code") if isinstance(error_obj, dict) else None
+                )
+                facts = ProviderErrorFacts(
+                    message=f"openai_compat: {error_msg}",
+                    provider_type=error_type,
+                    provider_code=error_code,
+                )
                 raise ModelError(
-                    f"openai_compat: {error_msg}",
+                    facts.message,
+                    retryable=classify_retryability(facts),
                     details={"error_type": error_type, "raw": error_obj},
-                    retryable=False,
                 )
 
             choice = _first_choice(event)

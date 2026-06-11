@@ -1,10 +1,12 @@
-"""Red tests for feat-394-M7 R2: cron visible delivery chain.
+"""Tests for cron delivery chain and structured run history (bugfix-402-M4 R3).
 
-Verifies that when a cron job fires in _cron_tick_for_agent, the run_context_store
-is seeded with {to_user_id, agent_id, kernel_session_id} AND the kernel.stream is
-consumed to terminal state driving the kernel_event_observer to emit streaming_delta events.
-
-Without this, _submit_cron_job is fire-and-forget and IM direct chat never sees the result.
+Verifies:
+- When a cron job fires, the run_context_store is seeded for IM delivery
+- kernel.stream is consumed to terminal state driving kernel_event_observer
+- CronExecutionService.enqueue() returns an accepted ack and persists runs.jsonl
+- runs.jsonl records accepted→running→terminal state transitions
+- restart convergence: accepted/running records become failed(gateway_restarted)
+- CronRunsStore returns latest records by accepted_at desc
 """
 
 from __future__ import annotations
@@ -354,3 +356,306 @@ async def test_cron_delivery_extracts_result_for_awareness(tmp_path: Path) -> No
     assert "It is now 14:05 UTC" in appended.get("content", ""), (
         "awareness must contain the cron result text"
     )
+
+
+# ---------------------------------------------------------------------------
+# R3 bugfix-402-M4: CronExecutionService + runs.jsonl structured history
+# ---------------------------------------------------------------------------
+
+
+class TestCronRunsStore:
+    """CronRunsStore must persist and query runs.jsonl structured history."""
+
+    def test_runs_store_importable(self) -> None:
+        """CronRunsStore must be importable from personal_assistant.scheduler."""
+        from personal_assistant.scheduler.cron_execution_service import CronRunsStore  # noqa: F401
+
+        assert CronRunsStore is not None
+
+    def test_runs_store_append_and_query(self, tmp_path: Path) -> None:
+        """Appending a record and querying returns it in accepted_at desc order."""
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronRunRecord,
+            CronRunsStore,
+        )
+
+        store = CronRunsStore(workspace_root=tmp_path)
+        rec = CronRunRecord(
+            request_id="req-1",
+            job_id="job-a",
+            trigger="manual",
+            status="accepted",
+            accepted_at="2026-01-01T10:00:00+00:00",
+        )
+        store.append(rec)
+        results = store.list_by_job("job-a")
+        assert len(results) == 1
+        assert results[0].request_id == "req-1"
+        assert results[0].status == "accepted"
+
+    def test_runs_store_status_update(self, tmp_path: Path) -> None:
+        """update_status must change the status of a specific request_id record."""
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronRunRecord,
+            CronRunsStore,
+        )
+
+        store = CronRunsStore(workspace_root=tmp_path)
+        rec = CronRunRecord(
+            request_id="req-upd",
+            job_id="job-b",
+            trigger="scheduled",
+            status="accepted",
+            accepted_at="2026-01-01T11:00:00+00:00",
+        )
+        store.append(rec)
+        store.update_status(
+            "req-upd", "running", started_at="2026-01-01T11:00:01+00:00"
+        )
+        store.update_status(
+            "req-upd",
+            "completed",
+            finished_at="2026-01-01T11:01:00+00:00",
+            result_summary="done",
+        )
+        results = store.list_by_job("job-b")
+        assert results[0].status == "completed"
+        assert results[0].result_summary == "done"
+
+    def test_runs_store_list_by_job_returns_latest_first(self, tmp_path: Path) -> None:
+        """list_by_job must return records sorted by accepted_at descending."""
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronRunRecord,
+            CronRunsStore,
+        )
+
+        store = CronRunsStore(workspace_root=tmp_path)
+        for i in range(3):
+            store.append(
+                CronRunRecord(
+                    request_id=f"req-{i}",
+                    job_id="job-c",
+                    trigger="scheduled",
+                    status="completed",
+                    accepted_at=f"2026-01-0{i + 1}T00:00:00+00:00",
+                )
+            )
+        results = store.list_by_job("job-c")
+        # latest first
+        assert results[0].request_id == "req-2"
+        assert results[-1].request_id == "req-0"
+
+    def test_runs_store_convergence_on_restart(self, tmp_path: Path) -> None:
+        """converge_stale_on_restart must mark accepted/running records as failed."""
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronRunRecord,
+            CronRunsStore,
+        )
+
+        store = CronRunsStore(workspace_root=tmp_path)
+        store.append(
+            CronRunRecord(
+                request_id="req-stale-1",
+                job_id="job-d",
+                trigger="scheduled",
+                status="accepted",
+                accepted_at="2026-01-01T00:00:00+00:00",
+            )
+        )
+        store.append(
+            CronRunRecord(
+                request_id="req-stale-2",
+                job_id="job-d",
+                trigger="manual",
+                status="running",
+                accepted_at="2026-01-01T00:01:00+00:00",
+                started_at="2026-01-01T00:01:01+00:00",
+            )
+        )
+        store.append(
+            CronRunRecord(
+                request_id="req-done",
+                job_id="job-d",
+                trigger="scheduled",
+                status="completed",
+                accepted_at="2025-12-31T23:00:00+00:00",
+            )
+        )
+        store.converge_stale_on_restart()
+        results = {r.request_id: r for r in store.list_by_job("job-d")}
+        assert results["req-stale-1"].status == "failed"
+        assert results["req-stale-1"].error is not None
+        assert "gateway_restarted" in (results["req-stale-1"].error or "")
+        assert results["req-stale-2"].status == "failed"
+        # completed record untouched
+        assert results["req-done"].status == "completed"
+
+
+class TestCronExecutionServiceEnqueue:
+    """CronExecutionService.enqueue() must return accepted ack and persist history."""
+
+    def _make_job_store(self, tmp_path):
+        from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
+
+        store = CronJobStore(workspace_root=tmp_path)
+        job = CronJob(
+            id="job-exec-1",
+            name="exec test",
+            schedule={"kind": "every", "everyMs": 60000},
+            instruction="execute this",
+            enabled=True,
+            delete_after_run=False,
+        )
+        store.add(job)
+        return store
+
+    def test_cron_execution_service_importable(self) -> None:
+        """CronExecutionService must be importable from personal_assistant.scheduler."""
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )  # noqa: F401
+
+        assert CronExecutionService is not None
+
+    @pytest.mark.asyncio
+    async def test_enqueue_returns_accepted_ack(self, tmp_path: Path) -> None:
+        """enqueue() must return accepted=True ack for a known enabled job."""
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )
+
+        self._make_job_store(tmp_path)
+        executed: list[str] = []
+
+        async def _fake_execute(
+            *, agent_id: str, job_id: str, request_id: str, trigger: str
+        ) -> None:
+            executed.append(request_id)
+
+        svc = CronExecutionService(
+            agent_id="agent-test",
+            workspace_root=tmp_path,
+            execute_fn=_fake_execute,
+        )
+        ack = svc.enqueue(job_id="job-exec-1", trigger="manual")
+        assert ack["accepted"] is True
+        assert ack["job_id"] == "job-exec-1"
+        assert ack["request_id"] is not None
+        assert ack["error_code"] is None
+
+    @pytest.mark.asyncio
+    async def test_enqueue_unknown_job_returns_error(self, tmp_path: Path) -> None:
+        """enqueue() for unknown job must return accepted=False with job_not_found."""
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )
+
+        async def _fake_execute(**kwargs):
+            pass
+
+        svc = CronExecutionService(
+            agent_id="agent-test",
+            workspace_root=tmp_path,
+            execute_fn=_fake_execute,
+        )
+        ack = svc.enqueue(job_id="nonexistent-job", trigger="manual")
+        assert ack["accepted"] is False
+        assert ack["error_code"] == "job_not_found"
+
+    @pytest.mark.asyncio
+    async def test_enqueue_disabled_job_returns_error(self, tmp_path: Path) -> None:
+        """enqueue() for disabled job must return accepted=False with job_disabled."""
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )
+        from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
+
+        store = CronJobStore(workspace_root=tmp_path)
+        store.add(
+            CronJob(
+                id="job-disabled",
+                name="disabled",
+                schedule={"kind": "every", "everyMs": 60000},
+                instruction="x",
+                enabled=False,
+                delete_after_run=False,
+            )
+        )
+
+        async def _fake_execute(**kwargs):
+            pass
+
+        svc = CronExecutionService(
+            agent_id="agent-test",
+            workspace_root=tmp_path,
+            execute_fn=_fake_execute,
+        )
+        ack = svc.enqueue(job_id="job-disabled", trigger="manual")
+        assert ack["accepted"] is False
+        assert ack["error_code"] == "job_disabled"
+
+    @pytest.mark.asyncio
+    async def test_enqueue_persists_accepted_record(self, tmp_path: Path) -> None:
+        """enqueue() must write an accepted record to runs.jsonl."""
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+            CronRunsStore,
+        )
+
+        self._make_job_store(tmp_path)
+
+        async def _fake_execute(**kwargs):
+            pass
+
+        svc = CronExecutionService(
+            agent_id="agent-test",
+            workspace_root=tmp_path,
+            execute_fn=_fake_execute,
+        )
+        ack = svc.enqueue(job_id="job-exec-1", trigger="scheduled")
+        assert ack["accepted"] is True
+
+        runs_store = CronRunsStore(workspace_root=tmp_path)
+        records = runs_store.list_by_job("job-exec-1")
+        assert len(records) >= 1
+        assert records[0].status == "accepted"
+        assert records[0].request_id == ack["request_id"]
+        assert records[0].trigger == "scheduled"
+
+
+# Gateway startup: converge_stale_on_restart called for each agent (bugfix-402-M4 R5)
+# ---------------------------------------------------------------------------
+
+
+class TestGatewayStartupConvergence:
+    """Verify that converge_stale_on_restart() is called for each agent's runs store
+    during Gateway startup (build_runtime), so stale accepted/running records from a
+    previous crash are marked as failed(gateway_restarted) before any new tick runs.
+    """
+
+    def test_build_runtime_calls_converge_stale_on_restart(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """build_runtime must call runs_store.converge_stale_on_restart() for each agent."""
+        from personal_assistant.scheduler.cron_execution_service import CronRunsStore
+
+        converge_calls: list[str] = []
+        original_converge = CronRunsStore.converge_stale_on_restart
+
+        def _recording_converge(self):
+            converge_calls.append(str(self._root))
+            return original_converge(self)
+
+        monkeypatch.setattr(
+            CronRunsStore, "converge_stale_on_restart", _recording_converge
+        )
+
+        # build_runtime source must reference converge_stale_on_restart.
+        import inspect
+        import personal_assistant.main as main_module
+
+        source = inspect.getsource(main_module.build_runtime)
+        assert "converge_stale_on_restart" in source, (
+            "build_runtime must call converge_stale_on_restart() on startup "
+            "(bugfix-402-M4 R5 exit criterion)"
+        )

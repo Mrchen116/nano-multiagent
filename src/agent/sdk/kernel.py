@@ -30,6 +30,7 @@ from agent.core.observability.tracing import set_tracer
 from agent.core.runs.registry import RunRecord, RunsRegistry
 from agent.core.runs.origin import RunOrigin
 from agent.core.session.models import Session
+from agent.core.tools.host_capability import HostCapabilityDispatcher
 from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.loader import build_hook_registry
@@ -70,6 +71,7 @@ def build_kernel(
     llm_config: LLMFactoryConfig,
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
+    host_capabilities: HostCapabilityDispatcher | None = None,
     # Internal escape hatch for tests: skip LLM client construction and use
     # this fake instead.  Not part of the public API.
     _llm_client_override: LLMClient | None = None,
@@ -88,6 +90,10 @@ def build_kernel(
             When None, all permission decisions must arrive via
             ``submit_permission_decision`` (IM card flow).
         repo_root: Repository/workspace root for tool and hook discovery.
+        host_capabilities: Optional product-owned capability dispatcher.  When
+            provided, it is injected into ToolContext so product tools (e.g.
+            cron tool run action) can invoke capabilities without importing
+            personal_assistant directly (bugfix-402 Decision 1).
         _llm_client_override: Test-only; if provided, skips constructing an
             LLM client from llm_config and uses this instead.
 
@@ -211,7 +217,10 @@ def build_kernel(
     )
 
     return Kernel(
-        components=components, can_use_tool=can_use_tool, repo_root=resolved_repo_root
+        components=components,
+        can_use_tool=can_use_tool,
+        repo_root=resolved_repo_root,
+        host_capabilities=host_capabilities,
     )
 
 
@@ -235,6 +244,7 @@ class Kernel:
         components: _KernelComponents,
         can_use_tool: CanUseToolFn | None,
         repo_root: Path,
+        host_capabilities: HostCapabilityDispatcher | None = None,
     ) -> None:
         self._c = components
         self._repo_root = repo_root
@@ -245,6 +255,14 @@ class Kernel:
         # (resolved externally via submit_permission_decision).
         if can_use_tool is not None:
             self._c.runtime._can_use_tool = can_use_tool  # type: ignore[attr-defined]
+
+        # Inject host_capabilities into the runtime's base ToolContext so all
+        # tool executions have access to the dispatcher without importing
+        # personal_assistant (bugfix-402 Decision 1).
+        if host_capabilities is not None:
+            _inject_host_capabilities(
+                runtime=self._c.runtime, dispatcher=host_capabilities
+            )
 
     # ------------------------------------------------------------------
     # Public API — mirrors design.md §接口与数据流
@@ -623,8 +641,43 @@ class Kernel:
         """
         return self._c.event_hub.current_sequence()
 
+    async def aclose(self) -> None:
+        """Shut down background loops and release resources (async-native path).
+
+        Awaitable by async consumers (Gateway, coding_cli event loop) so the
+        caller's event loop is not blocked while waiting for the Registry drain.
+        Multiple calls are idempotent — only the first call triggers shutdown.
+
+        bugfix-402-M6: delegates to RunsRegistry.shutdown() via the same
+        OPEN→DRAINING→CLOSED state machine used by the sync close() path so
+        that submit() rejects new requests during drain and the two paths cannot
+        race to call _drain_and_stop simultaneously.
+        """
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        import asyncio as _asyncio  # noqa: PLC0415
+
+        registry = self._c.runs_registry
+        registry.begin_shutdown()
+        loop = registry.get_event_loop()
+        if loop is not None and loop.is_running():
+            # Run shutdown() in a thread so the Registry's blocking drain_future.result()
+            # does not block this event loop.  shutdown() itself handles DRAINING→CLOSED
+            # and awaiting owned tasks before stopping the Registry loop.
+            await _asyncio.to_thread(registry.shutdown)
+        else:
+            registry.shutdown()
+
     def close(self) -> None:
-        """Shut down background loops and release resources."""
+        """Shut down background loops (sync-compat wrapper for non-async consumers).
+
+        Callers inside an event loop must use ``aclose()`` to avoid blocking.
+        This method is retained for backward compatibility with sync-only call sites.
+        """
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
         self._c.runs_registry.shutdown()
 
     def assemble_prompt_preview(
@@ -801,3 +854,31 @@ def _build_session_event_publisher_factory(
         return _publish
 
     return _factory
+
+
+def _inject_host_capabilities(
+    *,
+    runtime: AgentRuntime,
+    dispatcher: HostCapabilityDispatcher,
+) -> None:
+    """Inject a HostCapabilityDispatcher into the runtime's base ToolContext.
+
+    The runtime's tool_registry holds the base ToolContext; all per-call
+    contexts are cloned via with_session() / _resolve_execution_context which
+    propagates host_capabilities.  Setting it on the base context here makes
+    the dispatcher available to every tool execution without requiring the
+    core layer to know about host capabilities.
+
+    This intentionally accesses the internal _tool_registry._context chain
+    because there is no public API on AgentRuntime/ToolRegistry for injecting
+    a dispatcher post-construction (adding one would turn the product-neutral
+    core into a product-aware surface).  The access is deliberate and bounded
+    to the composition root.
+    """
+    tool_registry = getattr(runtime, "_tool_registry", None)
+    if tool_registry is None:
+        return
+    base_ctx = getattr(tool_registry, "_context", None)
+    if base_ctx is None:
+        return
+    object.__setattr__(base_ctx, "host_capabilities", dispatcher)

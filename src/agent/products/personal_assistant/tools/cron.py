@@ -2,7 +2,9 @@
 
 This tool is PA-exclusive (feat-394 decision 7). It must never appear in coding_cli.
 Job definitions are persisted to <workspace>/.nanoassistant/cron/jobs.json.
-Immediate-run requests are forwarded to the gateway via gateway_cron_url in session metadata.
+Immediate-run requests are dispatched via HostCapabilityDispatcher injected at
+build_kernel() time (bugfix-402 Decision 1); the old HTTP loopback bypass
+has been removed.
 
 Provenance: openclaw/src/agents/tools/cron-tool.ts:524-598 — description, JOB SCHEMA,
 SCHEDULE TYPES, PAYLOAD TYPES, and CRITICAL CONSTRAINTS are copied verbatim from that
@@ -488,67 +490,147 @@ class CronTool:
         workspace_root: Path,
         ctx: ToolContext,
     ) -> dict[str, Any]:
-        """Trigger a job immediately via gateway cron dispatch endpoint."""
+        """Trigger a job immediately via host capability dispatcher.
+
+        Invokes ``personal_assistant.cron.enqueue`` on the HostCapabilityDispatcher
+        injected at build_kernel() time (bugfix-402 Decision 1).  The dispatcher
+        bridges to the Gateway's asyncio loop via thread-safe future; it returns only
+        the short accepted ack — it does NOT block for full job completion.
+
+        Returns a tool-level error dict (ok=False) when:
+        - No dispatcher is available (host doesn't support cron, e.g. coding_cli)
+        - The dispatcher declines the request (job disabled, job not found gateway-side)
+        """
         job_id = _resolve_job_id(args)
         jobs = _read_jobs(workspace_root)
         if not any(j.id == job_id for j in jobs):
             raise LookupError(f"cron run: job not found: {job_id!r}")
-        cron_dispatch_url = ctx.session_metadata.get("gateway_cron_url")
-        if not isinstance(cron_dispatch_url, str) or not cron_dispatch_url.strip():
-            raise RuntimeError(
-                "cron run: gateway_cron_url is not configured in session metadata. "
-                "Ensure the Gateway inbound pipeline injects gateway_cron_url."
-            )
-        import httpx  # noqa: PLC0415 — deferred: avoids import cost on list/add/update
 
-        agent_id = str(ctx.session_metadata.get("agent_id", ""))
-        payload = {"agent_id": agent_id, "job_id": job_id}
-        timeout = httpx.Timeout(connect=3.0, write=10.0, read=None, pool=3.0)
-        response = httpx.post(cron_dispatch_url.strip(), json=payload, timeout=timeout)
+        dispatcher = ctx.host_capabilities
+        if dispatcher is None:
+            return {
+                "ok": False,
+                "jobId": job_id,
+                "error": (
+                    "cron run: host does not support manual cron execution. "
+                    "The cron execution service is only available in the personal assistant gateway."
+                ),
+            }
+
+        from agent.core.tools.host_capability import HostCapabilityContext  # noqa: PLC0415
+
+        # bugfix-402 round-2: pass agent_id so dispatcher can route by agent
+        # identity instead of workspace_root path, which may differ between the
+        # IM-stored value and the locally registered CronExecutionService key.
+        cap_ctx = HostCapabilityContext(
+            session_id=ctx.session_id or "",
+            workspace_root=str(workspace_root),
+            product_id="personal_assistant",
+            agent_id=str(ctx.session_metadata.get("agent_id") or ""),
+        )
         try:
-            body = response.json()
-        except ValueError as exc:
-            raise RuntimeError("cron run: gateway returned non-JSON response") from exc
-        if response.status_code >= 400 or (
-            isinstance(body, dict) and body.get("ok") is not True
-        ):
-            error = body.get("error") if isinstance(body, dict) else None
-            if isinstance(error, str) and error.strip():
-                raise RuntimeError(f"cron run: {error.strip()}")
-            raise RuntimeError(
-                f"cron run: gateway returned status {response.status_code}"
+            ack = dispatcher.invoke(
+                "personal_assistant.cron.enqueue",
+                {"job_id": job_id},
+                cap_ctx,
             )
-        return {"ok": True, "jobId": job_id, "triggered": True}
+        except Exception as exc:
+            return {
+                "ok": False,
+                "jobId": job_id,
+                "error": f"cron run: dispatcher error: {exc}",
+            }
+
+        if not ack.get("accepted"):
+            error_code = ack.get("error_code")
+            msg = {
+                "job_not_found": "job not found on gateway side",
+                "job_disabled": "job is disabled",
+                "cron_unavailable": "cron execution service is unavailable",
+            }.get(error_code or "", f"enqueue declined (error_code={error_code!r})")
+            return {"ok": False, "jobId": job_id, "error": f"cron run: {msg}"}
+
+        return {
+            "ok": True,
+            "jobId": job_id,
+            "accepted": True,
+            "requestId": ack.get("request_id"),
+        }
 
     def _action_runs(self, args: Mapping[str, Any], ctx: ToolContext) -> dict[str, Any]:
-        """Return job run history from state store."""
+        """Return job run history from runs.jsonl (bugfix-402-M4 R5).
+
+        Reads the append-only runs.jsonl log and materializes the latest state per
+        request_id.  Returns the most recent records for the requested job, sorted by
+        accepted_at descending.
+
+        The old state.json approach only tracked last_due_at; this implementation returns
+        structured accepted→running→terminal lifecycle records.
+        """
         job_id = _resolve_job_id(args)
-        state_path_str = ctx.session_metadata.get("cron_state_path")
-        if not isinstance(state_path_str, str) or not state_path_str.strip():
-            return {
-                "ok": True,
-                "jobId": job_id,
-                "runs": [],
-                "note": "no run state available",
-            }
-        state_path = Path(state_path_str.strip())
-        if not state_path.exists():
+        workspace_root = ctx.repo_root if ctx.repo_root else None
+        if workspace_root is None:
             return {"ok": True, "jobId": job_id, "runs": []}
-        try:
-            raw = json.loads(state_path.read_text(encoding="utf-8"))
-        except (ValueError, TypeError):
+
+        runs_path = workspace_root / _CRON_SUBDIR / "runs.jsonl"
+        if not runs_path.exists():
             return {"ok": True, "jobId": job_id, "runs": []}
-        jobs_state = raw.get("jobs", {}) if isinstance(raw, dict) else {}
-        run_entry = jobs_state.get(job_id, {}) if isinstance(jobs_state, dict) else {}
-        runs = []
-        if isinstance(run_entry, dict) and run_entry.get("last_due_at"):
-            runs.append({"last_due_at": run_entry["last_due_at"]})
-        return {"ok": True, "jobId": job_id, "runs": runs}
+
+        records = _read_runs_for_job(runs_path, job_id, limit=20)
+        return {"ok": True, "jobId": job_id, "runs": records}
 
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _read_runs_for_job(
+    runs_path: Path,
+    job_id: str,
+    *,
+    limit: int = 20,
+) -> list[dict[str, Any]]:
+    """Materialize the latest CronRunRecord state per request_id for a job.
+
+    Reads the append-only runs.jsonl log inline — does not import personal_assistant.*
+    (agent→personal_assistant import boundary: AGENTS.md dependency direction rule).
+
+    Returns a list of record dicts sorted by accepted_at descending, capped at limit.
+    Each dict mirrors CronRunRecord fields (request_id, job_id, trigger, status,
+    accepted_at, started_at, finished_at, kernel_run_id, result_summary, error).
+
+    Args:
+        runs_path: Path to runs.jsonl.
+        job_id: Job whose records to return.
+        limit: Maximum records to return.
+    """
+    try:
+        raw = runs_path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+
+    latest: dict[str, dict[str, Any]] = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            data = json.loads(line)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        rid = data.get("request_id")
+        if not isinstance(rid, str) or not rid:
+            continue
+        if data.get("job_id") != job_id:
+            continue
+        latest[rid] = data
+
+    records = list(latest.values())
+    records.sort(key=lambda r: r.get("accepted_at") or "", reverse=True)
+    return records[:limit]
 
 
 def _require_str(value: object, *, field_name: str) -> str:

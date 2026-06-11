@@ -1,9 +1,11 @@
 from collections.abc import AsyncIterator
 from pathlib import Path
+import json
 
 import pytest
 
 from agent.core.agent.runtime import AgentRuntime
+from agent.core.agent.run_control import RunController
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
 from agent.core.tools.base import (
@@ -763,3 +765,271 @@ async def test_single_part_user_text_unchanged_after_multi_turn(tmp_path: Path) 
     # Second call: history has 2 user messages + 1 assistant, plus current user
     call2_user = [m for m in llm.calls[1].messages if m.role == "user"]
     assert call2_user[-1].content == "turn two"
+
+
+# ---------------------------------------------------------------------------
+# bugfix-402: eager tool_call_recovery on abort
+# ---------------------------------------------------------------------------
+
+
+async def test_runtime_eager_recovery_on_abort(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """run() で abort 発生後、prepare を呼ばなくても JSONL に tool_call_recovery が即書かれる。
+
+    Scenario: the _execute_loop yields an assistant message with an unclosed
+    tool_call followed by turn_meta(stop_reason='aborted').  The runtime must
+    eagerly write a tool_call_recovery entry into the JSONL immediately after
+    the loop exits so the UI can show the cancellation result without waiting
+    for the next run to call prepare_transcript_for_run.
+
+    We inject the abort scenario directly via monkeypatch so the test is not
+    sensitive to the exact loop-iteration timing of the abort signal.
+    """
+    from agent.core.types import Message
+    from agent.core import ids
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    runtime = AgentRuntime(
+        session_manager=manager, llm_client=FakeLLMClient(), model="mock-model"
+    )
+
+    # Build the messages that _execute_loop would yield when aborted mid-tool.
+    assistant_with_open_call = Message(
+        message_id=ids.make_message_id(),
+        role="assistant",
+        content="",
+        metadata={
+            "tool_calls": [
+                {"call_id": "tc_abort_1", "name": "echo", "arguments": {"text": "w"}}
+            ]
+        },
+    )
+    turn_meta_aborted = Message(
+        message_id=ids.make_message_id(),
+        role="turn_meta",
+        content="",
+        metadata={"stop_reason": "aborted", "completed": False, "tool_iterations": 1},
+    )
+
+    async def _fake_execute_loop(self_inner, *, controller=None, **_kwargs):  # noqa: ANN001
+        yield assistant_with_open_call
+        yield turn_meta_aborted
+
+    from agent.core.agent import runtime as _runtime_mod
+
+    monkeypatch.setattr(_runtime_mod.AgentRuntime, "_execute_loop", _fake_execute_loop)
+
+    controller = RunController()
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "do something"}],
+        stream=False,
+        controller=controller,
+    )
+    manager.writer.flush()
+
+    # Read the raw JSONL and find recovery entries — without calling prepare.
+    path = store.resolve_path(session.session_id, workspace_root=tmp_path / "workspace")
+    lines = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+    recovery_entries = [ln for ln in lines if ln.get("type") == "tool_call_recovery"]
+
+    assert len(recovery_entries) == 1, (
+        f"Expected 1 recovery entry, got {len(recovery_entries)}. "
+        f"JSONL entries: {[ln.get('type') for ln in lines]}"
+    )
+    rec = recovery_entries[0]
+    assert rec["tool_call_id"] == "tc_abort_1"
+    assert rec["reason"] == "interrupted"
+    assert rec.get("idempotency_key") == "tool-call-recovery:tc_abort_1"
+
+
+async def test_runtime_eager_recovery_on_cancel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """stop_reason='cancelled' also triggers eager recovery with reason='cancelled'."""
+    from agent.core.types import Message
+    from agent.core import ids
+    from agent.core.agent import runtime as _runtime_mod
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    runtime = AgentRuntime(
+        session_manager=manager, llm_client=FakeLLMClient(), model="mock-model"
+    )
+
+    assistant_msg = Message(
+        message_id=ids.make_message_id(),
+        role="assistant",
+        content="",
+        metadata={
+            "tool_calls": [{"call_id": "tc_cancel_1", "name": "echo", "arguments": {}}]
+        },
+    )
+    turn_meta_cancelled = Message(
+        message_id=ids.make_message_id(),
+        role="turn_meta",
+        content="",
+        metadata={"stop_reason": "cancelled", "completed": False, "tool_iterations": 1},
+    )
+
+    async def _fake_execute_loop(self_inner, *, controller=None, **_kwargs):  # noqa: ANN001
+        yield assistant_msg
+        yield turn_meta_cancelled
+
+    monkeypatch.setattr(_runtime_mod.AgentRuntime, "_execute_loop", _fake_execute_loop)
+
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "do something"}],
+        stream=False,
+    )
+    manager.writer.flush()
+
+    path = store.resolve_path(session.session_id, workspace_root=tmp_path / "workspace")
+    lines = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+    recovery_entries = [ln for ln in lines if ln.get("type") == "tool_call_recovery"]
+
+    assert len(recovery_entries) == 1
+    assert recovery_entries[0]["tool_call_id"] == "tc_cancel_1"
+    assert recovery_entries[0]["reason"] == "cancelled"
+
+
+async def test_runtime_cancelled_recovery_is_visible_to_next_cached_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The next run in the same process must receive the synthetic tool result."""
+    from agent.core import ids
+    from agent.core.agent import runtime as _runtime_mod
+    from agent.core.types import Message
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    runtime = AgentRuntime(
+        session_manager=manager, llm_client=FakeLLMClient(), model="mock-model"
+    )
+    histories: list[tuple[Message, ...]] = []
+
+    async def _fake_execute_loop(
+        self_inner,
+        *,
+        history=(),
+        **_kwargs,  # noqa: ANN001
+    ):
+        histories.append(tuple(history))
+        if len(histories) == 1:
+            yield Message(
+                message_id=ids.make_message_id(),
+                role="assistant",
+                content="",
+                metadata={
+                    "tool_calls": [
+                        {
+                            "call_id": "tc_cached_cancel",
+                            "name": "echo",
+                            "arguments": {},
+                        }
+                    ]
+                },
+            )
+            yield Message(
+                message_id=ids.make_message_id(),
+                role="turn_meta",
+                content="",
+                metadata={"stop_reason": "cancelled", "completed": False},
+            )
+            return
+        yield Message(
+            message_id=ids.make_message_id(),
+            role="assistant",
+            content="recovered",
+        )
+        yield Message(
+            message_id=ids.make_message_id(),
+            role="turn_meta",
+            content="",
+            metadata={"stop_reason": "completed", "completed": True},
+        )
+
+    monkeypatch.setattr(_runtime_mod.AgentRuntime, "_execute_loop", _fake_execute_loop)
+
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "cancel this"}],
+        stream=False,
+    )
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "continue"}],
+        stream=False,
+    )
+
+    second_history = histories[1]
+    assert any(
+        message.role == "tool"
+        and message.tool_call_id == "tc_cached_cancel"
+        and message.metadata.get("is_recovery") is True
+        for message in second_history
+    )
+
+
+async def test_runtime_no_eager_recovery_on_completed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Completed runs must NOT write recovery entries even if tool_calls exist."""
+    from agent.core.types import Message
+    from agent.core import ids
+    from agent.core.agent import runtime as _runtime_mod
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    runtime = AgentRuntime(
+        session_manager=manager, llm_client=FakeLLMClient(), model="mock-model"
+    )
+
+    assistant_msg = Message(
+        message_id=ids.make_message_id(),
+        role="assistant",
+        content="",
+        metadata={
+            "tool_calls": [{"call_id": "tc_done_1", "name": "echo", "arguments": {}}]
+        },
+    )
+    tool_result_msg = Message(
+        message_id=ids.make_message_id(),
+        role="tool",
+        content="ok",
+        tool_call_id="tc_done_1",
+    )
+    turn_meta_completed = Message(
+        message_id=ids.make_message_id(),
+        role="turn_meta",
+        content="",
+        metadata={"stop_reason": "completed", "completed": True, "tool_iterations": 1},
+    )
+
+    async def _fake_execute_loop(self_inner, *, controller=None, **_kwargs):  # noqa: ANN001
+        yield assistant_msg
+        yield tool_result_msg
+        yield turn_meta_completed
+
+    monkeypatch.setattr(_runtime_mod.AgentRuntime, "_execute_loop", _fake_execute_loop)
+
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "do something"}],
+        stream=False,
+    )
+    manager.writer.flush()
+
+    path = store.resolve_path(session.session_id, workspace_root=tmp_path / "workspace")
+    lines = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+    recovery_entries = [ln for ln in lines if ln.get("type") == "tool_call_recovery"]
+    assert recovery_entries == [], (
+        f"Completed run should not write recovery: {recovery_entries}"
+    )

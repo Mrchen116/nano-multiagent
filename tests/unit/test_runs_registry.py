@@ -5,7 +5,7 @@ from agent.core.errors import ModelError
 from agent.core.types import Message, TokenUsage, TurnResult
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
-from agent.core.runs.registry import RunStatus, RunsRegistry
+from agent.core.runs.registry import RunStatus, RunsRegistry, _RegistryState
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 
@@ -349,3 +349,237 @@ def test_runs_registry_marks_failed_on_retryable_model_error_without_retry(
         )
     finally:
         registry.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# bugfix-402-M3: R1 — Task 登记 + DRAINING 状态机
+# ---------------------------------------------------------------------------
+
+import asyncio as _asyncio
+
+
+def test_registry_submit_rejected_after_shutdown(tmp_path: Path) -> None:
+    """submit() after shutdown must raise RegistryClosedError immediately."""
+    from agent.core.runs.registry import RegistryClosedError
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
+    registry.shutdown()
+
+    import pytest
+
+    with pytest.raises(RegistryClosedError):
+        registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "too late"}],
+        )
+
+
+def test_registry_submit_rejected_after_shutdown_begins(tmp_path: Path) -> None:
+    """begin_shutdown() must reject new runs before the blocking drain starts."""
+    from agent.core.runs.registry import RegistryClosedError
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
+
+    registry.begin_shutdown()
+
+    import pytest
+
+    with pytest.raises(RegistryClosedError):
+        registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "too late"}],
+        )
+    registry.shutdown()
+
+
+def test_registry_does_not_register_task_after_shutdown_begins(
+    tmp_path: Path,
+) -> None:
+    """A submit already queued onto the loop must become terminal during drain."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
+    loop = registry.get_event_loop()
+    original_call_soon = loop.call_soon_threadsafe
+    scheduled: list[object] = []
+
+    def _defer(callback, *args):  # noqa: ANN001
+        scheduled.append((callback, args))
+
+    loop.call_soon_threadsafe = _defer
+    submitted = registry.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": "racing submit"}],
+    )
+    registry.begin_shutdown()
+    callback, args = scheduled.pop()
+    callback(*args)
+    loop.call_soon_threadsafe = original_call_soon
+
+    final = registry.get(submitted.run_id)
+    assert final is not None
+    assert final.status is RunStatus.CANCELLED
+    assert final.stop_reason == "shutdown"
+    registry.shutdown()
+
+
+def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
+    """shutdown() must wait for all running Tasks to reach terminal state before stopping loop."""
+    import threading
+
+    gate_holder: list[_asyncio.Event] = []
+    # Signal fired by _GatedRuntime.run() as soon as it enters (i.e. the run is
+    # RUNNING on the loop).  The main thread waits on this before calling shutdown()
+    # to avoid the race where drain snapshots the run while it is still QUEUED and
+    # cancels it immediately — that is correct registry behaviour, not the drain bug
+    # this test is meant to exercise.
+    started = threading.Event()
+
+    class _GatedRuntime:
+        async def run(
+            self,
+            session_id: str,
+            parts,
+            *,
+            stream: bool = True,
+            run_id: str | None = None,
+            controller=None,
+            workspace_root=None,
+            origin=None,
+        ):  # noqa: ANN001, ANN201
+            started.set()  # notify main thread: we are inside run(), status is RUNNING
+            await gate_holder[0].wait()
+            return TurnResult(
+                session_id=session_id,
+                turn_id="turn_gated",
+                messages=(
+                    Message(message_id="msg_gated", role="assistant", content="done"),
+                ),
+                completed=True,
+                stop_reason="completed",
+            )
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_GatedRuntime(), session_manager=manager)
+
+    # Create an asyncio.Event on registry's dedicated loop so it is compatible.
+    loop = registry.get_event_loop()
+    ev_future = _asyncio.run_coroutine_threadsafe(_create_asyncio_event(), loop)
+    ev = ev_future.result(timeout=2.0)
+    gate_holder.append(ev)
+
+    submitted = registry.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": "gated"}],
+    )
+
+    # Wait until _GatedRuntime.run() has been entered (run is RUNNING) before
+    # triggering shutdown.  This is the deterministic synchronisation point that
+    # prevents the race where drain snapshots the run while it is still QUEUED.
+    assert started.wait(timeout=5.0), "timed out waiting for run to enter RUNNING"
+
+    # Release the gate only after drain has begun, so the test definitely exercises
+    # the "drain blocks waiting for a RUNNING task" path rather than "task already
+    # completed before drain snapshot".  Polling registry._state is safe: the field
+    # transitions OPEN → DRAINING inside begin_shutdown() (under self._lock) before
+    # _drain_and_stop is scheduled on the loop, so DRAINING is visible from any
+    # thread the moment shutdown() passes begin_shutdown().  The short poll sleep is
+    # a condition-based wait, not a timing heuristic.
+    def _release_after_drain_starts() -> None:
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if registry._state is _RegistryState.DRAINING:  # noqa: SLF001
+                break
+            time.sleep(0.001)
+        _asyncio.run_coroutine_threadsafe(_set_event(ev), loop)
+
+    releaser = threading.Thread(target=_release_after_drain_starts, daemon=True)
+    releaser.start()
+
+    registry.shutdown()  # must block until gated task completes
+    releaser.join(timeout=2.0)
+
+    final = registry.get(submitted.run_id)
+    assert final is not None
+    assert final.status is RunStatus.COMPLETED, (
+        f"expected COMPLETED, got {final.status}"
+    )
+
+
+def test_registry_force_cancel_marks_terminal_and_recovers_session(
+    tmp_path: Path,
+) -> None:
+    """A run that exceeds shutdown grace must not remain RUNNING."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    class _NeverEndingRuntime:
+        def __init__(self) -> None:
+            self.invalidated_sessions: list[str] = []
+
+        async def run(
+            self,
+            session_id: str,
+            parts,
+            *,
+            stream: bool = True,
+            run_id: str | None = None,
+            controller=None,
+            workspace_root=None,
+            origin=None,
+        ):  # noqa: ANN001, ANN201
+            del parts, stream, run_id, controller, workspace_root, origin
+            await asyncio.Event().wait()
+
+        def invalidate_session_cache(self, session_id: str) -> None:
+            self.invalidated_sessions.append(session_id)
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    manager.prepare_transcript_for_run = MagicMock(
+        wraps=manager.prepare_transcript_for_run
+    )
+    runtime = _NeverEndingRuntime()
+    registry = RunsRegistry(
+        runtime=runtime,
+        session_manager=manager,
+        drain_timeout_seconds=0.01,
+    )
+
+    submitted = registry.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": "block forever"}],
+        workspace_root=tmp_path,
+    )
+    _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.RUNNING)
+
+    registry.shutdown()
+
+    final = registry.get(submitted.run_id)
+    assert final is not None
+    assert final.status is RunStatus.CANCELLED
+    assert final.stop_reason == "shutdown"
+    manager.prepare_transcript_for_run.assert_called_once_with(
+        session.session_id,
+        reason="shutdown",
+        workspace_root=tmp_path,
+    )
+    assert runtime.invalidated_sessions == [session.session_id]
+
+
+async def _create_asyncio_event() -> _asyncio.Event:
+    return _asyncio.Event()
+
+
+async def _set_event(ev: _asyncio.Event) -> None:
+    ev.set()

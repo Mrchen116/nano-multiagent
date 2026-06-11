@@ -431,6 +431,7 @@ class HeartbeatScheduler:
             workspace_root=str(agent.workspace_root),
             product_id="personal_assistant",
             title=agent.title,
+            metadata={"agent_id": agent.agent_id},
         )
         new_session_id = str(session_payload.get("session_id", "")).strip()
         if not new_session_id:

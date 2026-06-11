@@ -37,8 +37,10 @@ Gateway 默认可作为后台常驻服务启动，使用持久化 config 和单�
 Heartbeat 是带 canonical 对话上下文的周期巡检；Cron 是可挂多条、在隔离 session 执行的无上下文
 任务。两者由各自 per-agent feature 控制。Cron 的定时触发和 Agent 手动触发具有同一执行语义：
 同样的 Kernel 提交、IM 投递、运行历史和 canonical-session awareness；手动触发只改变触发时机并
-立即返回入队确认。运行历史必须区分 trigger，记录 accepted/running/terminal 状态、Kernel run、
-目标会话、结果或错误；仅有最近一次调度时间不构成运行历史。
+立即返回入队确认。手动触发请求按发起请求的 Agent 身份路由——多 Agent 并存、Agent 在运行期
+新建、或请求来自 heartbeat / cron 隔离会话时均路由到正确 Agent，互不串扰。运行历史必须区分
+trigger，记录 accepted/running/terminal 状态、Kernel run、目标会话、结果或错误；仅有最近一次
+调度时间不构成运行历史。Gateway 关闭时已入队的 cron 投递在 IM 连接关闭前完成收拢。
 
 #### Scenario: 手动运行已有 cron 任务立即入队
 

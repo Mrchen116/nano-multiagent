@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-394
+> 对齐: bugfix-402
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -40,6 +40,11 @@ import 内核内部(由 `tests/contract/` 把守)。
 - **GIVEN** 同一会话已有一轮在执行,另有一条属于不同会话的消息同时到达
 - **WHEN** 两条消息先后进入 Gateway
 - **THEN** 同一会话的消息排进串行 FIFO 队列、前一轮结束后才消费下一条;不同会话的消息并行推进,互不阻塞
+
+#### Scenario: 静默运行失败后释放同会话队列
+- **GIVEN** 同一会话的前一轮已开始运行,但持续 120 秒没有任何内核事件,后一条消息正在 FIFO 中等待
+- **WHEN** Gateway 判定前一轮失去进展
+- **THEN** Gateway 取消前一轮并上报失败,随后消费后一条消息,不得让该会话永久阻塞
 
 #### Scenario: 路由到未知 Agent 被拒
 - **WHEN** 入站消息显式指定一个 Gateway 未注册的 `agent_id`
@@ -98,7 +103,10 @@ Gateway 把「会话键 → 内核会话」的绑定落盘持久化(SQLite)。�
 ### Requirement: 运维者用启停命令把 Gateway 当后台服务管理
 
 默认启动让 Gateway 以后台常驻进程运行,启动命令尽快返回;`stop` / `restart` 按配置定位并管理该进程;
-显式 `--foreground` 仅作 debug/高级模式。单实例 PID 锁防止对同一 config 重复启动。
+显式 `--foreground` 仅作 debug/高级模式。单实例 PID 锁防止对同一 config 重复启动。`stop`/`restart`
+必须先停止新入站、heartbeat、cron 和 dispatch 生产者,再收拢内核运行,最后关闭 IM/channel 资源;
+进行中的操作进入明确终态,终态事件有机会完成投递;关闭阶段的次要错误不得覆盖导致进程退出的最早
+真实错误。
 
 #### Scenario: 默认启动后台常驻并尽快返回
 - **WHEN** 运维者执行 `python -m personal_assistant.main`(无子命令)
@@ -114,6 +122,16 @@ Gateway 把「会话键 → 内核会话」的绑定落盘持久化(SQLite)。�
 - **WHEN** 运维者执行 `... main stop`
 - **THEN** 对应后台进程被优雅终止(超时则升级 SIGKILL),PID/状态文件被清理;若本无运行则报「NOT RUNNING」,
   状态陈旧则报「STALE」
+
+#### Scenario: stop 收拢活动运行后终止 Gateway
+- **GIVEN** Gateway 有活动 Agent run 或权限等待
+- **WHEN** 运维者执行 `stop` 或 `restart`
+- **THEN** Gateway 停止生产新工作,活动操作进入明确终态,内核 Task 被收拢后进程退出,
+  日志不出现 ContextVar cross-Context 二次异常
+
+#### Scenario: 真实故障在关闭后仍是主要错误
+- **WHEN** Gateway 因运行故障进入关闭流程
+- **THEN** 日志保留原始首因;任何资源关闭失败只作为次要诊断,不替换首因
 
 ### Requirement: IM 服务在线时 Gateway 主动连出并保持双向通信
 
@@ -204,10 +222,36 @@ Gateway 提供两套**相互独立**的本地主动行为机制,均完全在本�
 两套机制**均不补跑积压**:停机/空闲错过多个周期后,恢复只推进到最近一次边界触发一次(不刷屏回填);
 已过期的一次性(`at`)任务恢复后不补跑。
 
+Cron 的定时触发和 Agent 手动触发具有同一执行语义:同样的 Kernel 提交、IM 投递、运行历史和
+canonical-session awareness;手动触发只改变触发时机并立即返回入队确认。手动触发请求按发起请求的
+Agent 身份路由——多 Agent 并存、Agent 在运行期新建、或请求来自 heartbeat / cron 隔离会话时均路由
+到正确 Agent,互不串扰。运行历史必须区分 trigger,记录 accepted/running/terminal 状态、Kernel run、
+目标会话、结果或错误;仅有最近一次调度时间不构成运行历史。Gateway 关闭时已入队的 cron 投递在 IM
+连接关闭前完成收拢。
+
 #### Scenario: 未启用的 Agent 两套机制都不跑
 - **GIVEN** 某 Agent 的 heartbeat 与 cron 开关均关闭
-- **WHEN** 调度器周期 tick
-- **THEN** 不为该 Agent 创建任何 heartbeat / cron 运行
+- **WHEN** 调度器周期 tick 或工具运行发生
+- **THEN** 不为该 Agent 创建任何 heartbeat / cron 运行,cron 工具不获得可用手动运行能力
+
+#### Scenario: 手动运行已有 cron 任务立即入队
+- **GIVEN** 某 Agent 已启用 cron,且 workspace 中存在目标 job
+- **WHEN** Agent 的 cron 工具请求立即运行该 job
+- **THEN** Gateway 校验后接管请求,工具立即返回 accepted 与请求标识,不等待模型任务执行完成
+
+#### Scenario: 手动 cron 与定时 cron 使用同一执行语义
+- **WHEN** 手动入队的 cron job 执行完成
+- **THEN** 结果按该 job 原规则投递到目标会话、记录运行历史,并写入 canonical session awareness,
+  后续用户追问可引用该结果
+
+#### Scenario: 查询 cron 运行历史
+- **WHEN** Agent 查询某 job 的运行历史
+- **THEN** Gateway 返回手动和定时触发的最新结构化记录,包含触发来源、状态、时间、结果或错误,
+  不只返回 scheduler 的 `last_due_at`
+
+#### Scenario: 手动运行未知或不可运行任务
+- **WHEN** cron 工具请求不存在或未启用的 job
+- **THEN** Gateway 在创建 isolated session 前拒绝请求并返回明确错误,不执行其他任务
 
 #### Scenario: Heartbeat 有内容时带上下文主动冒泡
 - **GIVEN** 某 Agent 的 heartbeat 已启用,且当前 tick 有可冒泡内容

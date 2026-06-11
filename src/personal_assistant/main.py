@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from datetime import datetime, timezone
 import json
 import logging
 import os
@@ -78,6 +79,8 @@ from personal_assistant.scheduler.cron_scheduler import (
     CronSchedulerStateStore,
 )
 from personal_assistant.scheduler.cron_runner import CronRunner
+from personal_assistant.scheduler.cron_execution_service import CronExecutionService
+from personal_assistant.scheduler.gateway_cron_dispatcher import GatewayCronDispatcher
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import (
     AgentCreateHandler,
@@ -259,6 +262,11 @@ class GatewayRuntimeState:
 
 class _IMConfigSyncClient:
     """Fetch IM agent config snapshots and extend the live gateway agent registry."""
+
+    # bugfix-402-M6: optional callback invoked at the end of handle_agent_create
+    # so build_runtime can register a CronExecutionService for dynamically created
+    # agents without handle_agent_create needing to know about the cron subsystem.
+    on_agent_created: Callable[[str, Path], None] | None = None
 
     def __init__(
         self,
@@ -488,6 +496,18 @@ class _IMConfigSyncClient:
         self._persist_agent_config(agent_config)
         if self._reporter is not None:
             self._reporter.replace_agents(tuple(self._local_config.agents))
+        # bugfix-402-M6: notify build_runtime so it can register a
+        # CronExecutionService for this newly created agent.  The callback is
+        # wired after im_config_sync_client is constructed (see build_runtime).
+        if self.on_agent_created is not None:
+            try:
+                self.on_agent_created(agent_id, workspace_root)
+            except Exception:  # noqa: BLE001
+                _log.warning(
+                    "on_agent_created callback failed for agent=%s; "
+                    "cron execution service may not be registered",
+                    agent_id,
+                )
         return {
             "agent_id": agent_id,
             "display_name": title,
@@ -1431,6 +1451,8 @@ class GatewayRuntime:
         feedback_sink: FeedbackSink = _emit_gateway_feedback,
         internal_dispatch_handler: InternalDispatchHandler | None = None,
         gateway_internal_port: int = 8089,
+        kernel: object | None = None,
+        cron_dispatcher: GatewayCronDispatcher | None = None,
     ) -> None:
         self._config = config
         self._process_manager = process_manager
@@ -1443,6 +1465,13 @@ class GatewayRuntime:
         self._feedback_sink = feedback_sink
         self._internal_dispatch_handler = internal_dispatch_handler
         self._gateway_internal_port = gateway_internal_port
+        # bugfix-402-M3 R3: explicit kernel reference for ordered async shutdown
+        # (Decision 7). Kernel is closed via aclose() between producers and consumers,
+        # not via the untyped resource_closers list.
+        self._kernel = kernel
+        # bugfix-402-M4: inject gateway loop into cron services so enqueue() from
+        # worker threads (asyncio.to_thread) can schedule execute_fn correctly.
+        self._cron_dispatcher = cron_dispatcher
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
 
@@ -1471,6 +1500,11 @@ class GatewayRuntime:
         loop = asyncio.get_running_loop()
         if isinstance(self._on_inbound, _InboundDispatcher):
             self._on_inbound.bind_loop(loop)
+        # bugfix-402-M4: wire gateway loop into cron dispatcher so enqueue()
+        # called from asyncio.to_thread (tool.run) can schedule execute_fn on
+        # this loop rather than silently dropping (no-running-loop path).
+        if self._cron_dispatcher is not None:
+            self._cron_dispatcher.set_gateway_loop(loop)
 
         channels_started = False
         heartbeat_started = False
@@ -1538,6 +1572,23 @@ class GatewayRuntime:
                 await self._heartbeat_runner.close()
             if channels_started:
                 stop_channels(self._channel_registry)
+            # bugfix-402-M3 R3: drain in-flight runs before closing the IM transport
+            # (Decision 7). Producers are already stopped above; aclose() waits for
+            # the Registry to reach CLOSED before returning.
+            if self._kernel is not None and hasattr(self._kernel, "aclose"):
+                try:
+                    await self._kernel.aclose()
+                except Exception as exc:  # noqa: BLE001
+                    _log.warning("kernel.aclose() raised during shutdown: %s", exc)
+            # bugfix-402-M6 W-1: drain in-flight cron executions after kernel is
+            # closed (no new runs accepted) but before IM transport is torn down.
+            if self._cron_dispatcher is not None:
+                try:
+                    await self._cron_dispatcher.drain_all()
+                except Exception as exc:  # noqa: BLE001
+                    _log.warning(
+                        "cron dispatcher drain_all() raised during shutdown: %s", exc
+                    )
             if im_connected and self._im_connection_manager is not None:
                 await self._im_connection_manager.close()
                 if im_task is not None:
@@ -2040,9 +2091,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # before reaching ask via auto_mode_gate's unattended_fallback — they never park.
     llm_factory_config = _LLMFactoryConfig.from_env()
 
+    # bugfix-402-M4 R4: create a mutable GatewayCronDispatcher before build_kernel so the
+    # dispatcher reference can be injected into the kernel's base ToolContext immediately.
+    # Per-agent CronExecutionService instances are registered after kernel_shim is ready
+    # (execute_fn captures kernel_shim; services dict is mutable so register() works post-build).
+    _cron_dispatcher = GatewayCronDispatcher()
+
     kernel = build_kernel(
         product_profile=PERSONAL_ASSISTANT_PROFILE,
         llm_config=llm_factory_config,
+        host_capabilities=_cron_dispatcher,
         # can_use_tool=None: IM card flow; see submit_permission_decision.
     )
 
@@ -2151,6 +2209,22 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # callback handles all permission decisions in-process (design decision 3).
         _im_sync_client = ConfigSyncClient(fetcher=im_config_sync_client.sync_agent)
 
+        # bugfix-402-M6: wire cron service registration into the agent-create callback
+        # so dynamically created agents (via IM agent.create push) also get a
+        # CronExecutionService registered before their first cron tick fires.
+        #
+        # bugfix-402 round-2 code-review fix: capture the running loop at call site
+        # (inside the WS event loop) so the service gets a valid loop immediately
+        # instead of relying on get_running_loop() inside _register_cron_service.
+        def _on_agent_created(agent_id: str, workspace_root: Path) -> None:
+            try:
+                _loop = asyncio.get_running_loop()
+            except RuntimeError:
+                _loop = None
+            _register_cron_service(agent_id, workspace_root, gateway_loop=_loop)
+
+        im_config_sync_client.on_agent_created = _on_agent_created
+
         # feat-394-M12 决策 F: reconcile 回调——WS bind 完成后（含重连）拉全量 profile
         # 对账，消除漏推送导致的内存状态滞留。reconcile_all_agents 是同步 HTTP 调用，
         # 用 asyncio.to_thread 包装使其在 WS 事件循环中安全运行。
@@ -2228,30 +2302,63 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             session_store=pipeline._session_store,
         )
 
-    # feat-394-M3 CRITICAL-1 fix: wire cron tick into the unified polling runner.
-    # Build a cron_tick_fn closure that creates per-agent CronScheduler+CronRunner and
-    # calls CronScheduler.tick(). The fn reads the live pipeline._agents so it picks up
-    # dynamically-registered agents (via IM config sync) without restart.
-    async def _cron_tick_for_agent(agent_id: str) -> None:
-        """Evaluate cron jobs for one agent and submit due runs.
+    # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and
+    # register with dispatcher.  execute_fn is a closure that captures kernel_shim,
+    # kernel, heartbeat_runner, etc.  All captured references are set before the
+    # first cron tick fires.  _canonical_session_store and
+    # heartbeat_runner._kernel_event_observer use late binding: they may be None
+    # at construction time but are populated by the im_service block before any
+    # tick runs.
+    #
+    # bugfix-402 round-2: routing key changed from workspace_root to agent_id —
+    # workspace_root has two data sources (local YAML vs IM-synced value from
+    # reconcile_all_agents), causing lookup misses when the two differ.
+    def _register_cron_service(
+        agent_id: str,
+        ws_root: Path,
+        *,
+        gateway_loop: asyncio.AbstractEventLoop | None = None,
+    ) -> None:
+        """Create a CronExecutionService for agent and register it with the dispatcher.
 
-        feat-394-M7 R6 fix: after submitting each due job, seed run_context_store with
-        {to_user_id=owner, agent_id, kernel_session_id} then consume kernel.stream to
-        terminal state, driving kernel_event_observer so the result appears in the owner's
-        direct conversation. Mirrors _consume_heartbeat_run semantics (decision C-awareness).
+        bugfix-402-M6: extracted from the startup loop so handle_agent_create can
+        call the same path for dynamically created agents.
+        workspace_root must already be resolved (expanduser().resolve()).
+
+        bugfix-402 round-2 code-review fix: gateway_loop is explicitly passed in
+        rather than discovered via get_running_loop() at registration time.  When
+        called from on_agent_created (inside the WS event loop), pass
+        asyncio.get_running_loop() at the call site — not inside this function —
+        so the loop reference comes from the caller's known context rather than
+        an implicit environment that may not exist in all call paths.
+        When called during static startup (before _run_until_shutdown sets the
+        loop), pass None; set_gateway_loop() will inject the loop later.
         """
-        agent_cfg = pipeline._agents.get(agent_id)  # noqa: SLF001
-        if agent_cfg is None or not getattr(agent_cfg, "cron_enabled", False):
+        # Skip if already registered (idempotent — reconcile may call multiple times).
+        if _cron_dispatcher._resolve_service(agent_id) is not None:  # noqa: SLF001
             return
-        ws_root = agent_cfg.workspace_root
-        job_store = CronJobStore(workspace_root=ws_root)
-        # C1 fix: per-agent state path so job last_due timestamps are isolated per agent.
-        # Previously all agents shared runtime_dir/cron-state.json; with UUID job IDs
-        # collisions are rare but the design is inconsistent with CronJobStore's
-        # per-workspace isolation.  Match CronJobStore path convention.
-        state_store = CronSchedulerStateStore(
-            state_path=ws_root / _WCD / "cron" / "state.json"
+        execute_fn = _build_cron_execute_fn(agent_id=agent_id, ws_root=ws_root)
+        service = CronExecutionService(
+            agent_id=agent_id,
+            workspace_root=ws_root,
+            execute_fn=execute_fn,
+            gateway_loop=gateway_loop,
         )
+        _cron_dispatcher.register(agent_id, service)
+        # Converge stale accepted/running records from any previous crash so they
+        # are never permanently in-progress.
+        service.runs_store.converge_stale_on_restart()
+
+    def _build_cron_execute_fn(
+        agent_id: str,
+        ws_root: Path,
+    ):
+        """Return the execute_fn for a single agent's CronExecutionService.
+
+        bugfix-402-M4: both scheduled ticks and manual tool calls share this
+        execution chain.  CronRunner is instantiated once per agent (not per tick)
+        so session binding state is preserved across runs.
+        """
         _cron_runner = CronRunner(
             agent_id=agent_id,
             workspace_root=ws_root,
@@ -2259,39 +2366,78 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             session_binding_store=session_store,
         )
 
-        # Observer is set on heartbeat_runner after im_service block (line 2020).
-        # Accessing via heartbeat_runner ensures late binding (value available at call time).
-        _observer = heartbeat_runner._kernel_event_observer  # noqa: SLF001
+        async def _execute(
+            *, agent_id: str, job_id: str, request_id: str, trigger: str
+        ) -> None:
+            """Submit cron job then stream result to IM direct chat.
 
-        async def _submit_and_deliver_fn(*, agent_id: str, job: object) -> None:  # type: ignore[override]
-            """Submit cron job then consume stream so result reaches IM direct chat.
-
-            feat-394-M7 R6 fix: replaces fire-and-forget _submit_cron_job with full
-            delivery chain: submit → seed run_context_store → consume kernel.stream →
-            drive observer → node.streaming_delta → IM visible message.
-            Mirrors _consume_heartbeat_run semantics for the cron path.
+            bugfix-402-M4 Decision 2: replaces per-tick _submit_and_deliver_fn.
+            Both scheduled and manual triggers enter here via CronExecutionService.enqueue().
+            Writes accepted→running→(completed|failed) state transitions to runs.jsonl.
             """
-            # _submit_cron_job now returns (run_id, kernel_session_id) or None.
+            from personal_assistant.scheduler.cron_execution_service import (
+                CronRunsStore,
+            )  # noqa: PLC0415
+
+            _runs_store = CronRunsStore(workspace_root=ws_root)
+            _now = datetime.now(timezone.utc).isoformat()
+
+            job_store = CronJobStore(workspace_root=ws_root)
+            job = job_store.get(job_id)
+            if job is None:
+                _log.warning(
+                    "cron execute: job not found at execution time: agent=%s job=%s request=%s",
+                    agent_id,
+                    job_id,
+                    request_id,
+                )
+                _runs_store.update_status(
+                    request_id,
+                    "failed",
+                    finished_at=_now,
+                    error="job_not_found",
+                )
+                return
+
+            _runs_store.update_status(request_id, "running", started_at=_now)
+
+            # _submit_cron_job returns (run_id, kernel_session_id) or None.
             result = await _cron_runner._submit_cron_job(job=job)  # noqa: SLF001
             if result is None:
                 _log.warning(
-                    "cron: submit returned no result: agent=%s job=%s",
+                    "cron: submit returned no result: agent=%s job=%s request=%s",
                     agent_id,
-                    getattr(job, "id", "?"),
+                    job_id,
+                    request_id,
+                )
+                _runs_store.update_status(
+                    request_id,
+                    "failed",
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                    error="submit_failed",
                 )
                 return
             run_id, kernel_session_id = result
+            _runs_store.update_status(request_id, "running", kernel_run_id=run_id)
+
+            # Observer is set on heartbeat_runner after im_service block; read at call time.
+            _observer = heartbeat_runner._kernel_event_observer  # noqa: SLF001
 
             if not _owner_user_id or _observer is None:
-                # No IM delivery path (no owner or no observer): fire-and-forget is correct.
+                # No IM delivery path: fire-and-forget is correct.
                 _log.debug(
                     "cron: no delivery path configured (owner=%r), skipping stream",
                     _owner_user_id,
                 )
+                _runs_store.update_status(
+                    request_id,
+                    "completed",
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                    result_summary="no_delivery_path",
+                )
                 return
 
-            # Delegate streaming to shared helper (seeds run_context_store, drives observer,
-            # pops context on completion).  Captures last assistant_message for C-awareness.
+            # Deliver result to IM by consuming the kernel stream.
             final_result_text = ""
             try:
                 final_result_text, _ = await _stream_run_to_completion(
@@ -2308,23 +2454,30 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 _log.exception(
                     "cron: stream consume failed: agent=%s job=%s run=%s",
                     agent_id,
-                    getattr(job, "id", "?"),
+                    job_id,
                     run_id,
                 )
+                _runs_store.update_status(
+                    request_id,
+                    "failed",
+                    finished_at=datetime.now(timezone.utc).isoformat(),
+                    error="stream_failed",
+                )
                 return
+
+            _runs_store.update_status(
+                request_id,
+                "completed",
+                finished_at=datetime.now(timezone.utc).isoformat(),
+                result_summary=(final_result_text[:200] if final_result_text else ""),
+            )
 
             # Decision C-awareness: append result text as System(untrusted) to canonical
             # direct-chat JSONL so user can ask follow-up questions about cron output.
             if final_result_text:
-                # feat-394-M8 R6-2 fix: resolve canonical session via two sources in priority order.
-                # (1) _canonical_session_store[agent_id] — populated by HeartbeatScheduler.tick()
-                #     via session_store.find_direct_by_agent() on each heartbeat tick.  This is
-                #     the most reliable source: it is filled even when the user has never sent a
-                #     message (heartbeat creates the direct chat and heartbeat_runner fills the store).
-                # (2) _cron_runner._resolve_canonical_session_id() — queries SQLite session_bindings
-                #     which is only populated when the user sends a message (inbound_pipeline bind).
-                #     Falls back to this for cases where heartbeat has never run but user has chatted.
-                # When both return None, skip awareness (no canonical session established yet).
+                # feat-394-M8 R6-2 fix: two-source canonical session resolution (priority order).
+                # (1) _canonical_session_store — populated by HeartbeatScheduler.tick().
+                # (2) _cron_runner._resolve_canonical_session_id() — SQLite session_bindings.
                 _awareness_session_id = (
                     _canonical_session_store.get(agent_id)
                     or _cron_runner._resolve_canonical_session_id()  # noqa: SLF001
@@ -2340,7 +2493,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                         _log.warning(
                             "cron: awareness inject failed: agent=%s job=%s session=%s",
                             agent_id,
-                            getattr(job, "id", "?"),
+                            job_id,
                             _awareness_session_id,
                         )
                 else:
@@ -2349,11 +2502,66 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                         agent_id,
                     )
 
+        return _execute
+
+    # Create one CronExecutionService per configured agent and register with dispatcher.
+    # bugfix-402-M6: use _register_cron_service so dynamic (handle_agent_create) and
+    # static (startup) paths share the same key normalisation.
+    for _agent_cfg in config.agents:
+        _agent_ws_root = Path(_agent_cfg.workspace_root).expanduser().resolve()
+        _register_cron_service(_agent_cfg.agent_id, _agent_ws_root)
+
+    # feat-394-M3 CRITICAL-1 fix: wire cron tick into the unified polling runner.
+    # bugfix-402-M4 R4: _cron_tick_for_agent now uses CronExecutionService.enqueue()
+    # instead of building a submit_fn closure per tick.  Both scheduled and manual
+    # triggers share the same execute chain via the dispatcher.
+    async def _cron_tick_for_agent(agent_id: str) -> None:
+        """Evaluate cron jobs for one agent and enqueue due runs via CronExecutionService.
+
+        bugfix-402-M4 R4: replaces per-tick CronRunner+submit_fn with a call to the
+        shared CronExecutionService.enqueue(trigger="scheduled") for each due job.
+        CronScheduler still handles due-time computation and last_due_at persistence.
+        """
+        agent_cfg = pipeline._agents.get(agent_id)  # noqa: SLF001
+        if agent_cfg is None or not getattr(agent_cfg, "cron_enabled", False):
+            return
+        ws_root = Path(agent_cfg.workspace_root).expanduser().resolve()
+
+        # bugfix-402 round-2: route by agent_id, not workspace_root.
+        # workspace_root from pipeline may differ from the registered key when
+        # reconcile_all_agents() rewrites it from IM (IM stores the original main
+        # config path; the registered CronExecutionService may use a local/worktree
+        # path).  agent_id is stable and unambiguous across all data sources.
+        _service = _cron_dispatcher._resolve_service(agent_id)  # noqa: SLF001
+        if _service is None:
+            # Agent was dynamically registered after startup (IM config sync) without a
+            # corresponding CronExecutionService.  Warn and skip — the service will be
+            # created on the next Gateway restart when the agent appears in config.agents.
+            _log.warning(
+                "cron tick: no CronExecutionService for agent=%s; skipping",
+                agent_id,
+            )
+            return
+
+        job_store = CronJobStore(workspace_root=ws_root)
+        # Per-agent state path so job last_due timestamps are isolated per agent.
+        state_store = CronSchedulerStateStore(
+            state_path=ws_root / _WCD / "cron" / "state.json"
+        )
+
+        # Use CronScheduler only for due-time computation; submit via CronExecutionService.
+        async def _enqueue_via_service(*, agent_id: str, job: object) -> None:
+            """Bridge CronScheduler.tick() → CronExecutionService.enqueue()."""
+            job_id = getattr(job, "id", None)
+            if not job_id:
+                return
+            _service.enqueue(job_id=job_id, trigger="scheduled")
+
         scheduler = CronScheduler(
             agent_id=agent_id,
             job_store=job_store,
             state_store=state_store,
-            submit_fn=_submit_and_deliver_fn,
+            submit_fn=_enqueue_via_service,
         )
         await scheduler.tick()
 
@@ -2371,7 +2579,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     _heartbeat_scheduler._run_queue = pipeline._run_queue  # noqa: SLF001
 
     inbound_dispatcher = _InboundDispatcher(pipeline)
-    closers: list[Callable[[], None]] = [kernel.close]
+    # bugfix-402-M3 R3: kernel is closed explicitly via GatewayRuntime(kernel=) and
+    # its aclose() in the ordered shutdown phase (Decision 7). It must not be in
+    # resource_closers — that list only holds lightweight sync cleanup (HTTP clients).
+    closers: list[Callable[[], None]] = []
     if im_bootstrap_client is not None:
         closers.append(im_bootstrap_client.close)
     if im_config_sync_client is not None:
@@ -2394,6 +2605,8 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         post_im_connect=post_im_connect,
         resource_closers=tuple(closers),
         internal_dispatch_handler=internal_dispatch_handler,
+        kernel=kernel,
+        cron_dispatcher=_cron_dispatcher,
         gateway_internal_port=_gateway_internal_port,
     )
 

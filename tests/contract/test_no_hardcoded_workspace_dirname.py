@@ -37,7 +37,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
-        "src/agent/core/session/jsonl_store.py:75",
+        # bugfix-402-M1: prepare_transcript_for_run + append_tool_call_recovery added, line shifted to 81
+        "src/agent/core/session/jsonl_store.py:81",
         # tools/loader.py: .nano/tools platform dir
         # feat-388 ruff format: line shifted to 95
         "src/agent/platform/tools/loader.py:95",
@@ -58,8 +59,9 @@ _WHITELIST: frozenset[str] = frozenset(
         # coding_cli/commands.py: .nanocode global/workspace config — CLI UX, pre-existing
         # refactor-395-M1: logging import + _log added, lines shifted to 1162/1163
         # refactor-395 ruff fix: TERMINAL_RUN_STATUSES dead import removed, lines shifted to 1164/1165
-        "src/coding_cli/commands.py:1164",
-        "src/coding_cli/commands.py:1165",
+        # bugfix-402-M3 R2: finally block comment+await kernel.aclose() inserted in _async_main, lines shifted to 1166/1167
+        "src/coding_cli/commands.py:1166",
+        "src/coding_cli/commands.py:1167",
     }
 )
 

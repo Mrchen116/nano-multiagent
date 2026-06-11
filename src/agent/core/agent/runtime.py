@@ -287,6 +287,17 @@ class AgentRuntime:
                 workspace_root=workspace_root,
                 parent_session_id=parent_session_id,
             )
+            # Repair any orphaned tool_calls from a previous interrupted run before
+            # loading history into the in-process cache.  This ensures the LLM never
+            # sees a transcript with unclosed tool_calls (which most providers reject).
+            # Only necessary on the first load of this session in this process; on
+            # cache-hit the history is already known-good in memory.
+            self._session_manager.prepare_transcript_for_run(
+                session_id,
+                reason="orphaned",
+                workspace_root=workspace_root,
+                parent_session_id=parent_session_id,
+            )
             try:
                 result = self._session_manager.load(
                     session_id,
@@ -529,6 +540,52 @@ class AgentRuntime:
                 else:
                     self._session_manager.writer.enqueue(path, entry)
             await self._session_manager.writer.flush_async()
+            # bugfix-402: eager recovery for cancelled/aborted runs.
+            # When a run ends with an interrupt or cancel stop_reason we
+            # immediately write a tool_call_recovery entry for every tool_call
+            # that is still open (assistant requested it but no tool result
+            # arrived in this run).  This makes the cancellation terminal state
+            # visible to the UI right away; the next-startup prepare() call is
+            # only a hard-crash fallback, not the primary delivery path.
+            _run_stop_reason = next(
+                (
+                    m.metadata.get("stop_reason")
+                    for m in all_messages
+                    if m.role == "turn_meta"
+                ),
+                None,
+            )
+            if _run_stop_reason in ("aborted", "cancelled"):
+                _recover_reason = (
+                    "cancelled" if _run_stop_reason == "cancelled" else "interrupted"
+                )
+                _closed_calls: set[str] = {
+                    m.tool_call_id
+                    for m in all_messages
+                    if m.role == "tool" and m.tool_call_id
+                }
+                _needs_flush = False
+                for _msg in all_messages:
+                    if _msg.role != "assistant":
+                        continue
+                    for _tc in _msg.metadata.get("tool_calls") or ():
+                        _cid = _tc.get("call_id") or _tc.get("id")
+                        if _cid and _cid not in _closed_calls:
+                            self._session_manager.append_tool_call_recovery(
+                                session_id,
+                                tool_call_id=_cid,
+                                tool_name=_tc.get("name"),
+                                reason=_recover_reason,
+                                workspace_root=session_workspace_root,
+                                parent_session_id=parent_session_id,
+                            )
+                            _needs_flush = True
+                if _needs_flush:
+                    await self._session_manager.writer.flush_async()
+                    # The recovery event was appended outside ``history``. Drop
+                    # the cache so the next turn materializes the synthetic tool
+                    # result from JSONL instead of reusing the open tool call.
+                    self.invalidate_session_cache(session_id)
         except ModelError as exc:
             await self._session_manager.writer.flush_async()
             # Attempt overflow recovery: compact then retry once.

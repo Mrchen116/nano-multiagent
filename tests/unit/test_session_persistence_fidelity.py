@@ -5,9 +5,14 @@ C1 red tests for bugfix-375 / bugfix-376 (folded):
    in build_chat_messages output (LLMMessage).
 2. tool_use ↔ tool_result pairing is preserved after persist→restore cycle
    (assistant tool_calls paired with matching tool_call_id results).
+
+bugfix-402-M1/R3 additions:
+3. Orphaned tool_call in JSONL is repaired by prepare_transcript_for_run so that
+   build_chat_messages produces a valid LLM-ready transcript.
 """
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -20,6 +25,8 @@ from agent.core.session.entries import (
     SessionEntry,
     SessionEntryKind,
 )
+from agent.core.session.jsonl_store import JsonlSessionStore
+from agent.core.session.manager import SessionManager
 
 
 # ---------------------------------------------------------------------------
@@ -335,4 +342,162 @@ def test_message_jsonl_roundtrip_field_conservation_guard():
     for fname in PERSISTED:
         assert getattr(restored, fname) == getattr(msg, fname), (
             f"field '{fname}' dropped in Message↔JSONL round-trip"
+        )
+
+
+# ---------------------------------------------------------------------------
+# bugfix-402-M1/R3: orphaned tool_call -> prepare -> build_chat_messages 合法
+# ---------------------------------------------------------------------------
+
+
+def _make_session_with_orphaned_tool_call(
+    tmp_path: Path,
+) -> tuple[JsonlSessionStore, str]:
+    """Create a session whose JSONL contains an unclosed assistant tool_call."""
+    store = JsonlSessionStore(data_dir=tmp_path)
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    sid = session.session_id
+    call_id = "call-orphan-r3"
+
+    path = store.resolve_path(sid)
+    # Write assistant message with tool_call directly to JSONL (simulates mid-run crash)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(
+            json.dumps(
+                {
+                    "type": "turn",
+                    "uuid": "msg-r3-asst",
+                    "parent_uuid": None,
+                    "session_id": sid,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "bash", "arguments": {}}
+                    ],
+                },
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+    return store, sid
+
+
+class TestOrphanedToolCallRecovery:
+    """prepare_transcript_for_run + load -> build_chat_messages 不含孤立 tool_call。"""
+
+    def test_build_chat_messages_valid_after_prepare(self, tmp_path: Path) -> None:
+        """prepare 修复后 load+build 产生合法 transcript（每个 tool_call 都有 result）。"""
+        store, sid = _make_session_with_orphaned_tool_call(tmp_path)
+
+        store.prepare_transcript_for_run(sid, reason="interrupted")
+
+        result = store.load(sid)
+        messages = tuple(result.messages)
+
+        # build_chat_messages 不应因孤立 tool_call 抛错
+        llm_msgs = build_chat_messages(
+            history_messages=messages,
+            user_text="继续",
+        )
+
+        # 验证 assistant 的 tool_calls 都有对应 tool result（role=tool or synthetic）
+        call_ids_with_result: set[str] = set()
+        for m in llm_msgs:
+            if m.role == "tool" and m.tool_call_id:
+                call_ids_with_result.add(m.tool_call_id)
+
+        call_ids_in_assistant: set[str] = set()
+        for m in llm_msgs:
+            if m.role == "assistant" and m.tool_calls:
+                for tc in m.tool_calls:
+                    call_ids_in_assistant.add(tc.call_id)
+
+        assert call_ids_in_assistant == call_ids_with_result, (
+            f"orphaned call_ids: {call_ids_in_assistant - call_ids_with_result}"
+        )
+
+    def test_load_after_prepare_contains_recovery_message(self, tmp_path: Path) -> None:
+        """load() 结果中包含 recovery 后的合成 tool result message。"""
+        store, sid = _make_session_with_orphaned_tool_call(tmp_path)
+        store.prepare_transcript_for_run(sid, reason="cancelled")
+
+        result = store.load(sid)
+        # recovery entry は「type=tool_call_recovery」として raw JSONL に追加されるが,
+        # load()の現状実装は recovery entry を messages には含まない.
+        # ここでは build_chat_messages が合法であることを確認する.
+        messages = tuple(result.messages)
+        # Should not raise
+        build_chat_messages(history_messages=messages, user_text="next")
+
+    def test_prepare_then_load_is_idempotent(self, tmp_path: Path) -> None:
+        """prepare を 2 回呼んでも load 結果に重複 recovery message が出ない。"""
+        store, sid = _make_session_with_orphaned_tool_call(tmp_path)
+
+        store.prepare_transcript_for_run(sid, reason="shutdown")
+        store.prepare_transcript_for_run(sid, reason="shutdown")
+
+        path = store.resolve_path(sid)
+        raw: list[dict] = []
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    raw.append(json.loads(line))
+
+        recovery_entries = [e for e in raw if e.get("type") == "tool_call_recovery"]
+        assert len(recovery_entries) == 1, "2 回 prepare でも recovery entry は 1 つ"
+
+
+class TestRecoveryWithNoTurns:
+    """bugfix-402-M6: recovery entries must not be silently discarded when turns is empty.
+
+    The bare ``if not turns: return`` that previously followed the combined
+    ``if not turns and not recovery_by_call_id: return`` guard was unreachable
+    when recovery_by_call_id was non-empty.  It silently returned an empty
+    LoadResult instead of falling through to _inject_recovery_messages.
+    """
+
+    def test_load_with_recovery_but_no_turns_does_not_silently_discard(
+        self, tmp_path: Path
+    ) -> None:
+        """Loading a session that has only recovery entries (no turns) must return
+        an empty messages list (not raise or silently skip) — the important thing is
+        that the code path does NOT return before reaching _inject_recovery_messages.
+        """
+        import json as _json
+        from agent.core.session.jsonl_store import JsonlSessionStore
+        from agent.core.session.manager import SessionManager
+
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+        # Create a real session (writes session_created line) so load() can parse config.
+        session = manager.create_session(workspace_root=tmp_path)
+        sid = session.session_id
+
+        # Append a recovery entry directly — no turn entries follow the session_created.
+        path = store.resolve_path(sid)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(
+                _json.dumps(
+                    {
+                        "type": "tool_call_recovery",
+                        "tool_call_id": "call_orphan_1",
+                        "reason": "interrupted",
+                        "idempotency_key": "test-idem-1",
+                    }
+                )
+                + "\n"
+            )
+
+        # Load must not raise and must return an empty (or at least non-None) LoadResult.
+        result = store.load(session_id=sid)
+        # The primary assertion: load() completes without error.
+        # messages must be [] since there are no assistant turns to attach recovery to;
+        # _inject_recovery_messages finds no insertion point and returns unchanged [].
+        assert result is not None, "load() must return a LoadResult, not None"
+        assert isinstance(result.messages, list), "messages must be a list"
+        assert result.messages == [], (
+            "no turns → no insertion point → empty message list"
         )

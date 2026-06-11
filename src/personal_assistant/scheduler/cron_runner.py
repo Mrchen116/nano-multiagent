@@ -123,6 +123,7 @@ class CronRunner:
                 workspace_root=str(self._workspace_root),
                 product_id="personal_assistant",
                 title=f"cron:{job.id}",
+                metadata={"agent_id": self._agent_id},
             )
         except Exception:  # noqa: BLE001
             _logger.exception(
