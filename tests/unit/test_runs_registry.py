@@ -5,7 +5,7 @@ from agent.core.errors import ModelError
 from agent.core.types import Message, TokenUsage, TurnResult
 from agent.core.hooks.registry import HookRegistry
 from agent.core.hooks.runner import HookRunner
-from agent.core.runs.registry import RunStatus, RunsRegistry
+from agent.core.runs.registry import RunStatus, RunsRegistry, _RegistryState
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 
@@ -484,14 +484,25 @@ def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
 
     # Wait until _GatedRuntime.run() has been entered (run is RUNNING) before
     # triggering shutdown.  This is the deterministic synchronisation point that
-    # replaces the former time.sleep(0.05) inside the releaser thread.
+    # prevents the race where drain snapshots the run while it is still QUEUED.
     assert started.wait(timeout=5.0), "timed out waiting for run to enter RUNNING"
 
-    # Release the gate from a separate thread so shutdown() can proceed.
-    def _release_gate() -> None:
+    # Release the gate only after drain has begun, so the test definitely exercises
+    # the "drain blocks waiting for a RUNNING task" path rather than "task already
+    # completed before drain snapshot".  Polling registry._state is safe: the field
+    # transitions OPEN → DRAINING inside begin_shutdown() (under self._lock) before
+    # _drain_and_stop is scheduled on the loop, so DRAINING is visible from any
+    # thread the moment shutdown() passes begin_shutdown().  The short poll sleep is
+    # a condition-based wait, not a timing heuristic.
+    def _release_after_drain_starts() -> None:
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if registry._state is _RegistryState.DRAINING:  # noqa: SLF001
+                break
+            time.sleep(0.001)
         _asyncio.run_coroutine_threadsafe(_set_event(ev), loop)
 
-    releaser = threading.Thread(target=_release_gate, daemon=True)
+    releaser = threading.Thread(target=_release_after_drain_starts, daemon=True)
     releaser.start()
 
     registry.shutdown()  # must block until gated task completes
