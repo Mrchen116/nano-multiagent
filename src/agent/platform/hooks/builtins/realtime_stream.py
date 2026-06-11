@@ -19,6 +19,10 @@ def setup(hooks):  # noqa: ANN001, ANN201
         msg_role = event.get("role")
         if msg_role != "assistant":
             return
+        # Include run_origin as "origin" so downstream subscribers (e.g.
+        # BackgroundSessionEventSubscriber) can distinguish BACKGROUND_TASK
+        # assistant_message events from regular inbound-triggered run outputs.
+        run_origin = ctx.metadata.get("run_origin") if hasattr(ctx, "metadata") else None
         payload = {
             "event": "assistant_message",
             "run_id": run_id,
@@ -27,6 +31,8 @@ def setup(hooks):  # noqa: ANN001, ANN201
             "content": event.get("content") or "",
             "metadata": {},
         }
+        if run_origin is not None:
+            payload["origin"] = run_origin
         ctx.publish_session_event(event="assistant_message", data=payload)
 
     async def on_tool_call(event, ctx):  # noqa: ANN001
