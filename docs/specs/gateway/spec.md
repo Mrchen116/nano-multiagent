@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: bugfix-402
+> 对齐: bugfix-404-M3
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -358,3 +358,26 @@ Web IM 中继通道对收到的 relay 帧去重(SQLite 落盘,跨重启生效),�
 #### Scenario: 附件随入站消息透传
 - **WHEN** relay 帧携带图片附件
 - **THEN** 通道把附件 url(及可选 content_type)放入入站消息元数据,随消息提交给内核,通道层不做内容解析
+
+### Requirement: 后台任务完成后 Gateway 把 Agent 回复中继回原 IM 对话（bugfix-404-M3）
+
+内核完成后台任务通知（BACKGROUND_TASK origin run）并产出 assistant_message 事件后,Gateway 持久化
+background SSE 订阅器接收该事件,经出站路由把回复文本投递回触发该会话的原 IM 对话。用户在 IM 对话中
+看到第二条回复，内含后台任务的结果。
+
+背景：用户发消息让 Agent 后台执行一个长任务（`run_in_background`），Agent 立即回复「已启动」后主轮
+结束。任务完成后内核注入 task-notification 触发新 run（M1 修复）；此新 run 产出的 assistant_message
+属于 BACKGROUND_TASK origin，由 BackgroundSessionEventSubscriber 捕获并经 outbound_router
+中继到原 IM 对话（M3 修复）。
+
+#### Scenario: 后台任务完成后用户在 IM 对话收到包含结果的第二条回复
+- **GIVEN** 用户通过 IM 直聊让 Agent 后台执行一个命令（如 `run_in_background: sleep 30 && echo X`）
+- **WHEN** 主轮返回「已启动」,任务在后台完成,内核注入 task-notification 触发 BACKGROUND_TASK run
+- **THEN** Gateway 的 background SSE 订阅器收到该 run 产出的 `assistant_message`（origin=BACKGROUND_TASK），
+  通过 `bg_run_output_callback → outbound_router.send_text` 把回复文本发回原 IM 对话；
+  用户在 IM 看到第二条回复,内含后台任务输出（如「X」）
+
+#### Scenario: self_evolution_review 既有语义不受影响
+- **GIVEN** self_evolution_review 事件由内核后台钩子发出
+- **WHEN** BackgroundSessionEventSubscriber 收到 self_evolution_review 事件
+- **THEN** 事件经原有 on_event 回调路径（`node.system_message` IM 系统帧）处理,不受 M3 修改影响
