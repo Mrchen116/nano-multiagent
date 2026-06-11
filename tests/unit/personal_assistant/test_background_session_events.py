@@ -311,3 +311,197 @@ async def test_background_subscriber_forwards_workspace_root_to_stream_session()
         "BackgroundSessionEventSubscriber must forward workspace_root to stream_session "
         f"(Refs #64); got call kwargs: {stream_calls[0]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# bugfix-404-M3: BACKGROUND_TASK run output relay via bg_run_output_callback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_bg_subscriber_routes_background_task_assistant_message_to_callback() -> (
+    None
+):
+    """BACKGROUND_TASK origin assistant_message must be routed to bg_run_output_callback.
+
+    When a BACKGROUND_TASK-origin run finishes and produces an assistant_message event,
+    the subscriber must call bg_run_output_callback with the event — not the standard
+    on_event path (which is reserved for session-level events like self_evolution_review).
+    """
+    from personal_assistant.gateway.background_session_events import (
+        BackgroundSessionEventSubscriber,
+    )
+
+    routed: list[dict[str, Any]] = []
+    on_event_received: list[dict[str, Any]] = []
+
+    async def _bg_run_output_callback(event: Mapping[str, Any]) -> None:
+        routed.append(dict(event))
+
+    async def _on_event(event: Mapping[str, Any]) -> None:
+        on_event_received.append(dict(event))
+
+    kernel_client = MagicMock()
+    kernel_client.stream_session = MagicMock(
+        return_value=_finite_event_stream(
+            {
+                "event": "assistant_message",
+                "run_id": "bg-run-1",
+                "content": "BG404DONE output",
+                "origin": "BACKGROUND_TASK",
+            },
+            {
+                "event": "run_status",
+                "run_id": "bg-run-1",
+                "status": "completed",
+                "origin": "BACKGROUND_TASK",
+            },
+        )
+    )
+
+    subscriber = BackgroundSessionEventSubscriber(
+        kernel_client=kernel_client,
+        session_id="sess-bg",
+        on_event=_on_event,
+        after_sequence=0,
+        bg_run_output_callback=_bg_run_output_callback,
+    )
+    await subscriber.start()
+    await asyncio.sleep(0.05)
+    await subscriber.stop()
+
+    # bg_run_output_callback must receive the BACKGROUND_TASK assistant_message
+    assert len(routed) == 1, f"expected 1 routed event, got {routed}"
+    assert routed[0]["event"] == "assistant_message"
+    assert routed[0]["content"] == "BG404DONE output"
+    assert routed[0]["origin"] == "BACKGROUND_TASK"
+
+    # on_event must NOT be called for BACKGROUND_TASK assistant_message events
+    assert on_event_received == [], (
+        f"on_event should not be called for BACKGROUND_TASK assistant_message; got {on_event_received}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bg_subscriber_ignores_non_background_task_assistant_message() -> None:
+    """Non-BACKGROUND_TASK assistant_message events must NOT be routed to bg_run_output_callback.
+
+    The bg_run_output_callback is exclusively for BACKGROUND_TASK-origin run outputs.
+    Regular user-origin or missing-origin assistant_message events must not trigger it.
+    """
+    from personal_assistant.gateway.background_session_events import (
+        BackgroundSessionEventSubscriber,
+    )
+
+    routed: list[dict[str, Any]] = []
+
+    async def _bg_run_output_callback(event: Mapping[str, Any]) -> None:
+        routed.append(dict(event))
+
+    kernel_client = MagicMock()
+    kernel_client.stream_session = MagicMock(
+        return_value=_finite_event_stream(
+            # user-origin assistant_message (normal turn reply)
+            {
+                "event": "assistant_message",
+                "run_id": "user-run-1",
+                "content": "normal reply",
+                "origin": "user",
+            },
+            # missing origin assistant_message
+            {
+                "event": "assistant_message",
+                "run_id": "user-run-2",
+                "content": "another reply",
+            },
+        )
+    )
+
+    subscriber = BackgroundSessionEventSubscriber(
+        kernel_client=kernel_client,
+        session_id="sess-user",
+        on_event=AsyncMock(),
+        after_sequence=0,
+        bg_run_output_callback=_bg_run_output_callback,
+    )
+    await subscriber.start()
+    await asyncio.sleep(0.05)
+    await subscriber.stop()
+
+    # bg_run_output_callback must NOT be called for non-BACKGROUND_TASK events
+    assert routed == [], (
+        f"bg_run_output_callback should not be called for non-BACKGROUND_TASK events; got {routed}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_bg_subscriber_relay_reaches_outbound_channel() -> None:
+    """BACKGROUND_TASK assistant_message must reach IM channel via bg_run_output_callback.
+
+    End-to-end relay test at the subscriber level: subscriber receives a BACKGROUND_TASK
+    origin assistant_message, calls bg_run_output_callback, which calls outbound_router
+    → channel.sent. This validates the full relay path without InboundPipeline.
+
+    This is the bugfix-404-M3 core behavior test.
+    """
+    from personal_assistant.channels.base import InboundMessage, OutboundMessage, ReplyContext
+    from personal_assistant.gateway.background_session_events import (
+        BackgroundSessionEventSubscriber,
+    )
+    from personal_assistant.gateway.channel_registry import ChannelRegistry
+    from personal_assistant.gateway.outbound_router import OutboundRouter
+
+    # Simple fake channel to record sent messages
+    class _FakeChannel:
+        name = "web"
+        sent: list[OutboundMessage] = []
+
+        def start(self, _): pass
+        def send(self, msg): self.sent.append(msg)
+        def stop(self): pass
+
+    channel = _FakeChannel()
+    registry = ChannelRegistry((channel,))
+    router = OutboundRouter(registry)
+    reply_context = ReplyContext(channel_name="web", target_chat_id="conv-bg-test")
+
+    relayed: list[dict[str, Any]] = []
+
+    async def _bg_run_output_callback(event: Mapping[str, Any]) -> None:
+        # Mirror what InboundPipeline._ensure_background_subscriber._relay_bg_run_output does
+        content = event.get("content")
+        if isinstance(content, str) and content.strip():
+            router.send_text(text=content.strip(), reply_context=reply_context)
+        relayed.append(dict(event))
+
+    kernel_client = MagicMock()
+    kernel_client.stream_session = MagicMock(
+        return_value=_finite_event_stream(
+            {
+                "event": "assistant_message",
+                "run_id": "bg-run-relay",
+                "content": "BG404DONE",
+                "origin": "BACKGROUND_TASK",
+            },
+        )
+    )
+
+    subscriber = BackgroundSessionEventSubscriber(
+        kernel_client=kernel_client,
+        session_id="sess-relay",
+        on_event=AsyncMock(),
+        after_sequence=0,
+        bg_run_output_callback=_bg_run_output_callback,
+    )
+    await subscriber.start()
+    await asyncio.sleep(0.05)
+    await subscriber.stop()
+
+    # The callback must have been called with the BG event
+    assert len(relayed) == 1
+    assert relayed[0]["content"] == "BG404DONE"
+
+    # The text must have been relayed to the channel via outbound_router
+    assert len(channel.sent) == 1
+    assert channel.sent[0].text == "BG404DONE"
+    assert channel.sent[0].target_chat_id == "conv-bg-test"

@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from typing import Literal
 
-from personal_assistant.channels.base import InboundMessage, OutboundMessage
+from personal_assistant.channels.base import InboundMessage, OutboundMessage, ReplyContext
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.background_session_events import (
     BackgroundSessionEventSubscriber,
@@ -316,11 +316,14 @@ class InboundPipeline:
                     on_other=_on_other_event,
                 )
                 # Start a persistent background subscriber for this session so that
-                # self_evolution_review events published by background hooks (which run
-                # after the main turn's SSE loop terminates) still reach the PA gateway.
+                # self_evolution_review events and BACKGROUND_TASK run output published
+                # after the main turn's SSE loop terminates still reach the PA gateway.
+                # reply_context is passed so the subscriber can relay BACKGROUND_TASK
+                # assistant_message events back to the originating IM conversation (M3).
                 await self._ensure_background_subscriber(
                     kernel_session_id=binding.kernel_session_id,
                     last_sequence=anchor_sequence or 0,
+                    reply_context=binding.reply_context,
                 )
                 await self._emit_relay_lifecycle(
                     message,
@@ -705,12 +708,19 @@ class InboundPipeline:
         *,
         kernel_session_id: str,
         last_sequence: int,
+        reply_context: ReplyContext | None = None,
     ) -> None:
         """Ensure one persistent background event subscriber is active for the session.
 
         Called after each main turn completes so that session-level events (e.g.
         self_evolution_review) published by background hooks after the main event
         loop terminates are still received and forwarded to ``_session_event_callback``.
+
+        Also wires ``bg_run_output_callback`` so BACKGROUND_TASK-origin run output
+        (assistant_message events from notification-triggered runs) is relayed back to
+        the originating IM conversation via outbound_router. This closes the M3 gap:
+        M1 fixed the kernel to inject and re-run BACKGROUND_TASK notifications; M3 fixes
+        the gateway to relay the resulting assistant reply back to IM (bugfix-404-M3).
 
         If a subscriber is already active for this session (from a previous turn) it
         is left running — re-creation would lose events between turns.
@@ -720,16 +730,39 @@ class InboundPipeline:
             last_sequence: Last event sequence number seen by the main turn's loop,
                 used as ``after_sequence`` so the subscriber replays events missed
                 between turn termination and subscription start.
+            reply_context: Routing context for the originating IM conversation.
+                When provided, BACKGROUND_TASK run output is relayed via outbound_router.
         """
-        if self._session_event_callback is None:
+        # Require at least one of session_event_callback or reply_context to be set.
+        # Without both, there is nothing to do with received events.
+        if self._session_event_callback is None and reply_context is None:
             return
         if kernel_session_id in self._bg_subscribers:
             return
 
-        cb = self._session_event_callback
+        on_session_event_cb = self._session_event_callback
 
         async def _on_session_event(event: Mapping[str, Any]) -> None:
-            await cb(kernel_session_id, event)
+            if on_session_event_cb is not None:
+                await on_session_event_cb(kernel_session_id, event)
+
+        # bugfix-404-M3: when reply_context is available, wire a bg_run_output_callback
+        # so BACKGROUND_TASK-origin assistant_message events are relayed to the IM
+        # conversation that originally triggered this session.
+        bg_run_output_callback = None
+        if reply_context is not None:
+            captured_reply_context = reply_context
+            outbound_router = self._outbound_router
+
+            async def _relay_bg_run_output(event: Mapping[str, Any]) -> None:
+                content = event.get("content")
+                if isinstance(content, str) and content.strip():
+                    outbound_router.send_text(
+                        text=content.strip(),
+                        reply_context=captured_reply_context,
+                    )
+
+            bg_run_output_callback = _relay_bg_run_output
 
         # In-process mode: the subscriber uses the Kernel directly via its stream() method.
         # BackgroundSessionEventSubscriber accepts any object with stream_session(); we
@@ -739,6 +772,7 @@ class InboundPipeline:
             session_id=kernel_session_id,
             on_event=_on_session_event,
             after_sequence=last_sequence,
+            bg_run_output_callback=bg_run_output_callback,
         )
         self._bg_subscribers[kernel_session_id] = subscriber
         await subscriber.start()
