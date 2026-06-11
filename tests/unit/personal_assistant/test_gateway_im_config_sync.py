@@ -91,11 +91,17 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
     )
     pipeline = _Pipeline()
     config_path = tmp_path / "config.yaml"
+    # bugfix-404-M2: workspace_root comes from local config, not IM mirror.
+    # agent-live must be in local_config.agents with the expected workspace so
+    # sync_agent uses the local-config value instead of the factory default.
     local_config = LocalConfig(
         node=NodeConfig(node_id="node-1"),
         agents=(
             AgentWorkspaceConfig(
                 agent_id="seed-agent", workspace_root=(tmp_path / "seed-workspace")
+            ),
+            AgentWorkspaceConfig(
+                agent_id="agent-live", workspace_root=workspace_root
             ),
         ),
         channels=(),
@@ -373,7 +379,11 @@ def test_im_config_sync_client_persists_agent_config_to_source_path(
     assert len(persisted.agents) == 2
     agent = next(item for item in persisted.agents if item.agent_id == "agent-live")
     assert agent.title == "Agent Live"
-    assert agent.workspace_root == workspace_root.resolve()
+    # bugfix-404-M2: workspace_root comes from local config (factory default for new agents),
+    # not from IM mirror.  agent-live is not in local_config.agents, so factory is used.
+    assert agent.workspace_root == (
+        (Path("~/nano-assistant/workspace") / "agent-live").expanduser().resolve()
+    )
     assert agent.skills == ("skill-a", "skill-b")
     assert agent.tool_allowlist == ("Read", "Bash")
     assert agent.system_prompt == "You are synced."
