@@ -191,5 +191,11 @@ PASS (376) FAIL (0)
 5. `document.querySelector('.chat-node-chip--online') !== null` → `true`（浏览器 JS 断言）。
 6. Console 无新 JS 错误（WS 重连期间 warning 为预期行为，来自旧 token 连接关闭）。
 
-**截图**：Gateway 重连后 Chat 页截图显示 demo-node chip 绿色，侧栏 K总 头像绿色状态点，
-与修复前对比验证 fix.md 中描述的用户原始症状已消失，用户不需要刷新页面。
+**截图**：
+- 断线前（online）：`/tmp/bugfix-405-before-disconnect.png` — demo-node chip 绿色，侧栏 K总 状态点绿色
+- 断线后（offline）：`/tmp/bugfix-405-after-disconnect.png` — demo-node chip 灰色，侧栏 K总 状态点灰色；**用户未刷新页面**
+- 恢复后（online）：`/tmp/bugfix-405-after-online.png` — chip 再次变绿
+
+**两个方向均已在真实浏览器验证**：online→offline（Gateway 断线）和 offline→online（Gateway
+重连）均在 Chat 页保持打开、不刷新的条件下自动完成状态切换。fix.md 现象/复现段描述的原始
+用户症状已消失。
