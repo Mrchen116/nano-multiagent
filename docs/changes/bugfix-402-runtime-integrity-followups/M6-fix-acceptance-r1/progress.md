@@ -129,3 +129,68 @@ INFO node wt-unit-bugfix-402-7550 auto-bound to IM
   → NANO_MULTIAGENT_AUTO_BIND=1 confirmed bind for http://127.0.0.1:60622.
 ```
 `grep -c "no CronExecutionService" .gateway.log` → 0
+
+---
+
+## Round-2 Fix: Dispatcher 路由 key 双源路径不一致
+
+**Commit**: `15209b7e` `fix(bugfix-402/M6): route cron dispatcher by agent_id, fix drain_all parallelism and loop injection`
+
+**根因**：round-1 在 `_register_cron_service` 用 `workspace_root` 做 dispatcher 注册 key，但 `reconcile_all_agents()` 从 IM 回读 agent 配置后会用 IM 存储的 workspace_root（原始 main config 路径）覆盖 pipeline 内存里的值。`_cron_tick_for_agent` 和 cron tool 的 `HostCapabilityContext.workspace_root` 均来自 pipeline（IM 同步后的值），与注册时用的本地 YAML 路径不同——lookup 必然失败，返回 `cron_unavailable`。
+
+**修法（治本）**：
+1. `HostCapabilityContext` 增加 `agent_id: str = ""` 字段（`agent.core.tools.host_capability`）
+2. `cron.py` 从 `ctx.session_metadata["agent_id"]` 取值填入 `cap_ctx.agent_id`
+3. `GatewayCronDispatcher` 注册/解析 key 改为 `agent_id`（`register(agent_id, service)` / `_resolve_service(agent_id)`）
+4. `_cron_tick_for_agent` 改为 `_cron_dispatcher._resolve_service(agent_id)`
+5. `_register_cron_service` 幂等检查和注册均用 `agent_id` key
+6. **code-review 修 loop 注入**：`_register_cron_service` 接受显式 `gateway_loop` 参数，不在函数内调用 `get_running_loop()`；`_on_agent_created` 在 WS event loop 内捕获 loop 并显式传入
+7. **code-review 修 drain_all 串行**：改为 `asyncio.gather` 并行所有 service 的 `drain()`，共享同一 wall-clock timeout
+
+**Live e2e 验证（round-2，2026-06-11，全新 e2e 栈）**：
+
+e2e 栈：IM port=49639，GW pid=41995，NODE_ID=wt-unit-bugfix-402-41935
+
+先 PATCH default-agent features 开启 cron_scheduling：
+```
+PATCH /im/v1/agents/default-agent/config
+{"features": {"cron_scheduling": true}, "tool_allowlist": ["cron"]}
+→ profile_version=2, features: {"cron_scheduling": true}
+```
+
+用户发送消息到 conv `06452e3543204af2afb9c7425b641a98`：
+```
+[user]: Run cron job test-echo-job now
+[agent/default-agent]: The job `test-echo-job` has been triggered. The result will appear in this chat when it completes.
+```
+
+cron job 执行并投递结果到 direct chat conv `46e0280aaf204deda3d173b3108ba30b`：
+```
+[agent/default-agent]: CRON_RUN_OK - e2e validation complete.
+```
+
+runs.jsonl 历史（latest record）：
+```json
+{
+  "request_id": "0f2dc9cef7a544ebb99989b8f6a88106",
+  "job_id": "test-echo-job",
+  "trigger": "manual",
+  "status": "completed",
+  "accepted_at": "2026-06-11T01:26:41.374618+00:00",
+  "started_at": "2026-06-11T01:26:41.375421+00:00",
+  "finished_at": "2026-06-11T01:26:44.387294+00:00",
+  "kernel_run_id": "run_bc6216128385a3e1",
+  "result_summary": "CRON_RUN_OK - e2e validation complete."
+}
+```
+
+`.gateway.log`（完整）：
+```
+INFO node wt-unit-bugfix-402-41935 auto-bound to IM
+  → NANO_MULTIAGENT_AUTO_BIND=1 confirmed bind for http://127.0.0.1:49639.
+cron: awareness inject failed: agent=default-agent job=test-echo-job session=sess_516e3375ad53fb4a
+```
+
+`grep -c "no CronExecutionService" .gateway.log` → **0**
+
+注：`awareness inject failed` 是 session JSONL awareness 写入的非关键后处理警告（cron 结果已成功投递到 IM；awareness 仅为 follow-up 问答附加功能）。
