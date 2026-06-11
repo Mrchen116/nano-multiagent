@@ -76,3 +76,5 @@
 | `npm run build` 全绿 | 已满足 |
 | live 浏览器验证无 /im/v1/users 404 | 已满足（见上方截图+网络日志） |
 | agent:<id> 死代码回退已删除 | 已满足（filter + agentsByUserId only） |
+
+> Orchestrator note: 本节引用的 ACCEPTANCE/bugfix-402-M5/*.png 截图已按用户要求从仓库移除(ACCEPTANCE/ 为历史目录,不再新增),验收时点截图真实存在并经 reviewer 核验。
