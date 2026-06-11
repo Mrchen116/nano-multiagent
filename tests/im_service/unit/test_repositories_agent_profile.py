@@ -73,11 +73,12 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
         tool_allowlist=["read", "edit"],
         group_reply_policy="auto",
         default_model="claude-sonnet-4",
-        workspace_root="/srv/agents/alpha",
+        # bugfix-404-M2: workspace_root removed from update_profile — immutable after creation
     )
     assert updated.profile_version == 2
     assert updated.group_reply_policy == "auto"
-    assert updated.workspace_root == "/srv/agents/alpha"
+    # workspace_root is unchanged from upsert value (None in this test)
+    assert updated.workspace_root is None
 
     with pytest.raises(AgentProfileVersionConflictError):
         profiles.update_profile(
@@ -90,7 +91,6 @@ def test_agent_profile_roundtrip_and_optimistic_lock(tmp_path: Path) -> None:
             tool_allowlist=[],
             group_reply_policy="manual",
             default_model=None,
-            workspace_root=None,
         )
 
 
@@ -224,7 +224,7 @@ def test_update_profile_stores_features_and_custom_prompt(tmp_path: Path) -> Non
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
-        workspace_root=None,
+        # bugfix-404-M2: workspace_root removed from update_profile — immutable after creation
         features={"skill_creation": True},
         custom_prompt="You are a tutor.",
     )
@@ -331,6 +331,8 @@ def test_update_profile_preserves_non_default_workspace_root(tmp_path: Path) -> 
     # update 只改 system_prompt，不应触碰 workspace_root
     profile_before = repo.get_profile(agent_id="Arch")
     assert profile_before is not None
+    # bugfix-404-M2: workspace_root 参数已从 update_profile 移除
+    # 修前：传 None 会重置为 managed default；修后：列不写入，存量值保持
     repo.update_profile(
         agent_id="Arch",
         profile_version=profile_before.profile_version,
@@ -341,7 +343,6 @@ def test_update_profile_preserves_non_default_workspace_root(tmp_path: Path) -> 
         tool_allowlist=[],
         group_reply_policy="MENTION",
         default_model=None,
-        workspace_root=None,  # 传 None 时修前会重置为 managed default，修后应保持存量值
     )
 
     profile_after = repo.get_profile(agent_id="Arch")

@@ -1221,7 +1221,7 @@ def test_heartbeat_json_persisted_and_readable(tmp_path) -> None:
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
-        workspace_root=str(tmp_path / "ws-hb"),
+        # bugfix-404-M2: workspace_root removed from update_profile — immutable after creation
         heartbeat_json=hb_json_str,
     )
     assert updated.heartbeat_json == hb_json_str
