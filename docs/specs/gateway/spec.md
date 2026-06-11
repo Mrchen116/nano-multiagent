@@ -141,8 +141,16 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 #### Scenario: 连接后注册节点并周期心跳
 - **GIVEN** 配置了 IM 服务地址
 - **WHEN** Gateway 启动并连上 IM 服务 WebSocket
-- **THEN** 首帧发 `node.register`(携带 node_id 与 agent 列表),随后在线期间周期发 `node.heartbeat`
-  (含 `node_id` / `status=online` / `agent_count`),IM 服务据此刷新节点状态
+- **THEN** 首帧发 `node.register`(携带 node_id、agent 列表与 `agent_workspaces`——agent_id →
+  本地 config 解析出的绝对 workspace_root 映射,供 IM 首次落库种子使用;重连重发同帧内容一致),
+  随后在线期间周期发 `node.heartbeat`(含 `node_id` / `status=online` / `agent_count`),
+  IM 服务据此刷新节点状态
+
+#### Scenario: runtime workspace_root 以本地 config 为准,IM 镜像值不进入 runtime
+- **GIVEN** IM 中某 agent profile 的 workspace_root 为路径 A,Gateway 本地 config 为路径 B
+- **WHEN** Gateway 同步 agent 配置并处理该 agent 的会话(含 heartbeat)
+- **THEN** session / heartbeat 实际读写路径 B,路径 A 不被读写;其余配置字段(system_prompt /
+  skills / tool_allowlist / features / custom_prompt 等)仍以 IM 镜像为准同步
 
 #### Scenario: IM 推送 agent.create 时在节点落地工作区并回非空 workspace_root
 - **WHEN** IM 服务经下行请求在本节点创建一个 Agent
@@ -361,23 +369,22 @@ Web IM 中继通道对收到的 relay 帧去重(SQLite 落盘,跨重启生效),�
 
 ### Requirement: 后台任务完成后 Gateway 把 Agent 回复中继回原 IM 对话（bugfix-404-M3）
 
-内核完成后台任务通知（BACKGROUND_TASK origin run）并产出 assistant_message 事件后,Gateway 持久化
-background SSE 订阅器接收该事件,经出站路由把回复文本投递回触发该会话的原 IM 对话。用户在 IM 对话中
-看到第二条回复，内含后台任务的结果。
-
-背景：用户发消息让 Agent 后台执行一个长任务（`run_in_background`），Agent 立即回复「已启动」后主轮
-结束。任务完成后内核注入 task-notification 触发新 run（M1 修复）；此新 run 产出的 assistant_message
-属于 BACKGROUND_TASK origin，由 BackgroundSessionEventSubscriber 捕获并经 outbound_router
-中继到原 IM 对话（M3 修复）。
+用户发消息让 Agent 后台执行长任务（`run_in_background`），Agent 立即回复「已启动」后主轮结束。
+任务完成后内核以 BACKGROUND_TASK origin 起新 run（见内核契约「后台任务完成通知送达父 session」），
+Gateway 捕获该 run 产出的回复文本并投递回触发会话的原 IM 对话——用户在 IM 看到内含任务结果的
+第二条回复。投递携带按事件派生的稳定幂等键，IM 端对重放（如 Gateway 重启后事件流重放）去重。
 
 #### Scenario: 后台任务完成后用户在 IM 对话收到包含结果的第二条回复
 - **GIVEN** 用户通过 IM 直聊让 Agent 后台执行一个命令（如 `run_in_background: sleep 30 && echo X`）
-- **WHEN** 主轮返回「已启动」,任务在后台完成,内核注入 task-notification 触发 BACKGROUND_TASK run
-- **THEN** Gateway 的 background SSE 订阅器收到该 run 产出的 `assistant_message`（origin=BACKGROUND_TASK），
-  通过 `bg_run_output_callback → outbound_router.send_text` 把回复文本发回原 IM 对话；
-  用户在 IM 看到第二条回复,内含后台任务输出（如「X」）
+- **WHEN** 主轮返回「已启动」,任务在后台完成
+- **THEN** 用户在同一 IM 对话收到第二条 Agent 回复,内含后台任务输出（如「X」）
+
+#### Scenario: Gateway 重启后重放的后台回复不产生重复消息
+- **GIVEN** 某后台任务回复已投递到 IM 对话
+- **WHEN** Gateway 重启后内核事件流重放覆盖该事件
+- **THEN** IM 端按幂等键去重,对话中不出现重复的第二条回复
 
 #### Scenario: self_evolution_review 既有语义不受影响
 - **GIVEN** self_evolution_review 事件由内核后台钩子发出
-- **WHEN** BackgroundSessionEventSubscriber 收到 self_evolution_review 事件
-- **THEN** 事件经原有 on_event 回调路径（`node.system_message` IM 系统帧）处理,不受 M3 修改影响
+- **WHEN** Gateway 的后台事件订阅收到 self_evolution_review 事件
+- **THEN** 事件仍走既有系统消息路径（`node.system_message` IM 系统帧）,不受后台回复中继影响
