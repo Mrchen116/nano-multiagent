@@ -21,6 +21,8 @@ import {
   type ConversationState
 } from "./chat-stream-reducer";
 import { authFetch } from "../../auth/auth-fetch";
+import { attachUserConversationStream } from "../../chat/im-chat-api";
+import { useAuthStore } from "../../auth/auth-store";
 import type { Attachment, Conversation, Message, PermissionRequest, WsEvent } from "./chat-types";
 import { ConversationSidebar } from "./components/conversation-sidebar";
 import { MessagePane } from "./components/message-pane";
@@ -159,6 +161,8 @@ export function ChatWorkspacePageV2() {
   const { t } = useTranslation();
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const selfUserId = useAuthStore((s) => s.user?.id ?? null);
+  const accessToken = useAuthStore((s) => s.accessToken ?? "");
 
   const conversationsQuery = useQuery({
     queryKey: ["chat-v2", "conversations"],
@@ -301,6 +305,62 @@ export function ChatWorkspacePageV2() {
     });
     return () => handle.close();
   }, []);
+
+  // Subscribe to owner-scoped status events so all node/agent status indicators
+  // in the Chat workspace (Node chip, sidebar status dot, mention candidate
+  // status) update in real time when a Gateway connects or disconnects.
+  // Mirrors the pattern used by nodes-page.tsx and agent-status-ws-consumer.ts.
+  useEffect(() => {
+    if (!selfUserId || !accessToken) return;
+    const dispose = attachUserConversationStream({
+      selfUserId,
+      token: accessToken,
+      onEvent: (event) => {
+        if (event.eventType === "node.status_changed") {
+          const payload = event.payload as { node_id?: unknown; status?: unknown };
+          const nodeId = typeof payload.node_id === "string" ? payload.node_id : null;
+          const status = typeof payload.status === "string" ? payload.status : null;
+          if (!nodeId || !status) return;
+          queryClient.setQueryData<NodeRow[] | undefined>(["chat-v2", "nodes"], (prev) => {
+            if (!prev) return prev;
+            let changed = false;
+            const next = prev.map((n) => {
+              if (n.node_id !== nodeId) return n;
+              if (n.status === status) return n;
+              changed = true;
+              return { ...n, status };
+            });
+            return changed ? next : prev;
+          });
+        } else if (event.eventType === "agent.status_changed") {
+          const payload = event.payload as { agent_id?: unknown; status?: unknown };
+          const agentId = typeof payload.agent_id === "string" ? payload.agent_id : null;
+          const status = typeof payload.status === "string" ? payload.status : null;
+          if (!agentId || (status !== "online" && status !== "offline")) return;
+          // AgentRow carries node_id but not status directly — all status indicators
+          // in Chat are derived from the nodes cache. Find the agent's owning node
+          // and patch the nodes cache so sidebar dot, Node chip, and mention
+          // candidate status all flip without a network round-trip.
+          const agents = queryClient.getQueryData<AgentRow[]>(["chat-v2", "agents"]);
+          const agentRow = agents?.find((a) => a.agent_id === agentId);
+          const nodeId = agentRow?.node_id;
+          if (!nodeId) return;
+          queryClient.setQueryData<NodeRow[] | undefined>(["chat-v2", "nodes"], (prev) => {
+            if (!prev) return prev;
+            let changed = false;
+            const next = prev.map((n) => {
+              if (n.node_id !== nodeId) return n;
+              if (n.status === status) return n;
+              changed = true;
+              return { ...n, status };
+            });
+            return changed ? next : prev;
+          });
+        }
+      }
+    });
+    return dispose;
+  }, [selfUserId, accessToken, queryClient]);
 
   const sendMutation = useMutation({
     mutationFn: (payload: { text: string; attachments: Attachment[] }) =>
