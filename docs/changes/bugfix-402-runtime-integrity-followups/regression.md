@@ -192,3 +192,43 @@
 **复现**：启动 e2e 栈 → 向 default-agent 发 cron run 请求 → 收到 cron_unavailable 回复；`.gateway.log` 有 no-CronExecutionService 警告。
 
 **定位方向（供 fix worker 参考）**：M6 Fix 1 增加了 `on_agent_created` callback 路径，解决了动态注册的 agent；但静态注册路径（`build_runtime()` 启动循环遍历 `config.agents`）仍可能存在路径不匹配。e2e config 中 default-agent 的 `workspace_root` = `/Users/czj/nano-assistant/workspace/default-agent`；注册调用 `Path(ws).expanduser().resolve()` 后得到的 key 应与 dispatcher 调用时 `context.workspace_root` 的值一致——需要确认 `HostCapabilityContext.workspace_root` 在 cron tool 调用时传入的是什么路径，与注册时用的 key 是否完全相同。
+
+---
+
+# Round 3 — 2026-06-11
+
+## Verdict
+
+**pass**
+
+**Highest Required Action**: pass
+
+**Issues**: blocking: 0, major: 0, minor: 0
+
+## Fast-lane 说明
+
+复用上轮上下文做轻量复验。重点验证 Round 1/2 blocking Issue 1（M4 手动 cron）全部三个 Scenario；其余 Requirement 轻量抽验。HEAD=fd8836d7，根因修复：改用 `agent_id` 作为 `GatewayCronDispatcher` 路由 key，消除 `workspace_root` 两数据源不一致问题。
+
+## 验收标准覆盖（Round 3 更新）
+
+### Requirement: 手动运行复用 cron 原有任务语义
+
+| Scenario | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|
+| 立即运行已有任务 | 重启 e2e 栈（HEAD=fd8836d7），向 default-agent 发 "Run cron job test-echo-job now"；观察 agent 回复 | Agent 立即回复 "The cron job `test-echo-job` has been triggered and is running now."；`.gateway.log` 无 "no CronExecutionService" 警告 | **pass** | |
+| 手动任务完成 | 等待 agent 发出 cron 执行结果；检查 runs.jsonl 历史和目标会话消息 | 对话中出现 `[agent]: CRON_RUN_OK - e2e validation complete.`；runs.jsonl 记录 `trigger=manual status=completed result_summary=CRON_RUN_OK - e2e validation complete.` | **pass** | 三阶段历史 accepted→running→completed 完整；结果出现在触发用的同一对话 |
+| 手动运行未知任务 | 向同一对话发 "Run cron job nonexistent-job now"；观察 agent 回复 | Agent 回复 "That cron job doesn't exist. There's no job named `nonexistent-job` on the system."；无任务被创建或执行 | **pass** | 明确反馈任务不存在，不执行其他任务 |
+
+**Requirement 结论**: pass（三个 Scenario 全部通过）
+
+### 其余 Requirement（轻量抽验）
+
+- **异常终结不会永久损坏会话（M1）**：全树测试在 M6 已达 2667 passed；Round 3 无新修改，**维持 pass**。
+- **模型错误按可恢复语义重试（M2）**：Round 3 无新修改，**维持 pass**。
+- **Gateway 有序关闭（M3）**：`e2e-down.sh` 验证关闭无 "different Context\|Task was destroyed" 输出，**维持 pass**。
+- **Web IM 不再依赖全局用户目录（M5）**：无相关修改，**维持 pass**。
+
+## Side Findings
+
+- Gateway 日志中有 `cron: awareness inject failed: agent=default-agent job=test-echo-job session=sess_4fd0d3a302ca37ad`。这是 cron 执行完成后向 canonical session 写回 awareness 记录时失败，但用户在对话中已收到结果（CRON_RUN_OK），runs.jsonl 历史完整。awareness inject 属于辅助行为，不是 incident.md Scenario 2 THEN 的直接用户可观察项（"结果出现在目标会话和运行历史中"已满足）。minor，不立 issue，记录供后续关注。
+
