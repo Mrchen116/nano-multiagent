@@ -10,6 +10,8 @@
 
 > $change-spec-author 帮我做这个重构，让架构真正合理，后续可以长久演进
 
+> 对，这个sdk后续任何产品都能用简单的代码就能配套上自己的工具等等，变成一个新的agent产品。
+
 关联上下文：
 
 > 确实架构不妥对吧
@@ -37,6 +39,12 @@
 - Q6: 全面审计发现其他内核分层问题时，本 unit 是否只处理 SDK 公共边界及其直接调用方，不顺带重构无关的 core/platform 内部结构？
   A(原话): ok
   Agent 解读: 本 unit 聚焦 `agent.sdk` 公共边界及其直接消费方；审计发现但不属于该边界的其他问题单独记录，不扩大成本次内核重构。
+- Q7: 新 Agent 产品是否应当无需修改 `agent` 包内部代码，仅通过 SDK 提交自己的产品定义和 tools/hooks/skills/prompt 配置即可装配？
+  A(原话): 对
+  Agent 解读: SDK 必须是开放的产品装配契约，而不是只认识 Coding CLI 与个人助手的封闭双产品工厂。新增产品可以在自身代码中声明产品能力并装配 Kernel，不需要向 `agent.products` 或 SDK 内部增加产品分支。
+- Q8: 新产品扩展是否只需要支持自定义工具，还是覆盖完整产品定义？
+  A(原话): 现在就是这样设计的了吧，本来就是不单单是自定义工具
+  Agent 解读: 当前 `ProductProfile` / bootstrap 已经覆盖 tools、hooks、skills、prompt、配置目录和默认策略等完整产品定义。本 unit 应保留并公开化这条完整扩展能力，而不是把目标降级成新增一个仅支持工具的插件机制。
 
 ## 现状痛点
 
@@ -63,6 +71,9 @@
   可变内部数据结构。
 - Gateway 自己负责把内核能力组合成 IM 使用的 models / skills / tools / features 等产品语义；
   内核 SDK 不认识 IM 展示与 Gateway 协议。
+- 新产品可以只依赖 SDK，在自己的包内用少量产品定义代码接入自有 tools、hooks、skills、prompt
+  等完整产品定义并装配可运行 Kernel；这是对现有多产品设计能力的稳定公共化，不是另造仅支持
+  自定义工具的插件机制。接入新产品不要求修改 `agent` 包内部源码。
 - 建立自动化公共表面约束，使新增导出必须被明确纳入稳定契约并有相应契约测试，不能再次靠任意
   re-export 满足产品依赖。
 - Coding CLI、Gateway 与 IM 的现有用户和运维行为保持不变。
@@ -124,10 +135,23 @@
 - **WHEN** 运维者执行现有 stop 或 restart 命令
 - **THEN** Gateway 仍能收拢活动任务并正常退出或重启，行为与重构前一致
 
+### Requirement: 新产品可通过 SDK 独立装配 Agent
+
+#### Scenario: 产品开发者接入新的 Agent 产品
+- **GIVEN** 产品开发者已有自己的产品包和需要接入的工具等能力
+- **WHEN** 开发者仅使用 `agent.sdk` 提供的公共契约声明产品能力并创建 Kernel
+- **THEN** 新产品能够运行自己的 Agent 工作流，且不需要修改 `agent` 包内部源码或依赖其内部模块
+
+#### Scenario: 新产品逐步增加自身能力
+- **GIVEN** 一个已经通过 SDK 装配并运行的 Agent 产品
+- **WHEN** 产品开发者增加或调整该产品自己的 tools、hooks、skills 或 prompt
+- **THEN** 产品可以在自身代码范围内完成演进，不要求把产品专属实现加入 SDK 公共表面
+
 ## 影响范围
 
 - `agent.sdk` 的公共契约定义、文档与架构守卫。
 - Coding CLI 与 Gateway 对 SDK 公共能力的直接使用。
+- 新 Agent 产品通过 SDK 接入产品自有 tools、hooks、skills、prompt 等能力的开发者体验。
 - Gateway 向 IM 提供 node / agent capability 信息的既有行为。
 - 与公共表面和上述产品行为相关的契约测试、单元测试及长青规格。
 
@@ -135,6 +159,8 @@
 
 - 不改变 models / skills / tools / features capability payload 的字段、默认值、可用性判断或展示语义。
 - 不新增、删除或调整 Coding CLI、Gateway、IM 的用户功能。
+- 不在本 unit 交付第三个具体 Agent 产品；只交付足以装配新产品的稳定 SDK 契约，并用现有产品和
+  最小示例/契约测试证明该扩展路径可用。
 - 不为错误暴露的内部实现级符号提供仓库外兼容层或弃用周期。
 - 不顺带重构与 SDK 公共边界无直接关系的 core/platform 内部结构。
 - 不借本 unit 修复审计过程中发现的其他产品问题；此类问题另立 issue 或 change unit。
