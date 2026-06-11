@@ -40,11 +40,11 @@
   4. 原 `except ValueError: pass` 改为 `except Exception as exc: log_error(...)`，保留可观察性
 - Rationale: 信息流闭合：注册捕获 → 投递透传；异常可见性：静默吞包比日志差；子 session 判断从隐式（靠 raise）改为显式（读 metadata），行为意图明确
 - Evidence:
-  - Tests: `pytest tests/ -m "not e2e"` — 2686 passed, 0 failed
+  - Tests: `pytest tests/ -m "not e2e"` on `unit/bugfix-404` — 2692 passed, 0 failed
   - Entry: N/A（内核内部投递路径，无独立入口）
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: 2686 passed（含 unit + integration + contract）
+  - E2E/Regression: e2e 端到端验证 — `e2e-up.sh` 起栈（worktree 内 ephemeral 端口，agent workspace_root 指向 `.gateway-workspace/default-agent`，`workspace_is_default=false`）；发消息让 default-agent 后台跑 `sleep 5 && echo BG404DONE`；session JSONL(`sess_43aebc488044f77c`) 证明：① bash tool 以 `run_in_background=true` 注册任务 `b99031c268e0dae7d`；② 任务完成后 `<task-notification>` 以 `role=user` 注入父 session（修前路径在非默认 workspace 下会 ValueError 静默失败，修后成功）；③ agent 读到输出文件内容 `BG404DONE` 并正常回复；修复路径全通。
   - Visual/Interaction: N/A
 - Rollback: 回退到 4c34a85（R2 C2）
-- Commits: C1=87fb7b4, C2=2f81f0a, C3=（本次）
+- Commits: C1=87fb7b4, C2=2f81f0a, C3=3c085d10
