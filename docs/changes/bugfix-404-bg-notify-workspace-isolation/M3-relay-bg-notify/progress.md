@@ -75,3 +75,37 @@ POST /im/v1/conversations/b44247f610a54a8686eb689ad0095562/messages HTTP/1.1  20
 - Rollback: 550bfa25（修复前状态）
 - Commits: cbb3559b（本次 R4 fix）
 - Status: DONE
+
+## R5 — 三层根因修复完成：outbound_router 是测试 sink + live BG404M3DONE 验证
+
+- Context: R4 修复了 _BACKGROUND_TASK_ORIGIN 大小写不匹配，bg_run_output_callback 可以被触发，但 live e2e 中第二条 agent 消息依然没有出现在 IM 对话里（含目标字符串 BG404M3DONE）。排查发现第三层根因。
+- Investigation:
+  - `outbound_router.send_text()` → `WebRelayAdapter.send(outbound)` → `self.sent.append(outbound)`
+  - `WebRelayAdapter.sent` 是一个纯进程内列表，仅用于测试断言，**从未发送任何 WebSocket 帧到 IM**
+  - 正常 run 的回复通过另一条路径传送：`_build_kernel_event_observer` 监听 kernel SSE 事件，经 `im_connection_manager.send_json("node.streaming_delta", ...)` 发送。但这条路径要求 run_id 在 `run_context_store` 中注册（`relay_lifecycle_callback` 在 accepted 阶段写入），BACKGROUND_TASK run 没有经过 relay 入口，因此 run_id 从未注册，kernel_event_observer 也忽略该 run 的所有事件。
+  - 唯一能在不依赖 run_context_store 的情况下直接发 agent 消息到 IM 对话的 WebSocket 帧是 `agent.message`，由 `im_connection_manager.send_agent_message()` 发送。IM 的 `_handle_agent_message` 收到后直接在对话里创建一条 agent 消息。
+- Decision:
+  - `InboundPipeline` 新增 `_bg_reply_sender: async (text, reply_context, agent_id) → None` attribute，默认 None
+  - `_ensure_background_subscriber` 接受新 `session_key` 参数，仅当 `_bg_reply_sender` 非 None 时才组装 `bg_run_output_callback` 闭包，闭包调用 `_bg_reply_sender(content, reply_context, agent_id)`（agent_id 从 `session_key.rsplit(":", 1)[-1]` 提取）
+  - `main.py` 新增 `_build_bg_reply_sender(im_connection_manager_factory)` 函数，内部调用 `manager.send_agent_message({text, to=conversation_id, from_session_id=agent_id})`；在 im_service bootstrap 块中将其赋给 `pipeline._bg_reply_sender`，与 `_session_event_callback` / `_kernel_event_observer` 的 wiring 模式一致
+  - 测试 `test_ensure_background_subscriber_wires_bg_run_output_callback` 更新为两个 case：`_bg_reply_sender` 缺失时 callback 为 None（no-op 路径已无效，不应假装有效）；`_bg_reply_sender` 注入时 callback 非 None（真实发送路径启用）
+- Evidence:
+  - Tests: `pytest tests/ -m "not e2e"` → **2695 passed, 0 failed, 2 skipped**
+  - Live e2e（2026-06-11 21:52 CST，worktree=unit-bugfix-404，IM=http://127.0.0.1:63955）:
+    - 对话 id: `78013e0681a64beda9bf1927fb6c6941`（session: `sess_c38494f4dbf16290`，agent: `default-agent`）
+    - 发送：`"BG404M3ROUND5: Use run_in_background tool to run: sleep 5 && echo BG404M3DONE"`
+    - 主轮回复（第 5 条）：`"Confirmed: background task 'BG404M3ROUND5 background task' is running (task ID bd08d36cbdb1e2b73)."`
+    - BACKGROUND_TASK run 完成后（约 5s）第 6 条消息到达：`"Task completed. Output relayed: **BG404M3DONE**"`
+    - GET /im/v1/conversations/78013e.../messages 输出（完整）：
+      ```
+      user    'BG404_FINAL: Use bash run_in_background=true to run: sleep 10 && echo BG404M3DONE...'
+      agent   'Starting the background task now.'
+      agent   'Confirmed: background task `BG404 background sleep task` is running (task ID `b83...`).'
+      user    'BG404M3ROUND5: Use run_in_background tool to run: sleep 5 && echo BG404M3DONE'
+      agent   'Confirmed: background task `BG404M3ROUND5 background task` is running (task ID `bd0...`).'
+      agent   'Task completed. Output relayed: **BG404M3DONE**'   ← 第 6 条，M3 exit criteria 达成
+      ```
+  - 回归：`self_evolution_review` 语义不变（`_SESSION_EVENT_NAMES` 未改动，11 个 subscriber 单元测试全绿）
+- Rollback: cbb3559b（R4 完成态，无 _bg_reply_sender）
+- Commits: 6bcac394（fix: relay BACKGROUND_TASK run output to IM via send_agent_message）
+- Status: DONE — M3 全部 exit criteria 达成，unit/bugfix-404 已 push 至 origin
