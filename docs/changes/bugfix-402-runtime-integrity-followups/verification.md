@@ -257,3 +257,89 @@ M6 后状态：**未改变**，冷却逻辑仍存在（`retry.py:10-15`）。
 ---
 
 All checks passed. Ready for PR.
+
+---
+
+# Round 3
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Architecture | `HostCapabilityContext.agent_id` 新增字段架构合规；字段语义通用（agent 身份），非 cron 专用 |
+| Fill paths | Gateway 在所有 submit 路径均注入 `agent_id` 到 session_metadata；空串行为可接受 |
+| Test coverage | agent_id 路由、drain_all 并行、单 service 去重、loop 注入四个维度均有测试 |
+| Full suite | 2667 passed, 1 skipped, 4 deselected — 全绿 |
+| Delta-spec advisory | 2 条建议性条目（均为 advisory，不阻塞 PR） |
+
+**Verdict: PASS**
+
+---
+
+## (1) `HostCapabilityContext.agent_id` 架构合规性
+
+### 字段定义位置
+
+`agent_id: str = ""` 定义于 `src/agent/core/tools/host_capability.py:43`，作为 `HostCapabilityContext` frozen dataclass 的末尾字段，带默认值 `""`。
+
+**Core 层合规性**：字段语义是"发起此次能力调用的 agent 身份"，与已有字段（`session_id`、`workspace_root`、`product_id`）的语义范畴一致——均为内核可保证的 context 信息，不含 cron 或 personal_assistant 任何专属含义。`agent.core` 不反依赖 `personal_assistant`；`GatewayCronDispatcher` 在 `personal_assistant` 层按 `agent_id` 路由是产品侧决策，core 层无感知。**合规。**
+
+**向后兼容性**：`default=""` 保证所有现有代码（`coding_cli` 等不传 `agent_id` 的路径）无需修改。
+
+### 填充路径核查
+
+`agent_id` 通过 `ctx.session_metadata.get("agent_id")` 在 `src/agent/products/personal_assistant/tools/cron.py:529` 填充到 `HostCapabilityContext`。
+
+Gateway 在两处将 `agent_id` 注入 `session_metadata`：
+
+- `main.py:511-512`：`_on_agent_created` 路径，构建新 agent 的返回体时设置 `"agent_id": agent_id`
+- `main.py:1075`：`_submit_run_with_stream` 路径，在 `run_context_store[run_id]` 中设置 `"agent_id": agent_id`
+
+两处覆盖了 Gateway 的所有运行提交路径（静态 agent 启动和动态创建 agent）。**全部 submit 路径已覆盖。**
+
+### 空串行为
+
+当 `agent_id=""` 时，`GatewayCronDispatcher._resolve_service("")` 执行 `self._services.get("", None)` 返回 `None`，上层 `invoke()` 返回 `{"accepted": False, "error_code": "cron_unavailable"}`。这是防御性降级，语义明确——在 `coding_cli` 或未完成初始化的场景下，cron 能力不可用。**可接受。**
+
+---
+
+## (2) Delta-spec Advisory
+
+以下两条建议性条目均为 advisory，不阻塞 PR。
+
+**Advisory A（kernel/spec.md）**：`HostCapabilityContext` 新增 `agent_id` 字段是对"宿主注入能力" requirement 的扩展。建议在 `build_kernel 装配` requirement 下的"宿主注入能力" scenario 补一句：
+> Kernel 通过 `HostCapabilityContext` 向 dispatcher 传递可信 session/agent 上下文，包含 `session_id`、`workspace_root`、`product_id` 和 `agent_id`（coding_cli 等无法保证 agent 身份的调用方传空串）。
+
+这让消费者了解 context 中 `agent_id` 的空串约定，避免产品侧误把空串当有效 id 路由。
+
+**Advisory B（gateway/spec.md）**：`GatewayCronDispatcher` 现在以 `agent_id` 为路由 key，对应"手动运行已有 cron 任务立即入队"scenario。建议补一句：
+> Gateway cron dispatcher 以 `agent_id` 为路由依据将请求派发到对应 `CronExecutionService`；`workspace_root` 不作为路由 key，避免 IM 同步路径与本地注册路径双源不一致。
+
+这向运维者说明为何 `agent_id` 在 cron 路由中是单一可信来源。
+
+---
+
+## (3) 测试覆盖核查
+
+| 行为维度 | 测试类 / 方法 | 覆盖状态 |
+|---|---|---|
+| `agent_id` 路由（dispatcher.register by agent_id） | `TestGatewayCronDispatcherDrainAll::test_drain_all_drains_all_services`（line 508: `dispatcher.register("agent-1", svc1)`） | covered |
+| `drain_all()` 并行（asyncio.gather 所有 services） | `test_drain_all_drains_all_services`（两 service 同时入队，`drain_all` 后两者都完成） | covered |
+| `drain_all()` 单 service 去重（注册两 key 但只 drain 一次） | `test_drain_all_deduplicates_single_service_mode`（`drain_count == 1`） | covered |
+| loop 显式注入（`gateway_loop` 参数传递） | `CronExecutionService` 构造接受 `gateway_loop`；现有 drain 测试在 asyncio context 中运行，loop 注入路径已在集成中覆盖；无独立单测直接 assert `gateway_loop` 赋值 | **partial**（可接受：loop 注入的正确性由 drain 测试的行为结果间接验证；极端情况——`_on_agent_created` 在非 asyncio 线程中被调用——属于防御路径，spec 未声明） |
+
+测试覆盖评估：agent_id 路由和 drain_all 并行为核心路径，覆盖充分。loop 注入的直接赋值路径无独立断言，但现有 drain 测试在 asyncio context 中执行 enqueue→drain 闭环，已间接验证 loop 注入链路工作正常。
+
+---
+
+## Full Test Suite
+
+```
+2667 passed, 1 skipped, 4 deselected in 89.54s
+```
+
+0 failures, 0 RuntimeWarnings（测试输出 warnings 均为 jwt key length，与本 unit 无关）。
+
+---
+
+All checks passed. Verdict: PASS.
