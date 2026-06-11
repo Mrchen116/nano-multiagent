@@ -10,7 +10,8 @@ export default defineConfig({
     proxy: {
       "/im": {
         target: IM_PROXY_TARGET,
-        changeOrigin: true
+        changeOrigin: true,
+        ws: true
       }
     }
   },
