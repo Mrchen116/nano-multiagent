@@ -181,6 +181,13 @@ class InboundPipeline:
         # that arrive after the main per-turn SSE loop has terminated.  Caller wires this to
         # send a system/meta notification to IM.  None keeps the pipeline IM-agnostic.
         self._session_event_callback = session_event_callback
+        # bugfix-404-M3: async callable (text, reply_context, agent_id) → None that sends
+        # a BACKGROUND_TASK run reply back to IM.  Wired by main.py after im_connection_manager
+        # is created.  None disables BACKGROUND_TASK relay (outbound_router.send_text() is a
+        # no-op for the web_relay channel, so this must be the real IM send path).
+        self._bg_reply_sender: (
+            "Callable[[str, ReplyContext, str], Awaitable[None]] | None"
+        ) = None
         # Tracks active BackgroundSessionEventSubscribers by kernel_session_id.
         self._bg_subscribers: dict[str, BackgroundSessionEventSubscriber] = {}
 
@@ -318,12 +325,14 @@ class InboundPipeline:
                 # Start a persistent background subscriber for this session so that
                 # self_evolution_review events and BACKGROUND_TASK run output published
                 # after the main turn's SSE loop terminates still reach the PA gateway.
-                # reply_context is passed so the subscriber can relay BACKGROUND_TASK
-                # assistant_message events back to the originating IM conversation (M3).
+                # reply_context + session_key are passed so the subscriber can relay
+                # BACKGROUND_TASK assistant_message events back to the originating IM
+                # conversation via _bg_reply_sender (bugfix-404-M3).
                 await self._ensure_background_subscriber(
                     kernel_session_id=binding.kernel_session_id,
                     last_sequence=anchor_sequence or 0,
                     reply_context=binding.reply_context,
+                    session_key=session_key,
                 )
                 await self._emit_relay_lifecycle(
                     message,
@@ -709,6 +718,7 @@ class InboundPipeline:
         kernel_session_id: str,
         last_sequence: int,
         reply_context: ReplyContext | None = None,
+        session_key: str | None = None,
     ) -> None:
         """Ensure one persistent background event subscriber is active for the session.
 
@@ -718,9 +728,9 @@ class InboundPipeline:
 
         Also wires ``bg_run_output_callback`` so BACKGROUND_TASK-origin run output
         (assistant_message events from notification-triggered runs) is relayed back to
-        the originating IM conversation via outbound_router. This closes the M3 gap:
-        M1 fixed the kernel to inject and re-run BACKGROUND_TASK notifications; M3 fixes
-        the gateway to relay the resulting assistant reply back to IM (bugfix-404-M3).
+        the originating IM conversation. This closes the M3 gap: M1 fixed the kernel to
+        inject and re-run BACKGROUND_TASK notifications; M3 fixes the gateway to relay the
+        resulting assistant reply back to IM (bugfix-404-M3).
 
         If a subscriber is already active for this session (from a previous turn) it
         is left running — re-creation would lose events between turns.
@@ -731,7 +741,10 @@ class InboundPipeline:
                 used as ``after_sequence`` so the subscriber replays events missed
                 between turn termination and subscription start.
             reply_context: Routing context for the originating IM conversation.
-                When provided, BACKGROUND_TASK run output is relayed via outbound_router.
+                When provided and ``_bg_reply_sender`` is wired, BACKGROUND_TASK run
+                output is relayed to IM via the real IM send path.
+            session_key: Gateway session key (``channel:conv_id:agent_id``).
+                Used to extract the agent_id for the bg_reply_sender call.
         """
         # Require at least one of session_event_callback or reply_context to be set.
         # Without both, there is nothing to do with received events.
@@ -746,20 +759,29 @@ class InboundPipeline:
             if on_session_event_cb is not None:
                 await on_session_event_cb(kernel_session_id, event)
 
-        # bugfix-404-M3: when reply_context is available, wire a bg_run_output_callback
-        # so BACKGROUND_TASK-origin assistant_message events are relayed to the IM
-        # conversation that originally triggered this session.
+        # bugfix-404-M3: when reply_context is available and _bg_reply_sender is wired
+        # (by main.py after im_connection_manager is created), relay BACKGROUND_TASK-origin
+        # assistant_message events back to the originating IM conversation.
+        # outbound_router.send_text() → WebRelayAdapter.sent.append() is a no-op for the
+        # web_relay channel; _bg_reply_sender uses im_connection_manager.send_agent_message()
+        # which is the real IM WebSocket send path.
         bg_run_output_callback = None
-        if reply_context is not None:
+        if reply_context is not None and self._bg_reply_sender is not None:
             captured_reply_context = reply_context
-            outbound_router = self._outbound_router
+            bg_reply_sender = self._bg_reply_sender
+            # Extract agent_id from session_key ("channel:conv_id:agent_id").
+            # Fall back to empty string if session_key is absent or malformed.
+            agent_id_for_relay = (
+                session_key.rsplit(":", 1)[-1] if session_key else ""
+            )
 
             async def _relay_bg_run_output(event: Mapping[str, Any]) -> None:
                 content = event.get("content")
                 if isinstance(content, str) and content.strip():
-                    outbound_router.send_text(
-                        text=content.strip(),
-                        reply_context=captured_reply_context,
+                    await bg_reply_sender(
+                        content.strip(),
+                        captured_reply_context,
+                        agent_id_for_relay,
                     )
 
             bg_run_output_callback = _relay_bg_run_output

@@ -447,14 +447,16 @@ def test_inbound_pipeline_stream_called_with_session_id(tmp_path: Path) -> None:
 def test_ensure_background_subscriber_wires_bg_run_output_callback(
     tmp_path: Path,
 ) -> None:
-    """_ensure_background_subscriber must wire bg_run_output_callback when reply_context is given.
+    """_ensure_background_subscriber wires bg_run_output_callback when both reply_context
+    and _bg_reply_sender are set.
 
     This tests the integration between InboundPipeline._ensure_background_subscriber
-    and BackgroundSessionEventSubscriber: after a main turn completes, the pipeline
-    must create a subscriber with a non-None bg_run_output_callback so that
-    BACKGROUND_TASK-origin run output can be relayed to the IM conversation.
+    and BackgroundSessionEventSubscriber: after a main turn completes, when the pipeline
+    has both reply_context and a _bg_reply_sender wired, the subscriber must be created
+    with a non-None bg_run_output_callback (bugfix-404-M3).
 
-    This is the pipeline-level fix for bugfix-404-M3.
+    When _bg_reply_sender is absent (pre-M3 or misconfigured gateway), the callback must
+    be None — WebRelayAdapter.sent.append() is a no-op that never reaches IM.
     """
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
@@ -465,7 +467,8 @@ def test_ensure_background_subscriber_wires_bg_run_output_callback(
         ]
     )
 
-    pipeline = InboundPipeline(
+    # Case 1: no _bg_reply_sender → bg_run_output_callback must be None
+    pipeline_no_sender = InboundPipeline(
         kernel=kernel,
         agents=agents,
         outbound_router=OutboundRouter(ChannelRegistry((channel,))),
@@ -482,17 +485,48 @@ def test_ensure_background_subscriber_wires_bg_run_output_callback(
         is_group=False,
     )
 
-    result = asyncio.run(pipeline.handle_inbound(inbound))
-    assert result is not None
+    asyncio.run(pipeline_no_sender.handle_inbound(inbound))
+    if pipeline_no_sender._bg_subscribers:
+        sub_no_sender = list(pipeline_no_sender._bg_subscribers.values())[0]
+        assert sub_no_sender._bg_run_output_callback is None, (
+            "Without _bg_reply_sender, bg_run_output_callback must be None "
+            "(outbound_router.send_text → WebRelayAdapter.sent.append is a no-op)"
+        )
+        asyncio.run(sub_no_sender.stop())
 
-    # After the turn, a background subscriber must have been created
-    assert pipeline._bg_subscribers, "background subscriber must be created after main turn"
-    sub = list(pipeline._bg_subscribers.values())[0]
+    # Case 2: _bg_reply_sender is wired → bg_run_output_callback must be non-None
+    sent_texts: list[str] = []
 
-    # The subscriber must have bg_run_output_callback wired (not None)
-    assert sub._bg_run_output_callback is not None, (
-        "BackgroundSessionEventSubscriber must have bg_run_output_callback set "
+    async def _fake_bg_reply_sender(text: str, reply_context: Any, agent_id: str) -> None:
+        sent_texts.append(text)
+
+    pipeline_with_sender = InboundPipeline(
+        kernel=_FakeSseKernel(
+            events=[
+                {"event": "assistant_message", "run_id": "run-1", "content": "ok", "origin": "user"},
+                {"event": "run_status", "run_id": "run-1", "status": "completed", "origin": "user"},
+            ]
+        ),
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web"),))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    pipeline_with_sender._bg_reply_sender = _fake_bg_reply_sender  # type: ignore[assignment]
+
+    inbound2 = InboundMessage(
+        channel_name="web",
+        text="hi2",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+    asyncio.run(pipeline_with_sender.handle_inbound(inbound2))
+    assert pipeline_with_sender._bg_subscribers, "background subscriber must be created"
+    sub_with_sender = list(pipeline_with_sender._bg_subscribers.values())[0]
+    assert sub_with_sender._bg_run_output_callback is not None, (
+        "With _bg_reply_sender wired, bg_run_output_callback must be non-None "
         "so BACKGROUND_TASK run output can be relayed to IM (bugfix-404-M3)"
     )
-
-    asyncio.run(sub.stop())
+    asyncio.run(sub_with_sender.stop())

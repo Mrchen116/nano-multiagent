@@ -2313,6 +2313,13 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             im_connection_manager_factory=lambda: im_connection_manager,
             session_store=pipeline._session_store,
         )
+        # bugfix-404-M3: wire BACKGROUND_TASK run output relay so assistant replies from
+        # notification-triggered background runs are sent back to the originating IM
+        # conversation.  outbound_router.send_text() → WebRelayAdapter.sent.append() is
+        # a no-op; only send_agent_message() via the live WS connection actually delivers.
+        pipeline._bg_reply_sender = _build_bg_reply_sender(
+            im_connection_manager_factory=lambda: im_connection_manager,
+        )
 
     # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and
     # register with dispatcher.  execute_fn is a closure that captures kernel_shim,
@@ -3591,6 +3598,51 @@ def _build_session_event_callback(
             )
 
     return _callback
+
+
+def _build_bg_reply_sender(
+    *,
+    im_connection_manager_factory: "Callable[[], IMConnectionManager | None]",
+) -> "Callable[[str, Any, str], Awaitable[None]]":
+    """Build an async callable that relays BACKGROUND_TASK run output to IM.
+
+    Called by InboundPipeline's bg_run_output_callback when a BACKGROUND_TASK-origin
+    run finishes and emits an assistant_message event.  The callable sends an
+    ``agent.message`` WebSocket frame to IM so the reply appears in the originating
+    conversation (bugfix-404-M3).
+
+    Args:
+        im_connection_manager_factory: Returns the live IM connection manager (may be None).
+
+    Returns:
+        Async callable ``(text, reply_context, agent_id) -> None``.
+    """
+    from personal_assistant.channels.base import ReplyContext as _RC  # noqa: PLC0415
+
+    async def _sender(text: str, reply_context: _RC, agent_id: str) -> None:
+        manager = im_connection_manager_factory()
+        if manager is None or not manager.connected:
+            return
+        conversation_id = reply_context.target_chat_id
+        if not conversation_id or not agent_id or not text.strip():
+            return
+        try:
+            await manager.send_agent_message(
+                {
+                    "text": text.strip(),
+                    "to": conversation_id,
+                    "from_session_id": agent_id,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "bg_reply_sender send_agent_message failed (conv=%s agent=%s): %s",
+                conversation_id,
+                agent_id,
+                exc,
+            )
+
+    return _sender
 
 
 def _metadata_text(metadata: Mapping[str, object], *, key: str) -> str | None:
