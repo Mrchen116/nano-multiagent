@@ -129,6 +129,50 @@ describe("MessagePane", () => {
     expect(screen.queryByText(/\|------\|/)).toBeNull();
   });
 
+  it("keeps blank lines inside fenced code blocks", () => {
+    const codeMsg: Message = {
+      id: "m-code",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "u1",
+      sender_type: "agent",
+      content: [
+        "The file contains:",
+        "",
+        "```markdown",
+        "# MEMORY",
+        "",
+        "First entry",
+        "<!-- source: session -->",
+        "",
+        "Second entry",
+        "```",
+        "",
+        "Done.",
+      ].join("\n"),
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:02Z",
+      permission_requests: [],
+    };
+    const { container } = render(
+      <MessagePane
+        conversation={DIRECT_CONV}
+        messages={[codeMsg]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+      />
+    );
+
+    const code = container.querySelector("pre > code");
+    expect(code).not.toBeNull();
+    expect(code).toHaveTextContent(
+      "# MEMORY First entry <!-- source: session --> Second entry",
+    );
+    expect(screen.queryByText(/```markdown/)).toBeNull();
+    expect(screen.getByText("Done.")).toBeInTheDocument();
+  });
+
   it("renders an empty-state hint when there are no messages", () => {
     render(
       <MessagePane

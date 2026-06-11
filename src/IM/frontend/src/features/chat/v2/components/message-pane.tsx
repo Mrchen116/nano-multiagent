@@ -450,7 +450,7 @@ function MarkdownContent({
   content: string;
   participants?: Actor[];
 }) {
-  const blocks = content.split(/\n{2,}/);
+  const blocks = splitMarkdownBlocks(content);
   return (
     <div className="im-md">
       {blocks.map((block, idx) => {
@@ -484,6 +484,40 @@ function MarkdownContent({
       })}
     </div>
   );
+}
+
+function splitMarkdownBlocks(content: string): string[] {
+  const blocks: string[] = [];
+  let lines: string[] = [];
+  let inFence = false;
+
+  const flush = () => {
+    if (lines.length > 0) {
+      blocks.push(lines.join("\n"));
+      lines = [];
+    }
+  };
+
+  for (const line of content.split("\n")) {
+    if (line.startsWith("```")) {
+      if (!inFence) flush();
+      lines.push(line);
+      inFence = !inFence;
+      if (!inFence) flush();
+      continue;
+    }
+    if (inFence) {
+      lines.push(line);
+      continue;
+    }
+    if (line.trim() === "") {
+      flush();
+      continue;
+    }
+    lines.push(line);
+  }
+  flush();
+  return blocks;
 }
 
 /**
