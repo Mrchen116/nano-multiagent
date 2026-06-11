@@ -291,3 +291,62 @@ def test_upsert_profile_preserves_features_on_re_register(tmp_path: Path) -> Non
     assert reloaded.custom_prompt == "You are a chef.", (
         "upsert_profile must preserve existing custom_prompt when called without it"
     )
+
+
+# ---------------------------------------------------------------------------
+# bugfix-404-M2 R3: update_profile（repo 层）不写 workspace_root 列，存量值保持
+# ---------------------------------------------------------------------------
+
+
+def test_update_profile_preserves_non_default_workspace_root(tmp_path: Path) -> None:
+    """repo.update_profile 不得更新 workspace_root 列——存量自定义路径 update 后保持不变。
+
+    bugfix-404-M2 决策 5：ConfigService.update_profile 删 workspace_root 参数；
+    repo 层 update SQL 不写该列，确保任何一次 UI 配置编辑（system prompt/skills 等）
+    都不会把 workspace_root 重置回 managed default。
+
+    这是修前缺陷的直接复现：update 前存 /custom/workspace，update 后变成 managed default。
+    """
+    from IM.infra.db import connect, initialize_schema
+    from IM.infra.repositories import AgentProfileRepository
+
+    db = connect(tmp_path / "test_update_no_ws.db")
+    initialize_schema(db)
+    repo = AgentProfileRepository(db)
+
+    custom_ws = "/custom/workspace/Arch"
+    repo.upsert_profile(
+        agent_id="Arch",
+        owner_id="owner-1",
+        display_name="Arch",
+        description="",
+        system_prompt="You are Arch.",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="MENTION",
+        default_model=None,
+        workspace_root=custom_ws,
+    )
+
+    # update 只改 system_prompt，不应触碰 workspace_root
+    profile_before = repo.get_profile(agent_id="Arch")
+    assert profile_before is not None
+    repo.update_profile(
+        agent_id="Arch",
+        profile_version=profile_before.profile_version,
+        display_name="Arch",
+        description="",
+        system_prompt="Updated prompt.",
+        skills=[],
+        tool_allowlist=[],
+        group_reply_policy="MENTION",
+        default_model=None,
+        workspace_root=None,  # 传 None 时修前会重置为 managed default，修后应保持存量值
+    )
+
+    profile_after = repo.get_profile(agent_id="Arch")
+    assert profile_after is not None
+    assert profile_after.workspace_root == custom_ws, (
+        f"update_profile 后 workspace_root 应保持 {custom_ws!r}，"
+        f"实际变为 {profile_after.workspace_root!r}（被重置为 managed default）"
+    )
