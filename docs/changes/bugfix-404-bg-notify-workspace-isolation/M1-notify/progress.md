@@ -13,7 +13,7 @@
   - E2E/Regression: N/A（R3 统一回归）
   - Visual/Interaction: N/A
 - Rollback: 回退到 c589f5f（plan commit）
-- Commits: C1=1dd6d4c, C2=1882aad, C3=（本次）
+- Commits: C1=1dd6d4c, C2=1882aad, C3=95916f44
 
 ## R2 — bash/agent 工具注册调用传 workspace_root
 
@@ -28,8 +28,23 @@
   - E2E/Regression: N/A（R3 统一回归）
   - Visual/Interaction: N/A
 - Rollback: 回退到 95916f4（R1 C3）
-- Commits: C1=f8a4906, C2=4c34a85, C3=（本次）
+- Commits: C1=f8a4906, C2=4c34a85, C3=e11faf4d
 
 ## R3 — _deliver_notification 改造：删裸 except pass，显式判断子 session，透传 workspace_root
 
-_待填_
+- Context: `_deliver_notification` 用 `except ValueError: pass` 静默吞掉所有投递失败（包括非 ValueError），子 session 跳过逻辑仅靠异常隐式实现；`runs_registry.submit` 不传 workspace_root 导致非默认 workspace 下 session 定位失败
+- Decision:
+  1. `_wire_notification_callbacks` 在 wire 时一次性从 `runs_registry` 取出 `_session_manager`，传入 `_deliver_notification`（避免每次调用刺探私有属性）
+  2. `_deliver_notification` 从 `record.workspace_root` 构造 `Path`，传入 `session_manager.get_session(parent, workspace_root=workspace_root)` 显式检查 kind，跳过子 session
+  3. `runs_registry.submit(...)` 补充 `workspace_root=workspace_root` 参数
+  4. 原 `except ValueError: pass` 改为 `except Exception as exc: log_error(...)`，保留可观察性
+- Rationale: 信息流闭合：注册捕获 → 投递透传；异常可见性：静默吞包比日志差；子 session 判断从隐式（靠 raise）改为显式（读 metadata），行为意图明确
+- Evidence:
+  - Tests: `pytest tests/ -m "not e2e"` — 2686 passed, 0 failed
+  - Entry: N/A（内核内部投递路径，无独立入口）
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 2686 passed（含 unit + integration + contract）
+  - Visual/Interaction: N/A
+- Rollback: 回退到 4c34a85（R2 C2）
+- Commits: C1=87fb7b4, C2=2f81f0a, C3=（本次）
