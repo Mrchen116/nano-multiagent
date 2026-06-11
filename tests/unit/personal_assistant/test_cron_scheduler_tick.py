@@ -443,6 +443,74 @@ class TestCronExecutionServiceDrain:
         # Should return before timeout.
         await asyncio.wait_for(service.drain(timeout=1.0), timeout=2.0)
 
+    @pytest.mark.asyncio
+    async def test_drain_does_not_miss_context_b_task(self, tmp_path: Path) -> None:
+        """drain() must not return before a Context B task (call_soon_threadsafe path) completes.
+
+        bugfix-402 code-review: enqueue() via asyncio.to_thread calls
+        call_soon_threadsafe; the Task is created on the loop inside the callback.
+        Without the pending_count gate, drain() could snapshot _pending_tasks before
+        _schedule_with_tracking fires and return while the task is still in-flight.
+        """
+        import asyncio
+        import threading
+
+        from personal_assistant.scheduler.cron_execution_service import (
+            CronExecutionService,
+        )
+        from personal_assistant.scheduler.cron_scheduler import CronJob, CronJobStore
+
+        finished: list[str] = []
+
+        async def slow_execute(
+            *, agent_id: str, job_id: str, request_id: str, trigger: str
+        ) -> None:
+            await asyncio.sleep(0.05)
+            finished.append(job_id)
+
+        loop = asyncio.get_running_loop()
+        service = CronExecutionService(
+            agent_id="agent-ctxb-drain",
+            workspace_root=tmp_path,
+            execute_fn=slow_execute,
+            # Inject the running loop so enqueue() enters Context B
+            # (non-running-loop thread path) when called via asyncio.to_thread.
+            gateway_loop=loop,
+        )
+        job_store = CronJobStore(workspace_root=tmp_path)
+        job_store.add(
+            CronJob(
+                id="job-ctxb-1",
+                name="Context B Drain Test",
+                schedule={"kind": "every", "everyMs": 60000},
+                instruction="ctx b drain test",
+            )
+        )
+
+        # Call enqueue from a worker thread (simulates asyncio.to_thread path).
+        # In that thread there is no running loop, so enqueue takes the Context B
+        # branch (call_soon_threadsafe) — the Task is not yet in _pending_tasks
+        # when enqueue() returns to the thread.
+        enqueue_done = threading.Event()
+
+        def _enqueue_in_thread() -> None:
+            service.enqueue(job_id="job-ctxb-1", trigger="manual")
+            enqueue_done.set()
+
+        thread = threading.Thread(target=_enqueue_in_thread, daemon=True)
+        thread.start()
+
+        # Yield to allow the thread to call enqueue() and the loop to dispatch
+        # the call_soon_threadsafe callback before drain() runs.
+        enqueue_done.wait(timeout=2.0)
+
+        assert len(finished) == 0, "task must not have finished before drain()"
+
+        await service.drain(timeout=5.0)
+        assert "job-ctxb-1" in finished, (
+            "drain() must wait for Context B task registered via call_soon_threadsafe"
+        )
+
 
 class TestGatewayCronDispatcherDrainAll:
     """Verify that GatewayCronDispatcher.drain_all() drains all registered services.

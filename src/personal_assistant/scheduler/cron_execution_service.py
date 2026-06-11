@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -311,6 +312,20 @@ class CronExecutionService:
         # bugfix-402-M6 W-1: track pending execute_fn Tasks so drain() can
         # await them before the IM connection is closed (Decision 7).
         self._pending_tasks: list[asyncio.Task] = []
+        # bugfix-402 code-review: Context B (call_soon_threadsafe) has a window
+        # between call_soon_threadsafe() returning and _schedule_with_tracking
+        # executing where drain() would snapshot an empty _pending_tasks and miss
+        # the in-flight task.  _pending_count tracks submitted-but-not-yet-done
+        # executions (incremented before call_soon_threadsafe, decremented in the
+        # Task done-callback).  drain() waits until the count reaches zero before
+        # inspecting _pending_tasks — closing the registration window entirely.
+        # threading.Lock protects the counter (modified from both loop and non-loop
+        # threads) and the condition variable notifies drain() on each decrement.
+        self._pending_count: int = 0
+        self._pending_lock: threading.Lock = threading.Lock()
+        self._pending_zero: threading.Condition = threading.Condition(
+            self._pending_lock
+        )
 
     @property
     def runs_store(self) -> CronRunsStore:
@@ -393,26 +408,45 @@ class CronExecutionService:
         if running_loop is not None:
             # Context A: already inside an asyncio loop (e.g. scheduled tick).
             # bugfix-402-M6 W-1: use create_task so we get a Task handle for drain().
+            with self._pending_lock:
+                self._pending_count += 1
             task = running_loop.create_task(coro, name=f"cron-execute-{request_id}")
             self._pending_tasks.append(task)
-            task.add_done_callback(
-                lambda t: (
-                    self._pending_tasks.remove(t) if t in self._pending_tasks else None
-                )
-            )
+
+            def _on_done_a(t: asyncio.Task) -> None:
+                if t in self._pending_tasks:
+                    self._pending_tasks.remove(t)
+                with self._pending_zero:
+                    self._pending_count -= 1
+                    if self._pending_count == 0:
+                        self._pending_zero.notify_all()
+
+            task.add_done_callback(_on_done_a)
         elif self._gateway_loop is not None and self._gateway_loop.is_running():
             # Context B: called from a sync thread; schedule on the Gateway loop.
             # bugfix-402-M6 W-1: create_task via call_soon_threadsafe for drain tracking.
+            #
+            # bugfix-402 code-review fix: increment _pending_count BEFORE
+            # call_soon_threadsafe so drain()'s "wait for count==0" gate sees the
+            # in-flight submission even before _schedule_with_tracking runs on the loop.
+            # Without this, drain() could snapshot _pending_tasks before the callback
+            # fires and miss the task entirely.
+            with self._pending_lock:
+                self._pending_count += 1
+
             def _schedule_with_tracking(c=coro) -> None:
                 t = self._gateway_loop.create_task(c, name=f"cron-execute-{request_id}")  # type: ignore[union-attr]
                 self._pending_tasks.append(t)
-                t.add_done_callback(
-                    lambda done: (
+
+                def _on_done_b(done: asyncio.Task) -> None:
+                    if done in self._pending_tasks:
                         self._pending_tasks.remove(done)
-                        if done in self._pending_tasks
-                        else None
-                    )
-                )
+                    with self._pending_zero:
+                        self._pending_count -= 1
+                        if self._pending_count == 0:
+                            self._pending_zero.notify_all()
+
+                t.add_done_callback(_on_done_b)
 
             self._gateway_loop.call_soon_threadsafe(_schedule_with_tracking)
         else:
@@ -439,25 +473,62 @@ class CronExecutionService:
         Called from GatewayRuntime._run_until_shutdown() after kernel.aclose()
         and before im_connection_manager.close().
 
+        bugfix-402 code-review fix: before snapshotting _pending_tasks, wait until
+        _pending_count reaches zero.  This closes the Context B registration window
+        where call_soon_threadsafe() has been issued but _schedule_with_tracking has
+        not yet run on the event loop — without this gate, drain() could snapshot an
+        empty _pending_tasks and return while the task is still in-flight.
+
         Args:
-            timeout: Maximum seconds to wait for pending tasks.  Tasks exceeding
-                this are cancelled (best-effort — they have already been persisted
-                as running; converge_stale_on_restart will clean them on next
-                Gateway startup).
+            timeout: Maximum wall-clock seconds to wait for all tasks (including
+                the registration gate).  Tasks still running after timeout are
+                cancelled (best-effort; converge_stale_on_restart cleans them on
+                next Gateway startup).
         """
-        if not self._pending_tasks:
+        with self._pending_lock:
+            already_zero = self._pending_count == 0
+
+        if already_zero:
             return
+
+        # Wait for all submitted executions to register their Task handles on the
+        # event loop (closes the Context B window) and then complete.  We use
+        # asyncio.to_thread so the threading.Condition.wait() does not block the
+        # event loop while Context B callbacks are being dispatched.
+        import time as _time  # noqa: PLC0415
+
+        deadline = _time.monotonic() + timeout
+
+        def _wait_for_zero() -> bool:
+            remaining = deadline - _time.monotonic()
+            if remaining <= 0:
+                return False
+            with self._pending_zero:
+                while self._pending_count > 0:
+                    remaining = deadline - _time.monotonic()
+                    if remaining <= 0:
+                        return False
+                    self._pending_zero.wait(timeout=remaining)
+                return True
+
+        reached_zero = await asyncio.to_thread(_wait_for_zero)
+
         pending = list(self._pending_tasks)
+        if not pending:
+            return
+
         _log.debug(
             "cron drain: waiting for %d pending task(s) (agent=%s timeout=%.1fs)",
             len(pending),
             self._agent_id,
             timeout,
         )
+
+        remaining_timeout = max(0.0, deadline - _time.monotonic())
         try:
             await asyncio.wait_for(
                 asyncio.gather(*pending, return_exceptions=True),
-                timeout=timeout,
+                timeout=remaining_timeout if reached_zero else 0.0,
             )
         except (asyncio.TimeoutError, TimeoutError):
             _log.warning(
