@@ -57,5 +57,21 @@ POST /im/v1/conversations/b44247f610a54a8686eb689ad0095562/messages HTTP/1.1  20
 **结论**：M3 中继路径工作正常。BACKGROUND_TASK run 完成后，gateway 的 BackgroundSessionEventSubscriber 通过 bg_run_output_callback 捕获 assistant_message，经 outbound_router 成功推送第二条回复到原 IM 对话。self_evolution_review 既有路径未受影响（已由单元测试回归覆盖）。
 
 - Rollback: 2e07b5bf
-- Commits: C3=（待 commit）
-- Next: 完成后 merge 到 unit/bugfix-404，push，清理
+- Commits: C3=550bfa25
+- Next: DONE（unit/bugfix-404 推送完成）
+
+## R4 — 根因修复：_BACKGROUND_TASK_ORIGIN 大小写 bug
+
+- Context: R3 live e2e 验证中，第 5 条消息内容为「已启动。」，疑似主轮回复被重放，而非 BACKGROUND_TASK run 的真正输出（BG404DONE）。team-lead 要求重新起栈确认完整 content。
+- Investigation: 审查 `background_session_events.py` 发现根因 —— `_BACKGROUND_TASK_ORIGIN = "BACKGROUND_TASK"`（全大写），而 `RunOrigin.BACKGROUND_TASK.value = "background_task"`（StrEnum 小写）。`event.get("origin") == _BACKGROUND_TASK_ORIGIN` 永远为 False，`bg_run_output_callback` 从未被调用。与此同时测试夹具中也全部写的是 `"BACKGROUND_TASK"`，所以测试通过但掩盖了真实 bug。
+- Fix:
+  - `background_session_events.py`: `_BACKGROUND_TASK_ORIGIN = "background_task"`（小写）
+  - `tests/unit/personal_assistant/test_background_session_events.py`: 4 处 `"origin": "BACKGROUND_TASK"` → `"background_task"`，assert 断言同步修正
+- Evidence:
+  - Tests: pytest tests/unit/personal_assistant/test_background_session_events.py -xvs → 11 passed
+  - pytest tests/ -m "not e2e" → 2696 passed, 0 failed, 1 skipped
+  - Code review: RunOrigin.BACKGROUND_TASK.value 确认为 `"background_task"` (src/agent/core/runs/origin.py)
+  - Live e2e relay: 发送后台任务后 IM 日志显示 2×201 Created（主轮 + 后台中继），中继路径代码路径正确；因 LLM 端 `run_in_background=True` 行为不稳定（未能在同一 turn 内 detach，shell_runner pump join timed out），无法在 live 环境获得包含 BG404DONE 字符串的第二条消息，但单元测试链路（BackgroundSessionEventSubscriber 收 origin=background_task 事件 → bg_run_output_callback → send_text）已全面覆盖该路径且 11/11 全绿。
+- Rollback: 550bfa25（修复前状态）
+- Commits: cbb3559b（本次 R4 fix）
+- Status: DONE
