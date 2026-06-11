@@ -449,6 +449,167 @@ def test_bash_tool_run_background_passes_workspace_root_to_registry() -> None:
     assert records[0].workspace_root == str(workspace)
 
 
+# ---------------------------------------------------------------------------
+# _deliver_notification 投递逻辑（bugfix-404-M1 R3 回归）
+# ---------------------------------------------------------------------------
+
+
+def _make_runs_registry_stub(
+    *,
+    session_exists: bool = True,
+    session_kind: str | None = None,
+    active_run_id: str | None = None,
+    submit_raises: Exception | None = None,
+) -> Any:
+    """构造最小 RunsRegistry stub。"""
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    from agent.core.session.models import Session
+
+    registry_stub = MagicMock()
+    registry_stub.get_active_run_id.return_value = active_run_id
+
+    if session_exists:
+        session = Session(
+            session_id="parent-sess",
+            status="active",
+            created_at="2026-01-01T00:00:00",
+            workspace_root=Path("/custom/workspace"),
+            metadata={"kind": session_kind} if session_kind else {},
+        )
+    else:
+        session = None
+
+    session_manager = MagicMock()
+    session_manager.get_session.return_value = session
+    registry_stub._session_manager = session_manager
+
+    if submit_raises:
+        registry_stub.submit.side_effect = submit_raises
+    else:
+        submit_record = MagicMock()
+        registry_stub.submit.return_value = submit_record
+
+    return registry_stub
+
+
+def test_deliver_notification_submits_for_top_level_session() -> None:
+    """parent 为顶层 session（非 subagent）时，应调用 runs_registry.submit 并带 workspace_root。"""
+    from pathlib import Path
+    from agent.core.background_tasks.models import BackgroundTaskRecord, BackgroundTaskType, BackgroundTaskStatus
+    from agent.platform.background_tasks.wiring import _deliver_notification
+
+    runs_registry = _make_runs_registry_stub(
+        session_exists=True,
+        session_kind=None,  # 顶层 session 没有 kind="subagent"
+        active_run_id=None,
+    )
+
+    record = BackgroundTaskRecord(
+        task_id="b1",
+        task_type=BackgroundTaskType.BASH,
+        parent_session_id="parent-sess",
+        status=BackgroundTaskStatus.COMPLETED,
+        output_file="/tmp/out.output",
+        workspace_root="/custom/workspace",
+    )
+
+    _deliver_notification(record, runs_registry)
+
+    runs_registry.submit.assert_called_once()
+    call_kwargs = runs_registry.submit.call_args.kwargs
+    assert call_kwargs["session_id"] == "parent-sess"
+    assert call_kwargs["workspace_root"] == Path("/custom/workspace")
+
+
+def test_deliver_notification_skips_subagent_parent_session() -> None:
+    """parent 为 subagent session（kind='subagent'）时，跳过，不调用 submit。"""
+    from agent.core.background_tasks.models import BackgroundTaskRecord, BackgroundTaskType, BackgroundTaskStatus
+    from agent.platform.background_tasks.wiring import _deliver_notification
+
+    runs_registry = _make_runs_registry_stub(
+        session_exists=True,
+        session_kind="subagent",  # subagent session
+        active_run_id=None,
+    )
+
+    record = BackgroundTaskRecord(
+        task_id="b1",
+        task_type=BackgroundTaskType.BASH,
+        parent_session_id="parent-sess",
+        status=BackgroundTaskStatus.COMPLETED,
+        output_file="/tmp/out.output",
+        workspace_root="/custom/workspace",
+    )
+
+    _deliver_notification(record, runs_registry)
+
+    runs_registry.submit.assert_not_called()
+
+
+def test_deliver_notification_logs_error_on_submit_failure() -> None:
+    """submit 失败（如 ValueError: session does not exist）时，触发 log_error，不吞掉。"""
+    from agent.core.background_tasks.models import BackgroundTaskRecord, BackgroundTaskType, BackgroundTaskStatus
+    from agent.platform.background_tasks.wiring import _deliver_notification
+    import agent.core.observability.logger as logger_module
+
+    runs_registry = _make_runs_registry_stub(
+        session_exists=True,
+        session_kind=None,
+        active_run_id=None,
+        submit_raises=ValueError("session does not exist: parent-sess"),
+    )
+
+    record = BackgroundTaskRecord(
+        task_id="b1",
+        task_type=BackgroundTaskType.BASH,
+        parent_session_id="parent-sess",
+        status=BackgroundTaskStatus.COMPLETED,
+        output_file="/tmp/out.output",
+        workspace_root="/custom/workspace",
+    )
+
+    logged_errors = []
+    original_log_error = logger_module.log_error
+
+    def _capture_log_error(event: str, **kwargs: Any) -> None:
+        logged_errors.append((event, kwargs))
+
+    import unittest.mock
+    with unittest.mock.patch.object(logger_module, "log_error", _capture_log_error):
+        _deliver_notification(record, runs_registry)
+
+    assert any("notify" in event or "deliver" in event or "background" in event for event, _ in logged_errors), \
+        f"Expected a log_error call, got: {logged_errors}"
+
+
+def test_deliver_notification_foreground_notified_does_not_submit() -> None:
+    """notified=True（前台完成已抑制）时不触发 submit（#19 不回归）。"""
+    from agent.core.background_tasks.models import BackgroundTaskRecord, BackgroundTaskType, BackgroundTaskStatus
+    from agent.platform.background_tasks.wiring import _deliver_notification
+
+    runs_registry = _make_runs_registry_stub(
+        session_exists=True,
+        session_kind=None,
+        active_run_id=None,
+    )
+
+    record = BackgroundTaskRecord(
+        task_id="b1",
+        task_type=BackgroundTaskType.BASH,
+        parent_session_id="parent-sess",
+        status=BackgroundTaskStatus.COMPLETED,
+        output_file="/tmp/out.output",
+        workspace_root="/custom/workspace",
+        notified=True,  # 前台已送达，抑制通知
+    )
+
+    _deliver_notification(record, runs_registry)
+
+    runs_registry.submit.assert_not_called()
+
+
 def test_agent_tool_run_background_passes_workspace_root_to_registry() -> None:
     """AgentTool._run_background 调用 register_subagent 时必须传 workspace_root。"""
     import tempfile
