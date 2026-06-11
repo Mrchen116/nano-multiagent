@@ -28,7 +28,19 @@
 
 ## R2 — sync_agent 不采用 mirror workspace_root
 
-（待补充）
+- Context: `sync_agent` 回拉 IM mirror 时，若 `payload["workspace_root"]` 非空就直接覆盖 runtime config，导致 worktree 正确配置的路径被 IM DB 里的旧 managed default 冲掉。
+- Decision: `sync_agent` 优先查 `local_config.agents` 取该 agent 的 workspace_root；找不到（IM UI 新建的 agent 尚未写回 local_config）才用 factory。IM mirror 值完全不参与 runtime workspace 决策。
+- Rationale: 决策 4——workspace_root 创建即定，本地 config 是唯一可信源；即使 IM DB 有脏值，runtime 也不受影响。
+- Evidence:
+  - Tests: `pytest tests/ -m "not e2e"` — 2682 passed, 1 skipped
+  - Entry: N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 新增 test_sync_agent_ignores_mirror_workspace_root_and_uses_local_config；更新两个现有测试以反映修后正确语义
+  - Visual/Interaction: N/A
+- Rollback: `git revert b8e8e6f`（C2），`git revert a4b7fb4`（C1）
+- Commits: C1=a4b7fb4, C2=b8e8e6f, C3=（本次）
+- Next: R3 — update_profile 删除 workspace_root 参数，service 层封口
 
 ---
 
