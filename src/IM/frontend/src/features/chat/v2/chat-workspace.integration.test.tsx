@@ -468,4 +468,47 @@ describe("ChatWorkspacePage v2 — integration", () => {
       expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
     });
   });
+
+  it("bugfix-405: agent.status_changed offline event resolves agent→node and patches nodes cache", async () => {
+    // Page opens; node-prod starts online (default fixture).
+    renderAtRoute("/chat/c1");
+    const chip = await screen.findByText(/laptop-prod/);
+    expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+
+    // SSE event arrives for the agent rather than the node directly.
+    // The fix must look up a-planner's node_id (node-prod) from the agents cache
+    // and patch the nodes cache accordingly.
+    await waitFor(() => expect(capturedStatusHandler).not.toBeNull());
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "agent.status_changed",
+        payload: { agent_id: "a-planner", status: "offline" }
+      });
+    });
+
+    await waitFor(() => {
+      const updatedChip = screen.getByText(/laptop-prod/);
+      expect(updatedChip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
+    });
+  });
+
+  it("bugfix-405: agent.status_changed for unknown agent_id is silently dropped without error", async () => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText(/laptop-prod/);
+
+    await waitFor(() => expect(capturedStatusHandler).not.toBeNull());
+    // Injecting an agent that is not in the agents cache must not throw.
+    expect(() => {
+      act(() => {
+        capturedStatusHandler!({
+          eventType: "agent.status_changed",
+          payload: { agent_id: "a-nonexistent", status: "offline" }
+        });
+      });
+    }).not.toThrow();
+
+    // Node chip remains unchanged (node-prod should still be online).
+    const chip = screen.getByText(/laptop-prod/);
+    expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+  });
 });
