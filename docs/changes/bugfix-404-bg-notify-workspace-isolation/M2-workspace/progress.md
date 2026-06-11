@@ -59,3 +59,54 @@
 - Rollback: `git revert 9ebf733d`（C2），`git revert 14bd9006`（C1）
 - Commits: C1=14bd9006, C2=9ebf733d, C3=（本次）
 - Next: 合入 unit/bugfix-404
+
+---
+
+## Live e2e 验证（unit worktree，2026-06-11）
+
+**环境**：`scripts/e2e-up.sh` 在 unit worktree（`.worktrees/unit-bugfix-404`）起栈，IM 端口 56507，Gateway node_id `wt-unit-bugfix-404-67109`。
+
+**R1+R2 验证 — GET /im/v1/agents（workspace_root 为 worktree 路径，非 managed default）**
+
+```
+agents count: 3
+
+  agent_id:             default-agent
+  workspace_root:       /Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-404/.gateway-workspace/default-agent
+  workspace_is_default: False
+  profile_version:      1
+  node_id:              wt-unit-bugfix-404-67109
+
+  agent_id:             Arch
+  workspace_root:       /Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-404/.gateway-workspace/Arch
+  workspace_is_default: False
+
+  agent_id:             ArchA
+  workspace_root:       /Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-404/.gateway-workspace/ArchA
+  workspace_is_default: False
+```
+
+结论：所有 agent 的 `workspace_root` 均为 worktree 路径，`workspace_is_default: False`。
+
+**R3 验证 — PATCH config（仅改 system_prompt）后 workspace_root 保持不变**
+
+```
+BEFORE PATCH:
+  workspace_root:    .../unit-bugfix-404/.gateway-workspace/default-agent
+  profile_version:   1
+
+PATCH (only system_prompt changed):
+  profile_version after: 2
+  workspace_root after PATCH: .../unit-bugfix-404/.gateway-workspace/default-agent
+  workspace_is_default:       False
+
+Re-query after PATCH:
+  workspace_root:       .../unit-bugfix-404/.gateway-workspace/default-agent
+  workspace_is_default: False
+  profile_version:      2
+  system_prompt:        You are a helpful test agent (e2e-bugfix-404).
+```
+
+结论：PATCH 后 `workspace_root` 保持 worktree 路径不变，`profile_version` 正常递增，system_prompt 已更新。
+
+**收尾**：`scripts/e2e-down.sh` 干净停掉所有服务。
