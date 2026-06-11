@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+import pytest
+
 from personal_assistant.channels.base import InboundMessage, OutboundMessage
 from personal_assistant.gateway.channel_registry import ChannelRegistry
 from personal_assistant.gateway.inbound_pipeline import InboundPipeline
@@ -434,3 +436,63 @@ def test_inbound_pipeline_stream_called_with_session_id(tmp_path: Path) -> None:
     assert result is not None
     assert stream_calls, "kernel.stream() must have been called"
     assert stream_calls[0]["session_id"] == "sess-1"
+
+
+# ---------------------------------------------------------------------------
+# bugfix-404-M3: pipeline must relay BACKGROUND_TASK run output to IM channel
+# (See test_background_session_events.py for the subscriber-level relay tests)
+# ---------------------------------------------------------------------------
+
+
+def test_ensure_background_subscriber_wires_bg_run_output_callback(
+    tmp_path: Path,
+) -> None:
+    """_ensure_background_subscriber must wire bg_run_output_callback when reply_context is given.
+
+    This tests the integration between InboundPipeline._ensure_background_subscriber
+    and BackgroundSessionEventSubscriber: after a main turn completes, the pipeline
+    must create a subscriber with a non-None bg_run_output_callback so that
+    BACKGROUND_TASK-origin run output can be relayed to the IM conversation.
+
+    This is the pipeline-level fix for bugfix-404-M3.
+    """
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    kernel = _FakeSseKernel(
+        events=[
+            {"event": "assistant_message", "run_id": "run-1", "content": "ok", "origin": "user"},
+            {"event": "run_status", "run_id": "run-1", "status": "completed", "origin": "user"},
+        ]
+    )
+
+    pipeline = InboundPipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+
+    inbound = InboundMessage(
+        channel_name="web",
+        text="hi",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+    assert result is not None
+
+    # After the turn, a background subscriber must have been created
+    assert pipeline._bg_subscribers, "background subscriber must be created after main turn"
+    sub = list(pipeline._bg_subscribers.values())[0]
+
+    # The subscriber must have bg_run_output_callback wired (not None)
+    assert sub._bg_run_output_callback is not None, (
+        "BackgroundSessionEventSubscriber must have bg_run_output_callback set "
+        "so BACKGROUND_TASK run output can be relayed to IM (bugfix-404-M3)"
+    )
+
+    asyncio.run(sub.stop())

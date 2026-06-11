@@ -22,9 +22,14 @@ from typing import Any
 
 _log = logging.getLogger(__name__)
 
-# Session-level event names that should be forwarded to the callback.
-# All other events (run_status, assistant_message, etc.) are ignored.
+# Session-level event names that should be forwarded to the on_event callback.
+# All other events (run_status, assistant_message, etc.) are ignored by on_event.
+# BACKGROUND_TASK run output (assistant_message with origin=BACKGROUND_TASK) is handled
+# separately via bg_run_output_callback — see bugfix-404-M3.
 _SESSION_EVENT_NAMES = frozenset({"self_evolution_review"})
+
+# Origin value produced by BACKGROUND_TASK-origin runs (matches RunOrigin.BACKGROUND_TASK).
+_BACKGROUND_TASK_ORIGIN = "BACKGROUND_TASK"
 
 
 class BackgroundSessionEventSubscriber:
@@ -34,16 +39,25 @@ class BackgroundSessionEventSubscriber:
     after the main per-turn SSE loop has terminated and invokes ``on_event`` for
     each matching event.
 
+    Also handles BACKGROUND_TASK-origin run output: when the kernel finishes a
+    BACKGROUND_TASK run and emits an ``assistant_message`` event with
+    ``origin="BACKGROUND_TASK"``, the optional ``bg_run_output_callback`` is called
+    so the gateway can relay the text back to the originating IM conversation.
+    This is the bugfix-404-M3 relay path.
+
     Args:
         kernel_client: Client exposing ``stream_session(session_id, last_event_id, workspace_root)``.
         session_id: Kernel session to subscribe to.
-        on_event: Async callback invoked for each matching session event.
+        on_event: Async callback invoked for each matching session-level event (e.g. self_evolution_review).
         after_sequence: Stream starting sequence (last sequence seen by main loop).
         reconnect_delay: Base delay (seconds) before reconnect on stream error.
         max_reconnect_delay: Maximum backoff delay (seconds).
-        event_filter: Set of event names to forward; defaults to session event names.
+        event_filter: Set of event names to forward to on_event; defaults to session event names.
         workspace_root: Forwarded to stream_session so the stateless kernel can locate
             the session JSONL (Refs #64 — session is per-workspace_root scoped).
+        bg_run_output_callback: Optional async callback invoked when a BACKGROUND_TASK-origin
+            ``assistant_message`` event arrives. Called instead of on_event for those events.
+            If None, BACKGROUND_TASK assistant_message events are silently dropped (pre-M3 behavior).
     """
 
     def __init__(
@@ -57,6 +71,7 @@ class BackgroundSessionEventSubscriber:
         max_reconnect_delay: float = 60.0,
         event_filter: frozenset[str] = _SESSION_EVENT_NAMES,
         workspace_root: str | None = None,
+        bg_run_output_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None = None,
     ) -> None:
         self._kernel_client = kernel_client
         self._session_id = session_id
@@ -68,6 +83,8 @@ class BackgroundSessionEventSubscriber:
         # workspace_root is forwarded to stream_session so the stateless kernel can
         # locate the session JSONL (Refs #64 — session is per-workspace_root scoped).
         self._workspace_root = workspace_root
+        # bugfix-404-M3: relay BACKGROUND_TASK run output back to IM conversation.
+        self._bg_run_output_callback = bg_run_output_callback
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
@@ -115,7 +132,27 @@ class BackgroundSessionEventSubscriber:
                     if isinstance(seq, int):
                         last_sequence = max(last_sequence, seq)
                     event_name = event.get("event")
-                    if event_name in self._event_filter:
+                    # bugfix-404-M3: BACKGROUND_TASK run output takes priority over the
+                    # session-event filter. When a background run finishes, the kernel emits
+                    # assistant_message with origin=BACKGROUND_TASK; route that to the relay
+                    # callback so the text reaches the originating IM conversation.
+                    if (
+                        event_name == "assistant_message"
+                        and event.get("origin") == _BACKGROUND_TASK_ORIGIN
+                        and self._bg_run_output_callback is not None
+                    ):
+                        try:
+                            await self._bg_run_output_callback(event)
+                        except Exception:
+                            _log.warning(
+                                "background run output relay callback error",
+                                exc_info=True,
+                                extra={
+                                    "session_id": self._session_id,
+                                    "event": event_name,
+                                },
+                            )
+                    elif event_name in self._event_filter:
                         try:
                             await self._on_event(event)
                         except Exception:
