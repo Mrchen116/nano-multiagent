@@ -411,6 +411,16 @@ class RunsRegistry:
         """Return the dedicated async event loop used by this registry."""
         return self._async_loop
 
+    @property
+    def session_manager(self) -> SessionManager:
+        """Return the SessionManager held by this registry.
+
+        Exposed as a public property so platform-layer callers (e.g. background_tasks
+        wiring) can access it without reflecting on the private _session_manager
+        attribute (bugfix-404 F3).
+        """
+        return self._session_manager
+
     def get_active_run_id(self, session_id: str) -> str | None:
         """Return the run_id of the currently-executing run for a session, or None."""
         with self._lock:

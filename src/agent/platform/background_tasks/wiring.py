@@ -101,7 +101,8 @@ def _wire_notification_callbacks(
 
     # Extract session_manager once at wire time so _deliver_notification does not
     # need to poke the private attribute at each call (testability + avoids coupling).
-    session_manager = getattr(runs_registry, "_session_manager", None)
+    # bugfix-404 F3: use the public property instead of reflecting on _session_manager.
+    session_manager = runs_registry.session_manager
 
     class _NotifyingStore:
         def __init__(self, delegate: BackgroundTaskStore) -> None:
