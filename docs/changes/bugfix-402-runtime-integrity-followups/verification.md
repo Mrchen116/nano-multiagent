@@ -343,3 +343,170 @@ Gateway 在两处将 `agent_id` 注入 `session_metadata`：
 ---
 
 All checks passed. Verdict: PASS.
+
+---
+
+# Round 4
+
+## Summary
+
+| 维度          | 结果                                                                 |
+|---------------|----------------------------------------------------------------------|
+| Completeness  | 5 个修复 commit 全部对应已识别的缺陷；无未完成 task                  |
+| Correctness   | 每个 commit 均治本（对应根因）；所有场景有测试覆盖；2676 passed      |
+| Coherence     | 全部遵守 design 决策；无新偏离；无架构越界                           |
+
+**Verdict: PASS**
+
+---
+
+## 逐 Commit 核查
+
+### C1: `11d874e9` — pass agent_id in metadata for cron and heartbeat sessions
+
+**根因对应**：`cron_runner._submit_cron_job()` 和 `heartbeat_scheduler._get_or_create_heartbeat_session()` 创建 session 时未传 `metadata={"agent_id": ...}`，导致 `ctx.session_metadata.get("agent_id")` 返回 None → `GatewayCronDispatcher` 找不到 service → `cron_unavailable`。
+
+**改动**：
+- `src/personal_assistant/scheduler/cron_runner.py:125`：`create_session()` 新增 `metadata={"agent_id": self._agent_id}`
+- `src/personal_assistant/scheduler/heartbeat_scheduler.py:432`：`create_session()` 新增 `metadata={"agent_id": agent.agent_id}`
+
+**是否治本**：是。根因是两个 create_session 调用遗漏了 metadata 注入，修复直接在调用处补齐，与 Round 3 确认的"所有 submit 路径均覆盖"分析一致。
+
+**测试覆盖**：
+- `test_cron_runner_awareness.py::test_cron_runner_session_metadata_contains_agent_id`：断言 `create_session` 收到 `metadata={"agent_id": "agent-x"}`
+- `test_heartbeat_scheduler.py::test_heartbeat_session_metadata_contains_agent_id`：断言 heartbeat tick 创建的 session 含正确 `agent_id`
+- 五个测试文件的 `_FakeKernelClient.create_session()` stub 同步更新了签名，消除潜在的 TypeError。
+
+**Design 一致性**：符合决策 2（agent_id 从 session_metadata 解析，不从 workspace_root 推断）；符合 Round 3 确认的架构合规性。
+
+**状态**：covered。
+
+---
+
+### C2: `7bf47782` — close PR review runtime shutdown gaps
+
+此 commit 修复 5 个相互关联的 PR review 反馈缺口：
+
+#### (1) `RunsRegistry.begin_shutdown()` 新方法
+
+**根因**：`Kernel.aclose()` 在启动 `asyncio.to_thread(registry.shutdown)` 之前，没有先将 Registry 切到 DRAINING 状态，存在窗口期让新的 submit 在 aclose 期间被接受。
+
+**修复**：`src/agent/core/runs/registry.py:147` 新增 `begin_shutdown()` 方法（原子 OPEN→DRAINING），`kernel.py:662` 在启动 `to_thread` 之前先调用。`shutdown()` 改为复用 `begin_shutdown()` 避免重复状态转换逻辑。
+
+**是否治本**：是。符合设计决策 6 "进入 DRAINING 后拒绝新 run"的明确要求。
+
+**测试覆盖**：
+- `test_registry_submit_rejected_after_shutdown_begins`：`begin_shutdown()` 后 submit 立即抛 `RegistryClosedError`
+- `test_registry_does_not_register_task_after_shutdown_begins`：竞态窗口中 `_schedule_and_register` 的第三次检查使 run 变 CANCELLED
+- `test_kernel_aclose_uses_registry_shutdown_state_machine`：断言 `begin_shutdown` 在 `shutdown` 之前被调用
+
+#### (2) `_drain_and_stop` 对超时 Tasks 的 QUEUED run 立即 cancel + abort
+
+**根因**：原 `_drain_and_stop` 没有在等待前先向 QUEUED run 发送 cancel/abort 信号，可能导致 QUEUED run 永远等不到调度就被强杀，遗留 RUNNING 状态。
+
+**修复**：`registry.py:217-232`：在 `asyncio.wait()` 之前遍历 owned tasks，对 QUEUED run 调用 `controller.cancel() + abort()`，对 RUNNING run 调用 `abort()`。`asyncio.wait_for` 改为 `asyncio.wait`（避免 TimeoutError 吞掉已完成 task 的结果）。
+
+**是否治本**：是。符合决策 6 "向 queued/running controller 发 cancel/abort"。
+
+#### (3) force-cancel 后 `_mark_shutdown_cancelled()` + `_recover_shutdown_cancelled_session()`
+
+**根因**：原实现 grace timeout 后只做 `task.cancel()`，run 留在 RUNNING 状态，且 orphaned tool call 没有被关闭。
+
+**修复**：`registry.py:250-252`：grace timeout 后调用 `_mark_shutdown_cancelled`（写 CANCELLED + error）和 `_recover_shutdown_cancelled_session`（调 `prepare_transcript_for_run` 关闭 orphaned tool calls + `invalidate_session_cache`）。
+
+**是否治本**：是。是 M1 transcript integrity 在 shutdown 路径上的延伸：shutdown 强杀 Task 也必须触发 prepare_transcript_for_run，与决策 3 一致。
+
+**测试覆盖**：
+- `test_registry_force_cancel_marks_terminal_and_recovers_session`：完整覆盖强杀路径，断言 status=CANCELLED、`prepare_transcript_for_run` 被调用、session cache 被 invalidate
+
+#### (4) runtime 侧 `invalidate_session_cache` 在 cancel recovery 后调用
+
+**根因**：`runtime.py` 在 interrupt/cancel 路径写 recovery entry 后没有 invalidate session cache，下一次 run 会从旧缓存加载 history（含未关闭 tool call），而 recovery entry 只在 JSONL 中。
+
+**修复**：`runtime.py:588`：`append_tool_call_recovery()` 后调用 `self.invalidate_session_cache(session_id)`。
+
+**是否治本**：是。符合决策 3（prepare transcript 后 cache 必须失效）。
+
+**测试覆盖**：
+- `test_runtime_cancelled_recovery_is_visible_to_next_cached_run`：两轮 run 场景，第二轮 history 中包含 recovery tool result，断言 cache 确实被刷新。
+
+#### (5) `test_e2e_down_script.py` 集成测试
+
+新增 `tests/integration/test_e2e_down_script.py::test_gateway_grace_period_uses_point_two_second_ticks`，通过 bash function override 验证 `e2e-down.sh` 在 GATEWAY_GRACE_SECONDS=5 时 `sleep 0.2` 恰好被调用 25 次，并最终执行 `kill -9`。此测试是对 M6 Fix 5（Round 2 fix）的验证补强，无代码层变动，属于测试覆盖补充。
+
+**状态**：全部 covered。
+
+---
+
+### C3: `03d38cac` — proxy IM WebSockets in Vite
+
+**根因**：Vite dev server 的 `/im` 代理只转发 HTTP，没有设置 `ws: true`，导致 WebSocket 连接在 dev 模式下无法通过代理。
+
+**修复**：`src/IM/frontend/vite.config.ts:13`：在 `/im` 代理配置中增加 `ws: true`。
+
+**是否治本**：是。单行修复在配置声明处直接开启 WS 代理。
+
+**范围**：仅 Vite 开发配置，不影响生产 build（生产由 nginx/caddy 代理）。
+
+**测试覆盖**：`tests/vite-proxy-config.test.ts`：通过 `toMatchObject` 断言 Vite config 包含 `{ server: { proxy: { "/im": { ws: true } } } }`。前端测试全绿（32 passed）。
+
+**状态**：covered。
+
+---
+
+### C4: `5d778b81` — release session queue after idle run
+
+**根因**：`InboundPipeline._stream_events_with_timeout`（原为裸 `async for` 循环）对无响应的 kernel run 没有超时机制，静默 hang 会导致同一会话的 FIFO 中后续消息永久阻塞。
+
+**修复**：`src/personal_assistant/gateway/inbound_pipeline.py:769-801`：将 `async for event in stream` 重构为 `while True: await asyncio.wait_for(anext(stream), timeout=...)` 形式，超时后调用 `self._kernel.cancel(run_id)` 并抛 `TimeoutError`，让 session FIFO 继续消费后续消息。`finally` 块确保 async generator 被正确关闭（`aclose()`）。
+
+**是否治本**：是。根因是缺少 per-event 空闲超时，修复引入了 idle-based timeout（每个 kernel 事件都重置计时，长工具调用链不受影响）。
+
+**设计合理性**：`_DEFAULT_RUN_IDLE_TIMEOUT_SECONDS = 120.0` 是幂等的、不影响正常运行的超时（事件驱动，不按总运行时间计）。生产实例化时未显式传参，使用默认值，合理。
+
+**Spec 同步**：`docs/specs/gateway/spec.md` 已新增相应 scenario（`5d778b81` 同一 commit），实现与 spec 一致。
+
+**测试覆盖**：
+- `test_idle_run_is_cancelled_and_next_same_session_message_continues`：`run_idle_timeout_seconds=0.01`，first run 永久 hang → TimeoutError，second message 拿到正确回复，`cancelled_run_ids == ["run-1"]`，channel 收到 "second reply"。
+
+**状态**：covered。
+
+---
+
+### C5: `b0611588` — preserve fenced markdown blocks
+
+**根因**：`MarkdownContent` 原来用 `/\n{2,}/` 按连续空行切分 blocks，fenced code block 内的空行也被当作 block 边界，导致代码块被切断、渲染破坏（raw ` ``` ` 漏出）。
+
+**修复**：`src/IM/frontend/src/features/chat/v2/components/message-pane.tsx:489`：引入 `splitMarkdownBlocks()` 函数，使用状态机区分 fence 内外：
+- fence 外：空行 → flush，非 fence 行 → 累积
+- fence 内：所有行（含空行）→ 累积，不分割
+- ` ``` ` 行：切换 fence 状态，fence 关闭时自动 flush
+
+**是否治本**：是。状态机精确捕获了 GFM fence 语义，避免误切 code block 内空行。
+
+**边缘情况**：未闭合 fence（`inFence = true` 结束时）由末尾 `flush()` 处理，内容不会丢失。嵌套 fence 不在 GFM 标准内，单层 ` ``` ` 处理符合实际使用场景。
+
+**测试覆盖**：
+- `message-pane.test.tsx::keeps blank lines inside fenced code blocks`：含多个空行的 fenced markdown block 渲染为 `<pre><code>`，raw ` ```markdown ` 不出现，"Done." 在 fence 外正常渲染。
+
+**状态**：covered。
+
+---
+
+## 上轮开放项状态
+
+Round 3 advisory A/B（`HostCapabilityContext.agent_id` spec 补条目）为 advisory，本轮 5 个 commit 未覆盖，仍属 advisory 性质，不阻塞 PR。
+
+---
+
+## 全量测试
+
+```
+2676 passed, 1 skipped, 4 deselected in 126s
+```
+
+唯一失败：`test_web_search_returns_results_when_ddgs_available` — 网络超时（startpage.com），与本 unit 任何 commit 无关，pre-existing 环境依赖问题。前端测试（vitest）32 passed。
+
+---
+
+No critical issues. No warnings. Ready for PR.
