@@ -348,13 +348,13 @@ async def test_bg_subscriber_routes_background_task_assistant_message_to_callbac
                 "event": "assistant_message",
                 "run_id": "bg-run-1",
                 "content": "BG404DONE output",
-                "origin": "BACKGROUND_TASK",
+                "origin": "background_task",
             },
             {
                 "event": "run_status",
                 "run_id": "bg-run-1",
                 "status": "completed",
-                "origin": "BACKGROUND_TASK",
+                "origin": "background_task",
             },
         )
     )
@@ -374,7 +374,7 @@ async def test_bg_subscriber_routes_background_task_assistant_message_to_callbac
     assert len(routed) == 1, f"expected 1 routed event, got {routed}"
     assert routed[0]["event"] == "assistant_message"
     assert routed[0]["content"] == "BG404DONE output"
-    assert routed[0]["origin"] == "BACKGROUND_TASK"
+    assert routed[0]["origin"] == "background_task"
 
     # on_event must NOT be called for BACKGROUND_TASK assistant_message events
     assert on_event_received == [], (
@@ -481,7 +481,7 @@ async def test_bg_subscriber_relay_reaches_outbound_channel() -> None:
                 "event": "assistant_message",
                 "run_id": "bg-run-relay",
                 "content": "BG404DONE",
-                "origin": "BACKGROUND_TASK",
+                "origin": "background_task",
             },
         )
     )

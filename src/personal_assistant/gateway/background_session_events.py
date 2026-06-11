@@ -28,8 +28,9 @@ _log = logging.getLogger(__name__)
 # separately via bg_run_output_callback — see bugfix-404-M3.
 _SESSION_EVENT_NAMES = frozenset({"self_evolution_review"})
 
-# Origin value produced by BACKGROUND_TASK-origin runs (matches RunOrigin.BACKGROUND_TASK).
-_BACKGROUND_TASK_ORIGIN = "BACKGROUND_TASK"
+# Origin value produced by BACKGROUND_TASK-origin runs.
+# Must match RunOrigin.BACKGROUND_TASK.value = "background_task" (StrEnum, lowercase).
+_BACKGROUND_TASK_ORIGIN = "background_task"
 
 
 class BackgroundSessionEventSubscriber:
