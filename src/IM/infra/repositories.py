@@ -1839,12 +1839,18 @@ class AgentProfileRepository:
         tool_allowlist: list[str],
         group_reply_policy: str,
         default_model: str | None,
-        workspace_root: str | None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
         heartbeat_json: str | None = None,
     ) -> "AgentProfile":
-        """Update a profile with optimistic locking on profile_version."""
+        """Update a profile with optimistic locking on profile_version.
+
+        workspace_root is intentionally excluded from this method — it is set
+        once at agent creation and is immutable afterwards (bugfix-404-M2
+        decision 5).  Any call-site passing workspace_root via the service
+        layer would silently reset it to the managed default; removing the
+        parameter makes that a compile-time error instead.
+        """
         current = self.get_profile(agent_id=agent_id)
         if current is None:
             raise ValueError("agent_id not found")
@@ -1876,7 +1882,6 @@ class AgentProfileRepository:
                     tool_allowlist_json = ?,
                     group_reply_policy = ?,
                     default_model = ?,
-                    workspace_root = ?,
                     profile_version = ?,
                     updated_at = ?,
                     features_json = ?,
@@ -1892,7 +1897,6 @@ class AgentProfileRepository:
                     _encode_json_list(tool_allowlist),
                     group_reply_policy,
                     default_model,
-                    workspace_root,
                     next_version,
                     updated_at,
                     features_json,

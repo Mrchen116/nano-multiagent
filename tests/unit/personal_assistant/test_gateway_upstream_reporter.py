@@ -161,6 +161,37 @@ def test_build_tool_names_includes_memory_and_skill_manage() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# bugfix-404-M2 R1: send_register 帧必须携带 agent_workspaces 字段
+# ---------------------------------------------------------------------------
+
+
+def test_send_register_includes_agent_workspaces(tmp_path: Path) -> None:
+    """node.register 帧必须包含 agent_workspaces 映射（bugfix-404-M2 决策 3）。
+
+    修前：帧只有 agents: [id]，不含 workspace_root 信息，IM 首次注册时凭空填 managed default。
+    修后：帧还带 agent_workspaces: {agent_id: workspace_root}，让 IM 能用正确路径落库种子。
+    """
+    from personal_assistant.config.local_store import AgentWorkspaceConfig
+
+    workspace = tmp_path / "my-workspace"
+    workspace.mkdir()
+    frames: list[tuple[str, dict[str, object]]] = []
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="n1"),
+        agents=(AgentWorkspaceConfig(agent_id="Arch", workspace_root=workspace),),
+        send_frame=lambda mt, p: frames.append((mt, p)),
+        capabilities=build_runtime_capabilities(),
+    )
+    payload = reporter.send_register()
+    assert "agent_workspaces" in payload, (
+        "node.register 帧必须含 agent_workspaces 字段 (bugfix-404-M2 决策 3)"
+    )
+    assert payload["agent_workspaces"] == {"Arch": str(workspace)}, (
+        "agent_workspaces 必须是 {agent_id: workspace_root} 映射"
+    )
+
+
 def test_build_tool_names_contains_all_feature_registry_requires_tool() -> None:
     """capabilities.tools 必须含 FEATURE_REGISTRY 中所有 requires_tool 工具。
 

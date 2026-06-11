@@ -145,7 +145,6 @@ def test_enqueue_message_relay_advances_group_profile_version_without_overwritin
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
-        workspace_root=None,
     )
 
     # bugfix-358: mention format changed from "@agent-a" text to XML tag.
@@ -219,7 +218,6 @@ def test_enqueue_message_relay_uses_live_group_prompt_when_conversation_has_no_m
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
-        workspace_root=None,
     )
 
     # bugfix-358: mention format changed from "@agent-a" text to XML tag.

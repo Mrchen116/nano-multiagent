@@ -174,12 +174,18 @@ class ConfigService:
         tool_allowlist: list[str],
         group_reply_policy: str,
         default_model: str | None,
-        workspace_root: str | None,
         features: dict[str, bool] | None = None,
         custom_prompt: str | None = None,
         heartbeat_json: str | None = None,
     ) -> AgentProfile:
         """Update one agent profile using profile_version optimistic locking.
+
+        workspace_root is intentionally absent — it is set at creation and is
+        immutable thereafter (bugfix-404-M2 decision 5).  The HTTP layer already
+        excludes it via UpdateAgentConfigRequest (extra="ignore"), so removing
+        the parameter here closes the service-level gap that previously caused
+        normalize_workspace_root(None) to silently reset a custom path to the
+        managed default on every UI config edit.
 
         feat-379-M5 (ISSUE-2): features + custom_prompt are now accepted so
         the IM mirror stores them and subsequent GET /config calls return the
@@ -201,9 +207,6 @@ class ConfigService:
             tool_allowlist=tool_allowlist,
             group_reply_policy=group_reply_policy,
             default_model=default_model,
-            workspace_root=self.normalize_workspace_root(
-                agent_id=agent_id, workspace_root=workspace_root
-            ),
             features=features,
             custom_prompt=custom_prompt,
             heartbeat_json=heartbeat_json,

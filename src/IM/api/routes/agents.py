@@ -415,7 +415,7 @@ def update_agent_config(
             tool_allowlist=payload.tool_allowlist,
             group_reply_policy=payload.group_reply_policy,
             default_model=payload.default_model,
-            workspace_root=None,
+            # bugfix-404-M2: workspace_root removed from update_profile — immutable after creation
             features=payload.features if payload.features is not None else None,
             custom_prompt=payload.custom_prompt,
             heartbeat_json=payload.heartbeat_json,

@@ -298,6 +298,15 @@ class UpstreamReporter:
             "node_name": self._node_name,
             "version": self._version,
             "agents": [agent.agent_id for agent in self._agents],
+            # bugfix-404-M2: carry per-agent workspace seeds so IM can persist
+            # the correct path on first registration instead of synthesising a
+            # managed default.  IM uses "first seen wins" semantics — existing
+            # profiles are not overwritten (feat-379-M6 pattern, decision 3).
+            "agent_workspaces": {
+                agent.agent_id: str(agent.workspace_root)
+                for agent in self._agents
+                if agent.workspace_root is not None
+            },
             "capabilities": self._capabilities.register_flags_payload(),
         }
         if self._node.user_id is not None:

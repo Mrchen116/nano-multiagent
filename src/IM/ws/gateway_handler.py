@@ -814,6 +814,14 @@ class GatewayHandler:
     ) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
         agents = _require_string_list(payload.get("agents", []), field_name="agents")
+        # bugfix-404-M2 decision 3: optional field carrying per-agent workspace seeds.
+        # Old gateway frames omit this field; IM falls back to managed_workspace_root.
+        raw_workspaces = payload.get("agent_workspaces")
+        agent_workspaces: dict[str, str] = (
+            {k: v for k, v in raw_workspaces.items() if isinstance(k, str) and isinstance(v, str)}
+            if isinstance(raw_workspaces, dict)
+            else {}
+        )
         cap_raw = payload.get("capabilities")
         if cap_raw is None:
             capabilities: dict[str, object] = {}
@@ -858,7 +866,10 @@ class GatewayHandler:
                     runtime_tool_allowlist: list[str] = []
                     runtime_group_reply_policy = "MENTION"
                     runtime_default_model: str | None = None
-                    runtime_workspace_root = managed_workspace_root(agent_id)
+                    # bugfix-404-M2 decision 3: use the gateway-supplied workspace seed
+                    # on first registration; fall back to managed default only when the
+                    # frame does not carry agent_workspaces (old gateway compatibility).
+                    runtime_workspace_root = agent_workspaces.get(agent_id) or managed_workspace_root(agent_id)
                 else:
                     runtime_display_name = existing.display_name
                     runtime_description = existing.description

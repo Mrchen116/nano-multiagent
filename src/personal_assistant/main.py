@@ -319,9 +319,21 @@ class _IMConfigSyncClient:
                     raise RuntimeError(
                         f"agent {agent_id} config stale: expected >= {profile_version}, got {resolved_profile_version}"
                     )
-                workspace_root_text = payload.get("workspace_root")
-                if isinstance(workspace_root_text, str) and workspace_root_text.strip():
-                    workspace_root = Path(workspace_root_text).expanduser().resolve()
+                # bugfix-404-M2 decision 4: workspace_root is immutable after agent creation
+                # and must come exclusively from the local config for agents that exist
+                # there (the single source of truth per Q4 product decision).  The IM
+                # mirror value is display-only and must NOT override the local config —
+                # an incorrect IM value (e.g., a legacy managed-default in a dirty DB)
+                # would otherwise override the correct worktree-scoped path.
+                # For agents created via IM UI (not yet in local config), fall through
+                # to the factory — their workspace_root will be written back into
+                # local config by handle_agent_create (AGENTS.md "Gateway 自动写回").
+                local_agent = next(
+                    (a for a in self._local_config.agents if a.agent_id == agent_id),
+                    None,
+                )
+                if local_agent is not None and local_agent.workspace_root is not None:
+                    workspace_root = local_agent.workspace_root
                 else:
                     workspace_root = self._workspace_root_factory(agent_id)
                 workspace_root = ensure_workspace_defaults(workspace_root)

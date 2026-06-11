@@ -41,6 +41,20 @@ def _build_handler(tmp_path: Path) -> GatewayHandler:
     )
 
 
+def _build_handler_with_node_repo(tmp_path: Path) -> GatewayHandler:
+    """构建带 NodeRepository 的 handler，用于验证 agent profile 落库行为。"""
+    from IM.infra.repositories import NodeRepository
+
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    return GatewayHandler(
+        relay_service=RelayService(connection),
+        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+        conversation_repository=ConversationRepository(connection),
+        node_repository=NodeRepository(connection),
+    )
+
+
 def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) -> None:
     """Record register/heartbeat/report payloads under one active node."""
     handler = _build_handler(tmp_path)
@@ -1207,7 +1221,7 @@ def test_heartbeat_json_persisted_and_readable(tmp_path) -> None:
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
-        workspace_root=str(tmp_path / "ws-hb"),
+        # bugfix-404-M2: workspace_root removed from update_profile — immutable after creation
         heartbeat_json=hb_json_str,
     )
     assert updated.heartbeat_json == hb_json_str
@@ -1239,4 +1253,117 @@ def test_update_request_and_response_have_heartbeat_json_field() -> None:
     )
     assert "heartbeat_json" in resp_fields, (
         "AgentConfigResponse missing heartbeat_json field"
+    )
+
+
+# ---------------------------------------------------------------------------
+# bugfix-404-M2 R1: _handle_register 种子落库三场景
+# ---------------------------------------------------------------------------
+
+
+def test_handle_register_with_agent_workspaces_seeds_first_seen_profile(
+    tmp_path: Path,
+) -> None:
+    """首次注册时，若帧携带 agent_workspaces，则用上报值落库（而非凭空填 managed default）。
+
+    bugfix-404-M2 决策 3：种子链路修复——IM 首次见到 agent 时用上报值，不再凭空填默认路径。
+    """
+    handler = _build_handler_with_node_repo(tmp_path)
+    ws_path = "/worktrees/bugfix-404-M2/.gateway-workspace/Arch"
+    asyncio.run(
+        handler.handle_message(
+            websocket=StubWebSocket(),
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["Arch"],
+                "capabilities": {},
+                "agent_workspaces": {"Arch": ws_path},
+            },
+        )
+    )
+    conn = handler._node_repository._connection
+    row = conn.execute(
+        "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?", ("Arch",)
+    ).fetchone()
+    assert row is not None
+    assert row["workspace_root"] == ws_path, (
+        f"首次注册时 workspace_root 应为上报值 {ws_path!r}，实际为 {row['workspace_root']!r}"
+    )
+
+
+def test_handle_register_preserves_existing_workspace_on_reregister(
+    tmp_path: Path,
+) -> None:
+    """已存在 profile 时，即使帧携带不同 agent_workspaces，也保持 DB 中的既有值（幂等语义）。
+
+    bugfix-404-M2 决策 3：首见才写种子，已存在则不动（与 feat-379-M6 同模式）。
+    """
+    handler = _build_handler_with_node_repo(tmp_path)
+    original_ws = "/original/workspace/Arch"
+    new_ws = "/different/workspace/Arch"
+    # 首次注册，确立原始值
+    asyncio.run(
+        handler.handle_message(
+            websocket=StubWebSocket(),
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["Arch"],
+                "capabilities": {},
+                "agent_workspaces": {"Arch": original_ws},
+            },
+        )
+    )
+    # 重新注册，携带不同 workspace（模拟断线重连）
+    asyncio.run(
+        handler.handle_message(
+            websocket=StubWebSocket(),
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["Arch"],
+                "capabilities": {},
+                "agent_workspaces": {"Arch": new_ws},
+            },
+        )
+    )
+    conn = handler._node_repository._connection
+    row = conn.execute(
+        "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?", ("Arch",)
+    ).fetchone()
+    assert row is not None
+    assert row["workspace_root"] == original_ws, (
+        f"重新注册时 workspace_root 应保持原值 {original_ws!r}，不应被覆盖为 {new_ws!r}"
+    )
+
+
+def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
+    tmp_path: Path,
+) -> None:
+    """帧不含 agent_workspaces 字段时，退回旧行为：用 managed_workspace_root 填充。
+
+    向后兼容性：老版本 gateway 发的帧无 agent_workspaces，IM 应走原路逻辑不报错。
+    """
+    handler = _build_handler_with_node_repo(tmp_path)
+    asyncio.run(
+        handler.handle_message(
+            websocket=StubWebSocket(),
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["LegacyAgent"],
+                "capabilities": {},
+                # 无 agent_workspaces 字段
+            },
+        )
+    )
+    conn = handler._node_repository._connection
+    row = conn.execute(
+        "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
+        ("LegacyAgent",),
+    ).fetchone()
+    assert row is not None
+    assert row["workspace_root"] is not None and "LegacyAgent" in row["workspace_root"], (
+        "无 agent_workspaces 时应退回 managed default 路径，路径须含 agent_id"
     )
