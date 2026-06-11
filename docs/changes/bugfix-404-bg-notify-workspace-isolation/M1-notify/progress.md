@@ -44,7 +44,7 @@
   - Entry: N/A（内核内部投递路径，无独立入口）
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: e2e 端到端验证 — `e2e-up.sh` 起栈（worktree 内 ephemeral 端口，agent workspace_root 指向 `.gateway-workspace/default-agent`，`workspace_is_default=false`）；发消息让 default-agent 后台跑 `sleep 5 && echo BG404DONE`；session JSONL(`sess_43aebc488044f77c`) 证明：① bash tool 以 `run_in_background=true` 注册任务 `b99031c268e0dae7d`；② 任务完成后 `<task-notification>` 以 `role=user` 注入父 session（修前路径在非默认 workspace 下会 ValueError 静默失败，修后成功）；③ agent 读到输出文件内容 `BG404DONE` 并正常回复；修复路径全通。
+  - E2E/Regression: e2e 端到端验证（`sleep 30` 版）— `e2e-up.sh` 起栈（unit worktree，ephemeral port，`workspace_is_default=false`，workspace_root=`.gateway-workspace/default-agent`）；发 IM 直聊消息让 default-agent 后台运行 `sleep 30 && echo BG404DONE`；agent 确认 task_id=`b34a6d2128033ec14`；任务完成后 session JSONL(`sess_274d4058af8d2a03`) 出现：① `<task-notification role=user>` 注入父 session，task-id=`b34a6d2128033ec14`，status=`completed`，output-file 在 worktree 内 ② agent 第二轮 read 工具读取输出文件，得到 `BG404DONE` ③ agent 回复"The background task completed successfully. Output: `BG404DONE`"；修复路径全通（非默认 workspace 下 `_deliver_notification` → `submit(workspace_root=…)` 链路正常）。Gateway relay 未将第二轮回复推回 IM 对话，为独立 issue，超出 M1 内核层范围。
   - Visual/Interaction: N/A
 - Rollback: 回退到 4c34a85（R2 C2）
 - Commits: C1=87fb7b4, C2=2f81f0a, C3=3c085d10
