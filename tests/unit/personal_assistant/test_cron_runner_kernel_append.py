@@ -38,6 +38,7 @@ class _FakeKernelClient:
         product_id: str,
         title: str | None = None,
         session_id: str | None = None,
+        metadata: dict | None = None,
     ) -> dict:
         self._session_counter += 1
         sid = session_id or f"sess-{self._session_counter}"
