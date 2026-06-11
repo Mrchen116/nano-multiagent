@@ -3615,30 +3615,34 @@ def _build_bg_reply_sender(
         im_connection_manager_factory: Returns the live IM connection manager (may be None).
 
     Returns:
-        Async callable ``(text, reply_context, agent_id) -> None``.
+        Async callable ``(text, reply_context, from_session_id) -> None``.
+        ``from_session_id`` should carry the ``|tool_call:<key>`` suffix built
+        by the caller (inbound_pipeline) for IM-side deduplication (bugfix-404 F1).
     """
     from personal_assistant.channels.base import ReplyContext as _RC  # noqa: PLC0415
 
-    async def _sender(text: str, reply_context: _RC, agent_id: str) -> None:
+    async def _sender(text: str, reply_context: _RC, from_session_id: str) -> None:
         manager = im_connection_manager_factory()
         if manager is None or not manager.connected:
             return
         conversation_id = reply_context.target_chat_id
-        if not conversation_id or not agent_id or not text.strip():
+        if not conversation_id or not from_session_id or not text.strip():
             return
         try:
             await manager.send_agent_message(
                 {
                     "text": text.strip(),
                     "to": conversation_id,
-                    "from_session_id": agent_id,
+                    # from_session_id carries optional "|tool_call:<key>" suffix so
+                    # IM deduplicates replayed bg replies (bugfix-404 F1).
+                    "from_session_id": from_session_id,
                 }
             )
         except Exception as exc:  # noqa: BLE001
             _log.warning(
-                "bg_reply_sender send_agent_message failed (conv=%s agent=%s): %s",
+                "bg_reply_sender send_agent_message failed (conv=%s from=%s): %s",
                 conversation_id,
-                agent_id,
+                from_session_id,
                 exc,
             )
 

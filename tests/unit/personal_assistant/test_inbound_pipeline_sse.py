@@ -497,7 +497,7 @@ def test_ensure_background_subscriber_wires_bg_run_output_callback(
     # Case 2: _bg_reply_sender is wired → bg_run_output_callback must be non-None
     sent_texts: list[str] = []
 
-    async def _fake_bg_reply_sender(text: str, reply_context: Any, agent_id: str) -> None:
+    async def _fake_bg_reply_sender(text: str, reply_context: Any, from_session_id: str) -> None:
         sent_texts.append(text)
 
     pipeline_with_sender = InboundPipeline(
@@ -530,3 +530,81 @@ def test_ensure_background_subscriber_wires_bg_run_output_callback(
         "so BACKGROUND_TASK run output can be relayed to IM (bugfix-404-M3)"
     )
     asyncio.run(sub_with_sender.stop())
+
+
+@pytest.mark.asyncio
+async def test_bg_relay_callback_carries_idempotency_key(tmp_path: Path) -> None:
+    """bg_run_output_callback must pass a from_session_id with |tool_call: suffix.
+
+    bugfix-404 F1: without a stable idempotency key in from_session_id, IM has no
+    dispatch_request_key and cannot deduplicate replayed BACKGROUND_TASK replies
+    after a gateway restart.  The relay closure must encode
+    ``<agent_id>|tool_call:<kernel_session_id>:<seq>`` as the from_session_id so
+    IM's _handle_agent_message dedup path is engaged.
+
+    Regression (修前红): before F1, from_session_id was bare ``<agent_id>`` with no
+    ``|tool_call:`` suffix → dispatch_request_key was None → dedup skipped → same
+    message duplicated in IM on replay.
+    """
+    from personal_assistant.gateway.background_session_events import (
+        BackgroundSessionEventSubscriber,
+    )
+
+    captured: list[str] = []
+
+    async def _sender(text: str, reply_context: Any, from_session_id: str) -> None:
+        captured.append(from_session_id)
+
+    agents = _agents(tmp_path)
+    pipeline = InboundPipeline(
+        kernel=_FakeSseKernel(
+            events=[
+                {"event": "assistant_message", "run_id": "run-1", "content": "done", "origin": "user"},
+                {"event": "run_status", "run_id": "run-1", "status": "completed", "origin": "user"},
+            ]
+        ),
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((_FakeChannel("web"),))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    pipeline._bg_reply_sender = _sender  # type: ignore[assignment]
+
+    inbound = InboundMessage(
+        channel_name="web",
+        text="run bg task",
+        external_user_id="user-1",
+        external_chat_id="chat-bg-f1",
+        is_group=False,
+    )
+    await pipeline.handle_inbound(inbound)
+    assert pipeline._bg_subscribers, "subscriber must be created"
+    sub = list(pipeline._bg_subscribers.values())[0]
+    assert sub._bg_run_output_callback is not None
+
+    # Simulate two BACKGROUND_TASK assistant_message events with the same sequence
+    # (replay scenario — gateway restarted and replays from last_sequence=0).
+    bg_event = {
+        "event": "assistant_message",
+        "origin": "background_task",
+        "content": "BG result",
+        "_id": 42,
+        "run_id": "bg-run-1",
+    }
+    await sub._bg_run_output_callback(bg_event)
+    await sub._bg_run_output_callback(bg_event)
+
+    # Both calls produce the same from_session_id (idempotency key is stable).
+    assert len(captured) == 2, "callback must fire twice (dedup is IM's job)"
+    for fsi in captured:
+        assert "|tool_call:" in fsi, (
+            f"from_session_id {fsi!r} must contain '|tool_call:' suffix so IM "
+            "dedup path (dispatch_request_key) is engaged (bugfix-404 F1)"
+        )
+    # Both invocations carry identical from_session_id → IM sees same dispatch_request_key.
+    assert captured[0] == captured[1], (
+        "Replayed event must produce identical from_session_id for IM deduplication"
+    )
+
+    await sub.stop()

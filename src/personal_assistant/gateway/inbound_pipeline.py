@@ -774,14 +774,30 @@ class InboundPipeline:
             agent_id_for_relay = (
                 session_key.rsplit(":", 1)[-1] if session_key else ""
             )
+            # bugfix-404 F1: build a stable per-event idempotency key so IM
+            # deduplicates replayed BACKGROUND_TASK replies after gateway restarts.
+            # IM dedup path: from_session_id contains "|tool_call:<key>" →
+            # dispatch_request_key = f"{agent_id}:{key}" used as idempotency token
+            # (see gateway_handler.py _handle_agent_message / _resolve_dispatch_source).
+            # Key = kernel_session_id + ":" + event sequence number (stable, per-event).
+            captured_kernel_session_id = kernel_session_id
 
             async def _relay_bg_run_output(event: Mapping[str, Any]) -> None:
                 content = event.get("content")
                 if isinstance(content, str) and content.strip():
+                    seq = event.get("_id") or event.get("sequence_num")
+                    idempotency_key = (
+                        f"{captured_kernel_session_id}:{seq}"
+                        if seq is not None
+                        else captured_kernel_session_id
+                    )
+                    from_session_id = (
+                        f"{agent_id_for_relay}|tool_call:{idempotency_key}"
+                    )
                     await bg_reply_sender(
                         content.strip(),
                         captured_reply_context,
-                        agent_id_for_relay,
+                        from_session_id,
                     )
 
             bg_run_output_callback = _relay_bg_run_output
