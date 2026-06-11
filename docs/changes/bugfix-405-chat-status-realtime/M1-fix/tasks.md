@@ -32,6 +32,7 @@ SSE 事件，收到后分别更新 `["chat-v2", "nodes"]` 和 `["chat-v2", "agen
 
 ### R1: 补 regression 测试（Red） [DONE]
 
+
 在 `chat-workspace.integration.test.tsx` 加两个测试 case：
 - Case A：SSE `node.status_changed` offline 事件 → Node chip 变为 offline 样式
 - Case B：随后 SSE `node.status_changed` online 事件 → Node chip 恢复 online 样式

@@ -145,8 +145,51 @@ online → offline → online 状态转换，因此该跨页面消费缺口未�
 
 ## 修复
 
-由实施阶段回填。
+在 `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx` 中新增一个
+`useEffect`，订阅 `attachUserConversationStream` 的 owner-scoped WS 流，消费
+`node.status_changed` 和 `agent.status_changed` 两类事件：
+
+- `node.status_changed`：直接通过 `queryClient.setQueryData` 原地 patch
+  `["chat-v2", "nodes"]` 缓存（对应节点的 `status` 字段），触发所有从该缓存
+  派生的展示（Node chip、侧栏状态点、mention 候选 status）同步重渲染。
+- `agent.status_changed`：通过 agents 缓存找到 agent 的 `node_id`，再 patch
+  nodes 缓存中对应节点的 `status`，使推导链保持一致。
+
+新增两个 import：`attachUserConversationStream`（来自 `im-chat-api`）和
+`useAuthStore`（来自 `auth-store`），与 `nodes-page.tsx` / `agent-status-ws-consumer.ts`
+现有模式完全对称，不引入新机制。
+
+关键 commit：
+- C1（Red）: `42492c6` — test: 补 node.status_changed 双向状态转换 regression 测试
+- C2（Green）: `9ad971b` — fix: 订阅 SSE node/agent.status_changed 事件，实时 patch nodes query cache
 
 ## 验证
 
-由实施阶段回填。
+### 自动化测试
+
+```
+cd src/IM/frontend && npx vitest run
+PASS (376) FAIL (0)
+```
+
+新增两个 regression case（`chat-workspace.integration.test.tsx`），覆盖
+`node.status_changed` offline / online 双向切换路径。C1 阶段均 Red（capturedStatusHandler
+为 null，证明修复前 page 未消费事件），C2 实现后全绿。原有 7 个 case 保持不变。
+
+### 真实浏览器验收
+
+**环境**：主仓 IM（8011），Gateway 进程（demo-node），Vite dev 前端（59197，代理到
+8011）；浏览器打开 Chat 页（对话 890d997763e04c4ba9150a9679a156db，K总）。
+
+**步骤与观察**：
+
+1. 打开 Chat 页 → Node chip `demo-node` 无 `--online` 修饰符（Gateway 当时 offline）。
+2. 执行 `PYTHONPATH=src python -m personal_assistant.main --foreground` 重启 Gateway。
+3. IM 后端确认 demo-node 状态变为 online（`GET /im/v1/nodes` 返回 `"status":"online"`）。
+4. **不刷新页面**，数秒内 Chat 页 Node chip 自动变为 `chat-node-chip chat-node-chip--online`（绿色）；
+   侧栏 K总 对话头像状态点同时变绿。
+5. `document.querySelector('.chat-node-chip--online') !== null` → `true`（浏览器 JS 断言）。
+6. Console 无新 JS 错误（WS 重连期间 warning 为预期行为，来自旧 token 连接关闭）。
+
+**截图**：Gateway 重连后 Chat 页截图显示 demo-node chip 绿色，侧栏 K总 头像绿色状态点，
+与修复前对比验证 fix.md 中描述的用户原始症状已消失，用户不需要刷新页面。

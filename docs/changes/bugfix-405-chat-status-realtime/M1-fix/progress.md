@@ -13,7 +13,7 @@
   - E2E/Regression: chat-workspace.integration.test.tsx（新增两 case）
   - Visual/Interaction: N/A（chip class 断言覆盖 online/offline 视觉状态）
 - Rollback: C1 commit
-- Commits: C1=<hash>
+- Commits: C1=42492c6
 
 ## R2 — 实现 SSE 订阅（Green）
 
@@ -28,8 +28,20 @@
   - E2E/Regression: 通过
   - Visual/Interaction: chip class 切换验证
 - Rollback: C1 commit（回退至 C2 前）
-- Commits: C1=<hash>, C2=<hash>
+- Commits: C1=42492c6, C2=9ad971b
 
 ## R3 — 文档 + fix.md 回填
 
+- Context: fix.md 修复/验证两段需要回填；tasks.md / progress.md 补齐；telemetry 关闭 vite dev server。
+- Decision: 回填 fix.md，更新 progress.md，提交 C3。
+- Rationale: lite 模式要求在合并前完成 fix.md 回填。
+- Evidence:
+  - Tests: PASS (376) FAIL (0) — 全部前端测试绿
+  - Entry: 浏览器验收通过（见 fix.md「验证」段）
+  - Frontend State Matrix: online/offline 双向覆盖; 多 agent 隔离覆盖（集成测试）
+  - Browser QA: Gateway 重连后 Chat 页 chip 自动变绿，无需刷新；console 无新 error
+  - E2E/Regression: chat-workspace.integration.test.tsx 新增 2 case，全绿
+  - Visual/Interaction: /tmp/bugfix-405-after-online.png（chip 绿色 online 状态）
+- Rollback: C2=9ad971b
 - Commits: C3=<hash>
+- Next: 合并到 unit 分支
