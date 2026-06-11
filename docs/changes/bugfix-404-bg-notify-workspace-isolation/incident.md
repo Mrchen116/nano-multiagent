@@ -161,6 +161,6 @@
 按 Q4 产品决策"workspace_root 创建时定死，UI 不可改"收敛：
 
 - 创建即权威：agent 创建时（本地 config 启动注册 / IM 前端新建流程）确定 workspace_root，作为种子写入 IM profile——IM 不得再为已有真实值的 agent 凭空填 managed default
-- 移除 IM UI 的 workspace_root 编辑入口，改为只读展示（`workspace_is_default` 标识保留）
+- 封死 workspace_root 的全部变更面（design 调研更正：前端输入框已是只读、HTTP update schema 本就不含该字段；真窟窿在 service 层 update 把 None 归一化为 managed default，任何一次配置编辑都会重置它——一并修复）
 - Gateway `sync_agent` 回拉时 workspace_root 不再被 IM mirror 覆盖（来源唯一后两者必然一致，冲突路径删除）
 - e2e 回归：worktree 内 `e2e-up.sh` 起的 gateway，IM 广播与 runtime 实际 workspace 均为 worktree 路径，主仓 workspace 零读写

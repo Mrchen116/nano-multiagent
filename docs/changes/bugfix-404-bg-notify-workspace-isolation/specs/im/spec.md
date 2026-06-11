@@ -21,9 +21,14 @@ IM 处理 `node.register` 时，对帧中**首次出现**（无既有 profile）
 - **WHEN** 收到不含 `agent_workspaces` 字段的 `node.register`
 - **THEN** agent Y 按 managed default 落库（修复前行为）
 
-### Requirement: agent workspace_root 创建后不可经配置接口修改
+### Requirement: agent workspace_root 创建后不可经配置更新修改
 
-agent 的 workspace_root 在创建时确定（agent.create 由节点分配 / node.register 种子），此后 update config 接口忽略 payload 中的 workspace_root 字段，存量值保持。
+agent 的 workspace_root 在创建时确定（agent.create 由节点分配 / node.register 种子），update config 接口不含该字段（请求中出现也被忽略），且任何配置更新都不改变已存的 workspace_root。
+
+#### Scenario: 配置更新不重置 workspace_root
+- **GIVEN** agent X 的 profile workspace_root 为非默认路径 P
+- **WHEN** 调用 update config 接口修改其他字段（如 system_prompt），payload 不含 workspace_root
+- **THEN** 返回成功，workspace_root 仍为 P（修复前：被重置为 managed default）
 
 #### Scenario: update config 携带 workspace_root 被忽略
 - **GIVEN** agent X 的 profile workspace_root 为 P

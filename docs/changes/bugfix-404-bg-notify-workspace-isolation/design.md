@@ -22,7 +22,7 @@
 - `src/personal_assistant/reporter/upstream_reporter.py:300` —— `node.register` 帧只发 `agents: [agent_id]`，不带 workspace_root
 - `src/IM/ws/gateway_handler.py:_handle_register` —— 新 agent 落库 `managed_workspace_root(agent_id)` 凭空填 default（注释自认 "node.register only carries agent_ids"）
 - `src/personal_assistant/main.py:322-326` —— `sync_agent` 回拉 IM mirror，workspace_root 非空即覆盖本地 config
-- `src/IM/api/routes/agents.py:203-231` —— update config API 仍接受 workspace_root 修改（Q4 决策后的残留可变更面）
+- `src/IM/application/config_service.py` —— **真正的残留可变更面**：HTTP 层 `UpdateAgentConfigRequest` 本不含 workspace_root（`extra:"ignore"`，符合 OUTPUT_ONLY 惯例），但路由调 `update_profile(workspace_root=None)`，`normalize_workspace_root(None)` 把 None 落库为 managed default——**任何一次 UI 配置编辑都会把 workspace_root 重置回默认路径**（incident.md 引的 `routes/agents.py:203` 是读路径 live-snapshot 合并，系误读，已更正）
 
 ### 既有约束
 
@@ -108,12 +108,12 @@
 - **拒绝**: 仅靠决策 3 种子正确、回拉照旧 —— 存量脏 DB 下缺陷照样复现；"本地 YAML 永远赢"扩大到全字段 —— 阉割配置中心能力，违反不变量
 - **风险**: IM 前端新建 agent 的路径（agent.create → gateway 分配 workspace → 写回本地 config）必须保持闭环，否则本地 config 缺条目时 fallback factory 会算出默认路径——该写回逻辑已存在（AGENTS.md 明确 Gateway 自动写回），回归测试覆盖
 
-### 决策 5: update config API 忽略 workspace_root 字段（缺陷二·封口）
+### 决策 5: service 层 update 路径不得触碰 workspace_root（缺陷二·封口）
 
-- **选择**: `PUT/POST agent config`（`src/IM/api/routes/agents.py` update 路径）收到 payload 中的 workspace_root 时**忽略**（保持存量值），不报错；`workspace_is_default` 展示语义不变
-- **理由**: 前端 detail 页提交时可能携带原值（disabled input 仍在 form state 里），400-reject 会破坏现有客户端；忽略 = 字段 immutable 的最小实现
-- **拒绝**: 400 显式拒绝 —— 兼容破坏；从 request model 删字段 —— pydantic 严格模式下旧客户端带字段会 422，同样破坏兼容
-- **风险**: "静默忽略"对 API 直调用户有认知成本——在 delta-spec 与 IM 契约层写明 immutable 语义
+- **选择**: 从 `ConfigService.update_profile` 签名删除 `workspace_root` 参数，repo 层 update 保持存量值不动。HTTP 层无需改——`UpdateAgentConfigRequest` 本就不含该字段且 `extra: "ignore"`（符合 AIP-203 OUTPUT_ONLY 惯例：节点分配字段只出现在响应）
+- **理由**: 现状真窟窿在 service 层——路由传 `workspace_root=None`，`normalize_workspace_root(None)` 把 None 落库为 managed default，**任何一次 UI 配置编辑都会把 workspace_root 重置回默认**。主仓默认路径下不可见；不修它，决策 3 的种子值会被第一次 UI 编辑冲掉。删参数比"None=保持"语义更彻底：编译期就杜绝再有人传值
+- **拒绝**: HTTP 层加忽略逻辑 —— 框架层已忽略，画蛇添足；service 层保留参数改"None=保持存量" —— 弱于删参数，下个调用方仍可能传值复活窟窿
+- **风险**: `update_profile` 其他调用方（若有）需同步改签名——M2 范围加 `src/IM/application/config_service.py`，worker grep 全部调用方
 
 ## 接口与数据流
 
@@ -176,8 +176,9 @@ gateway sync_agent（main.py）:
   workspace_root = local_config[agent_id].workspace_root or workspace_root_factory(agent_id)
   # ★ 不再读 payload["workspace_root"]；其余字段照旧取 mirror
 
-IM update config API（routes/agents.py）:
-  payload.pop("workspace_root")  语义上忽略 → 存量值保持   # ★ immutable
+IM ConfigService.update_profile（application/config_service.py）:
+  签名删除 workspace_root 参数；repo update 不写该列 → 存量值保持   # ★ immutable
+  （HTTP 层 UpdateAgentConfigRequest 本就不含该字段,extra:"ignore",无需改）
 ```
 
 ## 契约层增量 (delta-spec)
@@ -211,7 +212,7 @@ IM update config API（routes/agents.py）:
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | bugfix-404-M1 | notify | — | A | `src/agent/core/background_tasks/`（models.py, registry.py）、`src/agent/platform/background_tasks/wiring.py`、`src/agent/platform/tools/builtins/bash.py`、`src/agent/platform/tools/builtins/agent.py`、对应 tests | `[reviewer]` IM 直聊让 agent 后台跑 `sleep 60 && echo X`：先收到"已启动"，任务完成后收到含结果的第二条回复（非默认 workspace 的 PA agent 上验）；`[reviewer]` 后台 subagent（agent 工具 run_in_background）完成后同样收到结果回复；`[worker]` 回归测试：非默认 workspace_root 下 bash + subagent 完成通知送达 parent session（修前红）；`[worker]` 子 session 的后台任务完成不起顶层 run（跳过语义保留，测试覆盖）；`[worker]` 前台 budget 内完成仍不发通知（#19 不回归）；`[worker]` 投递失败路径产生 log_error（测试断言日志）；`[worker]` `pytest tests/ -m "not e2e"` 全绿 |
-| bugfix-404-M2 | workspace | — | B | `src/personal_assistant/reporter/upstream_reporter.py`、`src/personal_assistant/main.py`（sync_agent 段）、`src/IM/ws/gateway_handler.py`、`src/IM/api/routes/agents.py`、对应 tests | `[reviewer]` worktree 内 `e2e-up.sh` 起栈后，`GET /im/v1/agents` 广播的 workspace_root 为 worktree 路径（非主仓），`workspace_is_default=false`；`[reviewer]` worktree gateway 运行期间主仓 `~/nano-assistant/workspace/` 零写入；`[reviewer]` 主仓默认配置用户行为不变（agents 广播与现状一致）；`[worker]` node.register 带 agent_workspaces 的种子落库测试（首见用上报值、已存在不覆盖、无字段退回旧行为）；`[worker]` sync_agent 不采用 mirror workspace_root 的单测（IM 给脏值，runtime config 仍为本地值）；`[worker]` update API 忽略 workspace_root 的回归测试；`[worker]` `pytest tests/ -m "not e2e"` 全绿 |
+| bugfix-404-M2 | workspace | — | B | `src/personal_assistant/reporter/upstream_reporter.py`、`src/personal_assistant/main.py`（sync_agent 段）、`src/IM/ws/gateway_handler.py`、`src/IM/application/config_service.py`、`src/IM/api/routes/agents.py`（update 路由调用处）、对应 tests | `[reviewer]` worktree 内 `e2e-up.sh` 起栈后，`GET /im/v1/agents` 广播的 workspace_root 为 worktree 路径（非主仓），`workspace_is_default=false`；`[reviewer]` worktree gateway 运行期间主仓 `~/nano-assistant/workspace/` 零写入；`[reviewer]` 主仓默认配置用户行为不变（agents 广播与现状一致）；`[reviewer]` UI 编辑 agent 其他配置（如 system prompt）后 workspace_root 保持不变；`[worker]` node.register 带 agent_workspaces 的种子落库测试（首见用上报值、已存在不覆盖、无字段退回旧行为）；`[worker]` sync_agent 不采用 mirror workspace_root 的单测（IM 给脏值，runtime config 仍为本地值）；`[worker]` `update_profile` 不再有 workspace_root 参数，update 后存量非默认值保持（修前红：update 会重置为 managed default）；`[worker]` `pytest tests/ -m "not e2e"` 全绿 |
 
 ```mermaid
 graph LR
