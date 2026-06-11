@@ -76,6 +76,9 @@ RelayLifecycleCallback = Callable[
 _TERMINAL_RUN_STATUSES = TERMINAL_RUN_STATUSES
 # Default port for the Gateway's internal HTTP dispatch endpoint.
 _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
+# Keep the Gateway's run owner aligned with IM's relay watchdog. The timeout is
+# idle-based: every kernel event resets it, so active long-running tool loops continue.
+_DEFAULT_RUN_IDLE_TIMEOUT_SECONDS = 120.0
 
 
 def resolve_effective_tool_allowlist(
@@ -127,6 +130,8 @@ class InboundPipeline:
             (``POST /internal/dispatch``).  Injected into kernel session metadata as
             ``gateway_dispatch_url`` so product tools (e.g. ``send_message``) can post
             outbound messages back through the Gateway without a separate discovery step.
+        run_idle_timeout_seconds: Maximum silence between kernel events before the
+            active run is cancelled so the per-session FIFO can continue.
 
     Notes:
         Group-chat traffic honors the gateway @mention gate (see docs/specs/gateway/spec.md) before any kernel
@@ -147,10 +152,13 @@ class InboundPipeline:
         relay_lifecycle_callback: RelayLifecycleCallback | None = None,
         group_context_store: GroupContextStore | None = None,
         gateway_internal_port: int = _DEFAULT_GATEWAY_INTERNAL_PORT,
+        run_idle_timeout_seconds: float = _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS,
         kernel_event_observer: Callable[[Mapping[str, Any]], None] | None = None,
         session_event_callback: Callable[[str, Mapping[str, Any]], Awaitable[None]]
         | None = None,
     ) -> None:
+        if run_idle_timeout_seconds <= 0:
+            raise ValueError("run_idle_timeout_seconds must be > 0")
         self._kernel = kernel
         self._agents = {agent.agent_id: agent for agent in agents}
         self._outbound_router = outbound_router
@@ -163,6 +171,7 @@ class InboundPipeline:
         self._relay_lifecycle_callback = relay_lifecycle_callback
         self._group_context_store = group_context_store
         self._gateway_internal_port = gateway_internal_port
+        self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, str] = {}
         self._active_runs_lock = asyncio.Lock()
         # feat-340-M2: bootstrap wires this to an IM event_bridge consumer so the browser
@@ -760,35 +769,55 @@ class InboundPipeline:
         reply_text = ""
         run_state: Mapping[str, object] | None = None
 
-        async for event in self._kernel.stream(
+        stream = self._kernel.stream(
             kernel_session_id, after_sequence=anchor_sequence or 0
-        ):
-            # Kernel.stream() yields flattened dicts (sdk-fix-r3); .get() works directly.
-            if event.get("run_id") != run_id:
-                if on_other is not None:
-                    result = on_other(event)
+        )
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(
+                        anext(stream), timeout=self._run_idle_timeout_seconds
+                    )
+                except StopAsyncIteration:
+                    break
+                except TimeoutError:
+                    self._kernel.cancel(run_id)
+                    raise TimeoutError(
+                        "kernel run "
+                        f"{run_id} produced no events for "
+                        f"{self._run_idle_timeout_seconds:g}s"
+                    ) from None
+
+                # Kernel.stream() yields flattened dicts (sdk-fix-r3); .get() works directly.
+                if event.get("run_id") != run_id:
+                    if on_other is not None:
+                        result = on_other(event)
+                        if asyncio.iscoroutine(result):
+                            await result
+                    continue
+                if self._kernel_event_observer is not None:
+                    # Bridge consumer raises if it cannot translate — let it propagate so we don't
+                    # silently swallow malformed kernel events.
+                    result = self._kernel_event_observer(event)
                     if asyncio.iscoroutine(result):
                         await result
-                continue
-            if self._kernel_event_observer is not None:
-                # Bridge consumer raises if it cannot translate — let it propagate so we don't
-                # silently swallow malformed kernel events.
-                result = self._kernel_event_observer(event)
-                if asyncio.iscoroutine(result):
-                    await result
-            event_name = event.get("event")
-            if event_name == "assistant_message":
-                content = event.get("content")
-                if isinstance(content, str):
-                    reply_text = content
-            elif event_name == "run_status":
-                status = event.get("status")
-                if status in _TERMINAL_RUN_STATUSES:
-                    run_state = event
-                    # bugfix-380: break instead of raising immediately so any
-                    # assistant_message event already in the SSE buffer gets consumed
-                    # before we exit. The raise happens below after the loop.
-                    break
+                event_name = event.get("event")
+                if event_name == "assistant_message":
+                    content = event.get("content")
+                    if isinstance(content, str):
+                        reply_text = content
+                elif event_name == "run_status":
+                    status = event.get("status")
+                    if status in _TERMINAL_RUN_STATUSES:
+                        run_state = event
+                        # bugfix-380: break instead of raising immediately so any
+                        # assistant_message event already in the SSE buffer gets consumed
+                        # before we exit. The raise happens below after the loop.
+                        break
+        finally:
+            close_stream = getattr(stream, "aclose", None)
+            if callable(close_stream):
+                await close_stream()
 
         if run_state is None:
             raise RuntimeError("stream ended without terminal run_status")

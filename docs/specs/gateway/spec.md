@@ -41,6 +41,11 @@ import 内核内部(由 `tests/contract/` 把守)。
 - **WHEN** 两条消息先后进入 Gateway
 - **THEN** 同一会话的消息排进串行 FIFO 队列、前一轮结束后才消费下一条;不同会话的消息并行推进,互不阻塞
 
+#### Scenario: 静默运行失败后释放同会话队列
+- **GIVEN** 同一会话的前一轮已开始运行,但持续 120 秒没有任何内核事件,后一条消息正在 FIFO 中等待
+- **WHEN** Gateway 判定前一轮失去进展
+- **THEN** Gateway 取消前一轮并上报失败,随后消费后一条消息,不得让该会话永久阻塞
+
 #### Scenario: 路由到未知 Agent 被拒
 - **WHEN** 入站消息显式指定一个 Gateway 未注册的 `agent_id`
 - **THEN** Gateway 拒绝该路由(抛 `LookupError`),不创建会话也不执行
