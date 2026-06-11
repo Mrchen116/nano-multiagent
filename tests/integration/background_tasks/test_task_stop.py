@@ -126,6 +126,11 @@ class _RunsRegistryStub:
     def get_event_loop(self) -> Any | None:
         return None
 
+    @property
+    def session_manager(self) -> None:
+        # bugfix-404 F3: stub satisfies the public property added to RunsRegistry.
+        return None
+
     def inject_pending_message(self, session_id: str, message: LLMMessage) -> bool:
         self.injections.append({"session_id": session_id, "message": message})
         return True
