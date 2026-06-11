@@ -377,6 +377,59 @@ def test_registry_submit_rejected_after_shutdown(tmp_path: Path) -> None:
         )
 
 
+def test_registry_submit_rejected_after_shutdown_begins(tmp_path: Path) -> None:
+    """begin_shutdown() must reject new runs before the blocking drain starts."""
+    from agent.core.runs.registry import RegistryClosedError
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
+
+    registry.begin_shutdown()
+
+    import pytest
+
+    with pytest.raises(RegistryClosedError):
+        registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "too late"}],
+        )
+    registry.shutdown()
+
+
+def test_registry_does_not_register_task_after_shutdown_begins(
+    tmp_path: Path,
+) -> None:
+    """A submit already queued onto the loop must become terminal during drain."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
+    loop = registry.get_event_loop()
+    original_call_soon = loop.call_soon_threadsafe
+    scheduled: list[object] = []
+
+    def _defer(callback, *args):  # noqa: ANN001
+        scheduled.append((callback, args))
+
+    loop.call_soon_threadsafe = _defer
+    submitted = registry.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": "racing submit"}],
+    )
+    registry.begin_shutdown()
+    callback, args = scheduled.pop()
+    callback(*args)
+    loop.call_soon_threadsafe = original_call_soon
+
+    final = registry.get(submitted.run_id)
+    assert final is not None
+    assert final.status is RunStatus.CANCELLED
+    assert final.stop_reason == "shutdown"
+    registry.shutdown()
+
+
 def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
     """shutdown() must wait for all running Tasks to reach terminal state before stopping loop."""
     import threading
@@ -438,6 +491,68 @@ def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
     assert final.status is RunStatus.COMPLETED, (
         f"expected COMPLETED, got {final.status}"
     )
+
+
+def test_registry_force_cancel_marks_terminal_and_recovers_session(
+    tmp_path: Path,
+) -> None:
+    """A run that exceeds shutdown grace must not remain RUNNING."""
+    import asyncio
+    from unittest.mock import MagicMock
+
+    class _NeverEndingRuntime:
+        def __init__(self) -> None:
+            self.invalidated_sessions: list[str] = []
+
+        async def run(
+            self,
+            session_id: str,
+            parts,
+            *,
+            stream: bool = True,
+            run_id: str | None = None,
+            controller=None,
+            workspace_root=None,
+            origin=None,
+        ):  # noqa: ANN001, ANN201
+            del parts, stream, run_id, controller, workspace_root, origin
+            await asyncio.Event().wait()
+
+        def invalidate_session_cache(self, session_id: str) -> None:
+            self.invalidated_sessions.append(session_id)
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    manager.prepare_transcript_for_run = MagicMock(
+        wraps=manager.prepare_transcript_for_run
+    )
+    runtime = _NeverEndingRuntime()
+    registry = RunsRegistry(
+        runtime=runtime,
+        session_manager=manager,
+        drain_timeout_seconds=0.01,
+    )
+
+    submitted = registry.submit(
+        session_id=session.session_id,
+        parts=[{"type": "text", "text": "block forever"}],
+        workspace_root=tmp_path,
+    )
+    _wait_for(lambda: registry.get(submitted.run_id).status is RunStatus.RUNNING)
+
+    registry.shutdown()
+
+    final = registry.get(submitted.run_id)
+    assert final is not None
+    assert final.status is RunStatus.CANCELLED
+    assert final.stop_reason == "shutdown"
+    manager.prepare_transcript_for_run.assert_called_once_with(
+        session.session_id,
+        reason="shutdown",
+        workspace_root=tmp_path,
+    )
+    assert runtime.invalidated_sessions == [session.session_id]
 
 
 async def _create_asyncio_event() -> _asyncio.Event:

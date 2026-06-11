@@ -153,6 +153,16 @@ class TestPermanentErrors:
         )
         assert classify_retryability(facts) is False
 
+    def test_authentication_facts_override_insufficient_permissions_text(self) -> None:
+        """Explicit auth facts stay permanent despite quota-like wording."""
+        facts = ProviderErrorFacts(
+            message="insufficient permissions for this API key",
+            http_status=401,
+            provider_code="invalid_api_key",
+            provider_type="authentication_error",
+        )
+        assert classify_retryability(facts) is False
+
     def test_bare_credit_word_without_billing_context(self) -> None:
         """bugfix-402-M6: bare 'credit' no longer matches; requires compound phrase."""
         facts = ProviderErrorFacts(

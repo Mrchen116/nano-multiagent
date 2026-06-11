@@ -898,6 +898,85 @@ async def test_runtime_eager_recovery_on_cancel(
     assert recovery_entries[0]["reason"] == "cancelled"
 
 
+async def test_runtime_cancelled_recovery_is_visible_to_next_cached_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The next run in the same process must receive the synthetic tool result."""
+    from agent.core import ids
+    from agent.core.agent import runtime as _runtime_mod
+    from agent.core.types import Message
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    runtime = AgentRuntime(
+        session_manager=manager, llm_client=FakeLLMClient(), model="mock-model"
+    )
+    histories: list[tuple[Message, ...]] = []
+
+    async def _fake_execute_loop(
+        self_inner,
+        *,
+        history=(),
+        **_kwargs,  # noqa: ANN001
+    ):
+        histories.append(tuple(history))
+        if len(histories) == 1:
+            yield Message(
+                message_id=ids.make_message_id(),
+                role="assistant",
+                content="",
+                metadata={
+                    "tool_calls": [
+                        {
+                            "call_id": "tc_cached_cancel",
+                            "name": "echo",
+                            "arguments": {},
+                        }
+                    ]
+                },
+            )
+            yield Message(
+                message_id=ids.make_message_id(),
+                role="turn_meta",
+                content="",
+                metadata={"stop_reason": "cancelled", "completed": False},
+            )
+            return
+        yield Message(
+            message_id=ids.make_message_id(),
+            role="assistant",
+            content="recovered",
+        )
+        yield Message(
+            message_id=ids.make_message_id(),
+            role="turn_meta",
+            content="",
+            metadata={"stop_reason": "completed", "completed": True},
+        )
+
+    monkeypatch.setattr(_runtime_mod.AgentRuntime, "_execute_loop", _fake_execute_loop)
+
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "cancel this"}],
+        stream=False,
+    )
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "continue"}],
+        stream=False,
+    )
+
+    second_history = histories[1]
+    assert any(
+        message.role == "tool"
+        and message.tool_call_id == "tc_cached_cancel"
+        and message.metadata.get("is_recovery") is True
+        for message in second_history
+    )
+
+
 async def test_runtime_no_eager_recovery_on_completed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -659,6 +659,7 @@ class Kernel:
         import asyncio as _asyncio  # noqa: PLC0415
 
         registry = self._c.runs_registry
+        registry.begin_shutdown()
         loop = registry.get_event_loop()
         if loop is not None and loop.is_running():
             # Run shutdown() in a thread so the Registry's blocking drain_future.result()

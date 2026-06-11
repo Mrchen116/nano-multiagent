@@ -582,6 +582,10 @@ class AgentRuntime:
                             _needs_flush = True
                 if _needs_flush:
                     await self._session_manager.writer.flush_async()
+                    # The recovery event was appended outside ``history``. Drop
+                    # the cache so the next turn materializes the synthetic tool
+                    # result from JSONL instead of reusing the open tool call.
+                    self.invalidate_session_cache(session_id)
         except ModelError as exc:
             await self._session_manager.writer.flush_async()
             # Attempt overflow recovery: compact then retry once.

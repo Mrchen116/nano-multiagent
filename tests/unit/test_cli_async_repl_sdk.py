@@ -550,6 +550,9 @@ def test_kernel_aclose_idempotent(tmp_path: Path) -> None:
         def __init__(self):
             self.shutdown_count = 0
 
+        def begin_shutdown(self):
+            return True
+
         def get_event_loop(self):
             # Return None so aclose falls back to synchronous shutdown().
             return None
@@ -596,12 +599,17 @@ def test_kernel_aclose_uses_registry_shutdown_state_machine(tmp_path: Path) -> N
     class _TrackingRegistry:
         def __init__(self):
             self._shutdown_event = threading.Event()
+            self.calls: list[str] = []
 
         def get_event_loop(self):
             # Simulate running loop so aclose uses asyncio.to_thread path.
             return MagicMock(is_running=lambda: True)
 
+        def begin_shutdown(self):
+            self.calls.append("begin_shutdown")
+
         def shutdown(self, **_kwargs):
+            self.calls.append("shutdown")
             shutdown_called_from_thread.append(threading.current_thread().name)
             self._shutdown_event.set()
 
@@ -624,3 +632,4 @@ def test_kernel_aclose_uses_registry_shutdown_state_machine(tmp_path: Path) -> N
     assert len(shutdown_called_from_thread) == 1, (
         "RunsRegistry.shutdown() must be called exactly once by aclose()"
     )
+    assert reg.calls == ["begin_shutdown", "shutdown"]
