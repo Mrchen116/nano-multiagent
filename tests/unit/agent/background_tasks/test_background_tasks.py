@@ -336,3 +336,52 @@ def test_prompt_block_contains_rules() -> None:
     assert "<task-notification>" in BACKGROUND_TASK_PROMPT_BLOCK
     assert "not new user requests" in BACKGROUND_TASK_PROMPT_BLOCK
     assert "Do not thank them" in BACKGROUND_TASK_PROMPT_BLOCK
+
+
+# ---------------------------------------------------------------------------
+# workspace_root 携带（bugfix-404-M1 回归）
+# ---------------------------------------------------------------------------
+
+
+def test_register_bash_carries_workspace_root() -> None:
+    """register_bash 必须把 workspace_root 存进 record。"""
+    reg = BackgroundTaskRegistry()
+    record = reg.register_bash(
+        task_id="b1234567890abcdef",
+        parent_session_id="sess-1",
+        description="run tests",
+        command="pytest",
+        output_file="/tmp/out.output",
+        workspace_root="/custom/workspace",
+    )
+    assert record.workspace_root == "/custom/workspace"
+
+
+def test_register_subagent_carries_workspace_root() -> None:
+    """register_subagent 必须把 workspace_root 存进 record。"""
+    reg = BackgroundTaskRegistry()
+    record = reg.register_subagent(
+        task_id="a1234567890abcdef",
+        parent_session_id="sess-1",
+        agent_id="a1234567890abcdef",
+        agent_session_id="sub-1",
+        description="test agent",
+        prompt="do thing",
+        agent_type="explore",
+        output_file="/tmp/out.jsonl",
+        workspace_root="/custom/workspace",
+    )
+    assert record.workspace_root == "/custom/workspace"
+
+
+def test_register_bash_workspace_root_defaults_none() -> None:
+    """不传 workspace_root 时默认 None，向后兼容。"""
+    reg = BackgroundTaskRegistry()
+    record = reg.register_bash(
+        task_id="b1234567890abcdef",
+        parent_session_id="sess-1",
+        description="run tests",
+        command="pytest",
+        output_file="/tmp/out.output",
+    )
+    assert record.workspace_root is None
