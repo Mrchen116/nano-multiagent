@@ -462,8 +462,18 @@ def test_ensure_background_subscriber_wires_bg_run_output_callback(
     channel = _FakeChannel("web")
     kernel = _FakeSseKernel(
         events=[
-            {"event": "assistant_message", "run_id": "run-1", "content": "ok", "origin": "user"},
-            {"event": "run_status", "run_id": "run-1", "status": "completed", "origin": "user"},
+            {
+                "event": "assistant_message",
+                "run_id": "run-1",
+                "content": "ok",
+                "origin": "user",
+            },
+            {
+                "event": "run_status",
+                "run_id": "run-1",
+                "status": "completed",
+                "origin": "user",
+            },
         ]
     )
 
@@ -497,14 +507,26 @@ def test_ensure_background_subscriber_wires_bg_run_output_callback(
     # Case 2: _bg_reply_sender is wired → bg_run_output_callback must be non-None
     sent_texts: list[str] = []
 
-    async def _fake_bg_reply_sender(text: str, reply_context: Any, from_session_id: str) -> None:
+    async def _fake_bg_reply_sender(
+        text: str, reply_context: Any, from_session_id: str
+    ) -> None:
         sent_texts.append(text)
 
     pipeline_with_sender = InboundPipeline(
         kernel=_FakeSseKernel(
             events=[
-                {"event": "assistant_message", "run_id": "run-1", "content": "ok", "origin": "user"},
-                {"event": "run_status", "run_id": "run-1", "status": "completed", "origin": "user"},
+                {
+                    "event": "assistant_message",
+                    "run_id": "run-1",
+                    "content": "ok",
+                    "origin": "user",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run-1",
+                    "status": "completed",
+                    "origin": "user",
+                },
             ]
         ),
         agents=agents,
@@ -559,8 +581,18 @@ async def test_bg_relay_callback_carries_idempotency_key(tmp_path: Path) -> None
     pipeline = InboundPipeline(
         kernel=_FakeSseKernel(
             events=[
-                {"event": "assistant_message", "run_id": "run-1", "content": "done", "origin": "user"},
-                {"event": "run_status", "run_id": "run-1", "status": "completed", "origin": "user"},
+                {
+                    "event": "assistant_message",
+                    "run_id": "run-1",
+                    "content": "done",
+                    "origin": "user",
+                },
+                {
+                    "event": "run_status",
+                    "run_id": "run-1",
+                    "status": "completed",
+                    "origin": "user",
+                },
             ]
         ),
         agents=agents,

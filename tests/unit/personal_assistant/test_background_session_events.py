@@ -444,7 +444,11 @@ async def test_bg_subscriber_relay_reaches_outbound_channel() -> None:
 
     This is the bugfix-404-M3 core behavior test.
     """
-    from personal_assistant.channels.base import InboundMessage, OutboundMessage, ReplyContext
+    from personal_assistant.channels.base import (
+        InboundMessage,
+        OutboundMessage,
+        ReplyContext,
+    )
     from personal_assistant.gateway.background_session_events import (
         BackgroundSessionEventSubscriber,
     )
@@ -456,9 +460,14 @@ async def test_bg_subscriber_relay_reaches_outbound_channel() -> None:
         name = "web"
         sent: list[OutboundMessage] = []
 
-        def start(self, _): pass
-        def send(self, msg): self.sent.append(msg)
-        def stop(self): pass
+        def start(self, _):
+            pass
+
+        def send(self, msg):
+            self.sent.append(msg)
+
+        def stop(self):
+            pass
 
     channel = _FakeChannel()
     registry = ChannelRegistry((channel,))

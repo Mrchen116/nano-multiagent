@@ -22,7 +22,9 @@ def setup(hooks):  # noqa: ANN001, ANN201
         # Include run_origin as "origin" so downstream subscribers (e.g.
         # BackgroundSessionEventSubscriber) can distinguish BACKGROUND_TASK
         # assistant_message events from regular inbound-triggered run outputs.
-        run_origin = ctx.metadata.get("run_origin") if hasattr(ctx, "metadata") else None
+        run_origin = (
+            ctx.metadata.get("run_origin") if hasattr(ctx, "metadata") else None
+        )
         payload = {
             "event": "assistant_message",
             "run_id": run_id,

@@ -162,8 +162,13 @@ def _deliver_notification(
         Path(record.workspace_root) if record.workspace_root is not None else None
     )
     if session_manager is not None:
-        parent_session = session_manager.get_session(parent, workspace_root=workspace_root)
-        if parent_session is not None and parent_session.metadata.get("kind") == "subagent":
+        parent_session = session_manager.get_session(
+            parent, workspace_root=workspace_root
+        )
+        if (
+            parent_session is not None
+            and parent_session.metadata.get("kind") == "subagent"
+        ):
             log_debug(
                 "background_task_notify_skip_subagent_parent",
                 task_id=record.task_id,

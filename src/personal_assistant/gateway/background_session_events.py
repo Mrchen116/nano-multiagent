@@ -72,7 +72,8 @@ class BackgroundSessionEventSubscriber:
         max_reconnect_delay: float = 60.0,
         event_filter: frozenset[str] = _SESSION_EVENT_NAMES,
         workspace_root: str | None = None,
-        bg_run_output_callback: Callable[[Mapping[str, Any]], Awaitable[None]] | None = None,
+        bg_run_output_callback: Callable[[Mapping[str, Any]], Awaitable[None]]
+        | None = None,
     ) -> None:
         self._kernel_client = kernel_client
         self._session_id = session_id

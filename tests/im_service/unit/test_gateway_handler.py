@@ -1364,6 +1364,6 @@ def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
         ("LegacyAgent",),
     ).fetchone()
     assert row is not None
-    assert row["workspace_root"] is not None and "LegacyAgent" in row["workspace_root"], (
-        "无 agent_workspaces 时应退回 managed default 路径，路径须含 agent_id"
-    )
+    assert (
+        row["workspace_root"] is not None and "LegacyAgent" in row["workspace_root"]
+    ), "无 agent_workspaces 时应退回 managed default 路径，路径须含 agent_id"

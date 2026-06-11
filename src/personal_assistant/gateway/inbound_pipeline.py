@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from typing import Literal
 
-from personal_assistant.channels.base import InboundMessage, OutboundMessage, ReplyContext
+from personal_assistant.channels.base import (
+    InboundMessage,
+    OutboundMessage,
+    ReplyContext,
+)
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.background_session_events import (
     BackgroundSessionEventSubscriber,
@@ -185,9 +189,7 @@ class InboundPipeline:
         # a BACKGROUND_TASK run reply back to IM.  Wired by main.py after im_connection_manager
         # is created.  None disables BACKGROUND_TASK relay (outbound_router.send_text() is a
         # no-op for the web_relay channel, so this must be the real IM send path).
-        self._bg_reply_sender: (
-            "Callable[[str, ReplyContext, str], Awaitable[None]] | None"
-        ) = None
+        self._bg_reply_sender: "Callable[[str, ReplyContext, str], Awaitable[None]] | None" = None
         # Tracks active BackgroundSessionEventSubscribers by kernel_session_id.
         self._bg_subscribers: dict[str, BackgroundSessionEventSubscriber] = {}
 
@@ -771,9 +773,7 @@ class InboundPipeline:
             bg_reply_sender = self._bg_reply_sender
             # Extract agent_id from session_key ("channel:conv_id:agent_id").
             # Fall back to empty string if session_key is absent or malformed.
-            agent_id_for_relay = (
-                session_key.rsplit(":", 1)[-1] if session_key else ""
-            )
+            agent_id_for_relay = session_key.rsplit(":", 1)[-1] if session_key else ""
             # bugfix-404 F1: build a stable per-event idempotency key so IM
             # deduplicates replayed BACKGROUND_TASK replies after gateway restarts.
             # IM dedup path: from_session_id contains "|tool_call:<key>" →

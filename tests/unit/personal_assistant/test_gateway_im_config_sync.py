@@ -100,9 +100,7 @@ def test_im_config_sync_client_retries_until_live_agent_config_reaches_target_ve
             AgentWorkspaceConfig(
                 agent_id="seed-agent", workspace_root=(tmp_path / "seed-workspace")
             ),
-            AgentWorkspaceConfig(
-                agent_id="agent-live", workspace_root=workspace_root
-            ),
+            AgentWorkspaceConfig(agent_id="agent-live", workspace_root=workspace_root),
         ),
         channels=(),
         kernel=KernelConfig(),
@@ -801,9 +799,7 @@ def test_sync_agent_ignores_mirror_workspace_root_and_uses_local_config(
     config_path = tmp_path / "config.yaml"
     local_config = LocalConfig(
         node=NodeConfig(node_id="node-1"),
-        agents=(
-            AgentWorkspaceConfig(agent_id="Arch", workspace_root=local_ws),
-        ),
+        agents=(AgentWorkspaceConfig(agent_id="Arch", workspace_root=local_ws),),
         channels=(),
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),

@@ -818,7 +818,11 @@ class GatewayHandler:
         # Old gateway frames omit this field; IM falls back to managed_workspace_root.
         raw_workspaces = payload.get("agent_workspaces")
         agent_workspaces: dict[str, str] = (
-            {k: v for k, v in raw_workspaces.items() if isinstance(k, str) and isinstance(v, str)}
+            {
+                k: v
+                for k, v in raw_workspaces.items()
+                if isinstance(k, str) and isinstance(v, str)
+            }
             if isinstance(raw_workspaces, dict)
             else {}
         )
@@ -869,7 +873,9 @@ class GatewayHandler:
                     # bugfix-404-M2 decision 3: use the gateway-supplied workspace seed
                     # on first registration; fall back to managed default only when the
                     # frame does not carry agent_workspaces (old gateway compatibility).
-                    runtime_workspace_root = agent_workspaces.get(agent_id) or managed_workspace_root(agent_id)
+                    runtime_workspace_root = agent_workspaces.get(
+                        agent_id
+                    ) or managed_workspace_root(agent_id)
                 else:
                     runtime_display_name = existing.display_name
                     runtime_description = existing.description

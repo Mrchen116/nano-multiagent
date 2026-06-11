@@ -497,7 +497,11 @@ def _make_runs_registry_stub(
 def test_deliver_notification_submits_for_top_level_session() -> None:
     """parent 为顶层 session（非 subagent）时，应调用 runs_registry.submit 并带 workspace_root。"""
     from pathlib import Path
-    from agent.core.background_tasks.models import BackgroundTaskRecord, BackgroundTaskType, BackgroundTaskStatus
+    from agent.core.background_tasks.models import (
+        BackgroundTaskRecord,
+        BackgroundTaskType,
+        BackgroundTaskStatus,
+    )
     from agent.platform.background_tasks.wiring import _deliver_notification
 
     runs_registry = _make_runs_registry_stub(
@@ -525,7 +529,11 @@ def test_deliver_notification_submits_for_top_level_session() -> None:
 
 def test_deliver_notification_skips_subagent_parent_session() -> None:
     """parent 为 subagent session（kind='subagent'）时，跳过，不调用 submit。"""
-    from agent.core.background_tasks.models import BackgroundTaskRecord, BackgroundTaskType, BackgroundTaskStatus
+    from agent.core.background_tasks.models import (
+        BackgroundTaskRecord,
+        BackgroundTaskType,
+        BackgroundTaskStatus,
+    )
     from agent.platform.background_tasks.wiring import _deliver_notification
 
     runs_registry = _make_runs_registry_stub(
@@ -550,7 +558,11 @@ def test_deliver_notification_skips_subagent_parent_session() -> None:
 
 def test_deliver_notification_logs_error_on_submit_failure() -> None:
     """submit 失败（如 ValueError: session does not exist）时，触发 log_error，不吞掉。"""
-    from agent.core.background_tasks.models import BackgroundTaskRecord, BackgroundTaskType, BackgroundTaskStatus
+    from agent.core.background_tasks.models import (
+        BackgroundTaskRecord,
+        BackgroundTaskType,
+        BackgroundTaskStatus,
+    )
     from agent.platform.background_tasks.wiring import _deliver_notification
     import agent.core.observability.logger as logger_module
 
@@ -577,18 +589,25 @@ def test_deliver_notification_logs_error_on_submit_failure() -> None:
         logged_errors.append((event, kwargs))
 
     import unittest.mock
+
     with unittest.mock.patch.object(logger_module, "log_error", _capture_log_error):
         _deliver_notification(record, runs_registry, runs_registry._session_manager)
 
-    assert any("notify" in event or "deliver" in event or "background" in event for event, _ in logged_errors), \
-        f"Expected a log_error call, got: {logged_errors}"
+    assert any(
+        "notify" in event or "deliver" in event or "background" in event
+        for event, _ in logged_errors
+    ), f"Expected a log_error call, got: {logged_errors}"
 
 
 def test_notifying_store_skips_deliver_when_notified_true() -> None:
     """notified=True（前台完成已抑制）时 _NotifyingStore.update 不调用 _deliver_notification（#19 不回归）。"""
     from pathlib import Path
     from unittest.mock import MagicMock, patch
-    from agent.core.background_tasks.models import BackgroundTaskRecord, BackgroundTaskType, BackgroundTaskStatus
+    from agent.core.background_tasks.models import (
+        BackgroundTaskRecord,
+        BackgroundTaskType,
+        BackgroundTaskStatus,
+    )
     from agent.platform.background_tasks.wiring import _wire_notification_callbacks
     from agent.core.background_tasks.registry import BackgroundTaskRegistry
     from agent.platform.background_tasks.task_store import InMemoryTaskStore
@@ -623,6 +642,7 @@ def test_notifying_store_skips_deliver_when_notified_true() -> None:
     )
 
     import agent.platform.background_tasks.wiring as wiring_mod
+
     with patch.object(wiring_mod, "_deliver_notification") as mock_deliver:
         reg._store.update(completed_record)  # type: ignore[attr-defined]
         mock_deliver.assert_not_called()
