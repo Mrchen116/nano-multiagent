@@ -46,4 +46,16 @@
 
 ## R3 — update_profile 删除 workspace_root 参数，update 封口
 
-（待补充）
+- Context: `ConfigService.update_profile` / `AgentProfileRepository.update_profile` 接受 `workspace_root` 参数，且 `normalize_workspace_root(None)` 会把 None 转为 managed default，导致任何一次 UI 配置编辑（仅改 system_prompt / skills 等）都会把 worktree 自定义 workspace_root 重置回 managed default。
+- Decision: 决策 5——删除两层 `update_profile` 的 `workspace_root` 参数；repo 层 SQL UPDATE 不写 workspace_root 列，保证存量自定义路径在任何 PATCH 后保持不变。routes 层的 `UpdateAgentConfigRequest` 已有 `extra="ignore"` 忽略未知字段，前端传来的 `workspace_root` 字段自然被忽略，无需改 Pydantic schema。
+- Rationale: workspace_root 在 `upsert_profile`（首次注册时）一次性落库；后续任何 update 路径都不应触碰该列，是创建后不可变字段（immutable after creation）。
+- Evidence:
+  - Tests: `pytest tests/ -m "not e2e"` — 2682 passed, 0 failed, 2 skipped
+  - Entry: N/A
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 新增 `test_update_profile_preserves_non_default_workspace_root`；更新 test_agent_config_api / test_relay_service / test_gateway_handler 中 5 处调用方测试
+  - Visual/Interaction: N/A
+- Rollback: `git revert 9ebf733d`（C2），`git revert 14bd9006`（C1）
+- Commits: C1=14bd9006, C2=9ebf733d, C3=（本次）
+- Next: 合入 unit/bugfix-404

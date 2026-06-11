@@ -52,4 +52,4 @@ worktree 内 `e2e-up.sh` 起的 gateway，IM 广播与 runtime 实际 workspace 
 - 步骤: 写失败测试（update 后非默认值保持）→ 修 config_service、repositories、routes/agents
 - 验证: 新增单测全红 → 实现后全绿
 
-**状态: DONE**
+**状态: DONE** — C1=14bd9006, C2=9ebf733d
