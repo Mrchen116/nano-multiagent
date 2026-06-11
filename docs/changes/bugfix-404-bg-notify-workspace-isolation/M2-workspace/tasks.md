@@ -38,7 +38,7 @@ worktree 内 `e2e-up.sh` 起的 gateway，IM 广播与 runtime 实际 workspace 
 - 步骤: 写失败测试 → 修 upstream_reporter.send_register + gateway_handler._handle_register
 - 验证: 新增单测全红 → 实现后全绿
 
-**状态: DONE**
+**状态: DONE** — C1=555d600, C2=414e5cc
 
 ### R2 — sync_agent 不采用 mirror workspace_root
 
