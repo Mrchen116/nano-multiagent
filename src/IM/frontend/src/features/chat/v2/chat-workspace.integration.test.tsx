@@ -7,6 +7,28 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "../../../i18n";
 import { useAuthStore } from "../../auth/auth-store";
 import { ChatWorkspacePageV2 } from "./chat-workspace-page";
+import type { ParsedImStreamEvent } from "../../chat/im-chat-api";
+
+// ─── Mock attachUserConversationStream ──────────────────────────────────────
+// chat-workspace-page 订阅 user-scoped SSE/WS 流（node.status_changed /
+// agent.status_changed）时会调用此函数。测试通过 capturedStatusHandler
+// 直接注入事件，验证 page 是否正确消费并更新 React Query 缓存。
+let capturedStatusHandler: ((ev: ParsedImStreamEvent) => void) | null = null;
+
+vi.mock("../../chat/im-chat-api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../chat/im-chat-api")>();
+  return {
+    ...actual,
+    attachUserConversationStream: (input: {
+      selfUserId: string;
+      token: string;
+      onEvent: (ev: ParsedImStreamEvent) => void;
+    }) => {
+      capturedStatusHandler = input.onEvent;
+      return () => { capturedStatusHandler = null; };
+    }
+  };
+});
 
 // ─── Fake WebSocket ─────────────────────────────────────────────────────────
 class FakeWebSocket {
@@ -156,6 +178,7 @@ describe("ChatWorkspacePage v2 — integration", () => {
   let fetchSpy: ReturnType<typeof mockFetch>;
 
   beforeEach(() => {
+    capturedStatusHandler = null;
     FakeWebSocket.instances = [];
     originalWS = globalThis.WebSocket;
     (globalThis as unknown as { WebSocket: unknown }).WebSocket = FakeWebSocket;
@@ -385,5 +408,64 @@ describe("ChatWorkspacePage v2 — integration", () => {
     expect(bubble).not.toBeNull();
     expect(bubble!.textContent).toMatch(/Planner/);
     expect(bubble!.textContent).not.toMatch(/user-uuid-planner/);
+  });
+
+  it("bugfix-405 R1: node.status_changed offline event updates Node chip from online to offline without page refresh", async () => {
+    // Page opens and initially shows the node as online (from initial fetch).
+    renderAtRoute("/chat/c1");
+    const chip = await screen.findByText(/laptop-prod/);
+    expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+
+    // SSE event: node goes offline. Page must update without a manual refresh.
+    await waitFor(() => expect(capturedStatusHandler).not.toBeNull());
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "node.status_changed",
+        payload: { node_id: "node-prod", status: "offline" }
+      });
+    });
+
+    await waitFor(() => {
+      const updatedChip = screen.getByText(/laptop-prod/);
+      expect(updatedChip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
+    });
+  });
+
+  it("bugfix-405 R1: node.status_changed online event updates Node chip from offline to online without page refresh", async () => {
+    // Override the nodes fixture to start with offline status.
+    const offlineFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.endsWith("/im/v1/nodes")) {
+        return new Response(
+          JSON.stringify([{ node_id: "node-prod", owner_id: "u-self", node_name: "laptop-prod", status: "offline", last_heartbeat_at: null, agent_count: 1, version: "1.0", relay_enabled: true, reporting_enabled: true, alias: null, last_error: null }]),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      return fetchSpy(input, init);
+    });
+    vi.stubGlobal("fetch", offlineFetch);
+
+    renderAtRoute("/chat/c1");
+    // Wait for initial render with offline status.
+    await screen.findByText("Hi Planner");
+    // Node chip initially offline.
+    await waitFor(() => {
+      const chip = screen.getByText(/laptop-prod/);
+      expect(chip.closest(".chat-node-chip")).not.toHaveClass("chat-node-chip--online");
+    });
+
+    // SSE event: node comes back online.
+    await waitFor(() => expect(capturedStatusHandler).not.toBeNull());
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "node.status_changed",
+        payload: { node_id: "node-prod", status: "online" }
+      });
+    });
+
+    await waitFor(() => {
+      const chip = screen.getByText(/laptop-prod/);
+      expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
+    });
   });
 });
