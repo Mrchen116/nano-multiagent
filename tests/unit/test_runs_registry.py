@@ -435,6 +435,12 @@ def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
     import threading
 
     gate_holder: list[_asyncio.Event] = []
+    # Signal fired by _GatedRuntime.run() as soon as it enters (i.e. the run is
+    # RUNNING on the loop).  The main thread waits on this before calling shutdown()
+    # to avoid the race where drain snapshots the run while it is still QUEUED and
+    # cancels it immediately — that is correct registry behaviour, not the drain bug
+    # this test is meant to exercise.
+    started = threading.Event()
 
     class _GatedRuntime:
         async def run(
@@ -448,6 +454,7 @@ def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
             workspace_root=None,
             origin=None,
         ):  # noqa: ANN001, ANN201
+            started.set()  # notify main thread: we are inside run(), status is RUNNING
             await gate_holder[0].wait()
             return TurnResult(
                 session_id=session_id,
@@ -475,12 +482,16 @@ def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
         parts=[{"type": "text", "text": "gated"}],
     )
 
-    # Release the gate from a separate thread ~50ms after shutdown begins.
-    def _release_after_delay() -> None:
-        time.sleep(0.05)
+    # Wait until _GatedRuntime.run() has been entered (run is RUNNING) before
+    # triggering shutdown.  This is the deterministic synchronisation point that
+    # replaces the former time.sleep(0.05) inside the releaser thread.
+    assert started.wait(timeout=5.0), "timed out waiting for run to enter RUNNING"
+
+    # Release the gate from a separate thread so shutdown() can proceed.
+    def _release_gate() -> None:
         _asyncio.run_coroutine_threadsafe(_set_event(ev), loop)
 
-    releaser = threading.Thread(target=_release_after_delay, daemon=True)
+    releaser = threading.Thread(target=_release_gate, daemon=True)
     releaser.start()
 
     registry.shutdown()  # must block until gated task completes
