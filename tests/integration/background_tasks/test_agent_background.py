@@ -135,6 +135,7 @@ class _RunsRegistryStub:
         origin: RunOrigin = RunOrigin.USER,
         source_task_id: str | None = None,
         trace_id: str | None = None,
+        workspace_root: Any = None,
     ) -> Any:
         self.submissions.append(
             {
@@ -142,6 +143,7 @@ class _RunsRegistryStub:
                 "parts": parts,
                 "origin": origin,
                 "source_task_id": source_task_id,
+                "workspace_root": workspace_root,
             }
         )
         return type(

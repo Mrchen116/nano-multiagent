@@ -515,7 +515,7 @@ def test_deliver_notification_submits_for_top_level_session() -> None:
         workspace_root="/custom/workspace",
     )
 
-    _deliver_notification(record, runs_registry)
+    _deliver_notification(record, runs_registry, runs_registry._session_manager)
 
     runs_registry.submit.assert_called_once()
     call_kwargs = runs_registry.submit.call_args.kwargs
@@ -543,7 +543,7 @@ def test_deliver_notification_skips_subagent_parent_session() -> None:
         workspace_root="/custom/workspace",
     )
 
-    _deliver_notification(record, runs_registry)
+    _deliver_notification(record, runs_registry, runs_registry._session_manager)
 
     runs_registry.submit.assert_not_called()
 
@@ -578,36 +578,54 @@ def test_deliver_notification_logs_error_on_submit_failure() -> None:
 
     import unittest.mock
     with unittest.mock.patch.object(logger_module, "log_error", _capture_log_error):
-        _deliver_notification(record, runs_registry)
+        _deliver_notification(record, runs_registry, runs_registry._session_manager)
 
     assert any("notify" in event or "deliver" in event or "background" in event for event, _ in logged_errors), \
         f"Expected a log_error call, got: {logged_errors}"
 
 
-def test_deliver_notification_foreground_notified_does_not_submit() -> None:
-    """notified=True（前台完成已抑制）时不触发 submit（#19 不回归）。"""
+def test_notifying_store_skips_deliver_when_notified_true() -> None:
+    """notified=True（前台完成已抑制）时 _NotifyingStore.update 不调用 _deliver_notification（#19 不回归）。"""
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
     from agent.core.background_tasks.models import BackgroundTaskRecord, BackgroundTaskType, BackgroundTaskStatus
-    from agent.platform.background_tasks.wiring import _deliver_notification
+    from agent.platform.background_tasks.wiring import _wire_notification_callbacks
+    from agent.core.background_tasks.registry import BackgroundTaskRegistry
+    from agent.platform.background_tasks.task_store import InMemoryTaskStore
 
-    runs_registry = _make_runs_registry_stub(
-        session_exists=True,
-        session_kind=None,
-        active_run_id=None,
-    )
+    delivered: list[Any] = []
+
+    runs_registry = MagicMock()
+
+    store = InMemoryTaskStore()
+    reg = BackgroundTaskRegistry(store=store)
+    _wire_notification_callbacks(reg, runs_registry)
 
     record = BackgroundTaskRecord(
+        task_id="b1",
+        task_type=BackgroundTaskType.BASH,
+        parent_session_id="parent-sess",
+        status=BackgroundTaskStatus.QUEUED,
+        output_file="/tmp/out.output",
+        workspace_root="/custom/workspace",
+    )
+    store.insert(record)
+
+    # 模拟前台完成：notified=True
+    completed_record = BackgroundTaskRecord(
         task_id="b1",
         task_type=BackgroundTaskType.BASH,
         parent_session_id="parent-sess",
         status=BackgroundTaskStatus.COMPLETED,
         output_file="/tmp/out.output",
         workspace_root="/custom/workspace",
-        notified=True,  # 前台已送达，抑制通知
+        notified=True,
     )
 
-    _deliver_notification(record, runs_registry)
-
-    runs_registry.submit.assert_not_called()
+    import agent.platform.background_tasks.wiring as wiring_mod
+    with patch.object(wiring_mod, "_deliver_notification") as mock_deliver:
+        reg._store.update(completed_record)  # type: ignore[attr-defined]
+        mock_deliver.assert_not_called()
 
 
 def test_agent_tool_run_background_passes_workspace_root_to_registry() -> None:
