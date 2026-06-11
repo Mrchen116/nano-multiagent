@@ -29,11 +29,18 @@ class HostCapabilityContext:
         session_id: The kernel session ID that triggered this capability request.
         workspace_root: Agent workspace root resolved by the kernel.
         product_id: Product identity string (e.g. "personal_assistant").
+        agent_id: Agent identity from session metadata.  Empty string when the
+            kernel cannot guarantee the agent identity (e.g. coding_cli).
+            bugfix-402 round-2: used by GatewayCronDispatcher to route by
+            agent_id instead of workspace_root, fixing the dual-source path
+            mismatch where IM-synced workspace_root differs from the locally
+            registered CronExecutionService key.
     """
 
     session_id: str
     workspace_root: str
     product_id: str
+    agent_id: str = ""
 
 
 class HostCapabilityDispatcher(ABC):

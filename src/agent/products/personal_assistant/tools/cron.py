@@ -519,10 +519,14 @@ class CronTool:
 
         from agent.core.tools.host_capability import HostCapabilityContext  # noqa: PLC0415
 
+        # bugfix-402 round-2: pass agent_id so dispatcher can route by agent
+        # identity instead of workspace_root path, which may differ between the
+        # IM-stored value and the locally registered CronExecutionService key.
         cap_ctx = HostCapabilityContext(
             session_id=ctx.session_id or "",
             workspace_root=str(workspace_root),
             product_id="personal_assistant",
+            agent_id=str(ctx.session_metadata.get("agent_id") or ""),
         )
         try:
             ack = dispatcher.invoke(

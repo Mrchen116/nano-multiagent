@@ -2212,8 +2212,16 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # bugfix-402-M6: wire cron service registration into the agent-create callback
         # so dynamically created agents (via IM agent.create push) also get a
         # CronExecutionService registered before their first cron tick fires.
+        #
+        # bugfix-402 round-2 code-review fix: capture the running loop at call site
+        # (inside the WS event loop) so the service gets a valid loop immediately
+        # instead of relying on get_running_loop() inside _register_cron_service.
         def _on_agent_created(agent_id: str, workspace_root: Path) -> None:
-            _register_cron_service(agent_id, workspace_root)
+            try:
+                _loop = asyncio.get_running_loop()
+            except RuntimeError:
+                _loop = None
+            _register_cron_service(agent_id, workspace_root, gateway_loop=_loop)
 
         im_config_sync_client.on_agent_created = _on_agent_created
 
@@ -2302,42 +2310,44 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # at construction time but are populated by the im_service block before any
     # tick runs.
     #
-    # bugfix-402-M6 key fix: workspace_root key normalisation.  register() always
-    # stores the key as str(Path.expanduser().resolve()).  _resolve_service() does
-    # the same normalisation.  Both static (config.agents) and dynamic
-    # (handle_agent_create) registration paths go through _register_cron_service
-    # so the key is always consistent.
-    def _register_cron_service(agent_id: str, ws_root: Path) -> None:
+    # bugfix-402 round-2: routing key changed from workspace_root to agent_id —
+    # workspace_root has two data sources (local YAML vs IM-synced value from
+    # reconcile_all_agents), causing lookup misses when the two differ.
+    def _register_cron_service(
+        agent_id: str,
+        ws_root: Path,
+        *,
+        gateway_loop: asyncio.AbstractEventLoop | None = None,
+    ) -> None:
         """Create a CronExecutionService for agent and register it with the dispatcher.
 
         bugfix-402-M6: extracted from the startup loop so handle_agent_create can
         call the same path for dynamically created agents.
         workspace_root must already be resolved (expanduser().resolve()).
+
+        bugfix-402 round-2 code-review fix: gateway_loop is explicitly passed in
+        rather than discovered via get_running_loop() at registration time.  When
+        called from on_agent_created (inside the WS event loop), pass
+        asyncio.get_running_loop() at the call site — not inside this function —
+        so the loop reference comes from the caller's known context rather than
+        an implicit environment that may not exist in all call paths.
+        When called during static startup (before _run_until_shutdown sets the
+        loop), pass None; set_gateway_loop() will inject the loop later.
         """
         # Skip if already registered (idempotent — reconcile may call multiple times).
-        if _cron_dispatcher._resolve_service(str(ws_root)) is not None:  # noqa: SLF001
+        if _cron_dispatcher._resolve_service(agent_id) is not None:  # noqa: SLF001
             return
         execute_fn = _build_cron_execute_fn(agent_id=agent_id, ws_root=ws_root)
         service = CronExecutionService(
             agent_id=agent_id,
             workspace_root=ws_root,
             execute_fn=execute_fn,
+            gateway_loop=gateway_loop,
         )
-        _cron_dispatcher.register(ws_root, service)
+        _cron_dispatcher.register(agent_id, service)
         # Converge stale accepted/running records from any previous crash so they
         # are never permanently in-progress.
         service.runs_store.converge_stale_on_restart()
-        # If the Gateway loop is already running (dynamic agent create path),
-        # inject it immediately so enqueue() can schedule execute_fn.
-        try:
-            import asyncio as _asyncio  # noqa: PLC0415
-
-            running_loop = _asyncio.get_running_loop()
-            service._gateway_loop = running_loop  # noqa: SLF001
-        except RuntimeError:
-            # Not inside a running event loop — loop will be injected later
-            # via GatewayCronDispatcher.set_gateway_loop() in _run_until_shutdown.
-            pass
 
     def _build_cron_execute_fn(
         agent_id: str,
@@ -2517,16 +2527,19 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             return
         ws_root = Path(agent_cfg.workspace_root).expanduser().resolve()
 
-        # Route to the CronExecutionService for this agent.
-        _service = _cron_dispatcher._resolve_service(str(ws_root))  # noqa: SLF001
+        # bugfix-402 round-2: route by agent_id, not workspace_root.
+        # workspace_root from pipeline may differ from the registered key when
+        # reconcile_all_agents() rewrites it from IM (IM stores the original main
+        # config path; the registered CronExecutionService may use a local/worktree
+        # path).  agent_id is stable and unambiguous across all data sources.
+        _service = _cron_dispatcher._resolve_service(agent_id)  # noqa: SLF001
         if _service is None:
             # Agent was dynamically registered after startup (IM config sync) without a
             # corresponding CronExecutionService.  Warn and skip — the service will be
             # created on the next Gateway restart when the agent appears in config.agents.
             _log.warning(
-                "cron tick: no CronExecutionService for agent=%s ws=%s; skipping",
+                "cron tick: no CronExecutionService for agent=%s; skipping",
                 agent_id,
-                ws_root,
             )
             return
 

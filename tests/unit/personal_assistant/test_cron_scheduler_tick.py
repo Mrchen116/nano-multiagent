@@ -504,8 +504,9 @@ class TestGatewayCronDispatcherDrainAll:
             svc.enqueue(job_id=label, trigger="manual")
 
         dispatcher = GatewayCronDispatcher()
-        dispatcher.register(ws1, svc1)
-        dispatcher.register(ws2, svc2)
+        # bugfix-402 round-2: register by agent_id (not workspace_root).
+        dispatcher.register("agent-1", svc1)
+        dispatcher.register("agent-2", svc2)
 
         assert len(finished) == 0
         await dispatcher.drain_all(timeout=5.0)
@@ -539,7 +540,7 @@ class TestGatewayCronDispatcherDrainAll:
         service.drain = _count_drain  # type: ignore[method-assign]
 
         dispatcher = GatewayCronDispatcher(service=service)
-        # Single-service mode registers under "_single" and workspace path — two keys.
+        # Single-service mode registers under "_single" and agent_id — two keys.
         await dispatcher.drain_all()
         assert drain_count == 1, (
             "drain_all() must deduplicate and call drain() exactly once"
