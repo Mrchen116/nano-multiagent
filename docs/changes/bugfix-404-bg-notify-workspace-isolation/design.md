@@ -73,7 +73,7 @@
   after:
     本地 config(真值) ──node.register(id+ws)──▶ IM 首见种子落库(已存在则保持)
     runtime 实际用值 ◀═══ 本地 config 直供(回拉不再采用 mirror 的 ws 字段) ✓
-    IM(展示/广播) ──── workspace_root 创建即定,update API 忽略该字段
+    IM(展示/广播) ──── workspace_root 创建即定,配置更新路径不触碰该字段(service/repo 层 immutable)
 ```
 
 两缺陷共享同一主题——"workspace_root 在某条链路丢失/被篡改"——但断点分别在 kernel 内部与 gateway↔IM 同步协议，文件零交集，可并行实施。
@@ -212,7 +212,7 @@ IM ConfigService.update_profile（application/config_service.py）:
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | bugfix-404-M1 | notify | — | A | `src/agent/core/background_tasks/`（models.py, registry.py）、`src/agent/platform/background_tasks/wiring.py`、`src/agent/platform/tools/builtins/bash.py`、`src/agent/platform/tools/builtins/agent.py`、对应 tests | `[reviewer]` IM 直聊让 agent 后台跑 `sleep 60 && echo X`：先收到"已启动"，任务完成后收到含结果的第二条回复（非默认 workspace 的 PA agent 上验）；`[reviewer]` 后台 subagent（agent 工具 run_in_background）完成后同样收到结果回复；`[worker]` 回归测试：非默认 workspace_root 下 bash + subagent 完成通知送达 parent session（修前红）；`[worker]` 子 session 的后台任务完成不起顶层 run（跳过语义保留，测试覆盖）；`[worker]` 前台 budget 内完成仍不发通知（#19 不回归）；`[worker]` 投递失败路径产生 log_error（测试断言日志）；`[worker]` `pytest tests/ -m "not e2e"` 全绿 |
-| bugfix-404-M2 | workspace | — | B | `src/personal_assistant/reporter/upstream_reporter.py`、`src/personal_assistant/main.py`（sync_agent 段）、`src/IM/ws/gateway_handler.py`、`src/IM/application/config_service.py`、`src/IM/api/routes/agents.py`（update 路由调用处）、对应 tests | `[reviewer]` worktree 内 `e2e-up.sh` 起栈后，`GET /im/v1/agents` 广播的 workspace_root 为 worktree 路径（非主仓），`workspace_is_default=false`；`[reviewer]` worktree gateway 运行期间主仓 `~/nano-assistant/workspace/` 零写入；`[reviewer]` 主仓默认配置用户行为不变（agents 广播与现状一致）；`[reviewer]` UI 编辑 agent 其他配置（如 system prompt）后 workspace_root 保持不变；`[worker]` node.register 带 agent_workspaces 的种子落库测试（首见用上报值、已存在不覆盖、无字段退回旧行为）；`[worker]` sync_agent 不采用 mirror workspace_root 的单测（IM 给脏值，runtime config 仍为本地值）；`[worker]` `update_profile` 不再有 workspace_root 参数，update 后存量非默认值保持（修前红：update 会重置为 managed default）；`[worker]` `pytest tests/ -m "not e2e"` 全绿 |
+| bugfix-404-M2 | workspace | — | B | `src/personal_assistant/reporter/upstream_reporter.py`、`src/personal_assistant/main.py`（sync_agent 段）、`src/IM/ws/gateway_handler.py`、`src/IM/application/config_service.py`、`src/IM/infra/repositories.py`（update_profile 签名）、`src/IM/api/routes/agents.py`（update 路由调用处）、对应 tests | `[reviewer]` worktree 内 `e2e-up.sh` 起栈后，`GET /im/v1/agents` 广播的 workspace_root 为 worktree 路径（非主仓），`workspace_is_default=false`；`[reviewer]` worktree gateway 运行期间主仓 `~/nano-assistant/workspace/` 零写入；`[reviewer]` 主仓默认配置用户行为不变（agents 广播与现状一致）；`[reviewer]` UI 编辑 agent 其他配置（如 system prompt）后 workspace_root 保持不变；`[worker]` node.register 带 agent_workspaces 的种子落库测试（首见用上报值、已存在不覆盖、无字段退回旧行为）；`[worker]` sync_agent 不采用 mirror workspace_root 的单测（IM 给脏值，runtime config 仍为本地值）；`[worker]` `update_profile` 不再有 workspace_root 参数，update 后存量非默认值保持（修前红：update 会重置为 managed default）；`[worker]` `pytest tests/ -m "not e2e"` 全绿 |
 
 ```mermaid
 graph LR
