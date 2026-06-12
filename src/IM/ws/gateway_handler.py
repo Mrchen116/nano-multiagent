@@ -1690,19 +1690,21 @@ class GatewayHandler:
                         # up without a manual refresh.  Agent-target messages go via the
                         # direct create_message + relay path unchanged — the target agent
                         # receives the content through the relay channel, not the WS stream.
+                        #
+                        # emit_instant_message is used instead of on_turn_start/on_message_completed
+                        # because background notifications carry the full text upfront — no streaming
+                        # phase.  message.created is emitted with final content + delivery_status=
+                        # "completed" so the front-end renders the settled bubble immediately with no
+                        # empty-window spinner (bugfix-404 reviewer feedback).
                         if (
                             resolved_target.kind in {"user_id", "conversation_id"}
                             and self._event_bridge is not None
                         ):
-                            message = self._event_bridge.on_turn_start(
+                            message = self._event_bridge.emit_instant_message(
                                 conversation_id=conversation_id,
                                 agent_user_id=sender_user_id,
                                 agent_id=source_agent_id,
-                            )
-                            self._event_bridge.on_message_completed(
-                                message_id=message.id,
-                                final_content=text,
-                                delivery_status="completed",
+                                content=text,
                             )
                         else:
                             message = self._message_repository.create_message(

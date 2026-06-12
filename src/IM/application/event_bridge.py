@@ -58,6 +58,70 @@ class EventBridge:
     event_repository: EventRepository
     notify: NotifyCallable | None = None
 
+    def emit_instant_message(
+        self,
+        *,
+        conversation_id: str,
+        agent_user_id: str,
+        agent_id: str,
+        content: str,
+    ) -> Message:
+        """Persist a one-shot completed agent message and emit message.created + message.completed.
+
+        Designed for background-task notifications (e.g. bugfix-404 agent.message frames
+        to a human user): the full text is known upfront, so there is no streaming phase.
+        Unlike ``on_turn_start``, the ``message.created`` event is emitted with final content
+        and ``delivery_status="completed"`` immediately — no visible empty-bubble window.
+
+        Args:
+            conversation_id: Conversation that receives the notification.
+            agent_user_id: IM user-row id for the sending agent.
+            agent_id: Stable agent identifier (currently forwarded in the WS payload).
+            content: Final message text; must be non-empty.
+
+        Returns:
+            The persisted message entity with ``delivery_status="completed"``.
+        """
+        del agent_id  # forwarded in WS payloads; unused internally.
+        message = self.message_repository.create_message(
+            conversation_id=conversation_id,
+            sender_user_id=agent_user_id,
+            content=content,
+            sender_type="agent",
+            # Disable the auto-complete path: we control delivery_status explicitly below
+            # so the two event emissions (created + completed) are the sole source of truth.
+            auto_complete_delivery=False,
+        )
+        # Settle delivery_status to completed before emitting so any reader that fetches
+        # the message row after the event lands sees the terminal state.
+        message = self.message_repository.update_runtime_state(
+            message_id=message.id,
+            delivery_status="completed",
+        )
+        # message.created carries final content + completed status: no spinner / empty-bubble.
+        self._emit(
+            conversation_id=conversation_id,
+            message_id=message.id,
+            event_type=EVENT_MESSAGE_CREATED,
+            delivery_status="completed",
+            payload=build_message_created_payload(message=message),
+        )
+        # message.completed lets the frontend reducer settle token_usage and final content
+        # through the same patch path used by streaming turns.
+        self._emit(
+            conversation_id=conversation_id,
+            message_id=message.id,
+            event_type=EVENT_MESSAGE_COMPLETED,
+            delivery_status="completed",
+            payload=build_message_completed_payload(
+                conversation_id=conversation_id,
+                message_id=message.id,
+                content=message.content or "",
+                token_usage=None,
+            ),
+        )
+        return message
+
     def on_turn_start(
         self,
         *,
