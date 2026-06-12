@@ -1450,6 +1450,22 @@ def test_agent_message_user_target_emits_message_created_event(
         f"agent.message to user must also emit message.completed to settle the bubble; "
         f"got: {event_types}"
     )
+    # message.created must carry final content (not empty) so no empty-bubble window.
+    import json
+
+    created_event = next(e for e in emitted if e.event_type == "message.created")
+    created_payload = json.loads(created_event.payload_json)
+    assert (
+        created_payload.get("content")
+        == "Background agent finished: here is your joke."
+    ), (
+        "message.created payload must carry final text immediately — no empty-bubble window; "
+        f"got content={created_payload.get('content')!r}"
+    )
+    assert created_payload.get("delivery_status") == "completed", (
+        "message.created payload must carry delivery_status=completed for instant messages; "
+        f"got {created_payload.get('delivery_status')!r}"
+    )
 
 
 def test_agent_message_user_target_dedup_does_not_double_emit(
