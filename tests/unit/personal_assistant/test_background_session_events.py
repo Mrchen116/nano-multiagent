@@ -436,13 +436,18 @@ async def test_bg_subscriber_ignores_non_background_task_assistant_message() -> 
 
 @pytest.mark.asyncio
 async def test_bg_subscriber_relay_reaches_outbound_channel() -> None:
-    """BACKGROUND_TASK assistant_message must reach IM channel via bg_run_output_callback.
+    """Subscriber invokes bg_run_output_callback on a BACKGROUND_TASK assistant_message.
 
-    End-to-end relay test at the subscriber level: subscriber receives a BACKGROUND_TASK
-    origin assistant_message, calls bg_run_output_callback, which calls outbound_router
-    → channel.sent. This validates the full relay path without InboundPipeline.
+    Validates the subscriber → callback link only: a BACKGROUND_TASK-origin
+    assistant_message received by the subscriber triggers bg_run_output_callback.
 
-    This is the bugfix-404-M3 core behavior test.
+    NOTE: the ``outbound_router → channel.sent`` path exercised here is a test fake,
+    NOT the production IM send path. For web_relay, ``outbound_router.send_text`` is a
+    no-op (see bugfix-404-M3 R5); the real IM send path is
+    ``_bg_reply_sender → send_agent_message``, covered by
+    ``test_ensure_background_subscriber_wires_bg_run_output_callback``.
+
+    This is the bugfix-404-M3 subscriber-level behavior test.
     """
     from personal_assistant.channels.base import (
         InboundMessage,
