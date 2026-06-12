@@ -1621,7 +1621,18 @@ class GatewayHandler:
     async def _handle_agent_message(
         self, *, payload: dict[str, object]
     ) -> dict[str, object]:
-        """Persist one gateway-dispatched send_message payload into IM conversations."""
+        """Persist one gateway-dispatched send_message payload into IM conversations.
+
+        For user-target messages (background agent notifications), this method uses
+        EventBridge (on_turn_start + on_message_completed) rather than calling
+        create_message directly.  That ensures a message.created event is written to
+        conversation_events so the front-end user-stream picks it up in real time and
+        renders the bubble without a manual refresh.
+
+        For agent-target messages (agent-to-agent relay), the prior direct
+        create_message path is preserved — those messages are forwarded via relay and
+        the target agent does not need a live WS bubble.
+        """
         if (
             self._conversation_repository is None
             or self._user_repository is None
@@ -1673,12 +1684,33 @@ class GatewayHandler:
                         sender_user_id = self._require_user_id_by_username(
                             username=f"agent:{source_agent_id}"
                         )
-                        message = self._message_repository.create_message(
-                            conversation_id=conversation_id,
-                            sender_user_id=sender_user_id,
-                            sender_type="agent",
-                            content=text,
-                        )
+                        # bugfix-404 fix-realtime: user-target notifications must flow
+                        # through EventBridge so message.created is written to
+                        # conversation_events and the front-end real-time stream picks it
+                        # up without a manual refresh.  Agent-target messages go via the
+                        # direct create_message + relay path unchanged — the target agent
+                        # receives the content through the relay channel, not the WS stream.
+                        if (
+                            resolved_target.kind in {"user_id", "conversation_id"}
+                            and self._event_bridge is not None
+                        ):
+                            message = self._event_bridge.on_turn_start(
+                                conversation_id=conversation_id,
+                                agent_user_id=sender_user_id,
+                                agent_id=source_agent_id,
+                            )
+                            self._event_bridge.on_message_completed(
+                                message_id=message.id,
+                                final_content=text,
+                                delivery_status="completed",
+                            )
+                        else:
+                            message = self._message_repository.create_message(
+                                conversation_id=conversation_id,
+                                sender_user_id=sender_user_id,
+                                sender_type="agent",
+                                content=text,
+                            )
                         if dispatch_request_key is not None:
                             self._record_dispatched_agent_message(
                                 dispatch_request_key=dispatch_request_key,

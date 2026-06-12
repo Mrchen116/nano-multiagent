@@ -1474,12 +1474,16 @@ def test_agent_message_user_target_dedup_does_not_double_emit(
     }
 
     first = asyncio.run(
-        handler.handle_message(websocket=websocket, message_type="agent.message", payload=payload)
+        handler.handle_message(
+            websocket=websocket, message_type="agent.message", payload=payload
+        )
     )
     first_event_count = len(emitted)
 
     second = asyncio.run(
-        handler.handle_message(websocket=websocket, message_type="agent.message", payload=payload)
+        handler.handle_message(
+            websocket=websocket, message_type="agent.message", payload=payload
+        )
     )
 
     assert first["type"] == "ack"
