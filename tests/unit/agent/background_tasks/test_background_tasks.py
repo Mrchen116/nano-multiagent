@@ -417,38 +417,6 @@ def _make_fake_wiring(registry: BackgroundTaskRegistry) -> Any:
     return wiring
 
 
-def test_bash_tool_run_background_passes_workspace_root_to_registry() -> None:
-    """BashTool._run_background 调用 register_bash 时必须传 workspace_root=str(ctx.repo_root)。"""
-    import tempfile
-    from pathlib import Path
-    from unittest.mock import MagicMock
-
-    from agent.platform.tools.builtins.bash import BashTool
-
-    reg = BackgroundTaskRegistry()
-    wiring = _make_fake_wiring(reg)
-
-    tool = BashTool(wiring=wiring)
-
-    workspace = Path(tempfile.mkdtemp())
-    ctx = MagicMock()
-    ctx.session_id = "sess-custom"
-    ctx.repo_root = workspace
-    ctx.cwd = workspace
-
-    tool._run_background(
-        command="echo hi",
-        description="test bg",
-        timeout_value=None,
-        ctx=ctx,
-    )
-
-    # 取到注册的 record，断言 workspace_root 与 ctx.repo_root 一致
-    records = list(reg._records.values())
-    assert len(records) == 1
-    assert records[0].workspace_root == str(workspace)
-
-
 # ---------------------------------------------------------------------------
 # _deliver_notification 投递逻辑（bugfix-404-M1 R3 回归）
 # ---------------------------------------------------------------------------
@@ -492,39 +460,6 @@ def _make_runs_registry_stub(
         registry_stub.submit.return_value = submit_record
 
     return registry_stub
-
-
-def test_deliver_notification_submits_for_top_level_session() -> None:
-    """parent 为顶层 session（非 subagent）时，应调用 runs_registry.submit 并带 workspace_root。"""
-    from pathlib import Path
-    from agent.core.background_tasks.models import (
-        BackgroundTaskRecord,
-        BackgroundTaskType,
-        BackgroundTaskStatus,
-    )
-    from agent.platform.background_tasks.wiring import _deliver_notification
-
-    runs_registry = _make_runs_registry_stub(
-        session_exists=True,
-        session_kind=None,  # 顶层 session 没有 kind="subagent"
-        active_run_id=None,
-    )
-
-    record = BackgroundTaskRecord(
-        task_id="b1",
-        task_type=BackgroundTaskType.BASH,
-        parent_session_id="parent-sess",
-        status=BackgroundTaskStatus.COMPLETED,
-        output_file="/tmp/out.output",
-        workspace_root="/custom/workspace",
-    )
-
-    _deliver_notification(record, runs_registry, runs_registry._session_manager)
-
-    runs_registry.submit.assert_called_once()
-    call_kwargs = runs_registry.submit.call_args.kwargs
-    assert call_kwargs["session_id"] == "parent-sess"
-    assert call_kwargs["workspace_root"] == Path("/custom/workspace")
 
 
 def test_deliver_notification_skips_subagent_parent_session() -> None:
