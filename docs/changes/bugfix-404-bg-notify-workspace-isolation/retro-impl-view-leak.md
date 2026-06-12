@@ -121,17 +121,29 @@ orchestrator §7.0 归并（`5fa2cac1` 后段）：只 `Edit` 了 `gateway` + `i
 2. **实现修正后没回溯审视测试**：R5 改了生产路径，没有「实现路径变了，旧测试还测得对吗」这一步，
    留下测 no-op 的死测试。
 
-`change-impl-worker` 当时**没有 C1「从可观察行为投影测试」的纪律**，也**没有「后续 roadpoint 改了
-实现路径要回头审视旧测试」的约束**。
+**早期判断（已撤回）**：本段早期版本写「`change-impl-worker` 缺 C1 测试投影纪律，需补纪律」。
+被证据证伪——纪律**不缺**：`docs/TESTING_GUIDE.md` line 11-12 明令「MUST NOT 测私有函数/实现细节」
+「改内部写法就变红的测试是负债」，已精确覆盖这批 mock 实现锁。撤回「补纪律」。
 
-### 这一步本该怎样
-- **（已落地）** 本会话已删 `relay`（no-op）+ 两个 mock 实现锁，补
-  `test_background_bash_carries_non_default_workspace_root_to_submit`——真 shell 端到端断言非默认
-  workspace_root 透传到投递（commit `a3bb75ef`）。
-- **（待补 skill）** `change-impl-worker` C1 纪律：测试 THEN 从消费者/系统可观察结果投影
-  （真入口/真链路），mock 只用于隔离不可控外部，不得把「内部函数被调用/参数被传递」当测试目标。
-- **（待补 skill）** `change-impl-worker`：roadpoint 改动了某条实现路径（如 R5 发现 no-op 改路径）时，
-  必须回头审视测旧路径的测试是否已失真。
+**真根因（取证修正）**：纪律在、worker 却没应用，因为**它根本没读 TESTING_GUIDE**——
+- 写这些测试的 worker（`a00409`/`a100da`）对 TESTING_GUIDE 的 Read/Grep = **0 次**（共读 136 个文件，
+  含 incident、design、源码、现有测试，唯独没读测试规范）。
+- 派发包侧排除：M1/M2 派发包是标准的「请按 skill 指引完成」，**没有弱化 skill**——所以不是主 agent
+  输入让 worker 不遵守，是 skill 自身结构问题。
+- 根因落在 `change-impl-worker` §2.3「读上下文（不可跳过）」必读清单——它列 6 项（首文档 / design /
+  CLAUDE+AGENTS / LOGBOOK / 现有代码 / **现有测试**），**漏了 TESTING_GUIDE**；TESTING_GUIDE 只在
+  §3.1 一句软提示「先读」。worker **严格执行了 §2.3 清单**、按第 6 项读了「现有测试」——而现有测试
+  本身就是 mock 锁，等于**照坏样本学**——到 §3.1 软提示时已进实施惯性，跳过。
+- 助推（关联 P0/§5.1）：M3 派发包注入了实现方向「经既有 outbound 路径（`outbound_router`…）推回」，
+  把 relay 测试按到 no-op 路径上（orchestrator 派发写实现细节）。
+
+### 这一步本该怎样（均已落地）
+- 已删 `relay`（no-op）+ 两个 mock 实现锁，补真 shell 集成
+  `test_background_bash_carries_non_default_workspace_root_to_submit`（commit `a3bb75ef`）。
+- ✅ `change-impl-worker` §2.3：把 `docs/TESTING_GUIDE.md` 提为**写测试前必读**（放「现有测试」之前——
+  先立标准再看样本）；「现有测试」项加坏样本警示（mock 断言内部调用 / 测 no-op 路径，别无脑模仿）。
+- ✅ `docs/TESTING_GUIDE.md` §1 补「实现路径变了，回头审旧测试」——堵 relay no-op 死测试那条缺口。
+- ⬜ （关联 P0/§5.1）orchestrator 派发/反馈别写 `outbound_router` 这类实现路径。
 
 ---
 
@@ -145,20 +157,22 @@ P0 与 P1 不是两个问题，是**同一个根因的两种表现**：
 design 还在两端都补了一刀：把内部访问机制（`_session_manager`）写进 Decision，spec 和 test 都照着
 这个机制走。
 
-这条根因之所以能成立、能漏到 PR，是因为 SDD 流程在**两个关口都缺一道「实现层红线」机械检查**：
-契约层归并时没拦（§7.0），C1 测试投影时没拦（impl-worker）。原则（「主语=消费者」）一直在，但太抽象，
-拦不住「`submit 被调用` 看起来也像个行为」。
+这条根因能漏到 PR，spec 侧与 test 侧的机制不同：
+- **spec 侧**：契约层归并（§7.0）缺「实现层红线」机械检查，且 worker 越界写了 canonical（P0）。
+- **test 侧**：规范（TESTING_GUIDE line 11-12）**本就够好**，但 `change-impl-worker` §2.3 必读清单
+  **漏列了它**，worker 严格按清单读、没读到测试规范，还照现有坏测试样本学（P1）。
 
 ### 一句话
-把「实现视角」挡在 spec 和 test 之外，需要两件事：**禁 worker 碰契约层**（产物分工）+ **在契约归并
-和 C1 测试两个关口都装可机械自查的实现层红线**（禁函数名/类名/日志字符串/`X 被调用`）。前者已落地，
-后者 spec 侧已落地、测试侧待补。
+把「实现视角」挡在 spec 和 test 之外：spec 侧靠**禁 worker 碰契约层 + 归并关口的实现层红线**（已落地）；
+test 侧不靠「再写一条纪律」（纪律不缺），而靠**把 TESTING_GUIDE 提进 §2.3 必读清单**，让够好的规范在
+写 C1 前真正进入 worker 工作记忆（已落地）。
 
 ---
 
 ## 附：按 skill 的改进清单
 
-> 标注 ✅ 已落地（本会话已改 SKILL.md，commit 待提）/ ⬜ 待补。
+> 标注 ✅ 已落地 / ⬜ 待补。skill 改动在主仓 `.claude/skills/` 工作区（用户审核中，未 commit）；
+> `docs/TESTING_GUIDE.md` 与本复盘随 unit 分支 push。
 
 ### change-design-author（来源 P0、P1）
 - ✅ §4.8 加**实现层红线**：delta 的 Scenario THEN 只写消费者可观察结果，禁内部函数名/类名/日志字符串/
@@ -173,10 +187,10 @@ design 还在两端都补了一刀：把内部访问机制（`_session_manager`�
 
 ### change-impl-worker（来源 P0、P1）
 - ✅ §0.13：契约层 canonical+delta **永不由 worker 写**，C3 只补 progress.md/tasks.md。
-- ⬜ **C1 测试投影纪律**：测试 THEN 从消费者/系统可观察结果投影（真入口/真链路）；mock 只隔离不可控
-  外部，**不得把「内部函数被调用/参数被传递」当测试目标**（P1 直接根因）。
-- ⬜ **实现路径变更回溯**：某 roadpoint 改了一条实现路径时，回头审视测旧路径的测试是否失真
-  （P1 的 relay no-op 死测试）。
+- ✅ §2.3：把 `docs/TESTING_GUIDE.md` 提进「读上下文（不可跳过）」必读清单（放「现有测试」之前）；
+  「现有测试」项加坏样本警示。**撤回**早期「补 C1 测试纪律」——纪律不缺（TESTING_GUIDE line 11-12），
+  缺的是「让 worker 读到它」（P1 真根因：§2.3 漏列 + worker 对 TESTING_GUIDE 的 Read = 0 次）。
+- （配套，非 skill）`docs/TESTING_GUIDE.md` §1 已补「实现路径变了，回头审旧测试」（P1 relay no-op 死测试）。
 
 ### 跨 skill（结构性）
 - 「实现层红线」现已落在 design-author（源头）+ orchestrator（归并关口）。若再补 impl-worker 的 C1，
@@ -184,4 +198,5 @@ design 还在两端都补了一刀：把内部访问机制（`_session_manager`�
 
 ### 两个最高杠杆项
 1. **change-impl-worker §0.13（禁 worker 碰契约层）** ✅——直接掐断 P0 主因。
-2. **change-impl-worker C1 测试投影纪律** ⬜——直接掐断 P1 主因，且与 §0.13 同源，是本复盘唯一还没落地的核心改动。
+2. **change-impl-worker §2.3（TESTING_GUIDE 提进必读清单）** ✅——直接掐断 P1 主因：worker 当时严格
+   按 §2.3 读、清单漏列导致 0 次读测试规范；补进清单后够好的规范才进得了工作记忆。
