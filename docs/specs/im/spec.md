@@ -334,3 +334,28 @@ IM 整体离线时,经 Node Gateway Channel 的外部 IM 主路径仍可用(Gate
 - **GIVEN** 中继能力被关闭
 - **WHEN** 前端访问 Agent 配置 / 节点管理等配置中心接口
 - **THEN** 这些接口照常可用(仅 Web IM 聊天链路停用)
+
+### Requirement: 后台 agent 通知经同一条实时下发路径到达在线用户（bugfix-404 fix-realtime）
+
+Gateway 上行 `agent.message`（后台任务完成后发给人类用户的通知）时,IM 必须将该消息通过 EventBridge
+路径写入 `conversation_events`,产生 `message.created` 事件并经用户流 WebSocket 实时推送给在线
+浏览器。消息不应只持久化——在线用户不刷新就能看到后台通知气泡。
+
+- **单一实时下发路径**：无论前台流式回复还是后台通知,在 IM 侧均经 EventBridge（`on_turn_start`
+  + `on_message_completed`）产生 `message.created` / `message.completed` 事件;不留两套
+  并行下发路径,避免未来事件类型扩展时遗漏后台通知场景。
+- **幂等去重保留**：`dispatch_request_key`（`from_session_id` 携带的 tool_call 后缀）作幂等键,
+  Gateway 重启后重发同一 `agent.message` 帧时,IM 命中去重返回同一 `message_id`,不重复写事件。
+- **agent-to-agent 不受影响**：目标是 agent 的消息（`agent_id`）仍走直接 `create_message` +
+  relay 路径;relay channel 是 agent-to-agent 投递的已有机制,无需 EventBridge 冒泡。
+
+#### Scenario: 后台通知消息在在线用户流中实时可见
+- **GIVEN** 人类用户已经建立用户流 WebSocket 连接（在线）
+- **WHEN** Gateway 上行 `agent.message {from_session_id, to:user:<id>, text}`
+- **THEN** IM 向该用户的 WebSocket 推送一帧 `op:"event" event_type:"message.created"`；
+  用户无需刷新即可看到后台通知气泡
+
+#### Scenario: 重放 agent.message 不产生重复气泡
+- **GIVEN** 已处理过一次含 `|tool_call:` 后缀的 `agent.message` 帧
+- **WHEN** Gateway 重启后以相同 `from_session_id` 重发该帧
+- **THEN** 返回相同 `message_id`,不新增 `conversation_events` 行,不重复推送
