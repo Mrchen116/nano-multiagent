@@ -367,24 +367,18 @@ Web IM 中继通道对收到的 relay 帧去重(SQLite 落盘,跨重启生效),�
 - **WHEN** relay 帧携带图片附件
 - **THEN** 通道把附件 url(及可选 content_type)放入入站消息元数据,随消息提交给内核,通道层不做内容解析
 
-### Requirement: 后台任务完成后 Gateway 把 Agent 回复中继回原 IM 对话（bugfix-404-M3）
+### Requirement: 后台任务完成后 Gateway 把 Agent 回复中继回原 IM 对话
 
-用户发消息让 Agent 后台执行长任务（`run_in_background`），Agent 立即回复「已启动」后主轮结束。
-任务完成后内核以 BACKGROUND_TASK origin 起新 run（见内核契约「后台任务完成通知送达父 session」），
-Gateway 捕获该 run 产出的回复文本并投递回触发会话的原 IM 对话——用户在 IM 看到内含任务结果的
-第二条回复。投递携带按事件派生的稳定幂等键，IM 端对重放（如 Gateway 重启后事件流重放）去重。
+用户让 Agent 后台执行长任务（`run_in_background`），Agent 立即回复「已启动」后主轮结束；任务完成后，
+Gateway 把 Agent 的完成回复投递回触发该任务的原 IM 对话——用户在同一对话看到内含任务结果的第二条
+回复。重复投递（如 Gateway 重启后重放）经去重，用户不会看到重复的第二条回复。
 
 #### Scenario: 后台任务完成后用户在 IM 对话收到包含结果的第二条回复
-- **GIVEN** 用户通过 IM 直聊让 Agent 后台执行一个命令（如 `run_in_background: sleep 30 && echo X`）
-- **WHEN** 主轮返回「已启动」,任务在后台完成
-- **THEN** 用户在同一 IM 对话收到第二条 Agent 回复,内含后台任务输出（如「X」）
+- **GIVEN** 用户经 IM 直聊让 Agent 后台执行一个命令（如 `run_in_background: sleep 30 && echo X`）
+- **WHEN** 主轮返回「已启动」，任务在后台完成
+- **THEN** 用户在同一 IM 对话收到第二条 Agent 回复，内含后台任务输出（如「X」）
 
-#### Scenario: Gateway 重启后重放的后台回复不产生重复消息
+#### Scenario: Gateway 重启不产生重复的后台回复
 - **GIVEN** 某后台任务回复已投递到 IM 对话
-- **WHEN** Gateway 重启后内核事件流重放覆盖该事件
-- **THEN** IM 端按幂等键去重,对话中不出现重复的第二条回复
-
-#### Scenario: self_evolution_review 既有语义不受影响
-- **GIVEN** self_evolution_review 事件由内核后台钩子发出
-- **WHEN** Gateway 的后台事件订阅收到 self_evolution_review 事件
-- **THEN** 事件仍走既有系统消息路径（`node.system_message` IM 系统帧）,不受后台回复中继影响
+- **WHEN** Gateway 重启后该回复被重放
+- **THEN** 该对话中不出现重复的第二条回复

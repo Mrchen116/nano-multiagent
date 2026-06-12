@@ -297,27 +297,13 @@ event loop 与 Context 中进入终态,再停止并关闭 loop。关闭开始后
 - **WHEN** 消费者多次调用或混用 `kernel.aclose()` 与 `kernel.close()`
 - **THEN** 后续调用安全返回,不重复停止 loop、不抛 secondary exception
 
-### Requirement: 后台任务完成通知送达父 session，跨 workspace 可靠(bugfix-404)
+### Requirement: 后台任务完成后发起 session 收到结果通知，跨 workspace 可靠
 
-后台 bash / subagent 任务完成（completed/failed/killed）时，内核向其 parent_session 投递
-`<task-notification>` 消息，触发父 session 新一轮感知。通知在任意 workspace_root 下均可靠投递：
-workspace_root 在注册时由工具层捕获并存入 `BackgroundTaskRecord`，投递时透传给 `submit()`，
-保证非默认 workspace 下的 session 可被正确定位。subagent 会话（metadata `kind=subagent`）的
-后台任务不触发 submit，以 debug 日志静默跳过（这类 session 不受顶层 RunsRegistry 管辖）。
-投递失败记录 `log_error`，不静默吞掉。
+后台 bash / subagent 任务完成（无论成功、失败或被终止）后，发起它的 session 在下一轮输入中收到一条
+`<task-notification>` 消息，内含任务结果——消费者无需轮询即可感知。该通知在任意 workspace_root 下均
+可靠送达，不因 session 绑定非默认工作区而丢失。
 
-#### Scenario: bash 后台任务完成后父 session 收到通知
-- **GIVEN** 一个绑定了非默认 workspace_root 的父 session，其中启动了后台 bash 任务
-- **WHEN** bash 命令完成（exit 0 或非 0）
-- **THEN** `runs_registry.submit` 以 `origin=BACKGROUND_TASK`、`workspace_root=<父 session workspace>`
-  被调用；投递的消息体含 `<task-notification>` 标签
-
-#### Scenario: subagent 会话的后台任务不触发顶层 submit
-- **GIVEN** 父 session metadata 含 `kind=subagent`
-- **WHEN** 该 session 发起的后台任务完成
-- **THEN** `runs_registry.submit` 不被调用；记录一条 debug 日志
-
-#### Scenario: 投递失败产生可观察的 log_error
-- **GIVEN** `runs_registry.submit` 抛出异常（session 不存在或其他）
-- **WHEN** 投递被执行
-- **THEN** 异常被捕获并以 `log_error("background_task_notify_delivery_failed", ...)` 记录，不静默吞掉
+#### Scenario: 非默认 workspace 下后台任务完成通知送达
+- **GIVEN** 一个绑定非默认 workspace_root 的 session 启动了后台任务
+- **WHEN** 任务完成
+- **THEN** 该 session 下一轮输入含一条带任务结果的 `<task-notification>` 消息
