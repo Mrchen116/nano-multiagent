@@ -41,6 +41,7 @@ def build_prompt_context_from_metadata(
     flags: Mapping[str, bool],
     vars: Mapping[str, str] | None = None,
     render_mode: "object | None" = None,
+    prompt_slots: "object | None" = None,
 ) -> PromptContext:
     """Build a frozen PromptContext from a runtime metadata dict.
 
@@ -106,6 +107,7 @@ def build_prompt_context_from_metadata(
         flags=dict(flags),
         scenario=scenario,
         vars=dict(vars) if vars else {},
+        prompt_slots=prompt_slots,
     )
 
 

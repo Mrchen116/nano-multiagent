@@ -162,6 +162,13 @@ class AgentRuntime:
         self._prompt_sections: list[PromptSection] = (
             list(prompt_sections) if prompt_sections else []
         )
+        # Per-session product PromptSlots (refactor-406 决策 8): the consumer's
+        # create_session(prompt=PromptSlots) registers slots here; _run_locked
+        # threads them into the PromptContext so the kernel skeleton places the
+        # product's head/body/custom/tail text. SDK-owned object read structurally
+        # (no core→sdk import); not persisted to JSONL (it can't round-trip JSON
+        # and is rebuilt per process by the consumer factory on session open).
+        self._session_prompt_slots: dict[str, object] = {}
         tool_results_dir = self._repo_root / ".nano" / "tool-results"
         self._tool_result_compressor = ToolResultCompressor(tool_results_dir)
         self._context_fork = AgentContextFork(
@@ -209,6 +216,21 @@ class AgentRuntime:
             compaction_settings=self._compaction_settings,
             on_compaction=self._invalidate_memory_snapshot,
         )
+
+    def register_session_prompt_slots(self, session_id: str, slots: object) -> None:
+        """Register per-session product PromptSlots (refactor-406 决策 8).
+
+        Called by the kernel on create_session(prompt=PromptSlots). The slots are
+        threaded into the PromptContext at turn time so the kernel skeleton places
+        the product's head/body/custom/tail text. Storing None or omitting a session
+        leaves the slots empty (skeleton renders kernel segments only).
+
+        Args:
+            session_id: Session the slots apply to.
+            slots: SDK-owned PromptSlots (read structurally; no import here).
+        """
+        if slots is not None:
+            self._session_prompt_slots[session_id] = slots
 
     async def run(
         self,
@@ -430,6 +452,9 @@ class AgentRuntime:
                     # feat-394-M9: heartbeat/cron gates moved to ctx.flags via
                     # FEATURE_REGISTRY (decision D).  vars injection retired.
                 },
+                # refactor-406 决策 8: thread the consumer's per-session PromptSlots
+                # so the kernel skeleton's slot sections render product text.
+                prompt_slots=self._session_prompt_slots.get(session_id),
             )
             pre_rendered_system_prompt = resolve_effective_prompt(
                 sections=self._prompt_sections,

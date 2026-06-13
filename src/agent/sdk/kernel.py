@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Sequence
 
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
@@ -27,9 +27,9 @@ from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient
 from agent.core.observability.exporters.console import ConsoleTracer
 from agent.core.observability.tracing import set_tracer
-from agent.core.runs.registry import RunRecord, RunsRegistry
+from agent.core.runs.registry import RunsRegistry
 from agent.core.runs.origin import RunOrigin
-from agent.core.session.models import Session
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.tools.host_capability import HostCapabilityDispatcher
 from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.config.auto_mode import AutoModeConfig
@@ -43,6 +43,17 @@ from agent.platform.permissions.broker import (
 )
 from agent.platform.persistence.session.service import SessionService
 from agent.platform.tools.loader import build_tool_registry
+
+from agent.sdk.dto import (
+    FeatureInfo,
+    LLMConfig,
+    ModelInfo,
+    RunInfo,
+    SessionInfo,
+    SkillInfo,
+    ToolInfo,
+)
+from agent.sdk.prompt import PromptSlots
 
 if TYPE_CHECKING:
     from agent.products.base import ProductProfile
@@ -67,39 +78,75 @@ class _KernelComponents:
 
 def build_kernel(
     *,
-    product_profile: "ProductProfile",
-    llm_config: LLMFactoryConfig,
+    # --- new (refactor-406 决策 1/2/5) 2-layer surface ---
+    llm: LLMConfig | None = None,
+    tools: Sequence[Any] | None = None,
+    hooks: Sequence[Callable[[Any], None]] | None = None,
+    workspace_config_dirname: str | None = None,
+    # --- legacy (扩张期保留) product-profile surface ---
+    product_profile: "ProductProfile | None" = None,
+    llm_config: LLMFactoryConfig | None = None,
+    host_capabilities: HostCapabilityDispatcher | None = None,
+    # --- shared ---
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
-    host_capabilities: HostCapabilityDispatcher | None = None,
     # Internal escape hatch for tests: skip LLM client construction and use
     # this fake instead.  Not part of the public API.
     _llm_client_override: LLMClient | None = None,
 ) -> "Kernel":
-    """Assemble an in-process Kernel from the given configuration.
+    """Assemble an in-process Kernel — composition root for any application.
 
-    This is the composition root for products: it creates all platform
-    components (runtime, registry, event hub, permission broker) and wires
-    them together without any HTTP/FastAPI surface.
+    Two signatures are accepted during the refactor-406 expansion phase:
+
+    - **New (决策 1/2/5)**: ``build_kernel(llm=LLMConfig, tools=[native objects],
+      hooks=[setup callables], can_use_tool=…, workspace_config_dirname=…)`` — builds
+      a product-neutral shared base: the model registry is initialised internally
+      from ``llm`` (no consumer-side ``init_model_registry``), the consumer's native
+      tool objects are registered into the kernel tool catalog, the prompt template
+      is the kernel skeleton (product text comes per-session via
+      ``create_session(prompt=PromptSlots)``).
+    - **Legacy**: ``build_kernel(product_profile=…, llm_config=LLMFactoryConfig, …)``
+      — the pre-refactor path via ``bootstrap_product``. Retained until consumers
+      migrate (R5/R6); removed in the收缩 phase.
+
+    Exactly one of ``llm`` / ``product_profile`` must be supplied.
 
     Args:
-        product_profile: Product-specific defaults (tools, hooks, system prompt).
-        llm_config: LLM provider/model/endpoint configuration.
-        can_use_tool: Optional async callback invoked when the agent needs
-            permission to use a tool; returns a PermissionDecision.
-            When None, all permission decisions must arrive via
-            ``submit_permission_decision`` (IM card flow).
-        repo_root: Repository/workspace root for tool and hook discovery.
-        host_capabilities: Optional product-owned capability dispatcher.  When
-            provided, it is injected into ToolContext so product tools (e.g.
-            cron tool run action) can invoke capabilities without importing
-            personal_assistant directly (bugfix-402 Decision 1).
-        _llm_client_override: Test-only; if provided, skips constructing an
-            LLM client from llm_config and uses this instead.
+        llm: SDK-owned LLM config (new path). Catalog + connection + default.
+        tools: Native tool objects satisfying the SDK ``Tool`` Protocol (new path).
+        hooks: ``setup(hooks)`` callables registered into the hook registry (new path).
+        workspace_config_dirname: Per-workspace config dir name (e.g. ``.nanocode``)
+            governing session JSONL / memory / skill layout (new path).
+        product_profile: Legacy product profile (legacy path).
+        llm_config: Legacy LLM factory config (legacy path).
+        host_capabilities: Legacy product-owned capability dispatcher (legacy path;
+            removed once cron migrates out of the kernel, 决策 9).
+        can_use_tool: Optional async permission callback; None → IM card flow.
+        repo_root: Repository/workspace root for tool/hook discovery.
+        _llm_client_override: Test-only LLM client.
 
     Returns:
         A fully assembled, ready-to-use Kernel.
     """
+    if (llm is None) == (product_profile is None):
+        raise ValueError(
+            "build_kernel requires exactly one of llm= (new 2-layer surface) or "
+            "product_profile= (legacy surface)"
+        )
+    if llm is not None:
+        return _build_kernel_base(
+            llm=llm,
+            tools=list(tools or ()),
+            hooks=list(hooks or ()),
+            workspace_config_dirname=workspace_config_dirname or ".nano",
+            can_use_tool=can_use_tool,
+            repo_root=repo_root,
+            _llm_client_override=_llm_client_override,
+        )
+
+    assert product_profile is not None  # narrowed by the guard above
+    if llm_config is None:
+        raise ValueError("legacy build_kernel requires llm_config=")
     resolved_repo_root = (
         (repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd())))
         .expanduser()
@@ -224,6 +271,281 @@ def build_kernel(
     )
 
 
+def _init_model_registry_from_llm_config(llm: LLMConfig) -> None:
+    """Initialise the process model registry from an SDK ``LLMConfig`` (决策 5).
+
+    This absorbs the old "consumer must call init_model_registry first" footgun:
+    build_kernel owns registry init. When the LLMConfig carries an explicit
+    provider/model catalog, that is used; otherwise a single-provider catalog is
+    synthesised from the active connection so a from_env()-only config still
+    yields a usable registry (the env path has no catalog).
+
+    Idempotent within a process: a re-init with the same default is tolerated by
+    resetting first (mirrors the test conftest's reset/re-init discipline).
+    """
+    from agent.core.llm.config import (  # noqa: PLC0415
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
+    from agent.core.llm.model_registry import (  # noqa: PLC0415
+        _reset_for_tests,
+        init_model_registry,
+    )
+
+    if llm.providers:
+        providers = tuple(
+            LLMProviderPayload(
+                name=p.name,
+                base_url=p.base_url,
+                models=tuple(
+                    LLMModelPayload(
+                        name=m.name,
+                        extra_request_body=m.extra_request_body or None,
+                    )
+                    for m in p.models
+                ),
+            )
+            for p in llm.providers
+        )
+        default_model = llm.default_model or llm.model
+    else:
+        # No catalog (e.g. LLMConfig.from_env()): synthesise a one-provider,
+        # one-model catalog from the active connection so registry lookups resolve.
+        providers = (
+            LLMProviderPayload(
+                name=llm.provider,
+                base_url=llm.base_url,
+                models=(LLMModelPayload(name=llm.model, extra_request_body=None),),
+            ),
+        )
+        default_model = llm.model
+
+    payload = LLMConfigPayload(default_model=default_model, providers=providers)
+    # Re-init is required because the catalog can differ per kernel; reset then init.
+    _reset_for_tests()
+    init_model_registry(payload)
+
+
+def _llm_config_to_factory_config(llm: LLMConfig) -> LLMFactoryConfig:
+    """Map an SDK ``LLMConfig`` to the internal ``LLMFactoryConfig`` connection."""
+    return LLMFactoryConfig(
+        provider=llm.provider,
+        model=llm.model,
+        base_url=llm.base_url,
+        api_key=llm.api_key,
+        timeout_seconds=llm.timeout_seconds,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Boundary DTO mapping (决策 6): internal Session / RunRecord / LLMFactoryConfig
+# → SDK-owned SessionInfo / RunInfo / LLMConfig at the Kernel boundary.
+# ---------------------------------------------------------------------------
+
+
+def _to_session_info(session: Any) -> SessionInfo:
+    """Map an internal Session to the SDK-owned SessionInfo boundary DTO."""
+    workspace_root = getattr(session, "workspace_root", None)
+    metadata = getattr(session, "metadata", None) or {}
+    return SessionInfo(
+        session_id=session.session_id,
+        title=getattr(session, "title", None),
+        workspace_root=str(workspace_root) if workspace_root is not None else None,
+        metadata=dict(metadata),
+    )
+
+
+def _to_run_info(record: Any) -> RunInfo:
+    """Map an internal RunRecord to the SDK-owned RunInfo boundary DTO."""
+    status = getattr(record, "status", None)
+    return RunInfo(
+        run_id=record.run_id,
+        session_id=record.session_id,
+        # status may be an enum (with .value) or already a string.
+        status=getattr(status, "value", status) if status is not None else "",
+    )
+
+
+def _factory_config_to_llm_config(
+    cfg: Any, *, catalog: LLMConfig | None = None
+) -> LLMConfig:
+    """Map the internal LLMFactoryConfig to the SDK-owned LLMConfig boundary DTO.
+
+    Preserves the catalog (providers / default_model) from the build-time
+    ``catalog`` when available, so ``get_llm_config`` / ``reconfigure_llm`` carry
+    the full provider list, not just the active connection.
+    """
+    return LLMConfig(
+        provider=getattr(cfg, "provider", ""),
+        model=getattr(cfg, "model", ""),
+        base_url=getattr(cfg, "base_url", ""),
+        api_key=getattr(cfg, "api_key", None),
+        timeout_seconds=getattr(cfg, "timeout_seconds", 600.0),
+        default_model=catalog.default_model
+        if catalog is not None
+        else getattr(cfg, "model", ""),
+        providers=catalog.providers if catalog is not None else (),
+    )
+
+
+def _build_kernel_base(
+    *,
+    llm: LLMConfig,
+    tools: list[Any],
+    hooks: list[Callable[[Any], None]],
+    workspace_config_dirname: str,
+    can_use_tool: CanUseToolFn | None,
+    repo_root: Path | None,
+    _llm_client_override: LLMClient | None,
+) -> "Kernel":
+    """Assemble the product-neutral shared base (new 2-layer path, 决策 1/2/5/8).
+
+    No ProductProfile, no bootstrap_product: the model registry is initialised
+    from ``llm``, the prompt template is the kernel skeleton, and the consumer's
+    native tool objects + hook setups are registered directly.
+    """
+    from agent.core.agent.prompt_sections.skeleton import (  # noqa: PLC0415
+        build_kernel_prompt_skeleton,
+    )
+    from agent.platform.tools.builtins import register_builtin_tools  # noqa: PLC0415
+    from agent.core.tools.base import (  # noqa: PLC0415
+        ToolContext as CoreToolContext,
+        set_tool_safety_config_factory,
+        set_tool_safety_factory,
+    )
+    from agent.core.tools.registry import ToolRegistry  # noqa: PLC0415
+    from agent.platform.tools.safety import (  # noqa: PLC0415
+        ToolSafety,
+        ToolSafetyConfig,
+        load_tool_safety_config,
+    )
+
+    resolved_repo_root = (
+        (repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd())))
+        .expanduser()
+        .resolve()
+    )
+
+    _wire_console_tracer()
+
+    # Model registry is build_kernel's responsibility (决策 5).
+    _init_model_registry_from_llm_config(llm)
+
+    factory_config = _llm_config_to_factory_config(llm)
+
+    session_store = JsonlSessionStore(
+        data_dir=None,
+        workspace_config_dirname=workspace_config_dirname,
+    )
+    session_service = SessionService(store=session_store)
+
+    permission_broker = PermissionBroker(config=AutoModeConfig())
+
+    # Hook registry: built-in hooks + consumer setup callables (决策 2).
+    hook_registry = build_hook_registry(repo_root=resolved_repo_root)
+    for setup in hooks:
+        setup(hook_registry)
+    hook_runner = HookRunner(registry=hook_registry)
+
+    if _llm_client_override is not None:
+        llm_client_factory = None
+        direct_llm_client: LLMClient | None = _llm_client_override
+    else:
+        llm_client_factory = lambda cfg: _platform_create_llm_client(config=cfg)  # noqa: E731
+        direct_llm_client = None
+
+    runtime = AgentRuntime(
+        session_manager=session_service.manager,
+        hook_runner=hook_runner,
+        repo_root=resolved_repo_root,
+        permission_broker=permission_broker,
+        llm_client=direct_llm_client,
+        llm_client_factory=llm_client_factory,
+        model=factory_config.model,
+        # Product-neutral kernel skeleton; product text enters per-session via
+        # create_session(prompt=PromptSlots) (决策 8).
+        prompt_sections=build_kernel_prompt_skeleton(),
+    )
+    # Inject the env-resolved active connection so get_llm_config reflects llm=.
+    runtime._llm_config = factory_config  # type: ignore[attr-defined]
+
+    event_hub = EventStreamHub()
+    set_session_event_publisher_factory(
+        registry=hook_registry,
+        factory=_build_session_event_publisher_factory(event_hub=event_hub),
+    )
+
+    runs_registry = RunsRegistry(
+        runtime=runtime,
+        session_manager=session_service.manager,
+        event_hub=event_hub,
+        hook_runner=hook_runner,
+    )
+
+    background_task_wiring = wire_background_tasks(
+        workspace_root=resolved_repo_root,
+        runtime=runtime,
+        runs_registry=runs_registry,
+    )
+
+    # Tool catalog: built-ins + consumer native tool objects (决策 2). The native
+    # objects satisfy the SDK Tool Protocol and are registered into the registry
+    # directly — no _product_root() directory scan.
+    set_tool_safety_factory(ToolSafety)
+    set_tool_safety_config_factory(ToolSafetyConfig)
+    base_context = CoreToolContext.create(
+        repo_root=resolved_repo_root,
+        safety_config=load_tool_safety_config(repo_root=resolved_repo_root),
+        llm_client=getattr(runtime, "_llm_client", None),
+    )
+    tool_registry = ToolRegistry(context=base_context, hook_runner=hook_runner)
+    register_builtin_tools(
+        tool_registry, runtime=runtime, wiring=background_task_wiring
+    )
+    for tool in tools:
+        tool_registry.register(tool, replace=True)
+
+    _bind_runtime_to_tool_registry(
+        tool_registry=tool_registry,
+        runtime=runtime,
+        hook_runner=hook_runner,
+        wiring=background_task_wiring,
+    )
+    bind_tool_registry = getattr(runtime, "bind_tool_registry", None)
+    if callable(bind_tool_registry):
+        bind_tool_registry(tool_registry)
+
+    components = _KernelComponents(
+        runtime=runtime,
+        runs_registry=runs_registry,
+        event_hub=event_hub,
+        permission_broker=permission_broker,
+        session_service=session_service,
+        hook_registry=hook_registry,
+        hook_runner=hook_runner,
+    )
+
+    return Kernel(
+        components=components,
+        can_use_tool=can_use_tool,
+        repo_root=resolved_repo_root,
+        host_capabilities=None,
+        llm_catalog=llm,
+    )
+
+
+def _wire_console_tracer() -> None:
+    """Wire the console tracer when the threshold env var is set."""
+    threshold = os.getenv("NANO_MULTIAGENT_TRACE_CONSOLE_THRESHOLD_MS")
+    if threshold is None:
+        return
+    try:
+        set_tracer(ConsoleTracer(threshold_ms=float(threshold)))
+    except ValueError:
+        set_tracer(ConsoleTracer(threshold_ms=100.0))
+
+
 class Kernel:
     """In-process agent kernel: the sole public interface for products.
 
@@ -245,9 +567,13 @@ class Kernel:
         can_use_tool: CanUseToolFn | None,
         repo_root: Path,
         host_capabilities: HostCapabilityDispatcher | None = None,
+        llm_catalog: LLMConfig | None = None,
     ) -> None:
         self._c = components
         self._repo_root = repo_root
+        # SDK-owned LLM catalog (decision 5) for list_models / get_llm_config DTO
+        # mapping. None on the legacy product_profile path (catalog unknown there).
+        self._llm_catalog = llm_catalog
 
         # Inject can_use_tool into runtime so _build_hook_context can race it
         # against the broker future when building _permission_requester closures.
@@ -273,37 +599,74 @@ class Kernel:
         *,
         title: str | None = None,
         workspace_root: Path | None = None,
+        # --- new (refactor-406 决策 1/6/8) per-agent config ---
+        enabled_tools: list[str] | None = None,
+        features: dict[str, bool] | None = None,
+        prompt: PromptSlots | None = None,
+        # --- legacy (扩张期保留) ---
         skills: list[str] | None = None,
         tool_allowlist: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> Session:
-        """Create and return a new session.
+    ) -> SessionInfo:
+        """Create a session and return its SDK-owned ``SessionInfo`` (决策 6).
+
+        Per-agent config (new path, 决策 1): ``enabled_tools`` selects the session's
+        tool subset from the kernel catalog; ``features`` toggles the kernel's
+        general features (memory_curation / skill_creation); ``prompt`` is the
+        consumer's per-session ``PromptSlots`` placed into the kernel skeleton
+        (决策 8). model is *not* taken here — it stays kernel-level (决策 5).
+
+        Legacy ``skills`` / ``tool_allowlist`` / ``metadata`` are retained during
+        the expansion phase for callers not yet migrated.
 
         Args:
             title: Optional human-readable title.
             workspace_root: Workspace root for session JSONL storage.
-            skills: Optional list of skill names to enable.
-            tool_allowlist: Optional tool allowlist for the session.
-            metadata: Optional session metadata (e.g. routing context for gateway).
+            enabled_tools: Tool names selected for this session (new path).
+            features: Kernel feature toggles → session ``agent_features`` (new path).
+            prompt: Per-session product PromptSlots (new path, 决策 8).
+            skills: Legacy skill name list.
+            tool_allowlist: Legacy tool allowlist (superseded by enabled_tools).
+            metadata: Legacy session metadata.
 
         Returns:
-            The created Session.
+            SessionInfo with session_id / title / workspace_root / metadata.
         """
         effective_root = workspace_root or self._repo_root
-        return self._c.session_service.create_session(
+
+        effective_allowlist = (
+            enabled_tools if enabled_tools is not None else tool_allowlist
+        )
+        effective_metadata = dict(metadata) if metadata else {}
+        if features is not None:
+            # Feature toggles drive the kernel feature gates via agent_features
+            # (same key the runtime reads through resolve_flags_from_metadata).
+            merged_features = dict(effective_metadata.get("agent_features", {}))
+            merged_features.update(features)
+            effective_metadata["agent_features"] = merged_features
+
+        session = self._c.session_service.create_session(
             workspace_root=effective_root,
             title=title,
             skills=tuple(skills) if skills else None,
-            tool_allowlist=tuple(tool_allowlist) if tool_allowlist else None,
-            metadata=metadata,
+            tool_allowlist=tuple(effective_allowlist) if effective_allowlist else None,
+            metadata=effective_metadata or None,
         )
+
+        # Register per-session PromptSlots on the runtime (决策 8). The slots are
+        # read structurally at turn time; not persisted (rebuilt per process by
+        # the consumer factory on session open).
+        if prompt is not None:
+            self._c.runtime.register_session_prompt_slots(session.session_id, prompt)
+
+        return _to_session_info(session)
 
     async def fork_session(
         self,
         session_id: str,
         *,
         workspace_root: Path | None = None,
-    ) -> Session:
+    ) -> SessionInfo:
         """Fork an existing session for parallel execution.
 
         Args:
@@ -311,12 +674,13 @@ class Kernel:
             workspace_root: Workspace root for the forked session.
 
         Returns:
-            New forked Session.
+            SessionInfo for the new forked session.
         """
         effective_root = workspace_root or self._repo_root
-        return self._c.session_service.create_session(
+        session = self._c.session_service.create_session(
             workspace_root=effective_root,
         )
+        return _to_session_info(session)
 
     async def compact(
         self,
@@ -344,7 +708,7 @@ class Kernel:
         origin: RunOrigin = RunOrigin.USER,
         workspace_root: Path | None = None,
         trace_id: str | None = None,
-    ) -> RunRecord:
+    ) -> RunInfo:
         """Schedule a turn on the background loop and return immediately.
 
         Args:
@@ -355,16 +719,17 @@ class Kernel:
             trace_id: Optional trace correlation id.
 
         Returns:
-            RunRecord with run_id and initial status QUEUED.
+            RunInfo with run_id / session_id / status (initially QUEUED).
         """
         effective_root = workspace_root or self._repo_root
-        return self._c.runs_registry.submit(
+        record = self._c.runs_registry.submit(
             session_id=session_id,
             parts=parts,
             origin=origin,
             workspace_root=effective_root,
             trace_id=trace_id,
         )
+        return _to_run_info(record)
 
     def stream(
         self,
@@ -477,27 +842,29 @@ class Kernel:
         # TOCTOU-prone is_pending pre-check (feat-394-M14 finding 7).
         return broker.resolve(request_id, response)
 
-    def cancel(self, run_id: str) -> RunRecord | None:
+    def cancel(self, run_id: str) -> RunInfo | None:
         """Cancel a queued or running run by id.
 
         Args:
             run_id: Run to cancel.
 
         Returns:
-            Updated RunRecord, or None if run not found.
+            Updated RunInfo, or None if run not found.
         """
-        return self._c.runs_registry.cancel(run_id)
+        record = self._c.runs_registry.cancel(run_id)
+        return _to_run_info(record) if record is not None else None
 
-    def get_run(self, run_id: str) -> RunRecord | None:
+    def get_run(self, run_id: str) -> RunInfo | None:
         """Fetch the current state of a run.
 
         Args:
             run_id: Run to look up.
 
         Returns:
-            RunRecord, or None if not found.
+            RunInfo, or None if not found.
         """
-        return self._c.runs_registry.get(run_id)
+        record = self._c.runs_registry.get(run_id)
+        return _to_run_info(record) if record is not None else None
 
     def list_session_tools(
         self,
@@ -539,7 +906,6 @@ class Kernel:
         Returns:
             List of ModelInfo(name, provider, is_default).
         """
-        from agent.sdk.dto import ModelInfo  # noqa: PLC0415
 
         active = self._c.runtime.get_llm_config()
         active_model = getattr(active, "model", None)
@@ -590,7 +956,6 @@ class Kernel:
         Returns:
             List of ToolInfo(name, description).
         """
-        from agent.sdk.dto import ToolInfo  # noqa: PLC0415
 
         tool_registry = getattr(self._c.runtime, "_tool_registry", None)
         if tool_registry is None:
@@ -614,7 +979,6 @@ class Kernel:
         Returns:
             List of FeatureInfo(key, default_on, requires_tool).
         """
-        from agent.sdk.dto import FeatureInfo  # noqa: PLC0415
         from agent.core.agent.prompt_sections.feature_registry import (  # noqa: PLC0415
             FEATURE_REGISTRY,
         )
@@ -646,7 +1010,6 @@ class Kernel:
             List of SkillInfo(name, description) for that workspace; different
             workspaces yield their own skills with no cross-workspace mixing.
         """
-        from agent.sdk.dto import SkillInfo  # noqa: PLC0415
         from agent.core.skills.discovery import resolve_available_skills  # noqa: PLC0415
 
         effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
@@ -677,25 +1040,31 @@ class Kernel:
             for s in skills
         ]
 
-    def get_llm_config(self) -> LLMFactoryConfig:
-        """Return the active LLM configuration.
+    def get_llm_config(self) -> LLMConfig:
+        """Return the active LLM configuration as an SDK-owned ``LLMConfig`` (决策 5).
 
         Returns:
-            LLMFactoryConfig with current provider/model/endpoint.
+            LLMConfig with current provider/model/endpoint + build-time catalog.
         """
-        return self._c.runtime.get_llm_config()
+        return _factory_config_to_llm_config(
+            self._c.runtime.get_llm_config(), catalog=self._llm_catalog
+        )
 
-    def reconfigure_llm(self, **patch: Any) -> LLMFactoryConfig:
+    def reconfigure_llm(self, **patch: Any) -> LLMConfig:
         """Reconfigure provider/model connection without recreating the runtime.
 
+        Used by CLI ``/model`` (决策 5 scope A): switches the kernel-level model
+        with immediate effect; subsequent turns use the new model.
+
         Args:
-            **patch: Fields to update on the active LLMFactoryConfig
+            **patch: Fields to update on the active connection
                 (provider, model, base_url, timeout_seconds, api_key).
 
         Returns:
-            Updated LLMFactoryConfig.
+            Updated LLMConfig DTO.
         """
-        return self._c.runtime.reconfigure_llm(**patch)
+        updated = self._c.runtime.reconfigure_llm(**patch)
+        return _factory_config_to_llm_config(updated, catalog=self._llm_catalog)
 
     def append_message(
         self,
@@ -844,6 +1213,9 @@ class Kernel:
         tool_ids: list[str] | None = None,
         scenario: str = "direct",
         skill_ids: list[str] | None = None,
+        # --- new (refactor-406 决策 8) same-source-as-runtime preview ---
+        prompt: PromptSlots | None = None,
+        enabled_tools: list[str] | None = None,
     ) -> dict[str, Any]:
         """Assemble a system-prompt preview for the agent settings page.
 
@@ -897,7 +1269,8 @@ class Kernel:
 
         # Build lightweight ToolSpec stubs from IDs — schema is not needed for
         # preview; has_tool(name) only checks the name to gate guidance segments.
-        active_tool_ids = list(tool_ids) if tool_ids else []
+        # New path (决策 8) passes enabled_tools; legacy passes tool_ids.
+        active_tool_ids = list(enabled_tools or tool_ids or [])
         active_tools: tuple[ToolSpec, ...] = tuple(
             ToolSpec(name=name, description="", input_schema={})
             for name in active_tool_ids
@@ -938,6 +1311,9 @@ class Kernel:
             flags=flags,
             vars=preview_vars,
             render_mode=RenderMode.PREVIEW,
+            # 决策 8: same-source preview — the consumer passes the same PromptSlots
+            # its create_session uses, so preview == real assembly byte-for-byte.
+            prompt_slots=prompt,
         )
 
         sections = getattr(self._c.runtime, "_prompt_sections", [])

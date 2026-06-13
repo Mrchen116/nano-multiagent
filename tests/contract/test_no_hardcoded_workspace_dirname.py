@@ -33,7 +33,12 @@ _WHITELIST: frozenset[str] = frozenset(
         # runtime.py: tool-results dir uses .nano — platform default dir, not per-workspace
         # feat-388 ruff format: line shifted to 156; refactor-395 import logging: shifted to 159
         # feat-394-M14: _can_use_tool attr added in __init__; shifted to 165
-        "src/agent/core/agent/runtime.py:165",
+        # refactor-406-M1: _session_prompt_slots map + register method added in __init__; shifted to 172
+        "src/agent/core/agent/runtime.py:172",
+        # kernel.py: build_kernel new-path workspace_config_dirname default — platform
+        # default fallback when a consumer omits it (same role as jsonl_store default);
+        # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
+        "src/agent/sdk/kernel.py:141",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode

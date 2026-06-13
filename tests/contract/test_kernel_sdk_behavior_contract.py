@@ -286,7 +286,9 @@ async def test_message_sync_completes_and_updates_run(tmp_path: Path) -> None:
 
         record = await _wait_for_terminal_run(kernel, run_id)
         assert record.status == "completed"
-        assert record.turn_id is not None
+        # refactor-406 决策 6: get_run returns the SDK-owned RunInfo (run_id /
+        # session_id / status only); turn_id is an internal RunRecord field, not
+        # part of the curated boundary DTO and not consumed by any product.
     finally:
         kernel.close()
 

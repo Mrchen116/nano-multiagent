@@ -30,6 +30,19 @@ Extended surface for personal_assistant (reporter / upstream_reporter):
 """
 
 from .kernel import CanUseToolFn, Kernel, build_kernel
+from .contracts import HookAPI, Tool, ToolContext
+from .dto import (
+    FeatureInfo,
+    LLMConfig,
+    LLMModel,
+    LLMProvider,
+    ModelInfo,
+    RunInfo,
+    SessionInfo,
+    SkillInfo,
+    ToolInfo,
+)
+from .prompt import PromptSlots, PromptText
 from agent.core.tools.host_capability import (
     HostCapabilityContext,
     HostCapabilityDispatcher,
@@ -59,6 +72,21 @@ __all__ = [
     "Kernel",
     "LLMFactoryConfig",
     "build_kernel",
+    # New 2-layer surface (refactor-406 决策 2/4/5/6/8)
+    "Tool",
+    "ToolContext",
+    "HookAPI",
+    "PromptSlots",
+    "PromptText",
+    "LLMConfig",
+    "LLMProvider",
+    "LLMModel",
+    "SessionInfo",
+    "RunInfo",
+    "ModelInfo",
+    "ToolInfo",
+    "FeatureInfo",
+    "SkillInfo",
     # Permission
     "PermissionDecision",
     # LLM config

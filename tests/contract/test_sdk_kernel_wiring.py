@@ -39,7 +39,7 @@ from agent.sdk import (
     build_kernel,
 )
 from agent.sdk.dto import FeatureInfo, ModelInfo, RunInfo, ToolInfo
-from agent.core.llm.interfaces import LLMMessage
+from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 
 
 # ---------------------------------------------------------------------------
@@ -77,15 +77,24 @@ def _tool_calling_llm_client(tool_name: str) -> Any:
 
 
 async def _tool_call_stream(tool_name: str):
+    # The loop treats a message with empty content + finish_reason as terminal
+    # metadata; tool_calls must ride a non-terminal assistant message (finish_reason
+    # None), then the loop dispatches them and re-queries the model.
     yield LLMMessage(
         role="assistant",
-        content="",
-        finish_reason="tool_calls",
+        content="calling",
+        finish_reason=None,
         tool_calls=(
-            {"id": "call-1", "name": tool_name, "arguments": {"note": "hi"}},
+            LLMToolCall(call_id="call-1", name=tool_name, arguments={"note": "hi"}),
         ),
         usage=None,
     )
+
+
+async def _allow_all(tool, tool_input, ctx):  # noqa: ANN001
+    from agent.platform.permissions.broker import PermissionDecision  # noqa: PLC0415
+
+    return PermissionDecision(behavior="allow")
 
 
 class _EchoTool:
@@ -218,6 +227,7 @@ async def test_closure_side_effect_tool_runs(tmp_path: Path) -> None:
     kernel = _build(
         tmp_path,
         tools=[_EchoTool(), _make_recording_tool(sink)],
+        can_use_tool=_allow_all,
         _llm_client_override=_tool_calling_llm_client("record"),
     )
     try:
