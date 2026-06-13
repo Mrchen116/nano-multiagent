@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>工具调用展示原型 — 现状 vs 提案</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #181b23;
+    --panel2: #1f2330;
+    --border: #2a2f3e;
+    --text: #d8dce6;
+    --dim: #8b91a3;
+    --dimmer: #5c6275;
+    --green: #4ade80;
+    --red: #f87171;
+    --amber: #fbbf24;
+    --blue: #60a5fa;
+    --mono: "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px;
+    background: var(--bg); color: var(--text);
+    font: 14px/1.6 -apple-system, "PingFang SC", "Segoe UI", sans-serif;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .subtitle { color: var(--dim); font-size: 13px; margin-bottom: 24px; }
+  .columns { display: grid; grid-template-columns: 1fr 1.25fr; gap: 28px; max-width: 1400px; }
+  .col-title { font-size: 13px; font-weight: 600; letter-spacing: .05em; margin-bottom: 12px; }
+  .col-title.bad { color: var(--red); }
+  .col-title.good { color: var(--green); }
+
+  /* chat bubble */
+  .msg { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .msg-head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .avatar { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg,#6366f1,#8b5cf6); display: flex; align-items: center; justify-content: center; font-size: 13px; }
+  .msg-name { font-weight: 600; font-size: 13px; }
+  .msg-time { color: var(--dimmer); font-size: 12px; }
+  .msg-body { margin-bottom: 10px; }
+
+  /* tool calls panel */
+  .tc { border-top: 1px solid var(--border); padding-top: 8px; }
+  .tc-toggle { color: var(--dim); font-size: 12.5px; cursor: pointer; user-select: none; background: none; border: none; padding: 2px 0; font-family: inherit; }
+  .tc-toggle:hover { color: var(--text); }
+  .tc-list { list-style: none; margin: 6px 0 0; padding: 0; }
+  .tc-item { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; overflow: hidden; background: var(--panel2); }
+  .tc-row { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; user-select: none; font-size: 13px; }
+  .tc-row:hover { background: #242938; }
+  .tc-status { font-size: 10px; }
+  .tc-status.ok { color: var(--green); }
+  .tc-status.fail { color: var(--red); }
+  .tc-name { font-weight: 600; }
+  .tc-dur { color: var(--dimmer); font-size: 12px; margin-left: auto; }
+  .tc-arrow { color: var(--dimmer); font-size: 11px; }
+  .tc-body { border-top: 1px solid var(--border); padding: 10px 12px; font-size: 12.5px; }
+  .tc-label { display: block; color: var(--dimmer); font-size: 10.5px; letter-spacing: .1em; margin: 8px 0 4px; }
+  .tc-label:first-child { margin-top: 0; }
+  pre { margin: 0; padding: 8px 10px; background: #11141b; border-radius: 6px; font-family: var(--mono); font-size: 12px; line-height: 1.55; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+
+  /* ===== 提案侧专属样式 ===== */
+  .tc-summary { color: var(--dim); font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
+  .tc-summary code { font-family: var(--mono); font-size: 12px; color: #aeb6c8; }
+  .tc-row .fail-tag { color: var(--red); font-size: 12px; }
+
+  /* terminal block for bash */
+  .term { background: #0b0d12; border-radius: 6px; font-family: var(--mono); font-size: 12px; overflow: hidden; }
+  .term-desc { padding: 6px 10px 0; color: var(--dim); font-family: -apple-system, "PingFang SC", sans-serif; font-size: 12px; }
+  .term-cmd { padding: 7px 10px; color: #e2e8f0; border-bottom: 1px solid #1b1f2a; }
+  .term-cmd::before { content: "$ "; color: var(--green); }
+  .term-out { padding: 7px 10px; color: #9aa3b5; white-space: pre-wrap; word-break: break-all; line-height: 1.55; }
+  .term-out .err { color: var(--red); }
+  .term-meta { padding: 4px 10px; font-size: 11px; color: var(--dimmer); border-top: 1px solid #1b1f2a; display: flex; gap: 12px; }
+  .term-meta .exit-bad { color: var(--red); }
+  .term-trunc { color: var(--blue); font-style: italic; cursor: pointer; user-select: none; }
+  .term-trunc:hover { text-decoration: underline; }
+  .term-out.expanded { max-height: 320px; overflow-y: auto; }
+
+  /* diff view for edit */
+  .diff { background: #0b0d12; border-radius: 6px; font-family: var(--mono); font-size: 12px; overflow: hidden; }
+  .diff-file { padding: 5px 10px; color: var(--dim); border-bottom: 1px solid #1b1f2a; font-size: 11.5px; }
+  .diff-hunk { padding: 6px 0; }
+  .diff-line { padding: 0 10px; white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
+  .diff-line.add { background: rgba(74,222,128,.09); color: #86efac; }
+  .diff-line.del { background: rgba(248,113,113,.09); color: #fca5a5; }
+  .diff-line.ctx { color: #6b7280; }
+
+  /* web fetch card */
+  .web-card { background: #0b0d12; border-radius: 6px; padding: 9px 11px; }
+  .web-title { color: var(--blue); font-size: 13px; margin-bottom: 2px; }
+  .web-url { color: var(--dimmer); font-size: 11.5px; font-family: var(--mono); margin-bottom: 6px; }
+  .web-excerpt { color: #9aa3b5; font-size: 12.5px; border-left: 2px solid var(--border); padding-left: 8px; }
+
+  /* task card */
+  .task-card { background: #0b0d12; border-radius: 6px; padding: 9px 11px; font-size: 12.5px; }
+  .task-card .ok-line { color: var(--green); margin-bottom: 4px; }
+  .task-card .sum { color: #9aa3b5; }
+  .task-prompt-label { color: var(--dimmer); font-size: 10.5px; letter-spacing: .1em; margin-bottom: 3px; }
+  .task-prompt { color: #c4cad8; border-left: 2px solid #6366f1; padding-left: 8px; margin-bottom: 10px; white-space: pre-wrap; }
+
+  .note { margin-top: 28px; max-width: 1400px; color: var(--dim); font-size: 13px; border-top: 1px solid var(--border); padding-top: 16px; }
+  .note b { color: var(--text); }
+  .note ul { margin: 8px 0 0; padding-left: 20px; }
+  .note li { margin-bottom: 4px; }
+</style>
+</head>
+<body>
+
+<h1>IM 工具调用展示 — 页面原型</h1>
+<div class="subtitle">左 = 现状（Gateway 丢弃 detail，摘要只有 exit code）；右 = 提案（detail 透传 + 人话摘要 + 分工具渲染）。每个工具行都可以点开/收起。</div>
+
+<div class="columns">
+
+  <!-- ================== 现状 ================== -->
+  <div>
+    <div class="col-title bad">现状</div>
+    <div class="msg">
+      <div class="msg-head">
+        <div class="avatar">🤖</div>
+        <span class="msg-name">default-agent</span>
+        <span class="msg-time">14:32</span>
+      </div>
+      <div class="msg-body">测试已经跑完，3 个用例失败，我修复了 heartbeat 的状态文件路径问题并验证通过。</div>
+      <div class="tc">
+        <button class="tc-toggle">▾ 5 tool calls · 12.3s</button>
+        <ul class="tc-list">
+
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span><span class="tc-name">bash</span>
+              <span class="tc-dur">8.2s</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <span class="tc-label">INPUT</span>
+              <pre>{
+  "command": "pytest -x tests/unit/test_heartbeat.py",
+  "description": "Run heartbeat unit tests"
+}</pre>
+              <span class="tc-label">OUTPUT</span>
+              <pre>exit=1 elapsed=8203ms</pre>
+            </div>
+          </li>
+
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span><span class="tc-name">read</span>
+              <span class="tc-dur">12ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <span class="tc-label">INPUT</span>
+              <pre>{
+  "path": "src/personal_assistant/heartbeat/state.py"
+}</pre>
+              <span class="tc-label">OUTPUT</span>
+              <pre>86 lines</pre>
+            </div>
+          </li>
+
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span><span class="tc-name">edit</span>
+              <span class="tc-dur">8ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <span class="tc-label">INPUT</span>
+              <pre>{
+  "path": "src/personal_assistant/heartbeat/state.py",
+  "oldText": "STATE_PATH = Path(\"/tmp/heartbeat-state.json\")",
+  "newText": "STATE_PATH = Path.home() / \".nano-assistant\" / \"heartbeat-state.json\""
+}</pre>
+              <span class="tc-label">OUTPUT</span>
+              <pre>updated (line 14)</pre>
+            </div>
+          </li>
+
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span><span class="tc-name">memory</span>
+              <span class="tc-dur">5ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <span class="tc-label">INPUT</span>
+              <pre>{
+  "action": "add",
+  "target": "project",
+  "content": "heartbeat 状态文件迁移到 ~/.nano-assistant/，/tmp 会在系统重启后被清空导致心跳全..."
+}</pre>
+              <span class="tc-label">OUTPUT</span>
+              <pre>{"action": "add", "target": "project", "ok": true, "entry_id": "m-2026061..."}</pre>
+            </div>
+          </li>
+
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span><span class="tc-name">bash</span>
+              <span class="tc-dur">4.1s</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <span class="tc-label">INPUT</span>
+              <pre>{
+  "command": "pytest -x tests/unit/test_heartbeat.py",
+  "description": "Re-run heartbeat tests after fix"
+}</pre>
+              <span class="tc-label">OUTPUT</span>
+              <pre>exit=0 elapsed=4102ms</pre>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- 第二条消息（现状）：web_fetch + task -->
+    <div class="msg" style="margin-top:16px;">
+      <div class="msg-head">
+        <div class="avatar">🤖</div>
+        <span class="msg-name">default-agent</span>
+        <span class="msg-time">14:40</span>
+      </div>
+      <div class="msg-body">查了下 uvicorn 的 lifespan 文档，派子 agent 清理了旧日志，把清理流程沉淀成了 skill，并写好了说明文档。</div>
+      <div class="tc">
+        <button class="tc-toggle">▾ 5 tool calls · 33.2s</button>
+        <ul class="tc-list">
+
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span><span class="tc-name">web_fetch</span>
+              <span class="tc-dur">1.4s</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <span class="tc-label">INPUT</span>
+              <pre>{
+  "url": "https://www.uvicorn.org/lifespan/"
+}</pre>
+              <span class="tc-label">OUTPUT</span>
+              <pre>status=200 (Lifespan Protocol — Uvicorn)</pre>
+            </div>
+          </li>
+
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span><span class="tc-name">agent</span>
+              <span class="tc-dur">30.1s</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <span class="tc-label">INPUT</span>
+              <pre>{
+  "description": "清理 30 天前的 run 日志",
+  "prompt": "扫描 ~/.nano-assistant/logs/ 下所有 run 日志，删除修改时间超过 30 天的文件，统计释放空间。注意：只删 run-*.log，不要碰 gateway.log 和 audit 目录。",
+  "subagent_type": "explore",
+  "load_skills": [],
+  "run_in_background": false
+}</pre>
+              <span class="tc-label">OUTPUT</span>
+              <pre>{"agent_id": "agent-7f3a", "status": "completed", "result": "扫描了 ~/.nano-assist...</pre>
+            </div>
+          </li>
+
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span><span class="tc-name">skill_manage</span>
+              <span class="tc-dur">15ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <span class="tc-label">INPUT</span>
+              <pre>{
+  "action": "create",
+  "name": "log-cleanup",
+  "content": "---\nname: log-cleanup\ndescription: 安全清理 run 日志的流程\n---\n\n## 步骤\n1. 只删 run-*.log，保留 gateway.log 与 audit/..."
+}</pre>
+              <span class="tc-label">OUTPUT</span>
+              <pre>{"action": "create", "name": "log-cleanup", "ok": true, "path": "skills/log-clea...</pre>
+            </div>
+          </li>
+
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span><span class="tc-name">write</span>
+              <span class="tc-dur">6ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <span class="tc-label">INPUT</span>
+              <pre>{
+  "path": "docs/log-cleanup.md",
+  "content": "# Run 日志清理说明\n\n清理策略：超过 30 天的 run-*.log 自动删除……（共 1.2KB）"
+}</pre>
+              <span class="tc-label">OUTPUT</span>
+              <pre>created (1228 bytes)</pre>
+            </div>
+          </li>
+
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span><span class="tc-name">task_stop</span>
+              <span class="tc-dur">42ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <span class="tc-label">INPUT</span>
+              <pre>{
+  "task_id": "bash-21c9"
+}</pre>
+              <span class="tc-label">OUTPUT</span>
+              <pre>{"task_id": "bash-21c9", "status": "killed", "notified": true}</pre>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================== 提案 ================== -->
+  <div>
+    <div class="col-title good">提案</div>
+    <div class="msg">
+      <div class="msg-head">
+        <div class="avatar">🤖</div>
+        <span class="msg-name">default-agent</span>
+        <span class="msg-time">14:32</span>
+      </div>
+      <div class="msg-body">测试已经跑完，3 个用例失败，我修复了 heartbeat 的状态文件路径问题并验证通过。</div>
+      <div class="tc">
+        <button class="tc-toggle">▾ 5 tool calls · 12.3s</button>
+        <ul class="tc-list">
+
+          <!-- bash 失败：折叠态就能看出失败 + 命令 -->
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status fail">✕</span>
+              <span class="tc-name">💻 bash</span>
+              <span class="tc-summary">跑 heartbeat 单元测试</span>
+              <span class="fail-tag">exit 1</span>
+              <span class="tc-dur">8.2s</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <div class="term">
+                <div class="term-desc">跑 heartbeat 单元测试</div>
+                <div class="term-cmd">pytest -x tests/unit/test_heartbeat.py</div>
+                <div class="term-out">tests/unit/test_heartbeat.py::test_state_persist_roundtrip <span class="err">FAILED</span>
+
+    def test_state_persist_roundtrip(tmp_path):
+        state = HeartbeatState(last_beat=NOW)
+        state.save()
+&gt;       assert STATE_PATH.exists()
+<span class="err">E       AssertionError: /tmp/heartbeat-state.json does not exist</span>
+
+<span class="err">FAILED</span> tests/unit/test_heartbeat.py::test_state_persist_roundtrip
+<span class="more" hidden>
+tests/unit/test_heartbeat.py::test_beat_interval_respected <span class="err">FAILED</span>
+
+    def test_beat_interval_respected(monkeypatch):
+        state = HeartbeatState(last_beat=NOW - timedelta(seconds=30))
+&gt;       assert not state.should_beat(interval_s=60)
+<span class="err">E       AssertionError: stale state loaded from missing file defaults last_beat=None</span>
+
+tests/unit/test_heartbeat.py::test_state_survives_restart <span class="err">FAILED</span>
+
+    def test_state_survives_restart(tmp_path):
+        HeartbeatState(last_beat=NOW).save()
+        reloaded = HeartbeatState.load()
+&gt;       assert reloaded.last_beat == NOW
+<span class="err">E       AttributeError: 'NoneType' object has no attribute 'last_beat'</span>
+
+=========================== short test summary info ===========================
+<span class="err">FAILED</span> tests/unit/test_heartbeat.py::test_state_persist_roundtrip
+<span class="err">FAILED</span> tests/unit/test_heartbeat.py::test_beat_interval_respected
+<span class="err">FAILED</span> tests/unit/test_heartbeat.py::test_state_survives_restart
+========================= 3 failed, 9 passed in 7.92s =========================</span>
+<span class="term-trunc" onclick="x(this)">… 已截断，共 214 行（点击展开全部）</span></div>
+                <div class="term-meta"><span class="exit-bad">exit 1</span><span>8.2s</span></div>
+              </div>
+            </div>
+          </li>
+
+          <!-- read -->
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span>
+              <span class="tc-name">📖 read</span>
+              <span class="tc-summary"><code>…/heartbeat/state.py</code> · 86 行</span>
+              <span class="tc-dur">12ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <div class="term">
+                <div class="term-out">src/personal_assistant/heartbeat/state.py · 86 行 · 读取 1-86</div>
+              </div>
+            </div>
+          </li>
+
+          <!-- edit：diff 视图 -->
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span>
+              <span class="tc-name">📝 edit</span>
+              <span class="tc-summary"><code>…/heartbeat/state.py</code> · line 14</span>
+              <span class="tc-dur">8ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <div class="diff">
+                <div class="diff-file">src/personal_assistant/heartbeat/state.py</div>
+                <div class="diff-hunk">
+                  <div class="diff-line ctx">  12  # 心跳状态需要跨重启持久化</div>
+                  <div class="diff-line del">- 14  STATE_PATH = Path("/tmp/heartbeat-state.json")</div>
+                  <div class="diff-line add">+ 14  STATE_PATH = Path.home() / ".nano-assistant" / "heartbeat-state.json"</div>
+                  <div class="diff-line ctx">  15  </div>
+                </div>
+              </div>
+            </div>
+          </li>
+
+          <!-- memory：专属 presenter -->
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span>
+              <span class="tc-name">🧠 memory</span>
+              <span class="tc-summary">+project: "heartbeat 状态文件迁移到 ~/.nano-assistant/…"</span>
+              <span class="tc-dur">5ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <div class="task-card">
+                <div class="ok-line">✓ 已写入 project 记忆</div>
+                <div class="sum">heartbeat 状态文件迁移到 ~/.nano-assistant/，/tmp 会在系统重启后被清空导致心跳全部丢失。</div>
+              </div>
+            </div>
+          </li>
+
+          <!-- bash 成功 -->
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span>
+              <span class="tc-name">💻 bash</span>
+              <span class="tc-summary">修复后重跑 heartbeat 测试</span>
+              <span class="tc-dur">4.1s</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <div class="term">
+                <div class="term-desc">修复后重跑 heartbeat 测试</div>
+                <div class="term-cmd">pytest -x tests/unit/test_heartbeat.py</div>
+                <div class="term-out">================ 12 passed in 3.87s ================</div>
+                <div class="term-meta"><span>exit 0</span><span>4.1s</span></div>
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+
+    <!-- 第二条消息：web_fetch + task 的渲染示例 -->
+    <div class="msg" style="margin-top:16px;">
+      <div class="msg-head">
+        <div class="avatar">🤖</div>
+        <span class="msg-name">default-agent</span>
+        <span class="msg-time">14:40</span>
+      </div>
+      <div class="msg-body">查了下 uvicorn 的 lifespan 文档，派子 agent 清理了旧日志，把清理流程沉淀成了 skill，并写好了说明文档。</div>
+      <div class="tc">
+        <button class="tc-toggle">▾ 5 tool calls · 33.2s</button>
+        <ul class="tc-list">
+
+          <!-- web_fetch -->
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span>
+              <span class="tc-name">🌐 web_fetch</span>
+              <span class="tc-summary">uvicorn.org · Lifespan Protocol</span>
+              <span class="tc-dur">1.4s</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <div class="web-card">
+                <div class="web-title">Lifespan Protocol — Uvicorn</div>
+                <div class="web-url">https://www.uvicorn.org/lifespan/ · 200</div>
+                <div class="web-excerpt">The lifespan protocol allows an ASGI application to run startup and shutdown logic. Uvicorn sends a lifespan.startup event when the server starts, and waits for the application to respond with…</div>
+              </div>
+            </div>
+          </li>
+
+          <!-- agent 子 agent -->
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span>
+              <span class="tc-name">🔀 agent</span>
+              <span class="tc-summary">清理 30 天前的 run 日志</span>
+              <span class="tc-dur">30.1s</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <div class="task-card">
+                <div class="task-prompt-label">派发指令（prompt）</div>
+                <div class="task-prompt">扫描 ~/.nano-assistant/logs/ 下所有 run 日志，删除修改时间超过 30 天的文件，统计释放空间。注意：只删 run-*.log，不要碰 gateway.log 和 audit 目录。</div>
+                <div class="ok-line">✓ 子 agent 完成 · explore · 30.1s</div>
+                <div class="sum">扫描了 ~/.nano-assistant/logs/，删除 142 个超过 30 天的 run 日志文件，释放 380MB。保留了最近的 56 个。gateway.log 与 audit/ 未触碰。</div>
+              </div>
+            </div>
+          </li>
+
+          <!-- skill_manage -->
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span>
+              <span class="tc-name">📚 skill_manage</span>
+              <span class="tc-summary">创建 skill：log-cleanup</span>
+              <span class="tc-dur">15ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <div class="task-card">
+                <div class="ok-line">✓ 已创建 skills/log-cleanup/SKILL.md</div>
+                <div class="sum">安全清理 run 日志的流程：只删 run-*.log，保留 gateway.log 与 audit/，删除前统计空间。</div>
+              </div>
+            </div>
+          </li>
+
+          <!-- write -->
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span>
+              <span class="tc-name">✍️ write</span>
+              <span class="tc-summary"><code>docs/log-cleanup.md</code> · 新建 1.2KB</span>
+              <span class="tc-dur">6ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <div class="term">
+                <div class="term-out"># Run 日志清理说明
+
+清理策略：超过 30 天的 run-*.log 自动删除，保留 gateway.log 与 audit/ 目录。
+执行入口：skills/log-cleanup（由子 agent 周期执行）。
+<span class="more" hidden>
+## 保留策略
+
+| 类型 | 保留 |
+| run-*.log | 30 天 |
+| gateway.log | 永久 |
+| audit/ | 永久 |
+
+## 手动执行
+
+让 agent 跑 log-cleanup skill 即可，删除前会先统计释放空间并汇报。</span>
+<span class="term-trunc" onclick="x(this)">… 已截断，共 38 行（点击展开全部）</span></div>
+                <div class="term-meta"><span>新建</span><span>1228 bytes</span></div>
+              </div>
+            </div>
+          </li>
+
+          <!-- task_stop -->
+          <li class="tc-item">
+            <div class="tc-row" onclick="t(this)">
+              <span class="tc-status ok">●</span>
+              <span class="tc-name">⏹ task_stop</span>
+              <span class="tc-summary">停止后台任务 bash-21c9</span>
+              <span class="tc-dur">42ms</span><span class="tc-arrow">▸</span>
+            </div>
+            <div class="tc-body" hidden>
+              <div class="task-card">
+                <div class="ok-line">✓ 已停止 · bash-21c9</div>
+                <div class="sum">后台 bash 任务已标记 killed，父会话已收到通知。</div>
+              </div>
+            </div>
+          </li>
+
+        </ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="note">
+  <b>提案改动点（对应上面右侧效果）：</b>
+  <ul>
+    <li><b>折叠态一行就有信息量</b>：emoji + 工具名 + 主参数摘要 + 失败标红（<span style="color:var(--red)">exit 1</span> 不用点开就能看到）。</li>
+    <li><b>Bash 展开 = 终端块</b>：命令 + stdout/stderr（presenter 已生成，Gateway 透传即可），超长截断 + "已截断" 提示。</li>
+    <li><b>Edit 展开 = diff 视图</b>：presenter 已生成 unified diff，前端着色渲染。</li>
+    <li><b>Web 展开 = 标题 + URL + 正文摘录</b>（presenter 已有 500 字符摘录）。</li>
+    <li><b>Agent / Memory / Skill / Stop 有专属卡片</b>：现状 agent/memory/skill_manage/task_stop 全落 default presenter，显示截断 JSON。Agent 展开必含完整派发 prompt。</li>
+    <li>路径做 home 缩短（<code>…/heartbeat/state.py</code>），长输出/秘钥做脱敏截断。</li>
+  </ul>
+</div>
+
+<script>
+function t(row) {
+  const body = row.nextElementSibling;
+  const arrow = row.querySelector(".tc-arrow");
+  body.hidden = !body.hidden;
+  arrow.textContent = body.hidden ? "▸" : "▾";
+}
+function x(link) {
+  const out = link.closest(".term-out");
+  const more = out.querySelector(".more");
+  more.hidden = !more.hidden;
+  out.classList.toggle("expanded", !more.hidden);
+  link.textContent = more.hidden
+    ? link.dataset.t || (link.dataset.t = link.textContent)
+    : "收起";
+}
+</script>
+</body>
+</html>
