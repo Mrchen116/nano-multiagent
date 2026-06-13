@@ -522,6 +522,161 @@ class Kernel:
             return list_tools(session_id=session_id)
         return {}
 
+    # ------------------------------------------------------------------
+    # Capability queries (决策 4) — single-item neutral facts, SDK-owned DTOs.
+    # The application (Gateway reporter) projects these into IM payloads; the
+    # kernel does no product-semantic aggregation.
+    # ------------------------------------------------------------------
+
+    def list_models(self) -> list:
+        """Return the model catalog as SDK-owned ``ModelInfo`` DTOs (决策 4).
+
+        Reads the process model registry installed at build time. The active
+        model (``get_llm_config().model``) is flagged ``is_default`` so selectors
+        can highlight it. When the registry is not initialised (test paths that
+        bypass catalog install), falls back to the single active model.
+
+        Returns:
+            List of ModelInfo(name, provider, is_default).
+        """
+        from agent.sdk.dto import ModelInfo  # noqa: PLC0415
+
+        active = self._c.runtime.get_llm_config()
+        active_model = getattr(active, "model", None)
+
+        try:
+            from agent.core.llm.model_registry import (  # noqa: PLC0415
+                get_default_model,
+                get_default_provider,
+                list_provider_models,
+                list_supported_providers,
+            )
+
+            default_provider = get_default_provider()
+            default_model = get_default_model(default_provider)
+            models: list = []
+            for provider in list_supported_providers():
+                for meta in list_provider_models(provider):
+                    models.append(
+                        ModelInfo(
+                            name=meta.model,
+                            provider=meta.provider,
+                            is_default=(meta.model == default_model),
+                        )
+                    )
+            if models:
+                return models
+        except Exception:  # noqa: BLE001
+            # Registry not initialised (test bypass) — fall through to active-only.
+            pass
+
+        if active_model is None:
+            return []
+        return [
+            ModelInfo(
+                name=active_model,
+                provider=getattr(active, "provider", ""),
+                is_default=True,
+            )
+        ]
+
+    def list_tools(self) -> list:
+        """Return the kernel tool catalog as ``ToolInfo`` DTOs (决策 4).
+
+        Lists the tools registered in the shared base (name + description),
+        independent of any per-session ``enabled_tools`` subset — the application
+        computes per-session ``available`` itself.
+
+        Returns:
+            List of ToolInfo(name, description).
+        """
+        from agent.sdk.dto import ToolInfo  # noqa: PLC0415
+
+        tool_registry = getattr(self._c.runtime, "_tool_registry", None)
+        if tool_registry is None:
+            return []
+        list_specs = getattr(tool_registry, "list_specs", None)
+        if not callable(list_specs):
+            return []
+        return [
+            ToolInfo(name=spec.name, description=spec.description)
+            for spec in list_specs()
+        ]
+
+    def list_features(self) -> list:
+        """Return the kernel's general features as ``FeatureInfo`` DTOs (决策 3/4).
+
+        Only kernel-owned general features (those whose guidance is a core
+        segment) are reported: ``memory_curation`` / ``skill_creation``.
+        Product-specific toggles (heartbeat / cron) are an application-layer
+        projection, not kernel features.
+
+        Returns:
+            List of FeatureInfo(key, default_on, requires_tool).
+        """
+        from agent.sdk.dto import FeatureInfo  # noqa: PLC0415
+        from agent.core.agent.prompt_sections.feature_registry import (  # noqa: PLC0415
+            FEATURE_REGISTRY,
+        )
+
+        out: list = []
+        for key, entry in FEATURE_REGISTRY.items():
+            # Kernel-general features are those gated on a kernel built-in tool
+            # (memory / skill_manage). Product toggles (heartbeat/cron) are
+            # projected by the application, not reported here.
+            if key not in ("memory_curation", "skill_creation"):
+                continue
+            out.append(
+                FeatureInfo(
+                    key=key,
+                    default_on=entry["default_on"],
+                    requires_tool=entry["requires_tool"],
+                )
+            )
+        return out
+
+    def list_skills(self, workspace_root: Path | None = None) -> list:
+        """Return skills discoverable for a workspace as ``SkillInfo`` DTOs (决策 4).
+
+        Args:
+            workspace_root: Workspace whose skills to resolve. Falls back to the
+                kernel's repo_root when None.
+
+        Returns:
+            List of SkillInfo(name, description) for that workspace; different
+            workspaces yield their own skills with no cross-workspace mixing.
+        """
+        from agent.sdk.dto import SkillInfo  # noqa: PLC0415
+        from agent.core.skills.discovery import resolve_available_skills  # noqa: PLC0415
+
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
+
+        # Per-workspace skill discovery requires a config_resolver bound to THIS
+        # call's workspace_root — not the build-time one. default_skill_search_roots
+        # ignores its workspace_root argument when a config_resolver is supplied
+        # (it uses the resolver's own workspace), so reusing the build-time
+        # resolver would resolve every workspace to the build repo_root's skills
+        # (cross-workspace leak). Mirror the reporter pattern: derive a fresh
+        # resolver bound to effective_root from the build-time resolver's profile.
+        build_resolver = getattr(self._c.runtime, "_config_resolver", None)
+        per_call_resolver = None
+        profile = getattr(build_resolver, "_profile", None)
+        if profile is not None:
+            from agent.platform.config.resolver import ConfigResolver  # noqa: PLC0415
+
+            per_call_resolver = ConfigResolver(
+                profile=profile, workspace_root=effective_root
+            )
+
+        skills = resolve_available_skills(
+            workspace_root=effective_root,
+            config_resolver=per_call_resolver,
+        )
+        return [
+            SkillInfo(name=s.name, description=getattr(s, "description", "") or "")
+            for s in skills
+        ]
+
     def get_llm_config(self) -> LLMFactoryConfig:
         """Return the active LLM configuration.
 
