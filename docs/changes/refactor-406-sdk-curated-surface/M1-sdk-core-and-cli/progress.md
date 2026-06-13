@@ -40,7 +40,7 @@
   - Frontend State Matrix / Browser QA / Visual: N/A
   - E2E/Regression: golden + skeleton-重现-golden 两道防线，后续 roadpoint 持续跑
 - Rollback: C2 revert 移除 skeleton/slots（旧路径仍在，零影响）；C1 revert 移除红测
-- Commits: C1=e64b5a96, C2=e7133b5c, C3=<填>
+- Commits: C1=e64b5a96, C2=e7133b5c, C3=4e4ee4e5
 
 ## [Design 修订] R2: 决策 8 §251 骨架顺序 prose 与字节真相不符
 
@@ -49,3 +49,34 @@
 - 原因: byte-identical（risk 1 / kernel delta-spec「逐字节等价」Scenario）是硬契约；§251 顺序 prose 是示意，与 golden 锁定的实际装配顺序冲突，照 prose 搭会破坏 golden。
 - 影响范围: 仅文档表述（§251 prose）；不影响行为/退出标准。M2 reporter 不依赖此顺序。
 - design.md 是否同步改: 待 orchestrator 定（已 SendMessage 报备，问①同意按字节真相②是否顺手改 §251 prose）。代码已按字节真相落地并 golden 守绿，design 文本修订不阻塞实施。
+
+## R3 — build_kernel 基座 + create_session per-agent + DTO + Protocol（扩张）  [部分完成 / HANDOFF]
+
+- Context: M1 最大代码块。三段式扩张：新表面长出、旧导出/旧签名不动、测试零改动保持绿。
+- 已完成（committed + pushed）：SDK building blocks（纯增量，未接入 kernel，零回归）
+  - `src/agent/sdk/dto.py`（C1=d3b6b29d 红测 / C2=7b90ae84 实现）：`SessionInfo`/`RunInfo`（决策6 边界 DTO）+ `LLMConfig`（决策5，`from_env` 纯 env、去掉「先 init_model_registry」footgun）+ `LLMProvider`/`LLMModel` catalog + `ModelInfo`/`ToolInfo`/`FeatureInfo`/`SkillInfo`（决策4 能力查询 DTO）。
+  - `src/agent/sdk/contracts.py`（同 C2）：`Tool`/`ToolContext`/`HookAPI` runtime_checkable 结构 Protocol（决策2）。已验证 core 真对象（`core.tools.base.ToolContext` 加 safety、`core.hooks.registry.HookAPI`）鸭子满足，无 core→sdk 倒挂。
+  - 测试 `tests/contract/test_sdk_two_layer_assembly.py` 10 passed；全量基线 `pytest -m "not e2e"` 2722 passed / 2 skipped 零回归；ruff check + format 干净。
+- **未完成（HANDOFF 续做）**：把上述 building blocks **接入 kernel.py**——仍需：
+  1. `build_kernel` 改双签名（扩张期）：保留旧 `product_profile=` 路径不动，新增 `llm=LLMConfig, tools=[Tool对象目录], hooks=[setup callable], can_use_tool, workspace_config_dirname, repo_root`。新路径不走 `bootstrap_product(profile=)`，而是从 LLMConfig 内部 init 模型注册表（`init_model_registry`，消化 footgun）+ 用传入 tools 对象目录建 ToolRegistry（参考 `platform/tools/loader.build_tool_registry` 的对象注册）+ hooks setup 注册（参考 `platform/hooks/loader`）+ 共享 store 组件（`JsonlSessionStore(data_dir=None, workspace_config_dirname=...)`）。共享资源建一次。
+  2. `create_session` 新增 per-agent 入参：`enabled_tools`（从基座目录选子集，参考 bootstrap `_filter_tool_registry`）/`features`（内核两条开关→flags）/`prompt=PromptSlots`（注入 `PromptContext.prompt_slots`，走 R2 `build_kernel_prompt_skeleton`）；返回 `SessionInfo`（边界 map，保 `.session_id` 属性访问）。旧 `skills`/`tool_allowlist` 入参扩张期暂留。
+  3. 出入参 DTO 化：`submit`/`get_run`/`cancel`→`RunInfo`；`get_llm_config`/`reconfigure_llm`→`LLMConfig` DTO（保 CLI `/model` 即时生效）；`fork_session`→`SessionInfo`。
+  4. `list_models`（LLMConfig catalog + 默认）/`list_tools`（基座目录 name/description）/`list_features`（FEATURE_REGISTRY 内核两条 memory_curation/skill_creation 投影成 FeatureInfo）/`list_skills(workspace_root)`（`resolve_available_skills`）。
+  5. 运行时 prompt 装配切到骨架 + slots：`runtime._run_locked`（约 line 403-438）现走 `self._prompt_sections`（旧 build_<product>_system_prompt 列表）+ `resolve_effective_prompt`；新路径要让 runtime 用 `build_kernel_prompt_skeleton()` + ctx.prompt_slots（slots 由 create_session 存进 session metadata 或 runtime 配置，per-session 稳定）。**改这里务必跑 R1/R2 golden 守字节**。
+  6. C1 测试：扩展 `test_sdk_two_layer_assembly.py` 或新增——build_kernel 新签名装配可用、enabled_tools 子集、features 门控、list_* 与运行时一致 + 跨 workspace skill、外部产品最小证明（agent 包外应用仅经 agent.sdk 装配 + create_session + 工具调用一轮，含闭包直连自己服务的副作用工具）。
+  7. `agent.sdk.__init__` 把 build_kernel/Kernel/PromptSlots/PromptText/Tool/ToolContext/HookAPI/SessionInfo/RunInfo/LLMConfig + list_* 相关 DTO 加进 `__all__`（精确名单 R7 落闸时统一钉死）。
+- Evidence:
+  - Tests: building-block 10 passed；全量基线 2722 passed/2 skipped 零回归；ruff 干净。
+  - Entry: 待 R5/R6 live（CLI 工具调用 / PA 发消息 / 预览同源）
+  - Frontend State Matrix / Browser QA / Visual: N/A
+  - E2E/Regression: R1 golden + R2 skeleton-重现-golden 持续守；接入 runtime 后必跑
+- Rollback: building blocks 是纯增量，revert C1/C2 即移除，不影响任何现有路径
+- Commits: C1=d3b6b29d, C2=7b90ae84（building blocks）；kernel 接线未提交
+
+## HANDOFF 状态（给续做 worker / orchestrator）
+
+- 已完成并 push：R1（golden 防线）、R2（内核骨架+PromptSlots）、R3 building blocks（DTO/Protocol）。全绿、零回归。
+- 续做入口：本文 R3「未完成」7 步，从第 1 步 build_kernel 双签名起。**最关键守卫**：改 runtime prompt 装配（第 5 步）后必跑 `tests/integration/test_full_system_prompt_byte_identical.py` + `test_kernel_skeleton_reproduces_golden.py`，红即停（risk 1）。
+- 之后 R4（cron 迁出内核 + HostCapabilityDispatcher 删除，cron 闭包直连 CronExecutionService，PA tools/hooks/skills 物理目录搬 src/personal_assistant/）、R5（coding_cli 切新表面 + live：R-CLI-1/2/3）、R6（personal_assistant 工厂 prompt_for + main 装配 + 预览同源 + live：R-PA-1/2/3、R-CP-1/2/3、R-GW-3）、R7（products 解散 + bootstrap _product_root 退役 + 旧导出清零 + 决策7 三道闸：精确名单 EXPECTED_SURFACE + 所有权闸 + 豁免名单含 `_M1_TEMP_REPORTER_EXPORTS`）。
+- live-critical（cron/heartbeat/群聊运行时 + prompt 运行时装配）需真端到端证据（§0.3/§0.11），env 起不来按 §0.11 找 orchestrator，不自降证据。
+- 待 orchestrator 答复：design §251 骨架顺序 prose 是否修订（不阻塞代码）。

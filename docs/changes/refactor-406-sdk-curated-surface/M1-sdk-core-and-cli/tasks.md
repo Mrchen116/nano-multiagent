@@ -63,8 +63,9 @@
 - 验证：用 R1 基线驱动——经新骨架 + PromptSlots（PA/LC 文案填槽）装配的 prompt 与基线逐字节一致。
 - 结果：DONE（C1=e64b5a96 红测, C2=e7133b5c 实现）。skeleton 重现 golden 7 场景全绿，零回归。⚠️ 发现 design §251 骨架顺序 prose 与字节真相不符，按字节真相搭并报备 orchestrator（见 progress [Design 修订] §R2）。
 
-### R3 — build_kernel 基座 + create_session per-agent + DTO + Protocol（扩张）
+### R3 — build_kernel 基座 + create_session per-agent + DTO + Protocol（扩张）  [DOING / HANDOFF]
 
+- 进度：SDK building blocks 完成并 push（dto.py C1=d3b6b29d/C2=7b90ae84：SessionInfo/RunInfo/LLMConfig/能力查询 DTO；contracts.py：Tool/ToolContext/HookAPI Protocol；test_sdk_two_layer_assembly 10 passed；全量基线 2722 passed 零回归）。**未完成**：把 building blocks 接入 kernel.py（双签名 build_kernel / create_session per-agent / 出入参 DTO 化 / list_* / runtime prompt 装配切骨架+slots / 外部产品最小证明）——续做 7 步详见 progress.md「R3 未完成」段。
 - 步骤：重构 `build_kernel(llm, tools, hooks, can_use_tool, workspace_config_dirname, repo_root)` 建共享基座（去 `product_profile`）；`create_session(workspace_root, enabled_tools, features, prompt=PromptSlots, title, metadata)` 返回 `SessionInfo`；`submit/get_run/cancel`→`RunInfo`；`get_llm_config/reconfigure_llm`→`LLMConfig` DTO（含 `from_env()`，注册表内部初始化）；`Tool`/`ToolContext`/`HookAPI` SDK-owned Protocol。`list_models/tools/features/skills` 返回 SDK-owned DTO。
 - 验证：新 `test_sdk_two_layer_assembly.py` 覆盖 2 层装配、enabled_tools 子集、features 门控、Protocol 鸭子结构、DTO 字段、list_* 一致性 + 跨 workspace skill；外部产品最小证明（含闭包副作用工具）跑通带工具调用一轮。
 
