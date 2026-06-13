@@ -298,3 +298,44 @@
     ③ 豁免名单逐字钉死 = RunOrigin/PermissionDecision/TERMINAL_RUN_STATUSES(C1)+ ToolPresenter/ToolPresentationEvent(决策12)
     + `_M1_TEMP_REPORTER_EXPORTS`(SkillRegistry/ConfigResolver/default_skill_search_roots/FEATURE_REGISTRY/model registry 列表函数,M2 删)。
   - 全测试树 `pytest -m "not e2e"` 全收集绿是硬退出标准。
+
+## R5 完成 — coding_cli 切新 build_kernel 2 层表面 + product.py 工厂 + live(已 push）
+
+- Context: 三段式迁移段。coding_cli 切离 legacy `build_kernel(product_profile=LOCAL_CODING_PROFILE, llm_config=…)`
+  到新 2 层表面 `build_kernel(llm=LLMConfig, tools=…, can_use_tool=…, workspace_config_dirname=".nanocode")` +
+  `create_session(enabled_tools/features/prompt=PromptSlots)`。coding_cli 仅 import `agent.sdk` + 自己包（边界硬规则）。
+- Decision（落点）:
+  1. 新建 `src/coding_cli/product.py`（消费者默认工厂，SDK 不感知）:
+     - `build_cli_kernel(llm, can_use_tool, repo_root)` → `build_kernel(llm=, tools=_build_self_evolution_tools(...), hooks=[], can_use_tool=, workspace_config_dirname=".nanocode")`。
+     - `_build_self_evolution_tools(repo_root)` 构造 `SkillManageTool(skill_root=<root>/.nanocode/skills, registry=SkillRegistry(...))` + `MemoryTool()`
+       放进 `tools=`——base 路径 `register_builtin_tools` 只注册 7 内置（read/write/edit/bash/agent/task_stop/web_fetch），
+       memory/skill_manage 需路径解析参数，由工厂构造（决策 2：工具是产品全权拥有的原生对象，镜像 legacy bootstrap self-evolution 接线）。
+     - `cli_prompt_slots()` 拼 LC PromptSlots（head=[lc.identity]、body=[lc.tools_footer, lc.guidelines]）,lc.* 文案逐字 port
+       自 `products/local_coding/prompt_sections`（LC 无群聊/heartbeat/cron/custom，只 head+body 两槽）。
+     - `open_cli_session(kernel, workspace_root)` → `create_session(enabled_tools=DEFAULT_ENABLED_TOOLS, features={memory_curation,skill_creation}, prompt=cli_prompt_slots(), metadata={"workspace_config_dirname":".nanocode"})`——
+       threads workspace_config_dirname 进 session metadata 供 MemoryTool 派生 per-session memory_root（base 路径 SessionService 无 default_session_metadata）。
+  2. `commands.py::_build_kernel` 切新路径:`LLMConfig.from_payload(_build_llm_config_payload(args), api_key=, timeout_seconds=)` 构 SDK LLMConfig（带 catalog,供 /model + list_models）+ `build_cli_kernel(...)`；
+     3 个 `create_session(workspace_root=)` 调用点（--text / REPL 首启 / /new）全走 `open_cli_session`；删 legacy `_build_llm_config_from_args`。
+  3. `dto.py`:新增 `LLMConfig.from_payload(payload, *, api_key, timeout_seconds)`——把 `LLMConfigPayload`（catalog）转 SDK `LLMConfig`，
+     active 连接从 default_model + 其 owning provider 解析。
+  4. `sdk/__init__`:re-export `MemoryTool`/`SkillManageTool`（决策 2 consumer 工厂构造路径解析工具）。
+  5. CLI 测试 stub `create_session` 加 `**kwargs` 容新入参（`_cli_kernel_stubs.py`、`test_cli_async_repl_sdk.py`）。
+- Rationale: 三段式迁移——LC prompt 文案 copy 进 src/coding_cli/（R7 删 products/ 时旧位置一并清，先迁后删保回退粒度）。
+  base 路径已自动注册 7 内置工具,工厂只补 memory/skill_manage 两个路径解析工具,不重复装配。LLMConfig.from_payload 保 /model 热切换 + list_models 的 catalog 来源。
+- Evidence:
+  - Tests: lc_full golden 逐字节 **MATCH**（`cli_prompt_slots()` + `build_kernel_prompt_skeleton()` == golden_prompts/lc_full.txt）;
+    CLI 单测 85 passed（test_cli_async_repl_sdk / repl_commands / text_sse / mode / repl_input / refactor_boundaries）;
+    契约+golden 46 passed（surface_contract / kernel_wiring / two_layer_assembly / byte_identical / skeleton_reproduces_golden）;ruff 干净。
+    冒烟装配:工具目录含 memory + skill_manage,get_llm_config 正常。
+  - **Entry / live（§0.3 真端到端跑到用户可见结果，非 stub）**:
+    - **R-CLI-1 工具调用任务 PASS**:`python3 -m coding_cli.main --text "Create hello.txt containing refactor406-live-ok ..."`（kimiCoding:K2.6，
+      workspace .nanocode/config.yaml 设 dangerously_skip_permissions 自动批准）→ 真起会话 sess_099c828b、write 工具真调用
+      （tool_start/tool_end 带 presenter label="Write"/summary="created (19 bytes)"）、**文件真写出内容 `refactor406-live-ok`**、run completed。
+      证明:新 build_kernel 路径真跑工具调用 + per-session PromptSlots 装配 + presenter 实时渲染全 live 可用。
+    - **R-CLI-2 选模型启动 PASS**:`--provider anthropic --model codex_oauth:gpt-5.5 --text "..."` → 正常启动跑出 `model-select-ok`，
+      无需迁移配置/改启动参数;`get_llm_config().model == codex_oauth:gpt-5.5` 确认 --model 流到 active 连接。
+    - **R-CLI-3 /model 热切换 PASS**:`reconfigure_llm(model=…)` 路径（CLI `llm-config set --model codex_oauth:gpt-5.5`，即 /model 热切机制）
+      → 起于 kimiCoding:K2.6、切到 codex_oauth:gpt-5.5、kernel `get_llm_config()` 即时反映新 model;后续轮用新 active model（单一真相源更新）。
+  - E2E/Regression: R1 golden(lc_full) + R2 skeleton-重现-golden 持续守,切表面后字节零漂移。
+- Rollback: R5 commit revert 回 legacy product_profile 路径（独立可用）。
+- Commits: C2=4ed79b0a（product.py + commands 切表面 + dto.from_payload + sdk re-export + stub 适配）。
