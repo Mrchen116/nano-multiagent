@@ -80,7 +80,7 @@ from personal_assistant.scheduler.cron_scheduler import (
 )
 from personal_assistant.scheduler.cron_runner import CronRunner
 from personal_assistant.scheduler.cron_execution_service import CronExecutionService
-from personal_assistant.scheduler.gateway_cron_dispatcher import GatewayCronDispatcher
+from personal_assistant.scheduler.cron_service_registry import CronServiceRegistry
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import (
     AgentCreateHandler,
@@ -1464,7 +1464,7 @@ class GatewayRuntime:
         internal_dispatch_handler: InternalDispatchHandler | None = None,
         gateway_internal_port: int = 8089,
         kernel: object | None = None,
-        cron_dispatcher: GatewayCronDispatcher | None = None,
+        cron_dispatcher: CronServiceRegistry | None = None,
     ) -> None:
         self._config = config
         self._process_manager = process_manager
@@ -2154,18 +2154,17 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # build_kernel owns registry init internally from this LLMConfig.
     llm = LLMConfig.from_payload(config.llm)
 
-    # GatewayCronDispatcher remains as the per-agent CronExecutionService registry +
-    # lifecycle owner (set_gateway_loop / drain_all / register).  refactor-406 决策 9:
-    # the cron *tool* no longer routes through it as a host capability — instead the
-    # cron tool closure holds the dispatcher's mutable ``_services`` dict directly and
-    # routes by agent_id.  Sharing the same dict reference means services registered
-    # after build (post-kernel_shim) are visible to the already-built tool closure.
-    # (The dispatcher + host_capabilities= are fully removed in R7.)
-    _cron_dispatcher = GatewayCronDispatcher()
+    # CronServiceRegistry holds the per-agent CronExecutionService map + lifecycle
+    # (set_gateway_loop / drain_all / register).  refactor-406 决策 9: the cron *tool*
+    # holds this registry's mutable ``services`` dict directly and routes by agent_id —
+    # no HostCapabilityDispatcher round-trip into the kernel.  Sharing the same dict
+    # reference means services registered after build (post-kernel_shim) are visible to
+    # the already-built tool closure.
+    _cron_dispatcher = CronServiceRegistry()
 
     kernel = build_pa_kernel(
         llm=llm,
-        cron_services=_cron_dispatcher._services,  # noqa: SLF001 — shared mutable map (决策 9)
+        cron_services=_cron_dispatcher.services,  # shared mutable map (决策 9)
         # can_use_tool=None: IM card flow; see submit_permission_decision.
     )
 
@@ -2414,7 +2413,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         loop), pass None; set_gateway_loop() will inject the loop later.
         """
         # Skip if already registered (idempotent — reconcile may call multiple times).
-        if _cron_dispatcher._resolve_service(agent_id) is not None:  # noqa: SLF001
+        if _cron_dispatcher.resolve(agent_id) is not None:
             return
         execute_fn = _build_cron_execute_fn(agent_id=agent_id, ws_root=ws_root)
         service = CronExecutionService(
@@ -2611,7 +2610,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # reconcile_all_agents() rewrites it from IM (IM stores the original main
         # config path; the registered CronExecutionService may use a local/worktree
         # path).  agent_id is stable and unambiguous across all data sources.
-        _service = _cron_dispatcher._resolve_service(agent_id)  # noqa: SLF001
+        _service = _cron_dispatcher.resolve(agent_id)
         if _service is None:
             # Agent was dynamically registered after startup (IM config sync) without a
             # corresponding CronExecutionService.  Warn and skip — the service will be
