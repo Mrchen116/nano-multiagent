@@ -218,6 +218,14 @@
   - **R7 收缩段一次删干净**:PA 目录物理搬家 + HostCapabilityDispatcher/Context/host_capabilities=/_inject_host_capabilities 整组删
     + GatewayCronDispatcher 删 + products/ 解散 + bootstrap _product_root 退役 + SDK 撤导出 + 决策7 三道闸。
   - 理由:先删后破只能向前修、回退粒度归零(违反决策11);先迁后删每步独立可 revert、全程不破 PA。终点不变(products 没了/桥没了/PA 在 src/)。
+- **orchestrator 认可此边界**(2026-06-14):决策11「三段式保回退粒度」的正确落地,非偏离——design 把 HostCapability 删除写 R4 是概念归类,
+  按其自身三段式纪律删除本就落收缩段(R7)。两个 nail-down(收尾必守):
+  1. **R7 删桥前必 grep 全仓确认零消费者**(不凭印象),删完全测树 + cron live 再绿一次。
+  2. **桥/legacy 导出暂留期**,决策7 守卫的精确名单/豁免名单要容得下这些 legacy 导出——标 **M1 临时**
+     (`_M1_TEMP_REPORTER_EXPORTS` 同类,或单列 legacy bridge 临时名单),收缩段(R7)同步移除,**别让守卫闸在扩张期就误红**。
+  3. PA 物理目录搬家硬约束:`agent.products.personal_assistant.*` 被 legacy PERSONAL_ASSISTANT_PROFILE 路径 + ≈10 测试在用,
+     搬家须在 R6 消费者切走后、或搬时留 re-export shim 保 legacy 不红,直到 R7 products 解散一并清。本 worker 倾向 R6 PA 工厂引新位置后、
+     R7 一次性搬 + 删 products + 删 shim(最少中间态);续做 worker 按「全测树绿」硬约束自行定搬家时机。
 
 ## R4 cron 闭包工具完成(扩张段,已 push)
 
