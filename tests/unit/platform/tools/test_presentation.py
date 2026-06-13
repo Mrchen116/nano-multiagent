@@ -1,7 +1,22 @@
 """Unit tests for built-in tool presenters."""
 
 from agent.core.tools.presentation import ToolPresentationEvent
-from agent.platform.tools.presentation import resolve_presenter
+from agent.platform.tools.presentation import resolve_presenter_for_tool
+from agent.platform.tools.builtins.read import ReadTool
+from agent.platform.tools.builtins.write import WriteTool
+from agent.platform.tools.builtins.edit import EditTool
+from agent.platform.tools.builtins.bash import BashTool
+from agent.platform.tools.builtins.web_fetch import WebFetchTool
+from agent.platform.tools.builtins.task import TaskTool
+
+_TOOL_BY_NAME = {
+    "read": ReadTool,
+    "write": WriteTool,
+    "edit": EditTool,
+    "bash": BashTool,
+    "web_fetch": WebFetchTool,
+    "task": TaskTool,
+}
 
 
 class _FakeResult:
@@ -11,7 +26,9 @@ class _FakeResult:
 
 
 def _presenter(name: str):
-    return resolve_presenter(name)
+    # 决策 12: presenter travels with the tool object; resolve off the built-in
+    # tool class .presenter (unknown names → default presenter).
+    return resolve_presenter_for_tool(_TOOL_BY_NAME.get(name))
 
 
 class TestReadPresenter:

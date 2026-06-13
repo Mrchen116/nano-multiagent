@@ -12,7 +12,10 @@ from agent.platform.tools.constants import (
     DEFAULT_MAX_KILOBYTES,
     DEFAULT_MAX_LINES,
 )
-from agent.platform.tools.presentation import display_path as _display_path
+from agent.platform.tools.presentation import (
+    READ_PRESENTER as _READ_PRESENTER,
+    display_path as _display_path,
+)
 
 _IMAGE_MIME_BY_SUFFIX = {
     ".jpg": "image/jpeg",
@@ -27,6 +30,7 @@ class ReadTool:
     """Read UTF-8 text with pagination or inline supported image formats."""
 
     name = "read"
+    presenter = _READ_PRESENTER  # 决策 12: presentation travels with the tool object
     is_concurrency_safe = True
     max_result_size_chars = None  # Infinity — read results are never compressed
     description = (

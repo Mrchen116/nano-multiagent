@@ -7,13 +7,17 @@ from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.tools.dangerous_paths import check_dangerous_path
-from agent.platform.tools.presentation import display_path as _display_path
+from agent.platform.tools.presentation import (
+    WRITE_PRESENTER as _WRITE_PRESENTER,
+    display_path as _display_path,
+)
 
 
 class WriteTool:
     """Write full file content and report overwrite metadata."""
 
     name = "write"
+    presenter = _WRITE_PRESENTER  # 决策 12: presentation travels with the tool object
     is_concurrency_safe = False
     description = (
         "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. "

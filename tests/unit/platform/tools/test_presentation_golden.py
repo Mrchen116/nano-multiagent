@@ -19,14 +19,32 @@ from typing import Any, Mapping
 
 import pytest
 
-# Seam: today resolves via the platform global registry; the 决策 12 migration
-# re-points this to the tool object's .presenter (kernel-scoped) WITHOUT changing
-# any expected value below.
-from agent.platform.tools.presentation import resolve_presenter
+# Seam (决策 12): resolve a presenter the kernel-scoped way — read it off the
+# built-in tool object's ``.presenter`` (presentation travels with the tool),
+# default for unknown names. This is the single line the migration re-points; the
+# expected values below never change.
+from agent.platform.tools.presentation import resolve_presenter_for_tool
+from agent.platform.tools.builtins.read import ReadTool
+from agent.platform.tools.builtins.write import WriteTool
+from agent.platform.tools.builtins.edit import EditTool
+from agent.platform.tools.builtins.bash import BashTool
+from agent.platform.tools.builtins.web_fetch import WebFetchTool
+from agent.platform.tools.builtins.task import TaskTool
+
+_TOOL_BY_NAME = {
+    "read": ReadTool,
+    "write": WriteTool,
+    "edit": EditTool,
+    "bash": BashTool,
+    "web_fetch": WebFetchTool,
+    "task": TaskTool,
+}
 
 
 def _resolve(name: str):
-    return resolve_presenter(name)
+    tool = _TOOL_BY_NAME.get(name)
+    # Pass the class (presenter is a class attribute) — unknown names → default.
+    return resolve_presenter_for_tool(tool)
 
 
 def _evt_tuple(evt: Any) -> tuple:

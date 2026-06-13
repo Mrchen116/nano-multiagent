@@ -10,6 +10,7 @@ from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.platform.tools.base import WiringMixin
+from agent.platform.tools.presentation import BASH_PRESENTER as _BASH_PRESENTER
 from agent.platform.tools.builtins.bash_policy import (
     check_command_policy,
 )
@@ -80,6 +81,7 @@ class BashTool(WiringMixin):
     """
 
     name = "bash"
+    presenter = _BASH_PRESENTER  # 决策 12: presentation travels with the tool object
     max_result_size_chars = 30_000
     description = (
         "Execute a bash command in the current working directory. Returns stdout and stderr. "

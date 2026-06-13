@@ -8,13 +8,17 @@ from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.tools.dangerous_paths import check_dangerous_path
-from agent.platform.tools.presentation import display_path as _display_path
+from agent.platform.tools.presentation import (
+    EDIT_PRESENTER as _EDIT_PRESENTER,
+    display_path as _display_path,
+)
 
 
 class EditTool:
     """Replace exactly one text match in a file inside the sandbox."""
 
     name = "edit"
+    presenter = _EDIT_PRESENTER  # 决策 12: presentation travels with the tool object
     is_concurrency_safe = False
     description = (
         "Edit a file by replacing exact text. The oldText must match exactly (including whitespace). "
