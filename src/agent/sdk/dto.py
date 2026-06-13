@@ -47,11 +47,16 @@ class RunInfo:
             ``"completed"``, ``"failed"``, ``"cancelled"``). Values match the
             existing run-status vocabulary (``TERMINAL_RUN_STATUSES`` re-exported
             from agent.sdk covers terminal ones).
+        start_sequence: Event-stream sequence at which this run's events begin.
+            Consumers anchor ``stream(after_sequence=…)`` to it so each turn
+            receives exactly this run's events without replaying stale session
+            history (the Gateway SSE relay path depends on this).
     """
 
     run_id: str
     session_id: str
     status: str
+    start_sequence: int = 0
 
 
 # ---------------------------------------------------------------------------

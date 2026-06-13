@@ -364,6 +364,7 @@ def _to_run_info(record: Any) -> RunInfo:
         session_id=record.session_id,
         # status may be an enum (with .value) or already a string.
         status=getattr(status, "value", status) if status is not None else "",
+        start_sequence=int(getattr(record, "start_sequence", 0) or 0),
     )
 
 
