@@ -224,8 +224,26 @@
   2. **桥/legacy 导出暂留期**,决策7 守卫的精确名单/豁免名单要容得下这些 legacy 导出——标 **M1 临时**
      (`_M1_TEMP_REPORTER_EXPORTS` 同类,或单列 legacy bridge 临时名单),收缩段(R7)同步移除,**别让守卫闸在扩张期就误红**。
   3. PA 物理目录搬家硬约束:`agent.products.personal_assistant.*` 被 legacy PERSONAL_ASSISTANT_PROFILE 路径 + ≈10 测试在用,
-     搬家须在 R6 消费者切走后、或搬时留 re-export shim 保 legacy 不红,直到 R7 products 解散一并清。本 worker 倾向 R6 PA 工厂引新位置后、
-     R7 一次性搬 + 删 products + 删 shim(最少中间态);续做 worker 按「全测树绿」硬约束自行定搬家时机。
+     搬家须在 R6 消费者切走后、或搬时留 re-export shim 保 legacy 不红,直到 R7 products 解散一并清。
+
+- **orchestrator 精确化「物理搬家 = copy + delete 跨阶段拆开」(2026-06-14,关键,覆盖上面 #3 的「倾向 R7 一次搬」)**:
+  「物理搬家」**不是**整体推到 R7,而是拆成两半跨阶段:
+  - **扩张(R4):copy 长出 src/ 新位置**。PA 工厂需要的资产(`prompt_for` 逻辑 / hooks / skills / cron 闭包工具)**copy 进
+    `src/personal_assistant/` 作为新代码长出**,旧 `agent/products/personal_assistant/` **原样留着**(legacy + ≈10 测试还在用),新旧并存全绿。
+    **关键硬约束**:R6 的 PA 工厂 + main.py **只能 import `agent.sdk` 和自己包 `src/personal_assistant/`,绝不能 import `agent.products`**
+    (模块边界硬规则)——所以 R6 要用的 `prompt_for`/hooks **必须在扩张期(R4)就 copy 进 src/**,否则 R6 无合法 import 来源。这是「长出」,
+    必须在扩张做,**不能等收缩**。cron 已是新形态(`src/personal_assistant/tools/cron.py` make_cron_tool),符合此规则。
+  - **迁移(R5/R6)**:main.py / CLI 切新 build_kernel,用 src/ 里的副本。
+  - **收缩(R7):delete 旧位置**。grep 零消费者后删 `agent/products/personal_assistant/` + platform/products 垫片 + 桥 + 全局
+    presenter + 撤 SDK 导出。
+  - **≈10 个 import `agent.products.personal_assistant` 内部的测试**:测的是正在解散的旧产品层。R7 删 products/ 时逐个**重定向**到
+    新 src/ 等价物或内核契约、或**删除**(若测已消除的内部实现),**逐个记 progress.md 给理由,不许放任红**。属 R7 收缩。
+  - 口径:扩张=copy 长出 src/(新旧并存全绿);迁移=切消费者;收缩=删旧 + 迁测试。依据决策11 + 模块边界硬规则。
+  - **R4 待做(copy 长出,本 worker 未做,留续做)**:`src/personal_assistant/product.py` 的 `prompt_for(agent)` 拼 PromptSlots 四槽——
+    **现成配方 = R2 golden 测试 `tests/integration/test_kernel_skeleton_reproduces_golden.py::_pa_slots(ctx)`**:head=identity+runtime;
+    body=heartbeat/cron/cron_routing/platform_policy/guidelines/routing;custom=user_custom;tail=communication_context。段文本需从
+    `agent/products/personal_assistant/prompt_sections.py` 的 `_PA_*` 段 copy/重derive 进 src/(byte-identical,golden 守);PA hooks(chat_history)
+    + skills 同样 copy 进 src/。这块是 R6 PA 工厂的「长出」半,与 main.py 切装配同属一个逻辑单元,建议 R6 worker 一气做。
 
 ## R4 cron 闭包工具完成(扩张段,已 push)
 
