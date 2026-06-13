@@ -51,15 +51,17 @@
 
 > 三段式：R1-R2 录防线（golden 先行）→ R3-R6 建新表面 + 迁移 → R7 收缩 + 守卫落闸。每步独立 commit 可 revert。
 
-### R1 — cron 段逐字节 golden + 完整 prompt 重构前基线快照
+### R1 — cron 段逐字节 golden + 完整 prompt 重构前基线快照  [DONE]
 
 - 步骤：升级 `test_cron_prompt_sections` 把 `len>20` 弱断言改为 cron 段（pa.cron / pa.cron_routing）逐字节 verbatim 断言；录 PA（含 cron/heartbeat/群聊各配置组合）+ LC 完整 system prompt 重构前快照作 golden 基线。
 - 验证：新 golden 测试在重构前代码上全绿（基线锁定）；cron verbatim 断言钉死现文案。
+- 结果：DONE（C1=85a5d63c）。7 golden + cron/cron_routing verbatim，14 passed。
 
-### R2 — 内核模板骨架 + PromptSlots 四槽（扩张，旧路径不动）
+### R2 — 内核模板骨架 + PromptSlots 四槽（扩张，旧路径不动）  [DONE]
 
-- 步骤：在 `agent/core/agent/prompt_sections/` 立产品中立模板骨架（head → core 规则 → 通用 feature 指引 → body → 背景/footer → 易变尾部 → tail 固定顺序）；SDK 新增 `PromptSlots(head/body/custom/tail)` / `PromptText` 冻结值对象；内核装配 = 骨架 + 四槽填入。旧 `prompt_sections_builder` 路径暂留。
+- 步骤：在 `agent/core/agent/prompt_sections/` 立产品中立模板骨架（按字节真相：head → core 规则 → body → 通用 feature 指引 → 背景/footer → custom → 易变尾部 → tail）；SDK 新增 `PromptSlots(head/body/custom/tail)` / `PromptText` 冻结值对象；内核装配 = 骨架 + 四槽填入。旧 `prompt_sections_builder` 路径暂留。
 - 验证：用 R1 基线驱动——经新骨架 + PromptSlots（PA/LC 文案填槽）装配的 prompt 与基线逐字节一致。
+- 结果：DONE（C1=e64b5a96 红测, C2=e7133b5c 实现）。skeleton 重现 golden 7 场景全绿，零回归。⚠️ 发现 design §251 骨架顺序 prose 与字节真相不符，按字节真相搭并报备 orchestrator（见 progress [Design 修订] §R2）。
 
 ### R3 — build_kernel 基座 + create_session per-agent + DTO + Protocol（扩张）
 

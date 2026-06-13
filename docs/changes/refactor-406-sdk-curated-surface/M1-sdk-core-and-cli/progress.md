@@ -24,4 +24,28 @@
   - E2E/Regression: golden 测试即 regression 防线，路径见上；后续每个 roadpoint 都跑它确认零漂移
   - Visual/Interaction: N/A
 - Rollback: 单 commit，`git revert` 即移除 golden 测试 + 文件 + cron verbatim 升级，回到 R1 前
-- Commits: C1=<填>
+- Commits: C1=85a5d63c (R1 是 Verify-only 基线锁定，单 commit)
+
+## R2 — 内核模板骨架 + PromptSlots 四槽（扩张，旧路径不动）
+
+- Context: 决策 8 核心——内核拥有产品中立固定顺序模板骨架，产品文案经 PromptSlots 四槽 per-session 注入，逐字节复现现状。这是 prompt 重构的地基；扩张段（旧 build_<product>_system_prompt 路径不动）。
+- Decision:
+  1. `src/agent/sdk/prompt.py`：`PromptSlots(head/body/custom/tail)` + `PromptText(name,text)` SDK-owned 冻结值对象，每槽一组 PromptText。
+  2. `src/agent/core/agent/prompt_sections/skeleton.py`：`build_kernel_prompt_skeleton()` 返回固定顺序 section 列表——slot section（head/body/custom 稳定、tail 易变 cache_safe=False）与 core 段交织：`head → CORE_SYSTEM/ACTIONS/TOOL_RULES/TONE → body → CORE_SKILLS_LISTING/MEMORY_GUIDANCE/SKILLS_GUIDANCE → CORE_BACKGROUND_TASKS/RUNTIME_FOOTER → custom → CORE_MEMORY_BLOCK/USER_PROFILE_BLOCK → tail`。slot section 鸭子读 `ctx.prompt_slots.<slot>`（不 import sdk）。
+  3. `PromptContext` 加 `prompt_slots: object | None`（鸭子结构，core 不 import sdk）。
+- Rationale: 顺序按**字节真相**搭（见下 Design 修订 §R2）——feature 指引在 body 后、custom 在 footer 后易变尾前——而非 design §251 prose 那个顺序，否则破坏 golden。slot 用 PromptText 序列（非单串）是为复现现状多段 `\n\n` 布局（如 identity+runtime 两段）。复用既有 `assemble_system_prompt`（cache_safe 校验 + `\n\n` join），字节一致结构性保证。SDK-owned + core 鸭子读 = 满足决策 7 所有权闸且无 core→sdk 倒挂（同决策 2 Protocol 思路）。
+- Evidence:
+  - Tests: 新 `tests/integration/test_kernel_skeleton_reproduces_golden.py` 7 场景全绿（skeleton+slots 逐字节重现 R1 golden）；R1 golden 7 绿；prompt 相关全套（tests/unit/agent + integration prompt + unit/personal_assistant）1090 passed/1 skipped；contract 112 passed。零回归。
+  - Entry: N/A（扩张段无运行时入口；运行时装配 R6 走 live + 预览同源）
+  - Frontend State Matrix / Browser QA / Visual: N/A
+  - E2E/Regression: golden + skeleton-重现-golden 两道防线，后续 roadpoint 持续跑
+- Rollback: C2 revert 移除 skeleton/slots（旧路径仍在，零影响）；C1 revert 移除红测
+- Commits: C1=e64b5a96, C2=e7133b5c, C3=<填>
+
+## [Design 修订] R2: 决策 8 §251 骨架顺序 prose 与字节真相不符
+
+- 现状方案: design §251 写骨架顺序 = `head → core 行为规则 → 通用 feature 指引(memory/skill) → body → 后台/footer → 易变尾部 → tail`（feature 指引在 body **之前**，未显式给 custom 定位）。
+- 新方案: 按 PA/LC 现状逐字节真相搭骨架 = `head → core 规则 → body → 通用 feature 指引 → 后台/footer → custom → 易变尾部 → tail`（feature 指引在 body **之后**，custom 在 footer 后、易变尾前）。
+- 原因: byte-identical（risk 1 / kernel delta-spec「逐字节等价」Scenario）是硬契约；§251 顺序 prose 是示意，与 golden 锁定的实际装配顺序冲突，照 prose 搭会破坏 golden。
+- 影响范围: 仅文档表述（§251 prose）；不影响行为/退出标准。M2 reporter 不依赖此顺序。
+- design.md 是否同步改: 待 orchestrator 定（已 SendMessage 报备，问①同意按字节真相②是否顺手改 §251 prose）。代码已按字节真相落地并 golden 守绿，design 文本修订不阻塞实施。
