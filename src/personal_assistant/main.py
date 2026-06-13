@@ -2146,7 +2146,13 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # and is resolved by the user clicking Allow/Deny on the IM card via
     # kernel.submit_permission_decision.  Unattended origins (heartbeat/cron) short-circuit
     # before reaching ask via auto_mode_gate's unattended_fallback — they never park.
-    llm = LLMConfig.from_env()
+    #
+    # The LLM catalog + active connection come from the Gateway config's ``llm:``
+    # block (config.llm, an LLMConfigPayload) — NOT from_env — so the configured
+    # default_model + provider catalog (incl. per-model extra_request_body like the
+    # K2.6 thinking config) flow into build_kernel and the model registry.  decision 5:
+    # build_kernel owns registry init internally from this LLMConfig.
+    llm = LLMConfig.from_payload(config.llm)
 
     # GatewayCronDispatcher remains as the per-agent CronExecutionService registry +
     # lifecycle owner (set_gateway_loop / drain_all / register).  refactor-406 决策 9:
