@@ -66,14 +66,54 @@ class TestCronPromptSegment:
                 "pa.cron must be enabled when cron_enabled=True"
             )
 
-    def test_pa_cron_segment_renders_content(self) -> None:
-        """pa.cron segment must render non-empty text when enabled."""
+    def test_pa_cron_segment_renders_verbatim(self) -> None:
+        """pa.cron segment must render the exact byte-identical openclaw-derived text.
+
+        refactor-406 risk 1: cron 段从内核 segment 迁到 PA PromptSlots.body 时必须
+        逐字节复现。这取代了原 ``len>20`` 弱断言（迁 cron 出内核前补的逐字节防线，
+        见 M1 退出标准）。
+        """
         from agent.products.personal_assistant.prompt_sections import _PA_CRON  # noqa: PLC2701
 
         ctx = self._make_ctx(cron_enabled=True)
         text = _PA_CRON.render(ctx)
-        assert text is not None, "pa.cron must render non-None when cron_enabled=True"
-        assert len(text) > 20, "pa.cron rendered text must be non-trivial"
+        expected = (
+            "## Cron Jobs\n"
+            "You have access to a `cron` tool for managing scheduled tasks.\n"
+            "Use it when the user asks you to:\n"
+            '- Run something at a specific time ("every day at 9am")\n'
+            '- Run something on a recurring schedule ("every 5 minutes", "every hour")\n'
+            '- Perform a one-shot background task at a future time ("in 30 minutes")\n\n'
+            "Cron jobs run in isolated sessions with NO conversation context — they execute a\n"
+            "fixed instruction and deliver the result to this chat.\n"
+            "After a cron job runs, its result will appear as context so you can answer follow-ups.\n\n"
+            "Do NOT use cron for tasks that need ongoing conversation context — use heartbeat instead."
+        )
+        assert text == expected, "pa.cron rendered text drifted from verbatim baseline"
+
+    def test_pa_cron_routing_segment_renders_verbatim(self) -> None:
+        """pa.cron_routing segment must render byte-identical text when both on.
+
+        refactor-406 risk 1: the routing段也是迁移不变量，逐字节钉死。
+        """
+        from agent.products.personal_assistant.prompt_sections import (  # noqa: PLC2701
+            _PA_CRON_ROUTING,
+        )
+
+        ctx = self._make_ctx(cron_enabled=True, heartbeat_enabled=True)
+        text = _PA_CRON_ROUTING.render(ctx)
+        expected = (
+            "## Scheduling Routing\n"
+            "You have both heartbeat and cron available. Use the right one:\n"
+            "- **Heartbeat** (带上下文): for open-ended monitoring, reminders that need conversation\n"
+            "  context, or tasks where you must remember what you discussed with the user.\n"
+            '  Example: "Remind me about our discussion on the release" → heartbeat (HEARTBEAT.md).\n'
+            "- **Cron** (无上下文): for deterministic scheduled tasks with a fixed instruction.\n"
+            '  Example: "Every day at 9am summarize my GitHub notifications" → cron job.'
+        )
+        assert text == expected, (
+            "pa.cron_routing rendered text drifted from verbatim baseline"
+        )
 
     def test_pa_cron_routing_segment_exists(self) -> None:
         """PA prompt sections must contain a routing segment when both heartbeat + cron are on."""
