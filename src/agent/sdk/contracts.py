@@ -45,9 +45,9 @@ class ToolContext(Protocol):
 class Tool(Protocol):
     """Structural contract for a native tool object (决策 2).
 
-    An object satisfies ``Tool`` when it exposes the four members below; it need
-    not inherit any kernel base class. Side-effect tools (e.g. a cron tool that
-    talks to a Gateway scheduler) close over their own service handles in the
+    An object satisfies ``Tool`` when it exposes the four required members below;
+    it need not inherit any kernel base class. Side-effect tools (e.g. a cron tool
+    that talks to a Gateway scheduler) close over their own service handles in the
     application package and are passed via ``build_kernel(tools=…)`` — there is
     no host-capability callback channel back into the kernel (决策 9).
 
@@ -55,6 +55,15 @@ class Tool(Protocol):
         name: Stable tool name surfaced to the model and used in ``enabled_tools``.
         description: Human/model-facing description.
         input_schema: JSON-schema dict for the tool arguments.
+        presenter: *Optional* ``ToolPresenter`` (决策 12) describing how the tool's
+            calls render in the IM (label / summary / detail on ``tool_start`` /
+            ``tool_end``). Tool presentation travels with the tool object: a product
+            that brings a tool also brings its render card. When absent (the common
+            case for MCP / ``.nano/tools`` runtime-discovered tools) the kernel uses
+            a default presenter (visible + truncated args). Declared as an optional
+            attribute, **not** a required Protocol member — the kernel reads it via
+            ``getattr(tool, "presenter", None)`` so existing tools without one still
+            satisfy ``isinstance(obj, Tool)``.
 
     Methods:
         run: ``(args: Mapping, ctx: ToolContext) -> Mapping`` — execute the tool.

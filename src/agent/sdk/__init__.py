@@ -43,6 +43,7 @@ from .dto import (
     ToolInfo,
 )
 from .prompt import PromptSlots, PromptText
+from agent.core.tools.presentation import ToolPresentationEvent, ToolPresenter
 from agent.core.tools.host_capability import (
     HostCapabilityContext,
     HostCapabilityDispatcher,
@@ -87,6 +88,9 @@ __all__ = [
     "ToolInfo",
     "FeatureInfo",
     "SkillInfo",
+    # Tool presentation (决策 12: core-owned pure-function types, sdk re-export, 闸2 豁免)
+    "ToolPresenter",
+    "ToolPresentationEvent",
     # Permission
     "PermissionDecision",
     # LLM config
