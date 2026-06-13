@@ -79,10 +79,59 @@
 - Rollback: building blocks 是纯增量，revert C1/C2 即移除，不影响任何现有路径
 - Commits: C1=d3b6b29d, C2=7b90ae84（building blocks）；kernel 接线未提交
 
-## HANDOFF 状态（给续做 worker / orchestrator）
+## R3 接线 — build_kernel 双签名 + create_session per-agent + DTO 化（扩张，完成）
 
-- 已完成并 push：R1（golden 防线）、R2（内核骨架+PromptSlots）、R3 building blocks（DTO/Protocol）。全绿、零回归。
-- 续做入口：本文 R3「未完成」7 步，从第 1 步 build_kernel 双签名起。**最关键守卫**：改 runtime prompt 装配（第 5 步）后必跑 `tests/integration/test_full_system_prompt_byte_identical.py` + `test_kernel_skeleton_reproduces_golden.py`，红即停（risk 1）。
-- 之后 R4（cron 迁出内核 + HostCapabilityDispatcher 删除，cron 闭包直连 CronExecutionService，PA tools/hooks/skills 物理目录搬 src/personal_assistant/）、R5（coding_cli 切新表面 + live：R-CLI-1/2/3）、R6（personal_assistant 工厂 prompt_for + main 装配 + 预览同源 + live：R-PA-1/2/3、R-CP-1/2/3、R-GW-3）、R7（products 解散 + bootstrap _product_root 退役 + 旧导出清零 + 决策7 三道闸：精确名单 EXPECTED_SURFACE + 所有权闸 + 豁免名单含 `_M1_TEMP_REPORTER_EXPORTS`）。
-- live-critical（cron/heartbeat/群聊运行时 + prompt 运行时装配）需真端到端证据（§0.3/§0.11），env 起不来按 §0.11 找 orchestrator，不自降证据。
-- 待 orchestrator 答复：design §251 骨架顺序 prose 是否修订（不阻塞代码）。
+- Context: 续跑 worker（m1-worker-2）接 R3 building blocks + list_* 后，完成把 building blocks 真正接入 kernel.py。
+  注：接线期发生过一次同 worktree 双 worker 冲突（rebase 重排 + orphan stash），由 orchestrator 协调后本 worker 独占续跑，
+  原半成品接线（build_kernel 双签名 ~400 行）经 stash 恢复 + 与已落地 list_* 三方合并，无冲突标记，全测树验证零回归。
+- Decision（接线落点）:
+  1. `build_kernel` 双签名（扩张期）：`llm=LLMConfig`(新) / `product_profile=`(旧) 二选一守卫；新路径 `_build_kernel_base`
+     走 `build_kernel_prompt_skeleton()` 内核骨架 + 内部 `_init_model_registry_from_llm_config`（消化「先 init 再 from_env」
+     footgun，catalog 缺省时从 active 连接合成单 provider 目录）+ 原生工具对象 `registry.register(tool, replace=True)`
+     （无 `_product_root` 扫描）+ hooks `setup(hook_registry)` 注册 + 共享 `JsonlSessionStore`。
+  2. `create_session` 加 `enabled_tools`/`features`/`prompt=PromptSlots`（不收 model，决策5）：`features`→`metadata["agent_features"]`
+     门控内核 feature；`enabled_tools`→`tool_allowlist`；`prompt` 经 `runtime.register_session_prompt_slots(session_id, slots)`
+     注入 per-session（决策8，**不持久化**——PromptSlots 不能 JSON round-trip，由消费者工厂每进程开会话时重建）；返回 `SessionInfo`。
+  3. 出入参 DTO 化（决策6）：`submit`/`get_run`/`cancel`→`RunInfo`(`_to_run_info`)；`fork_session`→`SessionInfo`(`_to_session_info`)；
+     `get_llm_config`/`reconfigure_llm`→`LLMConfig` DTO(`_factory_config_to_llm_config`，threading build 期 catalog)。
+  4. runtime per-session slots：`runtime.__init__` 加 `_session_prompt_slots` map + `register_session_prompt_slots`；`_run_locked`
+     ctx 构造线进 `prompt_slots=self._session_prompt_slots.get(session_id)`；`wiring.build_prompt_context_from_metadata` 加
+     `prompt_slots` 入参传给 `PromptContext`（鸭子读，core 不 import sdk）。
+  5. `assemble_prompt_preview` 加 `prompt=PromptSlots`/`enabled_tools`（决策8 预览同源，PREVIEW 渲染）。
+  6. `agent.sdk.__init__` 暴露新表面符号（Tool/ToolContext/HookAPI/PromptSlots/PromptText/LLMConfig 全家/SessionInfo/RunInfo/
+     能力查询 DTO）——精确名单 `EXPECTED_SURFACE` 钉死留 R7。
+- Rationale: 三段式扩张——旧 `product_profile` 路径 + `host_capabilities` 原样保留，全消费方/测试零改动；DTO 在 Kernel 边界处映射，
+  core 不回引（无倒挂）。runtime slots 用内存 map 而非 metadata 持久化，因 PromptSlots 是 SDK 对象、且本就 per-session 由工厂重建。
+- Evidence:
+  - Tests: R3 wiring 契约 `tests/contract/test_sdk_kernel_wiring.py` 9 passed（含外部产品最小证明：包外 app 仅经 agent.sdk
+    装配 + create_session + 闭包直连副作用工具一轮 + PromptSlots 进预览）；**全测试树 `pytest -m "not e2e"` = 2736 passed/1 skipped
+    零回归**（DTO 返回类型变更涟漪过所有消费方干净）；ruff check + format 干净。
+  - Entry: build_kernel 新签名 + create_session per-agent 经契约测试真装配 + 真跑一轮工具调用验证；CLI/PA live 留 R5/R6。
+  - Frontend State Matrix / Browser QA / Visual: N/A
+  - E2E/Regression: **R1 golden 7 + R2 skeleton-重现-golden 7 持续绿**（改 runtime 装配后字节零漂移，risk 1 守住）。
+  - turn_id 断言（内部 RunRecord 字段、非 DTO、无产品消费）从 behavior contract 移除；whitelist runtime:172/kernel:141 行号锚定更新。
+- Rollback: 接线 commit revert 回 building-blocks+list_* 态（旧 product_profile 路径独立可用）。
+- Commits: C1=680f132b(新签名红测,rebase 保留) + list_*(076fbd57/fbdf1aa8 另 worker)；C2=<本次接线>；C3=<本条>。
+
+## 新增范围（决策 12 ToolPresenter，base 更新后纳入 M1）
+
+- orchestrator 把决策 12 加进 design.md（base = origin/main 0865584a 已含）：presenter 随 Tool 对象走、干掉 platform 全局
+  `_PRESENTERS`/`register_presenter`/`resolve_presenter` + import 时 `_register_builtin_presenters()`，改 build_kernel 构
+  `name→presenter` map 注入 realtime_stream hook（kernel 作用域）；`Tool` Protocol 加可选 `presenter`；`ToolPresenter`/
+  `ToolPresentationEvent` 进 SDK 面（core 拥有、sdk re-export、闸2 豁免）；6 内置 presenter 挂工具类。
+- 落点：① contracts.py Tool Protocol 补可选 `presenter` 字段；② sdk re-export ToolPresenter/ToolPresentationEvent；
+  ③ 新 roadpoint「presenter 迁移」——先录 presentation golden 基线（6 自定义 + 默认回退）→ build_kernel 注入 kernel 作用域 map →
+  删全局三件套 → 内置 presenter 挂类 → golden 守逐字节；④ 外部产品最小证明加码：副作用工具自带 presenter，断言 label/summary/
+  detail 出现在 tool_start/tool_end。tasks.md 待补行。
+
+## 后续 roadpoint（本 worker 独占续跑）
+
+- R4：cron 迁出内核 + `HostCapabilityDispatcher`/`HostCapabilityContext`/`host_capabilities=`/`_inject_host_capabilities` 整组删
+  + cron 闭包直连 `CronExecutionService`（保跨线程入队 + per-agent 路由）；PA tools/hooks/skills 物理目录搬 `src/personal_assistant/`。
+- R-presenter（决策12，可与 R4 并列或紧随）：见上「新增范围」。
+- R5：coding_cli 切新表面 + live（R-CLI-1/2/3）。
+- R6：personal_assistant 工厂 `prompt_for`（拼 PromptSlots 四槽）+ main 装配 + 预览同源 + live（R-PA-1/2/3、R-CP-1/2/3、R-GW-3）。
+- R7：products/ 解散 + bootstrap `_product_root` 退役 + 旧导出清零 + 决策7 三道闸（M1：所有权+豁免闸，豁免名单 = C1 三类
+  [RunOrigin/PermissionDecision/TERMINAL_RUN_STATUSES] + ToolPresenter/ToolPresentationEvent[决策12] + `_M1_TEMP_REPORTER_EXPORTS`）。
+- live-critical（cron/heartbeat/群聊运行时 + prompt 运行时装配 + presenter IM 渲染）需真端到端证据（§0.3/§0.11），env 起不来按 §0.11
+  找 orchestrator，不自降证据。
