@@ -527,7 +527,26 @@ def _build_kernel_base(
         can_use_tool=can_use_tool,
         repo_root=resolved_repo_root,
         llm_catalog=llm,
+        workspace_config_dirname=workspace_config_dirname,
     )
+
+
+class _WorkspaceDirnameSkillResolver:
+    """Minimal SkillRootResolver for the 2-layer path (no ProductProfile).
+
+    Resolves skills under ``<workspace_root>/<workspace_config_dirname>/skills`` so
+    ``Kernel.list_skills`` is per-workspace without depending on a ProductProfile /
+    ConfigResolver (which the new build_kernel(llm=…) path does not build). Mirrors
+    the consumer factory's own skill_root convention (e.g. coding_cli's .nanocode).
+    """
+
+    def __init__(self, *, workspace_root: Path, workspace_config_dirname: str) -> None:
+        self._root = (
+            workspace_root / workspace_config_dirname / "skills"
+        ).expanduser().resolve()
+
+    def user_skill_roots(self) -> tuple[Path, ...]:
+        return (self._root,)
 
 
 def _wire_console_tracer() -> None:
@@ -562,12 +581,17 @@ class Kernel:
         can_use_tool: CanUseToolFn | None,
         repo_root: Path,
         llm_catalog: LLMConfig | None = None,
+        workspace_config_dirname: str | None = None,
     ) -> None:
         self._c = components
         self._repo_root = repo_root
         # SDK-owned LLM catalog (decision 5) for list_models / get_llm_config DTO
         # mapping. None on the legacy product_profile path (catalog unknown there).
         self._llm_catalog = llm_catalog
+        # Per-workspace config dir (.nanocode / .nanoassistant) for the 2-layer path.
+        # list_skills uses it to resolve <workspace>/<dirname>/skills without a
+        # ProductProfile (the legacy path resolves via config_resolver instead).
+        self._workspace_config_dirname = workspace_config_dirname
 
         # Inject can_use_tool into runtime so _build_hook_context can race it
         # against the broker future when building _permission_requester closures.
@@ -1011,10 +1035,19 @@ class Kernel:
         per_call_resolver = None
         profile = getattr(build_resolver, "_profile", None)
         if profile is not None:
+            # Legacy product_profile path: derive a profile-bound resolver per call.
             from agent.platform.config.resolver import ConfigResolver  # noqa: PLC0415
 
             per_call_resolver = ConfigResolver(
                 profile=profile, workspace_root=effective_root
+            )
+        elif self._workspace_config_dirname:
+            # 2-layer path (no ProductProfile): resolve skills under the consumer's
+            # per-workspace config dir (<workspace>/<dirname>/skills) so list_skills is
+            # per-workspace with no cross-workspace mixing (决策 4).
+            per_call_resolver = _WorkspaceDirnameSkillResolver(
+                workspace_root=effective_root,
+                workspace_config_dirname=self._workspace_config_dirname,
             )
 
         skills = resolve_available_skills(

@@ -7,9 +7,7 @@ Covers:
 - can_use_tool callback: injected permission strategy is called when the gate
   fires (modelled via a stub hook that parks a permission request)
 - Interrupt while waiting for permission cancels the pending turn
-- HostCapabilityDispatcher + HostCapabilityContext exported from agent.sdk
-- build_kernel() accepts optional host_capabilities parameter and injects into
-  ToolContext so cron tool can invoke via dispatcher (R1 bugfix-402-M4)
+- agent.sdk stays cron-neutral (no cron-specific types leak into sdk / core.tools)
 """
 
 from __future__ import annotations
@@ -19,14 +17,22 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
 
-from agent.sdk import Kernel, build_kernel
-from agent.core.llm.factory import LLMFactoryConfig
-from agent.products.local_coding.profile import LOCAL_CODING_PROFILE
+from agent.sdk import Kernel, LLMConfig, build_kernel
 
 
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
+
+
+def _lc_llm() -> LLMConfig:
+    """The SDK LLMConfig the surface smoke tests build against (2-layer path)."""
+    return LLMConfig(
+        provider="openai_compat",
+        model="codex_oauth:gpt-5.5",
+        base_url="http://127.0.0.1:4000",
+        default_model="codex_oauth:gpt-5.5",
+    )
 
 
 async def _allow_all(tool, input, ctx) -> Any:  # noqa: ANN001
@@ -69,12 +75,8 @@ async def _async_stub_messages():
 def test_build_kernel_returns_kernel_instance(tmp_path: Path) -> None:
     """build_kernel() with a fake LLM client must return a Kernel."""
     kernel = build_kernel(
-        product_profile=LOCAL_CODING_PROFILE,
-        llm_config=LLMFactoryConfig(
-            provider="openai_compat",
-            model="codex_oauth:gpt-5.5",
-            base_url="http://127.0.0.1:4000",
-        ),
+        llm=_lc_llm(),
+        workspace_config_dirname=".nanocode",
         can_use_tool=_allow_all,
         repo_root=tmp_path,
         _llm_client_override=_fake_llm_client(),
@@ -86,12 +88,8 @@ def test_build_kernel_returns_kernel_instance(tmp_path: Path) -> None:
 def test_kernel_exposes_required_methods(tmp_path: Path) -> None:
     """Kernel must expose all async + sync methods declared in design.md interface."""
     kernel = build_kernel(
-        product_profile=LOCAL_CODING_PROFILE,
-        llm_config=LLMFactoryConfig(
-            provider="openai_compat",
-            model="codex_oauth:gpt-5.5",
-            base_url="http://127.0.0.1:4000",
-        ),
+        llm=_lc_llm(),
+        workspace_config_dirname=".nanocode",
         can_use_tool=_allow_all,
         repo_root=tmp_path,
         _llm_client_override=_fake_llm_client(),
@@ -122,12 +120,8 @@ async def test_cross_loop_streaming_receives_run_status_event(tmp_path: Path) ->
     and the caller's loop can consume events via Kernel.stream() as an AsyncIterator.
     """
     kernel = build_kernel(
-        product_profile=LOCAL_CODING_PROFILE,
-        llm_config=LLMFactoryConfig(
-            provider="openai_compat",
-            model="codex_oauth:gpt-5.5",
-            base_url="http://127.0.0.1:4000",
-        ),
+        llm=_lc_llm(),
+        workspace_config_dirname=".nanocode",
         can_use_tool=_allow_all,
         repo_root=tmp_path,
         _llm_client_override=_fake_llm_client(),
@@ -188,12 +182,8 @@ async def test_can_use_tool_callback_is_invoked_via_permission_requester(
         return PermissionDecision(behavior="allow")
 
     kernel = build_kernel(
-        product_profile=LOCAL_CODING_PROFILE,
-        llm_config=LLMFactoryConfig(
-            provider="openai_compat",
-            model="codex_oauth:gpt-5.5",
-            base_url="http://127.0.0.1:4000",
-        ),
+        llm=_lc_llm(),
+        workspace_config_dirname=".nanocode",
         can_use_tool=recording_can_use_tool,
         repo_root=tmp_path,
         _llm_client_override=_fake_llm_client(),
@@ -249,12 +239,8 @@ async def test_interrupt_while_waiting_for_permission_cancels_turn(
         return PermissionDecision(behavior="allow")
 
     kernel = build_kernel(
-        product_profile=LOCAL_CODING_PROFILE,
-        llm_config=LLMFactoryConfig(
-            provider="openai_compat",
-            model="codex_oauth:gpt-5.5",
-            base_url="http://127.0.0.1:4000",
-        ),
+        llm=_lc_llm(),
+        workspace_config_dirname=".nanocode",
         can_use_tool=blocking_can_use_tool,
         repo_root=tmp_path,
         _llm_client_override=_fake_llm_client(),
@@ -312,12 +298,8 @@ def test_kernel_exposes_assemble_prompt_preview(tmp_path: Path) -> None:
     return schema — {"prompt": str, "section_count": int} — are the contract.
     """
     kernel = build_kernel(
-        product_profile=LOCAL_CODING_PROFILE,
-        llm_config=LLMFactoryConfig(
-            provider="openai_compat",
-            model="codex_oauth:gpt-5.5",
-            base_url="http://127.0.0.1:4000",
-        ),
+        llm=_lc_llm(),
+        workspace_config_dirname=".nanocode",
         can_use_tool=_allow_all,
         repo_root=tmp_path,
         _llm_client_override=_fake_llm_client(),
