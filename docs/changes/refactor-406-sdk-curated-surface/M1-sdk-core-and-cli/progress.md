@@ -218,3 +218,43 @@
   - **R7 收缩段一次删干净**:PA 目录物理搬家 + HostCapabilityDispatcher/Context/host_capabilities=/_inject_host_capabilities 整组删
     + GatewayCronDispatcher 删 + products/ 解散 + bootstrap _product_root 退役 + SDK 撤导出 + 决策7 三道闸。
   - 理由:先删后破只能向前修、回退粒度归零(违反决策11);先迁后删每步独立可 revert、全程不破 PA。终点不变(products 没了/桥没了/PA 在 src/)。
+
+## R4 cron 闭包工具完成(扩张段,已 push)
+
+- 做完:`src/personal_assistant/tools/cron.py` + `make_cron_tool(cron_services)` 工厂(闭包持 agent_id→CronExecutionService 映射,
+  _action_run 按 agent_id 路由直连 enqueue,无 HostCapabilityDispatcher);job 持久化/description/schema 逐字 port 自旧 tool(零行为漂移)。
+- 测试 `tests/unit/personal_assistant/test_cron_tool_closure.py` 5 passed(roundtrip/路由/per-agent隔离/缺service error/declined ack);
+  全树 collect 2760 干净;ruff 干净。legacy `agent/products/.../cron.py` + host_capabilities= + GatewayCronDispatcher 暂留(R7 删)。
+- **仍待 R4(live-critical,需端到端,不能只单测)**:R-CP-2 cron 实跑——make_cron_tool 经 PA 工厂传入 build_kernel 后(R6),
+  建 job→触发→执行→结果回投对应 agent 会话,真起 IM+Gateway(./scripts/e2e-up.sh)跑到用户可见结果。
+
+## HANDOFF — 剩余 R5/R6/R7(live-critical,建议新会话续)
+
+> 状态:R3 接线 + 决策12 presenter(含真实 hook 链证明)+ R4 cron 闭包工具全部 committed+pushed,branch 绿,全树 collect 2760。
+> 现场干净可无缝接力。下面是剩余三个 roadpoint 的精确续做入口。本会话已扛过双 worker 冲突恢复 + 上述大块,上下文吃紧,
+> R5/R6 live-critical(真起服务、e2e、截图)建议新会话以充足预算续做,§0.11:env 起不来找 orchestrator,不自降证据。
+
+- **R5 — coding_cli 切新表面 + live**:
+  - 入口:`src/coding_cli/commands.py`(现 `build_kernel(product_profile=LOCAL_CODING_PROFILE, llm_config=…)` + `create_session(skills=/tool_allowlist=)`)。
+    切到新 `build_kernel(llm=LLMConfig.from_env(), tools=[原生工具目录], hooks=[…], can_use_tool=terminal_prompt, workspace_config_dirname=".nanocode")`
+    + `create_session(enabled_tools=…, features=…, prompt=PromptSlots)`。需建 coding_cli 默认工厂(`src/coding_cli/product.py`,见 design §A 示意)。
+  - live(§0.3):R-CLI-1 工具调用任务、R-CLI-2 选模型启动、R-CLI-3 `/model` 热切换。`PYTHONPATH=src python3 -m coding_cli.main`。
+  - golden 守:CLI prompt 走 PromptSlots 后必跑 `test_full_system_prompt_byte_identical`(lc_full 场景)。
+- **R6 — PA 工厂 + main 装配 + 预览同源 + live**:
+  - 入口:`src/personal_assistant/main.py:2094-2117`(legacy build_kernel)。切新 build_kernel(tools 含 `make_cron_tool(cron_services)`
+    + send_message/web_search 等 PA 工具迁入后传入,hooks=PA hooks,workspace_config_dirname=".nanoassistant")。建 PA 工厂
+    `src/personal_assistant/product.py` 的 `prompt_for(agent)` 拼 PromptSlots 四槽(cron/heartbeat→body,群聊→tail,见 design §B + R2 golden 的 _pa_slots 映射)。
+    cron_services 映射从现 GatewayCronDispatcher._services 取(map 共享引用,晚注册可见);此时 PA 不再传 host_capabilities=。
+  - 预览同源:PA 预览 provider 用同一 prompt_for 构造 PromptSlots 调 `kernel.assemble_prompt_preview(prompt=…, features=…, enabled_tools=…, scenario=…)`。
+  - live(§0.3):R-PA-1/2/3、R-CP-1 heartbeat(守 K2.6 不返 HEARTBEAT_OK)、R-CP-2 cron 实跑、R-CP-3 群聊@、R-GW-3 会话档案落位。
+  - golden 守:PA 装配走 PromptSlots 后必跑 `test_full_system_prompt_byte_identical`(pa_* 场景)。
+- **R7 — 收缩 + 决策7 三道闸**:
+  - products/ 解散:`agent/products/` 整目录删 + `agent/platform/products/` 垫片删 + bootstrap `_product_root()` 退役 + SDK 撤
+    LOCAL_CODING_PROFILE/PERSONAL_ASSISTANT_PROFILE 导出;PA tools/hooks/skills/prompt_sections 物理搬 src/personal_assistant/(R6 已建工厂引新位置)。
+  - HostCapability 整组删:`agent/core/tools/host_capability.py` + base/registry/__init__ 的 host_capabilities 字段 + kernel `_inject_host_capabilities`
+    + `host_capabilities=` 参数 + GatewayCronDispatcher + SDK 撤 HostCapabilityDispatcher/Context 导出;legacy cron.py 删。
+  - build_kernel 收缩:删 legacy `product_profile=`/`llm_config=` 路径(消费者已全迁),只剩新签名。
+  - 决策7 三道闸(M1 闸):① 精确名单 `EXPECTED_SURFACE` 暂含 reporter 旧导出(M2 落最终闸);② 所有权闸(导出 __module__ sdk-owned);
+    ③ 豁免名单逐字钉死 = RunOrigin/PermissionDecision/TERMINAL_RUN_STATUSES(C1)+ ToolPresenter/ToolPresentationEvent(决策12)
+    + `_M1_TEMP_REPORTER_EXPORTS`(SkillRegistry/ConfigResolver/default_skill_search_roots/FEATURE_REGISTRY/model registry 列表函数,M2 删)。
+  - 全测试树 `pytest -m "not e2e"` 全收集绿是硬退出标准。
