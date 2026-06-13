@@ -28,6 +28,16 @@ _（design 阶段留空——过程性对齐已原地收敛进正文；实施期
   调 `kernel.list_*()` 中立查询 + Gateway 自己投影。
 - `src/personal_assistant/main.py`、`gateway/inbound_pipeline.py`、`src/coding_cli/commands.py`
   是公共表面迁移的主要调用方。
+- **工具展示（presenter）机制**：`ToolPresenter` Protocol + `ToolPresentationEvent`
+  （`visible/label/summary/detail`）在 `src/agent/core/tools/presentation.py`（纯函数无 IO，层次干净）；
+  但真正的注册表是 `src/agent/platform/tools/presentation.py` 的**模块级全局 `_PRESENTERS`**，按
+  `tool_name` 字符串索引，import 时 `_register_builtin_presenters()` 自动灌 6 个内置（read/write/edit/
+  bash/web_fetch/task）。`platform/hooks/builtins/realtime_stream.py` 在 `tool_call`/`tool_result` 事件上只
+  拿到 name 字符串 → `resolve_presenter(name)` → 把 presentation 塞进 SSE（`tool_start`/`tool_end`），
+  PA `main.py` 读出转发 IM 展示。**这是决策 2「工具是产品全权拥有的原生对象」与决策 9「产品工具迁出
+  内核」的盲区**：产品自带工具经 `build_kernel(tools=)` 进来后，其 presenter 无随对象而来——只能伸手进
+  platform 全局 `register_presenter`（不在公共面、且是 import 副作用），否则落默认裸 args。先例：Tool
+  协议的 `check_permissions` 已是「可选能力 + `getattr(tool,…)`→None 即 passthrough」，可照搬。
 - `tests/contract/` 已有产品只能 import `agent.sdk` 的方向守卫（`test_agent_sdk_boundary_contract`）
   和行为冒烟（`test_agent_sdk_surface_contract`），但没有精确名单 / 所有权守卫。
 
@@ -187,7 +197,7 @@ CC Agent SDK 对外只有 `query()` / `ClaudeSDKClient(options)` + 扁平 `Claud
 
 **选了原生对象目录 + SDK-owned 结构化 Protocol：`build_kernel(tools, hooks)` 收原生对象目录，`create_session(enabled_tools)` 选子集；`Tool`/`ToolContext`/`HookAPI` 是 Protocol 不是具体类。**
 
-- **形态**：`Tool` = `name`/`description`/`input_schema`/`run(args, ctx)` 结构化 Protocol（+ 可选便利基类）；`ToolContext`/`HookAPI` 同为只声明承诺字段子集的 Protocol。目录约定 `bootstrap._product_root()` 扫描退役；工作区 `.nano/tools` 运行时发现机制不变（另一机制）。
+- **形态**：`Tool` = `name`/`description`/`input_schema`/`run(args, ctx)` 结构化 Protocol（+ 可选便利基类），外加**可选 `presenter: ToolPresenter`**（缺省/None → 默认渲染，详见决策 12）；`ToolContext`/`HookAPI` 同为只声明承诺字段子集的 Protocol。目录约定 `bootstrap._product_root()` 扫描退役；工作区 `.nano/tools` 运行时发现机制不变（另一机制）。
 - **理由**：对象直传——类型安全、可单测、IDE 补全、不依赖文件布局，CC 一致；一 Kernel 多 session 下目录共享一次比 per-session 重传省。用 Protocol 而非 sdk 具体类是为避免 core→sdk 倒挂（取证见§现状分析）。
 - **拒绝**：`tool_dirs` / 继承内核基类——泄漏内部实现、不可单测。
 - **风险**：`ctx` 承诺字段子集 + hook 事件名集合成为公共契约，delta-spec 逐项列；非承诺字段不进 Protocol = 不承诺。
@@ -288,6 +298,14 @@ CC Agent SDK 对外只有 `query()` / `ClaudeSDKClient(options)` + 扁平 `Claud
 - **拒绝**：一步到位改签名（无回退粒度）；先删后迁（只能向前修）。
 - **风险**：共存期 SDK 表面临时变大，靠收缩收口；本 unit 改动面广（sdk/products 解散/bootstrap/两消费者包），实施期独占这些路径。
 
+### 决策 12：工具展示（presenter）随 Tool 对象走，干掉全局注册表
+
+**选了 presentation 成为 Tool 对象的可选侧面：`Tool` 协议加可选 `presenter: ToolPresenter`（缺省 → 默认渲染），`ToolPresenter`/`ToolPresentationEvent` 进 SDK curated 面；解析改由 `build_kernel(tools=)` 时从工具目录构 `name→presenter` 映射并注入 realtime_stream hook，platform 模块级全局 `_PRESENTERS` + import 时自动注册整组删除，内置 presenter 改挂各内置工具类。**
+
+- **理由**：原生对象自带自己的展示，与决策 2「工具是产品全权拥有的原生对象」同一根逻辑——外部产品带工具进来，IM 展示卡片随对象一起来，一步到位兑现 motivation 的「任何产品简单代码配套自己的工具」。模块级、按字符串索引、import 副作用的全局注册表正是本 unit 要消灭的隐式耦合；解析改 kernel 作用域、绑已装配工具，与决策 4「查询来自已装配 Kernel」同构。`ToolPresenter` 留 core（纯函数无 IO 合法）、SDK re-export，外部产品才拿得到完整能力。`presenter` 取「挂一个对象」而非把 `format_start/format_end` 铺到 Tool 面，内聚且可多工具共享。
+- **拒绝**：保留全局 `register_presenter` 仅提进 SDK 面——工具与展示两处声明、两步接线、import 副作用仍在，逆决策 2。在 core loop emit 事件时算好 presentation 挂事件上——core 干用户态渲染、耦合 loop 时序，越界。
+- **风险**：realtime_stream hook 今天直接 import 全局 `resolve_presenter`，改为 build_kernel 把 kernel 作用域 map 注入 setup 闭包（改动局部）；MCP / `.nano/tools` 运行时发现的工具无 presenter → 落默认（visible+裸 args），与今天一致；内置 6 个 presenter 输出须逐字节不变（IM 渲染零变化），黄金等价测试钉死。
+
 
 ## 接口与数据流
 
@@ -300,6 +318,7 @@ CC Agent SDK 对外只有 `query()` / `ClaudeSDKClient(options)` + 扁平 `Claud
 | 工具/hook 契约 | `Tool` | SDK-owned 结构化 Protocol + 可选便利基类 | （新增） |
 | 工具/hook 契约 | `ToolContext` | SDK-owned 结构化 Protocol（承诺字段子集，U3） | `agent.core.tools.base.ToolContext` 直 import |
 | 工具/hook 契约 | `HookAPI` | SDK-owned 结构化 Protocol（U3） | （新增） |
+| 工具展示（豁免） | `ToolPresenter` / `ToolPresentationEvent` | core 拥有（纯函数无 IO）、sdk re-export、闸2 豁免 | （新增；决策 12） |
 | prompt | `PromptSlots`（head/body/custom/tail 四槽）/ `PromptText` | 冻结值对象 | profile.prompt_sections* 字段 |
 | LLM | `LLMConfig`（含 `.from_env()`） | 冻结 dataclass（SDK-owned） | `LLMFactoryConfig` + `LLMConfigPayload` 全家 + `init_model_registry` |
 | 结果 | `SessionInfo` / `RunInfo` | 冻结 dataclass（SDK-owned 纯边界 DTO） | 内部 `Session` / `RunRecord` |
@@ -310,7 +329,9 @@ CC Agent SDK 对外只有 `query()` / `ClaudeSDKClient(options)` + 扁平 `Claud
 **整体撤出、无替代**：`ProductDefinition` 概念（含 `LOCAL_CODING_PROFILE` / `PERSONAL_ASSISTANT_PROFILE`）、
 `SkillRegistry`、`ConfigResolver`、`default_skill_search_roots`、`FEATURE_REGISTRY`、`init_model_registry`、
 `get_default_model` / `get_default_provider` / `list_provider_models` / `list_supported_providers`、
-`HostCapabilityDispatcher` / `HostCapabilityContext`（决策 9 删除）。
+`HostCapabilityDispatcher` / `HostCapabilityContext`（决策 9 删除）；platform 模块级全局
+`_PRESENTERS` / `register_presenter` / `resolve_presenter` + import 时 `_register_builtin_presenters()`
+（决策 12 删除，presenter 改随 Tool 对象走——这三个本就非公共表面，仅内部实现）。
 
 ### build_kernel / create_session 入参面（2 层的核心）
 
@@ -554,5 +575,5 @@ R-CP-1/2/3 验的是 cron/heartbeat/群聊**迁移后的运行时行为**（执�
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| refactor-406-M1 | sdk-core-and-cli | — | A | `src/agent/sdk/`、`src/agent/platform/bootstrap.py`、`src/agent/core/agent/prompt_sections/`、`src/agent/core/tools/host_capability.py`（删）、`src/agent/products/`（解散）、`src/coding_cli/`、`src/personal_assistant/`（cron 工具迁入 + main 装配 + prompt 工厂；**不含 `reporter/`**）、`tests/contract/`（守卫脚手架 + 所有权/豁免闸）、PA/LC 黄金测试（+ cron verbatim） | `[reviewer]` Runbook 矩阵 **R-CLI-1/2/3、R-PA-1/2/3、R-CP-1/2/3、R-GW-3、R-NEW-1** 逐条真实运行时实测通过，每条与重构前不变量一致；`[worker]` 2 层入口（build_kernel 基座 + create_session per-agent）+ `list_*`（内核侧产出）可用且有单测；`[worker]` 外部产品最小证明：测试内构造一个 agent 包外应用，仅经 `agent.sdk` 装配 + 开会话跑通带工具调用的一轮（含一个闭包直连自己服务的副作用工具）；`[worker]` PA/LC **完整 system prompt 重构前 vs 重构后逐字节等价**（基线 = 重构前快照；cron/heartbeat/群聊三段经 PromptSlots 四槽复现，位置/措辞不漂）；`[worker]` **迁移前先补 cron 段逐字节 golden**——heartbeat（`test_heartbeat_segment_verbatim_openclaw_lines`）、群聊（`test_pa_golden_group_chat_mention_text_verbatim`）已有 verbatim，但 cron 段（`test_cron_prompt_sections`）仅 `len>20` 弱断言、**无逐字节防线**，迁 cron 出内核前必须先补；`[worker]` sdk/prompt/llm/cron/dto 域旧导出清零、`HostCapabilityDispatcher`/`host_capabilities=` 删除、cron 闭包直连 `CronExecutionService`；`[worker]` 决策 7 守卫脚手架立（所有权 + 豁免闸绿；精确名单暂含 reporter 旧导出，待 M2 落最终闸）；`[worker]` `coding_cli` 仅 import 新表面；`[worker]` 全测试树（`pytest -m "not e2e"` 全收集）绿 |
+| refactor-406-M1 | sdk-core-and-cli | — | A | `src/agent/sdk/`、`src/agent/platform/bootstrap.py`、`src/agent/core/agent/prompt_sections/`、`src/agent/core/tools/host_capability.py`（删）、`src/agent/core/tools/presentation.py` + `src/agent/platform/tools/presentation.py` + `src/agent/platform/hooks/builtins/realtime_stream.py`（决策 12：presenter 随 Tool 走、删全局注册表、内置 presenter 挂工具类、hook 注入 kernel 作用域 map）、`src/agent/products/`（解散）、`src/coding_cli/`、`src/personal_assistant/`（cron 工具迁入 + main 装配 + prompt 工厂；**不含 `reporter/`**）、`tests/contract/`（守卫脚手架 + 所有权/豁免闸）、PA/LC 黄金测试（+ cron verbatim） | `[reviewer]` Runbook 矩阵 **R-CLI-1/2/3、R-PA-1/2/3、R-CP-1/2/3、R-GW-3、R-NEW-1** 逐条真实运行时实测通过，每条与重构前不变量一致；`[worker]` 2 层入口（build_kernel 基座 + create_session per-agent）+ `list_*`（内核侧产出）可用且有单测；`[worker]` 外部产品最小证明：测试内构造一个 agent 包外应用，仅经 `agent.sdk` 装配 + 开会话跑通带工具调用的一轮（含一个闭包直连自己服务的副作用工具，**且该工具自带 `presenter`，断言其 label/summary/detail 出现在 `tool_start`/`tool_end` 事件**）；`[worker]` 决策 12：**迁移前先录 presentation 基线**——把全部内置工具当前 `tool_start`/`tool_end` 的 presentation 输出（6 个自定义 + 其余默认回退）逐个快照为 golden 基线，迁 presenter 出全局注册表前必须先有此防线；重构后 presentation 输出与该基线**逐字节等价**（IM 渲染零变化）、无 presenter 工具仍落默认渲染、platform 全局 `_PRESENTERS`/`register_presenter`/`resolve_presenter` 清零；`[worker]` PA/LC **完整 system prompt 重构前 vs 重构后逐字节等价**（基线 = 重构前快照；cron/heartbeat/群聊三段经 PromptSlots 四槽复现，位置/措辞不漂）；`[worker]` **迁移前先补 cron 段逐字节 golden**——heartbeat（`test_heartbeat_segment_verbatim_openclaw_lines`）、群聊（`test_pa_golden_group_chat_mention_text_verbatim`）已有 verbatim，但 cron 段（`test_cron_prompt_sections`）仅 `len>20` 弱断言、**无逐字节防线**，迁 cron 出内核前必须先补；`[worker]` sdk/prompt/llm/cron/dto 域旧导出清零、`HostCapabilityDispatcher`/`host_capabilities=` 删除、cron 闭包直连 `CronExecutionService`；`[worker]` 决策 7 守卫脚手架立（所有权 + 豁免闸绿；精确名单暂含 reporter 旧导出，待 M2 落最终闸）；`[worker]` `coding_cli` 仅 import 新表面；`[worker]` 全测试树（`pytest -m "not e2e"` 全收集）绿 |
 | refactor-406-M2 | gateway-capability | M1 | B | `src/personal_assistant/reporter/`、`src/personal_assistant/gateway/`（capability 投影）、capability payload 基线 fixture、`tests/contract/`（精确名单最终闸） | `[reviewer]` Runbook 矩阵 **R-CFG-1/2/3/4、R-GW-1/2** 逐条真实运行时实测通过，IM 配置 Agent 的 models/skills/tools/features/默认/跨 workspace skill 差异 + prompt 预览 + 节点注册上线逐字段与重构前一致；`[worker]` reporter 数据源换 `kernel.list_*`、撤 reporter 专用导出（`SkillRegistry`/`ConfigResolver`/`default_skill_search_roots`/`FEATURE_REGISTRY`/model registry 列表函数）；`[worker]` capability payload（node/agent register + resolve）逐字段比对基线 fixture 绿；`[worker]` 决策 7 **精确名单落最终闸**：reporter 旧导出清零后 `EXPECTED_SURFACE` 逐字钉死、三道闸全绿；`[worker]` `personal_assistant` 仅 import 新表面；`[worker]` 全测试树（`pytest -m "not e2e"` 全收集）绿 |

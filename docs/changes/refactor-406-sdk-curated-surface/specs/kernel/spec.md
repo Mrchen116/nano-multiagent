@@ -95,6 +95,25 @@ model 生效为行为新增，不在本 unit 范围。）
 - **THEN** 副作用直达应用子系统；内核不提供也不需要 `host_capabilities` 回调通道
   （`HostCapabilityDispatcher` 不在公共表面）
 
+### Requirement: 工具展示由工具自带的 presenter 决定
+
+工具在流式事件上的展示（`tool_start`/`tool_end` 携带的 presentation：`visible`/`label`/`summary`/
+`detail`）由该工具自身的 `presenter`（SDK-owned `ToolPresenter`，缺省即无）决定；未带 presenter 的
+工具走默认渲染。应用经 `build_kernel(tools=…)` 传入的工具，其 presenter 随对象一起生效，无须任何
+额外注册步骤。`ToolPresenter` / `ToolPresentationEvent` 在公共表面，应用可为自带工具实现自定义展示。
+
+#### Scenario: 自带 presenter 的工具产出自定义展示
+- **GIVEN** 应用经 `build_kernel(tools=…)` 传入一个带 `presenter` 的工具，消费者订阅会话事件流
+- **WHEN** 该工具被调用
+- **THEN** 对应 `tool_start`/`tool_end` 事件的 presentation 字段为该工具 presenter 产出的
+  `visible`/`label`/`summary`/`detail`
+
+#### Scenario: 无 presenter 的工具走默认展示
+- **GIVEN** 一个未带 presenter 的工具（如 MCP / 工作区运行时发现的工具）
+- **WHEN** 它被调用
+- **THEN** 其 `tool_start`/`tool_end` 事件携带默认 presentation（可见 + 名称 + 截断后的参数），
+  不因缺 presenter 而丢失事件或报错
+
 ### Requirement: feature 内核只留通用项，产品专属条件 prompt 全 per-session 经 PromptSlots
 
 内核 feature 目录只含配内核内置工具的通用项：`memory_curation`（`memory` 工具）、`skill_creation`
