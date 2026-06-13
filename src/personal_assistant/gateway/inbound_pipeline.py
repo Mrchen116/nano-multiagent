@@ -8,7 +8,11 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 from typing import Literal
 
-from personal_assistant.channels.base import InboundMessage, OutboundMessage
+from personal_assistant.channels.base import (
+    InboundMessage,
+    OutboundMessage,
+    ReplyContext,
+)
 from personal_assistant.config.local_store import AgentWorkspaceConfig
 from personal_assistant.gateway.background_session_events import (
     BackgroundSessionEventSubscriber,
@@ -181,6 +185,11 @@ class InboundPipeline:
         # that arrive after the main per-turn SSE loop has terminated.  Caller wires this to
         # send a system/meta notification to IM.  None keeps the pipeline IM-agnostic.
         self._session_event_callback = session_event_callback
+        # bugfix-404-M3: async callable (text, reply_context, agent_id) → None that sends
+        # a BACKGROUND_TASK run reply back to IM.  Wired by main.py after im_connection_manager
+        # is created.  None disables BACKGROUND_TASK relay (outbound_router.send_text() is a
+        # no-op for the web_relay channel, so this must be the real IM send path).
+        self._bg_reply_sender: "Callable[[str, ReplyContext, str], Awaitable[None]] | None" = None
         # Tracks active BackgroundSessionEventSubscribers by kernel_session_id.
         self._bg_subscribers: dict[str, BackgroundSessionEventSubscriber] = {}
 
@@ -316,11 +325,16 @@ class InboundPipeline:
                     on_other=_on_other_event,
                 )
                 # Start a persistent background subscriber for this session so that
-                # self_evolution_review events published by background hooks (which run
-                # after the main turn's SSE loop terminates) still reach the PA gateway.
+                # self_evolution_review events and BACKGROUND_TASK run output published
+                # after the main turn's SSE loop terminates still reach the PA gateway.
+                # reply_context + session_key are passed so the subscriber can relay
+                # BACKGROUND_TASK assistant_message events back to the originating IM
+                # conversation via _bg_reply_sender (bugfix-404-M3).
                 await self._ensure_background_subscriber(
                     kernel_session_id=binding.kernel_session_id,
                     last_sequence=anchor_sequence or 0,
+                    reply_context=binding.reply_context,
+                    session_key=session_key,
                 )
                 await self._emit_relay_lifecycle(
                     message,
@@ -705,12 +719,20 @@ class InboundPipeline:
         *,
         kernel_session_id: str,
         last_sequence: int,
+        reply_context: ReplyContext | None = None,
+        session_key: str | None = None,
     ) -> None:
         """Ensure one persistent background event subscriber is active for the session.
 
         Called after each main turn completes so that session-level events (e.g.
         self_evolution_review) published by background hooks after the main event
         loop terminates are still received and forwarded to ``_session_event_callback``.
+
+        Also wires ``bg_run_output_callback`` so BACKGROUND_TASK-origin run output
+        (assistant_message events from notification-triggered runs) is relayed back to
+        the originating IM conversation. This closes the M3 gap: M1 fixed the kernel to
+        inject and re-run BACKGROUND_TASK notifications; M3 fixes the gateway to relay the
+        resulting assistant reply back to IM (bugfix-404-M3).
 
         If a subscriber is already active for this session (from a previous turn) it
         is left running — re-creation would lose events between turns.
@@ -720,16 +742,65 @@ class InboundPipeline:
             last_sequence: Last event sequence number seen by the main turn's loop,
                 used as ``after_sequence`` so the subscriber replays events missed
                 between turn termination and subscription start.
+            reply_context: Routing context for the originating IM conversation.
+                When provided and ``_bg_reply_sender`` is wired, BACKGROUND_TASK run
+                output is relayed to IM via the real IM send path.
+            session_key: Gateway session key (``channel:conv_id:agent_id``).
+                Used to extract the agent_id for the bg_reply_sender call.
         """
-        if self._session_event_callback is None:
+        # Require at least one of session_event_callback or reply_context to be set.
+        # Without both, there is nothing to do with received events.
+        if self._session_event_callback is None and reply_context is None:
             return
         if kernel_session_id in self._bg_subscribers:
             return
 
-        cb = self._session_event_callback
+        on_session_event_cb = self._session_event_callback
 
         async def _on_session_event(event: Mapping[str, Any]) -> None:
-            await cb(kernel_session_id, event)
+            if on_session_event_cb is not None:
+                await on_session_event_cb(kernel_session_id, event)
+
+        # bugfix-404-M3: when reply_context is available and _bg_reply_sender is wired
+        # (by main.py after im_connection_manager is created), relay BACKGROUND_TASK-origin
+        # assistant_message events back to the originating IM conversation.
+        # outbound_router.send_text() → WebRelayAdapter.sent.append() is a no-op for the
+        # web_relay channel; _bg_reply_sender uses im_connection_manager.send_agent_message()
+        # which is the real IM WebSocket send path.
+        bg_run_output_callback = None
+        if reply_context is not None and self._bg_reply_sender is not None:
+            captured_reply_context = reply_context
+            bg_reply_sender = self._bg_reply_sender
+            # Extract agent_id from session_key ("channel:conv_id:agent_id").
+            # Fall back to empty string if session_key is absent or malformed.
+            agent_id_for_relay = session_key.rsplit(":", 1)[-1] if session_key else ""
+            # bugfix-404 F1: build a stable per-event idempotency key so IM
+            # deduplicates replayed BACKGROUND_TASK replies after gateway restarts.
+            # IM dedup path: from_session_id contains "|tool_call:<key>" →
+            # dispatch_request_key = f"{agent_id}:{key}" used as idempotency token
+            # (see gateway_handler.py _handle_agent_message / _resolve_dispatch_source).
+            # Key = kernel_session_id + ":" + event sequence number (stable, per-event).
+            captured_kernel_session_id = kernel_session_id
+
+            async def _relay_bg_run_output(event: Mapping[str, Any]) -> None:
+                content = event.get("content")
+                if isinstance(content, str) and content.strip():
+                    seq = event.get("_id") or event.get("sequence_num")
+                    idempotency_key = (
+                        f"{captured_kernel_session_id}:{seq}"
+                        if seq is not None
+                        else captured_kernel_session_id
+                    )
+                    from_session_id = (
+                        f"{agent_id_for_relay}|tool_call:{idempotency_key}"
+                    )
+                    await bg_reply_sender(
+                        content.strip(),
+                        captured_reply_context,
+                        from_session_id,
+                    )
+
+            bg_run_output_callback = _relay_bg_run_output
 
         # In-process mode: the subscriber uses the Kernel directly via its stream() method.
         # BackgroundSessionEventSubscriber accepts any object with stream_session(); we
@@ -739,6 +810,7 @@ class InboundPipeline:
             session_id=kernel_session_id,
             on_event=_on_session_event,
             after_sequence=last_sequence,
+            bg_run_output_callback=bg_run_output_callback,
         )
         self._bg_subscribers[kernel_session_id] = subscriber
         await subscriber.start()

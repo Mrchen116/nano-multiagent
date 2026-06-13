@@ -33,6 +33,11 @@ class _RunsRegistryStub:
     def get_active_run_id(self, session_id: str) -> str | None:
         return self._active_run_by_session.get(session_id)
 
+    @property
+    def session_manager(self) -> None:
+        # bugfix-404 F3: stub satisfies the public property added to RunsRegistry.
+        return None
+
     def inject_pending_message(self, session_id: str, message: LLMMessage) -> bool:
         self.injections.append({"session_id": session_id, "message": message})
         return True
@@ -45,6 +50,7 @@ class _RunsRegistryStub:
         origin: RunOrigin = RunOrigin.USER,
         source_task_id: str | None = None,
         trace_id: str | None = None,
+        workspace_root: Any = None,
     ) -> Any:
         self.submissions.append(
             {
@@ -52,6 +58,7 @@ class _RunsRegistryStub:
                 "parts": parts,
                 "origin": origin,
                 "source_task_id": source_task_id,
+                "workspace_root": workspace_root,
             }
         )
         return type(
@@ -197,3 +204,44 @@ def test_background_bash_failed_exit_code_delivers_failed_notification(
     assert len(runs.submissions) == 1
     assert "<task-notification>" in runs.submissions[0]["parts"][0]["text"]
     assert "failed" in runs.submissions[0]["parts"][0]["text"]
+
+
+def test_background_bash_carries_non_default_workspace_root_to_submit(
+    tmp_path: Path,
+) -> None:
+    """非默认 workspace 下后台 bash 完成，投递的 run 必须带正确 workspace_root（回归 #8）。
+
+    bugfix-404 缺陷一根因：完成通知 submit 没传 workspace_root，per-workspace scoped
+    session 在非默认 workspace 下定位失败、通知静默丢失。本测试端到端锁住「注册时捕获的
+    workspace_root 一路透传到投递」——取代原先一批 mock-assert-called 的实现锁（passes_
+    workspace_root_to_registry / deliver_notification_submits）。
+    """
+    runs = _RunsRegistryStub()
+    wiring = wire_background_tasks(workspace_root=tmp_path, runs_registry=runs)
+    tool = BashTool(wiring=wiring)
+    ctx = _make_ctx(tmp_path, session_id="sess_parent")
+
+    result = tool.run(
+        {
+            "command": "echo notify_me",
+            "description": "ws root test",
+            "run_in_background": True,
+        },
+        ctx,
+    )
+    task_id = result["task_id"]
+
+    for _ in range(50):
+        record = wiring.registry.get(task_id)
+        if record is not None and record.status.value in (
+            "completed",
+            "failed",
+            "killed",
+        ):
+            break
+        time.sleep(0.05)
+
+    assert wiring.registry.get(task_id).status.value == "completed"
+    assert len(runs.submissions) == 1
+    # 缺陷一核心：非默认 workspace_root 必须随通知透传，而非丢成 None / 默认。
+    assert str(runs.submissions[0]["workspace_root"]) == str(tmp_path)

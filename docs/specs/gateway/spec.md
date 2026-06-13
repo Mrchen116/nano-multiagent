@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: bugfix-402
+> 对齐: bugfix-404-M3
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -141,8 +141,16 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 #### Scenario: 连接后注册节点并周期心跳
 - **GIVEN** 配置了 IM 服务地址
 - **WHEN** Gateway 启动并连上 IM 服务 WebSocket
-- **THEN** 首帧发 `node.register`(携带 node_id 与 agent 列表),随后在线期间周期发 `node.heartbeat`
-  (含 `node_id` / `status=online` / `agent_count`),IM 服务据此刷新节点状态
+- **THEN** 首帧发 `node.register`(携带 node_id、agent 列表与 `agent_workspaces`——agent_id →
+  本地 config 解析出的绝对 workspace_root 映射,供 IM 首次落库种子使用;重连重发同帧内容一致),
+  随后在线期间周期发 `node.heartbeat`(含 `node_id` / `status=online` / `agent_count`),
+  IM 服务据此刷新节点状态
+
+#### Scenario: runtime workspace_root 以本地 config 为准,IM 镜像值不进入 runtime
+- **GIVEN** IM 中某 agent profile 的 workspace_root 为路径 A,Gateway 本地 config 为路径 B
+- **WHEN** Gateway 同步 agent 配置并处理该 agent 的会话(含 heartbeat)
+- **THEN** session / heartbeat 实际读写路径 B,路径 A 不被读写;其余配置字段(system_prompt /
+  skills / tool_allowlist / features / custom_prompt 等)仍以 IM 镜像为准同步
 
 #### Scenario: IM 推送 agent.create 时在节点落地工作区并回非空 workspace_root
 - **WHEN** IM 服务经下行请求在本节点创建一个 Agent
@@ -358,3 +366,19 @@ Web IM 中继通道对收到的 relay 帧去重(SQLite 落盘,跨重启生效),�
 #### Scenario: 附件随入站消息透传
 - **WHEN** relay 帧携带图片附件
 - **THEN** 通道把附件 url(及可选 content_type)放入入站消息元数据,随消息提交给内核,通道层不做内容解析
+
+### Requirement: 后台任务完成后 Gateway 把 Agent 回复中继回原 IM 对话
+
+用户让 Agent 后台执行长任务（`run_in_background`），Agent 立即回复「已启动」后主轮结束；任务完成后，
+Gateway 把 Agent 的完成回复投递回触发该任务的原 IM 对话——用户在同一对话看到内含任务结果的第二条
+回复。重复投递（如 Gateway 重启后重放）经去重，用户不会看到重复的第二条回复。
+
+#### Scenario: 后台任务完成后用户在 IM 对话收到包含结果的第二条回复
+- **GIVEN** 用户经 IM 直聊让 Agent 后台执行一个命令（如 `run_in_background: sleep 30 && echo X`）
+- **WHEN** 主轮返回「已启动」，任务在后台完成
+- **THEN** 用户在同一 IM 对话收到第二条 Agent 回复，内含后台任务输出（如「X」）
+
+#### Scenario: Gateway 重启不产生重复的后台回复
+- **GIVEN** 某后台任务回复已投递到 IM 对话
+- **WHEN** Gateway 重启后该回复被重放
+- **THEN** 该对话中不出现重复的第二条回复

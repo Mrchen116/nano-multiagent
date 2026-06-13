@@ -41,6 +41,20 @@ def _build_handler(tmp_path: Path) -> GatewayHandler:
     )
 
 
+def _build_handler_with_node_repo(tmp_path: Path) -> GatewayHandler:
+    """构建带 NodeRepository 的 handler，用于验证 agent profile 落库行为。"""
+    from IM.infra.repositories import NodeRepository
+
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    return GatewayHandler(
+        relay_service=RelayService(connection),
+        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+        conversation_repository=ConversationRepository(connection),
+        node_repository=NodeRepository(connection),
+    )
+
+
 def test_register_heartbeat_and_report_track_connection_state(tmp_path: Path) -> None:
     """Record register/heartbeat/report payloads under one active node."""
     handler = _build_handler(tmp_path)
@@ -1207,7 +1221,7 @@ def test_heartbeat_json_persisted_and_readable(tmp_path) -> None:
         tool_allowlist=[],
         group_reply_policy="manual",
         default_model=None,
-        workspace_root=str(tmp_path / "ws-hb"),
+        # bugfix-404-M2: workspace_root removed from update_profile — immutable after creation
         heartbeat_json=hb_json_str,
     )
     assert updated.heartbeat_json == hb_json_str
@@ -1239,4 +1253,262 @@ def test_update_request_and_response_have_heartbeat_json_field() -> None:
     )
     assert "heartbeat_json" in resp_fields, (
         "AgentConfigResponse missing heartbeat_json field"
+    )
+
+
+# ---------------------------------------------------------------------------
+# bugfix-404-M2 R1: _handle_register 种子落库三场景
+# ---------------------------------------------------------------------------
+
+
+def test_handle_register_with_agent_workspaces_seeds_first_seen_profile(
+    tmp_path: Path,
+) -> None:
+    """首次注册时，若帧携带 agent_workspaces，则用上报值落库（而非凭空填 managed default）。
+
+    bugfix-404-M2 决策 3：种子链路修复——IM 首次见到 agent 时用上报值，不再凭空填默认路径。
+    """
+    handler = _build_handler_with_node_repo(tmp_path)
+    ws_path = "/worktrees/bugfix-404-M2/.gateway-workspace/Arch"
+    asyncio.run(
+        handler.handle_message(
+            websocket=StubWebSocket(),
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["Arch"],
+                "capabilities": {},
+                "agent_workspaces": {"Arch": ws_path},
+            },
+        )
+    )
+    conn = handler._node_repository._connection
+    row = conn.execute(
+        "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?", ("Arch",)
+    ).fetchone()
+    assert row is not None
+    assert row["workspace_root"] == ws_path, (
+        f"首次注册时 workspace_root 应为上报值 {ws_path!r}，实际为 {row['workspace_root']!r}"
+    )
+
+
+def test_handle_register_preserves_existing_workspace_on_reregister(
+    tmp_path: Path,
+) -> None:
+    """已存在 profile 时，即使帧携带不同 agent_workspaces，也保持 DB 中的既有值（幂等语义）。
+
+    bugfix-404-M2 决策 3：首见才写种子，已存在则不动（与 feat-379-M6 同模式）。
+    """
+    handler = _build_handler_with_node_repo(tmp_path)
+    original_ws = "/original/workspace/Arch"
+    new_ws = "/different/workspace/Arch"
+    # 首次注册，确立原始值
+    asyncio.run(
+        handler.handle_message(
+            websocket=StubWebSocket(),
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["Arch"],
+                "capabilities": {},
+                "agent_workspaces": {"Arch": original_ws},
+            },
+        )
+    )
+    # 重新注册，携带不同 workspace（模拟断线重连）
+    asyncio.run(
+        handler.handle_message(
+            websocket=StubWebSocket(),
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["Arch"],
+                "capabilities": {},
+                "agent_workspaces": {"Arch": new_ws},
+            },
+        )
+    )
+    conn = handler._node_repository._connection
+    row = conn.execute(
+        "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?", ("Arch",)
+    ).fetchone()
+    assert row is not None
+    assert row["workspace_root"] == original_ws, (
+        f"重新注册时 workspace_root 应保持原值 {original_ws!r}，不应被覆盖为 {new_ws!r}"
+    )
+
+
+def test_handle_register_without_agent_workspaces_falls_back_to_managed_default(
+    tmp_path: Path,
+) -> None:
+    """帧不含 agent_workspaces 字段时，退回旧行为：用 managed_workspace_root 填充。
+
+    向后兼容性：老版本 gateway 发的帧无 agent_workspaces，IM 应走原路逻辑不报错。
+    """
+    handler = _build_handler_with_node_repo(tmp_path)
+    asyncio.run(
+        handler.handle_message(
+            websocket=StubWebSocket(),
+            message_type="node.register",
+            payload={
+                "node_id": "node-1",
+                "agents": ["LegacyAgent"],
+                "capabilities": {},
+                # 无 agent_workspaces 字段
+            },
+        )
+    )
+    conn = handler._node_repository._connection
+    row = conn.execute(
+        "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
+        ("LegacyAgent",),
+    ).fetchone()
+    assert row is not None
+    assert (
+        row["workspace_root"] is not None and "LegacyAgent" in row["workspace_root"]
+    ), "无 agent_workspaces 时应退回 managed default 路径，路径须含 agent_id"
+
+
+# ---------------------------------------------------------------------------
+# bugfix-404 fix-realtime: agent_message 对 user-target 产生 message.created 事件
+# ---------------------------------------------------------------------------
+
+
+def _build_handler_with_event_bridge_and_notify(
+    tmp_path: Path,
+) -> tuple["GatewayHandler", object, list]:
+    """Build a GatewayHandler with EventBridge wired to a notify-collecting list.
+
+    The notify list captures every ConversationEvent produced so tests can assert
+    that message.created (not just message.sent/message.delivered) is emitted when
+    a background agent sends a message to a human user.
+    """
+    from IM.application.event_bridge import EventBridge
+    from IM.infra.repositories import EventRepository
+
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+    emitted: list = []
+    msg_repo = MessageRepository(connection, notify=emitted.append)
+    evt_repo = EventRepository(connection, notify=emitted.append)
+    bridge = EventBridge(
+        message_repository=msg_repo,
+        event_repository=evt_repo,
+        notify=emitted.append,
+    )
+    handler = GatewayHandler(
+        relay_service=RelayService(connection),
+        metrics_service=MetricsService(metrics=UsageMetricsRepository(connection)),
+        conversation_repository=ConversationRepository(connection),
+        event_bridge=bridge,
+    )
+    return handler, connection, emitted
+
+
+def test_agent_message_user_target_emits_message_created_event(
+    tmp_path: Path,
+) -> None:
+    """agent.message to a human user must produce a message.created conversation_event.
+
+    bugfix-404 fix-realtime: the prior implementation called create_message directly,
+    which only wrote message.sent/message.delivered — not message.created.  The front-end
+    chat panel creates new bubbles exclusively on message.created, so without this event
+    the message was invisible until a manual page refresh.
+
+    This test proves the fix: agent.message to user_id → EventBridge path →
+    message.created appears in conversation_events.
+    """
+    handler, connection, emitted = _build_handler_with_event_bridge_and_notify(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    users.create_user(username="agent:bg-agent", display_name="BG Agent")
+    human = users.create_user(username="nano", display_name="Nano User")
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="agent.message",
+            payload={
+                "from_session_id": "bg-agent|tool_call:bg-task-1",
+                "to": f"user:{human.id}",
+                "text": "Background agent finished: here is your joke.",
+            },
+        )
+    )
+
+    assert response is not None
+    assert response["type"] == "ack", f"Expected ack, got {response}"
+
+    # The emitted events must include message.created (not only message.sent/delivered).
+    event_types = [e.event_type for e in emitted]
+    assert "message.created" in event_types, (
+        f"agent.message to user must emit message.created for real-time delivery; "
+        f"got only: {event_types}"
+    )
+    # And message.completed must close the turn so the bubble settles.
+    assert "message.completed" in event_types, (
+        f"agent.message to user must also emit message.completed to settle the bubble; "
+        f"got: {event_types}"
+    )
+    # message.created must carry final content (not empty) so no empty-bubble window.
+    import json
+
+    created_event = next(e for e in emitted if e.event_type == "message.created")
+    created_payload = json.loads(created_event.payload_json)
+    assert (
+        created_payload.get("content")
+        == "Background agent finished: here is your joke."
+    ), (
+        "message.created payload must carry final text immediately — no empty-bubble window; "
+        f"got content={created_payload.get('content')!r}"
+    )
+    assert created_payload.get("delivery_status") == "completed", (
+        "message.created payload must carry delivery_status=completed for instant messages; "
+        f"got {created_payload.get('delivery_status')!r}"
+    )
+
+
+def test_agent_message_user_target_dedup_does_not_double_emit(
+    tmp_path: Path,
+) -> None:
+    """Sending the same dispatch_request_key twice must not create a second message.created.
+
+    Idempotency invariant: gateway restarts can replay the same agent.message frame;
+    only the first write produces events.  The second ack must return the same
+    message_id without writing new conversation_events rows.
+    """
+    handler, connection, emitted = _build_handler_with_event_bridge_and_notify(tmp_path)
+    websocket = StubWebSocket()
+    users = UserRepository(connection)
+    users.create_user(username="agent:bg-agent", display_name="BG Agent")
+    human = users.create_user(username="nano", display_name="Nano User")
+
+    payload = {
+        "from_session_id": "bg-agent|tool_call:bg-dedup-key",
+        "to": f"user:{human.id}",
+        "text": "Dedup test message",
+    }
+
+    first = asyncio.run(
+        handler.handle_message(
+            websocket=websocket, message_type="agent.message", payload=payload
+        )
+    )
+    first_event_count = len(emitted)
+
+    second = asyncio.run(
+        handler.handle_message(
+            websocket=websocket, message_type="agent.message", payload=payload
+        )
+    )
+
+    assert first["type"] == "ack"
+    assert second["type"] == "ack"
+    assert first["payload"]["message_id"] == second["payload"]["message_id"], (
+        "Dedup replay must return the same message_id"
+    )
+    # No new events must be emitted on the second call.
+    assert len(emitted) == first_event_count, (
+        f"Second agent.message replay emitted {len(emitted) - first_event_count} extra events; "
+        f"expected 0 (idempotent)"
     )

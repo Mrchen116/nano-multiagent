@@ -319,9 +319,21 @@ class _IMConfigSyncClient:
                     raise RuntimeError(
                         f"agent {agent_id} config stale: expected >= {profile_version}, got {resolved_profile_version}"
                     )
-                workspace_root_text = payload.get("workspace_root")
-                if isinstance(workspace_root_text, str) and workspace_root_text.strip():
-                    workspace_root = Path(workspace_root_text).expanduser().resolve()
+                # bugfix-404-M2 decision 4: workspace_root is immutable after agent creation
+                # and must come exclusively from the local config for agents that exist
+                # there (the single source of truth per Q4 product decision).  The IM
+                # mirror value is display-only and must NOT override the local config —
+                # an incorrect IM value (e.g., a legacy managed-default in a dirty DB)
+                # would otherwise override the correct worktree-scoped path.
+                # For agents created via IM UI (not yet in local config), fall through
+                # to the factory — their workspace_root will be written back into
+                # local config by handle_agent_create (AGENTS.md "Gateway 自动写回").
+                local_agent = next(
+                    (a for a in self._local_config.agents if a.agent_id == agent_id),
+                    None,
+                )
+                if local_agent is not None and local_agent.workspace_root is not None:
+                    workspace_root = local_agent.workspace_root
                 else:
                     workspace_root = self._workspace_root_factory(agent_id)
                 workspace_root = ensure_workspace_defaults(workspace_root)
@@ -2301,6 +2313,13 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             im_connection_manager_factory=lambda: im_connection_manager,
             session_store=pipeline._session_store,
         )
+        # bugfix-404-M3: wire BACKGROUND_TASK run output relay so assistant replies from
+        # notification-triggered background runs are sent back to the originating IM
+        # conversation.  outbound_router.send_text() → WebRelayAdapter.sent.append() is
+        # a no-op; only send_agent_message() via the live WS connection actually delivers.
+        pipeline._bg_reply_sender = _build_bg_reply_sender(
+            im_connection_manager_factory=lambda: im_connection_manager,
+        )
 
     # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and
     # register with dispatcher.  execute_fn is a closure that captures kernel_shim,
@@ -3579,6 +3598,55 @@ def _build_session_event_callback(
             )
 
     return _callback
+
+
+def _build_bg_reply_sender(
+    *,
+    im_connection_manager_factory: "Callable[[], IMConnectionManager | None]",
+) -> "Callable[[str, Any, str], Awaitable[None]]":
+    """Build an async callable that relays BACKGROUND_TASK run output to IM.
+
+    Called by InboundPipeline's bg_run_output_callback when a BACKGROUND_TASK-origin
+    run finishes and emits an assistant_message event.  The callable sends an
+    ``agent.message`` WebSocket frame to IM so the reply appears in the originating
+    conversation (bugfix-404-M3).
+
+    Args:
+        im_connection_manager_factory: Returns the live IM connection manager (may be None).
+
+    Returns:
+        Async callable ``(text, reply_context, from_session_id) -> None``.
+        ``from_session_id`` should carry the ``|tool_call:<key>`` suffix built
+        by the caller (inbound_pipeline) for IM-side deduplication (bugfix-404 F1).
+    """
+    from personal_assistant.channels.base import ReplyContext as _RC  # noqa: PLC0415
+
+    async def _sender(text: str, reply_context: _RC, from_session_id: str) -> None:
+        manager = im_connection_manager_factory()
+        if manager is None or not manager.connected:
+            return
+        conversation_id = reply_context.target_chat_id
+        if not conversation_id or not from_session_id or not text.strip():
+            return
+        try:
+            await manager.send_agent_message(
+                {
+                    "text": text.strip(),
+                    "to": conversation_id,
+                    # from_session_id carries optional "|tool_call:<key>" suffix so
+                    # IM deduplicates replayed bg replies (bugfix-404 F1).
+                    "from_session_id": from_session_id,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning(
+                "bg_reply_sender send_agent_message failed (conv=%s from=%s): %s",
+                conversation_id,
+                from_session_id,
+                exc,
+            )
+
+    return _sender
 
 
 def _metadata_text(metadata: Mapping[str, object], *, key: str) -> str | None:

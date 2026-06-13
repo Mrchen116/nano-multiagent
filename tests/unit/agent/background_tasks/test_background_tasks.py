@@ -336,3 +336,308 @@ def test_prompt_block_contains_rules() -> None:
     assert "<task-notification>" in BACKGROUND_TASK_PROMPT_BLOCK
     assert "not new user requests" in BACKGROUND_TASK_PROMPT_BLOCK
     assert "Do not thank them" in BACKGROUND_TASK_PROMPT_BLOCK
+
+
+# ---------------------------------------------------------------------------
+# workspace_root 携带（bugfix-404-M1 回归）
+# ---------------------------------------------------------------------------
+
+
+def test_register_bash_carries_workspace_root() -> None:
+    """register_bash 必须把 workspace_root 存进 record。"""
+    reg = BackgroundTaskRegistry()
+    record = reg.register_bash(
+        task_id="b1234567890abcdef",
+        parent_session_id="sess-1",
+        description="run tests",
+        command="pytest",
+        output_file="/tmp/out.output",
+        workspace_root="/custom/workspace",
+    )
+    assert record.workspace_root == "/custom/workspace"
+
+
+def test_register_subagent_carries_workspace_root() -> None:
+    """register_subagent 必须把 workspace_root 存进 record。"""
+    reg = BackgroundTaskRegistry()
+    record = reg.register_subagent(
+        task_id="a1234567890abcdef",
+        parent_session_id="sess-1",
+        agent_id="a1234567890abcdef",
+        agent_session_id="sub-1",
+        description="test agent",
+        prompt="do thing",
+        agent_type="explore",
+        output_file="/tmp/out.jsonl",
+        workspace_root="/custom/workspace",
+    )
+    assert record.workspace_root == "/custom/workspace"
+
+
+def test_register_bash_workspace_root_defaults_none() -> None:
+    """不传 workspace_root 时默认 None，向后兼容。"""
+    reg = BackgroundTaskRegistry()
+    record = reg.register_bash(
+        task_id="b1234567890abcdef",
+        parent_session_id="sess-1",
+        description="run tests",
+        command="pytest",
+        output_file="/tmp/out.output",
+    )
+    assert record.workspace_root is None
+
+
+# ---------------------------------------------------------------------------
+# BashTool / AgentTool 注册时传入 workspace_root（bugfix-404-M1 R2 回归）
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_wiring(registry: BackgroundTaskRegistry) -> Any:
+    """构造最小 BackgroundTaskWiring stub，让 BashTool._run_background 能运行。"""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import MagicMock
+    from agent.platform.background_tasks.file_output import BashFileOutput
+
+    tmpdir = tempfile.mkdtemp()
+    output = BashFileOutput(workspace_root=Path(tmpdir))
+
+    runner_stub = MagicMock()
+
+    class _FakeStopper:
+        def stop(self) -> None:
+            pass
+
+    runner_stub.start.return_value = _FakeStopper()
+
+    wiring = MagicMock()
+    wiring.registry = registry
+    wiring.output = output
+    wiring.bash_runner = runner_stub
+    return wiring
+
+
+# ---------------------------------------------------------------------------
+# _deliver_notification 投递逻辑（bugfix-404-M1 R3 回归）
+# ---------------------------------------------------------------------------
+
+
+def _make_runs_registry_stub(
+    *,
+    session_exists: bool = True,
+    session_kind: str | None = None,
+    active_run_id: str | None = None,
+    submit_raises: Exception | None = None,
+) -> Any:
+    """构造最小 RunsRegistry stub。"""
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    from agent.core.session.models import Session
+
+    registry_stub = MagicMock()
+    registry_stub.get_active_run_id.return_value = active_run_id
+
+    if session_exists:
+        session = Session(
+            session_id="parent-sess",
+            status="active",
+            created_at="2026-01-01T00:00:00",
+            workspace_root=Path("/custom/workspace"),
+            metadata={"kind": session_kind} if session_kind else {},
+        )
+    else:
+        session = None
+
+    session_manager = MagicMock()
+    session_manager.get_session.return_value = session
+    registry_stub._session_manager = session_manager
+
+    if submit_raises:
+        registry_stub.submit.side_effect = submit_raises
+    else:
+        submit_record = MagicMock()
+        registry_stub.submit.return_value = submit_record
+
+    return registry_stub
+
+
+def test_deliver_notification_skips_subagent_parent_session() -> None:
+    """parent 为 subagent session（kind='subagent'）时，跳过，不调用 submit。"""
+    from agent.core.background_tasks.models import (
+        BackgroundTaskRecord,
+        BackgroundTaskType,
+        BackgroundTaskStatus,
+    )
+    from agent.platform.background_tasks.wiring import _deliver_notification
+
+    runs_registry = _make_runs_registry_stub(
+        session_exists=True,
+        session_kind="subagent",  # subagent session
+        active_run_id=None,
+    )
+
+    record = BackgroundTaskRecord(
+        task_id="b1",
+        task_type=BackgroundTaskType.BASH,
+        parent_session_id="parent-sess",
+        status=BackgroundTaskStatus.COMPLETED,
+        output_file="/tmp/out.output",
+        workspace_root="/custom/workspace",
+    )
+
+    _deliver_notification(record, runs_registry, runs_registry._session_manager)
+
+    runs_registry.submit.assert_not_called()
+
+
+def test_deliver_notification_logs_error_on_submit_failure() -> None:
+    """submit 失败（如 ValueError: session does not exist）时，触发 log_error，不吞掉。"""
+    from agent.core.background_tasks.models import (
+        BackgroundTaskRecord,
+        BackgroundTaskType,
+        BackgroundTaskStatus,
+    )
+    from agent.platform.background_tasks.wiring import _deliver_notification
+    import agent.core.observability.logger as logger_module
+
+    runs_registry = _make_runs_registry_stub(
+        session_exists=True,
+        session_kind=None,
+        active_run_id=None,
+        submit_raises=ValueError("session does not exist: parent-sess"),
+    )
+
+    record = BackgroundTaskRecord(
+        task_id="b1",
+        task_type=BackgroundTaskType.BASH,
+        parent_session_id="parent-sess",
+        status=BackgroundTaskStatus.COMPLETED,
+        output_file="/tmp/out.output",
+        workspace_root="/custom/workspace",
+    )
+
+    logged_errors = []
+    original_log_error = logger_module.log_error
+
+    def _capture_log_error(event: str, **kwargs: Any) -> None:
+        logged_errors.append((event, kwargs))
+
+    import unittest.mock
+
+    with unittest.mock.patch.object(logger_module, "log_error", _capture_log_error):
+        _deliver_notification(record, runs_registry, runs_registry._session_manager)
+
+    assert any(
+        "notify" in event or "deliver" in event or "background" in event
+        for event, _ in logged_errors
+    ), f"Expected a log_error call, got: {logged_errors}"
+
+
+def test_notifying_store_skips_deliver_when_notified_true() -> None:
+    """notified=True（前台完成已抑制）时 _NotifyingStore.update 不调用 _deliver_notification（#19 不回归）。"""
+    from pathlib import Path
+    from unittest.mock import MagicMock, patch
+    from agent.core.background_tasks.models import (
+        BackgroundTaskRecord,
+        BackgroundTaskType,
+        BackgroundTaskStatus,
+    )
+    from agent.platform.background_tasks.wiring import _wire_notification_callbacks
+    from agent.core.background_tasks.registry import BackgroundTaskRegistry
+    from agent.platform.background_tasks.task_store import InMemoryTaskStore
+
+    delivered: list[Any] = []
+
+    runs_registry = MagicMock()
+
+    store = InMemoryTaskStore()
+    reg = BackgroundTaskRegistry(store=store)
+    _wire_notification_callbacks(reg, runs_registry)
+
+    record = BackgroundTaskRecord(
+        task_id="b1",
+        task_type=BackgroundTaskType.BASH,
+        parent_session_id="parent-sess",
+        status=BackgroundTaskStatus.QUEUED,
+        output_file="/tmp/out.output",
+        workspace_root="/custom/workspace",
+    )
+    store.insert(record)
+
+    # 模拟前台完成：notified=True
+    completed_record = BackgroundTaskRecord(
+        task_id="b1",
+        task_type=BackgroundTaskType.BASH,
+        parent_session_id="parent-sess",
+        status=BackgroundTaskStatus.COMPLETED,
+        output_file="/tmp/out.output",
+        workspace_root="/custom/workspace",
+        notified=True,
+    )
+
+    import agent.platform.background_tasks.wiring as wiring_mod
+
+    with patch.object(wiring_mod, "_deliver_notification") as mock_deliver:
+        reg._store.update(completed_record)  # type: ignore[attr-defined]
+        mock_deliver.assert_not_called()
+
+
+def test_agent_tool_run_background_passes_workspace_root_to_registry() -> None:
+    """AgentTool._run_background 调用 register_subagent 时必须传 workspace_root。"""
+    import tempfile
+    from pathlib import Path
+    from unittest.mock import MagicMock
+
+    from agent.platform.tools.builtins.agent import AgentTool
+
+    reg = BackgroundTaskRegistry()
+
+    workspace = Path(tempfile.mkdtemp())
+
+    # 构造 wiring stub
+    wiring = MagicMock()
+    wiring.registry = reg
+
+    class _FakeStopper:
+        def stop(self) -> None:
+            pass
+
+    wiring.subagent_runner.start.return_value = _FakeStopper()
+
+    # runtime stub：create_session 返回带 session_id 的对象
+    runtime_stub = MagicMock()
+    session_stub = MagicMock()
+    session_stub.session_id = "sub-sess-1"
+
+    import asyncio
+
+    async def _create_session(**kwargs: Any) -> Any:
+        return session_stub
+
+    runtime_stub.create_session = _create_session
+
+    store_stub = MagicMock()
+    store_stub.resolve_path.return_value = workspace / "out.jsonl"
+    runtime_stub._session_manager.store = store_stub
+
+    tool = AgentTool(runtime=runtime_stub, wiring=wiring)
+
+    ctx = MagicMock()
+    ctx.session_id = "parent-sess"
+    ctx.repo_root = workspace
+    ctx.cwd = workspace
+
+    args = {
+        "description": "test agent",
+        "prompt": "do something",
+        "subagent_type": "explore",
+        "load_skills": [],
+    }
+
+    tool._run_background(args=args, ctx=ctx)
+
+    # 取到注册的 record，断言 workspace_root 传入
+    records = list(reg._records.values())
+    assert len(records) == 1
+    assert records[0].workspace_root == str(workspace)

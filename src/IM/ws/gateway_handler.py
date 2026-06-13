@@ -814,6 +814,18 @@ class GatewayHandler:
     ) -> dict[str, object]:
         node_id = _require_text(payload.get("node_id"), field_name="node_id")
         agents = _require_string_list(payload.get("agents", []), field_name="agents")
+        # bugfix-404-M2 decision 3: optional field carrying per-agent workspace seeds.
+        # Old gateway frames omit this field; IM falls back to managed_workspace_root.
+        raw_workspaces = payload.get("agent_workspaces")
+        agent_workspaces: dict[str, str] = (
+            {
+                k: v
+                for k, v in raw_workspaces.items()
+                if isinstance(k, str) and isinstance(v, str)
+            }
+            if isinstance(raw_workspaces, dict)
+            else {}
+        )
         cap_raw = payload.get("capabilities")
         if cap_raw is None:
             capabilities: dict[str, object] = {}
@@ -858,7 +870,12 @@ class GatewayHandler:
                     runtime_tool_allowlist: list[str] = []
                     runtime_group_reply_policy = "MENTION"
                     runtime_default_model: str | None = None
-                    runtime_workspace_root = managed_workspace_root(agent_id)
+                    # bugfix-404-M2 decision 3: use the gateway-supplied workspace seed
+                    # on first registration; fall back to managed default only when the
+                    # frame does not carry agent_workspaces (old gateway compatibility).
+                    runtime_workspace_root = agent_workspaces.get(
+                        agent_id
+                    ) or managed_workspace_root(agent_id)
                 else:
                     runtime_display_name = existing.display_name
                     runtime_description = existing.description
@@ -1604,7 +1621,18 @@ class GatewayHandler:
     async def _handle_agent_message(
         self, *, payload: dict[str, object]
     ) -> dict[str, object]:
-        """Persist one gateway-dispatched send_message payload into IM conversations."""
+        """Persist one gateway-dispatched send_message payload into IM conversations.
+
+        For user-target messages (background agent notifications), this method uses
+        EventBridge (on_turn_start + on_message_completed) rather than calling
+        create_message directly.  That ensures a message.created event is written to
+        conversation_events so the front-end user-stream picks it up in real time and
+        renders the bubble without a manual refresh.
+
+        For agent-target messages (agent-to-agent relay), the prior direct
+        create_message path is preserved — those messages are forwarded via relay and
+        the target agent does not need a live WS bubble.
+        """
         if (
             self._conversation_repository is None
             or self._user_repository is None
@@ -1656,12 +1684,35 @@ class GatewayHandler:
                         sender_user_id = self._require_user_id_by_username(
                             username=f"agent:{source_agent_id}"
                         )
-                        message = self._message_repository.create_message(
-                            conversation_id=conversation_id,
-                            sender_user_id=sender_user_id,
-                            sender_type="agent",
-                            content=text,
-                        )
+                        # bugfix-404 fix-realtime: user-target notifications must flow
+                        # through EventBridge so message.created is written to
+                        # conversation_events and the front-end real-time stream picks it
+                        # up without a manual refresh.  Agent-target messages go via the
+                        # direct create_message + relay path unchanged — the target agent
+                        # receives the content through the relay channel, not the WS stream.
+                        #
+                        # emit_instant_message is used instead of on_turn_start/on_message_completed
+                        # because background notifications carry the full text upfront — no streaming
+                        # phase.  message.created is emitted with final content + delivery_status=
+                        # "completed" so the front-end renders the settled bubble immediately with no
+                        # empty-window spinner (bugfix-404 reviewer feedback).
+                        if (
+                            resolved_target.kind in {"user_id", "conversation_id"}
+                            and self._event_bridge is not None
+                        ):
+                            message = self._event_bridge.emit_instant_message(
+                                conversation_id=conversation_id,
+                                agent_user_id=sender_user_id,
+                                agent_id=source_agent_id,
+                                content=text,
+                            )
+                        else:
+                            message = self._message_repository.create_message(
+                                conversation_id=conversation_id,
+                                sender_user_id=sender_user_id,
+                                sender_type="agent",
+                                content=text,
+                            )
                         if dispatch_request_key is not None:
                             self._record_dispatched_agent_message(
                                 dispatch_request_key=dispatch_request_key,

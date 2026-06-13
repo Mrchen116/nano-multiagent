@@ -54,3 +54,6 @@ class BackgroundTaskRecord:
     tool_use_count: int | None = None
     duration_ms: int | None = None
     notified: bool = False
+    # Captured at registration from the parent session's workspace_root so the
+    # delivery path can locate the JSONL even when the session is idle (bugfix-404).
+    workspace_root: str | None = None

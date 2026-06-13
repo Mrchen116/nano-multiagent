@@ -130,14 +130,15 @@ def test_agents_list_get_patch_and_conflict(tmp_path: Path) -> None:
         assert reset_body["workspace_root"].endswith(
             "/nano-assistant/workspace/agent-1"
         )
+        # bugfix-404-M2: update_profile 不写 workspace_root 列——DB 存量为 NULL（
+        # 初始 upsert 时 workspace_root=None），API 回显时 workspace_root_for_profile()
+        # 派生为 managed default。DB 值本身保持 NULL。
         stored_row = app.state.connection.execute(
             "SELECT workspace_root FROM agent_profiles WHERE agent_id = ?",
             (seeded.agent_id,),
         ).fetchone()
         assert stored_row is not None
-        assert stored_row["workspace_root"].endswith(
-            "/nano-assistant/workspace/agent-1"
-        )
+        assert stored_row["workspace_root"] is None
 
         conflict_resp = client.patch(
             f"/im/v1/agents/{seeded.agent_id}/config",

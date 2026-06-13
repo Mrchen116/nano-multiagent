@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-394
+> 对齐: bugfix-404
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 **IM 的消费者真正依赖的对外行为**：
 > 浏览器前端（内置 Web IM）、Node Gateway（`personal_assistant`）、终端用户，以及 `tests/im_service/`
@@ -158,6 +158,43 @@ IM 进程**绝不**直读 gateway 侧 workspace 文件（IM 与 gateway 可跨�
 - **WHEN** 前端向不存在的 `node_id` 创建
 - **THEN** 404 `{detail:"node_id not found"}`(owner-scope 门禁先于网关派发拦下)
 
+### Requirement: node.register 首见 agent 时以上报 workspace_root 落库（bugfix-404-M2）
+
+IM 处理 `node.register` 时,对帧中**首次出现**(无既有 profile)的 agent,workspace_root 取帧内
+`agent_workspaces` 上报值落库;帧未携带该 agent 的值时才回落 managed default。已存在 profile 的
+agent,其 workspace_root 保持既有值不被注册改写(重连重发幂等)。
+
+#### Scenario: 首见 agent 用上报值落库
+- **GIVEN** IM 中无 agent X 的 profile
+- **WHEN** 收到 `node.register`,`agent_workspaces["X"]` 为非默认绝对路径 P
+- **THEN** agent X 的 profile workspace_root 落库为 P,`GET /im/v1/agents` 广播 P 且
+  `workspace_is_default=false`
+
+#### Scenario: 已存在 profile 不被重注册改写
+- **GIVEN** agent X 的 profile workspace_root 已为 P
+- **WHEN** 再次收到 `node.register`(无论帧内上报何值)
+- **THEN** profile workspace_root 仍为 P
+
+#### Scenario: 帧未带 agent_workspaces 退回默认(旧帧兼容)
+- **GIVEN** IM 中无 agent Y 的 profile
+- **WHEN** 收到不含 `agent_workspaces` 字段的 `node.register`
+- **THEN** agent Y 按 managed default 落库
+
+### Requirement: agent workspace_root 创建后不可经配置更新修改（bugfix-404-M2）
+
+agent 的 workspace_root 在创建时确定(`agent.create` 由节点分配 / `node.register` 种子),update
+config 接口不含该字段(请求中出现也被忽略),且任何配置更新都不改变已存的 workspace_root。
+
+#### Scenario: 配置更新不重置 workspace_root
+- **GIVEN** agent X 的 profile workspace_root 为非默认路径 P
+- **WHEN** 调用 update config 接口修改其他字段(如 system_prompt),payload 不含 workspace_root
+- **THEN** 返回成功,workspace_root 仍为 P
+
+#### Scenario: update config 携带 workspace_root 被忽略
+- **GIVEN** agent X 的 profile workspace_root 为 P
+- **WHEN** 调用 update config 接口,payload 含 `workspace_root: Q`(Q ≠ P),其余字段合法
+- **THEN** 返回成功,其余字段按 payload 更新,workspace_root 仍为 P
+
 ### Requirement: 每个 AgentProfile 一一对应一个 IM users 行,响应恒带非空 user_id
 
 每个 `AgentProfile` 有且只有一个 `users.username = "agent:" + agent_id` 的行(创建时同事务建,历史缺失
@@ -297,3 +334,20 @@ IM 整体离线时,经 Node Gateway Channel 的外部 IM 主路径仍可用(Gate
 - **GIVEN** 中继能力被关闭
 - **WHEN** 前端访问 Agent 配置 / 节点管理等配置中心接口
 - **THEN** 这些接口照常可用(仅 Web IM 聊天链路停用)
+
+### Requirement: 后台 agent 通知实时到达在线用户,无需刷新
+
+Agent 后台任务(`run_in_background`)完成后回发给人类用户的通知,与前台回复一样实时到达:
+在线用户的浏览器在不刷新的前提下,立即看到该通知作为一条新消息气泡出现。通知一次性携带
+完整内容送达,不经历可见的空泡或"生成中"中间态。消息只进入存储、要刷新才显示,不满足本契约。
+
+#### Scenario: 后台通知在在线用户流中实时长出气泡
+- **GIVEN** 用户浏览器已建立用户流连接(`/im/ws/user`)
+- **WHEN** 该用户某个 agent 的后台任务完成并回发通知
+- **THEN** 浏览器收到一帧 `op:"event"`、`event_type:"message.created"`,消息内容即最终全文、
+  投递状态 `completed`;用户无需刷新即可看到该气泡
+
+#### Scenario: 同一后台通知重发不产生重复气泡
+- **GIVEN** 某条后台通知已送达并在会话中显示
+- **WHEN** Gateway 重启后重发同一条通知
+- **THEN** IM 识别其为同一通知,用户流不再新增第二条气泡,会话中该通知仍只有一条

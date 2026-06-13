@@ -154,7 +154,7 @@
 
 - 让 workspace_root 随后台任务全程携带：任务注册时把 parent session 的 workspace_root 存进任务记录，`_deliver_notification` 起新 run 时透传给 `runs_registry.submit`
 - 投递失败不再静默：保留"未注册 subagent session 跳过"的语义，但真实投递失败必须可观察（日志），不能再用裸 `except ValueError: pass` 一刀切吞掉
-- 回归测试补盲区：非默认 workspace_root 下，bash 与后台 subagent（Q1：一并）完成通知必须送达 parent session 并回发 IM
+- 回归测试补盲区：非默认 workspace_root 下，bash 与后台 subagent（Q1：一并）完成通知必须送达 parent session、回发 IM，**并实时到达在线用户浏览器（不刷新即可见）**——验收终点是用户在前端真的看到，不是消息进了 IM 存储（这条终点口径在初版被写短了，见文末「后续发现」）
 
 ### M-workspace（缺陷二，Closes #79）
 
@@ -164,3 +164,13 @@
 - 封死 workspace_root 的全部变更面（design 调研更正：前端输入框已是只读、HTTP update schema 本就不含该字段；真窟窿在 service 层 update 把 None 归一化为 managed default，任何一次配置编辑都会重置它——一并修复）
 - Gateway `sync_agent` 回拉时 workspace_root 不再被 IM mirror 覆盖（来源唯一后两者必然一致，冲突路径删除）
 - e2e 回归：worktree 内 `e2e-up.sh` 起的 gateway，IM 广播与 runtime 实际 workspace 均为 worktree 路径，主仓 workspace 零读写
+
+## 后续发现：实时下发缺口（fix-realtime，2026-06-12）
+
+M-notify 修好「通知送达 parent session 并回发 IM」后，PR 提交、round-1 验收判 pass。但人肉 reviewer 复测发现：后台通知虽已进入 IM 会话存储（刷新可见），**在线前端不刷新就不显示**。
+
+根因：M3 让通知走 `agent.message → _handle_agent_message → create_message` 入口，只写 `message.sent/.delivered` 事件，没产生前端「新建气泡」所依赖的 `message.created` 实时事件；而前台回复经 EventBridge 产生该事件。两条入口的实时下发语义不一致。
+
+复盘——为什么没早发现：**验收终点被悄悄降级了一格**。退出标准止于「回发 IM」（服务端消息可达），而非「用户不刷新就看到」（端到端可达）；unit 标题虽叫「端到端可达」，可操作的退出标准却退到了服务端那一步。round-1 reviewer 走旅程时刷新了页面，恰好跨过缺口。契约层当时也没有「消息实时下发」这条 requirement，verifier 无据可核。
+
+修复（fix-realtime）：`_handle_agent_message` 的 user-target 消息改经 IM 内部统一的实时下发入口，一次性产生 `message.created`（带完整内容、`delivery_status=completed`，无空泡中间态）+ `message.completed`，经用户流 WebSocket 实时推送；幂等去重保留。对外行为契约见 `docs/specs/im/spec.md`「后台 agent 通知实时到达在线用户，无需刷新」。教训：凡「端到端 / 用户可达」类验收，退出标准必须落到用户可观察的最终态，禁止停在中间的服务端步骤。

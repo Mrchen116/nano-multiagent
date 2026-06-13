@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: bugfix-402
+> 对齐: bugfix-404-M1
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -296,3 +296,14 @@ event loop 与 Context 中进入终态,再停止并关闭 loop。关闭开始后
 #### Scenario: 重复关闭
 - **WHEN** 消费者多次调用或混用 `kernel.aclose()` 与 `kernel.close()`
 - **THEN** 后续调用安全返回,不重复停止 loop、不抛 secondary exception
+
+### Requirement: 后台任务完成后发起 session 收到结果通知，跨 workspace 可靠
+
+后台 bash / subagent 任务完成（无论成功、失败或被终止）后，发起它的 session 在下一轮输入中收到一条
+`<task-notification>` 消息，内含任务结果——消费者无需轮询即可感知。该通知在任意 workspace_root 下均
+可靠送达，不因 session 绑定非默认工作区而丢失。
+
+#### Scenario: 非默认 workspace 下后台任务完成通知送达
+- **GIVEN** 一个绑定非默认 workspace_root 的 session 启动了后台任务
+- **WHEN** 任务完成
+- **THEN** 该 session 下一轮输入含一条带任务结果的 `<task-notification>` 消息

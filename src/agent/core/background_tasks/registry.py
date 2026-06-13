@@ -50,6 +50,7 @@ class BackgroundTaskRegistry:
         prompt: str | None,
         agent_type: str | None,
         output_file: str,
+        workspace_root: str | None = None,
     ) -> BackgroundTaskRecord:
         record = BackgroundTaskRecord(
             task_id=task_id,
@@ -63,6 +64,7 @@ class BackgroundTaskRegistry:
             output_file=output_file,
             status=BackgroundTaskStatus.QUEUED,
             created_at=self._now_iso(),
+            workspace_root=workspace_root,
         )
         with self._lock:
             self._records[task_id] = record
@@ -77,6 +79,7 @@ class BackgroundTaskRegistry:
         description: str,
         command: str,
         output_file: str,
+        workspace_root: str | None = None,
     ) -> BackgroundTaskRecord:
         record = BackgroundTaskRecord(
             task_id=task_id,
@@ -87,6 +90,7 @@ class BackgroundTaskRegistry:
             output_file=output_file,
             status=BackgroundTaskStatus.QUEUED,
             created_at=self._now_iso(),
+            workspace_root=workspace_root,
         )
         with self._lock:
             self._records[task_id] = record
