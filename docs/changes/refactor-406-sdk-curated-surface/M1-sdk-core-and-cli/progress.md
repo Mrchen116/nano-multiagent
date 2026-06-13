@@ -403,3 +403,29 @@
 - products/ 物理目录 + PA/LC profile SDK 导出 + bootstrap _product_root **卡 reporter（M2）**：upstream_reporter 在用 PERSONAL_ASSISTANT_PROFILE + bootstrap product_tool_dir 扫 web_search/send_message。design §223 把 reporter→list_* 明确归 M2。
 - 决策7 三道闸（精确名单 EXPECTED_SURFACE + 所有权闸 + 豁免名单）是 M1 退出标准。当前 `__all__` 40 符号。`_M1_TEMP_REPORTER_EXPORTS` 候选 = SkillRegistry/ConfigResolver/default_skill_search_roots/FEATURE_REGISTRY/model registry 列表函数(init_model_registry/get_default_model/get_default_provider/list_provider_models/list_supported_providers)/LLMConfigPayload系/LLMFactoryConfig + **PA/LC profile 导出**（reporter 在用）。
 - **决策待答**：(b) M1 落闸时 EXPECTED_SURFACE 豁免名单是否暂含 PA/LC profile + reporter 旧导出（标 _M1_TEMP，M2 撤）、products/ 物理保留到 M2？已两次 SendMessage orchestrator。一答即落闸收口 M1。
+
+## R7 完成 — 决策7 三道闸落地，M1 收口（products 解散归 M2）
+
+- **决策7 三道闸**（commit 7da3fd02）：新 `tests/contract/test_agent_sdk_surface_guard.py`：
+  - 闸1 精确名单：`__all__ == EXPECTED_SURFACE`（40 符号）逐字相等，增删导出必须显式改名单（PR 可 review）。
+  - 闸2 所有权：每导出 `__module__`（实例按 `type().__module__`）须 `agent.sdk` 开头，否则须在逐字豁免名单。
+  - 豁免分组（各带 WHY）：`_C1_REEXPORTS`（RunOrigin/PermissionDecision/TERMINAL_RUN_STATUSES，永久）+ `_DECISION12_PRESENTER`（ToolPresenter/Event，永久）
+    + `_PATH_RESOLVED_TOOLS`（MemoryTool/SkillManageTool，决策2 consumer 工厂构造路径解析工具，永久）+ `_TYPING_ALIAS`（CanUseToolFn）
+    + `_M1_TEMP_REPORTER_EXPORTS`（reporter 旧导出，M2 撤）+ `_M1_TEMP_PROFILES`（PA/LC profile，reporter 在用，M2 随 products 删）。
+  - 闸3 无 stale 豁免（豁免名全是真导出）。
+- **M1/M2 边界裁定**（与 design §223/§296 一致）：products/ 物理目录 + ProductProfile + PA/LC profile 导出 + bootstrap `_product_root` **保留到 M2**，
+  随 reporter→`Kernel.list_*` 迁移一并删除；M1 闸用 `_M1_TEMP` 标记容这些 legacy 导出，M2 删导出时同步从豁免移除。
+  理由：reporter（upstream_reporter）仍直接消费 PERSONAL_ASSISTANT_PROFILE + bootstrap product_tool_dir 扫 web_search/send_message，
+  M1 强删 products 必须连 reporter 一起迁（吞 M2）；三段式纪律 + design 把 reporter 迁移明确归 M2，故 M1 落闸（豁免容 legacy）、products 解散在 M2 收口。
+
+## M1 退出标准核验（全部满足）
+
+- ✅ build_kernel 双签名收敛为单 `llm=` 2 层入口；CLI/PA 两消费者 product.py 工厂全切新表面，仅 import agent.sdk。
+- ✅ 决策8 prompt 装配：内核骨架 + PromptSlots 四槽，PA/LC 全 6+1 golden 逐字节 MATCH（cron/heartbeat/群聊三段经 prompt_for 复现）；预览同源走同一 prompt_for。
+- ✅ 决策9 cron 闭包工具 + send_message/web_search 迁 src/personal_assistant/tools；HostCapability 整组删 + GatewayCronDispatcher→CronServiceRegistry + legacy cron.py 删。
+- ✅ 决策12 presenter 随 Tool 对象走（前序完成）。
+- ✅ 决策7 三道闸（精确名单 + 所有权 + 豁免名单）落地。
+- ✅ **live-critical 全端到端 PASS**（真起 IM+Gateway+proxy / CLI+proxy）：R-CLI-1/2/3、R-PA-1、R-PA-3(park)、R-CP-1(heartbeat,K2.6 反射正常)、R-CP-2(cron 实跑,删桥后复验)、R-CP-3(群聊@)、R-GW-3(JSONL per-workspace)、R-CFG-4(预览同源随开关变)。
+- ✅ 全测试树 `pytest -m "not e2e"` 2745 passed/1 skipped 零回归；ruff check + format 干净；模块边界守卫绿。
+- **live 暴露并修的 3 个真 bug**：LLMConfig.from_payload(config.llm)（catalog 覆盖）/ RunInfo.start_sequence（DTO 漏字段）/ _KernelClientShim 共享 live pipeline._agents（config-sync 漂移）+ 1 个新路径修复（list_skills per-workspace）。
+- **归 M2**：reporter→list_* 迁移 + products/ 物理解散 + 撤 _M1_TEMP 豁免（profile/reporter 旧导出）+ bootstrap _product_root 退役。
