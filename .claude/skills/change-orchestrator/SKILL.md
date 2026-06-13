@@ -243,7 +243,7 @@ worker / reviewer 读完上下文后会先报一个信(见 worker §2.5 / review
 
 ### §3.2 监控
 
-每 2-5 分钟检查一次每个 RUNNING worker 的产出:
+每 5-8 分钟检查一次每个 RUNNING worker 的产出:
 
 ```bash
 # 看 worktree 里有没有新 commit
@@ -560,6 +560,10 @@ unit 内所有 issues 解决,reviewer 给 `pass`(或 `pass-with-issues` 且 acce
 (`docs/changes/<unit_dir>/specs/<包>/spec.md`)合并。规范见 `docs/SPEC_GUIDE.md`「契约层增量」+
 「收尾归并 checklist」。
 
+> **fix 路径无 delta 的兜底**:lite 模式 / post-PR fix(§6.FL)没走 design-author,没有 delta 文件。若这类
+> 改动触及对外行为(典型:bugfix 恢复或改变了用户可观察行为),orchestrator 据实际代码**自己补一份 delta**
+> 到 `docs/changes/<unit>/specs/<包>/`(套 ③ 的实现层红线),再走下面三步——契约写入不留给 worker
+
 > **canonical `docs/specs/` 与 delta `docs/changes/<unit>/specs/` 都在 unit_worktree 的
 > `unit/<unit_id>` 分支上**,和源码 diff 同处一棵树——在 `$unit_worktree` 里编辑 + commit,随 PR 一起
 > 进 main。不动主仓 HEAD(§0.15)。
@@ -579,7 +583,9 @@ canonical 全量**。靠 agent 尽责对账,不靠机械绑定。
 **③ 合并 delta 进 canonical**:把校正后 delta 机械合并进对应 `docs/specs/<包>/spec.md`——ADDED 追加、
 MODIFIED 替换对应条目、REMOVED 删对应条目(delta 与 canonical 同骨架,对应是机械的)。每条进 canonical
 前再过 SPEC_GUIDE 的「两问判据」+「库契约四纪律」(WHEN/THEN 主语=消费者、CDC 裁剪、纯
-`Purpose + Requirement/Scenario`,**无** `覆盖:` 行 / `[可执行]` 标签 / freshness 测试)。然后 bump 该
+`Purpose + Requirement/Scenario`,**无** `覆盖:` 行 / `[可执行]` 标签 / freshness 测试),并守**实现层红线**:
+Scenario 的 THEN / 正文不得出现内部函数名、类名、日志字符串、`<符号> 被调用 / 不被调用` 断言(那是单测的事;
+delta 若混入也在此滤掉)。然后 bump 该
 文件头部 `> 对齐:` 行到本 unit-id。commit:`docs(<unit_id>): 收尾归并契约层 docs/specs/<包>`
 (或多包分别 commit)。
 
