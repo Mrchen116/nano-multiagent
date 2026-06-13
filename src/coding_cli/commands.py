@@ -258,7 +258,9 @@ async def _async_main(
     kernel = _build_kernel(args=args, kernel_factory=kernel_factory, out=out)
     try:
         if args.text is not None:
-            session = await kernel.create_session(workspace_root=workspace_root)
+            from coding_cli.product import open_cli_session
+
+            session = await open_cli_session(kernel, workspace_root=workspace_root)
             session_id = args.resume.strip() if args.resume else session.session_id
             return await _run_text_mode(
                 kernel=kernel,
@@ -296,18 +298,20 @@ def _build_kernel(
     if kernel_factory is not None:
         return kernel_factory()
 
-    # Production path: import agent.sdk and assemble the local_coding kernel.
-    # All types used here are re-exported from agent.sdk — coding_cli only imports agent.sdk.
-    from agent.sdk import build_kernel, LOCAL_CODING_PROFILE, init_model_registry
+    # Production path: assemble the kernel via the 2-layer SDK surface (决策 1/2/5).
+    # coding_cli imports only agent.sdk + its own product factory. The model
+    # registry is initialised inside build_kernel from llm= (决策 5: no consumer-side
+    # init_model_registry ordering obligation).
+    from agent.sdk import LLMConfig
+    from coding_cli.product import build_cli_kernel
 
-    # init_model_registry must be called before LLMFactoryConfig.from_env(), because
-    # from_env() calls get_default_provider() which requires the registry to be populated.
-    # This mirrors personal_assistant/main.py:1098 — products init the registry at
-    # process startup before building the kernel.
-    llm_payload = _build_llm_config_payload(args)
-    init_model_registry(llm_payload)
-
-    llm_config = _build_llm_config_from_args(args)
+    # Build the SDK LLMConfig (catalog + active connection) from env / CLI args.
+    # The payload carries the provider/model catalog so /model + list_models work.
+    llm = LLMConfig.from_payload(
+        _build_llm_config_payload(args),
+        api_key=getattr(args, "llm_api_key", None),
+        timeout_seconds=getattr(args, "llm_timeout_seconds", None),
+    )
 
     # can_use_tool callback: runs in executor so it doesn't block the async loop.
     async def can_use_tool(tool_name: str, tool_input: Any, ctx: Any) -> Any:
@@ -315,11 +319,7 @@ def _build_kernel(
             tool_name=tool_name, tool_input=tool_input, out=out
         )
 
-    return build_kernel(
-        product_profile=LOCAL_CODING_PROFILE,
-        llm_config=llm_config,
-        can_use_tool=can_use_tool,
-    )
+    return build_cli_kernel(llm=llm, can_use_tool=can_use_tool)
 
 
 def _build_llm_config_payload(args: argparse.Namespace) -> Any:
@@ -363,32 +363,6 @@ def _build_llm_config_payload(args: argparse.Namespace) -> Any:
             ),
         ),
     )
-
-
-def _build_llm_config_from_args(args: argparse.Namespace) -> Any:
-    """Build LLMFactoryConfig from env vars layered with CLI overrides.
-
-    Must be called after _build_llm_config_payload + init_model_registry, since
-    LLMFactoryConfig.from_env() requires the registry to be initialized.
-    """
-    from agent.sdk import LLMFactoryConfig
-    import dataclasses
-
-    base = LLMFactoryConfig.from_env()
-    kwargs: dict[str, Any] = {}
-    if getattr(args, "llm_provider", None):
-        kwargs["provider"] = args.llm_provider
-    if getattr(args, "llm_model", None):
-        kwargs["model"] = args.llm_model
-    if getattr(args, "llm_base_url", None):
-        kwargs["base_url"] = args.llm_base_url
-    if getattr(args, "llm_api_key", None):
-        kwargs["api_key"] = args.llm_api_key
-    if getattr(args, "llm_timeout_seconds", None) is not None:
-        kwargs["timeout_seconds"] = args.llm_timeout_seconds
-    if not kwargs:
-        return base
-    return dataclasses.replace(base, **kwargs)
 
 
 async def _ask_permission_async(
@@ -683,7 +657,11 @@ async def _run_repl(
 
             try:
                 if not active_session_id:
-                    session = await kernel.create_session(workspace_root=workspace_root)
+                    from coding_cli.product import open_cli_session
+
+                    session = await open_cli_session(
+                        kernel, workspace_root=workspace_root
+                    )
                     active_session_id = session.session_id
                     repl_commands.print_session_created(
                         out=out, session_id=active_session_id
@@ -939,9 +917,9 @@ async def _handle_repl_command_async(
                     usage="/new",
                 )
                 return _ReplCommandResult(handled=True)
-            session = await kernel.create_session(
-                workspace_root=workspace_root, skills=[]
-            )
+            from coding_cli.product import open_cli_session
+
+            session = await open_cli_session(kernel, workspace_root=workspace_root)
             next_id = session.session_id
             repl_commands.print_session_created(out=out, session_id=next_id)
             repl_commands.print_active_session(out=out, session_id=next_id)

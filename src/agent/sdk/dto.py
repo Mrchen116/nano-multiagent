@@ -153,6 +153,69 @@ class LLMConfig:
             default_model=model,
         )
 
+    @classmethod
+    def from_payload(
+        cls,
+        payload: "object",
+        *,
+        api_key: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> "LLMConfig":
+        """Build an LLMConfig (catalog + active connection) from an LLMConfigPayload.
+
+        Consumers that already have a provider/model catalog — coding_cli (env /
+        CLI args) and the gateway (config.yaml) — convert it here so the catalog
+        flows into ``build_kernel(llm=…)`` and stays available for ``list_models``
+        / ``reconfigure_llm`` (CLI ``/model``). The active connection is derived
+        from the payload's ``default_model`` and the provider that owns it.
+
+        Args:
+            payload: An ``LLMConfigPayload`` (duck-typed: ``default_model`` +
+                ``providers`` each with ``name`` / ``base_url`` / ``models``).
+            api_key: Optional API key for the active connection.
+            timeout_seconds: Optional request timeout (defaults to the field default).
+
+        Returns:
+            LLMConfig carrying the full catalog and the resolved active connection.
+        """
+        default_model = getattr(payload, "default_model")
+        raw_providers = tuple(getattr(payload, "providers", ()) or ())
+        providers = tuple(
+            LLMProvider(
+                name=p.name,
+                base_url=p.base_url or "",
+                models=tuple(
+                    LLMModel(
+                        name=m.name,
+                        extra_request_body=dict(m.extra_request_body or {}),
+                    )
+                    for m in (p.models or ())
+                ),
+            )
+            for p in raw_providers
+        )
+        # Resolve the active provider/base_url from the provider that owns the
+        # default_model; fall back to the first provider so a usable connection
+        # is always produced.
+        active_provider = providers[0] if providers else None
+        for prov in providers:
+            if any(m.name == default_model for m in prov.models):
+                active_provider = prov
+                break
+        provider_name = active_provider.name if active_provider else ""
+        base_url = active_provider.base_url if active_provider else ""
+        return cls(
+            provider=provider_name,
+            model=default_model,
+            base_url=base_url,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds
+            if timeout_seconds is not None
+            else 600.0,
+            default_model=default_model,
+            providers=providers,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Capability-query DTOs (决策 4) — list_models / list_tools / list_features / list_skills

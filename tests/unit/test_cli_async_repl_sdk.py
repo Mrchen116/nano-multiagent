@@ -65,7 +65,9 @@ class _StubKernel:
         self.calls: list[tuple[str, Any]] = []
         self._run_id_counter = 0
 
-    async def create_session(self, *, title=None, workspace_root=None, skills=None):
+    async def create_session(
+        self, *, title=None, workspace_root=None, skills=None, **kwargs
+    ):
         self.calls.append(("create_session", {"title": title, "skills": skills}))
         return _StubSession(self._session_id)
 
