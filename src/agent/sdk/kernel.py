@@ -41,7 +41,6 @@ from agent.platform.permissions.broker import (
     PermissionDecision,
 )
 from agent.platform.persistence.session.service import SessionService
-from agent.platform.tools.loader import build_tool_registry
 
 from agent.sdk.dto import (
     FeatureInfo,
@@ -55,7 +54,7 @@ from agent.sdk.dto import (
 from agent.sdk.prompt import PromptSlots
 
 if TYPE_CHECKING:
-    from agent.products.base import ProductProfile
+    pass
 
 # Callable type for the permission strategy injected by consumers.
 # Mirrors CC CanUseToolFn: given (tool_name, tool_input, context) → PermissionDecision.
@@ -77,46 +76,36 @@ class _KernelComponents:
 
 def build_kernel(
     *,
-    # --- new (refactor-406 决策 1/2/5) 2-layer surface ---
+    # 2-layer surface (refactor-406 决策 1/2/5) — the sole composition entry.
     llm: LLMConfig | None = None,
     tools: Sequence[Any] | None = None,
     hooks: Sequence[Callable[[Any], None]] | None = None,
     workspace_config_dirname: str | None = None,
-    # --- legacy (扩张期保留) product-profile surface ---
-    product_profile: "ProductProfile | None" = None,
-    llm_config: LLMFactoryConfig | None = None,
-    # --- shared ---
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
     # Internal escape hatch for tests: skip LLM client construction and use
     # this fake instead.  Not part of the public API.
     _llm_client_override: LLMClient | None = None,
 ) -> "Kernel":
-    """Assemble an in-process Kernel — composition root for any application.
+    """Assemble an in-process Kernel — composition root for any application (决策 1/2/5).
 
-    Two signatures are accepted during the refactor-406 expansion phase:
+    ``build_kernel(llm=LLMConfig, tools=[native objects], hooks=[setup callables],
+    can_use_tool=…, workspace_config_dirname=…)`` builds a product-neutral shared base:
+    the model registry is initialised internally from ``llm`` (no consumer-side
+    ``init_model_registry``), the consumer's native tool objects are registered into the
+    kernel tool catalog, and the prompt template is the kernel skeleton (product text
+    enters per-session via ``create_session(prompt=PromptSlots)``).
 
-    - **New (决策 1/2/5)**: ``build_kernel(llm=LLMConfig, tools=[native objects],
-      hooks=[setup callables], can_use_tool=…, workspace_config_dirname=…)`` — builds
-      a product-neutral shared base: the model registry is initialised internally
-      from ``llm`` (no consumer-side ``init_model_registry``), the consumer's native
-      tool objects are registered into the kernel tool catalog, the prompt template
-      is the kernel skeleton (product text comes per-session via
-      ``create_session(prompt=PromptSlots)``).
-    - **Legacy**: ``build_kernel(product_profile=…, llm_config=LLMFactoryConfig, …)``
-      — the pre-refactor path via ``bootstrap_product``. Retained until consumers
-      migrate (R5/R6); removed in the收缩 phase.
-
-    Exactly one of ``llm`` / ``product_profile`` must be supplied.
+    refactor-406-M1 R7: the legacy ``product_profile=`` / ``llm_config=`` path
+    (``bootstrap_product``) is removed now that both consumers (coding_cli /
+    personal_assistant) build through this 2-layer surface.
 
     Args:
-        llm: SDK-owned LLM config (new path). Catalog + connection + default.
-        tools: Native tool objects satisfying the SDK ``Tool`` Protocol (new path).
-        hooks: ``setup(hooks)`` callables registered into the hook registry (new path).
+        llm: SDK-owned LLM config. Catalog + connection + default.
+        tools: Native tool objects satisfying the SDK ``Tool`` Protocol.
+        hooks: ``setup(hooks)`` callables registered into the hook registry.
         workspace_config_dirname: Per-workspace config dir name (e.g. ``.nanocode``)
-            governing session JSONL / memory / skill layout (new path).
-        product_profile: Legacy product profile (legacy path).
-        llm_config: Legacy LLM factory config (legacy path).
+            governing session JSONL / memory / skill layout.
         can_use_tool: Optional async permission callback; None → IM card flow.
         repo_root: Repository/workspace root for tool/hook discovery.
         _llm_client_override: Test-only LLM client.
@@ -124,145 +113,16 @@ def build_kernel(
     Returns:
         A fully assembled, ready-to-use Kernel.
     """
-    if (llm is None) == (product_profile is None):
-        raise ValueError(
-            "build_kernel requires exactly one of llm= (new 2-layer surface) or "
-            "product_profile= (legacy surface)"
-        )
-    if llm is not None:
-        return _build_kernel_base(
-            llm=llm,
-            tools=list(tools or ()),
-            hooks=list(hooks or ()),
-            workspace_config_dirname=workspace_config_dirname or ".nano",
-            can_use_tool=can_use_tool,
-            repo_root=repo_root,
-            _llm_client_override=_llm_client_override,
-        )
-
-    assert product_profile is not None  # narrowed by the guard above
-    if llm_config is None:
-        raise ValueError("legacy build_kernel requires llm_config=")
-    resolved_repo_root = (
-        (repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd())))
-        .expanduser()
-        .resolve()
-    )
-
-    # Wire console tracer when threshold env is set.
-    _trace_threshold = os.getenv("NANO_MULTIAGENT_TRACE_CONSOLE_THRESHOLD_MS")
-    if _trace_threshold is not None:
-        try:
-            set_tracer(ConsoleTracer(threshold_ms=float(_trace_threshold)))
-        except ValueError:
-            set_tracer(ConsoleTracer(threshold_ms=100.0))
-
-    # Bootstrap product to resolve tool/hook registry, session store, system
-    # prompt, etc. — mirrors the create_app product_profile branch.
-    from agent.platform.bootstrap import bootstrap_product
-
-    resolved_product = bootstrap_product(
-        profile=product_profile,
-        repo_root=resolved_repo_root,
-    )
-
-    session_service = SessionService(
-        store=resolved_product.session_store,
-        profile=product_profile,
-        default_session_metadata=resolved_product.default_session_metadata,
-    )
-
-    permission_broker = PermissionBroker(config=AutoModeConfig())
-
-    # Build hook/tool registries from the product-resolved ones.
-    active_hook_registry = resolved_product.hook_registry or build_hook_registry(
-        repo_root=resolved_repo_root,
-        config_resolver=resolved_product.config_resolver,
-    )
-    active_hook_runner = HookRunner(registry=active_hook_registry)
-
-    # LLM client factory — platform layer, injected into core runtime (#40).
-    if _llm_client_override is not None:
-        # Test path: use the provided fake client directly.
-        llm_client_factory = None
-        direct_llm_client: LLMClient | None = _llm_client_override
-    else:
-        llm_client_factory = lambda cfg: _platform_create_llm_client(config=cfg)  # noqa: E731
-        direct_llm_client = None
-
-    runtime_kwargs: dict = {}
-    if resolved_product.resolved_system_prompt:
-        runtime_kwargs["system_prompt"] = resolved_product.resolved_system_prompt
-    if resolved_product.config_resolver is not None:
-        runtime_kwargs["config_resolver"] = resolved_product.config_resolver
-    if resolved_product.default_tool_ids is not None:
-        runtime_kwargs["default_tool_ids"] = resolved_product.default_tool_ids
-    if resolved_product.prompt_sections:
-        runtime_kwargs["prompt_sections"] = resolved_product.prompt_sections
-
-    runtime = AgentRuntime(
-        session_manager=session_service.manager,
-        hook_runner=active_hook_runner,
-        repo_root=resolved_repo_root,
-        permission_broker=permission_broker,
-        llm_client=direct_llm_client,
-        llm_client_factory=llm_client_factory,
-        **runtime_kwargs,
-    )
-
-    event_hub = EventStreamHub()
-    set_session_event_publisher_factory(
-        registry=active_hook_registry,
-        factory=_build_session_event_publisher_factory(event_hub=event_hub),
-    )
-
-    runs_registry = RunsRegistry(
-        runtime=runtime,
-        session_manager=session_service.manager,
-        event_hub=event_hub,
-        hook_runner=active_hook_runner,
-    )
-
-    background_task_wiring = wire_background_tasks(
-        workspace_root=resolved_repo_root,
-        runtime=runtime,
-        runs_registry=runs_registry,
-    )
-
-    active_tool_registry = resolved_product.tool_registry or build_tool_registry(
-        repo_root=resolved_repo_root,
-        hook_runner=active_hook_runner,
-        runtime=runtime,
-        config_resolver=resolved_product.config_resolver,
-        llm_client=getattr(runtime, "_llm_client", None),
-        wiring=background_task_wiring,
-    )
-
-    _bind_runtime_to_tool_registry(
-        tool_registry=active_tool_registry,
-        runtime=runtime,
-        hook_runner=active_hook_runner,
-        wiring=background_task_wiring,
-    )
-
-    bind_tool_registry = getattr(runtime, "bind_tool_registry", None)
-    if callable(bind_tool_registry):
-        bind_tool_registry(active_tool_registry)
-
-    components = _KernelComponents(
-        runtime=runtime,
-        runs_registry=runs_registry,
-        event_hub=event_hub,
-        permission_broker=permission_broker,
-        session_service=session_service,
-        hook_registry=active_hook_registry,
-        hook_runner=active_hook_runner,
-    )
-
-    return Kernel(
-        components=components,
+    if llm is None:
+        raise ValueError("build_kernel requires llm= (2-layer surface)")
+    return _build_kernel_base(
+        llm=llm,
+        tools=list(tools or ()),
+        hooks=list(hooks or ()),
+        workspace_config_dirname=workspace_config_dirname or ".nano",
         can_use_tool=can_use_tool,
-        repo_root=resolved_repo_root,
+        repo_root=repo_root,
+        _llm_client_override=_llm_client_override,
     )
 
 
