@@ -95,6 +95,12 @@ class PromptContext:
     # Core segments no longer read these; kept so existing tests pass without all being updated at once.
     memory_block: str | None = None
     user_profile_block: str | None = None
+    # refactor-406 决策 8: product-supplied PromptSlots for the kernel template
+    # skeleton. Read structurally (duck-typed .head/.body/.custom/.tail, each a
+    # sequence of objects with .name/.text) so core does not import agent.sdk —
+    # the concrete PromptSlots/PromptText are SDK-owned (same duck-typing as the
+    # Tool/ToolContext Protocols, 决策 2). None → no product slots.
+    prompt_slots: object | None = None
 
     def has_tool(self, name: str) -> bool:
         """Return True when a tool with the given name is active this turn."""
