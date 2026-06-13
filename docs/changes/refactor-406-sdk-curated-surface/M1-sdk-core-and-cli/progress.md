@@ -339,3 +339,37 @@
   - E2E/Regression: R1 golden(lc_full) + R2 skeleton-重现-golden 持续守,切表面后字节零漂移。
 - Rollback: R5 commit revert 回 legacy product_profile 路径（独立可用）。
 - Commits: C2=4ed79b0a（product.py + commands 切表面 + dto.from_payload + sdk re-export + stub 适配）。
+
+## R6 完成 — PA 切新 build_kernel 2 层表面 + product.py 工厂 + 预览同源 + live（已 push）
+
+- Context: 三段式迁移段。PA 切离 legacy `build_kernel(product_profile=PA, llm_config=, host_capabilities=GatewayCronDispatcher)`
+  到新 2 层表面 + per-agent PromptSlots。PA 仅 import `agent.sdk` + 自己包。
+- Decision（落点）:
+  1. `src/personal_assistant/product.py`：
+     - `build_pa_kernel(llm, cron_services)` → `build_kernel(llm=, tools=[make_cron_tool(cron_services), SendMessageTool, WebSearchTool, *self_evo], can_use_tool=None, workspace_config_dirname=".nanoassistant")`。cron 闭包持 cron_services 共享 mutable map（决策9，无 HostCapabilityDispatcher）。
+     - `prompt_for(agent, scenario)` 拼 PromptSlots 四槽：head=identity+runtime；body=heartbeat/cron/cron_routing（按 agent flags 门控逐字）+platform_policy+guidelines+routing；custom=user_custom；tail=群聊 communication_context（按 scenario）。pa.* 文案 + communication_context block 全逐字 port。
+     - `resolve_enabled_tools(agent)`（cron_enabled→append cron，legacy resolve_effective_tool_allowlist 等价）。
+  2. send_message/web_search 迁入 `src/personal_assistant/tools/`（import core→sdk）；tools/__init__ 导出 cron/send_message/web_search。
+  3. `main.py`：build_kernel→build_pa_kernel(llm=LLMConfig.from_payload(config.llm), cron_services=_cron_dispatcher._services)；
+     `_KernelClientShim` 收 agents_by_id（指 live pipeline._agents），create_session 经 prompt_for 注入 PromptSlots+enabled_tools+features；
+     预览 provider 走同一 prompt_for 构造假想 agent → assemble_prompt_preview(prompt=,enabled_tools=)（决策8 同源）。
+  4. `inbound_pipeline` create_session：弃 PERSONAL_ASSISTANT_PROFILE，改 prompt_for+resolve_enabled_tools+features（群聊 scenario→tail）。
+  5. contract 守卫：product.py 加入 _ALLOWED_STEMS（products/ 解散后 product.py 是 workspace_config_dirname 新定义点）。
+- live 暴露并修的 3 个真 bug（都 push）:
+  1. **build_pa_kernel 用 from_env 覆盖 config.llm catalog**：from_env() 被 _build_kernel_base 的 reset+合成单 provider catalog 覆盖掉 init_model_registry(config.llm)，模型错+K2.6 thinking 丢。改 `LLMConfig.from_payload(config.llm)`（保 catalog + active 连接，K2.6 thinking:adaptive 在）。
+  2. **RunInfo 漏 start_sequence**（R3 决策6 DTO 漏字段）：inbound_pipeline SSE relay 读 run_record.start_sequence 报 AttributeError，agent 回错误。补 `RunInfo.start_sequence` + _to_run_info 映射。
+  3. **_KernelClientShim agents 快照漂移**：shim 构造期 snapshot config.agents，config-sync register_agent 更新（启 heartbeat/cron）不到达 shim → heartbeat/cron 隔离会话 features 漏。改 `shim._agents_by_id = pipeline._agents`（同 heartbeat_runner._agents 既有模式，共享 live dict）。
+- Evidence:
+  - Tests: 全部 6 个 pa_* golden 逐字节 **MATCH**（prompt_for + skeleton）；PA 单测 601 passed；contract 132 passed；**全测试树 not e2e 2755 passed/1 skipped 零回归**；ruff 干净。
+  - **live（§0.3 真端到端，真起 IM+Gateway+proxy，./scripts/e2e-up.sh）**：
+    - **R-PA-1 Web IM 发消息 PASS**：agent 真回 "pa-live-ok"（IM→inbound_pipeline→build_pa_kernel→create_session(prompt_for PromptSlots)→submit→reply 回投）。
+    - **R-PA-3 IM 权限卡 PASS（park）**：can_use_tool=None，agent 发 bash 工具调用（rm -rf /tmp/...）→ 工具 parked 等 broker future（turn content 空 + tool_calls 在 + 无 result），权限流经新路径保留。
+    - **R-CP-1 heartbeat 实跑 PASS**：调度器 1m poll 触发 → 新 shim 路径建隔离会话（agent_features={cron_scheduling,heartbeat} 全含,shim live agents 修复后）→ agent 回 HEARTBEAT_OK（K2.6 反射正常，无死反射）。
+    - **R-CP-2 cron 实跑 PASS**：agent 真调 cron 工具建 job（id 3af7c702 持久化 jobs.json）→ 调度器到点触发（runs.jsonl accepted→running→completed）→ 隔离会话执行 instruction → 结果路由回会话。全程新闭包 cron 工具（决策9），无 HostCapabilityDispatcher。
+    - **R-CP-3 群聊@ PASS**：群聊 @Arch → 仅 Arch 建会话回 "arch-group-ok"，ArchA 零会话（gate 对），conversation_type=group+participants 流进 prompt_for tail（Communication Context 块渲染）。
+    - **R-GW-3 会话档案落位 PASS**：JSONL 落 default-agent/.nanoassistant/sessions/sess_*.jsonl，Arch/ArchA workspace 零泄漏（决策10 per-workspace）。
+    - **R-CFG-4 预览同源 PASS**：prompt-preview 经同一 prompt_for 工厂，随开关变化（direct 无 heartbeat/cron；heartbeat+cron on→三段都出；group→Communication Context 出）。
+    - R-PA-2（IM 离线自治）属 Gateway relay 层（kernel 不感知 IM 在线/离线），R6 未触碰该层，结构性保留。
+  - E2E/Regression: R1 golden(pa_*) + R2 skeleton-重现-golden 持续守，切表面后字节零漂移。
+- Rollback: 各 commit 独立可 revert 回 legacy product_profile 路径。
+- Commits: C2=0d6ecb19（PA 切表面+工厂+迁工具+预览同源）；fix=6cda1cd6（config.llm）；fix=9e29799f（start_sequence）；fix=722e578a（shim live agents）。
