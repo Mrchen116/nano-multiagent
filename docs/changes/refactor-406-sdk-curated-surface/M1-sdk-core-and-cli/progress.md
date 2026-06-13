@@ -390,3 +390,16 @@
   3. products/ 解散 + 撤 PA/LC profile SDK 导出 + bootstrap _product_root 退役——**卡 reporter（M2 territory，upstream_reporter 仍 import PERSONAL_ASSISTANT_PROFILE）**。
 - **边界张力**：design §296「M1 含 products 解散」vs §223「reporter→list_* 归 M2」——reporter 在用 PERSONAL_ASSISTANT_PROFILE，products 物理删必须连 reporter 迁（吞 M2）。
   已 SendMessage orchestrator 求裁：(a) 1+2 直接做？(b) 3 是否 M1 落闸 EXPECTED_SURFACE 暂含 PA/LC profile 导出（标 _M1_TEMP，M2 撤）、products 保留到 M2，还是 M1 就迁 reporter 删 products？
+
+## R7 续 — HostCapability + legacy cron + legacy build_kernel 路径全删（item 1 + a 完成，push）
+
+- **HostCapability 整组删**（commit 81061983）：core/tools host_capability.py + base/registry/__init__ 字段+参数+传播 + kernel build_kernel host_capabilities= 参数/_inject_host_capabilities/Kernel.__init__ 参数 + SDK 导出。删 legacy products cron.py（唯一桥消费者）。surface contract 4 个 HostCapability 测试删；cron/web_search/send_message 测试 redirect 到 src/personal_assistant/tools。**cron live 复验 PASS**（agent 建 job→调度器触发→隔离会话执行 r7-cron-fired）。web_search/send_message 留 products/tools（legacy bootstrap product_tool_dir 扫描在用，M2 删）。
+- **迁 4 测试离 legacy build_kernel 路径 + list_skills 新路径修复**（commit 8ba25a85）：test_kernel_list_capability_queries/test_kernel_sdk_behavior_contract/test_agent_sdk_surface_contract/test_session_reuse_regression → 新 `build_kernel(llm=LLMConfig)` 签名。**新路径真 bug 修**：list_skills 无 ProductProfile/config_resolver → 跨 workspace 泄漏；加 Kernel._workspace_config_dirname + _WorkspaceDirnameSkillResolver 解析 <ws>/<dirname>/skills（决策4 per-workspace）。
+- **删 build_kernel legacy product_profile/llm_config 路径**（commit ffb4b34a，item a）：零生产+测试调用者后，删 build_kernel legacy 分支（~120 行 bootstrap_product assembly）+ 签名去 product_profile=/llm_config=。bootstrap_product 模块/ProductProfile 保留（reporter ConfigResolver + platform 测试在用，M2 删）。
+- 全树 not e2e 2742 passed/1 skipped 零回归，ruff 干净。
+
+## R7 余下 — item (b)：products 解散 + 决策7 三道闸（**待 orchestrator 拍板，M1 唯一剩余阻塞**）
+
+- products/ 物理目录 + PA/LC profile SDK 导出 + bootstrap _product_root **卡 reporter（M2）**：upstream_reporter 在用 PERSONAL_ASSISTANT_PROFILE + bootstrap product_tool_dir 扫 web_search/send_message。design §223 把 reporter→list_* 明确归 M2。
+- 决策7 三道闸（精确名单 EXPECTED_SURFACE + 所有权闸 + 豁免名单）是 M1 退出标准。当前 `__all__` 40 符号。`_M1_TEMP_REPORTER_EXPORTS` 候选 = SkillRegistry/ConfigResolver/default_skill_search_roots/FEATURE_REGISTRY/model registry 列表函数(init_model_registry/get_default_model/get_default_provider/list_provider_models/list_supported_providers)/LLMConfigPayload系/LLMFactoryConfig + **PA/LC profile 导出**（reporter 在用）。
+- **决策待答**：(b) M1 落闸时 EXPECTED_SURFACE 豁免名单是否暂含 PA/LC profile + reporter 旧导出（标 _M1_TEMP，M2 撤）、products/ 物理保留到 M2？已两次 SendMessage orchestrator。一答即落闸收口 M1。
