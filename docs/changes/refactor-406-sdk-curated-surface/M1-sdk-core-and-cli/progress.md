@@ -258,8 +258,15 @@
   cron verbatim golden(test_cron_prompt_sections)绿。
 - **仍待 R4 live(留 R5/R6,因依赖 R6 PA 工厂 wiring)**:R-CP-2 cron 实跑——make_cron_tool 经 PA 工厂传入 build_kernel 后(R6),
   建 job→触发→执行→结果回投对应 agent 会话,真起 IM+Gateway(./scripts/e2e-up.sh)跑到用户可见结果。
-- **presenter 全局三件套即时删确认(orchestrator 自我纠正后)**:rewire 后零剩余消费者(realtime_stream 改读 tool.presenter、内置已挂类),
-  全测树绿证明新路径完全替代,即时删干净安全(区别于桥/products 被 legacy PROFILE 困住须等 R6/R7)。**不留 fallback 死代码**。
+- **presenter 全局三件套即时删确认(orchestrator 自我纠正后,A 终定)**:rewire 后零剩余消费者(realtime_stream 改读 tool.presenter、内置已挂类),
+  全测树绿证明新路径完全替代,即时删干净安全。**不留 fallback 死代码**。
+  - **为何 presenter 删得早、桥/products 延后(给 reviewer)**:presenter 全局注册表的消费者**仅 2 处**(realtime_stream + 2 测试文件),
+    可在**同一 commit 原子迁完**——「迁」与「删」同时发生不违反「先迁后删」(没删在用的);而 HostCapability 桥 / products 被 ≈10 个 legacy
+    测试 + PERSONAL_ASSISTANT_PROFILE 路径困住,无法同步迁,故删除延后到 R7 收缩段。**判据是「消费者能否同 commit 迁完」,不是 roadpoint 标签**。
+  - **robustness 双重兜底(关闭「静默落默认漂移」担忧)**:① tool_registry 由 registry.execute 每次工具调用必注入(主路径必达);
+    ② `.get(name)` 返 None(工具不在 registry)→ _DEFAULT;③ 工具在 registry 但无 `.presenter`(None)→ _DEFAULT。MCP / .nano 运行时
+    发现工具天然走 ②/③ 落默认,**与旧全局注册表时代完全一致**(它们本就不在 _PRESENTERS)。无「有自定义 presenter 但对象路径不可达」的工具。
+    决策7 豁免名单**不为全局三件套留位**(已不存在)。
 
 ## HANDOFF — 剩余 R5/R6/R7(live-critical,建议新会话续)
 
