@@ -135,3 +135,35 @@
   [RunOrigin/PermissionDecision/TERMINAL_RUN_STATUSES] + ToolPresenter/ToolPresentationEvent[决策12] + `_M1_TEMP_REPORTER_EXPORTS`）。
 - live-critical（cron/heartbeat/群聊运行时 + prompt 运行时装配 + presenter IM 渲染）需真端到端证据（§0.3/§0.11），env 起不来按 §0.11
   找 orchestrator，不自降证据。
+
+## HANDOFF（R3 接线完成 + 决策12 排序定；R4 起精确入口）
+
+- 状态：R3 接线实质完成并 push（local==origin==4e638b02，全测树 2736 passed/1 skipped 零回归，R1/R2 golden 14 绿，ruff 干净）。
+  唯一 R3 缺口 = 决策12 presenter（归 R-presenter）。orchestrator 已 ack 排序：**先 R4 → 再 R-presenter**（两者都动 build_kernel
+  工具装配,串行避免打架;R4 先把「原生工具目录进 build_kernel」骨干立稳,presenter 随对象自然叠上）。
+- **R4 精确入口（已 grep 取证）**：
+  - HostCapability 全消费点（整组删/改）：`agent/core/tools/{__init__,base,registry,host_capability}.py`、`agent/sdk/{__init__,kernel.py}`
+    （kernel `_inject_host_capabilities` + `host_capabilities=` 参数 + legacy 路径传参 + __init__ 导出）、
+    `personal_assistant/main.py:2106-2115`（`_cron_dispatcher` 构造 + `build_kernel(host_capabilities=_cron_dispatcher)`）、
+    `personal_assistant/scheduler/gateway_cron_dispatcher.py`（`GatewayCronDispatcher(HostCapabilityDispatcher)`，整文件随删桥退役/改写成 cron 工具闭包持有的 service）、
+    测试 `tests/contract/test_agent_sdk_surface_contract.py`、`tests/unit/personal_assistant/test_cron_scheduler_tick.py`、`test_cron_tool_openclaw.py`。
+  - cron 工具迁移：`agent/products/personal_assistant/tools/cron.py` → `src/personal_assistant/tools/`；`run()` 闭包直接持有
+    `CronExecutionService`（跨线程入队自 marshalling，参考现 `cron_execution_service.py:541` task.cancel 那条线程边界），不经内核回桥；
+    保 per-agent 路由（现 GatewayCronDispatcher 按 agent_id 路由的语义要迁进闭包/工厂绑定）。
+  - PA 物理目录搬家：`agent/products/personal_assistant/{tools,hooks,skills,prompt_sections.py,profile.py,defaults.py,toolsets.py}`
+    → `src/personal_assistant/`（注意 import 边界:搬后 PA 工具/hook 由 PA 工厂经 build_kernel(tools=/hooks=) 传入,不再被内核扫目录）。
+  - **live-critical（R-CP-2）**：cron 实跑 = 建 job→触发→执行→结果回投对应 agent 会话,需真端到端(./scripts/e2e-up.sh),不能只单测绿。
+- **R-presenter 精确入口（决策12）**：
+  - 现状:platform 全局 `agent/platform/tools/presentation.py`(`_PRESENTERS`/`register_presenter`/`resolve_presenter`/
+    `_register_builtin_presenters()` import 副作用 + 6 presenter 类 + `_DefaultPresenter`)；realtime_stream
+    `agent/platform/hooks/builtins/realtime_stream.py:7,46,65` import + 调 `resolve_presenter(name)`。
+  - golden 基线已就位:`tests/unit/platform/tools/test_presentation.py`(6 presenter format_start/end + 默认精确断言)= 迁移前
+    presentation 基线,**迁移中保留这些精确断言不动 = 逐字节守**;改的是 `_presenter(name)` 解析入口。
+  - 拟用解析机制(待 orchestrator 最终 ack,默认采用):realtime_stream 从 `ctx.metadata["tool_registry"].get(name).presenter`
+    解析(tool_registry 已由 registry.execute 注入 hook ctx,见 registry.py:128),无则落 `_DEFAULT`;**不**另造 build_kernel→setup
+    注入 map(等价但更内聚)。core 留 `ToolPresenter`/`ToolPresentationEvent`(纯函数无 IO)→ sdk re-export(闸2 豁免);
+    `Tool` Protocol(contracts.py)加可选 `presenter` 字段;6 presenter 类挂到各内置工具类 `.presenter`;删 platform 全局三件套。
+  - 外部产品证明加码:`test_sdk_kernel_wiring.py` 的闭包副作用工具加 `.presenter`,断言 label/summary/detail 出现在 tool_start/tool_end。
+- R5/R6/R7 见上「后续 roadpoint」;R7 豁免名单 = RunOrigin/PermissionDecision/TERMINAL_RUN_STATUSES + ToolPresenter/ToolPresentationEvent
+  + `_M1_TEMP_REPORTER_EXPORTS`。
+- 协调注记:本 worktree 曾发生双 worker 冲突,现已彻底理清——**单一所有者**,base 含决策12,4e638b02 是权威起点。续跑勿 reset 回更早 commit。
