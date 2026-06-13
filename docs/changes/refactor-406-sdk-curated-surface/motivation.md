@@ -45,6 +45,10 @@
 - Q8: 新产品扩展是否只需要支持自定义工具，还是覆盖完整产品定义？
   A(原话): 现在就是这样设计的了吧，本来就是不单单是自定义工具
   Agent 解读: 当前 `ProductProfile` / bootstrap 已经覆盖 tools、hooks、skills、prompt、配置目录和默认策略等完整产品定义。本 unit 应保留并公开化这条完整扩展能力，而不是把目标降级成新增一个仅支持工具的插件机制。
+- Q9: 「不变性」验收标准只笼统兜底「同一套既有能力」，是否要把本 unit 直接动刀、行为漂移风险最高的既有功能逐一钉成不变性 Scenario？
+  A(原话): 对，但是可能还不够，还要保持llm proxy那边拿到的系统提示词，指令等，严格来说，比如群聊，heartbeat系统提示词的话，llm proxy拿到的要跟之前一致。
+  A(原话补充): 你没理解对我的意思，不是装配点要和llm proxy收到的一致，而是重构前要和重构后一致
+  Agent 解读: 分两层落地——(1) 用户可观察的既有行为不变性，补 6 条 Scenario 进【用户侧验收标准】：`/model` 运行中热切、IM 权限卡 allow/deny、Agent 设置页 system prompt 预览、cron 建/触发/回投、heartbeat 自主活动、群聊 @ mention，作为 design 决策 3/5/8/9 的用户场景根。(2) 「重构前 vs 重构后，发往 LLM 的 system prompt（含群聊/heartbeat/cron 三段指令）逐字节一致」是**实现保真要求**，不是用户可观察项（reviewer 走旅程看不到 proxy 字节，去抓 LLM_PROXY/logs 比对会滑进 engineer 模式使整轮验收作废，违反 spec/design 分层红线）；它归 design 的 `[worker]` 黄金等价测试（基线=重构前 prompt 快照，仓内已有 `test_pa_golden_*` 系列）+ kernel delta-spec「相同会话条件下 prompt 逐字节等价」Scenario，回 design 时把覆盖面强化为「PA 群聊/heartbeat/cron 各配置 + CLI 的完整 system prompt 逐字节」。作为实现约束交接 `change-design-author`。
 
 ## 现状痛点
 
@@ -95,6 +99,11 @@
 - **WHEN** 用户按现有命令启动 Coding CLI 并选择或指定模型
 - **THEN** CLI 正常启动并使用该模型，不要求用户迁移配置或改用新的启动参数
 
+#### Scenario: 用户在 CLI 运行中切换模型
+- **GIVEN** 用户已在 Coding CLI 会话中
+- **WHEN** 用户用 `/model` 切换到另一个已配置模型
+- **THEN** 切换即时生效，后续回合使用新模型，交互方式与重构前一致
+
 ### Requirement: 个人助手的消息处理能力保持可用
 
 #### Scenario: 用户经 Web IM 向 Agent 发送消息
@@ -106,6 +115,11 @@
 - **GIVEN** Gateway 已配置外部消息通道且 IM 服务不可达
 - **WHEN** 外部通道收到用户消息
 - **THEN** 消息仍可由 Gateway 交给 Agent 处理并回发，不因 SDK 公共表面收敛而依赖 IM 在线
+
+#### Scenario: IM 中工具调用需用户授权
+- **GIVEN** Agent 处理消息时触发一个需要授权的工具调用
+- **WHEN** 用户在 IM 收到权限卡并选择允许或拒绝
+- **THEN** 工具据用户决定放行或终止，权限卡的呈现与 allow/deny 行为与重构前一致
 
 ### Requirement: IM 中的 Agent 配置与能力选择保持一致
 
@@ -123,6 +137,11 @@
 - **GIVEN** 用户选择了模型、skills、tools 或 features
 - **WHEN** 用户保存配置并再次打开该 Agent
 - **THEN** 配置可正常同步并回显，字段语义与默认行为不因内部重构改变
+
+#### Scenario: 用户在 Agent 设置页预览 system prompt
+- **GIVEN** 用户在 IM 的 Agent 配置页
+- **WHEN** 用户调整 features、自定义提示、工具、场景或 heartbeat/cron 开关并查看 system prompt 预览
+- **THEN** 预览内容随 features / heartbeat / cron 等开关变化（不同组合产生不同预览），预览文本与重构前一致
 
 ### Requirement: Gateway 的现有运维方式保持不变
 
@@ -146,6 +165,25 @@
 - **GIVEN** 一个已经通过 SDK 装配并运行的 Agent 产品
 - **WHEN** 产品开发者增加或调整该产品自己的 tools、hooks、skills 或 prompt
 - **THEN** 产品可以在自身代码范围内完成演进，不要求把产品专属实现加入 SDK 公共表面
+
+### Requirement: 个人助手的定时与自动化行为保持一致
+
+#### Scenario: 定时任务（cron）建立并触发
+- **GIVEN** 用户为某 Agent 配置了一个定时任务
+- **WHEN** 到达触发时间，任务执行
+- **THEN** 任务按计划执行并把结果回投到对应会话，建立、触发与回投行为与重构前一致
+
+#### Scenario: Agent 心跳自主活动
+- **GIVEN** 某 Agent 启用了 heartbeat
+- **WHEN** 到达心跳间隔
+- **THEN** Agent 按既有心跳行为运作（无事时静默、有事时按 HEARTBEAT 指引行动），频率与可观察行为与重构前一致
+
+### Requirement: 群聊中的协作行为保持一致
+
+#### Scenario: Agent 在群聊中引用成员
+- **GIVEN** 一个多成员群聊会话
+- **WHEN** Agent 在回复中引用某个成员
+- **THEN** 引用在群聊中正确渲染并指向该成员，群聊 @ 协作的可观察行为与重构前一致
 
 ## 影响范围
 
