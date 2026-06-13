@@ -251,8 +251,15 @@
   _action_run 按 agent_id 路由直连 enqueue,无 HostCapabilityDispatcher);job 持久化/description/schema 逐字 port 自旧 tool(零行为漂移)。
 - 测试 `tests/unit/personal_assistant/test_cron_tool_closure.py` 5 passed(roundtrip/路由/per-agent隔离/缺service error/declined ack);
   全树 collect 2760 干净;ruff 干净。legacy `agent/products/.../cron.py` + host_capabilities= + GatewayCronDispatcher 暂留(R7 删)。
-- **仍待 R4(live-critical,需端到端,不能只单测)**:R-CP-2 cron 实跑——make_cron_tool 经 PA 工厂传入 build_kernel 后(R6),
+- **决策9 三不变量已核(代码契约,orchestrator nail-down)**:① 工具行为——list/add/update/remove/runs 逐字 port,closure 测试 roundtrip 绿;
+  ② 跨线程入队 marshalling——`make_cron_tool` 的 run() 由内核经 `asyncio.to_thread` 调用(worker 线程),直接调 `service.enqueue`,
+  enqueue 内部 Context B 用 `call_soon_threadsafe` 把 coro 投到 gateway_loop(cron_execution_service.py 既有逻辑,闭包未绕过);
+  ③ per-agent 路由——按 `ctx.session_metadata["agent_id"]` 路由到 `cron_services[agent_id]`(test_run_per_agent_isolation 证 A 的 run 不碰 B)。
+  cron verbatim golden(test_cron_prompt_sections)绿。
+- **仍待 R4 live(留 R5/R6,因依赖 R6 PA 工厂 wiring)**:R-CP-2 cron 实跑——make_cron_tool 经 PA 工厂传入 build_kernel 后(R6),
   建 job→触发→执行→结果回投对应 agent 会话,真起 IM+Gateway(./scripts/e2e-up.sh)跑到用户可见结果。
+- **presenter 全局三件套即时删确认(orchestrator 自我纠正后)**:rewire 后零剩余消费者(realtime_stream 改读 tool.presenter、内置已挂类),
+  全测树绿证明新路径完全替代,即时删干净安全(区别于桥/products 被 legacy PROFILE 困住须等 R6/R7)。**不留 fallback 死代码**。
 
 ## HANDOFF — 剩余 R5/R6/R7(live-critical,建议新会话续)
 
