@@ -373,3 +373,20 @@
   - E2E/Regression: R1 golden(pa_*) + R2 skeleton-重现-golden 持续守，切表面后字节零漂移。
 - Rollback: 各 commit 独立可 revert 回 legacy product_profile 路径。
 - Commits: C2=0d6ecb19（PA 切表面+工厂+迁工具+预览同源）；fix=6cda1cd6（config.llm）；fix=9e29799f（start_sequence）；fix=722e578a（shim live agents）。
+
+## R7 进行中 — 收缩段（cron 桥已删，余下等 orchestrator 边界裁决）
+
+- **已完成（push, 全树 2750 passed/1 skipped）**：GatewayCronDispatcher（HostCapabilityDispatcher 桥）→ `CronServiceRegistry`
+  （纯 agent_id→CronExecutionService map + register/resolve/set_gateway_loop/drain_all 生命周期，**不继承 HostCapabilityDispatcher、无 invoke**）。
+  cron 工具 R6 起已闭包直连 service map，桥 invoke 路由早已死。main.py 全切（`.services`/`.resolve`），删 `gateway_cron_dispatcher.py`（零真实 import）。
+  测试：删 `TestGatewayCronDispatcher`（桥 invoke 路由——测已消除实现，enqueue 路由由 `test_cron_tool_closure` 覆盖）；
+  `TestGatewayCronDispatcherDrainAll` 重定向到 CronServiceRegistry（drain 行为保留，dedup 测试改"同 service 两 key"）。
+  Commit: 715367e2。
+- **余下三块（待 orchestrator (a)/(b) 裁决，见下）**：
+  1. HostCapability 整组删（core/tools base+registry+__init__+host_capability.py + kernel host_capabilities= 参数+_inject_host_capabilities + SDK 导出）
+     + 删 legacy `agent/products/personal_assistant/tools/cron.py`（唯一桥消费者）+ 重定向 `test_cron_tool_openclaw`。**纯 M1、与 reporter 无关**。
+  2. 删 build_kernel legacy `product_profile=`/`llm_config=` 路径——零生产调用者，但 4 测试在用（test_kernel_list_capability_queries /
+     test_session_reuse_regression / test_kernel_sdk_behavior_contract / test_agent_sdk_surface_contract），需迁到新 `llm=` 签名。
+  3. products/ 解散 + 撤 PA/LC profile SDK 导出 + bootstrap _product_root 退役——**卡 reporter（M2 territory，upstream_reporter 仍 import PERSONAL_ASSISTANT_PROFILE）**。
+- **边界张力**：design §296「M1 含 products 解散」vs §223「reporter→list_* 归 M2」——reporter 在用 PERSONAL_ASSISTANT_PROFILE，products 物理删必须连 reporter 迁（吞 M2）。
+  已 SendMessage orchestrator 求裁：(a) 1+2 直接做？(b) 3 是否 M1 落闸 EXPECTED_SURFACE 暂含 PA/LC profile 导出（标 _M1_TEMP，M2 撤）、products 保留到 M2，还是 M1 就迁 reporter 删 products？
