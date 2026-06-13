@@ -23,9 +23,9 @@ class TestCronToolCheckPermissions:
     """CronTool.check_permissions must return allow to bypass auto_mode_gate classifier."""
 
     def _get_cron_tool(self):
-        from agent.products.personal_assistant.tools.cron import CronTool
+        from personal_assistant.tools.cron import make_cron_tool
 
-        return CronTool()
+        return make_cron_tool({})
 
     def test_cron_tool_has_check_permissions(self) -> None:
         """CronTool must implement check_permissions (not just passthrough via None)."""
@@ -93,11 +93,11 @@ class TestCronToolCheckPermissions:
         import sys
 
         # Verify the cron module does not import platform.permissions.broker at load time
-        cron_module = importlib.import_module(
-            "agent.products.personal_assistant.tools.cron"
-        )
+        cron_module = importlib.import_module("personal_assistant.tools.cron")
         module_source = open(cron_module.__file__).read()
-        # Should not directly import from platform layer (would violate dep direction)
+        # Should not directly import from platform layer (would violate dep direction).
+        # refactor-406-M1: personal_assistant may only import agent.sdk, never
+        # agent.platform / agent.core internals.
         assert "from agent.platform" not in module_source, (
             "cron.py must not import from agent.platform layer "
             "(AGENTS.md dependency direction rule)"

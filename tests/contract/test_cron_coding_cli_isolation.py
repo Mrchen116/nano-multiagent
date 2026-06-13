@@ -61,20 +61,23 @@ class TestCronCodingCliIsolation:
         )
 
     def test_cron_tool_only_in_pa_tools_directory(self) -> None:
-        """cron.py must exist in personal_assistant tools directory, not in local_coding tools."""
+        """cron.py must live in the personal_assistant package, not in coding_cli.
+
+        refactor-406-M1 R7: PA's cron tool moved to ``src/personal_assistant/tools/``
+        (决策 9, supplied via build_kernel(tools=…)). coding_cli has no cron tool.
+        """
         from pathlib import Path
 
         # __file__ is in tests/contract/; parents[2] is the project root
         src_root = Path(__file__).resolve().parents[2] / "src"
-        pa_tools_dir = src_root / "agent" / "products" / "personal_assistant" / "tools"
-        cli_tools_dir = src_root / "agent" / "products" / "local_coding" / "tools"
+        pa_tools_dir = src_root / "personal_assistant" / "tools"
+        cli_dir = src_root / "coding_cli"
         assert (pa_tools_dir / "cron.py").exists(), (
-            "cron.py must exist in agent/products/personal_assistant/tools/"
+            "cron.py must exist in src/personal_assistant/tools/"
         )
-        if cli_tools_dir.exists():
-            assert not (cli_tools_dir / "cron.py").exists(), (
-                "cron.py must NOT exist in agent/products/local_coding/tools/"
-            )
+        assert not (cli_dir / "tools" / "cron.py").exists(), (
+            "cron.py must NOT exist under src/coding_cli/"
+        )
 
     def test_pa_cron_segment_in_pa_sections_module(self) -> None:
         """prompt_sections.py for PA must define a pa.cron section or pa.cron_routing section.

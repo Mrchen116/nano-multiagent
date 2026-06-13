@@ -44,7 +44,7 @@ def _make_tool_context(session_metadata: dict | None = None):
 
 def test_send_message_tool_has_no_module_level_singleton() -> None:
     """send_message.py must not export a module-level TOOL singleton."""
-    import agent.products.personal_assistant.tools.send_message as mod
+    import personal_assistant.tools.send_message as mod
 
     assert not hasattr(mod, "TOOL"), (
         "send_message.py must not have a module-level TOOL singleton"
@@ -53,7 +53,7 @@ def test_send_message_tool_has_no_module_level_singleton() -> None:
 
 def test_send_message_tool_has_no_bind_dispatcher() -> None:
     """SendMessageTool must not have a bind_dispatcher method."""
-    from agent.products.personal_assistant.tools.send_message import SendMessageTool
+    from personal_assistant.tools.send_message import SendMessageTool
 
     instance = SendMessageTool()
     assert not hasattr(instance, "bind_dispatcher"), (
@@ -68,7 +68,7 @@ def test_send_message_tool_has_no_bind_dispatcher() -> None:
 
 def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url() -> None:
     """run() must POST to gateway_dispatch_url from session_metadata."""
-    from agent.products.personal_assistant.tools.send_message import SendMessageTool
+    from personal_assistant.tools.send_message import SendMessageTool
 
     captured_urls: list[str] = []
     captured_payloads: list[dict] = []
@@ -113,7 +113,7 @@ def test_send_message_tool_dispatches_http_post_to_gateway_dispatch_url() -> Non
 
 def test_send_message_tool_raises_when_no_gateway_dispatch_url() -> None:
     """run() must raise RuntimeError with clear message when gateway_dispatch_url is absent."""
-    from agent.products.personal_assistant.tools.send_message import SendMessageTool
+    from personal_assistant.tools.send_message import SendMessageTool
 
     ctx = _make_tool_context(session_metadata={})
     tool = SendMessageTool()
@@ -124,7 +124,7 @@ def test_send_message_tool_raises_when_no_gateway_dispatch_url() -> None:
 
 def test_send_message_tool_validates_text_field() -> None:
     """run() must raise ValueError for blank text."""
-    from agent.products.personal_assistant.tools.send_message import SendMessageTool
+    from personal_assistant.tools.send_message import SendMessageTool
 
     ctx = _make_tool_context(
         session_metadata={
@@ -139,7 +139,7 @@ def test_send_message_tool_validates_text_field() -> None:
 
 def test_send_message_tool_run_returns_ok_target_text() -> None:
     """run() must return ok, target, and text fields."""
-    from agent.products.personal_assistant.tools.send_message import SendMessageTool
+    from personal_assistant.tools.send_message import SendMessageTool
 
     ctx = _make_tool_context(
         session_metadata={

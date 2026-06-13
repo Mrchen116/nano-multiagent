@@ -30,7 +30,6 @@ from agent.core.observability.tracing import set_tracer
 from agent.core.runs.registry import RunsRegistry
 from agent.core.runs.origin import RunOrigin
 from agent.core.session.jsonl_store import JsonlSessionStore
-from agent.core.tools.host_capability import HostCapabilityDispatcher
 from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.loader import build_hook_registry
@@ -86,7 +85,6 @@ def build_kernel(
     # --- legacy (扩张期保留) product-profile surface ---
     product_profile: "ProductProfile | None" = None,
     llm_config: LLMFactoryConfig | None = None,
-    host_capabilities: HostCapabilityDispatcher | None = None,
     # --- shared ---
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
@@ -119,8 +117,6 @@ def build_kernel(
             governing session JSONL / memory / skill layout (new path).
         product_profile: Legacy product profile (legacy path).
         llm_config: Legacy LLM factory config (legacy path).
-        host_capabilities: Legacy product-owned capability dispatcher (legacy path;
-            removed once cron migrates out of the kernel, 决策 9).
         can_use_tool: Optional async permission callback; None → IM card flow.
         repo_root: Repository/workspace root for tool/hook discovery.
         _llm_client_override: Test-only LLM client.
@@ -267,7 +263,6 @@ def build_kernel(
         components=components,
         can_use_tool=can_use_tool,
         repo_root=resolved_repo_root,
-        host_capabilities=host_capabilities,
     )
 
 
@@ -531,7 +526,6 @@ def _build_kernel_base(
         components=components,
         can_use_tool=can_use_tool,
         repo_root=resolved_repo_root,
-        host_capabilities=None,
         llm_catalog=llm,
     )
 
@@ -567,7 +561,6 @@ class Kernel:
         components: _KernelComponents,
         can_use_tool: CanUseToolFn | None,
         repo_root: Path,
-        host_capabilities: HostCapabilityDispatcher | None = None,
         llm_catalog: LLMConfig | None = None,
     ) -> None:
         self._c = components
@@ -582,14 +575,6 @@ class Kernel:
         # (resolved externally via submit_permission_decision).
         if can_use_tool is not None:
             self._c.runtime._can_use_tool = can_use_tool  # type: ignore[attr-defined]
-
-        # Inject host_capabilities into the runtime's base ToolContext so all
-        # tool executions have access to the dispatcher without importing
-        # personal_assistant (bugfix-402 Decision 1).
-        if host_capabilities is not None:
-            _inject_host_capabilities(
-                runtime=self._c.runtime, dispatcher=host_capabilities
-            )
 
     # ------------------------------------------------------------------
     # Public API — mirrors design.md §接口与数据流
@@ -1386,31 +1371,3 @@ def _build_session_event_publisher_factory(
         return _publish
 
     return _factory
-
-
-def _inject_host_capabilities(
-    *,
-    runtime: AgentRuntime,
-    dispatcher: HostCapabilityDispatcher,
-) -> None:
-    """Inject a HostCapabilityDispatcher into the runtime's base ToolContext.
-
-    The runtime's tool_registry holds the base ToolContext; all per-call
-    contexts are cloned via with_session() / _resolve_execution_context which
-    propagates host_capabilities.  Setting it on the base context here makes
-    the dispatcher available to every tool execution without requiring the
-    core layer to know about host capabilities.
-
-    This intentionally accesses the internal _tool_registry._context chain
-    because there is no public API on AgentRuntime/ToolRegistry for injecting
-    a dispatcher post-construction (adding one would turn the product-neutral
-    core into a product-aware surface).  The access is deliberate and bounded
-    to the composition root.
-    """
-    tool_registry = getattr(runtime, "_tool_registry", None)
-    if tool_registry is None:
-        return
-    base_ctx = getattr(tool_registry, "_context", None)
-    if base_ctx is None:
-        return
-    object.__setattr__(base_ctx, "host_capabilities", dispatcher)

@@ -29,7 +29,7 @@ def _make_ctx() -> ToolContext:
 
 
 def _make_tool() -> Any:
-    from agent.products.personal_assistant.tools.web_search import WebSearchTool
+    from personal_assistant.tools.web_search import WebSearchTool
 
     return WebSearchTool()
 
@@ -62,7 +62,7 @@ def test_web_search_raises_when_provider_call_fails() -> None:
     Provider-level failures are not 'zero results' — they mean 'search unavailable'.
     Uses patch.dict on _PROVIDERS so the tool's dispatch path sees the replaced fn.
     """
-    from agent.products.personal_assistant.tools import web_search as ws_module
+    from personal_assistant.tools import web_search as ws_module
 
     def _failing_ddgs(query: str, count: int) -> list[Any]:
         raise RuntimeError("upstream search provider unreachable")
@@ -81,7 +81,7 @@ def test_web_search_raises_when_provider_call_fails() -> None:
 
 def test_web_search_returns_empty_list_on_true_zero_results() -> None:
     """When provider returns [] legitimately (no hits), tool must return ok=True, results=[]."""
-    from agent.products.personal_assistant.tools import web_search as ws_module
+    from personal_assistant.tools import web_search as ws_module
 
     def _zero_results(query: str, count: int) -> list[Any]:
         return []
@@ -107,7 +107,7 @@ def test_brave_fallback_exhausted_raises() -> None:
     Now: brave except → _search_duckduckgo() → raises → caller sees error.
     Uses patch.dict on _PROVIDERS so the dispatch in tool.run picks up the replaced fn.
     """
-    from agent.products.personal_assistant.tools import web_search as ws_module
+    from personal_assistant.tools import web_search as ws_module
 
     def _failing_brave(query: str, count: int) -> list[Any]:
         raise RuntimeError("brave and ddg both down")

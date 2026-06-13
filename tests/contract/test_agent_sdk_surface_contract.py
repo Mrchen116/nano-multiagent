@@ -356,84 +356,12 @@ def test_kernel_exposes_assemble_prompt_preview(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# R1 bugfix-402-M4: HostCapabilityDispatcher + HostCapabilityContext (contract)
+# refactor-406-M1 R7: HostCapabilityDispatcher/HostCapabilityContext removed (决策 9).
+# The cron-enqueue bridge is gone; cron routing lives in the closure cron tool. The
+# four tests that asserted the SDK exports + build_kernel(host_capabilities=) param
+# are deleted (tested eliminated implementation). The SDK/core cron-neutrality guards
+# below stay — they now also implicitly assert no HostCapability cron types leak.
 # ---------------------------------------------------------------------------
-
-
-def test_host_capability_dispatcher_exported_from_sdk() -> None:
-    """HostCapabilityDispatcher and HostCapabilityContext must be importable from agent.sdk.
-
-    agent.sdk is the sole public surface for products; both types must be re-exported
-    there (type definitions live in agent.core.tools to avoid sdk→core inversion).
-    """
-    from agent.sdk import HostCapabilityContext, HostCapabilityDispatcher  # noqa: F401
-
-    assert HostCapabilityDispatcher is not None
-    assert HostCapabilityContext is not None
-
-
-def test_host_capability_context_fields() -> None:
-    """HostCapabilityContext must have session_id, workspace_root, product_id fields."""
-    from agent.sdk import HostCapabilityContext
-
-    ctx = HostCapabilityContext(
-        session_id="sess-1",
-        workspace_root="/tmp/ws",
-        product_id="personal_assistant",
-    )
-    assert ctx.session_id == "sess-1"
-    assert ctx.workspace_root == "/tmp/ws"
-    assert ctx.product_id == "personal_assistant"
-
-
-def test_host_capability_dispatcher_invoke_protocol() -> None:
-    """HostCapabilityDispatcher.invoke must accept (capability, payload, context) args."""
-    from agent.sdk import HostCapabilityContext, HostCapabilityDispatcher
-
-    invocations: list[tuple] = []
-
-    class _TestDispatcher(HostCapabilityDispatcher):
-        def invoke(self, capability, payload, context):
-            invocations.append((capability, payload, context))
-            return {"accepted": True, "request_id": "req-1", "error_code": None}
-
-    ctx = HostCapabilityContext(session_id="s1", workspace_root="/ws", product_id="pa")
-    dispatcher = _TestDispatcher()
-    result = dispatcher.invoke("personal_assistant.cron.enqueue", {"job_id": "j1"}, ctx)
-    assert result["accepted"] is True
-    assert len(invocations) == 1
-    cap, payload, passed_ctx = invocations[0]
-    assert cap == "personal_assistant.cron.enqueue"
-    assert payload == {"job_id": "j1"}
-    assert passed_ctx is ctx
-
-
-def test_build_kernel_accepts_host_capabilities_parameter(tmp_path: Path) -> None:
-    """build_kernel() must accept an optional host_capabilities parameter.
-
-    When provided, the dispatcher is injected into ToolContext so tools can
-    invoke capabilities without importing personal_assistant directly.
-    """
-    from agent.sdk import HostCapabilityDispatcher  # noqa: F401
-
-    class _RecordingDispatcher(HostCapabilityDispatcher):
-        def invoke(self, capability, payload, context):
-            return {"accepted": True, "request_id": "req-1", "error_code": None}
-
-    kernel = build_kernel(
-        product_profile=LOCAL_CODING_PROFILE,
-        llm_config=LLMFactoryConfig(
-            provider="openai_compat",
-            model="codex_oauth:gpt-5.5",
-            base_url="http://127.0.0.1:4000",
-        ),
-        can_use_tool=_allow_all,
-        repo_root=tmp_path,
-        _llm_client_override=_fake_llm_client(),
-        host_capabilities=_RecordingDispatcher(),
-    )
-    assert isinstance(kernel, Kernel)
-    kernel.close()
 
 
 def test_no_cron_type_exported_from_agent_sdk() -> None:
