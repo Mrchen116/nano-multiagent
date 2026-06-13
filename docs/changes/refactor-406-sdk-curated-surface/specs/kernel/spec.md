@@ -142,8 +142,9 @@ heartbeat 指引 / 群聊上下文）**全是 per-session**（由 agent 配置�
 
 ### Requirement: 系统提示由内核模板 + PromptSlots(四槽) 组装，产品内容纯 per-session
 
-内核拥有模板骨架（顺序固定：head → core 行为规则 → 通用 feature 指引 → body → 后台任务/runtime
-footer → 内核易变尾部(memory/时间) → tail）。`create_session(prompt=PromptSlots(head/body/custom/tail))`
+内核拥有模板骨架（顺序固定：head → core 行为规则 → body → 通用 feature 指引(memory/skill) →
+后台任务/runtime footer → custom → 内核易变尾部(memory/时间) → tail）。
+`create_session(prompt=PromptSlots(head/body/custom/tail))`
 填产品文案槽。系统提示的**产品内容全是 per-session**：建会话时由模板 + PromptSlots 组装一次、整会话
 稳定；内核易变尾部（memory 快照 / 当前时间）由内核自管，产品不碰。产品无任何向系统提示做 per-turn
 注入的通道（hook 不注入系统提示）。`PromptSection`/`PromptContext`/`RenderMode` 不在公共表面。

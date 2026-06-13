@@ -48,7 +48,12 @@
 - 新方案: 按 PA/LC 现状逐字节真相搭骨架 = `head → core 规则 → body → 通用 feature 指引 → 后台/footer → custom → 易变尾部 → tail`（feature 指引在 body **之后**，custom 在 footer 后、易变尾前）。
 - 原因: byte-identical（risk 1 / kernel delta-spec「逐字节等价」Scenario）是硬契约；§251 顺序 prose 是示意，与 golden 锁定的实际装配顺序冲突，照 prose 搭会破坏 golden。
 - 影响范围: 仅文档表述（§251 prose）；不影响行为/退出标准。M2 reporter 不依赖此顺序。
-- design.md 是否同步改: 待 orchestrator 定（已 SendMessage 报备，问①同意按字节真相②是否顺手改 §251 prose）。代码已按字节真相落地并 golden 守绿，design 文本修订不阻塞实施。
+- design.md 是否同步改: **不改**（orchestrator 裁定：design.md 是 design-author 所有权域，§0.3 硬规则，orchestrator/worker 都不动正文；§251 prose 修正由 orchestrator 作为非阻塞 doc nit 上报用户、design-author 后续收口）。
+- **权威骨架顺序（字节真相，以此为准，覆盖 design §251 prose）**：
+  `head → core 规则(system/actions_care/tool_rules/tone_style) → body → 通用 feature 指引(skills_listing/memory_guidance/skills_guidance) → 后台(background_tasks)/runtime_footer → custom → 内核易变尾部(memory_block/user_profile_block) → tail`
+  PA 槽映射：head=identity+runtime；body=heartbeat/cron/cron_routing/platform_policy/guidelines/routing；custom=user_custom；tail=communication_context（对齐现状 order 900 易变尾部之后）。
+  与 design §251 prose 两处差异：① 通用 feature 指引在 **body 之后**（非 prose 的 body 之前）；② custom 槽在 footer 后、内核易变尾部前（prose 未定位）。reviewer / M2 以本段为权威骨架参照。
+- delta-spec 同步: 已把 `docs/changes/refactor-406-sdk-curated-surface/specs/kernel/spec.md` 的「系统提示由内核模板 + PromptSlots 组装」Requirement 骨架顺序句改为字节真相（orchestrator 授权：delta-spec 归本 unit 在 unit 分支维护，非 design 正文）。
 
 ## R3 — build_kernel 基座 + create_session per-agent + DTO + Protocol（扩张）  [部分完成 / HANDOFF]
 
