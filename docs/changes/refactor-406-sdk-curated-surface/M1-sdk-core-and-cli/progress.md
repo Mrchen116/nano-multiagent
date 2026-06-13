@@ -167,3 +167,38 @@
 - R5/R6/R7 见上「后续 roadpoint」;R7 豁免名单 = RunOrigin/PermissionDecision/TERMINAL_RUN_STATUSES + ToolPresenter/ToolPresentationEvent
   + `_M1_TEMP_REPORTER_EXPORTS`。
 - 协调注记:本 worktree 曾发生双 worker 冲突,现已彻底理清——**单一所有者**,base 含决策12,4e638b02 是权威起点。续跑勿 reset 回更早 commit。
+
+## R-presenter 完成（决策12 presenter 随 Tool 对象走，已 push）
+
+- Context: 决策12——presenter 解析从 platform 模块级全局注册表(string-keyed + import 副作用)迁到「随 Tool 对象走、kernel 作用域解析」,
+  与决策2「工具是产品全权拥有的原生对象」同根。orchestrator 确认排序 R4 内做、先录 golden 基线。
+- Decision:
+  1. 表面侧(已 push 53dcd864):Tool Protocol 文档化可选 `presenter`(getattr 读、非 required 成员不破 isinstance);
+     ToolPresenter/ToolPresentationEvent re-export 进 agent.sdk(core 拥有、闸2 豁免)。
+  2. golden 基线(C1,已 push):`tests/unit/platform/tools/test_presentation_golden.py` 逐字段快照 6 presenter + 默认(迁前录,13 passed)。
+  3. 迁移(C2,本次):删 platform 全局 `_PRESENTERS`/`register_presenter`/`resolve_presenter`/`_register_builtin_presenters()` 整组;
+     6 presenter 类保留(纯函数)实例化为 `*_PRESENTER` 单例;6 内置工具类各挂 `presenter = *_PRESENTER`;新 `resolve_presenter_for_tool(tool)`
+     从 `tool.presenter` 读、缺省落 `_DEFAULT`;realtime_stream 改从 `ctx.metadata["tool_registry"].get(name).presenter` 解析。
+- Rationale: 从 tool_registry(已装配工具事实源)读 `.presenter` 比 build_kernel 另注入平行 map 更内聚、无重复真相、外部产品工具自带
+  presenter 自动可达、不加 build_kernel→setup 新通道(orchestrator 未否决,采用)。MCP/运行时发现工具无 presenter 落默认,与迁前一致。
+- Evidence:
+  - Tests: presenter 套件(test_presentation 23 + golden 13 + realtime_stream + cap)43 passed;**全测试树 2749 passed/1 skipped 零回归**;ruff 干净。
+  - Entry: presenter 经 realtime_stream hook 在 tool_start/tool_end 发 presentation;真端到端 IM 渲染验证留 R6 live(IM 创建 agent 跑工具看卡片)。
+  - E2E/Regression: presentation golden(迁前基线)逐字节守 IM 渲染零变化——迁后 resolve seam 改读 tool.presenter、期望值不动、全绿。
+  - Browser QA / Visual: 待 R6 IM live 看工具卡片渲染。
+- Rollback: C2 revert 恢复全局注册表;表面侧/golden 独立 commit 可分别 revert。
+- Commits: 表面=53dcd864;golden C1=<presenter golden commit>;迁移 C2=<本次>;C3=<本条>。
+- **仍待(R-presenter 收尾,放 R4/R6)**:外部产品最小证明加码——`test_sdk_kernel_wiring.py` 闭包副作用工具加 `.presenter`,
+  断言 label/summary/detail 出现在 tool_start/tool_end(证「产品带工具进来、展示卡随对象来」)。
+
+## R4 结构部分边界裁定(三段式:先迁后删)
+
+- 取证:`agent.products.personal_assistant.*` + `host_capabilities=` 被 main.py(legacy PROFILE 路径)+ platform/products 垫片
+  + sdk 导出 + ≈10 测试在用。**现在物理搬目录/删 HostCapability 会打断在用 PA + 红一大片**,这些消费者 R5/R6/R7 才消失。
+- 裁定(三段式纪律,不改架构终态只改删除时机):
+  - R4 余下做**扩张/迁移工具侧**:`src/personal_assistant/tools/` 新建闭包 cron 工具(`make_cron_tool(cron_svc)`,闭包持 service
+    + per-agent 路由),经新 build_kernel(tools=) 可用;**不删** legacy cron.py/host_capabilities=/GatewayCronDispatcher。
+  - R5/R6:CLI/PA 切新 build_kernel,消费者迁离 legacy 路径。
+  - **R7 收缩段一次删干净**:PA 目录物理搬家 + HostCapabilityDispatcher/Context/host_capabilities=/_inject_host_capabilities 整组删
+    + GatewayCronDispatcher 删 + products/ 解散 + bootstrap _product_root 退役 + SDK 撤导出 + 决策7 三道闸。
+  - 理由:先删后破只能向前修、回退粒度归零(违反决策11);先迁后删每步独立可 revert、全程不破 PA。终点不变(products 没了/桥没了/PA 在 src/)。
