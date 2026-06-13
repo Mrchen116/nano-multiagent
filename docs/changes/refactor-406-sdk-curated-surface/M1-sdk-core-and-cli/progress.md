@@ -188,8 +188,24 @@
   - Browser QA / Visual: 待 R6 IM live 看工具卡片渲染。
 - Rollback: C2 revert 恢复全局注册表;表面侧/golden 独立 commit 可分别 revert。
 - Commits: 表面=53dcd864;golden C1=<presenter golden commit>;迁移 C2=<本次>;C3=<本条>。
-- **仍待(R-presenter 收尾,放 R4/R6)**:外部产品最小证明加码——`test_sdk_kernel_wiring.py` 闭包副作用工具加 `.presenter`,
-  断言 label/summary/detail 出现在 tool_start/tool_end(证「产品带工具进来、展示卡随对象来」)。
+- **外部产品 presenter 证明已加码(本次完成)**:`test_sdk_kernel_wiring.py::test_closure_tool_presenter_surfaces_in_stream`——
+  闭包副作用工具自带 `presenter`(label=Record/summary=note=hi/detail),经 `kernel.stream` 真订阅,断言 presentation 出现在
+  `tool_start`/`tool_end` 事件。这条**驱动真实解析链**(realtime_stream 从 ctx.tool_registry 读 .presenter,非内置工具走这条路),
+  守住 orchestrator nail-down ①:防「ctx.tool_registry 不可达→静默落默认、纯函数断言照绿、漂移逃逸」。10 passed。
+
+## [Design 实现路径等价替换] R-presenter: presenter 解析机制(§4 记一笔)
+
+- design 字面: 决策12 写「`build_kernel` 时从工具目录构 `name→presenter` map 并注入 realtime_stream hook」。
+- 实际采用: realtime_stream 从 `ctx.metadata["tool_registry"].get(name).presenter` 解析(tool_registry 由 registry.execute 既有
+  注入 hook ctx),无则落 `_DEFAULT`。**不**构 build_kernel→setup 注入的平行 map。
+- 等价性 + 决策12 四条绑定契约对照(design 那句是**实现机制描述,非契约**,orchestrator 确认):
+  ① presenter 随 Tool 对象走 ✓(读 tool.presenter);② kernel 作用域解析非全局 ✓(读已装配 tool_registry,非模块级 global);
+  ③ 删 platform 全局 `_PRESENTERS`/`register_presenter`/`resolve_presenter` ✓(整组删);④ golden 逐字节 ✓(test_presentation_golden 迁前基线 + 真实 hook 链证明)。
+- 为何更优: 单一真相源(对象 `.presenter`)无平行 map、与决策4「解析来自已装配 Kernel」同构;外部产品工具自带 presenter 经
+  `build_kernel(tools=)` 注册后自动可达,无须 build_kernel 额外收集。
+- 影响范围: 仅实现路径(realtime_stream 解析方式),不影响决策12 任何对外契约;**design.md 不改**(design-author 所有权域,§0.3);
+  delta-spec `specs/kernel/spec.md` 的「工具展示由工具自带的 presenter 决定」Requirement **本就按契约写**(随对象、自带 presenter 决定、
+  无须额外注册步骤),不绑具体注入方式,**与本实现一致,无须校正**。reviewer/verifier 以 delta-spec 契约 + 本节为准,勿被 design 字面「构 map 注入」误导。
 
 ## R4 结构部分边界裁定(三段式:先迁后删)
 

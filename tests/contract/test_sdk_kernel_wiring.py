@@ -117,10 +117,37 @@ def _make_recording_tool(sink: list[str]) -> _RecordingTool:
     return _RecordingTool(sink)
 
 
+class _RecordPresenter:
+    """A presenter that travels with the closure tool (决策 12).
+
+    Proves a product tool brings its own IM render card: the kernel resolves this
+    presenter off the tool object (no global registry), and the label/summary/detail
+    surface on the tool_start / tool_end events.
+    """
+
+    def format_start(self, args: Mapping[str, Any]):
+        from agent.sdk import ToolPresentationEvent  # noqa: PLC0415
+
+        return ToolPresentationEvent(
+            visible=True, label="Record", summary=f"note={args.get('note', '')}"
+        )
+
+    def format_end(self, args: Mapping[str, Any], result: Any, duration_ms: int):
+        from agent.sdk import ToolPresentationEvent  # noqa: PLC0415
+
+        return ToolPresentationEvent(
+            visible=True,
+            label="Record",
+            summary="recorded",
+            detail={"note": str(args.get("note", ""))},
+        )
+
+
 class _RecordingTool:
     name = "record"
     description = "Record a note into the application subsystem."
     input_schema: dict = {"type": "object", "properties": {"note": {"type": "string"}}}
+    presenter = _RecordPresenter()  # 决策 12: presentation travels with the tool object
 
     def __init__(self, sink: list[str]) -> None:
         self._sink = sink
@@ -241,6 +268,58 @@ async def test_closure_side_effect_tool_runs(tmp_path: Path) -> None:
         )
         await _wait_terminal(kernel, run.run_id)
         assert sink == ["hi"], f"closure tool side effect not observed: {sink!r}"
+    finally:
+        await kernel.aclose()
+
+
+async def test_closure_tool_presenter_surfaces_in_stream(tmp_path: Path) -> None:
+    """A product tool's own presenter (决策 12) reaches tool_start/tool_end events.
+
+    This drives the **real** resolution path: realtime_stream reads the presenter
+    off the assembled tool object via ctx.tool_registry (no global registry). Guards
+    that presentation is resolved through the kernel-scoped hook chain, not just the
+    presenter function in isolation (orchestrator nail-down #1).
+    """
+    sink: list[str] = []
+    kernel = _build(
+        tmp_path,
+        tools=[_EchoTool(), _make_recording_tool(sink)],
+        can_use_tool=_allow_all,
+        _llm_client_override=_tool_calling_llm_client("record"),
+    )
+    presentations: dict[str, dict[str, Any]] = {}
+    try:
+        session = await kernel.create_session(
+            workspace_root=tmp_path, enabled_tools=["echo", "record"]
+        )
+        run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "record hi"}],
+            origin=RunOrigin.USER,
+        )
+
+        async def _collect() -> None:
+            async for ev in kernel.stream(session.session_id):
+                name = ev.get("event")
+                if name in ("tool_start", "tool_end") and ev.get("name") == "record":
+                    presentations[name] = ev.get("presentation") or {}
+                if name == "run_status" and ev.get("status") in {
+                    "completed",
+                    "failed",
+                    "cancelled",
+                }:
+                    return
+
+        await asyncio.wait_for(_collect(), timeout=3.0)
+
+        assert "tool_start" in presentations, "no tool_start presentation captured"
+        start = presentations["tool_start"]
+        assert start["label"] == "Record"
+        assert start["summary"] == "note=hi"
+        end = presentations["tool_end"]
+        assert end["label"] == "Record"
+        assert end["summary"] == "recorded"
+        assert end["detail"] == {"note": "hi"}
     finally:
         await kernel.aclose()
 
