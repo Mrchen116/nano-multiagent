@@ -2178,6 +2178,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
 
     runtime_dir = config.source_path.parent
+    # The shim builds per-session PromptSlots/enabled_tools/features from agent config
+    # (决策 8).  Point it at the live pipeline._agents dict (set after the pipeline is
+    # built below) so config-sync register_agent updates — e.g. enabling heartbeat/cron —
+    # reach heartbeat/cron sessions; a startup snapshot would go stale.
     channel_registry = _build_channel_registry(
         config.channels,
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
@@ -2643,6 +2647,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # Provide agents dict reference (closure over pipeline for dynamic updates).
     heartbeat_runner._cron_tick_fn = _cron_tick_for_agent  # noqa: SLF001
     heartbeat_runner._agents = pipeline._agents  # noqa: SLF001
+    # refactor-406-M1 R6: share the live pipeline._agents dict so the shim's PromptSlots/
+    # features (built per heartbeat/cron session) reflect config-sync updates, same as
+    # the heartbeat scheduler/runner above.
+    kernel_shim._agents_by_id = pipeline._agents  # noqa: SLF001
     # feat-394-M4 R3 S1.3 fix: wire a live agents_getter into the heartbeat scheduler
     # so each tick reads the current agent config from pipeline._agents rather than the
     # frozen config.agents tuple captured at init time.  This lets heartbeat_enabled=False

@@ -4,8 +4,24 @@ node:
 agents:
 - agent_id: default-agent
   workspace_root: /Users/czj/Repos/nano-multiagent/.worktrees/refactor-406-M1/.gateway-workspace/default-agent
+  title: default-agent
+  tool_allowlist:
+  - read
+  - write
+  - edit
+  - bash
+  - agent
+  - task_stop
+  - web_fetch
+  - web_search
+  - skill_manage
+  - memory
+  group_reply_policy: MENTION
   features:
     cron_scheduling: true
+    heartbeat: true
+  heartbeat:
+    every: 1m
 - agent_id: Arch
   workspace_root: /Users/czj/Repos/nano-multiagent/.worktrees/refactor-406-M1/.gateway-workspace/Arch
   title: Q
@@ -238,8 +254,8 @@ channels:
 - name: web_relay
 im_service:
   url: http://127.0.0.1:55582
-  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5NWQ3MGE5Y2NmNzA0MzFkYWEwYjlmNzQ1MDBhZWIzYSIsInR5cGUiOiJhY2Nlc3MiLCJpYXQiOjE3ODEzODI2NDIsImV4cCI6MTc4MTM4MzU0MiwianRpIjoiNTVjOWRlOWY1ZWQyYjY4M2MwYjIwZGRjODhiNmMzMDMifQ._X4FJ8lNuBN4jWE_tdIxYTLOQDfXanYGRUhvqYtHUiQ
-  refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5NWQ3MGE5Y2NmNzA0MzFkYWEwYjlmNzQ1MDBhZWIzYSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgxMzgyNjQyLCJleHAiOjE3ODE5ODc0NDIsImp0aSI6ImY3YjFlYzQzY2NmMWZjZmE3ODM1MjNiYmM3MWYwZWY4In0.Q5VrICpxJXcp02U49Vxh1ft5zl3zY0WHi5nzj1WrOF0
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5NWQ3MGE5Y2NmNzA0MzFkYWEwYjlmNzQ1MDBhZWIzYSIsInR5cGUiOiJhY2Nlc3MiLCJpYXQiOjE3ODEzODM2NDQsImV4cCI6MTc4MTM4NDU0NCwianRpIjoiYTE2NzJlOTg3Njg5MmI4N2JiODBiMTZkYTY2MTMwMzMifQ.QmMXQp4GiPsWyZAUNYIfurIAe6xbkMbdE5yF0z7UNRo
+  refresh_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI5NWQ3MGE5Y2NmNzA0MzFkYWEwYjlmNzQ1MDBhZWIzYSIsInR5cGUiOiJyZWZyZXNoIiwiaWF0IjoxNzgxMzgzNjQ0LCJleHAiOjE3ODE5ODg0NDQsImp0aSI6IjljMTM4MDM5Yjk3YmUxN2YxZTlhNzBmM2JjMDQxZDJkIn0.Iyj0ljlE3w0jReCJvEUmrjI0kfbbE-fcXXFY3J4kD5U
   username: nano
   password: nano1234
 llm:
