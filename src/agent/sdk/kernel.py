@@ -267,14 +267,18 @@ def _factory_config_to_llm_config(
 
 
 class _SearchRootsResolver:
-    """Minimal duck resolver for build_hook_registry / build_tool_registry (M3fix #2).
+    """Minimal duck resolver for build_hook_registry (M3fix #2).
 
-    Satisfies the loaders' ``_HookRootResolver`` / ``_ToolRootResolver`` Protocols
-    (``user_hook_roots`` / ``user_tool_roots``) from consumer-supplied deployment roots
-    — NOT a ConfigResolver. ``user_*_roots()`` returns the per-workspace ``.nano/<subdir>``
-    dir FIRST then the deployment ``extra_roots``, deduped, so the loader discovers both
-    the workspace dir (unchanged behavior) and the user-level dirs. Same model as
-    ``skill_search_roots``: the consumer factory owns these product paths.
+    Satisfies the hook loader's ``_HookRootResolver`` Protocol (``user_hook_roots``)
+    from consumer-supplied deployment roots — NOT a ConfigResolver. ``user_hook_roots()``
+    returns the per-workspace ``.nano/hooks`` dir FIRST then the deployment ``extra_roots``,
+    deduped, so the loader discovers both the workspace dir (unchanged behavior) and the
+    user-level dirs. Same model as ``skill_search_roots``: the consumer factory owns these
+    product paths.
+
+    Only the hook registry uses a resolver; the tool path loads tool_search_roots directly
+    via ``_load_tools_from_single_dir`` in ``_build_kernel_base`` (no resolver indirection),
+    so no ``user_tool_roots`` is provided here.
     """
 
     def __init__(self, *, workspace_dir: Path, extra_roots: tuple[Path, ...]) -> None:
@@ -286,9 +290,6 @@ class _SearchRootsResolver:
         self._roots = tuple(ordered)
 
     def user_hook_roots(self) -> tuple[Path, ...]:
-        return self._roots
-
-    def user_tool_roots(self) -> tuple[Path, ...]:
         return self._roots
 
 
@@ -456,12 +457,20 @@ def _build_kernel_base(
     # 工具发现——决策2 明写「.nano/tools 运行时发现机制不变」，但新 build_kernel 直接手搓
     # registry（builtins + 显式 tools=）跳过了它。仅扫 workspace .nano/tools（字面 .nano，
     # 非 workspace_config_dirname），不经 ConfigResolver。
+    # refactor-406-M3fix-r2 R2-1 (崩溃回归修)：用 _load_tools_from_single_dir(replace=True)
+    # 而非 load_tools_from_directory(replace=False)——后者遇到工作区 .nano/tools 里与内置
+    # 同名的 override（如 bash.py 导出 name='bash'）会 register 抛 ValueError → build_kernel
+    # 崩溃、Gateway/CLI 起不来。旧行为允许 .nano/tools override 内置（replace=True），且与下方
+    # user-root 加载一致。
     from agent.platform.tools.loader import (  # noqa: PLC0415
         _load_tools_from_single_dir,
-        load_tools_from_directory,
     )
 
-    load_tools_from_directory(repo_root=resolved_repo_root, registry=tool_registry)
+    workspace_tools_dir = resolved_repo_root / ".nano" / "tools"
+    if workspace_tools_dir.is_dir():
+        _load_tools_from_single_dir(
+            tool_root=workspace_tools_dir, registry=tool_registry, replace=True
+        )
 
     # refactor-406-M3fix #2: deployment-level user tool dirs (tool_search_roots, same
     # consumer-supplied-roots pattern as skill_search_roots — no ConfigResolver). Loaded
@@ -716,7 +725,11 @@ class Kernel:
         Returns:
             SessionInfo with session_id / title / workspace_root / metadata.
         """
-        effective_root = workspace_root or self._repo_root
+        # refactor-406-M3fix-r2 R2-5：resolve to absolute so the #5 self_evolution
+        # config_path (effective_root/<dirname>/config.yaml) does not depend on the
+        # process cwd when workspace_root is relative — otherwise is_file() silently
+        # misses the file and falls back to defaults. Mirrors resolved_repo_root.
+        effective_root = (workspace_root or self._repo_root).expanduser().resolve()
 
         effective_allowlist = (
             enabled_tools if enabled_tools is not None else tool_allowlist

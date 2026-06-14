@@ -144,6 +144,14 @@ class SkillManageTool:
         else:
             self._fixed_writer = None
             self._fixed_registry = None
+        # refactor-406-M3fix-r2 R2-3：fail fast at construction if neither a fixed
+        # (skill_root + registry) nor a per-session (workspace_config_dirname) path is
+        # configured — otherwise the misconfiguration only surfaces at first run().
+        if self._fixed_writer is None and not self._workspace_config_dirname:
+            raise ValueError(
+                "SkillManageTool requires either (skill_root + registry) or "
+                "workspace_config_dirname for per-session resolution"
+            )
 
     def run(self, args: Mapping[str, Any], ctx: Any) -> Mapping[str, Any]:
         """Dispatch the requested action; return structured success/error dict."""
