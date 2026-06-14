@@ -397,10 +397,15 @@ def build_pa_kernel(
         SendMessageTool(),
         WebSearchTool(),
     ]
+    # refactor-406-M2: PA hooks supplied via build_kernel(hooks=…) (决策 2). chat_history
+    # persists each turn to <workspace>/chat_history/<session_id>.jsonl (M249 behavior;
+    # M1 R6 migration gap — shipped hooks=[] and lost it — closed here).
+    from personal_assistant.hooks import chat_history  # noqa: PLC0415
+
     return build_kernel(
         llm=llm,
         tools=tools,
-        hooks=[],
+        hooks=[chat_history.setup],
         can_use_tool=None,
         workspace_config_dirname=WORKSPACE_CONFIG_DIRNAME,
         repo_root=resolved_root,

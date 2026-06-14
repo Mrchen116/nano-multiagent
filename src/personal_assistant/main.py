@@ -1685,20 +1685,8 @@ def run_gateway(
         load_config=resolved_factories.load_config,
         im_service_url_override=im_service_url_override,
     )
-    # refactor-406-M2: build_kernel (via build_pa_kernel inside build_runtime) inits the
-    # model registry from config.llm (决策 5). But some registry consumers can be
-    # constructed *before* build_pa_kernel runs (e.g. the build_runtime factory may be
-    # overridden, or an LLM client factory may read registry metadata at an earlier
-    # point), so the per-model extra_request_body (e.g. K2.6 thinking) would be missing.
-    # Init the registry here too — idempotent with build_kernel's own init (reset+init)
-    # and guarantees the catalog (incl. extra_request_body) is live before any consumer.
-    from agent.core.llm.model_registry import (  # noqa: PLC0415
-        _reset_for_tests,
-        init_model_registry,
-    )
-
-    _reset_for_tests()
-    init_model_registry(config.llm)
+    # refactor-406-M2: model registry init is build_kernel's responsibility (决策 5):
+    # build_runtime → build_pa_kernel → build_kernel inits the registry from config.llm.
     builder = resolved_factories.build_runtime or build_runtime
     runtime = builder(config)
     restore_signal_handlers = (
