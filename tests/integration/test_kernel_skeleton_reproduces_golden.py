@@ -15,6 +15,7 @@ the slots directly to isolate the skeleton-placement correctness.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,19 @@ from agent.sdk.prompt import PromptSlots, PromptText
 _GOLDEN_DIR = Path(__file__).parent / "golden_prompts"
 _DT = "2026-01-01T00:00:00"
 _CWD = "/workspace"
+
+
+def _mask_host(s: str) -> str:
+    """Normalize the host-volatile ``Platform:`` line to a fixed placeholder.
+
+    决策 8 masks host-volatile values (memory block, datetime) before golden
+    comparison; the runtime ``Platform: <os> <arch>`` line (product.py computes
+    it from the live host) is the same class of value but was baked into the
+    golden on the generating host (macOS arm64). Masking both sides keeps the
+    byte-identity proof for every other line while making the platform line
+    host-agnostic, so the golden holds on Linux CI runners too.
+    """
+    return re.sub(r"^Platform: .*$", "Platform: <runtime-host>", s, flags=re.M)
 
 
 def _tool(name: str) -> ToolSpec:
@@ -162,7 +176,7 @@ def test_skeleton_plus_slots_reproduces_golden(case_name: str) -> None:
     )
     actual = assemble_system_prompt(build_kernel_prompt_skeleton(), skel_ctx)
     expected = (_GOLDEN_DIR / f"{case_name}.txt").read_text(encoding="utf-8")
-    assert actual == expected, (
+    assert _mask_host(actual) == _mask_host(expected), (
         f"kernel skeleton + PromptSlots for {case_name!r} drifted from golden "
         f"(决策 8 byte-identity broken)"
     )
