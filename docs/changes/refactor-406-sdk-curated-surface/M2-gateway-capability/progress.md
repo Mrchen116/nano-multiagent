@@ -126,6 +126,14 @@
 
 **R-CFG-1/2/3/4 + R-GW-1/2 全 6 项 live PASS（M2 reviewer 矩阵 capability + Gateway 核心全绿）。**
 
+### relay 解锁 + 入站行为 live PASS（K2.6 thinking + chat_history 落盘）
+
+- **relay 不通根因 + 解锁（m1-worker-3 配方）**：agent 作 conversation participant 需 IM `users` 表有 `agent:<id>` 记录；node.register 只建 agent_profiles 不建 user。**`GET /im/v1/agents` 触发 `ConfigService.ensure_agent_user` self-heal 建 agent user**——先 GET /agents（建 agent user）→ 再用真实 nano user.id + agent 建会话（[user, agent] participant）→ 发消息即 relay 通。**陷阱：relay 字段空 + gateway log 无 inbound 不代表没通——硬信号是 agent session JSONL 落 `[assistant]` turn**（被 m1-worker-3 提醒躲过此误判）。
+- **K2.6 thinking extra_request_body live PASS（决定性）**：真发一轮（sess_be201c31，会话 JSONL 落 assistant turn「k26-thinking-live-ok」）→ LLM proxy 本次请求 `model=kimiCoding:K2.6` + **`thinking: {type: adaptive}`** 真在请求体。**build_kernel 内部 init 足够，K2.6 thinking 无回归——撤销外部 init（误判 + 边界违反）是对的。**（前段「K2.6 回归是误判」由此 live 终验：内部 init 链端到端带 thinking。）
+- **chat_history 落盘 live PASS（裁决 b 第 4 步）**：`<workspace>/chat_history/sess_be201c31.jsonl` 真写出，内容逐轮——user turn「Reply with exactly...」+ assistant turn「k26-thinking-live-ok」。**对话历史落盘行为完全保留（M249 行为，hook 经 build_pa_kernel(hooks=) 接回生效）。** chat_history/ 落 .gateway-workspace/（gitignore 拦，分支零 e2e 产物）。
+
+**M2 全部 live 项 PASS：R-CFG-1/2/3/4 + R-GW-1/2 + K2.6 thinking + chat_history 落盘。**
+
 ### K2.6 thinking「回归」是误判（已更正撤销）
 
 - **误判经过**：曾报 thinking=None proxy log（13:02 CST）= K2.6 thinking 丢，据此恢复 main.py 外部 init。
