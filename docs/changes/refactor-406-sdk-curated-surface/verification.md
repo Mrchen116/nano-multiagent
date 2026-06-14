@@ -17,6 +17,62 @@ No critical issues. 1 warning to consider. Ready for PR (with noted improvement)
 
 ---
 
+# Round 2
+
+> Branch: `unit/refactor-406` (HEAD 8a5c220b)  
+> Fix commits: 262bcb63..8a5c220b (M3fix #1-#7)  
+> Date: 2026-06-15
+
+## Round 2 Summary
+
+| 维度 | 结果 |
+|---|---|
+| fix diff 完整性 | 7 项 fix 全部实现 |
+| 决策符合性 | 决策 2/4/8 遵守，无 ConfigResolver 复活，无 platform→sdk 倒挂 |
+| 全树测试 | 2587 passed / 0 failed / 1 skipped，ruff 全绿 |
+
+All checks passed. Ready for PR.
+
+## Round 2 核查明细
+
+### 核查范围
+
+fix diff: commits 262bcb63..8a5c220b，共 5 commits（#1 工作区工具发现 + #4 SkillManageTool per-session / #2 tool/hook 部署根对称补全 / #3 preview skill resolver / #5 self_evolution re-home / #6 CLI skill_search_roots / #7 close_session 内存清理）。
+
+### 决策 2：工作区 .nano/tools 运行时发现（#1 恢复）
+
+`sdk/kernel.py:464`：`load_tools_from_directory(repo_root=resolved_repo_root, registry=tool_registry)` 在注册内置工具 + 显式 `tools=` 后立即调用，扫描 `<repo_root>/.nano/tools`，不经 ConfigResolver。顺序：builtins → tools= → workspace .nano/tools → tool_search_roots 部署根——与决策 2「.nano/tools 运行时发现不变」一致。
+
+### 决策 2：tool_search_roots / hook_search_roots 入参（#2）
+
+`_SearchRootsResolver`（`sdk/kernel.py:266-296`）鸭子满足 loader 私有 Protocol `_ToolRootResolver`（`user_tool_roots()`）和 `_HookRootResolver`（`user_hook_roots()`），workspace `.nano/{tools,hooks}` FIRST 再 extra_roots，去重保序。无 ConfigResolver 继承，无 sdk import。consumer 工厂（`coding_cli/product.py:CLI_TOOL/HOOK_SEARCH_ROOTS`、`personal_assistant/product.py:PA_TOOL/HOOK_SEARCH_ROOTS`）显式传入，port 自旧 LOCAL_CODING_PROFILE/ConfigResolver user_tool/hook_roots()。delta-spec 签名行已同步补 `tool_search_roots=() / hook_search_roots=()`。
+
+### 决策 8：preview per-call skill resolver（#3）
+
+`sdk/kernel.py:1397-1408`：`assemble_prompt_preview` 中 skill_ids 解析改为新建 `_WorkspaceDirnameSkillResolver(workspace_root=effective_root, workspace_config_dirname=..., extra_roots=self._skill_search_roots)`，与 `list_skills` 同源——去除了原来读取 `runtime._config_resolver`（2 层路径恒 None → skill 段空白）的 bug。预览=真实会话同源（决策 8）。
+
+### SkillManageTool per-session 派生（#4）
+
+`platform/tools/builtins/skill_manage.py`：`__init__` 新增 `workspace_config_dirname` / `extra_roots` 路径（固定 `skill_root+registry` 路径保留向后兼容测试）；`run()` 调 `_resolve_writer_registry(ctx)` 从 `ctx.session_metadata["workspace_root"]` + `workspace_config_dirname` per-call 派生 writer+registry，search_roots = [write_root] + extra_roots 去重，与 `Kernel.list_skills` 同逻辑（决策 4 一致）。**零 sdk import**（只 import `agent.core.skills.registry`/`writer`），无 platform→sdk 倒挂。
+
+### self_evolution config re-home（#5）
+
+`sdk/kernel.py:587-634`（`_load_self_evolution_config`）+ `kernel.py:729-750`（`create_session`）：仅用 `effective_root / workspace_config_dirname / "config.yaml"` 定位文件（无 ConfigResolver / user roots），port 原 bootstrap._load_self_evolution_config 逻辑 + fallback；caller-supplied metadata 胜出（不覆盖显式值）。新测试 `tests/unit/agent/test_kernel_self_evolution_metadata.py` 4 passed。
+
+### CLI skill_search_roots 补全（#6）
+
+`coding_cli/product.py:CLI_SKILL_SEARCH_ROOTS = (~/.nanocode/skills, ~/.codex/skills)`，port 自旧 LOCAL_CODING_PROFILE。M2 只补了 PA，漏了 CLI——此 fix 对称。
+
+### close_session 内存清理（#7）
+
+`agent/core/agent/runtime.py:1051`：`self._session_prompt_slots.pop(session_id, None)` 在 `close_session` 中清理 PromptSlots 映射，消除本 unit 引入的长会话 churn 内存泄漏。新测试 `tests/unit/test_runtime_close_session_prompt_slots.py` 1 passed。
+
+### Round 1 WARNING W1 状态
+
+`docs/specs/kernel/spec.md`（canonical）仍未归并 delta-spec（旧 API 描述保留）。本次 fix diff 未处理。**仍为 WARNING**，不影响 PR merge，建议后续 roadpoint 归并。
+
+---
+
 ## Completeness
 
 ### M1 Tasks（7/7 完成）
