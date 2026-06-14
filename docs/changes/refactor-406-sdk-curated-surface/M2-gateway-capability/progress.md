@@ -111,6 +111,22 @@
 
 - **遗留文档同步（待 orchestrator 裁，非阻塞）**：SPEC.md §126「内部分四层（core / platform / products / sdk）」+ §102 products/ 目录树 + §134「core 不依赖 platform / products」描述 products 删后过时，应改三层（core / platform / sdk）。contract test_multi_product_architecture 的 KERNEL_REQUIRED_DOC_SNIPPETS 验 SPEC.md 这些措辞（现仍匹配旧文档，**contract 绿**）。SPEC.md 是跨包架构顶点 + design-author 所有权域——SPEC.md 改三层 + 同步 contract snippet 需 orchestrator 裁（我改 vs 上报 design-author）。
 
-## R4 — live 实测 R-CFG-1/2/3/4 + R-GW-1/2（待 R3 收口）
+## R4 — live 实测 R-CFG-1/2/3/4 + R-GW-1/2（进行中）
 
-（待做）
+真起 IM+Gateway+LLM proxy（./scripts/e2e-up.sh，worktree ephemeral 端口 + auto-bind + 本地 config 副本）。
+
+### 已 live PASS
+
+- **R-GW-1 PASS**：现有 config 启 Gateway——改造后 build_runtime（删 init / products 解散 / PA-owned config schema）正常装配内核 + WS 连 IM（im log `WebSocket /im/ws/gateway [accepted]`）+ 节点注册 `status=online agent_count=3 last_error=null`，无新兼容开关。
+- **R-CFG-1 PASS（capability payload 逐字段与基线一致）**：IM `GET /im/v1/nodes/{id}/capabilities` 真返：models=[kimiCoding:K2.6, volcanoArk:..., codex_oauth:gpt-5.5]（顺序对）/ platform_default_model=kimiCoding:K2.6 / tools=12（default_on 划分对，desc=""）/ features=4 条（memory/skill/cron/heartbeat，i18n+default_on+available+requires_tool 全对，node 级 available 全 True）/ skills=39（含 global/compat discovery，skill_search_roots 补全生效）。**reporter 切 list_* + Gateway 投影 + skills root 补全的 live 端到端验证，payload 逐字段对。**
+
+### K2.6 thinking 回归（发现 + 已修 + 待 live 复验）
+
+- **发现**：删 init 版本第一次 e2e 的 K2.6 LLM 请求体丢了 extra_request_body（thinking 缺失），对比 base 同场景请求带 `thinking:{type:adaptive}`（LLM proxy log 对比）。
+- **根因**：R3a 删 main.py 的 init_model_registry(config.llm)。registry 链本身正确（resolve_model_metadata 实测返回 thinking），但 build_pa_kernel 内部 init 时机晚于某些 registry 消费者（LLM client factory 可能更早读 metadata）；base 的外部 init（build_runtime 前）保证时机。
+- **已修**（commit push）：build_runtime 前恢复 `_reset_for_tests()+init_model_registry(config.llm)`（与 build_kernel 自身 init 幂等，core import）。PA 启动测试 16 passed。
+- **⚠️ 待 live 复验（§0.11 已找 orchestrator 求 relay 协助）**：恢复 init 后未跑通一轮 live——IM→Gateway relay 不通（消息 POST relay:None，gateway log 无 inbound，WS accepted 但消息没 relay 到节点）。阻塞 K2.6 thinking + R-CFG-2/3/4 + R-PA 类端到端触发。**不凭推断判 PASS，待 relay 通跑通真带 thinking。**
+
+### 待 live（relay 通后一次性复验）
+
+- R-CFG-2（跨 workspace skill 差异）、R-CFG-3（保存回显）、R-CFG-4（prompt preview）、R-GW-2（停止/重启）、K2.6 thinking 端到端。
