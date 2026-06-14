@@ -10,14 +10,14 @@
 
 ## 退出标准
 
-- [ ] 2 层入口 `build_kernel`（共享基座）+ `create_session`（per-agent）+ `list_models/tools/features/skills`（内核侧产出）可用且有单测
-- [ ] 外部产品最小证明：测试内构造 agent 包外应用，仅经 `agent.sdk` 装配 + 开会话跑通带工具调用一轮（含闭包直连自己服务的副作用工具）
-- [ ] PA/LC 完整 system prompt 重构前 vs 重构后逐字节等价（基线 = 重构前快照；cron/heartbeat/群聊三段经 PromptSlots 四槽复现）
-- [ ] 迁 cron 出内核前先补 cron 段逐字节 golden（现 `test_cron_prompt_sections` 仅 `len>20` 弱断言）
-- [ ] sdk/prompt/llm/cron/dto 域旧导出清零（除 M1 临时保留的 reporter 旧导出，标注 `_M1_TEMP_REPORTER_EXPORTS`）、`HostCapabilityDispatcher`/`host_capabilities=` 删除、cron 闭包直连 `CronExecutionService`
-- [ ] 决策 7 守卫脚手架立（所有权 + 豁免闸绿；精确名单暂含 reporter 旧导出，待 M2 落最终闸）
-- [ ] `coding_cli` 仅 import 新表面
-- [ ] 全测试树 `pytest -m "not e2e"` 全收集绿
+- [x] 2 层入口 `build_kernel`（共享基座）+ `create_session`（per-agent）+ `list_models/tools/features/skills`（内核侧产出）可用且有单测 — R3 接线完成（`test_sdk_kernel_wiring` / `test_kernel_list_capability_queries`）
+- [x] 外部产品最小证明：测试内构造 agent 包外应用，仅经 `agent.sdk` 装配 + 开会话跑通带工具调用一轮（含闭包直连自己服务的副作用工具）— `test_sdk_kernel_wiring`（含闭包副作用工具 + presenter）
+- [x] PA/LC 完整 system prompt 重构前 vs 重构后逐字节等价 — `test_full_system_prompt_byte_identical`（6 pa_* + lc_full）+ `test_kernel_skeleton_reproduces_golden`，cron/heartbeat/群聊三段经 `prompt_for` PromptSlots 复现，14 绿
+- [x] 迁 cron 出内核前先补 cron 段逐字节 golden — `test_cron_prompt_sections` 升级 verbatim（R1）
+- [x] sdk/prompt/llm/cron/dto 域旧导出清零（除 `_M1_TEMP_REPORTER_EXPORTS`）、`HostCapabilityDispatcher`/`host_capabilities=` 删除、cron 闭包直连 `CronExecutionService` — HostCapability 整组删 + CronServiceRegistry + `make_cron_tool` 闭包（R4/R7）
+- [x] 决策 7 守卫脚手架立（所有权 + 豁免闸绿；精确名单暂含 reporter 旧导出 + PA/LC profile，标 `_M1_TEMP`，待 M2 落最终闸）— `test_agent_sdk_surface_guard`（3 闸）
+- [x] `coding_cli` 仅 import 新表面 — `test_agent_sdk_boundary_contract` 绿（零 agent.core/platform/products 内部 import）
+- [x] 全测试树 `pytest -m "not e2e"` 全收集绿 — 2745 passed / 1 skipped 零回归
 
 ## 测试策略
 
@@ -63,28 +63,28 @@
 - 验证：用 R1 基线驱动——经新骨架 + PromptSlots（PA/LC 文案填槽）装配的 prompt 与基线逐字节一致。
 - 结果：DONE（C1=e64b5a96 红测, C2=e7133b5c 实现）。skeleton 重现 golden 7 场景全绿，零回归。⚠️ 发现 design §251 骨架顺序 prose 与字节真相不符，按字节真相搭并报备 orchestrator（见 progress [Design 修订] §R2）。
 
-### R3 — build_kernel 基座 + create_session per-agent + DTO + Protocol（扩张）  [DOING / HANDOFF]
+### R3 — build_kernel 基座 + create_session per-agent + DTO + Protocol（扩张）  [DONE]
 
-- 进度：SDK building blocks 完成并 push（dto.py C1=d3b6b29d/C2=7b90ae84：SessionInfo/RunInfo/LLMConfig/能力查询 DTO；contracts.py：Tool/ToolContext/HookAPI Protocol；test_sdk_two_layer_assembly 10 passed；全量基线 2722 passed 零回归）。**未完成**：把 building blocks 接入 kernel.py（双签名 build_kernel / create_session per-agent / 出入参 DTO 化 / list_* / runtime prompt 装配切骨架+slots / 外部产品最小证明）——续做 7 步详见 progress.md「R3 未完成」段。
 - 步骤：重构 `build_kernel(llm, tools, hooks, can_use_tool, workspace_config_dirname, repo_root)` 建共享基座（去 `product_profile`）；`create_session(workspace_root, enabled_tools, features, prompt=PromptSlots, title, metadata)` 返回 `SessionInfo`；`submit/get_run/cancel`→`RunInfo`；`get_llm_config/reconfigure_llm`→`LLMConfig` DTO（含 `from_env()`，注册表内部初始化）；`Tool`/`ToolContext`/`HookAPI` SDK-owned Protocol。`list_models/tools/features/skills` 返回 SDK-owned DTO。
-- 验证：新 `test_sdk_two_layer_assembly.py` 覆盖 2 层装配、enabled_tools 子集、features 门控、Protocol 鸭子结构、DTO 字段、list_* 一致性 + 跨 workspace skill；外部产品最小证明（含闭包副作用工具）跑通带工具调用一轮。
+- 结果：DONE。building blocks（dto.py C1=d3b6b29d/C2=7b90ae84）+ kernel 接线（双签名 build_kernel / create_session per-agent / DTO 化 / list_* / runtime 骨架+slots 装配 / 外部产品最小证明）全完成。`test_sdk_kernel_wiring` 9 + `test_kernel_list_capability_queries` 4 + `test_sdk_two_layer_assembly` 绿；含闭包副作用工具 + presenter 真实 hook 链证明。（注：决策3 memory/skill_manage 内核内置注册的 base 缺口在收口补正中补全——见 progress.md「补正1」。）
 
-### R4 — cron 迁出内核 + HostCapabilityDispatcher 删除（迁移）
+### R4 — cron 迁出内核 + HostCapabilityDispatcher 删除（迁移）  [DONE]
 
-- 步骤：PA 工具（cron/send_message/web_search）+ hooks + skills 物理目录从 `agent/products/personal_assistant/` 迁 `src/personal_assistant/`；cron `run()` 闭包直连 Gateway `CronExecutionService`（`call_soon_threadsafe` 跨线程入队，按 agent_id 路由），删 `HostCapabilityDispatcher`/`HostCapabilityContext`/`build_kernel(host_capabilities=)`/`_inject_host_capabilities`。
-- 验证：cron 单测（迁后路径）+ per-agent 路由 + 跨线程入队语义绿；contract `test_cron_coding_cli_isolation` 绿；live cron 实跑回投（Evidence）。
+- 步骤：PA 工具（cron/send_message/web_search）迁 `src/personal_assistant/tools/`；cron `run()` 闭包直连 `CronExecutionService`（跨线程入队，按 agent_id 路由），删 `HostCapabilityDispatcher`/`HostCapabilityContext`/`build_kernel(host_capabilities=)`/`_inject_host_capabilities`。
+- 结果：DONE。`make_cron_tool(cron_services)` 闭包（R4 扩张）+ HostCapability 整组删 + `GatewayCronDispatcher`→`CronServiceRegistry`（R7 收缩）。`test_cron_tool_closure` 5 + `test_cron_scheduler_tick` 绿；`test_cron_coding_cli_isolation` 绿；**live cron 实跑回投 PASS**（建 job→触发→执行→结果路由回会话，删桥后复验绿，progress.md R-CP-2）。
 
-### R5 — coding_cli 切新表面（迁移）
+### R5 — coding_cli 切新表面（迁移）  [DONE]
 
-- 步骤：`coding_cli` 建默认工厂（品牌 + per-agent 默认），仅 import `agent.sdk` 新表面（build_kernel 基座 + create_session + PromptSlots），`/model` 走 `reconfigure_llm`（LLMConfig DTO）。
-- 验证：CLI 带工具调用任务 + 选模型启动 + `/model` 热切换 live 实跑（Evidence）；`coding_cli` 仅 import 新表面（boundary contract 绿）。
+- 步骤：`coding_cli` 建默认工厂 `src/coding_cli/product.py`（仅 import `agent.sdk` 新表面：build_kernel 基座 + create_session + PromptSlots），`/model` 走 `reconfigure_llm`（LLMConfig DTO）。
+- 结果：DONE。`build_cli_kernel` + `open_cli_session` + `cli_prompt_slots`；commands.py 切新 build_kernel（`LLMConfig.from_payload` 带 catalog）。**live PASS**：R-CLI-1 工具调用（文件真写）/ R-CLI-2 选模型 / R-CLI-3 `/model` 热切（progress.md）；lc_full golden 逐字节 MATCH；boundary contract 绿。
 
-### R6 — personal_assistant 切新表面 + prompt 工厂（迁移）
+### R6 — personal_assistant 切新表面 + prompt 工厂（迁移）  [DONE]
 
-- 步骤：`personal_assistant` 建默认工厂（`build_pa_kernel` + `prompt_for(agent)` 拼 PromptSlots：cron/heartbeat→body、群聊→tail），main 装配切 build_kernel 基座 + create_session；预览 provider 用同一 `prompt_for`。reporter 暂留旧 import（M2 切）。
-- 验证：PA 发消息 + 权限卡 + heartbeat + 群聊 @ live 实跑（Evidence）；预览同源测试（预览=真实会话 byte-identical）；R1 完整 golden 逐字节绿。
+- 步骤：`personal_assistant` 建默认工厂 `src/personal_assistant/product.py`（`build_pa_kernel` + `prompt_for(agent, scenario)` 拼 PromptSlots：cron/heartbeat→body、群聊→tail），main 装配切 build_kernel 基座 + create_session；预览 provider 用同一 `prompt_for`。reporter 暂留旧 import（M2 切）。
+- 结果：DONE。**live PASS**：R-PA-1 发消息 / R-PA-3 权限卡 park / R-CP-1 heartbeat（K2.6 不返死反射）/ R-CP-3 群聊 @ / R-GW-3 JSONL per-workspace / R-CFG-4 预览同源（progress.md）；6 个 pa_* golden 逐字节 MATCH。R-PA-2 IM 离线自治归 reviewer 矩阵（共享路径论证见 progress.md）。**live 暴露并修 3 真 bug**：LLMConfig.from_payload / RunInfo.start_sequence / shim 共享 live pipeline._agents。
 
-### R7 — 收缩 + 决策 7 守卫落闸
+### R7 — 收缩 + 决策 7 守卫落闸  [DONE]
 
-- 步骤：删 `agent/products/`（解散）+ bootstrap `_product_root()` 扫描 + 旧 sdk 导出（sdk/prompt/llm/cron/dto 域，除 `_M1_TEMP_REPORTER_EXPORTS`）；重写 `test_agent_sdk_surface_contract`：精确名单闸（`__all__ == EXPECTED_SURFACE`）+ 所有权闸（`__module__` sdk-owned，豁免名单 = C1 三类 + `_M1_TEMP_REPORTER_EXPORTS` 显式分组）+ typing 别名特殊处理。删迁移期红测/失效旧测。
-- 验证：三道闸绿；全测试树 `pytest -m "not e2e"` 全收集绿。
+- 步骤：删桥 + legacy 路径 + 决策7 三道闸；products/ 物理解散延 M2（reporter 依赖，orchestrator 裁定，design §223）。
+- 结果：DONE。删 HostCapability 整组 + legacy products cron.py + build_kernel legacy `product_profile=` 路径（4 测试迁新 `llm=` 签名）；`GatewayCronDispatcher`→`CronServiceRegistry`。决策7 三道闸 `test_agent_sdk_surface_guard`：精确名单（`__all__ == EXPECTED_SURFACE` 38 符号）+ 所有权闸 + 豁免名单（C1 三类 + ToolPresenter/Event + `_M1_TEMP_REPORTER_EXPORTS` + `_M1_TEMP_PROFILES`，显式分组标 M1 临时）。≈10 个 import agent.products 内部的测试逐个重定向/删（理由记 progress.md）。**全测树 `pytest -m "not e2e"` 2745 passed/1 skipped + cron live 复验绿**。
+- **归 M2**：reporter→`Kernel.list_*` + products/ 物理删 + 撤 `_M1_TEMP` 豁免（reporter 旧导出 + PA/LC profile）+ bootstrap `_product_root` 退役 + 决策7 精确名单落最终闸。
