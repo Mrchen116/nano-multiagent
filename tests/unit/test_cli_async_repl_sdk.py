@@ -411,7 +411,7 @@ def test_build_llm_config_payload_exists_and_does_not_need_registry(
     monkeypatch.setenv("NANO_MULTIAGENT_LLM_BASE_URL", "http://127.0.0.1:4000")
 
     import argparse
-    from coding_cli.commands import _build_llm_config_payload  # 修复后才存在
+    from coding_cli.commands import _build_cli_llm_config
 
     args = argparse.Namespace(
         llm_provider=None,
@@ -420,16 +420,17 @@ def test_build_llm_config_payload_exists_and_does_not_need_registry(
         llm_api_key=None,
         llm_timeout_seconds=None,
     )
-    # _build_llm_config_payload 不调 registry，纯从 env 构造 LLMConfigPayload
-    payload = _build_llm_config_payload(args)
-    assert payload is not None
-    # payload 结构正确
-    from agent.sdk import LLMConfigPayload
+    # refactor-406-M2: _build_cli_llm_config returns an SDK-owned LLMConfig (catalog +
+    # connection) without touching the model registry (build_kernel inits it, 决策 5).
+    llm = _build_cli_llm_config(args)
+    assert llm is not None
+    from agent.sdk import LLMConfig
 
-    assert isinstance(payload, LLMConfigPayload)
-    assert payload.default_model == "kimiCoding:K2.6"
-    assert len(payload.providers) == 1
-    assert payload.providers[0].name == "anthropic"
+    assert isinstance(llm, LLMConfig)
+    assert llm.default_model == "kimiCoding:K2.6"
+    assert llm.model == "kimiCoding:K2.6"
+    assert len(llm.providers) == 1
+    assert llm.providers[0].name == "anthropic"
 
 
 def test_cli_llm_config_get_real_path_does_not_report_registry_error(

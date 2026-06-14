@@ -12,11 +12,43 @@ from typing import Any
 
 import yaml
 
-from agent.sdk import (
-    LLMConfigPayload,
-    LLMModelPayload,
-    LLMProviderPayload,
-)  # refactor-387-M4
+# refactor-406-M2: the LLM config wire schema is owned by personal_assistant (its
+# gateway config layer), not re-exported from agent.sdk. The kernel consumes it via
+# the duck-typed ``LLMConfig.from_payload`` (reads .default_model / .providers /
+# .name / .base_url / .models / .extra_request_body), so these PA-owned dataclasses
+# satisfy that contract without depending on any agent internal type. They reproduce
+# the previous schema's field semantics verbatim (base_url Optional, extra_request_body
+# None-when-absent) so config.yaml round-trips byte-for-byte.
+
+
+@dataclass(frozen=True, slots=True)
+class LLMModelPayload:
+    """One model entry in the gateway LLM config (PA-owned wire schema)."""
+
+    name: str
+    extra_request_body: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LLMProviderPayload:
+    """One provider entry in the gateway LLM config (PA-owned wire schema)."""
+
+    name: str
+    base_url: str | None
+    models: tuple[LLMModelPayload, ...] = field(default_factory=tuple)
+
+
+@dataclass(frozen=True, slots=True)
+class LLMConfigPayload:
+    """Top-level gateway LLM config wire schema (PA-owned).
+
+    Parsed from the config ``llm:`` block; passed to ``LLMConfig.from_payload`` (duck
+    typed) so the catalog + active connection flow into ``build_kernel(llm=…)``.
+    """
+
+    default_model: str
+    providers: tuple[LLMProviderPayload, ...] = field(default_factory=tuple)
+
 
 _DEFAULT_KERNEL_BASE_URL = "http://127.0.0.1:8000"
 # refactor-387 M3: kernel_app.py deleted; KernelConfig.command is retained for M4 cleanup.

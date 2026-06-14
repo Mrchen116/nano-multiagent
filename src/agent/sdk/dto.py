@@ -219,6 +219,101 @@ class LLMConfig:
             providers=providers,
         )
 
+    @classmethod
+    def from_catalog(
+        cls,
+        *,
+        default_model: str,
+        providers: "tuple[LLMProvider, ...]",
+        api_key: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> "LLMConfig":
+        """Build an LLMConfig from SDK-owned catalog parts (决策 5/6).
+
+        The SDK-owned construction path: consumers assemble ``LLMProvider`` /
+        ``LLMModel`` objects themselves (no internal wire-payload type) and hand them
+        here. The active connection is resolved from the provider owning
+        ``default_model`` (falling back to the first provider).
+
+        Args:
+            default_model: Catalog default + active model id.
+            providers: SDK-owned provider/model catalog.
+            api_key: Optional API key for the active connection.
+            timeout_seconds: Optional request timeout.
+
+        Returns:
+            LLMConfig with the catalog and resolved active connection.
+        """
+        active_provider = providers[0] if providers else None
+        for prov in providers:
+            if any(m.name == default_model for m in prov.models):
+                active_provider = prov
+                break
+        return cls(
+            provider=active_provider.name if active_provider else "",
+            model=default_model,
+            base_url=active_provider.base_url if active_provider else "",
+            api_key=api_key,
+            timeout_seconds=timeout_seconds if timeout_seconds is not None else 600.0,
+            default_model=default_model,
+            providers=providers,
+        )
+
+    @classmethod
+    def from_json(
+        cls,
+        raw: str,
+        *,
+        api_key: str | None = None,
+        timeout_seconds: float | None = None,
+    ) -> "LLMConfig":
+        """Build an LLMConfig from a gateway-style LLM catalog JSON string (决策 5).
+
+        Parses the ``{default_model, providers:[{name, base_url, models:[{name,
+        extra_request_body}]}]}`` wire schema (the same one the gateway serializes to
+        ``NANO_MULTIAGENT_LLM_CONFIG_JSON``) directly into SDK-owned types — no
+        consumer-visible internal payload class.
+
+        Args:
+            raw: JSON catalog string.
+            api_key: Optional API key for the active connection.
+            timeout_seconds: Optional request timeout.
+
+        Raises:
+            ValueError: When the JSON is not an object or lacks ``default_model``.
+            json.JSONDecodeError: When ``raw`` is not valid JSON.
+
+        Returns:
+            LLMConfig with the parsed catalog and resolved active connection.
+        """
+        import json  # noqa: PLC0415
+
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("LLM catalog JSON must be an object")
+        if "default_model" not in data:
+            raise ValueError("LLM catalog JSON missing 'default_model'")
+        providers = tuple(
+            LLMProvider(
+                name=p["name"],
+                base_url=p.get("base_url") or "",
+                models=tuple(
+                    LLMModel(
+                        name=m["name"],
+                        extra_request_body=dict(m.get("extra_request_body") or {}),
+                    )
+                    for m in p.get("models", [])
+                ),
+            )
+            for p in data.get("providers", [])
+        )
+        return cls.from_catalog(
+            default_model=data["default_model"],
+            providers=providers,
+            api_key=api_key,
+            timeout_seconds=timeout_seconds,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Capability-query DTOs (决策 4) — list_models / list_tools / list_features / list_skills

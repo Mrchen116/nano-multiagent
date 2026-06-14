@@ -4,27 +4,18 @@ Products (coding_cli, personal_assistant) must import only from this package.
 All other agent.* sub-packages are internal implementation detail.
 
 Public API:
-    build_kernel          — assemble a Kernel from configuration
+    build_kernel          — assemble a Kernel from configuration (2-layer surface)
     Kernel                — in-process agent kernel with async-native interface
     CanUseToolFn          — permission callback type alias
-    PermissionDecision    — decision returned from can_use_tool callback
-    LLMFactoryConfig      — LLM connection configuration for build_kernel
-    LLMConfigPayload      — LLM config payload (from gateway config)
-    LLMModelPayload       — model entry in LLMConfigPayload
-    LLMProviderPayload    — provider entry in LLMConfigPayload
-    LOCAL_CODING_PROFILE  — default product profile for coding_cli
-    PERSONAL_ASSISTANT_PROFILE — default product profile for personal_assistant
-    RunOrigin             — run origin enum (USER / GATEWAY / AGENT)
-
-Extended surface for personal_assistant (reporter / upstream_reporter):
-    init_model_registry         — initialize LLM model registry from config
-    get_default_model           — default model name for a provider
-    get_default_provider        — default provider name
-    list_provider_models        — enumerate models for a provider
-    list_supported_providers    — enumerate all supported providers
-    SkillRegistry               — skill metadata registry
-    default_skill_search_roots  — default skill search root directories
-    ConfigResolver              — workspace/global config directory resolver
+    Tool / ToolContext / HookAPI — SDK-owned extension-author Protocols (决策 2)
+    PromptSlots / PromptText — per-session prompt slots (决策 8)
+    LLMConfig / LLMProvider / LLMModel — SDK-owned LLM config (决策 5)
+    SessionInfo / RunInfo — SDK-owned boundary DTOs (决策 6)
+    ModelInfo / ToolInfo / FeatureInfo / SkillInfo — capability-query DTOs (决策 4)
+    ToolPresenter / ToolPresentationEvent — tool presentation (决策 12)
+    PermissionDecision    — decision returned from can_use_tool callback (C1 re-export)
+    RunOrigin             — run origin enum (USER / GATEWAY / AGENT) (C1 re-export)
+    TERMINAL_RUN_STATUSES — terminal run-status set (C1 re-export)
 """
 
 from .kernel import CanUseToolFn, Kernel, build_kernel
@@ -42,32 +33,16 @@ from .dto import (
 )
 from .prompt import PromptSlots, PromptText
 from agent.core.tools.presentation import ToolPresentationEvent, ToolPresenter
-from agent.core.llm.factory import LLMFactoryConfig
-from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
-from agent.core.llm.model_registry import (
-    init_model_registry,
-    get_default_model,
-    get_default_provider,
-    list_provider_models,
-    list_supported_providers,
-)
 from agent.core.runs.origin import RunOrigin
 from agent.core.runs.registry import TERMINAL_RUN_STATUSES
-from agent.core.skills.discovery import default_skill_search_roots
-from agent.core.skills.registry import SkillRegistry
-from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
-from agent.platform.config.resolver import ConfigResolver
 from agent.platform.permissions.broker import PermissionDecision
-from agent.products.local_coding import LOCAL_CODING_PROFILE
-from agent.products.personal_assistant import PERSONAL_ASSISTANT_PROFILE
 
 __all__ = [
     # Core kernel assembly
     "CanUseToolFn",
     "Kernel",
-    "LLMFactoryConfig",
     "build_kernel",
-    # New 2-layer surface (refactor-406 决策 2/4/5/6/8)
+    # 2-layer surface (refactor-406 决策 2/4/5/6/8)
     "Tool",
     "ToolContext",
     "HookAPI",
@@ -85,29 +60,9 @@ __all__ = [
     # Tool presentation (决策 12: core-owned pure-function types, sdk re-export, 闸2 豁免)
     "ToolPresenter",
     "ToolPresentationEvent",
-    # Permission
+    # Permission (C1: platform-owned, re-export, 闸2 豁免)
     "PermissionDecision",
-    # LLM config
-    "LLMConfigPayload",
-    "LLMModelPayload",
-    "LLMProviderPayload",
-    # LLM model registry
-    "init_model_registry",
-    "get_default_model",
-    "get_default_provider",
-    "list_provider_models",
-    "list_supported_providers",
-    # Run origin and terminal statuses
+    # Run origin and terminal statuses (C1: core-owned, re-export, 闸2 豁免)
     "RunOrigin",
     "TERMINAL_RUN_STATUSES",
-    # Skills
-    "default_skill_search_roots",
-    "SkillRegistry",
-    # Config
-    "ConfigResolver",
-    # Prompt sections feature registry
-    "FEATURE_REGISTRY",
-    # Product profiles
-    "LOCAL_CODING_PROFILE",
-    "PERSONAL_ASSISTANT_PROFILE",
 ]

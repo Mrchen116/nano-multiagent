@@ -19,10 +19,11 @@ Exemption groups (each entry documents WHY it is allowed):
   sdk re-export (permanent, 决策 12).
 - ``_TYPING_ALIAS``: ``CanUseToolFn`` is an sdk-owned ``Callable`` alias with no
   class ``__module__``; handled specially (not an ownership violation).
-- ``_M1_TEMP_REPORTER_EXPORTS`` / ``_M1_TEMP_PROFILES``: reporter-only exports +
-  product profiles still consumed by ``upstream_reporter`` (capability reporting).
-  These are removed in M2 when the reporter migrates to ``Kernel.list_*`` (决策 4);
-  the exemption + the names disappear together then.
+
+refactor-406-M2: the reporter migrated to ``Kernel.list_*`` (决策 4), so the
+M1-temporary reporter-only exports and product profiles are gone — ``EXPECTED_SURFACE``
+is now the FINAL curated surface and the only exemptions are the permanent C1 / 决策 12
+re-exports plus the ``CanUseToolFn`` typing alias.
 """
 
 from __future__ import annotations
@@ -63,22 +64,6 @@ EXPECTED_SURFACE: frozenset[str] = frozenset(
         # Run origin + terminal statuses (C1)
         "RunOrigin",
         "TERMINAL_RUN_STATUSES",
-        # --- M1-temporary: reporter-only exports (removed in M2) ---
-        "LLMFactoryConfig",
-        "LLMConfigPayload",
-        "LLMModelPayload",
-        "LLMProviderPayload",
-        "init_model_registry",
-        "get_default_model",
-        "get_default_provider",
-        "list_provider_models",
-        "list_supported_providers",
-        "SkillRegistry",
-        "default_skill_search_roots",
-        "ConfigResolver",
-        "FEATURE_REGISTRY",
-        "LOCAL_CODING_PROFILE",
-        "PERSONAL_ASSISTANT_PROFILE",
     }
 )
 
@@ -115,38 +100,10 @@ _DECISION12_PRESENTER: frozenset[str] = frozenset(
 # sdk-owned Callable alias (no class __module__) — special-cased, not a violation.
 _TYPING_ALIAS: frozenset[str] = frozenset({"CanUseToolFn"})
 
-# M1-temporary: reporter-only exports still consumed by upstream_reporter. Removed
-# in M2 when the reporter migrates to Kernel.list_* (决策 4).
-_M1_TEMP_REPORTER_EXPORTS: frozenset[str] = frozenset(
-    {
-        "LLMFactoryConfig",
-        "LLMConfigPayload",
-        "LLMModelPayload",
-        "LLMProviderPayload",
-        "init_model_registry",
-        "get_default_model",
-        "get_default_provider",
-        "list_provider_models",
-        "list_supported_providers",
-        "SkillRegistry",
-        "default_skill_search_roots",
-        "ConfigResolver",
-        "FEATURE_REGISTRY",
-    }
-)
-
-# M1-temporary: product profiles still consumed by upstream_reporter (product_id /
-# default tool ids / ConfigResolver(profile=…)). Removed in M2 with products/.
-_M1_TEMP_PROFILES: frozenset[str] = frozenset(
-    {"LOCAL_CODING_PROFILE", "PERSONAL_ASSISTANT_PROFILE"}
-)
-
+# refactor-406-M2: the M1-temporary reporter-only exports + product profiles are gone
+# (reporter migrated to Kernel.list_*, 决策 4). Only the permanent re-exports remain.
 _OWNERSHIP_EXEMPT: frozenset[str] = (
-    _C1_REEXPORTS
-    | _DECISION12_PRESENTER
-    | _TYPING_ALIAS
-    | _M1_TEMP_REPORTER_EXPORTS
-    | _M1_TEMP_PROFILES
+    _C1_REEXPORTS | _DECISION12_PRESENTER | _TYPING_ALIAS
 )
 
 

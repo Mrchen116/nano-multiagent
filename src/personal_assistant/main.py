@@ -34,8 +34,6 @@ from personal_assistant.channels.web_relay_adapter import (
     WebRelayAdapter,
 )
 
-# refactor-387-M4: import from agent.sdk (public surface) instead of agent.core internals.
-from agent.sdk import init_model_registry
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     ChannelConfig,
@@ -1687,7 +1685,10 @@ def run_gateway(
         load_config=resolved_factories.load_config,
         im_service_url_override=im_service_url_override,
     )
-    init_model_registry(config.llm)
+    # refactor-406-M2: model registry init is build_kernel's responsibility (决策 5):
+    # build_runtime → build_pa_kernel → build_kernel internally inits the registry from
+    # config.llm (LLMConfig.from_payload). The previous explicit init_model_registry
+    # here was the pre-2-layer footgun the SDK now absorbs; removed.
     builder = resolved_factories.build_runtime or build_runtime
     runtime = builder(config)
     restore_signal_handlers = (

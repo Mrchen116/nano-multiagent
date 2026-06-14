@@ -69,8 +69,10 @@ _WHITELIST: frozenset[str] = frozenset(
         # refactor-395 ruff fix: TERMINAL_RUN_STATUSES dead import removed, lines shifted to 1164/1165
         # bugfix-402-M3 R2: finally block comment+await kernel.aclose() inserted in _async_main, lines shifted to 1166/1167
         # refactor-406-M1 R5: dead _build_llm_config_from_args removed, lines shifted to 1144/1145
-        "src/coding_cli/commands.py:1144",
-        "src/coding_cli/commands.py:1145",
+        # refactor-406-M2: _build_llm_config_payload→_build_cli_llm_config (SDK-owned
+        # LLMConfig.from_json/from_catalog), net +2 lines shifted to 1146/1147
+        "src/coding_cli/commands.py:1146",
+        "src/coding_cli/commands.py:1147",
     }
 )
 

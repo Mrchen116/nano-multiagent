@@ -302,16 +302,11 @@ def _build_kernel(
     # coding_cli imports only agent.sdk + its own product factory. The model
     # registry is initialised inside build_kernel from llm= (决策 5: no consumer-side
     # init_model_registry ordering obligation).
-    from agent.sdk import LLMConfig
     from coding_cli.product import build_cli_kernel
 
     # Build the SDK LLMConfig (catalog + active connection) from env / CLI args.
-    # The payload carries the provider/model catalog so /model + list_models work.
-    llm = LLMConfig.from_payload(
-        _build_llm_config_payload(args),
-        api_key=getattr(args, "llm_api_key", None),
-        timeout_seconds=getattr(args, "llm_timeout_seconds", None),
-    )
+    # The catalog carries the provider/model list so /model + list_models work.
+    llm = _build_cli_llm_config(args)
 
     # can_use_tool callback: runs in executor so it doesn't block the async loop.
     async def can_use_tool(tool_name: str, tool_input: Any, ctx: Any) -> Any:
@@ -322,28 +317,33 @@ def _build_kernel(
     return build_cli_kernel(llm=llm, can_use_tool=can_use_tool)
 
 
-def _build_llm_config_payload(args: argparse.Namespace) -> Any:
-    """Build LLMConfigPayload for init_model_registry from env vars and CLI overrides.
+def _build_cli_llm_config(args: argparse.Namespace) -> Any:
+    """Build the SDK-owned ``LLMConfig`` (catalog + connection) from env / CLI args.
 
-    Called before LLMFactoryConfig.from_env() so the registry is populated when
-    from_env() calls get_default_provider().  Priority:
-    1. NANO_MULTIAGENT_LLM_CONFIG_JSON env (full Gateway-style payload)
-    2. Individual env vars + CLI args (minimal single-provider payload)
+    The model registry is initialised inside ``build_kernel`` from this LLMConfig
+    (决策 5: no consumer-side ``init_model_registry`` ordering obligation). Priority:
+    1. NANO_MULTIAGENT_LLM_CONFIG_JSON env (full gateway-style catalog JSON)
+    2. Individual env vars + CLI args (minimal single-provider catalog)
 
     Args:
         args: Parsed CLI arguments (may carry --provider/--model/--llm-base-url).
 
     Returns:
-        LLMConfigPayload ready for init_model_registry().
+        An ``agent.sdk.LLMConfig`` ready for ``build_kernel(llm=…)``.
     """
-    from agent.sdk import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
+    from agent.sdk import LLMConfig, LLMModel, LLMProvider
 
-    # Fast path: full config JSON injected (e.g. from a parent process or test env).
+    api_key = getattr(args, "llm_api_key", None)
+    timeout_seconds = getattr(args, "llm_timeout_seconds", None)
+
+    # Fast path: full catalog JSON injected (e.g. from a parent process or test env).
     raw_json = os.getenv("NANO_MULTIAGENT_LLM_CONFIG_JSON")
     if raw_json:
-        return LLMConfigPayload.from_json(raw_json)
+        return LLMConfig.from_json(
+            raw_json, api_key=api_key, timeout_seconds=timeout_seconds
+        )
 
-    # Slow path: build minimal payload from env vars + CLI args.
+    # Slow path: build a minimal single-provider catalog from env vars + CLI args.
     provider = getattr(args, "llm_provider", None) or os.getenv(
         "NANO_MULTIAGENT_LLM_PROVIDER", "anthropic"
     )
@@ -353,15 +353,17 @@ def _build_llm_config_payload(args: argparse.Namespace) -> Any:
     base_url = getattr(args, "llm_base_url", None) or os.getenv(
         "NANO_MULTIAGENT_LLM_BASE_URL", "http://127.0.0.1:4000"
     )
-    return LLMConfigPayload(
+    return LLMConfig.from_catalog(
         default_model=model,
         providers=(
-            LLMProviderPayload(
+            LLMProvider(
                 name=provider,
                 base_url=base_url,
-                models=(LLMModelPayload(name=model),),
+                models=(LLMModel(name=model),),
             ),
         ),
+        api_key=api_key,
+        timeout_seconds=timeout_seconds,
     )
 
 
