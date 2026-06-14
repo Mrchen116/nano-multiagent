@@ -140,3 +140,20 @@
 ## Highest Required Action
 
 `pass`（主要问题均为文档同步滞后，无 fix-implementation 项；R-PA-2 inconclusive 因 GIVEN 前提不满足，非实现缺陷）
+
+---
+
+> **Orchestrator note (round 1 routing)**: reviewer=pass / verifier=pass，但 **change-code-review 抓到多条 CONFIRMED in-unit 行为回归**（verifier 的 delta-spec 符合性 + reviewer 的 happy-path 旅程 scope 外）。路由 = **fix-implementation（round 1）**，§6.FL① 复用 m2-worker。根因：新 build_kernel 未接全 bootstrap_product 原有的 skill/tool/hook 发现（config_resolver / 工作区 .nano/tools / user roots），M2 的 skill_search_roots 仅补 PA list_skills 一处。
+>
+> **Fix 清单（round 1）**：
+> 1. [CONFIRMED 决策2 违背] 工作区 `.nano/tools` 运行时工具发现丢失——build_kernel 未调 build_tool_registry/load_tools_from_directory。
+> 2. [CONFIRMED 行为回归] 用户级 hook/tool 目录发现丢失（`~/.nanoassistant/hooks`、`~/.nanocode/tools` 等，旧 config_resolver.user_*_roots 路径）。
+> 3. [CONFIRMED 决策8 同源违背] assemble_prompt_preview 经 runtime._config_resolver（2 层路径恒 None）解析技能 → skill_ids 非空时技能段恒空白；应复用 list_skills 的 _WorkspaceDirnameSkillResolver。
+> 4. [CONFIRMED 行为回归] SkillManageTool 的 registry 锚 repo_root、非 per-session workspace_root，且无 extra_roots → 多 agent 共享同一 skill 目录 + skill_manage list 与 list_skills/IM 展示三套 registry 不对齐。
+> 5. [CONFIRMED 行为回归] self_evolution 配置（config.yaml）不再读入 session metadata → self_improvement hook 拿 {} → 硬编码默认覆盖用户 skill_nudge/memory_nudge/enabled。（ver-configdrop 簇）
+> 6. [CONFIRMED 行为回归] CLI `~/.codex/skills` compat skill root 丢失——build_cli_kernel 未传 skill_search_roots。（ver-configdrop 簇）
+> 7. [CONFIRMED correctness] runtime close_session 漏清 `_session_prompt_slots` → 长期运行内存泄漏（本 unit 新增 PromptSlots 引入）。
+> 8. [CONFIRMED docstring] kernel.py list_models is_default docstring 错（实现正确=catalog default，仅注释把 active model 写错）——trivial。
+>
+> **out-of-unit / 不修**：fork_session 不继承源 session（预存在、main 同样，非本 unit 引入，单独 issue 跟踪）；R-PA-2 inconclusive（e2e 无独立外部通道，能力域不在本 unit）。
+> **cleanup/altitude（记 PR body 已知事项，本轮不阻塞）**：LLMConfig 解析/active_provider 重复、resolve_effective_tool_allowlist 死函数、assemble_prompt_preview 双 render、list_skills/list_models 无缓存每次重扫、project_tools 静态列表（决策风险2 保守，已注释）、pa.cron/pa.heartbeat 段名在 core FEATURE_REGISTRY。
