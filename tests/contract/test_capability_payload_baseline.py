@@ -35,19 +35,33 @@ import pytest
 # ---------------------------------------------------------------------------
 
 
+def _write_skill(root: Path, name: str, desc: str) -> None:
+    d = root / name
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {desc}\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+
 def _seed_workspace_skills(workspace: Path) -> None:
     """Seed two known skills under <workspace>/.nanoassistant/skills."""
     skills_root = workspace / ".nanoassistant" / "skills"
-    for name, desc in (
-        ("alpha-skill", "Alpha skill for baseline"),
-        ("beta-skill", "Beta skill for baseline"),
-    ):
-        d = skills_root / name
-        d.mkdir(parents=True, exist_ok=True)
-        (d / "SKILL.md").write_text(
-            f"---\nname: {name}\ndescription: {desc}\n---\nbody\n",
-            encoding="utf-8",
-        )
+    _write_skill(skills_root, "alpha-skill", "Alpha skill for baseline")
+    _write_skill(skills_root, "beta-skill", "Beta skill for baseline")
+
+
+def _seed_user_level_skills(home: Path) -> None:
+    """Seed user-level skills the pre-refactor reporter advertises.
+
+    The pre-refactor reporter's PA skill search roots are 4-tier: workspace
+    ``<ws>/.nanoassistant/skills`` + global ``~/.nanoassistant/skills`` + compat
+    ``~/.claude/skills`` + ``~/.codex/skills``. These global/compat user-level skills
+    are part of the advertised capability and must survive the migration (R-CFG-2).
+    """
+    _write_skill(home / ".nanoassistant" / "skills", "global-pa-skill", "Global PA")
+    _write_skill(home / ".claude" / "skills", "compat-claude-skill", "Compat Claude")
+    _write_skill(home / ".codex" / "skills", "compat-codex-skill", "Compat Codex")
 
 
 @pytest.fixture
@@ -63,14 +77,33 @@ def controlled_caps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("HOME", str(fake_home))
     # CODEX_HOME may shadow ~/.codex; pin it under the fake home too.
     monkeypatch.setenv("CODEX_HOME", str(fake_home / ".codex"))
+    _seed_user_level_skills(fake_home)
 
     workspace = tmp_path / "agent-workspace"
     workspace.mkdir(parents=True, exist_ok=True)
     _seed_workspace_skills(workspace)
 
-    from personal_assistant.reporter import upstream_reporter as ur
+    # Kernel repo_root is a separate empty dir (no per-workspace skills) — it stands
+    # in for the gateway's working dir at node level. Node-level skills then resolve
+    # to the shared user-level (global/compat) roots only; agent-level skills add the
+    # per-agent workspace on top (R-CFG-2). Keeping them separate mirrors production
+    # (the gateway dir is not an agent workspace).
+    kernel_root = tmp_path / "kernel-root"
+    kernel_root.mkdir(parents=True, exist_ok=True)
 
-    return ur, workspace
+    # refactor-406-M2: the reporter now projects from a live Kernel's neutral
+    # list_* queries (决策 4). Build the real PA kernel so the baseline exercises
+    # the actual post-migration data path under the controlled environment.
+    import tests.conftest as _conftest  # noqa: PLC0415
+    from agent.sdk import LLMConfig  # noqa: PLC0415
+    from personal_assistant.product import build_pa_kernel  # noqa: PLC0415
+
+    llm = LLMConfig.from_payload(_conftest._DEFAULT_TEST_PAYLOAD)
+    kernel = build_pa_kernel(llm=llm, cron_services={}, repo_root=kernel_root)
+
+    from personal_assistant.reporter import upstream_reporter as ur  # noqa: PLC0415
+
+    return ur, kernel, workspace
 
 
 # ---------------------------------------------------------------------------
@@ -178,16 +211,28 @@ GOLDEN_AGENT_FEATURES: list[dict[str, object]] = [
     },
 ]
 
-# Node-level skills with controlled HOME: every compat/global root is empty, so
-# the node-level payload (workspace_root=repo_root) carries only whatever lives
-# under the repo — which under controlled HOME is empty. Pinned to [].
-GOLDEN_NODE_SKILLS: list[dict[str, str]] = []
-
-# Agent-level skills with the controlled workspace's two seeded skills only.
-GOLDEN_AGENT_SKILLS: list[dict[str, str]] = [
-    {"name": "alpha-skill", "description": "Alpha skill for baseline"},
-    {"name": "beta-skill", "description": "Beta skill for baseline"},
+# User-level skills (global + compat) advertised on every PA agent regardless of
+# workspace — part of the pre-refactor capability and a migration invariant.
+GOLDEN_USER_LEVEL_SKILLS: list[dict[str, str]] = [
+    {"name": "compat-claude-skill", "description": "Compat Claude"},
+    {"name": "compat-codex-skill", "description": "Compat Codex"},
+    {"name": "global-pa-skill", "description": "Global PA"},
 ]
+
+# Node-level skills: user-level (global/compat) skills only — the node-level payload
+# has no per-agent workspace, so only the shared user-level roots contribute.
+GOLDEN_NODE_SKILLS: list[dict[str, str]] = list(GOLDEN_USER_LEVEL_SKILLS)
+
+# Agent-level skills: the controlled workspace's two seeded skills PLUS the shared
+# user-level skills (workspace + global + compat roots, deduped+sorted by name).
+GOLDEN_AGENT_SKILLS: list[dict[str, str]] = sorted(
+    [
+        {"name": "alpha-skill", "description": "Alpha skill for baseline"},
+        {"name": "beta-skill", "description": "Beta skill for baseline"},
+        *GOLDEN_USER_LEVEL_SKILLS,
+    ],
+    key=lambda s: s["name"],
+)
 
 GOLDEN_FLAGS = {"relay": True, "send_message": True, "config_sync": True}
 GOLDEN_DEFAULT_SYSTEM_PROMPT = ""
@@ -204,8 +249,8 @@ def _sorted_skills(skills: list[dict[str, str]]) -> list[dict[str, str]]:
 
 def test_node_capabilities_payload_matches_baseline(controlled_caps) -> None:
     """node.capabilities payload reproduces the recorded baseline (design 风险 2)."""
-    ur, _workspace = controlled_caps
-    payload = ur.build_node_capabilities_payload()
+    ur, kernel, _workspace = controlled_caps
+    payload = ur.build_node_capabilities_payload(kernel)
 
     assert list(payload["models"]) == GOLDEN_MODELS
     assert payload["platform_default_model"] == GOLDEN_PLATFORM_DEFAULT_MODEL
@@ -224,8 +269,9 @@ def test_agent_capabilities_payload_matches_baseline(controlled_caps) -> None:
     Exercises per-workspace skill discovery (workspace-seeded skills only, global
     roots empty) AND per-allowlist feature availability — the two R-CFG invariants.
     """
-    ur, workspace = controlled_caps
+    ur, kernel, workspace = controlled_caps
     payload = ur.build_agent_capabilities_payload(
+        kernel,
         workspace_root=str(workspace),
         tool_allowlist=GOLDEN_AGENT_FEATURES_ALLOWLIST,
     )
@@ -243,7 +289,7 @@ def test_node_register_flags_payload_matches_baseline(controlled_caps) -> None:
     node.register carries only the boolean flags (no models/skills/tools), per
     ReporterCapabilities.register_flags_payload.
     """
-    ur, _workspace = controlled_caps
-    caps = ur.build_runtime_capabilities()
+    ur, kernel, _workspace = controlled_caps
+    caps = ur.build_runtime_capabilities(kernel)
     flags = caps.register_flags_payload()
     assert flags == GOLDEN_FLAGS

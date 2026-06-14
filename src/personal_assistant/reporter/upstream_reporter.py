@@ -3,21 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Callable, Mapping
+from typing import TYPE_CHECKING, Any, Callable, Mapping
 
-# refactor-387-M4: import from agent.sdk (public surface) instead of agent.core internals
-from agent.sdk import (
-    get_default_model,
-    get_default_provider,
-    list_provider_models,
-    list_supported_providers,
-    default_skill_search_roots,
-    SkillRegistry,
-    ConfigResolver,
-    PERSONAL_ASSISTANT_PROFILE,
-)
 from personal_assistant.config.local_store import AgentWorkspaceConfig, NodeConfig
+from personal_assistant.reporter.capability_projection import (
+    project_features,
+    project_tools,
+)
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from agent.sdk import Kernel
 
 
 SendFrame = Callable[[str, dict[str, object]], None]
@@ -83,82 +78,65 @@ def _dedupe_preserve_order(items: list[str]) -> tuple[str, ...]:
     return tuple(ordered)
 
 
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[3]
+def _models_from_kernel(kernel: "Kernel") -> tuple[str, ...]:
+    """Project ``kernel.list_models()`` into deduped, order-preserving model ids.
+
+    The kernel reports the neutral model catalog (name + order); this layer keeps
+    the pre-refactor dedupe-preserve-order semantics for the IM payload.
+    """
+    return _dedupe_preserve_order([m.name for m in kernel.list_models()])
 
 
-def _product_root() -> Path:
-    return (
-        _repo_root()
-        / "src"
-        / "agent"
-        / "products"
-        / PERSONAL_ASSISTANT_PROFILE.product_id
-    )
+def _platform_default_model_from_kernel(kernel: "Kernel") -> str | None:
+    """Return the catalog default model id (the ``is_default`` entry), or None."""
+    for m in kernel.list_models():
+        if getattr(m, "is_default", False):
+            return m.name
+    return None
 
 
-def _build_skill_capability_entries() -> tuple[dict[str, str], ...]:
-    """从 SKILL.md 解析 name/description，供 IM 设置页展示。"""
-    config_resolver = ConfigResolver(
-        profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=None
-    )
-    registry = SkillRegistry(
-        search_roots=default_skill_search_roots(
-            workspace_root=_repo_root(),
-            config_resolver=config_resolver,
-            product_skill_root=_product_root() / "skills",
-        )
-    )
-    return tuple(
+def _tools_from_kernel(kernel: "Kernel") -> tuple[dict[str, object], ...]:
+    """Project ``kernel.list_tools()`` into IM tool pills with ``default_on``.
+
+    The kernel reports name/description (neutral fact); the Gateway projection
+    (``project_tools``) adds the PA default/optional ``default_on`` split.
+    """
+    tool_infos = tuple((t.name, t.description) for t in kernel.list_tools())
+    return project_tools(tool_infos)
+
+
+def _skills_from_kernel(
+    kernel: "Kernel", workspace_root: str | None
+) -> list[dict[str, str]]:
+    """Project ``kernel.list_skills(workspace_root)`` into IM skill entries.
+
+    Per-workspace skill discovery is the kernel's job (决策 4); the reporter no
+    longer rebuilds the on-disk layout. ``workspace_root=None`` resolves to the
+    kernel's repo_root (node level).
+    """
+    from pathlib import Path  # noqa: PLC0415
+
+    ws = Path(workspace_root).expanduser().resolve() if workspace_root else None
+    return [
         {"name": skill.name, "description": skill.description or ""}
-        for skill in registry.list_skills()
-    )
+        for skill in kernel.list_skills(ws)
+    ]
 
 
-def _build_tool_names() -> tuple[dict[str, object], ...]:
-    # feat-379-M9 (決策 13): advertise-phase only needs the declared tool names;
-    # build_tool_registry(runtime=None) omits memory/skill_manage because those tools
-    # require bootstrap path injection before they appear in list_specs().  Taking names
-    # directly from the profile guarantees the full declared surface is advertised,
-    # regardless of whether a live runtime is present.
-    #
-    # feat-394 M9 R5: return rich dicts {name, description, default_on} so the IM
-    # frontend can render tool pills with their default selection state.
-    # default_on=True for default_tool_ids (selected when allowlist is empty),
-    # default_on=False for optional_tool_ids (must be explicitly added).
-    default_ids = list(PERSONAL_ASSISTANT_PROFILE.default_tool_ids or [])
-    optional_ids = list(PERSONAL_ASSISTANT_PROFILE.optional_tool_ids or [])
-    seen: set[str] = set()
-    result: list[dict[str, object]] = []
-    for tool_id in default_ids:
-        if tool_id not in seen:
-            seen.add(tool_id)
-            result.append({"name": tool_id, "description": "", "default_on": True})
-    for tool_id in optional_ids:
-        if tool_id not in seen:
-            seen.add(tool_id)
-            result.append({"name": tool_id, "description": "", "default_on": False})
-    return tuple(result)
+def build_runtime_capabilities(kernel: "Kernel") -> ReporterCapabilities:
+    """Build node-level selectable runtime items projected from ``kernel.list_*``.
 
-
-def _build_model_names() -> tuple[str, ...]:
-    return _dedupe_preserve_order(
-        [
-            metadata.model
-            for provider in list_supported_providers()
-            for metadata in list_provider_models(provider)
-        ]
-    )
-
-
-def build_runtime_capabilities() -> ReporterCapabilities:
-    """Build node-level selectable runtime items from the Gateway runtime surface."""
+    Args:
+        kernel: In-process Kernel whose neutral ``list_*`` queries (决策 4) supply
+            models/tools/skills; product semantics (tool default_on split, skill
+            workspace) are projected here.
+    """
 
     return ReporterCapabilities(
-        models=_build_model_names(),
-        skills=_build_skill_capability_entries(),
-        tools=_build_tool_names(),
-        platform_default_model=get_default_model(get_default_provider()),
+        models=_models_from_kernel(kernel),
+        skills=tuple(_skills_from_kernel(kernel, workspace_root=None)),
+        tools=_tools_from_kernel(kernel),
+        platform_default_model=_platform_default_model_from_kernel(kernel),
         # feat-379-M5 (ISSUE-4): do NOT expose the raw RUNTIME_FILL template; the
         # sections assembler owns prompt construction at runtime.  Consumers (IM
         # agent-create page) that relied on this field for a system_prompt prefill
@@ -167,40 +145,25 @@ def build_runtime_capabilities() -> ReporterCapabilities:
     )
 
 
-def build_node_capabilities_payload() -> dict[str, object]:
-    """Build node-level capability payload including FEATURE_REGISTRY projection.
+def build_node_capabilities_payload(kernel: "Kernel") -> dict[str, object]:
+    """Build node-level capability payload with the Gateway feature projection.
 
-    feat-379-M7 (ISSUE-1): node.capabilities.resolve was returning
-    build_runtime_capabilities().as_payload() which has no 'features' key.
     The agent-create page queries GET /im/v1/nodes/{id}/capabilities (no per-agent
-    context yet), so we inject a node-level features projection where all features
-    are available=True (no tool_allowlist exists at this point to constrain them).
+    context yet), so the feature projection has every entry ``available=True`` (no
+    tool_allowlist exists at this point to constrain them). The i18n text and the
+    heartbeat/cron product toggles are Gateway-owned (决策 4 — the kernel stays
+    product-neutral).
 
     Returns:
         Capability dict suitable for node.capabilities response frames.
     """
-    from agent.sdk import FEATURE_REGISTRY  # noqa: PLC0415  # refactor-387-M4
-
-    base = build_runtime_capabilities().as_payload()
-    # Node-level: no per-agent tool_allowlist → every feature is available.
-    # The agent-create page uses default_on to pre-fill toggles; available=True
-    # lets all toggles render as enabled (not greyed out).
-    node_features_projection: list[dict[str, object]] = [
-        {
-            "key": key,
-            "label_i18n": entry["label_i18n"],
-            "help_i18n": entry["help_i18n"],
-            "default_on": entry["default_on"],
-            "available": True,
-            "requires_tool": entry["requires_tool"],
-        }
-        for key, entry in FEATURE_REGISTRY.items()
-    ]
-    base["features"] = node_features_projection
+    base = build_runtime_capabilities(kernel).as_payload()
+    base["features"] = project_features(tool_allowlist=None)
     return base
 
 
 def build_agent_capabilities_payload(
+    kernel: "Kernel",
     *,
     workspace_root: str,
     tool_allowlist: tuple[str, ...] = (),
@@ -208,47 +171,15 @@ def build_agent_capabilities_payload(
     """按 Agent 工作区根路径解析可选技能（含描述），供 agent.capabilities.resolve 响应。
 
     Args:
+        kernel: In-process Kernel; ``list_skills(workspace_root)`` does per-workspace
+            skill discovery (决策 4 — replaces the reporter's hand-built disk layout).
         workspace_root: Agent workspace root path for per-workspace skill discovery.
         tool_allowlist: Tool names enabled for this agent.  Used to determine
             whether feature-gated tools are available (feat-379 decision 7).
     """
-    from agent.sdk import FEATURE_REGISTRY  # noqa: PLC0415  # refactor-387-M4
-
-    root = Path(workspace_root).expanduser().resolve()
-    config_resolver = ConfigResolver(
-        profile=PERSONAL_ASSISTANT_PROFILE, workspace_root=root
-    )
-    registry = SkillRegistry(
-        search_roots=default_skill_search_roots(
-            workspace_root=root,
-            config_resolver=config_resolver,
-            product_skill_root=_product_root() / "skills",
-        )
-    )
-    skills: list[dict[str, str]] = [
-        {"name": skill.name, "description": skill.description or ""}
-        for skill in registry.list_skills()
-    ]
-    base = build_runtime_capabilities().as_payload()
-    base["skills"] = skills
-
-    # feat-379-M2: build feature toggles projection for the IM frontend
-    # (decision 7: registry is the single event source; frontend renders dynamically)
-    allowlist_set = set(tool_allowlist)
-    features_projection: list[dict[str, object]] = [
-        {
-            "key": key,
-            "label_i18n": entry["label_i18n"],
-            "help_i18n": entry["help_i18n"],
-            "default_on": entry["default_on"],
-            # available=False means the required tool is not in the agent's allowlist
-            "available": entry["requires_tool"] is None
-            or entry["requires_tool"] in allowlist_set,
-            "requires_tool": entry["requires_tool"],
-        }
-        for key, entry in FEATURE_REGISTRY.items()
-    ]
-    base["features"] = features_projection
+    base = build_runtime_capabilities(kernel).as_payload()
+    base["skills"] = _skills_from_kernel(kernel, workspace_root=workspace_root)
+    base["features"] = project_features(tool_allowlist=tool_allowlist)
     return base
 
 

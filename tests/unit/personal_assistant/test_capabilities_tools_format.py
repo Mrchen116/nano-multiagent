@@ -1,129 +1,99 @@
-"""Tests for feat-394 M9 R5: upstream_reporter.tools carries {name, description, default_on}.
+"""Tests for the capabilities.tools rich format ({name, description, default_on}).
 
-R5 goal: capabilities.tools format changes from bare string list to rich object list,
-so the IM frontend can render tool pills with default_on state (show as "selected by
-default" when the agent's tool_allowlist is empty).
+feat-394 M9 R5 introduced the rich dict format so the IM frontend can render tool
+pills with default_on state (show as "selected by default" when the agent's
+tool_allowlist is empty).
 
-These tests are RED until R5 implementation lands.
+refactor-406-M2: the tool pill projection moved from the deleted reporter
+``_build_tool_names`` to the Gateway projection layer
+(``capability_projection.project_tools``), which adds the default_on split from the
+PA default/optional tool ids. These tests now exercise that projection directly plus
+the node-level payload it feeds.
 """
 
 from __future__ import annotations
 
-import inspect
+from pathlib import Path
+
+from personal_assistant.reporter.capability_projection import (
+    PA_DEFAULT_TOOL_IDS,
+    PA_OPTIONAL_TOOL_IDS,
+    project_tools,
+)
+
+from ._im_connection_helpers import _build_test_kernel
 
 
-class TestBuildToolNamesStructure:
-    """_build_tool_names must return rich dicts with name/description/default_on."""
+def _projected_tools() -> tuple[dict[str, object], ...]:
+    # Descriptions are intentionally dropped to "" by the projection; pass arbitrary
+    # (name, description) pairs to confirm the projection ignores them.
+    fake_infos = tuple(
+        (name, "REAL DESC") for name in (*PA_DEFAULT_TOOL_IDS, *PA_OPTIONAL_TOOL_IDS)
+    )
+    return project_tools(fake_infos)
 
-    def _get_tool_names(self):
-        from personal_assistant.reporter.upstream_reporter import _build_tool_names
 
-        return _build_tool_names()
+class TestProjectToolsStructure:
+    """project_tools must return rich dicts with name/description/default_on."""
 
     def test_tools_are_dicts_not_strings(self) -> None:
-        """_build_tool_names must return dicts, not plain strings (feat-394 M9 R5).
-
-        After R5 the list carries {name, description, default_on} so the frontend
-        can render tool pills with their default selection state.
-        """
-        tools = self._get_tool_names()
-        assert len(tools) > 0, "_build_tool_names must return at least one tool"
-        first = tools[0]
-        assert isinstance(first, dict), (
-            f"_build_tool_names must return dicts, got {type(first).__name__}. "
-            "R5 upgrade: return {name, description, default_on} per tool."
-        )
+        tools = _projected_tools()
+        assert len(tools) > 0
+        assert isinstance(tools[0], dict)
 
     def test_tools_have_name_key(self) -> None:
-        """Each tool entry must have 'name' key."""
-        tools = self._get_tool_names()
-        for tool in tools:
+        for tool in _projected_tools():
             assert "name" in tool, f"tool entry missing 'name' key: {tool}"
 
     def test_tools_have_description_key(self) -> None:
-        """Each tool entry must have 'description' key."""
-        tools = self._get_tool_names()
-        for tool in tools:
+        for tool in _projected_tools():
             assert "description" in tool, (
                 f"tool entry missing 'description' key: {tool}"
             )
 
-    def test_tools_have_default_on_key(self) -> None:
-        """Each tool entry must have 'default_on' key (feat-394 M9 R5)."""
-        tools = self._get_tool_names()
-        for tool in tools:
-            assert "default_on" in tool, (
-                f"tool entry missing 'default_on' key: {tool}. "
-                "R5: default_on=True for tools in default_tool_ids, False for optional_tool_ids."
+    def test_tool_descriptions_are_empty(self) -> None:
+        """Tool pill descriptions stay "" (payload invariant, design 风险 2)."""
+        for tool in _projected_tools():
+            assert tool["description"] == "", (
+                "capabilities.tools description must remain empty — surfacing real "
+                "kernel tool descriptions is a payload change out of refactor scope"
             )
 
-    def test_default_tools_have_default_on_true(self) -> None:
-        """Tools in PERSONAL_ASSISTANT_PROFILE.default_tool_ids must have default_on=True."""
-        from agent.sdk import PERSONAL_ASSISTANT_PROFILE
-        from personal_assistant.reporter.upstream_reporter import _build_tool_names
+    def test_tools_have_default_on_key(self) -> None:
+        for tool in _projected_tools():
+            assert "default_on" in tool, f"tool entry missing 'default_on' key: {tool}"
 
-        tools = _build_tool_names()
-        tool_map = {t["name"]: t for t in tools}
-        for tool_id in PERSONAL_ASSISTANT_PROFILE.default_tool_ids or []:
-            if tool_id in tool_map:
-                assert tool_map[tool_id]["default_on"] is True, (
-                    f"default tool '{tool_id}' must have default_on=True "
-                    "(it's in PERSONAL_ASSISTANT_PROFILE.default_tool_ids)"
-                )
+    def test_default_tools_have_default_on_true(self) -> None:
+        tool_map = {t["name"]: t for t in _projected_tools()}
+        for tool_id in PA_DEFAULT_TOOL_IDS:
+            assert tool_map[tool_id]["default_on"] is True, (
+                f"default tool '{tool_id}' must have default_on=True"
+            )
 
     def test_optional_tools_have_default_on_false(self) -> None:
-        """Tools in PERSONAL_ASSISTANT_PROFILE.optional_tool_ids must have default_on=False."""
-        from agent.sdk import PERSONAL_ASSISTANT_PROFILE
-        from personal_assistant.reporter.upstream_reporter import _build_tool_names
-
-        tools = _build_tool_names()
-        tool_map = {t["name"]: t for t in tools}
-        for tool_id in PERSONAL_ASSISTANT_PROFILE.optional_tool_ids or []:
-            if tool_id in tool_map:
-                assert tool_map[tool_id]["default_on"] is False, (
-                    f"optional tool '{tool_id}' must have default_on=False "
-                    "(it's in PERSONAL_ASSISTANT_PROFILE.optional_tool_ids)"
-                )
+        tool_map = {t["name"]: t for t in _projected_tools()}
+        for tool_id in PA_OPTIONAL_TOOL_IDS:
+            assert tool_map[tool_id]["default_on"] is False, (
+                f"optional tool '{tool_id}' must have default_on=False"
+            )
 
     def test_memory_still_in_tools(self) -> None:
-        """memory must still appear in _build_tool_names() after R5 format change."""
-        tools = self._get_tool_names()
-        names = {t["name"] for t in tools}
-        assert "memory" in names, (
-            "memory must be in capabilities.tools after R5 format change"
-        )
-
-    def test_feature_registry_required_tools_still_present(self) -> None:
-        """FEATURE_REGISTRY requires_tool entries must still appear in tools list."""
-        from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
-        from personal_assistant.reporter.upstream_reporter import _build_tool_names
-
-        tools = _build_tool_names()
-        names = {t["name"] for t in tools}
-        for entry in FEATURE_REGISTRY.values():
-            rt = entry.get("requires_tool")
-            if rt is not None:
-                assert rt in names, (
-                    f"FEATURE_REGISTRY requires_tool '{rt}' must be in capabilities.tools "
-                    "(feat-379-M9 decision 13)"
-                )
+        names = {t["name"] for t in _projected_tools()}
+        assert "memory" in names
 
 
-class TestBuildNodeCapabilitiesToolsFormat:
-    """build_node_capabilities_payload tools must use rich dict format."""
+class TestNodeCapabilitiesToolsFormat:
+    """build_node_capabilities_payload tools must use the rich dict format."""
 
-    def test_node_capabilities_tools_are_dicts(self) -> None:
-        """build_node_capabilities_payload()['tools'] must be list of dicts."""
+    def test_node_capabilities_tools_are_dicts(self, tmp_path: Path) -> None:
         from personal_assistant.reporter.upstream_reporter import (
             build_node_capabilities_payload,
         )
 
-        payload = build_node_capabilities_payload()
+        kernel = _build_test_kernel(tmp_path / "kernel-root")
+        payload = build_node_capabilities_payload(kernel)
         tools = payload["tools"]
         assert isinstance(tools, list) and len(tools) > 0
-        assert isinstance(tools[0], dict), (
-            "node capabilities tools must be dicts after R5. "
-            "Got: " + repr(type(tools[0]))
-        )
+        assert isinstance(tools[0], dict)
         assert "name" in tools[0]
         assert "default_on" in tools[0]

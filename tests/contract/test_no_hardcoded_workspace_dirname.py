@@ -39,8 +39,9 @@ _WHITELIST: frozenset[str] = frozenset(
         # default fallback when a consumer omits it (same role as jsonl_store default);
         # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
         # refactor-406-M1 R7: host_capabilities= param + _inject removed (141→137),
-        # then legacy product_profile build_kernel path removed (137→122).
-        "src/agent/sdk/kernel.py:122",
+        # then legacy product_profile build_kernel path removed (137→122);
+        # refactor-406-M2 added build_kernel skill_search_roots param + docstring (122→131).
+        "src/agent/sdk/kernel.py:131",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode

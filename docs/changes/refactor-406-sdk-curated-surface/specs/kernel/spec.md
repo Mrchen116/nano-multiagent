@@ -34,9 +34,11 @@
 ### Requirement: 装配与会话分两层，内核产品中立
 
 `agent.sdk` 不提供"产品"对象（无 `ProductDefinition` / 内置产品常量）。装配分两层：
-- `build_kernel(llm, tools, hooks, can_use_tool=None, workspace_config_dirname=…, repo_root=None)`
+- `build_kernel(llm, tools, hooks, can_use_tool=None, workspace_config_dirname=…, repo_root=None, skill_search_roots=())`
   —— 建一次进程级**共享基座**：`llm` 为 SDK-owned `LLMConfig`（providers/models 目录 + 连接 + 默认）；
-  `tools` 为原生工具对象**目录**；`hooks` 为 `setup(hooks: HookAPI)` 形态 callable。模型注册表初始化在
+  `tools` 为原生工具对象**目录**；`hooks` 为 `setup(hooks: HookAPI)` 形态 callable；`skill_search_roots`
+  为部署级共享 skill 根（叠加在每 workspace 根之上，见「Kernel 提供单项中立能力查询」Requirement）。
+  模型注册表初始化在
   内部，消费者无前置时序义务。
 - `create_session(workspace_root, enabled_tools, features, prompt, title=…, metadata=…)`
   —— 每 agent 带齐配置：`enabled_tools` 从目录选子集；`features` 开关内核通用 feature；`prompt` 为
@@ -173,6 +175,12 @@ heartbeat 指引 / 群聊上下文）**全是 per-session**（由 agent 配置�
 SDK-owned 不可变数据，与已装配 Kernel 实际能力一致；内核不做产品语义聚合（payload 拼装/available
 计算归应用）。
 
+`list_skills(workspace_root)` 的搜索根 = 每会话 `<workspace_root>/<workspace_config_dirname>/skills`
+（由 workspace_config_dirname 约定派生）**叠加** `build_kernel(skill_search_roots=…)` 传入的部署级
+共享 skill 根，按「workspace 优先 → 部署根按传入顺序」去重保序。`skill_search_roots` 是部署路径约定
+（与 `workspace_config_dirname` 同层，应用经 `build_kernel` 传入；内核只搜被交给它的根，保持产品中立）；
+缺省为空 → 仅 workspace skill。
+
 #### Scenario: 能力查询与运行时事实一致
 - **GIVEN** 已装配的 Kernel
 - **WHEN** 调四个 list_* 查询
@@ -183,6 +191,12 @@ SDK-owned 不可变数据，与已装配 Kernel 实际能力一致；内核不�
 - **GIVEN** 两个 workspace_root 各有不同可发现 skills
 - **WHEN** 分别 `list_skills(workspace_root)`
 - **THEN** 各返回对应工作区 skill，无混用或丢失
+
+#### Scenario: 部署级共享 skill 根叠加在每 workspace 根之上
+- **GIVEN** `build_kernel(skill_search_roots=(R1, R2))` 装配的 Kernel，某 workspace 自有 skill
+- **WHEN** `list_skills(workspace_root)`
+- **THEN** 返回 workspace skill + R1/R2 中的 skill，顺序为「workspace → R1 → R2」去重，
+  跨 workspace 调用时部署级根一致、workspace 部分各异（应用据此复刻其多层 skill 分发约定）
 
 ### Requirement: Kernel 出入参为 SDK-owned 类型
 

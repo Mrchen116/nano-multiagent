@@ -83,6 +83,7 @@ def build_kernel(
     workspace_config_dirname: str | None = None,
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
+    skill_search_roots: Sequence[Path] = (),
     # Internal escape hatch for tests: skip LLM client construction and use
     # this fake instead.  Not part of the public API.
     _llm_client_override: LLMClient | None = None,
@@ -108,6 +109,14 @@ def build_kernel(
             governing session JSONL / memory / skill layout.
         can_use_tool: Optional async permission callback; None → IM card flow.
         repo_root: Repository/workspace root for tool/hook discovery.
+        skill_search_roots: Deployment-level skill directories shared across every
+            workspace (e.g. a product's global ``~/.<product>/skills`` and compat
+            roots). ``list_skills(workspace_root)`` searches the per-workspace
+            ``<workspace_root>/<workspace_config_dirname>/skills`` FIRST, then these
+            roots in order, deduplicating by directory. The kernel stays
+            product-neutral: it only searches the roots it is handed (a deployment
+            path convention the consumer factory owns — same pattern as
+            ``workspace_config_dirname``). Empty → workspace-only skills.
         _llm_client_override: Test-only LLM client.
 
     Returns:
@@ -122,6 +131,7 @@ def build_kernel(
         workspace_config_dirname=workspace_config_dirname or ".nano",
         can_use_tool=can_use_tool,
         repo_root=repo_root,
+        skill_search_roots=tuple(skill_search_roots),
         _llm_client_override=_llm_client_override,
     )
 
@@ -253,6 +263,7 @@ def _build_kernel_base(
     workspace_config_dirname: str,
     can_use_tool: CanUseToolFn | None,
     repo_root: Path | None,
+    skill_search_roots: tuple[Path, ...] = (),
     _llm_client_override: LLMClient | None,
 ) -> "Kernel":
     """Assemble the product-neutral shared base (new 2-layer path, 决策 1/2/5/8).
@@ -303,9 +314,7 @@ def _build_kernel_base(
     # decision 10's "store is stateless, location comes from workspace_root" pattern.
     session_service = SessionService(
         store=session_store,
-        default_session_metadata={
-            "workspace_config_dirname": workspace_config_dirname
-        },
+        default_session_metadata={"workspace_config_dirname": workspace_config_dirname},
     )
 
     permission_broker = PermissionBroker(config=AutoModeConfig())
@@ -413,6 +422,9 @@ def _build_kernel_base(
         repo_root=resolved_repo_root,
         llm_catalog=llm,
         workspace_config_dirname=workspace_config_dirname,
+        skill_search_roots=tuple(
+            Path(r).expanduser().resolve() for r in skill_search_roots
+        ),
     )
 
 
@@ -464,19 +476,36 @@ def _register_self_evolution_builtins(
 class _WorkspaceDirnameSkillResolver:
     """Minimal SkillRootResolver for the 2-layer path (no ProductProfile).
 
-    Resolves skills under ``<workspace_root>/<workspace_config_dirname>/skills`` so
-    ``Kernel.list_skills`` is per-workspace without depending on a ProductProfile /
-    ConfigResolver (which the new build_kernel(llm=…) path does not build). Mirrors
-    the consumer factory's own skill_root convention (e.g. coding_cli's .nanocode).
+    Resolves skills under ``<workspace_root>/<workspace_config_dirname>/skills``
+    FIRST (per-workspace), then the build-time deployment ``extra_roots`` (shared
+    user-level/global/compat skill dirs the consumer factory owns), deduplicating by
+    directory while preserving order. This is the kernel-neutral equivalent of the
+    legacy reporter's 4-tier search (workspace → global → compat-claude →
+    compat-codex): the kernel only searches the roots it is handed, so it stays
+    product-neutral; the consumer passes its product-specific deployment roots via
+    ``build_kernel(skill_search_roots=)``.
     """
 
-    def __init__(self, *, workspace_root: Path, workspace_config_dirname: str) -> None:
-        self._root = (
-            workspace_root / workspace_config_dirname / "skills"
-        ).expanduser().resolve()
+    def __init__(
+        self,
+        *,
+        workspace_root: Path,
+        workspace_config_dirname: str,
+        extra_roots: tuple[Path, ...] = (),
+    ) -> None:
+        ordered: list[Path] = [
+            (workspace_root / workspace_config_dirname / "skills")
+            .expanduser()
+            .resolve()
+        ]
+        for root in extra_roots:
+            resolved = Path(root).expanduser().resolve()
+            if resolved not in ordered:
+                ordered.append(resolved)
+        self._roots = tuple(ordered)
 
     def user_skill_roots(self) -> tuple[Path, ...]:
-        return (self._root,)
+        return self._roots
 
 
 def _wire_console_tracer() -> None:
@@ -512,6 +541,7 @@ class Kernel:
         repo_root: Path,
         llm_catalog: LLMConfig | None = None,
         workspace_config_dirname: str | None = None,
+        skill_search_roots: tuple[Path, ...] = (),
     ) -> None:
         self._c = components
         self._repo_root = repo_root
@@ -522,6 +552,10 @@ class Kernel:
         # list_skills uses it to resolve <workspace>/<dirname>/skills without a
         # ProductProfile (the legacy path resolves via config_resolver instead).
         self._workspace_config_dirname = workspace_config_dirname
+        # Deployment-level skill roots shared across workspaces (refactor-406-M2):
+        # list_skills appends them after the per-workspace root, deduplicating. The
+        # consumer factory owns these product paths; the kernel stays neutral.
+        self._skill_search_roots = skill_search_roots
 
         # Inject can_use_tool into runtime so _build_hook_context can race it
         # against the broker future when building _permission_requester closures.
@@ -978,6 +1012,7 @@ class Kernel:
             per_call_resolver = _WorkspaceDirnameSkillResolver(
                 workspace_root=effective_root,
                 workspace_config_dirname=self._workspace_config_dirname,
+                extra_roots=self._skill_search_roots,
             )
 
         skills = resolve_available_skills(

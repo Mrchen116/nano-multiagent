@@ -67,6 +67,7 @@ from personal_assistant.gateway.session_keys import (
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_agent_capabilities_payload,
+    build_node_capabilities_payload,
     build_runtime_capabilities,
 )
 from personal_assistant.scheduler.heartbeat_scheduler import (
@@ -2247,7 +2248,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             node=config.node,
             agents=config.agents,
             send_frame=lambda _message_type, _payload: None,
-            capabilities=build_runtime_capabilities(),
+            capabilities=build_runtime_capabilities(kernel),
         )
         im_config_sync_client = _IMConfigSyncClient(
             base_url=config.im_service.url,
@@ -2321,12 +2322,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             ),
             agent_capabilities_provider=lambda agent_id, workspace_root: (
                 build_agent_capabilities_payload(
+                    kernel,
                     workspace_root=workspace_root,
                     tool_allowlist=_resolve_agent_tool_allowlist(
                         im_config_sync_client, agent_id
                     ),
                 )
             ),
+            node_capabilities_provider=lambda: build_node_capabilities_payload(kernel),
             # sdk-fix-prompt-preview: assemble_prompt_preview is now available on the
             # in-process Kernel (refactor-387 M3 regression fix).  The provider
             # signature matches PromptPreviewProvider: (agent_id, workspace_root,
@@ -2917,6 +2920,7 @@ def _build_im_connection_manager(
     sync_client: ConfigSyncClient | None = None,
     agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
     agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
+    node_capabilities_provider: Callable[[], dict[str, object]] | None = None,
     prompt_preview_provider: Callable[..., Any] | None = None,
     agent_create_handler: AgentCreateHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
@@ -2934,6 +2938,7 @@ def _build_im_connection_manager(
         heartbeat_trigger=lambda _agent_id, _reason: heartbeat_runner.request_tick(),
         agent_config_provider=agent_config_provider,
         agent_capabilities_provider=agent_capabilities_provider,
+        node_capabilities_provider=node_capabilities_provider,
         prompt_preview_provider=prompt_preview_provider,
         agent_create_handler=agent_create_handler,
         token_getter=token_getter,

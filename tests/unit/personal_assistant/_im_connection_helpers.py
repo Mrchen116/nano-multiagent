@@ -11,6 +11,21 @@ from personal_assistant.reporter.upstream_reporter import (
 )
 
 
+def _build_test_kernel(repo_root: Path):
+    """Build a real PA Kernel for capability-reporting tests (refactor-406-M2).
+
+    The reporter now projects from ``kernel.list_*`` (决策 4), so capability tests
+    need a live kernel. Uses the conftest test LLM payload and the PA factory so the
+    kernel carries the same skill_search_roots a production PA gateway has.
+    """
+    import tests.conftest as _conftest  # noqa: PLC0415
+    from agent.sdk import LLMConfig  # noqa: PLC0415
+    from personal_assistant.product import build_pa_kernel  # noqa: PLC0415
+
+    llm = LLMConfig.from_payload(_conftest._DEFAULT_TEST_PAYLOAD)
+    return build_pa_kernel(llm=llm, cron_services={}, repo_root=repo_root)
+
+
 class _FakeWebSocket:
     def __init__(self, incoming: list[str] | None = None) -> None:
         self.incoming = list(incoming or [])
@@ -75,11 +90,12 @@ def _minimal_reporter(tmp_path: Path) -> UpstreamReporter:
     workspace = tmp_path / "agent-a"
     workspace.mkdir(exist_ok=True)
     agents = (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),)
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
     return UpstreamReporter(
         node=NodeConfig(node_id="n1"),
         agents=agents,
         send_frame=lambda _mt, _p: None,
-        capabilities=build_runtime_capabilities(),
+        capabilities=build_runtime_capabilities(kernel),
     )
 
 

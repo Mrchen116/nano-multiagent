@@ -34,14 +34,17 @@ class _FakeWebSocket:
 
 
 def _minimal_reporter(tmp_path: Path) -> UpstreamReporter:
+    from ._im_connection_helpers import _build_test_kernel
+
     workspace = tmp_path / "agent-a"
     workspace.mkdir(exist_ok=True)
     agents = (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),)
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
     return UpstreamReporter(
         node=NodeConfig(node_id="n1"),
         agents=agents,
         send_frame=lambda _mt, _p: None,
-        capabilities=build_runtime_capabilities(),
+        capabilities=build_runtime_capabilities(kernel),
     )
 
 

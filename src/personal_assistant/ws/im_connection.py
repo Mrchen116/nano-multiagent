@@ -17,10 +17,7 @@ from personal_assistant.config.sync_client import ConfigSyncClient
 from personal_assistant.defaults import (
     WORKSPACE_CONFIG_DIRNAME as _PA_WORKSPACE_CFG_DIR,
 )
-from personal_assistant.reporter.upstream_reporter import (
-    UpstreamReporter,
-    build_node_capabilities_payload,
-)
+from personal_assistant.reporter.upstream_reporter import UpstreamReporter
 
 
 @dataclass(slots=True)
@@ -96,6 +93,10 @@ AgentCreateHandler = Callable[
 AgentCapabilitiesProvider = Callable[
     [str, str], Awaitable[Mapping[str, object] | None] | Mapping[str, object] | None
 ]
+# refactor-406-M2: node.capabilities payload is now built by a Gateway projection
+# that holds the in-process Kernel (decision 4); injected as a provider instead of
+# importing a module-level builder, so the WS layer stays kernel-agnostic.
+NodeCapabilitiesProvider = Callable[[], Mapping[str, object]]
 # feat-379-M2 R5: (agent_id, workspace_root, features, custom_prompt, tool_ids, scenario, skill_ids) → preview dict | None
 # feat-383-M1: added skill_ids parameter so kernel can resolve real skill descriptions
 PromptPreviewProvider = Callable[
@@ -181,6 +182,7 @@ class IMConnectionManager:
         agent_config_provider: AgentConfigProvider | None = None,
         agent_create_handler: AgentCreateHandler | None = None,
         agent_capabilities_provider: AgentCapabilitiesProvider | None = None,
+        node_capabilities_provider: NodeCapabilitiesProvider | None = None,
         prompt_preview_provider: PromptPreviewProvider | None = None,
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
@@ -196,6 +198,7 @@ class IMConnectionManager:
         self._agent_config_provider = agent_config_provider
         self._agent_create_handler = agent_create_handler
         self._agent_capabilities_provider = agent_capabilities_provider
+        self._node_capabilities_provider = node_capabilities_provider
         # feat-379-M2 R5: provider for prompt preview; calls agent HTTP /v1/prompt-preview.
         self._prompt_preview_provider = prompt_preview_provider
         # Called when IM pushes a permission_response so PA can POST it to the agent.
@@ -394,16 +397,22 @@ class IMConnectionManager:
             )
             return
         if message_type == "node.capabilities.resolve":
-            # feat-379-M7 (ISSUE-1): use build_node_capabilities_payload() which injects
-            # the FEATURE_REGISTRY projection so the agent-create page can render feature
-            # toggles (no per-agent context yet → all features available=True at node level).
+            # feat-379-M7 (ISSUE-1): node-level capability payload carries the feature
+            # projection so the agent-create page can render feature toggles (no
+            # per-agent context yet → all features available=True at node level).
+            # refactor-406-M2: built by the injected provider (holds the Kernel for
+            # decision-4 list_* queries) instead of a module-level builder.
             request_id = _require_text(body.get("request_id"), field_name="request_id")
+            if self._node_capabilities_provider is None:
+                raise RuntimeError(
+                    "node.capabilities.resolve requires node_capabilities_provider"
+                )
             await self.send_json(
                 "node.capabilities",
                 {
                     "request_id": request_id,
                     "node_id": self._reporter.node_id,
-                    "capabilities": build_node_capabilities_payload(),
+                    "capabilities": dict(self._node_capabilities_provider()),
                 },
             )
             return
