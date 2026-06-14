@@ -92,32 +92,35 @@ def _collect(ctx: PromptContext, *segs) -> tuple[PromptText, ...]:
     return tuple(p for p in (_piece(s, ctx) for s in segs) if p is not None)
 
 
-def _pa_slots(ctx: PromptContext) -> PromptSlots:
-    from agent.products.personal_assistant import prompt_sections as ps  # noqa: PLC0415
+class _FakeAgent:
+    """Duck-typed agent config for the PA prompt factory (mirrors prompt_for's reads)."""
 
-    return PromptSlots(
-        head=_collect(ctx, ps._PA_IDENTITY, ps._PA_RUNTIME),
-        body=_collect(
-            ctx,
-            ps._PA_HEARTBEAT,
-            ps._PA_CRON,
-            ps._PA_CRON_ROUTING,
-            ps._PA_PLATFORM_POLICY,
-            ps._PA_GUIDELINES,
-            ps._PA_ROUTING,
-        ),
-        custom=_collect(ctx, ps._PA_USER_CUSTOM),
-        tail=_collect(ctx, ps._PA_COMMUNICATION_CONTEXT),
+    def __init__(self, *, cron_enabled: bool, heartbeat_enabled: bool, custom: str):
+        self.cron_enabled = cron_enabled
+        self.heartbeat_enabled = heartbeat_enabled
+        self.custom_prompt = custom or None
+
+
+def _pa_slots(ctx: PromptContext) -> PromptSlots:
+    # refactor-406-M2: golden守的是 PA *生产* 路径（personal_assistant.product.prompt_for），
+    # 不再是退役的 agent.products prompt_sections。flags/scenario/custom 映射成假想 agent
+    # 喂给生产工厂——「预览=真实=golden」三者同源。
+    from personal_assistant.product import prompt_for  # noqa: PLC0415
+
+    flags = ctx.flags or {}
+    agent = _FakeAgent(
+        cron_enabled=bool(flags.get("cron_scheduling")),
+        heartbeat_enabled=bool(flags.get("heartbeat")),
+        custom=(ctx.vars or {}).get("custom_prompt", ""),
     )
+    return prompt_for(agent, scenario=ctx.scenario or None)
 
 
 def _lc_slots(ctx: PromptContext) -> PromptSlots:
-    from agent.products.local_coding import prompt_sections as ls  # noqa: PLC0415
+    # refactor-406-M2: golden守 LC 生产路径（coding_cli.product.cli_prompt_slots）。
+    from coding_cli.product import cli_prompt_slots  # noqa: PLC0415
 
-    return PromptSlots(
-        head=_collect(ctx, ls._LC_IDENTITY),
-        body=_collect(ctx, ls._LC_TOOLS_FOOTER, ls._LC_GUIDELINES),
-    )
+    return cli_prompt_slots()
 
 
 # case_name -> (ctx, slots-builder). Mirrors the golden matrix from R1.

@@ -989,26 +989,14 @@ class Kernel:
         effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
 
         # Per-workspace skill discovery requires a config_resolver bound to THIS
-        # call's workspace_root — not the build-time one. default_skill_search_roots
-        # ignores its workspace_root argument when a config_resolver is supplied
-        # (it uses the resolver's own workspace), so reusing the build-time
-        # resolver would resolve every workspace to the build repo_root's skills
-        # (cross-workspace leak). Mirror the reporter pattern: derive a fresh
-        # resolver bound to effective_root from the build-time resolver's profile.
-        build_resolver = getattr(self._c.runtime, "_config_resolver", None)
+        # call's workspace_root — not the build-time one. The 2-layer path resolves
+        # skills under the consumer's per-workspace config dir
+        # (<workspace_root>/<workspace_config_dirname>/skills) plus the deployment-level
+        # skill_search_roots, so list_skills is per-workspace with no cross-workspace
+        # mixing (决策 4). (The legacy ProductProfile-bound ConfigResolver path was
+        # removed in refactor-406-M2 with products/.)
         per_call_resolver = None
-        profile = getattr(build_resolver, "_profile", None)
-        if profile is not None:
-            # Legacy product_profile path: derive a profile-bound resolver per call.
-            from agent.platform.config.resolver import ConfigResolver  # noqa: PLC0415
-
-            per_call_resolver = ConfigResolver(
-                profile=profile, workspace_root=effective_root
-            )
-        elif self._workspace_config_dirname:
-            # 2-layer path (no ProductProfile): resolve skills under the consumer's
-            # per-workspace config dir (<workspace>/<dirname>/skills) so list_skills is
-            # per-workspace with no cross-workspace mixing (决策 4).
+        if self._workspace_config_dirname:
             per_call_resolver = _WorkspaceDirnameSkillResolver(
                 workspace_root=effective_root,
                 workspace_config_dirname=self._workspace_config_dirname,
