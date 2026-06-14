@@ -161,9 +161,8 @@ llm:
 src/
 ├── agent/                # Agent 内核库（对外只暴露 agent.sdk，不内置 HTTP API）
 │   ├── core/             # 纯逻辑：runtime/loop/runs/tools/hooks/skills/session；只持 LLMClient 端口
-│   ├── platform/         # 集成层：LLM provider 具体实现、persistence、safety、bootstrap
-│   ├── products/         # 产品 profile：local_coding, personal_assistant
-│   └── sdk/              # 唯一对外面：build_kernel() → Kernel
+│   ├── platform/         # 集成层：LLM provider 具体实现、persistence、safety
+│   └── sdk/              # 唯一对外面：build_kernel() 共享基座 + create_session() per-agent → Kernel
 ├── coding_cli/           # 本地编码 CLI（async-native REPL，import agent.sdk 进程内直跑）
 ├── personal_assistant/   # 个人助手 Node Gateway（常驻进程，import agent.sdk 进程内持有 Kernel）
 └── IM/                   # IM 中心服务（Web IM + 配置中心 + 消息中继）
@@ -175,8 +174,9 @@ src/
 - `IM` 不调用 `agent`，只与用户和 `personal_assistant` 交互
 - `coding_cli` / `personal_assistant` / `IM` 三者之间禁止相互 import
 
-agent 内核四层：`core`（纯逻辑）→ `platform`（接环境）→ `products`（装配方案）→ `sdk`（对外面）。
-依赖方向：`platform → core + products`；`sdk → core + platform + products`（唯一对外面）；`core` 不依赖 `platform` / `products`。
+agent 内核三层（refactor-406 决策1：原 `products` 装配层解散，方案下沉为消费者工厂）：
+`core`（纯逻辑）→ `platform`（接环境）→ `sdk`（对外面，两层装配：build_kernel 共享基座 + create_session per-agent）。
+依赖方向：`platform → core`；`sdk → core + platform`（唯一对外面）；`core` 不依赖 `platform`。
 
 ## 运行时服务并行启动
 
