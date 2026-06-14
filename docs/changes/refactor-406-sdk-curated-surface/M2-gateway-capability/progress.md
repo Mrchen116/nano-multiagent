@@ -138,4 +138,11 @@
 
 ### 待 live（relay 通后一次性复验）
 
-- R-CFG-2（跨 workspace skill 差异）、R-CFG-3（保存回显）、R-CFG-4（prompt preview）、R-GW-2（停止/重启）、K2.6 thinking 端到端。
+- R-CFG-2（跨 workspace skill 差异）、R-CFG-3（保存回显）、R-CFG-4（prompt preview）、R-GW-2（停止/重启）、K2.6 thinking 端到端、chat_history 落盘。
+
+### ⚠️ R4 端到端 live blocker：IM 发消息 relay 不通（根因已定位，§0.11 已找 orchestrator）
+
+- **根因（代码+DB 层）**：IM 创建会话校验 participant（`repositories.py:704-711`）：`agent:default-agent` → 查 `users WHERE username = "agent:default-agent"`。但 e2e 的 IM `users` 表只有 nano（owner），**没有 agent user 记录** → 「participant_ids contains unknown users」→ 会话建不出 → 发消息/relay 链没启动。agent 在 `agent_profiles` 有 3 条（owner=nano，node_id 绑定对），但作 conversation participant 需 users 表 agent user 记录。
+- **非 M2 改动引起**：e2e「Gateway config 预置 agent（node.register 建 agent_profiles）」与「IM 会话 participant 需 agent user」之间的 gap。
+- 尝试过 2 条都受阻：① curl API（agent 无 users 记录建不出会话）；② gstack browse（server「another instance starting」持续超时启不来，环境问题）。
+- **待 orchestrator 指正确 e2e 发消息姿势**（agent 怎么获 IM users 记录 / 专用触发脚本 / 协助起一轮）。relay 通后一次跑完所有剩余 live + K2.6 真带 thinking + chat_history jsonl 真写出。**不自降证据。**
