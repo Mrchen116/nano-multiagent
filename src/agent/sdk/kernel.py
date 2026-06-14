@@ -872,10 +872,12 @@ class Kernel:
     def list_models(self) -> list:
         """Return the model catalog as SDK-owned ``ModelInfo`` DTOs (决策 4).
 
-        Reads the process model registry installed at build time. The active
-        model (``get_llm_config().model``) is flagged ``is_default`` so selectors
-        can highlight it. When the registry is not initialised (test paths that
-        bypass catalog install), falls back to the single active model.
+        Reads the process model registry installed at build time. The **catalog
+        default** model (``get_default_model(get_default_provider())``) is flagged
+        ``is_default`` so selectors can highlight it — this is the configured default,
+        not necessarily the currently-active model (which CLI ``/model`` may have
+        switched). When the registry is not initialised (test paths that bypass
+        catalog install), falls back to the single active model (flagged default).
 
         Returns:
             List of ModelInfo(name, provider, is_default).

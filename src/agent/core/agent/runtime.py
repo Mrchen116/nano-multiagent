@@ -1047,6 +1047,11 @@ class AgentRuntime:
         self._session_file_states.pop(session_id, None)
         self._session_locks.pop(session_id, None)
         self._memory_snapshots.pop(session_id, None)
+        # refactor-406-M3fix #7: drop per-session PromptSlots registered via
+        # register_session_prompt_slots (refactor-406 新增 per-session 系统提示槽).
+        # Without this, _session_prompt_slots grows unboundedly across a long-running
+        # gateway's session churn (memory leak introduced by this unit's PromptSlots).
+        self._session_prompt_slots.pop(session_id, None)
 
     def invalidate_session_cache(self, session_id: str) -> None:
         """Drop cached in-memory history/config/path for one session.
