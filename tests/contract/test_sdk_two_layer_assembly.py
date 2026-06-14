@@ -154,7 +154,12 @@ def test_capability_dtos_fields() -> None:
 
 def test_prompt_slots_default_empty_and_holds_pieces() -> None:
     empty = PromptSlots()
-    assert empty.head == () and empty.body == () and empty.custom == () and empty.tail == ()
+    assert (
+        empty.head == ()
+        and empty.body == ()
+        and empty.custom == ()
+        and empty.tail == ()
+    )
     slots = PromptSlots(
         head=(PromptText(name="pa.identity", text="# Hi"),),
         body=(PromptText(name="pa.guidelines", text="## G"),),

@@ -293,7 +293,9 @@ class CronTool:
         # the immediate-run action looks up the requesting agent's service at run time.
         self._cron_services = cron_services
 
-    def check_permissions(self, tool_input: Mapping[str, Any], ctx: Any) -> _AllowDecision:
+    def check_permissions(
+        self, tool_input: Mapping[str, Any], ctx: Any
+    ) -> _AllowDecision:
         """Allow all cron calls (authorized at registration time via cron_enabled).
 
         Without this, auto_mode_gate falls through to the classifier which denies
@@ -326,7 +328,9 @@ class CronTool:
     # Action handlers
     # ------------------------------------------------------------------
 
-    def _action_list(self, args: Mapping[str, Any], workspace_root: Path) -> dict[str, Any]:
+    def _action_list(
+        self, args: Mapping[str, Any], workspace_root: Path
+    ) -> dict[str, Any]:
         include_disabled = bool(args.get("includeDisabled", False))
         jobs = _read_jobs(workspace_root)
         if not include_disabled:
@@ -337,13 +341,17 @@ class CronTool:
             "count": len(jobs),
         }
 
-    def _action_add(self, args: Mapping[str, Any], workspace_root: Path) -> dict[str, Any]:
+    def _action_add(
+        self, args: Mapping[str, Any], workspace_root: Path
+    ) -> dict[str, Any]:
         job_raw = args.get("job")
         if not isinstance(job_raw, dict):
             raise ValueError("cron add: 'job' field is required and must be an object")
         schedule = job_raw.get("schedule")
         if not isinstance(schedule, dict) or not schedule.get("kind"):
-            raise ValueError("cron add: job.schedule is required and must include 'kind'")
+            raise ValueError(
+                "cron add: job.schedule is required and must include 'kind'"
+            )
         payload = job_raw.get("payload")
         if not isinstance(payload, dict):
             raise ValueError("cron add: job.payload is required")
@@ -361,7 +369,9 @@ class CronTool:
         _write_jobs(workspace_root, existing)
         return {"ok": True, "jobId": job.id, "job": _job_to_api_dict(job)}
 
-    def _action_update(self, args: Mapping[str, Any], workspace_root: Path) -> dict[str, Any]:
+    def _action_update(
+        self, args: Mapping[str, Any], workspace_root: Path
+    ) -> dict[str, Any]:
         job_id = _resolve_job_id(args)
         patch = args.get("patch")
         if not isinstance(patch, dict):
@@ -406,7 +416,9 @@ class CronTool:
         _write_jobs(workspace_root, jobs)
         return {"ok": True, "jobId": updated.id, "job": _job_to_api_dict(updated)}
 
-    def _action_remove(self, args: Mapping[str, Any], workspace_root: Path) -> dict[str, Any]:
+    def _action_remove(
+        self, args: Mapping[str, Any], workspace_root: Path
+    ) -> dict[str, Any]:
         job_id = _resolve_job_id(args)
         jobs = _read_jobs(workspace_root)
         if not any(j.id == job_id for j in jobs):
@@ -446,7 +458,11 @@ class CronTool:
         try:
             ack = service.enqueue(job_id=job_id, trigger="manual")
         except Exception as exc:  # noqa: BLE001 — surface as a tool-level error dict
-            return {"ok": False, "jobId": job_id, "error": f"cron run: enqueue error: {exc}"}
+            return {
+                "ok": False,
+                "jobId": job_id,
+                "error": f"cron run: enqueue error: {exc}",
+            }
 
         if not ack.get("accepted"):
             error_code = ack.get("error_code")
@@ -499,7 +515,9 @@ def make_cron_tool(cron_services: Mapping[str, CronExecutionService]) -> CronToo
 # ---------------------------------------------------------------------------
 
 
-def _read_runs_for_job(runs_path: Path, job_id: str, *, limit: int = 20) -> list[dict[str, Any]]:
+def _read_runs_for_job(
+    runs_path: Path, job_id: str, *, limit: int = 20
+) -> list[dict[str, Any]]:
     try:
         raw = runs_path.read_text(encoding="utf-8")
     except OSError:

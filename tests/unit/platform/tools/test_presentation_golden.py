@@ -49,7 +49,12 @@ def _resolve(name: str):
 
 def _evt_tuple(evt: Any) -> tuple:
     detail = evt.detail
-    return (evt.visible, evt.label, evt.summary, dict(detail) if detail is not None else None)
+    return (
+        evt.visible,
+        evt.label,
+        evt.summary,
+        dict(detail) if detail is not None else None,
+    )
 
 
 class _Result:
@@ -83,7 +88,9 @@ _START_CASES = [
 
 
 @pytest.mark.parametrize("name,args,expected", _START_CASES)
-def test_format_start_golden(name: str, args: Mapping[str, Any], expected: tuple) -> None:
+def test_format_start_golden(
+    name: str, args: Mapping[str, Any], expected: tuple
+) -> None:
     evt = _resolve(name).format_start(dict(args))
     assert _evt_tuple(evt) == expected, f"{name} format_start drifted"
 

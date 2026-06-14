@@ -55,9 +55,7 @@ class CronServiceRegistry:
         """Return the CronExecutionService for ``agent_id``, or None."""
         return self._services.get(agent_id)
 
-    def resolve_by_workspace(
-        self, workspace_root: str
-    ) -> CronExecutionService | None:
+    def resolve_by_workspace(self, workspace_root: str) -> CronExecutionService | None:
         """Resolve by workspace_root via linear scan (path-normalised compare)."""
         resolved = str(Path(workspace_root).expanduser().resolve())
         for service in self._services.values():

@@ -57,7 +57,11 @@ def _fake_llm_client(*, content: str = "ok") -> Any:
 
 async def _stub(content: str):
     yield LLMMessage(
-        role="assistant", content=content, finish_reason="stop", tool_calls=(), usage=None
+        role="assistant",
+        content=content,
+        finish_reason="stop",
+        tool_calls=(),
+        usage=None,
     )
 
 

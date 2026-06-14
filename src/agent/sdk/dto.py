@@ -214,9 +214,7 @@ class LLMConfig:
             model=default_model,
             base_url=base_url,
             api_key=api_key,
-            timeout_seconds=timeout_seconds
-            if timeout_seconds is not None
-            else 600.0,
+            timeout_seconds=timeout_seconds if timeout_seconds is not None else 600.0,
             default_model=default_model,
             providers=providers,
         )
