@@ -1,12 +1,36 @@
 # refactor-406 — 验收报告
 
 > 对齐: motivation.md 用户侧验收标准（Requirement / Scenario 矩阵）  
-> 审查对象：unit/refactor-406，HEAD 846b0c9c，M1+M2 合并完成  
-> Review Round: 1  
+> 审查对象：unit/refactor-406，HEAD 8a5c220b，M1+M2+M3fix 全部合并完成  
+> Review Round: 2（叠加 Round 1）  
 > Reviewer: reviewer-r1  
-> 日期: 2026-06-14
+> 日期: 2026-06-15（Round 2）/ 2026-06-14（Round 1）
 
-## Verdict
+## Round 2 Verdict（M3fix 复验）
+
+**pass**
+
+M3fix 修复的 5 条发现行为回归，全部复验通过，与"重构前不变量"一致。Round 1 verdict（pass-with-issues）升级为 **pass**。
+
+### Round 2 验证摘要
+
+| # | 验证项 | 方法 | 结果 | 证据 |
+|---|---|---|---|---|
+| M3fix #1 | 工作区 `.nano/tools` 工具发现 | Gateway CWD 下放 `hello_reviewer.py`（含 `TOOL=...`），发消息请 agent 调用 | **pass** | agent 回复"The `hello_reviewer` tool was called successfully"，tool_calls 记录 `status=completed, output={"result":"Hello from hello_reviewer! greeting=sync-test-v2"}` |
+| M3fix #2 | 用户级 `~/.nanoassistant/tools` 发现 | 在 `~/.nanoassistant/tools/` 放 `user_plugin_reviewer.py`，重启 Gateway，发消息请 agent 调用 | **pass** | agent 回复"User plugin discovered! msg=user-level-plugin-test"，工具正常执行 |
+| M3fix #3 | `prompt-preview` skill 段 | 在 workspace `<ws>/.nanoassistant/skills/reviewer_test_skill/SKILL.md` 放技能，POST `prompt-preview` 传 `skill_ids=["reviewer_test_skill"]` | **pass** | preview prompt 包含 `<name>reviewer_test_skill</name>` XML 段，section_count=11 |
+| M3fix #4 | 跨 workspace skill 隔离 | 对比 default-agent 和 Arch agent 的 capabilities.skills | **pass** | `reviewer_test_skill` 只出现在 default-agent（有该 workspace skill）；Arch（无）不含，互不混用 |
+| M3fix #5 | `self_evolution` config 生效 | 在 `<ws>/.nanoassistant/config.yaml` 设 `skill_nudge_interval=42, memory_nudge_interval=77`；调用 `_load_self_evolution_config` + `create_session` 路径验证 | **pass** | 返回 `{'skill_nudge_interval': 42, 'memory_nudge_interval': 77}`；`create_session` L731-745 将该值注入 `effective_metadata["self_evolution"]`，self_improvement hook 读取自定义值而非硬编码默认 |
+
+### 注意事项
+
+- `.nano/tools` 工具发现是 process-level（`build_kernel` 时一次性），不是 per-session/per-workspace。工具添加后需重启 Gateway 才生效。这与重构前 scope 一致（旧 `build_tool_registry` 也是 process-level）。
+- 自定义工具需在 agent `tool_allowlist` 里明确列名才能在 session 里被 agent 使用（`resolve_enabled_tools` 行为，非本次 M3fix 范围）。
+- skill 文件需遵循目录格式 `<skill-name>/SKILL.md`（`SkillRegistry._discover_skills` 约定），不支持平铺 `.md` 文件。
+
+---
+
+## Round 1 Verdict
 
 **pass-with-issues**
 
