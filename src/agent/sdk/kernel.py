@@ -1258,13 +1258,25 @@ class Kernel:
             try:
                 from agent.core.skills import resolve_available_skills  # noqa: PLC0415
 
+                # refactor-406-M3fix #3 (决策8 同源)：2 层路径 runtime._config_resolver 恒
+                # None → 旧实现 resolve_available_skills(config_resolver=None) 走 default
+                # 搜索根（不含 <ws>/<dirname>/skills + 部署 root），skill_ids 解析恒空白、
+                # 技能段不出现。改用与 list_skills 同源的 _WorkspaceDirnameSkillResolver
+                # （per-call workspace_root + 部署 skill_search_roots），preview = 真实会话。
+                preview_resolver = (
+                    _WorkspaceDirnameSkillResolver(
+                        workspace_root=effective_root,
+                        workspace_config_dirname=self._workspace_config_dirname,
+                        extra_roots=self._skill_search_roots,
+                    )
+                    if self._workspace_config_dirname
+                    else None
+                )
                 active_skills = tuple(
                     resolve_available_skills(
                         workspace_root=effective_root,
                         include_names=tuple(skill_ids),
-                        config_resolver=getattr(
-                            self._c.runtime, "_config_resolver", None
-                        ),
+                        config_resolver=preview_resolver,
                     )
                 )
             except Exception:  # noqa: BLE001

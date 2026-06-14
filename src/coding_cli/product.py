@@ -30,6 +30,17 @@ from agent.sdk import (
 # Matches the legacy LOCAL_CODING_PROFILE.workspace_config_dirname (.nanocode).
 WORKSPACE_CONFIG_DIRNAME = ".nanocode"
 
+# Deployment-level skill search roots shared across CLI sessions (refactor-406-M3fix #6).
+# The per-workspace root (<cwd>/.nanocode/skills) is added by the kernel from
+# workspace_config_dirname; these are the global + compat roots, ported verbatim from
+# the dissolved LOCAL_CODING_PROFILE (global_config_home ~/.nanocode + compat_skill_roots
+# ~/.codex/skills). M2 补了 PA 的 skill_search_roots 但漏了 CLI 这同类——CLI 用户的
+# ~/.codex/skills compat skill 因此丢失发现。
+CLI_SKILL_SEARCH_ROOTS: tuple[Path, ...] = (
+    Path("~/.nanocode/skills"),
+    Path("~/.codex/skills"),
+)
+
 # Default tool subset selected per session (mirrors legacy
 # LOCAL_CODING_PROFILE default_tool_ids). bash/read/edit/write/agent/task_stop are
 # registered as kernel built-ins by build_kernel; memory/skill_manage are
@@ -127,6 +138,7 @@ def build_cli_kernel(
         can_use_tool=can_use_tool,
         workspace_config_dirname=WORKSPACE_CONFIG_DIRNAME,
         repo_root=resolved_root,
+        skill_search_roots=CLI_SKILL_SEARCH_ROOTS,  # #6: ~/.nanocode + ~/.codex compat
     )
 
 
