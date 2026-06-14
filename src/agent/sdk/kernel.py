@@ -84,6 +84,8 @@ def build_kernel(
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
     skill_search_roots: Sequence[Path] = (),
+    tool_search_roots: Sequence[Path] = (),
+    hook_search_roots: Sequence[Path] = (),
     # Internal escape hatch for tests: skip LLM client construction and use
     # this fake instead.  Not part of the public API.
     _llm_client_override: LLMClient | None = None,
@@ -117,6 +119,13 @@ def build_kernel(
             product-neutral: it only searches the roots it is handed (a deployment
             path convention the consumer factory owns — same pattern as
             ``workspace_config_dirname``). Empty → workspace-only skills.
+        tool_search_roots: Deployment-level user tool-plugin directories shared across
+            workspaces (e.g. ``~/.<product>/tools``), discovered in addition to the
+            workspace ``<repo_root>/.nano/tools``. Same consumer-supplied-roots pattern
+            as ``skill_search_roots`` — no ConfigResolver. Empty → workspace-only.
+        hook_search_roots: Deployment-level user hook directories shared across
+            workspaces (e.g. ``~/.<product>/hooks``), discovered in addition to the
+            workspace ``<repo_root>/.nano/hooks``. Same pattern. Empty → workspace-only.
         _llm_client_override: Test-only LLM client.
 
     Returns:
@@ -132,6 +141,8 @@ def build_kernel(
         can_use_tool=can_use_tool,
         repo_root=repo_root,
         skill_search_roots=tuple(skill_search_roots),
+        tool_search_roots=tuple(tool_search_roots),
+        hook_search_roots=tuple(hook_search_roots),
         _llm_client_override=_llm_client_override,
     )
 
@@ -255,6 +266,32 @@ def _factory_config_to_llm_config(
     )
 
 
+class _SearchRootsResolver:
+    """Minimal duck resolver for build_hook_registry / build_tool_registry (M3fix #2).
+
+    Satisfies the loaders' ``_HookRootResolver`` / ``_ToolRootResolver`` Protocols
+    (``user_hook_roots`` / ``user_tool_roots``) from consumer-supplied deployment roots
+    — NOT a ConfigResolver. ``user_*_roots()`` returns the per-workspace ``.nano/<subdir>``
+    dir FIRST then the deployment ``extra_roots``, deduped, so the loader discovers both
+    the workspace dir (unchanged behavior) and the user-level dirs. Same model as
+    ``skill_search_roots``: the consumer factory owns these product paths.
+    """
+
+    def __init__(self, *, workspace_dir: Path, extra_roots: tuple[Path, ...]) -> None:
+        ordered: list[Path] = [workspace_dir.expanduser().resolve()]
+        for root in extra_roots:
+            resolved = Path(root).expanduser().resolve()
+            if resolved not in ordered:
+                ordered.append(resolved)
+        self._roots = tuple(ordered)
+
+    def user_hook_roots(self) -> tuple[Path, ...]:
+        return self._roots
+
+    def user_tool_roots(self) -> tuple[Path, ...]:
+        return self._roots
+
+
 def _build_kernel_base(
     *,
     llm: LLMConfig,
@@ -264,6 +301,8 @@ def _build_kernel_base(
     can_use_tool: CanUseToolFn | None,
     repo_root: Path | None,
     skill_search_roots: tuple[Path, ...] = (),
+    tool_search_roots: tuple[Path, ...] = (),
+    hook_search_roots: tuple[Path, ...] = (),
     _llm_client_override: LLMClient | None,
 ) -> "Kernel":
     """Assemble the product-neutral shared base (new 2-layer path, 决策 1/2/5/8).
@@ -320,7 +359,21 @@ def _build_kernel_base(
     permission_broker = PermissionBroker(config=AutoModeConfig())
 
     # Hook registry: built-in hooks + consumer setup callables (决策 2).
-    hook_registry = build_hook_registry(repo_root=resolved_repo_root)
+    # refactor-406-M3fix #2: when the consumer supplies deployment-level hook dirs
+    # (hook_search_roots, same pattern as skill_search_roots — no ConfigResolver), feed
+    # them via a minimal resolver whose user_hook_roots() = workspace <repo>/.nano/hooks
+    # FIRST then the deployment roots, so build_hook_registry discovers both. Absent →
+    # the resolver-less path which already scans <repo>/.nano/hooks (unchanged behavior).
+    if hook_search_roots:
+        hook_resolver = _SearchRootsResolver(
+            workspace_dir=resolved_repo_root / ".nano" / "hooks",
+            extra_roots=hook_search_roots,
+        )
+        hook_registry = build_hook_registry(
+            repo_root=resolved_repo_root, config_resolver=hook_resolver
+        )
+    else:
+        hook_registry = build_hook_registry(repo_root=resolved_repo_root)
     for setup in hooks:
         setup(hook_registry)
     hook_runner = HookRunner(registry=hook_registry)
@@ -402,13 +455,23 @@ def _build_kernel_base(
     # refactor-406-M3fix #1 (决策2 红线)：恢复工作区 `<repo_root>/.nano/tools` 运行时
     # 工具发现——决策2 明写「.nano/tools 运行时发现机制不变」，但新 build_kernel 直接手搓
     # registry（builtins + 显式 tools=）跳过了它。仅扫 workspace .nano/tools（字面 .nano，
-    # 非 workspace_config_dirname），不经 ConfigResolver、不碰用户级 tool roots（后者随
-    # ConfigResolver 撤出、design 无替代，不复活）。
+    # 非 workspace_config_dirname），不经 ConfigResolver。
     from agent.platform.tools.loader import (  # noqa: PLC0415
+        _load_tools_from_single_dir,
         load_tools_from_directory,
     )
 
     load_tools_from_directory(repo_root=resolved_repo_root, registry=tool_registry)
+
+    # refactor-406-M3fix #2: deployment-level user tool dirs (tool_search_roots, same
+    # consumer-supplied-roots pattern as skill_search_roots — no ConfigResolver). Loaded
+    # after workspace .nano/tools so user-level plugins are discovered too.
+    for tool_root in tool_search_roots:
+        resolved_tool_root = Path(tool_root).expanduser().resolve()
+        if resolved_tool_root.is_dir():
+            _load_tools_from_single_dir(
+                tool_root=resolved_tool_root, registry=tool_registry, replace=True
+            )
 
     _bind_runtime_to_tool_registry(
         tool_registry=tool_registry,

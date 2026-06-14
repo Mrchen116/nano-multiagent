@@ -41,6 +41,14 @@ CLI_SKILL_SEARCH_ROOTS: tuple[Path, ...] = (
     Path("~/.codex/skills"),
 )
 
+# Deployment-level user tool / hook plugin dirs (refactor-406-M3fix #2). Ported from
+# the dissolved LOCAL_CODING_PROFILE user_tool_roots/user_hook_roots global layer
+# (~/.nanocode/{tools,hooks}). Passed to build_kernel as tool_search_roots /
+# hook_search_roots (consumer-supplied roots, no ConfigResolver); the kernel also scans
+# the workspace <repo>/.nano/{tools,hooks} on top.
+CLI_TOOL_SEARCH_ROOTS: tuple[Path, ...] = (Path("~/.nanocode/tools"),)
+CLI_HOOK_SEARCH_ROOTS: tuple[Path, ...] = (Path("~/.nanocode/hooks"),)
+
 # Default tool subset selected per session (mirrors legacy
 # LOCAL_CODING_PROFILE default_tool_ids). bash/read/edit/write/agent/task_stop are
 # registered as kernel built-ins by build_kernel; memory/skill_manage are
@@ -139,6 +147,8 @@ def build_cli_kernel(
         workspace_config_dirname=WORKSPACE_CONFIG_DIRNAME,
         repo_root=resolved_root,
         skill_search_roots=CLI_SKILL_SEARCH_ROOTS,  # #6: ~/.nanocode + ~/.codex compat
+        tool_search_roots=CLI_TOOL_SEARCH_ROOTS,  # #2: ~/.nanocode/tools
+        hook_search_roots=CLI_HOOK_SEARCH_ROOTS,  # #2: ~/.nanocode/hooks
     )
 
 

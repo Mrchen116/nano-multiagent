@@ -40,8 +40,12 @@ _WHITELIST: frozenset[str] = frozenset(
         # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
         # refactor-406-M1 R7: host_capabilities= param + _inject removed (141→137),
         # then legacy product_profile build_kernel path removed (137→122);
-        # refactor-406-M2 added build_kernel skill_search_roots param + docstring (122→131).
-        "src/agent/sdk/kernel.py:131",
+        # refactor-406-M2 added build_kernel skill_search_roots param + docstring (122→131);
+        # refactor-406-M3fix #2 added tool_search_roots/hook_search_roots params (131→140).
+        "src/agent/sdk/kernel.py:140",
+        # kernel.py: M3fix #2 workspace .nano/hooks dir for the _SearchRootsResolver
+        # (决策2-style workspace discovery; literal .nano, not workspace_config_dirname).
+        "src/agent/sdk/kernel.py:369",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode

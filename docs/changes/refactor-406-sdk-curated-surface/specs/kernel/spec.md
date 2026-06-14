@@ -34,11 +34,13 @@
 ### Requirement: 装配与会话分两层，内核产品中立
 
 `agent.sdk` 不提供"产品"对象（无 `ProductDefinition` / 内置产品常量）。装配分两层：
-- `build_kernel(llm, tools, hooks, can_use_tool=None, workspace_config_dirname=…, repo_root=None, skill_search_roots=())`
+- `build_kernel(llm, tools, hooks, can_use_tool=None, workspace_config_dirname=…, repo_root=None, skill_search_roots=(), tool_search_roots=(), hook_search_roots=())`
   —— 建一次进程级**共享基座**：`llm` 为 SDK-owned `LLMConfig`（providers/models 目录 + 连接 + 默认）；
   `tools` 为原生工具对象**目录**；`hooks` 为 `setup(hooks: HookAPI)` 形态 callable；`skill_search_roots`
   为部署级共享 skill 根（叠加在每 workspace 根之上，见「Kernel 提供单项中立能力查询」Requirement）。
-  模型注册表初始化在
+  `tool_search_roots` / `hook_search_roots` 为部署级用户工具/hook 插件目录（与 `skill_search_roots`
+  同模式：消费者显式传入的根，非 ConfigResolver）；内核在工作区 `<repo_root>/.nano/{tools,hooks}` 运行时
+  发现之外，额外发现这些目录下的插件。空 → 仅工作区。模型注册表初始化在
   内部，消费者无前置时序义务。
 - `create_session(workspace_root, enabled_tools, features, prompt, title=…, metadata=…)`
   —— 每 agent 带齐配置：`enabled_tools` 从目录选子集；`features` 开关内核通用 feature；`prompt` 为

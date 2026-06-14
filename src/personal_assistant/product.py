@@ -53,6 +53,14 @@ PA_SKILL_SEARCH_ROOTS: tuple[Path, ...] = (
     Path("~/.codex/skills"),
 )
 
+# Deployment-level user tool / hook plugin dirs (refactor-406-M3fix #2). Ported from
+# the dissolved ConfigResolver.user_tool_roots() / user_hook_roots() global layer
+# (<global_config_home>/tools|hooks = ~/.nanoassistant/...). Passed to build_kernel as
+# tool_search_roots / hook_search_roots (consumer-supplied roots, no ConfigResolver);
+# the kernel also scans the workspace <repo>/.nano/{tools,hooks} on top.
+PA_TOOL_SEARCH_ROOTS: tuple[Path, ...] = (Path("~/.nanoassistant/tools"),)
+PA_HOOK_SEARCH_ROOTS: tuple[Path, ...] = (Path("~/.nanoassistant/hooks"),)
+
 # Default tool ids (mirrors legacy PERSONAL_ASSISTANT_PROFILE default_tool_ids).
 # read/write/edit/bash/agent/task_stop/web_fetch are kernel built-ins; web_search/
 # send_message/cron/memory/skill_manage are PA-supplied native objects (tools=).
@@ -410,4 +418,6 @@ def build_pa_kernel(
         workspace_config_dirname=WORKSPACE_CONFIG_DIRNAME,
         repo_root=resolved_root,
         skill_search_roots=PA_SKILL_SEARCH_ROOTS,
+        tool_search_roots=PA_TOOL_SEARCH_ROOTS,  # #2: ~/.nanoassistant/tools
+        hook_search_roots=PA_HOOK_SEARCH_ROOTS,  # #2: ~/.nanoassistant/hooks
     )
