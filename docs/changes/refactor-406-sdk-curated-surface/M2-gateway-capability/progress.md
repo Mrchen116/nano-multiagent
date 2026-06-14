@@ -119,6 +119,12 @@
 
 - **R-GW-1 PASS**：现有 config 启 Gateway——改造后 build_runtime（删 init / products 解散 / PA-owned config schema）正常装配内核 + WS 连 IM（im log `WebSocket /im/ws/gateway [accepted]`）+ 节点注册 `status=online agent_count=3 last_error=null`，无新兼容开关。
 - **R-CFG-1 PASS（capability payload 逐字段与基线一致）**：IM `GET /im/v1/nodes/{id}/capabilities` 真返：models=[kimiCoding:K2.6, volcanoArk:..., codex_oauth:gpt-5.5]（顺序对）/ platform_default_model=kimiCoding:K2.6 / tools=12（default_on 划分对，desc=""）/ features=4 条（memory/skill/cron/heartbeat，i18n+default_on+available+requires_tool 全对，node 级 available 全 True）/ skills=39（含 global/compat discovery，skill_search_roots 补全生效）。**reporter 切 list_* + Gateway 投影 + skills root 补全的 live 端到端验证，payload 逐字段对。**
+- **R-CFG-2 PASS（跨 workspace skill 差异）**：default-agent workspace 种 wt-probe-skill → `GET /agents/default-agent/capabilities` skills=40 含 wt-probe-skill；Arch（没种）skills=39 不含。各 agent 展示其工作区可见 skill，无跨工作区混用——`kernel.list_skills(workspace_root)` per-workspace 隔离 + skills root 补全（global/compat 共享 39 + workspace 专属 1）live 正确。
+- **R-CFG-3 PASS（保存并回显配置）**：`PATCH /agents/default-agent/config`（model=codex_oauth:gpt-5.5 + features={heartbeat,cron_scheduling} + tools=[read,bash,cron] + skills=[wt-probe-skill]）→ 重 GET reload 全字段同步回显 + profile_version 递增 1→2，字段语义/默认不因重构变。
+- **R-CFG-4 PASS（system prompt 预览随开关变化）**：`POST /agents/default-agent/prompt-preview` 不同 features：direct{} → 无 Heartbeat/Cron/CommCtx；features{heartbeat:true} → Heartbeat 段出；features{cron_scheduling:true}+cron tool → Cron 段出；scenario=group → [Communication Context] 出。预览随开关变化、经同一 prompt_for 工厂（决策8 同源）。
+- **R-GW-2 PASS（停止/重启 Gateway）**：kill GW pid → `GW stopped cleanly`（正常退出）；重启（--foreground --auto-bind）→ node online，agent_count=3，正常重新装配内核+连 IM+注册节点。
+
+**R-CFG-1/2/3/4 + R-GW-1/2 全 6 项 live PASS（M2 reviewer 矩阵 capability + Gateway 核心全绿）。**
 
 ### K2.6 thinking「回归」是误判（已更正撤销）
 
