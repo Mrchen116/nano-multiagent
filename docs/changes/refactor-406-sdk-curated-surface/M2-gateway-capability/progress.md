@@ -120,12 +120,21 @@
 - **R-GW-1 PASS**：现有 config 启 Gateway——改造后 build_runtime（删 init / products 解散 / PA-owned config schema）正常装配内核 + WS 连 IM（im log `WebSocket /im/ws/gateway [accepted]`）+ 节点注册 `status=online agent_count=3 last_error=null`，无新兼容开关。
 - **R-CFG-1 PASS（capability payload 逐字段与基线一致）**：IM `GET /im/v1/nodes/{id}/capabilities` 真返：models=[kimiCoding:K2.6, volcanoArk:..., codex_oauth:gpt-5.5]（顺序对）/ platform_default_model=kimiCoding:K2.6 / tools=12（default_on 划分对，desc=""）/ features=4 条（memory/skill/cron/heartbeat，i18n+default_on+available+requires_tool 全对，node 级 available 全 True）/ skills=39（含 global/compat discovery，skill_search_roots 补全生效）。**reporter 切 list_* + Gateway 投影 + skills root 补全的 live 端到端验证，payload 逐字段对。**
 
-### K2.6 thinking 回归（发现 + 已修 + 待 live 复验）
+### K2.6 thinking「回归」是误判（已更正撤销）
 
-- **发现**：删 init 版本第一次 e2e 的 K2.6 LLM 请求体丢了 extra_request_body（thinking 缺失），对比 base 同场景请求带 `thinking:{type:adaptive}`（LLM proxy log 对比）。
-- **根因**：R3a 删 main.py 的 init_model_registry(config.llm)。registry 链本身正确（resolve_model_metadata 实测返回 thinking），但 build_pa_kernel 内部 init 时机晚于某些 registry 消费者（LLM client factory 可能更早读 metadata）；base 的外部 init（build_runtime 前）保证时机。
-- **已修**（commit push）：build_runtime 前恢复 `_reset_for_tests()+init_model_registry(config.llm)`（与 build_kernel 自身 init 幂等，core import）。PA 启动测试 16 passed。
-- **⚠️ 待 live 复验（§0.11 已找 orchestrator 求 relay 协助）**：恢复 init 后未跑通一轮 live——IM→Gateway relay 不通（消息 POST relay:None，gateway log 无 inbound，WS accepted 但消息没 relay 到节点）。阻塞 K2.6 thinking + R-CFG-2/3/4 + R-PA 类端到端触发。**不凭推断判 PASS，待 relay 通跑通真带 thinking。**
+- **误判经过**：曾报 thinking=None proxy log（13:02 CST）= K2.6 thinking 丢，据此恢复 main.py 外部 init。
+- **更正**：那 proxy log 经核实是 2 小时前别的进程的请求（现 15:13），**不是我 worktree Gateway**——它 relay 不通从未成功发过 K2.6 请求。被不相关旧 log 误导。
+- **撤销修复**：恢复外部 init 错在 ① 基于误判 ② 让 PA import agent.core 违反边界硬规则（boundary contract 红）。已撤销，回决策5 正道（build_kernel 内部 init）。
+- **K2.6 thinking 链静态全对**（多次实测）：config.llm → LLMConfig.from_payload → build_pa_kernel 后 resolve_model_metadata("anthropic","kimiCoding:K2.6") 返回 {thinking:{type:adaptive}}；metadata.model 不被规范化；factory create_llm_client + client.generate 两处都 resolve metadata 注入 extra_body。**端到端 live 仍未验证（relay 不通），不凭静态链判 PASS。**
+
+### chat_history hook 迁移（orchestrator 裁决 b：M1 R6 迁移 gap 补全，已 push）
+
+- M1 R6 计划迁 PA hooks 进 src/ 经 build_kernel(hooks=) 传入，实际 ship hooks=[]，chat_history 落盘（M249）静默丢失；refactor 行为不变是核心，弃用需专门决策——补全：
+  1. chat_history.py 逐字迁进 `src/personal_assistant/hooks/`（每轮写 `<workspace>/chat_history/<session_id>.jsonl`；setup() 注册 input/message_end/agent_end）。
+  2. build_pa_kernel(hooks=[chat_history.setup])（原 hooks=[]）；实测注册 3 handlers。
+  3. test_chat_history_hook 重定向 src，断言不变 5 passed。
+  4. **live 落盘验证待 relay 通**（R-PA-1 发消息确认 jsonl 真写出）。
+  5. chat_history/ 被 .gateway-workspace/ gitignore 拦（已核 check-ignore）。
 
 ### 待 live（relay 通后一次性复验）
 
