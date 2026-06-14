@@ -429,3 +429,22 @@
 - ✅ 全测试树 `pytest -m "not e2e"` 2745 passed/1 skipped 零回归；ruff check + format 干净；模块边界守卫绿。
 - **live 暴露并修的 3 个真 bug**：LLMConfig.from_payload(config.llm)（catalog 覆盖）/ RunInfo.start_sequence（DTO 漏字段）/ _KernelClientShim 共享 live pipeline._agents（config-sync 漂移）+ 1 个新路径修复（list_skills per-workspace）。
 - **归 M2**：reporter→list_* 迁移 + products/ 物理解散 + 撤 _M1_TEMP 豁免（profile/reporter 旧导出）+ bootstrap _product_root 退役。
+
+## M1 收口补正（orchestrator 打回的两项）
+
+### 补正1 — memory/skill_manage 归内核内置（决策3），纠正 R5/R6 误放工厂（commit 37522a64）
+
+- **orchestrator 纠正**：我 R5/R6 把 memory/skill_manage 当 consumer 工厂工具放进 product.py `tools=`，**归属错**。决策3 白纸黑字：通用两条 feature（memory_curation/skill_creation）的 `requires_tool = memory/skill_manage（内核内置）`，理由「任何应用都有→留内核」。SDK 用法示例 A 印证：CLI 的 tools= **不含** memory/skill（features 开关 gate）。决策2「工具是产品全权拥有的原生对象」指 cron/send_message/web_search 这类产品专属副作用工具，**不含**通用两条；放工厂会让「外部应用没 memory/skill」违背决策3。
+- **正解（补 R3 base 接线真缺口，动 base 合理）**：
+  - `_build_kernel_base` 新增 `_register_self_evolution_builtins`：注册 `MemoryTool()`（无固定 root，运行时从 `session_metadata[workspace_root]+[workspace_config_dirname]` 经 `derive_memory_root` 派生）+ `SkillManageTool(skill_root=<repo>/<dirname>/skills, registry)`（SkillRegistry 内核内部构造，复用 _WorkspaceDirnameSkillResolver）。和 7 个内置并列。
+  - `workspace_config_dirname` 走 build_kernel 统一兜底进 `SessionService(default_session_metadata={workspace_config_dirname})`（部署常量、build 作用域），**不再每个 create_session 传**——对照 legacy bootstrap default_session_metadata threading，决策10「store 无状态、位置由 workspace_root 当场拼」同 pattern。
+  - 撤 SDK `__all__` 的 MemoryTool/SkillManageTool 导出 + surface guard 去 `_PATH_RESOLVED_TOOLS`（它们是内核内置非消费者面）。SkillRegistry 仍内核内部用（撤的是 SDK 公共导出，归 M2）。
+  - coding_cli/personal_assistant product.py 删 `_build_self_evolution_tools` + 工厂侧构造；CLI `tools=[]`，PA `tools=[cron/send_message/web_search]`（产品专属）。
+  - `test_kernel_list_capability_queries` 不再传 memory/skill（base 自动注册）。
+- **Evidence**：CLI/PA list_tools 均含 memory/skill_manage（冒烟）；session metadata 含 workspace_config_dirname（冒烟）；**live：CLI 用 memory 工具真写 `.nanocode/memory/MEMORY.md`（refactor406-mem-builtin-ok），行为 parity**；全树 not e2e 2745 passed/1 skipped 零回归；golden 14 绿；ruff 干净。
+
+### 补正2 — e2e 运行时产物清出版本控制（commit 1bda2fe5）
+
+- e2e/Gateway 运行时产物被误 track 进 milestone 分支（main 上零）：21 文件 = `.e2e-jwt-secret`/`.e2e-ports.env`/`.gateway-config.yaml`/`.gateway-workspace/**`（Arch/ArchA/default-agent 的 memory/cron/HEARTBEAT）/`.gateway.pid`/`gateway.pid`/`.im.pid`/`heartbeat-state.json`/`session_bindings.sqlite3-shm`/`-wal`。
+- `git rm -r --cached`（保本地文件供 e2e 复跑）+ .gitignore 加 `.e2e-* / .gateway-config.yaml / .gateway-workspace/ / *.pid / heartbeat-state.json / session_bindings.sqlite3*`。
+- 自核 `git ls-files | grep -E '^\.e2e|^\.gateway-config\.yaml$|^\.gateway-workspace/|^\.gateway\.pid$|^gateway\.pid$|^\.im\.pid$|^heartbeat-state\.json$|^session_bindings\.sqlite3'` → 空（分支零 e2e 产物，docs 里 gateway-config 是 unit 名子串非运行时文件）。
