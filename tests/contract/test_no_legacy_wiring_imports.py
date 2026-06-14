@@ -33,7 +33,7 @@ FORBIDDEN_IMPORTS = {
         "agent.llm.providers",
         "agent.llm.translator",
     ),
-    "products/base.py": ("agent.tools.registry",),
+    # products/base.py removed in refactor-406-M2 (products/ dissolved).
     # platform/http_api/ deleted in refactor-387-M4; entries removed.
     "platform/tools/registry.py": ("agent.observability",),
     "platform/hooks/builtins/usage_metrics.py": ("agent.hooks.session_usage",),

@@ -6,7 +6,7 @@ import hashlib
 import importlib.util
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 
 from agent.core.hooks.runner import HookRunner
 from agent.core.llm.interfaces import LLMClient
@@ -21,8 +21,17 @@ from agent.core.tools.registry import ToolRegistry
 from .builtins import register_builtin_tools
 from .safety import ToolSafety, ToolSafetyConfig, load_tool_safety_config
 
-if TYPE_CHECKING:
-    from agent.platform.config.resolver import ConfigResolver
+
+class _ToolRootResolver(Protocol):
+    """Duck-typed resolver supplying user tool-plugin search roots.
+
+    refactor-406-M2: the concrete ConfigResolver class was removed with products/.
+    The 2-layer build_kernel path does not pass a resolver here (legacy ``.nano/tools``
+    discovery only), so this minimal Protocol documents the contract for any future
+    resolver without depending on a product-profile type.
+    """
+
+    def user_tool_roots(self) -> tuple[Path, ...]: ...
 
 
 def build_tool_registry(
@@ -30,7 +39,7 @@ def build_tool_registry(
     repo_root: Path,
     hook_runner: HookRunner | None = None,
     runtime: Any | None = None,
-    config_resolver: ConfigResolver | None = None,
+    config_resolver: _ToolRootResolver | None = None,
     product_tool_dir: Path | None = None,
     llm_client: LLMClient | None = None,
     wiring: Any | None = None,

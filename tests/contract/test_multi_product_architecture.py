@@ -62,8 +62,9 @@ EXPECTED_EXISTING_PATHS = (
     "core/types.py",
     "core/tools/base.py",
     "core/tools/registry.py",
-    "platform/bootstrap.py",
-    "platform/config/resolver.py",
+    # platform/bootstrap.py + platform/config/resolver.py removed in refactor-406-M2
+    # (products/ dissolved: bootstrap_product + ProductProfile-bound ConfigResolver
+    # were legacy dead code on the 2-layer build_kernel path).
     "platform/hooks/builtins/auto_mode_gate.py",
     "platform/hooks/builtins/default_status.py",
     "platform/hooks/builtins/realtime_stream.py",
@@ -79,9 +80,7 @@ EXPECTED_EXISTING_PATHS = (
     "platform/llm/providers/openai_compat/mapper.py",
     "platform/llm/providers/translator.py",
     "platform/persistence/session/service.py",
-    "platform/product.py",
-    "platform/products/local_coding.py",
-    "platform/products/personal_assistant.py",
+    # platform/product.py + platform/products/ removed in refactor-406-M2 (products/ dissolved)
     # platform/sdk/client.py deleted in refactor-387-M1 (legacy HTTP client removed;
     # products now use agent.sdk.build_kernel in-process instead of HTTP)
     "sdk/__init__.py",  # new top-level agent.sdk surface added in refactor-387-M1
@@ -95,9 +94,8 @@ EXPECTED_EXISTING_PATHS = (
     "platform/tools/loader.py",
     "platform/tools/registry.py",
     "platform/tools/safety.py",
-    "products/base.py",
-    "products/local_coding/profile.py",
-    "products/personal_assistant/profile.py",
+    # products/ dissolved in refactor-406-M2 (决策 1: product layer removed; product
+    # defaults live in the consumer factories coding_cli.product / personal_assistant.product).
 )
 
 EXPECTED_TOP_LEVEL_CODING_CLI_PATHS = (

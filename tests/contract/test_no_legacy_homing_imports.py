@@ -58,7 +58,7 @@ FILE_GUARDS = {
         "agent.observability",
         "agent.platform",
     ),
-    "products/base.py": ("agent.tools",),
+    # products/base.py removed in refactor-406-M2 (products/ dissolved).
 }
 
 REMOVED_ROOTS = (

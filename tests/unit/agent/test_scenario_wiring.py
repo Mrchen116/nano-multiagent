@@ -102,24 +102,3 @@ def test_build_prompt_context_empty_metadata():
 # ---------------------------------------------------------------------------
 # communication_context hook: prompt injection retired
 # ---------------------------------------------------------------------------
-
-
-def test_communication_context_hook_module_removed():
-    """The communication_context hook module must not exist.
-
-    The [Communication Context] block is assembled by the pa.communication_context
-    segment (prompt_sections.py, order=900). No hook registration is needed, so
-    hooks/communication_context.py must remain deleted. This test guards against
-    accidental re-introduction.
-    """
-    import importlib
-    import importlib.util
-
-    spec = importlib.util.find_spec(
-        "agent.products.personal_assistant.hooks.communication_context"
-    )
-    assert spec is None, (
-        "hooks/communication_context.py was re-introduced — "
-        "group context is now handled by the pa.communication_context segment, "
-        "this hook file must not exist"
-    )

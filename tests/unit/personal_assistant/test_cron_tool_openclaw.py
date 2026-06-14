@@ -151,30 +151,23 @@ class TestCronToolIsolation:
     """
 
     def test_cron_in_pa_toolsets(self) -> None:
-        """cron must be reachable as a PA tool (in DEFAULT_TOOL_IDS or OPTIONAL_TOOL_IDS)."""
-        from agent.products.personal_assistant.toolsets import (
-            DEFAULT_TOOL_IDS,
-            OPTIONAL_TOOL_IDS,
+        """cron must be reachable as a PA tool (refactor-406-M2: PA tool name source)."""
+        from personal_assistant.reporter.capability_projection import (
+            PA_DEFAULT_TOOL_IDS,
+            PA_OPTIONAL_TOOL_IDS,
         )
 
-        all_pa_tools = list(DEFAULT_TOOL_IDS) + list(OPTIONAL_TOOL_IDS)
+        all_pa_tools = list(PA_DEFAULT_TOOL_IDS) + list(PA_OPTIONAL_TOOL_IDS)
         assert "cron" in all_pa_tools, (
-            "cron tool must be listed in PA DEFAULT_TOOL_IDS or OPTIONAL_TOOL_IDS"
+            "cron tool must be listed in PA default/optional tool ids"
         )
 
     def test_cron_not_in_coding_cli_toolsets(self) -> None:
-        """cron must NOT appear in coding_cli DEFAULT_TOOL_IDS or OPTIONAL_TOOL_IDS.
+        """cron must NOT appear in coding_cli enabled tools (decision 7 isolation)."""
+        from coding_cli.product import DEFAULT_ENABLED_TOOLS
 
-        feat-394 decision 7: coding_cli must not contain cron tool.
-        """
-        from agent.products.local_coding.toolsets import (
-            DEFAULT_TOOL_IDS,
-            OPTIONAL_TOOL_IDS,
-        )
-
-        all_cli_tools = list(DEFAULT_TOOL_IDS) + list(OPTIONAL_TOOL_IDS)
-        assert "cron" not in all_cli_tools, (
-            "cron tool MUST NOT be in coding_cli toolsets (feat-394 decision 7)"
+        assert "cron" not in list(DEFAULT_ENABLED_TOOLS), (
+            "cron tool MUST NOT be in coding_cli toolset (feat-394 decision 7)"
         )
 
 

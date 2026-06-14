@@ -6,13 +6,22 @@ import hashlib
 import importlib.util
 from pathlib import Path
 from types import ModuleType
-from typing import TYPE_CHECKING
+from typing import Protocol
 
 from agent.core.hooks.registry import HookAPI, HookRegistry
 from agent.core.hooks.types import LoadedHookModule
 
-if TYPE_CHECKING:
-    from agent.platform.config.resolver import ConfigResolver
+
+class _HookRootResolver(Protocol):
+    """Duck-typed resolver supplying user hook search roots.
+
+    refactor-406-M2: the concrete ConfigResolver class was removed with products/.
+    The 2-layer build_kernel path does not pass a resolver here (legacy ``.nano/hooks``
+    discovery only); this minimal Protocol documents the contract without a
+    product-profile dependency.
+    """
+
+    def user_hook_roots(self) -> tuple[Path, ...]: ...
 
 
 def build_hook_registry(
@@ -20,7 +29,7 @@ def build_hook_registry(
     repo_root: Path,
     builtins_dir: Path | None = None,
     workspace_dir: Path | None = None,
-    config_resolver: ConfigResolver | None = None,
+    config_resolver: _HookRootResolver | None = None,
     product_hook_dir: Path | None = None,
 ) -> HookRegistry:
     """Build a hook registry by loading built-in and user-provided hook modules.

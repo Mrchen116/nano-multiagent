@@ -103,6 +103,9 @@ _PA_IDENTITY_TEXT = (
 
 _PA_RUNTIME_TEXT = f"## Runtime\nPlatform: {_platform_tag}"
 
+# Provenance: openclaw/src/agents/system-prompt.ts:124-138 buildHeartbeatSection
+# (non-minimal branch). Verbatim text; do NOT reword — K2.6 has a 1-token
+# HEARTBEAT_OK reflex tuned to this exact phrasing (feat-394 decision 6).
 _PA_HEARTBEAT_TEXT = (
     "## Heartbeats\n"
     "If the current user message is a heartbeat poll and nothing needs attention, reply exactly:\n"
@@ -110,6 +113,9 @@ _PA_HEARTBEAT_TEXT = (
     'If something needs attention, do NOT include "HEARTBEAT_OK"; reply with the alert text instead.'
 )
 
+# Provenance: feat-394-M2 R8 design (cron tool guidance). Verbatim byte-identical
+# baseline — pa.cron / pa.cron_routing segments are refactor-406 risk-1 migration
+# invariants (golden + verbatim tests钉死); do NOT reword.
 _PA_CRON_TEXT = (
     "## Cron Jobs\n"
     "You have access to a `cron` tool for managing scheduled tasks.\n"

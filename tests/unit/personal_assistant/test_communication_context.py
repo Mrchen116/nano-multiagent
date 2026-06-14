@@ -19,11 +19,10 @@ def _build_block(
     participant_agent_ids: list[str] | None = None,
     participants: list[dict] | None = None,
 ) -> str:
-    from agent.products.personal_assistant.prompt_sections import (
-        _build_communication_context_block,
-    )
+    # refactor-406-M2: products/ dissolved; block helper lives in the PA factory.
+    from personal_assistant.product import build_communication_context_block
 
-    return _build_communication_context_block(
+    return build_communication_context_block(
         conversation_type=conversation_type,
         agent_id=agent_id,
         participant_agent_ids=participant_agent_ids,
@@ -242,18 +241,25 @@ def test_group_participants_user_shows_user_id_key() -> None:
 
 
 def test_prompts_no_prefer_stable_ids_line() -> None:
-    """PA system prompt sections must not contain deprecated 'prefer stable IDs' wording.
+    """PA system prompt must not contain deprecated 'prefer stable IDs' wording.
 
-    prompts.py deleted; verify invariant against PA_SECTIONS (segment-based assembly).
+    refactor-406-M2: products/ dissolved; verify against the PA production factory's
+    assembled slots (prompt_for with all flags on for maximal coverage).
     """
-    from agent.products.personal_assistant.prompt_sections import PA_SECTIONS
-    from agent.core.agent.prompt_sections.base import (
-        PromptContext,
-        assemble_system_prompt,
-    )
 
-    ctx = PromptContext(current_datetime="2026-01-01T00:00:00", cwd="/ws")
-    assembled = assemble_system_prompt(list(PA_SECTIONS), ctx)
+    class _Agent:
+        cron_enabled = True
+        heartbeat_enabled = True
+        custom_prompt = None
+
+    from personal_assistant.product import prompt_for
+
+    slots = prompt_for(_Agent())
+    assembled = "\n".join(
+        pt.text
+        for group in (slots.head, slots.body, slots.custom, slots.tail)
+        for pt in group
+    )
 
     assert "prefer stable IDs" not in assembled, (
         "PA system prompt must not contain deprecated 'prefer stable IDs' wording"

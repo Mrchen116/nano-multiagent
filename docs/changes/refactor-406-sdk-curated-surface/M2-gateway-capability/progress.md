@@ -93,7 +93,13 @@
 
 - **生产零依赖取证**：`bootstrap_product` 零生产调用；`ConfigResolver(profile=)` 只剩 2 处构造——bootstrap.py（死）+ kernel.py:1005 legacy 分支（M1 R7 删 legacy build_kernel 路径后 `build_resolver._profile` 永远 None，死分支）。新 2 层路径用 `_WorkspaceDirnameSkillResolver`（鸭子 ConfigResolverLike Protocol）。ProductProfile/ConfigResolver(profile=)/bootstrap_product 在新路径全是 legacy 死代码。
 - **范围**：删 `agent/products/` + `platform/products/` 垫片 + `platform/product.py` + bootstrap_product + kernel.py 死分支；~30 个测试 import `agent.products` 内部需逐个分类（含 risk-1 prompt golden 3 个：test_full_system_prompt_byte_identical/test_kernel_skeleton_reproduces_golden/test_prompt_sections_golden，重定向到 src/personal_assistant/ 副本 + 逐字节复验守 risk-1）。
-- **状态**：已 SendMessage orchestrator 同步体量 + 计划，待推进。
+- **risk-1 golden 防线锚点（orchestrator 钉死，已核实非循环）**：
+  - golden 期望值 = `tests/integration/golden_prompts/*.txt`（M1 R1 commit 00cbd5b8 录的**重构前冻结快照**，literal 文件），**不是** live import 段。`test_kernel_skeleton_reproduces_golden`：`actual`=skeleton + src 生产工厂 slots 渲染，`expected`=冻结 .txt。渲染侧换 src/、期望侧锚冻结原文 → **非 src-vs-src 循环**。
+  - **migration 断言（删 products 前一次性验，已绿）**：src/ 生产段 == products/ 原文段**逐字节**——PA 7 段 + LC 3 段全 MATCH，证明 R6 copy 忠实。
+  - 结论：fc63e226 golden 重定向对 risk-1 零风险。
+- **ConfigResolver 去留（orchestrator 拍板）**：legacy 死分支删（fc63e226）；ConfigResolver 具体类零生产消费者→整删 + loader 注解改 ConfigResolverLike；ConfigResolverLike Protocol 保留。
+- **chat_history**：M1 已 `hooks=[]` 弃用、inbound_pipeline 无替代 = 生产行为已不存在，删 hook+test。**标记**：M1 R6 弃用（非 M2 引入），意外丢失需新 unit 恢复（DONE 高亮）。
+- **状态**：migration 断言绿，开始系统删 src + ~32 测试分类。
 
 ## R4 — live 实测 R-CFG-1/2/3/4 + R-GW-1/2（待 R2/R3 收口）
 

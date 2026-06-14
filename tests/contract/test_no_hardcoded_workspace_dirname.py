@@ -48,16 +48,18 @@ _WHITELIST: frozenset[str] = frozenset(
         # bugfix-402-M1: prepare_transcript_for_run + append_tool_call_recovery added, line shifted to 81
         "src/agent/core/session/jsonl_store.py:81",
         # tools/loader.py: .nano/tools platform dir
-        # feat-388 ruff format: line shifted to 95
-        "src/agent/platform/tools/loader.py:95",
+        # feat-388 ruff format: line shifted to 95;
+        # refactor-406-M2: +_ToolRootResolver Protocol shifted 95→104
+        "src/agent/platform/tools/loader.py:104",
         # dangerous_paths.py: .nanocode in safe-path list — correct: this references the product dirname
         "src/agent/platform/tools/dangerous_paths.py:52",
         # background tasks output: .nano/background-tasks platform dir
         # feat-388 ruff format: line shifted to 67
         "src/agent/platform/background_tasks/file_output.py:67",
         # hooks/loader.py: .nano/hooks platform dir
-        # feat-388 ruff format: line shifted to 111
-        "src/agent/platform/hooks/loader.py:111",
+        # feat-388 ruff format: line shifted to 111;
+        # refactor-406-M2: +_HookRootResolver Protocol shifted 111→120
+        "src/agent/platform/hooks/loader.py:120",
         # bash_policy.py: .nano/policy.toml platform dir
         # feat-388 ruff format: line shifted to 158
         "src/agent/platform/tools/builtins/bash_policy.py:158",

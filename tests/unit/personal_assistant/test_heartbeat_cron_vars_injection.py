@@ -10,13 +10,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent.core.agent.prompt_sections.base import PromptContext
-from agent.core.types import ToolSpec
-from agent.products.personal_assistant.prompt_sections import (
-    _PA_HEARTBEAT,  # noqa: PLC2701
-    _PA_CRON,  # noqa: PLC2701
-    _PA_CRON_ROUTING,  # noqa: PLC2701
-)
+# refactor-406-M2: products/ dissolved. The PA heartbeat/cron *gate* behavior (segments
+# appear per feature flag) now lives in the PA factory prompt_for + is covered by
+# test_prompt_section_feature_flags.py and the skeleton golden (pa_heartbeat_on /
+# pa_cron_on cases). The old _PA_*.enabled_when PromptSection-gate tests are removed
+# with the PromptSection objects; the inbound_pipeline / runtime / preview-provider
+# tests below are products-independent and retained.
 
 
 # ---------------------------------------------------------------------------
@@ -213,82 +212,6 @@ class TestAssemblePromptPreviewFeaturesGate:
     feat-394-M9: heartbeat/cron gates driven by ctx.flags via features dict.
     Old heartbeat_enabled/cron_enabled params retired from assemble_prompt_preview.
     """
-
-    def test_prompt_preview_heartbeat_disabled_by_default_features(self) -> None:
-        """assemble_prompt_preview with features={} must exclude heartbeat segment.
-
-        FEATURE_REGISTRY.heartbeat default_on=False; no heartbeat unless features
-        explicitly sets {'heartbeat': True}.
-        """
-        from agent.core.agent.prompt_sections.wiring import (
-            build_prompt_context_from_metadata,
-            resolve_flags_from_metadata,
-        )
-
-        flags = resolve_flags_from_metadata(metadata={"agent_features": {}})
-        ctx = build_prompt_context_from_metadata(
-            metadata={"conversation_type": "direct"},
-            available_tools=[],
-            available_skills=[],
-            current_datetime=None,
-            cwd="/tmp",
-            flags=flags,
-            vars={"custom_prompt": ""},
-        )
-        assert _PA_HEARTBEAT.enabled_when is not None
-        assert _PA_HEARTBEAT.enabled_when(ctx) is False, (
-            "heartbeat segment must be disabled by default (default_on=False)"
-        )
-
-    def test_prompt_preview_heartbeat_enabled_via_features(self) -> None:
-        """assemble_prompt_preview with features={'heartbeat': True} must include heartbeat."""
-        from agent.core.agent.prompt_sections.wiring import (
-            build_prompt_context_from_metadata,
-            resolve_flags_from_metadata,
-        )
-
-        flags = resolve_flags_from_metadata(
-            metadata={"agent_features": {"heartbeat": True}}
-        )
-        ctx = build_prompt_context_from_metadata(
-            metadata={"conversation_type": "direct"},
-            available_tools=[],
-            available_skills=[],
-            current_datetime=None,
-            cwd="/tmp",
-            flags=flags,
-            vars={"custom_prompt": ""},
-        )
-        assert _PA_HEARTBEAT.enabled_when is not None
-        assert _PA_HEARTBEAT.enabled_when(ctx) is True, (
-            "heartbeat segment must be enabled when features={'heartbeat': True}"
-        )
-
-    def test_prompt_preview_cron_enabled_via_features_and_tool(self) -> None:
-        """assemble_prompt_preview with features={'cron_scheduling': True} + cron tool must include cron."""
-        from agent.core.agent.prompt_sections.wiring import (
-            build_prompt_context_from_metadata,
-            resolve_flags_from_metadata,
-        )
-
-        flags = resolve_flags_from_metadata(
-            metadata={"agent_features": {"cron_scheduling": True}}
-        )
-        cron_tool = ToolSpec(name="cron", description="", input_schema={})
-        ctx = build_prompt_context_from_metadata(
-            metadata={"conversation_type": "direct"},
-            available_tools=(cron_tool,),
-            available_skills=[],
-            current_datetime=None,
-            cwd="/tmp",
-            flags=flags,
-            vars={"custom_prompt": ""},
-        )
-        assert _PA_CRON.enabled_when is not None
-        assert _PA_CRON.enabled_when(ctx) is True, (
-            "cron segment must be enabled when features={'cron_scheduling': True} "
-            "and cron tool is present"
-        )
 
     def test_make_prompt_preview_provider_no_heartbeat_cron_params(
         self, tmp_path: Path

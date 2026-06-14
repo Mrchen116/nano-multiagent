@@ -5,16 +5,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 from agent.core import ids
 from agent.core.session.entries import SessionEntry, SessionEntryKind
 from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
-
-if TYPE_CHECKING:
-    from agent.products.base import ProductProfile
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,8 +27,8 @@ class SessionService:
 
     Args:
         store: Explicit JSONL session store; takes priority over ``profile`` and
-            the fallback when provided. In production ``create_app`` always
-            passes the workspace-aware store built by ``bootstrap_product``.
+            the fallback when provided. In production the consumer factory passes a workspace-aware store via
+            ``build_kernel`` (refactor-406: bootstrap_product removed with products/).
         manager: Explicit session manager; bypasses all store construction when
             provided.
         profile: Optional product profile. Currently unused for store
@@ -45,7 +42,7 @@ class SessionService:
         *,
         store: JsonlSessionStore | None = None,
         manager: SessionManager | None = None,
-        profile: ProductProfile | None = None,
+        profile: Any | None = None,
         default_session_metadata: Mapping[str, Any] | None = None,
     ) -> None:
         if manager is not None:
@@ -238,13 +235,13 @@ class SessionService:
         return None
 
 
-def _resolve_store(profile: ProductProfile | None = None) -> JsonlSessionStore:
+def _resolve_store(profile: Any | None = None) -> JsonlSessionStore:
     """Construct a fallback JsonlSessionStore when no explicit store is supplied.
 
     This path is only reached by ``SessionService`` callers that pass neither a
     ``store`` nor a ``manager`` (e.g. ``create_app()`` invoked without a product
     profile in tests/SDK glue). In production both products call ``create_app``
-    *with* a profile, so ``bootstrap_product`` always injects a concrete
+    *with* a profile, so the legacy bootstrap always injected a concrete
     workspace-aware store and this fallback is never used.
 
     The fallback honours one explicit opt-in — the ``NANO_MULTIAGENT_DATA_DIR``
@@ -259,7 +256,7 @@ def _resolve_store(profile: ProductProfile | None = None) -> JsonlSessionStore:
         profile: Unused. Kept in the signature because the legacy docstring
             advertised a profile-derived path that was never implemented; a
             future change may wire ``ConfigResolver`` here, but until then the
-            production store comes from ``bootstrap_product``, not this function.
+            production store comes from the consumer factory via build_kernel, not this function.
     """
 
     del profile  # see docstring — profile-derived path is not implemented here

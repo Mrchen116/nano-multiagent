@@ -74,8 +74,8 @@ _DEFAULT_WORKSPACE_HEARTBEAT_CONTENT = (
 _WORKSPACE_MEMORY_SUBDIR = ".nanoassistant/memory"
 # feat-394: expose the per-workspace config directory name for intra-package callers
 # that need to locate session JSONL files (e.g. PollingHeartbeatRunner transcript trim).
-# Mirrors agent.products.personal_assistant.defaults.WORKSPACE_CONFIG_DIRNAME without
-# crossing the personal_assistant → agent.products import boundary.
+# Defines the PA workspace config dirname locally (refactor-406: products/ dissolved) without
+# crossing any personal_assistant → agent internals import boundary.
 WORKSPACE_CONFIG_DIRNAME: str = _WORKSPACE_MEMORY_SUBDIR.split("/")[0]
 
 DEFAULT_WORKSPACE_MEMORY_FILES: tuple[tuple[str, str], ...] = (
