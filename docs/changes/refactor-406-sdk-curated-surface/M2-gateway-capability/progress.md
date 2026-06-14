@@ -99,8 +99,18 @@
   - 结论：fc63e226 golden 重定向对 risk-1 零风险。
 - **ConfigResolver 去留（orchestrator 拍板）**：legacy 死分支删（fc63e226）；ConfigResolver 具体类零生产消费者→整删 + loader 注解改 ConfigResolverLike；ConfigResolverLike Protocol 保留。
 - **chat_history**：M1 已 `hooks=[]` 弃用、inbound_pipeline 无替代 = 生产行为已不存在，删 hook+test。**标记**：M1 R6 弃用（非 M2 引入），意外丢失需新 unit 恢复（DONE 高亮）。
-- **状态**：migration 断言绿，开始系统删 src + ~32 测试分类。
+- **R3b 完成（push commit 755e696c，-4986 行）**：
+  - 删 src：agent/products/ + platform/products/ 垫片 + platform/product.py + platform/bootstrap.py + platform/config/resolver.py（ConfigResolver 类）；kernel.list_skills 删 legacy ConfigResolver 死分支；loader/hooks loader 注解改本地鸭子 Protocol（ConfigResolverLike Protocol 保留）；service.py profile 注解→Any。
+  - PA/LC 段加回 openclaw/design Provenance 注释（R6 copy 漏带）。
+  - **~30 测试逐个分类（理由记 commit message）**：
+    - **删（测已删内部实现）**：test_product_profile(s) / test_personal_assistant_profile / test_local_coding_profile / test_resolved_product_config / test_platform_bootstrap / test_config_resolver(_memory_root) / test_{bootstrap,personal_assistant_bootstrap}_integration / test_product_profile_prompt_sections / test_product_profile_contract / test_{tool,hook,skills}_*_with_resolver / test_session_service_with_profile + bootstrap memory_tool test + PromptSection-gate 测试（gate 行为由 skeleton golden pa_heartbeat_on/cron_on 覆盖）。
+    - **删（M1 已弃用功能）**：test_chat_history_hook —— **chat_history hook 在 M1 R6 已 hooks=[] 静默弃用、inbound_pipeline 无替代落盘机制；非 M2 引入。DONE 报告高亮，最终由 orchestrator/reviewer 裁是否需新 unit 恢复。**
+    - **重定向到 PA/LC 生产工厂（risk-1 verbatim 同源真实生产段）**：test_heartbeat_prompt_openclaw（heartbeat verbatim + provenance）/ test_cron_prompt_sections（cron + cron_routing verbatim + provenance）/ test_communication_context / test_before_agent_start_hook（block helper）/ test_prompt_sections_golden（**mention bugfix-358 verbatim** + cache ordering + background_tasks 门控，重定向到 skeleton + 生产 slots）/ test_heartbeat_cron_vars_injection / test_prompt_section_feature_flags（留 runtime/kernel 源码不变量）/ test_cron_tool_openclaw（cron tool desc + isolation）/ test_cron_coding_cli_isolation。
+    - **contract 名单更新**：multi_product_architecture 删 products 路径、no_legacy_{homing,wiring}_imports 删 products/base 扫描、no_hardcoded_dirname whitelist 行号 loader 95→104 / hooks 111→120。cli_http_only / core_no_platform 的 products 禁止 import 名单**保留**（防重新引入）。
+  - 全树 not e2e **2576 passed/2 skipped 零回归**（测试数从 2747 降因删测已弃用实现的测试，**无功能回归**）；ruff check + format 全仓干净；分支零 e2e 产物。
 
-## R4 — live 实测 R-CFG-1/2/3/4 + R-GW-1/2（待 R2/R3 收口）
+- **遗留文档同步（待 orchestrator 裁，非阻塞）**：SPEC.md §126「内部分四层（core / platform / products / sdk）」+ §102 products/ 目录树 + §134「core 不依赖 platform / products」描述 products 删后过时，应改三层（core / platform / sdk）。contract test_multi_product_architecture 的 KERNEL_REQUIRED_DOC_SNIPPETS 验 SPEC.md 这些措辞（现仍匹配旧文档，**contract 绿**）。SPEC.md 是跨包架构顶点 + design-author 所有权域——SPEC.md 改三层 + 同步 contract snippet 需 orchestrator 裁（我改 vs 上报 design-author）。
+
+## R4 — live 实测 R-CFG-1/2/3/4 + R-GW-1/2（待 R3 收口）
 
 （待做）
