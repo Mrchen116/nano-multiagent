@@ -21,13 +21,9 @@ from typing import Any
 
 from agent.sdk import (
     LLMConfig,
-    MemoryTool,
     PromptSlots,
     PromptText,
-    SkillManageTool,
-    SkillRegistry,
     build_kernel,
-    default_skill_search_roots,
 )
 
 # Per-workspace config dir governing session JSONL / memory / skill layout.
@@ -101,34 +97,6 @@ def cli_prompt_slots() -> PromptSlots:
     )
 
 
-def _build_self_evolution_tools(*, repo_root: Path) -> list[Any]:
-    """Instantiate the path-resolved self-evolution tools (memory / skill_manage).
-
-    These two built-ins need constructor-time path arguments, so the kernel does
-    not auto-register them; the consumer factory resolves the workspace skill root
-    and supplies the native objects via build_kernel(tools=…) (决策 2). Mirrors the
-    legacy bootstrap self-evolution wiring (platform/bootstrap.py).
-
-    Args:
-        repo_root: Workspace/repository root for skill discovery.
-
-    Returns:
-        [SkillManageTool, MemoryTool] native tool objects.
-    """
-    skill_registry = SkillRegistry(
-        search_roots=default_skill_search_roots(workspace_root=repo_root)
-    )
-    # Skill writes land in the workspace's per-config skills dir; mirrors the
-    # legacy bootstrap which prefers the workspace skill root.
-    skill_root = repo_root / WORKSPACE_CONFIG_DIRNAME / "skills"
-    return [
-        SkillManageTool(skill_root=skill_root, registry=skill_registry),
-        # MemoryTool derives memory_root per-session from workspace_root +
-        # workspace_config_dirname (threaded via create_session metadata).
-        MemoryTool(),
-    ]
-
-
 def build_cli_kernel(
     *,
     llm: LLMConfig,
@@ -137,10 +105,13 @@ def build_cli_kernel(
 ) -> Any:
     """Assemble coding_cli's Kernel via the 2-layer SDK surface (决策 1/2/5).
 
+    coding_cli supplies no product-specific tools — its catalog is exactly the
+    kernel built-ins (read/write/edit/bash/agent/task_stop/web_fetch + the
+    self-evolution memory/skill_manage built-ins, 决策 3). The features
+    {memory_curation, skill_creation} gate the self-evolution tools per session.
+
     Args:
-        llm: SDK-owned LLM config (catalog + active connection). Built by the
-            caller from env / CLI args via ``LLMConfig.from_payload`` /
-            ``LLMConfig.from_env``.
+        llm: SDK-owned LLM config (catalog + active connection).
         can_use_tool: Terminal y/n permission callback (process-level mechanism).
         repo_root: Workspace root for tool/skill discovery (defaults to cwd inside
             build_kernel).
@@ -151,7 +122,7 @@ def build_cli_kernel(
     resolved_root = (repo_root or Path.cwd()).expanduser().resolve()
     return build_kernel(
         llm=llm,
-        tools=_build_self_evolution_tools(repo_root=resolved_root),
+        tools=[],
         hooks=[],
         can_use_tool=can_use_tool,
         workspace_config_dirname=WORKSPACE_CONFIG_DIRNAME,
@@ -162,9 +133,9 @@ def build_cli_kernel(
 async def open_cli_session(kernel: Any, *, workspace_root: Path) -> Any:
     """Open a CLI session with the default tool subset, features and prompt slots.
 
-    Threads ``workspace_config_dirname`` into session metadata so the runtime and
-    MemoryTool derive the per-workspace memory root correctly (parity with the
-    legacy bootstrap default_session_metadata).
+    ``workspace_config_dirname`` is threaded into the session-metadata baseline by
+    ``build_kernel`` (build-time deployment constant), so the runtime + MemoryTool
+    derive the per-workspace memory root without this caller re-passing it.
 
     Args:
         kernel: Kernel from ``build_cli_kernel``.
@@ -178,5 +149,4 @@ async def open_cli_session(kernel: Any, *, workspace_root: Path) -> Any:
         enabled_tools=list(DEFAULT_ENABLED_TOOLS),
         features=dict(DEFAULT_FEATURES),
         prompt=cli_prompt_slots(),
-        metadata={"workspace_config_dirname": WORKSPACE_CONFIG_DIRNAME},
     )

@@ -55,7 +55,6 @@ from agent.core.runs.origin import RunOrigin
 from agent.core.runs.registry import TERMINAL_RUN_STATUSES
 from agent.core.skills.discovery import default_skill_search_roots
 from agent.core.skills.registry import SkillRegistry
-from agent.platform.tools.builtins import MemoryTool, SkillManageTool
 from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
 from agent.platform.config.resolver import ConfigResolver
 from agent.platform.permissions.broker import PermissionDecision
@@ -104,10 +103,6 @@ __all__ = [
     # Skills
     "default_skill_search_roots",
     "SkillRegistry",
-    # Path-resolved built-in tools (决策 2: consumer factory instantiates with
-    # resolved skill_root / memory_root and passes via build_kernel(tools=…)).
-    "MemoryTool",
-    "SkillManageTool",
     # Config
     "ConfigResolver",
     # Prompt sections feature registry

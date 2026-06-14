@@ -15,14 +15,7 @@ from typing import Any
 
 import pytest
 
-from agent.sdk import (
-    LLMConfig,
-    MemoryTool,
-    SkillManageTool,
-    SkillRegistry,
-    build_kernel,
-    default_skill_search_roots,
-)
+from agent.sdk import LLMConfig, build_kernel
 from agent.sdk.dto import FeatureInfo, ModelInfo, SkillInfo, ToolInfo
 
 
@@ -40,12 +33,9 @@ def _fake_llm_client() -> Any:
 
 def _kernel(tmp_path: Path):
     # refactor-406-M1 R7: built via the 2-layer surface (legacy product_profile path
-    # removed). memory/skill_manage are path-resolved native tools the consumer
-    # supplies (here mirroring coding_cli's factory) so list_features' tool-presence
-    # gating and list_skills resolve under <workspace>/.nanocode/skills.
-    skill_registry = SkillRegistry(
-        search_roots=default_skill_search_roots(workspace_root=tmp_path)
-    )
+    # removed). memory/skill_manage are kernel built-ins auto-registered by build_kernel
+    # (决策 3) — not supplied here; list_features' tool-presence gating and list_skills
+    # resolve under <workspace>/.nanocode/skills via the threaded workspace_config_dirname.
     return build_kernel(
         llm=LLMConfig(
             provider="openai_compat",
@@ -53,13 +43,6 @@ def _kernel(tmp_path: Path):
             base_url="http://127.0.0.1:4000",
             default_model="codex_oauth:gpt-5.5",
         ),
-        tools=[
-            SkillManageTool(
-                skill_root=tmp_path / ".nanocode" / "skills",
-                registry=skill_registry,
-            ),
-            MemoryTool(),
-        ],
         workspace_config_dirname=".nanocode",
         repo_root=tmp_path,
         _llm_client_override=_fake_llm_client(),

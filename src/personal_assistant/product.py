@@ -23,13 +23,9 @@ from typing import Any, Mapping
 
 from agent.sdk import (
     LLMConfig,
-    MemoryTool,
     PromptSlots,
     PromptText,
-    SkillManageTool,
-    SkillRegistry,
     build_kernel,
-    default_skill_search_roots,
 )
 
 from personal_assistant.scheduler.cron_execution_service import CronExecutionService
@@ -351,18 +347,6 @@ def resolve_enabled_tools(agent: Any) -> list[str] | None:
     return list(DEFAULT_TOOL_IDS)
 
 
-def _build_self_evolution_tools(*, repo_root: Path) -> list[Any]:
-    """Instantiate path-resolved self-evolution tools (skill_manage / memory)."""
-    skill_registry = SkillRegistry(
-        search_roots=default_skill_search_roots(workspace_root=repo_root)
-    )
-    skill_root = repo_root / WORKSPACE_CONFIG_DIRNAME / "skills"
-    return [
-        SkillManageTool(skill_root=skill_root, registry=skill_registry),
-        MemoryTool(),
-    ]
-
-
 def build_pa_kernel(
     *,
     llm: LLMConfig,
@@ -371,9 +355,11 @@ def build_pa_kernel(
 ) -> Any:
     """Assemble PA's Kernel via the 2-layer SDK surface (决策 1/2/5/9).
 
-    Side-effecting tools reach their services directly: cron via a closure over
-    the per-agent ``cron_services`` map, send_message via the Gateway dispatch URL
-    in session metadata. No ``host_capabilities=`` round-trip into the kernel.
+    PA supplies only its product-specific side-effect tools (cron / send_message /
+    web_search, 决策 9) — they reach their services directly: cron via a closure over
+    the per-agent ``cron_services`` map, send_message via the Gateway dispatch URL in
+    session metadata. The self-evolution memory/skill_manage tools are kernel built-ins
+    (决策 3, registered by build_kernel), not PA tools.
 
     Args:
         llm: SDK-owned LLM config (catalog + active connection).
@@ -390,7 +376,6 @@ def build_pa_kernel(
         make_cron_tool(cron_services),
         SendMessageTool(),
         WebSearchTool(),
-        *_build_self_evolution_tools(repo_root=resolved_root),
     ]
     return build_kernel(
         llm=llm,

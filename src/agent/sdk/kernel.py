@@ -294,7 +294,19 @@ def _build_kernel_base(
         data_dir=None,
         workspace_config_dirname=workspace_config_dirname,
     )
-    session_service = SessionService(store=session_store)
+    # Thread workspace_config_dirname into the session-metadata baseline so the
+    # kernel built-in MemoryTool derives memory_root per-session via
+    # derive_memory_root(workspace_root, workspace_config_dirname) — the same path the
+    # runtime's memory snapshot reads from. workspace_config_dirname is a deployment
+    # constant (build_kernel scope); workspace_root is injected per-session by the
+    # runtime. Mirrors the legacy bootstrap default_session_metadata threading and
+    # decision 10's "store is stateless, location comes from workspace_root" pattern.
+    session_service = SessionService(
+        store=session_store,
+        default_session_metadata={
+            "workspace_config_dirname": workspace_config_dirname
+        },
+    )
 
     permission_broker = PermissionBroker(config=AutoModeConfig())
 
@@ -359,6 +371,19 @@ def _build_kernel_base(
     register_builtin_tools(
         tool_registry, runtime=runtime, wiring=background_task_wiring
     )
+    # Self-evolution built-ins (决策 3): memory / skill_manage are kernel built-ins
+    # ("any app has them → stays in kernel"), not consumer tools. They need
+    # constructor-time path args so register_builtin_tools() omits them; the kernel
+    # registers them here. memory_root is per-session (MemoryTool derives it at run
+    # time from session_metadata[workspace_root]+[workspace_config_dirname]); skill_root
+    # is the build-time per-config-dir skills dir (mirrors the legacy bootstrap's
+    # workspace-skill-root preference). The two general features (memory_curation /
+    # skill_creation) gate them via requires_tool presence + feature flag.
+    _register_self_evolution_builtins(
+        tool_registry,
+        repo_root=resolved_repo_root,
+        workspace_config_dirname=workspace_config_dirname,
+    )
     for tool in tools:
         tool_registry.register(tool, replace=True)
 
@@ -389,6 +414,51 @@ def _build_kernel_base(
         llm_catalog=llm,
         workspace_config_dirname=workspace_config_dirname,
     )
+
+
+def _register_self_evolution_builtins(
+    tool_registry: Any,
+    *,
+    repo_root: Path,
+    workspace_config_dirname: str,
+) -> None:
+    """Register the kernel built-in memory / skill_manage tools (决策 3).
+
+    These are kernel built-ins, not consumer tools — every application has them, so
+    they stay in the kernel (决策 3). They are excluded from ``builtin_tools()`` only
+    because they need constructor-time path args; the kernel resolves those here:
+
+    - ``MemoryTool()`` takes no fixed root — it derives memory_root per-session from
+      ``session_metadata[workspace_root] + [workspace_config_dirname]`` at run time.
+    - ``SkillManageTool(skill_root, registry)`` writes skills under the build-time
+      ``<repo_root>/<workspace_config_dirname>/skills`` (mirrors the legacy bootstrap's
+      workspace-skill-root preference); the SkillRegistry searches the same dir.
+    """
+    from agent.platform.tools.builtins import (  # noqa: PLC0415
+        MemoryTool,
+        SkillManageTool,
+    )
+    from agent.core.skills.discovery import (  # noqa: PLC0415
+        default_skill_search_roots,
+    )
+    from agent.core.skills.registry import SkillRegistry  # noqa: PLC0415
+
+    skill_resolver = _WorkspaceDirnameSkillResolver(
+        workspace_root=repo_root,
+        workspace_config_dirname=workspace_config_dirname,
+    )
+    skill_registry = SkillRegistry(
+        search_roots=default_skill_search_roots(
+            workspace_root=repo_root,
+            config_resolver=skill_resolver,
+        )
+    )
+    skill_root = repo_root / workspace_config_dirname / "skills"
+    tool_registry.register(
+        SkillManageTool(skill_root=skill_root, registry=skill_registry),
+        replace=True,
+    )
+    tool_registry.register(MemoryTool(), replace=True)
 
 
 class _WorkspaceDirnameSkillResolver:

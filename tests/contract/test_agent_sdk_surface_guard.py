@@ -17,9 +17,6 @@ Exemption groups (each entry documents WHY it is allowed):
   core/platform; re-exported, never relocated (permanent).
 - ``_DECISION12_PRESENTER``: tool-presentation pure-function types, core-owned,
   sdk re-export (permanent, 决策 12).
-- ``_PATH_RESOLVED_TOOLS``: platform-owned built-in tools the consumer factory
-  instantiates with resolved skill_root / memory_root and passes via
-  ``build_kernel(tools=…)`` (permanent, 决策 2).
 - ``_TYPING_ALIAS``: ``CanUseToolFn`` is an sdk-owned ``Callable`` alias with no
   class ``__module__``; handled specially (not an ownership violation).
 - ``_M1_TEMP_REPORTER_EXPORTS`` / ``_M1_TEMP_PROFILES``: reporter-only exports +
@@ -66,9 +63,6 @@ EXPECTED_SURFACE: frozenset[str] = frozenset(
         # Run origin + terminal statuses (C1)
         "RunOrigin",
         "TERMINAL_RUN_STATUSES",
-        # Path-resolved built-in tools (决策 2)
-        "MemoryTool",
-        "SkillManageTool",
         # --- M1-temporary: reporter-only exports (removed in M2) ---
         "LLMFactoryConfig",
         "LLMConfigPayload",
@@ -118,11 +112,6 @@ _DECISION12_PRESENTER: frozenset[str] = frozenset(
     {"ToolPresenter", "ToolPresentationEvent"}
 )
 
-# 决策 2: path-resolved built-in tools the consumer factory instantiates and passes
-# via build_kernel(tools=…). Platform-owned by necessity (they wrap platform IO);
-# consumers need the classes (permanent).
-_PATH_RESOLVED_TOOLS: frozenset[str] = frozenset({"MemoryTool", "SkillManageTool"})
-
 # sdk-owned Callable alias (no class __module__) — special-cased, not a violation.
 _TYPING_ALIAS: frozenset[str] = frozenset({"CanUseToolFn"})
 
@@ -155,7 +144,6 @@ _M1_TEMP_PROFILES: frozenset[str] = frozenset(
 _OWNERSHIP_EXEMPT: frozenset[str] = (
     _C1_REEXPORTS
     | _DECISION12_PRESENTER
-    | _PATH_RESOLVED_TOOLS
     | _TYPING_ALIAS
     | _M1_TEMP_REPORTER_EXPORTS
     | _M1_TEMP_PROFILES
