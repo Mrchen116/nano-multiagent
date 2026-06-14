@@ -524,6 +524,48 @@ def _wire_console_tracer() -> None:
         set_tracer(ConsoleTracer(threshold_ms=100.0))
 
 
+# refactor-406-M3fix #5: per-agent self_evolution config (re-home, not drop).
+# design 决策1: per-agent config moves to create_session. The legacy bootstrap read
+# this from <workspace>/<dirname>/config.yaml's self_evolution section into session
+# metadata; the self_improvement hook reads metadata["self_evolution"] for
+# skill_nudge_interval / memory_nudge_interval / enabled. The 2-layer create_session
+# dropped this read → hook got {} → hard-coded interval=10 overrode user config.
+# Re-homed here using ONLY workspace_root + workspace_config_dirname to locate the
+# file (no ConfigResolver / user roots, per the ConfigResolver-removal decision).
+# Logic + fallback ported verbatim from the legacy bootstrap._load_self_evolution_config.
+_DEFAULT_SELF_EVOLUTION_CONFIG: dict = {
+    "enabled": True,
+    "skill_creation": True,
+    "memory_curation": True,
+    "skill_nudge_interval": 10,
+    "memory_nudge_interval": 10,
+}
+
+
+def _load_self_evolution_config(config_path: Path) -> dict:
+    """Read the self_evolution section from a workspace config YAML, with fallback.
+
+    Falls back to the platform default (all on, interval=10) when the file is absent
+    or malformed. User values are merged over defaults so missing keys still default.
+    """
+    if not config_path.is_file():
+        return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+    try:
+        import yaml  # noqa: PLC0415
+
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+        user_evo = raw.get("self_evolution", {})
+        if not isinstance(user_evo, dict):
+            return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+        result = dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+        result.update(user_evo)
+        return result
+    except Exception:  # noqa: BLE001
+        return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+
+
 class Kernel:
     """In-process agent kernel: the sole public interface for products.
 
@@ -623,6 +665,23 @@ class Kernel:
             merged_features = dict(effective_metadata.get("agent_features", {}))
             merged_features.update(features)
             effective_metadata["agent_features"] = merged_features
+
+        # refactor-406-M3fix #5: re-home per-agent self_evolution config (决策1: per-agent
+        # config → create_session). Locate <workspace_root>/<dirname>/config.yaml using
+        # only workspace_root + workspace_config_dirname (no ConfigResolver), read its
+        # self_evolution section into session metadata so the self_improvement hook reads
+        # the user's skill_nudge_interval / memory_nudge_interval instead of hard-coded
+        # defaults. Caller-supplied metadata wins (don't override an explicit value).
+        if (
+            "self_evolution" not in effective_metadata
+            and self._workspace_config_dirname
+        ):
+            config_path = (
+                effective_root / self._workspace_config_dirname / "config.yaml"
+            )
+            effective_metadata["self_evolution"] = _load_self_evolution_config(
+                config_path
+            )
 
         session = self._c.session_service.create_session(
             workspace_root=effective_root,
