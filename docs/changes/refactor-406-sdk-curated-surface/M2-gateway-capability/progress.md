@@ -75,9 +75,25 @@
 - Evidence（R2 完成）:
   - 基线 fixture 4 类 payload 逐字段全绿（3 passed）；全 personal_assistant 单测 580 passed/1 skipped；contract 134 passed；kernel list_* 4 passed；**全测试树 not e2e 2747 passed/2 skipped 零回归**；ruff check + format 全仓干净。
 
-## R3 — 撤旧导出 + products 解散 + 决策7 最终闸（待 R2 收口）
+## R3 — 撤旧导出 + products 解散 + 决策7 最终闸（进行中）
 
-（待做）
+### R3a — 撤 SDK 旧导出 + 决策7 最终闸（已完成，push commit 62070cee）
+
+- **撤 SDK 公共导出**（`agent/sdk/__init__.py`）：SkillRegistry/ConfigResolver/default_skill_search_roots/FEATURE_REGISTRY/model registry 列表函数全家（init_model_registry/get_default_model/get_default_provider/list_provider_models/list_supported_providers）+ LLMFactoryConfig/LLMConfigPayload/LLMModelPayload/LLMProviderPayload + LOCAL_CODING_PROFILE/PERSONAL_ASSISTANT_PROFILE 全撤。
+- **src/ 消费者迁移（撤导出前置）**：
+  - `dto.py` 加 SDK-owned `LLMConfig.from_catalog`（providers→LLMProvider/LLMModel）+ `from_json`（解析 gateway-style catalog JSON），消费者不依赖内部 wire-payload 类型。
+  - `coding_cli/commands.py`：`_build_llm_config_payload`→`_build_cli_llm_config`，用 from_json/from_catalog 构 LLMConfig，不再 import LLMConfigPayload 全家。
+  - `personal_assistant/config/local_store.py`：LLM config wire schema 改 **PA-owned** dataclass（LLMConfigPayload/Model/Provider，复刻原字段语义——base_url Optional、extra_request_body None-when-absent——保 config.yaml round-trip byte-identical），不再从 agent.sdk import；`config.llm` 经 duck-typed `LLMConfig.from_payload` 流入 build_kernel 不变（K2.6 thinking extra_request_body 保留）。
+  - `main.py`：删冗余 `init_model_registry(config.llm)`（build_kernel 内部已 init，决策5 消化 footgun）。
+- **决策7 三道闸最终闸**（surface guard）：`EXPECTED_SURFACE` 钉死为最终 curated 面（22 符号），删 `_M1_TEMP_REPORTER_EXPORTS` + `_M1_TEMP_PROFILES` 豁免组，仅剩永久豁免（C1 RunOrigin/PermissionDecision/TERMINAL_RUN_STATUSES + 决策12 ToolPresenter/Event + CanUseToolFn typing alias）。三道闸（精确名单 + 所有权 + 无 stale 豁免）全绿。
+- whitelist 行号锚定更新：commands.py 1144/1145→1146/1147（函数替换净+2行）。
+- Evidence：全树 not e2e 2747 passed/2 skipped 零回归；ruff check + format 干净；分支零 e2e 产物。
+
+### R3b — products/ 物理解散（评估完，进行中）
+
+- **生产零依赖取证**：`bootstrap_product` 零生产调用；`ConfigResolver(profile=)` 只剩 2 处构造——bootstrap.py（死）+ kernel.py:1005 legacy 分支（M1 R7 删 legacy build_kernel 路径后 `build_resolver._profile` 永远 None，死分支）。新 2 层路径用 `_WorkspaceDirnameSkillResolver`（鸭子 ConfigResolverLike Protocol）。ProductProfile/ConfigResolver(profile=)/bootstrap_product 在新路径全是 legacy 死代码。
+- **范围**：删 `agent/products/` + `platform/products/` 垫片 + `platform/product.py` + bootstrap_product + kernel.py 死分支；~30 个测试 import `agent.products` 内部需逐个分类（含 risk-1 prompt golden 3 个：test_full_system_prompt_byte_identical/test_kernel_skeleton_reproduces_golden/test_prompt_sections_golden，重定向到 src/personal_assistant/ 副本 + 逐字节复验守 risk-1）。
+- **状态**：已 SendMessage orchestrator 同步体量 + 计划，待推进。
 
 ## R4 — live 实测 R-CFG-1/2/3/4 + R-GW-1/2（待 R2/R3 收口）
 
