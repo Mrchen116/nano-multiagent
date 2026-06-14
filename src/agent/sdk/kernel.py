@@ -392,9 +392,23 @@ def _build_kernel_base(
         tool_registry,
         repo_root=resolved_repo_root,
         workspace_config_dirname=workspace_config_dirname,
+        skill_search_roots=tuple(
+            Path(r).expanduser().resolve() for r in skill_search_roots
+        ),
     )
     for tool in tools:
         tool_registry.register(tool, replace=True)
+
+    # refactor-406-M3fix #1 (决策2 红线)：恢复工作区 `<repo_root>/.nano/tools` 运行时
+    # 工具发现——决策2 明写「.nano/tools 运行时发现机制不变」，但新 build_kernel 直接手搓
+    # registry（builtins + 显式 tools=）跳过了它。仅扫 workspace .nano/tools（字面 .nano，
+    # 非 workspace_config_dirname），不经 ConfigResolver、不碰用户级 tool roots（后者随
+    # ConfigResolver 撤出、design 无替代，不复活）。
+    from agent.platform.tools.loader import (  # noqa: PLC0415
+        load_tools_from_directory,
+    )
+
+    load_tools_from_directory(repo_root=resolved_repo_root, registry=tool_registry)
 
     _bind_runtime_to_tool_registry(
         tool_registry=tool_registry,
@@ -433,6 +447,7 @@ def _register_self_evolution_builtins(
     *,
     repo_root: Path,
     workspace_config_dirname: str,
+    skill_search_roots: tuple[Path, ...] = (),
 ) -> None:
     """Register the kernel built-in memory / skill_manage tools (决策 3).
 
@@ -442,32 +457,22 @@ def _register_self_evolution_builtins(
 
     - ``MemoryTool()`` takes no fixed root — it derives memory_root per-session from
       ``session_metadata[workspace_root] + [workspace_config_dirname]`` at run time.
-    - ``SkillManageTool(skill_root, registry)`` writes skills under the build-time
-      ``<repo_root>/<workspace_config_dirname>/skills`` (mirrors the legacy bootstrap's
-      workspace-skill-root preference); the SkillRegistry searches the same dir.
+    - ``SkillManageTool(workspace_config_dirname, extra_roots)`` (refactor-406-M3fix #4):
+      writes/lists skills **per-session**, deriving ``<workspace_root>/<dirname>/skills``
+      from session_metadata at run time + the deployment ``skill_search_roots`` — so
+      each agent uses its own workspace skills (no shared build-repo_root registry) and
+      skill_manage aligns with ``Kernel.list_skills`` / IM (one resolver, 决策 4).
     """
     from agent.platform.tools.builtins import (  # noqa: PLC0415
         MemoryTool,
         SkillManageTool,
     )
-    from agent.core.skills.discovery import (  # noqa: PLC0415
-        default_skill_search_roots,
-    )
-    from agent.core.skills.registry import SkillRegistry  # noqa: PLC0415
 
-    skill_resolver = _WorkspaceDirnameSkillResolver(
-        workspace_root=repo_root,
-        workspace_config_dirname=workspace_config_dirname,
-    )
-    skill_registry = SkillRegistry(
-        search_roots=default_skill_search_roots(
-            workspace_root=repo_root,
-            config_resolver=skill_resolver,
-        )
-    )
-    skill_root = repo_root / workspace_config_dirname / "skills"
     tool_registry.register(
-        SkillManageTool(skill_root=skill_root, registry=skill_registry),
+        SkillManageTool(
+            workspace_config_dirname=workspace_config_dirname,
+            extra_roots=skill_search_roots,
+        ),
         replace=True,
     )
     tool_registry.register(MemoryTool(), replace=True)
