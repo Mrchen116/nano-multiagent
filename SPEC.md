@@ -72,8 +72,8 @@ nano-multiagent 是一个 Python 多模型 Agent 框架，由四个独立可部�
 │  │           ToolRegistry│HookRunner│SkillRegistry│Compaction  │──→ LLM API
 │  │           SessionManager│LLMClient (port，仅接口)           │ │
 │  │  platform LLMClientFactory(OpenAI-compat/Anthropic 具体实现)│ │
-│  │           Built-in tools│Persistence(SQLite)│Safety│Bootstrap│ │
-│  │  products local_coding│personal_assistant (ProductProfile)  │ │
+│  │           Built-in tools│Persistence(SQLite)│Safety          │ │
+│  │  (refactor-406 决策1：products 层解散→消费者工厂)            │ │
 │  └─────────────────────────────────────────────────────────────┘ │
 │                                                                  │
 │  ┌─ Agent Workspaces ─────────────────────────────────────────┐  │
@@ -98,8 +98,7 @@ IM Service 是唯一对外网络服务（多用户 / Web 前端 / 消息中继�
 src/
 ├── agent/                        # Agent 内核库（对外只暴露 agent.sdk，进程内调用）
 │   ├── core/                     # 纯逻辑：runtime/loop/runs/tools/hooks/skills/session
-│   ├── platform/                 # 集成层：LLM providers、persistence、safety、bootstrap
-│   ├── products/                 # 产品 profile：local_coding、personal_assistant
+│   ├── platform/                 # 集成层：LLM providers、persistence、safety
 │   └── sdk/                      # 对外面：build_kernel() → Kernel
 ├── coding_cli/                   # 本地编码 CLI 应用（import agent.sdk 进程内直跑）
 ├── personal_assistant/           # 个人助手 Node Gateway（import agent.sdk 进程内持有 Kernel）
@@ -123,11 +122,12 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 
 对外**只暴露 `agent.sdk`**（`build_kernel()` → 进程内 `Kernel`），禁止外部直接 import `agent.core` / `agent.platform` 内部模块。内核是库不是服务，**不内置任何对外网络 API**。
 
-内部分四层（core / platform / products / sdk）：
-- `core` 纯逻辑，不依赖 `platform` / `products`；只持 `LLMClient` 端口（接口）。
-- `platform` 接环境（LLM provider 具体实现、持久化、安全、bootstrap），依赖 `core` + `products`。
-- `products` 产品 profile（默认工具 / hook / prompt / skill 策略）。
-- `sdk` 唯一对外装配面，依赖 `core` + `platform` + `products`，暴露 `build_kernel()` / `Kernel`。
+内部分三层（core / platform / sdk）：
+- `core` 纯逻辑，不依赖 `platform`；只持 `LLMClient` 端口（接口）。
+- `platform` 接环境（LLM provider 具体实现、持久化、安全），依赖 `core`。
+- `sdk` 唯一对外装配面，依赖 `core` + `platform`，暴露 `build_kernel()` / `Kernel`。
+
+> refactor-406（决策 1）：原 `products` 层（产品 profile / 默认工具 / hook / prompt / skill 策略）已解散——产品默认值下沉到各消费者包的工厂（`coding_cli.product` / `personal_assistant.product`），经 `build_kernel(tools=…, hooks=…, prompt=…)` 传入；内核眼里没有"产品"对象，两个一方产品与任意外部应用对 SDK 完全对等。
 
 内核对外行为契约详见 [`docs/specs/kernel/spec.md`](docs/specs/kernel/spec.md)。
 
@@ -162,9 +162,9 @@ IM 无关、产品无关的 Agent 运行时。只负责"单 Agent 可运行 + �
 **硬规则**：
 - `coding_cli` 和 `personal_assistant` 通过 **`import agent.sdk` 进程内调用** agent；**只允许 import `agent.sdk`**，禁止 import `agent.core` / `agent.platform` 内部模块
 - `IM` 不调用 agent，只与用户浏览器和各机器上的 `personal_assistant` 交互（HTTP/WS）
-- 内核分层：`core` 不依赖 `platform` / `products`；`platform → core + products`；`sdk → core + platform + products`（唯一对外面）
+- 内核分层（refactor-406 决策1：products 层解散）：`core` 不依赖 `platform`；`platform → core`；`sdk → core + platform`（唯一对外面）
 - `agent.sdk` 不被任何内核内部层反向依赖；`coding_cli` / `personal_assistant` / `IM` 三者之间无相互 import
-- 验收口径：`src/coding_cli/`、`src/personal_assistant/` 只许 import `agent.sdk`，不得 import `agent.core` / `agent.platform`；`src/IM/` 不得 import `agent`；`src/agent/core/` 不得 import `agent.platform` / `agent.products`。相关断言由 `tests/contract/test_cli_http_only_contract.py` 与 `test_core_no_platform_imports.py` 自动执行
+- 验收口径：`src/coding_cli/`、`src/personal_assistant/` 只许 import `agent.sdk`，不得 import `agent.core` / `agent.platform`；`src/IM/` 不得 import `agent`；`src/agent/core/` 不得 import `agent.platform`。相关断言由 `tests/contract/test_cli_http_only_contract.py` 与 `test_core_no_platform_imports.py` 自动执行
 
 ---
 

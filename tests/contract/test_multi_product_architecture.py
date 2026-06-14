@@ -122,14 +122,15 @@ TOP_LEVEL_REQUIRED_DOC_SNIPPETS = (
     "├── personal_assistant/           # 个人助手 Node Gateway",
 )
 # feat-392-M1: 锚回 SPEC.md（KERNEL_SPEC 退役后顶点是 canonical 家）。仍实质验三条内核终态属性：
-# ① 内核四层 core/platform/products/sdk；② 依赖方向 core ↛ platform/products；
-# ③ 库形态——只暴露 agent.sdk、不内置 HTTP。片段取 SPEC.md §4「agent — 执行内核」实际措辞。
+# ① 内核三层 core/platform/sdk（refactor-406 决策1：products 层解散，产品默认下沉消费者工厂）；
+# ② 依赖方向 core ↛ platform；③ 库形态——只暴露 agent.sdk、不内置 HTTP。
+# 片段取 SPEC.md §4「agent — 执行内核」实际措辞。
 KERNEL_REQUIRED_DOC_SNIPPETS = (
-    # ① 内核四层
-    "内部分四层（core / platform / products / sdk）",
+    # ① 内核三层（refactor-406-M2：products 解散）
+    "内部分三层（core / platform / sdk）",
     "└── sdk/                      # 对外面：build_kernel() → Kernel",
-    # ② 依赖方向 core 不依赖 platform/products
-    "`core` 纯逻辑，不依赖 `platform` / `products`",
+    # ② 依赖方向 core 不依赖 platform
+    "`core` 纯逻辑，不依赖 `platform`；只持 `LLMClient` 端口（接口）。",
     # ③ 库形态：只暴露 agent.sdk + 无 HTTP
     "对外**只暴露 `agent.sdk`**",
     "内核是库不是服务，**不内置任何对外网络 API**",
