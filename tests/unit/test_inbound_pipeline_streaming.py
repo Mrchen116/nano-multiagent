@@ -611,3 +611,60 @@ class TestTerminalToolCallReconcile:
         assert len(completed) == 1
         assert completed[0]["tool_call"]["reason"] == "interrupted"
         assert completed[0]["tool_call"]["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_normal_completion_leaves_no_run_entry(self):
+        """bugfix-410-fix-r1 (Eff-3): a run that completes normally (tool_end then
+        turn_end, no reconcile) must not leak an empty per-run dict entry. A long-lived
+        Gateway processes many runs; one residual entry per run is an unbounded leak."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, _ = self._manager()
+        # Injected so we can assert the map is reaped — no production caller passes it.
+        running_tool_calls: dict[str, dict[str, str]] = {}
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+            running_tool_calls=running_tool_calls,
+        )
+
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        assert "run-1" in running_tool_calls
+
+        # Closing the last in-flight call drops the run_id entry immediately.
+        observer(
+            {"event": "tool_end", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        assert "run-1" not in running_tool_calls
+
+        # turn_end is the normal terminus and re-reaps as a backstop (idempotent).
+        observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+        await asyncio.sleep(0.02)
+        assert running_tool_calls == {}, (
+            f"normal completion must leave no residual run entry, got: {running_tool_calls}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_turn_end_backstops_run_entry_without_tool_end(self):
+        """bugfix-410-fix-r1: even if a tool_call's tool_end never arrives on the normal
+        path, turn_end must still reap the per-run entry so the map cannot grow."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, _ = self._manager()
+        running_tool_calls: dict[str, dict[str, str]] = {}
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+            running_tool_calls=running_tool_calls,
+        )
+
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "bash"}
+        )
+        assert running_tool_calls.get("run-1") == {"c1": "bash"}
+
+        observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+        await asyncio.sleep(0.02)
+        assert "run-1" not in running_tool_calls

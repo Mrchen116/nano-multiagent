@@ -1097,9 +1097,12 @@ class AgentRuntime:
             ),
             None,
         )
-        if run_stop_reason == "cancelled":
-            reason = "cancelled"
-        elif run_stop_reason == "aborted":
+        if run_stop_reason in ("cancelled", "aborted"):
+            # bugfix-410-fix-r1: both cooperative-cancel ("cancelled") and abort map to
+            # "interrupted". The IM badge's REASON_LABEL_KEYS only renders
+            # denied/timed_out/interrupted — emitting a bare "cancelled" would leave the
+            # badge with no label. "interrupted" is the semantically-equivalent recovery
+            # reason the frontend already understands.
             reason = "interrupted"
         else:
             # No turn_meta (raw CancelledError pass-through) or any other

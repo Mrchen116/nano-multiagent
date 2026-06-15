@@ -849,7 +849,9 @@ async def test_runtime_eager_recovery_on_abort(
 async def test_runtime_eager_recovery_on_cancel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """stop_reason='cancelled' also triggers eager recovery with reason='cancelled'."""
+    """stop_reason='cancelled' triggers eager recovery. bugfix-410-fix-r1: the synthesized
+    badge reason is 'interrupted', not 'cancelled' — the IM badge's REASON_LABEL_KEYS only
+    renders denied/timed_out/interrupted, so a bare 'cancelled' would have no label."""
     from agent.core.types import Message
     from agent.core import ids
     from agent.core.agent import runtime as _runtime_mod
@@ -895,7 +897,7 @@ async def test_runtime_eager_recovery_on_cancel(
 
     assert len(recovery_entries) == 1
     assert recovery_entries[0]["tool_call_id"] == "tc_cancel_1"
-    assert recovery_entries[0]["reason"] == "cancelled"
+    assert recovery_entries[0]["reason"] == "interrupted"
 
 
 async def test_runtime_cancelled_recovery_is_visible_to_next_cached_run(

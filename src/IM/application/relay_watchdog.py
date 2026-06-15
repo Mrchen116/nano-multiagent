@@ -14,7 +14,7 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta, timezone
 
-from IM.infra.repositories import EventRepository
+from IM.infra.repositories import EventRepository, _format_utc
 
 logger = logging.getLogger(__name__)
 
@@ -49,18 +49,13 @@ def scan_and_fail_stuck_running_messages(
     Returns:
         Number of messages flipped from `running` to `failed` in this pass.
     """
-    cutoff = (
-        (datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds))
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
-    permission_cutoff = (
-        (
-            datetime.now(timezone.utc)
-            - timedelta(seconds=permission_crash_threshold_seconds)
-        )
-        .isoformat()
-        .replace("+00:00", "Z")
+    # bugfix-410-fix-r1: format cutoffs via repositories._format_utc — the same single
+    # source that writes awaiting_permission_at — so the SQL string comparison below can
+    # never break from a format drift between the writer and this comparator.
+    now = datetime.now(timezone.utc)
+    cutoff = _format_utc(now - timedelta(seconds=timeout_seconds))
+    permission_cutoff = _format_utc(
+        now - timedelta(seconds=permission_crash_threshold_seconds)
     )
     # bugfix-383: judge liveness by the most recent event timestamp, not message
     # creation time. Multi-turn tool loops run for many minutes while pushing events

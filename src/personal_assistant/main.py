@@ -3100,6 +3100,7 @@ def _build_kernel_event_observer(
     *,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]],
+    running_tool_calls: dict[str, dict[str, str]] | None = None,
 ) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
@@ -3130,7 +3131,12 @@ def _build_kernel_event_observer(
     # a synthetic ``run_terminal_reconcile`` event; we then close every still-running
     # tool_call with a reason so the IM badge stops spinning forever. Keyed by run_id
     # → {call_id: tool_name}.
-    running_tool_calls: dict[str, dict[str, str]] = {}
+    # bugfix-410-fix-r1: the map is injectable purely so a test can observe that the
+    # per-run entry is reaped on the normal-completion path (no production caller passes
+    # it). Entries are dropped as calls close (tool_end) and as runs end (turn_end /
+    # reconcile), so this never grows unbounded on a long-lived Gateway.
+    if running_tool_calls is None:
+        running_tool_calls = {}
 
     async def _send(
         manager: IMConnectionManager, message_type: str, payload: Mapping[str, Any]
@@ -3445,6 +3451,13 @@ def _build_kernel_event_observer(
             # completed=True = normal success path, delivery_status defaults to "completed".
             turn_completed = event.get("completed") is not False
 
+            # bugfix-410-fix-r1: turn_end is the normal-completion terminus (no reconcile
+            # runs on this path), so reap any leftover per-run in-flight entry here as a
+            # backstop. tool_end already drops entries as calls close; this catches the
+            # empty-dict residue and guarantees the map can't grow unbounded on a long
+            # Gateway. reconcile owns the abnormal path and pops there.
+            running_tool_calls.pop(run_id, None)
+
             # Finalize message with token_usage if present (only on success path).
             usage_raw = event.get("usage") if turn_completed else None
             token_usage_payload: dict[str, object] | None = None
@@ -3512,7 +3525,14 @@ def _build_kernel_event_observer(
             tool_name = str(event.get("name") or "")
             arguments = event.get("arguments") or {}
             # bugfix-410-M2 R3: this call closed normally — drop it from in-flight.
-            running_tool_calls.get(run_id, {}).pop(call_id, None)
+            # bugfix-410-fix-r1: also drop the run_id entry once its last in-flight call
+            # closes, so the per-run dict can't accumulate empty leftovers on a long-lived
+            # Gateway (turn_end finalizes the bubble but never re-touches this map).
+            inner = running_tool_calls.get(run_id)
+            if inner is not None:
+                inner.pop(call_id, None)
+                if not inner:
+                    running_tool_calls.pop(run_id, None)
             duration_ms = event.get("duration_ms")
             status = "failed" if event.get("error") else "completed"
             # bugfix-410-M2 R4 (#97): forward the badge classification (e.g. "denied"

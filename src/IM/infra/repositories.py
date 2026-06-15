@@ -2988,6 +2988,17 @@ def _decode_attachments(raw_value: str) -> list[Attachment]:
     return results
 
 
+def _format_utc(dt: datetime) -> str:
+    """Format a UTC datetime into the canonical ``...Z`` storage string.
+
+    Single source of truth for the on-disk timestamp text. Any value compared by
+    SQL string ordering against a stored timestamp (e.g. relay_watchdog cutoffs vs
+    ``awaiting_permission_at``) must be produced here so the two formats can never
+    drift apart — a mismatch would silently break the textual comparison.
+    """
+    return dt.isoformat().replace("+00:00", "Z")
+
+
 def _utc_now() -> str:
     """Return current UTC time formatted for storage."""
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    return _format_utc(datetime.now(timezone.utc))

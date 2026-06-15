@@ -588,3 +588,56 @@ def test_scan_reaps_running_message_with_stale_permission_marker(
         "SELECT delivery_status FROM messages WHERE id = ?", ("msg-crashed",)
     ).fetchone()
     assert row["delivery_status"] == "failed"
+
+
+def test_cutoff_format_is_single_sourced_with_stored_timestamps() -> None:
+    """bugfix-410-fix-r1 (Reuse-1): the watchdog compares its cutoffs against stored
+    timestamps via SQL text ordering, so the cutoff format and the writer format must be
+    one source. _utc_now (the writer) is defined in terms of _format_utc (the comparator's
+    formatter); any drift between them would silently break the comparison."""
+    from IM.infra.repositories import _format_utc, _utc_now
+
+    fixed = datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=timezone.utc)
+    formatted = _format_utc(fixed)
+    assert formatted == "2026-01-02T03:04:05.678000Z"
+    assert formatted.endswith("Z") and "+00:00" not in formatted
+
+    # The writer used for awaiting_permission_at must route through the same formatter,
+    # so a stored marker and a watchdog cutoff share an identical, comparable shape.
+    now = _utc_now()
+    assert now == _format_utc(datetime.fromisoformat(now.replace("Z", "+00:00")))
+
+
+def test_fresh_permission_marker_written_via_utc_now_is_exempt(tmp_path: Path) -> None:
+    """bugfix-410-fix-r1 (Reuse-1): a marker written through the real production
+    formatter (_utc_now) must compare correctly against the watchdog's _format_utc cutoff
+    and exempt the row — proving writer/comparator formats line up end to end."""
+    from IM.infra.repositories import _utc_now
+
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    old_created = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=600))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-awaiting",
+        conversation_id="conv-1",
+        created_at=old_created,
+    )
+    # Marker stamped "now" through the production writer — fresh, must exempt.
+    _set_awaiting_permission_at(connection, message_id="msg-awaiting", at=_utc_now())
+
+    captured: list[ConversationEvent] = []
+    repo = EventRepository(connection, notify=captured.append)
+    flipped = scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=120,
+        permission_crash_threshold_seconds=300,
+    )
+
+    assert flipped == 0, "fresh marker written via _utc_now must exempt the row"
+    row = connection.execute(
+        "SELECT delivery_status FROM messages WHERE id = ?", ("msg-awaiting",)
+    ).fetchone()
+    assert row["delivery_status"] == "running"
