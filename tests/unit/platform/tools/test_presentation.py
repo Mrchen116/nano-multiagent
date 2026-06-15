@@ -50,7 +50,8 @@ class TestReadPresenter:
             _FakeResult(output={"path": "src/app.py", "total_lines": 120, "offset": 1}),
             duration_ms=12,
         )
-        assert evt.summary == "src/app.py · 120 lines"
+        # feat-409 protoalign: 折叠 summary 中文化为 `<path> · N 行`。
+        assert evt.summary == "src/app.py · 120 行"
         assert evt.detail is not None
         assert evt.detail["path"] == "src/app.py"
         assert evt.detail["total_lines"] == 120
@@ -63,7 +64,7 @@ class TestReadPresenter:
             ),
             duration_ms=12,
         )
-        assert evt.summary == "src/app.py · lines 40-79"
+        assert evt.summary == "src/app.py · 第 40-79 行"
         assert evt.detail is not None
         assert evt.detail["path"] == "src/app.py"
         assert evt.detail["offset"] == 40
@@ -123,7 +124,8 @@ class TestWritePresenter:
             _FakeResult(output={"type": "create"}),
             duration_ms=5,
         )
-        assert "created" in evt.summary
+        # feat-409 protoalign: summary 对齐原型 `<path> · 新建 <size>`。
+        assert evt.summary == "src/app.py · 新建 5B"
         assert evt.detail is not None
         assert evt.detail["path"] == "src/app.py"
         assert evt.detail["bytes"] == 5
@@ -134,7 +136,8 @@ class TestWritePresenter:
             _FakeResult(output={"type": "update"}),
             duration_ms=5,
         )
-        assert "overwritten" in evt.summary
+        # feat-409 protoalign: 覆盖写对齐原型 `<path> · 覆盖 <size>`。
+        assert evt.summary == "src/app.py · 覆盖 11B"
         assert evt.detail is not None
 
     def test_end_failed(self) -> None:
@@ -380,26 +383,26 @@ class TestMemoryPresenter:
         assert "added" in evt.detail["message"]
 
     def test_end_failure(self) -> None:
-        # feat-409 failalign: success=False 失败态 summary = 干净主参数(action target),
-        # 不含 error 文本;error 进 detail.message 供 MemoryCard 渲染一次。
+        # feat-409 failalign+protoalign: success=False 失败态 summary = 干净人话主参数
+        # (`±target` 摘要),不含 error 文本;error 进 detail.message 供 MemoryCard 渲染一次。
         evt = _presenter("memory").format_end(
             {"action": "add", "target": "memory"},
             _FakeResult(output={"success": False, "error": "add requires content"}),
             duration_ms=5,
         )
-        assert evt.summary == "add memory"
+        assert evt.summary == "+memory"
         assert "requires content" not in evt.summary
         assert evt.detail["success"] is False
         assert evt.detail["message"] == "add requires content"
 
     def test_end_error_summary_is_clean(self) -> None:
-        # out-of-band(result.error)失败态同样 summary = action target,不含 error。
+        # out-of-band(result.error)失败态同样 summary = 人话主参数,不含 error。
         evt = _presenter("memory").format_end(
             {"action": "add", "target": "memory"},
             _FakeResult(error="store unavailable"),
             duration_ms=5,
         )
-        assert evt.summary == "add memory"
+        assert evt.summary == "+memory"
         assert "store unavailable" not in evt.summary
         assert evt.detail is not None
         assert "error" in evt.detail
@@ -422,26 +425,26 @@ class TestSkillManagePresenter:
         assert "created" in evt.detail["message"]
 
     def test_end_failure(self) -> None:
-        # feat-409 failalign: success=False 失败态 summary = 干净主参数(action name),
-        # 不含 error 文本;error 进 detail.message 供 SkillCard 渲染一次。
+        # feat-409 failalign+protoalign: success=False 失败态 summary = 干净人话主参数
+        # (`创建 skill：x`),不含 error 文本;error 进 detail.message 供 SkillCard 渲染一次。
         evt = _presenter("skill_manage").format_end(
             {"action": "create", "name": "x"},
             _FakeResult(output={"success": False, "error": "requires content"}),
             duration_ms=5,
         )
-        assert evt.summary == "create x"
+        assert evt.summary == "创建 skill：x"
         assert "requires content" not in evt.summary
         assert evt.detail["success"] is False
         assert evt.detail["message"] == "requires content"
 
     def test_end_error_summary_is_clean(self) -> None:
-        # out-of-band(result.error)失败态同样 summary = action name,不含 error。
+        # out-of-band(result.error)失败态同样 summary = 人话主参数,不含 error。
         evt = _presenter("skill_manage").format_end(
             {"action": "create", "name": "x"},
             _FakeResult(error="disk full"),
             duration_ms=5,
         )
-        assert evt.summary == "create x"
+        assert evt.summary == "创建 skill：x"
         assert "disk full" not in evt.summary
         assert evt.detail is not None
         assert "error" in evt.detail

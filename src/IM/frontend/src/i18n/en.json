@@ -377,7 +377,7 @@
         "readLineRange": "lines {{from}}-{{to}}",
         "readImage": "image",
         "readUnchanged": "unchanged",
-        "expandAll": "Expand all",
+        "expandAll": "… truncated, {{count}} lines total (expand all)",
         "collapse": "Collapse",
         "truncatedAtSource": "Output too long — truncated at source"
       },

@@ -180,19 +180,21 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
     expect(screen.getByText(/12 passed/)).toBeInTheDocument();
   });
 
-  it("renders read as a card surfacing path + line count (success)", async () => {
+  it("renders read success as a term single line with path + line count", async () => {
+    // feat-409 protoalign: read 展开态对齐原型 .term 单行 `<path> · N 行`。
     const { container } = renderSingle({
       id: "r1",
       name: "read",
       status: "completed",
       input: {},
-      output: "src/app.py · 120 lines",
+      output: "src/app.py · 120 行",
       detail: { path: "src/app.py", total_lines: 120, offset: 1, limit: null, truncated: false }
     });
     await open();
-    const card = container.querySelector(".chat-tool-detail-info");
-    expect(card?.textContent).toContain("src/app.py");
-    expect(card?.textContent).toMatch(/120/);
+    const term = container.querySelector(".chat-tool-detail-term .chat-tool-detail-term-out");
+    expect(term).not.toBeNull();
+    expect(term?.textContent).toContain("src/app.py");
+    expect(term?.textContent).toMatch(/120/);
   });
 
   it("renders read failure with path + error in the failed style", async () => {
@@ -465,6 +467,69 @@ describe("ToolCallsPanel · long output (R3)", () => {
     await open();
     expect(screen.queryByText(/expand all/i)).not.toBeInTheDocument();
     expect(screen.getByText("hi")).toBeInTheDocument();
+  });
+
+  it("shows the total line count in the truncated hint (BUG2)", async () => {
+    // feat-409 protoalign BUG2: 截断提示要告诉用户被隐藏了多少行(原型「… 已截断，
+    // 共 N 行（展开全部）」),而非裸 "展开全部"。
+    const { container } = renderSingle({
+      id: "b1",
+      name: "bash",
+      status: "completed",
+      input: {},
+      output: "run",
+      detail: { command: "show", exit_code: 0, stdout: LONG_STDOUT, stderr: "", truncated: false }
+    });
+    await open();
+    // 200 行总数出现在截断 toggle 按钮文案里。
+    const toggle = container.querySelector(".chat-tool-long-output-toggle");
+    expect(toggle?.textContent).toMatch(/200/);
+    expect(toggle?.textContent).toMatch(/expand all/i);
+  });
+
+  it("only caps height after expand, never in the truncated/collapsed state (BUG1)", async () => {
+    // feat-409 protoalign BUG1: 截断态必须平铺无滚——高度上限只由 --expanded 容器
+    // 控制。collapsed 态不带 --expanded,展开后才带。覆盖 write(用 .chat-tool-call-pre
+    // 内层,曾因该类常驻 max-height 导致截断态假滚动)。
+    const user = userEvent.setup();
+    const LONG_CONTENT = Array.from({ length: 120 }, (_, i) => `row ${i + 1}`).join("\n");
+    const { container } = renderSingle({
+      id: "w1",
+      name: "write",
+      status: "completed",
+      input: {},
+      output: "docs/big.md · 新建 1.2KB",
+      detail: { path: "docs/big.md", content: LONG_CONTENT, bytes: 1200, truncated: false }
+    });
+    await open();
+    // 截断态:有 long-output 容器,但不带 --expanded(无滚动盒)。
+    const block = container.querySelector(".chat-tool-long-output");
+    expect(block).not.toBeNull();
+    expect(block?.classList.contains("chat-tool-long-output--expanded")).toBe(false);
+    // 内层 pre 不自带滚动盒类(高度只归 --expanded 容器管)。
+    expect(container.querySelector(".chat-tool-long-output .chat-tool-call-pre")).not.toBeNull();
+    // 点开后容器才加 --expanded(此时才限高滚动)。
+    await user.click(screen.getByText(/expand all/i));
+    expect(
+      container.querySelector(".chat-tool-long-output")?.classList.contains(
+        "chat-tool-long-output--expanded"
+      )
+    ).toBe(true);
+  });
+
+  it("does not show an expand toggle for short write content (BUG1)", async () => {
+    // 短 write 内容:无截断、无 "展开全部"、无滚动按钮。
+    renderSingle({
+      id: "w2",
+      name: "write",
+      status: "completed",
+      input: {},
+      output: "docs/x.md · 新建 28B",
+      detail: { path: "docs/x.md", content: "# Title\nbody text", bytes: 28, truncated: false }
+    });
+    await open();
+    expect(screen.queryByText(/expand all/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/body text/)).toBeInTheDocument();
   });
 
   it("marks output that was truncated at the kernel source", async () => {

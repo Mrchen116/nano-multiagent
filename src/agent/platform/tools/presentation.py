@@ -140,10 +140,12 @@ class _ReadPresenter:
             total_lines = output.get("total_lines")
             offset = output.get("offset", 1)
             limit = args.get("limit")
+            # feat-409 protoalign: 折叠 summary 对齐原型中文措辞 `<path> · 86 行`
+            # (而非英文 "86 lines")。范围读取仍带 `第 X-Y 行`。
             if limit:
-                range_text = f"lines {offset}-{offset + limit - 1}"
+                range_text = f"第 {offset}-{offset + limit - 1} 行"
             elif total_lines is not None:
-                range_text = f"{total_lines} lines"
+                range_text = f"{total_lines} 行"
             else:
                 range_text = ""
             detail = {
@@ -202,10 +204,13 @@ class _WritePresenter:
             write_type = output.get("type")
             content = str(args.get("content", ""))
             byte_count = len(content.encode("utf-8"))
+            # feat-409 protoalign: 折叠 summary 对齐原型 `<path> · 新建 1.2KB`
+            # (动作 + 人类可读体积),而非 `created (1228 bytes)`(无路径、裸字节)。
+            size_text = _human_size(byte_count)
             if write_type == "create":
-                summary = f"created ({byte_count} bytes)"
+                summary = _with_path(path, f"新建 {size_text}")
             elif write_type == "update":
-                summary = f"overwritten ({byte_count} bytes)"
+                summary = _with_path(path, f"覆盖 {size_text}")
             else:
                 summary = path
             detail = _enforce_cap(
@@ -547,12 +552,13 @@ class _MemoryPresenter:
         target = str(args.get("target", ""))
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
+        content = str(args.get("content", ""))
         if error:
-            # feat-409 failalign: 失败态 summary = 干净主参数(action target),不含 error。
+            # feat-409 failalign: 失败态 summary = 干净主参数(人话 memory 摘要),不含 error。
             return ToolPresentationEvent(
                 visible=True,
                 label="Memory",
-                summary=f"{action} {target}".strip() or "failed",
+                summary=_summarize_memory(action, target, content) or "failed",
                 detail={"error": {"message": str(error)}},
             )
         success = (
@@ -561,16 +567,16 @@ class _MemoryPresenter:
         message = str(output.get("message", "")) if isinstance(output, Mapping) else ""
         if not success:
             err = str(output.get("error", "")) if isinstance(output, Mapping) else ""
-            # feat-409 failalign: success=False 失败态 summary = 干净主参数(action
-            # target),不含 error 文本;error 进 detail.message 供 MemoryCard 渲染一次。
+            # feat-409 failalign: success=False 失败态 summary = 干净主参数(人话 memory
+            # 摘要),不含 error 文本;error 进 detail.message 供 MemoryCard 渲染一次。
             return ToolPresentationEvent(
                 visible=True,
                 label="Memory",
-                summary=f"{action} {target}".strip() or "failed",
+                summary=_summarize_memory(action, target, content) or "failed",
                 detail={
                     "action": action,
                     "target": target,
-                    "content": str(args.get("content", "")),
+                    "content": content,
                     "message": err,
                     "success": False,
                 },
@@ -579,7 +585,7 @@ class _MemoryPresenter:
             {
                 "action": action,
                 "target": target,
-                "content": str(args.get("content", "")),
+                "content": content,
                 "message": message,
                 "success": True,
             }
@@ -587,7 +593,9 @@ class _MemoryPresenter:
         return ToolPresentationEvent(
             visible=True,
             label="Memory",
-            summary=message or f"{action} {target}".strip(),
+            # feat-409 protoalign: 折叠 summary 对齐原型 `+project: "内容摘录…"`
+            # —— ±action 符号 + target + 内容预览,而非裸 `add project`。
+            summary=_summarize_memory(action, target, content) or message,
             detail=detail,
         )
 
@@ -626,11 +634,11 @@ class _SkillManagePresenter:
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
         if error:
-            # feat-409 failalign: 失败态 summary = 干净主参数(action name),不含 error。
+            # feat-409 failalign: 失败态 summary = 干净主参数(人话 skill 摘要),不含 error。
             return ToolPresentationEvent(
                 visible=True,
                 label="Skill",
-                summary=f"{action} {name}".strip() or "failed",
+                summary=_summarize_skill(action, name) or "failed",
                 detail={"error": {"message": str(error)}},
             )
         success = (
@@ -641,12 +649,12 @@ class _SkillManagePresenter:
         path = str(output.get("location", "")) if isinstance(output, Mapping) else ""
         if not success:
             err = str(output.get("error", "")) if isinstance(output, Mapping) else ""
-            # feat-409 failalign: success=False 失败态 summary = 干净主参数(action
-            # name),不含 error 文本;error 进 detail.message 供 SkillCard 渲染一次。
+            # feat-409 failalign: success=False 失败态 summary = 干净主参数(人话 skill
+            # 摘要),不含 error 文本;error 进 detail.message 供 SkillCard 渲染一次。
             return ToolPresentationEvent(
                 visible=True,
                 label="Skill",
-                summary=f"{action} {name}".strip() or "failed",
+                summary=_summarize_skill(action, name) or "failed",
                 detail={
                     "action": action,
                     "name": name,
@@ -670,7 +678,9 @@ class _SkillManagePresenter:
         return ToolPresentationEvent(
             visible=True,
             label="Skill",
-            summary=message or f"{action} {name}".strip(),
+            # feat-409 protoalign: 折叠 summary 对齐原型 `创建 skill：log-cleanup`
+            # —— 中文动作 + skill 名,而非裸 `create log-cleanup`。
+            summary=_summarize_skill(action, name) or message,
             detail=detail,
         )
 
@@ -727,7 +737,9 @@ class _TaskStopPresenter:
         return ToolPresentationEvent(
             visible=True,
             label="TaskStop",
-            summary=f"{status} {task_id}".strip(),
+            # feat-409 protoalign: 折叠 summary 对齐原型 `停止后台任务 bash-21c9`
+            # —— 人话动作 + task_id,而非裸 `killed bash-21c9`。
+            summary=f"停止后台任务 {task_id}".strip(),
             detail=detail,
         )
 
@@ -788,6 +800,74 @@ def _summarize_bash(args: Mapping[str, Any], command: str) -> str:
     if description:
         return _truncate(description, 80)
     return _truncate(command.splitlines()[0] if command else command, 80)
+
+
+def _human_size(byte_count: int) -> str:
+    """Human-readable byte size for write summaries (feat-409 protoalign).
+
+    Prototype renders ``新建 1.2KB`` — a compact size, not a raw byte count.
+    Sub-1KB stays in bytes (``842B``); KB shows one decimal (``1.2KB``); MB the
+    same (``3.4MB``).
+    """
+    if byte_count < 1024:
+        return f"{byte_count}B"
+    if byte_count < 1024 * 1024:
+        return f"{byte_count / 1024:.1f}KB"
+    return f"{byte_count / (1024 * 1024):.1f}MB"
+
+
+# feat-409 protoalign: memory action → ± 符号(原型折叠态 `+project: "…"`)。
+# add/append/update 记为写入(+);remove/delete 记为删除(-);未知 action 不加符号。
+_MEMORY_ACTION_SIGN = {
+    "add": "+",
+    "append": "+",
+    "create": "+",
+    "update": "+",
+    "set": "+",
+    "remove": "-",
+    "delete": "-",
+}
+
+
+def _summarize_memory(action: str, target: str, content: str) -> str:
+    """Human summary for a memory call: ``±target: "<content preview>"``.
+
+    feat-409 protoalign: 折叠态对齐原型 `+project: "heartbeat 状态文件迁移…"` ——
+    动作符号 + target + 内容预览。target 缺失时退化为不带符号的内容预览。
+    """
+    sign = _MEMORY_ACTION_SIGN.get(action.lower(), "")
+    head = f"{sign}{target}" if target else ""
+    preview = _truncate(content.replace("\n", " ").strip(), 60)
+    if head and preview:
+        return f'{head}: "{preview}"'
+    if head:
+        return head
+    if preview:
+        return f'"{preview}"'
+    return ""
+
+
+# feat-409 protoalign: skill action → 中文动作(原型折叠态 `创建 skill：log-cleanup`)。
+_SKILL_ACTION_VERB = {
+    "create": "创建",
+    "edit": "编辑",
+    "patch": "修补",
+    "view": "查看",
+    "list": "列出",
+    "delete": "删除",
+}
+
+
+def _summarize_skill(action: str, name: str) -> str:
+    """Human summary for a skill_manage call: ``<中文动作> skill：<name>``.
+
+    feat-409 protoalign: 折叠态对齐原型 `创建 skill：log-cleanup`。未知 action
+    退化为原 action 字面量;name 缺失时只显动作。
+    """
+    verb = _SKILL_ACTION_VERB.get(action.lower(), action)
+    if verb and name:
+        return f"{verb} skill：{name}"
+    return f"{verb}{name}".strip()
 
 
 def _with_path(path: str, suffix: str) -> str:
