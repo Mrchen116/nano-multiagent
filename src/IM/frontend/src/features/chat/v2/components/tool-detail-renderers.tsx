@@ -90,7 +90,10 @@ function LongOutput({
         >
           {expanded
             ? t("chat.messagePane.toolDetail.collapse")
-            : t("chat.messagePane.toolDetail.expandAll")}
+            : // feat-409 protoalign (BUG2): truncated hint carries the total line
+              // count so the user knows how much is hidden (prototype: 「… 已截断，
+              // 共 N 行（点击展开全部）」), not just a bare "expand all".
+              t("chat.messagePane.toolDetail.expandAll", { count: lines.length })}
         </button>
       )}
     </div>
@@ -296,31 +299,34 @@ function ReadCard({ detail }: { detail: ToolDetail }) {
       </div>
     );
   }
-  let meta: string;
+  // feat-409 protoalign: read 展开态对齐原型的 .term 单行风格
+  // (`<path> · 86 行 · 读取 1-86`),而非旧 info 卡的两行 ✓path + meta。
+  // 把路径与行计数/范围/图片/未变更等片段用 · 串成一行,空片段省略。
+  const parts: string[] = [path].filter(Boolean);
   if (detail.image === true) {
-    meta = t("chat.messagePane.toolDetail.readImage");
+    parts.push(t("chat.messagePane.toolDetail.readImage"));
   } else if (detail.unchanged === true) {
-    meta = t("chat.messagePane.toolDetail.readUnchanged");
+    parts.push(t("chat.messagePane.toolDetail.readUnchanged"));
   } else {
     const total = detail.total_lines;
     const offset = detail.offset;
     const limit = detail.limit;
+    // cr4: total_lines 缺失时不伪造 "0 行"——省略行计数(只显路径)。
+    if (typeof total === "number") {
+      parts.push(t("chat.messagePane.toolDetail.readLines", { count: total }));
+    }
     if (typeof limit === "number" && typeof offset === "number") {
-      meta = t("chat.messagePane.toolDetail.readLineRange", {
-        from: offset,
-        to: offset + limit - 1
-      });
-    } else if (typeof total === "number") {
-      meta = t("chat.messagePane.toolDetail.readLines", { count: total });
-    } else {
-      // cr4: total_lines 缺失时不伪造 "0 lines"——省略行计数(只显路径)。
-      meta = "";
+      parts.push(
+        t("chat.messagePane.toolDetail.readLineRange", {
+          from: offset,
+          to: offset + limit - 1
+        })
+      );
     }
   }
   return (
-    <div className="chat-tool-detail-info">
-      <div className="chat-tool-detail-info-head">✓ {path}</div>
-      {meta && <div className="chat-tool-detail-info-meta">{meta}</div>}
+    <div className="chat-tool-detail-term">
+      <div className="chat-tool-detail-term-out">{parts.join(" · ")}</div>
     </div>
   );
 }

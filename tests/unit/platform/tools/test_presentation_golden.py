@@ -105,7 +105,7 @@ def test_read_end_text_lines_golden() -> None:
     assert _evt_tuple(evt) == (
         True,
         "Read",
-        "src/app.py · 42 lines",
+        "src/app.py · 42 行",
         {
             "path": "src/app.py",
             "total_lines": 42,
@@ -138,7 +138,7 @@ def test_write_end_created_golden() -> None:
     )
     assert evt.visible is True
     assert evt.label == "Write"
-    assert evt.summary == "created (5 bytes)"
+    assert evt.summary == "a.txt · 新建 5B"
     assert evt.detail is not None and evt.detail["path"] == "a.txt"
     assert evt.detail["content"] == "hello" and evt.detail["bytes"] == 5
 

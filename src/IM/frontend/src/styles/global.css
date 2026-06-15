@@ -2375,6 +2375,13 @@ body {
   color: oklch(0.5 0.01 240);
 }
 
+/* feat-409 protoalign (BUG1 假滚动修复): NO max-height/overflow here. Inside
+   LongOutput (WriteCard) the truncated/collapsed state must lie flat with no
+   scroll — prototype only caps height AFTER "展开全部"
+   (`.chat-tool-long-output--expanded`). A standing 200px scroll box made short
+   and truncated content scrollable, faking an "already expanded" state.
+   Standalone uses (ErrorCard / AgentCard error / historical fallback) carry
+   short text, so dropping the cap is safe. */
 .chat-tool-call-pre {
   margin: 0;
   padding: 0.5rem 0.6rem;
@@ -2387,8 +2394,6 @@ body {
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 200px;
-  overflow: auto;
 }
 
 /* ── feat-409-M2: per-tool expanded detail cards ────────────────────────── */

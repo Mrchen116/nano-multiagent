@@ -95,3 +95,60 @@
   - Visual/Interaction: 截图存主仓 `ACCEPTANCE/feat-409-M2/failalign-*.png`(collapsed-all / read-expanded / bash-expanded / bash-card-full / denied)。
 - Rollback: `git revert 5fcec454`(C2)回到上一稳定态(失败态行为退回原样,数据无损);C1 红测可单独保留或同 revert。
 - Commits: C1=e5bee2ec(红测), C2=5fcec454(实现 presenter+gateway+frontend), C3=本文档段。
+
+---
+
+## [protoalign fix] PR #101 用户实测 + orchestrator 全面审计 — 逐工具逐状态对齐 prototype.html
+
+lite fix(单 commit,省 §0.4 三提交;理由:自包含、跨 4 文件但单一对齐主题、红测随实现同 commit 落)。基准 = `docs/changes/feat-409-im-tool-call-display/prototype.html`,逐工具 × 逐状态(折叠/展开 × 成功/失败)对照。
+
+### 修的三类问题
+
+1. **BUG1(用户实测,假滚动)**:`global.css` `.chat-tool-call-pre` 常驻 `max-height:200px; overflow:auto`,被 WriteCard 的 LongOutput 内层 `<pre>` 复用 → 短/截断 write 也被塞进 200px 滚动盒,误导"已展开"。修:去掉该类的 `max-height/overflow`,高度唯一由 LongOutput 的 `--expanded` 容器(`.chat-tool-long-output--expanded` 320px)控制;独立用处(ErrorCard / AgentCard error / 历史 fallback)内容都短,去 cap 安全。
+2. **BUG2(截断无行数)**:LongOutput 截断 toggle 只显 "展开全部"。改 i18n `expandAll` 带 `{{count}}`(zh `… 已截断，共 {{count}} 行（展开全部）`、en 对应),LongOutput 传 `lines.length`;收起态保持 `collapse`。
+3. **summary / 展开态对齐**:presenter 折叠 summary + read 展开卡按原型措辞重写(详见下表)。保持 failalign 的"干净主参数、不拼 error"语义不回退。
+
+### 逐工具 × 逐状态对照表
+
+| 工具 | 状态 | 原型 prototype.html | 实现(修前) | 修后 / 一致性 |
+|---|---|---|---|---|
+| write | 折叠成功 | `<path> · 新建 1.2KB`(L517) | `created (1228 bytes)`(无路径、裸字节) | **已修** `_WritePresenter` → `_with_path(path, "新建/覆盖 <human_size>")`;实测 `docs/log-cleanup.md · 新建 1.2KB` ✓ |
+| write | 展开长内容(截断) | term 块平铺前 N 行 + `… 已截断，共 N 行`,**无滚动**(L520-537;CSS L77 `.term-out.expanded` 仅展开后限高) | 内层 `.chat-tool-call-pre` 常驻 200px 滚动盒(BUG1)+ toggle 无行数(BUG2) | **已修**(BUG1+BUG2);截图 scn-01 截断态平铺无滚 + `… 已截断，共 180 行（展开全部）`;scn-01b 点开后 `--expanded`(computed maxH=320px / overflowY=auto)+ `收起` |
+| write | 展开短内容 | 平铺、无截断链接、无滚动 | 同样被 200px 盒裹住(BUG1) | **已修**;截图 scn-00 无 "展开全部"、无滚动条 |
+| write | 折叠失败 | (原型未画;failalign 定干净主参数) | `path or "failed"` | 一致(保留 failalign);截图 scn-02 `write src/app.py [failed]` |
+| read | 折叠成功 | `…/heartbeat/state.py · 86 行`(中文 行,L380) | `... 86 lines`(英文) | **已修** presenter range_text → `N 行`/`第 X-Y 行`;实测 `... · 86 行` ✓ |
+| read | 展开成功 | `.term` 单行 `<path> · 86 行 · 读取 1-86`(L384-386) | info 卡 `✓ <path>` + meta 两行 | **已修** ReadCard 成功分支 → `.chat-tool-detail-term` 单行(path · 行计数 · 范围 · 串接);截图 scn-03 |
+| read | 折叠/展开失败 | (failalign:✕ + 干净 path) | ✕ + path + error(失败样式) | 一致(term 单行只改成功分支,失败仍走 `info--failed`);截图 scn-04 `✕ missing.py` + `file does not exist` |
+| bash | 折叠成功/失败 | 描述人话 + 失败 `exit N`(L330-333) | description 人话 + exit tag | 一致;截图 scn-05 / scn-06 |
+| bash | 展开 | 终端块 cmd + stdout/stderr + 截断提示 + exit meta(L336-371) | 终端块(`.chat-tool-detail-term-out` 本就无 cap) | 一致 + BUG2 行数提示生效;截图 scn-06 `… 已截断，共 80 行（展开全部）` |
+| edit | 折叠/展开 | `<path> · line N` + diff 着色(L395-407) | 同 | 一致;截图 scn-07 |
+| web_fetch | 折叠/展开 | `site · title` + 标题/URL/摘录卡(L466-474) | 同 | 一致;截图 scn-08 |
+| agent | 折叠/展开 成功 | description + 派发 prompt 在 result 之前(L483-492) | 同 | 一致;截图 scn-09 |
+| agent | 失败 | 保留 prompt + error(L572) | AgentCard 失败分支保 prompt+error | 一致;截图 scn-10 |
+| memory | 折叠成功 | `+project: "内容摘录…"`(±符号+target+预览,L416) | `add project`(裸 action target) | **已修** `_summarize_memory`(±符号 map + target + 内容预览);实测 `+project: "heartbeat 状态文件迁移…"` ✓ |
+| memory | 展开成功 | `.task-card` ✓ + 内容摘要(L420-423) | info 卡 ✓ + action·target + content | 等价(传达写入内容);截图 scn-11 |
+| memory | 折叠/展开失败 | (failalign 干净主参数) | success=False → ✕ + message | 一致(summary 改人话 `+project`,不含 error);截图 scn-11 第二行 |
+| skill_manage | 折叠成功 | `创建 skill：log-cleanup`(中文动作+名,L501) | `create log-cleanup` | **已修** `_summarize_skill`(action→中文动词 map);实测 `创建 skill：log-cleanup` ✓ |
+| skill_manage | 展开成功 | `.task-card` ✓ + 说明(L505-507) | info 卡 ✓ action name + message + path | 等价(skill 名 + 说明);截图 scn-12 |
+| skill_manage | 失败 | (failalign 干净主参数) | success=False → ✕ + message | 一致(summary 改人话);截图 scn-12 第二行 |
+| task_stop | 折叠成功 | `停止后台任务 bash-21c9`(L548) | `killed bash-21c9` | **已修** summary → `停止后台任务 <task_id>`;实测 ✓ |
+| task_stop | 展开成功 | `.task-card` ✓ + 结果(L552-553) | info 卡 `✓ killed · bash-21c9` | 等价(任务 id + 结果);截图 scn-13 |
+| task_stop | 失败 | (failalign 干净主参数) | out-of-band → ErrorCard | 一致(summary `停止后台任务 bash-99`);截图 scn-13 第二行 |
+
+> 展开态 memory/skill/task_stop 用既有 `info` 卡而非原型 `.task-card` class:经判断传达等价信息(写入内容 / skill 名+说明 / 任务 id+结果),不为像素级对齐重写 class。折叠 summary(审计核心)已逐条对齐原型措辞。
+
+### 验收证据
+
+- **BUG1/BUG2 computed-CSS 硬证**(playwright):截断态内层 `.chat-tool-call-pre` `maxHeight=none`(原 200px)、容器 `maxHeight=none/overflowY=visible`(平铺无滚);点 "展开全部" 后容器 `--expanded` → `maxHeight=320px/overflowY=auto`;toggle 文案 collapsed=`… 已截断，共 180 行（展开全部）`、expanded=`收起`。
+- **Tests(python)**:`pytest -m "not e2e"` 2628 passed / 2 skipped;`test_presentation.py` + `test_presentation_golden.py` summary 断言更新为原型措辞(write `· 新建 5B`、read `· 42 行`、memory `+memory`、skill `创建 skill：x`)。ruff check + ruff format --check 绿。
+- **Tests(frontend)**:`npx vitest run` 416 passed;新增 BUG2(toggle 带行数)、BUG1(截断态无 `--expanded` / 展开后有 / 内层 pre 无自带 cap)、短 write 无 toggle、read 成功 term 单行 regression。`npm run build` 绿。
+- **真实浏览器**(playwright Chromium,真实 ToolCallsPanel + global.css + i18n 渲染 14 工具×状态 fixtures,zh):无 console error;截图 `ACCEPTANCE/feat-409-M2/protoalign-all-collapsed.png` / `protoalign-all-expanded.png` / `scn-00..13-*.png` / `scn-01b-write-long-EXPANDED-scroll.png`。
+  - 说明:harness 用真实组件 + 真实 CSS 渲染确定性 fixtures(避开 LLM 非确定性 + 逐工具触发成本),验证的正是 BUG1/BUG2 与各 summary/展开卡——即被测对象本身。harness 文件(`protoalign-qa.{html,tsx}`)为 dev-only,验收后已删除,不入提交。
+
+### 改动文件
+
+- `src/agent/platform/tools/presentation.py`:read range_text 中文化;write summary(`_human_size` + `_with_path`);memory(`_summarize_memory`)、skill(`_summarize_skill`)、task_stop summary 人话化;三处新 helper。
+- `src/IM/frontend/src/features/chat/v2/components/tool-detail-renderers.tsx`:LongOutput toggle 截断态带 `count`;ReadCard 成功分支改 term 单行(失败分支不动)。
+- `src/IM/frontend/src/styles/global.css`:`.chat-tool-call-pre` 去 `max-height/overflow`(BUG1)。
+- `src/IM/frontend/src/i18n/{zh,en}.json`:`expandAll` 带 `{{count}}`。
+- 测试:`test_presentation.py` / `test_presentation_golden.py` / `tool-calls-panel.test.tsx` 断言更新 + 新增 BUG1/BUG2 regression。
