@@ -184,9 +184,14 @@ sequenceDiagram
 
 所以 finally **不依赖 stop_reason**：
 - **无条件扫描** `all_messages` 里未闭合的 tool_call（assistant 发起 tool_call、无对应 tool result/recovery）——正常完成的 run 此集合天然为空，无条件扫描不误伤；
-- 集合非空即中断，逐个补 `append_tool_call_recovery` + `invalidate_session_cache`；
+- 集合非空即中断，对每个补 recovery；**但 `invalidate_session_cache` 与 `append_tool_call_recovery` 保护级别不对等，不能并列对待**（见下）；
 - **reason 合成不依赖 turn_meta**：能读到 `stop_reason`（协作式 abort/cancel 路径）则沿用，读不到（CancelledError 穿透，无 turn_meta）则合成 `interrupted`；
-- 用 `except asyncio.CancelledError:` 捕获以标记 cancel 上下文并 re-raise；关键 recovery 写用 `asyncio.shield` 防 finally 在二次 cancel 时丢失。
+
+**两步保护级别不对等（必读）**：
+- `invalidate_session_cache` 是 **load-bearing 的自愈保证**——把 session 移出 `_session_histories`，使下次 `submit` cache-miss → `prepare_transcript_for_run` 从 JSONL 重修（`runtime.py:306/312`）。`append_tool_call_recovery`(+flush) 只是 out-of-band 加速（让 LLM 侧立即闭合）。
+- **失败不对称**：invalidate 成功 / append 失败 → 下次 `prepare` 兜底（悬空 turn 已落盘则修复、未落盘则那轮整丢，**都不砖化**）；append 成功 / **invalidate 失败 → 内存缓存仍脏 → 下条消息 cache-hit 复用脏历史 → 砖化到进程重启**（正是 #82 reopen 原症）。
+- **所以 `invalidate` 放 finally 最前、I/O 之前**：它是**同步原子 dict pop**（`runtime.py:1056`，CPython 原子、不 await），放在任何 await 之前就必然跑完、无 cancel 注入点，**比 shield 更强且无需 shield**；`append_tool_call_recovery` + flush 的 I/O 放其后、best-effort，可用 `asyncio.shield` 包，其 UI 徽标终态另由 M4 Gateway reconcile 兜底。
+- `except asyncio.CancelledError:` 捕获以标记 cancel 上下文（供 reason 合成）并 re-raise。
 
 ### M4: run 终态在飞 tool_call reconcile
 
