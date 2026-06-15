@@ -261,6 +261,17 @@ class TestAgentPresenter:
         assert "failed" in evt.summary
         assert evt.detail["error"] == "boom"
 
+    def test_end_failed_error_is_plain_str(self) -> None:
+        # fix 3: detail["error"] must be a clean JSON-serializable string regardless
+        # of the raw output.error shape (None / non-str). Front-end AgentCard renders it.
+        evt = _presenter("agent").format_end(
+            {"description": "X", "prompt": "go"},
+            _FakeResult(output={"status": "failed", "agent_id": "a"}),  # no error key
+            duration_ms=10,
+        )
+        assert isinstance(evt.detail["error"], str)
+        assert evt.detail["error"] == ""
+
 
 class TestMemoryPresenter:
     def test_end_success(self) -> None:

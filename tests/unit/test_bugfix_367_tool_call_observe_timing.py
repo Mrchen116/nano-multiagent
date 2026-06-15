@@ -109,6 +109,31 @@ async def test_observe_tool_call_skipped_when_intercept_gate_blocks() -> None:
     assert sequence == ["gate"], sequence
 
 
+async def test_tool_result_event_carries_arguments_alias() -> None:
+    """feat-409 fix 2: the tool_result event must expose ``arguments`` (real args),
+    mirroring tool_call — otherwise realtime_stream surfaces input={} on tool_end,
+    which clobbers the running entry's input downstream (REST shows {})."""
+    hooks = HookRegistry()
+    captured: dict[str, object] = {}
+
+    async def observe_result(event, ctx):  # noqa: ANN001
+        captured["args"] = event.get("args")
+        captured["arguments"] = event.get("arguments")
+
+    hooks.on("tool_result", observe_result, priority=1000)
+
+    registry = _build_registry(hooks)
+    ctx = HookContext(
+        session_id="s-1",
+        repo_root=registry.context.repo_root,
+        metadata={"tool_call_id": "call-ccc"},
+    )
+    await registry.execute("echo", {"text": "hi"}, hook_context=ctx)
+    assert captured["arguments"] == {"text": "hi"}
+    # 既有 args 键保留(下游/历史可能依赖),arguments 是新增 consumer-facing 别名
+    assert captured["args"] == {"text": "hi"}
+
+
 async def test_loop_no_longer_dispatches_tool_call_observe() -> None:
     """loop._dispatch_tool_call_hook 已删除,loop.py 不再触发 observe 'tool_call'."""
     from agent.core.agent.loop import AgentLoop
