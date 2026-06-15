@@ -3543,8 +3543,29 @@ def _build_kernel_event_observer(
             if event.get("error"):
                 output_parts.append(str(event["error"]))
             pres = event.get("presentation")
-            if isinstance(pres, Mapping) and pres.get("summary"):
-                output_parts.append(str(pres["summary"]))
+            detail: Any = None
+            if isinstance(pres, Mapping):
+                if pres.get("summary"):
+                    output_parts.append(str(pres["summary"]))
+                # feat-409 决策 1: forward the presenter-produced structured detail
+                # verbatim (already bounded by the kernel 256KB cap). The Gateway is a
+                # pure passthrough pipe — no re-truncation, no per-tool restructuring.
+                detail = pres.get("detail")
+            tool_call_payload: dict[str, Any] = {
+                "id": call_id,
+                "name": tool_name,
+                "status": status,
+                # bugfix-410-M2 R4 (#97): forward the badge classification alongside
+                # feat-409's structured detail — both ride the same tool_call payload.
+                "reason": reason,
+                "input": arguments if isinstance(arguments, dict) else {},
+                "output": " | ".join(output_parts) if output_parts else None,
+                "duration_ms": int(duration_ms)
+                if isinstance(duration_ms, (int, float))
+                else None,
+            }
+            if detail is not None:
+                tool_call_payload["detail"] = detail
             if message_id:
                 loop.create_task(
                     _send(
@@ -3553,21 +3574,7 @@ def _build_kernel_event_observer(
                         {
                             "kind": "tool_call_completed",
                             "message_id": message_id,
-                            "tool_call": {
-                                "id": call_id,
-                                "name": tool_name,
-                                "status": status,
-                                "reason": reason,
-                                "input": arguments
-                                if isinstance(arguments, dict)
-                                else {},
-                                "output": " | ".join(output_parts)
-                                if output_parts
-                                else None,
-                                "duration_ms": int(duration_ms)
-                                if isinstance(duration_ms, (int, float))
-                                else None,
-                            },
+                            "tool_call": tool_call_payload,
                             "run_id": run_id,
                         },
                     )
