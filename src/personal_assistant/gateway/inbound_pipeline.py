@@ -864,6 +864,9 @@ class InboundPipeline:
                     break
                 except TimeoutError:
                     self._kernel.cancel(run_id)
+                    # bugfix-410-M2 R3 (#97): the watchdog is killing this run; close
+                    # any tool_call still in flight (badge=执行超时) before raising.
+                    self._emit_terminal_reconcile(run_id, reason="timed_out")
                     raise TimeoutError(
                         "kernel run "
                         f"{run_id} produced no events for "
@@ -905,15 +908,43 @@ class InboundPipeline:
                 await close_stream()
 
         if run_state is None:
+            # bugfix-410-M2 R3 (#97): stream ended without terminal status (e.g. the
+            # run was cancelled out-of-band) — still close any in-flight tool_call.
+            self._emit_terminal_reconcile(run_id, reason="interrupted")
             raise RuntimeError("stream ended without terminal run_status")
 
         status = run_state.get("status")
         if status != "completed":
+            # bugfix-410-M2 R3 (#97): abnormal terminal status (failed/cancelled) —
+            # close any tool_call that never received tool_end (badge=已中断).
+            self._emit_terminal_reconcile(run_id, reason="interrupted")
             raise RuntimeError(
                 self._extract_run_error(run_state, fallback_status=str(status or ""))
             )
 
         return run_state, reply_text
+
+    def _emit_terminal_reconcile(self, run_id: str, *, reason: str) -> None:
+        """Feed a synthetic run_terminal_reconcile event to the kernel event observer.
+
+        bugfix-410-M2 R3 (#97): the observer tracks tool_calls that received
+        tool_start but not tool_end. This synthetic event tells it to close those
+        in-flight calls with a reason so the IM badge stops spinning. No-op when no
+        observer is wired (product-agnostic pipeline default).
+        """
+        if self._kernel_event_observer is None:
+            return
+        result = self._kernel_event_observer(
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": run_id,
+                "reason": reason,
+            }
+        )
+        # The reconcile branch schedules its sends via loop.create_task and returns
+        # None; guard anyway in case a future observer returns a coroutine.
+        if asyncio.iscoroutine(result):  # pragma: no cover - defensive
+            asyncio.ensure_future(result)
 
     @staticmethod
     def _map_kernel_event_to_run_activity(event: Mapping[str, object]) -> str | None:

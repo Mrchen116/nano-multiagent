@@ -3125,6 +3125,13 @@ def _build_kernel_event_observer(
       submission to update canonical_session_store — tick-time read, no ack dependency.
     """
 
+    # bugfix-410-M2 R3 (#97): track tool_calls that received tool_start but not yet
+    # tool_end, per run. On abnormal run termination the watchdog/terminal path emits
+    # a synthetic ``run_terminal_reconcile`` event; we then close every still-running
+    # tool_call with a reason so the IM badge stops spinning forever. Keyed by run_id
+    # → {call_id: tool_name}.
+    running_tool_calls: dict[str, dict[str, str]] = {}
+
     async def _send(
         manager: IMConnectionManager, message_type: str, payload: Mapping[str, Any]
     ) -> None:
@@ -3477,6 +3484,8 @@ def _build_kernel_event_observer(
             call_id = str(event.get("call_id") or "").strip() or run_id
             tool_name = str(event.get("name") or "")
             arguments = event.get("arguments") or {}
+            # bugfix-410-M2 R3: remember this call as in-flight until tool_end.
+            running_tool_calls.setdefault(run_id, {})[call_id] = tool_name
             if message_id:
                 loop.create_task(
                     _send(
@@ -3502,6 +3511,8 @@ def _build_kernel_event_observer(
             call_id = str(event.get("call_id") or "").strip() or run_id
             tool_name = str(event.get("name") or "")
             arguments = event.get("arguments") or {}
+            # bugfix-410-M2 R3: this call closed normally — drop it from in-flight.
+            running_tool_calls.get(run_id, {}).pop(call_id, None)
             duration_ms = event.get("duration_ms")
             status = "failed" if event.get("error") else "completed"
             output_parts = []
@@ -3590,6 +3601,36 @@ def _build_kernel_event_observer(
                         },
                     )
                 )
+
+        elif event_name == "run_terminal_reconcile":
+            # bugfix-410-M2 R3 (#97): a run terminated abnormally (watchdog timeout /
+            # crash / interrupt) and any tool_call still in flight never received a
+            # tool_end, so its IM badge would spin forever. Close each remaining
+            # in-flight call with status=failed + a reason. Already-completed calls
+            # were popped on tool_end, so they are untouched. reason ∈ {timed_out
+            # (watchdog cancel), interrupted (other abnormal termination)}.
+            reason = str(event.get("reason") or "interrupted").strip() or "interrupted"
+            inflight = running_tool_calls.pop(run_id, {})
+            if message_id and inflight:
+                for stuck_call_id, stuck_name in inflight.items():
+                    loop.create_task(
+                        _send(
+                            manager,
+                            "node.streaming_delta",
+                            {
+                                "kind": "tool_call_completed",
+                                "message_id": message_id,
+                                "tool_call": {
+                                    "id": stuck_call_id,
+                                    "name": stuck_name,
+                                    "status": "failed",
+                                    "reason": reason,
+                                    "input": {},
+                                },
+                                "run_id": run_id,
+                            },
+                        )
+                    )
 
     return observer
 
