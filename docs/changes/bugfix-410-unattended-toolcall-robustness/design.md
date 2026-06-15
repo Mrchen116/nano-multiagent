@@ -105,7 +105,7 @@ graph TB
 
 - **理由**: 人看权限卡片时长不可预测，固定上限会误杀；run 只占该 session 串行槽，跨会话并行不受影响（gateway spec:38）。`kernel.interrupt` 已会 cancel parked permission futures（`inbound_pipeline.py:647`）。
 - **拒绝**: 远长于 120s 的硬上限（如 30min）— 仍是武断值。
-- **风险（out-of-unit）**: 无人值守轮（heartbeat/cron）里触发权限门又永远无人批 → 永久 park 占槽。本 unit 靠 `interrupt` 兜底；「无人值守上下文是否该 fail-closed 自动 deny 而非 park」是更大策略问题，记为 out-of-unit 风险，不在 410 解决。
+- **现状澄清（已核实 `auto_mode_gate.py:794` + 注释:22 + `main.py:2148`）**: 无人值守轮（heartbeat/cron）带 `run_origin ∈ {heartbeat, cron}`，auto_mode_gate 识别后走 `unattended_fallback`（直接 allow/deny），**从不 park**。因此本决策的「无限等待」只作用于**有人值守**（direct chat 用户在场）的 ask；无人值守轮在 **kernel 侧**就短路、不发 `permission_request`、不设 `awaiting_permission` marker，其意外中断仍由常规 120s 看门狗兜底——**marker 不会在无人值守场景制造永久 ghost**（不依赖 Gateway 判断 origin）。
 
 ### 决策 3: 在恢复式架构内补全覆盖，不引入原子持久化
 
