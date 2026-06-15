@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<!--
+  feat-414 视觉原型 — 仅用于与人对齐气泡墙钟的呈现，不是实现代码。
+  左列 = before（现状，工具徽标累加冒充总耗时），右列 = after（本方案）。
+-->
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>feat-414 原型 · 气泡本轮墙钟</title>
+<style>
+  :root {
+    --bg: oklch(0.18 0.01 250);
+    --pane: oklch(0.22 0.012 250);
+    --card: oklch(0.27 0.014 255);
+    --card-user: oklch(0.45 0.10 265);
+    --text: oklch(0.92 0.01 250);
+    --muted: oklch(0.62 0.01 240);
+    --accent: oklch(0.72 0.16 60);
+    --green: oklch(0.70 0.16 145);
+    --line: oklch(0.34 0.012 255);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif;
+    padding: 28px 20px 60px;
+  }
+  h1 { font-size: 18px; font-weight: 650; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: 13px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; max-width: 920px; }
+  @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+  .col h2 { font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 0 0 12px; }
+  .col.after h2 { color: var(--accent); }
+  .pane { background: var(--pane); border: 1px solid var(--line); border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 18px; }
+
+  /* 气泡 */
+  .bubble { display: flex; gap: 8px; align-items: flex-end; }
+  .bubble.user { flex-direction: row-reverse; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; flex: none; display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 600; font-size: 12px; }
+  .stack { display: flex; flex-direction: column; min-width: 0; max-width: 86%; }
+  .sender { font-size: 12px; font-weight: 600; margin-bottom: 2px; }
+  .card { background: var(--card); border-radius: 12px; padding: 9px 12px; }
+  .bubble.user .card { background: var(--card-user); }
+  .content { white-space: pre-wrap; }
+
+  /* status 行 */
+  .status { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); margin-top: 3px; }
+  .bubble.user .status { justify-content: flex-end; }
+  .pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .elapsed { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .elapsed.live { color: var(--accent); }
+  .clock { opacity: .7; }
+
+  /* 工具徽标 */
+  .tools { margin-top: 8px; border-top: 1px solid var(--line); padding-top: 7px; }
+  .tools-toggle { background: none; border: none; color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; padding: 0; display: flex; align-items: center; gap: 6px; }
+  .tools-toggle .arrow { transition: transform .15s; }
+  .tools.open .arrow { transform: rotate(90deg); }
+  .tools-list { display: none; margin: 8px 0 0; padding: 0; list-style: none; flex-direction: column; gap: 4px; }
+  .tools.open .tools-list { display: flex; }
+  .trow { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 4px 6px; background: oklch(0.23 0.012 255); border-radius: 7px; }
+  .trow .dot { color: var(--green); font-size: 9px; }
+  .trow .tname { flex: 1; }
+  .trow .tdur { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+  .strike { color: oklch(0.62 0.13 25); text-decoration: line-through; }
+  .note { font-size: 11px; color: var(--muted); margin: 6px 2px 0; }
+  .legend { max-width: 920px; margin: 26px auto 0; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 14px; }
+  .legend b { color: var(--text); }
+</style>
+</head>
+<body>
+  <h1>feat-414 · 消息气泡显示本轮墙钟耗时</h1>
+  <p class="sub">左 = 现状（before），右 = 本方案（after）。右下角「进行中」气泡的计时实时走动。</p>
+
+  <div class="cols">
+    <!-- ───────── BEFORE ───────── -->
+    <div class="col before">
+      <h2>Before · 现状</h2>
+      <div class="pane">
+
+        <div class="bubble">
+          <div class="avatar" style="background:oklch(0.55 0.15 30)">架</div>
+          <div class="stack">
+            <span class="sender" style="color:oklch(0.72 0.13 30)">架构师</span>
+            <div class="card">
+              <div class="content">好的，我已经把这一轮的多步任务跑完了。</div>
+              <div class="tools" id="tools-before">
+                <button class="tools-toggle" onclick="toggle('tools-before')">
+                  <span class="arrow">▸</span>
+                  <span>36 tool calls · <span class="strike">8.1s</span> ← 累加，误导</span>
+                </button>
+                <ul class="tools-list">
+                  <li class="trow"><span class="dot">●</span><span class="tname">Read</span><span class="tdur">120ms</span></li>
+                  <li class="trow"><span class="dot">●</span><span class="tname">Bash</span><span class="tdur">2.3s</span></li>
+                  <li class="trow"><span class="dot">●</span><span class="tname">Edit</span><span class="tdur">95ms</span></li>
+                </ul>
+              </div>
+            </div>
+            <div class="status"><span>14:32</span></div>
+          </div>
+        </div>
+
+        <p class="note">徽标 `· 8.1s` 是各工具执行耗时之和，不含工具之间 LLM 思考/等待；实际这轮花了 ~42s，用户被误导。纯文本回复则完全看不到耗时。</p>
+      </div>
+    </div>
+
+    <!-- ───────── AFTER ───────── -->
+    <div class="col after">
+      <h2>After · 本方案</h2>
+      <div class="pane">
+
+        <!-- 1. 含工具、已完成 -->
+        <div class="bubble">
+          <div class="avatar" style="background:oklch(0.55 0.15 30)">架</div>
+          <div class="stack">
+            <span class="sender" style="color:oklch(0.72 0.13 30)">架构师</span>
+            <div class="card">
+              <div class="content">好的，我已经把这一轮的多步任务跑完了。</div>
+              <div class="tools" id="tools-after">
+                <button class="tools-toggle" onclick="toggle('tools-after')">
+                  <span class="arrow">▸</span>
+                  <span>36 tool calls</span>
+                </button>
+                <ul class="tools-list">
+                  <li class="trow"><span class="dot">●</span><span class="tname">Read</span><span class="tdur">120ms</span></li>
+                  <li class="trow"><span class="dot">●</span><span class="tname">Bash</span><span class="tdur">2.3s</span></li>
+                  <li class="trow"><span class="dot">●</span><span class="tname">Edit</span><span class="tdur">95ms</span></li>
+                </ul>
+              </div>
+            </div>
+            <div class="status">
+              <span>14:32</span>
+              <span class="elapsed clock">⏱ 42s</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2. 纯文本、已完成 -->
+        <div class="bubble">
+          <div class="avatar" style="background:oklch(0.52 0.14 270)">助</div>
+          <div class="stack">
+            <span class="sender" style="color:oklch(0.70 0.12 270)">助手</span>
+            <div class="card">
+              <div class="content">这个问题的答案是 42。</div>
+            </div>
+            <div class="status">
+              <span>14:35</span>
+              <span class="elapsed clock">⏱ 3.4s</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 进行中、实时计时 -->
+        <div class="bubble">
+          <div class="avatar" style="background:oklch(0.55 0.15 30)">架</div>
+          <div class="stack">
+            <span class="sender" style="color:oklch(0.72 0.13 30)">架构师</span>
+            <div class="card">
+              <div class="content">正在分析代码库…</div>
+            </div>
+            <div class="status">
+              <span>14:36</span>
+              <span class="pulse"></span>
+              <span class="elapsed live clock" id="live-clock">⏱ 0s</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4. 用户气泡，无耗时 -->
+        <div class="bubble user">
+          <div class="avatar" style="background:oklch(0.45 0.10 265)">我</div>
+          <div class="stack">
+            <div class="card"><div class="content">帮我把这一轮跑完。</div></div>
+            <div class="status"><span>14:36</span></div>
+          </div>
+        </div>
+
+        <p class="note">气泡 status 行（时间戳旁）显示本轮墙钟：完成态定格 `⏱ 42s` / `⏱ 3.4s`；进行中实时走动并带脉冲；纯文本回复也有；用户气泡没有。工具徽标只剩 `36 tool calls`，展开后单工具耗时仍在。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    待你定的视觉细节：<b>① 计时图标</b>用 `⏱` 还是不要图标只留 `42s`？<b>② 放时间戳左边还是右边</b>（现为右边）？<b>③ 进行中</b>保留脉冲点 + 计时，还是计时本身就够、去掉脉冲？<b>④ 完成态颜色</b>用中性灰（现状）还是也给点强调色？
+  </div>
+
+  <script>
+    function toggle(id){ document.getElementById(id).classList.toggle('open'); }
+    // 进行中气泡：实时走动的计时（锚一个起点，模拟 now − created_at）
+    const start = Date.now() - 7000; // 假装已经跑了 7s
+    const el = document.getElementById('live-clock');
+    function fmt(ms){ const s = ms/1000; return s < 60 ? s.toFixed(0)+'s' : Math.floor(s/60)+'m '+Math.floor(s%60)+'s'; }
+    setInterval(() => { el.textContent = '⏱ ' + fmt(Date.now() - start); }, 1000);
+  </script>
+</body>
+</html>
