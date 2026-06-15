@@ -370,6 +370,10 @@
         "agentDone": "子 agent {{status}}",
         "agentOutputFile": "输出文件：{{file}}",
         "memoryDone": "已写入 {{target}} 记忆",
+        "readLines": "{{count}} 行",
+        "readLineRange": "第 {{from}}-{{to}} 行",
+        "readImage": "图片",
+        "readUnchanged": "未变更",
         "expandAll": "展开全部",
         "collapse": "收起",
         "truncatedAtSource": "输出过长，已在源头截断"

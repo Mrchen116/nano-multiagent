@@ -160,6 +160,38 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
     expect(screen.getByText(/12 passed/)).toBeInTheDocument();
   });
 
+  it("renders read as a card surfacing path + line count (success)", async () => {
+    const { container } = renderSingle({
+      id: "r1",
+      name: "read",
+      status: "completed",
+      input: {},
+      output: "src/app.py · 120 lines",
+      detail: { path: "src/app.py", total_lines: 120, offset: 1, limit: null, truncated: false }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toContain("src/app.py");
+    expect(card?.textContent).toMatch(/120/);
+  });
+
+  it("renders read failure with path + error in the failed style", async () => {
+    // feat-409 readfix: 失败态必须显示读的是哪个文件 + 错误,走失败样式。
+    const { container } = renderSingle({
+      id: "r2",
+      name: "read",
+      status: "failed",
+      input: {},
+      output: "missing.py: file does not exist",
+      detail: { path: "missing.py", error: { message: "file does not exist" } }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info--failed");
+    expect(card).not.toBeNull();
+    expect(card?.textContent).toContain("missing.py");
+    expect(card?.textContent).toContain("file does not exist");
+  });
+
   it("renders edit as a colourised diff", async () => {
     const { container } = renderSingle({
       id: "e1",

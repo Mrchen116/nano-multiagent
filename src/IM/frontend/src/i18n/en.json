@@ -373,6 +373,10 @@
         "agentDone": "sub-agent {{status}}",
         "agentOutputFile": "Output file: {{file}}",
         "memoryDone": "Saved to {{target}} memory",
+        "readLines": "{{count}} lines",
+        "readLineRange": "lines {{from}}-{{to}}",
+        "readImage": "image",
+        "readUnchanged": "unchanged",
         "expandAll": "Expand all",
         "collapse": "Collapse",
         "truncatedAtSource": "Output too long — truncated at source"

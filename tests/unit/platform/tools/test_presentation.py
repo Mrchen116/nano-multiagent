@@ -44,36 +44,70 @@ class TestReadPresenter:
         assert evt.summary == "src/app.py"
 
     def test_end_text_file_lines(self) -> None:
+        # feat-409 readfix: summary 与 detail 都必须带 path。
         evt = _presenter("read").format_end(
             {"path": "src/app.py"},
-            _FakeResult(output={"total_lines": 120, "offset": 1}),
+            _FakeResult(output={"path": "src/app.py", "total_lines": 120, "offset": 1}),
             duration_ms=12,
         )
-        assert evt.summary == "120 lines"
+        assert evt.summary == "src/app.py · 120 lines"
+        assert evt.detail is not None
+        assert evt.detail["path"] == "src/app.py"
+        assert evt.detail["total_lines"] == 120
 
     def test_end_text_file_with_limit(self) -> None:
         evt = _presenter("read").format_end(
             {"path": "src/app.py", "limit": 40},
-            _FakeResult(output={"total_lines": 120, "offset": 40}),
+            _FakeResult(
+                output={"path": "src/app.py", "total_lines": 120, "offset": 40}
+            ),
             duration_ms=12,
         )
-        assert evt.summary == "lines 40-79"
+        assert evt.summary == "src/app.py · lines 40-79"
+        assert evt.detail is not None
+        assert evt.detail["path"] == "src/app.py"
+        assert evt.detail["offset"] == 40
+        assert evt.detail["limit"] == 40
 
     def test_end_image(self) -> None:
         evt = _presenter("read").format_end(
             {"path": "img.png"},
-            _FakeResult(output={"content": [{"type": "image", "data": "..."}]}),
+            _FakeResult(
+                output={
+                    "path": "img.png",
+                    "content": [{"type": "image", "data": "..."}],
+                }
+            ),
             duration_ms=12,
         )
-        assert evt.summary == "image"
+        assert evt.summary == "img.png · image"
+        assert evt.detail is not None
+        assert evt.detail["path"] == "img.png"
+        assert evt.detail["image"] is True
 
     def test_end_unchanged(self) -> None:
         evt = _presenter("read").format_end(
             {"path": "src/app.py"},
-            _FakeResult(output={"type": "file_unchanged"}),
+            _FakeResult(output={"path": "src/app.py", "type": "file_unchanged"}),
             duration_ms=12,
         )
-        assert evt.summary == "unchanged"
+        assert evt.summary == "src/app.py · unchanged"
+        assert evt.detail is not None
+        assert evt.detail["path"] == "src/app.py"
+        assert evt.detail["unchanged"] is True
+
+    def test_end_failed_shows_path(self) -> None:
+        # 失败态尤其要带 path:截图实证里只剩 "file does not exist | 0 lines"。
+        evt = _presenter("read").format_end(
+            {"path": "missing.py"},
+            _FakeResult(error="file does not exist"),
+            duration_ms=2,
+        )
+        assert "missing.py" in evt.summary
+        assert "file does not exist" in evt.summary
+        assert evt.detail is not None
+        assert evt.detail["path"] == "missing.py"
+        assert evt.detail["error"]["message"] == "file does not exist"
 
 
 class TestWritePresenter:

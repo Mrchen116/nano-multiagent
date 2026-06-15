@@ -273,6 +273,50 @@ function AgentCard({ detail }: { detail: ToolDetail }) {
   );
 }
 
+// ─── read → path + line range (failures show path + error, red) ──────────────
+
+function ReadCard({ detail }: { detail: ToolDetail }) {
+  const { t } = useTranslation();
+  const path = str(detail.path);
+  // feat-409 readfix: read 失败态最易丢路径——截图实证里只剩 "file does not
+  // exist | 0 lines"。失败时优先把 path 顶在前,再走失败样式(✕ + 错误文本)。
+  const error = errorText(detail.error);
+  if (error) {
+    return (
+      <div className="chat-tool-detail-info chat-tool-detail-info--failed">
+        <div className="chat-tool-detail-info-head">✕ {path}</div>
+        <pre className="chat-tool-call-pre">{error}</pre>
+      </div>
+    );
+  }
+  let meta: string;
+  if (detail.image === true) {
+    meta = t("chat.messagePane.toolDetail.readImage");
+  } else if (detail.unchanged === true) {
+    meta = t("chat.messagePane.toolDetail.readUnchanged");
+  } else {
+    const total = detail.total_lines;
+    const offset = detail.offset;
+    const limit = detail.limit;
+    if (typeof limit === "number" && typeof offset === "number") {
+      meta = t("chat.messagePane.toolDetail.readLineRange", {
+        from: offset,
+        to: offset + limit - 1
+      });
+    } else {
+      meta = t("chat.messagePane.toolDetail.readLines", {
+        count: typeof total === "number" ? total : 0
+      });
+    }
+  }
+  return (
+    <div className="chat-tool-detail-info">
+      <div className="chat-tool-detail-info-head">✓ {path}</div>
+      <div className="chat-tool-detail-info-meta">{meta}</div>
+    </div>
+  );
+}
+
 // ─── memory / skill_manage / task_stop → compact info cards ──────────────────
 
 function MemoryCard({ detail }: { detail: ToolDetail }) {
@@ -365,6 +409,7 @@ function GenericCard({ detail }: { detail: ToolDetail }) {
 // ─── dispatch ────────────────────────────────────────────────────────────────
 
 const BESPOKE: Record<string, (p: { detail: ToolDetail }) => ReactNode> = {
+  read: ReadCard,
   bash: BashCard,
   edit: DiffCard,
   write: WriteCard,

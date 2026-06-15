@@ -96,21 +96,38 @@ def test_format_start_golden(
 
 
 def test_read_end_text_lines_golden() -> None:
+    # feat-409 readfix: read summary/detail 现在带 path。
     evt = _resolve("read").format_end(
         {"path": "src/app.py"},
-        _Result(output={"total_lines": 42, "offset": 1}),
+        _Result(output={"path": "src/app.py", "total_lines": 42, "offset": 1}),
         duration_ms=5,
     )
-    assert _evt_tuple(evt) == (True, "Read", "42 lines", None)
+    assert _evt_tuple(evt) == (
+        True,
+        "Read",
+        "src/app.py · 42 lines",
+        {
+            "path": "src/app.py",
+            "total_lines": 42,
+            "offset": 1,
+            "limit": None,
+            "truncated": False,
+        },
+    )
 
 
 def test_read_end_unchanged_golden() -> None:
     evt = _resolve("read").format_end(
         {"path": "src/app.py"},
-        _Result(output={"type": "file_unchanged"}),
+        _Result(output={"path": "src/app.py", "type": "file_unchanged"}),
         duration_ms=1,
     )
-    assert _evt_tuple(evt) == (True, "Read", "unchanged", None)
+    assert _evt_tuple(evt) == (
+        True,
+        "Read",
+        "src/app.py · unchanged",
+        {"path": "src/app.py", "unchanged": True},
+    )
 
 
 def test_write_end_created_golden() -> None:

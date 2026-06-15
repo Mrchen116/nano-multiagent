@@ -97,13 +97,31 @@ class _ReadPresenter:
         result: Any,
         duration_ms: int,
     ) -> ToolPresentationEvent:
+        # feat-409 readfix: read 的"人话"首先是读了哪个文件——summary 与 detail
+        # 都必须带 path,失败态尤其如此(否则只剩 "file does not exist | 0 lines",
+        # 用户无从知道读的是哪个文件)。args.path 是兜底来源;成功时优先用 output.path
+        # (display_path,已转 repo 相对)。
+        arg_path = str(args.get("path", ""))
+        error = getattr(result, "error", None)
+        if error:
+            return ToolPresentationEvent(
+                visible=True,
+                label="Read",
+                summary=f"{arg_path}: {_truncate(str(error), 80)}"
+                if arg_path
+                else f"failed: {_truncate(str(error), 80)}",
+                detail={"path": arg_path, "error": {"message": str(error)}},
+            )
         output = getattr(result, "output", None) or {}
         if isinstance(output, Mapping):
+            path = str(output.get("path") or arg_path)
             if output.get("type") == "file_unchanged":
+                file_path = path or str(output.get("file", {}).get("filePath", ""))
                 return ToolPresentationEvent(
                     visible=True,
                     label="Read",
-                    summary="unchanged",
+                    summary=_with_path(file_path, "unchanged"),
+                    detail={"path": file_path, "unchanged": True},
                 )
             content_blocks = output.get("content", [])
             if isinstance(content_blocks, list):
@@ -115,24 +133,34 @@ class _ReadPresenter:
                     return ToolPresentationEvent(
                         visible=True,
                         label="Read",
-                        summary="image",
+                        summary=_with_path(path, "image"),
+                        detail={"path": path, "image": True},
                     )
             total_lines = output.get("total_lines", 0)
             offset = output.get("offset", 1)
             limit = args.get("limit")
             if limit:
-                summary = f"lines {offset}-{offset + limit - 1}"
+                range_text = f"lines {offset}-{offset + limit - 1}"
             else:
-                summary = f"{total_lines} lines"
+                range_text = f"{total_lines} lines"
+            detail = {
+                "path": path,
+                "total_lines": total_lines,
+                "offset": offset,
+                "limit": limit,
+                "truncated": bool(output.get("truncated", False)),
+            }
             return ToolPresentationEvent(
                 visible=True,
                 label="Read",
-                summary=summary,
+                summary=_with_path(path, range_text),
+                detail=detail,
             )
         return ToolPresentationEvent(
             visible=True,
             label="Read",
-            summary=_truncate(_stringify(output), 80),
+            summary=_with_path(arg_path, _truncate(_stringify(output), 80)),
+            detail={"path": arg_path} if arg_path else None,
         )
 
 
@@ -721,6 +749,15 @@ def _summarize_bash(args: Mapping[str, Any], command: str) -> str:
     if description:
         return _truncate(description, 80)
     return _truncate(command.splitlines()[0] if command else command, 80)
+
+
+def _with_path(path: str, suffix: str) -> str:
+    """Prefix a read summary with its path: ``<path> · <suffix>``.
+
+    feat-409 readfix: read 折叠态文案的"主语"是路径——没有 path 用户看不出读了
+    哪个文件。path 为空(理论上不该发生)时降级为只显示 suffix。
+    """
+    return f"{path} · {suffix}" if path else suffix
 
 
 def _truncate(text: str, max_length: int) -> str:
