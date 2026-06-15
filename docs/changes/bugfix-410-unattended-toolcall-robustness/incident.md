@@ -86,6 +86,34 @@
 > 丢弃/补全（补一条 error tool_result）；③中断/被门控的工具轮应记录一条 error/cancelled 的 tool_result。
 > 临时恢复：手动从 session JSONL 去掉悬空 tool_call（或起新 session）。
 
+#### #82 Reopen（issuecomment-4704482168）：bugfix-402（PR #89）修复不完整，仍可复现
+
+> dogfood refactor-406 时再次撞上「同一会话发任何消息都不回复」。根因仍是悬空 tool_call，但 bugfix-402
+> 的两道防御都有 gap，恰好漏掉「运行中被外部超时在阻塞态打断」这条路。
+>
+> 本次症状与原 #82 不同（所以当时修法没覆盖）：原 #82 是请求构建并发出 → provider 返回
+> `invalid_request_error` → 20 retries 失败；本次 run **卡在 LLM 调用之前**（proxy 无任何请求）→ 跑满
+> 120s、0 事件、不落盘 → `relay idle for 120s`。这条 in-memory 路径根本走不到「构建请求」就僵住。
+>
+> 根因（bugfix-402 两道防御的 gap）：
+> ① **submit 前 orphan 修复只在 cache-miss 跑**（`runtime.py:306-322` `if session_id not in
+>    self._session_histories`）。「cache-hit 时内存历史一定 known-good」的假设对「运行中被打断」是错的——
+>    某轮 assistant turn 进了内存历史 + 落盘，该轮被 relay-idle cancel、tool_result 没来 → 内存缓存现在带
+>    悬空 tool_call；下一条消息=cache-hit → orphan 修复被跳过 → 悬空 call 永驻内存 → 每个新 run 拿非法
+>    transcript → 卡死。**只有进程重启**（强制 cache-miss → 重跑 `:317` 修复）才解砖。
+> ② **eager-recovery 在「阻塞态被 cancel」时被绕过**（`runtime.py:568-609`）。该段只在 run 正常走到且
+>    `stop_reason in ("aborted","cancelled")` 时补 recovery。但 run 被 gateway relay-idle 看门狗
+>    （`inbound_pipeline.py:856` 超时 → `kernel.cancel`）在 await 阻塞态打断时，CancelledError 直接把 run
+>    抛飞、到不了 `:568` → 悬空 call 不补。会话 JSONL 末尾确实无任何 recovery 条目，印证这条没触发。
+>
+> 建议修复方向：①orphan 修复不能只在 cache-miss 跑——run 异常终止（含被外部超时/relay-idle cancel）后必须
+> 使该会话内存缓存失效或就地重修（覆盖「被外部 cancel/超时」路径，而非只在 eager-recovery 成功分支里调
+> `invalidate_session_cache`）；②eager-recovery 挪到 finally/cleanup，保证阻塞态被 cancel 也补悬空闭合；
+> ③请求构造防御对 in-memory 历史同样生效（原 #82 修复方向 2 只覆盖了 load 路径）；④治本：assistant
+> tool_call turn 与其 tool_result 之间的死亡窗口收敛（原子持久化）。
+>
+> 可证伪预测：`restart` gateway 应解砖（强制 cache-miss → `:317` 重修）。
+
 ### #97 — run 看门狗超时/异常终止时在飞 tool_call 不收口，IM 徽标永远停在 running
 
 > https://github.com/Mrchen116/nano-multiagent/issues/97
@@ -249,9 +277,12 @@ tool_result 落盘前中断工具轮后向会话发消息（#82）、跑一个�
 
 四个缺陷的**共同根因**：「同一次工具轮中断」缺乏统一的**终态收口契约**，缺口分散在三层、各漏半截：
 
-1. **kernel session 持久化（#82）**：assistant 的 tool_call turn 落盘，但 tool_result 未与之原子落盘；中断
-   发生在两者之间就留下悬空 tool_call（`loop.py:328` 先持久化 assistant turn，`:378` 才在工具执行后构造
-   tool_result）。
+1. **kernel session 持久化（#82，bugfix-402 修复不完整）**：assistant 的 tool_call turn 落盘，但 tool_result
+   未与之原子落盘；中断发生在两者之间就留下悬空 tool_call（`loop.py:328` 先持久化 assistant turn，`:378` 才在
+   工具执行后构造 tool_result）。bugfix-402（PR #89）已加两道防御，但都漏掉「运行中被外部超时在阻塞态打断」：
+   (a) submit 前 orphan 修复只在 **cache-miss** 跑（`runtime.py:306`），中断弄脏的 in-memory 缓存在 cache-hit
+   路径永不重修 → 进程不重启就无自愈；(b) eager-recovery 在 `try` 体末尾（`runtime.py:568-609`），外部
+   `cancel()` 引发的 `CancelledError` 穿透时被绕过，且 cache 未 invalidate。
 2. **kernel→IM 事件流（#97）**：run 进 failed/cancelled 终态时，不向 IM 补发在飞 tool_call 的终态事件
    （observer 只在 `tool_end` 时发 `tool_call_completed`，`main.py:3114`）。终态分支缺「收口仍 running 的
    tool_call」这一步。
@@ -292,8 +323,11 @@ tool_result 落盘前中断工具轮后向会话发消息（#82）、跑一个�
 - **M2（#98）**：引入「权限 pending 是合法等待」的信号——内核 park 等决策时发 keepalive / `permission_required`
   事件，等待期间暂停/不计 idle 计时（或对 awaiting-permission 状态跳过 run-idle 超时）；IM relay 看门狗同理
   识别该态、不 reap。权限未决态在 IM 上呈现为「等待批准」徽标。
-- **M3（#82）**：从源头杜绝悬空 tool_call——assistant tool_call turn 与其 tool_result 原子落盘（或 tool_call
-  在拿到 result 前不进可回放历史）；工具轮被中断/门控时记一条 error/cancelled 的 tool_result。
+- **M3（#82，补 bugfix-402 gap）**：覆盖「运行中被外部超时/cancel 在阻塞态打断」这条路——①orphan 修复不再
+  只在 cache-miss 跑：run 异常终止后使该会话 in-memory 缓存失效或就地重修（覆盖被外部 cancel/超时路径，而非
+  只在 eager-recovery 成功分支调 `invalidate_session_cache`）；②eager-recovery 挪到 finally/cleanup，保证
+  阻塞态被 cancel 也补悬空闭合；③请求构造防御对 in-memory 历史同样生效；④治本：收敛 assistant tool_call turn
+  与 tool_result 之间的死亡窗口（原子持久化）。
 - **M4（#97）**：run 进 failed/cancelled 终态时（含看门狗超时路径），Gateway 对该 turn 下所有仍 running 的
   tool_call 做一次 reconcile，按原因补发终态事件到 IM 流 + 持久化（执行超时 / 已拒绝 / 已中断），让前端徽标
   收口。前端 `tool-calls-panel.tsx` 已能渲染非 running 状态。
