@@ -51,6 +51,8 @@ max_tool_calls: int = 64
 
 **修复必须保住的不变量**：`ensure_tool_calls_allowed` 仍须在消费者显式传正整数时正常限制；`0` 改为"不限"而非"立即触发"；修后 `max_turns=10_000` 依旧是防失控兜底（不依赖 `max_tool_calls`）。
 
+**参考项目印证**（hermes-agent，本项目自进化体系参考）：background self-improvement fork（`agent/background_review.py:383`）只设 `max_iterations=16`（对应本项目 `max_turns`），**从不约束工具调用次数**——hermes 的 `AIAgent` 根本没有 `max_tool_calls` 概念，防失控只靠 `max_iterations` + 工具白名单。改默认为不限后，本项目 background fork（经 `runtime.py:177` 继承同一 `policies`）行为与参考对齐。
+
 ### Bug 2：compaction 触发判据用字符粗估，漏掉 `tool_calls` 字段，且估算系数偏低
 
 `loop.py:669 _should_compact` 调的是 `estimate_llm_context_tokens`（`prompting.py:278`）。
@@ -63,6 +65,8 @@ max_tool_calls: int = 64
 **关键抓手**：`loop.py:470` 每轮 `turn_end` 已拿到模型返回的真实 `prompt_tokens`（`turn_usage.prompt_tokens`），却未用于驱动 compaction——直接用它替换字符估算可从根本上消除误差。
 
 **修复必须保住的不变量**：首轮（尚无 usage 历史）或 usage 缺失时需兜底；compaction 触发后 session 摘要写入、后续 context 正常继续——这是 compaction 机制原始意图，修复只动"何时触发"判据，不改"触发后做什么"逻辑。
+
+**参考项目印证**（claude-code，本项目 agent core 主要参考）：CC 的 `tokenCountWithEstimation`（`dist/chunk-m7bmg5ja.js:33435`）**不是纯估算**——它从最新 assistant 消息往回找第一条带真实 `usage` 的消息（`getTokenUsage` 取 `message.message.usage`），用其真实 token 数（`input + cache_creation + cache_read + output`）作锚，只对该锚点之后的新增消息做 `roughTokenCountEstimation` 增量粗估；一条真实 usage 都没有时才全程粗估。`shouldAutoCompact`（:143256）即以此混合计数对比阈值。这正是 #103 的修法方向：真实 `prompt_tokens` 做锚 + 增量兜底估算，而非全程字符粗估。
 
 ---
 
