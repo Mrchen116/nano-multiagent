@@ -104,3 +104,61 @@ No critical issues. 1 warning(s) to consider. Ready for PR (with noted improveme
 - 文件：`presentation.py:349`
 - 问题：design.md 第 103 行描述为 `web_fetch→title`（纯标题），但实现为 `status=200 (Example)`（含 HTTP 状态码）。包含状态码对用户辨别请求是否成功是有帮助的，且测试 `test_presentation.py:182` 已断言当前行为。如需严格对齐 design 的"纯 title"描述，可改为：若 title 存在则只显示 title，否则回退 status；但当前含 status 的实现信息量更高，用户体验可接受。
 - 建议：可选择更新 design.md 第 103 行的措辞为 `web_fetch→status+title`，或保持现状（低优先级）。
+
+---
+
+# Round 2 — 2026-06-15
+
+## 目标
+
+复验 Round 1 中的 W1（tasks.md 漏打勾）和 S1（web_fetch summary 与 design 描述偏差）是否已闭合，同时核实 Round 1 修复引入的三处代码变更（registry.py `tool_result` 加 `arguments` 别名、REST `detail`/`input` 补齐、`_AgentPresenter` in-band error 规整为 str）未引入新偏离。
+
+## W1 复验 — 已闭合
+
+`docs/changes/feat-409-im-tool-call-display/M2-frontend-render-expand/tasks.md:11` 已更新为 `[x]`。全部 8/8 任务均已勾选。
+
+## S1 复验 — 原报告误判，实际无问题
+
+design.md 第 103 行原文为 `web_fetch→\`status=200 (title)\``，已包含 status + title 的组合格式，与实现完全一致。Round 1 报告的 S1 是误判——design.md 从未要求"纯 title"。该 SUGGESTION 关闭。
+
+## Round 1 修复影响面核查
+
+### Fix 1：REST 历史路径补 `detail` / `input`
+
+- `src/IM/api/routes/messages.py:169` 已加 `detail=tc.detail`；`L166` 已加 `input=tc.input if isinstance(tc.input, dict) else {}`。
+- `ToolCallPayload(BaseModel)` 在 `L82` 有 `input: dict = {}` 、`L88` 有 `detail: dict | None = None`。
+- 新增专项测试 `tests/im_service/unit/test_messages_route_detail.py`（3 个测试）全部通过，覆盖 detail 传递 / input 保真 / 历史无 detail 降级为 None。
+- 影响面仅限 `to_message_response` 序列化函数，不涉及任何写路径，无副作用风险。
+
+### Fix 2：内核 `registry.py` `tool_result` 事件加 `arguments` 别名
+
+- `src/agent/core/tools/registry.py:292` `tool_result_payload["arguments"] = normalized_args` 与已有 `"args": normalized_args` 并存（L288）。
+- `realtime_stream.py` 的 `on_tool_result`（`L90`、`L100`）读 `event.get("arguments")`——fix 前此字段为 None，前端 `tool_end` 携带空 input，盖掉 `tool_start` 时写入的真实入参；fix 后 `arguments` 有值。
+- 对 `tool_call` 事件（`L158`）的 `arguments` 无影响（该事件由 bugfix-367 早已补齐）。
+- 对 hooks 合约无破坏：`tool_result` payload 新增字段是非破坏性扩展，现有 observe handler 读 `args` 的继续读 `args`（`L288` 未改）。
+- 专项测试 `tests/unit/platform/hooks/test_realtime_stream_events.py::test_tool_result_emits_tool_end_with_presentation`（`L105-139`）断言 `evt["data"]["arguments"] == {"path": "src/app.py"}` 通过。bugfix-367 原有测试 `tests/unit/test_bugfix_367_tool_call_observe_timing.py::test_tool_result_event_carries_arguments_alias` 继续通过。
+
+### Fix 3：`_AgentPresenter` in-band error 规整为 `str`
+
+- `src/agent/platform/tools/presentation.py:433` `"error": str(output.get("error", ""))`——当 output 无 error 键时得到 `""`（空串），前端 AgentCard 渲染字符串时不会崩溃。
+- `tests/unit/platform/tools/test_presentation.py::TestAgentPresenter::test_end_failed_error_is_plain_str` 断言 `isinstance(evt.detail["error"], str)` 且值为 `""` 通过。
+- 影响范围仅 `_AgentPresenter.format_end` 的 Mapping 分支，其他 presenter 和 error 路径（`L411-416`，`result.error` 分支）未改动。
+
+## 全量测试
+
+- `pytest -m "not e2e"`: **2595 passed, 1 skipped** (含 Round 1 新增的 `test_messages_route_detail.py` 3 tests、`test_realtime_stream_events.py` 新增断言、`test_presentation.py` `TestAgentPresenter::test_end_failed_error_is_plain_str`)
+- `npx vitest run`: **401 passed, 59 test files**（前端测试计数含新增测试）
+- 全量绿，无新增失败。
+
+## Round 2 Summary
+
+| 维度 | 结果 |
+|---|---|
+| W1 闭合 | 是 — tasks.md 已全部勾选 |
+| S1 闭合 | 是（实为误判，design.md 已含 `status=200 (title)`，无需改动） |
+| Fix 1 副作用 | 无 |
+| Fix 2 副作用 | 无，hooks 合约非破坏性扩展 |
+| Fix 3 副作用 | 无 |
+| 全量测试 | 2595 passed + 401 front-end passed |
+
+**All checks passed. Ready for PR.**
