@@ -464,3 +464,122 @@ class TestObserverSendsTurnStartAndUpdatesStore:
         assert delta_calls[0]["message_id"] == "agent-placeholder-777", (
             f"message_delta must use agent message_id from turn_start ack, got: {delta_calls[0].get('message_id')}"
         )
+
+
+# ─── bugfix-410-M2 R3: terminal in-flight tool_call reconcile (#97) ──────────
+
+
+class TestTerminalToolCallReconcile:
+    """When a run terminates abnormally, the observer must close any tool_call that
+    received tool_start but never tool_end, badging it with a reason. Already-
+    completed tool_calls must not be rewritten."""
+
+    def _manager(self) -> tuple[Any, list[tuple]]:
+        send_calls: list[tuple] = []
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+        return manager, send_calls
+
+    def _ctx_store(self) -> dict[str, dict[str, str]]:
+        return {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "agent-msg-1",
+                "agent_id": "alpha",
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_reconcile_closes_inflight_toolcall_with_reason(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+        )
+
+        # c1 starts and finishes; c2 starts and never ends (the hung bash).
+        observer({"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "read"})
+        observer({"event": "tool_end", "run_id": "run-1", "call_id": "c1", "name": "read"})
+        observer({"event": "tool_start", "run_id": "run-1", "call_id": "c2", "name": "bash"})
+        await asyncio.sleep(0.02)
+        send_calls.clear()
+
+        # Watchdog-driven terminal reconcile.
+        observer(
+            {"event": "run_terminal_reconcile", "run_id": "run-1", "reason": "timed_out"}
+        )
+        await asyncio.sleep(0.02)
+
+        completed = [
+            p for _, p in send_calls if p.get("kind") == "tool_call_completed"
+        ]
+        assert len(completed) == 1, (
+            f"only the in-flight c2 must be reconciled, got: {send_calls}"
+        )
+        tc = completed[0]["tool_call"]
+        assert tc["id"] == "c2"
+        assert tc["status"] == "failed"
+        assert tc["reason"] == "timed_out"
+
+    @pytest.mark.asyncio
+    async def test_reconcile_does_not_rewrite_completed_toolcalls(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+        )
+
+        # Both tools complete normally before the terminal event.
+        observer({"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "read"})
+        observer({"event": "tool_end", "run_id": "run-1", "call_id": "c1", "name": "read"})
+        observer({"event": "tool_start", "run_id": "run-1", "call_id": "c2", "name": "bash"})
+        observer(
+            {"event": "tool_end", "run_id": "run-1", "call_id": "c2", "name": "bash", "error": "exit 1"}
+        )
+        await asyncio.sleep(0.02)
+        send_calls.clear()
+
+        observer(
+            {"event": "run_terminal_reconcile", "run_id": "run-1", "reason": "interrupted"}
+        )
+        await asyncio.sleep(0.02)
+
+        completed = [
+            p for _, p in send_calls if p.get("kind") == "tool_call_completed"
+        ]
+        assert completed == [], (
+            f"no in-flight tool_calls remain; nothing should be reconciled, got: {send_calls}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_reconcile_reason_interrupted_for_non_timeout(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+        )
+
+        observer({"event": "tool_start", "run_id": "run-1", "call_id": "c9", "name": "edit"})
+        await asyncio.sleep(0.02)
+        send_calls.clear()
+
+        observer(
+            {"event": "run_terminal_reconcile", "run_id": "run-1", "reason": "interrupted"}
+        )
+        await asyncio.sleep(0.02)
+
+        completed = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert len(completed) == 1
+        assert completed[0]["tool_call"]["reason"] == "interrupted"
+        assert completed[0]["tool_call"]["status"] == "failed"
