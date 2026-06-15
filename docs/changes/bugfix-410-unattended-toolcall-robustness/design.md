@@ -30,6 +30,7 @@
 - **M4（#97，kernel → Gateway → IM）**
   - `src/personal_assistant/main.py:3114` observer 只在 `tool_end` 发 `tool_call_completed`；`inbound_pipeline.py:880` terminal run_status 直接 break，无「收口在飞 tool_call」。
   - 前端 `src/IM/frontend/src/features/chat/v2/components/tool-calls-panel.tsx` 徽标只认 `running`/`completed`/`✕` 三态，无「按原因」文案。
+  - **reason 体系落点（归 M2）**：`src/agent/core/tools/registry.py:172` 是所有 block（auto block + 用户 Deny）物化成 ✕ tool_result 的唯一收口点（`raise ToolError(details={blocked_by_hook, reason})`），denied 的 `reason_code` 在此盖；`src/agent/core/tools/base.py` 是 ToolResult/ToolError 字段定义点。现有 `details["reason"]` 是给模型看的自由文本，不可复用为分类枚举。
 
 ### 既有约束
 
@@ -120,9 +121,9 @@ graph TB
 **选了把 Q5 三种终态拆成两条独立路径**（M4），尊重 bugfix-367「park/deny 不发 tool_start」语义。
 
 - **在飞 tool_call 收口**（Gateway 终态 reconcile）: 只针对 `tool_start` 已发、running 中、run 异常终止 `tool_end` 没来的工具，reason ∈ {`timed_out`(看门狗 cancel), `interrupted`(其他异常终止)}。
-- **「已拒绝」不走在飞收口**: deny 的工具（auto block / 用户 Deny）从不进入 running（`loop.py:363-367`），本就在 tool_result 阶段渲染 ✕；只需让 deny result 带 `reason=denied`，前端把 ✕ 细化成「已拒绝」。
-- **理由**: 不为统一而让 deny 走 running→收口的假路径。
-- **风险**: reason 来源跨两个 milestone — 前端文案体系单一 owner 在 M2，M1 只在 deny result 塞 `reason=denied`。
+- **「已拒绝」不走在飞收口**: deny 的工具（auto block / 用户 Deny）从不进入 running（`loop.py:363-367`），本就在 tool_result 阶段渲染 ✕；只需在 `registry.py:172` 的 block 收口处盖 `reason_code=denied`，前端把 ✕ 细化成「已拒绝」（落点见接口段，**全在 M2**，不碰 auto_mode_gate）。
+- **理由**: 不为统一而让 deny 走 running→收口的假路径；denied 在 registry 统一收口处盖，省得让 M1 为 reason 改 auto_mode_gate。
+- **风险**: reason 是横跨 kernel(registry/base.py)→Gateway→IM→前端的字段链，必须单一 owner（M2）端到端做，避免定义点与透传点割裂。
 
 ### 决策 5: 旁路 reason 字段，不扩 status 枚举
 
@@ -134,19 +135,21 @@ graph TB
 
 ## 接口与数据流
 
-### reason 字段（共享契约，M1/M2 协作基础）
+### reason 字段（整体归 M2，M1 不碰）
 
-tool_call 终态新增旁路字段，端到端透传：
+tool_call 终态新增旁路 `reason_code` 字段，端到端透传：
 
 ```
 reason: "denied" | "timed_out" | "interrupted" | null
-  denied      — auto_mode_gate block 或用户 Deny          （M1 产出）
-  timed_out   — Gateway run-idle 看门狗 cancel             （M2 产出）
-  interrupted — 其他异常终止（崩溃 / stall / interrupt）   （M2 产出）
-前端文案（M2 定义全部映射）: denied→已拒绝  timed_out→执行超时  interrupted→已中断
+  denied      — 工具被 hook 拒绝（auto block 或用户 Deny）  （来源见下）
+  timed_out   — Gateway run-idle 看门狗 cancel             （Gateway reconcile 产）
+  interrupted — 其他异常终止（崩溃 / stall / interrupt）   （Gateway reconcile 产）
+前端文案: denied→已拒绝  timed_out→执行超时  interrupted→已中断
 ```
 
-字段定义随 tool_call/ToolResult（kernel）+ `streaming_delta` payload（Gateway）+ tool_call 持久化（IM DB）+ 前端类型。M1 拥有「定义 + 产 denied」，M2 拥有「透传链 + 文案 + 产 timed_out/interrupted」。
+**denied 的真实落点是 `registry.py:172`，不是 auto_mode_gate**：所有 block（auto block 与用户 Deny——后者经 `_handle_ask` 返回 `{block:True}`）都统一回到 `registry.py` 的 `blocked_by_hook` 分支 `raise ToolError(details=...)` 收口。在该分支盖一个**独立分类字段 `reason_code="denied"`**，与现有给模型看的自由文本 `reason`（`"no permission channel ..."` / LLM `<reason>` 整句）**并存、不复用**（复用会污染模型可读理由）。
+
+字段链路：`ToolError.details`/`ToolResult`（`core/tools/base.py` 定义）→ tool_result message → `streaming_delta` payload（Gateway）→ tool_call 持久化（IM DB）→ 前端类型。**整条链（base.py 字段定义 + registry 盖 denied + Gateway 产 timed_out/interrupted + IM + 前端文案）全部归 M2**，单一 owner。**M1 完全不碰 reason** —— 因此 M1（auto_mode_gate transcript/prompt）与 M2 文件零交集，真并行成立。
 
 ### M1: transcript 提取适配
 
@@ -239,14 +242,13 @@ Gateway 在 terminal run_status 分支（`inbound_pipeline.py:880` / observer `m
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| bugfix-410-M1 | auto-mode-classifier-cc-sync | — | A | `src/agent/platform/hooks/builtins/auto_mode_gate.py`、`tests/unit/test_auto_mode_gate.py`、tool_call `reason` 字段定义（`denied` 来源） | `[worker]` `build_transcript_entries` 从 `LLMMessage.tool_calls` 提取、单测改喂真实 `LLMMessage` 全绿；`[worker]` `XML_S1_SUFFIX` + system prompt 与实际安装 CC 2.1.177 strings 基准对齐；`[worker]` deny result（auto block + 用户 Deny）带 `reason=denied`；`[reviewer]` 无直接产品 UI 变化（可观察面=LLM proxy 日志分类器请求 `<transcript>` 含历史工具调用投影，覆盖 incident Req「分类器 transcript 包含历史工具调用」） |
-| bugfix-410-M2 | toolcall-interruption-robustness | — | B | `src/agent/core/agent/runtime.py`、`src/agent/core/session/`、`src/personal_assistant/gateway/inbound_pipeline.py`、`src/personal_assistant/main.py`、`src/IM/application/relay_watchdog.py`、IM tool_call 持久化、`src/IM/frontend/src/features/chat/v2/components/tool-calls-panel.tsx` | `[reviewer]` 工具轮中断后会话仍可继续对话（覆盖 incident Req「中断的工具轮不再永久污染会话」全部 Scenario）；`[reviewer]` 权限卡片等待 >120s 后仍可批准、pending 显示「等待批准」、拒绝显示「已拒绝」（覆盖 Req「等人工权限决策不被 idle 看门狗误杀」全部 Scenario）；`[reviewer]` run 异常终止在飞 tool_call 按原因收口（执行超时/已中断）、已完成工具不被改写（覆盖 Req「run 异常终止时在飞 tool_call 徽标收口」全部 Scenario）；`[worker]` recovery `finally` 覆盖 `CancelledError` + 看门狗豁免 + 终态 reconcile 单测全绿 |
+| bugfix-410-M1 | auto-mode-classifier-cc-sync | — | A | `src/agent/platform/hooks/builtins/auto_mode_gate.py`、`tests/unit/test_auto_mode_gate.py`（**仅 transcript/prompt，不碰 reason**） | `[worker]` `build_transcript_entries` 从 `LLMMessage.tool_calls` 提取、单测改喂真实 `LLMMessage` 全绿；`[worker]` `XML_S1_SUFFIX` + system prompt 与实际安装 CC 2.1.177 strings 基准对齐；`[reviewer]` 无直接产品 UI 变化（可观察面=LLM proxy 日志分类器请求 `<transcript>` 含历史工具调用投影，覆盖 incident Req「分类器 transcript 包含历史工具调用」） |
+| bugfix-410-M2 | toolcall-interruption-robustness | — | B | `src/agent/core/agent/runtime.py`、`src/agent/core/session/`、`src/agent/core/tools/registry.py`、`src/agent/core/tools/base.py`、`src/personal_assistant/gateway/inbound_pipeline.py`、`src/personal_assistant/main.py`、`src/IM/application/relay_watchdog.py`、IM tool_call 持久化、`src/IM/frontend/src/features/chat/v2/components/tool-calls-panel.tsx` | `[reviewer]` 工具轮中断后会话仍可继续对话（覆盖 incident Req「中断的工具轮不再永久污染会话」全部 Scenario）；`[reviewer]` 权限卡片等待 >120s 后仍可批准、pending 显示「等待批准」、拒绝显示「已拒绝」（覆盖 Req「等人工权限决策不被 idle 看门狗误杀」全部 Scenario）；`[reviewer]` run 异常终止在飞 tool_call 按原因收口（执行超时/已中断）、已完成工具不被改写（覆盖 Req「run 异常终止时在飞 tool_call 徽标收口」全部 Scenario）；`[worker]` reason_code 全链（`registry.py:172` 盖 denied + `base.py` 字段 + Gateway/IM 透传 + 前端文案）端到端贯通、deny/timeout/interrupt 三态徽标单测；`[worker]` recovery `finally` 覆盖 `CancelledError` + 看门狗豁免 + 终态 reconcile 单测全绿 |
 
 ```mermaid
 graph LR
-  M1["M1 auto-mode-classifier-cc-sync"]
-  M2["M2 toolcall-interruption-robustness"]
-  M1 -. reason 字段共享约定（接口段定义，无强依赖）.- M2
+  M1["M1 auto-mode-classifier-cc-sync<br/>(auto_mode_gate transcript/prompt)"]
+  M2["M2 toolcall-interruption-robustness<br/>(恢复+看门狗+收口+reason 全链)"]
 ```
 
-> M1/M2 文件零交集，可真并行（组 A / 组 B）。reason 字段 schema 在「接口与数据流」段统一定义，M1 拥有字段定义 + 产 `denied`，M2 拥有透传链 + 文案 + 产 `timed_out`/`interrupted`——按 design 协作，非 git 依赖。
+> M1/M2 **文件零交集、零依赖，真并行**（组 A / 组 B）。M1 只碰 `auto_mode_gate.py` 的 transcript/prompt，**完全不碰 reason**；整个 reason_code 链（`registry.py` 盖 denied + `base.py` 字段 + Gateway/IM/前端）由 M2 单一 owner 端到端做。两者无共享文件、无 schema 序依赖。
