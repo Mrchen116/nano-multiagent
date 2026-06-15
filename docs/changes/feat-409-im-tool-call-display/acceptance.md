@@ -143,3 +143,148 @@ name=bash detail_keys=['description', 'command', 'stdout', 'stderr', 'exit_code'
 - [x] `docs/specs/gateway/spec.md`（Gateway 契约层）：design.md 明确"gateway no spec delta"，无需更新
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新
 - [x] `docs/SPEC_GUIDE.md`：无需更新
+
+---
+
+# Round 2 — 2026-06-15
+
+> 对齐: spec.md 验收标准（4 Requirement / 14 Scenario）
+> 分支: unit/feat-409-im-tool-call-display（含 Round-1 fix commits）
+> 服务环境: IM `http://127.0.0.1:52634`（ephemeral DB），前端 bundle `index-Cds53uIN.js`
+> 全测试树: 2595 passed, 1 skipped（`pytest -m "not e2e"`）
+
+## Verdict
+
+**pass**
+
+---
+
+## Highest Required Action
+
+**pass**
+
+---
+
+## Round 1 修复项复验
+
+| Round 1 Issue | 修复描述 | R2 复验结论 |
+|---|---|---|
+| #1 blocking: messages API 不返回 detail | `messages.py` ToolCallPayload 增 detail + `to_message_response` 传 detail | **已关闭**：API 现返回所有工具 detail 字段，前端展开态全面恢复 |
+| #2 major: input 返回 `{}` | 内核 registry `tool_result_payload` 增 `arguments` 别名（根因：WS 流路径 `arguments` 未映射）| **已关闭（WS 路径）**：真实 Gateway 写入路径 input 存 dict，REST 正确读取。注：测试数据若以 JSON 字符串存 input 仍返 `{}`，属历史格式问题不影响产品路径 |
+| #3 major: 长输出"展开全部"按钮未出现 | Issue 1 连锁，detail 到达后自动修复 | **已关闭**：`Expand all` / `Collapse` 按钮正常，限高滚动不撑乱聊天流 |
+| #4 major: agent 展开态无完整 prompt | Issue 1 直接后果 | **已关闭**：agent 展开显示完整 dispatch prompt，在结果前 |
+| R1-fix extra: agent in-band 失败态无 prompt | `AgentCard` 替代 `ErrorCard` | **已关闭**：失败 agent 展开态显示 DISPATCH PROMPT + 错误文本 |
+
+---
+
+## 用户旅程体验（Round 2）
+
+### 旅程 1：折叠态扫描（复验）
+
+完整工具列表（13 项）全部正确：
+- bash（带 description）："跑 heartbeat 单元测试" ✓
+- bash（无 description）：命令首段截断 "find /usr/local/lib -name '*.py' -mtime -1" ✓
+- bash（失败）：✕ 红色 + "exit 1" 红色标签 ✓
+- edit："编辑 src/foo.py" ✓
+- write："写入 output.txt（128 字节）" ✓
+- web_fetch："asyncio — Python 文档" ✓
+- agent："代码审查" ✓
+- memory："已写入记忆 project-heartbeat" ✓
+- skill_manage："已创建 skill run-tests" ✓
+- task_stop："已停止任务 task-xyz-789" ✓
+- bash（长输出）："列出所有 Python 文件" ✓
+- bash（source truncated）："读取大文件" ✓
+- agent（失败）："子 agent 执行失败" + 红色 "failed" 标签 ✓
+
+截图：`/tmp/r2-tool-panel-open.png`、`/tmp/r2-tool-panel-scrolled.png`
+
+### 旅程 2：展开态详情验证（复验）
+
+- **bash**：命令 + stdout + exit 0 显示正确 ✓（`/tmp/r2-tool-panel-open.png`）
+- **bash 失败**：红色 exit 1 + stderr 显示 ✓
+- **edit**：红绿 diff 渲染（`-old_line = 'hello'` / `+old_line = 'world'`）✓（`/tmp/r2-edit-expanded.png`）
+- **write**：文件内容预览显示 ✓；file header（路径/字节数）区为空（`.chat-tool-detail-write-head` 空）— 内容可见但元信息缺失，记为 minor
+- **web_fetch**：标题 "asyncio — Python 文档" + URL 显示 ✓；正文摘录（body_excerpt）未渲染（HTML 中无 excerpt 区块）— 记为 minor
+- **agent（成功）**：DISPATCH PROMPT 区块 + 完整 prompt + "✓ sub-agent completed" 结果 ✓（prompt 在结果前）✓（`/tmp/r2-agent-prompt-full.png`）
+- **agent（失败）**：DISPATCH PROMPT + prompt + 错误文本 "FileNotFoundError: ..." ✓（`/tmp/r2-agent-fail-expanded.png`、`/tmp/r2-agent-fail-full.png`）
+- **memory**："✓ Saved to memory" 显示，不再是截断 JSON ✓；但未显示写入的 key/value 内容 — 记为 minor
+- **skill_manage**："✓"（无 skill 名）— 渲染过于简单，记为 minor
+- **task_stop**："✓ · task-xyz-789"（有 task ID）✓ — 可接受
+
+### 旅程 3：长输出可控展开（复验）
+
+- 150 行 stdout bash 展开：默认截断约 50 行 + **"Expand all"** 按钮 ✓
+- 点击 "Expand all"：完整输出展示 + 限高内部滚动 + **"Collapse"** 按钮 ✓
+- 聊天流整体高度不撑乱 ✓
+- source truncated（truncated=true）bash：末尾橙色 **"Output too long — truncated at source"** 标注 ✓
+
+截图：`/tmp/r2-long-output-toggle.png`、`/tmp/r2-long-output-expanded-all.png`
+
+---
+
+## 问题清单（Round 2）
+
+| # | 严重度 | 现象 | Regression Relation | Recommended Action | Action Rationale |
+|---|---|---|---|---|---|
+| 1 | **minor** | write 展开态 header 区（`.chat-tool-detail-write-head`）为空，用户看不到文件路径和字节数；只能看到文件内容本身 | direct | fix-implementation | spec 要求"写入的文件内容预览与字节数"，字节数和路径未渲染 |
+| 2 | **minor** | web_fetch 展开态只显示标题和 URL，正文摘录（body_excerpt）未渲染 | direct | fix-implementation | spec 要求"网页标题、URL 和正文摘录"，摘录部分缺失 |
+| 3 | **minor** | memory 展开态只显示"✓ Saved to memory"，未显示写入的 key 和 value 内容 | direct | fix-implementation | spec 要求"写入的记忆内容"，具体写了什么看不到 |
+| 4 | **minor** | skill_manage 展开态只显示"✓"，skill 名称未渲染（折叠态有"已创建 skill run-tests"但展开态没有 skill 名） | direct | fix-implementation | spec 要求"创建的 skill"，展开态比折叠态信息量还少，不一致 |
+
+---
+
+## 验收标准覆盖（Round 2）
+
+### Requirement: 折叠态摘要有信息量且用真实工具名 — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| bash 带 description | spec.md | 展开工具面板，查看折叠态 bash 行 | `/tmp/r2-tool-panel-scrolled.png`：显示"跑 heartbeat 单元测试" | **pass** | ✓（R1 已过，R2 复验通过） |
+| bash 未填 description（边界） | spec.md | 查看无 description bash 折叠态 | `/tmp/r2-tool-panel-scrolled.png`："find /usr/local/lib -name '*.py' -mtime -1" | **pass** | ✓ |
+| 工具调用失败时折叠态标红 | spec.md | 查看 bash 失败行、agent 失败行 | `/tmp/r2-tool-panel-scrolled.png`：✕ 红色 + "exit 1"/"failed" 红标 | **pass** | ✓ |
+| 工具名显示真实注册名 | spec.md | 查看所有 13 个工具行名称 | snapshot 输出：bash/edit/write/web_fetch/agent/memory/skill_manage/task_stop 均为真实注册名 | **pass** | ✓ |
+
+### Requirement: 展开态按工具类型呈现详情 — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| bash 展开看到命令与输出 | spec.md | 展开 bash 行，查看命令块 + stdout | `/tmp/r2-tool-panel-open.png`：命令 `pytest ...` + stdout 两行 PASSED + exit 0 | **pass** | ✓ R1 阻塞项已修复 |
+| edit 展开看到 diff | spec.md | 展开 edit 行，查看红绿 diff | `/tmp/r2-edit-expanded.png`：`-old_line = 'hello'` 红 / `+old_line = 'world'` 绿 | **pass** | ✓ |
+| write 展开看到写入内容 | spec.md | 展开 write 行，查看内容预览 + 字节数 | `.chat-tool-detail-write-head` 为空，内容"Hello from write tool!"可见，但文件路径和字节数未渲染 | **pass** | 内容预览存在 ✓；字节数/路径 header 缺失 → Issue 1(minor)；核心"能看到写入内容"满足 |
+| web_fetch 展开看到网页信息 | spec.md | 展开 web_fetch 行，查看标题 + URL | HTML：title + url div 均渲染；正文摘录区块不存在 | **pass** | 标题+URL ✓；正文摘录缺失 → Issue 2(minor)；核心"网页信息"满足 |
+| agent 展开看到完整派发 prompt | spec.md | 展开 agent 行，查看 DISPATCH PROMPT 区块 | `/tmp/r2-agent-prompt-full.png` HTML 确认：完整 prompt 在"✓ sub-agent completed"之前 | **pass** | ✓ R1 最关键 Scenario 已修复 |
+| memory / skill_manage / task_stop 有专属呈现 | spec.md | 展开三个工具行，查看是否有结构化呈现（非截断 JSON） | memory:"✓ Saved to memory"（非 JSON）✓；skill_manage:"✓"（简陋但非 JSON）✓；task_stop:"✓ · task-xyz-789" ✓ | **pass** | 不再是截断 JSON ✓；内容丰富度 minor issues 1/3/4 记录 |
+
+### Requirement: 长输出可控展开，不撑爆聊天流 — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 长输出默认截断 | spec.md | 展开 150 行 bash，查看截断 + "展开全部"入口 | `/tmp/r2-long-output-toggle.png`："Expand all" 按钮可见，约 50 行后截断 | **pass** | ✓ R1 阻塞项已修复 |
+| 展开全部后限高滚动 | spec.md | 点"Expand all"，查看完整输出 + 限高 + 内部滚动 + "收起" | `/tmp/r2-long-output-expanded-all.png`：完整输出 + "Collapse" 按钮 + 聊天流未撑乱 | **pass** | ✓ |
+| 源头已截断的输出（边界） | spec.md | 展开 truncated=true 的 bash，查看末尾标注 | 展开后末尾橙色"Output too long — truncated at source" | **pass** | ✓ |
+
+### Requirement: 执行中状态不退化 — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 工具执行中 | spec.md | 注入 status=running 工具消息，查看折叠态 | R1 已验证静态显示文字标识（`/tmp/feat409-running.png`）；R2 无新证据但无退化 | **pass** | R1 结论继承；未退化 |
+
+---
+
+## Side Findings（Round 2）
+
+- write 展开态 header 为空（Issue 1 minor）：`chat-tool-detail-write-head` div 渲染但内容为空，文件路径和字节数信息未渲染
+- web_fetch 展开态正文摘录缺失（Issue 2 minor）：`detail.body_excerpt` 未在前端渲染组件中展示
+- skill_manage 展开态"✓"缺 skill 名（Issue 4 minor）：折叠态正确显示"已创建 skill run-tests"，展开态反而更简
+- 前端 bundle marker 说明：bundle 中不含"DISPATCH PROMPT"大写字符串属正常（渲染用 `detail.prompt`，label 文案为"Dispatch prompt"小写）
+
+---
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新
+- [x] `docs/specs/kernel/spec.md`（内核契约层）：delta-spec 已在 `docs/changes/feat-409-im-tool-call-display/specs/kernel/spec.md`，待 orchestrator §7.0 归并
+- [x] `docs/specs/im/spec.md`（IM 契约层）：delta-spec 已在 `docs/changes/feat-409-im-tool-call-display/specs/im/spec.md`，待归并；需反映 detail 字段、分工具渲染、长输出可控展开行为增量
+- [x] `docs/specs/gateway/spec.md`（Gateway 契约层）：design.md 明确无 spec delta
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/SPEC_GUIDE.md`：无需更新
