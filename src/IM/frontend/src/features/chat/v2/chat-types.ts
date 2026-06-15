@@ -44,7 +44,9 @@ export type ToolCallReason = "denied" | "timed_out" | "interrupted";
  */
 export type ToolDetail = Record<string, unknown> & {
   truncated?: boolean;
-  error?: { message?: string } | null;
+  // out-of-band failures (result.error) carry {message}; in-band failures
+  // (agent output.error) carry a plain string. Renderers tolerate both.
+  error?: { message?: string } | string | null;
 };
 
 export interface ToolCall {

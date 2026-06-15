@@ -23,6 +23,18 @@ function str(v: unknown): string {
   return JSON.stringify(v);
 }
 
+/**
+ * Unwrap a tool-call error field that may be a plain string (in-band failures:
+ * output.error) or a {message} wrapper (out-of-band: result.error). feat-409
+ * Round-1 fix — agent in-band failures carry a bare string.
+ */
+function errorText(error: unknown): string {
+  if (typeof error === "object" && error !== null && "message" in error) {
+    return str((error as { message?: unknown }).message);
+  }
+  return str(error);
+}
+
 // 决策 5: front-end truncation threshold — an independent visual gate from the
 // kernel's 256KB byte cap. Above this line count, long fields collapse to a
 // preview + "expand all" → height-capped inner scroll, so a single expand never disrupts
@@ -97,7 +109,10 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
 // ─── error (shared failure path) ─────────────────────────────────────────────
 
 function ErrorCard({ detail }: { detail: ToolDetail }) {
-  const message = str(detail.error?.message ?? detail.message ?? "");
+  // detail.error may be a {message} wrapper (out-of-band: result.error) or a
+  // plain string (in-band: output.error). Tolerate both; fall back to
+  // detail.message.
+  const message = errorText(detail.error) || str(detail.message);
   return (
     <div className="chat-tool-detail-error">
       <span className="chat-tool-detail-error-icon" aria-hidden="true">
@@ -232,7 +247,7 @@ function AgentCard({ detail }: { detail: ToolDetail }) {
   const status = str(detail.status);
   const content = str(detail.content);
   const outputFile = str(detail.output_file);
-  const error = str(detail.error ?? "");
+  const error = errorText(detail.error);
   return (
     <div className="chat-tool-detail-agent">
       {prompt && (
@@ -330,14 +345,29 @@ const BESPOKE: Record<string, (p: { detail: ToolDetail }) => ReactNode> = {
 };
 
 /**
- * Render the expanded body for a tool call. Failures (detail.error present) show
- * the error card regardless of tool. Known names get bespoke cards; unknown
- * tools with a detail get the generic key/value card; rows without detail
- * degrade to the raw output string (historical messages).
+ * A detail is "error-only" when its single meaningful key is `error` (besides
+ * the `truncated` flag). bash/edit/web out-of-band failures carry just
+ * `{error:{message}}` → ErrorCard. agent in-band failures carry the full schema
+ * (prompt/status/error/…) → their bespoke card, so the prompt — most valuable on
+ * failure — is preserved.
+ */
+function isErrorOnly(detail: ToolDetail): boolean {
+  if (detail.error == null) return false;
+  return Object.entries(detail).every(
+    ([key, value]) => key === "error" || key === "truncated" || value == null || value === ""
+  );
+}
+
+/**
+ * Render the expanded body for a tool call. Error-only details (out-of-band
+ * failures) show the generic error card. Known names get bespoke cards (which
+ * render their own failure state, keeping prompt/status/etc.); unknown tools with
+ * a detail get the generic key/value card; rows without detail degrade to the
+ * raw output string (historical messages).
  */
 export function ToolDetailBody({ call }: { call: ToolCall }) {
   const detail = call.detail;
-  if (detail && detail.error) {
+  if (detail && isErrorOnly(detail)) {
     return <ErrorCard detail={detail} />;
   }
   if (detail) {

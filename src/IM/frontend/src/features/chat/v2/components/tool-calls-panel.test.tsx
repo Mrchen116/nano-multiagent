@@ -428,3 +428,81 @@ describe("ToolCallsPanel · long output (R3)", () => {
     expect(screen.getByText(/truncated at source|源头截断/i)).toBeInTheDocument();
   });
 });
+
+// feat-409-M2 Round-1 fix: agent in-band failure was hijacked by the generic
+// ErrorCard (first `if (detail.error)` branch), bypassing AgentCard → empty
+// error card + lost prompt. Bespoke tools with rich failure context (agent:
+// prompt + status + error) must render via their own card; ErrorCard is the
+// fallback only for error-only details (bash/edit/web out-of-band failures
+// whose detail is just {error:{message}}).
+describe("ToolCallsPanel · bespoke failure routing (Round-1 fix)", () => {
+  function renderSingle(call: ToolCall) {
+    return render(<ToolCallsPanel toolCalls={[call]} />);
+  }
+  async function open() {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /tool call/i }));
+  }
+
+  it("renders an agent in-band failure via AgentCard with prompt + error text (not an empty ErrorCard)", async () => {
+    const { container } = renderSingle({
+      id: "a1",
+      name: "agent",
+      status: "failed",
+      input: {},
+      output: "failed: subagent blew up",
+      // in-band failure: result.error is None, output={status:failed, error:<str>}
+      // → presenter detail carries full prompt + status + plain-string error.
+      detail: {
+        description: "清理 30 天前的日志",
+        prompt: "扫描 logs 目录删除超过 30 天的文件，统计释放空间。",
+        subagent_type: "explore",
+        status: "failed",
+        agent_id: "agent-7f3a",
+        content: "",
+        output_file: "",
+        error: "FileNotFoundError: logs 目录不存在"
+      }
+    });
+    await open();
+    // Routed to AgentCard, not the generic ErrorCard.
+    expect(container.querySelector(".chat-tool-detail-agent")).not.toBeNull();
+    expect(container.querySelector(".chat-tool-detail-error")).toBeNull();
+    // The dispatch prompt — most valuable on failure — is still rendered.
+    expect(container.querySelector(".chat-tool-detail-agent-prompt")?.textContent).toContain(
+      "扫描 logs 目录删除超过 30 天的文件"
+    );
+    // The error text (plain string) is visible, not an empty card.
+    expect(screen.getByText(/FileNotFoundError: logs 目录不存在/)).toBeInTheDocument();
+  });
+
+  it("still routes a bash out-of-band failure (error-only detail) to ErrorCard", async () => {
+    const { container } = renderSingle({
+      id: "b1",
+      name: "bash",
+      status: "failed",
+      input: {},
+      output: "failed: boom",
+      detail: { error: { message: "boom: command not found" } }
+    });
+    await open();
+    expect(container.querySelector(".chat-tool-detail-error")).not.toBeNull();
+    expect(container.querySelector(".chat-tool-detail-term")).toBeNull();
+    expect(screen.getByText(/boom: command not found/)).toBeInTheDocument();
+  });
+
+  it("ErrorCard tolerates a plain-string error (no .message wrapper)", async () => {
+    const { container } = renderSingle({
+      id: "x1",
+      name: "my_unknown_tool",
+      status: "failed",
+      input: {},
+      output: "failed",
+      // error-only detail but the error is a bare string, not {message}.
+      detail: { error: "raw failure string" }
+    });
+    await open();
+    expect(container.querySelector(".chat-tool-detail-error")).not.toBeNull();
+    expect(screen.getByText(/raw failure string/)).toBeInTheDocument();
+  });
+});
