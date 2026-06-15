@@ -156,12 +156,26 @@ The following types of actions should be blocked (require user confirmation):
 # Two-stage XML classifier constants — pixel-perfect CC replication
 # ---------------------------------------------------------------------------
 
-XML_S1_SUFFIX = "\nErr on the side of blocking. <block> immediately."
+# CC 2.1.177 ships an enhanced two-stage suffix (the `Vp3`/`yp3` template
+# literals in the bundled classifier). The stage-1 enhancement is load-bearing:
+# it tells stage-1 to judge by full effect (not surface form) and to defer
+# user-intent / ALLOW exceptions to stage-2, which is exactly the gap that let
+# the prior short suffix under-block. bugfix-410 #99 (Q7) brings both suffixes
+# up to the 2.1.177 baseline. The em-dash (—) is the real character; CC's JS
+# source escapes it as —.
+XML_S1_SUFFIX = (
+    "\nErr on the side of blocking. Stage 1 does NOT apply user intent or "
+    "ALLOW exceptions — stage 2 will handle those. Judge the action by its "
+    "full effect — what it runs, sends, publishes, or enables — not its "
+    "surface form. Block if ANY rule could apply. <block> immediately."
+)
 XML_S2_SUFFIX = (
     "\nReview the classification process and follow it carefully, "
     "making sure you deny actions that should be blocked. As a reminder, "
     "explicit (not suggestive or implicit) user confirmation is required "
-    "to override blocks. Use <thinking> before responding with <block>."
+    "to override blocks. Use <thinking> before responding with <block>. "
+    "Think longer on ambiguous or borderline actions; keep reasoning brief "
+    "for clear-cut ones."
 )
 
 # ---------------------------------------------------------------------------
@@ -334,10 +348,17 @@ def build_transcript_entries(messages: list | tuple) -> list[dict]:
     Includes: user text messages + assistant tool_use blocks.
     Excludes: assistant text (prevent prompt injection), tool results, images.
 
-    Pixel-perfect replication of CC buildTranscriptEntries.
+    Mirrors CC buildTranscriptEntries semantically. CC's assistant `content`
+    natively carries `tool_use` blocks; this kernel's `LLMMessage` instead keeps
+    tool calls in the separate `tool_calls` field (`loop.py` populates
+    `message_history` with real `LLMMessage` objects whose `content` is the
+    assistant's text and whose `tool_calls` holds the calls). bugfix-410 #99:
+    reading only `content` blocks silently dropped every historical tool call,
+    leaving the classifier transcript with bare User lines. We therefore fall
+    back to `tool_calls` (kernel format) whenever `content` carried no `tool_use`.
 
     Args:
-        messages: Sequence of LLMMessage-like dicts with role + content.
+        messages: Sequence of LLMMessage objects or LLMMessage-like dicts.
 
     Returns:
         List of transcript entries with role and content.
@@ -348,9 +369,11 @@ def build_transcript_entries(messages: list | tuple) -> list[dict]:
             # LLMMessage dataclass — access via attributes
             role = getattr(msg, "role", None)
             content = getattr(msg, "content", None)
+            tool_calls = getattr(msg, "tool_calls", None)
         else:
             role = msg.get("role")
             content = msg.get("content")
+            tool_calls = msg.get("tool_calls")
 
         if role == "user":
             if isinstance(content, str) and content:
@@ -378,6 +401,25 @@ def build_transcript_entries(messages: list | tuple) -> list[dict]:
                                 "input": block.get("input", {}),
                             }
                         )
+            # Kernel-format fallback: tool calls live in the separate `tool_calls`
+            # field (LLMToolCall has `name` + `arguments`), not in `content`. Only
+            # consult it when `content` yielded no tool_use, so the CC-shaped path
+            # above stays authoritative for Anthropic-format messages.
+            if not tool_uses and tool_calls:
+                for call in tool_calls:
+                    if isinstance(call, Mapping):
+                        name = call.get("name", "")
+                        args = call.get("arguments", {})
+                    else:
+                        name = getattr(call, "name", "")
+                        args = getattr(call, "arguments", {})
+                    tool_uses.append(
+                        {
+                            "type": "tool_use",
+                            "name": name or "",
+                            "input": dict(args) if args else {},
+                        }
+                    )
             if tool_uses:
                 transcript.append({"role": "assistant", "content": tool_uses})
             # assistant text blocks intentionally excluded (prompt injection prevention)

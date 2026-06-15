@@ -73,7 +73,8 @@ _WHITELIST: frozenset[str] = frozenset(
         "src/agent/platform/tools/builtins/bash_policy.py:158",
         # auto_mode_gate.py: .nanocode workspace_config_dir — this IS a hardcode, but pre-existing
         # feat-394-M7 _UNATTENDED_ORIGINS insert shifted line from 703 to 707
-        "src/agent/platform/hooks/builtins/auto_mode_gate.py:707",
+        # bugfix-410-M1 transcript fallback + suffix edits shifted line from 707 to 749
+        "src/agent/platform/hooks/builtins/auto_mode_gate.py:749",
         # coding_cli/commands.py: .nanocode global/workspace config — CLI UX, pre-existing
         # refactor-395-M1: logging import + _log added, lines shifted to 1162/1163
         # refactor-395 ruff fix: TERMINAL_RUN_STATUSES dead import removed, lines shifted to 1164/1165
