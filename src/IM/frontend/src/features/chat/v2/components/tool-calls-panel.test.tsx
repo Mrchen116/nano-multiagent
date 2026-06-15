@@ -34,7 +34,7 @@ describe("ToolCallsPanel", () => {
 
 // feat-409-M2 R1: collapsed-row rendering — summary(=output), failure styling,
 // real tool name, emoji fallback by name. The collapsed text is the
-// presenter-produced `output` (人话 summary); the front-end must NOT derive the
+// presenter-produced `output` (the summary string); the front-end must NOT derive the
 // collapsed text by tool name (决策 4).
 describe("ToolCallsPanel · collapsed row (R1)", () => {
   async function expandPanel() {
@@ -128,5 +128,198 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
     render(<ToolCallsPanel toolCalls={calls} />);
     await user.click(screen.getByRole("button", { name: /tool call/i }));
     expect(screen.queryByText(/denied|timed out|interrupted/i)).not.toBeInTheDocument();
+  });
+});
+
+// feat-409-M2 R2: expanded-body per-tool rendering. Known names get bespoke
+// cards (bash terminal, edit diff, agent prompt-before-result, …); unknown /
+// DIY tools fall back to a generic structured key/value card (NOT raw JSON);
+// rows without detail degrade to the output string.
+describe("ToolCallsPanel · expanded body (R2)", () => {
+  function renderSingle(call: ToolCall) {
+    // A single call defaults open (i===0) once the panel is expanded.
+    return render(<ToolCallsPanel toolCalls={[call]} />);
+  }
+  async function open() {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /tool call/i }));
+  }
+
+  it("renders bash as a terminal block with command + stdout", async () => {
+    const { container } = renderSingle({
+      id: "b1",
+      name: "bash",
+      status: "completed",
+      input: {},
+      output: "run tests",
+      detail: { command: "pytest -x", exit_code: 0, duration_ms: 120, stdout: "12 passed", stderr: "", truncated: false }
+    });
+    await open();
+    expect(container.querySelector(".chat-tool-detail-term")).not.toBeNull();
+    expect(screen.getByText("pytest -x")).toBeInTheDocument();
+    expect(screen.getByText(/12 passed/)).toBeInTheDocument();
+  });
+
+  it("renders edit as a colourised diff", async () => {
+    const { container } = renderSingle({
+      id: "e1",
+      name: "edit",
+      status: "completed",
+      input: {},
+      output: "updated (line 14)",
+      detail: {
+        path: "src/state.py",
+        diff: "--- src/state.py\n+++ src/state.py\n-old line\n+new line\n",
+        firstChangedLine: 14,
+        truncated: false
+      }
+    });
+    await open();
+    expect(container.querySelector(".chat-tool-detail-diff")).not.toBeNull();
+    expect(container.querySelector(".chat-tool-detail-diff-add")?.textContent).toContain("new line");
+    expect(container.querySelector(".chat-tool-detail-diff-del")?.textContent).toContain("old line");
+  });
+
+  it("renders write content", async () => {
+    renderSingle({
+      id: "w1",
+      name: "write",
+      status: "completed",
+      input: {},
+      output: "created (28 bytes)",
+      detail: { path: "docs/x.md", content: "# Title\nbody text", bytes: 28, truncated: false }
+    });
+    await open();
+    expect(screen.getByText("docs/x.md")).toBeInTheDocument();
+    expect(screen.getByText(/body text/)).toBeInTheDocument();
+  });
+
+  it("renders web_fetch as a card with title + url + content", async () => {
+    const { container } = renderSingle({
+      id: "wf1",
+      name: "web_fetch",
+      status: "completed",
+      input: {},
+      output: "status=200 (Lifespan)",
+      detail: { url: "https://uvicorn.org/lifespan/", final_url: "https://uvicorn.org/lifespan/", status: 200, title: "Lifespan Protocol", content: "The lifespan protocol …", truncated: false }
+    });
+    await open();
+    expect(container.querySelector(".chat-tool-detail-web")).not.toBeNull();
+    expect(screen.getByText("Lifespan Protocol")).toBeInTheDocument();
+    expect(screen.getByText(/uvicorn.org\/lifespan/)).toBeInTheDocument();
+  });
+
+  it("renders agent with the full prompt BEFORE the result", async () => {
+    const { container } = renderSingle({
+      id: "a1",
+      name: "agent",
+      status: "completed",
+      input: {},
+      output: "清理 30 天前的日志",
+      detail: {
+        description: "清理 30 天前的日志",
+        prompt: "扫描 logs 目录删除超过 30 天的文件",
+        subagent_type: "explore",
+        status: "completed",
+        agent_id: "agent-7f3a",
+        content: "删除了 142 个文件释放 380MB",
+        output_file: "",
+        error: null
+      }
+    });
+    await open();
+    const promptEl = screen.getByText(/扫描 logs 目录删除超过 30 天的文件/);
+    const resultEl = screen.getByText(/删除了 142 个文件释放 380MB/);
+    expect(promptEl).toBeInTheDocument();
+    expect(resultEl).toBeInTheDocument();
+    // Prompt must come before result in document order (spec requirement).
+    const pos = promptEl.compareDocumentPosition(resultEl);
+    expect(pos & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelector(".chat-tool-detail-agent-prompt")).not.toBeNull();
+  });
+
+  it("renders memory as a card surfacing target + content", async () => {
+    renderSingle({
+      id: "m1",
+      name: "memory",
+      status: "completed",
+      input: {},
+      output: "saved",
+      detail: { action: "add", target: "project", content: "heartbeat 状态文件迁移到 ~/.nano-assistant/", message: "saved", success: true }
+    });
+    await open();
+    expect(screen.getByText(/heartbeat 状态文件迁移/)).toBeInTheDocument();
+  });
+
+  it("renders skill_manage as a card surfacing the message", async () => {
+    renderSingle({
+      id: "s1",
+      name: "skill_manage",
+      status: "completed",
+      input: {},
+      output: "created log-cleanup",
+      detail: { action: "create", name: "log-cleanup", message: "created skills/log-cleanup/SKILL.md", path: "skills/log-cleanup", content: "", success: true }
+    });
+    await open();
+    expect(screen.getByText(/created skills\/log-cleanup/)).toBeInTheDocument();
+  });
+
+  it("renders task_stop as a card surfacing status + task_id", async () => {
+    renderSingle({
+      id: "ts1",
+      name: "task_stop",
+      status: "completed",
+      input: {},
+      output: "killed bash-21c9",
+      detail: { task_id: "bash-21c9", status: "killed" }
+    });
+    await open();
+    expect(screen.getByText(/bash-21c9/)).toBeInTheDocument();
+    expect(screen.getByText(/killed/)).toBeInTheDocument();
+  });
+
+  it("renders an unknown / DIY tool as a generic key/value card (not raw JSON)", async () => {
+    const { container } = renderSingle({
+      id: "x1",
+      name: "my_custom_tool",
+      status: "completed",
+      input: {},
+      output: "done",
+      detail: { region: "ap-southeast-1", instances: 3, dry_run: false }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-generic");
+    expect(card).not.toBeNull();
+    // Keys rendered as structured rows, not a single JSON blob.
+    expect(screen.getByText("region")).toBeInTheDocument();
+    expect(screen.getByText("ap-southeast-1")).toBeInTheDocument();
+    expect(screen.getByText("instances")).toBeInTheDocument();
+  });
+
+  it("renders a failed call's error message in the expanded body", async () => {
+    renderSingle({
+      id: "b1",
+      name: "bash",
+      status: "failed",
+      input: {},
+      output: "failed: boom",
+      detail: { error: { message: "boom: command not found" } }
+    });
+    await open();
+    expect(screen.getByText(/boom: command not found/)).toBeInTheDocument();
+  });
+
+  it("degrades to the output string when a call carries no detail (historical message)", async () => {
+    const { container } = renderSingle({
+      id: "old1",
+      name: "bash",
+      status: "completed",
+      input: { command: "ls" },
+      output: "exit=0 elapsed=152ms"
+    });
+    await open();
+    // No bespoke card; the raw output is shown as a fallback.
+    expect(container.querySelector(".chat-tool-detail-term")).toBeNull();
+    expect(screen.getByText("exit=0 elapsed=152ms")).toBeInTheDocument();
   });
 });
