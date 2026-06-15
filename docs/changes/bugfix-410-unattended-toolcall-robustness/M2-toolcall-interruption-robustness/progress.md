@@ -64,4 +64,26 @@
 
 ## R4 — reason_code 全链 + 前端文案
 
-（待补）
+- Context: R3 让 Gateway 补发带 reason 的 tool_call_completed，但 reason 字段尚未端到端贯通——ToolResult/IM ToolCall 无字段、denied 来源（registry block）未盖 reason_code、前端无文案。本 R 接通全链（决策 4/5）。
+- Decision: 旁路 reason 字段不扩 status 枚举（决策 5）。链路 7 跳：
+  1. `core/types.py` ToolResult 加 `reason_code`；
+  2. `registry.py:172` block 收口盖 `reason_code="denied"`（与给模型看的自由文本 reason 并存，决策 4——auto block 与用户 Deny 都走此处）；
+  3. `tool_executor.py` except 从 ToolError.details 提取 reason_code 进 ToolResult（+ finally 时长重建保留）；
+  4. `loop.py` on_tool_result 事件带 reason_code；
+  5. `realtime_stream.py` tool_end SSE 带 reason_code；
+  6. `main.py` observer tool_end → tool_call_completed delta 带 reason；
+  7. IM: ToolCall model `reason` 字段 + gateway_handler `_parse_tool_call` 解析 + event_types/repositories 序列化+持久化+解析 + REST DTO（`api/routes/messages.py` ToolCallPayload，浏览器自测补，见 design Changelog） + 前端 ToolCall TS + panel REASON_LABEL_KEYS 文案 + i18n。
+- Rationale:
+  - denied 与自由文本 reason 并存不复用——复用会污染模型可读理由（决策 4）。
+  - 前端 denied→已拒绝 / timed_out→执行超时 / interrupted→已中断；未知 reason 不渲染徽标（不显示裸 code）。
+  - pending「等待批准」由既有 feat-333 permission_request 卡承担（#98 豁免保住其 live），不在 tool-calls-panel 路径，本 R 不动。
+- Evidence:
+  - Tests: 后端链路 `test_toolcall_reason_code_chain.py` 2 passed（registry 盖 denied + 自由文本并存 / executor 提取进 ToolResult）；executor/367 回归 19 passed；IM 序列化 `test_event_bridge/ws_event_types/gateway_handler` 71 passed；contract 同步后 127 passed；前端 `tool-calls-panel.test.tsx` 8 passed（含 3 新 reason 徽标参数化 + 1 无徽标）；前端全套 382 passed；tsc clean。broad 后端 1124 passed。
+  - Entry: **真实浏览器端到端自测**——seed 一条 agent 消息含 4 个 tool_call（read=completed 无 reason / bash=denied / bash=timed_out / edit=interrupted），起真实 IM（ephemeral 端口 + 隔离 DB），真实登录注入 token，浏览器打开 /chat 展开 tool-calls-panel：徽标渲染 Denied / Timed out / Interrupted（红色），completed 行无徽标；REST API `GET /conversations/{id}/messages` 验证 reason 字段透传（denied/timed_out/interrupted）。
+  - Frontend State Matrix: default(completed 无徽标)✓ / running(既有 pulse 不回归)✓ / failed+denied✓ / failed+timed_out✓ / failed+interrupted✓ / empty(0 calls return null 既有)✓ / long content(pre 滚动既有)✓ / mobile 375x812✓ / desktop 1280x720✓ / dark mode(oklch 红配色)✓。
+  - Browser QA: URL=http://127.0.0.1:<ephemeral>/chat/conv-vis；路径=登录(token 注入)→打开会话→展开 tool-calls-panel；console 仅 WS reconnect ERR_CONNECTION_REFUSED（headless 时序伪影，REST 全 200，徽标走 REST 历史加载）；network 无失败 REST 请求。
+  - E2E/Regression: 后端链路 + IM 序列化 + 前端 vitest 全落库；浏览器自测为一次性视觉证据（截图保留）。
+  - Visual/Interaction: `ACCEPTANCE/bugfix-410-m2/r4-reason-badges-desktop.png`（1280x720）+ `r4-reason-badges-mobile.png`（375x812），对照设计 Q4「按原因区分」——三态文案 + 红色徽标，与 completed 行视觉区分明显，两 viewport 无溢出。
+- Rollback: revert R4 的两个 fix commit（reason 全链 + REST DTO）
+- Commits: C1=reason_code denied 链路起点红测, C2=全链透传+前端文案+contract 同步 fix, REST DTO fix(浏览器自测补), C3=本段 docs
+- Design 修订: design Changelog 补 messages.py DTO 文件清单遗漏（仅本 milestone 内，不影响其他 milestone）。
