@@ -916,6 +916,41 @@ describe("MessagePane", () => {
         expect(unknownChip).not.toBeNull();
         expect(unknownChip?.textContent).toBe("@unknown");
       });
+
+      // CR-1: CommonMark HTML block type-7 — mention 独占首行紧跟非空行时
+      // remark-parse 将整段（mention行+后续文本）打包为单个 html 节点，
+      // 旧 MENTION_FULL_RE 全锚定失配导致 mention 退化为字面量。
+      it("renders mention chip when mention is on first line with no blank line before next text (type-7 html block)", () => {
+        render(
+          <MessagePane
+            conversation={CONV_WITH_PARTICIPANTS}
+            messages={[agentMsgWithParticipants('<mention type="agent" target_id="a-coder"/>\n正文继续')]}
+            mentionCandidates={[]}
+            onSend={() => {}}
+          />
+        );
+        expect(screen.getByText("@Coder")).toBeInTheDocument();
+        // Prose text after the mention must still appear
+        expect(screen.getByText(/正文继续/)).toBeInTheDocument();
+        expect(screen.queryByText(/<mention/)).toBeNull();
+      });
+
+      it("renders multiple mentions mixed with text in a single html node", () => {
+        // Two mentions in the same block-level html node (no blank lines between)
+        render(
+          <MessagePane
+            conversation={CONV_WITH_PARTICIPANTS}
+            messages={[agentMsgWithParticipants(
+              '<mention type="agent" target_id="a-coder"/> 和 <mention type="agent" target_id="a-planner"/> 请审阅'
+            )]}
+            mentionCandidates={[]}
+            onSend={() => {}}
+          />
+        );
+        expect(screen.getByText("@Coder")).toBeInTheDocument();
+        expect(screen.getByText("@Planner")).toBeInTheDocument();
+        expect(screen.queryByText(/<mention/)).toBeNull();
+      });
     });
   });
 
