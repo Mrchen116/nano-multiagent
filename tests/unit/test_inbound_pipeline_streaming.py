@@ -505,21 +505,29 @@ class TestTerminalToolCallReconcile:
         )
 
         # c1 starts and finishes; c2 starts and never ends (the hung bash).
-        observer({"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "read"})
-        observer({"event": "tool_end", "run_id": "run-1", "call_id": "c1", "name": "read"})
-        observer({"event": "tool_start", "run_id": "run-1", "call_id": "c2", "name": "bash"})
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        observer(
+            {"event": "tool_end", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c2", "name": "bash"}
+        )
         await asyncio.sleep(0.02)
         send_calls.clear()
 
         # Watchdog-driven terminal reconcile.
         observer(
-            {"event": "run_terminal_reconcile", "run_id": "run-1", "reason": "timed_out"}
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "timed_out",
+            }
         )
         await asyncio.sleep(0.02)
 
-        completed = [
-            p for _, p in send_calls if p.get("kind") == "tool_call_completed"
-        ]
+        completed = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
         assert len(completed) == 1, (
             f"only the in-flight c2 must be reconciled, got: {send_calls}"
         )
@@ -539,23 +547,37 @@ class TestTerminalToolCallReconcile:
         )
 
         # Both tools complete normally before the terminal event.
-        observer({"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "read"})
-        observer({"event": "tool_end", "run_id": "run-1", "call_id": "c1", "name": "read"})
-        observer({"event": "tool_start", "run_id": "run-1", "call_id": "c2", "name": "bash"})
         observer(
-            {"event": "tool_end", "run_id": "run-1", "call_id": "c2", "name": "bash", "error": "exit 1"}
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        observer(
+            {"event": "tool_end", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c2", "name": "bash"}
+        )
+        observer(
+            {
+                "event": "tool_end",
+                "run_id": "run-1",
+                "call_id": "c2",
+                "name": "bash",
+                "error": "exit 1",
+            }
         )
         await asyncio.sleep(0.02)
         send_calls.clear()
 
         observer(
-            {"event": "run_terminal_reconcile", "run_id": "run-1", "reason": "interrupted"}
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "interrupted",
+            }
         )
         await asyncio.sleep(0.02)
 
-        completed = [
-            p for _, p in send_calls if p.get("kind") == "tool_call_completed"
-        ]
+        completed = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
         assert completed == [], (
             f"no in-flight tool_calls remain; nothing should be reconciled, got: {send_calls}"
         )
@@ -570,12 +592,18 @@ class TestTerminalToolCallReconcile:
             run_context_store=self._ctx_store(),
         )
 
-        observer({"event": "tool_start", "run_id": "run-1", "call_id": "c9", "name": "edit"})
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c9", "name": "edit"}
+        )
         await asyncio.sleep(0.02)
         send_calls.clear()
 
         observer(
-            {"event": "run_terminal_reconcile", "run_id": "run-1", "reason": "interrupted"}
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "interrupted",
+            }
         )
         await asyncio.sleep(0.02)
 

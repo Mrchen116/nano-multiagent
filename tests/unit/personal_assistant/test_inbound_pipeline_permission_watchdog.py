@@ -61,7 +61,9 @@ class _ControlledStreamKernel:
         return _gen()
 
 
-def _build_pipeline(kernel: Any, *, idle_timeout: float) -> InboundPipeline:
+def _build_pipeline(
+    kernel: Any, *, idle_timeout: float, observer: Any = None
+) -> InboundPipeline:
     return InboundPipeline(
         kernel=kernel,
         agents=(
@@ -74,6 +76,7 @@ def _build_pipeline(kernel: Any, *, idle_timeout: float) -> InboundPipeline:
         session_store=SessionBindingStore(),
         default_agent_id="agent-a",
         run_idle_timeout_seconds=idle_timeout,
+        kernel_event_observer=observer,
     )
 
 
@@ -153,3 +156,55 @@ async def test_exemption_exits_after_subsequent_event_then_stalls() -> None:
     assert kernel.cancel_calls == ["run-3"], (
         "once the exemption is cleared, a new stall must hit the watchdog again"
     )
+
+
+async def test_watchdog_timeout_emits_timed_out_reconcile() -> None:
+    """When the watchdog cancels a stalled run, the pipeline must feed a
+    run_terminal_reconcile(timed_out) event to the observer (bugfix-410-M2 R3 #97)."""
+    kernel = _ControlledStreamKernel()
+    observed: list[dict[str, Any]] = []
+    pipeline = _build_pipeline(
+        kernel, idle_timeout=0.1, observer=lambda ev: observed.append(dict(ev))
+    )
+
+    # Stream stalls from the start → watchdog fires.
+    with pytest.raises(TimeoutError):
+        await pipeline._await_terminal_run_async(
+            kernel_session_id="sess-1", run_id="run-1"
+        )
+
+    reconciles = [e for e in observed if e.get("event") == "run_terminal_reconcile"]
+    assert len(reconciles) == 1
+    assert reconciles[0]["run_id"] == "run-1"
+    assert reconciles[0]["reason"] == "timed_out"
+
+
+async def test_terminal_failed_status_emits_interrupted_reconcile() -> None:
+    """An abnormal terminal run_status (failed) must feed reconcile(interrupted)."""
+    kernel = _ControlledStreamKernel()
+    observed: list[dict[str, Any]] = []
+    pipeline = _build_pipeline(
+        kernel, idle_timeout=5.0, observer=lambda ev: observed.append(dict(ev))
+    )
+
+    async def _drive() -> None:
+        kernel.push(
+            {
+                "event": "run_status",
+                "run_id": "run-2",
+                "status": "failed",
+                "error": "boom",
+            }
+        )
+        kernel.end()
+
+    driver = asyncio.create_task(_drive())
+    with pytest.raises(RuntimeError):
+        await pipeline._await_terminal_run_async(
+            kernel_session_id="sess-2", run_id="run-2"
+        )
+    await driver
+
+    reconciles = [e for e in observed if e.get("event") == "run_terminal_reconcile"]
+    assert len(reconciles) == 1
+    assert reconciles[0]["reason"] == "interrupted"
