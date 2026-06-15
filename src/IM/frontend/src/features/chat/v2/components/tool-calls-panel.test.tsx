@@ -86,14 +86,16 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
   });
 
   it("marks a failed call with the error row modifier and a fail tag", async () => {
+    // feat-409 failalign: 折叠行 summary 是干净主参数(description),失败仅由
+    // ✕ 图标 + fail-tag 表达,error 文本绝不出现在折叠行(只在展开卡)。
     const calls: ToolCall[] = [
       {
         id: "b1",
         name: "bash",
         status: "failed",
         input: {},
-        output: "failed: exit 1",
-        detail: { error: { message: "exit 1" } }
+        output: "跑测试",
+        detail: { command: "pytest", exit_code: 1, error: { message: "boom traceback" } }
       }
     ];
     render(<ToolCallsPanel toolCalls={calls} />);
@@ -102,7 +104,25 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
     expect(row?.className).toContain("chat-tool-call-row--failed");
     // The failed call carries a dedicated fail tag in the collapsed row so the
     // failure is visible without expanding (prototype: red "exit 1" tag).
-    expect(row?.querySelector(".chat-tool-call-fail-tag")).not.toBeNull();
+    const tag = row?.querySelector(".chat-tool-call-fail-tag");
+    expect(tag).not.toBeNull();
+    expect(tag?.textContent).toBe("exit 1");
+    // The collapsed row must never leak error text — that belongs to the card.
+    expect(row?.textContent).not.toContain("boom traceback");
+    expect(row?.querySelector(".chat-tool-call-summary")?.textContent).toBe("跑测试");
+  });
+
+  it("suppresses the fail tag when a reason badge is shown (no double label)", async () => {
+    // cr4-frontend: a denied call already shows the "已拒绝" reason badge; the
+    // generic "failed" fail-tag alongside it is a confusing double identifier.
+    const calls: ToolCall[] = [
+      { id: "d1", name: "bash", status: "failed", input: {}, output: "reboot", reason: "denied" }
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    const row = screen.getByText("bash").closest(".chat-tool-call-row");
+    expect(row?.querySelector(".chat-tool-call-reason")).not.toBeNull();
+    expect(row?.querySelector(".chat-tool-call-fail-tag")).toBeNull();
   });
 
   // bugfix-410-M2 R4 (#97): tool_call badge must render the reason label per cause.
