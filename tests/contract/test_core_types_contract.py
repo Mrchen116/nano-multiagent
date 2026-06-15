@@ -39,6 +39,8 @@ def test_tool_contract_fields_are_stable() -> None:
         "content",
         "duration_ms",
         "arguments",
+        # bugfix-410-M2 (#82/#97): sidecar badge classification, separate from error.
+        "reason_code",
     ]
 
 

@@ -100,9 +100,7 @@ async def test_tool_result_propagates_reason_code_from_tool_error() -> None:
     )
 
     executor = StreamingToolExecutor(registry, hook_context=ctx)
-    executor.add_tool(
-        ToolCall(call_id="call-2", name="echo", arguments={"text": "hi"})
-    )
+    executor.add_tool(ToolCall(call_id="call-2", name="echo", arguments={"text": "hi"}))
     results = [r async for r in executor.get_remaining_results()]
 
     assert len(results) == 1

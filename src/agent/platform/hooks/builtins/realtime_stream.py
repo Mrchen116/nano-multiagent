@@ -101,6 +101,8 @@ def setup(hooks):  # noqa: ANN001, ANN201
             "status": "failed" if event.get("error") else "completed",
             "duration_ms": duration_ms,
             "error": event.get("error"),
+            # bugfix-410-M2 (#97): carry the badge classification onto the SSE event.
+            "reason_code": event.get("reason_code"),
             "presentation": _presentation_dict(presentation),
         }
         ctx.publish_session_event(event="tool_end", data=payload)

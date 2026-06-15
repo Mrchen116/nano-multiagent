@@ -3515,6 +3515,10 @@ def _build_kernel_event_observer(
             running_tool_calls.get(run_id, {}).pop(call_id, None)
             duration_ms = event.get("duration_ms")
             status = "failed" if event.get("error") else "completed"
+            # bugfix-410-M2 R4 (#97): forward the badge classification (e.g. "denied"
+            # for a hook-blocked tool) so the IM badge can render the right label.
+            reason_code = event.get("reason_code")
+            reason = str(reason_code).strip() if isinstance(reason_code, str) else None
             output_parts = []
             if event.get("error"):
                 output_parts.append(str(event["error"]))
@@ -3533,6 +3537,7 @@ def _build_kernel_event_observer(
                                 "id": call_id,
                                 "name": tool_name,
                                 "status": status,
+                                "reason": reason,
                                 "input": arguments
                                 if isinstance(arguments, dict)
                                 else {},

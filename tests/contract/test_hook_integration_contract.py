@@ -103,6 +103,9 @@ def test_tool_call_block_error_contract() -> None:
     assert exc_info.value.details == {
         "blocked_by_hook": True,
         "reason": "policy",
+        # bugfix-410-M2 (#97): dedicated badge classification alongside the free-text
+        # reason; every hook block (auto block / user Deny) collapses to "denied".
+        "reason_code": "denied",
         "tool_name": "echo",
     }
 

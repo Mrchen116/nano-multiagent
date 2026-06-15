@@ -552,6 +552,9 @@ class AgentLoop:
                     "output": result.output,
                     "error": result.error,
                     "duration_ms": result.duration_ms,
+                    # bugfix-410-M2 (#97): forward the badge classification so the
+                    # realtime_stream hook can carry it onto the tool_end SSE event.
+                    "reason_code": result.reason_code,
                 },
                 run_id=run_id,
             ),

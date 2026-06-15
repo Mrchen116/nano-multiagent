@@ -28,6 +28,10 @@ export interface Attachment {
   file_name?: string | null;
 }
 
+// bugfix-410-M2 (#97): sidecar badge classification of a non-success terminal,
+// kept separate from `status`. denied→已拒绝 / timed_out→执行超时 / interrupted→已中断.
+export type ToolCallReason = "denied" | "timed_out" | "interrupted";
+
 export interface ToolCall {
   id: string;
   name: string;
@@ -35,6 +39,7 @@ export interface ToolCall {
   input: unknown;
   duration_ms?: number;
   output?: string;
+  reason?: ToolCallReason | string;
 }
 
 export interface TokenUsage {
