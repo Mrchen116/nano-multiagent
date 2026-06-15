@@ -38,3 +38,26 @@
 - Commits: C1=test R2 展开态红测, C2=feat R2 实现, C3=本文档
 
 ## R3 — 长输出两级展开 + 浏览器验收
+
+- Context: R2 后大字段(bash stdout、write content、web content、edit diff)全量渲染，长输出会撑乱聊天流滚动(spec 反例)。需前端两级展开 + 限高滚动 + 源头截断标注。
+- Decision:
+  - `LongOutput` 组件:行数阈值(`LONG_OUTPUT_LINE_THRESHOLD=50`)截断预览 + "展开全部" → `max-height:320px; overflow:auto` 内部滚动 + "收起";`truncatedAtSource`(detail.truncated) 渲染"输出过长，已在源头截断"标注(i18n)。`render` prop 让调用方决定内层元素(终端 `<pre>`/diff 行/web 摘录)，共享截断/滚动/标注 chrome。
+  - bash stdout/stderr、write content、web content、edit diff body 统一走 LongOutput。DiffCard 抽 `diffLineClass`，body 行经 LongOutput 截断再着色。
+  - 决策 5:前端阈值与内核 256KB cap 是两级独立关卡(前端管视觉、内核管体量)。
+- Rationale: 限高滚动让"展开全部"不撑乱消息列表滚动位置(spec)；源头截断标注让用户知道完整输出已在内核侧截断、前端拿不到更多。
+- Evidence:
+  - Tests: `tool-calls-panel.test.tsx` 24 passed(R3 新增 5:截断+toggle/展开显全+collapse/收起回截断/短输出无 toggle/源头截断标注)；全量 vitest 59 files / 398 passed;`tsc --noEmit` 绿;`npm run build` 绿。
+  - Entry: 真实浏览器(gstack Chromium)打开真实 ToolCallsPanel 组件 + 真实 presenter detail schema 样本(临时验收入口 acceptance-tool-calls.html，验收后删除，未提交)。
+  - Frontend State Matrix: default/error(失败标红+终端 exit 1)/long-content(220 行 stdout 截断→展开→限高滚动→收起)/missing-data(read 行无 detail 降级)/mobile(375)/desktop(1440)/dark(默认暗色) 全覆盖。
+  - Browser QA: 打开 http://localhost:62666/acceptance-tool-calls.html;无 console error、无 network failure(仅 google fonts 200);点击展开/收起 toggle 工作;限高验证 expanded 容器 clientHeight=320 < scrollHeight=4101(内部滚动不撑爆)。
+  - E2E/Regression: component test 落库(vitest)，项目无浏览器 E2E 体系，不强行引入。
+  - Visual/Interaction(与 prototype 对照): 截图存主仓 `ACCEPTANCE/feat-409-M2/`：
+    - r3-desktop-1440.png:整体两条消息 5+5 工具，与 prototype 右侧布局一致。
+    - r3-bash-term.png:bash 失败终端块($命令 + stdout 截断 + "Output too long — truncated at source" + "Expand all" + exit 1) —— 对照 prototype 终端块。
+    - r3-edit-diff.png:diff 删除行红/新增行绿着色 —— 对照 prototype diff 视图。
+    - r3-agent.png:DISPATCH PROMPT 完整 prompt 在结果(✓ sub-agent completed)**之前** —— 对照 prototype agent 卡片 + spec 关键要求。
+    - r3-generic.png:未知工具 deploy_infra 按 key/value 行渲染(region/instances/dry_run/stack) —— 决策 4 通用卡片。
+    - r3-mobile-375.png:窄屏不溢出。
+  - 结论:渲染与定稿 prototype 一致;agent 完整 prompt 在结果前、长输出展开不撑乱滚动、失败标红、未知工具通用卡片均符合 spec/design。
+- Rollback: `git revert` R3 C2;LongOutput 是可选包装，回退即全量渲染(不破坏数据)。
+- Commits: C1=test R3 长输出红测, C2=feat R3 实现, C3=本文档

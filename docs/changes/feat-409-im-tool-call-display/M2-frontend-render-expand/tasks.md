@@ -9,13 +9,13 @@
 ## 退出标准
 
 - [ ] `chat-types.ts` ToolCall 增 `detail?: ToolDetail`（结构化 dict）
-- [ ] 折叠态：直接渲染 `output`（presenter 产的 summary）+ `status==failed` 标红 + 真实工具名 + emoji 按 name 兜底映射（**不按 name 派生折叠文案**）
-- [ ] 展开态：按 name 精渲染 bash/edit/write/web_fetch/agent/memory/skill_manage/task_stop；未知/DIY 工具通用结构化卡片
-- [ ] agent 展开：完整 prompt 排在结果前
-- [ ] 长输出两级展开：默认按前端阈值截断 + "展开全部" → 限高内部滚动 + "收起"；`detail.truncated===true` 末尾标注"输出过长，已在源头截断"
-- [ ] 历史无 detail → 降级（回退 output 串显示，不报错）
-- [ ] vitest 覆盖各分支；`npm run build` 绿
-- [ ] 真实浏览器视觉/交互自测，与 prototype 对照
+- [x] 折叠态：直接渲染 `output`（presenter 产的 summary）+ `status==failed` 标红 + 真实工具名 + emoji 按 name 兜底映射（**不按 name 派生折叠文案**）
+- [x] 展开态：按 name 精渲染 bash/edit/write/web_fetch/agent/memory/skill_manage/task_stop；未知/DIY 工具通用结构化卡片
+- [x] agent 展开：完整 prompt 排在结果前
+- [x] 长输出两级展开：默认按前端阈值截断 + "展开全部" → 限高内部滚动 + "收起"；`detail.truncated===true` 末尾标注"输出过长，已在源头截断"
+- [x] 历史无 detail → 降级（回退 output 串显示，不报错）
+- [x] vitest 覆盖各分支；`npm run build` 绿
+- [x] 真实浏览器视觉/交互自测，与 prototype 对照
 
 ## 测试策略
 
@@ -74,7 +74,7 @@ UI 状态矩阵：
 - 步骤: 抽 `tool-detail-renderers.tsx`，按 name 分发 bash/edit/write/web_fetch/agent/memory/skill_manage/task_stop 精渲染（agent prompt 在结果前）；未知 name 但有 detail → 通用结构化卡片按 key 渲染；无 detail → 降级 output 串
 - 验证: component test 各工具展开分支 + 未知工具卡片 + detail 缺失降级
 
-### R3 — 长输出两级展开（截断 + 展开全部限高滚动 + 收起 + 源头截断标注）+ 浏览器验收
+### R3 — 长输出两级展开（截断 + 展开全部限高滚动 + 收起 + 源头截断标注）+ 浏览器验收 — DONE
 
 - 步骤: 大字段（bash stdout/stderr、write content、web content、edit diff）前端阈值截断 + "展开全部" → max-height+overflow auto + "收起"；detail.truncated===true 末尾标注源头截断；global.css 补样式
 - 验证: component test 截断/展开/收起/源头截断标注；npm run build；真实浏览器 1440/375 截图与 prototype 对照
