@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "../../../../i18n";
 import type { ToolCall } from "../chat-types";
 import { ToolDetailBody } from "./tool-detail-renderers";
-import { collapsedSummary, failTag, toolEmoji } from "./tool-presentation";
+import { collapsedSummary, failTag, isCallFailed, toolEmoji } from "./tool-presentation";
 
 interface ToolCallsPanelProps {
   toolCalls: ToolCall[];
@@ -87,13 +87,16 @@ const REASON_LABEL_KEYS: Record<string, string> = {
 function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpen?: boolean }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(defaultOpen);
-  const statusColor =
-    call.status === "completed"
-      ? "oklch(0.55 0.18 145)"
-      : call.status === "running"
-        ? "oklch(0.70 0.18 60)"
-        : "oklch(0.55 0.15 25)";
-  const statusIcon = call.status === "running" ? "◌" : call.status === "completed" ? "●" : "✕";
+  // Failure derives from isCallFailed (status OR detail.success===false), so
+  // never-raising tools (memory/skill failures) also render red (Round-3 fix).
+  const failed = isCallFailed(call);
+  const statusColor = failed
+    ? "oklch(0.55 0.15 25)"
+    : call.status === "running"
+      ? "oklch(0.70 0.18 60)"
+      : "oklch(0.55 0.18 145)";
+  const statusIcon = failed ? "✕" : call.status === "running" ? "◌" : "●";
+  const rowStatus = failed ? "failed" : call.status;
   const reasonKey = call.reason ? REASON_LABEL_KEYS[call.reason] : undefined;
   // 决策 4: emoji is name-keyed (visual only, generic fallback); summary text is
   // the presenter-produced `output`, not derived by name.
@@ -104,7 +107,7 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
     <li className="chat-tool-call-item">
       <button
         type="button"
-        className={`chat-tool-call-row chat-tool-call-row--${call.status}`}
+        className={`chat-tool-call-row chat-tool-call-row--${rowStatus}`}
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >

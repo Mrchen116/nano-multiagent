@@ -277,13 +277,29 @@ function AgentCard({ detail }: { detail: ToolDetail }) {
 
 function MemoryCard({ detail }: { detail: ToolDetail }) {
   const { t } = useTranslation();
+  const action = str(detail.action);
   const target = str(detail.target);
   const content = str(detail.content);
   const message = str(detail.message);
+  // Round-3 fix: memory never raises — failures come back as success:false with
+  // the reason in `message`. Render a failure state (✕ + error text), not ✓.
+  const failed = detail.success === false;
+  if (failed) {
+    return (
+      <div className="chat-tool-detail-info chat-tool-detail-info--failed">
+        <div className="chat-tool-detail-info-head">✕ {message || str(detail.error)}</div>
+      </div>
+    );
+  }
   return (
     <div className="chat-tool-detail-info">
       <div className="chat-tool-detail-info-head">
         ✓ {message || t("chat.messagePane.toolDetail.memoryDone", { target })}
+      </div>
+      {/* minor: surface what was written — action + target, then the content. */}
+      <div className="chat-tool-detail-info-meta">
+        {action}
+        {target && ` · ${target}`}
       </div>
       {content && <div className="chat-tool-detail-info-body">{content}</div>}
     </div>
@@ -291,11 +307,26 @@ function MemoryCard({ detail }: { detail: ToolDetail }) {
 }
 
 function SkillCard({ detail }: { detail: ToolDetail }) {
+  const action = str(detail.action);
+  const name = str(detail.name);
   const message = str(detail.message);
   const path = str(detail.path);
+  const failed = detail.success === false;
+  if (failed) {
+    return (
+      <div className="chat-tool-detail-info chat-tool-detail-info--failed">
+        <div className="chat-tool-detail-info-head">
+          ✕ {[action, name].filter(Boolean).join(" ")}
+        </div>
+        <div className="chat-tool-detail-info-body">{message || str(detail.error)}</div>
+      </div>
+    );
+  }
   return (
     <div className="chat-tool-detail-info">
-      <div className="chat-tool-detail-info-head">✓ {message || str(detail.name)}</div>
+      {/* minor: show the skill name + action explicitly, not just ✓. */}
+      <div className="chat-tool-detail-info-head">✓ {[action, name].filter(Boolean).join(" ")}</div>
+      {message && <div className="chat-tool-detail-info-meta">{message}</div>}
       {path && <div className="chat-tool-detail-info-body">{path}</div>}
     </div>
   );

@@ -43,12 +43,24 @@ export function collapsedSummary(call: ToolCall): string {
 }
 
 /**
+ * Whether a tool call failed. Two failure channels (Round-3 fix):
+ *  - `call.status === "failed"` — kernel reported a result.error (out-of-band).
+ *  - `detail.success === false` — tools that never raise (memory/skill_manage
+ *    return {success:False, error}); the kernel sees no error so status stays
+ *    "completed", but the call did fail. The collapsed row + cards must treat
+ *    these as failures (spec: failed tool calls are red).
+ */
+export function isCallFailed(call: ToolCall): boolean {
+  return call.status === "failed" || call.detail?.success === false;
+}
+
+/**
  * Short fail tag shown inline on a failed collapsed row. bash failures often
  * carry an exit code in detail; otherwise fall back to a generic "failed" label
  * (the red row styling already conveys failure).
  */
 export function failTag(call: ToolCall): string | null {
-  if (call.status !== "failed") return null;
+  if (!isCallFailed(call)) return null;
   const exit = call.detail?.exit_code;
   if (typeof exit === "number" && exit !== 0) return `exit ${exit}`;
   return "failed";

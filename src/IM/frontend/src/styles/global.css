@@ -2577,6 +2577,18 @@ body {
   margin-bottom: 0.2rem;
 }
 
+/* Round-3 fix: never-raising tools (memory/skill) failures → red head. */
+.chat-tool-detail-info--failed .chat-tool-detail-info-head {
+  color: oklch(0.65 0.18 25);
+}
+
+.chat-tool-detail-info-meta {
+  color: oklch(0.55 0.04 250);
+  font-family: var(--im-font-mono);
+  font-size: 0.68rem;
+  margin-bottom: 0.2rem;
+}
+
 .chat-tool-detail-info-body {
   color: oklch(0.65 0.02 240);
   white-space: pre-wrap;

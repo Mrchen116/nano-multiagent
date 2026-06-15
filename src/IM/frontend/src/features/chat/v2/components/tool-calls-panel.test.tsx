@@ -506,3 +506,114 @@ describe("ToolCallsPanel · bespoke failure routing (Round-1 fix)", () => {
     expect(screen.getByText(/raw failure string/)).toBeInTheDocument();
   });
 });
+
+// feat-409-M2 Round-3 fix: memory/skill_manage failures (kernel never raises —
+// returns {success:False, error}) were rendered as success. detail carries
+// {message:err, success:False} with NO error key → isErrorOnly=false → routed to
+// MemoryCard/SkillCard which always render ✓; collapsed row not red (call.status
+// is completed since kernel reported no result.error). Failure must derive from
+// detail.success===false, not call.status alone.
+describe("ToolCallsPanel · success-false failure (Round-3 fix)", () => {
+  function renderSingle(call: ToolCall) {
+    return render(<ToolCallsPanel toolCalls={[call]} />);
+  }
+  async function open() {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /tool call/i }));
+  }
+
+  it("renders a memory success=false detail as a failure (✕ + error text, not ✓)", async () => {
+    const { container } = renderSingle({
+      id: "m1",
+      name: "memory",
+      status: "completed", // kernel reported no result.error
+      output: "failed: add action requires content",
+      input: {},
+      detail: {
+        action: "add",
+        target: "project",
+        content: "",
+        message: "add action requires content",
+        success: false
+      }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toContain("add action requires content");
+    // Must NOT show the success check.
+    expect(card?.textContent).not.toContain("✓");
+    // A dedicated failure marker / styling is present.
+    expect(container.querySelector(".chat-tool-detail-info--failed")).not.toBeNull();
+  });
+
+  it("renders a skill_manage success=false detail as a failure (✕ + error text, not ✓)", async () => {
+    const { container } = renderSingle({
+      id: "s1",
+      name: "skill_manage",
+      status: "completed",
+      output: "failed: skill not found",
+      input: {},
+      detail: { action: "edit", name: "log-cleanup", message: "skill not found", path: "", success: false }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toContain("skill not found");
+    expect(card?.textContent).not.toContain("✓");
+    expect(container.querySelector(".chat-tool-detail-info--failed")).not.toBeNull();
+  });
+
+  it("marks the collapsed row red + fail tag when detail.success===false (call.status=completed)", async () => {
+    const { container } = renderSingle({
+      id: "m1",
+      name: "memory",
+      status: "completed",
+      output: "failed: add action requires content",
+      input: {},
+      detail: { action: "add", target: "project", content: "", message: "add action requires content", success: false }
+    });
+    await open();
+    const row = container.querySelector(".chat-tool-call-row");
+    // Failure styling derived from detail.success, not call.status.
+    expect(row?.className).toContain("chat-tool-call-row--failed");
+    expect(row?.querySelector(".chat-tool-call-fail-tag")).not.toBeNull();
+  });
+
+  it("still renders a memory success=true detail with the success check + content", async () => {
+    const { container } = renderSingle({
+      id: "m1",
+      name: "memory",
+      status: "completed",
+      output: "saved",
+      input: {},
+      detail: {
+        action: "add",
+        target: "project",
+        content: "heartbeat 状态迁移到 ~/.nano-assistant/",
+        message: "saved",
+        success: true
+      }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toContain("✓");
+    // minor: written content is surfaced clearly (target + content).
+    expect(card?.textContent).toContain("project");
+    expect(card?.textContent).toContain("heartbeat 状态迁移到 ~/.nano-assistant/");
+    expect(container.querySelector(".chat-tool-detail-info--failed")).toBeNull();
+  });
+
+  it("surfaces the skill name + action on a successful skill_manage card", async () => {
+    const { container } = renderSingle({
+      id: "s1",
+      name: "skill_manage",
+      status: "completed",
+      output: "created log-cleanup",
+      input: {},
+      detail: { action: "create", name: "log-cleanup", message: "created skills/log-cleanup/SKILL.md", path: "skills/log-cleanup", content: "", success: true }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toContain("log-cleanup");
+    expect(card?.textContent).toContain("create");
+  });
+});
