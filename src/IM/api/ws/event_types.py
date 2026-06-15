@@ -52,6 +52,9 @@ def tool_call_to_dict(tool_call: ToolCall) -> dict[str, Any]:
         payload["duration_ms"] = tool_call.duration_ms
     if tool_call.output is not None:
         payload["output"] = tool_call.output
+    # bugfix-410-M2 (#97): sidecar badge reason, present only on non-success terminal.
+    if tool_call.reason is not None:
+        payload["reason"] = tool_call.reason
     return payload
 
 

@@ -181,6 +181,15 @@ class StreamingToolExecutor:
             item.status = "completed"
             raise
         except Exception as exc:
+            # bugfix-410-M2 (#97): lift the dedicated reason_code (e.g. "denied" for a
+            # hook block) out of a ToolError so it survives into the ToolResult; the
+            # registry only kept str(exc) before, dropping the classification.
+            reason_code = None
+            details = getattr(exc, "details", None)
+            if isinstance(details, Mapping):
+                rc = details.get("reason_code")
+                if isinstance(rc, str) and rc:
+                    reason_code = rc
             item.result = ToolResult(
                 call_id=item.tool_call.call_id,
                 name=item.tool_call.name,
@@ -188,6 +197,7 @@ class StreamingToolExecutor:
                 error=str(exc),
                 duration_ms=item.duration_ms,
                 arguments=dict(item.tool_call.arguments),
+                reason_code=reason_code,
             )
             item.status = "completed"
             # Bash error triggers sibling abort.
@@ -209,6 +219,7 @@ class StreamingToolExecutor:
                     content=item.result.content,
                     duration_ms=item.duration_ms,
                     arguments=item.result.arguments,
+                    reason_code=item.result.reason_code,
                 )
         item._event.set()
         await self._process_queue()

@@ -172,7 +172,13 @@ class ToolRegistry:
                     tool_name=name,
                     details={
                         "blocked_by_hook": True,
+                        # Model-facing free-text reason (auto_mode_gate <reason> or the
+                        # "no permission channel" string for a user Deny).
                         "reason": tool_call_payload.get("reason"),
+                        # bugfix-410-M2 (#97): dedicated badge classification, kept
+                        # separate from the free-text reason. Every block (auto block
+                        # AND user Deny — both return {block:True} here) is "denied".
+                        "reason_code": "denied",
                     },
                 )
 
