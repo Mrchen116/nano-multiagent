@@ -10,6 +10,8 @@ from IM.api.routes import messages as message_routes
 from IM.api.routes import web_im
 from IM.app import _resolve_frontend_dist_candidates, create_app
 
+from ._route_introspection import walk_routes
+
 
 def test_resolve_frontend_dist_candidates_keeps_repo_dist_as_runtime_fallback(
     tmp_path: Path, monkeypatch
@@ -35,7 +37,9 @@ def test_resolve_frontend_dist_candidates_keeps_repo_dist_as_runtime_fallback(
 def test_create_app_registers_im_routes(tmp_path: Path) -> None:
     """Build IM app with required base routes for auth and conversations (post feat-340-M1)."""
     app = create_app(db_path=tmp_path / "im.db")
-    route_paths = {route.path for route in app.routes}
+    route_paths = {
+        route.path for route in walk_routes(app.routes) if hasattr(route, "path")
+    }
 
     assert "/im/v1/auth/register" in route_paths
     assert "/im/v1/conversations" in route_paths
@@ -45,16 +49,17 @@ def test_create_app_uses_layered_route_modules(tmp_path: Path) -> None:
     """Register routes from api.routes modules instead of inline handlers."""
     app = create_app(db_path=tmp_path / "im.db")
 
+    routes = list(walk_routes(app.routes))
     assert any(
-        getattr(route, "endpoint", None) is auth_routes.register for route in app.routes
+        getattr(route, "endpoint", None) is auth_routes.register for route in routes
     )
     assert any(
         getattr(route, "endpoint", None) is web_im.create_conversation
-        for route in app.routes
+        for route in routes
     )
     assert any(
         getattr(route, "endpoint", None) is message_routes.create_message
-        for route in app.routes
+        for route in routes
     )
 
 
