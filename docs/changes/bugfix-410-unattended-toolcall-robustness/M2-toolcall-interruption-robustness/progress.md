@@ -45,7 +45,22 @@
 
 ## R3 — #97 终态在飞 tool_call reconcile
 
-（待补）
+- Context: run 异常终止（看门狗超时/崩溃/interrupt）时，已发 tool_start 但未收 tool_end 的 tool_call 永远收不到 `tool_call_completed`（observer 只在 tool_end 发，`main.py:3114`）→ IM 徽标永久转圈（#97）。
+- Decision: observer 跟踪 running tool_call（决策 4）。observer 闭包持 `running_tool_calls: dict[run_id, dict[call_id, name]]`，tool_start 记/tool_end 清。新增合成事件 `run_terminal_reconcile`：observer 对该 run 剩余在飞 tool_call 补发 `tool_call_completed` status=failed + reason。pipeline `_emit_terminal_reconcile(run_id, reason)` 在两条终态路径喂该事件——看门狗 TimeoutError→`timed_out`、终态 failed/cancelled（含 stream ended without terminal）→`interrupted`。
+- Rationale:
+  - 「已拒绝」不走在飞收口（决策 4）：deny 的工具从不进 running（bugfix-367），在 R4 由 registry denied + tool_result ✕ 渲染，不在此路径。
+  - 已完成工具 tool_end 时已 pop 出 running 集，reconcile 不碰它们（含 exit≠0 的失败命令保留原终态）。
+  - reason 旁路字段（决策 5），不扩 status 枚举——status 仍 failed，前端 R4 读 reason 决定文案。
+- Evidence:
+  - Tests: observer `test_inbound_pipeline_streaming.py::TestTerminalToolCallReconcile` 3 passed（在飞收口带 reason / 已完成不改写 / interrupted reason）；pipeline `test_inbound_pipeline_permission_watchdog.py` 5 passed（含 2 新 timed_out/interrupted 喂事件断言）。pipeline+streaming 套件 571 passed。
+  - Entry: 跨进程 observer→IM，真实入口=用真实 `_build_kernel_event_observer` 闭包跑 tool_start/tool_end/reconcile 序列，捕获真实 `manager.send_json` 的 streaming_delta；pipeline 用真实 `_await_terminal_run_async` 跑看门狗超时/终态 failed，断言真喂 reconcile 事件给 observer。
+  - Frontend State Matrix: reason 文案在 R4 做（本 R 后端补发 reason，IM ToolCall 字段未加→reason 暂被 IM 丢弃，R4 补全链）
+  - Browser QA: R4 统一做
+  - E2E/Regression: 上述两组测试全落库
+  - Visual/Interaction: N/A（R4）
+- Rollback: revert R3 fix commit
+- Commits: C1=observer reconcile 红测, C2=observer 跟踪+pipeline 喂事件 fix, C3=本段 docs
+- Note(给 R4): reconcile delta 已带 `reason` 字段，但 IM ToolCall model / 透传 / 前端文案在 R4 补；R3 后 reason 暂在 IM `_parse_tool_call` 处丢弃，R4 接通后端到端贯通。
 
 ## R4 — reason_code 全链 + 前端文案
 
