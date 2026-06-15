@@ -129,6 +129,42 @@ describe("MessagePane", () => {
     expect(screen.queryByText(/\|------\|/)).toBeNull();
   });
 
+  // CR-6: GFM table column alignment — th/td align attr mapped to style.textAlign
+  it("applies column alignment from GFM table delimiter row to th and td", () => {
+    const alignMsg: Message = {
+      id: "m-align",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "a-planner",
+      sender_type: "agent",
+      content: [
+        "| Left | Center | Right |",
+        "|:-----|:------:|------:|",
+        "| a    | b      | c     |",
+      ].join("\n"),
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:02Z",
+      permission_requests: [],
+    };
+    const { container } = render(
+      <MessagePane
+        conversation={DIRECT_CONV}
+        messages={[alignMsg]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+      />
+    );
+    const headers = container.querySelectorAll("th");
+    expect(headers[0]?.style.textAlign).toBe("left");
+    expect(headers[1]?.style.textAlign).toBe("center");
+    expect(headers[2]?.style.textAlign).toBe("right");
+    const cells = container.querySelectorAll("tbody td");
+    expect(cells[0]?.style.textAlign).toBe("left");
+    expect(cells[1]?.style.textAlign).toBe("center");
+    expect(cells[2]?.style.textAlign).toBe("right");
+  });
+
   it("keeps blank lines inside fenced code blocks", () => {
     const codeMsg: Message = {
       id: "m-code",

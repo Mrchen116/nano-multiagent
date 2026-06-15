@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import React, { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -446,12 +446,27 @@ function MessageBubble({
   );
 }
 
+// CR-3: remarkPlugins 和无闭包依赖的 table/th/td components 提到模块级常量，
+// 避免每次 render 重建引用导致 react-markdown 重建 unified pipeline。
+
+// CR-2: node prop 不透传 DOM（react-markdown v10 ExtraProps 传 node，不是合法 DOM attr）。
+// CR-6: hast-util-to-jsx-runtime 已将 hast align → style.textAlign，直接透传 props
+// 即可保留对齐（无需在 components 中二次转换 align 属性）。
+const MD_REMARK_PLUGINS = [remarkGfm, remarkMention] as const;
+const MD_TABLE_COMPONENTS: Pick<Components, "table" | "th" | "td"> = {
+  table: ({ node: _node, ...props }) => (
+    <table {...props} className="im-md-table" />
+  ),
+  th: ({ node: _node, ...props }) => <th {...props} />,
+  td: ({ node: _node, ...props }) => <td {...props} />,
+};
+
 /**
  * MarkdownContent — 渲染 agent/对方气泡的块级 Markdown 内容。
  *
  * bugfix-413: 改用 react-markdown + remark-gfm 取代手写渲染器，彻底支持
  * CommonMark/GFM（标题/分隔线/引用块/嵌套列表/链接/表格/代码块）。
- * @mention 经 rehypeMention 插件在 hast 层切出，注入带 data-* 属性的 <span>，
+ * @mention 经 remarkMention 插件在 mdast 层切出，注入带 data-* 属性的 <span>，
  * 再由 components.span 映射渲染成 .chat-mention-chip。
  *
  * 对外 props 签名不变，调用点（message-pane.tsx:401）零改动。
@@ -464,23 +479,23 @@ function MarkdownContent({
   content: string;
   participants?: Actor[];
 }) {
-  // Build lookup map once per render for mention chip resolution.
-  const participantMap = new Map<string, string>();
-  if (participants) {
-    for (const p of participants) {
-      participantMap.set(p.id, p.display_name ?? p.id);
+  // CR-3: participantMap 和 components 用 useMemo，仅 participants 变化时重建，
+  // 保证 react-markdown 的 components 引用稳定，不触发不必要的 pipeline 重建。
+  const participantMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (participants) {
+      for (const p of participants) {
+        map.set(p.id, p.display_name ?? p.id);
+      }
     }
-  }
+    return map;
+  }, [participants]);
 
-  // components map: GFM table → .im-md-table class;
-  // span with data-mention-target-id → .chat-mention-chip (injected by remarkMention
-  // via data.hName="span" + data.hProperties, which remark-rehype auto-converts).
-  const components: Components = {
-    table: ({ children, ...props }) => (
-      <table {...props} className="im-md-table">{children}</table>
-    ),
-    span: ({ children, ...props }) => {
-      // remarkMention sets data-mention-target-id on the injected <span>.
+  const components: Components = useMemo(() => ({
+    ...MD_TABLE_COMPONENTS,
+    // CR-2: node prop 不透传 DOM。
+    // remarkMention sets data-mention-target-id on the injected <span>.
+    span: ({ node: _node, children, ...props }) => {
       const targetId = (props as Record<string, unknown>)["data-mention-target-id"] as string | undefined;
 
       if (!targetId) {
@@ -503,12 +518,12 @@ function MarkdownContent({
         </span>
       );
     },
-  };
+  }), [participantMap]);
 
   return (
     <div className="im-md">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMention]}
+        remarkPlugins={MD_REMARK_PLUGINS}
         components={components}
       >
         {content}
