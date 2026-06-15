@@ -34,8 +34,6 @@ from personal_assistant.channels.web_relay_adapter import (
     WebRelayAdapter,
 )
 
-# refactor-387-M4: import from agent.sdk (public surface) instead of agent.core internals.
-from agent.sdk import init_model_registry
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
     ChannelConfig,
@@ -67,6 +65,7 @@ from personal_assistant.gateway.session_keys import (
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
     build_agent_capabilities_payload,
+    build_node_capabilities_payload,
     build_runtime_capabilities,
 )
 from personal_assistant.scheduler.heartbeat_scheduler import (
@@ -80,7 +79,7 @@ from personal_assistant.scheduler.cron_scheduler import (
 )
 from personal_assistant.scheduler.cron_runner import CronRunner
 from personal_assistant.scheduler.cron_execution_service import CronExecutionService
-from personal_assistant.scheduler.gateway_cron_dispatcher import GatewayCronDispatcher
+from personal_assistant.scheduler.cron_service_registry import CronServiceRegistry
 from personal_assistant.auth.im_auth_client import IMAuthClient, IMAuthError
 from personal_assistant.ws.im_connection import (
     AgentCreateHandler,
@@ -1464,7 +1463,7 @@ class GatewayRuntime:
         internal_dispatch_handler: InternalDispatchHandler | None = None,
         gateway_internal_port: int = 8089,
         kernel: object | None = None,
-        cron_dispatcher: GatewayCronDispatcher | None = None,
+        cron_dispatcher: CronServiceRegistry | None = None,
     ) -> None:
         self._config = config
         self._process_manager = process_manager
@@ -1686,7 +1685,8 @@ def run_gateway(
         load_config=resolved_factories.load_config,
         im_service_url_override=im_service_url_override,
     )
-    init_model_registry(config.llm)
+    # refactor-406-M2: model registry init is build_kernel's responsibility (决策 5):
+    # build_runtime → build_pa_kernel → build_kernel inits the registry from config.llm.
     builder = resolved_factories.build_runtime or build_runtime
     runtime = builder(config)
     restore_signal_handlers = (
@@ -1894,8 +1894,17 @@ class _KernelClientShim:
     which silently prevented all heartbeat/cron runs from being submitted).
     """
 
-    def __init__(self, kernel: "Kernel") -> None:
+    def __init__(
+        self,
+        kernel: "Kernel",
+        *,
+        agents_by_id: dict[str, Any] | None = None,
+    ) -> None:
         self._kernel = kernel
+        # refactor-406-M1 R6: per-agent config for building PromptSlots at
+        # session-open (决策 8).  heartbeat/cron sessions look up the agent by
+        # metadata["agent_id"] and assemble the PA prompt via prompt_for.
+        self._agents_by_id = agents_by_id or {}
 
     async def create_session(
         self,
@@ -1905,10 +1914,30 @@ class _KernelClientShim:
         title: str | None = None,
         metadata: dict[str, object] | None = None,
     ) -> dict[str, object]:
+        # Build per-session PromptSlots from the agent config (决策 8).  cron /
+        # heartbeat sessions are direct (no group scenario), so only head/body/custom
+        # slots populate; the tail (group context) stays empty.
+        prompt = None
+        enabled_tools = None
+        features = None
+        agent_id = (metadata or {}).get("agent_id")
+        agent = self._agents_by_id.get(agent_id) if isinstance(agent_id, str) else None
+        if agent is not None:
+            from personal_assistant.product import (  # noqa: PLC0415
+                prompt_for,
+                resolve_enabled_tools,
+            )
+
+            prompt = prompt_for(agent, scenario=metadata or {})
+            enabled_tools = resolve_enabled_tools(agent)
+            features = dict(getattr(agent, "features", {}) or {})
         session = await self._kernel.create_session(
             title=title,
             workspace_root=Path(workspace_root),
             metadata=metadata,
+            prompt=prompt,
+            enabled_tools=enabled_tools,
+            features=features,
         )
         return {"session_id": session.session_id}
 
@@ -2030,15 +2059,32 @@ def _make_prompt_preview_provider(kernel: Any) -> "PromptPreviewProvider":
         scenario: str,
         skill_ids: list = (),
     ) -> dict:
-        # feat-394-M9: heartbeat/cron gates are now driven by ctx.flags via
-        # features dict; heartbeat_enabled/cron_enabled params retired.
+        # refactor-406-M1 R6 决策 8 (preview same-source): build PromptSlots with
+        # the SAME prompt_for factory the runtime uses, from an "imaginary agent"
+        # carrying the preview's feature flags / custom prompt.  Preview-seen ==
+        # runtime-run; one byte-identity golden guards both.  Group scenario maps
+        # to the prompt_for tail.
+        from personal_assistant.product import prompt_for  # noqa: PLC0415
+
+        feat = dict(features or {})
+        scen_type = scenario or "direct"
+
+        class _PreviewAgent:
+            heartbeat_enabled = bool(feat.get("heartbeat", False))
+            cron_enabled = bool(feat.get("cron_scheduling", False))
+
+        _PreviewAgent.custom_prompt = custom_prompt  # type: ignore[attr-defined]
+        prompt_scenario: dict = {"conversation_type": scen_type}
+        prompt = prompt_for(_PreviewAgent(), scenario=prompt_scenario)
+
         return kernel.assemble_prompt_preview(
             workspace_root=_Path(workspace_root) if workspace_root else None,
-            features=features or {},
-            custom_prompt=custom_prompt,
+            features=feat,
             tool_ids=list(tool_ids) if tool_ids else [],
-            scenario=scenario or "direct",
+            scenario=scen_type,
             skill_ids=list(skill_ids) if skill_ids else [],
+            prompt=prompt,
+            enabled_tools=list(tool_ids) if tool_ids else None,
         )
 
     return _provider  # type: ignore[return-value]
@@ -2090,38 +2136,51 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     refactor-387 M3: kernel is now in-process via agent.sdk.  No kernel child
     process is spawned; GatewayProcessManager is no longer used here.
     """
-    # refactor-387-M4: import from agent.sdk only
-    from agent.sdk import (
-        build_kernel,
-        LLMFactoryConfig as _LLMFactoryConfig,
-        PERSONAL_ASSISTANT_PROFILE,
-    )
+    # refactor-406-M1 R6: PA assembles its kernel through the 2-layer SDK surface
+    # via its own factory (personal_assistant.product).  PA imports only agent.sdk +
+    # its own package — no product_profile / host_capabilities.
+    from agent.sdk import LLMConfig
+    from personal_assistant.product import build_pa_kernel
 
     # PA does not supply can_use_tool: permission ask always parks on broker future
     # and is resolved by the user clicking Allow/Deny on the IM card via
     # kernel.submit_permission_decision.  Unattended origins (heartbeat/cron) short-circuit
     # before reaching ask via auto_mode_gate's unattended_fallback — they never park.
-    llm_factory_config = _LLMFactoryConfig.from_env()
+    #
+    # The LLM catalog + active connection come from the Gateway config's ``llm:``
+    # block (config.llm, an LLMConfigPayload) — NOT from_env — so the configured
+    # default_model + provider catalog (incl. per-model extra_request_body like the
+    # K2.6 thinking config) flow into build_kernel and the model registry.  decision 5:
+    # build_kernel owns registry init internally from this LLMConfig.
+    llm = LLMConfig.from_payload(config.llm)
 
-    # bugfix-402-M4 R4: create a mutable GatewayCronDispatcher before build_kernel so the
-    # dispatcher reference can be injected into the kernel's base ToolContext immediately.
-    # Per-agent CronExecutionService instances are registered after kernel_shim is ready
-    # (execute_fn captures kernel_shim; services dict is mutable so register() works post-build).
-    _cron_dispatcher = GatewayCronDispatcher()
+    # CronServiceRegistry holds the per-agent CronExecutionService map + lifecycle
+    # (set_gateway_loop / drain_all / register).  refactor-406 决策 9: the cron *tool*
+    # holds this registry's mutable ``services`` dict directly and routes by agent_id —
+    # no HostCapabilityDispatcher round-trip into the kernel.  Sharing the same dict
+    # reference means services registered after build (post-kernel_shim) are visible to
+    # the already-built tool closure.
+    _cron_dispatcher = CronServiceRegistry()
 
-    kernel = build_kernel(
-        product_profile=PERSONAL_ASSISTANT_PROFILE,
-        llm_config=llm_factory_config,
-        host_capabilities=_cron_dispatcher,
+    kernel = build_pa_kernel(
+        llm=llm,
+        cron_services=_cron_dispatcher.services,  # shared mutable map (决策 9)
         # can_use_tool=None: IM card flow; see submit_permission_decision.
     )
 
     # Wrap Kernel as a _KernelClientLike shim so HeartbeatScheduler and
     # InternalDispatchHandler (which still use kernel_client protocol) work
     # without modification until M4 cleanup.
-    kernel_shim = _KernelClientShim(kernel)
+    kernel_shim = _KernelClientShim(
+        kernel,
+        agents_by_id={a.agent_id: a for a in config.agents},
+    )
 
     runtime_dir = config.source_path.parent
+    # The shim builds per-session PromptSlots/enabled_tools/features from agent config
+    # (决策 8).  Point it at the live pipeline._agents dict (set after the pipeline is
+    # built below) so config-sync register_agent updates — e.g. enabling heartbeat/cron —
+    # reach heartbeat/cron sessions; a startup snapshot would go stale.
     channel_registry = _build_channel_registry(
         config.channels,
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
@@ -2188,7 +2247,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             node=config.node,
             agents=config.agents,
             send_frame=lambda _message_type, _payload: None,
-            capabilities=build_runtime_capabilities(),
+            capabilities=build_runtime_capabilities(kernel),
         )
         im_config_sync_client = _IMConfigSyncClient(
             base_url=config.im_service.url,
@@ -2262,12 +2321,14 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             ),
             agent_capabilities_provider=lambda agent_id, workspace_root: (
                 build_agent_capabilities_payload(
+                    kernel,
                     workspace_root=workspace_root,
                     tool_allowlist=_resolve_agent_tool_allowlist(
                         im_config_sync_client, agent_id
                     ),
                 )
             ),
+            node_capabilities_provider=lambda: build_node_capabilities_payload(kernel),
             # sdk-fix-prompt-preview: assemble_prompt_preview is now available on the
             # in-process Kernel (refactor-387 M3 regression fix).  The provider
             # signature matches PromptPreviewProvider: (agent_id, workspace_root,
@@ -2354,7 +2415,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         loop), pass None; set_gateway_loop() will inject the loop later.
         """
         # Skip if already registered (idempotent — reconcile may call multiple times).
-        if _cron_dispatcher._resolve_service(agent_id) is not None:  # noqa: SLF001
+        if _cron_dispatcher.resolve(agent_id) is not None:
             return
         execute_fn = _build_cron_execute_fn(agent_id=agent_id, ws_root=ws_root)
         service = CronExecutionService(
@@ -2551,7 +2612,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # reconcile_all_agents() rewrites it from IM (IM stores the original main
         # config path; the registered CronExecutionService may use a local/worktree
         # path).  agent_id is stable and unambiguous across all data sources.
-        _service = _cron_dispatcher._resolve_service(agent_id)  # noqa: SLF001
+        _service = _cron_dispatcher.resolve(agent_id)
         if _service is None:
             # Agent was dynamically registered after startup (IM config sync) without a
             # corresponding CronExecutionService.  Warn and skip — the service will be
@@ -2587,6 +2648,10 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     # Provide agents dict reference (closure over pipeline for dynamic updates).
     heartbeat_runner._cron_tick_fn = _cron_tick_for_agent  # noqa: SLF001
     heartbeat_runner._agents = pipeline._agents  # noqa: SLF001
+    # refactor-406-M1 R6: share the live pipeline._agents dict so the shim's PromptSlots/
+    # features (built per heartbeat/cron session) reflect config-sync updates, same as
+    # the heartbeat scheduler/runner above.
+    kernel_shim._agents_by_id = pipeline._agents  # noqa: SLF001
     # feat-394-M4 R3 S1.3 fix: wire a live agents_getter into the heartbeat scheduler
     # so each tick reads the current agent config from pipeline._agents rather than the
     # frozen config.agents tuple captured at init time.  This lets heartbeat_enabled=False
@@ -2854,6 +2919,7 @@ def _build_im_connection_manager(
     sync_client: ConfigSyncClient | None = None,
     agent_config_provider: Callable[[str], dict[str, object] | None] | None = None,
     agent_capabilities_provider: Callable[[str, str], dict[str, object]] | None = None,
+    node_capabilities_provider: Callable[[], dict[str, object]] | None = None,
     prompt_preview_provider: Callable[..., Any] | None = None,
     agent_create_handler: AgentCreateHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
@@ -2871,6 +2937,7 @@ def _build_im_connection_manager(
         heartbeat_trigger=lambda _agent_id, _reason: heartbeat_runner.request_tick(),
         agent_config_provider=agent_config_provider,
         agent_capabilities_provider=agent_capabilities_provider,
+        node_capabilities_provider=node_capabilities_provider,
         prompt_preview_provider=prompt_preview_provider,
         agent_create_handler=agent_create_handler,
         token_getter=token_getter,

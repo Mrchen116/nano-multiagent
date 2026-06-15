@@ -239,3 +239,13 @@ Snipaste_*.png
 src/IM/frontend/dist/
 sessions/
 .gstack/
+
+# refactor-406-M1: e2e / Gateway runtime artifacts — secrets, local config, PIDs,
+# and per-agent workspace files (memory/cron/heartbeat) produced by scripts/e2e-up.sh
+# and live Gateway runs. Never commit these.
+.e2e-*
+.gateway-config.yaml
+.gateway-workspace/
+*.pid
+heartbeat-state.json
+session_bindings.sqlite3*

@@ -447,25 +447,24 @@ class InboundPipeline:
         # Resolve per-agent config into session parameters.
         session_metadata = self._build_session_metadata(message, agent_id=agent_id)
         agent_skills = list(agent.skills) if agent.skills else None
-        # feat-394 fix: tool_allowlist is a TRUE whitelist — a non-empty list means
-        # exactly those tools, so default file/web tools CAN be disabled. cron is a
-        # gated capability; M9 R4: we read agent.cron_enabled (@property from features
-        # dict) here and append "cron" before resolving, keeping the function signature
-        # free of feature-model booleans.
-        from agent.sdk import PERSONAL_ASSISTANT_PROFILE as _PA_PROFILE  # noqa: PLC0415
-
-        raw_allowlist = list(agent.tool_allowlist) if agent.tool_allowlist else []
-        if agent.cron_enabled and "cron" not in raw_allowlist:
-            raw_allowlist.append("cron")
-        agent_tool_allowlist = resolve_effective_tool_allowlist(
-            raw_allowlist,
-            default_tool_ids=_PA_PROFILE.default_tool_ids or (),
+        # refactor-406-M1 R6: per-agent enabled tools + PromptSlots + features (决策 1/6/8).
+        # tool_allowlist is a TRUE whitelist (user may disable defaults); cron is a
+        # gated capability appended when agent.cron_enabled.  PromptSlots carry all PA
+        # conditional prompt content (heartbeat/cron → body, group context → tail),
+        # built per-session from agent config + the group routing scenario in metadata.
+        from personal_assistant.product import (  # noqa: PLC0415
+            prompt_for,
+            resolve_enabled_tools,
         )
+
+        agent_tool_allowlist = resolve_enabled_tools(agent)
         session = await self._kernel.create_session(
             title=agent.title,
             workspace_root=agent.workspace_root,
             skills=agent_skills,
-            tool_allowlist=agent_tool_allowlist,
+            enabled_tools=agent_tool_allowlist,
+            features=dict(agent.features) if agent.features else None,
+            prompt=prompt_for(agent, scenario=session_metadata),
             metadata=session_metadata,
         )
         kernel_session_id = session.session_id

@@ -13,7 +13,7 @@ from personal_assistant.reporter.upstream_reporter import (
     build_runtime_capabilities,
 )
 
-from ._im_connection_helpers import _agents, _write_skill
+from ._im_connection_helpers import _agents, _build_test_kernel, _write_skill
 
 
 def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(
@@ -39,11 +39,12 @@ def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(
         gstack_target_root / "gstack-plan-design-review", target_is_directory=True
     )
     agents = _agents(tmp_path)
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1", user_id="user-1"),
         agents=agents,
         send_frame=lambda message_type, payload: frames.append((message_type, payload)),
-        capabilities=build_runtime_capabilities(),
+        capabilities=build_runtime_capabilities(kernel),
         node_name="MacBook",
         version="1.2.3",
     )
@@ -82,7 +83,7 @@ def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(
 
 
 def test_build_runtime_capabilities_default_system_prompt_has_no_runtime_fill_placeholders(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """default_system_prompt exposed via node.capabilities must not contain RUNTIME_FILL
     placeholders (feat-379-M5 ISSUE-4).
@@ -91,7 +92,8 @@ def test_build_runtime_capabilities_default_system_prompt_has_no_runtime_fill_pl
     template to the IM frontend causes garbage text in the agent-create system_prompt
     prefill.  The field must be either a clean rendered string or empty.
     """
-    caps = build_runtime_capabilities()
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    caps = build_runtime_capabilities(kernel)
     assert "<RUNTIME_FILL:" not in caps.default_system_prompt, (
         "default_system_prompt must not contain <RUNTIME_FILL:*> placeholders — "
         "use empty string or a pre-rendered template (feat-379-M5 ISSUE-4)"
@@ -103,15 +105,16 @@ def test_build_runtime_capabilities_default_system_prompt_has_no_runtime_fill_pl
 # ---------------------------------------------------------------------------
 
 
-def test_build_node_capabilities_payload_includes_features() -> None:
+def test_build_node_capabilities_payload_includes_features(tmp_path: Path) -> None:
     """node.capabilities.resolve must return a non-empty features list.
 
     ISSUE-1 root cause: the handler called build_runtime_capabilities().as_payload()
     which has no 'features' key.  We now call build_node_capabilities_payload() which
-    injects a FEATURE_REGISTRY projection with available=True for all entries (node
-    level has no per-agent tool_allowlist to constrain availability).
+    injects a feature projection with available=True for all entries (node level has
+    no per-agent tool_allowlist to constrain availability).
     """
-    payload = build_node_capabilities_payload()
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    payload = build_node_capabilities_payload(kernel)
     assert "features" in payload, "node capabilities payload must carry 'features' key"
     features = payload["features"]
     assert isinstance(features, list) and len(features) > 0, (
@@ -128,31 +131,32 @@ def test_build_node_capabilities_payload_includes_features() -> None:
         )
 
 
-def test_build_node_capabilities_payload_has_required_keys() -> None:
+def test_build_node_capabilities_payload_has_required_keys(tmp_path: Path) -> None:
     """node capabilities payload must carry models, skills, tools, features."""
-    payload = build_node_capabilities_payload()
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    payload = build_node_capabilities_payload(kernel)
     for key in ("models", "skills", "tools", "features", "platform_default_model"):
         assert key in payload, f"node capabilities payload missing '{key}'"
 
 
 # ---------------------------------------------------------------------------
-# feat-379-M9 R1 (决策 13): _build_tool_names 必须含 memory / skill_manage
+# feat-379-M9 R1 (决策 13): capabilities.tools 必须含 memory / skill_manage
+# refactor-406-M2: tools now come from the Gateway projection (capability_projection)
+# over the PA default/optional tool split, not the deleted reporter _build_tool_names.
 # ---------------------------------------------------------------------------
 
 
-def test_build_tool_names_includes_memory_and_skill_manage() -> None:
+def test_node_capabilities_tools_include_memory_and_skill_manage(
+    tmp_path: Path,
+) -> None:
     """capabilities.tools 必须含 memory 和 skill_manage。
 
-    缺陷 A 根因：_build_tool_names() 以 runtime=None/hook_runner=None 建 registry，
-    memory/skill_manage 需路径注入才进 list_specs() 的返回集合，导致即使它们在
-    default_tool_ids 中也被过滤掉。修复后改为直接取 PERSONAL_ASSISTANT_PROFILE 的
-    default_tool_ids + optional_tool_ids，确保工具名静态可达。
+    前端联动（决策13）依赖前端从 capabilities.tools 取 feature 要求的工具名把它们
+    变绿；memory/skill_manage 在 PA 默认工具集中，投影必须把它们 advertise 出来。
     """
-    from personal_assistant.reporter.upstream_reporter import _build_tool_names
-
-    # feat-394 M9 R5: _build_tool_names now returns dicts, extract names for membership check.
-    tools = _build_tool_names()
-    names = {t["name"] for t in tools}
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    payload = build_node_capabilities_payload(kernel)
+    names = {t["name"] for t in payload["tools"]}
     assert "memory" in names, (
         "memory 必须在 capabilities.tools 中 — 否则前端联动无法把 memory 工具变绿 (feat-379-M9 决策13)"
     )
@@ -177,11 +181,12 @@ def test_send_register_includes_agent_workspaces(tmp_path: Path) -> None:
     workspace = tmp_path / "my-workspace"
     workspace.mkdir()
     frames: list[tuple[str, dict[str, object]]] = []
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="n1"),
         agents=(AgentWorkspaceConfig(agent_id="Arch", workspace_root=workspace),),
         send_frame=lambda mt, p: frames.append((mt, p)),
-        capabilities=build_runtime_capabilities(),
+        capabilities=build_runtime_capabilities(kernel),
     )
     payload = reporter.send_register()
     assert "agent_workspaces" in payload, (
@@ -192,21 +197,23 @@ def test_send_register_includes_agent_workspaces(tmp_path: Path) -> None:
     )
 
 
-def test_build_tool_names_contains_all_feature_registry_requires_tool() -> None:
-    """capabilities.tools 必须含 FEATURE_REGISTRY 中所有 requires_tool 工具。
+def test_node_capabilities_tools_contain_all_feature_required_tools(
+    tmp_path: Path,
+) -> None:
+    """capabilities.tools 必须含每个 feature 投影的 requires_tool 工具。
 
-    联动逻辑（决策 12）依赖前端从 capabilities.tools 取工具名——若工具不在列表，
-    勾特性时找不到落点，联动失效。
+    联动逻辑（决策 12）依赖前端从 capabilities.tools 取工具名——若 feature 要求的
+    工具不在列表，勾特性时找不到落点，联动失效。refactor-406-M2: 投影的 feature 集
+    与 tools 集都出自 Gateway 投影层（capability_projection），此测试守二者一致。
     """
-    from personal_assistant.reporter.upstream_reporter import _build_tool_names
-    from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
+    from personal_assistant.reporter.capability_projection import FEATURE_PROJECTIONS
 
-    # feat-394 M9 R5: _build_tool_names now returns dicts.
-    tools = _build_tool_names()
-    names_set = {t["name"] for t in tools}
-    for entry in FEATURE_REGISTRY.values():
-        rt = entry.get("requires_tool")
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    payload = build_node_capabilities_payload(kernel)
+    names_set = {t["name"] for t in payload["tools"]}
+    for entry in FEATURE_PROJECTIONS:
+        rt = entry["requires_tool"]
         if rt is not None:
             assert rt in names_set, (
-                f"FEATURE_REGISTRY 要求工具 '{rt}' 必须在 capabilities.tools 中 (feat-379-M9 决策13)"
+                f"feature 要求工具 '{rt}' 必须在 capabilities.tools 中 (feat-379-M9 决策13)"
             )

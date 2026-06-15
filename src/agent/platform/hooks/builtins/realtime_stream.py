@@ -4,7 +4,29 @@ from __future__ import annotations
 
 from typing import Any, Mapping
 
-from agent.platform.tools.presentation import resolve_presenter
+from agent.platform.tools.presentation import resolve_presenter_for_tool
+
+
+def _resolve_presenter(ctx, name: str):  # noqa: ANN001
+    """Resolve the presenter for a tool call, kernel-scoped (refactor-406 决策 12).
+
+    Presentation travels with the tool object: look the tool up in the assembled
+    tool registry (injected into the hook context's metadata by
+    ``ToolRegistry.execute``) and read its ``.presenter``. Falls back to the
+    default presenter when there is no registry, no such tool, or the tool
+    declares no presenter (MCP / runtime-discovered tools) — matching the
+    pre-migration default-fallback behaviour.
+    """
+    registry = None
+    metadata = getattr(ctx, "metadata", None)
+    if isinstance(metadata, Mapping):
+        registry = metadata.get("tool_registry")
+    tool = None
+    if registry is not None:
+        getter = getattr(registry, "get", None)
+        if callable(getter):
+            tool = getter(name)
+    return resolve_presenter_for_tool(tool)
 
 
 def setup(hooks):  # noqa: ANN001, ANN201
@@ -43,7 +65,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
         run_id = _extract_run_id(event)
         if run_id is None:
             return
-        presenter = resolve_presenter(event.get("name", ""))
+        presenter = _resolve_presenter(ctx, event.get("name", ""))
         presentation = presenter.format_start(event.get("arguments") or {})
         payload = {
             "event": "tool_start",
@@ -62,7 +84,7 @@ def setup(hooks):  # noqa: ANN001, ANN201
         run_id = _extract_run_id(event)
         if run_id is None:
             return
-        presenter = resolve_presenter(event.get("name", ""))
+        presenter = _resolve_presenter(ctx, event.get("name", ""))
         duration_ms = event.get("duration_ms") or 0
         presentation = presenter.format_end(
             event.get("arguments") or {},

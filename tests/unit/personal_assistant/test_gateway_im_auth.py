@@ -34,14 +34,17 @@ class _FakeWebSocket:
 
 
 def _minimal_reporter(tmp_path: Path) -> UpstreamReporter:
+    from ._im_connection_helpers import _build_test_kernel
+
     workspace = tmp_path / "agent-a"
     workspace.mkdir(exist_ok=True)
     agents = (AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),)
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
     return UpstreamReporter(
         node=NodeConfig(node_id="n1"),
         agents=agents,
         send_frame=lambda _mt, _p: None,
-        capabilities=build_runtime_capabilities(),
+        capabilities=build_runtime_capabilities(kernel),
     )
 
 
@@ -60,7 +63,7 @@ def test_send_message_tool_dispatches_via_gateway_boundary() -> None:
     from unittest.mock import patch
     import httpx as _httpx
 
-    from agent.products.personal_assistant.tools.send_message import SendMessageTool
+    from personal_assistant.tools.send_message import SendMessageTool
     from agent.core.tools.base import (
         ToolContext,
         set_tool_safety_config_factory,

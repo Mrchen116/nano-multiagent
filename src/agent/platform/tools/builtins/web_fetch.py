@@ -21,6 +21,9 @@ from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.permissions.hostname_rules import HostnameRuleEngine
+from agent.platform.tools.presentation import (
+    WEB_FETCH_PRESENTER as _WEB_FETCH_PRESENTER,
+)
 from agent.platform.tools.builtins.webfetch_preapproved import (
     is_preapproved_host,
 )
@@ -179,6 +182,9 @@ class WebFetchTool:
     """Fetch a URL and extract readable text content with SSRF protection."""
 
     name = "web_fetch"
+    presenter = (
+        _WEB_FETCH_PRESENTER  # 决策 12: presentation travels with the tool object
+    )
     is_concurrency_safe = True
     description = (
         "Fetch a URL and extract its readable text content. "

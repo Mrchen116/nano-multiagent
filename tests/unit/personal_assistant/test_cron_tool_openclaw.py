@@ -27,9 +27,11 @@ class TestCronToolOpenclawSchema:
     """
 
     def _get_cron_tool(self):
-        from agent.products.personal_assistant.tools.cron import get_tool
+        # refactor-406-M1 R7: cron tool migrated to personal_assistant.tools.cron
+        # (closure factory). Schema/description are byte-identical to the legacy tool.
+        from personal_assistant.tools.cron import make_cron_tool
 
-        return get_tool()
+        return make_cron_tool({})
 
     def test_cron_tool_has_name_cron(self) -> None:
         tool = self._get_cron_tool()
@@ -125,7 +127,7 @@ class TestCronToolProvenanceComment:
     """
 
     def test_cron_tool_source_contains_provenance_comment(self) -> None:
-        import agent.products.personal_assistant.tools.cron as cron_module
+        import personal_assistant.tools.cron as cron_module
 
         source = inspect.getsource(cron_module)
         assert "Provenance:" in source, "cron.py must contain a 'Provenance:' comment"
@@ -134,7 +136,7 @@ class TestCronToolProvenanceComment:
         )
 
     def test_cron_tool_source_references_openclaw(self) -> None:
-        import agent.products.personal_assistant.tools.cron as cron_module
+        import personal_assistant.tools.cron as cron_module
 
         source = inspect.getsource(cron_module)
         assert "openclaw" in source, (
@@ -149,178 +151,38 @@ class TestCronToolIsolation:
     """
 
     def test_cron_in_pa_toolsets(self) -> None:
-        """cron must be reachable as a PA tool (in DEFAULT_TOOL_IDS or OPTIONAL_TOOL_IDS)."""
-        from agent.products.personal_assistant.toolsets import (
-            DEFAULT_TOOL_IDS,
-            OPTIONAL_TOOL_IDS,
+        """cron must be reachable as a PA tool (refactor-406-M2: PA tool name source)."""
+        from personal_assistant.reporter.capability_projection import (
+            PA_DEFAULT_TOOL_IDS,
+            PA_OPTIONAL_TOOL_IDS,
         )
 
-        all_pa_tools = list(DEFAULT_TOOL_IDS) + list(OPTIONAL_TOOL_IDS)
+        all_pa_tools = list(PA_DEFAULT_TOOL_IDS) + list(PA_OPTIONAL_TOOL_IDS)
         assert "cron" in all_pa_tools, (
-            "cron tool must be listed in PA DEFAULT_TOOL_IDS or OPTIONAL_TOOL_IDS"
+            "cron tool must be listed in PA default/optional tool ids"
         )
 
     def test_cron_not_in_coding_cli_toolsets(self) -> None:
-        """cron must NOT appear in coding_cli DEFAULT_TOOL_IDS or OPTIONAL_TOOL_IDS.
+        """cron must NOT appear in coding_cli enabled tools (decision 7 isolation)."""
+        from coding_cli.product import DEFAULT_ENABLED_TOOLS
 
-        feat-394 decision 7: coding_cli must not contain cron tool.
-        """
-        from agent.products.local_coding.toolsets import (
-            DEFAULT_TOOL_IDS,
-            OPTIONAL_TOOL_IDS,
-        )
-
-        all_cli_tools = list(DEFAULT_TOOL_IDS) + list(OPTIONAL_TOOL_IDS)
-        assert "cron" not in all_cli_tools, (
-            "cron tool MUST NOT be in coding_cli toolsets (feat-394 decision 7)"
+        assert "cron" not in list(DEFAULT_ENABLED_TOOLS), (
+            "cron tool MUST NOT be in coding_cli toolset (feat-394 decision 7)"
         )
 
 
-class TestCronToolRunHostCapability:
-    """bugfix-402-M4 R2: cron tool run action must use host_capabilities dispatcher.
-
-    The old implementation called gateway_cron_url via HTTP — an unreachable loopback
-    from the kernel side.  The new implementation invokes
-    ``personal_assistant.cron.enqueue`` via HostCapabilityDispatcher injected at
-    build_kernel() time, returning accepted=true on success.
+class TestCronToolRunNoGatewayUrl:
+    """refactor-406-M1 R7: the cron run action's HostCapabilityDispatcher path is
+    removed (决策 9). Manual-run enqueue routing now lives in the closure cron tool
+    and is covered by test_cron_tool_closure.py (roundtrip / per-agent routing /
+    missing-service ack / declined ack). Only the regression guard below remains:
+    the cron tool must never reference the long-dead gateway_cron_url HTTP bypass.
     """
-
-    def _make_ctx(self, *, workspace_root, job_id="job-1", dispatcher=None):
-        from pathlib import Path
-        from unittest.mock import MagicMock
-
-        from agent.core.tools.base import ToolContext
-
-        mock_safety = MagicMock()
-        mock_safety.repo_root = Path(workspace_root)
-        ctx = ToolContext(
-            repo_root=Path(workspace_root),
-            cwd=Path(workspace_root),
-            safety=mock_safety,
-            session_id="sess-test",
-            session_metadata={"agent_id": "agent-1"},
-            host_capabilities=dispatcher,
-        )
-        return ctx
-
-    def _write_job(self, workspace_root, job_id="job-1"):
-        import json
-        from pathlib import Path
-
-        cron_dir = Path(workspace_root) / ".nanoassistant" / "cron"
-        cron_dir.mkdir(parents=True, exist_ok=True)
-        jobs_path = cron_dir / "jobs.json"
-        jobs_path.write_text(
-            json.dumps(
-                [
-                    {
-                        "id": job_id,
-                        "name": "test job",
-                        "schedule": {"kind": "every", "everyMs": 3600000},
-                        "instruction": "do something",
-                        "enabled": True,
-                        "delete_after_run": False,
-                    }
-                ]
-            ),
-            encoding="utf-8",
-        )
-
-    def test_run_action_no_dispatcher_returns_tool_error(self, tmp_path) -> None:
-        """run action without a dispatcher must return a clear error, not raise RuntimeError
-        about gateway_cron_url (which never existed in the SDK era).
-        """
-        from agent.products.personal_assistant.tools.cron import CronTool
-
-        self._write_job(tmp_path)
-        tool = CronTool()
-        ctx = self._make_ctx(workspace_root=tmp_path, dispatcher=None)
-        result = tool.run({"action": "run", "jobId": "job-1"}, ctx)
-        assert result.get("ok") is False or "error" in result or "accepted" in result, (
-            "run action without dispatcher must return error dict or accepted=false, "
-            f"got: {result}"
-        )
-        # Must not have triggered an HTTP request via gateway_cron_url
-        assert "gateway_cron_url" not in str(result).lower(), (
-            "result must not reference gateway_cron_url (deprecated HTTP bypass)"
-        )
-
-    def test_run_action_with_dispatcher_returns_accepted(self, tmp_path) -> None:
-        """run action with a working dispatcher must return accepted=true."""
-        from agent.core.tools.host_capability import (
-            HostCapabilityContext,
-            HostCapabilityDispatcher,
-        )
-        from agent.products.personal_assistant.tools.cron import CronTool
-
-        invocations: list[dict] = []
-
-        class _FakeDispatcher(HostCapabilityDispatcher):
-            def invoke(self, capability, payload, context):
-                invocations.append({"capability": capability, "payload": dict(payload)})
-                return {
-                    "accepted": True,
-                    "job_id": payload.get("job_id", ""),
-                    "request_id": "req-abc",
-                    "error_code": None,
-                }
-
-        self._write_job(tmp_path)
-        tool = CronTool()
-        ctx = self._make_ctx(workspace_root=tmp_path, dispatcher=_FakeDispatcher())
-        result = tool.run({"action": "run", "jobId": "job-1"}, ctx)
-
-        assert result.get("ok") is True, f"expected ok=true, got: {result}"
-        assert len(invocations) == 1
-        assert invocations[0]["capability"] == "personal_assistant.cron.enqueue"
-        assert invocations[0]["payload"]["job_id"] == "job-1"
-
-    def test_run_action_dispatcher_declined_returns_error(self, tmp_path) -> None:
-        """run action where dispatcher returns accepted=false must propagate error."""
-        from agent.core.tools.host_capability import HostCapabilityDispatcher
-        from agent.products.personal_assistant.tools.cron import CronTool
-
-        class _RejectDispatcher(HostCapabilityDispatcher):
-            def invoke(self, capability, payload, context):
-                return {
-                    "accepted": False,
-                    "job_id": payload.get("job_id", ""),
-                    "request_id": None,
-                    "error_code": "job_disabled",
-                }
-
-        self._write_job(tmp_path)
-        tool = CronTool()
-        ctx = self._make_ctx(workspace_root=tmp_path, dispatcher=_RejectDispatcher())
-        result = tool.run({"action": "run", "jobId": "job-1"}, ctx)
-        assert result.get("ok") is not True, (
-            f"expected ok!=true for rejected enqueue: {result}"
-        )
-
-    def test_run_action_unknown_job_returns_error(self, tmp_path) -> None:
-        """run action for non-existent job must fail before invoking dispatcher."""
-        from agent.core.tools.host_capability import HostCapabilityDispatcher
-        from agent.products.personal_assistant.tools.cron import CronTool
-
-        dispatcher_called = []
-
-        class _RecordDispatcher(HostCapabilityDispatcher):
-            def invoke(self, capability, payload, context):
-                dispatcher_called.append(capability)
-                return {"accepted": True, "request_id": "x", "error_code": None}
-
-        tool = CronTool()
-        ctx = self._make_ctx(workspace_root=tmp_path, dispatcher=_RecordDispatcher())
-        import pytest as _pytest
-
-        with _pytest.raises((LookupError, ValueError)):
-            tool.run({"action": "run", "jobId": "nonexistent-job"}, ctx)
-        assert not dispatcher_called, "dispatcher must not be invoked for unknown job"
 
     def test_cron_source_does_not_contain_gateway_cron_url(self) -> None:
         """cron.py must not reference gateway_cron_url (deprecated HTTP bypass removed)."""
         import inspect
-        import agent.products.personal_assistant.tools.cron as cron_module
+        import personal_assistant.tools.cron as cron_module
 
         source = inspect.getsource(cron_module)
         assert "gateway_cron_url" not in source, (
@@ -357,10 +219,10 @@ class TestCronRunsActionFromJsonl:
 
     def test_runs_returns_empty_list_when_no_history(self, tmp_path) -> None:
         """runs action returns ok=True with empty runs list when no runs.jsonl exists."""
-        from agent.products.personal_assistant.tools.cron import CronTool
+        from personal_assistant.tools.cron import make_cron_tool
         from personal_assistant.scheduler.cron_scheduler import CronJobStore, CronJob
 
-        tool = CronTool()
+        tool = make_cron_tool({})
         job_store = CronJobStore(workspace_root=tmp_path)
         job_store.add(
             CronJob(
@@ -378,14 +240,14 @@ class TestCronRunsActionFromJsonl:
 
     def test_runs_returns_structured_records_from_runs_jsonl(self, tmp_path) -> None:
         """runs action returns CronRunRecord dicts from runs.jsonl (not state.json)."""
-        from agent.products.personal_assistant.tools.cron import CronTool
+        from personal_assistant.tools.cron import make_cron_tool
         from personal_assistant.scheduler.cron_scheduler import CronJobStore, CronJob
         from personal_assistant.scheduler.cron_execution_service import (
             CronRunsStore,
             CronRunRecord,
         )
 
-        tool = CronTool()
+        tool = make_cron_tool({})
         job_store = CronJobStore(workspace_root=tmp_path)
         job_store.add(
             CronJob(
@@ -424,14 +286,14 @@ class TestCronRunsActionFromJsonl:
 
     def test_runs_returns_latest_first(self, tmp_path) -> None:
         """runs action returns records sorted by accepted_at descending (newest first)."""
-        from agent.products.personal_assistant.tools.cron import CronTool
+        from personal_assistant.tools.cron import make_cron_tool
         from personal_assistant.scheduler.cron_scheduler import CronJobStore, CronJob
         from personal_assistant.scheduler.cron_execution_service import (
             CronRunsStore,
             CronRunRecord,
         )
 
-        tool = CronTool()
+        tool = make_cron_tool({})
         job_store = CronJobStore(workspace_root=tmp_path)
         job_store.add(
             CronJob(
@@ -471,7 +333,7 @@ class TestCronRunsActionFromJsonl:
     def test_runs_action_does_not_read_state_json(self, tmp_path) -> None:
         """runs action must NOT read cron_state_path / state.json for run history."""
         import inspect
-        from agent.products.personal_assistant.tools.cron import CronTool
+        from personal_assistant.tools.cron import CronTool
 
         source = inspect.getsource(CronTool._action_runs)
         # The old implementation read session_metadata["cron_state_path"] and state.json.

@@ -18,7 +18,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Sequence
 
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.hooks.registry import HookRegistry
@@ -27,10 +27,9 @@ from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient
 from agent.core.observability.exporters.console import ConsoleTracer
 from agent.core.observability.tracing import set_tracer
-from agent.core.runs.registry import RunRecord, RunsRegistry
+from agent.core.runs.registry import RunsRegistry
 from agent.core.runs.origin import RunOrigin
-from agent.core.session.models import Session
-from agent.core.tools.host_capability import HostCapabilityDispatcher
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.loader import build_hook_registry
@@ -42,10 +41,20 @@ from agent.platform.permissions.broker import (
     PermissionDecision,
 )
 from agent.platform.persistence.session.service import SessionService
-from agent.platform.tools.loader import build_tool_registry
+
+from agent.sdk.dto import (
+    FeatureInfo,
+    LLMConfig,
+    ModelInfo,
+    RunInfo,
+    SessionInfo,
+    SkillInfo,
+    ToolInfo,
+)
+from agent.sdk.prompt import PromptSlots
 
 if TYPE_CHECKING:
-    from agent.products.base import ProductProfile
+    pass
 
 # Callable type for the permission strategy injected by consumers.
 # Mirrors CC CanUseToolFn: given (tool_name, tool_input, context) → PermissionDecision.
@@ -67,109 +76,334 @@ class _KernelComponents:
 
 def build_kernel(
     *,
-    product_profile: "ProductProfile",
-    llm_config: LLMFactoryConfig,
+    # 2-layer surface (refactor-406 决策 1/2/5) — the sole composition entry.
+    llm: LLMConfig | None = None,
+    tools: Sequence[Any] | None = None,
+    hooks: Sequence[Callable[[Any], None]] | None = None,
+    workspace_config_dirname: str | None = None,
     can_use_tool: CanUseToolFn | None = None,
     repo_root: Path | None = None,
-    host_capabilities: HostCapabilityDispatcher | None = None,
+    skill_search_roots: Sequence[Path] = (),
+    tool_search_roots: Sequence[Path] = (),
+    hook_search_roots: Sequence[Path] = (),
     # Internal escape hatch for tests: skip LLM client construction and use
     # this fake instead.  Not part of the public API.
     _llm_client_override: LLMClient | None = None,
 ) -> "Kernel":
-    """Assemble an in-process Kernel from the given configuration.
+    """Assemble an in-process Kernel — composition root for any application (决策 1/2/5).
 
-    This is the composition root for products: it creates all platform
-    components (runtime, registry, event hub, permission broker) and wires
-    them together without any HTTP/FastAPI surface.
+    ``build_kernel(llm=LLMConfig, tools=[native objects], hooks=[setup callables],
+    can_use_tool=…, workspace_config_dirname=…)`` builds a product-neutral shared base:
+    the model registry is initialised internally from ``llm`` (no consumer-side
+    ``init_model_registry``), the consumer's native tool objects are registered into the
+    kernel tool catalog, and the prompt template is the kernel skeleton (product text
+    enters per-session via ``create_session(prompt=PromptSlots)``).
+
+    refactor-406-M1 R7: the legacy ``product_profile=`` / ``llm_config=`` path
+    (``bootstrap_product``) is removed now that both consumers (coding_cli /
+    personal_assistant) build through this 2-layer surface.
 
     Args:
-        product_profile: Product-specific defaults (tools, hooks, system prompt).
-        llm_config: LLM provider/model/endpoint configuration.
-        can_use_tool: Optional async callback invoked when the agent needs
-            permission to use a tool; returns a PermissionDecision.
-            When None, all permission decisions must arrive via
-            ``submit_permission_decision`` (IM card flow).
-        repo_root: Repository/workspace root for tool and hook discovery.
-        host_capabilities: Optional product-owned capability dispatcher.  When
-            provided, it is injected into ToolContext so product tools (e.g.
-            cron tool run action) can invoke capabilities without importing
-            personal_assistant directly (bugfix-402 Decision 1).
-        _llm_client_override: Test-only; if provided, skips constructing an
-            LLM client from llm_config and uses this instead.
+        llm: SDK-owned LLM config. Catalog + connection + default.
+        tools: Native tool objects satisfying the SDK ``Tool`` Protocol.
+        hooks: ``setup(hooks)`` callables registered into the hook registry.
+        workspace_config_dirname: Per-workspace config dir name (e.g. ``.nanocode``)
+            governing session JSONL / memory / skill layout.
+        can_use_tool: Optional async permission callback; None → IM card flow.
+        repo_root: Repository/workspace root for tool/hook discovery.
+        skill_search_roots: Deployment-level skill directories shared across every
+            workspace (e.g. a product's global ``~/.<product>/skills`` and compat
+            roots). ``list_skills(workspace_root)`` searches the per-workspace
+            ``<workspace_root>/<workspace_config_dirname>/skills`` FIRST, then these
+            roots in order, deduplicating by directory. The kernel stays
+            product-neutral: it only searches the roots it is handed (a deployment
+            path convention the consumer factory owns — same pattern as
+            ``workspace_config_dirname``). Empty → workspace-only skills.
+        tool_search_roots: Deployment-level user tool-plugin directories shared across
+            workspaces (e.g. ``~/.<product>/tools``), discovered in addition to the
+            workspace ``<repo_root>/.nano/tools``. Same consumer-supplied-roots pattern
+            as ``skill_search_roots`` — no ConfigResolver. Empty → workspace-only.
+        hook_search_roots: Deployment-level user hook directories shared across
+            workspaces (e.g. ``~/.<product>/hooks``), discovered in addition to the
+            workspace ``<repo_root>/.nano/hooks``. Same pattern. Empty → workspace-only.
+        _llm_client_override: Test-only LLM client.
 
     Returns:
         A fully assembled, ready-to-use Kernel.
     """
+    if llm is None:
+        raise ValueError("build_kernel requires llm= (2-layer surface)")
+    return _build_kernel_base(
+        llm=llm,
+        tools=list(tools or ()),
+        hooks=list(hooks or ()),
+        workspace_config_dirname=workspace_config_dirname or ".nano",
+        can_use_tool=can_use_tool,
+        repo_root=repo_root,
+        skill_search_roots=tuple(skill_search_roots),
+        tool_search_roots=tuple(tool_search_roots),
+        hook_search_roots=tuple(hook_search_roots),
+        _llm_client_override=_llm_client_override,
+    )
+
+
+def _init_model_registry_from_llm_config(llm: LLMConfig) -> None:
+    """Initialise the process model registry from an SDK ``LLMConfig`` (决策 5).
+
+    This absorbs the old "consumer must call init_model_registry first" footgun:
+    build_kernel owns registry init. When the LLMConfig carries an explicit
+    provider/model catalog, that is used; otherwise a single-provider catalog is
+    synthesised from the active connection so a from_env()-only config still
+    yields a usable registry (the env path has no catalog).
+
+    Idempotent within a process: a re-init with the same default is tolerated by
+    resetting first (mirrors the test conftest's reset/re-init discipline).
+    """
+    from agent.core.llm.config import (  # noqa: PLC0415
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
+    from agent.core.llm.model_registry import (  # noqa: PLC0415
+        _reset_for_tests,
+        init_model_registry,
+    )
+
+    if llm.providers:
+        providers = tuple(
+            LLMProviderPayload(
+                name=p.name,
+                base_url=p.base_url,
+                models=tuple(
+                    LLMModelPayload(
+                        name=m.name,
+                        extra_request_body=m.extra_request_body or None,
+                    )
+                    for m in p.models
+                ),
+            )
+            for p in llm.providers
+        )
+        default_model = llm.default_model or llm.model
+    else:
+        # No catalog (e.g. LLMConfig.from_env()): synthesise a one-provider,
+        # one-model catalog from the active connection so registry lookups resolve.
+        providers = (
+            LLMProviderPayload(
+                name=llm.provider,
+                base_url=llm.base_url,
+                models=(LLMModelPayload(name=llm.model, extra_request_body=None),),
+            ),
+        )
+        default_model = llm.model
+
+    payload = LLMConfigPayload(default_model=default_model, providers=providers)
+    # Re-init is required because the catalog can differ per kernel; reset then init.
+    _reset_for_tests()
+    init_model_registry(payload)
+
+
+def _llm_config_to_factory_config(llm: LLMConfig) -> LLMFactoryConfig:
+    """Map an SDK ``LLMConfig`` to the internal ``LLMFactoryConfig`` connection."""
+    return LLMFactoryConfig(
+        provider=llm.provider,
+        model=llm.model,
+        base_url=llm.base_url,
+        api_key=llm.api_key,
+        timeout_seconds=llm.timeout_seconds,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Boundary DTO mapping (决策 6): internal Session / RunRecord / LLMFactoryConfig
+# → SDK-owned SessionInfo / RunInfo / LLMConfig at the Kernel boundary.
+# ---------------------------------------------------------------------------
+
+
+def _to_session_info(session: Any) -> SessionInfo:
+    """Map an internal Session to the SDK-owned SessionInfo boundary DTO."""
+    workspace_root = getattr(session, "workspace_root", None)
+    metadata = getattr(session, "metadata", None) or {}
+    return SessionInfo(
+        session_id=session.session_id,
+        title=getattr(session, "title", None),
+        workspace_root=str(workspace_root) if workspace_root is not None else None,
+        metadata=dict(metadata),
+    )
+
+
+def _to_run_info(record: Any) -> RunInfo:
+    """Map an internal RunRecord to the SDK-owned RunInfo boundary DTO."""
+    status = getattr(record, "status", None)
+    return RunInfo(
+        run_id=record.run_id,
+        session_id=record.session_id,
+        # status may be an enum (with .value) or already a string.
+        status=getattr(status, "value", status) if status is not None else "",
+        start_sequence=int(getattr(record, "start_sequence", 0) or 0),
+    )
+
+
+def _factory_config_to_llm_config(
+    cfg: Any, *, catalog: LLMConfig | None = None
+) -> LLMConfig:
+    """Map the internal LLMFactoryConfig to the SDK-owned LLMConfig boundary DTO.
+
+    Preserves the catalog (providers / default_model) from the build-time
+    ``catalog`` when available, so ``get_llm_config`` / ``reconfigure_llm`` carry
+    the full provider list, not just the active connection.
+    """
+    return LLMConfig(
+        provider=getattr(cfg, "provider", ""),
+        model=getattr(cfg, "model", ""),
+        base_url=getattr(cfg, "base_url", ""),
+        api_key=getattr(cfg, "api_key", None),
+        timeout_seconds=getattr(cfg, "timeout_seconds", 600.0),
+        default_model=catalog.default_model
+        if catalog is not None
+        else getattr(cfg, "model", ""),
+        providers=catalog.providers if catalog is not None else (),
+    )
+
+
+class _SearchRootsResolver:
+    """Minimal duck resolver for build_hook_registry (M3fix #2).
+
+    Satisfies the hook loader's ``_HookRootResolver`` Protocol (``user_hook_roots``)
+    from consumer-supplied deployment roots — NOT a ConfigResolver. ``user_hook_roots()``
+    returns the per-workspace ``.nano/hooks`` dir FIRST then the deployment ``extra_roots``,
+    deduped, so the loader discovers both the workspace dir (unchanged behavior) and the
+    user-level dirs. Same model as ``skill_search_roots``: the consumer factory owns these
+    product paths.
+
+    Only the hook registry uses a resolver; the tool path loads tool_search_roots directly
+    via ``_load_tools_from_single_dir`` in ``_build_kernel_base`` (no resolver indirection),
+    so no ``user_tool_roots`` is provided here.
+    """
+
+    def __init__(self, *, workspace_dir: Path, extra_roots: tuple[Path, ...]) -> None:
+        ordered: list[Path] = [workspace_dir.expanduser().resolve()]
+        for root in extra_roots:
+            resolved = Path(root).expanduser().resolve()
+            if resolved not in ordered:
+                ordered.append(resolved)
+        self._roots = tuple(ordered)
+
+    def user_hook_roots(self) -> tuple[Path, ...]:
+        return self._roots
+
+
+def _build_kernel_base(
+    *,
+    llm: LLMConfig,
+    tools: list[Any],
+    hooks: list[Callable[[Any], None]],
+    workspace_config_dirname: str,
+    can_use_tool: CanUseToolFn | None,
+    repo_root: Path | None,
+    skill_search_roots: tuple[Path, ...] = (),
+    tool_search_roots: tuple[Path, ...] = (),
+    hook_search_roots: tuple[Path, ...] = (),
+    _llm_client_override: LLMClient | None,
+) -> "Kernel":
+    """Assemble the product-neutral shared base (new 2-layer path, 决策 1/2/5/8).
+
+    No ProductProfile, no bootstrap_product: the model registry is initialised
+    from ``llm``, the prompt template is the kernel skeleton, and the consumer's
+    native tool objects + hook setups are registered directly.
+    """
+    from agent.core.agent.prompt_sections.skeleton import (  # noqa: PLC0415
+        build_kernel_prompt_skeleton,
+    )
+    from agent.platform.tools.builtins import register_builtin_tools  # noqa: PLC0415
+    from agent.core.tools.base import (  # noqa: PLC0415
+        ToolContext as CoreToolContext,
+        set_tool_safety_config_factory,
+        set_tool_safety_factory,
+    )
+    from agent.core.tools.registry import ToolRegistry  # noqa: PLC0415
+    from agent.platform.tools.safety import (  # noqa: PLC0415
+        ToolSafety,
+        ToolSafetyConfig,
+        load_tool_safety_config,
+    )
+
     resolved_repo_root = (
         (repo_root or Path(os.getenv("NANO_MULTIAGENT_REPO_ROOT", os.getcwd())))
         .expanduser()
         .resolve()
     )
 
-    # Wire console tracer when threshold env is set.
-    _trace_threshold = os.getenv("NANO_MULTIAGENT_TRACE_CONSOLE_THRESHOLD_MS")
-    if _trace_threshold is not None:
-        try:
-            set_tracer(ConsoleTracer(threshold_ms=float(_trace_threshold)))
-        except ValueError:
-            set_tracer(ConsoleTracer(threshold_ms=100.0))
+    _wire_console_tracer()
 
-    # Bootstrap product to resolve tool/hook registry, session store, system
-    # prompt, etc. — mirrors the create_app product_profile branch.
-    from agent.platform.bootstrap import bootstrap_product
+    # Model registry is build_kernel's responsibility (决策 5).
+    _init_model_registry_from_llm_config(llm)
 
-    resolved_product = bootstrap_product(
-        profile=product_profile,
-        repo_root=resolved_repo_root,
+    factory_config = _llm_config_to_factory_config(llm)
+
+    session_store = JsonlSessionStore(
+        data_dir=None,
+        workspace_config_dirname=workspace_config_dirname,
     )
-
+    # Thread workspace_config_dirname into the session-metadata baseline so the
+    # kernel built-in MemoryTool derives memory_root per-session via
+    # derive_memory_root(workspace_root, workspace_config_dirname) — the same path the
+    # runtime's memory snapshot reads from. workspace_config_dirname is a deployment
+    # constant (build_kernel scope); workspace_root is injected per-session by the
+    # runtime. Mirrors the legacy bootstrap default_session_metadata threading and
+    # decision 10's "store is stateless, location comes from workspace_root" pattern.
     session_service = SessionService(
-        store=resolved_product.session_store,
-        profile=product_profile,
-        default_session_metadata=resolved_product.default_session_metadata,
+        store=session_store,
+        default_session_metadata={"workspace_config_dirname": workspace_config_dirname},
     )
 
     permission_broker = PermissionBroker(config=AutoModeConfig())
 
-    # Build hook/tool registries from the product-resolved ones.
-    active_hook_registry = resolved_product.hook_registry or build_hook_registry(
-        repo_root=resolved_repo_root,
-        config_resolver=resolved_product.config_resolver,
-    )
-    active_hook_runner = HookRunner(registry=active_hook_registry)
+    # Hook registry: built-in hooks + consumer setup callables (决策 2).
+    # refactor-406-M3fix #2: when the consumer supplies deployment-level hook dirs
+    # (hook_search_roots, same pattern as skill_search_roots — no ConfigResolver), feed
+    # them via a minimal resolver whose user_hook_roots() = workspace <repo>/.nano/hooks
+    # FIRST then the deployment roots, so build_hook_registry discovers both. Absent →
+    # the resolver-less path which already scans <repo>/.nano/hooks (unchanged behavior).
+    if hook_search_roots:
+        hook_resolver = _SearchRootsResolver(
+            workspace_dir=resolved_repo_root / ".nano" / "hooks",
+            extra_roots=hook_search_roots,
+        )
+        hook_registry = build_hook_registry(
+            repo_root=resolved_repo_root, config_resolver=hook_resolver
+        )
+    else:
+        hook_registry = build_hook_registry(repo_root=resolved_repo_root)
+    for setup in hooks:
+        setup(hook_registry)
+    hook_runner = HookRunner(registry=hook_registry)
 
-    # LLM client factory — platform layer, injected into core runtime (#40).
     if _llm_client_override is not None:
-        # Test path: use the provided fake client directly.
         llm_client_factory = None
         direct_llm_client: LLMClient | None = _llm_client_override
     else:
         llm_client_factory = lambda cfg: _platform_create_llm_client(config=cfg)  # noqa: E731
         direct_llm_client = None
 
-    runtime_kwargs: dict = {}
-    if resolved_product.resolved_system_prompt:
-        runtime_kwargs["system_prompt"] = resolved_product.resolved_system_prompt
-    if resolved_product.config_resolver is not None:
-        runtime_kwargs["config_resolver"] = resolved_product.config_resolver
-    if resolved_product.default_tool_ids is not None:
-        runtime_kwargs["default_tool_ids"] = resolved_product.default_tool_ids
-    if resolved_product.prompt_sections:
-        runtime_kwargs["prompt_sections"] = resolved_product.prompt_sections
-
     runtime = AgentRuntime(
         session_manager=session_service.manager,
-        hook_runner=active_hook_runner,
+        hook_runner=hook_runner,
         repo_root=resolved_repo_root,
         permission_broker=permission_broker,
         llm_client=direct_llm_client,
         llm_client_factory=llm_client_factory,
-        **runtime_kwargs,
+        model=factory_config.model,
+        # Product-neutral kernel skeleton; product text enters per-session via
+        # create_session(prompt=PromptSlots) (决策 8).
+        prompt_sections=build_kernel_prompt_skeleton(),
     )
+    # Inject the env-resolved active connection so get_llm_config reflects llm=.
+    runtime._llm_config = factory_config  # type: ignore[attr-defined]
 
     event_hub = EventStreamHub()
     set_session_event_publisher_factory(
-        registry=active_hook_registry,
+        registry=hook_registry,
         factory=_build_session_event_publisher_factory(event_hub=event_hub),
     )
 
@@ -177,7 +411,7 @@ def build_kernel(
         runtime=runtime,
         session_manager=session_service.manager,
         event_hub=event_hub,
-        hook_runner=active_hook_runner,
+        hook_runner=hook_runner,
     )
 
     background_task_wiring = wire_background_tasks(
@@ -186,25 +420,77 @@ def build_kernel(
         runs_registry=runs_registry,
     )
 
-    active_tool_registry = resolved_product.tool_registry or build_tool_registry(
+    # Tool catalog: built-ins + consumer native tool objects (决策 2). The native
+    # objects satisfy the SDK Tool Protocol and are registered into the registry
+    # directly — no _product_root() directory scan.
+    set_tool_safety_factory(ToolSafety)
+    set_tool_safety_config_factory(ToolSafetyConfig)
+    base_context = CoreToolContext.create(
         repo_root=resolved_repo_root,
-        hook_runner=active_hook_runner,
-        runtime=runtime,
-        config_resolver=resolved_product.config_resolver,
+        safety_config=load_tool_safety_config(repo_root=resolved_repo_root),
         llm_client=getattr(runtime, "_llm_client", None),
-        wiring=background_task_wiring,
     )
+    tool_registry = ToolRegistry(context=base_context, hook_runner=hook_runner)
+    register_builtin_tools(
+        tool_registry, runtime=runtime, wiring=background_task_wiring
+    )
+    # Self-evolution built-ins (决策 3): memory / skill_manage are kernel built-ins
+    # ("any app has them → stays in kernel"), not consumer tools. They need
+    # constructor-time path args so register_builtin_tools() omits them; the kernel
+    # registers them here. memory_root is per-session (MemoryTool derives it at run
+    # time from session_metadata[workspace_root]+[workspace_config_dirname]); skill_root
+    # is the build-time per-config-dir skills dir (mirrors the legacy bootstrap's
+    # workspace-skill-root preference). The two general features (memory_curation /
+    # skill_creation) gate them via requires_tool presence + feature flag.
+    _register_self_evolution_builtins(
+        tool_registry,
+        repo_root=resolved_repo_root,
+        workspace_config_dirname=workspace_config_dirname,
+        skill_search_roots=tuple(
+            Path(r).expanduser().resolve() for r in skill_search_roots
+        ),
+    )
+    for tool in tools:
+        tool_registry.register(tool, replace=True)
+
+    # refactor-406-M3fix #1 (决策2 红线)：恢复工作区 `<repo_root>/.nano/tools` 运行时
+    # 工具发现——决策2 明写「.nano/tools 运行时发现机制不变」，但新 build_kernel 直接手搓
+    # registry（builtins + 显式 tools=）跳过了它。仅扫 workspace .nano/tools（字面 .nano，
+    # 非 workspace_config_dirname），不经 ConfigResolver。
+    # refactor-406-M3fix-r2 R2-1 (崩溃回归修)：用 _load_tools_from_single_dir(replace=True)
+    # 而非 load_tools_from_directory(replace=False)——后者遇到工作区 .nano/tools 里与内置
+    # 同名的 override（如 bash.py 导出 name='bash'）会 register 抛 ValueError → build_kernel
+    # 崩溃、Gateway/CLI 起不来。旧行为允许 .nano/tools override 内置（replace=True），且与下方
+    # user-root 加载一致。
+    from agent.platform.tools.loader import (  # noqa: PLC0415
+        _load_tools_from_single_dir,
+    )
+
+    workspace_tools_dir = resolved_repo_root / ".nano" / "tools"
+    if workspace_tools_dir.is_dir():
+        _load_tools_from_single_dir(
+            tool_root=workspace_tools_dir, registry=tool_registry, replace=True
+        )
+
+    # refactor-406-M3fix #2: deployment-level user tool dirs (tool_search_roots, same
+    # consumer-supplied-roots pattern as skill_search_roots — no ConfigResolver). Loaded
+    # after workspace .nano/tools so user-level plugins are discovered too.
+    for tool_root in tool_search_roots:
+        resolved_tool_root = Path(tool_root).expanduser().resolve()
+        if resolved_tool_root.is_dir():
+            _load_tools_from_single_dir(
+                tool_root=resolved_tool_root, registry=tool_registry, replace=True
+            )
 
     _bind_runtime_to_tool_registry(
-        tool_registry=active_tool_registry,
+        tool_registry=tool_registry,
         runtime=runtime,
-        hook_runner=active_hook_runner,
+        hook_runner=hook_runner,
         wiring=background_task_wiring,
     )
-
     bind_tool_registry = getattr(runtime, "bind_tool_registry", None)
     if callable(bind_tool_registry):
-        bind_tool_registry(active_tool_registry)
+        bind_tool_registry(tool_registry)
 
     components = _KernelComponents(
         runtime=runtime,
@@ -212,16 +498,144 @@ def build_kernel(
         event_hub=event_hub,
         permission_broker=permission_broker,
         session_service=session_service,
-        hook_registry=active_hook_registry,
-        hook_runner=active_hook_runner,
+        hook_registry=hook_registry,
+        hook_runner=hook_runner,
     )
 
     return Kernel(
         components=components,
         can_use_tool=can_use_tool,
         repo_root=resolved_repo_root,
-        host_capabilities=host_capabilities,
+        llm_catalog=llm,
+        workspace_config_dirname=workspace_config_dirname,
+        skill_search_roots=tuple(
+            Path(r).expanduser().resolve() for r in skill_search_roots
+        ),
     )
+
+
+def _register_self_evolution_builtins(
+    tool_registry: Any,
+    *,
+    repo_root: Path,
+    workspace_config_dirname: str,
+    skill_search_roots: tuple[Path, ...] = (),
+) -> None:
+    """Register the kernel built-in memory / skill_manage tools (决策 3).
+
+    These are kernel built-ins, not consumer tools — every application has them, so
+    they stay in the kernel (决策 3). They are excluded from ``builtin_tools()`` only
+    because they need constructor-time path args; the kernel resolves those here:
+
+    - ``MemoryTool()`` takes no fixed root — it derives memory_root per-session from
+      ``session_metadata[workspace_root] + [workspace_config_dirname]`` at run time.
+    - ``SkillManageTool(workspace_config_dirname, extra_roots)`` (refactor-406-M3fix #4):
+      writes/lists skills **per-session**, deriving ``<workspace_root>/<dirname>/skills``
+      from session_metadata at run time + the deployment ``skill_search_roots`` — so
+      each agent uses its own workspace skills (no shared build-repo_root registry) and
+      skill_manage aligns with ``Kernel.list_skills`` / IM (one resolver, 决策 4).
+    """
+    from agent.platform.tools.builtins import (  # noqa: PLC0415
+        MemoryTool,
+        SkillManageTool,
+    )
+
+    tool_registry.register(
+        SkillManageTool(
+            workspace_config_dirname=workspace_config_dirname,
+            extra_roots=skill_search_roots,
+        ),
+        replace=True,
+    )
+    tool_registry.register(MemoryTool(), replace=True)
+
+
+class _WorkspaceDirnameSkillResolver:
+    """Minimal SkillRootResolver for the 2-layer path (no ProductProfile).
+
+    Resolves skills under ``<workspace_root>/<workspace_config_dirname>/skills``
+    FIRST (per-workspace), then the build-time deployment ``extra_roots`` (shared
+    user-level/global/compat skill dirs the consumer factory owns), deduplicating by
+    directory while preserving order. This is the kernel-neutral equivalent of the
+    legacy reporter's 4-tier search (workspace → global → compat-claude →
+    compat-codex): the kernel only searches the roots it is handed, so it stays
+    product-neutral; the consumer passes its product-specific deployment roots via
+    ``build_kernel(skill_search_roots=)``.
+    """
+
+    def __init__(
+        self,
+        *,
+        workspace_root: Path,
+        workspace_config_dirname: str,
+        extra_roots: tuple[Path, ...] = (),
+    ) -> None:
+        ordered: list[Path] = [
+            (workspace_root / workspace_config_dirname / "skills")
+            .expanduser()
+            .resolve()
+        ]
+        for root in extra_roots:
+            resolved = Path(root).expanduser().resolve()
+            if resolved not in ordered:
+                ordered.append(resolved)
+        self._roots = tuple(ordered)
+
+    def user_skill_roots(self) -> tuple[Path, ...]:
+        return self._roots
+
+
+def _wire_console_tracer() -> None:
+    """Wire the console tracer when the threshold env var is set."""
+    threshold = os.getenv("NANO_MULTIAGENT_TRACE_CONSOLE_THRESHOLD_MS")
+    if threshold is None:
+        return
+    try:
+        set_tracer(ConsoleTracer(threshold_ms=float(threshold)))
+    except ValueError:
+        set_tracer(ConsoleTracer(threshold_ms=100.0))
+
+
+# refactor-406-M3fix #5: per-agent self_evolution config (re-home, not drop).
+# design 决策1: per-agent config moves to create_session. The legacy bootstrap read
+# this from <workspace>/<dirname>/config.yaml's self_evolution section into session
+# metadata; the self_improvement hook reads metadata["self_evolution"] for
+# skill_nudge_interval / memory_nudge_interval / enabled. The 2-layer create_session
+# dropped this read → hook got {} → hard-coded interval=10 overrode user config.
+# Re-homed here using ONLY workspace_root + workspace_config_dirname to locate the
+# file (no ConfigResolver / user roots, per the ConfigResolver-removal decision).
+# Logic + fallback ported verbatim from the legacy bootstrap._load_self_evolution_config.
+_DEFAULT_SELF_EVOLUTION_CONFIG: dict = {
+    "enabled": True,
+    "skill_creation": True,
+    "memory_curation": True,
+    "skill_nudge_interval": 10,
+    "memory_nudge_interval": 10,
+}
+
+
+def _load_self_evolution_config(config_path: Path) -> dict:
+    """Read the self_evolution section from a workspace config YAML, with fallback.
+
+    Falls back to the platform default (all on, interval=10) when the file is absent
+    or malformed. User values are merged over defaults so missing keys still default.
+    """
+    if not config_path.is_file():
+        return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+    try:
+        import yaml  # noqa: PLC0415
+
+        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+        user_evo = raw.get("self_evolution", {})
+        if not isinstance(user_evo, dict):
+            return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+        result = dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
+        result.update(user_evo)
+        return result
+    except Exception:  # noqa: BLE001
+        return dict(_DEFAULT_SELF_EVOLUTION_CONFIG)
 
 
 class Kernel:
@@ -244,10 +658,23 @@ class Kernel:
         components: _KernelComponents,
         can_use_tool: CanUseToolFn | None,
         repo_root: Path,
-        host_capabilities: HostCapabilityDispatcher | None = None,
+        llm_catalog: LLMConfig | None = None,
+        workspace_config_dirname: str | None = None,
+        skill_search_roots: tuple[Path, ...] = (),
     ) -> None:
         self._c = components
         self._repo_root = repo_root
+        # SDK-owned LLM catalog (decision 5) for list_models / get_llm_config DTO
+        # mapping. None on the legacy product_profile path (catalog unknown there).
+        self._llm_catalog = llm_catalog
+        # Per-workspace config dir (.nanocode / .nanoassistant) for the 2-layer path.
+        # list_skills uses it to resolve <workspace>/<dirname>/skills without a
+        # ProductProfile (the legacy path resolves via config_resolver instead).
+        self._workspace_config_dirname = workspace_config_dirname
+        # Deployment-level skill roots shared across workspaces (refactor-406-M2):
+        # list_skills appends them after the per-workspace root, deduplicating. The
+        # consumer factory owns these product paths; the kernel stays neutral.
+        self._skill_search_roots = skill_search_roots
 
         # Inject can_use_tool into runtime so _build_hook_context can race it
         # against the broker future when building _permission_requester closures.
@@ -255,14 +682,6 @@ class Kernel:
         # (resolved externally via submit_permission_decision).
         if can_use_tool is not None:
             self._c.runtime._can_use_tool = can_use_tool  # type: ignore[attr-defined]
-
-        # Inject host_capabilities into the runtime's base ToolContext so all
-        # tool executions have access to the dispatcher without importing
-        # personal_assistant (bugfix-402 Decision 1).
-        if host_capabilities is not None:
-            _inject_host_capabilities(
-                runtime=self._c.runtime, dispatcher=host_capabilities
-            )
 
     # ------------------------------------------------------------------
     # Public API — mirrors design.md §接口与数据流
@@ -273,37 +692,95 @@ class Kernel:
         *,
         title: str | None = None,
         workspace_root: Path | None = None,
+        # --- new (refactor-406 决策 1/6/8) per-agent config ---
+        enabled_tools: list[str] | None = None,
+        features: dict[str, bool] | None = None,
+        prompt: PromptSlots | None = None,
+        # --- legacy (扩张期保留) ---
         skills: list[str] | None = None,
         tool_allowlist: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> Session:
-        """Create and return a new session.
+    ) -> SessionInfo:
+        """Create a session and return its SDK-owned ``SessionInfo`` (决策 6).
+
+        Per-agent config (new path, 决策 1): ``enabled_tools`` selects the session's
+        tool subset from the kernel catalog; ``features`` toggles the kernel's
+        general features (memory_curation / skill_creation); ``prompt`` is the
+        consumer's per-session ``PromptSlots`` placed into the kernel skeleton
+        (决策 8). model is *not* taken here — it stays kernel-level (决策 5).
+
+        Legacy ``skills`` / ``tool_allowlist`` / ``metadata`` are retained during
+        the expansion phase for callers not yet migrated.
 
         Args:
             title: Optional human-readable title.
             workspace_root: Workspace root for session JSONL storage.
-            skills: Optional list of skill names to enable.
-            tool_allowlist: Optional tool allowlist for the session.
-            metadata: Optional session metadata (e.g. routing context for gateway).
+            enabled_tools: Tool names selected for this session (new path).
+            features: Kernel feature toggles → session ``agent_features`` (new path).
+            prompt: Per-session product PromptSlots (new path, 决策 8).
+            skills: Legacy skill name list.
+            tool_allowlist: Legacy tool allowlist (superseded by enabled_tools).
+            metadata: Legacy session metadata.
 
         Returns:
-            The created Session.
+            SessionInfo with session_id / title / workspace_root / metadata.
         """
-        effective_root = workspace_root or self._repo_root
-        return self._c.session_service.create_session(
+        # refactor-406-M3fix-r2 R2-5：resolve to absolute so the #5 self_evolution
+        # config_path (effective_root/<dirname>/config.yaml) does not depend on the
+        # process cwd when workspace_root is relative — otherwise is_file() silently
+        # misses the file and falls back to defaults. Mirrors resolved_repo_root.
+        effective_root = (workspace_root or self._repo_root).expanduser().resolve()
+
+        effective_allowlist = (
+            enabled_tools if enabled_tools is not None else tool_allowlist
+        )
+        effective_metadata = dict(metadata) if metadata else {}
+        if features is not None:
+            # Feature toggles drive the kernel feature gates via agent_features
+            # (same key the runtime reads through resolve_flags_from_metadata).
+            merged_features = dict(effective_metadata.get("agent_features", {}))
+            merged_features.update(features)
+            effective_metadata["agent_features"] = merged_features
+
+        # refactor-406-M3fix #5: re-home per-agent self_evolution config (决策1: per-agent
+        # config → create_session). Locate <workspace_root>/<dirname>/config.yaml using
+        # only workspace_root + workspace_config_dirname (no ConfigResolver), read its
+        # self_evolution section into session metadata so the self_improvement hook reads
+        # the user's skill_nudge_interval / memory_nudge_interval instead of hard-coded
+        # defaults. Caller-supplied metadata wins (don't override an explicit value).
+        if (
+            "self_evolution" not in effective_metadata
+            and self._workspace_config_dirname
+        ):
+            config_path = (
+                effective_root / self._workspace_config_dirname / "config.yaml"
+            )
+            effective_metadata["self_evolution"] = _load_self_evolution_config(
+                config_path
+            )
+
+        session = self._c.session_service.create_session(
             workspace_root=effective_root,
             title=title,
             skills=tuple(skills) if skills else None,
-            tool_allowlist=tuple(tool_allowlist) if tool_allowlist else None,
-            metadata=metadata,
+            tool_allowlist=tuple(effective_allowlist) if effective_allowlist else None,
+            metadata=effective_metadata or None,
         )
+
+        # Register per-session PromptSlots on the runtime (决策 8). The slots are
+        # read structurally at turn time; not persisted (rebuilt per process by
+        # the consumer factory on session open).
+        if prompt is not None:
+            self._c.runtime.register_session_prompt_slots(session.session_id, prompt)
+
+        return _to_session_info(session)
 
     async def fork_session(
         self,
         session_id: str,
         *,
         workspace_root: Path | None = None,
-    ) -> Session:
+    ) -> SessionInfo:
         """Fork an existing session for parallel execution.
 
         Args:
@@ -311,12 +788,13 @@ class Kernel:
             workspace_root: Workspace root for the forked session.
 
         Returns:
-            New forked Session.
+            SessionInfo for the new forked session.
         """
         effective_root = workspace_root or self._repo_root
-        return self._c.session_service.create_session(
+        session = self._c.session_service.create_session(
             workspace_root=effective_root,
         )
+        return _to_session_info(session)
 
     async def compact(
         self,
@@ -344,7 +822,7 @@ class Kernel:
         origin: RunOrigin = RunOrigin.USER,
         workspace_root: Path | None = None,
         trace_id: str | None = None,
-    ) -> RunRecord:
+    ) -> RunInfo:
         """Schedule a turn on the background loop and return immediately.
 
         Args:
@@ -355,16 +833,17 @@ class Kernel:
             trace_id: Optional trace correlation id.
 
         Returns:
-            RunRecord with run_id and initial status QUEUED.
+            RunInfo with run_id / session_id / status (initially QUEUED).
         """
         effective_root = workspace_root or self._repo_root
-        return self._c.runs_registry.submit(
+        record = self._c.runs_registry.submit(
             session_id=session_id,
             parts=parts,
             origin=origin,
             workspace_root=effective_root,
             trace_id=trace_id,
         )
+        return _to_run_info(record)
 
     def stream(
         self,
@@ -477,27 +956,29 @@ class Kernel:
         # TOCTOU-prone is_pending pre-check (feat-394-M14 finding 7).
         return broker.resolve(request_id, response)
 
-    def cancel(self, run_id: str) -> RunRecord | None:
+    def cancel(self, run_id: str) -> RunInfo | None:
         """Cancel a queued or running run by id.
 
         Args:
             run_id: Run to cancel.
 
         Returns:
-            Updated RunRecord, or None if run not found.
+            Updated RunInfo, or None if run not found.
         """
-        return self._c.runs_registry.cancel(run_id)
+        record = self._c.runs_registry.cancel(run_id)
+        return _to_run_info(record) if record is not None else None
 
-    def get_run(self, run_id: str) -> RunRecord | None:
+    def get_run(self, run_id: str) -> RunInfo | None:
         """Fetch the current state of a run.
 
         Args:
             run_id: Run to look up.
 
         Returns:
-            RunRecord, or None if not found.
+            RunInfo, or None if not found.
         """
-        return self._c.runs_registry.get(run_id)
+        record = self._c.runs_registry.get(run_id)
+        return _to_run_info(record) if record is not None else None
 
     def list_session_tools(
         self,
@@ -522,25 +1003,182 @@ class Kernel:
             return list_tools(session_id=session_id)
         return {}
 
-    def get_llm_config(self) -> LLMFactoryConfig:
-        """Return the active LLM configuration.
+    # ------------------------------------------------------------------
+    # Capability queries (决策 4) — single-item neutral facts, SDK-owned DTOs.
+    # The application (Gateway reporter) projects these into IM payloads; the
+    # kernel does no product-semantic aggregation.
+    # ------------------------------------------------------------------
+
+    def list_models(self) -> list:
+        """Return the model catalog as SDK-owned ``ModelInfo`` DTOs (决策 4).
+
+        Reads the process model registry installed at build time. The **catalog
+        default** model (``get_default_model(get_default_provider())``) is flagged
+        ``is_default`` so selectors can highlight it — this is the configured default,
+        not necessarily the currently-active model (which CLI ``/model`` may have
+        switched). When the registry is not initialised (test paths that bypass
+        catalog install), falls back to the single active model (flagged default).
 
         Returns:
-            LLMFactoryConfig with current provider/model/endpoint.
+            List of ModelInfo(name, provider, is_default).
         """
-        return self._c.runtime.get_llm_config()
 
-    def reconfigure_llm(self, **patch: Any) -> LLMFactoryConfig:
-        """Reconfigure provider/model connection without recreating the runtime.
+        active = self._c.runtime.get_llm_config()
+        active_model = getattr(active, "model", None)
+
+        try:
+            from agent.core.llm.model_registry import (  # noqa: PLC0415
+                get_default_model,
+                get_default_provider,
+                list_provider_models,
+                list_supported_providers,
+            )
+
+            default_provider = get_default_provider()
+            default_model = get_default_model(default_provider)
+            models: list = []
+            for provider in list_supported_providers():
+                for meta in list_provider_models(provider):
+                    models.append(
+                        ModelInfo(
+                            name=meta.model,
+                            provider=meta.provider,
+                            is_default=(meta.model == default_model),
+                        )
+                    )
+            if models:
+                return models
+        except Exception:  # noqa: BLE001
+            # Registry not initialised (test bypass) — fall through to active-only.
+            pass
+
+        if active_model is None:
+            return []
+        return [
+            ModelInfo(
+                name=active_model,
+                provider=getattr(active, "provider", ""),
+                is_default=True,
+            )
+        ]
+
+    def list_tools(self) -> list:
+        """Return the kernel tool catalog as ``ToolInfo`` DTOs (决策 4).
+
+        Lists the tools registered in the shared base (name + description),
+        independent of any per-session ``enabled_tools`` subset — the application
+        computes per-session ``available`` itself.
+
+        Returns:
+            List of ToolInfo(name, description).
+        """
+
+        tool_registry = getattr(self._c.runtime, "_tool_registry", None)
+        if tool_registry is None:
+            return []
+        list_specs = getattr(tool_registry, "list_specs", None)
+        if not callable(list_specs):
+            return []
+        return [
+            ToolInfo(name=spec.name, description=spec.description)
+            for spec in list_specs()
+        ]
+
+    def list_features(self) -> list:
+        """Return the kernel's general features as ``FeatureInfo`` DTOs (决策 3/4).
+
+        Only kernel-owned general features (those whose guidance is a core
+        segment) are reported: ``memory_curation`` / ``skill_creation``.
+        Product-specific toggles (heartbeat / cron) are an application-layer
+        projection, not kernel features.
+
+        Returns:
+            List of FeatureInfo(key, default_on, requires_tool).
+        """
+        from agent.core.agent.prompt_sections.feature_registry import (  # noqa: PLC0415
+            FEATURE_REGISTRY,
+        )
+
+        out: list = []
+        for key, entry in FEATURE_REGISTRY.items():
+            # Kernel-general features are those gated on a kernel built-in tool
+            # (memory / skill_manage). Product toggles (heartbeat/cron) are
+            # projected by the application, not reported here.
+            if key not in ("memory_curation", "skill_creation"):
+                continue
+            out.append(
+                FeatureInfo(
+                    key=key,
+                    default_on=entry["default_on"],
+                    requires_tool=entry["requires_tool"],
+                )
+            )
+        return out
+
+    def list_skills(self, workspace_root: Path | None = None) -> list:
+        """Return skills discoverable for a workspace as ``SkillInfo`` DTOs (决策 4).
 
         Args:
-            **patch: Fields to update on the active LLMFactoryConfig
+            workspace_root: Workspace whose skills to resolve. Falls back to the
+                kernel's repo_root when None.
+
+        Returns:
+            List of SkillInfo(name, description) for that workspace; different
+            workspaces yield their own skills with no cross-workspace mixing.
+        """
+        from agent.core.skills.discovery import resolve_available_skills  # noqa: PLC0415
+
+        effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
+
+        # Per-workspace skill discovery requires a config_resolver bound to THIS
+        # call's workspace_root — not the build-time one. The 2-layer path resolves
+        # skills under the consumer's per-workspace config dir
+        # (<workspace_root>/<workspace_config_dirname>/skills) plus the deployment-level
+        # skill_search_roots, so list_skills is per-workspace with no cross-workspace
+        # mixing (决策 4). (The legacy ProductProfile-bound ConfigResolver path was
+        # removed in refactor-406-M2 with products/.)
+        per_call_resolver = None
+        if self._workspace_config_dirname:
+            per_call_resolver = _WorkspaceDirnameSkillResolver(
+                workspace_root=effective_root,
+                workspace_config_dirname=self._workspace_config_dirname,
+                extra_roots=self._skill_search_roots,
+            )
+
+        skills = resolve_available_skills(
+            workspace_root=effective_root,
+            config_resolver=per_call_resolver,
+        )
+        return [
+            SkillInfo(name=s.name, description=getattr(s, "description", "") or "")
+            for s in skills
+        ]
+
+    def get_llm_config(self) -> LLMConfig:
+        """Return the active LLM configuration as an SDK-owned ``LLMConfig`` (决策 5).
+
+        Returns:
+            LLMConfig with current provider/model/endpoint + build-time catalog.
+        """
+        return _factory_config_to_llm_config(
+            self._c.runtime.get_llm_config(), catalog=self._llm_catalog
+        )
+
+    def reconfigure_llm(self, **patch: Any) -> LLMConfig:
+        """Reconfigure provider/model connection without recreating the runtime.
+
+        Used by CLI ``/model`` (决策 5 scope A): switches the kernel-level model
+        with immediate effect; subsequent turns use the new model.
+
+        Args:
+            **patch: Fields to update on the active connection
                 (provider, model, base_url, timeout_seconds, api_key).
 
         Returns:
-            Updated LLMFactoryConfig.
+            Updated LLMConfig DTO.
         """
-        return self._c.runtime.reconfigure_llm(**patch)
+        updated = self._c.runtime.reconfigure_llm(**patch)
+        return _factory_config_to_llm_config(updated, catalog=self._llm_catalog)
 
     def append_message(
         self,
@@ -689,6 +1327,9 @@ class Kernel:
         tool_ids: list[str] | None = None,
         scenario: str = "direct",
         skill_ids: list[str] | None = None,
+        # --- new (refactor-406 决策 8) same-source-as-runtime preview ---
+        prompt: PromptSlots | None = None,
+        enabled_tools: list[str] | None = None,
     ) -> dict[str, Any]:
         """Assemble a system-prompt preview for the agent settings page.
 
@@ -742,7 +1383,8 @@ class Kernel:
 
         # Build lightweight ToolSpec stubs from IDs — schema is not needed for
         # preview; has_tool(name) only checks the name to gate guidance segments.
-        active_tool_ids = list(tool_ids) if tool_ids else []
+        # New path (决策 8) passes enabled_tools; legacy passes tool_ids.
+        active_tool_ids = list(enabled_tools or tool_ids or [])
         active_tools: tuple[ToolSpec, ...] = tuple(
             ToolSpec(name=name, description="", input_schema={})
             for name in active_tool_ids
@@ -756,13 +1398,25 @@ class Kernel:
             try:
                 from agent.core.skills import resolve_available_skills  # noqa: PLC0415
 
+                # refactor-406-M3fix #3 (决策8 同源)：2 层路径 runtime._config_resolver 恒
+                # None → 旧实现 resolve_available_skills(config_resolver=None) 走 default
+                # 搜索根（不含 <ws>/<dirname>/skills + 部署 root），skill_ids 解析恒空白、
+                # 技能段不出现。改用与 list_skills 同源的 _WorkspaceDirnameSkillResolver
+                # （per-call workspace_root + 部署 skill_search_roots），preview = 真实会话。
+                preview_resolver = (
+                    _WorkspaceDirnameSkillResolver(
+                        workspace_root=effective_root,
+                        workspace_config_dirname=self._workspace_config_dirname,
+                        extra_roots=self._skill_search_roots,
+                    )
+                    if self._workspace_config_dirname
+                    else None
+                )
                 active_skills = tuple(
                     resolve_available_skills(
                         workspace_root=effective_root,
                         include_names=tuple(skill_ids),
-                        config_resolver=getattr(
-                            self._c.runtime, "_config_resolver", None
-                        ),
+                        config_resolver=preview_resolver,
                     )
                 )
             except Exception:  # noqa: BLE001
@@ -783,6 +1437,9 @@ class Kernel:
             flags=flags,
             vars=preview_vars,
             render_mode=RenderMode.PREVIEW,
+            # 决策 8: same-source preview — the consumer passes the same PromptSlots
+            # its create_session uses, so preview == real assembly byte-for-byte.
+            prompt_slots=prompt,
         )
 
         sections = getattr(self._c.runtime, "_prompt_sections", [])
@@ -854,31 +1511,3 @@ def _build_session_event_publisher_factory(
         return _publish
 
     return _factory
-
-
-def _inject_host_capabilities(
-    *,
-    runtime: AgentRuntime,
-    dispatcher: HostCapabilityDispatcher,
-) -> None:
-    """Inject a HostCapabilityDispatcher into the runtime's base ToolContext.
-
-    The runtime's tool_registry holds the base ToolContext; all per-call
-    contexts are cloned via with_session() / _resolve_execution_context which
-    propagates host_capabilities.  Setting it on the base context here makes
-    the dispatcher available to every tool execution without requiring the
-    core layer to know about host capabilities.
-
-    This intentionally accesses the internal _tool_registry._context chain
-    because there is no public API on AgentRuntime/ToolRegistry for injecting
-    a dispatcher post-construction (adding one would turn the product-neutral
-    core into a product-aware surface).  The access is deliberate and bounded
-    to the composition root.
-    """
-    tool_registry = getattr(runtime, "_tool_registry", None)
-    if tool_registry is None:
-        return
-    base_ctx = getattr(tool_registry, "_context", None)
-    if base_ctx is None:
-        return
-    object.__setattr__(base_ctx, "host_capabilities", dispatcher)

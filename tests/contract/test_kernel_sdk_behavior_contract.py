@@ -22,10 +22,35 @@ from typing import Any
 
 import pytest
 
-from agent.sdk import Kernel, build_kernel
-from agent.core.llm.factory import LLMFactoryConfig
+from agent.sdk import Kernel, LLMConfig, LLMModel, LLMProvider, build_kernel
 from agent.core.llm.interfaces import LLMMessage
-from agent.products.local_coding.profile import LOCAL_CODING_PROFILE
+
+
+def _lc_llm() -> LLMConfig:
+    """The SDK LLMConfig the local-coding behavior contracts build against.
+
+    Carries a two-provider catalog (openai_compat + anthropic) so the model
+    registry resolves both — the reconfigure_llm contract switches provider to
+    anthropic, which must be a known provider.
+    """
+    return LLMConfig(
+        provider="openai_compat",
+        model="codex_oauth:gpt-5.5",
+        base_url="http://127.0.0.1:4000",
+        default_model="codex_oauth:gpt-5.5",
+        providers=(
+            LLMProvider(
+                name="openai_compat",
+                base_url="http://127.0.0.1:4000",
+                models=(LLMModel(name="codex_oauth:gpt-5.5"),),
+            ),
+            LLMProvider(
+                name="anthropic",
+                base_url="http://127.0.0.1:4000",
+                models=(LLMModel(name="test-model-xyz"),),
+            ),
+        ),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -64,13 +89,11 @@ async def _async_stub_messages(content: str = "stub-response"):
 
 
 def _build_kernel(tmp_path: Path, **kwargs: Any) -> Kernel:
-    defaults = dict(
-        product_profile=LOCAL_CODING_PROFILE,
-        llm_config=LLMFactoryConfig(
-            provider="openai_compat",
-            model="codex_oauth:gpt-5.5",
-            base_url="http://127.0.0.1:4000",
-        ),
+    # refactor-406-M1 R7: built via the 2-layer surface (legacy product_profile
+    # path removed). Built-in tools suffice for these behavior contracts.
+    defaults: dict[str, Any] = dict(
+        llm=_lc_llm(),
+        workspace_config_dirname=".nanocode",
         can_use_tool=_allow_all,
         repo_root=tmp_path,
         _llm_client_override=_fake_llm_client(),
@@ -218,12 +241,8 @@ def test_llm_config_reconfigure_updates_provider(tmp_path: Path) -> None:
     """
     # Build without client override so llm_client_factory is wired (needed for reconfigure_llm)
     kernel = build_kernel(
-        product_profile=LOCAL_CODING_PROFILE,
-        llm_config=LLMFactoryConfig(
-            provider="openai_compat",
-            model="codex_oauth:gpt-5.5",
-            base_url="http://127.0.0.1:4000",
-        ),
+        llm=_lc_llm(),
+        workspace_config_dirname=".nanocode",
         can_use_tool=_allow_all,
         repo_root=tmp_path,
         # No _llm_client_override — use real factory path
@@ -286,7 +305,9 @@ async def test_message_sync_completes_and_updates_run(tmp_path: Path) -> None:
 
         record = await _wait_for_terminal_run(kernel, run_id)
         assert record.status == "completed"
-        assert record.turn_id is not None
+        # refactor-406 决策 6: get_run returns the SDK-owned RunInfo (run_id /
+        # session_id / status only); turn_id is an internal RunRecord field, not
+        # part of the curated boundary DTO and not consumed by any product.
     finally:
         kernel.close()
 
@@ -383,12 +404,8 @@ def test_global_capabilities_llm_config_round_trip(tmp_path: Path) -> None:
     Uses real factory path (no _llm_client_override) so reconfigure_llm works.
     """
     kernel = build_kernel(
-        product_profile=LOCAL_CODING_PROFILE,
-        llm_config=LLMFactoryConfig(
-            provider="openai_compat",
-            model="codex_oauth:gpt-5.5",
-            base_url="http://127.0.0.1:4000",
-        ),
+        llm=_lc_llm(),
+        workspace_config_dirname=".nanocode",
         can_use_tool=_allow_all,
         repo_root=tmp_path,
     )

@@ -79,29 +79,3 @@ def test_resolve_memory_root_raises_when_dirname_missing(tmp_path: Path) -> None
     tool = MemoryTool()
     with pytest.raises(RuntimeError, match="memory_root cannot be resolved"):
         tool._resolve_memory_root(ctx)
-
-
-def test_bootstrap_memory_tool_constructed_without_fixed_root() -> None:
-    """bootstrap.py should construct MemoryTool() without memory_root argument."""
-    import importlib
-    import inspect
-    import ast
-
-    import agent.platform.bootstrap as _bootstrap_module
-
-    bootstrap_path = Path(_bootstrap_module.__file__)
-    source = bootstrap_path.read_text(encoding="utf-8")
-    tree = ast.parse(source)
-
-    # Find all MemoryTool(...) calls in bootstrap.py
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            func = node.func
-            func_name = getattr(func, "id", None) or getattr(func, "attr", None)
-            if func_name == "MemoryTool":
-                # Must not have memory_root keyword arg
-                kwarg_names = [kw.arg for kw in node.keywords]
-                assert "memory_root" not in kwarg_names, (
-                    f"bootstrap.py MemoryTool() call at line {node.lineno} "
-                    f"must not pass memory_root= (should be derived per-session)"
-                )

@@ -62,8 +62,9 @@ EXPECTED_EXISTING_PATHS = (
     "core/types.py",
     "core/tools/base.py",
     "core/tools/registry.py",
-    "platform/bootstrap.py",
-    "platform/config/resolver.py",
+    # platform/bootstrap.py + platform/config/resolver.py removed in refactor-406-M2
+    # (products/ dissolved: bootstrap_product + ProductProfile-bound ConfigResolver
+    # were legacy dead code on the 2-layer build_kernel path).
     "platform/hooks/builtins/auto_mode_gate.py",
     "platform/hooks/builtins/default_status.py",
     "platform/hooks/builtins/realtime_stream.py",
@@ -79,9 +80,7 @@ EXPECTED_EXISTING_PATHS = (
     "platform/llm/providers/openai_compat/mapper.py",
     "platform/llm/providers/translator.py",
     "platform/persistence/session/service.py",
-    "platform/product.py",
-    "platform/products/local_coding.py",
-    "platform/products/personal_assistant.py",
+    # platform/product.py + platform/products/ removed in refactor-406-M2 (products/ dissolved)
     # platform/sdk/client.py deleted in refactor-387-M1 (legacy HTTP client removed;
     # products now use agent.sdk.build_kernel in-process instead of HTTP)
     "sdk/__init__.py",  # new top-level agent.sdk surface added in refactor-387-M1
@@ -95,9 +94,8 @@ EXPECTED_EXISTING_PATHS = (
     "platform/tools/loader.py",
     "platform/tools/registry.py",
     "platform/tools/safety.py",
-    "products/base.py",
-    "products/local_coding/profile.py",
-    "products/personal_assistant/profile.py",
+    # products/ dissolved in refactor-406-M2 (决策 1: product layer removed; product
+    # defaults live in the consumer factories coding_cli.product / personal_assistant.product).
 )
 
 EXPECTED_TOP_LEVEL_CODING_CLI_PATHS = (
@@ -124,14 +122,15 @@ TOP_LEVEL_REQUIRED_DOC_SNIPPETS = (
     "├── personal_assistant/           # 个人助手 Node Gateway",
 )
 # feat-392-M1: 锚回 SPEC.md（KERNEL_SPEC 退役后顶点是 canonical 家）。仍实质验三条内核终态属性：
-# ① 内核四层 core/platform/products/sdk；② 依赖方向 core ↛ platform/products；
-# ③ 库形态——只暴露 agent.sdk、不内置 HTTP。片段取 SPEC.md §4「agent — 执行内核」实际措辞。
+# ① 内核三层 core/platform/sdk（refactor-406 决策1：products 层解散，产品默认下沉消费者工厂）；
+# ② 依赖方向 core ↛ platform；③ 库形态——只暴露 agent.sdk、不内置 HTTP。
+# 片段取 SPEC.md §4「agent — 执行内核」实际措辞。
 KERNEL_REQUIRED_DOC_SNIPPETS = (
-    # ① 内核四层
-    "内部分四层（core / platform / products / sdk）",
+    # ① 内核三层（refactor-406-M2：products 解散）
+    "内部分三层（core / platform / sdk）",
     "└── sdk/                      # 对外面：build_kernel() → Kernel",
-    # ② 依赖方向 core 不依赖 platform/products
-    "`core` 纯逻辑，不依赖 `platform` / `products`",
+    # ② 依赖方向 core 不依赖 platform
+    "`core` 纯逻辑，不依赖 `platform`；只持 `LLMClient` 端口（接口）。",
     # ③ 库形态：只暴露 agent.sdk + 无 HTTP
     "对外**只暴露 `agent.sdk`**",
     "内核是库不是服务，**不内置任何对外网络 API**",

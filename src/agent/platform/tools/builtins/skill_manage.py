@@ -114,9 +114,44 @@ class SkillManageTool:
         "additionalProperties": False,
     }
 
-    def __init__(self, *, skill_root: Path, registry: SkillRegistry) -> None:
-        self._writer = SkillWriter(skill_root=skill_root, registry=registry)
-        self._registry = registry
+    def __init__(
+        self,
+        *,
+        skill_root: Path | None = None,
+        registry: SkillRegistry | None = None,
+        workspace_config_dirname: str | None = None,
+        extra_roots: tuple[Path, ...] = (),
+    ) -> None:
+        """Construct the skill-manage tool.
+
+        refactor-406-M3fix #4: prefer per-session resolution. When constructed with
+        ``workspace_config_dirname`` (the 2-layer build_kernel path), the writer +
+        registry are derived **per run** from ``ctx.session_metadata`` (workspace_root
+        + workspace_config_dirname) plus the deployment ``extra_roots`` — so each agent
+        writes/lists its own workspace skills (no shared repo_root registry) and
+        skill_manage list aligns with ``list_skills`` / IM (one resolver).
+
+        The fixed ``skill_root`` + ``registry`` path is kept for tests and the legacy
+        product_profile path (bypasses per-session metadata lookup).
+        """
+        self._workspace_config_dirname = workspace_config_dirname
+        self._extra_roots = tuple(extra_roots)
+        if skill_root is not None and registry is not None:
+            self._fixed_writer: SkillWriter | None = SkillWriter(
+                skill_root=skill_root, registry=registry
+            )
+            self._fixed_registry: SkillRegistry | None = registry
+        else:
+            self._fixed_writer = None
+            self._fixed_registry = None
+        # refactor-406-M3fix-r2 R2-3：fail fast at construction if neither a fixed
+        # (skill_root + registry) nor a per-session (workspace_config_dirname) path is
+        # configured — otherwise the misconfiguration only surfaces at first run().
+        if self._fixed_writer is None and not self._workspace_config_dirname:
+            raise ValueError(
+                "SkillManageTool requires either (skill_root + registry) or "
+                "workspace_config_dirname for per-session resolution"
+            )
 
     def run(self, args: Mapping[str, Any], ctx: Any) -> Mapping[str, Any]:
         """Dispatch the requested action; return structured success/error dict."""
@@ -129,11 +164,50 @@ class SkillManageTool:
             }
 
         try:
-            return self._dispatch(action, args)
+            writer, registry = self._resolve_writer_registry(ctx)
+            return self._dispatch(action, args, writer=writer, registry=registry)
         except ValueError as exc:
             return {"success": False, "error": str(exc)}
         except Exception as exc:  # noqa: BLE001
             return {"success": False, "error": f"Unexpected error: {exc}"}
+
+    def _resolve_writer_registry(self, ctx: Any) -> tuple[SkillWriter, SkillRegistry]:
+        """Resolve the per-session (writer, registry) from ctx, or the fixed pair.
+
+        Production (2-layer) path: derive ``<workspace_root>/<workspace_config_dirname>/
+        skills`` from session_metadata as the write root, and a SkillRegistry searching
+        that root FIRST then ``extra_roots`` (deployment global/compat) — mirroring
+        ``Kernel.list_skills`` so writes land where list/IM read. Test/legacy path:
+        return the fixed writer+registry bound at construction.
+        """
+        if self._fixed_writer is not None and self._fixed_registry is not None:
+            return self._fixed_writer, self._fixed_registry
+
+        metadata = getattr(ctx, "session_metadata", {}) or {}
+        workspace_root = metadata.get("workspace_root")
+        dirname = (
+            metadata.get("workspace_config_dirname") or self._workspace_config_dirname
+        )
+        if not workspace_root or not dirname:
+            raise RuntimeError(
+                "skill_manage cannot resolve a per-session skill root: missing "
+                "workspace_root or workspace_config_dirname in session_metadata. "
+                "Ensure build_kernel threads workspace_config_dirname into "
+                "default_session_metadata and runtime injects workspace_root per turn."
+            )
+
+        ws = Path(str(workspace_root)).expanduser().resolve()
+        write_root = ws / str(dirname) / "skills"
+        # Search roots: per-session workspace skills FIRST, then deployment extra_roots
+        # (global/compat), deduped — same precedence as Kernel.list_skills (决策4).
+        search_roots: list[Path] = [write_root]
+        for root in self._extra_roots:
+            resolved = Path(root).expanduser().resolve()
+            if resolved not in search_roots:
+                search_roots.append(resolved)
+        registry = SkillRegistry(search_roots=tuple(search_roots))
+        writer = SkillWriter(skill_root=write_root, registry=registry)
+        return writer, registry
 
     def serialize_result(self, output: Any, error: str | None = None) -> str:
         """Serialize tool result to a string for the LLM."""
@@ -151,24 +225,33 @@ class SkillManageTool:
     # Action handlers
     # ------------------------------------------------------------------
 
-    def _dispatch(self, action: str, args: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _dispatch(
+        self,
+        action: str,
+        args: Mapping[str, Any],
+        *,
+        writer: SkillWriter,
+        registry: SkillRegistry,
+    ) -> Mapping[str, Any]:
         if action == "create":
-            return self._create(args)
+            return self._create(args, writer)
         if action == "edit":
-            return self._edit(args)
+            return self._edit(args, writer)
         if action == "patch":
-            return self._patch(args)
+            return self._patch(args, writer)
         if action == "view":
-            return self._view(args)
+            return self._view(args, writer, registry)
         if action == "list":
-            return self._list()
+            return self._list(registry)
         if action == "write_file":
-            return self._write_file(args)
+            return self._write_file(args, writer)
         if action == "remove_file":
-            return self._remove_file(args)
+            return self._remove_file(args, writer)
         raise ValueError(f"Unhandled action '{action}'")  # unreachable
 
-    def _write_file(self, args: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _write_file(
+        self, args: Mapping[str, Any], writer: SkillWriter
+    ) -> Mapping[str, Any]:
         name = args.get("name")
         file_path = args.get("file_path")
         file_content = args.get("file_content")
@@ -181,13 +264,15 @@ class SkillManageTool:
                 "success": False,
                 "error": "write_file action requires 'file_content'",
             }
-        path = self._writer.write_file(str(name), str(file_path), str(file_content))
+        path = writer.write_file(str(name), str(file_path), str(file_content))
         return {
             "success": True,
             "message": f"wrote support file '{file_path}' to skill '{name}' at {path}",
         }
 
-    def _remove_file(self, args: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _remove_file(
+        self, args: Mapping[str, Any], writer: SkillWriter
+    ) -> Mapping[str, Any]:
         name = args.get("name")
         file_path = args.get("file_path")
         if not name:
@@ -197,33 +282,35 @@ class SkillManageTool:
                 "success": False,
                 "error": "remove_file action requires 'file_path'",
             }
-        self._writer.remove_file(str(name), str(file_path))
+        writer.remove_file(str(name), str(file_path))
         return {
             "success": True,
             "message": f"removed support file '{file_path}' from skill '{name}'",
         }
 
-    def _create(self, args: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _create(
+        self, args: Mapping[str, Any], writer: SkillWriter
+    ) -> Mapping[str, Any]:
         name = args.get("name")
         content = args.get("content")
         if not name:
             return {"success": False, "error": "create action requires 'name'"}
         if not content:
             return {"success": False, "error": "create action requires 'content'"}
-        path = self._writer.create(str(name), str(content))
+        path = writer.create(str(name), str(content))
         return {"success": True, "message": f"created skill '{name}' at {path}"}
 
-    def _edit(self, args: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _edit(self, args: Mapping[str, Any], writer: SkillWriter) -> Mapping[str, Any]:
         name = args.get("name")
         content = args.get("content")
         if not name:
             return {"success": False, "error": "edit action requires 'name'"}
         if not content:
             return {"success": False, "error": "edit action requires 'content'"}
-        path = self._writer.edit(str(name), str(content))
+        path = writer.edit(str(name), str(content))
         return {"success": True, "message": f"updated skill '{name}' at {path}"}
 
-    def _patch(self, args: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _patch(self, args: Mapping[str, Any], writer: SkillWriter) -> Mapping[str, Any]:
         name = args.get("name")
         old_string = args.get("old_string")
         new_string = args.get("new_string")
@@ -233,17 +320,19 @@ class SkillManageTool:
             return {"success": False, "error": "patch action requires 'old_string'"}
         if new_string is None:
             return {"success": False, "error": "patch action requires 'new_string'"}
-        path = self._writer.patch(
+        path = writer.patch(
             str(name), old_string=str(old_string), new_string=str(new_string)
         )
         return {"success": True, "message": f"patched skill '{name}' at {path}"}
 
-    def _view(self, args: Mapping[str, Any]) -> Mapping[str, Any]:
+    def _view(
+        self, args: Mapping[str, Any], writer: SkillWriter, registry: SkillRegistry
+    ) -> Mapping[str, Any]:
         name = args.get("name")
         if not name:
             return {"success": False, "error": "view action requires 'name'"}
         # Find the skill in the registry
-        skills = self._registry.list_skills()
+        skills = registry.list_skills()
         skill = next((s for s in skills if s.name == str(name)), None)
         if skill is None:
             return {"success": False, "error": f"Skill '{name}' not found"}
@@ -251,7 +340,7 @@ class SkillManageTool:
         # Surface the skill's support files so the agent can see what's bundled
         # (and patch/extend it) without a generic filesystem read tool.
         try:
-            support_files = self._writer.list_support_files(str(name))
+            support_files = writer.list_support_files(str(name))
         except ValueError:
             support_files = []
         return {
@@ -262,7 +351,7 @@ class SkillManageTool:
             "support_files": support_files,
         }
 
-    def _list(self) -> Mapping[str, Any]:
-        skills = self._registry.list_skills()
+    def _list(self, registry: SkillRegistry) -> Mapping[str, Any]:
+        skills = registry.list_skills()
         skill_list = [{"name": s.name, "description": s.description} for s in skills]
         return {"success": True, "skills": skill_list, "count": len(skill_list)}

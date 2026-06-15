@@ -70,12 +70,15 @@ def test_upstream_reporter_builds_register_heartbeat_report_and_receipt(
     (codex_skills_root / "gstack-plan-design-review").symlink_to(
         gstack_target_root / "gstack-plan-design-review", target_is_directory=True
     )
+    from ._im_connection_helpers import _build_test_kernel
+
     agents = _agents(tmp_path)
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1", user_id="user-1"),
         agents=agents,
         send_frame=lambda message_type, payload: frames.append((message_type, payload)),
-        capabilities=build_runtime_capabilities(),
+        capabilities=build_runtime_capabilities(kernel),
         node_name="MacBook",
         version="1.2.3",
     )

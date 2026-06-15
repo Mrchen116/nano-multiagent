@@ -37,17 +37,23 @@ def test_kernel_get_session_exposes_workspace_root_as_top_level_key(
     on this key to decide whether an existing binding is valid.  Without it, the
     check always fails and every message creates a fresh kernel session.
     """
-    from agent.sdk.kernel import build_kernel
-    from agent.products.personal_assistant.profile import PERSONAL_ASSISTANT_PROFILE
+    from agent.sdk import LLMConfig, build_kernel
 
     async def _allow(_tool: str, _input: Any, _ctx: Any) -> Any:
         from agent.platform.permissions.broker import PermissionDecision
 
         return PermissionDecision(behavior="allow")
 
+    # refactor-406-M1 R7: built via the 2-layer surface (legacy product_profile
+    # path removed). This regression pins Kernel.get_session workspace_root shape.
     kernel = build_kernel(
-        product_profile=PERSONAL_ASSISTANT_PROFILE,
-        llm_config=MagicMock(),
+        llm=LLMConfig(
+            provider="anthropic",
+            model="codex_oauth:gpt-5.5",
+            base_url="http://127.0.0.1:4000",
+            default_model="codex_oauth:gpt-5.5",
+        ),
+        workspace_config_dirname=".nanoassistant",
         can_use_tool=_allow,
         repo_root=tmp_path,
         _llm_client_override=MagicMock(),

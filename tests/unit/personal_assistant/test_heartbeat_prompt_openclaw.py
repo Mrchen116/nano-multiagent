@@ -9,10 +9,10 @@ These tests are red until R3 implementation lands.
 
 from __future__ import annotations
 
-import pytest
-
-from agent.core.agent.prompt_sections.base import PromptContext
-from agent.products.personal_assistant.prompt_sections import _PA_HEARTBEAT  # noqa: PLC2701
+# refactor-406-M2: products/ dissolved; the _PA_HEARTBEAT verbatim text lives in the
+# PA production factory (personal_assistant.product). This verbatim parity test守的是
+# 真实生产段（与 golden 同源）。
+from personal_assistant.product import _PA_HEARTBEAT_TEXT  # noqa: PLC2701
 
 
 # ---------------------------------------------------------------------------
@@ -82,43 +82,36 @@ class TestHeartbeatPromptOpenclawParity:
         'If something needs attention, do NOT include "HEARTBEAT_OK"; reply with the alert text instead.',
     ]
 
-    def _make_ctx(self) -> PromptContext:
-        return PromptContext(vars={}, scenario={})
-
     def test_heartbeat_segment_contains_heartbeat_ok_token(self) -> None:
         """The segment text must contain the exact HEARTBEAT_OK token string."""
-        ctx = self._make_ctx()
-        text = _PA_HEARTBEAT.render(ctx)
-        assert text is not None, "_PA_HEARTBEAT must render (not return None)"
-        assert "HEARTBEAT_OK" in text
+        assert "HEARTBEAT_OK" in _PA_HEARTBEAT_TEXT
 
     def test_heartbeat_segment_verbatim_openclaw_lines(self) -> None:
         """Each line from openclaw buildHeartbeatSection must appear verbatim in the segment.
 
         Provenance: openclaw/src/agents/system-prompt.ts:124-138
         """
-        ctx = self._make_ctx()
-        text = _PA_HEARTBEAT.render(ctx) or ""
+        text = _PA_HEARTBEAT_TEXT
         for line in self._EXPECTED_LINES:
             assert line in text, (
-                f"Expected openclaw-verbatim line not found in _PA_HEARTBEAT segment:\n"
+                f"Expected openclaw-verbatim line not found in _PA_HEARTBEAT_TEXT:\n"
                 f"  Missing: {line!r}\n"
                 f"  Actual segment:\n{text}"
             )
 
     def test_heartbeat_segment_provenance_comment_in_source(self) -> None:
-        """The prompt_sections.py file must contain a Provenance comment pointing to openclaw.
+        """The PA factory module must contain a Provenance comment pointing to openclaw.
 
         feat-394 decision 6: code comment convention requires 'Provenance:' annotation
         with openclaw source file and line number.
         """
         import inspect
-        import agent.products.personal_assistant.prompt_sections as ps_module
+        import personal_assistant.product as pa_module
 
-        source = inspect.getsource(ps_module)
+        source = inspect.getsource(pa_module)
         # The comment must reference openclaw source path (system-prompt.ts)
         assert "openclaw" in source and "system-prompt.ts" in source, (
-            "prompt_sections.py must contain a 'Provenance:' comment referencing "
+            "personal_assistant.product must contain a 'Provenance:' comment referencing "
             "openclaw/src/agents/system-prompt.ts for the _PA_HEARTBEAT segment "
             "(feat-394 decision 6)"
         )

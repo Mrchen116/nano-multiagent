@@ -14,6 +14,7 @@ from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.core.types import Message, TurnResult
 from agent.platform.tools.builtins._shared import _normalize_optional_text
+from agent.platform.tools.presentation import TASK_PRESENTER as _TASK_PRESENTER
 
 
 class TaskRuntime(Protocol):
@@ -61,6 +62,7 @@ class TaskTool:
     """Schedule or execute in-process sub-agent tasks with idempotent replay."""
 
     name = "task"
+    presenter = _TASK_PRESENTER  # 决策 12: presentation travels with the tool object
     is_concurrency_safe = False
     description = (
         "Spawn agent task with category-based or direct agent selection.\n\n"

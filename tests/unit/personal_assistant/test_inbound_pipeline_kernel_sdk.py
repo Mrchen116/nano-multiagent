@@ -57,6 +57,7 @@ class _FakeKernel:
         skills: list[str] | None = None,
         tool_allowlist: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
     ) -> _FakeSession:
         self._session_index += 1
         session_id = f"sess-{self._session_index}"

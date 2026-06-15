@@ -92,6 +92,7 @@ class _BaseKernelStub:
         title: str | None = None,
         workspace_root: Any = None,
         skills: list[str] | None = None,
+        **kwargs: Any,
     ) -> _StubSession:
         self.calls.append(("create_session", {"title": title, "skills": skills}))
         return _StubSession(session_id=self._session_id)

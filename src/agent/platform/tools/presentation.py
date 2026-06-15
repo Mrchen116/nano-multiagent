@@ -1,4 +1,17 @@
-"""Built-in tool presenters and registration for user-facing SSE events."""
+"""Built-in tool presenters for user-facing SSE events (refactor-406 决策 12).
+
+Presentation travels with the Tool object: each built-in tool class carries its
+own ``presenter`` instance (attached in ``builtins/*``), and resolution is
+kernel-scoped — ``resolve_presenter_for_tool(tool)`` reads ``tool.presenter`` off
+the assembled tool object, falling back to the default presenter when absent
+(MCP / ``.nano/tools`` runtime-discovered tools, or any tool that declares none).
+
+The legacy module-level global registry (``_PRESENTERS`` / ``register_presenter`` /
+``resolve_presenter`` + import-time ``_register_builtin_presenters()``) is removed:
+it was a string-keyed, import-side-effect global that the SDK refactor消灭s. The
+presenter *classes* below stay (pure functions, no IO); they are instantiated onto
+their tool classes instead of registered into a global dict.
+"""
 
 from __future__ import annotations
 
@@ -12,15 +25,22 @@ from agent.core.tools.presentation import ToolPresentationEvent, ToolPresenter
 PRESENTATION_DETAIL_HARD_CAP_BYTES = 256 * 1024
 
 
-_PRESENTERS: dict[str, ToolPresenter] = {}
+def resolve_presenter_for_tool(tool: Any) -> ToolPresenter:
+    """Return the presenter for an assembled tool object (决策 12, kernel-scoped).
 
+    Reads ``tool.presenter`` (presentation travels with the Tool object). Returns
+    the default presenter when the tool is None or declares no presenter — so
+    MCP / runtime-discovered tools and any presenter-less tool render with the
+    default (visible + truncated args), matching pre-migration behaviour.
 
-def register_presenter(tool_name: str, presenter: ToolPresenter) -> None:
-    _PRESENTERS[tool_name] = presenter
+    Args:
+        tool: The assembled tool object (or None when the name is unknown).
 
-
-def resolve_presenter(tool_name: str) -> ToolPresenter:
-    return _PRESENTERS.get(tool_name) or _DEFAULT
+    Returns:
+        The tool's ToolPresenter, or the shared default presenter.
+    """
+    presenter = getattr(tool, "presenter", None) if tool is not None else None
+    return presenter or _DEFAULT
 
 
 class _DefaultPresenter:
@@ -402,16 +422,16 @@ class _TaskPresenter:
 # ---------------------------------------------------------------------------
 
 
-def _register_builtin_presenters() -> None:
-    register_presenter("read", _ReadPresenter())
-    register_presenter("write", _WritePresenter())
-    register_presenter("edit", _EditPresenter())
-    register_presenter("bash", _BashPresenter())
-    register_presenter("web_fetch", _WebFetchPresenter())
-    register_presenter("task", _TaskPresenter())
-
-
-_register_builtin_presenters()
+# Built-in presenter singletons (决策 12): each built-in tool class attaches the
+# matching instance as its ``presenter`` attribute (presentation travels with the
+# tool object). No global registry, no import-time registration side effect.
+READ_PRESENTER: ToolPresenter = _ReadPresenter()
+WRITE_PRESENTER: ToolPresenter = _WritePresenter()
+EDIT_PRESENTER: ToolPresenter = _EditPresenter()
+BASH_PRESENTER: ToolPresenter = _BashPresenter()
+WEB_FETCH_PRESENTER: ToolPresenter = _WebFetchPresenter()
+TASK_PRESENTER: ToolPresenter = _TaskPresenter()
+DEFAULT_PRESENTER: ToolPresenter = _DEFAULT
 
 
 def _enforce_cap(detail: dict[str, Any]) -> dict[str, Any]:

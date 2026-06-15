@@ -33,7 +33,8 @@ def _make_ctx(*, session_id: str = "sess-test", cwd: str | None = None) -> HookC
 
 def _setup_registry() -> tuple[HookRegistry, Any]:
     """Load the chat_history hook into a fresh registry; return registry + module."""
-    from agent.products.personal_assistant.hooks import chat_history
+    # refactor-406-M2: chat_history hook migrated to src/personal_assistant/hooks/.
+    from personal_assistant.hooks import chat_history
 
     registry = HookRegistry()
     api = HookAPI(

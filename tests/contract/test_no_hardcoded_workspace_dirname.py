@@ -33,23 +33,41 @@ _WHITELIST: frozenset[str] = frozenset(
         # runtime.py: tool-results dir uses .nano — platform default dir, not per-workspace
         # feat-388 ruff format: line shifted to 156; refactor-395 import logging: shifted to 159
         # feat-394-M14: _can_use_tool attr added in __init__; shifted to 165
-        "src/agent/core/agent/runtime.py:165",
+        # refactor-406-M1: _session_prompt_slots map + register method added in __init__; shifted to 172
+        "src/agent/core/agent/runtime.py:172",
+        # kernel.py: build_kernel new-path workspace_config_dirname default — platform
+        # default fallback when a consumer omits it (same role as jsonl_store default);
+        # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
+        # refactor-406-M1 R7: host_capabilities= param + _inject removed (141→137),
+        # then legacy product_profile build_kernel path removed (137→122);
+        # refactor-406-M2 added build_kernel skill_search_roots param + docstring (122→131);
+        # refactor-406-M3fix #2 added tool_search_roots/hook_search_roots params (131→140).
+        "src/agent/sdk/kernel.py:140",
+        # kernel.py: M3fix #2 workspace .nano/hooks dir for the _SearchRootsResolver
+        # (决策2-style workspace discovery; literal .nano, not workspace_config_dirname);
+        # M3fix-r2 dead-code removal shifted 369→370.
+        "src/agent/sdk/kernel.py:370",
+        # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
+        # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
+        "src/agent/sdk/kernel.py:469",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
         # bugfix-402-M1: prepare_transcript_for_run + append_tool_call_recovery added, line shifted to 81
         "src/agent/core/session/jsonl_store.py:81",
         # tools/loader.py: .nano/tools platform dir
-        # feat-388 ruff format: line shifted to 95
-        "src/agent/platform/tools/loader.py:95",
+        # feat-388 ruff format: line shifted to 95;
+        # refactor-406-M2: +_ToolRootResolver Protocol shifted 95→104
+        "src/agent/platform/tools/loader.py:104",
         # dangerous_paths.py: .nanocode in safe-path list — correct: this references the product dirname
         "src/agent/platform/tools/dangerous_paths.py:52",
         # background tasks output: .nano/background-tasks platform dir
         # feat-388 ruff format: line shifted to 67
         "src/agent/platform/background_tasks/file_output.py:67",
         # hooks/loader.py: .nano/hooks platform dir
-        # feat-388 ruff format: line shifted to 111
-        "src/agent/platform/hooks/loader.py:111",
+        # feat-388 ruff format: line shifted to 111;
+        # refactor-406-M2: +_HookRootResolver Protocol shifted 111→120
+        "src/agent/platform/hooks/loader.py:120",
         # bash_policy.py: .nano/policy.toml platform dir
         # feat-388 ruff format: line shifted to 158
         "src/agent/platform/tools/builtins/bash_policy.py:158",
@@ -60,8 +78,11 @@ _WHITELIST: frozenset[str] = frozenset(
         # refactor-395-M1: logging import + _log added, lines shifted to 1162/1163
         # refactor-395 ruff fix: TERMINAL_RUN_STATUSES dead import removed, lines shifted to 1164/1165
         # bugfix-402-M3 R2: finally block comment+await kernel.aclose() inserted in _async_main, lines shifted to 1166/1167
-        "src/coding_cli/commands.py:1166",
-        "src/coding_cli/commands.py:1167",
+        # refactor-406-M1 R5: dead _build_llm_config_from_args removed, lines shifted to 1144/1145
+        # refactor-406-M2: _build_llm_config_payload→_build_cli_llm_config (SDK-owned
+        # LLMConfig.from_json/from_catalog), net +2 lines shifted to 1146/1147
+        "src/coding_cli/commands.py:1146",
+        "src/coding_cli/commands.py:1147",
     }
 )
 
@@ -75,8 +96,11 @@ _FORBIDDEN_PATTERNS = [
     "'.nano'",
 ]
 
-# Files where these strings are legitimately allowed (product defaults, docstrings)
-_ALLOWED_STEMS = {"defaults"}
+# Files where these strings are legitimately allowed (product-owned dirname definition).
+# refactor-406-M1: with products/ dissolved, each consumer's product.py is the new
+# single definition point for its own workspace_config_dirname (决策 1/10 — the
+# consumer owns its dirname). Same role the old products/*/defaults.py played.
+_ALLOWED_STEMS = {"defaults", "product"}
 
 
 def _collect_violations() -> list[tuple[str, int, str]]:
