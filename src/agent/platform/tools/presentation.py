@@ -62,7 +62,9 @@ class _DefaultPresenter:
         detail: dict[str, Any] | None = None
         summary = ""
         if hasattr(result, "error") and result.error:
-            summary = f"failed: {_truncate(str(result.error), 80)}"
+            # feat-409 failalign: default presenter 无干净主参数,失败态 summary 用裸
+            # "failed"(不拼 error 文本);error 进 detail 供 ErrorCard 渲染一次。
+            summary = "failed"
             detail = {"error": {"message": str(result.error)}}
         else:
             output = getattr(result, "output", None)
@@ -97,31 +99,28 @@ class _ReadPresenter:
         result: Any,
         duration_ms: int,
     ) -> ToolPresentationEvent:
-        # feat-409 readfix: read 的"人话"首先是读了哪个文件——summary 与 detail
-        # 都必须带 path,失败态尤其如此(否则只剩 "file does not exist | 0 lines",
-        # 用户无从知道读的是哪个文件)。args.path 是兜底来源;成功时优先用 output.path
-        # (display_path,已转 repo 相对)。
+        # feat-409 readfix/failalign: read 的"人话"首先是读了哪个文件——summary 与
+        # detail 都带 path。失败态 summary = 干净主参数(path),与成功态同构,绝不含
+        # error 文本(error 只进 detail,展开卡渲染一次;折叠行的失败由 ✕ 图标表达)。
+        # args.path 是兜底来源;成功时优先用 output.path(display_path,已转 repo 相对)。
         arg_path = str(args.get("path", ""))
         error = getattr(result, "error", None)
         if error:
             return ToolPresentationEvent(
                 visible=True,
                 label="Read",
-                summary=f"{arg_path}: {_truncate(str(error), 80)}"
-                if arg_path
-                else f"failed: {_truncate(str(error), 80)}",
+                summary=arg_path or "failed",
                 detail={"path": arg_path, "error": {"message": str(error)}},
             )
         output = getattr(result, "output", None) or {}
         if isinstance(output, Mapping):
             path = str(output.get("path") or arg_path)
             if output.get("type") == "file_unchanged":
-                file_path = path or str(output.get("file", {}).get("filePath", ""))
                 return ToolPresentationEvent(
                     visible=True,
                     label="Read",
-                    summary=_with_path(file_path, "unchanged"),
-                    detail={"path": file_path, "unchanged": True},
+                    summary=_with_path(path, "unchanged"),
+                    detail={"path": path, "unchanged": True},
                 )
             content_blocks = output.get("content", [])
             if isinstance(content_blocks, list):
@@ -136,13 +135,17 @@ class _ReadPresenter:
                         summary=_with_path(path, "image"),
                         detail={"path": path, "image": True},
                     )
-            total_lines = output.get("total_lines", 0)
+            # cr4: total_lines 缺失时不要伪造 0——detail 留 None,前端显 "-"/省略,
+            # summary 退化为只显路径(不带 "0 lines" 这类误导性零计数)。
+            total_lines = output.get("total_lines")
             offset = output.get("offset", 1)
             limit = args.get("limit")
             if limit:
                 range_text = f"lines {offset}-{offset + limit - 1}"
-            else:
+            elif total_lines is not None:
                 range_text = f"{total_lines} lines"
+            else:
+                range_text = ""
             detail = {
                 "path": path,
                 "total_lines": total_lines,
@@ -183,8 +186,18 @@ class _WritePresenter:
         result: Any,
         duration_ms: int,
     ) -> ToolPresentationEvent:
-        output = getattr(result, "output", None) or {}
         path = str(args.get("path", ""))
+        error = getattr(result, "error", None)
+        if error:
+            # feat-409 failalign: 失败态 summary = 干净主参数(path),不含 error 文本。
+            # detail 只放 error(path 已在折叠行 summary),走前端 ErrorCard 渲染一次。
+            return ToolPresentationEvent(
+                visible=True,
+                label="Write",
+                summary=path or "failed",
+                detail={"error": {"message": str(error)}},
+            )
+        output = getattr(result, "output", None) or {}
         if isinstance(output, Mapping):
             write_type = output.get("type")
             content = str(args.get("content", ""))
@@ -240,10 +253,12 @@ class _EditPresenter:
         new_text = str(args.get("newText", ""))
         error = getattr(result, "error", None)
         if error:
+            # feat-409 failalign: 失败态 summary = 干净主参数(path),不含 error 文本。
+            # detail 只放 error(path 已在折叠行 summary),走前端 ErrorCard 渲染一次。
             return ToolPresentationEvent(
                 visible=True,
                 label="Edit",
-                summary=f"failed: {_truncate(str(error), 80)}",
+                summary=path or "failed",
                 detail={"error": {"message": str(error)}},
             )
         # compute a minimal unified diff
@@ -306,11 +321,13 @@ class _BashPresenter:
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
         if error:
+            # feat-409 failalign: 失败态 summary = 干净人话主参数(description/命令首段),
+            # 与成功态同构,不含 error 文本。失败由 ✕ 图标 + fail-tag 表达。
             return ToolPresentationEvent(
                 visible=True,
                 label="Bash",
-                summary=f"failed: {_truncate(str(error), 80)}",
-                detail={"error": {"message": str(error)}},
+                summary=_summarize_bash(args, command),
+                detail={"command": command, "error": {"message": str(error)}},
             )
         if isinstance(output, Mapping):
             exit_code = output.get("exitCode", 0)
@@ -365,10 +382,12 @@ class _WebFetchPresenter:
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
         if error:
+            # feat-409 failalign: 失败态 summary = 干净主参数(url),不含 error 文本。
+            # detail 只放 error(url 已在折叠行 summary),走前端 ErrorCard 渲染一次。
             return ToolPresentationEvent(
                 visible=True,
                 label="Web",
-                summary=f"failed: {_truncate(str(error), 80)}",
+                summary=url or "failed",
                 detail={"error": {"message": str(error)}},
             )
         if isinstance(output, Mapping):
@@ -437,11 +456,22 @@ class _AgentPresenter:
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
         if error:
+            # feat-409 failalign: out-of-band 失败态 summary = 干净主参数(description),
+            # 不含 error 文本。detail 保留 description + 完整 prompt(失败时 prompt 最有
+            # 价值,原型:Agent 展开必含完整派发 prompt),让 AgentCard 渲染 error 一次。
             return ToolPresentationEvent(
                 visible=True,
                 label="Agent",
-                summary=f"failed: {_truncate(str(error), 80)}",
-                detail={"error": {"message": str(error)}},
+                summary=_truncate(description, 80) if description else "failed",
+                detail=_enforce_cap(
+                    {
+                        "description": description,
+                        "prompt": prompt,
+                        "subagent_type": subagent_type,
+                        "status": "failed",
+                        "error": str(error),
+                    }
+                ),
             )
         if isinstance(output, Mapping):
             status = str(output.get("status", "completed"))
@@ -464,9 +494,10 @@ class _AgentPresenter:
             # The agent tool reports in-band failure via output.status == "failed"
             # (foreground exception path) rather than result.error — surface it as a
             # red "failed" summary like the out-of-band error branch above.
+            # feat-409 failalign: 失败/成功态 summary 同构 = 干净主参数(description),
+            # 不含 error 文本;in-band 失败的 error 已在 detail 里供 AgentCard 渲染。
             if status == "failed":
-                err = str(output.get("error", ""))
-                summary = f"failed: {_truncate(err, 80)}"
+                summary = _truncate(description, 80) if description else "failed"
             else:
                 summary = (
                     _truncate(description, 80) if description else f"status={status}"
@@ -517,10 +548,11 @@ class _MemoryPresenter:
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
         if error:
+            # feat-409 failalign: 失败态 summary = 干净主参数(action target),不含 error。
             return ToolPresentationEvent(
                 visible=True,
                 label="Memory",
-                summary=f"failed: {_truncate(str(error), 80)}",
+                summary=f"{action} {target}".strip() or "failed",
                 detail={"error": {"message": str(error)}},
             )
         success = (
@@ -529,10 +561,12 @@ class _MemoryPresenter:
         message = str(output.get("message", "")) if isinstance(output, Mapping) else ""
         if not success:
             err = str(output.get("error", "")) if isinstance(output, Mapping) else ""
+            # feat-409 failalign: success=False 失败态 summary = 干净主参数(action
+            # target),不含 error 文本;error 进 detail.message 供 MemoryCard 渲染一次。
             return ToolPresentationEvent(
                 visible=True,
                 label="Memory",
-                summary=f"failed: {_truncate(err, 80)}",
+                summary=f"{action} {target}".strip() or "failed",
                 detail={
                     "action": action,
                     "target": target,
@@ -592,10 +626,11 @@ class _SkillManagePresenter:
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
         if error:
+            # feat-409 failalign: 失败态 summary = 干净主参数(action name),不含 error。
             return ToolPresentationEvent(
                 visible=True,
                 label="Skill",
-                summary=f"failed: {_truncate(str(error), 80)}",
+                summary=f"{action} {name}".strip() or "failed",
                 detail={"error": {"message": str(error)}},
             )
         success = (
@@ -606,10 +641,12 @@ class _SkillManagePresenter:
         path = str(output.get("location", "")) if isinstance(output, Mapping) else ""
         if not success:
             err = str(output.get("error", "")) if isinstance(output, Mapping) else ""
+            # feat-409 failalign: success=False 失败态 summary = 干净主参数(action
+            # name),不含 error 文本;error 进 detail.message 供 SkillCard 渲染一次。
             return ToolPresentationEvent(
                 visible=True,
                 label="Skill",
-                summary=f"failed: {_truncate(err, 80)}",
+                summary=f"{action} {name}".strip() or "failed",
                 detail={
                     "action": action,
                     "name": name,
@@ -663,10 +700,12 @@ class _TaskStopPresenter:
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
         if error:
+            # feat-409 failalign: 失败态 summary = 干净主参数(task_id),不含 error。
+            # detail 只放 error(task_id 已在折叠行 summary),走前端 ErrorCard 渲染一次。
             return ToolPresentationEvent(
                 visible=True,
                 label="TaskStop",
-                summary=f"failed: {_truncate(str(error), 80)}",
+                summary=task_id or "failed",
                 detail={"error": {"message": str(error)}},
             )
         status = (
@@ -755,9 +794,14 @@ def _with_path(path: str, suffix: str) -> str:
     """Prefix a read summary with its path: ``<path> · <suffix>``.
 
     feat-409 readfix: read 折叠态文案的"主语"是路径——没有 path 用户看不出读了
-    哪个文件。path 为空(理论上不该发生)时降级为只显示 suffix。
+    哪个文件。path 为空(理论上不该发生)时降级为只显示 suffix;suffix 为空(如
+    total_lines 缺失,cr4)时只显路径,不留孤零零的 " · " 分隔符。
     """
-    return f"{path} · {suffix}" if path else suffix
+    if not path:
+        return suffix
+    if not suffix:
+        return path
+    return f"{path} · {suffix}"
 
 
 def _truncate(text: str, max_length: int) -> str:

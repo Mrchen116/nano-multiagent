@@ -158,6 +158,8 @@ def test_bash_end_success_golden() -> None:
 
 
 def test_bash_end_failed_golden() -> None:
+    # feat-409 failalign: 失败态 summary = 干净人话主参数(命令首段,无 description 时),
+    # 不含 error 文本;error 进 detail(BashCard 在 stderr 槽渲染一次)。
     evt = _resolve("bash").format_end(
         {"command": "false"},
         _Result(error="command failed"),
@@ -165,8 +167,8 @@ def test_bash_end_failed_golden() -> None:
     )
     assert evt.visible is True
     assert evt.label == "Bash"
-    assert evt.summary == "failed: command failed"
-    assert evt.detail == {"error": {"message": "command failed"}}
+    assert evt.summary == "false"
+    assert evt.detail == {"command": "false", "error": {"message": "command failed"}}
 
 
 def test_default_end_golden() -> None:
