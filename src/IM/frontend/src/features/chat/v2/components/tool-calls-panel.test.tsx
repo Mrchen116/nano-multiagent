@@ -327,3 +327,97 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
     expect(body?.querySelector(".chat-tool-call-pre")?.textContent).toBe("exit=0 elapsed=152ms");
   });
 });
+
+// feat-409-M2 R3: long-output two-level expand. Large fields (bash stdout, write
+// content, web content, edit diff) truncate by a front-end threshold with an
+// "expand all" toggle → height-capped inner scroll + "collapse". When the
+// kernel already tail-truncated at the 256KB cap (detail.truncated === true) a
+// "truncated at source" note appears.
+describe("ToolCallsPanel · long output (R3)", () => {
+  function renderSingle(call: ToolCall) {
+    return render(<ToolCallsPanel toolCalls={[call]} />);
+  }
+  async function open() {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /tool call/i }));
+  }
+
+  const LONG_STDOUT = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join("\n");
+
+  it("truncates a long bash stdout and offers an expand-all toggle", async () => {
+    const { container } = renderSingle({
+      id: "b1",
+      name: "bash",
+      status: "completed",
+      input: {},
+      output: "run",
+      detail: { command: "seq 200", exit_code: 0, stdout: LONG_STDOUT, stderr: "", truncated: false }
+    });
+    await open();
+    // Far-down line is hidden until expanded.
+    expect(screen.queryByText("line 200")).not.toBeInTheDocument();
+    expect(screen.getByText(/expand all/i)).toBeInTheDocument();
+    // The truncated block carries the cap class for the scroll container.
+    expect(container.querySelector(".chat-tool-long-output")).not.toBeNull();
+  });
+
+  it("reveals the full content and switches to collapse after expanding", async () => {
+    const user = userEvent.setup();
+    renderSingle({
+      id: "b1",
+      name: "bash",
+      status: "completed",
+      input: {},
+      output: "run",
+      detail: { command: "seq 200", exit_code: 0, stdout: LONG_STDOUT, stderr: "", truncated: false }
+    });
+    await open();
+    await user.click(screen.getByText(/expand all/i));
+    expect(screen.getByText("line 200")).toBeInTheDocument();
+    expect(screen.getByText(/collapse/i)).toBeInTheDocument();
+  });
+
+  it("collapses back to the truncated view", async () => {
+    const user = userEvent.setup();
+    renderSingle({
+      id: "b1",
+      name: "bash",
+      status: "completed",
+      input: {},
+      output: "run",
+      detail: { command: "seq 200", exit_code: 0, stdout: LONG_STDOUT, stderr: "", truncated: false }
+    });
+    await open();
+    await user.click(screen.getByText(/expand all/i));
+    await user.click(screen.getByText(/collapse/i));
+    expect(screen.queryByText("line 200")).not.toBeInTheDocument();
+    expect(screen.getByText(/expand all/i)).toBeInTheDocument();
+  });
+
+  it("does not show an expand toggle for short output", async () => {
+    renderSingle({
+      id: "b1",
+      name: "bash",
+      status: "completed",
+      input: {},
+      output: "run",
+      detail: { command: "echo hi", exit_code: 0, stdout: "hi", stderr: "", truncated: false }
+    });
+    await open();
+    expect(screen.queryByText(/expand all/i)).not.toBeInTheDocument();
+    expect(screen.getByText("hi")).toBeInTheDocument();
+  });
+
+  it("marks output that was truncated at the kernel source", async () => {
+    renderSingle({
+      id: "b1",
+      name: "bash",
+      status: "completed",
+      input: {},
+      output: "run",
+      detail: { command: "huge", exit_code: 0, stdout: LONG_STDOUT, stderr: "", truncated: true }
+    });
+    await open();
+    expect(screen.getByText(/truncated at source|源头截断/i)).toBeInTheDocument();
+  });
+});
