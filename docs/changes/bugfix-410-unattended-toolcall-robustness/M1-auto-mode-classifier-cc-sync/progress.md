@@ -53,9 +53,18 @@ turn 的工具调用在独立 `tool_calls` 字段（`interfaces.py:27`），`con
 现有「automated security classifier」/「single new action」措辞在 2.1.177 已不存在。
 两阶段 `<block>` 输出契约 + `permissions_template` 占位 + 投影逻辑未变（Q7 判断对）。
 
-按 design「对明显落后项对齐」+ M1 切干净精神，决策：M1 只对齐两 suffix（确定项），
-BASE_PROMPT 主体保持现状，整体移植重写版属独立工作量、不塞进本 M1（待 orchestrator 拍板，
-倾向单列 issue/milestone）。
+**orchestrator 拍板：选 A** — 只对齐两个 suffix（XML_S1_SUFFIX 强化版 Vp3 +
+XML_S2_SUFFIX yp3），**BASE_PROMPT 主体保持现状，不整体移植**。理由：(1) design M1 口径
+是「对明显落后项对齐」，两个 suffix 是确定的明显落后项；主体「数千行 prose 完全重写」是
+「全量复刻」而非「落后项对齐」，超出口径。(2) bugfix-410 是会话健壮性 bugfix，不是 auto_mode
+分类器质量重构；主体重写会引入新的 HARD/SOFT BLOCK 分类、9 条 User Intent Rules、6 步
+Classification Process 等**新行为契约**——这些改变分类判断质量，本 unit 既无验收 Scenario
+覆盖、也不该在 bugfix 里夹带。
+
+> **遗留发现（建议单独立 unit）**：CC 2.1.177 BASE_PROMPT 主体已完全重写（非增量），
+> 超出 bugfix-410 范围。建议单独立 unit 做「分类器 prompt 主体跟齐 2.1.177 + 对应分类
+> 行为验收」（带 HARD/SOFT BLOCK、User Intent Rules、6 步 Classification Process 的行为
+> Scenario）。本 M1 仅对齐两个 suffix（明显落后项），主体维持现状。
 
 ## 测试结果
 
