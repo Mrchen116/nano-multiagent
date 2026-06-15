@@ -74,7 +74,16 @@ export function ToolCallsPanel({ toolCalls }: ToolCallsPanelProps) {
   );
 }
 
+// bugfix-410-M2 (#97): map a sidecar reason to its i18n badge label key. Unknown
+// reasons fall through to no badge (status icon alone) rather than rendering a raw code.
+const REASON_LABEL_KEYS: Record<string, string> = {
+  denied: "chat.messagePane.toolReasonDenied",
+  timed_out: "chat.messagePane.toolReasonTimedOut",
+  interrupted: "chat.messagePane.toolReasonInterrupted",
+};
+
 function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpen?: boolean }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(defaultOpen);
   const statusColor =
     call.status === "completed"
@@ -83,6 +92,7 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
         ? "oklch(0.70 0.18 60)"
         : "oklch(0.55 0.15 25)";
   const statusIcon = call.status === "running" ? "◌" : call.status === "completed" ? "●" : "✕";
+  const reasonKey = call.reason ? REASON_LABEL_KEYS[call.reason] : undefined;
 
   return (
     <li className="chat-tool-call-item">
@@ -96,6 +106,11 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
           {statusIcon}
         </span>
         <span className="chat-tool-call-name">{call.name}</span>
+        {reasonKey && (
+          <span className="chat-tool-call-reason" style={{ color: "oklch(0.55 0.15 25)" }}>
+            {t(reasonKey)}
+          </span>
+        )}
         {typeof call.duration_ms === "number" && (
           <span className="chat-tool-call-duration">{formatDuration(call.duration_ms)}</span>
         )}

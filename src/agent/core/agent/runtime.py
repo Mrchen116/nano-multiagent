@@ -513,6 +513,7 @@ class AgentRuntime:
 
         all_messages: list[Message] = [user_msg]
         _overflow_retried = False
+        _run_cancelled = False
         try:
             async for msg in self._execute_loop(
                 session_id=session_id,
@@ -565,52 +566,20 @@ class AgentRuntime:
                 else:
                     self._session_manager.writer.enqueue(path, entry)
             await self._session_manager.writer.flush_async()
-            # bugfix-402: eager recovery for cancelled/aborted runs.
-            # When a run ends with an interrupt or cancel stop_reason we
-            # immediately write a tool_call_recovery entry for every tool_call
-            # that is still open (assistant requested it but no tool result
-            # arrived in this run).  This makes the cancellation terminal state
-            # visible to the UI right away; the next-startup prepare() call is
-            # only a hard-crash fallback, not the primary delivery path.
-            _run_stop_reason = next(
-                (
-                    m.metadata.get("stop_reason")
-                    for m in all_messages
-                    if m.role == "turn_meta"
-                ),
-                None,
-            )
-            if _run_stop_reason in ("aborted", "cancelled"):
-                _recover_reason = (
-                    "cancelled" if _run_stop_reason == "cancelled" else "interrupted"
-                )
-                _closed_calls: set[str] = {
-                    m.tool_call_id
-                    for m in all_messages
-                    if m.role == "tool" and m.tool_call_id
-                }
-                _needs_flush = False
-                for _msg in all_messages:
-                    if _msg.role != "assistant":
-                        continue
-                    for _tc in _msg.metadata.get("tool_calls") or ():
-                        _cid = _tc.get("call_id") or _tc.get("id")
-                        if _cid and _cid not in _closed_calls:
-                            self._session_manager.append_tool_call_recovery(
-                                session_id,
-                                tool_call_id=_cid,
-                                tool_name=_tc.get("name"),
-                                reason=_recover_reason,
-                                workspace_root=session_workspace_root,
-                                parent_session_id=parent_session_id,
-                            )
-                            _needs_flush = True
-                if _needs_flush:
-                    await self._session_manager.writer.flush_async()
-                    # The recovery event was appended outside ``history``. Drop
-                    # the cache so the next turn materializes the synthetic tool
-                    # result from JSONL instead of reusing the open tool call.
-                    self.invalidate_session_cache(session_id)
+            # bugfix-410-M2 R1: orphaned tool_call recovery moved to the run
+            # `finally` below (see _recover_orphaned_tool_calls). The bugfix-402
+            # eager-recovery that lived here keyed on turn_meta stop_reason, so a
+            # raw CancelledError unwinding before any turn_meta was produced (the
+            # gateway run-idle watchdog cancelling a parked tool/LLM await)
+            # skipped it entirely, leaving an orphaned tool_call AND a dirty
+            # cache → session bricked until restart (#82 reopen). The finally is
+            # stop_reason-independent and covers every termination path.
+        except asyncio.CancelledError:
+            # Flag so finally writes the recovery under asyncio.shield (the I/O
+            # would otherwise be re-cancelled). Re-raise to preserve cancel
+            # semantics for the caller (gateway watchdog / interrupt).
+            _run_cancelled = True
+            raise
         except ModelError as exc:
             await self._session_manager.writer.flush_async()
             # Attempt overflow recovery: compact then retry once.
@@ -730,6 +699,18 @@ class AgentRuntime:
                     turn_end_payload["run_id"] = turn_end_run_id.strip()
                 await self._dispatch_observe("turn_end", turn_end_payload, hook_ctx)
                 raise
+        finally:
+            # bugfix-410-M2 R1: close any orphaned tool_call on EVERY exit path
+            # (normal completion = no-op empty orphan set; cooperative abort/
+            # cancel; raw CancelledError pass-through; ModelError re-raise). Must
+            # be stop_reason-independent — see _recover_orphaned_tool_calls.
+            await self._recover_orphaned_tool_calls(
+                session_id=session_id,
+                all_messages=all_messages,
+                workspace_root=session_workspace_root,
+                parent_session_id=parent_session_id,
+                cancelled=_run_cancelled,
+            )
 
         turn_result = build_turn_result(session_id, turn_id, all_messages)
 
@@ -1052,6 +1033,107 @@ class AgentRuntime:
         # Without this, _session_prompt_slots grows unboundedly across a long-running
         # gateway's session churn (memory leak introduced by this unit's PromptSlots).
         self._session_prompt_slots.pop(session_id, None)
+
+    async def _recover_orphaned_tool_calls(
+        self,
+        *,
+        session_id: str,
+        all_messages: list[Message],
+        workspace_root: Path | None,
+        parent_session_id: str | None,
+        cancelled: bool,
+    ) -> None:
+        """Close any tool_call left open when a run ends (bugfix-410-M2 R1).
+
+        Called unconditionally from the run ``finally`` — on a normally completed
+        run the orphan set is empty (every tool_call has a matching tool result),
+        so this is a no-op. When a run is interrupted (cooperative abort/cancel,
+        or a raw ``CancelledError`` unwinding before any turn_meta), the orphan
+        set is non-empty and each open call is closed so the next request the LLM
+        sees is well-formed (most providers reject an unanswered tool_call).
+
+        Two steps with **unequal protection levels** (do not reorder):
+
+        1. ``invalidate_session_cache`` is the load-bearing self-heal: dropping
+           the dirty in-memory history forces the next turn to re-read JSONL
+           (cache-miss → ``prepare_transcript_for_run`` rebuilds). It is a
+           synchronous atomic dict pop with no ``await`` point, so we run it
+           *first*, before any I/O — it always completes even while a
+           ``CancelledError`` is propagating, no shield needed. If it were
+           skipped, a cache-hit next turn would reuse the orphan and brick the
+           session until process restart (#82 reopen).
+        2. ``append_tool_call_recovery`` + flush is out-of-band acceleration
+           (lets the LLM side close immediately rather than waiting for the next
+           ``prepare``). It performs I/O, so during cancel-driven unwinding it is
+           wrapped in ``asyncio.shield`` and treated best-effort; failure here
+           still self-heals via the next ``prepare`` (the synthetic result is
+           reconstructed from the orphaned assistant turn already on disk). Its
+           UI badge terminal state is independently reconciled by M4.
+
+        The recovery reason does not depend on turn_meta: a cooperative
+        abort/cancel carries ``stop_reason`` we honour; a raw ``CancelledError``
+        carries no turn_meta at all, so we synthesize ``interrupted``.
+        """
+
+        closed_calls: set[str] = {
+            m.tool_call_id for m in all_messages if m.role == "tool" and m.tool_call_id
+        }
+        orphans: list[tuple[str, str | None]] = []
+        for msg in all_messages:
+            if msg.role != "assistant":
+                continue
+            for tc in msg.metadata.get("tool_calls") or ():
+                cid = tc.get("call_id") or tc.get("id")
+                if cid and cid not in closed_calls:
+                    orphans.append((cid, tc.get("name")))
+        if not orphans:
+            return
+
+        run_stop_reason = next(
+            (
+                m.metadata.get("stop_reason")
+                for m in all_messages
+                if m.role == "turn_meta"
+            ),
+            None,
+        )
+        if run_stop_reason in ("cancelled", "aborted"):
+            # bugfix-410-fix-r1: both cooperative-cancel ("cancelled") and abort map to
+            # "interrupted". The IM badge's REASON_LABEL_KEYS only renders
+            # denied/timed_out/interrupted — emitting a bare "cancelled" would leave the
+            # badge with no label. "interrupted" is the semantically-equivalent recovery
+            # reason the frontend already understands.
+            reason = "interrupted"
+        else:
+            # No turn_meta (raw CancelledError pass-through) or any other
+            # non-cooperative termination → synthesize interrupted.
+            reason = "interrupted"
+
+        # Step 1 — load-bearing, synchronous, must run before any await.
+        self.invalidate_session_cache(session_id)
+
+        # Step 2 — best-effort out-of-band write; shielded against re-cancel.
+        async def _write_recovery() -> None:
+            for cid, name in orphans:
+                self._session_manager.append_tool_call_recovery(
+                    session_id,
+                    tool_call_id=cid,
+                    tool_name=name,
+                    reason=reason,
+                    workspace_root=workspace_root,
+                    parent_session_id=parent_session_id,
+                )
+            await self._session_manager.writer.flush_async()
+
+        if cancelled:
+            try:
+                await asyncio.shield(_write_recovery())
+            except asyncio.CancelledError:
+                # Re-cancel during the shielded write: the cache is already
+                # invalidated (step 1), so the next prepare() still self-heals.
+                raise
+        else:
+            await _write_recovery()
 
     def invalidate_session_cache(self, session_id: str) -> None:
         """Drop cached in-memory history/config/path for one session.

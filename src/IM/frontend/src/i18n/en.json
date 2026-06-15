@@ -365,6 +365,9 @@
       "toolCalls": "tool calls",
       "running": "running",
       "failed": "failed",
+      "toolReasonDenied": "Denied",
+      "toolReasonTimedOut": "Timed out",
+      "toolReasonInterrupted": "Interrupted",
       "selectConversationTitle": "Select a conversation",
       "selectConversationSubtitle": "Pick a thread to chat with your agents."
     },

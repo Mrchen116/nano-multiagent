@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 from agent.platform.config.auto_mode import AutoModeConfig
 from agent.platform.hooks.builtins.auto_mode_gate import (
     BASE_PROMPT,
@@ -27,6 +28,8 @@ from agent.platform.hooks.builtins.auto_mode_gate import (
     project_tool_input,
     setup as gate_setup,
     strip_thinking,
+    XML_S1_SUFFIX,
+    XML_S2_SUFFIX,
 )
 from agent.platform.permissions.broker import PermissionBroker
 
@@ -102,26 +105,38 @@ class TestBuildYoloSystemPrompt:
 
 
 class TestBuildTranscriptEntries:
-    def _make_user_msg(self, text: str) -> dict:
-        return {"role": "user", "content": text}
+    """Transcript construction fed the *real* kernel format.
 
-    def _make_assistant_text_msg(self, text: str) -> dict:
-        return {"role": "assistant", "content": text}
+    bugfix-410 #99: the prior fixtures fed Anthropic-shaped dicts
+    (`content:[{type:tool_use}]`) which matched the old code and stayed green,
+    but the runtime feeds `message_history` real `LLMMessage` objects whose tool
+    calls live in the separate `tool_calls` field (`loop.py:359`). These fixtures
+    use the kernel format so a regression to "only read content blocks" goes red.
+    """
 
-    def _make_assistant_tool_use(self, name: str, inp: dict) -> dict:
-        return {
-            "role": "assistant",
-            "content": [{"type": "tool_use", "id": "t1", "name": name, "input": inp}],
-        }
+    def _make_user_msg(self, text: str) -> LLMMessage:
+        return LLMMessage(role="user", content=text)
 
-    def _make_assistant_mixed(self, text: str, tool_name: str, tool_inp: dict) -> dict:
-        return {
-            "role": "assistant",
-            "content": [
-                {"type": "text", "text": text},
-                {"type": "tool_use", "id": "t2", "name": tool_name, "input": tool_inp},
-            ],
-        }
+    def _make_assistant_text_msg(self, text: str) -> LLMMessage:
+        return LLMMessage(role="assistant", content=text)
+
+    def _make_assistant_tool_use(self, name: str, inp: dict) -> LLMMessage:
+        # Kernel format: assistant text in `content`, calls in `tool_calls`.
+        return LLMMessage(
+            role="assistant",
+            content="",
+            tool_calls=(LLMToolCall(call_id="t1", name=name, arguments=inp),),
+        )
+
+    def _make_assistant_mixed(
+        self, text: str, tool_name: str, tool_inp: dict
+    ) -> LLMMessage:
+        # Kernel format: free text coexists with the tool call on the same turn.
+        return LLMMessage(
+            role="assistant",
+            content=text,
+            tool_calls=(LLMToolCall(call_id="t2", name=tool_name, arguments=tool_inp),),
+        )
 
     def test_user_text_included(self):
         msgs = [self._make_user_msg("please list files")]
@@ -131,7 +146,7 @@ class TestBuildTranscriptEntries:
         assert entries[0]["content"] == "please list files"
 
     def test_assistant_text_excluded(self):
-        """Assistant text blocks must be excluded (prevents prompt injection)."""
+        """Assistant text-only turn must be excluded (prevents prompt injection)."""
         msgs = [self._make_assistant_text_msg("I will now run ls")]
         entries = build_transcript_entries(msgs)
         assert len(entries) == 0
@@ -142,18 +157,69 @@ class TestBuildTranscriptEntries:
         assert len(entries) == 1
         assert entries[0]["role"] == "assistant"
         assert entries[0]["content"][0]["name"] == "bash"
+        assert entries[0]["content"][0]["input"] == {"command": "ls"}
 
     def test_assistant_mixed_content_only_tool_use(self):
-        """Mixed assistant message: only tool_use should appear in transcript."""
+        """Mixed turn (text + tool call): only the tool call enters the transcript."""
         msgs = [
             self._make_assistant_mixed("thinking text", "bash", {"command": "ls -la"})
         ]
         entries = build_transcript_entries(msgs)
         assert len(entries) == 1
         assert entries[0]["role"] == "assistant"
-        # Only tool_use block
+        # Only tool_use block, and the free text must not leak in
         for block in entries[0]["content"]:
             assert block["type"] == "tool_use"
+        assert "thinking text" not in str(entries)
+
+    def test_kernel_tool_calls_field_extracted(self):
+        """#99 regression: tool calls in the kernel `tool_calls` field must project.
+
+        This is the exact false-green the prior Anthropic-shaped fixtures hid:
+        a real assistant turn keeps its calls in `tool_calls`, with `content` as
+        plain text. Reading only `content` would yield an empty transcript here.
+        """
+        msgs = [
+            LLMMessage(
+                role="assistant",
+                content="let me read then edit",
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="c1", name="read", arguments={"file_path": "a.py"}
+                    ),
+                    LLMToolCall(
+                        call_id="c2",
+                        name="edit",
+                        arguments={"file_path": "a.py", "new_string": "x"},
+                    ),
+                ),
+            )
+        ]
+        entries = build_transcript_entries(msgs)
+        assert len(entries) == 1
+        blocks = entries[0]["content"]
+        assert [b["name"] for b in blocks] == ["read", "edit"]
+        assert blocks[0]["input"] == {"file_path": "a.py"}
+        assert blocks[1]["input"]["new_string"] == "x"
+
+    def test_anthropic_content_format_still_supported(self):
+        """CC-shaped `content:[{type:tool_use}]` path remains authoritative."""
+        msgs = [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "id": "t1",
+                        "name": "bash",
+                        "input": {"command": "ls"},
+                    },
+                ],
+            }
+        ]
+        entries = build_transcript_entries(msgs)
+        assert len(entries) == 1
+        assert entries[0]["content"][0]["name"] == "bash"
 
     def test_list_content_user_message(self):
         """User messages with list content extract text blocks."""
@@ -306,4 +372,38 @@ class TestClassifyActionThinkingDisabled:
         decision = await _classify_action(ctx, "sys", "user")
         assert decision.behavior == "ask", (
             "stage-1 content 为空应 fail-closed → ask，但实际返回了 allow/deny"
+        )
+
+
+# ---------------------------------------------------------------------------
+# bugfix-410 #99 (Q7): two-stage XML suffix tracks CC 2.1.177 baseline
+# ---------------------------------------------------------------------------
+
+
+class TestXmlSuffixCcBaseline:
+    """The stage suffixes must match the enhanced CC 2.1.177 templates.
+
+    A regression to the prior short stage-1 suffix ("Err on the side of
+    blocking. <block> immediately.") would silently re-weaken stage-1, so pin
+    the load-bearing phrases extracted from the installed 2.1.177 binary.
+    """
+
+    def test_stage1_suffix_enhanced_2_1_177(self):
+        assert XML_S1_SUFFIX.startswith("\n")
+        assert "Stage 1 does NOT apply user intent or ALLOW exceptions" in XML_S1_SUFFIX
+        assert "Judge the action by its full effect" in XML_S1_SUFFIX
+        assert "not its surface form" in XML_S1_SUFFIX
+        assert "Block if ANY rule could apply." in XML_S1_SUFFIX
+        assert XML_S1_SUFFIX.rstrip().endswith("<block> immediately.")
+        # real em-dash, not ASCII hyphen
+        assert "\u2014" in XML_S1_SUFFIX
+
+    def test_stage2_suffix_enhanced_2_1_177(self):
+        assert (
+            "Review the classification process and follow it carefully" in XML_S2_SUFFIX
+        )
+        assert "Use <thinking> before responding with <block>." in XML_S2_SUFFIX
+        assert (
+            "Think longer on ambiguous or borderline actions; "
+            "keep reasoning brief for clear-cut ones." in XML_S2_SUFFIX
         )

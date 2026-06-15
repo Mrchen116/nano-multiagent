@@ -156,3 +156,97 @@ def test_on_message_completed_sets_token_usage_and_status(tmp_path: Path) -> Non
     payload = json.loads(completed_events[0].payload_json)
     assert payload["content"] == "final text"
     assert payload["token_usage"]["output"] == 42
+
+
+# ---------------------------------------------------------------------------
+# bugfix-410-M2 R2 (#98): awaiting_permission marker lifecycle through the bridge.
+# ---------------------------------------------------------------------------
+
+
+def _marker_at(connection, message_id: str) -> str | None:
+    row = connection.execute(
+        "SELECT awaiting_permission_at FROM messages WHERE id = ?", (message_id,)
+    ).fetchone()
+    return row["awaiting_permission_at"] if row is not None else None
+
+
+def test_permission_request_sets_marker_and_terminal_clears_it(tmp_path: Path) -> None:
+    bridge, conv_id, agent_uid, messages, _captured = _make_bridge(tmp_path)
+    msg = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+    connection = messages._connection  # noqa: SLF001 — test-only inspection
+
+    assert _marker_at(connection, msg.id) is None
+
+    bridge.on_permission_request(
+        message_id=msg.id,
+        permission_request={"request_id": "p1", "tool_name": "bash"},
+    )
+    assert _marker_at(connection, msg.id) is not None, (
+        "permission_request must stamp the awaiting_permission marker"
+    )
+
+    # Terminal run (even failed) must drop the marker so a never-resolved ask
+    # cannot keep exempting a closed message.
+    bridge.on_message_completed(
+        message_id=msg.id, final_content="x", delivery_status="failed"
+    )
+    assert _marker_at(connection, msg.id) is None, (
+        "terminal run must clear the awaiting_permission marker"
+    )
+
+
+def test_permission_resolution_clears_marker_when_no_pending_remains(
+    tmp_path: Path,
+) -> None:
+    bridge, conv_id, agent_uid, messages, _captured = _make_bridge(tmp_path)
+    msg = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+    connection = messages._connection  # noqa: SLF001
+
+    bridge.on_permission_request(
+        message_id=msg.id,
+        permission_request={"request_id": "p1", "tool_name": "bash"},
+    )
+    assert _marker_at(connection, msg.id) is not None
+
+    bridge.on_permission_resolved(
+        message_id=msg.id, request_id="p1", decision="allow_once"
+    )
+    assert _marker_at(connection, msg.id) is None, (
+        "resolving the only pending ask must clear the marker"
+    )
+
+
+def test_heartbeat_refresh_only_touches_marked_running_messages(
+    tmp_path: Path,
+) -> None:
+    """refresh_awaiting_permission_markers bumps the timestamp for the agent's
+    marked running messages and ignores unmarked / non-running ones."""
+    bridge, conv_id, agent_uid, messages, _captured = _make_bridge(tmp_path)
+    connection = messages._connection  # noqa: SLF001
+
+    marked = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+    bridge.on_permission_request(
+        message_id=marked.id,
+        permission_request={"request_id": "p1", "tool_name": "bash"},
+    )
+    unmarked = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+
+    # Backdate the marked message's marker so we can detect the refresh.
+    connection.execute(
+        "UPDATE messages SET awaiting_permission_at = '2000-01-01T00:00:00Z' WHERE id = ?",
+        (marked.id,),
+    )
+    connection.commit()
+
+    refreshed = messages.refresh_awaiting_permission_markers(agent_ids=["planner"])
+    assert refreshed == 1, "only the marked running message should be refreshed"
+    assert _marker_at(connection, marked.id) != "2000-01-01T00:00:00Z"
+    assert _marker_at(connection, unmarked.id) is None

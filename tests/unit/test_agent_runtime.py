@@ -849,7 +849,9 @@ async def test_runtime_eager_recovery_on_abort(
 async def test_runtime_eager_recovery_on_cancel(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """stop_reason='cancelled' also triggers eager recovery with reason='cancelled'."""
+    """stop_reason='cancelled' triggers eager recovery. bugfix-410-fix-r1: the synthesized
+    badge reason is 'interrupted', not 'cancelled' — the IM badge's REASON_LABEL_KEYS only
+    renders denied/timed_out/interrupted, so a bare 'cancelled' would have no label."""
     from agent.core.types import Message
     from agent.core import ids
     from agent.core.agent import runtime as _runtime_mod
@@ -895,7 +897,7 @@ async def test_runtime_eager_recovery_on_cancel(
 
     assert len(recovery_entries) == 1
     assert recovery_entries[0]["tool_call_id"] == "tc_cancel_1"
-    assert recovery_entries[0]["reason"] == "cancelled"
+    assert recovery_entries[0]["reason"] == "interrupted"
 
 
 async def test_runtime_cancelled_recovery_is_visible_to_next_cached_run(
@@ -1033,3 +1035,155 @@ async def test_runtime_no_eager_recovery_on_completed(
     assert recovery_entries == [], (
         f"Completed run should not write recovery: {recovery_entries}"
     )
+
+
+# ---------------------------------------------------------------------------
+# bugfix-410-M2 R1: recovery must also cover CancelledError pass-through, where
+# an external cancel() unwinds the run at an `await` point inside _execute_loop
+# *before* the loop reaches an iteration boundary. In that path NO turn_meta is
+# ever yielded, so _run_stop_reason is None — the bugfix-402 eager-recovery
+# (which keyed on stop_reason in ("aborted","cancelled")) was skipped, leaving
+# an orphaned tool_call in JSONL *and* a dirty in-memory cache (#82 reopen).
+# ---------------------------------------------------------------------------
+
+
+async def test_runtime_recovery_on_cancellederror_passthrough(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CancelledError unwinding mid-tool (no turn_meta) must still close the call.
+
+    The loop yields an assistant turn with an open tool_call, then raises
+    asyncio.CancelledError at the next await — exactly what happens when the
+    gateway run-idle watchdog calls kernel.cancel() while the run is parked in a
+    tool/LLM await. The finally block must (1) drop the session cache and
+    (2) append a tool_call_recovery for the orphan, with reason='interrupted'
+    (synthesized since no turn_meta carried a stop_reason).
+    """
+    import asyncio
+    from agent.core.types import Message
+    from agent.core import ids
+    from agent.core.agent import runtime as _runtime_mod
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    runtime = AgentRuntime(
+        session_manager=manager, llm_client=FakeLLMClient(), model="mock-model"
+    )
+
+    assistant_with_open_call = Message(
+        message_id=ids.make_message_id(),
+        role="assistant",
+        content="",
+        metadata={
+            "tool_calls": [
+                {"call_id": "tc_cancelled_err", "name": "echo", "arguments": {}}
+            ]
+        },
+    )
+
+    async def _fake_execute_loop(self_inner, *, controller=None, **_kwargs):  # noqa: ANN001
+        yield assistant_with_open_call
+        # External cancel() lands here, before any turn_meta is produced.
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(_runtime_mod.AgentRuntime, "_execute_loop", _fake_execute_loop)
+
+    with pytest.raises(asyncio.CancelledError):
+        await runtime.run(
+            session.session_id,
+            [{"type": "text", "text": "do something"}],
+            stream=False,
+        )
+    manager.writer.flush()
+
+    path = store.resolve_path(session.session_id, workspace_root=tmp_path / "workspace")
+    lines = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
+    recovery_entries = [ln for ln in lines if ln.get("type") == "tool_call_recovery"]
+    assert len(recovery_entries) == 1, (
+        f"CancelledError pass-through must still write recovery; got "
+        f"{[ln.get('type') for ln in lines]}"
+    )
+    assert recovery_entries[0]["tool_call_id"] == "tc_cancelled_err"
+    assert recovery_entries[0]["reason"] == "interrupted"
+
+    # invalidate_session_cache is the load-bearing self-heal: the dirty in-memory
+    # history must be dropped so the next run re-reads from JSONL (cache-miss).
+    assert session.session_id not in runtime._session_histories, (
+        "session cache must be invalidated after a cancelled run so the next "
+        "turn does not reuse the orphaned tool_call from memory"
+    )
+
+
+async def test_runtime_recovery_on_cancellederror_visible_to_next_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After a CancelledError-interrupted run, the next run in the SAME process
+    must see the synthetic tool result (cache-hit path no longer serves the
+    orphan). This is the #82-reopen brick that only a process restart used to
+    clear.
+    """
+    import asyncio
+    from agent.core import ids
+    from agent.core.agent import runtime as _runtime_mod
+    from agent.core.types import Message
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    runtime = AgentRuntime(
+        session_manager=manager, llm_client=FakeLLMClient(), model="mock-model"
+    )
+    histories: list[tuple[Message, ...]] = []
+
+    async def _fake_execute_loop(self_inner, *, history=(), **_kwargs):  # noqa: ANN001
+        histories.append(tuple(history))
+        if len(histories) == 1:
+            yield Message(
+                message_id=ids.make_message_id(),
+                role="assistant",
+                content="",
+                metadata={
+                    "tool_calls": [
+                        {
+                            "call_id": "tc_cancelled_cached",
+                            "name": "echo",
+                            "arguments": {},
+                        }
+                    ]
+                },
+            )
+            raise asyncio.CancelledError()
+        yield Message(
+            message_id=ids.make_message_id(),
+            role="assistant",
+            content="recovered",
+        )
+        yield Message(
+            message_id=ids.make_message_id(),
+            role="turn_meta",
+            content="",
+            metadata={"stop_reason": "completed", "completed": True},
+        )
+
+    monkeypatch.setattr(_runtime_mod.AgentRuntime, "_execute_loop", _fake_execute_loop)
+
+    with pytest.raises(asyncio.CancelledError):
+        await runtime.run(
+            session.session_id,
+            [{"type": "text", "text": "cancel this"}],
+            stream=False,
+        )
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "continue"}],
+        stream=False,
+    )
+
+    second_history = histories[1]
+    assert any(
+        message.role == "tool"
+        and message.tool_call_id == "tc_cancelled_cached"
+        and message.metadata.get("is_recovery") is True
+        for message in second_history
+    ), "next run must receive the synthetic recovery tool result from JSONL"

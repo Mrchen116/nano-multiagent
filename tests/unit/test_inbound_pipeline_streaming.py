@@ -464,3 +464,207 @@ class TestObserverSendsTurnStartAndUpdatesStore:
         assert delta_calls[0]["message_id"] == "agent-placeholder-777", (
             f"message_delta must use agent message_id from turn_start ack, got: {delta_calls[0].get('message_id')}"
         )
+
+
+# ─── bugfix-410-M2 R3: terminal in-flight tool_call reconcile (#97) ──────────
+
+
+class TestTerminalToolCallReconcile:
+    """When a run terminates abnormally, the observer must close any tool_call that
+    received tool_start but never tool_end, badging it with a reason. Already-
+    completed tool_calls must not be rewritten."""
+
+    def _manager(self) -> tuple[Any, list[tuple]]:
+        send_calls: list[tuple] = []
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+        return manager, send_calls
+
+    def _ctx_store(self) -> dict[str, dict[str, str]]:
+        return {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "agent-msg-1",
+                "agent_id": "alpha",
+            }
+        }
+
+    @pytest.mark.asyncio
+    async def test_reconcile_closes_inflight_toolcall_with_reason(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+        )
+
+        # c1 starts and finishes; c2 starts and never ends (the hung bash).
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        observer(
+            {"event": "tool_end", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c2", "name": "bash"}
+        )
+        await asyncio.sleep(0.02)
+        send_calls.clear()
+
+        # Watchdog-driven terminal reconcile.
+        observer(
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "timed_out",
+            }
+        )
+        await asyncio.sleep(0.02)
+
+        completed = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert len(completed) == 1, (
+            f"only the in-flight c2 must be reconciled, got: {send_calls}"
+        )
+        tc = completed[0]["tool_call"]
+        assert tc["id"] == "c2"
+        assert tc["status"] == "failed"
+        assert tc["reason"] == "timed_out"
+
+    @pytest.mark.asyncio
+    async def test_reconcile_does_not_rewrite_completed_toolcalls(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+        )
+
+        # Both tools complete normally before the terminal event.
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        observer(
+            {"event": "tool_end", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c2", "name": "bash"}
+        )
+        observer(
+            {
+                "event": "tool_end",
+                "run_id": "run-1",
+                "call_id": "c2",
+                "name": "bash",
+                "error": "exit 1",
+            }
+        )
+        await asyncio.sleep(0.02)
+        send_calls.clear()
+
+        observer(
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "interrupted",
+            }
+        )
+        await asyncio.sleep(0.02)
+
+        completed = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert completed == [], (
+            f"no in-flight tool_calls remain; nothing should be reconciled, got: {send_calls}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_reconcile_reason_interrupted_for_non_timeout(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+        )
+
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c9", "name": "edit"}
+        )
+        await asyncio.sleep(0.02)
+        send_calls.clear()
+
+        observer(
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "interrupted",
+            }
+        )
+        await asyncio.sleep(0.02)
+
+        completed = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert len(completed) == 1
+        assert completed[0]["tool_call"]["reason"] == "interrupted"
+        assert completed[0]["tool_call"]["status"] == "failed"
+
+    @pytest.mark.asyncio
+    async def test_normal_completion_leaves_no_run_entry(self):
+        """bugfix-410-fix-r1 (Eff-3): a run that completes normally (tool_end then
+        turn_end, no reconcile) must not leak an empty per-run dict entry. A long-lived
+        Gateway processes many runs; one residual entry per run is an unbounded leak."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, _ = self._manager()
+        # Injected so we can assert the map is reaped — no production caller passes it.
+        running_tool_calls: dict[str, dict[str, str]] = {}
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+            running_tool_calls=running_tool_calls,
+        )
+
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        assert "run-1" in running_tool_calls
+
+        # Closing the last in-flight call drops the run_id entry immediately.
+        observer(
+            {"event": "tool_end", "run_id": "run-1", "call_id": "c1", "name": "read"}
+        )
+        assert "run-1" not in running_tool_calls
+
+        # turn_end is the normal terminus and re-reaps as a backstop (idempotent).
+        observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+        await asyncio.sleep(0.02)
+        assert running_tool_calls == {}, (
+            f"normal completion must leave no residual run entry, got: {running_tool_calls}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_turn_end_backstops_run_entry_without_tool_end(self):
+        """bugfix-410-fix-r1: even if a tool_call's tool_end never arrives on the normal
+        path, turn_end must still reap the per-run entry so the map cannot grow."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, _ = self._manager()
+        running_tool_calls: dict[str, dict[str, str]] = {}
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+            running_tool_calls=running_tool_calls,
+        )
+
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "bash"}
+        )
+        assert running_tool_calls.get("run-1") == {"c1": "bash"}
+
+        observer({"event": "turn_end", "run_id": "run-1", "completed": True})
+        await asyncio.sleep(0.02)
+        assert "run-1" not in running_tool_calls

@@ -365,6 +365,17 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE messages ADD COLUMN permission_request_json TEXT"
         )
+    # bugfix-410-M2 (#98): liveness marker for a running message parked on a pending
+    # permission decision. Set when a permission_request arrives, refreshed by the
+    # owning node's heartbeat, and cleared on resolution / terminal run. The relay
+    # watchdog exempts a running message from the 120s reap while this marker is
+    # fresh, but reaps it once the marker goes stale past a crash threshold (so a
+    # Gateway crash mid-decision cannot leak a permanently-exempt ghost). Nullable:
+    # the vast majority of messages never park on permission.
+    if "awaiting_permission_at" not in column_names:
+        connection.execute(
+            "ALTER TABLE messages ADD COLUMN awaiting_permission_at TEXT"
+        )
 
 
 def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:

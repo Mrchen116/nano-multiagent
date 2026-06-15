@@ -499,3 +499,164 @@ def test_boundary_just_under_idle_threshold(tmp_path: Path) -> None:
     )
 
     assert flipped == 0
+
+
+# ---------------------------------------------------------------------------
+# bugfix-410-M2 R2 (#98): awaiting_permission marker exempts a running message
+# from the 120s relay reap WHILE a permission decision is pending — but only as
+# long as the marker is live (Gateway heartbeat keeps touching its timestamp).
+# A Gateway crash stops the refresh; the marker then goes stale past a crash
+# threshold (independent of 120s, several × heartbeat interval) and the message
+# is reaped as usual, so a crash cannot leak a permanently-exempt ghost.
+# ---------------------------------------------------------------------------
+
+
+def _set_awaiting_permission_at(connection, *, message_id: str, at: str | None) -> None:
+    connection.execute(
+        "UPDATE messages SET awaiting_permission_at = ? WHERE id = ?",
+        (at, message_id),
+    )
+    connection.commit()
+
+
+def test_scan_skips_running_message_with_fresh_permission_marker(
+    tmp_path: Path,
+) -> None:
+    """A running message stale by the 120s rule is NOT reaped while its
+    awaiting_permission marker is fresh (user still deciding, Gateway alive)."""
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    # 600s old by created_at → would normally be reaped at timeout=120.
+    stale_at = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=600))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-awaiting",
+        conversation_id="conv-1",
+        created_at=stale_at,
+    )
+    # But the permission marker was refreshed 5s ago (Gateway heartbeat).
+    fresh_marker = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=5))
+    _set_awaiting_permission_at(connection, message_id="msg-awaiting", at=fresh_marker)
+
+    captured: list[ConversationEvent] = []
+    repo = EventRepository(connection, notify=captured.append)
+    flipped = scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=120,
+        permission_crash_threshold_seconds=300,
+    )
+
+    assert flipped == 0, "fresh permission marker must exempt the message from reap"
+    row = connection.execute(
+        "SELECT delivery_status FROM messages WHERE id = ?", ("msg-awaiting",)
+    ).fetchone()
+    assert row["delivery_status"] == "running"
+
+
+def test_scan_reaps_running_message_with_stale_permission_marker(
+    tmp_path: Path,
+) -> None:
+    """A Gateway crash stops marker refresh → marker goes stale past the crash
+    threshold → the message is reaped as usual (no permanent ghost)."""
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    stale_at = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=600))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-crashed",
+        conversation_id="conv-1",
+        created_at=stale_at,
+    )
+    # Marker last touched 400s ago — Gateway crashed; exceeds 300s crash threshold.
+    stale_marker = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=400))
+    _set_awaiting_permission_at(connection, message_id="msg-crashed", at=stale_marker)
+
+    captured: list[ConversationEvent] = []
+    repo = EventRepository(connection, notify=captured.append)
+    flipped = scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=120,
+        permission_crash_threshold_seconds=300,
+    )
+
+    assert flipped == 1, "stale permission marker must NOT exempt — crash ghost reaped"
+    row = connection.execute(
+        "SELECT delivery_status FROM messages WHERE id = ?", ("msg-crashed",)
+    ).fetchone()
+    assert row["delivery_status"] == "failed"
+
+
+def test_cutoff_format_is_single_sourced_with_stored_timestamps() -> None:
+    """bugfix-410-fix-r1 (Reuse-1): the watchdog compares its cutoffs against stored
+    timestamps via SQL text ordering, so the cutoff format and the writer format must be
+    one source. _utc_now (the writer) is defined in terms of _format_utc (the comparator's
+    formatter); any drift between them would silently break the comparison."""
+    from IM.infra.repositories import _format_utc, _utc_now
+
+    fixed = datetime(2026, 1, 2, 3, 4, 5, 678000, tzinfo=timezone.utc)
+    formatted = _format_utc(fixed)
+    assert formatted == "2026-01-02T03:04:05.678000Z"
+    assert formatted.endswith("Z") and "+00:00" not in formatted
+
+    # The writer used for awaiting_permission_at must route through the same formatter,
+    # so a stored marker and a watchdog cutoff share an identical, comparable shape.
+    now = _utc_now()
+    assert now == _format_utc(datetime.fromisoformat(now.replace("Z", "+00:00")))
+
+
+def test_format_utc_rejects_naive_and_normalizes_aware() -> None:
+    """bugfix-410 (#1, post-PR review): _format_utc must fail-fast on a naive datetime
+    (which would format without the +00:00 offset, no-op the Z substitution, and silently
+    drift from every stored timestamp) and normalise any aware zone to UTC before
+    formatting (so a caller cannot accidentally store a non-UTC offset)."""
+    from datetime import timedelta
+
+    import pytest
+
+    from IM.infra.repositories import _format_utc
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _format_utc(datetime(2026, 1, 2, 3, 4, 5))
+
+    # 08:00 at +08:00 is 00:00 UTC → normalised and emitted with the Z suffix.
+    plus8 = datetime(2026, 1, 2, 8, 0, 0, tzinfo=timezone(timedelta(hours=8)))
+    assert _format_utc(plus8) == "2026-01-02T00:00:00Z"
+
+
+def test_fresh_permission_marker_written_via_utc_now_is_exempt(tmp_path: Path) -> None:
+    """bugfix-410-fix-r1 (Reuse-1): a marker written through the real production
+    formatter (_utc_now) must compare correctly against the watchdog's _format_utc cutoff
+    and exempt the row — proving writer/comparator formats line up end to end."""
+    from IM.infra.repositories import _utc_now
+
+    connection = connect(tmp_path / "im.db")
+    initialize_schema(connection)
+
+    old_created = _utc_iso(datetime.now(timezone.utc) - timedelta(seconds=600))
+    _insert_conversation_and_message(
+        connection,
+        message_id="msg-awaiting",
+        conversation_id="conv-1",
+        created_at=old_created,
+    )
+    # Marker stamped "now" through the production writer — fresh, must exempt.
+    _set_awaiting_permission_at(connection, message_id="msg-awaiting", at=_utc_now())
+
+    captured: list[ConversationEvent] = []
+    repo = EventRepository(connection, notify=captured.append)
+    flipped = scan_and_fail_stuck_running_messages(
+        connection=connection,
+        event_repository=repo,
+        timeout_seconds=120,
+        permission_crash_threshold_seconds=300,
+    )
+
+    assert flipped == 0, "fresh marker written via _utc_now must exempt the row"
+    row = connection.execute(
+        "SELECT delivery_status FROM messages WHERE id = ?", ("msg-awaiting",)
+    ).fetchone()
+    assert row["delivery_status"] == "running"

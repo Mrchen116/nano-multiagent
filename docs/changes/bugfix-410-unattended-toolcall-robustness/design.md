@@ -6,6 +6,8 @@
 
 ## Changelog
 
+- 2026-06-15 (M2/R4): reason_code 全链文件清单补 `src/IM/api/routes/messages.py`（ToolCallPayload DTO）—— 浏览器自测暴露：REST 历史加载是独立 DTO，与 WS 透传/持久化序列化分开，不补则 reason 仅 live WS 可见、reload 后丢。仅本 milestone 内补，不影响其他 milestone。详见 M2/progress.md R4。
+
 ## 现状分析
 
 ### 涉及范围

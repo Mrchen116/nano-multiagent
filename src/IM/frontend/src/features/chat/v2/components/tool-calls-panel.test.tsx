@@ -45,4 +45,29 @@ describe("ToolCallsPanel", () => {
     // After expanding the second row, there should be two INPUT labels (one per row)
     expect(screen.getAllByText(/INPUT/i)).toHaveLength(2);
   });
+
+  // bugfix-410-M2 R4 (#97): tool_call badge must render the reason label per cause.
+  it.each([
+    ["denied", /denied/i],
+    ["timed_out", /timed out/i],
+    ["interrupted", /interrupted/i],
+  ] as const)("renders the %s reason badge", async (reason, label) => {
+    const user = userEvent.setup();
+    const calls: ToolCall[] = [
+      { id: "x1", name: "bash", status: "failed", input: {}, reason },
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    expect(screen.getByText(label)).toBeInTheDocument();
+  });
+
+  it("renders no reason badge for a normally completed tool call", async () => {
+    const user = userEvent.setup();
+    const calls: ToolCall[] = [
+      { id: "ok1", name: "read", status: "completed", input: {}, output: "ok" },
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    expect(screen.queryByText(/denied|timed out|interrupted/i)).not.toBeInTheDocument();
+  });
 });

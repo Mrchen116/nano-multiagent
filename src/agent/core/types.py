@@ -66,6 +66,10 @@ class ToolResult:
     content: str | list[dict[str, Any]] | None = None
     duration_ms: int = 0
     arguments: Mapping[str, Any] = field(default_factory=dict)
+    # bugfix-410-M2 (#82/#97): sidecar classification of a non-success terminal
+    # state, kept SEPARATE from the model-facing free-text ``error``. Threaded to
+    # the IM tool_call badge (denied / timed_out / interrupted). None on success.
+    reason_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

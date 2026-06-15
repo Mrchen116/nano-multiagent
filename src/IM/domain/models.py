@@ -195,6 +195,10 @@ class ToolCall:
     duration_ms: int | None = None
     input: dict[str, Any] = field(default_factory=dict)
     output: str | None = None
+    # bugfix-410-M2 (#97): sidecar classification of a non-success terminal state,
+    # kept SEPARATE from status (which stays running/completed/failed). The badge
+    # renders denied→已拒绝 / timed_out→执行超时 / interrupted→已中断. None otherwise.
+    reason: str | None = None
 
     def __post_init__(self) -> None:
         if self.status not in _TOOL_CALL_STATUSES:

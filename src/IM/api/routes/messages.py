@@ -82,6 +82,9 @@ class ToolCallPayload(BaseModel):
     input: dict = {}
     duration_ms: int | None = None
     output: str | None = None
+    # bugfix-410-M2 (#97): sidecar badge classification (denied/timed_out/interrupted),
+    # carried on history load so the badge survives a page reload, not only live WS.
+    reason: str | None = None
 
 
 class TokenUsagePayload(BaseModel):
@@ -162,6 +165,7 @@ def to_message_response(message: Message) -> MessageResponse:
                 input=tc.input if isinstance(tc.input, dict) else {},
                 duration_ms=tc.duration_ms,
                 output=tc.output,
+                reason=tc.reason,
             )
             for tc in (message.tool_calls or [])
         ],
