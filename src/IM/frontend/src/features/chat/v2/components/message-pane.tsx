@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { useTranslation } from "../../../../i18n";
 import { AttachmentChip } from "../../attachments/attachment-chip";
@@ -20,6 +22,7 @@ import { NodeChip } from "./node-chip";
 import { PermissionCard } from "./permission-card";
 import { TokenChip } from "./token-chip";
 import { ToolCallsPanel } from "./tool-calls-panel";
+import { remarkMention } from "./remark-mention";
 
 export interface MessagePaneProps {
   conversation: Conversation;
@@ -443,6 +446,17 @@ function MessageBubble({
   );
 }
 
+/**
+ * MarkdownContent — 渲染 agent/对方气泡的块级 Markdown 内容。
+ *
+ * bugfix-413: 改用 react-markdown + remark-gfm 取代手写渲染器，彻底支持
+ * CommonMark/GFM（标题/分隔线/引用块/嵌套列表/链接/表格/代码块）。
+ * @mention 经 rehypeMention 插件在 hast 层切出，注入带 data-* 属性的 <span>，
+ * 再由 components.span 映射渲染成 .chat-mention-chip。
+ *
+ * 对外 props 签名不变，调用点（message-pane.tsx:401）零改动。
+ * raw HTML 安全：不引 rehype-raw，agent 输出的 <script> 等一律转义为字面量。
+ */
 function MarkdownContent({
   content,
   participants,
@@ -450,142 +464,57 @@ function MarkdownContent({
   content: string;
   participants?: Actor[];
 }) {
-  const blocks = splitMarkdownBlocks(content);
-  return (
-    <div className="im-md">
-      {blocks.map((block, idx) => {
-        if (block.startsWith("```") && block.endsWith("```")) {
-          const code = block.replace(/^```[^\n]*\n?/, "").replace(/\n?```$/, "");
-          return <pre key={idx}><code>{code}</code></pre>;
-        }
-        const tableNode = renderTableBlock(block, idx, participants);
-        if (tableNode) return tableNode;
-        if (/^\s*[-*]\s+/m.test(block)) {
-          const items = block.split("\n").filter(Boolean).map((line) => line.replace(/^\s*[-*]\s+/, ""));
-          return (
-            <ul key={idx}>
-              {items.map((item, itemIdx) => (
-                <li key={itemIdx}>{renderInlineContent(item, participants)}</li>
-              ))}
-            </ul>
-          );
-        }
-        if (/^\s*\d+\.\s+/m.test(block)) {
-          const items = block.split("\n").filter(Boolean).map((line) => line.replace(/^\s*\d+\.\s+/, ""));
-          return (
-            <ol key={idx}>
-              {items.map((item, itemIdx) => (
-                <li key={itemIdx}>{renderInlineContent(item, participants)}</li>
-              ))}
-            </ol>
-          );
-        }
-        return <p key={idx}>{renderInlineContent(block, participants)}</p>;
-      })}
-    </div>
-  );
-}
-
-function splitMarkdownBlocks(content: string): string[] {
-  const blocks: string[] = [];
-  let lines: string[] = [];
-  let inFence = false;
-
-  const flush = () => {
-    if (lines.length > 0) {
-      blocks.push(lines.join("\n"));
-      lines = [];
+  // Build lookup map once per render for mention chip resolution.
+  const participantMap = new Map<string, string>();
+  if (participants) {
+    for (const p of participants) {
+      participantMap.set(p.id, p.display_name ?? p.id);
     }
+  }
+
+  // components map: GFM table → .im-md-table class;
+  // span with data-mention-target-id → .chat-mention-chip (injected by remarkMention
+  // via data.hName="span" + data.hProperties, which remark-rehype auto-converts).
+  const components: Components = {
+    table: ({ children, ...props }) => (
+      <table {...props} className="im-md-table">{children}</table>
+    ),
+    span: ({ children, ...props }) => {
+      // remarkMention sets data-mention-target-id on the injected <span>.
+      const targetId = (props as Record<string, unknown>)["data-mention-target-id"] as string | undefined;
+
+      if (!targetId) {
+        // Plain span — pass through untouched.
+        return <span {...props}>{children}</span>;
+      }
+
+      const displayName = participantMap.get(targetId);
+      if (displayName) {
+        return (
+          <span className="chat-mention-chip" data-target-id={targetId}>
+            @{displayName}
+          </span>
+        );
+      }
+      // Unknown target_id: same fallback as the prior renderInlineContent path.
+      return (
+        <span className="chat-mention-chip chat-mention-chip--unknown">
+          @unknown
+        </span>
+      );
+    },
   };
 
-  for (const line of content.split("\n")) {
-    if (line.startsWith("```")) {
-      if (!inFence) flush();
-      lines.push(line);
-      inFence = !inFence;
-      if (!inFence) flush();
-      continue;
-    }
-    if (inFence) {
-      lines.push(line);
-      continue;
-    }
-    if (line.trim() === "") {
-      flush();
-      continue;
-    }
-    lines.push(line);
-  }
-  flush();
-  return blocks;
-}
-
-/**
- * GFM pipe table → real <table>. The hand-rolled renderer otherwise drops a
- * table block into a <p>, leaving the raw `|`/`---` pipes squashed onto one
- * line. We detect the standard shape (header row + `|---|` delimiter row) and
- * emit cells; cell text still flows through renderInlineContent so inline
- * emphasis and @mentions inside cells keep working.
- *
- * Body rows must contain a pipe, which drops any prose accidentally glued to
- * the table by a single newline instead of treating it as data rows.
- */
-function renderTableBlock(
-  block: string,
-  idx: number,
-  participants?: Actor[],
-): React.ReactNode | null {
-  const lines = block.split("\n").map((l) => l.trimEnd());
-  if (lines.length < 2 || !lines[0]!.includes("|") || !isTableDelimiterRow(lines[1]!)) {
-    return null;
-  }
-  const headers = splitTableRow(lines[0]!);
-  const aligns = splitTableRow(lines[1]!).map(cellAlign);
-  const rows = lines.slice(2).filter((l) => l.trim() && l.includes("|")).map(splitTableRow);
   return (
-    <table key={idx} className="im-md-table">
-      <thead>
-        <tr>
-          {headers.map((cell, i) => (
-            <th key={i} style={{ textAlign: aligns[i] }}>{renderInlineContent(cell, participants)}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, rIdx) => (
-          <tr key={rIdx}>
-            {headers.map((_, cIdx) => (
-              <td key={cIdx} style={{ textAlign: aligns[cIdx] }}>
-                {renderInlineContent(row[cIdx] ?? "", participants)}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="im-md">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkMention]}
+        components={components}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   );
-}
-
-function splitTableRow(line: string): string[] {
-  let s = line.trim();
-  if (s.startsWith("|")) s = s.slice(1);
-  if (s.endsWith("|")) s = s.slice(0, -1);
-  return s.split("|").map((c) => c.trim());
-}
-
-function isTableDelimiterRow(line: string): boolean {
-  if (!line.includes("-")) return false;
-  const cells = splitTableRow(line);
-  return cells.length > 0 && cells.every((c) => /^:?-+:?$/.test(c));
-}
-
-function cellAlign(spec: string): "left" | "center" | "right" | undefined {
-  const left = spec.startsWith(":");
-  const right = spec.endsWith(":");
-  if (left && right) return "center";
-  if (right) return "right";
-  if (left) return "left";
-  return undefined;
 }
 
 /**
