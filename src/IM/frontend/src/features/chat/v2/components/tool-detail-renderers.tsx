@@ -131,6 +131,10 @@ function BashCard({ detail }: { detail: ToolDetail }) {
   const stderr = str(detail.stderr);
   const exit = detail.exit_code;
   const truncated = detail.truncated === true;
+  // feat-409 failalign: out-of-band bash failures carry no stdout/stderr/exit —
+  // only command + error. Render the error in the stderr slot so the terminal
+  // block still shows what went wrong (it appears exactly once, here).
+  const error = errorText(detail.error);
   return (
     <div className="chat-tool-detail-term">
       <div className="chat-tool-detail-term-cmd">{command}</div>
@@ -148,6 +152,9 @@ function BashCard({ detail }: { detail: ToolDetail }) {
             <pre className="chat-tool-detail-term-out chat-tool-detail-term-err">{shown}</pre>
           )}
         />
+      )}
+      {!stderr && error && (
+        <pre className="chat-tool-detail-term-out chat-tool-detail-term-err">{error}</pre>
       )}
       {typeof exit === "number" && (
         <div className="chat-tool-detail-term-meta">
@@ -303,16 +310,17 @@ function ReadCard({ detail }: { detail: ToolDetail }) {
         from: offset,
         to: offset + limit - 1
       });
+    } else if (typeof total === "number") {
+      meta = t("chat.messagePane.toolDetail.readLines", { count: total });
     } else {
-      meta = t("chat.messagePane.toolDetail.readLines", {
-        count: typeof total === "number" ? total : 0
-      });
+      // cr4: total_lines 缺失时不伪造 "0 lines"——省略行计数(只显路径)。
+      meta = "";
     }
   }
   return (
     <div className="chat-tool-detail-info">
       <div className="chat-tool-detail-info-head">✓ {path}</div>
-      <div className="chat-tool-detail-info-meta">{meta}</div>
+      {meta && <div className="chat-tool-detail-info-meta">{meta}</div>}
     </div>
   );
 }

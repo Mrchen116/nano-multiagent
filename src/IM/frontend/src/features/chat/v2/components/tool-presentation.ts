@@ -55,12 +55,26 @@ export function isCallFailed(call: ToolCall): boolean {
 }
 
 /**
+ * Reasons that render a dedicated badge on the collapsed row (kept in sync with
+ * REASON_LABEL_KEYS in tool-calls-panel). When one of these is present the badge
+ * already conveys the failure, so failTag is suppressed to avoid a confusing
+ * double identifier (cr4-frontend: "已拒绝" + "failed").
+ */
+export const REASON_BADGE_NAMES: ReadonlySet<string> = new Set([
+  "denied",
+  "timed_out",
+  "interrupted"
+]);
+
+/**
  * Short fail tag shown inline on a failed collapsed row. bash failures often
  * carry an exit code in detail; otherwise fall back to a generic "failed" label
- * (the red row styling already conveys failure).
+ * (the red row styling already conveys failure). Suppressed when a reason badge
+ * is already shown for this call (cr4-frontend: no double "已拒绝" + "failed").
  */
 export function failTag(call: ToolCall): string | null {
   if (!isCallFailed(call)) return null;
+  if (call.reason && REASON_BADGE_NAMES.has(call.reason)) return null;
   const exit = call.detail?.exit_code;
   if (typeof exit === "number" && exit !== 0) return `exit ${exit}`;
   return "failed";

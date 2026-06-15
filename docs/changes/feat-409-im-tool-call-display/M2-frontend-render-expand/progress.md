@@ -61,3 +61,37 @@
   - 结论:渲染与定稿 prototype 一致;agent 完整 prompt 在结果前、长输出展开不撑乱滚动、失败标红、未知工具通用卡片均符合 spec/design。
 - Rollback: `git revert` R3 C2;LongOutput 是可选包装，回退即全量渲染(不破坏数据)。
 - Commits: C1=test R3 长输出红测, C2=feat R3 实现, C3=本文档
+
+---
+
+### failalign — 失败态对齐原型(PR #101 用户实测 fix,reviewer 反馈循环小修)
+
+走 §FL 轻量化:② 不复制独立 milestone 目录(轻量 fix,记本 progress 续段);③ 架构治本不放松。
+红测不豁免(行为/契约 fix):先写红测(C1=e5bee2ec)再实现(C2=5fcec454)。
+
+- Context: 用户实测 PR #101,read 读不存在路径折叠行显 `file does not exist | <path>: file does not exist`(error 两次)、展开再一次共三次;bash 失败同类 `failed: <error>` 被 Gateway 再前缀。此前实现只对齐了成功态/展开卡,失败态跑偏。
+- 根因(两处叠加):
+  1. Gateway `main.py` tool_end `output = " | ".join(output_parts)`,output_parts = [原始 error, presenter summary] —— 原始 error 前缀进折叠摘要。
+  2. 各 presenter 失败分支把 error 塞进 summary(read=`<path>: <error>`、bash=`failed: <error>`、memory/skill=`failed: <error>` 等)—— 与 ① 叠加。
+  前端 `collapsedSummary(call)` 直接渲染 `call.output`,于是 error 反复出现。
+- Decision:
+  - 内核 presenter(presentation.py)所有工具 format_end 失败分支:summary 改为干净主参数(同成功态),不再拼 error;error 进 detail 供展开卡渲染一次。逐个核:read→path / bash→description(命令首段降级) / edit·write→path / web→url / agent→description / memory→`action target` / skill→`action name` / task_stop→task_id / default→裸 "failed"。
+  - Gateway main.py tool_end:`output` 只放 presenter summary(去掉 `output_parts` 与 error 前缀;`|` 拼接逻辑删除)。reason 字段独立未动;running 的 tool_call_upserted 路径未动。
+  - 前端 tool-presentation.ts:`failTag` 在有 reason 徽标命中(REASON_BADGE_NAMES)时返回 null,抑制「已拒绝」+「failed」双标识(cr4-frontend)。
+  - 前端展开卡 error 只渲染一次:BashCard out-of-band 失败(无 stderr 但有 error)在 stderr 槽渲染 error;edit/write/web/task_stop out-of-band 失败 detail 只放 `{error}` → 走 ErrorCard;read 失败走 ReadCard 失败分支(✕ path + error);memory/skill success=False 走各自卡片失败分支(✕ + message)。
+  - cr4 read minor:file_unchanged 删无效 `output.file.filePath` 兜底;total_lines 缺失时 presenter 不伪造 0(detail.total_lines=None、summary 退化只显路径)、前端 ReadCard 缺失时省略行计数(不显 "0 lines")。`_with_path` 处理 suffix 为空只显路径。
+- Rationale: summary 永远是干净人话主参数(成功失败同构),失败由 ✕ 图标 + 简洁 fail-tag(bash 有结构化 exit code 显 `exit N`,否则 `failed`)表达,error 文本只在展开卡/终端块出现一次 —— 对照 prototype.html bash 失败行(L326-373)+ read 行(L375)+ 提案改动点说明(L568)。
+- Evidence:
+  - Tests(python): `test_presentation.py` 各 presenter 失败分支断言 summary = 干净主参数(`not in` error 文本)+ detail 含 error;`test_presentation_golden.py` bash 失败 golden 更新;`test_tool_end_detail_passthrough.py` 新增 `test_tool_end_failed_output_is_clean_summary`(断言 output 不含原始 error 前缀)。`pytest -m "not e2e"` 全绿:2629 passed, 1 skipped。ruff check + ruff format --check 绿。
+  - Tests(frontend): `tool-calls-panel.test.tsx` 失败行测试改为断言折叠行无 error 文本 + summary 为干净 description + fail-tag="exit 1";新增 "suppresses the fail tag when a reason badge is shown"。全量 vitest 59 files / 413 passed;`npm run build` 绿。
+  - Entry(真实浏览器,gstack Chromium + 真实 IM + Gateway + Vite,e2e-up.sh 起):登录 nano,与 default-agent 直聊,真实让 agent 执行 read 不存在路径 / bash ls 不存在目录 / read 成功 / bash echo(成功) / bash reboot(硬拦截 denied)。
+  - Frontend State Matrix: read 失败/成功、bash 失败/成功、denied(硬拦截)全真实触发覆盖。
+  - Browser QA: 无 console error;逐状态对照 prototype:
+    - failalign-collapsed-all.png:折叠态四行 —— read 失败 `✕ 📖 read <path> [failed]`(对照 prototype L375,**summary 干净 path 无重复 error**,一致);bash 失败 `✕ 💻 bash 列出不存在的目录 [failed]`(对照 L326-333,summary=description,一致);bash 成功 `● 💻 bash 打个招呼`(对照 L427-433,一致)。**核心 bug 根治:折叠行 0 次 error**。
+    - failalign-read-expanded.png:read 失败展开 `✕ <path>` + `file does not exist`(对照 prototype ReadCard 失败态,**error 仅一次**,与 bug 现象「三次」对比已根治)。
+    - failalign-bash-card-full.png:bash 失败展开终端块 `$ ls ...` + stderr + `Command exited with code 1`(error 仅一次,对照 L336-371 终端块)。
+    - failalign-denied.png:denied 折叠行 `✕ 💻 bash 测试重启拦截 [Denied]`(**Denied 红徽标 + 无 fail-tag 双标识**,cr4-frontend 抑制逻辑真实生效)+ 展开 `$ reboot` + `tool blocked by hook`。
+  - 未真实浏览器逐一触发的工具(edit/write/web/agent/memory/skill/task_stop 失败态):渲染路径与已验证的 read/bash 同构(干净主参数 summary + error 进 detail 渲染一次),由 presenter 单测 + vitest 严格覆盖;真实触发需构造特定失败场景且依赖 LLM 配合,成本高、收益边际,以单测覆盖为准。
+  - Visual/Interaction: 截图存主仓 `ACCEPTANCE/feat-409-M2/failalign-*.png`(collapsed-all / read-expanded / bash-expanded / bash-card-full / denied)。
+- Rollback: `git revert 5fcec454`(C2)回到上一稳定态(失败态行为退回原样,数据无损);C1 红测可单独保留或同 revert。
+- Commits: C1=e5bee2ec(红测), C2=5fcec454(实现 presenter+gateway+frontend), C3=本文档段。

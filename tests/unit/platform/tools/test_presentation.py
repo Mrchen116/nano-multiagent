@@ -96,15 +96,16 @@ class TestReadPresenter:
         assert evt.detail["path"] == "src/app.py"
         assert evt.detail["unchanged"] is True
 
-    def test_end_failed_shows_path(self) -> None:
-        # 失败态尤其要带 path:截图实证里只剩 "file does not exist | 0 lines"。
+    def test_end_failed_summary_is_clean_path(self) -> None:
+        # feat-409 failalign: 失败态 summary = 干净主参数(path),与成功态同构,
+        # 绝不含 error 文本(error 只进 detail,展开卡渲染一次)。
         evt = _presenter("read").format_end(
             {"path": "missing.py"},
             _FakeResult(error="file does not exist"),
             duration_ms=2,
         )
-        assert "missing.py" in evt.summary
-        assert "file does not exist" in evt.summary
+        assert evt.summary == "missing.py"
+        assert "file does not exist" not in evt.summary
         assert evt.detail is not None
         assert evt.detail["path"] == "missing.py"
         assert evt.detail["error"]["message"] == "file does not exist"
@@ -136,6 +137,18 @@ class TestWritePresenter:
         assert "overwritten" in evt.summary
         assert evt.detail is not None
 
+    def test_end_failed(self) -> None:
+        # feat-409 failalign: 失败态 summary = 干净主参数(path),不含 error 文本。
+        evt = _presenter("write").format_end(
+            {"path": "src/app.py", "content": "hello"},
+            _FakeResult(error="permission denied"),
+            duration_ms=5,
+        )
+        assert evt.summary == "src/app.py"
+        assert "permission denied" not in evt.summary
+        assert evt.detail is not None
+        assert "error" in evt.detail
+
 
 class TestEditPresenter:
     def test_start_shows_path(self) -> None:
@@ -154,12 +167,14 @@ class TestEditPresenter:
         assert "diff" in evt.detail
 
     def test_end_failed(self) -> None:
+        # feat-409 failalign: 失败态 summary = 干净主参数(path),不含 error 文本。
         evt = _presenter("edit").format_end(
             {"path": "src/app.py", "oldText": "foo", "newText": "bar"},
             _FakeResult(error="Could not find the exact text"),
             duration_ms=5,
         )
-        assert "failed" in evt.summary
+        assert evt.summary == "src/app.py"
+        assert "Could not find" not in evt.summary
         assert evt.detail is not None
         assert "error" in evt.detail
 
@@ -193,12 +208,27 @@ class TestBashPresenter:
         assert evt.summary == "echo hello world"
 
     def test_end_failed(self) -> None:
+        # feat-409 failalign: 失败态 summary = 干净人话主参数(description),与成功态
+        # 同构,不含 error 文本。失败由 ✕ 图标 + fail-tag(前端 exit N / failed)表达。
         evt = _presenter("bash").format_end(
             {"command": "pytest", "description": "跑测试"},
             _FakeResult(error="Command exited with code 1"),
             duration_ms=500,
         )
-        assert "failed" in evt.summary
+        assert evt.summary == "跑测试"
+        assert "Command exited" not in evt.summary
+        assert evt.detail is not None
+        assert "error" in evt.detail
+
+    def test_end_failed_falls_back_to_command(self) -> None:
+        # description 为空时失败态降级为命令首段,仍不含 error。
+        evt = _presenter("bash").format_end(
+            {"command": "ls /nope"},
+            _FakeResult(error="No such file or directory"),
+            duration_ms=5,
+        )
+        assert evt.summary == "ls /nope"
+        assert "No such file" not in evt.summary
 
 
 class TestWebFetchPresenter:
@@ -217,6 +247,18 @@ class TestWebFetchPresenter:
         assert "Example" in evt.summary
         assert evt.detail is not None
         assert evt.detail["status"] == 200
+
+    def test_end_failed(self) -> None:
+        # feat-409 failalign: 失败态 summary = 干净主参数(url),不含 error 文本。
+        evt = _presenter("web_fetch").format_end(
+            {"url": "https://example.com"},
+            _FakeResult(error="connection timed out"),
+            duration_ms=5000,
+        )
+        assert evt.summary == "https://example.com"
+        assert "timed out" not in evt.summary
+        assert evt.detail is not None
+        assert "error" in evt.detail
 
     def test_end_body_excerpt_relaxed_and_capped(self) -> None:
         # web_fetch detail body 放宽:不再硬截到 500 字,大正文走 _enforce_cap(content)。
@@ -287,13 +329,28 @@ class TestAgentPresenter:
         assert evt.detail["prompt"] == "go"
 
     def test_end_failed(self) -> None:
+        # feat-409 failalign: in-band 失败态 summary = 干净主参数(description),
+        # 不含 error 文本;error 进 detail 供 AgentCard 渲染一次。
         evt = _presenter("agent").format_end(
             {"description": "X", "prompt": "go"},
             _FakeResult(output={"status": "failed", "error": "boom", "agent_id": "a"}),
             duration_ms=10,
         )
-        assert "failed" in evt.summary
+        assert evt.summary == "X"
+        assert "boom" not in evt.summary
         assert evt.detail["error"] == "boom"
+
+    def test_end_failed_out_of_band_summary_is_clean(self) -> None:
+        # out-of-band(result.error)失败态同样 summary = description,不含 error。
+        evt = _presenter("agent").format_end(
+            {"description": "派子 agent", "prompt": "go"},
+            _FakeResult(error="dispatch crashed"),
+            duration_ms=10,
+        )
+        assert evt.summary == "派子 agent"
+        assert "dispatch crashed" not in evt.summary
+        assert evt.detail is not None
+        assert "error" in evt.detail
 
     def test_end_failed_error_is_plain_str(self) -> None:
         # fix 3: detail["error"] must be a clean JSON-serializable string regardless
@@ -323,13 +380,29 @@ class TestMemoryPresenter:
         assert "added" in evt.detail["message"]
 
     def test_end_failure(self) -> None:
+        # feat-409 failalign: success=False 失败态 summary = 干净主参数(action target),
+        # 不含 error 文本;error 进 detail.message 供 MemoryCard 渲染一次。
         evt = _presenter("memory").format_end(
             {"action": "add", "target": "memory"},
             _FakeResult(output={"success": False, "error": "add requires content"}),
             duration_ms=5,
         )
-        assert "failed" in evt.summary
+        assert evt.summary == "add memory"
+        assert "requires content" not in evt.summary
         assert evt.detail["success"] is False
+        assert evt.detail["message"] == "add requires content"
+
+    def test_end_error_summary_is_clean(self) -> None:
+        # out-of-band(result.error)失败态同样 summary = action target,不含 error。
+        evt = _presenter("memory").format_end(
+            {"action": "add", "target": "memory"},
+            _FakeResult(error="store unavailable"),
+            duration_ms=5,
+        )
+        assert evt.summary == "add memory"
+        assert "store unavailable" not in evt.summary
+        assert evt.detail is not None
+        assert "error" in evt.detail
 
 
 class TestSkillManagePresenter:
@@ -349,13 +422,29 @@ class TestSkillManagePresenter:
         assert "created" in evt.detail["message"]
 
     def test_end_failure(self) -> None:
+        # feat-409 failalign: success=False 失败态 summary = 干净主参数(action name),
+        # 不含 error 文本;error 进 detail.message 供 SkillCard 渲染一次。
         evt = _presenter("skill_manage").format_end(
             {"action": "create", "name": "x"},
             _FakeResult(output={"success": False, "error": "requires content"}),
             duration_ms=5,
         )
-        assert "failed" in evt.summary
+        assert evt.summary == "create x"
+        assert "requires content" not in evt.summary
         assert evt.detail["success"] is False
+        assert evt.detail["message"] == "requires content"
+
+    def test_end_error_summary_is_clean(self) -> None:
+        # out-of-band(result.error)失败态同样 summary = action name,不含 error。
+        evt = _presenter("skill_manage").format_end(
+            {"action": "create", "name": "x"},
+            _FakeResult(error="disk full"),
+            duration_ms=5,
+        )
+        assert evt.summary == "create x"
+        assert "disk full" not in evt.summary
+        assert evt.detail is not None
+        assert "error" in evt.detail
 
 
 class TestTaskStopPresenter:
@@ -377,12 +466,14 @@ class TestTaskStopPresenter:
         assert evt.detail["status"] == "killed"
 
     def test_end_failed(self) -> None:
+        # feat-409 failalign: 失败态 summary = 干净主参数(task_id),不含 error 文本。
         evt = _presenter("task_stop").format_end(
             {"task_id": "agt-9"},
             _FakeResult(error="Task 'agt-9' is already completed."),
             duration_ms=5,
         )
-        assert "failed" in evt.summary
+        assert evt.summary == "agt-9"
+        assert "already completed" not in evt.summary
         assert evt.detail is not None
         assert "error" in evt.detail
 
@@ -394,9 +485,14 @@ class TestDefaultPresenter:
         assert evt.label == "Tool"
 
     def test_default_end_with_error(self) -> None:
+        # feat-409 failalign: default presenter 无干净主参数,失败态 summary 用裸
+        # "failed"(不拼 error 文本);error 进 detail 供 ErrorCard 渲染一次。
         evt = _presenter("unknown_tool_xyz").format_end(
             {"foo": "bar"},
             _FakeResult(error="something broke"),
             duration_ms=10,
         )
-        assert "failed" in evt.summary
+        assert evt.summary == "failed"
+        assert "something broke" not in evt.summary
+        assert evt.detail is not None
+        assert evt.detail["error"]["message"] == "something broke"

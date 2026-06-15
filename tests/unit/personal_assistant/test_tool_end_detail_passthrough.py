@@ -88,6 +88,30 @@ def test_tool_end_forwards_detail() -> None:
     assert tc["output"] == "跑测试"
 
 
+def test_tool_end_failed_output_is_clean_summary() -> None:
+    # feat-409 failalign: 失败 tool_end 同时带 event.error 与 presenter summary。
+    # output 必须只放 presenter 的干净 summary,绝不把原始 error 前缀进去——否则
+    # 折叠行会出现重复 error(用户实测:read 失败折叠行 error 出现两次)。
+    detail = {"path": "missing.py", "error": {"message": "file does not exist"}}
+    event = {
+        "event": "tool_end",
+        "run_id": "run-1",
+        "call_id": "call-1",
+        "name": "read",
+        "arguments": {"path": "missing.py"},
+        "duration_ms": 2,
+        "error": "file does not exist",
+        "presentation": {"summary": "missing.py", "detail": detail},
+    }
+    manager = _run_observer_with_tool_end(event)
+    tc = _tool_call_payload(manager)
+    assert tc["status"] == "failed"
+    assert tc["output"] == "missing.py"
+    assert "file does not exist" not in (tc["output"] or "")
+    # error 仍透传在 detail 里,供展开卡渲染一次。
+    assert tc["detail"] == detail
+
+
 def test_tool_end_without_detail_omits_key() -> None:
     event = {
         "event": "tool_end",
