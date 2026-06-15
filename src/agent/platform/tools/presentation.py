@@ -288,7 +288,9 @@ class _BashPresenter:
             exit_code = output.get("exitCode", 0)
             stdout = output.get("stdout", "")
             stderr = output.get("stderr", "")
-            summary = f"exit={exit_code} elapsed={duration_ms}ms"
+            # 决策 4:折叠态摘要为人话——优先 args.description(用户写给人看的),
+            # 为空时降级为命令首段;不再用 `exit=N elapsed=Xms` 这类裸状态串。
+            summary = _summarize_bash(args, command)
             detail = _enforce_cap(
                 {
                     "command": command,
@@ -345,13 +347,18 @@ class _WebFetchPresenter:
             status = output.get("status")
             title = output.get("title", "")
             summary = f"status={status}" + (f" ({title})" if title else "")
-            detail = {
-                "url": url,
-                "final_url": output.get("final_url", url),
-                "status": status,
-                "title": title,
-                "body_excerpt": _truncate(output.get("content", ""), 500),
-            }
+            # feat-409: body 不再硬截到 500 字——大正文走 _enforce_cap 的 content 字段
+            # (统一 256KB 尾截断 + truncated 标记),与其它工具的大字段同一关卡。
+            detail = _enforce_cap(
+                {
+                    "url": url,
+                    "final_url": output.get("final_url", url),
+                    "status": status,
+                    "title": title,
+                    "content": str(output.get("content", "")),
+                    "truncated": False,
+                }
+            )
             return ToolPresentationEvent(
                 visible=True,
                 label="Web",
@@ -366,16 +373,27 @@ class _WebFetchPresenter:
 
 
 # ---------------------------------------------------------------------------
-# Task presenter
+# Agent presenter (sub-agent dispatch)
 # ---------------------------------------------------------------------------
 
 
-class _TaskPresenter:
+class _AgentPresenter:
+    """Presenter for the `agent` tool (feat-337 task→agent 收尾).
+
+    The agent tool's result schema is ``content`` / ``agent_id`` / ``output_file``
+    (not the legacy task ``summary`` / ``artifacts``), keyed by ``status``:
+    ``completed`` (content), ``async_launched`` / ``message_queued`` (output_file),
+    ``failed`` (error). The full dispatch ``prompt`` (from args) is placed in detail
+    **before** the result — it is the key signal a human uses to judge whether the
+    dispatch was accurate (spec). The prompt is bounded (a few thousand chars) and
+    is intentionally NOT in the ``_enforce_cap`` truncation set.
+    """
+
     def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
         description = str(args.get("description", ""))
         return ToolPresentationEvent(
             visible=True,
-            label="Task",
+            label="Agent",
             summary=_truncate(description, 80),
         )
 
@@ -386,34 +404,262 @@ class _TaskPresenter:
         duration_ms: int,
     ) -> ToolPresentationEvent:
         description = str(args.get("description", ""))
+        prompt = str(args.get("prompt", ""))
+        subagent_type = str(args.get("subagent_type") or args.get("category") or "")
         output = getattr(result, "output", None) or {}
         error = getattr(result, "error", None)
         if error:
             return ToolPresentationEvent(
                 visible=True,
-                label="Task",
+                label="Agent",
                 summary=f"failed: {_truncate(str(error), 80)}",
                 detail={"error": {"message": str(error)}},
             )
         if isinstance(output, Mapping):
-            status = output.get("status", "completed")
-            summary = f"status={status}"
-            detail = {
-                "description": description,
-                "status": status,
-                "summary": output.get("summary", ""),
-                "artifacts": output.get("artifacts", []),
-            }
+            status = str(output.get("status", "completed"))
+            # Order matters: description + full prompt first, result fields after —
+            # the front-end renders this top-to-bottom (prompt before result, spec).
+            detail = _enforce_cap(
+                {
+                    "description": description,
+                    "prompt": prompt,
+                    "subagent_type": subagent_type,
+                    "status": status,
+                    "agent_id": str(output.get("agent_id", "")),
+                    "content": str(output.get("content", "")),
+                    "output_file": str(output.get("output_file", "")),
+                    "error": output.get("error"),
+                }
+            )
+            # The agent tool reports in-band failure via output.status == "failed"
+            # (foreground exception path) rather than result.error — surface it as a
+            # red "failed" summary like the out-of-band error branch above.
+            if status == "failed":
+                err = str(output.get("error", ""))
+                summary = f"failed: {_truncate(err, 80)}"
+            else:
+                summary = (
+                    _truncate(description, 80) if description else f"status={status}"
+                )
             return ToolPresentationEvent(
                 visible=True,
-                label="Task",
+                label="Agent",
                 summary=summary,
                 detail=detail,
             )
         return ToolPresentationEvent(
             visible=True,
-            label="Task",
-            summary=description,
+            label="Agent",
+            summary=_truncate(description, 80),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Memory presenter
+# ---------------------------------------------------------------------------
+
+
+class _MemoryPresenter:
+    """Presenter for the `memory` tool. Result is ``{success, message|error}``.
+
+    ``action`` / ``target`` / ``content`` live in args (not the result), so detail
+    surfaces them from args alongside the result message — the human sees what was
+    written, not a truncated JSON blob.
+    """
+
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        action = str(args.get("action", ""))
+        target = str(args.get("target", ""))
+        return ToolPresentationEvent(
+            visible=True,
+            label="Memory",
+            summary=f"{action} {target}".strip(),
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        action = str(args.get("action", ""))
+        target = str(args.get("target", ""))
+        output = getattr(result, "output", None) or {}
+        error = getattr(result, "error", None)
+        if error:
+            return ToolPresentationEvent(
+                visible=True,
+                label="Memory",
+                summary=f"failed: {_truncate(str(error), 80)}",
+                detail={"error": {"message": str(error)}},
+            )
+        success = (
+            bool(output.get("success", True)) if isinstance(output, Mapping) else True
+        )
+        message = str(output.get("message", "")) if isinstance(output, Mapping) else ""
+        if not success:
+            err = str(output.get("error", "")) if isinstance(output, Mapping) else ""
+            return ToolPresentationEvent(
+                visible=True,
+                label="Memory",
+                summary=f"failed: {_truncate(err, 80)}",
+                detail={
+                    "action": action,
+                    "target": target,
+                    "content": str(args.get("content", "")),
+                    "message": err,
+                    "success": False,
+                },
+            )
+        detail = _enforce_cap(
+            {
+                "action": action,
+                "target": target,
+                "content": str(args.get("content", "")),
+                "message": message,
+                "success": True,
+            }
+        )
+        return ToolPresentationEvent(
+            visible=True,
+            label="Memory",
+            summary=message or f"{action} {target}".strip(),
+            detail=detail,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Skill manage presenter
+# ---------------------------------------------------------------------------
+
+
+class _SkillManagePresenter:
+    """Presenter for the `skill_manage` tool.
+
+    Result varies by action (create/edit/patch → ``{message}``; view → ``{content,
+    location}``; list → ``{skills}``). Detail surfaces ``action`` / ``name`` (args)
+    plus the result message and best-effort path, so the human sees which skill was
+    touched instead of truncated JSON.
+    """
+
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        action = str(args.get("action", ""))
+        name = str(args.get("name", ""))
+        return ToolPresentationEvent(
+            visible=True,
+            label="Skill",
+            summary=f"{action} {name}".strip(),
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        action = str(args.get("action", ""))
+        name = str(args.get("name", ""))
+        output = getattr(result, "output", None) or {}
+        error = getattr(result, "error", None)
+        if error:
+            return ToolPresentationEvent(
+                visible=True,
+                label="Skill",
+                summary=f"failed: {_truncate(str(error), 80)}",
+                detail={"error": {"message": str(error)}},
+            )
+        success = (
+            bool(output.get("success", True)) if isinstance(output, Mapping) else True
+        )
+        message = str(output.get("message", "")) if isinstance(output, Mapping) else ""
+        # view returns content/location; list returns skills — surface what exists.
+        path = str(output.get("location", "")) if isinstance(output, Mapping) else ""
+        if not success:
+            err = str(output.get("error", "")) if isinstance(output, Mapping) else ""
+            return ToolPresentationEvent(
+                visible=True,
+                label="Skill",
+                summary=f"failed: {_truncate(err, 80)}",
+                detail={
+                    "action": action,
+                    "name": name,
+                    "message": err,
+                    "path": path,
+                    "success": False,
+                },
+            )
+        detail = _enforce_cap(
+            {
+                "action": action,
+                "name": name,
+                "message": message,
+                "path": path,
+                "content": str(output.get("content", ""))
+                if isinstance(output, Mapping)
+                else "",
+                "success": True,
+            }
+        )
+        return ToolPresentationEvent(
+            visible=True,
+            label="Skill",
+            summary=message or f"{action} {name}".strip(),
+            detail=detail,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Task stop presenter
+# ---------------------------------------------------------------------------
+
+
+class _TaskStopPresenter:
+    """Presenter for the `task_stop` tool. Result is ``{status, task_id, ...}``."""
+
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        return ToolPresentationEvent(
+            visible=True,
+            label="TaskStop",
+            summary=str(args.get("task_id", "")),
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        task_id = str(args.get("task_id", ""))
+        output = getattr(result, "output", None) or {}
+        error = getattr(result, "error", None)
+        if error:
+            return ToolPresentationEvent(
+                visible=True,
+                label="TaskStop",
+                summary=f"failed: {_truncate(str(error), 80)}",
+                detail={"error": {"message": str(error)}},
+            )
+        status = (
+            str(output.get("status", "killed"))
+            if isinstance(output, Mapping)
+            else "killed"
+        )
+        detail = {
+            "task_id": str(output.get("task_id", task_id))
+            if isinstance(output, Mapping)
+            else task_id,
+            "status": status,
+        }
+        if isinstance(output, Mapping):
+            if output.get("task_type"):
+                detail["task_type"] = str(output["task_type"])
+            if output.get("output_file"):
+                detail["output_file"] = str(output["output_file"])
+        return ToolPresentationEvent(
+            visible=True,
+            label="TaskStop",
+            summary=f"{status} {task_id}".strip(),
+            detail=detail,
         )
 
 
@@ -430,7 +676,10 @@ WRITE_PRESENTER: ToolPresenter = _WritePresenter()
 EDIT_PRESENTER: ToolPresenter = _EditPresenter()
 BASH_PRESENTER: ToolPresenter = _BashPresenter()
 WEB_FETCH_PRESENTER: ToolPresenter = _WebFetchPresenter()
-TASK_PRESENTER: ToolPresenter = _TaskPresenter()
+AGENT_PRESENTER: ToolPresenter = _AgentPresenter()
+MEMORY_PRESENTER: ToolPresenter = _MemoryPresenter()
+SKILL_MANAGE_PRESENTER: ToolPresenter = _SkillManagePresenter()
+TASK_STOP_PRESENTER: ToolPresenter = _TaskStopPresenter()
 DEFAULT_PRESENTER: ToolPresenter = _DEFAULT
 
 
@@ -456,6 +705,20 @@ def _enforce_cap(detail: dict[str, Any]) -> dict[str, Any]:
     if truncated:
         capped["truncated"] = True
     return capped
+
+
+def _summarize_bash(args: Mapping[str, Any], command: str) -> str:
+    """Human summary for a bash call: description, or command first-segment fallback.
+
+    决策 4: the collapsed-row text must read as "what this is doing", not a raw
+    status code. ``description`` is the field the agent writes for the human; when
+    it is empty we fall back to the command's first line (truncated) rather than a
+    blank — never to ``exit=… elapsed=…``.
+    """
+    description = str(args.get("description", "")).strip()
+    if description:
+        return _truncate(description, 80)
+    return _truncate(command.splitlines()[0] if command else command, 80)
 
 
 def _truncate(text: str, max_length: int) -> str:

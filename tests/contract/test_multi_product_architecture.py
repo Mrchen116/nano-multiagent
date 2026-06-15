@@ -85,10 +85,10 @@ EXPECTED_EXISTING_PATHS = (
     # products now use agent.sdk.build_kernel in-process instead of HTTP)
     "sdk/__init__.py",  # new top-level agent.sdk surface added in refactor-387-M1
     "platform/tools/base.py",
+    "platform/tools/builtins/agent.py",
     "platform/tools/builtins/bash.py",
     "platform/tools/builtins/edit.py",
     "platform/tools/builtins/read.py",
-    "platform/tools/builtins/task.py",
     "platform/tools/builtins/write.py",
     "platform/tools/constants.py",
     "platform/tools/loader.py",

@@ -6,6 +6,9 @@ from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.platform.tools.base import WiringMixin
+from agent.platform.tools.presentation import (
+    TASK_STOP_PRESENTER as _TASK_STOP_PRESENTER,
+)
 
 
 class TaskStopTool(WiringMixin):
@@ -14,6 +17,9 @@ class TaskStopTool(WiringMixin):
     name = "task_stop"
     is_concurrency_safe = False
     max_result_size_chars = 2_000
+    presenter = (
+        _TASK_STOP_PRESENTER  # 决策 12: presentation travels with the tool object
+    )
     description = (
         "Stop a running background task by its task_id. "
         "Works for both background subagents (agent_id) and background bash commands (task_id). "
