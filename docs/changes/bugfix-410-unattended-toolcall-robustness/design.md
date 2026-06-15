@@ -178,7 +178,15 @@ sequenceDiagram
 
 ### M3: recovery 触发覆盖
 
-`runtime.py` 把 eager-recovery（现 `:568-613`）从 `try` 体末尾移入 `finally`/cleanup：任何中断路径（正常 stop_reason cancelled/aborted **或** 外部 cancel 引发的 `CancelledError` 穿透）都为未闭合 tool_call 补 `append_tool_call_recovery` + `invalidate_session_cache`。下次发消息 cache-miss → `prepare_transcript_for_run`（`:402`，逻辑已完备）重修。关键 recovery 写用 `asyncio.shield`。
+`runtime.py` 把 eager-recovery（现 `:568-613`）从 `try` 体末尾移入 `finally`/cleanup，覆盖所有中断路径。下次发消息 cache-miss → `prepare_transcript_for_run`（`:402`，逻辑已完备）重修。
+
+**实现陷阱（必读，否则原地复现 gap）**：现有 eager-recovery 靠 `turn_meta` 的 `stop_reason in ("aborted","cancelled")` 触发（`:583`）。但 loop 的 abort 是**协作式**的——只在迭代边界检查 `controller.is_aborted` 才 yield `turn_meta`（`loop.py:246-262`）。外部 `cancel()` 引发的 `CancelledError` 在工具/LLM 的 `await` 点穿透时，run **回不到迭代边界、不写 turn_meta**，`all_messages` 里没有 turn_meta、`_run_stop_reason` 为 `None`（`#82 reopen` 实测：JSONL 末尾无 recovery 条目）。**worker 若把 `if _run_stop_reason in (...)` 整块照搬进 finally，`None` 仍不匹配 → 再次漏掉 CancelledError 路径，正是本次要修的 gap 本体。**
+
+所以 finally **不依赖 stop_reason**：
+- **无条件扫描** `all_messages` 里未闭合的 tool_call（assistant 发起 tool_call、无对应 tool result/recovery）——正常完成的 run 此集合天然为空，无条件扫描不误伤；
+- 集合非空即中断，逐个补 `append_tool_call_recovery` + `invalidate_session_cache`；
+- **reason 合成不依赖 turn_meta**：能读到 `stop_reason`（协作式 abort/cancel 路径）则沿用，读不到（CancelledError 穿透，无 turn_meta）则合成 `interrupted`；
+- 用 `except asyncio.CancelledError:` 捕获以标记 cancel 上下文并 re-raise；关键 recovery 写用 `asyncio.shield` 防 finally 在二次 cancel 时丢失。
 
 ### M4: run 终态在飞 tool_call reconcile
 
