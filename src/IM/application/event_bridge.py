@@ -238,6 +238,10 @@ class EventBridge:
             token_usage=token_usage,
             delivery_status=delivery_status,
         )
+        # bugfix-410-M2 (#98): a terminal run must drop any awaiting_permission
+        # marker so a never-resolved ask cannot keep exempting an already-closed
+        # message from the relay watchdog.
+        self.message_repository.clear_awaiting_permission_marker(message_id=message_id)
         self._emit(
             conversation_id=updated.conversation_id,
             message_id=message_id,

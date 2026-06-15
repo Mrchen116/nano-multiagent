@@ -942,6 +942,17 @@ class GatewayHandler:
             if connection is None:
                 return _not_registered_error(node_id=node_id)
             connection.heartbeats.append(payload)
+        # bugfix-410-M2 (#98): refresh the awaiting_permission liveness markers for
+        # this node's agents while the Gateway is alive. The relay watchdog reaps a
+        # marked message only once the marker goes stale past the crash threshold, so
+        # a live heartbeat keeps a genuine permission wait exempt indefinitely while a
+        # crashed Gateway stops refreshing → its ghost is eventually reaped.
+        if self._message_repository is not None:
+            agent_ids = self._list_node_agent_ids(node_id=node_id)
+            if agent_ids:
+                self._message_repository.refresh_awaiting_permission_markers(
+                    agent_ids=agent_ids
+                )
         if self._node_repository is not None:
             prior_node = self._node_repository.get_node(node_id=node_id)
             next_node = self._node_repository.record_heartbeat(

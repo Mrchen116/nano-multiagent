@@ -1293,10 +1293,13 @@ class MessageRepository:
                 break
         if not replaced:
             existing.append(dict(permission_data))
+        # bugfix-410-M2 (#98): stamp the awaiting_permission liveness marker so the
+        # relay watchdog exempts this running message from the 120s idle reap while
+        # the user decides. The Gateway heartbeat refreshes it; resolution clears it.
         with self._connection:
             self._connection.execute(
-                "UPDATE messages SET permission_request_json = ? WHERE id = ?",
-                (json.dumps(existing), message_id),
+                "UPDATE messages SET permission_request_json = ?, awaiting_permission_at = ? WHERE id = ?",
+                (json.dumps(existing), _utc_now(), message_id),
             )
         return str(row["conversation_id"])
 
@@ -1346,12 +1349,65 @@ class MessageRepository:
             "status": "resolved",
             "decision": decision,
         }
+        # bugfix-410-M2 (#98): clear the awaiting_permission marker only when no other
+        # ask on this message is still pending (a message can carry several asks).
+        # While any remains pending the marker stays set (and heartbeat-refreshed).
+        any_still_pending = any(entry.get("status") == "pending" for entry in existing)
         with self._connection:
             self._connection.execute(
-                "UPDATE messages SET permission_request_json = ? WHERE id = ?",
-                (json.dumps(existing), message_id),
+                "UPDATE messages SET permission_request_json = ?, "
+                "awaiting_permission_at = CASE WHEN ? THEN awaiting_permission_at ELSE NULL END "
+                "WHERE id = ?",
+                (json.dumps(existing), 1 if any_still_pending else 0, message_id),
             )
         return str(row["conversation_id"])
+
+    def clear_awaiting_permission_marker(self, *, message_id: str) -> None:
+        """Drop the awaiting_permission marker (bugfix-410-M2 #98).
+
+        Called when a run reaches a terminal state (failed/cancelled/completed)
+        so a marker left set by a never-resolved ask cannot keep exempting the
+        message after the run is already over.
+        """
+        with self._connection:
+            self._connection.execute(
+                "UPDATE messages SET awaiting_permission_at = NULL WHERE id = ?",
+                (message_id,),
+            )
+
+    def refresh_awaiting_permission_markers(self, *, agent_ids: list[str]) -> int:
+        """Touch awaiting_permission_at for the given agents' still-running, still-
+        marked messages (bugfix-410-M2 #98).
+
+        Invoked from the owning node's heartbeat handler: while the Gateway is
+        alive it keeps refreshing the marker timestamp, so the relay watchdog's
+        crash-threshold check treats the wait as live and never reaps it. A
+        Gateway crash stops the heartbeat → the marker goes stale → the message
+        is reaped normally. Only refreshes rows already marked (never sets a new
+        marker), so it cannot resurrect a resolved/terminal message.
+
+        Agents are stored as users with ``username = 'agent:<agent_id>'``; we
+        resolve via that join so callers pass the same agent_ids the heartbeat
+        node owns.
+
+        Returns:
+            Number of marker timestamps refreshed.
+        """
+        if not agent_ids:
+            return 0
+        usernames = [f"agent:{agent_id}" for agent_id in agent_ids]
+        placeholders = ",".join("?" for _ in usernames)
+        with self._connection:
+            cursor = self._connection.execute(
+                f"UPDATE messages SET awaiting_permission_at = ? "
+                f"WHERE delivery_status = 'running' "
+                f"AND awaiting_permission_at IS NOT NULL "
+                f"AND sender_user_id IN ("
+                f"  SELECT id FROM users WHERE username IN ({placeholders})"
+                f")",
+                (_utc_now(), *usernames),
+            )
+        return cursor.rowcount if cursor.rowcount is not None else 0
 
     def _message_from_row(self, row: sqlite3.Row) -> Message:
         """Convert one stored SQLite row into a Message domain model."""
