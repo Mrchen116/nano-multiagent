@@ -608,6 +608,25 @@ def test_cutoff_format_is_single_sourced_with_stored_timestamps() -> None:
     assert now == _format_utc(datetime.fromisoformat(now.replace("Z", "+00:00")))
 
 
+def test_format_utc_rejects_naive_and_normalizes_aware() -> None:
+    """bugfix-410 (#1, post-PR review): _format_utc must fail-fast on a naive datetime
+    (which would format without the +00:00 offset, no-op the Z substitution, and silently
+    drift from every stored timestamp) and normalise any aware zone to UTC before
+    formatting (so a caller cannot accidentally store a non-UTC offset)."""
+    from datetime import timedelta
+
+    import pytest
+
+    from IM.infra.repositories import _format_utc
+
+    with pytest.raises(ValueError, match="timezone-aware"):
+        _format_utc(datetime(2026, 1, 2, 3, 4, 5))
+
+    # 08:00 at +08:00 is 00:00 UTC → normalised and emitted with the Z suffix.
+    plus8 = datetime(2026, 1, 2, 8, 0, 0, tzinfo=timezone(timedelta(hours=8)))
+    assert _format_utc(plus8) == "2026-01-02T00:00:00Z"
+
+
 def test_fresh_permission_marker_written_via_utc_now_is_exempt(tmp_path: Path) -> None:
     """bugfix-410-fix-r1 (Reuse-1): a marker written through the real production
     formatter (_utc_now) must compare correctly against the watchdog's _format_utc cutoff

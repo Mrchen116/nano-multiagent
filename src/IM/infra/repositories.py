@@ -2995,8 +2995,16 @@ def _format_utc(dt: datetime) -> str:
     SQL string ordering against a stored timestamp (e.g. relay_watchdog cutoffs vs
     ``awaiting_permission_at``) must be produced here so the two formats can never
     drift apart — a mismatch would silently break the textual comparison.
+
+    Requires a timezone-aware datetime. A naive value is rejected fail-fast: it
+    would format without the ``+00:00`` offset, so the ``Z`` substitution would
+    no-op and the stored text would silently drift from every other timestamp.
+    Aware values in any zone are normalised to UTC before formatting, so callers
+    cannot accidentally store a non-UTC offset.
     """
-    return dt.isoformat().replace("+00:00", "Z")
+    if dt.tzinfo is None:
+        raise ValueError("_format_utc requires a timezone-aware datetime")
+    return dt.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def _utc_now() -> str:
