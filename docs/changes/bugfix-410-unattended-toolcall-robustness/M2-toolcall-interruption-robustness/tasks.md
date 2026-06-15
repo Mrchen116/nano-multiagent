@@ -8,7 +8,7 @@
 
 ## 退出标准
 
-- [ ] R1 #82：eager-recovery 移入 finally，无条件扫 `all_messages` 未闭合 tool_call；`invalidate_session_cache` 放 finally 最前（同步原子 pop、I/O 前），`append_tool_call_recovery`+flush 其后 best-effort shield；CancelledError 穿透（无 turn_meta）也补闭合，reason 合成 interrupted。单测覆盖 CancelledError 路径。
+- [x] R1 #82：eager-recovery 移入 finally，无条件扫 `all_messages` 未闭合 tool_call；`invalidate_session_cache` 放 finally 最前（同步原子 pop、I/O 前），`append_tool_call_recovery`+flush 其后 best-effort shield；CancelledError 穿透（无 turn_meta）也补闭合，reason 合成 interrupted。单测覆盖 CancelledError 路径。
 - [ ] R2 #98：Gateway run-idle 看门狗见 `permission_request` 进豁免态、见后续事件退出；IM relay 加 `awaiting_permission` marker 靠 liveness（`awaiting_permission_at` 列 + IM heartbeat touch + run 终态/permission_response 清 + relay 对 stale 超崩溃阈值照常 reap）。单测覆盖豁免 + 崩溃兜底。
 - [ ] R3 #97：observer 跟踪 running tool_call 集合，run_status 终态对在飞 tool_call 补发 `tool_call_completed` 带 reason（看门狗 cancel→timed_out / 其他→interrupted），已完成不改写。单测覆盖 reconcile + 不改写已完成。
 - [ ] R4 reason_code 全链：`base.py`/`types.py` 字段 + `registry.py:172` 盖 `reason_code="denied"`（与给模型看的自由文本 reason 并存）+ tool_executor/loop/realtime_stream/main observer/IM gateway_handler/event_types/repositories/前端 透传 + 前端 denied→已拒绝 / timed_out→执行超时 / interrupted→已中断 / pending→等待批准 文案。deny/timeout/interrupt 三态徽标单测 + 前端浏览器视觉自测。
