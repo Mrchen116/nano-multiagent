@@ -69,7 +69,7 @@ UI 状态矩阵：
 - 步骤: chat-types.ts 加 `ToolDetail` 联合/宽松类型 + ToolCall.detail；tool-calls-panel 折叠行改为 emoji(按 name 兜底映射) + 真实 name + summary(=output 文本) + failed 标红 fail-tag
 - 验证: component test 折叠态用 output 渲染 / 失败标红 / emoji 兜底 / 真实名；现有运行态/空态回归保留
 
-### R2 — 展开态分工具精渲染 + 未知/DIY 通用结构化卡片
+### R2 — 展开态分工具精渲染 + 未知/DIY 通用结构化卡片 — DONE
 
 - 步骤: 抽 `tool-detail-renderers.tsx`，按 name 分发 bash/edit/write/web_fetch/agent/memory/skill_manage/task_stop 精渲染（agent prompt 在结果前）；未知 name 但有 detail → 通用结构化卡片按 key 渲染；无 detail → 降级 output 串
 - 验证: component test 各工具展开分支 + 未知工具卡片 + detail 缺失降级
