@@ -843,11 +843,22 @@ class InboundPipeline:
         stream = self._kernel.stream(
             kernel_session_id, after_sequence=anchor_sequence or 0
         )
+        # bugfix-410-M2 R2 (#98): a run parked awaiting a human permission decision
+        # legitimately produces no events until the user decides — that is NOT a
+        # stall. The kernel emits ``permission_request`` when it parks; we then
+        # enter an exemption state and drop the idle timeout for the following
+        # wait. The next event of any kind (the user's decision resumes the run →
+        # permission_resolved / tool_start / tool_result / run_status) clears the
+        # exemption so a genuine post-decision stall is still reaped. Decision 1.
+        awaiting_permission = False
         try:
             while True:
                 try:
                     event = await asyncio.wait_for(
-                        anext(stream), timeout=self._run_idle_timeout_seconds
+                        anext(stream),
+                        timeout=None
+                        if awaiting_permission
+                        else self._run_idle_timeout_seconds,
                     )
                 except StopAsyncIteration:
                     break
@@ -873,6 +884,9 @@ class InboundPipeline:
                     if asyncio.iscoroutine(result):
                         await result
                 event_name = event.get("event")
+                # Toggle the permission exemption based on the event just consumed:
+                # entering on permission_request, exiting on any other target event.
+                awaiting_permission = event_name == "permission_request"
                 if event_name == "assistant_message":
                     content = event.get("content")
                     if isinstance(content, str):

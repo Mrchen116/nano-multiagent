@@ -84,13 +84,20 @@ async def test_permission_pending_exempts_idle_watchdog() -> None:
 
     async def _drive() -> None:
         # 1. permission_request enters the exemption state.
-        kernel.push({"event": "permission_request", "run_id": "run-1", "request_id": "p1"})
+        kernel.push(
+            {"event": "permission_request", "run_id": "run-1", "request_id": "p1"}
+        )
         # 2. Stay silent for well over the 0.1s idle timeout — must survive.
         await asyncio.sleep(0.4)
         # 3. User decides → a subsequent event arrives; watchdog resumes normal timing.
         kernel.push({"event": "tool_start", "run_id": "run-1", "call_id": "c1"})
         kernel.push(
-            {"event": "run_status", "run_id": "run-1", "status": "completed", "output_text": "ok"}
+            {
+                "event": "run_status",
+                "run_id": "run-1",
+                "status": "completed",
+                "output_text": "ok",
+            }
         )
         kernel.end()
 
@@ -128,7 +135,9 @@ async def test_exemption_exits_after_subsequent_event_then_stalls() -> None:
     pipeline = _build_pipeline(kernel, idle_timeout=0.1)
 
     async def _drive() -> None:
-        kernel.push({"event": "permission_request", "run_id": "run-3", "request_id": "p3"})
+        kernel.push(
+            {"event": "permission_request", "run_id": "run-3", "request_id": "p3"}
+        )
         await asyncio.sleep(0.3)  # exempt — no cancel
         # User allows → tool_start clears exemption; then the tool hangs forever.
         kernel.push({"event": "tool_start", "run_id": "run-3", "call_id": "c3"})
