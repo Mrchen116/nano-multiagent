@@ -139,6 +139,10 @@
   A(原话): auto gate拒绝的也是已拒绝
   Agent 解读: 「已拒绝」有两个来源且对用户同一语义——①用户手动 Deny 权限；②auto_mode_gate 分类器自动 block（`<block>`）。两者徽标都收口为「已拒绝」。
 
+- Q7（追加）: #99 评论区补充（issuecomment-4704282178，对照实际安装 CC 2.1.177）也要做？
+  A(原话): 还有一个问题，https://github.com/Mrchen116/nano-multiagent/issues/99#issuecomment-4704282178 这个也要做
+  Agent 解读: M1 范围在 B2 format 修复之外，扩入「auto_mode_gate 跟齐当前 CC 2.1.177 prompt」三项：①（已含）`build_transcript_entries` 从内核 `tool_calls` 取工具调用 + 单测改喂真实格式；②`XML_S1_SUFFIX` 跟进 CC 2.1.177 强化版 stage-1 文案；③顺带 review 分类器 system prompt 与 2.1.177 的其余 prose 差异、对明显落后项对齐。注：②③是「复刻 CC 保真」的**实现约束**，正交于 B2，验收靠单测 + 架构师 PR review，不升级为用户可观察 Scenario（comment 已核实 CC 2.1.177 仍用同一套 `<block>` 两阶段设计，复刻方向正确）。
+
 ## 现象与复现
 
 四个缺陷都在**无人值守轮（heartbeat/cron）里 agent 调写工具 + 权限门**这条链上，从前到后串成一个故事：
@@ -275,9 +279,16 @@ tool_result 落盘前中断工具轮后向会话发消息（#82）、跑一个�
 
 > 高层方案，行级实现与模块/接口决策留 design 阶段。四个 milestone：
 
-- **M1（#99）**：`build_transcript_entries` 的 assistant 分支增加从内核真实消息格式（`LLMMessage.tool_calls`
-  独立字段）提取工具调用的路径，对每个 call 走 `project_tool_input` 投影；单测 fixture 改喂真实 `LLMMessage`
-  以堵 false-green。纯内核侧、改动小、可独立先行。
+- **M1（#99）**：两块——
+  - **B2 format 修复（核心，用户可观察面经 LLM proxy 日志/单测验）**：`build_transcript_entries` 的 assistant
+    分支增加从内核真实消息格式（`LLMMessage.tool_calls` 独立字段）提取工具调用的路径，对每个 call 走
+    `project_tool_input` 投影；单测 fixture 改喂真实 `LLMMessage` 以堵 false-green。
+  - **跟齐 CC 2.1.177 prompt（实现约束，验收靠单测 + 架构师 PR review，见 Q7）**：`XML_S1_SUFFIX`
+    （`auto_mode_gate.py:159`）跟进 CC 2.1.177 强化版 stage-1 后缀（「按完整效果判，别看表面形式；stage-1 不
+    应用 user intent / ALLOW 例外，留给 stage-2」）；顺带 review 分类器 system prompt 与 2.1.177 的其余 prose
+    差异（如已不存在的 `automated security classifier` / `single new action` 措辞），对明显落后项对齐。design
+    阶段需以**实际安装的 CC 2.1.177 二进制**（strings 提取嵌入字符串）为保真基准，不用开源参考仓。
+  - 纯内核侧、改动小、可独立先行。
 - **M2（#98）**：引入「权限 pending 是合法等待」的信号——内核 park 等决策时发 keepalive / `permission_required`
   事件，等待期间暂停/不计 idle 计时（或对 awaiting-permission 状态跳过 run-idle 超时）；IM relay 看门狗同理
   识别该态、不 reap。权限未决态在 IM 上呈现为「等待批准」徽标。
