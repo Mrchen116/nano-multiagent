@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import type { ToolCall } from "../chat-types";
+import { collapsedSummary, failTag, toolEmoji } from "./tool-presentation";
 
 interface ToolCallsPanelProps {
   toolCalls: ToolCall[];
@@ -93,6 +94,10 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
         : "oklch(0.55 0.15 25)";
   const statusIcon = call.status === "running" ? "◌" : call.status === "completed" ? "●" : "✕";
   const reasonKey = call.reason ? REASON_LABEL_KEYS[call.reason] : undefined;
+  // 决策 4: emoji is name-keyed (visual only, generic fallback); summary text is
+  // the presenter-produced `output`, not derived by name.
+  const summary = collapsedSummary(call);
+  const tag = failTag(call);
 
   return (
     <li className="chat-tool-call-item">
@@ -105,12 +110,19 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
         <span className="chat-tool-call-status-icon" style={{ color: statusColor }}>
           {statusIcon}
         </span>
-        <span className="chat-tool-call-name">{call.name}</span>
+        <span className="chat-tool-call-name">
+          <span className="chat-tool-call-emoji" aria-hidden="true">
+            {toolEmoji(call.name)}
+          </span>{" "}
+          {call.name}
+        </span>
+        {summary && <span className="chat-tool-call-summary">{summary}</span>}
         {reasonKey && (
           <span className="chat-tool-call-reason" style={{ color: "oklch(0.55 0.15 25)" }}>
             {t(reasonKey)}
           </span>
         )}
+        {tag && <span className="chat-tool-call-fail-tag">{tag}</span>}
         {typeof call.duration_ms === "number" && (
           <span className="chat-tool-call-duration">{formatDuration(call.duration_ms)}</span>
         )}

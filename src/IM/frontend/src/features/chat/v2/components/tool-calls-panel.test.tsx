@@ -46,12 +46,13 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
     const calls: ToolCall[] = [
       { id: "b1", name: "bash", status: "completed", input: {}, output: "跑 heartbeat 单元测试", duration_ms: 8200 }
     ];
-    render(<ToolCallsPanel toolCalls={calls} />);
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
     await expandPanel();
-    // The 人话 summary travels in `output`; it must show ON the collapsed row
-    // itself (not only inside the expanded body) — one glance gives信息量.
-    const summaryEl = screen.getByText("跑 heartbeat 单元测试");
-    expect(summaryEl.closest(".chat-tool-call-row")).not.toBeNull();
+    // The presenter summary travels in `output`; it must show ON the collapsed
+    // row itself (not only inside the expanded body) — one glance is informative.
+    const summaryEl = container.querySelector(".chat-tool-call-summary");
+    expect(summaryEl?.textContent).toBe("跑 heartbeat 单元测试");
+    expect(summaryEl?.closest(".chat-tool-call-row")).not.toBeNull();
   });
 
   it("shows the real tool name even for unknown / DIY tools", async () => {

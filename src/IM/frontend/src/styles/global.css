@@ -2281,7 +2281,9 @@ body {
   color: oklch(0.75 0.1 180);
 }
 
-.chat-tool-call-row--error {
+/* feat-409-M2: status modifier matches the runtime status string ("failed"),
+   not the legacy "error" name — the old --error rule never matched. */
+.chat-tool-call-row--failed {
   color: oklch(0.65 0.12 25);
 }
 
@@ -2291,14 +2293,35 @@ body {
 }
 
 .chat-tool-call-name {
-  flex: 1;
   font-family: var(--im-font-mono);
   font-size: 0.72rem;
   color: oklch(0.9 0.05 180);
   font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.chat-tool-call-emoji {
+  font-family: -apple-system, "Segoe UI Emoji", sans-serif;
+}
+
+/* feat-409-M2: presenter summary — fills the row, ellipsised so one glance is
+   informative without overflowing the row width. */
+.chat-tool-call-summary {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.72rem;
+  color: oklch(0.6 0.01 240);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.chat-tool-call-fail-tag {
+  flex-shrink: 0;
+  font-size: 0.7rem;
+  color: oklch(0.65 0.18 25);
+  font-family: var(--im-font-mono);
 }
 
 .chat-tool-call-duration {
