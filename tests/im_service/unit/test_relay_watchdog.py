@@ -519,7 +519,9 @@ def _set_awaiting_permission_at(connection, *, message_id: str, at: str | None) 
     connection.commit()
 
 
-def test_scan_skips_running_message_with_fresh_permission_marker(tmp_path: Path) -> None:
+def test_scan_skips_running_message_with_fresh_permission_marker(
+    tmp_path: Path,
+) -> None:
     """A running message stale by the 120s rule is NOT reaped while its
     awaiting_permission marker is fresh (user still deciding, Gateway alive)."""
     connection = connect(tmp_path / "im.db")
@@ -553,7 +555,9 @@ def test_scan_skips_running_message_with_fresh_permission_marker(tmp_path: Path)
     assert row["delivery_status"] == "running"
 
 
-def test_scan_reaps_running_message_with_stale_permission_marker(tmp_path: Path) -> None:
+def test_scan_reaps_running_message_with_stale_permission_marker(
+    tmp_path: Path,
+) -> None:
     """A Gateway crash stops marker refresh → marker goes stale past the crash
     threshold → the message is reaped as usual (no permanent ghost)."""
     connection = connect(tmp_path / "im.db")
