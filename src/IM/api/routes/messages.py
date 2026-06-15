@@ -85,6 +85,10 @@ class ToolCallPayload(BaseModel):
     # bugfix-410-M2 (#97): sidecar badge classification (denied/timed_out/interrupted),
     # carried on history load so the badge survives a page reload, not only live WS.
     reason: str | None = None
+    # feat-409: presenter-produced structured detail, forwarded from the Gateway and
+    # persisted on the domain ToolCall. The REST history path must serialize it too,
+    # else front-end history load 退化 to <pre>{output}> (no per-tool render / prompt).
+    detail: dict | None = None
 
 
 class TokenUsagePayload(BaseModel):
@@ -166,6 +170,7 @@ def to_message_response(message: Message) -> MessageResponse:
                 duration_ms=tc.duration_ms,
                 output=tc.output,
                 reason=tc.reason,
+                detail=tc.detail,
             )
             for tc in (message.tool_calls or [])
         ],

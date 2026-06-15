@@ -8,7 +8,7 @@
 
 ## 退出标准
 
-- [ ] `chat-types.ts` ToolCall 增 `detail?: ToolDetail`（结构化 dict）
+- [x] `chat-types.ts` ToolCall 增 `detail?: ToolDetail`（结构化 dict）
 - [x] 折叠态：直接渲染 `output`（presenter 产的 summary）+ `status==failed` 标红 + 真实工具名 + emoji 按 name 兜底映射（**不按 name 派生折叠文案**）
 - [x] 展开态：按 name 精渲染 bash/edit/write/web_fetch/agent/memory/skill_manage/task_stop；未知/DIY 工具通用结构化卡片
 - [x] agent 展开：完整 prompt 排在结果前

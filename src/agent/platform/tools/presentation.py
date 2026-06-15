@@ -428,7 +428,9 @@ class _AgentPresenter:
                     "agent_id": str(output.get("agent_id", "")),
                     "content": str(output.get("content", "")),
                     "output_file": str(output.get("output_file", "")),
-                    "error": output.get("error"),
+                    # fix 3: coerce to plain str (raw may be None / non-JSON-native) so
+                    # detail stays JSON-serializable and shape-stable for the front-end.
+                    "error": str(output.get("error", "")),
                 }
             )
             # The agent tool reports in-band failure via output.status == "failed"
