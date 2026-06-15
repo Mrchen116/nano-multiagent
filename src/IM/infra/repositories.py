@@ -2774,6 +2774,8 @@ def _tool_call_to_dict(tool_call: ToolCall) -> dict[str, object]:
     # bugfix-410-M2 (#97): persist sidecar badge reason alongside the call.
     if tool_call.reason is not None:
         payload["reason"] = tool_call.reason
+    if tool_call.detail is not None:
+        payload["detail"] = tool_call.detail
     return payload
 
 
@@ -2839,6 +2841,9 @@ def _decode_tool_calls(value: object) -> list[ToolCall] | None:
                     else None,
                     reason=item.get("reason")
                     if isinstance(item.get("reason"), str)
+                    else None,
+                    detail=item.get("detail")
+                    if isinstance(item.get("detail"), dict)
                     else None,
                 )
             )

@@ -199,6 +199,10 @@ class ToolCall:
     # kept SEPARATE from status (which stays running/completed/failed). The badge
     # renders denied→已拒绝 / timed_out→执行超时 / interrupted→已中断. None otherwise.
     reason: str | None = None
+    # feat-409: presenter-produced structured detail forwarded from the Gateway.
+    # None for historical rows / tools without a presenter — the front-end falls
+    # back to ``output`` then.
+    detail: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.status not in _TOOL_CALL_STATUSES:

@@ -55,6 +55,8 @@ def tool_call_to_dict(tool_call: ToolCall) -> dict[str, Any]:
     # bugfix-410-M2 (#97): sidecar badge reason, present only on non-success terminal.
     if tool_call.reason is not None:
         payload["reason"] = tool_call.reason
+    if tool_call.detail is not None:
+        payload["detail"] = tool_call.detail
     return payload
 
 
