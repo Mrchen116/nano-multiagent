@@ -13,7 +13,7 @@ from collections.abc import AsyncIterator
 import pytest
 
 from agent.core.agent.loop import AgentLoop
-from agent.core.agent.prompting import build_system_prompt
+from agent.core.agent.prompting import build_system_prompt, estimate_llm_context_tokens
 from agent.core.agent.runtime import build_turn_result
 from agent.core.agent.state import AgentState
 from agent.core.agent.compaction.types import CompactionSettings
@@ -21,6 +21,7 @@ from agent.core.llm.interfaces import (
     LLMGenerateRequest,
     LLMGenerateResponse,
     LLMMessage,
+    LLMToolCall,
 )
 from agent.core.types import Message
 
@@ -319,3 +320,61 @@ async def test_loop_fires_on_compaction_callback_with_session_id() -> None:
     assert fired_with[0] == session_id, (
         f"Expected session_id={session_id!r}, got {fired_with[0]!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# bugfix-412 #103: real-token-driven compaction trigger
+# ---------------------------------------------------------------------------
+
+
+def test_estimate_counts_tool_call_arguments() -> None:
+    """estimate_llm_context_tokens must account for assistant tool_calls.
+
+    Previously only msg.content was counted; tool_call name + arguments were
+    omitted, badly undershooting tool-heavy turns.
+    """
+    no_calls = [LLMMessage(role="assistant", content="")]
+    with_calls = [
+        LLMMessage(
+            role="assistant",
+            content="",
+            tool_calls=(
+                LLMToolCall(
+                    call_id="c1",
+                    name="read_file",
+                    arguments={
+                        "path": "/some/very/long/path/to/a/source/file.py",
+                        "limit": 2000,
+                        "offset": 0,
+                    },
+                ),
+            ),
+        )
+    ]
+
+    assert estimate_llm_context_tokens(with_calls) > estimate_llm_context_tokens(
+        no_calls
+    )
+
+
+def test_should_compact_prefers_real_prompt_tokens_over_estimate() -> None:
+    """When a real prompt_tokens value is known, it drives the threshold check.
+
+    The char estimate of these tiny messages is far below threshold, so the
+    decision must follow real_prompt_tokens, not the estimate.
+    """
+    loop = AgentLoop(
+        llm_client=_FakeLLMClient(),
+        model="test-model",
+        compaction_settings=CompactionSettings(
+            enabled=True, context_window=200_000, reserve_tokens=4096
+        ),
+    )
+    tiny_msgs = [LLMMessage(role="user", content="short")]
+
+    # No real value → tiny estimate → below threshold → no compaction.
+    assert loop._should_compact(tiny_msgs, "") is False
+    # Real value above threshold (195_904) → compact, despite tiny estimate.
+    assert loop._should_compact(tiny_msgs, "", real_prompt_tokens=199_000) is True
+    # Real value below threshold → no compaction.
+    assert loop._should_compact(tiny_msgs, "", real_prompt_tokens=1_000) is False

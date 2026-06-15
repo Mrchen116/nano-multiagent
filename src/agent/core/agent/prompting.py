@@ -1,5 +1,6 @@
 """Prompt assembly utilities for runtime/system/tool context injection."""
 
+import json
 from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
@@ -304,6 +305,16 @@ def estimate_llm_context_tokens(
                     total += 4  # rough estimate for non-text parts
         else:
             total += _estimate_text_tokens(str(content))
+        # Assistant tool_calls carry the function name + JSON arguments. These are
+        # part of the real context footprint but were previously unaccounted for —
+        # a large omission for tool-heavy turns (read/bash loops), where it caused
+        # the threshold check to undershoot the model's true token count
+        # (bugfix-412 #103). This path is the fallback when no real usage is known.
+        for call in msg.tool_calls or ():
+            total += _estimate_text_tokens(call.name)
+            total += _estimate_text_tokens(
+                json.dumps(call.arguments, ensure_ascii=False, default=str)
+            )
     total += 4 + len(messages) * 2
     return total
 

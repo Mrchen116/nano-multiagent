@@ -43,10 +43,33 @@ def test_default_max_context_messages_is_zero() -> None:
     assert policies.max_context_messages == 0
 
 
-def test_default_max_tool_calls_is_64() -> None:
+def test_default_max_tool_calls_is_zero() -> None:
+    # bugfix-412 #102: 默认 0 = 不限。工具调用上限交给消费者按场景注入，
+    # core 不再替所有产品兜底一个 64 的硬天花板。
     policies = AgentPolicies()
 
-    assert policies.max_tool_calls == 64
+    assert policies.max_tool_calls == 0
+
+
+def test_ensure_tool_calls_allowed_unlimited_by_default() -> None:
+    # 默认 policies 下，任意大的累计工具调用数都不触发 PolicyViolation。
+    policies = AgentPolicies()
+
+    policies.ensure_tool_calls_allowed(tool_call_count=10_000)
+
+
+def test_ensure_tool_calls_allowed_unlimited_when_zero() -> None:
+    policies = AgentPolicies(max_tool_calls=0)
+
+    policies.ensure_tool_calls_allowed(tool_call_count=999)
+
+
+def test_ensure_tool_calls_allowed_still_enforces_positive_limit() -> None:
+    # 消费者显式传正整数时约束照常生效。
+    policies = AgentPolicies(max_tool_calls=5)
+
+    with pytest.raises(PolicyViolation, match="max_tool_calls"):
+        policies.ensure_tool_calls_allowed(tool_call_count=6)
 
 
 # R1: truncate_history 边界 bug 修复

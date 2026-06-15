@@ -101,6 +101,13 @@ class AgentLoop:
         self._compaction_settings = compaction_settings
         self._on_compaction_callback = on_compaction
         self._active_session_id: str | None = None
+        # Most recent real prompt_tokens reported by the model, keyed by session.
+        # Drives compaction's threshold check with the exact tokenizer count
+        # instead of the char-based estimate, which undershoots on CJK/code and
+        # tool_call args (bugfix-412 #103). Per-session because one loop instance
+        # serves multiple sessions; survives across turns so a long session's
+        # first iteration still compacts on the prior turn's true footprint.
+        self._last_real_prompt_tokens: dict[str, int] = {}
 
     @property
     def available_skills(self) -> tuple[SkillMetadata, ...]:
@@ -233,12 +240,20 @@ class AgentLoop:
                         )
                         return
 
-                    # Token check + compact at start of each iteration
+                    # Token check + compact at start of each iteration. Prefer the
+                    # model's real prompt_tokens (this turn's accumulated usage, or
+                    # the prior turn's cached value) over the char estimate.
+                    real_prompt_tokens = (
+                        turn_usage.prompt_tokens
+                        if turn_usage is not None
+                        else self._last_real_prompt_tokens.get(state.session_id)
+                    )
                     compacted_msg = await self._maybe_compact(
                         llm_messages=llm_messages,
                         session_id=state.session_id,
                         rendered_system_prompt=rendered_system_prompt,
                         session_file_state=session_file_state,
+                        real_prompt_tokens=real_prompt_tokens,
                     )
                     if compacted_msg is not None:
                         yield compacted_msg
@@ -413,6 +428,10 @@ class AgentLoop:
                             )
 
                     turn_usage = _accumulate_usage(turn_usage, latest_usage)
+                    if turn_usage is not None and turn_usage.prompt_tokens > 0:
+                        self._last_real_prompt_tokens[state.session_id] = (
+                            turn_usage.prompt_tokens
+                        )
 
                     if not iteration_tool_calls:
                         stop_reason = finish_reason or "completed"
@@ -670,13 +689,22 @@ class AgentLoop:
         self,
         llm_messages: list[LLMMessage],
         rendered_system_prompt: str,
+        real_prompt_tokens: int | None = None,
     ) -> bool:
         if self._compaction_settings is None or not self._compaction_settings.enabled:
             return False
-        estimated = estimate_llm_context_tokens(llm_messages, rendered_system_prompt)
+        # The model's reported prompt_tokens is the exact tokenizer count of the
+        # context we just sent; use it when available. The char estimate is only a
+        # first-iteration fallback before any usage has been observed (#103).
+        if real_prompt_tokens is not None and real_prompt_tokens > 0:
+            context_tokens = real_prompt_tokens
+        else:
+            context_tokens = estimate_llm_context_tokens(
+                llm_messages, rendered_system_prompt
+            )
         return (
             should_compact(
-                context_tokens=estimated,
+                context_tokens=context_tokens,
                 context_window=self._compaction_settings.context_window,
                 reserve_tokens=self._compaction_settings.reserve_tokens,
             )
@@ -690,8 +718,11 @@ class AgentLoop:
         session_id: str,
         rendered_system_prompt: str,
         session_file_state: SessionFileState | None,
+        real_prompt_tokens: int | None = None,
     ) -> Message | None:
-        if not self._should_compact(llm_messages, rendered_system_prompt):
+        if not self._should_compact(
+            llm_messages, rendered_system_prompt, real_prompt_tokens
+        ):
             return None
         if (
             self._session_manager is None
