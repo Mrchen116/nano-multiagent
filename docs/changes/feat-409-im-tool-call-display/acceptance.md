@@ -4,6 +4,10 @@
 > 分支: unit/feat-409-im-tool-call-display
 > 日期: 2026-06-15
 
+> **⚠️ 当前总状态(orchestrator 维护,2026-06-16):本文档按轮次向下追加,本节是历史 Round 1 = `fail`。**
+> **最新正式验收 Round 3 = `pass`(见下方 Round 3 段)。Round 3 之后另有 readfix / failalign / protoalign + bugfix-410 rebase 几轮后验收修复,其复核结论见文末「Orchestrator 收口注记」。**
+> **请勿据本节顶部的 Round 1 `fail` 判断当前状态——当前为 PASS。**
+
 ## Verdict
 
 **fail**
@@ -416,3 +420,33 @@ name=bash detail_keys=['description', 'command', 'stdout', 'stderr', 'exit_code'
 - [x] `docs/specs/gateway/spec.md`（Gateway 契约层）：design.md 明确无 spec delta
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新
 - [x] `docs/SPEC_GUIDE.md`：无需更新
+
+---
+
+# Orchestrator 收口注记 — 2026-06-16
+
+> 本节由 orchestrator 撰写(非 reviewer 验收轮),用于澄清正式验收 verdict 演进与 Round 3 之后的后验收修复,避免读者据 Round 1 的 `fail` 误判当前状态。
+
+## 正式验收 verdict 轨迹
+
+- **Round 1 = fail**(IM REST messages API 缺 detail/input → 展开态全退化)。
+- **Round 2 = pass**(R1 阻塞已修;遗留 4 minor)。
+- **Round 3 = pass**(memory/skill 失败态显示修复;Highest Required Action = pass)。
+
+**最新正式 reviewer verdict = Round 3 PASS。** spec 14 Scenario 全部满足。
+
+## Round 3 之后的后验收修复(reviewer 反馈循环 §6.FL 轻量路径)
+
+Round 3 之后,用户实测 + bugfix-410 合入 main 触发,又做了下列修复。这些走「reviewer 反馈循环轻量快车道」:由 code-review 多角度审 + orchestrator 逐项核 + 用户真实浏览器实测,**未另起正式 reviewer 轮**(故本文档无对应 Round 段):
+
+| 批次 | 内容 | 验证方式 | 结论 |
+|---|---|---|---|
+| readfix | read 工具展示带 path(成功/失败) + ReadCard | code-review(cr4-readfix) + 单测 + 用户实测 | 已修 |
+| 内核 fix | REST detail/input 透传 + registry tool_result arguments 别名 + agent in-band error 规整 | code-review(cr4-merge 全链字段完整性 OK) + 全测试树 | 已修 |
+| failalign | 失败态对齐原型:折叠行去重复 error、summary 改干净主参数、Gateway output 去 error 前缀、denied 抑制双标识 | 逐状态对照原型截图 + 单测/vitest | 已修 |
+| protoalign | 长输出假滚动(chat-tool-call-pre 去常驻 cap)、截断提示带行数、折叠 summary 措辞逐条对齐原型(write/read/memory/skill/task_stop)、read 展开 term 单行 | 逐工具×逐状态 × 原型行号对照表(progress.md)+ playwright computed-CSS 硬证 + 用户实测 | 已修 |
+| bugfix-410 rebase | main 合入 bugfix-410(tool_call reason 徽标)后 rebase,reason + detail 全链共存 | code-review(cr4-merge 8 跳字段完整性全 OK)+ 本地/远端 CI 绿 | 已合 |
+
+## 当前结论
+
+**feat-409 当前为 PASS** —— 正式验收 Round 3 pass + 上述后验收修复均已验证合入 origin/unit。spec 全部 Scenario 满足,失败态/长输出/read 展示已逐项对齐 prototype.html。剩余非阻塞项(web_fetch 正文摘录等 minor、序列化路径收敛 cleanup、脱敏 #93)记 PR body follow-up。
