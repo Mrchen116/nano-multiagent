@@ -29,7 +29,7 @@ from agent.platform.tools.builtins.write import WriteTool
 from agent.platform.tools.builtins.edit import EditTool
 from agent.platform.tools.builtins.bash import BashTool
 from agent.platform.tools.builtins.web_fetch import WebFetchTool
-from agent.platform.tools.builtins.task import TaskTool
+from agent.platform.tools.builtins.agent import AgentTool
 
 _TOOL_BY_NAME = {
     "read": ReadTool,
@@ -37,7 +37,7 @@ _TOOL_BY_NAME = {
     "edit": EditTool,
     "bash": BashTool,
     "web_fetch": WebFetchTool,
-    "task": TaskTool,
+    "agent": AgentTool,
 }
 
 
@@ -75,9 +75,9 @@ _START_CASES = [
         (True, "Web", "https://example.com", None),
     ),
     (
-        "task",
+        "agent",
         {"description": "Refactor auth module"},
-        (True, "Task", "Refactor auth module", None),
+        (True, "Agent", "Refactor auth module", None),
     ),
     (
         "unknown_xyz",
@@ -96,21 +96,38 @@ def test_format_start_golden(
 
 
 def test_read_end_text_lines_golden() -> None:
+    # feat-409 readfix: read summary/detail 现在带 path。
     evt = _resolve("read").format_end(
         {"path": "src/app.py"},
-        _Result(output={"total_lines": 42, "offset": 1}),
+        _Result(output={"path": "src/app.py", "total_lines": 42, "offset": 1}),
         duration_ms=5,
     )
-    assert _evt_tuple(evt) == (True, "Read", "42 lines", None)
+    assert _evt_tuple(evt) == (
+        True,
+        "Read",
+        "src/app.py · 42 行",
+        {
+            "path": "src/app.py",
+            "total_lines": 42,
+            "offset": 1,
+            "limit": None,
+            "truncated": False,
+        },
+    )
 
 
 def test_read_end_unchanged_golden() -> None:
     evt = _resolve("read").format_end(
         {"path": "src/app.py"},
-        _Result(output={"type": "file_unchanged"}),
+        _Result(output={"path": "src/app.py", "type": "file_unchanged"}),
         duration_ms=1,
     )
-    assert _evt_tuple(evt) == (True, "Read", "unchanged", None)
+    assert _evt_tuple(evt) == (
+        True,
+        "Read",
+        "src/app.py · unchanged",
+        {"path": "src/app.py", "unchanged": True},
+    )
 
 
 def test_write_end_created_golden() -> None:
@@ -121,7 +138,7 @@ def test_write_end_created_golden() -> None:
     )
     assert evt.visible is True
     assert evt.label == "Write"
-    assert evt.summary == "created (5 bytes)"
+    assert evt.summary == "a.txt · 新建 5B"
     assert evt.detail is not None and evt.detail["path"] == "a.txt"
     assert evt.detail["content"] == "hello" and evt.detail["bytes"] == 5
 
@@ -134,12 +151,15 @@ def test_bash_end_success_golden() -> None:
     )
     assert evt.visible is True
     assert evt.label == "Bash"
-    assert evt.summary == "exit=0 elapsed=12ms"
+    # 决策 4:summary 为人话;无 description 时降级为命令首段。
+    assert evt.summary == "echo hi"
     assert evt.detail is not None and evt.detail["exit_code"] == 0
     assert evt.detail["stdout"] == "hi\n"
 
 
 def test_bash_end_failed_golden() -> None:
+    # feat-409 failalign: 失败态 summary = 干净人话主参数(命令首段,无 description 时),
+    # 不含 error 文本;error 进 detail(BashCard 在 stderr 槽渲染一次)。
     evt = _resolve("bash").format_end(
         {"command": "false"},
         _Result(error="command failed"),
@@ -147,8 +167,8 @@ def test_bash_end_failed_golden() -> None:
     )
     assert evt.visible is True
     assert evt.label == "Bash"
-    assert evt.summary == "failed: command failed"
-    assert evt.detail == {"error": {"message": "command failed"}}
+    assert evt.summary == "false"
+    assert evt.detail == {"command": "false", "error": {"message": "command failed"}}
 
 
 def test_default_end_golden() -> None:

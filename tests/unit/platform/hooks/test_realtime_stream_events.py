@@ -109,6 +109,10 @@ async def test_tool_result_emits_tool_end_with_presentation() -> None:
     pub = _FakePublisher()
     ctx = _make_ctx(publisher=pub)
 
+    # The kernel emits the tool_result payload with key ``args`` (registry.py);
+    # feat-409 fix 2: realtime_stream must surface it as ``arguments`` so the tool_end
+    # event carries the real input (not {}) — otherwise the completed upsert clobbers
+    # the running entry's input downstream.
     diagnostics = await runner.dispatch_observe(
         "tool_result",
         {
@@ -116,6 +120,7 @@ async def test_tool_result_emits_tool_end_with_presentation() -> None:
             "turn_id": "turn_1",
             "call_id": "call_1",
             "name": "read",
+            "args": {"path": "src/app.py"},
             "arguments": {"path": "src/app.py"},
             "output": {"total_lines": 120},
             "duration_ms": 12,
@@ -130,6 +135,7 @@ async def test_tool_result_emits_tool_end_with_presentation() -> None:
     assert evt["data"]["event"] == "tool_end"
     assert evt["data"]["status"] == "completed"
     assert evt["data"]["duration_ms"] == 12
+    assert evt["data"]["arguments"] == {"path": "src/app.py"}
     assert "presentation" in evt["data"]
     assert evt["data"]["presentation"]["visible"] is True
 

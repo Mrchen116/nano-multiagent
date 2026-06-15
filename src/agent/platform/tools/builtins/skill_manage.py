@@ -17,6 +17,9 @@ from typing import Any, Mapping
 
 from agent.core.skills.registry import SkillRegistry
 from agent.core.skills.writer import SkillWriter
+from agent.platform.tools.presentation import (
+    SKILL_MANAGE_PRESENTER as _SKILL_MANAGE_PRESENTER,
+)
 
 # Actions supported by this tool (design §4 interface)
 _SUPPORTED_ACTIONS = frozenset(
@@ -41,6 +44,9 @@ class SkillManageTool:
     name = "skill_manage"
     is_concurrency_safe = False
     max_result_size_chars = 50_000
+    presenter = (
+        _SKILL_MANAGE_PRESENTER  # 决策 12: presentation travels with the tool object
+    )
 
     description = (
         "Manage persistent skill files that teach you how to do classes of tasks.\n\n"

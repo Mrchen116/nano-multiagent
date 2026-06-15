@@ -32,14 +32,41 @@ export interface Attachment {
 // kept separate from `status`. denied→已拒绝 / timed_out→执行超时 / interrupted→已中断.
 export type ToolCallReason = "denied" | "timed_out" | "interrupted";
 
+/**
+ * Structured tool-call detail produced by the kernel presenter and forwarded
+ * verbatim through the Gateway → IM relay (feat-409 决策 1/2). Each built-in tool
+ * carries its own schema (bash → command/stdout/…, edit → diff, agent → prompt,
+ * …); unknown / DIY / MCP tools may carry any shape. The front-end renders known
+ * names with bespoke cards and falls back to a generic key/value card otherwise,
+ * so the type is intentionally an open record. Specific field access is guarded at
+ * the renderer level. `truncated` (when present) means the kernel's 256KB cap
+ * already tail-truncated a large field at the source.
+ */
+export type ToolDetail = Record<string, unknown> & {
+  truncated?: boolean;
+  // out-of-band failures (result.error) carry {message}; in-band failures
+  // (agent output.error) carry a plain string. Renderers tolerate both.
+  error?: { message?: string } | string | null;
+};
+
 export interface ToolCall {
   id: string;
   name: string;
   status: ToolCallStatus;
   input: unknown;
   duration_ms?: number;
+  /**
+   * presenter-produced人话 summary (折叠态直接渲染这一串). Historical messages
+   * persisted before feat-409 may carry a raw status string here; rendering must
+   * tolerate that (decision 4 / risk).
+   */
   output?: string;
   reason?: ToolCallReason | string;
+  /**
+   * feat-409: structured detail for per-tool expanded rendering. Absent for
+   * messages persisted before feat-409 → renderers degrade to the `output` string.
+   */
+  detail?: ToolDetail;
 }
 
 export interface TokenUsage {

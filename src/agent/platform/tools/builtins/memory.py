@@ -17,6 +17,7 @@ from typing import Any, Mapping
 
 from agent.core.memory.store import MemoryEntry, MemorySource, MemoryStore
 from agent.core.memory.path import derive_memory_root
+from agent.platform.tools.presentation import MEMORY_PRESENTER as _MEMORY_PRESENTER
 
 # Actions supported by this tool (design §4 interface)
 _SUPPORTED_ACTIONS = frozenset({"add", "replace", "remove"})
@@ -42,6 +43,7 @@ class MemoryTool:
     name = "memory"
     is_concurrency_safe = False
     max_result_size_chars = 10_000
+    presenter = _MEMORY_PRESENTER  # 决策 12: presentation travels with the tool object
 
     description = (
         "Save durable information to persistent memory that survives across sessions.\n\n"

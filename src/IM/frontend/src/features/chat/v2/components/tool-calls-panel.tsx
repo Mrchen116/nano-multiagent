@@ -2,6 +2,8 @@ import { useState } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import type { ToolCall } from "../chat-types";
+import { ToolDetailBody } from "./tool-detail-renderers";
+import { collapsedSummary, failTag, isCallFailed, toolEmoji } from "./tool-presentation";
 
 interface ToolCallsPanelProps {
   toolCalls: ToolCall[];
@@ -85,32 +87,46 @@ const REASON_LABEL_KEYS: Record<string, string> = {
 function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpen?: boolean }) {
   const { t } = useTranslation();
   const [open, setOpen] = useState(defaultOpen);
-  const statusColor =
-    call.status === "completed"
-      ? "oklch(0.55 0.18 145)"
-      : call.status === "running"
-        ? "oklch(0.70 0.18 60)"
-        : "oklch(0.55 0.15 25)";
-  const statusIcon = call.status === "running" ? "◌" : call.status === "completed" ? "●" : "✕";
+  // Failure derives from isCallFailed (status OR detail.success===false), so
+  // never-raising tools (memory/skill failures) also render red (Round-3 fix).
+  const failed = isCallFailed(call);
+  const statusColor = failed
+    ? "oklch(0.55 0.15 25)"
+    : call.status === "running"
+      ? "oklch(0.70 0.18 60)"
+      : "oklch(0.55 0.18 145)";
+  const statusIcon = failed ? "✕" : call.status === "running" ? "◌" : "●";
+  const rowStatus = failed ? "failed" : call.status;
   const reasonKey = call.reason ? REASON_LABEL_KEYS[call.reason] : undefined;
+  // 决策 4: emoji is name-keyed (visual only, generic fallback); summary text is
+  // the presenter-produced `output`, not derived by name.
+  const summary = collapsedSummary(call);
+  const tag = failTag(call);
 
   return (
     <li className="chat-tool-call-item">
       <button
         type="button"
-        className={`chat-tool-call-row chat-tool-call-row--${call.status}`}
+        className={`chat-tool-call-row chat-tool-call-row--${rowStatus}`}
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
       >
         <span className="chat-tool-call-status-icon" style={{ color: statusColor }}>
           {statusIcon}
         </span>
-        <span className="chat-tool-call-name">{call.name}</span>
+        <span className="chat-tool-call-name">
+          <span className="chat-tool-call-emoji" aria-hidden="true">
+            {toolEmoji(call.name)}
+          </span>{" "}
+          {call.name}
+        </span>
+        {summary && <span className="chat-tool-call-summary">{summary}</span>}
         {reasonKey && (
           <span className="chat-tool-call-reason" style={{ color: "oklch(0.55 0.15 25)" }}>
             {t(reasonKey)}
           </span>
         )}
+        {tag && <span className="chat-tool-call-fail-tag">{tag}</span>}
         {typeof call.duration_ms === "number" && (
           <span className="chat-tool-call-duration">{formatDuration(call.duration_ms)}</span>
         )}
@@ -120,22 +136,7 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
       {open && (
         <div className="chat-tool-call-body chat-tool-call-body--open">
           <div className="chat-tool-call-body-inner">
-            {call.input != null && (
-              <div className="chat-tool-call-section">
-                <span className="chat-tool-call-section-label">INPUT</span>
-                <pre className="chat-tool-call-pre">
-                  {typeof call.input === "string" ? call.input : JSON.stringify(call.input, null, 2)}
-                </pre>
-              </div>
-            )}
-            {call.output != null && (
-              <div className="chat-tool-call-section">
-                <span className="chat-tool-call-section-label">OUTPUT</span>
-                <pre className="chat-tool-call-pre">
-                  {typeof call.output === "string" ? call.output : JSON.stringify(call.output, null, 2)}
-                </pre>
-              </div>
-            )}
+            <ToolDetailBody call={call} />
           </div>
         </div>
       )}

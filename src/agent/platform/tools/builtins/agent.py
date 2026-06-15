@@ -19,6 +19,7 @@ from agent.core.tools.serialization import json_serialize
 from agent.core.types import TurnResult
 from agent.platform.tools.base import WiringMixin
 from agent.platform.tools.builtins._shared import _normalize_optional_text
+from agent.platform.tools.presentation import AGENT_PRESENTER as _AGENT_PRESENTER
 
 # Foreground budget before auto-backgrounding (seconds)
 _DEFAULT_FOREGROUND_BUDGET = 120.0
@@ -29,6 +30,7 @@ class AgentTool(WiringMixin):
 
     name = "agent"
     is_concurrency_safe = False
+    presenter = _AGENT_PRESENTER  # 决策 12: presentation travels with the tool object
     description = (
         "Launch a new agent to handle complex, multi-step tasks autonomously.\n\n"
         "Use this tool for tasks that are complex, multi-step, require independent context, "

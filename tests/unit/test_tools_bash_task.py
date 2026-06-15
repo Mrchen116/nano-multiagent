@@ -1,4 +1,4 @@
-"""Unit tests for BashTool and TaskTool: execution, permissions, output handling, serialize_result."""
+"""Unit tests for BashTool: execution, permissions, output handling, serialize_result."""
 
 from pathlib import Path
 
@@ -7,7 +7,6 @@ import pytest
 from agent.core.errors import ToolError
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
-from agent.platform.tools.builtins.task import TaskTool
 from agent.platform.tools.safety import CommandExecution
 from agent.platform.tools.safety import ToolSafety
 from agent.platform.tools.safety import ToolSafetyConfig
@@ -240,118 +239,3 @@ def test_bash_serialize_result_error() -> None:
     tool = BashTool()
     result = tool.serialize_result(None, error="Command timed out")
     assert result == "Command timed out"
-
-
-# ---------------------------------------------------------------------------
-# TaskTool serialize_result
-# ---------------------------------------------------------------------------
-
-
-def test_task_serialize_result_completed() -> None:
-    tool = TaskTool()
-    output = {
-        "status": "completed",
-        "content": "task output",
-        "sessionId": "sess_1",
-        "durationMs": 123,
-        "agent": "oracle",
-        "continuation": False,
-        "taskId": "tid_1",
-    }
-    result = tool.serialize_result(output)
-    assert result.startswith("Task completed in 123ms.")
-    assert "Agent: oracle" in result
-    assert "task output" in result
-    assert "session_id: sess_1" in result
-    assert "task_id: tid_1" in result
-
-
-def test_task_serialize_result_continuation() -> None:
-    tool = TaskTool()
-    output = {
-        "status": "completed",
-        "content": "continued output",
-        "sessionId": "sess_2",
-        "durationMs": 456,
-        "agent": "explore",
-        "continuation": True,
-        "taskId": "tid_2",
-    }
-    result = tool.serialize_result(output)
-    assert result.startswith("Task continued and completed in 456ms.")
-    assert "continued output" in result
-    assert "session_id: sess_2" in result
-
-
-def test_task_serialize_result_empty_content() -> None:
-    tool = TaskTool()
-    output = {
-        "status": "completed",
-        "content": "",
-        "sessionId": "sess_3",
-        "durationMs": 10,
-        "agent": "test",
-        "continuation": False,
-        "taskId": "tid_3",
-    }
-    result = tool.serialize_result(output)
-    assert "(Subagent completed but returned no output.)" in result
-
-
-def test_task_serialize_result_async_launched() -> None:
-    tool = TaskTool()
-    output = {
-        "status": "async_launched",
-        "taskId": "tid_4",
-        "sessionId": "sess_4",
-        "description": "research",
-        "agent": "research (category: research)",
-        "continuation": False,
-    }
-    result = tool.serialize_result(output)
-    assert result.startswith("Background task launched.")
-    assert "Task ID: tid_4" in result
-    assert "Description: research" in result
-    assert "Agent: research (category: research)" in result
-    assert "Status: queued" in result
-
-
-def test_task_serialize_result_async_continued() -> None:
-    tool = TaskTool()
-    output = {
-        "status": "async_launched",
-        "taskId": "tid_5",
-        "sessionId": "sess_5",
-        "description": "follow-up",
-        "agent": "oracle",
-        "continuation": True,
-    }
-    result = tool.serialize_result(output)
-    assert result.startswith("Background task continued.")
-    assert "Agent continues with full previous context preserved." in result
-
-
-def test_task_serialize_result_failed() -> None:
-    tool = TaskTool()
-    output = {
-        "status": "failed",
-        "title": "Task failed",
-        "error": "something broke",
-        "sessionId": "sess_6",
-    }
-    result = tool.serialize_result(output)
-    assert result.startswith("Task failed")
-    assert "Error: something broke" in result
-    assert "session_id: sess_6" in result
-
-
-def test_task_serialize_result_error_passthrough() -> None:
-    tool = TaskTool()
-    result = tool.serialize_result(None, error="tool execution aborted")
-    assert result == "tool execution aborted"
-
-
-def test_task_serialize_result_non_mapping_fallback() -> None:
-    tool = TaskTool()
-    result = tool.serialize_result("plain string")
-    assert result == "plain string"

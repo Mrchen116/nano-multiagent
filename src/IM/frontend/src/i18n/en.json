@@ -368,6 +368,19 @@
       "toolReasonDenied": "Denied",
       "toolReasonTimedOut": "Timed out",
       "toolReasonInterrupted": "Interrupted",
+      "toolDetail": {
+        "agentPromptLabel": "Dispatch prompt",
+        "agentDone": "sub-agent {{status}}",
+        "agentOutputFile": "Output file: {{file}}",
+        "memoryDone": "Saved to {{target}} memory",
+        "readLines": "{{count}} lines",
+        "readLineRange": "lines {{from}}-{{to}}",
+        "readImage": "image",
+        "readUnchanged": "unchanged",
+        "expandAll": "… truncated, {{count}} lines total (expand all)",
+        "collapse": "Collapse",
+        "truncatedAtSource": "Output too long — truncated at source"
+      },
       "selectConversationTitle": "Select a conversation",
       "selectConversationSubtitle": "Pick a thread to chat with your agents."
     },

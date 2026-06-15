@@ -292,6 +292,10 @@ class ToolRegistry:
             tool_result_payload: dict[str, Any] = {
                 "name": name,
                 "args": normalized_args,
+                # feat-409 fix 2: expose ``arguments`` alias mirroring the tool_call
+                # event — consumers (realtime_stream) read ``arguments``; without it
+                # tool_end carries input={}, clobbering the running entry's real input.
+                "arguments": normalized_args,
                 "output": raw_result,
                 "is_error": execution_error is not None,
             }

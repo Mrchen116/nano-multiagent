@@ -3539,12 +3539,35 @@ def _build_kernel_event_observer(
             # for a hook-blocked tool) so the IM badge can render the right label.
             reason_code = event.get("reason_code")
             reason = str(reason_code).strip() if isinstance(reason_code, str) else None
-            output_parts = []
-            if event.get("error"):
-                output_parts.append(str(event["error"]))
+            # feat-409 failalign: output(折叠行文案)只放 presenter 的干净 summary。
+            # 不再前缀原始 event.error——presenter 失败态 summary 已是干净主参数,error
+            # 只透传在 detail 里供展开卡渲染一次。早先把 error 也 append 进 output_parts
+            # 并 `|` 拼接,导致折叠行重复出现 error(用户实测:read 失败 error 现两次)。
             pres = event.get("presentation")
-            if isinstance(pres, Mapping) and pres.get("summary"):
-                output_parts.append(str(pres["summary"]))
+            output: str | None = None
+            detail: Any = None
+            if isinstance(pres, Mapping):
+                if pres.get("summary"):
+                    output = str(pres["summary"])
+                # feat-409 决策 1: forward the presenter-produced structured detail
+                # verbatim (already bounded by the kernel 256KB cap). The Gateway is a
+                # pure passthrough pipe — no re-truncation, no per-tool restructuring.
+                detail = pres.get("detail")
+            tool_call_payload: dict[str, Any] = {
+                "id": call_id,
+                "name": tool_name,
+                "status": status,
+                # bugfix-410-M2 R4 (#97): forward the badge classification alongside
+                # feat-409's structured detail — both ride the same tool_call payload.
+                "reason": reason,
+                "input": arguments if isinstance(arguments, dict) else {},
+                "output": output,
+                "duration_ms": int(duration_ms)
+                if isinstance(duration_ms, (int, float))
+                else None,
+            }
+            if detail is not None:
+                tool_call_payload["detail"] = detail
             if message_id:
                 loop.create_task(
                     _send(
@@ -3553,21 +3576,7 @@ def _build_kernel_event_observer(
                         {
                             "kind": "tool_call_completed",
                             "message_id": message_id,
-                            "tool_call": {
-                                "id": call_id,
-                                "name": tool_name,
-                                "status": status,
-                                "reason": reason,
-                                "input": arguments
-                                if isinstance(arguments, dict)
-                                else {},
-                                "output": " | ".join(output_parts)
-                                if output_parts
-                                else None,
-                                "duration_ms": int(duration_ms)
-                                if isinstance(duration_ms, (int, float))
-                                else None,
-                            },
+                            "tool_call": tool_call_payload,
                             "run_id": run_id,
                         },
                     )

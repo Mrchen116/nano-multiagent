@@ -2525,6 +2525,7 @@ def _parse_tool_call(value: object) -> ToolCall:
     duration_ms = value.get("duration_ms")
     output = value.get("output")
     reason = value.get("reason")
+    detail = value.get("detail")
     return ToolCall(
         id=tc_id,
         name=name,
@@ -2533,6 +2534,7 @@ def _parse_tool_call(value: object) -> ToolCall:
         duration_ms=int(duration_ms) if isinstance(duration_ms, (int, float)) else None,
         output=str(output) if output is not None else None,
         reason=str(reason) if isinstance(reason, str) and reason else None,
+        detail=detail if isinstance(detail, dict) else None,
     )
 
 
