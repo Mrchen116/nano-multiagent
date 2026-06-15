@@ -16,7 +16,6 @@ from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
 from agent.platform.tools.builtins.edit import EditTool
 from agent.platform.tools.builtins.read import ReadTool
-from agent.platform.tools.builtins.task import TaskTool
 from agent.platform.tools.builtins.write import WriteTool
 from agent.platform.tools.constants import (
     DEFAULT_MAX_BYTES,
@@ -80,25 +79,6 @@ def test_builtin_tool_descriptions_align_with_tool_design_doc() -> None:
         "Write content to a file. Creates the file if it doesn't exist, overwrites if it does. "
         "Automatically creates parent directories."
     )
-    assert TaskTool.description == (
-        "Spawn agent task with category-based or direct agent selection.\n\n"
-        "MUTUALLY EXCLUSIVE: Provide EITHER category OR subagent_type, not both (unless continuing a session).\n\n"
-        '- load_skills: ALWAYS REQUIRED. Pass at least one skill name (e.g., ["playwright"], ["git-master", "frontend-ui-ux"]).\n'
-        "- category: Use predefined category → Spawns Sisyphus-Junior with category config\n"
-        "  Available categories:\n"
-        "${categoryList}\n"
-        '- subagent_type: Use specific agent directly (e.g., "oracle", "explore")\n'
-        "- run_in_background: true=async (returns task_id), false=sync (waits for result). Default: false. "
-        "Use background=true ONLY for parallel exploration with 5+ independent queries.\n"
-        "- session_id: Existing Task session to continue (from previous task output). Continues agent with FULL CONTEXT PRESERVED - "
-        "saves tokens, maintains continuity.\n"
-        "- command: The command that triggered this task (optional, for slash command tracking).\n\n"
-        "**WHEN TO USE session_id:**\n"
-        '- Task failed/incomplete → session_id with "fix: [specific issue]"\n'
-        "- Need follow-up on previous result → session_id with additional question\n"
-        "- Multi-turn conversation with same agent → always session_id instead of new task\n\n"
-        "Prompts MUST be in English."
-    )
 
 
 def test_builtin_tool_parameter_descriptions_align_with_tool_design_doc() -> None:
@@ -145,37 +125,6 @@ def test_builtin_tool_parameter_descriptions_align_with_tool_design_doc() -> Non
         == "Path to the file to write (relative or absolute)"
     )
     assert write_properties["content"]["description"] == "Content to write to the file"
-
-    task_properties = TaskTool.input_schema["properties"]
-    assert task_properties["load_skills"]["description"] == (
-        "Skill names to inject. REQUIRED - pass [] if no skills needed, but IT IS HIGHLY RECOMMENDED to pass "
-        'proper skills like ["playwright"], ["git-master"] for best results.'
-    )
-    assert (
-        task_properties["description"]["description"]
-        == "Short task description (3-5 words)"
-    )
-    assert (
-        task_properties["prompt"]["description"] == "Full detailed prompt for the agent"
-    )
-    assert (
-        task_properties["run_in_background"]["description"]
-        == "true=async (returns task_id), false=sync (waits). Default: false"
-    )
-    assert task_properties["category"]["description"] == (
-        "Category (e.g., ${categoryExamples}). Mutually exclusive with subagent_type."
-    )
-    assert task_properties["subagent_type"]["description"] == (
-        "Agent name (e.g., 'oracle', 'explore'). Mutually exclusive with category."
-    )
-    assert (
-        task_properties["session_id"]["description"]
-        == "Existing Task session to continue"
-    )
-    assert (
-        task_properties["command"]["description"]
-        == "The command that triggered this task"
-    )
 
 
 def test_tool_safety_default_limits_follow_shared_tool_constants() -> None:

@@ -11,14 +11,14 @@ Gateway→IM 链路 summary（人话）+ detail 到达前端可观测（WS/DB）
 
 ## 退出标准
 
-- [ ] 补 agent/memory/skill_manage/task_stop 四个工具的 presenter（挂 `presenter` 属性，随工具走）
-- [ ] `_TaskPresenter` 重写为 `_AgentPresenter`（agent result schema：content/agent_id/output_file），含完整不截断 prompt 且排结果前
-- [ ] bash summary 改人话（args.description，空降级命令首段）；agent→description、web_fetch→title 等同理
-- [ ] web_fetch detail body 放宽截断
-- [ ] 删除 task.py + `_TaskPresenter` + TASK_PRESENTER
-- [ ] Gateway tool_end 透传 `presentation.detail` 进 streaming_delta.tool_call
-- [ ] IM ToolCall 加 `detail` 字段，贯穿 domain/parse/serialize/persist
-- [ ] 全测试树绿（contract + `-m "not e2e"`）
+- [x] 补 agent/memory/skill_manage/task_stop 四个工具的 presenter（挂 `presenter` 属性，随工具走）
+- [x] `_TaskPresenter` 重写为 `_AgentPresenter`（agent result schema：content/agent_id/output_file），含完整不截断 prompt 且排结果前
+- [x] bash summary 改人话（args.description，空降级命令首段）；agent→description、web_fetch→title 等同理
+- [x] web_fetch detail body 放宽截断
+- [x] 删除 task.py + `_TaskPresenter` + TASK_PRESENTER
+- [x] Gateway tool_end 透传 `presentation.detail` 进 streaming_delta.tool_call
+- [x] IM ToolCall 加 `detail` 字段，贯穿 domain/parse/serialize/persist
+- [x] 全测试树绿（contract + `-m "not e2e"`）：2590 passed, 1 skipped, 4 deselected(e2e)
 
 ## 测试策略
 
