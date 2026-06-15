@@ -162,3 +162,80 @@ design.md 第 103 行原文为 `web_fetch→\`status=200 (title)\``，已包含 
 | 全量测试 | 2595 passed + 401 front-end passed |
 
 **All checks passed. Ready for PR.**
+
+---
+
+# Round 3 — 2026-06-15
+
+## 目标
+
+轻量复核 Round-3 修复：memory/skill 失败态（`success=false`）现在正确显示失败 + 折叠态标红，`isCallFailed` 收敛 `status==failed || detail.success===false`；memory/skill 成功态补强（action·target·content 可见）。核查：与 spec/design 一致、未引入新偏离、vitest 新测试覆盖 success=false 路径。
+
+## 变更范围
+
+commit `a30f14a4`（fix）+ `fdd52545`（merge），涉及 5 个前端文件：
+
+- `tool-presentation.ts` — 新增 `isCallFailed(call)` 函数
+- `tool-calls-panel.tsx` — 折叠行改用 `isCallFailed(call)` 驱动红色 + 图标 + CSS modifier
+- `tool-detail-renderers.tsx` — `MemoryCard`/`SkillCard` 增失败分支；MemoryCard 成功态补 meta+body
+- `global.css` — 新增 `.chat-tool-detail-info--failed` 红头色 + `.chat-tool-detail-info-meta`
+- `tool-calls-panel.test.tsx` — 新增 `describe("ToolCallsPanel · success-false failure (Round-3 fix)")` 6 个测试
+
+## Spec 一致性核查
+
+spec.md §84（「工具调用失败时折叠态标红」）：GIVEN 工具失败 → THEN 折叠行有可见失败标识（标红 + 失败提示）。
+
+该 scenario 原本只考虑 `call.status === "failed"` 路径，但 memory/skill 从不抛错（失败返回 `{success:False, error}`），内核不产 `result.error`，所以 `call.status` 永远是 `"completed"`。`isCallFailed` 增加 `detail.success === false` 分支，使这两种工具的失败也触发标红——与 spec THEN 的用户可见标准完全一致，属于**正确对齐 spec 意图**，不是偏离。
+
+spec.md §117（「memory / skill_manage / task_stop 有专属呈现」）：WHEN 展开 → THEN 看到结果卡片。`MemoryCard` 失败分支渲染 `✕ + message`，成功分支渲染 `✓ + action·target·content`；`SkillCard` 同理。满足条件。
+
+## Design 一致性核查
+
+design.md 决策 4（collapsed-row 文案来自 `output`，不由 name 派生）：`isCallFailed` 只影响行样式和图标，不改 `collapsedSummary` 逻辑，决策未受影响。
+
+决策 1（Gateway 整体透传 detail）、决策 2（IM ToolCall 增 detail）：本 Round 均为纯前端改动，未触及后端路径，不影响这两条决策。
+
+## 测试覆盖
+
+`tool-calls-panel.test.tsx` 新增 `describe("ToolCallsPanel · success-false failure (Round-3 fix)")` 共 5 个测试：
+
+| 用例 | 覆盖场景 |
+|---|---|
+| memory success=false → ✕ + 错误文本 + --failed 类 | detail.success===false 渲染失败态 |
+| skill_manage success=false → ✕ + 错误文本 + --failed 类 | SkillCard 失败分支 |
+| collapsed row 红 + fail-tag（call.status=completed，detail.success=false） | isCallFailed 来自 detail，非 status |
+| memory success=true → ✓ + target + content | 成功态补强不误伤 |
+| skill success=true → 显示 action + name | SkillCard 成功态头部 |
+
+所有测试直接断言 DOM 结构（`.chat-tool-detail-info--failed`、`.chat-tool-call-row--failed`、`.chat-tool-call-fail-tag`），覆盖了两条失败分支和成功态，覆盖充分。
+
+commit message 中报告：vitest 406 passed（新增 6 用例），`npm run build` 绿，`tsc` 绿。
+
+## 架构自洽
+
+纯前端修改，未新增跨包依赖，未触及后端接口，不破坏任何模块边界。
+
+## Issues
+
+### CRITICAL
+
+无。
+
+### WARNING
+
+无。
+
+### SUGGESTION
+
+无。
+
+## Round 3 Summary
+
+| 维度 | 结果 |
+|---|---|
+| 与 spec 一致 | 是 — 折叠标红覆盖 detail.success===false，与 spec 失败标识要求完全对齐 |
+| 与 design 一致 | 是 — 纯前端修复，所有 design 决策无受影响 |
+| 新偏离 | 无 |
+| vitest 覆盖 success=false | 是 — 5 个新测试覆盖全路径 |
+
+**All checks passed. Ready for PR.**
