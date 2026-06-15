@@ -170,7 +170,11 @@ sequenceDiagram
 ```
 
 - **Gateway run-idle 看门狗**（`inbound_pipeline.py:849`，消费事件流）：见 `permission_request` → 置 `awaiting_permission`，期间 `anext` 不施加 120s 超时；见任一后续事件 → 清标记恢复。
-- **IM relay 看门狗**（`relay_watchdog.py`，周期扫 DB `last_event`）：消息加 `awaiting_permission` 标记，`scan_and_fail_stuck_running_messages` 跳过该标记的消息；决策落地清标记。标记由 Gateway 在转发 `permission_request` 时经 `streaming_delta` 置上。
+- **IM relay 看门狗**（`relay_watchdog.py`，周期扫 DB `last_event`）：消息加 `awaiting_permission` 标记（Gateway 转发 `permission_request` 时经 `streaming_delta` 置上），`scan_and_fail_stuck_running_messages` 对该标记的消息**不施加常规 120s 超时**。
+  - **marker 不是永久豁免**，三条清理 / 兜底路径缺一不可（否则 Gateway 崩溃会让 marker 泄漏、消息永不被 reap，比原 bug 更糟）：
+    1. **决策落地**（`permission_response`）→ 清 marker，恢复常规计时。
+    2. **run 终态事件**（failed/cancelled，含 `interrupt`）→ 一并清 marker —— 覆盖「Gateway 还活着、但该轮因别的原因终止」的路径。
+    3. **崩溃兜底**：marker 不靠「存在与否」永久豁免，而靠 **liveness**——Gateway 借既有节点 heartbeat 周期 touch 该消息的 marker 时间戳；relay 看门狗对 marker 时间戳 **stale 超过一个远长于 heartbeat 间隔的崩溃阈值**（独立于 120s）的消息照常 reap。Gateway 活着 → 持续刷新 → 真无限等待（合决策 2）；Gateway 崩溃 → 刷新停止 → 崩溃阈值后回收。
 
 ### M3: recovery 触发覆盖
 
@@ -204,7 +208,8 @@ Gateway 在 terminal run_status 分支（`inbound_pipeline.py:880` / observer `m
 
 - **M2 豁免信号丢失致永久挂起**: 若 `permission_request` 后的「后续事件」因 bug 永不到达，run 永久豁免。回退：保留一个远大于 120s 的「等权限」最终硬上限作为防御性兜底（默认不启用，spec 选无限等待；信号可靠性存疑时启用）。
 - **M3 finally I/O 被二次 cancel**: `CancelledError` 期间 finally 做 recovery 写，需 `asyncio.shield` 保护关键写，否则补偿丢失、砖化重现。
-- **M4 Gateway 进程崩溃**: 跟踪 running tool_call 的状态在 Gateway 内存，崩溃则丢、IM 徽标 stale。残留风险——崩溃后 LLM 侧由 kernel recovery 兜底（M3），但 IM 徽标 stale 无 Gateway 机会 reconcile；接受（崩溃是低频且本 unit 主修超时/cancel 路径）。
+- **M2 awaiting_permission marker 泄漏**（review 暴露）: 若 marker 做成纯豁免标记，Gateway 在等权限期间崩溃 → marker 永不清 → relay 看门狗永久绕过这条已死消息（从「120s 必杀」退化成「永不杀」，比原 bug 更糟）。**缓解**: marker 靠 liveness 而非存在性豁免（接口段三条清理/兜底路径）——run 终态清 marker + Gateway heartbeat 刷新 marker 时间戳 + relay 对 stale 超崩溃阈值的 marker 照常 reap。崩溃阈值取数倍 heartbeat 间隔，远短于会误杀人决策的程度。
+- **M4 Gateway 进程崩溃**: 跟踪 running tool_call 的状态在 Gateway 内存，崩溃则丢、IM 徽标 stale。残留风险——崩溃后 LLM 侧由 kernel recovery 兜底（M3），IM 侧由上一条的 relay 崩溃阈值兜底（消息最终被 reap 为 failed，徽标随之收口），不会永久 ghost。
 - **reason 端到端字段**: 开发态项目，不考虑前后向兼容（incident Q1）。
 
 ## Runbook for Reviewer
