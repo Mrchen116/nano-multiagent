@@ -62,6 +62,6 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | 安装依赖 + C1 红测试（块级渲染 + mention + raw HTML） | TODO |
-| R2 | 实现：remark-mention 插件 + MarkdownContent 换 ReactMarkdown | TODO |
-| R3 | 样式：.im-md 新增 h1~h6 / hr / blockquote / a；构建验收 | TODO |
+| R1 | 安装依赖 + C1 红测试（块级渲染 + mention + raw HTML） | DONE |
+| R2 | 实现：remark-mention 插件 + MarkdownContent 换 ReactMarkdown | DONE |
+| R3 | 样式：.im-md 新增 h1~h6 / hr / blockquote / a；构建验收 | DONE |
