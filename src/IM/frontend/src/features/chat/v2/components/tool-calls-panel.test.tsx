@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -30,20 +30,78 @@ describe("ToolCallsPanel", () => {
     expect(screen.getByText("list_files")).toBeInTheDocument();
     expect(screen.getByText("str_replace_edit")).toBeInTheDocument();
   });
+});
 
-  it("expands an individual tool call to reveal its input/output", async () => {
+// feat-409-M2 R1: collapsed-row rendering — summary(=output), failure styling,
+// real tool name, emoji fallback by name. The collapsed text is the
+// presenter-produced `output` (人话 summary); the front-end must NOT derive the
+// collapsed text by tool name (决策 4).
+describe("ToolCallsPanel · collapsed row (R1)", () => {
+  async function expandPanel() {
     const user = userEvent.setup();
-    render(<ToolCallsPanel toolCalls={SAMPLE} />);
     await user.click(screen.getByRole("button", { name: /tool call/i }));
-    // First tool call (list_files, i=0) defaults to open per prototype; verify its input/output are visible
-    expect(screen.getByText(/INPUT/i)).toBeInTheDocument();
-    expect(screen.getByText(/OUTPUT/i)).toBeInTheDocument();
-    // Second tool call (str_replace_edit, i=1) starts collapsed; click to expand
-    const strReplaceBtn = screen.getByText("str_replace_edit").closest("button");
-    expect(strReplaceBtn).toBeTruthy();
-    fireEvent.click(strReplaceBtn!);
-    // After expanding the second row, there should be two INPUT labels (one per row)
-    expect(screen.getAllByText(/INPUT/i)).toHaveLength(2);
+  }
+
+  it("renders the presenter output as the collapsed-row summary text", async () => {
+    const calls: ToolCall[] = [
+      { id: "b1", name: "bash", status: "completed", input: {}, output: "跑 heartbeat 单元测试", duration_ms: 8200 }
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    // The 人话 summary travels in `output`; it must show ON the collapsed row
+    // itself (not only inside the expanded body) — one glance gives信息量.
+    const summaryEl = screen.getByText("跑 heartbeat 单元测试");
+    expect(summaryEl.closest(".chat-tool-call-row")).not.toBeNull();
+  });
+
+  it("shows the real tool name even for unknown / DIY tools", async () => {
+    const calls: ToolCall[] = [
+      { id: "x1", name: "my_custom_tool", status: "completed", input: {}, output: "done" }
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    expect(screen.getByText("my_custom_tool")).toBeInTheDocument();
+  });
+
+  it("maps a known tool name to its emoji prefix", async () => {
+    const calls: ToolCall[] = [
+      { id: "b1", name: "bash", status: "completed", input: {}, output: "run tests" }
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    const nameEl = screen.getByText("bash").closest(".chat-tool-call-name");
+    expect(nameEl?.textContent).toContain("💻");
+  });
+
+  it("falls back to a generic emoji for unknown tools", async () => {
+    const calls: ToolCall[] = [
+      { id: "x1", name: "my_custom_tool", status: "completed", input: {}, output: "done" }
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    const nameEl = screen.getByText("my_custom_tool").closest(".chat-tool-call-name");
+    // generic fallback icon (🔧) — not blank, not a known-tool emoji.
+    expect(nameEl?.textContent).toContain("🔧");
+  });
+
+  it("marks a failed call with the error row modifier and a fail tag", async () => {
+    const calls: ToolCall[] = [
+      {
+        id: "b1",
+        name: "bash",
+        status: "failed",
+        input: {},
+        output: "failed: exit 1",
+        detail: { error: { message: "exit 1" } }
+      }
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    const row = screen.getByText("bash").closest(".chat-tool-call-row");
+    expect(row?.className).toContain("chat-tool-call-row--failed");
+    // The failed call carries a dedicated fail tag in the collapsed row so the
+    // failure is visible without expanding (prototype: red "exit 1" tag).
+    expect(row?.querySelector(".chat-tool-call-fail-tag")).not.toBeNull();
   });
 
   // bugfix-410-M2 R4 (#97): tool_call badge must render the reason label per cause.
