@@ -12,7 +12,7 @@
 // edit → diff/firstChangedLine, agent → prompt/content/…). Access is guarded
 // because detail is an open record (DIY tools may carry anything).
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import type { ToolCall, ToolDetail } from "../chat-types";
@@ -21,6 +21,68 @@ function str(v: unknown): string {
   if (v == null) return "";
   if (typeof v === "string") return v;
   return JSON.stringify(v);
+}
+
+// 决策 5: front-end truncation threshold — an independent visual gate from the
+// kernel's 256KB byte cap. Above this line count, long fields collapse to a
+// preview + "expand all" → height-capped inner scroll, so a single expand never disrupts
+// the chat list scroll.
+const LONG_OUTPUT_LINE_THRESHOLD = 50;
+
+/**
+ * Two-level expand for a large text field. Short text renders inline. Long text
+ * shows a line-clamped preview with an "expand all" toggle; expanded, it scrolls
+ * inside a height-capped container with a "collapse" toggle. `truncatedAtSource`
+ * (detail.truncated) appends a note that the kernel already tail-truncated.
+ *
+ * `render` lets callers choose the inner element (a `<pre>` terminal block, a
+ * plain excerpt div, …) while sharing the truncate/scroll/note chrome.
+ */
+function LongOutput({
+  text,
+  truncatedAtSource,
+  className,
+  render
+}: {
+  text: string;
+  truncatedAtSource?: boolean;
+  className?: string;
+  render: (shownText: string) => ReactNode;
+}) {
+  const { t } = useTranslation();
+  const [expanded, setExpanded] = useState(false);
+  const lines = text.split("\n");
+  const isLong = lines.length > LONG_OUTPUT_LINE_THRESHOLD;
+  const shown = !isLong || expanded ? text : lines.slice(0, LONG_OUTPUT_LINE_THRESHOLD).join("\n");
+  const containerCls = [
+    "chat-tool-long-output",
+    expanded ? "chat-tool-long-output--expanded" : "",
+    className ?? ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div className="chat-tool-long-output-wrap">
+      <div className={containerCls}>{render(shown)}</div>
+      {truncatedAtSource && (
+        <div className="chat-tool-long-output-source-note">
+          {t("chat.messagePane.toolDetail.truncatedAtSource")}
+        </div>
+      )}
+      {isLong && (
+        <button
+          type="button"
+          className="chat-tool-long-output-toggle"
+          onClick={() => setExpanded((e) => !e)}
+        >
+          {expanded
+            ? t("chat.messagePane.toolDetail.collapse")
+            : t("chat.messagePane.toolDetail.expandAll")}
+        </button>
+      )}
+    </div>
+  );
 }
 
 function Section({ label, children }: { label: string; children: ReactNode }) {
@@ -53,11 +115,25 @@ function BashCard({ detail }: { detail: ToolDetail }) {
   const stdout = str(detail.stdout);
   const stderr = str(detail.stderr);
   const exit = detail.exit_code;
+  const truncated = detail.truncated === true;
   return (
     <div className="chat-tool-detail-term">
       <div className="chat-tool-detail-term-cmd">{command}</div>
-      {stdout && <pre className="chat-tool-detail-term-out">{stdout}</pre>}
-      {stderr && <pre className="chat-tool-detail-term-out chat-tool-detail-term-err">{stderr}</pre>}
+      {stdout && (
+        <LongOutput
+          text={stdout}
+          truncatedAtSource={truncated}
+          render={(shown) => <pre className="chat-tool-detail-term-out">{shown}</pre>}
+        />
+      )}
+      {stderr && (
+        <LongOutput
+          text={stderr}
+          render={(shown) => (
+            <pre className="chat-tool-detail-term-out chat-tool-detail-term-err">{shown}</pre>
+          )}
+        />
+      )}
       {typeof exit === "number" && (
         <div className="chat-tool-detail-term-meta">
           <span className={exit !== 0 ? "chat-tool-detail-exit-bad" : undefined}>exit {exit}</span>
@@ -69,28 +145,34 @@ function BashCard({ detail }: { detail: ToolDetail }) {
 
 // ─── edit → colourised unified diff ──────────────────────────────────────────
 
+function diffLineClass(line: string): string {
+  if (line.startsWith("+")) return "chat-tool-detail-diff-add";
+  if (line.startsWith("-")) return "chat-tool-detail-diff-del";
+  if (line.startsWith("@@")) return "chat-tool-detail-diff-hunk";
+  return "chat-tool-detail-diff-ctx";
+}
+
 function DiffCard({ detail }: { detail: ToolDetail }) {
   const path = str(detail.path);
   const diff = str(detail.diff);
-  const lines = diff.split("\n");
+  // Drop unified-diff file headers; the path is already shown above.
+  const bodyLines = diff.split("\n").filter((l) => !l.startsWith("+++") && !l.startsWith("---"));
   return (
     <div className="chat-tool-detail-diff">
       {path && <div className="chat-tool-detail-diff-file">{path}</div>}
-      <div className="chat-tool-detail-diff-body">
-        {lines.map((line, i) => {
-          // Skip unified-diff file headers; the path is already shown above.
-          if (line.startsWith("+++") || line.startsWith("---")) return null;
-          let cls = "chat-tool-detail-diff-ctx";
-          if (line.startsWith("+")) cls = "chat-tool-detail-diff-add";
-          else if (line.startsWith("-")) cls = "chat-tool-detail-diff-del";
-          else if (line.startsWith("@@")) cls = "chat-tool-detail-diff-hunk";
-          return (
-            <div key={i} className={`chat-tool-detail-diff-line ${cls}`}>
-              {line || " "}
-            </div>
-          );
-        })}
-      </div>
+      <LongOutput
+        text={bodyLines.join("\n")}
+        truncatedAtSource={detail.truncated === true}
+        render={(shown) => (
+          <div className="chat-tool-detail-diff-body">
+            {shown.split("\n").map((line, i) => (
+              <div key={i} className={`chat-tool-detail-diff-line ${diffLineClass(line)}`}>
+                {line || " "}
+              </div>
+            ))}
+          </div>
+        )}
+      />
     </div>
   );
 }
@@ -107,7 +189,11 @@ function WriteCard({ detail }: { detail: ToolDetail }) {
         {path}
         {typeof bytes === "number" && <span className="chat-tool-detail-write-bytes">{bytes} bytes</span>}
       </div>
-      <pre className="chat-tool-call-pre">{content}</pre>
+      <LongOutput
+        text={content}
+        truncatedAtSource={detail.truncated === true}
+        render={(shown) => <pre className="chat-tool-call-pre">{shown}</pre>}
+      />
     </div>
   );
 }
@@ -126,7 +212,13 @@ function WebCard({ detail }: { detail: ToolDetail }) {
         {url}
         {status != null && ` · ${status}`}
       </div>
-      {content && <div className="chat-tool-detail-web-excerpt">{content}</div>}
+      {content && (
+        <LongOutput
+          text={content}
+          truncatedAtSource={detail.truncated === true}
+          render={(shown) => <div className="chat-tool-detail-web-excerpt">{shown}</div>}
+        />
+      )}
     </div>
   );
 }

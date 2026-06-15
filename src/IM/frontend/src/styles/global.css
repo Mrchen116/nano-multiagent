@@ -2610,6 +2610,41 @@ body {
   white-space: pre-wrap;
 }
 
+/* feat-409-M2 R3: long-output two-level expand */
+.chat-tool-long-output-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+/* Collapsed preview clamps to the line threshold; expanded scrolls inside a
+   height cap so "expand all" never disrupts the surrounding chat scroll. */
+.chat-tool-long-output--expanded {
+  max-height: 320px;
+  overflow: auto;
+}
+
+.chat-tool-long-output-toggle {
+  align-self: flex-start;
+  background: none;
+  border: 0;
+  padding: 0.1rem 0;
+  cursor: pointer;
+  color: oklch(0.6 0.13 250);
+  font-family: inherit;
+  font-size: 0.7rem;
+}
+
+.chat-tool-long-output-toggle:hover {
+  text-decoration: underline;
+}
+
+.chat-tool-long-output-source-note {
+  color: oklch(0.6 0.12 60);
+  font-size: 0.68rem;
+  font-style: italic;
+}
+
 /* Attachment chips */
 .chat-attachment-chip {
   display: inline-flex;

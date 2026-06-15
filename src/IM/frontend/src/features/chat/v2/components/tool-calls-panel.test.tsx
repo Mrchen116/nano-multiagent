@@ -344,6 +344,12 @@ describe("ToolCallsPanel · long output (R3)", () => {
 
   const LONG_STDOUT = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join("\n");
 
+  // The long stdout is a single text node inside a <pre>; assert via textContent
+  // (line 200 is not its own element).
+  function termOut(container: HTMLElement): string {
+    return container.querySelector(".chat-tool-detail-term-out")?.textContent ?? "";
+  }
+
   it("truncates a long bash stdout and offers an expand-all toggle", async () => {
     const { container } = renderSingle({
       id: "b1",
@@ -354,8 +360,9 @@ describe("ToolCallsPanel · long output (R3)", () => {
       detail: { command: "seq 200", exit_code: 0, stdout: LONG_STDOUT, stderr: "", truncated: false }
     });
     await open();
-    // Far-down line is hidden until expanded.
-    expect(screen.queryByText("line 200")).not.toBeInTheDocument();
+    // Far-down line is hidden in the truncated preview until expanded.
+    expect(termOut(container)).toContain("line 1");
+    expect(termOut(container)).not.toContain("line 200");
     expect(screen.getByText(/expand all/i)).toBeInTheDocument();
     // The truncated block carries the cap class for the scroll container.
     expect(container.querySelector(".chat-tool-long-output")).not.toBeNull();
@@ -363,7 +370,7 @@ describe("ToolCallsPanel · long output (R3)", () => {
 
   it("reveals the full content and switches to collapse after expanding", async () => {
     const user = userEvent.setup();
-    renderSingle({
+    const { container } = renderSingle({
       id: "b1",
       name: "bash",
       status: "completed",
@@ -373,13 +380,13 @@ describe("ToolCallsPanel · long output (R3)", () => {
     });
     await open();
     await user.click(screen.getByText(/expand all/i));
-    expect(screen.getByText("line 200")).toBeInTheDocument();
+    expect(termOut(container)).toContain("line 200");
     expect(screen.getByText(/collapse/i)).toBeInTheDocument();
   });
 
   it("collapses back to the truncated view", async () => {
     const user = userEvent.setup();
-    renderSingle({
+    const { container } = renderSingle({
       id: "b1",
       name: "bash",
       status: "completed",
@@ -390,7 +397,7 @@ describe("ToolCallsPanel · long output (R3)", () => {
     await open();
     await user.click(screen.getByText(/expand all/i));
     await user.click(screen.getByText(/collapse/i));
-    expect(screen.queryByText("line 200")).not.toBeInTheDocument();
+    expect(termOut(container)).not.toContain("line 200");
     expect(screen.getByText(/expand all/i)).toBeInTheDocument();
   });
 
