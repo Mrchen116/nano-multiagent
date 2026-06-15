@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import type { ToolCall } from "../chat-types";
+import { ToolDetailBody } from "./tool-detail-renderers";
 import { collapsedSummary, failTag, toolEmoji } from "./tool-presentation";
 
 interface ToolCallsPanelProps {
@@ -132,22 +133,7 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
       {open && (
         <div className="chat-tool-call-body chat-tool-call-body--open">
           <div className="chat-tool-call-body-inner">
-            {call.input != null && (
-              <div className="chat-tool-call-section">
-                <span className="chat-tool-call-section-label">INPUT</span>
-                <pre className="chat-tool-call-pre">
-                  {typeof call.input === "string" ? call.input : JSON.stringify(call.input, null, 2)}
-                </pre>
-              </div>
-            )}
-            {call.output != null && (
-              <div className="chat-tool-call-section">
-                <span className="chat-tool-call-section-label">OUTPUT</span>
-                <pre className="chat-tool-call-pre">
-                  {typeof call.output === "string" ? call.output : JSON.stringify(call.output, null, 2)}
-                </pre>
-              </div>
-            )}
+            <ToolDetailBody call={call} />
           </div>
         </div>
       )}

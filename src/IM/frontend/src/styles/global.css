@@ -2391,6 +2391,225 @@ body {
   overflow: auto;
 }
 
+/* ── feat-409-M2: per-tool expanded detail cards ────────────────────────── */
+
+/* error (shared failure path) */
+.chat-tool-detail-error {
+  display: flex;
+  gap: 0.4rem;
+  align-items: flex-start;
+}
+
+.chat-tool-detail-error-icon {
+  color: oklch(0.65 0.18 25);
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  line-height: 1.6;
+}
+
+/* bash → terminal block */
+.chat-tool-detail-term {
+  background: oklch(0.07 0.01 240);
+  border-radius: 0.4rem;
+  overflow: hidden;
+  font-family: var(--im-font-mono);
+  font-size: 0.72rem;
+}
+
+.chat-tool-detail-term-cmd {
+  padding: 0.45rem 0.6rem;
+  color: oklch(0.88 0.02 180);
+  border-bottom: 1px solid oklch(0.14 0.01 240);
+}
+
+.chat-tool-detail-term-cmd::before {
+  content: "$ ";
+  color: oklch(0.7 0.16 145);
+}
+
+.chat-tool-detail-term-out {
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  color: oklch(0.65 0.02 240);
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.55;
+}
+
+.chat-tool-detail-term-err {
+  color: oklch(0.65 0.15 25);
+}
+
+.chat-tool-detail-term-meta {
+  padding: 0.3rem 0.6rem;
+  font-size: 0.68rem;
+  color: oklch(0.5 0.01 240);
+  border-top: 1px solid oklch(0.14 0.01 240);
+}
+
+.chat-tool-detail-exit-bad {
+  color: oklch(0.65 0.18 25);
+}
+
+/* edit → unified diff */
+.chat-tool-detail-diff {
+  background: oklch(0.07 0.01 240);
+  border-radius: 0.4rem;
+  overflow: hidden;
+  font-family: var(--im-font-mono);
+  font-size: 0.72rem;
+}
+
+.chat-tool-detail-diff-file {
+  padding: 0.35rem 0.6rem;
+  color: oklch(0.6 0.01 240);
+  border-bottom: 1px solid oklch(0.14 0.01 240);
+  font-size: 0.68rem;
+}
+
+.chat-tool-detail-diff-line {
+  padding: 0 0.6rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.6;
+}
+
+.chat-tool-detail-diff-add {
+  background: oklch(0.55 0.18 145 / 0.12);
+  color: oklch(0.78 0.16 145);
+}
+
+.chat-tool-detail-diff-del {
+  background: oklch(0.6 0.18 25 / 0.12);
+  color: oklch(0.72 0.15 25);
+}
+
+.chat-tool-detail-diff-ctx {
+  color: oklch(0.5 0.01 240);
+}
+
+.chat-tool-detail-diff-hunk {
+  color: oklch(0.6 0.1 280);
+}
+
+/* write → file content */
+.chat-tool-detail-write-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-family: var(--im-font-mono);
+  font-size: 0.7rem;
+  color: oklch(0.6 0.02 240);
+  margin-bottom: 0.35rem;
+}
+
+.chat-tool-detail-write-bytes {
+  color: oklch(0.5 0.01 240);
+}
+
+/* web_fetch → card */
+.chat-tool-detail-web {
+  background: oklch(0.07 0.01 240);
+  border-radius: 0.4rem;
+  padding: 0.5rem 0.65rem;
+}
+
+.chat-tool-detail-web-title {
+  color: oklch(0.7 0.12 250);
+  font-size: 0.78rem;
+  margin-bottom: 0.15rem;
+}
+
+.chat-tool-detail-web-url {
+  color: oklch(0.5 0.01 240);
+  font-size: 0.68rem;
+  font-family: var(--im-font-mono);
+  margin-bottom: 0.4rem;
+  word-break: break-all;
+}
+
+.chat-tool-detail-web-excerpt {
+  color: oklch(0.65 0.02 240);
+  font-size: 0.74rem;
+  border-left: 2px solid oklch(0.25 0.01 240);
+  padding-left: 0.5rem;
+  white-space: pre-wrap;
+}
+
+/* agent → prompt-before-result */
+.chat-tool-detail-agent-prompt {
+  color: oklch(0.78 0.03 240);
+  border-left: 2px solid oklch(0.55 0.15 280);
+  padding-left: 0.5rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.chat-tool-detail-agent-status {
+  color: oklch(0.7 0.14 145);
+  font-size: 0.74rem;
+  margin: 0.4rem 0 0.25rem;
+}
+
+.chat-tool-detail-agent-content {
+  color: oklch(0.65 0.02 240);
+  font-size: 0.74rem;
+  white-space: pre-wrap;
+}
+
+.chat-tool-detail-agent-file {
+  color: oklch(0.55 0.01 240);
+  font-size: 0.7rem;
+  font-family: var(--im-font-mono);
+  margin-top: 0.25rem;
+}
+
+/* memory / skill / task_stop → compact info card */
+.chat-tool-detail-info {
+  background: oklch(0.07 0.01 240);
+  border-radius: 0.4rem;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.74rem;
+}
+
+.chat-tool-detail-info-head {
+  color: oklch(0.7 0.14 145);
+  margin-bottom: 0.2rem;
+}
+
+.chat-tool-detail-info-body {
+  color: oklch(0.65 0.02 240);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* generic key/value card for unknown / DIY / MCP tools */
+.chat-tool-detail-generic {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.74rem;
+}
+
+.chat-tool-detail-generic-row {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.chat-tool-detail-generic-key {
+  flex-shrink: 0;
+  min-width: 5rem;
+  color: oklch(0.55 0.05 250);
+  font-family: var(--im-font-mono);
+  font-size: 0.7rem;
+}
+
+.chat-tool-detail-generic-val {
+  color: oklch(0.7 0.02 240);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
 /* Attachment chips */
 .chat-attachment-chip {
   display: inline-flex;

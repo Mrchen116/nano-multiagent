@@ -265,7 +265,7 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
   });
 
   it("renders task_stop as a card surfacing status + task_id", async () => {
-    renderSingle({
+    const { container } = renderSingle({
       id: "ts1",
       name: "task_stop",
       status: "completed",
@@ -274,8 +274,11 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
       detail: { task_id: "bash-21c9", status: "killed" }
     });
     await open();
-    expect(screen.getByText(/bash-21c9/)).toBeInTheDocument();
-    expect(screen.getByText(/killed/)).toBeInTheDocument();
+    // Scope to the body card so the assertion isn't satisfied by the collapsed
+    // summary (which mirrors output) — the bespoke card must surface these.
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toContain("bash-21c9");
+    expect(card?.textContent).toContain("killed");
   });
 
   it("renders an unknown / DIY tool as a generic key/value card (not raw JSON)", async () => {
@@ -318,8 +321,9 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
       output: "exit=0 elapsed=152ms"
     });
     await open();
-    // No bespoke card; the raw output is shown as a fallback.
+    // No bespoke card; the raw output is shown in the body as a fallback.
     expect(container.querySelector(".chat-tool-detail-term")).toBeNull();
-    expect(screen.getByText("exit=0 elapsed=152ms")).toBeInTheDocument();
+    const body = container.querySelector(".chat-tool-call-body-inner");
+    expect(body?.querySelector(".chat-tool-call-pre")?.textContent).toBe("exit=0 elapsed=152ms");
   });
 });
