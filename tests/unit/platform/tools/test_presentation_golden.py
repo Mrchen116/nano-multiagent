@@ -29,7 +29,7 @@ from agent.platform.tools.builtins.write import WriteTool
 from agent.platform.tools.builtins.edit import EditTool
 from agent.platform.tools.builtins.bash import BashTool
 from agent.platform.tools.builtins.web_fetch import WebFetchTool
-from agent.platform.tools.builtins.task import TaskTool
+from agent.platform.tools.builtins.agent import AgentTool
 
 _TOOL_BY_NAME = {
     "read": ReadTool,
@@ -37,7 +37,7 @@ _TOOL_BY_NAME = {
     "edit": EditTool,
     "bash": BashTool,
     "web_fetch": WebFetchTool,
-    "task": TaskTool,
+    "agent": AgentTool,
 }
 
 
@@ -75,9 +75,9 @@ _START_CASES = [
         (True, "Web", "https://example.com", None),
     ),
     (
-        "task",
+        "agent",
         {"description": "Refactor auth module"},
-        (True, "Task", "Refactor auth module", None),
+        (True, "Agent", "Refactor auth module", None),
     ),
     (
         "unknown_xyz",
@@ -134,7 +134,8 @@ def test_bash_end_success_golden() -> None:
     )
     assert evt.visible is True
     assert evt.label == "Bash"
-    assert evt.summary == "exit=0 elapsed=12ms"
+    # 决策 4:summary 为人话;无 description 时降级为命令首段。
+    assert evt.summary == "echo hi"
     assert evt.detail is not None and evt.detail["exit_code"] == 0
     assert evt.detail["stdout"] == "hi\n"
 

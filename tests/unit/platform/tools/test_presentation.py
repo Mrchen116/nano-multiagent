@@ -1,13 +1,15 @@
 """Unit tests for built-in tool presenters."""
 
-from agent.core.tools.presentation import ToolPresentationEvent
 from agent.platform.tools.presentation import resolve_presenter_for_tool
 from agent.platform.tools.builtins.read import ReadTool
 from agent.platform.tools.builtins.write import WriteTool
 from agent.platform.tools.builtins.edit import EditTool
 from agent.platform.tools.builtins.bash import BashTool
 from agent.platform.tools.builtins.web_fetch import WebFetchTool
-from agent.platform.tools.builtins.task import TaskTool
+from agent.platform.tools.builtins.agent import AgentTool
+from agent.platform.tools.builtins.memory import MemoryTool
+from agent.platform.tools.builtins.skill_manage import SkillManageTool
+from agent.platform.tools.builtins.task_stop import TaskStopTool
 
 _TOOL_BY_NAME = {
     "read": ReadTool,
@@ -15,7 +17,10 @@ _TOOL_BY_NAME = {
     "edit": EditTool,
     "bash": BashTool,
     "web_fetch": WebFetchTool,
-    "task": TaskTool,
+    "agent": AgentTool,
+    "memory": MemoryTool,
+    "skill_manage": SkillManageTool,
+    "task_stop": TaskStopTool,
 }
 
 
@@ -131,20 +136,31 @@ class TestBashPresenter:
         assert evt.label == "Bash"
         assert evt.summary == "pytest tests/"
 
-    def test_end_success(self) -> None:
+    def test_end_summary_is_description(self) -> None:
+        # 决策 4: 折叠态摘要为人话 description，不再是裸 exit/elapsed 状态串。
         evt = _presenter("bash").format_end(
-            {"command": "pytest"},
+            {"command": "pytest -q", "description": "跑 heartbeat 单元测试"},
             _FakeResult(output={"exitCode": 0, "stdout": "OK"}),
             duration_ms=2100,
         )
-        assert "exit=0" in evt.summary
-        assert "elapsed=2100ms" in evt.summary
+        assert evt.summary == "跑 heartbeat 单元测试"
         assert evt.detail is not None
         assert evt.detail["stdout"] == "OK"
+        assert evt.detail["command"] == "pytest -q"
+        assert evt.detail["exit_code"] == 0
+
+    def test_end_summary_falls_back_to_command_when_no_description(self) -> None:
+        # 边界:description 为空时降级显示命令首段，而不是空白。
+        evt = _presenter("bash").format_end(
+            {"command": "echo hello world"},
+            _FakeResult(output={"exitCode": 0, "stdout": "hello world"}),
+            duration_ms=10,
+        )
+        assert evt.summary == "echo hello world"
 
     def test_end_failed(self) -> None:
         evt = _presenter("bash").format_end(
-            {"command": "pytest"},
+            {"command": "pytest", "description": "跑测试"},
             _FakeResult(error="Command exited with code 1"),
             duration_ms=500,
         )
@@ -168,21 +184,162 @@ class TestWebFetchPresenter:
         assert evt.detail is not None
         assert evt.detail["status"] == 200
 
+    def test_end_body_excerpt_relaxed_and_capped(self) -> None:
+        # web_fetch detail body 放宽:不再硬截到 500 字,大正文走 _enforce_cap(content)。
+        long_body = "A" * 5000
+        evt = _presenter("web_fetch").format_end(
+            {"url": "https://example.com"},
+            _FakeResult(output={"status": 200, "title": "T", "content": long_body}),
+            duration_ms=10,
+        )
+        assert evt.detail is not None
+        # body 字段保留远多于旧的 500 字硬截
+        assert len(evt.detail["content"]) > 500
 
-class TestTaskPresenter:
+
+class TestAgentPresenter:
     def test_start_shows_description(self) -> None:
-        evt = _presenter("task").format_start({"description": "Refactor auth module"})
-        assert evt.label == "Task"
+        evt = _presenter("agent").format_start(
+            {"description": "Refactor auth module", "prompt": "do it"}
+        )
+        assert evt.label == "Agent"
         assert evt.summary == "Refactor auth module"
 
-    def test_end_success(self) -> None:
-        evt = _presenter("task").format_end(
-            {"description": "Refactor auth module"},
-            _FakeResult(output={"status": "completed", "summary": "Done"}),
+    def test_end_completed_has_full_prompt_before_result(self) -> None:
+        # 决策 3:完整未截断 prompt 进 detail,且语义上排在结果前。
+        long_prompt = "请完成以下任务:\n" + ("步骤 " * 1000)
+        evt = _presenter("agent").format_end(
+            {
+                "description": "派子 agent 改测试",
+                "prompt": long_prompt,
+                "subagent_type": "general-purpose",
+            },
+            _FakeResult(
+                output={
+                    "status": "completed",
+                    "content": "已完成",
+                    "agent_id": "agt-1",
+                }
+            ),
             duration_ms=5000,
         )
-        assert "status=completed" in evt.summary
+        assert evt.summary == "派子 agent 改测试"
         assert evt.detail is not None
+        # 完整 prompt 不截断
+        assert evt.detail["prompt"] == long_prompt
+        assert evt.detail["status"] == "completed"
+        assert evt.detail["content"] == "已完成"
+        assert evt.detail["agent_id"] == "agt-1"
+        assert evt.detail["subagent_type"] == "general-purpose"
+        # prompt 排在 content(结果)之前
+        keys = list(evt.detail.keys())
+        assert keys.index("prompt") < keys.index("content")
+
+    def test_end_async_launched(self) -> None:
+        evt = _presenter("agent").format_end(
+            {"description": "后台任务", "prompt": "go", "run_in_background": True},
+            _FakeResult(
+                output={
+                    "status": "async_launched",
+                    "agent_id": "agt-2",
+                    "description": "后台任务",
+                    "output_file": "/tmp/out.jsonl",
+                }
+            ),
+            duration_ms=100,
+        )
+        assert evt.detail["status"] == "async_launched"
+        assert evt.detail["output_file"] == "/tmp/out.jsonl"
+        assert evt.detail["prompt"] == "go"
+
+    def test_end_failed(self) -> None:
+        evt = _presenter("agent").format_end(
+            {"description": "X", "prompt": "go"},
+            _FakeResult(output={"status": "failed", "error": "boom", "agent_id": "a"}),
+            duration_ms=10,
+        )
+        assert "failed" in evt.summary
+        assert evt.detail["error"] == "boom"
+
+
+class TestMemoryPresenter:
+    def test_end_success(self) -> None:
+        evt = _presenter("memory").format_end(
+            {"action": "add", "target": "memory", "content": "记住这件事"},
+            _FakeResult(output={"success": True, "message": "added entry to 'memory'"}),
+            duration_ms=5,
+        )
+        assert evt.label == "Memory"
+        assert evt.detail is not None
+        assert evt.detail["action"] == "add"
+        assert evt.detail["target"] == "memory"
+        assert evt.detail["content"] == "记住这件事"
+        assert evt.detail["success"] is True
+        assert "added" in evt.detail["message"]
+
+    def test_end_failure(self) -> None:
+        evt = _presenter("memory").format_end(
+            {"action": "add", "target": "memory"},
+            _FakeResult(output={"success": False, "error": "add requires content"}),
+            duration_ms=5,
+        )
+        assert "failed" in evt.summary
+        assert evt.detail["success"] is False
+
+
+class TestSkillManagePresenter:
+    def test_end_create(self) -> None:
+        evt = _presenter("skill_manage").format_end(
+            {"action": "create", "name": "my-skill", "content": "..."},
+            _FakeResult(
+                output={"success": True, "message": "created skill 'my-skill' at /p"}
+            ),
+            duration_ms=5,
+        )
+        assert evt.label == "Skill"
+        assert evt.detail is not None
+        assert evt.detail["action"] == "create"
+        assert evt.detail["name"] == "my-skill"
+        assert evt.detail["success"] is True
+        assert "created" in evt.detail["message"]
+
+    def test_end_failure(self) -> None:
+        evt = _presenter("skill_manage").format_end(
+            {"action": "create", "name": "x"},
+            _FakeResult(output={"success": False, "error": "requires content"}),
+            duration_ms=5,
+        )
+        assert "failed" in evt.summary
+        assert evt.detail["success"] is False
+
+
+class TestTaskStopPresenter:
+    def test_end_killed(self) -> None:
+        evt = _presenter("task_stop").format_end(
+            {"task_id": "agt-9"},
+            _FakeResult(
+                output={
+                    "status": "killed",
+                    "task_id": "agt-9",
+                    "task_type": "subagent",
+                }
+            ),
+            duration_ms=5,
+        )
+        assert evt.label == "TaskStop"
+        assert evt.detail is not None
+        assert evt.detail["task_id"] == "agt-9"
+        assert evt.detail["status"] == "killed"
+
+    def test_end_failed(self) -> None:
+        evt = _presenter("task_stop").format_end(
+            {"task_id": "agt-9"},
+            _FakeResult(error="Task 'agt-9' is already completed."),
+            duration_ms=5,
+        )
+        assert "failed" in evt.summary
+        assert evt.detail is not None
+        assert "error" in evt.detail
 
 
 class TestDefaultPresenter:
