@@ -16,4 +16,23 @@
 - Commits: C1=test 红测, C2=fix 实现, C3=docs(本段)
 - Next: R2 #111
 
+## R2 — #111 超时 bash 保留 command/description
+
+- Context: bash 超时被 watchdog 收口时，`run_terminal_reconcile` 只能从 `running_tool_calls` 拿到工具名（旧结构 `{call_id: name}`），硬塞 `input: {}`；前端 reducer `{...t, ...next}` 浅合并又让这条空 input 覆盖 tool_start 时已存的真实命令 → IM 只剩红 ×「bash Timed out」。
+- Decision:
+  - 后端（主修法）：`running_tool_calls[run_id][call_id]` 改存完整 `{"name", "input"}`（tool_start 时记入，main.py:3501）；reconcile 收口（main.py:3649）从中取原 input 重发，只改 status=failed + reason。兼容旧 bare-name 形态（跨部署在飞 call）。
+  - 前端（兜底）：`upsertToolCall` 用新 `mergeToolCall`——incoming 字段为空（undefined/null/""/{}）且已存值非空时，保留已存 input/output，不被空字段覆盖。
+- Rationale: 主修法在源头（后端收口）补回数据，前端兜底防「任何收口事件少带字段」同类问题复发（fix.md 不变量 3）。reconcile 止转圈行为不退化：在飞 call 仍收口 failed 并 pop（test_reconcile_still_closes_in_flight_call_as_failed 断言）。
+- Evidence:
+  - Tests: 后端 `tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py` 2 passed；前端 `chat-stream-reducer` 15 passed。
+  - Entry: 后端 observer = 真实代码入口（直接驱动 `_build_kernel_event_observer` 返回的 observer，喂真实 tool_start + run_terminal_reconcile 事件），断言下发的 `tool_call_completed` payload `input` 仍含 command/description。前端 reducer 是真实 WS 事件入口（`applyWsEvent`），断言 reconcile 空 input 不抹已有命令。
+  - Frontend State Matrix: bug-regression；覆盖「reconcile 收口事件空 input/output」状态。N/A 其余 UI 态（无新 UI）。
+  - Browser QA: 未起浏览器；reducer 纯函数经 vitest 真实事件序列验证（见 fix.md 验证段说明为何不强行起 Gateway e2e）。
+  - E2E/Regression: 后端 test_reconcile_preserves_tool_input.py + 前端 chat-stream-reducer.test.ts「reconcile 空 input 不覆盖」，均落库回归。
+  - Visual/Interaction: N/A
+  - 全树回归：`pytest -m "not e2e"` 2644 passed 2 skipped；前端 `vitest run` 440 passed + `tsc --noEmit` 通过。
+- Rollback: revert C2（fix commit）。
+- Commits: C1=test 红测（后端+前端）, C2=fix 实现, C3=docs（本段）
+- Next: milestone 完成
+
 <!-- 每个 roadpoint 完成后追加。 -->

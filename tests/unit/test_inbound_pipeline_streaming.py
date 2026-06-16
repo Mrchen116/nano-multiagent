@@ -621,7 +621,7 @@ class TestTerminalToolCallReconcile:
 
         manager, _ = self._manager()
         # Injected so we can assert the map is reaped — no production caller passes it.
-        running_tool_calls: dict[str, dict[str, str]] = {}
+        running_tool_calls: dict[str, dict[str, dict[str, object]]] = {}
         observer = _build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=self._ctx_store(),
@@ -653,7 +653,7 @@ class TestTerminalToolCallReconcile:
         from personal_assistant.main import _build_kernel_event_observer
 
         manager, _ = self._manager()
-        running_tool_calls: dict[str, dict[str, str]] = {}
+        running_tool_calls: dict[str, dict[str, dict[str, object]]] = {}
         observer = _build_kernel_event_observer(
             im_connection_manager_factory=lambda: manager,
             run_context_store=self._ctx_store(),
@@ -663,7 +663,9 @@ class TestTerminalToolCallReconcile:
         observer(
             {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "bash"}
         )
-        assert running_tool_calls.get("run-1") == {"c1": "bash"}
+        # bugfix-416 #111: the in-flight entry now stores the full call (name + input)
+        # so a reconcile can re-emit the original command — not just the bare name.
+        assert running_tool_calls.get("run-1") == {"c1": {"name": "bash", "input": {}}}
 
         observer({"event": "turn_end", "run_id": "run-1", "completed": True})
         await asyncio.sleep(0.02)

@@ -47,7 +47,7 @@ UI 状态矩阵：N/A（无新 UI；reducer 是纯函数，覆盖「收口事件
   3. C3 文档：progress.md + tasks 状态。
 - 验证: 后端 pipeline 测试全绿；fan-out 哨兵不投递、非哨兵正常。
 
-### R2 — #111 超时 bash 保留 command/description
+### R2 — #111 超时 bash 保留 command/description [DONE]
 
 - 步骤:
   1. C1 红测：新建 test_reconcile_preserves_tool_input.py（tool_start 记 input → reconcile 收口断言 payload 仍带 command/description）；前端 reducer 测试加空字段不覆盖 case。
