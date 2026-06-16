@@ -112,18 +112,27 @@ def build_message_completed_payload(
     message_id: str,
     content: str,
     token_usage: TokenUsage | None,
+    elapsed_ms: int | None = None,
 ) -> dict[str, Any]:
     """Build payload for the ``message.completed`` event.
 
     Emitted on kernel run_status=completed. ``content`` is the final full string;
     front-end replaces accumulated delta state with this canonical text to avoid
     drift if any delta frames were dropped.
+
+    Args:
+        conversation_id: Conversation the message belongs to.
+        message_id: Agent message that just completed.
+        content: Final full text content (replaces accumulated deltas on the client).
+        token_usage: Per-turn token accounting; ``None`` for legacy / non-LLM turns.
+        elapsed_ms: feat-414 — 本轮墙钟耗时（毫秒）。None 表示未计算（历史消息）。
     """
     return {
         "conversation_id": conversation_id,
         "message_id": message_id,
         "content": content,
         "token_usage": token_usage_to_dict(token_usage),
+        "elapsed_ms": elapsed_ms,
     }
 
 

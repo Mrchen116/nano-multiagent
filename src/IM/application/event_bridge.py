@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from IM.api.ws.event_types import (
     EVENT_MESSAGE_COMPLETED,
@@ -232,11 +233,21 @@ class EventBridge:
         delivery_status: str = "completed",
     ) -> None:
         """Close the agent message with terminal content + optional token usage."""
-        updated = self.message_repository.update_runtime_state(
+        # feat-414: 决策 1 — 收尾点取 UTC now，与 message.created_at（turn_start 建行时刻）
+        # 作差得本轮墙钟。created_at 是 ISO 字符串；两者都是 IM 内部时钟，无跨进程漂移。
+        now_utc = datetime.now(timezone.utc)
+        # 先写 content/token_usage/status，读回 created_at，再算并写 elapsed_ms。
+        current = self.message_repository.update_runtime_state(
             message_id=message_id,
             content_replace=final_content,
             token_usage=token_usage,
             delivery_status=delivery_status,
+        )
+        turn_start = datetime.fromisoformat(current.created_at)
+        elapsed_ms = round((now_utc - turn_start).total_seconds() * 1000)
+        updated = self.message_repository.update_runtime_state(
+            message_id=message_id,
+            elapsed_ms=elapsed_ms,
         )
         # bugfix-410-M2 (#98): a terminal run must drop any awaiting_permission
         # marker so a never-resolved ask cannot keep exempting an already-closed
@@ -252,6 +263,7 @@ class EventBridge:
                 message_id=message_id,
                 content=updated.content,
                 token_usage=token_usage,
+                elapsed_ms=elapsed_ms,
             ),
         )
 
