@@ -39,7 +39,7 @@ UI 状态矩阵：N/A（无新 UI；reducer 是纯函数，覆盖「收口事件
 
 ## Roadpoints
 
-### R1 — #107 群聊 fan-out NO_REPLY 抑制守卫泛化
+### R1 — #107 群聊 fan-out NO_REPLY 抑制守卫泛化 [DONE]
 
 - 步骤:
   1. C1 红测：扩展 test_inbound_pipeline_session.py，构造群聊 fan-out other-origin assistant_message=NO_REPLY，断言不 send_text；构造非哨兵内容断言正常投递。
