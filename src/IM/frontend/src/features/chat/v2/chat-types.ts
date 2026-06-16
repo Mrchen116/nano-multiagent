@@ -89,6 +89,8 @@ export interface Message {
   created_at: string;
   tool_calls?: ToolCall[];
   token_usage?: TokenUsage | null;
+  /** feat-414: 本轮 agent 处理墙钟（毫秒）。用户消息及旧行为 undefined / null。 */
+  elapsed_ms?: number | null;
   /**
    * bugfix-367: 同一 message 上所有 ask 按时间顺序保留 (允许 / 拒绝 / 当前 pending)。
    * 渲染时按 `request_id` 做 React key,新请求自然 mount 成新卡,旧 resolved 卡
@@ -143,7 +145,7 @@ export function classifyConversationKind(c: Pick<Conversation, "type" | "direct_
 export type WsEvent =
   | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; content: string; tool_calls: ToolCall[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string }
   | { type: "message.delta"; seq?: number; conversation_id: string; message_id: string; delta_text: string }
-  | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null }
+  | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null; elapsed_ms?: number | null }
   | { type: "tool_call.upserted"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
   | { type: "tool_call.completed"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
   // bugfix-367 (updated from feat-333-M3/R1): permission ask flow. Backend emits

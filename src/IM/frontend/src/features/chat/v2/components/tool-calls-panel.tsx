@@ -9,7 +9,8 @@ interface ToolCallsPanelProps {
   toolCalls: ToolCall[];
 }
 
-function formatDuration(ms: number): string {
+// feat-414: 抽共享工具，供单工具行与气泡耗时复用（message-pane.tsx import 它）。
+export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const s = ms / 1000;
   if (s < 60) return `${s.toFixed(1)}s`;
@@ -17,10 +18,8 @@ function formatDuration(ms: number): string {
   const rem = s % 60;
   return rem > 0 ? `${m}m ${rem.toFixed(0)}s` : `${m}m`;
 }
-
-function totalDuration(toolCalls: ToolCall[]): number {
-  return toolCalls.reduce((sum, tc) => sum + (tc.duration_ms ?? 0), 0);
-}
+// feat-414 决策 4: totalDuration 求和已移除 —— 该聚合值等于各工具并发重叠之和，
+// 并不等于 wall-clock 墙钟；气泡现在展示后端计算的真实墙钟（elapsed_ms）。
 
 /**
  * Collapsible tool-call sidecar attached to an agent message. Top button shows
@@ -36,7 +35,6 @@ export function ToolCallsPanel({ toolCalls }: ToolCallsPanelProps) {
   const [expanded, setExpanded] = useState(false);
   if (toolCalls.length === 0) return null;
   const anyRunning = toolCalls.some((c) => c.status === "running");
-  const total = totalDuration(toolCalls);
 
   return (
     <div className="chat-tool-calls">
@@ -58,7 +56,8 @@ export function ToolCallsPanel({ toolCalls }: ToolCallsPanelProps) {
               · {t("chat.messagePane.running")}
             </span>
           ) : (
-            `${toolCalls.length} ${toolCalls.length === 1 ? t("chat.messagePane.toolCall") : t("chat.messagePane.toolCalls")} · ${formatDuration(total)}`
+            // feat-414 决策 4: 折叠态只显示次数，去掉求和时长（用气泡 elapsed_ms 替代）。
+            `${toolCalls.length} ${toolCalls.length === 1 ? t("chat.messagePane.toolCall") : t("chat.messagePane.toolCalls")}`
           )}
         </span>
       </button>

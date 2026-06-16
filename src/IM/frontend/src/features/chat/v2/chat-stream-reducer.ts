@@ -95,7 +95,9 @@ export function applyWsEvent(
         ...m,
         content: ev.content,
         delivery_status: "completed",
-        token_usage: ev.token_usage
+        token_usage: ev.token_usage,
+        // feat-414: 权威耗时来自后端，覆盖前端本地 tick。
+        elapsed_ms: ev.elapsed_ms,
       }));
     }
     case "tool_call.upserted":
