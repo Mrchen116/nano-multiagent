@@ -959,6 +959,10 @@ class Kernel:
     def cancel(self, run_id: str) -> RunInfo | None:
         """Cancel a queued or running run by id.
 
+        The registry force-cancels the carrier Task (releasing the session lock);
+        here we also cancel any permission requests this run is still parked on so
+        the broker future does not leak after the run is gone (bugfix-417-M1, #110).
+
         Args:
             run_id: Run to cancel.
 
@@ -966,7 +970,10 @@ class Kernel:
             Updated RunInfo, or None if run not found.
         """
         record = self._c.runs_registry.cancel(run_id)
-        return _to_run_info(record) if record is not None else None
+        if record is None:
+            return None
+        self._c.permission_broker.cancel_all_pending(run_id=run_id)
+        return _to_run_info(record)
 
     def get_run(self, run_id: str) -> RunInfo | None:
         """Fetch the current state of a run.

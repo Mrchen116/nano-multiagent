@@ -109,9 +109,7 @@ def test_kernel_cancel_denies_pending_permission_for_run(tmp_path: Path) -> None
         # Register a pending permission request for this run on the registry loop
         # (broker futures must be created/resolved on the same loop).
         async def _register():  # noqa: ANN202
-            return broker.register_request(
-                "req_for_run", run_id=submitted.run_id
-            )
+            return broker.register_request("req_for_run", run_id=submitted.run_id)
 
         pending_future = _run_on_loop(loop, _register())
         assert broker.is_pending("req_for_run")
