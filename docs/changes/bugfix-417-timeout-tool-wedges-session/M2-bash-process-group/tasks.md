@@ -8,11 +8,11 @@ bash 工具超时/中断时连同**派生子进程树**一起回收，执行线�
 
 ## 退出标准
 
-- [ ] `Popen(..., start_new_session=True)` 起独立进程组
-- [ ] 超时 / KeyboardInterrupt 时 `os.killpg(os.getpgid(pid), SIGTERM)` 宽限后 `SIGKILL` 杀整组（不再只 `process.kill()` 杀直接子）
-- [ ] 收尾 drain 改带超时/非阻塞读，孤儿持写端时执行线程必然解封、不挂死
-- [ ] 超时后无孤儿子进程残留的回归测试全绿
-- [ ] feat-414/bugfix-354 前台流式回显语义不破（selector 实时 chunk 事件保留）
+- [x] `Popen(..., start_new_session=True)` 起独立进程组
+- [x] 超时 / KeyboardInterrupt 时 `os.killpg(os.getpgid(pid), SIGTERM)` 宽限后 `SIGKILL` 杀整组（不再只 `process.kill()` 杀直接子）
+- [x] 收尾 drain 改带超时/非阻塞读，孤儿持写端时执行线程必然解封、不挂死
+- [x] 超时后无孤儿子进程残留的回归测试全绿
+- [x] feat-414/bugfix-354 前台流式回显语义不破（selector 实时 chunk 事件保留）
 
 ## 测试策略
 
