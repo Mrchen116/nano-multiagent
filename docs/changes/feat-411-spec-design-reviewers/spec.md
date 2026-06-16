@@ -46,9 +46,45 @@
 |---|---|---|
 | **继承骨架** | ① 精确率校准（只 flag 会让下游真出问题的，措辞/风格一律不报）② `Approved\|Issues Found` + Issues + Recommendations 输出契约 ③ 独立第三方 / subagent 视角定位 | 这三样与文档体系无关，是好评审的通用骨架，直接复用。 |
 | **不参考（显式排除）** | superpowers plan-reviewer 的 Completeness（缺 task/step）、Task Decomposition（step 可执行性）、Buildability（零上下文工程师照脚本敲）、No-Placeholder 极端标准；spec 侧的 YAGNI/过度工程、"single plan / 拆 sub-project" 的 Scope 动作 | 这些预设「文档=逐行实现计划」。本项目 design 故意不含代码/step、milestone 目录故意空（worker 自己填 tasks.md）；spec 故意不含任何实现。照搬会把**故意下沉/分层**的内容系统性误报成缺陷。所以不仅不继承，还要在 skill 里**显式钉住「不要报这些」**。 |
-| **新增（本体系独有）** | spec：用户可观察红线、澄清原话保真、Requirement/Scenario 结构合规、失败/边界/空态覆盖、grounding 痕迹、bugfix RCA 深度；design：现状分析/契约层 grounding、delta-spec 覆盖、两轨退出标准（[reviewer]/[worker]）、Milestone 反横切拆分、Runbook 可照搬、双目的分层是否崩 | superpowers 一条都没有——它们对应本项目 spec/design 体系的核心失败模式，是这两个 skill 真正的价值所在。逐条维度写在各自 design.md。 |
+| **新增（本体系独有）** | spec：用户可观察红线、澄清原话保真、Requirement/Scenario 结构合规、失败/边界/空态覆盖、grounding 痕迹、bugfix RCA 深度；design：现状分析/契约层 grounding、关键决策完整/拍死/无歧义、符合本 unit spec 全部约束、接口数据流闭合、delta-spec 覆盖、两轨退出标准（[reviewer]/[worker]）、Milestone 反横切拆分、给人审核那层是否直观、方案最优性/非临时凑合（Runbook 已降为常规项） | superpowers 一条都没有——它们对应本项目 spec/design 体系的核心失败模式，是这两个 skill 真正的价值所在。逐条维度写在各自 design.md。 |
 
 一处刻意的非对称（不是疏漏）：**YAGNI / 过度设计在 spec-reviewer 不查、在 design-reviewer 要查**。因为本项目把实现从 spec 剥离了——spec 里没有实现可供评判是否过度，而 design 里「找不到 spec 驱动的决策」正是过度设计的信号。这正是体系拆两份文档的直接结果。
+
+## 落地迭代：据使用反馈新增的要求
+
+两个 skill 落地后，用户在实际打磨中陆续提了新要求，逐条迭代进 skill（尤其 design-reviewer）。关键**原话原样保留**如下，作为这些维度的来源依据（区别于上方「澄清记录」——那是动手前的对齐，这里是落地后的迭代）：
+
+1. **通用性（skill 不焊死本仓架构）**
+   > 我的 skill 是通用 skill。
+   > 「kernel 视角翻译…」这个描述仅针对本仓。
+
+   → design-reviewer 去掉 kernel / agent.sdk / im / gateway / cli / core / AGENTS.md 等本仓专有名词，泛化为「包 / 模块」「项目既定分层规则」「代码消费者（库 / SDK）」。
+
+2. **反过度强调、守住天平（别因强调"design 不含实现细节"而漏报真缺陷）**
+   > 我觉得 …… 写的过于强调"没有代码、没有 step、milestone 目录里没有 tasks.md"这个了。你太过于强调呢，就会导致计划的不细，有歧义，关键设计缺失等问题被漏掉。
+   > 也需要有少量的话，来强调两者的天平，不能放过"设计本身太粗"。
+
+   → 砍掉各处重复的反误报强调；在「不要报什么」末尾加一句天平：缺实现细节→不报，缺该拍的决策 / 契约 / 边界→报。
+
+3. **给人直观理解（design 第一目的）**
+   > #### 7. Runbook…、#### 8. 双目的分层… 这都不是很重点。对于双目分层，更重点的可能是，到底有没有给人直观的理解。
+
+   → Runbook 降为常规项；双目的分层重构成「给人的那层够不够直观」，头号症状＝没有把方案串起来的整体思路、人看不懂没法 review 方向。
+
+4. **design 常见失败模式（新增三类核心维度的来源）**
+   > 设计总是遇到的问题是，方案不是架构最合理的；只是临时方案，不是长远方案；和 spec 要求不一致；前后矛盾，或者和代码、长青 spec 矛盾、不够细节，导致 worker 有歧义，自由发挥。
+
+   → 对照补齐：和代码 / 长青 spec 矛盾（§1）、前后矛盾（§2）、不够细节致歧义（§2 强化）、和 spec 不一致（§3 新增）、非最优 & 临时方案（§9 新增）。
+
+5. **「和 spec 不一致」要写得宽**
+   > 符合该 unit 的 spec 要求，因为 unit 的 spec 中不单单包含 requirement。
+
+   → §3 写成「符合本 unit 首文档全部约束」，显式覆盖【用户场景】【澄清记录】【范围与非目标】，不只【验收标准 / Requirement】。
+
+6. **设计品味维度用 WARNING、信任 agent**
+   > 这是设计品味问题，需要 WARNING，不用太担心误报。design agent 有自己的判断力。
+
+   → §9（最优性 / 临时凑合）统一报 WARNING，不做"绑死证据 / 降级"的防误报处理。
 
 ## 验收标准
 
@@ -86,9 +122,21 @@
 - **WHEN** 用户调 `change-design-reviewer`
 - **THEN** 它报 CRITICAL，指出横切拆分让 worker 串行等前置、连锁波及，建议退回单 M1 或按垂直切片重拆
 
-#### Scenario: delta-spec / Runbook 缺失
-- **WHEN** design 有对外行为变化的包却没产 delta-spec、或动了常驻服务却没写可照搬的 Runbook
-- **THEN** reviewer 分别报 CRITICAL，并说明收尾无法对账 / reviewer 走旅程会卡住
+#### Scenario: delta-spec 缺失
+- **WHEN** design 有对外行为变化的包却没产 delta-spec
+- **THEN** reviewer 报 CRITICAL，说明收尾无法对账（动了常驻服务却没写可照搬 Runbook 属常规项，报 WARNING，不再单列致命）
+
+#### Scenario: 偏离本 unit spec 的要求 / 范围
+- **WHEN** design 漏覆盖 spec 的某条 Requirement / 用户场景、或决策与 spec 要求或【澄清记录】里用户拍板的意图相抵、或做了 spec 列为【非目标】的东西
+- **THEN** reviewer 报 CRITICAL（越界夹带按程度），点出与 spec 哪一处冲突 / 漏覆盖
+
+#### Scenario: 关键决策悬而未决或有歧义
+- **WHEN** design 的关键决策停在「待定 / 看情况」、本该拍的板缺位、或边界 / 接口含糊到两个 worker 会建出不兼容的东西
+- **THEN** reviewer 报 CRITICAL，指出 worker 会被迫猜、不同的猜导致不同架构
+
+#### Scenario: 方案非最优 / 临时凑合（设计品味）
+- **WHEN** design 选了明显绕路 / 重复造轮子 / 不沿用既有模式，或是 hardcode、绕过抽象、留债无计划的临时方案
+- **THEN** reviewer 报 WARNING，点出更优走法或长远代价（品味判断，放手提、不过度防误报）
 
 ### Requirement: 不误报「故意下沉 / 分层」的内容
 
@@ -101,6 +149,11 @@
 - **GIVEN** 一份合格的 spec.md 不含模块划分、接口签名、选型
 - **WHEN** 用户调 `change-spec-reviewer`
 - **THEN** 它**不**报「缺技术方案 / 缺实现」，也不对 spec 评判 YAGNI/过度工程
+
+#### Scenario: 但「设计本身太粗」不被豁免（天平另一端）
+- **GIVEN** design 缺的是该拍的决策 / 契约 / 边界（而非实现细节）
+- **WHEN** 用户调 `change-design-reviewer`
+- **THEN** 它**照常报**，不因「不误报故意下沉」而放过——界线：缺实现细节→不报，缺设计决策→报
 
 ### Requirement: 评审输出契约一致
 
@@ -119,6 +172,7 @@
   - 各自继承 superpowers 评审骨架 + 显式排除其有害维度 + 新增本项目 spec/design 体系的检查维度
   - 定位为门禁前（spec 进 design 之前、design 进 orchestrator 之前）的独立第三方评审
   - 输出：inline 结论 + Issues Found 时落盘评审报告
+  - 两个 skill 保持**通用**：只依赖 change-* 方法论概念，不焊死本仓具体架构名词（包名 / SDK / 分层名），可随这套 SDD 流程复用到别的仓
 
 - **非目标**：
   - **不改造 author skill**（change-spec-author / change-design-author）让其在收尾自动派发 reviewer——保持最小侵入，是否接入由用户后续决定
