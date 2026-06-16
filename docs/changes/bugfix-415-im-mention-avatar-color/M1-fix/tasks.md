@@ -22,6 +22,6 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | 添加 regression 测试（Red） | TODO |
-| R2 | 修复两处调用点传 color（Green） | TODO |
-| R3 | 回填 fix.md + progress 收尾 | TODO |
+| R1 | 添加 regression 测试（Red） | DONE |
+| R2 | 修复两处调用点传 color（Green） | DONE |
+| R3 | 回填 fix.md + progress 收尾 | DONE |
