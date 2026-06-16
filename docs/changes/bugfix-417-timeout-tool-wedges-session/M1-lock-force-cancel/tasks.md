@@ -30,7 +30,7 @@
 
 ## Roadpoints
 
-### R1 — registry.cancel 强制取消承载 Task，释放 session 锁
+### R1 — registry.cancel 强制取消承载 Task，释放 session 锁 — DONE
 
 - 步骤:
   - C1（红）：在 test_run_cancel.py 加测试——一个 runtime parked 在 `asyncio.Event().wait()`（模拟卡死/parked），用真实 SessionManager（持真 per-session 锁，`_run_locked` 路径），cancel 后断言:
