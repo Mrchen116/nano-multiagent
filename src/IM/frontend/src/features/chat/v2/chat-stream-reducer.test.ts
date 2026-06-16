@@ -63,6 +63,22 @@ describe("chat-stream-reducer", () => {
     expect(next.messages[0]!.token_usage).toEqual({ output: 312, context_used: 14800, context_window: 200000 });
   });
 
+  // feat-414-M1: message.completed 带出 elapsed_ms，reducer 写入 Message
+  it("writes elapsed_ms from message.completed event onto the message", () => {
+    const seed: Message = { ...userMessage("m3", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
+    const state: ConversationState = { ...emptyConversationState, messages: [seed] };
+    const next = applyWsEvent(state, {
+      type: "message.completed",
+      conversation_id: "c1",
+      message_id: "m3",
+      content: "done",
+      token_usage: null,
+      elapsed_ms: 4200,
+    });
+    expect(next.messages[0]!.delivery_status).toBe("completed");
+    expect(next.messages[0]!.elapsed_ms).toBe(4200);
+  });
+
   it("upserts a running tool_call onto the in-flight message and updates it on completion", () => {
     const seed: Message = { ...userMessage("m2", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
     const state: ConversationState = { ...emptyConversationState, messages: [seed] };
