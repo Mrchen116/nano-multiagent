@@ -23,27 +23,27 @@
 
 | 状态 | 覆盖方式 |
 |---|---|
-| running（进行中，实时 tick） | 浏览器验收 + vitest 状态断言 |
-| completed（定格） | 浏览器验收 + vitest 状态断言 |
+| running（进行中，实时 tick） | vitest integration test（chat-workspace.integration.test.tsx） |
+| completed（定格） | vitest integration test + REST API 验证（elapsed_ms=3720 → ⏱ 3.7s） |
 | failed（无计时显示） | vitest 状态断言 |
 | 用户气泡（不显示耗时） | vitest 状态断言 |
-| 工具徽标折叠（无总时长） | 浏览器验收 |
-| 工具徽标折叠（有 running 标） | 浏览器验收 |
-| 展开单工具 duration 保留 | 浏览器验收 |
+| 工具徽标折叠（无总时长） | vitest（tool-calls-panel.test.tsx） |
+| 工具徽标折叠（有 running 标） | vitest |
+| 展开单工具 duration 保留 | vitest |
 | mobile viewport | N/A（status 行宽度随气泡自然缩减，不触发特殊布局） |
 | dark mode | N/A（项目无 dark mode 切换） |
 
 ### 用户路径分类
 
-- 气泡耗时显示：`normal-ui`（无历史 bug，浏览器临时验收 + vitest 回归）
-- tool-calls-panel 去求和：`normal-ui`（浏览器临时验收，视觉改动）
+- 气泡耗时显示：`normal-ui`（无历史 bug，vitest integration 回归 + REST API 端到端验证）
+- tool-calls-panel 去求和：`normal-ui`（vitest 覆盖，视觉改动）
 
 ## Roadpoints
 
 | ID | 标题 | 范围 | 状态 |
 |---|---|---|---|
-| R1 | 后端 DB/domain/repo | db.py DDL + models.py Message + repositories.py | TODO |
-| R2 | event_bridge + WS payload | event_bridge.py on_message_completed + event_types.py build_message_completed_payload | TODO |
-| R3 | REST route | messages.py MessageResponse + to_message_response | TODO |
-| R4 | 前端类型 + reducer + tool-calls-panel | chat-types.ts + chat-stream-reducer.ts + tool-calls-panel.tsx | TODO |
-| R5 | 前端 message-pane 气泡计时 | message-pane.tsx running tick + completed 定格 | TODO |
+| R1 | 后端 DB/domain/repo | db.py DDL + models.py Message + repositories.py | DONE |
+| R2 | event_bridge + WS payload | event_bridge.py on_message_completed + event_types.py build_message_completed_payload | DONE |
+| R3 | REST route | messages.py MessageResponse + to_message_response | DONE |
+| R4 | 前端类型 + reducer + tool-calls-panel | chat-types.ts + chat-stream-reducer.ts + tool-calls-panel.tsx | DONE |
+| R5 | 前端 message-pane 气泡计时 | message-pane.tsx running tick + completed 定格 | DONE |
