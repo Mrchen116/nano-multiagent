@@ -71,8 +71,12 @@
   - Tests: `src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx` — `shows elapsed_ms in the bubble status row after message.completed`（FakeWebSocket 注入 `elapsed_ms=1500`，断言 `data-testid="message-elapsed-{id}"` 内容包含 "1.5s"）；frontend 418 passed。
   - Entry: `src/IM/frontend/src/features/chat/v2/components/message-pane.tsx`
   - Frontend State Matrix: running tick ✓ vitest；completed ⏱ 定格 ✓ vitest + REST API 实测；用户气泡无耗时 ✓ vitest
-  - Browser QA: 截图 `browser-qa-elapsed-completed.png`（同目录）—— 气泡状态行显示 `⏱ 3.7s`（elapsed_ms=3720），位于时间戳右侧，中性灰；用户消息气泡（右侧绿色）无耗时；与 prototype.html 视觉对齐。REST API 实测 `elapsed_ms=3720` 返回 ✓。
+  - Browser QA:
+    - **完成态截图**：`ACCEPTANCE/feat-414-M1/completed-state.png`（viewport 1280×720）—— 气泡状态行显示 `⏱ 3.7s`（elapsed_ms=3720），位于时间戳右侧，中性灰（`oklch(0.62 0.01 240)`）；用户消息气泡（右侧绿色）无耗时显示；与 prototype.html after 列第 2 个气泡（`⏱ 3.4s` 中性灰）视觉一致。
+    - **进行中截图**：`ACCEPTANCE/feat-414-M1/running-state.png`（viewport 1280×720）—— 最底部消息状态行显示实时 tick 秒数（`1.2s`），DOM 验证 `.animate-pulse` 脉冲点 2 个（坐标 x:360 y:505 和 y:590，6×6px，class `inline-block w-[6px] h-[6px] rounded-full bg-[oklch(0.70 0.18 60)] animate-pulse`），与 prototype.html 进行中气泡（脉冲点 + `⏱ 0s` 走秒）视觉一致。
+    - **工具徽标折叠态**：`tool-calls-panel.tsx` 移除了 `totalDuration` 函数，折叠态 label 仅显示 `{count} tool calls`，无 `· Xs` 累加耗时；vitest 单测 `does not show total duration in collapsed state` 覆盖（frontend 418 passed）。
+    - REST API 实测 `elapsed_ms=3720` 返回 ✓。
   - E2E/Regression: frontend 418 passed; pytest 2641 passed
-  - Visual/Interaction: ⏱ 字符 + neutral gray 与 prototype.html 设计对齐；running 阶段显示本地 tick 秒数文字
+  - Visual/Interaction: ⏱ 字符 + neutral gray（完成态）+ animate-pulse 脉冲点（进行中）与 prototype.html 设计完全对齐；进行中阶段 tick 锚定 `message.created_at`（agent 轮次起点），非用户消息时间
 - Rollback: 移除 `useState(tickMs)` + `useEffect`；移除 `elapsedDisplay` 三路选择；JSX 恢复为原 running/completed 纯文字状态。
 - Commits: C1=a9e6f25b, C2=4b05c5b5, C3=本 docs commit
