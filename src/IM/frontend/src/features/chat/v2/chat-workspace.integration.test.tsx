@@ -261,6 +261,42 @@ describe("ChatWorkspacePage v2 — integration", () => {
     await waitFor(() => expect(screen.getByText(/Hello there/)).toBeInTheDocument());
   });
 
+  // feat-414-M1: message.completed 带 elapsed_ms → 气泡 status 行显示耗时
+  it("shows elapsed_ms in the bubble status row after message.completed", async () => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    const ws = FakeWebSocket.instances[0]!;
+
+    act(() => {
+    ws.emit({
+      type: "message.created",
+      conversation_id: "c1",
+      message_id: "m-elapsed",
+      sender_user_id: "agent:a-planner",
+      sender_type: "agent",
+      content: "",
+      tool_calls: [],
+      token_usage: null,
+      delivery_status: "running",
+      created_at: new Date(Date.now() - 5000).toISOString(),
+    });
+    ws.emit({
+      type: "message.completed",
+      conversation_id: "c1",
+      message_id: "m-elapsed",
+      content: "Done answer",
+      token_usage: null,
+      elapsed_ms: 3721,
+    });
+    });
+
+    await waitFor(() => {
+      const chip = screen.getByTestId("message-elapsed-m-elapsed");
+      // formatDuration(3721) = "3.7s"
+      expect(chip.textContent).toContain("3.7s");
+    });
+  });
+
   it("posts a new message and clears the composer", async () => {
     const user = userEvent.setup();
     renderAtRoute("/chat/c1");

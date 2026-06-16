@@ -734,3 +734,18 @@ describe("ToolCallsPanel · success-false failure (Round-3 fix)", () => {
     expect(card?.textContent).toContain("create");
   });
 });
+
+// feat-414-M1 W3: 折叠态工具徽标 toggle button 不含求和耗时（无 `· Xs` 后缀）
+describe("feat-414-M1 · collapsed toggle has no total duration (W3)", () => {
+  const COMPLETED_CALLS: ToolCall[] = [
+    { id: "c1", name: "bash", status: "completed", input: {}, output: "ok", duration_ms: 1200 },
+    { id: "c2", name: "read", status: "completed", input: {}, output: "ok", duration_ms: 800 },
+  ];
+
+  it("does not show total duration in the collapsed toggle button text", () => {
+    render(<ToolCallsPanel toolCalls={COMPLETED_CALLS} />);
+    const btn = screen.getByRole("button", { name: /tool call/i });
+    // Must not contain a pattern like "· 1.2s" or "· 800ms"
+    expect(btn.textContent).not.toMatch(/·\s*\d/);
+  });
+});

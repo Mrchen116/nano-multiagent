@@ -21,7 +21,7 @@ import { MentionPicker } from "./mention-picker";
 import { NodeChip } from "./node-chip";
 import { PermissionCard } from "./permission-card";
 import { TokenChip } from "./token-chip";
-import { ToolCallsPanel } from "./tool-calls-panel";
+import { formatDuration, ToolCallsPanel } from "./tool-calls-panel";
 import { remarkMention } from "./remark-mention";
 
 export interface MessagePaneProps {
@@ -369,6 +369,28 @@ function MessageBubble({
   const statusAlign = isUser ? "justify-end" : "justify-start";
   const deliveryStatus = message.delivery_status;
 
+  // feat-414 决策 2: running 时前端本地 tick（锚 message.created_at），
+  // completed 后用后端权威 elapsed_ms 定格，不再 tick。
+  const [tickMs, setTickMs] = useState<number>(() => {
+    if (deliveryStatus !== "running") return 0;
+    return Math.max(0, Date.now() - new Date(message.created_at).getTime());
+  });
+  useEffect(() => {
+    if (deliveryStatus !== "running") return;
+    const origin = new Date(message.created_at).getTime();
+    const id = setInterval(() => setTickMs(Date.now() - origin), 1000);
+    return () => clearInterval(id);
+  }, [deliveryStatus, message.created_at]);
+
+  // completed 用权威后端值；running 用前端本地 tick；其余（user/failed）不展示。
+  const elapsedDisplay: string | null = isAgent
+    ? deliveryStatus === "completed" && message.elapsed_ms != null
+      ? formatDuration(message.elapsed_ms)
+      : deliveryStatus === "running"
+        ? formatDuration(tickMs)
+        : null
+    : null;
+
   if (isSystem) {
     return (
       <div className="chat-bubble-system">
@@ -432,9 +454,23 @@ function MessageBubble({
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
           {deliveryStatus === "running" && (
-            <span className="flex items-center gap-1 text-[oklch(0.65 0.15 60)]">
-              <span className="inline-block w-[6px] h-[6px] rounded-full bg-[oklch(0.70 0.18 60)] animate-pulse" />
-              {t("chat.messagePane.running")}
+            // feat-414: oklch 任意值含空格，Tailwind 会拆词导致类名失效；改用内联 style 确保颜色可靠渲染
+            <span className="flex items-center gap-1" style={{ color: "oklch(0.65 0.15 60)" }}>
+              <span
+                className="inline-block w-[6px] h-[6px] rounded-full animate-pulse"
+                style={{ backgroundColor: "oklch(0.70 0.18 60)" }}
+              />
+              {/* feat-414: running 态实时走 tick；有值时加 ⏱ 与 prototype.html 对齐，无值时回退文案 */}
+              {elapsedDisplay != null ? `⏱ ${elapsedDisplay}` : t("chat.messagePane.running")}
+            </span>
+          )}
+          {/* feat-414: completed agent 消息在时间戳右侧显示本轮墙钟，中性灰 */}
+          {deliveryStatus === "completed" && elapsedDisplay && (
+            <span
+              data-testid={`message-elapsed-${message.id}`}
+              className="text-[oklch(0.55 0.01 240)]"
+            >
+              ⏱ {elapsedDisplay}
             </span>
           )}
           {deliveryStatus === "failed" && (

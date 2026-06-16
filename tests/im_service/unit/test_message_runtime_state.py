@@ -147,6 +147,75 @@ def test_tool_call_validates_status() -> None:
         )
 
 
+def test_elapsed_ms_is_none_on_create(tmp_path: Path) -> None:
+    """feat-414-M1: turn_start 建行时 elapsed_ms 为 NULL。"""
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="",
+        allow_empty=True,
+    )
+    assert created.elapsed_ms is None
+
+
+def test_update_runtime_state_persists_elapsed_ms(tmp_path: Path) -> None:
+    """feat-414-M1: update_runtime_state 传入 elapsed_ms 时写入并能从 list_messages 读回。"""
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="",
+        allow_empty=True,
+    )
+    messages.update_runtime_state(
+        message_id=created.id,
+        content_replace="final answer",
+        delivery_status="completed",
+        elapsed_ms=3721,
+    )
+    listed = messages.list_messages(conversation_id=conversation.id)
+    assert listed[-1].elapsed_ms == 3721
+
+
+def test_update_runtime_state_elapsed_ms_none_leaves_column_unchanged(
+    tmp_path: Path,
+) -> None:
+    """feat-414-M1: elapsed_ms=None（默认）时不改写已有值（Sentinel 机制，同 token_usage）。"""
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="",
+        allow_empty=True,
+    )
+    # 写入 elapsed_ms
+    messages.update_runtime_state(
+        message_id=created.id,
+        delivery_status="completed",
+        elapsed_ms=5000,
+    )
+    # 再次 update 不传 elapsed_ms，不应清掉已有值
+    messages.update_runtime_state(
+        message_id=created.id,
+        content_replace="updated content",
+    )
+    listed = messages.list_messages(conversation_id=conversation.id)
+    assert listed[-1].elapsed_ms == 5000
+
+
 def test_decode_token_usage_with_null_total_derives_from_context_plus_output(
     tmp_path: Path,
 ) -> None:
