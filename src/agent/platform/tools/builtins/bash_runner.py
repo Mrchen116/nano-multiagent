@@ -14,8 +14,10 @@ Design notes:
 
 from __future__ import annotations
 
+import errno
 import os
 import selectors
+import signal
 import tempfile
 import time
 from dataclasses import dataclass
@@ -77,12 +79,17 @@ class BashRunner:
 
         MAX_FILE_BYTES = 1 * 1024 * 1024  # 1MB hard cap
 
+        # start_new_session=True 让子 bash 成为新进程组/会话 leader（pgid==pid），
+        # 这样 npm/build 派生的孙进程都落在同一进程组里。超时/中断时按进程组
+        # （-pgid）发信号即可整棵进程树一起回收，而非只杀直接子 bash 留下孤儿
+        # 孙进程持 stdout 写端、致收尾 drain 永等不到 EOF（bugfix-417 C 层根因）。
         process = subprocess.Popen(  # noqa: S603
             ["bash", "-c", command],
             cwd=str(cwd),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=False,
+            start_new_session=True,
         )
         if process.stdout is None:
             raise ToolError("command stream unavailable", tool_name=tool_name)
@@ -114,7 +121,7 @@ class BashRunner:
                         and process.poll() is None
                     ):
                         timed_out = True
-                        process.kill()
+                        _kill_process_group(process)
 
                     wait_timeout = heartbeat_interval
                     if deadline is not None:
@@ -158,18 +165,21 @@ class BashRunner:
             except KeyboardInterrupt:
                 aborted = True
                 if process.poll() is None:
-                    process.kill()
+                    _kill_process_group(process)
             finally:
                 selector.close()
 
-            # Drain remaining stdout
-            remaining = process.stdout.read()
-            if remaining:
-                chunk = remaining.decode("utf-8", errors="replace")
+            # Drain remaining stdout. 用非阻塞带超时读取，而非阻塞 process.stdout.read()：
+            # 后者会等所有持写端的进程关闭 fd 才返回 EOF；若有孤儿孙进程持写端不退，
+            # 阻塞读会永挂死承载本调用的执行线程（bugfix-417 C 层事故链的最后一环）。
+            # 正常路径（进程已退、写端已关）下非阻塞读同样能读完残余字节并见 EOF。
+            chunk = _drain_nonblocking(process.stdout)
+            if chunk:
+                text_chunk = chunk.decode("utf-8", errors="replace")
                 if bytes_written < MAX_FILE_BYTES:
-                    out_f.write(chunk)
+                    out_f.write(text_chunk)
                     out_f.flush()
-                    bytes_written += len(chunk.encode("utf-8"))
+                    bytes_written += len(text_chunk.encode("utf-8"))
                 else:
                     was_limited = True
 
@@ -220,3 +230,81 @@ def _emit_event(
         callback(dict(payload))
     except Exception:
         return
+
+
+# 进程组终止宽限期：先 SIGTERM 给整组一个机会自行退出（flush 输出/善后），
+# 这一段时间内仍未退则升级 SIGKILL 强杀。取值远小于任何工具 timeout，
+# 不影响超时及时性，又给子进程留出干净收尾的窗口（决策 6）。
+_PROCESS_GROUP_TERM_GRACE = 2.0
+# drain 总时限：进程组已被 killpg 后写端应很快关闭；给一个上限兜底，
+# 即使个别孤儿仍持写端，执行线程也必然在此时限内解封，不挂死。
+_DRAIN_TIMEOUT = 2.0
+
+
+def _kill_process_group(process: subprocess.Popen) -> None:
+    """SIGTERM 整个进程组、宽限后 SIGKILL，回收 bash 派生的整棵进程树。
+
+    依赖 Popen(start_new_session=True)：子 bash 是进程组 leader，pgid==pid，
+    其派生的孙进程同属该组。`os.killpg` 对 -pgid 发信号杀整组，而非只杀直接
+    子进程留下持 stdout 写端的孤儿（bugfix-417 C 层根因）。
+
+    幂等且容错：进程已退出 / 进程组已不存在时 `os.getpgid` 抛 ProcessLookupError，
+    静默跳过——回收是尽力而为，不应让 race 抛出影响上层收尾。
+    """
+    try:
+        pgid = os.getpgid(process.pid)
+    except ProcessLookupError:
+        return
+
+    def _signal_group(sig: int) -> bool:
+        """对进程组发信号；组已不存在返回 False。"""
+        try:
+            os.killpg(pgid, sig)
+            return True
+        except ProcessLookupError:
+            return False
+
+    if not _signal_group(signal.SIGTERM):
+        return
+
+    # 宽限期内轮询进程组是否已整体退出（leader 退出后用 kill(pgid, 0) 探测组存活）
+    deadline = time.monotonic() + _PROCESS_GROUP_TERM_GRACE
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            break
+        time.sleep(0.05)
+
+    # 仍存活则强杀整组
+    if process.poll() is None:
+        _signal_group(signal.SIGKILL)
+
+
+def _drain_nonblocking(stream) -> bytes:
+    """非阻塞带超时地读尽 stream 残余字节，永不无限阻塞。
+
+    将底层 fd 切到非阻塞模式后循环读：读到 EOF（b"")即收尾完成；EAGAIN/EWOULDBLOCK
+    表示暂无数据，用 selector 等一小段，超过 `_DRAIN_TIMEOUT` 总时限则放弃（孤儿
+    持写端的极端情况），保证承载执行线程必然解封（bugfix-417 C 层）。
+    """
+    fd = stream.fileno()
+    os.set_blocking(fd, False)
+    selector = selectors.DefaultSelector()
+    selector.register(fd, selectors.EVENT_READ)
+    collected = bytearray()
+    deadline = time.monotonic() + _DRAIN_TIMEOUT
+    try:
+        while time.monotonic() < deadline:
+            try:
+                chunk = os.read(fd, 4096)
+            except OSError as exc:
+                if exc.errno in (errno.EAGAIN, errno.EWOULDBLOCK):
+                    # 暂无数据：等下一次可读或超时
+                    selector.select(timeout=max(0.0, deadline - time.monotonic()))
+                    continue
+                raise
+            if not chunk:  # EOF — 写端全部关闭
+                break
+            collected.extend(chunk)
+    finally:
+        selector.close()
+    return bytes(collected)
