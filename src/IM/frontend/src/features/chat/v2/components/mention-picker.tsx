@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import type { MentionCandidate } from "../chat-types";
-import { Avatar } from "./avatar";
+import { Avatar, colorForAgent } from "./avatar";
 
 export interface MentionPickerProps {
   candidates: MentionCandidate[];
@@ -86,7 +86,7 @@ export function MentionPicker({ candidates, query, onSelect, onClose }: MentionP
           }}
           onMouseEnter={() => setHighlighted(idx)}
         >
-          <Avatar initials={c.initials} size={26} />
+          <Avatar initials={c.initials} size={26} color={colorForAgent({ display_name: c.display_name, agent_id: c.agent_id })} />
           <span className="chat-mention-picker-name">{c.display_name}</span>
           <span className="chat-mention-picker-handle">@{c.agent_id.replace(/^agent[_-]/, "")}</span>
         </button>
