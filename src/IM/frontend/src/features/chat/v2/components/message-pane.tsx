@@ -220,7 +220,7 @@ export function MessagePane({
         )}
         <Avatar
           initials={agentInitials ?? conversation.title.slice(0, 2)}
-          color={agentColor ?? undefined}
+          color={agentColor ?? "oklch(0.52 0.14 270)"}
           size={34}
           status={kind === "direct-agent" ? nodeStatus : null}
         />

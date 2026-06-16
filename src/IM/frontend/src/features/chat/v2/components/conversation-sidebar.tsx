@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import { classifyConversationKind, type Conversation, type ConversationKind } from "../chat-types";
-import { Avatar, colorForAgent } from "./avatar";
+import { Avatar, colorForAgent, colorForAgentSeed } from "./avatar";
 
 interface SidebarAgent {
   agent_id: string;
@@ -119,7 +119,7 @@ export function ConversationSidebar({ conversations, activeConversationId, onSel
                   ? "oklch(0.52 0.14 270)"
                   : kind === "agent-network" || kind === "direct-user"
                     ? "oklch(0.52 0.14 30)"
-                    : undefined;
+                    : colorForAgentSeed(c.title);
             return (
               <li key={c.id}>
                 <button
