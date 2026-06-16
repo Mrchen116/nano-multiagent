@@ -656,9 +656,9 @@ def test_list_messages_returns_elapsed_ms_for_completed_agent_message(
             json={"sender_user_id": user.id, "content": "hi"},
         )
         assert msg2.status_code == 201
-        items = client.get(
-            f"/im/v1/conversations/{user2_conv_id}/messages"
-        ).json()["items"]
+        items = client.get(f"/im/v1/conversations/{user2_conv_id}/messages").json()[
+            "items"
+        ]
         assert len(items) == 1
         # elapsed_ms 字段必须出现在序列化结果里（user 消息为 None 也算字段存在）
         assert "elapsed_ms" in items[0]
