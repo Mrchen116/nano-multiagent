@@ -3100,7 +3100,7 @@ def _build_kernel_event_observer(
     *,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
     run_context_store: dict[str, dict[str, str]],
-    running_tool_calls: dict[str, dict[str, str]] | None = None,
+    running_tool_calls: dict[str, dict[str, dict[str, Any]]] | None = None,
 ) -> Callable[[Mapping[str, Any]], "Coroutine[Any, Any, None] | None"]:
     """Build a kernel SSE event observer that forwards streaming events to IM via node.streaming_delta.
 
@@ -3130,7 +3130,8 @@ def _build_kernel_event_observer(
     # tool_end, per run. On abnormal run termination the watchdog/terminal path emits
     # a synthetic ``run_terminal_reconcile`` event; we then close every still-running
     # tool_call with a reason so the IM badge stops spinning forever. Keyed by run_id
-    # → {call_id: tool_name}.
+    # → {call_id: {"name": ..., "input": ...}} (bugfix-416 #111: input retained so the
+    # reconcile re-emits the original command/description, not an empty {}).
     # bugfix-410-fix-r1: the map is injectable purely so a test can observe that the
     # per-run entry is reaped on the normal-completion path (no production caller passes
     # it). Entries are dropped as calls close (tool_end) and as runs end (turn_end /
@@ -3498,7 +3499,14 @@ def _build_kernel_event_observer(
             tool_name = str(event.get("name") or "")
             arguments = event.get("arguments") or {}
             # bugfix-410-M2 R3: remember this call as in-flight until tool_end.
-            running_tool_calls.setdefault(run_id, {})[call_id] = tool_name
+            # bugfix-416 #111: store the full call (name + input), not just the name,
+            # so an abnormal reconcile can re-emit the original command/description
+            # instead of wiping them to {} (the IM bubble otherwise loses the command
+            # and shows only a red × "bash Timed out").
+            running_tool_calls.setdefault(run_id, {})[call_id] = {
+                "name": tool_name,
+                "input": arguments if isinstance(arguments, dict) else {},
+            }
             if message_id:
                 loop.create_task(
                     _send(
@@ -3646,7 +3654,17 @@ def _build_kernel_event_observer(
             reason = str(event.get("reason") or "interrupted").strip() or "interrupted"
             inflight = running_tool_calls.pop(run_id, {})
             if message_id and inflight:
-                for stuck_call_id, stuck_name in inflight.items():
+                for stuck_call_id, stuck_call in inflight.items():
+                    # bugfix-416 #111: re-emit the original input recorded at tool_start
+                    # so command/description survive the reconcile; only status + reason
+                    # change. (Entries pre-bugfix-416 stored a bare name string — tolerate
+                    # that shape so an in-flight call across a deploy still closes cleanly.)
+                    if isinstance(stuck_call, Mapping):
+                        stuck_name = str(stuck_call.get("name") or "")
+                        stuck_input = stuck_call.get("input") or {}
+                    else:
+                        stuck_name = str(stuck_call)
+                        stuck_input = {}
                     loop.create_task(
                         _send(
                             manager,
@@ -3659,7 +3677,9 @@ def _build_kernel_event_observer(
                                     "name": stuck_name,
                                     "status": "failed",
                                     "reason": reason,
-                                    "input": {},
+                                    "input": stuck_input
+                                    if isinstance(stuck_input, dict)
+                                    else {},
                                 },
                                 "run_id": run_id,
                             },
