@@ -220,6 +220,34 @@ def test_permission_resolution_clears_marker_when_no_pending_remains(
     )
 
 
+def test_on_message_completed_writes_elapsed_ms_and_emits_in_payload(
+    tmp_path: Path,
+) -> None:
+    """feat-414-M1: on_message_completed 算出 elapsed_ms 写 DB，并通过 WS payload 下发。"""
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
+    msg = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+    captured.clear()
+
+    bridge.on_message_completed(
+        message_id=msg.id,
+        final_content="done",
+    )
+
+    # DB 写入 elapsed_ms（>= 0 即可，不测精确值）
+    reloaded = messages.list_messages(conversation_id=conv_id)
+    assert reloaded[-1].elapsed_ms is not None
+    assert reloaded[-1].elapsed_ms >= 0
+
+    # WS payload 包含 elapsed_ms
+    completed_events = [e for e in captured if e.event_type == "message.completed"]
+    assert len(completed_events) == 1
+    payload = json.loads(completed_events[0].payload_json)
+    assert "elapsed_ms" in payload
+    assert payload["elapsed_ms"] == reloaded[-1].elapsed_ms
+
+
 def test_heartbeat_refresh_only_touches_marked_running_messages(
     tmp_path: Path,
 ) -> None:

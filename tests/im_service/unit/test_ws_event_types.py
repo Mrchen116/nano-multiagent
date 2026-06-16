@@ -137,6 +137,31 @@ def test_build_message_completed_payload_without_token_usage() -> None:
     assert payload["token_usage"] is None
 
 
+def test_build_message_completed_payload_includes_elapsed_ms() -> None:
+    """feat-414-M1: build_message_completed_payload 带出 elapsed_ms 字段。"""
+    usage = TokenUsage(output=10, context_used=500, context_window=200000)
+    payload = build_message_completed_payload(
+        conversation_id="c1",
+        message_id="m1",
+        content="done",
+        token_usage=usage,
+        elapsed_ms=4200,
+    )
+    assert payload["elapsed_ms"] == 4200
+
+
+def test_build_message_completed_payload_elapsed_ms_none() -> None:
+    """feat-414-M1: elapsed_ms=None 时字段在 payload 中也为 None。"""
+    payload = build_message_completed_payload(
+        conversation_id="c1",
+        message_id="m1",
+        content="done",
+        token_usage=None,
+        elapsed_ms=None,
+    )
+    assert payload.get("elapsed_ms") is None
+
+
 def test_build_node_status_changed_payload_online() -> None:
     payload = build_node_status_changed_payload(
         seq=7,
