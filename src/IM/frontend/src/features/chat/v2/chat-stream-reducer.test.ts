@@ -102,6 +102,40 @@ describe("chat-stream-reducer", () => {
     expect(next.messages[0]!.tool_calls![0]!.output).toBe("ok");
   });
 
+  it("bugfix-416 #111: a reconcile event with empty input must not wipe the existing command", () => {
+    // belt-and-braces: a timed-out tool's reconcile event may carry fewer fields
+    // than the upsert. Merging must never let an empty input/output overwrite an
+    // already-present non-empty value, otherwise the bash command/description shown
+    // at tool_start vanishes and only "bash Timed out" remains.
+    const seed: Message = { ...userMessage("m2", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
+    const state: ConversationState = { ...emptyConversationState, messages: [seed] };
+    let next = applyWsEvent(state, {
+      type: "tool_call.upserted",
+      conversation_id: "c1",
+      message_id: "m2",
+      tool_call: {
+        id: "t1",
+        name: "bash",
+        status: "running",
+        input: { command: "npm run test:all", description: "Run full frontend test suite" },
+        output: "scanning…"
+      }
+    });
+    next = applyWsEvent(next, {
+      type: "tool_call.completed",
+      conversation_id: "c1",
+      message_id: "m2",
+      tool_call: { id: "t1", name: "bash", status: "failed", reason: "timed_out", input: {} }
+    });
+    const tc = next.messages[0]!.tool_calls![0]!;
+    expect(tc.status).toBe("failed");
+    expect(tc.reason).toBe("timed_out");
+    // command/description preserved despite the empty input on the reconcile event.
+    expect(tc.input).toEqual({ command: "npm run test:all", description: "Run full frontend test suite" });
+    // existing non-empty output is not clobbered by an absent/empty field either.
+    expect(tc.output).toBe("scanning…");
+  });
+
   it("ignores events for other conversations", () => {
     const seed: Message = { ...userMessage("m2", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
     const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [seed] };
