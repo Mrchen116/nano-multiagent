@@ -199,12 +199,29 @@ class ToolRegistry:
                 tool_call_id=tool_call_id,
             )
 
-            # Collect execution updates emitted during tool.run() and flush them
-            # after the synchronous run completes.
-            _pending_updates: list[dict[str, Any]] = []
+            # bugfix-417-M3 R1: dispatch execution updates (e.g. bash phase:running
+            # heartbeats) in REAL TIME instead of buffering them until the synchronous
+            # run completes. A silent long command (`sleep 200`) used to produce zero
+            # observe events for its whole duration → both watchdogs saw "output silent"
+            # and reaped the live run. The callback fires from the asyncio.to_thread
+            # worker thread, so we bridge back to THIS execute()'s loop via
+            # run_coroutine_threadsafe; the dispatched tool_execution_update becomes a
+            # liveness source. observe dispatch is fail-open, so a dropped heartbeat
+            # degrades to "judge by business events" — never crashes the tool run.
+            _emit_loop = asyncio.get_running_loop()
 
             def _emit_execution_update(update_payload: Mapping[str, Any]) -> None:
-                _pending_updates.append({**event_base_payload, **dict(update_payload)})
+                payload = {**event_base_payload, **dict(update_payload)}
+                future = asyncio.run_coroutine_threadsafe(
+                    self._dispatch_observe(
+                        "tool_execution_update", payload, active_hook_context
+                    ),
+                    _emit_loop,
+                )
+                # Consume the future's exception (if any) so a dropped dispatch never
+                # surfaces an "exception never retrieved" warning; _dispatch_observe is
+                # already fail-open internally, so this is purely defensive.
+                future.add_done_callback(lambda _f: _f.exception())
 
             execution_base_context = _resolve_execution_context(
                 self._context, active_hook_context
@@ -243,12 +260,9 @@ class ToolRegistry:
                     details={"exception_type": type(exc).__name__},
                 )
 
-            # Flush any tool-execution updates that accumulated during the run.
-            for update in _pending_updates:
-                await self._dispatch_observe(
-                    "tool_execution_update", update, active_hook_context
-                )
-
+            # bugfix-417-M3 R1: heartbeats are now dispatched in real time from
+            # _emit_execution_update (no buffer to flush here). The final output update
+            # below remains the authoritative tool_execution_update carrying the result.
             if execution_error is None:
                 await self._dispatch_observe(
                     "tool_execution_update",
