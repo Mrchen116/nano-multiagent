@@ -110,6 +110,57 @@ class _FailureRuntime:
         raise ModelError("retries exhausted", retryable=False)
 
 
+class _SessionLockParkedRuntime:
+    """Runtime that mirrors the production per-session-lock failure mode (#110).
+
+    Like the real runtime, every turn executes inside ``async with`` a
+    per-session ``asyncio.Lock`` and then parks on an awaitable that never
+    resolves on its own (standing in for a tool/LLM/permission await the
+    cooperative cancel flag cannot reach). The lock is therefore held until the
+    carrier Task is *force* cancelled — exactly the invariant M1 must restore.
+    """
+
+    def __init__(self) -> None:
+        self._locks: dict[str, asyncio.Lock] = {}
+        self.entered = Event()
+        self.second_completed = Event()
+        self._first_seen = False
+
+    async def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+        controller=None,
+        workspace_root=None,
+        origin=None,
+    ):  # noqa: ANN001, ANN201
+        del parts, stream, run_id, controller, workspace_root, origin
+        lock = self._locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            if not self._first_seen:
+                # First run: hold the lock and park forever. Only a force
+                # cancel of the carrier Task can break this await and release
+                # the lock via the CancelledError path.
+                self._first_seen = True
+                self.entered.set()
+                await asyncio.Event().wait()
+            # Second run: reaching here proves the lock was released, i.e. the
+            # parked first run no longer permanently blocks the session.
+            self.second_completed.set()
+            return TurnResult(
+                session_id=session_id,
+                turn_id="turn_second",
+                messages=(
+                    Message(message_id="msg_second", role="assistant", content="ok"),
+                ),
+                completed=True,
+                stop_reason="completed",
+            )
+
+
 def _wait_for(predicate, *, timeout_seconds: float = 1.0) -> None:  # noqa: ANN001
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -117,6 +168,88 @@ def _wait_for(predicate, *, timeout_seconds: float = 1.0) -> None:  # noqa: ANN0
             return
         time.sleep(0.01)
     raise AssertionError("condition not met before timeout")
+
+
+def test_cancel_force_releases_session_lock_so_next_run_proceeds(
+    tmp_path: Path,
+) -> None:
+    """P0 invariant (#110): cancelling a parked run releases the session lock.
+
+    Reproduces the incident chain: a run parked while holding the per-session
+    lock must be *force* terminated by ``cancel(run_id)`` so the next run in the
+    same session can acquire the lock and reach a terminal state — without
+    rebuilding the kernel. With only the cooperative ``controller.cancel()``
+    flag (pre-M1), the carrier Task keeps awaiting, the lock is never released,
+    and the second run stays QUEUED forever (this assertion times out → RED).
+    """
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    runtime = _SessionLockParkedRuntime()
+    registry = RunsRegistry(runtime=runtime, session_manager=manager)
+
+    try:
+        first = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "park holding the lock"}],
+            workspace_root=tmp_path,
+        )
+        _wait_for(lambda: runtime.entered.is_set(), timeout_seconds=2.0)
+
+        # Second run queues behind the held lock; it cannot start until the
+        # first run's lock is released.
+        second = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "should proceed after cancel"}],
+            workspace_root=tmp_path,
+        )
+
+        # Force cancel the parked first run.
+        cancelled = registry.cancel(first.run_id)
+        assert cancelled is not None
+        assert cancelled.status is RunStatus.CANCELLED
+
+        # The released lock lets the second run run to completion.
+        _wait_for(
+            lambda: registry.get(second.run_id).status is RunStatus.COMPLETED,
+            timeout_seconds=3.0,
+        )
+        assert runtime.second_completed.is_set()
+    finally:
+        registry.shutdown()
+
+
+def test_cancel_already_terminal_run_is_idempotent_noop(tmp_path: Path) -> None:
+    """Cancelling a run with no live carrier Task is safe (idempotent).
+
+    After a run has reached a terminal state its Task is gone from
+    ``_owned_tasks``; the force-cancel branch must skip cleanly rather than
+    error on a missing/completed Task.
+    """
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    runtime = _FailureRuntime()
+    registry = RunsRegistry(runtime=runtime, session_manager=manager)
+
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "fail fast"}],
+            workspace_root=tmp_path,
+        )
+        _wait_for(
+            lambda: registry.get(submitted.run_id).status is RunStatus.FAILED,
+            timeout_seconds=2.0,
+        )
+
+        # Run is already terminal (FAILED), Task removed from _owned_tasks.
+        first = registry.cancel(submitted.run_id)
+        second = registry.cancel(submitted.run_id)
+        assert first is not None and first.status is RunStatus.FAILED
+        assert second is not None and second.status is RunStatus.FAILED
+    finally:
+        registry.shutdown()
 
 
 def test_cancel_marks_running_run_cancelled_and_is_idempotent(tmp_path: Path) -> None:
