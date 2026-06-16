@@ -8,11 +8,11 @@
 
 ## 退出标准
 
-- [ ] `registry.cancel(run_id)` 复用 `_owned_tasks`，经 `_async_loop.call_soon_threadsafe(task.cancel)` 强制取消承载 Task，使 `_run_locked` 的 `async with lock` 经 CancelledError 退出释放锁
-- [ ] `kernel.cancel(run_id)` 在 `runs_registry.cancel` 后调 `permission_broker.cancel_all_pending(run_id=run_id)`
-- [ ] 幂等：已终态 / 无 Task 的 run cancel 不抛错、不重复取消
-- [ ] 取消一条 parked run 后同 session 可继续 submit（锁已释放）— 真实入口（进程内 kernel）证明
-- [ ] `<test_command>` 全绿，既有 cancel 测试不回归
+- [x] `registry.cancel(run_id)` 复用 `_owned_tasks`，经 `_async_loop.call_soon_threadsafe(task.cancel)` 强制取消承载 Task，使 `_run_locked` 的 `async with lock` 经 CancelledError 退出释放锁
+- [x] `kernel.cancel(run_id)` 在 `runs_registry.cancel` 后调 `permission_broker.cancel_all_pending(run_id=run_id)`
+- [x] 幂等：已终态 / 无 Task 的 run cancel 不抛错、不重复取消
+- [x] 取消一条 parked run 后同 session 可继续 submit（锁已释放）— 真实入口（进程内 kernel）证明
+- [x] `<test_command>` 全绿，既有 cancel 测试不回归
 
 ## 测试策略
 
@@ -38,7 +38,7 @@
   - C2（绿）：`registry.cancel` 加：若 `_owned_tasks` 有该 run 未完成 Task，经 `self._async_loop.call_soon_threadsafe(task.cancel)` 强制取消。幂等（已终态 / 无 Task 跳过）。
 - 验证: `<test_command>` 全绿;新红测试转绿;既有 cancel/interrupt 测试不回归。
 
-### R2 — kernel.cancel 连带取消 permission broker pending
+### R2 — kernel.cancel 连带取消 permission broker pending — DONE
 
 - 步骤:
   - C1（红）：新建 sdk 层测试——build_kernel + create_session，run parked 在等权限决策（broker 有该 run pending future），`kernel.cancel(run_id)` 后断言该 run 的 pending future 被 resolve 为 deny、broker 无残留 pending。当前 `kernel.cancel` 不碰 broker → 红。

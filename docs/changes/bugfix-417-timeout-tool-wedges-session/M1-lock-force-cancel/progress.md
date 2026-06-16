@@ -19,9 +19,21 @@
   - E2E/Regression: `tests/unit/test_run_cancel.py::test_cancel_force_releases_session_lock_so_next_run_proceeds`（锁释放回归）+ `::test_cancel_already_terminal_run_is_idempotent_noop`（幂等回归）。命令 `PYTHONPATH=src python -m pytest tests/unit/test_run_cancel.py`，结果 7 passed。
   - Visual/Interaction: N/A
 - Rollback: 回退到 C1（2f4c2460）即恢复纯合作式 cancel（现状，不更坏）。
-- Commits: C1=2f4c2460, C2=b4913f93, C3=<本提交>
+- Commits: C1=2f4c2460, C2=b4913f93, C3=c4994f92
 - Next: R2 — kernel.cancel 连带取消 permission broker pending。
 
 ## R2 — kernel.cancel 连带取消 permission broker pending
 
-- ...
+- Context: R1 让 `registry.cancel` 强制取消承载 Task、释放 session 锁，但若该 run parked 在权限决策上，broker 里仍残留一个 pending future（`PermissionBroker._pending`）——Task 被 cancel 后没人再 resolve 它，future 泄漏，等它的 hook 协程也悬着。`kernel.cancel`（kernel.py:970 附近）原本只把 `runs_registry.cancel` 的结果转 `RunInfo`，不碰 broker。
+- Decision: `Kernel.cancel` 在 `runs_registry.cancel` 返回非 None（即确有该 run 被取消）后，调 `self._c.permission_broker.cancel_all_pending(run_id=run_id)`，把该 run scope 内所有 pending future resolve 为 deny 并从 `_pending` 移除。`record is None`（未知 / 已清理的 run）时直接 return None，不触碰 broker——天然幂等。
+- Rationale: 复用 broker 既有的 run-scoped `cancel_all_pending`（broker.py:194，原为 interrupt / timeout cleanup 而建），不新造取消通道；放在 registry.cancel 之后是因为只有确认 run 真被取消才该清它的待决权限，避免对未知 run 误触 broker。broker future 必须在其所属 loop 上 resolve，`cancel_all_pending` 内部已用 `future.get_loop().call_soon_threadsafe`，故 kernel 层同步调用即可。
+- Evidence:
+  - Tests: `tests/unit/test_kernel_cancel_permission.py` 2 passed；与 R1 合跑 `test_run_cancel.py` + `test_kernel_cancel_permission.py` 共 9 passed。
+  - Entry: 进程内 kernel（`agent.sdk.Kernel`）真实 cancel 路径——`test_kernel_cancel_denies_pending_permission_for_run`：真 SessionManager + 真 RunsRegistry + 真 PermissionBroker，submit 一条 run 跑到 RUNNING、在 registry loop 上 `broker.register_request` 造一个该 run 的 pending future，`kernel.cancel(run_id)` 后断言 (a) 返回 RunInfo.status == "cancelled"，(b) 该 pending future resolve 为 `decision == "deny"`，(c) `broker.is_pending` 转 False。非 mock 入口，是 #110 "parked-on-permission 取消后 broker 不泄漏" 的真实投影。
+  - Frontend State Matrix: N/A（后端内核）
+  - Browser QA: N/A（后端内核）
+  - E2E/Regression: `tests/unit/test_kernel_cancel_permission.py::test_kernel_cancel_denies_pending_permission_for_run`（broker 不泄漏回归）+ `::test_kernel_cancel_unknown_run_returns_none_and_no_broker_error`（未知 run 幂等、不误触 broker）。命令 `PYTHONPATH=src python -m pytest tests/unit/test_kernel_cancel_permission.py`，结果 2 passed。
+  - Visual/Interaction: N/A
+- Rollback: 回退到 C1（0cd6fb11）即恢复 kernel.cancel 不碰 broker（R1 的锁释放仍在，仅 broker pending 会重新泄漏，不更坏于 R1 前）。
+- Commits: C1=0cd6fb11, C2=2f5a0331, C3=<本提交>
+- Next: 本 milestone 全部 roadpoint DONE，进入集成。
