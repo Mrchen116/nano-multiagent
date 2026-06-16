@@ -13,11 +13,16 @@ export type TextSegment = { kind: "text"; text: string };
 export type MentionSegment = { kind: "mention"; type: "agent" | "user"; target_id: string };
 export type Segment = TextSegment | MentionSegment;
 
+// Shared regex source for mention tags — exported so remark-mention.ts can
+// build its own variants (global / non-global) from the same authoritative
+// pattern and avoid format-drift between the two parsers.
+export const MENTION_TAG_RE_SOURCE =
+  /<mention\s+type="(agent|user)"\s+target_id="([^"]+)"\s*\/>/;
+
 // Matches self-closing <mention type="agent"|"user" target_id="X"/> tags.
 // Attribute order (type before target_id) matches what both the frontend picker
 // and the agent prompt example produce.
-const MENTION_TAG_RE =
-  /<mention\s+type="(agent|user)"\s+target_id="([^"]+)"\s*\/>/g;
+const MENTION_TAG_RE = new RegExp(MENTION_TAG_RE_SOURCE.source, "g");
 
 /**
  * Split message content into text and mention segments.

@@ -129,6 +129,42 @@ describe("MessagePane", () => {
     expect(screen.queryByText(/\|------\|/)).toBeNull();
   });
 
+  // CR-6: GFM table column alignment — th/td align attr mapped to style.textAlign
+  it("applies column alignment from GFM table delimiter row to th and td", () => {
+    const alignMsg: Message = {
+      id: "m-align",
+      conversation_id: "c1",
+      sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+      sender_user_id: "a-planner",
+      sender_type: "agent",
+      content: [
+        "| Left | Center | Right |",
+        "|:-----|:------:|------:|",
+        "| a    | b      | c     |",
+      ].join("\n"),
+      attachments: [],
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:02Z",
+      permission_requests: [],
+    };
+    const { container } = render(
+      <MessagePane
+        conversation={DIRECT_CONV}
+        messages={[alignMsg]}
+        mentionCandidates={[]}
+        onSend={() => {}}
+      />
+    );
+    const headers = container.querySelectorAll("th");
+    expect(headers[0]?.style.textAlign).toBe("left");
+    expect(headers[1]?.style.textAlign).toBe("center");
+    expect(headers[2]?.style.textAlign).toBe("right");
+    const cells = container.querySelectorAll("tbody td");
+    expect(cells[0]?.style.textAlign).toBe("left");
+    expect(cells[1]?.style.textAlign).toBe("center");
+    expect(cells[2]?.style.textAlign).toBe("right");
+  });
+
   it("keeps blank lines inside fenced code blocks", () => {
     const codeMsg: Message = {
       id: "m-code",
@@ -709,6 +745,248 @@ describe("MessagePane", () => {
         />
       );
       expect(screen.queryByTestId(`message-token-chip-${TS_USER.id}`)).not.toBeInTheDocument();
+    });
+  });
+
+  // bugfix-413: agent 气泡块级 Markdown 渲染（react-markdown 管线）
+  describe("MarkdownContent block-level rendering (bugfix-413)", () => {
+    function agentMsg(content: string): Message {
+      return {
+        id: "m-block",
+        conversation_id: "c1",
+        sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+        sender_user_id: "a-planner",
+        sender_type: "agent",
+        content,
+        attachments: [],
+        delivery_status: "completed",
+        created_at: "2026-01-01T00:00:00Z",
+        permission_requests: [],
+      };
+    }
+
+    it("renders ## heading as h2, not literal ##", () => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg("## 二级标题")]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(container.querySelector("h2")).not.toBeNull();
+      expect(screen.queryByText(/^##/)).toBeNull();
+    });
+
+    it("renders ### heading as h3, not literal ###", () => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg("### 三级标题")]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(container.querySelector("h3")).not.toBeNull();
+      expect(screen.queryByText(/^###/)).toBeNull();
+    });
+
+    it("renders --- as <hr>, not literal ---", () => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg("above\n\n---\n\nbelow")]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(container.querySelector("hr")).not.toBeNull();
+      expect(screen.queryByText("---")).toBeNull();
+    });
+
+    it("renders > blockquote as <blockquote>, not literal >", () => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg("> 引用文本")]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(container.querySelector("blockquote")).not.toBeNull();
+      expect(screen.queryByText(/^>/)).toBeNull();
+    });
+
+    it("renders unclosed fenced code block as <pre><code>, not prose", () => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg("```python\nprint('hello')\nx = 1")]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      expect(container.querySelector("pre > code")).not.toBeNull();
+      // Content should not be squashed into one prose paragraph
+      expect(screen.queryByText(/```python/)).toBeNull();
+    });
+
+    it("renders nested list with indented sub-items", () => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg("- 顶层\n  - 子项")]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      // nested list: ul > li > ul
+      const nestedUl = container.querySelector("ul ul");
+      expect(nestedUl).not.toBeNull();
+    });
+
+    it("renders [text](url) as <a> link, not literal brackets", () => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg("[点击这里](https://example.com)")]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      const anchor = container.querySelector("a");
+      expect(anchor).not.toBeNull();
+      expect(anchor?.getAttribute("href")).toBe("https://example.com");
+      expect(screen.queryByText(/\[点击这里\]/)).toBeNull();
+    });
+
+    it("renders <script> as escaped text, not executed", () => {
+      const { container } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[agentMsg('<script>alert("xss")</script>')]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+      // No actual <script> element should exist in DOM
+      expect(container.querySelector("script")).toBeNull();
+    });
+
+    // mention 在各类块级元素内的渲染（bugfix-413 关键回归点）
+    describe("@mention inside block-level elements", () => {
+      const PARTICIPANTS = [
+        { type: "agent" as const, id: "a-planner", display_name: "Planner" },
+        { type: "agent" as const, id: "a-coder", display_name: "Coder" },
+      ];
+      const CONV_WITH_PARTICIPANTS = {
+        ...DIRECT_CONV,
+        participants: PARTICIPANTS,
+        participant_ids: ["a-planner", "a-coder"],
+      };
+
+      function agentMsgWithParticipants(content: string): Message {
+        return { ...agentMsg(content), conversation_id: CONV_WITH_PARTICIPANTS.id };
+      }
+
+      it("renders mention chip inside a paragraph", () => {
+        render(
+          <MessagePane
+            conversation={CONV_WITH_PARTICIPANTS}
+            messages={[agentMsgWithParticipants('<mention type="agent" target_id="a-coder"/> 你怎么看？')]}
+            mentionCandidates={[]}
+            onSend={() => {}}
+          />
+        );
+        expect(screen.getByText("@Coder")).toBeInTheDocument();
+        expect(screen.queryByText(/<mention/)).toBeNull();
+      });
+
+      it("renders mention chip inside a heading", () => {
+        render(
+          <MessagePane
+            conversation={CONV_WITH_PARTICIPANTS}
+            messages={[agentMsgWithParticipants('## 请 <mention type="agent" target_id="a-coder"/> 审阅')]}
+            mentionCandidates={[]}
+            onSend={() => {}}
+          />
+        );
+        expect(screen.getByText("@Coder")).toBeInTheDocument();
+        expect(screen.queryByText(/<mention/)).toBeNull();
+      });
+
+      it("renders mention chip inside a blockquote", () => {
+        render(
+          <MessagePane
+            conversation={CONV_WITH_PARTICIPANTS}
+            messages={[agentMsgWithParticipants('> <mention type="agent" target_id="a-coder"/> 的意见')]}
+            mentionCandidates={[]}
+            onSend={() => {}}
+          />
+        );
+        expect(screen.getByText("@Coder")).toBeInTheDocument();
+      });
+
+      it("renders mention chip inside a list item", () => {
+        render(
+          <MessagePane
+            conversation={CONV_WITH_PARTICIPANTS}
+            messages={[agentMsgWithParticipants('- <mention type="agent" target_id="a-coder"/> 负责此项')]}
+            mentionCandidates={[]}
+            onSend={() => {}}
+          />
+        );
+        expect(screen.getByText("@Coder")).toBeInTheDocument();
+      });
+
+      it("renders unknown mention as --unknown chip inside block content", () => {
+        const { container } = render(
+          <MessagePane
+            conversation={CONV_WITH_PARTICIPANTS}
+            messages={[agentMsgWithParticipants('## <mention type="agent" target_id="nonexistent"/> 审阅')]}
+            mentionCandidates={[]}
+            onSend={() => {}}
+          />
+        );
+        const unknownChip = container.querySelector(".chat-mention-chip--unknown");
+        expect(unknownChip).not.toBeNull();
+        expect(unknownChip?.textContent).toBe("@unknown");
+      });
+
+      // CR-1: CommonMark HTML block type-7 — mention 独占首行紧跟非空行时
+      // remark-parse 将整段（mention行+后续文本）打包为单个 html 节点，
+      // 旧 MENTION_FULL_RE 全锚定失配导致 mention 退化为字面量。
+      it("renders mention chip when mention is on first line with no blank line before next text (type-7 html block)", () => {
+        render(
+          <MessagePane
+            conversation={CONV_WITH_PARTICIPANTS}
+            messages={[agentMsgWithParticipants('<mention type="agent" target_id="a-coder"/>\n正文继续')]}
+            mentionCandidates={[]}
+            onSend={() => {}}
+          />
+        );
+        expect(screen.getByText("@Coder")).toBeInTheDocument();
+        // Prose text after the mention must still appear
+        expect(screen.getByText(/正文继续/)).toBeInTheDocument();
+        expect(screen.queryByText(/<mention/)).toBeNull();
+      });
+
+      it("renders multiple mentions mixed with text in a single html node", () => {
+        // Two mentions in the same block-level html node (no blank lines between)
+        render(
+          <MessagePane
+            conversation={CONV_WITH_PARTICIPANTS}
+            messages={[agentMsgWithParticipants(
+              '<mention type="agent" target_id="a-coder"/> 和 <mention type="agent" target_id="a-planner"/> 请审阅'
+            )]}
+            mentionCandidates={[]}
+            onSend={() => {}}
+          />
+        );
+        expect(screen.getByText("@Coder")).toBeInTheDocument();
+        expect(screen.getByText("@Planner")).toBeInTheDocument();
+        expect(screen.queryByText(/<mention/)).toBeNull();
+      });
     });
   });
 

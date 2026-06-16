@@ -1615,6 +1615,52 @@ body {
   background: oklch(0.965 0.004 240);
 }
 
+/* bugfix-413: 新增块级 tag 样式（h1~h6 / hr / blockquote / a）。
+   保留 .im-md 容器与既有 p/ul/ol/pre/code/table 样式不变。
+   气泡 oklch 色板：accent 蓝 0.18/255，边框 0.82/240，文字 0.20/240。 */
+
+.im-md h1,
+.im-md h2,
+.im-md h3,
+.im-md h4,
+.im-md h5,
+.im-md h6 {
+  margin: 0;
+  font-weight: 600;
+  line-height: 1.3;
+  color: oklch(0.22 0.012 240);
+}
+
+.im-md h1 { font-size: 1.25em; }
+.im-md h2 { font-size: 1.1em; }
+.im-md h3 { font-size: 1em; }
+.im-md h4,
+.im-md h5,
+.im-md h6 { font-size: 0.9em; }
+
+.im-md hr {
+  margin: 0;
+  border: none;
+  border-top: 1px solid oklch(0.82 0.01 240);
+}
+
+.im-md blockquote {
+  margin: 0;
+  padding: 0 0.6rem;
+  border-left: 3px solid oklch(0.75 0.04 240);
+  color: oklch(0.45 0.01 240);
+}
+
+.im-md a {
+  color: oklch(0.50 0.18 255);
+  text-decoration: underline;
+  word-break: break-all;
+}
+
+.im-md a:hover {
+  color: oklch(0.42 0.18 255);
+}
+
 .chat-bubble-attachments {
   display: flex;
   flex-wrap: wrap;
