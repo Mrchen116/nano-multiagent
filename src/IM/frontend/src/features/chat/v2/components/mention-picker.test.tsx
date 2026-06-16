@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import "../../../../i18n";
 import type { MentionCandidate } from "../chat-types";
+import { colorForAgent } from "./avatar";
 import { MentionPicker } from "./mention-picker";
 
 const CANDIDATES: MentionCandidate[] = [
@@ -40,6 +41,18 @@ describe("MentionPicker", () => {
     render(<MentionPicker candidates={CANDIDATES} query="" onSelect={onSelect} onClose={() => {}} />);
     await user.click(screen.getByRole("button", { name: /Coder/ }));
     expect(onSelect).toHaveBeenCalledWith(CANDIDATES[1]);
+  });
+
+  // bugfix-415: avatar color must come from colorForAgent(display_name) — not truncated initials.
+  // If Avatar is called without `color`, it falls back to colorForAgentSeed(initials) which uses
+  // a 2-char seed and diverges from the canonical display_name-seeded color used everywhere else.
+  it("avatar background color matches colorForAgent for each candidate (bugfix-415 regression)", () => {
+    render(<MentionPicker candidates={CANDIDATES} query="" onSelect={() => {}} onClose={() => {}} />);
+    const faces = document.querySelectorAll<HTMLElement>(".chat-avatar-face");
+    expect(faces).toHaveLength(CANDIDATES.length);
+    CANDIDATES.forEach((c, i) => {
+      expect(faces[i]!.style.background).toBe(colorForAgent({ display_name: c.display_name, agent_id: c.agent_id }));
+    });
   });
 
   // bugfix-358: handle column (@agent_id) is always shown so the user can verify
