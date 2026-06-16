@@ -1040,6 +1040,8 @@ class MessageRepository:
             created_at=created_at,
             tool_calls=normalized_tool_calls,
             token_usage=token_usage,
+            # feat-414: 建行时始终为 None，由 on_message_completed 写入。
+            elapsed_ms=None,
         )
 
     def update_runtime_state(
@@ -1051,6 +1053,7 @@ class MessageRepository:
         tool_calls_upsert: list[ToolCall] | None = None,
         token_usage: TokenUsage | None = None,
         delivery_status: str | None = None,
+        elapsed_ms: int | None = None,
     ) -> Message:
         """Apply one runtime-stream patch to an agent message.
 
@@ -1068,6 +1071,8 @@ class MessageRepository:
                 New ids append; existing ids replace in place to preserve display order.
             token_usage: When provided, overwrites ``token_usage_json``.
             delivery_status: When provided, updates ``delivery_status`` column.
+            elapsed_ms: feat-414 — 本轮墙钟耗时（毫秒）。非 None 时写入列；None（默认）时
+                使用 Sentinel 机制跳过（同 token_usage），不清掉已有值。
 
         Returns:
             Refreshed Message entity reflecting the patch.
@@ -1121,6 +1126,10 @@ class MessageRepository:
         if next_token_usage_json is not _UNSET:
             sets.append("token_usage_json = ?")
             values.append(next_token_usage_json)
+        # feat-414: Sentinel 同 token_usage — None 表示"不改"，有值则写入。
+        if elapsed_ms is not None:
+            sets.append("elapsed_ms = ?")
+            values.append(elapsed_ms)
         if delivery_status is not None:
             sets.append("delivery_status = ?")
             values.append(delivery_status)
@@ -1147,6 +1156,7 @@ class MessageRepository:
                 messages.created_at,
                 messages.tool_calls_json,
                 messages.token_usage_json,
+                messages.elapsed_ms,
                 messages.permission_request_json,
                 users.username AS sender_username,
                 users.display_name AS sender_display_name
@@ -1215,6 +1225,7 @@ class MessageRepository:
                 messages.created_at,
                 messages.tool_calls_json,
                 messages.token_usage_json,
+                messages.elapsed_ms,
                 messages.permission_request_json,
                 users.username AS sender_username,
                 users.display_name AS sender_display_name
@@ -1422,6 +1433,10 @@ class MessageRepository:
             if "permission_request_json" in row.keys()
             else None
         )
+        # feat-414: 旧行无此列时（key 不在 row.keys()）回落 None，不报 KeyError。
+        elapsed_ms_value: int | None = (
+            row["elapsed_ms"] if "elapsed_ms" in row.keys() else None
+        )
         permission_requests = _load_permission_requests(permission_request_value)
         return Message(
             id=row["id"],
@@ -1446,6 +1461,7 @@ class MessageRepository:
             created_at=row["created_at"],
             tool_calls=_decode_tool_calls(tool_calls_value),
             token_usage=_decode_token_usage(token_usage_value),
+            elapsed_ms=elapsed_ms_value,
             permission_requests=permission_requests,
         )
 

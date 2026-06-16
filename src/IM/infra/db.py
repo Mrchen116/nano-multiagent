@@ -122,6 +122,9 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL,
     tool_calls_json TEXT,
     token_usage_json TEXT,
+    -- feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 NULL，
+    -- on_message_completed 写入 elapsed_ms = round((T1 − T0) * 1000)。
+    elapsed_ms INTEGER,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE,
     FOREIGN KEY (sender_user_id) REFERENCES users(id) ON DELETE CASCADE
 );

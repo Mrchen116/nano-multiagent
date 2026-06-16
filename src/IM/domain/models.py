@@ -246,6 +246,9 @@ class Message:
     created_at: str = ""
     tool_calls: list[ToolCall] | None = None
     token_usage: TokenUsage | None = None
+    # feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 None，
+    # on_message_completed 写入（见 event_bridge.py）。用户消息始终为 None。
+    elapsed_ms: int | None = None
     # bugfix-367: 同一 message 上的所有 permission ask 按时间顺序保留(list 而非 single
     # dict)。同泡内 ask 不再覆盖前一次的 resolved 记录,UI 可以渲染历史"已允许 / 已拒绝"
     # 小条 + 当前 pending 卡。每个元素 shape:
