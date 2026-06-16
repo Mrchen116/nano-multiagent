@@ -71,7 +71,7 @@
   - Tests: `src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx` — `shows elapsed_ms in the bubble status row after message.completed`（FakeWebSocket 注入 `elapsed_ms=1500`，断言 `data-testid="message-elapsed-{id}"` 内容包含 "1.5s"）；frontend 418 passed。
   - Entry: `src/IM/frontend/src/features/chat/v2/components/message-pane.tsx`
   - Frontend State Matrix: running tick ✓ vitest；completed ⏱ 定格 ✓ vitest + REST API 实测；用户气泡无耗时 ✓ vitest
-  - Browser QA: REST API 验证 `elapsed_ms=3720` → formatDuration → "3.7s"；Vite dev server 127.0.0.1:62705 运行，DB 注入 agent completed message 可在浏览器 http://127.0.0.1:62705/ 直接查看（对话 acc96ecb...）
+  - Browser QA: 截图 `browser-qa-elapsed-completed.png`（同目录）—— 气泡状态行显示 `⏱ 3.7s`（elapsed_ms=3720），位于时间戳右侧，中性灰；用户消息气泡（右侧绿色）无耗时；与 prototype.html 视觉对齐。REST API 实测 `elapsed_ms=3720` 返回 ✓。
   - E2E/Regression: frontend 418 passed; pytest 2641 passed
   - Visual/Interaction: ⏱ 字符 + neutral gray 与 prototype.html 设计对齐；running 阶段显示本地 tick 秒数文字
 - Rollback: 移除 `useState(tickMs)` + `useEffect`；移除 `elapsedDisplay` 三路选择；JSX 恢复为原 running/completed 纯文字状态。
