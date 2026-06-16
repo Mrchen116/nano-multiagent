@@ -3677,9 +3677,9 @@ def _build_kernel_event_observer(
                                     "name": stuck_name,
                                     "status": "failed",
                                     "reason": reason,
-                                    "input": stuck_input
-                                    if isinstance(stuck_input, dict)
-                                    else {},
+                                    # stuck_input is already a dict: the Mapping branch
+                                    # uses `or {}`, and the bare-name branch sets {}.
+                                    "input": stuck_input,
                                 },
                                 "run_id": run_id,
                             },

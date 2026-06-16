@@ -36,8 +36,10 @@ function patchMessage(
 }
 
 function isEmptyValue(v: unknown): boolean {
+  // Only called on ToolCall.input (a record) and .output (a string), so an empty
+  // object is the meaningful "empty" case beyond undefined/null/"".
   if (v === undefined || v === null || v === "") return true;
-  if (typeof v === "object" && !Array.isArray(v)) return Object.keys(v as object).length === 0;
+  if (typeof v === "object") return Object.keys(v as object).length === 0;
   return false;
 }
 
