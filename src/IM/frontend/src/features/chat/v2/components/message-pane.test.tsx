@@ -1065,4 +1065,77 @@ describe("MessagePane", () => {
       expect(screen.getByText("regular message without any mention")).toBeInTheDocument();
     });
   });
+
+  // feat-414-M1 W1: running 气泡 status 行随时间推进显示实时 tick 秒数
+  describe("feat-414-M1 · running tick (W1)", () => {
+    it("advances the running tick text after 6 seconds", () => {
+      vi.useFakeTimers();
+      const NOW = new Date("2026-01-01T10:00:00Z").getTime();
+      vi.setSystemTime(NOW);
+
+      const RUNNING_MSG: Message = {
+        id: "m-running-tick",
+        conversation_id: "c1",
+        sender: { type: "agent", id: "a-planner", display_name: "Planner" },
+        sender_user_id: "u1",
+        sender_type: "agent",
+        content: "Processing…",
+        attachments: [],
+        delivery_status: "running",
+        // created_at = 3s before NOW so initial tick starts at 3s
+        created_at: new Date(NOW - 3000).toISOString(),
+        permission_requests: []
+      };
+
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[RUNNING_MSG]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      // Advance clock by 6 seconds → tick should reach ~9s from created_at
+      vi.advanceTimersByTime(6000);
+
+      // Status row should contain a digit-seconds pattern (e.g. "9s")
+      const statusRow = screen.getByTestId(`message-timestamp-m-running-tick`).closest("div")!;
+      expect(statusRow.textContent).toMatch(/\d+s/);
+
+      vi.useRealTimers();
+    });
+  });
+
+  // feat-414-M1 W2: 用户气泡不显示 ⏱ 耗时（sender_type=user 无 elapsed）
+  describe("feat-414-M1 · user bubble no elapsed (W2)", () => {
+    it("does not render message-elapsed testid for a user message", () => {
+      const USER_MSG: Message = {
+        id: "m-user-no-elapsed",
+        conversation_id: "c1",
+        sender: { type: "user", id: "u1", display_name: "You" },
+        sender_user_id: "u1",
+        sender_type: "user",
+        content: "User message",
+        attachments: [],
+        delivery_status: "completed",
+        elapsed_ms: 1234, // even if elapsed_ms is set, user bubble must not display it
+        created_at: "2026-01-01T00:00:00Z",
+        permission_requests: []
+      };
+
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[USER_MSG]}
+          mentionCandidates={[]}
+          onSend={() => {}}
+        />
+      );
+
+      expect(
+        screen.queryByTestId("message-elapsed-m-user-no-elapsed")
+      ).toBeNull();
+    });
+  });
 });
