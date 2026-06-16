@@ -456,8 +456,8 @@ function MessageBubble({
           {deliveryStatus === "running" && (
             <span className="flex items-center gap-1 text-[oklch(0.65 0.15 60)]">
               <span className="inline-block w-[6px] h-[6px] rounded-full bg-[oklch(0.70 0.18 60)] animate-pulse" />
-              {/* feat-414: running 态实时走 tick；固定文案换成本地计时，保留脉冲点区分 */}
-              {elapsedDisplay ?? t("chat.messagePane.running")}
+              {/* feat-414: running 态实时走 tick；有值时加 ⏱ 与 prototype.html 对齐，无值时回退文案 */}
+              {elapsedDisplay != null ? `⏱ ${elapsedDisplay}` : t("chat.messagePane.running")}
             </span>
           )}
           {/* feat-414: completed agent 消息在时间戳右侧显示本轮墙钟，中性灰 */}
