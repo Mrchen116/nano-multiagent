@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import "../../../../i18n";
+import { colorForAgent } from "./avatar";
 import { NewGroupModal } from "./new-group-modal";
 
 const AGENTS = [
@@ -12,6 +13,19 @@ const AGENTS = [
 ];
 
 describe("NewGroupModal", () => {
+  // bugfix-415: avatar color must come from colorForAgent(display_name) — not the truncated
+  // display_name.slice(0,2) seed that was previously passed as `initials`. Without the `color`
+  // prop the Avatar falls back to colorForAgentSeed(initials) which diverges from the canonical
+  // seed used everywhere else in the product.
+  it("avatar background color matches colorForAgent for each agent row (bugfix-415 regression)", () => {
+    render(<NewGroupModal agents={AGENTS} onClose={() => {}} onCreate={() => {}} />);
+    const faces = document.querySelectorAll<HTMLElement>(".chat-avatar-face");
+    expect(faces).toHaveLength(AGENTS.length);
+    AGENTS.forEach((a, i) => {
+      expect(faces[i]!.style.background).toBe(colorForAgent({ display_name: a.display_name, agent_id: a.agent_id }));
+    });
+  });
+
   it("Create is disabled until at least one agent is selected", async () => {
     const user = userEvent.setup();
     render(<NewGroupModal agents={AGENTS} onClose={() => {}} onCreate={() => {}} />);

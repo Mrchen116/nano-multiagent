@@ -31,21 +31,26 @@ export function colorForAgent(agent: { display_name?: string | null; agent_id?: 
 
 interface AvatarProps {
   initials: string;
-  color?: string;
+  /** Must be provided by every call site via colorForAgent(). Required to prevent
+   *  per-call-site seed divergence — omitting it is a type error. */
+  color: string;
   size?: number;
   status?: "online" | "offline" | "running" | null;
 }
 
 /**
- * Single circular initials avatar with an optional status dot. We compute the
- * color from the seed string when none is provided so two avatars with the
- * same initials stay visually identifiable across the list.
+ * Single circular initials avatar with an optional status dot.
+ *
+ * `color` is required: callers must pass `colorForAgent({display_name, agent_id})`
+ * (or an explicit fixed color for non-agent avatars such as group chats). Making
+ * it required ensures the compiler catches any future call site that forgets to
+ * wire up the single source of truth.
  *
  * Status dot matches prototype (im-components.jsx): border uses the sidebar
  * background colour so the dot sits cleanly on dark sidebar rows.
  */
 export function Avatar({ initials, color, size = 32, status }: AvatarProps) {
-  const bg = color ?? colorForAgentSeed(initials);
+  const bg = color;
   const dotSize = size * 0.28;
   return (
     <span className="chat-avatar" style={{ width: size, height: size }}>

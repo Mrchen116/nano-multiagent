@@ -50,3 +50,23 @@
 修复必须保住这条不变量：**颜色种子用完整 `display_name`，所有调用点共用同一取色逻辑**。本 bug 的修复方向就是让这两处也接入真源（传 `color={colorForAgent({ display_name, agent_id })}`），而不是另立一套取色。
 
 **为什么这种错能进来**：`Avatar` 组件把「无 color 时按截断 initials 取色」作为**默认回退**，等于给每个调用点埋了「忘传 color 就色偏、且不报错」的隐性坑。PR #67 建立真源时手工逐个改调用点，漏掉这两个新增/未覆盖的调用点也不会有任何编译或测试报警——这是同类问题的遗漏面，不是新引入的回归。
+
+## 修复
+
+两处调用点均改为显式传 `color={colorForAgent({ display_name, agent_id })}`，从而接入与其他界面一致的单一真源取色。
+
+- `src/IM/frontend/src/features/chat/v2/components/mention-picker.tsx`（第 5、89 行）：import `colorForAgent`，Avatar 增加 `color={colorForAgent({ display_name: c.display_name, agent_id: c.agent_id })}` — commit `715b49b`
+- `src/IM/frontend/src/features/chat/v2/components/new-group-modal.tsx`（第 5、105 行）：import `colorForAgent`，Avatar 增加 `color={colorForAgent({ display_name: a.display_name, agent_id: a.agent_id })}` — commit `715b49b`
+
+同时在对应测试文件中各增加一条 regression 断言（commit `fbfae0c`），渲染组件后查询 `.chat-avatar-face` 的 `background` 样式，断言等于 `colorForAgent` 输出——若未来调用点再次漏传 `color`，测试会报红。
+
+## 验证
+
+**种子一致性论证**：修前，`mention-picker.tsx` 传给 Avatar 的是 `c.initials`（2 字符），`new-group-modal.tsx` 传的是 `display_name.slice(0,2)`（2 字符）。对于 `display_name = "Planner"`，2 字符种子 `"PL"` 与完整种子 `"Planner"` 的 hash 不同，产生不同 oklch 色相——这正是 issue #108 描述的视觉不一致。修后两处种子均等于完整 `display_name`，与系统其他界面（chat sidebar / message-pane / settings）使用的 `colorForAgent({ display_name })` 完全一致。
+
+**测试结果**：
+
+- 修前：2 条新增 regression 测试失败（Red），其余 437 通过
+- 修后：全部 439 测试通过（PASS 439 FAIL 0），含 2 条 regression 断言 `.chat-avatar-face` 底色与 `colorForAgent` 输出严格相等
+
+**浏览器验收说明**：本 fix 为纯颜色种子修正，无 UI 结构变化。regression 测试已在 jsdom 中直接断言 background 样式值，覆盖了「修前色偏、修后一致」的核心不变量。视觉最终效果须在真实运行环境中通过 issue #108 的复现路径确认（由 change-reviewer 负责验收）。
