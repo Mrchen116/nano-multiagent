@@ -79,8 +79,34 @@ silence boundary"，M140）引入——群聊里 agent 输出 NO_REPLY 表示「
 出口，新增投递路径时就漏接。
 
 **修复必须保住的不变量**：
-1. 群聊里任何 agent 文本投递路径，输出哨兵 `NO_REPLY` 都不得投递、不得落库。
+1. 群聊里任何 agent 文本投递路径，输出哨兵（`NO_REPLY` / `HEARTBEAT_OK`，由 `_is_no_reply_token`
+   :592 统一识别）都不得投递、不得落库。
 2. 非哨兵内容、以及单聊场景的正常回复不受影响（不能为了消症状把 fan-out 路径整个静音）。
+
+**修法决策（写死，worker 照此实现，勿即兴选别的层）**：
+
+抑制收敛在 **pipeline 应用层**，不下沉到出口、也不在两处调用点各写一个 `if`：
+
+- ❌ **不下沉到 `OutboundRouter.send_text`**（`outbound_router.py:15`）。它是纯传输出口，只认
+  channel / reply_context，不懂 agent 协议哨兵、不知道 is_group——把 `NO_REPLY` 判断塞进去是
+  分层倒置（传输层去懂应用协议），且 `bg_reply_sender` 是另一个独立出口（`main.py:3745`，跨 SSE
+  循环走不同通道），下沉也覆盖不到它。两个出口分立有其传输理由，不强行合并。
+- ❌ **不在 `_on_other_event`（:313-319）和 `_relay_bg_run_output`（:784-799）各加一个 `if`**。
+  那是第三次打补丁——抑制判断仍分散在调用点，下次再加第四条投递路径照样漏（本 bug 的成因正是
+  抑制分散）。
+- ✅ **泛化已有的抑制守卫为单一判断点，三条路径统一调用**：
+  - 把 `_should_suppress_no_reply`（:601，现签名 `(message, *, reply_text)` → `message.is_group
+    and _is_no_reply_token(reply_text)`）泛化为不依赖 `message` 的形式，例如
+    `_should_suppress_no_reply(reply_text: str, *, in_group: bool) -> bool`，内部仍是
+    `in_group and _is_no_reply_token(reply_text)`。不依赖 `message` 是因为 background 中继路径
+    跨 SSE 循环、手里不一定持有原 `InboundMessage`。
+  - 三条路径在各自 send 前都过这个守卫：主路径传 `in_group=message.is_group`；fan-out 两路
+    （`_on_other_event` / `_relay_bg_run_output`）agent-to-agent 隐含群聊上下文（单聊不存在
+    agent 互相 @），传 `in_group=True`。
+  - 在该守卫的 docstring 写明「任何新增的 agent 文本投递路径必须经此守卫」，把「单一判断点」做成
+    可被后人看见的约束，而不只是当下三处恰好都调了。
+- 主路径现有的 `suppressed_by=no_reply_token` lifecycle 标记（:356）行为保留；fan-out 两路被
+  抑制时直接 `return`/跳过即可，无需补 lifecycle（它们本就没有对应的 lifecycle 卡）。
 
 ### ② #111：reconcile 收口在飞 tool_call 时丢了 input，前端空 input 又覆盖已有命令
 
