@@ -471,12 +471,36 @@ class RunsRegistry:
             return None
         if current.status in _TERMINAL_STATUSES:
             return replace(current)
-        return self._set_status(
+        updated = self._set_status(
             run_id,
             status=RunStatus.CANCELLED,
             stop_reason="cancelled",
             only_if={RunStatus.QUEUED, RunStatus.RUNNING},
         )
+        # bugfix-417-M1: cooperative cancel (controller flag) cannot reach a run
+        # parked inside an await it never returns from (tool execution / LLM wait
+        # / permission decision). The run holds the per-session lock until its
+        # carrier Task unwinds, so a parked run would otherwise wedge the session
+        # forever (#110). Force-cancel the carrier Task on the registry's own loop
+        # so `async with lock` exits via CancelledError and releases the lock; the
+        # runtime's CancelledError path recovers orphaned tool_calls under shield.
+        self._force_cancel_owned_task(run_id)
+        return updated
+
+    def _force_cancel_owned_task(self, run_id: str) -> None:
+        """Force-cancel the asyncio Task carrying a run, if one is still live.
+
+        Idempotent: a run that already reached a terminal state has no entry in
+        _owned_tasks (the done-callback cleared it), so this is a no-op for
+        terminal/unknown runs. Scheduled on the dedicated loop because Task
+        cancellation must run in the loop that owns the Task.
+        """
+        loop = self._async_loop
+        with self._lock:
+            task = self._owned_tasks.get(run_id)
+        if task is None or task.done() or loop is None or not loop.is_running():
+            return
+        loop.call_soon_threadsafe(task.cancel)
 
     async def _run_worker_async(
         self,
