@@ -112,6 +112,8 @@ class MessageResponse(BaseModel):
     created_at: str
     tool_calls: list[ToolCallPayload] = []
     token_usage: TokenUsagePayload | None = None
+    # feat-414: 本轮 agent 处理墙钟（毫秒）。用户消息及旧行均为 None。
+    elapsed_ms: int | None = None
     # bugfix-367: list-shaped 以保留同一 message 上所有 ask 的历史(允许 / 拒绝 /
     # 当前 pending)。REST 历史回放因此能完整还原"按了多少个同意"。
     permission_requests: list[dict] = []
@@ -189,6 +191,8 @@ def to_message_response(message: Message) -> MessageResponse:
         )
         if message.token_usage is not None
         else None,
+        # feat-414: 直接透传，用户消息及旧行为 None。
+        elapsed_ms=message.elapsed_ms,
         # bugfix-367: pass-through list 形态。前端 reducer / 渲染按 request_id
         # 索引每张卡,key 用 request_id remount,刷新后历史小条全部还原。
         permission_requests=list(message.permission_requests),
