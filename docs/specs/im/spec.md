@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-414-message-turn-elapsed
+> 对齐: bugfix-416
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 **IM 的消费者真正依赖的对外行为**：
 > 浏览器前端（内置 Web IM）、Node Gateway（`personal_assistant`）、终端用户，以及 `tests/im_service/`
@@ -397,6 +397,12 @@ run 异常终止或工具被拒绝时,IM 工具徽标必须从「运行中」收
 - **GIVEN** 同一条消息里其他工具已正常完成
 - **WHEN** 在飞工具收口
 - **THEN** 已完成工具的徽标保持原终态不变
+
+#### Scenario: 超时收口的工具仍显示其命令与描述
+- **GIVEN** 一个 bash 工具调用运行中,已显示其命令与 description
+- **WHEN** 该工具因看门狗超时(或其他异常终止)被收口为失败态
+- **THEN** 该工具行仍显示原命令与 description(连同失败标识),用户能看出是哪条命令被中断,
+  而非只剩工具名 + 失败标识
 
 ### Requirement: 工具调用折叠态摘要有信息量且用真实工具名
 

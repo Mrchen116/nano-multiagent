@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: bugfix-410
+> 对齐: bugfix-416
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -75,6 +75,12 @@ import 内核内部(由 `tests/contract/` 把守)。
 #### Scenario: 群聊 Agent 输出 NO_REPLY 时不发言
 - **WHEN** 群聊一轮运行的最终回复文本为 `NO_REPLY`
 - **THEN** Gateway 抑制出站投递,用户在群里看不到任何 Agent 发言
+
+#### Scenario: 群聊 Agent 互相 @ 的 fan-out 回复输出 NO_REPLY 时不发言
+- **GIVEN** 群聊里 Agent A 的回复 @ 了 Agent B,把 B 拉起(agent-to-agent fan-out),或某 Agent 的
+  后台任务在群聊会话产生回复
+- **WHEN** 被拉起的 Agent 判断无需接话,输出 `NO_REPLY`(或心跳静默 token `HEARTBEAT_OK`)
+- **THEN** Gateway 对该 fan-out / 后台投递同样抑制,用户在群里看不到 `NO_REPLY` 字面量,该消息也不落库
 
 ### Requirement: /stop 控制命令中断当前运行
 
@@ -407,3 +413,9 @@ run 进入失败/取消终态(含 idle 看门狗超时路径)时,Gateway 必须�
 - **GIVEN** 同一轮里其他工具已正常完成(含执行出错但已返回结果的)
 - **WHEN** run 进入终态做在飞工具收口
 - **THEN** 这些已完成工具的终态保持不变
+
+#### Scenario: 在飞工具收口仍保留其原始调用参数
+- **GIVEN** 某轮有一个工具在飞,其开始执行时已带出原始调用参数(如 bash 的命令与 description)
+- **WHEN** run 进入终态对该在飞工具收口(看门狗超时或异常终止)
+- **THEN** 下发的终态仍携带该工具的原始调用参数(仅状态改为失败 + 标注原因),消费者据此能看出
+  是哪条命令被中断,而非只剩工具名
