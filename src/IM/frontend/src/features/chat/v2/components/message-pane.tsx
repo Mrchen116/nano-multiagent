@@ -454,8 +454,12 @@ function MessageBubble({
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>
           {deliveryStatus === "running" && (
-            <span className="flex items-center gap-1 text-[oklch(0.65 0.15 60)]">
-              <span className="inline-block w-[6px] h-[6px] rounded-full bg-[oklch(0.70 0.18 60)] animate-pulse" />
+            // feat-414: oklch 任意值含空格，Tailwind 会拆词导致类名失效；改用内联 style 确保颜色可靠渲染
+            <span className="flex items-center gap-1" style={{ color: "oklch(0.65 0.15 60)" }}>
+              <span
+                className="inline-block w-[6px] h-[6px] rounded-full animate-pulse"
+                style={{ backgroundColor: "oklch(0.70 0.18 60)" }}
+              />
               {/* feat-414: running 态实时走 tick；有值时加 ⏱ 与 prototype.html 对齐，无值时回退文案 */}
               {elapsedDisplay != null ? `⏱ ${elapsedDisplay}` : t("chat.messagePane.running")}
             </span>

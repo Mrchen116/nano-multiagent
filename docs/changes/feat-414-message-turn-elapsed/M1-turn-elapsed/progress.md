@@ -73,7 +73,8 @@
   - Frontend State Matrix: running tick ✓ vitest；completed ⏱ 定格 ✓ vitest + REST API 实测；用户气泡无耗时 ✓ vitest
   - Browser QA:
     - **完成态截图**：`ACCEPTANCE/feat-414-M1/completed-state.png`（viewport 1280×720）—— 气泡状态行显示 `⏱ 3.7s`（elapsed_ms=3720），位于时间戳右侧，中性灰（`oklch(0.62 0.01 240)`）；用户消息气泡（右侧绿色）无耗时显示；与 prototype.html after 列第 2 个气泡（`⏱ 3.4s` 中性灰）视觉一致。
-    - **进行中截图**：`ACCEPTANCE/feat-414-M1/running-state.png`（viewport 1280×720）—— 最底部消息状态行显示实时 tick 秒数（`1.2s`），DOM 验证 `.animate-pulse` 脉冲点 2 个（坐标 x:360 y:505 和 y:590，6×6px，class `inline-block w-[6px] h-[6px] rounded-full bg-[oklch(0.70 0.18 60)] animate-pulse`），与 prototype.html 进行中气泡（脉冲点 + `⏱ 0s` 走秒）视觉一致。
+    - **进行中截图 (before)**：`ACCEPTANCE/feat-414-M1/running-state-before-pulse-fix.png`（viewport 1280×720）—— 状态行显示实时 tick（`1.2s`），但无 ⏱ 图标、无琥珀脉冲色（Tailwind `oklch(...)` 含空格被拆词，类名失效，颜色回退默认）。
+    - **进行中截图 (after)**：`ACCEPTANCE/feat-414-M1/running-state-after-pulse-fix.png`（viewport 1280×720）—— 底部 running 消息显示 `● ⏱ 14.0s`：琥珀圆点脉冲（`backgroundColor: "oklch(0.70 0.18 60)"` inline style）+ 琥珀 `⏱ Xs`（`color: "oklch(0.65 0.15 60)"` inline style），与 prototype.html 进行中气泡完全对齐。完成态 `⏱ 35ms` 中性灰同帧可见。修复方案：改用 inline style 替代带空格的 Tailwind 任意值类，`animate-pulse` 无空格保留不动。
     - **工具徽标折叠态**：`tool-calls-panel.tsx` 移除了 `totalDuration` 函数，折叠态 label 仅显示 `{count} tool calls`，无 `· Xs` 累加耗时；vitest 单测 `does not show total duration in collapsed state` 覆盖（frontend 418 passed）。
     - REST API 实测 `elapsed_ms=3720` 返回 ✓。
   - E2E/Regression: frontend 418 passed; pytest 2641 passed
