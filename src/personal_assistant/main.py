@@ -3670,8 +3670,9 @@ def _build_kernel_event_observer(
             # crash / interrupt) and any tool_call still in flight never received a
             # tool_end, so its IM badge would spin forever. Close each remaining
             # in-flight call with status=failed + a reason. Already-completed calls
-            # were popped on tool_end, so they are untouched. reason ∈ {timed_out
-            # (watchdog cancel), interrupted (other abnormal termination)}.
+            # were popped on tool_end, so they are untouched. reason ∈ {stalled
+            # (watchdog liveness reap → 已中断), interrupted (other abnormal
+            # termination → 已中断), tool_timeout (tool's own deadline → 执行超时)}.
             reason = str(event.get("reason") or "interrupted").strip() or "interrupted"
             inflight = running_tool_calls.pop(run_id, {})
             if message_id and inflight:

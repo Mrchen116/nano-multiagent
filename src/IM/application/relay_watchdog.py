@@ -134,9 +134,15 @@ def _build_failed_payload(
         "conversation_id": conversation_id,
         "message_id": message_id,
         "progress_state": "failed",
+        # `semantic` identifies WHICH path produced the failure (the IM relay DB-sweep
+        # fallback) and stays relay-specific. `reason` is the failure-cause vocabulary
+        # shared with the Gateway watchdog: both reap a message/run that lost liveness
+        # within the idle window, so both use "stalled" (bugfix-417-M4: aligned from the
+        # former "watchdog_timeout" to remove the watchdog_timeout≠stalled inconsistency
+        # the two watchdogs carried for the same semantic).
         "semantic": "relay_watchdog_timeout",
         "detail": f"relay idle for {timeout_seconds}s with no new event",
-        "reason": "watchdog_timeout",
+        "reason": "stalled",
     }
     row = connection.execute(
         """
