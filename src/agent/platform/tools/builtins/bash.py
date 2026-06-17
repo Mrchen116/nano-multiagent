@@ -473,6 +473,12 @@ class BashTool(WiringMixin):
                         "timeout": timeout_detail,
                         "content": str(exc.details.get("content", "")),
                         "truncated": bool(exc.details.get("truncated", False)),
+                        # bugfix-417-M3 R4 (decision 5): the tool hit its OWN deadline —
+                        # classify the badge as "执行超时" (tool_timeout), distinct from a
+                        # watchdog liveness stall ("已中断"/stalled). reason_code is lifted
+                        # into the ToolResult by StreamingToolExecutor and rendered as the
+                        # tool_end badge.
+                        "reason_code": "tool_timeout",
                     },
                 ) from exc
             raise
@@ -525,6 +531,8 @@ class BashTool(WiringMixin):
                     "timedOut": True,
                     "timed_out": True,
                     "timeout": timeout_seconds,
+                    # bugfix-417-M3 R4 (decision 5): tool's own deadline → "执行超时".
+                    "reason_code": "tool_timeout",
                 },
             )
 

@@ -1168,6 +1168,21 @@ class MessageRepository:
         ).fetchone()
         return self._message_from_row(refreshed)
 
+    def get_conversation_id(self, *, message_id: str) -> str | None:
+        """Return a message's conversation_id without mutating the row (bugfix-417-M3).
+
+        Used by the run_heartbeat liveness path, which must append a conversation_events
+        row but must NOT patch the message (content / tool_calls / delivery_status).
+        Returns ``None`` for an unknown message id.
+        """
+        row = self._connection.execute(
+            "SELECT conversation_id FROM messages WHERE id = ?",
+            (message_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return str(row["conversation_id"])
+
     def list_messages(
         self,
         *,

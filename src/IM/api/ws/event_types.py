@@ -33,6 +33,10 @@ EVENT_AGENT_STATUS_CHANGED = "agent.status_changed"
 # feat-333-M2: permission ask flow — sent when agent awaits user decision and when resolved.
 EVENT_PERMISSION_REQUEST = "permission.request"
 EVENT_PERMISSION_RESOLVED = "permission.resolved"
+# bugfix-417-M3: liveness heartbeat — advances the message's last_evt so the relay
+# watchdog sees an alive-but-quiet run (silent long tool / awaiting LLM / parked on a
+# permission decision) as live. Pure liveness; carries no content/tool_calls.
+EVENT_RUN_HEARTBEAT = "run.heartbeat"
 
 
 def tool_call_to_dict(tool_call: ToolCall) -> dict[str, Any]:

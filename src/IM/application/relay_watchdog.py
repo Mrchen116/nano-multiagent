@@ -24,7 +24,6 @@ def scan_and_fail_stuck_running_messages(
     connection: sqlite3.Connection,
     event_repository: EventRepository,
     timeout_seconds: int = 120,
-    permission_crash_threshold_seconds: int = 600,
 ) -> int:
     """Find messages idle in `running` past the cutoff, fail them, and push `relay.failed`.
 
@@ -36,36 +35,27 @@ def scan_and_fail_stuck_running_messages(
             this message (or `messages.created_at` when no events exist) past which a
             `running` message is considered stuck. Default 2 minutes: active tool-loop
             relays push events every few seconds, so 120s of silence means truly stuck.
-        permission_crash_threshold_seconds: bugfix-410-M2 (#98). A running message parked
-            on a pending permission decision carries a fresh `awaiting_permission_at` marker
-            (Gateway heartbeat refreshes it). While the marker is younger than this threshold
-            the message is exempt from the idle reap — a human reading a permission card
-            legitimately takes longer than 120s. Once the marker goes stale past this
-            threshold (Gateway crashed → refresh stopped) the exemption lapses and the
-            message is reaped normally, so a crash cannot leak a permanently-exempt ghost.
-            Independent of `timeout_seconds`; default 10 minutes (several × heartbeat
-            interval), far shorter than would mislead a user still deciding.
 
     Returns:
         Number of messages flipped from `running` to `failed` in this pass.
     """
-    # bugfix-410-fix-r1: format cutoffs via repositories._format_utc — the same single
-    # source that writes awaiting_permission_at — so the SQL string comparison below can
-    # never break from a format drift between the writer and this comparator.
+    # bugfix-410-fix-r1: format the cutoff via repositories._format_utc so the SQL string
+    # comparison below can never break from a format drift between writer and comparator.
     now = datetime.now(timezone.utc)
     cutoff = _format_utc(now - timedelta(seconds=timeout_seconds))
-    permission_cutoff = _format_utc(
-        now - timedelta(seconds=permission_crash_threshold_seconds)
-    )
     # bugfix-383: judge liveness by the most recent event timestamp, not message
     # creation time. Multi-turn tool loops run for many minutes while pushing events
     # continuously; only silence (no new event) for `timeout_seconds` means stuck.
     # COALESCE falls back to created_at when no events exist (gateway crashed before
     # emitting relay.processing) — preserves the original behaviour for that edge case.
     #
-    # bugfix-410-M2 (#98): additionally exempt rows whose awaiting_permission_at marker
-    # is still fresh (>= permission_cutoff). A stale or NULL marker does NOT exempt, so a
-    # Gateway crash that stops refreshing the marker lets the row be reaped normally.
+    # bugfix-417-M3 R4: the permission-specific awaiting_permission_at exemption is gone.
+    # All three alive-but-quiet windows (silent long tool / awaiting LLM / parked on a
+    # permission decision) now emit a uniform run_heartbeat that EventBridge persists as a
+    # conversation_events row — so last_evt advances for every live window and the single
+    # liveness judgment below covers them with no per-window special case. A Gateway/kernel
+    # crash stops the heartbeat → last_evt goes stale → the row is reaped normally
+    # (decision 4 crash detection), strictly faster than the old 600s marker threshold.
     rows = connection.execute(
         """
         SELECT m.id, m.conversation_id, m.created_at
@@ -77,12 +67,8 @@ def scan_and_fail_stuck_running_messages(
         ) e ON e.message_id = m.id
         WHERE m.delivery_status = 'running'
           AND COALESCE(e.last_evt, m.created_at) < ?
-          AND NOT (
-            m.awaiting_permission_at IS NOT NULL
-            AND m.awaiting_permission_at >= ?
-          )
         """,
-        (cutoff, permission_cutoff),
+        (cutoff,),
     ).fetchall()
     if not rows:
         return 0
@@ -259,7 +245,6 @@ async def run_relay_watchdog(
     event_repository: EventRepository,
     interval_seconds: int = 30,
     timeout_seconds: int = 120,
-    permission_crash_threshold_seconds: int = 600,
 ) -> None:
     """Background task: sweep stuck `running` messages every `interval_seconds`.
 
@@ -272,7 +257,6 @@ async def run_relay_watchdog(
                 connection=connection,
                 event_repository=event_repository,
                 timeout_seconds=timeout_seconds,
-                permission_crash_threshold_seconds=permission_crash_threshold_seconds,
             )
         except Exception:  # noqa: BLE001
             logger.exception("relay_watchdog: sweep crashed; continuing after sleep")

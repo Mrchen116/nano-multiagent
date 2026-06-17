@@ -3494,6 +3494,27 @@ def _build_kernel_event_observer(
                     )
                 )
 
+        elif event_name == "run_heartbeat":
+            # bugfix-417-M3 R4: forward the kernel liveness heartbeat (tool / LLM-await /
+            # parked-permission) to IM as a lightweight `run_heartbeat` delta. IM's
+            # EventBridge appends a conversation_events row, advancing the message's
+            # last_evt timestamp so the relay watchdog sees the run as alive — no
+            # permission-specific marker needed (decision 4). Pure liveness: it does not
+            # mutate message content or tool_calls and is not rendered by the frontend.
+            if message_id:
+                loop.create_task(
+                    _send(
+                        manager,
+                        "node.streaming_delta",
+                        {
+                            "kind": "run_heartbeat",
+                            "message_id": message_id,
+                            "run_id": run_id,
+                            "source": str(event.get("source") or ""),
+                        },
+                    )
+                )
+
         elif event_name == "tool_start":
             call_id = str(event.get("call_id") or "").strip() or run_id
             tool_name = str(event.get("name") or "")

@@ -27,6 +27,7 @@ from IM.api.ws.event_types import (
     EVENT_MESSAGE_DELTA,
     EVENT_PERMISSION_REQUEST,
     EVENT_PERMISSION_RESOLVED,
+    EVENT_RUN_HEARTBEAT,
     EVENT_TOOL_CALL_COMPLETED,
     EVENT_TOOL_CALL_UPSERTED,
     build_message_completed_payload,
@@ -186,6 +187,38 @@ class EventBridge:
                 message_id=message_id,
                 delta_text=delta_text,
             ),
+        )
+
+    def on_run_heartbeat(self, *, message_id: str, source: str = "") -> None:
+        """Append a liveness heartbeat event for a still-running message (bugfix-417-M3).
+
+        The kernel emits a ``run_heartbeat`` during alive-but-quiet windows (silent long
+        tool / awaiting LLM / parked on a permission decision). Persisting it as a
+        conversation_events row advances the message's ``last_evt`` timestamp so the
+        relay watchdog treats the run as live — replacing the bugfix-410-M2 permission
+        marker with a single uniform liveness signal (decision 4). It must NOT mutate
+        message content or tool_calls (pure liveness), so we only read the conversation
+        id off the row, never patch it. A heartbeat for a non-running / unknown message
+        is harmless: the watchdog only reaps rows still in ``running``.
+        """
+        # Read-only conversation_id lookup — must not patch the message row.
+        conversation_id = self.message_repository.get_conversation_id(
+            message_id=message_id
+        )
+        if conversation_id is None:
+            # Unknown message (already purged / never created): nothing to keep alive.
+            return
+        self._emit(
+            conversation_id=conversation_id,
+            message_id=message_id,
+            event_type=EVENT_RUN_HEARTBEAT,
+            delivery_status="running",
+            payload={
+                "conversation_id": conversation_id,
+                "message_id": message_id,
+                "event_type": EVENT_RUN_HEARTBEAT,
+                "source": source,
+            },
         )
 
     def on_tool_call_upserted(self, *, message_id: str, tool_call: ToolCall) -> None:

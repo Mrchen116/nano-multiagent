@@ -29,8 +29,15 @@ export interface Attachment {
 }
 
 // bugfix-410-M2 (#97): sidecar badge classification of a non-success terminal,
-// kept separate from `status`. denied→已拒绝 / timed_out→执行超时 / interrupted→已中断.
-export type ToolCallReason = "denied" | "timed_out" | "interrupted";
+// kept separate from `status`. denied→已拒绝 / tool_timeout→执行超时 / stalled→已中断.
+// bugfix-417-M3 R4: tool_timeout = 工具自身 deadline; stalled = watchdog liveness 收尸.
+// Legacy timed_out / interrupted retained for rows persisted before the change.
+export type ToolCallReason =
+  | "denied"
+  | "timed_out"
+  | "tool_timeout"
+  | "interrupted"
+  | "stalled";
 
 /**
  * Structured tool-call detail produced by the kernel presenter and forwarded
