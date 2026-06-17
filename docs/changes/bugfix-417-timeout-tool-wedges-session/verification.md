@@ -123,3 +123,57 @@ delta-spec 涉及三包：kernel（MODIFIED cancel + ADDED liveness）、gateway
 ---
 
 All checks passed. Ready for PR (with noted doc-only suggestion).
+
+---
+
+# Round 3 — 2026-06-18
+
+> 轻量复验：核对 9a87cfe3..99784e19 的 fix diff（ShellRunner `_stopped` 标记 + liveness cleanup）。基于 Round 2 上下文增量核对 Coherence + Correctness。
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 继承 Round 2（无新 task 引入） |
+| Correctness | fix diff 的两处变更均有对应测试；红测 ecb93e09 → 绿测 b0cddf83；全树 2658 passed |
+| Coherence | 决策 6 stop 语义遵守；决策 2/3/4 liveness 不变量保持；无新 divergence |
+
+No critical issues. 0 warnings, 0 suggestions. Round 2 三维结论在此 fix 后仍成立。
+
+## Coherence — fix diff 核对
+
+### _stopped 标记（ShellRunner，决策 6 killpg/stop 语义）
+
+`shell_runner.py` 新增 `self._stopped: set[str]`：`_stop_task` 在 killpg **前**置位（`shell_runner.py:206`），`_monitor` 非零退出前查标记（`shell_runner.py:154-159`）——stop 导致的退出静默返回，让 `TaskStopTool` 的 `registry.kill` 独占 KILLED 终态；timeout 路径（`_monitor` 内同步等宽限）不经 `_stop_task`，`_stopped` 不被置位，`on_fail` 正常触发 tool_timeout，**与决策 6 的 killpg/超时语义完全一致，timeout 路径不变**。
+
+先置位后 killpg 的顺序保证 monitor 线程见到进程退出时标记已在，消除微秒级竞窗。flag 在 lock 内读取再 discard（`shell_runner.py:151-155`），线程安全。
+
+busy-poll 改 `process.wait(timeout=_PROCESS_GROUP_TERM_GRACE_S)`（`shell_runner.py:250-254`）：OS 调度等待代替 50ms 轮询，等价语义（宽限到期后 SIGKILL），CPU 利用率更低。无逻辑变更。
+
+### liveness cleanup（决策 2/3/4 不变量）
+
+三处 cleanup 均不改行为语义：
+
+1. `_emit_liveness_heartbeats` 删 park 分支（`liveness.py`）：原 `publish is None or not run_id` 时 park-forever，现在由调用方 guard（`liveness_ticker` 的 `if publish is None or not run_id: yield; return` 路径，以及 `runtime.py` 的 `if _perm_publish is not None and run_id_for_broker` guard）。结果相同：无 publisher 时不发心跳，ticker 不创建或立即 no-op。
+2. `_broker_publish_adapter` + `session_event_publisher` 合并为共用 `_wrap_publisher` 内核（`liveness.py:127-157`）：纯重构，两个公开函数签名不变，行为不变。
+3. `runtime.py` permission ticker None-guard：`_perm_heartbeat` 改为 `Task | None`，`finally` 里加 `if _perm_heartbeat is not None` guard（`runtime.py:1563-1567`）。CLI 下 publish=None 时不再产生 park-forever Task，符合决策 2 "心跳由真前进的执行层发出"不变量（CLI 无 event hub，产生 Task 只是空转，不应存在）。PA 场景 publish 非 None，行为与 Round 2 完全相同。
+
+**三处 cleanup 无任何决策 divergence。**
+
+## Correctness — 测试覆盖
+
+| 变更 | 红测（ecb93e09） | 绿测（b0cddf83） | 状态 |
+|---|---|---|---|
+| `_stopped` 标记：stop 不触发 on_fail | `test_shell_runner_stop_does_not_fire_on_fail` 红（pre-fix monitor 调 on_fail） | 同测试绿（`shell_runner.py:154-159` 静默返回） | covered |
+| liveness cleanup（park 分支删除 / None-guard） | `test_liveness_ticker_noop_when_missing` 更新（改测 liveness_ticker 层 no-op，非 _emit_liveness_heartbeats 层） | 通过 | covered |
+| killpg busy-poll → process.wait | 既有 `test_shell_runner_timeout_kills_grandchild` 等回归 | 18 passed（含 killpg 整树回收测试）| covered |
+
+全测试树 2658 passed（较 Round 2 多 1 个，即新增的 stop-does-not-fire-on_fail 测试）。端到端集成测试 `test_bugfix_417_bash_engine_e2e.py` 2 passed 不变。
+
+## Issues
+
+### CRITICAL / WARNING / SUGGESTION
+
+无。Round 2 的 S1（M4 tasks.md 复选框）已在 commit 99784e19 修复（docs 勾选 6 行 `[x]`）。
+
+All checks passed. Ready for PR.
