@@ -9,13 +9,13 @@
 
 ## 退出标准
 
-- [ ] R1 工具心跳解缓冲：移除 `_pending_updates`，`execution_event_callback` 经 `run_coroutine_threadsafe` 实时 dispatch `_dispatch_observe("tool_execution_update")`；observe fail-open 保持
-- [ ] R2 `realtime_stream` 加 `on_tool_execution_update` publisher → `publish_session_event("run_heartbeat", {run_id, phase, elapsed_ms})`，仅 liveness 不渲染
-- [ ] R3 runtime LLM-await ticker + parked-on-permission await-bound ticker：await 前起、返回/异常/resolve 即停，周期发同款 `run_heartbeat` 进 stream
-- [ ] R4 Gateway watchdog：移除 `awaiting_permission` 分支（任意 stream 事件含心跳即重置）；idle 路径 `reason` `timed_out`→`stalled`；`_map_kernel_event_to_run_activity` 加 `run_heartbeat` 映射进 IM
-- [ ] R4 IM watchdog：加 `run_heartbeat` streaming_delta kind 经 `_emit` 推进 `conversation_events.last_evt`；移除 `awaiting_permission_at` 专用 marker 豁免（统一 liveness）
-- [ ] R4 失败态区分：bash 自身 timeout → `tool_timeout`/"执行超时"；watchdog liveness 收尸 → `stalled`/"已中断"；盘点既有 `interrupted` 语义不重叠
-- [ ] `python -m pytest`（最窄相关 + 必要广度）全绿，既有 watchdog / streaming / permission 测试不回归
+- [x] R1 工具心跳解缓冲：移除 `_pending_updates`，`execution_event_callback` 经 `run_coroutine_threadsafe` 实时 dispatch `_dispatch_observe("tool_execution_update")`；observe fail-open 保持
+- [x] R2 `realtime_stream` 加 `on_tool_execution_update` publisher → `publish_session_event("run_heartbeat", {run_id, phase, elapsed_ms})`，仅 liveness 不渲染
+- [x] R3 runtime LLM-await ticker + parked-on-permission await-bound ticker：await 前起、返回/异常/resolve 即停，周期发同款 `run_heartbeat` 进 stream
+- [x] R4 Gateway watchdog：移除 `awaiting_permission` 分支（任意 stream 事件含心跳即重置）；idle 路径 `reason` `timed_out`→`stalled`；`_map_kernel_event_to_run_activity` 加 `run_heartbeat` 映射进 IM
+- [x] R4 IM watchdog：加 `run_heartbeat` streaming_delta kind 经 `_emit` 推进 `conversation_events.last_evt`；移除 `awaiting_permission_at` 专用 marker 豁免（统一 liveness）
+- [x] R4 失败态区分：bash 自身 timeout → `tool_timeout`/"执行超时"；watchdog liveness 收尸 → `stalled`/"已中断"；盘点既有 `interrupted` 语义不重叠
+- [x] `python -m pytest`（最窄相关 + 必要广度）全绿，既有 watchdog / streaming / permission 测试不回归
 
 ## 测试策略
 
