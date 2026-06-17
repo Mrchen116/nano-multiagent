@@ -159,8 +159,56 @@ upsert 阶段的真实值——两层都默认「后到的事件字段更全」�
 
 ## 修复
 
-<!-- milestone 完成后由 worker 回填：改了什么 + commits。 -->
+### ① #107 群聊 fan-out NO_REPLY 抑制守卫泛化
+
+按上文「修法决策」严格落地——抑制收敛在 pipeline 应用层单一守卫：
+
+- `src/personal_assistant/gateway/inbound_pipeline.py`
+  - `_should_suppress_no_reply(message, *, reply_text)` → 泛化为 `_should_suppress_no_reply(reply_text: str, *, in_group: bool)`，内部仍 `in_group and _is_no_reply_token(reply_text)`。不依赖 `message`，使背景中继路径（跨 SSE 循环、无原 `InboundMessage`）也能调用。
+  - docstring 写明「任何新增 agent 文本投递路径必须经此守卫」，把「单一判断点」做成可见约束。
+  - 三条投递路径统一过守卫：主同步回复传 `in_group=message.is_group`；流式 other-origin（`_on_other_event`）与背景中继（`_relay_bg_run_output`）传 `in_group=True`（agent-to-agent 隐含群聊）。fan-out 两路被抑制时直接 `return`/跳过，不补 lifecycle（本就无对应卡）。
+
+未下沉到 `OutboundRouter.send_text`（传输层不懂协议哨兵，且覆盖不到独立的 `bg_reply_sender` 出口），也未在两处调用点各写 `if`。
+
+### ② #111 超时 bash 保留 command/description
+
+- `src/personal_assistant/main.py`（主修法）
+  - `tool_start`：`running_tool_calls[run_id][call_id]` 由只存 `name` 改存完整 `{"name", "input"}`。
+  - `run_terminal_reconcile`：从该结构取回原 `input` 重发，只改 `status=failed` + `reason`，不再硬塞 `input: {}`。兼容跨部署遗留的 bare-name 形态。
+- `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.ts`（兜底）
+  - 新增 `mergeToolCall`：合并 tool_call 时，incoming 字段为空（undefined/null/""/{}）而已存值非空时保留已存 `input`/`output`，防「收口事件少带字段」抹掉已展示内容。
+
+### Commits
+
+- `1542d48f` test(R1): #107 fan-out NO_REPLY 抑制红测
+- `2cb5e413` fix(R1): #107 抑制守卫泛化，三路统一调用
+- `035c539f` test(R2): #111 reconcile 保留字段 + reducer 空字段红测（后端+前端）
+- `aa9d16bd` fix(R2): #111 running_tool_calls 存完整 call + reconcile 重发 + reducer 兜底
 
 ## 验证
 
-<!-- milestone 完成后由 worker 回填：修前能复现 → 修后不能；相关功能回归正常。 -->
+### ① #107：修前复现 → 修后消失
+
+修前症状：群聊 fan-out 路径（流式 other-origin / 背景中继）的 agent 输出哨兵 `NO_REPLY` 时，字面量泄漏进气泡并落库。
+
+- **修前红测复现**（C1，commit `1542d48f`）：构造群聊（`is_group=True`）+ fan-out other-origin `assistant_message` 内容为 `NO_REPLY`，驱动真实 `pipeline.handle_inbound`。修前断言失败：`channel.sent` 含 `['NO_REPLY', 'reply:demo']`——`NO_REPLY` 字面量被投递（与用户报告一致）。
+- **修后**（C2，commit `2cb5e413`）：同一路径，`channel.sent == ['reply:demo']`，`NO_REPLY` 不再投递；非哨兵 fan-out 内容（`Here is the markdown table.`）仍正常投递（不误杀）。
+
+> 入口说明：测试直接驱动 `pipeline.handle_inbound`，other-origin 事件经真实 `_await_terminal_run_async` → `_on_other_event` 分派路径（非 mock 出口），是用户报告所走的同一代码路径。三条投递路径中背景中继路径与 other-origin 共用同一守卫（同一 `_should_suppress_no_reply`），故主修法对其同样生效。完整 Gateway 进程内群聊 e2e（双 agent 真互 @）成本高且非本 lite unit 范围，未起。
+
+### ② #111：修前复现 → 修后消失
+
+修前症状：bash 超时被 watchdog 收口后，IM 气泡只剩红 ×「bash Timed out」，command/description 全丢。
+
+- **后端（主修法）**：
+  - 修前红测复现（C1，commit `035c539f`，`test_reconcile_preserves_command_and_description`）：喂真实 `tool_start`（bash，`command=npm run test:all` + `description=Run full frontend test suite`）→ `run_terminal_reconcile(reason=timed_out)`，断言下发的 `tool_call_completed` payload `input` 仍含命令。修前失败：`tc["input"] == {}`（命令被抹，与用户报告一致）。
+  - 修后（C2，commit `aa9d16bd`）：`tc["input"] == {command, description, timeout}`，`status=failed`、`reason=timed_out`；止转圈不退化（`test_reconcile_still_closes_in_flight_call_as_failed`：在飞 call 仍收口 failed 并 pop）。
+- **前端（兜底）**：修前红测复现（chat-stream-reducer.test.ts「reconcile 空 input 不覆盖」）：tool_start upsert 真实命令后，再喂 reconcile 风格的 `input:{}` completed 事件，修前 `tc.input == {}`；修后保留 `{command, description}`，`output` 同理不被空值覆盖。
+
+> 入口说明：后端经真实 observer（`_build_kernel_event_observer` 返回的 observer，喂真实事件序列）下发 `node.streaming_delta`，IM 持久化与前端渲染均消费该 payload 的 `input` 字段（gateway_handler → EventBridge）；前端经真实 `applyWsEvent` 入口验证。命令重新出现在收口 payload 即用户可见症状消失的直接证据。
+
+### 回归
+
+- `pytest -m "not e2e"`：2644 passed, 2 skipped。
+- 前端 `vitest run`：440 passed；`tsc --noEmit` 通过。
+- `ruff check` + `ruff format --check`：改动文件全过。

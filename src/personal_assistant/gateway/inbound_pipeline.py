@@ -313,10 +313,15 @@ class InboundPipeline:
                     if event_name == "assistant_message":
                         content = event.get("content")
                         if isinstance(content, str) and content.strip():
-                            self._outbound_router.send_text(
-                                text=content.strip(),
-                                reply_context=binding.reply_context,
-                            )
+                            text = content.strip()
+                            # bugfix-416 #107: fan-out (agent-to-agent) replies imply a
+                            # group context; route through the shared guard so a NO_REPLY
+                            # sentinel is suppressed here exactly like the main path.
+                            if not self._should_suppress_no_reply(text, in_group=True):
+                                self._outbound_router.send_text(
+                                    text=text,
+                                    reply_context=binding.reply_context,
+                                )
 
                 run_state, reply_text = await self._await_terminal_run_async(
                     kernel_session_id=binding.kernel_session_id,
@@ -348,7 +353,9 @@ class InboundPipeline:
                 )
                 outbound: OutboundMessage | None = None
                 lifecycle_detail: Mapping[str, Any] | None = None
-                if not self._should_suppress_no_reply(message, reply_text=reply_text):
+                if not self._should_suppress_no_reply(
+                    reply_text, in_group=message.is_group
+                ):
                     outbound = self._outbound_router.send_text(
                         text=reply_text, reply_context=binding.reply_context
                     )
@@ -598,10 +605,23 @@ class InboundPipeline:
         return stripped == "NO_REPLY" or stripped == "HEARTBEAT_OK"
 
     @classmethod
-    def _should_suppress_no_reply(
-        cls, message: InboundMessage, *, reply_text: str
-    ) -> bool:
-        return message.is_group and cls._is_no_reply_token(reply_text)
+    def _should_suppress_no_reply(cls, reply_text: str, *, in_group: bool) -> bool:
+        """Single guard deciding whether an agent text must be silently dropped.
+
+        bugfix-416 #107: this is the ONE place that gates agent text on the
+        NO_REPLY/HEARTBEAT_OK sentinel. **Any new agent-text delivery path MUST
+        route its outgoing text through this guard before sending** — group chat
+        has three independent delivery paths (main synchronous reply, streaming
+        other-origin fan-out, background-task relay) and the original bug was
+        precisely that the sentinel check lived only at the first one, so fan-out
+        replies leaked the literal `NO_REPLY` into a bubble.
+
+        ``in_group`` instead of an ``InboundMessage`` because the background relay
+        path runs across a separate SSE loop and does not hold the originating
+        message; agent-to-agent fan-out implies a group context, so those paths
+        pass ``in_group=True``.
+        """
+        return in_group and cls._is_no_reply_token(reply_text)
 
     def _is_stop_command(self, message: InboundMessage, *, agent_id: str) -> bool:
         """Check whether the inbound message is a /stop control command.
@@ -784,6 +804,13 @@ class InboundPipeline:
             async def _relay_bg_run_output(event: Mapping[str, Any]) -> None:
                 content = event.get("content")
                 if isinstance(content, str) and content.strip():
+                    text = content.strip()
+                    # bugfix-416 #107: BACKGROUND_TASK relay is the third agent-text
+                    # delivery path; route through the shared guard so a NO_REPLY
+                    # sentinel never reaches IM. Background relays only run for group
+                    # fan-out contexts, so in_group=True.
+                    if self._should_suppress_no_reply(text, in_group=True):
+                        return
                     seq = event.get("_id") or event.get("sequence_num")
                     idempotency_key = (
                         f"{captured_kernel_session_id}:{seq}"
@@ -794,7 +821,7 @@ class InboundPipeline:
                         f"{agent_id_for_relay}|tool_call:{idempotency_key}"
                     )
                     await bg_reply_sender(
-                        content.strip(),
+                        text,
                         captured_reply_context,
                         from_session_id,
                     )

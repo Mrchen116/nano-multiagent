@@ -35,10 +35,29 @@ function patchMessage(
   return { ...state, messages };
 }
 
+function isEmptyValue(v: unknown): boolean {
+  // Only called on ToolCall.input (a record) and .output (a string), so an empty
+  // object is the meaningful "empty" case beyond undefined/null/"".
+  if (v === undefined || v === null || v === "") return true;
+  if (typeof v === "object") return Object.keys(v as object).length === 0;
+  return false;
+}
+
+function mergeToolCall(prev: ToolCall, next: ToolCall): ToolCall {
+  // bugfix-416 #111: a later event (e.g. a timed-out tool's reconcile) may carry
+  // fewer fields than the upsert. A naive {...prev, ...next} lets an empty
+  // input/output clobber the real command/description shown at tool_start. Keep the
+  // existing non-empty value whenever the incoming field is empty.
+  const merged = { ...prev, ...next };
+  if (isEmptyValue(next.input) && !isEmptyValue(prev.input)) merged.input = prev.input;
+  if (isEmptyValue(next.output) && !isEmptyValue(prev.output)) merged.output = prev.output;
+  return merged;
+}
+
 function upsertToolCall(message: Message, next: ToolCall): Message {
   const current = message.tool_calls ?? [];
   const idx = current.findIndex((t) => t.id === next.id);
-  const merged = idx >= 0 ? current.map((t, i) => (i === idx ? { ...t, ...next } : t)) : [...current, next];
+  const merged = idx >= 0 ? current.map((t, i) => (i === idx ? mergeToolCall(t, next) : t)) : [...current, next];
   return { ...message, tool_calls: merged };
 }
 

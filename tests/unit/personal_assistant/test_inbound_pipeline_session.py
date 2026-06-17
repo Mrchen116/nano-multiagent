@@ -542,6 +542,88 @@ def test_inbound_pipeline_prefers_completed_no_reply_token_even_when_streamed_te
     assert channel.sent == []
 
 
+def _run_group_fanout(
+    tmp_path: Path, *, fanout_content: str
+) -> tuple[object, _FakeChannel]:
+    """Drive a group fan-out turn where a non-target agent (different run_id, non-user
+    origin) emits ``fanout_content`` on the streaming other-origin path, while the
+    target agent-a returns "reply:demo". Returns (result, channel) so callers assert
+    on what was delivered."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernel()
+    pipeline = InboundPipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="@agent-a kick off the markdown demo and @agent-b",
+        external_user_id="user-1",
+        external_chat_id="conv-1",
+        is_group=True,
+        metadata={
+            "relay_task_id": "relay-1",
+            "message_id": "msg-1",
+            "mentioned_agent_ids": ["agent-a"],
+        },
+    )
+    # The fan-out reply rides the other-origin branch of _on_other_event.
+    kernel_client.session_events["sess-1"] = [
+        [
+            {
+                "event": "assistant_message",
+                "run_id": "run-fanout",
+                "origin": "agent",
+                "content": fanout_content,
+            }
+        ],
+    ]
+    # The target run (agent-a) returns a normal reply.
+    kernel_client.run_states["run-1"] = {
+        "run_id": "run-1",
+        "status": "completed",
+        "output_text": "reply:demo",
+    }
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+    return result, channel
+
+
+def test_group_fanout_other_origin_no_reply_token_is_suppressed(
+    tmp_path: Path,
+) -> None:
+    """bugfix-416 #107: a fan-out (agent-to-agent) assistant_message carrying the
+    NO_REPLY sentinel must be suppressed on the streaming other-origin path, exactly
+    like the main synchronous reply path. Before the fix only `content.strip()` was
+    checked, so the literal `NO_REPLY` leaked into a group bubble."""
+    result, channel = _run_group_fanout(tmp_path, fanout_content="NO_REPLY")
+
+    assert result is not None
+    # Only the target agent-a reply is delivered; the fan-out NO_REPLY is gone.
+    assert [m.text for m in channel.sent] == ["reply:demo"]
+    assert "NO_REPLY" not in [m.text for m in channel.sent]
+
+
+def test_group_fanout_other_origin_non_sentinel_still_delivered(
+    tmp_path: Path,
+) -> None:
+    """bugfix-416 #107 guard: the suppression must not mute genuine fan-out content —
+    only the NO_REPLY/HEARTBEAT_OK sentinels are dropped."""
+    result, channel = _run_group_fanout(
+        tmp_path, fanout_content="Here is the markdown table."
+    )
+
+    assert result is not None
+    sent = [m.text for m in channel.sent]
+    assert "Here is the markdown table." in sent
+    assert "reply:demo" in sent
+
+
 def test_inbound_pipeline_prefers_explicit_agent_then_channel_binding_then_default(
     tmp_path: Path,
 ) -> None:
