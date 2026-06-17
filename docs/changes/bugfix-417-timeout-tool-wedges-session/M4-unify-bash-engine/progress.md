@@ -74,3 +74,16 @@
 - Rollback: 回退到 8dfe0659（R2 C2）恢复死路（无害，仅留技术债）。
 - Commits: C1=1684a9cd, C2=2c297851, C3=(本次 docs)
 - Next: R5 — reason 常量盘点 + 收尸 content 措辞核对。
+
+## R5 — reason 常量盘点 + 收尸措辞核对
+
+- Context: design 要求消 watchdog_timeout≠stalled 不一致；orchestrator 确认 M3 已做 badge 一致性，R5 只需消语义重叠 + 收尸 content 措辞核对。
+- 盘点结论：① 生产已无 'timed_out' 作 tool_call reason（M3 改 stalled），前端保 timed_out 仅为旧持久化行的 legacy key（已标注）。② 唯一真重叠：IM relay watchdog 兜底失败 reason='watchdog_timeout' vs Gateway watchdog='stalled'，同语义（idle 丢 liveness 被收）两词汇。③ semantic='relay_watchdog_timeout' 标的是「哪条路径」非 reason，不重叠，保留。④ 前端不消费 relay 的 reason/semantic（仅按 progress_state/detail 渲染），故对齐无用户可见变化。⑤ 收尸只落 reason，用户标签全由前端 reason→label 产出（stalled/interrupted→已中断，tool_timeout→执行超时），无 content 文案与徽标不一致。
+- Decision（§FL 单 commit）：relay watchdog reason 'watchdog_timeout'→'stalled'；订正 main.py reconcile + 残留注释里把 timed_out 当现行 reason 的陈述。
+- Rationale: 纯内部 reason 词汇一致性，前端不 key 这些字段；§FL 判据满足（单点、无可断言行为变化的契约改动→省三提交，注释/词汇对齐）。
+- Evidence:
+  - Tests: relay_watchdog + repositories_message + permission_watchdog + inbound_streaming 46 passed；ruff 干净。
+  - Entry/Frontend/Browser/Visual/E2E: N/A（内部词汇；badge 一致性 M3 已建+单测覆盖）。
+- Rollback: 回退本 commit。
+- Commits: 单 commit=4d1b9d36（§FL，省略 §0.4 三提交，理由：单点 reason 对齐 + 注释订正）。
+- Next: 全测试树 sweep + CLI/PA 双产品 live 端到端复验。
