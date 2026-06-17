@@ -5,7 +5,8 @@ After M6 (bugfix-355):
 - ToolSafety retains only path resolution + truncation helpers.
 - Bash policy, execution, and subprocess mechanics have been extracted to:
     - agent.platform.tools.builtins.bash_policy  (strategy layer)
-    - agent.platform.tools.builtins.bash_runner   (execution layer)
+    - agent.platform.background_tasks.shell_runner.ShellRunner  (execution layer;
+      sole bash engine after bugfix-417-M4 deleted the BashRunner dead path)
 - CommandPolicyDecision has been moved to bash_policy; this module keeps
   a shim export so existing callers still import without breaking.
 """
@@ -23,8 +24,9 @@ class ToolSafetyConfig:
 
     After M6: bash execution limits (bash_max_output_lines, bash_max_output_bytes,
     bash_default_timeout) and command policy constants (bash_allowed_prefixes,
-    bash_blocked_commands, etc.) have been removed. Those now live in
-    BashRunnerConfig and bash_policy.BASH_* constants respectively.
+    bash_blocked_commands, etc.) have been removed. Command policy lives in
+    bash_policy.BASH_* constants; bash output is bounded by the downstream
+    result-budget (bugfix-417-M4: no separate bash output config object).
     """
 
     read_max_lines: int = DEFAULT_MAX_LINES
@@ -63,7 +65,7 @@ class ToolSafety:
 
     After M6: bash-specific methods (check_command_policy, enforce_command_policy,
     run_command_stream, run_command, start_command_background) have been removed.
-    Those now live in bash_policy.py and bash_runner.py.
+    Those now live in bash_policy.py and ShellRunner.
 
     Remaining surface:
     - resolve_path         write/edit tools path resolution (sandbox normalization)

@@ -21,9 +21,21 @@ from agent.core.tools.base import (
     set_tool_safety_factory,
 )
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
+from agent.platform.background_tasks.wiring import wire_background_tasks
 
 set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
+
+
+def _wired_bash_tool(tmp_path: Path) -> BashTool:
+    """A BashTool on the production wired path (ShellRunner foreground engine).
+
+    bugfix-417-M4: the no-wiring dead path was deleted; tests that actually execute bash
+    must use the wired engine. ``runs_registry=None`` skips background notification
+    wiring while still providing a real ShellRunner.
+    """
+    wiring = wire_background_tasks(workspace_root=tmp_path, runs_registry=None)
+    return BashTool(wiring=wiring)
 
 
 async def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(
@@ -35,7 +47,9 @@ async def test_builtin_bash_risk_hook_allows_unlisted_command_after_safe_review(
         context=ToolContext.create(repo_root=tmp_path),
         hook_runner=HookRunner(registry=hooks),
     )
-    registry.register(BashTool())
+    # bugfix-417-M4: this command actually executes, so it needs the wired ShellRunner
+    # engine (the no-wiring dead path was deleted).
+    registry.register(_wired_bash_tool(tmp_path))
 
     # "ls -la" matches allowed prefix list → passes immediately without classifier
     result = await registry.execute(

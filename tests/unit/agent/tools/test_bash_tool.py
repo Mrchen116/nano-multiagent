@@ -272,23 +272,24 @@ def test_foreground_timeout_within_budget_carries_tool_timeout_reason() -> None:
 
 
 # ------------------------------------------------------------------
-# Legacy sync path (no wiring)
+# No-wiring path removed (bugfix-417-M4 decision 8)
 # ------------------------------------------------------------------
 
 
-def test_legacy_sync_without_wiring() -> None:
+def test_foreground_without_wiring_raises_clear_error() -> None:
+    """A BashTool built without wiring has no engine to run on — the dead no-wiring
+    `_run_legacy_sync` path was deleted in bugfix-417-M4. Production always wires bash
+    via build_kernel; a no-wiring construction must fail loudly rather than silently
+    fall back to a parallel engine.
+    """
     tool = _make_tool(with_wiring=False)
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx = _make_ctx(tmpdir)
-        result = tool.run(
-            {
-                "command": "echo hello",
-                "run_in_background": False,
-            },
-            ctx,
-        )
-        assert result["exitCode"] == 0
-        assert "hello" in result["stdout"]
+        with pytest.raises(ToolError, match="wiring is not configured"):
+            tool.run(
+                {"command": "echo hello", "run_in_background": False},
+                ctx,
+            )
 
 
 # ------------------------------------------------------------------

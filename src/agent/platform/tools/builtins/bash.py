@@ -15,7 +15,6 @@ from agent.platform.tools.presentation import BASH_PRESENTER as _BASH_PRESENTER
 from agent.platform.tools.builtins.bash_policy import (
     check_command_policy,
 )
-from agent.platform.tools.builtins.bash_runner import BashRunner, BashRunnerConfig
 from agent.platform.permissions.broker import PermissionDecision
 
 # Foreground budget before auto-backgrounding (seconds)
@@ -127,9 +126,6 @@ class BashTool(WiringMixin):
 
     def __init__(self, *, wiring: Any | None = None) -> None:
         self._wiring = wiring
-        # Lazy-constructed BashRunner for the legacy sync path.
-        # The wiring's bash_runner handles async/background paths separately.
-        self._bash_runner: BashRunner | None = None
 
     def check_permissions(
         self,
@@ -235,17 +231,15 @@ class BashTool(WiringMixin):
                 ctx=ctx,
             )
 
-        # Foreground: use background-aware path when wiring is available,
-        # otherwise fall back to the legacy synchronous path.
-        if self._wiring is not None:
-            return self._run_foreground(
-                command=command,
-                description=description,
-                timeout_value=timeout_value,
-                ctx=ctx,
-            )
-        return self._run_legacy_sync(
+        # Foreground execution goes through the wired ShellRunner engine. Production
+        # always wires bash (build_kernel unconditionally calls wire_background_tasks),
+        # so wiring is required here — the former no-wiring `_run_legacy_sync` /
+        # BashRunner path was a dead second engine and was deleted in bugfix-417-M4
+        # (decision 8). _require_wiring raises a clear ToolError if a caller somehow
+        # constructed BashTool without wiring.
+        return self._run_foreground(
             command=command,
+            description=description,
             timeout_value=timeout_value,
             ctx=ctx,
         )
@@ -480,153 +474,6 @@ class BashTool(WiringMixin):
             details=details,
         )
 
-    # ------------------------------------------------------------------
-    # Legacy synchronous path (used when wiring is not available)
-    # ------------------------------------------------------------------
-
-    def _get_bash_runner(self) -> BashRunner:
-        """Return (or lazy-construct) the BashRunner for the legacy sync path."""
-        if self._bash_runner is None:
-            self._bash_runner = BashRunner(config=BashRunnerConfig())
-        return self._bash_runner
-
-    def _run_legacy_sync(
-        self,
-        *,
-        command: str,
-        timeout_value: float | None,
-        ctx: ToolContext,
-    ) -> dict[str, Any]:
-        def _on_execution_event(payload: Mapping[str, Any]) -> None:
-            event_payload: dict[str, Any] = dict(payload)
-            event_payload.setdefault("command", command)
-            ctx.emit_execution_event(event_payload)
-
-        try:
-            runner = self._get_bash_runner()
-            execution = runner.run_stream(
-                command=command,
-                cwd=ctx.cwd,
-                timeout=timeout_value,
-                tool_name=self.name,
-                on_event=_on_execution_event,
-                heartbeat_interval=0.1,
-            )
-        except ToolError as exc:
-            if bool(exc.details.get("aborted")):
-                raise ToolError(
-                    "Command aborted",
-                    tool_name=self.name,
-                    details={"aborted": True},
-                ) from exc
-            if bool(exc.details.get("timedOut") or exc.details.get("timed_out")):
-                timeout_detail = _resolve_timeout_seconds(
-                    exc.details.get("timeout"),
-                    timeout_value,
-                )
-                raise ToolError(
-                    f"Command timed out after {_format_timeout_seconds(timeout_detail)} seconds",
-                    tool_name=self.name,
-                    details={
-                        "timedOut": True,
-                        "timed_out": True,
-                        "timeout": timeout_detail,
-                        "content": str(exc.details.get("content", "")),
-                        "truncated": bool(exc.details.get("truncated", False)),
-                        # bugfix-417-M3 R4 (decision 5): the tool hit its OWN deadline —
-                        # classify the badge as "执行超时" (tool_timeout), distinct from a
-                        # watchdog liveness stall ("已中断"/stalled). reason_code is lifted
-                        # into the ToolResult by StreamingToolExecutor and rendered as the
-                        # tool_end badge.
-                        "reason_code": "tool_timeout",
-                    },
-                ) from exc
-            raise
-
-        stdout = ""
-        line_truncated = False
-        if execution.output_file_path:
-            file_path = Path(execution.output_file_path)
-            if file_path.exists():
-                raw = file_path.read_text(encoding="utf-8")
-                runner = self._get_bash_runner()
-                cfg = runner._config
-                lines = raw.splitlines()
-                if len(lines) > cfg.bash_max_output_lines:
-                    # Keep last N lines (tail) to preserve most relevant recent output.
-                    lines = lines[-cfg.bash_max_output_lines :]
-                    line_truncated = True
-                stdout = "\n".join(lines)
-                # Re-check byte ceiling after line truncation.
-                encoded = stdout.encode("utf-8")
-                if len(encoded) > cfg.bash_max_output_bytes:
-                    stdout = encoded[-cfg.bash_max_output_bytes :].decode(
-                        "utf-8", errors="replace"
-                    )
-                    line_truncated = True
-                # Only unlink when not truncated — fullOutputPath should be accessible
-                # by the caller when the full output exceeds the display budget.
-                if not line_truncated:
-                    file_path.unlink(missing_ok=True)
-        elif execution.text:
-            stdout = execution.text
-
-        if execution.aborted:
-            raise ToolError(
-                _render_error_message(content=stdout, suffix="Command aborted"),
-                tool_name=self.name,
-                details=_build_error_details(execution, stdout),
-            )
-
-        if execution.timed_out:
-            timeout_seconds = _resolve_timeout_seconds(execution.timeout, timeout_value)
-            raise ToolError(
-                _render_error_message(
-                    content=stdout,
-                    suffix=f"Command timed out after {_format_timeout_seconds(timeout_seconds)} seconds",
-                ),
-                tool_name=self.name,
-                details={
-                    **_build_error_details(execution, stdout),
-                    "timedOut": True,
-                    "timed_out": True,
-                    "timeout": timeout_seconds,
-                    # bugfix-417-M3 R4 (decision 5): tool's own deadline → "执行超时".
-                    "reason_code": "tool_timeout",
-                },
-            )
-
-        if execution.exit_code != 0:
-            details = _build_error_details(execution, stdout)
-            if execution.exit_code < 0:
-                signal_number = -execution.exit_code
-                try:
-                    signal_name = signal.Signals(signal_number).name
-                except ValueError:
-                    signal_name = f"SIG{signal_number}"
-                details["signal"] = signal_name
-                details["signalNumber"] = signal_number
-                details["signal_number"] = signal_number
-            raise ToolError(
-                _render_error_message(
-                    content=stdout,
-                    suffix=f"Command exited with code {execution.exit_code}",
-                ),
-                tool_name=self.name,
-                details=details,
-            )
-
-        truncated = execution.truncated or line_truncated
-        result: dict[str, Any] = {
-            "stdout": stdout,
-            "stderr": "",
-            "exitCode": execution.exit_code,
-            "truncated": truncated,
-        }
-        if execution.output_file_path:
-            result["fullOutputPath"] = execution.output_file_path
-        return result
-
     def serialize_result(self, output: Any, error: str | None = None) -> str:
         if error is not None:
             return error
@@ -724,16 +571,6 @@ def _render_error_message(*, content: str, suffix: str) -> str:
     if not content:
         return suffix
     return f"{content}\n\n{suffix}"
-
-
-def _build_error_details(execution: Any, stdout: str) -> dict[str, Any]:
-    details: dict[str, Any] = {
-        "exitCode": execution.exit_code,
-        "exit_code": execution.exit_code,
-        "content": stdout,
-        "truncated": execution.truncated,
-    }
-    return details
 
 
 def _resolve_timeout_seconds(primary: Any, fallback: float | None) -> float:

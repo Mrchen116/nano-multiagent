@@ -145,10 +145,10 @@ def test_bash_without_timeout_runs_to_completion(tmp_path: Path) -> None:
 def test_bash_success_merges_stdout_and_stderr_into_stdout(tmp_path: Path) -> None:
     ctx = _context(tmp_path)
 
-    result = BashTool().run(
+    result = _bash(tmp_path).run(
         {
             "command": (
-                'python -c "import sys; '
+                'python3 -c "import sys; '
                 "print('out-1'); "
                 "sys.stderr.write('err-1\\\\n'); "
                 "print('out-2')\""
