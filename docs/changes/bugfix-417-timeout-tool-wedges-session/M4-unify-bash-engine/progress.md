@@ -102,3 +102,15 @@
 - R3 删死路漏网修复：test_bash_check_permissions_integration 的 _make_registry 注册无 wiring BashTool，执行型用例改打 wired ShellRunner（commit 见 git log）。
 - **CLI + PA 双产品 live 复验：env 受阻待解**。LLM proxy（:4000）未运行，`~/Repos/LLM_PROXY/start_proxy.py` 需用户 OAuth 凭证，不宜由 worker 代起；fixtures 仅错误注入桩，不能驱动真实 agent 轮次。已 SendMessage orchestrator（按 §0.11 不降级凑 DONE）：请其起 proxy 后我跑两套 live 旅程，或确认 R4 自动化守卫已充当 DONE 硬闸、live 由有 proxy 环境另验。
 - live 复验 env 插件已预演就绪：scripts/free-ports.sh 正常、yq 可用、主 config 有 llm: 段指向 :4000——proxy 一起即可立即执行 CLI（普通/长静默/超时/Ctrl-C）+ PA（IM+Gateway worktree ephemeral 端口 + auto-bind，sleep 200 / timeout 5 sleep 200 / npm run build 类，验 gateway.log run_heartbeat + IM reason=tool_timeout + 派生子进程整树回收）。
+
+## Live 复验 — 证据（LLM proxy 起后执行）
+
+### CLI live（3/3 通过）
+- 普通命令 `echo hello-from-live-cli`：tool bash 执行，输出正确，state completed。
+- 超时 `sleep 30` timeout=2：报 "Command timed out after 2 seconds"（tool_timeout 路径），agent 恢复、会话继续。
+- 派生子进程 `sleep 300 & wait` timeout=2：超时后整树回收，`pgrep -x sleep` 零孤儿（Req D）。
+
+### PA live（IM+Gateway, worktree ephemeral 端口 + auto-bind）
+- 普通 bash 往返：`echo hello-from-PA-live` → agent 回 bash completed + 输出正确，full stack 通。
+- **B1 静默长命令不被误杀（决定性）**：发 `sleep 140`（> 120s Gateway watchdog）。监控 conversation_events：run.heartbeat 随时间稳定增长 8→18（≈每 10s 一跳，与设计一致），跨过 t=120s watchdog 窗口，**relay.failed 全程 =0**，命令正常完成。证明心跳令 watchdog 见 liveness、不误杀活着但安静的 run。`sleep 60` 同样产 6 跳心跳并 completed。
+- C1/Req D PA 侧：见下条（timeout→reason=tool_timeout、派生子进程整树回收）。
