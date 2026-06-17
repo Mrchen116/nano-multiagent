@@ -12,12 +12,12 @@
 
 ## 退出标准
 
-- [ ] R1 硬化 ShellRunner：`start_new_session=True` + killpg 杀整组（判整组存活，SIGTERM 宽限→SIGKILL）+ 非阻塞 drain + 超时带可区分信号；最小侵入 pump→文件模型（决策 9）。单测改打 ShellRunner 全绿。
-- [ ] R2 `_run_foreground` 等待期带心跳轮询（复用 M3 `run_coroutine_threadsafe` 桥，经 `ctx.emit_execution_event` 发 `phase:running`，不另起新路）；超时→`reason_code=tool_timeout` 贯通。
-- [ ] R3 删 `run_stream` + `_run_legacy_sync` + `wiring is None` 分支（grep 确认零生产调用方后）；ShellRunner docstring 明写「前台+后台唯一 bash 引擎，bash_runner.py 已删」。
-- [ ] R4 经真实 `build_kernel` wiring 的端到端集成测试（DONE 硬闸）：静默长命令断言 `kernel.stream` 真冒 `run_heartbeat`；bash timeout 断言 `tool_call.reason=tool_timeout`。
-- [ ] R5 reason 常量盘点 + 收尸 content 措辞与徽标一致（消 `watchdog_timeout`≠`stalled` 不一致）。
-- [ ] 收尾：CLI + PA 双产品 live 端到端复验（bash 输出/退出码/截断/停止逐条不变；长静默不误杀；超时→「执行超时」；派生子进程整树回收）。
+- [x] R1 硬化 ShellRunner：`start_new_session=True` + killpg 杀整组（判整组存活，SIGTERM 宽限→SIGKILL）+ 非阻塞 drain + 超时带可区分信号；最小侵入 pump→文件模型（决策 9）。单测改打 ShellRunner 全绿。
+- [x] R2 `_run_foreground` 等待期带心跳轮询（复用 M3 `run_coroutine_threadsafe` 桥，经 `ctx.emit_execution_event` 发 `phase:running`，不另起新路）；超时→`reason_code=tool_timeout` 贯通。
+- [x] R3 删 `run_stream` + `_run_legacy_sync` + `wiring is None` 分支（grep 确认零生产调用方后）；ShellRunner docstring 明写「前台+后台唯一 bash 引擎，bash_runner.py 已删」。
+- [x] R4 经真实 `build_kernel` wiring 的端到端集成测试（DONE 硬闸）：静默长命令断言 `kernel.stream` 真冒 `run_heartbeat`；bash timeout 断言 `tool_call.reason=tool_timeout`。
+- [x] R5 reason 常量盘点 + 收尸 content 措辞与徽标一致（消 `watchdog_timeout`≠`stalled` 不一致）。
+- [x] 收尾：CLI + PA 双产品 live 端到端复验（bash 输出/退出码/截断/停止逐条不变；长静默不误杀；超时→「执行超时」；派生子进程整树回收）。
 
 ## 测试策略
 
