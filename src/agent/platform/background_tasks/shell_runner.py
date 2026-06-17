@@ -127,6 +127,21 @@ class ShellRunner(BackgroundBashRunner):
                     except Exception:
                         pass
 
+        def _reap_and_consume_stopped() -> bool:
+            # Pop the process and check+discard the stop marker under one lock. Returns
+            # whether this exit was stop-induced. Called on EVERY monitor exit path
+            # (normal / timeout / exception) so a stopped task always (a) stays silent —
+            # letting TaskStopTool's registry.kill own the KILLED terminal instead of an
+            # on_fail flipping it to FAILED/timed_out — and (b) never leaks its _stopped
+            # entry, regardless of which branch the exit took (bugfix-417-M4 fix-r2:
+            # fix-r1 only covered the normal path, leaking + misreporting in the narrow
+            # stop-during-timeout window).
+            with self._lock:
+                self._processes.pop(task_id, None)
+                was_stopped = task_id in self._stopped
+                self._stopped.discard(task_id)
+            return was_stopped
+
         def _monitor() -> None:
             start = time.monotonic()
             try:
@@ -135,28 +150,21 @@ class ShellRunner(BackgroundBashRunner):
                 _kill_process_group(process)
                 _force_unblock_pumps()
                 _drain_pumps()
-                with self._lock:
-                    self._processes.pop(task_id, None)
+                if _reap_and_consume_stopped():
+                    return
                 on_fail(task_id=task_id, error=f"timed out after {timeout}s")
                 return
             except Exception as exc:
                 _force_unblock_pumps()
                 _drain_pumps()
-                with self._lock:
-                    self._processes.pop(task_id, None)
+                if _reap_and_consume_stopped():
+                    return
                 on_fail(task_id=task_id, error=str(exc))
                 return
 
             _drain_pumps()
             duration_ms = int((time.monotonic() - start) * 1000)
-            with self._lock:
-                self._processes.pop(task_id, None)
-                was_stopped = task_id in self._stopped
-                self._stopped.discard(task_id)
-            if was_stopped:
-                # Exit caused by stop() → killpg, not a real failure. Stay silent so
-                # TaskStopTool's registry.kill claims the KILLED terminal (bubble shows
-                # 「已终止」). Emitting on_fail here would flip it to FAILED first.
+            if _reap_and_consume_stopped():
                 return
             if exit_code == 0:
                 on_complete(
