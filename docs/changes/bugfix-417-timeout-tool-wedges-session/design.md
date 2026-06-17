@@ -235,6 +235,50 @@ on TimeoutError:                                    # N 秒无任何 liveness
   - **MODIFIED** `工具徽标按中断原因显示终态`（徽标失败原因映射：工具自身超时→「执行超时」、watchdog/异常→「已中断」）。
 - cli: no spec delta（CLI 经 `kernel.cancel` 间接受益于强制取消，但本 unit 不新立 CLI 中断行为契约）。
 - **C 层 / bash（M2）no spec delta**：Req D"派生子进程命令超时干净收尾"不是新契约——evergreen kernel `docs/specs/kernel/spec.md:218-220`「bash 超时 → 暴露稳定超时细节而非静默挂起/丢失」早已存在，本 unit C 层是修该既有契约对**派生子进程**命令不成立的 bug（恢复符合），故无新增/修改契约。
+- **A 升级（M4）no spec delta**：bash 引擎统一是**内核内部（platform）重构**，对外行为增量已由上述 kernel/gateway/im delta 声明；M4 只是让这些已声明的契约在**生产路径**真生效，无新增对外契约。
+
+## A 升级：bash 引擎统一（round-1 验收后根因升级）
+
+> round-1 reviewer FAIL（B1 静默长命令仍被误杀、C1 超时 reason=null）。orchestrator 取证定位到比"改错方法"更深一层的根因，用户拍板按架构最优解，不留技术债。本段是对 M1/M2/M3 之上的根因升级，**incident 的 Req A/B/C/D 不变**。
+
+### 根因（取证结论）
+
+- `agent.sdk/kernel.py:417` 的 `build_kernel` **无条件** `wire_background_tasks` → `BashTool` 永远有 wiring → 生产前台/后台 bash 永远走 `_run_foreground`/`_run_background` → **`ShellRunner`**（`agent.platform/background_tasks/shell_runner.py`）。
+- 已核实 `coding_cli` 与 `personal_assistant` **都**经 `build_kernel` 建 kernel（cli: product.py:142）→ 两产品当前都用 ShellRunner。
+- `BashRunner.run_stream` / `_run_legacy_sync`（bash.py:240，`wiring is None` 分支）是**生产死路**，仅单测（wiring=None）执行。
+- **M2 的 killpg/drain（在 run_stream）、M3 的 bash 心跳/reason（在 _run_legacy_sync）全落在死路上** → 生产 ShellRunner 一项没有 → live 下静默长命令零心跳被误杀、超时无 reason。这是 live 全挂的最深根因，也是两套平行 bash 引擎（一活一死、修了死的）这一系统性技术债的体现。
+
+### 决策 8：硬化 ShellRunner 为单一 bash 执行引擎，删除死路 run_stream
+
+**选了"把 ShellRunner 硬化成唯一引擎（进程组 + killpg 杀整树 + 实时心跳进 run 事件流 + 非阻塞 drain + 超时 reason_code），删除 `BashRunner.run_stream` + `_run_legacy_sync` + `wiring is None` 分支，单测改打 ShellRunner"**。
+
+- **理由**：消除"一活一死"的平行引擎——正是它让 M1/M2/M3 修在死路上、骗过单测、live 全挂。统一到唯一生产引擎，杜绝"下次再漏一处"。架构最优，不背技术债。
+- **拒绝**：① "ShellRunner 委托 run_stream 复用硬化核"——run_stream 是死路，把活路由进死核是反的；② 只把三项 port 进 ShellRunner、保留 run_stream（B）——留两套引擎=留技术债，下次还漏。
+- **风险**：硬化碰的是**当前生产活路**，回归风险全在这（见风险表）；删除碰的是死代码（零用户影响，已验证）。
+
+### 决策 9：硬化采"最小侵入 pump 模型"，不替换 I/O 架构
+
+**选了"在 ShellRunner 现有 pump→文件模型上加 killpg + 心跳 + reason，不替换成 run_stream 的 selector 模型"**。
+
+- **理由**：ShellRunner 的 pump→文件是 bugfix-354 前台回显、feat-414 计时的现行正确实现；替换 I/O 架构会把回显回归面拉满。最小侵入降低对当前体验的扰动。
+- **拒绝**：把 ShellRunner 重写成 selector 模型——回归面过大、收益仅"代码风格统一"。
+- **风险**：pump 模型加 killpg/心跳的接缝要确保不改输出落盘/截断语义。
+
+### M1/M2/M3 存留与改动
+
+| 已合产物 | 在死路还是活路 | 处置 |
+|---|---|---|
+| M1 registry/kernel 强制 cancel | 活路（与 bash 引擎无关）| **保留** |
+| M3 watchdog 重定义 / liveness ticker / realtime_stream publisher / tools-registry 实时 dispatch | 活路（executor 级，包任何 tool.run）| **保留** |
+| M2 killpg/drain（在 run_stream）| **死路** | 能力**重落到 ShellRunner**，删死路 |
+| M3 bash 心跳源 + reason（在 _run_legacy_sync）| **死路** | 由硬化后 ShellRunner/`_run_foreground` 供给，接已活的 executor→publisher→watchdog 链 |
+
+### 接口与数据流（A 增量）
+
+- **心跳源（活路）**：bash 在 ShellRunner 执行期产生 phase:running → 经 `ctx.emit_execution_event`（`_run_foreground` 持 ctx；后台框架经回调）→ tools/registry 实时 dispatch（M3-R1，已活）→ realtime_stream publisher（M3-R2，已活）→ `run_heartbeat` 进 stream。即 M3 的下游链全复用，只把**源**从死路换到 ShellRunner。
+- **前台等待 liveness**：`_run_foreground` 的 `completed_event.wait(budget)` 改为带心跳的轮询等待（它持 ctx），覆盖前台等待期。
+- **reason**：ShellRunner 超时 `on_fail` 带可区分的超时信号 → `_run_foreground` 映射 `reason_code="tool_timeout"`（同 `_run_legacy_sync` 现做法），贯通到 IM `tool_call.reason` → 前端"执行超时"。
+- **killpg**：ShellRunner 的 `Popen` 加 `start_new_session=True`；`_monitor` 超时与 `_stop_task` 改 killpg 杀整组 + 宽限升级（判整组存活，非直接子）。
 
 ## 风险与回退
 
@@ -246,8 +290,10 @@ on TimeoutError:                                    # N 秒无任何 liveness
 | `start_new_session` 破坏 bash 回显/信号语义 | 决策 6 SIGTERM 宽限 + 保留 selector 实时回显；回归 feat-414/bugfix-354 的前台输出测试。 |
 | 两侧 watchdog 阈值/失败态语义漂移 | Gateway 与 IM 失败 reason 用同一组常量（`tool_timeout`/`stalled`）；delta-spec 双包同步。 |
 | 移除 IM `awaiting_permission_at` marker 后，崩溃期权限等待无人收 | 决策 4 已论证：内核随 Gateway 进程内，崩溃→permission 心跳停→两侧 120s 内正常收（比旧 600s 更快）。单测覆盖"崩溃停心跳→被收"。回退：保留 marker 作为兜底（退化为现状，不更坏）。 |
+| **A 硬化 ShellRunner 碰当前生产活路 → 改坏现有 bash 体验** | 这是 A 的主风险。硬回归闸（[worker] 退出标准）：bash 输出/退出码/截断语义不变（bugfix-354 前台输出、feat-414 计时）、停止/中断行为不变、`start_new_session` 不破坏现行 stopper/cancel 停止路径。**CLI + PA 双产品 live 复验**通过方可 DONE。决策 9 取最小侵入 pump 模型降低回显回归面。 |
+| 删 run_stream/_run_legacy_sync 误删活路 | 已核实两产品都经 build_kernel 无条件 wire、run_stream 无其它生产调用方（仅死路 + 单测）。删前 worker 再 grep 确认零生产调用方；单测改打 ShellRunner。回退：保留 run_stream 不删（仍能闭合 incident，只是留死代码技术债）。 |
 
-**回滚方案**：三个 milestone 文件不重叠，可逐层独立 revert。A revert 退回合作式 cancel（现状）；B revert 退回输出静默判据（现状，长命令仍可能被误杀）；C revert 退回阻塞 drain（现状）。任一层回滚不破坏其余两层。
+**回滚方案**：M1（cancel）、M3（watchdog/liveness 活路部分）可独立 revert 回现状。M4（A 引擎统一）若 live 回归：先回退"删 run_stream"（恢复死路，无害）再排查 ShellRunner 硬化；硬化本身可逐项（killpg / 心跳 / reason）独立 revert，每项回退退回现状（incident 在该项上重现，但不更坏）。
 
 ## Runbook for Reviewer
 
@@ -259,22 +305,25 @@ on TimeoutError:                                    # N 秒无任何 liveness
 | Gateway（内核进程内） | `PYTHONPATH=src python -m personal_assistant.main stop` | `PYTHONPATH=src python -m personal_assistant.main`（默认配置 `~/.nano-assistant/config.yaml`） | `gateway.pid` 存在且进程在；发一条消息能秒回 completed |
 
 > 验证三层闭环的旅程脚本见各 Requirement Scenario：A（超时/卡死后同会话发新消息能恢复）、B（跑 `sleep 200 && echo done` 这类静默长命令不被 120s 误杀 / 跑 `timeout 5 sleep 200` 报"耗时过长"）、C（`npm run build` 这类派生子进程命令超时后会话可继续）。
+>
+> **M4（A 引擎统一）双产品回归**：除 PA(IM+Gateway) 旅程外，还须 CLI 侧 live 验 bash 体验不回归——`PYTHONPATH=src python3 -m coding_cli.main` 跑普通命令（输出/退出码正常）、长静默命令（不被误杀）、超时命令（报"执行超时"）、Ctrl-C/停止（正常中断）。CLI 与 PA 当前都经 build_kernel→ShellRunner，硬化 ShellRunner 同时影响两者，故双产品都要 live 验。
 
 ## Milestones
 
-三层缺陷文件不重叠，垂直切分为三个独立可交付 milestone。M1（A，P0 锁释放）与 M2（C，bash 进程组）无依赖可并行；M3（B，watchdog 重设计）的"真卡死→收尸→会话恢复"验收依赖 M1 的强制 cancel，故 depends M1。
+三层缺陷文件不重叠，垂直切分为三个独立可交付 milestone。M1（A，P0 锁释放）与 M2（C，bash 进程组）无依赖可并行；M3（B，watchdog 重设计）的"真卡死→收尸→会话恢复"验收依赖 M1 的强制 cancel，故 depends M1。**M4（bash 引擎统一）是 round-1 验收暴露根因后的架构升级**：M2/M3 的 bash 改动落在生产死路 run_stream 上，M4 把能力重落到唯一生产引擎 ShellRunner 并删死路，depends M3（承接其已活的 executor→publisher→watchdog 链）。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | bugfix-417-M1 | lock-force-cancel | — | A | `src/agent/core/runs/registry.py`, `src/agent/sdk/kernel.py` | `[reviewer]` 覆盖 Req A（工具超时后会话自愈 / 真卡死被收后会话恢复）：超时/取消一条 run 后，同会话下一条消息无需重启 Gateway 即正常回复。`[worker]` `cancel(run_id)` 强制取消承载 Task 并触发 `_run_locked` CancelledError 释放锁的单测全绿；`kernel.cancel` 连带 `cancel_all_pending(run_id)` 单测；幂等（已终态/无 Task）单测。 |
 | bugfix-417-M2 | bash-process-group | — | A | `src/agent/platform/tools/builtins/bash_runner.py` | `[reviewer]` 覆盖 Req D（派生子进程命令超时干净收尾）：`npm run build` 类命令到 timeout 在附近以"耗时过长"失败、会话可继续。`[worker]` `start_new_session=True` + `os.killpg` 杀整组 + 非阻塞 drain 的单测全绿；超时后无孤儿进程残留、执行线程不挂死的回归测试；feat-414/bugfix-354 前台回显回归不破。 |
 | bugfix-417-M3 | watchdog-liveness | M1 | B | `src/agent/core/tools/registry.py`, `src/agent/platform/hooks/builtins/realtime_stream.py`, `src/agent/core/agent/runtime.py`, `src/personal_assistant/gateway/inbound_pipeline.py`, `src/IM/application/relay_watchdog.py` | `[reviewer]` 覆盖 Req B（静默长命令/等 LLM/等权限不误杀；真卡死被收）+ Req C（超时报"耗时过长"、卡死报"中断"、失败不静默）。`[worker]` 心跳实时 dispatch（解缓冲）单测；`on_tool_execution_update` publish 单测；LLM-await ticker 单测；两 watchdog idle 重定义 + 失败态区分（`tool_timeout`/`stalled`）单测；移除 `awaiting_permission` 特例后崩溃仍被收的回归。 |
-| bugfix-417-M4 | fix-liveness-chain | M3 | C | `src/agent/platform/tools/builtins/bash.py`, `bash_runner.py`, `src/agent/core/agent/runtime.py`, `src/personal_assistant/gateway/inbound_pipeline.py`, `src/IM/`(reason 常量/措辞), 前端徽标 | (post-acceptance fix, round 1) **根因**：M3 的 bash 心跳 emit + `reason_code=tool_timeout` 只补在 `_run_legacy_sync`（wiring=None 回退路径，单测走它故全绿），**生产前台/后台路径 `_run_foreground`/`wiring.bash_runner` 未补**→ live 下静默长命令零心跳被误杀、超时无 reason。`[reviewer]` 复验 Req B/B1（`sleep 200` live 不被误杀、gateway.log 真有 run_heartbeat）+ Req C/C1（超时→IM `tool_call.reason=tool_timeout`→前端"执行超时"徽标）。`[worker]` 把 M3 bash 改动补到生产路径；`_kill_process_group` SIGKILL 升级判整组存活(kill(pgid,0))非直接子；runtime permission 改用 `liveness_ticker`；reason 常量中心化（消 `watchdog_timeout`≠`stalled`）；收尸 content 措辞与徽标一致。**必须 live 端到端复验通过方可 DONE**。 |
+| bugfix-417-M4 | unify-bash-engine | M3 | C | `src/agent/platform/background_tasks/shell_runner.py`, `src/agent/platform/tools/builtins/bash.py`, `src/agent/platform/tools/builtins/bash_runner.py`(删 run_stream), `src/agent/core/agent/runtime.py`, `src/personal_assistant/gateway/inbound_pipeline.py`, `src/IM/`(reason 常量/措辞), 前端徽标 | (post-acceptance fix→架构最优 root-cause 升级, round 1) **根因**：build_kernel 无条件 wire → 生产用 ShellRunner，`run_stream`/`_run_legacy_sync` 是死路；M2/M3 的 bash 改动全落死路、骗过单测、live 全挂（决策 8/9）。`[reviewer]` Req B/B1（`sleep 200` live 不被误杀、gateway.log 真有 run_heartbeat）+ Req C/C1（超时→IM `tool_call.reason=tool_timeout`→前端"执行超时"）+ Req D 生产路径复验（派生子进程超时整树回收无孤儿）+ **CLI/PA 双产品 bash 体验回归不变**。`[worker]` 硬化 ShellRunner（start_new_session+killpg 杀整组+实时心跳进 ctx 事件流+非阻塞 drain+超时 reason_code，最小侵入 pump 模型）；`_run_foreground` 等待期带心跳轮询；删 `run_stream`+`_run_legacy_sync`+wiring=None 分支（grep 确认零生产调用方后）、单测改打 ShellRunner；runtime permission 改用 `liveness_ticker`；reason 常量中心化（消 `watchdog_timeout`≠`stalled`）；收尸 content 措辞与徽标一致。**bash 输出/退出码/截断/停止语义逐条回归不变 + live 端到端复验（双产品）通过方可 DONE**。 |
 
 ```mermaid
 graph LR
   M1[M1 lock-force-cancel] --> M3[M3 watchdog-liveness]
   M2[M2 bash-process-group]
+  M3 --> M4[M4 unify-bash-engine]
 ```
 
 > **M3 推进顺序建议**（reviewer Rec #3，给 orchestrator/worker 参考，不预填 tasks.md）：M3 跨 5 文件是本 unit 最重的内聚垂直切片（心跳 liveness 端到端），**不可横切拆分**。建议 roadpoint 顺序：R1 工具心跳解缓冲（tools/registry 实时 dispatch）→ R2 `realtime_stream` 加 publisher → R3 runtime LLM-await + permission await-bound ticker → R4 两个 watchdog idle 重定义 + 失败态区分 + 移除两侧 permission 特例。orchestrator 派发时留足 worker 窗口。
