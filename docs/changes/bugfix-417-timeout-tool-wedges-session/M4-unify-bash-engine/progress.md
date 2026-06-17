@@ -24,3 +24,19 @@
 - Rollback: 回退到 73a3f7f4（plan commit）。
 - Commits: C1=e0af063e, C2=64920a96, C3=(本次 docs)
 - Next: R2 — `_run_foreground` 接心跳轮询 + reason_code 贯通。
+
+## R2 — _run_foreground 接 bash liveness 心跳 + 超时 reason_code
+
+- Context: 生产前台 bash 走 _run_foreground，它只 completed_event.wait(120) 阻塞、零事件，且失败路径无 reason_code。死路 _run_legacy_sync 的 run_stream on_event 心跳 + tool_timeout reason 全在死路上，生产一项没有 → B1（静默长命令零心跳被误杀）、C1（超时 reason=null）。
+- Decision:
+  - 把 wait(120) 改成按 _FOREGROUND_HEARTBEAT_INTERVAL(10s) 轮询的循环，每 tick 经 ctx.emit_execution_event 发 phase:running（带 elapsed_ms/command）。
+  - 失败路径检测 ShellRunner on_fail 的 "timed out after Xs"，分流为带 reason_code=tool_timeout 的超时 ToolError（与 _run_legacy_sync 现做法一致）。
+- Rationale: 复用 M3 已建活链——executor 已把 ctx.emit_execution_event 经 run_coroutine_threadsafe 桥回 loop → tool_execution_update → realtime_stream on_tool_execution_update → run_heartbeat 进 stream → 两 watchdog 重置。M4 只补 bash 源这一段，不另造通路（design「接口与数据流（A 增量）」前台等待 liveness 条目）。心跳间隔 10s ≪ watchdog 120s。
+- Evidence:
+  - Tests: test_bash_tool.py 10 passed（含新 2 测：心跳 phase:running 真发出 / 超时带 reason_code=tool_timeout）；bash+心跳+watchdog+inbound 相关 454 passed 无回归。
+  - Entry: build_kernel 端到端真链路在 R4 验。
+  - Frontend State Matrix / Browser QA / Visual: N/A（R5 才碰 IM 措辞）。
+  - E2E/Regression: R4 守卫。
+- Rollback: 回退到 64920a96（R1 C2）。
+- Commits: C1=e74b5551, C2=8dfe0659, C3=(本次 docs)
+- Next: R3 — 删死路 run_stream/_run_legacy_sync/wiring=None + ShellRunner docstring。

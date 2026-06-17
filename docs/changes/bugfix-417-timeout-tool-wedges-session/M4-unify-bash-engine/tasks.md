@@ -45,7 +45,7 @@
 | R | 标题 | 状态 |
 |---|---|---|
 | R1 | 硬化 ShellRunner（killpg+drain+心跳源+超时信号） | DONE |
-| R2 | `_run_foreground` 接心跳轮询 + reason_code 贯通 | TODO |
+| R2 | `_run_foreground` 接心跳轮询 + reason_code 贯通 | DONE |
 | R3 | 删死路 run_stream/_run_legacy_sync/wiring=None + docstring | TODO |
 | R4 | build_kernel 端到端集成测试（DONE 硬闸） | TODO |
 | R5 | reason 常量盘点 + 收尸措辞一致 | TODO |
