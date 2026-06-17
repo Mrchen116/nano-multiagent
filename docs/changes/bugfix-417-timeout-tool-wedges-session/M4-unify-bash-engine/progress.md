@@ -114,3 +114,13 @@
 - 普通 bash 往返：`echo hello-from-PA-live` → agent 回 bash completed + 输出正确，full stack 通。
 - **B1 静默长命令不被误杀（决定性）**：发 `sleep 140`（> 120s Gateway watchdog）。监控 conversation_events：run.heartbeat 随时间稳定增长 8→18（≈每 10s 一跳，与设计一致），跨过 t=120s watchdog 窗口，**relay.failed 全程 =0**，命令正常完成。证明心跳令 watchdog 见 liveness、不误杀活着但安静的 run。`sleep 60` 同样产 6 跳心跳并 completed。
 - C1/Req D PA 侧：见下条（timeout→reason=tool_timeout、派生子进程整树回收）。
+
+### PA live 续（C1 / Req D / Req A，全通过）
+- **C1 超时→reason=tool_timeout**：发 bash `sleep 300 & wait` timeout=3 → IM tool_call = `('bash','failed','tool_timeout')`，前端映射「执行超时」。reason 端到端贯通生产 PA 栈。
+- **Req D 派生子进程整树回收**：上条命令含 `sleep 300 &` 孙进程；超时后 `pgrep -x sleep` = 0，无孤儿，killpg 整树回收生效。
+- **B1 决定性收尾**：`sleep 140` agent 回「completed successfully with no output」，relay.failed 全程 =0（其首条回复提到 120s 预算后 auto-background，但心跳持续令 watchdog 满意、run 从未被 fail，命令干净完成）。
+- **Req A 会话自愈**：超时那条之后，同会话发 `echo session-recovered-after-timeout` → bash completed、正常回复，无需重启 Gateway（M1 强制 cancel 释放锁生效）。
+- 清理：Gateway+IM 自起自 kill，ephemeral 端口释放，无 worktree 残留进程；scratch（.gateway-config.yaml/.gateway-workspace/.im.log/.gateway.log/data/）全 gitignored。
+
+### live 复验结论
+incident 四项需求在生产真链路（CLI 进程内 + PA IM+Gateway 跨进程）全部复验通过：A 会话自愈、B/B1 静默长命令不误杀（心跳跨 120s watchdog、relay.failed=0）、C/C1 超时报 tool_timeout、D 派生子进程整树回收无孤儿。双产品 bash 输出/退出码/停止语义不变。R4 build_kernel 端到端集成测试为自动化 DONE 硬闸（CI 可回归），live 复验为人手确认，两者一致。
