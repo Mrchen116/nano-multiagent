@@ -40,3 +40,18 @@
 - Rollback: 回退到 64920a96（R1 C2）。
 - Commits: C1=e74b5551, C2=8dfe0659, C3=(本次 docs)
 - Next: R3 — 删死路 run_stream/_run_legacy_sync/wiring=None + ShellRunner docstring。
+
+## R4 — build_kernel 端到端集成测试（DONE 硬闸）
+
+- Context: 决策 8 测试策略——本事故本质=单测全绿/live 全红。心跳链横跨 build_kernel→ShellRunner→ctx→executor 桥→realtime_stream→kernel.stream 五层，孤立单测证不到它真到 watchdog（B1 失败正是此）。守卫不能只押人手 live。
+- Decision: 新建 tests/integration/test_bugfix_417_bash_engine_e2e.py，经真实 build_kernel wiring（_llm_client_override 发 bash tool_call）驱动整轮，消费 kernel.stream 断言：① 静默长命令冒 run_heartbeat；② bash timeout 的 tool_end 携 reason_code=tool_timeout。
+- Rationale: 这两条恰好是 round-1 reviewer FAIL 的 B1/C1 的可观察投影。fake LLM 不需真实上游（非 e2e marker，无外部服务），可进 CI 回归。
+- 实施期踩坑（记 LOGBOOK 价值）：① loop 把「content='' 且 finish_reason 非 None」当终态元数据帧跳过 → fake LLM 必须先发 finish_reason=None 的 tool_call 帧、再发终态帧（仿真实 provider 流式形态），否则 tool_call 被吞、整轮只有 run_status。② kernel.stream 是 live 订阅、不随 run 终态自动关，collector 要并发跑 + 等终态 status 后再 stop + 补发一条 noop 解 anext 阻塞再 drain，避免「停早了只收到前 2 个 run_status」的竞态。
+- Evidence:
+  - Tests: 2 passed，连跑 3 次稳定（5.14s）。真链路验证 run_heartbeat + tool_end.reason_code=tool_timeout 端到端到达 stream。
+  - Entry: 这本身就是 build_kernel 真实入口测试。
+  - Frontend/Browser/Visual: N/A
+  - E2E/Regression: 本测试即 DONE 硬闸回归。
+- Rollback: 删该测试文件。
+- Commits: C1/C2 合一=7ead9fde（test 即守卫，行为已由 R1/R2 实现），C3=(本次 docs)
+- Next: R3（删死路，待 orchestrator 决 R3 截断契约归属 A/B）+ R5。
