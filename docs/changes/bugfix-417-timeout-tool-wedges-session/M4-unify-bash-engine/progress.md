@@ -87,3 +87,10 @@
 - Rollback: 回退本 commit。
 - Commits: 单 commit=4d1b9d36（§FL，省略 §0.4 三提交，理由：单点 reason 对齐 + 注释订正）。
 - Next: 全测试树 sweep + CLI/PA 双产品 live 端到端复验。
+
+## 收尾 — 全测试树 + live 复验状态
+
+- 全测试树（`pytest -m "not e2e"`）：2656 passed / 2 skipped / 0 failed；全树 collect 2662 无 import 错误；ruff check 干净。含 R4 build_kernel 端到端守卫真链路通过（run_heartbeat 进 stream + tool_end.reason=tool_timeout）。
+- R3 删死路漏网修复：test_bash_check_permissions_integration 的 _make_registry 注册无 wiring BashTool，执行型用例改打 wired ShellRunner（commit 见 git log）。
+- **CLI + PA 双产品 live 复验：env 受阻待解**。LLM proxy（:4000）未运行，`~/Repos/LLM_PROXY/start_proxy.py` 需用户 OAuth 凭证，不宜由 worker 代起；fixtures 仅错误注入桩，不能驱动真实 agent 轮次。已 SendMessage orchestrator（按 §0.11 不降级凑 DONE）：请其起 proxy 后我跑两套 live 旅程，或确认 R4 自动化守卫已充当 DONE 硬闸、live 由有 proxy 环境另验。
+- live 复验 env 插件已预演就绪：scripts/free-ports.sh 正常、yq 可用、主 config 有 llm: 段指向 :4000——proxy 一起即可立即执行 CLI（普通/长静默/超时/Ctrl-C）+ PA（IM+Gateway worktree ephemeral 端口 + auto-bind，sleep 200 / timeout 5 sleep 200 / npm run build 类，验 gateway.log run_heartbeat + IM reason=tool_timeout + 派生子进程整树回收）。
