@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import signal
 import tempfile
 import threading
 import time
@@ -375,3 +376,156 @@ def test_shell_runner_timeout_kills_process() -> None:
         time.sleep(1.0)
         assert len(failed) == 1
         assert "timed out" in failed[0][1]
+
+
+# ---------------------------------------------------------------------------
+# bugfix-417-M4 (决策 8/9, C 层): ShellRunner 是唯一生产 bash 引擎。
+# M2 的 killpg/drain 原本落在死路 bash_runner.run_stream 上（生产从不走），
+# 这里把同样的不变量直接打 ShellRunner——生产实际跑的引擎。
+# ---------------------------------------------------------------------------
+
+
+def _pid_alive(pid: int) -> bool:
+    """Return True if pid is still alive (POSIX). Probes only; reaps nothing."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def test_shell_runner_runs_in_dedicated_process_group() -> None:
+    """子 bash 是独立进程组 leader（pgid == 自身 pid），不属于 pytest 进程组。
+
+    start_new_session=True 的前提：没有它 killpg 杀的是 pytest 的整组（自杀）。
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output = BashFileOutput(workspace_root=Path(tmpdir))
+        runner = ShellRunner()
+        done = threading.Event()
+
+        def on_complete(
+            *, task_id, result_text, usage, duration_ms, tool_use_count
+        ) -> None:
+            done.set()
+
+        def on_fail(*, task_id: str, error: str) -> None:
+            done.set()
+
+        path = output.open("sess-1", "b1")
+        runner.start(
+            command='echo "PGID=$(ps -o pgid= -p $$ | tr -d " ") PID=$$"',
+            cwd=Path(tmpdir),
+            output=output,
+            task_id="b1",
+            timeout=10.0,
+            on_complete=on_complete,
+            on_fail=on_fail,
+        )
+        assert done.wait(10.0), "callback never fired"
+        content = path.read_text(encoding="utf-8")
+        parts = dict(
+            tok.split("=", 1) for tok in content.split() if "=" in tok
+        )
+        child_pgid = int(parts["PGID"])
+        child_pid = int(parts["PID"])
+        assert child_pgid == child_pid, (
+            f"expected child to lead its own process group, "
+            f"got pgid={child_pgid} pid={child_pid}"
+        )
+        assert child_pgid != os.getpgrp()
+
+
+def test_shell_runner_timeout_kills_descendant_process_tree() -> None:
+    """超时杀整组：派生孙进程在超时后不残留（不被孤儿化继续存活）。
+
+    孙进程 stdout 重定向 /dev/null（不持父写端，隔离 drain 维度——本测试只验
+    "整组被杀"）。现状 ShellRunner 只 process.kill() 直接子 bash → 孙进程残留；
+    修复后 killpg 整组 → 孙进程被杀。
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        pidfile = Path(tmpdir) / "grandchild.pid"
+        output = BashFileOutput(workspace_root=Path(tmpdir))
+        runner = ShellRunner()
+        done = threading.Event()
+
+        def on_complete(
+            *, task_id, result_text, usage, duration_ms, tool_use_count
+        ) -> None:
+            done.set()
+
+        def on_fail(*, task_id: str, error: str) -> None:
+            done.set()
+
+        runner.start(
+            command=f"sleep 30 >/dev/null 2>&1 & echo $! > {pidfile}; wait",
+            cwd=Path(tmpdir),
+            output=output,
+            task_id="b1",
+            timeout=1.0,
+            on_complete=on_complete,
+            on_fail=on_fail,
+        )
+        assert done.wait(10.0), "callback never fired (drain may have wedged)"
+        # 给信号传播一点时间；若整组被杀，孙进程很快消失
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline and not pidfile.exists():
+            time.sleep(0.05)
+        grandchild_pid = int(pidfile.read_text().strip())
+        try:
+            deadline = time.monotonic() + 5.0
+            while time.monotonic() < deadline and _pid_alive(grandchild_pid):
+                time.sleep(0.05)
+            assert not _pid_alive(grandchild_pid), (
+                f"grandchild pid={grandchild_pid} survived timeout — "
+                "process group not killed"
+            )
+        finally:
+            if _pid_alive(grandchild_pid):
+                try:
+                    os.kill(grandchild_pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+
+
+def test_shell_runner_drain_does_not_wedge_when_orphan_holds_write_end() -> None:
+    """孙进程持 stdout 写端并存活时，超时收尾必须及时返回，不无限阻塞。
+
+    孙进程继承 stdout（未重定向）持写端，睡 8s。现状 ShellRunner 阻塞 pump.join
+    会一直等到孙进程 8s 退出释放写端（红）；修复后 killpg 杀持写端孙进程 +
+    非阻塞 drain → on_fail 在 timeout+grace 内必然触发（绿）。
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output = BashFileOutput(workspace_root=Path(tmpdir))
+        runner = ShellRunner()
+        done = threading.Event()
+
+        def on_complete(
+            *, task_id, result_text, usage, duration_ms, tool_use_count
+        ) -> None:
+            done.set()
+
+        def on_fail(*, task_id: str, error: str) -> None:
+            done.set()
+
+        timeout = 1.0
+        grace = 3.5
+        path = output.open("sess-1", "b1")  # noqa: F841
+        start = time.monotonic()
+        runner.start(
+            command="sleep 8 & wait",
+            cwd=Path(tmpdir),
+            output=output,
+            task_id="b1",
+            timeout=timeout,
+            on_complete=on_complete,
+            on_fail=on_fail,
+        )
+        fired = done.wait(timeout + grace)
+        elapsed = time.monotonic() - start
+        assert fired, (
+            f"drain wedged: callback never fired within {timeout + grace}s "
+            f"(elapsed {elapsed:.1f}s) — orphan held write end"
+        )
