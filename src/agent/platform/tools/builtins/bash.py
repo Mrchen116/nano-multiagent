@@ -2,6 +2,7 @@
 
 import signal
 import threading
+import time
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -19,6 +20,12 @@ from agent.platform.permissions.broker import PermissionDecision
 
 # Foreground budget before auto-backgrounding (seconds)
 _DEFAULT_FOREGROUND_BUDGET = 120.0
+
+# bugfix-417-M4 R2: cadence of phase:running liveness heartbeats emitted while a
+# foreground bash command runs. Must stay well below the watchdog idle timeout
+# (Gateway/IM default 120s) so a silent long command (`sleep 200`) keeps producing
+# run_heartbeat events and is never reaped as a stall (decision 3 calls for ≤15s).
+_FOREGROUND_HEARTBEAT_INTERVAL = 10.0
 
 _READ_ONLY_COMMANDS = frozenset(
     {
@@ -367,8 +374,34 @@ class BashTool(WiringMixin):
         )
         registry.set_stop_handle(task_id, stopper)
 
-        # Wait up to the foreground budget for completion.
-        completed = completed_event.wait(timeout=_DEFAULT_FOREGROUND_BUDGET)
+        # Wait up to the foreground budget for completion, polling at the heartbeat
+        # interval so we can emit a phase:running liveness event each tick. This is
+        # the bash liveness source: the executor (tools/registry) bridges
+        # ctx.emit_execution_event from this to_thread worker back to its async loop
+        # via run_coroutine_threadsafe (M3 R1), where realtime_stream projects it to a
+        # run_heartbeat that resets both watchdogs (bugfix-417-M4: prior to this the
+        # production foreground path produced zero events for the whole run, so a
+        # silent long command was reaped as a stall — B1).
+        start_monotonic = time.monotonic()
+        completed = False
+        while True:
+            elapsed = time.monotonic() - start_monotonic
+            remaining = _DEFAULT_FOREGROUND_BUDGET - elapsed
+            if remaining <= 0:
+                break
+            if completed_event.wait(
+                timeout=min(_FOREGROUND_HEARTBEAT_INTERVAL, remaining)
+            ):
+                completed = True
+                break
+            ctx.emit_execution_event(
+                {
+                    "phase": "running",
+                    "status": "running",
+                    "elapsed_ms": int((time.monotonic() - start_monotonic) * 1000),
+                    "command": command,
+                }
+            )
 
         if not completed:
             # Auto-background: allow notification when monitor thread calls on_complete.
@@ -393,6 +426,33 @@ class BashTool(WiringMixin):
 
         # Failed within budget.
         error = result_holder.get("error", "command failed")
+
+        # bugfix-417-M4 R2 (decision 5): the command hit its OWN deadline — ShellRunner
+        # reports this via on_fail(error="timed out after Xs"). Classify the badge as
+        # "执行超时" (tool_timeout), distinct from a watchdog liveness stall ("已中断"/
+        # stalled). reason_code is lifted into the ToolResult by StreamingToolExecutor
+        # and rendered as the tool_end badge. Prior to M4 only the dead _run_legacy_sync
+        # set this, so production timeouts surfaced reason=null (C1).
+        if error.startswith("timed out after"):
+            timeout_seconds = _resolve_timeout_seconds(None, timeout_value)
+            raise ToolError(
+                _render_error_message(
+                    content=stdout,
+                    suffix=f"Command timed out after {_format_timeout_seconds(timeout_seconds)} seconds",
+                ),
+                tool_name=self.name,
+                details={
+                    "exitCode": 124,
+                    "exit_code": 124,
+                    "content": stdout,
+                    "truncated": False,
+                    "timedOut": True,
+                    "timed_out": True,
+                    "timeout": timeout_seconds,
+                    "reason_code": "tool_timeout",
+                },
+            )
+
         exit_code = _parse_exit_code_from_error(error)
 
         details: dict[str, Any] = {
