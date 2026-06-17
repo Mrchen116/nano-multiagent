@@ -55,3 +55,22 @@
 - Rollback: 删该测试文件。
 - Commits: C1/C2 合一=7ead9fde（test 即守卫，行为已由 R1/R2 实现），C3=(本次 docs)
 - Next: R3（删死路，待 orchestrator 决 R3 截断契约归属 A/B）+ R5。
+
+## R3 — 删死路（bash_runner.py + _run_legacy_sync + wiring=None）
+
+- Context: 死路 bash_runner.run_stream / _run_legacy_sync / wiring=None 分支是生产从不走的第二套 bash 引擎，正是它让 M2/M3 修在死路、骗过单测、live 全挂。决策 8 要求删它、ShellRunner 成唯一引擎。
+- [Design 决策落地] 截断契约归属取 B（result-budget 为生产唯一截断真源）：实测生产 wired 路径对 2MB 输出 truncated:False、无 fullOutputPath——死路的 bash 行/字节截断 + fullOutputPath + 1MB 硬上限 + 'Command aborted' ToolError 全是死路独有、生产从来没有。移植它们（A）会与既有 result-budget 造两套截断，违反决策 9「最小侵入」+ §0.1「不造平行物」。故删这些「测死代码」的契约/集成测试；signal/timeout/exitCode/non-zero/reason_code 等真契约在生产 wired 路径重新覆盖（runs_registry=None 拿真 ShellRunner）。截断由 result-budget 兜底，已被 test_tool_result_budget 覆盖。orchestrator 放行确认与定稿设计一致。
+- Decision:
+  - 删整文件 bash_runner.py；bash.py 删 wiring=None 分支 + _run_legacy_sync + _get_bash_runner + _bash_runner 字段 + 孤儿 _build_error_details + 死类 import；run() 前台无条件走 _run_foreground（_require_wiring 无 wiring 大声报错）。
+  - 改打生产引擎：test_bash_tool / test_tools_bash_task / contract / integration / risk_gate 的执行型用例全部走 wire_background_tasks(runs_registry=None) 的真 ShellRunner；no-wiring 用例改为断言「大声报错」。
+  - 删死路专属断言：行/字节截断、fullOutputPath、1MB 硬上限、Command aborted。
+  - safety.py / safety_types.py prose 指针从已删 bash_runner 更正到 ShellRunner。
+- Rationale: 唯一生产引擎，杜绝「下次再漏一处」。删的是死代码（零用户影响，全树 collect 2662 通过、grep 零生产调用方验证）。
+- Evidence:
+  - Tests: bash 相关 29 passed（含 R4 e2e）；全树 collect 2662 无 import 错误；ruff 干净。
+  - Entry: R4 build_kernel 端到端守卫覆盖真入口。
+  - Frontend/Browser/Visual: N/A
+  - E2E/Regression: R4 e2e 守卫；result-budget 截断由 test_tool_result_budget 守卫。
+- Rollback: 回退到 8dfe0659（R2 C2）恢复死路（无害，仅留技术债）。
+- Commits: C1=1684a9cd, C2=2c297851, C3=(本次 docs)
+- Next: R5 — reason 常量盘点 + 收尸 content 措辞核对。
