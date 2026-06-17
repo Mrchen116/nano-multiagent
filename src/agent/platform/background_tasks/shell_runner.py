@@ -61,6 +61,12 @@ class ShellRunner(BackgroundBashRunner):
     def __init__(self, *, safety: Any | None = None) -> None:
         self._safety = safety
         self._processes: dict[str, subprocess.Popen] = {}
+        # Task ids whose exit was caused by an explicit stop() (killpg), so the monitor
+        # can tell a stop-induced signal exit apart from a genuine non-zero failure and
+        # not emit on_fail for it — letting TaskStopTool's registry.kill own the KILLED
+        # terminal (bugfix-417-M4 fix-r1: prior to this the monitor's on_fail(exit -15)
+        # raced ahead and the bubble showed「失败」instead of「已终止」).
+        self._stopped: set[str] = set()
         self._lock = threading.Lock()
 
     def start(
@@ -145,6 +151,13 @@ class ShellRunner(BackgroundBashRunner):
             duration_ms = int((time.monotonic() - start) * 1000)
             with self._lock:
                 self._processes.pop(task_id, None)
+                was_stopped = task_id in self._stopped
+                self._stopped.discard(task_id)
+            if was_stopped:
+                # Exit caused by stop() → killpg, not a real failure. Stay silent so
+                # TaskStopTool's registry.kill claims the KILLED terminal (bubble shows
+                # 「已终止」). Emitting on_fail here would flip it to FAILED first.
+                return
             if exit_code == 0:
                 on_complete(
                     task_id=task_id,
@@ -190,6 +203,10 @@ class ShellRunner(BackgroundBashRunner):
     def _stop_task(self, task_id: str) -> None:
         with self._lock:
             process = self._processes.pop(task_id, None)
+            if process is not None:
+                # Mark BEFORE killpg so the monitor (which may observe the killed
+                # process within microseconds) sees the flag and suppresses on_fail.
+                self._stopped.add(task_id)
         if process is None:
             return
 
