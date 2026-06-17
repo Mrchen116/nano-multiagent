@@ -333,6 +333,59 @@ def test_shell_runner_stop_does_not_fire_on_fail() -> None:
         )
 
 
+def test_shell_runner_stop_during_timeout_window_stays_silent_and_clears_flag() -> None:
+    """A stopped task that exits via the TIMEOUT path must also stay silent and clear
+    its _stopped flag (bugfix-417-M4 fix-r2 symmetry fix).
+
+    fix-r1 only handled the normal-exit path. If stop() lands while the command is also
+    hitting its own deadline (here the command ignores SIGTERM so killpg's grace can't
+    reap it before ``process.wait(timeout)`` fires), the monitor took the timeout branch
+    and (pre-r2) called on_fail("timed out") AND never discarded _stopped → the bubble
+    showed「执行超时」instead of「已终止」and the _stopped entry leaked forever.
+    All three exit paths must symmetrically suppress on_fail when stopped and discard.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output = BashFileOutput(workspace_root=Path(tmpdir))
+        runner = ShellRunner()
+        events: list[str] = []
+        done = threading.Event()
+
+        def on_complete(
+            *, task_id, result_text, usage, duration_ms, tool_use_count
+        ) -> None:
+            events.append("complete")
+            done.set()
+
+        def on_fail(*, task_id: str, error: str) -> None:
+            events.append(f"fail:{error}")
+            done.set()
+
+        # Command ignores SIGTERM, so _stop_task's killpg SIGTERM (grace 2s) cannot reap
+        # it; the monitor's process.wait(timeout=0.5) fires the timeout branch first,
+        # WHILE _stopped is set (stop issued at t=0.2s). Without the symmetry fix the
+        # timeout branch reports failure and leaks _stopped.
+        stopper = runner.start(
+            command="trap '' TERM; sleep 30",
+            cwd=Path(tmpdir),
+            output=output,
+            task_id="b_to",
+            timeout=0.5,
+            on_complete=on_complete,
+            on_fail=on_fail,
+        )
+        time.sleep(0.2)
+        stopper.stop()
+        fired = done.wait(5.0)
+        assert not any(e.startswith("fail") for e in events), (
+            f"stopped task must stay silent on the timeout path too; events={events}"
+        )
+        # _stopped must be discarded regardless of exit path (no unbounded leak).
+        assert "b_to" not in runner._stopped, (
+            "_stopped entry leaked after stop+timeout exit"
+        )
+        del fired
+
+
 class _SlowAppendOutput:
     """Wraps BashFileOutput so each append takes ~0.3s.
 
