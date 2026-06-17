@@ -1,6 +1,8 @@
 # Verification Report: bugfix-417
 
-> Round 1 — 2026-06-18
+> Round 2 — 2026-06-18
+>
+> 背景：Round 1 是 reviewer regression 验证（B1 静默长命令被误杀 / C1 超时 reason=null），M4 是其根因修复（bash 引擎统一 + 删死路）。本轮为 verifier Round 2，核对三维完整性。无 prior_verification_path（Round 1 未跑过 verifier）。
 
 ## Summary
 
