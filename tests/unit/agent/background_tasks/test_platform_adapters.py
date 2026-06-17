@@ -285,6 +285,54 @@ def test_shell_runner_stop_terminates_process() -> None:
         assert True
 
 
+def test_shell_runner_stop_does_not_fire_on_fail() -> None:
+    """A stopped task must NOT report failure via on_fail (bugfix-417-M4 fix-r1).
+
+    Race: ``_stop_task`` killpg's the process; the ``_monitor`` thread's
+    ``process.wait()`` then returns with a signal exit code and, pre-fix,
+    unconditionally calls ``on_fail(exit code -15)`` → registry flips to FAILED before
+    TaskStopTool's ``registry.kill`` can claim KILLED (guarded as already-terminal).
+    User sees the SSE bubble as「失败」instead of「已终止」. The engine must distinguish
+    a stop-induced exit from a genuine failure and not emit on_fail for the former.
+    """
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output = BashFileOutput(workspace_root=Path(tmpdir))
+        runner = ShellRunner()
+        events: list[str] = []
+        done = threading.Event()
+
+        def on_complete(
+            *, task_id, result_text, usage, duration_ms, tool_use_count
+        ) -> None:
+            events.append("complete")
+            done.set()
+
+        def on_fail(*, task_id: str, error: str) -> None:
+            events.append(f"fail:{error}")
+            done.set()
+
+        stopper = runner.start(
+            command="sleep 30",
+            cwd=Path(tmpdir),
+            output=output,
+            task_id="b1",
+            timeout=30.0,
+            on_complete=on_complete,
+            on_fail=on_fail,
+        )
+        time.sleep(0.3)
+        stopper.stop()
+        # Give the monitor thread ample time to observe the killed process and run its
+        # terminal branch; if it (wrongly) calls on_fail, ``events`` will capture it.
+        fired = done.wait(5.0)
+        assert not fired or "complete" in events, (
+            f"stop must not surface a failure terminal; got events={events}"
+        )
+        assert not any(e.startswith("fail") for e in events), (
+            f"on_fail must not fire for a stop-induced exit; got events={events}"
+        )
+
+
 class _SlowAppendOutput:
     """Wraps BashFileOutput so each append takes ~0.3s.
 
