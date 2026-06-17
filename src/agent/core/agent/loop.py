@@ -30,6 +30,7 @@ from agent.core.tools.result_budget import (
 )
 from agent.core.tools.session_file_state import SessionFileState, read_file_slice
 
+from .liveness import _with_liveness_heartbeat, session_event_publisher
 from .compaction.planner import CompactionPlanner
 from .compaction.summarizer import CompactionSummarizer
 from .compaction.policy import should_compact
@@ -309,7 +310,19 @@ class AgentLoop:
                     # call; all chunks belong to the same logical turn so their
                     # tool_use blocks must restore as one unit after JSONL reload.
                     turn_assistant_group_id: str | None = None
-                    async for llm_msg in stream:
+                    # bugfix-417-M3 R3: the LLM-await window (non-stream provider returns
+                    # one chunk after a long silence) produces no business events. Wrap the
+                    # stream so an await-bound liveness ticker fires periodic run_heartbeat
+                    # during the wait for each chunk; both watchdogs then see liveness and
+                    # don't reap a live wait. The ticker stops the instant the stream is
+                    # exhausted/raises (decision 3); a genuinely dead connection is the LLM
+                    # client's own timeout to catch, not the watchdog's.
+                    async for llm_msg in _with_liveness_heartbeat(
+                        stream,
+                        publish=session_event_publisher(active_hook_ctx),
+                        run_id=run_id,
+                        source="llm",
+                    ):
                         # Terminal metadata message: empty content with finish_reason
                         if llm_msg.content == "" and llm_msg.finish_reason is not None:
                             finish_reason = llm_msg.finish_reason
