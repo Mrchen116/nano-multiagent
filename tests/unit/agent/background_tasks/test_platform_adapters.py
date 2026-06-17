@@ -426,9 +426,7 @@ def test_shell_runner_runs_in_dedicated_process_group() -> None:
         )
         assert done.wait(10.0), "callback never fired"
         content = path.read_text(encoding="utf-8")
-        parts = dict(
-            tok.split("=", 1) for tok in content.split() if "=" in tok
-        )
+        parts = dict(tok.split("=", 1) for tok in content.split() if "=" in tok)
         child_pgid = int(parts["PGID"])
         child_pid = int(parts["PID"])
         assert child_pgid == child_pid, (

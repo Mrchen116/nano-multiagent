@@ -143,9 +143,7 @@ async def _run_turn_and_collect(
     """
     events: list[dict] = []
     stop = asyncio.Event()
-    collector = asyncio.create_task(
-        _collect_stream(kernel, session_id, stop, events)
-    )
+    collector = asyncio.create_task(_collect_stream(kernel, session_id, stop, events))
     run = kernel.submit(
         session_id=session_id,
         parts=[{"type": "text", "text": text}],
@@ -188,9 +186,7 @@ async def test_silent_long_bash_emits_run_heartbeat_through_build_kernel(
     monkeypatch.setattr(
         "agent.platform.tools.builtins.bash._FOREGROUND_HEARTBEAT_INTERVAL", 0.2
     )
-    kernel = _build(
-        tmp_path, _BashThenStopLLM(command="sleep 1.5", timeout=None)
-    )
+    kernel = _build(tmp_path, _BashThenStopLLM(command="sleep 1.5", timeout=None))
     try:
         session = await kernel.create_session(workspace_root=tmp_path)
         events = await _run_turn_and_collect(
@@ -213,9 +209,7 @@ async def test_bash_timeout_surfaces_tool_timeout_reason_through_build_kernel(
     """A bash command hitting its own timeout must surface reason_code=tool_timeout
     on the tool_end stream event (C1: live had reason=null).
     """
-    kernel = _build(
-        tmp_path, _BashThenStopLLM(command="sleep 30", timeout=0.5)
-    )
+    kernel = _build(tmp_path, _BashThenStopLLM(command="sleep 30", timeout=0.5))
     try:
         session = await kernel.create_session(workspace_root=tmp_path)
         events = await _run_turn_and_collect(
@@ -225,10 +219,11 @@ async def test_bash_timeout_surfaces_tool_timeout_reason_through_build_kernel(
         kernel.close()
 
     tool_ends = [e for e in events if e.get("event") == "tool_end"]
-    assert tool_ends, f"no tool_end event seen; events: {[e.get('event') for e in events]}"
+    assert tool_ends, (
+        f"no tool_end event seen; events: {[e.get('event') for e in events]}"
+    )
     bash_end = next((e for e in tool_ends if e.get("name") == "bash"), None)
     assert bash_end is not None, f"no bash tool_end; tool_ends: {tool_ends}"
     assert bash_end.get("reason_code") == "tool_timeout", (
         f"bash timeout did not surface reason_code=tool_timeout: {bash_end!r}"
     )
-
