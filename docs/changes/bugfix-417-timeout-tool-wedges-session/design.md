@@ -5,6 +5,7 @@
 
 ## Changelog
 
+- M4 实施期澄清（orchestrator 拍板，非新决策）：删死路时实测确认 `fullOutputPath` + 行/字节截断**只在死路 `_run_legacy_sync` 存在**，生产 `_run_foreground` 从来硬编码 `truncated:False`、无 `fullOutputPath`，全仓零生产消费方（前端不渲染）；生产 bash 截断真源是下游 result-budget（`registry.py:77` `max_result_size_chars=30000`）。故 M4 退出标准「截断语义逐条回归不变」的**判据 = 生产 result-budget 截断不变**，删 `fullOutputPath`+行/字节截断对生产零用户可见影响（移植它反而造与 result-budget 并行的第二套截断=技术债）。signal/timeout/exitCode details 是真活契约，移植到生产 wired 路径补等价覆盖、不丢。reviewer/verifier 据此判。
 - round 1 后 A 升级第四轮 design-review 采纳：M4 加"经 build_kernel 真实 wiring 的端到端集成测试"为 DONE 硬闸（不再让人手 live 复验做唯一端到端守卫，决策 8 测试策略）；M4 [worker] 加 ShellRunner docstring/唯一引擎声明、前台心跳复用 M3 `run_coroutine_threadsafe` 线程桥；数据流补 background 路径 liveness 划界；M2 标 superseded by M4。
 
 ## 现状分析
