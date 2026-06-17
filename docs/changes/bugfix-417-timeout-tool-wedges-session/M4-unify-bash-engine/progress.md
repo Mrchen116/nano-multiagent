@@ -67,12 +67,20 @@
   - safety.py / safety_types.py prose 指针从已删 bash_runner 更正到 ShellRunner。
 - Rationale: 唯一生产引擎，杜绝「下次再漏一处」。删的是死代码（零用户影响，全树 collect 2662 通过、grep 零生产调用方验证）。
 - Evidence:
+  - **截断契约实测取证（决策 B 的事实依据，reviewer/verifier 据此判「截断语义不变」）**：
+    - `_run_foreground`（生产，bash.py）硬编码 `truncated:False`、无 `fullOutputPath`；`_run_legacy_sync`（死路，已删）才有行/字节截断 + `fullOutputPath`。
+    - 实测真 wiring 跑 5000 行（≈405K 字符）输出：keys=['exitCode','stderr','stdout','truncated']、`truncated:False`、stdout 完整 404999 字符、无 `fullOutputPath`；跑 2MB 单行：同样 `truncated:False`、完整 2097152 字符。证明行/字节截断 + fullOutputPath 生产从未执行。
+    - 全仓零生产消费方：前端不渲染 `truncated`/`fullOutputPath`（只按 result-budget 压制后的 stdout）；`CommandExecution` 仅 safety.py dataclass 字段声明 + 死路用。
+    - 生产截断真源 = result-budget（registry.py:77，bash `max_result_size_chars=30000`），由 `tests/unit/test_tool_result_budget.py` 覆盖。
+  - **决策 B（orchestrator 拍板，判据记 unit design.md Changelog da13d285）**：「截断语义逐条回归不变」判据 = 生产 result-budget 截断不变（30K 压制），非死路行/字节截断+fullOutputPath。删 fullOutputPath+行/字节截断对生产零用户可见影响（生产从未执行那段）；移植它=造与 result-budget 并行的第二套截断=技术债，违背架构最优。
+  - **真活契约移植清单（B 硬要求，不丢）**：signal details（`exitCode=-SIGTERM`/`signal`/`signalNumber`）、timeout details（`timedOut`/`timeout`/`reason_code=tool_timeout`）、exitCode/non-zero、stdout+stderr 合并——全部移到生产 wired 路径（`_wired_bash_tool` = wire_background_tasks(runs_registry=None) 真 ShellRunner）重新覆盖：`tests/contract/test_tools_bash_contract.py`（timeout+signal）、`tests/integration/test_tools_bash_integration.py`（signal）、`tests/unit/test_tools_bash_task.py`（non-zero/timeout/stdout-stderr 合并/no-timeout 完成/no-wiring 大声报错）。
+  - **删清单（死路独有，生产从未有）**：行/字节截断、fullOutputPath、1MB 硬上限、'Command aborted' ToolError、整文件 test_bash_runner.py。
   - Tests: bash 相关 29 passed（含 R4 e2e）；全树 collect 2662 无 import 错误；ruff 干净。
   - Entry: R4 build_kernel 端到端守卫覆盖真入口。
   - Frontend/Browser/Visual: N/A
   - E2E/Regression: R4 e2e 守卫；result-budget 截断由 test_tool_result_budget 守卫。
 - Rollback: 回退到 8dfe0659（R2 C2）恢复死路（无害，仅留技术债）。
-- Commits: C1=1684a9cd, C2=2c297851, C3=(本次 docs)
+- Commits: C1=1684a9cd, C2=2c297851, C3=(本次 docs) + 漏网修复 test_bash_check_permissions_integration（见 git log）
 - Next: R5 — reason 常量盘点 + 收尸 content 措辞核对。
 
 ## R5 — reason 常量盘点 + 收尸措辞核对
