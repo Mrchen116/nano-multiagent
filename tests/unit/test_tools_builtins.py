@@ -128,13 +128,9 @@ def test_builtin_tool_parameter_descriptions_align_with_tool_design_doc() -> Non
 
 
 def test_tool_safety_default_limits_follow_shared_tool_constants() -> None:
-    # After M6: ToolSafetyConfig only holds read budget; bash budget moved to BashRunnerConfig.
-    from agent.platform.tools.builtins.bash_runner import BashRunnerConfig
-
+    # ToolSafetyConfig holds only the read budget; bash output budget is no longer a
+    # config object (bugfix-417-M4 decision 8: the BashRunner/BashRunnerConfig dead path
+    # was deleted — production bash output is bounded by the downstream result-budget).
     read_config = ToolSafetyConfig()
     assert read_config.read_max_lines == DEFAULT_MAX_LINES
     assert read_config.read_max_bytes == DEFAULT_MAX_BYTES
-
-    bash_config = BashRunnerConfig()
-    assert bash_config.bash_max_output_lines == DEFAULT_MAX_LINES
-    assert bash_config.bash_max_output_bytes == DEFAULT_MAX_BYTES

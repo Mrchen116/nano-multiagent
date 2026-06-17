@@ -5,9 +5,10 @@ from pathlib import Path
 import pytest
 
 from agent.core.errors import ToolError
+from agent.platform.background_tasks.shell_runner import ShellRunner
+from agent.platform.background_tasks.wiring import wire_background_tasks
 from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.bash import BashTool
-from agent.platform.tools.safety import CommandExecution
 from agent.platform.tools.safety import ToolSafety
 from agent.platform.tools.safety import ToolSafetyConfig
 from agent.core.tools.base import (
@@ -23,6 +24,19 @@ def _context(tmp_path: Path, *, config: ToolSafetyConfig | None = None) -> ToolC
     return ToolContext.create(repo_root=tmp_path, safety_config=config)
 
 
+def _bash(tmp_path: Path) -> BashTool:
+    """A BashTool on the production wired path (ShellRunner foreground engine).
+
+    bugfix-417-M4 (decision 8): the dead no-wiring path (_run_legacy_sync) was deleted.
+    Production always wires bash via build_kernel, so the unit contracts now run the
+    real ShellRunner engine. ``runs_registry=None`` skips background notification wiring
+    (irrelevant to foreground bash) while still providing a real ShellRunner.
+    """
+    wiring = wire_background_tasks(workspace_root=tmp_path, runs_registry=None)
+    assert isinstance(wiring.bash_runner, ShellRunner)
+    return BashTool(wiring=wiring)
+
+
 # ---------------------------------------------------------------------------
 # BashTool execution
 # ---------------------------------------------------------------------------
@@ -32,7 +46,7 @@ def test_bash_reports_non_zero_exit(tmp_path: Path) -> None:
     ctx = _context(tmp_path)
 
     with pytest.raises(ToolError) as exc_info:
-        BashTool().run({"command": 'python -c "import sys;sys.exit(7)"'}, ctx)
+        _bash(tmp_path).run({"command": 'python3 -c "import sys;sys.exit(7)"'}, ctx)
 
     assert str(exc_info.value).endswith("Command exited with code 7")
     assert exc_info.value.details["exitCode"] == 7
@@ -44,21 +58,21 @@ def test_bash_handles_timeout(tmp_path: Path) -> None:
     ctx = _context(tmp_path)
 
     with pytest.raises(
-        ToolError, match="Command timed out after 0.05 seconds"
+        ToolError, match="Command timed out after 0.3 seconds"
     ) as exc_info:
-        BashTool().run(
+        _bash(tmp_path).run(
             {
                 "command": (
-                    'python -c "import time; '
+                    'python3 -c "import time; '
                     "print('before-timeout', flush=True); "
-                    'time.sleep(0.3)"'
+                    'time.sleep(5)"'
                 ),
-                "timeout": 0.05,
+                "timeout": 0.3,
             },
             ctx,
         )
     assert exc_info.value.details["timedOut"] is True
-    assert exc_info.value.details["timeout"] == 0.05
+    assert exc_info.value.details["timeout"] == 0.3
     assert exc_info.value.details["tool_name"] == "bash"
     assert isinstance(exc_info.value.details["content"], str)
     # bugfix-417-M3 R4 (decision 5): a tool's own deadline classifies as tool_timeout
@@ -94,12 +108,12 @@ def test_bash_rejects_disallowed_command_via_check_permissions(tmp_path: Path) -
     assert result.behavior == "passthrough"
 
 
-def test_bash_file_mode_no_truncation_for_small_output(tmp_path: Path) -> None:
-    # 文件模式下，小输出（<1MB）不被 safety 层截断
+def test_bash_small_output_not_truncated(tmp_path: Path) -> None:
+    # 小输出原样返回，不在 bash 工具体内截断。
     ctx = _context(tmp_path)
 
-    result = BashTool().run(
-        {"command": "python -c \"[print(f'line-{i}') for i in range(10)]\""},
+    result = _bash(tmp_path).run(
+        {"command": "python3 -c \"[print(f'line-{i}') for i in range(10)]\""},
         ctx,
     )
 
@@ -108,50 +122,22 @@ def test_bash_file_mode_no_truncation_for_small_output(tmp_path: Path) -> None:
     assert "line-9" in result["stdout"]
 
 
-def test_bash_file_mode_1mb_hard_limit(tmp_path: Path) -> None:
-    # 文件模式下，超过 1MB 的输出被硬上限截断
+# bugfix-417-M4 (decision 8): the bash-tool-body 1MB hard limit (truncated=True +
+# fullOutputPath) lived ONLY on the deleted dead path (_run_legacy_sync). The production
+# wired path returns raw output and relies on the downstream result-budget compressor
+# (covered by tests/unit/test_tool_result_budget.py), so no bash-level hard-limit test
+# remains here.
+
+
+def test_bash_without_timeout_runs_to_completion(tmp_path: Path) -> None:
+    """A bash command with no explicit timeout runs to completion — no default deadline
+    is injected that would prematurely kill a normal command (bugfix-417-M4: verified on
+    the production wired ShellRunner path, which passes timeout=None straight through to
+    Popen.wait, so a finite command always completes)."""
     ctx = _context(tmp_path)
 
-    result = BashTool().run(
-        {"command": "python -c \"print('x' * (2 * 1024 * 1024))\""},
-        ctx,
-    )
+    result = _bash(tmp_path).run({"command": "python3 -c \"print('ok')\""}, ctx)
 
-    assert result["truncated"] is True
-    assert len(result["stdout"]) <= 2 * 1024 * 1024
-
-
-def test_bash_without_timeout_does_not_inject_default(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """After M6, BashTool uses BashRunner.run_stream, not ctx.safety.run_command_stream.
-    Patch BashRunner.run_stream to verify timeout=None is passed through.
-    """
-    from agent.platform.tools.builtins.bash_runner import BashRunner
-
-    captured: dict[str, object] = {}
-
-    def fake_run_stream(  # noqa: ANN202
-        self,  # noqa: ANN001
-        *,
-        command: str,
-        cwd: Path,
-        timeout: float | None,
-        tool_name: str,
-        allow_unlisted: bool = False,
-        on_event=None,  # noqa: ANN001,ARG001
-        heartbeat_interval: float = 0.5,  # noqa: ARG001
-    ) -> CommandExecution:
-        del self, command, cwd, tool_name, allow_unlisted
-        captured["timeout"] = timeout
-        return CommandExecution(exit_code=0, text="ok", truncated=False)
-
-    monkeypatch.setattr(BashRunner, "run_stream", fake_run_stream)
-    ctx = _context(tmp_path)
-
-    result = BashTool().run({"command": "python -c \"print('ok')\""}, ctx)
-
-    assert captured["timeout"] is None
     assert result["stdout"] == "ok"
     assert result["exitCode"] == 0
 
@@ -178,27 +164,12 @@ def test_bash_success_merges_stdout_and_stderr_into_stdout(tmp_path: Path) -> No
     assert "stderr" in result
 
 
-def test_bash_aborted_contract_message_and_details(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """After M6, BashTool uses BashRunner; patch BashRunner.run_stream to simulate abort."""
-    from agent.platform.tools.builtins.bash_runner import BashRunner
-
-    ctx = _context(tmp_path)
-
-    def fake_run_stream(self, **kwargs):  # noqa: ANN001, ANN003
-        del self, kwargs
-        raise ToolError(
-            "keyboard interrupt", tool_name="bash", details={"aborted": True}
-        )
-
-    monkeypatch.setattr(BashRunner, "run_stream", fake_run_stream)
-
-    with pytest.raises(ToolError, match="Command aborted") as exc_info:
-        BashTool().run({"command": "python -c \"print('ignored')\""}, ctx)
-
-    assert exc_info.value.details["aborted"] is True
-    assert exc_info.value.details["tool_name"] == "bash"
+# bugfix-417-M4 (decision 8): the bash-tool "Command aborted" ToolError
+# (details={"aborted": True}) was a dead-path (_run_legacy_sync) concept that caught a
+# synchronous KeyboardInterrupt inside run_stream. The production wired path has no such
+# branch — interruption now flows through kernel.cancel → task cancel (M1, run-level
+# stop_reason="aborted"), not a bash-tool ToolError. No bash-level aborted contract test
+# remains here.
 
 
 # ---------------------------------------------------------------------------

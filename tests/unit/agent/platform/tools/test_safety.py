@@ -158,24 +158,24 @@ class TestToolSafetyConfigM6Cleanup:
         )
 
     def test_config_has_no_bash_max_output_lines(self):
-        """bash_max_output_lines removed (moved to BashRunnerConfig)."""
+        """bash_max_output_lines is not a ToolSafetyConfig field (removed in M6)."""
         config = ToolSafetyConfig()
         assert not hasattr(config, "bash_max_output_lines"), (
-            "bash_max_output_lines must be deleted from ToolSafetyConfig (M6)"
+            "bash_max_output_lines must not exist on ToolSafetyConfig"
         )
 
     def test_config_has_no_bash_max_output_bytes(self):
-        """bash_max_output_bytes removed (moved to BashRunnerConfig)."""
+        """bash_max_output_bytes is not a ToolSafetyConfig field (removed in M6)."""
         config = ToolSafetyConfig()
         assert not hasattr(config, "bash_max_output_bytes"), (
-            "bash_max_output_bytes must be deleted from ToolSafetyConfig (M6)"
+            "bash_max_output_bytes must not exist on ToolSafetyConfig"
         )
 
     def test_config_has_no_bash_default_timeout(self):
-        """bash_default_timeout removed (moved to BashRunnerConfig)."""
+        """bash_default_timeout is not a ToolSafetyConfig field (removed in M6)."""
         config = ToolSafetyConfig()
         assert not hasattr(config, "bash_default_timeout"), (
-            "bash_default_timeout must be deleted from ToolSafetyConfig (M6)"
+            "bash_default_timeout must not exist on ToolSafetyConfig"
         )
 
     def test_config_retains_read_max_bytes(self):
