@@ -260,3 +260,67 @@ Round 2 是 M4（bash 引擎统一）修复后的复验。派发包写 review_ro
 
 - Round 1 Side Finding（relay idle 文案遗留）：M4 后 sleep 200 走后台，无法在 live 旅程中再次触发 stalled 收尸场景来验证文案是否修复；该 Side Finding 状态不变，仍为 in-unit minor，由 orchestrator 判断是否已在 M3/M4 中修复或需后续 fix。
 - `auto-background`（前台 >15s 转后台）行为在用户侧可观察：agent 解释"bash 工具默认会在前台运行 15 秒后自动转入后台"，这是 ShellRunner 的设计，非 bug，但属首次出现在 regression 旅程中的新行为观察，记录于此。
+
+---
+
+# Round 3 — 2026-06-18
+
+## Verdict
+
+**pass**
+
+**Highest Required Action**: pass
+
+**Issues**: blocking 0, major 0, minor 0
+
+---
+
+## 服务接管记录（§2.5）
+
+unit HEAD 同步至 `99784e19`（含 `b0cddf83` KILLED/FAILED 竞态 fix + `66474be5` cleanup）。IM / Gateway 以 unit worktree 代码重启，前端产物 `index-D8PzFss6.js` 指纹核验通过。build_kernel 端到端集成测试 2 passed 确认守卫链路不变。
+
+---
+
+## User Journeys Exercised（Round 3 轻量）
+
+| # | 旅程 | 覆盖 |
+|---|---|---|
+| J1 | `sleep 10 timeout=3` → reason=`tool_timeout` → 同会话 "2+2=" | C1 回归, A1 回归 |
+| J2 | `sleep 200` 无 deadline → 等 120s+ 确认无 stalled | B1 回归 |
+| J3 | `sleep 300` → auto-background → `task_stop` → task `status=killed` | 新行为：KILLED vs FAILED 竞态 |
+| J4 | build_kernel 端到端集成测试（2 passed） | B1/C1 链路守卫 |
+
+---
+
+## 验收标准覆盖表（Round 3，继承 Round 2）
+
+### Round 1/2 fail 项回归确认
+
+| Scenario | 结果 | 证据 |
+|---|---|---|
+| C1: 工具自身超时报「耗时过长」 | **pass**（回归确认） | API `reason=tool_timeout`，前端 `✕ 💻 bash \| Timed out` 徽标，delivery_status=completed |
+| B1: 静默长命令不被误杀 | **pass**（回归确认） | `sleep 200` 120s+ 时 delivery_status=completed，无 stalled/relay idle |
+
+### 新行为：task_stop KILLED/FAILED 竞态修复
+
+| 验证项 | 期望 | 结果 | 证据 |
+|---|---|---|---|
+| task_stop 杀后台 bash task | tool_call 不显示 `✕ failed`；task detail `status=killed` | **pass** | bash 工具卡显示 `● 💻 bash`（`●`=completed 图标，非 `✕`=failed 红叉）；API `detail.status=killed`，`reason=null`（非 `reason=failed`）；agent 回复"最终状态: `killed` - 原因: `stopped by user`" |
+
+**结论**：fix `b0cddf83`（stop 路径不触发 `on_fail`，`registry.kill` 独占 KILLED 终态）已在产品层面生效——bash 工具卡不再误报 FAILED，task detail 正确为 `status=killed`。
+
+### 其他 Requirement 继承（Round 2 pass，本轮不重复）
+
+A1/D1/C2/C3/B4 均在 Round 2 通过，本次 fix/cleanup 不涉及相关代码路径。B2/B3 仍为 inconclusive（环境限制，M3 单测守卫）。
+
+---
+
+## 自动化测试（Round 3）
+
+- M4 端到端集成测试：2 passed（稳定，守卫不变）
+
+---
+
+## 上层文档同步（Round 3）
+
+同 Round 2，无新增变化。长青契约层由 orchestrator §7.0 收尾归并。
