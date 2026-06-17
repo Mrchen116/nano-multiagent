@@ -124,3 +124,8 @@
 
 ### live 复验结论
 incident 四项需求在生产真链路（CLI 进程内 + PA IM+Gateway 跨进程）全部复验通过：A 会话自愈、B/B1 静默长命令不误杀（心跳跨 120s watchdog、relay.failed=0）、C/C1 超时报 tool_timeout、D 派生子进程整树回收无孤儿。双产品 bash 输出/退出码/停止语义不变。R4 build_kernel 端到端集成测试为自动化 DONE 硬闸（CI 可回归），live 复验为人手确认，两者一致。
+
+### Live 中断（/stop）复验 + out-of-unit 发现
+- CLI/PA 双产品 live 的「中断/停止」case：发 `/stop`（kernel.interrupt = cancel 活动 run）时，**会话锁正常释放、同会话立即可复用**（Req A ✓，实测前台 sleep 60 运行中 /stop 后 `echo` 正常回复）。
+- **out-of-unit 发现（已立 issue #114，非 M4 引入）**：interrupt 释放锁但**不主动 killpg 正在运行的前台 bash 子进程**——`_run_foreground` 在 `asyncio.to_thread` 工作线程里 `completed_event.wait`（阻塞、非 await），`task.cancel()` 取消的是 await to_thread 的协程（锁随之释放），取消不传进工作线程，子进程跑到自然结束。取证：M4-base(6e9fb7c2) 已是同款不可取消 wait，M4 R2 仅改成带心跳轮询、未改取消语义 → 非 M4 回归。不破坏任何 incident 需求（会话 wedge 已修），属资源回收遗留。修法见 #114。
+- 自动 background 任务（agent 选 run_in_background / 前台超 120s 预算 auto-background）走 `task_stop` 已能 killpg（M4 已验），不受 #114 影响。
