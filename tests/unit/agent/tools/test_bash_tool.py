@@ -25,15 +25,27 @@ class _FakeStopper:
 class _FakeBashRunner:
     """Fake bash runner that completes quickly or slowly based on command."""
 
-    def __init__(self, *, delay: float = 0.0, exit_code: int = 0) -> None:
+    def __init__(
+        self,
+        *,
+        delay: float = 0.0,
+        exit_code: int = 0,
+        fail_error: str | None = None,
+    ) -> None:
         self._delay = delay
         self._exit_code = exit_code
+        # When set, on_fail is called with this error string instead of the
+        # exit-code message — used to simulate ShellRunner's timeout failure
+        # ("timed out after Xs"), the production deadline path.
+        self._fail_error = fail_error
 
     def start(self, *, command, cwd, output, task_id, timeout, on_complete, on_fail):
         def _worker() -> None:
             if self._delay > 0:
                 time.sleep(self._delay)
-            if self._exit_code == 0:
+            if self._fail_error is not None:
+                on_fail(task_id=task_id, error=self._fail_error)
+            elif self._exit_code == 0:
                 on_complete(
                     task_id=task_id,
                     result_text=None,
@@ -73,7 +85,11 @@ class _FakeOutput:
 
 
 def _make_tool(
-    *, with_wiring: bool = True, runner_delay: float = 0.0, runner_exit: int = 0
+    *,
+    with_wiring: bool = True,
+    runner_delay: float = 0.0,
+    runner_exit: int = 0,
+    runner_fail_error: str | None = None,
 ) -> BashTool:
     if not with_wiring:
         return BashTool()
@@ -81,7 +97,9 @@ def _make_tool(
     registry = BackgroundTaskRegistry()
     tmpdir = tempfile.mkdtemp()
     output = _FakeOutput(tmpdir)
-    runner = _FakeBashRunner(delay=runner_delay, exit_code=runner_exit)
+    runner = _FakeBashRunner(
+        delay=runner_delay, exit_code=runner_exit, fail_error=runner_fail_error
+    )
 
     wiring = MagicMock()
     wiring.registry = registry
@@ -91,12 +109,16 @@ def _make_tool(
     return BashTool(wiring=wiring)
 
 
-def _make_ctx(tmpdir: str) -> ToolContext:
+def _make_ctx(tmpdir: str, *, on_event=None) -> ToolContext:
     from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
     safety = ToolSafety(repo_root=Path(tmpdir), config=ToolSafetyConfig())
     return ToolContext(
-        repo_root=Path(tmpdir), cwd=Path(tmpdir), safety=safety, session_id="parent_1"
+        repo_root=Path(tmpdir),
+        cwd=Path(tmpdir),
+        safety=safety,
+        session_id="parent_1",
+        execution_event_callback=on_event,
     )
 
 
@@ -187,6 +209,66 @@ def test_foreground_fails_within_budget_raises_tool_error() -> None:
                 },
                 ctx,
             )
+
+
+# ------------------------------------------------------------------
+# bugfix-417-M4 R2: foreground heartbeat polling + timeout reason_code
+# ------------------------------------------------------------------
+
+
+def test_foreground_emits_running_heartbeats_during_wait(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """While the foreground command runs, _run_foreground must emit periodic
+    phase:running execution events via ctx.emit_execution_event.
+
+    This is the bash liveness source: M3's executor bridges ctx.emit_execution_event
+    → run_coroutine_threadsafe → tool_execution_update → run_heartbeat → both
+    watchdogs. Pre-fix _run_foreground just blocks on completed_event.wait with zero
+    events → a silent long command produces no liveness → watchdog reaps the live run
+    (bugfix-417 B1). Heartbeat interval is patched small so the test is fast.
+    """
+    monkeypatch.setattr(
+        "agent.platform.tools.builtins.bash._FOREGROUND_HEARTBEAT_INTERVAL", 0.1
+    )
+    # Command completes after ~0.45s → several heartbeat ticks at 0.1s interval,
+    # but well within the 120s foreground budget (no auto-background).
+    tool = _make_tool(runner_delay=0.45)
+    events: list[dict] = []
+
+    def _on_event(payload) -> None:
+        events.append(dict(payload))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir, on_event=_on_event)
+        result = tool.run(
+            {"command": "sleep 1", "run_in_background": False},
+            ctx,
+        )
+        assert result["exitCode"] == 0
+    running = [e for e in events if e.get("phase") == "running"]
+    assert running, f"no phase:running heartbeat emitted; events={events}"
+
+
+def test_foreground_timeout_within_budget_carries_tool_timeout_reason() -> None:
+    """When the bash command hits its OWN deadline (ShellRunner on_fail 'timed out
+    after Xs') within the foreground budget, the raised ToolError must carry
+    details['reason_code']='tool_timeout' so IM renders the '执行超时' badge.
+
+    Pre-fix the production _run_foreground failure path set no reason_code (only the
+    dead _run_legacy_sync did) → C1: tool_call.reason=null in live.
+    """
+    tool = _make_tool(runner_delay=0.0, runner_fail_error="timed out after 5.0s")
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        with pytest.raises(ToolError) as exc_info:
+            tool.run(
+                {"command": "sleep 200", "timeout": 5, "run_in_background": False},
+                ctx,
+            )
+        assert exc_info.value.details.get("reason_code") == "tool_timeout", (
+            f"expected tool_timeout reason_code, got {exc_info.value.details!r}"
+        )
 
 
 # ------------------------------------------------------------------
