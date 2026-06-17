@@ -373,6 +373,11 @@ def test_map_kernel_event_to_run_activity() -> None:
     assert (
         InboundPipeline._map_kernel_event_to_run_activity({"event": "turn_end"}) is None
     )
+    # bugfix-417-M3 R4: liveness heartbeat maps to a run-activity liveness signal.
+    assert (
+        InboundPipeline._map_kernel_event_to_run_activity({"event": "run_heartbeat"})
+        == "agent.run.heartbeat"
+    )
     assert InboundPipeline._map_kernel_event_to_run_activity({"event": "error"}) is None
 
 

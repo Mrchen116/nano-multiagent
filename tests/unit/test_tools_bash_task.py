@@ -61,6 +61,10 @@ def test_bash_handles_timeout(tmp_path: Path) -> None:
     assert exc_info.value.details["timeout"] == 0.05
     assert exc_info.value.details["tool_name"] == "bash"
     assert isinstance(exc_info.value.details["content"], str)
+    # bugfix-417-M3 R4 (decision 5): a tool's own deadline classifies as tool_timeout
+    # ("执行超时"), distinct from a watchdog liveness stall ("已中断"). reason_code rides
+    # the ToolError details → ToolResult → tool_end badge.
+    assert exc_info.value.details["reason_code"] == "tool_timeout"
 
 
 def test_bash_rejects_disallowed_command_via_check_permissions(tmp_path: Path) -> None:

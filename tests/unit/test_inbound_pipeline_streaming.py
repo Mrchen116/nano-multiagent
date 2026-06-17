@@ -182,6 +182,79 @@ class TestObserverHandlesDirectAssistantMessage:
         assert delta_frames[0]["delta_text"] == "The answer is 42."
 
     @pytest.mark.asyncio
+    async def test_run_heartbeat_forwards_liveness_delta_to_im(self):
+        """bugfix-417-M3 R4: a kernel run_heartbeat event is forwarded to IM as a
+        run_heartbeat streaming_delta (advancing last_evt) when a message_id exists."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-001": {
+                "conversation_id": "conv-abc",
+                "message_id": "msg-xyz",
+                "agent_id": "alpha",
+            }
+        }
+
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        result = observer(
+            {"event": "run_heartbeat", "run_id": "run-001", "source": "permission"}
+        )
+        assert result is None  # heartbeat schedules a fire-and-forget send
+        # Let the scheduled _send task run.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        hb_frames = [p for _, p in send_calls if p.get("kind") == "run_heartbeat"]
+        assert len(hb_frames) == 1, (
+            f"expected one run_heartbeat delta, got: {send_calls}"
+        )
+        assert hb_frames[0]["message_id"] == "msg-xyz"
+        assert hb_frames[0]["source"] == "permission"
+
+    @pytest.mark.asyncio
+    async def test_run_heartbeat_skipped_without_message_id(self):
+        """No message_id yet (turn_start not acked) → no orphaned heartbeat delta."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-001": {
+                "conversation_id": "conv-abc",
+                "message_id": "",
+                "agent_id": "a",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+        observer({"event": "run_heartbeat", "run_id": "run-001", "source": "tool"})
+        await asyncio.sleep(0)
+        assert [p for _, p in send_calls if p.get("kind") == "run_heartbeat"] == []
+
+    @pytest.mark.asyncio
     async def test_direct_assistant_message_updates_run_context_store(self):
         """run_context_store must be updated with ack message_id when turn_start is sent inline."""
         from personal_assistant.main import _build_kernel_event_observer

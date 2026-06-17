@@ -145,6 +145,28 @@ class TestNodeStreamingDeltaHandling:
         assert tc_arg.name == "bash"
 
     @pytest.mark.asyncio
+    async def test_streaming_delta_run_heartbeat(self):
+        """bugfix-417-M3 R4: node.streaming_delta kind=run_heartbeat calls
+        EventBridge.on_run_heartbeat so the message's last_evt advances (liveness)."""
+        bridge = MagicMock(spec=EventBridge)
+        handler = _make_minimal_handler(event_bridge=bridge)
+        ws = AsyncMock()
+        payload = {
+            "kind": "run_heartbeat",
+            "message_id": "msg-1",
+            "run_id": "run-1",
+            "source": "permission",
+        }
+        result = await handler.handle_message(
+            websocket=ws, message_type="node.streaming_delta", payload=payload
+        )
+        assert bridge.on_run_heartbeat.called
+        kwargs = bridge.on_run_heartbeat.call_args[1]
+        assert kwargs["message_id"] == "msg-1"
+        assert kwargs["source"] == "permission"
+        assert result is not None and result.get("type") == "ack"
+
+    @pytest.mark.asyncio
     async def test_streaming_delta_tool_call_completed(self):
         """node.streaming_delta with kind=tool_call_completed calls on_tool_call_completed."""
         bridge = MagicMock(spec=EventBridge)
