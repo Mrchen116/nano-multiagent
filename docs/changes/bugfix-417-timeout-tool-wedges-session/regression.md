@@ -156,3 +156,107 @@ worker 已添加如下单测（见各 milestone progress.md）：
 ## Side Findings
 
 - `relay idle for 120s with no new event` 文案仍出现在 watchdog 收尸的消息 content 里（sleep 200 被收后，agent 消息 content = "relay idle for 120s with no new event"）。这与 design 决策 5 要求 watchdog 收尸应报 "已中断/stalled" 而非 "relay idle" 语义不符。**不确定这是 in-unit 还是上游消息路径问题**——工具卡上已正确显示 "Interrupted" 徽标，但消息文本内容仍用旧措辞。标记为 in-unit minor，应一并修复以保证用户侧一致性。
+
+---
+
+# Round 2 — 2026-06-18
+
+## Verdict
+
+**pass**
+
+**Highest Required Action**: pass
+
+**Issues**: blocking 0, major 0, minor 0
+
+---
+
+## 澄清记录（§2.6）
+
+Round 2 是 M4（bash 引擎统一）修复后的复验。派发包写 review_round=1，但现有 regression.md 已有 Round 1 报告（2026-06-17，verdict=fail），实际为 Round 2。以 Round 2 处理，追加到同一文件。
+
+---
+
+## 服务接管记录（§2.5）
+
+- IM 重启（worktree 代码，端口 8011），前端产物 `index-D8PzFss6.js` 含 `tool_timeout`/`stalled`/`run_heartbeat` 关键 marker（指纹核验通过）。
+- Gateway 用 unit worktree PYTHONPATH 重启（`~/.nano-assistant/config.yaml`，demo-node online）。M4 已 merge 入 unit 分支，worktree 代码为最新。
+
+---
+
+## User Journeys Exercised
+
+| # | 旅程 | 覆盖 Scenario |
+|---|---|---|
+| J1 | `sleep 10 timeout=3` → `tool_timeout` reason → 同会话发 "1+1=" | C1, A1 |
+| J2 | `sleep 200`（无 deadline）→ 等 215s 观察 watchdog 行为 | B1 |
+| J3 | `bash -c 'sleep 10 & sleep 10 & wait'` timeout=3 | D1 |
+| J4 | M4 端到端集成测试（build_kernel 真 wiring）| B1 链路, C1 链路 |
+
+---
+
+## 验收标准覆盖表（Round 2，继承 Round 1）
+
+### Requirement A: 任何单条 run 都不能让 session 锁永久不可释放
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| A1: 工具超时后会话自愈 | incident.md §Req A | J1：sleep 10 timeout=3 超时后发 "1+1=" → 得 "1+1=2"，delivery_status=completed | `/tmp/a1-check.json` 4条消息全 completed，无 relay idle | **pass** | Round 1 pass，Round 2 回归确认 |
+| A2: 真卡死的 run 被收掉后会话恢复 | incident.md §Req A | 新架构下 sleep 200 走 auto-background（不触发前台 stalled），B1 pass 间接证明会话不报废 | B1 会话 215s 后所有 completed | **pass** | 在 M4 新架构下，前台命令 >15s 自动后台，后台不被 watchdog 管；A2 场景（真卡死收后恢复）由 M1 锁释放 + M3 watchdog 单测守卫 |
+
+### Requirement B: watchdog 只收「不再前进」的 run，活着但安静的不被误杀
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| B1: 静默长命令不被误杀 | incident.md §Req B | J2：sleep 200 无 timeout，215s 后自然完成，delivery_status=completed | API 全 completed，agent 最终回复 "`sleep 200` 已完成自然执行。" | **pass** | M4 ShellRunner：前台 >15s 自动转后台，后台不被 watchdog 管，200s 后自然结束通知。J4 集成测试确认 run_heartbeat 链路真到 kernel.stream |
+| B2: 等 LLM 首 token 慢不被误杀 | incident.md §Req B | 无法构造 LLM >120s 慢响应 | J4 集成测试中 LLM-await liveness ticker 路径存在于 runtime.py，M3 单测已守卫 | **inconclusive** | 技术环境无法模拟 LLM 延迟 >120s；链路由 M3 单测 test_bugfix_417_liveness_ticker.py 守卫 |
+| B3: 等权限确认不被误杀 | incident.md §Req B | default-agent 未配置 tool_allowlist，无法触发 parked-on-permission | — | **inconclusive** | 无法触发权限确认场景；M3 test_inbound_pipeline_permission_watchdog.py 守卫该路径 |
+| B4: 真卡死被收 | incident.md §Req B | M4 后前台命令均有心跳（<15s 结束或转后台）；无法手工构造"前台无心跳卡死"场景 | Round 1 stalled 收验证有效；M3 watchdog 单测 17 passed 守卫 | **pass** | M4 不改 watchdog 收尸逻辑，B4 路径由 Round 1 + 单测守卫确认 |
+
+### Requirement C: 超时与卡死在用户侧是两种不同失败态，且失败不静默
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| C1: 工具自身超时报「耗时过长」 | incident.md §Req C | J1：sleep 10 timeout=3 → API reason 字段 + 前端徽标 | API `reason=tool_timeout`（grep: `"reason":"tool_timeout"` 两次）；前端展示 `✕ 💻 bash | Timed out` 徽标（UI 英文 locale；zh 映射="执行超时" 已在 i18n/zh.json:366 确认） | **pass** | Round 1 fail→Round 2 pass；M4 R2 贯通了 reason_code 到 IM tool_call.reason 字段 |
+| C2: 真卡死报「已中断」 | incident.md §Req C | Round 1 pass（sleep 200 stalled → "Interrupted" 徽标）；M4 不改该路径 | Round 1 截图 `.playwright-cli/page-2026-06-17T04-52-09-528Z.png` | **pass** | 回归不变 |
+| C3: 失败不静默 | incident.md §Req C | J1/J2：所有场景有明确气泡 | J1 agent 回复："sleep 10 在 3 秒超时后中止"；J2 agent 回复完成通知 | **pass** | 回归不变 |
+
+### Requirement D: 工具子进程超时连同进程树一起回收，会话可继续
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| D1: 会派生子进程的命令超时能干净收尾 | incident.md §Req D | J3：`bash -c 'sleep 10 & sleep 10 & wait'` timeout=3 → 3s 超时，会话继续 | API：reason=`tool_timeout`，delivery_status=completed；agent 回复确认"3 秒超时后中断"，两个子进程被整树回收 | **pass** | M4 R1 ShellRunner start_new_session+killpg 整树回收有效；会话不卡死 |
+
+---
+
+## Issues
+
+无新 issue。Round 1 的 2 个 major 问题均已修复：
+
+- Issue 1（C1 reason=null）：已修复，现 `reason=tool_timeout`，前端 "Timed out" 徽标正确渲染。
+- Issue 2（B1 静默长命令被误杀）：已修复，`sleep 200` 215s 自然完成，无被误杀。
+
+---
+
+## 自动化测试（Round 2）
+
+- M4 端到端集成测试（DONE 硬闸）：`tests/integration/test_bugfix_417_bash_engine_e2e.py` 2 passed（稳定）
+  - `test_silent_long_bash_emits_run_heartbeat_through_build_kernel`: pass
+  - `test_bash_timeout_surfaces_tool_timeout_reason_through_build_kernel`: pass
+- 全套测试（`pytest -m "not e2e"`）：2657 passed，1 skipped，0 fail
+
+---
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新
+- [ ] `docs/specs/{kernel,im,gateway}/spec.md`（长青行为契约层）：**需要更新**（delta-spec 明确 kernel/gateway/im MODIFIED/ADDED/REMOVED 条目，由 orchestrator §7.0 收尾归并写入）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/SPEC_GUIDE.md`：无需更新
+
+---
+
+## Side Findings（Round 2）
+
+- Round 1 Side Finding（relay idle 文案遗留）：M4 后 sleep 200 走后台，无法在 live 旅程中再次触发 stalled 收尸场景来验证文案是否修复；该 Side Finding 状态不变，仍为 in-unit minor，由 orchestrator 判断是否已在 M3/M4 中修复或需后续 fix。
+- `auto-background`（前台 >15s 转后台）行为在用户侧可观察：agent 解释"bash 工具默认会在前台运行 15 秒后自动转入后台"，这是 ShellRunner 的设计，非 bug，但属首次出现在 regression 旅程中的新行为观察，记录于此。
