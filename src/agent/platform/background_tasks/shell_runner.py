@@ -247,11 +247,12 @@ def _kill_process_group(process: subprocess.Popen) -> None:
     if not _signal_group(signal.SIGTERM):
         return
 
-    deadline = time.monotonic() + _PROCESS_GROUP_TERM_GRACE_S
-    while time.monotonic() < deadline:
-        if process.poll() is not None:
-            break
-        time.sleep(0.05)
+    # OS-level wait for the grace window instead of a 0.05s busy-poll. Only the group
+    # leader (the child bash) is reaped by wait(); a still-alive group then gets SIGKILL.
+    try:
+        process.wait(timeout=_PROCESS_GROUP_TERM_GRACE_S)
+    except subprocess.TimeoutExpired:
+        pass
 
     if process.poll() is None:
         _signal_group(signal.SIGKILL)

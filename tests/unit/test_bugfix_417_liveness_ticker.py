@@ -102,16 +102,14 @@ async def test_with_liveness_heartbeat_reyields_and_ticks_during_gaps() -> None:
     assert len(events) == count
 
 
-async def test_emit_liveness_heartbeats_noop_when_missing() -> None:
-    events, publish = _recorder()
-    # No publish → parks until cancelled, never emits.
-    task = asyncio.create_task(
-        _emit_liveness_heartbeats(publish=None, run_id="r", source="llm", interval=0.01)
-    )
-    await asyncio.sleep(0.05)
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
+async def test_liveness_ticker_noop_when_missing() -> None:
+    # The no-op-when-missing contract lives in liveness_ticker, not
+    # _emit_liveness_heartbeats (bugfix-417-M4 fix-r1 removed the redundant park branch;
+    # callers now guard before spawning the emit coroutine). A ticker with no publisher
+    # must create no task and emit nothing.
+    events, _publish = _recorder()
+    async with liveness_ticker(publish=None, run_id="r", source="llm", interval=0.01):
+        await asyncio.sleep(0.05)
     assert events == []
 
 

@@ -42,14 +42,13 @@ async def _emit_liveness_heartbeats(
 ) -> None:
     """Emit a run_heartbeat every ``interval`` seconds until cancelled.
 
-    A no-op loop when ``publish`` or ``run_id`` is missing, so callers can create the
-    task unconditionally. Publishing is fail-open: a publisher that raises (or is
-    mid-teardown) must never bring down the awaited operation, so each emit is guarded.
+    Callers must pass a non-None ``publish`` and a truthy ``run_id`` — the
+    no-op-when-missing contract lives in ``liveness_ticker`` (and the permission-wait
+    caller guards likewise), so this coroutine is only ever spawned when it can actually
+    emit (bugfix-417-M4 fix-r1 cleanup removed the redundant park-forever branch).
+    Publishing is fail-open: a publisher that raises (or is mid-teardown) must never
+    bring down the awaited operation, so each emit is guarded.
     """
-    if publish is None or not run_id:
-        # Park until cancelled so the caller's create_task/cancel pairing still holds.
-        while True:
-            await asyncio.sleep(3600)
     while True:
         await asyncio.sleep(interval)
         try:
@@ -125,12 +124,12 @@ async def _with_liveness_heartbeat(
             yield item
 
 
-def _broker_publish_adapter(publisher: Any) -> PublishCallable | None:
-    """Adapt the permission broker's raw session event publisher to PublishCallable.
+def _wrap_publisher(publisher: Any) -> PublishCallable | None:
+    """Wrap a raw ``(event, data)`` publisher into the ticker's PublishCallable.
 
-    The broker closure captures ``session_event_publisher`` directly (not a HookContext);
-    returns ``None`` when absent so the permission ticker degrades to a no-op (e.g. CLI
-    without an event hub).
+    Defensively copies ``data`` per emit. Returns ``None`` when ``publisher`` is absent
+    so the ticker degrades to a no-op (e.g. CLI without an event hub) rather than raising.
+    Sole adapter core shared by the broker (raw publisher) and hook-context entry points.
     """
     if publisher is None:
         return None
@@ -139,19 +138,19 @@ def _broker_publish_adapter(publisher: Any) -> PublishCallable | None:
         publisher(event, dict(data))
 
     return _publish
+
+
+def _broker_publish_adapter(publisher: Any) -> PublishCallable | None:
+    """Adapt the permission broker's raw session event publisher to PublishCallable.
+
+    The broker closure captures ``session_event_publisher`` directly (not a HookContext).
+    """
+    return _wrap_publisher(publisher)
 
 
 def session_event_publisher(hook_ctx: Any) -> PublishCallable | None:
     """Adapt a HookContext's session event publisher to the ticker's publish callable.
 
-    Returns ``None`` when the context carries no publisher (e.g. a bare CLI context
-    without an event hub) so the ticker degrades to a no-op rather than raising.
+    Reads the publisher off the context (``None`` when absent → no-op ticker).
     """
-    publisher = getattr(hook_ctx, "session_event_publisher", None)
-    if publisher is None:
-        return None
-
-    def _publish(event: str, data: Mapping[str, Any]) -> None:
-        publisher(event, dict(data))
-
-    return _publish
+    return _wrap_publisher(getattr(hook_ctx, "session_event_publisher", None))

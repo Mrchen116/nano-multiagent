@@ -1443,12 +1443,22 @@ class AgentRuntime:
                 # reap a run that is merely waiting for the user (decision 4). The ticker
                 # is torn down in the finally below, so a post-decision stall — or a
                 # Gateway/kernel crash that stops the heartbeat — is still reaped normally.
-                _perm_heartbeat = asyncio.create_task(
-                    _emit_liveness_heartbeats(
-                        publish=_broker_publish_adapter(publisher_for_broker),
-                        run_id=run_id_for_broker,
-                        source="permission",
+                _perm_publish = _broker_publish_adapter(publisher_for_broker)
+                # Only spawn the ticker when it can actually emit (publisher + run_id
+                # present). Without this guard a CLI run (no event hub → publish None /
+                # run_id None) would build a heartbeat task that just parks forever —
+                # mirrors liveness_ticker's no-op-when-missing contract (bugfix-417-M4
+                # fix-r1 cleanup) without re-indenting this whole permission-wait block.
+                _perm_heartbeat: asyncio.Task[None] | None = (
+                    asyncio.create_task(
+                        _emit_liveness_heartbeats(
+                            publish=_perm_publish,
+                            run_id=run_id_for_broker,
+                            source="permission",
+                        )
                     )
+                    if _perm_publish is not None and run_id_for_broker
+                    else None
                 )
                 try:
                     if can_use_tool is not None:
@@ -1553,9 +1563,10 @@ class AgentRuntime:
                     # bugfix-417-M3 R3: stop the liveness ticker the instant the wait
                     # ends (resolve / deny / cancel), so the heartbeat proves only the
                     # active wait — never "the Task still exists" past the decision.
-                    _perm_heartbeat.cancel()
-                    with contextlib.suppress(asyncio.CancelledError):
-                        await _perm_heartbeat
+                    if _perm_heartbeat is not None:
+                        _perm_heartbeat.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await _perm_heartbeat
                     # Emit 'permission_resolved' SSE event so IM card updates to
                     # resolved state.  Use the local `response` variable rather than
                     # re-reading future.done(): call_soon_threadsafe is asynchronous,
