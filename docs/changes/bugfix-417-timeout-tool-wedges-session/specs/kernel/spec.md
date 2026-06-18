@@ -38,6 +38,7 @@
 - **WHEN** 消费者对该 session 调 `kernel.interrupt`（或对该 run 调 `kernel.cancel`）
 - **THEN** 该工具派生的子进程（树）被终止，不留存活的孤儿进程
 - **AND** 该工具的在飞 tool_call 在 session 事件流中收口为「已中断」终态（不停留运行中、不标成功、不标工具自身超时），同一 session 后续 `submit` 正常推进
+- **AND** 该工具回填到 transcript 的 tool result content 明确归因为用户中断（`[Request interrupted by user for tool use]`），使下一轮模型据此知道是用户主动停止（区别于系统看门狗收尸/崩溃的中断）
 
 ## ADDED Requirements
 

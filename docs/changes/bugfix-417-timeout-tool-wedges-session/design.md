@@ -5,6 +5,7 @@
 
 ## Changelog
 
+- M5 细化（用户决定）：用户主动中断（/stop、CLI Ctrl-C）回填的 tool result content 改成与 CC 完全一致的 `[Request interrupted by user for tool use]`，同一份 content 供模型 transcript + IM 工具卡两面，badge 仍「已中断」；watchdog/崩溃的系统中断保持 `[interrupted]`，content 按来源解耦（不死绑单一 reason）。delta-spec kernel/gateway/im 同步。
 - 两个已知项纳入本 unit（用户决定）：加 M5（#114 interrupt 触发在飞前台工具 stopper → killpg 整树 + 收口 badge「已中断」，复用 set_stop_handle + _recover_orphaned_tool_calls，参考 CC Ctrl-C / openclaw /stop 的"中断下达工具→工具杀子进程"模型）+ M6（#115 liveness 上提 executor 通用层，所有长工具继承，复用 M3 投影链）。决策 10/11、接口数据流 B 增量、风险表、delta-spec(kernel 强化中断收尾 + 通用 liveness、gateway 强化 /stop)。
 - M4 实施期澄清（orchestrator 拍板，非新决策）：删死路时实测确认 `fullOutputPath` + 行/字节截断**只在死路 `_run_legacy_sync` 存在**，生产 `_run_foreground` 从来硬编码 `truncated:False`、无 `fullOutputPath`，全仓零生产消费方（前端不渲染）；生产 bash 截断真源是下游 result-budget（`registry.py:77` `max_result_size_chars=30000`）。故 M4 退出标准「截断语义逐条回归不变」的**判据 = 生产 result-budget 截断不变**，删 `fullOutputPath`+行/字节截断对生产零用户可见影响（移植它反而造与 result-budget 并行的第二套截断=技术债）。signal/timeout/exitCode details 是真活契约，移植到生产 wired 路径补等价覆盖、不丢。reviewer/verifier 据此判。
 - round 1 后 A 升级第四轮 design-review 采纳：M4 加"经 build_kernel 真实 wiring 的端到端集成测试"为 DONE 硬闸（不再让人手 live 复验做唯一端到端守卫，决策 8 测试策略）；M4 [worker] 加 ShellRunner docstring/唯一引擎声明、前台心跳复用 M3 `run_coroutine_threadsafe` 线程桥；数据流补 background 路径 liveness 划界；M2 标 superseded by M4。
@@ -298,8 +299,9 @@ round-1 后两个已知项（#114 / #115）经用户决定纳入本 unit 一并�
 **选了"`/stop`（interrupt）与 `cancel` 在现有行为外，额外调用该 run 在飞前台工具已登记的 stopper（M4 已硬化 killpg 整树），让阻塞的 to_thread 返回 → run 解开 → 既有 `_recover_orphaned_tool_calls` 收口在飞 tool_call 为「已中断」"**。
 
 - **理由**：复用既有原语——前台 bash 启动时已 `registry.set_stop_handle(task_id, stopper)`、`_recover_orphaned_tool_calls` 已在每条退出路径收口 badge。当前缺口仅是 interrupt 不触发 stopper。这正是"为什么释放锁还不够"的正解：锁在 to_thread 外层、子进程在内层，必须主动 kill 内层才返回。与 CC Ctrl-C / openclaw /stop 一致。
-- **拒绝**：① 靠现有 cooperative abort 等 to_thread 自然返回——子进程不死永不返回；② 硬 kill to_thread 线程——Python 不支持。
-- **风险**：interrupt 须能定位该 run 当前在飞的前台工具 task；stopper 触发的退出与 M4 `_stopped` 协同——归「已中断」(interrupted)，非 FAILED 也非 tool_timeout。
+- **用户中断回填措辞 = CC 原串**：用户主动中断（/stop、CLI Ctrl-C）时，`_recover_orphaned_tool_calls` 回填的 tool result content **改成与 CC 完全一致的 `[Request interrupted by user for tool use]`**（CC `messages.ts:210` 约定，模型本就熟悉此惯例）。**同一份 content 供两个面**：① 模型读的 transcript（知道是用户主动停、应停下等用户，不重试/不当失败道歉）；② 用户在 IM 工具卡看到的该工具返回内容。badge 仍「已中断」。**与 watchdog 收尸/崩溃区分**：那类是系统中断、保持原 `[interrupted]` 语义，不冒用"用户"归因——故 content 不能再死绑单一 `[{reason}]`，要按中断来源给出 model+用户可读的归因文本。
+- **拒绝**：① 靠现有 cooperative abort 等 to_thread 自然返回——子进程不死永不返回；② 硬 kill to_thread 线程——Python 不支持；③ 回填泛化 `[interrupted]`——模型/用户分不清是用户停还是工具坏。
+- **风险**：interrupt 须能定位该 run 当前在飞的前台工具 task；stopper 触发的退出与 M4 `_stopped` 协同——归「已中断」(interrupted)，非 FAILED 也非 tool_timeout；content 解耦后须保证 watchdog/崩溃路径不误用"用户"归因。
 
 ### 决策 11（M6 / #115）：liveness 上提到 executor 通用层，所有工具继承
 
@@ -311,7 +313,7 @@ round-1 后两个已知项（#114 / #115）经用户决定纳入本 unit 一并�
 
 ### 接口与数据流（B 增量）
 
-- **M5 中断收尾**：`kernel.interrupt`/`kernel.cancel` → `runs_registry` 定位该 run 在飞前台工具的 `stop_handle`（已登记）→ 调 `stopper.stop()`（killpg 整树）→ ShellRunner `_monitor` 见进程退出且 `_stopped` 命中 → 静默不报 FAILED → to_thread 返回 → run 解开 → `_recover_orphaned_tool_calls(reason="interrupted")` 收口 badge「已中断」。`core` 不依赖 `platform`：stopper 是注入的 `BackgroundTaskStopper` 端口，registry 只调协议方法。
+- **M5 中断收尾**：`kernel.interrupt`/`kernel.cancel` → `runs_registry` 定位该 run 在飞前台工具的 `stop_handle`（已登记）→ 调 `stopper.stop()`（killpg 整树）→ 前台 `_run_foreground` 及时解开（不滞留 120s）→ run 解开 → `_recover_orphaned_tool_calls` 收口 badge「已中断」。**用户主动中断**时回填的 tool result content = CC 原串 `[Request interrupted by user for tool use]`（同一份 content 进 transcript 供模型 + 进 IM 工具卡供用户），watchdog/崩溃的系统中断仍回填 `[interrupted]`（content 按来源解耦，不死绑单一 reason）。`core` 不依赖 `platform`：stopper 是注入的 `BackgroundTaskStopper` 端口，registry 只调协议方法。
 - **M6 通用 liveness**：executor `execute()` 在 `await asyncio.to_thread(tool.run, ...)` 外 `async with` 一个 await-bound ticker → 周期 `_emit_execution_event({phase:"executing", elapsed_ms})` → 既有 tools/registry 实时 dispatch → realtime_stream `on_tool_execution_update`（phase 非空）→ `run_heartbeat` 进 stream → 两 watchdog 重置。bash 的 phase:running 是更细的同源信号，叠加无害。
 
 ## 风险与回退
