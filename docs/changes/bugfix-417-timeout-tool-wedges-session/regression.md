@@ -11,7 +11,7 @@
 
 **Highest Required Action**: fix-implementation
 
-**Issues**: blocking 0, major 2, minor 0
+**Issues**: blocking 0, major 1, minor 1
 
 ---
 
@@ -446,13 +446,17 @@ Round 4 是 M5（#114 中断收尾）+ M6（#115 通用 liveness）合并入 uni
 
 **Highest Required Action**: fix-implementation
 
-**Issues**: blocking 0, major 2, minor 0
+**Issues**: blocking 0, major 1, minor 0
+
+> Round 4b 初测误判说明（team-lead 追踪后 round 4b 补测确认）：初测旅程11 认为「/stop 完全不被处理」是 blocking issue。补测确认 `/stop` 在直聊下工作（CC 串渲染、Interrupted badge 正确），初测失败是因为 sleep 60 被 M4 auto-background 转后台，发 `/stop` 时无前台活跃 run，中断路径未被触发。真正的 major issue 是 **`status=cancelled` 未收口**（agent 消息永停 running 态）。旅程 13（/stop 无活动 run → 友好提示）和旅程 14（归因区分）受此影响，仍需 fix。
 
 ---
 
 ## 澄清记录（§2.6）
 
 接替前一个 reviewer 走「失败态 + 中断收尾」旅程（旅程 7-14）。前一轮 reviewer1 已验 Req A + B（存活/不误杀/自愈）并 pass，本组独立验 Req C + D + M5(#114) 中断收尾路径。无疑问，开工。
+
+Round 4b 补测（由 team-lead 追踪 `/stop` 门控根因触发）：team-lead 指出 `inbound_pipeline.py` `_should_process` 群聊门控在 `_is_stop_command` 之前，直聊恒 True。补测确认：直聊 sleep 10 + 趁前台 <3s 发 `/stop` → CC 串写入、工具 Interrupted badge 正确（截图 `ACCEPTANCE/bugfix-417/r4b-j11-direct-stop-cc-string.png`）。初测失败原因：sleep 60 被 M4 auto-background（>15s 转后台），后台 run 无法被 /stop 中断，发 /stop 时无前台活跃 run，机制未被触发。
 
 ---
 
@@ -499,36 +503,37 @@ Round 4 是 M5（#114 中断收尾）+ M6（#115 通用 liveness）合并入 uni
 
 | Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
 |---|---|---|---|---|---|
-| 旅程11: PA /stop → 工具卡「已中断」 + CC 串 | design.md 决策10 + M5 progress.md | J11：PA 发 sleep 60 → 趁工具 running 发 `/stop` → 查看前端渲染 | `/stop` 消息 delivery_status=`sent`（永不变化），Gateway 日志无任何 stop 处理记录；前端工具卡不收口，watchdog 120s 后收尸；**未渲染 `[Request interrupted by user for tool use]` CC 串** | **fail** | `/stop` 命令从未被 Gateway 处理，消息永远停在 `sent`；经多次尝试（3条 /stop 消息）均无效；截图 `ACCEPTANCE/bugfix-417/r4b-j11-stop-evidence.png` |
-| 旅程11: PA /stop → 子进程被杀（无孤儿） | M5 progress.md | J11 中 /stop 未触发，无法验证孤儿回收 | — | **fail（不可达）** | 前置条件（/stop 被处理）不满足，孤儿检查路径不可达 |
-| 旅程11: PA /stop 后同会话可继续 | M5 progress.md | J11 中 /stop 未触发；watchdog 收尸后 ping 正常回复 | ping → pong 完成，delivery_status=completed | **pass（部分）** | watchdog 收尸后会话可继续，但非通过 /stop 触发的自愈 |
+| 旅程11: PA /stop → 工具卡「已中断」 + CC 串 | design.md 决策10 + M5 progress.md | 补测：直聊 sleep 10 + 趁前台 <3s 发 `/stop` | API: `reason=interrupted`, `output="[Request interrupted by user for tool use]"`；前端工具卡 `✕ 💻 bash \| Interrupted`（截图 `ACCEPTANCE/bugfix-417/r4b-j11-direct-stop-cc-string.png`）| **pass** | CC 串和 Interrupted badge 正确；初测 sleep 60 被 M4 auto-background 导致失误，补测确认机制工作 |
+| 旅程11: PA /stop 后 agent 消息收口 | M5 progress.md | 补测观察 agent message delivery_status 变化 | agent 消息停在 `delivery: running`，Gateway 日志：`RuntimeError: kernel run ended with status=cancelled`，消息永不收口（不变 completed/failed） | **fail** | `status=cancelled` 未被正确处理，inbound_pipeline 抛 RuntimeError 而非正常收口；详见 Issue 1 |
+| 旅程11: PA /stop → 孤儿检查 | M5 progress.md | 补测后查孤儿 | 无孤儿（sleep 10 <15s 完成前台，被杀后进程树干净）| **pass** | |
 | 旅程12: CLI Ctrl-C → 无孤儿 + CLI 不退出可继续 | M5 progress.md | J12：CLI 起 sleep 60，发 SIGINT，查孤儿 + CLI 存活 | `^C 已中断当前操作。`；孤儿=none；CLI 存活；follow-up `1+1=` → `1+1=2` completed | **pass** | CLI Ctrl-C 路径正常 |
-| 旅程13: /stop 无活动运行 → 友好提示 | M5 progress.md | J13：会话空闲时发 `/stop` | `/stop` 消息 delivery_status=`sent`，无 agent 回复，无友好提示 | **fail** | 同旅程11，/stop 完全不被 Gateway 处理（不分有无活动 run） |
-| 旅程14: 归因区分 — 用户 /stop → 用户中断 CC 串；watchdog 收尸 → 系统中断 | M5 progress.md | 依赖 /stop 触发 | /stop 未触发，无法验证 CC 串归因区分 | **fail（不可达）** | 前置条件不满足 |
+| 旅程13: /stop 无活动运行 → 友好提示 | M5 progress.md | 补测确认：`/stop` 命令能被解析，但无活动 run 时无友好提示（agent 消息不生成）| API 无 agent 回复消息；`/stop` delivery_status 停在 `sent` | **fail** | 友好提示路径未实现；`_handle_stop_command` 在无活动 run 时应回复友好文本 |
+| 旅程14: 归因区分 — 用户 /stop → 用户中断 CC 串；watchdog 收尸 → 系统中断 | M5 progress.md | 补测：/stop 触发 CC 串 = `[Request interrupted by user for tool use]`；watchdog 收尸 = `relay idle for 120s` 文案 | 用户 /stop 触发 `reason=interrupted`（CC 串）；watchdog 收尸 `relay idle for 120s` 不写 CC 串 | **pass（部分）** | 两种中断路径文案区分正确；但 /stop 对应 agent 消息收口失败（Issue 1），体验不完整 |
 
 ---
 
 ## Issues
 
-### Issue 1: PA `/stop` 命令从未被 Gateway 处理（delivery_status 永远 `sent`）
+### Issue 1: /stop 后 agent 消息不收口（`status=cancelled` 未处理，永停 running）
 
 - **Severity**: major
-- **Regression Relation**: direct（直接违反 M5 #114 核心交付物 — 用户 /stop 中断路径）
+- **Regression Relation**: direct（M5 #114 中断收尾 — 中断后 agent 消息应收口为 failed/completed）
 - **Recommended Action**: fix-implementation
-- **Action Rationale**: Gateway `inbound_pipeline.py` 中 `_is_stop_command` / `_handle_stop_command` 代码路径存在，但 `/stop` 消息从未经过 relay 到达该代码路径。3 条 `/stop` 消息均停在 `sent` 状态，Gateway 日志无任何 stop 处理记录。普通消息（ping → pong）可正常处理，说明 Gateway 整体在线，问题在于 `/stop` 消息未被 relay 接收或在 inbound_pipeline 上游被过滤丢弃。
+- **Action Rationale**: 补测直聊 sleep 10 + /stop 确认：工具被正确中断（`reason=interrupted`, CC 串写入），但 `inbound_pipeline.py:_await_terminal_run_async` 在 `status=cancelled` 时抛 `RuntimeError: kernel run ended with status=cancelled`（第 964 行），而非正常收口 agent 消息。agent 消息永停 `delivery: running`，用户看到时钟一直计时，对话无法继续（会话 session 被锁）。
 - **复现步骤**:
-  1. 向 default-agent 发消息：执行任意长命令（sleep 60）
-  2. 趁工具运行时从 IM 发 `/stop`（或在无活动时发）
-  3. 观察：消息 delivery_status 永远是 `sent`，Gateway 日志无处理记录，agent 无回应
-- **期望**: `/stop` 被 Gateway 处理：有活动 run → 中断 + 工具卡「已中断」+ CC 串 `[Request interrupted by user for tool use]`；无活动 run → 友好提示
-- **实际**: `/stop` 消息停在 `sent`，无任何处理，用户无反馈
+  1. 直聊（direct chat）跟 default-agent
+  2. 发「请用 bash 执行 sleep 10，不设超时」
+  3. 在工具开始运行后 <10s 内发 `/stop`
+  4. 观察：工具卡 Interrupted/CC 串正确，但 agent 消息 delivery_status 永停 `running`；Gateway 日志：`RuntimeError: kernel run ended with status=cancelled`
+- **期望**: agent 消息收口为 `failed` 或 `completed`，运行时钟停止，会话可继续下一轮
+- **实际**: agent 消息永停 `running`，Gateway 抛 RuntimeError 未捕获
 
-### Issue 2: 旅程11 关键截图证据 — 无 CC 串渲染
+### Issue 2: /stop 无活动 run → 无友好提示
 
-- **Severity**: major（作为旅程11 CC 串渲染不可达的证据记录）
-- **Regression Relation**: direct（直接违反 M5 #114 Scenario — 工具卡渲染 `[Request interrupted by user for tool use]`）
+- **Severity**: minor
+- **Regression Relation**: direct（M5 #114 旅程13 — /stop 无活动 run 应回复友好文本）
 - **Recommended Action**: fix-implementation
-- **Action Rationale**: 截图 `ACCEPTANCE/bugfix-417/r4b-j11-stop-evidence.png` 显示：3 条 `/stop` 消息发出后，工具卡（sleep 60）最终以 `relay idle for 120s with no new event` 被 watchdog 收尸，工具徽标显示绿色 `●`（completed，因 auto-background 已完成），**不是「已中断」，也无 `[Request interrupted by user for tool use]` CC 串**。该 CC 串是用户面可见的前端渲染，未能看到即 fail。
+- **Action Rationale**: `/stop` 在无活动 run 时消息停在 `sent`，无 agent 回复。`_handle_stop_command` 在「无 run 可中断」路径下没有发送友好提示（如「当前没有可停止的任务」）。这是 UX 缺失，不影响核心中断逻辑。
 
 ---
 
@@ -543,5 +548,6 @@ Round 4 是 M5（#114 中断收尾）+ M6（#115 通用 liveness）合并入 uni
 
 ## Side Findings（Round 4b）
 
-- **`run was aborted by priority=now preemption` 异常**：Gateway 日志出现该 RuntimeError（`inbound_pipeline.py:957`），发生在前台 bash 工具执行后 Gateway 尝试处理下一条消息时。用户消息偶尔会变成 `failed`（非 agent 消息，而是用户消息本身），这是一个异常行为（用户消息不应 failed）。来源不明，可能是 run queue preemption 逻辑误触发。标记为 in-unit minor（M5 run queue 改动可能引入），需 worker 排查。
+- **补测根因澄清**：初测判「/stop 完全不被处理」，补测确认是初测操作问题（sleep 60 被 M4 转后台，发 /stop 时无前台 run）。/stop 中断机制（CC 串、Interrupted badge）工作正确；真正的 bug 是 `status=cancelled` 未收口（Issue 1）。
+- **`run was aborted by priority=now preemption` 异常**：初测中出现（`inbound_pipeline.py:957`），是 /stop 发出时上一轮 run 的 preemption，非独立 bug；补测中未单独复现。
 - **旅程8 inconclusive**：M4 auto-background 后前台 bash 在 <15s 内完成，无法在用户面触发前台 watchdog stalled 场景来重新验证 C2「已中断」徽标。继承 Round 1 实证（stalled → Interrupted badge）。
