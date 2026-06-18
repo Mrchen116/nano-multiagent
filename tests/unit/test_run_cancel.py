@@ -341,6 +341,148 @@ def test_interrupt_no_active_run_returns_none(tmp_path: Path) -> None:
         registry.shutdown()
 
 
+def test_interrupt_with_inflight_foreground_tool_force_cancels_carrier_task(
+    tmp_path: Path,
+) -> None:
+    """bugfix-417-M5 (#114): when the active run is parked inside a blocking
+    foreground tool (long shell command), cooperative abort alone cannot unwind
+    the carrier Task — it is stuck on the tool's to_thread that never returns
+    until the subprocess is killed. interrupt must (a) call the injected
+    foreground_stopper to kill the subprocess tree and (b) force-cancel the
+    carrier Task so the parked await unwinds and the session frees up.
+    """
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    runtime = _SessionLockParkedRuntime()
+
+    stopped_sessions: list[str] = []
+
+    def _foreground_stopper(session_id: str) -> bool:
+        # Stand in for "there IS an in-flight foreground tool for this session":
+        # killpg the subprocess tree (recorded) and report True so the registry
+        # knows to force-cancel the parked carrier Task.
+        stopped_sessions.append(session_id)
+        return True
+
+    registry = RunsRegistry(
+        runtime=runtime,
+        session_manager=manager,
+        foreground_stopper=_foreground_stopper,
+    )
+
+    try:
+        first = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "park holding the lock"}],
+            workspace_root=tmp_path,
+        )
+        _wait_for(lambda: runtime.entered.is_set(), timeout_seconds=2.0)
+
+        second = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "should proceed after interrupt"}],
+            workspace_root=tmp_path,
+        )
+
+        run_id = registry.interrupt(session.session_id)
+        assert run_id == first.run_id
+        # The foreground subprocess tree was killed for this session.
+        assert stopped_sessions == [session.session_id]
+
+        # Force-cancel released the lock → the second run runs to completion.
+        _wait_for(
+            lambda: registry.get(second.run_id).status is RunStatus.COMPLETED,
+            timeout_seconds=3.0,
+        )
+        assert runtime.second_completed.is_set()
+    finally:
+        registry.shutdown()
+
+
+def test_interrupt_without_inflight_foreground_tool_only_aborts(
+    tmp_path: Path,
+) -> None:
+    """bugfix-417-M5 (#114): with NO in-flight foreground tool, interrupt must
+    degrade to the pre-existing cooperative-abort behaviour (stop_reason=aborted),
+    NOT force-cancel — preserving the existing /stop semantics for runs that are
+    not wedged inside a blocking subprocess.
+    """
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    runtime = _AbortableBlockingRuntime()
+
+    def _foreground_stopper(session_id: str) -> bool:
+        # No in-flight foreground tool for this session.
+        return False
+
+    registry = RunsRegistry(
+        runtime=runtime,
+        session_manager=manager,
+        foreground_stopper=_foreground_stopper,
+    )
+
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "interrupt me"}],
+        )
+        _wait_for(lambda: runtime.started.is_set())
+
+        run_id = registry.interrupt(session.session_id)
+        assert run_id == submitted.run_id
+
+        _wait_for(
+            lambda: registry.get(submitted.run_id).status is RunStatus.CANCELLED,
+            timeout_seconds=2.0,
+        )
+        final = registry.get(submitted.run_id)
+        assert final is not None
+        # Cooperative abort path: the runtime observed is_aborted and returned a
+        # graceful aborted TurnResult (NOT a force-cancel CancelledError).
+        assert final.stop_reason == "aborted"
+    finally:
+        registry.shutdown()
+
+
+def test_cancel_stops_inflight_foreground_tool(tmp_path: Path) -> None:
+    """bugfix-417-M5 (#114): cancel(run_id) must also kill the in-flight
+    foreground tool's subprocess tree (M1 already force-cancels the carrier Task
+    to release the lock; M5 adds the subprocess reap so no orphan is left)."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    runtime = _SessionLockParkedRuntime()
+
+    stopped_sessions: list[str] = []
+
+    def _foreground_stopper(session_id: str) -> bool:
+        stopped_sessions.append(session_id)
+        return True
+
+    registry = RunsRegistry(
+        runtime=runtime,
+        session_manager=manager,
+        foreground_stopper=_foreground_stopper,
+    )
+
+    try:
+        first = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "park holding the lock"}],
+            workspace_root=tmp_path,
+        )
+        _wait_for(lambda: runtime.entered.is_set(), timeout_seconds=2.0)
+
+        cancelled = registry.cancel(first.run_id)
+        assert cancelled is not None
+        assert cancelled.status is RunStatus.CANCELLED
+        assert stopped_sessions == [session.session_id]
+    finally:
+        registry.shutdown()
+
+
 def test_model_error_from_runtime_marks_run_failed(tmp_path: Path) -> None:
     """ModelError propagating from runtime.run() causes the run to be marked failed.
 
