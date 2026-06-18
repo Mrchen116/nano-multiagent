@@ -404,6 +404,13 @@ class InboundPipeline:
                     async with self._active_runs_lock:
                         if self._active_runs.get(session_key) == run_id:
                             self._active_runs.pop(session_key, None)
+                    # bugfix-417-fix1 (B): clear the user-interrupt marker on EVERY
+                    # run terminal path. _emit_terminal_reconcile discards it when it
+                    # fires, but a run that ends without a reconcile (watchdog reap /
+                    # crash / normal completion of a non-/stop run) would otherwise
+                    # leak the entry forever. This finally is the single per-run
+                    # terminal chokepoint, so discarding here bounds the set.
+                    self._user_interrupted_runs.discard(run_id)
 
         return await self._run_queue.submit(session_key, _run)
 
