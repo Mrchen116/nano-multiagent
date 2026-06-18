@@ -26,6 +26,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -226,4 +228,117 @@ async def test_bash_timeout_surfaces_tool_timeout_reason_through_build_kernel(
     assert bash_end is not None, f"no bash tool_end; tool_ends: {tool_ends}"
     assert bash_end.get("reason_code") == "tool_timeout", (
         f"bash timeout did not surface reason_code=tool_timeout: {bash_end!r}"
+    )
+
+
+# --- bugfix-417-M6 (#115): generic (non-bash) tool liveness --------------------
+#
+# Pre-M6 only bash emitted execution heartbeats; any other long-running to_thread
+# tool (web_fetch etc.) produced zero events for its whole duration → both watchdogs
+# saw "output silent" and reaped the live run. M6 lifts liveness to the executor's
+# generic layer (an await-bound ticker wrapping to_thread(tool.run)), so EVERY long
+# tool inherits it. This guard drives a real build_kernel wiring with a non-bash tool
+# that deliberately blocks WITHOUT calling ctx.emit_execution_event, and asserts the
+# generic ticker still makes kernel.stream emit run_heartbeat — the DONE hard gate
+# that pins the generalization, not just bash's own phase:running path.
+
+
+class _SlowSleepTool:
+    """A non-bash tool whose run() blocks in a thread WITHOUT emitting any heartbeat.
+
+    Satisfies the SDK Tool Protocol structurally (name/description/input_schema/run).
+    It calls neither ctx.emit_execution_event nor any phase event, so any run_heartbeat
+    reaching the stream proves the executor's generic liveness ticker (not the tool)
+    produced it. Mirrors the real gap: web_fetch et al. are silent during execution.
+    """
+
+    name = "slow_sleep"
+    description = "Sleep for `seconds` seconds without emitting progress (test tool)."
+    input_schema = {
+        "type": "object",
+        "properties": {"seconds": {"type": "number"}},
+        "required": ["seconds"],
+    }
+
+    def run(self, args: Mapping[str, Any], ctx: Any) -> Mapping[str, Any]:  # noqa: ANN401
+        time.sleep(float(args["seconds"]))
+        return {"slept": args["seconds"]}
+
+
+class _SlowToolThenStopLLM:
+    """First turn: emit one slow_sleep tool_call. After the tool result: stop.
+
+    Same two-step streamed tool-loop shape as _BashThenStopLLM so build_kernel runs the
+    non-bash tool through the production executor path.
+    """
+
+    def __init__(self, *, seconds: float) -> None:
+        self._seconds = seconds
+        self._calls = 0
+
+    def generate(self, request: Any):  # noqa: ANN001, ANN201
+        self._calls += 1
+        return self._stream(self._calls == 1)
+
+    async def _stream(self, first: bool):
+        if first:
+            yield LLMMessage(
+                role="assistant",
+                content="",
+                tool_calls=(
+                    LLMToolCall(
+                        call_id="call_1",
+                        name="slow_sleep",
+                        arguments={"seconds": self._seconds},
+                    ),
+                ),
+                finish_reason=None,
+            )
+            yield LLMMessage(
+                role="assistant", content="", finish_reason="tool_calls", usage=None
+            )
+        else:
+            yield LLMMessage(role="assistant", content="done", finish_reason=None)
+            yield LLMMessage(
+                role="assistant", content="", finish_reason="stop", usage=None
+            )
+
+
+@pytest.mark.asyncio
+async def test_silent_non_bash_tool_emits_run_heartbeat_through_build_kernel(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A silent long non-bash tool must make kernel.stream emit run_heartbeat (#115).
+
+    The executor's generic ticker interval is patched small so a ~1.5s sleep yields
+    several ticks. Pre-M6 this tool produced zero events for its whole run.
+    """
+    monkeypatch.setattr(
+        "agent.core.tools.registry._GENERIC_EXECUTION_HEARTBEAT_INTERVAL", 0.2
+    )
+    kernel = build_kernel(
+        llm=_llm_config(),
+        tools=[_SlowSleepTool()],
+        workspace_config_dirname=".nanocode",
+        can_use_tool=_allow_all,
+        repo_root=tmp_path,
+        _llm_client_override=_SlowToolThenStopLLM(seconds=1.5),
+    )
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        events = await _run_turn_and_collect(
+            kernel, session.session_id, tmp_path, "run a slow non-bash tool"
+        )
+    finally:
+        kernel.close()
+
+    heartbeats = [e for e in events if e.get("event") == "run_heartbeat"]
+    assert heartbeats, (
+        "no run_heartbeat reached kernel.stream during a silent long non-bash tool — "
+        "generic executor liveness not wired; saw events: "
+        f"{[e.get('event') for e in events]}"
+    )
+    # The heartbeat must come from the generic executing-phase ticker, not bash.
+    assert any(e.get("phase") == "executing" for e in heartbeats), (
+        f"expected an executing-phase heartbeat from the generic ticker: {heartbeats!r}"
     )
