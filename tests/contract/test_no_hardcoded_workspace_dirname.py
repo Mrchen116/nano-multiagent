@@ -86,8 +86,9 @@ _WHITELIST: frozenset[str] = frozenset(
         # refactor-406-M2: _build_llm_config_payload→_build_cli_llm_config (SDK-owned
         # LLMConfig.from_json/from_catalog), net +2 lines shifted to 1146/1147
         # bugfix-417-M5: Ctrl-C→kernel.interrupt block in _send_message_async, shifted to 1187/1188
-        "src/coding_cli/commands.py:1187",
-        "src/coding_cli/commands.py:1188",
+        # bugfix-417-M5: asyncio SIGINT handler block added to repl loop, shifted to 1232/1233
+        "src/coding_cli/commands.py:1232",
+        "src/coding_cli/commands.py:1233",
     }
 )
 

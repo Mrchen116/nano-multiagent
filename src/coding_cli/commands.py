@@ -615,6 +615,40 @@ async def _run_repl(
         idle_interval_seconds=0.5,
     )
 
+    # bugfix-417-M5 (#114): Ctrl-C during an active turn maps to kernel.interrupt
+    # (the user-initiated stop path that reaps an in-flight foreground tool's
+    # subprocess tree), NOT a process teardown. Under asyncio.run a SIGINT raises
+    # KeyboardInterrupt at the loop level rather than inside the per-turn `async
+    # for`, so an asyncio signal handler is the reliable hook: when a turn is
+    # active it calls interrupt and the run unwinds to a cancelled terminal state;
+    # when idle it falls back to default behaviour (KeyboardInterrupt → exit). The
+    # in-loop `except KeyboardInterrupt` (below) remains as a secondary catch.
+    _active_turn: dict[str, str | None] = {"session_id": None}
+
+    def _on_sigint() -> None:
+        sid = _active_turn["session_id"]
+        if sid is not None:
+            kernel.interrupt(sid)
+            _erase_thinking_global()
+            _emit_repl_block("^C 已中断当前操作。")
+        else:
+            raise KeyboardInterrupt
+
+    def _erase_thinking_global() -> None:
+        if _is_tty_output(out):
+            print("\r\033[K", end="", file=out, flush=True)
+
+    _sigint_registered = False
+    try:
+        import signal as _signal
+
+        asyncio.get_running_loop().add_signal_handler(_signal.SIGINT, _on_sigint)
+        _sigint_registered = True
+    except (NotImplementedError, RuntimeError, ValueError):
+        # Platform without add_signal_handler (e.g. Windows) or no running loop in
+        # a test harness — fall back to the in-loop KeyboardInterrupt catch.
+        _sigint_registered = False
+
     try:
         while True:
             # Flush background events that arrived while idle.
@@ -680,15 +714,19 @@ async def _run_repl(
                     history_by_session, active_session_id, role="user", content=line
                 )
 
-                payload = await _send_message_async(
-                    out=out,
-                    kernel=kernel,
-                    session_id=active_session_id,
-                    text=line,
-                    workspace_root=workspace_root,
-                    background_processor=background_processor,
-                    bg_event_queue=_bg_event_queue,
-                )
+                _active_turn["session_id"] = active_session_id
+                try:
+                    payload = await _send_message_async(
+                        out=out,
+                        kernel=kernel,
+                        session_id=active_session_id,
+                        text=line,
+                        workspace_root=workspace_root,
+                        background_processor=background_processor,
+                        bg_event_queue=_bg_event_queue,
+                    )
+                finally:
+                    _active_turn["session_id"] = None
 
                 response_content = _extract_message_content(payload)
                 if response_content is not None:
@@ -714,6 +752,13 @@ async def _run_repl(
                     suggestion=suggestion,
                 )
     finally:
+        if _sigint_registered:
+            try:
+                import signal as _signal
+
+                asyncio.get_running_loop().remove_signal_handler(_signal.SIGINT)
+            except (NotImplementedError, RuntimeError, ValueError):
+                pass
         if _stream_task is not None and not _stream_task.done():
             _stream_task.cancel()
             try:
