@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -358,7 +359,15 @@ class InboundPipeline:
                 )
                 outbound: OutboundMessage | None = None
                 lifecycle_detail: Mapping[str, Any] | None = None
-                if not self._should_suppress_no_reply(
+                # bugfix-417-fix2 (#114, Issue 1): a user-/stop-cancelled run is finalized
+                # cleanly (above) but must NOT emit a final agent reply — the /stop handler
+                # already replied "已停止当前操作。", and any partial streamed text is not a
+                # complete answer. Suppress the reply send for cancelled; the bubble is
+                # closed by the observer's terminal run_status handling.
+                run_cancelled = run_state.get("status") == "cancelled"
+                if run_cancelled:
+                    lifecycle_detail = {"suppressed_by": "cancelled"}
+                elif not self._should_suppress_no_reply(
                     reply_text, in_group=message.is_group
                 ):
                     outbound = self._outbound_router.send_text(
@@ -663,8 +672,11 @@ class InboundPipeline:
 
         if active_run_id is None:
             reply_text = "当前没有正在执行的操作。"
-            outbound = self._outbound_router.send_text(
-                text=reply_text, reply_context=binding.reply_context
+            outbound = await self._deliver_stop_ack(
+                text=reply_text,
+                binding=binding,
+                agent_id=agent_id,
+                ack_tag="stop-noop",
             )
             return PipelineResult(
                 agent_id=agent_id,
@@ -682,6 +694,12 @@ class InboundPipeline:
         self._user_interrupted_runs.add(active_run_id)
         # interrupt() cancels the active run and any parked permission futures.
         self._kernel.interrupt(binding.kernel_session_id)
+        # bugfix-417-fix2-r2 (#114): do NOT call _emit_terminal_reconcile here.
+        # The reconcile is deferred to _await_terminal_run_async (which runs on the
+        # original turn's stream consumer) so that message_id and running_tool_calls
+        # are already set up by the observer's turn_start/tool_start handlers.
+        # Calling reconcile directly here races the stream consumer and sees empty
+        # state, causing the tool card CC content and bubble finalize to be dropped.
         # Log /stop command in session history via a new user turn (no LLM call triggered
         # because the session has no pending run after interrupt).
         self._kernel.submit(
@@ -692,8 +710,11 @@ class InboundPipeline:
             workspace_root=agent_workspace_root_path,
         )
         reply_text = "已停止当前操作。"
-        outbound = self._outbound_router.send_text(
-            text=reply_text, reply_context=binding.reply_context
+        outbound = await self._deliver_stop_ack(
+            text=reply_text,
+            binding=binding,
+            agent_id=agent_id,
+            ack_tag="stop-ack",
         )
         return PipelineResult(
             agent_id=agent_id,
@@ -702,6 +723,53 @@ class InboundPipeline:
             run_id=active_run_id,
             reply_text=reply_text,
             outbound=outbound,
+        )
+
+    async def _deliver_stop_ack(
+        self,
+        *,
+        text: str,
+        binding: Any,
+        agent_id: str,
+        ack_tag: str,
+    ) -> OutboundMessage | None:
+        """Deliver a /stop acknowledgement to the originating IM conversation.
+
+        bugfix-417-fix2 (#114, Issue 2): the /stop ack is NOT a kernel turn, so it has
+        no observer streaming path; the old ``outbound_router.send_text`` →
+        ``WebRelayAdapter.send`` only appended to an in-memory list and never reached
+        IM (so journey 13's "当前没有正在执行的操作。" + the "已停止当前操作。" reply
+        were both silently dropped). Deliver via ``_bg_reply_sender`` — the same live
+        ``send_agent_message`` WS path background-task replies use — so the ack appears
+        as an agent message in the conversation. Falls back to the (no-op) router when
+        the sender is not wired (e.g. unit tests / product-agnostic pipeline).
+
+        bugfix-417-fix2-r2 (#114): ``from_session_id`` must be parseable by IM's
+        ``_resolve_dispatch_source_from_session_id`` so that ``_handle_agent_message``
+        can resolve the source agent user and return an ack. Using the raw
+        ``kernel_session_id`` or an unrecognized suffix (e.g. ``|stop-ack``) leaves the
+        ack unresolvable, the ack never returns, and the Gateway's single-frame-pending
+        websocket queue stalls all subsequent streaming_delta frames.
+        """
+        if self._bg_reply_sender is not None:
+            try:
+                await self._bg_reply_sender(
+                    text,
+                    binding.reply_context,
+                    # Stable idempotency key so repeated /stop acks are deduplicated
+                    # by IM's agent_message_dispatch_log. Format mirrors BACKGROUND_TASK
+                    # relay: agent_id|tool_call:<stable-key>.
+                    f"{agent_id}|tool_call:{binding.kernel_session_id}:{ack_tag}",
+                )
+            except Exception as exc:  # noqa: BLE001
+                logging.getLogger(__name__).warning(
+                    "stop ack delivery via bg_reply_sender failed: %s", exc
+                )
+            return None
+        # No live sender (tests / agnostic pipeline): keep the recorded outbound so
+        # existing assertions on outbound_router still observe the reply text.
+        return self._outbound_router.send_text(
+            text=text, reply_context=binding.reply_context
         )
 
     def register_agent(self, agent: AgentWorkspaceConfig) -> None:
@@ -953,13 +1021,31 @@ class InboundPipeline:
         if run_state is None:
             # bugfix-410-M2 R3 (#97): stream ended without terminal status (e.g. the
             # run was cancelled out-of-band) — still close any in-flight tool_call.
+            # bugfix-417-fix2-r2 (#114): if the stream was torn by a user /stop,
+            # reconcile with user attribution and finalize the bubble cleanly.
+            user_stopped = run_id in self._user_interrupted_runs
             self._emit_terminal_reconcile(run_id, reason="interrupted")
+            if user_stopped:
+                return ({"status": "cancelled"}, reply_text)
             raise RuntimeError("stream ended without terminal run_status")
 
         status = run_state.get("status")
+        if status == "cancelled":
+            # bugfix-417-fix2-r2 (#114): a cancelled terminal caused by user /stop is
+            # an EXPECTED clean termination. Reconcile with user attribution and
+            # finalize the bubble, then return cleanly so _run completes the turn.
+            user_stopped = run_id in self._user_interrupted_runs
+            self._emit_terminal_reconcile(run_id, reason="interrupted")
+            if user_stopped:
+                return run_state, reply_text
+            # A non-user cancelled (watchdog idle reap / defensive cancel) is still
+            # an error — Req B's "stalled/crashed run → failed" reaping does NOT regress.
+            raise RuntimeError(
+                self._extract_run_error(run_state, fallback_status=str(status or ""))
+            )
         if status != "completed":
-            # bugfix-410-M2 R3 (#97): abnormal terminal status (failed/cancelled) —
-            # close any tool_call that never received tool_end (badge=已中断).
+            # bugfix-410-M2 R3 (#97): any non-completed terminal closes in-flight
+            # tool_calls (badge=已中断) via the reconcile.
             self._emit_terminal_reconcile(run_id, reason="interrupted")
             raise RuntimeError(
                 self._extract_run_error(run_state, fallback_status=str(status or ""))
@@ -984,8 +1070,13 @@ class InboundPipeline:
         if self._kernel_event_observer is None:
             return
         content: str | None = None
-        if run_id in self._user_interrupted_runs:
-            self._user_interrupted_runs.discard(run_id)
+        # bugfix-417-fix2-r2 (#114): membership in _user_interrupted_runs is the
+        # "user /stop" signal. It is cleared once in the per-run finally chokepoint
+        # (so the set stays bounded), but _emit_terminal_reconcile may be called
+        # from _await_terminal_run_async which runs BEFORE that finally, so the
+        # marker is still present when reconcile fires.
+        user_stopped = run_id in self._user_interrupted_runs
+        if user_stopped:
             content = USER_INTERRUPT_RECOVERY_CONTENT
         event: dict[str, object] = {
             "event": "run_terminal_reconcile",
@@ -994,6 +1085,12 @@ class InboundPipeline:
         }
         if content is not None:
             event["content"] = content
+        if user_stopped:
+            # bugfix-417-fix2 (#114, Issue 1): only a user /stop finalizes the agent
+            # bubble here (the kernel emits no turn_end on cancel). A watchdog/crash
+            # reap must NOT set this — its bubble stays failed via the phase=failed
+            # lifecycle (Req B no-regression).
+            event["finalize_bubble"] = True
         result = self._kernel_event_observer(event)
         # The reconcile branch schedules its sends via loop.create_task and returns
         # None; guard anyway in case a future observer returns a coroutine.

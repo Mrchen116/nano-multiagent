@@ -36,7 +36,11 @@ def _build_pipeline(observer: Any) -> InboundPipeline:
 
 
 def test_reconcile_carries_user_content_for_user_interrupted_run() -> None:
-    """A run marked user-interrupted yields a reconcile event with the CC content."""
+    """A run marked user-interrupted yields a reconcile event with the CC content +
+    finalize_bubble. bugfix-417-fix2: the membership signal is NOT consumed by the
+    reconcile (it persists until the per-run `finally` chokepoint), so the race-free
+    direct reconcile from _handle_stop_command AND a later stream-driven reconcile both
+    see the user-stop attribution; the reconcile itself is idempotent."""
     seen: list[dict] = []
     pipeline = _build_pipeline(lambda ev: seen.append(dict(ev)))
 
@@ -46,8 +50,12 @@ def test_reconcile_carries_user_content_for_user_interrupted_run() -> None:
     assert len(seen) == 1
     assert seen[0]["reason"] == "interrupted"
     assert seen[0]["content"] == USER_INTERRUPT_RECOVERY_CONTENT
-    # Consumed: a second reconcile (e.g. a duplicate terminal path) carries no content.
-    assert "run-stop" not in pipeline._user_interrupted_runs
+    assert seen[0]["finalize_bubble"] is True
+    # NOT consumed here — discarded once in the per-run finally; a second reconcile
+    # still carries the attribution (idempotent at the observer via popped tool calls).
+    assert "run-stop" in pipeline._user_interrupted_runs
+    pipeline._emit_terminal_reconcile("run-stop", reason="interrupted")
+    assert seen[1]["content"] == USER_INTERRUPT_RECOVERY_CONTENT
 
 
 def test_reconcile_omits_content_for_system_reap() -> None:

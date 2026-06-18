@@ -3720,6 +3720,29 @@ def _build_kernel_event_observer(
                         )
                     )
 
+            # bugfix-417-fix2 (#114, Issue 1): a user /stop cancels the run, but the
+            # kernel emits NO turn_end on the cancel path (turn_end fires only on
+            # success / ModelError), so the agent bubble would stay stuck on the
+            # "running" spinner. When the Gateway marks this reconcile finalize_bubble
+            # (set ONLY for a user-/stop cancel, never for a watchdog/crash reap which
+            # must stay failed — Req B), finalize the bubble with delivery_status=
+            # completed (a user stop is a clean termination, not a failure).
+            if event.get("finalize_bubble") and message_id:
+                loop.create_task(
+                    _send(
+                        manager,
+                        "node.streaming_delta",
+                        {
+                            "kind": "message_completed",
+                            "message_id": message_id,
+                            "final_content": None,
+                            "token_usage": None,
+                            "delivery_status": "completed",
+                            "run_id": run_id,
+                        },
+                    )
+                )
+
     return observer
 
 
