@@ -1,10 +1,14 @@
 """Canonical tool registration and execution pipeline with hook support."""
 
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import Any, Mapping
 
-from agent.core.agent.liveness import execution_update_ticker
+from agent.core.agent.liveness import (
+    DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS,
+    execution_update_ticker,
+)
 from agent.core.errors import ToolError
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
@@ -21,11 +25,13 @@ from .base import (
 from .result_budget import DEFAULT_MAX_RESULT_SIZE_CHARS
 from .session_file_state import SessionFileState
 
-# bugfix-417-M6 (#115): cadence of the generic tool-execution liveness ticker. Like the
-# bash foreground interval it must stay well below the watchdog idle window (Gateway/IM
-# default 120s) so a long silent non-bash tool keeps both watchdogs reset. Module-level
-# so the e2e guard can patch it small without touching production cadence.
-_GENERIC_EXECUTION_HEARTBEAT_INTERVAL = 10.0
+# bugfix-417-M6 (#115): cadence of the generic tool-execution liveness ticker. Must
+# stay well below the watchdog idle window (Gateway/IM default 120s) so a long silent
+# non-bash tool keeps both watchdogs reset. bugfix-417-fix1 (cleanup): single source of
+# truth is liveness.DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS — this module-level
+# alias is kept (not a duplicate literal) so the e2e guard can monkeypatch it small
+# without touching production cadence.
+_GENERIC_EXECUTION_HEARTBEAT_INTERVAL = DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS
 
 
 class ToolRegistry:
@@ -266,10 +272,24 @@ class ToolRegistry:
                 # phase:running ticks coexist (both project run_heartbeat, watchdogs reset
                 # idempotently). The ticker tears down the instant to_thread returns,
                 # raises, or the run is cancelled — never masking a true deadlock.
-                async with execution_update_ticker(
-                    emit=_emit_execution_update,
-                    interval=_GENERIC_EXECUTION_HEARTBEAT_INTERVAL,
-                ):
+                #
+                # bugfix-417-fix1 (D): tools that emit their OWN execution events
+                # (bash's foreground loop ticks ctx.emit_execution_event with
+                # phase:running) must NOT also get the generic ticker — otherwise the
+                # run gets 2x run_heartbeat writes per interval (phase:running +
+                # phase:executing). Skip the generic ticker for self-emitting tools;
+                # they remain covered by their own liveness. Non-self-emitting tools
+                # (web_fetch etc.) still get the generic ticker.
+                emits_own = bool(getattr(tool, "emits_own_execution_events", False))
+                ticker = (
+                    contextlib.nullcontext()
+                    if emits_own
+                    else execution_update_ticker(
+                        emit=_emit_execution_update,
+                        interval=_GENERIC_EXECUTION_HEARTBEAT_INTERVAL,
+                    )
+                )
+                async with ticker:
                     raw_result = await asyncio.to_thread(
                         tool.run, normalized_args, execution_context
                     )

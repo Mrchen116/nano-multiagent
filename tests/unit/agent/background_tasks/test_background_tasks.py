@@ -308,6 +308,43 @@ def test_stop_foreground_for_session_no_tasks_returns_false() -> None:
     assert reg.stop_foreground_for_session("s1") is False
 
 
+def _register_running_foreground(reg: BackgroundTaskRegistry, task_id: str) -> None:
+    reg.register_bash(
+        task_id=task_id,
+        parent_session_id="s1",
+        description="d",
+        command="sleep 1",
+        output_file="o",
+    )
+    reg.mark_running(task_id)
+    reg.set_stop_handle(task_id, _RecordingHandle(), foreground=True)  # type: ignore[arg-type]
+
+
+def test_foreground_marker_discarded_on_complete() -> None:
+    """bugfix-417-fix1 (A): a foreground task that completes must drop its
+    _foreground_task_ids entry — otherwise the set grows without bound over the
+    process lifetime (same leak class as M4's _stopped)."""
+    reg = BackgroundTaskRegistry()
+    _register_running_foreground(reg, "fg-complete")
+    assert "fg-complete" in reg._foreground_task_ids
+    reg.complete("fg-complete")
+    assert "fg-complete" not in reg._foreground_task_ids
+
+
+def test_foreground_marker_discarded_on_fail() -> None:
+    reg = BackgroundTaskRegistry()
+    _register_running_foreground(reg, "fg-fail")
+    reg.fail("fg-fail", error="boom")
+    assert "fg-fail" not in reg._foreground_task_ids
+
+
+def test_foreground_marker_discarded_on_kill() -> None:
+    reg = BackgroundTaskRegistry()
+    _register_running_foreground(reg, "fg-kill")
+    reg.kill("fg-kill", reason="stopped")
+    assert "fg-kill" not in reg._foreground_task_ids
+
+
 # ---------------------------------------------------------------------------
 # Store integration
 # ---------------------------------------------------------------------------

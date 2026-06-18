@@ -6,6 +6,7 @@ import time
 from pathlib import Path
 from typing import Any, Mapping
 
+from agent.core.agent.liveness import DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS
 from agent.core.background_tasks.ids import generate_bash_task_id
 from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
@@ -24,7 +25,10 @@ _DEFAULT_FOREGROUND_BUDGET = 120.0
 # foreground bash command runs. Must stay well below the watchdog idle timeout
 # (Gateway/IM default 120s) so a silent long command (`sleep 200`) keeps producing
 # run_heartbeat events and is never reaped as a stall (decision 3 calls for ≤15s).
-_FOREGROUND_HEARTBEAT_INTERVAL = 10.0
+# bugfix-417-fix1 (cleanup): single source of truth is
+# liveness.DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS — this module-level alias is
+# kept (not a duplicate literal) so tests can monkeypatch it without touching the source.
+_FOREGROUND_HEARTBEAT_INTERVAL = DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS
 
 _READ_ONLY_COMMANDS = frozenset(
     {
@@ -89,6 +93,11 @@ class BashTool(WiringMixin):
     name = "bash"
     presenter = _BASH_PRESENTER  # 决策 12: presentation travels with the tool object
     max_result_size_chars = 30_000
+    # bugfix-417-fix1 (D): the foreground wait loop already ticks
+    # ctx.emit_execution_event (phase:running) itself, so the executor's generic
+    # liveness ticker (phase:executing) must be skipped for bash — otherwise the run
+    # gets 2x run_heartbeat writes per interval. bash stays covered by its own ticks.
+    emits_own_execution_events = True
     description = (
         "Execute a bash command in the current working directory. Returns stdout and stderr. "
         "Output larger than 30K chars is compressed by the result budget system. "

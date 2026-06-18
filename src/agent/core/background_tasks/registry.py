@@ -144,6 +144,12 @@ class BackgroundTaskRegistry:
                 notified=notified,
             )
             self._records[task_id] = new
+            # bugfix-417-fix1 (A): drop the foreground marker on terminal transition
+            # so _foreground_task_ids does not grow without bound over the process
+            # lifetime (same leak class as M4's _stopped). set_stop_handle only
+            # discards on foreground=False demotion; a task that simply completes
+            # never demotes, so the marker must be cleared here.
+            self._foreground_task_ids.discard(task_id)
         self._persist(new)
         return new
 
@@ -159,6 +165,7 @@ class BackgroundTaskRegistry:
                 error=error,
             )
             self._records[task_id] = new
+            self._foreground_task_ids.discard(task_id)  # bugfix-417-fix1 (A): no leak
         self._persist(new)
         return new
 
@@ -174,6 +181,7 @@ class BackgroundTaskRegistry:
                 error=reason,
             )
             self._records[task_id] = new
+            self._foreground_task_ids.discard(task_id)  # bugfix-417-fix1 (A): no leak
         self._persist(new)
         return new
 
