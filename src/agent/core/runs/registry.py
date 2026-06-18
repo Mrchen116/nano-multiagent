@@ -477,7 +477,10 @@ class RunsRegistry:
             controller = self._controllers.get(run_id) if run_id else None
         if controller is None:
             return None
-        controller.abort()
+        # interrupt() is the user-initiated stop path (/stop, CLI Ctrl-C), so mark
+        # the abort user-initiated — the runtime then recovers any orphaned
+        # tool_call with the CC-identical user-attribution content (bugfix-417-M5).
+        controller.abort(user_initiated=True)
         log_info("run_interrupted", run_id=run_id, session_id=session_id)
         # Reap an in-flight foreground tool's subprocess tree; if one existed, the
         # cooperative abort cannot unwind the parked carrier Task, so force-cancel

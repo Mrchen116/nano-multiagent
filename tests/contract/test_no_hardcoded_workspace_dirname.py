@@ -35,7 +35,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # feat-394-M14: _can_use_tool attr added in __init__; shifted to 165
         # refactor-406-M1: _session_prompt_slots map + register method added in __init__; shifted to 172
         # bugfix-417-M3 R3: liveness ticker import block added at top; shifted to 177
-        "src/agent/core/agent/runtime.py:177",
+        # bugfix-417-M5: USER_INTERRUPT_RECOVERY_CONTENT multi-line import; shifted to 180
+        "src/agent/core/agent/runtime.py:180",
         # kernel.py: build_kernel new-path workspace_config_dirname default — platform
         # default fallback when a consumer omits it (same role as jsonl_store default);
         # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
@@ -55,7 +56,8 @@ _WHITELIST: frozenset[str] = frozenset(
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
         # bugfix-402-M1: prepare_transcript_for_run + append_tool_call_recovery added, line shifted to 81
-        "src/agent/core/session/jsonl_store.py:81",
+        # bugfix-417-M5: USER_INTERRUPT_RECOVERY_CONTENT constant block added; shifted to 89
+        "src/agent/core/session/jsonl_store.py:89",
         # tools/loader.py: .nano/tools platform dir
         # feat-388 ruff format: line shifted to 95;
         # refactor-406-M2: +_ToolRootResolver Protocol shifted 95→104

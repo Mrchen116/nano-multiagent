@@ -212,6 +212,88 @@ def test_foreground_fails_within_budget_raises_tool_error() -> None:
 
 
 # ------------------------------------------------------------------
+# bugfix-417-M5 (#114): interrupt reaps foreground + wakes the waiter promptly
+# ------------------------------------------------------------------
+
+
+class _NeverCompletingStopper:
+    """Records that the runner-level stop (killpg) was requested."""
+
+    def __init__(self) -> None:
+        self.stopped = False
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+class _NeverCompletingRunner:
+    """Runner whose command never completes on its own — only an external stop
+    ends it (stands in for a long foreground `sleep`). The runner stopper does
+    NOT call on_complete/on_fail (mirrors ShellRunner's silent `_stopped` path),
+    so the only way the foreground waiter can return promptly is if the wrapped
+    foreground stopper wakes completed_event itself (bugfix-417-M5)."""
+
+    def __init__(self) -> None:
+        self.stopper = _NeverCompletingStopper()
+
+    def start(self, *, command, cwd, output, task_id, timeout, on_complete, on_fail):
+        return self.stopper
+
+
+def test_interrupt_wakes_foreground_waiter_promptly_no_thread_leak(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A /stop on an in-flight foreground command must make _run_foreground return
+    promptly — NOT linger on completed_event until the 120s budget. The runner's
+    silent stop path never sets completed_event, so the foreground stopper wrapper
+    must wake the waiter itself; otherwise this to_thread worker is leaked for the
+    full budget (the subtlety the team lead flagged)."""
+    # Keep the budget large so a "return promptly" assertion proves the wake came
+    # from the stop, not from the budget expiring.
+    monkeypatch.setattr(
+        "agent.platform.tools.builtins.bash._DEFAULT_FOREGROUND_BUDGET", 30.0
+    )
+    monkeypatch.setattr(
+        "agent.platform.tools.builtins.bash._FOREGROUND_HEARTBEAT_INTERVAL", 0.05
+    )
+
+    registry = BackgroundTaskRegistry()
+    tmpdir = tempfile.mkdtemp()
+    output = _FakeOutput(tmpdir)
+    runner = _NeverCompletingRunner()
+    wiring = MagicMock()
+    wiring.registry = registry
+    wiring.output = output
+    wiring.bash_runner = runner
+    tool = BashTool(wiring=wiring)
+
+    ctx = _make_ctx(tmpdir)
+
+    # Stop the in-flight foreground tool shortly after it starts, from another
+    # thread (mirrors RunsRegistry.interrupt → foreground_stopper).
+    def _interrupt_soon() -> None:
+        time.sleep(0.3)
+        registry.stop_foreground_for_session("parent_1")
+
+    threading.Thread(target=_interrupt_soon, daemon=True).start()
+
+    start = time.monotonic()
+    result = tool.run(
+        {"command": "sleep 30", "run_in_background": False},
+        ctx,
+    )
+    elapsed = time.monotonic() - start
+
+    # Returned promptly (well under the 30s budget) — no thread leak.
+    assert elapsed < 5.0, f"foreground waiter lingered {elapsed:.1f}s after stop"
+    # The runner-level killpg was requested.
+    assert runner.stopper.stopped is True
+    # The result is classified as interrupted (not a spurious failure/timeout).
+    assert result.get("interrupted") is True
+    assert result.get("reason_code") == "interrupted"
+
+
+# ------------------------------------------------------------------
 # bugfix-417-M4 R2: foreground heartbeat polling + timeout reason_code
 # ------------------------------------------------------------------
 
