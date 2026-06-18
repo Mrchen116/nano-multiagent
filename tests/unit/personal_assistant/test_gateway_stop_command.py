@@ -257,7 +257,9 @@ def test_stop_ack_delivered_via_bg_reply_sender_when_wired(tmp_path: Path) -> No
     # Delivered through the live sender, not the no-op router.
     assert len(delivered) == 1
     assert delivered[0][0] == "当前没有正在执行的操作。"
-    assert delivered[0][1].startswith("agent-a|tool_call:") and delivered[0][1].endswith(":stop-noop")
+    assert delivered[0][1].startswith("agent-a|tool_call:") and delivered[0][
+        1
+    ].endswith(":stop-noop")
     assert channel.sent == [], "must NOT use the no-op send_text when sender is wired"
 
 
