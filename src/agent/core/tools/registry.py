@@ -4,6 +4,7 @@ import asyncio
 from pathlib import Path
 from typing import Any, Mapping
 
+from agent.core.agent.liveness import execution_update_ticker
 from agent.core.errors import ToolError
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
@@ -19,6 +20,12 @@ from .base import (
 )
 from .result_budget import DEFAULT_MAX_RESULT_SIZE_CHARS
 from .session_file_state import SessionFileState
+
+# bugfix-417-M6 (#115): cadence of the generic tool-execution liveness ticker. Like the
+# bash foreground interval it must stay well below the watchdog idle window (Gateway/IM
+# default 120s) so a long silent non-bash tool keeps both watchdogs reset. Module-level
+# so the e2e guard can patch it small without touching production cadence.
+_GENERIC_EXECUTION_HEARTBEAT_INTERVAL = 10.0
 
 
 class ToolRegistry:
@@ -248,9 +255,24 @@ class ToolRegistry:
             execution_error: ToolError | None = None
             raw_result: Mapping[str, Any] | Any | None = None
             try:
-                raw_result = await asyncio.to_thread(
-                    tool.run, normalized_args, execution_context
-                )
+                # bugfix-417-M6 (#115): wrap the to_thread tool run in an await-bound
+                # generic liveness ticker so EVERY long tool — not just bash — emits a
+                # periodic phase:executing tool_execution_update while it blocks. Pre-M6
+                # liveness was bash-only (bash's foreground loop calls
+                # ctx.emit_execution_event itself), so a silent long non-bash tool
+                # (web_fetch etc.) produced zero events and both watchdogs reaped the live
+                # run. Reusing _emit_execution_update routes through the identical observe
+                # → realtime_stream → run_heartbeat projection bash rides; bash's own
+                # phase:running ticks coexist (both project run_heartbeat, watchdogs reset
+                # idempotently). The ticker tears down the instant to_thread returns,
+                # raises, or the run is cancelled — never masking a true deadlock.
+                async with execution_update_ticker(
+                    emit=_emit_execution_update,
+                    interval=_GENERIC_EXECUTION_HEARTBEAT_INTERVAL,
+                ):
+                    raw_result = await asyncio.to_thread(
+                        tool.run, normalized_args, execution_context
+                    )
             except ToolError as exc:
                 execution_error = exc
             except Exception as exc:

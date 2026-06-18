@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import time
 from collections.abc import AsyncIterator, Callable, Mapping
 from typing import Any
 
@@ -31,6 +32,13 @@ from typing import Any
 DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS = 10.0
 
 PublishCallable = Callable[[str, Mapping[str, Any]], None]
+
+# Payload emitter for the generic tool-execution ticker (bugfix-417-M6 / #115). The
+# executor injects a callable that forwards each tick onto the SAME tool_execution_update
+# observe path bash's phase:running heartbeats ride, where realtime_stream projects any
+# phase-bearing update to a run_heartbeat. Distinct from PublishCallable: this emits a
+# single execution-update payload, not a (event, data) session event.
+ExecutionEmitCallable = Callable[[Mapping[str, Any]], None]
 
 
 async def _emit_liveness_heartbeats(
@@ -94,6 +102,71 @@ async def liveness_ticker(
             publish=publish, run_id=run_id, source=source, interval=interval
         )
     )
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
+async def _emit_execution_updates(
+    *,
+    emit: ExecutionEmitCallable,
+    interval: float,
+) -> None:
+    """Emit a ``{phase:"executing", elapsed_ms}`` update every ``interval`` seconds.
+
+    The companion to :func:`execution_update_ticker`; only spawned when ``emit`` is
+    present (the no-op-when-missing contract lives in the context manager). ``elapsed_ms``
+    is measured from spawn so the update mirrors bash's own phase:running shape, letting
+    the IM render a live "executing for N s" without a tool-specific timer. Each emit is
+    fail-open: a sink that raises (or is mid-teardown) must never bring down the tool run.
+    """
+    start = time.monotonic()
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            emit(
+                {
+                    "phase": "executing",
+                    "elapsed_ms": int((time.monotonic() - start) * 1000),
+                }
+            )
+        except Exception:  # noqa: BLE001 — liveness must not crash the tool run.
+            # Drop this tick; the next tick (or a business event) re-establishes liveness.
+            continue
+
+
+@contextlib.asynccontextmanager
+async def execution_update_ticker(
+    *,
+    emit: ExecutionEmitCallable | None,
+    interval: float = DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS,
+) -> AsyncIterator[None]:
+    """Run a generic tool-execution heartbeat for the duration of the ``async with`` body.
+
+    Wraps the executor's ``await asyncio.to_thread(tool.run, …)`` so EVERY long-running
+    tool — not just bash — periodically produces a ``tool_execution_update`` carrying a
+    non-empty ``phase`` (#115). realtime_stream projects that to a ``run_heartbeat`` that
+    resets both watchdogs, so a silent long tool (e.g. web_fetch) is no longer reaped as
+    a stall. bash's own finer-grained phase:running heartbeats coexist harmlessly — both
+    project run_heartbeat and the watchdogs reset idempotently.
+
+    Await-bound: the ticker is cancelled (and drained) on every exit path — normal
+    return, exception, or CancelledError — so it can never outlive the to_thread await it
+    guards (a free-running ticker would mask a true deadlock, violating decision 2). A
+    no-op when ``emit`` is missing (e.g. a CLI without an execution-event sink), so the
+    executor need not branch on availability.
+
+    Args:
+        emit: ``(payload) -> None`` forwarding an execution-update onto the observe path.
+        interval: Seconds between updates; must be ≪ watchdog timeout (decision 3: ≤15s).
+    """
+    if emit is None:
+        yield
+        return
+    task = asyncio.create_task(_emit_execution_updates(emit=emit, interval=interval))
     try:
         yield
     finally:
