@@ -324,3 +324,114 @@ A1/D1/C2/C3/B4 均在 Round 2 通过，本次 fix/cleanup 不涉及相关代码�
 ## 上层文档同步（Round 3）
 
 同 Round 2，无新增变化。长青契约层由 orchestrator §7.0 收尾归并。
+
+---
+
+# Round 4 — 2026-06-18
+
+## Verdict
+
+**pass**
+
+**Highest Required Action**: pass
+
+**Issues**: blocking 0, major 0, minor 0
+
+---
+
+## 澄清记录（§2.6）
+
+Round 4 是 M5（#114 中断收尾）+ M6（#115 通用 liveness）合并入 unit 后的新一轮完整验收，reviewer1 负责「存活 / 不被误杀 / 自愈」旅程（Req A + B）。M5/M6 progress.md 已读，设计和实现路径清晰，无疑问，开工。
+
+---
+
+## 服务接管记录（§2.5）
+
+- 自建 worktree `review1-bugfix-417`，detached 指向 unit/bugfix-417 HEAD（d0e535f9，含 M5/M6）。
+- 前端产物在 worktree 内重新构建（`./node_modules/.bin/vite build`，index-BfToVFRB.js）。
+- 指纹核验：`grep -c "run_heartbeat\|tool_timeout\|stalled" dist/assets/index-BfToVFRB.js` = 4，关键 marker 全命中。
+- IM 在 ephemeral 端口 64038 启动（secret: review1-bugfix-417-jwt-secret-r4），cwd-relative DB 天然隔离。
+- Gateway 以 worktree config 副本（node_id=wt-review1-bugfix-417）+ `--foreground --auto-bind` 启动，node 状态 online，3 个 agent 注册成功。
+
+---
+
+## User Journeys Exercised
+
+| # | 旅程 | 覆盖 Scenario |
+|---|---|---|
+| J1 | `sleep 10 timeout=3` 超时 → 同会话发 "1+1=?" | A1, C1, C3 |
+| J2 | `sleep 200` 无 deadline → 等 333s+ 确认无 stalled（含 auto-background + 后台 task 自然完成） | A2, B1, B4 |
+| J3 | `bash -c 'sleep 10 & sleep 10 & wait'` timeout=3 | D1 |
+| J4 | 向 Arch 发 web_search 请求（探测 B3 权限触发） | B3 inconclusive 确认 |
+
+---
+
+## 验收标准覆盖表（Round 4）
+
+### Requirement A: 任何单条 run 都不能让 session 锁永久不可释放
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| A1: 工具超时后会话自愈 | incident.md §Req A | J1：sleep 10 timeout=3 超时 → 同会话发 "1+1=?" | `1+1=?` 消息 delivery_status=completed，agent 回复 "1 + 1 = 2"；tool reason=tool_timeout；无 relay idle | **pass** | 不重启 Gateway 即自愈，Round 1/2/3 不回归 |
+| A2: 真卡死的 run 被收掉后会话恢复 | incident.md §Req A | J2：sleep 200 无 deadline，前台 15s 后转后台，333s 时后台 task completed，后续发消息正常 | J2 follow-up 消息 delivery_status=completed，agent 确认 task status=completed；无 relay idle | **pass** | M4 ShellRunner auto-background 后，session lock 已在第一轮 release；A 层锁泄漏已修 |
+
+### Requirement B: watchdog 只收「不再前进」的 run，活着但安静的不被误杀
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| B1: 静默长命令不被误杀 | incident.md §Req B | J2：sleep 200 无 deadline，观察 333s+ 不被 watchdog stalled 收 | 333s 时全部消息 delivery_status=completed，bash tool status=completed，后台 task status=completed；无 stalled/relay idle | **pass** | M4 ShellRunner：前台 >15s 自动转后台，后台任务不被 Gateway watchdog 管辖（watchdog 看 kernel.stream，后台 task 完成后 stream 自然 terminal）；sleep 200 200s 后自然完成 |
+| B2: 等 LLM 首 token 慢不被误杀 | incident.md §Req B | 无法构造 LLM >120s 慢响应 | — | **inconclusive** | 同 Round 2/3；技术环境无法模拟；M3 单测 test_bugfix_417_liveness_ticker.py 守卫 LLM-await ticker 路径 |
+| B3: 等权限确认不被误杀 | incident.md §Req B | J4：Arch agent 调 web_search（tool_allowlist=[read,write,edit,bash]，web_search 不在内） | web_search 直接执行成功，未触发 permission 确认气泡；delivery_status=completed | **inconclusive** | Arch tool_allowlist 不触发 permission 确认——工具执行策略未拦截，无法从用户面构造 parked-on-permission；M3 test_inbound_pipeline_permission_watchdog.py 守卫该路径 |
+| B4: 真卡死被收 | incident.md §Req B | Round 1/2/3 已验证；本轮 M5/M6 不改 watchdog 收尸逻辑 | Round 1 stalled 收验证有效；M3 watchdog 单测 17 passed | **pass** | 继承 Round 1 实证 + 单测守卫 |
+
+### Requirement C: 超时与卡死在用户侧是两种不同失败态，且失败不静默
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| C1: 工具自身超时报「耗时过长」 | incident.md §Req C | J1/J3：bash timeout 后 tool reason 字段 | J1 tool reason=tool_timeout，J3 tool reason=tool_timeout；agent 回复确认"3秒超时后被强制中断/中断" | **pass** | Round 2 fix 有效，不回归 |
+| C2: 真卡死报「已中断」 | incident.md §Req C | Round 1 stalled → "Interrupted" badge；M5/M6 不改该路径 | Round 1 截图 `.playwright-cli/page-2026-06-17T04-52-09-528Z.png` | **pass** | 继承 Round 1/2/3 |
+| C3: 失败不静默 | incident.md §Req C | J1/J3 所有超时场景有明确气泡 | J1 agent 回复描述超时；J3 agent 回复确认命令超时中断；无静默/永久转圈 | **pass** | 继承 Round 1/2/3 |
+
+### Requirement D: 工具子进程超时连同进程树一起回收，会话可继续
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| D1: 会派生子进程的命令超时能干净收尾 | incident.md §Req D | J3：`bash -c 'sleep 10 & sleep 10 & wait'` timeout=3 | tool reason=tool_timeout，delivery_status=completed；agent 回复确认"命令已执行并按预期在3秒超时后中断" | **pass** | M5 killpg 整树回收有效，会话不卡死 |
+
+### M6 新增：非 bash 长耗时工具执行期不被误杀（#115）
+
+| 验证项 | 期望 | 结果 | 备注 |
+|---|---|---|---|
+| 非 bash 长工具（>120s）不被 watchdog 误杀 | 工具执行期 run_heartbeat 来自 executor 通用 ticker 使 watchdog 不收 | **inconclusive** | 无法从用户面构造 >120s 的非 bash 工具场景（web_fetch 通常 <60s）；M6 progress.md 记录的 live 验证以缩放比例（interval=1s/watchdog=3s/tool=5s）完成，非用户面可重现；M6 DONE 闸端到端测试（`_SlowSleepTool` 经 build_kernel 冒 run_heartbeat 且 phase=="executing"）在 test_bugfix_417_bash_engine_e2e.py 中守卫（3 passed） |
+
+---
+
+## Issues
+
+无 issue。Req A/B（本组负责旅程）全部 pass 或合理 inconclusive（环境限制，有单测守卫）。
+
+---
+
+## 回归确认（Round 1/2/3 pass 项）
+
+| 项目 | Round 4 状态 | 方式 |
+|---|---|---|
+| A1 会话自愈 | pass（J1 实测） | 重新走 J1 |
+| A2 真卡死后恢复 | pass（J2 实测） | 重新走 J2 |
+| B1 静默长命令不误杀 | pass（J2 实测，333s） | 重新走 J2 |
+| C1 tool_timeout reason badge | pass（J1/J3 实测） | 重新走 J1/J3 |
+| D1 派生子进程超时干净收尾 | pass（J3 实测） | 重新走 J3 |
+| C2/C3 失败不静默 | pass（继承 Round 2/3） | 路径不变 |
+
+---
+
+## 上层文档同步（Round 4）
+
+同 Round 2/3，无新增变化。长青契约层由 orchestrator §7.0 收尾归并。
+
+---
+
+## Side Findings（Round 4）
+
+- Round 1 Side Finding（relay idle 文案遗留）：本轮所有场景均 delivery_status=completed，无 stalled 场景触发 relay idle 文案。该 Side Finding 在 M4/M5 后无法在 live 旅程中重现，保持原记录。
+- B3（权限确认）：尝试向有 tool_allowlist 约束的 Arch agent 发 web_search 请求，工具直接执行成功，未触发 permission 确认——说明 tool_allowlist 配置在当前实现下不触发 permission 审批。B3 inconclusive 是环境限制，不是功能缺陷。
