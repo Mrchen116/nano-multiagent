@@ -213,6 +213,67 @@ def test_run_cli_sends_message_via_sdk_stream(tmp_path) -> None:
     )
 
 
+class _CtrlCThenCancelledStream:
+    """Stream that raises KeyboardInterrupt on the first pull (user Ctrl-C mid-turn),
+    then yields a cancelled run_status — mirroring the kernel reaping the run after
+    kernel.interrupt() (bugfix-417-M5)."""
+
+    def __init__(self, session_id: str) -> None:
+        self._session_id = session_id
+        self._step = 0
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        self._step += 1
+        if self._step == 1:
+            raise KeyboardInterrupt
+        if self._step == 2:
+            return {
+                "event": "run_status",
+                "run_id": "run-1",
+                "session_id": self._session_id,
+                "status": "cancelled",
+                "stop_reason": "cancelled",
+            }
+        raise StopAsyncIteration
+
+
+class _CtrlCKernel(_StubKernel):
+    def stream(self, session_id: str, *, after_sequence: int = 0):
+        return _CtrlCThenCancelledStream(session_id)
+
+
+def test_run_cli_ctrl_c_maps_to_kernel_interrupt_and_repl_survives(tmp_path) -> None:
+    """bugfix-417-M5 (#114): Ctrl-C during a turn must call kernel.interrupt (the
+    user-initiated stop path that reaps the in-flight foreground subprocess), NOT
+    tear down the process — the REPL stays alive for the next command."""
+    from coding_cli.commands import run_cli
+
+    stub = _CtrlCKernel()
+    output = io.StringIO()
+    inputs = iter(["/new", "run something long", "/exit"])
+
+    exit_code = run_cli(
+        [],
+        stdout=output,
+        kernel_factory=_make_kernel_factory(stub),
+        input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
+    )
+
+    assert exit_code == 0
+    # Ctrl-C routed to kernel.interrupt for the active session.
+    assert any(call[0] == "interrupt" for call in stub.calls), (
+        f"Ctrl-C did not call kernel.interrupt; calls: {stub.calls}"
+    )
+    # The REPL survived the interrupt and processed the following /exit cleanly
+    # (no "send failed" error block for the user-cancelled turn).
+    text = output.getvalue()
+    assert "send failed" not in text, f"interrupt surfaced as failure: {text!r}"
+
+
 def test_run_cli_text_mode_via_sdk(tmp_path) -> None:
     """--text 非交互模式：submit 一次后退出，不进 REPL。"""
     from coding_cli.commands import run_cli

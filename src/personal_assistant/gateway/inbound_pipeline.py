@@ -28,7 +28,7 @@ from personal_assistant.gateway.session_keys import (
     session_binding_store,
 )
 
-from agent.sdk import TERMINAL_RUN_STATUSES
+from agent.sdk import TERMINAL_RUN_STATUSES, USER_INTERRUPT_RECOVERY_CONTENT
 
 if TYPE_CHECKING:
     from agent.sdk.kernel import Kernel
@@ -178,6 +178,11 @@ class InboundPipeline:
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, str] = {}
         self._active_runs_lock = asyncio.Lock()
+        # bugfix-417-M5 (#114): run_ids stopped by an explicit user /stop, so the
+        # terminal reconcile can attribute the in-flight tool card's content to the
+        # user ("[Request interrupted by user for tool use]") instead of the generic
+        # system-interrupt body. Bounded: entries are discarded on reconcile.
+        self._user_interrupted_runs: set[str] = set()
         # feat-340-M2: bootstrap wires this to an IM event_bridge consumer so the browser
         # sees live tool_call / token_usage events; default None keeps pipeline product-agnostic.
         self._kernel_event_observer = kernel_event_observer
@@ -664,6 +669,10 @@ class InboundPipeline:
             )
 
         agent_workspace_root_path = self._agents[agent_id].workspace_root
+        # bugfix-417-M5 (#114): mark this run user-interrupted BEFORE interrupting so
+        # the terminal reconcile attributes the in-flight tool card content to the
+        # user. (active_run_id is the run /stop targets.)
+        self._user_interrupted_runs.add(active_run_id)
         # interrupt() cancels the active run and any parked permission futures.
         self._kernel.interrupt(binding.kernel_session_id)
         # Log /stop command in session history via a new user turn (no LLM call triggered
@@ -958,16 +967,27 @@ class InboundPipeline:
         tool_start but not tool_end. This synthetic event tells it to close those
         in-flight calls with a reason so the IM badge stops spinning. No-op when no
         observer is wired (product-agnostic pipeline default).
+
+        bugfix-417-M5 (#114): when this run was stopped by an explicit user /stop,
+        attach the CC-identical user-attribution content so the in-flight tool card
+        shows the same body the model sees in the transcript. The badge reason stays
+        "interrupted" (renders 「已中断」); only the displayed content is attributed
+        to the user — system reaps (watchdog/crash) carry no content.
         """
         if self._kernel_event_observer is None:
             return
-        result = self._kernel_event_observer(
-            {
-                "event": "run_terminal_reconcile",
-                "run_id": run_id,
-                "reason": reason,
-            }
-        )
+        content: str | None = None
+        if run_id in self._user_interrupted_runs:
+            self._user_interrupted_runs.discard(run_id)
+            content = USER_INTERRUPT_RECOVERY_CONTENT
+        event: dict[str, object] = {
+            "event": "run_terminal_reconcile",
+            "run_id": run_id,
+            "reason": reason,
+        }
+        if content is not None:
+            event["content"] = content
+        result = self._kernel_event_observer(event)
         # The reconcile branch schedules its sends via loop.create_task and returns
         # None; guard anyway in case a future observer returns a coroutine.
         if asyncio.iscoroutine(result):  # pragma: no cover - defensive

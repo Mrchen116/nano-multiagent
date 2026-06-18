@@ -760,7 +760,32 @@ async def _send_message_async(
 
     from coding_cli.render.repl_tool_lines import format_tool_done, format_tool_running
 
-    async for event in kernel.stream(session_id):
+    # bugfix-417-M5 (#114): Ctrl-C during a turn maps to kernel.interrupt — the
+    # same user-initiated stop path as the Gateway /stop — so an in-flight foreground
+    # tool's subprocess tree is reaped and the orphaned tool_call is recovered as a
+    # user interrupt, instead of tearing down the whole CLI process (which would
+    # leave orphans and lose the session). After interrupting we keep draining until
+    # the run reaches a terminal status so the run settles cleanly.
+    _interrupted = [False]
+
+    def _interrupt_once() -> None:
+        if _interrupted[0]:
+            return
+        _interrupted[0] = True
+        kernel.interrupt(session_id)
+        _erase_thinking()
+        _write_tty_line(out, "^C 已中断当前操作。")
+
+    stream_iter = kernel.stream(session_id)
+    while True:
+        try:
+            event = await stream_iter.__anext__()
+        except StopAsyncIteration:
+            break
+        except KeyboardInterrupt:
+            _interrupt_once()
+            continue
+
         event_run_id = event.get("run_id")
 
         # Route events from other runs to background processor.
@@ -823,6 +848,22 @@ async def _send_message_async(
         status = terminal_run_status.get("status") or status
         stop_reason = terminal_run_status.get("stop_reason")
         usage = terminal_run_status.get("usage")
+
+    # bugfix-417-M5 (#114): a user Ctrl-C interrupt drives the run to a cancelled
+    # terminal state — that is the expected, successful outcome of /stop, not a
+    # failure. Return a benign payload so the REPL prints a turn summary and stays
+    # alive instead of surfacing a "send failed" error block.
+    if _interrupted[0]:
+        return {
+            "session_id": session_id,
+            "run_id": run_id,
+            "status": status or "cancelled",
+            "interrupted": True,
+            "events": [],
+            "updates": [],
+            "view_model": None,
+            "usage": usage,
+        }
 
     if status not in ("completed",):
         error_detail = assistant_text.strip()
