@@ -366,7 +366,25 @@ class BashTool(WiringMixin):
             on_complete=on_complete,
             on_fail=on_fail,
         )
-        registry.set_stop_handle(task_id, stopper)
+
+        # bugfix-417-M5 (#114): on /stop the runner's _monitor takes the silent
+        # `_stopped` path (designed for background task_stop, which has no waiter)
+        # and never sets completed_event. The foreground worker below is blocked on
+        # completed_event.wait(budget), so killing the subprocess alone would leave
+        # this to_thread worker parked until the 120s budget — a thread leak. Wrap
+        # the runner stopper so stopping ALSO wakes this waiter immediately with an
+        # interrupted result: the worker returns promptly, the run unwinds, and the
+        # orphaned tool_call is recovered as "interrupted" (no 120s lingering).
+        class _ForegroundStopper:
+            def stop(self) -> None:
+                stopper.stop()  # killpg the subprocess tree (M4-hardened)
+                result_holder["status"] = "interrupted"
+                completed_event.set()
+
+        # foreground=True so interrupt/cancel can reap THIS subprocess tree (the
+        # run is blocked inside the to_thread below until the process is killed),
+        # while leaving user-launched background tasks alone (bugfix-417-M5, #114).
+        registry.set_stop_handle(task_id, _ForegroundStopper(), foreground=True)
 
         # Wait up to the foreground budget for completion, polling at the heartbeat
         # interval so we can emit a phase:running liveness event each tick. This is
@@ -400,6 +418,10 @@ class BashTool(WiringMixin):
         if not completed:
             # Auto-background: allow notification when monitor thread calls on_complete.
             result_holder["backgrounded"] = True
+            # The task is no longer run-blocking — demote it from the foreground
+            # set so a later /stop does not reap a now-detached background task
+            # (bugfix-417-M5, #114).
+            registry.set_stop_handle(task_id, stopper, foreground=False)
             return {
                 "status": "async_launched",
                 "task_id": task_id,
@@ -416,6 +438,22 @@ class BashTool(WiringMixin):
                 "stderr": "",
                 "exitCode": 0,
                 "truncated": False,
+            }
+
+        # bugfix-417-M5 (#114): stopped by interrupt/cancel. Return promptly with a
+        # benign interrupted result so this to_thread worker does not linger to the
+        # 120s budget. The carrier Task is also force-cancelled by the registry, so
+        # this return value is typically discarded as the run unwinds via
+        # CancelledError; returning (rather than raising) just avoids a spurious
+        # error if the worker happens to outrace the cancel.
+        if result_holder.get("status") == "interrupted":
+            return {
+                "stdout": stdout,
+                "stderr": "",
+                "exitCode": 130,
+                "truncated": False,
+                "interrupted": True,
+                "reason_code": "interrupted",
             }
 
         # Failed within budget.

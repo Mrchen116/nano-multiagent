@@ -3674,6 +3674,15 @@ def _build_kernel_event_observer(
             # (watchdog liveness reap → 已中断), interrupted (other abnormal
             # termination → 已中断), tool_timeout (tool's own deadline → 执行超时)}.
             reason = str(event.get("reason") or "interrupted").strip() or "interrupted"
+            # bugfix-417-M5 (#114): a user /stop attaches the CC-identical
+            # user-attribution content so the in-flight tool card displays the same
+            # body the model sees in the transcript. Absent (system reap) → no body.
+            reconcile_content = event.get("content")
+            reconcile_output = (
+                str(reconcile_content)
+                if isinstance(reconcile_content, str) and reconcile_content
+                else None
+            )
             inflight = running_tool_calls.pop(run_id, {})
             if message_id and inflight:
                 for stuck_call_id, stuck_call in inflight.items():
@@ -3687,6 +3696,17 @@ def _build_kernel_event_observer(
                     else:
                         stuck_name = str(stuck_call)
                         stuck_input = {}
+                    stuck_tool_call: dict[str, Any] = {
+                        "id": stuck_call_id,
+                        "name": stuck_name,
+                        "status": "failed",
+                        "reason": reason,
+                        # stuck_input is already a dict: the Mapping branch
+                        # uses `or {}`, and the bare-name branch sets {}.
+                        "input": stuck_input,
+                    }
+                    if reconcile_output is not None:
+                        stuck_tool_call["output"] = reconcile_output
                     loop.create_task(
                         _send(
                             manager,
@@ -3694,15 +3714,7 @@ def _build_kernel_event_observer(
                             {
                                 "kind": "tool_call_completed",
                                 "message_id": message_id,
-                                "tool_call": {
-                                    "id": stuck_call_id,
-                                    "name": stuck_name,
-                                    "status": "failed",
-                                    "reason": reason,
-                                    # stuck_input is already a dict: the Mapping branch
-                                    # uses `or {}`, and the bare-name branch sets {}.
-                                    "input": stuck_input,
-                                },
+                                "tool_call": stuck_tool_call,
                                 "run_id": run_id,
                             },
                         )

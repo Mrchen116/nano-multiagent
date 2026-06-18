@@ -25,7 +25,10 @@ from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
-from agent.core.session.jsonl_store import SessionConfig
+from agent.core.session.jsonl_store import (
+    USER_INTERRUPT_RECOVERY_CONTENT,
+    SessionConfig,
+)
 from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
 from agent.core.skills import SkillMetadata, resolve_available_skills
@@ -715,6 +718,7 @@ class AgentRuntime:
                 workspace_root=session_workspace_root,
                 parent_session_id=parent_session_id,
                 cancelled=_run_cancelled,
+                user_interrupt=controller is not None and controller.is_user_interrupt,
             )
 
         turn_result = build_turn_result(session_id, turn_id, all_messages)
@@ -1047,6 +1051,7 @@ class AgentRuntime:
         workspace_root: Path | None,
         parent_session_id: str | None,
         cancelled: bool,
+        user_interrupt: bool = False,
     ) -> None:
         """Close any tool_call left open when a run ends (bugfix-410-M2 R1).
 
@@ -1114,6 +1119,15 @@ class AgentRuntime:
             # non-cooperative termination → synthesize interrupted.
             reason = "interrupted"
 
+        # bugfix-417-M5 (#114): decouple the recovery CONTENT from the badge reason.
+        # An explicit user /stop / CLI Ctrl-C backfills the CC-identical
+        # "[Request interrupted by user for tool use]" — the same content both the
+        # model reads in the transcript (so it stops and waits, not retries/apologises)
+        # and the user sees on the IM tool card. A system interrupt (watchdog reap /
+        # crash) keeps the generic "[interrupted]" — never falsely attributing it to
+        # the user. The badge stays "已中断" in both cases (reason unchanged).
+        content = USER_INTERRUPT_RECOVERY_CONTENT if user_interrupt else None
+
         # Step 1 — load-bearing, synchronous, must run before any await.
         self.invalidate_session_cache(session_id)
 
@@ -1125,6 +1139,7 @@ class AgentRuntime:
                     tool_call_id=cid,
                     tool_name=name,
                     reason=reason,
+                    content=content,
                     workspace_root=workspace_root,
                     parent_session_id=parent_session_id,
                 )

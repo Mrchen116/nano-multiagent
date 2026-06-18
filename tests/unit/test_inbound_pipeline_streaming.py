@@ -686,6 +686,73 @@ class TestTerminalToolCallReconcile:
         assert completed[0]["tool_call"]["status"] == "failed"
 
     @pytest.mark.asyncio
+    async def test_reconcile_user_interrupt_content_sets_tool_card_output(self):
+        """bugfix-417-M5 (#114): a user /stop reconcile carries the CC-identical
+        user-attribution content, which becomes the in-flight tool card's output
+        (collapsed summary). badge reason stays interrupted (→ 已中断)."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+        )
+
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "bash"}
+        )
+        await asyncio.sleep(0.02)
+        send_calls.clear()
+
+        observer(
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "interrupted",
+                "content": "[Request interrupted by user for tool use]",
+            }
+        )
+        await asyncio.sleep(0.02)
+
+        completed = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert len(completed) == 1
+        tc = completed[0]["tool_call"]
+        assert tc["status"] == "failed"
+        assert tc["reason"] == "interrupted"
+        assert tc["output"] == "[Request interrupted by user for tool use]"
+
+    @pytest.mark.asyncio
+    async def test_reconcile_without_content_omits_tool_card_output(self):
+        """A system reap (no content) must NOT set output — the card shows no
+        user-attributed body, only the 已中断 badge."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+        )
+
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "bash"}
+        )
+        await asyncio.sleep(0.02)
+        send_calls.clear()
+
+        observer(
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "stalled",
+            }
+        )
+        await asyncio.sleep(0.02)
+
+        completed = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert len(completed) == 1
+        assert "output" not in completed[0]["tool_call"]
+
+    @pytest.mark.asyncio
     async def test_normal_completion_leaves_no_run_entry(self):
         """bugfix-410-fix-r1 (Eff-3): a run that completes normally (tool_end then
         turn_end, no reconcile) must not leak an empty per-run dict entry. A long-lived

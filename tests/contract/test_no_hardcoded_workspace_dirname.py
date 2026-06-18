@@ -35,7 +35,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # feat-394-M14: _can_use_tool attr added in __init__; shifted to 165
         # refactor-406-M1: _session_prompt_slots map + register method added in __init__; shifted to 172
         # bugfix-417-M3 R3: liveness ticker import block added at top; shifted to 177
-        "src/agent/core/agent/runtime.py:177",
+        # bugfix-417-M5: USER_INTERRUPT_RECOVERY_CONTENT multi-line import; shifted to 180
+        "src/agent/core/agent/runtime.py:180",
         # kernel.py: build_kernel new-path workspace_config_dirname default — platform
         # default fallback when a consumer omits it (same role as jsonl_store default);
         # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
@@ -50,12 +51,13 @@ _WHITELIST: frozenset[str] = frozenset(
         "src/agent/sdk/kernel.py:370",
         # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
-        "src/agent/sdk/kernel.py:469",
+        "src/agent/sdk/kernel.py:480",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
         # bugfix-402-M1: prepare_transcript_for_run + append_tool_call_recovery added, line shifted to 81
-        "src/agent/core/session/jsonl_store.py:81",
+        # bugfix-417-M5: USER_INTERRUPT_RECOVERY_CONTENT constant block added; shifted to 89
+        "src/agent/core/session/jsonl_store.py:89",
         # tools/loader.py: .nano/tools platform dir
         # feat-388 ruff format: line shifted to 95;
         # refactor-406-M2: +_ToolRootResolver Protocol shifted 95→104
@@ -83,8 +85,10 @@ _WHITELIST: frozenset[str] = frozenset(
         # refactor-406-M1 R5: dead _build_llm_config_from_args removed, lines shifted to 1144/1145
         # refactor-406-M2: _build_llm_config_payload→_build_cli_llm_config (SDK-owned
         # LLMConfig.from_json/from_catalog), net +2 lines shifted to 1146/1147
-        "src/coding_cli/commands.py:1146",
-        "src/coding_cli/commands.py:1147",
+        # bugfix-417-M5: Ctrl-C→kernel.interrupt block in _send_message_async, shifted to 1187/1188
+        # bugfix-417-M5: asyncio SIGINT handler block added to repl loop, shifted to 1232/1233
+        "src/coding_cli/commands.py:1232",
+        "src/coding_cli/commands.py:1233",
     }
 )
 

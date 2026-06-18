@@ -219,6 +219,96 @@ def test_request_stop_on_missing_task_returns_false() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Foreground stop-by-session (bugfix-417-M5 / #114)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingHandle:
+    def __init__(self) -> None:
+        self.stopped = False
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+def test_stop_foreground_for_session_kills_only_foreground_tasks() -> None:
+    """interrupt/cancel must kill the in-flight FOREGROUND tool's subprocess but
+    leave user-launched background tasks (run_background) running (#114)."""
+    reg = BackgroundTaskRegistry()
+    # Foreground bash blocking the active run.
+    reg.register_bash(
+        task_id="fg",
+        parent_session_id="s1",
+        description="d",
+        command="sleep 60",
+        output_file="o",
+    )
+    reg.mark_running("fg")
+    fg_handle = _RecordingHandle()
+    reg.set_stop_handle("fg", fg_handle, foreground=True)  # type: ignore[arg-type]
+
+    # Background bash explicitly detached by the user — must NOT be touched.
+    reg.register_bash(
+        task_id="bg",
+        parent_session_id="s1",
+        description="d",
+        command="sleep 999",
+        output_file="o",
+    )
+    reg.mark_running("bg")
+    bg_handle = _RecordingHandle()
+    reg.set_stop_handle("bg", bg_handle, foreground=False)  # type: ignore[arg-type]
+
+    stopped_any = reg.stop_foreground_for_session("s1")
+
+    assert stopped_any is True
+    assert fg_handle.stopped is True
+    assert bg_handle.stopped is False
+
+
+def test_stop_foreground_for_session_scopes_to_session() -> None:
+    """A foreground task in another session must not be stopped."""
+    reg = BackgroundTaskRegistry()
+    reg.register_bash(
+        task_id="fg-other",
+        parent_session_id="other",
+        description="d",
+        command="sleep 60",
+        output_file="o",
+    )
+    reg.mark_running("fg-other")
+    other_handle = _RecordingHandle()
+    reg.set_stop_handle("fg-other", other_handle, foreground=True)  # type: ignore[arg-type]
+
+    assert reg.stop_foreground_for_session("s1") is False
+    assert other_handle.stopped is False
+
+
+def test_stop_foreground_for_session_ignores_terminal_tasks() -> None:
+    """A foreground task that already finished must not be re-stopped."""
+    reg = BackgroundTaskRegistry()
+    reg.register_bash(
+        task_id="fg",
+        parent_session_id="s1",
+        description="d",
+        command="sleep 60",
+        output_file="o",
+    )
+    reg.mark_running("fg")
+    handle = _RecordingHandle()
+    reg.set_stop_handle("fg", handle, foreground=True)  # type: ignore[arg-type]
+    reg.complete("fg")
+
+    assert reg.stop_foreground_for_session("s1") is False
+    assert handle.stopped is False
+
+
+def test_stop_foreground_for_session_no_tasks_returns_false() -> None:
+    reg = BackgroundTaskRegistry()
+    assert reg.stop_foreground_for_session("s1") is False
+
+
+# ---------------------------------------------------------------------------
 # Store integration
 # ---------------------------------------------------------------------------
 

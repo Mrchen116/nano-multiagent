@@ -388,6 +388,7 @@ class SessionManager:
         tool_call_id: str,
         tool_name: str | None = None,
         reason: str,
+        content: str | None = None,
         workspace_root: Path | None = None,
         parent_session_id: str | None = None,
     ) -> None:
@@ -395,13 +396,16 @@ class SessionManager:
 
         Lightweight eager path used by the runtime when a run ends with
         cancelled/aborted stop_reason.  Delegates to
-        ``JsonlSessionStore.append_tool_call_recovery``.
+        ``JsonlSessionStore.append_tool_call_recovery``. ``content`` (optional)
+        overrides the synthetic tool-result body for user-attributed interrupts
+        while leaving the badge ``reason`` intact (bugfix-417-M5, #114).
         """
         self._store.append_tool_call_recovery(
             session_id,
             tool_call_id=tool_call_id,
             tool_name=tool_name,
             reason=reason,
+            content=content,
             workspace_root=workspace_root,
             parent_session_id=parent_session_id,
         )

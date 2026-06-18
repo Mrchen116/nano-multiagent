@@ -101,6 +101,18 @@ class EventHubLike(Protocol):
     def current_sequence(self) -> int: ...
 
 
+class ForegroundStopper(Protocol):
+    """Port for reaping a session's in-flight foreground tool subprocess tree.
+
+    Injected by the kernel (wired to BackgroundTaskRegistry.stop_foreground_for_session)
+    so the core RunsRegistry can kill a run-blocking foreground tool on interrupt /
+    cancel without importing the platform layer (bugfix-417-M5, #114). Returns True
+    when an in-flight foreground tool existed and was stopped.
+    """
+
+    def __call__(self, session_id: str) -> bool: ...
+
+
 class RunsRegistry:
     def __init__(
         self,
@@ -109,12 +121,19 @@ class RunsRegistry:
         session_manager: SessionManager,
         event_hub: EventHubLike | None = None,
         hook_runner: HookRunner | None = None,
+        foreground_stopper: "ForegroundStopper | None" = None,
         drain_timeout_seconds: float = 30.0,
     ) -> None:
         self._runtime = runtime
         self._session_manager = session_manager
         self._event_hub = event_hub
         self._hook_runner = hook_runner
+        # Injected port (core stays platform-free): kills the in-flight foreground
+        # tool's subprocess tree for a session and reports whether one existed.
+        # Wired by the kernel to BackgroundTaskRegistry.stop_foreground_for_session
+        # (bugfix-417-M5, #114). None → no foreground reap (degrades to the
+        # pre-existing cooperative-abort / force-cancel behaviour).
+        self._foreground_stopper = foreground_stopper
         self._lock = Lock()
         self._runs: dict[str, RunRecord] = {}
         self._controllers: dict[str, RunController] = {}
@@ -411,6 +430,16 @@ class RunsRegistry:
         """Return the dedicated async event loop used by this registry."""
         return self._async_loop
 
+    def set_foreground_stopper(self, stopper: "ForegroundStopper | None") -> None:
+        """Inject the foreground-tool subprocess reaper after construction.
+
+        The kernel wires the BackgroundTaskRegistry-backed stopper here because the
+        background-task wiring is built after this registry (it needs this
+        registry's event loop), so the dependency is injected post-hoc rather than
+        through __init__ (bugfix-417-M5, #114).
+        """
+        self._foreground_stopper = stopper
+
     @property
     def session_manager(self) -> SessionManager:
         """Return the SessionManager held by this registry.
@@ -429,16 +458,52 @@ class RunsRegistry:
     def interrupt(self, session_id: str) -> str | None:
         """Signal force interrupt for the active run of a session.
 
+        Cooperatively aborts the active run (controller flag). When the run is
+        parked inside a blocking foreground tool (long shell command), the
+        cooperative flag alone cannot unwind the carrier Task — it is stuck on
+        the tool's to_thread that never returns until the subprocess is killed.
+        So, when an in-flight foreground tool exists, this additionally (a) kills
+        its subprocess tree via the injected foreground stopper and (b)
+        force-cancels the carrier Task so the parked await unwinds, the
+        per-session lock is released, and the runtime's CancelledError finally
+        recovers the orphaned tool_call as "interrupted" (bugfix-417-M5, #114).
+        With no in-flight foreground tool, behaviour degrades to the pre-existing
+        cooperative abort (decision 10).
+
         Returns the run_id if an active run was found and signalled, None otherwise.
         """
         with self._lock:
             run_id = self._active_run_by_session.get(session_id)
             controller = self._controllers.get(run_id) if run_id else None
-        if controller is not None:
-            controller.abort()
-            log_info("run_interrupted", run_id=run_id, session_id=session_id)
-            return run_id
-        return None
+        if controller is None:
+            return None
+        # interrupt() is the user-initiated stop path (/stop, CLI Ctrl-C), so mark
+        # the abort user-initiated — the runtime then recovers any orphaned
+        # tool_call with the CC-identical user-attribution content (bugfix-417-M5).
+        controller.abort(user_initiated=True)
+        log_info("run_interrupted", run_id=run_id, session_id=session_id)
+        # Reap an in-flight foreground tool's subprocess tree; if one existed, the
+        # cooperative abort cannot unwind the parked carrier Task, so force-cancel
+        # it (its `async with lock` then exits via CancelledError, releasing the
+        # session lock; the runtime finally closes the orphan as "interrupted").
+        if self._foreground_stopper is not None and self._foreground_stopper(
+            session_id
+        ):
+            # A force-cancel kills the carrier Task via a raw CancelledError that
+            # propagates out of _run_worker_async WITHOUT hitting its terminal
+            # markers (CancelledError is BaseException, not caught by `except
+            # Exception`). So, exactly like cancel(), record the terminal state
+            # and flag the controller cancelled before force-cancelling — otherwise
+            # the run would stay RUNNING forever (M1 cancel() does the same).
+            controller.cancel()
+            self._set_status(
+                run_id,
+                status=RunStatus.CANCELLED,
+                stop_reason="cancelled",
+                only_if={RunStatus.QUEUED, RunStatus.RUNNING},
+            )
+            self._force_cancel_owned_task(run_id)
+        return run_id
 
     def inject_pending_message(self, session_id: str, message: LLMMessage) -> bool:
         """Enqueue a message for round-boundary injection into the active run.
@@ -477,6 +542,12 @@ class RunsRegistry:
             stop_reason="cancelled",
             only_if={RunStatus.QUEUED, RunStatus.RUNNING},
         )
+        # bugfix-417-M5: reap an in-flight foreground tool's subprocess tree for
+        # this run's session so cancel leaves no orphan (M1 force-cancels the
+        # carrier Task to release the lock, but the killed subprocess must also be
+        # reaped — otherwise the to_thread's killpg never fires; #114).
+        if self._foreground_stopper is not None:
+            self._foreground_stopper(current.session_id)
         # bugfix-417-M1: cooperative cancel (controller flag) cannot reach a run
         # parked inside an await it never returns from (tool execution / LLM wait
         # / permission decision). The run holds the per-session lock until its

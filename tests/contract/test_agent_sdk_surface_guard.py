@@ -64,6 +64,8 @@ EXPECTED_SURFACE: frozenset[str] = frozenset(
         # Run origin + terminal statuses (C1)
         "RunOrigin",
         "TERMINAL_RUN_STATUSES",
+        # User-interrupt recovery content (bugfix-417-M5: core-owned, re-export)
+        "USER_INTERRUPT_RECOVERY_CONTENT",
     }
 )
 
@@ -100,10 +102,15 @@ _DECISION12_PRESENTER: frozenset[str] = frozenset(
 # sdk-owned Callable alias (no class __module__) — special-cased, not a violation.
 _TYPING_ALIAS: frozenset[str] = frozenset({"CanUseToolFn"})
 
+# bugfix-417-M5: core-owned str constant re-export (a plain str has no __module__,
+# so it is exempt like the typing alias; the Gateway consumes it via agent.sdk to
+# keep the user-interrupt content single-sourced with the kernel).
+_STR_CONSTANT_REEXPORTS: frozenset[str] = frozenset({"USER_INTERRUPT_RECOVERY_CONTENT"})
+
 # refactor-406-M2: the M1-temporary reporter-only exports + product profiles are gone
 # (reporter migrated to Kernel.list_*, 决策 4). Only the permanent re-exports remain.
 _OWNERSHIP_EXEMPT: frozenset[str] = (
-    _C1_REEXPORTS | _DECISION12_PRESENTER | _TYPING_ALIAS
+    _C1_REEXPORTS | _DECISION12_PRESENTER | _TYPING_ALIAS | _STR_CONSTANT_REEXPORTS
 )
 
 
