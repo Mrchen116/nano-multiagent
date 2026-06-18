@@ -810,3 +810,78 @@ class TestTerminalToolCallReconcile:
         observer({"event": "turn_end", "run_id": "run-1", "completed": True})
         await asyncio.sleep(0.02)
         assert "run-1" not in running_tool_calls
+
+    @pytest.mark.asyncio
+    async def test_user_stop_reconcile_finalizes_bubble_and_closes_badge(self):
+        """bugfix-417-fix2 (#114, Issue 1): the kernel emits NO turn_end on the cancel
+        path, so a user /stop would leave the agent bubble stuck on the running spinner.
+        The Gateway marks the reconcile finalize_bubble for a user /stop; the observer
+        then closes the in-flight tool badge (已中断 + CC content) AND finalizes the
+        bubble with message_completed/delivery_status=completed (clean user stop)."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        running_tool_calls: dict[str, dict[str, dict[str, object]]] = {}
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+            running_tool_calls=running_tool_calls,
+        )
+
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "bash"}
+        )
+        send_calls.clear()
+        observer(
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "interrupted",
+                "content": "[Request interrupted by user for tool use]",
+                "finalize_bubble": True,
+            }
+        )
+        await asyncio.sleep(0.02)
+
+        # Badge closed with CC content.
+        tc_done = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert len(tc_done) == 1
+        assert tc_done[0]["tool_call"]["reason"] == "interrupted"
+        assert (
+            tc_done[0]["tool_call"]["output"]
+            == "[Request interrupted by user for tool use]"
+        )
+        # Bubble finalized (clean stop).
+        completed = [p for _, p in send_calls if p.get("kind") == "message_completed"]
+        assert len(completed) == 1
+        assert completed[0]["message_id"] == "agent-msg-1"
+        assert completed[0]["delivery_status"] == "completed"
+        # In-flight entry reaped by the reconcile.
+        assert "run-1" not in running_tool_calls
+
+    @pytest.mark.asyncio
+    async def test_system_reconcile_does_not_finalize_bubble(self):
+        """A watchdog/crash reconcile (no finalize_bubble) closes the tool badge but
+        must NOT finalize the bubble as completed — the bubble stays failed via the
+        phase=failed lifecycle (Req B no-regression)."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        running_tool_calls: dict[str, dict[str, dict[str, object]]] = {}
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+            running_tool_calls=running_tool_calls,
+        )
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "bash"}
+        )
+        send_calls.clear()
+        observer(
+            {"event": "run_terminal_reconcile", "run_id": "run-1", "reason": "stalled"}
+        )
+        await asyncio.sleep(0.02)
+
+        # Badge closed, but NO bubble finalization (no finalize_bubble flag).
+        assert [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert not [p for _, p in send_calls if p.get("kind") == "message_completed"]

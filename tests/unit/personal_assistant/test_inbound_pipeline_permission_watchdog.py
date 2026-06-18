@@ -214,6 +214,92 @@ async def test_watchdog_timeout_emits_stalled_reconcile() -> None:
     assert reconciles[0]["reason"] == "stalled"
 
 
+async def test_user_stop_cancelled_returns_cleanly_without_raising() -> None:
+    """bugfix-417-fix2 (#114, Issue 1): a USER /stop ends the run as `cancelled` — an
+    EXPECTED terminal, NOT an error. When the run is marked user-interrupted,
+    _await_terminal_run_async must reconcile the badge and return normally (no
+    RuntimeError), so the originating turn finalizes cleanly instead of emitting
+    phase=failed and wedging the bubble on the running spinner. The reconcile must
+    carry finalize_bubble so the observer closes the agent bubble."""
+    kernel = _ControlledStreamKernel()
+    observed: list[dict[str, Any]] = []
+    pipeline = _build_pipeline(
+        kernel, idle_timeout=5.0, observer=lambda ev: observed.append(dict(ev))
+    )
+    # /stop marks the run user-interrupted before the cancel terminal arrives.
+    pipeline._user_interrupted_runs.add("run-x")
+
+    async def _drive() -> None:
+        kernel.push({"event": "tool_start", "run_id": "run-x", "call_id": "cx"})
+        kernel.push({"event": "run_status", "run_id": "run-x", "status": "cancelled"})
+        kernel.end()
+
+    driver = asyncio.create_task(_drive())
+    run_state, _reply = await pipeline._await_terminal_run_async(
+        kernel_session_id="sess-x", run_id="run-x"
+    )
+    await driver
+
+    assert run_state.get("status") == "cancelled"
+    reconciles = [e for e in observed if e.get("event") == "run_terminal_reconcile"]
+    assert len(reconciles) == 1 and reconciles[0]["run_id"] == "run-x"
+    # User stop → reconcile carries finalize_bubble + the CC content.
+    assert reconciles[0].get("finalize_bubble") is True
+    assert reconciles[0].get("content") == "[Request interrupted by user for tool use]"
+    assert kernel.cancel_calls == []
+
+
+async def test_non_user_cancelled_still_raises() -> None:
+    """A `cancelled` from a NON-user source (watchdog reap / defensive cancel —
+    run NOT in _user_interrupted_runs) must still raise, so Req B's stalled→failed
+    reaping does not regress (bugfix-417-fix2 Issue 1 precision)."""
+    kernel = _ControlledStreamKernel()
+    observed: list[dict[str, Any]] = []
+    pipeline = _build_pipeline(
+        kernel, idle_timeout=5.0, observer=lambda ev: observed.append(dict(ev))
+    )
+    # NOT marked user-interrupted.
+
+    async def _drive() -> None:
+        kernel.push({"event": "run_status", "run_id": "run-nc", "status": "cancelled"})
+        kernel.end()
+
+    driver = asyncio.create_task(_drive())
+    with pytest.raises(RuntimeError):
+        await pipeline._await_terminal_run_async(
+            kernel_session_id="sess-nc", run_id="run-nc"
+        )
+    await driver
+    # Reconcile fired but WITHOUT finalize_bubble (system reap → bubble stays failed).
+    reconciles = [e for e in observed if e.get("event") == "run_terminal_reconcile"]
+    assert len(reconciles) == 1
+    assert not reconciles[0].get("finalize_bubble")
+
+
+async def test_failed_terminal_still_raises() -> None:
+    """A genuine `failed` terminal must still raise (surfaced as an error)."""
+    kernel = _ControlledStreamKernel()
+    pipeline = _build_pipeline(kernel, idle_timeout=5.0)
+
+    async def _drive() -> None:
+        kernel.push(
+            {
+                "event": "run_status",
+                "run_id": "run-f",
+                "status": "failed",
+                "error": {"message": "boom"},
+            }
+        )
+        kernel.end()
+
+    driver = asyncio.create_task(_drive())
+    with pytest.raises(RuntimeError):
+        await pipeline._await_terminal_run_async(
+            kernel_session_id="sess-f", run_id="run-f"
+        )
+    await driver
+
+
 async def test_heartbeat_resets_idle_timer_for_silent_long_tool() -> None:
     """A silent long tool keeps the run alive purely via run_heartbeat — no business
     event needed (Req B: 静默长命令不被误杀)."""
