@@ -435,3 +435,113 @@ Round 4 是 M5（#114 中断收尾）+ M6（#115 通用 liveness）合并入 uni
 
 - Round 1 Side Finding（relay idle 文案遗留）：本轮所有场景均 delivery_status=completed，无 stalled 场景触发 relay idle 文案。该 Side Finding 在 M4/M5 后无法在 live 旅程中重现，保持原记录。
 - B3（权限确认）：尝试向有 tool_allowlist 约束的 Arch agent 发 web_search 请求，工具直接执行成功，未触发 permission 确认——说明 tool_allowlist 配置在当前实现下不触发 permission 审批。B3 inconclusive 是环境限制，不是功能缺陷。
+
+---
+
+# Round 4b — 2026-06-18（reviewer2b，失败态/中断收尾组）
+
+## Verdict
+
+**fail**
+
+**Highest Required Action**: fix-implementation
+
+**Issues**: blocking 0, major 2, minor 0
+
+---
+
+## 澄清记录（§2.6）
+
+接替前一个 reviewer 走「失败态 + 中断收尾」旅程（旅程 7-14）。前一轮 reviewer1 已验 Req A + B（存活/不误杀/自愈）并 pass，本组独立验 Req C + D + M5(#114) 中断收尾路径。无疑问，开工。
+
+---
+
+## 服务接管记录（§2.5）
+
+- 自建 worktree `/Users/czj/Repos/nano-multiagent/.worktrees/review2b-bugfix-417`，detached 指向 origin/unit/bugfix-417 HEAD（a6a544cb，含 M5/M6）。
+- 前端 worktree 内 `npm install && ./node_modules/.bin/vite build`，产物 `index-BfToVFRB.js`。
+- 指纹核验：`grep -c "run_heartbeat\|tool_timeout\|stalled\|interrupted_by_user" dist/assets/index-BfToVFRB.js` = 4，关键 marker 全命中。
+- IM 在 ephemeral 端口 56645 启动（secret: review2b-bugfix-417-jwt-r4），cwd-relative DB 天然隔离；注册测试账号 nano/nano1234。
+- Gateway 以 worktree config 副本（node_id=wt-review2b-bugfix-417）+ `--foreground --auto-bind` 启动，node online，3 个 agent 注册（default-agent / Arch / ArchA）。
+
+---
+
+## User Journeys Exercised
+
+| # | 旅程 | 覆盖项 |
+|---|---|---|
+| J7 | sleep 200 timeout=5 → 前端「Timed out」徽标 | C1 回归 |
+| J9 | 失败不静默：所有超时/failed 场景有气泡 | C3 |
+| J10 | `bash -c 'sleep 10 & sleep 10 & wait'` timeout=3 → 孤儿回收 + 会话继续 | D1 回归 |
+| J11 | PA — sleep 60 → `/stop` → 验证中断收口 + CC 串渲染 | M5 #114 旅程 11 |
+| J12 | CLI — sleep 60 → Ctrl-C → 无孤儿 + CLI 不退出 | M5 #114 旅程 12 |
+| J13 | `/stop` 无活动运行 → 友好提示 | M5 #114 旅程 13 |
+
+---
+
+## 验收标准覆盖表（Round 4b，仅本组负责旅程 7-14）
+
+### Requirement C: 超时与卡死在用户侧是两种不同失败态，且失败不静默
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| C1: 工具自身超时报「耗时过长」 | specs delta gateway/im | J7：sleep 200 timeout=5 → tool reason + 前端徽标 | API `reason=tool_timeout`；前端工具卡 `✕ 💻 bash sleep 200 \| Timed out 15.5s`（截图 `ACCEPTANCE/bugfix-417/r4b-journey7-tool-expanded.png`） | **pass** | 回归确认 Round 2 fix 有效 |
+| C2: 真卡死报「已中断」 | specs delta gateway/im | M4 auto-background 后无法用 bash sleep 触发前台 stalled；继承 Round 1 实证 | Round 1 截图 `.playwright-cli/page-2026-06-17T04-52-09-528Z.png`：stalled → `Interrupted` badge | **pass（继承）** | M5/M6 不改 watchdog 收尸 → badge 路径，路径不变 |
+| C3: 失败不静默 | specs delta im | J7/J10 所有超时均有明确气泡；watchdog 收尸有 relay idle 文案 | 全部失败场景有可见气泡，无永久转圈 | **pass** | |
+
+### Requirement D: 工具子进程超时连同进程树一起回收，会话可继续
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| D1: 会派生子进程的命令超时能干净收尾 | specs delta kernel | J10：`bash -c 'sleep 10 & sleep 10 & wait'` timeout=3 | API：reason=`tool_timeout`，delivery_status=completed；agent 回复"无孤儿进程"，会话正常继续 | **pass** | 回归确认 Round 2 fix 有效 |
+
+### M5 (#114) 中断收尾
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 旅程11: PA /stop → 工具卡「已中断」 + CC 串 | design.md 决策10 + M5 progress.md | J11：PA 发 sleep 60 → 趁工具 running 发 `/stop` → 查看前端渲染 | `/stop` 消息 delivery_status=`sent`（永不变化），Gateway 日志无任何 stop 处理记录；前端工具卡不收口，watchdog 120s 后收尸；**未渲染 `[Request interrupted by user for tool use]` CC 串** | **fail** | `/stop` 命令从未被 Gateway 处理，消息永远停在 `sent`；经多次尝试（3条 /stop 消息）均无效；截图 `ACCEPTANCE/bugfix-417/r4b-j11-stop-evidence.png` |
+| 旅程11: PA /stop → 子进程被杀（无孤儿） | M5 progress.md | J11 中 /stop 未触发，无法验证孤儿回收 | — | **fail（不可达）** | 前置条件（/stop 被处理）不满足，孤儿检查路径不可达 |
+| 旅程11: PA /stop 后同会话可继续 | M5 progress.md | J11 中 /stop 未触发；watchdog 收尸后 ping 正常回复 | ping → pong 完成，delivery_status=completed | **pass（部分）** | watchdog 收尸后会话可继续，但非通过 /stop 触发的自愈 |
+| 旅程12: CLI Ctrl-C → 无孤儿 + CLI 不退出可继续 | M5 progress.md | J12：CLI 起 sleep 60，发 SIGINT，查孤儿 + CLI 存活 | `^C 已中断当前操作。`；孤儿=none；CLI 存活；follow-up `1+1=` → `1+1=2` completed | **pass** | CLI Ctrl-C 路径正常 |
+| 旅程13: /stop 无活动运行 → 友好提示 | M5 progress.md | J13：会话空闲时发 `/stop` | `/stop` 消息 delivery_status=`sent`，无 agent 回复，无友好提示 | **fail** | 同旅程11，/stop 完全不被 Gateway 处理（不分有无活动 run） |
+| 旅程14: 归因区分 — 用户 /stop → 用户中断 CC 串；watchdog 收尸 → 系统中断 | M5 progress.md | 依赖 /stop 触发 | /stop 未触发，无法验证 CC 串归因区分 | **fail（不可达）** | 前置条件不满足 |
+
+---
+
+## Issues
+
+### Issue 1: PA `/stop` 命令从未被 Gateway 处理（delivery_status 永远 `sent`）
+
+- **Severity**: major
+- **Regression Relation**: direct（直接违反 M5 #114 核心交付物 — 用户 /stop 中断路径）
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: Gateway `inbound_pipeline.py` 中 `_is_stop_command` / `_handle_stop_command` 代码路径存在，但 `/stop` 消息从未经过 relay 到达该代码路径。3 条 `/stop` 消息均停在 `sent` 状态，Gateway 日志无任何 stop 处理记录。普通消息（ping → pong）可正常处理，说明 Gateway 整体在线，问题在于 `/stop` 消息未被 relay 接收或在 inbound_pipeline 上游被过滤丢弃。
+- **复现步骤**:
+  1. 向 default-agent 发消息：执行任意长命令（sleep 60）
+  2. 趁工具运行时从 IM 发 `/stop`（或在无活动时发）
+  3. 观察：消息 delivery_status 永远是 `sent`，Gateway 日志无处理记录，agent 无回应
+- **期望**: `/stop` 被 Gateway 处理：有活动 run → 中断 + 工具卡「已中断」+ CC 串 `[Request interrupted by user for tool use]`；无活动 run → 友好提示
+- **实际**: `/stop` 消息停在 `sent`，无任何处理，用户无反馈
+
+### Issue 2: 旅程11 关键截图证据 — 无 CC 串渲染
+
+- **Severity**: major（作为旅程11 CC 串渲染不可达的证据记录）
+- **Regression Relation**: direct（直接违反 M5 #114 Scenario — 工具卡渲染 `[Request interrupted by user for tool use]`）
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: 截图 `ACCEPTANCE/bugfix-417/r4b-j11-stop-evidence.png` 显示：3 条 `/stop` 消息发出后，工具卡（sleep 60）最终以 `relay idle for 120s with no new event` 被 watchdog 收尸，工具徽标显示绿色 `●`（completed，因 auto-background 已完成），**不是「已中断」，也无 `[Request interrupted by user for tool use]` CC 串**。该 CC 串是用户面可见的前端渲染，未能看到即 fail。
+
+---
+
+## 上层文档同步（Round 4b）
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新
+- [ ] `docs/specs/{kernel,im,gateway}/spec.md`（长青行为契约层）：**需要更新**（同 Round 2/3，delta-spec 已写好，由 orchestrator §7.0 收尾归并写入）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/SPEC_GUIDE.md`：无需更新
+
+---
+
+## Side Findings（Round 4b）
+
+- **`run was aborted by priority=now preemption` 异常**：Gateway 日志出现该 RuntimeError（`inbound_pipeline.py:957`），发生在前台 bash 工具执行后 Gateway 尝试处理下一条消息时。用户消息偶尔会变成 `failed`（非 agent 消息，而是用户消息本身），这是一个异常行为（用户消息不应 failed）。来源不明，可能是 run queue preemption 逻辑误触发。标记为 in-unit minor（M5 run queue 改动可能引入），需 worker 排查。
+- **旅程8 inconclusive**：M4 auto-background 后前台 bash 在 <15s 内完成，无法在用户面触发前台 watchdog stalled 场景来重新验证 C2「已中断」徽标。继承 Round 1 实证（stalled → Interrupted badge）。
