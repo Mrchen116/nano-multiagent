@@ -366,7 +366,10 @@ class BashTool(WiringMixin):
             on_complete=on_complete,
             on_fail=on_fail,
         )
-        registry.set_stop_handle(task_id, stopper)
+        # foreground=True so interrupt/cancel can reap THIS subprocess tree (the
+        # run is blocked inside the to_thread below until the process is killed),
+        # while leaving user-launched background tasks alone (bugfix-417-M5, #114).
+        registry.set_stop_handle(task_id, stopper, foreground=True)
 
         # Wait up to the foreground budget for completion, polling at the heartbeat
         # interval so we can emit a phase:running liveness event each tick. This is
@@ -400,6 +403,10 @@ class BashTool(WiringMixin):
         if not completed:
             # Auto-background: allow notification when monitor thread calls on_complete.
             result_holder["backgrounded"] = True
+            # The task is no longer run-blocking — demote it from the foreground
+            # set so a later /stop does not reap a now-detached background task
+            # (bugfix-417-M5, #114).
+            registry.set_stop_handle(task_id, stopper, foreground=False)
             return {
                 "status": "async_launched",
                 "task_id": task_id,

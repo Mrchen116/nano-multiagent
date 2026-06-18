@@ -420,6 +420,17 @@ def _build_kernel_base(
         runs_registry=runs_registry,
     )
 
+    # bugfix-417-M5 (#114): wire the foreground-tool subprocess reaper so
+    # kernel.interrupt / kernel.cancel kill an in-flight foreground bash subprocess
+    # tree (and force-cancel the parked carrier Task) instead of leaving an orphan.
+    # Injected post-hoc because the wiring is built after the registry (it needs the
+    # registry's event loop). The core registry only sees the ForegroundStopper
+    # port — it never imports the platform BackgroundTaskRegistry (core stays
+    # platform-free).
+    runs_registry.set_foreground_stopper(
+        background_task_wiring.registry.stop_foreground_for_session
+    )
+
     # Tool catalog: built-ins + consumer native tool objects (决策 2). The native
     # objects satisfy the SDK Tool Protocol and are registered into the registry
     # directly — no _product_root() directory scan.
