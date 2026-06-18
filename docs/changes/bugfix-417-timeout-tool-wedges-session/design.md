@@ -5,6 +5,7 @@
 
 ## Changelog
 
+- 两个已知项纳入本 unit（用户决定）：加 M5（#114 interrupt 触发在飞前台工具 stopper → killpg 整树 + 收口 badge「已中断」，复用 set_stop_handle + _recover_orphaned_tool_calls，参考 CC Ctrl-C / openclaw /stop 的"中断下达工具→工具杀子进程"模型）+ M6（#115 liveness 上提 executor 通用层，所有长工具继承，复用 M3 投影链）。决策 10/11、接口数据流 B 增量、风险表、delta-spec(kernel 强化中断收尾 + 通用 liveness、gateway 强化 /stop)。
 - M4 实施期澄清（orchestrator 拍板，非新决策）：删死路时实测确认 `fullOutputPath` + 行/字节截断**只在死路 `_run_legacy_sync` 存在**，生产 `_run_foreground` 从来硬编码 `truncated:False`、无 `fullOutputPath`，全仓零生产消费方（前端不渲染）；生产 bash 截断真源是下游 result-budget（`registry.py:77` `max_result_size_chars=30000`）。故 M4 退出标准「截断语义逐条回归不变」的**判据 = 生产 result-budget 截断不变**，删 `fullOutputPath`+行/字节截断对生产零用户可见影响（移植它反而造与 result-budget 并行的第二套截断=技术债）。signal/timeout/exitCode details 是真活契约，移植到生产 wired 路径补等价覆盖、不丢。reviewer/verifier 据此判。
 - round 1 后 A 升级第四轮 design-review 采纳：M4 加"经 build_kernel 真实 wiring 的端到端集成测试"为 DONE 硬闸（不再让人手 live 复验做唯一端到端守卫，决策 8 测试策略）；M4 [worker] 加 ShellRunner docstring/唯一引擎声明、前台心跳复用 M3 `run_coroutine_threadsafe` 线程桥；数据流补 background 路径 liveness 划界；M2 标 superseded by M4。
 
@@ -283,6 +284,36 @@ on TimeoutError:                                    # N 秒无任何 liveness
 - **reason**：ShellRunner 超时 `on_fail` 带可区分的超时信号 → `_run_foreground` 映射 `reason_code="tool_timeout"`（同 `_run_legacy_sync` 现做法），贯通到 IM `tool_call.reason` → 前端"执行超时"。
 - **killpg**：ShellRunner 的 `Popen` 加 `start_new_session=True`；`_monitor` 超时与 `_stop_task` 改 killpg 杀整组 + 宽限升级（判整组存活，非直接子）。
 
+## B 升级：中断收尾 + liveness 通用化（两个已知项纳入本 unit）
+
+round-1 后两个已知项（#114 / #115）经用户决定纳入本 unit 一并解决，各加一个 milestone（M5 / M6）。两者文件不重叠、无逻辑依赖，可并行（均 depends 已合的 M3/M4 下游链）。
+
+**参考实操**（亲读真实源码，非二手）：
+- **CC**（`~/Repos/opensource-hub/claude-code/src/utils/ShellCommand.ts`）：bash 子进程 `detached: true`（自有进程组）；`#abortHandler` 区分两种 abort——`reason==='interrupt'`（插话/改方向）转后台不杀，**Ctrl-C / 硬取消** → `treeKill(pid,'SIGKILL')` 杀整棵进程树；timeout → SIGTERM。
+- **openclaw**（`~/Repos/opensource-hub/openclaw/src/agents/pi-embedded-runner/runs.ts`）：`abortEmbeddedPiRun(sessionId)` → `handle.abort()`，AbortSignal 沿 run 下达到正在跑的工具，工具自身杀子进程。
+- 两者同构：**中断信号下达正在跑的工具 → 工具杀自己的子进程树**。我们的 `/stop` 是用户显式「停」，映射到 CC 的 **hard Ctrl-C 路径**（killpg 整树 + 收口「已中断」），不走 soft 转后台（那是另一 feature，非 #114 范围）。
+
+### 决策 10（M5 / #114）：interrupt/cancel 触发在飞前台工具 stopper，杀子进程树并收口 badge
+
+**选了"`/stop`（interrupt）与 `cancel` 在现有行为外，额外调用该 run 在飞前台工具已登记的 stopper（M4 已硬化 killpg 整树），让阻塞的 to_thread 返回 → run 解开 → 既有 `_recover_orphaned_tool_calls` 收口在飞 tool_call 为「已中断」"**。
+
+- **理由**：复用既有原语——前台 bash 启动时已 `registry.set_stop_handle(task_id, stopper)`、`_recover_orphaned_tool_calls` 已在每条退出路径收口 badge。当前缺口仅是 interrupt 不触发 stopper。这正是"为什么释放锁还不够"的正解：锁在 to_thread 外层、子进程在内层，必须主动 kill 内层才返回。与 CC Ctrl-C / openclaw /stop 一致。
+- **拒绝**：① 靠现有 cooperative abort 等 to_thread 自然返回——子进程不死永不返回；② 硬 kill to_thread 线程——Python 不支持。
+- **风险**：interrupt 须能定位该 run 当前在飞的前台工具 task；stopper 触发的退出与 M4 `_stopped` 协同——归「已中断」(interrupted)，非 FAILED 也非 tool_timeout。
+
+### 决策 11（M6 / #115）：liveness 上提到 executor 通用层，所有工具继承
+
+**选了"在 executor 的 `asyncio.to_thread(tool.run)`（`core/tools/registry.py`）外包一层 await-bound 通用 ticker，周期（≤15s）调既有 `_emit_execution_update({phase:'executing'})`，经既有 realtime_stream 投影成 `run_heartbeat`；所有长工具零代价继承，bash 自身 phase:running 更细粒度并存"**。
+
+- **理由**：复用 M3 已建的 `_emit_execution_update` + `run_coroutine_threadsafe` 桥 + realtime_stream 投影链，只在通用执行点加周期 tick。把 liveness 从"每个工具自己实现"上提到"executor 统一供给"——正确的深度，杜绝"漏新工具"。
+- **拒绝**：每个工具各自实现心跳——在共享基础设施贴特例（altitude 反模式），永远漏覆盖（web_fetch 等当前就漏）。
+- **风险**：ticker 须 await-bound（随 to_thread 完成/异常/取消即停），不空转；与 bash 自身 phase 心跳并存不冲突（都投影 run_heartbeat，watchdog 幂等重置）。
+
+### 接口与数据流（B 增量）
+
+- **M5 中断收尾**：`kernel.interrupt`/`kernel.cancel` → `runs_registry` 定位该 run 在飞前台工具的 `stop_handle`（已登记）→ 调 `stopper.stop()`（killpg 整树）→ ShellRunner `_monitor` 见进程退出且 `_stopped` 命中 → 静默不报 FAILED → to_thread 返回 → run 解开 → `_recover_orphaned_tool_calls(reason="interrupted")` 收口 badge「已中断」。`core` 不依赖 `platform`：stopper 是注入的 `BackgroundTaskStopper` 端口，registry 只调协议方法。
+- **M6 通用 liveness**：executor `execute()` 在 `await asyncio.to_thread(tool.run, ...)` 外 `async with` 一个 await-bound ticker → 周期 `_emit_execution_event({phase:"executing", elapsed_ms})` → 既有 tools/registry 实时 dispatch → realtime_stream `on_tool_execution_update`（phase 非空）→ `run_heartbeat` 进 stream → 两 watchdog 重置。bash 的 phase:running 是更细的同源信号，叠加无害。
+
 ## 风险与回退
 
 | 风险 | 应对 |
@@ -295,6 +326,8 @@ on TimeoutError:                                    # N 秒无任何 liveness
 | 移除 IM `awaiting_permission_at` marker 后，崩溃期权限等待无人收 | 决策 4 已论证：内核随 Gateway 进程内，崩溃→permission 心跳停→两侧 120s 内正常收（比旧 600s 更快）。单测覆盖"崩溃停心跳→被收"。回退：保留 marker 作为兜底（退化为现状，不更坏）。 |
 | **A 硬化 ShellRunner 碰当前生产活路 → 改坏现有 bash 体验** | 这是 A 的主风险。硬回归闸（[worker] 退出标准）：bash 输出/退出码/截断语义不变（bugfix-354 前台输出、feat-414 计时）、停止/中断行为不变、`start_new_session` 不破坏现行 stopper/cancel 停止路径。**CLI + PA 双产品 live 复验**通过方可 DONE。决策 9 取最小侵入 pump 模型降低回显回归面。 |
 | 删 run_stream/_run_legacy_sync 误删活路 | 已核实两产品都经 build_kernel 无条件 wire、run_stream 无其它生产调用方（仅死路 + 单测）。删前 worker 再 grep 确认零生产调用方；单测改打 ShellRunner。回退：保留 run_stream 不删（仍能闭合 incident，只是留死代码技术债）。 |
+| **M5 interrupt 调 stopper 改坏正常 /stop 或 cancel 路径** | interrupt 新增"调在飞工具 stopper"分支须只在确有在飞前台工具时触发，无在飞工具时退化为现状（纯 abort+释放锁）。回归：现有 `/stop 中断正在执行的运行`、`无运行时 /stop 友好提示`、M1 cancel 自愈单测全绿。live：前台 `sleep 60` /stop → 子进程死(pgrep=0) + badge「已中断」+ 会话自愈。回退：M5 可独立 revert，退回"释放锁但留子进程"（pre-existing，不更坏）。 |
+| **M6 通用 ticker 空转 / 与 bash phase 冲突 / 心跳风暴** | ticker await-bound（to_thread 完/异常/取消即停）；与 bash phase:running 并存均投影 run_heartbeat、watchdog 幂等；间隔 ≤15s 节流。回归：B1 端到端守卫（run_heartbeat 进 stream）2 passed 不破 + 新增"非 bash 长工具产 run_heartbeat"覆盖。回退：M6 可独立 revert，退回 bash 专属 liveness（pre-existing，其它工具回到会被误杀，不更坏）。 |
 
 **回滚方案**：M1（cancel）、M3（watchdog/liveness 活路部分）可独立 revert 回现状。M4（A 引擎统一）若 live 回归：先回退"删 run_stream"（恢复死路，无害）再排查 ShellRunner 硬化；硬化本身可逐项（killpg / 心跳 / reason）独立 revert，每项回退退回现状（incident 在该项上重现，但不更坏）。
 
@@ -310,10 +343,14 @@ on TimeoutError:                                    # N 秒无任何 liveness
 > 验证三层闭环的旅程脚本见各 Requirement Scenario：A（超时/卡死后同会话发新消息能恢复）、B（跑 `sleep 200 && echo done` 这类静默长命令不被 120s 误杀 / 跑 `timeout 5 sleep 200` 报"耗时过长"）、C（`npm run build` 这类派生子进程命令超时后会话可继续）。
 >
 > **M4（A 引擎统一）双产品回归**：除 PA(IM+Gateway) 旅程外，还须 CLI 侧 live 验 bash 体验不回归——`PYTHONPATH=src python3 -m coding_cli.main` 跑普通命令（输出/退出码正常）、长静默命令（不被误杀）、超时命令（报"执行超时"）、Ctrl-C/停止（正常中断）。CLI 与 PA 当前都经 build_kernel→ShellRunner，硬化 ShellRunner 同时影响两者，故双产品都要 live 验。
+>
+> **M5（#114 中断收尾）双产品 live**：CLI 跑前台 `sleep 60` → Ctrl-C；PA 发前台 `sleep 60` → `/stop`。两者均验：子进程被杀（`pgrep -x sleep` = 0，无孤儿）+ 在飞工具徽标收口「已中断」+ 同会话立即发新消息正常回复（Req A 不回归）。
+>
+> **M6（#115 通用 liveness）live**：用一个非 bash 的长耗时工具（或构造 >120s 的 to_thread 工具）验证执行期不被 watchdog 误杀；自动化端到端守卫断言"非 bash 长工具 → kernel.stream 真冒 run_heartbeat"。
 
 ## Milestones
 
-三层缺陷文件不重叠，垂直切分为三个独立可交付 milestone。M1（A，P0 锁释放）与 M2（C，bash 进程组）无依赖可并行；M3（B，watchdog 重设计）的"真卡死→收尸→会话恢复"验收依赖 M1 的强制 cancel，故 depends M1。**M4（bash 引擎统一）是 round-1 验收暴露根因后的架构升级**：M2/M3 的 bash 改动落在生产死路 run_stream 上，M4 把能力重落到唯一生产引擎 ShellRunner 并删死路，depends M3（承接其已活的 executor→publisher→watchdog 链）。
+三层缺陷文件不重叠，垂直切分为三个独立可交付 milestone。M1（A，P0 锁释放）与 M2（C，bash 进程组）无依赖可并行；M3（B，watchdog 重设计）的"真卡死→收尸→会话恢复"验收依赖 M1 的强制 cancel，故 depends M1。**M4（bash 引擎统一）是 round-1 验收暴露根因后的架构升级**：M2/M3 的 bash 改动落在生产死路 run_stream 上，M4 把能力重落到唯一生产引擎 ShellRunner 并删死路，depends M3（承接其已活的 executor→publisher→watchdog 链）。**M5（#114 中断收尾）/ M6（#115 通用 liveness）是两个已知项纳入本 unit**：M5 让 interrupt 触发在飞前台工具 stopper（depends M4 的硬化 killpg stopper），M6 把 liveness 上提到 executor 通用层（depends M3 的投影链）；两者文件不重叠、并行组 D。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
@@ -322,11 +359,16 @@ on TimeoutError:                                    # N 秒无任何 liveness
 | bugfix-417-M3 | watchdog-liveness | M1 | B | `src/agent/core/tools/registry.py`, `src/agent/platform/hooks/builtins/realtime_stream.py`, `src/agent/core/agent/runtime.py`, `src/personal_assistant/gateway/inbound_pipeline.py`, `src/IM/application/relay_watchdog.py` | `[reviewer]` 覆盖 Req B（静默长命令/等 LLM/等权限不误杀；真卡死被收）+ Req C（超时报"耗时过长"、卡死报"中断"、失败不静默）。`[worker]` 心跳实时 dispatch（解缓冲）单测；`on_tool_execution_update` publish 单测；LLM-await ticker 单测；两 watchdog idle 重定义 + 失败态区分（`tool_timeout`/`stalled`）单测；移除 `awaiting_permission` 特例后崩溃仍被收的回归。 |
 | bugfix-417-M4 | unify-bash-engine | M3 | C | `src/agent/platform/background_tasks/shell_runner.py`, `src/agent/platform/tools/builtins/bash.py`, `src/agent/platform/tools/builtins/bash_runner.py`(删 run_stream), `src/agent/core/agent/runtime.py`, `src/personal_assistant/gateway/inbound_pipeline.py`, `src/IM/`(reason 常量/措辞), 前端徽标 | (post-acceptance fix→架构最优 root-cause 升级, round 1) **根因**：build_kernel 无条件 wire → 生产用 ShellRunner，`run_stream`/`_run_legacy_sync` 是死路；M2/M3 的 bash 改动全落死路、骗过单测、live 全挂（决策 8/9）。`[reviewer]` Req B/B1（`sleep 200` live 不被误杀、gateway.log 真有 run_heartbeat）+ Req C/C1（超时→IM `tool_call.reason=tool_timeout`→前端"执行超时"）+ Req D 生产路径复验（派生子进程超时整树回收无孤儿）+ **CLI/PA 双产品 bash 体验回归不变**。`[worker]` 硬化 ShellRunner（start_new_session+killpg 杀整组+实时心跳进 ctx 事件流+非阻塞 drain+超时 reason_code，最小侵入 pump 模型）；前台 `_run_foreground` 工作线程发心跳必须复用 M3 已建的 `run_coroutine_threadsafe` 线程桥，不另起新路；`_run_foreground` 等待期带心跳轮询；删 `run_stream`+`_run_legacy_sync`+wiring=None 分支（grep 确认零生产调用方后）、单测改打 ShellRunner；runtime permission 改用 `liveness_ticker`；reason 常量中心化（消 `watchdog_timeout`≠`stalled`）；收尸 content 措辞与徽标一致；ShellRunner 加 docstring 明写"前台+后台唯一 bash 引擎，bash_runner.py 已删"（消"哪个是真引擎"混淆，本 bug 的栖息地）。**端到端自动化集成测试（决策 8 测试策略，下列两条是 DONE 硬闸，非人手 live 替代品）：经真实 `build_kernel` wiring 跑静默长命令断言 `kernel.stream` 真冒 `run_heartbeat`、跑 bash timeout 断言 `tool_call.reason=tool_timeout`** + bash 输出/退出码/截断/停止语义逐条回归不变 + CLI/PA 双产品 live 端到端复验通过方可 DONE。 |
 
+| bugfix-417-M5 | interrupt-reap-foreground | M4 | D | `src/agent/core/runs/registry.py`, `src/agent/sdk/kernel.py`, `src/agent/core/agent/runtime.py` | (已知项 #114 纳入本 unit) **缺口**：`/stop`(interrupt)只释放会话锁(Req A 已 pass)，不杀正在跑的前台 bash 子进程(留孤儿)、不收口在飞 tool_call 徽标(停 running)。`[reviewer]` 前台跑 `sleep 60` → `/stop`(CLI Ctrl-C 同走 interrupt) → 子进程被杀(无孤儿) + 在飞工具徽标收口「已中断」 + 同会话自愈正常回复(Req A 不回归)。`[worker]` interrupt/cancel 定位该 run 在飞前台工具已登记 stop_handle 并调 stopper(killpg 整树)的单测；无在飞工具时退化为纯 abort 的单测；stopper 致退出经 M4 `_stopped` 归「已中断」(非 FAILED/tool_timeout)的单测；`core` 不依赖 `platform`(stopper 为注入端口)。live：CLI + PA 双产品 `/stop` 前台长命令 → pgrep 无孤儿 + 徽标「已中断」。 |
+| bugfix-417-M6 | generic-tool-liveness | M3 | D | `src/agent/core/tools/registry.py`, `src/agent/core/agent/liveness.py`, `src/agent/platform/hooks/builtins/realtime_stream.py` | (已知项 #115 纳入本 unit) **缺口**：liveness 心跳 bash 专属(仅 bash 发 phase)，其它长耗时 to_thread 工具(如 web_fetch)不产 run_heartbeat、超 120s 仍被 watchdog 误杀。`[reviewer]` 一个非 bash 的长耗时工具(>120s)执行期间不被 watchdog 误杀、会话正常完成。`[worker]` executor 在 `to_thread(tool.run)` 外包 await-bound 通用 ticker、周期发 `phase:executing` 的单测；ticker 随 to_thread 完/异常/取消即停(不空转)的单测；经 build_kernel 真实 wiring 跑"非 bash 长工具 → kernel.stream 真冒 run_heartbeat"的端到端集成测试(DONE 硬闸)；bash 自身 phase:running 仍照旧、B1 端到端守卫 2 passed 不破。 |
+
 ```mermaid
 graph LR
   M1[M1 lock-force-cancel] --> M3[M3 watchdog-liveness]
   M2[M2 bash-process-group]
   M3 --> M4[M4 unify-bash-engine]
+  M4 --> M5[M5 interrupt-reap-foreground]
+  M3 --> M6[M6 generic-tool-liveness]
 ```
 
 > **M3 推进顺序建议**（reviewer Rec #3，给 orchestrator/worker 参考，不预填 tasks.md）：M3 跨 5 文件是本 unit 最重的内聚垂直切片（心跳 liveness 端到端），**不可横切拆分**。建议 roadpoint 顺序：R1 工具心跳解缓冲（tools/registry 实时 dispatch）→ R2 `realtime_stream` 加 publisher → R3 runtime LLM-await + permission await-bound ticker → R4 两个 watchdog idle 重定义 + 失败态区分 + 移除两侧 permission 特例。orchestrator 派发时留足 worker 窗口。
