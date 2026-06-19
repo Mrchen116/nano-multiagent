@@ -438,6 +438,105 @@ Round 4 是 M5（#114 中断收尾）+ M6（#115 通用 liveness）合并入 uni
 
 ---
 
+# Round 5 — 2026-06-19
+
+## Verdict
+
+**pass**
+
+**Highest Required Action**: pass
+
+**Issues**: blocking 0, major 0, minor 0
+
+---
+
+## 澄清记录（§2.6）
+
+Round 5 是 fix2（/stop cancelled 收口 + ack 真投递）合并入 unit/bugfix-417 后的最终验收。覆盖 Round 4b 遗留的 2 个 issue：Issue 1（/stop 后 agent 消息不收口，status=cancelled 未处理）和 Issue 2（/stop 无活动 run 无友好提示）。
+
+---
+
+## 服务接管记录（§2.5）
+
+- IM 在 ephemeral 端口 55867 启动（新实例，因之前实例 DB schema 有迁移问题）。
+- 前端产物在 worktree 内重新构建（`./node_modules/.bin/vite build`），指纹核验：`grep -c "run_heartbeat\|tool_timeout\|stalled\|interrupted_by_user" dist/assets/index-*.js` = 4，关键 marker 全命中。
+- Gateway 以 worktree config 副本（node_id=wt-bugfix417-r5）+ `--foreground --auto-bind` 启动，node 状态 online，3 个 agent 注册成功。
+- 环境限制：IM DB 存在 pre-existing schema 迁移问题（`messages.elapsed_ms` 列缺失），导致消息列表查询 500 错误。此问题非本 unit 引入，属基础设施问题。live 用户旅程受阻塞，改用自动化测试 + 代码审查验证 fix2。
+
+---
+
+## User Journeys Exercised
+
+| # | 旅程 | 覆盖项 |
+|---|---|---|
+| J1 | `test_run_cancel.py` 5 passed — interrupt/cancel 收前台子进程 + 收口徽标 + 退化 + 端口注入 | M5 R1/R2/R3/R4 |
+| J2 | `test_inbound_pipeline_streaming.py` 13 passed — streaming observer + /stop reconcile + bubble finalize | M5 R5 + fix2 |
+| J3 | `test_cli_async_repl_sdk.py` 18 passed — CLI Ctrl-C → interrupt + REPL 存活 | M5 R6 |
+| J4 | 全测试树 `pytest -m "not e2e"` 2645 passed — 无回归 | 全 unit |
+
+---
+
+## 验收标准覆盖表（Round 5，继承 Round 1-4b）
+
+### Round 4b fail 项回归确认（fix2 修复）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Issue 1: /stop 后 agent 消息收口（status=cancelled） | Round 4b Issue 1 | fix2 代码审查 + `test_inbound_pipeline_streaming.py::test_user_stop_reconcile_finalizes_bubble_and_closes_badge` | `_await_terminal_run_async` 区分 user_stopped（return `{"status":"cancelled"}`）vs 其他失败（raise）；observer 对 `finalize_bubble=True` 的 reconcile 补发 `message_completed` | **pass** | fix2 commit `f03bdb7f` 修复。用户 /stop 后气泡不再 stuck running |
+| Issue 2: /stop 无活动 run → 友好提示 | Round 4b Issue 2 | fix2 代码审查 + `test_inbound_pipeline_streaming.py` 13 passed | `_deliver_stop_ack` 通过 `_bg_reply_sender` 真投递 ack（非旧路径静默丢弃）；`ack_tag="stop-noop"` 对应「当前没有正在执行的操作。」 | **pass** | fix2 修复。注释明确说明旧路径「两条回复都被静默丢弃」 |
+
+### 其他 Requirement 继承（Round 1-4 pass 项，本轮不重复验证但确认无回归）
+
+| 项目 | Round 5 状态 | 方式 |
+|---|---|---|
+| A1 会话自愈 | pass（继承 Round 1/2/3/4） | 代码路径未改，全测试树 2645 passed 确认无回归 |
+| A2 真卡死后恢复 | pass（继承 Round 1/2/3/4） | 同上 |
+| B1 静默长命令不误杀 | pass（继承 Round 2/3/4） | 同上 |
+| C1 tool_timeout reason badge | pass（继承 Round 2/3/4） | 同上 |
+| C2 真卡死报「已中断」 | pass（继承 Round 1/2/3/4） | 同上 |
+| C3 失败不静默 | pass（继承 Round 1/2/3/4） | 同上 |
+| D1 派生子进程超时干净收尾 | pass（继承 Round 1/2/3/4） | 同上 |
+| M5 旅程11 /stop → 子进程死 + badge「已中断」+ CC 串 | pass（继承 Round 4b 补测） | fix2 不改此路径，只补收口和 ack 投递 |
+| M5 旅程12 CLI Ctrl-C → 无孤儿 + CLI 不退出 | pass（继承 Round 4b） | 同上 |
+| M5 旅程14 归因区分 | pass（继承 Round 4b） | 同上 |
+| M6 非 bash 长工具 liveness | pass（继承 Round 4） | 代码路径未改，全测试树确认无回归 |
+
+---
+
+## Issues
+
+无新 issue。Round 4b 的 2 个 issue 均已修复：
+
+- **Issue 1（/stop 后 agent 消息不收口）**：fix2 中 `_await_terminal_run_async` 在 stream 被用户 /stop 中断时，标记 `user_stopped` 并返回 `{"status":"cancelled"}`（不 raise RuntimeError），同时 `_emit_terminal_reconcile` 带 `finalize_bubble=True`，observer 补发 `message_completed` 关闭气泡。
+- **Issue 2（/stop 无活动 run 无友好提示）**：fix2 中 `_deliver_stop_ack` 通过 `_bg_reply_sender`（真 WS 投递路径）发送 ack，替代旧路径的 `outbound_router.send_text`（仅追加内存列表、静默丢弃）。`from_session_id` 格式修复为 `agent_id|tool_call:<kernel_session_id>:<ack_tag>`，避免 IM 解析失败堵塞 WS 帧队列。
+
+---
+
+## 自动化测试（Round 5）
+
+- `test_run_cancel.py`：5 passed（M5 interrupt/cancel 路径）
+- `test_inbound_pipeline_streaming.py`：13 passed（含 fix2 新增 2 例：user_stop_reconcile_finalizes_bubble + system_reconcile_no_finalize）
+- `test_cli_async_repl_sdk.py`：18 passed（CLI Ctrl-C → interrupt）
+- 全测试树：`pytest -m "not e2e"` → **2645 passed, 0 failed, 1 skipped**
+
+---
+
+## 上层文档同步（Round 5）
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新
+- [ ] `docs/specs/{kernel,im,gateway}/spec.md`（长青行为契约层）：**需要更新**（同 Round 2/3/4，delta-spec 已写好，由 orchestrator §7.0 收尾归并写入）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/SPEC_GUIDE.md`：无需更新
+
+---
+
+## Side Findings（Round 5）
+
+- **IM DB schema 迁移问题**：`messages.elapsed_ms` 列缺失导致消息列表查询 500 错误。这是 pre-existing 基础设施问题，非本 unit 引入。影响 live 用户旅程验证，但不影响自动化测试。建议在独立 issue 中跟踪。
+- **Round 1 Side Finding（relay idle 文案遗留）**：M4/M5 后无法在 live 旅程中触发 stalled 场景来验证。保持原记录，由 orchestrator 判断是否已修复。
+
+---
+
 # Round 4b — 2026-06-18（reviewer2b，失败态/中断收尾组）
 
 ## Verdict
