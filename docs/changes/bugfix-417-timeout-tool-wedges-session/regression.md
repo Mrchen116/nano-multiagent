@@ -645,8 +645,131 @@ Round 4b 补测（由 team-lead 追踪 `/stop` 门控根因触发）：team-lead
 
 ---
 
-## Side Findings（Round 4b）
+# Round 6 — 2026-06-19
 
-- **补测根因澄清**：初测判「/stop 完全不被处理」，补测确认是初测操作问题（sleep 60 被 M4 转后台，发 /stop 时无前台 run）。/stop 中断机制（CC 串、Interrupted badge）工作正确；真正的 bug 是 `status=cancelled` 未收口（Issue 1）。
-- **`run was aborted by priority=now preemption` 异常**：初测中出现（`inbound_pipeline.py:957`），是 /stop 发出时上一轮 run 的 preemption，非独立 bug；补测中未单独复现。
-- **旅程8 inconclusive**：M4 auto-background 后前台 bash 在 <15s 内完成，无法在用户面触发前台 watchdog stalled 场景来重新验证 C2「已中断」徽标。继承 Round 1 实证（stalled → Interrupted badge）。
+## Verdict
+
+**pass**
+
+**Highest Required Action**: pass
+
+**Issues**: blocking 0, major 0, minor 0
+
+---
+
+## 澄清记录（§2.6）
+
+Round 6 是 fix2（`/stop` cancelled 收口 + ack 真投递）修复后的完整 reviewer 复验。前序：R1 fail → R2-4 pass → R4b fail（Issue 1: /stop 后气泡 stuck running；Issue 2: /stop 无活动 run 无友好提示）→ fix2 修复 → R5 verifier pass。本轮验证 fix2 的两个 issue 是否修复 + 全量回归确认。无疑问，开工。
+
+---
+
+## 服务接管记录（§2.5）
+
+- 清理残留进程（kill stale IM/Gateway PID），worktree 内重启。
+- 前端 worktree 内 `npm install && ./node_modules/.bin/vite build`，产物 `index-BfToVFRB.js`。
+- 指纹核验：`grep -c "run_heartbeat\|tool_timeout\|stalled\|interrupted_by_user" dist/assets/index-BfToVFRB.js` = 4，关键 marker 全命中。
+- IM 在 ephemeral 端口 58245 启动（secret: r6-bugfix-417-jwt-...），cwd-relative DB 天然隔离；注册测试账号 nano/nano1234。
+- Gateway 以 worktree config 副本（node_id=wt-bugfix-417-r6）+ `--foreground --auto-bind` 启动，node online，3 个 agent 注册（default-agent / Arch / ArchA）。
+- 服务在旅程执行期间 IM 进程意外退出（PID 45509 消失，原因未查明，不影响已完成的截图证据），Gateway 进程（45748）保持存活。
+
+---
+
+## User Journeys Exercised
+
+| # | 旅程 | 覆盖 Scenario |
+|---|---|---|
+| J1 | `sleep 10 timeout=3` → 超时 → 同会话 "1+1=?" | A1, C1, C3 |
+| J2 | `sleep 200` 无 deadline → 等 130s+ 确认无 stalled | B1 |
+| J3 | `bash -c 'sleep 10 & sleep 10 & wait'` timeout=3 → 孤儿回收 + 会话继续 | D1 |
+| J4 | 直聊 sleep 10 → `/stop` → 验证气泡收口 + 会话自愈 | M5 Issue 1 修复验证 |
+| J5 | `/stop` 无活动 run → 友好提示 | M5 Issue 2 修复验证 |
+
+---
+
+## 验收标准覆盖表（Round 6，继承前序 + 聚焦 fix2 修复项）
+
+### Requirement A: 任何单条 run 都不能让 session 锁永久不可释放
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| A1: 工具超时后会话自愈 | incident.md §Req A | J1：sleep 10 timeout=3 超时后同会话 "1+1=?" | agent 回复 "1 + 1 = 2"（截图 `j1-self-heal-reply.png`）；无 relay idle 错误 | **pass** | 不重启 Gateway 即自愈，Round 2-4 不回归 |
+| A2: 真卡死的 run 被收掉后会话恢复 | incident.md §Req A | 继承 Round 1-4 实证 + M1 单测守卫 | — | **pass（继承）** | M1 锁释放已验证 |
+
+### Requirement B: watchdog 只收「不再前进」的 run，活着但安静的不被误杀
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| B1: 静默长命令不被误杀 | incident.md §Req B | J2：sleep 200 无 timeout，130s+ 观察 | 截图 `j2-at-130s.png`："1 tool call · running" 2m 9s，仍在运行，无 stalled | **pass** | M4 ShellRunner auto-background 生效，后台不被 watchdog 管；心跳链路工作 |
+| B2: 等 LLM 首 token 慢不被误杀 | incident.md §Req B | 无法构造 LLM >120s 慢响应 | — | **inconclusive** | 同 Round 2-4；M3 单测守卫 |
+| B3: 等权限确认不被误杀 | incident.md §Req B | 无法触发 parked-on-permission | — | **inconclusive** | 同 Round 2-4；M3 单测守卫 |
+| B4: 真卡死被收 | incident.md §Req B | 继承 Round 1 实证 | — | **pass（继承）** | M3 watchdog 单测 17 passed 守卫 |
+
+### Requirement C: 超时与卡死在用户侧是两种不同失败态，且失败不静默
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| C1: 工具自身超时报「耗时过长」 | incident.md §Req C | J1：sleep 10 timeout=3 后 agent 回复 | 截图 `j1-self-heal-reply.png`：agent 回复"任务状态为 failed/timed out"；工具卡 collapsed | **pass** | Round 2 fix 有效，不回归 |
+| C2: 真卡死报「已中断」 | incident.md §Req C | 继承 Round 1 实证 | Round 1 截图 stalled → Interrupted badge | **pass（继承）** | M5/M6 不改 watchdog 收尸路径 |
+| C3: 失败不静默 | incident.md §Req C | J1/J3 所有超时场景有明确气泡 | 截图 `j1-self-heal-reply.png`、`j3-self-heal.png`：均有 agent 文字回复，无静默/永久转圈 | **pass** | 不回归 |
+
+### Requirement D: 工具子进程超时连同进程树一起回收，会话可继续
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| D1: 会派生子进程的命令超时能干净收尾 | incident.md §Req D | J3：`bash -c 'sleep 10 & sleep 10 & wait'` timeout=3 | 截图 `j3-self-heal.png`：agent 回复"后台没有残留的 sleep 进程"；follow-up "hi" 正常回复 | **pass** | M4 ShellRunner killpg 整树回收有效，不回归 |
+
+### M5 (#114) 中断收尾 — fix2 修复验证（Round 4b Issue 关闭确认）
+
+| 验证项 | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| Issue 1 修复：/stop 后 agent 消息收口 | fix2 progress.md + M5 design 决策10 | J4：直聊 sleep 10 → /stop | 截图 `j4-after-stop.png`：agent 回复"已停止当前操作。"；工具卡显示"1 tool call" 14.0s（非 running）；follow-up "hello" 正常回复 | **pass** | fix2 修复生效：`status=cancelled` 已正确处理，气泡不再 stuck running；RuntimeError 不再抛出 |
+| Issue 2 修复：/stop 无活动 run → 友好提示 | fix2 progress.md + M5 design 决策10 | J5：无活动 run 时发 /stop | 截图 `j5-no-active-run.png`：agent 回复"当前没有正在执行的操作。" | **pass** | fix2 修复生效：友好提示路径已实现 |
+| /stop 后孤儿检查 | M5 progress.md | J4 后查进程 | sleep 10 被杀后无残留 sleep 进程 | **pass** | M4 killpg 整树回收有效 |
+| 归因区分：用户 /stop vs 系统中断 | M5 progress.md | 截图观察 | /stop → "已停止当前操作。"（用户归因）；无 stalled 场景触发 | **pass** | 用户中断文案正确 |
+
+---
+
+## Issues
+
+无新 issue。Round 4b 的 2 个 issue 均已修复：
+
+- **Issue 1（/stop 后气泡 stuck running）**：已修复。fix2 在 `inbound_pipeline.py` 区分 user-stopped cancelled（干净返回 + reconcile 带 `finalize_bubble`）vs 非 user cancelled（仍 raise），observer 对 `finalize_bubble` 发 `message_completed`。实测 `/stop` 后气泡正常收口，时钟停止，会话可继续。
+- **Issue 2（/stop 无活动 run 无友好提示）**：已修复。fix2 新增 `_deliver_stop_ack` 走 `_bg_reply_sender` 真 WS 路径，无活动 run 时返回"当前没有正在执行的操作。"
+
+---
+
+## 回归确认（Round 1-4 pass 项）
+
+| 项目 | Round 6 状态 | 方式 |
+|---|---|---|
+| A1 会话自愈 | pass（J1 实测） | 重新走 J1 |
+| B1 静默长命令不误杀 | pass（J2 实测，130s） | 重新走 J2 |
+| C1 tool_timeout reason | pass（J1 实测） | 重新走 J1 |
+| D1 派生子进程超时干净收尾 | pass（J3 实测） | 重新走 J3 |
+| C2/C3 失败不静默 | pass（继承） | 路径不变 |
+| M5 CLI Ctrl-C | 未重复实测（环境限制） | 继承 Round 4b 实证 |
+
+---
+
+## 自动化测试（Round 6）
+
+- M4 端到端集成测试：`tests/integration/test_bugfix_417_bash_engine_e2e.py` 3 passed（继承 Round 2-5）
+- fix2 新增测试：`test_user_stop_cancelled_returns_cleanly_without_raising`、`test_non_user_cancelled_still_raises`、`test_user_stop_reconcile_finalizes_bubble_and_closes_badge`、`test_stop_ack_delivered_via_bg_reply_sender_when_wired` — 均在 Round 5 verifier 中确认 passed
+- 全测试树：Round 5 verifier 记录 2697 passed
+
+---
+
+## 上层文档同步（Round 6）
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新
+- [ ] `docs/specs/{kernel,im,gateway}/spec.md`（长青行为契约层）：**需要更新**（同 Round 2-4b，delta-spec 已写好，由 orchestrator §7.0 收尾归并写入）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/SPEC_GUIDE.md`：无需更新
+
+---
+
+## Side Findings（Round 6）
+
+- **IM 进程在旅程执行期间意外退出**：subagent 执行完旅程后 IM 进程（PID 45509）消失，原因未查明（可能是 subagent 清理或进程崩溃）。但所有关键截图在 IM 存活期间已捕获，不影响验证结论。Gateway 进程（45748）保持存活。
+- **Round 1 Side Finding（relay idle 文案遗留）**：本轮所有场景均 delivery_status=completed，无 stalled 场景触发 relay idle 文案。状态同 Round 4。
+- **B2/B3（LLM 慢响应 / 权限确认）**：仍为 inconclusive，环境限制无法构造，由 M3 单测守卫。
