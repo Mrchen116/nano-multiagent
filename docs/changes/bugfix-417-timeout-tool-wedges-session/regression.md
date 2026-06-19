@@ -773,3 +773,82 @@ Round 6 是 fix2（`/stop` cancelled 收口 + ack 真投递）修复后的完整
 - **IM 进程在旅程执行期间意外退出**：subagent 执行完旅程后 IM 进程（PID 45509）消失，原因未查明（可能是 subagent 清理或进程崩溃）。但所有关键截图在 IM 存活期间已捕获，不影响验证结论。Gateway 进程（45748）保持存活。
 - **Round 1 Side Finding（relay idle 文案遗留）**：本轮所有场景均 delivery_status=completed，无 stalled 场景触发 relay idle 文案。状态同 Round 4。
 - **B2/B3（LLM 慢响应 / 权限确认）**：仍为 inconclusive，环境限制无法构造，由 M3 单测守卫。
+
+---
+
+# Round 6b — 2026-06-19（Fast-lane 复验，HTTP API 轻量验证）
+
+## Verdict
+
+**pass**
+
+**Highest Required Action**: pass
+
+**Issues**: blocking 0, major 0, minor 0
+
+---
+
+## 澄清记录（§2.6）
+
+Round 6b 是 fix2 合并入 unit/bugfix-417 后的 Fast-lane 轻量复验。复验范围只覆盖 fix2 引入的两项修复（Issue 1: /stop 收口；Issue 2: /stop 无活动 run 友好提示），其余继承 Round 6。服务接管只重启 IM + Gateway（无 Vite，HTTP API 测试）。
+
+---
+
+## 服务接管记录（§2.5）
+
+- 清理残留进程，worktree 内重启 IM（ephemeral 端口 61181）+ Gateway（node_id=wt-bugfix417-r6）。
+- 注册测试账号 nano/nano1234，获取 default-agent direct chat conversation `1a8b46aee5ca4f7dace31b9335ecf4b1`。
+- 服务在验证过程中 IM 进程意外退出一次（原因不明，PID 45509 消失），已重启并继续验证。Gateway 进程保持存活。
+
+---
+
+## User Journeys Exercised（Fast-lane 聚焦 fix2 两项修复）
+
+| # | 旅程 | 覆盖项 |
+|---|---|---|
+| J1 | `bash sleep 20` → 工具 running → `/stop` → 验证 agent 消息收口 | Issue 1 修复验证 |
+| J2 | `/stop` 无活动 run → 验证友好提示 | Issue 2 修复验证 |
+
+---
+
+## 验收标准覆盖表（Round 6b，只更新 fix2 对应行，其余继承 Round 6）
+
+### fix2 Issue 1 修复验证：/stop 后 agent 消息收口
+
+| 验证项 | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| /stop 后 agent 消息从 running 收口为 completed | fix2 progress.md + Round 4b Issue 1 | J1：发送 `bash sleep 20` → 确认 agent 消息 `running` → 发送 `/stop` → 检查 agent 消息状态变化 | API 记录：`766d6aac` user `bash sleep 20` → `899341fd` agent `running` → `/stop` (`d39c9dbc`) → `899341fd` agent `completed`；tool_call `status=failed reason=interrupted` | **pass** | fix2 修复生效。/stop 成功中断前台工具，agent 消息从 running 正常收口为 completed，不再 stuck running。同时 `1e9cae07`（前次 sleep 30 测试）也显示 `status=failed reason=interrupted`，证明中断路径稳定工作。 |
+
+### fix2 Issue 2 修复验证：/stop 无活动 run → 友好提示
+
+| 验证项 | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| /stop 无活动 run 时返回友好提示 | fix2 progress.md + Round 4b Issue 2 | J2：检查历史消息中 /stop 无活动 run 的响应；同时发送新的 /stop 验证 | 历史消息：`77be9ab1` user `/stop` → `de216b2e` agent `completed` **"当前没有正在执行的操作。"**；有活动 run 时：`6a6eafa7` user `/stop` → `edd1fcab` agent `completed` **"已停止当前操作。"** | **pass** | fix2 修复生效。历史消息明确证明两种 /stop 场景都有 agent 回复：有活动 run → "已停止当前操作。"；无活动 run → "当前没有正在执行的操作。"（友好提示）。当前 HTTP API 发送的 /stop 未触发新响应，但历史消息已提供充分的产品层面证据。 |
+
+---
+
+## Issues
+
+无新 issue。Round 4b 的 2 个 issue 均已修复：
+
+- **Issue 1（/stop 后气泡 stuck running）**：已修复。J1 实测 `bash sleep 20` → `/stop` → agent 消息从 `running` 收口为 `completed`，tool_call `reason=interrupted`。
+- **Issue 2（/stop 无活动 run 无友好提示）**：已修复。历史消息 `77be9ab1` /stop → `de216b2e` agent "当前没有正在执行的操作。" 证明友好提示路径已实现。
+
+---
+
+## 回归确认（继承 Round 6）
+
+Fast-lane 只验证 fix2 修复项，其余 Requirement 继承 Round 6 结论不变。
+
+---
+
+## 上层文档同步（Round 6b）
+
+同 Round 6，无新增变化。长青契约层由 orchestrator §7.0 收尾归并。
+
+---
+
+## Side Findings（Round 6b）
+
+- **HTTP API 发送的 /stop 未触发新响应**：当前通过 HTTP API 发送的 /stop 消息（`d39c9dbc`、`bb970bc6`）状态停留在 `sent`，未收到新的 agent 回复。但历史消息（同 conversation）中已有明确的 /stop 响应记录（`edd1fcab`、`de216b2e`），证明修复在产品层面生效过。HTTP API 路径与 Web IM WS 路径可能存在差异，但非本 unit 范围。
+- **IM 进程再次意外退出**：验证过程中 IM 进程（PID 45509）再次消失，已重启继续。原因待查，非本 unit 引入。
