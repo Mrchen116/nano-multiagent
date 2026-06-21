@@ -8,13 +8,13 @@
 
 ## 退出标准
 
-- [ ] 前台 subagent in-budget 完成走专用循环、返回结果文本（status=completed）
-- [ ] 前台 in-budget 完成路径**不**调用 `BackgroundTaskRegistry.register_subagent`（保 bugfix-417「无注册即无 task-notification」不变量）
-- [ ] 超时分支仍 register + watcher，行为不变
-- [ ] 删除 `_run_subagent_turn_sync` + 私有 `_executor`，无残留引用
-- [ ] `event_loop is None` 的库装配 fallback 不与主循环共享 runtime（防御性，退化为独立线程 asyncio.run）
-- [ ] 新增 `@pytest.mark.e2e` 真 LLM e2e：前台派 subagent 跑通一轮 + 失败隔离断言
-- [ ] `pytest tests/ -m "not e2e"` 全绿
+- [x] 前台 subagent in-budget 完成走专用循环、返回结果文本（status=completed）— e2e 用例1 真 LLM 返 pong
+- [x] 前台 in-budget 完成路径**不**调用 `BackgroundTaskRegistry.register_subagent`（保 bugfix-417「无注册即无 task-notification」不变量）— 单测 `test_foreground_in_budget_does_not_register_subagent`
+- [x] 超时分支仍 register + watcher，行为不变 — `test_foreground_auto_backgrounds_on_timeout` 复用通过
+- [x] 删除 `_run_subagent_turn_sync` + 私有 `_executor`，无残留引用 — `rg` 仅剩 docstring 历史提及
+- [x] `event_loop is None` 的库装配 fallback 不与主循环共享 runtime（防御性）— `test_submit_foreground_without_loop_runs_in_isolated_thread`
+- [x] 新增 `@pytest.mark.e2e` 真 LLM e2e：前台派 subagent 跑通一轮 + 失败隔离断言 — 2 passed
+- [x] `pytest tests/ -m "not e2e"` 全绿 — 2710 passed, 2 skipped
 
 ## 测试策略
 
@@ -33,7 +33,7 @@
 
 ## Roadpoints
 
-### R1 — 前台 subagent 改走专用循环 + 删死代码 + 结构性单测
+### R1 — 前台 subagent 改走专用循环 + 删死代码 + 结构性单测 [DONE]
 
 - 步骤:
   - C1: 写失败单测——(a) 前台 in-budget 完成经真实 RunsRegistry 专用循环返回结果；(b) 前台 in-budget 不调用 register_subagent；(c) RuntimeRunner.submit_foreground 提交到注入 loop 返 Future
@@ -41,7 +41,7 @@
   - C3: progress.md 补证据
 - 验证: `pytest tests/unit/agent/tools/test_agent_tool.py tests/unit/agent/background_tasks/ -q` 全绿；`rg _run_subagent_turn_sync\|_executor src/` 无残留
 
-### R2 — 真 LLM e2e 回归守卫
+### R2 — 真 LLM e2e 回归守卫 [DONE]
 
 - 步骤:
   - C1: 写 `tests/e2e/test_subagent_foreground_e2e.py`——前台派 subagent 跑通一轮 + subagent 失败后专用循环/兄弟 run 存活断言（env gate skip）
