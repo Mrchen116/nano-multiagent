@@ -20,6 +20,27 @@ export const emptyConversationState: ConversationState = {
   messages: []
 };
 
+/**
+ * Compare two messages by created_at ascending, with message id as a tie-break
+ * for deterministic ordering when timestamps are equal (e.g. optimistic insert
+ * races a WS echo with the same second). Mirrors the compareMessageRecency
+ * semantics used in im-chat-api.ts for conversation previews.
+ *
+ * Exported so streamReducer (chat-workspace-page.tsx) can apply the same
+ * ordering to reset and append_optimistic paths — all three insertion paths
+ * share one ordering invariant (bugfix-419).
+ */
+export function compareMessages(a: Message, b: Message): number {
+  // Messages lacking created_at sort to the end rather than crashing.
+  const ta = Date.parse(a.created_at ?? "");
+  const tb = Date.parse(b.created_at ?? "");
+  const aHas = Number.isFinite(ta);
+  const bHas = Number.isFinite(tb);
+  if (aHas && bHas && ta !== tb) return ta - tb;
+  if (aHas !== bHas) return aHas ? -1 : 1;
+  return a.id.localeCompare(b.id);
+}
+
 function patchMessage(
   state: ConversationState,
   messageId: string,
@@ -104,7 +125,10 @@ export function applyWsEvent(
         token_usage: ev.token_usage,
         permission_requests: []
       };
-      return { ...state, messages: [...state.messages, created] };
+      // bugfix-419: sort by created_at so WS arrival order does not dictate
+      // render order. The tie-break on id makes ordering deterministic when two
+      // messages share the same timestamp (e.g. optimistic insert + WS echo).
+      return { ...state, messages: [...state.messages, created].sort(compareMessages) };
     }
     case "message.delta": {
       return patchMessage(state, ev.message_id, (m) => ({ ...m, content: m.content + ev.delta_text }));

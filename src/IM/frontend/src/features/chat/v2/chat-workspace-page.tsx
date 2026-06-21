@@ -17,6 +17,7 @@ import {
 import { openChatStream } from "./chat-stream";
 import {
   applyWsEvent,
+  compareMessages,
   emptyConversationState,
   type ConversationState
 } from "./chat-stream-reducer";
@@ -64,7 +65,9 @@ function streamReducer(
       }
       return out;
     });
-    return { conversation_id: action.conversationId, messages: merged };
+    // bugfix-419: REST history may already be sorted, but sort explicitly so
+    // any WS messages merged in via existingById keep the ordering invariant.
+    return { conversation_id: action.conversationId, messages: [...merged].sort(compareMessages) };
   }
   if (action.type === "append_optimistic") {
     // feat-340-M18 R9-3: insert the user-authored bubble the moment the POST
@@ -73,7 +76,9 @@ function streamReducer(
     // later WS message.created — if/when it comes — does not double-print.
     if (action.message.conversation_id !== state.conversation_id) return state;
     if (state.messages.some((m) => m.id === action.message.id)) return state;
-    return { ...state, messages: [...state.messages, action.message] };
+    // bugfix-419: sort the new list so a WS echo with a different created_at
+    // (e.g. server clock vs. client optimistic timestamp) lands in order.
+    return { ...state, messages: [...state.messages, action.message].sort(compareMessages) };
   }
   return applyWsEvent(state, action.event, { sendersById: action.sendersById });
 }
