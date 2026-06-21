@@ -51,7 +51,8 @@ _WHITELIST: frozenset[str] = frozenset(
         "src/agent/sdk/kernel.py:370",
         # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
-        "src/agent/sdk/kernel.py:480",
+        # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
+        "src/agent/sdk/kernel.py:483",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
