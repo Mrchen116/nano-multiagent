@@ -11,6 +11,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from agent.core.background_tasks.foreground_registry import ForegroundExecutionRegistry
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
@@ -105,6 +106,10 @@ def _make_tool(
     wiring.registry = registry
     wiring.output = output
     wiring.bash_runner = runner
+    # bugfix-417-M7: foreground bash registers its killpg handle into the narrow
+    # ForegroundExecutionRegistry, not the background registry. Use a real one (not a
+    # MagicMock attribute) so register/unregister/stop_for_session behave for real.
+    wiring.foreground_registry = ForegroundExecutionRegistry()
 
     return BashTool(wiring=wiring)
 
@@ -247,7 +252,12 @@ def test_interrupt_wakes_foreground_waiter_promptly_no_thread_leak(
     promptly — NOT linger on completed_event until the 120s budget. The runner's
     silent stop path never sets completed_event, so the foreground stopper wrapper
     must wake the waiter itself; otherwise this to_thread worker is leaked for the
-    full budget (the subtlety the team lead flagged)."""
+    full budget (the subtlety the team lead flagged).
+
+    bugfix-417-M7: the stop now arrives via ForegroundExecutionRegistry.stop_for_session
+    (what the kernel injects as the RunsRegistry foreground stopper port), not the old
+    BackgroundTaskRegistry.stop_foreground_for_session — the foreground command never
+    enters the background registry at all."""
     # Keep the budget large so a "return promptly" assertion proves the wake came
     # from the stop, not from the budget expiring.
     monkeypatch.setattr(
@@ -258,6 +268,7 @@ def test_interrupt_wakes_foreground_waiter_promptly_no_thread_leak(
     )
 
     registry = BackgroundTaskRegistry()
+    foreground_registry = ForegroundExecutionRegistry()
     tmpdir = tempfile.mkdtemp()
     output = _FakeOutput(tmpdir)
     runner = _NeverCompletingRunner()
@@ -265,6 +276,7 @@ def test_interrupt_wakes_foreground_waiter_promptly_no_thread_leak(
     wiring.registry = registry
     wiring.output = output
     wiring.bash_runner = runner
+    wiring.foreground_registry = foreground_registry
     tool = BashTool(wiring=wiring)
 
     ctx = _make_ctx(tmpdir)
@@ -273,7 +285,7 @@ def test_interrupt_wakes_foreground_waiter_promptly_no_thread_leak(
     # thread (mirrors RunsRegistry.interrupt → foreground_stopper).
     def _interrupt_soon() -> None:
         time.sleep(0.3)
-        registry.stop_foreground_for_session("parent_1")
+        foreground_registry.stop_for_session("parent_1")
 
     threading.Thread(target=_interrupt_soon, daemon=True).start()
 
@@ -291,6 +303,198 @@ def test_interrupt_wakes_foreground_waiter_promptly_no_thread_leak(
     # The result is classified as interrupted (not a spurious failure/timeout).
     assert result.get("interrupted") is True
     assert result.get("reason_code") == "interrupted"
+
+
+# ------------------------------------------------------------------
+# bugfix-417-M7 (decision 12): foreground bash exits BackgroundTaskRegistry
+# ------------------------------------------------------------------
+
+
+def test_foreground_completion_does_not_enter_background_registry() -> None:
+    """A foreground command that completes within budget must NOT leave a record in
+    BackgroundTaskRegistry — it never registered there. This is the structural fix:
+    with the task physically absent from the background registry, the _NotifyingStore
+    has nothing to fire a <task-notification> for (dual-channel impossible)."""
+    registry = BackgroundTaskRegistry()
+    foreground_registry = ForegroundExecutionRegistry()
+    tmpdir = tempfile.mkdtemp()
+    output = _FakeOutput(tmpdir)
+    runner = _FakeBashRunner(delay=0.0, exit_code=0)
+    wiring = MagicMock()
+    wiring.registry = registry
+    wiring.output = output
+    wiring.bash_runner = runner
+    wiring.foreground_registry = foreground_registry
+    tool = BashTool(wiring=wiring)
+
+    ctx = _make_ctx(tmpdir)
+    result = tool.run({"command": "echo hi", "run_in_background": False}, ctx)
+
+    assert result["exitCode"] == 0
+    # No background-task records were created for the foreground command — not just
+    # "no non-terminal records" but ZERO records (the task never registered there).
+    assert registry._records == {}  # type: ignore[attr-defined]
+    # The foreground stopper was cleaned up (no stale handle to reap later).
+    assert foreground_registry.stop_for_session("parent_1") is False
+
+
+def test_foreground_failure_does_not_enter_background_registry() -> None:
+    """Same structural guarantee on the failure path (the original on_fail-missing-
+    notified=True dual-channel trigger): a foreground failure stays out of the
+    background registry entirely."""
+    registry = BackgroundTaskRegistry()
+    foreground_registry = ForegroundExecutionRegistry()
+    tmpdir = tempfile.mkdtemp()
+    output = _FakeOutput(tmpdir)
+    runner = _FakeBashRunner(delay=0.0, exit_code=1)
+    wiring = MagicMock()
+    wiring.registry = registry
+    wiring.output = output
+    wiring.bash_runner = runner
+    wiring.foreground_registry = foreground_registry
+    tool = BashTool(wiring=wiring)
+
+    ctx = _make_ctx(tmpdir)
+    with pytest.raises(ToolError):
+        tool.run({"command": "false", "run_in_background": False}, ctx)
+
+    assert registry._records == {}  # type: ignore[attr-defined]
+    assert foreground_registry.stop_for_session("parent_1") is False
+
+
+def test_auto_background_hands_off_into_background_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When the foreground budget is exceeded, the task is explicitly handed off into
+    BackgroundTaskRegistry (the single foreground→background transition) and the
+    foreground registry no longer tracks it — so a subsequent completion notifies as
+    a background task and a later /stop targets the background stopper."""
+    monkeypatch.setattr(
+        "agent.platform.tools.builtins.bash._DEFAULT_FOREGROUND_BUDGET", 0.1
+    )
+    registry = BackgroundTaskRegistry()
+    foreground_registry = ForegroundExecutionRegistry()
+    tmpdir = tempfile.mkdtemp()
+    output = _FakeOutput(tmpdir)
+    # Completes after the (patched) budget so it auto-backgrounds, then finishes.
+    runner = _FakeBashRunner(delay=0.4, exit_code=0)
+    wiring = MagicMock()
+    wiring.registry = registry
+    wiring.output = output
+    wiring.bash_runner = runner
+    wiring.foreground_registry = foreground_registry
+    tool = BashTool(wiring=wiring)
+
+    ctx = _make_ctx(tmpdir)
+    result = tool.run({"command": "sleep 20", "run_in_background": False}, ctx)
+
+    assert result["status"] == "async_launched"
+    task_id = result["task_id"]
+    # The task is now owned by the background registry.
+    record = registry.get(task_id)
+    assert record is not None
+    # Foreground registry released it on hand-off (no stale foreground stopper).
+    assert foreground_registry.stop_for_session("parent_1") is False
+
+    # Let the runner thread finish and fire the (now background) completion.
+    time.sleep(0.6)
+    final = registry.get(task_id)
+    assert final is not None
+    assert final.status == "completed"
+    # A real background task must NOT be marked as already-notified (it must still
+    # get its one <task-notification>): notified stays False on hand-off completion.
+    assert final.notified is False
+
+
+class _ControllableRunner:
+    """Runner that fires its completion callback only when the test releases a gate —
+    lets a test drive the exact race between 'foreground budget elapsed → hand-off'
+    and 'command completed → callback fires'."""
+
+    def __init__(self) -> None:
+        self.stopper = _NeverCompletingStopper()
+        self._gate = threading.Event()
+        self._on_complete = None
+        self._task_id = None
+
+    def start(self, *, command, cwd, output, task_id, timeout, on_complete, on_fail):
+        self._on_complete = on_complete
+        self._task_id = task_id
+
+        def _worker() -> None:
+            self._gate.wait()
+            on_complete(
+                task_id=task_id,
+                result_text=None,
+                usage=None,
+                duration_ms=0,
+                tool_use_count=0,
+            )
+
+        threading.Thread(target=_worker, daemon=True).start()
+        return self.stopper
+
+    def fire_completion(self) -> None:
+        self._gate.set()
+
+
+def test_auto_background_handoff_race_with_completion_no_double_notify(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The budget-elapsed hand-off and the runner's completion callback can race. The
+    result must neither be lost nor double-delivered: exactly one terminal record,
+    and after hand-off the completion notifies as a background task (notified False),
+    never as a suppressed-foreground duplicate."""
+    monkeypatch.setattr(
+        "agent.platform.tools.builtins.bash._DEFAULT_FOREGROUND_BUDGET", 0.15
+    )
+    monkeypatch.setattr(
+        "agent.platform.tools.builtins.bash._FOREGROUND_HEARTBEAT_INTERVAL", 0.05
+    )
+    registry = BackgroundTaskRegistry()
+    foreground_registry = ForegroundExecutionRegistry()
+    tmpdir = tempfile.mkdtemp()
+    output = _FakeOutput(tmpdir)
+    runner = _ControllableRunner()
+    wiring = MagicMock()
+    wiring.registry = registry
+    wiring.output = output
+    wiring.bash_runner = runner
+    wiring.foreground_registry = foreground_registry
+    tool = BashTool(wiring=wiring)
+
+    ctx = _make_ctx(tmpdir)
+
+    # Fire the completion right as the budget elapses, racing the hand-off.
+    def _fire_at_budget() -> None:
+        time.sleep(0.15)
+        runner.fire_completion()
+
+    threading.Thread(target=_fire_at_budget, daemon=True).start()
+
+    result = tool.run({"command": "sleep 20", "run_in_background": False}, ctx)
+
+    # Either it completed within budget (single tool-result, never in the registry) or
+    # it auto-backgrounded (handed off → one background record that completes once).
+    # Both are correct; what must NOT happen is two terminal transitions / a lost or
+    # double-delivered result.
+    if result.get("status") == "async_launched":
+        # Handed off: the record exists; let the (already-fired) completion settle and
+        # assert it reaches exactly one terminal state, notifiable once (notified False).
+        task_id = result["task_id"]
+        for _ in range(50):
+            if registry.get(task_id).status == "completed":
+                break
+            time.sleep(0.02)
+        record = registry.get(task_id)
+        assert record.status == "completed"
+        assert record.notified is False
+        # No task left dangling non-terminal (the completion was not lost).
+        assert registry.list_non_terminal() == []
+    else:
+        # Completed within budget: synchronous tool result, never in the registry.
+        assert result["exitCode"] == 0
+        assert registry._records == {}  # type: ignore[attr-defined]
 
 
 # ------------------------------------------------------------------

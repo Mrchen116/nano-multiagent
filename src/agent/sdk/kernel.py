@@ -426,9 +426,12 @@ def _build_kernel_base(
     # Injected post-hoc because the wiring is built after the registry (it needs the
     # registry's event loop). The core registry only sees the ForegroundStopper
     # port — it never imports the platform BackgroundTaskRegistry (core stays
-    # platform-free).
+    # platform-free). bugfix-417-M7 (decision 12): the port now points at the narrow
+    # ForegroundExecutionRegistry (foreground bash no longer lives in
+    # BackgroundTaskRegistry); same (session_id) -> bool signature, runs/registry.py
+    # interrupt/cancel logic unchanged.
     runs_registry.set_foreground_stopper(
-        background_task_wiring.registry.stop_foreground_for_session
+        background_task_wiring.foreground_registry.stop_for_session
     )
 
     # Tool catalog: built-ins + consumer native tool objects (决策 2). The native
