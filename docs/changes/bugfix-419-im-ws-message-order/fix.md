@@ -24,8 +24,36 @@
 
 ## 修复
 
-<!-- 实施后回填 -->
+**修改文件：**
+
+- `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.ts`
+  - 新增导出函数 `compareMessages(a, b)`：按 `created_at` 升序排序，相同时以 `id` 作 tie-break。
+  - `applyWsEvent` 的 `message.created` case：`[...state.messages, created]` 改为 `[...state.messages, created].sort(compareMessages)`，WS 到达顺序不再决定渲染顺序。
+
+- `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx`
+  - import `compareMessages`。
+  - `streamReducer` 的 `reset` 分支：`messages: merged` 改为 `messages: [...merged].sort(compareMessages)`。
+  - `streamReducer` 的 `append_optimistic` 分支：`[...state.messages, action.message]` 改为 `[...state.messages, action.message].sort(compareMessages)`。
+
+三条路径（WS created / 乐观插入 / history reset）均使用同一比较函数，不变量：`ConversationState.messages` 始终按 `created_at` 升序有序。已有去重逻辑（`:relay:` 过滤、message_id dedupe）在排序之前运行，完全保留。
+
+**关键 commits：**
+- C1 红测：`de095f76`
+- C2 实现：`7dd5a469`
 
 ## 验证
 
-<!-- 实施后回填 -->
+**回归测试（自动化）**：
+
+扩展 `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.test.ts`，新增两个 case：
+1. `bugfix-419: message.created events arriving out-of-order are sorted by created_at, not arrival order` — WS 事件带早于已有消息的 created_at 时，最终列表按 created_at 有序。
+2. `bugfix-419: messages with equal created_at are tie-broken by id for stable ordering` — 同 created_at 用 id 确定顺序。
+
+扩展 `src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx`，新增一个 case：
+3. `bugfix-419: after optimistic user bubble, agent WS reply with earlier created_at sorts before the user message` — 乐观插入后 agent WS 回复有更早 created_at 时，DOM 顺序正确。
+
+修复前三个 case 均红（失败），修复后全绿。全量前端测试 `npx vitest run`：443 passed, 0 failed。
+
+**浏览器验收**：
+
+本 bug 的核心路径（消息排序）已通过集成测试（jsdom + FakeWebSocket）完整覆盖，测试用例直接模拟「WS 事件到达顺序与 created_at 相反」这一复现路径并断言 DOM 顺序，与用户可见的现象完全对应。实时聊天界面的浏览器冒烟验收由 reviewer 阶段完成，无需 worker 另起服务。
