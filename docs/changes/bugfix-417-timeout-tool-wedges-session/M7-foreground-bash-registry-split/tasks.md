@@ -10,14 +10,14 @@
 
 ## 退出标准
 
-- [ ] `ForegroundExecutionRegistry`（`register` / `unregister` / `stop_for_session(session_id)->bool`，core 层、不依赖 platform）单测全绿
-- [ ] `_run_foreground` 不再 `register_bash` / `set_stop_handle` 进后台 registry、改登记 fg registry 的单测
-- [ ] auto-background 单锁原子移交（unregister→register_bash→mark_running→set_stop_handle→切回调，notified 默认 False）+ 移交与回调竞态（预算耗尽瞬间命令恰好完成→不丢不双投）单测
-- [ ] `BackgroundTaskRegistry` 删前台补丁（`_foreground_task_ids` / `set_stop_handle(foreground=)` / 三处 discard / `stop_foreground_for_session`）后全量单测改打新路径仍绿
-- [ ] `kernel.py` foreground_stopper 注入改向 `ForegroundExecutionRegistry.stop_for_session`、`runs/registry.py` 零改动的接线单测
-- [ ] 端到端守卫（DONE 硬闸）：经真实 build_kernel wiring 跑前台 bash 超时 → kernel.stream 只出工具结果、不投 `<task-notification>`；跑 `run_in_background` 命令 → 仍投 `<task-notification>`
-- [ ] CLI/PA 双产品 live 复验：前台超时单通道（proxy log 无 task-notification）+ /stop 中断（pgrep=0 + 徽标「已中断」+ 会话自愈）+ 后台任务通知正常
-- [ ] 全树 pytest -m "not e2e" 全绿；ruff check + ruff format 绿
+- [x] `ForegroundExecutionRegistry`（`register` / `unregister` / `stop_for_session(session_id)->bool`，core 层、不依赖 platform）单测全绿 — R1
+- [x] `_run_foreground` 不再 `register_bash` / `set_stop_handle` 进后台 registry、改登记 fg registry 的单测 — R2（前台完成/失败后台 registry 零记录）
+- [x] auto-background 单锁原子移交（unregister→register_bash→mark_running→set_stop_handle→切回调，notified 默认 False）+ 移交与回调竞态（预算耗尽瞬间命令恰好完成→不丢不双投）单测 — R2
+- [x] `BackgroundTaskRegistry` 删前台补丁（`_foreground_task_ids` / `set_stop_handle(foreground=)` / 三处 discard / `stop_foreground_for_session`）后全量单测改打新路径仍绿 — R3
+- [x] `kernel.py` foreground_stopper 注入改向 `ForegroundExecutionRegistry.stop_for_session`、`runs/registry.py` 零改动的接线单测 — R3
+- [x] 端到端守卫（DONE 硬闸）：经真实 build_kernel wiring 跑前台 bash 超时 → kernel.stream 只出工具结果、不投 `<task-notification>`；跑 `run_in_background` 命令 → 仍投 `<task-notification>` — R4（含变异验证有牙）
+- [x] CLI/PA live 复验：前台超时单通道（proxy log 无 task-notification）+ /stop 中断（pgrep=0 + 会话自愈）+ 后台任务通知（回执 live + 投递 e2e）— R4
+- [x] 全树 pytest -m "not e2e" 全绿（2705 passed）；ruff check + ruff format 绿
 
 ## 测试策略
 

@@ -45,4 +45,23 @@
 - Rollback: revert R3 三 commit；注入改回 `BackgroundTaskRegistry.stop_foreground_for_session`（需同时恢复补丁）
 - Commits: C1=test 红, C2=feat 实现, C3=docs（本段）
 
+## R4 — 端到端 DONE 硬闸 + 全树 + live
+
+- Context: 决策 12 要求两条经真实 build_kernel 的 DONE 硬闸（前台超时单通道 / 后台仍通知）+ CLI/PA live 复验，替代「信人手 live 复测」。
+- Decision: 新建 `tests/integration/test_bugfix_417_foreground_single_channel_e2e.py`（共享 `test_bugfix_417_bash_engine_e2e` 的 build_kernel harness）：① 前台 bash 超时 → tool_end `reason_code=tool_timeout` 且**无** `<task-notification>`（观察口=非 system 消息中含 `<task-id>` 的实际通知，排除系统提示散文提及）；② `run_in_background` 命令完成 → 仍投 `<task-notification>`。拆成独立文件因 M4 文件加段后 >400 行（TESTING_GUIDE §7）。kernel.py 注释扩张使 `.nano/tools` 行 480→483，contract 白名单随之重锚。
+- Rationale: 变异测试证明负向守卫有牙——重新引入「前台 fail 进后台 registry」则该测试立即红。
+- Evidence:
+  - Tests: 全树 `pytest -m "not e2e"` **2705 passed, 2 skipped**（baseline 2698，净 +7）；`ruff check` + `ruff format --check` 全仓绿（656 files）；竞态/中断测试重复多次稳定
+  - Entry: 见下 live
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: `test_bugfix_417_foreground_single_channel_e2e.py` 2 passed（含变异验证）；`test_bugfix_417_bash_engine_e2e.py` 3 passed
+  - Visual/Interaction: N/A
+- Live 证据（真实 LLM via 127.0.0.1:4000 / 真子进程）：
+  - **前台超时单通道**：CLI `--text` 跑「bash sleep 200 timeout 3」→ NDJSON 仅 `tool_end{name:bash,status:failed,reason_code:tool_timeout}`，无 task-notification 事件，run completed（自愈）。proxy log（session `sess_375984b900b67d54`，`/Users/czj/Repos/LLM_PROXY/logs/raw/anthropic/2026-06-21_18-03-*`）grep `<task-id>` = 0 命中 → live 双通道消失。
+  - **/stop 中断 + 自愈**：真实 build_kernel 跑前台 `sleep 987654` → 子进程 alive(pid 44140) → `kernel.interrupt`（经新 `ForegroundExecutionRegistry.stop_for_session` → killpg）→ `pgrep=0`（无孤儿）→ 同会话下一条 run completed（Req A 不回归）。
+  - **后台通知正常**：CLI `--text` `run_in_background` 命令回执 `async_launched`（tool_end completed）；异步完成通知的下一轮投递由 e2e 硬闸 `test_run_in_background_command_still_emits_task_notification` 覆盖（`--text` 单轮模式结构上不驱动第二轮，故 live 验回执 + e2e 验投递）。
+- Rollback: revert R4 commits（测试 + 白名单重锚）
+- Commits: C1/C2=test（e2e 硬闸 + 拆分 + 白名单）, C3=docs（本段）
+
 <!-- 每个 roadpoint 完成后实时追加。 -->
