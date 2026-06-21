@@ -182,6 +182,79 @@ class TestObserverHandlesDirectAssistantMessage:
         assert delta_frames[0]["delta_text"] == "The answer is 42."
 
     @pytest.mark.asyncio
+    async def test_run_heartbeat_forwards_liveness_delta_to_im(self):
+        """bugfix-417-M3 R4: a kernel run_heartbeat event is forwarded to IM as a
+        run_heartbeat streaming_delta (advancing last_evt) when a message_id exists."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-001": {
+                "conversation_id": "conv-abc",
+                "message_id": "msg-xyz",
+                "agent_id": "alpha",
+            }
+        }
+
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        result = observer(
+            {"event": "run_heartbeat", "run_id": "run-001", "source": "permission"}
+        )
+        assert result is None  # heartbeat schedules a fire-and-forget send
+        # Let the scheduled _send task run.
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+
+        hb_frames = [p for _, p in send_calls if p.get("kind") == "run_heartbeat"]
+        assert len(hb_frames) == 1, (
+            f"expected one run_heartbeat delta, got: {send_calls}"
+        )
+        assert hb_frames[0]["message_id"] == "msg-xyz"
+        assert hb_frames[0]["source"] == "permission"
+
+    @pytest.mark.asyncio
+    async def test_run_heartbeat_skipped_without_message_id(self):
+        """No message_id yet (turn_start not acked) → no orphaned heartbeat delta."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-001": {
+                "conversation_id": "conv-abc",
+                "message_id": "",
+                "agent_id": "a",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+        observer({"event": "run_heartbeat", "run_id": "run-001", "source": "tool"})
+        await asyncio.sleep(0)
+        assert [p for _, p in send_calls if p.get("kind") == "run_heartbeat"] == []
+
+    @pytest.mark.asyncio
     async def test_direct_assistant_message_updates_run_context_store(self):
         """run_context_store must be updated with ack message_id when turn_start is sent inline."""
         from personal_assistant.main import _build_kernel_event_observer
@@ -613,6 +686,73 @@ class TestTerminalToolCallReconcile:
         assert completed[0]["tool_call"]["status"] == "failed"
 
     @pytest.mark.asyncio
+    async def test_reconcile_user_interrupt_content_sets_tool_card_output(self):
+        """bugfix-417-M5 (#114): a user /stop reconcile carries the CC-identical
+        user-attribution content, which becomes the in-flight tool card's output
+        (collapsed summary). badge reason stays interrupted (→ 已中断)."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+        )
+
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "bash"}
+        )
+        await asyncio.sleep(0.02)
+        send_calls.clear()
+
+        observer(
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "interrupted",
+                "content": "[Request interrupted by user for tool use]",
+            }
+        )
+        await asyncio.sleep(0.02)
+
+        completed = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert len(completed) == 1
+        tc = completed[0]["tool_call"]
+        assert tc["status"] == "failed"
+        assert tc["reason"] == "interrupted"
+        assert tc["output"] == "[Request interrupted by user for tool use]"
+
+    @pytest.mark.asyncio
+    async def test_reconcile_without_content_omits_tool_card_output(self):
+        """A system reap (no content) must NOT set output — the card shows no
+        user-attributed body, only the 已中断 badge."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+        )
+
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "bash"}
+        )
+        await asyncio.sleep(0.02)
+        send_calls.clear()
+
+        observer(
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "stalled",
+            }
+        )
+        await asyncio.sleep(0.02)
+
+        completed = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert len(completed) == 1
+        assert "output" not in completed[0]["tool_call"]
+
+    @pytest.mark.asyncio
     async def test_normal_completion_leaves_no_run_entry(self):
         """bugfix-410-fix-r1 (Eff-3): a run that completes normally (tool_end then
         turn_end, no reconcile) must not leak an empty per-run dict entry. A long-lived
@@ -670,3 +810,78 @@ class TestTerminalToolCallReconcile:
         observer({"event": "turn_end", "run_id": "run-1", "completed": True})
         await asyncio.sleep(0.02)
         assert "run-1" not in running_tool_calls
+
+    @pytest.mark.asyncio
+    async def test_user_stop_reconcile_finalizes_bubble_and_closes_badge(self):
+        """bugfix-417-fix2 (#114, Issue 1): the kernel emits NO turn_end on the cancel
+        path, so a user /stop would leave the agent bubble stuck on the running spinner.
+        The Gateway marks the reconcile finalize_bubble for a user /stop; the observer
+        then closes the in-flight tool badge (已中断 + CC content) AND finalizes the
+        bubble with message_completed/delivery_status=completed (clean user stop)."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        running_tool_calls: dict[str, dict[str, dict[str, object]]] = {}
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+            running_tool_calls=running_tool_calls,
+        )
+
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "bash"}
+        )
+        send_calls.clear()
+        observer(
+            {
+                "event": "run_terminal_reconcile",
+                "run_id": "run-1",
+                "reason": "interrupted",
+                "content": "[Request interrupted by user for tool use]",
+                "finalize_bubble": True,
+            }
+        )
+        await asyncio.sleep(0.02)
+
+        # Badge closed with CC content.
+        tc_done = [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert len(tc_done) == 1
+        assert tc_done[0]["tool_call"]["reason"] == "interrupted"
+        assert (
+            tc_done[0]["tool_call"]["output"]
+            == "[Request interrupted by user for tool use]"
+        )
+        # Bubble finalized (clean stop).
+        completed = [p for _, p in send_calls if p.get("kind") == "message_completed"]
+        assert len(completed) == 1
+        assert completed[0]["message_id"] == "agent-msg-1"
+        assert completed[0]["delivery_status"] == "completed"
+        # In-flight entry reaped by the reconcile.
+        assert "run-1" not in running_tool_calls
+
+    @pytest.mark.asyncio
+    async def test_system_reconcile_does_not_finalize_bubble(self):
+        """A watchdog/crash reconcile (no finalize_bubble) closes the tool badge but
+        must NOT finalize the bubble as completed — the bubble stays failed via the
+        phase=failed lifecycle (Req B no-regression)."""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        manager, send_calls = self._manager()
+        running_tool_calls: dict[str, dict[str, dict[str, object]]] = {}
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=self._ctx_store(),
+            running_tool_calls=running_tool_calls,
+        )
+        observer(
+            {"event": "tool_start", "run_id": "run-1", "call_id": "c1", "name": "bash"}
+        )
+        send_calls.clear()
+        observer(
+            {"event": "run_terminal_reconcile", "run_id": "run-1", "reason": "stalled"}
+        )
+        await asyncio.sleep(0.02)
+
+        # Badge closed, but NO bubble finalization (no finalize_bubble flag).
+        assert [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
+        assert not [p for _, p in send_calls if p.get("kind") == "message_completed"]

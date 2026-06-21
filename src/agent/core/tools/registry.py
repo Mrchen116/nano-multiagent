@@ -1,9 +1,14 @@
 """Canonical tool registration and execution pipeline with hook support."""
 
 import asyncio
+import contextlib
 from pathlib import Path
 from typing import Any, Mapping
 
+from agent.core.agent.liveness import (
+    DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS,
+    execution_update_ticker,
+)
 from agent.core.errors import ToolError
 from agent.core.hooks.context import HookContext
 from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
@@ -19,6 +24,14 @@ from .base import (
 )
 from .result_budget import DEFAULT_MAX_RESULT_SIZE_CHARS
 from .session_file_state import SessionFileState
+
+# bugfix-417-M6 (#115): cadence of the generic tool-execution liveness ticker. Must
+# stay well below the watchdog idle window (Gateway/IM default 120s) so a long silent
+# non-bash tool keeps both watchdogs reset. bugfix-417-fix1 (cleanup): single source of
+# truth is liveness.DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS — this module-level
+# alias is kept (not a duplicate literal) so the e2e guard can monkeypatch it small
+# without touching production cadence.
+_GENERIC_EXECUTION_HEARTBEAT_INTERVAL = DEFAULT_LIVENESS_HEARTBEAT_INTERVAL_SECONDS
 
 
 class ToolRegistry:
@@ -199,12 +212,29 @@ class ToolRegistry:
                 tool_call_id=tool_call_id,
             )
 
-            # Collect execution updates emitted during tool.run() and flush them
-            # after the synchronous run completes.
-            _pending_updates: list[dict[str, Any]] = []
+            # bugfix-417-M3 R1: dispatch execution updates (e.g. bash phase:running
+            # heartbeats) in REAL TIME instead of buffering them until the synchronous
+            # run completes. A silent long command (`sleep 200`) used to produce zero
+            # observe events for its whole duration → both watchdogs saw "output silent"
+            # and reaped the live run. The callback fires from the asyncio.to_thread
+            # worker thread, so we bridge back to THIS execute()'s loop via
+            # run_coroutine_threadsafe; the dispatched tool_execution_update becomes a
+            # liveness source. observe dispatch is fail-open, so a dropped heartbeat
+            # degrades to "judge by business events" — never crashes the tool run.
+            _emit_loop = asyncio.get_running_loop()
 
             def _emit_execution_update(update_payload: Mapping[str, Any]) -> None:
-                _pending_updates.append({**event_base_payload, **dict(update_payload)})
+                payload = {**event_base_payload, **dict(update_payload)}
+                future = asyncio.run_coroutine_threadsafe(
+                    self._dispatch_observe(
+                        "tool_execution_update", payload, active_hook_context
+                    ),
+                    _emit_loop,
+                )
+                # Consume the future's exception (if any) so a dropped dispatch never
+                # surfaces an "exception never retrieved" warning; _dispatch_observe is
+                # already fail-open internally, so this is purely defensive.
+                future.add_done_callback(lambda _f: _f.exception())
 
             execution_base_context = _resolve_execution_context(
                 self._context, active_hook_context
@@ -231,9 +261,38 @@ class ToolRegistry:
             execution_error: ToolError | None = None
             raw_result: Mapping[str, Any] | Any | None = None
             try:
-                raw_result = await asyncio.to_thread(
-                    tool.run, normalized_args, execution_context
+                # bugfix-417-M6 (#115): wrap the to_thread tool run in an await-bound
+                # generic liveness ticker so EVERY long tool — not just bash — emits a
+                # periodic phase:executing tool_execution_update while it blocks. Pre-M6
+                # liveness was bash-only (bash's foreground loop calls
+                # ctx.emit_execution_event itself), so a silent long non-bash tool
+                # (web_fetch etc.) produced zero events and both watchdogs reaped the live
+                # run. Reusing _emit_execution_update routes through the identical observe
+                # → realtime_stream → run_heartbeat projection bash rides; bash's own
+                # phase:running ticks coexist (both project run_heartbeat, watchdogs reset
+                # idempotently). The ticker tears down the instant to_thread returns,
+                # raises, or the run is cancelled — never masking a true deadlock.
+                #
+                # bugfix-417-fix1 (D): tools that emit their OWN execution events
+                # (bash's foreground loop ticks ctx.emit_execution_event with
+                # phase:running) must NOT also get the generic ticker — otherwise the
+                # run gets 2x run_heartbeat writes per interval (phase:running +
+                # phase:executing). Skip the generic ticker for self-emitting tools;
+                # they remain covered by their own liveness. Non-self-emitting tools
+                # (web_fetch etc.) still get the generic ticker.
+                emits_own = bool(getattr(tool, "emits_own_execution_events", False))
+                ticker = (
+                    contextlib.nullcontext()
+                    if emits_own
+                    else execution_update_ticker(
+                        emit=_emit_execution_update,
+                        interval=_GENERIC_EXECUTION_HEARTBEAT_INTERVAL,
+                    )
                 )
+                async with ticker:
+                    raw_result = await asyncio.to_thread(
+                        tool.run, normalized_args, execution_context
+                    )
             except ToolError as exc:
                 execution_error = exc
             except Exception as exc:
@@ -243,12 +302,9 @@ class ToolRegistry:
                     details={"exception_type": type(exc).__name__},
                 )
 
-            # Flush any tool-execution updates that accumulated during the run.
-            for update in _pending_updates:
-                await self._dispatch_observe(
-                    "tool_execution_update", update, active_hook_context
-                )
-
+            # bugfix-417-M3 R1: heartbeats are now dispatched in real time from
+            # _emit_execution_update (no buffer to flush here). The final output update
+            # below remains the authoritative tool_execution_update carrying the result.
             if execution_error is None:
                 await self._dispatch_observe(
                     "tool_execution_update",

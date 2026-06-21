@@ -16,6 +16,14 @@ from .jsonl_writer import JsonlWriter
 _PATH_LOCKS: dict[Path, threading.Lock] = {}
 _PATH_LOCKS_META: threading.Lock = threading.Lock()
 
+# bugfix-417-M5 (#114): the tool-result content backfilled when a user explicitly
+# interrupts (/stop, CLI Ctrl-C) an in-flight tool. Byte-identical to Claude Code's
+# convention (messages.ts) so the model recognises it as a user-initiated stop and
+# halts gracefully (does not retry / apologise). Distinct from the generic
+# "[interrupted]" used for system watchdog reaps / crashes, which must not attribute
+# the stop to the user. The same content shows on the IM tool card.
+USER_INTERRUPT_RECOVERY_CONTENT = "[Request interrupted by user for tool use]"
+
 
 class SessionNotFoundError(ValueError):
     """Raised when a session JSONL file does not exist."""
@@ -492,6 +500,7 @@ class JsonlSessionStore:
         tool_call_id: str,
         tool_name: str | None = None,
         reason: str,
+        content: str | None = None,
         workspace_root: Path | None = None,
         parent_session_id: str | None = None,
     ) -> None:
@@ -502,6 +511,11 @@ class JsonlSessionStore:
         this lighter variant is called by the runtime's cancel/interrupt path where
         the call_id is already known.  It does NOT check for existing recovery
         entries — the caller must ensure idempotency if needed.
+
+        ``content`` decouples the synthetic tool-result text from ``reason`` (badge):
+        when supplied it overrides the default ``[{reason}]`` body (e.g. a user-
+        initiated interrupt backfills the CC-identical user-attribution string while
+        the badge reason stays ``interrupted``) — bugfix-417-M5, #114.
         """
         path = self._resolve_path(
             session_id,
@@ -518,6 +532,8 @@ class JsonlSessionStore:
         }
         if tool_name:
             recovery["tool_name"] = tool_name
+        if content is not None:
+            recovery["content"] = content
         self._writer.enqueue(path, recovery)
 
     # ------------------------------------------------------------------
@@ -865,10 +881,15 @@ def _inject_recovery_messages(
                     rec = to_inject[call_id]
                     reason = rec.get("reason", "interrupted")
                     tool_name = rec.get("tool_name") or call_id
+                    # bugfix-417-M5 (#114): an explicit recovery ``content`` (e.g. the
+                    # user-interrupt attribution string) overrides the default
+                    # ``[{reason}]`` body, while the badge/recovery_reason stays
+                    # ``reason`` so the IM badge still renders "已中断".
+                    synthetic_content = rec.get("content") or f"[{reason}]"
                     synthetic = Message(
                         message_id=_make_mid(),
                         role="tool",
-                        content=f"[{reason}]",
+                        content=synthetic_content,
                         tool_call_id=call_id,
                         metadata={
                             "tool_name": tool_name,

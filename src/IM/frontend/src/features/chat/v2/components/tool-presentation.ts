@@ -62,8 +62,12 @@ export function isCallFailed(call: ToolCall): boolean {
  */
 export const REASON_BADGE_NAMES: ReadonlySet<string> = new Set([
   "denied",
+  // bugfix-417-M3 R4: tool_timeout (执行超时) / stalled (已中断) join the legacy
+  // timed_out / interrupted reasons (kept for rows persisted before the change).
   "timed_out",
-  "interrupted"
+  "tool_timeout",
+  "interrupted",
+  "stalled"
 ]);
 
 /**

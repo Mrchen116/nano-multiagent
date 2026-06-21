@@ -398,7 +398,7 @@ def test_list_messages_dedups_relay_failed_when_real_terminal_row_exists(
             "progress_state": "failed",
             "semantic": "relay_watchdog_timeout",
             "detail": "relay timed out after 300s with no completion event",
-            "reason": "watchdog_timeout",
+            "reason": "stalled",
         },
     )
 

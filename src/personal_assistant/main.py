@@ -3494,6 +3494,27 @@ def _build_kernel_event_observer(
                     )
                 )
 
+        elif event_name == "run_heartbeat":
+            # bugfix-417-M3 R4: forward the kernel liveness heartbeat (tool / LLM-await /
+            # parked-permission) to IM as a lightweight `run_heartbeat` delta. IM's
+            # EventBridge appends a conversation_events row, advancing the message's
+            # last_evt timestamp so the relay watchdog sees the run as alive — no
+            # permission-specific marker needed (decision 4). Pure liveness: it does not
+            # mutate message content or tool_calls and is not rendered by the frontend.
+            if message_id:
+                loop.create_task(
+                    _send(
+                        manager,
+                        "node.streaming_delta",
+                        {
+                            "kind": "run_heartbeat",
+                            "message_id": message_id,
+                            "run_id": run_id,
+                            "source": str(event.get("source") or ""),
+                        },
+                    )
+                )
+
         elif event_name == "tool_start":
             call_id = str(event.get("call_id") or "").strip() or run_id
             tool_name = str(event.get("name") or "")
@@ -3649,9 +3670,19 @@ def _build_kernel_event_observer(
             # crash / interrupt) and any tool_call still in flight never received a
             # tool_end, so its IM badge would spin forever. Close each remaining
             # in-flight call with status=failed + a reason. Already-completed calls
-            # were popped on tool_end, so they are untouched. reason ∈ {timed_out
-            # (watchdog cancel), interrupted (other abnormal termination)}.
+            # were popped on tool_end, so they are untouched. reason ∈ {stalled
+            # (watchdog liveness reap → 已中断), interrupted (other abnormal
+            # termination → 已中断), tool_timeout (tool's own deadline → 执行超时)}.
             reason = str(event.get("reason") or "interrupted").strip() or "interrupted"
+            # bugfix-417-M5 (#114): a user /stop attaches the CC-identical
+            # user-attribution content so the in-flight tool card displays the same
+            # body the model sees in the transcript. Absent (system reap) → no body.
+            reconcile_content = event.get("content")
+            reconcile_output = (
+                str(reconcile_content)
+                if isinstance(reconcile_content, str) and reconcile_content
+                else None
+            )
             inflight = running_tool_calls.pop(run_id, {})
             if message_id and inflight:
                 for stuck_call_id, stuck_call in inflight.items():
@@ -3665,6 +3696,17 @@ def _build_kernel_event_observer(
                     else:
                         stuck_name = str(stuck_call)
                         stuck_input = {}
+                    stuck_tool_call: dict[str, Any] = {
+                        "id": stuck_call_id,
+                        "name": stuck_name,
+                        "status": "failed",
+                        "reason": reason,
+                        # stuck_input is already a dict: the Mapping branch
+                        # uses `or {}`, and the bare-name branch sets {}.
+                        "input": stuck_input,
+                    }
+                    if reconcile_output is not None:
+                        stuck_tool_call["output"] = reconcile_output
                     loop.create_task(
                         _send(
                             manager,
@@ -3672,19 +3714,34 @@ def _build_kernel_event_observer(
                             {
                                 "kind": "tool_call_completed",
                                 "message_id": message_id,
-                                "tool_call": {
-                                    "id": stuck_call_id,
-                                    "name": stuck_name,
-                                    "status": "failed",
-                                    "reason": reason,
-                                    # stuck_input is already a dict: the Mapping branch
-                                    # uses `or {}`, and the bare-name branch sets {}.
-                                    "input": stuck_input,
-                                },
+                                "tool_call": stuck_tool_call,
                                 "run_id": run_id,
                             },
                         )
                     )
+
+            # bugfix-417-fix2 (#114, Issue 1): a user /stop cancels the run, but the
+            # kernel emits NO turn_end on the cancel path (turn_end fires only on
+            # success / ModelError), so the agent bubble would stay stuck on the
+            # "running" spinner. When the Gateway marks this reconcile finalize_bubble
+            # (set ONLY for a user-/stop cancel, never for a watchdog/crash reap which
+            # must stay failed — Req B), finalize the bubble with delivery_status=
+            # completed (a user stop is a clean termination, not a failure).
+            if event.get("finalize_bubble") and message_id:
+                loop.create_task(
+                    _send(
+                        manager,
+                        "node.streaming_delta",
+                        {
+                            "kind": "message_completed",
+                            "message_id": message_id,
+                            "final_content": None,
+                            "token_usage": None,
+                            "delivery_status": "completed",
+                            "run_id": run_id,
+                        },
+                    )
+                )
 
     return observer
 

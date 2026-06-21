@@ -497,3 +497,101 @@ class TestInterruptCancelRecovery:
             recovery = [e for e in raw if e.get("type") == "tool_call_recovery"]
             assert len(recovery) == 1, f"reason={reason}: 应有 1 个 recovery entry"
             assert recovery[0]["reason"] == reason
+
+    def test_user_interrupt_content_overrides_default_body_keeps_reason(
+        self, tmp_path: Path
+    ) -> None:
+        """bugfix-417-M5 (#114): a user-initiated interrupt backfills the
+        CC-identical user-attribution content, decoupled from the badge reason.
+
+        The synthetic tool-result body must be the CC string (so the model knows
+        the user stopped it) while recovery_reason stays "interrupted" (so the IM
+        badge still renders 「已中断」). A system interrupt (no content) keeps the
+        generic "[interrupted]" body.
+        """
+        from agent.core.session.jsonl_store import USER_INTERRUPT_RECOVERY_CONTENT
+
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+        session = manager.create_session(workspace_root=tmp_path)
+        call_id = "call-user-interrupt-001"
+        path = store.resolve_path(session.session_id)
+        _write_raw_lines(
+            path,
+            [
+                {
+                    "type": "turn",
+                    "uuid": "msg-user-interrupt",
+                    "parent_uuid": None,
+                    "session_id": session.session_id,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "bash", "arguments": {}}
+                    ],
+                }
+            ],
+        )
+
+        store.append_tool_call_recovery(
+            session.session_id,
+            tool_call_id=call_id,
+            tool_name="bash",
+            reason="interrupted",
+            content=USER_INTERRUPT_RECOVERY_CONTENT,
+        )
+        store.writer.flush()
+
+        result = manager.load(session.session_id)
+        recovered = next(
+            m for m in result.messages if m.role == "tool" and m.tool_call_id == call_id
+        )
+        # Body is the CC user-attribution string (model + IM card both read this)...
+        assert recovered.content == USER_INTERRUPT_RECOVERY_CONTENT
+        assert recovered.content == "[Request interrupted by user for tool use]"
+        # ...while the badge reason stays "interrupted" (renders 「已中断」).
+        assert recovered.metadata.get("recovery_reason") == "interrupted"
+
+    def test_system_interrupt_keeps_generic_interrupted_body(
+        self, tmp_path: Path
+    ) -> None:
+        """A system interrupt (no content override) keeps the generic
+        "[interrupted]" body — never attributing the stop to the user."""
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+        session = manager.create_session(workspace_root=tmp_path)
+        call_id = "call-system-interrupt-001"
+        path = store.resolve_path(session.session_id)
+        _write_raw_lines(
+            path,
+            [
+                {
+                    "type": "turn",
+                    "uuid": "msg-system-interrupt",
+                    "parent_uuid": None,
+                    "session_id": session.session_id,
+                    "role": "assistant",
+                    "content": "",
+                    "timestamp": "2026-01-01T00:00:00+00:00",
+                    "tool_calls": [
+                        {"call_id": call_id, "name": "bash", "arguments": {}}
+                    ],
+                }
+            ],
+        )
+
+        store.append_tool_call_recovery(
+            session.session_id,
+            tool_call_id=call_id,
+            tool_name="bash",
+            reason="interrupted",
+        )
+        store.writer.flush()
+
+        result = manager.load(session.session_id)
+        recovered = next(
+            m for m in result.messages if m.role == "tool" and m.tool_call_id == call_id
+        )
+        assert recovered.content == "[interrupted]"
+        assert recovered.metadata.get("recovery_reason") == "interrupted"

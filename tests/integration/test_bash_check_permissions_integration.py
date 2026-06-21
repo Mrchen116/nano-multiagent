@@ -30,6 +30,7 @@ from agent.core.tools.base import (
     set_tool_safety_factory,
 )
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
+from agent.platform.background_tasks.wiring import wire_background_tasks
 
 set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
@@ -45,7 +46,11 @@ def _make_registry(tmp_path: Path, model_caller=None) -> ToolRegistry:
         context=ctx,
         hook_runner=hook_runner,
     )
-    registry.register(BashTool())
+    # bugfix-417-M4: these tests execute bash through the registry, so the tool needs
+    # the wired ShellRunner engine (the no-wiring dead path was deleted). runs_registry
+    # =None skips background notification wiring (irrelevant here).
+    wiring = wire_background_tasks(workspace_root=tmp_path, runs_registry=None)
+    registry.register(BashTool(wiring=wiring))
     return registry
 
 

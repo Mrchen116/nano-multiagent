@@ -85,6 +85,37 @@ def test_on_message_delta_appends_content_and_emits_delta(tmp_path: Path) -> Non
     assert p0["message_id"] == msg.id
 
 
+def test_on_run_heartbeat_appends_liveness_event_without_mutating_message(
+    tmp_path: Path,
+) -> None:
+    """bugfix-417-M3 R4: a run_heartbeat appends a run.heartbeat conversation_events row
+    (advancing last_evt for the relay watchdog) but leaves message content/tool_calls and
+    delivery_status untouched — pure liveness."""
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
+    msg = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+    bridge.on_message_delta(message_id=msg.id, delta_text="partial")
+    captured.clear()
+
+    bridge.on_run_heartbeat(message_id=msg.id, source="permission")
+
+    hb = [e for e in captured if e.event_type == "run.heartbeat"]
+    assert len(hb) == 1, (
+        "exactly one run.heartbeat conversation_events row must be emitted"
+    )
+    payload = json.loads(hb[0].payload_json)
+    assert payload["message_id"] == msg.id
+    assert payload["source"] == "permission"
+
+    # Message content/tool_calls and status are untouched (pure liveness).
+    reloaded = messages.list_messages(conversation_id=conv_id)
+    target = next(m for m in reloaded if m.id == msg.id)
+    assert target.content == "partial"
+    assert target.delivery_status == "running"
+    assert not target.tool_calls
+
+
 def test_on_tool_call_lifecycle_persists_and_emits(tmp_path: Path) -> None:
     bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
     msg = bridge.on_turn_start(

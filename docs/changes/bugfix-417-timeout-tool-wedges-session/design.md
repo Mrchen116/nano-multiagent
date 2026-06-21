@@ -5,7 +5,11 @@
 
 ## Changelog
 
-<!-- design 阶段保持空 -->
+- round-6 验收期 C 升级（用户决定，根因升级）：proxy log 实测前台 bash 超时**同时**产出 `tool_result`（同步返回）+ `<task-notification>`（异步通知），二者本应互斥。取证定位到比"on_fail 漏 `notified=True`"更深一层的根因——**前台 bash 复用 `BackgroundTaskRegistry`（feat-337 遗留），靠 `notified` / `_foreground_task_ids` / auto-background 时 `foreground` flag 翻转三个布尔补丁伪装"其实是前台"**；M4 把 bash *引擎* 统一到唯一 ShellRunner 时未把 *任务模型* 一并统一，M5 写 `_ForegroundStopper` + `set_stop_handle(foreground=True)` 又在该结构上叠了一层补丁，bug 正藏在这层债里。用户拍板本 unit 内根治、不留技术债：决策 12 + M7（前台 bash 退出 BackgroundTaskRegistry，改用职责极窄的 `ForegroundExecutionRegistry` 只持 killpg 句柄 + session 映射，与 subagent 前台「不注册、靠 run cancel 停」对齐）。
+- M5 细化（用户决定）：用户主动中断（/stop、CLI Ctrl-C）回填的 tool result content 改成与 CC 完全一致的 `[Request interrupted by user for tool use]`，同一份 content 供模型 transcript + IM 工具卡两面，badge 仍「已中断」；watchdog/崩溃的系统中断保持 `[interrupted]`，content 按来源解耦（不死绑单一 reason）。delta-spec kernel/gateway/im 同步。
+- 两个已知项纳入本 unit（用户决定）：加 M5（#114 interrupt 触发在飞前台工具 stopper → killpg 整树 + 收口 badge「已中断」，复用 set_stop_handle + _recover_orphaned_tool_calls，参考 CC Ctrl-C / openclaw /stop 的"中断下达工具→工具杀子进程"模型）+ M6（#115 liveness 上提 executor 通用层，所有长工具继承，复用 M3 投影链）。决策 10/11、接口数据流 B 增量、风险表、delta-spec(kernel 强化中断收尾 + 通用 liveness、gateway 强化 /stop)。
+- M4 实施期澄清（orchestrator 拍板，非新决策）：删死路时实测确认 `fullOutputPath` + 行/字节截断**只在死路 `_run_legacy_sync` 存在**，生产 `_run_foreground` 从来硬编码 `truncated:False`、无 `fullOutputPath`，全仓零生产消费方（前端不渲染）；生产 bash 截断真源是下游 result-budget（`registry.py:77` `max_result_size_chars=30000`）。故 M4 退出标准「截断语义逐条回归不变」的**判据 = 生产 result-budget 截断不变**，删 `fullOutputPath`+行/字节截断对生产零用户可见影响（移植它反而造与 result-budget 并行的第二套截断=技术债）。signal/timeout/exitCode details 是真活契约，移植到生产 wired 路径补等价覆盖、不丢。reviewer/verifier 据此判。
+- round 1 后 A 升级第四轮 design-review 采纳：M4 加"经 build_kernel 真实 wiring 的端到端集成测试"为 DONE 硬闸（不再让人手 live 复验做唯一端到端守卫，决策 8 测试策略）；M4 [worker] 加 ShellRunner docstring/唯一引擎声明、前台心跳复用 M3 `run_coroutine_threadsafe` 线程桥；数据流补 background 路径 liveness 划界；M2 标 superseded by M4。
 
 ## 现状分析
 
@@ -22,6 +26,10 @@
 | `src/personal_assistant/gateway/inbound_pipeline.py` | Gateway watchdog `_await_terminal_run_async`（:822）：`anext` 120s 无事件 → `kernel.cancel` + `_emit_terminal_reconcile(reason="timed_out")` + raise；`awaiting_permission` 豁免（:853） | **B 改**：liveness 重定义 + 失败态区分 + 豁免一般化 |
 | `src/IM/application/relay_watchdog.py` | IM DB sweep 兜底：按 `conversation_events` 最近行时间戳判 120s 静默 → flip failed + `relay.failed`；`awaiting_permission_at` marker 豁免（:80） | **B 改**：心跳进 conversation_events + 失败态区分 |
 | `src/agent/platform/permissions/broker.py` | `PermissionBroker`；`cancel_all_pending(run_id=...)`（:194）已存在 | A 复用，**不改逻辑** |
+| `src/agent/core/background_tasks/registry.py` | `BackgroundTaskRegistry`：后台任务状态机 + 持久化 + `<task-notification>`；M5 加 `_foreground_task_ids` + `set_stop_handle(foreground=)` + `stop_foreground_for_session`；前台 bash 寄生其中 | **C 主改（M7）**：删全部前台补丁（`_foreground_task_ids`/`foreground` 参数/三处 discard/`stop_foreground_for_session`），回归"纯后台任务" registry |
+| `src/agent/core/background_tasks/foreground_registry.py` | （不存在） | **C 新建（M7）**：`ForegroundExecutionRegistry`，只持在飞前台子进程 killpg 句柄 + session 映射，`stop_for_session(session_id)->bool` |
+| `src/agent/platform/tools/builtins/bash.py` | `_run_foreground`（:309）寄生后台 registry（`register_bash`+`set_stop_handle`+`notified`/flag）；`_run_background`（:260）正常后台 | **C 主改（M7）**：前台路径退出后台 registry、改登记 foreground registry；auto-background 时显式移交进后台 registry |
+| `src/agent/platform/tools/builtins/agent.py` | subagent 工具；`_run_foreground`（:207）**不碰 registry**（纯 async，靠 run cancel 停），只 `_run_background`/auto-bg/`_resume` 注册 | C 的**对照样板**，**不改**（验证前台/后台物理隔离的既有正确范式） |
 
 ### 既有约束
 
@@ -235,6 +243,169 @@ on TimeoutError:                                    # N 秒无任何 liveness
   - **MODIFIED** `工具徽标按中断原因显示终态`（徽标失败原因映射：工具自身超时→「执行超时」、watchdog/异常→「已中断」）。
 - cli: no spec delta（CLI 经 `kernel.cancel` 间接受益于强制取消，但本 unit 不新立 CLI 中断行为契约）。
 - **C 层 / bash（M2）no spec delta**：Req D"派生子进程命令超时干净收尾"不是新契约——evergreen kernel `docs/specs/kernel/spec.md:218-220`「bash 超时 → 暴露稳定超时细节而非静默挂起/丢失」早已存在，本 unit C 层是修该既有契约对**派生子进程**命令不成立的 bug（恢复符合），故无新增/修改契约。
+- **A 升级（M4）no spec delta**：bash 引擎统一是**内核内部（platform）重构**，对外行为增量已由上述 kernel/gateway/im delta 声明；M4 只是让这些已声明的契约在**生产路径**真生效，无新增对外契约。
+
+## A 升级：bash 引擎统一（round-1 验收后根因升级）
+
+> round-1 reviewer FAIL（B1 静默长命令仍被误杀、C1 超时 reason=null）。orchestrator 取证定位到比"改错方法"更深一层的根因，用户拍板按架构最优解，不留技术债。本段是对 M1/M2/M3 之上的根因升级，**incident 的 Req A/B/C/D 不变**。
+
+### 根因（取证结论）
+
+- `agent.sdk/kernel.py:417` 的 `build_kernel` **无条件** `wire_background_tasks` → `BashTool` 永远有 wiring → 生产前台/后台 bash 永远走 `_run_foreground`/`_run_background` → **`ShellRunner`**（`agent.platform/background_tasks/shell_runner.py`）。
+- 已核实 `coding_cli` 与 `personal_assistant` **都**经 `build_kernel` 建 kernel（cli: product.py:142）→ 两产品当前都用 ShellRunner。
+- `BashRunner.run_stream` / `_run_legacy_sync`（bash.py:240，`wiring is None` 分支）是**生产死路**，仅单测（wiring=None）执行。
+- **M2 的 killpg/drain（在 run_stream）、M3 的 bash 心跳/reason（在 _run_legacy_sync）全落在死路上** → 生产 ShellRunner 一项没有 → live 下静默长命令零心跳被误杀、超时无 reason。这是 live 全挂的最深根因，也是两套平行 bash 引擎（一活一死、修了死的）这一系统性技术债的体现。
+
+### 决策 8：硬化 ShellRunner 为单一 bash 执行引擎，删除死路 run_stream
+
+**选了"把 ShellRunner 硬化成唯一引擎（进程组 + killpg 杀整树 + 实时心跳进 run 事件流 + 非阻塞 drain + 超时 reason_code），删除 `BashRunner.run_stream` + `_run_legacy_sync` + `wiring is None` 分支，单测改打 ShellRunner"**。
+
+- **理由**：消除"一活一死"的平行引擎——正是它让 M1/M2/M3 修在死路上、骗过单测、live 全挂。统一到唯一生产引擎，杜绝"下次再漏一处"。架构最优，不背技术债。
+- **拒绝**：① "ShellRunner 委托 run_stream 复用硬化核"——run_stream 是死路，把活路由进死核是反的；② 只把三项 port 进 ShellRunner、保留 run_stream（B）——留两套引擎=留技术债，下次还漏。
+- **风险**：硬化碰的是**当前生产活路**，回归风险全在这（见风险表）；删除碰的是死代码（零用户影响，已验证）。
+- **测试策略（incident 元教训）**：本事故本质 = 单测全绿 / live 全红——M2/M3 的 killpg/心跳/reason 各有孤立单测且通过，但生产走 ShellRunner，全部撒谎。心跳链横跨 `build_kernel→ShellRunner→ctx→tools/registry executor→realtime_stream publisher→watchdog` 五层，孤立单测证明不了它真到 watchdog（B1 失败正是此）。故 M4 守卫**不能只押人手 live 复验**，必须有经真实 `build_kernel` wiring 的端到端集成测试断言"静默长命令 → stream 真冒 `run_heartbeat`""bash timeout → `reason=tool_timeout`"，把守卫从人手变成自动化回归（写入 M4 [worker] 退出标准）。
+
+### 决策 9：硬化采"最小侵入 pump 模型"，不替换 I/O 架构
+
+**选了"在 ShellRunner 现有 pump→文件模型上加 killpg + 心跳 + reason，不替换成 run_stream 的 selector 模型"**。
+
+- **理由**：ShellRunner 的 pump→文件是 bugfix-354 前台回显、feat-414 计时的现行正确实现；替换 I/O 架构会把回显回归面拉满。最小侵入降低对当前体验的扰动。
+- **拒绝**：把 ShellRunner 重写成 selector 模型——回归面过大、收益仅"代码风格统一"。
+- **风险**：pump 模型加 killpg/心跳的接缝要确保不改输出落盘/截断语义。
+
+### M1/M2/M3 存留与改动
+
+| 已合产物 | 在死路还是活路 | 处置 |
+|---|---|---|
+| M1 registry/kernel 强制 cancel | 活路（与 bash 引擎无关）| **保留** |
+| M3 watchdog 重定义 / liveness ticker / realtime_stream publisher / tools-registry 实时 dispatch | 活路（executor 级，包任何 tool.run）| **保留** |
+| M2 killpg/drain（在 run_stream）| **死路** | 能力**重落到 ShellRunner**，删死路；M2 milestone 标 superseded by M4 |
+| M3 bash 心跳源 + reason（在 _run_legacy_sync）| **死路** | 由硬化后 ShellRunner/`_run_foreground` 供给，接已活的 executor→publisher→watchdog 链 |
+
+### 接口与数据流（A 增量）
+
+- **心跳源（活路）**：bash 在 ShellRunner 执行期产生 phase:running → 经 `ctx.emit_execution_event`（`_run_foreground` 持 ctx；后台框架经回调）→ tools/registry 实时 dispatch（M3-R1，已活）→ realtime_stream publisher（M3-R2，已活）→ `run_heartbeat` 进 stream。即 M3 的下游链全复用，只把**源**从死路换到 ShellRunner。
+- **前台等待 liveness**：`_run_foreground` 的 `completed_event.wait(budget)` 改为带心跳的轮询等待（它持 ctx），覆盖前台等待期。`_run_foreground` 在 `to_thread` 工作线程发心跳，**必须复用 M3 已建的 `run_coroutine_threadsafe` 线程桥**把事件投回 async loop，不另起新通路。
+- **background 路径 liveness 边界**：后台 bash（auto-background / 非前台任务）**不持会话锁、不被 watchdog 等待**，故无需 run-liveness 心跳——worker 只为前台执行期补心跳，勿为后台路径过度构建。
+- **reason**：ShellRunner 超时 `on_fail` 带可区分的超时信号 → `_run_foreground` 映射 `reason_code="tool_timeout"`（同 `_run_legacy_sync` 现做法），贯通到 IM `tool_call.reason` → 前端"执行超时"。
+- **killpg**：ShellRunner 的 `Popen` 加 `start_new_session=True`；`_monitor` 超时与 `_stop_task` 改 killpg 杀整组 + 宽限升级（判整组存活，非直接子）。
+
+## B 升级：中断收尾 + liveness 通用化（两个已知项纳入本 unit）
+
+round-1 后两个已知项（#114 / #115）经用户决定纳入本 unit 一并解决，各加一个 milestone（M5 / M6）。两者文件不重叠、无逻辑依赖，可并行（均 depends 已合的 M3/M4 下游链）。
+
+**参考实操**（亲读真实源码，非二手）：
+- **CC**（`~/Repos/opensource-hub/claude-code/src/utils/ShellCommand.ts`）：bash 子进程 `detached: true`（自有进程组）；`#abortHandler` 区分两种 abort——`reason==='interrupt'`（插话/改方向）转后台不杀，**Ctrl-C / 硬取消** → `treeKill(pid,'SIGKILL')` 杀整棵进程树；timeout → SIGTERM。
+- **openclaw**（`~/Repos/opensource-hub/openclaw/src/agents/pi-embedded-runner/runs.ts`）：`abortEmbeddedPiRun(sessionId)` → `handle.abort()`，AbortSignal 沿 run 下达到正在跑的工具，工具自身杀子进程。
+- 两者同构：**中断信号下达正在跑的工具 → 工具杀自己的子进程树**。我们的 `/stop` 是用户显式「停」，映射到 CC 的 **hard Ctrl-C 路径**（killpg 整树 + 收口「已中断」），不走 soft 转后台（那是另一 feature，非 #114 范围）。
+
+### 决策 10（M5 / #114）：interrupt/cancel 触发在飞前台工具 stopper，杀子进程树并收口 badge
+
+**选了"`/stop`（interrupt）与 `cancel` 在现有行为外，额外调用该 run 在飞前台工具已登记的 stopper（M4 已硬化 killpg 整树），让阻塞的 to_thread 返回 → run 解开 → 既有 `_recover_orphaned_tool_calls` 收口在飞 tool_call 为「已中断」"**。
+
+- **理由**：复用既有原语——前台 bash 启动时已 `registry.set_stop_handle(task_id, stopper)`、`_recover_orphaned_tool_calls` 已在每条退出路径收口 badge。当前缺口仅是 interrupt 不触发 stopper。这正是"为什么释放锁还不够"的正解：锁在 to_thread 外层、子进程在内层，必须主动 kill 内层才返回。与 CC Ctrl-C / openclaw /stop 一致。
+- **（M7 改写登记基底，中断语义不变）**：本决策的中断收尾行为（killpg 整树 + badge 收口 + CC 归因 content）全部保留；**唯一被决策 12 改写的是 stopper 的登记位置**——M5 as-built 把前台 stopper 经 `BackgroundTaskRegistry.set_stop_handle(foreground=True)` + `stop_foreground_for_session` 登记/触发，M7 改为登记到 `ForegroundExecutionRegistry`、`/stop` 注入改向其 `stop_for_session`（同签名端口）。`runs/registry.py` 的 interrupt/cancel 逻辑与本决策的用户可观察行为一字不变。
+- **用户中断回填措辞 = CC 原串**：用户主动中断（/stop、CLI Ctrl-C）时，`_recover_orphaned_tool_calls` 回填的 tool result content **改成与 CC 完全一致的 `[Request interrupted by user for tool use]`**（CC `messages.ts:210` 约定，模型本就熟悉此惯例）。**同一份 content 供两个面**：① 模型读的 transcript（知道是用户主动停、应停下等用户，不重试/不当失败道歉）；② 用户在 IM 工具卡看到的该工具返回内容。badge 仍「已中断」。**与 watchdog 收尸/崩溃区分**：那类是系统中断、保持原 `[interrupted]` 语义，不冒用"用户"归因——故 content 不能再死绑单一 `[{reason}]`，要按中断来源给出 model+用户可读的归因文本。
+- **拒绝**：① 靠现有 cooperative abort 等 to_thread 自然返回——子进程不死永不返回；② 硬 kill to_thread 线程——Python 不支持；③ 回填泛化 `[interrupted]`——模型/用户分不清是用户停还是工具坏。
+- **风险**：interrupt 须能定位该 run 当前在飞的前台工具 task；stopper 触发的退出与 M4 `_stopped` 协同——归「已中断」(interrupted)，非 FAILED 也非 tool_timeout；content 解耦后须保证 watchdog/崩溃路径不误用"用户"归因。
+
+### 决策 11（M6 / #115）：liveness 上提到 executor 通用层，所有工具继承
+
+**选了"在 executor 的 `asyncio.to_thread(tool.run)`（`core/tools/registry.py`）外包一层 await-bound 通用 ticker，周期（≤15s）调既有 `_emit_execution_update({phase:'executing'})`，经既有 realtime_stream 投影成 `run_heartbeat`；所有长工具零代价继承，bash 自身 phase:running 更细粒度并存"**。
+
+- **理由**：复用 M3 已建的 `_emit_execution_update` + `run_coroutine_threadsafe` 桥 + realtime_stream 投影链，只在通用执行点加周期 tick。把 liveness 从"每个工具自己实现"上提到"executor 统一供给"——正确的深度，杜绝"漏新工具"。
+- **拒绝**：每个工具各自实现心跳——在共享基础设施贴特例（altitude 反模式），永远漏覆盖（web_fetch 等当前就漏）。
+- **风险**：ticker 须 await-bound（随 to_thread 完成/异常/取消即停），不空转；与 bash 自身 phase 心跳并存不冲突（都投影 run_heartbeat，watchdog 幂等重置）。
+
+### 接口与数据流（B 增量）
+
+- **M5 中断收尾**：`kernel.interrupt`/`kernel.cancel` → `runs_registry` 定位该 run 在飞前台工具的 `stop_handle`（已登记）→ 调 `stopper.stop()`（killpg 整树）→ 前台 `_run_foreground` 及时解开（不滞留 120s）→ run 解开 → `_recover_orphaned_tool_calls` 收口 badge「已中断」。**用户主动中断**时回填的 tool result content = CC 原串 `[Request interrupted by user for tool use]`（同一份 content 进 transcript 供模型 + 进 IM 工具卡供用户），watchdog/崩溃的系统中断仍回填 `[interrupted]`（content 按来源解耦，不死绑单一 reason）。`core` 不依赖 `platform`：stopper 是注入的 `BackgroundTaskStopper` 端口，registry 只调协议方法。
+- **M6 通用 liveness**：executor `execute()` 在 `await asyncio.to_thread(tool.run, ...)` 外 `async with` 一个 await-bound ticker → 周期 `_emit_execution_event({phase:"executing", elapsed_ms})` → 既有 tools/registry 实时 dispatch → realtime_stream `on_tool_execution_update`（phase 非空）→ `run_heartbeat` 进 stream → 两 watchdog 重置。bash 的 phase:running 是更细的同源信号，叠加无害。
+
+## C 升级：前台 bash 退出 BackgroundTaskRegistry（round-6 验收后根因升级）
+
+> round-6 验收期 proxy log 实测：前台 bash 超时**同时**产出 `tool_result`（`_run_foreground` 同步返回）+ `<task-notification>`（`_NotifyingStore` 异步投递），二者本应互斥（前台=只有返回值；后台=只有通知）。orchestrator 取证定位到比"on_fail 漏 `notified=True`"更深一层的根因，用户拍板按架构最优解根治，不留技术债。本段是对 feat-337 遗留结构 + 本 unit M5 补丁的根因升级，**incident 的 Req A/B/C/D 不变**。
+
+### 根因（取证结论）
+
+- **前台 bash 借用了一套它几乎不需要的设施**。`_run_foreground`（`bash.py:359`）`register_bash` + `mark_running` + `set_stop_handle`，把前台命令塞进 `BackgroundTaskRegistry`。但前台 bash 的结果**同步**经 `completed_event` 返回给 tool result——它**唯一真需要**后台设施的，是一个能在 `/stop` 时 killpg 子进程树的 stop handle（子进程在 `to_thread` 工作线程更内层，async cancel 够不到，见决策 10）。其余——record 持久化、`<task-notification>` 异步投递、终态广播——对前台全是负担。
+- **对照 subagent：同样"前台/后台"二态，结构却是干净的**。`agent.py:_run_foreground`（:207）**根本不碰 registry**——纯 async 协程，`/stop` 经 M1 `runs_registry.cancel(run_id)` 强制取消承载 Task，CancelledError 传播即停。只有 `_run_background` / auto-background / `_resume` 才 `register_subagent`。即 subagent 的前台与后台是两条**物理隔离**的生命周期；bash 是两条**挤在同一 registry、靠布尔 flag 区分**的生命周期。
+- **于是处处要用布尔补丁伪装"其实是前台"**，三个补丁叠在一起正是 bug 的栖息地：
+  - `notified=is_foreground`（refactor-360 补 `on_complete`，**漏补 `on_fail`** → 前台超时/失败仍走 `notified=False` → `_NotifyingStore` 投 `<task-notification>` → 双通道，**本 bug 的直接触发点**）；
+  - `_foreground_task_ids` 集合 + `set_stop_handle(foreground=True/False)`（M5 加，用于 `stop_foreground_for_session` 只杀前台、放过用户 `run_in_background` 任务）；
+  - `complete`/`fail`/`kill` 三处 `_foreground_task_ids.discard`（fix1 补的防泄漏，本身又是"前台混进后台 registry"派生出来的维护负担）。
+- **M4 统一了 bash *引擎*（ShellRunner），却没统一 bash *任务模型***。M4 决策 8 的论证（"消除一活一死的平行引擎、架构最优不背技术债"）只作用在执行引擎层；前台复用后台 registry 这层 feat-337 债被原样继承，M5 写 `_ForegroundStopper` 时又在其上叠了一层。bug 不是本 unit 引入的，但本 unit 两次路过（M4/M5）都没动它——C 升级补上这一刀。
+
+### 决策 12：前台 bash 退出 `BackgroundTaskRegistry`，改用职责极窄的 `ForegroundExecutionRegistry`
+
+**选了"前台 bash 不再 `register_bash` / 进 `BackgroundTaskRegistry`，改在一个新的、只持有『在飞前台子进程 killpg 句柄 + session 映射』的 `ForegroundExecutionRegistry`（core）里登记；只有 auto-background（前台预算耗尽真转后台）那一刻，才把任务正式 `register_bash` 进 `BackgroundTaskRegistry`、此时发 `<task-notification>` 名正言顺。与 subagent 前台『不注册、靠 run cancel + 旁路 stopper 停』对齐"**。
+
+- **理由**：根除"前台/后台共用一个 registry"这个结构缺陷本身，而非给 `on_fail` 补第四个布尔。前台只保留它**真正需要**的一项能力（killpg 句柄），`notified` 抑制、`_foreground_task_ids`、auto-background flag 翻转、三处 `discard` **全部消失**——bug 没有了栖息地。`<task-notification>` 物理上只可能由 `BackgroundTaskRegistry` 投递，而前台根本不进它，双通道在结构上不可能再发生。
+- **接线零波及**：`/stop` 中断链已是干净端口——`runs/registry.py:104` 的 `ForegroundStopper` Protocol `(session_id) -> bool`，`kernel.py:431` 把它注入为 `BackgroundTaskRegistry.stop_foreground_for_session`。决策 12 只需把这一行注入改指向 `ForegroundExecutionRegistry.stop_for_session`（同签名），`runs/registry.py` 与 M1 的 interrupt/cancel 逻辑**一字不改**。
+- **auto-background 边界**：`_run_foreground` 预算耗尽返回 `async_launched` 时，做一次"前台→后台"**显式移交**——从 `ForegroundExecutionRegistry` 注销、`register_bash` 进 `BackgroundTaskRegistry` 并接 `on_complete`/`on_fail`（此处 `notified` 默认 `False`，通知正确）。移交点单一、显式，取代原先靠 `result_holder["backgrounded"]` + flag 翻转的隐式切换。
+- **拒绝**：① 只给 `on_fail` 补 `notified=True`（最小补丁）——堵一个洞，留下整套"前台寄生后台 registry"的结构债，下次 M7+ 再碰前台又得重新 reason about 三个 flag，违背用户"本 unit 根治不留债"指令；② 在 `BackgroundTaskRegistry` 内部分前台/后台两个池（registry 内分层）——比新建 registry 改动小，但仍让一个类背两种生命周期语义，`<task-notification>` 投递逻辑仍要在类内判前台跳过，是"把 flag 升级成子结构"而非消除耦合，不够干净；③ 让前台 bash 也走 subagent 那种"纯 cancel、零登记"——bash 子进程在 `to_thread` 内层，cancel 够不到，必须保留一个 killpg 旁路句柄，故前台 bash 无法做到像 subagent 那样零登记，`ForegroundExecutionRegistry` 是"恰好只持那一项"的最小集。
+- **风险**：见风险表「C 升级」行——核心是 auto-background 移交时序、`/stop` 注入切换后的中断回归、ShellRunner `on_complete`/`on_fail` 回调与两个 registry 的边界。
+
+### before / after（决策 12 核心结构）
+
+**前台启动 — before**（`bash.py:_run_foreground`，前台寄生后台 registry + 三 flag）：
+
+```python
+# on_complete / on_fail 内靠 result_holder 推断"我其实是前台"，补 notified
+def on_complete(*, task_id, result_text, usage, duration_ms, tool_use_count) -> None:
+    is_foreground = not result_holder.get("backgrounded", False)
+    registry.complete(task_id, ..., notified=is_foreground)   # 前台→抑制通知
+    ...
+def on_fail(*, task_id, error) -> None:
+    registry.fail(task_id, error=error)                       # ← 漏 notified=True：前台失败仍发通知（本 bug）
+
+registry.register_bash(task_id=task_id, ...)                  # 前台塞进后台 registry
+registry.mark_running(task_id)
+stopper = wiring.bash_runner.start(..., on_complete=on_complete, on_fail=on_fail)
+registry.set_stop_handle(task_id, _ForegroundStopper(), foreground=True)   # flag #2/#3
+...
+if not completed:                                             # auto-background
+    result_holder["backgrounded"] = True
+    registry.set_stop_handle(task_id, stopper, foreground=False)  # 隐式翻转
+    return {"status": "async_launched", ...}
+```
+
+**前台启动 — after**（前台不进 `BackgroundTaskRegistry`；只登记 killpg 句柄；无任何 `notified`/flag）：
+
+```python
+fg = wiring.foreground_registry                               # 新 ForegroundExecutionRegistry（core）
+stopper = wiring.bash_runner.start(..., on_complete=on_complete, on_fail=on_fail)
+fg.register(session_id=parent_session_id, stopper=stopper)    # 只持 killpg 句柄 + session 映射
+# on_complete / on_fail 只 set completed_event / 填 result_holder —— 不碰任何 registry、无 notified
+...
+if not completed:                                             # auto-background：唯一一次"前台→后台"显式移交
+    fg.unregister(session_id=parent_session_id)
+    registry.register_bash(task_id=task_id, ...)              # 此刻才进后台 registry
+    registry.mark_running(task_id)
+    registry.set_stop_handle(task_id, stopper)                # 后台 stopper，无 foreground 参数
+    registry.attach_callbacks(...)                            # on_complete/on_fail 改投 registry，notified 默认 False（通知正确）
+    return {"status": "async_launched", ...}
+# 完成/失败/超时/中断：同步经 completed_event 返回 tool result —— 物理上无 <task-notification> 通道
+```
+
+**`/stop` 注入 — before / after**（`kernel.py:431`，一行改向）：
+
+```python
+# before：core RunsRegistry 的 foreground stopper 注入后台 registry 的方法
+foreground_stopper=background_task_wiring.registry.stop_foreground_for_session
+# after：改注入新 registry 的同签名方法；runs/registry.py 与 interrupt/cancel 逻辑零改动
+foreground_stopper=background_task_wiring.foreground_registry.stop_for_session
+```
+
+**`BackgroundTaskRegistry` — after**（前台相关补丁整体删除）：
+
+```python
+# 删：self._foreground_task_ids 集合
+# 删：set_stop_handle 的 foreground 参数 + add/discard 分支
+# 删：complete/fail/kill 三处 _foreground_task_ids.discard
+# 删：stop_foreground_for_session（迁到 ForegroundExecutionRegistry.stop_for_session）
+# complete()/fail() 的 notified 参数：保留（真后台 auto-background 任务仍用），但前台不再传 True 来抑制
+```
 
 ## 风险与回退
 
@@ -246,8 +417,15 @@ on TimeoutError:                                    # N 秒无任何 liveness
 | `start_new_session` 破坏 bash 回显/信号语义 | 决策 6 SIGTERM 宽限 + 保留 selector 实时回显；回归 feat-414/bugfix-354 的前台输出测试。 |
 | 两侧 watchdog 阈值/失败态语义漂移 | Gateway 与 IM 失败 reason 用同一组常量（`tool_timeout`/`stalled`）；delta-spec 双包同步。 |
 | 移除 IM `awaiting_permission_at` marker 后，崩溃期权限等待无人收 | 决策 4 已论证：内核随 Gateway 进程内，崩溃→permission 心跳停→两侧 120s 内正常收（比旧 600s 更快）。单测覆盖"崩溃停心跳→被收"。回退：保留 marker 作为兜底（退化为现状，不更坏）。 |
+| **A 硬化 ShellRunner 碰当前生产活路 → 改坏现有 bash 体验** | 这是 A 的主风险。硬回归闸（[worker] 退出标准）：bash 输出/退出码/截断语义不变（bugfix-354 前台输出、feat-414 计时）、停止/中断行为不变、`start_new_session` 不破坏现行 stopper/cancel 停止路径。**CLI + PA 双产品 live 复验**通过方可 DONE。决策 9 取最小侵入 pump 模型降低回显回归面。 |
+| 删 run_stream/_run_legacy_sync 误删活路 | 已核实两产品都经 build_kernel 无条件 wire、run_stream 无其它生产调用方（仅死路 + 单测）。删前 worker 再 grep 确认零生产调用方；单测改打 ShellRunner。回退：保留 run_stream 不删（仍能闭合 incident，只是留死代码技术债）。 |
+| **M5 interrupt 调 stopper 改坏正常 /stop 或 cancel 路径** | interrupt 新增"调在飞工具 stopper"分支须只在确有在飞前台工具时触发，无在飞工具时退化为现状（纯 abort+释放锁）。回归：现有 `/stop 中断正在执行的运行`、`无运行时 /stop 友好提示`、M1 cancel 自愈单测全绿。live：前台 `sleep 60` /stop → 子进程死(pgrep=0) + badge「已中断」+ 会话自愈。回退：M5 可独立 revert，退回"释放锁但留子进程"（pre-existing，不更坏）。 |
+| **M6 通用 ticker 空转 / 与 bash phase 冲突 / 心跳风暴** | ticker await-bound（to_thread 完/异常/取消即停）；与 bash phase:running 并存均投影 run_heartbeat、watchdog 幂等；间隔 ≤15s 节流。回归：B1 端到端守卫（run_heartbeat 进 stream）2 passed 不破 + 新增"非 bash 长工具产 run_heartbeat"覆盖。回退：M6 可独立 revert，退回 bash 专属 liveness（pre-existing，其它工具回到会被误杀，不更坏）。 |
+| **M7（C 升级）auto-background 移交时序：前台→后台切换瞬间 ShellRunner 回调先到 / `/stop` 同时到** | 移交（`fg.unregister` + `register_bash` + `attach_callbacks`）须在单锁内原子完成，且在 `set_stop_handle` 之后再切回调；`on_complete`/`on_fail` 用「当前归属哪个 registry」单一判据投递，不靠 `result_holder` 推断。回归单测：预算耗尽瞬间命令恰好完成（回调与移交竞态）→ 结果不丢、不双投；移交后 `/stop` 命中的是后台 stopper（放过，符合 run_in_background 语义）。 |
+| **M7 `/stop` foreground stopper 注入改向后中断回归** | 注入端口签名不变（`(session_id)->bool`），`runs/registry.py` 与 M1 interrupt/cancel 逻辑零改动。回归：M5 全部 live/单测（前台 `sleep 60` /stop → 子进程死 pgrep=0 + 徽标「已中断」+ 会话自愈 Req A）在新 registry 下逐条复跑通过方可 DONE。回退：M7 可独立 revert，注入改回 `BackgroundTaskRegistry.stop_foreground_for_session`（退回 round-6 现状：双通道 bug 重现但不更坏）。 |
+| **M7 删 `_foreground_task_ids` / `set_stop_handle(foreground=)` 误伤真后台任务的 stop** | 真后台任务（`run_in_background` / auto-background 后）仍用 `BackgroundTaskRegistry` 的 stop_handle + `request_stop`/`task_stop` 原路径，**不经** foreground 集合。回归：用户 `run_in_background` 命令 + `task_stop` 仍能停；`/stop` 只杀前台不误杀用户后台任务（M5 既有断言）。 |
 
-**回滚方案**：三个 milestone 文件不重叠，可逐层独立 revert。A revert 退回合作式 cancel（现状）；B revert 退回输出静默判据（现状，长命令仍可能被误杀）；C revert 退回阻塞 drain（现状）。任一层回滚不破坏其余两层。
+**回滚方案**：M1（cancel）、M3（watchdog/liveness 活路部分）可独立 revert 回现状。M4（A 引擎统一）若 live 回归：先回退"删 run_stream"（恢复死路，无害）再排查 ShellRunner 硬化；硬化本身可逐项（killpg / 心跳 / reason）独立 revert，每项回退退回现状（incident 在该项上重现，但不更坏）。
 
 ## Runbook for Reviewer
 
@@ -259,21 +437,36 @@ on TimeoutError:                                    # N 秒无任何 liveness
 | Gateway（内核进程内） | `PYTHONPATH=src python -m personal_assistant.main stop` | `PYTHONPATH=src python -m personal_assistant.main`（默认配置 `~/.nano-assistant/config.yaml`） | `gateway.pid` 存在且进程在；发一条消息能秒回 completed |
 
 > 验证三层闭环的旅程脚本见各 Requirement Scenario：A（超时/卡死后同会话发新消息能恢复）、B（跑 `sleep 200 && echo done` 这类静默长命令不被 120s 误杀 / 跑 `timeout 5 sleep 200` 报"耗时过长"）、C（`npm run build` 这类派生子进程命令超时后会话可继续）。
+>
+> **M4（A 引擎统一）双产品回归**：除 PA(IM+Gateway) 旅程外，还须 CLI 侧 live 验 bash 体验不回归——`PYTHONPATH=src python3 -m coding_cli.main` 跑普通命令（输出/退出码正常）、长静默命令（不被误杀）、超时命令（报"执行超时"）、Ctrl-C/停止（正常中断）。CLI 与 PA 当前都经 build_kernel→ShellRunner，硬化 ShellRunner 同时影响两者，故双产品都要 live 验。
+>
+> **M5（#114 中断收尾）双产品 live**：CLI 跑前台 `sleep 60` → Ctrl-C；PA 发前台 `sleep 60` → `/stop`。两者均验：子进程被杀（`pgrep -x sleep` = 0，无孤儿）+ 在飞工具徽标收口「已中断」+ 同会话立即发新消息正常回复（Req A 不回归）。
+>
+> **M6（#115 通用 liveness）live**：用一个非 bash 的长耗时工具（或构造 >120s 的 to_thread 工具）验证执行期不被 watchdog 误杀；自动化端到端守卫断言"非 bash 长工具 → kernel.stream 真冒 run_heartbeat"。
 
 ## Milestones
 
-三层缺陷文件不重叠，垂直切分为三个独立可交付 milestone。M1（A，P0 锁释放）与 M2（C，bash 进程组）无依赖可并行；M3（B，watchdog 重设计）的"真卡死→收尸→会话恢复"验收依赖 M1 的强制 cancel，故 depends M1。
+三层缺陷文件不重叠，垂直切分为三个独立可交付 milestone。M1（A，P0 锁释放）与 M2（C，bash 进程组）无依赖可并行；M3（B，watchdog 重设计）的"真卡死→收尸→会话恢复"验收依赖 M1 的强制 cancel，故 depends M1。**M4（bash 引擎统一）是 round-1 验收暴露根因后的架构升级**：M2/M3 的 bash 改动落在生产死路 run_stream 上，M4 把能力重落到唯一生产引擎 ShellRunner 并删死路，depends M3（承接其已活的 executor→publisher→watchdog 链）。**M5（#114 中断收尾）/ M6（#115 通用 liveness）是两个已知项纳入本 unit**：M5 让 interrupt 触发在飞前台工具 stopper（depends M4 的硬化 killpg stopper），M6 把 liveness 上提到 executor 通用层（depends M3 的投影链）；两者文件不重叠、并行组 D。**M7（C 升级，round-6 验收根因升级）是前台 bash 任务模型的根治**：把前台 bash 从 `BackgroundTaskRegistry` 拆出到新建的 `ForegroundExecutionRegistry`，消除"前台寄生后台 registry + 三布尔补丁"这个 feat-337 遗留缺陷（双通道 bug 的栖息地）。M7 改 `bash.py` 前台路径 + `BackgroundTaskRegistry` 删前台补丁 + `kernel.py` 注入改向，与 M5 同改 `bash.py`/`registry.py`/`kernel.py` 的前台分支，故 depends M5、串行（并行组 E，不与 M5/M6 同跑）。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | bugfix-417-M1 | lock-force-cancel | — | A | `src/agent/core/runs/registry.py`, `src/agent/sdk/kernel.py` | `[reviewer]` 覆盖 Req A（工具超时后会话自愈 / 真卡死被收后会话恢复）：超时/取消一条 run 后，同会话下一条消息无需重启 Gateway 即正常回复。`[worker]` `cancel(run_id)` 强制取消承载 Task 并触发 `_run_locked` CancelledError 释放锁的单测全绿；`kernel.cancel` 连带 `cancel_all_pending(run_id)` 单测；幂等（已终态/无 Task）单测。 |
-| bugfix-417-M2 | bash-process-group | — | A | `src/agent/platform/tools/builtins/bash_runner.py` | `[reviewer]` 覆盖 Req D（派生子进程命令超时干净收尾）：`npm run build` 类命令到 timeout 在附近以"耗时过长"失败、会话可继续。`[worker]` `start_new_session=True` + `os.killpg` 杀整组 + 非阻塞 drain 的单测全绿；超时后无孤儿进程残留、执行线程不挂死的回归测试；feat-414/bugfix-354 前台回显回归不破。 |
+| bugfix-417-M2 | bash-process-group | — | A | `src/agent/platform/tools/builtins/bash_runner.py` | **(superseded by M4)** killpg/drain 落在死路 `bash_runner.py`、Req D 当初验在死路上；能力由 M4 重落到生产引擎 ShellRunner，本 milestone 代码被 M4 删。历史退出标准：`[reviewer]` 覆盖 Req D（派生子进程命令超时干净收尾）；`[worker]` `start_new_session=True` + `os.killpg` 杀整组 + 非阻塞 drain 单测全绿。 |
 | bugfix-417-M3 | watchdog-liveness | M1 | B | `src/agent/core/tools/registry.py`, `src/agent/platform/hooks/builtins/realtime_stream.py`, `src/agent/core/agent/runtime.py`, `src/personal_assistant/gateway/inbound_pipeline.py`, `src/IM/application/relay_watchdog.py` | `[reviewer]` 覆盖 Req B（静默长命令/等 LLM/等权限不误杀；真卡死被收）+ Req C（超时报"耗时过长"、卡死报"中断"、失败不静默）。`[worker]` 心跳实时 dispatch（解缓冲）单测；`on_tool_execution_update` publish 单测；LLM-await ticker 单测；两 watchdog idle 重定义 + 失败态区分（`tool_timeout`/`stalled`）单测；移除 `awaiting_permission` 特例后崩溃仍被收的回归。 |
+| bugfix-417-M4 | unify-bash-engine | M3 | C | `src/agent/platform/background_tasks/shell_runner.py`, `src/agent/platform/tools/builtins/bash.py`, `src/agent/platform/tools/builtins/bash_runner.py`(删 run_stream), `src/agent/core/agent/runtime.py`, `src/personal_assistant/gateway/inbound_pipeline.py`, `src/IM/`(reason 常量/措辞), 前端徽标 | (post-acceptance fix→架构最优 root-cause 升级, round 1) **根因**：build_kernel 无条件 wire → 生产用 ShellRunner，`run_stream`/`_run_legacy_sync` 是死路；M2/M3 的 bash 改动全落死路、骗过单测、live 全挂（决策 8/9）。`[reviewer]` Req B/B1（`sleep 200` live 不被误杀、gateway.log 真有 run_heartbeat）+ Req C/C1（超时→IM `tool_call.reason=tool_timeout`→前端"执行超时"）+ Req D 生产路径复验（派生子进程超时整树回收无孤儿）+ **CLI/PA 双产品 bash 体验回归不变**。`[worker]` 硬化 ShellRunner（start_new_session+killpg 杀整组+实时心跳进 ctx 事件流+非阻塞 drain+超时 reason_code，最小侵入 pump 模型）；前台 `_run_foreground` 工作线程发心跳必须复用 M3 已建的 `run_coroutine_threadsafe` 线程桥，不另起新路；`_run_foreground` 等待期带心跳轮询；删 `run_stream`+`_run_legacy_sync`+wiring=None 分支（grep 确认零生产调用方后）、单测改打 ShellRunner；runtime permission 改用 `liveness_ticker`；reason 常量中心化（消 `watchdog_timeout`≠`stalled`）；收尸 content 措辞与徽标一致；ShellRunner 加 docstring 明写"前台+后台唯一 bash 引擎，bash_runner.py 已删"（消"哪个是真引擎"混淆，本 bug 的栖息地）。**端到端自动化集成测试（决策 8 测试策略，下列两条是 DONE 硬闸，非人手 live 替代品）：经真实 `build_kernel` wiring 跑静默长命令断言 `kernel.stream` 真冒 `run_heartbeat`、跑 bash timeout 断言 `tool_call.reason=tool_timeout`** + bash 输出/退出码/截断/停止语义逐条回归不变 + CLI/PA 双产品 live 端到端复验通过方可 DONE。 |
+
+| bugfix-417-M5 | interrupt-reap-foreground | M4 | D | `src/agent/core/runs/registry.py`, `src/agent/sdk/kernel.py`, `src/agent/core/agent/runtime.py`, `src/agent/core/background_tasks/registry.py`, `src/agent/platform/tools/builtins/bash.py`(is_foreground 标记), `src/agent/core/session/jsonl_store.py`(中断 content 解耦), `src/coding_cli/commands.py`(Ctrl-C→interrupt 接线), `src/personal_assistant/gateway/inbound_pipeline.py`/`main.py`(reconcile 区分 user-stop 并带 content), `src/IM/frontend/`(中断卡渲染返回内容) | (已知项 #114 纳入本 unit) **缺口**：`/stop`(interrupt)只释放会话锁(Req A 已 pass)，不杀正在跑的前台 bash 子进程(留孤儿)、不收口在飞 tool_call 徽标(停 running)；CLI 当前 Ctrl-C 直接掀进程、根本没接 interrupt。`[reviewer]` 前台跑 `sleep 60` → `/stop`(CLI Ctrl-C 同走 interrupt) → 子进程被杀(无孤儿) + 在飞工具徽标收口「已中断」 + 同会话自愈正常回复(Req A 不回归)。`[worker]` interrupt/cancel 经 `stop_foreground_for_session` 只杀前台 blocking 工具(放过用户显式 run_background 后台任务,bash.py 标 `is_foreground=True`)、调 stopper(killpg 整树)的单测；前台 `_run_foreground` 中断后及时解开(不滞留 budget)的单测；无在飞前台工具时退化为纯 abort 的单测；用户中断回填 content = CC 原串 `[Request interrupted by user for tool use]`、watchdog/崩溃保持 `[interrupted]`(content 按来源解耦)的单测；CLI `commands.py` 的 Ctrl-C catch → `kernel.interrupt` 接线(中断当前轮、CLI 留 REPL 不退出);`core` 不依赖 `platform`(stopper 为注入端口)。live：CLI Ctrl-C + PA `/stop` 双产品前台长命令 → pgrep 无孤儿 + 徽标「已中断」+ 工具卡返回 CC 原串 + 立即(非 120s)收尸线程不滞留 + 同会话自愈(Req A)。 |
+| bugfix-417-M6 | generic-tool-liveness | M3 | D | `src/agent/core/tools/registry.py`, `src/agent/core/agent/liveness.py`, `src/agent/platform/hooks/builtins/realtime_stream.py` | (已知项 #115 纳入本 unit) **缺口**：liveness 心跳 bash 专属(仅 bash 发 phase)，其它长耗时 to_thread 工具(如 web_fetch)不产 run_heartbeat、超 120s 仍被 watchdog 误杀。`[reviewer]` 一个非 bash 的长耗时工具(>120s)执行期间不被 watchdog 误杀、会话正常完成。`[worker]` executor 在 `to_thread(tool.run)` 外包 await-bound 通用 ticker、周期发 `phase:executing` 的单测；ticker 随 to_thread 完/异常/取消即停(不空转)的单测；经 build_kernel 真实 wiring 跑"非 bash 长工具 → kernel.stream 真冒 run_heartbeat"的端到端集成测试(DONE 硬闸)；bash 自身 phase:running 仍照旧、B1 端到端守卫 2 passed 不破。 |
+| bugfix-417-M7 | foreground-bash-registry-split | M5 | E | `src/agent/core/background_tasks/foreground_registry.py`(新建), `src/agent/core/background_tasks/registry.py`(删前台补丁), `src/agent/platform/tools/builtins/bash.py`(前台退出后台 registry + auto-bg 移交), `src/agent/platform/background_tasks/wiring.py`(装配 ForegroundExecutionRegistry), `src/agent/sdk/kernel.py`(foreground_stopper 注入改向) | (C 升级，round-6 验收根因升级) **缺口**：前台 bash 寄生 `BackgroundTaskRegistry`，靠 `notified`/`_foreground_task_ids`/auto-bg flag 三补丁伪装"前台"，`on_fail` 漏 `notified=True` 致前台超时/失败**双通道**（`tool_result` + `<task-notification>`）。决策 12 根治：前台 bash 改登记到新 `ForegroundExecutionRegistry`（只持 killpg 句柄 + session 映射），只在 auto-background 真转后台那一刻显式移交进 `BackgroundTaskRegistry`。`[reviewer]` 覆盖本 unit 既有 Req B/C/D + Req A 不回归：① 前台命令超时/失败/正常完成，IM 工具卡只出**一次**结果、**不再**额外冒后台完成通知（双通道消失）；② 前台 `sleep 60` → `/stop` 子进程被杀(无孤儿) + 徽标「已中断」 + 会话自愈（M5 行为不回归）；③ `run_in_background` 命令 + 自动通知 + `task_stop` 仍正常（真后台路径不回归）；④ 前台命令超 budget auto-background 后，**仍**收到一次完成 `<task-notification>`（移交后通知正确）。`[worker]` 新建 `ForegroundExecutionRegistry`（`register`/`unregister`/`stop_for_session(session_id)->bool`，core 层、不依赖 platform）的单测；`_run_foreground` 不再 `register_bash`/`set_stop_handle` 进后台 registry、改登记 foreground registry 的单测；auto-background 移交（单锁原子：unregister→register_bash→set_stop_handle→切回调，notified 默认 False）+ 移交与回调竞态（预算耗尽瞬间命令完成→不丢不双投）单测；`BackgroundTaskRegistry` 删 `_foreground_task_ids`/`set_stop_handle(foreground=)`/三处 discard/`stop_foreground_for_session` 后全量单测改打新路径仍绿；`kernel.py` foreground_stopper 注入改向 `ForegroundExecutionRegistry.stop_for_session`、`runs/registry.py` 零改动的接线单测。**端到端守卫（DONE 硬闸）：经真实 build_kernel wiring 跑前台 bash 超时，断言 `kernel.stream` 只出工具结果、不投 `<task-notification>`；跑 `run_in_background` 命令断言仍投 `<task-notification>`。** CLI/PA 双产品 live 复验（前台超时单通道 + /stop 中断 + 后台任务通知）通过方可 DONE。 |
 
 ```mermaid
 graph LR
   M1[M1 lock-force-cancel] --> M3[M3 watchdog-liveness]
   M2[M2 bash-process-group]
+  M3 --> M4[M4 unify-bash-engine]
+  M4 --> M5[M5 interrupt-reap-foreground]
+  M5 --> M7[M7 foreground-bash-registry-split]
+  M3 --> M6[M6 generic-tool-liveness]
 ```
 
 > **M3 推进顺序建议**（reviewer Rec #3，给 orchestrator/worker 参考，不预填 tasks.md）：M3 跨 5 文件是本 unit 最重的内聚垂直切片（心跳 liveness 端到端），**不可横切拆分**。建议 roadpoint 顺序：R1 工具心跳解缓冲（tools/registry 实时 dispatch）→ R2 `realtime_stream` 加 publisher → R3 runtime LLM-await + permission await-bound ticker → R4 两个 watchdog idle 重定义 + 失败态区分 + 移除两侧 permission 特例。orchestrator 派发时留足 worker 窗口。

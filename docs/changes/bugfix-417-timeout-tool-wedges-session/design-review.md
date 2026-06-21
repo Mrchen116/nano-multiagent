@@ -1,6 +1,20 @@
 # Design 评审:bugfix-417
 
-**结论(第三轮 / 最新)**:Approved(delta-spec 维度)
+## 第四轮(A 升级 / M4 bash 引擎统一)— 根因后架构复审
+
+**结论**:方向根本最优,无架构性遗漏;1 条 WARNING 够格阻断(补端到端自动化测试)。
+
+根因亲验属实:`wiring.py:61 bash_runner=ShellRunner` + `kernel.py:417` 无条件 wire → 生产恒走 ShellRunner;M2 的 killpg/start_new_session 全加在 `bash_runner.py`(BashRunner=死路,仅 wiring=None 单测命中);活引擎 ShellRunner 自身 `Popen` 无 start_new_session、`process.kill()` 只杀直接子、`_pump` 阻塞 read、`_stop_task` 用 terminate——M2/M3 能力一项没有。决策 8(硬化 ShellRunner 为唯一引擎+删死路+单测改打 ShellRunner)是架构最优、根除"两引擎一活一死且测死引擎"的系统病根;决策 9(最小侵入 pump)风险取舍正确;M4 no-spec-delta 判定正确。
+
+- **[WARNING] M4 缺"经 build_kernel 的端到端自动化测试"**。本事故本质=单测绿/live 红。删死路解决了"测不存在的路径",但心跳链 ShellRunner→ctx.emit→tools/registry executor→realtime_stream publisher→watchdog 横跨 5 层,ShellRunner 孤立单测证明不了 run_heartbeat 真到 watchdog(B1 失败正是此)。现 M4 `[worker]` 把守卫押在"双产品 live 人手复验"。对一个"自动化测试集体撒谎"的 bug,人手 live 验做唯一端到端闸 → B1/C1 会静默复发。**修法**:M4 `[worker]` 加自动化集成测试——经 build_kernel 真实 wiring 跑静默长命令断言 stream 冒 run_heartbeat、跑 bash timeout 断言 tool_call.reason=tool_timeout。
+- **[WARNING] 统一后 ShellRunner 是唯一 bash 引擎却仍躺 `platform/background_tasks/`**——孕育本 bug 的"哪个是真引擎"混淆温床。建议 M4 顺手重定位/改名或 docstring 明写"前台+后台唯一引擎,bash_runner.py 已删"。
+- **[Rec] M2 已成废 milestone**(代码被 M4 删、Req D 当初验在死路上),milestone 表建议标 "superseded by M4"。
+- **[Rec] 跨线程 emit**:`_run_foreground` 在 to_thread 工作线程发心跳须复用 M3 的 run_coroutine_threadsafe 桥,派发包提示 worker 别另起新路。
+- **[Rec] background 路径 liveness 显式划界**:后台 bash 不持锁/不被 watchdog 等待,注明无需 run-liveness 心跳,免 worker 过度构建。
+
+---
+
+**结论(第三轮)**:Approved(delta-spec 维度)
 
 > 第三轮复审:作者已把三份 delta 全面重做。逐条核对 canonical:
 > - ✅ gateway 两条 CRITICAL 已解——改为 MODIFIED 精确锚定 canonical「入站消息按四步决策路由…」(:28)与「run 进入终态时对在飞 tool_call 按原因收口」(:391),原 Scenario 全保留,watchdog-reap 失败态正确从「执行超时」重映射为「已中断」。

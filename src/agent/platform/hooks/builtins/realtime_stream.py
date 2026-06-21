@@ -107,6 +107,33 @@ def setup(hooks):  # noqa: ANN001, ANN201
         }
         ctx.publish_session_event(event="tool_end", data=payload)
 
+    async def on_tool_execution_update(event, ctx):  # noqa: ANN001
+        # bugfix-417-M3 R2: project the real-time tool-execution heartbeat (R1
+        # un-buffered the bash phase:running ticks) into a `run_heartbeat` session
+        # event. This is the first of three liveness sources that share one event type
+        # on kernel.stream (tool exec / LLM-await / parked-on-permission). It is pure
+        # liveness — both watchdogs reset on any stream event, so the front-end may
+        # ignore its content. Only ticks carrying a phase publish; the authoritative
+        # final update (carries ``output``, no phase) is not a heartbeat (avoids noise).
+        if not isinstance(event, Mapping):
+            return
+        phase = event.get("phase")
+        if not isinstance(phase, str) or not phase:
+            return
+        run_id = _extract_run_id(event)
+        if run_id is None:
+            return
+        hb_payload: dict[str, Any] = {
+            "event": "run_heartbeat",
+            "run_id": run_id,
+            "source": "tool",
+            "phase": phase,
+        }
+        elapsed_ms = event.get("elapsed_ms")
+        if isinstance(elapsed_ms, int):
+            hb_payload["elapsed_ms"] = elapsed_ms
+        ctx.publish_session_event(event="run_heartbeat", data=hb_payload)
+
     async def on_turn_end(event, ctx):  # noqa: ANN001
         if not isinstance(event, Mapping):
             return
@@ -130,6 +157,12 @@ def setup(hooks):  # noqa: ANN001, ANN201
 
     hooks.on("tool_call", on_tool_call, priority=1000, timeout_ms=500)
     hooks.on("tool_result", on_tool_result, priority=1000, timeout_ms=500)
+    hooks.on(
+        "tool_execution_update",
+        on_tool_execution_update,
+        priority=1000,
+        timeout_ms=500,
+    )
     hooks.on("message_end", on_message_end, priority=1000, timeout_ms=500)
     hooks.on("turn_end", on_turn_end, priority=1000, timeout_ms=500)
 

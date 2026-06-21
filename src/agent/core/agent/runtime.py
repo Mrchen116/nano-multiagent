@@ -1,11 +1,16 @@
 """High-level runtime orchestration over sessions, hooks, loop, and compaction."""
 
 import asyncio
+import contextlib
 import logging
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, Sequence
 
+from agent.core.agent.liveness import (
+    _broker_publish_adapter,
+    _emit_liveness_heartbeats,
+)
 from agent.core.errors import ModelError
 from agent.core.ids import make_message_id, make_turn_id
 from agent.core.types import (
@@ -20,7 +25,10 @@ from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
-from agent.core.session.jsonl_store import SessionConfig
+from agent.core.session.jsonl_store import (
+    USER_INTERRUPT_RECOVERY_CONTENT,
+    SessionConfig,
+)
 from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
 from agent.core.skills import SkillMetadata, resolve_available_skills
@@ -710,6 +718,7 @@ class AgentRuntime:
                 workspace_root=session_workspace_root,
                 parent_session_id=parent_session_id,
                 cancelled=_run_cancelled,
+                user_interrupt=controller is not None and controller.is_user_interrupt,
             )
 
         turn_result = build_turn_result(session_id, turn_id, all_messages)
@@ -1042,6 +1051,7 @@ class AgentRuntime:
         workspace_root: Path | None,
         parent_session_id: str | None,
         cancelled: bool,
+        user_interrupt: bool = False,
     ) -> None:
         """Close any tool_call left open when a run ends (bugfix-410-M2 R1).
 
@@ -1109,6 +1119,15 @@ class AgentRuntime:
             # non-cooperative termination → synthesize interrupted.
             reason = "interrupted"
 
+        # bugfix-417-M5 (#114): decouple the recovery CONTENT from the badge reason.
+        # An explicit user /stop / CLI Ctrl-C backfills the CC-identical
+        # "[Request interrupted by user for tool use]" — the same content both the
+        # model reads in the transcript (so it stops and waits, not retries/apologises)
+        # and the user sees on the IM tool card. A system interrupt (watchdog reap /
+        # crash) keeps the generic "[interrupted]" — never falsely attributing it to
+        # the user. The badge stays "已中断" in both cases (reason unchanged).
+        content = USER_INTERRUPT_RECOVERY_CONTENT if user_interrupt else None
+
         # Step 1 — load-bearing, synchronous, must run before any await.
         self.invalidate_session_cache(session_id)
 
@@ -1120,6 +1139,7 @@ class AgentRuntime:
                     tool_call_id=cid,
                     tool_name=name,
                     reason=reason,
+                    content=content,
                     workspace_root=workspace_root,
                     parent_session_id=parent_session_id,
                 )
@@ -1431,6 +1451,30 @@ class AgentRuntime:
                         },
                     )
                 response: Any = None
+                # bugfix-417-M3 R3: parking on a human permission decision is the third
+                # alive-but-quiet window — it can legitimately last minutes with no
+                # business event. Run an await-bound liveness ticker so both watchdogs see
+                # periodic run_heartbeat (same event type as tool/LLM liveness) and never
+                # reap a run that is merely waiting for the user (decision 4). The ticker
+                # is torn down in the finally below, so a post-decision stall — or a
+                # Gateway/kernel crash that stops the heartbeat — is still reaped normally.
+                _perm_publish = _broker_publish_adapter(publisher_for_broker)
+                # Only spawn the ticker when it can actually emit (publisher + run_id
+                # present). Without this guard a CLI run (no event hub → publish None /
+                # run_id None) would build a heartbeat task that just parks forever —
+                # mirrors liveness_ticker's no-op-when-missing contract (bugfix-417-M4
+                # fix-r1 cleanup) without re-indenting this whole permission-wait block.
+                _perm_heartbeat: asyncio.Task[None] | None = (
+                    asyncio.create_task(
+                        _emit_liveness_heartbeats(
+                            publish=_perm_publish,
+                            run_id=run_id_for_broker,
+                            source="permission",
+                        )
+                    )
+                    if _perm_publish is not None and run_id_for_broker
+                    else None
+                )
                 try:
                     if can_use_tool is not None:
                         # Race can_use_tool callback against broker future.
@@ -1531,6 +1575,13 @@ class AgentRuntime:
                     else:
                         response = await future
                 finally:
+                    # bugfix-417-M3 R3: stop the liveness ticker the instant the wait
+                    # ends (resolve / deny / cancel), so the heartbeat proves only the
+                    # active wait — never "the Task still exists" past the decision.
+                    if _perm_heartbeat is not None:
+                        _perm_heartbeat.cancel()
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await _perm_heartbeat
                     # Emit 'permission_resolved' SSE event so IM card updates to
                     # resolved state.  Use the local `response` variable rather than
                     # re-reading future.done(): call_soon_threadsafe is asynchronous,

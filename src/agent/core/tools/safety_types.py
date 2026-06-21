@@ -1,8 +1,9 @@
 """Core-local structural protocols for tool safety dependencies.
 
 After M6 (bugfix-355): BackgroundCommandHandle, CommandExecution, and bash-
-specific method signatures removed from ToolSafetyLike. Bash execution types
-now live in agent.platform.tools.builtins.bash_runner.
+specific method signatures removed from ToolSafetyLike. Bash execution now
+lives in agent.platform.background_tasks.shell_runner.ShellRunner (the sole bash
+engine after bugfix-417-M4 deleted the BashRunner dead path).
 """
 
 from pathlib import Path
@@ -19,7 +20,7 @@ class ToolSafetyLike(Protocol):
     After M6 (bugfix-355): bash-specific methods (check_command_policy,
     enforce_command_policy, run_command, start_command_background) and the
     read-allowlist method (resolve_read_path) have been removed. Bash policy
-    lives in bash_policy.py; execution lives in bash_runner.py.
+    lives in bash_policy.py; execution lives in ShellRunner.
     """
 
     repo_root: Path

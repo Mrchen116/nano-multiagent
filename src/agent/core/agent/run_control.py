@@ -25,14 +25,28 @@ class RunController:
 
     cancel_event: threading.Event = field(default_factory=threading.Event)
     abort_event: threading.Event = field(default_factory=threading.Event)
+    # Set when the interrupt was initiated by the user (/stop, CLI Ctrl-C) rather
+    # than by a system watchdog / crash. Distinguishes the orphaned tool_call
+    # recovery content: user → "[Request interrupted by user for tool use]"
+    # (CC-identical, so the model knows to stop and wait), system → "[interrupted]"
+    # (bugfix-417-M5, #114). Badge stays "已中断" in both cases.
+    user_interrupt_event: threading.Event = field(default_factory=threading.Event)
     _pending: queue.SimpleQueue = field(default_factory=queue.SimpleQueue)
 
     def cancel(self) -> None:
         """Signal pre-turn cancellation (run not yet started). Idempotent."""
         self.cancel_event.set()
 
-    def abort(self) -> None:
-        """Signal force interrupt (run is executing). Idempotent."""
+    def abort(self, *, user_initiated: bool = False) -> None:
+        """Signal force interrupt (run is executing). Idempotent.
+
+        Args:
+            user_initiated: True when triggered by an explicit user /stop or
+                CLI Ctrl-C, so the recovery content attributes the interrupt to
+                the user (bugfix-417-M5, #114).
+        """
+        if user_initiated:
+            self.user_interrupt_event.set()
         self.abort_event.set()
 
     def enqueue_message(self, message: "LLMMessage") -> None:
@@ -55,3 +69,8 @@ class RunController:
     @property
     def is_aborted(self) -> bool:
         return self.abort_event.is_set()
+
+    @property
+    def is_user_interrupt(self) -> bool:
+        """True when the abort was initiated by an explicit user /stop / Ctrl-C."""
+        return self.user_interrupt_event.is_set()

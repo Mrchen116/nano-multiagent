@@ -40,6 +40,7 @@ def test_run_command_stream_removed_from_tool_safety() -> None:
     safety = ToolSafety(repo_root=Path("/tmp"), config=ToolSafetyConfig())
     assert not hasattr(safety, "run_command_stream"), (
         "run_command_stream was removed from ToolSafety in M6 (bugfix-355). "
-        "Foreground execution is now in BashRunner. "
-        "See tests/unit/agent/platform/tools/builtins/test_bash_runner.py for coverage."
+        "Foreground execution is now in ShellRunner (bugfix-417-M4 unified the bash "
+        "engine and deleted the BashRunner dead path). "
+        "See tests/unit/agent/background_tasks/test_platform_adapters.py for coverage."
     )

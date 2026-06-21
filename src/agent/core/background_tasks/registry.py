@@ -195,6 +195,14 @@ class BackgroundTaskRegistry:
     # Stop handles
     # ------------------------------------------------------------------
     def set_stop_handle(self, task_id: str, handle: "_StopHandle") -> None:
+        """Register a background task's stop handle (killpg via the runner stopper).
+
+        bugfix-417-M7 (decision 12): foreground bash no longer registers here — its
+        killpg handle lives in ForegroundExecutionRegistry. This registry now only
+        holds genuine background tasks (run_in_background, and foreground commands
+        after auto-background hand-off), so the former ``foreground`` flag and the
+        ``_foreground_task_ids`` set are gone.
+        """
         with self._lock:
             self._stop_handles[task_id] = handle
 

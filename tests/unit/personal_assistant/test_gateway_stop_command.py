@@ -218,6 +218,51 @@ def test_stop_command_with_no_active_run_returns_friendly_message(
     assert stop_text_calls == []
 
 
+def test_stop_ack_delivered_via_bg_reply_sender_when_wired(tmp_path: Path) -> None:
+    """bugfix-417-fix2 (#114, Issue 2): when the live delivery sender is wired, the
+    /stop ack must go through _bg_reply_sender (the real send_agent_message WS path),
+    NOT the no-op outbound_router.send_text — otherwise the friendly message never
+    reaches IM (journey 13)."""
+    agents = _agents(tmp_path)
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    kernel_client = _FakeKernel()
+    pipeline = InboundPipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+
+    delivered: list[tuple[str, str]] = []
+
+    async def _fake_bg_sender(text, reply_context, from_session_id):
+        delivered.append((text, from_session_id))
+
+    pipeline._bg_reply_sender = _fake_bg_sender
+
+    inbound = InboundMessage(
+        channel_name="web",
+        text="/stop",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.reply_text == "当前没有正在执行的操作。"
+    # Delivered through the live sender, not the no-op router.
+    assert len(delivered) == 1
+    assert delivered[0][0] == "当前没有正在执行的操作。"
+    assert delivered[0][1].startswith("agent-a|tool_call:") and delivered[0][
+        1
+    ].endswith(":stop-noop")
+    assert channel.sent == [], "must NOT use the no-op send_text when sender is wired"
+
+
 def test_stop_command_interrupts_active_run_and_appends_message(tmp_path: Path) -> None:
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")

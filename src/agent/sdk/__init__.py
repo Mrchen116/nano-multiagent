@@ -35,6 +35,7 @@ from .prompt import PromptSlots, PromptText
 from agent.core.tools.presentation import ToolPresentationEvent, ToolPresenter
 from agent.core.runs.origin import RunOrigin
 from agent.core.runs.registry import TERMINAL_RUN_STATUSES
+from agent.core.session.jsonl_store import USER_INTERRUPT_RECOVERY_CONTENT
 from agent.platform.permissions.broker import PermissionDecision
 
 __all__ = [
@@ -65,4 +66,6 @@ __all__ = [
     # Run origin and terminal statuses (C1: core-owned, re-export, 闸2 豁免)
     "RunOrigin",
     "TERMINAL_RUN_STATUSES",
+    # User-interrupt recovery content (bugfix-417-M5: core-owned, re-export)
+    "USER_INTERRUPT_RECOVERY_CONTENT",
 ]

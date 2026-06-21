@@ -77,10 +77,15 @@ export function ToolCallsPanel({ toolCalls }: ToolCallsPanelProps) {
 
 // bugfix-410-M2 (#97): map a sidecar reason to its i18n badge label key. Unknown
 // reasons fall through to no badge (status icon alone) rather than rendering a raw code.
+// bugfix-417-M3 R4 (decision 5): tool_timeout (工具自身 deadline) → "执行超时";
+// stalled (watchdog liveness 收尸) → "已中断". The legacy timed_out/interrupted keys are
+// kept for rows persisted before this change.
 const REASON_LABEL_KEYS: Record<string, string> = {
   denied: "chat.messagePane.toolReasonDenied",
   timed_out: "chat.messagePane.toolReasonTimedOut",
+  tool_timeout: "chat.messagePane.toolReasonTimedOut",
   interrupted: "chat.messagePane.toolReasonInterrupted",
+  stalled: "chat.messagePane.toolReasonInterrupted",
 };
 
 function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpen?: boolean }) {

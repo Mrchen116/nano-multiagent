@@ -420,6 +420,20 @@ def _build_kernel_base(
         runs_registry=runs_registry,
     )
 
+    # bugfix-417-M5 (#114): wire the foreground-tool subprocess reaper so
+    # kernel.interrupt / kernel.cancel kill an in-flight foreground bash subprocess
+    # tree (and force-cancel the parked carrier Task) instead of leaving an orphan.
+    # Injected post-hoc because the wiring is built after the registry (it needs the
+    # registry's event loop). The core registry only sees the ForegroundStopper
+    # port — it never imports the platform BackgroundTaskRegistry (core stays
+    # platform-free). bugfix-417-M7 (decision 12): the port now points at the narrow
+    # ForegroundExecutionRegistry (foreground bash no longer lives in
+    # BackgroundTaskRegistry); same (session_id) -> bool signature, runs/registry.py
+    # interrupt/cancel logic unchanged.
+    runs_registry.set_foreground_stopper(
+        background_task_wiring.foreground_registry.stop_for_session
+    )
+
     # Tool catalog: built-ins + consumer native tool objects (决策 2). The native
     # objects satisfy the SDK Tool Protocol and are registered into the registry
     # directly — no _product_root() directory scan.
@@ -959,6 +973,10 @@ class Kernel:
     def cancel(self, run_id: str) -> RunInfo | None:
         """Cancel a queued or running run by id.
 
+        The registry force-cancels the carrier Task (releasing the session lock);
+        here we also cancel any permission requests this run is still parked on so
+        the broker future does not leak after the run is gone (bugfix-417-M1, #110).
+
         Args:
             run_id: Run to cancel.
 
@@ -966,7 +984,10 @@ class Kernel:
             Updated RunInfo, or None if run not found.
         """
         record = self._c.runs_registry.cancel(run_id)
-        return _to_run_info(record) if record is not None else None
+        if record is None:
+            return None
+        self._c.permission_broker.cancel_all_pending(run_id=run_id)
+        return _to_run_info(record)
 
     def get_run(self, run_id: str) -> RunInfo | None:
         """Fetch the current state of a run.

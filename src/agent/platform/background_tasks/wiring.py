@@ -15,6 +15,7 @@ from agent.core.background_tasks.interfaces import (
     BackgroundTaskStore,
     Clock,
 )
+from agent.core.background_tasks.foreground_registry import ForegroundExecutionRegistry
 from agent.core.background_tasks.models import BackgroundTaskRecord
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 from agent.core.runs.origin import RunOrigin
@@ -31,6 +32,7 @@ class BackgroundTaskWiring:
     """Holds all wired background-task components for injection into tools."""
 
     registry: BackgroundTaskRegistry
+    foreground_registry: ForegroundExecutionRegistry
     store: BackgroundTaskStore
     output: BackgroundTaskOutput
     bash_runner: BackgroundBashRunner
@@ -71,6 +73,11 @@ def wire_background_tasks(
     )
 
     registry = BackgroundTaskRegistry(store=store, clock=clock)
+    # bugfix-417-M7 (decision 12): foreground bash registers its killpg stopper here,
+    # not in BackgroundTaskRegistry — so it never becomes a background task and never
+    # emits a <task-notification>. The kernel injects foreground_registry.stop_for_session
+    # into RunsRegistry as the foreground stopper port.
+    foreground_registry = ForegroundExecutionRegistry()
 
     # Wire notification delivery if RunsRegistry is available.
     if runs_registry is not None:
@@ -78,6 +85,7 @@ def wire_background_tasks(
 
     return BackgroundTaskWiring(
         registry=registry,
+        foreground_registry=foreground_registry,
         store=store,
         output=output,
         bash_runner=bash_runner,
