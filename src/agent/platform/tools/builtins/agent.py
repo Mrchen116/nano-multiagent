@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Mapping
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Any
 
@@ -109,9 +109,6 @@ class AgentTool(WiringMixin):
     ) -> None:
         self._runtime = runtime
         self._wiring = wiring
-        self._executor = ThreadPoolExecutor(
-            max_workers=4, thread_name_prefix="nano-agent"
-        )
 
     def bind_runtime(self, runtime: Any | None) -> None:
         """Bind runtime after bootstrap."""
@@ -231,14 +228,22 @@ class AgentTool(WiringMixin):
             runtime, agent_session_id, ctx.session_id, ctx.cwd
         )
 
-        # Submit worker to executor
-        future = self._executor.submit(
-            _run_subagent_turn_sync,
-            runtime=runtime,
-            session_id=agent_session_id,
-            prompt=prompt,
-            parent_session_id=ctx.session_id or "",
-            workspace_root=ctx.cwd,
+        # bugfix-418: submit the bare runtime.run(...) coroutine onto the kernel's
+        # dedicated event loop (the same loop that created AgentRuntime's per-session
+        # locks and the shared httpx client) instead of a private ThreadPoolExecutor
+        # running asyncio.run on a transient loop. This eliminates the cross-loop
+        # fault and isolates the subagent as an independent Task — its failure stays
+        # in the returned future and cannot kill the loop or sibling runs. Bare coro
+        # (no completion callback) means an in-budget result is never re-delivered as
+        # a <task-notification> (bugfix-417 invariant; see decision 2).
+        future = wiring.subagent_runner.submit_foreground(
+            runtime.run(
+                agent_session_id,
+                [{"type": "text", "text": prompt}],
+                stream=False,
+                parent_session_id=ctx.session_id or "",
+                workspace_root=ctx.cwd,
+            )
         )
 
         try:
@@ -450,8 +455,6 @@ class AgentTool(WiringMixin):
         description: str,
         args: Mapping[str, Any],
     ) -> str:
-        import asyncio
-
         load_skills = _normalize_skill_names(
             args.get("load_skills"), tool_name=self.name
         )
@@ -606,29 +609,6 @@ class AgentTool(WiringMixin):
 # ------------------------------------------------------------------
 # Worker helpers
 # ------------------------------------------------------------------
-
-
-def _run_subagent_turn_sync(
-    runtime: Any,
-    session_id: str,
-    prompt: str,
-    parent_session_id: str,
-    workspace_root: Path | None = None,
-) -> TurnResult:
-    """Run one subagent turn synchronously (called in executor thread).
-
-    ``workspace_root`` is the parent turn's ctx.cwd (also the subagent's own
-    workspace_root), threaded so the stateless store can locate the JSONL.
-    """
-    return asyncio.run(
-        runtime.run(
-            session_id,
-            [{"type": "text", "text": prompt}],
-            stream=False,
-            parent_session_id=parent_session_id,
-            workspace_root=workspace_root,
-        )
-    )
 
 
 def _start_registry_watcher(

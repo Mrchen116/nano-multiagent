@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from concurrent.futures import Future
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Coroutine
 
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.background_tasks.interfaces import (
@@ -225,6 +226,12 @@ class _NoOpSubagentRunner(BackgroundSubagentRunner):
     ) -> BackgroundTaskStopper:
         on_fail(task_id=agent_session_id, error="subagent runner is not configured")
         return _NoOpStopper()
+
+    def submit_foreground(self, coro: "Coroutine[Any, Any, Any]") -> "Future":
+        coro.close()
+        future: "Future" = Future()
+        future.set_exception(RuntimeError("subagent runner is not configured"))
+        return future
 
 
 class _NoOpStopper:
