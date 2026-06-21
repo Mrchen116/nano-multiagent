@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import threading
 from collections.abc import Mapping
 from concurrent.futures import TimeoutError as FutureTimeoutError
@@ -469,23 +468,20 @@ class AgentTool(WiringMixin):
             else None,
         }
         # bugfix-418 (decision 1, applied to the creation path): like the turn
-        # path, do NOT run the shared runtime on a transient loop via bare
-        # asyncio.run. Route create_session onto the kernel's dedicated loop so
-        # any loop-bound primitive a session_start hook might touch stays on the
-        # loop that owns it. Falls back to bare asyncio.run only when no runner is
-        # wired (pure-library assembly without a RunsRegistry), where there is no
-        # shared dedicated loop to collide with.
+        # path, run create_session on the kernel's dedicated loop via the runner —
+        # never on a transient loop via bare asyncio.run. Submit directly (no
+        # capability probe, no fallback): when no real runner is wired, the
+        # turn step would raise anyway, so a create that silently "succeeds" via
+        # asyncio.run would only re-open the cross-loop back door. Letting
+        # _NoOpSubagentRunner.submit_foreground raise keeps the failure loud.
+        wiring = self._require_wiring()
         create_coro = runtime.create_session(
             workspace_root=effective_workspace,
             skills=load_skills if load_skills else None,
             metadata=metadata,
             parent_session_id=ctx.session_id,
         )
-        runner = self._wiring.subagent_runner if self._wiring is not None else None
-        if runner is not None and hasattr(runner, "submit_foreground"):
-            session = runner.submit_foreground(create_coro).result()
-        else:
-            session = asyncio.run(create_coro)
+        session = wiring.subagent_runner.submit_foreground(create_coro).result()
         return str(session.session_id)
 
     def _resolve_output_file(

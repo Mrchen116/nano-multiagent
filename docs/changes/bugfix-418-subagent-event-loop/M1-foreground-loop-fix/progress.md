@@ -57,6 +57,30 @@
 - Rollback: `git revert` 本 commit 回到「create_session 裸 asyncio.run」（已坐实当前不崩，纯架构加固）。
 - Commits: `fix(bugfix-418/M1/R3)`（红测+实现+stub 修正自包含，§FL 单 commit 快车道）
 
+## R4 — reviewer 反馈循环 round1 小修（删静默旁路 + 补 W1 通知窗口单测）
+
+三道闸（verifier / reviewer / code-review）全过，仅两条小修，§FL 单 commit 快车道。
+
+### 改动1：删 _create_subagent_session 的 hasattr 守卫 + asyncio.run fallback（S1 收敛，7 个 code-review finder）
+
+- Context: R3 给 _create_subagent_session 留了 `if hasattr(runner,'submit_foreground'): submit_foreground else: asyncio.run` 的探测+fallback。turn 路径(:239)本就直调无守卫——两路径不一致；且该 fallback 是**静默旁路**：没有真 runner 时 turn 步骤本就会 raise，create 经 asyncio.run「成功」毫无意义，还把跨循环旧路径偷偷留了条后门。
+- Decision: 改为与 turn 路径一致的**直调**——`wiring = self._require_wiring()` → `wiring.subagent_runner.submit_foreground(create_coro).result()`，不探测、不 fallback。让 `_NoOpSubagentRunner.submit_foreground` 的 RuntimeError 显式冒泡（fail loud）。这消除了本文件**最后一个**裸 asyncio.run。删了模块顶层不再用到的 `import asyncio`。
+- 边界遵守: **只动 agent.py 这一处**。`RuntimeRunner.submit_foreground` 内部的 no-loop 防御分支(runtime_runner.py:127-133)**保留**——它与既有 start() 的 no-loop 分支对称，是 RuntimeRunner 自身防御，未动。
+- Tests: 更新 `test_create_subagent_session_routes_through_dedicated_loop`（断言直调，docstring 注明无 hasattr 分支）；新增 `test_create_subagent_session_fails_loud_without_runner`（无 runner→wire_background_tasks 给 _NoOpSubagentRunner→tool.run 前台 raise RuntimeError "not configured"，钉死 fail-loud、杜绝静默 asyncio.run）。
+
+### 改动2：补 W1 单测——超时 auto-background 的通知投递窗口
+
+- Context: 既有 `test_foreground_auto_backgrounds_on_timeout` 只断言 hand-off 时 status=async_launched，未覆盖 design 风险段承诺的「watcher 在 future 完成后调 registry.complete → 终态转换 → 投递 task-notification」。
+- Decision: 新增 `test_foreground_auto_background_watcher_completes_registry`——runtime.run 在 budget(0.1s) 后才 resolve(0.3s) → 进 auto-background → 轮询断言 registry 记录到达 `COMPLETED` 且 result_text 为子 agent 输出。registry.complete 正是 notifying store wrapper 包的终态转换，故覆盖通知投递窗口。
+- Rationale: 当初漏 bug 往往因没测到该窗口；以「记录到达 COMPLETED 携带结果」断言 watcher 真闭环，比只测 hand-off 强。
+
+### 验证
+
+- `pytest tests/ -m "not e2e"` → **2713 passed, 2 skipped**（较 R3 +2 = fail-loud + W1 两测）。
+- live e2e `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 pytest tests/e2e/test_subagent_foreground_e2e.py` → **2 passed**——删 fallback 后前台 subagent 真 LLM 路径 + 失败隔离仍成立（等价 reviewer 旅程1/3）。
+- ruff check src/ tests/ → All checks passed；`-W error::RuntimeWarning` 无 coroutine 泄漏。
+- Commits: `fix(bugfix-418/M1/R4)`（两改动同文件群自包含，§FL 单 commit；省略 §0.4 三提交，理由：reviewer 反馈循环小修、装得下单 commit）。
+
 ## out-of-unit 发现（未顺手修，§0.8）
 
 - `tests/e2e/test_agent_runtime_e2e.py` 已 stale：`create_llm_client()` 签名变更为 `create_llm_client(*, config)` 且返回的 `RetryingLLMClient` 不再支持 `with` 上下文管理器，该既有 live e2e 现会 `TypeError`。与本 bug 无关（pre-existing）。已立 issue #121，不在本 unit 范围内修。
