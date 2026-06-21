@@ -68,6 +68,29 @@ class _FakeRunner:
         threading.Thread(target=_worker, daemon=True).start()
         return _FakeStopper()
 
+    def submit_foreground(self, coro):
+        """Run the bare runtime.run(...) coroutine and return a Future.
+
+        Mirrors the real RuntimeRunner.submit_foreground contract (bugfix-418):
+        the foreground path goes through this method instead of bare asyncio.run
+        inside AgentTool, so the subagent turn runs on the kernel's dedicated
+        loop rather than a transient one.
+        """
+        import asyncio
+        import threading
+        from concurrent.futures import Future
+
+        future: Future = Future()
+
+        def _runner():
+            try:
+                future.set_result(asyncio.run(coro))
+            except BaseException as exc:  # noqa: BLE001
+                future.set_exception(exc)
+
+        threading.Thread(target=_runner, daemon=True).start()
+        return future
+
 
 async def _fake_create_session(*args, **kwargs):
     return _FakeSession("sess_123")
@@ -153,6 +176,44 @@ def test_foreground_completes_within_budget() -> None:
         )
         assert result["status"] == "completed"
         assert result["content"] == "sync result"
+
+
+def test_foreground_in_budget_does_not_register_subagent() -> None:
+    """bugfix-418 decision 2 / bugfix-417 invariant: in-budget foreground
+    completion must NOT register into BackgroundTaskRegistry — registration is
+    what would later emit a <task-notification>, so an in-budget call that both
+    returns inline AND notifies would be the double-channel regression.
+    """
+    tool = _make_tool(with_wiring=True)
+    tool._runtime.run = _fake_run_fast
+
+    registry = tool._wiring.registry
+    register_calls: list[str] = []
+    original_register = registry.register_subagent
+
+    def _spy_register(*args, **kwargs):
+        register_calls.append(kwargs.get("agent_id", "?"))
+        return original_register(*args, **kwargs)
+
+    registry.register_subagent = _spy_register  # type: ignore[method-assign]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        result = tool.run(
+            {
+                "description": "test task",
+                "prompt": "do something",
+                "subagent_type": "explore",
+                "load_skills": [],
+                "run_in_background": False,
+            },
+            ctx,
+        )
+        assert result["status"] == "completed"
+        assert register_calls == [], (
+            "in-budget foreground subagent must not register into the "
+            "background-task registry (would trigger a <task-notification>)"
+        )
 
 
 # ------------------------------------------------------------------
