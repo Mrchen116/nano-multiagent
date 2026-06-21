@@ -104,10 +104,10 @@ class EventHubLike(Protocol):
 class ForegroundStopper(Protocol):
     """Port for reaping a session's in-flight foreground tool subprocess tree.
 
-    Injected by the kernel (wired to BackgroundTaskRegistry.stop_foreground_for_session)
+    Injected by the kernel (wired to ForegroundExecutionRegistry.stop_for_session)
     so the core RunsRegistry can kill a run-blocking foreground tool on interrupt /
-    cancel without importing the platform layer (bugfix-417-M5, #114). Returns True
-    when an in-flight foreground tool existed and was stopped.
+    cancel without importing the platform layer (bugfix-417-M5, #114 / M7 decision 12).
+    Returns True when an in-flight foreground tool existed and was stopped.
     """
 
     def __call__(self, session_id: str) -> bool: ...
@@ -130,9 +130,9 @@ class RunsRegistry:
         self._hook_runner = hook_runner
         # Injected port (core stays platform-free): kills the in-flight foreground
         # tool's subprocess tree for a session and reports whether one existed.
-        # Wired by the kernel to BackgroundTaskRegistry.stop_foreground_for_session
-        # (bugfix-417-M5, #114). None → no foreground reap (degrades to the
-        # pre-existing cooperative-abort / force-cancel behaviour).
+        # Wired by the kernel to ForegroundExecutionRegistry.stop_for_session
+        # (bugfix-417-M5, #114 / M7 decision 12). None → no foreground reap (degrades
+        # to the pre-existing cooperative-abort / force-cancel behaviour).
         self._foreground_stopper = foreground_stopper
         self._lock = Lock()
         self._runs: dict[str, RunRecord] = {}
@@ -433,10 +433,10 @@ class RunsRegistry:
     def set_foreground_stopper(self, stopper: "ForegroundStopper | None") -> None:
         """Inject the foreground-tool subprocess reaper after construction.
 
-        The kernel wires the BackgroundTaskRegistry-backed stopper here because the
-        background-task wiring is built after this registry (it needs this
+        The kernel wires the ForegroundExecutionRegistry-backed stopper here because
+        the background-task wiring is built after this registry (it needs this
         registry's event loop), so the dependency is injected post-hoc rather than
-        through __init__ (bugfix-417-M5, #114).
+        through __init__ (bugfix-417-M5, #114 / M7 decision 12).
         """
         self._foreground_stopper = stopper
 

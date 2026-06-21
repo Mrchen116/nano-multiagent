@@ -394,7 +394,13 @@ class BashTool(WiringMixin):
         class _ForegroundStopper:
             def stop(self) -> None:
                 stopper.stop()  # killpg the subprocess tree (M4-hardened)
-                result_holder["status"] = "interrupted"
+                # Mutate result_holder under handoff_lock for the same reason
+                # on_complete/on_fail do: it is the single guard over "which terminal
+                # status wins". killpg stays outside the lock (no nested lock — it
+                # never takes handoff_lock — so no deadlock, and a blocking syscall is
+                # not held under the lock).
+                with handoff_lock:
+                    result_holder["status"] = "interrupted"
                 completed_event.set()
 
         # Register the killpg handle so interrupt/cancel (via

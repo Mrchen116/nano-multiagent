@@ -89,3 +89,22 @@ def test_unregister_unknown_session_is_safe() -> None:
     # No raise even when nothing was registered.
     reg.unregister(session_id="missing", stopper=stopper)
     assert reg.stop_for_session("missing") is False
+
+
+class _RaisingStopper:
+    def stop(self) -> None:
+        raise RuntimeError("killpg failed")
+
+
+def test_stop_for_session_failing_handle_does_not_strand_others() -> None:
+    """Fail-open per handle (code-review race#4): if one stopper raises, the session's
+    other in-flight foreground subprocesses must still be killed, and the session must
+    still report True (it HAD foreground tools → caller force-cancels the carrier)."""
+    reg = ForegroundExecutionRegistry()
+    raising = _RaisingStopper()
+    survivor = _RecordingStopper()
+    reg.register(session_id="s1", stopper=raising)
+    reg.register(session_id="s1", stopper=survivor)
+
+    assert reg.stop_for_session("s1") is True
+    assert survivor.stopped is True

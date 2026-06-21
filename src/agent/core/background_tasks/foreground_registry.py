@@ -20,6 +20,7 @@ from __future__ import annotations
 import threading
 
 from agent.core.background_tasks.interfaces import BackgroundTaskStopper
+from agent.core.observability.logger import log_error
 
 
 class ForegroundExecutionRegistry:
@@ -74,6 +75,17 @@ class ForegroundExecutionRegistry:
         """
         with self._lock:
             handles = list(self._stoppers.get(session_id, ()))
+        # Fail-open per handle: a single stopper raising must not strand the session's
+        # other in-flight foreground subprocesses (a partial /stop would leak a bash
+        # to the foreground budget). Log and continue; the session still counts as
+        # "had foreground tools" so the caller force-cancels the parked carrier Task.
         for handle in handles:
-            handle.stop()
+            try:
+                handle.stop()
+            except Exception as exc:  # noqa: BLE001
+                log_error(
+                    "foreground_stop_handle_failed",
+                    session_id=session_id,
+                    error=str(exc),
+                )
         return bool(handles)
