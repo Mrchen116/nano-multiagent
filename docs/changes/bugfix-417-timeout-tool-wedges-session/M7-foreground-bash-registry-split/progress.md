@@ -15,4 +15,19 @@
 - Rollback: revert R1 三 commit（plan 之后第一组）
 - Commits: C1=test 红, C2=feat 实现, C3=docs（本段）
 
+## R2 — bash.py 前台改登记 fg registry + auto-bg 显式移交
+
+- Context: 前台 bash 原 `register_bash`+`mark_running`+`set_stop_handle(foreground=True)` 进后台 registry，靠 `notified=is_foreground` + `result_holder["backgrounded"]` 推断「我其实是前台」。`on_fail` 漏补 `notified=True` → 前台超时/失败仍走 `notified=False` → `_NotifyingStore` 投 `<task-notification>` → 双通道（本 bug 直接触发点）。
+- Decision: `_run_foreground` 改登记 `wiring.foreground_registry`（只持 killpg 句柄）。引入 `handoff_lock` + `handoff_state{owner, terminal}`：on_complete/on_fail 以「当前 owner」为唯一判据投递——foreground 期只 set completed_event + result_holder（**不碰后台 registry**），hand-off 后才 `registry.complete/fail`（`notified` 默认 False，通知正确）。auto-bg 移交在 `handoff_lock` 内原子完成：若 `terminal` 已置（命令在最后一轮 poll 与取锁之间恰好完成）则放弃移交、按完成走；否则 `register_bash`→`mark_running`→`set_stop_handle(stopper)`→翻 `owner`→`foreground_registry.unregister`。wiring 装配 `ForegroundExecutionRegistry`，加入 `BackgroundTaskWiring`。
+- Rationale: 双通道在结构上不可能再发生——`<task-notification>` 只由 `BackgroundTaskRegistry._NotifyingStore` 投，而前台命令物理上不进它。移交/回调竞态用单锁 + 单一 owner 判据消解：完成回调与移交互斥，恰好命中边界时只有一方生效，结果不丢、不双投、不双终态。`_ForegroundStopper.stop()` 仍唤醒 waiter（M5 行为保留），但句柄现在挂在 fg registry。
+- Evidence:
+  - Tests: `tests/unit/agent/tools/test_bash_tool.py` + `test_foreground_registry.py` 22 passed（含：前台完成/失败后台 registry 零记录、interrupt 经 fg.stop_for_session 5s 内返回无线程泄漏、auto-bg 移交进后台 registry + fg 已注销 + notified False、移交/回调竞态不丢不双投）；`test_background_tasks.py` 32 passed（R3 删补丁前仍绿）
+  - Entry: 经 build_kernel 的端到端入口验证在 R4
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 端到端 DONE 硬闸在 R4
+  - Visual/Interaction: N/A
+- Rollback: revert R2 三 commit
+- Commits: C1=test 红, C2=feat 实现, C3=docs（本段）
+
 <!-- 每个 roadpoint 完成后实时追加。 -->
