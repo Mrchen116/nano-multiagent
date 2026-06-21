@@ -28,7 +28,7 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 11. **派发 reviewer 的 prompt 口径净化**。orchestrator 在派发包里**只许**透传 design.md 已有的"用户可观察"验收语,**严禁**手写"WS 帧必须有 X / API 必须返回 Y / 函数必须被调用"这类协议/接口/实现级标准——这会把 reviewer 推进 engineer 模式。详见 §5。
 12. **CI 绿了才退出,但不等 merge**——提 PR 后等远端 CI,红了走 fix 循环修到绿再交棒;merge 由人做(§7)。
 13. **派发必须后台运行**。Agent 工具派发 worker / reviewer / verifier 一律 `run_in_background: true`。前台(阻塞)派发会让本 skill 卡死在单个子 agent 上——无法并行(§0.6)、无法监控(§3.2),也无法回应开工报信 / 澄清(§3.1.1):前台子 agent 在返回最终结果前,orchestrator 不执行回合,收不到也回不了 `SendMessage`。
-14. **必须开 team 派发**。启动时先 `TeamCreate` 建一个 unit 专属 team(名字用 `unit-<unit_id>`),之后所有 Agent 派发都带 `team_name`。否则子 agent 结束后实例销毁,失败循环 / Fast-lane 复验 / PR 反馈处理(§6.FL / §7.5)就无法 `SendMessage` 续跑,只能新开实例丢上下文。
+14. **派发时给每个子 agent 稳定 `name`**。Agent 工具派发 worker / reviewer / verifier 时一律传一个稳定可寻址的 `name`(worker 用 `<milestone_id>`、reviewer 用 `<unit_id>-reviewer`、verifier 用 `<unit_id>-verifier`),之后失败循环 / Fast-lane 复验 / PR 反馈处理(§6.FL / §7.5)用 `SendMessage` 按该 `name`(或派发返回的 agent ID)唤醒续跑,保上下文。不给 `name` 则只能新开实例丢上下文。
 15. **主仓 HEAD 不动**。整个 unit 生命周期内,所有针对 `unit/<unit_id>` 分支的 checkout / pull / merge / push / rebase / PR 一律在专属 `unit_worktree_dir`(§2.3)里跑,**严禁**在主仓 `git checkout unit/<id>`——多 orchestrator 并发时主仓 HEAD 会被互相踩翻,用户也可能正在主仓做别的事。Sync Gate(§2.2)操作的是主仓的 main,不在此限。
 16. **任何退出路径必须先 sweep 服务 PID,再处置 worktree**(§7.5 / §6.4 escalate / §0.7 cap 都过这条)。reviewer/worker 正常退出会自 kill,但崩溃时不会,孤儿进程会让用户误把分支代码当主仓在跑。sweep snippet 见项目 AGENTS.md;§7.5 sweep 完后 `git worktree remove`,§6.4 / §0.7 只 sweep 进程、保留 worktree 与日志 / DB 给人排查。
 
@@ -332,7 +332,7 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
 - **reviewer** —— 跑产品走旅程,验用户可观察。`change-reviewer` skill。
 - **code review** —— 对 unit 分支的代码 diff 做精确率导向的多角度审查(7 finder 角度 × 1 票验证 → ≤8 findings)。`change-code-review` skill,**由你在主会话内执行**——它要通过 Agent 工具派发 finder / verifier 子 agent,而 subagent 无法再派生 subagent,所以不能像前两者那样派给独立验收 agent。在 `$unit_worktree` 内跑,diff 目标传 `main...unit/<unit_id>`。
 
-两者只读、互不依赖,默认**同时后台派发**(`run_in_background: true`、model sonnet、带 `team_name`)。它们物理隔离(verifier 用 `verify_worktree_dir` 读代码,reviewer 用 `unit_worktree_dir` 跑产品),不抢资源。
+两者只读、互不依赖,默认**同时后台派发**(`run_in_background: true`、model sonnet、各带稳定 `name`:`<unit_id>-verifier` / `<unit_id>-reviewer`,见 §0.14)。它们物理隔离(verifier 用 `verify_worktree_dir` 读代码,reviewer 用 `unit_worktree_dir` 跑产品),不抢资源。
 
 **派 verifier 的情形**:full 模式,或零用户面 unit(spec 无 requirement 但有 design 可核对)。**仅 lite 模式跳过 verifier**(无 spec/design)。
 
@@ -364,7 +364,7 @@ design-author 已经按反向门槛拆好 milestone(默认单 M1,拆分要举证
   mode: full
 ```
 
-**code review 的执行时机**:派出 verifier + reviewer 后,你立即按 `change-code-review` skill 在主会话内开跑——finder / verifier 子 agent 同样 `run_in_background: true`、model sonnet、带 `team_name`,和两个验收 agent 的工作天然并行。零写入:不 commit、不改代码,findings 只进 §6 路由。
+**code review 的执行时机**:派出 verifier + reviewer 后,你立即按 `change-code-review` skill 在主会话内开跑——finder / verifier 子 agent 同样 `run_in_background: true`、model sonnet、各带稳定 `name`,和两个验收 agent 的工作天然并行。零写入:不 commit、不改代码,findings 只进 §6 路由。
 
 两个 agent 启动后都会先报开工信、可能来口径澄清,按 §3.1.1 回应。等**两份报告 + code review findings 都齐**再进 §5.2 / §6 路由(谁先回就先收着,等齐再决策)。
 
@@ -657,7 +657,7 @@ git worktree remove "$unit_worktree"
 
 PID sweep 兜底(§0.16):reviewer / worker 自 kill 通常已干净,但崩溃残留必须 orchestrator 这一步收掉,否则用户会把孤儿进程当主仓服务。
 
-**不做 `shutdown_request` + `TeamDelete`**。实测 28 个子 agent 的批量 shutdown 会触发大量 cold prompt cache 重建(每个 ~639K tokens),直接导致 rate limit。team 文件留在 `~/.claude/teams/` 占用极小,由用户手动 `rm -rf` 或在下次启动 orchestrator 时覆盖同名 team 即可。
+**不主动批量 shutdown 子 agent**。实测大批子 agent 的批量 shutdown 会触发大量 cold prompt cache 重建(每个 ~639K tokens),直接导致 rate limit。后台子 agent 任务完成即自然结束,不需要显式回收或任何团队级清理。
 
 orchestrator 等 CI 绿后退出,不等 merge。
 
