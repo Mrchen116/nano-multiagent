@@ -1,5 +1,138 @@
 # Verification Report: bugfix-417
 
+---
+
+# Round 7 — 2026-06-21
+
+> 增量焦点：M7（C 升级）前台 bash 退出 BackgroundTaskRegistry，根治双通道 bug。核对决策 12 + kernel delta-spec 新 Requirement「后台任务完成通知」（含前台不发通知负向不变量 + 3 个 Scenario）。既有 M1-M6 三维整体复确认。
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 32/32 tasks（含 M7 8 项） |
+| Correctness | 全部 requirement/scenario 有实现且测试覆盖；全树 2706 passed，0 failed，1 skipped；contract 126 passed；ruff 绿 |
+| Coherence | 决策 1-12 全部遵守；架构边界清洁；core 不依赖 platform 确认 |
+
+No critical issues. 0 warnings, 1 suggestion. Ready for PR (with noted improvement).
+
+---
+
+## Completeness
+
+### Task 完成检查
+
+- M1–M6 tasks.md：全部 `[x]`（Round 6 已确认，本轮复核一致）。
+- M7 tasks.md：退出标准 8 项全 `[x]`，R1-R4 DONE + live 证据记录。
+
+**Tasks: 32/32 complete**
+
+### Spec 覆盖检查（M7 新增部分）
+
+kernel delta-spec「后台任务完成通知」Requirement 补全了前台不发通知的负向不变量，含 3 个新 Scenario：
+
+| Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| 前台命令完成只走 tool result，不发通知（负向不变量） | `bash.py:330-388` 前台不进 `BackgroundTaskRegistry`；`on_complete`/`on_fail` 只 set `completed_event`，不调 `registry.complete/fail` | `test_bash_tool.py::test_foreground_completion_does_not_enter_background_registry`（`registry._records == {}`）；`test_foreground_failure_does_not_enter_background_registry`；端到端 `test_bugfix_417_foreground_single_channel_e2e.py::test_foreground_bash_timeout_emits_no_task_notification_through_build_kernel` | covered |
+| 前台命令超预算转后台后仍发一次完成通知 | `bash.py:447-462` auto-background 在 `handoff_lock` 内原子移交进 `BackgroundTaskRegistry`，`notified` 默认 `False` → 通知正确 | `test_bash_tool.py::test_auto_background_hands_off_into_background_registry`（`final.notified is False`）；端到端 `test_bugfix_417_foreground_single_channel_e2e.py::test_run_in_background_command_still_emits_task_notification` | covered |
+| 非默认 workspace 下后台任务完成通知送达 | `task_store.py` workspace 隔离路径（Round 6 已覆盖） | `test_background_tasks.py` 送达系列 | covered（既有） |
+
+---
+
+## Correctness（M7 增量）
+
+### 全测试树验证
+
+```
+pytest -m "not e2e" --tb=short -q
+=> 2706 passed, 0 failed, 1 skipped
+```
+
+```
+pytest tests/contract/ -q --tb=short
+=> 126 passed
+```
+
+```
+ruff check src/ tests/
+=> No issues found
+```
+
+### 特别核对点核查
+
+**1. auto-background 移交竞态（风险表 M7 第一行）**
+
+- `handoff_lock` + `handoff_state["owner"]` 是单一判据（`bash.py:350-374`）。
+- `on_complete`/`on_fail` 以 `owner` 判断投递目标，不靠 `result_holder` 推断：前台期只 set event，不碰 registry；移交后才调 `registry.complete/fail`（`notified` 默认 False）。
+- 移交在 `handoff_lock` 内原子：`register_bash` → `mark_running` → `set_stop_handle(stopper)` → 翻 `owner` → `unregister fg`（`bash.py:447-462`）。
+- 测试：`test_auto_background_handoff_race_with_completion_no_double_notify`（可控 gate 驱动竞态，断言结果不丢不双投）。✓
+
+**2. 前台路径完全不进 BackgroundTaskRegistry**
+
+- `_run_foreground` 启动时只调 `foreground_registry.register`，不调 `registry.register_bash` / `mark_running` / `set_stop_handle`（`bash.py:404-407`）。
+- 仅在 `not completed` + `not terminal` 分支才进 `BackgroundTaskRegistry`（`bash.py:447-462`）。
+- 前台超时（budget 到期但 `terminal=True`）：`completed = True`（`bash.py:469-470`），不走移交分支——直接 `unregister fg`，`registry._records == {}` 保证不变。
+- 负向不变量 e2e 守卫：`test_foreground_bash_timeout_emits_no_task_notification_through_build_kernel` 经真实 `build_kernel` 断言无 `<task-id>` 注入，含变异验证有牙。✓
+
+**3. runs/registry.py 零改动**
+
+- git log 确认 `runs/registry.py` 在 M7 内无代码变更，仅注入端口 `_foreground_stopper` 通过 `set_foreground_stopper` 接受新实现（接线在 `kernel.py:433-434`）。
+- M1 `interrupt`/`cancel` 逻辑（`registry.py:458-550`）原封不动。
+- 接线测试：`test_foreground_wiring.py::test_kernel_injects_foreground_registry_stopper` 经真实 `build_kernel` 断言注入的是 `ForegroundExecutionRegistry.stop_for_session`（而非旧的 `BackgroundTaskRegistry.stop_foreground_for_session`）。✓
+
+**4. core 不依赖 platform（ForegroundExecutionRegistry 架构边界）**
+
+- `foreground_registry.py` 仅 import `agent.core.background_tasks.interfaces.BackgroundTaskStopper`（core Protocol），无任何 platform import。
+- `wiring.py`（platform 层）装配 `ForegroundExecutionRegistry`（`wiring.py:18,35,80`）——装配在 platform，core 不知道 platform 存在。
+- contract 126 passed 验证依赖方向无破。✓
+
+---
+
+## Coherence（M7 增量）
+
+### 决策 12 遵守情况
+
+| 决策要点 | 遵守 | 代码证据 |
+|---|---|---|
+| 前台 bash 不 `register_bash` 进 `BackgroundTaskRegistry` | 是 | `bash.py:330-407`；`test_foreground_completion_does_not_enter_background_registry`（`registry._records == {}`） |
+| 改用职责极窄的 `ForegroundExecutionRegistry`（只持 killpg 句柄 + session 映射） | 是 | `foreground_registry.py`：`_stoppers: dict[str, list[BackgroundTaskStopper]]`，无状态机、无通知 |
+| auto-background 单锁原子移交，`notified` 默认 False | 是 | `bash.py:447-462`；`test_auto_background_hands_off_into_background_registry`（`final.notified is False`） |
+| `BackgroundTaskRegistry` 删前台补丁（`_foreground_task_ids` / `set_stop_handle(foreground=)` / 三处 discard / `stop_foreground_for_session`） | 是 | `registry.py:203-204` 注释确认已删；`test_foreground_wiring.py::test_background_registry_has_no_foreground_patches`（断言无 `stop_foreground_for_session` / `_foreground_task_ids` 属性） |
+| `kernel.py` 注入改向 `ForegroundExecutionRegistry.stop_for_session`，`runs/registry.py` 零改动 | 是 | `kernel.py:433-434`；`test_foreground_wiring.py::test_kernel_injects_foreground_registry_stopper` |
+| 与 subagent 前台对齐（不注册、靠 stopper 停） | 是 | 前台 bash 现在也是"不进 registry，靠旁路 stopper 停"，只差仍需 `ForegroundExecutionRegistry` 持 killpg 句柄（因 `to_thread` async cancel 够不到，决策 12 已论证） |
+
+### 架构边界（M7 新增）
+
+- `ForegroundExecutionRegistry` 在 `agent/core/background_tasks/`（core 层），stopper 为注入 Protocol，core 不依赖 platform。装配在 `agent/platform/background_tasks/wiring.py`，符合 `platform → core` 依赖方向。
+- `BackgroundTaskWiring` dataclass 新增 `foreground_registry` 字段（`wiring.py:35`），仅 platform 层可见；core `RunsRegistry` 只通过 `(session_id) -> bool` 端口使用。
+
+---
+
+## Issues（Round 7）
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（应该修）
+
+无。
+
+### SUGGESTION（可以修）
+
+**S1. `runs/registry.py` 注释未随 M7 注入改向更新**
+
+- `runs/registry.py:107`：`"Injected by the kernel (wired to BackgroundTaskRegistry.stop_foreground_for_session)"` — M7 后实际注入的是 `ForegroundExecutionRegistry.stop_for_session`，描述已过时。
+- `runs/registry.py:133`：`"Wired by the kernel to BackgroundTaskRegistry.stop_foreground_for_session"` — 同上。
+- `runs/registry.py:436`：`"The kernel wires the BackgroundTaskRegistry-backed stopper here"` — 同上。
+- 建议：将三处注释中 "BackgroundTaskRegistry.stop_foreground_for_session" 改为 "ForegroundExecutionRegistry.stop_for_session"，并在括号内将 "bugfix-417-M5, #114" 追加 "/M7 decision 12"。对正确性无影响，纯文档一致性问题。
+
+---
+
+No critical issues. 1 suggestion. Ready for PR (with noted improvement).
+
+---
+
 > Round 6 — 2026-06-19
 >
 > 背景：Round 5 verdict pass（0 critical / 0 warning / 0 suggestion），但报告 commit 未真推到 origin（orchestrator 发现 `git log origin/unit/bugfix-417` 看不到 c0e2852f）。Round 6 为强制复验：自建 worktree、读代码核对、确认 Round 5 结论在当前代码态仍成立、提交并 push 报告。
