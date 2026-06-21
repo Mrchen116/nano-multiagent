@@ -43,6 +43,20 @@
 - Rollback: 删测试文件即可（纯新增守卫）。
 - Commits: C1+impl=`test(bugfix-418/M1/R2)`
 
+## R3 — create_session 创建路径同样改走专用循环（orchestrator follow-up）
+
+- Context: orchestrator 复核时指出 `_create_subagent_session`(:471) 的裸 `asyncio.run(runtime.create_session(...))` 同属决策1「不在瞬时新循环上跑共享内核组件」该治的范围（前台+后台都走它）。要求最小复现脚本坐实是否真触碰绑定专用循环的共享单例，再决定路由或保留+证据。
+- Decision: **路由到专用循环**——`_create_subagent_session` 改为经 `self._wiring.subagent_runner.submit_foreground(create_coro).result()` 把 create_session coroutine 提交到内核专用循环；仅在无 wiring/runner（纯库装配、无 RunsRegistry）时 fallback 裸 `asyncio.run`。前台+后台共用此方法，一处改两路径都覆盖。不动 `RuntimeRunner.start` 语义（只复用新增的 submit_foreground）。
+- Rationale: 坐实证据见下——经验上 create_session 裸 run 当前不报错也不污染（背景路径一直如此），但 orchestrator 要求按决策1原则彻底落地、消除「靠它恰好不碰共享单例」的隐性依赖，而非留印象。架构上更干净：subagent 创建与执行两条路径都不再在瞬时循环上碰共享 runtime。
+- Evidence:
+  - 坐实脚本（最小复现，真 RunsRegistry 专用循环 + 真 AgentRuntime 共享 httpx client）：连续 5 次经裸 `asyncio.run(runtime.create_session(...))` 建 subagent session——0 报错；事后专用循环上的共享 `RetryingLLMClient` 仍可用、专用循环仍 `is_running()`。即 create_session 本身不创建绑定循环的 asyncio 原语、不 await 共享 httpx client（其唯一 await 点是 `_dispatch_observe`→hook，core 默认无 session_start 钩子）。结论：当前不污染，但按决策1原则统一路由消除隐性依赖。
+  - Tests: 新增结构性单测 `test_create_subagent_session_routes_through_dedicated_loop`（红→绿：断言前台 dispatch 经 submit_foreground 提交两次=create+turn，钉死「create 不再裸 asyncio.run」）；修 `test_agent_tool_run_background_passes_workspace_root_to_registry` 的 stub 提供真 submit_foreground（否则 MagicMock 泄漏 coroutine——已用 `-W error::RuntimeWarning` 验证无泄漏）。
+  - Entry: live e2e `test_subagent_foreground_e2e.py` 2 passed（create_session 改走专用循环后，前台 subagent 真 LLM 仍返回 pong + 失败隔离仍成立）。
+  - E2E/Regression: `pytest tests/ -m "not e2e"` → 2711 passed, 2 skipped（较 R2 +1 = 新结构测试）。
+  - Frontend/Browser/Visual: N/A
+- Rollback: `git revert` 本 commit 回到「create_session 裸 asyncio.run」（已坐实当前不崩，纯架构加固）。
+- Commits: `fix(bugfix-418/M1/R3)`（红测+实现+stub 修正自包含，§FL 单 commit 快车道）
+
 ## out-of-unit 发现（未顺手修，§0.8）
 
 - `tests/e2e/test_agent_runtime_e2e.py` 已 stale：`create_llm_client()` 签名变更为 `create_llm_client(*, config)` 且返回的 `RetryingLLMClient` 不再支持 `with` 上下文管理器，该既有 live e2e 现会 `TypeError`。与本 bug 无关（pre-existing）。已立 issue #121，不在本 unit 范围内修。

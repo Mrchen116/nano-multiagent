@@ -468,14 +468,24 @@ class AgentTool(WiringMixin):
             if effective_workspace
             else None,
         }
-        session = asyncio.run(
-            runtime.create_session(
-                workspace_root=effective_workspace,
-                skills=load_skills if load_skills else None,
-                metadata=metadata,
-                parent_session_id=ctx.session_id,
-            )
+        # bugfix-418 (decision 1, applied to the creation path): like the turn
+        # path, do NOT run the shared runtime on a transient loop via bare
+        # asyncio.run. Route create_session onto the kernel's dedicated loop so
+        # any loop-bound primitive a session_start hook might touch stays on the
+        # loop that owns it. Falls back to bare asyncio.run only when no runner is
+        # wired (pure-library assembly without a RunsRegistry), where there is no
+        # shared dedicated loop to collide with.
+        create_coro = runtime.create_session(
+            workspace_root=effective_workspace,
+            skills=load_skills if load_skills else None,
+            metadata=metadata,
+            parent_session_id=ctx.session_id,
         )
+        runner = self._wiring.subagent_runner if self._wiring is not None else None
+        if runner is not None and hasattr(runner, "submit_foreground"):
+            session = runner.submit_foreground(create_coro).result()
+        else:
+            session = asyncio.run(create_coro)
         return str(session.session_id)
 
     def _resolve_output_file(

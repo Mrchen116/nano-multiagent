@@ -43,6 +43,9 @@ class _FakeStopper:
 
 
 class _FakeRunner:
+    def __init__(self) -> None:
+        self.submit_foreground_calls = 0
+
     def start(
         self,
         *,
@@ -80,6 +83,7 @@ class _FakeRunner:
         import threading
         from concurrent.futures import Future
 
+        self.submit_foreground_calls += 1
         future: Future = Future()
 
         def _runner():
@@ -213,6 +217,37 @@ def test_foreground_in_budget_does_not_register_subagent() -> None:
         assert register_calls == [], (
             "in-budget foreground subagent must not register into the "
             "background-task registry (would trigger a <task-notification>)"
+        )
+
+
+def test_create_subagent_session_routes_through_dedicated_loop() -> None:
+    """bugfix-418 (orchestrator follow-up): subagent session creation must NOT
+    run the shared runtime via bare asyncio.run on a transient loop either — it
+    routes through the runner's submit_foreground (the kernel's dedicated loop),
+    same principle as the turn-execution path (decision 1). Foreground dispatch
+    therefore submits twice: once to create the session, once for the turn.
+    """
+    tool = _make_tool(with_wiring=True)
+    tool._runtime.run = _fake_run_fast
+    runner = tool._wiring.subagent_runner
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        result = tool.run(
+            {
+                "description": "test task",
+                "prompt": "do something",
+                "subagent_type": "explore",
+                "load_skills": [],
+                "run_in_background": False,
+            },
+            ctx,
+        )
+        assert result["status"] == "completed"
+        # create_session (1) + turn (1) both go through the dedicated loop.
+        assert runner.submit_foreground_calls == 2, (
+            "subagent session creation must route through submit_foreground "
+            "(dedicated loop), not bare asyncio.run on a transient loop"
         )
 
 
