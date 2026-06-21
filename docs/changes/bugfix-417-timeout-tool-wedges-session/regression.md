@@ -852,3 +852,133 @@ Fast-lane 只验证 fix2 修复项，其余 Requirement 继承 Round 6 结论不
 
 - **HTTP API 发送的 /stop 未触发新响应**：当前通过 HTTP API 发送的 /stop 消息（`d39c9dbc`、`bb970bc6`）状态停留在 `sent`，未收到新的 agent 回复。但历史消息（同 conversation）中已有明确的 /stop 响应记录（`edd1fcab`、`de216b2e`），证明修复在产品层面生效过。HTTP API 路径与 Web IM WS 路径可能存在差异，但非本 unit 范围。
 - **IM 进程再次意外退出**：验证过程中 IM 进程（PID 45509）再次消失，已重启继续。原因待查，非本 unit 引入。
+
+---
+
+# Round 7 — 2026-06-21
+
+> Round: 7
+> Reviewer: m7-reviewer
+> 复验范围: M7（ForegroundExecutionRegistry 根治双通道）完整旅程验收
+
+## Verdict
+
+**pass**
+
+**Highest Required Action**: pass
+
+**Issues**: blocking 0, major 0, minor 0
+
+---
+
+## 澄清记录（§2.6）
+
+Round 7 是 M7（前台 bash 退出 BackgroundTaskRegistry）完成后的完整旅程复验。M7 核心：新建 `ForegroundExecutionRegistry`（只持 killpg 句柄 + session 映射），前台 bash 不再寄生 `BackgroundTaskRegistry`，双通道结构上不可能再发生。无疑问，开始服务接管。
+
+---
+
+## 服务接管记录（§2.5）
+
+- git pull --ff-only origin unit/bugfix-417，HEAD = 49d020df（M7 merge commit）
+- 清理残留进程（kill stale IM/Gateway PID）
+- 前端 worktree 内 `npm run build`，产物 `index-BfToVFRB.js`（有 TS 警告但非 build 失败）
+- 指纹核验：`grep -c "run_heartbeat|tool_timeout|stalled|interrupted_by_user" dist/assets/index-BfToVFRB.js` = 4，关键 marker 全命中；`ForegroundExecutionRegistry` 是后端 core 层，不在前端 JS 中（正常）
+- IM 在 ephemeral 端口 59931 启动（JWT_SECRET=r7-bugfix-417-jwt-...）；账号 nano/nano1234 已存在
+- Gateway 以 worktree config 副本（node_id=wt-bugfix-417-r7）+ `--foreground --auto-bind` 启动，auto-bind 成功，3 agents 注册（default-agent/Arch/ArchA）
+- 新建 conversation eb15d61f 用于验证，首条 "hi, ready?" agent 正常回复
+
+---
+
+## User Journeys Exercised
+
+| # | 旅程 | 覆盖 Scenario |
+|---|---|---|
+| J1 | `sleep 30 timeout=3` → 超时 → 观察消息数无额外后台通知 | M7 C1：前台超时单通道 |
+| J2 | `nonexistent_command` → 失败 → 观察消息数无额外后台通知 | M7 C2：前台失败单通道 |
+| J3 | `run_in_background sleep 3 && echo done` → 观察后台通知正常投递 | M7 C3：真后台路径不回归 |
+| J4 | `sleep 30` → /stop → 孤儿检查 + 会话自愈 | M5 Req A：中断收尾不回归 |
+| J5 | `echo hello_foreground` → 正常完成 → 观察消息数无额外通知 | M7 C4：前台正常完成单通道 |
+| J6 | `sleep 10 && echo done` 无超时 → 等 20s → 正常完成 | Req B1：静默长命令不误杀不回归 |
+
+---
+
+## 验收标准覆盖表（Round 7）
+
+### M7 核心：双通道根治（design.md §M7 [reviewer] 验收标准）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| C1：前台命令超时 → IM 工具卡只出一次结果，不冒后台完成通知 | design.md M7 [reviewer] ① | J1：sleep 30 timeout=3 → 超时后等 8s 确认消息数 | 超时前 2 条，超时后 4 条（+user+agent），8s 后仍 4 条，无第 5 条后台通知；agent msg f78e9ad5 tool_call reason=tool_timeout | **pass** | 双通道消失：前台超时只出 1 条 agent 消息 |
+| C2：前台命令失败 → IM 只出一次结果，不冒后台通知 | design.md M7 [reviewer] ① | J2：nonexistent_command → 等 12s 确认消息数 | 6 条消息（+user+agent），无额外通知；tool=bash status=failed reason=null | **pass** | 前台失败单通道验证通过 |
+| C3：run_in_background 命令 → 仍正常显示后台启动回执 + 完成后收到通知 | design.md M7 [reviewer] ③ | J3：run_in_background sleep 3 && echo done → 等 15s | 消息 6→10（+4条）：agent 启动回执 + async 完成通知（c2c82ca0/9d66383a），tool=bash status=completed | **pass** | 真后台路径完全不回归 |
+| C4：前台命令正常完成 → 只出一次结果，不冒后台通知 | design.md M7 [reviewer] ① | J5：echo hello_foreground → 等 12s 确认消息数 | 消息 16→18（+2），无第 3 条通知；tool=bash status=completed | **pass** | 前台正常完成单通道验证通过 |
+
+### Requirement A：任何单条 run 都不能让 session 锁永久不可释放（不回归）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| A1：工具超时后会话自愈 | incident.md §Req A | J1：sleep 30 timeout=3 超时后发 2+2 | 本轮 J4c 实测（/stop 后发 what is 2+2 → agent 回复 "2+2=4"），会话自愈 | **pass** | 不重启 Gateway 即自愈 |
+| A2：真卡死 run 被收后会话恢复 | incident.md §Req A | 继承 Round 1-6 实证 + M1 单测守卫 | — | **pass（继承）** | M7 不改 M1 锁释放路径 |
+
+### Requirement B：watchdog 只收「不再前进」的 run（不回归）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| B1：静默长命令不被误杀 | incident.md §Req B | J6：sleep 10 && echo done，无 timeout，20s 后 | 消息 18→20（+2），agent 回复 `done_after_sleep`，tool=bash status=completed | **pass** | 不回归 |
+| B2：等 LLM 慢不被误杀 | incident.md §Req B | 无法构造 | — | **inconclusive（继承）** | 环境限制，M3 单测守卫 |
+| B3：等权限确认不被误杀 | incident.md §Req B | 无法构造 | — | **inconclusive（继承）** | 环境限制，M3 单测守卫 |
+
+### Requirement C：超时与卡死是两种不同失败态，失败不静默（不回归）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| C1：工具自身超时报「耗时过长」 | incident.md §Req C | J1：sleep 30 timeout=3 | agent 回复 "timed out after 3 seconds"，tool_call reason=tool_timeout | **pass** | 不回归 |
+| C2：真卡死报「已中断」 | incident.md §Req C | 继承 Round 1-6 实证 | — | **pass（继承）** | M7 不改 watchdog 收尸路径 |
+| C3：失败不静默 | incident.md §Req C | J1/J2/J4 | 所有超时/失败场景均有 agent 回复文字，无静默 | **pass** | 不回归 |
+
+### Requirement D：子进程超时连同进程树一起回收（不回归）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| D1：派生子进程命令超时干净收尾 | incident.md §Req D | 继承 Round 6 实证（J3 killpg 验证）+ M4 ShellRunner 路径未变 | — | **pass（继承）** | M7 只改任务注册层，killpg 路径不变 |
+
+### M5（#114）中断收尾（不回归）
+
+| 验证项 | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| /stop 后子进程被杀，无孤儿 | M5 design | J4：sleep 30 → /stop → pgrep sleep | `pgrep -x sleep` = NONE（无孤儿） | **pass** | M7 把 `stop_for_session` 改向 ForegroundExecutionRegistry，killpg 路径仍有效 |
+| /stop 后 agent 消息收口 | M5 fix2 | J4：/stop 后查 tool_call | tool=bash status=failed reason=interrupted；agent 回复「已停止当前操作。」 | **pass** | 不回归 |
+| /stop 后同会话自愈 | M5 Req A | J4c：/stop 后发 what is 2+2 | agent 回复 "2+2=4"（26b45648） | **pass** | 不回归 |
+
+---
+
+## 自动化测试（Round 7）
+
+- M7 端到端 DONE 硬闸：`tests/integration/test_bugfix_417_foreground_single_channel_e2e.py` 2 passed（前台超时单通道 + 后台仍通知）
+- M4 端到端：`test_bugfix_417_bash_engine_e2e.py` 3 passed
+- 全树：`pytest -m "not e2e"` **2706 passed, 1 skipped**（M7 progress.md 记录 2705，本轮 +1）
+- ruff check + ruff format --check 通过（M7 progress.md R4 Evidence 已记录 656 files 绿）
+
+---
+
+## 上层文档同步（Round 7）
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新（ForegroundExecutionRegistry 是内部实现，不改顶点接口）
+- [ ] `docs/specs/kernel/spec.md`（长青行为契约层）：**需要更新**（delta-spec 已写好，由 orchestrator §7.0 收尾归并写入；M7 行为增量：前台 bash 单通道保证）
+- [ ] `docs/specs/gateway/spec.md`：**需要更新**（/stop 单通道行为增量）
+- [x] `docs/specs/im/spec.md`：无需更新（IM 侧无行为变化）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/SPEC_GUIDE.md`：无需更新
+
+---
+
+## Issues
+
+无 issue。所有 M7 验收标准通过，M1-M6 既有行为不回归。
+
+---
+
+## Side Findings（Round 7）
+
+- **前端 build 有 TS 警告**：`message-pane.test.tsx` 里 `Property 'style' does not exist on type 'Element'` 和 `remark-gfm` 类型问题。build 仍成功产出 dist 产物，非本 unit 引入，minor out-of-unit，记录不立 issue。
+- **B2/B3（LLM 慢响应 / 权限确认）**：仍为 inconclusive，环境限制无法构造，由 M3 单测守卫。
