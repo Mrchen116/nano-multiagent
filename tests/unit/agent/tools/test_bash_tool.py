@@ -474,28 +474,27 @@ def test_auto_background_handoff_race_with_completion_no_double_notify(
 
     result = tool.run({"command": "sleep 20", "run_in_background": False}, ctx)
 
-    # Either it completed within budget (single tool-result, no record left) or it
-    # auto-backgrounded (handed off, one background record). Both are correct; what
-    # must NOT happen is two terminal transitions / a lost result.
-    task_records = registry.list_non_terminal()
-    assert task_records == []  # no task left dangling in non-terminal
-
+    # Either it completed within budget (single tool-result, never in the registry) or
+    # it auto-backgrounded (handed off → one background record that completes once).
+    # Both are correct; what must NOT happen is two terminal transitions / a lost or
+    # double-delivered result.
     if result.get("status") == "async_launched":
-        # Handed off: exactly one completed background record, notifiable once.
-        record = registry.get(result["task_id"])
-        assert record is not None
-        # Give the worker a beat in case completion landed just after hand-off.
-        for _ in range(20):
-            if registry.get(result["task_id"]).status == "completed":
+        # Handed off: the record exists; let the (already-fired) completion settle and
+        # assert it reaches exactly one terminal state, notifiable once (notified False).
+        task_id = result["task_id"]
+        for _ in range(50):
+            if registry.get(task_id).status == "completed":
                 break
             time.sleep(0.02)
-        record = registry.get(result["task_id"])
+        record = registry.get(task_id)
         assert record.status == "completed"
         assert record.notified is False
+        # No task left dangling non-terminal (the completion was not lost).
+        assert registry.list_non_terminal() == []
     else:
         # Completed within budget: synchronous tool result, never in the registry.
         assert result["exitCode"] == 0
-        assert registry.list_non_terminal() == []
+        assert registry._records == {}  # type: ignore[attr-defined]
 
 
 # ------------------------------------------------------------------

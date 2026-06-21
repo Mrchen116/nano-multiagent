@@ -34,13 +34,6 @@ class BackgroundTaskRegistry:
         self._lock = threading.Lock()
         self._records: dict[str, BackgroundTaskRecord] = {}
         self._stop_handles: dict[str, "_StopHandle"] = {}
-        # task_ids whose stop handle belongs to a FOREGROUND (run-blocking) tool —
-        # i.e. a tool whose to_thread holds up the active run until it returns
-        # (foreground bash). Used by stop_foreground_for_session so /stop and
-        # cancel reap only the in-flight foreground subprocess tree and leave
-        # user-launched background tasks (run_background) running (bugfix-417-M5,
-        # #114).
-        self._foreground_task_ids: set[str] = set()
         self._pending_messages: dict[str, list[str]] = {}
 
     # ------------------------------------------------------------------
@@ -144,12 +137,6 @@ class BackgroundTaskRegistry:
                 notified=notified,
             )
             self._records[task_id] = new
-            # bugfix-417-fix1 (A): drop the foreground marker on terminal transition
-            # so _foreground_task_ids does not grow without bound over the process
-            # lifetime (same leak class as M4's _stopped). set_stop_handle only
-            # discards on foreground=False demotion; a task that simply completes
-            # never demotes, so the marker must be cleared here.
-            self._foreground_task_ids.discard(task_id)
         self._persist(new)
         return new
 
@@ -165,7 +152,6 @@ class BackgroundTaskRegistry:
                 error=error,
             )
             self._records[task_id] = new
-            self._foreground_task_ids.discard(task_id)  # bugfix-417-fix1 (A): no leak
         self._persist(new)
         return new
 
@@ -181,7 +167,6 @@ class BackgroundTaskRegistry:
                 error=reason,
             )
             self._records[task_id] = new
-            self._foreground_task_ids.discard(task_id)  # bugfix-417-fix1 (A): no leak
         self._persist(new)
         return new
 
@@ -209,22 +194,17 @@ class BackgroundTaskRegistry:
     # ------------------------------------------------------------------
     # Stop handles
     # ------------------------------------------------------------------
-    def set_stop_handle(
-        self, task_id: str, handle: "_StopHandle", *, foreground: bool = False
-    ) -> None:
-        """Register a task's stop handle.
+    def set_stop_handle(self, task_id: str, handle: "_StopHandle") -> None:
+        """Register a background task's stop handle (killpg via the runner stopper).
 
-        ``foreground=True`` marks the handle as belonging to a run-blocking
-        foreground tool (foreground bash) so ``stop_foreground_for_session`` can
-        target it on /stop / cancel without touching detached background tasks
-        (bugfix-417-M5, #114).
+        bugfix-417-M7 (decision 12): foreground bash no longer registers here — its
+        killpg handle lives in ForegroundExecutionRegistry. This registry now only
+        holds genuine background tasks (run_in_background, and foreground commands
+        after auto-background hand-off), so the former ``foreground`` flag and the
+        ``_foreground_task_ids`` set are gone.
         """
         with self._lock:
             self._stop_handles[task_id] = handle
-            if foreground:
-                self._foreground_task_ids.add(task_id)
-            else:
-                self._foreground_task_ids.discard(task_id)
 
     def request_stop(self, task_id: str) -> bool:
         with self._lock:
@@ -240,37 +220,6 @@ class BackgroundTaskRegistry:
         if handle is not None:
             handle.stop()
         return True
-
-    def stop_foreground_for_session(self, session_id: str) -> bool:
-        """Stop the in-flight FOREGROUND tool(s) of a session, killing the
-        subprocess tree via the registered stop handle (killpg, M4-hardened).
-
-        Targets only non-terminal tasks whose handle was registered with
-        ``foreground=True`` and whose ``parent_session_id`` matches — so a /stop
-        or cancel reaps the run-blocking foreground subprocess but leaves
-        user-launched background tasks (run_background) running (bugfix-417-M5,
-        decision 10 / #114).
-
-        Returns:
-            True if at least one foreground task was found and stopped, False
-            otherwise (the caller uses this to decide whether an interrupt must
-            additionally force-cancel the parked carrier Task).
-        """
-        with self._lock:
-            targets = [
-                (task_id, self._stop_handles.get(task_id))
-                for task_id in self._foreground_task_ids
-                if (record := self._records.get(task_id)) is not None
-                and record.parent_session_id == session_id
-                and record.status
-                in (BackgroundTaskStatus.QUEUED, BackgroundTaskStatus.RUNNING)
-            ]
-        stopped_any = False
-        for _task_id, handle in targets:
-            if handle is not None:
-                handle.stop()
-                stopped_any = True
-        return stopped_any
 
     # ------------------------------------------------------------------
     # Pending messages (agent continuation)
