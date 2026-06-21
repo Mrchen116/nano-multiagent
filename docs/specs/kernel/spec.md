@@ -517,9 +517,23 @@ event loop 与 Context 中进入终态,再停止并关闭 loop。关闭开始后
 
 后台 bash / subagent 任务完成（无论成功、失败或被终止）后，发起它的 session 在下一轮输入中收到一条
 `<task-notification>` 消息，内含任务结果——消费者无需轮询即可感知。该通知在任意 workspace_root 下均
-可靠送达，不因 session 绑定非默认工作区而丢失。
+可靠送达，不因 session 绑定非默认工作区而丢失。反之，同步前台工具（前台 bash 在预算内完成 / 失败 /
+超时 / 被中断）的结果只经该工具的 tool result 同步返回，绝不再额外发 `<task-notification>`——一次执行
+只走一条结果通路。仅当前台命令超出前台预算、真正转为后台任务（auto-background）后，其后续完成才发一次
+`<task-notification>`（此后它就是后台任务）。
 
 #### Scenario: 非默认 workspace 下后台任务完成通知送达
 - **GIVEN** 一个绑定非默认 workspace_root 的 session 启动了后台任务
 - **WHEN** 任务完成
 - **THEN** 该 session 下一轮输入含一条带任务结果的 `<task-notification>` 消息
+
+#### Scenario: 前台命令完成只走 tool result，不发通知
+- **GIVEN** 某 session 执行一条前台 bash 命令（未声明 `run_in_background`），且在前台预算内完成、失败或自身超时
+- **WHEN** 消费者消费该 run 的结果
+- **THEN** 该命令的结果只经其 tool result 同步返回（含成功输出 / 失败 / 超时归因）
+- **AND** 该 session 后续输入中**不含**针对该命令的 `<task-notification>`（不出现"既返回结果又异步通知"的双通道）
+
+#### Scenario: 前台命令超预算转后台后仍发一次完成通知
+- **GIVEN** 某 session 执行一条前台 bash 命令，运行时长超出前台预算被 auto-background（其 tool result 返回 `async_launched` + task_id）
+- **WHEN** 该命令稍后在后台完成
+- **THEN** 该 session 下一轮输入含一条带结果的 `<task-notification>`（转后台后按后台任务发一次通知，不重复、不遗漏）
