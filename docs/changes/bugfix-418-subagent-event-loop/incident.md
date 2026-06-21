@@ -3,7 +3,7 @@
 ## Relations
 
 - Closes: #117
-- Refs: #117（结构性「关键路径真 LLM e2e 套件 + 清单」拆为独立后续 unit，本 unit 只随 bug 加一条 subagent 回归 e2e）
+- Refs: #119（结构性「关键路径真 LLM e2e 套件 + 清单」拆为独立后续 unit 另立项，本 unit 只随 bug 加一条 subagent 回归 e2e）
 - Related: feat-337-cc-background-subagents（引入 subagent 执行模型的原始 unit）
 
 ## 原始报告
