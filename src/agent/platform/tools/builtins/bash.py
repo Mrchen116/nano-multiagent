@@ -316,6 +316,7 @@ class BashTool(WiringMixin):
     ) -> dict[str, Any]:
         wiring = self._require_wiring()
         registry = wiring.registry
+        foreground_registry = wiring.foreground_registry
 
         task_id = generate_bash_task_id()
         parent_session_id = ctx.session_id or ""
@@ -326,6 +327,18 @@ class BashTool(WiringMixin):
         completed_event = threading.Event()
         result_holder: dict[str, Any] = {}
 
+        # bugfix-417-M7 (decision 12): foreground bash does NOT enter
+        # BackgroundTaskRegistry. The synchronous result is returned via
+        # completed_event; the only background facility it needs is a killpg handle,
+        # held in ForegroundExecutionRegistry. The auto-background hand-off (budget
+        # exceeded) is the single foreground→background transition — and it can race
+        # the runner's completion callback. ``handoff_lock`` makes "which registry owns
+        # this task" the single source of truth for both the callbacks and the
+        # hand-off, so a completion landing exactly at budget is dispatched to exactly
+        # one place (no lost result, no double terminal / double notification).
+        handoff_lock = threading.Lock()
+        handoff_state = {"owner": "foreground", "terminal": False}
+
         def on_complete(
             *,
             task_id: str,
@@ -334,37 +347,31 @@ class BashTool(WiringMixin):
             duration_ms: int,
             tool_use_count: int,
         ) -> None:
-            # For foreground tasks, suppress the background notification: the result is
-            # delivered synchronously via completed_event rather than via notification.
-            # For auto-backgrounded tasks (foreground budget exceeded), is_foreground is False
-            # so notification is not suppressed.
-            is_foreground = not result_holder.get("backgrounded", False)
-            registry.complete(
-                task_id,
-                result_text=result_text,
-                usage=usage,
-                duration_ms=duration_ms,
-                tool_use_count=tool_use_count,
-                notified=is_foreground,
-            )
-            result_holder["status"] = "completed"
+            with handoff_lock:
+                handoff_state["terminal"] = True
+                # Once handed off, the task is a real background task: complete it in
+                # the registry (notified defaults False → it gets its one
+                # <task-notification>). While still foreground, the registry has no
+                # record of it — the result rides completed_event back to the waiter.
+                if handoff_state["owner"] == "background":
+                    registry.complete(
+                        task_id,
+                        result_text=result_text,
+                        usage=usage,
+                        duration_ms=duration_ms,
+                        tool_use_count=tool_use_count,
+                    )
+                result_holder["status"] = "completed"
             completed_event.set()
 
         def on_fail(*, task_id: str, error: str) -> None:
-            registry.fail(task_id, error=error)
-            result_holder["status"] = "failed"
-            result_holder["error"] = error
+            with handoff_lock:
+                handoff_state["terminal"] = True
+                if handoff_state["owner"] == "background":
+                    registry.fail(task_id, error=error)
+                result_holder["status"] = "failed"
+                result_holder["error"] = error
             completed_event.set()
-
-        registry.register_bash(
-            task_id=task_id,
-            parent_session_id=parent_session_id,
-            description=effective_description,
-            command=command,
-            output_file=str(output_file),
-            workspace_root=str(ctx.repo_root),
-        )
-        registry.mark_running(task_id)
 
         stopper = wiring.bash_runner.start(
             command=command,
@@ -390,10 +397,14 @@ class BashTool(WiringMixin):
                 result_holder["status"] = "interrupted"
                 completed_event.set()
 
-        # foreground=True so interrupt/cancel can reap THIS subprocess tree (the
-        # run is blocked inside the to_thread below until the process is killed),
-        # while leaving user-launched background tasks alone (bugfix-417-M5, #114).
-        registry.set_stop_handle(task_id, _ForegroundStopper(), foreground=True)
+        # Register the killpg handle so interrupt/cancel (via
+        # ForegroundExecutionRegistry.stop_for_session, injected into RunsRegistry by
+        # the kernel) can reap THIS subprocess tree while the run is blocked in the
+        # to_thread below — leaving user-launched background tasks untouched.
+        foreground_stopper = _ForegroundStopper()
+        foreground_registry.register(
+            session_id=parent_session_id, stopper=foreground_stopper
+        )
 
         # Wait up to the foreground budget for completion, polling at the heartbeat
         # interval so we can emit a phase:running liveness event each tick. This is
@@ -425,18 +436,45 @@ class BashTool(WiringMixin):
             )
 
         if not completed:
-            # Auto-background: allow notification when monitor thread calls on_complete.
-            result_holder["backgrounded"] = True
-            # The task is no longer run-blocking — demote it from the foreground
-            # set so a later /stop does not reap a now-detached background task
-            # (bugfix-417-M5, #114).
-            registry.set_stop_handle(task_id, stopper, foreground=False)
-            return {
-                "status": "async_launched",
-                "task_id": task_id,
-                "description": effective_description,
-                "output_file": str(output_file),
-            }
+            # Budget exceeded — attempt the foreground→background hand-off. Under the
+            # lock: if the command already finished (terminal) in the window between
+            # the last poll and acquiring the lock, abort the hand-off and fall
+            # through to the synchronous-result path (no double transition). Otherwise
+            # register the task into BackgroundTaskRegistry, move the killpg handle
+            # there, flip ownership, and release the foreground registration — after
+            # which on_complete/on_fail dispatch to the registry (notified False →
+            # correct background notification).
+            with handoff_lock:
+                if not handoff_state["terminal"]:
+                    registry.register_bash(
+                        task_id=task_id,
+                        parent_session_id=parent_session_id,
+                        description=effective_description,
+                        command=command,
+                        output_file=str(output_file),
+                        workspace_root=str(ctx.repo_root),
+                    )
+                    registry.mark_running(task_id)
+                    registry.set_stop_handle(task_id, stopper)
+                    handoff_state["owner"] = "background"
+                    foreground_registry.unregister(
+                        session_id=parent_session_id, stopper=foreground_stopper
+                    )
+                    return {
+                        "status": "async_launched",
+                        "task_id": task_id,
+                        "description": effective_description,
+                        "output_file": str(output_file),
+                    }
+                # Command finished right at budget: fall through as completed.
+                completed = True
+
+        # The command reached a terminal state within budget (or in the hand-off
+        # race): the foreground registration is no longer needed — drop it so a later
+        # /stop on this session does not fire a stale handle.
+        foreground_registry.unregister(
+            session_id=parent_session_id, stopper=foreground_stopper
+        )
 
         # Command completed within budget — read output and return synchronously.
         stdout = _read_output_file(output_file)
