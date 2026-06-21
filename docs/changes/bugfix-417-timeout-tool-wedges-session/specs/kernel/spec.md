@@ -1,7 +1,7 @@
 # kernel (agent) Specification (delta for bugfix-417)
 
 > 主语 = 经 `agent.sdk` 调用内核的消费者（`coding_cli` / `personal_assistant`）或 `tests/contract/`。
-> 本 delta 对既有 canonical 做 diff：MODIFIED 强化既有 cancel 契约（原仅断言 status/幂等，未保证强制终止 parked run 与释放 session 锁）；ADDED liveness 事件为净新增。
+> 本 delta 对既有 canonical 做 diff：MODIFIED 强化既有 cancel 契约（原仅断言 status/幂等，未保证强制终止 parked run 与释放 session 锁）；ADDED liveness 事件为净新增；MODIFIED「后台任务完成通知」契约补全前台不发通知的负向不变量（C 升级 / M7：消除前台 bash 同步返回结果又额外发 `<task-notification>` 的双通道）。
 
 ## MODIFIED Requirements
 
@@ -39,6 +39,26 @@
 - **THEN** 该工具派生的子进程（树）被终止，不留存活的孤儿进程
 - **AND** 该工具的在飞 tool_call 在 session 事件流中收口为「已中断」终态（不停留运行中、不标成功、不标工具自身超时），同一 session 后续 `submit` 正常推进
 - **AND** 该工具回填到 transcript 的 tool result content 明确归因为用户中断（`[Request interrupted by user for tool use]`），使下一轮模型据此知道是用户主动停止（区别于系统看门狗收尸/崩溃的中断）
+
+### Requirement: 后台任务完成后发起 session 收到结果通知，跨 workspace 可靠
+
+后台 bash / subagent 任务完成（无论成功、失败或被终止）后，发起它的 session 在下一轮输入中收到一条 `<task-notification>` 消息，内含任务结果——消费者无需轮询即可感知。该通知在任意 workspace_root 下均可靠送达，不因 session 绑定非默认工作区而丢失。**反之，同步前台工具（前台 bash 在预算内完成/失败/超时/被中断）的结果只经该工具的 tool result 同步返回，绝不再额外发 `<task-notification>`——一次执行只走一条结果通路。** 仅当前台命令超出前台预算、真正转为后台任务（auto-background）后，其后续完成才发一次 `<task-notification>`（此后它就是后台任务）。
+
+#### Scenario: 非默认 workspace 下后台任务完成通知送达
+- **GIVEN** 一个绑定非默认 workspace_root 的 session 启动了后台任务
+- **WHEN** 任务完成
+- **THEN** 该 session 下一轮输入含一条带任务结果的 `<task-notification>` 消息
+
+#### Scenario: 前台命令完成只走 tool result，不发通知
+- **GIVEN** 某 session 执行一条前台 bash 命令（未声明 `run_in_background`），且在前台预算内完成、失败或自身超时
+- **WHEN** 消费者消费该 run 的结果
+- **THEN** 该命令的结果只经其 tool result 同步返回（含成功输出 / 失败 / 超时归因）
+- **AND** 该 session 后续输入中**不含**针对该命令的 `<task-notification>`（不出现"既返回结果又异步通知"的双通道）
+
+#### Scenario: 前台命令超预算转后台后仍发一次完成通知
+- **GIVEN** 某 session 执行一条前台 bash 命令，运行时长超出前台预算被 auto-background（其 tool result 返回 `async_launched` + task_id）
+- **WHEN** 该命令稍后在后台完成
+- **THEN** 该 session 下一轮输入含一条带结果的 `<task-notification>`（转后台后按后台任务发一次通知，不重复、不遗漏）
 
 ## ADDED Requirements
 
