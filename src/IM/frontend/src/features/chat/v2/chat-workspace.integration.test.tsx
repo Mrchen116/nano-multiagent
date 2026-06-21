@@ -547,4 +547,48 @@ describe("ChatWorkspacePage v2 — integration", () => {
     const chip = screen.getByText(/laptop-prod/);
     expect(chip.closest(".chat-node-chip")).toHaveClass("chat-node-chip--online");
   });
+
+  // bugfix-419: 乐观插入用户消息后，agent WS 回复有更早 created_at 时，渲染按 created_at 有序
+  it("bugfix-419: after optimistic user bubble, agent WS reply with earlier created_at sorts before the user message", async () => {
+    // mockFetch sends the POST response with created_at="2026-05-01T00:00:02Z".
+    // Agent WS reply arrives with created_at="2026-05-01T00:00:01Z" (earlier).
+    // After the fix, agent bubble must appear before the user bubble.
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(FakeWebSocket.instances.length).toBeGreaterThan(0));
+    const ws = FakeWebSocket.instances[0]!;
+
+    // Send message → optimistic bubble lands (created_at from POST response = 2026-05-01T00:00:02Z)
+    await user.type(screen.getByRole("textbox"), "user question");
+    await user.click(screen.getByRole("button", { name: /Send/i }));
+    await waitFor(() => expect(screen.getByText("user question")).toBeInTheDocument());
+
+    // Agent reply via WS with created_at BEFORE the user message (01Z < 02Z)
+    act(() => {
+      ws.emit({
+        type: "message.created",
+        conversation_id: "c1",
+        message_id: "m-agent-reply",
+        sender_user_id: "user-uuid-planner",
+        sender_type: "agent",
+        content: "agent answer",
+        tool_calls: [],
+        token_usage: null,
+        delivery_status: "completed",
+        created_at: "2026-05-01T00:00:01Z"   // earlier than user's 00:00:02Z
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("agent answer")).toBeInTheDocument());
+
+    // Agent message has earlier created_at → must appear before user message in DOM
+    const bubbles = document.querySelectorAll(".chat-bubble");
+    const texts = Array.from(bubbles).map((b) => b.textContent ?? "");
+    const agentIdx = texts.findIndex((t) => t.includes("agent answer"));
+    const userIdx = texts.findIndex((t) => t.includes("user question"));
+    expect(agentIdx).toBeGreaterThanOrEqual(0);
+    expect(userIdx).toBeGreaterThanOrEqual(0);
+    expect(agentIdx).toBeLessThan(userIdx);
+  });
 });
