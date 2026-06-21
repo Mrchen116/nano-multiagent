@@ -30,4 +30,19 @@
 - Rollback: revert R2 三 commit
 - Commits: C1=test 红, C2=feat 实现, C3=docs（本段）
 
+## R3 — BackgroundTaskRegistry 删前台补丁 + kernel 注入改向
+
+- Context: 前台 bash 已退出后台 registry（R2），后台 registry 里的前台补丁（`_foreground_task_ids` 集合、`set_stop_handle(foreground=)` 分支、`complete/fail/kill` 三处 `discard`、`stop_foreground_for_session`）全部失去用途，是 bug 栖息地的残留；kernel 仍把 foreground_stopper 注入旧的 `BackgroundTaskRegistry.stop_foreground_for_session`。
+- Decision: 删上述四处前台补丁；`set_stop_handle` 去 `foreground` 参数（只剩 `(task_id, handle)`，真后台任务用）；`complete()` 的 `notified` 参数**保留**（真后台 auto-bg 移交后任务仍用，默认 False = 正确通知）。`kernel.py:431` 注入改向 `background_task_wiring.foreground_registry.stop_for_session`（同 `(session_id)->bool` 签名）。`runs/registry.py` 与 M1 interrupt/cancel 逻辑一字未改。迁移：`test_background_tasks.py` 删已移到 `test_foreground_registry.py` 的前台 stop-by-session 段；新增 `test_foreground_wiring.py` 锚定接线契约。
+- Rationale: 后台 registry 回归单一职责（只管真后台任务），不再背两种生命周期语义。注入改向是「一行」是因为 M5 早已把中断链做成干净端口（ForegroundStopper Protocol），决策 12 只换端口背后的实现类。`test_run_cancel.py` 的 cancel 测试在端口层注入自己的 `_foreground_stopper`，证明 runs/registry 零改动仍工作。
+- Evidence:
+  - Tests: `tests/unit/agent/background_tasks/` + `test_bash_tool.py` + `test_task_stop_tool.py` + `test_run_cancel.py` + e2e 89 passed；竞态测试重复 5 次稳定
+  - Entry: kernel 注入接线经 `test_kernel_injects_foreground_registry_stopper`（真 build_kernel）断言注入的是 `ForegroundExecutionRegistry.stop_for_session`
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: M7 DONE 硬闸（双通道负向）在 R4
+  - Visual/Interaction: N/A
+- Rollback: revert R3 三 commit；注入改回 `BackgroundTaskRegistry.stop_foreground_for_session`（需同时恢复补丁）
+- Commits: C1=test 红, C2=feat 实现, C3=docs（本段）
+
 <!-- 每个 roadpoint 完成后实时追加。 -->
