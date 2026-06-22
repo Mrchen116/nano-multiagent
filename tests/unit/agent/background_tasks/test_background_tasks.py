@@ -605,12 +605,23 @@ def test_agent_tool_run_background_passes_workspace_root_to_registry() -> None:
 
     wiring.subagent_runner.start.return_value = _FakeStopper()
 
+    # bugfix-418: _create_subagent_session now routes create_session onto the
+    # dedicated loop via submit_foreground; the stub must actually run the coro
+    # and return its result (a bare MagicMock would leak the coroutine).
+    import asyncio
+    from concurrent.futures import Future
+
+    def _submit_foreground(coro: Any) -> Any:
+        fut: Future = Future()
+        fut.set_result(asyncio.run(coro))
+        return fut
+
+    wiring.subagent_runner.submit_foreground = _submit_foreground
+
     # runtime stub：create_session 返回带 session_id 的对象
     runtime_stub = MagicMock()
     session_stub = MagicMock()
     session_stub.session_id = "sub-sess-1"
-
-    import asyncio
 
     async def _create_session(**kwargs: Any) -> Any:
         return session_stub

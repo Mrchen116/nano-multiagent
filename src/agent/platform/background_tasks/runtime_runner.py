@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
+from concurrent.futures import Future
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Coroutine, Mapping
 
 from agent.core.agent.run_control import RunController
 from agent.core.agent.runtime import AgentRuntime
@@ -92,6 +93,47 @@ class RuntimeRunner(BackgroundSubagentRunner):
             threading.Thread(target=_thread_worker, daemon=True).start()
 
         return _ControllerStopper(controller)
+
+    def submit_foreground(self, coro: Coroutine[Any, Any, Any]) -> Future:
+        """Submit a foreground subagent coroutine onto the dedicated loop.
+
+        bugfix-418: the foreground ``agent`` tool path used to run a *shared*
+        AgentRuntime via bare ``asyncio.run`` in a private ThreadPoolExecutor,
+        which spun up a transient loop. Awaiting an AgentRuntime primitive bound
+        to the dedicated loop (per-session ``asyncio.Lock``, shared httpx client)
+        then raised ``... is bound to a different event loop`` and the transient
+        loop polluted the shared singleton, silently killing the consumer's
+        resident heartbeat/relay coroutines.
+
+        Submitting onto ``RunsRegistry``'s dedicated loop (the same loop that
+        created those primitives) eliminates the cross-loop fault, and running as
+        an independent Task on that loop isolates the subagent's failure to the
+        returned ``Future`` — it cannot kill the loop or sibling runs.
+
+        The caller blocks on the returned ``concurrent.futures.Future`` with a
+        timeout to implement the foreground budget; this blocks the tool *thread*
+        (spawned by ``asyncio.to_thread``), not the dedicated loop, which keeps
+        servicing this and other Tasks. Unlike :meth:`start`, this submits the
+        *bare* coroutine (returns its value, no completion callback), so an
+        in-budget result is never re-delivered as a ``<task-notification>``.
+
+        When no dedicated loop is wired (defensive: pure-library assembly without
+        a RunsRegistry), the coroutine runs on its own isolated loop in a daemon
+        thread — never sharing the caller's loop.
+        """
+        if self._event_loop is not None:
+            return asyncio.run_coroutine_threadsafe(coro, self._event_loop)
+
+        future: Future = Future()
+
+        def _thread_worker() -> None:
+            try:
+                future.set_result(asyncio.run(coro))
+            except BaseException as exc:  # noqa: BLE001
+                future.set_exception(exc)
+
+        threading.Thread(target=_thread_worker, daemon=True).start()
+        return future
 
 
 class _ControllerStopper:

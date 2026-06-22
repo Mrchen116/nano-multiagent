@@ -43,6 +43,9 @@ class _FakeStopper:
 
 
 class _FakeRunner:
+    def __init__(self) -> None:
+        self.submit_foreground_calls = 0
+
     def start(
         self,
         *,
@@ -67,6 +70,30 @@ class _FakeRunner:
 
         threading.Thread(target=_worker, daemon=True).start()
         return _FakeStopper()
+
+    def submit_foreground(self, coro):
+        """Run the bare runtime.run(...) coroutine and return a Future.
+
+        Mirrors the real RuntimeRunner.submit_foreground contract (bugfix-418):
+        the foreground path goes through this method instead of bare asyncio.run
+        inside AgentTool, so the subagent turn runs on the kernel's dedicated
+        loop rather than a transient one.
+        """
+        import asyncio
+        import threading
+        from concurrent.futures import Future
+
+        self.submit_foreground_calls += 1
+        future: Future = Future()
+
+        def _runner():
+            try:
+                future.set_result(asyncio.run(coro))
+            except BaseException as exc:  # noqa: BLE001
+                future.set_exception(exc)
+
+        threading.Thread(target=_runner, daemon=True).start()
+        return future
 
 
 async def _fake_create_session(*args, **kwargs):
@@ -155,6 +182,106 @@ def test_foreground_completes_within_budget() -> None:
         assert result["content"] == "sync result"
 
 
+def test_foreground_in_budget_does_not_register_subagent() -> None:
+    """bugfix-418 decision 2 / bugfix-417 invariant: in-budget foreground
+    completion must NOT register into BackgroundTaskRegistry — registration is
+    what would later emit a <task-notification>, so an in-budget call that both
+    returns inline AND notifies would be the double-channel regression.
+    """
+    tool = _make_tool(with_wiring=True)
+    tool._runtime.run = _fake_run_fast
+
+    registry = tool._wiring.registry
+    register_calls: list[str] = []
+    original_register = registry.register_subagent
+
+    def _spy_register(*args, **kwargs):
+        register_calls.append(kwargs.get("agent_id", "?"))
+        return original_register(*args, **kwargs)
+
+    registry.register_subagent = _spy_register  # type: ignore[method-assign]
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        result = tool.run(
+            {
+                "description": "test task",
+                "prompt": "do something",
+                "subagent_type": "explore",
+                "load_skills": [],
+                "run_in_background": False,
+            },
+            ctx,
+        )
+        assert result["status"] == "completed"
+        assert register_calls == [], (
+            "in-budget foreground subagent must not register into the "
+            "background-task registry (would trigger a <task-notification>)"
+        )
+
+
+def test_create_subagent_session_routes_through_dedicated_loop() -> None:
+    """bugfix-418 round1: subagent session creation routes through the runner's
+    submit_foreground (kernel's dedicated loop) by a DIRECT call — no capability
+    probe, no bare-asyncio.run fallback — same as the turn-execution path
+    (decision 1). Foreground dispatch therefore submits twice: once to create the
+    session, once for the turn.
+    """
+    tool = _make_tool(with_wiring=True)
+    tool._runtime.run = _fake_run_fast
+    runner = tool._wiring.subagent_runner
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        result = tool.run(
+            {
+                "description": "test task",
+                "prompt": "do something",
+                "subagent_type": "explore",
+                "load_skills": [],
+                "run_in_background": False,
+            },
+            ctx,
+        )
+        assert result["status"] == "completed"
+        # create_session (1) + turn (1) both go through the dedicated loop.
+        assert runner.submit_foreground_calls == 2, (
+            "subagent session creation must route through submit_foreground "
+            "(dedicated loop), not bare asyncio.run on a transient loop"
+        )
+
+
+def test_create_subagent_session_fails_loud_without_runner() -> None:
+    """bugfix-418 round1: with no real subagent runner, creation must fail loud
+    (the runner's submit_foreground raises) rather than silently fall back to
+    bare asyncio.run — which would re-open the cross-loop back door.
+    """
+    from agent.platform.background_tasks.wiring import wire_background_tasks
+
+    runtime = MagicMock()
+    runtime.create_session = _fake_create_session
+    # No runtime passed → wiring builds a _NoOpSubagentRunner whose
+    # submit_foreground raises.
+    with tempfile.TemporaryDirectory() as tmpdir:
+        wiring = wire_background_tasks(workspace_root=Path(tmpdir), runtime=None)
+        tool = AgentTool(runtime=runtime, wiring=wiring)
+        ctx = _make_ctx(tmpdir)
+        # Creation happens before the turn's try/except, so the runner's
+        # RuntimeError propagates loudly (surfaced as a tool error) instead of a
+        # silent asyncio.run success that would re-open the cross-loop path.
+        with pytest.raises(RuntimeError, match="not configured"):
+            tool.run(
+                {
+                    "description": "test task",
+                    "prompt": "do something",
+                    "subagent_type": "explore",
+                    "load_skills": [],
+                    "run_in_background": False,
+                },
+                ctx,
+            )
+
+
 # ------------------------------------------------------------------
 # Foreground auto-background
 # ------------------------------------------------------------------
@@ -187,6 +314,61 @@ def test_foreground_auto_backgrounds_on_timeout() -> None:
         )
         assert result["status"] == "async_launched"
         assert result["agent_id"].startswith("a")
+
+
+def test_foreground_auto_background_watcher_completes_registry() -> None:
+    """bugfix-418 round1 W1: cover the timeout→auto-background NOTIFICATION window.
+
+    The prior test only asserted status=async_launched at hand-off time; the
+    design risk section promises that once the (now background) subagent's future
+    completes, the watcher drives registry.complete — the terminal transition the
+    notifying store wraps to deliver a <task-notification>. This asserts the
+    watcher actually closes that loop: the registry record reaches `completed`
+    carrying the subagent's result text.
+    """
+    tool = _make_tool()
+    registry = tool._wiring.registry
+
+    # runtime.run resolves shortly AFTER the foreground budget elapses, so the
+    # call hands off to background and the watcher later observes completion.
+    late_result = _FakeTurnResult("late subagent result")
+
+    async def _late_run(*args, **kwargs):
+        time.sleep(0.3)
+        return late_result
+
+    tool._runtime.run = _late_run
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        result = tool.run(
+            {
+                "description": "slow task",
+                "prompt": "do something slow",
+                "subagent_type": "explore",
+                "load_skills": [],
+                "run_in_background": False,
+                "timeout_seconds": 0.1,
+            },
+            ctx,
+        )
+        assert result["status"] == "async_launched"
+        agent_id = result["agent_id"]
+
+        # Poll for the watcher to observe the future and call registry.complete.
+        for _ in range(50):
+            record = registry.get(agent_id)
+            if record is not None and record.status == BackgroundTaskStatus.COMPLETED:
+                break
+            time.sleep(0.05)
+
+        record = registry.get(agent_id)
+        assert record is not None
+        assert record.status == BackgroundTaskStatus.COMPLETED, (
+            "auto-background watcher must call registry.complete on future "
+            "completion (the terminal transition that delivers the notification)"
+        )
+        assert record.result_text == "late subagent result"
 
 
 # ------------------------------------------------------------------
