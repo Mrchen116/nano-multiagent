@@ -145,3 +145,94 @@ tasks.md 的四条退出标准全部为 `[ ]`（未勾选），但实现均已�
 - 文件：`docs/e2e-critical-paths.md:37-38`（6 后直接跳 8）
 - 问题：heartbeat 移入 backlog 后原序号保留，造成 v1 段序号不连续（6 → 8）。表头注释有说明（第 27 行），但直接阅读表格时会疑惑。
 - 建议：要么将 7 保持空缺并在紧邻位置加一行注释解释，要么重新编号为 1-10 连续（并更新注释中的「原 #7」引用）。此为纯可读性问题，不影响功能。
+
+---
+
+# Round 2 — 2026-06-22
+
+> 轻量复验：核查 round-1 三条 WARNING 是否已闭环 + fix 引入的改动（_im_client 拆分、killpg 护栏）是否正确。
+
+## Summary
+
+| 维度          | 结果      |
+|---------------|-----------|
+| Round-1 W1（M2 tasks.md 退出标准勾选）| 已闭环 |
+| Round-1 W2（subagent 失败隔离独立测试）| 已闭环 |
+| Round-1 W3（heartbeat skip→xfail strict）| 已闭环 |
+| Fix 引入改动（_im_client 拆分 + killpg + 消重）| 无新问题 |
+
+## W1 核查：M2 tasks.md 退出标准勾选
+
+**已闭环。**
+
+文件：`docs/changes/feat-421-critical-path-e2e-suite/M2-remaining-paths/tasks.md:15-18`
+
+4 条退出标准全部已改为 `[x]`，内容与实现一致（含 heartbeat 改为 xfail 后的口径更新）。
+
+## W2 核查：subagent 失败隔离独立测试
+
+**已闭环。**
+
+新增文件：`tests/e2e/critical_paths/test_subagent_failure_isolation_critical_path.py`
+
+- 测试函数：`test_failed_subagent_isolated_from_main_process` — 两轮断言：① 派注定失败的子 agent 后父 agent 产出 `message.completed`（进程未崩/卡死）；② 紧接再发普通哨兵消息能收到含哨兵回复（Gateway 事件循环存活）。
+- catalog `docs/e2e-critical-paths.md:36` 第 4 条已更新，同时引用两个测试函数：`test_subagent_foreground_critical_path.py::test_foreground_subagent_carries_back_output` + `test_subagent_failure_isolation_critical_path.py::test_failed_subagent_isolated_from_main_process`。
+- catalog 声明与测试覆盖现在一致。
+
+## W3 核查：heartbeat skip→xfail(strict=True)
+
+**已闭环。**
+
+文件：`tests/e2e/critical_paths/test_heartbeat_bubble_critical_path.py:29-34`
+
+标记已改为：
+```python
+@pytest.mark.xfail(
+    strict=True,
+    reason="产品 openclaw 心跳前缀 ... tracked in #126",
+)
+```
+
+无 proxy 门控：函数依赖 `e2e_stack` fixture，该 fixture 在 `conftest.py:84` 调用 `_gate_or_skip()`；无 proxy 环境下 xfail 体内不会执行，不会触发真实 LLM 调用。
+
+## Fix 引入改动核查
+
+### _im_client 拆分：import 闭合性
+
+4 个文件（`_im_client.py` 369 行、`_im_ws.py` 165 行、`_im_polling.py` 66 行、`_im_gateway.py` 126 行），均在 400 行限制内。
+
+Import 链：
+- `_im_client` → `_im_gateway` / `_im_polling` / `_im_ws`（全部相对 import）
+- `_im_gateway` → `_im_polling`
+- 所有测试文件 import 入口从 `_im_client` 取（`IMClient`、`restart_gateway`、`IMUserWebSocket`、`mention_tag`）
+- 直接从 `_im_polling` 取 `poll_until` / `assert_absent_within` 的调用点（`test_cron_push`、`test_group_chat`、`test_permission_approval`、`test_stop_run`）均正确，无遗漏
+
+无循环 import，无破坏向后兼容（`restart_gateway` 在 `_im_client.__all__` 中 re-export，`test_restart_session_continuity_critical_path.py` 从 `_im_client` import 正确）。
+
+### poll_until / assert_absent_within 消重
+
+唯一定义在 `_im_polling.py:17` 和 `_im_polling.py:49`，原散落在 `_im_client` / 各测试文件中的重复定义已消除。`grep -rn "def poll_until\|def assert_absent_within"` 只命中 `_im_polling.py`，无重复。
+
+### restart_gateway killpg 护栏逻辑
+
+`_im_gateway.py:_terminate_process_group`：
+
+- 护栏逻辑：`is_group_leader = os.getpgid(pid) == pid`，**只有独立组长时**才 `os.killpg(pid, sig)`，否则退回单 pid `os.kill(pid, sig)`。
+- e2e-up.sh 起的 Gateway 未 setsid，继承 pytest 进程组；`restart_gateway` 起的新 Gateway 用 `start_new_session=True`（成组长）。两种情况分别走正确分支，不会误杀 pytest 进程组。
+- 逻辑正确，与 AGENTS.md `stop_pidfile` 范式一致。
+
+## Issues
+
+### CRITICAL
+
+无。
+
+### WARNING
+
+无（round-1 3 条 WARNING 全部闭环）。
+
+### SUGGESTION
+
+无新增。
+
+All round-1 warnings resolved. No new issues introduced by fix. Ready for PR.
