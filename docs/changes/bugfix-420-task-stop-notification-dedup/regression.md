@@ -124,3 +124,39 @@
 ## Highest Required Action
 
 **pass**（无需 fix-implementation / revise-design）
+
+---
+
+# Round 2 — 2026-06-22
+
+## Verdict
+
+**pass**
+
+## 本轮 fix 范围
+
+commit `fe16c0b8`，两处改动：
+
+1. `agent.py`：`_run_foreground` 自动后台化路径补 `RunController` + `_ControllerStopHandle` + `_start_registry_watcher` 判 `is_aborted`——修复「前台 subagent 超预算自动后台化后被 task_stop 不进 KILLED 终态」回归。
+2. `task_stop.py`：工具描述文案如实改写——bash 停止只有 tool_result、不再发额外通知；subagent 停止发带部分结果的通知。
+
+## 轻量复验结果
+
+**方式**：复用 round-1 上下文，不重启服务。fix 只触及 `_run_foreground` 自动后台化分支（新路径）和 task_stop 描述文案，不改 round-1 验过的「`run_in_background=True` 主动派发」路径。
+
+**单测**：`pytest -q tests/unit -k "background_task or task_stop or registry"` → **140 passed**（与 round-1 完全一致，fix commit 新增测试已包含在内）。
+
+| Scenario | round-1 结论 | round-2 状态 | 依据 |
+|---|---|---|---|
+| 停后台 bash 无重复通知 | pass | **继承 pass** | fix 未改 bash kill 路径（`registry.kill(notified=True)` 不变）；单测 140 passed |
+| 停 subagent 通知带 result | pass | **继承 pass** | fix 未改 `run_in_background=True` 派发的 `on_kill` 路径；单测 140 passed |
+| 无产出省略 result | pass（单测） | **继承 pass** | 同上；`test_runtime_runner_aborted_run_with_no_output_omits_result` 仍 PASSED |
+| killed 后可续跑 | pass | **继承 pass** | fix 未改 `_resume_subagent` 路径；killed 终态语义不变 |
+
+**工具描述文案变化评估**：task_stop 描述从「通知会发给父会话」改为「bash 只有 tool_result / subagent 发带部分结果通知」，如实描述了 round-1 验过的行为，LLM 运行时通知逻辑不受影响。
+
+**auto-background 新路径**：前台 subagent 超预算自动后台化后 task_stop 进 KILLED 终态，此路径由单测 `test_auto_background_subagent_task_stop_enters_killed_state`（commit `247b0a03` + `fe16c0b8`）覆盖，不在 round-1 验收范围内，不强行制造产品旅程场景。
+
+## Highest Required Action
+
+**pass**
