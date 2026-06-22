@@ -8,10 +8,10 @@
 
 ## 退出标准
 
-- [ ] `pytest tests/unit/personal_assistant/test_web_search_tool.py` 全绿，新增覆盖：searxng 正常返回 / 实例不可达 raise / 未配 SEARXNG_URL raise / 空结果返回 [] / auto-default 推导
-- [ ] `ruff check` + `ruff format` 干净
-- [ ] schema `provider` enum 含 `searxng`，description 提及它
-- [ ] operator-runbook 新增 provider 配置小节（SEARXNG_URL 启用即默认、仅搜索语义、补 BRAVE_API_KEY）
+- [x] `pytest tests/unit/personal_assistant/test_web_search_tool.py` 全绿（11 passed, 1 skipped），新增覆盖：searxng 正常返回 / 实例不可达 raise / 未配 SEARXNG_URL raise / 空结果返回 [] / auto-default 推导 / 显式 provider 优先 / 未配默认仍 ddg
+- [x] `ruff check` + `ruff format` 干净
+- [x] schema `provider` enum 含 `searxng`，description 提及它
+- [x] operator-runbook 新增 provider 配置小节（第 10 节：SEARXNG_URL 启用即默认、仅搜索语义、补 BRAVE_API_KEY）
 
 ## 测试策略
 
@@ -34,7 +34,7 @@
 
 ## Roadpoints
 
-### R1 — 新增 _search_searxng + auto-default + schema + 文档
+### R1 — 新增 _search_searxng + auto-default + schema + 文档 — DONE
 
 - 步骤:
   - C1: 扩展 test_web_search_tool.py，加 searxng 七个场景测试（Red）
