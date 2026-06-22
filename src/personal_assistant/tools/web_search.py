@@ -139,10 +139,14 @@ _PROVIDERS: dict[str, Any] = {
 
 
 class WebSearchTool:
-    """Search the web using DuckDuckGo (free) or Brave (API key).
+    """Search the web via DuckDuckGo, Brave, or a self-hosted SearXNG instance.
+
+    Providers: duckduckgo (free, default), brave (needs BRAVE_API_KEY), searxng
+    (free, self-hosted; needs SEARXNG_URL — when set, becomes the default).
 
     Args:
-        default_provider: Provider name used when caller omits ``provider``.
+        default_provider: Provider name used when caller omits ``provider`` and
+            ``SEARXNG_URL`` is unset (SEARXNG_URL takes precedence when present).
     """
 
     name = "web_search"
