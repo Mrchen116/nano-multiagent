@@ -1,6 +1,7 @@
 # Verification Report: feat-425
 
 > Round 1 · 2026-06-22 · branch `unit/feat-425` · HEAD `f4cdd7f2`
+> Round 2 · 2026-06-23 · branch `unit/feat-425` · HEAD `02dcb744` (fix `bd103877`)
 
 ## Summary
 
@@ -107,3 +108,47 @@ All checks passed. Ready for PR.
 ---
 
 All checks passed. Ready for PR.
+
+---
+
+# Round 2
+
+> fix commit `bd103877`（merge `02dcb744`）· 聚焦 A2+C5+C1 三处修正 + 全局无回归
+
+## Round 2 Summary
+
+| 维度 | 结果 |
+|---|---|
+| Fix A2 (truncated) | 正确 |
+| Fix C5 (content 无 HTTP 前缀) | 正确 |
+| Fix C1 (tool_start relay emoji) | 正确 |
+| 全局回归 | 无（fix delta 自包含，不影响 Round 1 覆盖的路径） |
+
+All checks passed. Ready for PR.
+
+## Fix Delta 核对
+
+### A2: `_WebFetchPresenter.format_end` 成功分支 `detail.truncated` 修复
+
+- **修复内容**：`web_fetch.py:241` 将硬编码 `"truncated": False` 改为 `bool(output.get("truncated", False))`，保留 `run()` 在 50K 截断时置的真实标志。
+- **正确性**：逻辑正确。`run()` 截断阈值（`_default_max_chars = 50000`）远小于 `_enforce_cap` 的 256KB 上限，故 `_enforce_cap` 不会翻转此标志；修复后 WebCard 能正确显示"源头已截断"提示。
+- **测试**：`test_presentation.py:317`（`test_end_preserves_run_truncated_flag`）直接断言 `evt.detail["truncated"] is True`，覆盖该路径。
+
+### C5: `web_fetch.run()` content 为纯 body，HTTP 前缀只进 text
+
+- **修复内容**：`web_fetch.py:469-479`，`content = text`（纯 body，截断 + prompt 处理后），`HTTP {status}` 前缀只拼入 LLM-facing 的 `text`。原来 content 也会带 `HTTP 404\n\n` 前缀，导致 WebCard 状态码出现两次（`detail.status` 一次 + content 首行一次）。
+- **正确性**：正确。4xx 时：`content` = 纯 body，`text` = `banner + "\n\nHTTP 404\n\ncontent"`，状态码在 `detail.status` 独立字段（`web_fetch.py:483`），前端 WebCard 读 `detail.status` 显示一次，不重复。2xx 时：`content = text = 纯 body`，无 HTTP 前缀，无回归。
+- **测试**：`test_web_fetch_run.py:64`（`test_run_4xx_content_excludes_http_prefix`）明确断言 `"HTTP " not in out["content"]` 且 `"HTTP 404" in out["text"]`，LLM 与展示分离验证完整。
+
+### C1: `main.py` `tool_start` relay 透传 `presentation.emoji`
+
+- **修复内容**：`main.py:3534-3546`，tool_start 事件 handler 从 `event.get("presentation")` 取 emoji，若非空则加入 `tool_call_upserted` payload。原先 running 行无 emoji，自定义工具执行阶段显通用 🔧，完成后才跳变。
+- **正确性**：正确。`realtime_stream.py:77` 已在 tool_start 事件中序列化 `_presentation_dict(presentation)`（含 emoji），gateway relay 现在读取并透传；emoji 为空串时省略（`start_pres.get("emoji")` falsy 则 `start_emoji` 保持 None，key 不加入 payload），与 tool_end relay 同一约定（`main.py:3588-3589`）。IM 侧 `_parse_tool_call`（`ws/gateway_handler.py:2533-2543`）和 `tool_call_to_dict`（`api/ws/event_types.py:65`）在 M1 已支持 emoji，天然携带。
+- **测试**：
+  - `test_tool_end_detail_passthrough.py:176`（`test_tool_start_forwards_emoji`）：emoji 透传后 upsert payload 含 `emoji="🌐"`。
+  - `test_tool_end_detail_passthrough.py:193`（`test_tool_start_without_emoji_omits_key`）：空串 emoji 时 payload 无 emoji key。
+  - `tool-calls-panel.test.tsx:100`（`shows the carried emoji on a running row`）：`status=running` 行也显示自带 emoji，不回退 🔧。
+
+## 全局回归确认
+
+fix commit 仅改动 `web_fetch.py`（2 处独立逻辑）、`main.py`（tool_start handler 加 emoji 透传），以及对应测试文件（6 个文件，122 行增删）。Round 1 通过的全部路径（web_search presenter、emoji 透传链其余跳、9 presenter 下沉、IM 落库五层、前端 BESPOKE/WebSearchCard/toolEmojiFor）均未被触及，无回归风险。`serialize_result` 仍只读 `text` 回归测试（`test_web_fetch_run.py:91`）继续覆盖。
