@@ -229,15 +229,16 @@ class _WebFetchPresenter:
             )
         if isinstance(output, Mapping):
             status = output.get("status")
-            # feat-409: 大正文走 _enforce_cap 的 content 字段(统一 256KB 尾截断 +
-            # truncated 标记),与其它工具的大字段同一关卡。
+            # feat-425 A2: 保留 run() 已置的真实 truncated(run() 默认截到 50K,远小于
+            # _enforce_cap 的 256KB,故 cap 不会翻转此标志;硬编码 False 会丢掉源头截断
+            # 信号,WebCard 就不显示"源头已截断")。若正文超 256KB,_enforce_cap 会再置真。
             detail = _enforce_cap(
                 {
                     "url": url,
                     "final_url": str(output.get("final_url", url)),
                     "status": status,
                     "content": str(output.get("content", "")),
-                    "truncated": False,
+                    "truncated": bool(output.get("truncated", False)),
                 }
             )
             return ToolPresentationEvent(
@@ -465,16 +466,17 @@ class WebFetchTool:
         if prompt and ctx.llm_client is not None:
             text = self._process_with_prompt(text, str(prompt), ctx.llm_client)
 
-        # Build result text. feat-425 决策 4: ``content`` is the display body (used
-        # by the presenter / WebCard) — the joined parts WITHOUT the untrusted
-        # banner. ``text`` keeps the banner prepended for the model (LLM-facing).
+        # feat-425 决策 4 + C5: ``content`` 是展示正文(给 presenter / WebCard),只放
+        # 纯 body —— 不含 ``HTTP {status}`` 前缀(状态码已在 detail.status 独立字段,
+        # 重复进 content 会让 WebCard 里状态码出现两次)。``text`` 是 LLM-facing,保留
+        # banner + ``HTTP {status}`` 前缀(供模型识别非 2xx)。
+        content = text
+
         parts: list[str] = []
         if status_code >= 400:
             parts.append(f"HTTP {status_code}")
-        parts.append(text)
-
-        content = "\n\n".join(parts)
-        text = f"{_UNTRUSTED_BANNER}\n\n" + content
+        parts.append(content)
+        text = f"{_UNTRUSTED_BANNER}\n\n" + "\n\n".join(parts)
 
         return {
             "ok": status_code < 400,
@@ -484,7 +486,7 @@ class WebFetchTool:
             "truncated": truncated,
             "length": len(text),
             "text": text,
-            # 展示正文(剥 banner);LLM 仍读 text(带 banner)。
+            # 展示正文(剥 banner + HTTP 前缀);LLM 仍读 text(带 banner + HTTP 前缀)。
             "content": content,
         }
 

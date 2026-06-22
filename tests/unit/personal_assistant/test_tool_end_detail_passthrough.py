@@ -161,3 +161,44 @@ def test_tool_end_without_emoji_omits_key() -> None:
     manager = _run_observer_with_tool_end(event)
     tc = _tool_call_payload(manager)
     assert tc.get("emoji") is None
+
+
+def _upserted_payload(manager: _FakeManager) -> dict[str, Any]:
+    for message_type, payload in manager.sent:
+        if (
+            message_type == "node.streaming_delta"
+            and payload.get("kind") == "tool_call_upserted"
+        ):
+            return payload["tool_call"]
+    raise AssertionError(f"no tool_call_upserted sent; got {manager.sent}")
+
+
+def test_tool_start_forwards_emoji() -> None:
+    # feat-425 C1: tool_start SSE 带 presentation.emoji 时,running 行 upsert 也带上,
+    # 自定义工具执行阶段折叠行即显自带 emoji,不再回退 🔧、等完成才跳变。
+    event = {
+        "event": "tool_start",
+        "run_id": "run-1",
+        "call_id": "call-1",
+        "name": "web_fetch",
+        "arguments": {"url": "https://x"},
+        "presentation": {"summary": "https://x", "emoji": "🌐"},
+    }
+    manager = _run_observer_with_tool_end(event)
+    tc = _upserted_payload(manager)
+    assert tc["status"] == "running"
+    assert tc["emoji"] == "🌐"
+
+
+def test_tool_start_without_emoji_omits_key() -> None:
+    event = {
+        "event": "tool_start",
+        "run_id": "run-1",
+        "call_id": "call-1",
+        "name": "read",
+        "arguments": {"path": "a.py"},
+        "presentation": {"summary": "a.py", "emoji": ""},
+    }
+    manager = _run_observer_with_tool_end(event)
+    tc = _upserted_payload(manager)
+    assert tc.get("emoji") is None

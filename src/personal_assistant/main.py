@@ -3565,7 +3565,22 @@ def _build_kernel_event_observer(
                 "name": tool_name,
                 "input": arguments if isinstance(arguments, dict) else {},
             }
+            # feat-425 C1: tool_start SSE 已带 presentation.emoji(realtime_stream
+            # on_tool_call)。透传到 running 行,自定义工具在执行阶段折叠行就显自带 emoji,
+            # 不再回退 🔧、等完成才跳变。空串则省略(沿用 detail 的省略未设约定)。
+            start_pres = event.get("presentation")
+            start_emoji: str | None = None
+            if isinstance(start_pres, Mapping) and start_pres.get("emoji"):
+                start_emoji = str(start_pres["emoji"])
             if message_id:
+                start_tool_call: dict[str, Any] = {
+                    "id": call_id,
+                    "name": tool_name,
+                    "status": "running",
+                    "input": arguments if isinstance(arguments, dict) else {},
+                }
+                if start_emoji is not None:
+                    start_tool_call["emoji"] = start_emoji
                 loop.create_task(
                     _send(
                         manager,
@@ -3573,14 +3588,7 @@ def _build_kernel_event_observer(
                         {
                             "kind": "tool_call_upserted",
                             "message_id": message_id,
-                            "tool_call": {
-                                "id": call_id,
-                                "name": tool_name,
-                                "status": "running",
-                                "input": arguments
-                                if isinstance(arguments, dict)
-                                else {},
-                            },
+                            "tool_call": start_tool_call,
                             "run_id": run_id,
                         },
                     )

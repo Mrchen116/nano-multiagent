@@ -97,6 +97,19 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
     expect(nameEl?.textContent).not.toContain("🔧");
   });
 
+  it("shows the carried emoji on a running row (feat-425 C1)", async () => {
+    // running 阶段 tool_call_upserted 也带上自带 emoji,执行中就显该图标,不回退 🔧
+    // 等完成才跳变(C1 polish)。
+    const calls: ToolCall[] = [
+      { id: "x1", name: "my_custom_tool", status: "running", input: {}, emoji: "🚀" }
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    const nameEl = screen.getByText("my_custom_tool").closest(".chat-tool-call-name");
+    expect(nameEl?.textContent).toContain("🚀");
+    expect(nameEl?.textContent).not.toContain("🔧");
+  });
+
   it("falls back to the name table when the tool carries no emoji (historical rows)", async () => {
     // 历史行/运行中行无 emoji 字段 → 名表兜底,内置工具不退化。
     const calls: ToolCall[] = [

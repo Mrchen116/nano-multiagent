@@ -314,6 +314,25 @@ class TestWebFetchPresenter:
         # body 字段保留远多于旧的 500 字硬截
         assert len(evt.detail["content"]) > 500
 
+    def test_end_preserves_run_truncated_flag(self) -> None:
+        # feat-425 A2: run() 默认截到 50K(< _enforce_cap 256KB,cap 不翻转此标志),
+        # presenter 必须保留 run() 返回的真实 output["truncated"],而非硬编码 False —
+        # 否则正文被截断时 WebCard 不显示"源头已截断"。
+        evt = _presenter("web_fetch").format_end(
+            {"url": "https://example.com"},
+            _FakeResult(
+                output={
+                    "ok": True,
+                    "status": 200,
+                    "content": "短正文",
+                    "truncated": True,
+                }
+            ),
+            duration_ms=10,
+        )
+        assert evt.detail is not None
+        assert evt.detail["truncated"] is True
+
 
 class TestAgentPresenter:
     def test_start_shows_description(self) -> None:

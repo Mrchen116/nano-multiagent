@@ -61,6 +61,26 @@ def test_run_returns_final_url() -> None:
     assert out["final_url"] == "https://example.com/landing"
 
 
+def test_run_4xx_content_excludes_http_prefix() -> None:
+    # feat-425 C5: status>=400 时 content 是纯 body(状态码已在 detail.status 独立字段,
+    # 重复进 content 会让 WebCard 状态码出现两次)。HTTP 前缀只进 LLM-facing 的 text。
+    resp = _FakeResp(
+        status_code=404,
+        text="not found body",
+        ctype="text/plain",
+        url="https://example.com/missing",
+    )
+    with patch("agent.platform.tools.builtins.web_fetch._do_fetch", return_value=resp):
+        out: Any = WebFetchTool().run({"url": "https://example.com/missing"}, _ctx())
+    assert out["status"] == 404
+    # content 不含 HTTP 前缀,只放 body
+    assert "HTTP " not in out["content"]
+    assert "not found body" in out["content"]
+    # text(LLM-facing)仍带 HTTP 前缀 + banner
+    assert "HTTP 404" in out["text"]
+    assert out["text"].startswith(_UNTRUSTED_BANNER)
+
+
 def test_run_invalid_url_returns_ok_false() -> None:
     # 非法 URL: run() 返回 {ok:False,error},不抛(失败态由 presenter 判 ok is False)。
     out: Any = WebFetchTool().run({"url": "https://localhost"}, _ctx())
