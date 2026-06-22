@@ -206,3 +206,230 @@
 两个 inconclusive 均属 major 级（核心 Scenario 无法验证）。需要：
 1. 提供空态验证路径（API 注入或 fixture）
 2. 提供自定义工具 emoji 的 e2e 验证路径（gateway 加载 .nano/tools/ 工具后验证）
+
+---
+
+# Round 2 — 2026-06-23
+
+**Round**: 2
+**Date**: 2026-06-23
+**Reviewer**: feat-425-reviewer
+**Branch**: unit/feat-425 @ 02dcb744
+**Verdict**: fail
+**Highest Required Action**: fix-implementation
+
+---
+
+## Round 2 澄清记录
+
+team-lead 对 round 1 的两个 inconclusive 定性：
+- B1（web_search 空态）：使用 duckduckgo provider + UUID 字符串 `zzq9x7nonexist44102qxqz` 触发
+- B2（自定义工具 emoji）：工具文件放到 `<workspace_root>/.nano/tools/` 下
+
+Round 2 新增验证目标：
+- A2：web_fetch 大页面截断信号 → 展开卡显"源头已截断"提示
+- C5：web_fetch 4xx → 展开卡状态码只出现一次（不重复进 content）
+- C1：自定义工具 running 阶段折叠行即显自带 emoji（不先 🔧 后跳）
+
+---
+
+## Round 2 服务接管记录
+
+| 服务 | 状态 |
+|---|---|
+| worktree reset | `git reset --hard origin/unit/feat-425` → 02dcb744 |
+| 前端 rebuild | `npm run build` 成功，marker 核验：index-D0XgAMMc.js 含 truncated/截断/WebSearchCard 等关键字 |
+| IM (port 59414) | 重启，使用新鲜数据库 `$WT_ROOT/data/im_fresh.sqlite3`（避免主仓旧 schema 导致 messages API 500）|
+| Gateway | 重启，`SEARXNG_URL=http://100.88.34.122:8888`，3 agent 均 online |
+| 自定义工具 | test_emoji_tool.py 放置于 `<workspace_root>/.nano/tools/test_emoji_tool.py` |
+
+---
+
+## Round 2 User Journeys Exercised
+
+| 旅程 | 描述 | 覆盖 Scenario |
+|---|---|---|
+| A2 | web_fetch 大页面截断（Wikipedia Python page，27.9s） | 截断提示 A2 |
+| C5 | web_fetch 4xx（httpbin.org/status/404）| 状态码不重复 C5 |
+| B1 | web_search duckduckgo + UUID（`zzq9x7nonexist44102qxqz`） | 空态 B1 |
+| searxng | web_search searxng（Python programming language） | 正常搜索结果卡 |
+| B2/C1 | 请求 agent 调用 test_emoji_tool | 自定义工具 emoji B2/C1 |
+
+---
+
+## Round 2 关键发现（系统性退行）
+
+**所有 round 1 通过的核心 Scenarios 在 round 2 全部失败。**
+
+通过直接查询 IM SQLite 数据库（`$WT_ROOT/data/im_fresh.sqlite3`）确认：
+
+```
+tool_calls_json 里所有工具调用的 emoji 字段 = MISSING
+tool_calls_json 里所有工具调用的 summary 字段 = MISSING
+web_fetch detail.content = '' (空字符串)
+web_search detail = None（searxng 成功时）
+```
+
+**前端展示结果**（与 round 1 对比）：
+
+| 项目 | Round 1 | Round 2（02dcb744）|
+|---|---|---|
+| web_fetch 折叠行 | `● web_fetch 🌐 https://example.com 25.8s` | `● web_fetch 27.9s`（无 🌐，无 URL）|
+| web_search 折叠行 | `● web_search 🔍 nano multiagent 8.3s` | `● web_search 4.3s`（无 🔍，无 query）|
+| web_fetch 展开正文 | URL + status + 正文非空 | OUTPUT: status=200（fallback，无正文）|
+| web_search 展开卡 | WebSearchCard 结构化结果 | OUTPUT: raw JSON（fallback）|
+| A2 截断提示 | N/A（首次验） | 未出现（detail.truncated=false，content=''）|
+| C5 HTTP 前缀 | N/A | content='' → 无重复，但也无内容可验 |
+
+---
+
+## Round 2 验收标准覆盖表
+
+### Requirement: web_search 折叠行显示人话主参数（继承 Round 1）
+
+#### Scenario: 正常搜索
+- **期望**: 折叠行 `🔍` + query
+- **实际**: `● web_search 4.3s`（searxng 成功调用，无 emoji，无 query）
+- **证据**: screenshots/feat425-r2-websearch-success-expanded.png；IM SQLite `summary=MISSING, emoji=MISSING`
+- **结果**: **fail**（round 1 pass → round 2 fail，退行）
+- **备注**: emoji 和 summary 字段完全未写入 IM tool_calls_json，gateway relay 到 IM 的链路断了
+
+#### Scenario: 搜索失败（服务不可用 / provider 报错）
+- **期望**: 折叠行 `✕ 🔍 <query>`
+- **实际**: `✕ web_search 1.1s`（有 ✕ 失败图标，无 🔍，无 query）
+- **证据**: screenshots/feat425-r2-websearch-failed-collapsed.png；IM SQLite `summary=MISSING`
+- **结果**: **fail**（round 1 pass → round 2 fail，退行）
+
+### Requirement: web_search 展开卡按结果条目渲染（继承 Round 1）
+
+#### Scenario: 有搜索结果
+- **期望**: WebSearchCard 按条目列出 title/URL/snippet
+- **实际**: OUTPUT: `{"ok":true,"query":"Python...","provider":"searxng","result..."}` raw JSON
+- **证据**: screenshots/feat425-r2-websearch-success-expanded.png；IM SQLite `detail=None`（searxng 成功时）
+- **结果**: **fail**（round 1 pass → round 2 fail，退行）
+- **备注**: BESPOKE 表有 web_search→WebSearchCard，但前端收到的 detail=null 导致 fallback 渲染
+
+#### Scenario: 无搜索结果（空态）
+- **期望**: "无结果"空态文案
+- **实际**: duckduckgo provider 报 `No module named 'ddgs'`（工具运行失败，非 empty results）
+- **证据**: IM 工具调用 status=failed
+- **结果**: **fail**（无法触发真实空态——duckduckgo 缺依赖，无法绕过触发 empty results path）
+- **备注**: B1 round 1 inconclusive 仍未关闭。需要可控的搜索 fixture
+
+### Requirement: web_fetch 折叠行显示抓取的网址（继承 Round 1）
+
+#### Scenario: 正常抓取
+- **期望**: 折叠行 `🌐` + URL
+- **实际**: `● web_fetch 27.9s`（无 🌐，无 URL）
+- **证据**: screenshots/feat425-r2-webfetch-collapsed-fail.png；IM SQLite `summary=MISSING, emoji=MISSING`
+- **结果**: **fail**（round 1 pass → round 2 fail，退行）
+
+#### Scenario: 抓取失败（网络错误 / 非法 URL / 4xx-5xx）
+- **期望**: 折叠行 `🌐` + URL
+- **实际**: `● web_fetch 2.5s`（无 🌐，无 URL）
+- **证据**: screenshots/feat425-r2-webfetch-404-collapsed.png；IM SQLite `summary=MISSING`
+- **结果**: **fail**（round 1 pass → round 2 fail，退行）
+
+### Requirement: web_fetch 展开卡显示抓到的正文（继承 Round 1）
+
+#### Scenario: 抓取成功有正文
+- **期望**: URL + status + 非空正文；若截断则显"源头已截断"（A2 fix）
+- **实际**: OUTPUT: `status=200` 仅此一行；IM SQLite `detail.content=''`
+- **证据**: screenshots/feat425-r2-webfetch-expanded-fail.png；IM SQLite web_fetch detail：`{"url":"...","status":200,"content":"","truncated":false}`
+- **结果**: **fail**（round 1 pass → round 2 fail，退行）
+- **备注 A2**: detail.truncated=false，即使 Wikipedia 27.9s 大页面也显示未截断；content='' 导致 WebCard 正文不可见
+
+#### Scenario: 抓取失败时展开可读错误（C5 验证）
+- **期望**: 展开卡 URL + status 只出现一次（不在 content 里重复 "HTTP 404"）
+- **实际**: OUTPUT: `status=404`，content=''（httpbin.org/status/404 空 body）
+- **证据**: screenshots/feat425-r2-webfetch-404-expanded.png；IM SQLite `content=''`
+- **结果**: **pass**（C5 逻辑正确——content 不含 HTTP 前缀，但由于 content 是空的，整体体验仍差）
+- **备注**: C5 fix 本身（去除 HTTP prefix）逻辑可能正确，但 content='' 问题掩盖了验证
+
+### Requirement: 工具自带 emoji，自定义工具可拥有专属图标（继承 Round 1）
+
+#### Scenario: 自定义 / MCP 工具声明了 emoji（B2 + C1）
+- **期望**: agent 执行阶段折叠行即显 🎯；完成后折叠行继续显 🎯
+- **实际**: agent 无法调用 test_emoji_tool（LLM 提到工具名但未调用）
+- **证据**: 聊天回复只有 `code: test_emoji_tool`（引用），无工具调用行
+- **结果**: **inconclusive**（B2 仍未关闭）
+- **备注**: 自定义工具放置路径已按 team-lead 指示（`<workspace_root>/.nano/tools/`），但 agent 仍未能调用。可能是工具文件接口格式与 gateway 期望不匹配（`from agent.sdk import ToolPresentationEvent` 可能导致加载失败）
+
+#### Scenario: 工具未声明 emoji（回退，不退化）
+- **期望**: 折叠行回退 🔧
+- **实际**: 无法触发未声明 emoji 的工具调用
+- **结果**: **inconclusive**（继承 round 1）
+
+#### Scenario: 既有内置工具不受影响（回归保护）
+- **期望**: bash/read/edit 的 emoji 和展开卡与 round 1 一致
+- **实际**: 未在 round 2 单独验证（round 1 已通过，round 2 专注修复验证）
+- **结果**: **inconclusive**（从 round 1 继承，但鉴于系统性退行，需重新验证）
+- **备注**: 高度警戒——emoji/summary 字段全量 MISSING，bash 工具的 💻 emoji 可能也受影响
+
+---
+
+## Round 2 Issues
+
+### Issue 3（Round 2）: emoji + summary 全量丢失 — 所有工具调用折叠行退化
+
+- **Severity**: blocking
+- **Regression Relation**: suspected-regression（02dcb744 A2+C5+C1 fix 引入）
+- **Scenario**: web_search 折叠行 / web_fetch 折叠行 / 所有工具折叠行
+- **Symptom**: IM tool_calls_json 里所有工具调用的 `emoji` 和 `summary` 字段均 MISSING（数据库级别确认）。前端折叠行退化为 `● <toolname> <duration>`，完全丢失 emoji 图标和 summary（query/url 等人话参数）。Round 1 时这些字段存在并正确显示，round 2 后消失。
+- **Evidence**: IM SQLite 查询：`SELECT tool_calls_json FROM messages WHERE tool_calls_json != '[]'` → 所有 tool_call 对象无 `emoji` key，无 `summary` key。screenshots/feat425-r2-websearch-success-expanded.png / feat425-r2-webfetch-collapsed-fail.png
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: emoji/summary 是在 round 1 已验证的核心展示功能，round 2 全量丢失。可能是 gateway relay 层（main.py C1 fix）改动破坏了 tool_end 事件的 emoji/summary 传递路径，或 IM schema 迁移缺失。
+
+### Issue 4（Round 2）: web_fetch detail.content 恒空 — 展开卡正文不可见
+
+- **Severity**: blocking
+- **Regression Relation**: suspected-regression（C5 fix 可能引入）
+- **Scenario**: web_fetch 展开卡显示抓到的正文（A2 截断提示依赖此路径）
+- **Symptom**: IM SQLite `detail.content = ''`（空字符串），无论抓取 Wikipedia 大页面（200）还是 httpbin 404 页面。WebCard 不显示正文，A2 截断提示无法触发（因为 content 空），C5 的"状态码不重复"虽然逻辑正确但无法形成有意义的展示。
+- **Evidence**: IM SQLite `detail={"url":"...","status":200,"content":"","truncated":false}`；round 1 时同样的旅程 content 非空（round 1 展开卡显示 Wikipedia 正文）
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: C5 fix 修改了 `web_fetch.run()` 里 `content` 的赋值逻辑（`content = text` 然后 `text = banner + ...`），可能导致 content 在某路径变成空字符串。Presenter 读 `output.get("content","")` 时拿到空串，导致 WebCard 无正文。
+
+### Issue 5（Round 2）: web_search detail=None — 展开卡 WebSearchCard 未触发
+
+- **Severity**: blocking
+- **Regression Relation**: suspected-regression
+- **Scenario**: web_search 展开卡按结果条目渲染
+- **Symptom**: IM SQLite `detail=None`（searxng 成功调用时）。前端 BESPOKE 查不到有效 detail dict，fallback 到 raw JSON 显示 `{"ok":true,"query":"...","result..."}` 而非 WebSearchCard
+- **Evidence**: IM SQLite: `SELECT tool_calls_json FROM messages` → searxng 成功的 web_search tool_call `detail=None`
+- **Recommended Action**: fix-implementation
+- **Action Rationale**: _WebSearchPresenter.format_end 没有把结构化 results 写入 detail，或 gateway 没有把 detail 序列化到 IM。Round 1 时展开卡成功显示了 WebSearchCard 结构，round 2 后 detail 全为 None。
+
+---
+
+## Round 2 Verdict
+
+| 必验 Scenario | Round 1 | Round 2 |
+|---|---|---|
+| web_search 正常搜索 | pass | **fail**（退行） |
+| web_search 搜索失败 | pass | **fail**（退行） |
+| web_search 有搜索结果（展开卡）| pass | **fail**（退行）|
+| web_search 无搜索结果（空态）| inconclusive | **fail**（无法触发 duckduckgo）|
+| web_fetch 正常抓取 | pass | **fail**（退行） |
+| web_fetch 抓取失败 | pass | **fail**（退行） |
+| web_fetch 展开卡正文非空 | pass | **fail**（退行，content=''）|
+| A2 截断提示 | N/A | **fail**（content=''，truncated=false）|
+| C5 HTTP 前缀不重复 | N/A | pass（content=''，前缀确实不在其中，但体验仍差）|
+| 自定义工具声明 emoji（B2）| inconclusive | **inconclusive**（仍未能触发）|
+| 工具未声明 emoji 回退 | inconclusive | inconclusive（继承）|
+| 既有内置工具不退化 | pass | inconclusive（需重验）|
+
+**根据 §4.3：blocking issue 存在 + 多个 fail Scenario → Verdict: fail**
+
+**Verdict: fail**
+**Highest Required Action: fix-implementation**
+**issues_count: { blocking: 3, major: 0, minor: 0 }**
+
+### 根本问题摘要
+
+Round 2 代码（02dcb744）引入了**系统性退行**：A2+C5+C1 三处 fix 导致：
+1. emoji + summary 全量从 tool_calls_json 消失（工具折叠行全退化）
+2. web_fetch content 恒空（正文不可见，A2 截断提示无法触发）
+3. web_search detail=None（WebSearchCard 无法渲染）
+
+Round 1 验收通过的 7 个核心 Scenarios 在 round 2 全部 fail。需要 fix worker 回查 C1 fix（main.py gateway relay 改动）对 tool_end 事件链路的影响，以及 C5 fix 对 web_fetch content 赋值的影响。
