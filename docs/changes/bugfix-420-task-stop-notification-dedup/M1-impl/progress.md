@@ -96,3 +96,37 @@ TDD C3 阶段：勾选 tasks、记录与 design 的微调、补 changelog。
 - M1 三提交已 `--no-ff` 合入 `unit/bugfix-420`（merge `44a34aa2`，无冲突），已 push origin。
 - milestone worktree + 本地/远端 milestone 分支已清理（远端原无 milestone 分支）。
 - 未碰 main —— main PR 由 orchestrator 收尾。
+
+## Round 1 fix（reviewer 反馈循环，直接提到 unit 分支）
+
+Round 1 验收：reviewer 真实旅程 4 Scenario 全 PASS；verifier + code-review 各发现 1 个本 unit 引入的问题，提 PR 前清掉。
+
+### C1 — CRITICAL 回归：auto-background subagent task_stop 后以 COMPLETED 而非 KILLED 关闭
+
+**Context**：subagent 有三条终态路径——显式 `run_in_background` 启动、resume，都经 `subagent_runner.start` 接了 `on_kill`；但**自动后台化路径**（`_run_foreground` 前台 subagent 超时 `FutureTimeoutError` → `register_subagent` + `mark_running` + `_start_registry_watcher(future)`）是裸 future 跑 `runtime.run`：没传 controller（无法 cooperative abort）、没 `set_stop_handle`、watcher 只有 complete/fail。bugfix-420 前 task_stop 对所有 SUBAGENT 无差别同步 kill 还能标 KILLED；改成「subagent 不同步 kill」后这条路径漏了——`request_stop` 在无 handle 时仍返回 True（registry.py request_stop：handle 为 None 也 return True），task_stop 不报错也不转终态，future 跑完 watcher 调 complete → COMPLETED。违反本 unit 自己的 Scenario「停止后任务进 killed 终态」。
+
+**Decision**（让三条路径一致，非局部补丁）：
+1. `_run_foreground` 提交 future 前建 `RunController`，`controller=controller` 传给 `runtime.run`（可被 cooperative abort，abort 后返回带累积 messages 的 TurnResult）。
+2. 自动后台化分支 `registry.set_stop_handle(agent_id, _ControllerStopHandle(controller))`（新增小类，镜像 runtime_runner._ControllerStopper），让 `request_stop` 真正 abort。
+3. `_start_registry_watcher` 接 controller，`future.result()` 后判 `controller.is_aborted`：真 → `registry.kill(reason="stopped by user", result_text=_extract_assistant_text(turn))`（notified=False，发带 `<result>` 的 killed 通知，与决策 2/3 一致）；假 → 维持 `registry.complete`。
+
+**Evidence**：
+- 新增整合测试 `tests/integration/background_tasks/test_task_stop.py`：
+  - `test_task_stop_auto_background_subagent_enters_killed_with_result`（auto-bg → task_stop → KILLED 且 `record.result_text=="subagent done"`、注入消息含 `<result>subagent done</result>`）
+  - `test_task_stop_auto_background_natural_completion_stays_completed`（未停的 auto-bg 自然完成仍 COMPLETED，不被误标 killed）
+- `pytest -q tests/unit -k "background_task or task_stop or registry"` → 140 passed
+- 整合 `test_task_stop.py` → 5 passed（含两个新测）
+- 全测试树 `-m "not e2e"` → **2724 passed / 1 skipped / 0 failed**（比 round 0 多 2 = 新增两测）
+- ruff check + format 全过
+
+**Commits**：`247b0a03`（C1 红测）、`fe16c0b8`（C2 实现）
+
+### S1 — SUGGESTION：task_stop 工具描述与新行为不符
+
+**Context**：`task_stop.py:24-28` tool description 仍写「a notification will be sent to the parent session」，但停 bash 现在抑制了 model-facing 通知。
+
+**Decision**：如实改写——「The task is marked as killed. Stopping a bash task is confirmed by this tool's result only (no extra notification is sent). Stopping a subagent additionally sends a notification carrying the subagent's partial result.」
+
+**Evidence**：随 `fe16c0b8` 一并提交。
+
+**Commits**：`fe16c0b8`
