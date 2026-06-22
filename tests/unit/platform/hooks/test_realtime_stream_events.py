@@ -165,3 +165,24 @@ async def test_tool_result_failed_emits_tool_end_failed() -> None:
     evt = pub.events[0]
     assert evt["data"]["status"] == "failed"
     assert evt["data"]["error"] == "Command exited with code 1"
+
+
+def test_presentation_dict_serializes_emoji() -> None:
+    # feat-425 决策 1: _presentation_dict 把 event 的 emoji 序列化进 SSE,让自带
+    # emoji 的工具(如 web_fetch=🌐)的图标随事件全程透传,而非靠前端名表。
+    from agent.core.tools.presentation import ToolPresentationEvent
+    from agent.platform.hooks.builtins.realtime_stream import _presentation_dict
+
+    payload = _presentation_dict(
+        ToolPresentationEvent(visible=True, label="Web", summary="https://x", emoji="🌐")
+    )
+    assert payload["emoji"] == "🌐"
+    assert payload["summary"] == "https://x"
+
+
+def test_presentation_dict_none_has_empty_emoji() -> None:
+    # 无 presentation 时 emoji 缺省空串,前端按名表兜底。
+    from agent.platform.hooks.builtins.realtime_stream import _presentation_dict
+
+    payload = _presentation_dict(None)
+    assert payload["emoji"] == ""

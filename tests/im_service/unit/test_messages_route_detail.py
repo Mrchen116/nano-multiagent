@@ -67,3 +67,23 @@ def test_to_message_response_detail_absent_is_none() -> None:
     tc = ToolCall(id="tc1", name="read", status="completed", output="42 lines")
     resp = to_message_response(_message_with_tool_call(tc))
     assert resp.tool_calls[0].detail is None
+
+
+def test_to_message_response_carries_emoji() -> None:
+    # feat-425 决策 2: REST 历史路径必须序列化 emoji,否则重载后自定义工具图标丢失。
+    tc = ToolCall(
+        id="tc1",
+        name="web_fetch",
+        status="completed",
+        input={"url": "https://x"},
+        output="https://x",
+        emoji="🌐",
+    )
+    resp = to_message_response(_message_with_tool_call(tc))
+    assert resp.tool_calls[0].emoji == "🌐"
+
+
+def test_to_message_response_emoji_absent_is_none() -> None:
+    tc = ToolCall(id="tc1", name="read", status="completed", output="42 lines")
+    resp = to_message_response(_message_with_tool_call(tc))
+    assert resp.tool_calls[0].emoji is None

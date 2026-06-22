@@ -125,3 +125,35 @@ def test_tool_end_without_detail_omits_key() -> None:
     manager = _run_observer_with_tool_end(event)
     tc = _tool_call_payload(manager)
     assert tc.get("detail") is None
+
+
+def test_tool_end_forwards_emoji() -> None:
+    # feat-425 决策 1/2: relay 原样转发 presenter 自带 emoji(纯透传,不加工)。
+    event = {
+        "event": "tool_end",
+        "run_id": "run-1",
+        "call_id": "call-1",
+        "name": "web_fetch",
+        "arguments": {"url": "https://x"},
+        "duration_ms": 12,
+        "presentation": {"summary": "https://x", "emoji": "🌐", "detail": {"url": "https://x"}},
+    }
+    manager = _run_observer_with_tool_end(event)
+    tc = _tool_call_payload(manager)
+    assert tc["emoji"] == "🌐"
+
+
+def test_tool_end_without_emoji_omits_key() -> None:
+    # 工具未声明 emoji(空串)时 relay 不带 emoji 字段,沿用 detail 的省略未设约定。
+    event = {
+        "event": "tool_end",
+        "run_id": "run-1",
+        "call_id": "call-1",
+        "name": "read",
+        "arguments": {"path": "a.py"},
+        "duration_ms": 3,
+        "presentation": {"summary": "42 lines", "emoji": ""},
+    }
+    manager = _run_observer_with_tool_end(event)
+    tc = _tool_call_payload(manager)
+    assert tc.get("emoji") is None
