@@ -5,6 +5,8 @@
 
 ## Changelog
 
+- bugfix-420-M1（impl）：4 条决策全部落地。registry.kill 扩参 notified/result_text；新增 TaskKillCallback + on_kill 回调链（interfaces → runtime_runner → agent.py _make_on_kill）；task_stop 按 task_type 分支（bash 同步 kill(notified=True) 抑制，subagent 不同步 kill 交 worker unwind）。微调：`controller.is_aborted` 是 property（design 文本笔误写成方法调用）；notifications.py 无需改（result_text 非空已驱动 `<result>`）。同契约外溢两处：runners.py 模板加 on_kill、整合测试 test_task_stop 更新为新契约。
+
 ## 现状分析
 
 ### 涉及范围
