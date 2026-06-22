@@ -53,3 +53,33 @@
 - Rollback: 新增两 test 文件 + `_im_client.py` 单点补 owner_id；`git revert` 撤回。
 - Commits: C1=test(R2 两条旅程), C2=fix(_im_client owner_id), C3=docs（本段）。
 - Next: R3 群聊 + 权限 2 条。
+
+## R3 — 群聊 + 权限 2 条（群聊双向定向@ / 权限审批 approve+deny）
+
+- Context: 这两条都验单聊不存在的接缝。群聊：多成员广播 + @ 定向唤醒 + 未点名不抢话 + agent→agent 协作闭环；权限：人在回路审批的 approve（工具执行）/ deny（工具不执行）双向。
+- Decision:
+  - 群聊双向定向@（自建两个 MENTION-policy agent A/B，owner 归属正确、system_prompt 明确「被 @ 才答 + 用 XML 标签 @ 别人」）：
+    - 场景1（人@A→A@B）：用户只 @A 让 A 去 @B 回哨兵；断言 A 的消息含 `<mention type="agent" target_id="B"/>`（**只认 XML 标签**，正则匹配标签本身，不锁 A 措辞），再断言 B 发出含哨兵的消息（agent→agent 唤醒）。
+    - 场景2（未点名不抢话）：只 @A 且要求 A 不 @ 任何人；正向断言 A 应答（排除整群没动的假阴性），否定断言 25s 窗口内 B 始终不发言。
+    - **发送者区分走 REST 历史 `sender.id`**（== agent_id）：`message.completed` WS 帧 payload 不带 sender（确认 `event_types.build_message_completed_payload` 只有 conversation_id/message_id/content/token_usage/elapsed_ms），REST item 的 `sender` ActorPayload 才是黑盒区分 A/B 的稳锚。
+  - 权限审批 approve/deny：用 **`write` 工具写 dangerous basename `.gitconfig`** 触发审批——`write.check_permissions` 对 DANGEROUS_FILES basename **硬性返回 behavior="ask"（bypass-immune）**，审批必然触发，不依赖 LLM classifier 概率判定。**工具是否执行的确定性锚 = 文件系统副作用**：approve → 含哨兵的 `.gitconfig` 真出现在 workspace 树；deny → 该哨兵文件全树不出现。比断 LLM 回复措辞稳得多。
+- Rationale: 群聊 @ 的语义锚必须是 XML 标签（relay_service 正则只认它）+ REST sender 区分（WS 不带 sender）。权限的语义锚必须是工具真执行与否，文件系统副作用是不受 LLM 措辞影响的铁证。
+- **[排障] 权限 approve 首轮假失败 — workspace 子目录臆测**：
+  - 现象：approve 测试报「文件未出现在 `default-agent/.gitconfig`」，但 permission.resolved + message.completed 都到了。
+  - 排障（systematic-debugging）：搜 pytest tmp 发现文件**真被写出**了，落在 `ArchA/.gitconfig`、内容正是 approve 哨兵 `PERMOK*`——即工具其实执行成功了，只是 `first_agent_id()`（IM 列表第一个=default-agent）≠ 实际处理消息的 agent（ArchA），workspace 子目录名臆测错了（该栈 workspace 树里实际只有 ArchA）。
+  - 修复：改 `_find_written_sentinel` **递归搜整个 `.gateway-workspace/**/.gitconfig`**，靠随机唯一哨兵精确归因，不锁定 agent 子目录。deny 同步改用全树搜「该哨兵从未出现」。这是测试断言归因方式的修正，非产品问题。
+- Evidence:
+  - **真端到端证据（live-critical）**：
+    - `test_human_mentions_a_then_a_mentions_b` PASSED — A 应答含 `<mention type="agent" target_id="grpB*"/>`，B 因被点名回出哨兵 `GRP*`。
+    - `test_unmentioned_agent_stays_silent` PASSED — 只 @A 时 A 回 `SOLO*`、B 在 25s 窗口内零发言。
+    - `test_permission_approve_lets_tool_run` PASSED — approve 后 `.gitconfig` 含 `PERMOK*` 真出现在 workspace。
+    - `test_permission_deny_blocks_tool` PASSED — deny 后含 `PERMNO*` 的文件全树不出现。
+  - Tests: R3 四条 `4 passed in 99.42s`（修 workspace 臆测后）。权限审批确认真触发 `permission.request` → `permission.resolved`。
+  - Entry: 经 `IMClient` 走 IM 公开 HTTP/WS + 文件系统副作用（工具执行的确定性外部锚）。
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 四条永久回归；env 关时干净 skip。
+  - Visual/Interaction: N/A
+- Rollback: 纯新增两 test 文件；`git revert` 撤回。
+- Commits: C1=test(R3 四条旅程), C2=test(修权限 workspace 臆测为全树搜), C3=docs（本段）。
+- Next: R4 时间驱动 slow 2 条（cron / heartbeat）+ catalog 四列填全 + AGENTS.md 挂链。
