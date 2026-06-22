@@ -1160,3 +1160,88 @@ def test_save_local_config_backup_failure_raises_and_leaves_dest_unchanged(
     finally:
         # 恢复权限让 tmp_path 清理能成功
         backups_dir.chmod(stat.S_IRWXU)
+
+
+def test_load_local_config_parses_node_workspace_base(tmp_path: Path) -> None:
+    """bugfix-424 (#127): node.workspace_base is read when present."""
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                f"  workspace_base: {tmp_path / 'iso'}",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+                "channels:",
+                "  - name: web_relay",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    assert config.node.workspace_base == str(tmp_path / "iso")
+
+
+def test_load_local_config_workspace_base_absent_is_none(tmp_path: Path) -> None:
+    """Backward compat: omitting node.workspace_base leaves it None (legacy default)."""
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+                "channels:",
+                "  - name: web_relay",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+
+    assert config.node.workspace_base is None
+
+
+def test_save_local_config_round_trips_node_workspace_base(tmp_path: Path) -> None:
+    """node.workspace_base survives a save → reload round-trip."""
+    config_path = tmp_path / "node-config.yaml"
+    workspace_root = tmp_path / "agents" / "assistant-a"
+    workspace_root.mkdir(parents=True)
+    config_path.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: node-local",
+                f"  workspace_base: {tmp_path / 'iso'}",
+                "agents:",
+                "  - agent_id: assistant-a",
+                f"    workspace_root: {workspace_root}",
+                "channels:",
+                "  - name: web_relay",
+            ]
+        )
+        + "\n"
+        + _LLM_YAML,
+        encoding="utf-8",
+    )
+
+    config = load_local_config(config_path)
+    save_local_config(config, config_path)
+    reloaded = load_local_config(config_path)
+
+    assert reloaded.node.workspace_base == str(tmp_path / "iso")

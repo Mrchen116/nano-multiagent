@@ -142,10 +142,19 @@ class NodeConfig:
     Args:
         node_id: Stable node identifier reported to upstream services.
         user_id: Optional owning user identifier when the node is bound upstream.
+        workspace_base: Optional base directory under which workspaces for
+            *dynamically created* agents (those built via IM ``agent.create``
+            without an explicit ``workspace_root``) are derived as
+            ``<workspace_base>/<agent_id>``. When absent, such agents fall back
+            to the hardcoded ``~/nano-assistant/workspace`` default — preserving
+            legacy behaviour for deployments that do not set this field
+            (bugfix-424 / #127). Preset agents are unaffected: their workspace
+            always comes from ``agents[].workspace_root``.
     """
 
     node_id: str
     user_id: str | None = None
+    workspace_base: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -454,6 +463,8 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
     node_dict: dict[str, Any] = {"node_id": config.node.node_id}
     if config.node.user_id is not None:
         node_dict["user_id"] = config.node.user_id
+    if config.node.workspace_base is not None:
+        node_dict["workspace_base"] = config.node.workspace_base
     data["node"] = node_dict
 
     # Agents
@@ -627,7 +638,10 @@ def _parse_node_config(payload: Any) -> NodeConfig:
         payload.get("node_id"), field_name="node.node_id"
     )
     user_id = _optional_string(payload.get("user_id"), field_name="node.user_id")
-    return NodeConfig(node_id=node_id, user_id=user_id)
+    workspace_base = _optional_string(
+        payload.get("workspace_base"), field_name="node.workspace_base"
+    )
+    return NodeConfig(node_id=node_id, user_id=user_id, workspace_base=workspace_base)
 
 
 def _parse_llm(payload: Any) -> LLMConfigPayload:
