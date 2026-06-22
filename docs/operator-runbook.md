@@ -305,3 +305,29 @@ PYTHONPATH=src python -m pytest tests/e2e/test_m112_real_process_roundtrip_e2e.p
 覆盖的核心验收面：
 - 见 docs/specs/gateway/spec.md：channel 启动、四步决策、回发原目标、heartbeat、IM 离线降级。
 - 见 docs/specs/im/spec.md：消息往返、设备绑定、节点状态、离线降级、幂等。
+
+## 10. web_search 搜索 provider 配置
+
+agent 的 `web_search` 工具支持三个 provider，全部由环境变量驱动，无需改配置文件或代码。三者输出结构一致（`{title, url, snippet}` 列表），调用方按需选用：
+
+| provider | 启用条件 | 说明 |
+|---|---|---|
+| `duckduckgo` | 默认（无需配置） | 完全免费、无 key，但易触发限流（429） |
+| `brave` | 设 `BRAVE_API_KEY` | Brave Search API；显式 `provider: "brave"` 时使用 |
+| `searxng` | 设 `SEARXNG_URL` | 自建 SearXNG 实例，免费、稳定、可绕开单引擎限流 |
+
+### 启用 SearXNG
+
+把 `SEARXNG_URL` 指向你**已部署**的 SearXNG 实例（实例本身的部署/运维由你自理），随 Gateway 进程一起设置即可：
+
+```bash
+SEARXNG_URL=http://localhost:8888 PYTHONPATH=src python -m personal_assistant.main
+```
+
+行为约定：
+
+- **设置 `SEARXNG_URL` 即启用**，且**自动成为默认 provider**——agent 发出的、不显式指定 provider 的 `web_search` 都走 SearXNG。
+- 仍可**显式指定**别的 provider（`provider: "duckduckgo"` / `"brave"`）覆盖默认，此时尊重显式选择，不被 `SEARXNG_URL` 强制改走 searxng。
+- 未设 `SEARXNG_URL` 时默认行为不变，仍走 duckduckgo。
+- **仅搜索语义**：SearXNG 只负责「搜」（聚合上游引擎、返回结果列表），全文提取仍归 `web_fetch`。
+- **fail-loud**：选了 searxng 但 `SEARXNG_URL` 未设、或实例不可达 / 返回非 2xx / 响应非 JSON，工具会明确报错，**不会**静默回退到 duckduckgo——便于你及时发现实例问题。注意 SearXNG 实例需在其 settings 中启用 `json` 输出格式，否则响应无法解析。

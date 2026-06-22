@@ -174,7 +174,9 @@ def test_searxng_normalizes_and_sorts_by_score(monkeypatch: Any) -> None:
     ]
     with patch.object(ws_module.httpx, "get", return_value=_mock_searxng_response(raw)):
         tool = _make_tool()
-        result = tool.run({"query": "q", "provider": "searxng", "count": 2}, _make_ctx())
+        result = tool.run(
+            {"query": "q", "provider": "searxng", "count": 2}, _make_ctx()
+        )
 
     assert result["ok"] is True
     assert result["provider"] == "searxng"
