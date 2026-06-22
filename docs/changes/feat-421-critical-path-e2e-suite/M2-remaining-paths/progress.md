@@ -102,3 +102,23 @@
 - Rollback: 纯新增测试 + helper；`git revert` 撤回。
 - Commits: C1/C2=test(cron+heartbeat 旅程 + helper), C3=docs（本段）。
 - Next: 待 orchestrator 裁决 heartbeat → 定稿 heartbeat + catalog 四列 + AGENTS.md 挂链 → 全套验证 → 集成。
+
+## R4 收尾 — heartbeat 定性 + 收口处置（orchestrator 有界排查后裁决）
+
+- orchestrator 给的有界排查（排两个测试侧诱因再定性），三项实测结论：
+  - **诱因 A（active_hours）排除**：默认全 None → 不门控；显式配 active=(00:00,23:59) 全天，仍不冒泡。
+  - **诱因 B（静态 vs 动态判别）**：静态启用（features.heartbeat:true + heartbeat.every:5s + active 全天写进 .gateway-config.yaml 重启；`load_local_config` 验证 default-agent hb_enabled=True/every=5s/active 全天，config 加载正确）→ heartbeat-state.json **始终 `{"agents":{}}`**，scheduler **从未 triggered**。动态 PATCH 启用 → state.json **有** agent（triggered）但消息被 HEARTBEAT_OK 投递抑制。两条都无可观察冒泡。
+  - **config-sync 日志**：gateway 运行日志级别静默，无法确认 config-sync 事件（可观测性 gap）。
+- **定性**：heartbeat 端到端在当前真栈 + 现有可用 model 下不产生 IM 可观察消息，真实产品/集成行为，非测试缺陷。
+- **收口处置**（orchestrator 预授权「确证真产品 bug」分支，本 unit 不改 gateway 产品代码）：
+  - heartbeat e2e 保留完整旅程为复现资产，加 `@pytest.mark.skip(reason 引用 #126)`。
+  - `gh issue create` → **#126**（heartbeat 端到端不冒泡：静态启用 scheduler 不触发 / 动态启用投递被 HEARTBEAT_OK 抑制，附排障证据）。
+  - catalog #7 从 v1 必保活段移到 backlog 段 + #126 ref；v1 段当前 10 条。
+- **[隔离 gap] 动态建 agent workspace 落主目录（#127）**：经 IM `POST /nodes/{id}/agents` 动态建的 agent，其 workspace 实际落在主目录 `~/nano-assistant/workspace/<agent_id>` 而非 e2e 隔离区；且 IM 返回的 workspace_root 是 IM 侧映射路径 ≠ gateway 实际落地路径。处置：`_im_client.create_agent` 记录 agent_id（类级），conftest session teardown 按 agent_id 拼主目录路径清理（带安全护栏，只删 `~/nano-assistant/workspace/<agent_id>`）；`gh issue create` → **#127**（out-of-unit 产品隔离 bug）。已验证：建 agent 测试跑后 teardown 自动清理、0 残留。
+- Evidence:
+  - **最终全套（含 slow）一次 session：`12 passed, 1 skipped in 229.37s`**（10 条路径 + 群聊2 + 权限2 全绿含 cron[slow] 真触发；heartbeat 1 skipped 带 #126 reason）。
+  - `-m "not slow"` 一次 session：`11 passed`。teardown 后主目录 0 残留、无进程泄漏。
+  - Frontend State Matrix / Browser QA / Visual: N/A
+- Rollback: 纯测试 + 文档 + helper；`git revert` 撤回。
+- Commits: 见 R4 段 + 本段收口 commit。
+- Next: 集成 milestone→unit、清理、报 DONE。
