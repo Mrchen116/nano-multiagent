@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import re
 import secrets
-import time
+from typing import Callable
 
 import pytest
 
 from ._im_client import IMClient
+from ._im_polling import assert_absent_within, poll_until
 
 
 def _make_group_agent(im_user: IMClient, node_id: str, agent_id: str) -> None:
@@ -46,46 +47,31 @@ def _make_group_agent(im_user: IMClient, node_id: str, agent_id: str) -> None:
     )
 
 
-def _wait_listed(im_user: IMClient, agent_id: str, *, timeout: float = 40.0) -> None:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if agent_id in [a["agent_id"] for a in im_user.list_agents()]:
-            return
-        time.sleep(1.0)
-    raise AssertionError(f"agent {agent_id!r} not listed within {timeout}s")
-
-
-def _agent_messages(im_user: IMClient, conv_id: str, agent_id: str) -> list[dict]:
-    """该会话里由 ``agent_id`` 发出的消息(按 REST 历史 sender.id 区分)。"""
-    out = []
-    for msg in im_user.list_messages(conv_id):
-        sender = msg.get("sender") or {}
-        if sender.get("type") == "agent" and sender.get("id") == agent_id:
-            out.append(msg)
-    return out
-
-
 def _wait_agent_message(
     im_user: IMClient,
     conv_id: str,
     agent_id: str,
-    predicate,
+    content_pred: Callable[[str], bool],
     *,
     timeout: float = 90.0,
 ) -> dict:
-    """轮询历史直到 ``agent_id`` 发出一条满足 ``predicate`` 的消息。"""
-    deadline = time.monotonic() + timeout
-    last: list[dict] = []
-    while time.monotonic() < deadline:
-        last = _agent_messages(im_user, conv_id, agent_id)
-        for msg in last:
-            if predicate(msg.get("content") or ""):
+    """轮询历史直到 ``agent_id`` 发出一条 content 满足 ``content_pred`` 的消息。"""
+
+    def _hit(msgs: list[dict]) -> dict | None:
+        for msg in msgs:
+            if content_pred(msg.get("content") or ""):
                 return msg
-        time.sleep(1.5)
-    raise AssertionError(
-        f"agent {agent_id!r} produced no matching message within {timeout}s; "
-        f"its messages: {[m.get('content', '')[:60] for m in last]}"
+        return None
+
+    result = poll_until(
+        lambda: _hit(im_user.agent_messages(conv_id, agent_id)),
+        lambda m: m is not None,
+        timeout=timeout,
+        interval=1.5,
+        desc=f"agent {agent_id!r} matching message",
     )
+    assert result is not None
+    return result
 
 
 @pytest.mark.e2e
@@ -97,8 +83,8 @@ def test_human_mentions_a_then_a_mentions_b(im_user: IMClient) -> None:
     agent_b = "grpB" + suffix
     _make_group_agent(im_user, node_id, agent_a)
     _make_group_agent(im_user, node_id, agent_b)
-    _wait_listed(im_user, agent_a)
-    _wait_listed(im_user, agent_b)
+    im_user.wait_for_agent_listed(agent_a)
+    im_user.wait_for_agent_listed(agent_b)
 
     conversation_id = im_user.create_group_conversation([agent_a, agent_b])
     sentinel = "GRP" + secrets.token_hex(4).upper()
@@ -135,8 +121,8 @@ def test_unmentioned_agent_stays_silent(im_user: IMClient) -> None:
     agent_b = "soloB" + suffix
     _make_group_agent(im_user, node_id, agent_a)
     _make_group_agent(im_user, node_id, agent_b)
-    _wait_listed(im_user, agent_a)
-    _wait_listed(im_user, agent_b)
+    im_user.wait_for_agent_listed(agent_a)
+    im_user.wait_for_agent_listed(agent_b)
 
     conversation_id = im_user.create_group_conversation([agent_a, agent_b])
     sentinel = "SOLO" + secrets.token_hex(4).upper()
@@ -152,11 +138,9 @@ def test_unmentioned_agent_stays_silent(im_user: IMClient) -> None:
     _wait_agent_message(im_user, conversation_id, agent_a, lambda c: sentinel in c)
 
     # 否定:再等一个足够宽的窗口,B 始终不该发出任何消息(未被点名 → MENTION gate 拦住)。
-    deadline = time.monotonic() + 25.0
-    while time.monotonic() < deadline:
-        b_msgs = _agent_messages(im_user, conversation_id, agent_b)
-        if b_msgs:
-            pytest.fail(
-                f"unmentioned agent B spoke: {[m.get('content', '')[:60] for m in b_msgs]}"
-            )
-        time.sleep(2.5)
+    assert_absent_within(
+        lambda: im_user.agent_messages(conversation_id, agent_b),
+        lambda msgs: bool(msgs),
+        window=25.0,
+        desc=f"message from unmentioned agent {agent_b!r}",
+    )

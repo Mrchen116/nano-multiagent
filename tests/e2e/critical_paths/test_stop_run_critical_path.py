@@ -17,11 +17,11 @@ spec Req「/stop 中止正在执行的运行」。
 from __future__ import annotations
 
 import secrets
-import time
 
 import pytest
 
 from ._im_client import IMClient
+from ._im_polling import assert_absent_within
 
 
 @pytest.mark.e2e
@@ -59,14 +59,16 @@ def test_stop_aborts_active_run(im_user: IMClient) -> None:
         ws.close()
 
     # 5) 否定:被中止的长任务的哨兵不应在随后窗口里出现(run 真停了 → never_sentinel 永不到)。
-    deadline = time.monotonic() + 20.0
-    while time.monotonic() < deadline:
-        for msg in im_user.list_messages(conversation_id):
-            if msg.get("sender_type") == "agent" and never_sentinel in (
-                msg.get("content") or ""
-            ):
-                pytest.fail(
-                    f"aborted run still produced its completion sentinel "
-                    f"{never_sentinel!r} — /stop did not actually stop it"
-                )
-        time.sleep(2.0)
+    def _has_never_sentinel(msgs: list[dict]) -> bool:
+        return any(
+            m.get("sender_type") == "agent"
+            and never_sentinel in (m.get("content") or "")
+            for m in msgs
+        )
+
+    assert_absent_within(
+        lambda: im_user.list_messages(conversation_id),
+        _has_never_sentinel,
+        window=20.0,
+        desc=f"aborted-run completion sentinel {never_sentinel!r} (/stop should block it)",
+    )

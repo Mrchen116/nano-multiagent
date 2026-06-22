@@ -12,10 +12,10 @@ e2e；填全 `docs/e2e-critical-paths.md` 四列 catalog（9 条 TODO 换真实�
 
 ## 退出标准
 
-- [ ] 9 条 test 文件落地，每条一文件一用户旅程，鲁棒断言（哨兵 token + 协议级状态，群聊 @ 只认 XML 标签）
-- [ ] 11 条经真 IM + 真 Gateway 进程 + 真 LLM 全绿（`scripts/e2e-critical.sh`）；cron/heartbeat `@pytest.mark.slow`
-- [ ] `docs/e2e-critical-paths.md` v1 段四列无 TODO，每条挂真实测试函数；backlog 段保持
-- [ ] `AGENTS.md` 关键文档索引加一行指向 catalog
+- [x] 9 条 test 文件落地，每条一文件一用户旅程，鲁棒断言（哨兵 token + 协议级状态，群聊 @ 只认 XML 标签）
+- [x] 经真 IM + 真 Gateway 进程 + 真 LLM 跑通（`scripts/e2e-critical.sh`）；cron/heartbeat `@pytest.mark.slow`。10 条真绿（含 cron[slow]）；heartbeat 因产品 openclaw 心跳前缀触发 K2.6 死反射端到端不冒泡（#126），保留旅程 + marker，移 catalog backlog（M3 改 xfail）
+- [x] `docs/e2e-critical-paths.md` v1 段四列无 TODO，每条挂真实测试函数；backlog 段保持（heartbeat 在 backlog 带 #126）
+- [x] `AGENTS.md` 关键文档索引加一行指向 catalog
 
 ## 测试策略
 

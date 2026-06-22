@@ -4,157 +4,36 @@ design.md 决策 2:11 条关键路径都需要这一层，集中后单条测试�
 客户端**不 import 任何产品代码**——它通过 IM 的公开 HTTP/WS 契约观察被测系统，
 等价于真实前端所触达的那一面。
 
-WebSocket 依赖（``websockets``）在模块顶层 ``pytest.importorskip``：缺失则整组 e2e 干净
-skip 而非 ImportError 崩溃（design.md 决策 2 风险项）。
+WS 事件流（``EventFrame`` / ``IMUserWebSocket`` / ``mention_tag`` / 窗口常量）拆在
+``_im_ws``；「轮询直到条件成立」的共享 helper 在 ``_im_polling``（单文件 ≤400 行 + 消重）。
 """
 
 from __future__ import annotations
 
 import json
-import subprocess
-import time
-from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 import httpx
-import pytest
 
-# 决策 2 风险缓解:WS 客户端依赖可选化。缺失 → 整组 skip,不崩。
-websockets = pytest.importorskip(
-    "websockets",
-    reason="websockets is required for IM WebSocket critical-path e2e",
+from ._im_gateway import restart_gateway
+from ._im_polling import poll_until
+from ._im_ws import (
+    DEFAULT_EVENT_TIMEOUT,
+    IMUserWebSocket,
+    mention_tag,
 )
-from websockets.sync.client import connect as ws_connect  # noqa: E402
+from ._im_ws import (
+    ws_connect as _ws_connect,
+)
 
-
-# 真 LLM + 真进程时序下事件到达偏慢;窗口集中成常量便于按需放宽(决策 4)。
-DEFAULT_EVENT_TIMEOUT = 90.0
-# 否定式断言(B 不抢话 / deny 后工具不执行)的「足够宽等待窗」(决策 4)。
-NEGATIVE_ASSERT_WINDOW = 25.0
-
-
-def mention_tag(agent_id: str) -> str:
-    """拼一个 IM wire 层唯一认得的 agent mention 标签。
-
-    relay_service.py 只认 ``<mention type="agent" target_id="X"/>``,不认 ``@文本``。
-    """
-    return f'<mention type="agent" target_id="{agent_id}"/>'
-
-
-@dataclass
-class EventFrame:
-    """一帧用户流 WebSocket 事件(``{op:"event", ...}``)的轻封装。"""
-
-    event_type: str
-    event_id: int
-    conversation_id: str | None
-    data: dict[str, Any]
-
-    @classmethod
-    def from_wire(cls, raw: dict[str, Any]) -> "EventFrame":
-        return cls(
-            event_type=raw.get("event_type", ""),
-            event_id=int(raw.get("event_id", 0)),
-            conversation_id=raw.get("conversation_id"),
-            data=raw.get("data") or {},
-        )
-
-
-class IMUserWebSocket:
-    """一条已完成 ``resume`` 握手的用户流 WebSocket，带有界轮询的事件等待。"""
-
-    def __init__(self, ws: Any) -> None:
-        self._ws = ws
-        # resume 回放或乱序到达的事件先缓冲,wait_for_event 先扫缓冲再读新帧。
-        self._buffer: list[EventFrame] = []
-
-    def _drain_one(self, timeout: float) -> EventFrame | None:
-        """读一帧;非 ``event`` 帧(如 ``resync_required``)跳过。超时返回 None。"""
-        try:
-            raw_text = self._ws.recv(timeout=timeout)
-        except TimeoutError:
-            return None
-        try:
-            raw = json.loads(raw_text)
-        except (json.JSONDecodeError, TypeError):
-            return None
-        if not isinstance(raw, dict) or raw.get("op") != "event":
-            return None
-        return EventFrame.from_wire(raw)
-
-    def wait_for_event(
-        self,
-        event_type: str,
-        predicate: Callable[[EventFrame], bool] | None = None,
-        *,
-        timeout: float = DEFAULT_EVENT_TIMEOUT,
-    ) -> EventFrame:
-        """等待第一帧 ``event_type`` 且满足 ``predicate`` 的事件;超时 raise AssertionError。
-
-        先扫已缓冲帧,再有界轮询新帧;不匹配的事件回收进缓冲供后续 wait 复用。
-        """
-        deadline = time.monotonic() + timeout
-
-        # 1) 先扫缓冲。
-        for i, frame in enumerate(self._buffer):
-            if frame.event_type == event_type and (
-                predicate is None or predicate(frame)
-            ):
-                del self._buffer[i]
-                return frame
-
-        # 2) 有界轮询新帧。
-        while time.monotonic() < deadline:
-            frame = self._drain_one(timeout=max(0.1, deadline - time.monotonic()))
-            if frame is None:
-                continue
-            if frame.event_type == event_type and (
-                predicate is None or predicate(frame)
-            ):
-                return frame
-            # 不匹配但可能后面要用 → 缓冲。
-            self._buffer.append(frame)
-
-        raise AssertionError(
-            f"timed out after {timeout}s waiting for event_type={event_type!r}; "
-            f"buffered events so far: "
-            f"{[(f.event_type, f.event_id) for f in self._buffer]}"
-        )
-
-    def assert_no_event(
-        self,
-        predicate: Callable[[EventFrame], bool],
-        *,
-        window: float = NEGATIVE_ASSERT_WINDOW,
-    ) -> None:
-        """否定式断言:在 ``window`` 秒内没有任何满足 ``predicate`` 的事件出现。
-
-        决策 4:否定断言天生偏脆,靠「足够宽窗口 + 只断协议事件缺席」缓解。
-        """
-        deadline = time.monotonic() + window
-        # 先查已缓冲帧。
-        for frame in self._buffer:
-            if predicate(frame):
-                raise AssertionError(
-                    f"unexpected event already buffered: "
-                    f"type={frame.event_type} data_keys={list(frame.data)}"
-                )
-        while time.monotonic() < deadline:
-            frame = self._drain_one(timeout=max(0.1, deadline - time.monotonic()))
-            if frame is None:
-                continue
-            self._buffer.append(frame)
-            if predicate(frame):
-                raise AssertionError(
-                    f"unexpected event within {window}s window: "
-                    f"type={frame.event_type} data_keys={list(frame.data)}"
-                )
-
-    def close(self) -> None:
-        try:
-            self._ws.close()
-        except Exception:  # noqa: BLE001 — teardown best-effort
-            pass
+# 向后兼容 re-export:历史调用点从 ``_im_client`` 取这些符号(测试文件 import 处)。
+__all__ = [
+    "DEFAULT_EVENT_TIMEOUT",
+    "IMClient",
+    "IMUserWebSocket",
+    "mention_tag",
+    "restart_gateway",
+]
 
 
 class IMClient:
@@ -216,17 +95,13 @@ class IMClient:
 
     def wait_for_online_node(self, *, timeout: float = 30.0) -> str:
         """轮询 ``GET /nodes`` 直到出现一个 online 节点,返回其 node_id。"""
-        deadline = time.monotonic() + timeout
-        last: list[dict[str, Any]] = []
-        while time.monotonic() < deadline:
-            last = self.list_nodes()
-            for node in last:
-                if node.get("status") == "online":
-                    return node["node_id"]
-            time.sleep(0.5)
-        raise AssertionError(
-            f"no online node within {timeout}s; last nodes snapshot: {last}"
+        nodes = poll_until(
+            self.list_nodes,
+            lambda ns: any(n.get("status") == "online" for n in ns),
+            timeout=timeout,
+            desc="online node",
         )
+        return next(n["node_id"] for n in nodes if n.get("status") == "online")
 
     def list_agents(self) -> list[dict[str, Any]]:
         resp = self._http.get("/im/v1/agents", headers=self._auth_headers)
@@ -238,6 +113,16 @@ class IMClient:
         agents = self.list_agents()
         assert agents, "no agents registered on the node"
         return agents[0]["agent_id"]
+
+    def wait_for_agent_listed(self, agent_id: str, *, timeout: float = 40.0) -> None:
+        """轮询 ``GET /agents`` 直到 ``agent_id`` 出现(新建 agent 落地上线信号)。"""
+        poll_until(
+            lambda: [a["agent_id"] for a in self.list_agents()],
+            lambda ids: agent_id in ids,
+            timeout=timeout,
+            interval=1.0,
+            desc=f"agent {agent_id!r} listed",
+        )
 
     def get_agent_config(self, agent_id: str) -> dict[str, Any]:
         """读一个 agent 的完整配置(含 profile_version,供乐观锁 PATCH 用)。"""
@@ -406,6 +291,19 @@ class IMClient:
         resp.raise_for_status()
         return resp.json()["items"]
 
+    def agent_messages(self, conversation_id: str, agent_id: str) -> list[dict]:
+        """该会话里由 ``agent_id`` 发出的消息(按 REST 历史 sender.id 区分)。
+
+        ``message.completed`` WS 帧不带 sender,REST item 的 ``sender`` ActorPayload 才是
+        黑盒区分「哪个 agent 发的」的稳锚(群聊双 agent 场景必需)。
+        """
+        out = []
+        for msg in self.list_messages(conversation_id):
+            sender = msg.get("sender") or {}
+            if sender.get("type") == "agent" and sender.get("id") == agent_id:
+                out.append(msg)
+        return out
+
     def wait_for_agent_reply_with(
         self,
         conversation_id: str,
@@ -417,20 +315,24 @@ class IMClient:
 
         REST 兜底路径:某些场景(后台通知 / cron / heartbeat)的最终态在历史里更稳。
         """
-        deadline = time.monotonic() + timeout
-        last: list[dict] = []
-        while time.monotonic() < deadline:
-            last = self.list_messages(conversation_id)
-            for msg in last:
+
+        def _hit(msgs: list[dict]) -> dict | None:
+            for msg in msgs:
                 if msg.get("sender_type") == "agent" and sentinel in (
                     msg.get("content") or ""
                 ):
                     return msg
-            time.sleep(1.0)
-        raise AssertionError(
-            f"no agent reply containing sentinel {sentinel!r} within {timeout}s; "
-            f"last messages: {[(m.get('sender_type'), m.get('content', '')[:60]) for m in last]}"
+            return None
+
+        result = poll_until(
+            lambda: _hit(self.list_messages(conversation_id)),
+            lambda m: m is not None,
+            timeout=timeout,
+            interval=1.0,
+            desc=f"agent reply containing {sentinel!r}",
         )
+        assert result is not None
+        return result
 
     # ── permission ────────────────────────────────────────────────────────
 
@@ -459,94 +361,9 @@ class IMClient:
         """
         assert self.token is not None, "call register_or_login() first"
         ws_url = self.im_url.replace("http://", "ws://").replace("https://", "wss://")
-        ws = ws_connect(f"{ws_url}/im/ws/user?token={self.token}")
+        ws = _ws_connect(f"{ws_url}/im/ws/user?token={self.token}")
         ws.send(json.dumps({"op": "resume", "after_event_id": after_event_id}))
         return IMUserWebSocket(ws)
 
     def close(self) -> None:
         self._http.close()
-
-
-def restart_gateway(wt_dir: str, im_port: str) -> None:
-    """重启 worktree 内的 Gateway 进程,复用同 config(保 node_id / workspace → 验续接)。
-
-    e2e-up.sh 用 ``--foreground`` 起 Gateway(范式 B),pid 落在 ``$wt_dir/.gateway.pid``。
-    先优雅杀,再用同一份 ``.gateway-config.yaml`` 重起 foreground,等就绪标志出现。
-    """
-    import os
-    import signal
-
-    pid_file = os.path.join(wt_dir, ".gateway.pid")
-    cfg = os.path.join(wt_dir, ".gateway-config.yaml")
-    log = os.path.join(wt_dir, ".gateway.log")
-
-    # 1) 优雅杀旧进程。
-    if os.path.exists(pid_file):
-        with open(pid_file) as f:
-            old_pid = int(f.read().strip())
-        try:
-            os.kill(old_pid, signal.SIGTERM)
-        except ProcessLookupError:
-            pass
-        deadline = time.monotonic() + 10.0
-        while time.monotonic() < deadline:
-            try:
-                os.kill(old_pid, 0)
-            except ProcessLookupError:
-                break
-            time.sleep(0.2)
-        else:
-            try:
-                os.kill(old_pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-
-    # 2) 重起 foreground(复用同 config 同 node_id → 工作区/会话续接)。
-    # repo_root 从本测试文件位置反推(tests/e2e/critical_paths → repo),
-    # 不依赖 wt_dir 是 git 仓(它是 pytest tmp,非 checkout)。
-    repo_root = os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..", "..", "..")
-    )
-    env = dict(os.environ)
-    env["PYTHONPATH"] = os.path.join(repo_root, "src")
-    log_handle = open(log, "a")
-    proc = subprocess.Popen(
-        [
-            "python",
-            "-m",
-            "personal_assistant.main",
-            "--config",
-            cfg,
-            "--im-service-url",
-            f"http://127.0.0.1:{im_port}",
-            "--foreground",
-            "--auto-bind",
-        ],
-        cwd=repo_root,
-        env=env,
-        stdout=log_handle,
-        stderr=subprocess.STDOUT,
-    )
-    with open(pid_file, "w") as f:
-        f.write(str(proc.pid))
-
-    # 3) 等就绪标志(沿用 e2e-up.sh 的探测口径)。
-    ready_markers = (
-        "auto-bound to IM",
-        "Gateway started",
-        "node_id=",
-        "im_connection",
-    )
-    deadline = time.monotonic() + 40.0
-    while time.monotonic() < deadline:
-        if proc.poll() is not None:
-            raise AssertionError(f"gateway died during restart; see {log}")
-        try:
-            with open(log) as f:
-                tail = f.read()
-            if any(marker in tail for marker in ready_markers):
-                return
-        except FileNotFoundError:
-            pass
-        time.sleep(0.5)
-    raise AssertionError(f"gateway did not signal readiness within 40s; see {log}")

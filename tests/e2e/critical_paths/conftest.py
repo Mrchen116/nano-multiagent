@@ -124,12 +124,21 @@ def e2e_stack(tmp_path_factory: pytest.TempPathFactory) -> E2EStack:
     yield stack
 
     # teardown:必走 e2e-down.sh(决策 1);残留由 tests/e2e/conftest.py finalizer 兜底。
-    subprocess.run(
+    down = subprocess.run(
         ["bash", str(_E2E_DOWN), "--wt", str(wt_dir)],
         cwd=str(_REPO_ROOT),
         capture_output=True,
         text=True,
     )
+    # e2e-down.sh 非零退出 = 进程可能没杀干净(端口/孤儿残留)→ 大声 WARN,别静默吞,
+    # 否则下一条 e2e 撞残留进程时排障无线索。不 raise(teardown 已尽力,且 session
+    # finalizer 兜底),但把 rc + stderr tail 打到 stderr。
+    if down.returncode != 0:
+        tail = "\n".join((down.stderr or "").splitlines()[-20:])
+        print(
+            f"\n[WARN] e2e-down.sh exited rc={down.returncode} for {wt_dir}; "
+            f"stack may not be fully torn down. stderr tail:\n{tail}"
+        )
 
     # 清理经 IM 动态建 agent 落在主目录 ~/nano-assistant/workspace/<agent_id> 的 workspace
     # 残留:这是产品隔离 gap(#127)——动态建的 agent 不走 worktree 隔离区(且 IM 返回的

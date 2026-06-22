@@ -14,27 +14,11 @@ prompt 让 agent 原样回出,只锚哨兵 + 协议级 ``message.completed``,不
 from __future__ import annotations
 
 import secrets
-import time
 
 import pytest
 
 from ._im_client import IMClient
 from .conftest import E2EStack
-
-
-def _wait_for_agent_listed(im_user: IMClient, agent_id: str, *, timeout: float) -> None:
-    """轮询 ``GET /agents`` 直到新建的 agent_id 出现(落地上线信号)。"""
-    deadline = time.monotonic() + timeout
-    last: list[str] = []
-    while time.monotonic() < deadline:
-        last = [a["agent_id"] for a in im_user.list_agents()]
-        if agent_id in last:
-            return
-        time.sleep(1.0)
-    raise AssertionError(
-        f"created agent {agent_id!r} never appeared in IM agent list within "
-        f"{timeout}s; last list: {last}"
-    )
 
 
 @pytest.mark.e2e
@@ -54,7 +38,7 @@ def test_agent_created_via_im_lands_and_replies(
     )
 
     # 落地上线信号:新 agent 出现在 IM agent 列表。
-    _wait_for_agent_listed(im_user, new_agent_id, timeout=40)
+    im_user.wait_for_agent_listed(new_agent_id, timeout=40)
 
     conversation_id = im_user.create_direct_conversation(new_agent_id)
     sentinel = "NEW" + secrets.token_hex(4).upper()

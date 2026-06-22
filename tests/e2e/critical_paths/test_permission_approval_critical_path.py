@@ -23,11 +23,11 @@ from __future__ import annotations
 import glob
 import os
 import secrets
-import time
 
 import pytest
 
 from ._im_client import IMClient
+from ._im_polling import assert_absent_within, poll_until
 from .conftest import E2EStack
 
 # write 工具对该 basename 硬性 ask(dangerous_paths.DANGEROUS_FILES),触发必然审批。
@@ -96,16 +96,13 @@ def test_permission_approve_lets_tool_run(
         ws.close()
 
     # 确定性锚:approve 后那个 dangerous 文件真被写出且含哨兵(工具真执行了)。
-    deadline = time.monotonic() + 15.0
-    while time.monotonic() < deadline:
-        if _find_written_sentinel(e2e_stack.wt_dir, sentinel):
-            break
-        time.sleep(1.0)
-    else:
-        raise AssertionError(
-            f"approved write produced no .gitconfig containing sentinel {sentinel!r} "
-            "anywhere under the workspace — approval did not let the tool run"
-        )
+    poll_until(
+        lambda: _find_written_sentinel(e2e_stack.wt_dir, sentinel),
+        lambda hit: hit is not None,
+        timeout=15.0,
+        interval=1.0,
+        desc=f"approved-write .gitconfig containing sentinel {sentinel!r}",
+    )
 
 
 @pytest.mark.e2e
@@ -130,11 +127,9 @@ def test_permission_deny_blocks_tool(im_user: IMClient, e2e_stack: E2EStack) -> 
         ws.close()
 
     # 确定性锚:deny 后含该哨兵的 dangerous 文件在有界窗口内始终不出现(工具没跑)。
-    deadline = time.monotonic() + 20.0
-    while time.monotonic() < deadline:
-        hit = _find_written_sentinel(e2e_stack.wt_dir, sentinel)
-        if hit:
-            pytest.fail(
-                f"denied write still created {hit!r} — deny did not block the tool"
-            )
-        time.sleep(2.0)
+    assert_absent_within(
+        lambda: _find_written_sentinel(e2e_stack.wt_dir, sentinel),
+        lambda hit: hit is not None,
+        window=20.0,
+        desc=f"denied-write .gitconfig with sentinel {sentinel!r} (deny should block it)",
+    )

@@ -20,11 +20,11 @@ spec Req「cron 定时任务自动推送」。
 from __future__ import annotations
 
 import secrets
-import time
 
 import pytest
 
 from ._im_client import IMClient
+from ._im_polling import poll_until
 
 
 def _agent_msg_ids_with(im_user: IMClient, conv_id: str, sentinel: str) -> set[str]:
@@ -50,13 +50,10 @@ def test_cron_job_auto_pushes_message(im_user: IMClient) -> None:
     )
     # cron 工具仅在 features['cron_scheduling'] 开启时注册进 agent 工具集(product.py)。
     im_user.update_agent_config(agent_id, features={"cron_scheduling": True})
-
-    # 等 feature 同步到 gateway 后 agent 重新就绪。
-    deadline = time.monotonic() + 30.0
-    while time.monotonic() < deadline:
-        if agent_id in [a["agent_id"] for a in im_user.list_agents()]:
-            break
-        time.sleep(1.0)
+    # 注:PATCH 后 cron feature 同步到 gateway 的 live agent 配置是异步的,且无可观测的
+    # 「config 已热重载」就绪信号(ConfigSyncNotifier 不回 ack)。故此处不做伪等待——
+    # 若同步未及,下面让 agent 调 cron 工具那一轮会因工具缺失而表现异常,而 cron 推送本身
+    # 的 180s 宽窗(下方 poll)足以吸收同步延迟,是真正的 gate。
 
     conversation_id = im_user.create_direct_conversation(agent_id)
     sentinel = "CRON" + secrets.token_hex(4).upper()
@@ -77,13 +74,10 @@ def test_cron_job_auto_pushes_message(im_user: IMClient) -> None:
     seen_before.add(registration["id"])
 
     # 等 cron 到点自跑、推一条**新的**含哨兵消息(id 不在注册阶段已见集合)。
-    deadline = time.monotonic() + 180.0
-    while time.monotonic() < deadline:
-        now = _agent_msg_ids_with(im_user, conversation_id, sentinel)
-        if now - seen_before:
-            return
-        time.sleep(3.0)
-    raise AssertionError(
-        f"cron job did not auto-push a new message with sentinel {sentinel!r} "
-        "within 180s after registration"
+    poll_until(
+        lambda: _agent_msg_ids_with(im_user, conversation_id, sentinel),
+        lambda ids: bool(ids - seen_before),
+        timeout=180.0,
+        interval=3.0,
+        desc=f"new cron-pushed message with sentinel {sentinel!r}",
     )
