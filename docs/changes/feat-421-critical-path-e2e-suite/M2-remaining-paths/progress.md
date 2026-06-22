@@ -83,3 +83,22 @@
 - Rollback: 纯新增两 test 文件；`git revert` 撤回。
 - Commits: C1=test(R3 四条旅程), C2=test(修权限 workspace 臆测为全树搜), C3=docs（本段）。
 - Next: R4 时间驱动 slow 2 条（cron / heartbeat）+ catalog 四列填全 + AGENTS.md 挂链。
+
+## R4 — 时间驱动 slow 2 条（cron / heartbeat）+ catalog + AGENTS.md
+
+- Context: cron / heartbeat 无对外触发路由（design 决策 5），只能「配秒级周期 + 等其自跑 + 观察 IM 是否收到推送/冒泡」，归 @pytest.mark.slow。两条都需要先经 IM API 给 agent 开对应 feature（cron 工具 / heartbeat 调度仅在 feature 开启时生效）。
+- **[底座扩展] `_im_client` 加 get_agent_config / update_agent_config**：cron 需 `features['cron_scheduling']`、heartbeat 需 `features['heartbeat']` + `heartbeat_json` 节律，二者都靠 PATCH `/im/v1/agents/{id}/config`（全量 + 乐观锁）。新增两 helper：GET 现配置拿 profile_version → 合并改动 → PATCH。**关键坑**：PATCH 的 model_validator 见到 body 里 `heartbeat_json` 键存在（即使=None）时会把 heartbeat dict 形式 pop 掉不转换 → helper 改为「heartbeat_json 只在显式传入时才放进 body」，避免 None 占位污染。
+- cron（DONE，绿）：
+  - Decision: 自建一个 agent → PATCH 开 `features['cron_scheduling']` → 建直聊 → 让 agent 用 cron 工具注册 every-5s 任务（payload 输出哨兵）→ 等 cron 到点自跑推送。**排除注册确认回声**：记下注册阶段已出现的含哨兵消息 id，只认一条**新的、id 不在已见集合**的含哨兵消息（= cron 真触发那条）。
+  - Evidence（live-critical）: `test_cron_job_auto_pushes_message` PASSED（42.74s）— cron 真触发自跑、推一条新的含哨兵 `CRON*` 消息到直聊。
+- heartbeat（**BLOCKED — 真实产品/模型集成行为，非测试 bug**）：
+  - 深度排障（systematic-debugging）结论：heartbeat-state.json 证明 **scheduler 真拾取该 agent 并 triggered 了 run**（`last_due_at` 有值）→ enable✓ cadence(5s)✓ PATCH 同步到 gateway✓ tick✓ 判 due✓ 提交 run✓。**run 真跑了**。
+  - 真正卡点 = **投递静默抑制**：`_consume_heartbeat_run` 的 observer 做 NO_REPLY/empty/HEARTBEAT_OK suppression（main.py:1254/1304，design decision 6）。verbatim openclaw heartbeat prompt 末句 "If nothing needs attention, reply HEARTBEAT_OK" → model 回 HEARTBEAT_OK → observer 抑制投递 → IM 无消息。
+  - 实测三组都不冒泡（run triggered 但消息被抑制）：① 默认 kimiCoding:K2.6（命中已知「K2.6 HEARTBEAT_OK 死反射」）② volcanoArk:doubao ③ 强措辞 HEARTBEAT.md（明写"needs attention/必须发言/不可回 HEARTBEAT_OK"）。
+  - 判断：spec #7「**有可行动内容时**冒泡/无内容静默」——现有可用 model 对 openclaw 心跳 prompt 一律判静默，这条路径在真栈下无法稳定经黑盒驱动出可观察消息。属真实模型×心跳 prompt 集成行为，非本 unit 测试缺陷。已 SendMessage 上报 orchestrator 请示收口方案（skip 占位 + catalog backlog + gh issue），等裁决。
+- Evidence:
+  - Tests: cron `1 passed in 42.74s`（真栈）。heartbeat 旅程已写好（可复现资产），待 orchestrator 定 skip 方案。
+  - Frontend State Matrix / Browser QA / Visual: N/A
+- Rollback: 纯新增测试 + helper；`git revert` 撤回。
+- Commits: C1/C2=test(cron+heartbeat 旅程 + helper), C3=docs（本段）。
+- Next: 待 orchestrator 裁决 heartbeat → 定稿 heartbeat + catalog 四列 + AGENTS.md 挂链 → 全套验证 → 集成。
