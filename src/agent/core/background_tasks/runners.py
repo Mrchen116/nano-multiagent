@@ -26,12 +26,18 @@ def run_subagent_lifecycle(
     on_complete: TaskCompletionCallback,
     on_fail: TaskFailureCallback,
     on_kill: TaskKillCallback,
+    llm_session_id: str | None = None,
 ) -> BackgroundTaskStopper:
     """Start a subagent worker and wire completion/failure/kill callbacks.
 
     The caller (platform adapter) is responsible for:
       - Updating registry state to RUNNING before/after this call.
       - Delivering the notification to the parent session when complete.
+
+    bugfix-422 (#129): ``llm_session_id`` lets the caller reuse the parent's
+    session id at the LLM request layer so the subagent's provider calls group
+    under the parent in the LLM proxy session-inspector, while the subagent keeps
+    its own local session id for JSONL storage, resumption, and agent_id lookup.
     """
     if record.agent_session_id is None:
         raise ValueError("subagent record must have agent_session_id")
@@ -42,6 +48,7 @@ def run_subagent_lifecycle(
         on_complete=on_complete,
         on_fail=on_fail,
         on_kill=on_kill,
+        llm_session_id=llm_session_id,
     )
 
 

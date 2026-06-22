@@ -100,6 +100,7 @@ class _RuntimeStub:
         parent_session_id: str | None = None,
         workspace_root: Any = None,
         run_id: str | None = None,
+        llm_session_id: str | None = None,
     ) -> TurnResult:
         # Cooperative abort: poll the controller so task_stop's abort signal lets
         # the run *return* its accumulated messages (bugfix-420) rather than

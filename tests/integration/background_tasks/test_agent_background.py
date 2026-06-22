@@ -70,6 +70,9 @@ class _RuntimeStub:
         self._counter = 0
         store = _FakeStore(tmp_path)
         self._session_manager = _SessionManagerStub(store)
+        # bugfix-422 (#129): record the llm_session_id seen by each run() so tests
+        # can assert the subagent's LLM requests reuse the parent session id.
+        self.run_calls: list[dict[str, Any]] = []
 
     async def create_session(
         self,
@@ -97,7 +100,15 @@ class _RuntimeStub:
         parent_session_id: str | None = None,
         workspace_root: Any = None,
         run_id: str | None = None,
+        llm_session_id: str | None = None,
     ) -> TurnResult:
+        self.run_calls.append(
+            {
+                "session_id": session_id,
+                "parent_session_id": parent_session_id,
+                "llm_session_id": llm_session_id,
+            }
+        )
         if self._delay > 0:
             time.sleep(self._delay)
         return TurnResult(
@@ -256,3 +267,40 @@ def test_background_agent_completes_and_delivers_notification(tmp_path: Path) ->
     assert runs.submissions[0]["source_task_id"] == agent_id
     assert "<task-notification>" in runs.submissions[0]["parts"][0]["text"]
     assert agent_id in runs.submissions[0]["parts"][0]["text"]
+
+
+def test_background_subagent_run_reuses_parent_llm_session_id(tmp_path: Path) -> None:
+    """bugfix-422 (#129): end-to-end through the real wiring + RuntimeRunner, the
+    subagent's runtime.run() must be called with llm_session_id=parent so the LLM
+    proxy groups the subagent under the parent session, while the run target stays
+    the subagent's own (independent) session id."""
+    runtime = _RuntimeStub(tmp_path, delay=0.05)
+    wiring = wire_background_tasks(workspace_root=tmp_path, runtime=runtime)
+    tool = AgentTool(runtime=runtime, wiring=wiring)
+    ctx = _make_ctx(tmp_path, session_id="sess_parent")
+
+    result = tool.run(
+        {
+            "description": "session grouping",
+            "prompt": "Do something.",
+            "subagent_type": "oracle",
+            "load_skills": [],
+            "run_in_background": True,
+        },
+        ctx,
+    )
+    agent_id = result["agent_id"]
+
+    # Poll for the worker thread to actually invoke runtime.run.
+    for _ in range(50):
+        if runtime.run_calls:
+            break
+        time.sleep(0.05)
+
+    assert len(runtime.run_calls) == 1
+    call = runtime.run_calls[0]
+    assert call["llm_session_id"] == "sess_parent"
+    assert call["parent_session_id"] == "sess_parent"
+    # The run target is the subagent's own session, not the parent's.
+    assert call["session_id"] != "sess_parent"
+    assert agent_id  # receipt returned

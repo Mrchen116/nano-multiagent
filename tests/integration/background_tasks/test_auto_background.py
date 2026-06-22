@@ -96,6 +96,7 @@ class _RuntimeStub:
         parent_session_id: str | None = None,
         workspace_root: Any = None,
         run_id: str | None = None,
+        llm_session_id: str | None = None,
     ) -> TurnResult:
         import time
 
