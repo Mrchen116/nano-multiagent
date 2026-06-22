@@ -3612,6 +3612,7 @@ def _build_kernel_event_observer(
             pres = event.get("presentation")
             output: str | None = None
             detail: Any = None
+            emoji: str | None = None
             if isinstance(pres, Mapping):
                 if pres.get("summary"):
                     output = str(pres["summary"])
@@ -3619,6 +3620,10 @@ def _build_kernel_event_observer(
                 # verbatim (already bounded by the kernel 256KB cap). The Gateway is a
                 # pure passthrough pipe — no re-truncation, no per-tool restructuring.
                 detail = pres.get("detail")
+                # feat-425 决策 1/2: 原样转发 presenter 自带的 emoji(纯透传,不加工)。
+                # 空串 = 工具未声明,沿用 detail 的省略未设约定,前端按名表兜底。
+                if pres.get("emoji"):
+                    emoji = str(pres["emoji"])
             tool_call_payload: dict[str, Any] = {
                 "id": call_id,
                 "name": tool_name,
@@ -3634,6 +3639,8 @@ def _build_kernel_event_observer(
             }
             if detail is not None:
                 tool_call_payload["detail"] = detail
+            if emoji is not None:
+                tool_call_payload["emoji"] = emoji
             if message_id:
                 loop.create_task(
                     _send(

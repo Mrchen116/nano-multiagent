@@ -203,6 +203,10 @@ class ToolCall:
     # None for historical rows / tools without a presenter — the front-end falls
     # back to ``output`` then.
     detail: dict[str, Any] | None = None
+    # feat-425: tool-carried emoji forwarded from the Gateway (决策 1/2). None for
+    # historical rows / tools that declare none — the front-end then falls back to
+    # its name→emoji table (built-ins keep their icon; DIY/MCP get the generic 🔧).
+    emoji: str | None = None
 
     def __post_init__(self) -> None:
         if self.status not in _TOOL_CALL_STATUSES:

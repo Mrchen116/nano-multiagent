@@ -223,16 +223,15 @@ function WriteCard({ detail }: { detail: ToolDetail }) {
   );
 }
 
-// ─── web_fetch → title + url + content card ──────────────────────────────────
+// ─── web_fetch → url + status + content card (feat-425 决策 4) ────────────────
+// 去掉恒空的 title(工具从不返回);展开显 URL + 状态码 + 抓到的正文(修 #131 空正文)。
 
 function WebCard({ detail }: { detail: ToolDetail }) {
-  const title = str(detail.title);
   const url = str(detail.final_url || detail.url);
   const status = detail.status;
   const content = str(detail.content);
   return (
     <div className="chat-tool-detail-web">
-      {title && <div className="chat-tool-detail-web-title">{title}</div>}
       <div className="chat-tool-detail-web-url">
         {url}
         {status != null && ` · ${status}`}
@@ -244,6 +243,46 @@ function WebCard({ detail }: { detail: ToolDetail }) {
           render={(shown) => <div className="chat-tool-detail-web-excerpt">{shown}</div>}
         />
       )}
+    </div>
+  );
+}
+
+// ─── web_search → result-entry list card (feat-425 决策 5) ────────────────────
+
+interface SearchResult {
+  title?: unknown;
+  url?: unknown;
+  snippet?: unknown;
+}
+
+function WebSearchCard({ detail }: { detail: ToolDetail }) {
+  const { t } = useTranslation();
+  const rawResults = Array.isArray(detail.results) ? (detail.results as SearchResult[]) : [];
+  if (rawResults.length === 0) {
+    // 空态:明确"无结果"文案,而非空白或原始字符串。
+    return (
+      <div className="chat-tool-detail-search">
+        <div className="chat-tool-detail-search-empty">
+          {t("chat.messagePane.toolDetail.searchNoResults")}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="chat-tool-detail-search">
+      {rawResults.map((r, i) => {
+        const title = str(r.title);
+        const url = str(r.url);
+        const snippet = str(r.snippet);
+        return (
+          <div key={i} className="chat-tool-detail-search-item">
+            {title && <div className="chat-tool-detail-search-title">{title}</div>}
+            {/* URL 纯文本展示(可手动复制),不做可点击跳转(spec 非目标:外链安全面)。 */}
+            {url && <div className="chat-tool-detail-search-url">{url}</div>}
+            {snippet && <div className="chat-tool-detail-search-snippet">{snippet}</div>}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -428,6 +467,7 @@ const BESPOKE: Record<string, (p: { detail: ToolDetail }) => ReactNode> = {
   edit: DiffCard,
   write: WriteCard,
   web_fetch: WebCard,
+  web_search: WebSearchCard,
   agent: AgentCard,
   memory: MemoryCard,
   skill_manage: SkillCard,

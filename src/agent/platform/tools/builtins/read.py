@@ -13,7 +13,10 @@ from agent.platform.tools.constants import (
     DEFAULT_MAX_LINES,
 )
 from agent.platform.tools.presentation import (
-    READ_PRESENTER as _READ_PRESENTER,
+    ToolPresentationEvent,
+    _stringify,
+    _truncate,
+    _with_path,
     display_path as _display_path,
 )
 
@@ -24,6 +27,98 @@ _IMAGE_MIME_BY_SUFFIX = {
     ".gif": "image/gif",
     ".webp": "image/webp",
 }
+
+
+# ---------------------------------------------------------------------------
+# Presenter (feat-425 决策 3: presentation travels with the tool — class here)
+# ---------------------------------------------------------------------------
+
+
+class _ReadPresenter:
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        return ToolPresentationEvent(
+            visible=True,
+            label="Read",
+            summary=str(args.get("path", "")),
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        # feat-409 readfix/failalign: read 的"人话"首先是读了哪个文件——summary 与
+        # detail 都带 path。失败态 summary = 干净主参数(path),与成功态同构,绝不含
+        # error 文本(error 只进 detail,展开卡渲染一次;折叠行的失败由 ✕ 图标表达)。
+        # args.path 是兜底来源;成功时优先用 output.path(display_path,已转 repo 相对)。
+        arg_path = str(args.get("path", ""))
+        error = getattr(result, "error", None)
+        if error:
+            return ToolPresentationEvent(
+                visible=True,
+                label="Read",
+                summary=arg_path or "failed",
+                detail={"path": arg_path, "error": {"message": str(error)}},
+            )
+        output = getattr(result, "output", None) or {}
+        if isinstance(output, Mapping):
+            path = str(output.get("path") or arg_path)
+            if output.get("type") == "file_unchanged":
+                return ToolPresentationEvent(
+                    visible=True,
+                    label="Read",
+                    summary=_with_path(path, "unchanged"),
+                    detail={"path": path, "unchanged": True},
+                )
+            content_blocks = output.get("content", [])
+            if isinstance(content_blocks, list):
+                has_image = any(
+                    isinstance(block, Mapping) and block.get("type") == "image"
+                    for block in content_blocks
+                )
+                if has_image:
+                    return ToolPresentationEvent(
+                        visible=True,
+                        label="Read",
+                        summary=_with_path(path, "image"),
+                        detail={"path": path, "image": True},
+                    )
+            # cr4: total_lines 缺失时不要伪造 0——detail 留 None,前端显 "-"/省略,
+            # summary 退化为只显路径(不带 "0 lines" 这类误导性零计数)。
+            total_lines = output.get("total_lines")
+            offset = output.get("offset", 1)
+            limit = args.get("limit")
+            # feat-409 protoalign: 折叠 summary 对齐原型中文措辞 `<path> · 86 行`
+            # (而非英文 "86 lines")。范围读取仍带 `第 X-Y 行`。
+            if limit:
+                range_text = f"第 {offset}-{offset + limit - 1} 行"
+            elif total_lines is not None:
+                range_text = f"{total_lines} 行"
+            else:
+                range_text = ""
+            detail = {
+                "path": path,
+                "total_lines": total_lines,
+                "offset": offset,
+                "limit": limit,
+                "truncated": bool(output.get("truncated", False)),
+            }
+            return ToolPresentationEvent(
+                visible=True,
+                label="Read",
+                summary=_with_path(path, range_text),
+                detail=detail,
+            )
+        return ToolPresentationEvent(
+            visible=True,
+            label="Read",
+            summary=_with_path(arg_path, _truncate(_stringify(output), 80)),
+            detail={"path": arg_path} if arg_path else None,
+        )
+
+
+_READ_PRESENTER = _ReadPresenter()
 
 
 class ReadTool:

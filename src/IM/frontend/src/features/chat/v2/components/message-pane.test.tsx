@@ -159,7 +159,7 @@ describe("MessagePane", () => {
     expect(headers[0]?.style.textAlign).toBe("left");
     expect(headers[1]?.style.textAlign).toBe("center");
     expect(headers[2]?.style.textAlign).toBe("right");
-    const cells = container.querySelectorAll("tbody td");
+    const cells = container.querySelectorAll<HTMLTableCellElement>("tbody td");
     expect(cells[0]?.style.textAlign).toBe("left");
     expect(cells[1]?.style.textAlign).toBe("center");
     expect(cells[2]?.style.textAlign).toBe("right");

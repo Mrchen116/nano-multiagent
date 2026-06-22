@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useTranslation } from "../../../../i18n";
 import type { ToolCall } from "../chat-types";
 import { ToolDetailBody } from "./tool-detail-renderers";
-import { collapsedSummary, failTag, isCallFailed, toolEmoji } from "./tool-presentation";
+import { collapsedSummary, failTag, isCallFailed, toolEmojiFor } from "./tool-presentation";
 
 interface ToolCallsPanelProps {
   toolCalls: ToolCall[];
@@ -120,7 +120,7 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
         </span>
         <span className="chat-tool-call-name">
           <span className="chat-tool-call-emoji" aria-hidden="true">
-            {toolEmoji(call.name)}
+            {toolEmojiFor(call)}
           </span>{" "}
           {call.name}
         </span>

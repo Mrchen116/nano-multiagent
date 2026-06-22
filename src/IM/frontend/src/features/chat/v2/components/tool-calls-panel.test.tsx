@@ -283,7 +283,9 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
     });
     await open();
     expect(container.querySelector(".chat-tool-detail-web")).not.toBeNull();
-    expect(screen.getByText(/uvicorn.org\/lifespan/)).toBeInTheDocument();
+    expect(container.querySelector(".chat-tool-detail-web-url")?.textContent).toContain(
+      "uvicorn.org/lifespan"
+    );
     // 正文非空(修复 #131 的空正文 bug)。
     expect(screen.getByText(/The lifespan protocol/)).toBeInTheDocument();
   });

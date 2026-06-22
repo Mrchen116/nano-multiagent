@@ -136,7 +136,11 @@ def test_tool_end_forwards_emoji() -> None:
         "name": "web_fetch",
         "arguments": {"url": "https://x"},
         "duration_ms": 12,
-        "presentation": {"summary": "https://x", "emoji": "🌐", "detail": {"url": "https://x"}},
+        "presentation": {
+            "summary": "https://x",
+            "emoji": "🌐",
+            "detail": {"url": "https://x"},
+        },
     }
     manager = _run_observer_with_tool_end(event)
     tc = _tool_call_payload(manager)

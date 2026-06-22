@@ -61,6 +61,9 @@ def tool_call_to_dict(tool_call: ToolCall) -> dict[str, Any]:
         payload["reason"] = tool_call.reason
     if tool_call.detail is not None:
         payload["detail"] = tool_call.detail
+    # feat-425: tool-carried emoji, present only when the tool declared one.
+    if tool_call.emoji is not None:
+        payload["emoji"] = tool_call.emoji
     return payload
 
 

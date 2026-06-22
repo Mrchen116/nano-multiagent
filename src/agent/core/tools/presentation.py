@@ -14,6 +14,10 @@ class ToolPresentationEvent:
     label: str = ""
     summary: str = ""
     detail: Mapping[str, Any] | None = None
+    # feat-425 决策 1: 让"展示随工具走"覆盖 emoji——工具/presenter 自带的折叠行图标,
+    # 经事件全程透传 + 落库。空串 = 工具未声明,前端按 name→emoji 名表兜底(内置工具
+    # 不退化,DIY/MCP 拿通用 🔧)。
+    emoji: str = ""
 
 
 class ToolPresenter(Protocol):

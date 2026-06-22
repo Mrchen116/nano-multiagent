@@ -174,7 +174,9 @@ def test_presentation_dict_serializes_emoji() -> None:
     from agent.platform.hooks.builtins.realtime_stream import _presentation_dict
 
     payload = _presentation_dict(
-        ToolPresentationEvent(visible=True, label="Web", summary="https://x", emoji="🌐")
+        ToolPresentationEvent(
+            visible=True, label="Web", summary="https://x", emoji="🌐"
+        )
     )
     assert payload["emoji"] == "🌐"
     assert payload["summary"] == "https://x"

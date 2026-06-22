@@ -10,7 +10,99 @@ import httpx  # type: ignore[import-untyped]
 
 _log = logging.getLogger("personal_assistant.tools.web_search")
 
-from agent.sdk import ToolContext
+from agent.sdk import ToolContext, ToolPresentationEvent
+
+# feat-425 决策 5: snippet 逐条截断上限。web_search 结果天然有界(count ≤ 10),
+# 不需要内核 _enforce_cap(那是 platform 内部,product 包够不着);每条 snippet 截到
+# 此长度即可把 detail 控制在合理体积。
+_SNIPPET_CAP = 2000
+
+
+def _truncate(text: str, max_length: int) -> str:
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 3] + "..."
+
+
+# ---------------------------------------------------------------------------
+# Presenter (决策 5: presentation travels with the tool; product 包自持,
+# 只 import agent.sdk,不碰内核内部)
+# ---------------------------------------------------------------------------
+
+
+class _WebSearchPresenter:
+    """Presenter for the product-owned `web_search` tool (feat-425 决策 5).
+
+    折叠行显查询词(人话主参数,与 web_fetch 的 url 同构),emoji=🔍。detail 携结构化
+    ``results``(标题/网址/摘要)+ ``count``,前端 WebSearchCard 按条目渲染、空 results
+    显"无结果"空态。失败两条通道都判:
+      - unknown provider → ``run()`` 返回 ``{ok:False,error}``(内核 ``result.error``
+        为空),判 ``output["ok"] is False``;
+      - searxng raise → 内核 ``result.error`` 非空。
+    两者都落 ``{error:{message}}`` detail,前端走 ErrorCard。
+    """
+
+    EMOJI = "🔍"
+
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        return ToolPresentationEvent(
+            visible=True,
+            label="Search",
+            summary=_truncate(str(args.get("query", "")), 100),
+            emoji=self.EMOJI,
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        query = str(args.get("query", ""))
+        output = getattr(result, "output", None) or {}
+        error = getattr(result, "error", None)
+        in_band_error = (
+            str(output.get("error", ""))
+            if isinstance(output, Mapping) and output.get("ok") is False
+            else ""
+        )
+        if error or in_band_error:
+            # 失败态 summary = 干净主参数(query),不含 error 文本;error 进 detail。
+            return ToolPresentationEvent(
+                visible=True,
+                label="Search",
+                summary=query or "failed",
+                emoji=self.EMOJI,
+                detail={"error": {"message": str(error or in_band_error)}},
+            )
+        raw_results = output.get("results", []) if isinstance(output, Mapping) else []
+        results = [
+            {
+                "title": str(r.get("title", "")),
+                "url": str(r.get("url", "")),
+                "snippet": _truncate(str(r.get("snippet", "")), _SNIPPET_CAP),
+            }
+            for r in raw_results
+            if isinstance(r, Mapping)
+        ]
+        provider = (
+            str(output.get("provider", "")) if isinstance(output, Mapping) else ""
+        )
+        return ToolPresentationEvent(
+            visible=True,
+            label="Search",
+            summary=query,
+            emoji=self.EMOJI,
+            detail={
+                "query": query,
+                "provider": provider,
+                "results": results,
+                "count": len(results),
+            },
+        )
+
+
+_WEB_SEARCH_PRESENTER = _WebSearchPresenter()
 
 
 def _search_duckduckgo(query: str, count: int) -> list[dict[str, str]]:
@@ -150,6 +242,9 @@ class WebSearchTool:
     """
 
     name = "web_search"
+    presenter = (
+        _WEB_SEARCH_PRESENTER  # 决策 12: presentation travels with the tool object
+    )
     description = (
         "Search the web and return a list of results with title, URL, and snippet. "
         "Supports providers: duckduckgo (free, default), brave (needs BRAVE_API_KEY), "

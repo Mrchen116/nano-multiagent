@@ -37,9 +37,7 @@ def test_run_returns_content_without_banner() -> None:
         ctype="text/html",
         url="https://example.com/",
     )
-    with patch(
-        "agent.platform.tools.builtins.web_fetch._do_fetch", return_value=resp
-    ):
+    with patch("agent.platform.tools.builtins.web_fetch._do_fetch", return_value=resp):
         out: Any = WebFetchTool().run({"url": "https://example.com"}, _ctx())
     assert out["ok"] is True
     assert out["status"] == 200
@@ -58,9 +56,7 @@ def test_run_returns_final_url() -> None:
         ctype="text/plain",
         url="https://example.com/landing",
     )
-    with patch(
-        "agent.platform.tools.builtins.web_fetch._do_fetch", return_value=resp
-    ):
+    with patch("agent.platform.tools.builtins.web_fetch._do_fetch", return_value=resp):
         out: Any = WebFetchTool().run({"url": "https://example.com"}, _ctx())
     assert out["final_url"] == "https://example.com/landing"
 

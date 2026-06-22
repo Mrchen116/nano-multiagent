@@ -17,11 +17,98 @@ from typing import Any, Mapping
 
 from agent.core.memory.store import MemoryEntry, MemorySource, MemoryStore
 from agent.core.memory.path import derive_memory_root
-from agent.platform.tools.presentation import MEMORY_PRESENTER as _MEMORY_PRESENTER
+from agent.platform.tools.presentation import (
+    ToolPresentationEvent,
+    _enforce_cap,
+    _summarize_memory,
+)
 
 # Actions supported by this tool (design §4 interface)
 _SUPPORTED_ACTIONS = frozenset({"add", "replace", "remove"})
 _VALID_TARGETS = frozenset({"memory", "user"})
+
+
+# ---------------------------------------------------------------------------
+# Presenter (feat-425 决策 3: presentation travels with the tool — class here)
+# ---------------------------------------------------------------------------
+
+
+class _MemoryPresenter:
+    """Presenter for the `memory` tool. Result is ``{success, message|error}``.
+
+    ``action`` / ``target`` / ``content`` live in args (not the result), so detail
+    surfaces them from args alongside the result message — the human sees what was
+    written, not a truncated JSON blob.
+    """
+
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        action = str(args.get("action", ""))
+        target = str(args.get("target", ""))
+        return ToolPresentationEvent(
+            visible=True,
+            label="Memory",
+            summary=f"{action} {target}".strip(),
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        action = str(args.get("action", ""))
+        target = str(args.get("target", ""))
+        output = getattr(result, "output", None) or {}
+        error = getattr(result, "error", None)
+        content = str(args.get("content", ""))
+        if error:
+            # feat-409 failalign: 失败态 summary = 干净主参数(人话 memory 摘要),不含 error。
+            return ToolPresentationEvent(
+                visible=True,
+                label="Memory",
+                summary=_summarize_memory(action, target, content) or "failed",
+                detail={"error": {"message": str(error)}},
+            )
+        success = (
+            bool(output.get("success", True)) if isinstance(output, Mapping) else True
+        )
+        message = str(output.get("message", "")) if isinstance(output, Mapping) else ""
+        if not success:
+            err = str(output.get("error", "")) if isinstance(output, Mapping) else ""
+            # feat-409 failalign: success=False 失败态 summary = 干净主参数(人话 memory
+            # 摘要),不含 error 文本;error 进 detail.message 供 MemoryCard 渲染一次。
+            return ToolPresentationEvent(
+                visible=True,
+                label="Memory",
+                summary=_summarize_memory(action, target, content) or "failed",
+                detail={
+                    "action": action,
+                    "target": target,
+                    "content": content,
+                    "message": err,
+                    "success": False,
+                },
+            )
+        detail = _enforce_cap(
+            {
+                "action": action,
+                "target": target,
+                "content": content,
+                "message": message,
+                "success": True,
+            }
+        )
+        return ToolPresentationEvent(
+            visible=True,
+            label="Memory",
+            # feat-409 protoalign: 折叠 summary 对齐原型 `+project: "内容摘录…"`
+            # —— ±action 符号 + target + 内容预览,而非裸 `add project`。
+            summary=_summarize_memory(action, target, content) or message,
+            detail=detail,
+        )
+
+
+_MEMORY_PRESENTER = _MemoryPresenter()
 
 
 class MemoryTool:

@@ -307,9 +307,7 @@ class TestWebFetchPresenter:
         long_body = "A" * 5000
         evt = _presenter("web_fetch").format_end(
             {"url": "https://example.com"},
-            _FakeResult(
-                output={"ok": True, "status": 200, "content": long_body}
-            ),
+            _FakeResult(output={"ok": True, "status": 200, "content": long_body}),
             duration_ms=10,
         )
         assert evt.detail is not None

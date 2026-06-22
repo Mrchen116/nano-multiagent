@@ -73,7 +73,12 @@ def test_end_empty_results() -> None:
     evt = _presenter().format_end(
         {"query": "无命中查询"},
         _FakeResult(
-            output={"ok": True, "query": "无命中查询", "provider": "searxng", "results": []}
+            output={
+                "ok": True,
+                "query": "无命中查询",
+                "provider": "searxng",
+                "results": [],
+            }
         ),
         duration_ms=50,
     )
