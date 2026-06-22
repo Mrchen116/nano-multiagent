@@ -628,3 +628,109 @@ def test_shell_runner_drain_does_not_wedge_when_orphan_holds_write_end() -> None
             f"drain wedged: callback never fired within {timeout + grace}s "
             f"(elapsed {elapsed:.1f}s) — orphan held write end"
         )
+
+
+# ---------------------------------------------------------------------------
+# RuntimeRunner abort-unwind path (bugfix-420 decisions 2 & 3)
+# ---------------------------------------------------------------------------
+
+
+class _FakeRuntime:
+    """Minimal AgentRuntime stand-in returning a canned TurnResult.
+
+    ``abort_during_run`` simulates the cooperative-abort path: when set, the
+    controller is aborted while ``run`` executes, so the worker observes
+    ``controller.is_aborted`` true after run returns (mirroring task_stop
+    signalling abort mid-turn).
+    """
+
+    def __init__(self, *, turn_result: object, abort_during_run: bool = False) -> None:
+        self._turn_result = turn_result
+        self._abort_during_run = abort_during_run
+
+    async def run(self, agent_session_id, parts, *, controller, **kwargs):  # type: ignore[no-untyped-def]
+        if self._abort_during_run:
+            controller.abort()
+        return self._turn_result
+
+
+def _make_turn_result(assistant_text: str | None) -> object:
+    from agent.core.types import Message, TurnResult
+
+    messages: tuple = ()
+    if assistant_text is not None:
+        messages = (
+            Message(message_id="m1", role="assistant", content=assistant_text),
+        )
+    return TurnResult(session_id="sess_1", turn_id="t1", messages=messages)
+
+
+def _run_worker_collect(runtime: "_FakeRuntime") -> dict:
+    """Drive RuntimeRunner.start once and collect which callback fired."""
+    from agent.platform.background_tasks.runtime_runner import RuntimeRunner
+
+    events: dict = {}
+    done = threading.Event()
+
+    def on_complete(*, task_id, result_text, usage, duration_ms, tool_use_count):  # type: ignore[no-untyped-def]
+        events["kind"] = "complete"
+        events["result_text"] = result_text
+        done.set()
+
+    def on_fail(*, task_id, error):  # type: ignore[no-untyped-def]
+        events["kind"] = "fail"
+        events["error"] = error
+        done.set()
+
+    def on_kill(*, task_id, result_text, usage, duration_ms, tool_use_count):  # type: ignore[no-untyped-def]
+        events["kind"] = "kill"
+        events["result_text"] = result_text
+        done.set()
+
+    runner = RuntimeRunner(runtime=runtime)  # type: ignore[arg-type]
+    runner.start(
+        agent_session_id="sess_1",
+        parent_session_id="parent_1",
+        prompt="do work",
+        on_complete=on_complete,
+        on_fail=on_fail,
+        on_kill=on_kill,
+    )
+    assert done.wait(5.0), "worker callback never fired"
+    return events
+
+
+def test_runtime_runner_aborted_run_invokes_on_kill_with_result() -> None:
+    """bugfix-420: when the run is aborted (task_stop), the worker routes to
+    on_kill carrying the last assistant text as the partial result."""
+    runtime = _FakeRuntime(
+        turn_result=_make_turn_result("partial findings here"),
+        abort_during_run=True,
+    )
+    events = _run_worker_collect(runtime)
+    assert events["kind"] == "kill"
+    assert events["result_text"] == "partial findings here"
+
+
+def test_runtime_runner_aborted_run_with_no_output_omits_result() -> None:
+    """bugfix-420: aborted before any assistant text → on_kill with
+    result_text=None so the notification omits <result>."""
+    runtime = _FakeRuntime(
+        turn_result=_make_turn_result(None),
+        abort_during_run=True,
+    )
+    events = _run_worker_collect(runtime)
+    assert events["kind"] == "kill"
+    assert events["result_text"] is None
+
+
+def test_runtime_runner_natural_completion_not_misflagged_as_kill() -> None:
+    """bugfix-420 risk 3: a natural completion (not aborted) must route to
+    on_complete, never on_kill."""
+    runtime = _FakeRuntime(
+        turn_result=_make_turn_result("done"),
+        abort_during_run=False,
+    )
+    events = _run_worker_collect(runtime)
+    assert events["kind"] == "complete"
+    assert events["result_text"] == "done"

@@ -137,6 +137,105 @@ def test_kill_transitions_from_running() -> None:
     assert updated.error == "user_stopped"
 
 
+def test_kill_carries_result_text() -> None:
+    """bugfix-420: stopping a subagent records the partial result so the
+    killed <task-notification> can carry it (mirrors complete())."""
+    reg = BackgroundTaskRegistry()
+    reg.register_subagent(
+        task_id="a1",
+        parent_session_id="s1",
+        agent_id="a1",
+        agent_session_id="sess_1",
+        description="research",
+        prompt="p",
+        agent_type="explore",
+        output_file="o",
+    )
+    reg.mark_running("a1")
+    updated = reg.kill("a1", reason="stopped by user", result_text="found 3 files")
+    assert updated.status == BackgroundTaskStatus.KILLED
+    assert updated.result_text == "found 3 files"
+
+
+def test_kill_result_text_defaults_none() -> None:
+    """bugfix-420: killing with no produced text leaves result_text None so
+    the notification omits <result> (no empty <result>)."""
+    reg = BackgroundTaskRegistry()
+    reg.register_subagent(
+        task_id="a1",
+        parent_session_id="s1",
+        agent_id="a1",
+        agent_session_id="sess_1",
+        description="research",
+        prompt="p",
+        agent_type="explore",
+        output_file="o",
+    )
+    reg.mark_running("a1")
+    updated = reg.kill("a1", reason="stopped by user")
+    assert updated.status == BackgroundTaskStatus.KILLED
+    assert updated.result_text is None
+
+
+def test_kill_notified_suppresses_future_notification() -> None:
+    """bugfix-420: killing a bash task with notified=True marks the record so
+    the _NotifyingStore wrapper skips model-facing notification delivery."""
+    reg = BackgroundTaskRegistry()
+    reg.register_bash(
+        task_id="b1",
+        parent_session_id="s1",
+        description="d",
+        command="c",
+        output_file="o",
+    )
+    reg.mark_running("b1")
+    updated = reg.kill("b1", reason="stopped by user", notified=True)
+    assert updated.status == BackgroundTaskStatus.KILLED
+    assert updated.notified is True
+
+
+def test_kill_notified_defaults_false() -> None:
+    """bugfix-420: default kill keeps notified=False so subagent kills still
+    deliver their (result-carrying) notification."""
+    reg = BackgroundTaskRegistry()
+    reg.register_bash(
+        task_id="b1",
+        parent_session_id="s1",
+        description="d",
+        command="c",
+        output_file="o",
+    )
+    reg.mark_running("b1")
+    updated = reg.kill("b1", reason="stopped by user")
+    assert updated.notified is False
+
+
+def test_kill_is_idempotent_after_terminal() -> None:
+    """bugfix-420: the 'first terminal wins' invariant must survive the new
+    kill params — a second kill on a terminal record is a no-op and does not
+    overwrite result_text / notified."""
+    reg = BackgroundTaskRegistry()
+    reg.register_subagent(
+        task_id="a1",
+        parent_session_id="s1",
+        agent_id="a1",
+        agent_session_id="sess_1",
+        description="research",
+        prompt="p",
+        agent_type="explore",
+        output_file="o",
+    )
+    reg.mark_running("a1")
+    reg.kill("a1", reason="stopped by user", result_text="partial")
+
+    # A second kill (e.g. a late runner callback) must not flip anything.
+    again = reg.kill("a1", reason="other", result_text="overwrite", notified=True)
+    assert again.status == BackgroundTaskStatus.KILLED
+    assert again.error == "stopped by user"
+    assert again.result_text == "partial"
+    assert again.notified is False
+
+
 def test_terminal_state_is_idempotent() -> None:
     """Terminal transitions are no-ops to prevent races with task_stop."""
     reg = BackgroundTaskRegistry()
