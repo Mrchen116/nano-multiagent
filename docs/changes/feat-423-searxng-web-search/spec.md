@@ -99,20 +99,21 @@ issue #132 原文关键句（feat(web_search): 支持 SearXNG 自建搜索，提
 - **WHEN** 通过 searxng 搜索一个无任何命中的 query
 - **THEN** 返回 `ok: true`，`results` 为空列表（实例工作正常、确实没结果 ≠ 失败）
 
-### Requirement: 提供 SearXNG 部署文档
+### Requirement: 提供 SearXNG 配置接入说明
 
-#### Scenario: 用户查阅部署说明
-- **WHEN** 用户在 README / AGENTS.md 中查找如何启用 SearXNG
-- **THEN** 能看到一段 Docker 一键部署 + 启用 JSON 格式 + 设置 `SEARXNG_URL` 的可照做说明
+#### Scenario: 用户查阅如何启用 SearXNG
+- **WHEN** 用户查找如何把（自己已部署的）SearXNG 实例接入 `web_search`
+- **THEN** 能在合理的文档位置看到配置说明：设置 `SEARXNG_URL` 环境变量即启用、设置后 searxng 自动成为默认 provider、仅搜索语义
+- **AND** 该说明聚焦「如何接入本产品」，不包含 SearXNG 实例本身的 Docker 部署步骤（用户自理）
 
 ## 范围与非目标
 
 - 在范围：
   - `web_search` 新增 `searxng` provider；`SEARXNG_URL` 已设时自动作默认、显式 provider 仍优先。
   - 结果归一化为现有 `{title, url, snippet}`；正常 / 空结果 / 实例不可达 / URL 未配置的单测。
-  - README / AGENTS.md 增加 SearXNG Docker 部署说明。
+  - 在合理的文档位置补「如何把已有 SearXNG 接入 web_search」的配置说明（设 `SEARXNG_URL` 启用、默认行为、仅搜索语义）。
 - 非目标：
   - `categories` / `engines` / `language` / `safesearch` 等可选搜索参数（issue 标注「可选」，本期不做，需要时另开 unit）。
-  - SearXNG 实例本身的运维 / 监控 / 鉴权。
+  - SearXNG 实例本身的 Docker 部署步骤 / 运维 / 监控 / 鉴权（用户自理；issue 已附部署示例）。
   - 用 SearXNG 做全文提取（仍归 `web_fetch`，本工具保持「仅搜索」语义）。
   - searxng 失败时回退到其他 provider（明确不做，见验收标准第三组）。
