@@ -29,16 +29,16 @@ scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）
 | # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |
 |---|---|---|---|---|
 | 1 | **工具调用后回复**——发一条需 agent 调工具才能答的消息，收到带正确结果的回复（覆盖工具调用主循环） | `test_tool_call_reply_critical_path.py::test_tool_call_then_reply_carries_sentinel` | gateway（`docs/specs/gateway/spec.md`）+ kernel（`docs/specs/kernel/spec.md`） | feat-421 |
-| 2 | **bash 前台超时**——agent 跑会超时的前台 bash，session 不卡死、用户最终仍收到回复 | `TODO(feat-421-M2)` `test_bash_foreground_timeout_critical_path.py` | kernel（`docs/specs/kernel/spec.md`） | feat-421 |
-| 3 | **bash 后台通知**——agent 把耗时 bash 丢后台，作业完成后用户**再**收到一条带结果的跟进消息 | `TODO(feat-421-M2)` `test_bash_background_notify_critical_path.py` | gateway + kernel | feat-421 |
-| 4 | **subagent**——agent 派前台子 agent，回复带回子 agent 产出；子 agent 失败被隔离不拖垮常驻进程 | `TODO(feat-421-M2)` `test_subagent_foreground_critical_path.py` | kernel（`docs/specs/kernel/spec.md`） | feat-421 |
-| 5 | **/stop**——对正在跑的 run 发 `/stop`，运行被中止、状态可见为已停 | `TODO(feat-421-M2)` `test_stop_run_critical_path.py` | gateway + kernel | feat-421 |
-| 6 | **cron**（slow）——到点的定时任务自动推一条消息到 IM 对话 | `TODO(feat-421-M2)` `test_cron_push_critical_path.py`（`@pytest.mark.slow`） | gateway（`docs/specs/gateway/spec.md`） | feat-421 |
+| 2 | **bash 前台超时**——agent 跑会超时的前台 bash，session 不卡死、用户最终仍收到回复 | `test_bash_foreground_timeout_critical_path.py::test_foreground_bash_timeout_still_replies` | kernel（`docs/specs/kernel/spec.md`） | feat-421 |
+| 3 | **bash 后台通知**——agent 把耗时 bash 丢后台，作业完成后用户**再**收到一条带结果的跟进消息 | `test_bash_background_notify_critical_path.py::test_background_bash_completion_sends_followup` | gateway + kernel | feat-421 |
+| 4 | **subagent**——agent 派前台子 agent，回复带回子 agent 产出；子 agent 失败被隔离不拖垮常驻进程 | `test_subagent_foreground_critical_path.py::test_foreground_subagent_carries_back_output` | kernel（`docs/specs/kernel/spec.md`） | feat-421 |
+| 5 | **/stop**——对正在跑的 run 发 `/stop`，运行被中止、状态可见为已停 | `test_stop_run_critical_path.py::test_stop_aborts_active_run` | gateway + kernel | feat-421 |
+| 6 | **cron**（slow）——到点的定时任务自动推一条消息到 IM 对话 | `test_cron_push_critical_path.py::test_cron_job_auto_pushes_message`（`@pytest.mark.slow`） | gateway（`docs/specs/gateway/spec.md`） | feat-421 |
 | 7 | **heartbeat**（slow）——心跳在有可行动内容时主动冒泡一条消息（无内容时安静跳过） | `TODO(feat-421-M2)` `test_heartbeat_bubble_critical_path.py`（`@pytest.mark.slow`） | gateway（`docs/specs/gateway/spec.md`） | feat-421 |
-| 8 | **群聊双向定向 @**——用户 `@A` 让 A 去 `@B` 办事：用户先看到 A 应答且 A 定向 @了 B，再看到 B 因被点名而应答；未被点名者不抢话 | `TODO(feat-421-M2)` `test_group_chat_directed_mention_critical_path.py` | im（`docs/specs/im/spec.md`）+ gateway | feat-421 |
-| 9 | **权限审批 approve/deny**——agent 要调需许可的工具，用户在 IM 收到等待批准提示；批准则 run 继续产出结果，拒绝则该工具不执行且 run 据此收口 | `TODO(feat-421-M2)` `test_permission_approval_critical_path.py` | gateway + kernel + im | feat-421 |
+| 8 | **群聊双向定向 @**——用户 `@A` 让 A 去 `@B` 办事：用户先看到 A 应答且 A 定向 @了 B，再看到 B 因被点名而应答；未被点名者不抢话 | `test_group_chat_directed_mention_critical_path.py::test_human_mentions_a_then_a_mentions_b` + `::test_unmentioned_agent_stays_silent` | im（`docs/specs/im/spec.md`）+ gateway | feat-421 |
+| 9 | **权限审批 approve/deny**——agent 要调需许可的工具，用户在 IM 收到等待批准提示；批准则 run 继续产出结果，拒绝则该工具不执行且 run 据此收口 | `test_permission_approval_critical_path.py::test_permission_approve_lets_tool_run` + `::test_permission_deny_blocks_tool` | gateway + kernel + im | feat-421 |
 | 10 | **进程重启后会话续接**——发消息建立上下文后**重启 Gateway 进程**，再发消息 agent 仍记得重启前的上文 | `test_restart_session_continuity_critical_path.py::test_context_survives_gateway_restart` | gateway（`docs/specs/gateway/spec.md`） | feat-421 |
-| 11 | **经 IM 创建 agent 并落地可聊**——在 IM 配置中心新建一个 agent，它在节点落地 workspace 并上线，随后能跟它聊出回复 | `TODO(feat-421-M2)` `test_create_agent_via_im_critical_path.py` | im（`docs/specs/im/spec.md`）+ gateway | feat-421 |
+| 11 | **经 IM 创建 agent 并落地可聊**——在 IM 配置中心新建一个 agent，它在节点落地 workspace 并上线，随后能跟它聊出回复 | `test_create_agent_via_im_critical_path.py::test_agent_created_via_im_lands_and_replies` | im（`docs/specs/im/spec.md`）+ gateway | feat-421 |
 
 ## 已知缺口 / backlog（暂无 e2e 兜底）
 
