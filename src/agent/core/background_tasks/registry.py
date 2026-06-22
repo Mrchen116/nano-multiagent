@@ -155,7 +155,19 @@ class BackgroundTaskRegistry:
         self._persist(new)
         return new
 
-    def kill(self, task_id: str, *, reason: str = "stopped") -> BackgroundTaskRecord:
+    def kill(
+        self,
+        task_id: str,
+        *,
+        reason: str = "stopped",
+        notified: bool = False,
+        result_text: str | None = None,
+    ) -> BackgroundTaskRecord:
+        # bugfix-420: mirror complete()'s notified / result_text so the kill path
+        # can both suppress a model-facing notification (bash: notified=True) and
+        # carry a partial result (subagent: result_text=last assistant text).
+        # _guard_terminal stays first → the "first terminal wins" idempotency
+        # invariant holds: a late runner callback can't overwrite these.
         with self._lock:
             old = self._records[task_id]
             if self._guard_terminal(old):
@@ -165,6 +177,8 @@ class BackgroundTaskRegistry:
                 status=BackgroundTaskStatus.KILLED,
                 ended_at=self._now_iso(),
                 error=reason,
+                notified=notified,
+                result_text=result_text,
             )
             self._records[task_id] = new
         self._persist(new)

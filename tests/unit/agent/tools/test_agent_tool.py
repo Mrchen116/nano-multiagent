@@ -54,6 +54,7 @@ class _FakeRunner:
         prompt,
         on_complete,
         on_fail,
+        on_kill,
         workspace_root=None,
     ):
         def _worker():

@@ -16,6 +16,7 @@ from agent.core.background_tasks.interfaces import (
     BackgroundTaskStopper,
     TaskCompletionCallback,
     TaskFailureCallback,
+    TaskKillCallback,
 )
 
 
@@ -46,6 +47,7 @@ class RuntimeRunner(BackgroundSubagentRunner):
         prompt: str,
         on_complete: TaskCompletionCallback,
         on_fail: TaskFailureCallback,
+        on_kill: TaskKillCallback,
         workspace_root: Path | None = None,
     ) -> BackgroundTaskStopper:
         controller = RunController()
@@ -73,13 +75,27 @@ class RuntimeRunner(BackgroundSubagentRunner):
             )
 
             try:
-                on_complete(
-                    task_id=agent_session_id,
-                    result_text=result_text,
-                    usage=usage,
-                    duration_ms=duration_ms,
-                    tool_use_count=tool_use_count,
-                )
+                # bugfix-420 decisions 2 & 3: a cooperative abort (task_stop on a
+                # subagent) lets runtime.run *return* a TurnResult carrying the
+                # messages accumulated up to the abort. Route to on_kill so the
+                # killed <task-notification> carries the partial result, instead
+                # of on_complete (which would mislabel the terminal as completed).
+                if controller.is_aborted:
+                    on_kill(
+                        task_id=agent_session_id,
+                        result_text=result_text,
+                        usage=usage,
+                        duration_ms=duration_ms,
+                        tool_use_count=tool_use_count,
+                    )
+                else:
+                    on_complete(
+                        task_id=agent_session_id,
+                        result_text=result_text,
+                        usage=usage,
+                        duration_ms=duration_ms,
+                        tool_use_count=tool_use_count,
+                    )
             except Exception:
                 pass
 

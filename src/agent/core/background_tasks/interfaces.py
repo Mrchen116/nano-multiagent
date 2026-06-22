@@ -52,6 +52,7 @@ class BackgroundSubagentRunner(Protocol):
         prompt: str,
         on_complete: "TaskCompletionCallback",
         on_fail: "TaskFailureCallback",
+        on_kill: "TaskKillCallback",
         workspace_root: Path | None = None,
     ) -> BackgroundTaskStopper: ...
 
@@ -97,3 +98,23 @@ class TaskCompletionCallback(Protocol):
 
 class TaskFailureCallback(Protocol):
     def __call__(self, *, task_id: str, error: str) -> None: ...
+
+
+class TaskKillCallback(Protocol):
+    """Reports a cooperative-abort (task_stop) terminal for a subagent.
+
+    bugfix-420 decision 3: distinct from ``TaskCompletionCallback`` so the
+    worker can express "killed-with-partial-result" without polluting the
+    natural-completion semantics. ``result_text`` is the last assistant text
+    accumulated before abort (None when nothing was produced).
+    """
+
+    def __call__(
+        self,
+        *,
+        task_id: str,
+        result_text: str | None,
+        usage: Mapping[str, Any] | None,
+        duration_ms: int,
+        tool_use_count: int,
+    ) -> None: ...

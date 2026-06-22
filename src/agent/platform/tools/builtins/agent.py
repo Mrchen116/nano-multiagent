@@ -8,6 +8,7 @@ from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Any
 
+from agent.core.agent.run_control import RunController
 from agent.core.background_tasks.ids import generate_agent_id
 from agent.core.background_tasks.models import BackgroundTaskStatus
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
@@ -185,6 +186,7 @@ class AgentTool(WiringMixin):
             prompt=prompt,
             on_complete=_make_on_complete(registry, agent_id),
             on_fail=_make_on_fail(registry, agent_id),
+            on_kill=_make_on_kill(registry, agent_id),
             workspace_root=ctx.cwd,
         )
         registry.set_stop_handle(agent_id, stopper)
@@ -235,11 +237,20 @@ class AgentTool(WiringMixin):
         # in the returned future and cannot kill the loop or sibling runs. Bare coro
         # (no completion callback) means an in-budget result is never re-delivered as
         # a <task-notification> (bugfix-417 invariant; see decision 2).
+        #
+        # bugfix-420 (round-1 C1): thread a RunController so that if this run gets
+        # auto-backgrounded and then task_stop'd, the worker can be cooperatively
+        # aborted (returning its accumulated messages) — the same mechanism the
+        # explicit run_in_background / resume paths use. Without it this third
+        # terminal path could not abort and would close as COMPLETED, violating
+        # decision 2's "stopped task enters killed terminal".
+        controller = RunController()
         future = wiring.subagent_runner.submit_foreground(
             runtime.run(
                 agent_session_id,
                 [{"type": "text", "text": prompt}],
                 stream=False,
+                controller=controller,
                 parent_session_id=ctx.session_id or "",
                 workspace_root=ctx.cwd,
             )
@@ -263,8 +274,15 @@ class AgentTool(WiringMixin):
             )
             registry.mark_running(agent_id)
 
-            # Watcher thread updates registry when future completes
-            _start_registry_watcher(registry, agent_id, future)
+            # bugfix-420 (round-1 C1): register a stop handle that aborts the
+            # controller so task_stop's request_stop actually triggers the
+            # cooperative abort (request_stop returns True even with no handle, so
+            # without this the stop was a silent no-op).
+            registry.set_stop_handle(agent_id, _ControllerStopHandle(controller))
+
+            # Watcher thread updates registry when future completes; on abort it
+            # routes to registry.kill(result_text=...) instead of complete().
+            _start_registry_watcher(registry, agent_id, future, controller)
 
             return {
                 "status": "async_launched",
@@ -429,6 +447,7 @@ class AgentTool(WiringMixin):
             prompt=prompt,
             on_complete=_make_on_complete(registry, agent_id),
             on_fail=_make_on_fail(registry, agent_id),
+            on_kill=_make_on_kill(registry, agent_id),
             workspace_root=workspace_root,
         )
         registry.set_stop_handle(agent_id, stopper)
@@ -621,21 +640,51 @@ def _start_registry_watcher(
     registry: BackgroundTaskRegistry,
     task_id: str,
     future: Any,
+    controller: RunController,
 ) -> None:
-    """Start a daemon thread that waits for ``future`` and updates registry."""
+    """Start a daemon thread that waits for ``future`` and updates registry.
+
+    bugfix-420 (round-1 C1): on a cooperative abort (task_stop set the
+    controller), route to ``registry.kill(result_text=...)`` so the auto-
+    backgrounded subagent enters the KILLED terminal carrying its partial result
+    — matching the explicit-launch / resume paths (decision 2/3). Otherwise the
+    natural completion still closes as COMPLETED.
+    """
 
     def _watch() -> None:
         try:
             turn = future.result()
             result_text = _extract_assistant_text(turn)
-            registry.complete(
-                task_id,
-                result_text=result_text,
-            )
+            if controller.is_aborted:
+                registry.kill(
+                    task_id,
+                    reason="stopped by user",
+                    result_text=result_text,
+                )
+            else:
+                registry.complete(
+                    task_id,
+                    result_text=result_text,
+                )
         except Exception as exc:  # noqa: BLE001
             registry.fail(task_id, error=str(exc))
 
     threading.Thread(target=_watch, daemon=True).start()
+
+
+class _ControllerStopHandle:
+    """Stop handle that aborts a RunController (auto-background subagent).
+
+    bugfix-420 (round-1 C1): mirrors runtime_runner._ControllerStopper so the
+    registry's request_stop → handle.stop() path triggers a cooperative abort on
+    the auto-backgrounded foreground run.
+    """
+
+    def __init__(self, controller: RunController) -> None:
+        self._controller = controller
+
+    def stop(self) -> None:
+        self._controller.abort()
 
 
 def _make_on_complete(registry: BackgroundTaskRegistry, agent_id: str) -> Any:
@@ -664,6 +713,28 @@ def _make_on_fail(registry: BackgroundTaskRegistry, agent_id: str) -> Any:
         registry.fail(agent_id, error=error)
 
     return _on_fail
+
+
+def _make_on_kill(registry: BackgroundTaskRegistry, agent_id: str) -> Any:
+    # bugfix-420 decision 3: the subagent worker routes cooperative aborts
+    # (task_stop) here. notified=False (default) lets the _NotifyingStore deliver
+    # the killed <task-notification>, now carrying the partial result_text rather
+    # than being an empty-shell duplicate of the tool_result.
+    def _on_kill(
+        *,
+        task_id: str,
+        result_text: str | None,
+        usage: Mapping[str, Any] | None,
+        duration_ms: int,
+        tool_use_count: int,
+    ) -> None:
+        registry.kill(
+            agent_id,
+            reason="stopped by user",
+            result_text=result_text,
+        )
+
+    return _on_kill
 
 
 # ------------------------------------------------------------------

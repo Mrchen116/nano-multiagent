@@ -31,7 +31,12 @@ def _make_ctx(tmpdir: str) -> ToolContext:
     )
 
 
-def test_stop_running_bash_task() -> None:
+def test_stop_running_bash_task_kills_synchronously_and_suppresses_notification() -> (
+    None
+):
+    """bugfix-420 decision 1: stopping a bash task synchronously transitions it
+    to KILLED with notified=True so the _NotifyingStore wrapper suppresses the
+    model-facing <task-notification> (LLM only sees the tool_result)."""
     tool = _make_tool()
     registry = tool._wiring.registry
 
@@ -56,9 +61,15 @@ def test_stop_running_bash_task() -> None:
     record = registry.get("b1")
     assert record is not None
     assert record.status == BackgroundTaskStatus.KILLED
+    # Suppression flag set so the notifying store skips delivery.
+    assert record.notified is True
 
 
-def test_stop_running_subagent_task() -> None:
+def test_stop_running_subagent_defers_terminal_to_worker_unwind() -> None:
+    """bugfix-420 decision 2: stopping a subagent only requests stop; it does
+    NOT synchronously kill. The terminal transition (carrying the partial
+    <result>) is owned by the worker's abort-unwind path (on_kill), so the
+    registry record must stay non-terminal right after task_stop returns."""
     tool = _make_tool()
     registry = tool._wiring.registry
 
@@ -73,7 +84,8 @@ def test_stop_running_subagent_task() -> None:
         output_file="/tmp/a1.output",
     )
     registry.mark_running("a1")
-    registry.set_stop_handle("a1", MagicMock())
+    stop_handle = MagicMock()
+    registry.set_stop_handle("a1", stop_handle)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx = _make_ctx(tmpdir)
@@ -82,6 +94,13 @@ def test_stop_running_subagent_task() -> None:
     assert result["status"] == "killed"
     assert result["task_id"] == "a1"
     assert result["task_type"] == "subagent"
+
+    # Stop was requested (abort signalled to the worker)...
+    stop_handle.stop.assert_called_once()
+    # ...but task_stop did NOT flip the record terminal; the worker unwind does.
+    record = registry.get("a1")
+    assert record is not None
+    assert record.status == BackgroundTaskStatus.RUNNING
 
 
 def test_stop_not_found_raises_tool_error() -> None:
