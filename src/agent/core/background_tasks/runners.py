@@ -14,6 +14,7 @@ from agent.core.background_tasks.interfaces import (
     BackgroundTaskStopper,
     TaskCompletionCallback,
     TaskFailureCallback,
+    TaskKillCallback,
 )
 from agent.core.background_tasks.models import BackgroundTaskRecord
 
@@ -24,8 +25,9 @@ def run_subagent_lifecycle(
     record: BackgroundTaskRecord,
     on_complete: TaskCompletionCallback,
     on_fail: TaskFailureCallback,
+    on_kill: TaskKillCallback,
 ) -> BackgroundTaskStopper:
-    """Start a subagent worker and wire completion/failure callbacks.
+    """Start a subagent worker and wire completion/failure/kill callbacks.
 
     The caller (platform adapter) is responsible for:
       - Updating registry state to RUNNING before/after this call.
@@ -39,6 +41,7 @@ def run_subagent_lifecycle(
         prompt=record.prompt or "",
         on_complete=on_complete,
         on_fail=on_fail,
+        on_kill=on_kill,
     )
 
 

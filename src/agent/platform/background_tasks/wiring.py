@@ -222,6 +222,7 @@ class _NoOpSubagentRunner(BackgroundSubagentRunner):
         prompt: str,
         on_complete: TaskCompletionCallback,
         on_fail: TaskFailureCallback,
+        on_kill: TaskKillCallback,
         workspace_root: "Path | None" = None,
     ) -> BackgroundTaskStopper:
         on_fail(task_id=agent_session_id, error="subagent runner is not configured")

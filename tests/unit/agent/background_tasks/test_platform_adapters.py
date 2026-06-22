@@ -659,9 +659,7 @@ def _make_turn_result(assistant_text: str | None) -> object:
 
     messages: tuple = ()
     if assistant_text is not None:
-        messages = (
-            Message(message_id="m1", role="assistant", content=assistant_text),
-        )
+        messages = (Message(message_id="m1", role="assistant", content=assistant_text),)
     return TurnResult(session_id="sess_1", turn_id="t1", messages=messages)
 
 

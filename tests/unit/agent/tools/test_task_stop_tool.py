@@ -31,7 +31,9 @@ def _make_ctx(tmpdir: str) -> ToolContext:
     )
 
 
-def test_stop_running_bash_task_kills_synchronously_and_suppresses_notification() -> None:
+def test_stop_running_bash_task_kills_synchronously_and_suppresses_notification() -> (
+    None
+):
     """bugfix-420 decision 1: stopping a bash task synchronously transitions it
     to KILLED with notified=True so the _NotifyingStore wrapper suppresses the
     model-facing <task-notification> (LLM only sees the tool_result)."""

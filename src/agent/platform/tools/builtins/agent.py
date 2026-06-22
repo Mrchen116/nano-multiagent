@@ -185,6 +185,7 @@ class AgentTool(WiringMixin):
             prompt=prompt,
             on_complete=_make_on_complete(registry, agent_id),
             on_fail=_make_on_fail(registry, agent_id),
+            on_kill=_make_on_kill(registry, agent_id),
             workspace_root=ctx.cwd,
         )
         registry.set_stop_handle(agent_id, stopper)
@@ -429,6 +430,7 @@ class AgentTool(WiringMixin):
             prompt=prompt,
             on_complete=_make_on_complete(registry, agent_id),
             on_fail=_make_on_fail(registry, agent_id),
+            on_kill=_make_on_kill(registry, agent_id),
             workspace_root=workspace_root,
         )
         registry.set_stop_handle(agent_id, stopper)
@@ -664,6 +666,28 @@ def _make_on_fail(registry: BackgroundTaskRegistry, agent_id: str) -> Any:
         registry.fail(agent_id, error=error)
 
     return _on_fail
+
+
+def _make_on_kill(registry: BackgroundTaskRegistry, agent_id: str) -> Any:
+    # bugfix-420 decision 3: the subagent worker routes cooperative aborts
+    # (task_stop) here. notified=False (default) lets the _NotifyingStore deliver
+    # the killed <task-notification>, now carrying the partial result_text rather
+    # than being an empty-shell duplicate of the tool_result.
+    def _on_kill(
+        *,
+        task_id: str,
+        result_text: str | None,
+        usage: Mapping[str, Any] | None,
+        duration_ms: int,
+        tool_use_count: int,
+    ) -> None:
+        registry.kill(
+            agent_id,
+            reason="stopped by user",
+            result_text=result_text,
+        )
+
+    return _on_kill
 
 
 # ------------------------------------------------------------------

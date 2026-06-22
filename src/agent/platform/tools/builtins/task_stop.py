@@ -2,6 +2,7 @@
 
 from typing import Any, Mapping
 
+from agent.core.background_tasks.models import BackgroundTaskType
 from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
@@ -76,9 +77,16 @@ class TaskStopTool(WiringMixin):
                 details={"code": "task_stop_failed"},
             )
 
-        # Mark killed in the registry; notification delivery is handled by the
-        # _NotifyingStore wrapper in wiring.py.
-        registry.kill(task_id, reason="stopped by user")
+        # bugfix-420: branch by task type, mirroring CC stopTask.ts.
+        #  - subagent: do NOT synchronously kill. request_stop already signalled
+        #    a cooperative abort; the worker's abort-unwind path transitions the
+        #    record terminal via on_kill, carrying the partial <result>. Killing
+        #    here would win the "first terminal" race and drop that result.
+        #  - bash: synchronously kill with notified=True so the _NotifyingStore
+        #    suppresses the model-facing <task-notification> (the LLM already has
+        #    the tool_result; a killed/exit notification would be pure noise).
+        if record.task_type != BackgroundTaskType.SUBAGENT:
+            registry.kill(task_id, reason="stopped by user", notified=True)
 
         return {
             "status": "killed",

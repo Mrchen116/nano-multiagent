@@ -101,8 +101,15 @@ class _RuntimeStub:
         workspace_root: Any = None,
         run_id: str | None = None,
     ) -> TurnResult:
+        # Cooperative abort: poll the controller so task_stop's abort signal lets
+        # the run *return* its accumulated messages (bugfix-420) rather than
+        # blocking the full delay. Mirrors AgentLoop honouring is_aborted.
         if self._delay > 0:
-            time.sleep(self._delay)
+            deadline = time.monotonic() + self._delay
+            while time.monotonic() < deadline:
+                if controller is not None and controller.is_aborted:
+                    break
+                time.sleep(0.01)
         return TurnResult(
             session_id=session_id,
             turn_id="turn_1",
@@ -193,20 +200,27 @@ def test_task_stop_kills_running_bash_task(tmp_path: Path) -> None:
     assert stop_result["status"] == "killed"
     assert stop_result["task_id"] == task_id
 
-    # Registry should be killed.
+    # Registry should be killed with the suppression flag set.
     record = wiring.registry.get(task_id)
     assert record is not None
     assert record.status == BackgroundTaskStatus.KILLED
+    assert record.notified is True
 
-    # Notification delivered.
-    assert len(runs.submissions) == 1
-    assert runs.submissions[0]["origin"] == RunOrigin.BACKGROUND_TASK
-    assert "killed" in runs.submissions[0]["parts"][0]["text"]
+    # bugfix-420 decision 1: stopping a bash task suppresses the model-facing
+    # <task-notification>; the LLM already has the tool_result, so no duplicate
+    # killed notification is delivered.
+    assert runs.submissions == []
+    assert runs.injections == []
 
 
 def test_task_stop_kills_running_agent_task(tmp_path: Path) -> None:
+    # delay so the worker is mid-run when we stop it; its run() polls the
+    # controller and returns once abort is signalled (cooperative abort).
     runtime = _RuntimeStub(tmp_path, delay=30.0)
     runs = _RunsRegistryStub()
+    # Parent has an active run so the killed notification is injected as a
+    # pending message rather than submitted as a fresh run.
+    runs._active_run_by_session["sess_parent"] = "active_run"
     wiring = wire_background_tasks(
         workspace_root=tmp_path, runtime=runtime, runs_registry=runs
     )
@@ -231,18 +245,32 @@ def test_task_stop_kills_running_agent_task(tmp_path: Path) -> None:
     assert record is not None
     assert record.status == BackgroundTaskStatus.RUNNING
 
-    # Stop it.
+    # Stop it. bugfix-420 decision 2: task_stop only requests stop; it does NOT
+    # synchronously kill. The worker's abort-unwind path owns the terminal.
     stop_result = stop_tool.run({"task_id": agent_id}, ctx)
     assert stop_result["status"] == "killed"
     assert stop_result["task_id"] == agent_id
 
+    # The worker observes the abort, returns its accumulated messages, and routes
+    # to on_kill → registry.kill(result_text=...). Wait for that terminal.
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        record = wiring.registry.get(agent_id)
+        if record is not None and record.status == BackgroundTaskStatus.KILLED:
+            break
+        time.sleep(0.02)
+
     record = wiring.registry.get(agent_id)
     assert record is not None
     assert record.status == BackgroundTaskStatus.KILLED
+    # decision 2/3: the killed notification carries the partial result.
+    assert record.result_text == "subagent done"
 
-    # Notification delivered.
-    assert len(runs.submissions) == 1
-    assert runs.submissions[0]["origin"] == RunOrigin.BACKGROUND_TASK
+    # Notification injected into the parent's active run, carrying <result>.
+    assert len(runs.injections) == 1
+    injected_text = runs.injections[0]["message"].content
+    assert "killed" in injected_text
+    assert "<result>subagent done</result>" in injected_text
 
 
 def test_task_stop_on_already_terminal_raises_error(tmp_path: Path) -> None:
