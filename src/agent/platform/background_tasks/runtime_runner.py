@@ -49,6 +49,7 @@ class RuntimeRunner(BackgroundSubagentRunner):
         on_fail: TaskFailureCallback,
         on_kill: TaskKillCallback,
         workspace_root: Path | None = None,
+        llm_session_id: str | None = None,
     ) -> BackgroundTaskStopper:
         controller = RunController()
 
@@ -62,6 +63,7 @@ class RuntimeRunner(BackgroundSubagentRunner):
                     controller=controller,
                     parent_session_id=parent_session_id,
                     workspace_root=workspace_root,
+                    llm_session_id=llm_session_id,
                 )
             except Exception as exc:
                 on_fail(task_id=agent_session_id, error=str(exc))

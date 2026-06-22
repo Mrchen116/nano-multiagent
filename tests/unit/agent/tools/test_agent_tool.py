@@ -45,6 +45,7 @@ class _FakeStopper:
 class _FakeRunner:
     def __init__(self) -> None:
         self.submit_foreground_calls = 0
+        self.start_calls: list[dict] = []
 
     def start(
         self,
@@ -56,7 +57,16 @@ class _FakeRunner:
         on_fail,
         on_kill,
         workspace_root=None,
+        llm_session_id=None,
     ):
+        self.start_calls.append(
+            {
+                "agent_session_id": agent_session_id,
+                "parent_session_id": parent_session_id,
+                "llm_session_id": llm_session_id,
+            }
+        )
+
         def _worker():
             time.sleep(0.05)
             on_complete(
@@ -627,3 +637,103 @@ def test_serialize_completed() -> None:
         }
     )
     assert "result text" in text
+
+
+# ------------------------------------------------------------------
+# bugfix-422 (#129): subagent LLM requests group under parent session
+# ------------------------------------------------------------------
+
+
+def test_background_launch_passes_parent_as_llm_session_id() -> None:
+    """Background subagent must reuse the parent session id at the LLM layer so
+    its provider calls group under the parent in the LLM proxy session-inspector,
+    while keeping its own agent_session_id for JSONL storage."""
+    tool = _make_tool()
+    runner = tool._wiring.subagent_runner
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)  # session_id="parent_1"
+        tool.run(
+            {
+                "description": "test task",
+                "prompt": "do something",
+                "subagent_type": "explore",
+                "load_skills": [],
+                "run_in_background": True,
+            },
+            ctx,
+        )
+        assert len(runner.start_calls) == 1
+        call = runner.start_calls[0]
+        assert call["llm_session_id"] == "parent_1"
+        # local session id stays independent
+        assert call["agent_session_id"] != "parent_1"
+
+
+def test_resume_passes_parent_as_llm_session_id() -> None:
+    """Resuming a terminal subagent must also thread llm_session_id=parent."""
+    tool = _make_tool()
+    registry = tool._wiring.registry
+    runner = tool._wiring.subagent_runner
+
+    agent_id = "a1234567890abcdef"
+    registry.register_subagent(
+        task_id=agent_id,
+        parent_session_id="parent_1",
+        agent_id=agent_id,
+        agent_session_id="sess_terminal",
+        description="existing",
+        prompt="original",
+        agent_type="explore",
+        output_file="/tmp/out.jsonl",
+    )
+    registry.mark_running(agent_id)
+    registry.complete(agent_id, result_text="done")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        result = tool.run(
+            {
+                "agent_id": agent_id,
+                "prompt": "follow up",
+                "load_skills": [],
+                "description": "existing",
+            },
+            ctx,
+        )
+        assert result["status"] == "async_launched"
+        assert len(runner.start_calls) == 1
+        call = runner.start_calls[0]
+        assert call["llm_session_id"] == "parent_1"
+        assert call["agent_session_id"] == "sess_terminal"
+
+
+def test_foreground_passes_parent_as_llm_session_id() -> None:
+    """Foreground subagent goes through submit_foreground(runtime.run(...)); the
+    runtime.run call must carry llm_session_id=parent."""
+    tool = _make_tool(with_wiring=True)
+
+    captured: dict = {}
+
+    async def _spy_run(session_id, parts, **kwargs):
+        captured["session_id"] = session_id
+        captured["llm_session_id"] = kwargs.get("llm_session_id")
+        return _FakeTurnResult("sync result")
+
+    tool._runtime.run = _spy_run
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)  # session_id="parent_1"
+        result = tool.run(
+            {
+                "description": "test task",
+                "prompt": "do something",
+                "subagent_type": "explore",
+                "load_skills": [],
+                "run_in_background": False,
+            },
+            ctx,
+        )
+        assert result["status"] == "completed"
+        assert captured["llm_session_id"] == "parent_1"
+        # the runtime.run target session is the subagent's own session
+        assert captured["session_id"] != "parent_1"

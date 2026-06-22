@@ -180,6 +180,10 @@ class AgentTool(WiringMixin):
         registry.mark_running(agent_id)
 
         # Start worker
+        # bugfix-422 (#129): reuse the parent's session id at the LLM request layer
+        # (llm_session_id) so the subagent's provider calls group under the parent
+        # in the LLM proxy session-inspector. The subagent keeps its own
+        # agent_session_id for JSONL storage / resumption / agent_id lookup.
         stopper = wiring.subagent_runner.start(
             agent_session_id=agent_session_id,
             parent_session_id=ctx.session_id or "",
@@ -188,6 +192,7 @@ class AgentTool(WiringMixin):
             on_fail=_make_on_fail(registry, agent_id),
             on_kill=_make_on_kill(registry, agent_id),
             workspace_root=ctx.cwd,
+            llm_session_id=ctx.session_id or None,
         )
         registry.set_stop_handle(agent_id, stopper)
 
@@ -245,6 +250,9 @@ class AgentTool(WiringMixin):
         # terminal path could not abort and would close as COMPLETED, violating
         # decision 2's "stopped task enters killed terminal".
         controller = RunController()
+        # bugfix-422 (#129): pass llm_session_id=parent so the subagent's LLM
+        # requests group under the parent in the proxy session-inspector; the
+        # subagent's own agent_session_id still drives JSONL storage/resumption.
         future = wiring.subagent_runner.submit_foreground(
             runtime.run(
                 agent_session_id,
@@ -253,6 +261,7 @@ class AgentTool(WiringMixin):
                 controller=controller,
                 parent_session_id=ctx.session_id or "",
                 workspace_root=ctx.cwd,
+                llm_session_id=ctx.session_id or None,
             )
         )
 
@@ -441,6 +450,8 @@ class AgentTool(WiringMixin):
         # Start worker for the resumed turn. The subagent JSONL lives under the
         # parent session's workspace_root, threaded here so the stateless store
         # can locate it.
+        # bugfix-422 (#129): llm_session_id=parent so the resumed turn's LLM
+        # requests group under the parent in the proxy session-inspector.
         stopper = wiring.subagent_runner.start(
             agent_session_id=agent_session_id,
             parent_session_id=parent_session_id,
@@ -449,6 +460,7 @@ class AgentTool(WiringMixin):
             on_fail=_make_on_fail(registry, agent_id),
             on_kill=_make_on_kill(registry, agent_id),
             workspace_root=workspace_root,
+            llm_session_id=parent_session_id or None,
         )
         registry.set_stop_handle(agent_id, stopper)
 
