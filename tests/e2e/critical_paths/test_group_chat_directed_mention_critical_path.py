@@ -149,9 +149,7 @@ def test_unmentioned_agent_stays_silent(im_user: IMClient) -> None:
     )
 
     # 正向:A 确实应答了(确保群本身在工作,排除「整群都没动」假阴性)。
-    _wait_agent_message(
-        im_user, conversation_id, agent_a, lambda c: sentinel in c
-    )
+    _wait_agent_message(im_user, conversation_id, agent_a, lambda c: sentinel in c)
 
     # 否定:再等一个足够宽的窗口,B 始终不该发出任何消息(未被点名 → MENTION gate 拦住)。
     deadline = time.monotonic() + 25.0

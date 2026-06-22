@@ -109,9 +109,7 @@ def test_permission_approve_lets_tool_run(
 
 
 @pytest.mark.e2e
-def test_permission_deny_blocks_tool(
-    im_user: IMClient, e2e_stack: E2EStack
-) -> None:
+def test_permission_deny_blocks_tool(im_user: IMClient, e2e_stack: E2EStack) -> None:
     """拒绝 → 工具不执行 → 那个 dangerous 文件根本不存在,run 据此收口。"""
     agent_id = im_user.first_agent_id()
     conversation_id = im_user.create_direct_conversation(agent_id)

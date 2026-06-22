@@ -232,6 +232,53 @@ class IMClient:
         assert agents, "no agents registered on the node"
         return agents[0]["agent_id"]
 
+    def get_agent_config(self, agent_id: str) -> dict[str, Any]:
+        """读一个 agent 的完整配置(含 profile_version,供乐观锁 PATCH 用)。"""
+        resp = self._http.get(
+            f"/im/v1/agents/{agent_id}/config", headers=self._auth_headers
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def update_agent_config(self, agent_id: str, **changes: Any) -> dict[str, Any]:
+        """改一个 agent 的配置(PATCH 全量 + 乐观锁)。
+
+        PATCH 端点是全量更新且要求 ``profile_version`` 乐观锁:先 GET 现配置,把 ``changes``
+        覆盖上去再整体 PATCH。cron/heartbeat 路径靠它开 ``features['cron_scheduling']`` /
+        ``features['heartbeat']`` + 注入 ``heartbeat_json`` 节律。
+        """
+        current = self.get_agent_config(agent_id)
+        body: dict[str, Any] = {
+            "profile_version": current["profile_version"],
+            "display_name": current["display_name"],
+            "description": current.get("description", ""),
+            "system_prompt": current.get("system_prompt", ""),
+            "skills": current.get("skills", []),
+            "tool_allowlist": current.get("tool_allowlist", []),
+            "group_reply_policy": current["group_reply_policy"],
+            "default_model": current.get("default_model"),
+            "features": dict(current.get("features") or {}),
+            "custom_prompt": current.get("custom_prompt"),
+        }
+        # heartbeat_json 只在显式传入时放进 body:PATCH 的 model_validator 见到
+        # heartbeat_json=None 键存在时,会把 heartbeat dict 形式 pop 掉、不转换
+        # (validator 条件 `"heartbeat_json" not in data`),故不预填 None 占位。
+        existing_hb = current.get("heartbeat_json")
+        if existing_hb is not None and "heartbeat_json" not in changes:
+            body["heartbeat_json"] = existing_hb
+        # changes 里 features 做合并(不整段覆盖),其余字段直接替换。
+        if "features" in changes:
+            body["features"].update(changes.pop("features"))
+        body.update(changes)
+        resp = self._http.patch(
+            f"/im/v1/agents/{agent_id}/config",
+            headers=self._auth_headers,
+            json=body,
+            timeout=60.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     def create_agent(
         self,
         node_id: str,
