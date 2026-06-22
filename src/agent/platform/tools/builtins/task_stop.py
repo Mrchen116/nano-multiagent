@@ -24,7 +24,9 @@ class TaskStopTool(WiringMixin):
     description = (
         "Stop a running background task by its task_id. "
         "Works for both background subagents (agent_id) and background bash commands (task_id). "
-        "The task will be marked as killed and a notification will be sent to the parent session."
+        "The task is marked as killed. Stopping a bash task is confirmed by this "
+        "tool's result only (no extra notification is sent). Stopping a subagent "
+        "additionally sends a notification carrying the subagent's partial result."
     )
     input_schema = {
         "type": "object",
