@@ -165,6 +165,10 @@ class IMClient:
         self._http = httpx.Client(base_url=self.im_url, timeout=http_timeout)
         self.token: str | None = None
         self.user_id: str | None = None
+        # owner_id 是建 agent 的归属键:IM 的 runtime-selectable 列表按 owner 过滤
+        # (repositories.list_runtime_selectable_profiles_for_owner),建 agent 不带它
+        # → profile.owner_id 落空串 → 绑定节点上的新 agent 被过滤掉、永不出现在 /agents。
+        self.owner_id: str | None = None
 
     # ── auth ──────────────────────────────────────────────────────────────
 
@@ -188,6 +192,7 @@ class IMClient:
         body = resp.json()
         self.token = body["access_token"]
         self.user_id = body["user"]["id"]
+        self.owner_id = body["user"]["owner_id"]
         return self.token
 
     @property
@@ -239,9 +244,15 @@ class IMClient:
         skills: list[str] | None = None,
         default_model: str | None = None,
     ) -> dict[str, Any]:
-        """经 IM 配置中心在指定节点新建一个 agent(POST /nodes/{id}/agents)。"""
+        """经 IM 配置中心在指定节点新建一个 agent(POST /nodes/{id}/agents)。
+
+        必带 ``owner_id``(默认取登录缓存的 owner):IM 的 /agents 列表按 owner 过滤,
+        漏传则新 agent 落 ownerless 而绑定节点已归属本 owner → 被过滤、永不可见可聊。
+        """
+        assert self.owner_id is not None, "call register_or_login() first"
         payload: dict[str, Any] = {
             "agent_id": agent_id,
+            "owner_id": self.owner_id,
             "display_name": display_name or agent_id,
             "system_prompt": system_prompt,
             "group_reply_policy": group_reply_policy,

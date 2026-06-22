@@ -27,3 +27,29 @@
 - Rollback: 纯新增测试文件，`git revert` 撤回。
 - Commits: C1=test(plan 后第一 commit), C2=旅程脚本即测试本身（与 C1 同一文件，真跑验证），C3=docs（本段）。
 - Next: R2 控制流 2 条（/stop / 经 IM 建 agent）。
+
+## R2 — 控制流 2 条（/stop 中止 run / 经 IM 建 agent）
+
+- Context: /stop 验「运行中能否被打断」这条只有真起 run、真发中止才暴露的接缝；经 IM 建 agent 验「IM 配置中心 → 节点落地 → 上线可聊」整条配置链路。
+- Decision:
+  - /stop：让 agent 跑 `sleep 45` 前台 bash 制造活跃 run → 等 `tool_call.upserted`（run 真进了工具循环再发 /stop，避免「无活跃 run」分支）→ 发 `/stop` → 正向断言收到 Gateway 硬编码固定 ack `已停止当前操作。`（非 LLM 措辞，可逐字断言）→ 否定断言：随后 20s 窗口内被中止任务的完成哨兵 `never_sentinel` 不出现（run 真停了它永不到）。
+  - 经 IM 建 agent：取在线 node_id → `create_agent`（带随机后缀 agent_id + default_model）→ 轮询 `/agents` 直到新 agent 出现（落地上线信号）→ 建直聊发哨兵 → 等含哨兵的 `message.completed`。
+- **[底座缺陷修复] `_im_client.py` 漏传 owner_id**：
+  - 现象：建 agent 后新 agent 永不出现在 `/agents` 列表（40s 超时），路径 11 不可用。
+  - 根因：M1 的 `create_agent` 没传 `owner_id`，也没缓存登录返回的 `owner_id` → profile.owner_id 落空串。IM 的 `repositories.list_runtime_selectable_profiles_for_owner` 按 owner 过滤：`ap.owner_id='' ` 仅当 `n.owner_id=''`（ownerless 节点）才返回；而 e2e 节点已 auto-bind 归属 nano → 新 agent 既不满足 owner 匹配也不满足 ownerless，被过滤掉。
+  - 修复：`register_or_login` 缓存 `body["user"]["owner_id"]`；`create_agent` 默认带 `owner_id=self.owner_id`（IM `CreateNodeAgentRequest.owner_id` 字段本就存在，前端正常建 agent 也传它）。这是让 M1 已备方法真正可用的最小修复（§0.1 复用扩展，非新造平行物），不改任何产品代码。
+  - 验证：修复后建 agent 即出现在列表、直聊收到含哨兵回复，PASSED。
+- Rationale: /stop 的 ack 是判 run 是否真被打断的唯一稳锚（固定串，非 LLM）；否定哨兵补「停了之后不再产出」这层。建 agent 的 owner_id 是 IM 归属过滤的硬约束，黑盒客户端必须按真实前端契约带它。
+- Evidence:
+  - **真端到端证据（live-critical）**：
+    - `test_stop_aborts_active_run` PASSED — sleep 45 跑起来后 /stop 收到固定 ack `已停止当前操作。`，被中止任务的 `STOP*` 哨兵在 20s 窗口内未出现。
+    - `test_agent_created_via_im_lands_and_replies` PASSED — 新建 `e2eNew*` agent 落地上线、直聊回出哨兵 `NEW*`。
+  - Tests: R2 首轮 `1 failed, 1 passed`（建 agent owner_id bug）→ 修 `_im_client.py` 后建 agent 单跑 `1 passed in 5.49s`；/stop 首轮即 PASSED。
+  - Entry: 经 `IMClient` 走 IM 公开 HTTP/WS。
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 两条永久回归；env 关时干净 skip。
+  - Visual/Interaction: N/A
+- Rollback: 新增两 test 文件 + `_im_client.py` 单点补 owner_id；`git revert` 撤回。
+- Commits: C1=test(R2 两条旅程), C2=fix(_im_client owner_id), C3=docs（本段）。
+- Next: R3 群聊 + 权限 2 条。
