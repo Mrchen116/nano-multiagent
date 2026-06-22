@@ -62,7 +62,9 @@ Gateway 在某个隔离的 workspace 基目录下运行（如 e2e worktree 把 c
 2. **工厂构造**（`main.py`）：新增模块级 helper `_make_workspace_root_factory(workspace_base)`——`workspace_base` 有值时返回 `lambda agent_id: <base>/<agent_id>`，否则返回 `None`。
 3. **注入**（`main.py` 构造 `_IMConfigSyncClient` 处）：把 `_make_workspace_root_factory(config.node.workspace_base)` 作为 `workspace_root_factory` 传入。`workspace_base` 未配置时工厂为 `None`，`_IMConfigSyncClient` 构造函数 `workspace_root_factory or self._default_workspace_root` 仍回退硬编码默认——**现有部署零行为变化**。
 
-效果：`e2e-up.sh` 在 worktree 副本 config 写一行 `node.workspace_base: <wt>/.gateway-workspace`，动态经 IM 建的 agent 就落隔离区 `<wt>/.gateway-workspace/<agent_id>`，与预置 agent 同规则。
+4. **e2e 衔接**（`scripts/e2e-up.sh`，code review F1 补）：worktree config 重写块（yq + python fallback 两路）写入 `node.workspace_base = <wt>/.gateway-workspace`，让动态经 IM 建的 agent 真落隔离区 `<wt>/.gateway-workspace/<agent_id>`，与预置 agent 同规则——否则产品 fix 正确但对触发它的 e2e 场景不激活。
+
+效果：动态建 agent 不再污染主目录，#127 的 e2e 隔离闭环。
 
 测试（新增，均改既有文件、不新建超限文件）：
 - `tests/unit/personal_assistant/test_gateway_im_config_sync.py`：`_make_workspace_root_factory` 空/有值两态；`handle_agent_create` 不带 workspace_root 时落注入 base、且断言 `nano-assistant/workspace` 不在路径里。

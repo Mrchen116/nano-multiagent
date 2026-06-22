@@ -75,8 +75,11 @@ NODE_ID="wt-${WT_NAME}-$$"
 WORKSPACE_DIR="$WT_ROOT/.gateway-workspace"
 
 if command -v yq >/dev/null 2>&1; then
+  # bugfix-424 (#127): node.workspace_base isolates *dynamically* created agents
+  # (built via IM agent.create) under the worktree, same as preset agents below.
   yq -i "
     .node.node_id = \"$NODE_ID\" |
+    .node.workspace_base = \"$WORKSPACE_DIR\" |
     .im_service.url = \"http://127.0.0.1:$IM_PORT\" |
     .agents[].workspace_root = \"$WORKSPACE_DIR/\" + .agents[].agent_id
   " "$WT_CFG"
@@ -91,6 +94,8 @@ with open(path) as f: cfg = yaml.safe_load(f)
 cfg.setdefault("node", {})["node_id"] = os.environ["NODE_ID"]
 cfg.setdefault("im_service", {})["url"] = f"http://127.0.0.1:{os.environ['IM_PORT']}"
 wsd = os.environ["WORKSPACE_DIR"]
+# bugfix-424 (#127): isolate dynamically-created agents under the worktree too.
+cfg["node"]["workspace_base"] = wsd
 for agent in cfg.get("agents", []):
     agent["workspace_root"] = os.path.join(wsd, agent["agent_id"])
 with open(path, "w") as f: yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
