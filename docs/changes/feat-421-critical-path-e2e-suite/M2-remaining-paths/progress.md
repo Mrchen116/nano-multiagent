@@ -122,3 +122,13 @@
 - Rollback: 纯测试 + 文档 + helper；`git revert` 撤回。
 - Commits: 见 R4 段 + 本段收口 commit。
 - Next: 集成 milestone→unit、清理、报 DONE。
+
+## R4 终裁 — 用户拍板 heartbeat 用默认 K2.6 + 诚实 skip 收口
+
+- 决定（用户拍板，经 orchestrator 传达）：heartbeat **不 pin gpt-5.5**，与其余 10 条同用默认 model **kimiCoding:K2.6**。
+- 依据：经有界 model 切换排查已穷尽确证——K2.6 / doubao / 强指令跟随的 gpt-5.5 三组每个 tick 都确定性回单行 `HEARTBEAT_OK`（直接 grep heartbeat run 的 session jsonl 实证：user turn 已注入 HEARTBEAT.md 全文含哨兵 + 「必须发言/不可回 OK」强制指令，assistant 仍回 HEARTBEAT_OK）。根因是产品心跳 trigger prompt 末句 `If nothing needs attention, reply HEARTBEAT_OK.` 压过 HEARTBEAT.md 的 instructions，**非 model 选型可解**，且心跳 prompt 不归本 unit 改。
+- 收口（spec 允许的诚实正解，非降级）：
+  - heartbeat e2e 旅程完整保留为可复现资产，`@pytest.mark.skip` reason 口径精确为「默认 model K2.6 反射 HEARTBEAT_OK + 投递抑制 + 已穷尽 K2.6/doubao/gpt-5.5 确认非选型可解，见 #126」。
+  - **#126** 标题口径修正为「默认 model K2.6 对产品心跳 prompt 反射 HEARTBEAT_OK，导致 heartbeat 有内容时也不主动冒泡」，body 含 run-triggered-but-suppressed 证据（heartbeat-state.json last_due_at 有值、observer 抑制点 main.py:1254/1304）+ gpt-5.5 session 证据 + 指出心跳 prompt 末句 HEARTBEAT_OK 触发句是潜在产品改进点。建议严重度 normal。
+  - catalog heartbeat 维持 backlog 段，口径同步更新（默认 K2.6 + 已穷尽 model 切换）。
+- 结果：11 条旅程都有测试、诚实暴露缺口、零假绿。v1 必保活 10 条全有真跑绿守护测试；heartbeat 在 backlog 带 #126。

@@ -27,10 +27,12 @@ from .conftest import E2EStack
 @pytest.mark.e2e
 @pytest.mark.slow
 @pytest.mark.skip(
-    reason="heartbeat 端到端不冒泡（真实产品/集成 bug，见 #126）：静态启用 scheduler "
-    "从未 triggered；动态 PATCH 启用虽 triggered 但 agent 回 HEARTBEAT_OK、投递被 "
-    "_consume_heartbeat_run observer 静默抑制。本 unit 不改 gateway 产品代码，旅程保留为 "
-    "复现资产，bugfix 修复后去掉本 skip。"
+    reason="默认 model kimiCoding:K2.6 对产品心跳 prompt 反射 HEARTBEAT_OK、投递被 "
+    "_consume_heartbeat_run observer 抑制，heartbeat 有内容时也不主动冒泡，e2e 不可观察"
+    "（真实产品 bug，见 #126）。已穷尽 model 切换确认非选型可解：K2.6 / doubao / 强指令"
+    "跟随的 gpt-5.5 三者每 tick 都确定性回 HEARTBEAT_OK（grep run session jsonl 实证），"
+    "根因是心跳 prompt 末句 HEARTBEAT_OK 触发句压过 HEARTBEAT.md 指令。本 unit 不改 gateway "
+    "产品代码，旅程保留为复现资产，bugfix 修复后去掉本 skip。"
 )
 def test_heartbeat_bubbles_actionable_message(
     im_user: IMClient, e2e_stack: E2EStack

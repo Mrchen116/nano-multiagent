@@ -47,7 +47,7 @@ scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）
 
 | 关键路径 | 为什么暂缺 | 归属子系统 | 计划 |
 |---|---|---|---|
-| **heartbeat 主动冒泡**（slow，原 v1 #7） | 端到端不冒泡（真实产品 bug，见 **#126**）：静态启用 scheduler 从未 triggered；动态 PATCH 启用虽 triggered 但 agent 回 HEARTBEAT_OK、投递被 observer 静默抑制。e2e 旅程已写（`test_heartbeat_bubble_critical_path.py`）并标 `@pytest.mark.skip`，作复现资产；bugfix 修复后去 skip、移回 v1 | gateway（`docs/specs/gateway/spec.md`） | **bugfix #126**（修复后回 v1 必保活） |
+| **heartbeat 主动冒泡**（slow，原 v1 #7） | 默认 model K2.6 下端到端不冒泡（真实产品 bug，见 **#126**）：心跳 prompt 末句 HEARTBEAT_OK 触发句压过 HEARTBEAT.md 指令，model 回 HEARTBEAT_OK、投递被 observer 抑制。已穷尽 K2.6/doubao/gpt-5.5 三组确认非 model 选型可解。e2e 旅程已写（`test_heartbeat_bubble_critical_path.py`）并标 `@pytest.mark.skip`，作复现资产；bugfix 修复后去 skip、移回 v1 | gateway（`docs/specs/gateway/spec.md`） | **bugfix #126**（修复后回 v1 必保活） |
 | **前端 UI smoke**（Playwright，稳定/桩后端、无真 LLM） | 本套件走 API 级（IM HTTP/WS），不驱动浏览器；真 LLM × 全 UI × 多路径是测试反模式（design 决策 7）。前端是被动薄客户端，但其自身回归本 unit 不覆盖 | im/frontend | **独立 unit**（稳定后端 + 桩 LLM 的 UI 冒烟） |
 | **断线重连补发** | 用户流 WS 断后 resume 补发事件的端到端时序，本 unit 未覆盖 | im（`docs/specs/im/spec.md`） | 后续 unit |
 | **上下文压缩恢复** | 长会话触发压缩后上下文连续性的端到端验证 | kernel（`docs/specs/kernel/spec.md`） | 后续 unit |
