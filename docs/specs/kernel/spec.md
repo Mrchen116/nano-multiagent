@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: bugfix-420-task-stop-notification-dedup
+> 对齐: feat-425-tool-presenter-emoji
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
