@@ -40,7 +40,7 @@ e2e；填全 `docs/e2e-critical-paths.md` 四列 catalog（9 条 TODO 换真实�
 
 | R | 标题 | 范围 | 状态 |
 |---|---|---|---|
-| R1 | 工具循环 3 条 | bash 前台超时 / bash 后台通知 / subagent 三条 test 文件 | TODO |
+| R1 | 工具循环 3 条 | bash 前台超时 / bash 后台通知 / subagent 三条 test 文件 | DONE |
 | R2 | 控制流 2 条 | /stop / 经 IM 建 agent 两条 test 文件 | TODO |
 | R3 | 群聊 + 权限 2 条 | 群聊双向定向@ / 权限审批 approve+deny 两条 test 文件 | TODO |
 | R4 | 时间驱动 slow 2 条 + catalog | cron[slow] / heartbeat[slow] 两条 + catalog 四列填全 + AGENTS.md 挂链 | TODO |
