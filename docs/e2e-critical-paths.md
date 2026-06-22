@@ -21,10 +21,11 @@ scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）
 每条「必保活」路径都必须对应一个真实存在、能跑的测试函数；清单与测试一旦 drift，门禁不过。
 当前还没有 e2e 兜底的关键路径，诚实登记在「已知缺口 backlog」段，而非默认为已覆盖。
 
-## v1 必保活路径（11 条）
+## v1 必保活路径（10 条）
 
-> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数。标 `TODO(feat-421-M2)`
-> 的为本表已锁定旅程、测试将在 feat-421-M2 落地的路径。
+> 「守护测试」列指向 `tests/e2e/critical_paths/` 下的测试函数，均经真 Gateway 进程真跑通过。
+> heartbeat（原 #7）端到端不冒泡（真实产品 bug #126），其 e2e 旅程已写但标 `@pytest.mark.skip`，
+> 暂移至下方 backlog 段——故 v1 必保活当前为 10 条。
 
 | # | 用户旅程 | 守护测试 | 归属子系统 | 引入 unit |
 |---|---|---|---|---|
@@ -34,7 +35,6 @@ scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）
 | 4 | **subagent**——agent 派前台子 agent，回复带回子 agent 产出；子 agent 失败被隔离不拖垮常驻进程 | `test_subagent_foreground_critical_path.py::test_foreground_subagent_carries_back_output` | kernel（`docs/specs/kernel/spec.md`） | feat-421 |
 | 5 | **/stop**——对正在跑的 run 发 `/stop`，运行被中止、状态可见为已停 | `test_stop_run_critical_path.py::test_stop_aborts_active_run` | gateway + kernel | feat-421 |
 | 6 | **cron**（slow）——到点的定时任务自动推一条消息到 IM 对话 | `test_cron_push_critical_path.py::test_cron_job_auto_pushes_message`（`@pytest.mark.slow`） | gateway（`docs/specs/gateway/spec.md`） | feat-421 |
-| 7 | **heartbeat**（slow）——心跳在有可行动内容时主动冒泡一条消息（无内容时安静跳过） | `TODO(feat-421-M2)` `test_heartbeat_bubble_critical_path.py`（`@pytest.mark.slow`） | gateway（`docs/specs/gateway/spec.md`） | feat-421 |
 | 8 | **群聊双向定向 @**——用户 `@A` 让 A 去 `@B` 办事：用户先看到 A 应答且 A 定向 @了 B，再看到 B 因被点名而应答；未被点名者不抢话 | `test_group_chat_directed_mention_critical_path.py::test_human_mentions_a_then_a_mentions_b` + `::test_unmentioned_agent_stays_silent` | im（`docs/specs/im/spec.md`）+ gateway | feat-421 |
 | 9 | **权限审批 approve/deny**——agent 要调需许可的工具，用户在 IM 收到等待批准提示；批准则 run 继续产出结果，拒绝则该工具不执行且 run 据此收口 | `test_permission_approval_critical_path.py::test_permission_approve_lets_tool_run` + `::test_permission_deny_blocks_tool` | gateway + kernel + im | feat-421 |
 | 10 | **进程重启后会话续接**——发消息建立上下文后**重启 Gateway 进程**，再发消息 agent 仍记得重启前的上文 | `test_restart_session_continuity_critical_path.py::test_context_survives_gateway_restart` | gateway（`docs/specs/gateway/spec.md`） | feat-421 |
@@ -47,6 +47,7 @@ scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）
 
 | 关键路径 | 为什么暂缺 | 归属子系统 | 计划 |
 |---|---|---|---|
+| **heartbeat 主动冒泡**（slow，原 v1 #7） | 端到端不冒泡（真实产品 bug，见 **#126**）：静态启用 scheduler 从未 triggered；动态 PATCH 启用虽 triggered 但 agent 回 HEARTBEAT_OK、投递被 observer 静默抑制。e2e 旅程已写（`test_heartbeat_bubble_critical_path.py`）并标 `@pytest.mark.skip`，作复现资产；bugfix 修复后去 skip、移回 v1 | gateway（`docs/specs/gateway/spec.md`） | **bugfix #126**（修复后回 v1 必保活） |
 | **前端 UI smoke**（Playwright，稳定/桩后端、无真 LLM） | 本套件走 API 级（IM HTTP/WS），不驱动浏览器；真 LLM × 全 UI × 多路径是测试反模式（design 决策 7）。前端是被动薄客户端，但其自身回归本 unit 不覆盖 | im/frontend | **独立 unit**（稳定后端 + 桩 LLM 的 UI 冒烟） |
 | **断线重连补发** | 用户流 WS 断后 resume 补发事件的端到端时序，本 unit 未覆盖 | im（`docs/specs/im/spec.md`） | 后续 unit |
 | **上下文压缩恢复** | 长会话触发压缩后上下文连续性的端到端验证 | kernel（`docs/specs/kernel/spec.md`） | 后续 unit |

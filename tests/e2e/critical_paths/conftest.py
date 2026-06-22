@@ -131,6 +131,17 @@ def e2e_stack(tmp_path_factory: pytest.TempPathFactory) -> E2EStack:
         text=True,
     )
 
+    # 清理经 IM 动态建 agent 落在主目录 ~/nano-assistant/workspace/<agent_id> 的 workspace
+    # 残留:这是产品隔离 gap(#127)——动态建的 agent 不走 worktree 隔离区(且 IM 返回的
+    # workspace_root 是 IM 侧映射路径,≠ gateway 实际落地的主目录路径),会污染主仓。
+    # 本套件自取自清,按本 session 建过的 agent_id 拼主目录路径删,不碰其它。
+    home_ws_root = Path.home() / "nano-assistant" / "workspace"
+    for agent_id in IMClient.created_agent_ids:
+        ws_path = home_ws_root / agent_id
+        if ws_path.parent == home_ws_root and ws_path.is_dir():
+            shutil.rmtree(ws_path, ignore_errors=True)
+    IMClient.created_agent_ids.clear()
+
 
 def _dump_logs(wt_dir: Path) -> None:
     """把 IM / Gateway 日志 tail 到 stderr,失败时留可诊断证据(spec Req)。"""

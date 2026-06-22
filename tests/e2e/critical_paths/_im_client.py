@@ -160,6 +160,13 @@ class IMUserWebSocket:
 class IMClient:
     """对一台真 IM 实例的黑盒客户端:auth / 会话 / 消息 / WS / 权限 / 建 agent。"""
 
+    # 类级追踪经 create_agent 建出的 agent_id(跨所有 client 实例共享):
+    # 经 IM 动态建的 agent 其 workspace 实际落在主目录 ~/nano-assistant/workspace/<agent_id>
+    # (产品隔离 gap,见 #127——且 IM 返回的 workspace_root 是 IM 侧映射路径,≠ gateway 实际
+    # 落地的主目录路径,故按 agent_id 拼主目录路径清理才准),不在 e2e 隔离区 →
+    # conftest session teardown 据此清理,避免污染主仓。
+    created_agent_ids: list[str] = []
+
     def __init__(self, im_url: str, *, http_timeout: float = 30.0) -> None:
         self.im_url = im_url.rstrip("/")
         self._http = httpx.Client(base_url=self.im_url, timeout=http_timeout)
@@ -315,7 +322,10 @@ class IMClient:
             timeout=60.0,
         )
         resp.raise_for_status()
-        return resp.json()
+        created = resp.json()
+        # 记下 agent_id 供 session teardown 按主目录路径清理(主目录残留,见 #127)。
+        IMClient.created_agent_ids.append(agent_id)
+        return created
 
     # ── conversations ─────────────────────────────────────────────────────
 
