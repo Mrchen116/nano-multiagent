@@ -2,7 +2,7 @@
 subprocess tree, recovers the orphaned tool_call as a user-attributed interrupt,
 and the session self-heals — all end-to-end through a real ``build_kernel``.
 
-Split out of ``test_bugfix_417_bash_engine_e2e.py`` (which owns the M4 unified-engine
+Split out of ``test_bash_engine.py`` (which owns the M4 unified-engine
 guards) to keep each file under the 400-line cap; the shared build_kernel + fake-LLM
 harness is imported from that module.
 """
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.integration.test_bugfix_417_bash_engine_e2e import (
+from tests.integration.test_bash_engine import (
     _SUPPRESS_STREAM_STOP,
     _BashThenStopLLM,
     _build,
