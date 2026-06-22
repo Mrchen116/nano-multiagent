@@ -16,7 +16,7 @@ system prompt's prose mention of the mechanism is excluded. Asserting absence/pr
 of such a message across all captured requests is the cross-layer observable.
 
 Shares the build_kernel harness (_build / _run_turn_and_collect / _llm_config /
-_allow_all) with test_bugfix_417_bash_engine_e2e — split out only to keep each test
+_allow_all) with test_bash_engine — split out only to keep each test
 file under the 400-line cap (docs/TESTING_GUIDE.md §7). Not an e2e-marked test — a fake
 LLM client issues the bash tool_call, so no external services are needed.
 """
@@ -31,7 +31,7 @@ import pytest
 
 from agent.core.llm.interfaces import LLMMessage, LLMToolCall
 
-from .test_bugfix_417_bash_engine_e2e import _build, _run_turn_and_collect
+from .test_bash_engine import _build, _run_turn_and_collect
 
 
 class _RecordingBashThenStopLLM:
