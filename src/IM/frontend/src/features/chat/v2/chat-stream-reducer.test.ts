@@ -361,4 +361,60 @@ describe("chat-stream-reducer", () => {
     const next = applyWsEvent(state, ev);
     expect(next).toBe(state);
   });
+
+  // bugfix-419: WS message.created 到达顺序与 created_at 相反时，渲染顺序仍按 created_at 升序
+  it("bugfix-419: message.created events arriving out-of-order are sorted by created_at, not arrival order", () => {
+    // Simulate: user message already in state with a later created_at.
+    // Agent reply arrives via WS with an earlier created_at (e.g. clock skew / race).
+    // The list must be re-sorted so agent message appears before the user message.
+    const userMsg: Message = {
+      ...userMessage("m-user", "hello"),
+      created_at: "2026-01-01T00:00:02Z"
+    };
+    const state: ConversationState = { conversation_id: "c1", messages: [userMsg] };
+
+    const agentEarlierEv: WsEvent = {
+      type: "message.created",
+      conversation_id: "c1",
+      message_id: "m-agent",
+      sender_user_id: "agent:a",
+      sender_type: "agent",
+      content: "hi",
+      tool_calls: [],
+      token_usage: null,
+      delivery_status: "running",
+      created_at: "2026-01-01T00:00:01Z"   // earlier than user msg
+    };
+    const next = applyWsEvent(state, agentEarlierEv);
+
+    expect(next.messages).toHaveLength(2);
+    // Agent message has earlier created_at → must be first after sort
+    expect(next.messages[0]!.id).toBe("m-agent");
+    expect(next.messages[1]!.id).toBe("m-user");
+  });
+
+  // bugfix-419: 同 created_at 以 message id 作 tie-break，保证稳定排序
+  it("bugfix-419: messages with equal created_at are tie-broken by id for stable ordering", () => {
+    const state: ConversationState = {
+      conversation_id: "c1",
+      messages: [userMessage("id-b", "b")]   // created_at = "2026-01-01T00:00:00Z"
+    };
+    const ev: WsEvent = {
+      type: "message.created",
+      conversation_id: "c1",
+      message_id: "id-a",
+      sender_user_id: "agent:a",
+      sender_type: "agent",
+      content: "a",
+      tool_calls: [],
+      token_usage: null,
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:00Z"   // same timestamp as id-b
+    };
+    const next = applyWsEvent(state, ev);
+    expect(next.messages).toHaveLength(2);
+    // "id-a" < "id-b" lexicographically → id-a first
+    expect(next.messages[0]!.id).toBe("id-a");
+    expect(next.messages[1]!.id).toBe("id-b");
+  });
 });
