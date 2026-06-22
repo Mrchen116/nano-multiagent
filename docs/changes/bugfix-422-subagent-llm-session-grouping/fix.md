@@ -68,3 +68,33 @@ LLM proxy 按请求里的 session id 分组（`src/agent/platform/llm/providers/
 **为什么这种缺陷能进来**：`runtime.run` 自始支持 `llm_session_id`，但它是为 fork 路径设计的；`agent` tool 走的是「新建独立 session」路径，引入时（feat-337 起的 background subagent + 后续前台/续传扩展）没有意识到「本地 session id 独立」与「LLM 请求层 session id 复用父」是两件需要分别处理的事，于是只设置了前者。`runtime.run` 与 `BackgroundSubagentRunner.start` 的 `llm_session_id` 默认 `None`（静默 fallback）让缺失不报错，缺陷得以无声进入。
 
 **修复必须保住的不变量**：子 agent 的**本地 session id 必须保持独立**——它用于子 agent 自己的 JSONL 存储、续传、`agent_id` 查找；本修复只在 **LLM 请求层**复用父 session id，绝不能把子 agent 的本地 session id 改成父的（那会破坏 JSONL 隔离与续传）。`parent_session_id`（已有，用于子 agent JSONL 路径解析）与本次新增的 `llm_session_id`（LLM 请求层覆盖）是两个独立维度，不可混淆。
+
+## 修复
+
+核心思路：给"子 agent 启动"链路新增一个 **LLM 请求层** 的 `llm_session_id` 维度（默认 `None` 向后兼容），三条路径都把它设成父 session id。子 agent 的本地 `agent_session_id` 不变（保住根因段的不变量）。
+
+plumbing（透传形参）：
+- `src/agent/core/background_tasks/interfaces.py` — `BackgroundSubagentRunner.start()` protocol 增加 `llm_session_id: str | None = None`。
+- `src/agent/platform/background_tasks/runtime_runner.py` — `RuntimeRunner.start()` 接收并转发给 `runtime.run(..., llm_session_id=...)`。
+- `src/agent/platform/background_tasks/wiring.py` — `_NoOpSubagentRunner.start()` 补形参以满足 protocol。
+- `src/agent/core/background_tasks/runners.py` — `run_subagent_lifecycle()` 透传 `llm_session_id`。
+
+三条调用点（`src/agent/platform/tools/builtins/agent.py`）：
+- 前台 `_run_foreground()`：`runtime.run(..., llm_session_id=ctx.session_id or None)`。
+- 后台 `_run_background()`：`subagent_runner.start(..., llm_session_id=ctx.session_id or None)`。
+- 续传 `_resume_subagent()`：`subagent_runner.start(..., llm_session_id=parent_session_id or None)`。
+
+`AgentLoop.run()` 既有 `session_id=llm_session_id or state.session_id`（`src/agent/core/agent/loop.py`）无需改动——显式给了父 id 就用父 id 作为 LLM 请求的 session header。
+
+Commits：见本 unit 分支 `unit/bugfix-422`。
+
+## 验证
+
+单测（验收主口径，全绿）：
+- `tests/unit/agent/tools/test_agent_tool.py` 新增 3 例：前台 / 后台 / 续传三条路径分别断言传给 `runtime.run` / `runner.start` 的 `llm_session_id == 父 session id`，且子 agent 本地 `agent_session_id != 父 id`（不变量回归）。
+- `tests/integration/background_tasks/test_agent_background.py` 新增 1 例：经真实 `wire_background_tasks` + `RuntimeRunner` 端到端，断言后台子 agent 的 `runtime.run()` 真的收到 `llm_session_id=父`。
+- 受影响的桩 `_RuntimeStub.run`（task_stop / auto_background / continuation 三个集成测试文件）补 `llm_session_id` 形参。
+
+回归：`pytest -m "not e2e"` 全绿；`ruff check` / `ruff format --check` 通过。
+
+手动实证（补充）：在 LLM proxy session-inspector（`http://127.0.0.1:4000/ui/session-inspector`）下可观察主 agent 调用 `agent` tool 后，子 agent 的 LLM 请求归入主 agent 同一 session 目录，与 self-improvement fork 行为一致。
