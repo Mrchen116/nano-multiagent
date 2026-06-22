@@ -38,16 +38,26 @@
 - fix#8 cron「等 feature 同步」no-op：`update_agent_config` 返回后 agent 早在 `list_agents`（配置改动非新建），循环首次迭代即命中、从未真等 config 热重载 → 删掉伪等待 + 注释说明 config sync 异步无就绪信号、靠 cron 推送 180s 宽窗兜底。
 - fix#4 M2 tasks.md 退出标准 4 条勾 [x]（实现 M2 已完成、文档漏勾；heartbeat 状态如实注明）。
 
+### heartbeat skip→xfail(strict)（fix#2，用户拍板 B）
+
+- 决定: 用户拍板 B——本 unit 守「只做测试、不改产品代码」。heartbeat 不修产品前缀，标 `@pytest.mark.xfail(strict=True, #126)`（TESTING_GUIDE §7：已知产品回归用 xfail(strict)+issue 号，不用 skip）。
+- 门控顺序: 门控在 `e2e_stack` fixture 的 `_gate_or_skip()`（无 proxy/config → `pytest.skip`）。fixture setup 阶段 raise Skip **先于** xfail 判定 → env off 时 SKIPPED（不进 xfail），符合「skip 先于 xfail」要求。
+- 验证（真跑双态确认）:
+  - env off: `1 skipped`（门控 fixture skip）。
+  - env on: `1 xfailed in 184.09s`——真跑旅程到 K2.6 对 openclaw 心跳前缀回 HEARTBEAT_OK → 断言失败 → XFAILED（strict 下 EXIT=0，不报错）。
+- 活复现资产: #126 修复后（产品前缀移 system role，PoC 见 #126），K2.6 冒泡 → XPASS → strict 转 fail 自动提醒去 xfail。不改产品 `_build_heartbeat_message` / `_OPENCLAW_HEARTBEAT_PROMPT`。
+
 ## 退出标准达成
 
-- contract 400 行 `2 passed`；全套 e2e-critical `13 passed, 1 skipped in 248s`（heartbeat skip 挂起）；全树 ruff clean + format ok；全树 collect 2735；0 进程泄漏 + 0 workspace 残留。
-- heartbeat marker（skip→xfail）挂起等用户定 A/B —— 本轮不动（orchestrator 指示）。
+- contract 400 行 `2 passed`；全套 e2e-critical `12 passed, 1 xfailed`（heartbeat 真跑 XFAIL）；全树 ruff clean + format ok；全树 collect 2735；0 进程泄漏 + 0 workspace 残留。
+- heartbeat marker 已落 xfail(strict, #126)（用户拍板 B，本 unit 不改产品代码）。
 
 ## Commits
 
-- C2/C3=10ebf5a3（fix 实现 + 文档，单 commit）
-- killpg 护栏修复包含在同一 commit（systematic-debugging 后修正）
+- 10ebf5a3：fix#1/3/4/5/6/7/8 + killpg 护栏（systematic-debugging 后修正，单 commit）
+- e23b982c：fix#2 heartbeat skip→xfail(strict, #126)
+- + M3 tasks/progress 文档 commit
 
 ## Next
 
-heartbeat marker 待用户定 A/B 后由 orchestrator 通知如何标（xfail strict #126 或其他）；其余 7 项完成，待合并 unit。
+8 项 fix 全部完成，heartbeat xfail 落地。待合并 milestone/feat-421-M3 → unit/feat-421。

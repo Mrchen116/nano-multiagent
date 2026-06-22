@@ -11,7 +11,7 @@
 ## 退出标准
 
 - [x] contract `test_new_test_files_under_400_lines` 绿（所有新测试文件 ≤400 行）
-- [x] `scripts/e2e-critical.sh` 全套绿（13 passed + heartbeat 1 skipped，slow 子集正常）
+- [x] `scripts/e2e-critical.sh` 全套绿（12 passed + heartbeat 1 xfailed，slow 子集正常）
 - [x] 全树 ruff clean
 - [x] 新增 subagent 失败隔离测试真端到端跑绿（live 证据）
 
@@ -20,7 +20,7 @@
 | # | 类别 | fix | 落点 | commit |
 |---|---|---|---|---|
 | 1 | BLOCKING | 拆 `_im_client.py`（552>400）+ 消重轮询 | `_im_client`(369)/`_im_ws`(165)/`_im_gateway`(120)/`_im_polling`(68)；`poll_until`+`assert_absent_within` 统一 5 处同构轮询 | 10ebf5a3 |
-| 2 | BLOCKING | heartbeat skip→xfail(strict,#126) | **挂起**等用户定 A/B（orchestrator 指示） | — |
+| 2 | BLOCKING | heartbeat skip→xfail(strict,#126) | `test_heartbeat_bubble_critical_path.py`（用户拍板 B：只测不改产品）。env off→SKIPPED（门控 fixture skip 先于 xfail）；env on→XFAILED（真跑 184s 验证） | e23b982c |
 | 3 | BLOCKING | 补 subagent 失败隔离 e2e | `test_subagent_failure_isolation_critical_path.py` + catalog #4 行 | 10ebf5a3 |
 | 4 | BLOCKING | M2 tasks.md 退出标准勾 [x] | `M2-remaining-paths/tasks.md` | 10ebf5a3 |
 | 5 | CORRECTNESS | `_drain_one` 补捕 ConnectionClosedOK/Error | `_im_ws._drain_one` | 10ebf5a3 |
