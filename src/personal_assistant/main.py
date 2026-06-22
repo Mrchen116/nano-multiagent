@@ -760,6 +760,33 @@ class _IMConfigSyncClient:
         return Path("~/nano-assistant/workspace").expanduser() / agent_id
 
 
+def _make_workspace_root_factory(
+    workspace_base: str | None,
+) -> Callable[[str], Path] | None:
+    """Build a workspace_root factory rooted at ``workspace_base`` (bugfix-424 / #127).
+
+    When ``workspace_base`` is set, dynamically-created agents (built via IM
+    ``agent.create`` without an explicit ``workspace_root``) get their workspace at
+    ``<workspace_base>/<agent_id>`` — the same isolation root preset agents use.
+    Returns ``None`` when ``workspace_base`` is unset so the caller keeps its legacy
+    ``~/nano-assistant/workspace`` default, leaving existing deployments unchanged.
+
+    Args:
+        workspace_base: Base directory from ``node.workspace_base``, or None.
+
+    Returns:
+        A factory mapping ``agent_id`` to an absolute workspace path, or None.
+    """
+    if not (isinstance(workspace_base, str) and workspace_base.strip()):
+        return None
+    base = Path(workspace_base.strip()).expanduser()
+
+    def _factory(agent_id: str, _base: Path = base) -> Path:
+        return _base / agent_id
+
+    return _factory
+
+
 class _IMBootstrapClient:
     """Query IM ownership state and launch browser binding when a node is unbound.
 
@@ -2249,12 +2276,22 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             send_frame=lambda _message_type, _payload: None,
             capabilities=build_runtime_capabilities(kernel),
         )
+        # bugfix-424 (#127): derive dynamically-created agents' workspace from the
+        # node's configured workspace_base so they land under the same isolation
+        # root as preset agents (e.g. a worktree's `.gateway-workspace`) instead of
+        # the hardcoded `~/nano-assistant/workspace` default. When workspace_base is
+        # unset the factory stays None and _IMConfigSyncClient keeps its legacy
+        # default — existing deployments are unaffected.
+        workspace_root_factory = _make_workspace_root_factory(
+            config.node.workspace_base
+        )
         im_config_sync_client = _IMConfigSyncClient(
             base_url=config.im_service.url,
             token=config.im_service.token,
             pipeline=pipeline,
             local_config=config,
             reporter=reporter,
+            workspace_root_factory=workspace_root_factory,
         )
         # Build a token_getter closure that auto-refreshes the access token on reconnect.
         # The auth client uses the IM HTTP base URL so it can reach /im/v1/auth/* endpoints.

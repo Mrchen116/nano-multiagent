@@ -16,7 +16,10 @@ from personal_assistant.config.local_store import (
     load_local_config,
 )
 from personal_assistant.gateway.session_keys import SessionBindingStore
-from personal_assistant.main import _IMConfigSyncClient
+from personal_assistant.main import (
+    _IMConfigSyncClient,
+    _make_workspace_root_factory,
+)
 
 from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
 
@@ -502,6 +505,60 @@ def test_handle_agent_create_passes_through_features(tmp_path: Path) -> None:
     registered = next(a for a in pipeline.registered if a.agent_id == "beta")
     assert registered.features.get("skill_creation") is False
     assert registered.custom_prompt == "You are a chef."
+
+
+# ---------------------------------------------------------------------------
+# bugfix-424 (#127): dynamically-created agents derive workspace from config base
+# ---------------------------------------------------------------------------
+
+
+def test_make_workspace_root_factory_none_when_base_unset() -> None:
+    """No workspace_base → factory is None so the caller keeps its legacy default."""
+    assert _make_workspace_root_factory(None) is None
+    assert _make_workspace_root_factory("") is None
+    assert _make_workspace_root_factory("   ") is None
+
+
+def test_make_workspace_root_factory_roots_under_base(tmp_path: Path) -> None:
+    """workspace_base set → factory maps agent_id to <base>/<agent_id>."""
+    factory = _make_workspace_root_factory(str(tmp_path / "iso"))
+    assert factory is not None
+    assert factory("alpha") == tmp_path / "iso" / "alpha"
+
+
+def test_handle_agent_create_derives_workspace_from_injected_base(
+    tmp_path: Path,
+) -> None:
+    """bugfix-424 (#127): an agent created without an explicit workspace_root lands
+    under the injected factory base — not the hardcoded ~/nano-assistant/workspace."""
+    base = tmp_path / "iso-base"
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    local_config = _make_local_config(tmp_path, tmp_path / "preset-ws")
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+        workspace_root_factory=_make_workspace_root_factory(str(base)),
+    )
+
+    # No workspace_root in the payload → must fall to the injected factory.
+    result = sync.handle_agent_create({"agent_id": "dyn"})
+
+    expected = (base / "dyn").resolve()
+    assert result["workspace_root"] == str(expected)
+    registered = next(a for a in pipeline.registered if a.agent_id == "dyn")
+    assert registered.workspace_root == expected
+    # The hardcoded home default must NOT be used.
+    assert "nano-assistant/workspace" not in result["workspace_root"]
 
 
 # ---------------------------------------------------------------------------

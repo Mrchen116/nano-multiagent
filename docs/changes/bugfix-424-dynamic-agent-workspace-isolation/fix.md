@@ -56,8 +56,21 @@ Gateway 在某个隔离的 workspace 基目录下运行（如 e2e worktree 把 c
 
 ## 修复
 
-<!-- worker 在 milestone 完成后回填：改了什么 + commits。 -->
+按修法 A 实现，改动三处（`src/personal_assistant/`）：
+
+1. **config schema**（`config/local_store.py`）：`NodeConfig` 增 `workspace_base: str | None = None` 字段；`_parse_node_config` 读 `node.workspace_base`（`_optional_string`，缺省 None）；序列化（`_config_to_dict` 的 node 段）在非 None 时写回，保证 Gateway 写回 config 不丢该字段。
+2. **工厂构造**（`main.py`）：新增模块级 helper `_make_workspace_root_factory(workspace_base)`——`workspace_base` 有值时返回 `lambda agent_id: <base>/<agent_id>`，否则返回 `None`。
+3. **注入**（`main.py` 构造 `_IMConfigSyncClient` 处）：把 `_make_workspace_root_factory(config.node.workspace_base)` 作为 `workspace_root_factory` 传入。`workspace_base` 未配置时工厂为 `None`，`_IMConfigSyncClient` 构造函数 `workspace_root_factory or self._default_workspace_root` 仍回退硬编码默认——**现有部署零行为变化**。
+
+效果：`e2e-up.sh` 在 worktree 副本 config 写一行 `node.workspace_base: <wt>/.gateway-workspace`，动态经 IM 建的 agent 就落隔离区 `<wt>/.gateway-workspace/<agent_id>`，与预置 agent 同规则。
+
+测试（新增，均改既有文件、不新建超限文件）：
+- `tests/unit/personal_assistant/test_gateway_im_config_sync.py`：`_make_workspace_root_factory` 空/有值两态；`handle_agent_create` 不带 workspace_root 时落注入 base、且断言 `nano-assistant/workspace` 不在路径里。
+- `tests/unit/personal_assistant/test_local_store.py`：`node.workspace_base` 解析 / 缺省 None / save→reload round-trip。
 
 ## 验证
 
-<!-- worker 回填：修前能复现（动态建 agent 落主目录）→ 修后落 config 基目录；预置 agent / 缺省回退 / 显式传 workspace_root 三条不变量回归正常。 -->
+- **复现 → 修复**：单测 `test_handle_agent_create_derives_workspace_from_injected_base` 断言动态建 agent 落注入 base 而非主目录（修前该路径走 `_default_workspace_root` 硬编码 `~/nano-assistant/workspace`，断言会失败）。
+- **不变量 1（向后兼容）**：`test_make_workspace_root_factory_none_when_base_unset` + `test_load_local_config_workspace_base_absent_is_none`——未配 `workspace_base` 时工厂 None、配置字段 None，回退原默认。
+- **不变量 2/3/4**：预置 agent（`config.agents[].workspace_root` 路径不动）、IM 显式传 workspace_root（`handle_agent_create` `:437-443` 分支不动）、workspace 创建后不可变（未触碰）——均由本改动范围之外不动 + 既有测试回归保证。
+- **回归**：`tests/unit/personal_assistant/` + `tests/contract/` **716 passed**；ruff check + format 绿。
