@@ -182,3 +182,89 @@ orchestrator 派发背景说明：heartbeat Scenario 请判为「inconclusive / 
 | 时间驱动路径可单独筛 | 正确（`-m "not slow"` 筛掉 cron/heartbeat） |
 
 **Verdict: fail**（contract 红，需 fix-implementation 修 `_im_client.py` 拆分后重验）
+
+---
+
+# Round 2 — 2026-06-22
+
+## Verdict
+
+**pass**
+
+---
+
+## Highest Required Action
+
+`pass`
+
+---
+
+## Round-2 复验范围
+
+Round-1 唯一 fail 是 `_im_client.py` 552 行超 contract 400 行上限（Issue #1）。fix worker 将原文件拆为 4 个文件 + 补了子 agent 失败隔离测试 + heartbeat 改 xfail。本轮轻量复验聚焦三个检查点：
+
+1. `test_new_test_files_under_400_lines` contract 是否绿
+2. 14 个测试可正常 collect（拆分未破坏导入）
+3. catalog `docs/e2e-critical-paths.md` 是否仍准
+
+---
+
+## 检查点结论
+
+### 1. Contract 测试全绿（Issue #1 已解）
+
+- **命令**：`pytest tests/contract/ -q`
+- **结果**：`126 passed`，0 failed
+- **拆分后各文件行数**：
+  - `_im_client.py` → 369 行（原 552 行）
+  - `_im_gateway.py` → 126 行
+  - `_im_polling.py` → 66 行
+  - `_im_ws.py` → 165 行
+  - 所有文件均 ≤ 400 行，contract 约束满足
+
+### 2. 14 个测试可 collect + 干净 skip
+
+- **命令**：`pytest tests/e2e/critical_paths -v`（无 env）
+- **结果**：`0 passed, 0 failed, 14 skipped`
+- Round-1 是 13 skipped；现新增 `test_subagent_failure_isolation_critical_path.py::test_failed_subagent_isolated_from_main_process`，共 14 条，全部导入无误，无 env 时干净 skip
+
+### 3. Catalog 仍准 + heartbeat xfail 正确
+
+- **subagent #4**：catalog 已升级挂两个守护测试：`test_foreground_subagent_carries_back_output` + `test_failed_subagent_isolated_from_main_process`，描述更新为"子 agent 失败被隔离不拖垮常驻进程"
+- **heartbeat**：`test_heartbeat_bubble_critical_path.py` 已改为 `@pytest.mark.xfail(strict=True, reason=...#126)`；backlog 段说明清楚"真跑 XFAIL 作活复现资产，bugfix 修复后转 XPASS → 去 xfail、移回 v1"
+- **编号不连续（#6→#8 跳 #7）**：v1 段头注已说明，无变化，仍为已知 minor
+
+---
+
+## Round-2 覆盖表（增量）
+
+> Round-1 10/11 Scenario 全部继承，结论不变。本轮仅更新 round-1 标 `inconclusive` 的子 agent 失败隔离行，及 heartbeat xfail 状态确认。
+
+### Requirement: 前台子 agent 可用且失败被隔离（更新行）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 派子 agent 并带回结果 | spec.md | 继承 round-1（真端到端 PASSED） | 同 round-1 | pass | 不变 |
+| 子 agent 失败不拖垮常驻进程 | spec.md | 确认 `test_subagent_failure_isolation_critical_path.py::test_failed_subagent_isolated_from_main_process` 存在且可 collect | `pytest tests/e2e/critical_paths -v` → 14 skipped（含该函数，无 env skip 符合门控）；catalog #4 已挂两条守护测试 | pass | Round-1 inconclusive（缺守护测试）已解：守护测试已补，catalog 已更新。无 env 时 skip 是正确门控行为，不视为 fail |
+
+### Requirement: heartbeat 有内容时主动冒泡（状态确认）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 心跳带可行动内容时主动发言 | spec.md | 读 `test_heartbeat_bubble_critical_path.py` 第 29-34 行 | `@pytest.mark.xfail(strict=True, reason="...#126")` 已标；真跑预期 XFAIL；backlog 说明完整 | inconclusive（#126 deferred） | 与 round-1 一致，用户拍板 B（本 unit 不改产品），xfail 为正确处理方式 |
+
+---
+
+## Issues
+
+无新 issue。Round-1 Issue #1（contract 红）已解。
+
+---
+
+## 上层文档同步
+
+与 round-1 结论一致，无变化：
+- [x] `SPEC.md`：无需更新
+- [x] `docs/specs/<包>/spec.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：已在本 unit 更新（含 `docs/e2e-critical-paths.md` 链接）
+- [x] `docs/SPEC_GUIDE.md`：无需更新
