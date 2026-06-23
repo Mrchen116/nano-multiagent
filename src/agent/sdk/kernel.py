@@ -232,8 +232,12 @@ def _to_session_info(session: Any) -> SessionInfo:
     )
 
 
-def _to_run_info(record: Any) -> RunInfo:
-    """Map an internal RunRecord to the SDK-owned RunInfo boundary DTO."""
+def _to_run_info(record: Any, *, injected: bool = False) -> RunInfo:
+    """Map an internal RunRecord to the SDK-owned RunInfo boundary DTO.
+
+    ``injected`` is set by the steer path when the message was injected into an
+    already active run rather than starting a new one (bugfix-426 决策1).
+    """
     status = getattr(record, "status", None)
     return RunInfo(
         run_id=record.run_id,
@@ -241,6 +245,7 @@ def _to_run_info(record: Any) -> RunInfo:
         # status may be an enum (with .value) or already a string.
         status=getattr(status, "value", status) if status is not None else "",
         start_sequence=int(getattr(record, "start_sequence", 0) or 0),
+        injected=injected,
     )
 
 
@@ -836,6 +841,7 @@ class Kernel:
         origin: RunOrigin = RunOrigin.USER,
         workspace_root: Path | None = None,
         trace_id: str | None = None,
+        steer: bool = False,
     ) -> RunInfo:
         """Schedule a turn on the background loop and return immediately.
 
@@ -845,11 +851,25 @@ class Kernel:
             origin: Message origin (user, system, background, etc.).
             workspace_root: Session workspace root.
             trace_id: Optional trace correlation id.
+            steer: When True and a run is already active for the session, inject
+                this message into that run's next LLM round instead of queueing a
+                new run (feat-338 ``priority="next"`` semantics). When no run is
+                active it degrades to a normal new run. Default False keeps every
+                existing call site unchanged; only run-active product entrypoints
+                (IM inbound, CLI REPL) pass True (bugfix-426 决策1).
 
         Returns:
-            RunInfo with run_id / session_id / status (initially QUEUED).
+            RunInfo with run_id / session_id / status. ``injected=True`` when the
+            message was steered into an active run (``run_id`` is that run, no new
+            run created); otherwise ``injected=False`` for a freshly created run.
         """
         effective_root = workspace_root or self._repo_root
+        if steer:
+            injected = self._try_inject_active_run(
+                session_id=session_id, parts=parts, origin=origin
+            )
+            if injected is not None:
+                return injected
         record = self._c.runs_registry.submit(
             session_id=session_id,
             parts=parts,
@@ -858,6 +878,49 @@ class Kernel:
             trace_id=trace_id,
         )
         return _to_run_info(record)
+
+    def _try_inject_active_run(
+        self,
+        *,
+        session_id: str,
+        parts: list[dict],
+        origin: RunOrigin,
+    ) -> RunInfo | None:
+        """Inject parts into the session's active run, mirroring the proven
+        ``background_tasks/wiring.py`` range: check active run, then atomically
+        enqueue. Returns the injected RunInfo, or None when no run is active (the
+        caller then falls back to a normal new run).
+
+        The injected message is built with the *same* parts→text rendering submit
+        uses (``parse_input_parts`` + ``render_user_text``): image parts collapse
+        to the placeholder, so steering carries identical content to a normal turn
+        — there is no with/without-attachment divergence (bugfix-426 决策2).
+        """
+        from agent.core.agent.state import (  # noqa: PLC0415
+            parse_input_parts,
+            render_user_text,
+        )
+        from agent.core.llm.interfaces import LLMMessage  # noqa: PLC0415
+
+        registry = self._c.runs_registry
+        active_run_id = registry.get_active_run_id(session_id)
+        if active_run_id is None:
+            return None
+        user_text = render_user_text(parse_input_parts(parts))
+        injected = registry.inject_pending_message(
+            session_id,
+            LLMMessage(role="user", content=user_text),
+            origin=origin,
+        )
+        if not injected:
+            # The run ended between the active check and the enqueue; fall back to
+            # a new run. The stranded-continuation backstop (决策3) is irrelevant
+            # here because nothing was enqueued.
+            return None
+        record = registry.get(active_run_id)
+        if record is None:
+            return None
+        return _to_run_info(record, injected=True)
 
     def stream(
         self,

@@ -445,22 +445,36 @@ async def test_submit_steer_idle_session_creates_new_run(tmp_path: Path) -> None
         kernel.close()
 
 
-async def test_submit_steer_active_run_injects_not_new_run(tmp_path: Path) -> None:
-    """submit(steer=True) during an active run injects into it (injected=True),
-    reuses its run_id, and does NOT create a second run."""
-    blocking_event: asyncio.Event = asyncio.Event()
+class _ThreadGatedClient:
+    """LLM client whose generate() blocks on a threading.Event before yielding.
 
-    class _BlockingClient:
-        def generate(self, request: Any):  # noqa: ANN001, ANN201
-            return _blocking_generate(blocking_event)
+    A threading.Event (not asyncio.Event) is used because the run executes on the
+    registry's dedicated background loop while the test sets the gate from the main
+    loop; threading.Event.is_set() is safe across both. Polled with asyncio.sleep
+    so the run stays RUNNING (lets the test inject a steer) yet unblocks promptly.
+    """
 
-    async def _blocking_generate(event: asyncio.Event):
-        await asyncio.wait_for(event.wait(), timeout=5.0)
+    def __init__(self, gate) -> None:  # noqa: ANN001
+        self._gate = gate
+
+    def generate(self, request: Any):  # noqa: ANN001, ANN201
+        return self._generate()
+
+    async def _generate(self):
+        while not self._gate.is_set():
+            await asyncio.sleep(0.01)
         yield LLMMessage(
             role="assistant", content="unblocked", finish_reason="stop", tool_calls=()
         )
 
-    kernel = _build_kernel(tmp_path, _llm_client_override=_BlockingClient())
+
+async def test_submit_steer_active_run_injects_not_new_run(tmp_path: Path) -> None:
+    """submit(steer=True) during an active run injects into it (injected=True),
+    reuses its run_id, and does NOT create a second run."""
+    import threading
+
+    gate = threading.Event()
+    kernel = _build_kernel(tmp_path, _llm_client_override=_ThreadGatedClient(gate))
     try:
         session = await kernel.create_session(workspace_root=tmp_path)
         first = kernel.submit(
@@ -470,6 +484,7 @@ async def test_submit_steer_active_run_injects_not_new_run(tmp_path: Path) -> No
         )
         await _wait_for_run_status(kernel, first.run_id, "running")
 
+        runs_before = set(kernel._c.runs_registry._runs.keys())  # noqa: SLF001
         steered = kernel.submit(
             session_id=session.session_id,
             parts=[{"type": "text", "text": "actually use web_search"}],
@@ -478,30 +493,23 @@ async def test_submit_steer_active_run_injects_not_new_run(tmp_path: Path) -> No
         )
         assert steered.injected is True
         assert steered.run_id == first.run_id
+        # No new run was created by the steer call.
+        assert set(kernel._c.runs_registry._runs.keys()) == runs_before  # noqa: SLF001
 
-        blocking_event.set()
+        gate.set()
         await _wait_for_terminal_run(kernel, first.run_id)
     finally:
-        blocking_event.set()
+        gate.set()
         kernel.close()
 
 
 async def test_submit_steer_injects_render_user_text_content(tmp_path: Path) -> None:
     """Injected content is built via the same parts→text rendering submit uses:
     image parts collapse to the placeholder, text is preserved (决策2)."""
-    blocking_event: asyncio.Event = asyncio.Event()
+    import threading
 
-    class _BlockingClient:
-        def generate(self, request: Any):  # noqa: ANN001, ANN201
-            return _blocking_generate(blocking_event)
-
-    async def _blocking_generate(event: asyncio.Event):
-        await asyncio.wait_for(event.wait(), timeout=5.0)
-        yield LLMMessage(
-            role="assistant", content="unblocked", finish_reason="stop", tool_calls=()
-        )
-
-    kernel = _build_kernel(tmp_path, _llm_client_override=_BlockingClient())
+    gate = threading.Event()
+    kernel = _build_kernel(tmp_path, _llm_client_override=_ThreadGatedClient(gate))
     try:
         session = await kernel.create_session(workspace_root=tmp_path)
         first = kernel.submit(
@@ -532,8 +540,8 @@ async def test_submit_steer_injects_render_user_text_content(tmp_path: Path) -> 
         assert "see this" in content
         assert "[image:placeholder]" in content
 
-        blocking_event.set()
+        gate.set()
         await _wait_for_terminal_run(kernel, first.run_id)
     finally:
-        blocking_event.set()
+        gate.set()
         kernel.close()
