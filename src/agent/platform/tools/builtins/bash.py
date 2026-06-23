@@ -12,7 +12,11 @@ from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.platform.tools.base import WiringMixin
-from agent.platform.tools.presentation import BASH_PRESENTER as _BASH_PRESENTER
+from agent.platform.tools.presentation import (
+    ToolPresentationEvent,
+    _enforce_cap,
+    _summarize_bash,
+)
 from agent.platform.tools.builtins.bash_policy import (
     check_command_policy,
 )
@@ -80,6 +84,74 @@ _READ_ONLY_GIT_SUBCOMMANDS = frozenset(
         "describe",
     }
 )
+
+
+# ---------------------------------------------------------------------------
+# Presenter (feat-425 决策 3: presentation travels with the tool — class here)
+# ---------------------------------------------------------------------------
+
+
+class _BashPresenter:
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        # bugfix-427: 与 format_end 保持同源——优先 args.description（人话），
+        # 空时降级命令首段。之前直接截断 command，导致开始态显示原始命令、
+        # 完成态才切换成 description，用户体验断层。
+        command = str(args.get("command", ""))
+        return ToolPresentationEvent(
+            visible=True,
+            label="Bash",
+            summary=_summarize_bash(args, command),
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        command = str(args.get("command", ""))
+        output = getattr(result, "output", None) or {}
+        error = getattr(result, "error", None)
+        if error:
+            # feat-409 failalign: 失败态 summary = 干净人话主参数(description/命令首段),
+            # 与成功态同构,不含 error 文本。失败由 ✕ 图标 + fail-tag 表达。
+            return ToolPresentationEvent(
+                visible=True,
+                label="Bash",
+                summary=_summarize_bash(args, command),
+                detail={"command": command, "error": {"message": str(error)}},
+            )
+        if isinstance(output, Mapping):
+            exit_code = output.get("exitCode", 0)
+            stdout = output.get("stdout", "")
+            stderr = output.get("stderr", "")
+            # 决策 4:折叠态摘要为人话——优先 args.description(用户写给人看的),
+            # 为空时降级为命令首段;不再用 `exit=N elapsed=Xms` 这类裸状态串。
+            summary = _summarize_bash(args, command)
+            detail = _enforce_cap(
+                {
+                    "command": command,
+                    "exit_code": exit_code,
+                    "duration_ms": duration_ms,
+                    "stdout": stdout or "",
+                    "stderr": stderr or "",
+                    "truncated": False,
+                }
+            )
+            return ToolPresentationEvent(
+                visible=True,
+                label="Bash",
+                summary=summary,
+                detail=detail,
+            )
+        return ToolPresentationEvent(
+            visible=True,
+            label="Bash",
+            summary=f"elapsed={duration_ms}ms",
+        )
+
+
+_BASH_PRESENTER = _BashPresenter()
 
 
 class BashTool(WiringMixin):

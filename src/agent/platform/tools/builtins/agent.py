@@ -19,10 +19,113 @@ from agent.core.tools.serialization import json_serialize
 from agent.core.types import TurnResult
 from agent.platform.tools.base import WiringMixin
 from agent.platform.tools.builtins._shared import _normalize_optional_text
-from agent.platform.tools.presentation import AGENT_PRESENTER as _AGENT_PRESENTER
+from agent.platform.tools.presentation import (
+    ToolPresentationEvent,
+    _enforce_cap,
+    _truncate,
+)
 
 # Foreground budget before auto-backgrounding (seconds)
 _DEFAULT_FOREGROUND_BUDGET = 120.0
+
+
+# ---------------------------------------------------------------------------
+# Presenter (feat-425 决策 3: presentation travels with the tool — class here)
+# ---------------------------------------------------------------------------
+
+
+class _AgentPresenter:
+    """Presenter for the `agent` tool (feat-337 task→agent 收尾).
+
+    The agent tool's result schema is ``content`` / ``agent_id`` / ``output_file``
+    (not the legacy task ``summary`` / ``artifacts``), keyed by ``status``:
+    ``completed`` (content), ``async_launched`` / ``message_queued`` (output_file),
+    ``failed`` (error). The full dispatch ``prompt`` (from args) is placed in detail
+    **before** the result — it is the key signal a human uses to judge whether the
+    dispatch was accurate (spec). The prompt is bounded (a few thousand chars) and
+    is intentionally NOT in the ``_enforce_cap`` truncation set.
+    """
+
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        description = str(args.get("description", ""))
+        return ToolPresentationEvent(
+            visible=True,
+            label="Agent",
+            summary=_truncate(description, 80),
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        description = str(args.get("description", ""))
+        prompt = str(args.get("prompt", ""))
+        subagent_type = str(args.get("subagent_type") or args.get("category") or "")
+        output = getattr(result, "output", None) or {}
+        error = getattr(result, "error", None)
+        if error:
+            # feat-409 failalign: out-of-band 失败态 summary = 干净主参数(description),
+            # 不含 error 文本。detail 保留 description + 完整 prompt(失败时 prompt 最有
+            # 价值,原型:Agent 展开必含完整派发 prompt),让 AgentCard 渲染 error 一次。
+            return ToolPresentationEvent(
+                visible=True,
+                label="Agent",
+                summary=_truncate(description, 80) if description else "failed",
+                detail=_enforce_cap(
+                    {
+                        "description": description,
+                        "prompt": prompt,
+                        "subagent_type": subagent_type,
+                        "status": "failed",
+                        "error": str(error),
+                    }
+                ),
+            )
+        if isinstance(output, Mapping):
+            status = str(output.get("status", "completed"))
+            # Order matters: description + full prompt first, result fields after —
+            # the front-end renders this top-to-bottom (prompt before result, spec).
+            detail = _enforce_cap(
+                {
+                    "description": description,
+                    "prompt": prompt,
+                    "subagent_type": subagent_type,
+                    "status": status,
+                    "agent_id": str(output.get("agent_id", "")),
+                    "content": str(output.get("content", "")),
+                    "output_file": str(output.get("output_file", "")),
+                    # fix 3: coerce to plain str (raw may be None / non-JSON-native) so
+                    # detail stays JSON-serializable and shape-stable for the front-end.
+                    "error": str(output.get("error", "")),
+                }
+            )
+            # The agent tool reports in-band failure via output.status == "failed"
+            # (foreground exception path) rather than result.error — surface it as a
+            # red "failed" summary like the out-of-band error branch above.
+            # feat-409 failalign: 失败/成功态 summary 同构 = 干净主参数(description),
+            # 不含 error 文本;in-band 失败的 error 已在 detail 里供 AgentCard 渲染。
+            if status == "failed":
+                summary = _truncate(description, 80) if description else "failed"
+            else:
+                summary = (
+                    _truncate(description, 80) if description else f"status={status}"
+                )
+            return ToolPresentationEvent(
+                visible=True,
+                label="Agent",
+                summary=summary,
+                detail=detail,
+            )
+        return ToolPresentationEvent(
+            visible=True,
+            label="Agent",
+            summary=_truncate(description, 80),
+        )
+
+
+_AGENT_PRESENTER = _AgentPresenter()
 
 
 class AgentTool(WiringMixin):

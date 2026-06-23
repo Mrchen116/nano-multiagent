@@ -3565,7 +3565,22 @@ def _build_kernel_event_observer(
                 "name": tool_name,
                 "input": arguments if isinstance(arguments, dict) else {},
             }
+            # feat-425 C1: tool_start SSE 已带 presentation.emoji(realtime_stream
+            # on_tool_call)。透传到 running 行,自定义工具在执行阶段折叠行就显自带 emoji,
+            # 不再回退 🔧、等完成才跳变。空串则省略(沿用 detail 的省略未设约定)。
+            start_pres = event.get("presentation")
+            start_emoji: str | None = None
+            if isinstance(start_pres, Mapping) and start_pres.get("emoji"):
+                start_emoji = str(start_pres["emoji"])
             if message_id:
+                start_tool_call: dict[str, Any] = {
+                    "id": call_id,
+                    "name": tool_name,
+                    "status": "running",
+                    "input": arguments if isinstance(arguments, dict) else {},
+                }
+                if start_emoji is not None:
+                    start_tool_call["emoji"] = start_emoji
                 loop.create_task(
                     _send(
                         manager,
@@ -3573,14 +3588,7 @@ def _build_kernel_event_observer(
                         {
                             "kind": "tool_call_upserted",
                             "message_id": message_id,
-                            "tool_call": {
-                                "id": call_id,
-                                "name": tool_name,
-                                "status": "running",
-                                "input": arguments
-                                if isinstance(arguments, dict)
-                                else {},
-                            },
+                            "tool_call": start_tool_call,
                             "run_id": run_id,
                         },
                     )
@@ -3612,6 +3620,7 @@ def _build_kernel_event_observer(
             pres = event.get("presentation")
             output: str | None = None
             detail: Any = None
+            emoji: str | None = None
             if isinstance(pres, Mapping):
                 if pres.get("summary"):
                     output = str(pres["summary"])
@@ -3619,6 +3628,10 @@ def _build_kernel_event_observer(
                 # verbatim (already bounded by the kernel 256KB cap). The Gateway is a
                 # pure passthrough pipe — no re-truncation, no per-tool restructuring.
                 detail = pres.get("detail")
+                # feat-425 决策 1/2: 原样转发 presenter 自带的 emoji(纯透传,不加工)。
+                # 空串 = 工具未声明,沿用 detail 的省略未设约定,前端按名表兜底。
+                if pres.get("emoji"):
+                    emoji = str(pres["emoji"])
             tool_call_payload: dict[str, Any] = {
                 "id": call_id,
                 "name": tool_name,
@@ -3634,6 +3647,8 @@ def _build_kernel_event_observer(
             }
             if detail is not None:
                 tool_call_payload["detail"] = detail
+            if emoji is not None:
+                tool_call_payload["emoji"] = emoji
             if message_id:
                 loop.create_task(
                     _send(

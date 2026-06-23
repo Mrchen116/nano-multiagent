@@ -8,9 +8,80 @@ from agent.core.tools.serialization import json_serialize
 from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.tools.dangerous_paths import check_dangerous_path
 from agent.platform.tools.presentation import (
-    WRITE_PRESENTER as _WRITE_PRESENTER,
+    ToolPresentationEvent,
+    _enforce_cap,
+    _human_size,
+    _with_path,
     display_path as _display_path,
 )
+
+
+# ---------------------------------------------------------------------------
+# Presenter (feat-425 决策 3: presentation travels with the tool — class here)
+# ---------------------------------------------------------------------------
+
+
+class _WritePresenter:
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        return ToolPresentationEvent(
+            visible=True,
+            label="Write",
+            summary=str(args.get("path", "")),
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        path = str(args.get("path", ""))
+        error = getattr(result, "error", None)
+        if error:
+            # feat-409 failalign: 失败态 summary = 干净主参数(path),不含 error 文本。
+            # detail 只放 error(path 已在折叠行 summary),走前端 ErrorCard 渲染一次。
+            return ToolPresentationEvent(
+                visible=True,
+                label="Write",
+                summary=path or "failed",
+                detail={"error": {"message": str(error)}},
+            )
+        output = getattr(result, "output", None) or {}
+        if isinstance(output, Mapping):
+            write_type = output.get("type")
+            content = str(args.get("content", ""))
+            byte_count = len(content.encode("utf-8"))
+            # feat-409 protoalign: 折叠 summary 对齐原型 `<path> · 新建 1.2KB`
+            # (动作 + 人类可读体积),而非 `created (1228 bytes)`(无路径、裸字节)。
+            size_text = _human_size(byte_count)
+            if write_type == "create":
+                summary = _with_path(path, f"新建 {size_text}")
+            elif write_type == "update":
+                summary = _with_path(path, f"覆盖 {size_text}")
+            else:
+                summary = path
+            detail = _enforce_cap(
+                {
+                    "path": path,
+                    "content": content,
+                    "bytes": byte_count,
+                    "truncated": False,
+                }
+            )
+            return ToolPresentationEvent(
+                visible=True,
+                label="Write",
+                summary=summary,
+                detail=detail,
+            )
+        return ToolPresentationEvent(
+            visible=True,
+            label="Write",
+            summary=path,
+        )
+
+
+_WRITE_PRESENTER = _WritePresenter()
 
 
 class WriteTool:

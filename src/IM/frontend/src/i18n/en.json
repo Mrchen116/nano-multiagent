@@ -369,6 +369,7 @@
       "toolReasonTimedOut": "Timed out",
       "toolReasonInterrupted": "Interrupted",
       "toolDetail": {
+        "searchNoResults": "No results",
         "agentPromptLabel": "Dispatch prompt",
         "agentDone": "sub-agent {{status}}",
         "agentOutputFile": "Output file: {{file}}",

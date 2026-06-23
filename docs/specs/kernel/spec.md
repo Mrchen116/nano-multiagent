@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: bugfix-420-task-stop-notification-dedup
+> 对齐: feat-425-tool-presenter-emoji
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -320,18 +320,25 @@ observe 事件只观察;单个 hook 异常/超时不中断主流程(fail-open)�
 ### Requirement: 工具展示由工具自带的 presenter 决定
 
 工具在流式事件上的展示(`tool_start`/`tool_end` 携带的 presentation:`visible`/`label`/`summary`/
-`detail`)由该工具自身的 `presenter`(SDK-owned `ToolPresenter`,缺省即无)决定;未带 presenter 的工具
-走默认渲染。应用经 `build_kernel(tools=…)` 传入的工具,其 presenter 随对象一起生效,无须额外注册步骤。
-`ToolPresenter` / `ToolPresentationEvent` 在公共表面。内置工具 `read` / `write` / `edit` / `bash` /
-`web_fetch` / `agent` / `memory` / `skill_manage` / `task_stop` 均自带 presenter,其 `tool_end` 事件
-携带结构化 `detail`(而非默认的截断参数);`detail` 中的大字段(stdout/stderr/diff/content)受硬上限尾
-截断,截断时 `detail.truncated` 为真。
+`detail`/`emoji`)由该工具自身的 `presenter`(SDK-owned `ToolPresenter`,缺省即无)决定;未带 presenter 的
+工具走默认渲染。应用经 `build_kernel(tools=…)` 传入的工具,其 presenter 随对象一起生效,无须额外注册步骤。
+`ToolPresenter` / `ToolPresentationEvent` 在公共表面。`emoji` 随工具/presenter 走(feat-425):presenter
+可在 `ToolPresentationEvent.emoji` 声明工具的折叠行图标,经事件透传给消费者;未声明则为空串,由消费者自行
+兜底。内置工具 `read` / `write` / `edit` / `bash` / `web_fetch` / `agent` / `memory` / `skill_manage` /
+`task_stop` 均自带 presenter,其 `tool_end` 事件携带结构化 `detail`(而非默认的截断参数);`detail` 中的大
+字段(stdout/stderr/diff/content)受硬上限尾截断,截断时 `detail.truncated` 为真。
 
 #### Scenario: 自带 presenter 的工具产出自定义展示
 - **GIVEN** 应用经 `build_kernel(tools=…)` 传入一个带 `presenter` 的工具,消费者订阅会话事件流
 - **WHEN** 该工具被调用
 - **THEN** 对应 `tool_start`/`tool_end` 事件的 presentation 字段为该工具 presenter 产出的
-  `visible`/`label`/`summary`/`detail`
+  `visible`/`label`/`summary`/`detail`/`emoji`
+
+#### Scenario: presenter 声明的 emoji 随事件透传
+- **GIVEN** 一个 presenter 在 `ToolPresentationEvent.emoji` 声明了图标的工具(如 `web_fetch` 自带 🌐)
+- **WHEN** 该工具被调用
+- **THEN** 对应 `tool_start`/`tool_end` 事件的 presentation 携带该 `emoji`;presenter 未声明 emoji 的
+  工具,事件的 `emoji` 为空串(消费者据此兜底)
 
 #### Scenario: 无 presenter 的工具走默认展示
 - **GIVEN** 一个未带 presenter 的工具(如 MCP / 工作区运行时发现的工具)
@@ -359,8 +366,8 @@ observe 事件只观察;单个 hook 异常/超时不中断主流程(fail-open)�
 #### Scenario: 内置工具 summary 为人话而非裸状态码
 - **GIVEN** 消费者订阅会话事件流
 - **WHEN** `bash` 工具被调用且其参数含 `description`
-- **THEN** 该工具事件的 `summary` 为 `description` 文案(`description` 为空时降级为命令首段),
-  而非仅 `exit=… elapsed=…ms` 这类裸状态串
+- **THEN** 该工具的 `tool_start` 与 `tool_end` 事件的 `summary` 均为 `description` 文案
+  (`description` 为空时降级为命令首段),而非仅 `exit=… elapsed=…ms` 这类裸状态串或开始态显示原始命令
 
 ### Requirement: feature 内核只留通用项,产品专属条件 prompt 全 per-session 经 PromptSlots
 

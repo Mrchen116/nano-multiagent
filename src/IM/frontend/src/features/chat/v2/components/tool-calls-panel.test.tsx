@@ -85,6 +85,42 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
     expect(nameEl?.textContent).toContain("🔧");
   });
 
+  it("prefers the tool-carried emoji over the name table (event-first)", async () => {
+    // feat-425 决策 1: 自定义/MCP 工具声明了 emoji,折叠行就显该图标,不再一律 🔧。
+    const calls: ToolCall[] = [
+      { id: "x1", name: "my_custom_tool", status: "completed", input: {}, output: "done", emoji: "🚀" }
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    const nameEl = screen.getByText("my_custom_tool").closest(".chat-tool-call-name");
+    expect(nameEl?.textContent).toContain("🚀");
+    expect(nameEl?.textContent).not.toContain("🔧");
+  });
+
+  it("shows the carried emoji on a running row (feat-425 C1)", async () => {
+    // running 阶段 tool_call_upserted 也带上自带 emoji,执行中就显该图标,不回退 🔧
+    // 等完成才跳变(C1 polish)。
+    const calls: ToolCall[] = [
+      { id: "x1", name: "my_custom_tool", status: "running", input: {}, emoji: "🚀" }
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    const nameEl = screen.getByText("my_custom_tool").closest(".chat-tool-call-name");
+    expect(nameEl?.textContent).toContain("🚀");
+    expect(nameEl?.textContent).not.toContain("🔧");
+  });
+
+  it("falls back to the name table when the tool carries no emoji (historical rows)", async () => {
+    // 历史行/运行中行无 emoji 字段 → 名表兜底,内置工具不退化。
+    const calls: ToolCall[] = [
+      { id: "b1", name: "bash", status: "completed", input: {}, output: "run tests" }
+    ];
+    render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    const nameEl = screen.getByText("bash").closest(".chat-tool-call-name");
+    expect(nameEl?.textContent).toContain("💻");
+  });
+
   it("marks a failed call with the error row modifier and a fail tag", async () => {
     // feat-409 failalign: 折叠行 summary 是干净主参数(description),失败仅由
     // ✕ 图标 + fail-tag 表达,error 文本绝不出现在折叠行(只在展开卡)。
@@ -248,19 +284,78 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
     expect(screen.getByText(/body text/)).toBeInTheDocument();
   });
 
-  it("renders web_fetch as a card with title + url + content", async () => {
+  it("renders web_fetch as a card with url + status + non-empty content", async () => {
+    // feat-425 决策 4: 去掉恒空的 title;展开卡显 URL + 状态 + 抓到的正文(非空)。
     const { container } = renderSingle({
       id: "wf1",
       name: "web_fetch",
       status: "completed",
       input: {},
-      output: "status=200 (Lifespan)",
-      detail: { url: "https://uvicorn.org/lifespan/", final_url: "https://uvicorn.org/lifespan/", status: 200, title: "Lifespan Protocol", content: "The lifespan protocol …", truncated: false }
+      output: "https://uvicorn.org/lifespan/",
+      detail: { url: "https://uvicorn.org/lifespan/", final_url: "https://uvicorn.org/lifespan/", status: 200, content: "The lifespan protocol …", truncated: false }
     });
     await open();
     expect(container.querySelector(".chat-tool-detail-web")).not.toBeNull();
-    expect(screen.getByText("Lifespan Protocol")).toBeInTheDocument();
-    expect(screen.getByText(/uvicorn.org\/lifespan/)).toBeInTheDocument();
+    expect(container.querySelector(".chat-tool-detail-web-url")?.textContent).toContain(
+      "uvicorn.org/lifespan"
+    );
+    // 正文非空(修复 #131 的空正文 bug)。
+    expect(screen.getByText(/The lifespan protocol/)).toBeInTheDocument();
+  });
+
+  it("renders web_search as a card listing result entries", async () => {
+    // feat-425 决策 5: 展开按条目列出标题/网址/摘要,不是一坨原始字符串。
+    const { container } = renderSingle({
+      id: "ws1",
+      name: "web_search",
+      status: "completed",
+      input: {},
+      output: "nano 架构",
+      detail: {
+        query: "nano 架构",
+        provider: "duckduckgo",
+        count: 2,
+        results: [
+          { title: "结果一", url: "https://a.example", snippet: "摘要一" },
+          { title: "结果二", url: "https://b.example", snippet: "摘要二" }
+        ]
+      }
+    });
+    await open();
+    expect(container.querySelector(".chat-tool-detail-search")).not.toBeNull();
+    expect(screen.getByText("结果一")).toBeInTheDocument();
+    expect(screen.getByText("结果二")).toBeInTheDocument();
+    expect(screen.getByText(/a.example/)).toBeInTheDocument();
+    expect(screen.getByText("摘要一")).toBeInTheDocument();
+  });
+
+  it("renders web_search empty state when there are no results", async () => {
+    renderSingle({
+      id: "ws2",
+      name: "web_search",
+      status: "completed",
+      input: {},
+      output: "无命中查询",
+      detail: { query: "无命中查询", provider: "searxng", count: 0, results: [] }
+    });
+    await open();
+    // 明确"无结果"空态文案,而非空白或原始字符串。
+    expect(screen.getByText(/无结果|没有结果|no results/i)).toBeInTheDocument();
+  });
+
+  it("routes a web_search failure to the error card (provider error)", async () => {
+    // 失败态:detail 只带 error → 走 ErrorCard(isErrorOnly),展开看到出错原因。
+    const { container } = renderSingle({
+      id: "ws3",
+      name: "web_search",
+      status: "failed",
+      input: {},
+      output: "kw",
+      detail: { error: { message: "Unknown provider: bogus" } }
+    });
+    await open();
+    expect(container.querySelector(".chat-tool-detail-error")).not.toBeNull();
+    expect(screen.getByText(/Unknown provider: bogus/)).toBeInTheDocument();
   });
 
   it("renders agent with the full prompt BEFORE the result", async () => {

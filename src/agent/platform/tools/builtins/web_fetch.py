@@ -22,7 +22,9 @@ from agent.core.tools.serialization import json_serialize
 from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.permissions.hostname_rules import HostnameRuleEngine
 from agent.platform.tools.presentation import (
-    WEB_FETCH_PRESENTER as _WEB_FETCH_PRESENTER,
+    ToolPresentationEvent,
+    _enforce_cap,
+    _truncate,
 )
 from agent.platform.tools.builtins.webfetch_preapproved import (
     is_preapproved_host,
@@ -171,6 +173,90 @@ def _do_fetch(url: str) -> Any:
         # Intentionally NOT calling raise_for_status() — non-2xx responses
         # are returned to the model with status code + content.
         return resp
+
+
+# ---------------------------------------------------------------------------
+# Presenter (feat-425 决策 3/4: presentation travels with the tool — class here)
+# ---------------------------------------------------------------------------
+
+
+class _WebFetchPresenter:
+    """Presenter for the `web_fetch` tool (feat-425 决策 4).
+
+    折叠行显抓取的 url(人话主参数,与 bash 的 command / read 的 path 同构),emoji=🌐。
+    detail 读 ``content``(剥 banner 的展示正文)/ ``status`` / ``final_url`` —— 放弃
+    title(工具从不返回,im 契约旧声明本就漂移)。失败两条通道都判:
+      - out-of-band: ``result.error`` 非空(理论路径);
+      - in-band: 网络错误 / 非法 URL 时 ``run()`` 返回 ``{ok:False,error}``,内核
+        ``result.error`` 为空,必须判 ``output["ok"] is False`` 落失败分支,绝不产
+        ``status=None`` 的成功串(#131 报的破绽)。
+    """
+
+    EMOJI = "🌐"
+
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        return ToolPresentationEvent(
+            visible=True,
+            label="Web",
+            summary=_truncate(str(args.get("url", "")), 100),
+            emoji=self.EMOJI,
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        url = str(args.get("url", ""))
+        output = getattr(result, "output", None) or {}
+        error = getattr(result, "error", None)
+        # in-band 失败: run() 返回 {ok:False,error}(result.error 为空)。
+        in_band_error = (
+            str(output.get("error", ""))
+            if isinstance(output, Mapping) and output.get("ok") is False
+            else ""
+        )
+        if error or in_band_error:
+            # feat-409 failalign: 失败态 summary = 干净主参数(url),不含 error 文本。
+            # detail 只放 error(url 已在折叠行 summary),走前端 ErrorCard 渲染一次。
+            return ToolPresentationEvent(
+                visible=True,
+                label="Web",
+                summary=url or "failed",
+                emoji=self.EMOJI,
+                detail={"error": {"message": str(error or in_band_error)}},
+            )
+        if isinstance(output, Mapping):
+            status = output.get("status")
+            # feat-425 A2: 保留 run() 已置的真实 truncated(run() 默认截到 50K,远小于
+            # _enforce_cap 的 256KB,故 cap 不会翻转此标志;硬编码 False 会丢掉源头截断
+            # 信号,WebCard 就不显示"源头已截断")。若正文超 256KB,_enforce_cap 会再置真。
+            detail = _enforce_cap(
+                {
+                    "url": url,
+                    "final_url": str(output.get("final_url", url)),
+                    "status": status,
+                    "content": str(output.get("content", "")),
+                    "truncated": bool(output.get("truncated", False)),
+                }
+            )
+            return ToolPresentationEvent(
+                visible=True,
+                label="Web",
+                summary=url,
+                emoji=self.EMOJI,
+                detail=detail,
+            )
+        return ToolPresentationEvent(
+            visible=True,
+            label="Web",
+            summary=url,
+            emoji=self.EMOJI,
+        )
+
+
+_WEB_FETCH_PRESENTER = _WebFetchPresenter()
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +444,9 @@ class WebFetchTool:
         status_code = getattr(resp, "status_code", 200)
         raw_text = getattr(resp, "text", "")
         ctype = getattr(resp, "headers", {}).get("content-type", "")
+        # feat-425 决策 4: post-redirect URL for the展示卡(falls back to the
+        # requested url when the transport doesn't expose a final url).
+        final_url = str(getattr(resp, "url", "") or url)
 
         # Extract text from HTML
         if "text/html" in ctype or raw_text[:256].lower().startswith(
@@ -377,21 +466,28 @@ class WebFetchTool:
         if prompt and ctx.llm_client is not None:
             text = self._process_with_prompt(text, str(prompt), ctx.llm_client)
 
-        # Build result text
+        # feat-425 决策 4 + C5: ``content`` 是展示正文(给 presenter / WebCard),只放
+        # 纯 body —— 不含 ``HTTP {status}`` 前缀(状态码已在 detail.status 独立字段,
+        # 重复进 content 会让 WebCard 里状态码出现两次)。``text`` 是 LLM-facing,保留
+        # banner + ``HTTP {status}`` 前缀(供模型识别非 2xx)。
+        content = text
+
         parts: list[str] = []
         if status_code >= 400:
             parts.append(f"HTTP {status_code}")
-        parts.append(text)
-
+        parts.append(content)
         text = f"{_UNTRUSTED_BANNER}\n\n" + "\n\n".join(parts)
 
         return {
             "ok": status_code < 400,
             "url": url,
+            "final_url": final_url,
             "status": status_code,
             "truncated": truncated,
             "length": len(text),
             "text": text,
+            # 展示正文(剥 banner + HTTP 前缀);LLM 仍读 text(带 banner + HTTP 前缀)。
+            "content": content,
         }
 
     def _process_with_prompt(
