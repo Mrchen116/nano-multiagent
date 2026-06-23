@@ -188,7 +188,31 @@ sequenceDiagram
 ```
 
 - 开关读取：`ctx.session_metadata.get("agent_features",{}).get("nested_memory", FEATURE_REGISTRY["nested_memory"]["default_on"])`——无人覆盖时取 registry 默认 `True`；全局关只需改 `default_on=False`（决策 5）。read.py 属 platform，可 import core 的 FEATURE_REGISTRY。
-- 内容标签：内 `<project-instructions path="…">…</project-instructions>`；外 `<project-instructions-hint>` + 英文提示文案（点明所属工作区外项目 + AGENTS.md 路径 + "read it if needed"，多份全列）。
+
+### 注入文案（钉死，worker 逐字照抄）
+
+**机制 A + 机制 B·工作区内**（包裹注入正文，`@import` 已展开；每份 AGENTS.md 一个块）：
+
+```
+<project-instructions path="{abs_path}">
+{resolved_content}
+</project-instructions>
+```
+
+**机制 B·工作区外**（路径提示，不含正文）：
+
+```
+<project-instructions-hint>
+The file you just read is outside your workspace, in the project rooted at {repo_root}.
+This project ships instruction file(s) describing its conventions, not loaded here to save context:
+  {agents_path_1}
+  {agents_path_2}
+Read any of them with the read tool if you need this project's conventions before working in it.
+</project-instructions-hint>
+```
+
+- `{abs_path}` / `{agents_path_*}` = AGENTS.md 绝对路径（外部逐级找到的多份逐行列出，单份就一行）；`{repo_root}` = 最外层 git 仓根绝对路径；`{resolved_content}` = `load_agents_md` 返回的展开正文。
+- 机制 A 的根 AGENTS.md 注入 system prompt 段时同样用 `<project-instructions>` 标签包裹。
 
 ### SessionFileState 扩展
 
