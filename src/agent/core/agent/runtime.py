@@ -257,6 +257,7 @@ class AgentRuntime:
         parent_session_id: str | None = None,
         workspace_root: Path | None = None,
         origin: Any = None,
+        model: str | None = None,
     ) -> TurnResult:
         """Execute one turn for an existing session.
 
@@ -299,6 +300,7 @@ class AgentRuntime:
                 parent_session_id=parent_session_id,
                 workspace_root=workspace_root,
                 origin=origin,
+                model=model,
             )
 
     async def _run_locked(
@@ -312,6 +314,7 @@ class AgentRuntime:
         parent_session_id: str | None = None,
         workspace_root: Path | None = None,
         origin: Any = None,
+        model: str | None = None,
     ) -> TurnResult:
         """Internal run implementation (assumes session lock is held)."""
 
@@ -548,6 +551,7 @@ class AgentRuntime:
                 else session_available_skills,
                 available_tools_override=session_available_tools,
                 controller=controller,
+                model_override=model,
             ):
                 if msg.role == "turn_meta":
                     all_messages.append(msg)
@@ -636,6 +640,7 @@ class AgentRuntime:
                         else session_available_skills,
                         available_tools_override=session_available_tools,
                         controller=controller,
+                        model_override=model,
                     ):
                         if msg.role == "turn_meta":
                             all_messages.append(msg)
@@ -1708,6 +1713,7 @@ class AgentRuntime:
         session_created_at: str,
         current_working_directory_override: Path | None,
         controller: RunController | None = None,
+        model_override: str | None = None,
     ):
         session_file_state = self._session_file_states.setdefault(
             session_id, SessionFileState()
@@ -1732,6 +1738,7 @@ class AgentRuntime:
             session_created_at=session_created_at,
             current_working_directory_override=current_working_directory_override,
             session_file_state=session_file_state,
+            model_override=model_override,
         ):
             yield msg
 

@@ -25,6 +25,7 @@ class _BlockingRuntime:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del session_id
         del parts
@@ -60,6 +61,7 @@ class _AbortableBlockingRuntime:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id, origin, workspace_root
         self.started.set()
@@ -104,6 +106,7 @@ class _FailureRuntime:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id, origin, workspace_root
         # Retryable errors are exhausted inside loop; what reaches registry is non-retryable.
@@ -136,6 +139,7 @@ class _SessionLockParkedRuntime:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del parts, stream, run_id, controller, workspace_root, origin
         lock = self._locks.setdefault(session_id, asyncio.Lock())

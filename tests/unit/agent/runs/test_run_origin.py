@@ -50,12 +50,14 @@ class _CapturingRuntimeStub:
         controller: Any = None,
         origin: "RunOrigin | None" = None,
         workspace_root: Any = None,
+        model: str | None = None,
     ) -> TurnResult:
         self.captured_kwargs = {
             "stream": stream,
             "run_id": run_id,
             "origin": origin,
             "workspace_root": workspace_root,
+            "model": model,
         }
         return TurnResult(
             session_id=session_id,

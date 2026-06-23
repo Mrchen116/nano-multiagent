@@ -141,6 +141,7 @@ class AgentLoop:
         session_file_state: SessionFileState | None = None,
         max_turns: int | None = None,
         tool_execution_allowlist: tuple[str, ...] | None = None,
+        model_override: str | None = None,
     ) -> AsyncIterator[Message]:
         """Stream one user turn until completion or terminal stop reason.
 
@@ -160,6 +161,11 @@ class AgentLoop:
         """
 
         self._active_session_id = state.session_id
+        # bugfix-429: the model is a per-run property supplied by the product layer
+        # (agent.default_model), not a kernel-wide constant. The single shared loop
+        # serves every session, so the build-time self._model is only a legacy
+        # fallback for callers that have not migrated to passing model_override.
+        active_model = model_override or self._model
         active_hook_ctx = hook_ctx or HookContext(
             session_id=state.session_id, turn_id=state.turn_id
         )
@@ -299,7 +305,7 @@ class AgentLoop:
                     stream = self._llm_client.generate(
                         LLMGenerateRequest(
                             session_id=llm_session_id or state.session_id,
-                            model=self._model,
+                            model=active_model,
                             messages=tuple(messages_for_llm),
                             tools=active_tools,
                         )

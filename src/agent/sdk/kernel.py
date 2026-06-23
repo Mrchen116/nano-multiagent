@@ -836,6 +836,7 @@ class Kernel:
         origin: RunOrigin = RunOrigin.USER,
         workspace_root: Path | None = None,
         trace_id: str | None = None,
+        model: str | None = None,
     ) -> RunInfo:
         """Schedule a turn on the background loop and return immediately.
 
@@ -845,6 +846,12 @@ class Kernel:
             origin: Message origin (user, system, background, etc.).
             workspace_root: Session workspace root.
             trace_id: Optional trace correlation id.
+            model: Model id for this run (bugfix-429). Supplied by the product
+                layer per turn (agent.default_model, with the product's own
+                default as fallback) so per-agent model selection takes effect and
+                old sessions pick up a model change on the next turn. The kernel
+                does not own a conversational default; it stores this on the run
+                record and the loop routes the request to the model's provider.
 
         Returns:
             RunInfo with run_id / session_id / status (initially QUEUED).
@@ -856,6 +863,7 @@ class Kernel:
             origin=origin,
             workspace_root=effective_root,
             trace_id=trace_id,
+            model=model,
         )
         return _to_run_info(record)
 

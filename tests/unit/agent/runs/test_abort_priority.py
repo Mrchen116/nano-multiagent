@@ -22,6 +22,7 @@ class _RuntimeAbortedStub:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del parts, stream, run_id, controller
         return TurnResult(

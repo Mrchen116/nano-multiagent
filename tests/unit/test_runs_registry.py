@@ -25,6 +25,7 @@ class _RuntimeStub:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del parts
         del stream
@@ -56,6 +57,7 @@ class _RuntimeWithUsageStub:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del parts
         del stream
@@ -86,6 +88,7 @@ class _RetryableModelErrorRuntime:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id, origin, workspace_root
         # After M251 retry lives in loop; retryable errors that reach registry are terminal.
@@ -510,6 +513,7 @@ def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
             controller=None,
             workspace_root=None,
             origin=None,
+            model=None,
         ):  # noqa: ANN001, ANN201
             started.set()  # notify main thread: we are inside run(), status is RUNNING
             await gate_holder[0].wait()
@@ -593,6 +597,7 @@ def test_registry_force_cancel_marks_terminal_and_recovers_session(
             controller=None,
             workspace_root=None,
             origin=None,
+            model=None,
         ):  # noqa: ANN001, ANN201
             del parts, stream, run_id, controller, workspace_root, origin
             await asyncio.Event().wait()
