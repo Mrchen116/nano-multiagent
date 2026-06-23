@@ -28,3 +28,20 @@
 - Rollback: 回退到本 milestone plan commit（R1 前）。
 - Commits: C1=test 红测, C2=feat 透传链, C3=本次 docs。
 - Next: R2 多 client 按 provider 路由 + provider_of + 移除 loop self._model 对话用途 + reconfigure_llm/bind_llm_client 退役。
+
+## R2 — 多 client 按 provider 路由
+
+- Context: 决策3 要求内核按模型注册的 provider 路由到对应 client，不依赖 proxy「一个模型名多格式通吃」。当前内核只持单 client（build_kernel 建一个 active client）。
+- Decision: model_registry 加 `provider_of(model)` 反查（未注册 raise，禁兜底）；AgentLoop 加 `llm_clients: dict[provider,client]`，`_client_for_model` 按 `provider_of(active_model)` 选 client；build_kernel 遍历 `llm.providers` 各建一 client（同 provider 内 base_url 固定、model 随 request.model 变，故一 provider 一 client）；runtime 透传 llm_clients 给 loop。无 map 时回退单 client（单测/override 路径）。
+- Rationale: dict[provider,client] 是 design 决策3 拍死的形态（否决选项A 单 client 通吃）。team-lead 复述确认保持此形态。同 provider 多 model 共用 client（base_url 同），跨 provider 才换 client。
+- 决策（实施期）: reconfigure_llm / bind_llm_client 的退役**推迟到 R6**。它们的唯一真实调用链是 kernel.reconfigure_llm ← CLI llm-config set（commands.py:511）；loop.bind_llm_client ← runtime.reconfigure_llm。三者串成一条链，只有 CLI 改自维护 current model 后才无悬挂调用方。R2 强退役会让 CLI + 多个 contract/CLI 测试同时变红，违反逐 roadpoint 绿门禁。故 R2 只做多 client 路由，退役随 R6 CLI 一并做。design 决策3 的退役目标不变，只是落点挪到 R6。
+- Evidence:
+  - Tests: 新增红测 `test_provider_of_reverse_lookup` / `test_provider_of_unknown_model_raises`（model_registry）+ `test_loop_routes_to_client_of_models_provider`（loop 路由）先红后绿；`pytest -m "not e2e"` 全树绿（修一处 contract 行号锚定失配后 2775+ passed/2 skipped）。
+  - Entry: N/A（R2 内核内部；真实跨 provider 路由的端到端证据走 R7 live：gpt→openai_compat over the wire）。
+  - Frontend State Matrix / Browser QA / Visual: N/A
+  - E2E/Regression: loop 路由单测即 regression；跨 provider over-wire 留 R7。
+  - Lint: ruff check + format 通过（loop.py 经 format）。
+  - Trap: contract `test_no_hardcoded_workspace_dirname` 白名单行号锚定，R2 的 __init__/build_kernel 插行使 runtime.py:180→185、kernel.py:483→501 失配，已更新 pin（[[project-ci-ruff-and-line-pinned-whitelist]]）。
+- Rollback: 回退到 R1 C3 commit。
+- Commits: C1=test 红测, C2=feat 多 client 路由 + 行号 pin, C3=本次 docs。
+- Next: R3 Gateway 三入口传 model（inbound 主轮/stop + heartbeat/cron 经 shim）。
