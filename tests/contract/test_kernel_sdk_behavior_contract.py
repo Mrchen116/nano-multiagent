@@ -371,3 +371,43 @@ async def test_append_message_visible_to_next_turn(tmp_path: Path) -> None:
 # bugfix-429: test_global_capabilities_llm_config_round_trip removed — reconfigure_llm
 # retired. get_llm_config() still reports the build-time active connection; per-run
 # model selection is covered by submit(model=) transmission tests, not reconfigure.
+
+
+def test_build_kernel_tolerates_empty_provider(tmp_path: Path) -> None:
+    """bugfix-429: a provider declared with no models must not crash build_kernel.
+
+    The multi-client path (no _llm_client_override) builds one client per provider;
+    an empty provider is skipped (nothing routes to it) rather than resolving an
+    empty model map and blowing up on next(iter(...)).
+    """
+    llm = LLMConfig(
+        provider="anthropic",
+        model="kimiCoding:K2.6",
+        base_url="http://127.0.0.1:4000",
+        default_model="kimiCoding:K2.6",
+        providers=(
+            LLMProvider(
+                name="anthropic",
+                base_url="http://127.0.0.1:4000",
+                models=(LLMModel(name="kimiCoding:K2.6"),),
+            ),
+            # Empty provider — must be tolerated.
+            LLMProvider(
+                name="openai_compat",
+                base_url="http://127.0.0.1:4000",
+                models=(),
+            ),
+        ),
+    )
+    kernel = build_kernel(
+        llm=llm,
+        workspace_config_dirname=".nanocode",
+        can_use_tool=_allow_all,
+        repo_root=tmp_path,
+        # No _llm_client_override → exercise the per-provider client construction.
+    )
+    try:
+        names = {m.name for m in kernel.list_models()}
+        assert "kimiCoding:K2.6" in names
+    finally:
+        kernel.close()
