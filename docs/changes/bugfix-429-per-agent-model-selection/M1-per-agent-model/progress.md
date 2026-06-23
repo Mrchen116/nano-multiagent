@@ -144,3 +144,15 @@
   - Lint: ruff check + format 通过。
 - 数据层（挂起，不阻塞代码 PR）：把主仓 `~/.nano-assistant/config.yaml` 的 gpt-5.5 从 openai_compat 挪到 anthropic + 删空 openai_compat。改用户持久配置，用户最初说过「先不挪 provider」，team-lead 去问用户拍板。**worker 未碰主 config**。
 - 核实（team-lead 问）：R7 live 全程 worktree ephemeral 栈（IM free 口、IM DB worktree cwd-relative 已清、Gateway --config 副本）；PATCH default-agent 改的是 ephemeral IM DB（已清），非主仓持久数据；R4 用隔离 fake HOME。**主仓持久数据零改动**。
+
+## R7 final — 用改对的主 config 重跑 live（DONE 硬门槛）
+
+- 前提: 用户授权 A，team-lead 已改主 config（gpt-5.5 挪进 anthropic provider、删 openai_compat）。
+- 环境: 全新 worktree e2e 栈（scripts/e2e-up.sh 拷改对的主 config）。capabilities models 现报 gpt-5.5→provider=anthropic。
+- 步骤: IM PATCH default-agent default_model→codex_oauth:gpt-5.5（真用户配置路径）→ 直聊发消息。
+- **PASS**:
+  - LLM proxy 日志 `/Users/czj/Repos/LLM_PROXY/logs/session/2026-06-23_22-53-53_721_sess_bdfd1fd496f39bb7/*-req-anthropic_messages.json` → `model=codex_oauth:gpt-5.5`，anthropic_messages 协议。
+  - gateway log **无** `不支持协议 openai_chat` 错误（决策3×proxy 冲突随 config 改对消解：gpt 走 anthropic client）。
+  - agent 实际回复 "pong"，turn 成功完成。
+- 结论: incident 端到端解决——IM 选 gpt 的 agent 对话，真实请求 model==codex_oauth:gpt-5.5，不再跑 kimi、不再协议报错。
+- 收尾: e2e 栈拆除，worktree e2e 残留清理，git status 干净。**主仓持久数据零改动**（live 全用 worktree ephemeral 栈，PATCH 改 ephemeral IM DB 已随栈删）。
