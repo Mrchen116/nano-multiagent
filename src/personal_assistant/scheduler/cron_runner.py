@@ -147,6 +147,9 @@ class CronRunner:
                 texts=[job.instruction],
                 workspace_root=str(self._workspace_root),
                 origin="cron",
+                # bugfix-429: shim resolves this agent's model (default_model or
+                # product default) so unattended cron runs honour per-agent model.
+                agent_id=self._agent_id,
             )
         except Exception:  # noqa: BLE001
             _logger.exception(
