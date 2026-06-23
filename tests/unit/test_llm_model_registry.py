@@ -10,6 +10,7 @@ from agent.core.llm.model_registry import (
     init_model_registry,
     list_provider_models,
     list_supported_providers,
+    provider_of,
     resolve_model_metadata,
 )
 
@@ -75,6 +76,18 @@ def test_list_provider_models_anthropic() -> None:
     models = list_provider_models("anthropic")
     model_names = [m.model for m in models]
     assert "kimiCoding:K2.6" in model_names
+
+
+def test_provider_of_reverse_lookup() -> None:
+    """bugfix-429 R2: model id → owning provider, for multi-client routing."""
+    assert provider_of("kimiCoding:K2.6") == "anthropic"
+    assert provider_of("codex_oauth:gpt-5.5") == "openai_compat"
+
+
+def test_provider_of_unknown_model_raises() -> None:
+    """Unknown model has no registered provider — fail loud, never guess (禁兜底)."""
+    with pytest.raises(ValueError, match="no registered provider"):
+        provider_of("nonexistent:model")
 
 
 # ---------------------------------------------------------------------------
