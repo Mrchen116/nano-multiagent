@@ -127,6 +127,33 @@ def test_scheduler_runs_interval_schedule_and_persists_last_due(tmp_path: Path) 
     )
 
 
+def test_scheduler_passes_agent_model_to_submit(tmp_path: Path) -> None:
+    """bugfix-429 R3: heartbeat submit carries the agent's selected model."""
+    workspace_root = tmp_path / "gpt-agent"
+    workspace_root.mkdir(parents=True, exist_ok=True)
+    agent = AgentWorkspaceConfig(
+        agent_id="gpt-agent",
+        workspace_root=workspace_root,
+        title="GPT Agent",
+        features={"heartbeat": True},
+        default_model="codex_oauth:gpt-5.5",
+    )
+    _write_heartbeat(
+        agent.workspace_root,
+        "# Heartbeat\n\ninterval: 30m\n\n- Check inbox status\n",
+    )
+    kernel = _FakeKernelClient()
+    scheduler = HeartbeatScheduler(
+        agents=(agent,),
+        kernel_client=kernel,
+        state_store=HeartbeatSchedulerStateStore(tmp_path / "state.json"),
+    )
+
+    asyncio.run(scheduler.tick(now=datetime(2026, 3, 11, 9, 0, tzinfo=UTC)))
+
+    assert kernel.sent_messages[0]["model"] == "codex_oauth:gpt-5.5"
+
+
 def test_scheduler_normal_cadence_produces_exactly_one_run_per_interval(
     tmp_path: Path,
 ) -> None:
