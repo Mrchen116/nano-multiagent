@@ -63,6 +63,9 @@ class PromptContext:
         user_profile_content: Pure USER.md content (without banner), or None when
             absent. Volatile. The core.user_profile_block segment renders with banner.
         user_pct: User profile usage percentage for banner display.
+        agents_md_content: Expanded workspace-root AGENTS.md text (机制 A), or None
+            when absent. Cache-stable (frozen per compaction window); rendered by
+            core.agents_md_block wrapped in <project-instructions> tags.
         render_mode: RUNTIME (actual values) or PREVIEW (inline placeholders).
             Defaults to RUNTIME so existing code is unaffected.
         flags: Per-agent feature flags (key → bool).  Missing key → False.
@@ -87,6 +90,10 @@ class PromptContext:
     memory_pct: int = 0
     user_profile_content: str | None = None
     user_pct: int = 0
+    # feat-428 机制 A: agent 工作区根 AGENTS.md 的已展开正文（@import expanded），
+    # or None when absent. Stable across turns (frozen in MemorySnapshot, refreshed
+    # on compaction) → CORE_AGENTS_MD_BLOCK renders it as a cache_safe=True segment.
+    agents_md_content: str | None = None
     render_mode: RenderMode = RenderMode.RUNTIME
     flags: Mapping[str, bool] = field(default_factory=dict)
     scenario: Mapping[str, object] = field(default_factory=dict)

@@ -37,6 +37,11 @@ _IMPORT_RE = re.compile(r"(?:^|\s)@((?:[^\s\\]|\\ )+)")
 # marked-equivalent dependency and this covers the documented case.
 _FENCE_RE = re.compile(r"^\s*(```+|~~~+)")
 
+# Inline code span (`...`). CC's leaf-text rule also excludes codespan tokens, so
+# an @path written inline as `@foo` must not be treated as an import. Each
+# non-fenced line has its code spans stripped before @import extraction.
+_CODESPAN_RE = re.compile(r"`[^`]*`")
+
 
 def _is_valid_import_path(path: str) -> bool:
     """Whether a captured @-token is an acceptable import path (CC-aligned).
@@ -82,6 +87,10 @@ def _extract_import_paths(content: str, base_dir: Path) -> list[Path]:
             continue
         if in_fence:
             continue
+        # Strip inline code spans (`...`) before extraction — CC excludes codespan
+        # tokens, so an inline `@foo` is not an import. Replace with a space so a
+        # span never glues neighbouring tokens into a spurious match.
+        line = _CODESPAN_RE.sub(" ", line)
         for match in _IMPORT_RE.finditer(line):
             raw = match.group(1)
             hash_index = raw.find("#")
