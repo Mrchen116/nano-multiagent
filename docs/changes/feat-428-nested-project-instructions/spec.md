@@ -23,7 +23,8 @@
 
 - Q3: workspace "外"那条路径注入给 agent 时长什么样？（裸路径 vs 带提示）找到多份怎么办？回溯上界？
   A(原话): 对，类似这种，用英文。找到多个就都列。"外"的回溯也有上界，上界我觉得应该是不属于任何git repo就停。
-  Agent 解读: 外部命中走"路径 + 英文提示"模式（不灌全文），提示点明这是哪个项目的项目说明、按需自行 read。目录链上找到多份指令文件就全部列出。"外"的回溯上界 = git repo 归属：沿目录链往上找，一旦某目录不属于任何 git repo 就停（即搜索范围限定在该外部文件所属 git repo 的工作树内）。提示文案用英文。
+  Agent 解读: 外部命中走"路径 + 英文提示"模式（不灌全文），提示点明这是哪个项目的项目说明、按需自行 read。提示文案用英文。回溯范围 = 从被读文件目录逐级上行直到**最外层** git 仓根（某级不属于任何 git 仓即停）；范围内**每一级**都找 AGENTS.md，多份全列。"最外层"覆盖嵌套仓（e/y 都是仓且 e 最外 → e~z 各级都找，不是只看最近的 y）。不属于任何 git 仓 → 不给提示。
+  （后续澄清修正：原"该外部文件所属 git repo 工作树内"措辞会被读成最近仓，已改为最外层 + 逐级。）
 
 - Q4: 哪些文件名算"项目指令文件"？（AGENTS.md + CLAUDE.md，还是只 AGENTS.md）
   A(原话): （承接下条）只认AGENTS.md
@@ -45,14 +46,16 @@
 今天系统里**没有任何机制**让"项目指令文件"（AGENTS.md）进入 agent 的上下文：system prompt 不注入、启动不读、read 时也不带。一个 agent 想知道某个项目的约定，唯一办法是 operator 把 AGENTS.md 内容手动复制粘贴进该 agent 配置里的 System Prompt 框。本 unit 从无到有补上这件事，分两层：
 
 **机制 A —— 工作区项目说明的基线注入（默认恒开）。**
-小王在 Coding CLI 里打开一个项目开始干活；李姐在 PA 里有个长期助手 agent，agent 有自己固有的 workspace。两种情况下，agent 一启动就应当"自带"它所在工作区的项目说明——就像一个新人入职先读到部门手册。于是会话启动时，系统自动把该 agent 工作区根目录的 `AGENTS.md` 注入 system prompt。agent 从第一句话起就了解这个工作区的约定，无需 operator 手填、也无需 agent 自己先去 read。若工作区没有 `AGENTS.md`，则什么都不注入，照常启动。
+两个产品下场景一致：Coding CLI 用户打开一个项目开始干活；PA 的 agent 有自己固有的 workspace。两种情况下，agent 一启动就应当"自带"它所在工作区的项目说明——就像新人入职先读到部门手册。于是会话启动时，系统自动把该 agent 工作区根目录的 `AGENTS.md` 注入 system prompt。agent 从第一句话起就了解这个工作区的约定，无需 operator 手填、也无需 agent 自己先去 read。若工作区没有 `AGENTS.md`，则什么都不注入，照常启动。
 
 **机制 B —— 顺着 read 就近带上项目说明（nested_memory，可选，两产品默认开）。**
 真实工作里 agent 会读到工作区各处、甚至工作区以外的文件。
 
-- *工作区内*：李姐的助手 read 了 `backend/api/user.py`，而 `backend/api/` 下有一份子目录级 `AGENTS.md` 写着这块的接口约定。系统顺着这个文件的目录链往上，把沿途的 `AGENTS.md` 内容自动带进上下文，让 agent 改这块代码时就知道这块的规矩。若已被机制 A 注入过（工作区根那份），不重复带。
+- *工作区内*：agent read 了 `backend/api/user.py`，而 `backend/api/` 下有一份子目录级 `AGENTS.md` 写着这块的接口约定。系统顺着这个文件的目录链往上，把沿途的 `AGENTS.md` 内容自动带进上下文，让 agent 改这块代码时就知道这块的规矩。若已被机制 A 注入过（工作区根那份），不重复带。
 
-- *工作区外*：这正是李姐 PA 助手的高频场景——助手有自己固有 workspace，但它常跑去某个**代码仓**干活，那个仓在它 workspace 之外。助手 read 了该仓里的一个文件，系统发现这个文件属于另一个 git 项目、该项目根有 `AGENTS.md`。这时**不灌全文**（省 token），而是给 agent 一条英文提示：「你刚读的文件在工作区外的项目 X 下，该项目有项目说明 `<path>`，需要了解其约定可自行 read」。agent 据此自行判断要不要读。沿目录链找到多份就都列；回溯到不属于任何 git repo 的目录就停（即只在该外部文件所属 git 仓的工作树内找）。
+- *工作区外*：这正是 PA agent 的高频场景——agent 有自己固有 workspace，但它常跑去某个**代码仓**干活，那个仓在它 workspace 之外。agent read 了该仓里的一个文件，系统发现这个文件属于工作区外的 git 项目、链上有 `AGENTS.md`。这时**不灌全文**（省 token），而是给 agent 一条英文提示：「你刚读的文件在工作区外的项目 X 下，该项目有项目说明 `<path>`，需要了解其约定可自行 read」。agent 据此自行判断要不要读。
+
+  扫描范围 = 从被读文件的目录逐级上行，**直到最外层 git 仓根为止**（不属于任何 git 仓的那一级即停，再往上不找）；这段范围内**每一级**都找 `AGENTS.md`，找到多份就都列。"最外层"覆盖嵌套仓：若读 `/q/w/e/x/y/z/a.py`，e、y 都是 git 仓且 e 在最外层，则 e、x、y、z 各级都要找 AGENTS.md（不是只看最近的 y 那个仓）。文件不属于任何 git 仓（如系统配置文件）→ 不给任何提示。
 
 去重贯穿全程：每份 `AGENTS.md`（或每条外部路径提示）在一次会话里只生效一次，不反复刷、不重复占上下文。
 
@@ -76,6 +79,11 @@
 - **WHEN** 分别在 Coding CLI 和 PA 下开启带 `AGENTS.md` 工作区的 agent 会话
 - **THEN** 两个产品下 agent 都自带各自工作区的 `AGENTS.md`
 
+#### Scenario: 工作区根 AGENTS.md 含 @import
+- **GIVEN** 工作区根 `AGENTS.md` 内有 `@./sub.md` 形式的转引，`sub.md` 存在
+- **WHEN** 该 agent 开启新会话
+- **THEN** agent 同时掌握 `AGENTS.md` 与被转引 `sub.md` 的内容（可通过复述被转引文件中的约定验证）
+
 ### Requirement: read 工作区内文件时就近带上 AGENTS.md 内容（机制 B·内）
 
 #### Scenario: 读到的文件目录链上有子目录级 AGENTS.md
@@ -95,10 +103,10 @@
 ### Requirement: read 工作区外文件时注入路径提示而非全文（机制 B·外）
 
 #### Scenario: 读到工作区外某 git 项目内的文件，该项目有 AGENTS.md
-- **GIVEN** nested_memory 默认开启，agent read 的文件位于其工作区之外、但属于另一个 git 仓，该仓目录链上有一份或多份 `AGENTS.md`
+- **GIVEN** nested_memory 默认开启，agent read 的文件位于其工作区之外、但属于某个 git 仓，从该文件目录到最外层 git 仓根之间有一份或多份 `AGENTS.md`
 - **WHEN** agent read 该文件
 - **THEN** agent 收到一条英文提示，点明该文件所属的工作区外项目及其 `AGENTS.md` 路径，并提示可按需自行 read
-- **AND** 目录链上若有多份 `AGENTS.md`，路径全部列出
+- **AND** 从文件目录到最外层 git 仓根逐级找到的多份 `AGENTS.md`，路径全部列出（含嵌套仓的外层那份）
 - **AND** 提示中不包含 `AGENTS.md` 的正文内容
 
 #### Scenario: 读到不属于任何 git 仓的工作区外文件（边界）
@@ -121,12 +129,14 @@
 
 - 在范围：
   - 机制 A：会话启动时把 agent 工作区根 `AGENTS.md` 注入 system prompt（默认恒开，无开关）。
-  - 机制 B：read 触发的目录链回溯——工作区内注入内容、工作区外注入英文路径提示（git repo 为界），全局去重。作为可选内核 feature，两产品默认开。
+  - 机制 B：read 触发的目录链回溯——工作区内注入内容、工作区外注入英文路径提示（外部以最外层 git repo 为界、逐级），全局去重。作为可选内核 feature，两产品默认开。
   - 仅识别文件名 `AGENTS.md`。
+  - 支持 `AGENTS.md` 内的 `@import` 转引展开（对齐 CC：`@path`，最深 5 层、防环、不存在静默忽略）；仅在"注入内容"场景生效（机制 A、机制 B 工作区内），外部路径提示不展开。
 - 非目标：
   - 不认 `CLAUDE.md`、`README.md`、`.cursorrules` 等其它文件名（CLAUDE.md 曾被 core 主动剔除，本期不恢复）。
   - 不做 `/add-dir` 式"显式追加目录算工作区内"。
   - read 之外的触发点不做：bash 里 `cat`/`grep` 命中的路径、`edit`/`write` 不单独触发回溯。
   - 工作区外不灌全文（仅路径提示），本期不提供"外部也注入全文"的模式。
-  - 不做指令文件名可配置化、不做 `@import` 转引展开（如需，留待后续；属实现细节由 design 评估是否顺带）。
+  - 不做指令文件名可配置化。
+  - AGENTS.md 不硬截断（对齐 CC）。
   - 不替代或改动现有 `MemoryStore`（MEMORY.md / USER.md）机制，二者并存。
