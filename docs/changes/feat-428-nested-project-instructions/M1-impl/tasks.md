@@ -12,12 +12,13 @@
 
 ## 退出标准
 
-- [ ] 共享核心 `load_agents_md`（@import 递归+防环+深度上限5+不存在静默忽略+跳代码块）、`find_outermost_git_root`（单次上行找最外层 .git，目录/文件形式）、`iter_agents_md_chain` 落 `agent/core/`
-- [ ] 机制 A：PromptContext.agents_md_content + CORE_AGENTS_MD_BLOCK（cache_safe=True，PREVIEW 占位三态）+ skeleton 段位（_SLOT_CUSTOM 后、CORE_MEMORY_BLOCK 前）+ wiring 透传 + runtime 并入 MemorySnapshot（读 AGENTS.md + on_compaction 失效 + 预置根到 loaded_agents_md）
-- [ ] 机制 B：feature_registry 加 nested_memory（不进 list_features 白名单 / FEATURE_PROJECTIONS）+ SessionFileState.loaded_agents_md + read.py 注入（内正文 / 外提示，文案逐字照 design，避开 file_unchanged 提前返回，去重）
-- [ ] 顺手清 is_path_in_workspace 的失效 TODO(bugfix-355)
-- [ ] 新单测覆盖：@import 递归+防环+深度上限、git 外层仓根定界（嵌套仓 e~z）、内外判定、去重一次性（含压缩后清空可重注）、关闭 flag 行为
-- [ ] `pytest -m "not e2e"` 全绿 + ruff check + ruff format 净
+- [x] 共享核心 `load_agents_md`（@import 递归+防环+深度上限5+不存在静默忽略+跳代码块）、`find_outermost_git_root`（单次上行找最外层 .git，目录/文件形式）、`iter_agents_md_chain` 落 `agent/core/`
+- [x] 机制 A：PromptContext.agents_md_content + CORE_AGENTS_MD_BLOCK（cache_safe=True，PREVIEW 占位三态）+ skeleton 段位（_SLOT_CUSTOM 后、CORE_MEMORY_BLOCK 前）+ wiring 透传 + runtime 并入 MemorySnapshot（读 AGENTS.md + on_compaction 失效 + 预置根到 loaded_agents_md）
+- [x] 机制 B：feature_registry 加 nested_memory（不进 list_features 白名单 / FEATURE_PROJECTIONS）+ SessionFileState.loaded_agents_md + read.py 注入（内正文 / 外提示，文案逐字照 design，避开 file_unchanged 提前返回，去重）
+- [x] 顺手清 is_path_in_workspace 的失效 TODO(bugfix-355)
+- [x] 新单测覆盖：@import 递归+防环+深度上限、git 外层仓根定界（嵌套仓 e~z）、内外判定、去重一次性（含压缩后清空可重注）、关闭 flag 行为
+- [x] `pytest -m "not e2e"` 全绿 + ruff check + ruff format 净
+- [x] delta-spec `specs/kernel/spec.md`：机制 A 归并入「系统提示由内核模板组装」+ 机制 B 独立 Requirement
 
 ## 测试策略
 
