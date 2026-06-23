@@ -589,6 +589,15 @@ async def _run_repl(
                 pass
 
         async def _drain_forever(sid: str) -> None:
+            # Background drain: stage session-stream events for the next prompt.
+            # bugfix-426-M2 made this a concurrent task (alongside the per-run
+            # drive), so it now also pulls the stream while a run is live. A
+            # background drain must never bring the REPL/process down: if the
+            # stream iterator terminates abnormally (an error, or a
+            # KeyboardInterrupt surfaced through the stream — the real user Ctrl-C
+            # is handled by the REPL's _on_sigint / _send_message_async interrupt
+            # path, NOT here), the drain just stops cleanly. SystemExit is not
+            # caught here, so process-exit semantics are preserved.
             try:
                 async for ev in kernel.stream(sid):
                     try:
@@ -596,7 +605,14 @@ async def _run_repl(
                     except asyncio.QueueFull:
                         pass
             except asyncio.CancelledError:
+                # Cooperative cancellation from _ensure_stream_for_session /
+                # cleanup (swallowed, matching the pre-existing drain teardown).
                 pass
+            except (Exception, KeyboardInterrupt) as exc:
+                # Background drain failed — stop this subscription quietly instead
+                # of letting the exception escape and crash the REPL. Logged so a
+                # silently-dead background event stream stays diagnosable.
+                _log.debug("background stream drain for %s stopped: %r", sid, exc)
 
         _stream_task = asyncio.create_task(_drain_forever(session_id))
 

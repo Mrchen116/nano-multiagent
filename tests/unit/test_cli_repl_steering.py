@@ -215,3 +215,48 @@ def test_mid_run_multiple_messages_each_steered_in_order(tmp_path) -> None:
     assert exit_code == 0
     steered = [c["text"] for c in stub.submit_calls if c["steer"]]
     assert steered == ["first steer", "second steer"]
+
+
+class _DrainRaisesKernelStub(_BaseKernelStub):
+    """Stub whose stream raises a non-cancellation error on first pull.
+
+    bugfix-426-M2 made _drain_forever a concurrent background task that also
+    pulls the session stream. If that stream raises (here a RuntimeError; the
+    real-world trigger is a user Ctrl-C surfacing through the stream), the
+    background drain must stop cleanly — it must NOT let the exception escape to
+    the event loop and tear down the whole REPL/process. This guards the gap
+    that, once introduced, aborted the entire pytest session via an unhandled
+    KeyboardInterrupt from _drain_forever.
+    """
+
+    def stream(self, session_id: str, *, after_sequence: int = 0):
+        async def _gen():
+            # KeyboardInterrupt (a BaseException) is what actually escapes an
+            # asyncio task to the running loop and aborts the process — a plain
+            # Exception in a background task only warns. This reproduces the
+            # real regression: a Ctrl-C surfacing through the stream pulled by
+            # the concurrent _drain_forever brought the whole REPL down.
+            raise KeyboardInterrupt
+            yield  # pragma: no cover - makes this an async generator
+
+        return _gen()
+
+
+def test_background_drain_stream_error_does_not_crash_repl(tmp_path) -> None:
+    stub = _DrainRaisesKernelStub()
+    output = io.StringIO()
+    inputs = iter(["/new", "/exit"])
+
+    # The REPL must complete normally (exit 0); the background drain swallowing
+    # the KeyboardInterrupt means it does not escape the event loop to abort the
+    # process. The real user Ctrl-C is handled by the REPL's interrupt path, not
+    # by this background drain.
+    exit_code = run_cli(
+        [],
+        stdout=output,
+        kernel_factory=_make_kernel_factory(stub),
+        input_fn=lambda _: next(inputs),
+        workspace_root=tmp_path,
+    )
+
+    assert exit_code == 0
