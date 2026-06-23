@@ -209,6 +209,7 @@ sequenceDiagram
 |---|---|---|---|---|---|
 | bugfix-426-M1 | sdk-im-steering | — | A | `src/agent/sdk/kernel.py`(submit+steer)、`src/agent/sdk/dto.py`(RunInfo.injected)、`src/agent/core/runs/registry.py`(决策3 inject origin 参数 + stranded 修正)、`src/agent/core/agent/run_control.py`(pending 承载 origin)、`src/personal_assistant/gateway/inbound_pipeline.py`(steer 接线，复用 parts builder) | `[reviewer]` IM 运行中发消息在当前 run 下一轮被带进上下文、不另起新 run、**群聊保留发言人前缀与缓冲上下文**（覆盖 Req-运行中下一轮注入 / Scenario-工具循环中途发消息·不掐工具·连发保序·空闲开新 run；Req-IM/CLI 两端 / Scenario-IM 运行中 steer）`[worker]` `submit(steer=True)` 有/无活跃 run 返回 `injected` 正确 + 注入携带多模态 parts + stranded 续跑 origin=USER；最窄相关单测全绿（kernel runs + gateway inbound） |
 | bugfix-426-M2 | cli-steering | M1 | A（串行于 M1 之后） | `src/coding_cli/commands.py`(`_run_repl`/`_send_message_async` 非阻塞)、`src/coding_cli/runtime/repl_runtime.py` | `[reviewer]` CLI run 执行中输入注入当前 run 下一轮、不阻塞、空闲仍开新 run（覆盖 Req-IM/CLI 两端 / Scenario-CLI REPL 运行中 steer）`[worker]` CLI 运行中输入走 `submit(steer=True)`；最窄相关 CLI 单测全绿 |
+| bugfix-426-M3 | fix-steer-drain-race (post-acceptance fix, round 1) | M1 | A（串行于验收后） | `src/personal_assistant/gateway/inbound_pipeline.py`(steer 路径 group buffer drain 串行化) | `[reviewer]` 群聊运行中并发两条消息 steer 时，发言人前缀与缓冲上下文不被瓜分、各自完整（覆盖 gateway spec Scenario-群聊运行中 steer 保留发言人与缓冲上下文）`[worker]` steer 路径「has_active_run 判定 + _build_message_parts(drain)」对同 session 串行，不与并发 steer/正常 drain 交错；新增并发回归单测复现旧瓜分、修后绿；全测试树 not-e2e 全绿 |
 
 ```mermaid
 graph LR
