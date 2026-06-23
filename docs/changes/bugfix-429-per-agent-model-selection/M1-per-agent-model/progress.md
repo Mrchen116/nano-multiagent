@@ -45,3 +45,21 @@
 - Rollback: 回退到 R1 C3 commit。
 - Commits: C1=test 红测, C2=feat 多 client 路由 + 行号 pin, C3=本次 docs。
 - Next: R3 Gateway 三入口传 model（inbound 主轮/stop + heartbeat/cron 经 shim）。
+
+## R3 — Gateway 三入口传 model
+
+- Context: 内核 submit 现收 model（R1）但 Gateway 三个发起新 run 的入口（inbound 主轮 :285、stop :705、heartbeat/cron 经 shim :2001）都没传。决策2 要求产品层每轮提供 model。
+- Decision:
+  - inbound_pipeline 构造注入 `product_default_model=config.llm.default_model`；新增 `_resolve_model(agent_id)`：每轮取 `self._agents[id].default_model`（config.sync 经 register_agent 实时更新该 dict → 旧会话下一轮自动用新模型），缺省回退 product_default；主轮 + stop 两处 submit 传 `model=self._resolve_model(agent_id)`。
+  - heartbeat/cron 经 shim：`_KernelClientShim` 加 `product_default_model` + submit_message 加 `model` / `agent_id` 参数；解析 `model = 显式model(heartbeat 传 agent.default_model) or agent_id→default_model(cron 传 agent_id) or 产品默认`。heartbeat_scheduler 传 `model=agent.default_model`，cron_runner 传 `agent_id=self._agent_id`（cron 手里有 agent_id 无 agent 对象，让 shim 用 _agents_by_id 反查）。
+- Rationale: team-lead 确认「调用方解析、shim 透传」优于 design 的「shim 反查 session→agent」。「旧会话用新模型」靠每轮取 self._agents 最新值天然满足（决策1）。fallback 集中在产品层（inbound 在 pipeline、heartbeat/cron 在 shim），内核零默认。
+- Evidence:
+  - Tests: 新增 `test_inbound_pipeline_submits_agent_selected_model` / `..._falls_back_to_product_default_model` / `test_scheduler_passes_agent_model_to_submit` 先红后绿；`pytest -m "not e2e"` 全树 2779 passed/2 skipped 全绿。多处 kernel/submit_message 测试 fake 补 model 参数（_pipeline_helpers / im_service integration helpers / cron_delivery / pipeline_observer / cron_run_origin）。
+  - Entry: 真实入口验证（IM 发消息 → 选定 model 真生效）留 R7 live；R3 单测覆盖「submit 携带正确 model」的契约。
+  - Frontend / Browser / Visual: N/A
+  - E2E/Regression: 单测即 regression；端到端 R7。
+  - Lint: ruff check + format 通过（main.py 经 format）。
+  - Trap: 用脚本批量给 fake 注入 model 参数时，正则按 `):` 收尾误匹配到方法体内行（真实签名是 `) -> Any:`），在 3 个文件 return 后插了死代码 `model=None,`，已手工修正——批量改测试 fake 签名要核对每处落点。
+- Rollback: 回退到 R2 C3 commit。
+- Commits: C1=test 红测, C2=feat Gateway 三入口 + fake 适配, C3=本次 docs。
+- Next: R4 链路B 动态新建 agent default_model 持久化（加日志钉真因）。
