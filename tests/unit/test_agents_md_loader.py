@@ -101,6 +101,41 @@ def test_import_inside_inline_code_span_not_expanded(tmp_path: Path) -> None:
     assert "syntax to import" in out
 
 
+def test_fence_close_requires_length_ge_open(tmp_path: Path) -> None:
+    # fix 5 (CommonMark): 关闭 fence 须同字符且长度 ≥ 开启长度。
+    # 开启用 ```（3），中间出现 ```` (4) 不应关闭它——@import 仍在 fence 内、不展开。
+    (tmp_path / "secret.md").write_text("SHOULD NOT APPEAR", encoding="utf-8")
+    root = tmp_path / "AGENTS.md"
+    root.write_text(
+        "```\ncode\n````\n@./secret.md\n```\nend",
+        encoding="utf-8",
+    )
+    out = load_agents_md(root)
+    assert "SHOULD NOT APPEAR" not in out
+    assert "end" in out
+
+
+def test_import_inline_replace_drops_directive_text(tmp_path: Path) -> None:
+    # fix 6: @import 应 inline replace（对齐 CC + docstring "replaced inline"），
+    # 即原 @import 路径文本不再出现在输出里（被展开内容取代）。
+    (tmp_path / "sub.md").write_text("SUB BODY", encoding="utf-8")
+    root = tmp_path / "AGENTS.md"
+    root.write_text("before\n@./sub.md\nafter", encoding="utf-8")
+    out = load_agents_md(root)
+    assert "SUB BODY" in out
+    assert "before" in out and "after" in out
+    assert "@./sub.md" not in out
+
+
+def test_non_utf8_agents_md_not_silently_dropped(tmp_path: Path) -> None:
+    # fix 7: load_agents_md 用 errors='replace'，非 UTF-8 的 AGENTS.md 不被吞成 None。
+    root = tmp_path / "AGENTS.md"
+    root.write_bytes("RULE cafe\n".encode("utf-8") + b"\xff\xfe garbage")
+    out = load_agents_md(root)
+    assert out is not None
+    assert "RULE" in out
+
+
 def test_import_cycle_guard_no_infinite_loop(tmp_path: Path) -> None:
     a = tmp_path / "AGENTS.md"
     b = tmp_path / "b.md"
