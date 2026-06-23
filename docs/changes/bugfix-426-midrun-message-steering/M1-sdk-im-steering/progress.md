@@ -122,4 +122,43 @@
 - Commits: C1=test R3（红）, C2=fix R3, C3=本次 docs。
 - Next: R4 — live IM 端到端验收。
 
-## R4 — <pending>
+## [对齐] /stop 续跑语义 — orchestrator 终裁（覆盖 worker 初始倾向）
+
+- worker 初始倾向: /stop 后被 steer 进的"后发新消息"也应续跑（视为用户新意图）。
+- orchestrator 终裁（采纳）: **用户主动 /stop → 丢弃 pending，不续跑**；非用户终止（看门狗
+  idle-reap / crash / timeout）→ drain 续跑。
+- 决定性理由: bugfix-417 的 /stop 会回「已停止当前操作」并抑制 final reply；若续跑，用户会看到
+  「已停止」紧接 agent 又自动跑 msg2，自相矛盾；要自洽得改 /stop ack 链路 → 把 bugfix-417 语义
+  拉进来、扩大范围。/stop 是显式自愿信号，msg2 重发即可（在输入历史里）；看门狗/crash 是非自愿，必须保住。
+- 落地核对: 已实现的 gate 即 `not user_initiated`（`_continue_stranded_pending` 首行
+  `if controller is None or controller.is_user_interrupt: return`），与终裁**完全一致**，无需改码；
+  单测 `test_user_stop_discards_pending_no_continuation`（/stop→无续跑）+
+  `test_stranded_continuation_fires_on_non_user_cancel`（看门狗→续跑）双向锁定。
+  gate 单点，若用户日后否决（要 /stop 也续跑）改一行即可；不为此动 ack 改造。
+
+## R4 — live IM 端到端验收 + 测试桩对齐 + 文档
+
+- Context: skill §0.3/§0.11 要求 live-critical 行为真栈端到端验证（不能只 pytest）。本 unit 核心 bug
+  正是「运行中发消息要在当前 run 下一轮被消费」，必须真 IM 旅程跑到用户可见结果。
+- Decision/Evidence:
+  - **Live IM 端到端（决定性证据）**: `scripts/e2e-up.sh` 起 worktree 隔离栈（ephemeral IM :55749 +
+    进程内 Gateway，真 LLM 代理 :4000）。直聊 agent `Arch`：
+    1. msg1「依次三次 bash sleep 4 各一轮，完成回 ALL_STEPS_DONE」→ run1 启动；
+    2. ~5s 后（run1 正跑 step1 工具）发 msg2「不用继续了，只回标记 ZZ_STEER_MARKER_426 并停止」；
+    3. LLM 代理日志 `session/...sess_5f5227e65e3257cf/` 第 4 个 -req- 的 messages 序列为
+       `[0]user(任务) [1]assistant(thinking+tool_use step1) [2]user(tool_result) [3]user(ZZ_STEER_MARKER_426)`
+       —— msg2 在工具批次结束后的**下一轮 LLM 调用前注入到同一 run/同一 session**（round-boundary）；
+    4. 该轮响应 `finish_reason=stop, content="ZZ_STEER_MARKER_426"`，reasoning 写「用户说不用继续了…立即回复」
+       —— agent **消费 steer、放弃 step2/step3、改向**；
+    5. 自 baseline 起**仅 1 个新 kernel session**——msg2 未另起新 run（决策1「不另起新 run」）；
+    6. IM 会话消息流（用户可见）: user任务 → agent「好的，开始执行第一步。」→ user标记 → agent「ZZ_STEER_MARKER_426」。
+    完全复现 incident「运行中发消息应在下一轮工具调用带进去」的期望、修复其实际症状。e2e 栈已 `e2e-down.sh` 清理，pid 全清，产物 gitignore。
+  - **测试桩对齐**: 四个 background_tasks 集成测试的 `_RunsRegistryStub.inject_pending_message`
+    补 `origin` 参数（R1 起内核签名已加）；test_task_stop 两例曾因桩缺 origin TypeError 致注入未记录。
+  - **全测试树门禁**: `pytest tests/ --collect-only` = 2759 collected 无导入错；
+    `pytest tests/ -m "not e2e"` = **2751 passed, 2 skipped**；`ruff check .` + `ruff format --check .`（674 files）全过。
+  - Frontend State Matrix / Browser QA / Visual: N/A（无前端改动）
+  - E2E/Regression: live 旅程为一次性验收证据（不落 pytest e2e）；回归保护由 R1-R3 的 7 条单测 + 1 条既有回归修复承担。
+- Rollback: 整个 M1 为加法（steer 默认 False）；回滚让入口不传 steer=True 即退回排队行为，无数据迁移。
+- Commits: 见 R4 测试桩 commit + 本次 docs。
+- Next: 本 milestone 全部退出标准达标，进入 §6 集成到 unit 分支。

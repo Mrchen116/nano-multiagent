@@ -63,7 +63,7 @@
   - `handle_inbound`：在进 `_run_queue` 之前（仿 /stop 走 `_active_runs` 的位置）检查活跃 run；运行中走 `submit(steer=True)`，injected=True 不入队（发 accepted/steer lifecycle，由活跃 run SSE 流 surfacing），injected=False 照现状入队 `_run`。
 - 验证: test_inbound steer 不入队/空闲入队 + 群聊保发言人前缀；全绿。
 
-### R4 — live IM 端到端验收 + 文档
+### R4 — live IM 端到端验收 + 文档 — DONE
 
-- 步骤: 真栈起 IM+Gateway（e2e-up.sh），运行中发消息看当前 run 下一轮是否消费；连发保序；空闲开新 run；群聊保发言人。证据落 progress.md。
-- 验证: live 旅程过；全测试树窄相关 + contract 绿。
+- 步骤: 真栈起 IM+Gateway（e2e-up.sh），运行中发消息看当前 run 下一轮是否消费；空闲开新 run；群聊保发言人。证据落 progress.md。
+- 验证: live 旅程过（msg2 在 run1 工具批次后下一轮注入、agent 改向、同一 session 无新 run、IM 可见回复）；全测试树 `-m "not e2e"` = 2751 passed；ruff 全过。证据见 progress.md R4。
