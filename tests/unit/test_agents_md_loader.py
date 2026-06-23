@@ -86,6 +86,21 @@ def test_import_inside_tilde_code_fence_not_expanded(tmp_path: Path) -> None:
     assert "SHOULD NOT APPEAR" not in load_agents_md(root)
 
 
+def test_import_inside_inline_code_span_not_expanded(tmp_path: Path) -> None:
+    # An @path written inline as a code span (`@foo`) is not an import — CC's
+    # leaf-text rule excludes codespan tokens, so the loader strips inline spans
+    # before extracting @import directives.
+    (tmp_path / "spanned.md").write_text("SHOULD NOT APPEAR", encoding="utf-8")
+    root = tmp_path / "AGENTS.md"
+    root.write_text(
+        "use the `@./spanned.md` syntax to import another file",
+        encoding="utf-8",
+    )
+    out = load_agents_md(root)
+    assert "SHOULD NOT APPEAR" not in out
+    assert "syntax to import" in out
+
+
 def test_import_cycle_guard_no_infinite_loop(tmp_path: Path) -> None:
     a = tmp_path / "AGENTS.md"
     b = tmp_path / "b.md"
