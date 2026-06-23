@@ -100,3 +100,13 @@
   - 附带发现：空 provider 会让 build_kernel client 构造 + model_registry.resolve_model_metadata 崩（next(iter()) on empty）。选 A 删 provider 规避；若要支持空 provider 需 build_kernel 跳过（小改）。
   - 待 team-lead 决策 A（改 config 把 gpt 挪 anthropic，授权动主仓 config.yaml）/ B（不推荐）。
 - Next: 待 team-lead 两条决策（R6 CLI A/B/C + R7 config A/B）后收口；补兜底默认/跨 provider live 证据。
+
+### R7 live 证据汇总（全 PASS，config 采 A 形态下）
+
+三条 incident 核心 Scenario 均经真实 IM→Gateway→kernel→LLM proxy 端到端验证（proxy 日志取证）：
+1. 选定非默认模型生效：default-agent PATCH→gpt-5.5，对话 → proxy req `model=codex_oauth:gpt-5.5`（anthropic_messages）✓
+2. 没选默认兜底：Arch（default_model=None）对话 → proxy req `model=kimiCoding:K2.6`（产品默认）✓
+3. 改模型后旧会话用新模型：同一已存在会话 b985…，default-agent 模型 gpt→kimi 后再发 → proxy req `model=kimiCoding:K2.6`（旧会话切到新模型，非锁死旧值）✓
+
+证据路径：/Users/czj/Repos/LLM_PROXY/logs/session/2026-06-23_22-* 各 *-req-anthropic_messages.json 的 model 字段。
+跨 provider（openai_compat client over wire）live 未能验证——proxy 不支持 gpt 的 openai_chat 协议（见上「决策3冲突」），采 A 后 gpt 走 anthropic client，openai_compat client 路径目前无可用上游可 live 验（单测已覆盖路由选择）。
