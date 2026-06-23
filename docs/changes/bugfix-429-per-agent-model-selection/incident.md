@@ -37,6 +37,10 @@
   A(原话): 对
   Agent 解读: per-agent 模型选择要持久化。在 IM 动态新建的 agent（含其 default_model）要落进 `~/.nano-assistant/config.yaml`，Gateway 重启后该 agent 和它选的模型都还在、继续生效。这覆盖链路B 缺口（动态新建 agent 当前不写回 config，重启即丢）。
 
+- Q5（design 阶段对齐时新增）: 内核跨 provider 怎么发请求？IM 上要不要展示模型的格式/provider？
+  A(原话): 每个模型名多个请求格式，是LLM proxy仓库的设计，和这个仓库无关，我们在注册模型的时候就应该要明确一个模型名是哪个格式的，IM上展示的也是应该展示上格式。
+  Agent 解读: 两层结论。①架构原则：模型名 ↔ provider/请求格式在 config 注册时一一绑定，内核严格按注册的 provider 用对应 client/格式发请求，**不依赖** LLM_PROXY「一个模型名多格式通吃」的能力（那是 proxy 仓库的设计，本仓不利用）。②新增用户可观察需求：IM agent 配置页模型下拉要在每个模型旁展示它注册的 provider/格式。
+
 ## 现象与复现
 
 复现步骤：
@@ -108,6 +112,11 @@
 - **GIVEN** 某 agent 的 default_model 为空
 - **WHEN** 用户与它对话
 - **THEN** 用全局默认模型正常回复，不报错、不空跑
+
+### Requirement: IM 模型选择展示 provider/格式
+#### Scenario: 模型下拉标注各模型的格式
+- **WHEN** 用户打开 agent 配置页的模型下拉
+- **THEN** 每个可选模型旁展示它在 config 注册的 provider/格式（例：`codex_oauth:gpt-5.5` 标注 `openai_compat`、`kimiCoding:K2.6` 标注 `anthropic`）
 
 ### Requirement: 模型选择持久化
 #### Scenario: 重启后保留所选模型
