@@ -11,7 +11,7 @@
 
 ### 涉及范围
 
-- `src/agent/core/agent/run_control.py` —— `RunController` 持 pending `SimpleQueue`，`enqueue_message(LLMMessage)` / `drain_pending()`。**完好，不改。**
+- `src/agent/core/agent/run_control.py` —— `RunController` 持 pending `SimpleQueue`，`enqueue_message(LLMMessage)` / `drain_pending()`。注入主通道不改；决策3 若让 pending 承载 origin 可能小改 `enqueue_message` 签名（worker 定）。
 - `src/agent/core/agent/loop.py` —— `AgentLoop` 每轮 LLM 调用前 `drain_pending()` 注入（round-boundary）。**完好，不改。**
 - `src/agent/core/runs/registry.py` —— `get_active_run_id()`(:453)、`inject_pending_message()`(:508) 完好；run 结束竞态兜底 stranded 续跑(:635-648) **要改**（origin 硬编码 BACKGROUND_TASK + 文本重建丢多模态）。
 - `src/agent/sdk/kernel.py` —— `Kernel.submit()`(:831) **要改**（加 steer 入参 + injected 返回）；`interrupt()`(:908) 已是 abort 侧，不动。
@@ -157,6 +157,8 @@ sequenceDiagram
 - `injected=True` → 不进 `_run_queue`，发 steer lifecycle，活跃 run 的常驻 SSE 订阅自然 surfacing 后续回复；
 - `injected=False` → 照现状把 `_run` 入 `_run_queue`。
 
+**parts 构建必须复用 `_run` 现有那套**（`inbound_pipeline.py:248-281`：group buffer drain `_group_context_store.drain` + `_format_sender_text` 发言人前缀 + 附件组装），steer 分支只把「投递动作」从 `_run_queue.submit(_run)` 换成 `submit(steer=True)`，**不得**在 steer 分支只取 `message.text` 裸文——否则群聊运行中 steer 会丢发言人标识与缓冲上下文，违反非目标「群聊行为不变」。建议把 parts 构建抽成共用 helper，submit 路径与 steer 路径同源。
+
 ### CLI 数据流（决策 4，M2）
 
 `_run_repl` 输入循环：run 进行中（流 task 未终态）时读到输入 → `kernel.submit(steer=True)`；空闲时照常新 run。
@@ -173,6 +175,7 @@ sequenceDiagram
 - **竞态：inject 返回 False 与新 run 之间**——内核 `inject_pending_message` 持锁原子判定；run 恰好在 inject 时结束由既有 stranded 续跑兜底（决策 3 修正其 origin/content）。低风险。
 - **Gateway steer 后回复归属**——注入消息的回复由活跃 run 的常驻 SSE 流 surfacing，不另起 `_run`；需确认 lifecycle 不重复发 bubble。M1 测试覆盖。
 - **CLI 终端并发**（决策 4 风险）——非阻塞输入与流式渲染竞争输入行，M2 复用既有 reader 管道缓解。
+- **决策3 origin 载法（worker 着力点）**：现 `inject_pending_message(session_id, message)` 不带来源、pending 队列只存 `LLMMessage`。M1 需给其加 `origin: RunOrigin` 参数并让 pending 队列承载 origin（或随 LLMMessage 同携），stranded 续跑（registry.py:641）据此传 origin 而非硬编码 `BACKGROUND_TASK`；content 为 list 时续跑 parts 重建保留多模态 block，不强转 text。worker 不必从零推断载法。
 - **回退**：两 milestone 均为加法（`steer` 默认 False）。回滚任一 milestone 只需让对应入口不传 `steer=True`，退回当前"排队"行为，无数据迁移。
 
 ## Runbook for Reviewer
@@ -186,10 +189,12 @@ sequenceDiagram
 
 ## Milestones
 
+**拆分举证**（非并行——M2 依赖 M1 的 `submit(steer=True)`，**串行**）：M1（SDK affordance + IM 接线）与 M2（CLI 非阻塞 REPL 重建）落在**完全不相交的文件**（`agent/*`+`personal_assistant/*` vs `coding_cli/*`），且 M2 是独立、风险更高的隔离改动（重建非阻塞输入循环 + 终端并发渲染，见决策4 风险），有自己的验证旅程（CLI run 执行中输入）。拆分理由 = **分阶段交付 + 风险隔离**：IM 是本 bug 实际痛点，M1 可先落 unit 分支独立验收；CLI 重建风险单独收敛，不阻塞 IM 修复。并行组同标 `A` 表示**同一串行链**（非可并发组），实际执行顺序以「依赖」列 + 下方 mermaid 为准。
+
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| bugfix-426-M1 | sdk-im-steering | — | A | `src/agent/sdk/kernel.py`(submit+steer)、`src/agent/sdk/dto.py`(RunInfo.injected)、`src/agent/core/runs/registry.py`(决策3 stranded 修正)、`src/personal_assistant/gateway/inbound_pipeline.py`(steer 接线) | `[reviewer]` IM 运行中发消息在当前 run 下一轮被带进上下文、不另起新 run（覆盖 Req-运行中下一轮注入 / Scenario-工具循环中途发消息·不掐工具·连发保序·空闲开新 run；Req-IM/CLI 两端 / Scenario-IM 运行中 steer）`[worker]` `submit(steer=True)` 有/无活跃 run 返回 `injected` 正确 + 注入携带多模态 parts + stranded 续跑 origin=USER；最窄相关单测全绿（kernel runs + gateway inbound） |
-| bugfix-426-M2 | cli-steering | M1 | B | `src/coding_cli/commands.py`(`_run_repl`/`_send_message_async` 非阻塞)、`src/coding_cli/runtime/repl_runtime.py` | `[reviewer]` CLI run 执行中输入注入当前 run 下一轮、不阻塞、空闲仍开新 run（覆盖 Req-IM/CLI 两端 / Scenario-CLI REPL 运行中 steer）`[worker]` CLI 运行中输入走 `submit(steer=True)`；最窄相关 CLI 单测全绿 |
+| bugfix-426-M1 | sdk-im-steering | — | A | `src/agent/sdk/kernel.py`(submit+steer)、`src/agent/sdk/dto.py`(RunInfo.injected)、`src/agent/core/runs/registry.py`(决策3 inject origin 参数 + stranded 修正)、`src/agent/core/agent/run_control.py`(pending 承载 origin)、`src/personal_assistant/gateway/inbound_pipeline.py`(steer 接线，复用 parts builder) | `[reviewer]` IM 运行中发消息在当前 run 下一轮被带进上下文、不另起新 run、**群聊保留发言人前缀与缓冲上下文**（覆盖 Req-运行中下一轮注入 / Scenario-工具循环中途发消息·不掐工具·连发保序·空闲开新 run；Req-IM/CLI 两端 / Scenario-IM 运行中 steer）`[worker]` `submit(steer=True)` 有/无活跃 run 返回 `injected` 正确 + 注入携带多模态 parts + stranded 续跑 origin=USER；最窄相关单测全绿（kernel runs + gateway inbound） |
+| bugfix-426-M2 | cli-steering | M1 | A（串行于 M1 之后） | `src/coding_cli/commands.py`(`_run_repl`/`_send_message_async` 非阻塞)、`src/coding_cli/runtime/repl_runtime.py` | `[reviewer]` CLI run 执行中输入注入当前 run 下一轮、不阻塞、空闲仍开新 run（覆盖 Req-IM/CLI 两端 / Scenario-CLI REPL 运行中 steer）`[worker]` CLI 运行中输入走 `submit(steer=True)`；最窄相关 CLI 单测全绿 |
 
 ```mermaid
 graph LR

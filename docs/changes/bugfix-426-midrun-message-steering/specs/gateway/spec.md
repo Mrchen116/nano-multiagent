@@ -23,3 +23,8 @@ Agent 正在执行一个 run 时收到同会话的新入站用户消息，Gatewa
 - **GIVEN** 该会话当前无活跃 run
 - **WHEN** 用户发消息
 - **THEN** 照常作为新 run 处理，行为与既有一致
+
+#### Scenario: 群聊运行中 steer 保留发言人与缓冲上下文
+- **GIVEN** 一个群聊会话的 Agent 正在执行 run
+- **WHEN** 群成员在运行中发消息触发 steer
+- **THEN** 注入的消息保留发言人前缀与该 Agent 的群聊缓冲上下文，与一次普通群聊 turn 一致（群聊行为不变）
