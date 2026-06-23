@@ -49,7 +49,7 @@
   - `background_tasks/wiring.py` 调用点补传 origin=BACKGROUND_TASK（保持其现状语义）。
 - 验证: test_run_control pending origin；test_runs_registry stranded 续跑 origin=USER；全绿。
 
-### R2 — Kernel.submit(steer) + RunInfo.injected（决策1/2）
+### R2 — Kernel.submit(steer) + RunInfo.injected（决策1/2）— DONE
 
 - 步骤:
   - `dto.py`：`RunInfo` 加 `injected: bool = False`。

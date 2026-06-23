@@ -46,7 +46,34 @@
 - Commits: C1=test R1（红）, C2=fix R1, C3=本次 docs。
 - Next: R2 — Kernel.submit(steer) + RunInfo.injected。
 
-## R2 — <pending>
+## R2 — Kernel.submit(steer) + RunInfo.injected（决策1/2）
+
+- Context: refactor-387 删 SDK priority 参数后，产品无 SDK 面注入 affordance。需把 feat-338
+  priority="next" 以 submit(steer=True) 进程内形态接出，consumer 不自己查 active run。
+- Decision:
+  - `dto.py`：`RunInfo` 加 `injected: bool = False`。
+  - `kernel.py`：`submit` 加 `steer: bool = False`；新增私有 `_try_inject_active_run`——
+    复用 `background_tasks/wiring.py` 已验证范式：`get_active_run_id` 有活跃 run 则
+    `inject_pending_message(origin=origin)`，注入成功返回 `_to_run_info(active_record, injected=True)`
+    （复用活跃 run_id、不建新 run）；无活跃 run 或 inject 竞态返回 False→退化走正常 submit（injected=False）。
+    注入消息 content 用 `parse_input_parts + render_user_text`（图片→`[image:placeholder]`，与 submit 同款）。
+  - `_to_run_info(record, *, injected=False)` 透传 injected。
+- Rationale: 决策1「consumer 只有一个心智，steer 与否由内核按活跃态决定」——把竞态判断收敛进 SDK，
+  默认 False 零破坏既有调用方。竞态（inject 与 run-end 之间）由 R1 stranded 续跑兜底。
+- Evidence:
+  - Tests（C1 红→C2 绿）：`tests/contract/test_kernel_sdk_behavior_contract.py`：
+    `test_submit_steer_idle_session_creates_new_run`（injected=False + 完成）、
+    `test_submit_steer_active_run_injects_not_new_run`（injected=True + run_id 复用 + 无新 run）、
+    `test_submit_steer_injects_render_user_text_content`（注入 content 为 str、含文本、图片→placeholder）。
+    用 `_ThreadGatedClient`（threading.Event 跨注册表后台 loop/主 loop 安全）保 run 活跃。
+    contract 全绿 129 passed；contract + R1 窄相关 142 passed（修白名单行号后）。ruff check+format 通过。
+  - Entry: SDK 真 Kernel 经 build_kernel 驱动真 run（_llm_client_override），非纯 mock——证明 SDK 面真能注入活跃 run。
+  - Frontend State Matrix: N/A | Browser QA: N/A
+  - E2E/Regression: 三条 steer 行为契约落库（tests/contract），防 refactor 再次架空 SDK 注入面。
+  - Visual/Interaction: N/A
+- Rollback: `git revert` C2(R2)+C1(R2)。
+- Commits: C1=test R2（红）, C2=feat R2, C3=本次 docs。
+- Next: R3 — Gateway inbound steer 接线 + parts helper 抽取。
 
 ## R3 — <pending>
 
