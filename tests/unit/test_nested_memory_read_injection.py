@@ -301,7 +301,9 @@ def test_injection_block_not_line_numbered(tmp_path: Path) -> None:
     target.write_text("line one\nline two", encoding="utf-8")
 
     tool = ReadTool()
-    serialized = tool.serialize_result(tool.run({"path": str(target)}, _ctx(ws, SessionFileState())))
+    serialized = tool.serialize_result(
+        tool.run({"path": str(target)}, _ctx(ws, SessionFileState()))
+    )
     assert isinstance(serialized, str)
     # 文件正文有行号（cat -n 风格 "N→"）。
     assert "→line one" in serialized
@@ -326,7 +328,9 @@ def test_hint_block_not_line_numbered(tmp_path: Path) -> None:
     target.write_text("x\ny", encoding="utf-8")
 
     tool = ReadTool()
-    serialized = tool.serialize_result(tool.run({"path": str(target)}, _ctx(ws, SessionFileState())))
+    serialized = tool.serialize_result(
+        tool.run({"path": str(target)}, _ctx(ws, SessionFileState()))
+    )
     assert isinstance(serialized, str)
     assert "<project-instructions-hint>" in serialized
     for line in serialized.splitlines():

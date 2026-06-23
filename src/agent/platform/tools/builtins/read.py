@@ -194,9 +194,11 @@ class ReadTool:
         # file is unchanged we normally short-circuit, but if there are pending
         # AGENTS.md blocks to (re)inject — e.g. the dedup set was cleared at a
         # compaction boundary — we must NOT take the file_unchanged fast path, or
-        # the re-injection would be skipped. The blocks are computed once here and
-        # reused below so dedup state mutates exactly once per read.
-        nested_blocks = _nested_memory_blocks(file_path, ctx)
+        # the re-injection would be skipped. fix r1: compute is pure; dedup keys
+        # are committed (_commit_nested_dedup) only after the blocks land in the
+        # returned content, so a later read failure never strands an AGENTS.md as
+        # "loaded but not injected".
+        nested_blocks, nested_keys = _nested_memory_blocks(file_path, ctx)
 
         if ctx.session_file_state is not None and not nested_blocks:
             try:
@@ -250,6 +252,8 @@ class ReadTool:
             # feat-428 机制 B: image reads trigger nested-memory injection too
             # (blocks computed once above, before the file_unchanged check).
             image_content.extend(nested_blocks)
+            # fix r1: commit dedup only now that blocks are in the returned content.
+            _commit_nested_dedup(ctx, nested_keys)
             return {
                 "path": display_path,
                 "offset": 1,
@@ -295,6 +299,9 @@ class ReadTool:
         # outside-project path hint (blocks computed once above, before the
         # file_unchanged check; deduped via session_file_state.loaded_agents_md).
         content_blocks.extend(nested_blocks)
+        # fix r1: commit dedup only now that blocks are in the returned content
+        # (the file body read above already succeeded — no failure can strand them).
+        _commit_nested_dedup(ctx, nested_keys)
 
         response: dict[str, Any] = {
             "path": display_path,
@@ -346,18 +353,33 @@ class ReadTool:
                 if has_image:
                     return list(content_blocks)
 
-                texts = [
+                # feat-428 fix r1: only the file-body text blocks get cat -n line
+                # numbers. Injected nested-memory blocks (marked injected=True) carry
+                # <project-instructions*> tags that must reach the model verbatim —
+                # line-numbering them would corrupt the injected instructions.
+                body_texts = [
                     block.get("text", "")
                     for block in content_blocks
-                    if isinstance(block, Mapping) and block.get("type") == "text"
+                    if isinstance(block, Mapping)
+                    and block.get("type") == "text"
+                    and not block.get("injected")
                 ]
-                combined = "\n".join(texts)
+                injected_texts = [
+                    block.get("text", "")
+                    for block in content_blocks
+                    if isinstance(block, Mapping)
+                    and block.get("type") == "text"
+                    and block.get("injected")
+                ]
+                combined = "\n".join(body_texts)
 
-                if not combined:
+                if not combined and not injected_texts:
                     return "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>"
 
                 offset = output.get("offset", 1)
-                return _add_line_numbers(combined, offset)
+                numbered_body = _add_line_numbers(combined, offset) if combined else ""
+                parts = [p for p in (numbered_body, *injected_texts) if p]
+                return "\n".join(parts)
 
         return json_serialize(output)
 
@@ -384,49 +406,77 @@ def _nested_memory_enabled(ctx: ToolContext) -> bool:
     return default_on
 
 
-def _nested_memory_blocks(file_path: Path, ctx: ToolContext) -> list[dict[str, Any]]:
-    """Return AGENTS.md injection blocks for a just-read file (机制 B).
+def _commit_nested_dedup(ctx: ToolContext, keys: list[str]) -> None:
+    """Record injected AGENTS.md paths into the session dedup set (fix r1).
 
-    In-workspace reads append each not-yet-injected AGENTS.md on the directory
+    Called only after the injection blocks are placed in the returned content, so
+    a read that fails mid-way never marks an AGENTS.md as loaded-but-not-injected.
+    """
+    state = ctx.session_file_state
+    if state is None or not keys:
+        return
+    state.loaded_agents_md.update(keys)
+
+
+def _nested_memory_blocks(
+    file_path: Path, ctx: ToolContext
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Compute AGENTS.md injection blocks for a just-read file (机制 B).
+
+    In-workspace reads return each not-yet-injected AGENTS.md on the directory
     chain (file dir … workspace root) as a ``<project-instructions path=...>``
     block carrying the @import-expanded content. Out-of-workspace reads that fall
-    inside a git repo append a single ``<project-instructions-hint>`` block
+    inside a git repo return a single ``<project-instructions-hint>`` block
     listing every AGENTS.md path from the file dir up to the outermost git root
     (no content, to save context). Files outside any git repo yield nothing.
+
+    fix r1: this function is **pure** — it does NOT mutate
+    ``loaded_agents_md``. It returns ``(blocks, keys)``; the caller commits the
+    keys (records dedup) only after the blocks are actually delivered in the
+    returned content. Otherwise a later failure (non-UTF-8 main file → ToolError,
+    image read OSError) would leave the AGENTS.md marked loaded but never injected,
+    permanently skipping it for the session.
 
     Dedup is via ``ctx.session_file_state.loaded_agents_md`` (shared with 机制 A's
     preseeded workspace root); each AGENTS.md path is injected/hinted once per
     session until the compaction boundary clears the set.
     """
     if not _nested_memory_enabled(ctx):
-        return []
+        return [], []
     state = ctx.session_file_state
     if state is None:
-        return []
+        return [], []
 
-    file_dir = file_path.parent
+    # fix r1: resolve the real file first, then take its parent, so symlinked
+    # directories walk the real chain and the dedup keys match
+    # is_path_in_workspace (which also resolves). iter_agents_md_chain resolves
+    # internally too.
+    resolved_file = file_path.resolve()
+    file_dir = resolved_file.parent
     # ctx.repo_root is the session's workspace_root (rewritten by the registry's
     # _resolve_execution_context), so is_path_in_workspace anchors workspace_root.
-    if ctx.safety.is_path_in_workspace(file_path.resolve()):
+    if ctx.safety.is_path_in_workspace(resolved_file):
         return _inside_workspace_blocks(file_dir, ctx.repo_root, state)
     return _outside_workspace_blocks(file_dir, state)
 
 
 def _inside_workspace_blocks(
     file_dir: Path, workspace_root: Path, state: Any
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[str]]:
     blocks: list[dict[str, Any]] = []
+    keys: list[str] = []
     for agents_path in iter_agents_md_chain(file_dir, top=workspace_root):
         key = str(agents_path.resolve())
-        if key in state.loaded_agents_md:
+        if key in state.loaded_agents_md or key in keys:
             continue
         content = load_agents_md(agents_path)
         if content is None:
             continue
-        state.loaded_agents_md.add(key)
+        keys.append(key)
         blocks.append(
             {
                 "type": "text",
+                "injected": True,
                 "text": (
                     f'<project-instructions path="{key}">\n'
                     f"{content}\n"
@@ -434,22 +484,23 @@ def _inside_workspace_blocks(
                 ),
             }
         )
-    return blocks
+    return blocks, keys
 
 
-def _outside_workspace_blocks(file_dir: Path, state: Any) -> list[dict[str, Any]]:
+def _outside_workspace_blocks(
+    file_dir: Path, state: Any
+) -> tuple[list[dict[str, Any]], list[str]]:
     repo_root = find_outermost_git_root(file_dir)
     if repo_root is None:
-        return []
+        return [], []
     new_paths: list[str] = []
     for agents_path in iter_agents_md_chain(file_dir, top=repo_root):
         key = str(agents_path.resolve())
-        if key in state.loaded_agents_md:
+        if key in state.loaded_agents_md or key in new_paths:
             continue
-        state.loaded_agents_md.add(key)
         new_paths.append(key)
     if not new_paths:
-        return []
+        return [], []
     paths_block = "\n".join(f"  {p}" for p in new_paths)
     hint = (
         "<project-instructions-hint>\n"
@@ -462,7 +513,7 @@ def _outside_workspace_blocks(file_dir: Path, state: Any) -> list[dict[str, Any]
         "conventions before working in it.\n"
         "</project-instructions-hint>"
     )
-    return [{"type": "text", "text": hint}]
+    return [{"type": "text", "injected": True, "text": hint}], new_paths
 
 
 def _add_line_numbers(text: str, start_line: int = 1) -> str:

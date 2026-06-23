@@ -194,7 +194,15 @@ sequenceDiagram
 
 ### 注入文案（钉死，worker 逐字照抄）
 
-**机制 A + 机制 B·工作区内**（包裹注入正文，`@import` 已展开；每份 AGENTS.md 一个块）：
+**机制 A（system prompt 段，不带 `path` 属性）**（包裹注入正文，`@import` 已展开）：
+
+```
+<project-instructions>
+{resolved_content}
+</project-instructions>
+```
+
+**机制 B·工作区内**（read tool_result 块，带 `path` 属性；每份 AGENTS.md 一个块）：
 
 ```
 <project-instructions path="{abs_path}">
@@ -215,7 +223,7 @@ Read any of them with the read tool if you need this project's conventions befor
 ```
 
 - `{abs_path}` / `{agents_path_*}` = AGENTS.md 绝对路径（外部逐级找到的多份逐行列出，单份就一行）；`{repo_root}` = 最外层 git 仓根绝对路径；`{resolved_content}` = `load_agents_md` 返回的展开正文。
-- 机制 A 的根 AGENTS.md 注入 system prompt 段时同样用 `<project-instructions>` 标签包裹。
+- 机制 A 的根 AGENTS.md 注入 system prompt 段用 `<project-instructions>` 标签包裹，**不带 `path` 属性**（system prompt 是单一上下文，无需逐文件标路径）；`path` 属性仅机制 B·工作区内的 read tool_result 块使用（区分同一结果里的多份就近 AGENTS.md）。
 
 ### SessionFileState 扩展
 

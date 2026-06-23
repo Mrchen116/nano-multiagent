@@ -103,11 +103,11 @@ def test_import_inside_inline_code_span_not_expanded(tmp_path: Path) -> None:
 
 def test_fence_close_requires_length_ge_open(tmp_path: Path) -> None:
     # fix 5 (CommonMark): 关闭 fence 须同字符且长度 ≥ 开启长度。
-    # 开启用 ```（3），中间出现 ```` (4) 不应关闭它——@import 仍在 fence 内、不展开。
+    # 开启用 ````（4），内部出现 ``` (3) 长度不足、不能关闭它——@import 仍在 fence 内、不展开。
     (tmp_path / "secret.md").write_text("SHOULD NOT APPEAR", encoding="utf-8")
     root = tmp_path / "AGENTS.md"
     root.write_text(
-        "```\ncode\n````\n@./secret.md\n```\nend",
+        "````\n```\n@./secret.md\n````\nend",
         encoding="utf-8",
     )
     out = load_agents_md(root)
