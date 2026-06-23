@@ -90,8 +90,10 @@ _WHITELIST: frozenset[str] = frozenset(
         # LLMConfig.from_json/from_catalog), net +2 lines shifted to 1146/1147
         # bugfix-417-M5: Ctrl-C→kernel.interrupt block in _send_message_async, shifted to 1187/1188
         # bugfix-417-M5: asyncio SIGINT handler block added to repl loop, shifted to 1232/1233
-        "src/coding_cli/commands.py:1232",
-        "src/coding_cli/commands.py:1233",
+        # bugfix-426-M2: non-blocking REPL input loop (run task + executor input
+        # future + steer routing) added to _run_repl, shifted to 1378/1379
+        "src/coding_cli/commands.py:1378",
+        "src/coding_cli/commands.py:1379",
     }
 )
 
