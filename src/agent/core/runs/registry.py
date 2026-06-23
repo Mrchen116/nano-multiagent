@@ -20,7 +20,7 @@ from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.observability.logger import log_error, log_info
 from agent.core.observability.tracing import bind_correlation, current_trace_id, span
 from agent.core.session.manager import SessionManager
-from agent.core.agent.run_control import RunController
+from agent.core.agent.run_control import PendingMessage, RunController
 
 
 class RegistryClosedError(RuntimeError):
@@ -139,6 +139,12 @@ class RunsRegistry:
         self._controllers: dict[str, RunController] = {}
         # session_id → run_id for the currently-executing run (RUNNING state only).
         self._active_run_by_session: dict[str, str] = {}
+        # bugfix-426 决策3 (held-pending): when a user /stop ends a run, messages that
+        # were steered into it but never consumed are NOT auto-continued (that would
+        # contradict the explicit stop) and NOT discarded (that would lose the user's
+        # later intent); they are parked here per session and prepended to the NEXT
+        # submit() for that session. In-memory, lost on restart (same as pending).
+        self._held_pending: dict[str, list[PendingMessage]] = {}
         # bugfix-402-M3: owned Task handles so drain_async() can await each to
         # terminal state before stopping the loop.  Keyed by run_id; cleared in
         # the Task done-callback so the dict never outlives a completed Task.
@@ -324,12 +330,18 @@ class RunsRegistry:
         source_task_id: str | None = None,
         trace_id: str | None = None,
         workspace_root: Path | None = None,
+        flush_held: bool = True,
     ) -> RunRecord:
         """Submit a turn for execution.
 
         ``workspace_root`` is threaded from the request so the stateless kernel
         can locate the session JSONL; it is required (in production) for the
         existence check below and for the runtime's first load of the session.
+
+        ``flush_held`` (default True) prepends any messages parked by a prior user
+        /stop for this session (bugfix-426 决策3). The gateway /stop handler's own
+        synthetic "/stop 命令" submit passes False so the held messages are NOT
+        consumed by that bookkeeping turn but ride the user's next real message.
         """
         # Fast rejection avoids session I/O once shutdown has begun. The state is
         # checked again at record insertion because shutdown may race this work.
@@ -345,6 +357,19 @@ class RunsRegistry:
             raise ValueError(f"session does not exist: {session_id}")
         if not parts:
             raise ValueError("empty input parts are not allowed")
+
+        # bugfix-426 决策3 (held-pending flush): messages parked by a prior user /stop
+        # for this session ride along on its next run. Prepend them (FIFO: held first,
+        # then this turn's parts) and clear the buffer. Transparent to every caller
+        # (gateway / cli / continuation) since they all funnel through submit(); does
+        # not depend on the steer flag. Skipped (flush_held=False) for the /stop
+        # handler's own synthetic turn so held rides the user's next real message.
+        with self._lock:
+            held = self._held_pending.pop(session_id, None) if flush_held else None
+        if held:
+            parts = [{"type": "text", "text": p.message.content} for p in held] + list(
+                parts
+            )
 
         run_id = make_run_id()
         now = _utc_now_iso()
@@ -481,6 +506,18 @@ class RunsRegistry:
         # the abort user-initiated — the runtime then recovers any orphaned
         # tool_call with the CC-identical user-attribution content (bugfix-417-M5).
         controller.abort(user_initiated=True)
+        # bugfix-426 决策3 (/stop held-pending, sync): park any unconsumed steered
+        # messages to the session held buffer NOW, synchronously, before returning.
+        # The gateway /stop handler synchronously submit()s a "/stop 命令" turn right
+        # after this call; if held population waited for the async terminal chokepoint
+        # (_settle_terminal_pending, runs when the carrier Task unwinds on the bg
+        # loop) it would be EMPTY at that submit and the user's steered message lost.
+        # Draining here empties the controller, so the later _settle_terminal_pending
+        # drains nothing → natural no-op, no double-move (and /stop never continues).
+        stranded = controller.drain_pending()
+        if stranded:
+            with self._lock:
+                self._held_pending.setdefault(session_id, []).extend(stranded)
         log_info("run_interrupted", run_id=run_id, session_id=session_id)
         # Reap an in-flight foreground tool's subprocess tree; if one existed, the
         # cooperative abort cannot unwind the parked carrier Task, so force-cancel
@@ -505,17 +542,30 @@ class RunsRegistry:
             self._force_cancel_owned_task(run_id)
         return run_id
 
-    def inject_pending_message(self, session_id: str, message: LLMMessage) -> bool:
+    def inject_pending_message(
+        self,
+        session_id: str,
+        message: LLMMessage,
+        origin: RunOrigin = RunOrigin.USER,
+    ) -> bool:
         """Enqueue a message for round-boundary injection into the active run.
 
-        Returns True if the message was enqueued, False if no active run exists
-        or the run is already being interrupted.
+        Args:
+            session_id: Session whose active run to inject into.
+            message: Message to inject before the active run's next LLM call.
+            origin: Source that produced this message. Carried on the pending
+                queue so a stranded continuation re-run keeps the right origin
+                (user mid-run steer → USER, not BACKGROUND_TASK; bugfix-426 决策3).
+
+        Returns:
+            True if the message was enqueued, False if no active run exists or the
+            run is already being interrupted.
         """
         with self._lock:
             run_id = self._active_run_by_session.get(session_id)
             controller = self._controllers.get(run_id) if run_id else None
         if controller is not None and not controller.is_aborted:
-            controller.enqueue_message(message)
+            controller.enqueue_message(message, origin)
             return True
         return False
 
@@ -604,48 +654,103 @@ class RunsRegistry:
             if self._is_cancelled(run_id):
                 with self._lock:
                     self._active_run_by_session.pop(session_id, None)
+                # Early-cancel still reached RUNNING, so a steer may already have
+                # enqueued into this controller — drain+continue via the single
+                # terminal chokepoint below rather than dropping it.
+                self._settle_terminal_pending(
+                    controller, session_id=session_id, workspace_root=workspace_root
+                )
                 return
+            # bugfix-426 决策3 (扩展): stranded-pending handling is centralised in ONE
+            # terminal chokepoint (this finally) so it covers EVERY way a run can end —
+            # normal completion, timeout, failure, watchdog idle-reap, crash, and the
+            # force-cancel path (carrier Task .cancel() raises CancelledError, a
+            # BaseException that skips `except Exception` but still runs `finally`).
+            # A message injected mid-run that the loop never drained at a round boundary
+            # must survive any of these (incident「消息不丢失」). Three-tier semantics:
+            #   - non-user terminal (watchdog/crash/timeout) → auto-continuation run;
+            #   - user /stop (abort user_initiated) → park pending to the session-level
+            #     held buffer (neither auto-continue nor discard) for the NEXT submit;
+            # routed inside _settle_terminal_pending via controller.is_user_interrupt.
             try:
-                with span(
-                    "RunsRegistry.run_worker", run_id=run_id, session_id=session_id
-                ):
-                    result = await self._runtime.run(
-                        session_id,
-                        parts,
-                        stream=False,
-                        run_id=run_id,
-                        controller=controller,
-                        workspace_root=workspace_root,
-                        origin=origin,
-                    )
-            except TimeoutError as exc:
-                await self._mark_timed_out_async(run_id, message=str(exc))
-                return
-            except Exception as exc:  # noqa: BLE001
-                await self._mark_failed_async(run_id, message=str(exc))
-                return
+                try:
+                    with span(
+                        "RunsRegistry.run_worker", run_id=run_id, session_id=session_id
+                    ):
+                        result = await self._runtime.run(
+                            session_id,
+                            parts,
+                            stream=False,
+                            run_id=run_id,
+                            controller=controller,
+                            workspace_root=workspace_root,
+                            origin=origin,
+                        )
+                except TimeoutError as exc:
+                    await self._mark_timed_out_async(run_id, message=str(exc))
+                    return
+                except Exception as exc:  # noqa: BLE001
+                    await self._mark_failed_async(run_id, message=str(exc))
+                    return
+                finally:
+                    with self._lock:
+                        if self._active_run_by_session.get(session_id) == run_id:
+                            self._active_run_by_session.pop(session_id, None)
+                if getattr(result, "stop_reason", None) == "aborted":
+                    await self._mark_aborted_async(run_id, source="priority_now")
+                else:
+                    self._mark_completed(run_id, turn_result=result)
             finally:
-                with self._lock:
-                    if self._active_run_by_session.get(session_id) == run_id:
-                        self._active_run_by_session.pop(session_id, None)
-            if getattr(result, "stop_reason", None) == "aborted":
-                await self._mark_aborted_async(run_id, source="priority_now")
-            else:
-                self._mark_completed(run_id, turn_result=result)
-            # Race safety: background tasks that completed while this run was
-            # still in _active_run_by_session may have injected messages that
-            # were never consumed. Drain them and start a continuation run.
-            if controller is not None:
-                stranded = controller.drain_pending()
-                if stranded:
-                    self.submit(
-                        session_id=session_id,
-                        parts=[
-                            {"type": "text", "text": msg.content} for msg in stranded
-                        ],
-                        origin=RunOrigin.BACKGROUND_TASK,
-                        workspace_root=workspace_root,
-                    )
+                self._settle_terminal_pending(
+                    controller, session_id=session_id, workspace_root=workspace_root
+                )
+
+    def _settle_terminal_pending(
+        self,
+        controller: RunController | None,
+        *,
+        session_id: str,
+        workspace_root: Path | None,
+    ) -> None:
+        """Settle messages injected into a now-terminal run (bugfix-426 决策3).
+
+        Single terminal chokepoint. A message steered into an active run via
+        ``inject_pending_message`` that the loop never consumed at a round boundary
+        would otherwise be lost when the run ends — violating incident「消息不丢失」.
+        Two outcomes by how the run ended:
+
+        - **User /stop** (``controller.is_user_interrupt``): the user explicitly
+          stopped, so neither auto-continue (contradicts /stop, and bugfix-417's
+          /stop ack already told the user it stopped) nor discard (loses the user's
+          later intent). Park the drained messages to the session-level held buffer;
+          the next ``submit()`` for this session prepends them.
+        - **Non-user terminal** (watchdog idle-reap / crash / timeout / completion):
+          re-run as a continuation carrying each message's own injection origin
+          (user steer → USER), grouped into contiguous same-origin batches to
+          preserve FIFO order. No-op when the registry is shutting down (submit
+          would raise) so a force-cancel during shutdown unwinds cleanly.
+        """
+        if controller is None:
+            return
+        stranded = controller.drain_pending()
+        if not stranded:
+            return
+        if controller.is_user_interrupt:
+            with self._lock:
+                self._held_pending.setdefault(session_id, []).extend(stranded)
+            return
+        with self._lock:
+            if self._state is not _RegistryState.OPEN:
+                return
+        for origin_batch, pending_batch in _group_pending_by_origin(stranded):
+            self.submit(
+                session_id=session_id,
+                parts=[
+                    {"type": "text", "text": p.message.content} for p in pending_batch
+                ],
+                origin=origin_batch,
+                workspace_root=workspace_root,
+            )
 
     def _set_status(
         self,
@@ -898,6 +1003,23 @@ _TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED
 TERMINAL_RUN_STATUSES: frozenset[str] = frozenset(
     s.value for s in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED)
 )
+
+
+def _group_pending_by_origin(
+    pending: list[PendingMessage],
+) -> list[tuple[RunOrigin, list[PendingMessage]]]:
+    """Group stranded pending messages into contiguous same-origin batches.
+
+    Preserves FIFO order: each batch is a maximal run of consecutive items sharing
+    one origin, so a continuation run is submitted per batch with that origin.
+    """
+    batches: list[tuple[RunOrigin, list[PendingMessage]]] = []
+    for item in pending:
+        if batches and batches[-1][0] == item.origin:
+            batches[-1][1].append(item)
+        else:
+            batches.append((item.origin, [item]))
+    return batches
 
 
 def _serialize_usage(usage: TokenUsage | None) -> dict[str, int] | None:

@@ -48,6 +48,10 @@ class _FakeKernel:
         self._session_index = 0
         self._run_index = 0
         self._sessions: dict[str, _FakeSession] = {}
+        # Test-controlled active run per kernel session. When set, a steer=True
+        # submit injects into it (returns injected=True, reusing this run_id);
+        # mirrors the real Kernel.submit(steer=True) atomic inject-or-new branch.
+        self.active_run_by_session: dict[str, str] = {}
 
     async def create_session(
         self,
@@ -83,7 +87,26 @@ class _FakeKernel:
         origin: Any = None,
         workspace_root: Path | None = None,
         trace_id: str | None = None,
+        steer: bool = False,
+        flush_held: bool = True,
     ) -> MagicMock:
+        active = self.active_run_by_session.get(session_id)
+        if steer and active is not None:
+            # Inject into the active run: no new run created, injected=True.
+            self.submit_calls.append(
+                {
+                    "session_id": session_id,
+                    "parts": parts,
+                    "origin": origin,
+                    "workspace_root": workspace_root,
+                    "steer": True,
+                    "injected": True,
+                }
+            )
+            record = MagicMock()
+            record.run_id = active
+            record.injected = True
+            return record
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         self.submit_calls.append(
@@ -92,10 +115,13 @@ class _FakeKernel:
                 "parts": parts,
                 "origin": origin,
                 "workspace_root": workspace_root,
+                "steer": steer,
+                "injected": False,
             }
         )
         record = MagicMock()
         record.run_id = run_id
+        record.injected = False
         return record
 
     def stream(
@@ -291,3 +317,164 @@ def test_inbound_pipeline_kernel_sdk_stream_delivers_events(tmp_path: Path) -> N
     # reply_text comes from the assistant_message event yielded by kernel.stream
     assert result.reply_text == "reply from sdk kernel"
     assert channel.sent[0].text == "reply from sdk kernel"
+
+
+# ---------------------------------------------------------------------------
+# bugfix-426-M1 R3: mid-run steering — inbound message during an active run is
+# injected into it (steer=True), not queued behind it.
+# ---------------------------------------------------------------------------
+
+
+def _group_agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
+    agent_a = tmp_path / "agent-a"
+    agent_a.mkdir()
+    return (
+        AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=agent_a,
+            title="Agent A",
+            group_reply_policy="ALWAYS",
+        ),
+    )
+
+
+def _make_pipeline(kernel, agents, tmp_path):  # noqa: ANN001, ANN201
+    from personal_assistant.gateway.group_context_store import GroupContextStore
+    from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    pipeline = InboundPipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        group_context_store=GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3"),
+    )
+    return pipeline, channel
+
+
+def test_steer_injects_into_active_run_not_new_run(tmp_path: Path) -> None:
+    """A direct-chat message arriving while a run is active is steered into it:
+    submit(steer=True) returns injected=True, no new run is queued."""
+    kernel = _FakeKernel()
+    pipeline, _channel = _make_pipeline(kernel, _agents(tmp_path), tmp_path)
+
+    # First message creates the session + binding (and finishes via the fast stub).
+    first = InboundMessage(
+        channel_name="web",
+        text="run a long task",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+    asyncio.run(pipeline.handle_inbound(first))
+    session_key = "web:chat-1:agent-a"
+    binding = pipeline._session_store.get(session_key)  # noqa: SLF001
+    assert binding is not None
+    kernel_session_id = binding.kernel_session_id
+
+    # Simulate an active run for that session (both the gateway gate and the
+    # kernel's own active-run map the steer submit consults).
+    pipeline._active_runs[session_key] = "run-active"  # noqa: SLF001
+    kernel.active_run_by_session[kernel_session_id] = "run-active"
+
+    submits_before = len(kernel.submit_calls)
+    steer_msg = InboundMessage(
+        channel_name="web",
+        text="actually use web_search",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+    result = asyncio.run(pipeline.handle_inbound(steer_msg))
+
+    # Exactly one new submit, and it was a steer injection (not a new run).
+    assert len(kernel.submit_calls) == submits_before + 1
+    steer_call = kernel.submit_calls[-1]
+    assert steer_call["steer"] is True
+    assert steer_call["injected"] is True
+    assert steer_call["session_id"] == kernel_session_id
+    # The injected message text is carried in parts.
+    assert any(
+        p.get("type") == "text" and "actually use web_search" in p.get("text", "")
+        for p in steer_call["parts"]
+    )
+    assert result is not None
+    assert result.run_id == "run-active"
+
+
+def test_idle_message_opens_new_run_not_steer(tmp_path: Path) -> None:
+    """With no active run, a message is a normal new run (steer degrades): the
+    submit is not an injection."""
+    kernel = _FakeKernel()
+    pipeline, _channel = _make_pipeline(kernel, _agents(tmp_path), tmp_path)
+
+    inbound = InboundMessage(
+        channel_name="web",
+        text="hello",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+    asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert len(kernel.submit_calls) == 1
+    assert kernel.submit_calls[0]["injected"] is False
+
+
+def test_group_steer_preserves_sender_prefix_and_buffered_context(
+    tmp_path: Path,
+) -> None:
+    """A group-chat steer reuses the same parts builder as the normal path:
+    the steered message carries the sender prefix and any buffered context from
+    other speakers — not a bare message.text."""
+    kernel = _FakeKernel()
+    pipeline, _channel = _make_pipeline(kernel, _group_agents(tmp_path), tmp_path)
+
+    # First group message creates the session binding.
+    first = InboundMessage(
+        channel_name="web",
+        text="@agent-a kick off",
+        external_user_id="user-1",
+        external_chat_id="grp-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"sender_display_name": "Alice"},
+    )
+    asyncio.run(pipeline.handle_inbound(first))
+    session_key = "web:grp-1:agent-a"
+    binding = pipeline._session_store.get(session_key)  # noqa: SLF001
+    assert binding is not None
+    kernel_session_id = binding.kernel_session_id
+
+    # Buffer a message from another speaker (not addressed to agent-a) so the
+    # next turn must drain it into context.
+    buf_key = pipeline._group_buf_key_for_agent(first, "agent-a")  # noqa: SLF001
+    pipeline._group_context_store.append(buf_key, "context from bob", sender="Bob")  # noqa: SLF001
+
+    # Active run → the new group message must steer into it.
+    pipeline._active_runs[session_key] = "run-active"  # noqa: SLF001
+    kernel.active_run_by_session[kernel_session_id] = "run-active"
+
+    steer_msg = InboundMessage(
+        channel_name="web",
+        text="@agent-a change direction",
+        external_user_id="user-2",
+        external_chat_id="grp-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"sender_display_name": "Carol"},
+    )
+    asyncio.run(pipeline.handle_inbound(steer_msg))
+
+    steer_call = kernel.submit_calls[-1]
+    assert steer_call["steer"] is True and steer_call["injected"] is True
+    texts = [p.get("text", "") for p in steer_call["parts"] if p.get("type") == "text"]
+    joined = "\n".join(texts)
+    # Buffered other-speaker context is drained in with its sender prefix.
+    assert "[Bob] context from bob" in joined
+    # The current speaker's message keeps the sender prefix (not bare text).
+    assert "[Carol] @agent-a change direction" in joined

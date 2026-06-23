@@ -5,7 +5,17 @@
 
 ## Changelog
 
-<!-- design 阶段保持空 -->
+- 2026-06-23 (M1): 决策3 终态语义定为**三档**（用户最终拍板）：非用户终止（超时/失败/看门狗
+  idle-reap/crash/force-cancel）→ drain→自动续跑；**用户 /stop → 挂起合并**（drain 移入 session
+  `_held_pending`，下次该 session submit 时 prepend 进 parts 后清空，既不丢也不自动续跑）；
+  收口到单一 chokepoint `_settle_terminal_pending`。配套 B+A 接线修 /stop 合成 submit 竞态：
+  interrupt() 同步 move held + `submit(flush_held=False)` 让 /stop 合成 turn 不消费 held。
+  原方案只覆盖正常完成，会让 steer 进随后被取消的 run 的消息静默丢失（违反 incident「消息不丢失」）。
+  详见 M1-sdk-im-steering/progress.md「/stop 语义终态」+「B+A 接线竞态修复」。
+- 2026-06-23 (M1): 决策2「注入携带多模态 block 列表」按内核 text-only 现实校正为「注入复用 submit
+  同款 `parse_input_parts + render_user_text`，content=str」——内核 LLM 边界统一渲 text（图片→
+  placeholder），正常 submit 今天图片也不走多模态 content。意图（带不带附件路径相同）不变。
+  详见 M1-sdk-im-steering/progress.md 顶部对齐段。
 
 ## 现状分析
 
@@ -91,13 +101,17 @@ after：运行中入口传 `steer=True` → 有活跃 run 就注入下一轮、�
 - **拒绝**: 注入仅 text、附件退化排队（人为分裂，错误）；注入丢附件（静默丢失）。
 - **风险**: 无新增——注入与正常 turn 的 user 消息载荷一致。
 
-### 决策 3: 续跑兜底保 origin=USER + 保完整 content（修 registry.py:635-648）
+### 决策 3: 续跑兜底保 origin=USER + 覆盖所有非 user-initiated 终态（修 registry.py 终态收口）
 
-**run 结束竞态时 drain 出的 stranded 消息续跑，origin 跟随注入来源（用户 steer→`USER`，非硬编码 `BACKGROUND_TASK`），且 content 为 list 时原样保留（不降级成 text part）。**
+**stranded 消息按终止类型三档处理，origin 跟随注入来源（用户 steer→`USER`，非硬编码 `BACKGROUND_TASK`），收口到单一终态 chokepoint `_settle_terminal_pending`：**
+- **非用户终止**（正常完成 / 超时 / 失败 / 看门狗 idle-reap / crash / force-cancel(CancelledError)）→ drain → **自动续跑**（continuation run，带 origin）。
+- **用户主动 /stop**（`abort(user_initiated=True)`，gate=`controller.is_user_interrupt`）→ **挂起合并**：drain 移入 session 级 `_held_pending`，**既不丢、也不自动续跑**；该 session 下次 `submit()` 时把 held prepend 进 parts（held 在前、新消息在后）后清空。
+- **B+A 接线**（修 /stop 合成 submit 竞态）：`interrupt()` 在 abort 后**同步持锁** move held（不等异步 chokepoint）；`submit(flush_held=True 默认)`，gateway /stop 合成「/stop 命令」turn 传 `flush_held=False`，使 held 只被用户下一条真实消息 flush。
 
-- **理由**: feat-337:528 既定"续跑 origin 跟随活跃 run（通常 USER）"；现硬编码 `BACKGROUND_TASK` 会让用户 steer 消息在竞态路径被错标来源、并丢多模态内容。
-- **拒绝**: 维持现状（错标 origin + 丢图片，与决策 2 自相矛盾）。
-- **风险**: 续跑 origin 需知注入来源；由调用方在 inject 时携带 origin 元信息（实现层，worker 定具体载法）。
+- **理由**: feat-337:528 既定"续跑 origin 跟随活跃 run（通常 USER）"。/stop 丢弃会丢用户后发意图；自动续跑又与 bugfix-417「已停止当前操作」ack 自相矛盾——挂起合并两全。**原方案只在正常完成路径 drain——steer 进随后被取消的 run 的消息会静默丢失，违反 incident「消息不丢失」**；故单点收口覆盖全终止（M1 发现，见 Changelog）。
+- **content 说明（M1 校正）**: 决策2 已定注入 content 为 str（`render_user_text`，内核 text-only 现实），故续跑 parts 重建 `{"type":"text","text":msg.content}` 对 str 已正确，无 list 多模态分支。
+- **拒绝**: 维持现状（错标 origin + cancel 路径丢消息）；/stop 丢弃（丢意图）；/stop 自动续跑（与 ack 矛盾）；各路径分别补 drain（易再漏，这次正漏了 cancel）。
+- **风险**: 续跑 origin 需知注入来源——pending 队列承载 origin（`PendingMessage`）；registry 关闭中续跑 no-op，避免 force-cancel-during-shutdown 期 submit 报错；held 为 in-memory，进程重启丢失（与 pending 一致，可接受）。
 
 ### 决策 4: CLI 恢复非阻塞 REPL 输入，运行中输入走 steer
 

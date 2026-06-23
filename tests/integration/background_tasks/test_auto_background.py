@@ -122,8 +122,16 @@ class _RunsRegistryStub:
     def get_active_run_id(self, session_id: str) -> str | None:
         return self._active_run_by_session.get(session_id)
 
-    def inject_pending_message(self, session_id: str, message: LLMMessage) -> bool:
-        self.injections.append({"session_id": session_id, "message": message})
+    def inject_pending_message(
+        self,
+        session_id: str,
+        message: LLMMessage,
+        origin: RunOrigin = RunOrigin.USER,
+    ) -> bool:
+        # bugfix-426: inject_pending_message gained an origin param.
+        self.injections.append(
+            {"session_id": session_id, "message": message, "origin": origin}
+        )
         return True
 
     def submit(

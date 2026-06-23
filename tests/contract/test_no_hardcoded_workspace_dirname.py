@@ -48,11 +48,13 @@ _WHITELIST: frozenset[str] = frozenset(
         # kernel.py: M3fix #2 workspace .nano/hooks dir for the _SearchRootsResolver
         # (决策2-style workspace discovery; literal .nano, not workspace_config_dirname);
         # M3fix-r2 dead-code removal shifted 369→370.
-        "src/agent/sdk/kernel.py:370",
+        # bugfix-426-M1: RunInfo.injected docstring lines in _to_run_info shifted 370→375.
+        "src/agent/sdk/kernel.py:375",
         # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
         # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
-        "src/agent/sdk/kernel.py:483",
+        # bugfix-426-M1: RunInfo.injected docstring lines in _to_run_info shifted 483→488.
+        "src/agent/sdk/kernel.py:488",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode

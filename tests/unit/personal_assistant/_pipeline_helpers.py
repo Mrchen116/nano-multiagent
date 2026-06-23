@@ -378,7 +378,21 @@ class _FakeKernel:
         origin: Any = None,
         workspace_root: Path | None = None,
         trace_id: str | None = None,
+        steer: bool = False,
+        flush_held: bool = True,
     ) -> MagicMock:
+        # bugfix-426: a steer=True submit injects into a kernel-active run when one
+        # exists (returns injected=True, reusing its run_id, no new run). This fake
+        # has no active-run model unless a test populates active_run_by_session, so
+        # by default steer degrades to a normal new run (injected=False) — matching
+        # the real kernel when the session is idle.
+        active_map = getattr(self, "active_run_by_session", {})
+        active = active_map.get(session_id)
+        if steer and active is not None:
+            record = MagicMock()
+            record.run_id = active
+            record.injected = True
+            return record
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         # Extract texts from parts for backwards-compatible send_calls
@@ -407,6 +421,7 @@ class _FakeKernel:
         self._last_run_id_by_session[session_id] = run_id
         record = MagicMock()
         record.run_id = run_id
+        record.injected = False
         return record
 
     def stream(
