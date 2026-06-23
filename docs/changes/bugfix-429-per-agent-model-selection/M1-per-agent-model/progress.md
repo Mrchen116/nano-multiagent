@@ -63,3 +63,25 @@
 - Rollback: 回退到 R2 C3 commit。
 - Commits: C1=test 红测, C2=feat Gateway 三入口 + fake 适配, C3=本次 docs。
 - Next: R4 链路B 动态新建 agent default_model 持久化（加日志钉真因）。
+
+## R5 — IM + 前端 provider 展示
+
+- Context: list_models() 带 provider，但 upstream_reporter.py:87 flatten 成纯 name，下游全链路 list[str]，前端下拉只显 name。incident「IM 下拉展示 provider」需求。
+- Decision:
+  - Gateway：`_models_from_kernel` 返回 `tuple[{name,provider}]`（保 list_models 的 provider）；ReporterCapabilities.models 结构化；删死代码 `_dedupe_preserve_order`。
+  - IM：新增 `ModelOptionResponse{name,provider}` + `coerce_model_options`（容忍旧 Gateway 纯 str → provider=""）；agents.py/nodes.py capabilities `models` 改 `list[ModelOptionResponse]`。
+  - 前端：`ModelOption{name,provider}` 类型；`normalizeModelOptions`/`resolveModelOptions` 透传 provider；detail/create 下拉渲染 `<model> · <provider>`，缺 provider 降级只显 name。
+- Rationale: provider 在内核就有，只需阻止下游丢弃 + 各层带过去。容忍旧 str 形态保证滚动升级不炸。
+- Evidence:
+  - Tests: 红测 `test_node_capabilities_models_carry_provider`（Gateway）+ 前端 `bugfix-429 R5: model dropdown labels...`（断言 option 文案含 provider）先红后绿；前端 65 vitest 全绿 + `npm run build`(tsc+vite) 通过；`pytest -m "not e2e"` 全树绿（修 2 处：im_service contract shape + capability golden）。
+  - Entry: **live 验证** —— 重启 e2e 栈后 `GET /im/v1/nodes/{node}/capabilities` 的 models 端到端带 provider：kimi/doubao→anthropic、gpt-5.5→openai_compat（Gateway reporter → IM API 全链路）。
+  - Frontend State Matrix: default（option 显 `name · provider`）✓ / empty（[] → 仅平台默认占位）✓ / missing provider（降级只显 name）✓ 单测覆盖；mobile/long-content 视觉留 R7 截图。
+  - Browser QA: 留 R7（连同 model 真生效一起做真实浏览器旅程 + 截图）。
+  - E2E/Regression: 后端 reporter/contract 单测 + 前端组件测试即 regression；live capabilities 已验。
+  - Visual/Interaction: 下拉 provider 标注截图留 R7。
+  - Lint: ruff + tsc 通过。
+  - Trap: byte-identity golden `test_capability_payload_baseline` 锚定 models 旧 list[str]，改结构化后同步 golden（[[project-golden-host-volatile-and-unpinned-deps-ci-red]]）。
+- 契约层影响（待 orchestrator，§0.13 不由 worker 写）：`docs/specs/im/spec.md` capabilities models 携带 provider。
+- Rollback: 回退到 R4 commit。
+- Commits: C1=test 红测, C2=feat 后端+前端 provider 展示, +golden 修复, C3=本次 docs。
+- Next: R6 CLI 自维护 current model + reconfigure_llm/bind_llm_client 退役（先问 team-lead /model UX）。
