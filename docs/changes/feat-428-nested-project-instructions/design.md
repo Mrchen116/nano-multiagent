@@ -54,7 +54,7 @@
 graph TD
   subgraph 机制A["机制 A — 启动注入（默认恒开）"]
     WS["agent workspace_root/AGENTS.md"] -->|首轮读盘冻结快照| SNAP["PromptContext.agents_md_content"]
-    SNAP --> SEG["CORE_AGENTS_MD_BLOCK 段<br/>(system prompt, volatile 尾区)"]
+    SNAP --> SEG["CORE_AGENTS_MD_BLOCK 段<br/>(system prompt, 稳定前缀末尾 cache_safe=True)"]
   end
   subgraph 机制B["机制 B — read 触发（nested_memory, 可选默认开）"]
     READ["read 工具读文件 F"] --> CHK{"nested_memory 开?"}
@@ -75,11 +75,12 @@ graph TD
 
 ### 决策 1: 机制 A 注入到 system prompt（而非 CC 的 user meta-message）
 
-**放 system prompt**：新增 `CORE_AGENTS_MD_BLOCK` 段，照 `_render_memory_block` 范例，置于 volatile 尾区。
+**放 system prompt**：新增 `CORE_AGENTS_MD_BLOCK` 段（渲染同 `_render_memory_block`：banner + 正文），但 **`cache_safe=True`，置于 `_SLOT_CUSTOM` 之后、`CORE_MEMORY_BLOCK`（首个 volatile 段）之前**。
 
-- **理由**: 与 spec 明确诉求一致；本仓 MemoryStore 已验证 system prompt 注入文件内容可行；system prompt 不臃肿，CC 的"权重稀释"顾虑在此影响小。
-- **拒绝**: CC user meta-message —— 其动机（system prompt 过长怕淹）我们没有，且要改消息装配链路，成本高于新增一个 prompt 段。
-- **风险**: AGENTS.md 很大时混在 system prompt 尾部可能不够受重视 —— 后面效果不好再考虑迁 meta-message（用户认可的演进留口）。
+- **理由**: ① 与 spec 诉求一致、本仓 MemoryStore 已验证 system prompt 注入可行；② cache 定位按 AGENTS.md 的**变化画像**定，不照搬 memory：AGENTS.md session 内冻结、且对 PA 长驻 agent（workspace 固定）**跨会话稳定**——与 per-agent 但 `cache_safe=True` 的 `_SLOT_CUSTOM` 同构，而非与"跨会话累积、故进 volatile 尾区"的 memory 同构。放稳定前缀让 PA 长驻 agent 吃到跨会话前缀缓存，CLI 最差中性。
+- **拒绝**: ① `cache_safe=False`（design-review WARNING 指出、原"照 memory 范例"是 cargo-cult）—— memory volatile 的真因是跨会话累积非 session 内变，AGENTS.md 不累积，归错类；② CC user meta-message —— 动机（system prompt 过长怕淹）我们没有，且要改消息装配链路。
+- **风险**: AGENTS.md 跨会话被编辑则那一次跨会话缓存未命中（罕见、成本一次）；很大时混在 system prompt 可能不够受重视 —— 后面效果不好再考虑迁 meta-message（演进留口）。
+- **注**: design-review 提的"volatile 尾区每轮重发"论证不精确——按字节前缀缓存，冻结段排在 `_SLOT_TAIL` 前 session 内本就命中；真正差异在跨会话，故按跨会话画像归到稳定前缀。
 
 ### 决策 5: 机制 B 开关 = FEATURE_REGISTRY 条目，但不投影给用户
 
@@ -148,7 +149,7 @@ graph TD
 
 - `PromptContext` 新增 `agents_md_content: str | None = None`（`base.py`）。
 - `runtime._ensure_agents_md_snapshot(session_id)`：首轮读 `config.workspace_root/AGENTS.md` → `load_agents_md` → 冻结快照存 session 级缓存；同时把该根路径**预置**进 `SessionFileState.loaded_agents_md`（供机制 B 去重）。后续轮用缓存。
-- `core_sections.CORE_AGENTS_MD_BLOCK`：`enabled_when` = 内容非空；`render` = banner + 正文；`cache_safe=False`，插在 `core.memory_block` 一侧的 volatile 尾区（位置 > 所有稳定段）。
+- `core_sections.CORE_AGENTS_MD_BLOCK`：`enabled_when` = 内容非空；`render` = banner + 正文；**`cache_safe=True`，skeleton 中插在 `_SLOT_CUSTOM` 之后、`CORE_MEMORY_BLOCK` 之前**（最后一个稳定段；满足"True 段全在 False 段之前"不变量，由 `assemble_system_prompt` 校验）。
 - `wiring.build_prompt_context_from_metadata(..., agents_md_content=...)` 透传。
 
 ### 机制 B（read 触发，read.py 内）
@@ -253,3 +254,9 @@ Read any of them with the read tool if you need this project's conventions befor
 | feat-428-M1 | impl | — | A | 共享核心：`agent/core/` 新增 `load_agents_md`(@import) + `find_outermost_git_root` + `iter_agents_md_chain`；机制 A：`base.py` PromptContext 字段、`core_sections.py` CORE_AGENTS_MD_BLOCK、`skeleton.py` 段位、`wiring.py` 透传、`runtime.py` `_ensure_agents_md_snapshot`；机制 B：`feature_registry.py` 加 `nested_memory`、`session_file_state` 加 `loaded_agents_md`、`read.py` 注入逻辑；两产品装配默认开（CLI `DEFAULT_FEATURES` 无需动—走 registry 默认；确认 PA 不暴露 toggle）；delta-spec `specs/kernel/spec.md` | `[reviewer]` 覆盖 spec.md 全部 Requirement/Scenario（机制 A 启动注入含空态/两产品；机制 B 内注入/外提示/空态/边界/去重；关闭后 A 不受影响）；`[worker]` 新单测覆盖：@import 递归+防环+深度上限、git 外层仓根定界（嵌套仓 e~z 例）、内外判定、去重一次性、关闭 flag；`[worker]` `pytest -m "not e2e"` 全绿 + ruff check/format 净 |
 
 > 单 M1：机制 A/B 共享 AGENTS.md 加载 + @import 核心，无法真并行；估算 < 800 行；无分阶段验证依赖。不满足任何拆分硬触发。
+
+### Worker 实现注意（design-review Recommendations，已采纳）
+
+1. `safety.is_path_in_workspace` 带 `TODO(bugfix-355): ...only used by test code`——决策 2 让它重回生产路径，落地时顺手清掉这条已失效 TODO。
+2. 决策 5 的 `requires_tool="read"` 在"read.py 直读 `default_on`"取数路径里**不产生运行时 gating**（纯文档性，标明特性依赖 read 工具）；别误以为它起开关作用，真开关是 `default_on` + `agent_features` 覆盖。
+3. 机制 B 注入逻辑须避开 `read.py:187` 的 `file_unchanged` 提前返回路径——确保该走注入的 read 不被提前 return 跳过（去重由 `loaded_agents_md` 负责，不靠 file_unchanged）。
