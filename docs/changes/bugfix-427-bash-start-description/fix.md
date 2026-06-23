@@ -47,8 +47,26 @@ IM 聊天面板里，agent 调用 bash 工具时，折叠行文案在两个阶�
 
 ## 修复
 
-<!-- 改了什么 + commits。worker 回填。 -->
+改动范围：仅 `src/agent/platform/tools/presentation.py`，`_BashPresenter.format_start`。
+
+修前（L313-317）直接截断 command：`summary=_truncate(str(args.get("command", "")), 80)`
+
+修后走 `_summarize_bash(args, command)`——与 `format_end` 完全同源：优先 `args.description`，空时降级命令首段。
+
+Commits：
+- C1 红测（07ba114）：`test(bugfix-427/M1/R1): format_start 有 description 时应显示 description 而非 command（红测）`
+- C2 实现（c488cef）：`fix(bugfix-427/M1/R1): _BashPresenter.format_start 走 _summarize_bash 与 format_end 对齐`
 
 ## 验证
 
-<!-- 修前能复现 → 修后不能；相关功能回归正常。worker 回填。 -->
+自动化回归（`tests/unit/platform/tools/test_presentation.py::TestBashPresenter`）：
+
+新增 `test_start_shows_description_when_present`：
+- 修前：`format_start({"command": "pytest -xvs tests/unit/", "description": "跑单元测试"})` → `summary == "pytest -xvs tests/unit/"` (FAIL)
+- 修后：同入参 → `summary == "跑单元测试"` (PASS)
+
+现有无 description 的降级行为不变（`test_start_shows_command_when_no_description` PASS）。
+
+全测试树（`pytest -m "not e2e"`）：2742 passed, 0 failed, 1 skipped。
+
+`format_end` 现有测试（`test_end_summary_is_description` / `test_end_summary_falls_back_to_command_when_no_description` / `test_end_failed` / `test_end_failed_falls_back_to_command`）全 PASS，确认 `format_end` 行为无回归。
