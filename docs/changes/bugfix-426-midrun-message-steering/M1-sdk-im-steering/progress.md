@@ -122,43 +122,50 @@
 - Commits: C1=test R3（红）, C2=fix R3, C3=本次 docs。
 - Next: R4 — live IM 端到端验收。
 
-## [对齐] /stop 续跑语义 — orchestrator 终裁（覆盖 worker 初始倾向）
+## [对齐] /stop 语义终态 — 三档「挂起合并」（用户最终拍板，多轮演进）
 
-- worker 初始倾向: /stop 后被 steer 进的"后发新消息"也应续跑（视为用户新意图）。
-- orchestrator 终裁（采纳）: **用户主动 /stop → 丢弃 pending，不续跑**；非用户终止（看门狗
-  idle-reap / crash / timeout）→ drain 续跑。
-- 决定性理由: bugfix-417 的 /stop 会回「已停止当前操作」并抑制 final reply；若续跑，用户会看到
-  「已停止」紧接 agent 又自动跑 msg2，自相矛盾；要自洽得改 /stop ack 链路 → 把 bugfix-417 语义
-  拉进来、扩大范围。/stop 是显式自愿信号，msg2 重发即可（在输入历史里）；看门狗/crash 是非自愿，必须保住。
-- 落地核对: 已实现的 gate 即 `not user_initiated`（`_continue_stranded_pending` 首行
-  `if controller is None or controller.is_user_interrupt: return`），与终裁**完全一致**，无需改码；
-  单测 `test_user_stop_discards_pending_no_continuation`（/stop→无续跑）+
-  `test_stranded_continuation_fires_on_non_user_cancel`（看门狗→续跑）双向锁定。
-  gate 单点，若用户日后否决（要 /stop 也续跑）改一行即可；不为此动 ack 改造。
+演进（记录全程，避免后人误读中间版）：v1 worker 倾向「/stop 也续跑」→ v2 orchestrator「所有终止都续跑」
+→ v3 orchestrator「/stop 丢弃」→ **v4 用户最终拍板「/stop 挂起合并」（采纳）**。最终三档：
+- 非用户终止（看门狗 idle-reap / crash / timeout，user_initiated=False）→ drain → 自动续跑。
+- **用户 /stop（user_initiated=True）→ 不丢、不自动续跑，drain 移入 session 级 `_held_pending`；
+  该 session 下次 submit() 把 held prepend 进 parts（held 在前、新消息在后）后清空。**
+- 已被 LLM 消费的消息无关。
 
-## R4 — live IM 端到端验收 + 测试桩对齐 + 文档
+理由：/stop 丢弃会丢用户后发意图；自动续跑又与 bugfix-417 的「已停止当前操作」ack 自相矛盾。
+挂起合并两全：尊重停止信号当下不动，用户下一条真实消息时把 held 一并带上。
 
-- Context: skill §0.3/§0.11 要求 live-critical 行为真栈端到端验证（不能只 pytest）。本 unit 核心 bug
-  正是「运行中发消息要在当前 run 下一轮被消费」，必须真 IM 旅程跑到用户可见结果。
-- Decision/Evidence:
-  - **Live IM 端到端（决定性证据）**: `scripts/e2e-up.sh` 起 worktree 隔离栈（ephemeral IM :55749 +
-    进程内 Gateway，真 LLM 代理 :4000）。直聊 agent `Arch`：
-    1. msg1「依次三次 bash sleep 4 各一轮，完成回 ALL_STEPS_DONE」→ run1 启动；
-    2. ~5s 后（run1 正跑 step1 工具）发 msg2「不用继续了，只回标记 ZZ_STEER_MARKER_426 并停止」；
-    3. LLM 代理日志 `session/...sess_5f5227e65e3257cf/` 第 4 个 -req- 的 messages 序列为
-       `[0]user(任务) [1]assistant(thinking+tool_use step1) [2]user(tool_result) [3]user(ZZ_STEER_MARKER_426)`
-       —— msg2 在工具批次结束后的**下一轮 LLM 调用前注入到同一 run/同一 session**（round-boundary）；
-    4. 该轮响应 `finish_reason=stop, content="ZZ_STEER_MARKER_426"`，reasoning 写「用户说不用继续了…立即回复」
-       —— agent **消费 steer、放弃 step2/step3、改向**；
-    5. 自 baseline 起**仅 1 个新 kernel session**——msg2 未另起新 run（决策1「不另起新 run」）；
-    6. IM 会话消息流（用户可见）: user任务 → agent「好的，开始执行第一步。」→ user标记 → agent「ZZ_STEER_MARKER_426」。
-    完全复现 incident「运行中发消息应在下一轮工具调用带进去」的期望、修复其实际症状。e2e 栈已 `e2e-down.sh` 清理，pid 全清，产物 gitignore。
-  - **测试桩对齐**: 四个 background_tasks 集成测试的 `_RunsRegistryStub.inject_pending_message`
-    补 `origin` 参数（R1 起内核签名已加）；test_task_stop 两例曾因桩缺 origin TypeError 致注入未记录。
-  - **全测试树门禁**: `pytest tests/ --collect-only` = 2759 collected 无导入错；
-    `pytest tests/ -m "not e2e"` = **2751 passed, 2 skipped**；`ruff check .` + `ruff format --check .`（674 files）全过。
-  - Frontend State Matrix / Browser QA / Visual: N/A（无前端改动）
-  - E2E/Regression: live 旅程为一次性验收证据（不落 pytest e2e）；回归保护由 R1-R3 的 7 条单测 + 1 条既有回归修复承担。
+### B+A 接线竞态修复（live /stop 实测暴露 → orchestrator 批准）
+live 首测发现 held 没被带上。根因（读 `_handle_stop_command` 确认）：/stop 处理器 interrupt() 后
+**同步 submit 合成消息**「用户发送了 /stop 命令」，与「held flush on next submit」相撞——
+(a) interrupt() 异步：run abort→move held 发生在后台 loop，晚于合成 submit；(b) 即便填充，held 会被
+合成 turn 吃掉而非用户 msg3。修法（均在 M1 范围）：
+- **B 同步 move**：`registry.interrupt()` 在 `abort(user_initiated=True)` 后**同步持锁**把 controller
+  未消费 pending move 到 `_held_pending`；后台 `_settle_terminal_pending` 再 drain 到空→no-op 去重。
+- **A 合成 submit 不 flush**：`submit(flush_held: bool=True)`（Kernel.submit 透传）；gateway /stop
+  合成 submit 传 `flush_held=False`，使 held 只被用户下一条真实消息 flush。
+- 单测：`test_interrupt_holds_pending_synchronously`、`test_submit_flush_held_false_does_not_consume_held`、
+  `test_user_stop_holds_pending_then_flushes_on_next_submit`、`test_held_pending_prepended_in_fifo_order`。
+
+## R4 — live IM 端到端验收（两条旅程）+ 测试桩对齐 + 文档
+
+- Context: skill §0.3/§0.11 要求 live-critical 行为真栈端到端验证（不能只 pytest）。
+- Decision/Evidence（`scripts/e2e-up.sh` worktree 隔离栈：ephemeral IM + 进程内 Gateway + 真 LLM 代理 :4000，直聊 agent `Arch`）：
+  - **旅程① 运行中 steer（决定性）**: msg1 长任务 → run1 跑 step1 → ~5s 发 msg2「ZZ_STEER_MARKER_426」。
+    LLM 代理日志 `sess_5f5227e65e3257cf` 第 4 个 -req- messages =
+    `[0]user(任务)[1]assistant(tool_use step1)[2]user(tool_result)[3]user(MARKER)` —— msg2 在工具批次后
+    **下一轮 LLM 前注入同一 run/同一 session**；该轮响应 `finish_reason=stop content=MARKER`，agent 弃 step2/3 改向；
+    自 baseline **仅 1 个新 session**（未另起新 run）。IM 可见：user任务→agent「好的，开始执行第一步。」→user标记→agent「ZZ_STEER_MARKER_426」。
+  - **旅程② /stop 挂起合并（决定性，B+A 验证）**: msg1（bash sleep 6）→ run1 活跃 → msg2「记住标记 WW_HELD_MARKER_426」
+    → /stop → msg3「我刚让你记的标记是什么」。临时 file-trace（验毕已撤）实证内核序列：
+    `inject injected=True`（msg2 进 run1）→ `interrupt_hold held_count=1`（/stop **同步**挂起 msg2）→
+    `submit_flush flush_held=False held_count=0`（合成 /stop turn 不消费）→ `submit_flush flush_held=True held_count=1`（msg3 flush）。
+    LLM 代理日志 `sess_9a076ea17b527f50` msg3 run messages 含
+    `…→user(/stop 命令)→assistant(已停止)→user(@Arch 记住这个标记：WW_HELD_MARKER_426)←HELD→user(msg3)`
+    —— held msg2 被 prepend 进 msg3 run（FIFO）。IM 可见 agent 终答：「你刚才让我记住的标记是：`WW_HELD_MARKER_426`。」——held 未丢、被带上、被用上。
+    e2e 栈均 `e2e-down.sh` 清理，pid 全清，产物 gitignore；调试 file-trace 已从代码撤净（git diff 验无残留）。
+  - **测试桩对齐**: background_tasks 四桩 `inject_pending_message` 补 `origin`；gateway 四桩 `submit` 补 `flush_held`。
+  - **全测试树门禁**: `pytest tests/ --collect-only` 无导入错；`pytest tests/ -m "not e2e"` = **2754 passed, 2 skipped**；ruff check + format（674 files）全过。
+  - Frontend State Matrix / Browser QA / Visual: N/A
+  - E2E/Regression: 两条 live 旅程为一次性验收证据（不落 pytest e2e）；回归由 R1-R3 的 9 条单测 + 1 条既有回归修复承担。
 - Rollback: 整个 M1 为加法（steer 默认 False）；回滚让入口不传 steer=True 即退回排队行为，无数据迁移。
-- Commits: 见 R4 测试桩 commit + 本次 docs。
-- Next: 本 milestone 全部退出标准达标，进入 §6 集成到 unit 分支。
+- Next: 全部退出标准达标，进入 §6 集成到 unit 分支。
