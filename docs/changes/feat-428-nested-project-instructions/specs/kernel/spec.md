@@ -28,9 +28,7 @@
 - **THEN** 系统提示仍含 X（不随磁盘变动而变，保前缀缓存）
 - **AND** 发生上下文压缩（或新会话）后的下一轮，系统提示刷新为 Y
 
-#### Scenario: 系统提示预览显示 AGENTS.md 注入占位
-- **WHEN** 消费者调 `assemble_prompt_preview` 取系统提示预览
-- **THEN** 预览结果含 AGENTS.md 段的占位标记（`PREVIEW` 模式输出 `<运行时注入：…>` 占位，与 MEMORY/USER 一致；不读盘、不渲染实际文件内容）
+> 注：系统提示预览（`assemble_prompt_preview`）对 AGENTS.md 段的呈现，归并入下方 MODIFIED 的「系统提示由内核模板组装」既有 Requirement，不在此另立。
 
 ### Requirement: read 工具触发就近项目指令加载（机制 B，可选，默认开）
 
@@ -64,3 +62,30 @@
 - **WHEN** agent read 工作区内/外文件
 - **THEN** 工具结果不含项目指令内容/提示
 - **AND** 机制 A 的工作区根 AGENTS.md 仍照常注入系统提示（不随之关闭）
+
+## MODIFIED Requirements
+
+### Requirement: 系统提示由内核模板 + PromptSlots(四槽) 组装,产品内容纯 per-session
+
+内核拥有模板骨架(顺序固定:head → core 行为规则 → body → 通用 feature 指引 → 后台任务/runtime footer →
+custom → **内核自有工作区 AGENTS.md 段** → 内核易变尾部(memory/时间) → tail)。`create_session(prompt=PromptSlots(head/body/custom/tail))`
+填产品文案槽。系统提示的**产品内容全是 per-session**:建会话时由模板 + PromptSlots 组装一次、整会话
+稳定;内核易变尾部由内核自管,产品不碰。**新增的工作区 AGENTS.md 段也由内核自管**(源自 `workspace_root/AGENTS.md`,
+首轮冻结、压缩边界刷新,见本 unit「会话上下文自带工作区 AGENTS.md」Requirement)。产品无任何向系统提示做
+per-turn 注入的通道(hook 不注入系统提示)。`PromptSection` / `PromptContext` / `RenderMode` 不在公共表面。
+
+> 本 unit(feat-428)改动点:模板骨架在 custom 之后、内核易变尾部之前新增一个内核自有的工作区 AGENTS.md 段
+> (`cache_safe=True`,落稳定前缀末尾);预览占位集相应从「仅易变尾部」扩为「易变尾部 + 工作区 AGENTS.md 段」。
+
+#### Scenario: 系统提示产品内容在会话内稳定
+- **GIVEN** 一个已创建会话
+- **WHEN** 同一会话多回合运行
+- **THEN** 系统提示的产品内容(PromptSlots 四槽)逐回合不变(仅内核自管的易变尾部随 memory/时间变、
+  以及内核自管的工作区 AGENTS.md 段随上下文压缩边界刷新);产品无机制在回合间改写系统提示
+
+#### Scenario: prompt preview 与真实装配同源
+- **GIVEN** `kernel.assemble_prompt_preview(*, prompt=PromptSlots, features, enabled_tools,
+  workspace_root, scenario)`,消费者用与真实会话同一工厂构造的 `PromptSlots`
+- **WHEN** 以某 agent 配置请求预览
+- **THEN** 预览输出与该配置真实会话装配的 system prompt 一致(**易变尾部 + 工作区 AGENTS.md 段**以
+  `<runtime-injected:…>` 占位,不读盘);内核侧 product-neutral(产品段全在传入的 PromptSlots)
