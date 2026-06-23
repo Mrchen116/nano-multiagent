@@ -283,3 +283,101 @@ def test_default_on_when_no_override(tmp_path: Path) -> None:
     tool = ReadTool()
     out = tool.run({"path": str(target)}, _ctx(ws, SessionFileState()))
     assert "PKG RULES" in _read_text(tool, out)
+
+
+# ---------------------------------------------------------------------------
+# fix r1: 行号污染 / 去重提交时机 / symlink
+# ---------------------------------------------------------------------------
+
+
+def test_injection_block_not_line_numbered(tmp_path: Path) -> None:
+    # CRITICAL (verifier W1 + code-review C1/B1): serialize_result 不能把注入块
+    # 一起过 _add_line_numbers——只有文件正文加行号，<project-instructions> 块原样。
+    ws = tmp_path / "ws"
+    sub = ws / "pkg"
+    sub.mkdir(parents=True)
+    (sub / "AGENTS.md").write_text("PKG RULES", encoding="utf-8")
+    target = sub / "a.py"
+    target.write_text("line one\nline two", encoding="utf-8")
+
+    tool = ReadTool()
+    serialized = tool.serialize_result(
+        tool.run({"path": str(target)}, _ctx(ws, SessionFileState()))
+    )
+    assert isinstance(serialized, str)
+    # 文件正文有行号（cat -n 风格 "N→"）。
+    assert "→line one" in serialized
+    # 注入块标签行不得带行号前缀（"N→<project-instructions").
+    assert "<project-instructions path=" in serialized
+    for line in serialized.splitlines():
+        if "<project-instructions" in line or "PKG RULES" in line:
+            # 行号格式是 右对齐数字 + →；注入块行不应匹配。
+            assert "→" not in line.split("<project-instructions")[0], (
+                f"injection line got line-numbered: {line!r}"
+            )
+
+
+def test_hint_block_not_line_numbered(tmp_path: Path) -> None:
+    # 外部路径提示块同样不得被加行号。
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    repo = tmp_path / "repo"
+    (repo / ".git").mkdir(parents=True)
+    (repo / "AGENTS.md").write_text("RULES", encoding="utf-8")
+    target = repo / "a.py"
+    target.write_text("x\ny", encoding="utf-8")
+
+    tool = ReadTool()
+    serialized = tool.serialize_result(
+        tool.run({"path": str(target)}, _ctx(ws, SessionFileState()))
+    )
+    assert isinstance(serialized, str)
+    assert "<project-instructions-hint>" in serialized
+    for line in serialized.splitlines():
+        if "<project-instructions-hint>" in line:
+            assert not line.startswith(" ") or "→" not in line[:8], (
+                f"hint line got line-numbered: {line!r}"
+            )
+
+
+def test_non_utf8_main_file_does_not_pollute_dedup(tmp_path: Path) -> None:
+    # fix 2: _nested_memory_blocks compute 时不得 mutate loaded_agents_md；
+    # 主文件读失败(ToolError)时注入未交付，事后 read 同目录正常文件仍能注入。
+    ws = tmp_path / "ws"
+    sub = ws / "pkg"
+    sub.mkdir(parents=True)
+    (sub / "AGENTS.md").write_text("PKG RULES", encoding="utf-8")
+    bad = sub / "bad.bin"
+    bad.write_bytes(b"\xff\xfe\x00\x01not utf8\xff")
+
+    tool = ReadTool()
+    state = SessionFileState()
+    with pytest.raises(Exception):
+        tool.run({"path": str(bad)}, _ctx(ws, state))
+    # 失败的 read 不应把该 AGENTS.md 记进去重集。
+    assert str((sub / "AGENTS.md").resolve()) not in state.loaded_agents_md
+    # 事后 read 同目录正常文件仍能注入。
+    good = sub / "ok.py"
+    good.write_text("code", encoding="utf-8")
+    out = tool.run({"path": str(good)}, _ctx(ws, state))
+    assert "PKG RULES" in _read_text(tool, out)
+
+
+def test_symlink_dir_resolves_for_chain_and_dedup(tmp_path: Path) -> None:
+    # fix 4: file_dir 须先 resolve(file_path) 再取 parent，否则 symlink 目录下
+    # 链走错 + 去重 key 与 is_path_in_workspace(resolve) 不匹配。
+    ws = tmp_path / "ws"
+    real = ws / "real"
+    real.mkdir(parents=True)
+    (real / "AGENTS.md").write_text("REAL RULES", encoding="utf-8")
+    (real / "f.py").write_text("code", encoding="utf-8")
+    link = ws / "link"
+    link.symlink_to(real, target_is_directory=True)
+
+    tool = ReadTool()
+    state = SessionFileState()
+    out = tool.run({"path": str(link / "f.py")}, _ctx(ws, state))
+    text = _read_text(tool, out)
+    assert "REAL RULES" in text
+    # 去重 key 用 resolve 后的真实路径。
+    assert str((real / "AGENTS.md").resolve()) in state.loaded_agents_md

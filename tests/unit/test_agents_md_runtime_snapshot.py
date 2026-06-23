@@ -96,3 +96,37 @@ def test_invalidate_clears_snapshot_and_loaded_agents_md(
     assert "s5" not in runtime._memory_snapshots
     # 去重集随压缩边界清空，压缩后可重注（含根）。
     assert runtime._session_file_states["s5"].loaded_agents_md == set()
+
+
+def test_preseed_idempotent_after_compaction_reseed(
+    runtime: AgentRuntime, tmp_path: Path
+) -> None:
+    # fix 3: 压缩后 _invalidate 清空 loaded_agents_md，下一轮 _ensure 重新预埋根——
+    # 根路径恰好一份（set 幂等），不因 reseed 重复，机制 B 仍正确跳过根。
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    root_md = ws / "AGENTS.md"
+    root_md.write_text("WS", encoding="utf-8")
+    key = str(root_md.resolve())
+
+    runtime._ensure_memory_snapshot("s6", {"workspace_root": str(ws)})
+    assert runtime._session_file_states["s6"].loaded_agents_md == {key}
+
+    # 压缩边界清空 + 下一轮重新预埋。
+    runtime._invalidate_memory_snapshot("s6")
+    runtime._ensure_memory_snapshot("s6", {"workspace_root": str(ws)})
+    assert runtime._session_file_states["s6"].loaded_agents_md == {key}
+
+
+def test_no_preseed_when_workspace_has_no_agents_md(
+    runtime: AgentRuntime, tmp_path: Path
+) -> None:
+    # fix 3 配套：机制 A 未注入根（无 AGENTS.md）→ 不预埋，机制 B 后续若命中可正常注入。
+    # 同理 frozen/hook-override 路径不调 _ensure_memory_snapshot 时根本不预埋——
+    # 机制 A 没注入，机制 B 命中根时应注入（非重复）。
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    runtime._ensure_memory_snapshot("s7", {"workspace_root": str(ws)})
+    state = runtime._session_file_states.get("s7")
+    if state is not None:
+        assert state.loaded_agents_md == set()

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 AGENTS_MD_FILENAME = "AGENTS.md"
 
@@ -42,6 +42,11 @@ _FENCE_RE = re.compile(r"^\s*(```+|~~~+)")
 # non-fenced line has its code spans stripped before @import extraction.
 _CODESPAN_RE = re.compile(r"`[^`]*`")
 
+# Module-level compiled patterns for _is_valid_import_path (fix r1: hoisted from
+# inline re.match so they compile once, not per captured token).
+_PUNCT_LEADING_RE = re.compile(r"^[#%^&*()]+")
+_VALID_LEADING_RE = re.compile(r"^[a-zA-Z0-9._-]")
+
 
 def _is_valid_import_path(path: str) -> bool:
     """Whether a captured @-token is an acceptable import path (CC-aligned).
@@ -58,56 +63,63 @@ def _is_valid_import_path(path: str) -> bool:
         return path != "/"
     if path.startswith("@"):
         return False
-    if re.match(r"^[#%^&*()]+", path):
+    if _PUNCT_LEADING_RE.match(path):
         return False
-    return bool(re.match(r"^[a-zA-Z0-9._-]", path))
+    return bool(_VALID_LEADING_RE.match(path))
 
 
-def _extract_import_paths(content: str, base_dir: Path) -> list[Path]:
-    """Resolve @import directives in ``content`` to absolute paths.
+def _resolve_import_target(raw: str, base_dir: Path) -> Path | None:
+    """Resolve one captured @-token to an absolute path, or None if invalid.
 
-    Scans line by line, skipping fenced code blocks. Backslash-escaped spaces in
-    the captured path are unescaped; ``#fragment`` suffixes are stripped (both
-    CC-aligned). Returns resolved absolute paths in first-seen order, deduped.
+    Strips a trailing ``#fragment`` and unescapes backslash-escaped spaces
+    (both CC-aligned), validates the leading characters, then resolves relative
+    paths against ``base_dir``.
     """
-    resolved: list[Path] = []
-    seen: set[str] = set()
-    in_fence = False
-    fence_marker = ""
-    for line in content.splitlines():
-        fence_match = _FENCE_RE.match(line)
-        if fence_match:
-            marker = fence_match.group(1)
-            if not in_fence:
-                in_fence = True
-                fence_marker = marker[0]  # ` or ~
-            elif marker[0] == fence_marker:
-                in_fence = False
-                fence_marker = ""
+    hash_index = raw.find("#")
+    if hash_index != -1:
+        raw = raw[:hash_index]
+    raw = raw.replace("\\ ", " ")
+    if not _is_valid_import_path(raw):
+        return None
+    target = Path(raw).expanduser()
+    if not target.is_absolute():
+        target = base_dir / target
+    return target.resolve()
+
+
+def _expand_line_imports(
+    line: str,
+    base_dir: Path,
+    expand: "Callable[[Path], str | None]",
+) -> str:
+    """Replace each @import directive on one (non-fenced) line inline (fix r1).
+
+    Inline code spans are masked out first (CC excludes codespan tokens). Each
+    valid @import token is replaced **in place** by its expanded content (or
+    dropped when the target is missing / already seen), matching CC's inline
+    replacement and this module's "replaced inline" docstring contract.
+    """
+    # Mask inline code spans so an inline `@foo` is neither an import nor able to
+    # glue neighbours into a spurious match; matched offsets stay aligned because
+    # the mask is the same length as the span.
+    masked = _CODESPAN_RE.sub(lambda m: " " * len(m.group(0)), line)
+
+    out: list[str] = []
+    cursor = 0
+    for match in _IMPORT_RE.finditer(masked):
+        target = _resolve_import_target(match.group(1), base_dir)
+        if target is None:
             continue
-        if in_fence:
-            continue
-        # Strip inline code spans (`...`) before extraction — CC excludes codespan
-        # tokens, so an inline `@foo` is not an import. Replace with a space so a
-        # span never glues neighbouring tokens into a spurious match.
-        line = _CODESPAN_RE.sub(" ", line)
-        for match in _IMPORT_RE.finditer(line):
-            raw = match.group(1)
-            hash_index = raw.find("#")
-            if hash_index != -1:
-                raw = raw[:hash_index]
-            raw = raw.replace("\\ ", " ")
-            if not _is_valid_import_path(raw):
-                continue
-            target = Path(raw).expanduser()
-            if not target.is_absolute():
-                target = base_dir / target
-            target = target.resolve()
-            key = str(target)
-            if key not in seen:
-                seen.add(key)
-                resolved.append(target)
-    return resolved
+        # Keep everything up to the @ (group may include a leading space via
+        # (?:^|\s)); the @path token itself is replaced by the expansion.
+        at_index = line.index("@", match.start())
+        out.append(line[cursor:at_index])
+        expanded = expand(target)
+        if expanded is not None:
+            out.append(expanded)
+        cursor = match.end()
+    out.append(line[cursor:])
+    return "".join(out)
 
 
 def load_agents_md(
@@ -140,20 +152,50 @@ def load_agents_md(
     _seen.add(key)
 
     try:
-        content = resolved.read_text(encoding="utf-8")
-    except (OSError, ValueError):
+        # fix r1: errors="replace" so a non-UTF-8 AGENTS.md is still surfaced
+        # (lossy) rather than silently dropped to None.
+        content = resolved.read_text(encoding="utf-8", errors="replace")
+    except OSError:
         return None
 
     if _depth >= _MAX_IMPORT_DEPTH:
         return content
 
     base_dir = resolved.parent
-    parts = [content]
-    for target in _extract_import_paths(content, base_dir):
-        expanded = load_agents_md(target, _seen=_seen, _depth=_depth + 1)
-        if expanded is not None:
-            parts.append(expanded)
-    return "\n\n".join(parts)
+
+    def _expand(target: Path) -> str | None:
+        return load_agents_md(target, _seen=_seen, _depth=_depth + 1)
+
+    # fix r1: expand @import inline (in place), tracking fenced code blocks with
+    # CommonMark close semantics (close fence must be same char and length >= the
+    # opening fence). @import inside a fence or inline code span is not expanded.
+    out_lines: list[str] = []
+    fence_char = ""  # "`" or "~" while inside a fence, else ""
+    fence_len = 0
+    for line in content.splitlines():
+        fence_match = _FENCE_RE.match(line)
+        if fence_match:
+            marker = fence_match.group(1)
+            char = marker[0]
+            length = len(marker)
+            if not fence_char:
+                fence_char = char
+                fence_len = length
+                out_lines.append(line)
+                continue
+            if char == fence_char and length >= fence_len:
+                fence_char = ""
+                fence_len = 0
+                out_lines.append(line)
+                continue
+            # Same/other fence char but too short to close — stays inside fence.
+            out_lines.append(line)
+            continue
+        if fence_char:
+            out_lines.append(line)
+            continue
+        out_lines.append(_expand_line_imports(line, base_dir, _expand))
+    return "\n".join(out_lines)
 
 
 def find_outermost_git_root(start_dir: Path) -> Path | None:
