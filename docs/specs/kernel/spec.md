@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: bugfix-420-task-stop-notification-dedup
+> 对齐: bugfix-427-bash-start-description
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -325,8 +325,8 @@ observe 事件只观察;单个 hook 异常/超时不中断主流程(fail-open)�
 #### Scenario: 内置工具 summary 为人话而非裸状态码
 - **GIVEN** 消费者订阅会话事件流
 - **WHEN** `bash` 工具被调用且其参数含 `description`
-- **THEN** 该工具事件的 `summary` 为 `description` 文案(`description` 为空时降级为命令首段),
-  而非仅 `exit=… elapsed=…ms` 这类裸状态串
+- **THEN** 该工具的 `tool_start` 与 `tool_end` 事件的 `summary` 均为 `description` 文案
+  (`description` 为空时降级为命令首段),而非仅 `exit=… elapsed=…ms` 这类裸状态串或开始态显示原始命令
 
 ### Requirement: feature 内核只留通用项,产品专属条件 prompt 全 per-session 经 PromptSlots
 
