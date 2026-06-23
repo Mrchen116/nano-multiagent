@@ -117,7 +117,7 @@ describe("agent detail page", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [{ name: "tdd-execution-worker", description: "Execute TDD tasks" }],
         tools: [{ name: "read", description: "Read files" }],
-        model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
         platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: "You are the personal_assistant default template."
       },
@@ -163,6 +163,63 @@ describe("agent detail page", () => {
     });
     // M18 R9-2: the legacy bootstrap-based path must not be invoked anymore.
     expect(apiMocks.createDirectConversationMock).not.toHaveBeenCalled();
+  });
+
+  it("bugfix-429 R5: model dropdown labels each option with its provider/format", async () => {
+    apiMocks.getAgentDetailStateMock.mockResolvedValue({
+      config: {
+        agent_id: "agent-core-1",
+        owner_id: "owner-1",
+        display_name: "Core Planner",
+        description: "",
+        system_prompt: "",
+        skills: [],
+        tool_allowlist: [],
+        group_reply_policy: "MENTION",
+        default_model: "codex_oauth:gpt-5.5",
+        workspace_root: "/tmp/agent-core-1",
+        workspace_is_default: false,
+        profile_version: 1,
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        bound_nodes: ["node-1"],
+        updated_at: "2026-03-13T10:00:00Z"
+      },
+      capabilities: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        node_status: "online",
+        capabilities_updated_at: "2026-03-13T10:00:00Z",
+        skills: [],
+        tools: [],
+        model_options: [
+          { name: "codex_oauth:gpt-5.5", provider: "openai_compat" },
+          { name: "kimiCoding:K2.6", provider: "anthropic" }
+        ],
+        platform_default_model: "kimiCoding:K2.6",
+        default_system_prompt: ""
+      },
+      owningNode: {
+        node_id: "node-1",
+        node_name: "MacBook",
+        status: "online",
+        last_heartbeat_at: "2026-03-13T10:00:00Z",
+        agent_count: 1,
+        version: "1.0.0"
+      }
+    });
+    apiMocks.listAgentsMock.mockResolvedValue([
+      { agent_id: "agent-core-1", display_name: "Core Planner", user_id: "user-agent-core-1" }
+    ]);
+
+    renderDetailPage();
+
+    const select = (await screen.findByLabelText(/model/i)) as HTMLSelectElement;
+    const optionText = Array.from(select.querySelectorAll("option")).map((o) => o.textContent ?? "");
+    // gpt model labelled openai_compat; kimi (also platform default) labelled anthropic.
+    expect(optionText.some((txt) => txt.includes("codex_oauth:gpt-5.5") && txt.includes("openai_compat"))).toBe(true);
+    expect(optionText.some((txt) => txt.includes("kimiCoding:K2.6") && txt.includes("anthropic"))).toBe(true);
   });
 
   it("R7-4: invalidates the v2 chat conversations cache so the freshly created conv is visible after navigation", async () => {
