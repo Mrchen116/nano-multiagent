@@ -15,6 +15,7 @@ import {
   AgentFeature,
   AgentSummary,
   CronJobSummary,
+  ModelOption,
   getAgentDetailState,
   getAgentHeartbeatMd,
   listAgentSummaries,
@@ -74,10 +75,19 @@ function initialsOf(displayName: string): string {
   return trimmed.slice(0, 2).toUpperCase();
 }
 
-function resolveModelOptions(modelOptions: string[] | undefined, currentModel: string | null) {
-  const resolved = Array.from(new Set((modelOptions ?? []).map((value) => value.trim()).filter(Boolean)));
-  if (currentModel && !resolved.includes(currentModel)) {
-    resolved.unshift(currentModel);
+function resolveModelOptions(modelOptions: ModelOption[] | undefined, currentModel: string | null): ModelOption[] {
+  const resolved: ModelOption[] = [];
+  const seen = new Set<string>();
+  for (const option of modelOptions ?? []) {
+    const name = option.name.trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    resolved.push({ name, provider: option.provider });
+  }
+  // bugfix-429 R5: keep the agent's current model selectable even if it is no
+  // longer advertised by the node (provider unknown → label degrades to name).
+  if (currentModel && !seen.has(currentModel)) {
+    resolved.unshift({ name: currentModel, provider: "" });
   }
   return resolved;
 }
@@ -1284,13 +1294,17 @@ export function AgentDetailPage() {
                   ? t("agents.form.access.modelPlatformDefault", { model: platformDefaultModel })
                   : t("agents.form.access.modelPlatformDefaultPlain")}
               </option>
-              {availableModels.map((model) => (
-                <option key={model} value={model}>
-                  {model === platformDefaultModel
-                    ? `${model} ${t("agents.form.access.modelDefaultSuffix")}`
-                    : model}
-                </option>
-              ))}
+              {availableModels.map((model) => {
+                const providerSuffix = model.provider ? ` · ${model.provider}` : "";
+                const baseLabel = `${model.name}${providerSuffix}`;
+                return (
+                  <option key={model.name} value={model.name}>
+                    {model.name === platformDefaultModel
+                      ? `${baseLabel} ${t("agents.form.access.modelDefaultSuffix")}`
+                      : baseLabel}
+                  </option>
+                );
+              })}
             </select>
           </div>
         </section>
