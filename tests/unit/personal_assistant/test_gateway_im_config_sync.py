@@ -579,6 +579,81 @@ def test_handle_agent_create_persists_default_model_to_source_path(
     assert agent.default_model == "codex_oauth:gpt-5.5"
 
 
+def test_handle_agent_create_persists_to_default_config_path(tmp_path: Path) -> None:
+    """bugfix-429 R4 (链路B, 默认路径场景): when the Gateway is started WITHOUT
+    ``--config`` (default ``~/.nano-assistant/config.yaml``), a dynamically-created
+    agent's default_model must still be written to that default path.
+
+    Mirrors the operator's first-hand reproduction: ``source_path`` resolves to the
+    default config (not None), and the write lands there. Live-verified under an
+    isolated HOME; this locks it as a regression independent of ``--config``.
+    """
+    # default_local_config_path() resolves to a tmp file we own (no HOME pollution).
+    default_cfg = tmp_path / ".nano-assistant" / "config.yaml"
+    default_cfg.parent.mkdir(parents=True)
+    (tmp_path / "seed").mkdir()
+    workspace_root = tmp_path / "ws"
+    workspace_root.mkdir()
+
+    llm_with_gpt = LLMConfigPayload(
+        default_model="kimiCoding:K2.6",
+        providers=(
+            LLMProviderPayload(
+                name="anthropic",
+                base_url="http://127.0.0.1:4000",
+                models=(LLMModelPayload(name="kimiCoding:K2.6"),),
+            ),
+            LLMProviderPayload(
+                name="openai_compat",
+                base_url="http://127.0.0.1:4000",
+                models=(LLMModelPayload(name="codex_oauth:gpt-5.5"),),
+            ),
+        ),
+    )
+    # source_path = the default path, exactly as main resolves it when --config is absent.
+    local_config = LocalConfig(
+        node=NodeConfig(node_id="repro-default-node"),
+        agents=(
+            AgentWorkspaceConfig(agent_id="seed", workspace_root=tmp_path / "seed"),
+        ),
+        channels=(),
+        kernel=KernelConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=None,
+        llm=llm_with_gpt,
+        source_path=default_cfg,
+    )
+    pipeline = _NullPipeline()
+    pipeline.registered = []
+    sync = _IMConfigSyncClient(
+        base_url="http://im.local",
+        token=None,
+        pipeline=pipeline,
+        local_config=local_config,
+        client=httpx.Client(
+            transport=httpx.MockTransport(lambda _r: httpx.Response(200, json={})),
+            base_url="http://im.local",
+            trust_env=False,
+        ),
+        monotonic=lambda: 0.0,
+        sleep=lambda _: None,
+    )
+
+    sync.handle_agent_create(
+        {
+            "agent_id": "gpt-probe",
+            "workspace_root": str(workspace_root),
+            "default_model": "codex_oauth:gpt-5.5",
+        }
+    )
+
+    # The default-path config file must now carry the dynamic agent + its model.
+    assert default_cfg.exists()
+    persisted = load_local_config(default_cfg)
+    agent = next(a for a in persisted.agents if a.agent_id == "gpt-probe")
+    assert agent.default_model == "codex_oauth:gpt-5.5"
+
+
 # ---------------------------------------------------------------------------
 # bugfix-424 (#127): dynamically-created agents derive workspace from config base
 # ---------------------------------------------------------------------------
