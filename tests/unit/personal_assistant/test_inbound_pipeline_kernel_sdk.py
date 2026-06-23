@@ -478,3 +478,121 @@ def test_group_steer_preserves_sender_prefix_and_buffered_context(
     assert "[Bob] context from bob" in joined
     # The current speaker's message keeps the sender prefix (not bare text).
     assert "[Carol] @agent-a change direction" in joined
+
+
+# ---------------------------------------------------------------------------
+# bugfix-426-M3: concurrent steer must not race the group-buffer drain.
+# Two inbound messages for the same session both pass the has_active_run gate
+# and enter the steer fast-path. The "has_active_run check → drain" span must
+# stay serial per session so a second steer cannot drain (destructive) while a
+# first steer is mid-decision — otherwise the buffered group context is split
+# between the two (one drains everything, the other drains nothing), violating
+# the gateway invariant "群聊运行中 steer 保留发言人与缓冲上下文".
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_group_steer_drain_is_serial_not_interleaved(
+    tmp_path: Path,
+) -> None:
+    """Two concurrent group steers must not interleave their buffer drains.
+
+    Each steer's ``[has_active_run gate] → _build_message_parts(drain)`` span is
+    serialized per session. We instrument the drain entry and inject a yield
+    point right after binding (mirroring the real ``await _ensure_binding`` yield
+    that lets a second coroutine cut in). With serialization the recorded order
+    is ``[A bind, A drain, B bind, B drain]`` — each coroutine's bind and drain
+    are adjacent. Without it the order interleaves (``[A bind, B bind, ...]``),
+    proving a second coroutine drained while the first was still mid-decision.
+    """
+    kernel = _FakeKernel()
+    pipeline, _channel = _make_pipeline(kernel, _group_agents(tmp_path), tmp_path)
+
+    # First group message creates the session binding and an active run.
+    first = InboundMessage(
+        channel_name="web",
+        text="@agent-a kick off",
+        external_user_id="user-1",
+        external_chat_id="grp-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"sender_display_name": "Alice"},
+    )
+    asyncio.run(pipeline.handle_inbound(first))
+    session_key = "web:grp-1:agent-a"
+    binding = pipeline._session_store.get(session_key)  # noqa: SLF001
+    assert binding is not None
+    kernel_session_id = binding.kernel_session_id
+
+    # Buffer other-speaker context so both steers contend for the same drain.
+    buf_key = pipeline._group_buf_key_for_agent(first, "agent-a")  # noqa: SLF001
+    pipeline._group_context_store.append(buf_key, "ctx from bob", sender="Bob")  # noqa: SLF001
+
+    # Active run → both new group messages steer into it.
+    pipeline._active_runs[session_key] = "run-active"  # noqa: SLF001
+    kernel.active_run_by_session[kernel_session_id] = "run-active"
+
+    events: list[str] = []
+
+    # Derive the acting coroutine's label from the message text itself (the "A"
+    # / "B" tag is embedded), NOT a shared variable — a shared label races across
+    # the await points and misattributes events.
+    def _label_of(message: InboundMessage) -> str:
+        return "A" if "first steer" in message.text else "B"
+
+    # Record drain entry per coroutine by wrapping _build_message_parts (the
+    # destructive drain call site), keyed by the message being built.
+    real_build = pipeline._build_message_parts  # noqa: SLF001
+
+    def _instrumented_build(message, *, agent_id, sender_label):  # noqa: ANN001, ANN202
+        events.append(f"drain:{_label_of(message)}")
+        return real_build(message, agent_id=agent_id, sender_label=sender_label)
+
+    pipeline._build_message_parts = _instrumented_build  # type: ignore[method-assign]  # noqa: SLF001
+
+    # Wrap _ensure_binding to record the bind step and yield control afterwards,
+    # opening the exact interleaving window the real await creates.
+    real_ensure = pipeline._ensure_binding  # noqa: SLF001
+
+    async def _instrumented_ensure(message, *, agent_id, session_key):  # noqa: ANN001, ANN202
+        binding_ = await real_ensure(
+            message, agent_id=agent_id, session_key=session_key
+        )
+        events.append(f"bind:{_label_of(message)}")
+        await asyncio.sleep(0)
+        return binding_
+
+    pipeline._ensure_binding = _instrumented_ensure  # type: ignore[method-assign]  # noqa: SLF001
+
+    async def _drive() -> None:
+        async def _one(sender: str, text: str) -> None:
+            await pipeline.handle_inbound(
+                InboundMessage(
+                    channel_name="web",
+                    text=text,
+                    external_user_id=f"user-{sender}",
+                    external_chat_id="grp-1",
+                    is_group=True,
+                    agent_id="agent-a",
+                    metadata={"sender_display_name": sender},
+                )
+            )
+
+        await asyncio.gather(
+            _one("Carol", "@agent-a first steer"),
+            _one("Dave", "@agent-a second steer"),
+        )
+
+    asyncio.run(_drive())
+
+    # Each coroutine's bind and drain must be adjacent (serial), never split by
+    # the other coroutine's drain. Find each drain's index and assert the bind
+    # of the SAME label immediately precedes it with no foreign drain between.
+    # Concretely: a serial schedule never produces two consecutive bind events.
+    bind_positions = [i for i, e in enumerate(events) if e.startswith("bind:")]
+    # Serial: binds are separated by that coroutine's own drain, so no two bind
+    # events are adjacent. Interleaved race: "bind:A","bind:B" appear adjacent.
+    for i, j in zip(bind_positions, bind_positions[1:]):
+        between = events[i + 1 : j]
+        assert any(e.startswith("drain:") for e in between), (
+            f"two binds with no drain between them — drain raced: {events}"
+        )

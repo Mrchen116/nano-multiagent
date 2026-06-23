@@ -179,6 +179,17 @@ class InboundPipeline:
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, str] = {}
         self._active_runs_lock = asyncio.Lock()
+        # bugfix-426-M3: serialize the group-buffer drain per session. The steer
+        # fast-path's "has_active_run gate → _build_message_parts(drain)" span and
+        # the normal path's drain (inside _run_turn, itself serialized by the
+        # run_queue) both consume the SAME destructive group buffer. Without a
+        # shared per-session lock two concurrent steers (or a steer racing the
+        # normal path) interleave at the `await _ensure_binding` yield point and
+        # split the buffered context — one drains everything, the other drains
+        # nothing. This lock makes every drain for a session mutually exclusive;
+        # it does NOT serialize the whole turn (the active run still receives the
+        # injected steer), only the cheap gate+drain decision.
+        self._session_drain_locks: dict[str, asyncio.Lock] = {}
         # bugfix-417-M5 (#114): run_ids stopped by an explicit user /stop, so the
         # terminal reconcile can attribute the in-flight tool card's content to the
         # user ("[Request interrupted by user for tool use]") instead of the generic
@@ -247,29 +258,43 @@ class InboundPipeline:
         # (the active run's SSE stream surfaces the reply). On injected=False the
         # active run ended in the race window — hand the already-built parts to the
         # queued _run so the drained context is not lost (no re-drain).
-        async with self._active_runs_lock:
-            has_active_run = self._active_runs.get(session_key) is not None
-        if has_active_run:
-            steered = await self._try_steer_active_run(
-                message,
-                agent_id=agent_id,
-                session_key=session_key,
-                sender_label=sender_label,
-            )
-            if steered is not None:
-                injected_result, fallback_parts = steered
-                if injected_result is not None:
-                    return injected_result
-                return await self._run_queue.submit(
-                    session_key,
-                    lambda: self._run_turn(
-                        message,
-                        agent_id=agent_id,
-                        session_key=session_key,
-                        sender_label=sender_label,
-                        prebuilt_parts=fallback_parts,
-                    ),
+        # bugfix-426-M3: hold the per-session drain lock across the WHOLE steer
+        # decision — the has_active_run gate, _ensure_binding (a yield point), the
+        # destructive _build_message_parts drain inside _try_steer_active_run, and
+        # the atomic kernel steer submit. This is the span that previously let a
+        # second concurrent steer cut in at the _ensure_binding await and split the
+        # group buffer. The lock is shared with the normal-path drain (_run_turn),
+        # so steer-vs-steer AND steer-vs-normal are both serialized; normal-vs-normal
+        # is already serial via the run_queue. The fallback submit below runs OUTSIDE
+        # the lock: it carries prebuilt_parts (no re-drain) and _run_turn would
+        # otherwise re-acquire this same lock and self-deadlock.
+        async with self._drain_lock_for(session_key):
+            async with self._active_runs_lock:
+                has_active_run = self._active_runs.get(session_key) is not None
+            steered = (
+                await self._try_steer_active_run(
+                    message,
+                    agent_id=agent_id,
+                    session_key=session_key,
+                    sender_label=sender_label,
                 )
+                if has_active_run
+                else None
+            )
+        if has_active_run and steered is not None:
+            injected_result, fallback_parts = steered
+            if injected_result is not None:
+                return injected_result
+            return await self._run_queue.submit(
+                session_key,
+                lambda: self._run_turn(
+                    message,
+                    agent_id=agent_id,
+                    session_key=session_key,
+                    sender_label=sender_label,
+                    prebuilt_parts=fallback_parts,
+                ),
+            )
 
         return await self._run_queue.submit(
             session_key,
@@ -357,13 +382,18 @@ class InboundPipeline:
             )
             # Build parts once (drains the group buffer). The steer race path
             # passes already-built parts so the buffer is not drained twice.
-            parts = (
-                prebuilt_parts
-                if prebuilt_parts is not None
-                else self._build_message_parts(
-                    message, agent_id=agent_id, sender_label=sender_label
-                )
-            )
+            # bugfix-426-M3: hold the per-session drain lock around the drain so a
+            # concurrent steer fast-path cannot interleave its own drain with this
+            # one (the run_queue only serializes normal-vs-normal, not steer-vs-
+            # normal). prebuilt_parts means the steer path already drained under the
+            # lock, so we skip both the drain and the lock.
+            if prebuilt_parts is not None:
+                parts = prebuilt_parts
+            else:
+                async with self._drain_lock_for(session_key):
+                    parts = self._build_message_parts(
+                        message, agent_id=agent_id, sender_label=sender_label
+                    )
             agent_workspace_root_path = self._agents[agent_id].workspace_root
             # submit() is sync, non-blocking — schedules the turn on RunsRegistry's
             # background loop and returns immediately with a RunRecord.
@@ -509,6 +539,19 @@ class InboundPipeline:
     @staticmethod
     def _group_buf_key_for_agent(message: InboundMessage, agent_id: str) -> str:
         return f"{agent_id}:{message.channel_name}:{message.external_chat_id}"
+
+    def _drain_lock_for(self, session_key: str) -> asyncio.Lock:
+        """Return the per-session lock guarding this session's group-buffer drain.
+
+        bugfix-426-M3: lazily created so unbounded sessions do not preallocate
+        locks. The same lock object is shared by the steer fast-path and the
+        normal-path drain so the two are mutually exclusive (see __init__).
+        """
+        lock = self._session_drain_locks.get(session_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_drain_locks[session_key] = lock
+        return lock
 
     def _build_message_parts(
         self, message: InboundMessage, *, agent_id: str, sender_label: str
