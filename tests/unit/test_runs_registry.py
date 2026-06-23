@@ -667,3 +667,146 @@ def test_stranded_continuation_follows_injected_origin(tmp_path: Path) -> None:
         assert _continuation_origin() is RunOrigin.USER
     finally:
         registry.shutdown()
+
+
+def _gated_registry(tmp_path: Path):  # noqa: ANN202
+    """Build a registry whose runtime blocks on a loop-owned Event until released.
+
+    Returns (registry, session, started_event, release_event). The run stays
+    RUNNING until release_event is set, so a test can inject then terminate it via
+    cancel()/interrupt() to exercise the non-completion terminal paths.
+    """
+    import threading
+
+    started = threading.Event()
+    gate_holder: list[_asyncio.Event] = []
+
+    class _GatedRuntime:
+        async def run(
+            self,
+            session_id: str,
+            parts,
+            *,
+            stream: bool = True,
+            run_id: str | None = None,
+            controller=None,
+            workspace_root=None,
+            origin=None,
+        ):  # noqa: ANN001, ANN201
+            del parts, stream, run_id, workspace_root, origin
+            started.set()
+            await gate_holder[0].wait()
+            # After release: honour an abort flag so a user /stop terminates as
+            # aborted (mirrors the loop's cooperative abort handling).
+            stop_reason = (
+                "aborted"
+                if controller is not None and controller.is_aborted
+                else "completed"
+            )
+            return TurnResult(
+                session_id=session_id,
+                turn_id="turn_gated_term",
+                messages=(Message(message_id="m_t", role="assistant", content="ok"),),
+                completed=stop_reason == "completed",
+                stop_reason=stop_reason,
+            )
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_GatedRuntime(), session_manager=manager)
+    loop = registry.get_event_loop()
+    ev = _asyncio.run_coroutine_threadsafe(_create_asyncio_event(), loop).result(
+        timeout=2.0
+    )
+    gate_holder.append(ev)
+    return registry, session, started, ev
+
+
+def test_stranded_continuation_fires_on_non_user_cancel(tmp_path: Path) -> None:
+    """A message steered into a run that is then force-cancelled (watchdog idle
+    reap / crash — NOT a user /stop) must survive: it re-runs as a continuation
+    (bugfix-426 决策3 扩展 — covers the non-completion terminal path)."""
+    from agent.core.llm.interfaces import LLMMessage
+    from agent.core.runs.origin import RunOrigin
+
+    registry, session, started, ev = _gated_registry(tmp_path)
+    loop = registry.get_event_loop()
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "long"}],
+            workspace_root=tmp_path,
+        )
+        assert started.wait(timeout=5.0)
+        assert (
+            registry.inject_pending_message(
+                session.session_id,
+                LLMMessage(role="user", content="steered"),
+                origin=RunOrigin.USER,
+            )
+            is True
+        )
+        # Force-cancel (non-user): mirrors the watchdog idle reap path.
+        registry.cancel(submitted.run_id)
+
+        def _continuation():  # noqa: ANN202
+            with registry._lock:  # noqa: SLF001
+                for rid, rec in registry._runs.items():  # noqa: SLF001
+                    if rid != submitted.run_id:
+                        return rec
+            return None
+
+        _wait_for(lambda: _continuation() is not None, timeout_seconds=3.0)
+        assert _continuation().origin is RunOrigin.USER
+        # Release the gate so the continuation run completes promptly (otherwise it
+        # would block on the never-set Event and stall shutdown's drain).
+        _asyncio.run_coroutine_threadsafe(_set_event(ev), loop)
+    finally:
+        registry.shutdown()
+
+
+def test_user_stop_discards_pending_no_continuation(tmp_path: Path) -> None:
+    """A user /stop (abort user_initiated) discards pending injections — no
+    continuation run (honour the explicit stop; bugfix-426 决策 + /stop 语义)."""
+    from agent.core.llm.interfaces import LLMMessage
+    from agent.core.runs.origin import RunOrigin
+
+    registry, session, started, ev = _gated_registry(tmp_path)
+    loop = registry.get_event_loop()
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "long"}],
+            workspace_root=tmp_path,
+        )
+        assert started.wait(timeout=5.0)
+        assert (
+            registry.inject_pending_message(
+                session.session_id,
+                LLMMessage(role="user", content="steered after stop"),
+                origin=RunOrigin.USER,
+            )
+            is True
+        )
+        # User /stop: sets abort(user_initiated=True). No foreground tool here, so
+        # the run unwinds when we release the gate, returning aborted.
+        interrupted = registry.interrupt(session.session_id)
+        assert interrupted == submitted.run_id
+        _asyncio.run_coroutine_threadsafe(_set_event(ev), loop)
+
+        _wait_for(
+            lambda: (
+                registry.get(submitted.run_id) is not None
+                and registry.get(submitted.run_id).status
+                in {RunStatus.CANCELLED, RunStatus.COMPLETED}
+            ),
+            timeout_seconds=3.0,
+        )
+        # Give any (erroneous) continuation a chance to be created, then assert none.
+        time.sleep(0.2)
+        with registry._lock:  # noqa: SLF001
+            other_runs = [rid for rid in registry._runs if rid != submitted.run_id]
+        assert other_runs == [], "user /stop must not spawn a continuation run"
+    finally:
+        registry.shutdown()

@@ -617,53 +617,95 @@ class RunsRegistry:
             if self._is_cancelled(run_id):
                 with self._lock:
                     self._active_run_by_session.pop(session_id, None)
+                # Early-cancel still reached RUNNING, so a steer may already have
+                # enqueued into this controller — drain+continue via the single
+                # terminal chokepoint below rather than dropping it.
+                self._continue_stranded_pending(
+                    controller, session_id=session_id, workspace_root=workspace_root
+                )
                 return
+            # bugfix-426 决策3 (扩展): stranded-pending continuation is centralised in
+            # ONE terminal chokepoint (this finally) so it covers EVERY way a run can
+            # end — normal completion, timeout, failure, watchdog idle-reap, crash, and
+            # the force-cancel path (carrier Task .cancel() raises CancelledError, a
+            # BaseException that skips `except Exception` but still runs `finally`).
+            # A message injected mid-run that the loop never drained at a round boundary
+            # must survive any of these (incident「消息不丢失」). The sole exception is an
+            # explicit user /stop (abort user_initiated): there we honour the stop and
+            # discard pending (continuing would contradict the user's stop signal) —
+            # gated inside _continue_stranded_pending via controller.is_user_interrupt.
             try:
-                with span(
-                    "RunsRegistry.run_worker", run_id=run_id, session_id=session_id
-                ):
-                    result = await self._runtime.run(
-                        session_id,
-                        parts,
-                        stream=False,
-                        run_id=run_id,
-                        controller=controller,
-                        workspace_root=workspace_root,
-                        origin=origin,
-                    )
-            except TimeoutError as exc:
-                await self._mark_timed_out_async(run_id, message=str(exc))
-                return
-            except Exception as exc:  # noqa: BLE001
-                await self._mark_failed_async(run_id, message=str(exc))
-                return
+                try:
+                    with span(
+                        "RunsRegistry.run_worker", run_id=run_id, session_id=session_id
+                    ):
+                        result = await self._runtime.run(
+                            session_id,
+                            parts,
+                            stream=False,
+                            run_id=run_id,
+                            controller=controller,
+                            workspace_root=workspace_root,
+                            origin=origin,
+                        )
+                except TimeoutError as exc:
+                    await self._mark_timed_out_async(run_id, message=str(exc))
+                    return
+                except Exception as exc:  # noqa: BLE001
+                    await self._mark_failed_async(run_id, message=str(exc))
+                    return
+                finally:
+                    with self._lock:
+                        if self._active_run_by_session.get(session_id) == run_id:
+                            self._active_run_by_session.pop(session_id, None)
+                if getattr(result, "stop_reason", None) == "aborted":
+                    await self._mark_aborted_async(run_id, source="priority_now")
+                else:
+                    self._mark_completed(run_id, turn_result=result)
             finally:
-                with self._lock:
-                    if self._active_run_by_session.get(session_id) == run_id:
-                        self._active_run_by_session.pop(session_id, None)
-            if getattr(result, "stop_reason", None) == "aborted":
-                await self._mark_aborted_async(run_id, source="priority_now")
-            else:
-                self._mark_completed(run_id, turn_result=result)
-            # Race safety: a message injected (background task notification OR a
-            # user mid-run steer) while this run was still active may have arrived
-            # after the loop's final drain, leaving it stranded. Re-run it as a
-            # continuation. The continuation origin follows the injection origin
-            # (user steer → USER), not a hardcoded BACKGROUND_TASK (bugfix-426 决策3).
-            # Pending items are grouped into contiguous same-origin batches so FIFO
-            # order is preserved and each batch's continuation carries its own origin.
-            if controller is not None:
-                stranded = controller.drain_pending()
-                for origin_batch, pending_batch in _group_pending_by_origin(stranded):
-                    self.submit(
-                        session_id=session_id,
-                        parts=[
-                            {"type": "text", "text": p.message.content}
-                            for p in pending_batch
-                        ],
-                        origin=origin_batch,
-                        workspace_root=workspace_root,
-                    )
+                self._continue_stranded_pending(
+                    controller, session_id=session_id, workspace_root=workspace_root
+                )
+
+    def _continue_stranded_pending(
+        self,
+        controller: RunController | None,
+        *,
+        session_id: str,
+        workspace_root: Path | None,
+    ) -> None:
+        """Drain any messages injected into a now-terminal run and re-run them.
+
+        Single terminal chokepoint for the stranded-pending continuation (bugfix-426
+        决策3). A message steered into an active run via ``inject_pending_message``
+        that the loop never consumed at a round boundary would otherwise be lost when
+        the run ends — violating incident「消息不丢失」. Re-submitted as a continuation
+        run carrying each message's own injection origin (user steer → USER), grouped
+        into contiguous same-origin batches to preserve FIFO order.
+
+        Skipped when the run was stopped by an explicit user /stop
+        (``controller.is_user_interrupt``): the user asked to stop, so spawning a
+        continuation would contradict that signal. Also a no-op when the registry is
+        shutting down (submit would raise) so a force-cancel during shutdown unwinds
+        cleanly.
+        """
+        if controller is None or controller.is_user_interrupt:
+            return
+        stranded = controller.drain_pending()
+        if not stranded:
+            return
+        with self._lock:
+            if self._state is not _RegistryState.OPEN:
+                return
+        for origin_batch, pending_batch in _group_pending_by_origin(stranded):
+            self.submit(
+                session_id=session_id,
+                parts=[
+                    {"type": "text", "text": p.message.content} for p in pending_batch
+                ],
+                origin=origin_batch,
+                workspace_root=workspace_root,
+            )
 
     def _set_status(
         self,

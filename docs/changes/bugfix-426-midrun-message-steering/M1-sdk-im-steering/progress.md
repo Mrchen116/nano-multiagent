@@ -75,6 +75,19 @@
 - Commits: C1=test R2（红）, C2=feat R2, C3=本次 docs。
 - Next: R3 — Gateway inbound steer 接线 + parts helper 抽取。
 
-## R3 — <pending>
+## [Design 修订待定] R3: steer 进随后被取消的 run 会丢消息（§4 暂停，已上报 orchestrator）
+
+- 现状方案: 决策3 的 stranded 续跑仅在 `_run_worker_async` 正常完成路径（registry.py:655）drain pending。
+- 发现的问题: R3 接上 Gateway steer 后，「run 活跃时到达的消息」注入活跃 run；若该 run 随后被
+  cancel/abort（看门狗 idle reap / /stop / crash，走 CancelledError 提前退出），注入的 pending
+  消息到不了那段 drain → **静默丢弃**，且破坏既有回归 `test_inbound_pipeline_sse.py::
+  test_idle_run_is_cancelled_and_next_same_session_message_continues`（hung run 不堵 FIFO）。
+- 原因: 决策3 兜底只覆盖正常完成，未覆盖取消/中止终止路径；与 incident「消息不丢失」冲突。
+  （background_tasks 注入今天已有同款预存暴露，非新机制缺陷，但 M1 接上用户 steer 后首次对用户可见。）
+- 影响范围: 仅本 milestone（registry.py 终止路径 + 该 sse 回归测试）；不影响 M2。
+- 候选: A=cancel/abort 终止路径也 drain→stranded 续跑（架构最干净）；B=接受丢失改测试（不推荐）。
+- 状态: 已 SendMessage orchestrator，等定夺；R3 实现/测试本地提交、未 push。
+
+## R3 — <pending(等 design 定夺后回填)>
 
 ## R4 — <pending>
