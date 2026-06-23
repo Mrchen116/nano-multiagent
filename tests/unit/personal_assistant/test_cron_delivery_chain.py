@@ -68,6 +68,7 @@ class _FakeKernelForCron:
         parts: list,
         origin: Any = None,
         workspace_root: Any = None,
+        flush_held: bool = True,
     ) -> Any:
         class _FakeRecord:
             run_id = "run-cron-test-1"

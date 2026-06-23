@@ -834,12 +834,17 @@ class InboundPipeline:
         # state, causing the tool card CC content and bubble finalize to be dropped.
         # Log /stop command in session history via a new user turn (no LLM call triggered
         # because the session has no pending run after interrupt).
+        # bugfix-426 决策3: flush_held=False so this synthetic /stop bookkeeping turn
+        # does NOT consume messages the user steered into the interrupted run — those
+        # are parked (held) synchronously by interrupt() and must ride the user's NEXT
+        # real message, not this "/stop 命令" turn.
         self._kernel.submit(
             session_id=binding.kernel_session_id,
             parts=[
                 {"type": "text", "text": "用户发送了 /stop 命令，要求终止当前操作。"}
             ],
             workspace_root=agent_workspace_root_path,
+            flush_held=False,
         )
         reply_text = "已停止当前操作。"
         outbound = await self._deliver_stop_ack(

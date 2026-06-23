@@ -379,6 +379,7 @@ class _FakeKernel:
         workspace_root: Path | None = None,
         trace_id: str | None = None,
         steer: bool = False,
+        flush_held: bool = True,
     ) -> MagicMock:
         # bugfix-426: a steer=True submit injects into a kernel-active run when one
         # exists (returns injected=True, reusing its run_id, no new run). This fake

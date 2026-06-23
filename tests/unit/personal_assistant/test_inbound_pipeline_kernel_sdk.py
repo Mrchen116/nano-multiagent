@@ -88,6 +88,7 @@ class _FakeKernel:
         workspace_root: Path | None = None,
         trace_id: str | None = None,
         steer: bool = False,
+        flush_held: bool = True,
     ) -> MagicMock:
         active = self.active_run_by_session.get(session_id)
         if steer and active is not None:

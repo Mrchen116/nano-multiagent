@@ -842,6 +842,7 @@ class Kernel:
         workspace_root: Path | None = None,
         trace_id: str | None = None,
         steer: bool = False,
+        flush_held: bool = True,
     ) -> RunInfo:
         """Schedule a turn on the background loop and return immediately.
 
@@ -857,6 +858,11 @@ class Kernel:
                 active it degrades to a normal new run. Default False keeps every
                 existing call site unchanged; only run-active product entrypoints
                 (IM inbound, CLI REPL) pass True (bugfix-426 决策1).
+            flush_held: When True (default) any messages parked by a prior user
+                /stop for this session are prepended to this run (bugfix-426 决策3).
+                The gateway's /stop handler passes False for its synthetic "/stop
+                命令" bookkeeping turn so the held messages ride the user's next
+                real message instead.
 
         Returns:
             RunInfo with run_id / session_id / status. ``injected=True`` when the
@@ -876,6 +882,7 @@ class Kernel:
             origin=origin,
             workspace_root=effective_root,
             trace_id=trace_id,
+            flush_held=flush_held,
         )
         return _to_run_info(record)
 

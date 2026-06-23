@@ -330,12 +330,18 @@ class RunsRegistry:
         source_task_id: str | None = None,
         trace_id: str | None = None,
         workspace_root: Path | None = None,
+        flush_held: bool = True,
     ) -> RunRecord:
         """Submit a turn for execution.
 
         ``workspace_root`` is threaded from the request so the stateless kernel
         can locate the session JSONL; it is required (in production) for the
         existence check below and for the runtime's first load of the session.
+
+        ``flush_held`` (default True) prepends any messages parked by a prior user
+        /stop for this session (bugfix-426 决策3). The gateway /stop handler's own
+        synthetic "/stop 命令" submit passes False so the held messages are NOT
+        consumed by that bookkeeping turn but ride the user's next real message.
         """
         # Fast rejection avoids session I/O once shutdown has begun. The state is
         # checked again at record insertion because shutdown may race this work.
@@ -356,9 +362,10 @@ class RunsRegistry:
         # for this session ride along on its next run. Prepend them (FIFO: held first,
         # then this turn's parts) and clear the buffer. Transparent to every caller
         # (gateway / cli / continuation) since they all funnel through submit(); does
-        # not depend on the steer flag.
+        # not depend on the steer flag. Skipped (flush_held=False) for the /stop
+        # handler's own synthetic turn so held rides the user's next real message.
         with self._lock:
-            held = self._held_pending.pop(session_id, None)
+            held = self._held_pending.pop(session_id, None) if flush_held else None
         if held:
             parts = [{"type": "text", "text": p.message.content} for p in held] + list(
                 parts
@@ -499,6 +506,18 @@ class RunsRegistry:
         # the abort user-initiated — the runtime then recovers any orphaned
         # tool_call with the CC-identical user-attribution content (bugfix-417-M5).
         controller.abort(user_initiated=True)
+        # bugfix-426 决策3 (/stop held-pending, sync): park any unconsumed steered
+        # messages to the session held buffer NOW, synchronously, before returning.
+        # The gateway /stop handler synchronously submit()s a "/stop 命令" turn right
+        # after this call; if held population waited for the async terminal chokepoint
+        # (_settle_terminal_pending, runs when the carrier Task unwinds on the bg
+        # loop) it would be EMPTY at that submit and the user's steered message lost.
+        # Draining here empties the controller, so the later _settle_terminal_pending
+        # drains nothing → natural no-op, no double-move (and /stop never continues).
+        stranded = controller.drain_pending()
+        if stranded:
+            with self._lock:
+                self._held_pending.setdefault(session_id, []).extend(stranded)
         log_info("run_interrupted", run_id=run_id, session_id=session_id)
         # Reap an in-flight foreground tool's subprocess tree; if one existed, the
         # cooperative abort cannot unwind the parked carrier Task, so force-cancel

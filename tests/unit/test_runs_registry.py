@@ -838,6 +838,82 @@ def test_user_stop_holds_pending_then_flushes_on_next_submit(tmp_path: Path) -> 
         registry.shutdown()
 
 
+def test_interrupt_holds_pending_synchronously(tmp_path: Path) -> None:
+    """interrupt() (user /stop) parks unconsumed pending to held SYNCHRONOUSLY,
+    before it returns — so the gateway's immediately-following synthetic /stop
+    submit sees the held buffer already populated (bugfix-426 决策3 B, race fix)."""
+    from agent.core.llm.interfaces import LLMMessage
+    from agent.core.runs.origin import RunOrigin
+
+    registry, session, started, ev = _gated_registry(tmp_path)
+    loop = registry.get_event_loop()
+    try:
+        registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "long"}],
+            workspace_root=tmp_path,
+        )
+        assert started.wait(timeout=5.0)
+        registry.inject_pending_message(
+            session.session_id,
+            LLMMessage(role="user", content="held-sync"),
+            origin=RunOrigin.USER,
+        )
+        # interrupt() returns: held must ALREADY be populated (synchronous), not
+        # waiting for the carrier Task to unwind on the bg loop.
+        registry.interrupt(session.session_id)
+        with registry._lock:  # noqa: SLF001
+            assert [
+                p.message.content for p in registry._held_pending[session.session_id]
+            ] == ["held-sync"]
+        _asyncio.run_coroutine_threadsafe(_set_event(ev), loop)
+    finally:
+        registry.shutdown()
+
+
+def test_submit_flush_held_false_does_not_consume_held(tmp_path: Path) -> None:
+    """A submit with flush_held=False (the /stop synthetic bookkeeping turn) must
+    NOT consume the held buffer; the next flush_held=True submit then carries it
+    (bugfix-426 决策3 A, /stop synthetic-submit race fix)."""
+    from agent.core.agent.run_control import PendingMessage
+    from agent.core.llm.interfaces import LLMMessage
+    from agent.core.runs.origin import RunOrigin
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_RuntimeStub(), session_manager=manager)
+    try:
+        with registry._lock:  # noqa: SLF001
+            registry._held_pending[session.session_id] = [
+                PendingMessage(
+                    message=LLMMessage(role="user", content="held-x"),
+                    origin=RunOrigin.USER,
+                )
+            ]
+        # flush_held=False (synthetic /stop turn): held survives.
+        registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "用户发送了 /stop 命令"}],
+            workspace_root=tmp_path,
+            flush_held=False,
+        )
+        with registry._lock:  # noqa: SLF001
+            assert [
+                p.message.content for p in registry._held_pending[session.session_id]
+            ] == ["held-x"]
+        # Next real submit (flush_held default True): held consumed + cleared.
+        registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "msg3"}],
+            workspace_root=tmp_path,
+        )
+        with registry._lock:  # noqa: SLF001
+            assert session.session_id not in registry._held_pending
+    finally:
+        registry.shutdown()
+
+
 def test_held_pending_prepended_in_fifo_order(tmp_path: Path) -> None:
     """The held flush prepends held messages before the new turn's parts (FIFO).
 
