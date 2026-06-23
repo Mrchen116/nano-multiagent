@@ -13,6 +13,7 @@ enters through four slots on ``PromptContext.prompt_slots`` (an SDK-owned
     CORE_SKILLS_LISTING / CORE_MEMORY_GUIDANCE / CORE_SKILLS_GUIDANCE
     CORE_BACKGROUND_TASKS / CORE_RUNTIME_FOOTER
     custom slot
+    CORE_AGENTS_MD_BLOCK                          (feat-428 机制 A, cache_safe)
     CORE_MEMORY_BLOCK / CORE_USER_PROFILE_BLOCK   (volatile)
     tail slot                                     (volatile)
 
@@ -32,6 +33,7 @@ from typing import Sequence
 from agent.core.agent.prompt_sections.base import PromptContext, PromptSection
 from agent.core.agent.prompt_sections.core_sections import (
     CORE_ACTIONS_CARE,
+    CORE_AGENTS_MD_BLOCK,
     CORE_BACKGROUND_TASKS,
     CORE_MEMORY_BLOCK,
     CORE_MEMORY_GUIDANCE,
@@ -115,6 +117,9 @@ KERNEL_PROMPT_SKELETON: tuple[PromptSection, ...] = (
     CORE_RUNTIME_FOOTER,
     # custom: user custom instructions (stable-prefix tail)
     _SLOT_CUSTOM,
+    # feat-428 机制 A: workspace-root AGENTS.md — last stable-prefix segment
+    # (cache_safe=True; after _SLOT_CUSTOM, before the volatile memory/profile tail).
+    CORE_AGENTS_MD_BLOCK,
     # volatile tail (kernel-owned, cache_safe=False)
     CORE_MEMORY_BLOCK,
     CORE_USER_PROFILE_BLOCK,

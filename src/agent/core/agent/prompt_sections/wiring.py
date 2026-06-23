@@ -38,6 +38,7 @@ def build_prompt_context_from_metadata(
     memory_pct: int = 0,
     user_profile_content: str | None = None,
     user_pct: int = 0,
+    agents_md_content: str | None = None,
     flags: Mapping[str, bool],
     vars: Mapping[str, str] | None = None,
     render_mode: "object | None" = None,
@@ -65,6 +66,8 @@ def build_prompt_context_from_metadata(
         memory_pct: Usage percentage for MEMORY banner display.
         user_profile_content: Pure USER.md content (no banner) — M4 preferred path.
         user_pct: Usage percentage for USER PROFILE banner display.
+        agents_md_content: Expanded workspace-root AGENTS.md text (feat-428 机制 A),
+            or None when absent. Threaded from the runtime MemorySnapshot.
         memory_block: Deprecated. Pre-rendered snapshot (banner + content). Kept
             for backwards compat; core segments fall back to this when memory_content
             is absent.
@@ -101,6 +104,7 @@ def build_prompt_context_from_metadata(
         memory_pct=memory_pct,
         user_profile_content=user_profile_content,
         user_pct=user_pct,
+        agents_md_content=agents_md_content,
         render_mode=resolved_render_mode,  # type: ignore[arg-type]
         memory_block=memory_block,
         user_profile_block=user_profile_block,

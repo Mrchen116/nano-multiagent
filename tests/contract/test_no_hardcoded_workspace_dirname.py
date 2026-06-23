@@ -36,7 +36,7 @@ _WHITELIST: frozenset[str] = frozenset(
         # refactor-406-M1: _session_prompt_slots map + register method added in __init__; shifted to 172
         # bugfix-417-M3 R3: liveness ticker import block added at top; shifted to 177
         # bugfix-417-M5: USER_INTERRUPT_RECOVERY_CONTENT multi-line import; shifted to 180
-        "src/agent/core/agent/runtime.py:180",
+        "src/agent/core/agent/runtime.py:185",
         # kernel.py: build_kernel new-path workspace_config_dirname default — platform
         # default fallback when a consumer omits it (same role as jsonl_store default);
         # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
