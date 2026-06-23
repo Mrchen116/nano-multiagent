@@ -366,6 +366,7 @@
       "toolReasonTimedOut": "执行超时",
       "toolReasonInterrupted": "已中断",
       "toolDetail": {
+        "searchNoResults": "无结果",
         "agentPromptLabel": "派发指令（prompt）",
         "agentDone": "子 agent {{status}}",
         "agentOutputFile": "输出文件：{{file}}",

@@ -18,13 +18,103 @@ from typing import Any, Mapping
 from agent.core.skills.registry import SkillRegistry
 from agent.core.skills.writer import SkillWriter
 from agent.platform.tools.presentation import (
-    SKILL_MANAGE_PRESENTER as _SKILL_MANAGE_PRESENTER,
+    ToolPresentationEvent,
+    _enforce_cap,
+    _summarize_skill,
 )
 
 # Actions supported by this tool (design §4 interface)
 _SUPPORTED_ACTIONS = frozenset(
     {"create", "edit", "patch", "view", "list", "write_file", "remove_file"}
 )
+
+
+# ---------------------------------------------------------------------------
+# Presenter (feat-425 决策 3: presentation travels with the tool — class here)
+# ---------------------------------------------------------------------------
+
+
+class _SkillManagePresenter:
+    """Presenter for the `skill_manage` tool.
+
+    Result varies by action (create/edit/patch → ``{message}``; view → ``{content,
+    location}``; list → ``{skills}``). Detail surfaces ``action`` / ``name`` (args)
+    plus the result message and best-effort path, so the human sees which skill was
+    touched instead of truncated JSON.
+    """
+
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        action = str(args.get("action", ""))
+        name = str(args.get("name", ""))
+        return ToolPresentationEvent(
+            visible=True,
+            label="Skill",
+            summary=f"{action} {name}".strip(),
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        action = str(args.get("action", ""))
+        name = str(args.get("name", ""))
+        output = getattr(result, "output", None) or {}
+        error = getattr(result, "error", None)
+        if error:
+            # feat-409 failalign: 失败态 summary = 干净主参数(人话 skill 摘要),不含 error。
+            return ToolPresentationEvent(
+                visible=True,
+                label="Skill",
+                summary=_summarize_skill(action, name) or "failed",
+                detail={"error": {"message": str(error)}},
+            )
+        success = (
+            bool(output.get("success", True)) if isinstance(output, Mapping) else True
+        )
+        message = str(output.get("message", "")) if isinstance(output, Mapping) else ""
+        # view returns content/location; list returns skills — surface what exists.
+        path = str(output.get("location", "")) if isinstance(output, Mapping) else ""
+        if not success:
+            err = str(output.get("error", "")) if isinstance(output, Mapping) else ""
+            # feat-409 failalign: success=False 失败态 summary = 干净主参数(人话 skill
+            # 摘要),不含 error 文本;error 进 detail.message 供 SkillCard 渲染一次。
+            return ToolPresentationEvent(
+                visible=True,
+                label="Skill",
+                summary=_summarize_skill(action, name) or "failed",
+                detail={
+                    "action": action,
+                    "name": name,
+                    "message": err,
+                    "path": path,
+                    "success": False,
+                },
+            )
+        detail = _enforce_cap(
+            {
+                "action": action,
+                "name": name,
+                "message": message,
+                "path": path,
+                "content": str(output.get("content", ""))
+                if isinstance(output, Mapping)
+                else "",
+                "success": True,
+            }
+        )
+        return ToolPresentationEvent(
+            visible=True,
+            label="Skill",
+            # feat-409 protoalign: 折叠 summary 对齐原型 `创建 skill：log-cleanup`
+            # —— 中文动作 + skill 名,而非裸 `create log-cleanup`。
+            summary=_summarize_skill(action, name) or message,
+            detail=detail,
+        )
+
+
+_SKILL_MANAGE_PRESENTER = _SkillManagePresenter()
 
 
 class SkillManageTool:

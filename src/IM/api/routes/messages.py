@@ -89,6 +89,9 @@ class ToolCallPayload(BaseModel):
     # persisted on the domain ToolCall. The REST history path must serialize it too,
     # else front-end history load 退化 to <pre>{output}> (no per-tool render / prompt).
     detail: dict | None = None
+    # feat-425: tool-carried emoji on history load, so a custom tool's icon survives
+    # a page reload (name table only knows built-ins). None → front-end name fallback.
+    emoji: str | None = None
 
 
 class TokenUsagePayload(BaseModel):
@@ -173,6 +176,7 @@ def to_message_response(message: Message) -> MessageResponse:
                 output=tc.output,
                 reason=tc.reason,
                 detail=tc.detail,
+                emoji=tc.emoji,
             )
             for tc in (message.tool_calls or [])
         ],

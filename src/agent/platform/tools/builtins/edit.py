@@ -9,9 +9,82 @@ from agent.core.tools.serialization import json_serialize
 from agent.platform.permissions.broker import PermissionDecision
 from agent.platform.tools.dangerous_paths import check_dangerous_path
 from agent.platform.tools.presentation import (
-    EDIT_PRESENTER as _EDIT_PRESENTER,
+    ToolPresentationEvent,
+    _enforce_cap,
     display_path as _display_path,
 )
+
+
+# ---------------------------------------------------------------------------
+# Presenter (feat-425 决策 3: presentation travels with the tool — class here)
+# ---------------------------------------------------------------------------
+
+
+class _EditPresenter:
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        return ToolPresentationEvent(
+            visible=True,
+            label="Edit",
+            summary=str(args.get("path", "")),
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        path = str(args.get("path", ""))
+        old_text = str(args.get("oldText", ""))
+        new_text = str(args.get("newText", ""))
+        error = getattr(result, "error", None)
+        if error:
+            # feat-409 failalign: 失败态 summary = 干净主参数(path),不含 error 文本。
+            # detail 只放 error(path 已在折叠行 summary),走前端 ErrorCard 渲染一次。
+            return ToolPresentationEvent(
+                visible=True,
+                label="Edit",
+                summary=path or "failed",
+                detail={"error": {"message": str(error)}},
+            )
+        # compute a minimal unified diff
+        old_lines = old_text.splitlines(keepends=True)
+        new_lines = new_text.splitlines(keepends=True)
+        if not old_lines:
+            old_lines = [old_text]
+        if not new_lines:
+            new_lines = [new_text]
+        diff = "".join(
+            difflib.unified_diff(
+                old_lines, new_lines, fromfile=path, tofile=path, lineterm=""
+            )
+        )
+        # find first changed line number (best-effort)
+        first_changed_line: int | None = None
+        for i, (o, n) in enumerate(zip(old_lines, new_lines), start=1):
+            if o != n:
+                first_changed_line = i
+                break
+        if first_changed_line is None and len(old_lines) != len(new_lines):
+            first_changed_line = min(len(old_lines), len(new_lines)) + 1
+        detail = _enforce_cap(
+            {
+                "path": path,
+                "diff": diff,
+                "firstChangedLine": first_changed_line,
+                "truncated": False,
+            }
+        )
+        line_info = f" (line {first_changed_line})" if first_changed_line else ""
+        return ToolPresentationEvent(
+            visible=True,
+            label="Edit",
+            summary=f"updated{line_info}",
+            detail=detail,
+        )
+
+
+_EDIT_PRESENTER = _EditPresenter()
 
 
 class EditTool:

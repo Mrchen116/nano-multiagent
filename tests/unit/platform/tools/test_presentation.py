@@ -245,45 +245,103 @@ class TestBashPresenter:
 
 
 class TestWebFetchPresenter:
-    def test_start_shows_url(self) -> None:
+    def test_start_shows_url_with_globe_emoji(self) -> None:
+        # feat-425 决策 4: 折叠主参数是 url;emoji 随工具走 = 🌐。
         evt = _presenter("web_fetch").format_start({"url": "https://example.com"})
         assert evt.label == "Web"
         assert evt.summary == "https://example.com"
+        assert evt.emoji == "🌐"
 
-    def test_end_success(self) -> None:
+    def test_end_success_summary_is_url_detail_has_content(self) -> None:
+        # feat-425 决策 4: 折叠行显 url(不再 status=200 (title));detail 读
+        # content/status/final_url(放弃 title);emoji=🌐。
         evt = _presenter("web_fetch").format_end(
             {"url": "https://example.com"},
-            _FakeResult(output={"status": 200, "title": "Example"}),
+            _FakeResult(
+                output={
+                    "ok": True,
+                    "url": "https://example.com",
+                    "final_url": "https://example.com/doc",
+                    "status": 200,
+                    "content": "正文内容",
+                }
+            ),
             duration_ms=300,
         )
-        assert "status=200" in evt.summary
-        assert "Example" in evt.summary
+        assert evt.summary == "https://example.com"
+        assert evt.emoji == "🌐"
         assert evt.detail is not None
         assert evt.detail["status"] == 200
+        assert evt.detail["content"] == "正文内容"
+        assert evt.detail["final_url"] == "https://example.com/doc"
+        # 放弃 title:detail 不再带 title key。
+        assert "title" not in evt.detail
 
-    def test_end_failed(self) -> None:
-        # feat-409 failalign: 失败态 summary = 干净主参数(url),不含 error 文本。
+    def test_end_failed_out_of_band(self) -> None:
+        # feat-409 failalign: result.error(out-of-band)失败态 summary = 干净主参数(url)。
         evt = _presenter("web_fetch").format_end(
             {"url": "https://example.com"},
             _FakeResult(error="connection timed out"),
             duration_ms=5000,
         )
         assert evt.summary == "https://example.com"
+        assert evt.emoji == "🌐"
         assert "timed out" not in evt.summary
         assert evt.detail is not None
         assert "error" in evt.detail
+
+    def test_end_failed_in_band_ok_false(self) -> None:
+        # feat-425 决策 4: 网络错误/非法 URL 时 run() 返回 {ok:False,error},
+        # result.error 为空 — presenter 必须判 output["ok"] is False,落失败分支,
+        # 绝不产 status=None 的成功串。
+        evt = _presenter("web_fetch").format_end(
+            {"url": "https://bad.example"},
+            _FakeResult(
+                output={
+                    "ok": False,
+                    "url": "https://bad.example",
+                    "error": "URL validation failed: Missing domain",
+                }
+            ),
+            duration_ms=5,
+        )
+        assert evt.summary == "https://bad.example"
+        assert evt.emoji == "🌐"
+        assert evt.detail is not None
+        # 失败态:展开看到可读 error,不含 status=None。
+        assert "error" in evt.detail
+        assert evt.detail.get("status") is None or "status" not in evt.detail
 
     def test_end_body_excerpt_relaxed_and_capped(self) -> None:
         # web_fetch detail body 放宽:不再硬截到 500 字,大正文走 _enforce_cap(content)。
         long_body = "A" * 5000
         evt = _presenter("web_fetch").format_end(
             {"url": "https://example.com"},
-            _FakeResult(output={"status": 200, "title": "T", "content": long_body}),
+            _FakeResult(output={"ok": True, "status": 200, "content": long_body}),
             duration_ms=10,
         )
         assert evt.detail is not None
         # body 字段保留远多于旧的 500 字硬截
         assert len(evt.detail["content"]) > 500
+
+    def test_end_preserves_run_truncated_flag(self) -> None:
+        # feat-425 A2: run() 默认截到 50K(< _enforce_cap 256KB,cap 不翻转此标志),
+        # presenter 必须保留 run() 返回的真实 output["truncated"],而非硬编码 False —
+        # 否则正文被截断时 WebCard 不显示"源头已截断"。
+        evt = _presenter("web_fetch").format_end(
+            {"url": "https://example.com"},
+            _FakeResult(
+                output={
+                    "ok": True,
+                    "status": 200,
+                    "content": "短正文",
+                    "truncated": True,
+                }
+            ),
+            duration_ms=10,
+        )
+        assert evt.detail is not None
+        assert evt.detail["truncated"] is True
 
 
 class TestAgentPresenter:

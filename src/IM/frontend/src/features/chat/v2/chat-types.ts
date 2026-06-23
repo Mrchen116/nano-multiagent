@@ -74,6 +74,13 @@ export interface ToolCall {
    * messages persisted before feat-409 → renderers degrade to the `output` string.
    */
   detail?: ToolDetail;
+  /**
+   * feat-425: tool-carried emoji (决策 1). The collapsed row prefers this over the
+   * name→emoji table, so custom/MCP/product tools own their icon. Absent for
+   * historical rows / tools that declare none → name-table fallback (built-ins keep
+   * their icon, DIY/MCP get the generic 🔧).
+   */
+  emoji?: string;
 }
 
 export interface TokenUsage {

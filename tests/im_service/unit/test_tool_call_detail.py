@@ -163,3 +163,94 @@ def test_persist_round_trip_with_detail(tmp_path: Path) -> None:
     listed = messages.list_messages(conversation_id=conversation.id)
     assert listed[-1].tool_calls is not None
     assert listed[-1].tool_calls[0].detail == _SAMPLE_DETAIL
+
+
+# --- feat-425: emoji vertical (parse / serialize / persist) -------------------
+# emoji 走 detail 同一条序列化路径(决策 2):工具自带的图标随 tool_call 全程透传 +
+# 落库,历史行/无 emoji 行解码缺省 None(前端按名表兜底)。
+
+
+def test_parse_tool_call_reads_emoji() -> None:
+    tc = _parse_tool_call(
+        {
+            "id": "tc1",
+            "name": "web_fetch",
+            "status": "completed",
+            "input": {"url": "https://x"},
+            "output": "https://x",
+            "emoji": "🌐",
+        }
+    )
+    assert tc.emoji == "🌐"
+
+
+def test_parse_tool_call_without_emoji_is_none() -> None:
+    tc = _parse_tool_call(
+        {"id": "tc1", "name": "read", "status": "completed", "output": "42 lines"}
+    )
+    assert tc.emoji is None
+
+
+def test_tool_call_to_dict_includes_emoji() -> None:
+    tc = ToolCall(
+        id="tc1", name="web_fetch", status="completed", output="https://x", emoji="🌐"
+    )
+    payload = tool_call_to_dict(tc)
+    assert payload["emoji"] == "🌐"
+
+
+def test_tool_call_to_dict_omits_emoji_when_absent() -> None:
+    tc = ToolCall(id="tc1", name="read", status="completed", output="42 lines")
+    payload = tool_call_to_dict(tc)
+    assert "emoji" not in payload
+
+
+def test_completed_payload_carries_emoji() -> None:
+    tc = ToolCall(
+        id="tc1", name="web_fetch", status="completed", output="https://x", emoji="🌐"
+    )
+    payload = build_tool_call_completed_payload(
+        conversation_id="c1", message_id="m1", tool_call=tc
+    )
+    assert payload["tool_call"]["emoji"] == "🌐"
+
+
+def test_encode_decode_round_trip_with_emoji() -> None:
+    tc = ToolCall(
+        id="tc1", name="web_fetch", status="completed", output="https://x", emoji="🌐"
+    )
+    decoded = _decode_tool_calls(_encode_tool_calls([tc]))
+    assert decoded is not None
+    assert decoded[0].emoji == "🌐"
+
+
+def test_decode_legacy_row_without_emoji() -> None:
+    legacy = '[{"id":"tc1","name":"read","status":"completed","output":"x","input":{}}]'
+    decoded = _decode_tool_calls(legacy)
+    assert decoded is not None
+    assert decoded[0].emoji is None
+
+
+def test_persist_round_trip_with_emoji(tmp_path: Path) -> None:
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+    tc = ToolCall(
+        id="call_1",
+        name="web_fetch",
+        status="completed",
+        input={"url": "https://x"},
+        output="https://x",
+        emoji="🌐",
+    )
+    messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="hello",
+        tool_calls=[tc],
+    )
+    listed = messages.list_messages(conversation_id=conversation.id)
+    assert listed[-1].tool_calls is not None
+    assert listed[-1].tool_calls[0].emoji == "🌐"

@@ -8,9 +8,15 @@ fallback for a fixed input matrix. The migration must keep these byte-for-byte
 (same打法 as the R1 prompt golden): the assertions below are the contract; the
 resolution *path* changes underneath, the rendered values do not.
 
-Each case asserts the full (visible, label, summary, detail) tuple so any drift in
-any field fails. ``_resolve`` is the single seam that the migration re-points; the
-expected values never change.
+Each case asserts the full (visible, label, summary, emoji, detail) tuple so any
+drift in any field fails. ``_resolve`` is the single seam that the migration
+re-points; the expected values never change.
+
+feat-425: presenter 类下沉到各 builtins/* 后,resolution 路径不变(仍 read off
+``tool.presenter``),渲染值除 web_fetch(显式修订:折叠改 url、detail 改 content/
+final_url、emoji=🌐)外保持。``_evt_tuple`` 新增 ``emoji`` 维度,内置工具默认空串
+(emoji 随工具走,内置工具沿用前端名表兜底,故 presenter 不强制声明)——web_fetch
+是唯一在 presenter 层声明 emoji 的内置工具。
 """
 
 from __future__ import annotations
@@ -53,6 +59,9 @@ def _evt_tuple(evt: Any) -> tuple:
         evt.visible,
         evt.label,
         evt.summary,
+        # feat-425: emoji 随工具走。内置工具(除 web_fetch)不在 presenter 声明 emoji
+        # (空串),前端按名表兜底图标;web_fetch 显式声明 🌐。
+        getattr(evt, "emoji", ""),
         dict(detail) if detail is not None else None,
     )
 
@@ -63,26 +72,26 @@ class _Result:
         self.error = error
 
 
-# (tool_name, args, expected_start_tuple)
+# (tool_name, args, expected_start_tuple) — tuple = (visible, label, summary, emoji, detail)
 _START_CASES = [
-    ("read", {"path": "src/app.py"}, (True, "Read", "src/app.py", None)),
-    ("write", {"path": "src/app.py"}, (True, "Write", "src/app.py", None)),
-    ("edit", {"path": "src/app.py"}, (True, "Edit", "src/app.py", None)),
-    ("bash", {"command": "pytest tests/"}, (True, "Bash", "pytest tests/", None)),
+    ("read", {"path": "src/app.py"}, (True, "Read", "src/app.py", "", None)),
+    ("write", {"path": "src/app.py"}, (True, "Write", "src/app.py", "", None)),
+    ("edit", {"path": "src/app.py"}, (True, "Edit", "src/app.py", "", None)),
+    ("bash", {"command": "pytest tests/"}, (True, "Bash", "pytest tests/", "", None)),
     (
         "web_fetch",
         {"url": "https://example.com"},
-        (True, "Web", "https://example.com", None),
+        (True, "Web", "https://example.com", "🌐", None),
     ),
     (
         "agent",
         {"description": "Refactor auth module"},
-        (True, "Agent", "Refactor auth module", None),
+        (True, "Agent", "Refactor auth module", "", None),
     ),
     (
         "unknown_xyz",
         {"foo": "bar"},
-        (True, "Tool", '{"foo": "bar"}', None),
+        (True, "Tool", '{"foo": "bar"}', "", None),
     ),
 ]
 
@@ -106,6 +115,7 @@ def test_read_end_text_lines_golden() -> None:
         True,
         "Read",
         "src/app.py · 42 行",
+        "",
         {
             "path": "src/app.py",
             "total_lines": 42,
@@ -126,6 +136,7 @@ def test_read_end_unchanged_golden() -> None:
         True,
         "Read",
         "src/app.py · unchanged",
+        "",
         {"path": "src/app.py", "unchanged": True},
     )
 
@@ -169,6 +180,37 @@ def test_bash_end_failed_golden() -> None:
     assert evt.label == "Bash"
     assert evt.summary == "false"
     assert evt.detail == {"command": "false", "error": {"message": "command failed"}}
+
+
+def test_web_fetch_end_success_golden() -> None:
+    # feat-425 决策 4: web_fetch 折叠改 `🌐 <url>`(不再 status=200 (title));
+    # detail 读 content/status/final_url(放弃 title)。
+    evt = _resolve("web_fetch").format_end(
+        {"url": "https://example.com"},
+        _Result(
+            output={
+                "ok": True,
+                "url": "https://example.com",
+                "final_url": "https://example.com/landing",
+                "status": 200,
+                "content": "hello body",
+            }
+        ),
+        duration_ms=300,
+    )
+    assert _evt_tuple(evt) == (
+        True,
+        "Web",
+        "https://example.com",
+        "🌐",
+        {
+            "url": "https://example.com",
+            "final_url": "https://example.com/landing",
+            "status": 200,
+            "content": "hello body",
+            "truncated": False,
+        },
+    )
 
 
 def test_default_end_golden() -> None:

@@ -5,7 +5,14 @@
 
 ## Changelog
 
-<!-- design 阶段保持空;orchestrator 接手后、worker 实施中发现 design 需改时才追加。 -->
+- **feat-425-M1 实施**(决策 5 实现层细节落定):web_search presenter 写在 product 包,只能
+  import `agent.sdk`,而 `_enforce_cap` 是 platform 内部不在 sdk 公共面——故 web_search 不复用内核
+  cap,改为逐条 snippet 本地截断(`_SNIPPET_CAP=2000`)。结果天然有界(count ≤ 10),足以把 detail
+  控制在合理体积。decision 5 的 risk 已预留此为"实现层细节留 worker"。
+- **附带修复**(非本 unit 引入):`message-pane.tsx` / `message-pane.test.tsx` 在 unit 分支基线即有
+  两处 tsc 报错(`querySelectorAll("tbody td")` 推断 `Element` 无 `.style`;`MD_REMARK_PLUGINS`
+  的 `as const` 与 `Pluggable[]` 冲突),阻塞 `npm run build` 闸。以最小型修(加泛型实参 / 去
+  `as const`)解除阻塞,不改运行行为。
 
 ## 现状分析
 

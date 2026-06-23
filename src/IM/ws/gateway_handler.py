@@ -2530,6 +2530,7 @@ def _parse_tool_call(value: object) -> ToolCall:
     output = value.get("output")
     reason = value.get("reason")
     detail = value.get("detail")
+    emoji = value.get("emoji")
     return ToolCall(
         id=tc_id,
         name=name,
@@ -2539,6 +2540,7 @@ def _parse_tool_call(value: object) -> ToolCall:
         output=str(output) if output is not None else None,
         reason=str(reason) if isinstance(reason, str) and reason else None,
         detail=detail if isinstance(detail, dict) else None,
+        emoji=emoji if isinstance(emoji, str) and emoji else None,
     )
 
 

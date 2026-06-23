@@ -34,6 +34,18 @@ export function toolEmoji(name: string): string {
 }
 
 /**
+ * Collapsed-row emoji for a tool call (feat-425 决策 1): event-first, name-table
+ * fallback. A tool/presenter that carries its own emoji owns its icon — custom /
+ * MCP / product tools no longer all collapse to the generic 🔧. Rows without a
+ * carried emoji (historical rows, in-flight rows whose tool_start relay omits it)
+ * fall back to the name table, so built-ins keep their icon and unknown tools get 🔧.
+ */
+export function toolEmojiFor(call: ToolCall): string {
+  if (typeof call.emoji === "string" && call.emoji) return call.emoji;
+  return toolEmoji(call.name);
+}
+
+/**
  * Collapsed-row summary text. Prefers the presenter summary (`output`); for
  * historical rows persisted before feat-409 (no output) returns "" so the row
  * still renders cleanly with just emoji + name.

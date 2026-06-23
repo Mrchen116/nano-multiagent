@@ -182,7 +182,13 @@ def _as_mapping_or_none(value: Any) -> dict[str, Any] | None:
 
 def _presentation_dict(presentation: Any) -> dict[str, Any]:
     if presentation is None:
-        return {"visible": False, "label": "", "summary": "", "detail": None}
+        return {
+            "visible": False,
+            "label": "",
+            "summary": "",
+            "detail": None,
+            "emoji": "",
+        }
     return {
         "visible": getattr(presentation, "visible", False),
         "label": getattr(presentation, "label", ""),
@@ -190,6 +196,9 @@ def _presentation_dict(presentation: Any) -> dict[str, Any]:
         "detail": dict(getattr(presentation, "detail", {}))
         if getattr(presentation, "detail", None) is not None
         else None,
+        # feat-425 决策 1: emoji 随事件透传,让自带 emoji 的工具(web_fetch=🌐 等)
+        # 的图标全程透传,而非靠前端名表。
+        "emoji": getattr(presentation, "emoji", ""),
     }
 
 

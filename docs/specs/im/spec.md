@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: bugfix-419-im-ws-message-order
+> 对齐: feat-425-tool-presenter-emoji
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 **IM 的消费者真正依赖的对外行为**：
 > 浏览器前端（内置 Web IM）、Node Gateway（`personal_assistant`）、终端用户，以及 `tests/im_service/`
@@ -436,7 +436,32 @@ run 异常终止、工具自身超时或工具被拒绝时,IM 工具徽标必须
 #### Scenario: 工具名显示真实注册名
 - **WHEN** 用户看任意工具调用行
 - **THEN** 工具名显示其真实注册名(`bash` / `read` / `write` / `edit` / `agent` / `task_stop` /
-  `web_fetch` / `memory` / `skill_manage`),不出现别名或改写名
+  `web_fetch` / `memory` / `skill_manage` / `web_search`),不出现别名或改写名
+
+#### Scenario: web_search 折叠显查询词
+- **WHEN** agent 调用 `web_search` 搜索某查询词且搜索成功
+- **THEN** 该工具行折叠态显示 `🔍` 图标 + 查询词文本(如 `🔍 nano multiagent 架构`),不出现裸 JSON args
+- **AND** 搜索失败(provider 不可用/报错)时折叠仍显 `🔍` + 查询词,该行标红,展开能看到出错原因
+
+#### Scenario: web_fetch 折叠显抓取的网址
+- **WHEN** agent 调用 `web_fetch` 抓取某 URL
+- **THEN** 该工具行折叠态显示 `🌐` 图标 + 该 URL(如 `🌐 https://example.com/doc`),不显示
+  `status=200 (title)` 这类机器视角文案
+- **AND** 抓取失败(网络错误/非法 URL/4xx-5xx)时折叠仍显 `🌐` + 该 URL
+
+### Requirement: 工具折叠行图标随工具自带,自定义工具可拥有专属图标
+
+折叠行图标优先取工具/presenter 自带的 emoji(经内核事件透传 + 落库);工具未声明 emoji 时回退到前端
+按工具名的图标表(内置工具不退化,未知/DIY/MCP 工具回退通用 🔧)。
+
+#### Scenario: 自定义 / MCP 工具声明了 emoji
+- **GIVEN** 一个自定义(`.nano/tools/`)/ MCP / 新产品工具的 presenter 声明了专属 emoji
+- **WHEN** agent 调用该工具,记录出现在聊天面板
+- **THEN** 折叠行显示该工具自带的 emoji,而非通用 🔧
+
+#### Scenario: 工具未声明 emoji 回退(不退化)
+- **WHEN** agent 调用一个未声明 emoji 的工具
+- **THEN** 折叠行回退按工具名取图标:内置工具显其既有图标,未知/DIY/MCP 工具显通用 🔧
 
 ### Requirement: 工具调用展开态按工具类型呈现详情
 
@@ -456,8 +481,14 @@ run 异常终止、工具自身超时或工具被拒绝时,IM 工具徽标必须
 - **THEN** 看到写入的文件内容预览与字节数
 
 #### Scenario: web_fetch 展开看到网页信息
-- **WHEN** 用户展开一个 web_fetch 工具行
-- **THEN** 看到网页标题、URL 和正文摘录
+- **WHEN** 用户展开一个抓取成功的 web_fetch 工具行
+- **THEN** 看到 URL、状态码,以及抓取到的正文文本(正文非空)
+- **AND** 抓取失败时,展开看到可读的错误说明或状态码,绝不出现空正文或 `status=None` 这类机器串
+
+#### Scenario: web_search 展开按结果条目渲染
+- **WHEN** 用户展开一个成功的 web_search 工具行
+- **THEN** 展开区按条目列出每条结果的标题、网址(完整可读的纯文本,可手动复制)、摘要,而非一坨原始字符串
+- **AND** 查询无任何命中时,展开区显示明确的"无结果"空态文案,而不是空白或原始字符串
 
 #### Scenario: agent 展开看到完整派发 prompt
 - **WHEN** 用户展开一个 agent 工具行
