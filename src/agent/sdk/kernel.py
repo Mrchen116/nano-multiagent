@@ -389,18 +389,21 @@ def _build_kernel_base(
         # bugfix-429 决策3: build one client per declared provider so a run is
         # routed to the client of its model's registered provider. Within a
         # provider all models share base_url (set here); only request.model
-        # varies per call, so one client per provider suffices.
+        # varies per call, so one client per provider suffices. Providers with no
+        # models are skipped — nothing routes to them (no model maps to them) and
+        # building a client would resolve an empty model map.
         llm_clients = {
             p.name: _platform_create_llm_client(
                 config=LLMFactoryConfig(
                     provider=p.name,
-                    model=p.models[0].name if p.models else factory_config.model,
+                    model=p.models[0].name,
                     base_url=p.base_url,
                     api_key=llm.api_key,
                     timeout_seconds=llm.timeout_seconds,
                 )
             )
             for p in llm.providers
+            if p.models
         } or None
 
     runtime = AgentRuntime(

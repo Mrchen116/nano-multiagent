@@ -182,8 +182,12 @@ def resolve_model_metadata(provider: str, model: str | None) -> ModelMetadata:
     """
     registry = _require_initialized()
     _ensure_provider(registry, provider)
-    selected_model = model or registry.provider_defaults.get(provider, "")
     provider_models = registry.models[provider]
+    # bugfix-429: a provider declared with no models has nothing to resolve — fail
+    # loud rather than blowing up on next(iter(...)) of an empty map below.
+    if not provider_models:
+        raise ValueError(f"no models registered for provider: {provider}")
+    selected_model = model or registry.provider_defaults.get(provider, "")
     if selected_model in provider_models:
         return provider_models[selected_model]
     # Unknown model: inherit provider defaults with the requested model name.
