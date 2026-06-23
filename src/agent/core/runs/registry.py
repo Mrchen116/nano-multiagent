@@ -139,6 +139,12 @@ class RunsRegistry:
         self._controllers: dict[str, RunController] = {}
         # session_id → run_id for the currently-executing run (RUNNING state only).
         self._active_run_by_session: dict[str, str] = {}
+        # bugfix-426 决策3 (held-pending): when a user /stop ends a run, messages that
+        # were steered into it but never consumed are NOT auto-continued (that would
+        # contradict the explicit stop) and NOT discarded (that would lose the user's
+        # later intent); they are parked here per session and prepended to the NEXT
+        # submit() for that session. In-memory, lost on restart (same as pending).
+        self._held_pending: dict[str, list[PendingMessage]] = {}
         # bugfix-402-M3: owned Task handles so drain_async() can await each to
         # terminal state before stopping the loop.  Keyed by run_id; cleared in
         # the Task done-callback so the dict never outlives a completed Task.
@@ -345,6 +351,18 @@ class RunsRegistry:
             raise ValueError(f"session does not exist: {session_id}")
         if not parts:
             raise ValueError("empty input parts are not allowed")
+
+        # bugfix-426 决策3 (held-pending flush): messages parked by a prior user /stop
+        # for this session ride along on its next run. Prepend them (FIFO: held first,
+        # then this turn's parts) and clear the buffer. Transparent to every caller
+        # (gateway / cli / continuation) since they all funnel through submit(); does
+        # not depend on the steer flag.
+        with self._lock:
+            held = self._held_pending.pop(session_id, None)
+        if held:
+            parts = [{"type": "text", "text": p.message.content} for p in held] + list(
+                parts
+            )
 
         run_id = make_run_id()
         now = _utc_now_iso()
@@ -620,20 +638,21 @@ class RunsRegistry:
                 # Early-cancel still reached RUNNING, so a steer may already have
                 # enqueued into this controller — drain+continue via the single
                 # terminal chokepoint below rather than dropping it.
-                self._continue_stranded_pending(
+                self._settle_terminal_pending(
                     controller, session_id=session_id, workspace_root=workspace_root
                 )
                 return
-            # bugfix-426 决策3 (扩展): stranded-pending continuation is centralised in
-            # ONE terminal chokepoint (this finally) so it covers EVERY way a run can
-            # end — normal completion, timeout, failure, watchdog idle-reap, crash, and
-            # the force-cancel path (carrier Task .cancel() raises CancelledError, a
+            # bugfix-426 决策3 (扩展): stranded-pending handling is centralised in ONE
+            # terminal chokepoint (this finally) so it covers EVERY way a run can end —
+            # normal completion, timeout, failure, watchdog idle-reap, crash, and the
+            # force-cancel path (carrier Task .cancel() raises CancelledError, a
             # BaseException that skips `except Exception` but still runs `finally`).
             # A message injected mid-run that the loop never drained at a round boundary
-            # must survive any of these (incident「消息不丢失」). The sole exception is an
-            # explicit user /stop (abort user_initiated): there we honour the stop and
-            # discard pending (continuing would contradict the user's stop signal) —
-            # gated inside _continue_stranded_pending via controller.is_user_interrupt.
+            # must survive any of these (incident「消息不丢失」). Three-tier semantics:
+            #   - non-user terminal (watchdog/crash/timeout) → auto-continuation run;
+            #   - user /stop (abort user_initiated) → park pending to the session-level
+            #     held buffer (neither auto-continue nor discard) for the NEXT submit;
+            # routed inside _settle_terminal_pending via controller.is_user_interrupt.
             try:
                 try:
                     with span(
@@ -663,36 +682,43 @@ class RunsRegistry:
                 else:
                     self._mark_completed(run_id, turn_result=result)
             finally:
-                self._continue_stranded_pending(
+                self._settle_terminal_pending(
                     controller, session_id=session_id, workspace_root=workspace_root
                 )
 
-    def _continue_stranded_pending(
+    def _settle_terminal_pending(
         self,
         controller: RunController | None,
         *,
         session_id: str,
         workspace_root: Path | None,
     ) -> None:
-        """Drain any messages injected into a now-terminal run and re-run them.
+        """Settle messages injected into a now-terminal run (bugfix-426 决策3).
 
-        Single terminal chokepoint for the stranded-pending continuation (bugfix-426
-        决策3). A message steered into an active run via ``inject_pending_message``
-        that the loop never consumed at a round boundary would otherwise be lost when
-        the run ends — violating incident「消息不丢失」. Re-submitted as a continuation
-        run carrying each message's own injection origin (user steer → USER), grouped
-        into contiguous same-origin batches to preserve FIFO order.
+        Single terminal chokepoint. A message steered into an active run via
+        ``inject_pending_message`` that the loop never consumed at a round boundary
+        would otherwise be lost when the run ends — violating incident「消息不丢失」.
+        Two outcomes by how the run ended:
 
-        Skipped when the run was stopped by an explicit user /stop
-        (``controller.is_user_interrupt``): the user asked to stop, so spawning a
-        continuation would contradict that signal. Also a no-op when the registry is
-        shutting down (submit would raise) so a force-cancel during shutdown unwinds
-        cleanly.
+        - **User /stop** (``controller.is_user_interrupt``): the user explicitly
+          stopped, so neither auto-continue (contradicts /stop, and bugfix-417's
+          /stop ack already told the user it stopped) nor discard (loses the user's
+          later intent). Park the drained messages to the session-level held buffer;
+          the next ``submit()`` for this session prepends them.
+        - **Non-user terminal** (watchdog idle-reap / crash / timeout / completion):
+          re-run as a continuation carrying each message's own injection origin
+          (user steer → USER), grouped into contiguous same-origin batches to
+          preserve FIFO order. No-op when the registry is shutting down (submit
+          would raise) so a force-cancel during shutdown unwinds cleanly.
         """
-        if controller is None or controller.is_user_interrupt:
+        if controller is None:
             return
         stranded = controller.drain_pending()
         if not stranded:
+            return
+        if controller.is_user_interrupt:
+            with self._lock:
+                self._held_pending.setdefault(session_id, []).extend(stranded)
             return
         with self._lock:
             if self._state is not _RegistryState.OPEN:

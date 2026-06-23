@@ -766,9 +766,10 @@ def test_stranded_continuation_fires_on_non_user_cancel(tmp_path: Path) -> None:
         registry.shutdown()
 
 
-def test_user_stop_discards_pending_no_continuation(tmp_path: Path) -> None:
-    """A user /stop (abort user_initiated) discards pending injections — no
-    continuation run (honour the explicit stop; bugfix-426 决策 + /stop 语义)."""
+def test_user_stop_holds_pending_then_flushes_on_next_submit(tmp_path: Path) -> None:
+    """A user /stop (abort user_initiated) does NOT auto-continue the stranded
+    message, but does NOT discard it either: it is parked to the session held
+    buffer and prepended to the session's NEXT submit (bugfix-426 决策3 /stop 语义)."""
     from agent.core.llm.interfaces import LLMMessage
     from agent.core.runs.origin import RunOrigin
 
@@ -803,10 +804,101 @@ def test_user_stop_discards_pending_no_continuation(tmp_path: Path) -> None:
             ),
             timeout_seconds=3.0,
         )
-        # Give any (erroneous) continuation a chance to be created, then assert none.
+        # /stop must NOT auto-spawn a continuation run...
         time.sleep(0.2)
         with registry._lock:  # noqa: SLF001
             other_runs = [rid for rid in registry._runs if rid != submitted.run_id]
-        assert other_runs == [], "user /stop must not spawn a continuation run"
+        assert other_runs == [], "user /stop must not auto-continue"
+        # ...but the message must be held (not discarded).
+        with registry._lock:  # noqa: SLF001
+            assert [
+                p.message.content for p in registry._held_pending[session.session_id]
+            ] == ["steered after stop"]
+
+        # Next submit for this session flushes the held buffer, prepended (FIFO:
+        # held first, then this turn's parts).
+        _asyncio.run_coroutine_threadsafe(_set_event(ev), loop)  # keep gate open
+        next_run = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "msg3 new"}],
+            workspace_root=tmp_path,
+        )
+        _wait_for(
+            lambda: (
+                registry.get(next_run.run_id) is not None
+                and registry.get(next_run.run_id).status
+                in {RunStatus.COMPLETED, RunStatus.CANCELLED, RunStatus.FAILED}
+            ),
+            timeout_seconds=3.0,
+        )
+        # Held buffer cleared after the flush.
+        with registry._lock:  # noqa: SLF001
+            assert session.session_id not in registry._held_pending
+    finally:
+        registry.shutdown()
+
+
+def test_held_pending_prepended_in_fifo_order(tmp_path: Path) -> None:
+    """The held flush prepends held messages before the new turn's parts (FIFO).
+
+    Verified at the submit() boundary by capturing the parts the runtime receives.
+    """
+    import threading
+
+    from agent.core.agent.run_control import PendingMessage
+    from agent.core.llm.interfaces import LLMMessage
+    from agent.core.runs.origin import RunOrigin
+
+    captured: list[list[dict]] = []
+    done = threading.Event()
+
+    class _CapturingRuntime:
+        async def run(
+            self,
+            session_id,
+            parts,
+            *,
+            stream=True,
+            run_id=None,
+            controller=None,
+            workspace_root=None,
+            origin=None,
+        ):  # noqa: ANN001, ANN201
+            del stream, run_id, controller, workspace_root, origin
+            captured.append([dict(p) for p in parts])
+            done.set()
+            return TurnResult(
+                session_id=session_id,
+                turn_id="t_cap",
+                messages=(Message(message_id="m", role="assistant", content="ok"),),
+                completed=True,
+                stop_reason="completed",
+            )
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_CapturingRuntime(), session_manager=manager)
+    try:
+        # Seed the held buffer directly (held is normally populated by a /stop).
+        with registry._lock:  # noqa: SLF001
+            registry._held_pending[session.session_id] = [
+                PendingMessage(
+                    message=LLMMessage(role="user", content="held-1"),
+                    origin=RunOrigin.USER,
+                ),
+                PendingMessage(
+                    message=LLMMessage(role="user", content="held-2"),
+                    origin=RunOrigin.USER,
+                ),
+            ]
+        registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "new-turn"}],
+            workspace_root=tmp_path,
+        )
+        assert done.wait(timeout=3.0)
+        texts = [p.get("text") for p in captured[0]]
+        assert texts == ["held-1", "held-2", "new-turn"]
     finally:
         registry.shutdown()
