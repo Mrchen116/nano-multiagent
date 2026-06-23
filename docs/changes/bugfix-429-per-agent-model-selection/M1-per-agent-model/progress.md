@@ -85,3 +85,18 @@
 - Rollback: 回退到 R4 commit。
 - Commits: C1=test 红测, C2=feat 后端+前端 provider 展示, +golden 修复, C3=本次 docs。
 - Next: R6 CLI 自维护 current model + reconfigure_llm/bind_llm_client 退役（先问 team-lead /model UX）。
+
+## R7 — 端到端 live 验证（进行中，已 PASS 核心 + 暴露决策3冲突）
+
+- Context: live-critical 硬门槛——IM 选 gpt 的 agent 对话 → LLM proxy 日志该请求 model==codex_oauth:gpt-5.5。
+- 环境: worktree e2e（scripts/e2e-up.sh，ephemeral IM + Gateway + 真 LLM proxy@4000）。
+- **核心 PASS**: IM PATCH default-agent default_model→codex_oauth:gpt-5.5（真配置路径）→ 直聊发消息 → proxy 日志 `/Users/czj/Repos/LLM_PROXY/logs/session/2026-06-23_22-08-47_131_sess_0279fa047455b864/*-req-anthropic_messages.json` → `model=codex_oauth:gpt-5.5`，anthropic_messages 协议，回复完成无错。所选模型真生效。
+- **暴露的决策3冲突（已 systematic-debugging 钉死根因，上报 team-lead 待决策）**:
+  - config 把 codex_oauth:gpt-5.5 声明在 openai_compat provider；决策3 多 client 路由 → OpenAICompatClient → openai_chat 协议 → proxy 报 `profile=kimiCoding 不支持协议 openai_chat`。
+  - 实测：curl /v1/chat/completions（openai_chat）同 model 报同错；curl /v1/messages（anthropic）同 model 成功返回 pong。即 proxy 只用 anthropic 格式服务 gpt-5.5。用户原话亦「anthropic 格式调 gpt」。
+  - 根因：config 把 gpt 声明成 openai_compat 与现实（anthropic 格式）不符。决策3 本身没错（按声明路由），错在声明。
+  - 旧内核单 client 固定 anthropic 故一直能用；决策3 多 client 忠实按 openai_compat 声明路由反而打断。
+  - 验证修复（worktree config）：gpt-5.5 移到 anthropic provider + 删空 openai_compat → 重启 GW → live PASS（上面证据即此配置）。
+  - 附带发现：空 provider 会让 build_kernel client 构造 + model_registry.resolve_model_metadata 崩（next(iter()) on empty）。选 A 删 provider 规避；若要支持空 provider 需 build_kernel 跳过（小改）。
+  - 待 team-lead 决策 A（改 config 把 gpt 挪 anthropic，授权动主仓 config.yaml）/ B（不推荐）。
+- Next: 待 team-lead 两条决策（R6 CLI A/B/C + R7 config A/B）后收口；补兜底默认/跨 provider live 证据。
