@@ -31,14 +31,14 @@ CLI REPL 在一个 run 执行期间，用户输入的新消息不再阻塞、不
 
 ## Roadpoints
 
-### R1 — 非阻塞 REPL 输入循环 + 运行中 steer 路由
+### R1 — 非阻塞 REPL 输入循环 + 运行中 steer 路由 — DONE
 
 - 步骤:
   1. 红测：在 `tests/unit/test_cli_repl_steering.py` 断言「run 活跃期输入走 `submit(steer=True)`、空闲走新 run、连发按序、SIGINT 仍 interrupt」。
   2. 实现：`_run_repl` 不再同步 await 整个 run；run 推进作为 asyncio task，输入读放 executor future，二者 `FIRST_COMPLETED` 竞争。run task 未终态时读到输入 → `submit(steer=True)`；空闲读到输入 → 新 run task。复用既有 stream 渲染管道（`_send_message_async` 的事件渲染逻辑）。
 - 验证: `pytest tests/unit/test_cli_repl_steering.py` 全绿 + 既有 CLI 单测不回归。
 
-### R2 — 清理死代码 + 修结构断言
+### R2 — 清理死代码 + 修结构断言 — DONE
 
 - 步骤:
   1. 删 `src/coding_cli/runtime/repl_runtime.py` 与 `runtime/__init__.py` 对它的导出。
