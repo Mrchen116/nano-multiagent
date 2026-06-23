@@ -131,3 +131,16 @@
 - Rollback: 回退到 R5/R4 commit。
 - Commits: C1=test 红测, C2=refactor 退役+CLI每轮传+适配, C3=本次 docs。
 - Next: R7 config 决策（决策3冲突，gpt 挪 anthropic，需 team-lead 授权改主 config.yaml）后做最终 live + 收尾集成。
+
+## R7 续 — 空 provider 健壮（代码层，team-lead 认可进 PR）
+
+- Context: R7 live 暴露决策3×proxy 冲突时，验证修法（gpt 挪 anthropic + 删空 openai_compat）触发一个独立缺陷：空 provider 让 build_kernel client 构造 + model_registry.resolve_model_metadata 崩（next(iter()) on empty StopIteration）。team-lead 拍分两层：代码层防御（进 PR，我做）+ 数据层主 config（用户拍，挂起）。
+- Decision（代码层）:
+  - `model_registry.resolve_model_metadata`：provider models 为空 → 清晰 `ValueError("no models registered for provider: X")`（不再 StopIteration）。
+  - `build_kernel`：构造 per-provider client 时 `if p.models` 跳过空 provider（无 model 映射到它，无法路由；构造 client 也会 resolve 空 map）。
+- Rationale: 防御性改进——即便将来 config 出现空 provider / 某 provider 无模型也不挂。守 §0.2「大声失败不静默」（清晰 ValueError 而非裸 StopIteration）。
+- Evidence:
+  - Tests: 红测 `test_resolve_model_metadata_empty_provider_raises_clearly` + `test_build_kernel_tolerates_empty_provider`（无 override 走多 client 路径）先红（StopIteration）后绿。
+  - Lint: ruff check + format 通过。
+- 数据层（挂起，不阻塞代码 PR）：把主仓 `~/.nano-assistant/config.yaml` 的 gpt-5.5 从 openai_compat 挪到 anthropic + 删空 openai_compat。改用户持久配置，用户最初说过「先不挪 provider」，team-lead 去问用户拍板。**worker 未碰主 config**。
+- 核实（team-lead 问）：R7 live 全程 worktree ephemeral 栈（IM free 口、IM DB worktree cwd-relative 已清、Gateway --config 副本）；PATCH default-agent 改的是 ephemeral IM DB（已清），非主仓持久数据；R4 用隔离 fake HOME。**主仓持久数据零改动**。
