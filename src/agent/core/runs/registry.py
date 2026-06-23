@@ -20,7 +20,7 @@ from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.observability.logger import log_error, log_info
 from agent.core.observability.tracing import bind_correlation, current_trace_id, span
 from agent.core.session.manager import SessionManager
-from agent.core.agent.run_control import RunController
+from agent.core.agent.run_control import PendingMessage, RunController
 
 
 class RegistryClosedError(RuntimeError):
@@ -505,17 +505,30 @@ class RunsRegistry:
             self._force_cancel_owned_task(run_id)
         return run_id
 
-    def inject_pending_message(self, session_id: str, message: LLMMessage) -> bool:
+    def inject_pending_message(
+        self,
+        session_id: str,
+        message: LLMMessage,
+        origin: RunOrigin = RunOrigin.USER,
+    ) -> bool:
         """Enqueue a message for round-boundary injection into the active run.
 
-        Returns True if the message was enqueued, False if no active run exists
-        or the run is already being interrupted.
+        Args:
+            session_id: Session whose active run to inject into.
+            message: Message to inject before the active run's next LLM call.
+            origin: Source that produced this message. Carried on the pending
+                queue so a stranded continuation re-run keeps the right origin
+                (user mid-run steer → USER, not BACKGROUND_TASK; bugfix-426 决策3).
+
+        Returns:
+            True if the message was enqueued, False if no active run exists or the
+            run is already being interrupted.
         """
         with self._lock:
             run_id = self._active_run_by_session.get(session_id)
             controller = self._controllers.get(run_id) if run_id else None
         if controller is not None and not controller.is_aborted:
-            controller.enqueue_message(message)
+            controller.enqueue_message(message, origin)
             return True
         return False
 
@@ -632,18 +645,23 @@ class RunsRegistry:
                 await self._mark_aborted_async(run_id, source="priority_now")
             else:
                 self._mark_completed(run_id, turn_result=result)
-            # Race safety: background tasks that completed while this run was
-            # still in _active_run_by_session may have injected messages that
-            # were never consumed. Drain them and start a continuation run.
+            # Race safety: a message injected (background task notification OR a
+            # user mid-run steer) while this run was still active may have arrived
+            # after the loop's final drain, leaving it stranded. Re-run it as a
+            # continuation. The continuation origin follows the injection origin
+            # (user steer → USER), not a hardcoded BACKGROUND_TASK (bugfix-426 决策3).
+            # Pending items are grouped into contiguous same-origin batches so FIFO
+            # order is preserved and each batch's continuation carries its own origin.
             if controller is not None:
                 stranded = controller.drain_pending()
-                if stranded:
+                for origin_batch, pending_batch in _group_pending_by_origin(stranded):
                     self.submit(
                         session_id=session_id,
                         parts=[
-                            {"type": "text", "text": msg.content} for msg in stranded
+                            {"type": "text", "text": p.message.content}
+                            for p in pending_batch
                         ],
-                        origin=RunOrigin.BACKGROUND_TASK,
+                        origin=origin_batch,
                         workspace_root=workspace_root,
                     )
 
@@ -898,6 +916,23 @@ _TERMINAL_STATUSES = {RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED
 TERMINAL_RUN_STATUSES: frozenset[str] = frozenset(
     s.value for s in (RunStatus.COMPLETED, RunStatus.FAILED, RunStatus.CANCELLED)
 )
+
+
+def _group_pending_by_origin(
+    pending: list[PendingMessage],
+) -> list[tuple[RunOrigin, list[PendingMessage]]]:
+    """Group stranded pending messages into contiguous same-origin batches.
+
+    Preserves FIFO order: each batch is a maximal run of consecutive items sharing
+    one origin, so a continuation run is submitted per batch with that origin.
+    """
+    batches: list[tuple[RunOrigin, list[PendingMessage]]] = []
+    for item in pending:
+        if batches and batches[-1][0] == item.origin:
+            batches[-1][1].append(item)
+        else:
+            batches.append((item.origin, [item]))
+    return batches
 
 
 def _serialize_usage(usage: TokenUsage | None) -> dict[str, int] | None:

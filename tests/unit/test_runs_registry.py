@@ -621,9 +621,7 @@ def test_stranded_continuation_follows_injected_origin(tmp_path: Path) -> None:
             return TurnResult(
                 session_id=session_id,
                 turn_id="turn_gated_inject",
-                messages=(
-                    Message(message_id="m_g", role="assistant", content="ok"),
-                ),
+                messages=(Message(message_id="m_g", role="assistant", content="ok"),),
                 completed=True,
                 stop_reason="completed",
             )

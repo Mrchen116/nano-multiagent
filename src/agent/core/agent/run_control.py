@@ -9,6 +9,20 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from agent.core.llm.interfaces import LLMMessage
+    from agent.core.runs.origin import RunOrigin
+
+
+@dataclass(frozen=True)
+class PendingMessage:
+    """One round-boundary injection: the message plus the origin that produced it.
+
+    The origin travels with the message so the terminal-path stranded-continuation
+    re-run (RunsRegistry) attributes the right source — a user mid-run steer must
+    continue as RunOrigin.USER, not the hardcoded BACKGROUND_TASK (bugfix-426 决策3).
+    """
+
+    message: "LLMMessage"
+    origin: "RunOrigin"
 
 
 @dataclass
@@ -49,13 +63,20 @@ class RunController:
             self.user_interrupt_event.set()
         self.abort_event.set()
 
-    def enqueue_message(self, message: "LLMMessage") -> None:
-        """Enqueue a message for round-boundary injection. Thread-safe."""
-        self._pending.put_nowait(message)
+    def enqueue_message(self, message: "LLMMessage", origin: "RunOrigin") -> None:
+        """Enqueue a message for round-boundary injection. Thread-safe.
 
-    def drain_pending(self) -> list["LLMMessage"]:
+        Args:
+            message: The message to inject before the next LLM call.
+            origin: Source that produced this message (e.g. RunOrigin.USER for a
+                mid-run steer, RunOrigin.BACKGROUND_TASK for a task notification).
+                Carried so a stranded continuation re-run keeps the right origin.
+        """
+        self._pending.put_nowait(PendingMessage(message=message, origin=origin))
+
+    def drain_pending(self) -> list[PendingMessage]:
         """Drain and return all pending messages in FIFO order. Non-blocking."""
-        msgs: list[LLMMessage] = []
+        msgs: list[PendingMessage] = []
         while True:
             try:
                 msgs.append(self._pending.get_nowait())

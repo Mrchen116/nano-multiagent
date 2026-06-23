@@ -260,8 +260,8 @@ class AgentLoop:
                         yield compacted_msg
 
                     if controller is not None:
-                        for pending_msg in controller.drain_pending():
-                            llm_messages.append(pending_msg)
+                        for pending in controller.drain_pending():
+                            llm_messages.append(pending.message)
                         if controller.is_aborted:
                             stop_reason = "aborted"
                             yield Message(
