@@ -72,7 +72,14 @@ class _StubKernel:
         return _StubSession(self._session_id)
 
     def submit(
-        self, *, session_id, parts, origin=None, workspace_root=None, trace_id=None
+        self,
+        *,
+        session_id,
+        parts,
+        origin=None,
+        workspace_root=None,
+        trace_id=None,
+        model=None,
     ):
         self.calls.append(("submit", {"session_id": session_id, "parts": parts}))
         self._run_id_counter += 1
@@ -105,10 +112,6 @@ class _StubKernel:
 
     def get_llm_config(self):
         return MagicMock(provider="anthropic", model="kimiCoding:K2.6")
-
-    def reconfigure_llm(self, **kwargs):
-        self.calls.append(("reconfigure_llm", kwargs))
-        return MagicMock(provider=kwargs.get("provider", "anthropic"))
 
 
 class _AsyncIterEvents:

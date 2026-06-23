@@ -250,8 +250,8 @@ def _factory_config_to_llm_config(
     """Map the internal LLMFactoryConfig to the SDK-owned LLMConfig boundary DTO.
 
     Preserves the catalog (providers / default_model) from the build-time
-    ``catalog`` when available, so ``get_llm_config`` / ``reconfigure_llm`` carry
-    the full provider list, not just the active connection.
+    ``catalog`` when available, so ``get_llm_config`` carries the full provider
+    list, not just the active connection.
     """
     return LLMConfig(
         provider=getattr(cfg, "provider", ""),
@@ -1210,22 +1210,6 @@ class Kernel:
         return _factory_config_to_llm_config(
             self._c.runtime.get_llm_config(), catalog=self._llm_catalog
         )
-
-    def reconfigure_llm(self, **patch: Any) -> LLMConfig:
-        """Reconfigure provider/model connection without recreating the runtime.
-
-        Used by CLI ``/model`` (决策 5 scope A): switches the kernel-level model
-        with immediate effect; subsequent turns use the new model.
-
-        Args:
-            **patch: Fields to update on the active connection
-                (provider, model, base_url, timeout_seconds, api_key).
-
-        Returns:
-            Updated LLMConfig DTO.
-        """
-        updated = self._c.runtime.reconfigure_llm(**patch)
-        return _factory_config_to_llm_config(updated, catalog=self._llm_catalog)
 
     def append_message(
         self,

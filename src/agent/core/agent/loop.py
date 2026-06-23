@@ -146,12 +146,6 @@ class AgentLoop:
             )
         return client
 
-    def bind_llm_client(self, *, llm_client: LLMClient, model: str) -> None:
-        """Hot-swap LLM client/model without rebuilding runtime."""
-
-        self._llm_client = llm_client
-        self._model = model
-
     async def run(
         self,
         state: AgentState,
