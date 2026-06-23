@@ -16,7 +16,6 @@ from agent.platform.tools.presentation import (
     ToolPresentationEvent,
     _enforce_cap,
     _summarize_bash,
-    _truncate,
 )
 from agent.platform.tools.builtins.bash_policy import (
     check_command_policy,
@@ -94,10 +93,14 @@ _READ_ONLY_GIT_SUBCOMMANDS = frozenset(
 
 class _BashPresenter:
     def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        # bugfix-427: 与 format_end 保持同源——优先 args.description（人话），
+        # 空时降级命令首段。之前直接截断 command，导致开始态显示原始命令、
+        # 完成态才切换成 description，用户体验断层。
+        command = str(args.get("command", ""))
         return ToolPresentationEvent(
             visible=True,
             label="Bash",
-            summary=_truncate(str(args.get("command", "")), 80),
+            summary=_summarize_bash(args, command),
         )
 
     def format_end(

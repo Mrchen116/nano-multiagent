@@ -183,10 +183,20 @@ class TestEditPresenter:
 
 
 class TestBashPresenter:
-    def test_start_shows_command(self) -> None:
+    def test_start_shows_command_when_no_description(self) -> None:
+        # bugfix-427: 无 description 时 format_start 降级显示命令首段，与 format_end 对齐。
         evt = _presenter("bash").format_start({"command": "pytest tests/"})
         assert evt.label == "Bash"
         assert evt.summary == "pytest tests/"
+
+    def test_start_shows_description_when_present(self) -> None:
+        # bugfix-427: 有 description 时 format_start.summary = description（人话），
+        # 与 format_end 来源一致——开始态即显示人话，不再等到执行完才切换。
+        evt = _presenter("bash").format_start(
+            {"command": "pytest -xvs tests/unit/", "description": "跑单元测试"}
+        )
+        assert evt.label == "Bash"
+        assert evt.summary == "跑单元测试"
 
     def test_end_summary_is_description(self) -> None:
         # 决策 4: 折叠态摘要为人话 description，不再是裸 exit/elapsed 状态串。
