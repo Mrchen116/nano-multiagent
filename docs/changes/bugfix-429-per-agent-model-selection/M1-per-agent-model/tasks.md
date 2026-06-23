@@ -72,35 +72,49 @@ UI 状态矩阵：
 
 ### R1 — 内核 model 透传链（RunRecord.model → loop model_override）
 
+- 状态: DONE（内核 model 透传链）
+
 - 步骤: RunRecord 加 `model` 字段；`runs_registry.submit(model)` 存入；`_run_worker_async` 读 RunRecord.model 传 `runtime.run(model)`；内核续跑 self.submit 复用本 run model；`runtime.run/_run_locked/_execute_loop` 透传 `model_override`；`loop.run(model_override)` 用它发请求（保留 self._model 仅作兼容兜底直到 R2 移除）；`kernel.submit` 加必填 model。
 - 验证: 红测先证明 submit(model=X) 后 loop 发请求 model==X、续跑复用本 run model；改全部 submit 调用点补 model；narrow 单测绿。
 
 ### R2 — 多 client 按 provider 路由 + provider_of + reconfigure_llm 退役
+
+- 状态: DONE（多 client 路由 + provider_of；reconfigure 退役落 R6）
 
 - 步骤: model_registry 补 `provider_of(model)`；build_kernel 遍历 config.providers 建 `dict[provider,client]`，注入 runtime/loop；loop 发请求时 `provider_of(model_override)` 选 client；移除 loop `self._model` 对话用途与 `bind_llm_client`；runtime `reconfigure_llm` 退役删除；`get_llm_config` 当前 active model 语义调整。
 - 验证: 红测证明 openai_compat 模型走 openai_compat client、anthropic 模型走 anthropic client；删 reconfigure_llm 后无悬挂调用方（CLI 在 R6 改）；单测绿。
 
 ### R3 — Gateway 三入口传 model（inbound 主轮/stop + heartbeat/cron）
 
+- 状态: DONE（Gateway 三入口传 model）
+
 - 步骤: inbound_pipeline 构造注入 `product_default_model`；主轮/stop submit 传 `agent.default_model or product_default`；shim.submit_message 加 model 参数透传；heartbeat_scheduler/cron_runner 调用方解析 `agent.default_model or product_default` 传入。
 - 验证: 红测证明 inbound 选 model 的 agent → submit 带该 model；agent 没选 → 带产品默认；heartbeat 同理。
 
 ### R4 — 链路B 动态新建 agent default_model 持久化
+
+- 状态: DONE（链路B 当前已工作，补 regression 含默认路径场景；live 实测 source_path 写回）
 
 - 步骤: 加日志钉死 gpt-probe 未落盘真因（_persist_agent_config 路径 / handle_agent_create 触发 / save_local_config 吞异常）；按真因修写回路径用用户实际 config、reconcile 覆盖动态 agent。
 - 验证: 红测/复现脚本证明动态新建 agent default_model reload config 读得回；记真因到 progress。
 
 ### R5 — IM + 前端 provider 展示
 
+- 状态: DONE（IM+前端 provider 展示；live 验 capabilities 带 provider）
+
 - 步骤: `_models_from_kernel` 保留 provider（返回结构含 name+provider）；ReporterCapabilities.models 结构化 + as_payload；IM agents.py/nodes.py capabilities Pydantic models 带 provider；前端 CapabilitySnapshot.model_options 结构化、normalize 透传 provider、下拉渲染 `<model> · <provider>`。
 - 验证: API 层单测 models 含 provider；前端组件测试断言 provider 文案；真实浏览器截图。
 
 ### R6 — CLI 自维护 current model 每轮传
 
+- 状态: DONE（CLI 自维护 current_model + reconfigure_llm/bind_llm_client 退役 + 移除 llm-config set）
+
 - 步骤: coding_cli 自维护 `current_model` 状态（启动从 args/env 初始化）；llm-config set --model 改自身状态不再调 reconfigure_llm；3 处 kernel.submit 传 model=current_model。
 - 验证: 单测证明 set model 后下一轮 submit 带新 model；CLI 真实跑一轮验证。
 
 ### R7 — 端到端 live 验证 + 全树测试 + npm build
+
+- 状态: DONE（live 三 Scenario 全 PASS：选 gpt→model=codex_oauth:gpt-5.5 / 没选→kimi / 改模型旧会话用新模型；空 provider 健壮代码层已做。数据层主 config 挂起等用户）
 
 - 步骤: 真实起 IM+Gateway+前端产物，IM 选 gpt-5.5 的 agent 对话，查 LLM proxy 日志 model==codex_oauth:gpt-5.5；选 anthropic 模型验证跨 provider；改模型后旧会话验证。
 - 验证: LLM proxy 日志摘录 + 截图入 progress；`pytest -m "not e2e"` 全树绿；`npm run build` 通过。
