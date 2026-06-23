@@ -40,6 +40,20 @@ CLI 渲染存在**双订阅**同一 session stream：per-run `_send_message_asyn
 
 按 orchestrator 决策走 **B**：改这 2 个 stub 每次 `stream()` 返回完整事件流（贴合真实 Kernel 语义），删 call_count 降级技巧（符合 TESTING_GUIDE §1「耦合内部调用顺序的测试是负债」），产品代码不动。建议**独立 refactor unit** 将 CLI 渲染收敛回单订阅（per-run 从持久 reader 单流按 run_id 取事件）；orchestrator 据此在本 PR 提 follow-up out-of-unit issue，不阻塞本 unit。
 
+## [Fix — reviewer 反馈循环：后台 drain 健壮性]
+
+reviewer（orchestrator）跑全树发现真回归：`pytest -m "not e2e"` collect 2759 但只跑到 ~2000 即被 KeyboardInterrupt 中断（结尾 traceback 非干净汇总）——之前误把「中断前部分通过」当全绿。
+
+根因（systematic-debugging 复现确认）：M2 把 `_drain_forever` 改成并发后台 task，它现在也并发拉 session stream。`test_cli_async_repl_sdk.py::test_run_cli_ctrl_c_maps_to_kernel_interrupt_and_repl_survives` 的 `_CtrlCThenCancelledStream` 首次 pull 抛 `KeyboardInterrupt`（模拟用户 Ctrl-C）。`KeyboardInterrupt` 是 `BaseException`，不被 `_drain_forever` 原有的 `except asyncio.CancelledError` 接住 → 从后台 task 逃逸到事件循环 → 打断整个 pytest 会话。
+
+判定 = 产品健壮性缺口（非测试 artifact）：后台 drain 的唯一职责是把 stream 事件搬进 bg_queue，它绝不该因 stream 抛任意异常把 REPL/进程带崩；真实用户 Ctrl-C 由 REPL 的 `_on_sigint` / `_send_message_async` 的 `KeyboardInterrupt→kernel.interrupt` 主路径处理，drain 这条旁路只需安静收尾。
+
+修复（commands.py `_drain_forever`）：`except asyncio.CancelledError`（吞，沿用既有 teardown 写法）之后加 `except (Exception, KeyboardInterrupt) as exc:` 安静停该订阅 + `_log.debug` 记被吞异常（便于诊断静默死流）。`SystemExit` 不在 catch 内、仍传播（进程退出语义保留）。非盲目 catch-all。
+
+regression（`test_cli_repl_steering.py::test_background_drain_stream_error_does_not_crash_repl`）：stub stream 首 pull 抛 KeyboardInterrupt，断言 `run_cli` exit 0。已验证 fix 下绿、回退 fix 该测试复现中断（KeyboardInterrupt 从 `_drain_forever` 逃逸）——真守护。contract 白名单 `.nanocode` 锚点随 fix 行位移更新 1378/1379 → 1394/1395。
+
+验证：全 non-e2e 树 **collect == run，无 KeyboardInterrupt 中断**；CLI 套件 245 passed；新增 + 既有 Ctrl-C 测试全绿；ruff check + format 全过。
+
 ## 退出标准核对
 
 - [x] CLI run 执行中输入 → `submit(steer=True)` 注入当前活跃 run（同 run_id、不另起、不阻塞）— live 证

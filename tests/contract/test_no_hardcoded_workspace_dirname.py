@@ -92,8 +92,10 @@ _WHITELIST: frozenset[str] = frozenset(
         # bugfix-417-M5: asyncio SIGINT handler block added to repl loop, shifted to 1232/1233
         # bugfix-426-M2: non-blocking REPL input loop (run task + executor input
         # future + steer routing) added to _run_repl, shifted to 1378/1379
-        "src/coding_cli/commands.py:1378",
-        "src/coding_cli/commands.py:1379",
+        # bugfix-426-M2 fix: _drain_forever robustness comment + log block added,
+        # shifted to 1394/1395
+        "src/coding_cli/commands.py:1394",
+        "src/coding_cli/commands.py:1395",
     }
 )
 
