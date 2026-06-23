@@ -258,48 +258,6 @@ SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界)。model 
 - **WHEN** 消费者 `kernel.list_session_tools(session_id, workspace_root=...)`
 - **THEN** 返回该会话可用工具的描述信息
 
-### Requirement: read 触发就近加载 AGENTS.md(机制 B,nested_memory,默认开)
-
-`nested_memory` 为内核 feature(`default_on=True`,可经 per-agent `agent_features` 覆盖;**不投影到产品
-前端 toggle、不进 `list_features` 白名单**——内核认得、默认开、用户不可见)。开启时,`read` 工具读到文件后
-按目录链就近带上 `AGENTS.md`:
-- **工作区内**:沿被读文件目录链上行至 workspace 根,逐级把存在的 `AGENTS.md`(`@import` 已展开)以
-  `<project-instructions path="…">正文</project-instructions>` 追加进 read 的 tool_result。
-- **工作区外但属某 git 仓**:扫描范围 = 被读文件目录 … **最外层** git 仓根(覆盖嵌套仓),逐级找到的
-  `AGENTS.md` 路径**全部列出**,以 `<project-instructions-hint>` 英文提示给出(**不含正文**,省 context,
-  提示 agent 按需自行 read)。
-- **不属任何 git 仓**:不提示。
-
-去重贯穿全程:每份 `AGENTS.md`(按绝对路径)一会话只生效一次(含机制 A 已注入的工作区根);去重集随
-上下文压缩边界清空,压缩后再 read 命中可重新注入(取最新)。关闭 `nested_memory` 后机制 B 不触发,机制 A
-(基线)不受影响。
-
-#### Scenario: 工作区内 read 命中子目录 AGENTS.md → 注入正文
-- **GIVEN** `nested_memory` 默认开,工作区某子目录有 `AGENTS.md`
-- **WHEN** agent read 该子目录(或更深层)下的文件
-- **THEN** read 的 tool_result 带上该 `AGENTS.md` 的正文(`<project-instructions path=…>` 包裹)
-
-#### Scenario: 工作区外 git 仓内 read → 路径提示而非正文
-- **GIVEN** agent read 的文件在工作区外、属某 git 仓,从该文件目录到最外层仓根有一份或多份 `AGENTS.md`
-- **WHEN** agent read 该文件
-- **THEN** tool_result 带英文 `<project-instructions-hint>`,列出该范围内全部 `AGENTS.md` 路径(含嵌套仓
-  外层那份)、不含正文
-
-#### Scenario: 工作区外不属任何 git 仓(边界)
-- **WHEN** agent read 的文件在工作区外、且不属任何 git 仓
-- **THEN** 不给任何路径提示
-
-#### Scenario: 同一份一会话只生效一次,压缩后可重注
-- **GIVEN** 某 `AGENTS.md` 已在本会话因一次 read 注入过
-- **WHEN** 同会话内再次 read 命中它(尚未压缩)
-- **THEN** 不重复注入;**AND** 一旦发生上下文压缩,去重记录清空,压缩后再 read 命中时重新注入最新内容
-
-#### Scenario: 关闭 nested_memory 后机制 A 不受影响
-- **GIVEN** 关闭了 `nested_memory`
-- **WHEN** agent read 工作区内/外文件
-- **THEN** 不再就近带 `AGENTS.md` 内容、也不给外部路径提示;**AND** 启动时工作区根 `AGENTS.md` 仍照常
-  注入 system prompt(机制 A 为非可选基线)
-
 ### Requirement: Hook 体系对外契约稳定(事件集 + intercept/observe 语义)
 
 内核暴露稳定的 hook 事件集与拦截/观察语义,供产品与工作区注入扩展行为。intercept 事件可改变行为,
@@ -398,16 +356,10 @@ requires_tool 在场)。内核不含任何产品专属 feature。产品专属条
 ### Requirement: 系统提示由内核模板 + PromptSlots(四槽) 组装,产品内容纯 per-session
 
 内核拥有模板骨架(顺序固定:head → core 行为规则 → body → 通用 feature 指引 → 后台任务/runtime footer →
-custom → **工作区 AGENTS.md(稳定前缀末尾)** → 内核易变尾部(memory/时间) → tail)。
-`create_session(prompt=PromptSlots(head/body/custom/tail))` 填产品文案槽。系统提示的**产品内容全是
-per-session**:建会话时由模板 + PromptSlots 组装一次、整会话稳定;内核易变尾部由内核自管,产品不碰。
-产品无任何向系统提示做 per-turn 注入的通道(hook 不注入系统提示)。`PromptSection` / `PromptContext` /
-`RenderMode` 不在公共表面。
-
-内核另在系统提示自动注入会话 workspace 根 `AGENTS.md`(机制 A,默认恒开、无开关):建会话首轮读盘、
-`@import` 展开(对齐 CC:`@path`/`@./`/`@~/`/`@/abs`,最深 5 层、防环、不存在静默忽略、跳代码块与行内
-code span),以 `<project-instructions>…</project-instructions>` 包裹置于稳定前缀末尾(压缩窗口内冻结、
-随压缩边界刷新重读;无 AGENTS.md 则不注入,照常启动)。产品无需手填、agent 无需主动 read。
+custom → 内核易变尾部(memory/时间) → tail)。`create_session(prompt=PromptSlots(head/body/custom/tail))`
+填产品文案槽。系统提示的**产品内容全是 per-session**:建会话时由模板 + PromptSlots 组装一次、整会话
+稳定;内核易变尾部由内核自管,产品不碰。产品无任何向系统提示做 per-turn 注入的通道(hook 不注入系统
+提示)。`PromptSection` / `PromptContext` / `RenderMode` 不在公共表面。
 
 #### Scenario: 系统提示产品内容在会话内稳定
 - **GIVEN** 一个已创建会话
@@ -421,26 +373,6 @@ code span),以 `<project-instructions>…</project-instructions>` 包裹置于�
 - **WHEN** 以某 agent 配置请求预览
 - **THEN** 预览输出与该配置真实会话装配的 system prompt 一致(仅易变尾部以 `<runtime-injected:…>` 占位);
   内核侧 product-neutral(产品段全在传入的 PromptSlots)
-
-#### Scenario: 工作区根有 AGENTS.md 即自动注入(机制 A)
-- **GIVEN** 会话 workspace 根存在 `AGENTS.md`
-- **WHEN** 开启新会话装配 system prompt
-- **THEN** AGENTS.md 正文(`@import` 已展开)以 `<project-instructions>` 段进入系统提示,
-  无需 operator 手填、无需 agent 主动 read;两产品(CLI/PA)行为一致
-
-#### Scenario: 工作区根无 AGENTS.md(空态)
-- **GIVEN** 会话 workspace 根不存在 `AGENTS.md`
-- **WHEN** 开启新会话
-- **THEN** 不注入任何项目说明段,会话照常启动、无报错
-
-#### Scenario: AGENTS.md 压缩窗口内冻结、压缩边界刷新
-- **GIVEN** 会话已注入工作区根 `AGENTS.md`(快照 X)
-- **WHEN** 同会话运行中磁盘改为 Y、尚未压缩
-- **THEN** 当前会话仍按 X(冻结保前缀缓存);一旦发生上下文压缩(或新会话),下一轮重读注入 Y
-
-#### Scenario: 系统提示预览显示 AGENTS.md 注入占位
-- **WHEN** 请求某 agent 的 system prompt 预览
-- **THEN** 预览出现 AGENTS.md 段的运行时注入占位(与 memory/user 占位一致,预览不读盘渲染实际文件内容)
 
 ### Requirement: Kernel 提供单项中立能力查询
 
