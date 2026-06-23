@@ -583,3 +583,89 @@ async def _create_asyncio_event() -> _asyncio.Event:
 
 async def _set_event(ev: _asyncio.Event) -> None:
     ev.set()
+
+
+def test_stranded_continuation_follows_injected_origin(tmp_path: Path) -> None:
+    """A message injected into the active run that ends before the loop drains it
+    re-runs as a continuation carrying the injection origin (USER), not the
+    hardcoded BACKGROUND_TASK (bugfix-426 决策3).
+
+    The gated runtime keeps the run RUNNING (so inject_pending_message succeeds)
+    and never drains the controller itself (it does not run the real loop), so the
+    enqueued message is stranded and the registry's terminal-path drain re-submits
+    it as a continuation run.
+    """
+    import threading
+
+    from agent.core.llm.interfaces import LLMMessage
+    from agent.core.runs.origin import RunOrigin
+
+    gate_holder: list[_asyncio.Event] = []
+    started = threading.Event()
+
+    class _GatedRuntime:
+        async def run(
+            self,
+            session_id: str,
+            parts,
+            *,
+            stream: bool = True,
+            run_id: str | None = None,
+            controller=None,
+            workspace_root=None,
+            origin=None,
+        ):  # noqa: ANN001, ANN201
+            del parts, stream, run_id, controller, workspace_root, origin
+            started.set()
+            await gate_holder[0].wait()
+            return TurnResult(
+                session_id=session_id,
+                turn_id="turn_gated_inject",
+                messages=(
+                    Message(message_id="m_g", role="assistant", content="ok"),
+                ),
+                completed=True,
+                stop_reason="completed",
+            )
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    registry = RunsRegistry(runtime=_GatedRuntime(), session_manager=manager)
+
+    loop = registry.get_event_loop()
+    ev = _asyncio.run_coroutine_threadsafe(_create_asyncio_event(), loop).result(
+        timeout=2.0
+    )
+    gate_holder.append(ev)
+
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "hello"}],
+            workspace_root=tmp_path,
+        )
+        assert started.wait(timeout=5.0), "run did not enter RUNNING"
+
+        injected = registry.inject_pending_message(
+            session.session_id,
+            LLMMessage(role="user", content="steered mid-run"),
+            origin=RunOrigin.USER,
+        )
+        assert injected is True
+
+        # Release the gate → run completes → terminal-path drain re-submits the
+        # stranded message as a continuation run.
+        _asyncio.run_coroutine_threadsafe(_set_event(ev), loop)
+
+        def _continuation_origin():  # noqa: ANN202
+            with registry._lock:  # noqa: SLF001
+                for rid, rec in registry._runs.items():  # noqa: SLF001
+                    if rid != submitted.run_id:
+                        return rec.origin
+            return None
+
+        _wait_for(lambda: _continuation_origin() is not None, timeout_seconds=3.0)
+        assert _continuation_origin() is RunOrigin.USER
+    finally:
+        registry.shutdown()
