@@ -110,3 +110,24 @@
 
 证据路径：/Users/czj/Repos/LLM_PROXY/logs/session/2026-06-23_22-* 各 *-req-anthropic_messages.json 的 model 字段。
 跨 provider（openai_compat client over wire）live 未能验证——proxy 不支持 gpt 的 openai_chat 协议（见上「决策3冲突」），采 A 后 gpt 走 anthropic client，openai_compat client 路径目前无可用上游可 live 验（单测已覆盖路由选择）。
+
+## R6 — CLI 自维护 current_model + reconfigure_llm 退役
+
+- Context: 决策2「内核零默认、model 每轮由消费者传」+ 决策3「reconfigure_llm 退役」。reconfigure_llm 唯一调用链是 CLI llm-config set → kernel.reconfigure_llm → runtime.reconfigure_llm → loop.bind_llm_client。
+- Decision（team-lead 拍 B + 两处纠正）:
+  - CLI 自维护 current_model：`_resolve_cli_current_model(kernel.get_llm_config().model)`（model 由 --model/env 经 build_kernel 定），`_run_text_mode`/`_run_repl`/`_send_message_async`/`text_runner.run_text` 每轮 submit 传 model。
+  - 退役 kernel.reconfigure_llm + runtime.reconfigure_llm + loop.bind_llm_client（整条链）。
+  - 移除 `llm-config set` 子命令（argparse + 处理体），保留 `llm-config get`。否决 C（bugfix 不新增 CLI UX，/model REPL slash 留未来 unit）。
+- Rationale: model per-run 后一次性子命令 set 无持久载体（会变 design 否决的选项A半残）；清理失效命令是对的。get_llm_config 仍报 build-time active connection 供脚本/选择器。
+- Evidence:
+  - Tests: 红测 `test_run_cli_text_mode_submits_current_model`（CLI submit 带 get_llm_config().model）先红后绿；删 2 个 reconfigure 行为 contract + 3 个 llm-config set CLI 测试 + stub reconfigure 方法；surface contract 改断言 reconfigure_llm 不存在；error contract 改 ValueError 触发 input 层；`pytest -m "not e2e"` 全树绿（修 2 处：error contract set→ValueError、hardcoded-dirname 行号 1232/1233→1202/1203）。
+  - Entry: CLI 真实入口验证留收尾（CLI 非本 bug 主路径；单测覆盖每轮传 model 契约 + 退役后无悬挂调用）。
+  - Frontend/Browser/Visual: N/A
+  - Lint: ruff check + format 通过；冒烟 import 通过。
+  - Trap: 退役删行使 commands.py `.nanocode` 行号下移 30 行，line-pinned 白名单失配，已更新（[[project-ci-ruff-and-line-pinned-whitelist]]）。
+- 契约层影响（待 orchestrator，§0.13）：
+  - **cli/spec.md**：`llm-config set` 子命令移除（用户可观察变化）；set scenario（无字段→input 错误 JSON）删除/改写。team-lead 已认领改 cli delta + canonical。
+  - **kernel/spec.md**：删 reconfigure_llm Scenario（旧 :230-232）；决策5「model 维持 kernel 级」表述改为「model 随 run 由消费者每轮提供」；submit 新增必填语义 model。
+- Rollback: 回退到 R5/R4 commit。
+- Commits: C1=test 红测, C2=refactor 退役+CLI每轮传+适配, C3=本次 docs。
+- Next: R7 config 决策（决策3冲突，gpt 挪 anthropic，需 team-lead 授权改主 config.yaml）后做最终 live + 收尾集成。
