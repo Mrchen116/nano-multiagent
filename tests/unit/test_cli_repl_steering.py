@@ -54,9 +54,13 @@ class _SteerableKernelStub(_BaseKernelStub):
             release = self._ensure_release()
             release.set()
             return type("R", (), {"run_id": "run-1", "injected": True})()
-        return type("R", (), {"run_id": f"run-{self._run_id_counter}", "injected": False})()
+        return type(
+            "R", (), {"run_id": f"run-{self._run_id_counter}", "injected": False}
+        )()
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         release = self._ensure_release()
         run_id = "run-1"
 
@@ -98,13 +102,17 @@ class _IdleNewRunKernelStub(_BaseKernelStub):
         for part in parts:
             if isinstance(part, dict) and part.get("type") == "text":
                 text = part.get("text", "")
-        self.submit_calls.append({"text": text, "steer": bool(kwargs.get("steer", False))})
+        self.submit_calls.append(
+            {"text": text, "steer": bool(kwargs.get("steer", False))}
+        )
         self._run_id_counter += 1
         run_id = f"run-{self._run_id_counter}"
         self._last_run_id = run_id
         return type("R", (), {"run_id": run_id, "injected": False})()
 
-    def stream(self, session_id: str, *, after_sequence: int = 0) -> AsyncIterator[dict[str, Any]]:
+    def stream(
+        self, session_id: str, *, after_sequence: int = 0
+    ) -> AsyncIterator[dict[str, Any]]:
         run_id = getattr(self, "_last_run_id", f"run-{self._run_id_counter}")
 
         async def _gen() -> AsyncIterator[dict[str, Any]]:

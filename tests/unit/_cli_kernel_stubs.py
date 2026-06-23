@@ -269,52 +269,48 @@ class _AsyncEventingKernelStub(_BaseKernelStub):
     def stream(
         self, session_id: str, *, after_sequence: int = 0
     ) -> AsyncIterator[dict[str, Any]]:
+        # Real Kernel.stream() replays the full event set on every subscription
+        # (history replay + live), independent of which subscriber called first.
+        # bugfix-426-M2 made REPL input non-blocking, so the per-run drive is no
+        # longer guaranteed to be the *first* stream() caller — returning the
+        # complete sequence on every call mirrors the real Kernel and removes the
+        # brittle "first caller gets full events" coupling.
         self._stream_call_count += 1
-        if self._stream_call_count == 1:
-            events = [
-                {"event": "run_status", "run_id": "run_target", "status": "queued"},
-                {"event": "run_status", "run_id": "run_target", "status": "queued"},
-                {
-                    "event": "assistant_message",
-                    "run_id": "run_other",
-                    "content": "ignore-me",
-                },
-                {
-                    "event": "tool_start",
-                    "run_id": "run_target",
-                    "name": "echo",
-                    "call_id": "call_1",
-                    "arguments": {"text": "ping"},
-                },
-                {
-                    "event": "tool_end",
-                    "run_id": "run_target",
-                    "name": "echo",
-                    "call_id": "call_1",
-                    "output": {"text": "echo:ping"},
-                    "error": None,
-                },
-                {
-                    "event": "assistant_message",
-                    "run_id": "run_target",
-                    "content": "final:echo:ping",
-                },
-                {
-                    "event": "run_status",
-                    "run_id": "run_target",
-                    "status": "completed",
-                    "stop_reason": "stop",
-                },
-            ]
-        else:
-            events = [
-                {
-                    "event": "run_status",
-                    "run_id": "run_target",
-                    "status": "completed",
-                    "stop_reason": "stop",
-                }
-            ]
+        events = [
+            {"event": "run_status", "run_id": "run_target", "status": "queued"},
+            {"event": "run_status", "run_id": "run_target", "status": "queued"},
+            {
+                "event": "assistant_message",
+                "run_id": "run_other",
+                "content": "ignore-me",
+            },
+            {
+                "event": "tool_start",
+                "run_id": "run_target",
+                "name": "echo",
+                "call_id": "call_1",
+                "arguments": {"text": "ping"},
+            },
+            {
+                "event": "tool_end",
+                "run_id": "run_target",
+                "name": "echo",
+                "call_id": "call_1",
+                "output": {"text": "echo:ping"},
+                "error": None,
+            },
+            {
+                "event": "assistant_message",
+                "run_id": "run_target",
+                "content": "final:echo:ping",
+            },
+            {
+                "event": "run_status",
+                "run_id": "run_target",
+                "status": "completed",
+                "stop_reason": "stop",
+            },
+        ]
         return _AsyncIterEvents(events)
 
 
@@ -762,39 +758,12 @@ class _AsyncChangedEventIdReplayKernelStub(_BaseKernelStub):
     def stream(
         self, session_id: str, *, after_sequence: int = 0
     ) -> AsyncIterator[dict[str, Any]]:
+        # Real Kernel.stream() replays the full event set on every subscription
+        # regardless of call order; a single per-run subscription sees tool_start
+        # once, so within-stream dedupe keeps the rendered start line unique.
+        # bugfix-426-M2: non-blocking input dropped the "first caller gets full
+        # events" ordering, so every call returns the complete sequence.
         self._stream_call_count += 1
-        if self._stream_call_count == 1:
-            return _AsyncIterEvents(
-                [
-                    {
-                        "event": "tool_start",
-                        "run_id": "run_changed_event_id",
-                        "name": "bash",
-                        "call_id": "call_changed_event_id",
-                        "arguments": {"command": "echo hi"},
-                    },
-                    {
-                        "event": "tool_exec_exit",
-                        "run_id": "run_changed_event_id",
-                        "name": "bash",
-                        "call_id": "call_changed_event_id",
-                        "status": "completed",
-                        "duration_ms": 18,
-                        "exit_code": 0,
-                    },
-                    {
-                        "event": "assistant_message",
-                        "run_id": "run_changed_event_id",
-                        "content": "final:changed-event-id",
-                    },
-                    {
-                        "event": "run_status",
-                        "run_id": "run_changed_event_id",
-                        "status": "completed",
-                        "stop_reason": "stop",
-                    },
-                ]
-            )
         return _AsyncIterEvents(
             [
                 {
@@ -803,6 +772,20 @@ class _AsyncChangedEventIdReplayKernelStub(_BaseKernelStub):
                     "name": "bash",
                     "call_id": "call_changed_event_id",
                     "arguments": {"command": "echo hi"},
+                },
+                {
+                    "event": "tool_exec_exit",
+                    "run_id": "run_changed_event_id",
+                    "name": "bash",
+                    "call_id": "call_changed_event_id",
+                    "status": "completed",
+                    "duration_ms": 18,
+                    "exit_code": 0,
+                },
+                {
+                    "event": "assistant_message",
+                    "run_id": "run_changed_event_id",
+                    "content": "final:changed-event-id",
                 },
                 {
                     "event": "run_status",
