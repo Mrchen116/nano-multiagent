@@ -533,36 +533,43 @@ def test_concurrent_group_steer_drain_is_serial_not_interleaved(
 
     events: list[str] = []
 
-    # Record drain entry per coroutine by wrapping the store's drain.
-    real_drain = pipeline._group_context_store.drain  # noqa: SLF001
+    # Derive the acting coroutine's label from the message text itself (the "A"
+    # / "B" tag is embedded), NOT a shared variable — a shared label races across
+    # the await points and misattributes events.
+    def _label_of(message: InboundMessage) -> str:
+        return "A" if "first steer" in message.text else "B"
 
-    def _instrumented_drain(key: str):  # noqa: ANN202
-        events.append(f"drain:{_current_label[0]}")
-        return real_drain(key)
+    # Record drain entry per coroutine by wrapping _build_message_parts (the
+    # destructive drain call site), keyed by the message being built.
+    real_build = pipeline._build_message_parts  # noqa: SLF001
 
-    pipeline._group_context_store.drain = _instrumented_drain  # type: ignore[method-assign]  # noqa: SLF001
+    def _instrumented_build(message, *, agent_id, sender_label):  # noqa: ANN001, ANN202
+        events.append(f"drain:{_label_of(message)}")
+        return real_build(message, agent_id=agent_id, sender_label=sender_label)
+
+    pipeline._build_message_parts = _instrumented_build  # type: ignore[method-assign]  # noqa: SLF001
 
     # Wrap _ensure_binding to record the bind step and yield control afterwards,
     # opening the exact interleaving window the real await creates.
     real_ensure = pipeline._ensure_binding  # noqa: SLF001
-    _current_label = [""]
 
     async def _instrumented_ensure(message, *, agent_id, session_key):  # noqa: ANN001, ANN202
         binding_ = await real_ensure(
             message, agent_id=agent_id, session_key=session_key
         )
-        events.append(f"bind:{_current_label[0]}")
+        events.append(f"bind:{_label_of(message)}")
         await asyncio.sleep(0)
         return binding_
 
+    pipeline._ensure_binding = _instrumented_ensure  # type: ignore[method-assign]  # noqa: SLF001
+
     async def _drive() -> None:
-        async def _one(label: str, sender: str, text: str) -> None:
-            _current_label[0] = label
+        async def _one(sender: str, text: str) -> None:
             await pipeline.handle_inbound(
                 InboundMessage(
                     channel_name="web",
                     text=text,
-                    external_user_id=f"user-{label}",
+                    external_user_id=f"user-{sender}",
                     external_chat_id="grp-1",
                     is_group=True,
                     agent_id="agent-a",
@@ -570,11 +577,9 @@ def test_concurrent_group_steer_drain_is_serial_not_interleaved(
                 )
             )
 
-        # Patch inside the running loop so the label closure is live.
-        pipeline._ensure_binding = _instrumented_ensure  # type: ignore[method-assign]  # noqa: SLF001
         await asyncio.gather(
-            _one("A", "Carol", "@agent-a first steer"),
-            _one("B", "Dave", "@agent-a second steer"),
+            _one("Carol", "@agent-a first steer"),
+            _one("Dave", "@agent-a second steer"),
         )
 
     asyncio.run(_drive())
