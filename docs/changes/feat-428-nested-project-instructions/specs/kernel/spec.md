@@ -7,7 +7,7 @@
 
 ### Requirement: 会话上下文自带工作区 AGENTS.md（机制 A，默认恒开）
 
-创建会话时，若 `workspace_root` 根目录存在 `AGENTS.md`，内核自动将其内容（含 `@import` 展开）纳入该会话的系统提示，无需消费者额外传入、无需 agent 主动读取。无该文件则不注入，会话照常工作。此行为不可经任何 per-session / per-agent 开关关闭。
+创建会话时，若 `workspace_root` 根目录存在 `AGENTS.md`，内核自动将其内容（含 `@import` 展开）纳入该会话的系统提示，无需消费者额外传入、无需 agent 主动读取。无该文件则不注入，会话照常工作。此行为不可经任何 per-session / per-agent 开关关闭。注入内容在一个上下文压缩窗口内**冻结**（与 MEMORY/USER 快照同生命周期，保前缀缓存稳定）；发生上下文压缩或开启新会话时**刷新**为磁盘最新内容。
 
 #### Scenario: workspace 根有 AGENTS.md
 - **WHEN** 消费者以一个根目录含 `AGENTS.md` 的 `workspace_root` 创建会话并提交一轮运行
@@ -22,9 +22,15 @@
 - **WHEN** 会话启动注入
 - **THEN** 被 import 文件的内容一并纳入（递归最深 5 层、环引用不重复、不存在的 import 静默忽略）
 
+#### Scenario: 压缩窗口内冻结、压缩边界刷新
+- **GIVEN** 会话已注入工作区根 `AGENTS.md`（快照 X），其后磁盘上被改为 Y
+- **WHEN** 在同一压缩窗口内继续提交运行
+- **THEN** 系统提示仍含 X（不随磁盘变动而变，保前缀缓存）
+- **AND** 发生上下文压缩（或新会话）后的下一轮，系统提示刷新为 Y
+
 ### Requirement: read 工具触发就近项目指令加载（机制 B，可选，默认开）
 
-当 `nested_memory` 内核特性开启（默认 `default_on=True`，不投影为产品/用户 toggle）时，agent 经 `read` 工具读取文件，内核在该 read 的工具结果中追加项目指令上下文：被读文件在 `workspace_root` 内 → 追加其目录链（至 workspace 根）上各级 `AGENTS.md` 的正文（`@import` 展开、`<project-instructions>` 标签包裹）；在 `workspace_root` 外 → 追加英文路径提示（`<project-instructions-hint>`），范围为该文件目录至最外层 git 仓根逐级、不含正文。同一份 AGENTS.md（按绝对路径）在一会话内只追加一次（含机制 A 已注入的工作区根那份）。
+当 `nested_memory` 内核特性开启（默认 `default_on=True`，不投影为产品/用户 toggle）时，agent 经 `read` 工具读取文件，内核在该 read 的工具结果中追加项目指令上下文：被读文件在 `workspace_root` 内 → 追加其目录链（至 workspace 根）上各级 `AGENTS.md` 的正文（`@import` 展开、`<project-instructions>` 标签包裹）；在 `workspace_root` 外 → 追加英文路径提示（`<project-instructions-hint>`），范围为该文件目录至最外层 git 仓根逐级、不含正文。同一份 AGENTS.md（按绝对路径）在一个上下文压缩窗口内只追加一次（含机制 A 已注入的工作区根那份）；发生上下文压缩后去重记录清空，使压缩后的 read 可重新追加（取磁盘最新内容）——与机制 A 的压缩边界刷新一致。
 
 #### Scenario: 读工作区内子目录文件，链上有 AGENTS.md
 - **GIVEN** `nested_memory` 开启，workspace 内某子目录有 `AGENTS.md`
@@ -40,9 +46,14 @@
 - **WHEN** agent read 的文件在 workspace 外且不属于任何 git 仓
 - **THEN** 工具结果不含任何项目指令提示
 
-#### Scenario: 同一 AGENTS.md 多次命中只追加一次
-- **WHEN** 同一会话内多次 read 命中同一份 `AGENTS.md`（含机制 A 已注入的工作区根那份）
+#### Scenario: 同一 AGENTS.md 多次命中只追加一次（压缩窗口内）
+- **WHEN** 同一压缩窗口内多次 read 命中同一份 `AGENTS.md`（含机制 A 已注入的工作区根那份）
 - **THEN** 仅首次追加，后续不重复
+
+#### Scenario: 压缩后 read 重新追加（去重记录随压缩清空）
+- **GIVEN** 某 `AGENTS.md` 已在本压缩窗口内因一次 read 被追加过
+- **WHEN** 发生上下文压缩后，再次 read 命中该文件
+- **THEN** 重新追加该文件当前磁盘内容（压缩已把旧追加内容摘要掉，去重记录已随压缩清空）
 
 #### Scenario: 关闭 nested_memory 后 read 不再追加
 - **GIVEN** `nested_memory` 特性关闭

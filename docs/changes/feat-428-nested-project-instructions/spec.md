@@ -84,6 +84,12 @@
 - **WHEN** 该 agent 开启新会话
 - **THEN** agent 同时掌握 `AGENTS.md` 与被转引 `sub.md` 的内容（可通过复述被转引文件中的约定验证）
 
+#### Scenario: 会话运行中 AGENTS.md 被改（压缩窗口内冻结，压缩边界刷新）
+- **GIVEN** 一个会话已启动、已注入工作区根 `AGENTS.md`（快照 X）
+- **WHEN** 会话运行过程中磁盘上的该 `AGENTS.md` 被改成 Y，且**尚未发生上下文压缩**，在同一会话内继续对话
+- **THEN** 当前会话仍按快照 X 行动，不反映 Y（压缩窗口内冻结，保前缀缓存）
+- **AND** 一旦发生上下文压缩（或开启新会话），下一轮重读盘，注入更新后的 Y
+
 ### Requirement: read 工作区内文件时就近带上 AGENTS.md 内容（机制 B·内）
 
 #### Scenario: 读到的文件目录链上有子目录级 AGENTS.md
@@ -99,6 +105,12 @@
 - **GIVEN** 工作区根 `AGENTS.md` 已被机制 A 注入进 system prompt
 - **WHEN** agent read 工作区内文件、回溯命中这同一份根 `AGENTS.md`
 - **THEN** 不重复注入
+
+#### Scenario: 注入后该 AGENTS.md 被改、同会话再 read（压缩窗口内冻结，压缩边界刷新）
+- **GIVEN** 某子目录 `AGENTS.md`（内容 X）已在本会话因一次 read 被注入过、且**尚未发生上下文压缩**
+- **WHEN** 磁盘上它被改成 Y，且同一会话内再次 read 触发命中它
+- **THEN** 不再注入（按路径去重），上下文里保留的仍是首次注入的 X，不更新为 Y
+- **AND** 一旦发生上下文压缩，去重记录清空；压缩后再 read 命中该文件时重新注入最新的 Y
 
 ### Requirement: read 工作区外文件时注入路径提示而非全文（机制 B·外）
 

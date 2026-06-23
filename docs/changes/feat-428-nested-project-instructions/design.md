@@ -77,7 +77,7 @@ graph TD
 
 **放 system prompt**：新增 `CORE_AGENTS_MD_BLOCK` 段（渲染同 `_render_memory_block`：banner + 正文），但 **`cache_safe=True`，置于 `_SLOT_CUSTOM` 之后、`CORE_MEMORY_BLOCK`（首个 volatile 段）之前**。
 
-- **理由**: ① 与 spec 诉求一致、本仓 MemoryStore 已验证 system prompt 注入可行；② cache 定位按 AGENTS.md 的**变化画像**定，不照搬 memory：AGENTS.md session 内冻结、且对 PA 长驻 agent（workspace 固定）**跨会话稳定**——与 per-agent 但 `cache_safe=True` 的 `_SLOT_CUSTOM` 同构，而非与"跨会话累积、故进 volatile 尾区"的 memory 同构。放稳定前缀让 PA 长驻 agent 吃到跨会话前缀缓存，CLI 最差中性。
+- **理由**: ① 与 spec 诉求一致、本仓 MemoryStore 已验证 system prompt 注入可行；② cache 定位按 AGENTS.md 的**变化画像**定：AGENTS.md **压缩窗口内冻结**（并入 MemorySnapshot 生命周期、随压缩刷新）、且对 PA 长驻 agent（workspace 固定）**跨会话稳定**——与 per-agent 但 `cache_safe=True` 的 `_SLOT_CUSTOM` 同构。注意 memory 同样压缩窗口内冻结，它进 volatile 尾区的真因是**跨会话累积**（每会话不同）而非会变；AGENTS.md 不累积，故归稳定前缀，让 PA 长驻 agent 吃到跨会话前缀缓存，CLI 最差中性。
 - **拒绝**: ① `cache_safe=False`（design-review WARNING 指出、原"照 memory 范例"是 cargo-cult）—— memory volatile 的真因是跨会话累积非 session 内变，AGENTS.md 不累积，归错类；② CC user meta-message —— 动机（system prompt 过长怕淹）我们没有，且要改消息装配链路。
 - **风险**: AGENTS.md 跨会话被编辑则那一次跨会话缓存未命中（罕见、成本一次）；很大时混在 system prompt 可能不够受重视 —— 后面效果不好再考虑迁 meta-message（演进留口）。
 - **注**: design-review 提的"volatile 尾区每轮重发"论证不精确——按字节前缀缓存，冻结段排在 `_SLOT_TAIL` 前 session 内本就命中；真正差异在跨会话，故按跨会话画像归到稳定前缀。
@@ -111,6 +111,7 @@ graph TD
 **`SessionFileState` 新增 `loaded_agents_md: set[str]`**（session 全生命周期存活）。机制 A 注入根 AGENTS.md 后把其绝对路径**预置**进该集合；机制 B（内/外）注入前查、注入后记。每份 AGENTS.md（按绝对路径）一会话只生效一次，外部路径提示同理。
 
 - **理由**: 对齐 CC 的 `loadedNestedMemoryPaths`（非淘汰 Set）；`SessionFileState` 是现成 session 级容器。
+- **compaction**: 该集合在 `on_compaction` 一并清空（见下 SessionFileState 扩展），实现"压缩边界刷新"+ 修复"注入内容被摘要丢失"。
 - **拒绝**: 存 `session_metadata`（frozen Mapping，不可变）。
 - **风险**: 机制 A 与 B 跨 core/platform，需保证两者写同一 session 的同一集合实例（runtime 维护的 `_session_file_states[session_id]`）。
 
@@ -148,7 +149,7 @@ graph TD
 ### 机制 A（system prompt 注入）
 
 - `PromptContext` 新增 `agents_md_content: str | None = None`（`base.py`）。
-- `runtime._ensure_agents_md_snapshot(session_id)`：首轮读 `config.workspace_root/AGENTS.md` → `load_agents_md` → 冻结快照存 session 级缓存；同时把该根路径**预置**进 `SessionFileState.loaded_agents_md`（供机制 B 去重）。后续轮用缓存。
+- **并入现有 `MemorySnapshot` 生命周期**（`runtime.py`，复用而非另造）：`MemorySnapshot` TypedDict 加 `agents_md_content` 字段；`_ensure_memory_snapshot` 首轮一并读 `config.workspace_root/AGENTS.md` → `load_agents_md`（@import 展开）→ 存进同一快照，并把根路径**预置**进 `SessionFileState.loaded_agents_md`（供机制 B 去重）。`_invalidate_memory_snapshot`（已挂 `on_compaction`）pop 整个快照 → **compaction 后下一轮自动重读最新 AGENTS.md**，与 memory 同步刷新。语义 = 压缩窗口内冻结、每次 compaction（或新会话）刷新（对齐 CC 的 `resetGetMemoryFilesCache('compact')`）。
 - `core_sections.CORE_AGENTS_MD_BLOCK`：`enabled_when` = 内容非空；`render` = banner + 正文；**`cache_safe=True`，skeleton 中插在 `_SLOT_CUSTOM` 之后、`CORE_MEMORY_BLOCK` 之前**（最后一个稳定段；满足"True 段全在 False 段之前"不变量，由 `assemble_system_prompt` 校验）。
 - `wiring.build_prompt_context_from_metadata(..., agents_md_content=...)` 透传。
 
@@ -218,6 +219,7 @@ Read any of them with the read tool if you need this project's conventions befor
 ### SessionFileState 扩展
 
 - `SessionFileState` 新增 `loaded_agents_md: set[str]`（`__init__` 初始化空 set）。机制 A 预置、机制 B 查/记，同一 session 同一实例（`runtime._session_file_states[session_id]`）。
+- **compaction 失效**：`loaded_agents_md` 在 `on_compaction` 时一并清空（与机制 A 的快照失效同点触发）。两个原因：① 与机制 A 同步"压缩边界刷新"；② **修正确性**——机制 B 注入内容寄存在历史 tool_result 中，compaction 会把旧 tool_result 摘要掉、注入内容随之丢失；清掉去重集后，压缩后再 read 命中才能重新注入（并取最新）。清空后机制 A 的 `_ensure_*` 重新预置根路径，维持"机制 B 不重复注入根"的不变量。
 
 ## 契约层增量 (delta-spec)
 
