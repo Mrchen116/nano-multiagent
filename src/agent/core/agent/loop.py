@@ -72,6 +72,7 @@ class AgentLoop:
         *,
         llm_client: LLMClient,
         model: str,
+        llm_clients: dict[str, LLMClient] | None = None,
         policies: AgentPolicies | None = None,
         system_prompt: str = "",
         hook_runner: HookRunner | None = None,
@@ -87,6 +88,12 @@ class AgentLoop:
         on_compaction: Callable[[str], None] | None = None,
     ) -> None:
         self._llm_client = llm_client
+        # bugfix-429: per-provider client map for routing a run to the client of
+        # its model's registered provider (decision 3). None → single-client path
+        # (unit tests / callers that have not migrated): self._llm_client serves
+        # every model. Within one provider all models share base_url; only the
+        # request.model string varies, so one client per provider suffices.
+        self._llm_clients = llm_clients
         self._model = model
         self._policies = policies or AgentPolicies()
         self._system_prompt = system_prompt or ""
@@ -118,6 +125,26 @@ class AgentLoop:
         """Hot-swap tool registry used by subsequent turns."""
 
         self._tool_registry = tool_registry
+
+    def _client_for_model(self, model: str) -> LLMClient:
+        """Select the LLM client registered for ``model``'s provider (bugfix-429).
+
+        With a per-provider client map, route by the model's registered provider
+        so a gpt model goes to the openai_compat client and a kimi model to the
+        anthropic client. Without a map (single-client unit-test path), the lone
+        client serves every model.
+        """
+        if not self._llm_clients:
+            return self._llm_client
+        from agent.core.llm.model_registry import provider_of  # noqa: PLC0415
+
+        provider = provider_of(model)
+        client = self._llm_clients.get(provider)
+        if client is None:
+            raise ValueError(
+                f"no llm client configured for provider {provider!r} (model {model!r})"
+            )
+        return client
 
     def bind_llm_client(self, *, llm_client: LLMClient, model: str) -> None:
         """Hot-swap LLM client/model without rebuilding runtime."""
@@ -166,6 +193,7 @@ class AgentLoop:
         # serves every session, so the build-time self._model is only a legacy
         # fallback for callers that have not migrated to passing model_override.
         active_model = model_override or self._model
+        active_client = self._client_for_model(active_model)
         active_hook_ctx = hook_ctx or HookContext(
             session_id=state.session_id, turn_id=state.turn_id
         )
@@ -302,7 +330,7 @@ class AgentLoop:
                         LLMMessage(role="system", content=rendered_system_prompt),
                         *llm_messages,
                     ]
-                    stream = self._llm_client.generate(
+                    stream = active_client.generate(
                         LLMGenerateRequest(
                             session_id=llm_session_id or state.session_id,
                             model=active_model,

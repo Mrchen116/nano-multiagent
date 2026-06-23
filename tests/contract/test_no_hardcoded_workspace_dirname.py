@@ -36,6 +36,7 @@ _WHITELIST: frozenset[str] = frozenset(
         # refactor-406-M1: _session_prompt_slots map + register method added in __init__; shifted to 172
         # bugfix-417-M3 R3: liveness ticker import block added at top; shifted to 177
         # bugfix-417-M5: USER_INTERRUPT_RECOVERY_CONTENT multi-line import; shifted to 180
+        # bugfix-429: per-provider llm_clients param + assignment added in __init__; shifted to 185
         "src/agent/core/agent/runtime.py:185",
         # kernel.py: build_kernel new-path workspace_config_dirname default — platform
         # default fallback when a consumer omits it (same role as jsonl_store default);
@@ -52,7 +53,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
         # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
-        "src/agent/sdk/kernel.py:483",
+        # bugfix-429: build_kernel per-provider llm_clients construction block; shifted 483→501.
+        "src/agent/sdk/kernel.py:501",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode

@@ -141,6 +141,24 @@ def list_provider_models(provider: str) -> tuple[ModelMetadata, ...]:
     return tuple(provider_models[m] for m in sorted(provider_models.keys()))
 
 
+def provider_of(model: str) -> str:
+    """Return the provider that registered ``model`` (bugfix-429).
+
+    The kernel routes each run to the client of its model's registered provider
+    (anthropic / openai_compat). Model id ↔ provider is bound at config-register
+    time, so this is an exact reverse lookup.
+
+    Raises:
+        ValueError: If no provider registered this model — fail loud rather than
+            guessing a provider/format (no silent fallback).
+    """
+    registry = _require_initialized()
+    for provider, provider_models in registry.models.items():
+        if model in provider_models:
+            return provider
+    raise ValueError(f"no registered provider for model: {model}")
+
+
 def get_default_base_url(provider: str) -> str | None:
     """Return the default base URL for a provider, or None if not configured."""
     metadata = resolve_model_metadata(provider, None)

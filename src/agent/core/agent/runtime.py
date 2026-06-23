@@ -106,6 +106,7 @@ class AgentRuntime:
         session_manager: SessionManager,
         llm_client: LLMClient | None = None,
         llm_client_factory: Callable[[LLMFactoryConfig], LLMClient] | None = None,
+        llm_clients: dict[str, LLMClient] | None = None,
         model: str | None = None,
         policies: AgentPolicies | None = None,
         hook_runner: HookRunner | None = None,
@@ -141,6 +142,10 @@ class AgentRuntime:
             )
         self._llm_client_factory = llm_client_factory
         self._llm_client = active_llm_client
+        # bugfix-429 决策3: per-provider client map for routing each run to the
+        # client of its model's registered provider. None → single-client path
+        # (unit tests / legacy callers): active_llm_client serves every model.
+        self._llm_clients = llm_clients
         self._hook_runner = hook_runner
         self._repo_root = (repo_root or Path.cwd()).expanduser().resolve()
         self._config_resolver = config_resolver
@@ -215,6 +220,7 @@ class AgentRuntime:
         self._compaction_applier = CompactionApplier(session_manager=session_manager)
         self._loop = AgentLoop(
             llm_client=active_llm_client,
+            llm_clients=llm_clients,
             model=self._llm_config.model,
             policies=policies,
             hook_runner=hook_runner,

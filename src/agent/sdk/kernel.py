@@ -382,9 +382,26 @@ def _build_kernel_base(
     if _llm_client_override is not None:
         llm_client_factory = None
         direct_llm_client: LLMClient | None = _llm_client_override
+        llm_clients: dict[str, LLMClient] | None = None
     else:
         llm_client_factory = lambda cfg: _platform_create_llm_client(config=cfg)  # noqa: E731
         direct_llm_client = None
+        # bugfix-429 决策3: build one client per declared provider so a run is
+        # routed to the client of its model's registered provider. Within a
+        # provider all models share base_url (set here); only request.model
+        # varies per call, so one client per provider suffices.
+        llm_clients = {
+            p.name: _platform_create_llm_client(
+                config=LLMFactoryConfig(
+                    provider=p.name,
+                    model=p.models[0].name if p.models else factory_config.model,
+                    base_url=p.base_url,
+                    api_key=llm.api_key,
+                    timeout_seconds=llm.timeout_seconds,
+                )
+            )
+            for p in llm.providers
+        } or None
 
     runtime = AgentRuntime(
         session_manager=session_service.manager,
@@ -393,6 +410,7 @@ def _build_kernel_base(
         permission_broker=permission_broker,
         llm_client=direct_llm_client,
         llm_client_factory=llm_client_factory,
+        llm_clients=llm_clients,
         model=factory_config.model,
         # Product-neutral kernel skeleton; product text enters per-session via
         # create_session(prompt=PromptSlots) (决策 8).
