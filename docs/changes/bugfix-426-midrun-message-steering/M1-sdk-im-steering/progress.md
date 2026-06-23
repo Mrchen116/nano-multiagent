@@ -16,7 +16,35 @@
   - 真多模态打通是预存内核限制（与本 unit 无关、submit 也没通），不在本 unit 范围。
 - delta-spec 多模态措辞由 orchestrator 收尾归并按现实校正。
 
-## R1 — <pending>
+## R1 — RunController pending 承载 origin + stranded 续跑修正（决策3）
+
+- Context: stranded 续跑（registry terminal-path）硬编码 `origin=BACKGROUND_TASK`，
+  会把用户 mid-run steer 在 run-end 竞态路径错标来源。pending 队列原只存 LLMMessage、不带 origin。
+- Decision:
+  - `run_control.py`：新增 frozen `PendingMessage(message, origin)`；`enqueue_message(message, origin)`、
+    `drain_pending()` 返回 `list[PendingMessage]`。
+  - `loop.py:262-264`：drain 消费侧改 `llm_messages.append(pending.message)`（行为不变，仅取 .message）。
+  - `registry.py`：`inject_pending_message(session_id, message, origin=RunOrigin.USER)` 加 origin；
+    terminal-path stranded 续跑用 `_group_pending_by_origin` 把 drained 项按**连续同 origin**分批，
+    每批 submit 一个续跑 run 带该 origin（保 FIFO + 各批正确归属），不再硬编码 BACKGROUND_TASK。
+  - `wiring.py`：background_tasks 注入调用点显式传 `origin=RunOrigin.BACKGROUND_TASK`（维持其现状语义）。
+- Rationale: origin 随消息走是最小且正确的载法——decision3 要求续跑跟随注入来源；分批分组保住
+  「连发多条混合来源」时各自归属，同时不破坏 FIFO（incident Q3 按序全注入）。
+- Evidence:
+  - Tests: `tests/unit/agent/runs/test_run_control_pending_origin.py`（enqueue/drain 保 origin+FIFO、drain 清空）；
+    `tests/unit/test_runs_registry.py::test_stranded_continuation_follows_injected_origin`（gated runtime
+    保 run 活跃→inject(origin=USER)→放闸→续跑 run origin=USER）。窄相关全绿：
+    `test_run_control_pending_origin + test_runs_registry` 14 passed；
+    扩跑 `agent/background_tasks + agent/runs + test_agent_runtime + test_background_hook_fork` 123 passed。
+    ruff check + format 通过。
+  - Entry: 内核内部能力，无独立产品入口（R2 经 Kernel.submit 接出、R3 经 Gateway，R4 live 端到端）。本 R 入口验证延后至 R2-R4。
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 续跑 origin 回归用例已落库（上方 stranded 测试），防 refactor 再次错标。
+  - Visual/Interaction: N/A
+- Rollback: `git revert` C2（fix R1）+ C1（test R1）。
+- Commits: C1=test R1（红）, C2=fix R1, C3=本次 docs。
+- Next: R2 — Kernel.submit(steer) + RunInfo.injected。
 
 ## R2 — <pending>
 

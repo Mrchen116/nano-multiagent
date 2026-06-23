@@ -41,7 +41,7 @@
 
 ## Roadpoints
 
-### R1 — RunController pending 承载 origin + RunsRegistry inject origin + stranded 续跑修正（决策3）
+### R1 — RunController pending 承载 origin + RunsRegistry inject origin + stranded 续跑修正（决策3）— DONE
 
 - 步骤:
   - `run_control.py`：`enqueue_message` / `drain_pending` 承载 origin（pending 队列存 (origin, LLMMessage) 或并行结构），loop.py drain 消费侧适配。
