@@ -5,7 +5,14 @@
 
 ## Changelog
 
-<!-- design 阶段保持空 -->
+- 2026-06-23 (M1): 决策3 的 stranded 续跑从「仅正常完成路径」扩到「所有非 user-initiated 终态」
+  （超时/失败/看门狗 idle-reap/crash/force-cancel 均 drain→续跑；仅用户 /stop 丢弃 pending），
+  收口到单一 chokepoint。原方案只覆盖正常完成，会让 steer 进随后被取消的 run 的消息静默丢失
+  （违反 incident「消息不丢失」）。详见 M1-sdk-im-steering/progress.md「Design 修订 R3」。
+- 2026-06-23 (M1): 决策2「注入携带多模态 block 列表」按内核 text-only 现实校正为「注入复用 submit
+  同款 `parse_input_parts + render_user_text`，content=str」——内核 LLM 边界统一渲 text（图片→
+  placeholder），正常 submit 今天图片也不走多模态 content。意图（带不带附件路径相同）不变。
+  详见 M1-sdk-im-steering/progress.md 顶部对齐段。
 
 ## 现状分析
 
@@ -91,13 +98,14 @@ after：运行中入口传 `steer=True` → 有活跃 run 就注入下一轮、�
 - **拒绝**: 注入仅 text、附件退化排队（人为分裂，错误）；注入丢附件（静默丢失）。
 - **风险**: 无新增——注入与正常 turn 的 user 消息载荷一致。
 
-### 决策 3: 续跑兜底保 origin=USER + 保完整 content（修 registry.py:635-648）
+### 决策 3: 续跑兜底保 origin=USER + 覆盖所有非 user-initiated 终态（修 registry.py 终态收口）
 
-**run 结束竞态时 drain 出的 stranded 消息续跑，origin 跟随注入来源（用户 steer→`USER`，非硬编码 `BACKGROUND_TASK`），且 content 为 list 时原样保留（不降级成 text part）。**
+**run 结束竞态时 drain 出的 stranded 消息续跑，origin 跟随注入来源（用户 steer→`USER`，非硬编码 `BACKGROUND_TASK`）。** 续跑兜底**收口到单一终态 chokepoint**，覆盖所有终止路径（正常完成 / 超时 / 失败 / 看门狗 idle-reap / crash / force-cancel(CancelledError)）；**唯一例外是用户主动 /stop**（`abort(user_initiated=True)`）——尊重显式停止，丢弃 pending 不续跑（gate=`controller.is_user_interrupt`）。
 
-- **理由**: feat-337:528 既定"续跑 origin 跟随活跃 run（通常 USER）"；现硬编码 `BACKGROUND_TASK` 会让用户 steer 消息在竞态路径被错标来源、并丢多模态内容。
-- **拒绝**: 维持现状（错标 origin + 丢图片，与决策 2 自相矛盾）。
-- **风险**: 续跑 origin 需知注入来源；由调用方在 inject 时携带 origin 元信息（实现层，worker 定具体载法）。
+- **理由**: feat-337:528 既定"续跑 origin 跟随活跃 run（通常 USER）"；现硬编码 `BACKGROUND_TASK` 会让用户 steer 消息在竞态路径被错标来源。**且原方案只在正常完成路径 drain——steer 进随后被取消的 run 的消息会静默丢失，违反 incident「消息不丢失」**；故扩到全终止路径单点收口（M1 发现，见 Changelog）。
+- **content 说明（M1 校正）**: 决策2 已定注入 content 为 str（`render_user_text`，内核 text-only 现实），故续跑 parts 重建 `{"type":"text","text":msg.content}` 对 str 已正确，无 list 多模态分支。
+- **拒绝**: 维持现状（错标 origin + cancel 路径丢消息）；在 complete/fail/timeout/cancel 各路径分别补 drain（易再漏路径，这次正是漏了 cancel）。
+- **风险**: 续跑 origin 需知注入来源——pending 队列承载 origin（`PendingMessage`）；registry 关闭中续跑 no-op，避免 force-cancel-during-shutdown 期 submit 报错。
 
 ### 决策 4: CLI 恢复非阻塞 REPL 输入，运行中输入走 steer
 

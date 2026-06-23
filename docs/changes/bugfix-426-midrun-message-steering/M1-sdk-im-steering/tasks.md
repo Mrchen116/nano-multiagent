@@ -56,7 +56,7 @@
   - `kernel.py`：`submit` 加 `steer: bool = False`；steer=True → 用 `parse_input_parts+render_user_text` 建 `LLMMessage(role="user", content=text)`，`inject_pending_message(origin=origin)` 有活跃 run→injected=True 返回活跃 run_id；否则 submit 新 run injected=False。`_to_run_info` 透传 injected。
 - 验证: test_kernel_submit_steer 有/无活跃 run injected 正确 + content placeholder；全绿。
 
-### R3 — Gateway inbound steer 接线 + parts helper 抽取（决策1，群聊保真）
+### R3 — Gateway inbound steer 接线 + parts helper 抽取（决策1，群聊保真）— DONE（含决策3 终止路径扩展）
 
 - 步骤:
   - 抽 `_build_parts`（group buffer drain + 发言人前缀 + 附件组装）共用 helper，submit 路径与 steer 路径同源。

@@ -75,19 +75,51 @@
 - Commits: C1=test R2（红）, C2=feat R2, C3=本次 docs。
 - Next: R3 — Gateway inbound steer 接线 + parts helper 抽取。
 
-## [Design 修订待定] R3: steer 进随后被取消的 run 会丢消息（§4 暂停，已上报 orchestrator）
+## [Design 修订] R3: 决策3 的 stranded 续跑从「仅正常完成」扩到「所有非 user-initiated 终态」
 
-- 现状方案: 决策3 的 stranded 续跑仅在 `_run_worker_async` 正常完成路径（registry.py:655）drain pending。
-- 发现的问题: R3 接上 Gateway steer 后，「run 活跃时到达的消息」注入活跃 run；若该 run 随后被
-  cancel/abort（看门狗 idle reap / /stop / crash，走 CancelledError 提前退出），注入的 pending
-  消息到不了那段 drain → **静默丢弃**，且破坏既有回归 `test_inbound_pipeline_sse.py::
-  test_idle_run_is_cancelled_and_next_same_session_message_continues`（hung run 不堵 FIFO）。
-- 原因: 决策3 兜底只覆盖正常完成，未覆盖取消/中止终止路径；与 incident「消息不丢失」冲突。
-  （background_tasks 注入今天已有同款预存暴露，非新机制缺陷，但 M1 接上用户 steer 后首次对用户可见。）
-- 影响范围: 仅本 milestone（registry.py 终止路径 + 该 sse 回归测试）；不影响 M2。
-- 候选: A=cancel/abort 终止路径也 drain→stranded 续跑（架构最干净）；B=接受丢失改测试（不推荐）。
-- 状态: 已 SendMessage orchestrator，等定夺；R3 实现/测试本地提交、未 push。
+- 现状方案: 决策3 的 stranded 续跑仅在 `_run_worker_async` 正常完成路径 drain pending。
+- 新方案: 收敛到单一终态 chokepoint `_continue_stranded_pending`，覆盖正常完成/超时/失败/
+  看门狗 idle-reap/crash/force-cancel(CancelledError) 全部终止路径；仅用户 /stop
+  （`abort(user_initiated=True)`）丢弃 pending 不续跑（gate=`controller.is_user_interrupt`）。
+- 原因: R3 接上 Gateway steer 后，注入活跃 run 的消息若遇 run 被 cancel/abort（非用户主动）
+  会因决策3 只覆盖正常完成而**静默丢弃**，违反 incident「消息不丢失」，并破坏既有回归
+  `test_inbound_pipeline_sse::test_idle_run_is_cancelled_and_next_same_session_message_continues`。
+- 影响范围: 仅本 milestone（registry.py 终止收口 + 该 sse 回归 + 两条新终止路径单测）；不影响 M2。
+- design.md 是否同步改: 是（顶部 Changelog + 决策3 正文补「扩展到所有非 user-initiated 终态 + /stop 丢弃」）。
+- orchestrator 定夺: 方案 A，确认 /stop 不续跑、非用户终止续跑。
 
-## R3 — <pending(等 design 定夺后回填)>
+## R3 — Gateway inbound steer 接线 + stranded 续跑覆盖全终止路径（决策1 + 决策3 扩展）
+
+- Context: refactor-387 后 Gateway inbound 一律 `_run_queue.submit` 排队，运行中消息只能等
+  当前 run 跑完才作新 run 被理睬（incident 核心 bug）。需在入队前对运行中消息走 steer。
+- Decision:
+  - Gateway：抽 `_build_message_parts`（group buffer drain + `_format_sender_text` 发言人前缀
+    + 附件组装）共用 helper，submit 路径与 steer 路径同源——群聊 steer 不退化成裸 `message.text`，
+    保发言人标识与缓冲上下文（决策1，非目标「群聊行为不变」）。`handle_inbound` 在进 `_run_queue`
+    之前（仿 /stop 走 `_active_runs` 的位置）判活跃 run：有→`submit(steer=True)`，
+    injected=True 不入队（发 accepted lifecycle，回复由活跃 run 的常驻 SSE 流 surfacing）；
+    injected=False（竞态：run 已结束）用**已建 parts**走 `_run_turn(prebuilt_parts)` 入队不重复 drain。
+    原内联 `_run` 提为 `_run_turn` 方法。
+  - Kernel registry：决策3 扩展（见上「Design 修订」），收口 `_continue_stranded_pending`。
+- Rationale: steer 检查必须在 run_queue **之外**（队列串行，run 活跃时新消息进不去队头无从 steer）；
+  parts 单源构建避免群聊丢上下文 + 竞态回退不双 drain（buffer 破坏性）。stranded 全终止覆盖
+  保「消息不丢失」；/stop 例外尊重显式停止。
+- Evidence:
+  - Tests（C1 红→C2 绿）：
+    - `test_inbound_pipeline_kernel_sdk.py`：`test_steer_injects_into_active_run_not_new_run`、
+      `test_idle_message_opens_new_run_not_steer`、
+      `test_group_steer_preserves_sender_prefix_and_buffered_context`（群聊 steer 保 `[Bob]` 缓冲
+      + `[Carol]` 当前发言人）。`_FakeKernel.submit` / `_FakeSseKernel.submit` 加 steer/injected。
+    - `test_runs_registry.py`：`test_stranded_continuation_fires_on_non_user_cancel`（force-cancel
+      非用户→续跑 origin=USER）、`test_user_stop_discards_pending_no_continuation`（/stop→无续跑）。
+    - 回归修复：`test_inbound_pipeline_sse::test_idle_run_is_cancelled_and_next_same_session_message_continues` 转绿。
+    - 全套窄相关：personal_assistant + inbound_streaming + contract + test_runs_registry + agent
+      = **1285 passed, 1 skipped**。ruff check+format 通过。
+  - Entry: 单测覆盖 Gateway↔Kernel 接线；真实 IM 端到端 live 验证在 R4。
+  - Frontend State Matrix / Browser QA / Visual: N/A
+  - E2E/Regression: 5 条新回归（3 inbound steer + 2 registry 终止路径）+ 1 条既有回归修复，落库防再断链。
+- Rollback: `git revert` C2(R3)+C1(R3)。
+- Commits: C1=test R3（红）, C2=fix R3, C3=本次 docs。
+- Next: R4 — live IM 端到端验收。
 
 ## R4 — <pending>
