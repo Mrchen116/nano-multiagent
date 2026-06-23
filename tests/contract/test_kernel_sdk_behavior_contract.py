@@ -416,3 +416,124 @@ def test_global_capabilities_llm_config_round_trip(tmp_path: Path) -> None:
         assert config_after.model == "my-unique-test-model-9999"
     finally:
         kernel.close()
+
+
+# ---------------------------------------------------------------------------
+# submit(steer=...) — mid-run message steering (bugfix-426 决策1/2)
+# ---------------------------------------------------------------------------
+
+
+async def test_submit_steer_idle_session_creates_new_run(tmp_path: Path) -> None:
+    """submit(steer=True) with no active run falls back to a normal new run.
+
+    injected must be False and the run must execute (steer path degrades to
+    submit when the session is idle — no side effects vs. plain submit).
+    """
+    kernel = _build_kernel(tmp_path)
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        run = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "hello"}],
+            workspace_root=tmp_path,
+            steer=True,
+        )
+        assert run.injected is False
+        record = await _wait_for_terminal_run(kernel, run.run_id)
+        assert record.status == "completed"
+    finally:
+        kernel.close()
+
+
+async def test_submit_steer_active_run_injects_not_new_run(tmp_path: Path) -> None:
+    """submit(steer=True) during an active run injects into it (injected=True),
+    reuses its run_id, and does NOT create a second run."""
+    blocking_event: asyncio.Event = asyncio.Event()
+
+    class _BlockingClient:
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            return _blocking_generate(blocking_event)
+
+    async def _blocking_generate(event: asyncio.Event):
+        await asyncio.wait_for(event.wait(), timeout=5.0)
+        yield LLMMessage(
+            role="assistant", content="unblocked", finish_reason="stop", tool_calls=()
+        )
+
+    kernel = _build_kernel(tmp_path, _llm_client_override=_BlockingClient())
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        first = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "long task"}],
+            workspace_root=tmp_path,
+        )
+        await _wait_for_run_status(kernel, first.run_id, "running")
+
+        steered = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "actually use web_search"}],
+            workspace_root=tmp_path,
+            steer=True,
+        )
+        assert steered.injected is True
+        assert steered.run_id == first.run_id
+
+        blocking_event.set()
+        await _wait_for_terminal_run(kernel, first.run_id)
+    finally:
+        blocking_event.set()
+        kernel.close()
+
+
+async def test_submit_steer_injects_render_user_text_content(tmp_path: Path) -> None:
+    """Injected content is built via the same parts→text rendering submit uses:
+    image parts collapse to the placeholder, text is preserved (决策2)."""
+    blocking_event: asyncio.Event = asyncio.Event()
+
+    class _BlockingClient:
+        def generate(self, request: Any):  # noqa: ANN001, ANN201
+            return _blocking_generate(blocking_event)
+
+    async def _blocking_generate(event: asyncio.Event):
+        await asyncio.wait_for(event.wait(), timeout=5.0)
+        yield LLMMessage(
+            role="assistant", content="unblocked", finish_reason="stop", tool_calls=()
+        )
+
+    kernel = _build_kernel(tmp_path, _llm_client_override=_BlockingClient())
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        first = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "long task"}],
+            workspace_root=tmp_path,
+        )
+        await _wait_for_run_status(kernel, first.run_id, "running")
+
+        kernel.submit(
+            session_id=session.session_id,
+            parts=[
+                {"type": "text", "text": "see this"},
+                {"type": "image", "image_url": "data:image/png;base64,AAAA"},
+            ],
+            workspace_root=tmp_path,
+            steer=True,
+        )
+
+        # Inspect the active controller's pending queue: the injected message's
+        # content must be a rendered string (str), with the image as a placeholder.
+        registry = kernel._c.runs_registry  # noqa: SLF001
+        controller = registry._controllers[first.run_id]  # noqa: SLF001
+        pending = controller.drain_pending()
+        assert len(pending) == 1
+        content = pending[0].message.content
+        assert isinstance(content, str)
+        assert "see this" in content
+        assert "[image:placeholder]" in content
+
+        blocking_event.set()
+        await _wait_for_terminal_run(kernel, first.run_id)
+    finally:
+        blocking_event.set()
+        kernel.close()
