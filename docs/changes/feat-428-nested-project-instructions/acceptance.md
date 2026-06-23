@@ -150,3 +150,130 @@ PA workspace 含 AGENTS.md，`kernel.assemble_prompt_preview(workspace_root=pa_w
 | `tests/unit/test_nested_memory_read_injection.py`（13 tests）| 13 passed |
 | `tests/` -m "not e2e" 全量（2815 tests）| 2815 passed, 0 failed, 1 skipped |
 | IM 前端 vitest（59 files, 449 tests）| 449 passed |
+
+---
+
+# Round 2 — 2026-06-24
+
+> review_round: 2
+> 验收对象: HEAD b7bcac4b（fix r1 合入后）
+> 重点: 验证 serialize_result 行号污染修复
+
+## Verdict
+
+pass
+
+## 澄清记录
+
+Round 2 重点由 orchestrator 指定：确认机制 B 注入的 `<project-instructions>` / `<project-instructions-hint>` 块在最终 tool_result 文本里干净无行号前缀污染。其余按 spec.md 验收标准复验。无额外澄清问题。
+
+## Fix r1 核心验证：serialize_result 行号污染
+
+### 行号污染修复的实现
+
+fix r1 在 `read.py` 的 `serialize_result` 方法中，将 content_blocks 分为两类：
+- 文件正文块（`injected` 字段不存在或为 False）→ 加 cat -n 行号
+- 注入块（`injected=True`，由 `_inside_workspace_blocks` 和 `_outside_workspace_blocks` 设置）→ 原样拼接，不加行号
+
+两类来源：
+- `_inside_workspace_blocks`（line 479）：每个 project-instructions 块带 `"injected": True`
+- `_outside_workspace_blocks`（line 516）：hint 块带 `"injected": True`
+
+### 直接验证结果
+
+通过实例化 `ReadTool.serialize_result`，传入含注入块的 content_blocks，验证输出：
+
+**内注入场景**：
+```
+     1→line1
+     2→line2
+     3→line3
+<project-instructions path="/ws/sub/AGENTS.md">
+BACKEND CONVENTIONS
+</project-instructions>
+```
+- 文件正文带行号（`→line1` 格式）
+- 注入块原样输出，无 `→<project-instructions` 污染
+
+**外提示场景**：
+```
+     1→file content here
+<project-instructions-hint>
+The file you just read is outside your workspace...
+</project-instructions-hint>
+```
+- 文件正文带行号
+- hint 块原样输出，无行号前缀
+
+断言全部通过：`→<project-instructions` 不出现、`→BACKEND CONVENTIONS` 不出现、`→</project-instructions>` 不出现。
+
+## User Journeys Exercised（Round 2 复验）
+
+| 旅程 | 描述 | 新增/复验 Scenario |
+|---|---|---|
+| J0: 行号污染专项 | 直接调用 serialize_result 验证内注入/外提示无行号 | fix r1 核心修复 |
+| J1-A: 机制 A 全套 | load_agents_md + CORE_AGENTS_MD_BLOCK + assemble_system_prompt | 空态/有内容/PREVIEW/cache_safe/skeleton 段位 |
+| J2-B: 机制 B 全套 | _nested_memory_blocks 内/外/去重/边界/关闭 | 复验 round 1 全部 B Scenario |
+| J3: PREVIEW 占位 | assemble_system_prompt PREVIEW 模式 | PREVIEW 占位出现 + 与 MEMORY/USER 一致 |
+| J4: 压缩边界 | test_invalidate_clears_snapshot + test_compaction_clear_allows_reinjection | 压缩刷新/去重时机 |
+| J5: fix r1 其他修复 | non_utf8_dedup + symlink | 非 UTF-8 不污染 dedup；symlink 解析 |
+
+## 验收标准覆盖（Round 2 更新）
+
+### Requirement: 启动时把工作区 AGENTS.md 注入 system prompt（机制 A，默认恒开）— 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 工作区根有 AGENTS.md | spec.md | 调用 load_agents_md + CORE_AGENTS_MD_BLOCK.render，确认含 project-instructions 和 AGENTS.md 正文 | 验证通过：`<project-instructions>` 含 "snake_case" | pass | J1-A 复验 |
+| 工作区根无 AGENTS.md（空态） | spec.md | `enabled_when(ctx_empty) == False`，assemble 无报错 | 验证通过 | pass | J1-A 复验 |
+| 两个产品都生效 | spec.md | CLI 经 assemble_system_prompt 验证；PA 经 assemble_system_prompt PREVIEW 模式验证占位 | 两路均含 project-instructions | pass | J1-A/J3 复验 |
+| 工作区根 AGENTS.md 含 @import | spec.md | load_agents_md 读含 @./sub.md 的 AGENTS.md，验证展开后含 sub.md 内容 | "被引用的内容" 出现在展开结果 | pass | J1-A + test_agents_md_loader 20 passed |
+| IM 设置页系统提示预览显示 AGENTS.md 注入位 | spec.md | assemble_system_prompt PREVIEW 模式，含 `<project-instructions><运行时注入：工作区 AGENTS.md>` | `<运行时注入：工作区 AGENTS.md>` 与 MEMORY/USER 占位同格式出现 | pass | J3 复验 |
+| 会话运行中 AGENTS.md 被改（压缩窗口内冻结，压缩边界刷新） | spec.md | test_invalidate_clears_snapshot_and_loaded_agents_md + test_preseed_idempotent_after_compaction_reseed | 7 passed | pass | J4 复验 |
+
+### Requirement: read 工作区内文件时就近带上 AGENTS.md 内容（机制 B·内）— 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 读到的文件目录链上有子目录级 AGENTS.md | spec.md | _nested_memory_blocks 读 backend/api.py，确认 blocks[0].text 含 project-instructions + 正文 + 无行号前缀 | "BACKEND CONVENTIONS" 无 `→` 前缀 | pass | J2-B + J0 行号验证 |
+| 读到的文件目录链上没有 AGENTS.md（空态） | spec.md | _nested_memory_blocks 返回空 | blocks == [] | pass | J2-B 复验 |
+| 命中的是已注入过的工作区根 AGENTS.md（去重） | spec.md | 预置根路径后 _nested_memory_blocks 返回空 | blocks == [] | pass | J2-B 复验 |
+| 注入后该 AGENTS.md 被改、同会话再 read（压缩窗口内冻结，压缩边界刷新） | spec.md | test_compaction_clear_allows_reinjection | 17 passed | pass | J4/J5 复验 |
+
+### Requirement: read 工作区外文件时注入路径提示而非全文（机制 B·外）— 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 读到工作区外某 git 项目内的文件，该项目有 AGENTS.md | spec.md | _nested_memory_blocks 读外部 git 仓文件，确认 blocks[0].text 含 project-instructions-hint + 路径 + 不含正文 + 无行号 | "OTHER PROJECT RULES" 不出现；hint 无 `→` 前缀 | pass | J2-B + J0 行号验证 |
+| 读到不属于任何 git 仓的工作区外文件（边界） | spec.md | _nested_memory_blocks /tmp 文件返回空 + test_outside_workspace_not_git_no_hint | blocks == [] | pass | J2-B 复验 |
+| 同一外部 AGENTS.md 被多次命中（去重） | spec.md | test_outside_workspace_hint_dedup_once | 17 passed | pass | J5 复验 |
+
+### Requirement: nested_memory 可在配置层关闭，关闭后机制 A 不受影响— 组内结论: pass
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 关闭 nested_memory 后 read 不再触发目录加载/提示 | spec.md | nested_on=False 时 _nested_memory_blocks 返回空；CORE_AGENTS_MD_BLOCK 仍正常渲染 | blocks == []；project-instructions 仍出现 | pass | J2-B 复验 |
+
+## 问题清单
+
+无问题。fix r1 确认修复了 round 1 漏报的行号污染 bug。
+
+## Side Findings
+
+无。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新
+- [x] `docs/specs/kernel/spec.md`（内核契约层）：delta-spec 已在 `docs/changes/feat-428-nested-project-instructions/specs/kernel/spec.md` 准备，orchestrator §7.0 收尾归并写入 canonical（canonical 当前对齐 feat-425，尚未归并 feat-428 增量，属预期）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/SPEC_GUIDE.md`：无需更新
+
+## 测试结果摘要（Round 2）
+
+| 测试集 | 结果 |
+|---|---|
+| `tests/unit/test_agents_md_loader.py`（20 tests）| 20 passed |
+| `tests/unit/test_agents_md_runtime_snapshot.py`（7 tests）| 7 passed |
+| `tests/unit/test_nested_memory_read_injection.py`（17 tests）| 17 passed（含 test_injection_block_not_line_numbered + test_hint_block_not_line_numbered） |
+| `tests/` -m "not e2e" 全量（round 2） | 2824 passed, 1 skipped |
