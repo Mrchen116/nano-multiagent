@@ -62,9 +62,7 @@ def _read_text(tool: ReadTool, output) -> str:
     """Render the tool output the way the loop serializes it (text only)."""
     serialized = tool.serialize_result(output)
     if isinstance(serialized, list):
-        return "\n".join(
-            b.get("text", "") for b in serialized if isinstance(b, dict)
-        )
+        return "\n".join(b.get("text", "") for b in serialized if isinstance(b, dict))
     return str(serialized)
 
 

@@ -34,13 +34,13 @@ def runtime(tmp_path: Path) -> AgentRuntime:
     )
 
 
-def test_snapshot_reads_workspace_agents_md(runtime: AgentRuntime, tmp_path: Path) -> None:
+def test_snapshot_reads_workspace_agents_md(
+    runtime: AgentRuntime, tmp_path: Path
+) -> None:
     ws = tmp_path / "ws"
     ws.mkdir()
     (ws / "AGENTS.md").write_text("WS CONVENTIONS", encoding="utf-8")
-    snap = runtime._ensure_memory_snapshot(
-        "s1", {"workspace_root": str(ws)}
-    )
+    snap = runtime._ensure_memory_snapshot("s1", {"workspace_root": str(ws)})
     assert snap["agents_md_content"] is not None
     assert "WS CONVENTIONS" in snap["agents_md_content"]
 

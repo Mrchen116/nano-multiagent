@@ -57,7 +57,7 @@ from agent.core.agent.prompt_sections.wiring import (
     build_prompt_context_from_metadata,
     resolve_flags_from_metadata,
 )
-from agent.core.agent.agents_md import AGENTS_MD_FILENAME, load_agents_md
+from agent.core.agent import agents_md as agents_md_loader
 from agent.core.memory.path import derive_memory_root
 from agent.core.memory.store import MemoryStore
 from typing import TypedDict
@@ -1815,8 +1815,11 @@ class AgentRuntime:
         workspace_root_raw = metadata.get("workspace_root")
         if not workspace_root_raw:
             return None
-        root_md = Path(str(workspace_root_raw)).expanduser() / AGENTS_MD_FILENAME
-        content = load_agents_md(root_md)
+        root_md = (
+            Path(str(workspace_root_raw)).expanduser()
+            / agents_md_loader.AGENTS_MD_FILENAME
+        )
+        content = agents_md_loader.load_agents_md(root_md)
         if content is None:
             return None
         state = self._session_file_states.setdefault(session_id, SessionFileState())
