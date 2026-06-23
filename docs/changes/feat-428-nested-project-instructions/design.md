@@ -151,7 +151,8 @@ graph TD
 - `PromptContext` 新增 `agents_md_content: str | None = None`（`base.py`）。
 - **并入现有 `MemorySnapshot` 生命周期**（`runtime.py`，复用而非另造）：`MemorySnapshot` TypedDict 加 `agents_md_content` 字段；`_ensure_memory_snapshot` 首轮一并读 `config.workspace_root/AGENTS.md` → `load_agents_md`（@import 展开）→ 存进同一快照，并把根路径**预置**进 `SessionFileState.loaded_agents_md`（供机制 B 去重）。`_invalidate_memory_snapshot`（已挂 `on_compaction`）pop 整个快照 → **compaction 后下一轮自动重读最新 AGENTS.md**，与 memory 同步刷新。语义 = 压缩窗口内冻结、每次 compaction（或新会话）刷新（对齐 CC 的 `resetGetMemoryFilesCache('compact')`）。
 - `core_sections.CORE_AGENTS_MD_BLOCK`：`enabled_when` = 内容非空；`render` = banner + 正文；**`cache_safe=True`，skeleton 中插在 `_SLOT_CUSTOM` 之后、`CORE_MEMORY_BLOCK` 之前**（最后一个稳定段；满足"True 段全在 False 段之前"不变量，由 `assemble_system_prompt` 校验）。
-- `wiring.build_prompt_context_from_metadata(..., agents_md_content=...)` 透传。
+- `wiring.build_prompt_context_from_metadata(..., agents_md_content=...)` 透传（运行时从 snapshot 取）。
+- **预览（`kernel.assemble_prompt_preview`）照 memory 同款三态**：`CORE_AGENTS_MD_BLOCK` 的 `enabled_when` 在 `PREVIEW` 恒 True、`render` 在 `PREVIEW` 输出占位符 `<运行时注入：工作区 AGENTS.md>`（对齐 `_render_memory_block`）。⇒ **`assemble_prompt_preview` 零改动、不读盘**，新段自动以占位符出现在预览，与 memory/user 占位一致；IM 前端零改动、`PromptPreviewResponse {prompt, section_count}` 契约不变。（cache_safe=True 仅管运行时缓存排序，与 PREVIEW 出占位不冲突。）
 
 ### 机制 B（read 触发，read.py 内）
 
@@ -253,7 +254,7 @@ Read any of them with the read tool if you need this project's conventions befor
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-428-M1 | impl | — | A | 共享核心：`agent/core/` 新增 `load_agents_md`(@import) + `find_outermost_git_root` + `iter_agents_md_chain`；机制 A：`base.py` PromptContext 字段、`core_sections.py` CORE_AGENTS_MD_BLOCK、`skeleton.py` 段位、`wiring.py` 透传、`runtime.py` `_ensure_agents_md_snapshot`；机制 B：`feature_registry.py` 加 `nested_memory`、`session_file_state` 加 `loaded_agents_md`、`read.py` 注入逻辑；两产品装配默认开（CLI `DEFAULT_FEATURES` 无需动—走 registry 默认；确认 PA 不暴露 toggle）；delta-spec `specs/kernel/spec.md` | `[reviewer]` 覆盖 spec.md 全部 Requirement/Scenario（机制 A 启动注入含空态/两产品；机制 B 内注入/外提示/空态/边界/去重；关闭后 A 不受影响）；`[worker]` 新单测覆盖：@import 递归+防环+深度上限、git 外层仓根定界（嵌套仓 e~z 例）、内外判定、去重一次性、关闭 flag；`[worker]` `pytest -m "not e2e"` 全绿 + ruff check/format 净 |
+| feat-428-M1 | impl | — | A | 共享核心：`agent/core/` 新增 `load_agents_md`(@import) + `find_outermost_git_root` + `iter_agents_md_chain`；机制 A：`base.py` PromptContext 字段、`core_sections.py` CORE_AGENTS_MD_BLOCK（含 PREVIEW 占位三态）、`skeleton.py` 段位、`wiring.py` 透传、`runtime.py` 并入 MemorySnapshot（读 AGENTS.md + on_compaction 失效）；预览自动带占位（`assemble_prompt_preview` 无需改）；机制 B：`feature_registry.py` 加 `nested_memory`、`session_file_state` 加 `loaded_agents_md`、`read.py` 注入逻辑；两产品装配默认开（CLI `DEFAULT_FEATURES` 无需动—走 registry 默认；确认 PA 不暴露 toggle）；delta-spec `specs/kernel/spec.md` | `[reviewer]` 覆盖 spec.md 全部 Requirement/Scenario（机制 A 启动注入含空态/两产品；机制 B 内注入/外提示/空态/边界/去重；关闭后 A 不受影响）；`[worker]` 新单测覆盖：@import 递归+防环+深度上限、git 外层仓根定界（嵌套仓 e~z 例）、内外判定、去重一次性、关闭 flag；`[worker]` `pytest -m "not e2e"` 全绿 + ruff check/format 净 |
 
 > 单 M1：机制 A/B 共享 AGENTS.md 加载 + @import 核心，无法真并行；估算 < 800 行；无分阶段验证依赖。不满足任何拆分硬触发。
 

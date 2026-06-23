@@ -84,6 +84,10 @@
 - **WHEN** 该 agent 开启新会话
 - **THEN** agent 同时掌握 `AGENTS.md` 与被转引 `sub.md` 的内容（可通过复述被转引文件中的约定验证）
 
+#### Scenario: IM 设置页系统提示预览显示 AGENTS.md 注入位
+- **WHEN** 在 IM agent 设置页查看某 agent 的系统提示预览
+- **THEN** 预览中出现 AGENTS.md 段的占位标记（表明运行时会注入工作区 AGENTS.md），与 MEMORY/USER 的预览占位一致（预览不渲染实际文件内容）
+
 #### Scenario: 会话运行中 AGENTS.md 被改（压缩窗口内冻结，压缩边界刷新）
 - **GIVEN** 一个会话已启动、已注入工作区根 `AGENTS.md`（快照 X）
 - **WHEN** 会话运行过程中磁盘上的该 `AGENTS.md` 被改成 Y，且**尚未发生上下文压缩**，在同一会话内继续对话

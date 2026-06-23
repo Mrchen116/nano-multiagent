@@ -28,6 +28,10 @@
 - **THEN** 系统提示仍含 X（不随磁盘变动而变，保前缀缓存）
 - **AND** 发生上下文压缩（或新会话）后的下一轮，系统提示刷新为 Y
 
+#### Scenario: 系统提示预览显示 AGENTS.md 注入占位
+- **WHEN** 消费者调 `assemble_prompt_preview` 取系统提示预览
+- **THEN** 预览结果含 AGENTS.md 段的占位标记（`PREVIEW` 模式输出 `<运行时注入：…>` 占位，与 MEMORY/USER 一致；不读盘、不渲染实际文件内容）
+
 ### Requirement: read 工具触发就近项目指令加载（机制 B，可选，默认开）
 
 当 `nested_memory` 内核特性开启（默认 `default_on=True`，不投影为产品/用户 toggle）时，agent 经 `read` 工具读取文件，内核在该 read 的工具结果中追加项目指令上下文：被读文件在 `workspace_root` 内 → 追加其目录链（至 workspace 根）上各级 `AGENTS.md` 的正文（`@import` 展开、`<project-instructions>` 标签包裹）；在 `workspace_root` 外 → 追加英文路径提示（`<project-instructions-hint>`），范围为该文件目录至最外层 git 仓根逐级、不含正文。同一份 AGENTS.md（按绝对路径）在一个上下文压缩窗口内只追加一次（含机制 A 已注入的工作区根那份）；发生上下文压缩后去重记录清空，使压缩后的 read 可重新追加（取磁盘最新内容）——与机制 A 的压缩边界刷新一致。
