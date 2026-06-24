@@ -38,7 +38,7 @@
   A(原话): ok
   Agent 解读: 与 preview 一致，对不存在的 skill 名静默忽略。
 
-## 现象 / 复现
+## 现象与复现
 
 1. 在 IM 设置页给 `product-manager` agent 勾选 12 个 skills（含 `change-design-author`、`change-orchestrator`、`change-impl-worker`、…、`systematic-debugging`、`skill-creator`）。
 2. 打开该 agent 的"系统提示词预览"，展开后能看到这 12 个 skills 全部被列出。
@@ -47,7 +47,15 @@
    - 实际发给模型的 `<available_skills>` 段里只有 `/Users/czj/.codex/skills/.system/skill-creator/SKILL.md`，其余 11 个 skill 均未出现。
 4. 结果：preview 展示的技能集合 ≠ runtime 真实注入系统提示词的技能集合，agent 运行时看不到用户配置的大部分 skills。
 
-## 根因
+## 影响范围
+
+- **受影响用户**: 所有在 IM 配置页给 PA agent 勾选 skills 的用户。用户以为 agent 已经具备这些 skills，实际运行时大多不可用。
+- **受影响产品**: `personal_assistant` Gateway 路径。`coding_cli` 不存在 preview 场景，但 `build_kernel` 构造 `AgentRuntime` 的调用方式同样未传 resolver，只是 CLI 的技能集合与 PA 不同，暂未触发相同症状。
+- **严重程度**: 中高。功能未按配置生效，属于配置与实际行为不一致，导致 agent 能力缩水。
+- **数据损坏**: 无。skill 文件本身未丢失，只是 runtime 未发现它们。
+- **根因横跨模块**: `agent.sdk` (`build_kernel` / `_WorkspaceDirnameSkillResolver`)、`agent.core` (`AgentRuntime._resolve_session_available_skills`)、`agent.platform` (`SkillRootResolver` / `resolve_available_skills`)。
+
+## 根因分析（RCA）
 
 ### 表面：runtime 和 preview 用了两套 skill resolver
 
@@ -70,10 +78,9 @@
   - **不能复活 `ConfigResolver`**（`refactor-406` 明确决策）；
   - **kernel 保持 product-neutral**：只搜索 `build_kernel` 被告知的 roots，PA 工厂继续负责传正确的 `skill_search_roots`。
 
-## 修复
+## 修复方向
 
-<!-- milestone 完成后补全 -->
-
-## 验证
-
-<!-- milestone 完成后补全 -->
+1. **统一 resolver 来源**：让 `AgentRuntime` 在 2 层路径下也持有一个与 preview 同源的 skill resolver。最自然的做法是在 `build_kernel()` 构造 `AgentRuntime` 时，注入一个由 `workspace_config_dirname + skill_search_roots` 构成的 `SkillRootResolver`（复用 `src/agent/sdk/kernel.py` 的 `_WorkspaceDirnameSkillResolver`），替换掉当前恒为 `None` 的 `self._config_resolver`。
+2. **保持现有调用点不变**：`AgentRuntime._resolve_session_available_skills` 与 `_resolve_session_available_skills_from_config` 已经调用 `resolve_available_skills(..., config_resolver=self._config_resolver)`，只需保证注入的 resolver 正确，无需重写调用逻辑。
+3. **补同源回归测试**：新增端到端测试，断言"对同一 agent 配置，preview 渲染出的 skills 集合 = runtime 真实 LLM 请求中 `<available_skills>` 的 skills 集合"，防止未来两边再次漂移。
+4. **清理 dead field 或明确语义**：视实现复杂度，考虑移除 `AgentRuntime.config_resolver` 这个已退役的字段，或将其语义改为 `SkillRootResolver`，避免继续误导后续维护者。
