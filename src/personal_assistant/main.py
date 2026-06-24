@@ -3032,7 +3032,19 @@ def _build_relay_lifecycle_callback(
             # Seed run_context_store with conversation/agent meta so kernel_event_observer
             # can send the turn_start frame.  message_id starts empty; it is filled
             # by the turn_start ack (gateway returns the created placeholder message_id).
-            if run_context_store is not None and update.run_id:
+            #
+            # bugfix-426-M4 (#140): a steer that INJECTS into an active run emits this
+            # accepted lifecycle with that run's EXISTING run_id (it reuses the run —
+            # 决策5). The run already has a live context here (bubble A's message_id, its
+            # streaming kernel_message_id). Re-seeding would wipe message_id to "",
+            # orphaning bubble A (the observer then can't finalize it → 120s relay-idle
+            # → A stuck running/failed, the #140 black-screen symptom). So only seed a
+            # FRESH run; never clobber the context of a run that is already streaming.
+            if (
+                run_context_store is not None
+                and update.run_id
+                and update.run_id not in run_context_store
+            ):
                 conversation_id = message.external_chat_id or ""
                 agent_id_meta = (
                     _metadata_text(message.metadata, key="agent_id")
