@@ -61,7 +61,7 @@ run 收尾瞬间 steer 不再分裂出新 run_id：注入消息由同一个 run 
   - `realtime_stream.py`：注册 `pending_injection_consumed` handler → `publish_session_event(event="injection_consumed", {run_id})`。
 - 验证: 红测断言消费点发出 observe 事件带 run_id；realtime_stream 转出 session 事件 injection_consumed。
 
-### R4 — 决策6 气泡滚动：gateway observer 收 injection_consumed → close A + open B；#140 e2e
+### R4 — 决策6 气泡滚动：gateway observer 收 injection_consumed → close A + open B；#140 e2e  [DONE]
 
 - 步骤:
   - `main.py` observer：加 `injection_consumed` 分支，复用 `_close_old_and_restart` 同款序列（message_completed 旧 message_id + turn_start 取新 message_id + 后续 delta 进新气泡）。

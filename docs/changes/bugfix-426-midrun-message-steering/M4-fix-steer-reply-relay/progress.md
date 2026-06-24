@@ -78,4 +78,39 @@
 - Rollback: revert R3 C2（枚举 + handler）；loop 仍发事件但 fail-open 无副作用。
 - Commits: C1 红测, C2 实现, C3 docs（含 C1 测试 1 行 format 折叠）。
 
-## R4 — 决策6 气泡滚动 + #140 e2e
+## R4 — 决策6 气泡滚动 + #140 e2e  [DONE]
+
+- Context: 决策6 让 gateway observer 在收到 injection_consumed 时收尾旧气泡 A（完成态）+ 开新气泡 B
+  （排在 steer 之后），后续事件流入 B。并新增 #140 真端到端复现。
+- Decision:
+  - `main.py` observer 加 `injection_consumed` 分支：message_completed(A,completed) + turn_start(B,await ack)
+    + 切 run_context_store[run_id].message_id 到 B + 清 kernel_message_id（复用 _close_old_and_restart 同款序列，
+    锚在 kernel 明确消费信号而非推断 kernel_message_id 变化）。
+  - **live e2e 暴露 #140 根因（决策5/6 接通后仍残留）**：steer 注入活跃 run 后，`_try_steer_active_run`
+    发 `phase=accepted` lifecycle 带**同一** run_id；lifecycle 回调无条件 `run_context_store[run_id] = {message_id:""}`
+    把气泡 A 的 message_id 抹空 → observer 后续所有事件 message_id 为空 → 无法收尾 A → A 卡 running →
+    120s relay-idle watchdog 判 `relay.failed`（#140 黑屏残留）。**修**：accepted 仅 seed 全新 run（run_id 不在 store），
+    绝不 clobber 正在流式的活跃 run 上下文。
+- Rationale: observer 单线程读共享 ctx.message_id，气泡创建走异步 task；accepted re-seed 是为新 run 设计、
+  对注入 steer（复用 run_id）是破坏性的。根因在「注入 steer 不该重置 run 的 IM 气泡上下文」这一层治本，
+  非在 observer 端贴补丁绕过空 message_id。
+- Evidence:
+  - Tests:
+    - `test_steer_bubble_roll.py`（observer injection_consumed 收尾 A completed + 开 B + 切 message_id；无气泡跳过）
+    - `test_steer_reply_relay_regression.py`（真 InboundPipeline relay + 真 observer + 脚本化 kernel 流：同 run_id
+      post-steer 事件不丢、A completed、steer 工具卡落 B 非 A；修前红[去 observer 分支]修后绿）
+    - `test_inbound_pipeline_streaming.py::...preserves_existing_run_context_for_injected_steer`（#140 根因红测：
+      accepted 对已存在 run_context 保留 message_id；修前红修后绿）
+    - 全 not-e2e 树通过（见末尾）。
+  - Entry（真端到端 live，DONE 硬证据）: scripts/e2e-up.sh 隔离栈（ephemeral IM:62963+，真 Gateway 进程，真 LLM K2.6）。
+    驱动 docs/changes/.../verification 记录的 #140 旅程（发长工具链消息→收尾窗口 steer）。
+    **修前**（去 accepted 守卫）：气泡 A `relay.failed: relay idle for 120s`，B completed（A 黑屏卡死）。
+    **修后**（两次不同 steer 时点 8s/12s）：A、B **双 completed**，无 `relay.failed`，
+    steer 回复落新气泡 B 排在 steer 消息之后、A 的 in-flight 4 工具留在 A、A 干净收尾。
+    事件账：`message.completed:2`、`relay.failed:0`。证据日志：scratchpad/e2e_run*.log。
+  - Browser QA: N/A（无前端代码改动；气泡 A/B 行为由 gateway→IM 协议帧驱动，前端复用既有 message_completed/turn_start/delta 渲染）。
+  - E2E/Regression: 上述 3 个 regression 测试 + live 真栈复现（修前红修后绿，跨 8s/12s 两个 steer 时点稳定）。
+  - Visual/Interaction: N/A（reviewer 轨可在真 IM 浏览器观察气泡时序作补充视觉证据）。
+- Rollback: revert R4 fix commit（accepted 守卫）退回 #140 残留；revert R4 feat（observer 分支）退回无气泡滚动。
+- Commits: C1 红测（test_steer_bubble_roll）, C2 observer 分支, R4 #140 regression 测试, R4 根因 fix（accepted 守卫）, C3 docs。
+- 全 not-e2e 树：2803 passed, 2 skipped（R1-R4 无回归；较 R3 基线 +4 = 本 milestone 新增测试）。
