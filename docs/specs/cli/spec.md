@@ -1,6 +1,6 @@
 # cli (coding_cli) Specification
 
-> 对齐: feat-392
+> 对齐: bugfix-426-midrun-message-steering
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 **终端用户在 CLI 上可观察的对外
 > 行为**;CLI 内部如何编排内核、渲染、消费事件不在此层(那在代码 + 归档 design)。每条 Scenario 的主语 =
