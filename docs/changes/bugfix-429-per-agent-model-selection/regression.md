@@ -214,3 +214,172 @@
 - Gateway: unit worktree 代码，PID 3243，--foreground --auto-bind
 - 前端产物: unit worktree 重建，index-uegp7GRH.js（build 于验收期间）
 - LLM proxy: 127.0.0.1:4000（用户主实例，验收期间正常运行）
+
+---
+
+# Round 2 — 2026-06-24
+
+## Verdict
+
+**pass**
+
+## Highest Required Action
+
+`pass`
+
+---
+
+## 本轮焦点
+
+Round 1 Issue 1：动态新建 agent 的 model 路由不生效。fix-r1（HEAD 547fe86a）在内核侧链统一了 per-run model 注入（#2）并合并了 fallback 逻辑（#3）。本轮用正确方法复跑：固定 JWT secret + 等 agent 回复真正到达后再查 proxy 日志。
+
+Round 1 其余 5 个 Scenario（pass/not-applicable）无需重跑，本轮继承上轮结论。
+
+---
+
+## 覆盖表
+
+### Requirement: agent 配置选定的模型真实生效
+
+#### Scenario: 选定非默认模型后对话用该模型
+
+| 项 | 内容 |
+|---|---|
+| 继承 | Round 1 pass |
+| 结果 | **pass**（继承） |
+
+#### Scenario: 跨 provider 类型都能生效（Round 1 Issue 1）
+
+| 项 | 内容 |
+|---|---|
+| 期望来源 | incident.md §目标状态/验收标准 |
+| GIVEN | 全局默认 kimiCoding:K2.6；动态新建 gpt-probe-r2 |
+| WHEN (阶段1) | 通过 `POST /im/v1/nodes/wt-r2-bugfix429/agents` 新建 gpt-probe-r2，`default_model=volcanoArk:doubao-seed-2-0-code-preview-260215`；建对话发消息 "ping"；**等 agent 回复真正到达**（3 条 agent 消息落库）后查 proxy 日志 |
+| THEN (阶段1) | LLM proxy session `2026-06-24_14-48-55_051_sess_46a3ded358dd187f`：3 个请求全部 `model=volcanoArk:doubao-seed-2-0-code-preview-260215` ✅ |
+| WHEN (阶段2) | `PATCH gpt-probe-r2/config default_model=codex_oauth:gpt-5.5`（profile_version 2）；等 config.sync；**新建全新对话**发消息；等 agent 回复（"pong" 到达）后查 proxy |
+| THEN (阶段2) | LLM proxy session `2026-06-24_14-50-51_761_sess_99bf70e7832142d8`：1 个请求 `model=codex_oauth:gpt-5.5` ✅ |
+| 验证方式 | LLM proxy 日志（固定 JWT secret，等回复到达后查） |
+| 证据路径 | `/Users/czj/Repos/LLM_PROXY/logs/session/2026-06-24_14-48-55_051_sess_46a3ded358dd187f/`（doubao，3 req）；`/Users/czj/Repos/LLM_PROXY/logs/session/2026-06-24_14-50-51_761_sess_99bf70e7832142d8/`（gpt-5.5，1 req） |
+| 结果 | **pass** |
+| 备注 | Round 1 fail 的根因已确认为时序假象（JWT 过期导致 config.sync 吃 401 → register_agent 未更新 default_model → resolve_model 兜底 kimi）。fix-r1 本身对 #1 路径无直接改动，该 fail 是环境问题而非代码缺口，本轮用正确方法（固定 secret）验证动态 agent 路由正常工作。 |
+
+---
+
+### Requirement: 改模型后旧会话也用新模型
+
+#### Scenario: 回到历史会话继续聊
+
+| 项 | 内容 |
+|---|---|
+| 继承 | Round 1 pass |
+| 结果 | **pass**（继承） |
+
+---
+
+### Requirement: 没选模型时有默认兜底
+
+#### Scenario: agent 未设模型
+
+| 项 | 内容 |
+|---|---|
+| 继承 | Round 1 pass |
+| 结果 | **pass**（继承） |
+
+---
+
+### Requirement: IM 模型选择展示 provider/格式
+
+#### Scenario: 模型下拉标注各模型的格式
+
+| 项 | 内容 |
+|---|---|
+| 继承 | Round 1 pass（capabilities API + bundle 渲染逻辑） |
+| 本轮补充 | Round 2 capabilities 回检：`GET /im/v1/nodes/wt-r2-bugfix429/capabilities` → `codex_oauth:gpt-5.5 → anthropic`、`kimiCoding:K2.6 → anthropic`、`volcanoArk:doubao-seed-2-0-code-preview-260215 → anthropic`；provider 字段存在 ✅ |
+| 结果 | **pass** |
+
+---
+
+### Requirement: 模型选择持久化
+
+#### Scenario: 重启后保留所选模型
+
+| 项 | 内容 |
+|---|---|
+| 继承 | Round 1 pass |
+| 结果 | **pass**（继承） |
+
+---
+
+### Requirement: 切换边界行为可预期
+
+#### Scenario: 改模型时该 agent 正有回复在进行
+
+| 项 | 内容 |
+|---|---|
+| 继承 | Round 1 not-applicable |
+| 结果 | **not-applicable**（继承） |
+
+#### Scenario: 所选模型上游不可达
+
+| 项 | 内容 |
+|---|---|
+| 继承 | Round 1 not-applicable |
+| 结果 | **not-applicable**（继承） |
+
+---
+
+## Issues
+
+本轮无新 issue。Round 1 Issue 1 已关闭（见覆盖表 "跨 provider 类型都能生效" Scenario）。
+
+---
+
+## 旅程记录
+
+### Journey 4 复跑（Round 2）：动态新建 agent model 路由
+
+**方法改进**（对比 Round 1）：
+- 使用固定 JWT secret `reviewer-r2-bugfix429-fixed-secret`，避免 token 过期
+- 每步操作后等 agent 回复真正落库（轮询 `/im/v1/conversations/{id}/messages` 看 agent 消息出现）再查 proxy 日志
+
+**步骤**：
+1. 固定 JWT secret 起 IM（端口 54670）
+2. `POST /im/v1/nodes/wt-r2-bugfix429/agents`：新建 gpt-probe-r2，`default_model=volcanoArk:doubao-seed-2-0-code-preview-260215` → 201，IM 回读确认 doubao
+3. 建对话，发 "ping"，**等 agent 回复到达**（3 条 agent 消息：pong / 列目录 / 工作区检查）
+4. 查 proxy 日志 session `14-48-55_051`：3 请求 model=doubao ✅
+5. `PATCH gpt-probe-r2/config` → `default_model=codex_oauth:gpt-5.5`（profile_version 2），IM 回读确认 gpt-5.5；等 config.sync（3s）
+6. 建全新对话，发 "ping"，**等 agent 回复到达**（"pong"）
+7. 查 proxy 日志 session `14-50-51_761`：1 请求 model=gpt-5.5 ✅
+
+**结论**：动态新建 agent 在 fix-r1 代码上 model 路由完全正常。Round 1 fail 是 JWT 过期导致的环境时序假象，非代码缺口。
+
+---
+
+## Gateway log
+
+`$WT_ROOT/.gateway.log` 文件大小为 0——Gateway `--foreground` 模式下 Python logging 未输出到 stdout/stderr（NullHandler/未配置）。关键证据来自 LLM proxy 日志（路径见覆盖表），已足以证明 model 路由正确性。
+
+gateway.log 路径：`/Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-429/.gateway.log`（空文件，0 lines）
+
+---
+
+## 上层文档同步
+
+（继承 Round 1 结论，无新变更）
+
+- [x] `SPEC.md`：**无需更新**
+- [x] `docs/specs/kernel/spec.md`：**需要更新**（Round 1 已标注）
+- [x] `docs/specs/im/spec.md`：**需要更新**（Round 1 已标注）
+- [x] `docs/specs/gateway/spec.md`：**需要更新**（Round 1 已标注）
+- [x] `docs/specs/cli/spec.md`：**无需更新**
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**
+
+---
+
+## 环境说明（Round 2）
+
+- IM: unit worktree 代码，隔离端口 54670，固定 JWT secret `reviewer-r2-bugfix429-fixed-secret`
+- Gateway: unit worktree 代码，PID 2331，`--foreground --auto-bind --config .gateway-config.yaml`
+- 前端产物: unit worktree 重建（Round 2 `npm run build` 在 14:43 完成）
+- LLM proxy: 127.0.0.1:4000（用户主实例，验收期间正常运行）
+- HEAD: 547fe86a（fix-r1 含内核侧链 per-run model + cleanup）
