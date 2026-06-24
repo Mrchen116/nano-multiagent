@@ -3145,6 +3145,93 @@ def _build_relay_lifecycle_callback(
     return _callback
 
 
+def _extract_ack_message_id(ack: Mapping[str, Any] | Any) -> str | None:
+    """Pull the created bubble's message_id out of a turn_start ack frame.
+
+    IM answers ``turn_start`` with either ``{"payload": {"message_id": ...}}`` or a
+    flat ``{"message_id": ...}``. This single unwrap is the source of truth for that
+    shape so the three bubble-opening paths (close-restart, steer roll, inline
+    turn_start) don't each re-implement (and drift on) the isinstance dance
+    (bugfix-426-M4 V2). Returns ``None`` when no message_id is present.
+    """
+    payload = ack.get("payload") if isinstance(ack, Mapping) else None
+    source = payload if isinstance(payload, Mapping) else ack
+    if not isinstance(source, Mapping):
+        return None
+    message_id = source.get("message_id")
+    return str(message_id) if message_id else None
+
+
+async def _roll_bubble(
+    manager: IMConnectionManager,
+    *,
+    run_id: str,
+    conversation_id: str,
+    agent_id: str,
+    run_context_store: dict[str, dict[str, str]],
+    old_message_id: str | None,
+    new_kernel_message_id: str | None = None,
+) -> str | None:
+    """Finalize the current IM bubble and open a fresh one for the same run.
+
+    Single primitive for "close bubble A (completed), open bubble B, repoint the run
+    to B" — shared by the textA→textB multi-bubble path and the steer-consume bubble
+    roll (bugfix-426-M4 V2). Returns the new bubble's message_id (already stored into
+    ``run_context_store[run_id]``), or ``None`` if the run context vanished or IM
+    returned no message_id.
+
+    bugfix-426-M4 V3 reentrancy guard: two steers in quick succession produce two
+    ``injection_consumed`` signals. A per-run ``rolling`` flag serializes them so the
+    second caller does not re-close an already-closed bubble or open a duplicate B
+    (which would leave a zombie running bubble). The flag is cleared in ``finally``.
+    """
+    ctx = run_context_store.get(run_id)
+    if ctx is None:
+        return None
+    if ctx.get("rolling"):
+        # A roll is already in flight for this run; the in-flight one owns the
+        # transition. Dropping this duplicate is safe — the steer's content still
+        # streams into whatever bubble the in-flight roll lands on.
+        return None
+    ctx["rolling"] = "1"
+    try:
+        if old_message_id:
+            await manager.send_json(
+                "node.streaming_delta",
+                {
+                    "kind": "message_completed",
+                    "message_id": old_message_id,
+                    "final_content": None,
+                    "token_usage": None,
+                    "delivery_status": "completed",
+                    "run_id": run_id,
+                },
+            )
+        ack = await manager.send_json_await_ack(
+            "node.streaming_delta",
+            {
+                "kind": "turn_start",
+                "conversation_id": conversation_id,
+                "agent_id": agent_id,
+                "run_id": run_id,
+            },
+        )
+        new_message_id = _extract_ack_message_id(ack)
+        live_ctx = run_context_store.get(run_id)
+        if new_message_id and live_ctx is not None:
+            live_ctx["message_id"] = new_message_id
+            if new_kernel_message_id:
+                live_ctx["kernel_message_id"] = new_kernel_message_id
+            else:
+                live_ctx.pop("kernel_message_id", None)
+            return new_message_id
+        return None
+    finally:
+        live_ctx = run_context_store.get(run_id)
+        if live_ctx is not None:
+            live_ctx.pop("rolling", None)
+
+
 def _build_kernel_event_observer(
     *,
     im_connection_manager_factory: Callable[[], IMConnectionManager | None],
@@ -3376,44 +3463,21 @@ def _build_kernel_event_observer(
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
-                        if old_msg_id:
-                            await mgr.send_json(
-                                "node.streaming_delta",
-                                {
-                                    "kind": "message_completed",
-                                    "message_id": old_msg_id,
-                                    "final_content": None,
-                                    "token_usage": None,
-                                    "run_id": rid,
-                                },
-                            )
-                        ack = await mgr.send_json_await_ack(
-                            "node.streaming_delta",
-                            {
-                                "kind": "turn_start",
-                                "conversation_id": cid,
-                                "agent_id": aid,
-                                "run_id": rid,
-                            },
+                        new_msg_id = await _roll_bubble(
+                            mgr,
+                            run_id=rid,
+                            conversation_id=cid,
+                            agent_id=aid,
+                            run_context_store=run_context_store,
+                            old_message_id=old_msg_id,
+                            new_kernel_message_id=new_kernel_id,
                         )
-                        ack_payload = (
-                            ack.get("payload")
-                            if isinstance(ack.get("payload"), dict)
-                            else ack
-                        )
-                        returned_msg_id = (
-                            ack_payload.get("message_id")
-                            if isinstance(ack_payload, dict)
-                            else None
-                        )
-                        if returned_msg_id and rid in run_context_store:
-                            run_context_store[rid]["message_id"] = str(returned_msg_id)
-                            run_context_store[rid]["kernel_message_id"] = new_kernel_id
+                        if new_msg_id:
                             await mgr.send_json(
                                 "node.streaming_delta",
                                 {
                                     "kind": "message_delta",
-                                    "message_id": str(returned_msg_id),
+                                    "message_id": new_msg_id,
                                     "delta_text": text,
                                     "run_id": rid,
                                 },
@@ -3462,18 +3526,9 @@ def _build_kernel_event_observer(
                                 "run_id": rid,
                             },
                         )
-                        ack_payload = (
-                            ack.get("payload")
-                            if isinstance(ack.get("payload"), dict)
-                            else ack
-                        )
-                        returned_msg_id = (
-                            ack_payload.get("message_id")
-                            if isinstance(ack_payload, dict)
-                            else None
-                        )
+                        returned_msg_id = _extract_ack_message_id(ack)
                         if returned_msg_id and rid in run_context_store:
-                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                            run_context_store[rid]["message_id"] = returned_msg_id
                             if new_kernel_id:
                                 run_context_store[rid]["kernel_message_id"] = (
                                     new_kernel_id
@@ -3482,7 +3537,7 @@ def _build_kernel_event_observer(
                                 "node.streaming_delta",
                                 {
                                     "kind": "message_delta",
-                                    "message_id": str(returned_msg_id),
+                                    "message_id": returned_msg_id,
                                     "delta_text": text,
                                     "run_id": rid,
                                 },
@@ -3741,7 +3796,14 @@ def _build_kernel_event_observer(
             # This is the same close+turn_start+restart sequence as the textA→textB
             # multi-bubble path (_close_old_and_restart), but anchored to the explicit
             # consume signal instead of inferring it from a changed kernel_message_id.
-            if conversation_id and agent_id and message_id:
+            # V3: do NOT gate on message_id. With V1's fix the active run's bubble
+            # context survives, so message_id is normally present; but in the narrow
+            # window where a turn_start ack has not returned yet, message_id can be ""
+            # transiently. Still roll: _roll_bubble closes bubble A only if there is one
+            # (old_message_id truthy) and always opens B, so the steer reply never gets
+            # stranded without a bubble. _roll_bubble's per-run guard makes back-to-back
+            # steers (two injection_consumed) safe (no double-open / zombie bubble).
+            if conversation_id and agent_id:
 
                 async def _roll_bubble_on_steer(
                     mgr: IMConnectionManager = manager,
@@ -3751,42 +3813,18 @@ def _build_kernel_event_observer(
                     old_msg_id: str = message_id,
                 ) -> None:
                     try:
-                        await mgr.send_json(
-                            "node.streaming_delta",
-                            {
-                                "kind": "message_completed",
-                                "message_id": old_msg_id,
-                                "final_content": None,
-                                "token_usage": None,
-                                "delivery_status": "completed",
-                                "run_id": rid,
-                            },
-                        )
-                        ack = await mgr.send_json_await_ack(
-                            "node.streaming_delta",
-                            {
-                                "kind": "turn_start",
-                                "conversation_id": cid,
-                                "agent_id": aid,
-                                "run_id": rid,
-                            },
-                        )
-                        ack_payload = (
-                            ack.get("payload")
-                            if isinstance(ack.get("payload"), dict)
-                            else ack
-                        )
-                        returned_msg_id = (
-                            ack_payload.get("message_id")
-                            if isinstance(ack_payload, dict)
-                            else None
-                        )
-                        if returned_msg_id and rid in run_context_store:
-                            run_context_store[rid]["message_id"] = str(returned_msg_id)
-                            # Clear the prior kernel_message_id so the next
-                            # assistant_message delta streams straight into bubble B
+                        await _roll_bubble(
+                            mgr,
+                            run_id=rid,
+                            conversation_id=cid,
+                            agent_id=aid,
+                            run_context_store=run_context_store,
+                            old_message_id=old_msg_id or None,
+                            # Clear kernel_message_id (new_kernel_message_id=None) so the
+                            # next assistant_message delta streams straight into bubble B
                             # rather than tripping _close_old_and_restart again.
-                            run_context_store[rid].pop("kernel_message_id", None)
+                            new_kernel_message_id=None,
+                        )
                     except Exception as exc:  # noqa: BLE001
                         _log.warning("IM observer steer bubble roll failed: %s", exc)
 
