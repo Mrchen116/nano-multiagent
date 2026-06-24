@@ -114,3 +114,41 @@
 - Rollback: revert R4 fix commit（accepted 守卫）退回 #140 残留；revert R4 feat（observer 分支）退回无气泡滚动。
 - Commits: C1 红测（test_steer_bubble_roll）, C2 observer 分支, R4 #140 regression 测试, R4 根因 fix（accepted 守卫）, C3 docs。
 - 全 not-e2e 树：2803 passed, 2 skipped（R1-R4 无回归；较 R3 基线 +4 = 本 milestone 新增测试）。
+
+## Fix 轮（reviewer/verifier/code-review 反馈，off origin/unit 941fb6ca）
+
+三闸验收后 code-review 逮到一条 confirmed correctness（V1）+ verifier/cleanup（V2/V3/W2/W3/S1）。
+
+### V1（必修 correctness）— 决策5 终态提交覆盖全部终止出口
+- Context: 决策5 原只在『正常完成』出口（`if not iteration_tool_calls`）调 `try_commit_terminal()`。
+  另两条硬停出口 `max_turns_reached`(loop top `return`)、`tool_registry_unavailable`(`break`) **绕过**它 →
+  `_terminal_committed` 永不 set → steer 落这些窗仍被 enqueue 接受、但 loop 已退出不消费 → stranded →
+  `_settle_terminal_pending` continuation 新 run_id → relay 锚旧 run_id 丢事件（#140 在这两路径原样复现）。
+  3 个 code-review finder（角度 A/B/C）独立命中。abort 出口 finder 自查碰巧安全（inject 也查 is_aborted），但不该靠隐式互斥。
+- Decision（架构正确位置，非两处各补一行）: `RunController` 加 `commit_terminal()`——硬停**无条件** commit（区别于
+  `try_commit_terminal` 的 re-drain-or-commit）。所有硬停出口（max_turns / tool_unavailable / abort）调它，使
+  任何终止出口后到达的 inject 一律返 False → 调用方 fallback **干净新 run**（injected=False，relay 正常锚），绝不 continuation。
+  语义：硬停=run 真结束、steer 是新请求开新 run（非 #140 的同 run 收尾窗错误分裂）；commit 前已入队的极窄竞态 steer
+  仍由 registry chokepoint 兜（与决策3 收窄一致）。为何硬停不能套「续同 run」：max_turns 续跑会回 loop top 在调 LLM 前 return、
+  steer 进 llm_messages 却永不发模型 → 真丢；tool_unavailable 无 registry 续跑无意义。（语义方向已与 leader 对齐采 (A) commit-then-fallback。）
+- Evidence:
+  - Tests: `test_run_control_terminal_commit.py`（+commit_terminal 硬停拒后续 inject / 幂等）+
+    `test_agent_loop.py`（steer 落 max_turns 窗 / tool_unavailable 窗 → `is_terminal_committed=True`、后续 enqueue 返 False）。
+    确定性单测，修前红（去 3 处 commit_terminal 调用→terminal 不提交）修后绿。
+  - Entry: N/A（这两条出口 live 难触发：max_turns run 参数主路径恒 None、仅 fork 用；tool_unavailable 罕见。leader 确认确定性单测即可）。
+  - 全 not-e2e 树 2809 passed 2 skipped（较前轮 +6 = V1/V3 新测试）。
+
+### V2（cleanup）— roll_bubble 原语 + ack helper
+- 抽 `_roll_bubble()`（message_completed→turn_start→ack→repoint run_context_store）+ `_extract_ack_message_id()`，
+  `_close_old_and_restart` / `_roll_bubble_on_steer` / `_turn_start_then_delta` 三处复用，消 ~25 行平行重复 + 3 处 ack 双 isinstance 拷贝。
+  IM 改 turn_start ack 格式只需改一处。
+
+### V3（守卫，折进 V2 原语）
+- ① 重入：`_roll_bubble` 加 per-run `rolling` 守卫——连发两 steer（两个 injection_consumed）安全（A 只 completed 一次、不建两 B、无僵尸 running）。
+- ② 空 message_id 窄窗（turn_start ack 未回）：injection_consumed 不再 gate message_id，仍开 B（无 A 可关时只 turn_start），steer 回复不丢气泡。
+- Tests: `test_steer_bubble_roll.py` 加 3 例（空 msgid 开 B / 连发两 steer 各自干净滚 / 并发重入守卫丢重复）。
+
+### 杂项
+- W2: tasks.md 7 条退出标准 `- [ ]`→`- [x]` + 补 V1 行。W3: tasks.md 测试策略补 #140 落 unit 层 + live 证据落 progress 的落层说明。
+- S1: registry `_settle_terminal_pending` 的 `is_user_interrupt` 分支补注释（held-pending vs 续跑分流 + interrupt 同步 drain 后此为兜底）。
+- 不归本轮：delta-spec 归并长青契约层（W1/S3，leader 收尾）；CLI 双订阅债（S2=out-of-unit #139）。

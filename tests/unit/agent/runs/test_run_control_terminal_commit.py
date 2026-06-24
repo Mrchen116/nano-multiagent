@@ -64,6 +64,29 @@ def test_enqueue_after_commit_is_rejected() -> None:
     assert controller.drain_pending() == []
 
 
+def test_commit_terminal_is_hard_and_rejects_later_inject() -> None:
+    """bugfix-426-M4 V1: the hard-stop commit (max_turns / tool_unavailable / abort
+    exits) sets terminal unconditionally — no re-drain — so an inject racing AFTER it
+    is rejected and routed to a fresh run, never stranded."""
+    controller = RunController()
+
+    controller.commit_terminal()
+
+    assert controller.is_terminal_committed is True
+    accepted = controller.enqueue_message(
+        LLMMessage(role="user", content="steer at hard stop"), origin=RunOrigin.USER
+    )
+    assert accepted is False
+    assert controller.drain_pending() == []
+
+
+def test_commit_terminal_idempotent() -> None:
+    controller = RunController()
+    controller.commit_terminal()
+    controller.commit_terminal()  # no raise, still committed
+    assert controller.is_terminal_committed is True
+
+
 def test_commit_and_enqueue_are_mutually_exclusive_under_contention() -> None:
     """Stress the lock: many threads race inject vs commit; the outcome is consistent.
 

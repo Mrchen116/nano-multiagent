@@ -227,6 +227,12 @@ class AgentLoop:
                 while True:
                     api_round_count += 1
                     if max_turns is not None and api_round_count > max_turns:
+                        # bugfix-426-M4 V1: hard stop — commit the terminal so a steer
+                        # racing this exit is rejected by inject and routed to a fresh
+                        # run (not stranded into a continuation). max_turns cannot do
+                        # another LLM round, so re-looping to consume would drop it.
+                        if controller is not None:
+                            controller.commit_terminal()
                         stop_reason = "max_turns_reached"
                         yield Message(
                             message_id=make_message_id(),
@@ -273,6 +279,11 @@ class AgentLoop:
                                 active_hook_ctx, run_id, round_pending
                             )
                         if controller.is_aborted:
+                            # bugfix-426-M4 V1: hard stop — commit the terminal. A steer
+                            # racing the abort is rejected by inject (also guarded by
+                            # is_aborted) and routed to a fresh run; an already-enqueued
+                            # one is settled by the registry (user /stop → held-pending).
+                            controller.commit_terminal()
                             stop_reason = "aborted"
                             yield Message(
                                 message_id=make_message_id(),
@@ -496,6 +507,12 @@ class AgentLoop:
                         break
 
                     if self._tool_registry is None:
+                        # bugfix-426-M4 V1: hard stop — commit the terminal. Without a
+                        # tool registry the loop cannot run another round, so a steer
+                        # racing this exit must go to a fresh run (inject rejected after
+                        # commit), not be stranded into a continuation.
+                        if controller is not None:
+                            controller.commit_terminal()
                         stop_reason = "tool_registry_unavailable"
                         yield Message(
                             message_id=make_message_id(),
