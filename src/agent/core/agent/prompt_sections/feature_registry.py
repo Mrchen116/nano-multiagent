@@ -68,6 +68,22 @@ FEATURE_REGISTRY: dict[str, FeatureEntry] = {
         label_i18n="feature.skill_creation.label",
         help_i18n="feature.skill_creation.help",
     ),
+    # Provenance: feat-428 decision 5 — read-triggered nested AGENTS.md loading
+    #   (机制 B). Core feature, default_on=True, but deliberately NOT projected to
+    #   the IM frontend (not in capability_projection's FEATURE_PROJECTIONS) nor in
+    #   Kernel.list_features's whitelist → kernel-known + default-on, no user toggle.
+    #   sections=() because 机制 B injects into read tool_result, not a prompt
+    #   segment. requires_tool="read" is documentary (it does NOT gate at runtime:
+    #   read.py reads default_on directly); the real switch is default_on +
+    #   per-agent agent_features override. Global off = flip default_on=False.
+    "nested_memory": FeatureEntry(
+        sections=(),
+        default_on=True,
+        requires_tool="read",
+        layer="core",
+        label_i18n="feature.nested_memory.label",
+        help_i18n="feature.nested_memory.help",
+    ),
     # ---------------------------------------------------------------------------
     # Personal Assistant product-layer features (feat-394 decision D)
     # ---------------------------------------------------------------------------

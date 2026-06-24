@@ -107,9 +107,10 @@ class ToolSafety:
     def is_path_in_workspace(self, resolved: Path) -> bool:
         """Whether the resolved path lies under the repository root.
 
-        TODO(bugfix-355): After write/edit tools fully migrate to tool-level
-        check_permissions, this method is only used by test code. Remove when
-        migration is complete and tests updated.
+        feat-428 决策 2: back in the production path — the read tool's nested-memory
+        (机制 B) injection uses this to decide in-workspace (inject content) vs
+        out-of-workspace (path hint). repo_root here is the session's workspace_root
+        (rewritten by the registry's _resolve_execution_context).
         """
         try:
             resolved.relative_to(self.repo_root)

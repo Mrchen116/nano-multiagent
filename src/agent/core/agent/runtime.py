@@ -57,6 +57,7 @@ from agent.core.agent.prompt_sections.wiring import (
     build_prompt_context_from_metadata,
     resolve_flags_from_metadata,
 )
+from agent.core.agent import agents_md as agents_md_loader
 from agent.core.memory.path import derive_memory_root
 from agent.core.memory.store import MemoryStore
 from typing import TypedDict
@@ -80,6 +81,10 @@ class MemorySnapshot(TypedDict):
     memory_pct: int
     user_profile_content: "str | None"
     user_pct: int
+    # feat-428 机制 A: expanded workspace-root AGENTS.md text (@import expanded),
+    # or None when absent. Frozen with memory/user content (same compaction-window
+    # lifecycle); refreshed on the next turn after _invalidate_memory_snapshot.
+    agents_md_content: "str | None"
 
 
 if TYPE_CHECKING:
@@ -453,6 +458,7 @@ class AgentRuntime:
                 memory_pct=snapshot["memory_pct"],
                 user_profile_content=snapshot["user_profile_content"],
                 user_pct=snapshot["user_pct"],
+                agents_md_content=snapshot["agents_md_content"],
                 render_mode=RenderMode.RUNTIME,
                 flags=flags,
                 vars={
@@ -1744,6 +1750,13 @@ class AgentRuntime:
         if session_id in self._memory_snapshots:
             return self._memory_snapshots[session_id]
 
+        # feat-428 机制 A: workspace-root AGENTS.md is read here regardless of the
+        # memory_curation flag or workspace_config_dirname — it depends only on
+        # workspace_root, and 机制 A is the non-optional baseline (decision 5/spec).
+        # Reading its root path into loaded_agents_md preseeds 机制 B's dedup set
+        # (decision 4): the same SessionFileState instance read.py will use.
+        agents_md_content = self._read_workspace_agents_md(session_id, metadata)
+
         flags = resolve_flags_from_metadata(metadata=metadata)
         if not flags.get("memory_curation", True):
             snapshot: MemorySnapshot = {
@@ -1751,6 +1764,7 @@ class AgentRuntime:
                 "memory_pct": 0,
                 "user_profile_content": None,
                 "user_pct": 0,
+                "agents_md_content": agents_md_content,
             }
             self._memory_snapshots[session_id] = snapshot
             return snapshot
@@ -1763,6 +1777,7 @@ class AgentRuntime:
                 "memory_pct": 0,
                 "user_profile_content": None,
                 "user_pct": 0,
+                "agents_md_content": agents_md_content,
             }
             self._memory_snapshots[session_id] = snapshot
             return snapshot
@@ -1778,13 +1793,51 @@ class AgentRuntime:
             "memory_pct": memory_pct,
             "user_profile_content": user_content or None,
             "user_pct": user_pct,
+            "agents_md_content": agents_md_content,
         }
         self._memory_snapshots[session_id] = snapshot
         return snapshot
 
+    def _read_workspace_agents_md(
+        self,
+        session_id: str,
+        metadata: Mapping[str, Any],
+    ) -> str | None:
+        """Read workspace-root AGENTS.md (@import expanded) and preseed dedup set.
+
+        feat-428 机制 A: returns the expanded AGENTS.md text for the session's
+        workspace root, or None when there is no workspace_root or no AGENTS.md.
+        On success the root file's absolute path is preseeded into the session's
+        SessionFileState.loaded_agents_md so 机制 B (read.py) skips re-injecting
+        the same root (decision 4). Uses the same SessionFileState instance the
+        run loop later reuses via setdefault on the same session_id.
+        """
+        workspace_root_raw = metadata.get("workspace_root")
+        if not workspace_root_raw:
+            return None
+        root_md = (
+            Path(str(workspace_root_raw)).expanduser()
+            / agents_md_loader.AGENTS_MD_FILENAME
+        )
+        content = agents_md_loader.load_agents_md(root_md)
+        if content is None:
+            return None
+        state = self._session_file_states.setdefault(session_id, SessionFileState())
+        state.loaded_agents_md.add(str(root_md.resolve()))
+        return content
+
     def _invalidate_memory_snapshot(self, session_id: str) -> None:
-        """Remove cached snapshot so next turn triggers a fresh disk read (called after compaction)."""
+        """Remove cached snapshot + clear AGENTS.md dedup set (called after compaction).
+
+        feat-428 决策 4: loaded_agents_md is cleared at the compaction boundary so
+        post-compaction reads can re-inject AGENTS.md (whose prior tool_result was
+        summarised away). _ensure_memory_snapshot then re-preseeds the workspace
+        root on the next turn, preserving 机制 B's "don't double-inject the root".
+        """
         self._memory_snapshots.pop(session_id, None)
+        state = self._session_file_states.get(session_id)
+        if state is not None:
+            state.loaded_agents_md.clear()
 
     async def _compact_session(
         self,
