@@ -38,7 +38,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # bugfix-417-M5: USER_INTERRUPT_RECOVERY_CONTENT multi-line import; shifted to 180
         # bugfix-429: per-provider llm_clients param + assignment added in __init__; shifted to 185
         # bugfix-429 fix-r1: provider_of top import + _active_run_models field (net +7); shifted to 192
-        "src/agent/core/agent/runtime.py:192",
+        # bugfix-429 rebase onto main (feat-421/428 等): runtime.py 前段净增行，shifted 192→197
+        "src/agent/core/agent/runtime.py:197",
         # kernel.py: build_kernel new-path workspace_config_dirname default — platform
         # default fallback when a consumer omits it (same role as jsonl_store default);
         # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
