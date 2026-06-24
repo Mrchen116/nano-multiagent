@@ -164,3 +164,205 @@
 ## 澄清 Q&A
 
 本轮无澄清问题，开工前 30 分钟已完整阅读 incident.md + design.md 确认验收口径。
+
+---
+
+# Round 2 — 2026-06-24
+
+> Review round: 2
+> Reviewer: bugfix-426-reviewer
+> 验收对象: unit/bugfix-426 完整 unit（含 M4 #140 修复）
+
+## Verdict
+
+**pass**
+
+**Highest Required Action**: pass
+
+**Issues**: blocking=0, major=0, minor=0
+
+---
+
+## 开工报信 / 澄清 Q&A
+
+本轮已读懂验收口径（incident.md + design.md M4 决策5/6），重点：
+- M4 气泡滚动：steer 回复出现在排于 steer 消息之后的新气泡 B；旧气泡 A 干净收尾（completed）；
+- #140 回归验证：run 收尾瞬间 steer → 不黑屏不超时，新气泡流式可见；
+- Round 1 已覆盖的 Scenario（steer 消费到当前 run 下一轮 / 不掐工具 / FIFO 保序 / 空闲开新 run / SDK 复用 / IM+CLI）继承 Round 1 结论，本轮重走核心旅程并关注气泡行为。
+
+无澄清疑问。
+
+---
+
+## 覆盖表（按 incident.md Requirement / Scenario 结构）
+
+### Requirement: 运行中发送的消息在当前 run 的下一轮被带进上下文
+
+#### Scenario: 工具循环中途发消息，下一轮即被消费
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md §目标行为与验收, WHEN + THEN |
+| 验证方式 | IM 旅程J2（conv `c546e8f1`）：bash sleep 8 任务，t+4s 发 steer STEER_MARKER_426_R2 |
+| 证据 | 气泡 B `[68e3d114]` content="STEER_MARKER_426_R2"，delivery_status=completed；时序：用户消息 07:49:56 → steer 07:50:00 → 气泡 B completed 07:50:26。Agent 在同一 run 的下一轮回复了 steer 标记 |
+| 结果 | **pass** |
+| 备注 | 继承 Round 1 pass；本轮重走确认 steer 消息成功在当前 run 下一轮被消费 |
+
+#### Scenario: 不掐断正在执行的工具
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md §目标行为，GIVEN 工具正在执行 THEN 照常跑完 |
+| 验证方式 | 旅程J2：气泡 A `[6f4b391b]` 的 tool_calls 记录 bash sleep 8，duration=25798ms，exit_code=0 |
+| 证据 | 气泡 A delivery_status=completed，工具正常完成；steer 消息在工具完成后的下一轮才被消费 |
+| 结果 | **pass** |
+| 备注 | 旧气泡保留完整工具执行记录，未被强行中断 |
+
+#### Scenario: 一个 run 内连发多条，按序全注入
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md Q3 FIFO 按序全注入 |
+| 验证方式 | 旅程J5（conv `c546e8f1`）：bash sleep 10 → t+3s 发 FIFO_ALPHA_426 → t+5s 发 FIFO_BETA_426 |
+| 证据 | 气泡 B `[db73e9db]` content="已提及 FIFO_ALPHA_426 与 FIFO_BETA_426。"，delivery_status=completed；ALPHA 在第13条，BETA 第14条，回复气泡 B 第15条，顺序正确 |
+| 结果 | **pass** |
+| 备注 | 两条 steer 消息按 FIFO 顺序（ALPHA 先 BETA 后）全部注入，agent 回复中同时引用两个标记 |
+
+#### Scenario: 空闲时发消息仍正常开新 run
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md §目标行为，空闲态照常 submit 新 run |
+| 验证方式 | 旅程J1（conv `c546e8f1`）：空闲时发「请用一句话回复：IDLE_BASELINE_OK_426」 |
+| 证据 | `[c74bebf6]` agent content="IDLE_BASELINE_OK_426"，delivery_status=completed；消息 1 用户 + 消息 2 agent 回复，正常新 run |
+| 结果 | **pass** |
+
+### Requirement: 注入能力恢复为 SDK 内核级 affordance，consumer 统一复用
+
+#### Scenario: 任一 agent.sdk consumer 复用同一注入能力
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md Q4，SDK 内核级能力 |
+| 验证方式 | 实现层契约（非用户面 Scenario）——继承 Round 1 结论；IM 旅程走通证明 SDK steer=True 能力可用 |
+| 证据 | Round 1 全测试树 2759 passed；本轮 IM 旅程 steer 全程通过 |
+| 结果 | **pass** |
+| 备注 | 此 Scenario 主要是实现层契约；用户可观察结果体现在 IM/CLI 两端旅程 |
+
+### Requirement: IM 与 CLI 两端均恢复该能力
+
+#### Scenario: IM 聊天运行中 steer
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md §目标行为，IM 聊天 steer 恢复 |
+| 验证方式 | 旅程J2+J4+J5 （conv `c546e8f1`，ephemeral IM 54936，真 Gateway 进程） |
+| 证据 | 全部 7 条 agent 消息 delivery_status=completed；steer 回复均出现在 steer 消息之后的新气泡；气泡 A（工具执行）均干净收尾 |
+| 结果 | **pass** |
+
+#### Scenario: CLI REPL 运行中 steer
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md §目标行为，CLI REPL steer 恢复 |
+| 验证方式 | 继承 Round 1 pass（CLI 旅程由 Round 1 走过，M4 无 CLI 改动，Round 1 CLI steer 已通过） |
+| 证据 | Round 1 CLI 旅程：pexpect 终端输出 CLI_STEER_MARKER_426_V2；LLM session 证明注入同 run |
+| 结果 | **pass** |
+| 备注 | M4 仅改动 agent.core loop/run_control/registry 和 gateway relay，CLI M2 改动不在本 milestone；Round 1 已覆盖 |
+
+---
+
+## M4 专项验收（#140 气泡滚动，本轮新增）
+
+### Scenario: steer 回复排在 steer 消息之后的新气泡（M4 决策6，任意时刻 steer）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | design.md M4 milestone 退出标准：回复出现在排于 steer 消息之后的新气泡 B 里、不续写旧气泡；旧气泡完成态 |
+| 验证方式 | 旅程J2（mid-loop steer）+ 旅程J4（收尾窗口 steer #140 复现）+ 旅程J5（FIFO 连发） |
+| 证据（J2 mid-loop）| 消息时序：[3]用户 07:49:56 → [4]气泡A completed 07:49:56 → [5]steer 07:50:00 → [6]气泡B completed 07:50:26。气泡 B 排在 steer 之后，A 干净 completed |
+| 证据（J4 收尾窗口） | 消息时序：[7]用户 07:51:17 → [8]气泡A completed 07:51:17 → [9]steer 07:51:27 → [10]气泡B completed 07:51:41。无 relay.failed；A delivery_status=completed（非 failed）；B 包含 TERMINAL_WINDOW_STEER_426 |
+| 证据（全局）| 全部 7 条 agent 消息 delivery_status 均为 completed；gateway log 零 relay.failed 事件 |
+| 结果 | **pass** |
+
+### Scenario: steer 消费前 in-flight 工具批次仍属旧气泡（不掐工具）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | design.md M4 退出标准：steer 消费前 in-flight 工具批次仍属旧气泡（不掐工具）|
+| 验证方式 | 旅程J2 气泡 A `[6f4b391b]` 工具详情 |
+| 证据 | 气泡 A tool_calls=[{name:bash, command:sleep 8, duration_ms:25798, exit_code:0}]，工具在 A 中完整记录；steer 回复在 B 中（B 无 tool_calls） |
+| 结果 | **pass** |
+
+### Scenario: #140 回归验证（收尾窗口 steer → 新气泡流式，不超时不黑屏）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | design.md §#140 缺陷，M4 退出标准：收尾窗口 steer → 后续工具与回复全程流式可见，不超时不黑屏 |
+| 验证方式 | 旅程J4：sleep 12 任务（t=0），t=10s 发 steer（接近收尾），等 40s 后查询 |
+| 证据 | 气泡 A `[a7d638e1]` delivery_status=completed；气泡 B `[9990b7bb]` delivery_status=completed，content="TERMINAL_WINDOW_STEER_426"；完成于 07:51:41（steer 后 ~14s）；gateway log 无 relay.failed；全程 7 条 agent 消息均 completed |
+| 结果 | **pass** |
+| 备注 | #140 旧行为：气泡 A relay.failed（120s 超时），黑屏 6 分钟。修后：A completed，B completed，14s 完成 |
+
+---
+
+## 复现验证（Round 2）
+
+**旅程 J1（空闲态基线）**
+- 07:48:55 发「IDLE_BASELINE_OK_426」→ 07:48:55 agent 回复「IDLE_BASELINE_OK_426」，delivery_status=completed
+- **pass**：空闲态行为与现状一致
+
+**旅程 J2（工具循环中途 steer + 气泡滚动）**
+- 07:49:56 发 sleep 8 任务 → 气泡 A `[6f4b391b]` 创建
+- 07:50:00（t+4s）发 steer（工具执行中途）
+- 07:50:26 气泡 B `[68e3d114]` 出现，content=STEER_MARKER_426_R2，排在 steer 之后
+- A completed（工具记录完整），B completed，零 relay.failed
+- **pass**
+
+**旅程 J4（#140 收尾窗口 steer 回归）**
+- 07:51:17 发 sleep 12 任务 → 气泡 A `[a7d638e1]` 创建
+- 07:51:27（t+10s，接近收尾）发 steer
+- 07:51:41 气泡 B `[9990b7bb]` 出现，content=TERMINAL_WINDOW_STEER_426，排在 steer 之后
+- A completed（sleep 12，duration=21727ms），B completed，零 relay.failed
+- **pass**：#140 修复有效
+
+**旅程 J5（FIFO 连发多条）**
+- 07:52:49 发 sleep 10 任务 → 气泡 A `[8dbbf83e]` 创建
+- 07:52:52 发 FIFO_ALPHA_426；07:52:54 发 FIFO_BETA_426
+- 07:53:06 气泡 B `[db73e9db]`：「已提及 FIFO_ALPHA_426 与 FIFO_BETA_426。」
+- 两条 steer 按序全注入，agent 一并回复，零乱序
+- **pass**
+
+---
+
+## User Journeys Exercised（Round 2）
+
+| Journey | 覆盖 Scenario |
+|---|---|
+| J1 空闲态基线 | 空闲时发消息仍正常开新 run |
+| J2 工具循环中途 steer | 工具循环中途发消息下一轮即被消费；不掐工具；M4 气泡滚动（新气泡排在 steer 后）|
+| J4 收尾窗口 steer（#140）| #140 回归验证；M4 气泡滚动；旧气泡 A completed 非 failed |
+| J5 FIFO 连发多条 | 一个 run 内连发多条按序全注入；M4 气泡滚动 |
+
+---
+
+## 回归检查
+
+全部 7 条 agent 消息 delivery_status 均为 **completed**，零 relay.failed。gateway log 两行均为正常启动信息，无异常。与 Round 1 相比：Round 1 没有验证气泡排序，本轮补充并通过。
+
+---
+
+## Side Findings
+
+无。
+
+---
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新（M4 不改跨包职责和依赖方向）
+- [x] `docs/specs/kernel/spec.md`：**需要更新**（M4 追加：正常 steer 留同一 run、injection_consumed 信号事件）；delta-spec 已在 `docs/changes/bugfix-426-midrun-message-steering/specs/kernel/spec.md`，orchestrator 收尾归并时写入
+- [x] `docs/specs/gateway/spec.md`：**需要更新**（M4 追加：steer 回复在新气泡、旧气泡干净收尾、不超时不黑屏）；delta-spec 已在 `docs/changes/bugfix-426-midrun-message-steering/specs/gateway/spec.md`，orchestrator 收尾归并时写入
+- [x] `docs/specs/cli/spec.md`：无新增（M4 无 CLI 改动，Round 1 delta-spec 已涵盖）
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/SPEC_GUIDE.md`：无需更新
