@@ -49,11 +49,7 @@ def _drive(observer, event: dict[str, Any]) -> None:
 
 
 def _kinds(manager: _FakeManager) -> list[str]:
-    return [
-        p.get("kind")
-        for mt, p in manager.sent
-        if mt == "node.streaming_delta"
-    ]
+    return [p.get("kind") for mt, p in manager.sent if mt == "node.streaming_delta"]
 
 
 def test_injection_consumed_closes_bubble_a_completed_then_opens_b() -> None:
