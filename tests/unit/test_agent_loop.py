@@ -523,3 +523,81 @@ async def test_loop_on_compaction_callback_not_called_without_compaction() -> No
     )
     await _run_loop(loop, _base_state())
     assert called == [], "on_compaction must not fire when no compaction occurred"
+
+
+# ---------------------------------------------------------------------------
+# bugfix-426-M4 决策5/6: terminal re-drain continues the SAME run; consume-point
+# signal lets the gateway roll the bubble. #140 closes the stranded-continuation
+# window at the loop's terminal decision.
+# ---------------------------------------------------------------------------
+
+
+class _SteerOnTerminalLLMClient:
+    """LLM client that injects a steer into the controller as it produces its
+    terminal (no-tool-call) reply — i.e. exactly in the #140 window between the
+    round-boundary drain and the loop's decision to break.
+
+    The first generate() yields a final assistant message AND (as a side effect)
+    enqueues a steer into the controller. A pre-decision-5 loop would break and
+    strand the steer; the decision-5 loop must re-drain at terminal and continue
+    the same run, consuming the steer on the next round.
+    """
+
+    def __init__(self, controller, steer_text: str) -> None:
+        from agent.core.llm.interfaces import LLMMessage as _LM
+
+        self._controller = controller
+        self._steer_text = steer_text
+        self._LM = _LM
+        self.requests = []
+        self._round = 0
+
+    async def generate(self, request):  # noqa: ANN001
+        self.requests.append(request)
+        self._round += 1
+        if self._round == 1:
+            # Produce the terminal reply for the original message, and in the same
+            # breath the user steers (lands after this round's drain already ran).
+            from agent.core.runs.origin import RunOrigin
+
+            self._controller.enqueue_message(
+                self._LM(role="user", content=self._steer_text),
+                origin=RunOrigin.USER,
+            )
+            yield self._LM(role="assistant", content="answer-to-first")
+            yield self._LM(role="assistant", content="", finish_reason="stop")
+        else:
+            # Second round: the steer must have been drained into context.
+            yield self._LM(role="assistant", content="answer-to-steer")
+            yield self._LM(role="assistant", content="", finish_reason="stop")
+
+
+async def test_loop_redrains_at_terminal_and_continues_same_run() -> None:
+    """决策5: a steer that lands in the terminal window is consumed by the SAME run.
+
+    The loop must re-drain at its terminal decision; finding the steer, it appends
+    it to context and runs another round instead of breaking (which would strand it
+    into a continuation run with a new run_id — the #140 carrier of dropped events).
+    """
+    from agent.core.agent.run_control import RunController
+
+    controller = RunController()
+    client = _SteerOnTerminalLLMClient(controller, steer_text="actually do X")
+    loop = AgentLoop(
+        llm_client=client, model="model-x", policies=AgentPolicies(max_turns=5)
+    )
+
+    result = await _run_loop(loop, _base_state(), controller=controller)
+
+    # Two LLM rounds: the original terminal reply, then the steer-driven round.
+    assert len(client.requests) == 2
+    # The steer reached the model's context on the second round.
+    second_round_user_texts = [
+        m.content for m in client.requests[1].messages if m.role == "user"
+    ]
+    assert "actually do X" in second_round_user_texts
+    # The final reply is the answer to the steer (same run continued, not stranded).
+    assert result.messages[-1].content == "answer-to-steer"
+    # Terminal committed only once the queue was truly empty.
+    assert controller.is_terminal_committed is True
+    assert controller.drain_pending() == []
