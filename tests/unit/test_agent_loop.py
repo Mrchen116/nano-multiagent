@@ -733,3 +733,64 @@ async def test_loop_commits_terminal_at_tool_unavailable_exit_with_pending_steer
         )
         is False
     )
+
+
+class _SteerThenAbortClient:
+    """Round 1: enqueue a steer, signal abort, then return a tool_call so the loop
+    wants another round. Round 2's round-start abort check then fires with the steer
+    having been drained — the bugfix-426-M4 V1 abort hard-stop window."""
+
+    def __init__(self, controller, steer_text: str) -> None:
+        from agent.core.llm.interfaces import LLMMessage as _LM, LLMToolCall as _TC
+
+        self._controller = controller
+        self._steer_text = steer_text
+        self._LM = _LM
+        self._TC = _TC
+        self.requests = []
+
+    async def generate(self, request):  # noqa: ANN001
+        self.requests.append(request)
+        from agent.core.runs.origin import RunOrigin
+
+        self._controller.enqueue_message(
+            self._LM(role="user", content=self._steer_text), origin=RunOrigin.USER
+        )
+        self._controller.abort(user_initiated=True)
+        yield self._LM(
+            role="assistant",
+            content="",
+            tool_calls=(self._TC(call_id="", name="echo", arguments={"text": "x"}),),
+        )
+        yield self._LM(role="assistant", content="", finish_reason="tool_calls")
+
+
+async def test_loop_commits_terminal_at_abort_exit_with_pending_steer() -> None:
+    """bugfix-426-M4 V1 (W4): symmetric to the max_turns / tool_unavailable hard stops —
+    the abort exit must also commit the terminal, so a later inject is rejected and
+    routed to a fresh run rather than left to strand. The abort exit does NOT rely on
+    is_aborted alone for the inject guard; it explicitly commits the terminal."""
+    from agent.core.agent.run_control import RunController
+    from agent.core.runs.origin import RunOrigin
+
+    controller = RunController()
+    client = _SteerThenAbortClient(controller, steer_text="steer at abort")
+    loop = AgentLoop(
+        llm_client=client,
+        model="model-x",
+        policies=AgentPolicies(max_turns=99),
+        tool_registry=FakeToolRegistry(),
+    )
+
+    result = await _run_loop(loop, _base_state(), controller=controller)
+
+    assert result.stop_reason == "aborted"
+    # The abort hard stop committed the terminal.
+    assert controller.is_terminal_committed is True
+    # A later inject is rejected by the committed terminal (not merely by is_aborted).
+    assert (
+        controller.enqueue_message(
+            LLMMessage(role="user", content="after"), origin=RunOrigin.USER
+        )
+        is False
+    )
