@@ -41,7 +41,7 @@ run 收尾瞬间 steer 不再分裂出新 run_id：注入消息由同一个 run 
 
 ## Roadpoints
 
-### R1 — 决策5：loop 末轮 re-drain 续同一 run + commit_terminal 原子化
+### R1 — 决策5：loop 末轮 re-drain 续同一 run + commit_terminal 原子化  [DONE]
 
 - 步骤:
   - `RunController` 加 `commit_terminal()` + `terminal_lock`（threading.Lock），加 `is_terminal_committed` / `try_commit_terminal_if_empty()`（持锁：drain 复检为空才 commit、返回是否已 commit）。
