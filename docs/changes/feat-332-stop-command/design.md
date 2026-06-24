@@ -112,10 +112,10 @@ User sends "/stop"
   │
   ├── KernelApiClient.append_message(
   │       role="user",
-  │       content="用户发送了 /stop 命令，要求终止当前操作。"
+  │       content="[Request interrupted by user for tool use]"
   │     )
   │     ↓
-  │   [Kernel] session history 追加中断消息
+  │   [Kernel] session history 追加中断消息（不触发新 run）
   │
   └── return PipelineResult(
         reply_text="已停止当前操作",
@@ -166,6 +166,7 @@ User sends "@agent /stop" in group chat
 | session-level vs run-level interrupt API | session-level | Gateway 天然持有 session_id，减少映射维护 |
 | `/stop` 是否写入 group context buffer | 不写入 | 控制命令不应作为聊天历史的一部分 |
 | 中断消息后是否等待原 run 结束再回复 | 不等 | interrupt 是异步信号，立即返回确认更友好 |
+| 中断消息是否触发新 LLM run | 不触发 | 使用 `append_message` 仅写入历史，避免 `/stop` 自身拉起模型调用 |
 | 是否支持部分停止（只停某个 tool） | 不支持 | 复杂度远高于收益，MVP 只停整个 turn |
 | CLI REPL 是否同步添加 `/stop` | 不加 | CLI 已有 Ctrl+C，语义不同 |
 

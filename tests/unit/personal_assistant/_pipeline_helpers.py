@@ -263,7 +263,7 @@ class _FakeSseKernelClient:
         del session_id
         return {"status": "interrupted"}
 
-    def append_message(self, *, session_id: str, role: str, content: str, **_kwargs):
+    def append_message(self, session_id: str, *, role: str, content: str, **_kwargs):
         del session_id, role, content
         return {"status": "appended"}
 
@@ -308,6 +308,8 @@ class _FakeKernel:
         # submit_calls is an alias for send_calls, kept for backwards compat.
         # Both point to the same list — updating one updates the other.
         self.submit_calls: list[dict[str, Any]] = self.send_calls
+        # Out-of-band history appends (e.g. /stop command) recorded for assertions.
+        self.append_calls: list[dict[str, Any]] = []
         # Settable to override the default "reply:{text}" output for all runs.
         self.default_output_text: str | None = None
 
@@ -409,6 +411,44 @@ class _FakeKernel:
         record = MagicMock()
         record.run_id = run_id
         return record
+
+    def append_message(
+        self,
+        session_id: str,
+        *,
+        role: str,
+        content: str,
+        message_id: str | None = None,
+        parts: list[dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+        workspace_root: Path | None = None,
+    ) -> dict[str, Any]:
+        """Record an out-of-band history append (e.g. /stop synthetic message).
+
+        Mirrors agent.sdk.Kernel.append_message without spawning a run.
+        """
+        self.append_calls.append(
+            {
+                "session_id": session_id,
+                "role": role,
+                "content": content,
+                "message_id": message_id,
+                "parts": parts,
+                "metadata": metadata,
+                "idempotency_key": idempotency_key,
+                "workspace_root": str(workspace_root) if workspace_root else None,
+            }
+        )
+        return {
+            "session_id": session_id,
+            "entry_id": "entry-1",
+            "kind": "turn_appended",
+            "created_at": "now",
+            "turn_id": "",
+            "role": role,
+            "content": content,
+        }
 
     def stream(
         self, session_id: str, *, after_sequence: int = 0

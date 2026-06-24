@@ -29,7 +29,7 @@
 - `_handle_stop_command` 逻辑：
   1. 查 `_active_runs.get(session_key)` → 有则继续，无则返回友好提示
   2. 调用 `self._kernel_client.interrupt_session(binding.kernel_session_id)`
-  3. 调用 `self._kernel_client.append_message(...)` 注入用户中断消息（role="user", content="用户发送了 /stop 命令，要求终止当前操作。"）
+  3. 调用 `self._kernel_client.append_message(...)` 注入用户中断消息（role="user", content="[Request interrupted by user for tool use]"），该调用仅写入历史，不触发新 run
   4. 返回 `PipelineResult` 带确认回复文本（"已停止当前操作"）
 
 **测试策略**：
