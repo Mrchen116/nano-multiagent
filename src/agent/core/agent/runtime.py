@@ -32,7 +32,7 @@ from agent.core.session.jsonl_store import (
 )
 from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
-from agent.core.skills import SkillMetadata, resolve_available_skills
+from agent.core.skills import SkillMetadata, make_skill_resolver, resolve_available_skills
 from agent.core.skills.discovery import SkillRootResolver
 from agent.core.tools.result_budget import ToolResultCompressor
 from agent.core.tools.session_file_state import SessionFileState, read_file_slice
@@ -92,12 +92,6 @@ if TYPE_CHECKING:
     from agent.core.hooks.registry import HookRegistry
 
 
-class ConfigResolverLike(SkillRootResolver, Protocol):
-    def user_tool_roots(self) -> tuple[Path, ...]: ...
-
-    def user_hook_roots(self) -> tuple[Path, ...]: ...
-
-
 class AgentRuntime:
     """Coordinate one runtime instance for session-based agent execution."""
 
@@ -116,7 +110,12 @@ class AgentRuntime:
         compaction_settings: CompactionSettings | None = None,
         tool_registry: ToolRegistryLike | None = None,
         system_prompt: str | None = None,
-        config_resolver: ConfigResolverLike | None = None,
+        # bugfix-431 决策 1/3: replaced config_resolver (legacy ProductProfile field,
+        # always None since refactor-406) with explicit workspace_config_dirname +
+        # skill_search_roots so runtime skill resolution uses the same make_skill_resolver
+        # helper as Kernel.list_skills / assemble_prompt_preview.
+        workspace_config_dirname: str | None = None,
+        skill_search_roots: tuple[Path, ...] = (),
         default_tool_ids: list[str] | None = None,
         permission_broker: Any | None = None,
         prompt_sections: Sequence[PromptSection] | None = None,
@@ -150,7 +149,10 @@ class AgentRuntime:
         self._llm_clients = llm_clients
         self._hook_runner = hook_runner
         self._repo_root = (repo_root or Path.cwd()).expanduser().resolve()
-        self._config_resolver = config_resolver
+        # bugfix-431 决策 1: store resolver inputs so per-session resolver can be
+        # constructed on demand via make_skill_resolver (same as Kernel.list_skills).
+        self._workspace_config_dirname = workspace_config_dirname
+        self._skill_search_roots = skill_search_roots
         self._compaction_settings = compaction_settings or CompactionSettings()
         resolved_skills = (
             tuple(available_skills) if available_skills is not None else ()
@@ -928,11 +930,40 @@ class AgentRuntime:
 
         return self._hook_runner
 
-    @property
-    def config_resolver(self) -> ConfigResolverLike | None:
-        """Expose the resolver used for product-owned workspace/global paths."""
+    def resolve_available_skills(
+        self,
+        workspace_root: Path,
+        include_names: Sequence[str] | None = None,
+    ) -> tuple[SkillMetadata, ...]:
+        """Resolve skills for a workspace using the same roots as preview/list_skills.
 
-        return self._config_resolver
+        Uses make_skill_resolver (core→core same-layer call) so runtime skill
+        resolution is always same-source as Kernel.list_skills / assemble_prompt_preview
+        (bugfix-431 决策 3). Returns an empty tuple when workspace_config_dirname was
+        not supplied at build time, matching the cleaned-up default_skill_search_roots
+        behavior (决策 4).
+
+        Args:
+            workspace_root: Per-session workspace directory to search under.
+            include_names: Optional filter — only return skills whose name is in this
+                sequence. None means "return all discovered skills".
+
+        Returns:
+            Tuple of SkillMetadata for skills found on disk (non-existent skill names
+            are silently omitted, mirroring preview behavior).
+        """
+        resolver = make_skill_resolver(
+            workspace_root,
+            self._workspace_config_dirname,
+            self._skill_search_roots,
+        )
+        if resolver is None:
+            return ()
+        return resolve_available_skills(
+            workspace_root=workspace_root,
+            include_names=include_names,
+            config_resolver=resolver,
+        )
 
     @property
     def hook_registry(self) -> "HookRegistry | None":
@@ -1274,10 +1305,11 @@ class AgentRuntime:
             return self._loop.available_skills
         if not session.skills:
             return ()
-        return resolve_available_skills(
-            workspace_root=session.workspace_root,
+        # bugfix-431: use resolve_available_skills via self.resolve_available_skills so
+        # runtime and preview both use the make_skill_resolver helper (决策 1/3).
+        return self.resolve_available_skills(
+            session.workspace_root,
             include_names=session.skills,
-            config_resolver=self._config_resolver,
         )
 
     def _resolve_session_available_skills_from_config(
@@ -1287,10 +1319,11 @@ class AgentRuntime:
             return self._loop.available_skills
         if not config.skills:
             return ()
-        return resolve_available_skills(
-            workspace_root=config.workspace_root,
+        # bugfix-431: use resolve_available_skills via self.resolve_available_skills so
+        # runtime and preview both use the make_skill_resolver helper (决策 1/3).
+        return self.resolve_available_skills(
+            config.workspace_root,
             include_names=config.skills,
-            config_resolver=self._config_resolver,
         )
 
     def _resolve_session_available_tools(

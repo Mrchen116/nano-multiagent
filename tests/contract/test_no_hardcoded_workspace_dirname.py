@@ -39,7 +39,9 @@ _WHITELIST: frozenset[str] = frozenset(
         # bugfix-429: per-provider llm_clients param + assignment added in __init__; shifted to 185
         # bugfix-429 fix-r1: provider_of top import + _active_run_models field (net +7); shifted to 192
         # bugfix-429 rebase onto main (feat-421/428 等): runtime.py 前段净增行，shifted 192→197
-        "src/agent/core/agent/runtime.py:197",
+        # bugfix-431-M1 rebase onto bugfix-429: config_resolver→workspace_config_dirname+
+        # skill_search_roots params net +2; shifted 197→199
+        "src/agent/core/agent/runtime.py:199",
         # kernel.py: build_kernel new-path workspace_config_dirname default — platform
         # default fallback when a consumer omits it (same role as jsonl_store default);
         # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
@@ -57,7 +59,9 @@ _WHITELIST: frozenset[str] = frozenset(
         # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
         # bugfix-429: build_kernel per-provider llm_clients construction block; shifted 483→501,
         # then empty-provider skip (if p.models) + comment added 3 lines → 504.
-        "src/agent/sdk/kernel.py:504",
+        # bugfix-431-M1 rebase onto bugfix-429: _WorkspaceDirnameSkillResolver deleted from kernel
+        # (−35 lines) but build_kernel body net grew; .nano/tools literal now at 510.
+        "src/agent/sdk/kernel.py:510",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode

@@ -418,6 +418,12 @@ def _build_kernel_base(
         # Product-neutral kernel skeleton; product text enters per-session via
         # create_session(prompt=PromptSlots) (决策 8).
         prompt_sections=build_kernel_prompt_skeleton(),
+        # bugfix-431 决策 1: inject resolver inputs so AgentRuntime.resolve_available_skills
+        # uses the same make_skill_resolver path as Kernel.list_skills / assemble_prompt_preview.
+        workspace_config_dirname=workspace_config_dirname,
+        skill_search_roots=tuple(
+            Path(r).expanduser().resolve() for r in skill_search_roots
+        ),
     )
     # Inject the env-resolved active connection so get_llm_config reflects llm=.
     runtime._llm_config = factory_config  # type: ignore[attr-defined]
@@ -583,41 +589,6 @@ def _register_self_evolution_builtins(
         replace=True,
     )
     tool_registry.register(MemoryTool(), replace=True)
-
-
-class _WorkspaceDirnameSkillResolver:
-    """Minimal SkillRootResolver for the 2-layer path (no ProductProfile).
-
-    Resolves skills under ``<workspace_root>/<workspace_config_dirname>/skills``
-    FIRST (per-workspace), then the build-time deployment ``extra_roots`` (shared
-    user-level/global/compat skill dirs the consumer factory owns), deduplicating by
-    directory while preserving order. This is the kernel-neutral equivalent of the
-    legacy reporter's 4-tier search (workspace → global → compat-claude →
-    compat-codex): the kernel only searches the roots it is handed, so it stays
-    product-neutral; the consumer passes its product-specific deployment roots via
-    ``build_kernel(skill_search_roots=)``.
-    """
-
-    def __init__(
-        self,
-        *,
-        workspace_root: Path,
-        workspace_config_dirname: str,
-        extra_roots: tuple[Path, ...] = (),
-    ) -> None:
-        ordered: list[Path] = [
-            (workspace_root / workspace_config_dirname / "skills")
-            .expanduser()
-            .resolve()
-        ]
-        for root in extra_roots:
-            resolved = Path(root).expanduser().resolve()
-            if resolved not in ordered:
-                ordered.append(resolved)
-        self._roots = tuple(ordered)
-
-    def user_skill_roots(self) -> tuple[Path, ...]:
-        return self._roots
 
 
 def _wire_console_tracer() -> None:
@@ -1176,24 +1147,18 @@ class Kernel:
             List of SkillInfo(name, description) for that workspace; different
             workspaces yield their own skills with no cross-workspace mixing.
         """
-        from agent.core.skills.discovery import resolve_available_skills  # noqa: PLC0415
+        from agent.core.skills import make_skill_resolver, resolve_available_skills  # noqa: PLC0415
 
         effective_root = Path(workspace_root or self._repo_root).expanduser().resolve()
 
-        # Per-workspace skill discovery requires a config_resolver bound to THIS
-        # call's workspace_root — not the build-time one. The 2-layer path resolves
-        # skills under the consumer's per-workspace config dir
-        # (<workspace_root>/<workspace_config_dirname>/skills) plus the deployment-level
-        # skill_search_roots, so list_skills is per-workspace with no cross-workspace
-        # mixing (决策 4). (The legacy ProductProfile-bound ConfigResolver path was
-        # removed in refactor-406-M2 with products/.)
-        per_call_resolver = None
-        if self._workspace_config_dirname:
-            per_call_resolver = _WorkspaceDirnameSkillResolver(
-                workspace_root=effective_root,
-                workspace_config_dirname=self._workspace_config_dirname,
-                extra_roots=self._skill_search_roots,
-            )
+        # Per-workspace skill discovery: use make_skill_resolver (core helper, bugfix-431)
+        # so list_skills, assemble_prompt_preview, and AgentRuntime all share the same
+        # resolver construction logic (决策 2/4).
+        per_call_resolver = make_skill_resolver(
+            effective_root,
+            self._workspace_config_dirname,
+            self._skill_search_roots,
+        )
 
         skills = resolve_available_skills(
             workspace_root=effective_root,
@@ -1430,21 +1395,18 @@ class Kernel:
         active_skills: tuple = ()
         if skill_ids:
             try:
-                from agent.core.skills import resolve_available_skills  # noqa: PLC0415
+                from agent.core.skills import (  # noqa: PLC0415
+                    make_skill_resolver,
+                    resolve_available_skills,
+                )
 
-                # refactor-406-M3fix #3 (决策8 同源)：2 层路径 runtime._config_resolver 恒
-                # None → 旧实现 resolve_available_skills(config_resolver=None) 走 default
-                # 搜索根（不含 <ws>/<dirname>/skills + 部署 root），skill_ids 解析恒空白、
-                # 技能段不出现。改用与 list_skills 同源的 _WorkspaceDirnameSkillResolver
-                # （per-call workspace_root + 部署 skill_search_roots），preview = 真实会话。
-                preview_resolver = (
-                    _WorkspaceDirnameSkillResolver(
-                        workspace_root=effective_root,
-                        workspace_config_dirname=self._workspace_config_dirname,
-                        extra_roots=self._skill_search_roots,
-                    )
-                    if self._workspace_config_dirname
-                    else None
+                # bugfix-431 决策 2: use make_skill_resolver (core helper) so preview,
+                # list_skills, and AgentRuntime all share the same resolver construction
+                # logic — eliminating the structural source of runtime/preview divergence.
+                preview_resolver = make_skill_resolver(
+                    effective_root,
+                    self._workspace_config_dirname,
+                    self._skill_search_roots,
                 )
                 active_skills = tuple(
                     resolve_available_skills(

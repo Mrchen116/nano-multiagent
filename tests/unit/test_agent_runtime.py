@@ -154,7 +154,11 @@ async def test_runtime_builds_followup_context_from_session_events(
 async def test_runtime_filters_prompt_skills_from_session_metadata(
     tmp_path: Path,
 ) -> None:
-    skills_root = tmp_path / ".codex" / "skills"
+    # bugfix-431: skills are discovered via workspace_config_dirname resolver,
+    # not the legacy Codex fallback roots. Place skills under the workspace
+    # config dirname so make_skill_resolver finds them.
+    workspace_config_dirname = ".testconfig"
+    skills_root = tmp_path / workspace_config_dirname / "skills"
     selected_dir = skills_root / "selected-skill"
     ignored_dir = skills_root / "ignored-skill"
     selected_dir.mkdir(parents=True)
@@ -180,6 +184,8 @@ async def test_runtime_filters_prompt_skills_from_session_metadata(
         llm_client=llm_client,
         model="mock-model",
         repo_root=workspace_root,
+        workspace_config_dirname=workspace_config_dirname,
+        skill_search_roots=(),
     )
 
     await runtime.run(

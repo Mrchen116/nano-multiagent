@@ -112,6 +112,9 @@ class _RuntimeStub:
             stop_reason="completed",
         )
 
+    def resolve_available_skills(self, workspace_root: Any, include_names: Any = None) -> tuple:
+        return ()
+
 
 def _make_ctx(tmp_path: Path, session_id: str = "sess_parent") -> ToolContext:
     return ToolContext.create(repo_root=tmp_path).with_session(session_id=session_id)
