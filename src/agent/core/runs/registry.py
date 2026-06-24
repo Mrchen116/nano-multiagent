@@ -558,15 +558,19 @@ class RunsRegistry:
                 (user mid-run steer → USER, not BACKGROUND_TASK; bugfix-426 决策3).
 
         Returns:
-            True if the message was enqueued, False if no active run exists or the
-            run is already being interrupted.
+            True if the message was enqueued, False if no active run exists, the
+            run is already being interrupted, or the run already committed its
+            terminal (bugfix-426-M4 决策5: the loop decided to finish in the window
+            between its last drain and the break — the steer lost the race and the
+            caller must route it to a new run, not lose it).
         """
         with self._lock:
             run_id = self._active_run_by_session.get(session_id)
             controller = self._controllers.get(run_id) if run_id else None
         if controller is not None and not controller.is_aborted:
-            controller.enqueue_message(message, origin)
-            return True
+            # enqueue_message returns False when the controller already committed its
+            # terminal — surface that so the caller falls back to a new run.
+            return controller.enqueue_message(message, origin)
         return False
 
     def get(self, run_id: str) -> RunRecord | None:

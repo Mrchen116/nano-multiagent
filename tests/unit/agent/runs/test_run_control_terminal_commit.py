@@ -20,7 +20,9 @@ from agent.core.llm.interfaces import LLMMessage
 from agent.core.runs.origin import RunOrigin
 
 
-def test_try_commit_terminal_returns_pending_when_nonempty_and_does_not_commit() -> None:
+def test_try_commit_terminal_returns_pending_when_nonempty_and_does_not_commit() -> (
+    None
+):
     controller = RunController()
     controller.enqueue_message(
         LLMMessage(role="user", content="steer"), origin=RunOrigin.USER
