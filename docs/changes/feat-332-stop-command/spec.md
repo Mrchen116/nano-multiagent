@@ -15,7 +15,7 @@ Claude Code 的参考实现通过 `AbortController` + `yieldMissingToolResultBlo
 - **强制中断**：能中断处于 LLM 流式生成阶段或工具执行批次之间的活跃 run
 - **历史注入**：
   - 未完成的 `tool_use` 收到 `error="interrupted"` 结果（复用 kernel 已有的 `AgentLoop` abort 机制）
-  - 通过 `append_message` 向 session 追加一条用户中断消息，使下一轮 LLM 能感知到「用户主动打断了上一步」
+  - 通过 `append_message` 向 session 追加一条用户中断消息 `[Request interrupted by user for tool use]`，使下一轮 LLM 能感知到「用户主动打断了上一步」，且该消息本身不触发新的模型 run
 - **用户反馈**：Gateway 向发送者返回一条确认消息（如 "已停止当前操作"）
 - **队列隔离**：`/stop` 不走 `SessionRunQueue` 排队，直接执行；取消后同 session 队列中后续任务正常继续
 
@@ -31,7 +31,7 @@ Claude Code 的参考实现通过 `AbortController` + `yieldMissingToolResultBlo
 
 ### 场景 A：危险操作止损（私聊）
 
-> 用户让 agent "清理下项目里没用的文件"，agent 开始调用 `Bash` 工具执行 `rm -rf`。用户看到 tool_start 事件后立刻意识到范围过大，发送 `/stop`。agent 立即终止，已发出的 `tool_use` 收到 interrupted 结果，历史中追加 "用户发送了 /stop，要求终止当前操作"。
+> 用户让 agent "清理下项目里没用的文件"，agent 开始调用 `Bash` 工具执行 `rm -rf`。用户看到 tool_start 事件后立刻意识到范围过大，发送 `/stop`。agent 立即终止，已发出的 `tool_use` 收到 interrupted 结果，历史中追加 `[Request interrupted by user for tool use]`。
 
 ### 场景 B：群聊紧急刹车
 
@@ -47,7 +47,7 @@ Claude Code 的参考实现通过 `AbortController` + `yieldMissingToolResultBlo
 |---|------|---------|
 | 1 | 用户发送 `/stop` 后，活跃 run 在 3 秒内终止 | e2e 测试：注入慢工具，发送 `/stop`，断言 run 状态变为 interrupted/cancelled |
 | 2 | 终止后，未完成的 tool_use 收到 `error="interrupted"` | 单元测试：断言 kernel 产出的 tool_result 消息含 `error="interrupted"` |
-| 3 | 终止后，session 历史中追加一条用户中断消息 | 契约测试：调用 `get_session` 断言 messages 末尾含中断消息 |
+| 3 | 终止后，session 历史中追加一条用户中断消息 `[Request interrupted by user for tool use]`，且不触发新 run | 契约测试：调用 `get_session` 断言 messages 末尾含中断消息；单元测试断言未调用 `submit` |
 | 4 | Gateway 向用户返回 "已停止" 确认 | e2e 测试：断言 outbound 消息含停止确认文本 |
 | 5 | 同 session 后续正常消息仍能正常排队执行 | e2e 测试：stop 后发送新消息，断言新 run 成功完成 |
 | 6 | `/stop` 本身不进入 group context buffer | 单元测试：发送 `/stop` 后 drain buffer，断言无 `/stop` 内容 |

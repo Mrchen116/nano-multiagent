@@ -126,6 +126,29 @@ class _FakeKernel:
         record.injected = False
         return record
 
+    def append_message(
+        self,
+        session_id: str,
+        *,
+        role: str,
+        content: str,
+        message_id: str | None = None,
+        parts: list[dict[str, Any]] | None = None,
+        metadata: dict[str, Any] | None = None,
+        idempotency_key: str | None = None,
+        workspace_root: Path | None = None,
+    ) -> dict[str, Any]:
+        """Record an out-of-band history append without spawning a run."""
+        return {
+            "session_id": session_id,
+            "entry_id": "entry-1",
+            "kind": "turn_appended",
+            "created_at": "now",
+            "turn_id": "",
+            "role": role,
+            "content": content,
+        }
+
     def stream(
         self, session_id: str, *, after_sequence: int = 0
     ) -> AsyncIterator[dict[str, Any]]:

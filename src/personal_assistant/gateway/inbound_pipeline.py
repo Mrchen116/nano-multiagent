@@ -887,20 +887,22 @@ class InboundPipeline:
         # are already set up by the observer's turn_start/tool_start handlers.
         # Calling reconcile directly here races the stream consumer and sees empty
         # state, causing the tool card CC content and bubble finalize to be dropped.
-        # Log /stop command in session history via a new user turn (no LLM call triggered
-        # because the session has no pending run after interrupt).
-        # bugfix-426 决策3: flush_held=False so this synthetic /stop bookkeeping turn
-        # does NOT consume messages the user steered into the interrupted run — those
-        # are parked (held) synchronously by interrupt() and must ride the user's NEXT
-        # real message, not this "/stop 命令" turn.
-        self._kernel.submit(
+        # Log /stop command in session history without triggering a model run.
+        # Use append_message (not submit) so the injected turn is persisted for the
+        # next LLM call but does not itself spawn a new run (mirrors CC's
+        # [Request interrupted by user for tool use] synthetic message; feat-332-M2).
+        # bugfix-426 决策3 held-buffer: interrupt() above synchronously parks any
+        # messages the user steered into the interrupted run into the session-level
+        # held buffer; they ride the user's NEXT real submit (_run_turn /
+        # _try_steer_active_run). Switching this /stop bookkeeping from submit to
+        # append_message removes the synthetic run that bugfix-426 used flush_held=False
+        # to shield — append_message never flushes held, so held still waits for the
+        # next real message, exactly as 决策3 requires. No model/flush_held needed here.
+        self._kernel.append_message(
             session_id=binding.kernel_session_id,
-            parts=[
-                {"type": "text", "text": "用户发送了 /stop 命令，要求终止当前操作。"}
-            ],
+            role="user",
+            content="[Request interrupted by user for tool use]",
             workspace_root=agent_workspace_root_path,
-            flush_held=False,
-            model=self._resolve_model(agent_id),
         )
         reply_text = "已停止当前操作。"
         outbound = await self._deliver_stop_ack(
