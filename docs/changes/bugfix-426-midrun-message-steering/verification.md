@@ -247,3 +247,128 @@ Round 1 报告时 kernel/cli/gateway spec 均无 steer 内容。目前状态：
 `docs/specs/cli/spec.md:3` 写 `> 对齐: feat-392`，但 M2 的 REPL steer requirement 已归并（line 91+）。标记与内容不一致，阅读时易产生「这份 spec 不含 bugfix-426 改动」的误判。
 
 修复：`docs/specs/cli/spec.md:3` `feat-392` → `bugfix-426`（与 W1 修复一并执行）。
+
+---
+
+# Round 3 — 2026-06-24
+
+> 本轮对象：fix delta `git diff 941fb6ca 60e4a3da`。核对 V1（三处硬停 commit_terminal）、V2（`_roll_bubble` 原语抽取保真）、V3（`rolling` 守卫语义）、abort×held-buffer 无回归、M1-M3 无回归。
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | V1/V2/V3 全实现；新增 6 个测试；全 not-e2e 树 2810 passed（较 Round 2 多 6） |
+| Correctness | 三硬停出口全覆盖、abort 测试有 2/3 出口（max_turns/tool_unavailable）；`rolling` 守卫在串行 observer 流中不产生误拦；V2 行为保真；M1-M3 无回归 |
+| Coherence | 决策5 扩展（三硬停 commit_terminal）逻辑自洽；`_roll_bubble` 共享原语实现一致；`_extract_ack_message_id` 防御两种 ack 格式 |
+
+No critical issues. 1 warning to consider. Ready for PR (with noted improvements).
+
+---
+
+## V1：三硬停出口全面 commit_terminal
+
+**核对：决策5 现在覆盖所有终止出口**
+
+| 出口 | 位置 | commit_terminal 调用 | None 守卫 |
+|---|---|---|---|
+| `max_turns` | `loop.py:~235` | `if controller is not None: controller.commit_terminal()` | 有（controller 可 None） |
+| `abort`（cooperative） | `loop.py:~286` | `controller.commit_terminal()`（无 None 守卫） | 无（此分支 drain 在先，controller 已知非 None） |
+| `tool_unavailable` | `loop.py:~515` | `if controller is not None: controller.commit_terminal()` | 有 |
+| 正常完成（`not iteration_tool_calls`） | `loop.py:~471-482` | `try_commit_terminal()`（软提交，已在 Round 2 验证） | — |
+
+`commit_terminal()` 新方法（`run_control.py:+20`）：持 `_terminal_lock` 无条件 `_terminal_committed.set()`，幂等。与 `enqueue_message` 互斥——commit 后到达的 inject 返回 False，触发 fallback 新 run（不再 stranded）。
+
+**测试覆盖：**
+- `test_commit_terminal_is_hard_and_rejects_later_inject`（`run_control_terminal_commit.py`）：commit → enqueue 返回 False。
+- `test_commit_terminal_idempotent`：多次 commit 幂等。
+- `test_loop_commits_terminal_at_max_turns_exit_with_pending_steer`：max_turns 出口 steer 被拒 → fallback。
+- `test_loop_commits_terminal_at_tool_unavailable_exit_with_pending_steer`：tool_unavailable 出口同理。
+- **缺口**：abort 出口（`is_aborted` 分支）无专项 loop 级测试。abort 路径的 commit_terminal 语义正确（代码审查确认），但测试不对称。
+
+**WARNING（Round 3 新）：abort 出口缺专项 loop 级测试**
+
+`loop.py:~286` abort 分支 `commit_terminal()` 无对应 `test_loop_commits_terminal_at_abort_exit_*` 测试，与 max_turns / tool_unavailable 的测试模式不对称。abort 路径的正确性靠代码阅读和 `test_commit_terminal_is_hard_and_rejects_later_inject` 的 API 级测试兜底，缺直接的行为断言。
+
+修复建议：参照 `test_loop_commits_terminal_at_max_turns_exit_with_pending_steer`，在 `tests/unit/test_agent_loop.py` 新增 `test_loop_commits_terminal_at_abort_exit_with_pending_steer`：使用 `_SteerThenAbortClient`（在 steer enqueue 后触发 abort_event），断言 steer 被拒/fallback 新 run。
+
+---
+
+## V3：`rolling` 守卫不产生误拦
+
+**核对 code-review 疑点：`_close_old_and_restart` 与 `_roll_bubble_on_steer` 是否因共享 rolling 标志而互斥？**
+
+observer（`main.py:1131`）被 **串行 await**（`obs_result = observer(event); if asyncio.iscoroutine(obs_result): await obs_result`）——同一 SSE 事件流中相邻两个事件顺序处理，不并发。因此：
+
+- `injection_consumed` 事件触发 `_roll_bubble_on_steer()` → await → `_roll_bubble` 全程完成（rolling 在 finally 清除）→ 下一个事件才处理。
+- `assistant_message` 事件触发 `_close_old_and_restart()` → await → `_roll_bubble`（此时 rolling 已清，正常执行）。
+
+两条路径不存在真并发（均通过 `return coroutine + await obs_result` 串行化），`rolling` 守卫在此场景下只起防御作用，实际不会触发。
+
+**真并发场景（`loop.create_task`）**：检查了代码，`_close_old_and_restart` 和 `_roll_bubble_on_steer` 均无 `loop.create_task` 包裹。rolling 守卫保护的是未来可能出现的并发调用（防御性设计）。
+
+**结论：rolling 守卫无误拦风险，代码正确。**
+
+---
+
+## V2：`_roll_bubble` 行为保真
+
+**`delivery_status` 字段**
+
+旧内联 `_close_old_and_restart` 的 message_completed 帧**无 `delivery_status`**；新 `_roll_bubble` 有 `delivery_status: "completed"`。这是 V2 引入的差异。
+
+影响评估：前端 `chat-stream-reducer.ts:140` 处理 `message.completed` 时直接硬编码 `delivery_status: "completed"`，不读事件载荷的 `delivery_status` 字段。新增字段对前端无影响，属于帧内容更完整（改进）。
+
+**空 message_id 行为（V3 gate 变化）**
+
+旧 injection_consumed 守卫：`if conversation_id and agent_id and message_id:` → 空 message_id 时 return，不发任何帧，steer 回复无气泡。
+
+新守卫：`if conversation_id and agent_id:` → 空 message_id 时跳过 message_completed（`_roll_bubble` 里 `if old_message_id:` 守卫），但仍发 turn_start 开 bubble B，steer 回复有去处。
+
+`test_injection_consumed_opens_b_even_when_message_id_empty` 直接覆盖此路径，断言发出 `["turn_start"]`（非空列表）。
+
+**ack message_id 提取**
+
+新 `_extract_ack_message_id()` 处理两种 ack 格式：`{"payload": {"message_id": ...}}` 和 `{"message_id": ...}`。旧路径各处各自手写 `.get("payload") / .get("message_id")`，现在统一。逻辑等价，覆盖更全。
+
+---
+
+## abort × /stop held-buffer 语义无回归
+
+abort 出口（`is_aborted` 分支）只在 **cooperative abort**（`abort_event.is_set()` 被检测到）时触发，这对应用户主动 /stop 路径。
+
+时序：`interrupt()`（registry.py）→ 同步 drain pending → held_pending → 设 abort_event → loop 下轮检测到 is_aborted → `drain_pending()` 此时取空 → `commit_terminal()`。
+
+`commit_terminal()` 在 `interrupt()` 的 drain 已经完成之后调用，held_pending 已 populated。commit_terminal 只阻止未来的 `enqueue_message`，不影响已在 held_pending 的消息。/stop 的 held-buffer 语义无回归。
+
+**CancelledError（force-cancel）路径**：`CancelledError` 是 `BaseException`，不经过 loop 的 `except Exception` 块及 `is_aborted` 出口，直接 unwind，由 registry 的 `_run_worker_async.finally` 进入 `_settle_terminal_pending`。此路径 controller pending 未被 loop drain，`_settle_terminal_pending` 正常续跑。不受 V1 影响。
+
+---
+
+## M1-M3 无回归
+
+全 not-e2e 树（commit 60e4a3da）：**2810 passed, 0 failed, 1 skipped**（Round 2 为 2804，增量 6 = 新增 6 个测试）。所有 M1-M3 路径测试通过，无回归。
+
+---
+
+## Issues（Round 3）
+
+### CRITICAL
+
+无。
+
+### WARNING
+
+**W4（Round 3 新）：abort 出口缺专项 loop 级 commit_terminal 测试**
+
+`loop.py:~286` abort 分支调用 `commit_terminal()`，但 max_turns 和 tool_unavailable 各有一个专项 loop 级测试，abort 出口没有。测试不对称，代码正确性依赖代码审查和间接覆盖。
+
+修复：在 `tests/unit/test_agent_loop.py` 新增 `test_loop_commits_terminal_at_abort_exit_with_pending_steer`，参照已有 max_turns 测试模式，验证 abort 出口后 steer 被拒/fallback。
+
+### SUGGESTION
+
+Round 1/2 的 S1/S2/S3 建议不变，本轮无新增 SUGGESTION。
+
+---
+
+No critical issues. 1 warning to consider (W4: abort exit test gap). Ready for PR (with noted improvements).
