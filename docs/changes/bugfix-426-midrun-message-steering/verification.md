@@ -121,3 +121,129 @@ delta-spec 位于 `docs/changes/bugfix-426-midrun-message-steering/specs/{kernel
 `M2-cli-steering/progress.md:37-41` 已记录：`_send_message_async` per-run stream + `_drain_forever` 持久 drain 形成双订阅，属于 feat-338「单常驻 reader」设计的 drift。产品行为当前正确（双订阅无重复渲染），但属于架构欠债。
 
 进度笔记已建议"独立 refactor unit 将 CLI 渲染收敛回单订阅"，建议 orchestrator 提 follow-up issue 追踪，防止遗忘。
+
+---
+
+# Round 2 — 2026-06-24
+
+> 本轮新增 M4（#140 修复）后的完整验证。M4 引入：决策5（loop 末轮 re-drain 续同一 run、commit_terminal 原子化，正常 steer 不再分裂 run_id）、决策6（kernel 在 drain 消费点发 injection_consumed 信号 → gateway observer 收尾旧气泡 A、开排在 steer 之后的新气泡 B）、决策3 收窄（continuation 仅兜异常终止）。
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | M1–M4 全 Roadpoints DONE；M3 退出标准 3/3 [x]；M4 退出标准 0/7 [x]（格式问题，实现有据）；**一条退出标准（e2e marker 测试）以 unit 层回归替代** |
+| Correctness | M4 新增 5 条 Requirement/Scenario 全覆盖（6 个新增测试 + kernel contract 测试）；全 not-e2e 树 2804 passed |
+| Coherence | 决策5/6/3收窄均遵守；依赖方向 / 跨机边界 / 平行实现无违规 |
+
+No critical issues. 3 warnings to consider. Ready for PR (with noted improvements).
+
+---
+
+## Completeness
+
+### Tasks 完成情况
+
+- **M1 M2**：已在 Round 1 核验，全部 DONE。
+- **M3**：`M3-fix-steer-drain-race/tasks.md` 退出标准 3/3 全勾 `[x]`；Roadpoints 标 `— DONE`；新增并发回归测试 `test_concurrent_group_steer_drain_is_serial_not_interleaved`。
+- **M4**：`M4-fix-steer-reply-relay/tasks.md` 退出标准 7 条全为 `- [ ]`，但 progress.md R1–R4 全标 `[DONE]`，有测试与 live 证据。属格式问题（同 Round 1 W2 模式），不影响完成度——但其中 `新增 e2e 复现 #140（marker e2e）` 的落层与 tasks 策略不符，见 W3。
+
+**Tasks: M1(4/4)+M2(2/2)+M3(1/1 R)+M4(4/4 R) = DONE**
+
+### Spec 覆盖
+
+M4 新增 2 条 Requirement：
+1. `steer 进活跃 run 的消息，其后续事件始终归属同一个 run`（delta-spec kernel/spec.md 行 43）— 实现见 Correctness。
+2. `对插话的回复出现在插话下方，并随 Agent 做事逐步显示`（delta-spec gateway/spec.md 行 37）— 实现见 Correctness。
+
+---
+
+## Correctness
+
+### M4 新增 Requirement：steer 事件归属同一 run（决策5）
+
+| Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| steer 的后续事件都出现在该 run 的事件流上 | `loop.py:459-478` 末轮 `try_commit_terminal()` 非空→ append + continue 同 run；`run_control.py:97-116` `try_commit_terminal` 持 terminal_lock | `test_run_control_terminal_commit.py`: 4 测试（非空不 commit / 空 commit / commit 后 enqueue=False / 200轮并发）；`test_agent_loop.py:575` `test_loop_redrains_at_terminal_and_continues_same_run`；`test_kernel_sdk_behavior_contract.py:594` `test_terminal_window_steer_continues_same_run_no_continuation` | covered |
+| 活跃 run 已结束无法接续时退化为新建 | `run_control.py:91-95` `enqueue_message` 已 commit → return False；`registry.py:567` 透传 bool → Kernel fallback 新 run | `test_run_control_terminal_commit.py:54` `test_enqueue_after_commit_is_rejected` | covered |
+| 事件流标出 steer 消息进入上下文的位置（injection_consumed 信号） | `loop.py:272-274` mid-loop 消费点发 `pending_injection_consumed`；`loop.py:475-477` 末轮 re-drain 消费点同发；`realtime_stream.py:137-189` 转发为 `injection_consumed` session 事件 | `test_agent_loop.py:606` `test_loop_emits_injection_consumed_signal_at_consume_point`；`test_realtime_stream_events.py:193` `test_pending_injection_consumed_emits_injection_consumed`；`:221` `test_pending_injection_consumed_without_run_id_is_skipped` | covered |
+| 决策3 收窄：正常完成不再产生 continuation | `registry.py:712-757` `_settle_terminal_pending` drain 为空→自然 no-op（决策5 loop 末轮已消费或 commit 后 inject=False）；异常终止仍走 continuation 分支 | `test_runs_registry.py:599` 引用 `test_terminal_window_steer_continues_same_run_no_continuation`（确认正常路径 runs_before==runs_after）；`test_runs_registry.py:726` `test_stranded_continuation_fires_on_non_user_cancel`（异常路径仍 continuation） | covered |
+
+### M4 新增 Requirement：气泡滚动（决策6）
+
+| Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| 对插话的回复排在插话下方并随做事流式显示 | `main.py:3732-3793` `injection_consumed` 分支：message_completed(A,completed) + turn_start(B) + 切 message_id；`main.py:3043-3047` accepted 守卫不覆盖活跃 run 上下文 | `test_steer_bubble_roll.py:55` `test_injection_consumed_closes_bubble_a_completed_then_opens_b`；`test_steer_bubble_roll.py:93` `test_injection_consumed_noop_without_bubble`；`test_steer_reply_relay_regression.py:63` `test_collapse_window_steer_streams_reply_in_new_bubble_no_timeout`（真 InboundPipeline relay + 真 observer + 脚本化 kernel 流：同 run_id post-steer 事件不丢、A completed、steer 工具落 B）；`test_inbound_pipeline_streaming.py:115` `test_accepted_phase_preserves_existing_run_context_for_injected_steer`（#140 根因红测：accepted 不覆盖活跃 run 上下文，修前红修后绿） | covered |
+
+---
+
+## Coherence
+
+### M4 关键决策遵守情况
+
+| design 决策 | 遵守? | 代码证据（file:line） |
+|---|---|---|
+| 决策5：loop 终止决策与 inject 原子化，`try_commit_terminal` 持锁，非空续跑同 run（不分裂 run_id） | 是 | `run_control.py:97-116` `try_commit_terminal`；`loop.py:462-478` 终止决策处持锁 re-drain |
+| 决策6：kernel 在 `drain_pending` 消费点发 `pending_injection_consumed` observe 事件；relay 收 `injection_consumed` → close A + open B | 是 | `loop.py:266-274`（mid-loop）+ `loop.py:475-477`（末轮 re-drain）发信号；`realtime_stream.py:137-189` 注册+转发；`main.py:3732-3793` observer 消费 |
+| 决策3 收窄：continuation 仅兜异常终止，正常完成不再产生新 run_id | 是 | `registry.py:712-757` `_settle_terminal_pending`：drain 为空→ return，正常路径自然 no-op（无新 continuation 分支代码，结果源自决策5 的前置消费） |
+| 依赖方向 / 跨机边界 / 平行实现（同 Round 1） | 是（无变化） | `tests/contract/` 依赖方向继续通过；所有 M4 新增实现仍在进程内；复用既有 `_close_old_and_restart` 同款序列（无平行气泡路径） |
+
+### §4.2 代码模式一致性
+
+- M4 新增代码注释符合 COMMENTING_GUIDE：`loop.py:459-477` 有 Why 注释和决策编号；`run_control.py:50-116` 有锁纪律说明；`main.py:3733-3743` 有气泡滚动决策说明。
+- `hook_types.py` 新枚举 `PENDING_INJECTION_CONSUMED` 命名一致（全大写蛇形，与既有枚举一致）。
+- Commit 格式：`fix/test/refactor/docs(bugfix-426/M4/R*)` 规范。
+
+---
+
+## Issues（Round 2 更新）
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（应该修）
+
+**W1（延续，状态更新）：M4 delta-spec 尚未归并进长青契约层；`> 对齐:` 行未 bump**
+
+Round 1 报告时 kernel/cli/gateway spec 均无 steer 内容。目前状态：
+- `docs/specs/kernel/spec.md`：已有 M1 steer requirement（line 150），但 **M4 追加的 Requirement**（`steer 进活跃 run 的消息，其后续事件始终归属同一个 run` 含 3 个 Scenario）未归并；对齐行仍为 `feat-425`。
+- `docs/specs/gateway/spec.md`：已有 M1/M3 steer requirement（line 112），但 **M4 追加的 Requirement**（`对插话的回复出现在插话下方，并随 Agent 做事逐步显示` 含 1 个 Scenario）未归并；对齐行仍为 `bugfix-417`。
+- `docs/specs/cli/spec.md`：已有 M2 REPL steer requirement（line 91），内容完整；对齐行仍为 `feat-392`（未 bump 到 bugfix-426）。
+
+修复：orchestrator 执行 SPEC_GUIDE 收尾归并 checklist：
+1. 把 `docs/changes/bugfix-426-midrun-message-steering/specs/kernel/spec.md` 中「ADDED Requirements (M4，修 #140)」段（共 3 个 Scenario）追加进 `docs/specs/kernel/spec.md` steer 相关 Requirement 之后。
+2. 把 `docs/changes/bugfix-426-midrun-message-steering/specs/gateway/spec.md` 中「Requirement: 对插话的回复出现在插话下方」及其 Scenario 追加进 `docs/specs/gateway/spec.md` steer Requirement 之后。
+3. 三份长青 spec 的 `> 对齐:` 行 bump 到 `bugfix-426`。
+
+**W2（延续）：M4 tasks.md 退出标准 7 条全未勾选**
+
+`M4-fix-steer-reply-relay/tasks.md:13-19` 全为 `- [ ]`，但 progress.md R1–R4 均标 `[DONE]`，测试通过。格式不一致。
+
+修复：orchestrator 把 M4 tasks.md 所有退出标准从 `- [ ]` 更新为 `- [x]`。
+
+**W3（新）：M4 #140 回归测试落 unit 层而非 tasks 策略要求的 e2e 层**
+
+`M4-fix-steer-reply-relay/tasks.md:36` 测试策略写 `落层：tests/e2e/（#140 复现，marker e2e）`，退出标准 `新增 e2e 复现 #140` 也指向 pytest e2e 套件。实际产出：
+- 3 个 unit 层回归测试（`test_steer_bubble_roll.py`、`test_steer_reply_relay_regression.py`、`test_inbound_pipeline_streaming.py:115`）覆盖了 #140 的关键代码路径；
+- `test_steer_reply_relay_regression.py` 使用真 InboundPipeline relay + 真 observer + 脚本化 kernel 流，覆盖度接近 e2e；
+- live 手动验证（真 Gateway 进程 + 真 LLM，scratchpad/e2e_run*.log）作为 Entry 证据，但不在 pytest 套件。
+- `tests/e2e/` 目录下无 #140 专项测试。
+
+修复：tasks.md 策略说明与实际产出不一致。根据 TESTING_GUIDE §6 判据（"半年后还该每次 CI 跑"），需真 Gateway 进程 + 真 LLM 的 e2e 测试不适合日常 CI；unit 层回归覆盖了根因路径，接受当前状态。建议 orchestrator 更新 tasks.md 测试策略，把 `落层：tests/e2e/` 改为 `落层：tests/unit/`，标注 live 证据路径，防止后续混淆。替代方案：若认为有价值，可补写不依赖真 LLM 的 gateway-level e2e 测试（mock LLM + 真 Gateway 进程），落 `tests/e2e/`，marker e2e，importorskip gateway 进程依赖。
+
+### SUGGESTION（可以修）
+
+**S1（延续）：`_settle_terminal_pending` `is_user_interrupt` 分支为防御性冗余，建议补注释**
+
+`registry.py:742` `is_user_interrupt` 分支（`interrupt()` 已同步 drain）在正常流中永不到达（`registry.py:517` 的同步 drain 在先）。建议在 `_settle_terminal_pending` docstring 或 `:742` 前加注：「interrupt() 在 abort 前已同步 drain，此分支为防御路径，正常流不到达——兜 abort-without-drain 的未来变更」。
+
+**S2（延续）：CLI 双订阅 stream 架构欠债，建议独立 unit 跟踪**
+
+同 Round 1 S2，无变化。
+
+**S3（新）：`docs/specs/cli/spec.md` `> 对齐:` 行未 bump（内容已归并，标记遗漏）**
+
+`docs/specs/cli/spec.md:3` 写 `> 对齐: feat-392`，但 M2 的 REPL steer requirement 已归并（line 91+）。标记与内容不一致，阅读时易产生「这份 spec 不含 bugfix-426 改动」的误判。
+
+修复：`docs/specs/cli/spec.md:3` `feat-392` → `bugfix-426`（与 W1 修复一并执行）。
