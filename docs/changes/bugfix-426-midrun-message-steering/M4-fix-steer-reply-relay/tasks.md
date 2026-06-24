@@ -10,13 +10,14 @@ run 收尾瞬间 steer 不再分裂出新 run_id：注入消息由同一个 run 
 
 ## 退出标准
 
-- [ ] 模型末轮无 tool_call、终态提交前一刻 inject → 同一 run_id 续跑（非新 run）、`injected=True`
-- [ ] inject 在 `commit_terminal` 之后 → `injected=False`（lost-race，调用方 fallback 新 run）
-- [ ] kernel 在 drain 真正消费注入消息处发信号事件（单测断言）
-- [ ] 决策3：正常完成路径不再产生 continuation（由决策5 续跑覆盖）；异常终止仍 continuation
-- [ ] gateway 收信号 → 收尾旧气泡 A（完成态）+ 开新气泡 B（排在 steer 之后），后续事件流式进 B
-- [ ] 新增 e2e 复现 #140（收尾瞬间 steer → 新气泡流式、旧气泡完成态、无 relay-idle 超时）修前红修后绿
-- [ ] 全测试树 not-e2e 全绿
+- [x] 模型末轮无 tool_call、终态提交前一刻 inject → 同一 run_id 续跑（非新 run）、`injected=True`
+- [x] inject 在 `commit_terminal` 之后 → `injected=False`（lost-race，调用方 fallback 新 run）
+- [x] kernel 在 drain 真正消费注入消息处发信号事件（单测断言）
+- [x] 决策3：正常完成路径不再产生 continuation（由决策5 续跑覆盖）；异常终止仍 continuation
+- [x] gateway 收信号 → 收尾旧气泡 A（完成态）+ 开新气泡 B（排在 steer 之后），后续事件流式进 B
+- [x] 新增 e2e 复现 #140（收尾瞬间 steer → 新气泡流式、旧气泡完成态、无 relay-idle 超时）修前红修后绿
+- [x] 全测试树 not-e2e 全绿
+- [x] **(fix 轮 V1)** 决策5 终态提交覆盖**全部**终止出口（max_turns / tool_unavailable / abort），任何出口后到达的 inject 都被拒→fallback 干净新 run，不 stranded 成 continuation
 
 ## 测试策略
 
@@ -33,9 +34,12 @@ run 收尾瞬间 steer 不再分裂出新 run_id：注入消息由同一个 run 
   - `tests/unit/test_runs_registry.py`（扩展：commit 后 inject=False + 决策3 收窄）
   - `tests/unit/test_realtime_stream_*`（新建/扩展：injection_consumed 转发）
   - gateway observer：定位 main.py observer 现有测试或 inbound_pipeline 测试（扩展）
-- 落层/目录/marker：tests/unit/（worker 轨）、tests/e2e/（#140 复现，marker e2e）
-- 可选依赖 importorskip：e2e 走真 Gateway 进程（scripts/e2e-up.sh），无新顶层依赖
-- 本 milestone 产生的一次性验收证据（收尾删除）：reviewer 轨 e2e 栈截图/log（live 证据，记 progress 不进套件）
+- 落层/目录/marker（W3 落层说明）：#140 回归**落 unit 层**而非 e2e marker——`test_steer_reply_relay_regression.py`
+  以真 InboundPipeline relay + 真 observer + 脚本化 kernel 流确定性复现（无需起进程/真 LLM），覆盖 gateway 层「同 run 事件不丢 + 气泡滚动」；
+  `test_kernel_sdk_behavior_contract.py` 真 kernel+loop 覆盖内核层「同 run 不分裂」；V1 两条硬停出口走 loop 层确定性单测（live 难触发）。
+  真栈 live 旅程（scripts/e2e-up.sh）作为 DONE 硬证据记 progress、不进 CI 套件（一次性验收证据）。
+- 可选依赖 importorskip：无新顶层依赖
+- 本 milestone 产生的一次性验收证据（收尾删除）：live e2e 栈日志（scratchpad/e2e_run*.log），记 progress 不进套件
 
 前端 UI 状态矩阵：N/A（本 milestone 不改前端代码；气泡 A/B 行为由 gateway→IM 协议帧驱动，IM 前端已有 message_completed/turn_start/message_delta 渲染路径，复用 `_close_old_and_restart` 同款帧序列，无新前端逻辑）。reviewer 轨在真 IM 浏览器观察气泡时序作为 live 验收证据。
 
