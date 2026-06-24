@@ -737,3 +737,76 @@ def test_foreground_passes_parent_as_llm_session_id() -> None:
         assert captured["llm_session_id"] == "parent_1"
         # the runtime.run target session is the subagent's own session
         assert captured["session_id"] != "parent_1"
+
+
+# ------------------------------------------------------------------
+# load_skills validation (bugfix-431): non-empty skill names
+# ------------------------------------------------------------------
+
+
+def _make_tool_with_skills(available_skill_names: list[str]) -> AgentTool:
+    """Build an AgentTool whose runtime.resolve_available_skills returns the given names."""
+    from agent.core.skills import SkillMetadata
+
+    runtime = MagicMock()
+    runtime.create_session = _fake_create_session
+    runtime._session_manager.store.resolve_path.return_value = Path("/tmp/sess_123.jsonl")
+    runtime._session_manager.store.find_session_by_metadata.return_value = None
+
+    # Construct minimal SkillMetadata stubs for each known skill name.
+    fake_dir = Path("/fake")
+    skill_metas = tuple(
+        SkillMetadata(name=n, description=f"{n} desc", location=fake_dir, base_dir=fake_dir)
+        for n in available_skill_names
+    )
+
+    def _resolve(workspace_root, include_names=None):
+        if include_names is None:
+            return skill_metas
+        return tuple(s for s in skill_metas if s.name in include_names)
+
+    runtime.resolve_available_skills.side_effect = _resolve
+
+    tool = AgentTool(runtime=runtime, wiring=None)
+    return tool
+
+
+def test_load_skills_known_skill_passes_validation() -> None:
+    """A known skill name in load_skills must not raise (bugfix-431 校验路径)."""
+    tool = _make_tool_with_skills(["summarize", "search_web"])
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        # Should not raise — "summarize" is in the available set.
+        # With no wiring the call raises ToolError for missing category/subagent_type,
+        # not for skill validation — so we just check that skill validation itself passes.
+        with pytest.raises(ToolError) as exc_info:
+            tool.run(
+                {
+                    "description": "test",
+                    "prompt": "do it",
+                    "subagent_type": "explore",
+                    "load_skills": ["summarize"],
+                },
+                ctx,
+            )
+        # Skill validation passed — error is about wiring/runner, not "unknown skills".
+        assert "unknown skills" not in str(exc_info.value)
+
+
+def test_load_skills_unknown_skill_raises_tool_error() -> None:
+    """An unknown skill name in load_skills must raise ToolError (bugfix-431 校验路径)."""
+    tool = _make_tool_with_skills(["summarize"])
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        with pytest.raises(ToolError) as exc_info:
+            tool.run(
+                {
+                    "description": "test",
+                    "prompt": "do it",
+                    "subagent_type": "explore",
+                    "load_skills": ["no_such_skill"],
+                },
+                ctx,
+            )
+        assert "unknown skills" in str(exc_info.value)
+        assert "no_such_skill" in str(exc_info.value.details)
