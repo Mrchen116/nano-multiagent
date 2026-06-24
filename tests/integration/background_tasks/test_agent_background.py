@@ -121,6 +121,11 @@ class _RuntimeStub:
             stop_reason="completed",
         )
 
+    def resolve_available_skills(
+        self, workspace_root: Any, include_names: Any = None
+    ) -> tuple:
+        return ()
+
 
 class _RunsRegistryStub:
     def __init__(self) -> None:

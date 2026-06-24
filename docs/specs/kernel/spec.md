@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: bugfix-429-per-agent-model-selection
+> 对齐: bugfix-431-runtime-skill-resolution
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -405,6 +405,31 @@ SDK-owned 不可变数据,与已装配 Kernel 实际能力一致;内核不做产
 - **WHEN** `list_skills(workspace_root)`
 - **THEN** 返回 workspace skill + R1/R2 中的 skill,顺序为「workspace → R1 → R2」去重;
   跨 workspace 调用时部署级根一致、workspace 部分各异
+
+### Requirement: 同一 workspace 下 preview、list_skills 与运行时注入的技能集合一致
+
+`assemble_prompt_preview` 预览展示的技能、`list_skills(workspace_root)` 查询返回的技能、以及一次真实
+session turn 注入 system prompt `<available_skills>` 的技能,对同一 `(workspace_root, skills)` 配置解析
+出**同一集合**——搜索根均为 `<workspace_root>/<workspace_config_dirname>/skills` 叠加
+`build_kernel(skill_search_roots=…)`,不存在「预览看得到、运行时看不到」的分歧。
+
+#### Scenario: 预览与运行时技能一致
+- **GIVEN** `build_kernel(skill_search_roots=…, workspace_config_dirname=…)` 装配的 Kernel,某 session
+  的 `skills` 含若干在 workspace 配置目录或 `skill_search_roots` 下暴露的技能名
+- **WHEN** 取 `assemble_prompt_preview(skill_ids=…, workspace_root=…)` 展示的技能,与该 session 真实
+  执行一轮后 LLM 请求中 `<available_skills>` 列出的技能
+- **THEN** 两者为同一集合(同名 + 同路径),不会出现预览齐全而运行时缩水成单个共享根技能的情形
+
+#### Scenario: 子 agent 的 load_skills 校验与 list_skills 同口径
+- **GIVEN** 某 session 的 agent 经 `agent` 工具创建子 agent 并传入 `load_skills`
+- **WHEN** 工具校验 `load_skills`
+- **THEN** 在该 workspace 配置目录或 `skill_search_roots` 下暴露的技能名通过校验,不存在的技能名报错;
+  通过的集合与 `list_skills(workspace_root)` 对同一名集合的结果一致
+
+#### Scenario: 未提供 workspace_config_dirname 时技能集合为空
+- **GIVEN** 经 `build_kernel()` 未传入 `workspace_config_dirname`
+- **WHEN** 取 preview / `list_skills` / 运行时注入的技能
+- **THEN** 三者均为空,不隐式回退到 `~/.codex/skills` 等 legacy 默认路径
 
 ### Requirement: Kernel 出入参为 SDK-owned 类型
 
