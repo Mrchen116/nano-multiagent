@@ -49,7 +49,7 @@ run 收尾瞬间 steer 不再分裂出新 run_id：注入消息由同一个 run 
   - `registry.inject_pending_message`：持同一终止锁，已 commit → 返回 False（lost-race，调用方 fallback 新 run）。
 - 验证: 红测先证「终态前 inject 被 stranded / inject 在 commit 后仍 True」，实现后转「同 run 续轮 / commit 后 inject=False」。
 
-### R2 — 决策3 收窄：_settle_terminal_pending continuation 仅兜异常终止
+### R2 — 决策3 收窄：_settle_terminal_pending continuation 仅兜异常终止  [DONE]
 
 - 步骤: 正常完成路径 stranded 已被决策5 续跑吞掉（terminal commit 后 controller 队列空）；确认/调整 `_settle_terminal_pending` 仅在异常终止（cancel/timeout/crash）仍 continuation，正常完成路径 drain 为空 → 自然 no-op。审旧测试 `test_stranded_continuation_follows_injected_origin` 是否仍反映正常路径（若正常路径不再 stranded，改测异常路径）。
 - 验证: 正常完成 + 终态前 inject → 同 run 续跑、无第二个 run（决策5 覆盖）；异常终止 + inject → continuation 仍在。

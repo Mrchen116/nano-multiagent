@@ -39,7 +39,23 @@
 - Rollback: `git revert` R1 C2 回排队/stranded-continuation 旧行为；纯加法，无数据迁移。
 - Commits: C1=红测, C2=决策5 实现, C3=本次 docs。
 
-## R2 — 决策3 收窄：continuation 仅兜异常终止
+## R2 — 决策3 收窄：continuation 仅兜异常终止  [DONE]
+
+- Context: 决策3 收窄要求「正常完成不再产生 continuation」。
+- Decision/Rationale: 收窄是决策5 的**自然结果**，非新代码分支——正常完成时 loop 的终止 re-drain
+  已消费 steer（同 run 续轮）或 inject 被拒（never enqueue），到 `_settle_terminal_pending` 时
+  controller 队列必空 → 自然 no-op；该 chokepoint 仅在异常终止（loop 未达终止决策即被 cancel/timeout/crash
+  unwind）才有 stranded 可续。故 `_settle_terminal_pending` **无须改**。
+- Evidence:
+  - Tests: 新增 kernel contract `test_terminal_window_steer_continues_same_run_no_continuation`——
+    真 kernel+loop，终态窗口 inject → 同 run 续轮（2 个 LLM round、steer 进第二轮上下文）、injected=True、
+    `runs_after == runs_before`（无 continuation 新 run_id）。这是 #140 的内核级端到端回归证据。30 passed。
+  - 旧测试审计：`test_stranded_continuation_follows_injected_origin` docstring 厘清为 registry-isolation
+    测 chokepoint origin 机制（stub runtime 是到达机制的载体），正常完成不再走此路径；异常路径由
+    `test_stranded_continuation_fires_on_non_user_cancel` 在真实 strand 路径覆盖。
+  - Entry / Browser / E2E / Visual: N/A（同 R1，真旅程在 R4）。
+- Rollback: revert R2 commit（test-only）。
+- Commits: 单 commit（§FL ② 轻量化：自包含 verify+审计，无独立实现 commit）。
 
 ## R3 — 决策6 信号：消费点发 pending_injection_consumed → injection_consumed
 
