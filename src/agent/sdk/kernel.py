@@ -255,8 +255,8 @@ def _factory_config_to_llm_config(
     """Map the internal LLMFactoryConfig to the SDK-owned LLMConfig boundary DTO.
 
     Preserves the catalog (providers / default_model) from the build-time
-    ``catalog`` when available, so ``get_llm_config`` / ``reconfigure_llm`` carry
-    the full provider list, not just the active connection.
+    ``catalog`` when available, so ``get_llm_config`` carries the full provider
+    list, not just the active connection.
     """
     return LLMConfig(
         provider=getattr(cfg, "provider", ""),
@@ -387,9 +387,29 @@ def _build_kernel_base(
     if _llm_client_override is not None:
         llm_client_factory = None
         direct_llm_client: LLMClient | None = _llm_client_override
+        llm_clients: dict[str, LLMClient] | None = None
     else:
         llm_client_factory = lambda cfg: _platform_create_llm_client(config=cfg)  # noqa: E731
         direct_llm_client = None
+        # bugfix-429 决策3: build one client per declared provider so a run is
+        # routed to the client of its model's registered provider. Within a
+        # provider all models share base_url (set here); only request.model
+        # varies per call, so one client per provider suffices. Providers with no
+        # models are skipped — nothing routes to them (no model maps to them) and
+        # building a client would resolve an empty model map.
+        llm_clients = {
+            p.name: _platform_create_llm_client(
+                config=LLMFactoryConfig(
+                    provider=p.name,
+                    model=p.models[0].name,
+                    base_url=p.base_url,
+                    api_key=llm.api_key,
+                    timeout_seconds=llm.timeout_seconds,
+                )
+            )
+            for p in llm.providers
+            if p.models
+        } or None
 
     runtime = AgentRuntime(
         session_manager=session_service.manager,
@@ -398,6 +418,7 @@ def _build_kernel_base(
         permission_broker=permission_broker,
         llm_client=direct_llm_client,
         llm_client_factory=llm_client_factory,
+        llm_clients=llm_clients,
         model=factory_config.model,
         # Product-neutral kernel skeleton; product text enters per-session via
         # create_session(prompt=PromptSlots) (决策 8).
@@ -843,6 +864,7 @@ class Kernel:
         trace_id: str | None = None,
         steer: bool = False,
         flush_held: bool = True,
+        model: str | None = None,
     ) -> RunInfo:
         """Schedule a turn on the background loop and return immediately.
 
@@ -863,6 +885,12 @@ class Kernel:
                 The gateway's /stop handler passes False for its synthetic "/stop
                 命令" bookkeeping turn so the held messages ride the user's next
                 real message instead.
+            model: Model id for this run (bugfix-429). Supplied by the product
+                layer per turn (agent.default_model, with the product's own
+                default as fallback) so per-agent model selection takes effect and
+                old sessions pick up a model change on the next turn. The kernel
+                does not own a conversational default; it stores this on the run
+                record and the loop routes the request to the model's provider.
 
         Returns:
             RunInfo with run_id / session_id / status. ``injected=True`` when the
@@ -883,6 +911,7 @@ class Kernel:
             workspace_root=effective_root,
             trace_id=trace_id,
             flush_held=flush_held,
+            model=model,
         )
         return _to_run_info(record)
 
@@ -1254,22 +1283,6 @@ class Kernel:
         return _factory_config_to_llm_config(
             self._c.runtime.get_llm_config(), catalog=self._llm_catalog
         )
-
-    def reconfigure_llm(self, **patch: Any) -> LLMConfig:
-        """Reconfigure provider/model connection without recreating the runtime.
-
-        Used by CLI ``/model`` (决策 5 scope A): switches the kernel-level model
-        with immediate effect; subsequent turns use the new model.
-
-        Args:
-            **patch: Fields to update on the active connection
-                (provider, model, base_url, timeout_seconds, api_key).
-
-        Returns:
-            Updated LLMConfig DTO.
-        """
-        updated = self._c.runtime.reconfigure_llm(**patch)
-        return _factory_config_to_llm_config(updated, catalog=self._llm_catalog)
 
     def append_message(
         self,

@@ -5,6 +5,12 @@ import re
 from pathlib import Path
 from typing import Any, Mapping
 
+from agent.core.agent.agents_md import (
+    find_outermost_git_root,
+    iter_agents_md_chain,
+    load_agents_md,
+)
+from agent.core.agent.prompt_sections.feature_registry import FEATURE_REGISTRY
 from agent.core.errors import ToolError
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
@@ -184,7 +190,17 @@ class ReadTool:
         display_path = _display_path(file_path, ctx.repo_root)
         normalized_offset = offset if offset > 1 else None
 
-        if ctx.session_file_state is not None:
+        # feat-428 机制 B: compute nested-memory injection blocks up front. When the
+        # file is unchanged we normally short-circuit, but if there are pending
+        # AGENTS.md blocks to (re)inject — e.g. the dedup set was cleared at a
+        # compaction boundary — we must NOT take the file_unchanged fast path, or
+        # the re-injection would be skipped. fix r1: compute is pure; dedup keys
+        # are committed (_commit_nested_dedup) only after the blocks land in the
+        # returned content, so a later read failure never strands an AGENTS.md as
+        # "loaded but not injected".
+        nested_blocks, nested_keys = _nested_memory_blocks(file_path, ctx)
+
+        if ctx.session_file_state is not None and not nested_blocks:
             try:
                 if ctx.session_file_state.check_unchanged(
                     str(file_path.resolve()), normalized_offset, limit
@@ -222,23 +238,29 @@ class ReadTool:
                 except (OSError, ValueError):
                     pass
 
+            image_content: list[dict[str, Any]] = [
+                {
+                    "type": "text",
+                    "text": text_note,
+                },
+                {
+                    "type": "image",
+                    "data": encoded,
+                    "mimeType": mime_type,
+                },
+            ]
+            # feat-428 机制 B: image reads trigger nested-memory injection too
+            # (blocks computed once above, before the file_unchanged check).
+            image_content.extend(nested_blocks)
+            # fix r1: commit dedup only now that blocks are in the returned content.
+            _commit_nested_dedup(ctx, nested_keys)
             return {
                 "path": display_path,
                 "offset": 1,
                 "next_offset": None,
                 "total_lines": 0,
                 "truncated": False,
-                "content": [
-                    {
-                        "type": "text",
-                        "text": text_note,
-                    },
-                    {
-                        "type": "image",
-                        "data": encoded,
-                        "mimeType": mime_type,
-                    },
-                ],
+                "content": image_content,
             }
 
         try:
@@ -270,13 +292,24 @@ class ReadTool:
             max_bytes=ctx.safety.config.read_max_bytes,
         )
 
+        content_blocks: list[dict[str, Any]] = [
+            {"type": "text", "text": truncation["content"]}
+        ]
+        # feat-428 机制 B: append nearest AGENTS.md content (in-workspace) or an
+        # outside-project path hint (blocks computed once above, before the
+        # file_unchanged check; deduped via session_file_state.loaded_agents_md).
+        content_blocks.extend(nested_blocks)
+        # fix r1: commit dedup only now that blocks are in the returned content
+        # (the file body read above already succeeded — no failure can strand them).
+        _commit_nested_dedup(ctx, nested_keys)
+
         response: dict[str, Any] = {
             "path": display_path,
             "offset": offset,
             "next_offset": None,
             "total_lines": total_lines,
             "truncated": bool(truncation["truncated"]),
-            "content": [{"type": "text", "text": truncation["content"]}],
+            "content": content_blocks,
             "details": {"truncation": truncation},
         }
 
@@ -320,20 +353,167 @@ class ReadTool:
                 if has_image:
                     return list(content_blocks)
 
-                texts = [
+                # feat-428 fix r1: only the file-body text blocks get cat -n line
+                # numbers. Injected nested-memory blocks (marked injected=True) carry
+                # <project-instructions*> tags that must reach the model verbatim —
+                # line-numbering them would corrupt the injected instructions.
+                body_texts = [
                     block.get("text", "")
                     for block in content_blocks
-                    if isinstance(block, Mapping) and block.get("type") == "text"
+                    if isinstance(block, Mapping)
+                    and block.get("type") == "text"
+                    and not block.get("injected")
                 ]
-                combined = "\n".join(texts)
+                injected_texts = [
+                    block.get("text", "")
+                    for block in content_blocks
+                    if isinstance(block, Mapping)
+                    and block.get("type") == "text"
+                    and block.get("injected")
+                ]
+                combined = "\n".join(body_texts)
 
-                if not combined:
+                if not combined and not injected_texts:
                     return "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>"
 
                 offset = output.get("offset", 1)
-                return _add_line_numbers(combined, offset)
+                numbered_body = _add_line_numbers(combined, offset) if combined else ""
+                parts = [p for p in (numbered_body, *injected_texts) if p]
+                return "\n".join(parts)
 
         return json_serialize(output)
+
+
+# ---------------------------------------------------------------------------
+# feat-428 机制 B: read-triggered nested AGENTS.md injection
+# ---------------------------------------------------------------------------
+
+
+def _nested_memory_enabled(ctx: ToolContext) -> bool:
+    """Whether 机制 B is active for this session.
+
+    Reads the per-agent ``agent_features.nested_memory`` override when present,
+    else falls back to FEATURE_REGISTRY's ``default_on`` (decision 5). The
+    ``requires_tool`` registry field does NOT gate here — read.py is the read
+    tool, and the real switch is default_on + the per-agent override.
+    """
+    default_on = bool(FEATURE_REGISTRY["nested_memory"]["default_on"])
+    features = ctx.session_metadata.get("agent_features")
+    if isinstance(features, Mapping):
+        override = features.get("nested_memory")
+        if isinstance(override, bool):
+            return override
+    return default_on
+
+
+def _commit_nested_dedup(ctx: ToolContext, keys: list[str]) -> None:
+    """Record injected AGENTS.md paths into the session dedup set (fix r1).
+
+    Called only after the injection blocks are placed in the returned content, so
+    a read that fails mid-way never marks an AGENTS.md as loaded-but-not-injected.
+    """
+    state = ctx.session_file_state
+    if state is None or not keys:
+        return
+    state.loaded_agents_md.update(keys)
+
+
+def _nested_memory_blocks(
+    file_path: Path, ctx: ToolContext
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Compute AGENTS.md injection blocks for a just-read file (机制 B).
+
+    In-workspace reads return each not-yet-injected AGENTS.md on the directory
+    chain (file dir … workspace root) as a ``<project-instructions path=...>``
+    block carrying the @import-expanded content. Out-of-workspace reads that fall
+    inside a git repo return a single ``<project-instructions-hint>`` block
+    listing every AGENTS.md path from the file dir up to the outermost git root
+    (no content, to save context). Files outside any git repo yield nothing.
+
+    fix r1: this function is **pure** — it does NOT mutate
+    ``loaded_agents_md``. It returns ``(blocks, keys)``; the caller commits the
+    keys (records dedup) only after the blocks are actually delivered in the
+    returned content. Otherwise a later failure (non-UTF-8 main file → ToolError,
+    image read OSError) would leave the AGENTS.md marked loaded but never injected,
+    permanently skipping it for the session.
+
+    Dedup is via ``ctx.session_file_state.loaded_agents_md`` (shared with 机制 A's
+    preseeded workspace root); each AGENTS.md path is injected/hinted once per
+    session until the compaction boundary clears the set.
+    """
+    if not _nested_memory_enabled(ctx):
+        return [], []
+    state = ctx.session_file_state
+    if state is None:
+        return [], []
+
+    # fix r1: resolve the real file first, then take its parent, so symlinked
+    # directories walk the real chain and the dedup keys match
+    # is_path_in_workspace (which also resolves). iter_agents_md_chain resolves
+    # internally too.
+    resolved_file = file_path.resolve()
+    file_dir = resolved_file.parent
+    # ctx.repo_root is the session's workspace_root (rewritten by the registry's
+    # _resolve_execution_context), so is_path_in_workspace anchors workspace_root.
+    if ctx.safety.is_path_in_workspace(resolved_file):
+        return _inside_workspace_blocks(file_dir, ctx.repo_root, state)
+    return _outside_workspace_blocks(file_dir, state)
+
+
+def _inside_workspace_blocks(
+    file_dir: Path, workspace_root: Path, state: Any
+) -> tuple[list[dict[str, Any]], list[str]]:
+    blocks: list[dict[str, Any]] = []
+    keys: list[str] = []
+    for agents_path in iter_agents_md_chain(file_dir, top=workspace_root):
+        key = str(agents_path.resolve())
+        if key in state.loaded_agents_md or key in keys:
+            continue
+        content = load_agents_md(agents_path)
+        if content is None:
+            continue
+        keys.append(key)
+        blocks.append(
+            {
+                "type": "text",
+                "injected": True,
+                "text": (
+                    f'<project-instructions path="{key}">\n'
+                    f"{content}\n"
+                    "</project-instructions>"
+                ),
+            }
+        )
+    return blocks, keys
+
+
+def _outside_workspace_blocks(
+    file_dir: Path, state: Any
+) -> tuple[list[dict[str, Any]], list[str]]:
+    repo_root = find_outermost_git_root(file_dir)
+    if repo_root is None:
+        return [], []
+    new_paths: list[str] = []
+    for agents_path in iter_agents_md_chain(file_dir, top=repo_root):
+        key = str(agents_path.resolve())
+        if key in state.loaded_agents_md or key in new_paths:
+            continue
+        new_paths.append(key)
+    if not new_paths:
+        return [], []
+    paths_block = "\n".join(f"  {p}" for p in new_paths)
+    hint = (
+        "<project-instructions-hint>\n"
+        "The file you just read is outside your workspace, in the project rooted "
+        f"at {repo_root.resolve()}.\n"
+        "This project ships instruction file(s) describing its conventions, not "
+        "loaded here to save context:\n"
+        f"{paths_block}\n"
+        "Read any of them with the read tool if you need this project's "
+        "conventions before working in it.\n"
+        "</project-instructions-hint>"
+    )
+    return [{"type": "text", "injected": True, "text": hint}], new_paths
 
 
 def _add_line_numbers(text: str, start_line: int = 1) -> str:

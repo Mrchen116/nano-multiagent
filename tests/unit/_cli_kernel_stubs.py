@@ -12,7 +12,6 @@
 - interrupt(session_id) → str | None (sync)
 - close() → None
 - get_llm_config() → config-like object (sync)
-- reconfigure_llm(**patch) → config-like object (sync)
 """
 
 from __future__ import annotations
@@ -105,13 +104,16 @@ class _BaseKernelStub:
         origin: Any = None,
         workspace_root: Any = None,
         trace_id: str | None = None,
+        model: str | None = None,
     ) -> _StubRunRecord:
         text = ""
         for part in parts:
             if isinstance(part, dict) and part.get("type") == "text":
                 text = part.get("text", "")
         self._last_text = text
-        self.calls.append(("submit", {"session_id": session_id, "text": text}))
+        self.calls.append(
+            ("submit", {"session_id": session_id, "text": text, "model": model})
+        )
         self._run_id_counter += 1
         return _StubRunRecord(run_id=f"run-{self._run_id_counter}")
 
@@ -181,13 +183,6 @@ class _BaseKernelStub:
 
     def get_llm_config(self) -> _StubLLMConfig:
         self.calls.append(("get_llm_config", None))
-        return self._llm_config
-
-    def reconfigure_llm(self, **kwargs: Any) -> _StubLLMConfig:
-        self.calls.append(("reconfigure_llm", kwargs))
-        for key, value in kwargs.items():
-            if hasattr(self._llm_config, key):
-                setattr(self._llm_config, key, value)
         return self._llm_config
 
 

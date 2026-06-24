@@ -56,9 +56,17 @@ done
 
 # ─── port allocation ─────────────────────────────────────────────────────────
 
-REPO_ROOT="$(git -C "$WT_ROOT" rev-parse --show-toplevel 2>/dev/null || dirname "$WT_ROOT")"
+# REPO_ROOT must resolve to the checkout that holds src/ and scripts/, NOT to
+# $WT_ROOT — feat-421 runs the stack with --wt pointing at a pytest tmp dir that
+# is not a git checkout and has no src/. Derive it from this script's own path
+# ($0 lives in <repo>/scripts/) so PYTHONPATH and free-ports.sh resolve no matter
+# where $WT_ROOT points. Falls back to git/dirname only if $0 derivation fails.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd 2>/dev/null)"
+REPO_ROOT="${REPO_ROOT:-$(git -C "$WT_ROOT" rev-parse --show-toplevel 2>/dev/null || dirname "$WT_ROOT")}"
+SRC_DIR="$REPO_ROOT/src"
 FREE_PORTS_SH="$REPO_ROOT/scripts/free-ports.sh"
-[[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$(dirname "$0")/free-ports.sh"
+[[ -x "$FREE_PORTS_SH" ]] || FREE_PORTS_SH="$SCRIPT_DIR/free-ports.sh"
 # refactor-387 M3: kernel runs in-process; only 1 port needed (IM).
 read -r IM_PORT < <("$FREE_PORTS_SH" 1)
 
@@ -123,7 +131,7 @@ rm -f "$WT_ROOT/data/im_service.sqlite3"
 rm -f "$WT_ROOT/heartbeat-state.json"
 
 cd "$WT_ROOT"
-IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH=src \
+IM_JWT_SECRET="$JWT_SECRET" PYTHONPATH="$SRC_DIR" \
   python -m uvicorn IM.app:app --host 127.0.0.1 --port "$IM_PORT" \
   > "$WT_ROOT/.im.log" 2>&1 &
 echo $! > "$WT_ROOT/.im.pid"
@@ -191,7 +199,7 @@ fi
 # replaces the interactive "click this URL" step that breaks worktree e2e.
 # refactor-381.
 
-PYTHONPATH=src python -m personal_assistant.main \
+PYTHONPATH="$SRC_DIR" python -m personal_assistant.main \
   --config "$WT_CFG" \
   --im-service-url "http://127.0.0.1:$IM_PORT" \
   --foreground \

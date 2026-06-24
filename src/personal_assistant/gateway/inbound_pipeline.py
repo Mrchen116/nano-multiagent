@@ -14,7 +14,10 @@ from personal_assistant.channels.base import (
     OutboundMessage,
     ReplyContext,
 )
-from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.config.local_store import (
+    AgentWorkspaceConfig,
+    resolve_run_model,
+)
 from personal_assistant.gateway.background_session_events import (
     BackgroundSessionEventSubscriber,
 )
@@ -161,11 +164,18 @@ class InboundPipeline:
         kernel_event_observer: Callable[[Mapping[str, Any]], None] | None = None,
         session_event_callback: Callable[[str, Mapping[str, Any]], Awaitable[None]]
         | None = None,
+        product_default_model: str | None = None,
     ) -> None:
         if run_idle_timeout_seconds <= 0:
             raise ValueError("run_idle_timeout_seconds must be > 0")
         self._kernel = kernel
         self._agents = {agent.agent_id: agent for agent in agents}
+        # bugfix-429 决策2: the product owns the default model. Each turn submits
+        # agent.default_model (read fresh from self._agents so a config change takes
+        # effect on the next turn, incl. old sessions) and falls back to this
+        # product default when the agent has not selected one. The kernel holds no
+        # conversational default.
+        self._product_default_model = product_default_model
         self._outbound_router = outbound_router
         self._run_queue = run_queue
         self._session_store = session_store
@@ -337,6 +347,7 @@ class InboundPipeline:
             parts=parts,
             workspace_root=agent_workspace_root_path,
             steer=True,
+            model=self._resolve_model(agent_id),
         )
         if not getattr(run_record, "injected", False):
             # Race: run ended before the enqueue. Caller re-runs with these parts.
@@ -401,6 +412,7 @@ class InboundPipeline:
                 session_id=binding.kernel_session_id,
                 parts=parts,
                 workspace_root=agent_workspace_root_path,
+                model=self._resolve_model(agent_id),
             )
             run_id = run_record.run_id
             # Anchor the per-turn event stream to this run's own start position.
@@ -888,6 +900,7 @@ class InboundPipeline:
             ],
             workspace_root=agent_workspace_root_path,
             flush_held=False,
+            model=self._resolve_model(agent_id),
         )
         reply_text = "已停止当前操作。"
         outbound = await self._deliver_stop_ack(
@@ -957,6 +970,19 @@ class InboundPipeline:
         self._agents[agent.agent_id] = agent
         if self._default_agent_id is None:
             self._default_agent_id = agent.agent_id
+
+    def _resolve_model(self, agent_id: str) -> str | None:
+        """Resolve the model for one turn (bugfix-429 决策2).
+
+        Reads ``agent.default_model`` fresh from the live ``self._agents`` map
+        (config.sync updates it via register_agent) so a model change applies to
+        the next turn, including existing/old sessions. The fallback rule lives in
+        the shared ``resolve_run_model`` helper (fix-r1 #3).
+        """
+        return resolve_run_model(
+            self._agents.get(agent_id),
+            product_default=self._product_default_model,
+        )
 
     def _binding_matches_workspace_root(
         self, session_id: str, *, expected_workspace_root: str

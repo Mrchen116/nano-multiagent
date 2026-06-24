@@ -139,6 +139,18 @@ def test_build_node_capabilities_payload_has_required_keys(tmp_path: Path) -> No
         assert key in payload, f"node capabilities payload missing '{key}'"
 
 
+def test_node_capabilities_models_carry_provider(tmp_path: Path) -> None:
+    """bugfix-429 R5: each model entry carries its registered provider so the IM
+    agent-config dropdown can label the model's format (anthropic / openai_compat)."""
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+    payload = build_node_capabilities_payload(kernel)
+    models = payload["models"]
+    assert isinstance(models, list) and models
+    by_name = {m["name"]: m["provider"] for m in models}
+    assert by_name["kimiCoding:K2.6"] == "anthropic"
+    assert by_name["codex_oauth:gpt-5.5"] == "openai_compat"
+
+
 # ---------------------------------------------------------------------------
 # feat-379-M9 R1 (决策 13): capabilities.tools 必须含 memory / skill_manage
 # refactor-406-M2: tools now come from the Gateway projection (capability_projection)

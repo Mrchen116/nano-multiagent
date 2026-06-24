@@ -23,6 +23,7 @@ from agent.core.llm.interfaces import (
     LLMMessage,
     LLMToolCall,
 )
+from agent.core.llm.model_registry import provider_of
 from agent.core.observability.tracing import span
 from agent.core.skills.registry import SkillMetadata
 from agent.core.tools.result_budget import (
@@ -72,6 +73,7 @@ class AgentLoop:
         *,
         llm_client: LLMClient,
         model: str,
+        llm_clients: dict[str, LLMClient] | None = None,
         policies: AgentPolicies | None = None,
         system_prompt: str = "",
         hook_runner: HookRunner | None = None,
@@ -87,6 +89,12 @@ class AgentLoop:
         on_compaction: Callable[[str], None] | None = None,
     ) -> None:
         self._llm_client = llm_client
+        # bugfix-429: per-provider client map for routing a run to the client of
+        # its model's registered provider (decision 3). None → single-client path
+        # (unit tests / callers that have not migrated): self._llm_client serves
+        # every model. Within one provider all models share base_url; only the
+        # request.model string varies, so one client per provider suffices.
+        self._llm_clients = llm_clients
         self._model = model
         self._policies = policies or AgentPolicies()
         self._system_prompt = system_prompt or ""
@@ -119,11 +127,23 @@ class AgentLoop:
 
         self._tool_registry = tool_registry
 
-    def bind_llm_client(self, *, llm_client: LLMClient, model: str) -> None:
-        """Hot-swap LLM client/model without rebuilding runtime."""
+    def _client_for_model(self, model: str) -> LLMClient:
+        """Select the LLM client registered for ``model``'s provider (bugfix-429).
 
-        self._llm_client = llm_client
-        self._model = model
+        With a per-provider client map, route by the model's registered provider
+        so a gpt model goes to the openai_compat client and a kimi model to the
+        anthropic client. Without a map (single-client unit-test path), the lone
+        client serves every model.
+        """
+        if not self._llm_clients:
+            return self._llm_client
+        provider = provider_of(model)
+        client = self._llm_clients.get(provider)
+        if client is None:
+            raise ValueError(
+                f"no llm client configured for provider {provider!r} (model {model!r})"
+            )
+        return client
 
     async def run(
         self,
@@ -141,6 +161,7 @@ class AgentLoop:
         session_file_state: SessionFileState | None = None,
         max_turns: int | None = None,
         tool_execution_allowlist: tuple[str, ...] | None = None,
+        model_override: str | None = None,
     ) -> AsyncIterator[Message]:
         """Stream one user turn until completion or terminal stop reason.
 
@@ -160,6 +181,13 @@ class AgentLoop:
         """
 
         self._active_session_id = state.session_id
+        # bugfix-429: the model is a per-run property — production callers (runtime
+        # threading kernel.submit(model=...)) always pass model_override. self._model
+        # is the build-time default used only by the single-client path (unit tests
+        # / forks constructed without a per-run model). It is never the source in
+        # production, where model_override is always present.
+        active_model = model_override or self._model
+        active_client = self._client_for_model(active_model)
         active_hook_ctx = hook_ctx or HookContext(
             session_id=state.session_id, turn_id=state.turn_id
         )
@@ -317,10 +345,10 @@ class AgentLoop:
                         LLMMessage(role="system", content=rendered_system_prompt),
                         *llm_messages,
                     ]
-                    stream = self._llm_client.generate(
+                    stream = active_client.generate(
                         LLMGenerateRequest(
                             session_id=llm_session_id or state.session_id,
-                            model=self._model,
+                            model=active_model,
                             messages=tuple(messages_for_llm),
                             tools=active_tools,
                         )

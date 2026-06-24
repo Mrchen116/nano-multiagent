@@ -27,6 +27,8 @@ class _RegistryState:
     models: dict[str, dict[str, ModelMetadata]]
     # provider → default_model_name
     provider_defaults: dict[str, str]
+    # model_name → provider (bugfix-429 fix-r1 #3: O(1) reverse lookup for routing)
+    model_to_provider: dict[str, str]
 
 
 _REGISTRY: _RegistryState | None = None
@@ -53,6 +55,7 @@ def init_model_registry(payload: "LLMConfigPayload") -> None:
 
     models: dict[str, dict[str, ModelMetadata]] = {}
     provider_defaults: dict[str, str] = {}
+    model_to_provider: dict[str, str] = {}
 
     for provider_payload in payload.providers:
         pname = provider_payload.name
@@ -65,6 +68,9 @@ def init_model_registry(payload: "LLMConfigPayload") -> None:
                 default_base_url=base_url,
                 extra_request_body=model_payload.extra_request_body,
             )
+            # First declaration wins on duplicate model names across providers
+            # (matches the forward iteration order used by the old linear scan).
+            model_to_provider.setdefault(model_payload.name, pname)
         models[pname] = provider_models
         # first model in provider is the provider default
         if provider_payload.models:
@@ -87,6 +93,7 @@ def init_model_registry(payload: "LLMConfigPayload") -> None:
         default_provider=default_provider,
         models=models,
         provider_defaults=provider_defaults,
+        model_to_provider=model_to_provider,
     )
 
 
@@ -141,6 +148,24 @@ def list_provider_models(provider: str) -> tuple[ModelMetadata, ...]:
     return tuple(provider_models[m] for m in sorted(provider_models.keys()))
 
 
+def provider_of(model: str) -> str:
+    """Return the provider that registered ``model`` (bugfix-429).
+
+    The kernel routes each run to the client of its model's registered provider
+    (anthropic / openai_compat). Model id ↔ provider is bound at config-register
+    time, so this is an exact reverse lookup.
+
+    Raises:
+        ValueError: If no provider registered this model — fail loud rather than
+            guessing a provider/format (no silent fallback).
+    """
+    registry = _require_initialized()
+    provider = registry.model_to_provider.get(model)
+    if provider is None:
+        raise ValueError(f"no registered provider for model: {model}")
+    return provider
+
+
 def get_default_base_url(provider: str) -> str | None:
     """Return the default base URL for a provider, or None if not configured."""
     metadata = resolve_model_metadata(provider, None)
@@ -164,8 +189,12 @@ def resolve_model_metadata(provider: str, model: str | None) -> ModelMetadata:
     """
     registry = _require_initialized()
     _ensure_provider(registry, provider)
-    selected_model = model or registry.provider_defaults.get(provider, "")
     provider_models = registry.models[provider]
+    # bugfix-429: a provider declared with no models has nothing to resolve — fail
+    # loud rather than blowing up on next(iter(...)) of an empty map below.
+    if not provider_models:
+        raise ValueError(f"no models registered for provider: {provider}")
+    selected_model = model or registry.provider_defaults.get(provider, "")
     if selected_model in provider_models:
         return provider_models[selected_model]
     # Unknown model: inherit provider defaults with the requested model name.

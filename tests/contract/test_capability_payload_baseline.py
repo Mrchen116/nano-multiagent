@@ -111,10 +111,11 @@ def controlled_caps(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 # ---------------------------------------------------------------------------
 
 # models: conftest _DEFAULT_TEST_PAYLOAD order, deduped preserving order.
-GOLDEN_MODELS: list[str] = [
-    "kimiCoding:K2.6",
-    "volcanoArk:doubao-seed-2-0-code-preview-260215",
-    "codex_oauth:gpt-5.5",
+# bugfix-429 R5: each model carries its registered provider/format.
+GOLDEN_MODELS: list[dict[str, str]] = [
+    {"name": "kimiCoding:K2.6", "provider": "anthropic"},
+    {"name": "volcanoArk:doubao-seed-2-0-code-preview-260215", "provider": "anthropic"},
+    {"name": "codex_oauth:gpt-5.5", "provider": "openai_compat"},
 ]
 GOLDEN_PLATFORM_DEFAULT_MODEL = "kimiCoding:K2.6"
 

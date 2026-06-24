@@ -104,10 +104,12 @@ class LLMConfig:
     Passed to ``build_kernel(llm=…)`` to install the provider/model catalog and
     active connection; the model registry is initialised inside ``build_kernel``
     (no consumer-side ``init_model_registry`` ordering obligation). Also the
-    return type of ``get_llm_config`` / ``reconfigure_llm``.
+    return type of ``get_llm_config``.
 
-    model stays kernel-level (决策 5 scope A): ``create_session`` does not take a
-    model; CLI ``/model`` switches via ``reconfigure_llm``.
+    bugfix-429: model is per-run now — ``submit(model=...)`` carries the model the
+    consumer selects each turn; the kernel holds no conversational default and
+    ``reconfigure_llm`` is retired. ``get_llm_config`` still reports the build-time
+    active connection (provider/base_url/default catalog) for selectors.
 
     Args:
         provider: Active provider name.
@@ -176,7 +178,7 @@ class LLMConfig:
         Consumers that already have a provider/model catalog — coding_cli (env /
         CLI args) and the gateway (config.yaml) — convert it here so the catalog
         flows into ``build_kernel(llm=…)`` and stays available for ``list_models``
-        / ``reconfigure_llm`` (CLI ``/model``). The active connection is derived
+        and per-run model routing (bugfix-429). The active connection is derived
         from the payload's ``default_model`` and the provider that owns it.
 
         Args:

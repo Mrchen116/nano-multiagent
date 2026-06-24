@@ -133,6 +133,18 @@ class AllowlistOptionResponse(BaseModel):
     default_on: bool = False
 
 
+class ModelOptionResponse(BaseModel):
+    """One selectable model with its registered provider/format (bugfix-429 R5).
+
+    ``provider`` lets the agent-config dropdown label each model's format
+    (e.g. ``anthropic`` / ``openai_compat``). Empty when an older Gateway reports
+    bare model-id strings.
+    """
+
+    name: str
+    provider: str = ""
+
+
 class FeatureCapabilityResponse(BaseModel):
     """One feature toggle descriptor as seen by the IM frontend.
 
@@ -154,7 +166,7 @@ class AgentCapabilitiesResponse(BaseModel):
     agent_id: str
     node_id: str
     workspace_root: str
-    models: list[str] = Field(default_factory=list)
+    models: list[ModelOptionResponse] = Field(default_factory=list)
     skills: list[AllowlistOptionResponse] = Field(default_factory=list)
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
@@ -376,7 +388,7 @@ async def get_agent_capabilities(
         agent_id=agent_id,
         node_id=profile.node_id,
         workspace_root=workspace_root,
-        models=_coerce_string_list(payload.get("models")),
+        models=coerce_model_options(payload.get("models")),
         skills=coerce_allowlist_options(payload.get("skills")),
         tools=coerce_allowlist_options(payload.get("tools")),
         platform_default_model=platform_default,
@@ -439,6 +451,33 @@ def _coerce_string_list(value: object) -> list[str]:
     if not isinstance(value, list):
         return []
     return [item for item in value if isinstance(item, str)]
+
+
+def coerce_model_options(value: object) -> list[ModelOptionResponse]:
+    """Coerce Gateway ``models`` into ``{name, provider}`` options (bugfix-429 R5).
+
+    Accepts the new ``{"name", "provider"}`` dict shape; tolerates a bare string
+    (older Gateway) by emitting it with an empty provider so the dropdown degrades
+    to name-only rather than breaking.
+    """
+    if not isinstance(value, list):
+        return []
+    options: list[ModelOptionResponse] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            options.append(ModelOptionResponse(name=item.strip(), provider=""))
+        elif isinstance(item, dict) and isinstance(item.get("name"), str):
+            name = item["name"].strip()
+            if not name:
+                continue
+            provider = item.get("provider")
+            options.append(
+                ModelOptionResponse(
+                    name=name,
+                    provider=provider if isinstance(provider, str) else "",
+                )
+            )
+    return options
 
 
 def _coerce_feature_list(value: object) -> list[FeatureCapabilityResponse]:

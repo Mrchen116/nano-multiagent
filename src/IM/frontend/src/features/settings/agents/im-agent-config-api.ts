@@ -61,6 +61,13 @@ export interface AgentAllowlistOption {
   default_on?: boolean;
 }
 
+// bugfix-429 R5: a selectable model with its registered provider/format, so the
+// agent-config dropdown can label each option (e.g. "codex_oauth:gpt-5.5 · openai_compat").
+export interface ModelOption {
+  name: string;
+  provider: string;
+}
+
 // feat-379-M3: feature toggle descriptor from FEATURE_REGISTRY (decision 7).
 // Projection served by GET /im/v1/agents/{id}/capabilities.features.
 // available=false when requires_tool is not in the agent's tool_allowlist.
@@ -80,7 +87,7 @@ export interface CapabilitySnapshot {
   capabilities_updated_at?: string | null;
   skills: AgentAllowlistOption[];
   tools: AgentAllowlistOption[];
-  model_options: string[];
+  model_options: ModelOption[];
   platform_default_model: string | null;
   default_system_prompt: string;
   // feat-379-M3: feature toggle list; absent from older Gateway versions → treat as []
@@ -164,8 +171,8 @@ interface AgentCapabilitiesWire {
   node_name?: string;
   node_status?: string;
   capabilities_updated_at?: string | null;
-  models?: string[];
-  model_options?: string[];
+  models?: Array<string | ModelOption>;
+  model_options?: Array<string | ModelOption>;
   skills: Array<string | AgentAllowlistOption>;
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
@@ -179,8 +186,8 @@ interface NodeCapabilitiesWire {
   node_name?: string;
   node_status?: string;
   capabilities_updated_at?: string | null;
-  models?: string[];
-  model_options?: string[];
+  models?: Array<string | ModelOption>;
+  model_options?: Array<string | ModelOption>;
   skills: Array<string | AgentAllowlistOption>;
   tools: Array<string | AgentAllowlistOption>;
   platform_default_model?: string | null;
@@ -204,8 +211,22 @@ function normalizeAllowlistOptions(values: Array<string | AgentAllowlistOption> 
   });
 }
 
-function normalizeModelOptions(raw: { models?: string[]; model_options?: string[] }): string[] {
-  return Array.from(new Set((raw.model_options ?? raw.models ?? []).map((value) => value.trim()).filter(Boolean)));
+function normalizeModelOptions(raw: {
+  models?: Array<string | ModelOption>;
+  model_options?: Array<string | ModelOption>;
+}): ModelOption[] {
+  // bugfix-429 R5: keep each model's provider. Tolerate bare strings (older
+  // Gateway) by emitting an empty provider so the dropdown degrades to name-only.
+  const seen = new Set<string>();
+  const options: ModelOption[] = [];
+  for (const value of raw.model_options ?? raw.models ?? []) {
+    const name = (typeof value === "string" ? value : value?.name ?? "").trim();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    const provider = typeof value === "string" ? "" : value?.provider ?? "";
+    options.push({ name, provider });
+  }
+  return options;
 }
 
 function normalizeNodeStatus(node: NodeSummary | null, rawStatus?: string): string {
@@ -244,7 +265,7 @@ function toAllowlistOptions(values: string[]): AgentAllowlistOption[] {
 }
 
 function enrichCapabilitySnapshot(
-  raw: { node_id: string; skills: string[]; tools: string[]; models: string[] },
+  raw: { node_id: string; skills: string[]; tools: string[]; models: Array<string | ModelOption> },
   node: NodeSummary | null
 ): CapabilitySnapshot {
   return {
@@ -254,7 +275,7 @@ function enrichCapabilitySnapshot(
     capabilities_updated_at: node?.last_heartbeat_at ?? null,
     skills: toAllowlistOptions(raw.skills ?? []),
     tools: toAllowlistOptions(raw.tools ?? []),
-    model_options: raw.models ?? [],
+    model_options: normalizeModelOptions(raw),
     platform_default_model: null,
     default_system_prompt: "",
   };

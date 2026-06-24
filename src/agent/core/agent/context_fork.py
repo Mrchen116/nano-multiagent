@@ -45,6 +45,7 @@ class AgentContextFork:
         *,
         llm_client: LLMClient,
         model: str,
+        llm_clients: dict[str, LLMClient] | None = None,
         policies: AgentPolicies | None = None,
         system_prompt: str | None = None,
         available_skills: tuple[SkillMetadata, ...] = (),
@@ -52,8 +53,12 @@ class AgentContextFork:
         tool_registry: ToolRegistryLike | None = None,
         current_working_directory: Path | None = None,
     ) -> None:
+        # bugfix-429 fix-r1 #2: pass the per-provider client map so the fork's
+        # side-chain call routes by the run's model provider (provider_of), same
+        # as the main loop. None → single-client path.
         self._loop = AgentLoop(
             llm_client=llm_client,
+            llm_clients=llm_clients,
             model=model,
             policies=policies,
             system_prompt=system_prompt,
@@ -85,6 +90,7 @@ class AgentContextFork:
         available_tools_override: tuple[ToolSpec, ...] | None = None,
         tool_execution_allowlist: tuple[str, ...] | None = None,
         hook_ctx: HookContext | None = None,
+        model_override: str | None = None,
     ) -> TurnResult:
         """Fork the agent context and execute with isolated side effects.
 
@@ -114,6 +120,7 @@ class AgentContextFork:
             available_skills_override=available_skills_override,
             available_tools_override=available_tools_override,
             tool_execution_allowlist=tool_execution_allowlist,
+            model_override=model_override,
         ):
             messages.append(msg)
 
@@ -129,6 +136,7 @@ def make_fork_conversation(
     session_id: str,
     tool_allowlist: tuple[str, ...],
     parent_hook_ctx: HookContext | None = None,
+    model: str | None = None,
 ) -> Callable:
     """Build a fork_conversation callable for injection into background HookContext.
 
@@ -233,6 +241,9 @@ def make_fork_conversation(
             available_tools_override=active_tools,
             # Tool narrowing happens here, at the execution layer only.
             tool_execution_allowlist=tool_allowlist,
+            # bugfix-429 fix-r1 #2: background fork side-chain runs on the parent
+            # run's model, not the build-time default.
+            model_override=model,
         )
 
         tool_names_called = tuple(tc.name for tc in (turn_result.tool_calls or ()))

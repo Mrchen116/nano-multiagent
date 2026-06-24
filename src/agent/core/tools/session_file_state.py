@@ -37,6 +37,12 @@ class SessionFileState:
     def __init__(self, capacity: int = 128) -> None:
         self._capacity = max(1, capacity)
         self._states: OrderedDict[str, FileReadState] = OrderedDict()
+        # feat-428: absolute paths of AGENTS.md already injected this session
+        # (机制 A root preseeded + 机制 B nested). Non-evicting set (mirrors CC's
+        # loadedNestedMemoryPaths); cleared at the compaction boundary by
+        # AgentRuntime._invalidate_memory_snapshot so post-compaction reads
+        # can re-inject. Same instance shared by core (preseed) and read.py.
+        self.loaded_agents_md: set[str] = set()
 
     def check_unchanged(
         self, file_path: str, offset: int | None, limit: int | None

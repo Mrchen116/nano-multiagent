@@ -89,6 +89,7 @@ class _FakeKernel:
         trace_id: str | None = None,
         steer: bool = False,
         flush_held: bool = True,
+        model: str | None = None,
     ) -> MagicMock:
         active = self.active_run_by_session.get(session_id)
         if steer and active is not None:
@@ -117,6 +118,7 @@ class _FakeKernel:
                 "workspace_root": workspace_root,
                 "steer": steer,
                 "injected": False,
+                "model": model,
             }
         )
         record = MagicMock()
@@ -227,6 +229,75 @@ def test_inbound_pipeline_accepts_kernel_sdk_and_routes_message(tmp_path: Path) 
     # Channel received a reply
     assert len(channel.sent) == 1
     assert channel.sent[0].target_chat_id == "chat-1"
+
+
+def test_inbound_pipeline_submits_agent_selected_model(tmp_path: Path) -> None:
+    """bugfix-429 R3: an agent's default_model is passed to kernel.submit per turn."""
+    agent_dir = tmp_path / "gpt-agent"
+    agent_dir.mkdir()
+    agents = (
+        AgentWorkspaceConfig(
+            agent_id="gpt-agent",
+            workspace_root=agent_dir,
+            title="GPT Agent",
+            default_model="codex_oauth:gpt-5.5",
+        ),
+    )
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    kernel = _FakeKernel()
+    from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+
+    pipeline = InboundPipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="gpt-agent",
+        product_default_model="kimiCoding:K2.6",
+    )
+    inbound = InboundMessage(
+        channel_name="web",
+        text="hi",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+
+    asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert kernel.submit_calls[0]["model"] == "codex_oauth:gpt-5.5"
+
+
+def test_inbound_pipeline_falls_back_to_product_default_model(tmp_path: Path) -> None:
+    """bugfix-429 R3: agent without a selected model uses the product default."""
+    agents = _agents(tmp_path)  # agent-a has no default_model
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    kernel = _FakeKernel()
+    from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+
+    pipeline = InboundPipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        product_default_model="kimiCoding:K2.6",
+    )
+    inbound = InboundMessage(
+        channel_name="web",
+        text="hi",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+
+    asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert kernel.submit_calls[0]["model"] == "kimiCoding:K2.6"
 
 
 def test_inbound_pipeline_kernel_sdk_stop_command_interrupts(tmp_path: Path) -> None:

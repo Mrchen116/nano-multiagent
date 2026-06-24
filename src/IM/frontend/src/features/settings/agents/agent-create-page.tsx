@@ -661,13 +661,17 @@ export function AgentCreatePage() {
                   ? t("agents.form.access.modelPlatformDefault", { model: capabilities.platform_default_model })
                   : t("agents.form.access.modelPlatformDefaultPlain")}
               </option>
-              {availableModels.map((model) => (
-                <option key={model} value={model}>
-                  {model === capabilities.platform_default_model
-                    ? `${model} ${t("agents.form.access.modelDefaultSuffix")}`
-                    : model}
-                </option>
-              ))}
+              {availableModels.map((model) => {
+                const providerSuffix = model.provider ? ` · ${model.provider}` : "";
+                const baseLabel = `${model.name}${providerSuffix}`;
+                return (
+                  <option key={model.name} value={model.name}>
+                    {model.name === capabilities.platform_default_model
+                      ? `${baseLabel} ${t("agents.form.access.modelDefaultSuffix")}`
+                      : baseLabel}
+                  </option>
+                );
+              })}
             </select>
           </div>
         </section>

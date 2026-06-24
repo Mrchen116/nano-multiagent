@@ -10,6 +10,7 @@ from agent.core.llm.model_registry import (
     init_model_registry,
     list_provider_models,
     list_supported_providers,
+    provider_of,
     resolve_model_metadata,
 )
 
@@ -75,6 +76,48 @@ def test_list_provider_models_anthropic() -> None:
     models = list_provider_models("anthropic")
     model_names = [m.model for m in models]
     assert "kimiCoding:K2.6" in model_names
+
+
+def test_resolve_model_metadata_empty_provider_raises_clearly() -> None:
+    """bugfix-429: a provider with no models must fail with a clear ValueError, not
+    a bare StopIteration from ``next(iter(...))`` on an empty model map."""
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
+
+    _reset_for_tests()
+    payload = LLMConfigPayload(
+        default_model="kimiCoding:K2.6",
+        providers=(
+            LLMProviderPayload(
+                name="anthropic",
+                base_url="http://127.0.0.1:4000",
+                models=(LLMModelPayload(name="kimiCoding:K2.6"),),
+            ),
+            LLMProviderPayload(
+                name="openai_compat",
+                base_url="http://127.0.0.1:4000",
+                models=(),
+            ),
+        ),
+    )
+    init_model_registry(payload)
+    with pytest.raises(ValueError, match="no models registered"):
+        resolve_model_metadata("openai_compat", None)
+
+
+def test_provider_of_reverse_lookup() -> None:
+    """bugfix-429 R2: model id → owning provider, for multi-client routing."""
+    assert provider_of("kimiCoding:K2.6") == "anthropic"
+    assert provider_of("codex_oauth:gpt-5.5") == "openai_compat"
+
+
+def test_provider_of_unknown_model_raises() -> None:
+    """Unknown model has no registered provider — fail loud, never guess (禁兜底)."""
+    with pytest.raises(ValueError, match="no registered provider"):
+        provider_of("nonexistent:model")
 
 
 # ---------------------------------------------------------------------------

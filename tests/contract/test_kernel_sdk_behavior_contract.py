@@ -30,8 +30,8 @@ def _lc_llm() -> LLMConfig:
     """The SDK LLMConfig the local-coding behavior contracts build against.
 
     Carries a two-provider catalog (openai_compat + anthropic) so the model
-    registry resolves both — the reconfigure_llm contract switches provider to
-    anthropic, which must be a known provider.
+    registry resolves both — per-run model routing (bugfix-429) selects the
+    client by the model's registered provider.
     """
     return LLMConfig(
         provider="openai_compat",
@@ -233,38 +233,8 @@ def test_llm_config_get_shape(tmp_path: Path) -> None:
         kernel.close()
 
 
-def test_llm_config_reconfigure_updates_provider(tmp_path: Path) -> None:
-    """kernel.reconfigure_llm() must return updated config with applied patches.
-
-    Note: _llm_client_override disables llm_client_factory (test-only path).
-    We build without override to exercise the real factory path for reconfigure.
-    """
-    # Build without client override so llm_client_factory is wired (needed for reconfigure_llm)
-    kernel = build_kernel(
-        llm=_lc_llm(),
-        workspace_config_dirname=".nanocode",
-        can_use_tool=_allow_all,
-        repo_root=tmp_path,
-        # No _llm_client_override — use real factory path
-    )
-    try:
-        # Record initial state
-        initial = kernel.get_llm_config()
-
-        # Reconfigure to a different provider/model
-        target_provider = (
-            "anthropic" if initial.provider != "anthropic" else "openai_compat"
-        )
-        target_model = "test-model-xyz"
-        updated = kernel.reconfigure_llm(provider=target_provider, model=target_model)
-        assert updated.provider == target_provider
-        assert updated.model == target_model
-        # Verify subsequent get_llm_config reflects the change
-        current = kernel.get_llm_config()
-        assert current.provider == target_provider
-        assert current.model == target_model
-    finally:
-        kernel.close()
+# bugfix-429: test_llm_config_reconfigure_updates_provider removed — reconfigure_llm
+# retired. model is per-run now (submit(model=)); there is no kernel-level reconfigure.
 
 
 # ---------------------------------------------------------------------------
@@ -398,22 +368,47 @@ async def test_append_message_visible_to_next_turn(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_global_capabilities_llm_config_round_trip(tmp_path: Path) -> None:
-    """reconfigure_llm() → get_llm_config() must reflect the patched values.
+# bugfix-429: test_global_capabilities_llm_config_round_trip removed — reconfigure_llm
+# retired. get_llm_config() still reports the build-time active connection; per-run
+# model selection is covered by submit(model=) transmission tests, not reconfigure.
 
-    Uses real factory path (no _llm_client_override) so reconfigure_llm works.
+
+def test_build_kernel_tolerates_empty_provider(tmp_path: Path) -> None:
+    """bugfix-429: a provider declared with no models must not crash build_kernel.
+
+    The multi-client path (no _llm_client_override) builds one client per provider;
+    an empty provider is skipped (nothing routes to it) rather than resolving an
+    empty model map and blowing up on next(iter(...)).
     """
+    llm = LLMConfig(
+        provider="anthropic",
+        model="kimiCoding:K2.6",
+        base_url="http://127.0.0.1:4000",
+        default_model="kimiCoding:K2.6",
+        providers=(
+            LLMProvider(
+                name="anthropic",
+                base_url="http://127.0.0.1:4000",
+                models=(LLMModel(name="kimiCoding:K2.6"),),
+            ),
+            # Empty provider — must be tolerated.
+            LLMProvider(
+                name="openai_compat",
+                base_url="http://127.0.0.1:4000",
+                models=(),
+            ),
+        ),
+    )
     kernel = build_kernel(
-        llm=_lc_llm(),
+        llm=llm,
         workspace_config_dirname=".nanocode",
         can_use_tool=_allow_all,
         repo_root=tmp_path,
+        # No _llm_client_override → exercise the per-provider client construction.
     )
     try:
-        # Patch to a unique model name and verify round-trip
-        kernel.reconfigure_llm(model="my-unique-test-model-9999")
-        config_after = kernel.get_llm_config()
-        assert config_after.model == "my-unique-test-model-9999"
+        names = {m.name for m in kernel.list_models()}
+        assert "kimiCoding:K2.6" in names
     finally:
         kernel.close()
 

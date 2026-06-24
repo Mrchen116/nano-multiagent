@@ -67,6 +67,12 @@ class RunRecord:
     last_error: Mapping[str, Any] | None = None
     origin: RunOrigin = RunOrigin.USER
     source_task_id: str | None = None
+    # bugfix-429: the model this run executes with, supplied by the product layer
+    # per submit (agent.default_model). submit is async-queued (background worker)
+    # and the kernel self-continues stranded runs, so the model must live on the
+    # record — a sync pass-through would be lost across both hops. Kernel continuation
+    # reuses *this* run's model (in-progress run finishes on its original model).
+    model: str | None = None
     # Session workspace root, threaded from the request so the stateless kernel
     # can locate the session JSONL on first load of this process lifetime.
     workspace_root: Path | None = None
@@ -89,6 +95,7 @@ class RuntimeRunner(Protocol):
         run_id: str | None = None,
         controller: RunController | None = None,
         workspace_root: Path | None = None,
+        model: str | None = None,
     ):  # noqa: ANN001, ANN201
         ...
 
@@ -331,6 +338,7 @@ class RunsRegistry:
         trace_id: str | None = None,
         workspace_root: Path | None = None,
         flush_held: bool = True,
+        model: str | None = None,
     ) -> RunRecord:
         """Submit a turn for execution.
 
@@ -390,6 +398,7 @@ class RunsRegistry:
             source_task_id=source_task_id,
             workspace_root=workspace_root,
             start_sequence=start_sequence,
+            model=model,
         )
         with self._lock:
             if self._state is not _RegistryState.OPEN:
@@ -658,11 +667,18 @@ class RunsRegistry:
             if self._is_cancelled(run_id):
                 with self._lock:
                     self._active_run_by_session.pop(session_id, None)
+                    early_model = (
+                        self._runs[run_id].model if run_id in self._runs else None
+                    )
                 # Early-cancel still reached RUNNING, so a steer may already have
                 # enqueued into this controller — drain+continue via the single
-                # terminal chokepoint below rather than dropping it.
+                # terminal chokepoint below rather than dropping it. Carry the run's
+                # model (bugfix-429) so a continuation keeps it.
                 self._settle_terminal_pending(
-                    controller, session_id=session_id, workspace_root=workspace_root
+                    controller,
+                    session_id=session_id,
+                    workspace_root=workspace_root,
+                    model=early_model,
                 )
                 return
             # bugfix-426 决策3 (扩展): stranded-pending handling is centralised in ONE
@@ -676,6 +692,11 @@ class RunsRegistry:
             #   - user /stop (abort user_initiated) → park pending to the session-level
             #     held buffer (neither auto-continue nor discard) for the NEXT submit;
             # routed inside _settle_terminal_pending via controller.is_user_interrupt.
+            # bugfix-429: recover this run's model from its record so the background
+            # worker (and any continuation) executes on the product-supplied model
+            # rather than the kernel default.
+            with self._lock:
+                run_model = self._runs[run_id].model if run_id in self._runs else None
             try:
                 try:
                     with span(
@@ -689,6 +710,7 @@ class RunsRegistry:
                             controller=controller,
                             workspace_root=workspace_root,
                             origin=origin,
+                            model=run_model,
                         )
                 except TimeoutError as exc:
                     await self._mark_timed_out_async(run_id, message=str(exc))
@@ -706,7 +728,10 @@ class RunsRegistry:
                     self._mark_completed(run_id, turn_result=result)
             finally:
                 self._settle_terminal_pending(
-                    controller, session_id=session_id, workspace_root=workspace_root
+                    controller,
+                    session_id=session_id,
+                    workspace_root=workspace_root,
+                    model=run_model,
                 )
 
     def _settle_terminal_pending(
@@ -715,6 +740,7 @@ class RunsRegistry:
         *,
         session_id: str,
         workspace_root: Path | None,
+        model: str | None = None,
     ) -> None:
         """Settle messages injected into a now-terminal run (bugfix-426 决策3).
 
@@ -733,6 +759,10 @@ class RunsRegistry:
           (user steer → USER), grouped into contiguous same-origin batches to
           preserve FIFO order. No-op when the registry is shutting down (submit
           would raise) so a force-cancel during shutdown unwinds cleanly.
+
+        ``model`` (bugfix-429) is the terminating run's product-supplied model; a
+        continuation re-run carries it so it executes on the same model, not the
+        kernel default.
         """
         if controller is None:
             return
@@ -760,6 +790,7 @@ class RunsRegistry:
                 ],
                 origin=origin_batch,
                 workspace_root=workspace_root,
+                model=model,
             )
 
     def _set_status(

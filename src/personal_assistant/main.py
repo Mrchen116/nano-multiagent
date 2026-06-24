@@ -45,6 +45,7 @@ from personal_assistant.config.local_store import (
     default_local_config_path,
     ensure_workspace_defaults,
     load_local_config,
+    resolve_run_model,
     save_local_config,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
@@ -1926,12 +1927,17 @@ class _KernelClientShim:
         kernel: "Kernel",
         *,
         agents_by_id: dict[str, Any] | None = None,
+        product_default_model: str | None = None,
     ) -> None:
         self._kernel = kernel
         # refactor-406-M1 R6: per-agent config for building PromptSlots at
         # session-open (决策 8).  heartbeat/cron sessions look up the agent by
         # metadata["agent_id"] and assemble the PA prompt via prompt_for.
         self._agents_by_id = agents_by_id or {}
+        # bugfix-429 决策2: product default model for the heartbeat/cron path.
+        # Callers pass the agent's selected model (may be None); the shim falls
+        # back to this so unattended runs use the same default as user turns.
+        self._product_default_model = product_default_model
 
     async def create_session(
         self,
@@ -1976,6 +1982,8 @@ class _KernelClientShim:
         image_urls: list[dict[str, object]] | None = None,
         workspace_root: str | None = None,
         origin: str | None = None,
+        model: str | None = None,
+        agent_id: str | None = None,
         **_kwargs: object,
     ) -> dict[str, object]:
         from agent.sdk import RunOrigin as _RunOrigin  # refactor-387-M4
@@ -1998,11 +2006,23 @@ class _KernelClientShim:
             run_origin = _RunOrigin.CRON
         else:
             run_origin = _RunOrigin.USER
+        # bugfix-429 决策2 / fix-r1 #3: resolve via the shared helper — explicit
+        # model (heartbeat passes agent.default_model) wins; else the agent looked
+        # up by agent_id (cron); else the product default. The kernel holds none.
+        resolved_agent = (
+            self._agents_by_id.get(agent_id) if isinstance(agent_id, str) else None
+        )
+        resolved_model = resolve_run_model(
+            resolved_agent,
+            product_default=self._product_default_model,
+            explicit=model,
+        )
         run_record = self._kernel.submit(
             session_id=session_id,
             parts=parts,
             origin=run_origin,
             workspace_root=Path(workspace_root) if workspace_root else None,
+            model=resolved_model,
         )
         return {"run_id": run_record.run_id, "anchor_sequence": 0, "status": "queued"}
 
@@ -2201,6 +2221,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     kernel_shim = _KernelClientShim(
         kernel,
         agents_by_id={a.agent_id: a for a in config.agents},
+        product_default_model=config.llm.default_model,
     )
 
     runtime_dir = config.source_path.parent
@@ -2265,6 +2286,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             db_path=runtime_dir / "group_context_buffer.sqlite3"
         ),
         gateway_internal_port=_gateway_internal_port,
+        # bugfix-429 决策2: product owns the default model; each turn falls back to
+        # this when the agent has not selected one (config.llm.default_model).
+        product_default_model=config.llm.default_model,
     )
     if config.im_service is not None:
         relay_adapter = channel_registry.get("web_relay")

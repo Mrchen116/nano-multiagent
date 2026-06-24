@@ -36,6 +36,7 @@ class _ParkedOnPermissionRuntime:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id, controller, workspace_root, origin
         await asyncio.Event().wait()

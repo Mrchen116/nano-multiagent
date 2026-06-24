@@ -9,7 +9,7 @@ signature end-to-end — an agent-package-external application that only imports
   zero registry pre-init (决策 5 footgun removal),
 - ``create_session(enabled_tools=…, features=…, prompt=PromptSlots)`` → ``SessionInfo``,
 - ``submit`` → ``RunInfo``, ``get_run`` → ``RunInfo``,
-- ``get_llm_config`` / ``reconfigure_llm`` → ``LLMConfig`` DTO,
+- ``get_llm_config`` → ``LLMConfig`` DTO (bugfix-429: reconfigure_llm retired),
 - ``list_models`` / ``list_tools`` / ``list_features`` / ``list_skills`` consistent
   with the assembled kernel,
 - a closure-backed side-effect tool (no host-capability bridge) executes and reaches

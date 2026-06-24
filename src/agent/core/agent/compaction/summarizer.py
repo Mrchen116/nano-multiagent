@@ -27,6 +27,7 @@ class CompactionSummarizer:
         session_id: str,
         system_prompt: str | None,
         dropped_messages: Sequence[Message],
+        model_override: str | None = None,
     ) -> str:
         """Summarize dropped messages for compaction record.
 
@@ -66,6 +67,9 @@ class CompactionSummarizer:
                 system_prompt_override=system_prompt,
                 available_skills_override=(),
                 available_tools_override=(),
+                # bugfix-429 fix-r1 #2: summarize with the run's model, not the
+                # build-time default (unless a dedicated summary_model fork is used).
+                model_override=model_override,
             )
             summary = result.messages[-1].content.strip() if result.messages else ""
             return format_compact_summary(summary) if summary else _fallback_summary()

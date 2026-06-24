@@ -12,13 +12,22 @@ from tests.unit._cli_kernel_stubs import _BaseKernelStub, _make_kernel_factory
 
 
 def test_cli_single_command_error_payload_contract_contains_layer(tmp_path) -> None:
-    """Input-layer error (bad argument) must produce {error, suggestion, layer}."""
+    """Input-layer error must produce a single-line {error, suggestion, layer} JSON.
+
+    bugfix-429 R6: `llm-config set` was removed, so this drives the same single-
+    command JSON-error contract via a ValueError raised while assembling the
+    kernel (ValueError → layer="input"). The contract under test is the payload
+    shape + layer classification, not the specific command.
+    """
     output = io.StringIO()
-    # llm-config set without any field → input error
+
+    def _raising_factory():
+        raise ValueError("bad llm config: model must be a non-empty string")
+
     exit_code = run_cli(
-        ["llm-config", "set"],
+        ["llm-config", "get"],
         stdout=output,
-        kernel_factory=_make_kernel_factory(_BaseKernelStub()),
+        kernel_factory=_raising_factory,
         workspace_root=tmp_path,
     )
 

@@ -71,7 +71,7 @@ describe("agents pages i18n zh switch", () => {
             capabilities_updated_at: "2026-03-13T10:00:00Z",
             skills: [],
             tools: [],
-            model_options: ["codex_oauth:gpt-5.5"],
+            model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
             platform_default_model: "codex_oauth:gpt-5.5",
             default_system_prompt: ""
           }),
@@ -143,7 +143,7 @@ describe("agents pages i18n zh switch", () => {
             capabilities_updated_at: "2026-03-13T10:00:00Z",
             skills: [],
             tools: [],
-            model_options: ["codex_oauth:gpt-5.5"],
+            model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
             platform_default_model: "codex_oauth:gpt-5.5",
             default_system_prompt: ""
           }),

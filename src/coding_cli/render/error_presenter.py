@@ -21,12 +21,9 @@ def suggestion_for_exception(
         )
     if "managed startup llm options require --mode managed" in text:
         return "use --mode managed when passing --llm-provider/--llm-model/--llm-base-url/--llm-api-key/--llm-timeout-seconds."
-    if "llm-config set requires at least one field" in text:
-        return "try: llm-config set --provider anthropic (or provide another field)."
-    if "--api-key and --clear-api-key cannot be used together" in text:
-        return "choose either --api-key <value> or --clear-api-key."
-    if "--timeout-seconds must be > 0" in text:
-        return "set --timeout-seconds to a positive value, for example --timeout-seconds 30."
+    # bugfix-429 fix-r1 #3: removed suggestions for the retired `llm-config set`
+    # subcommand (set requires-a-field / --api-key+--clear-api-key / --timeout-seconds);
+    # those errors are no longer raised anywhere.
     if "--llm-timeout-seconds must be > 0" in text:
         return "set --llm-timeout-seconds to a positive value, for example --llm-timeout-seconds 30."
     if "timed out" in text or "timeout" in text:

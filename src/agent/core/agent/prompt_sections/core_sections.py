@@ -363,6 +363,61 @@ def _render_banner_block(
 
 
 # ---------------------------------------------------------------------------
+# core.agents_md_block: workspace-root AGENTS.md injection (feat-428 机制 A)
+# ---------------------------------------------------------------------------
+# Unlike memory/user blocks this segment is cache_safe=True (decision 1): the
+# AGENTS.md content is frozen within a compaction window AND stable across
+# sessions for long-lived PA agents (workspace fixed), so it belongs in the
+# stable prefix — placed by skeleton after _SLOT_CUSTOM, before the volatile
+# memory/profile tail. PREVIEW renders a placeholder like memory does so the IM
+# preview shows the slot without reading disk.
+
+
+def _agents_md_block_enabled(ctx: PromptContext) -> bool:
+    """Active when agents_md_content has content, or always in PREVIEW (placeholder)."""
+    from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+
+    if ctx.render_mode == RenderMode.PREVIEW:
+        return True
+    return bool(ctx.agents_md_content)
+
+
+def _render_agents_md_block(ctx: PromptContext) -> str | None:
+    """Three-state render for core.agents_md_block (mirrors _render_memory_block):
+
+    PREVIEW:                     → <project-instructions> wrapping a placeholder.
+    RUNTIME + agents_md_content: → <project-instructions> wrapping the expanded text.
+    RUNTIME + no content:        → None (segment deactivated).
+
+    The <project-instructions> tag is the design-fixed wrapper (注入文案 段);
+    it strongly delimits injected instructions from surrounding prompt text.
+    """
+    from agent.core.agent.prompt_sections.base import RenderMode  # noqa: PLC0415
+
+    if ctx.render_mode == RenderMode.PREVIEW:
+        return (
+            "<project-instructions>\n"
+            "<运行时注入：工作区 AGENTS.md>\n"
+            "</project-instructions>"
+        )
+
+    content = ctx.agents_md_content
+    if not content:
+        return None
+    return f"<project-instructions>\n{content}\n</project-instructions>"
+
+
+# Provenance: new — feat-428 机制 A; cache_safe=True (decision 1, stable prefix tail).
+CORE_AGENTS_MD_BLOCK = PromptSection(
+    name="core.agents_md_block",
+    render=_render_agents_md_block,
+    enabled_when=_agents_md_block_enabled,
+    cache_safe=True,
+)
+_CORE_AGENTS_MD_BLOCK = CORE_AGENTS_MD_BLOCK
+
+
+# ---------------------------------------------------------------------------
 # core.memory_block: three-state render (Decision 21 / M4)
 # ---------------------------------------------------------------------------
 
@@ -502,6 +557,7 @@ CORE_SECTIONS: tuple[PromptSection, ...] = (
     CORE_SKILLS_GUIDANCE,  # self-evolution: skill creation guidance (gated)
     CORE_BACKGROUND_TASKS,  # mechanism: background task notifications (gated)
     CORE_RUNTIME_FOOTER,  # mechanism: datetime + cwd (stable per session)
+    CORE_AGENTS_MD_BLOCK,  # feat-428 机制 A: workspace AGENTS.md (cache_safe=True)
     CORE_MEMORY_BLOCK,  # volatile: MEMORY.md snapshot (cache_safe=False)
     CORE_USER_PROFILE_BLOCK,  # volatile: USER.md snapshot (cache_safe=False)
 )

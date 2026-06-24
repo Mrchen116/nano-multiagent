@@ -21,6 +21,7 @@ async def run_text(
     text: str,
     out: TextIO = sys.stdout,
     workspace_root: Path | None = None,
+    model: str | None = None,
 ) -> int:
     """Submit text to kernel stream, output NDJSON until terminal run status.
 
@@ -41,6 +42,7 @@ async def run_text(
         session_id=session_id,
         parts=[{"type": "text", "text": text}],
         workspace_root=resolved_root,
+        model=model,
     )
     run_id = run_record.run_id
 

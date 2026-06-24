@@ -36,7 +36,10 @@ _WHITELIST: frozenset[str] = frozenset(
         # refactor-406-M1: _session_prompt_slots map + register method added in __init__; shifted to 172
         # bugfix-417-M3 R3: liveness ticker import block added at top; shifted to 177
         # bugfix-417-M5: USER_INTERRUPT_RECOVERY_CONTENT multi-line import; shifted to 180
-        "src/agent/core/agent/runtime.py:180",
+        # bugfix-429: per-provider llm_clients param + assignment added in __init__; shifted to 185
+        # bugfix-429 fix-r1: provider_of top import + _active_run_models field (net +7); shifted to 192
+        # bugfix-429 rebase onto main (feat-421/428 等): runtime.py 前段净增行，shifted 192→197
+        "src/agent/core/agent/runtime.py:197",
         # kernel.py: build_kernel new-path workspace_config_dirname default — platform
         # default fallback when a consumer omits it (same role as jsonl_store default);
         # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
@@ -54,7 +57,9 @@ _WHITELIST: frozenset[str] = frozenset(
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
         # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
         # bugfix-426-M1: RunInfo.injected docstring lines in _to_run_info shifted 483→488.
-        "src/agent/sdk/kernel.py:488",
+        # bugfix-429: build_kernel per-provider llm_clients construction block + empty-provider
+        # skip (if p.models) + comment; integrate(bugfix-426+429) both shifts compose → 509.
+        "src/agent/sdk/kernel.py:509",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
@@ -91,11 +96,12 @@ _WHITELIST: frozenset[str] = frozenset(
         # bugfix-417-M5: Ctrl-C→kernel.interrupt block in _send_message_async, shifted to 1187/1188
         # bugfix-417-M5: asyncio SIGINT handler block added to repl loop, shifted to 1232/1233
         # bugfix-426-M2: non-blocking REPL input loop (run task + executor input
-        # future + steer routing) added to _run_repl, shifted to 1378/1379
-        # bugfix-426-M2 fix: _drain_forever robustness comment + log block added,
-        # shifted to 1394/1395
-        "src/coding_cli/commands.py:1394",
-        "src/coding_cli/commands.py:1395",
+        # future + steer routing) added to _run_repl, shifted to 1378/1379;
+        # _drain_forever robustness comment + log block → 1394/1395.
+        # bugfix-429 R6: llm-config set body + argparse removed (reconfigure_llm退役), net -30.
+        # integrate(bugfix-426+429): both shifts compose → 1366/1367.
+        "src/coding_cli/commands.py:1366",
+        "src/coding_cli/commands.py:1367",
     }
 )
 

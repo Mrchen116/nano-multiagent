@@ -77,7 +77,7 @@
   初始化在内部,消费者无前置时序义务;装配完成后所有会话/运行均在进程内执行(无子进程、无 loopback HTTP)。
 - `create_session(workspace_root, enabled_tools, features, prompt, title=…, metadata=…)` —— 每 agent
   带齐配置:`enabled_tools` 从工具目录选子集;`features` 开关内核通用 feature;`prompt` 为 SDK-owned
-  `PromptSlots`。不收 `model`——model 维持 kernel 级(CLI `/model` 经 `reconfigure_llm` 即时切换)。
+  `PromptSlots`。不收 `model`——model 是 per-run 的,消费者每轮经 `submit(model=...)` 提供。
 
 #### Scenario: 应用零前置调用直接装配
 - **GIVEN** 应用构造了 `LLMConfig`(含 `from_env()`)、工具目录、hooks
@@ -97,7 +97,7 @@
 - **GIVEN** 一个已装配的 `Kernel`
 - **THEN** 它暴露异步会话生命周期方法 `create_session` / `fork_session` / `compact`,非阻塞方法
   `submit` / `stream` / `interrupt` / `cancel` / `get_run` / `list_session_tools` /
-  `get_llm_config` / `reconfigure_llm`,中立能力查询 `list_models` / `list_tools` / `list_features` /
+  `get_llm_config`,中立能力查询 `list_models` / `list_tools` / `list_features` /
   `list_skills`,以及 prompt 预览 `assemble_prompt_preview`;并同时暴露供异步消费者使用的 `aclose()`
   与同步兼容的 `close()`
 
@@ -270,20 +270,31 @@ run 即使 parked 在工具执行、LLM 等待或权限决策上也能终止;终
 - **WHEN** 消费者消费 `kernel.stream(session_id)`
 - **THEN** 等待期间 stream 周期性产出携带该 run_id 的 liveness 事件(与工具/LLM 等待同一事件通路),消费者据此判存活,无需 permission 专用豁免
 
-### Requirement: LLM 配置可查询、可纯配置切换
+### Requirement: LLM 配置可查询,每轮对话的模型由消费者随 run 提供
 
-消费者可读当前 LLM 配置,也可在不重建 runtime 的前提下打补丁切换 provider / model;provider 切换是
-纯配置动作,不需改 runtime / tool / session 代码。`get_llm_config()` / `reconfigure_llm()` 返回
-SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界)。model 维持 kernel 级,
-`create_session` 不收 model;CLI `/model` 经 `reconfigure_llm` 即时生效。
+消费者可读当前 LLM 配置(provider/base_url/默认目录,供选择器/能力上报用);模型不再是 kernel 级固化的
+全局属性,改为消费者在发起每个 run 时随 `submit` 提供,内核不持有对话默认 model。`get_llm_config()` 返回
+SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报告 build-time 的 active 连接供
+选择器使用;`create_session` 不收 model。`reconfigure_llm`/`bind_llm_client` 失去调用方而退役,内核不再
+有"当前全局 active model"的概念。
 
 #### Scenario: 读取当前 LLM 配置
 - **WHEN** 消费者 `kernel.get_llm_config()`
 - **THEN** 返回 SDK-owned `LLMConfig`,含 `provider` / `model` / `base_url` 等字段
 
-#### Scenario: 切换 provider / model 后查询反映新值
-- **WHEN** 消费者 `kernel.reconfigure_llm(provider=..., model=...)`
-- **THEN** 返回更新后的 `LLMConfig`;随后 `get_llm_config()` 也反映该 provider / model
+#### Scenario: submit 携带 model 并在该 run 生效
+- **WHEN** 消费者 `kernel.submit(session_id=..., parts=..., model=M)`
+- **THEN** 该 run 的 LLM 请求以 `model=M` 发出(session JSONL 该 turn 记录可见)
+
+#### Scenario: 同一 run 的内核续跑复用本 run 的 model
+- **GIVEN** 一个以 `model=M` 提交的 run 在处理中产生了需续跑的消息
+- **WHEN** 内核自身发起续跑
+- **THEN** 续跑仍以 `model=M` 发出,不要求消费者再次提供,也不回退到任何内核默认
+
+#### Scenario: 模型按其注册的 provider 路由请求格式
+- **GIVEN** model `M` 在 config 注册于 provider `P`
+- **WHEN** 以 `model=M` 提交 run
+- **THEN** 内核用 `P` 声明的 client / 请求格式发出(不跨 provider 借用其它格式)
 
 ### Requirement: 上下文压缩在长会话中保持可恢复
 
@@ -410,23 +421,24 @@ requires_tool 在场)。内核不含任何产品专属 feature。产品专属条
 ### Requirement: 系统提示由内核模板 + PromptSlots(四槽) 组装,产品内容纯 per-session
 
 内核拥有模板骨架(顺序固定:head → core 行为规则 → body → 通用 feature 指引 → 后台任务/runtime footer →
-custom → 内核易变尾部(memory/时间) → tail)。`create_session(prompt=PromptSlots(head/body/custom/tail))`
+custom → **内核自有工作区 AGENTS.md 段** → 内核易变尾部(memory/时间) → tail)。`create_session(prompt=PromptSlots(head/body/custom/tail))`
 填产品文案槽。系统提示的**产品内容全是 per-session**:建会话时由模板 + PromptSlots 组装一次、整会话
-稳定;内核易变尾部由内核自管,产品不碰。产品无任何向系统提示做 per-turn 注入的通道(hook 不注入系统
-提示)。`PromptSection` / `PromptContext` / `RenderMode` 不在公共表面。
+稳定;内核易变尾部由内核自管,产品不碰。**工作区 AGENTS.md 段也由内核自管**(源自 `workspace_root/AGENTS.md`,
+首轮冻结、压缩边界刷新,见「会话上下文自带工作区 AGENTS.md」Requirement)。产品无任何向系统提示做
+per-turn 注入的通道(hook 不注入系统提示)。`PromptSection` / `PromptContext` / `RenderMode` 不在公共表面。
 
 #### Scenario: 系统提示产品内容在会话内稳定
 - **GIVEN** 一个已创建会话
 - **WHEN** 同一会话多回合运行
-- **THEN** 系统提示的产品内容(PromptSlots 四槽)逐回合不变(仅内核自管的易变尾部随 memory/时间变);
-  产品无机制在回合间改写系统提示
+- **THEN** 系统提示的产品内容(PromptSlots 四槽)逐回合不变(仅内核自管的易变尾部随 memory/时间变、
+  以及内核自管的工作区 AGENTS.md 段随上下文压缩边界刷新);产品无机制在回合间改写系统提示
 
 #### Scenario: prompt preview 与真实装配同源
 - **GIVEN** `kernel.assemble_prompt_preview(*, prompt=PromptSlots, features, enabled_tools,
   workspace_root, scenario)`,消费者用与真实会话同一工厂构造的 `PromptSlots`
 - **WHEN** 以某 agent 配置请求预览
-- **THEN** 预览输出与该配置真实会话装配的 system prompt 一致(仅易变尾部以 `<runtime-injected:…>` 占位);
-  内核侧 product-neutral(产品段全在传入的 PromptSlots)
+- **THEN** 预览输出与该配置真实会话装配的 system prompt 一致(**易变尾部 + 工作区 AGENTS.md 段**以
+  `<runtime-injected:…>` 占位,不读盘);内核侧 product-neutral(产品段全在传入的 PromptSlots)
 
 ### Requirement: Kernel 提供单项中立能力查询
 
@@ -655,3 +667,59 @@ result 边界内，不破坏内核的 run、不影响同一内核上的其它 ru
 - **WHEN** 一次 `agent` 工具派发的子 agent 调用失败
 - **THEN** 该失败仅作为该工具调用的失败结果（status=failed + error）返回
 - **AND** 内核的其它 run 与该消费者进程的常驻活动不受影响、继续正常运行（进程不失联、不需重启）
+
+### Requirement: 会话上下文自带工作区 AGENTS.md（机制 A，默认恒开）
+
+创建会话时，若 `workspace_root` 根目录存在 `AGENTS.md`，内核自动将其内容（含 `@import` 展开）纳入该会话的系统提示，无需消费者额外传入、无需 agent 主动读取。无该文件则不注入，会话照常工作。此行为不可经任何 per-session / per-agent 开关关闭。注入内容在一个上下文压缩窗口内**冻结**（与 MEMORY/USER 快照同生命周期，保前缀缓存稳定）；发生上下文压缩或开启新会话时**刷新**为磁盘最新内容。
+
+#### Scenario: workspace 根有 AGENTS.md
+- **WHEN** 消费者以一个根目录含 `AGENTS.md` 的 `workspace_root` 创建会话并提交一轮运行
+- **THEN** 该 agent 的系统提示包含该 `AGENTS.md` 内容，agent 可据其中约定行动
+
+#### Scenario: workspace 根无 AGENTS.md
+- **WHEN** 消费者以一个根目录无 `AGENTS.md` 的 `workspace_root` 创建会话
+- **THEN** 不注入项目指令，会话正常运行、无错误
+
+#### Scenario: AGENTS.md 含 @import
+- **GIVEN** 工作区根 `AGENTS.md` 内有 `@./sub.md` 形式的 import
+- **WHEN** 会话启动注入
+- **THEN** 被 import 文件的内容一并纳入（递归最深 5 层、环引用不重复、不存在的 import 静默忽略）
+
+#### Scenario: 压缩窗口内冻结、压缩边界刷新
+- **GIVEN** 会话已注入工作区根 `AGENTS.md`（快照 X），其后磁盘上被改为 Y
+- **WHEN** 在同一压缩窗口内继续提交运行
+- **THEN** 系统提示仍含 X（不随磁盘变动而变，保前缀缓存）
+- **AND** 发生上下文压缩（或新会话）后的下一轮，系统提示刷新为 Y
+
+### Requirement: read 工具触发就近项目指令加载（机制 B，可选，默认开）
+
+当 `nested_memory` 内核特性开启（默认 `default_on=True`，不投影为产品/用户 toggle）时，agent 经 `read` 工具读取文件，内核在该 read 的工具结果中追加项目指令上下文：被读文件在 `workspace_root` 内 → 追加其目录链（至 workspace 根）上各级 `AGENTS.md` 的正文（`@import` 展开、`<project-instructions>` 标签包裹）；在 `workspace_root` 外 → 追加英文路径提示（`<project-instructions-hint>`），范围为该文件目录至最外层 git 仓根逐级、不含正文。同一份 AGENTS.md（按绝对路径）在一个上下文压缩窗口内只追加一次（含机制 A 已注入的工作区根那份）；发生上下文压缩后去重记录清空，使压缩后的 read 可重新追加（取磁盘最新内容）——与机制 A 的压缩边界刷新一致。
+
+#### Scenario: 读工作区内子目录文件，链上有 AGENTS.md
+- **GIVEN** `nested_memory` 开启，workspace 内某子目录有 `AGENTS.md`
+- **WHEN** agent read 该子目录（或更深）下的文件
+- **THEN** 该 read 的工具结果含该 `AGENTS.md` 正文（`<project-instructions>` 包裹）
+
+#### Scenario: 读工作区外 git 仓内文件
+- **GIVEN** `nested_memory` 开启，被读文件在 workspace 外、属于某 git 仓，文件目录至最外层仓根之间有 `AGENTS.md`
+- **WHEN** agent read 该文件
+- **THEN** 工具结果含英文路径提示（列出各级 AGENTS.md 路径，不含正文）
+
+#### Scenario: 读不属于任何 git 仓的工作区外文件
+- **WHEN** agent read 的文件在 workspace 外且不属于任何 git 仓
+- **THEN** 工具结果不含任何项目指令提示
+
+#### Scenario: 同一 AGENTS.md 多次命中只追加一次（压缩窗口内）
+- **WHEN** 同一压缩窗口内多次 read 命中同一份 `AGENTS.md`（含机制 A 已注入的工作区根那份）
+- **THEN** 仅首次追加，后续不重复
+
+#### Scenario: 压缩后 read 重新追加（去重记录随压缩清空）
+- **GIVEN** 某 `AGENTS.md` 已在本压缩窗口内因一次 read 被追加过
+- **WHEN** 发生上下文压缩后，再次 read 命中该文件
+- **THEN** 重新追加该文件当前磁盘内容（压缩已把旧追加内容摘要掉，去重记录已随压缩清空）
+
+#### Scenario: 关闭 nested_memory 后 read 不再追加
+- **GIVEN** `nested_memory` 特性关闭
+- **WHEN** agent read 工作区内/外文件
+- **THEN** 工具结果不含项目指令内容/提示
+- **AND** 机制 A 的工作区根 AGENTS.md 仍照常注入系统提示（不随之关闭）
