@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: bugfix-417-timeout-tool-wedges-session
+> 对齐: bugfix-429-per-agent-model-selection
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -199,6 +199,37 @@ Gateway 始终**主动**向 IM 服务发起 WebSocket 持久连接(因其在 NAT
 - **WHEN** IM 服务下发 `node.cron.delete.request`（含 agent_id / workspace_root / job_id）
 - **THEN** Gateway 从 `jobs.json` 中移除匹配 job_id 的条目并回写，回帧 `node.cron.delete`（含 deleted: true/false）；
   job_id 不存在时 deleted 为 false，不报错
+
+### Requirement: agent 选定的模型在对话中生效,按当前配置每轮路由
+
+Gateway 在每个新 run(用户消息、heartbeat、cron 触发)按 agent 当前 `default_model` 选择模型,传给内核
+生效;agent 未选模型时回退到 Gateway 配置的产品层全局默认。
+
+#### Scenario: agent 选定模型后对话用该模型
+- **GIVEN** 某 agent 配置 `default_model = codex_oauth:gpt-5.5`
+- **WHEN** 用户与该 agent 对话
+- **THEN** 该轮 LLM 请求用 `codex_oauth:gpt-5.5`(而非全局默认)
+
+#### Scenario: 改模型后旧会话继续聊用新模型
+- **GIVEN** 某 agent 曾用模型 A 聊过、存在历史会话
+- **WHEN** 在配置页改为模型 B 后回到该历史会话发新消息
+- **THEN** 新消息用模型 B
+
+#### Scenario: agent 未选模型时用产品层默认兜底
+- **GIVEN** 某 agent 的 `default_model` 为空
+- **WHEN** 与其对话
+- **THEN** 用 Gateway 配置的全局默认模型正常回复,不报错
+
+#### Scenario: heartbeat/cron 触发的轮次也用 agent 当前模型
+- **WHEN** heartbeat 或 cron 为某 agent 触发一轮
+- **THEN** 该轮用该 agent 当前 `default_model`(或产品默认兜底)
+
+### Requirement: 动态新建 agent 的模型选择持久化
+
+#### Scenario: IM 动态新建 agent 选模型后重启保留
+- **GIVEN** 用户在 IM 新建 agent 并选模型 B
+- **WHEN** Gateway 重启
+- **THEN** 该 agent 仍在、其模型仍是 B,继续用 B 对话
 
 ### Requirement: 断线后自动重连并补发未确认帧,期间外部 IM 主路径不受影响
 

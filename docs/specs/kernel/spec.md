@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: feat-428-nested-project-instructions
+> 对齐: bugfix-429-per-agent-model-selection
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -77,7 +77,7 @@
   初始化在内部,消费者无前置时序义务;装配完成后所有会话/运行均在进程内执行(无子进程、无 loopback HTTP)。
 - `create_session(workspace_root, enabled_tools, features, prompt, title=…, metadata=…)` —— 每 agent
   带齐配置:`enabled_tools` 从工具目录选子集;`features` 开关内核通用 feature;`prompt` 为 SDK-owned
-  `PromptSlots`。不收 `model`——model 维持 kernel 级(CLI `/model` 经 `reconfigure_llm` 即时切换)。
+  `PromptSlots`。不收 `model`——model 是 per-run 的,消费者每轮经 `submit(model=...)` 提供。
 
 #### Scenario: 应用零前置调用直接装配
 - **GIVEN** 应用构造了 `LLMConfig`(含 `from_env()`)、工具目录、hooks
@@ -97,7 +97,7 @@
 - **GIVEN** 一个已装配的 `Kernel`
 - **THEN** 它暴露异步会话生命周期方法 `create_session` / `fork_session` / `compact`,非阻塞方法
   `submit` / `stream` / `interrupt` / `cancel` / `get_run` / `list_session_tools` /
-  `get_llm_config` / `reconfigure_llm`,中立能力查询 `list_models` / `list_tools` / `list_features` /
+  `get_llm_config`,中立能力查询 `list_models` / `list_tools` / `list_features` /
   `list_skills`,以及 prompt 预览 `assemble_prompt_preview`;并同时暴露供异步消费者使用的 `aclose()`
   与同步兼容的 `close()`
 
@@ -216,20 +216,31 @@ run 即使 parked 在工具执行、LLM 等待或权限决策上也能终止;终
 - **WHEN** 消费者消费 `kernel.stream(session_id)`
 - **THEN** 等待期间 stream 周期性产出携带该 run_id 的 liveness 事件(与工具/LLM 等待同一事件通路),消费者据此判存活,无需 permission 专用豁免
 
-### Requirement: LLM 配置可查询、可纯配置切换
+### Requirement: LLM 配置可查询,每轮对话的模型由消费者随 run 提供
 
-消费者可读当前 LLM 配置,也可在不重建 runtime 的前提下打补丁切换 provider / model;provider 切换是
-纯配置动作,不需改 runtime / tool / session 代码。`get_llm_config()` / `reconfigure_llm()` 返回
-SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界)。model 维持 kernel 级,
-`create_session` 不收 model;CLI `/model` 经 `reconfigure_llm` 即时生效。
+消费者可读当前 LLM 配置(provider/base_url/默认目录,供选择器/能力上报用);模型不再是 kernel 级固化的
+全局属性,改为消费者在发起每个 run 时随 `submit` 提供,内核不持有对话默认 model。`get_llm_config()` 返回
+SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报告 build-time 的 active 连接供
+选择器使用;`create_session` 不收 model。`reconfigure_llm`/`bind_llm_client` 失去调用方而退役,内核不再
+有"当前全局 active model"的概念。
 
 #### Scenario: 读取当前 LLM 配置
 - **WHEN** 消费者 `kernel.get_llm_config()`
 - **THEN** 返回 SDK-owned `LLMConfig`,含 `provider` / `model` / `base_url` 等字段
 
-#### Scenario: 切换 provider / model 后查询反映新值
-- **WHEN** 消费者 `kernel.reconfigure_llm(provider=..., model=...)`
-- **THEN** 返回更新后的 `LLMConfig`;随后 `get_llm_config()` 也反映该 provider / model
+#### Scenario: submit 携带 model 并在该 run 生效
+- **WHEN** 消费者 `kernel.submit(session_id=..., parts=..., model=M)`
+- **THEN** 该 run 的 LLM 请求以 `model=M` 发出(session JSONL 该 turn 记录可见)
+
+#### Scenario: 同一 run 的内核续跑复用本 run 的 model
+- **GIVEN** 一个以 `model=M` 提交的 run 在处理中产生了需续跑的消息
+- **WHEN** 内核自身发起续跑
+- **THEN** 续跑仍以 `model=M` 发出,不要求消费者再次提供,也不回退到任何内核默认
+
+#### Scenario: 模型按其注册的 provider 路由请求格式
+- **GIVEN** model `M` 在 config 注册于 provider `P`
+- **WHEN** 以 `model=M` 提交 run
+- **THEN** 内核用 `P` 声明的 client / 请求格式发出(不跨 provider 借用其它格式)
 
 ### Requirement: 上下文压缩在长会话中保持可恢复
 
