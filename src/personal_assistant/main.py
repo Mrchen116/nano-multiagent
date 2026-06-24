@@ -3717,6 +3717,69 @@ def _build_kernel_event_observer(
                     )
                 )
 
+        elif event_name == "injection_consumed":
+            # bugfix-426-M4 决策6: the kernel just drained a steered (injected) message
+            # into the model context on THIS run (run_id unchanged under 决策5). IM is a
+            # time-ordered bubble chat: the steer user message already sits in the
+            # conversation, so the reply to it must land in a NEW bubble that sorts
+            # AFTER the steer — not appended to the bubble that was answering the prior
+            # message. Finalize the current bubble A cleanly (completed, NOT failed —
+            # the prior reply genuinely ended), then open bubble B at this consume
+            # moment (so it sorts after the steer) and route subsequent deltas to it.
+            # This is the same close+turn_start+restart sequence as the textA→textB
+            # multi-bubble path (_close_old_and_restart), but anchored to the explicit
+            # consume signal instead of inferring it from a changed kernel_message_id.
+            if conversation_id and agent_id and message_id:
+
+                async def _roll_bubble_on_steer(
+                    mgr: IMConnectionManager = manager,
+                    rid: str = run_id,
+                    cid: str = conversation_id,
+                    aid: str = agent_id,
+                    old_msg_id: str = message_id,
+                ) -> None:
+                    try:
+                        await mgr.send_json(
+                            "node.streaming_delta",
+                            {
+                                "kind": "message_completed",
+                                "message_id": old_msg_id,
+                                "final_content": None,
+                                "token_usage": None,
+                                "delivery_status": "completed",
+                                "run_id": rid,
+                            },
+                        )
+                        ack = await mgr.send_json_await_ack(
+                            "node.streaming_delta",
+                            {
+                                "kind": "turn_start",
+                                "conversation_id": cid,
+                                "agent_id": aid,
+                                "run_id": rid,
+                            },
+                        )
+                        ack_payload = (
+                            ack.get("payload")
+                            if isinstance(ack.get("payload"), dict)
+                            else ack
+                        )
+                        returned_msg_id = (
+                            ack_payload.get("message_id")
+                            if isinstance(ack_payload, dict)
+                            else None
+                        )
+                        if returned_msg_id and rid in run_context_store:
+                            run_context_store[rid]["message_id"] = str(returned_msg_id)
+                            # Clear the prior kernel_message_id so the next
+                            # assistant_message delta streams straight into bubble B
+                            # rather than tripping _close_old_and_restart again.
+                            run_context_store[rid].pop("kernel_message_id", None)
+                    except Exception as exc:  # noqa: BLE001
+                        _log.warning("IM observer steer bubble roll failed: %s", exc)
+
+                return _roll_bubble_on_steer()
+
         elif event_name == "run_terminal_reconcile":
             # bugfix-410-M2 R3 (#97): a run terminated abnormally (watchdog timeout /
             # crash / interrupt) and any tool_call still in flight never received a
