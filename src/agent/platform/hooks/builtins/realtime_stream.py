@@ -134,6 +134,25 @@ def setup(hooks):  # noqa: ANN001, ANN201
             hb_payload["elapsed_ms"] = elapsed_ms
         ctx.publish_session_event(event="run_heartbeat", data=hb_payload)
 
+    async def on_pending_injection_consumed(event, ctx):  # noqa: ANN001
+        # bugfix-426-M4 决策6: forward the loop's consume-point signal as an
+        # `injection_consumed` session event so the gateway can finalize the current
+        # IM bubble and open a new one after the steer message. Scoped by run_id (the
+        # run stays the SAME under 决策5), so the relay routes it to the live run.
+        if not isinstance(event, Mapping):
+            return
+        run_id = _extract_run_id(event)
+        if run_id is None:
+            return
+        ctx.publish_session_event(
+            event="injection_consumed",
+            data={
+                "event": "injection_consumed",
+                "run_id": run_id,
+                "turn_id": event.get("turn_id"),
+            },
+        )
+
     async def on_turn_end(event, ctx):  # noqa: ANN001
         if not isinstance(event, Mapping):
             return
@@ -165,6 +184,12 @@ def setup(hooks):  # noqa: ANN001, ANN201
     )
     hooks.on("message_end", on_message_end, priority=1000, timeout_ms=500)
     hooks.on("turn_end", on_turn_end, priority=1000, timeout_ms=500)
+    hooks.on(
+        "pending_injection_consumed",
+        on_pending_injection_consumed,
+        priority=1000,
+        timeout_ms=500,
+    )
 
 
 def _extract_run_id(event: Mapping[str, Any]) -> str | None:

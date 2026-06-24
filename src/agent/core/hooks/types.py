@@ -32,6 +32,10 @@ class HookEventType(StrEnum):
     RUN_ERROR = "run_error"
     RUN_TIMEOUT = "run_timeout"
     RUN_ABORT = "run_abort"
+    # bugfix-426-M4 决策6: fired at the round boundary where the loop actually drains
+    # and consumes injected (steered) messages into the model context. The gateway
+    # turns this into "roll the IM bubble" — only the loop knows this consume point.
+    PENDING_INJECTION_CONSUMED = "pending_injection_consumed"
 
 
 class HookEventMode(StrEnum):
