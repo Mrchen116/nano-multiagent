@@ -101,7 +101,9 @@ class _FakeCompactionPlanner:
 class _FakeCompactionSummarizer:
     """Summarizer that returns a fixed summary."""
 
-    async def summarize(self, *, session_id, system_prompt, dropped_messages):
+    async def summarize(
+        self, *, session_id, system_prompt, dropped_messages, model_override=None
+    ):
         return "Compact summary: context was too long."
 
 
@@ -378,3 +380,36 @@ def test_should_compact_prefers_real_prompt_tokens_over_estimate() -> None:
     assert loop._should_compact(tiny_msgs, "", real_prompt_tokens=199_000) is True
     # Real value below threshold → no compaction.
     assert loop._should_compact(tiny_msgs, "", real_prompt_tokens=1_000) is False
+
+
+class _RecordingFork:
+    """Fork stub that records the model_override it receives (bugfix-429 fix-r1 #2)."""
+
+    def __init__(self) -> None:
+        self.model_overrides: list[str | None] = []
+
+    async def execute(self, *, state, model_override=None, **kwargs):  # noqa: ANN001
+        self.model_overrides.append(model_override)
+        return build_turn_result(
+            state.session_id,
+            state.turn_id,
+            [Message(message_id="m", role="assistant", content="a summary")],
+        )
+
+
+async def test_compaction_summarizer_forwards_run_model_to_fork() -> None:
+    """bugfix-429 fix-r1 #2: the compaction summarizer must run the side-chain on
+    the current run's model (passed as model_override), not the build-time default."""
+    from agent.core.agent.compaction.summarizer import CompactionSummarizer
+
+    fork = _RecordingFork()
+    summarizer = CompactionSummarizer(fork=fork)
+
+    await summarizer.summarize(
+        session_id="sess_x",
+        system_prompt="sys",
+        dropped_messages=[Message(message_id="d", role="user", content="old")],
+        model_override="agent-selected-model",
+    )
+
+    assert fork.model_overrides == ["agent-selected-model"]

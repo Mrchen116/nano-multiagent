@@ -4,10 +4,35 @@ import pytest
 
 from personal_assistant.config.local_store import (
     DEFAULT_LOCAL_KERNEL_TOKEN,
+    AgentWorkspaceConfig,
     default_local_config_path,
     load_local_config,
+    resolve_run_model,
     save_local_config,
 )
+
+
+def _agent(default_model: str | None) -> AgentWorkspaceConfig:
+    return AgentWorkspaceConfig(
+        agent_id="a", workspace_root=Path("/tmp/a"), default_model=default_model
+    )
+
+
+def test_resolve_run_model_explicit_wins() -> None:
+    """bugfix-429 fix-r1 #3: explicit per-call model overrides agent + product."""
+    assert (
+        resolve_run_model(_agent("agent-m"), product_default="prod-m", explicit="x-m")
+        == "x-m"
+    )
+
+
+def test_resolve_run_model_agent_over_product() -> None:
+    assert resolve_run_model(_agent("agent-m"), product_default="prod-m") == "agent-m"
+
+
+def test_resolve_run_model_falls_back_to_product() -> None:
+    assert resolve_run_model(_agent(None), product_default="prod-m") == "prod-m"
+    assert resolve_run_model(None, product_default="prod-m") == "prod-m"
 
 
 # Minimal llm: section required by all Gateway configs after refactor-382.
