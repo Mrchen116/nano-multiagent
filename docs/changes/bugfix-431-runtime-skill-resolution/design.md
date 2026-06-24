@@ -100,7 +100,7 @@ graph TD
 **选择**：让 `AgentRuntime` 持有 `workspace_config_dirname` 和 `skill_search_roots`，内部按需构造 `_WorkspaceDirnameSkillResolver`，不复活 `ConfigResolver`。
 
 - **理由**：
-  - `Kernel` 已经用同一组参数（`_workspace_config_dirname + _skill_search_roots`）构造 resolver，这是经过验证的 2 层路径模式。
+  - `Kernel` 已经用同一组参数（`_workspace_config_dirname + _skill_search_roots`）解析 skills，这是经过验证的 2 层路径模式；本 unit 把它统一成共用 helper（决策 2），runtime 与 Kernel 都经该 helper 构造 resolver。
   - `_WorkspaceDirnameSkillResolver` 是 per-call 构造的，天然适合 runtime 里每个 session / 子 agent 的不同 `workspace_root`。
   - 不需要改变 `resolve_available_skills` 的 public 签名或 `SkillRootResolver` Protocol。
 - **拒绝**：
