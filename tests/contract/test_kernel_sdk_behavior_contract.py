@@ -545,3 +545,111 @@ async def test_submit_steer_injects_render_user_text_content(tmp_path: Path) -> 
     finally:
         gate.set()
         kernel.close()
+
+
+# ---------------------------------------------------------------------------
+# bugfix-426-M4 决策5/3: a steer landing in the run's terminal window is consumed
+# by the SAME run (no continuation new run_id) — #140's root carrier removed.
+# ---------------------------------------------------------------------------
+
+
+class _TerminalWindowSteerClient:
+    """Drives the #140 terminal window deterministically.
+
+    Round 1: block on the gate (run stays RUNNING so the test injects a steer),
+    then yield a terminal reply with NO tool calls — the loop is now at its
+    terminal decision with a pending steer already enqueued.
+    Round 2 onward: yield a final terminal reply (the steer-driven round).
+    """
+
+    def __init__(self, gate) -> None:  # noqa: ANN001
+        self._gate = gate
+        self._round = 0
+        self.requests: list[Any] = []
+
+    def generate(self, request: Any):  # noqa: ANN001, ANN201
+        self.requests.append(request)
+        return self._generate()
+
+    async def _generate(self):
+        self._round += 1
+        if self._round == 1:
+            while not self._gate.is_set():
+                await asyncio.sleep(0.01)
+            yield LLMMessage(
+                role="assistant",
+                content="answer-to-first",
+                finish_reason="stop",
+                tool_calls=(),
+            )
+        else:
+            yield LLMMessage(
+                role="assistant",
+                content="answer-to-steer",
+                finish_reason="stop",
+                tool_calls=(),
+            )
+
+
+async def test_terminal_window_steer_continues_same_run_no_continuation(
+    tmp_path: Path,
+) -> None:
+    """决策5/3: a steer enqueued just before the run finishes is consumed by the
+    SAME run (injected=True, run_id unchanged) and produces NO continuation run.
+
+    This is the #140 regression at the kernel level: before, the steer was
+    stranded → re-submitted as a continuation with a new run_id → the gateway relay
+    (anchored to the old run_id) dropped every continuation event. Decision 5 keeps
+    it on one run; decision 3's continuation narrows to abnormal terminations only,
+    so normal completion never strands.
+    """
+    import threading
+
+    gate = threading.Event()
+    client = _TerminalWindowSteerClient(gate)
+    kernel = _build_kernel(tmp_path, _llm_client_override=client)
+    try:
+        session = await kernel.create_session(workspace_root=tmp_path)
+        first = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "do the thing"}],
+            workspace_root=tmp_path,
+        )
+        await _wait_for_run_status(kernel, first.run_id, "running")
+
+        runs_before = set(kernel._c.runs_registry._runs.keys())  # noqa: SLF001
+        # Steer enqueues while round 1 is blocked → guaranteed pending at the
+        # loop's terminal re-drain.
+        steered = kernel.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "actually do X instead"}],
+            workspace_root=tmp_path,
+            steer=True,
+        )
+        assert steered.injected is True
+        assert steered.run_id == first.run_id
+
+        gate.set()
+        record = await _wait_for_terminal_run(kernel, first.run_id)
+        assert record.status == "completed"
+
+        # No continuation run was created: the same run consumed the steer.
+        runs_after = set(kernel._c.runs_registry._runs.keys())  # noqa: SLF001
+        assert runs_after == runs_before, (
+            "decision 5 must keep the steer on one run — no continuation new run_id"
+        )
+        # The same run did a SECOND round (terminal re-drain → continue), and the
+        # steer entered that round's context — proving it was consumed by this run,
+        # not stranded into a continuation.
+        assert len(client.requests) == 2, (
+            "the run must re-loop once on the terminal-window steer (same run)"
+        )
+        second_round_texts = [
+            _flatten_msg_text(m)
+            for m in client.requests[1].messages
+            if getattr(m, "role", None) == "user"
+        ]
+        assert any("actually do X instead" in t for t in second_round_texts)
+    finally:
+        gate.set()
+        kernel.close()

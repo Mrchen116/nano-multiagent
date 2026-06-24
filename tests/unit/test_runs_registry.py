@@ -586,14 +586,21 @@ async def _set_event(ev: _asyncio.Event) -> None:
 
 
 def test_stranded_continuation_follows_injected_origin(tmp_path: Path) -> None:
-    """A message injected into the active run that ends before the loop drains it
-    re-runs as a continuation carrying the injection origin (USER), not the
-    hardcoded BACKGROUND_TASK (bugfix-426 决策3).
+    """The registry's terminal chokepoint re-runs a stranded steer as a continuation
+    carrying its injection origin (USER), not the hardcoded BACKGROUND_TASK (决策3).
 
-    The gated runtime keeps the run RUNNING (so inject_pending_message succeeds)
-    and never drains the controller itself (it does not run the real loop), so the
-    enqueued message is stranded and the registry's terminal-path drain re-submits
-    it as a continuation run.
+    Registry-isolation test: the gated runtime stands in for the loop and never
+    drains the controller, so the steer is stranded and ``_settle_terminal_pending``
+    re-submits it. This exercises the chokepoint's origin propagation directly.
+
+    bugfix-426-M4 决策3 收窄: in production with the real loop, a NORMAL completion no
+    longer reaches this stranded path — the loop's terminal re-drain (决策5) consumes
+    the steer on the SAME run (see the kernel contract
+    ``test_terminal_window_steer_continues_same_run_no_continuation``). This chokepoint
+    now fires only for ABNORMAL terminations (watchdog/crash/timeout), covered on the
+    real path by ``test_stranded_continuation_fires_on_non_user_cancel``. The stubbed
+    ``completed=True`` runtime here is only the vehicle to reach the mechanism in
+    isolation; it does not claim normal completion strands in production.
     """
     import threading
 
