@@ -57,7 +57,9 @@ def test_make_skill_resolver_lives_in_core() -> None:
     )
 
 
-def test_make_skill_resolver_returns_resolver_with_correct_roots(tmp_path: Path) -> None:
+def test_make_skill_resolver_returns_resolver_with_correct_roots(
+    tmp_path: Path,
+) -> None:
     """make_skill_resolver constructs a resolver with workspace-first root ordering."""
     ws = tmp_path / "workspace"
     ws.mkdir()

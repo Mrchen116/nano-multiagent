@@ -5,7 +5,7 @@ import contextlib
 import logging
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Mapping, Protocol, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Mapping, Sequence
 
 from agent.core.agent.liveness import (
     _broker_publish_adapter,
@@ -32,8 +32,11 @@ from agent.core.session.jsonl_store import (
 )
 from agent.core.session.manager import SessionManager
 from agent.core.session.models import Session
-from agent.core.skills import SkillMetadata, make_skill_resolver, resolve_available_skills
-from agent.core.skills.discovery import SkillRootResolver
+from agent.core.skills import (
+    SkillMetadata,
+    make_skill_resolver,
+    resolve_available_skills,
+)
 from agent.core.tools.result_budget import ToolResultCompressor
 from agent.core.tools.session_file_state import SessionFileState, read_file_slice
 from agent.core.utils.time import utc_now_iso as _utc_now_iso

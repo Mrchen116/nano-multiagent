@@ -750,13 +750,17 @@ def _make_tool_with_skills(available_skill_names: list[str]) -> AgentTool:
 
     runtime = MagicMock()
     runtime.create_session = _fake_create_session
-    runtime._session_manager.store.resolve_path.return_value = Path("/tmp/sess_123.jsonl")
+    runtime._session_manager.store.resolve_path.return_value = Path(
+        "/tmp/sess_123.jsonl"
+    )
     runtime._session_manager.store.find_session_by_metadata.return_value = None
 
     # Construct minimal SkillMetadata stubs for each known skill name.
     fake_dir = Path("/fake")
     skill_metas = tuple(
-        SkillMetadata(name=n, description=f"{n} desc", location=fake_dir, base_dir=fake_dir)
+        SkillMetadata(
+            name=n, description=f"{n} desc", location=fake_dir, base_dir=fake_dir
+        )
         for n in available_skill_names
     )
 

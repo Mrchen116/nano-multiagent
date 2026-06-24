@@ -137,4 +137,8 @@ def resolve_available_skills(
     return tuple(skill for skill in skills if skill.name in requested)
 
 
-__all__ = ["default_skill_search_roots", "make_skill_resolver", "resolve_available_skills"]
+__all__ = [
+    "default_skill_search_roots",
+    "make_skill_resolver",
+    "resolve_available_skills",
+]

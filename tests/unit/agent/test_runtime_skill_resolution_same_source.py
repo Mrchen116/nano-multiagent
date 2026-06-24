@@ -34,7 +34,12 @@ def _fake_llm_client() -> Any:
     return _FakeClient()
 
 
-def _kernel(tmp_path: Path, *, workspace_config_dirname: str = ".testconfig", extra_roots: tuple[Path, ...] = ()):
+def _kernel(
+    tmp_path: Path,
+    *,
+    workspace_config_dirname: str = ".testconfig",
+    extra_roots: tuple[Path, ...] = (),
+):
     return build_kernel(
         llm=LLMConfig(
             provider="openai_compat",
@@ -81,7 +86,9 @@ def test_runtime_sees_same_skills_as_list_skills(tmp_path: Path) -> None:
         runtime_skills = runtime.resolve_available_skills(workspace)
         runtime_names = {s.name for s in runtime_skills}
 
-        assert "alpha_skill" in list_names, "list_skills must see workspace-dirname skills"
+        assert "alpha_skill" in list_names, (
+            "list_skills must see workspace-dirname skills"
+        )
         assert "beta_skill" in list_names
 
         # The central invariant: runtime and preview/list see the same set.
@@ -125,13 +132,17 @@ def test_extra_deployment_root_visible_through_both_paths(tmp_path: Path) -> Non
     extra_root = tmp_path / "deployment_skills"
     _write_skill(extra_root, "shared_skill")
 
-    kernel = _kernel(tmp_path, workspace_config_dirname=".testconfig", extra_roots=(extra_root,))
+    kernel = _kernel(
+        tmp_path, workspace_config_dirname=".testconfig", extra_roots=(extra_root,)
+    )
     try:
         list_names = {s.name for s in kernel.list_skills(workspace_root=workspace)}
         runtime = kernel._c.runtime  # type: ignore[attr-defined]
         runtime_names = {s.name for s in runtime.resolve_available_skills(workspace)}
 
-        assert "shared_skill" in list_names, "list_skills must see extra deployment root"
+        assert "shared_skill" in list_names, (
+            "list_skills must see extra deployment root"
+        )
         assert "shared_skill" in runtime_names, "runtime must see extra deployment root"
         assert runtime_names == list_names, (
             f"runtime ({runtime_names}) != list_skills ({list_names}) for extra root"
