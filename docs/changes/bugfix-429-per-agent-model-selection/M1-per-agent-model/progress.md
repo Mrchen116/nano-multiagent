@@ -185,3 +185,11 @@ reviewer regression verdict=fail（动态 agent model 路由）+ verifier sugges
 - **provider_of O(1)**：model_registry 建 `model_to_provider` 倒排 dict，provider_of 改 O(1)；loop.py/runtime.py 的 `provider_of` lazy import 提到模块顶（去热路径 import）。
 - **dead code**：error_presenter 删 3 条已退役 `llm-config set` 错误建议（set requires / api-key 冲突 / --timeout-seconds，均无来源）；runtime 删 dead 字段 `self._llm_client_factory`（唯一 reader reconfigure_llm 已退役）。
 - **loop self._model 残留**：verifier suggestion 是「下一 unit 改 None」；本轮安全处置——保留字段（单 client/测试路径仍需），ref_comment 改为准确描述（production 永远传 model_override，self._model 仅 build-time 默认）。不做破坏测试契约的删除（verifier 已标 next-unit）。
+
+### fix-r1 live DONE gate（动态 agent model 端到端，在 fix-r1 代码上）
+
+- 全新 worktree e2e 栈（含 fix-r1 #2/#3 代码）。
+- 动态新建 gpt-probe（default_model=codex_oauth:gpt-5.5）→ 直聊发消息。
+- proxy 日志 `/Users/czj/Repos/LLM_PROXY/logs/session/2026-06-24_08-35-26_028_sess_71c9192bf376fb94/*-req-anthropic_messages.json` → `model=codex_oauth:gpt-5.5` ✅
+- gateway log 无错，agent 回 "pong"。
+→ 动态 agent 选 model 真生效（#2/#3 改动未回归动态路径）。#1 reviewer symptom 在 fix-r1 代码同样不复现，等 team-lead 精确 repro 定夺是否另有触发条件。
