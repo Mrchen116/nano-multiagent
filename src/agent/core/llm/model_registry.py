@@ -27,6 +27,8 @@ class _RegistryState:
     models: dict[str, dict[str, ModelMetadata]]
     # provider → default_model_name
     provider_defaults: dict[str, str]
+    # model_name → provider (bugfix-429 fix-r1 #3: O(1) reverse lookup for routing)
+    model_to_provider: dict[str, str]
 
 
 _REGISTRY: _RegistryState | None = None
@@ -53,6 +55,7 @@ def init_model_registry(payload: "LLMConfigPayload") -> None:
 
     models: dict[str, dict[str, ModelMetadata]] = {}
     provider_defaults: dict[str, str] = {}
+    model_to_provider: dict[str, str] = {}
 
     for provider_payload in payload.providers:
         pname = provider_payload.name
@@ -65,6 +68,9 @@ def init_model_registry(payload: "LLMConfigPayload") -> None:
                 default_base_url=base_url,
                 extra_request_body=model_payload.extra_request_body,
             )
+            # First declaration wins on duplicate model names across providers
+            # (matches the forward iteration order used by the old linear scan).
+            model_to_provider.setdefault(model_payload.name, pname)
         models[pname] = provider_models
         # first model in provider is the provider default
         if provider_payload.models:
@@ -87,6 +93,7 @@ def init_model_registry(payload: "LLMConfigPayload") -> None:
         default_provider=default_provider,
         models=models,
         provider_defaults=provider_defaults,
+        model_to_provider=model_to_provider,
     )
 
 
@@ -153,10 +160,10 @@ def provider_of(model: str) -> str:
             guessing a provider/format (no silent fallback).
     """
     registry = _require_initialized()
-    for provider, provider_models in registry.models.items():
-        if model in provider_models:
-            return provider
-    raise ValueError(f"no registered provider for model: {model}")
+    provider = registry.model_to_provider.get(model)
+    if provider is None:
+        raise ValueError(f"no registered provider for model: {model}")
+    return provider
 
 
 def get_default_base_url(provider: str) -> str | None:

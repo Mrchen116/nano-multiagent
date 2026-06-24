@@ -14,7 +14,10 @@ from personal_assistant.channels.base import (
     OutboundMessage,
     ReplyContext,
 )
-from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.config.local_store import (
+    AgentWorkspaceConfig,
+    resolve_run_model,
+)
 from personal_assistant.gateway.background_session_events import (
     BackgroundSessionEventSubscriber,
 )
@@ -792,13 +795,13 @@ class InboundPipeline:
 
         Reads ``agent.default_model`` fresh from the live ``self._agents`` map
         (config.sync updates it via register_agent) so a model change applies to
-        the next turn, including existing/old sessions. Falls back to the product
-        default when the agent has not selected a model.
+        the next turn, including existing/old sessions. The fallback rule lives in
+        the shared ``resolve_run_model`` helper (fix-r1 #3).
         """
-        agent = self._agents.get(agent_id)
-        if agent is not None and agent.default_model:
-            return agent.default_model
-        return self._product_default_model
+        return resolve_run_model(
+            self._agents.get(agent_id),
+            product_default=self._product_default_model,
+        )
 
     def _binding_matches_workspace_root(
         self, session_id: str, *, expected_workspace_root: str

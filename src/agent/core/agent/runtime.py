@@ -25,6 +25,7 @@ from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
+from agent.core.llm.model_registry import provider_of
 from agent.core.session.jsonl_store import (
     USER_INTERRUPT_RECOVERY_CONTENT,
     SessionConfig,
@@ -140,7 +141,8 @@ class AgentRuntime:
                 "AgentRuntime requires either llm_client or llm_client_factory; "
                 "pass llm_client for unit tests, llm_client_factory for production wiring"
             )
-        self._llm_client_factory = llm_client_factory
+        # bugfix-429 fix-r1 #3: removed dead self._llm_client_factory field — its only
+        # reader was reconfigure_llm (retired). The factory is used at construction only.
         self._llm_client = active_llm_client
         # bugfix-429 决策3: per-provider client map for routing each run to the
         # client of its model's registered provider. None → single-client path
@@ -168,6 +170,11 @@ class AgentRuntime:
         # None means "all tools in registry" (platform default behavior).
         self._default_tool_ids = default_tool_ids
         self._tool_registry = tool_registry
+        # bugfix-429 fix-r1 #2: model of the run currently executing per session.
+        # Side-chain LLM calls (hook model_caller / compaction summarizer) read this
+        # so they follow the agent's per-run selected model, not the build-time
+        # default. Set at run start, popped at run end (see _run_locked).
+        self._active_run_models: dict[str, str] = {}
         self._session_file_states: dict[str, SessionFileState] = {}
         # In-memory session state: primary data source during normal operation.
         self._session_histories: dict[str, list[Message]] = {}
@@ -191,6 +198,7 @@ class AgentRuntime:
         self._tool_result_compressor = ToolResultCompressor(tool_results_dir)
         self._context_fork = AgentContextFork(
             llm_client=active_llm_client,
+            llm_clients=llm_clients,
             model=self._llm_config.model,
             policies=policies,
             system_prompt=system_prompt,
@@ -214,6 +222,10 @@ class AgentRuntime:
             )
         else:
             _summary_fork = self._context_fork
+        # bugfix-429 fix-r1 #2: when a dedicated summary_model fork is configured it
+        # has its own fixed model — don't override it with the run's model. Only the
+        # shared fork follows the per-run model.
+        self._summary_fork_has_dedicated_model = bool(summary_model)
         self._compaction_summarizer = CompactionSummarizer(
             fork=_summary_fork,
         )
@@ -323,6 +335,12 @@ class AgentRuntime:
         model: str | None = None,
     ) -> TurnResult:
         """Internal run implementation (assumes session lock is held)."""
+
+        # bugfix-429 fix-r1 #2: publish this run's model BEFORE any hook dispatch
+        # (the input hook can call ctx.call_model) so side-chain LLM calls follow
+        # the per-run model. Popped in the run's finally.
+        if model:
+            self._active_run_models[session_id] = model
 
         # --- Cache-first load: miss reads JSONL once, hit uses memory ---
         if session_id not in self._session_histories:
@@ -725,6 +743,9 @@ class AgentRuntime:
                 await self._dispatch_observe("turn_end", turn_end_payload, hook_ctx)
                 raise
         finally:
+            # bugfix-429 fix-r1 #2: this run is done — stop publishing its model.
+            if model:
+                self._active_run_models.pop(session_id, None)
             # bugfix-410-M2 R1: close any orphaned tool_call on EVERY exit path
             # (normal completion = no-op empty orphan set; cooperative abort/
             # cancel; raw CancelledError pass-through; ModelError re-raise). Must
@@ -804,6 +825,8 @@ class AgentRuntime:
                     # Inherit the turn's execution context (model_caller /
                     # permission_requester) so hooks work inside the fork.
                     parent_hook_ctx=hook_ctx,
+                    # bugfix-429 fix-r1 #2: background fork runs on this run's model.
+                    model=model,
                 )
 
                 # replace() derives from the turn's hook_ctx, preserving every field
@@ -1581,17 +1604,41 @@ class AgentRuntime:
             permission_requester=permission_requester,
         )
 
+    def _client_for_model(self, model: str) -> LLMClient:
+        """Select the LLM client for ``model``'s provider (bugfix-429 fix-r1 #2).
+
+        Mirrors AgentLoop._client_for_model so side-chain calls (hook model_caller)
+        route by the model's registered provider. Without a per-provider map
+        (unit-test single-client path), the lone client serves every model.
+        """
+        if not self._llm_clients:
+            return self._llm_client
+        provider = provider_of(model)
+        client = self._llm_clients.get(provider)
+        if client is None:
+            raise ValueError(
+                f"no llm client configured for provider {provider!r} (model {model!r})"
+            )
+        return client
+
     async def _call_hook_model(self, call: HookModelCall) -> HookModelResult:
         """Execute one hook-initiated model call under runtime configuration."""
 
         normalized_session = call.session_id.strip()
         if not normalized_session:
             raise ValueError("session_id is required")
-        model = (call.model or self._llm_config.model).strip()
+        # bugfix-429 fix-r1 #2: explicit call.model wins; else follow the current
+        # run's per-agent model; else the build-time default. Route to that model's
+        # provider client (not always the default-provider client).
+        model = (
+            call.model
+            or self._active_run_models.get(normalized_session)
+            or self._llm_config.model
+        ).strip()
         if not model:
             raise ValueError("model is required")
 
-        stream = self._llm_client.generate(
+        stream = self._client_for_model(model).generate(
             LLMGenerateRequest(
                 session_id=normalized_session,
                 model=model,
@@ -1825,6 +1872,13 @@ class AgentRuntime:
             session_id=session_id,
             system_prompt=rendered_system_prompt,
             dropped_messages=dropped_messages,
+            # bugfix-429 fix-r1 #2: summarize with this run's model (unless a
+            # dedicated summary_model fork is configured, which keeps its own model).
+            model_override=(
+                None
+                if self._summary_fork_has_dedicated_model
+                else self._active_run_models.get(session_id)
+            ),
         )
 
         # Post-compact file restore: read up to 5 most recently accessed files.

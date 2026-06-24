@@ -23,6 +23,7 @@ from agent.core.llm.interfaces import (
     LLMMessage,
     LLMToolCall,
 )
+from agent.core.llm.model_registry import provider_of
 from agent.core.observability.tracing import span
 from agent.core.skills.registry import SkillMetadata
 from agent.core.tools.result_budget import (
@@ -136,8 +137,6 @@ class AgentLoop:
         """
         if not self._llm_clients:
             return self._llm_client
-        from agent.core.llm.model_registry import provider_of  # noqa: PLC0415
-
         provider = provider_of(model)
         client = self._llm_clients.get(provider)
         if client is None:
@@ -182,10 +181,11 @@ class AgentLoop:
         """
 
         self._active_session_id = state.session_id
-        # bugfix-429: the model is a per-run property supplied by the product layer
-        # (agent.default_model), not a kernel-wide constant. The single shared loop
-        # serves every session, so the build-time self._model is only a legacy
-        # fallback for callers that have not migrated to passing model_override.
+        # bugfix-429: the model is a per-run property — production callers (runtime
+        # threading kernel.submit(model=...)) always pass model_override. self._model
+        # is the build-time default used only by the single-client path (unit tests
+        # / forks constructed without a per-run model). It is never the source in
+        # production, where model_override is always present.
         active_model = model_override or self._model
         active_client = self._client_for_model(active_model)
         active_hook_ctx = hook_ctx or HookContext(

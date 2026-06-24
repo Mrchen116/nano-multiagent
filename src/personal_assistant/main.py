@@ -45,6 +45,7 @@ from personal_assistant.config.local_store import (
     default_local_config_path,
     ensure_workspace_defaults,
     load_local_config,
+    resolve_run_model,
     save_local_config,
 )
 from personal_assistant.config.sync_client import ConfigSyncClient
@@ -2005,20 +2006,16 @@ class _KernelClientShim:
             run_origin = _RunOrigin.CRON
         else:
             run_origin = _RunOrigin.USER
-        # bugfix-429 决策2: resolve the run's model — explicit model (heartbeat
-        # passes agent.default_model) wins; else the agent's selected model looked
+        # bugfix-429 决策2 / fix-r1 #3: resolve via the shared helper — explicit
+        # model (heartbeat passes agent.default_model) wins; else the agent looked
         # up by agent_id (cron); else the product default. The kernel holds none.
         resolved_agent = (
             self._agents_by_id.get(agent_id) if isinstance(agent_id, str) else None
         )
-        resolved_model = (
-            model
-            or (
-                getattr(resolved_agent, "default_model", None)
-                if resolved_agent
-                else None
-            )
-            or self._product_default_model
+        resolved_model = resolve_run_model(
+            resolved_agent,
+            product_default=self._product_default_model,
+            explicit=model,
         )
         run_record = self._kernel.submit(
             session_id=session_id,

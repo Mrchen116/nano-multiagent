@@ -389,6 +389,31 @@ def default_local_config_path() -> Path:
     return Path("~/.nano-assistant/config.yaml").expanduser().resolve()
 
 
+def resolve_run_model(
+    agent: "AgentWorkspaceConfig | None",
+    *,
+    product_default: str | None,
+    explicit: str | None = None,
+) -> str | None:
+    """Resolve the model for one run (bugfix-429 fix-r1 #3: single fallback rung).
+
+    Precedence: an explicit per-call model wins; else the agent's selected
+    ``default_model``; else the product default. The kernel holds no conversational
+    default, so the product layer owns this resolution — shared by both the inbound
+    pipeline (per-turn) and the heartbeat/cron shim so the rule lives in one place.
+
+    Args:
+        agent: The agent config (or None when the agent is unknown).
+        product_default: The product-level default model (config ``llm.default_model``).
+        explicit: A model supplied directly by the caller, overriding the agent's.
+    """
+    if explicit:
+        return explicit
+    if agent is not None and getattr(agent, "default_model", None):
+        return agent.default_model
+    return product_default
+
+
 _BACKUP_RETAIN = 30
 """Maximum number of backup files kept in backups/ — oldest are pruned first."""
 

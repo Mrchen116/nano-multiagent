@@ -156,3 +156,32 @@
   - agent 实际回复 "pong"，turn 成功完成。
 - 结论: incident 端到端解决——IM 选 gpt 的 agent 对话，真实请求 model==codex_oauth:gpt-5.5，不再跑 kimi、不再协议报错。
 - 收尾: e2e 栈拆除，worktree e2e 残留清理，git status 干净。**主仓持久数据零改动**（live 全用 worktree ephemeral 栈，PATCH 改 ephemeral IM DB 已随栈删）。
+
+## fix-r1 — reviewer 反馈循环（用户拍全修）
+
+reviewer regression verdict=fail（动态 agent model 路由）+ verifier suggestion + 用户「全修」。复用原 worker 上下文，新 worktree milestone/bugfix-429-fix-r1（基于 origin/unit/bugfix-429 4e033c5c）。
+
+### #1 动态新建 agent 选 model 不生效 —— 当前 base **不复现**（systematic-debugging 钉证）
+
+- 边界日志（register_agent 入口 + _resolve_model 出口）+ live e2e 真栈复现 reviewer 多变体：
+  - 变体A POST 建 gpt-probe（无 model）→ PATCH doubao → 发消息：_resolve_model 读到 doubao，proxy `model=volcanoArk:doubao-...` ✅
+  - 变体B create-with-model 一步：resolve=doubao，proxy=doubao ✅
+  - 变体C PATCH 后零延迟立即发（竞态）：resolve 仍=doubao ✅
+  - 全程 _resolve_model 对任何动态 agent **从未返回 kimi**；register_agent 确被 doubao 调用（PATCH→config.sync→sync_agent→register_agent(doubao) 链路通）。
+- 代码核查：4e033c5c 上 _resolve_model 每轮读 self._agents[id].default_model（正确）、product_default_model 已注入、submit 传 model=_resolve_model；reviewer 跑后到现在 inbound_pipeline/main.py 零改动。
+- 判断（上报 team-lead）：reviewer fail 疑环境/时序——其 Side Findings 自记随机 JWT 会 401；若 config.sync 那次 sync_agent 吃 401/超时 → 重试耗尽 raise（main.py:425）→ register_agent(doubao) 没落 → self._agents 停在 create-时 model=None → _resolve_model 兜底 kimi。已 SendMessage 求 reviewer 精确 repro/固定 JWT 重跑，避免治标。**未对 #1 做症状修复（不复现不猜改）**；已请 team-lead 定夺。
+- instrumentation 已移除，worktree 干净。
+
+### #2 内核侧链 LLM 调用按当前 run 的 model（用户设计意图，已修）
+
+- runtime 加 `self._active_run_models[session_id]`，在 `_run_locked` 入口（任何 hook dispatch 前）记录本 run 的 model、finally 弹出。
+- `_call_hook_model`：model = call.model **or 当前 run model** or build-time 默认；经新增 `runtime._client_for_model(model)` 按 provider 路由（不再硬绑 self._llm_client）。
+- 续跑/compaction 侧链：`AgentContextFork` 加 `llm_clients`（多 client）+ `execute(model_override)`；`CompactionSummarizer.summarize(model_override)`；`_compact_session` 传当前 run model（dedicated summary_model fork 不覆盖）；`make_fork_conversation(model)` → 背景 fork_conversation 走当前 run model。
+- 测试：`test_hook_model_call_defaults_to_current_run_model`（hook 无显式 model → 用 run model）+ `test_compaction_summarizer_forwards_run_model_to_fork`，先红后绿。
+
+### #3 cleanup（已修）
+
+- **fallback 统一**：新增 `local_store.resolve_run_model(agent, product_default, explicit)` 单一 rung；inbound_pipeline._resolve_model + main.py shim 两处副本都改调它。单测 3 条覆盖 explicit/agent/product 优先级。
+- **provider_of O(1)**：model_registry 建 `model_to_provider` 倒排 dict，provider_of 改 O(1)；loop.py/runtime.py 的 `provider_of` lazy import 提到模块顶（去热路径 import）。
+- **dead code**：error_presenter 删 3 条已退役 `llm-config set` 错误建议（set requires / api-key 冲突 / --timeout-seconds，均无来源）；runtime 删 dead 字段 `self._llm_client_factory`（唯一 reader reconfigure_llm 已退役）。
+- **loop self._model 残留**：verifier suggestion 是「下一 unit 改 None」；本轮安全处置——保留字段（单 client/测试路径仍需），ref_comment 改为准确描述（production 永远传 model_override，self._model 仅 build-time 默认）。不做破坏测试契约的删除（verifier 已标 next-unit）。
