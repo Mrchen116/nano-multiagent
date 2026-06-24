@@ -310,15 +310,14 @@ def test_stop_command_interrupts_active_run_and_appends_message(tmp_path: Path) 
     ]
     assert len(kernel_client.interrupt_calls) == 1
     assert kernel_client.interrupt_calls[0]["session_id"] == "sess-1"
-    # M3: /stop logs via kernel.submit (in send_calls) instead of append_message.
-    stop_submits = [
-        c
-        for c in kernel_client.send_calls
-        if any("stop" in t.lower() or "终止" in t for t in c.get("texts", []))
-    ]
-    assert len(stop_submits) == 1
-    assert stop_submits[0]["session_id"] == "sess-1"
-    assert "用户发送了 /stop 命令，要求终止当前操作。" in stop_submits[0]["texts"]
+    # /stop logs via kernel.append_message without spawning a run.
+    assert len(kernel_client.append_calls) == 1
+    assert kernel_client.append_calls[0]["session_id"] == "sess-1"
+    assert kernel_client.append_calls[0]["role"] == "user"
+    assert (
+        "[Request interrupted by user for tool use]"
+        in kernel_client.append_calls[0]["content"]
+    )
 
 
 def test_stop_command_in_group_chat_with_mention_is_recognized(tmp_path: Path) -> None:

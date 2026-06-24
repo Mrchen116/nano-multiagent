@@ -711,15 +711,15 @@ class InboundPipeline:
         # are already set up by the observer's turn_start/tool_start handlers.
         # Calling reconcile directly here races the stream consumer and sees empty
         # state, causing the tool card CC content and bubble finalize to be dropped.
-        # Log /stop command in session history via a new user turn (no LLM call triggered
-        # because the session has no pending run after interrupt).
-        self._kernel.submit(
+        # Log /stop command in session history without triggering a model run.
+        # Use append_message (not submit) so the injected turn is persisted for the
+        # next LLM call but does not itself spawn a new run (mirrors CC's
+        # [Request interrupted by user for tool use] synthetic message).
+        self._kernel.append_message(
             session_id=binding.kernel_session_id,
-            parts=[
-                {"type": "text", "text": "用户发送了 /stop 命令，要求终止当前操作。"}
-            ],
+            role="user",
+            content="[Request interrupted by user for tool use]",
             workspace_root=agent_workspace_root_path,
-            model=self._resolve_model(agent_id),
         )
         reply_text = "已停止当前操作。"
         outbound = await self._deliver_stop_ack(
