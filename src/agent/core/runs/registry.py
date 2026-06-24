@@ -739,6 +739,12 @@ class RunsRegistry:
         stranded = controller.drain_pending()
         if not stranded:
             return
+        # is_user_interrupt gates the held-pending vs auto-continuation split: a user
+        # /stop parks the steer for the next submit (neither dropped nor auto-continued,
+        # matching bugfix-417's "已停止" ack); any non-user terminal (watchdog/crash/
+        # timeout) auto-continues it. interrupt() also drains synchronously, so for a
+        # /stop this drain is usually already empty — this branch is the belt-and-braces
+        # path for a steer that slipped in between interrupt() and this chokepoint.
         if controller.is_user_interrupt:
             with self._lock:
                 self._held_pending.setdefault(session_id, []).extend(stranded)

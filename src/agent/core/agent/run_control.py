@@ -115,6 +115,26 @@ class RunController:
             self._terminal_committed.set()
             return []
 
+    def commit_terminal(self) -> None:
+        """Unconditionally commit the run's terminal — a HARD stop with no re-drain.
+
+        bugfix-426-M4 V1: the loop has several terminal exits. The normal-completion
+        exit can absorb a late steer by re-looping (``try_commit_terminal``). But the
+        HARD-stop exits — ``max_turns`` (already at the round cap) and
+        ``tool_registry_unavailable`` (cannot run another round) and a user abort —
+        cannot continue; re-looping there would carry the steer into ``llm_messages``
+        only to exit at the top of the loop before the next LLM call, silently dropping
+        it. So those exits commit the terminal unconditionally: any inject racing AFTER
+        this point is rejected (``enqueue_message`` returns False) and the caller routes
+        it to a fresh run (``injected=False``), which the relay anchors cleanly — never
+        stranded into a continuation whose events the relay would drop (the #140 class
+        of bug, here at the hard-stop exits). A steer already enqueued BEFORE this
+        commit (a vanishingly narrow window — both ops hold ``_terminal_lock``) still
+        survives via the registry's terminal chokepoint. Idempotent.
+        """
+        with self._terminal_lock:
+            self._terminal_committed.set()
+
     def drain_pending(self) -> list[PendingMessage]:
         """Drain and return all pending messages in FIFO order. Non-blocking."""
         return self._drain_locked()

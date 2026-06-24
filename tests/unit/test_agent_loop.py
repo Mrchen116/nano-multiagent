@@ -646,3 +646,90 @@ async def test_loop_emits_injection_consumed_signal_at_consume_point() -> None:
     # context (the terminal re-drain round).
     assert len(consumed_events) == 1
     assert consumed_events[0].get("run_id") == "run_abc"
+
+
+class _SteerThenToolCallClient:
+    """Round 1: enqueue a steer, then return a tool_call so the loop wants another
+    round. The next round's terminal exit (max_turns / tool_unavailable) then fires
+    with the steer still pending — the bugfix-426-M4 V1 window."""
+
+    def __init__(self, controller, steer_text: str) -> None:
+        from agent.core.llm.interfaces import LLMMessage as _LM, LLMToolCall as _TC
+
+        self._controller = controller
+        self._steer_text = steer_text
+        self._LM = _LM
+        self._TC = _TC
+        self.requests = []
+
+    async def generate(self, request):  # noqa: ANN001
+        self.requests.append(request)
+        from agent.core.runs.origin import RunOrigin
+
+        self._controller.enqueue_message(
+            self._LM(role="user", content=self._steer_text), origin=RunOrigin.USER
+        )
+        yield self._LM(
+            role="assistant",
+            content="",
+            tool_calls=(self._TC(call_id="", name="echo", arguments={"text": "x"}),),
+        )
+        yield self._LM(role="assistant", content="", finish_reason="tool_calls")
+
+
+async def test_loop_commits_terminal_at_max_turns_exit_with_pending_steer() -> None:
+    """bugfix-426-M4 V1: a steer landing as the loop hits its max_turns hard stop must
+    leave the terminal COMMITTED, so a later inject is rejected and routed to a fresh
+    run (not stranded into a continuation whose events the relay would drop)."""
+    from agent.core.agent.run_control import RunController
+    from agent.core.runs.origin import RunOrigin
+
+    controller = RunController()
+    client = _SteerThenToolCallClient(controller, steer_text="steer at max_turns")
+    loop = AgentLoop(
+        llm_client=client,
+        model="model-x",
+        policies=AgentPolicies(max_turns=99),
+        tool_registry=FakeToolRegistry(),
+    )
+
+    # max_turns=1 (loop round cap): round 1 runs, round 2's top check exits.
+    result = await _run_loop(loop, _base_state(), controller=controller, max_turns=1)
+
+    assert result.stop_reason == "max_turns_reached"
+    # Hard stop committed the terminal → a later inject would be rejected.
+    assert controller.is_terminal_committed is True
+    assert (
+        controller.enqueue_message(
+            LLMMessage(role="user", content="after"), origin=RunOrigin.USER
+        )
+        is False
+    )
+
+
+async def test_loop_commits_terminal_at_tool_unavailable_exit_with_pending_steer() -> (
+    None
+):
+    """bugfix-426-M4 V1: same guarantee at the tool_registry_unavailable hard stop —
+    the loop cannot run another round, so the terminal is committed and a racing steer
+    goes to a fresh run, not a stranded continuation."""
+    from agent.core.agent.run_control import RunController
+    from agent.core.runs.origin import RunOrigin
+
+    controller = RunController()
+    # No tool registry → a tool_call forces the tool_unavailable exit.
+    client = _SteerThenToolCallClient(controller, steer_text="steer at tool-unavail")
+    loop = AgentLoop(
+        llm_client=client, model="model-x", policies=AgentPolicies(max_turns=99)
+    )
+
+    result = await _run_loop(loop, _base_state(), controller=controller)
+
+    assert result.stop_reason == "tool_registry_unavailable"
+    assert controller.is_terminal_committed is True
+    assert (
+        controller.enqueue_message(
+            LLMMessage(role="user", content="after"), origin=RunOrigin.USER
+        )
+        is False
+    )
