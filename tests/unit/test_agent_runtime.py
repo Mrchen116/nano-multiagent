@@ -368,6 +368,54 @@ async def test_hook_context_model_call_supports_model_override(tmp_path: Path) -
     assert llm_client.requests[0].session_id == session.session_id
 
 
+async def test_hook_model_call_defaults_to_current_run_model(tmp_path: Path) -> None:
+    """bugfix-429 fix-r1 #2: a hook model call with no explicit model uses the
+    *current run's* model (the agent's selected model for this turn), not the
+    build-time kernel default. Side-chain LLM calls must follow per-run model.
+    """
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    llm_client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="ignored",
+                message=LLMMessage(role="assistant", content="ok"),
+                finish_reason="stop",
+            ),
+            LLMGenerateResponse(
+                model="ignored",
+                message=LLMMessage(role="assistant", content="pong"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    hooks = HookRegistry()
+
+    async def on_input(payload, ctx):  # noqa: ANN001
+        # No explicit model → must inherit the current run's model.
+        await ctx.call_model(system_prompt="s", user_prompt="u")
+        return {"action": "continue", "text": payload["text"]}
+
+    hooks.on("input", on_input, priority=10)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="build-time-default",
+        hook_runner=HookRunner(registry=hooks),
+    )
+
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "ping"}],
+        stream=False,
+        model="agent-selected-model",
+    )
+
+    # The hook's model call (first request) must use the run's model, not build default.
+    assert llm_client.requests[0].model == "agent-selected-model"
+
+
 async def test_runtime_skill_command_rewrite_runs_through_normal_pipeline(
     tmp_path: Path,
 ) -> None:

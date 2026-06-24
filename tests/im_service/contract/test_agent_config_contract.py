@@ -129,7 +129,9 @@ def test_node_capabilities_contract_shape(
         self, *, target_node_id: str, timeout_seconds: float = 15.0
     ):  # noqa: ARG002
         return {
-            "models": ["codex_oauth:gpt-5.5"],
+            # bugfix-429 R5: models carry {name, provider} so the dropdown can
+            # label each model's registered format.
+            "models": [{"name": "codex_oauth:gpt-5.5", "provider": "openai_compat"}],
             "skills": ["plan"],
             "tools": ["read"],
             "platform_default_model": None,
@@ -155,7 +157,9 @@ def test_node_capabilities_contract_shape(
     # feat-394 M9 R5: AllowlistOptionResponse now carries default_on (False by default).
     assert body["skills"] == [{"name": "plan", "description": "", "default_on": False}]
     assert body["tools"] == [{"name": "read", "description": "", "default_on": False}]
-    assert body["models"] == ["codex_oauth:gpt-5.5"]
+    assert body["models"] == [
+        {"name": "codex_oauth:gpt-5.5", "provider": "openai_compat"}
+    ]
     assert body["platform_default_model"] is None
     assert body["default_system_prompt"] == ""
     assert "features" in body

@@ -464,6 +464,9 @@ class HeartbeatScheduler:
             texts=[message],
             workspace_root=str(agent.workspace_root),
             origin="heartbeat",
+            # bugfix-429: agent's selected model (None → shim falls back to the
+            # product default), so unattended heartbeat runs honour per-agent model.
+            model=agent.default_model,
         )
         run_id = str(run_payload.get("run_id", "")).strip()
         if not run_id:

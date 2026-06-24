@@ -103,7 +103,7 @@ describe("agent create page (three-card)", () => {
           { name: "read", description: "Read files" },
           { name: "bash", description: "Run shell commands" }
         ],
-        model_options: ["codex_oauth:gpt-5.5", "kimiCoding:K2.6"],
+        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }, { name: "kimiCoding:K2.6", provider: "anthropic" }],
         platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: "You are the personal_assistant default template."
       }
@@ -210,7 +210,7 @@ describe("agent create page (three-card)", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
         tools: [],
-        model_options: ["codex_oauth:gpt-5.5"],
+        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: ""
       }
@@ -250,7 +250,7 @@ describe("agent create page (three-card)", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
         tools: [],
-        model_options: ["codex_oauth:gpt-5.5"],
+        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: ""
       }
@@ -291,7 +291,7 @@ describe("agent create page (three-card)", () => {
         capabilities_updated_at: "2026-03-13T10:00:00Z",
         skills: [],
         tools: [],
-        model_options: ["codex_oauth:gpt-5.5"],
+        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: ""
       }
@@ -330,7 +330,7 @@ describe("agent create page — preview fidelity (feat-383-M1)", () => {
         tools: [
           { name: "read", description: "Read files" }
         ],
-        model_options: ["codex_oauth:gpt-5.5"],
+        model_options: [{ name: "codex_oauth:gpt-5.5", provider: "openai_compat" }],
         platform_default_model: "codex_oauth:gpt-5.5",
         default_system_prompt: "You are the personal_assistant default template."
       }

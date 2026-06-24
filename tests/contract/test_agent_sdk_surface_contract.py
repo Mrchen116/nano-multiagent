@@ -107,7 +107,8 @@ def test_kernel_exposes_required_methods(tmp_path: Path) -> None:
         assert callable(getattr(kernel, "get_run", None))
         assert callable(getattr(kernel, "list_session_tools", None))
         assert callable(getattr(kernel, "get_llm_config", None))
-        assert callable(getattr(kernel, "reconfigure_llm", None))
+        # bugfix-429: reconfigure_llm retired (model is per-run via submit(model=)).
+        assert not hasattr(kernel, "reconfigure_llm")
         assert callable(getattr(kernel, "close", None))
     finally:
         kernel.close()

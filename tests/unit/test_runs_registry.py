@@ -25,6 +25,7 @@ class _RuntimeStub:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del parts
         del stream
@@ -56,6 +57,7 @@ class _RuntimeWithUsageStub:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del parts
         del stream
@@ -86,10 +88,68 @@ class _RetryableModelErrorRuntime:
         controller=None,
         workspace_root=None,
         origin=None,
+        model=None,
     ):  # noqa: ANN001, ANN201
         del session_id, parts, stream, run_id, origin, workspace_root
         # After M251 retry lives in loop; retryable errors that reach registry are terminal.
         raise ModelError("transient upstream blip", retryable=True)
+
+
+class _RuntimeCapturingModel:
+    """Records the ``model`` it is asked to run with (bugfix-429 R1)."""
+
+    def __init__(self) -> None:
+        self.models: list[object] = []
+
+    async def run(
+        self,
+        session_id: str,
+        parts,
+        *,
+        stream: bool = True,
+        run_id: str | None = None,
+        controller=None,
+        workspace_root=None,
+        origin=None,
+        model=None,
+    ):  # noqa: ANN001, ANN201
+        del parts, stream, run_id, controller, workspace_root, origin
+        self.models.append(model)
+        return TurnResult(
+            session_id=session_id,
+            turn_id="turn_model_capture",
+            messages=(
+                Message(message_id="msg_model_capture", role="assistant", content="ok"),
+            ),
+            completed=True,
+            stop_reason="completed",
+        )
+
+
+def test_runs_registry_threads_model_into_record_and_runtime(tmp_path: Path) -> None:
+    """bugfix-429 R1: submit(model=X) stores RunRecord.model and runtime.run gets X.
+
+    submit is async-queued (background create_task) so model cannot be a plain
+    sync pass-through — it must live on RunRecord for the background worker.
+    """
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = manager.create_session(workspace_root=tmp_path)
+    runtime = _RuntimeCapturingModel()
+    registry = RunsRegistry(runtime=runtime, session_manager=manager)
+
+    try:
+        submitted = registry.submit(
+            session_id=session.session_id,
+            parts=[{"type": "text", "text": "hello"}],
+            model="codex_oauth:gpt-5.5",
+        )
+        assert submitted.model == "codex_oauth:gpt-5.5"
+
+        _wait_for(lambda: len(runtime.models) >= 1)
+        assert runtime.models[0] == "codex_oauth:gpt-5.5"
+    finally:
+        registry.shutdown()
 
 
 def _wait_for(predicate, *, timeout_seconds: float = 1.0) -> None:  # noqa: ANN001
@@ -453,6 +513,7 @@ def test_registry_drains_active_task_before_loop_stops(tmp_path: Path) -> None:
             controller=None,
             workspace_root=None,
             origin=None,
+            model=None,
         ):  # noqa: ANN001, ANN201
             started.set()  # notify main thread: we are inside run(), status is RUNNING
             await gate_holder[0].wait()
@@ -536,6 +597,7 @@ def test_registry_force_cancel_marks_terminal_and_recovers_session(
             controller=None,
             workspace_root=None,
             origin=None,
+            model=None,
         ):  # noqa: ANN001, ANN201
             del parts, stream, run_id, controller, workspace_root, origin
             await asyncio.Event().wait()

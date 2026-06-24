@@ -30,6 +30,8 @@ class _TextModeKernelStub(_BaseKernelStub):
         for part in parts:
             if isinstance(part, dict) and part.get("type") == "text":
                 text = part.get("text", "")
+        # bugfix-429 R6: record the model the CLI passes per turn.
+        self.submitted_model = kwargs.get("model")
         self.calls.append(("submit", {"session_id": session_id, "text": text}))
         return type("R", (), {"run_id": "run_sse"})()
 
@@ -141,6 +143,27 @@ def test_run_cli_text_mode_creates_session_and_streams_ndjson(tmp_path) -> None:
         e.get("event") == "run_status" and e.get("status") == "completed"
         for e in run_events
     )
+
+
+def test_run_cli_text_mode_submits_current_model(tmp_path) -> None:
+    """bugfix-429 R6: CLI passes its current model to submit each turn.
+
+    With model now per-run (kernel holds no conversational default), the CLI
+    must supply the model it resolved from the kernel's LLM config
+    (get_llm_config().model) rather than relying on a kernel-side default.
+    """
+    stub = _TextModeKernelStub()
+    expected_model = stub.get_llm_config().model
+    output = io.StringIO()
+
+    run_cli(
+        ["--text", "hello"],
+        stdout=output,
+        kernel_factory=_make_kernel_factory(stub),
+        workspace_root=tmp_path,
+    )
+
+    assert stub.submitted_model == expected_model
 
 
 def test_run_cli_text_mode_uses_resume_session_when_given(tmp_path) -> None:

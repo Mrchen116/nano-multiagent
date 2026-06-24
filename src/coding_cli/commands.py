@@ -169,17 +169,10 @@ def build_parser() -> argparse.ArgumentParser:
     llm_parser = subparsers.add_parser("llm-config")
     llm_subparsers = llm_parser.add_subparsers(dest="llm_config_command", required=True)
     llm_subparsers.add_parser("get")
-    llm_set_parser = llm_subparsers.add_parser("set")
-    llm_set_parser.add_argument("--provider", dest="llm_config_provider", default=None)
-    llm_set_parser.add_argument("--model", dest="llm_config_model", default=None)
-    llm_set_parser.add_argument("--base-url", dest="llm_config_base_url", default=None)
-    llm_set_parser.add_argument("--api-key", dest="llm_config_api_key", default=None)
-    llm_set_parser.add_argument(
-        "--clear-api-key", dest="llm_config_clear_api_key", action="store_true"
-    )
-    llm_set_parser.add_argument(
-        "--timeout-seconds", dest="llm_config_timeout_seconds", type=float, default=None
-    )
+    # bugfix-429 R6: `llm-config set` removed. model is per-run now (kernel holds no
+    # conversational default), so a one-shot subcommand mutating kernel state has no
+    # persistent载体 after reconfigure_llm retired. Set the model via --model / env at
+    # launch instead. `get` is retained for scripts that read the active connection.
 
     return parser
 
@@ -256,6 +249,10 @@ async def _async_main(
 ) -> int:
     """Async entry: build Kernel, dispatch to REPL or --text mode."""
     kernel = _build_kernel(args=args, kernel_factory=kernel_factory, out=out)
+    # bugfix-429 R6: the CLI owns its current model (kernel holds no conversational
+    # default after this unit). Resolve it once from the kernel's LLM config — which
+    # was built from --model/env — and pass it on every submit.
+    current_model = _resolve_cli_current_model(kernel)
     try:
         if args.text is not None:
             from coding_cli.product import open_cli_session
@@ -268,6 +265,7 @@ async def _async_main(
                 text=args.text,
                 out=out,
                 workspace_root=workspace_root,
+                model=current_model,
             )
 
         if args.command == "llm-config":
@@ -281,6 +279,7 @@ async def _async_main(
             input_fn=input_fn,
             repl_input_reader_factory=repl_input_reader_factory,
             workspace_root=workspace_root,
+            model=current_model,
         )
     finally:
         # bugfix-402-M3: use aclose() so the Registry drain runs inside the
@@ -315,6 +314,19 @@ def _build_kernel(
         )
 
     return build_cli_kernel(llm=llm, can_use_tool=can_use_tool)
+
+
+def _resolve_cli_current_model(kernel: Any) -> str | None:
+    """Resolve the CLI's current model from the kernel's LLM config (bugfix-429 R6).
+
+    model is per-run now; the CLI supplies it on every submit. The active model is
+    the one the kernel was built with (--model / env), read via get_llm_config().
+    """
+    try:
+        config = kernel.get_llm_config()
+    except Exception:  # noqa: BLE001 - degrade to kernel/product default when unavailable
+        return None
+    return getattr(config, "model", None)
 
 
 def _build_cli_llm_config(args: argparse.Namespace) -> Any:
@@ -414,6 +426,7 @@ async def _run_text_mode(
     text: str,
     out: TextIO,
     workspace_root: Path,
+    model: str | None = None,
 ) -> int:
     """Non-interactive --text mode: submit once, stream NDJSON to stdout, exit.
 
@@ -424,6 +437,7 @@ async def _run_text_mode(
         session_id=session_id,
         parts=[{"type": "text", "text": text}],
         workspace_root=workspace_root,
+        model=model,
     )
     run_id = run_record.run_id
 
@@ -455,60 +469,12 @@ def _run_llm_config_command(
     kernel: Any,
     out: TextIO,
 ) -> int:
-    """Handle llm-config get/set subcommands via Kernel."""
-    if args.llm_config_command == "get":
-        config = kernel.get_llm_config()
-        payload = {
-            "provider": getattr(config, "provider", None),
-            "model": getattr(config, "model", None),
-            "base_url": getattr(config, "base_url", None),
-            "timeout_seconds": getattr(config, "timeout_seconds", None),
-        }
-        print(json.dumps(payload, ensure_ascii=False), file=out)
-        return 0
+    """Handle the ``llm-config get`` subcommand via Kernel (bugfix-429 R6).
 
-    # set subcommand
-    provider = args.llm_config_provider
-    model = args.llm_config_model
-    base_url = args.llm_config_base_url
-    api_key = args.llm_config_api_key
-    clear_api_key = bool(getattr(args, "llm_config_clear_api_key", False))
-    timeout_seconds = args.llm_config_timeout_seconds
-
-    if api_key is not None and clear_api_key:
-        raise ValueError(
-            "--api-key and --clear-api-key cannot be used together — choose either"
-        )
-    if timeout_seconds is not None and timeout_seconds <= 0:
-        raise ValueError("--timeout-seconds must be > 0")
-
-    patch: dict[str, Any] = {}
-    if provider is not None:
-        if not provider.strip():
-            raise ValueError("provider must be a non-empty string")
-        patch["provider"] = provider.strip()
-    if model is not None:
-        if not model.strip():
-            raise ValueError("model must be a non-empty string")
-        patch["model"] = model.strip()
-    if base_url is not None:
-        if not base_url.strip():
-            raise ValueError("base_url must be a non-empty string")
-        patch["base_url"] = base_url.strip()
-    if api_key is not None:
-        patch["api_key"] = api_key
-    if clear_api_key:
-        patch["api_key"] = None
-    if timeout_seconds is not None:
-        patch["timeout_seconds"] = timeout_seconds
-
-    if not patch:
-        raise ValueError(
-            "llm-config set requires at least one field: "
-            "--provider/--model/--base-url/--api-key/--clear-api-key/--timeout-seconds"
-        )
-
-    config = kernel.reconfigure_llm(**patch)
+    ``set`` was removed: model is per-run now, so there is no kernel state to mutate
+    one-shot. ``get`` reports the active connection for scripts.
+    """
+    config = kernel.get_llm_config()
     payload = {
         "provider": getattr(config, "provider", None),
         "model": getattr(config, "model", None),
@@ -527,6 +493,7 @@ async def _run_repl(
     input_fn: Callable[[str], str] | None,
     repl_input_reader_factory: Callable[[], repl_input.ReplInputReader] | None,
     workspace_root: Path,
+    model: str | None = None,
 ) -> int:
     """Async-native interactive REPL loop.
 
@@ -724,6 +691,7 @@ async def _run_repl(
                         workspace_root=workspace_root,
                         background_processor=background_processor,
                         bg_event_queue=_bg_event_queue,
+                        model=model,
                     )
                 finally:
                     _active_turn["session_id"] = None
@@ -776,6 +744,7 @@ async def _send_message_async(
     workspace_root: Path,
     background_processor: BackgroundRunEventProcessor,
     bg_event_queue: asyncio.Queue,
+    model: str | None = None,
 ) -> dict[str, object]:
     """Submit message, stream kernel events for this run, return turn payload.
 
@@ -786,6 +755,7 @@ async def _send_message_async(
         session_id=session_id,
         parts=[{"type": "text", "text": text}],
         workspace_root=workspace_root,
+        model=model,
     )
     run_id = run_record.run_id
 

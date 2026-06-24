@@ -159,7 +159,10 @@ def test_run_cli_repl_use_switches_active_session(tmp_path) -> None:
 
     assert exit_code == 0
     assert "Switched to session sess_manual." in output.getvalue()
-    assert ("submit", {"session_id": "sess_manual", "text": "ping"}) in stub.calls
+    assert (
+        "submit",
+        {"session_id": "sess_manual", "text": "ping", "model": "kimiCoding:K2.6"},
+    ) in stub.calls
 
 
 def test_run_cli_repl_session_transitions_render_active_copy_without_json(
@@ -250,7 +253,10 @@ def test_run_cli_repl_absolute_path_input_is_not_treated_as_command(tmp_path) ->
     text = output.getvalue()
     assert f"echo:{path_line}" in text
     assert "unknown command" not in text
-    assert ("submit", {"session_id": "sess_cli", "text": path_line}) in stub.calls
+    assert (
+        "submit",
+        {"session_id": "sess_cli", "text": path_line, "model": "kimiCoding:K2.6"},
+    ) in stub.calls
 
 
 def test_run_cli_repl_ignores_blank_input_and_exits_on_eof(tmp_path) -> None:

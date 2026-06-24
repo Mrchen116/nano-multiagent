@@ -144,6 +144,48 @@ async def test_loop_builds_context_and_returns_turn_result() -> None:
     assert [msg.role for msg in client.requests[0].messages] == ["system", "user"]
 
 
+async def test_loop_model_override_routes_request_model() -> None:
+    """bugfix-429 R1: a per-run model_override wins over the loop's build-time model.
+
+    The loop is a single shared instance serving every session; the model that
+    reaches the provider must be the one the product supplied for *this* run
+    (agent.default_model), not the kernel-wide default frozen at construction.
+    """
+    client = FakeLLMClient()
+    loop = AgentLoop(llm_client=client, model="kimiCoding:K2.6")
+    state = _base_state()
+
+    await _run_loop(loop, state, model_override="codex_oauth:gpt-5.5")
+
+    assert client.requests[0].model == "codex_oauth:gpt-5.5"
+
+
+async def test_loop_routes_to_client_of_models_provider() -> None:
+    """bugfix-429 R2: with a per-provider client map, the loop sends each run's
+    request to the client registered for that model's provider.
+
+    A gpt model (openai_compat) must hit the openai_compat client, not the
+    anthropic one — the kernel routes by the model's registered provider, it
+    does not rely on any one provider's format being a universal pass-through.
+    """
+    anthropic_client = FakeLLMClient()
+    openai_client = FakeLLMClient()
+    loop = AgentLoop(
+        llm_client=anthropic_client,
+        model="kimiCoding:K2.6",
+        llm_clients={
+            "anthropic": anthropic_client,
+            "openai_compat": openai_client,
+        },
+    )
+
+    await _run_loop(loop, _base_state(), model_override="codex_oauth:gpt-5.5")
+
+    assert len(openai_client.requests) == 1
+    assert openai_client.requests[0].model == "codex_oauth:gpt-5.5"
+    assert anthropic_client.requests == []
+
+
 async def test_loop_executes_tool_call_until_final_assistant_message() -> None:
     client = FakeLLMClient(
         responses=(

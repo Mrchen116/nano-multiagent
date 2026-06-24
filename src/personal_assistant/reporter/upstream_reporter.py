@@ -34,7 +34,9 @@ class ReporterCapabilities:
     relay: bool = True
     send_message: bool = True
     config_sync: bool = True
-    models: tuple[str, ...] = ()
+    # bugfix-429 R5: each entry is ``{"name", "provider"}`` so the IM dropdown can
+    # label a model's registered format (was a bare model-id tuple).
+    models: tuple[dict[str, str], ...] = ()
     skills: tuple[dict[str, str], ...] = ()
     # feat-394 M9 R5: tools changed from bare str tuple to rich dict tuple carrying
     # {name, description, default_on}.  IM frontend uses default_on to render tool
@@ -66,25 +68,22 @@ class ReporterCapabilities:
         }
 
 
-def _dedupe_preserve_order(items: list[str]) -> tuple[str, ...]:
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for item in items:
-        normalized = item.strip()
-        if not normalized or normalized in seen:
-            continue
-        seen.add(normalized)
-        ordered.append(normalized)
-    return tuple(ordered)
+def _models_from_kernel(kernel: "Kernel") -> tuple[dict[str, str], ...]:
+    """Project ``kernel.list_models()`` into deduped ``{name, provider}`` entries.
 
-
-def _models_from_kernel(kernel: "Kernel") -> tuple[str, ...]:
-    """Project ``kernel.list_models()`` into deduped, order-preserving model ids.
-
-    The kernel reports the neutral model catalog (name + order); this layer keeps
-    the pre-refactor dedupe-preserve-order semantics for the IM payload.
+    bugfix-429 R5: the kernel's ``ModelInfo`` already carries ``provider``; keep it
+    through to the IM payload so the agent-config dropdown can label each model's
+    registered format (anthropic / openai_compat). Dedupe by name, preserve order.
     """
-    return _dedupe_preserve_order([m.name for m in kernel.list_models()])
+    seen: set[str] = set()
+    entries: list[dict[str, str]] = []
+    for m in kernel.list_models():
+        name = m.name.strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        entries.append({"name": name, "provider": getattr(m, "provider", "") or ""})
+    return tuple(entries)
 
 
 def _platform_default_model_from_kernel(kernel: "Kernel") -> str | None:

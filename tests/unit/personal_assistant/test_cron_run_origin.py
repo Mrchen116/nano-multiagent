@@ -54,6 +54,7 @@ def test_submit_message_maps_cron_origin(tmp_path: "Path") -> None:  # noqa: F82
         parts: list,
         origin: RunOrigin | None = None,
         workspace_root=None,
+        model=None,
     ) -> object:
         captured_origin.append(origin)
         return MagicMock(run_id="run_test123")

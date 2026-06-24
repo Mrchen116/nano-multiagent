@@ -4,12 +4,15 @@ M2 后：
 - --mode managed/remote 已删除，CLI 总是进程内启动 Kernel
 - --base-url 已删除
 - health 子命令已删除
-- llm-config get/set 通过 Kernel.get_llm_config / reconfigure_llm 实现
+- llm-config get 通过 Kernel.get_llm_config 实现（bugfix-429: set 子命令已移除，
+  reconfigure_llm 退役，model 改 per-run 由 --model/env 定）
 """
 
 import io
 import json
 from unittest.mock import MagicMock
+
+import pytest
 
 from coding_cli.main import run_cli
 from tests.unit._cli_kernel_stubs import (
@@ -34,13 +37,6 @@ class _LLMConfigKernelStub(_BaseKernelStub):
             base_url="http://127.0.0.1:4000",
             timeout_seconds=30.0,
         )
-
-    def reconfigure_llm(self, **kwargs):
-        self.calls.append(("reconfigure_llm", kwargs))
-        for key, value in kwargs.items():
-            if hasattr(self._llm_config, key):
-                setattr(self._llm_config, key, value)
-        return self._llm_config
 
 
 # ---------------------------------------------------------------------------
@@ -145,77 +141,23 @@ def test_run_cli_llm_config_get_outputs_payload(tmp_path) -> None:
     assert any(call[0] == "get_llm_config" for call in stub.calls)
 
 
-def test_run_cli_llm_config_set_applies_requested_fields(tmp_path) -> None:
+# bugfix-429 R6: `llm-config set` subcommand removed (reconfigure_llm retired,
+# model is per-run via --model/env). The three set-path tests are deleted; `get`
+# remains covered by test_run_cli_llm_config_get_outputs_payload above.
+
+
+def test_run_cli_llm_config_set_subcommand_removed(tmp_path) -> None:
+    """bugfix-429 R6: `llm-config set` is no longer a valid subcommand."""
     stub = _LLMConfigKernelStub()
     output = io.StringIO()
-
-    exit_code = run_cli(
-        [
-            "llm-config",
-            "set",
-            "--provider",
-            "anthropic",
-            "--model",
-            "kimiCoding:K2.6",
-            "--base-url",
-            "http://127.0.0.1:4100",
-            "--api-key",
-            "sk-cli",
-            "--timeout-seconds",
-            "55",
-        ],
-        stdout=output,
-        kernel_factory=_make_kernel_factory(stub),
-        workspace_root=tmp_path,
-    )
-
-    assert exit_code == 0
-    payload = json.loads(output.getvalue())
-    assert payload["provider"] == "anthropic"
-    assert (
-        "reconfigure_llm",
-        {
-            "provider": "anthropic",
-            "model": "kimiCoding:K2.6",
-            "base_url": "http://127.0.0.1:4100",
-            "api_key": "sk-cli",
-            "timeout_seconds": 55.0,
-        },
-    ) in stub.calls
-
-
-def test_run_cli_llm_config_set_requires_at_least_one_field(tmp_path) -> None:
-    stub = _LLMConfigKernelStub()
-    output = io.StringIO()
-
-    exit_code = run_cli(
-        ["llm-config", "set"],
-        stdout=output,
-        kernel_factory=_make_kernel_factory(stub),
-        workspace_root=tmp_path,
-    )
-
-    assert exit_code == 1
-    payload = json.loads(output.getvalue())
-    assert "at least one" in payload["error"].lower()
-    assert payload["layer"] == "input"
-
-
-def test_run_cli_llm_config_set_rejects_conflicting_api_key_flags(tmp_path) -> None:
-    stub = _LLMConfigKernelStub()
-    output = io.StringIO()
-
-    exit_code = run_cli(
-        ["llm-config", "set", "--api-key", "sk-cli", "--clear-api-key"],
-        stdout=output,
-        kernel_factory=_make_kernel_factory(stub),
-        workspace_root=tmp_path,
-    )
-
-    assert exit_code == 1
-    payload = json.loads(output.getvalue())
-    assert "cannot be used together" in payload["error"].lower()
-    assert "choose either" in payload["suggestion"].lower()
+    # argparse rejects the removed subcommand with a non-zero exit (SystemExit).
+    with pytest.raises(SystemExit):
+        run_cli(
+            ["llm-config", "set", "--model", "x"],
+            stdout=output,
+            kernel_factory=_make_kernel_factory(stub),
+            workspace_root=tmp_path,
+        )
 
 
 def test_run_cli_llm_flags_forwarded_to_kernel_factory(tmp_path) -> None:

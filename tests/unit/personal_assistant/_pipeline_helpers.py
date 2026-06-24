@@ -378,6 +378,7 @@ class _FakeKernel:
         origin: Any = None,
         workspace_root: Path | None = None,
         trace_id: str | None = None,
+        model: str | None = None,
     ) -> MagicMock:
         self._run_index += 1
         run_id = f"run-{self._run_index}"

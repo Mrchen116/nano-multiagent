@@ -288,6 +288,7 @@ class _CapturingContextFork:
         available_tools_override=None,
         tool_execution_allowlist=None,
         hook_ctx=None,
+        model_override=None,
     ):
         self.captured = {
             "state": state,
@@ -297,6 +298,7 @@ class _CapturingContextFork:
             "available_tools_override": available_tools_override,
             "tool_execution_allowlist": tool_execution_allowlist,
             "hook_ctx": hook_ctx,
+            "model_override": model_override,
         }
         fake_result = MagicMock()
         fake_result.messages = ()

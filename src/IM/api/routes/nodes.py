@@ -13,9 +13,11 @@ from IM.api.routes.agents import (
     AgentConfigResponse,
     AllowlistOptionResponse,
     FeatureCapabilityResponse,
+    ModelOptionResponse,
     PromptPreviewResponse,
     _coerce_feature_list,
     coerce_allowlist_options,
+    coerce_model_options,
     to_agent_config_response,
 )
 from IM.application.config_service import ConfigService
@@ -91,7 +93,7 @@ class NodeCapabilitiesResponse(BaseModel):
     """网关节点当场解析的运行时能力（打开新建 Agent 页时按需拉取）。"""
 
     node_id: str
-    models: list[str] = Field(default_factory=list)
+    models: list[ModelOptionResponse] = Field(default_factory=list)
     skills: list[AllowlistOptionResponse] = Field(default_factory=list)
     tools: list[AllowlistOptionResponse] = Field(default_factory=list)
     platform_default_model: str | None = None
@@ -156,7 +158,7 @@ async def get_node_capabilities(
         )
     return NodeCapabilitiesResponse(
         node_id=node_id,
-        models=_coerce_string_list(live.get("models")),
+        models=coerce_model_options(live.get("models")),
         skills=coerce_allowlist_options(live.get("skills")),
         tools=coerce_allowlist_options(live.get("tools")),
         platform_default_model=_coerce_optional_text(
