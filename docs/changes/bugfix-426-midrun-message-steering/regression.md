@@ -366,3 +366,79 @@
 - [x] `docs/specs/cli/spec.md`：无新增（M4 无 CLI 改动，Round 1 delta-spec 已涵盖）
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新
 - [x] `docs/SPEC_GUIDE.md`：无需更新
+
+---
+
+# Round 3 — 2026-06-24
+
+> Review round: 3（Fast-lane 复验）
+> Reviewer: bugfix-426-reviewer
+> 验收对象: unit/bugfix-426，Fix 轮 60e4a3da（V2 _roll_bubble 重构 + V3 连发守卫）
+
+## Verdict
+
+**pass**
+
+**Highest Required Action**: pass
+
+**Issues**: blocking=0, major=0, minor=0
+
+---
+
+## Fast-lane 说明
+
+复用上轮（Round 2）上下文。Fix 轮改动范围：gateway 气泡代码重构（V2 抽 `_roll_bubble` 原语，三处气泡滚动复用同一函数）+ V3 连发多 steer 守卫（per-run `rolling` 重入锁 + 空 message_id 窄窗守卫）+ 内核终态覆盖（代码级边角）。
+
+验收焦点两点：
+1. V2 重构未回归常见路径（单条 steer → 新气泡排在 steer 之后、旧气泡干净收尾）
+2. V3 连发两 steer → 两条均注入、无僵尸气泡、无重复 completed、无漏气泡
+
+---
+
+## 覆盖表（继承 Round 2，更新 Fast-lane 复验行）
+
+Round 2 所有 Scenario 保持 pass，本轮只更新以下两行：
+
+### Scenario: 工具循环中途发消息，下一轮即被消费（V2 重构回归验证）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md §目标行为；V2 重构不改用户可观察行为 |
+| 验证方式 | R3-J1（conv `2ea0ea3d`，ephemeral IM 63156）：bash sleep 8 → t+4s 发 V2_SINGLE_STEER_MARKER |
+| 证据 | 气泡 A `[7436805c]` completed（tc=1，工具完整）；steer `[d7abb223]` 排在 A 之后；气泡 B `[b3bfaba9]` completed，content="V2_SINGLE_STEER_MARKER"；全程零 relay.failed |
+| 结果 | **pass** |
+| 备注 | V2 _roll_bubble 重构未回归常见单条 steer 路径 |
+
+### Scenario: 一个 run 内连发多条，按序全注入（V3 连发守卫）
+
+| 字段 | 内容 |
+|---|---|
+| 期望来源 | incident.md Q3 FIFO 按序全注入；V3 守卫防止多 steer 产生僵尸/重复气泡 |
+| 验证方式 | R3-J2（conv `2ea0ea3d`）：bash sleep 10 → t+3s 发 V3_STEER_ALPHA_426 → t+5s 发 V3_STEER_BETA_426 |
+| 证据 | 气泡 A `[1b05a080]` completed（tc=1）；steer ALPHA `[50c39d9d]`、BETA `[ff239e53]` 排在 A 之后；气泡 B `[bf6b7c77]` completed，content 包含「V3_BASE_DONE + V3_STEER_ALPHA_426 + V3_STEER_BETA_426」；agent_msgs=4 全 completed，零 relay.failed |
+| 结果 | **pass** |
+| 备注 | 两条连发 steer 同批次 drain，发一次 injection_consumed，产生一个气泡 B（包含两标记）——这是正确 FIFO 行为，非缺陷。V3 守卫（per-run rolling 锁）保证无重复 completed、无僵尸气泡 |
+
+---
+
+## 旅程证据（Round 3）
+
+**R3-J1（V2 重构回归，单条 steer）**
+- 10:14:24 发 sleep 8 任务 → 气泡 A `[7436805c]` 创建
+- 10:14:28（t+4s）发 V2_SINGLE_STEER_MARKER
+- 10:14:45 气泡 B `[b3bfaba9]` completed，content=V2_SINGLE_STEER_MARKER
+- A completed，B completed，排序正确，零 relay.failed
+- **pass**
+
+**R3-J2（V3 连发两条 steer）**
+- 10:15:22 发 sleep 10 任务 → 气泡 A `[1b05a080]` 创建
+- 10:15:25（t+3s）发 ALPHA；10:15:27（t+5s）发 BETA
+- 10:15:47 气泡 B `[bf6b7c77]` completed，content 同时包含 V3_BASE_DONE + ALPHA + BETA 三个标记
+- agent_msgs=4（J1 的 A+B + J2 的 A+B），全 completed，gateway.log 零 relay.failed
+- **pass**：无僵尸气泡、无重复 completed、无漏气泡
+
+---
+
+## Side Findings
+
+无。
