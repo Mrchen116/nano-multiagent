@@ -224,7 +224,9 @@ async def test_pending_injection_consumed_without_run_id_is_skipped() -> None:
     setup_realtime_stream(hooks)
     runner = HookRunner(registry=hooks)
     pub = _FakePublisher()
-    ctx = HookContext(session_id="sess_1", turn_id="turn_1", session_event_publisher=pub)
+    ctx = HookContext(
+        session_id="sess_1", turn_id="turn_1", session_event_publisher=pub
+    )
 
     await runner.dispatch_observe(
         "pending_injection_consumed",

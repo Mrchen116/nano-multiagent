@@ -57,6 +57,25 @@
 - Rollback: revert R2 commit（test-only）。
 - Commits: 单 commit（§FL ② 轻量化：自包含 verify+审计，无独立实现 commit）。
 
-## R3 — 决策6 信号：消费点发 pending_injection_consumed → injection_consumed
+## R3 — 决策6 信号：消费点发 pending_injection_consumed → injection_consumed  [DONE]
+
+- Context: 决策6 需要 kernel 在「真正消费注入消息」的轮边界发信号，relay 据此滚动气泡。
+  R1 已让 loop 在两个消费点（mid-loop drain + 末轮 re-drain）发 `pending_injection_consumed` observe 事件，
+  但该事件未注册（dispatch fail-open 警告）、realtime_stream 未转发到 kernel.stream。
+- Decision:
+  - `HookEventType` 加 `PENDING_INJECTION_CONSUMED`（自动进 OBSERVE_EVENTS / ALL_HOOK_EVENTS）。
+  - `realtime_stream.setup` 注册 `on_pending_injection_consumed` → `publish_session_event("injection_consumed", {run_id, turn_id})`。
+    无 run_id 则跳过（无从 scope 气泡）。命名 kernel 内部事件 `pending_injection_consumed`、
+    对外 session 事件 `injection_consumed`（与既有 turn_end/assistant_message 同款 observe→session 转发模式）。
+- Rationale: 复用既有 realtime_stream「observe 事件 → session 事件」转发机制（turn_end 同款），
+  零新基础设施；gateway observer 经 kernel.stream 收 `injection_consumed`（R4 消费）。
+- Evidence:
+  - Tests: `test_realtime_stream_events.py`（2 例：转发带 run_id / 无 run_id 跳过）+
+    `test_agent_loop.py::test_loop_emits_injection_consumed_signal_at_consume_point`（loop 消费点发 1 次、带 run_id）。
+    11 passed（含 contract #140 回归，不再有 unknown-hook-event 警告）；
+    hook 覆盖测试 `test_hook_event_coverage`/`test_hooks_contract` 4 passed（新枚举无破坏）。
+  - Entry/Browser/E2E/Visual: N/A（信号到 session 流即止；用户可见气泡滚动在 R4）。
+- Rollback: revert R3 C2（枚举 + handler）；loop 仍发事件但 fail-open 无副作用。
+- Commits: C1 红测, C2 实现, C3 docs（含 C1 测试 1 行 format 折叠）。
 
 ## R4 — 决策6 气泡滚动 + #140 e2e

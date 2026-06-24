@@ -54,7 +54,7 @@ run 收尾瞬间 steer 不再分裂出新 run_id：注入消息由同一个 run 
 - 步骤: 正常完成路径 stranded 已被决策5 续跑吞掉（terminal commit 后 controller 队列空）；确认/调整 `_settle_terminal_pending` 仅在异常终止（cancel/timeout/crash）仍 continuation，正常完成路径 drain 为空 → 自然 no-op。审旧测试 `test_stranded_continuation_follows_injected_origin` 是否仍反映正常路径（若正常路径不再 stranded，改测异常路径）。
 - 验证: 正常完成 + 终态前 inject → 同 run 续跑、无第二个 run（决策5 覆盖）；异常终止 + inject → continuation 仍在。
 
-### R3 — 决策6 信号：loop 消费点发 pending_injection_consumed → realtime_stream 转 injection_consumed
+### R3 — 决策6 信号：loop 消费点发 pending_injection_consumed → realtime_stream 转 injection_consumed  [DONE]
 
 - 步骤:
   - `loop.py`：drain_pending 返回非空、append 进上下文后（round-boundary 消费点，含 mid-loop 与末轮 re-drain），`_dispatch_observe_async("pending_injection_consumed", {run_id, ...})`。
