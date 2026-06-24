@@ -601,3 +601,48 @@ async def test_loop_redrains_at_terminal_and_continues_same_run() -> None:
     # Terminal committed only once the queue was truly empty.
     assert controller.is_terminal_committed is True
     assert controller.drain_pending() == []
+
+
+async def test_loop_emits_injection_consumed_signal_at_consume_point() -> None:
+    """bugfix-426-M4 决策6: the loop emits pending_injection_consumed when it actually
+    consumes injected messages into context.
+
+    The gateway needs the consume-point (not the enqueue moment) to roll the IM
+    bubble: only the loop knows the round boundary where the steer enters context.
+    """
+    from agent.core.agent.run_control import RunController
+
+    controller = RunController()
+    client = _SteerOnTerminalLLMClient(controller, steer_text="steer-text")
+
+    consumed_events: list[dict] = []
+    hooks = HookRegistry()
+
+    async def on_injection_consumed(event, ctx):  # noqa: ANN001
+        consumed_events.append(dict(event))
+
+    hooks.on("pending_injection_consumed", on_injection_consumed)
+    hook_runner = HookRunner(registry=hooks)
+
+    loop = AgentLoop(
+        llm_client=client,
+        model="model-x",
+        policies=AgentPolicies(max_turns=5),
+        hook_runner=hook_runner,
+    )
+
+    await _run_loop(
+        loop,
+        _base_state(),
+        controller=controller,
+        hook_ctx=HookContext(
+            session_id="sess_agent",
+            turn_id="turn_1",
+            metadata={"run_id": "run_abc"},
+        ),
+    )
+
+    # Exactly one consume event, carrying the run_id, fired when the steer entered
+    # context (the terminal re-drain round).
+    assert len(consumed_events) == 1
+    assert consumed_events[0].get("run_id") == "run_abc"

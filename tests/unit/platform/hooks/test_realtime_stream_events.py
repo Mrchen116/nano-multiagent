@@ -188,3 +188,47 @@ def test_presentation_dict_none_has_empty_emoji() -> None:
 
     payload = _presentation_dict(None)
     assert payload["emoji"] == ""
+
+
+async def test_pending_injection_consumed_emits_injection_consumed() -> None:
+    """bugfix-426-M4 决策6: the loop's pending_injection_consumed observe event is
+    forwarded as an ``injection_consumed`` session event carrying the run_id, so the
+    gateway can roll the IM bubble at the steer's consume point."""
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    ctx = _make_ctx(publisher=pub)
+
+    diagnostics = await runner.dispatch_observe(
+        "pending_injection_consumed",
+        {
+            "session_id": "sess_1",
+            "turn_id": "turn_1",
+            "run_id": "run_1",
+            "message_count": 1,
+        },
+        ctx,
+    )
+    assert all(d.status == "ok" for d in diagnostics)
+    assert len(pub.events) == 1
+    evt = pub.events[0]
+    assert evt["event"] == "injection_consumed"
+    assert evt["data"]["event"] == "injection_consumed"
+    assert evt["data"]["run_id"] == "run_1"
+
+
+async def test_pending_injection_consumed_without_run_id_is_skipped() -> None:
+    """No run_id → nothing to scope the bubble roll to; emit nothing."""
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    ctx = HookContext(session_id="sess_1", turn_id="turn_1", session_event_publisher=pub)
+
+    await runner.dispatch_observe(
+        "pending_injection_consumed",
+        {"session_id": "sess_1", "turn_id": "turn_1", "message_count": 1},
+        ctx,
+    )
+    assert len(pub.events) == 0
