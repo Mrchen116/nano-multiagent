@@ -16,7 +16,8 @@
   - `build_kernel()`：构造 `AgentRuntime` 和 `Kernel`；持有 `workspace_config_dirname` 和 `skill_search_roots`。
   - `Kernel.list_skills(workspace_root)`：已正确，每次调用时基于 `_workspace_config_dirname + _skill_search_roots` 构造 `_WorkspaceDirnameSkillResolver`。
   - `Kernel.assemble_prompt_preview()`：已正确（refactor-406-M3fix #3），同样构造 `_WorkspaceDirnameSkillResolver` 解析 `skill_ids`。
-  - `_WorkspaceDirnameSkillResolver`：per-call 构造，roots = `<workspace>/<dirname>/skills` + `extra_roots`。
+  - `_WorkspaceDirnameSkillResolver`（kernel.py:567-599）：per-call 构造，roots = `<workspace>/<dirname>/skills` + `extra_roots`。**纯逻辑、零 sdk 依赖**（只用 `Path`/list 去重），实现的是 core 的 `SkillRootResolver` Protocol——当前住在 sdk 只是历史位置，本 unit 将其下沉到 core（见决策 2）。
+  - kernel.py:1150 / 1420 已 `from agent.core.skills... import resolve_available_skills`——sdk 向下 import core 是既有依赖方向。
 - `src/agent/core/agent/runtime.py`
   - `AgentRuntime`：仍保留 `config_resolver: ConfigResolverLike | None` 字段；`build_kernel()` 未传值，故恒为 `None`。
   - `_resolve_session_available_skills*`：调用 `resolve_available_skills(..., config_resolver=self._config_resolver)`。
@@ -31,13 +32,14 @@
 ### 既有约束
 
 - `coding_cli` / `personal_assistant` 只能 `import agent.sdk`，不能反向 import `agent.core` / `agent.platform`。
+- **`agent.core` 不能 import `agent.sdk`**（core 是最内层；`test_agent_sdk_boundary_contract.py` 守护）。这是决策 2 helper 归属的硬约束：放 sdk 而让 core 调用 = 反向依赖。
 - `agent.core` 不能 import `agent.platform`。
 - `refactor-406` 明确退役 `ConfigResolver`，不能复活。
 - kernel 必须保持 product-neutral：只搜索 `build_kernel` 被告知的 roots。
 
 ### 可复用能力
 
-- `_WorkspaceDirnameSkillResolver` 可直接复用。
+- `_WorkspaceDirnameSkillResolver` 可直接复用（下沉到 core 后由 core runtime 与 sdk kernel 共用）。
 - `PA_SKILL_SEARCH_ROOTS`（`~/.nanoassistant/skills`、`~/.claude/skills`、`~/.codex/skills`）已由 PA 工厂维护并传入 `build_kernel(skill_search_roots=...)`。
 - `resolve_available_skills` 调用点已存在，只需注入正确的 resolver。
 
@@ -58,20 +60,21 @@ graph TD
     subgraph SDK[agent.sdk]
         BK[build_kernel]
         K[Kernel]
-        Helper["_make_skill_resolver(ws_root, dirname, extra_roots)"]
-        Resolver[_WorkspaceDirnameSkillResolver]
         BK -->|注入 dirname + extra_roots| RT
         BK -->|同参数构造| K
-        Helper -->|构造| Resolver
-        K -->|调用 Helper| Helper
+        K -->|向下 import + 调用| Helper
     end
 
     subgraph Core[agent.core]
         RT[AgentRuntime]
         Loop[AgentLoop]
-        RT -->|持有| Loop
-        RT -->|resolve_available_skills(ws, names)| SkillDisc
+        Helper["make_skill_resolver(ws_root, dirname, extra_roots)"]
+        Resolver[_WorkspaceDirnameSkillResolver]
         SkillDisc[resolve_available_skills]
+        RT -->|持有| Loop
+        RT -->|同层调用| Helper
+        Helper -->|构造| Resolver
+        RT -->|resolve_available_skills(ws, names)| SkillDisc
     end
 
     subgraph Platform[agent.platform]
@@ -79,16 +82,14 @@ graph TD
         AgentTool -->|runtime.resolve_available_skills(ws, names)| RT
     end
 
-    RT -->|内部调用 Helper| Helper
-
     SDK -.->|当前 bug：未注入 dirname/extra_roots| RT
     RT -.->|config_resolver=None| SkillDisc
     SkillDisc -.->|回退 Codex roots| Roots[(~/.codex/skills only)]
 ```
 
-**Before**：`AgentRuntime` 持有一个退役后恒为 `None` 的 `config_resolver`。runtime skill resolution 回退到 Codex-only 默认路径；preview / `list_skills` 已经走 `_WorkspaceDirnameSkillResolver`，三者不同源。
+**Before**：`AgentRuntime` 持有一个退役后恒为 `None` 的 `config_resolver`。runtime skill resolution 回退到 Codex-only 默认路径；preview / `list_skills` 已经走 sdk 内联的 `_WorkspaceDirnameSkillResolver`，三者不同源。
 
-**After**：`agent.sdk.kernel` 抽取统一 helper `_make_skill_resolver`；`Kernel.list_skills`、`Kernel.assemble_prompt_preview`、`AgentRuntime.resolve_available_skills`、子 agent 校验全部经该 helper 构造 `_WorkspaceDirnameSkillResolver`。runtime 与 preview 完全同源，且未来改 skill 发现规则只改一处。
+**After**：把 `_WorkspaceDirnameSkillResolver` + 统一 helper `make_skill_resolver` **下沉到 `agent.core.skills`**（紧邻 `SkillRootResolver` Protocol 与 `resolve_available_skills`）。`AgentRuntime.resolve_available_skills`（core）与 helper **同层调用**；`Kernel.list_skills` / `assemble_prompt_preview`（sdk）**向下 import** 该 helper；子 agent 校验经 runtime 方法。runtime 与 preview 完全同源、依赖方向合法（core 不再被要求 import sdk），且未来改 skill 发现规则只改一处。
 
 ## 关键决策
 
@@ -108,19 +109,21 @@ graph TD
   - 让 `AgentRuntime.config_resolver` property 继续返回固定 resolver：legacy 语义会忽略传入的 `workspace_root`，无法处理多 workspace。
 - **风险**：需要改动 `AgentRuntime.__init__` 签名；`agent` 工具读取 `runtime.config_resolver` 的调用点需同步处理。
 
-### 决策 2：统一 resolver 构造逻辑，保证 preview / runtime / list_skills / agent 工具同源
+### 决策 2：统一 resolver 构造逻辑下沉到 core，保证 preview / runtime / list_skills / agent 工具同源
 
-**选择**：在 `agent.sdk.kernel` 内抽取一个私有 helper `_make_skill_resolver(workspace_root, workspace_config_dirname, skill_search_roots)`，所有 skill 发现路径都经它构造 `_WorkspaceDirnameSkillResolver`。
+**选择**：把 `_WorkspaceDirnameSkillResolver` + 新 helper `make_skill_resolver(workspace_root, workspace_config_dirname, skill_search_roots)` 放在 `agent.core.skills`（discovery.py，紧邻 `SkillRootResolver` Protocol 与 `resolve_available_skills`）。所有 skill 发现路径都经它构造 resolver。
 
 - **理由**：
+  - **依赖方向合法**：helper 落 core 后，`AgentRuntime`（core，决策 1）**同层调用**合法；`Kernel`（sdk）的 list_skills/preview **向下 import** core helper 合法（kernel.py:1150/1420 本就已向下 import `resolve_available_skills`，同方向）。若反过来放 sdk，决策 1 让 core 调它就成 `core→sdk` 反向依赖，违反 `agent.core ↛ agent.sdk` 硬规则。
+  - **资格充分**：resolver 是纯逻辑、零 sdk 依赖（kernel.py:567-599 只用 `Path`/list 去重），且实现的正是 core 自己的 `SkillRootResolver` Protocol——它本就该住 core，当前在 sdk 只是历史位置。
   - **同源**：`Kernel.list_skills`、`Kernel.assemble_prompt_preview`、`AgentRuntime`、子 agent 校验全部走同一 helper，消除"preview 修了 runtime 没修"的结构性复发条件。
-  - **未来-proof**：以后改 system prompt 相关的 skill 发现规则（如新增 skill root 类型、改 dedup 顺序），改一处即可，preview 与 runtime 自动一致。
-  - **对齐既有最佳实践**：`features` 开关、`prompt_context` 的 volatile 段已经采用"统一 helper + per-call 构造"的同源模式，本决策把 skills 发现对齐到同一模式。
-  - 保持 kernel product-neutral：helper 不硬编码 PA 路径，只组合调用方传入的 `workspace_config_dirname + skill_search_roots`。
+  - **未来-proof**：以后改 skill 发现规则（新增 root 类型、改 dedup 顺序），改一处即可，preview 与 runtime 自动一致。
+  - 保持 kernel product-neutral：helper 不硬编码 PA 路径，只组合调用方传入的 `workspace_config_dirname + skill_search_roots`；roots 仍由 consumer 经 `build_kernel(skill_search_roots=)` 注入。
 - **拒绝**：
   - 让 `AgentRuntime` 自己内部拼 resolver、preview 用另一套代码：正是当前 bug 的根因，不能重复。
-  - 把 helper 放到 `agent.core`：`agent.core` 不感知 `skill_search_roots` 这些部署级输入（那是 SDK 装配参数），放 core 会破坏层级。
-- **风险**：helper 是 sdk 内部私有符号，不进入 public surface；需确保 `tests/contract/test_agent_sdk_surface_contract.py` 不把它当成新增公共导出。
+  - 把 helper 留在 `agent.sdk.kernel`：与决策 1（core runtime 调它）组合即 `core→sdk` 反向依赖，撞 `test_agent_sdk_boundary_contract.py`。"core 不感知部署输入"的旧理由不成立——决策 1 已让 core 持有 `skill_search_roots` 字段，且 resolver 只是组合传入参数、不读环境。
+  - helper 设为 sdk 私有、core 复制一份：破坏"同源"目标，双份实现仍会再次漂移。
+- **风险**：helper 跨 core/sdk 两层消费，故设为 core 的**公开** API（`agent.core.skills.make_skill_resolver`，进 `__all__`），而非下划线私有跨模块 import；`_WorkspaceDirnameSkillResolver` 保持 core 内部实现细节（下划线、不进 `__all__`）。
 
 ### 决策 3：替换 `AgentRuntime.config_resolver` 为显式 `resolve_available_skills` 方法
 
@@ -147,7 +150,7 @@ graph TD
   - 保留默认回退：继续留下隐式双路径，未来仍可能再次出现 preview/runtime 漂移。
 - **风险**：
   - 任何直接调用 `resolve_available_skills(config_resolver=None)` 且无显式 roots 的代码/测试会拿到空 skills，需要同步更新。
-  - `product_skill_root` 参数可能随之可移除，但为减少签名变更波及面，本 unit 先将其行为与"显式 root"对齐（非 None 时仍生效），不删除参数。
+  - `product_skill_root` 全仓零生产调用方（仅 discovery.py 内部定义+引用），且 `config_resolver=None` 分支当前根本不 consult 它。本 unit 顺手清理：清空后随 Codex 回退一起删除该参数（实际波及面为 0）。
 
 ## 接口与数据流
 
@@ -157,8 +160,8 @@ graph TD
 sequenceDiagram
     participant PA as personal_assistant
     participant SDK as agent.sdk build_kernel
-    participant Helper as _make_skill_resolver
-    participant RT as AgentRuntime
+    participant RT as AgentRuntime (core)
+    participant Helper as core.skills.make_skill_resolver
     participant Disc as resolve_available_skills
     participant LLM as LLM Proxy
 
@@ -167,7 +170,7 @@ sequenceDiagram
 
     Note over RT: create_session(skills=["change-design-author", ...])
 
-    RT->>Helper: _make_skill_resolver(session.workspace_root, dirname, extra_roots)
+    RT->>Helper: make_skill_resolver(session.workspace_root, dirname, extra_roots) [core→core 同层]
     Helper->>Disc: _WorkspaceDirnameSkillResolver
     RT->>Disc: resolve_available_skills(workspace_root, include_names, config_resolver=resolver)
     Disc-->>RT: 12 SkillMetadata
@@ -178,9 +181,10 @@ sequenceDiagram
 ### 关键接口变化
 
 ```python
-# agent.sdk.kernel — 新增私有 helper
+# agent.core.skills.discovery — 新增公开 helper（与 SkillRootResolver / resolve_available_skills 同住 core）
+# _WorkspaceDirnameSkillResolver 从 agent.sdk.kernel 整体搬到此处（内部细节，保持下划线、不进 __all__）
 
-def _make_skill_resolver(
+def make_skill_resolver(
     workspace_root: Path,
     workspace_config_dirname: str | None,
     skill_search_roots: tuple[Path, ...],
@@ -194,6 +198,8 @@ def _make_skill_resolver(
         extra_roots=skill_search_roots,
     )
 
+# agent.core.skills.__init__.__all__ 追加 "make_skill_resolver"
+
 # agent.sdk.kernel.build_kernel
 runtime = AgentRuntime(
     ...
@@ -201,6 +207,9 @@ runtime = AgentRuntime(
     skill_search_roots=tuple(Path(r).expanduser().resolve() for r in skill_search_roots),
     ...
 )
+# Kernel.list_skills / assemble_prompt_preview 改为：
+#   from agent.core.skills import make_skill_resolver  # 向下 import，合法
+#   resolver = make_skill_resolver(workspace_root, self._workspace_config_dirname, self._skill_search_roots)
 
 # agent.core.agent.runtime.AgentRuntime
 class AgentRuntime:
@@ -227,7 +236,8 @@ class AgentRuntime:
         """
         if not self._workspace_config_dirname:
             return ()
-        resolver = _make_skill_resolver(
+        # 同层调用（core→core），合法
+        resolver = make_skill_resolver(
             workspace_root,
             self._workspace_config_dirname,
             self._skill_search_roots,
@@ -257,10 +267,11 @@ class AgentRuntime:
 | `AgentRuntime._resolve_session_available_skills_from_config` | 同上 | 调用 `self.resolve_available_skills(config.workspace_root, config.skills)` |
 | `AgentRuntime._compact` 路径 | `self._resolve_session_available_skills_from_config(config)` | 复用上述方法 |
 | `agent` 工具 `_validate_new_agent_args` | `resolve_available_skills(..., config_resolver=runtime.config_resolver)` | `runtime.resolve_available_skills(ctx.repo_root, load_skills)` |
-| `Kernel.list_skills` | 内联构造 `_WorkspaceDirnameSkillResolver` | 调用 `_make_skill_resolver` |
-| `Kernel.assemble_prompt_preview` | 内联构造 `_WorkspaceDirnameSkillResolver` | 调用 `_make_skill_resolver` |
+| `_WorkspaceDirnameSkillResolver` + `make_skill_resolver` | 当前 `_WorkspaceDirnameSkillResolver` 在 `agent.sdk.kernel`（无 helper） | 整体搬到 `agent/core/skills/discovery.py`；helper 设为公开、进 `agent.core.skills.__all__` |
+| `Kernel.list_skills` | 内联构造 `_WorkspaceDirnameSkillResolver` | `from agent.core.skills import make_skill_resolver` 向下 import 后调用 |
+| `Kernel.assemble_prompt_preview` | 内联构造 `_WorkspaceDirnameSkillResolver` | 同上，向下 import core helper |
 | `default_skill_search_roots` | `config_resolver=None` 时回退 Codex roots | `config_resolver=None` 时返回空元组 |
-| `tests/unit/test_core_skills_location.py` | 仅导出存在性/模块归属断言 | 确认无需行为断言更新；如需补充行为断言则同步更新 |
+| `tests/unit/test_core_skills_location.py` | 仅导出存在性/模块归属断言 | 现有断言仍成立（helper 落 core）；为新 `make_skill_resolver` 补一条模块归属断言（确认住 core、非 sdk） |
 
 **注意**：`ctx.repo_root` vs `ctx.cwd` 在子 agent 场景下的差异不在本 unit 修复范围内；本 unit 保持 `agent` 工具现有取值（`ctx.repo_root`），只改 resolver 来源。若后续发现子 agent workspace 取值不对，另开 bugfix。
 
@@ -275,8 +286,8 @@ class AgentRuntime:
 
 ### 已知风险
 
-1. **统一 helper 的私有性**：`_make_skill_resolver` 是 `agent.sdk.kernel` 内部 helper，必须确保不进入 `agent.sdk.__all__` 公开表面。
-   - 缓解：helper 名称以下划线开头；精确名单守卫 `test_agent_sdk_surface_guard.py` 只校验 `__all__`，不拦截未 export 的模块级私有符号，因此在 M1 退出标准中显式加一条 `[worker]` 断言：`dir(agent.sdk)` 不含 `_make_skill_resolver`。
+1. **helper 归属层级**：helper 必须落 `agent.core.skills` 而非 `agent.sdk.kernel`——否则决策 1（core runtime 调它）造成 `core→sdk` 反向依赖，撞 `test_agent_sdk_boundary_contract.py`。
+   - 缓解：`make_skill_resolver` 与 `_WorkspaceDirnameSkillResolver` 落 core；`AgentRuntime` 同层调用、`Kernel` 向下 import。M1 退出标准含 `test_agent_sdk_boundary_contract.py` 绿（无反向 import）+ `test_core_skills_location.py` 对 `make_skill_resolver` 的模块归属断言（住 core）。helper 是 core 公开 API，不进 `agent.sdk.__all__`，sdk 表面无新增导出。
 2. **AgentRuntime 签名变更**：新增构造参数可能影响现有单元测试直接构造 `AgentRuntime` 的用例。
    - 缓解：新增参数有默认值（`None` / `()`），保持向后兼容；旧测试不传新参数时 skill resolution 返回空（因决策 4 清理了默认 roots）。
 3. **移除 `config_resolver` property 的引用点**：`agent` 工具、`AgentRuntime` 内部、可能还有测试会引用该 property。
@@ -303,4 +314,4 @@ class AgentRuntime:
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| bugfix-431-M1 | runtime-skill-resolver | — | A | `src/agent/sdk/kernel.py`（注入参数 + 统一 helper）、`src/agent/core/agent/runtime.py`（构造 + per-session resolver）、`src/agent/core/skills/discovery.py`（清理默认 roots）、`src/agent/platform/tools/builtins/agent.py`（子 agent 校验）、相关测试 | `[reviewer]` 在 IM 给 PA agent 勾选 12 个 skills，真实对话后 LLM proxy 请求中 `<available_skills>` 出现全部 12 个，与 preview 一致；`[reviewer]` 子 agent 工具加载 PA workspace skills 成功；`[worker]` 新增/更新单元测试覆盖 runtime skill resolution 与 preview 同源；`[worker]` `dir(agent.sdk)` 不含 `_make_skill_resolver`；`[worker]` `pytest tests/unit/ tests/integration/ tests/contract/ -m "not e2e"` 全绿；`[worker]` `tests/contract/test_agent_sdk_boundary_contract.py` 绿（无 product 越界 import） |
+| bugfix-431-M1 | runtime-skill-resolver | — | A | `src/agent/core/skills/discovery.py`（resolver + `make_skill_resolver` 新家 + 清理默认 roots/`product_skill_root`）、`src/agent/core/skills/__init__.py`（导出 helper）、`src/agent/core/agent/runtime.py`（构造 + per-session resolver + 移除 config_resolver/ConfigResolverLike）、`src/agent/sdk/kernel.py`（注入参数 + 改向下 import core helper + 删本地 resolver）、`src/agent/platform/tools/builtins/agent.py`（子 agent 校验）、相关测试 | `[reviewer]` 在 IM 给 PA agent 勾选 12 个 skills，真实对话后 LLM proxy 请求中 `<available_skills>` 出现全部 12 个，与 preview 一致；`[reviewer]` 子 agent 工具加载 PA workspace skills 成功；`[worker]` 新增/更新单元测试覆盖 runtime skill resolution 与 preview 同源；`[worker]` `tests/contract/test_agent_sdk_boundary_contract.py` 绿（core 无 `import agent.sdk` 反向依赖）；`[worker]` `test_core_skills_location.py` 断言 `make_skill_resolver` 住 core；`[worker]` `pytest tests/unit/ tests/integration/ tests/contract/ -m "not e2e"` 全绿 |

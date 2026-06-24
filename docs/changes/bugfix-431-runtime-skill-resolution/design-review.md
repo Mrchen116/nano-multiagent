@@ -1,82 +1,49 @@
 # Design 评审: bugfix-431-runtime-skill-resolution
 
-**结论**: Issues Found
+**结论**: Issues Found（复审；新增 1 条 CRITICAL：共享 helper 归属层选反，导致 core→sdk 反向依赖）
 
-**评审日期**: 2026-06-24
+**评审日期**: 2026-06-24（复审，架构 taste 视角）
 
 ## 核实台账
 
-逐条核过的承重原子；结论附证据，不是打勾。
+逐条核过的承重原子；结论附证据。本轮重点：跳出单条 grounding，逐对扫决策组合后的依赖流向。
 
 | 原子 | 核实动作 | 结论 + 证据 |
 |---|---|---|
-| 现状: `build_kernel()` 未传 config_resolver/workspace_config_dirname/skill_search_roots 给 AgentRuntime | 从 `build_kernel` → `_build_kernel_base` 追 wiring | ✅ 成立。`kernel.py:389-400` 构造 AgentRuntime 无上述参数；`workspace_config_dirname`/`skill_search_roots` 仅存 Kernel 实例(`kernel.py:520-528`) |
-| 现状: `Kernel.list_skills` 内联构造 `_WorkspaceDirnameSkillResolver` | 读 `kernel.py:1163-1167` | ✅ 成立。`per_call_resolver = _WorkspaceDirnameSkillResolver(workspace_root=..., workspace_config_dirname=..., extra_roots=...)` |
-| 现状: `Kernel.assemble_prompt_preview` 同样内联构造 | 读 `kernel.py:1427-1435` | ✅ 成立。`preview_resolver = _WorkspaceDirnameSkillResolver(...)` |
-| 现状: `AgentRuntime.config_resolver` 恒为 None | 追 wiring | ✅ 成立。`runtime.py:117` 默认 None；`build_kernel` 从未传值(`kernel.py:389-400`) |
-| 现状: `_resolve_session_available_skills*` 传 `self._config_resolver` (None) | 读 `runtime.py:1307,1323` | ✅ 成立。两处均 `config_resolver=self._config_resolver` |
-| 现状: `config_resolver=None` 时回退 Codex 默认 roots | 读 `discovery.py:38-49` | ✅ 成立。roots = `~/.codex/skills` + `<ws>/.codex/skills` + `<ws>/.nano/skills` |
-| 现状: `config_resolver` 非 None 时忽略 workspace_root | 读 `discovery.py:27-36` | ✅ 成立。直接 `return config_resolver.user_skill_roots()` |
-| 现状: agent 工具 `getattr(runtime, "config_resolver", None)` | 读 `agent.py:660` | ✅ 成立。`resolve_available_skills(workspace_root=ctx.repo_root, ..., config_resolver=getattr(...))` |
-| 现状: `_WorkspaceDirnameSkillResolver` 构造被 list_skills 和 preview 两处独立内联(无统一 helper) | grep `_make_skill_resolver` | ✅ 成立。`_make_skill_resolver` 在当前代码库不存在，两处各写一遍 |
-| 现状: `config_resolver` 引用点全仓共 6 处在 runtime.py | grep 全仓 | ✅ 成立。runtime.py 内 6 处(定义+存储+property+两处调用)；agent.py 1 处(getattr)；loader.py/hooks_loader.py 不读 runtime 的 property |
-| 现状: `ConfigResolverLike` Protocol 仅被 runtime.py 使用 | grep | ✅ 成立。`runtime.py:94` 定义，`runtime.py:117,962` 使用。tool/hook loader 有各自独立的 `_ToolRootResolver`/`_HookRootResolver` |
-| 既有约束: coding_cli/PA 只能 import agent.sdk | 核 spec | ✅ 成立。kernel spec Requirement 1 + `test_agent_sdk_boundary_contract.py` |
-| 既有约束: refactor-406 退役 ConfigResolver | incident + design 均引用 | ✅ 成立。design 决策 1/3 拒绝复活 |
-| 决策 1: AgentRuntime 持有 dirname+roots，按需构造 resolver | 四问 | ✅ 拍死、自洽。拒绝固定 resolver(per-agent 隔离)、拒绝复活 ConfigResolver、不改 resolve_available_skills 签名 |
-| 决策 2: 抽取 `_make_skill_resolver` 统一 helper | 四问 + 对比其他组件模式 | ✅ 拍死、自洽。位于 sdk 层(需 `_WorkspaceDirnameSkillResolver`)、不放 core 层(破坏依赖方向)。features/prompt_context 已采用同源 helper 模式且运行良好，本决策将 skills 对齐到同一模式 |
-| 决策 3: 移除 config_resolver property，新增 resolve_available_skills 方法 | 四问 + 数据流 | ✅ 拍死。config_resolver 引用点仅 agent.py 一处需改；但**风险缓解描述与事实不符**（见 Issue 1） |
-| 决策 4: 清理 Codex roots 默认回退 | 四问 | ✅ 拍死、有 spec 驱动(delta-spec 场景 3)。需同步更新所有 `config_resolver=None` 调用点 |
-| spec 约束 Q2: runtime 与 preview 同源 | incident 澄清记录 | ✅ 决策 2 直接覆盖 |
-| spec 约束 Q3: 不存在的 skill 静默忽略 | incident 澄清记录 | ✅ `_WorkspaceDirnameSkillResolver` 已有此行为，统一后自然继承 |
-| delta-spec kernel: ADDED Requirement | 用法检查 | ✅ 新增行为保证(原 spec 无此 requirement)，非改既有，ADDED 正确 |
-| delta-spec 场景 1: preview 与 runtime 一致 | THEN 可观察？ | ✅ 「`SkillMetadata` 集合相同」是消费者可观察，无内部符号 |
-| delta-spec 场景 2: 子 agent 加载技能同源 | THEN 可观察？ | ✅ 「覆盖 workspace_config_dirname 下的 skills 目录与 skill_search_roots」是可观测行为 |
-| delta-spec 场景 3: 未提供 dirname 时无隐式默认 roots | THEN 可观察？ | ✅ 「返回空 skills 列表」是可观测行为 |
-| M1: 单 milestone，垂直切片 | 垂直 vs 横切 | ✅ 单 M1 覆盖 sdk→core→platform 全链路 + 测试 + 验收，端到端可观测 |
-| M1 退出标准 | 两轨齐？ | ✅ `[reviewer]` 轨有用户可观察(12 skills 出现在 LLM 请求、子 agent 加载成功)；`[worker]` 轨有测试+构建 |
-| M1 范围文件 | 跨包是否合理？ | ✅ 改动落 sdk/core/platform 三包各一处，范围无交集、逻辑不可再切 |
-| Runbook | 可直接照搬？ | ✅ IM + Gateway 启停命令完整，健康检查明确 |
-| 接口数据流 | 闭合？ | ✅ PA→build_kernel→AgentRuntime→helper→resolve_available_skills→LLM，每步有出口 |
-| 其他组件模式对比 | 探索 features/tools/hooks/prompt_context 的 preview/runtime 同源策略 | ✅ features 和 prompt_context 已走统一 helper 模式；tools/hooks 机制本就不同且不存在漂移风险；design 的 `_make_skill_resolver` 将 skills 对齐到既有最佳实践 |
+| 现状: `build_kernel` 构造 AgentRuntime 未传 config_resolver | grep config_resolver 全 kernel.py | ✅ 成立。kernel.py 全文件无 config_resolver 字样 |
+| 现状: list_skills/preview 各自内联 `_WorkspaceDirnameSkillResolver` | grep | ✅ 成立。kernel.py:1163 / 1428 两处独立内联 |
+| 现状: `_WorkspaceDirnameSkillResolver` 是纯逻辑、零 sdk 依赖 | 读 kernel.py:567-599 | ✅ 成立。只组合 `<ws>/<dirname>/skills + extra_roots` 去重，实现 `SkillRootResolver` Protocol，仅用 `Path` |
+| 现状: `SkillRootResolver` Protocol 定义在 core | 读 discovery.py:12 | ✅ 成立。与 resolve_available_skills 同住 core/skills/discovery.py |
+| 现状: `config_resolver=None` → 回退 codex/.codex/.nano roots | 读 discovery.py:38-49 | ✅ 成立 |
+| 现状: resolve_available_skills 调用方 | grep | ✅ 仅 5 处(runtime:1307/1320、agent:657、kernel:1169/1437)，改造清单全覆盖 |
+| 既有约束: `agent.core ↛ agent.sdk`(无反向依赖) | 读 test_agent_sdk_boundary_contract.py:13-14 + AGENTS.md | ✅ 硬规则。core 最内层，绝不可 import sdk |
+| **决策 1 + 决策 2 组合: core runtime 调 sdk helper** | 逐对扫依赖流向 | ✗ **CRITICAL**。决策 1 让 AgentRuntime(core) 内部调决策 2 放在 agent.sdk.kernel 的 `_make_skill_resolver` = core→sdk 反向依赖；架构图自画 `RT → Helper` 跨层箭头(见 Issue 1) |
+| 决策 2「拒绝放 core」理由 | 核理由是否成立 | ✗ 理由反了。resolver 纯逻辑零部署耦合；决策 1 已让 core 持有 skill_search_roots，"core 不感知部署输入"自相矛盾 |
+| 决策 3: 移 property 换方法 | 四问 | ✅ 拍死；tools/hooks 不对称已说明 |
+| 决策 4: 清 codex 回退 | 四问 + spec 驱动 | ✅ 拍死。但 product_skill_root 零生产调用方，None 分支当前不 consult 它(见 Rec) |
+| 上轮 W1/W2/W3 | 复核 | ✅ 均已正确消化(surface guard `dir()` 断言、test_core_skills_location 仅 identity 断言不破、tools/hooks 不对称说明) |
+| delta-spec 场景 1/2/3 | THEN 可观察？ | ✅ 均消费者可观察，无内部符号 |
+| M1 单 milestone 垂直切片 | 垂直 vs 横切 | ✅ 全链路端到端，但范围里「core helper 归属」需随 Issue 1 调整 |
 
 ## Issues
 
-### [WARNING] 风险缓解 1 的 contract test 声明与事实不符
+### [CRITICAL] 共享 helper 放 sdk、让 core 反向复用 —— 依赖方向选反
 
-**位置**: 风险与回退 > 已知风险 1
+**位置**: 决策 1 + 决策 2 + 架构总览图(`RT -->|内部调用 Helper| Helper`) + 接口段 228-239
 
-**问题**: design 声称「`tests/contract/test_agent_sdk_surface_contract.py` 会自然拦住下划线符号进入 `EXPECTED_SURFACE`」——但实际该测试**不检查私有符号泄漏**，只验证 public allowlist 和 cron 隔离。`_make_skill_resolver` 泄漏到 `agent.sdk` 公开面时不会被自动拦截。
+**问题**: 决策 2 把 `_make_skill_resolver` + `_WorkspaceDirnameSkillResolver` 留在 `agent.sdk.kernel`；决策 1/接口段让 `AgentRuntime`(core 层) 的 `resolve_available_skills` **内部调用该 helper**。这等于 `agent.core.agent.runtime` 里 `from agent.sdk.kernel import _make_skill_resolver` —— **core→sdk 反向依赖**，违反 `agent.core ↛ agent.sdk` 硬规则。
 
-**不改→下游出什么坏事**: worker 可能认为有自动守卫而放松手动检查，helper 意外导出无人发现。
+三个坐实事实：① resolver 是纯逻辑零 sdk 依赖(kernel.py:567-599)；② 它实现的 `SkillRootResolver` Protocol 本就住 core(discovery.py:12)；③ boundary 规则明写 core 不可 import sdk。
 
-**建议**: 在 M1 worker 退出标准中显式加一条「`dir(agent.sdk)` 不含 `_make_skill_resolver`」的断言，或在 `test_agent_sdk_surface_contract.py` 补一条负向测试。
+决策 2 的「拒绝放 core」理由还是反的：它说"core 不感知 skill_search_roots 部署输入"——但决策 1 已经让 `AgentRuntime`(core) 持有 `skill_search_roots` 字段，前后矛盾。真正破坏层级的是决策 2 选的方案本身。
 
-### [WARNING] 调用方改造清单遗漏 `test_core_skills_location.py`
+**不改→下游出什么坏事**: worker 照实现写出 core import sdk，M1 退出标准自列的「test_agent_sdk_boundary_contract.py 绿」直接撞红，卡死；或 worker 为绕开而临时把 helper 复制一份到 core，"同源"目标当场破功。
 
-**位置**: 关键决策 > 决策 4 + 接口与数据流 > 调用方改造清单
-
-**问题**: `default_skill_search_roots` 当前是 `agent.core.skills.__all__` 的公开导出，且 `tests/unit/test_core_skills_location.py` 显式 import 并断言其存在性和模块归属（`test_core_skills_location.py:29-35`）。决策 4 改其 `config_resolver=None` 分支返回空元组，会让依赖旧行为的测试失败。
-
-**不改→下游出什么坏事**: worker 改了函数行为却漏更新断言，CI 红。
-
-**建议**: 调用方改造清单补充 `tests/unit/test_core_skills_location.py`，明确该测试需同步更新。
-
-### [WARNING] 决策 3 的 tools/hooks 不对称未说明
-
-**位置**: 关键决策 > 决策 3
-
-**问题**: design 移除 `AgentRuntime.config_resolver` property，但 `platform/tools/loader.py` 和 `platform/hooks/loader.py` 仍有各自的 `config_resolver` 参数(接受 `_ToolRootResolver` / `_HookRootResolver` Protocol)。当前 SDK wiring 已独立构造 tool/hook resolver、不走 runtime property，所以移除安全；但留下「skills 走 runtime 方法、tools/hooks 走独立 resolver 注入」的不对称。
-
-**不改→下游出什么坏事**: 本次无害，但后续维护者可能困惑为什么三类插件发现走了不同路径；worker 可能误以为遗漏而做多余改动。
-
-**建议**: 在 design 现状分析或决策 3 的「拒绝」段加一句说明此不对称是刻意的（tools/hooks 的 resolver 由 SDK 装配层直接注入，不经过 runtime），避免 worker 误判。
+**建议**: 把 `_WorkspaceDirnameSkillResolver` + helper **下沉到 `agent.core.skills`**(紧邻 SkillRootResolver Protocol 和 resolve_available_skills)。则 AgentRuntime(core) 同层调用合法；Kernel(sdk) 的 list_skills/preview 向下 import core helper 合法(kernel.py:1150 本就已 `from agent.core.skills.discovery import resolve_available_skills`，同方向)。同源 ✓、product-neutral ✓(resolver 只组合传入参数，consumer 仍经 build_kernel 注入 roots)、依赖方向 ✓。决策 2「拒绝放 core」整段随之失效，架构图那条跨层箭头消失。
 
 ## Recommendations
 
 不阻断门禁，作者自行取舍。
 
-1. **决策 2 理由段补一句模式对齐说明**: features / prompt_context 已采用同源 helper 模式且运行良好，本决策将 skills 对齐到同一模式。让 reviewer 一眼看出这不是新发明而是既有最佳实践的延续。
-2. **决策 3 「拒绝」段补 tools/hooks 不对称说明**: tools/hooks 的 resolver 由 SDK 装配层直接注入（build-time），不经过 runtime property，因此移除 config_resolver 不影响它们。
-3. **delta-spec 场景 3 GIVEN 简化**: 当前写「未传入 `workspace_config_dirname` 也未显式提供 resolver」——后半句「未显式提供 resolver」在新架构下语义模糊（`config_resolver` 已被移除），建议简化为「未传入 `workspace_config_dirname`」。
-4. **风险段补 `ConfigResolverLike` Protocol 清理说明**: 移除 `config_resolver` property 后，`ConfigResolverLike` Protocol（`runtime.py:94`）仅剩定义行无引用方，可一并移除。但需注意 tool/hook loader 各有独立 Protocol（`_ToolRootResolver` / `_HookRootResolver`），不受影响。
+1. `product_skill_root` 全仓零生产调用方(仅 discovery.py 内部定义+引用)。决策 4「为减少波及面先保留」实际波及面为 0；可顺手删，或把「保持现有行为」改为「现无调用方，按显式 root 语义重建 None 分支」更准——当前 None 分支根本不 consult product_skill_root。
+2. 风险 6 子 agent workspace_root 分歧(校验 ctx.repo_root vs 加载 ctx.cwd)已诚实标注并显式 defer，本 unit 保持现状即可。
