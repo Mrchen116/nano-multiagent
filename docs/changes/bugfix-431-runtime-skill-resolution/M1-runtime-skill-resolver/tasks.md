@@ -24,8 +24,8 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | core/skills 下沉：`_WorkspaceDirnameSkillResolver` + `make_skill_resolver` | TODO |
-| R2 | core/skills `__init__` 导出 + 清理 `default_skill_search_roots` Codex 回退 | TODO |
-| R3 | AgentRuntime：新增 resolver 参数 + `resolve_available_skills` 方法 + 移除 `config_resolver` | TODO |
-| R4 | sdk/kernel：注入参数 + 改向下 import + 删内联 resolver | TODO |
-| R5 | platform/tools/builtins/agent：子 agent 校验改用 runtime 方法 | TODO |
+| R1 | core/skills 下沉：`_WorkspaceDirnameSkillResolver` + `make_skill_resolver` | DONE |
+| R2 | core/skills `__init__` 导出 + 清理 `default_skill_search_roots` Codex 回退 | DONE |
+| R3 | AgentRuntime：新增 resolver 参数 + `resolve_available_skills` 方法 + 移除 `config_resolver` | DONE |
+| R4 | sdk/kernel：注入参数 + 改向下 import + 删内联 resolver | DONE |
+| R5 | platform/tools/builtins/agent：子 agent 校验改用 runtime 方法 | DONE |
