@@ -413,3 +413,68 @@ async def test_compaction_summarizer_forwards_run_model_to_fork() -> None:
     )
 
     assert fork.model_overrides == ["agent-selected-model"]
+
+
+def _init_per_model_window_registry() -> None:
+    """注册一个带 context_window 的模型目录（feat-436）。conftest autouse 在下个测试前复原。"""
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
+    from agent.core.llm.model_registry import _reset_for_tests, init_model_registry
+
+    _reset_for_tests()
+    init_model_registry(
+        LLMConfigPayload(
+            default_model="big-window",
+            providers=(
+                LLMProviderPayload(
+                    name="anthropic",
+                    base_url=None,
+                    models=(
+                        LLMModelPayload(name="big-window", context_window=1_000_000),
+                        LLMModelPayload(name="no-window"),
+                    ),
+                ),
+            ),
+        )
+    )
+
+
+def test_should_compact_threshold_moves_with_per_model_window() -> None:
+    """feat-436: 同样 token 量下，大窗口模型不压缩、回退默认窗口的模型触发压缩。"""
+    _init_per_model_window_registry()
+    loop = AgentLoop(
+        llm_client=_FakeLLMClient(),
+        model="big-window",
+        compaction_settings=CompactionSettings(enabled=True, reserve_tokens=20_480),
+    )
+    msgs = [LLMMessage(role="user", content="x")]
+    tokens = 190_000  # < 1_000_000-20_480，但 > 200_000-20_480 (=179_520)
+
+    # big-window（1M）：远未到阈值 → 不压缩
+    assert loop._should_compact(msgs, "", tokens, active_model="big-window") is False
+    # no-window（回退 CompactionSettings 默认 200k）：超过阈值 → 压缩
+    assert loop._should_compact(msgs, "", tokens, active_model="no-window") is True
+
+
+def test_should_compact_falls_back_to_default_window_when_registry_empty() -> None:
+    """注册表未初始化时按全局默认窗口判定，不抛错（fork / 单测路径兼容）。"""
+    from agent.core.llm.model_registry import _reset_for_tests
+
+    _reset_for_tests()
+    loop = AgentLoop(
+        llm_client=_FakeLLMClient(),
+        model="anything",
+        compaction_settings=CompactionSettings(enabled=True, reserve_tokens=20_480),
+    )
+    msgs = [LLMMessage(role="user", content="x")]
+    # 默认 200k - 20480 = 179_520 阈值
+    assert loop._should_compact(msgs, "", 179_520, active_model="anything") is True
+    assert loop._should_compact(msgs, "", 100_000, active_model="anything") is False
+
+
+def test_compaction_reserve_tokens_default_is_20480() -> None:
+    """feat-436: 全局 reserve 默认从 4096 提到 20480。"""
+    assert CompactionSettings().reserve_tokens == 20_480

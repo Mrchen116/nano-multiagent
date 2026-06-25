@@ -25,7 +25,7 @@ from agent.core.hooks.context import HookContext, HookModelCall, HookModelResult
 from agent.core.hooks.runner import HookRunner, log_hook_diagnostics
 from agent.core.llm.factory import LLMFactoryConfig
 from agent.core.llm.interfaces import LLMClient, LLMGenerateRequest, LLMMessage
-from agent.core.llm.model_registry import provider_of
+from agent.core.llm.model_registry import context_window_for_model, provider_of
 from agent.core.session.jsonl_store import (
     USER_INTERRUPT_RECOVERY_CONTENT,
     SessionConfig,
@@ -407,7 +407,11 @@ class AgentRuntime:
             dict(config.metadata) if isinstance(config.metadata, Mapping) else {}
         )
         hook_metadata["cwd"] = str(session_workspace_root)
-        hook_metadata["context_window"] = self._compaction_settings.context_window
+        # feat-436: 按当前 run 的 model 取上下文窗口（前端 token 显示分母随之 per-model）；
+        # 未配 / 未知 / 注册表未初始化时回退全局默认。
+        hook_metadata["context_window"] = (
+            context_window_for_model(model) or self._compaction_settings.context_window
+        )
         # Thread workspace_root per-turn so MemoryTool + _ensure_memory_snapshot share
         # the same derivation path (both use derive_memory_root for isolation).
         if session_workspace_root is not None:

@@ -27,6 +27,8 @@ class LLMModelPayload:
 
     name: str
     extra_request_body: dict[str, Any] | None = None
+    # feat-436: per-model context window driving compaction边界. None → 内核默认上限.
+    context_window: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -616,6 +618,12 @@ def save_local_config(config: LocalConfig, config_path: str | Path) -> None:
                             if m.extra_request_body is not None
                             else {}
                         ),
+                        # feat-436: 回写保留已声明的 context_window，未配则不落字段（兼容旧 config）。
+                        **(
+                            {"context_window": m.context_window}
+                            if m.context_window is not None
+                            else {}
+                        ),
                     }
                     for m in p.models
                 ],
@@ -715,9 +723,21 @@ def _parse_llm(payload: Any) -> LLMConfigPayload:
                 raise ValueError(
                     f"llm.providers[{pi}].models[{mi}].extra_request_body must be a mapping"
                 )
+            # feat-436 决策3: 非法 context_window（非正整数 / 非整数 / bool）一律当未配，
+            # 回退内核默认上限——不在解析期硬失败，保证"配错也能启动"。
+            cw_raw = mitem.get("context_window")
+            context_window = (
+                cw_raw
+                if isinstance(cw_raw, int)
+                and not isinstance(cw_raw, bool)
+                and cw_raw > 0
+                else None
+            )
             models.append(
                 LLMModelPayload(
-                    name=mname, extra_request_body=extra_request_body or None
+                    name=mname,
+                    extra_request_body=extra_request_body or None,
+                    context_window=context_window,
                 )
             )
         providers.append(

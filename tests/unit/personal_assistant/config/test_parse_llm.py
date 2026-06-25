@@ -116,3 +116,49 @@ def test_save_and_reload_preserves_llm(tmp_path: Path) -> None:
     orig_k26 = next(m for m in orig_anthropic.models if m.name == "kimiCoding:K2.6")
     rest_k26 = next(m for m in rest_anthropic.models if m.name == "kimiCoding:K2.6")
     assert rest_k26.extra_request_body == orig_k26.extra_request_body
+
+
+_LLM_YAML_CONTEXT_WINDOW = """
+llm:
+  default_model: big:model
+  providers:
+    - name: anthropic
+      base_url: http://127.0.0.1:4000
+      models:
+        - name: big:model
+          context_window: 1000000
+        - name: plain:model
+        - name: bad:model
+          context_window: 0
+"""
+
+
+def test_load_local_config_parses_context_window(tmp_path: Path) -> None:
+    """feat-436: 模型条目的 context_window 被解析；未配 / 非法值（0）→ None，不让加载失败。"""
+    from personal_assistant.config.local_store import load_local_config
+
+    cfg = _make_config(tmp_path, _LLM_YAML_CONTEXT_WINDOW)
+    config = load_local_config(cfg)
+
+    models = {m.name: m for m in config.llm.providers[0].models}
+    assert models["big:model"].context_window == 1000000
+    assert models["plain:model"].context_window is None
+    assert models["bad:model"].context_window is None  # 0 归一为未配
+
+
+def test_save_and_reload_preserves_context_window(tmp_path: Path) -> None:
+    """save_local_config 回写保留 context_window；未配的模型不落该字段。"""
+    from personal_assistant.config.local_store import (
+        load_local_config,
+        save_local_config,
+    )
+
+    cfg = _make_config(tmp_path, _LLM_YAML_CONTEXT_WINDOW)
+    original = load_local_config(cfg)
+    saved_path = tmp_path / "saved.yaml"
+    save_local_config(original, saved_path)
+
+    restored = load_local_config(saved_path)
+    models = {m.name: m for m in restored.llm.providers[0].models}
+    assert models["big:model"].context_window == 1000000
+    assert models["plain:model"].context_window is None

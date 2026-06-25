@@ -23,7 +23,7 @@ from agent.core.llm.interfaces import (
     LLMMessage,
     LLMToolCall,
 )
-from agent.core.llm.model_registry import provider_of
+from agent.core.llm.model_registry import context_window_for_model, provider_of
 from agent.core.observability.tracing import span
 from agent.core.skills.registry import SkillMetadata
 from agent.core.tools.result_budget import (
@@ -292,6 +292,7 @@ class AgentLoop:
                         rendered_system_prompt=rendered_system_prompt,
                         session_file_state=session_file_state,
                         real_prompt_tokens=real_prompt_tokens,
+                        active_model=active_model,
                     )
                     if compacted_msg is not None:
                         yield compacted_msg
@@ -805,11 +806,26 @@ class AgentLoop:
             },
         )
 
+    def _resolve_context_window(self, active_model: str | None) -> int:
+        """Return the compaction上限 for the current run's model (feat-436).
+
+        Uses the per-model ``context_window`` registered for ``active_model`` when
+        available; otherwise falls back to ``CompactionSettings.context_window``
+        (the global default, 200k). The registry lookup never raises — unconfigured
+        models, unknown ids, and uninitialized registries all fall through to the
+        default, so this introduces no new crash面 on the压缩 path.
+        """
+        return (
+            context_window_for_model(active_model)
+            or self._compaction_settings.context_window
+        )
+
     def _should_compact(
         self,
         llm_messages: list[LLMMessage],
         rendered_system_prompt: str,
         real_prompt_tokens: int | None = None,
+        active_model: str | None = None,
     ) -> bool:
         if self._compaction_settings is None or not self._compaction_settings.enabled:
             return False
@@ -825,7 +841,7 @@ class AgentLoop:
         return (
             should_compact(
                 context_tokens=context_tokens,
-                context_window=self._compaction_settings.context_window,
+                context_window=self._resolve_context_window(active_model),
                 reserve_tokens=self._compaction_settings.reserve_tokens,
             )
             is not None
@@ -839,9 +855,10 @@ class AgentLoop:
         rendered_system_prompt: str,
         session_file_state: SessionFileState | None,
         real_prompt_tokens: int | None = None,
+        active_model: str | None = None,
     ) -> Message | None:
         if not self._should_compact(
-            llm_messages, rendered_system_prompt, real_prompt_tokens
+            llm_messages, rendered_system_prompt, real_prompt_tokens, active_model
         ):
             return None
         if (
