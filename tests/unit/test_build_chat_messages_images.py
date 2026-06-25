@@ -87,9 +87,7 @@ def test_history_message_with_parts_restores_image_block() -> None:
 
 def test_history_message_without_parts_keeps_str_content() -> None:
     """Pure-text history Message (parts=None) keeps content:str — no regression."""
-    history = (
-        Message(message_id="m1", role="user", content="plain text turn"),
-    )
+    history = (Message(message_id="m1", role="user", content="plain text turn"),)
     msgs = build_chat_messages(history_messages=history, user_text="next")
     history_user = [m for m in msgs if m.role == "user"][0]
     assert history_user.content == "plain text turn"

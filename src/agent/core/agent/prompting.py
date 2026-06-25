@@ -49,12 +49,17 @@ def build_chat_messages(
     *,
     history_messages: tuple[Message, ...],
     user_text: str,
+    user_parts: list[dict[str, Any]] | None = None,
 ) -> tuple[LLMMessage, ...]:
     """Build chat messages (history + current user) without system prompt.
 
     Args:
         history_messages: Persisted conversation history before current user input.
         user_text: Current user text input after preprocessing.
+        user_parts: bugfix-433 决策2 — structured content blocks for the current
+            user turn when it carries an image (``[{type:text},{type:image,...}]``).
+            None keeps the current user on the ``content:str`` path so pure-text
+            turns stay byte-identical (不变量1).
 
     Returns:
         Ordered message tuple: history, then current user. No system message.
@@ -78,7 +83,10 @@ def build_chat_messages(
         messages.append(
             LLMMessage(
                 role=message.role,
-                content=message.content,
+                # bugfix-433 决策4: a history Message that persisted image parts must
+                # be replayed as a block list so the model still sees the image on
+                # later turns; pure-text messages (parts=None) keep content:str.
+                content=_history_content(message),
                 name=message.name,
                 tool_call_id=message.tool_call_id or _extract_tool_call_id(metadata),
                 tool_calls=_extract_tool_calls(metadata),
@@ -87,8 +95,22 @@ def build_chat_messages(
             )
         )
     messages = _merge_adjacent_assistant(messages)
-    messages.append(LLMMessage(role="user", content=user_text))
+    # bugfix-433 决策2: send the current user turn as a block list when it carries an
+    # image; otherwise keep the plain-text content (no drift for text-only turns).
+    current_content: str | list[dict[str, Any]] = (
+        user_parts if user_parts else user_text
+    )
+    messages.append(LLMMessage(role="user", content=current_content))
     return tuple(messages)
+
+
+def _history_content(message: Message) -> str | list[dict[str, Any]]:
+    """Return a history message's LLM content, restoring image blocks from parts."""
+    if message.parts and any(
+        isinstance(p, Mapping) and p.get("type") == "image" for p in message.parts
+    ):
+        return [dict(p) for p in message.parts]
+    return message.content
 
 
 def build_prompt_messages(

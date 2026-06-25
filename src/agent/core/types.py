@@ -33,6 +33,12 @@ class Message:
     # sessions don't receive "reasoning_content is missing" rejections.
     reasoning_content: str | None = None
     reasoning_signature: str | None = None
+    # bugfix-433 决策4: structured content blocks (e.g. image) that ``content:str``
+    # cannot carry. When present this is the authoritative multimodal representation;
+    # ``content`` stays a plain-text projection (for search/logging/text fallback).
+    # Written to JSONL only when non-empty and restored by build_chat_messages so
+    # images survive cross-turn replay; None for pure-text messages (no golden drift).
+    parts: tuple[Mapping[str, Any], ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)

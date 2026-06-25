@@ -2169,6 +2169,10 @@ def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
         entry["tool_call_id"] = msg.tool_call_id
     if msg.group_id is not None:
         entry["group_id"] = msg.group_id
+    # bugfix-433 决策4: persist structured parts only when present so pure-text
+    # entries stay byte-identical (no `parts` key) — guards the text golden.
+    if msg.parts:
+        entry["parts"] = [dict(p) for p in msg.parts]
     meta = dict(msg.metadata)
     if meta.get("is_meta"):
         entry["is_meta"] = True

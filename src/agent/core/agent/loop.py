@@ -43,7 +43,7 @@ from .prompting import (
     estimate_llm_context_tokens,
 )
 from .run_control import RunController
-from .state import AgentState
+from .state import AgentState, render_user_content_parts
 from .tool_executor import StreamingToolExecutor
 
 if TYPE_CHECKING:
@@ -231,6 +231,9 @@ class AgentLoop:
             build_chat_messages(
                 history_messages=state.history_messages,
                 user_text=state.user_text,
+                # bugfix-433 决策2: carry the current turn's image parts so they reach
+                # the provider mapper; None for text-only turns keeps content:str.
+                user_parts=render_user_content_parts(state.input_parts),
             )
         )
 

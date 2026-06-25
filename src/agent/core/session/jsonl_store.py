@@ -752,6 +752,15 @@ def _to_session_config(session_id: str, config: dict[str, Any]) -> SessionConfig
 
 
 def _to_message(entry: dict[str, Any]) -> Message:
+    # bugfix-433 决策4: restore structured parts so a persisted image reappears on
+    # later turns (build_chat_messages replays Message.parts). Absent/empty → None,
+    # keeping pure-text messages on the content:str path (消除写而不读的悬空双轨).
+    raw_parts = entry.get("parts")
+    parts = (
+        tuple(dict(p) for p in raw_parts)
+        if isinstance(raw_parts, list) and raw_parts
+        else None
+    )
     return Message(
         message_id=str(entry["uuid"]),
         role=str(entry["role"]),
@@ -762,6 +771,7 @@ def _to_message(entry: dict[str, Any]) -> Message:
         metadata=_extract_message_metadata(entry),
         reasoning_content=entry.get("reasoning_content") or None,
         reasoning_signature=entry.get("reasoning_signature") or None,
+        parts=parts,
     )
 
 

@@ -103,6 +103,39 @@ def render_user_text(parts: Sequence[InputPart]) -> str:
     return "\n".join(lines)
 
 
+def render_user_content_parts(
+    parts: Sequence[InputPart],
+) -> list[dict[str, Any]] | None:
+    """Render input parts into structured content blocks, or None when no image.
+
+    bugfix-433 决策2: the text-only ``render_user_text`` projection cannot carry an
+    image (it produces ``str``).  When any part is an image, the turn must be sent as
+    a list of canonical blocks so the image survives to the provider mapper.  Returning
+    None for the no-image case keeps pure-text turns on the ``content:str`` path so
+    persisted/replayed text sessions stay byte-identical (不变量1).
+
+    The canonical image block is ``{"type":"image","image_url":"data:<mime>;base64,..."}``
+    (mapper 据此映射); the data URL is produced upstream at the gateway inbound
+    boundary (决策1), so core never holds an unreachable IM HTTP URL.
+
+    Args:
+        parts: Parsed input parts for one user turn.
+
+    Returns:
+        A list of text/image blocks when at least one image is present; otherwise None.
+    """
+
+    if not any(part.type == "image" for part in parts):
+        return None
+    blocks: list[dict[str, Any]] = []
+    for part in parts:
+        if part.type == "text" and part.text is not None:
+            blocks.append({"type": "text", "text": part.text})
+        elif part.type == "image" and part.image_url is not None:
+            blocks.append({"type": "image", "image_url": part.image_url})
+    return blocks
+
+
 def _extract_metadata(raw_part: Mapping[str, Any]) -> Mapping[str, Any]:
     return {
         key: value

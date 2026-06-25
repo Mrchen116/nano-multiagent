@@ -102,7 +102,13 @@ class OpenAICompatMapper:
                 raise ModelError("tool message requires tool_call_id", retryable=False)
             mapped["tool_call_id"] = message.tool_call_id
         else:
-            mapped["content"] = message.content
+            # bugfix-433 决策3: a user turn carrying an image arrives as a list of
+            # canonical blocks ([{type:text},{type:image,image_url:data-url}]); map
+            # each to OpenAI's text / image_url parts. Plain str content is unchanged.
+            if isinstance(message.content, list):
+                mapped["content"] = _normalize_tool_output_parts(message.content)
+            else:
+                mapped["content"] = message.content
         if message.name is not None:
             mapped["name"] = message.name
         return mapped

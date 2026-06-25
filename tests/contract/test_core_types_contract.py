@@ -15,6 +15,8 @@ def test_message_contract_fields_are_stable() -> None:
         "metadata",
         "reasoning_content",
         "reasoning_signature",
+        # bugfix-433 决策4: structured multimodal content blocks (e.g. image).
+        "parts",
     ]
 
 

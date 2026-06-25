@@ -313,6 +313,8 @@ def test_message_jsonl_roundtrip_field_conservation_guard():
         "tool_call_id",
         "reasoning_content",
         "reasoning_signature",
+        # bugfix-433 决策4: structured multimodal parts round-trip through JSONL.
+        "parts",
     }
     # Fields intentionally NOT round-tripped at top level:
     #  - name: unused by the persistence path (tool identity travels via
