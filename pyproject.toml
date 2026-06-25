@@ -35,6 +35,9 @@ dev = [
   "pytest-cov>=5.0,<7.0",
   # feat-388: 固定大版本——format 输出跨大版本会变，CI/hook/本地须保持一致（决策 D5）
   "ruff==0.15.*",
+  # feat-434: per-test 超时——把 CI 上偶发的整 job 挂死（runner "operation was canceled"，
+  # 无 traceback 难定位）变成单测超时 + faulthandler 栈转储，既止血又可精确定位 hang 的测试。
+  "pytest-timeout>=2.3,<3.0",
 ]
 
 [tool.setuptools]
@@ -70,6 +73,11 @@ ignore = ["B008"]
 pythonpath = ["src", "tests"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+# feat-434: 单测超时兜底。CI 上偶发某测试挂死会让整个 pytest job 被 runner 以
+# "The operation was canceled" 收尸（无 traceback、无法定位）。per-test 超时把它降级成
+# 单条测试失败 + thread 法 faulthandler 栈转储，止血且可精确定位。90s 对单测极宽松
+# （全量 ~2900 测试本地 ~135s），不会误伤正常测试。
+addopts = "--timeout=90 --timeout-method=thread"
 markers = [
   "e2e: end-to-end tests that may require local runtime dependencies",
 ]
