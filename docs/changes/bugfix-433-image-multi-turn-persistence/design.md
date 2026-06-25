@@ -112,7 +112,8 @@ graph TB
 **选了「图片处理失败则本轮不调用模型，回发固化错误提示让用户重发」**（对齐 CC 实测行为：`query.ts:1216` 捕获 `ImageResizeError` 后 `yield createAssistantAPIErrorMessage(...)` 并 `return {reason:'image_error'}`，模型**未被调用**）。
 
 - **理由（核实 CC 后确定语义）**：CC 对图片失败是**硬停**——图片 resize/压缩仍超限即 `throw`，本轮直接以错误消息收尾、不调模型。这比「剔除图继续答」更诚实：不存在「模型基于残缺输入答了」的中间态，用户明确知道图没进去、需重发。
-- **先压缩、压不下才停**（对齐 CC `maybeResizeAndDownsampleImageBuffer`）：超大图优先自动 resize/压缩到 provider 限制内正常送达；只有压缩也救不回来才停下报错。自动压缩为 worker 增强项，核心契约是「无法送达 → 停下报错，不静默」。
+- **先压缩、压不下才停**（对齐 CC `maybeResizeAndDownsampleImageBuffer`）：超大图优先自动 resize/压缩到大小上限内正常送达；只有压缩也救不回来才停下报错。自动压缩为 worker 增强项，核心契约是「无法送达 → 停下报错，不静默」。
+- **校验统一在 gateway 入站，mapper 不校验**（消除失败路径裂缝）：图片的下载、大小校验、解析与（可选）压缩**全部在 gateway 入站（决策1 同一处）完成**——失败即在 `submit` 前拦截、不进 core。mapper 保持纯映射（决策3）、只处理已是 data URL 的图片块、不做大小校验。这样失败路径无需 core/runtime 中途回退（对齐 CC：校验在发送前 `imageResizer`，不在 API mapper）。大小上限取保守值（默认对齐最严格 provider，如 5MB），不依赖运行时 provider 选择，worker 落地。
 - **拒绝**：① 静默降为 `[图片无法加载]` 文本喂模型——隐藏错误、诱发编造；② 剔除失败图、带其余内容继续调模型——CC 不这么做，「部分送达」语义模糊；③ 抛异常中断整轮——用户只见崩溃，同样不知情。
 - **实现指引（复用既有「用户可见、模型不可见」通道，且不 submit 模型）**：失败提示作为 `is_provider_error=True` 合成 assistant 消息回发——本仓 `build_chat_messages`（`prompting.py:62-66` `_is_provider_error` 过滤）在发模型前剔除它，仅 IM/CLI 显示、不进 LLM context（注释自证 mirrors CC `isSyntheticApiErrorMessage`/`normalizeMessagesForAPI`；CC 对应 `createAssistantAPIErrorMessage` `isApiErrorMessage:true`）。gateway 入站若下载/校验失败，**本轮直接回发该提示、不 submit 模型**（对齐 CC 的 `return {reason:'image_error'}`）。
 - **固化文案（worker 照抄，禁止自由发挥）**：按失败类型取下表**精确字符串**。与 CC 不同点：CC 英文 + CLI「esc esc」提示 + 无「下载失败」场景（CC 是本地 base64，本仓是 IM HTTP URL 需下载）——本仓化为中文、去 CLI 交互、补「无法获取」一类；语义为「停下、没收到、请重发」（**不暗示已回答**）：
@@ -120,11 +121,11 @@ graph TB
   | 失败类型 | 触发处 | 固化文案（一字不差） |
   |---|---|---|
   | 无法获取 / 下载失败 | 入站 base64 转换（决策1）下载 IM attachment 失败（不可达 / token 失效 / 404） | `这张图片没能加载，我没有收到它，无法据此回复。请重新发送图片试试。` |
-  | 图片过大 | 入站/送达前校验，自动压缩后仍超出 provider 大小限制 | `这张图片太大了，超出可接收的大小，我没能收到它，无法据此回复。请压缩或换一张更小的图片后重新发送。` |
+  | 图片过大 | 入站 base64 转换后校验，自动压缩后仍超出大小上限（保守值，默认对齐最严格 provider 如 5MB） | `这张图片太大了，超出可接收的大小，我没能收到它，无法据此回复。请压缩或换一张更小的图片后重新发送。` |
   | 无法识别 / 损坏 | 图片解析失败（格式不支持 / 数据损坏） | `这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。` |
 
   一条消息里多张图、任一张失败：本轮停下、不调模型，回发对应失败文案（指明哪一类失败）；用户重发后再处理。**不做**「成功的先送、失败的略过」的部分送达（对齐 CC 的整轮停）。阈值（「过大」字节数）取值留 worker 参照 provider 限制，**不进文案**（保持可固化、稳定）。
-- **风险**：失败发生在入站 base64 转换（决策1）或 mapper 送达前的校验处，须把失败信号经 `is_provider_error` 合成消息传回用户，而非在 core 静默吞掉。
+- **风险**：图片失败统一在 gateway 入站判定（下载 / 大小 / 解析），不进 core 中途回退；失败信号经 `is_provider_error` 合成消息传回用户，core 不静默吞掉。
 
 ## 接口与数据流
 
@@ -160,7 +161,8 @@ sequenceDiagram
 - `build_chat_messages(*, history_messages, user_text, user_parts=None)` — 新增 `user_parts`（当前轮结构化 parts）。`user_parts` 含 image → 当前 user `LLMMessage.content` 为 list；否则 `content=user_text`（保持现状）。历史侧：遍历 `Message`，`m.parts` 含 image → list content，否则 `m.content`。
 - `Message`（types.py）增 `parts: tuple[Mapping[str,Any], ...] | None = None`。`_message_to_entry` 写 `entry["parts"]`（已有该键）；`_to_message` 读 `entry.get("parts")` → `Message.parts`。
 - image 块统一形态：`{"type":"image","image_url":"data:<mime>;base64,<...>"}`（内核内规范，mapper 据此映射）。
-- mapper user 分支：`content` 为 list → 逐块（text→text block，image→provider 各自 image 形态）；为 str → 维持现状。
+- mapper user 分支：`content` 为 list → 逐块（text→text block，image→provider 各自 image 形态）；为 str → 维持现状。mapper 只映射、不做图片大小校验。
+- 失败路径（gateway 入站，决策5）：下载 / 大小 / 解析失败 → **不 submit 模型**，经 gateway outbound 回发 `is_provider_error=True` 合成消息（用户可见；回放时被 `prompting._is_provider_error` 过滤、不进模型）。失败路径在此闭合，不进 core。
 
 ## 契约层增量 (delta-spec)
 
@@ -172,7 +174,7 @@ sequenceDiagram
 ## 风险与回退
 
 - **JSONL 历史膨胀**：base64 图片进 transcript 使会话文件显著增大（一张图数百 KB）。对齐 CC 现状，本 unit 接受；缓解：决策5 超大图对用户明确报错（不送达）+ 未来可优化为 side-store 引用（非本 unit）。回退：若膨胀不可接受，回退到「历史只存占位、仅当前轮送达」的半程方案（仍优于现状）。
-- **入站下载依赖 IM 可达 + token**：gateway 下载 attachment 需 IM 在线且 token 有效。缓解：决策5 失败时向用户明确报错（图片未送达模型），不静默、不中断、不喂假占位给模型。
+- **入站下载依赖 IM 可达 + token**：gateway 下载 attachment 需 IM 在线且 token 有效。缓解：决策5 失败时本轮停下、向用户明确报错（图片未送达模型）等重发，不静默、不喂假占位给模型，会话不崩。
 - **纯文本 session 漂移（不变量1）**：`Message.parts` 默认 None、`build_chat_messages` 无图走原 str 分支——无图路径必须与改前逐字节一致，由 worker 用既有持久化/回放测试 + golden 守。
 - **两 provider 格式分叉**：Anthropic（base64 source）与 OpenAI（image_url）格式不同，各自单测覆盖；data URL 对两者都适用降低分叉风险。
 - **回退总策略**：改动集中在「图片有无」的分支上，纯文本路径不变，单 unit 可整体 revert 回退到现状（图片不可见，但无其它回归）。
@@ -184,7 +186,7 @@ sequenceDiagram
 | IM | `stop_pidfile .im.pid`（worktree e2e）/ 主仓用户自管 | `IM_JWT_SECRET=<unit随机串> PYTHONPATH=src python -m uvicorn IM.app:app --host 127.0.0.1 --port $IM_PORT > .im.log 2>&1 & echo $! > .im.pid` | `curl -s 127.0.0.1:$IM_PORT/ ` 返回前端；登录 nano/nano1234 |
 | Gateway | `stop_pidfile .gateway.pid`（--foreground 起的） | `PYTHONPATH=src python -m personal_assistant.main --config "$WT_CFG" --im-service-url http://127.0.0.1:$IM_PORT --foreground --auto-bind > .gateway.log 2>&1 & echo $! > .gateway.pid` | `.gateway.log` 无 error；IM 里 agent 在线 |
 
-> reviewer 旅程：登录 IM → 给 agent 发一张图 + 问题（验当前轮可见）→ 同会话下一轮只发文字追问该图（验跨轮）→ 另发纯文本多轮（验无回归）→ 发一张异常图（验不崩）。
+> reviewer 旅程：登录 IM → 给 agent 发一张图 + 问题（验当前轮可见）→ 同会话下一轮只发文字追问该图（验跨轮）→ 另发纯文本多轮（验无回归）→ 发一张异常图（验：本轮收到明确提示、agent 不对该图编造、可重发、会话不崩）。
 
 ## Milestones
 
