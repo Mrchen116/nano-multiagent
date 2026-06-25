@@ -76,10 +76,13 @@ class LLMModel:
     Args:
         name: Model identifier (e.g. ``"kimiCoding:K2.6"``).
         extra_request_body: Provider-specific extra request fields (e.g. thinking).
+        context_window: Per-model context window driving compaction边界 (feat-436);
+            None → 内核默认上限.
     """
 
     name: str
     extra_request_body: dict = field(default_factory=dict)
+    context_window: int | None = None
 
 
 @dataclass(frozen=True)
@@ -200,6 +203,8 @@ class LLMConfig:
                     LLMModel(
                         name=m.name,
                         extra_request_body=dict(m.extra_request_body or {}),
+                        # feat-436: 鸭子类型读 PA payload 的 context_window（旧 payload 无此属性→None）。
+                        context_window=getattr(m, "context_window", None),
                     )
                     for m in (p.models or ())
                 ),
@@ -308,6 +313,7 @@ class LLMConfig:
                     LLMModel(
                         name=m["name"],
                         extra_request_body=dict(m.get("extra_request_body") or {}),
+                        context_window=m.get("context_window"),
                     )
                     for m in p.get("models", [])
                 ),

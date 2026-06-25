@@ -100,3 +100,33 @@ def test_llm_model_payload_default_extra_request_body_is_none():
 
     model = LLMModelPayload(name="foo:bar")
     assert model.extra_request_body is None
+
+
+def test_llm_config_payload_roundtrip_preserves_context_window():
+    """feat-436: per-model context_window 随 wire schema 往返保真；未配为 None。"""
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
+
+    provider = LLMProviderPayload(
+        name="anthropic",
+        base_url="http://127.0.0.1:4000",
+        models=(
+            LLMModelPayload(name="big", context_window=1_000_000),
+            LLMModelPayload(name="plain"),
+        ),
+    )
+    payload = LLMConfigPayload(default_model="big", providers=(provider,))
+
+    restored = LLMConfigPayload.from_json(payload.to_json())
+    models = {m.name: m for m in restored.providers[0].models}
+    assert models["big"].context_window == 1_000_000
+    assert models["plain"].context_window is None
+
+
+def test_llm_model_payload_default_context_window_is_none():
+    from agent.core.llm.config import LLMModelPayload
+
+    assert LLMModelPayload(name="foo:bar").context_window is None

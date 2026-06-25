@@ -20,7 +20,8 @@ class CompactionSettings:
 
     enabled: bool = True
     context_window: int = 200_000
-    reserve_tokens: int = 4096
+    # feat-436: 提到 20480——4096 不足以覆盖压缩摘要生成 + 下一轮回复的额度，压完仍可能贴窗口上沿。
+    reserve_tokens: int = 20_480
     min_kept_messages: int = 8
     summary_model: str | None = None
 

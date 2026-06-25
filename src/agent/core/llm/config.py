@@ -18,6 +18,8 @@ class LLMModelPayload:
 
     name: str
     extra_request_body: dict[str, Any] | None = None
+    # feat-436: per-model context window driving compaction边界. None → 内核默认上限.
+    context_window: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +55,7 @@ class LLMConfigPayload:
                         {
                             "name": m.name,
                             "extra_request_body": m.extra_request_body,
+                            "context_window": m.context_window,
                         }
                         for m in p.models
                     ],
@@ -83,6 +86,7 @@ class LLMConfigPayload:
                     LLMModelPayload(
                         name=m["name"],
                         extra_request_body=m.get("extra_request_body"),
+                        context_window=m.get("context_window"),
                     )
                 )
             providers.append(

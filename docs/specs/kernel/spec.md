@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: bugfix-426-midrun-message-steering / bugfix-431-runtime-skill-resolution / bugfix-433-image-multi-turn-persistence / feat-434-approval-ux-redesign
+> 对齐: feat-436-per-model-context-window
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -299,11 +299,21 @@ SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报�
 ### Requirement: 上下文压缩在长会话中保持可恢复
 
 内核在 LLM 调用前后检查上下文是否接近/超出上限,必要时把旧轮次摘要化并落盘为压缩记录,保留首个保留
-事件 id 以保证可重建与可审计;overflow 后可恢复重试。消费者也可手动触发压缩。
+事件 id 以保证可重建与可审计;overflow 后可恢复重试。消费者也可手动触发压缩。压缩判定所用的**上下文上限按当前轮所用模型取**：消费者经 `build_kernel(llm=…)` 为某模型声明的上下文窗口生效于该模型的运行;未声明窗口的模型回退到内核默认上限。判定上限时保留的安全余量是全局策略量,不随模型变化。
 
 #### Scenario: 手动触发压缩
 - **WHEN** 消费者 `await kernel.compact(session_id)`
 - **THEN** 返回压缩结果(或在无需压缩时返回 None),压缩落盘后会话仍可由事件重放重建
+
+#### Scenario: 按当前轮模型的窗口判定压缩
+- **GIVEN** 消费者为某模型声明了与内核默认不同的上下文窗口
+- **WHEN** 用该模型推进一个持续增长的会话直到接近"该模型窗口 − 全局安全余量"
+- **THEN** 内核在该模型窗口对应的边界触发压缩,而非内核默认上限对应的边界
+
+#### Scenario: 未声明窗口的模型回退默认上限
+- **GIVEN** 某模型未声明上下文窗口(或声明值非正整数)
+- **WHEN** 用该模型推进会话
+- **THEN** 内核按默认上限判定压缩,运行不因缺少该声明而报错
 
 ### Requirement: 内核内置基础工具集,执行受工作区安全约束
 

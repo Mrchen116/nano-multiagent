@@ -178,6 +178,7 @@ def _init_model_registry_from_llm_config(llm: LLMConfig) -> None:
                     LLMModelPayload(
                         name=m.name,
                         extra_request_body=m.extra_request_body or None,
+                        context_window=m.context_window,
                     )
                     for m in p.models
                 ),

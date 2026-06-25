@@ -55,7 +55,7 @@ _WHITELIST: frozenset[str] = frozenset(
         # (决策2-style workspace discovery; literal .nano, not workspace_config_dirname);
         # M3fix-r2 dead-code removal shifted 369→370.
         # bugfix-426-M1: RunInfo.injected docstring lines in _to_run_info shifted 370→375.
-        "src/agent/sdk/kernel.py:375",
+        "src/agent/sdk/kernel.py:376",
         # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
         # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
@@ -64,7 +64,7 @@ _WHITELIST: frozenset[str] = frozenset(
         # bugfix-431-M1 rebase onto bugfix-429: _WorkspaceDirnameSkillResolver deleted from kernel
         # (−35 lines) but build_kernel body net grew; bugfix-426 merge keeps RunInfo.injected
         # docstring and foreground stopper shifts; .nano/tools literal now at 515.
-        "src/agent/sdk/kernel.py:515",
+        "src/agent/sdk/kernel.py:516",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode

@@ -17,6 +17,8 @@ class ModelMetadata:
     model: str
     default_base_url: str | None
     extra_request_body: dict[str, Any] | None = None
+    # feat-436: per-model context window driving compaction边界. None → 消费者默认上限.
+    context_window: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,6 +69,7 @@ def init_model_registry(payload: "LLMConfigPayload") -> None:
                 model=model_payload.name,
                 default_base_url=base_url,
                 extra_request_body=model_payload.extra_request_body,
+                context_window=getattr(model_payload, "context_window", None),
             )
             # First declaration wins on duplicate model names across providers
             # (matches the forward iteration order used by the old linear scan).
@@ -205,7 +208,35 @@ def resolve_model_metadata(provider: str, model: str | None) -> ModelMetadata:
         model=selected_model,
         default_base_url=default.default_base_url,
         extra_request_body=default.extra_request_body,
+        context_window=default.context_window,
     )
+
+
+def context_window_for_model(model: str | None) -> int | None:
+    """Return the configured context window for ``model``, or None when unavailable.
+
+    feat-436: the safe lookup used by the compaction decision. It never raises —
+    callers (the agent loop / runtime) fall back to their own default window when
+    this returns None. Returns None when:
+
+    - the registry is not initialized (unit tests / forks构造时无 catalog),
+    - no provider registered ``model`` (unknown / pass-through model id),
+    - the resolved metadata has no positive-int ``context_window``.
+
+    Non-positive / bool / non-int configured values are normalised to None so an
+    invalid config degrades to the default window rather than crashing压缩判定.
+    """
+    if not model:
+        return None
+    try:
+        provider = provider_of(model)
+        metadata = resolve_model_metadata(provider, model)
+    except (RuntimeError, ValueError):
+        return None
+    cw = metadata.context_window
+    if isinstance(cw, bool) or not isinstance(cw, int) or cw <= 0:
+        return None
+    return cw
 
 
 def _ensure_provider(registry: _RegistryState, provider: str) -> None:

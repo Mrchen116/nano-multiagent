@@ -236,3 +236,110 @@ def test_from_env_raises_when_no_base_url_configured(
 
     with pytest.raises(ValueError, match="base_url unset for provider"):
         LLMFactoryConfig.from_env()
+
+
+# ---------------------------------------------------------------------------
+# feat-436: per-model context_window 进注册表 + 安全查询 helper
+# ---------------------------------------------------------------------------
+
+
+def _init_windows_registry() -> None:
+    """重置注册表为带 context_window 的目录（conftest autouse 在下个测试前复原默认）。"""
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
+
+    _reset_for_tests()
+    init_model_registry(
+        LLMConfigPayload(
+            default_model="big-window",
+            providers=(
+                LLMProviderPayload(
+                    name="anthropic",
+                    base_url="http://127.0.0.1:4000",
+                    models=(
+                        LLMModelPayload(name="big-window", context_window=1_000_000),
+                        LLMModelPayload(name="no-window"),
+                        LLMModelPayload(name="zero-window", context_window=0),
+                    ),
+                ),
+            ),
+        )
+    )
+
+
+def test_context_window_propagates_into_model_metadata() -> None:
+    _init_windows_registry()
+    assert resolve_model_metadata("anthropic", "big-window").context_window == 1_000_000
+    assert resolve_model_metadata("anthropic", "no-window").context_window is None
+
+
+def test_context_window_for_model_returns_configured_value() -> None:
+    from agent.core.llm.model_registry import context_window_for_model
+
+    _init_windows_registry()
+    assert context_window_for_model("big-window") == 1_000_000
+
+
+def test_context_window_for_model_unconfigured_returns_none() -> None:
+    from agent.core.llm.model_registry import context_window_for_model
+
+    _init_windows_registry()
+    assert context_window_for_model("no-window") is None
+
+
+def test_context_window_for_model_invalid_value_returns_none() -> None:
+    from agent.core.llm.model_registry import context_window_for_model
+
+    _init_windows_registry()
+    # 配成 0（非正整数）→ 当未配处理
+    assert context_window_for_model("zero-window") is None
+
+
+def test_context_window_for_model_unknown_id_returns_none() -> None:
+    from agent.core.llm.model_registry import context_window_for_model
+
+    _init_windows_registry()
+    assert context_window_for_model("never-registered") is None
+    assert context_window_for_model(None) is None
+    assert context_window_for_model("") is None
+
+
+def test_context_window_for_model_uninitialized_registry_returns_none() -> None:
+    """注册表未初始化（单测 / fork 路径）时不抛错，返回 None 让调用方回退。"""
+    from agent.core.llm.model_registry import context_window_for_model
+
+    _reset_for_tests()
+    assert context_window_for_model("big-window") is None
+
+
+def test_sdk_from_payload_carries_context_window_into_registry() -> None:
+    """端到端：PA 风格 payload → SDK LLMConfig.from_payload → build_kernel 注册表初始化."""
+    from agent.core.llm.config import (
+        LLMConfigPayload,
+        LLMModelPayload,
+        LLMProviderPayload,
+    )
+    from agent.core.llm.model_registry import context_window_for_model
+    from agent.sdk import LLMConfig
+    from agent.sdk.kernel import _init_model_registry_from_llm_config
+
+    payload = LLMConfigPayload(
+        default_model="big-window",
+        providers=(
+            LLMProviderPayload(
+                name="anthropic",
+                base_url="http://x",
+                models=(
+                    LLMModelPayload(name="big-window", context_window=512_000),
+                    LLMModelPayload(name="no-window"),
+                ),
+            ),
+        ),
+    )
+    _reset_for_tests()
+    _init_model_registry_from_llm_config(LLMConfig.from_payload(payload))
+    assert context_window_for_model("big-window") == 512_000
+    assert context_window_for_model("no-window") is None
