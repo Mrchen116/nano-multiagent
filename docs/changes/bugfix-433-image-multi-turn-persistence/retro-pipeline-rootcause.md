@@ -8,7 +8,7 @@
 
 用户在一次 `/stop` 修复的 PR review 中顺手发现「下一轮图片没了」，确认是 bug，授权 **0 交互自主**走完 spec→design→orchestrator 把它修掉并提 PR。实际：unit **确实完成**（PR #148、CI 全绿、04:53 orchestrator 退出），但中途吃了 **3 轮 review/fix 级联**，其中**两轮是同一个 design 盲区**——而这个盲区的解法（CC 的 `normalizeMessagesForAPI` error-replay-strip）**早在立项第 1 小时(10:52)就被亲读 CC 源码后准确写出来了，却没进 incident.md、没进 design**。外加收尾时 **15 个后台 agent 没被回收**，用户 74 分钟后手动停掉。
 
-一句话：这不是灾难，是一次「本可一轮过、实际三轮过」的 unit——多出的两轮全因一个**第 1 小时就掌握、却在 spec→design 边界丢失的关键机制**（P0）。围绕它还暴露了 4 个可机械根治的流程/机制硬伤：scope 决策靠 live 采样而非查证模型能力（P4）、收尾留 15 个滞留 agent（P2）、verifier 报告三轮卡 detached worktree 没上 origin（P5）、入站校验欠规约 + design Changelog 空白（P1/P3）。
+一句话：这不是灾难，是一次「本可一轮过、实际三轮过」的 unit——多出的两轮全因一个**第 1 小时就掌握、却在 spec→design 边界丢失的关键机制**（P0）。围绕它还暴露了几个可机械根治的流程/机制硬伤：scope 决策靠 live 采样而非查证模型能力（P4）、verifier 报告三轮卡 detached worktree 没上 origin（P5）、入站校验欠规约 + design Changelog 空白（P1/P3）。（**P2「收尾留 15 个滞留 agent」已撤回**——见下文，那是 skill #14 有意保留 teammate 供 PR 反馈复用，非缺陷。）
 
 ---
 
@@ -45,7 +45,7 @@ jsonl 根：`~/.claude/projects/-Users-czj-Repos-nano-multiagent/`。主 session
 |---|---|---|---|---|
 | P0 | reviewer round1 (03:xx) + live fix2 (04:17) | 损坏图/合法图触发 provider error 后，同会话后续文字**空回复**（会话被毒化） | design 缺「image turn 在 provider 报错后重放时 strip image」机制——而 10:52 探索已写出 CC 正是这么做 | **design 本身漏**（非实现偏离） |
 | P1 | reviewer round1 Issue#1 | 41 字节损坏 PNG（合法头）未被入站拦截，透传 Anthropic→provider error 文案而非固化文案 | design 决策5 只说「解析失败→corrupt」，未钉死校验深度；worker 取 magic-bytes，被合法头骗过 | design 欠规约 + 实现 |
-| P2 | 用户 06:08 手停 15 agent | orchestrator 宣告「后台 agent 会自然结束」，实际滞留 74 分钟 | orchestrator 收尾未显式回收 in-process teammate | orchestrator 收尾 |
+| ~~P2~~ | 用户 06:08 手停 15 agent | orchestrator 宣告「后台 agent 会自然结束」，实际滞留 74 分钟 | **已撤回**：留 teammate 是 skill #14 有意为之（供 PR 反馈复用）；§7.5 只要求 sweep 服务 PID（已做）+ worktree remove，不要求 TaskStop teammate | ~~orchestrator 收尾~~ → 非缺陷（至多 harness 层是否自动回收 idle teammate） |
 | P3 | 审计挖出（无对应反馈） | design.md `## Changelog` 空白，多轮修订无耐久追溯 | design 修订记在 design-review.md 闭环记录，design.md 自身 Changelog 未维护 | design 文档卫生 |
 | P4 | scope B 04:01–04:23 拍B→撤B→保留B 三次翻转 | 一个决策事实（模型支不支持图片）靠 worker 单次 live 观察反复拍板，40 分钟拉锯 + 最终 inconclusive | orchestrator 把「查文档就能定死的外部能力事实」当「在真栈跑跑看的行为」，从不 WebSearch 核 | orchestrator 决策依据 |
 | P5 | 审计挖出（lead 事后提出） | verifier 三轮报告全卡在 detached worktree 没上 origin，lead 手动捡回三次 | change-verifier §1 detached 签出 + §5.2 按本地分支名 push，commit 落点≠push 目标，且无落地校验 | change-verifier skill 机制 |
@@ -115,23 +115,23 @@ design 决策5 应把「解析」具体化为可验收的判据：**「magic-byt
 
 ---
 
-## P2 — orchestrator 收尾宣告「后台 agent 自然结束」，实际 15 个滞留 74 分钟
+## ~~P2 — orchestrator 收尾未回收 15 个 in-process teammate~~ —— 已撤回
 
-### 症状（审计挖出，有用户动作佐证）
+> **早期版本曾认为**：orchestrator 收尾未显式 TaskStop 15 个 teammate 是失误。**经核 change-orchestrator skill 证伪，已撤回。** 撤回理由如下，留作「未读 skill 就下判断」的反面记录。
 
-主 session 04:54:06 orchestrator 原话：
-> 「bugfix-433 已全部收尾…后台 worker/reviewer/verifier 任务完成后**会自然结束,不需要我显式回收**。无进一步动作。」
+### 当初的症状观察（事实仍成立）
 
-06:08:26 用户侧：「**15 background agents were stopped by the user**: "请使用 skill: change-impl-worker…", "…change-verifier…", "…change-reviewer…", "你是 code review 的 finder…"」。即原 M1 worker、verifier、reviewer、7 个 code-review finder 等 **15 个 in-process teammate 在 orchestrator 退出后仍滞留 idle**（04:38 worker 已发 `idle_notification`），直到用户手动停。
+主 session 04:54:06 orchestrator 原话「后台 worker/reviewer/verifier **会自然结束,不需要我显式回收**」；06:08:26 用户手停 **15 个 background agents**（M1 worker / verifier / reviewer / 7 个 code-review finder 等），它们 04:38 起 idle 滞留 74 分钟。这些观察没错——错的是把它归成 orchestrator 缺陷。
 
-### 一手证据
+### 为什么撤回（读 skill 后）
 
-- meta.json：`"taskKind":"in_process_teammate"`，这些是进程内常驻 teammate，不是发完即焚的一次性 Task——**不会自然消失**，需显式 stop。
-- orchestrator 在 04:54 明确判断「不需要我显式回收」，与 in_process_teammate 的生命周期事实相悖。
+1. **§7.5 退出段不要求回收 teammate**。它只做三件事：打印 PR URL、kill **服务 PID**（`.im.pid/.gateway.pid/.vite.pid/.coding-cli.pid`）、`git worktree remove`。orchestrator 04:52「pid sweep done」+ worktree 清理**全做了**，§7.5 照做无遗漏。
+2. **「PID sweep」≠「teammate 回收」**，我当初混为一谈。§0.16/§7.5 的 sweep 治的是 reviewer/worker 起的**真栈服务进程**（uvicorn 等崩溃残留），不是 in-process teammate agent。
+3. **留 teammate 是 skill 硬规则 #14 有意为之**：给每个子 agent 稳定 `name`，正是为了「失败循环 / Fast-lane 复验 / **PR 反馈处理（§6.FL / §7.5）**用 SendMessage 唤醒续跑，保上下文」。PR 还没 merge，把 worker 留着可寻址、等 PR review 回来复用，**恰是设计意图**，不是没回收。
 
-### 这一步本该怎样
+### 残留的真问题（降级，且不在 change-orchestrator）
 
-`change-orchestrator` §7.5 退出步骤应**显式 TaskStop / 回收所有派发过的 in-process teammate**（worker、verifier、reviewer、code-review finders），再宣告退出。判据：退出前 teammate 列表清零。这是 0 交互自主模式下尤其重要——没有用户兜底，滞留 agent 会一直占资源。
+唯一站得住的小尾巴：orchestrator「会自然结束」措辞不准（teammate 实际 idle 到被用户手停，并非自然结束）。但「长期 idle 的 in-process teammate 该不该被自动回收」是 **harness/平台层**问题，按 change-orchestrator skill，PR 未 merge 前留着是对的。**不构成 skill 缺陷，从改进清单移除。**
 
 ---
 
@@ -260,13 +260,13 @@ git merge-base --is-ancestor HEAD origin/unit/<id> \
 
 scope B 40 分钟拉锯 + inconclusive，根子是 orchestrator 把「模型支不支持图片」这个**外部可查事实**当成「在真栈跑跑看的行为」，靠 worker 单次 live 观察反复拍板。可泛化反模式：**做判断前先分清依据是「行为」（该跑）还是「事实」（该查）**——能力 / 限额 / 协议 / 依赖声明这类查文档/搜索一锤定音，别靠 live 采样（偶发错误假阳、proxy 改写请求、小图能蒙）。这条与 P0 同源——正因机制漏在 design（P0），它才以 scope 决策形式临场冒出来逼 leader 拍板。
 
-### D. 收尾 + 机制纪律：自主模式回收 teammate（P2）、verifier 报告 push 修复（P5）
+### D. 机制纪律：verifier 报告 push 修复（P5）
 
-两个机制层硬伤：orchestrator 凭「会自然结束」留下 15 个滞留 agent（P2）；change-verifier §1 detached 签出与 §5.2 按分支名 push 不匹配，报告三轮丢失靠 lead 手捡（P5）。都不靠判断、靠改 skill 步骤即可根治；P5 的正解直接抄 change-impl-worker「在真分支 commit + 推可证明含该 commit 的 ref + push 后校验落地」的稳定范式。
+一个真机制硬伤：change-verifier §1 detached 签出与 §5.2 按分支名 push 不匹配，报告三轮丢失靠 lead 手捡（P5）。不靠判断、靠改 skill 步骤即可根治；正解直接抄 change-impl-worker「在真分支 commit + 推可证明含该 commit 的 ref + push 后校验落地」的稳定范式。（原列此处的 P2「收尾留 teammate」已撤回——非缺陷，见上。）
 
 ### 一句话
 
-> **这次唯一的实质失效（产品两轮 fail）是 P0：第 1 小时掌握的 strip 机制在 spec→design 边界蒸发。** 其余都是可机械根治的流程/机制硬伤：P4（该查的事实没查）放大了 P0 的下游代价、P2/P5 是收尾与 git 同步的步骤缺口、P1/P3 是 design 欠规约与文档卫生。实现忠实度、验收链、worker 复用——都健康。
+> **这次唯一的实质失效（产品两轮 fail）是 P0：第 1 小时掌握的 strip 机制在 spec→design 边界蒸发。** 其余是可机械根治的流程/机制硬伤：P4（该查的事实没查）放大了 P0 的下游代价、P5 是 git 同步的步骤缺口、P1/P3 是 design 欠规约与文档卫生。实现忠实度、验收链、worker 复用、收尾回收——都健康（P2 撤回）。
 
 **三个最高杠杆改动**：① spec/design grounding checklist 各加一条「参考实现 error-path/replay-path 抄了吗 + 本 design 新持久化内容失败态覆盖了吗」（治 P0+P1 根，收益最大）；② orchestrator 决策前分清「行为 vs 事实」、外部事实先查证（治 P4，最省力）；③ change-verifier push 抄 impl-worker 范式 + 落地校验（治 P5，一劳永逸）。
 
@@ -287,9 +287,10 @@ scope B 40 分钟拉锯 + inconclusive，根子是 orchestrator 把「模型支�
 ### change-design-reviewer（来源 P0）
 1. 进攻清单加**「缺失机制」反向角度**：「本 design 让什么内容首次持久化 / 重放？这些内容的**失败态重放**有没有被任一决策覆盖？仓库有无同类已知账（如 #82 毒化类）可连？」——三轮 review 全缺这一问。
 
-### change-orchestrator（来源 P2、P4）
-1. （P2）§7.5 退出前**显式回收所有派发过的 in-process teammate**（worker / verifier / reviewer / code-review finders 全部 TaskStop），判据「teammate 列表清零」再宣告退出。删除「任务完成会自然结束、不需显式回收」的错误假设（in_process_teammate 不会自然消失）。
-2. （P4）做 scope / 严重性判断前，**分清依据是「行为」还是「事实」**：模型能力、API 限额、协议字段、依赖是否声明等**外部可查事实**，优先 WebSearch / 厂商文档 / 仓库 doc 核证，**不靠 worker 单次 live 观察拍板**。本例一句 `doubao-seed vision support` 即可定死前提，免 40 分钟拉锯。
+### change-orchestrator（来源 P4）
+1. （P4）做 scope / 严重性判断前，**分清依据是「行为」还是「事实」**：模型能力、API 限额、协议字段、依赖是否声明等**外部可查事实**，优先 WebSearch / 厂商文档 / 仓库 doc 核证，**不靠 worker 单次 live 观察拍板**。本例一句 `doubao-seed vision support` 即可定死前提，免 40 分钟拉锯。
+
+> （原列此处的 P2「§7.5 显式回收 teammate」已删——经核 §7.5 + 硬规则 #14，留 teammate 供 PR 反馈复用是设计意图，非缺陷。）
 
 ### change-impl-worker（无新增，作正面范式）
 - 实现忠实度本 unit 是正面样本（verifier 全绿），worker 复用（793 轮跨 4 个 fix 周期保上下文）良性，无需改。
