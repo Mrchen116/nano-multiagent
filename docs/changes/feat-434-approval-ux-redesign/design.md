@@ -20,10 +20,12 @@
 - `.../chat-types.ts` — `ToolCall` 加 `approval` 字段。
 - `src/styles/global.css` `.chat-tool-call-*` / `.chat-permission-*` 段；`src/i18n/zh.json`/`en.json` 加键。
 
-**内核（approval 标识源头）**
-- `src/agent/core/tools/registry.py` — gate 经 `_dispatch_intercept("tool_call")` 返回 `{block, reason}`；deny→`reason_code="denied"`（166-196 行）。`auto_mode_gate` hook 知道「这次是用户 allow 还是自动放行」。
-- `src/agent/core/agent/tool_executor.py` + `core/types.py` — `ToolResult.reason_code` 的 lift 点（184-222 / types.py:72）；approval 平行挂这。
-- `src/agent/platform/hooks/builtins/realtime_stream.py` — tool_end 随 `reason_code` 转发（105 行），approval 同款随出。
+**内核（approval 标识源头）——deny 与 allow 两侧传播路径不对称，必须分开看**
+- `src/agent/platform/hooks/builtins/auto_mode_gate.py` — 用户决策回流处。**deny**→`{"block": True, "reason": ...}`（带信号）；**allow**（`allow_once/session/always`，~693/700/707 行）→裸 `{"block": False}`，**当前不带任何决策信号**，与自动放行在 gate 出口等价。要标 allow，须让它返回带 approval 信号（如 `{"block": False, "approval": "user_allow"}`）。
+- `src/agent/core/hooks/runner.py` — `tool_call` hook 返回值合并（140-150 行）。`block=True` 分支 capture `reason`；**`block=False` 分支只保留 `args`/`allow_unlisted`、`continue` 丢弃其余字段**。allow 侧 approval 要传出，**此分支必须改造保留它**——这是 allow 侧最易漏的一环。
+- `src/agent/core/tools/registry.py` — gate 经 `_dispatch_intercept("tool_call")` 返回 payload；deny→raise ToolError 带 `reason_code="denied"`（166-196 行）。allow 成功路径**不抛 ToolError**，须在此把 payload 的 approval lift 进成功执行事件/结果。
+- `src/agent/core/agent/tool_executor.py` + `core/types.py` — `ToolResult.reason_code` 的 lift 点（184-222 / types.py:72）。**deny** 侧 approval 可与 reason_code 同源（从 `ToolError.details` 取）；**allow** 侧无 ToolError 载体，须给 `ToolResult` 新增 approval 字段并在成功路径填充。
+- `src/agent/platform/hooks/builtins/realtime_stream.py` — tool_end 随 `reason_code` 转发（105 行），approval 随 tool_end 一并带出（两侧都经这里）。
 
 **Gateway**：`src/personal_assistant/main.py` ~3600-3664 — 把 `reason_code/emoji/presentation` 透传进 `tool_call` payload；approval 加一条同款透传。
 
@@ -38,7 +40,7 @@
 
 ### 可复用能力
 
-- **feat-425 emoji 字段透传链路** = 本次 `approval` 字段的逐字模板（domain + payload + encode/decode + Gateway forward + 前端 type），照抄即可，不另造。
+- **feat-425 emoji 字段透传链路** = 本次 `approval` 字段在 **Gateway→IM→前端** 段的逐字模板（domain + payload + encode/decode + Gateway forward + 前端 type），照抄即可。⚠️ 仅覆盖「事件已带 approval 之后」的下半程；**内核侧产出 approval（尤其 allow）不在此模板内**，须按上面拆开的 allow 链单独实现。
 - `reason_code` / `REASON_LABEL_KEYS` / `REASON_BADGE_NAMES` 机制 = denied 已自动对上，allow 复用同款通道；denied 去重直接用 `REASON_BADGE_NAMES` 抑制逻辑。
 - `ToolCallsPanel` / `PermissionCard` / `.chat-tool-call-*` 样式体系 = 合一面板在其上扩展，不重写。
 - 原型 `prototype.html`（同目录）= 视觉与交互的对照基准（行内分区、收起态分项计数、待决卡形态）。
@@ -46,7 +48,7 @@
 ### 相关历史
 
 - feat-333（auto_mode_gate 审批 ask 流 + 权限卡）、bugfix-367（权限卡内联 + 审计可见）、bugfix-410/417（tool_call 的 `reason` 徽标：denied/超时/中断）、feat-425（emoji 字段透传，本次模板）、feat-409（presenter detail）。
-- 契约层 grounding：`docs/specs/im|gateway|kernel/spec.md` 现有对 tool_call `reason` 徽标的描述与代码一致；approval 是其上的新增维度，无 drift。
+- 契约层 grounding：现有 tool_call `reason` 徽标契约在 `docs/specs/im/spec.md`（im:389「工具徽标按中断原因显示终态」）与 `gateway/spec.md`（gateway:441），`kernel/spec.md` 无对应「终态分类」条；均与代码一致。approval 是独立于 reason 的**新增维度**（决策1），故 delta-spec 用 ADDED 而非 MODIFIED。
 
 ## 架构总览
 
@@ -84,17 +86,24 @@ before                                  after（合一）
 **新增 `ToolCall.approval: "user_allow" | "user_deny" | null`，闸门区统一读它；`reason` 不动。**
 
 - **理由**：`reason` 现语义是「非成功终态徽标」（denied/超时/中断，红、抑制 failTag）。把成功的 `user_allow` 塞进去会污染语义、与 `REASON_BADGE_NAMES`/failTag 抑制纠缠。新字段干净，且 feat-425 emoji 有逐字模板。
-- **对称性**：`approval` 同时承载 allow 与 deny（消除「allow 走新字段、deny 走 reason」的不对称——用户指出的怪点）。`reason="denied"` 保持不动（向后兼容失败行机制）；前端对**历史行**（有 reason 无 approval）回退：`approval==="user_deny" || reason==="denied"` → 闸门区「已拒绝」。
+- **对称性（仅数据语义，非传播路径）**：`approval` 字段同时承载 allow 与 deny，闸门区统一读它（消除用户指出的「allow 走新字段、deny 走 reason」怪点）。但**两侧后端传播路径并不对称**——`user_deny` 与现成 `reason_code=denied` 同源（ToolError.details，好挂）；`user_allow` 须走全新链（见决策2）。`reason="denied"` 保持不动（向后兼容失败行机制）；前端对**历史行**（有 reason 无 approval）回退：`approval==="user_deny" || reason==="denied"` → 闸门区「已拒绝」。
 - **拒绝**：复用 `reason` —— 省一字段透传，但语义混淆、维护埋坑。
 - **风险**：标识源头在 `auto_mode_gate` hook 须能区分「用户决策 allow」与「自动放行」——见决策 2。
 
-### 决策 2: 标识源头在内核 gate，沿 reason_code 同款通道全栈透传
+### 决策 2: 标识源头在内核 gate；deny 复用 reason_code 载体，allow 须新建传播链
 
-**`auto_mode_gate` 在用户决策后于 gate 处把 `approval` 写进 tool_call 执行事件，随 `reason_code` 同一条 kernel→gateway→im→前端通道流出。**
+**approval 在内核 gate 处产出，随 tool_end 经 kernel→gateway→im→前端 流出。deny 侧搭 `reason_code` 现成载体；allow 侧没有现成载体，须新建链——这是 M1 内核改动的核心，不是「照模板照抄」。**
 
-- **理由**：approval 是工具执行的元信息，归属与 `reason_code`/`emoji` 同。任何让 Gateway 凭 `permission_requests` 与 `tool_calls` 做事后相关性匹配的方案都脆弱（多条同名 bash 难对上）。
+allow 侧新链（缺一不可，按数据流向）：
+1. `auto_mode_gate.py` 的 `allow_*` 分支返回带信号：`{"block": False, "approval": "user_allow"}`（现状裸 `{"block": False}`）。
+2. `core/hooks/runner.py:140-150` 的 `tool_call` 合并分支，`block=False` 时**新增保留 `approval`**（现只留 args/allow_unlisted）。
+3. `registry.py` 成功路径把 payload 的 `approval` lift 进执行事件 / `ToolResult`（deny 走 ToolError.details，allow 无此载体，须另填）。
+4. `core/types.py` `ToolResult` 新增 `approval` 字段；`tool_executor.py` 成功路径填充。
+5. `realtime_stream.py` tool_end 随 `reason_code` 一并带出 `approval`。
+
+- **理由**：approval 是工具执行的元信息，归属与 `reason_code`/`emoji` 同。让 Gateway 凭 `permission_requests` 与 `tool_calls` 事后相关性匹配的方案脆弱（多条同名 bash 难对上）。
 - **拒绝**：Gateway 侧相关性匹配 —— 无 id 绑定、脆弱。
-- **风险**：要确认 gate 处 `auto_mode_gate` 的 payload 能透出「本次为用户显式 allow」。自动放行（auto-allow）**不**标 `approval`（保持 null，闸门区不显），只有真正经用户卡决策的才标。
+- **自动放行不标**：auto-allow 保持 `approval=null`（闸门区不显），只有真正经用户卡决策的才标——区分点正是步骤 1（自动路径不返回 approval 信号）。
 
 ### 决策 3: 已决审批呈现改读 tool_call.approval，删除气泡外已决卡
 
@@ -127,11 +136,9 @@ before                                  after（合一）
 approval?: "user_allow" | "user_deny" | null   // 仅经用户卡决策的工具才有值；自动放行为 null
 ```
 
-落点（照 feat-425 emoji 逐字模板）：
-- 内核：`ToolResult` 携带 → tool_end 事件 `approval`（`realtime_stream`）
-- Gateway：`main.py` tool_end 分支把 `approval` 拼进 `tool_call` payload（与 `reason`/`emoji` 并列）
-- IM：`domain/models.ToolCall.approval` + `ToolCallPayload.approval` + `_encode/_decode_tool_calls`
-- 前端：`chat-types.ToolCall.approval`，`ToolCallRow` 渲染闸门区
+落点（分两段，传播成本不同）：
+- **内核产出（非模板，须新建 allow 链）**：`auto_mode_gate` 返回信号 → `runner.py` block=False 保留 → `registry`/`tool_executor` 成功路径 lift → `ToolResult.approval` → `realtime_stream` tool_end（详见决策2 五步）。
+- **Gateway→IM→前端（照 feat-425 emoji 逐字模板）**：`main.py` tool_end 把 `approval` 拼进 `tool_call` payload（与 `reason`/`emoji` 并列）→ `domain/models.ToolCall.approval` + `ToolCallPayload.approval` + `_encode/_decode_tool_calls` → `chat-types.ToolCall.approval` → `ToolCallRow` 渲染闸门区。
 
 **主流程时序（ask → allow → 行内已授权）**：
 
@@ -166,7 +173,8 @@ sequenceDiagram
 ## 风险与回退
 
 - **历史行兼容**：旧 tool_call 无 `approval` 字段 → 前端读 `undefined`，闸门区不显；denied 历史行回退读 `reason==="denied"`。无迁移、无破坏。
-- **自动放行误标**：只有经用户卡决策的才标 `approval`，自动放行保持 null。若 gate 处无法区分用户/自动 allow，则 allow 半边降级（仅 deny 可标）——退回 spec 的「纯前端」边界。**此为唯一需在 M1 实现期验证的前提**，worker 确认 `auto_mode_gate` payload 能透出用户 allow 信号。
+- **allow 链最易漏的一环（不是降级项）**：spec Q7 已拍「含后端、allow 必标」，allow 侧标记是 M1 **必做**内核改动，不存在「不行就退纯前端」的降级。真正的风险是**实现易漏**：决策2 五步里 `runner.py` block=False 保留 approval、`registry`/`tool_executor` 成功路径 lift 这两步没有现成载体可抄，worker 若误以为「平行挂 reason_code」会漏改，导致 allow 标识传不出、前端「已授权」永不出现。**应对**：决策2 已把五步逐条点名（含文件行号）；M1 `[worker]` 退出标准须含「allow 成功工具的 approval 端到端到达前端」的验证，不止 deny。
+- **自动放行误标**：只有 `auto_mode_gate` 的用户 allow 分支返回 approval 信号，自动放行路径不返回 → 保持 null、闸门区不显。
 - **回滚**：approval 字段全栈可选、向后兼容；前端合一改动集中在 `message-pane`/`tool-calls-panel`/`permission-card`，回退即恢复气泡外渲染。
 
 ## Runbook for Reviewer
@@ -183,6 +191,6 @@ sequenceDiagram
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-434-M1 | approval-unified-panel | — | A | 内核 `core/tools/registry.py`、`core/agent/tool_executor.py`、`core/types.py`、`platform/hooks/builtins/realtime_stream.py`；Gateway `personal_assistant/main.py`（tool_end 透传）；IM `domain/models.py`、`api/routes/messages.py`、`infra/repositories.py`；前端 `message-pane.tsx`、`tool-calls-panel.tsx`、`permission-card.tsx`、`tool-presentation.ts`、`chat-types.ts`、`styles/global.css`、`i18n/zh|en.json` | `[reviewer]` 工具调用与审批呈现在同一气泡内、气泡外无独立审批卡（覆盖 Req-技术动作收同一气泡）；`[reviewer]` 待决卡醒目可操作、已有已决时新待决与已决同时可见（Req-待决醒目 / Scenario-又来新待决）；`[reviewer]` 允许后行内显「已授权」、拒绝后显「已拒绝」+ 未执行（Req-折叠并入）；`[reviewer]` 收起态显「N 次授权·X 允许·Y 拒绝」、空态无授权后缀（Req-工具行形态）；`[reviewer]` 授权后失败时「已授权」与失败报错各占一侧（Req-行内分区 / 关键边界）；`[reviewer]` 中/英界面失败文案随语言（Req-失败文案随语言）；`[worker]` `approval` 字段贯穿 内核→Gateway→IM→前端，IM REST 历史与 WS 均携带（单测：IM encode/decode round-trip、Gateway 透传）；`[worker]` 前端单测覆盖 ToolCallRow 闸门/结果分区 + denied 去重 + 已决并入；`[worker]` `failTag` 经 i18n，zh/en 各出对应文案；`[worker]` `npm run test` + `pytest -m "not e2e"` 全绿 |
+| feat-434-M1 | approval-unified-panel | — | A | 内核 `platform/hooks/builtins/auto_mode_gate.py`（allow 分支返回 approval 信号）、`core/hooks/runner.py`（block=False 保留 approval）、`core/tools/registry.py`、`core/agent/tool_executor.py`、`core/types.py`（ToolResult 加 approval）、`platform/hooks/builtins/realtime_stream.py`；Gateway `personal_assistant/main.py`（tool_end 透传）；IM `domain/models.py`、`api/routes/messages.py`、`infra/repositories.py`；前端 `message-pane.tsx`、`tool-calls-panel.tsx`、`permission-card.tsx`、`tool-presentation.ts`、`chat-types.ts`、`styles/global.css`、`i18n/zh|en.json` | `[reviewer]` 工具调用与审批呈现在同一气泡内、气泡外无独立审批卡（覆盖 Req-技术动作收同一气泡）；`[reviewer]` 待决卡醒目可操作、已有已决时新待决与已决同时可见（Req-待决醒目 / Scenario-又来新待决）；`[reviewer]` 允许后行内显「已授权」、拒绝后显「已拒绝」+ 未执行（Req-折叠并入）；`[reviewer]` 收起态显「N 次授权·X 允许·Y 拒绝」、空态无授权后缀（Req-工具行形态）；`[reviewer]` 授权后失败时「已授权」与失败报错各占一侧（Req-行内分区 / 关键边界）；`[reviewer]` 中/英界面失败文案随语言（Req-失败文案随语言）；`[worker]` **allow 成功**工具的 `approval=user_allow` 端到端到达前端（不止 deny；覆盖决策2 五步链，含 `runner.py` block=False 保留 + 成功路径 lift，单测覆盖内核产出）；`[worker]` `approval` 字段贯穿 内核→Gateway→IM→前端，IM REST 历史与 WS 均携带（单测：IM encode/decode round-trip、Gateway 透传）；`[worker]` 前端单测覆盖 ToolCallRow 闸门/结果分区 + denied 去重 + 已决并入；`[worker]` `failTag` 经 i18n，zh/en 各出对应文案；`[worker]` `npm run test` + `pytest -m "not e2e"` 全绿 |
 
 > 单 M1 举证：本 unit 是一条端到端垂直切片——`approval` 标识必须从内核 gate 一路流到前端才能显示「已授权」，无法在不破坏该链路的前提下并行；按 §4.3「后端/前端」横切被禁止。文件数偏多但属同一不可分割链路，单 worker 串行完成。

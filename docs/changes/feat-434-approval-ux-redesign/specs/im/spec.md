@@ -2,7 +2,7 @@
 
 > 本文件是 feat-434 对 `docs/specs/im/spec.md` 的增量草案（design 期声明），收尾由 orchestrator 校正后并入 canonical。
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: 工具调用的授权决策随消息持久化与下发
 

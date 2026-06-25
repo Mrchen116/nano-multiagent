@@ -2,7 +2,7 @@
 
 > 本文件是 feat-434 对 `docs/specs/gateway/spec.md` 的增量草案（design 期声明），收尾由 orchestrator 校正后并入 canonical。
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Gateway 向 IM 中继的工具调用携带授权决策
 
