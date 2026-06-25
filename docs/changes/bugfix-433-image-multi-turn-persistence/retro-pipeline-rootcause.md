@@ -8,7 +8,7 @@
 
 用户在一次 `/stop` 修复的 PR review 中顺手发现「下一轮图片没了」，确认是 bug，授权 **0 交互自主**走完 spec→design→orchestrator 把它修掉并提 PR。实际：unit **确实完成**（PR #148、CI 全绿、04:53 orchestrator 退出），但中途吃了 **3 轮 review/fix 级联**，其中**两轮是同一个 design 盲区**——而这个盲区的解法（CC 的 `normalizeMessagesForAPI` error-replay-strip）**早在立项第 1 小时(10:52)就被亲读 CC 源码后准确写出来了，却没进 incident.md、没进 design**。外加收尾时 **15 个后台 agent 没被回收**，用户 74 分钟后手动停掉。
 
-一句话：这不是灾难，是一次「本可一轮过、实际三轮过」的 unit——多出的两轮全因一个**第 1 小时就掌握、却在 spec→design 边界丢失的关键机制**（P0）。围绕它还暴露了几个可机械根治的流程/机制硬伤：scope 决策靠 live 采样而非查证模型能力（P4）、verifier 报告三轮卡 detached worktree 没上 origin（P5）、design Runbook 没钉死 review 模态致 reviewer 即兴（P6）、入站校验欠规约 + design Changelog 空白（P1/P3）。（**P2「收尾留 15 个滞留 agent」已撤回**——见下文，那是 skill #14 有意保留 teammate 供 PR 反馈复用，非缺陷。）
+一句话：这不是灾难，是一次「本可一轮过、实际三轮过」的 unit——多出的两轮全因一个**第 1 小时就掌握、却在 spec→design 边界丢失的关键机制**（P0）。围绕它还暴露了几个可机械根治的流程/机制硬伤：scope 决策靠 live 采样而非查证模型能力（P4）、verifier 报告三轮卡 detached worktree 没上 origin（P5）、design Runbook 没钉死 review 模态致 reviewer 即兴（P6）、入站校验欠规约（P1）。（**P2「收尾留 15 个滞留 agent」、P3「design Changelog 空白」均已撤回**——见下文：P2 是 skill #14 有意保留 teammate 供 PR 反馈复用，P3 是把门禁 2 前评审迭代误当 Changelog 漏记，二者皆非缺陷。）
 
 ---
 
@@ -52,7 +52,7 @@ jsonl 根：`~/.claude/projects/-Users-czj-Repos-nano-multiagent/`。主 session
 | P0 | reviewer round1 (03:xx) + live fix2 (04:17) | 损坏图/合法图触发 provider error 后，同会话后续文字**空回复**（会话被毒化） | design 缺「image turn 在 provider 报错后重放时 strip image」机制——而 10:52 探索已写出 CC 正是这么做 | **design 本身漏**（非实现偏离） |
 | P1 | reviewer round1 Issue#1 | 41 字节损坏 PNG（合法头）未被入站拦截，透传 Anthropic→provider error 文案而非固化文案 | design 决策5 只说「解析失败→corrupt」，未钉死校验深度；worker 取 magic-bytes，被合法头骗过 | design 欠规约 + 实现 |
 | ~~P2~~ | 用户 06:08 手停 15 agent | orchestrator 宣告「后台 agent 会自然结束」，实际滞留 74 分钟 | **已撤回**：留 teammate 是 skill #14 有意为之（供 PR 反馈复用）；§7.5 只要求 sweep 服务 PID（已做）+ worktree remove，不要求 TaskStop teammate | ~~orchestrator 收尾~~ → 非缺陷（至多 harness 层是否自动回收 idle teammate） |
-| P3 | 审计挖出（无对应反馈） | design.md `## Changelog` 空白，多轮修订无耐久追溯 | design 修订记在 design-review.md 闭环记录，design.md 自身 Changelog 未维护 | design 文档卫生 |
+| ~~P3~~ | 审计挖出（无对应反馈） | design.md `## Changelog` 空白，多轮修订无耐久追溯 | **已撤回**：Changelog 是给实现期/post-acceptance 修订的；本 unit 那 3 轮是门禁 2 前的评审迭代，本就该落 design-review.md，空着是对的 | ~~design 文档卫生~~ → 非缺陷 |
 | P4 | scope B 04:01–04:23 拍B→撤B→保留B 三次翻转 | 一个决策事实（模型支不支持图片）靠 worker 单次 live 观察反复拍板，40 分钟拉锯 + 最终 inconclusive | orchestrator 把「查文档就能定死的外部能力事实」当「在真栈跑跑看的行为」，从不 WebSearch 核 | orchestrator 决策依据 |
 | P5 | 审计挖出（lead 事后提出） | verifier 三轮报告全卡在 detached worktree 没上 origin，lead 手动捡回三次 | change-verifier §1 detached 签出 + §5.2 按本地分支名 push，commit 落点≠push 目标，且无落地校验 | change-verifier skill 机制 |
 | P6 | 审计挖出（用户提出归因） | reviewer 即兴建前端 + 指纹核验，却全程 API 驱动、浏览器零开——较真错配 | design 的「Runbook for Reviewer」只列旅程步骤、**未钉死 review 模态（API 层 vs 浏览器）**，留给 reviewer 临场即兴 | design 欠规约（review runbook） |
@@ -142,15 +142,15 @@ design 决策5 应把「解析」具体化为可验收的判据：**「magic-byt
 
 ---
 
-## P3 — design.md Changelog 空白，修订追溯散落
+## ~~P3 — design.md Changelog 空白~~ —— 已撤回
 
-### 证据
+> **早期版本曾认为**：design.md `## Changelog` 空白、3 轮 review 修订没回写是文档卫生缺陷。**经核 Changelog 的用途证伪，已撤回。**
 
-design.md line 6-7：`## Changelog` 标题下**空白**。但本 unit design 经 3 轮 review 修订（design-review.md 闭环记录详列：round1 2 CRITICAL+1 WARNING、round2 1 CRITICAL+1 WARNING、round3 复核）。修订**有记**，但记在 design-review.md，design.md 自身的 Changelog 没维护。
+### 为什么撤回
 
-### 根因落点 + 本该怎样
+`## Changelog` 的用途是记**实现期 / post-acceptance 的决策修订与真根因**（change-retro skill 自述：「design.md 的 `## Changelog` 往往逐条记了每次 post-acceptance 决策修订与真根因」）。而 bugfix-433 那 3 轮是**门禁 2 之前的 design-review 迭代**——实现还没开始，本就该落在 `design-review.md` 的闭环记录里（且记得很全：round1 2C+1W / round2 1C+1W / round3 复核）。**实现前的评审迭代不进 Changelog，空着是对的，不是缺陷。** 原 P3 把「实现前评审迭代」与「实现期决策修订」两类混了，作废。
 
-`change-design-author` / `change-design-reviewer` 收尾应把每轮 review 的实质修订**回写 design.md `## Changelog`**（每条：改了什么决策 + 为什么）。本例修订追溯完整度其实不差（design-review 闭环 + progress 都很详尽），属轻度卫生问题，但 Changelog 是 design 文档的标准字段，空着违背模板。
+（唯一沾边的是 scope B 这类**实现期**新增的设计级决策有没有回写 design——但那由 progress.md 在记，且不足以单独成一条发现。）从改进清单移除（design-author 不再加「回写 Changelog」条）。
 
 ---
 
@@ -300,7 +300,7 @@ scope B 40 分钟拉锯 + inconclusive，根子是 orchestrator 把「模型支�
 
 ### 一句话
 
-> **这次唯一的实质失效（产品两轮 fail）是 P0：第 1 小时掌握的 strip 机制在 spec→design 边界蒸发。** 其余是可机械根治的流程/机制硬伤：P4（该查的事实没查）放大了 P0 的下游代价、P5 是 git 同步的步骤缺口、P1/P3 是 design 欠规约与文档卫生。实现忠实度、验收链、worker 复用、收尾回收——都健康（P2 撤回）。
+> **这次唯一的实质失效（产品两轮 fail）是 P0：第 1 小时掌握的 strip 机制在 spec→design 边界蒸发。** 其余是可机械根治的流程/机制硬伤：P4（该查的事实没查）放大了 P0 的下游代价、P5 是 git 同步的步骤缺口、P6 是 review 模态没固定、P1 是入站校验欠规约。实现忠实度、验收链、worker 复用、收尾回收、文档追溯——都健康（P2、P3 撤回）。
 
 **三个最高杠杆改动**：① spec/design grounding checklist 各加一条「参考实现 error-path/replay-path 抄了吗 + 本 design 新持久化内容失败态覆盖了吗」（治 P0+P1 根，收益最大）；② orchestrator 决策前分清「行为 vs 事实」、外部事实先查证（治 P4，最省力）；③ change-verifier push 抄 impl-worker 范式 + 落地校验（治 P5，一劳永逸）。
 
@@ -314,10 +314,11 @@ scope B 40 分钟拉锯 + inconclusive，根子是 orchestrator 把「模型支�
 1. RCA 写「对照参考实现」时，**happy-path 与 error-path/replay-path 都要抄**。固化 grounding checklist 一条：「参考实现的正常路径抄了；它的**异常 / 失败重放路径**抄了吗？」——本例 10:52 已写出 CC strip-on-error，却没进 incident.md。
 2. 把「解析/校验」类要求**具体到可验收判据**（如「magic-bytes 不够，须结构完整性校验；stdlib-only 禁引未声明依赖」），别留「解析失败→corrupt」这种深度未定的措辞给 worker 自由发挥（省 fix1+fix3）。
 
-### change-design-author（来源 P0、P3、P6）
+### change-design-author（来源 P0、P6）
 1. （P0）任何「新增持久化字段 / 让某内容首次进历史并重放」的决策，**必须配一条重放不变量**：「这条内容若某轮 provider 报错，下一轮重放会怎样？参考实现如何防？」——决策4 当时只审「纯文本 golden 不漂移」，漏了「失败 image turn 重放毒化」。
-2. （P3）收尾把每轮 review 实质修订**回写 design.md `## Changelog`**（本例空白）。
-3. （P6）`Runbook for Reviewer` 必须**显式钉死 review 模态**：每条旅程步骤旁标接口层（browser / API）。后端/无前端改动 → 写明「API 层真栈即可、无需浏览器」（省 reviewer 冗余建前端）；触及前端/前端可观察行为 → 写明「必须浏览器走查哪几屏」（堵 API 驱动漏前端）。别留给 reviewer 即兴。
+2. （P6）`Runbook for Reviewer` 必须**显式钉死 review 模态**：每条旅程步骤旁标接口层（browser / API）。后端/无前端改动 → 写明「API 层真栈即可、无需浏览器」（省 reviewer 冗余建前端）；触及前端/前端可观察行为 → 写明「必须浏览器走查哪几屏」（堵 API 驱动漏前端）。别留给 reviewer 即兴。
+
+> （原列此处的 P3「回写 Changelog」已删——Changelog 记的是实现期修订，本 unit 那 3 轮是门禁 2 前评审迭代，归 design-review.md，非缺陷。）
 
 ### change-design-reviewer（来源 P0）
 1. 进攻清单加**「缺失机制」反向角度**：「本 design 让什么内容首次持久化 / 重放？这些内容的**失败态重放**有没有被任一决策覆盖？仓库有无同类已知账（如 #82 毒化类）可连？」——三轮 review 全缺这一问。
