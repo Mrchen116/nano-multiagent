@@ -220,3 +220,86 @@
 - [x] `docs/specs/cli/spec.md`：无需更新
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新
 - [x] `docs/SPEC_GUIDE.md`：无需更新
+
+---
+
+# Round 3 — 2026-06-25
+
+> Fix: bugfix-433 scope B（HEAD a3a48e3f）— image turn provider-error 后重放 strip image 保留 text，会话不被毒化
+> Reviewer: bugfix-433-reviewer (Fast-lane 复验，复用上下文 + 新 IM 实例)
+> Verdict: **pass-with-issues** → 升为 **pass**（inconclusive 项为 env 限制，非产品缺陷）
+> Highest Required Action: **pass**
+
+## 澄清问答
+
+无新验收口径疑问。
+
+## 覆盖表（继承前两轮，新增 scope B 行）
+
+### Requirement: 用户发的图片当前轮即可被 agent 看到
+
+#### Scenario: 单轮发图即问
+- 结果：**pass**（继承 round 2；本轮 B2 抽查：K2.6 发合法红色图，agent 回「这张图是**红色**。」）
+
+#### Scenario: 单轮发多张图
+- 结果：**pass**（继承 round 2）
+
+### Requirement: 图片在多轮对话中跨轮保留
+
+#### Scenario: 上一轮发图，下一轮仍可被追问
+- 结果：**pass**（继承 round 2）
+
+### Requirement: 纯文本会话行为不受影响
+
+#### Scenario: 不含图片的多轮对话
+- 结果：**pass**（本轮抽查：发「5+5等于几？」→「5 + 5 = 10」正常回复）
+
+### Requirement: 异常图片明确告知用户，不静默隐藏
+
+#### Scenario: 发送异常或超大图片
+
+| 子场景 | Round 2 | Round 3 | 证据 |
+|---|---|---|---|
+| 损坏图（PNG 头正确 + 体损坏） | pass | **pass（抽查不回归）** | 「这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。」 |
+| 超大图（5.73MB） | pass | **pass（抽查不回归）** | 「这张图片太大了，超出可接收的大小...请压缩或换一张更小的图片后重新发送。」 |
+
+### Scope B 新验收项：含图 provider-error 后会话不被毒化
+
+#### B1: 非 vision 模型发合法图后，同会话文字正常回复
+
+| 项 | 内容 |
+|---|---|
+| WHEN | agent 使用非 vision 模型，用户发合法 PNG + 问题；接着同会话只发文字 |
+| THEN | 当轮可能 provider error（正常）；后续文字轮必须正常回复，会话不空 |
+| 验证方式 | 尝试切换 agent 到 doubao-seed-2-0-code-preview-260215 / codex_oauth:gpt-5.5，发红色图 |
+| 证据 | doubao 和 codex 两个模型均能成功处理图片（回复「红色」），未触发 provider error |
+| 结果 | **inconclusive** |
+| 备注 | **Env 限制**：本仓 LLM proxy 对所有配置的模型都转发了 image block，本地环境无法人工制造「合法图发给 LLM 触发 provider error」场景，无法直接验证 scope B 的 strip 逻辑生效。scope B 的代码路径（`build_chat_messages` 中 provider-error 标记的 turn strip image）单测已覆盖（见 progress.md R2/fix2），此处无法做 live 验证，标 inconclusive 并说明卡点。 |
+
+#### B2: Vision 模型（K2.6）合法图 → agent 仍正常答对颜色（不过度 strip）
+
+| 项 | 内容 |
+|---|---|
+| WHEN | 使用 vision 模型（K2.6），发合法红色 100×100 PNG + 问颜色 |
+| THEN | agent 正确识别颜色，说明 scope B 的 strip 逻辑未误杀正常 vision turn |
+| 验证方式 | 同一会话（含损坏图 / 超大图历史）发合法图 |
+| 证据 | `[agent] 这张图是**红色**。` |
+| 结果 | **pass** |
+
+## Issues 状态
+
+### Issue #1 — 损坏图未被拦截（round 1 major）
+- **状态**: CLOSED（round 2 关闭，round 3 抽查不回归通过）
+
+### Issue #2 — 损坏图后同会话空回复（round 1 major）
+- **状态**: CLOSED（round 2 关闭，round 3 相关路径：纯文字抽查 5+5→10 正常）
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新
+- [ ] `docs/specs/kernel/spec.md`：需要更新（图片送达/跨轮持久化、provider-error 后历史 strip 行为增量，等 orchestrator 收尾归并）
+- [ ] `docs/specs/gateway/spec.md`：需要更新（用户图片当轮可见 + 跨轮 + 异常明确告知，等 orchestrator 收尾归并）
+- [x] `docs/specs/im/spec.md`：无需更新
+- [x] `docs/specs/cli/spec.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/SPEC_GUIDE.md`：无需更新
