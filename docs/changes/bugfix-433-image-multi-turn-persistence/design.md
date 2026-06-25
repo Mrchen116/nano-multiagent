@@ -107,13 +107,13 @@ graph TB
 - **拒绝**：content 直接变 blocks 数组——侵入面与回归风险不可控；维持双轨写而不读——正是 bug 本身。
 - **风险**：`Message` 是 frozen dataclass，加字段须全构造点默认 `parts=None`；回放重建顺序/parent 链不得受影响（不变量3）。
 
-### 决策 5: 异常图片（下载失败/超大/损坏）优雅降级为文本占位，不中断对话
+### 决策 5: 异常图片（下载失败/超大/损坏）对用户明确报错，不静默占位
 
-**选了「降级为占位文本、本轮继续」**。
+**选了「显式告知用户图片未送达 + 原因 + 建议，不把假占位喂给模型」**（对齐 CC：`imageResizer.ts:438,586` 抛 `ImageResizeError` 带用户文案，绝不静默）。
 
-- **理由**：incident 验收要求「会话不崩」；入站下载失败或图片超限时，退回 `[图片无法加载]` 之类文本块，agent 仍能就该轮作答。
-- **拒绝**：抛异常中断整轮——违反验收 Requirement「异常图片不致中断对话」。
-- **风险**：降级文案需用户可理解；超大图阈值取值留 worker（默认参照 provider 限制，不在 spec 锁定）。
+- **理由**：静默塞占位符隐藏了「图片是否进了 LLM」，且会诱导 agent 对着不存在的图编造内容——这是产品级坏设计（用户 review 指出）。失败必须对用户透明：图片处理失败时，gateway 向用户回发明确提示（这张图未送达模型 + 原因 + 可操作建议），且**不把伪造的图片占位送进模型**。
+- **拒绝**：① 静默降级为 `[图片无法加载]` 文本块喂模型——隐藏错误、诱发编造；② 直接抛异常中断整轮——用户只看到崩溃，同样不知情。两者都不诚实。
+- **风险**：错误提示的投递走 gateway 既有的用户可见消息通道（与 `/stop` ack 类似的产品侧回发）；超大图阈值取值留 worker（参照 provider 限制，不在 spec 锁定）。失败发生在入站 base64 转换（决策1）或 mapper 送达前的校验处，需把失败信号传回 gateway 用户通道，而非在 core 静默吞掉。
 
 ## 接口与数据流
 
@@ -160,8 +160,8 @@ sequenceDiagram
 
 ## 风险与回退
 
-- **JSONL 历史膨胀**：base64 图片进 transcript 使会话文件显著增大（一张图数百 KB）。对齐 CC 现状，本 unit 接受；缓解：决策5 超大图降级 + 未来可优化为 side-store 引用（非本 unit）。回退：若膨胀不可接受，回退到「历史只存占位、仅当前轮送达」的半程方案（仍优于现状）。
-- **入站下载依赖 IM 可达 + token**：gateway 下载 attachment 需 IM 在线且 token 有效。缓解：决策5 失败降级为文本占位，不中断对话。
+- **JSONL 历史膨胀**：base64 图片进 transcript 使会话文件显著增大（一张图数百 KB）。对齐 CC 现状，本 unit 接受；缓解：决策5 超大图对用户明确报错（不送达）+ 未来可优化为 side-store 引用（非本 unit）。回退：若膨胀不可接受，回退到「历史只存占位、仅当前轮送达」的半程方案（仍优于现状）。
+- **入站下载依赖 IM 可达 + token**：gateway 下载 attachment 需 IM 在线且 token 有效。缓解：决策5 失败时向用户明确报错（图片未送达模型），不静默、不中断、不喂假占位给模型。
 - **纯文本 session 漂移（不变量1）**：`Message.parts` 默认 None、`build_chat_messages` 无图走原 str 分支——无图路径必须与改前逐字节一致，由 worker 用既有持久化/回放测试 + golden 守。
 - **两 provider 格式分叉**：Anthropic（base64 source）与 OpenAI（image_url）格式不同，各自单测覆盖；data URL 对两者都适用降低分叉风险。
 - **回退总策略**：改动集中在「图片有无」的分支上，纯文本路径不变，单 unit 可整体 revert 回退到现状（图片不可见，但无其它回归）。
@@ -181,6 +181,6 @@ sequenceDiagram
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| bugfix-433-M1 | image-end-to-end | — | A | `src/agent/core/agent/{state,prompting,loop,runtime}.py`、`src/agent/core/types.py`、`src/agent/core/session/jsonl_store.py`、`src/agent/platform/llm/providers/{anthropic,openai_compat}/mapper.py`、`src/personal_assistant/gateway/inbound_pipeline.py`、相关 tests | `[reviewer]` 用户发图当轮 agent 即可作答（Req-当前轮可见/Scenario-单轮发图即问、单轮发多张图）<br>`[reviewer]` 上轮发图、下轮只发文字仍可追问（Req-跨轮保留/Scenario-上一轮发图下一轮追问）<br>`[reviewer]` 纯文本多轮对话与修复前无可观察差异（Req-纯文本不受影响）<br>`[reviewer]` 异常图片对话不崩、可继续（Req-异常图片不致中断）<br>`[worker]` 新增端到端往返单测「发图→送达 provider mapper→落盘 entry.parts→重建 Message.parts→下一轮含 image 块」全绿<br>`[worker]` Anthropic / OpenAI-compat mapper user 分支 image 块映射各有单测<br>`[worker]` 纯文本 session 持久化/回放既有测试 + golden 不回归<br>`[worker]` `pytest -m "not e2e"` 全绿、ruff check + format clean |
+| bugfix-433-M1 | image-end-to-end | — | A | `src/agent/core/agent/{state,prompting,loop,runtime}.py`、`src/agent/core/types.py`、`src/agent/core/session/jsonl_store.py`、`src/agent/platform/llm/providers/{anthropic,openai_compat}/mapper.py`、`src/personal_assistant/gateway/inbound_pipeline.py`、相关 tests | `[reviewer]` 用户发图当轮 agent 即可作答（Req-当前轮可见/Scenario-单轮发图即问、单轮发多张图）<br>`[reviewer]` 上轮发图、下轮只发文字仍可追问（Req-跨轮保留/Scenario-上一轮发图下一轮追问）<br>`[reviewer]` 纯文本多轮对话与修复前无可观察差异（Req-纯文本不受影响）<br>`[reviewer]` 异常图片：用户收到「未送达模型 + 原因 + 建议」明确提示、对话不崩、agent 不对该图编造（Req-异常图片明确告知用户）<br>`[worker]` 新增端到端往返单测「发图→送达 provider mapper→落盘 entry.parts→重建 Message.parts→下一轮含 image 块」全绿<br>`[worker]` Anthropic / OpenAI-compat mapper user 分支 image 块映射各有单测<br>`[worker]` 纯文本 session 持久化/回放既有测试 + golden 不回归<br>`[worker]` `pytest -m "not e2e"` 全绿、ruff check + format clean |
 
 依赖图：单 milestone，无需。
