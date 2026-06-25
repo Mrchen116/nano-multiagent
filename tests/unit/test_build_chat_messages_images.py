@@ -137,9 +137,9 @@ def test_build_prompt_messages_threads_user_parts() -> None:
 # ---------------------------------------------------------------------------
 
 
-def _provider_error(parent_id: str) -> Message:
+def _provider_error(parent_id: str, *, message_id: str = "err-1") -> Message:
     return Message(
-        message_id="err-1",
+        message_id=message_id,
         parent_message_id=parent_id,
         role="assistant",
         content="⚠️ 模型调用失败:anthropic: stream ended without terminal event",
@@ -209,3 +209,92 @@ def test_pure_text_turn_with_provider_error_unchanged() -> None:
     msgs = build_chat_messages(history_messages=history, user_text="继续")
     history_user = [m for m in msgs if m.role == "user"][0]
     assert history_user.content == "算个大数"
+
+
+# ---------------------------------------------------------------------------
+# bugfix-433-fix4: defensive guards for the image-strip-on-error walk (cr3-B).
+# The image→provider-error path cannot be reproduced live (the local proxy passes
+# image blocks to every model without error), so these unit tests are B's primary
+# verification — they pin the walk's scoping so it never over-strips a healthy image.
+# ---------------------------------------------------------------------------
+
+
+def _image_user(message_id: str, *, text: str | None = "看图") -> Message:
+    parts: list[dict] = []
+    content = ""
+    if text is not None:
+        parts.append({"type": "text", "text": text})
+        content = f"{text}\n[image:placeholder]"
+    else:
+        content = "[image:placeholder]"
+    parts.append({"type": "image", "image_url": _DATA_URL})
+    return Message(
+        message_id=message_id, role="user", content=content, parts=tuple(parts)
+    )
+
+
+def test_successful_image_turn_not_stripped_when_later_turn_errors() -> None:
+    """A *successful* image turn must keep its image even if a LATER turn errors.
+
+    Sequence: image_user(success) → assistant → text_user → provider_error.
+    The walk back from the error stops at the text_user (a non-image user turn), so the
+    earlier successful image turn is NOT marked. Guards core vision from over-stripping.
+    """
+    history = (
+        _image_user("u-img-ok"),
+        Message(message_id="a-1", role="assistant", content="这是红色。"),
+        Message(message_id="u-txt", role="user", content="再算个大数"),
+        _provider_error("u-txt"),
+    )
+    msgs = build_chat_messages(history_messages=history, user_text="继续")
+    img_user = [m for m in msgs if m.role == "user" and isinstance(m.content, list)]
+    assert img_user, "successful image turn must still replay as a block list"
+    assert {"type": "image", "image_url": _DATA_URL} in img_user[0].content
+
+
+def test_text_user_turn_between_image_and_error_blocks_the_walk() -> None:
+    """A plain-text user turn between the image turn and the error stops the walk.
+
+    Sequence: image_user → text_user → provider_error. The error belongs to the
+    text_user turn; the walk must NOT reach back past it to strip the earlier image.
+    """
+    history = (
+        _image_user("u-img"),
+        Message(message_id="u-txt", role="user", content="顺便算一下"),
+        _provider_error("u-txt"),
+    )
+    msgs = build_chat_messages(history_messages=history, user_text="继续")
+    img_user = [m for m in msgs if m.role == "user" and isinstance(m.content, list)]
+    assert img_user, "image turn before an unrelated text-error must keep its image"
+    assert {"type": "image", "image_url": _DATA_URL} in img_user[0].content
+
+
+def test_image_only_turn_strip_fallback_is_nonempty_placeholder() -> None:
+    """An image-ONLY turn (no text block) that errored falls back to a non-empty content.
+
+    When the image block is stripped and no text block survives, _history_content must
+    fall back to the message's content projection — the non-empty "[image:placeholder]"
+    string — never an empty string (which would itself break the API call). Pins the
+    cr3-A false-positive ("empty-string poison") as a regression guard.
+    """
+    history = (
+        _image_user(
+            "u-img-only", text=None
+        ),  # parts = [image] only, content="[image:placeholder]"
+        _provider_error("u-img-only"),
+    )
+    msgs = build_chat_messages(history_messages=history, user_text="继续")
+    history_user = [m for m in msgs if m.role == "user"][0]
+    # No image block leaks, and the replayed content is non-empty.
+    if isinstance(history_user.content, list):
+        assert all(
+            b.get("type") != "image"
+            for b in history_user.content
+            if isinstance(b, dict)
+        )
+        assert history_user.content, (
+            "stripped image-only turn must not become empty list"
+        )
+    else:
+        assert history_user.content == "[image:placeholder]"
+        assert _DATA_URL not in history_user.content
