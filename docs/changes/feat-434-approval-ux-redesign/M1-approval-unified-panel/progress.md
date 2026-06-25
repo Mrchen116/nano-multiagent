@@ -103,3 +103,16 @@ team-lead 要求 deny 用户旅程也 best-effort 在浏览器走一次、授权
 - **待决卡形态（live，bonus）**: `r5-pending-card-1440.png`。深色待决卡在气泡**内**最下方、`write` + 脉冲「需要确认」**无锁图标**、tool_input JSON、三选项（允许/拒绝/本会话内允许）——对照原型待决卡形态一致。
 - **授权后失败两区并存（本地未稳定复现，如实注明）**: 多次尝试让 bash `exit N` 走「授权→失败」，permission.request 触发且我已 approve，但**被拒/授权后失败的 bash tool_call 未稳定持久化成一行**（根因 = LLM run 收口时序 + bash approval 路径非确定，同 deny 的 nondeterminism）。此态由组件测试 `authorized-but-failed shows BOTH gate and the fail tag (key boundary, zh)` 针对精确 ToolCall shape 确定性覆盖（闸门「已授权」+ 行尾「退出码 N」各占一侧）。留 reviewer 多跑几次确认 live 视觉。
 - **环境坑（记给后人）**: ① IM 服务前端用 `dist`，worktree 内必须先 `npm install && npm run build` 再起 IM（或 `IM_FRONTEND_DIST_DIR` 指向新 dist），否则 fallback 到旧 bundle 看不到新类。② approve 在**累积了多次失败/blocked 的脏 agent 会话**上会卡（write 不执行/不持久化）；**干净 DB + 干净会话**第一次就通——验收 live approve 用全新栈最稳。③ `im_lang` localStorage 存**裸字符串** `zh`（非 JSON `"zh"`），且须 `addInitScript` 在 boot 前注入才生效。
+
+### Round 1 验收反馈 fix（§FL 小修快车道，复用原 worker 上下文）
+
+reviewer=fail(1 major) + code-review 4 条，一轮全修完：
+
+- **F1（reviewer major，用户面）**: 待决卡按钮渲染后端英文 `opt.label`，未走 i18n。修：permission-card.tsx 加 `OPTION_LABEL_KEYS`（allow_once/allow_session/allow_always/deny → i18n 键），未知 id 回退 `opt.label`；zh/en 各加 4 个 option 键。**真浏览器复验**：`ACCEPTANCE/feat-434-M1/r2-pending-card-zh-buttons.png`，DOM BTNS=["允许","拒绝","本会话内允许"]，zero console error，对照 prototype.html 202-204 一致。组件测试 3 例（zh 映射 / allow_always / 未知 id 回退）。
+- **F2（code-review A3，allow 链不变量）**: tool_executor sibling-abort cancel 分支丢 approval。修：`_synthetic_error` 加 `approval` 参数，cancel-after-execute 分支从 `exec_meta` 读 approval 带上。确定性单测 `test_sibling_abort_preserves_user_allow_approval`（cmd-keyed registry 造「慢-已授权 + 快-失败」并发竞态）。
+- **F3（code-review D3，一致性）**: main.py approval 无条件写入（含 None）。修：改 `if approval is not None` 条件写入，对齐 emoji 模板，与 IM 序列化侧一致。
+- **F4（code-review A5，测试精度）**: e2e `_denied_tool_call` 谓词 `reason=='denied' OR approval is not None` 过宽。修：收紧为 `approval == "user_deny"`。
+- **F5（code-review D1，死键）**: 删 `REASON_LABEL_KEYS['denied']`（denied 走闸门区，ToolCallRow 已排除 reason==='denied'），保留 toolGateDenied / toolReasonDenied i18n 键。
+
+门禁：`npm run test`（464 passed）+ `pytest -m "not e2e"`（2871 passed/0 failed）+ ruff 全绿。
+留 PR 已知事项（按 team-lead 判定不动）：gateVerdict 对 auto-deny 经 reason 回退（design 决策1 授权）；out_meta vs ToolError.details 不对称（design 决策2 选定）。
