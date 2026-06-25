@@ -459,8 +459,8 @@ describe("MessagePane", () => {
       permission_requests: [PERM_REQUEST],
     };
 
-    it("renders PermissionCard inline when agent message has a permission_requests entry", () => {
-      render(
+    it("renders the pending PermissionCard INSIDE the bubble (feat-434 合一气泡)", () => {
+      const { container } = render(
         <MessagePane
           conversation={DIRECT_CONV}
           messages={[AGENT_MSG_WITH_PERM]}
@@ -471,6 +471,11 @@ describe("MessagePane", () => {
       expect(screen.getByText(/Allow bash to run this command/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /allow once/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /deny/i })).toBeInTheDocument();
+      // feat-434 决策 1/3: the card now lives inside the agent bubble card, not as a
+      // sibling floating outside it (the old "黑框墙" lived outside chat-bubble-card).
+      const card = container.querySelector(".chat-permission-card");
+      expect(card).not.toBeNull();
+      expect(card?.closest(".chat-bubble-card")).not.toBeNull();
     });
 
     it("does not render PermissionCard when message has empty permission_requests list", () => {
@@ -491,7 +496,9 @@ describe("MessagePane", () => {
       expect(screen.getByText("Regular reply")).toBeInTheDocument();
     });
 
-    it("renders resolved PermissionCard (no buttons) when entry status=resolved", () => {
+    // feat-434 决策 3: a resolved审批 no longer renders an独立 card —— its呈现 moved to
+    // the tool-call row's gate region. The bubble must NOT show a resolved permission card.
+    it("does NOT render a resolved permission card (已决并入工具行)", () => {
       const resolvedMsg: Message = {
         ...AGENT_MSG_WITH_PERM,
         id: "m-resolved",
@@ -505,12 +512,14 @@ describe("MessagePane", () => {
           onSend={() => {}}
         />
       );
-      expect(screen.getByTestId("permission-resolved")).toBeInTheDocument();
+      expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
+      // no pending buttons either (it's resolved)
       expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
     });
 
-    // bugfix-367: 同 message 多次 ask, 历史 resolved 卡保留, 同时新 pending 卡出现
-    it("renders both a resolved history card and a new pending card stacked under the same bubble", () => {
+    // feat-434 决策 3 / spec Scenario-又来新待决: when one ask is已决 and a new ask is
+    // pending, only the pending card shows (resolved已并入工具行); 用户仍能分清。
+    it("shows only the new pending card when a prior ask is resolved (no resolved card)", () => {
       const msg: Message = {
         ...AGENT_MSG_WITH_PERM,
         id: "m-two-asks",
@@ -527,9 +536,10 @@ describe("MessagePane", () => {
           onSend={() => {}}
         />
       );
-      // 历史已允许小条仍可见
-      expect(screen.getAllByTestId("permission-resolved")).toHaveLength(1);
-      // 当前 pending 的按钮组也可见
+      // resolved card gone
+      expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
+      expect(screen.queryByText(/Allow bash command #1/i)).not.toBeInTheDocument();
+      // 当前 pending 的按钮组仍可见
       expect(screen.getByText(/Allow write call #2/i)).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /allow once/i })).toBeInTheDocument();
     });

@@ -194,9 +194,11 @@ describe("PermissionCard — POST success → onResolved callback", () => {
   });
 });
 
-describe("PermissionCard — prop-derived resolved state", () => {
-  it("renders resolved-allow label when status='resolved' decision='allow_once'", () => {
-    render(
+// feat-434 决策 3: PermissionCard 不再渲染 resolved 形态 —— 已决审批并入工具行的
+// 闸门区（已授权/已拒绝），独立的「已决卡」彻底取消。resolved 时组件渲染空。
+describe("PermissionCard — resolved renders nothing (feat-434 决策 3)", () => {
+  it("renders nothing when status='resolved' decision='allow_once'", () => {
+    const { container } = render(
       <PermissionCard
         request={{ ...SAMPLE_REQUEST, status: "resolved", decision: "allow_once" }}
         conversationId="conv-1"
@@ -204,13 +206,12 @@ describe("PermissionCard — prop-derived resolved state", () => {
         onResolved={() => {}}
       />
     );
-    const resolved = screen.getByTestId("permission-resolved");
-    expect(resolved.textContent).toMatch(/allow/i);
-    expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
+    expect(container.querySelector(".chat-permission-card")).toBeNull();
   });
 
-  it("renders resolved-deny label when status='resolved' decision='deny'", () => {
-    render(
+  it("renders nothing when status='resolved' decision='deny'", () => {
+    const { container } = render(
       <PermissionCard
         request={{ ...SAMPLE_REQUEST, status: "resolved", decision: "deny" }}
         conversationId="conv-1"
@@ -218,8 +219,8 @@ describe("PermissionCard — prop-derived resolved state", () => {
         onResolved={() => {}}
       />
     );
-    const resolved = screen.getByTestId("permission-resolved");
-    expect(resolved.textContent).toMatch(/den/i);
+    expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
+    expect(container.querySelector(".chat-permission-card")).toBeNull();
   });
 });
 
