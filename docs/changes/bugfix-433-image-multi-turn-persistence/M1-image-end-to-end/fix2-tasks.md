@@ -34,4 +34,4 @@ CC 源码核实（src/utils/messages.ts:2275-2420）：API-build 时遍历历史
 
 ## Roadpoint
 
-单 roadpoint（自包含，<100 行，1 文件实现 + 1 测试文件）：C1 红测 → C2 build_chat_messages strip 实现 → C3 progress + live。
+单 roadpoint DONE：C1 红测 → C2 build_chat_messages strip 实现 → C3 progress + live（三旅程全 PASS）。

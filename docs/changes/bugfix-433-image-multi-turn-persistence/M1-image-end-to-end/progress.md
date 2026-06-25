@@ -102,3 +102,34 @@
   - 排除假阴性：首版 live 脚本读 REST messages 时 agent 回复 streaming 未定稿→空 content race，误判会话毒化；改「轮询非空 content」后全 PASS。
   - 单测同步加「合法多块 PNG 不被误杀」guard（红/蓝 100×100，IHDR+IDAT+IEND）。
 - **Scope（leader 定 A）**：报告的损坏图 #1/#2 已 live 完全闭合。「任意 provider-error 后那条触发错误的 user turn 留史毒化后续轮」是**非本 unit 引入的**更广既有 robustness 面（合法图遇 provider 瞬时错误亦可触发），leader gh create out-of-unit issue 记录、PR body Refs；本 unit 不顺手扩（§0.8）。
+
+---
+
+## Round 1 fix2 — provider-error 后 image turn 不重发其 image（scope B 限定 image，对齐 CC）
+
+> §FL 小修快车道。leader scope 决策 B（限定 image）。worktree `.worktrees/bugfix-433-fix2`，从 unit/bugfix-433 切，merge 回 unit。tasks 见 fix2-tasks.md。
+
+### 背景
+
+fix1 闭合了「损坏图」触发面。真栈另暴露：合法图发**非 vision 模型** → provider error → 该 image turn 留史、后续轮重建再发 image → 再 error → 空回复（会话毒化到新建为止）。leader 拍 B：只处理「含 image 的 user turn 触发 provider error 后不重发其 image block（保留文本）」，对齐 CC；**不动纯文本 provider-error 既有行为**（更广面留 out-of-unit #147）。
+
+### CC 源码核实（feedback-verify-reference-source-not-notes）
+
+`~/Repos/opensource-hub/claude-code/src/utils/messages.ts:2275-2420` `normalizeMessagesForAPI`：API-build 时 `errorToBlockTypes`（image-too-large→strip `image`），遇 synthetic provider-error 消息→反向找最近前置 user turn→strip 其 image block、**保留 text**；persisted 历史不动，只动「重放给 API」的投影。本仓同构落点 = `build_chat_messages`（已在过滤 is_provider_error 的同一处）。
+
+### 实现
+
+`build_chat_messages`：
+- `_image_turns_to_strip_after_error(history)`：遇 is_provider_error 消息→反向找最近含 image parts 的 user Message→记其 message_id（walk 遇非 image-user 的非 error 消息即停，对齐 CC）。在过滤 error marker **之前**算（marker 是信号）。
+- `_history_content(message, strip_image=...)`：被标记的 turn 重放时只取 text block、丢 image block；无 text 则回退 str 投影。persisted JSONL 不动（决策4 历史完整）。
+- scope 限 image：纯文本 user turn 无 image block 可 strip → 纯文本 provider-error 路径天然零改动。
+
+### Evidence
+
+- Tests: `test_build_chat_messages_images.py` 新增 fix2 段 3 用例（image turn error 后 strip image 保留 text / 无 error 不过度 strip / 纯文本 error 不变）red→green。全测试树 `pytest tests/{unit,contract,integration,im_service} -m "not e2e"` = 2881 passed/1 skipped；ruff clean。既有纯文本 provider-error 集成测试 `test_provider_error_user_visible.py` 6 passed 不回归。
+- **LIVE（真 IM:55884 + 真 Gateway 进程，三旅程全 PASS）**：
+  - ① 损坏图 →「这张图片我无法识别…」；后续文字「3+4？」→「3 + 4 = 7」（fix1 回归）✓
+  - ② 合法红 PNG 发**非 vision 模型**（doubao code，经 IM PATCH agent config 切模型）→ image reply 空（provider error）；**后续文字「5+5等于几？」→「5+5等于10。」**——**会话恢复、未毒化**（fix2 核心，B 修前此处空回复）✓
+  - ③ 合法蓝 PNG 发 vision 模型（K2.6）→「这是**蓝色**…」——vision 正常、未过度 strip ✓
+  - 驱动脚本：scratchpad/live_fix2_journeys.py（一次性验收，不入库）。
+- Scope：纯文本更广 provider-error 恢复 + 当轮 vision-不支持友好提示 = out-of-unit #147（leader 已缩范围、gh 记录、PR body Refs）。
