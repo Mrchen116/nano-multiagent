@@ -154,7 +154,11 @@ async def test_runtime_builds_followup_context_from_session_events(
 async def test_runtime_filters_prompt_skills_from_session_metadata(
     tmp_path: Path,
 ) -> None:
-    skills_root = tmp_path / ".codex" / "skills"
+    # bugfix-431: skills are discovered via workspace_config_dirname resolver,
+    # not the legacy Codex fallback roots. Place skills under the workspace
+    # config dirname so make_skill_resolver finds them.
+    workspace_config_dirname = ".testconfig"
+    skills_root = tmp_path / workspace_config_dirname / "skills"
     selected_dir = skills_root / "selected-skill"
     ignored_dir = skills_root / "ignored-skill"
     selected_dir.mkdir(parents=True)
@@ -180,6 +184,8 @@ async def test_runtime_filters_prompt_skills_from_session_metadata(
         llm_client=llm_client,
         model="mock-model",
         repo_root=workspace_root,
+        workspace_config_dirname=workspace_config_dirname,
+        skill_search_roots=(),
     )
 
     await runtime.run(
@@ -1235,3 +1241,27 @@ async def test_runtime_recovery_on_cancellederror_visible_to_next_run(
         and message.metadata.get("is_recovery") is True
         for message in second_history
     ), "next run must receive the synthetic recovery tool result from JSONL"
+
+
+def test_resolve_available_skills_returns_empty_without_dirname(tmp_path: Path) -> None:
+    """AgentRuntime.resolve_available_skills returns () when no workspace_config_dirname.
+
+    Decision 4 (bugfix-431): without a dirname, make_skill_resolver returns None →
+    resolve_available_skills must return an empty tuple rather than falling through to
+    any implicit Codex root.
+    """
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=FakeLLMClient(),
+        model="mock-model",
+        repo_root=tmp_path,
+        # workspace_config_dirname intentionally omitted (defaults to None)
+        skill_search_roots=(),
+    )
+
+    result = runtime.resolve_available_skills(tmp_path)
+    assert result == (), (
+        f"expected empty tuple when workspace_config_dirname is None; got {result}"
+    )

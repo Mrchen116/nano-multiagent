@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>审批 UX 协同重设计 · 合一原型</title>
+<style>
+  :root {
+    --im-accent: oklch(0.52 0.14 180);
+    --im-accent-fg: oklch(0.99 0 0);
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    --pane: oklch(0.93 0.007 240);
+    --bubble: oklch(0.91 0.007 240);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, "PingFang SC", "Segoe UI", system-ui, sans-serif; background: oklch(0.97 0.004 240); color: oklch(0.25 0.01 240); -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 26px 22px 90px; }
+  h1 { font-size: 1.35rem; font-weight: 700; margin: 0 0 4px; letter-spacing: -0.01em; }
+  .sub { color: oklch(0.5 0.01 240); font-size: 0.86rem; margin: 0 0 18px; line-height: 1.5; }
+  .sub b { color: oklch(0.28 0.01 240); }
+
+  .controls { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .ctl-btn { border: 1px solid oklch(0.82 0.01 240); background: #fff; border-radius: 8px; padding: 7px 14px; font: inherit; font-size: 0.82rem; font-weight: 600; cursor: pointer; color: oklch(0.3 0.01 240); transition: all .12s; }
+  .ctl-btn:hover { background: oklch(0.96 0.004 240); }
+  .ctl-btn.go { background: var(--im-accent); color: var(--im-accent-fg); border-color: var(--im-accent); }
+  .ctl-btn.go:hover { background: oklch(0.56 0.14 180); }
+  .ctl-btn:disabled { opacity: .4; cursor: not-allowed; }
+  .narrator { font-size: 0.8rem; color: oklch(0.46 0.02 240); min-height: 20px; display: inline-flex; align-items: center; gap: 7px; }
+  .narrator .nd { width: 7px; height: 7px; border-radius: 50%; background: oklch(0.7 0.16 80); animation: pulse 1.2s infinite; }
+  .narrator.idle .nd { background: oklch(0.7 0.01 240); animation: none; }
+  .narrator.wait .nd { background: oklch(0.65 0.16 25); }
+
+  .pane { background: var(--pane); border-radius: 16px; padding: 20px; min-height: 360px; border: 1px solid oklch(0.88 0.008 240); }
+  .msg { display: flex; gap: 8px; align-items: flex-end; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; color: #fff; font-size: 12px; font-weight: 600; background: oklch(0.58 0.13 35); }
+  .msg-col { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+  .sender { font-size: 0.72rem; font-weight: 600; color: oklch(0.5 0.01 240); margin-bottom: 3px; }
+
+  /* === 一个气泡装下：文本 + 工具/审批面板 + 待决卡 === */
+  .bubble { background: var(--bubble); border-radius: 1rem 1rem 1rem 0.25rem; padding: 10px 13px 12px; font-size: 0.875rem; line-height: 1.5; max-width: 470px; display: flex; flex-direction: column; gap: 9px; }
+  .bubble p.text { margin: 0; }
+  .stamp { font-size: 0.68rem; color: oklch(0.6 0.01 240); margin-top: 5px; display: inline-flex; align-items: center; gap: 6px; }
+  .run-dot { width: 6px; height: 6px; border-radius: 50%; background: oklch(0.72 0.18 60); animation: pulse 1.2s infinite; }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  @keyframes slidein { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform: translateY(0);} }
+  @keyframes foldout { from { opacity:1; transform: scale(1);} to { opacity:0; transform: scale(.96) translateY(-4px);} }
+  @keyframes flash { 0%{ background: oklch(0.22 0.04 180);} 100%{ background: transparent;} }
+
+  /* 工具/审批合一面板 */
+  .tc-toggle { display: inline-flex; align-self: flex-start; align-items: center; gap: 0.4rem; padding: 0.28rem 0.65rem; border-radius: 999px; background: oklch(0.94 0.006 240); border: 1px solid oklch(0.87 0.01 240); cursor: pointer; font: inherit; font-size: 0.75rem; font-weight: 600; color: oklch(0.45 0.01 240); transition: background 0.15s; user-select: none; }
+  .tc-toggle:hover { background: oklch(0.9 0.008 240); }
+  .arrow { font-size: 0.58rem; transition: transform 0.15s; }
+  .arrow.open { transform: rotate(90deg); }
+  .tc-toggle .seg { color: oklch(0.48 0.02 240); font-weight: 600; }
+  .tc-toggle .sep { color: oklch(0.8 0.01 240); }
+  .tc-toggle .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  .dot-allow { background: oklch(0.62 0.15 150); }
+  .dot-deny { background: oklch(0.6 0.18 25); }
+
+  .tc-list { margin-top: 1px; border-radius: 0.6rem; overflow: hidden; background: oklch(0.13 0.015 240); border: 1px solid oklch(0.22 0.02 240); box-shadow: 0 4px 16px oklch(0.05 0.01 240 / 0.45); animation: slidein .18s ease; }
+  .tc-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.46rem 0.8rem; border-bottom: 1px solid oklch(0.2 0.01 240); font-size: 0.76rem; }
+  .tc-row:last-child { border-bottom: 0; }
+  .tc-row.fresh { animation: flash 1s ease; }
+  .tc-ic { font-size: 0.6rem; flex-shrink: 0; }
+  .tc-ic.ok { color: oklch(0.6 0.16 150); }
+  .tc-ic.no { color: oklch(0.6 0.16 25); }
+  .tc-name { font-family: var(--mono); font-weight: 500; color: oklch(0.9 0.05 180); flex-shrink: 0; }
+  .tc-sum { flex: 1; min-width: 0; font-family: var(--mono); color: oklch(0.58 0.01 240); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* 闸门区：贴名称右侧，讲「谁批准」 */
+  .tc-gate { flex-shrink: 0; font-size: 0.68rem; padding: 0 2px; }
+  .tc-gate.ok { color: oklch(0.7 0.09 150); }
+  .tc-gate.no { color: oklch(0.72 0.12 25); }
+  /* 结果区：行尾，讲「执行结果」 */
+  .tc-meta { margin-left: auto; display: inline-flex; align-items: center; gap: 0.55rem; flex-shrink: 0; }
+  .tc-err { font-size: 0.68rem; font-family: var(--mono); color: oklch(0.72 0.13 25); }
+  .tc-dur { font-size: 0.68rem; font-family: var(--mono); color: oklch(0.5 0.01 240); }
+
+  /* 待决卡（深色，气泡内最下方） */
+  .pend { background: oklch(0.12 0.014 240); border: 1px solid oklch(0.26 0.03 200); border-radius: 0.6rem; box-shadow: 0 6px 22px oklch(0.05 0.01 240 / 0.4); padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; animation: slidein .22s ease; }
+  .pend.folding { animation: foldout .25s ease forwards; }
+  .pend-head { display: flex; align-items: center; gap: 8px; }
+  .pend-tool { font-family: var(--mono); font-size: 0.8rem; font-weight: 700; color: oklch(0.85 0.09 180); }
+  .pend-hint { margin-left: auto; font-size: 0.62rem; font-weight: 800; letter-spacing: 0.06em; text-transform: uppercase; color: oklch(0.74 0.13 80); display: inline-flex; align-items: center; gap: 5px; }
+  .pend-hint .ph { width: 6px; height: 6px; border-radius: 50%; background: oklch(0.74 0.16 80); animation: pulse 1.3s infinite; }
+  .pend-desc { font-size: 0.82rem; line-height: 1.45; margin: 0; padding: 6px 9px; background: oklch(0.18 0.02 240); border-left: 2px solid oklch(0.74 0.13 80); border-radius: 0.35rem; color: oklch(0.87 0.02 240); }
+  .pend-cmd { font-family: var(--mono); font-size: 0.76rem; background: oklch(0.08 0.01 240); border: 1px solid oklch(0.22 0.015 240); border-radius: 0.4rem; padding: 7px 9px; margin: 0; color: oklch(0.82 0.05 180); white-space: pre-wrap; word-break: break-all; }
+  .pend-q { font-size: 0.84rem; line-height: 1.5; margin: 0; color: oklch(0.87 0.02 240); }
+  .pend-opts { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 1px; }
+  .pbtn { border: 1px solid oklch(0.3 0.02 240); border-radius: 0.45rem; padding: 6px 13px; font: inherit; font-size: 0.78rem; font-weight: 600; background: oklch(0.2 0.015 240); color: oklch(0.82 0.01 240); cursor: pointer; transition: all 0.12s; }
+  .pbtn:hover { background: oklch(0.25 0.018 240); }
+  .pbtn.primary { background: var(--im-accent); color: var(--im-accent-fg); border-color: var(--im-accent); }
+  .pbtn.primary:hover { background: oklch(0.56 0.14 180); }
+  .pbtn.danger { color: oklch(0.78 0.14 25); border-color: oklch(0.42 0.1 25); background: oklch(0.18 0.02 25); }
+  .pbtn:disabled { opacity: .45; cursor: default; }
+
+  .legend { margin-top: 16px; font-size: 0.76rem; color: oklch(0.5 0.01 240); line-height: 1.75; }
+  .legend b { color: oklch(0.3 0.01 240); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>审批 UX 协同重设计 · 合一原型</h1>
+  <p class="sub">一个气泡装下全部技术动作：<b>工具调用面板</b> + <b>待决审批卡</b>。已决审批<b>不再是独立卡片</b>——它就是工具列表里行尾标「已授权 / 已拒绝」的一行。点「▶ 开始」，你在深色待决卡上点允许/拒绝来驱动 agent。</p>
+
+  <div class="controls">
+    <button class="ctl-btn go" id="startBtn" onclick="run()">▶ 开始演示</button>
+    <button class="ctl-btn" id="resetBtn" onclick="reset()">↻ 重新演示</button>
+    <span class="narrator idle" id="narrator"><span class="nd"></span><span id="narratorText">点「开始演示」</span></span>
+  </div>
+
+  <div class="pane">
+    <div class="msg">
+      <span class="avatar">产</span>
+      <div class="msg-col">
+        <span class="sender">产品</span>
+        <div class="bubble" id="bubble"></div>
+        <span class="stamp" id="stamp"></span>
+      </div>
+    </div>
+  </div>
+
+  <h2 style="font-size:0.95rem;font-weight:700;margin:30px 0 4px;">行内分区对照：闸门（谁批准） vs 结果（执行如何）</h2>
+  <p class="sub" style="margin-bottom:10px;">同一行两个区互不打架：<b>闸门区</b>紧贴名称右侧，<b>结果区</b>在行尾。</p>
+  <div class="tc-list" style="max-width:560px;box-shadow:none;">
+    <div class="tc-row"><span class="tc-ic ok">●</span><span class="tc-name">read</span><span class="tc-sum">AGENTS.md</span><span class="tc-meta"><span class="tc-dur">0.2s</span></span></div>
+    <div class="tc-row"><span class="tc-ic ok">●</span><span class="tc-name">bash</span><span class="tc-gate ok">已授权</span><span class="tc-sum">npm run build</span><span class="tc-meta"><span class="tc-dur">1.2s</span></span></div>
+    <div class="tc-row"><span class="tc-ic no">✕</span><span class="tc-name">bash</span><span class="tc-gate ok">已授权</span><span class="tc-sum">npm test</span><span class="tc-meta"><span class="tc-err">退出码 1</span><span class="tc-dur">3.1s</span></span></div>
+    <div class="tc-row"><span class="tc-ic no">✕</span><span class="tc-name">bash</span><span class="tc-gate no">已拒绝</span><span class="tc-sum">rm -rf node_modules/.cache</span><span class="tc-meta"><span class="tc-dur" style="color:oklch(0.5 0.01 240)">未执行*</span></span></div>
+    <div class="tc-row"><span class="tc-ic no">✕</span><span class="tc-name">bash</span><span class="tc-sum">curl https://flaky.api/x</span><span class="tc-meta"><span class="tc-err">执行超时</span></span></div>
+  </div>
+  <p class="sub" style="margin:9px 2px 0;font-size:0.76rem;">目标态文案（中文界面，全部走 i18n）：失败带退出码=<b>退出码 1</b>，无退出码=<b>失败</b>，超时=<b>执行超时</b>，中断=<b>已中断</b>，拒绝=<b>已拒绝</b>。<b>英文界面同位渲染 exit 1 / failed / Timed out / Interrupted / Denied</b>（跟随语言，不锁死）。<br>行 3 关键边界：<b>授权了但执行失败</b> → 名称旁「已授权」(闸门) 与行尾「退出码 1」(结果) 各占一侧。行 4 拒绝 → 闸门「已拒绝」、行尾「未执行*」(<b>*新提的标签，现状没有</b>)、且抑制行尾原有的「已拒绝」reason 徽标避免双印。行 5 自动工具超时 → 仅结果区「执行超时」，无闸门标。</p>
+
+  <div class="legend">
+    一个气泡内：<b>▸ N 次工具调用 · K 次授权 · X 允许 · Y 拒绝</b>（收起态分项计数，小圆点区分）；展开后，授权过的行尾标 <b>已授权</b>（绿）/ 拒绝的标 <b>已拒绝</b>（红），文字标注，和普通工具行同列。<br>
+    <b>待决审批</b>是唯一独立的深色卡，永远贴在气泡最下方等你操作；你一旦决定，它折叠消失，结果并成工具面板里的一行。<b>没有单独的已决摘要胶囊了。</b>
+  </div>
+</div>
+
+<script>
+let state, expanded = false, running = false, pendingResolver = null, freshId = null;
+
+function fresh() {
+  return { rows: [], pending: null, text: '收到，我开始看 clowder-ai 的群聊实现。', running: true, secs: 0 };
+}
+// rows: { tool, cmd, ok:bool, approval: null|'allow'|'deny' }
+
+function render() {
+  const b = document.getElementById('bubble');
+  b.innerHTML = '';
+
+  const txt = el('p', 'text'); txt.textContent = state.text; b.appendChild(txt);
+
+  if (state.rows.length > 0) {
+    const appr = state.rows.filter(r => r.approval);
+    const allow = appr.filter(r => r.approval === 'allow').length;
+    const deny = appr.length - allow;
+    let suffix = '';
+    if (appr.length) {
+      suffix = '<span class="sep">·</span><span class="seg">' + appr.length + ' 次授权</span>';
+      if (allow) suffix += '<span class="sep">·</span><span class="dot dot-allow"></span><span class="seg">' + allow + ' 允许</span>';
+      if (deny) suffix += '<span class="sep">·</span><span class="dot dot-deny"></span><span class="seg">' + deny + ' 拒绝</span>';
+    }
+    const tc = el('div', 'tc-toggle');
+    tc.innerHTML = '<span class="arrow' + (expanded ? ' open' : '') + '">▸</span><span>' + state.rows.length + ' 次工具调用</span>' + suffix;
+    tc.onclick = () => { expanded = !expanded; render(); };
+    b.appendChild(tc);
+
+    if (expanded) {
+      const list = el('div', 'tc-list');
+      state.rows.forEach(r => {
+        const row = el('div', 'tc-row' + (r.id === freshId ? ' fresh' : ''));
+        // 闸门区（名称右侧）
+        let gate = '';
+        if (r.approval === 'allow') gate = '<span class="tc-gate ok">已授权</span>';
+        else if (r.approval === 'deny') gate = '<span class="tc-gate no">已拒绝</span>';
+        // 结果区（行尾）：拒绝＝没执行，结果区标「未执行」；失败显示报错；否则耗时
+        let meta = '';
+        if (r.approval === 'deny') meta = '<span class="tc-dur">未执行</span>';
+        else if (r.err) meta = '<span class="tc-err">' + r.err + '</span><span class="tc-dur">' + (r.dur || '') + '</span>';
+        else if (r.dur) meta = '<span class="tc-dur">' + r.dur + '</span>';
+        row.innerHTML = '<span class="tc-ic ' + (r.ok ? 'ok' : 'no') + '">' + (r.ok ? '●' : '✕') + '</span>'
+          + '<span class="tc-name">' + r.tool + '</span>' + gate
+          + '<span class="tc-sum">' + r.cmd + '</span>'
+          + (meta ? '<span class="tc-meta">' + meta + '</span>' : '');
+        list.appendChild(row);
+      });
+      b.appendChild(list);
+    }
+  }
+
+  if (state.pending) {
+    const p = state.pending;
+    const card = el('div', 'pend'); card.id = 'pendCard';
+    card.innerHTML =
+      '<div class="pend-head"><span class="pend-tool">' + p.tool + '</span>'
+      + '<span class="pend-hint"><span class="ph"></span>需要确认</span></div>'
+      + (p.desc ? '<p class="pend-desc">' + p.desc + '</p>' : '')
+      + '<pre class="pend-cmd">' + p.cmd + '</pre>'
+      + '<p class="pend-q">' + p.question + '</p>'
+      + '<div class="pend-opts">'
+      + '<button class="pbtn primary" onclick="decide(\'allow\')">允许</button>'
+      + '<button class="pbtn" onclick="decide(\'allow\')">本会话内允许</button>'
+      + '<button class="pbtn danger" onclick="decide(\'deny\')">拒绝</button></div>';
+    b.appendChild(card);
+  }
+
+  const stamp = document.getElementById('stamp');
+  stamp.innerHTML = state.running
+    ? '<span class="run-dot"></span> 进行中 · ⏱ ' + state.secs + 's'
+    : '11:17 · ' + state.secs + 's';
+}
+function el(tag, cls) { const e = document.createElement(tag); if (cls) e.className = cls; return e; }
+function narrate(text, mode) { document.getElementById('narratorText').textContent = text; document.getElementById('narrator').className = 'narrator ' + (mode || 'idle'); }
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let rowSeq = 0;
+function pushRow(tool, cmd, ok, approval, dur, err) { const id = ++rowSeq; state.rows.push({ id, tool, cmd, ok, approval, dur, err }); freshId = id; state.secs += 1; render(); setTimeout(() => { if (freshId === id) { freshId = null; } }, 1100); }
+
+function decide(decision) {
+  if (!state.pending || !pendingResolver) return;
+  const card = document.getElementById('pendCard');
+  document.querySelectorAll('#pendCard .pbtn').forEach(b => b.disabled = true);
+  if (card) card.classList.add('folding');
+  const p = state.pending;
+  setTimeout(() => {
+    state.pending = null;
+    expanded = true; // 让用户看到结果并入面板
+    if (decision === 'deny') {
+      pushRow(p.tool, p.cmd, false, 'deny');
+      narrate('你拒绝了 —— 行尾「已拒绝」在闸门区、「未执行」在结果区，agent 继续。');
+    } else if (p.failAfterAllow) {
+      pushRow(p.tool, p.cmd, false, 'allow', '2.3s', '退出码 1');
+      narrate('你允许了，但它跑挂了 —— 名称旁「已授权」(闸门) + 行尾「退出码 1」(结果)，两件事各占一侧。');
+    } else {
+      pushRow(p.tool, p.cmd, true, 'allow', '1.2s');
+      narrate('你允许了 —— 名称旁标「已授权」，行尾是耗时，agent 继续。');
+    }
+    const r = pendingResolver; pendingResolver = null; r();
+  }, 230);
+}
+function ask(p) { state.pending = p; render(); narrate('agent 请求授权：' + p.tool + ' —— 在气泡最下方的深色卡上点允许 / 拒绝', 'wait'); return new Promise(res => { pendingResolver = res; }); }
+async function autoTools(list) { for (const [tool, cmd, err] of list) { pushRow(tool, cmd, !err, null, err ? '0.8s' : (0.2 + Math.round(Math.random()*9)/10).toFixed(1) + 's', err); await sleep(180); } }
+
+async function run() {
+  if (running) return; running = true;
+  document.getElementById('startBtn').disabled = true;
+  reset(true);
+  narrate('agent 启动，调用工具…');
+  await sleep(400);
+  await autoTools([['read', 'AGENTS.md'], ['bash', 'ls clowder-ai/src'], ['read', 'channels/group.ts'], ['grep', 'group chat']]);
+  narrate('前 4 次无需授权，直接进面板。');
+  await sleep(700);
+
+  narrate('遇到一条需要授权的命令…');
+  await sleep(450);
+  await ask({ tool: 'bash', desc: '查看仓库改动状态', cmd: 'git status --porcelain', question: '要执行这条命令吗？' });
+  await sleep(500);
+  await autoTools([['read', 'package.json'], ['bash', 'cat tsconfig.json']]);
+  await sleep(500);
+
+  narrate('面板里已有 1 条「已授权」行。又来一条待决——这条我故意让它授权后跑挂…');
+  await sleep(650);
+  await ask({ tool: 'bash', desc: '构建前端产物', cmd: 'npm run build', question: '要执行这条命令吗？', failAfterAllow: true });
+  await sleep(500);
+  await autoTools([['bash', 'git log --oneline -5'], ['bash', 'curl https://flaky.api/x', '执行超时']]);
+  await sleep(450);
+
+  narrate('再来一条，这条比较危险…');
+  await sleep(600);
+  await ask({ tool: 'bash', desc: '清理构建缓存', cmd: 'rm -rf node_modules/.cache', question: '这条会删除缓存目录，确认执行？' });
+  await sleep(400);
+
+  state.text = 'clowder-ai 的群聊是通过 channel 适配实现的，确实支持。详见我整理的对照表。';
+  state.running = false;
+  render();
+  const k = state.rows.filter(r => r.approval).length;
+  const ka = state.rows.filter(r => r.approval === 'allow').length, kd = k - ka;
+  narrate('完成。收起态「' + k + ' 次授权 · ' + ka + ' 允许' + (kd ? ' · ' + kd + ' 拒绝' : '') + '」；展开看每行的「已授权 / 已拒绝」。');
+  document.getElementById('startBtn').disabled = false; running = false;
+}
+
+function reset(keep) { state = fresh(); expanded = false; pendingResolver = null; freshId = null; if (!keep) narrate('点「开始演示」'); render(); }
+reset();
+</script>
+</body>
+</html>

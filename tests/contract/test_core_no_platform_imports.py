@@ -17,6 +17,10 @@ CORE_ROOT = SRC_ROOT / "core"
 _IMPORT_LINE_RE = re.compile(r"^\s*(?:from|import)\s+", re.MULTILINE)
 
 FORBIDDEN_PREFIXES = [
+    # bugfix-431: core must never import sdk (make_skill_resolver lives in core precisely
+    # to avoid this reverse dependency; adding sdk here ensures any future core→sdk import
+    # is caught immediately by CI).
+    "agent.sdk",
     "agent.platform",
     "agent.products",
     "agent.apps",

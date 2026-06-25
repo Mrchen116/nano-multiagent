@@ -87,6 +87,14 @@ class _RuntimeStub:
         self._session_manager.store._sessions[sid] = dict(metadata or {})
         return type("Session", (), {"session_id": sid})()
 
+    def resolve_available_skills(
+        self,
+        workspace_root: Any,
+        include_names: Any = None,
+    ) -> tuple:
+        # Stub: returns empty tuple so skill validation passes (no skills to check).
+        return ()
+
     def session_workspace_root(self, session_id: str) -> Any:
         return self._tmp_path
 

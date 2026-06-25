@@ -13,7 +13,6 @@ from agent.core.background_tasks.ids import generate_agent_id
 from agent.core.background_tasks.models import BackgroundTaskStatus
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 from agent.core.errors import ToolError
-from agent.core.skills import resolve_available_skills
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.core.types import TurnResult
@@ -654,10 +653,11 @@ class AgentTool(WiringMixin):
         load_skills = _normalize_skill_names(
             args.get("load_skills"), tool_name=self.name
         )
-        available = resolve_available_skills(
-            workspace_root=ctx.repo_root,
+        # bugfix-431 决策 3: use runtime.resolve_available_skills so subagent skill
+        # validation uses the same resolver as runtime and preview (同源).
+        available = self._runtime.resolve_available_skills(
+            ctx.repo_root,
             include_names=load_skills,
-            config_resolver=getattr(self._runtime, "config_resolver", None),
         )
         available_names = {skill.name for skill in available}
         missing_skills = [name for name in load_skills if name not in available_names]

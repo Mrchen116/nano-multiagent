@@ -39,7 +39,9 @@ _WHITELIST: frozenset[str] = frozenset(
         # bugfix-429: per-provider llm_clients param + assignment added in __init__; shifted to 185
         # bugfix-429 fix-r1: provider_of top import + _active_run_models field (net +7); shifted to 192
         # bugfix-429 rebase onto main (feat-421/428 等): runtime.py 前段净增行，shifted 192→197
-        "src/agent/core/agent/runtime.py:197",
+        # bugfix-431-M1 rebase onto bugfix-429: config_resolver→workspace_config_dirname+
+        # skill_search_roots params net +2 (197→199); ruff fix/format 后 .nano 字面量净下移到 202
+        "src/agent/core/agent/runtime.py:202",
         # kernel.py: build_kernel new-path workspace_config_dirname default — platform
         # default fallback when a consumer omits it (same role as jsonl_store default);
         # consumers always pass their own (.nanocode / .nanoassistant). refactor-406-M1 决策 1.
@@ -56,10 +58,12 @@ _WHITELIST: frozenset[str] = frozenset(
         # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
         # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
-        # bugfix-426-M1: RunInfo.injected docstring lines in _to_run_info shifted 483→488.
-        # bugfix-429: build_kernel per-provider llm_clients construction block + empty-provider
-        # skip (if p.models) + comment; integrate(bugfix-426+429) both shifts compose → 509.
-        "src/agent/sdk/kernel.py:509",
+        # bugfix-429: build_kernel per-provider llm_clients construction block; shifted 483→501,
+        # then empty-provider skip (if p.models) + comment added 3 lines → 504.
+        # bugfix-431-M1 rebase onto bugfix-429: _WorkspaceDirnameSkillResolver deleted from kernel
+        # (−35 lines) but build_kernel body net grew; bugfix-426 merge keeps RunInfo.injected
+        # docstring and foreground stopper shifts; .nano/tools literal now at 515.
+        "src/agent/sdk/kernel.py:515",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
