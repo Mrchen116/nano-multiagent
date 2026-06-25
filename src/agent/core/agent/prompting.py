@@ -64,6 +64,15 @@ def build_chat_messages(
     Returns:
         Ordered message tuple: history, then current user. No system message.
     """
+    # bugfix-433-fix2: an image-bearing user turn that triggered a provider error must
+    # not re-send its image block on later turns (else it errors again every turn →
+    # poisoned session). Mirrors CC normalizeMessagesForAPI errorToBlockTypes: for each
+    # synthetic provider-error message, walk back to the nearest user turn carrying an
+    # image and strip ONLY its image block — text is kept. Computed BEFORE filtering out
+    # the error markers (they're the signal). Scope is image-only: a pure-text user turn
+    # has no image block, so pure-text provider-error replay is unchanged.
+    image_strip_ids = _image_turns_to_strip_after_error(history_messages)
+
     # bugfix-380: filter out provider error messages before sending to LLM.
     # These are synthetic assistant messages (is_provider_error=True) that were
     # persisted for IM/CLI display but must not pollute the LLM's context window
@@ -86,7 +95,11 @@ def build_chat_messages(
                 # bugfix-433 决策4: a history Message that persisted image parts must
                 # be replayed as a block list so the model still sees the image on
                 # later turns; pure-text messages (parts=None) keep content:str.
-                content=_history_content(message),
+                # fix2: when this turn previously triggered a provider error, its image
+                # block is stripped here (text kept) so it is not re-sent.
+                content=_history_content(
+                    message, strip_image=message.message_id in image_strip_ids
+                ),
                 name=message.name,
                 tool_call_id=message.tool_call_id or _extract_tool_call_id(metadata),
                 tool_calls=_extract_tool_calls(metadata),
@@ -104,12 +117,59 @@ def build_chat_messages(
     return tuple(messages)
 
 
-def _history_content(message: Message) -> str | list[dict[str, Any]]:
-    """Return a history message's LLM content, restoring image blocks from parts."""
-    if message.parts and any(
+def _message_has_image_parts(message: Message) -> bool:
+    return bool(message.parts) and any(
         isinstance(p, Mapping) and p.get("type") == "image" for p in message.parts
-    ):
+    )
+
+
+def _image_turns_to_strip_after_error(
+    history_messages: tuple[Message, ...],
+) -> frozenset[str]:
+    """Return message_ids of image-bearing user turns that preceded a provider error.
+
+    bugfix-433-fix2 (CC normalizeMessagesForAPI errorToBlockTypes): for each synthetic
+    provider-error message, walk backward to the nearest user turn carrying an image and
+    mark it — its image block must be stripped on replay so the poison image is not
+    re-sent every subsequent turn. Walk stops at the first non-error message that is not
+    an image user turn (mirrors CC stopping at the preceding assistant / plain user turn).
+    """
+    strip: set[str] = set()
+    for i, msg in enumerate(history_messages):
+        if not _is_provider_error(msg):
+            continue
+        for j in range(i - 1, -1, -1):
+            candidate = history_messages[j]
+            if candidate.role == "user" and _message_has_image_parts(candidate):
+                strip.add(candidate.message_id)
+                break
+            if _is_provider_error(candidate):
+                continue  # skip stacked error markers
+            break  # hit an assistant / non-image user turn → stop
+    return frozenset(strip)
+
+
+def _history_content(
+    message: Message, *, strip_image: bool = False
+) -> str | list[dict[str, Any]]:
+    """Return a history message's LLM content, restoring image blocks from parts.
+
+    When ``strip_image`` is set (fix2: this turn triggered a provider error), image
+    blocks are dropped and only text is kept, so the poison image is not re-sent. If no
+    text block survives, fall back to the message's str content projection.
+    """
+    if not _message_has_image_parts(message):
+        return message.content
+    if not strip_image:
         return [dict(p) for p in message.parts]
+    text_blocks = [
+        dict(p)
+        for p in message.parts
+        if isinstance(p, Mapping) and p.get("type") == "text"
+    ]
+    if text_blocks:
+        return text_blocks
+    # No text survived the strip → fall back to the plain-text projection.
     return message.content
 
 
