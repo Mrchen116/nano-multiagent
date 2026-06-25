@@ -57,3 +57,21 @@
   - Visual/Interaction: CSS 在 R4，浏览器对照原型在 R5
 - Rollback: 回退到 R3 C1 commit
 - Next: R4 — 合一气泡（message-pane pending 入气泡、删气泡外卡、permission-card 删 resolved）+ global.css 样式对齐原型
+
+### R4 — 合一气泡 + 待决卡形态 + 样式对齐原型
+
+- Context: 决策1/3 合一 —— 审批呈现从「气泡外独立卡墙」收进「气泡内、并入工具面板」。原 message-pane 把 PermissionCard 渲染在 chat-bubble-card 的**兄弟节点**（飘在气泡外），且 resolved 卡也渲染（黑框墙）。
+- Decision:
+  - `message-pane.tsx`: PermissionCard 移进 `chat-bubble-card` 内（工具面板之后、最下方），并 `.filter(req => req.status !== "resolved")` 只渲 pending —— 已决并入工具行闸门区（决策3）。
+  - `permission-card.tsx`: 删 resolved 分支 → `return null`；去 🔒 锁图标（决策 Q3）；hint 加脉冲圆点。组件自此只负责 pending。
+  - `global.css`: 新增闸门区 `chat-tool-call-gate--allow/deny`、`chat-tool-call-not-executed`、收起态 `chat-tool-calls-approvals/sep/dot--allow/deny/approval-seg`、`chat-permission-pulse` + keyframes；删 `chat-permission-card--resolved` / `chat-permission-resolved-label*` 死样式。
+- Rationale: 全栈数据路径核实贯通 —— WS（chat-stream JSON.parse 直 spread → reducer mergeToolCall `{...prev,...next}` 全字段合并）与 REST（ToolCallPayload 含 approval → Message.tool_calls 结构化注入）都把 approval 带到 ToolCallRow，无字段挑拣丢失。filter resolved 而非删 permission_requests 流，保留 reducer 既有两流（pending 仍读 permission_requests，已决读 tool_call.approval）。
+- Evidence:
+  - Tests: message-pane.test.tsx（pending 在 chat-bubble-card 内、resolved 不渲卡、resolved+pending 只显 pending）+ permission-card.test.tsx（resolved 渲空、reactivity）。前端全套 461 passed；tsc clean；`npm run build` 成功（dist 不提交）。
+  - Entry: N/A（R5 端到端 live + 浏览器对照原型）
+  - Frontend State Matrix: default/empty/permission denied/submitting/missing data 组件覆盖；mobile/desktop/视觉对照原型在 R5
+  - Browser QA: R5
+  - E2E/Regression: message-pane + permission-card 组件 regression 落库
+  - Visual/Interaction: 样式已写齐对齐原型类名；真实浏览器截图对照在 R5
+- Rollback: 回退到 R4 C1 commit
+- Next: R5 — 端到端 live 验收（整栈重启，真走 ask→allow→已授权 / deny→已拒绝/未执行 / 授权后失败两区）+ 浏览器逐项对照原型
