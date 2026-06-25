@@ -104,7 +104,7 @@ graph TB
 
 **选了「Message 加 parts，回放读它」**（parts 从悬空字段升为图片的权威表示）。
 
-- **理由**：`content:str` 假设贯穿 reasoning/tool/compaction/provider-error 太多处，全改成 blocks 数组（CC 模型）风险巨大；保留 `content:str`（纯文本投影，给检索/日志/纯文本 fallback）+ 新增 `parts`（结构化权威）是最小侵入。JSONL entry 已写 `parts`，本决策让 `_to_message` 读回它——双轨从此「写且读」、一致。
+- **理由**：`content:str` 假设贯穿 reasoning/tool/compaction/provider-error 太多处，全改成 blocks 数组（CC 模型）风险巨大；保留 `content:str`（纯文本投影，给检索/日志/纯文本 fallback）+ 新增 `parts`（结构化权威）是最小侵入。`parts` 键此前仅被 `append_turn_message` 写出却从不被回放读（submit 路径的 `_message_to_entry` 连写都没有，需新增——见接口段）；本决策让 `_to_message` 读回 `parts`，双轨从此「写且读」、一致。
 - **拒绝**：content 直接变 blocks 数组——侵入面与回归风险不可控；维持双轨写而不读——正是 bug 本身。
 - **风险**：`Message` 是 frozen dataclass，加字段须全构造点默认 `parts=None`；回放重建顺序/parent 链不得受影响（不变量3）。
 
