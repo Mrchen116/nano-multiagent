@@ -538,6 +538,54 @@ async def test_multiple_parts_become_independent_user_messages_in_llm_history(
     )
 
 
+async def test_multiple_image_parts_all_reach_provider(tmp_path: Path) -> None:
+    """bugfix-433 CRITICAL-1: a single message with multiple images → ALL images reach
+    the provider (M246 multi-part expansion must not render non-last images as text).
+
+    Before the fix, ``[text, img1, img2]`` split into extra_parts=[text,img1] (rendered
+    as placeholder text) + last_part=[img2]; img1's image was lost. The extra image part
+    must carry structured Message.parts so build_chat_messages restores it as an image block.
+    """
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    llm_client = FakeLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="mock-model",
+    )
+
+    img1 = "data:image/png;base64,aW1nMQ=="
+    img2 = "data:image/png;base64,aW1nMg=="
+    await runtime.run(
+        session.session_id,
+        [
+            {"type": "text", "text": "compare these"},
+            {"type": "image", "image_url": img1},
+            {"type": "image", "image_url": img2},
+        ],
+        stream=False,
+    )
+
+    assert len(llm_client.requests) == 1
+    user_messages = [m for m in llm_client.requests[0].messages if m.role == "user"]
+    # Collect every image_url across all user messages (each part may be its own message).
+    seen_image_urls: set[str] = set()
+    for m in user_messages:
+        if isinstance(m.content, list):
+            for block in m.content:
+                if isinstance(block, dict) and block.get("type") == "image":
+                    seen_image_urls.add(block.get("image_url"))
+    assert img1 in seen_image_urls, "first image lost in M246 expansion"
+    assert img2 in seen_image_urls, "last image lost"
+    # No placeholder text should leak in place of an image.
+    assert not any(
+        isinstance(m.content, str) and "[image:placeholder]" in m.content
+        for m in user_messages
+    )
+
+
 # ---------------------------------------------------------------------------
 # bugfix-380: provider error → 合成 is_provider_error assistant 消息
 # ---------------------------------------------------------------------------
