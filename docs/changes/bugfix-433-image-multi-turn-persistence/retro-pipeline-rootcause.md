@@ -8,7 +8,7 @@
 
 用户在一次 `/stop` 修复的 PR review 中顺手发现「下一轮图片没了」，确认是 bug，授权 **0 交互自主**走完 spec→design→orchestrator 把它修掉并提 PR。实际：unit **确实完成**（PR #148、CI 全绿、04:53 orchestrator 退出），但中途吃了 **3 轮 review/fix 级联**，其中**两轮是同一个 design 盲区**——而这个盲区的解法（CC 的 `normalizeMessagesForAPI` error-replay-strip）**早在立项第 1 小时(10:52)就被亲读 CC 源码后准确写出来了，却没进 incident.md、没进 design**。外加收尾时 **15 个后台 agent 没被回收**，用户 74 分钟后手动停掉。
 
-一句话：这不是灾难，是一次「本可一轮过、实际三轮过」的 unit——多出的两轮全因一个**第 1 小时就掌握、却在 spec→design 边界丢失的关键机制**。
+一句话：这不是灾难，是一次「本可一轮过、实际三轮过」的 unit——多出的两轮全因一个**第 1 小时就掌握、却在 spec→design 边界丢失的关键机制**（P0）。围绕它还暴露了 4 个可机械根治的流程/机制硬伤：scope 决策靠 live 采样而非查证模型能力（P4）、收尾留 15 个滞留 agent（P2）、verifier 报告三轮卡 detached worktree 没上 origin（P5）、入站校验欠规约 + design Changelog 空白（P1/P3）。
 
 ---
 
@@ -47,6 +47,8 @@ jsonl 根：`~/.claude/projects/-Users-czj-Repos-nano-multiagent/`。主 session
 | P1 | reviewer round1 Issue#1 | 41 字节损坏 PNG（合法头）未被入站拦截，透传 Anthropic→provider error 文案而非固化文案 | design 决策5 只说「解析失败→corrupt」，未钉死校验深度；worker 取 magic-bytes，被合法头骗过 | design 欠规约 + 实现 |
 | P2 | 用户 06:08 手停 15 agent | orchestrator 宣告「后台 agent 会自然结束」，实际滞留 74 分钟 | orchestrator 收尾未显式回收 in-process teammate | orchestrator 收尾 |
 | P3 | 审计挖出（无对应反馈） | design.md `## Changelog` 空白，多轮修订无耐久追溯 | design 修订记在 design-review.md 闭环记录，design.md 自身 Changelog 未维护 | design 文档卫生 |
+| P4 | scope B 04:01–04:23 拍B→撤B→保留B 三次翻转 | 一个决策事实（模型支不支持图片）靠 worker 单次 live 观察反复拍板，40 分钟拉锯 + 最终 inconclusive | orchestrator 把「查文档就能定死的外部能力事实」当「在真栈跑跑看的行为」，从不 WebSearch 核 | orchestrator 决策依据 |
+| P5 | 审计挖出（lead 事后提出） | verifier 三轮报告全卡在 detached worktree 没上 origin，lead 手动捡回三次 | change-verifier §1 detached 签出 + §5.2 按本地分支名 push，commit 落点≠push 目标，且无落地校验 | change-verifier skill 机制 |
 
 ---
 
@@ -145,6 +147,103 @@ design.md line 6-7：`## Changelog` 标题下**空白**。但本 unit design 经
 
 ---
 
+## P4 — scope B 三次翻转：一个「查文档就能定死的事实」被靠 live 采样反复拍板
+
+> P4 是 P0 在 orchestrator 阶段的下游：正因 strip 机制不在 design（P0），它以「scope 决策」形式临场冒出来，逼 leader 在一个未核实的前提上拍板。这段 worker↔leader 对话质量很高（双方都按证据更新立场），但拉锯本身可避免。
+
+### 经过还原（SendMessage 原文，04:01–04:27）
+
+1. **03:46 worker 中立上报，不擅扩**：fix1 损坏图闭合后，真栈发现更广面（合法图发 K2.6→provider error→会话毒化），定性「非本 unit 引入的既有面」，列 A（留 issue）/B（做 strip）请 leader 拍板。
+2. **03:48 leader 拍 B（限 image）**，前提：「本仓 default K2.6 是非 vision，用户给非 vision agent 发图很常见」。
+3. **04:01→04:07 worker 自纠前提 → leader 撤 B**：worker 澄清「K2.6 其实支持 vision（live 答对红蓝），那次报错是 provider 瞬时 stream error」；leader 据此「收回 B……给图片单独贴 strip 是 bandaid，不如 #147 统一根治」。
+4. **04:17 worker 带新证据自主做了 B**：用 **doubao-seed code（本仓真有的「非 vision」模型）** live 证「确定性毒化」，并亲读 CC `normalizeMessagesForAPI errorToBlockTypes` 证其本就 image-specific。
+5. **04:21 leader 第一次 keep**；**04:21:42 worker 第二次坚持 scope 纪律、建议 revert**（按 §0.8「无对应 reviewer 缺陷该是 issue」）。
+6. **04:23 leader 用 worker 自己挖的 CC 事实逐条反驳、最终留 B**；04:27 worker 服（「你用我自己挖的 CC 事实纠了我」）。
+
+### 一手证据：拉锯全卡在一个没人去查的事实
+
+三方都在**用 live 采样反推「模型支不支持图片」**，这恰是最不可靠的方法：
+
+- worker 04:17 称 doubao code「**确定性**毒化、每次发图必踩」，以此说服 leader 留 B。
+- **reviewer 04:28 切同一个 doubao code 发图 → 答对颜色、零 error**（reviewer 原话：「有趣！非 vision 模型实际上也能正确回答图片颜色……可能这个模型版本其实支持视觉，**或者**代理层做了处理」）；切 gpt-5.5 同样答对。
+- 即 **worker 的「确定性」证据，reviewer 用同一模型复现失败**。那次 doubao 报错几乎可定性为偶发 stream 抽风——正是 leader 04:07 撤 B 时说的「偶发」。
+- reviewer 自己也没核清是「模型支持视觉」还是「proxy 处理」，只能标 **B1 inconclusive**。
+
+而「doubao-seed code / gpt-5.5 是否支持图片输入」是**厂商文档里确定、一次 WebSearch 就能定死的外部事实**；本仓 `docs/可用LLM_API与联调说明.md` 只记端点、**无任何模型的 vision 能力**（已核）。orchestrator 手握 WebSearch 工具，全程没搜。
+
+### 根因落点
+
+**orchestrator 把「该查的事实」当「该跑的行为」。** scope B 整场争的不是「怎么修」（摘图，照抄 CC，没争议），是「这 bug 够不够常见、该不该现在修」——而「够不够常见」=「看不了图的模型常不常见」=一个能力事实。leader 作为决策人，把它锚在 worker 的**单次** live 观察上反复横跳，而不是用最可靠的 lookup 一锤定音。live 采样对能力事实天生不可靠：偶发错误会假阳、proxy 可能改写请求、纯色小图能蒙对。
+
+### 这一步本该怎样
+
+`change-orchestrator`：**做 scope / 严重性判断前，先分清依据是「行为」还是「事实」。** 模型能力、API 限额、协议字段、依赖是否声明这类**外部可查事实**，优先 WebSearch / 厂商文档 / 仓库 doc 核证，**不靠 worker 单次 live 观察拍板**。本例一句 `豆包 seed code 多模态 / doubao-seed vision support` 即可定死前提，40 分钟拉锯 + inconclusive 不会发生。
+
+> 注：B 这个修复**方向对、代码对、对齐 CC、单测能守**——保留 B 没错。错的是支撑「确定性、必须现在修」的那块 live 证据从头到尾没在真环境稳定成立过，inconclusive 暴露的正是「该用 lookup 确立的事实，用 sampling 反推了」。
+
+---
+
+## P5 — change-verifier 报告三轮卡在 detached worktree，全没上 origin
+
+### 症状（lead 事后提出，审计坐实）
+
+lead 原话：「verifier 报告三次卡 detached verify worktree 没 push，我手动捡回三次——change-verifier skill 的报告 push 机制有缺陷，值得修。」**诊断成立**，且可精确到命令。
+
+### 一手证据
+
+三轮 verifier（R1 03:19 / R2 04:12 / R3 04:29）每轮 §1 启动 + §5.2 提交推送，push 结果**全是 `Everything up-to-date`**——报告一行没上 origin：
+
+| 轮 | §1 启动（无 -b） | §5.2 commit | §5.2 `git push origin unit/bugfix-433` |
+|---|---|---|---|
+| R1 | `worktree add … origin/unit/bugfix-433` | round 1（detached HEAD） | **Everything up-to-date** |
+| R2 | 同上 | `bf2cd70` round 2 | **Everything up-to-date** |
+| R3 | 同上 | `0eb6d24` round 3 | **Everything up-to-date** |
+
+- `git branch -a --contains bf2cd70 / 0eb6d24` = 只在 `*`（detached HEAD），**不在任何分支**——orphan commit。
+- unit 分支上的 verification.md 由 **lead 手提**：`11fe0cb3`（捡 R1）、`672ce867`（捡 R2+3，commit message 写明「捡回 verifier 报告，detached worktree 未 push」）。
+
+### 根因落点：skill 自己的 §1 与 §5.2 互相打架
+
+1. **§1 `git worktree add <dir> origin/unit/<id>`（无 `-b`）→ detached HEAD**：`origin/unit/<id>` 是远程跟踪 ref，签出即游离。报告 commit 落在游离 HEAD，不属任何分支。
+2. **§5.2 `git push origin unit/<id>`**：推的是**本地分支 `unit/<id>`**（worktree 间共享 ref store，它还停在 orchestrator 上次位置），**不含**游离 HEAD 的 commit → git 判定已一致 → `Everything up-to-date`。**commit 落点（detached HEAD）≠ push 目标（本地 unit/<id>）。**
+3. **`Everything up-to-date` 被当成功**：verifier 期望「pushed N commits」，没把 up-to-date 当红灯，照常回报 pass。这是缺陷三轮重复无人当场发现的直接原因。
+
+> 为什么 §1 用 detached 而非 checkout 本地 `unit/<id>`：本地 `unit/<id>` 已被 orchestrator 的 unit worktree 占用，同一本地分支不能被两 worktree 同时 checkout。skill 用 detached 避开冲突，**但 §5.2 的 push 命令没跟着改**——没接上的设计缝。
+
+### 对照 change-impl-worker 为什么稳（正面范式）
+
+worker 同步代码三轮零失手，纪律是：**永远在有名字的真分支上 commit，push 的 ref 必须可证明包含该 commit。**
+- §1 `worktree add **-b** "$branch" <dir> origin/unit/<id>`：`-b` 建真分支 `milestone/<id>` 并 checkout，commit 有家；
+- 开工即 `git push -u origin <branch>`（中途保险，代码先落 origin）；
+- §6.1 集成在**持有 `unit/<id>` 的 unit worktree** 内 `git merge --no-ff "$branch"` 再 `git push origin unit/<id>`——push 的分支是刚被 merge 推进、本 worktree 真正持有的，**可证明包含 commit**；配 `pull --ff-only` + unit 锁处理并发。
+
+verifier 三条全违反：无 `-b`（detached）、无中途 push、push 的是不含 commit 的旧 ref。
+
+### 这一步本该怎样（修法精确到命令）
+
+verifier 是只读、无 unit worktree 可 merge，detached 只读签出**应保留**；要改的是 §5.2 的 push + 加落地校验：
+
+```bash
+cd "$verify_worktree_dir"
+git add docs/changes/<unit_dir>/verification.md
+git commit -m "docs(<id>): round <N> verification — verdict <…>"
+
+git fetch origin unit/<id>
+git rebase origin/unit/<id>          # 只 rebase 报告 commit，避并发非快进
+git push origin HEAD:unit/<id>       # ← 推 HEAD（含报告 commit），不是本地 unit/<id>
+
+# 抄 worker「push 后证明落地」精神，别信 up-to-date
+git fetch origin unit/<id>
+git merge-base --is-ancestor HEAD origin/unit/<id> \
+  && echo "✓ 报告已上 origin" || { echo "✗ 未落 origin"; exit 1; }
+```
+
+两处要点：① `HEAD:unit/<id>` = worker「推可证明含 commit 的 ref」原则在「无分支只读」场景的等价写法（光加 `-b` 不改 push 行仍会推错 ref，无用）；② **push 后 `merge-base --is-ancestor` 强校验** = worker 靠 merge 天然保证 containment，verifier 没 merge 就得显式断言，把「up-to-date 当成功」的静默陷阱炸出来。
+
+> 关联面（值得顺手查）：change-reviewer 同样自建 `origin/unit/<id>` worktree 推报告，但本 session 它的 regression 报告 push **成功了**（04:31 `a3a48e3f..6af1f2fa` 真上 origin）。说明两 skill 推送范式不一致、reviewer 那套是对的——verifier 应对齐它/上面修法。
+
+---
+
 ## 综述：对齐 design 后能托管给 agent 吗？——能，前提是 design 没漏机制
 
 ### A. 唯一的实质失效是一个「第 1 小时掌握、spec→design 边界蒸发」的机制缺失（P0，牵出 P1）
@@ -157,15 +256,19 @@ design.md line 6-7：`## Changelog` 标题下**空白**。但本 unit design 经
 
 3 轮 design-review 把写出来的部分审得很细（is_provider_error 数据流、M246、delta-spec 归属、is_provider_error 是否残留），却没有任何一角度做**缺失检测**：「这个 design 新持久化/重放了什么内容？它们的失败态有没有被覆盖？」缺失的机制天然在「逐条对照写出来的内容」的视野外。
 
-### C. 收尾纪律：自主模式必须显式回收 in-process teammate（P2）
+### C. 决策依据：该「查」的事实，被用「跑」来反推（P4）
 
-orchestrator 凭「会自然结束」的错误假设留下 15 个滞留 agent。0 交互下无用户兜底，收尾回收必须是硬步骤。
+scope B 40 分钟拉锯 + inconclusive，根子是 orchestrator 把「模型支不支持图片」这个**外部可查事实**当成「在真栈跑跑看的行为」，靠 worker 单次 live 观察反复拍板。可泛化反模式：**做判断前先分清依据是「行为」（该跑）还是「事实」（该查）**——能力 / 限额 / 协议 / 依赖声明这类查文档/搜索一锤定音，别靠 live 采样（偶发错误假阳、proxy 改写请求、小图能蒙）。这条与 P0 同源——正因机制漏在 design（P0），它才以 scope 决策形式临场冒出来逼 leader 拍板。
+
+### D. 收尾 + 机制纪律：自主模式回收 teammate（P2）、verifier 报告 push 修复（P5）
+
+两个机制层硬伤：orchestrator 凭「会自然结束」留下 15 个滞留 agent（P2）；change-verifier §1 detached 签出与 §5.2 按分支名 push 不匹配，报告三轮丢失靠 lead 手捡（P5）。都不靠判断、靠改 skill 步骤即可根治；P5 的正解直接抄 change-impl-worker「在真分支 commit + 推可证明含该 commit 的 ref + push 后校验落地」的稳定范式。
 
 ### 一句话
 
-> **这次唯一值得改的，是让「参考实现的异常/重放路径」和「本 design 新增的持久化/重放内容的失败态」在 spec→design 阶段被强制问一遍**——做到这两件，10:52 就有的解法不会蒸发，三轮级联会塌成一轮。其余（实现、验收、worker 复用）都健康。
+> **这次唯一的实质失效（产品两轮 fail）是 P0：第 1 小时掌握的 strip 机制在 spec→design 边界蒸发。** 其余都是可机械根治的流程/机制硬伤：P4（该查的事实没查）放大了 P0 的下游代价、P2/P5 是收尾与 git 同步的步骤缺口、P1/P3 是 design 欠规约与文档卫生。实现忠实度、验收链、worker 复用——都健康。
 
-**两个最高杠杆改动**：① spec/design grounding checklist 各加一条「参考实现 error-path/replay-path 抄了吗 + 本 design 新持久化内容失败态覆盖了吗」（治 P0+P1 根，收益最大）；② design-reviewer 加「缺失机制」反向角度（在写出来的之外兜住 P0 类盲区）。
+**三个最高杠杆改动**：① spec/design grounding checklist 各加一条「参考实现 error-path/replay-path 抄了吗 + 本 design 新持久化内容失败态覆盖了吗」（治 P0+P1 根，收益最大）；② orchestrator 决策前分清「行为 vs 事实」、外部事实先查证（治 P4，最省力）；③ change-verifier push 抄 impl-worker 范式 + 落地校验（治 P5，一劳永逸）。
 
 ---
 
@@ -184,14 +287,21 @@ orchestrator 凭「会自然结束」的错误假设留下 15 个滞留 agent。
 ### change-design-reviewer（来源 P0）
 1. 进攻清单加**「缺失机制」反向角度**：「本 design 让什么内容首次持久化 / 重放？这些内容的**失败态重放**有没有被任一决策覆盖？仓库有无同类已知账（如 #82 毒化类）可连？」——三轮 review 全缺这一问。
 
-### change-orchestrator（来源 P2）
-1. §7.5 退出前**显式回收所有派发过的 in-process teammate**（worker / verifier / reviewer / code-review finders 全部 TaskStop），判据「teammate 列表清零」再宣告退出。删除「任务完成会自然结束、不需显式回收」的错误假设（in_process_teammate 不会自然消失）。
+### change-orchestrator（来源 P2、P4）
+1. （P2）§7.5 退出前**显式回收所有派发过的 in-process teammate**（worker / verifier / reviewer / code-review finders 全部 TaskStop），判据「teammate 列表清零」再宣告退出。删除「任务完成会自然结束、不需显式回收」的错误假设（in_process_teammate 不会自然消失）。
+2. （P4）做 scope / 严重性判断前，**分清依据是「行为」还是「事实」**：模型能力、API 限额、协议字段、依赖是否声明等**外部可查事实**，优先 WebSearch / 厂商文档 / 仓库 doc 核证，**不靠 worker 单次 live 观察拍板**。本例一句 `doubao-seed vision support` 即可定死前提，免 40 分钟拉锯。
 
-### change-impl-worker（无新增）
-- 实现忠实度本 unit 是正面样本（verifier 全绿）。worker 复用（793 轮跨 4 个 fix 周期保上下文）是良性，无需改。
+### change-impl-worker（无新增，作正面范式）
+- 实现忠实度本 unit 是正面样本（verifier 全绿），worker 复用（793 轮跨 4 个 fix 周期保上下文）良性，无需改。
+- 其 §1（`worktree add -b` 真分支）+ §6.1（持有 unit 分支的 worktree 内 merge 再 push + ff-only + 锁）是 **git 同步稳定范式**，被 P5 引为 change-verifier 的修复参照。
 
-### change-reviewer / change-verifier（来源 P0，正面）
+### change-verifier（来源 P5）
+1. 修 §5.2 报告 push：detached 只读签出保留，但 commit 后改用 `git push origin HEAD:unit/<id>`（先 `fetch`+`rebase origin/unit/<id>`），**并 push 后 `git merge-base --is-ancestor HEAD origin/unit/<id>` 强校验落地**——别再把 `Everything up-to-date` 当成功。根因：§1 detached HEAD 与 §5.2 按本地分支名 push 不匹配，commit 落点≠push 目标（详见 P5）。
+2. 对齐 change-reviewer 的报告推送范式（本 session reviewer push 成功、verifier 失败，两者应统一到「推可证明含 commit 的 ref + 校验落地」）。
+
+### change-reviewer（来源 P0，正面）
 - reviewer round1 真栈跑出 Issue#1/#2、fix1 live 又抓出非-vision 毒化——**验收链是有效的**，是它把 design 盲区逼了出来。无需改；唯一注记：design 盲区不该靠验收兜底，应在 P0 改动后于上游消除。
+- P4 注记：reviewer B1 标 inconclusive 是**诚实的**（如实暴露「该用 lookup 确立的事实没法用 live 采样验」），非 reviewer 失误；根在 orchestrator 没先查证（见 P4）。
 
 ### 跨 skill（结构性）
 - **spec→design 知识传递**是本 unit 唯一结构性裂缝：`Explore`/RCA 阶段的洞见若不进 incident.md，design 就丢失它。除上面 checklist 外，可考虑 spec-author 收尾自检「本次 RCA 在对话里出现过、但没进 incident.md 的关键技术结论有哪些」，强制回收。
