@@ -117,8 +117,17 @@ class ToolRegistry:
         *,
         hook_context: HookContext | None = None,
         session_file_state: SessionFileState | None = None,
+        out_meta: dict[str, Any] | None = None,
     ) -> Mapping[str, Any]:
-        """Execute one tool call and apply hook intercept/observe semantics."""
+        """Execute one tool call and apply hook intercept/observe semantics.
+
+        feat-434-M1: ``out_meta`` is an optional per-call sink for execution
+        metadata that must NOT leak into the model-facing tool output. On the
+        success path the gate's ``approval`` (user_allow) has no exception carrier
+        — unlike the deny path which rides ToolError.details — so it is written
+        here for the caller (tool_executor) to lift onto ``ToolResult.approval``.
+        A fresh dict per call keeps this concurrency-safe across parallel tools.
+        """
 
         tool = self._tools.get(name)
         if tool is None:
@@ -192,8 +201,21 @@ class ToolRegistry:
                         # separate from the free-text reason. Every block (auto block
                         # AND user Deny — both return {block:True} here) is "denied".
                         "reason_code": "denied",
+                        # feat-434-M1: the gate's user-decision verdict. "user_deny"
+                        # for a user Deny; absent (None) for an auto block — so the
+                        # gate region only shows 已拒绝 for真正经用户卡决策的拒绝.
+                        "approval": tool_call_payload.get("approval"),
                     },
                 )
+
+            # feat-434-M1: surface the gate's user_allow verdict on the success path.
+            # The deny path rode ToolError.details above; the allow path has no
+            # exception carrier, so hand it to the caller via out_meta to lift onto
+            # ToolResult.approval. Absent when auto-allowed (gate returns no approval).
+            if out_meta is not None:
+                approval = tool_call_payload.get("approval")
+                if isinstance(approval, str) and approval:
+                    out_meta["approval"] = approval
 
             payload_args = tool_call_payload.get("args")
             effective_args: Mapping[str, Any] = args

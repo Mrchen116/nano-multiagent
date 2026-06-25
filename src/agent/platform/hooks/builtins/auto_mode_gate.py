@@ -687,27 +687,35 @@ async def _handle_ask(
 
     decision = response.decision
 
+    # feat-434-M1: a USER decision (allow_*/deny) carries an ``approval`` signal so
+    # downstream can render the gate verdict 已授权 / 已拒绝. This ONLY fires on the
+    # ask path (this function); auto-allow / auto-block return earlier without it, so
+    # approval stays None for non-user-decided calls (gate region not shown).
     if decision == "allow_once":
         if broker and run_id:
             broker.reset_deny_count(run_id, tool_name)
-        return {"block": False}
+        return {"block": False, "approval": "user_allow"}
 
     if decision == "allow_session":
         if broker:
             broker.add_session_allowlist(session_id, tool_name)
             if run_id:
                 broker.reset_deny_count(run_id, tool_name)
-        return {"block": False}
+        return {"block": False, "approval": "user_allow"}
 
     if decision == "allow_always":
         # Write-back to workspace config is a M2+ concern for PA product layer.
         # Here we just grant and reset.
         if broker and run_id:
             broker.reset_deny_count(run_id, tool_name)
-        return {"block": False}
+        return {"block": False, "approval": "user_allow"}
 
     # deny
-    return {"block": True, "reason": response.reason or "user denied"}
+    return {
+        "block": True,
+        "reason": response.reason or "user denied",
+        "approval": "user_deny",
+    }
 
 
 def setup(hooks: Any) -> None:  # noqa: ANN001

@@ -20,6 +20,7 @@ class _ToolRegistryLike(Protocol):
         *,
         hook_context: Any | None = None,
         session_file_state: Any | None = None,
+        out_meta: dict[str, Any] | None = None,
     ) -> Mapping[str, Any]: ...
 
 
@@ -157,23 +158,32 @@ class StreamingToolExecutor:
                 await self._process_queue()
                 return
 
+            # feat-434-M1: per-call sink for execution metadata that must not leak
+            # into the model-facing output. The gate writes approval=user_allow here
+            # on the success path (the deny path rides ToolError.details instead).
+            exec_meta: dict[str, Any] = {}
             output = await self._registry.execute(
                 item.tool_call.name,
                 item.tool_call.arguments,
                 hook_context=item.hook_context or self._hook_context,
                 session_file_state=self._session_file_state,
+                out_meta=exec_meta,
             )
             if self._should_cancel(item):
                 item.result = self._synthetic_error(
                     item, "cancelled by sibling bash error"
                 )
             else:
+                approval = exec_meta.get("approval")
                 item.result = ToolResult(
                     call_id=item.tool_call.call_id,
                     name=item.tool_call.name,
                     output=output,
                     duration_ms=item.duration_ms,
                     arguments=dict(item.tool_call.arguments),
+                    approval=approval
+                    if isinstance(approval, str) and approval
+                    else None,
                 )
             item.status = "completed"
         except asyncio.CancelledError:
@@ -185,11 +195,17 @@ class StreamingToolExecutor:
             # hook block) out of a ToolError so it survives into the ToolResult; the
             # registry only kept str(exc) before, dropping the classification.
             reason_code = None
+            approval = None
             details = getattr(exc, "details", None)
             if isinstance(details, Mapping):
                 rc = details.get("reason_code")
                 if isinstance(rc, str) and rc:
                     reason_code = rc
+                # feat-434-M1: lift the gate's user_deny verdict the same way as
+                # reason_code — both ride the blocked tool's ToolError.details.
+                ap = details.get("approval")
+                if isinstance(ap, str) and ap:
+                    approval = ap
             item.result = ToolResult(
                 call_id=item.tool_call.call_id,
                 name=item.tool_call.name,
@@ -198,6 +214,7 @@ class StreamingToolExecutor:
                 duration_ms=item.duration_ms,
                 arguments=dict(item.tool_call.arguments),
                 reason_code=reason_code,
+                approval=approval,
             )
             item.status = "completed"
             # Bash error triggers sibling abort.
@@ -220,6 +237,7 @@ class StreamingToolExecutor:
                     duration_ms=item.duration_ms,
                     arguments=item.result.arguments,
                     reason_code=item.result.reason_code,
+                    approval=item.result.approval,
                 )
         item._event.set()
         await self._process_queue()

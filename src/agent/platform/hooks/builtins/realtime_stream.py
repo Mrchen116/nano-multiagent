@@ -103,6 +103,9 @@ def setup(hooks):  # noqa: ANN001, ANN201
             "error": event.get("error"),
             # bugfix-410-M2 (#97): carry the badge classification onto the SSE event.
             "reason_code": event.get("reason_code"),
+            # feat-434-M1: carry the user-decision verdict (user_allow/user_deny)
+            # onto the SSE event so the front-end gate region can render 已授权/已拒绝.
+            "approval": event.get("approval"),
             "presentation": _presentation_dict(presentation),
         }
         ctx.publish_session_event(event="tool_end", data=payload)
