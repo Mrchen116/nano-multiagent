@@ -10,7 +10,11 @@
 
 #### Scenario: 提交含图片的消息，当轮模型即可见
 - **WHEN** 消费者 `submit` 一条 parts 含 image part 的用户消息
-- **THEN** 该轮发往模型的请求里包含对应的图片内容（而非 `[image:placeholder]` 之类的纯文本占位）
+- **THEN** 该图片送达模型并被模型理解（模型据其内容作答），而非被降级为 `[image:placeholder]` 纯文本占位
+
+#### Scenario: 单条消息含多张图片时全部送达
+- **WHEN** 消费者 `submit` 一条 parts 含多个 image part 的用户消息
+- **THEN** 所有图片都送达模型（不因多部件内部展开而丢失其中任一张）
 
 #### Scenario: 含图片的消息跨轮重建后图片仍在
 - **GIVEN** 某会话已持久化过一条含图片的用户消息
