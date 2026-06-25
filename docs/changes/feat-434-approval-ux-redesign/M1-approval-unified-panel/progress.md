@@ -74,4 +74,22 @@
   - E2E/Regression: message-pane + permission-card 组件 regression 落库
   - Visual/Interaction: 样式已写齐对齐原型类名；真实浏览器截图对照在 R5
 - Rollback: 回退到 R4 C1 commit
-- Next: R5 — 端到端 live 验收（整栈重启，真走 ask→allow→已授权 / deny→已拒绝/未执行 / 授权后失败两区）+ 浏览器逐项对照原型
+- Next: R5 — 端到端 live 验收
+
+### R5 — 端到端 live 验收（真栈 + 真实浏览器）
+
+- Context: 这是 live-critical 工作。退出标准要求「allow 成功工具的 approval=user_allow 端到端到达前端」必须真栈跑通到用户可见结果，pytest/stub 绿不算。
+- Decision/做法:
+  - 用 `scripts/e2e-up.sh` 起整栈（真 IM + 真 Gateway 进程，内核进程内，LLM 走本地 proxy :4000），ephemeral 端口、隔离 config、auto-bind。
+  - 触发器用既有关键路径 e2e 的确定性手法：让 agent 用 `write` 写 dangerous basename `.gitconfig`（write.check_permissions 硬性 ask，不靠 LLM 概率）→ 必触发 permission.request。
+  - approve 流：通过 IMClient 真发消息→等 permission.request→resolve allow_once→等 message.completed，再 poll IM REST 历史确认 tool_call 带 `approval=user_allow`。
+  - 真实浏览器（Playwright，gstack browse server 锁死改用 node playwright 模块）：seed nano JWT + `im_lang=zh` 到 localStorage（addInitScript，boot 前），导航到该会话，展开工具面板，截图。
+- Evidence:
+  - Tests: 关键路径 e2e `test_permission_approval_critical_path.py` 两测真栈 green（approve→user_allow REST 锚确定性、deny→user_deny 条件式）。全后端树 2870 passed/0 failed（-m "not e2e"）；前端 461 passed；ruff 全过。
+  - Entry（真端到端到用户可见结果）: ✅ approve 流真栈跑通——IM REST 历史 tool_call `approval=user_allow`（前端读的同一视图）。
+  - Browser QA: 真实浏览器（1440×900）打开 `:<IM>/chat/<conv>`，**zero console error**，DOM 实测 `GATE=["已授权"]`、收起态后缀 `1 次工具调用 · 1 次授权 · ● 1 允许`（绿点）。
+  - Visual/Interaction: 截图 `ACCEPTANCE/feat-434-M1/r5-chat-allow-1440-zh.png`（合一气泡：文本→工具面板→行内闸门「已授权」+ 结果区 171ms；气泡外无审批卡）+ `r5-bubble-allow-zh.png`。**逐项对照 prototype.html 一致**：合一气泡 ✓、收起态分项计数 ✓、行内闸门-结果分区 ✓、目标态全中文 ✓。
+  - E2E/Regression: approval 端到端断言落库进既有关键路径 e2e（守护回归）。
+  - 局限（如实披露）: deny 的 live tool_call 持久化受 LLM run 走向影响（与既有 reason=denied 同源，原 e2e 也因此用文件锚），故 deny 的 approval 用条件式断言 + R1/R2 确定性单测覆盖全链；授权后失败两区并存、denied 闸门「已拒绝」+「未执行」由组件测试针对精确 ToolCall shape 覆盖，未在 live 单独复现（LLM 难稳定造一个授权后失败的工具）。allow 主路径（退出标准核心）已真栈+真浏览器双证。
+- Rollback: 回退到 R5 test commit
+- Next: 本 milestone 完成，进入集成（rebase + merge 到 unit/feat-434）

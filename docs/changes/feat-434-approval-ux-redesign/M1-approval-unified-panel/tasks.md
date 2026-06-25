@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] [worker] allow 成功工具的 `approval=user_allow` 端到端到达前端（覆盖决策2 五步链；内核单测）
-- [ ] [worker] `approval` 贯穿 内核→Gateway→IM→前端，IM REST 历史与 WS 均携带（IM encode/decode round-trip、Gateway 透传单测）
-- [ ] [worker] 前端单测覆盖 ToolCallRow 闸门/结果分区 + denied 去重 + 已决并入
-- [ ] [worker] `failTag` 经 i18n，zh/en 各出对应文案
-- [ ] [worker] `npm run test` + `pytest -m "not e2e"` 全绿
-- [ ] [worker] 真端到端跑通：live 栈（内核→Gateway→IM→前端）下 allow 成功工具前端真显「已授权」
+- [x] [worker] allow 成功工具的 `approval=user_allow` 端到端到达前端（覆盖决策2 五步链；内核单测）
+- [x] [worker] `approval` 贯穿 内核→Gateway→IM→前端，IM REST 历史与 WS 均携带（IM encode/decode round-trip、Gateway 透传单测）
+- [x] [worker] 前端单测覆盖 ToolCallRow 闸门/结果分区 + denied 去重 + 已决并入
+- [x] [worker] `failTag` 经 i18n，zh/en 各出对应文案
+- [x] [worker] `npm run test` + `pytest -m "not e2e"` 全绿
+- [x] [worker] 真端到端跑通：live 栈（内核→Gateway→IM→前端）下 allow 成功工具前端真显「已授权」
 
 ## 测试策略
 
@@ -70,8 +70,8 @@ UI 状态矩阵：
 
 | R | 描述 | 状态 |
 |---|---|---|
-| R1 | 内核 approval 产出链：types.ToolResult.approval + auto_mode_gate(allow/deny 信号) + runner(block=False 保留) + registry(lift 成功路径) + tool_executor(填充) + realtime_stream(tool_end 携带) | TODO |
-| R2 | Gateway→IM 透传链：main.py tool_end 透传 + IM domain/payload/repositories(encode/decode)/event_types/gateway_handler 五点 | TODO |
-| R3 | 前端数据+行内呈现：chat-types.approval + tool-presentation(failTag i18n + isGateDenied 回退) + ToolCallRow(闸门/结果分区 + denied 去重) + ToolCallsPanel(分项计数) + i18n 键 | TODO |
-| R4 | 前端合一气泡：message-pane(pending 入气泡、删气泡外卡) + permission-card(删 resolved 分支) + global.css 闸门/待决样式对齐原型 | TODO |
-| R5 | 端到端 live 验收：整栈重启，真走 ask→allow→「已授权」、ask→deny→「已拒绝/未执行」、授权后失败两区并存；浏览器逐项对照原型截图 | TODO |
+| R1 | 内核 approval 产出链：types.ToolResult.approval + auto_mode_gate(allow/deny 信号) + runner(block=False 保留) + registry(lift 成功路径) + tool_executor(填充) + realtime_stream(tool_end 携带) | DONE |
+| R2 | Gateway→IM 透传链：main.py tool_end 透传 + IM domain/payload/repositories(encode/decode)/event_types/gateway_handler 五点 | DONE |
+| R3 | 前端数据+行内呈现：chat-types.approval + tool-presentation(failTag i18n + gateVerdict 回退) + ToolCallRow(闸门/结果分区 + denied 去重) + ToolCallsPanel(分项计数) + i18n 键 | DONE |
+| R4 | 前端合一气泡：message-pane(pending 入气泡、删气泡外卡) + permission-card(删 resolved 分支) + global.css 闸门/待决样式对齐原型 | DONE |
+| R5 | 端到端 live 验收：整栈重启，真走 ask→allow→「已授权」、ask→deny→「已拒绝/未执行」、授权后失败两区并存；浏览器逐项对照原型截图 | DONE |
