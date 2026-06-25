@@ -113,7 +113,8 @@ graph TB
 
 - **理由**：静默塞占位符隐藏了「图片是否进了 LLM」，且会诱导 agent 对着不存在的图编造内容——这是产品级坏设计（用户 review 指出）。失败必须对用户透明：图片处理失败时，gateway 向用户回发明确提示（这张图未送达模型 + 原因 + 可操作建议），且**不把伪造的图片占位送进模型**。
 - **拒绝**：① 静默降级为 `[图片无法加载]` 文本块喂模型——隐藏错误、诱发编造；② 直接抛异常中断整轮——用户只看到崩溃，同样不知情。两者都不诚实。
-- **风险**：错误提示的投递走 gateway 既有的用户可见消息通道（与 `/stop` ack 类似的产品侧回发）；超大图阈值取值留 worker（参照 provider 限制，不在 spec 锁定）。失败发生在入站 base64 转换（决策1）或 mapper 送达前的校验处，需把失败信号传回 gateway 用户通道，而非在 core 静默吞掉。
+- **实现指引（沿用既有「用户可见、模型不可见」通道）**：本仓已有该模式——`is_provider_error=True` 的合成 assistant 消息会持久化供 IM/CLI 显示，但 `build_chat_messages`（`prompting.py:62-66` `_is_provider_error` 过滤）在发模型前剔除它，**不进 LLM context**。注释自证「mirrors CC isSyntheticApiErrorMessage / normalizeMessagesForAPI」。这正是 CC 对图片失败文案的处理：`ImageResizeError` → `createAssistantAPIErrorMessage`（`isApiErrorMessage:true`）→ `normalizeMessagesForAPI` 过滤不发 API、仅 UI 显示。决策5 的失败提示**复用这条 `is_provider_error` 通道**：用户在 IM 看到「这张图未送达模型 + 原因 + 建议」，模型上下文里既无该图也无该错误文案（不喂假占位、不污染上下文）。
+- **风险**：超大图阈值取值留 worker（参照 provider 限制，不在 spec 锁定）。失败发生在入站 base64 转换（决策1）或 mapper 送达前的校验处，须把失败信号经 `is_provider_error` 合成消息传回用户，而非在 core 静默吞掉。
 
 ## 接口与数据流
 
