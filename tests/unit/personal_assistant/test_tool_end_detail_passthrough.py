@@ -202,3 +202,37 @@ def test_tool_start_without_emoji_omits_key() -> None:
     manager = _run_observer_with_tool_end(event)
     tc = _upserted_payload(manager)
     assert tc.get("emoji") is None
+
+
+def test_tool_end_forwards_approval() -> None:
+    # feat-434-M1: relay 把内核 tool_end 的 approval（user_allow/user_deny）逐字拼进
+    # tool_call payload，与 reason 并列。前端闸门区据此显示「已授权/已拒绝」。
+    event = {
+        "event": "tool_end",
+        "run_id": "run-1",
+        "call_id": "call-1",
+        "name": "bash",
+        "arguments": {"command": "npm run build"},
+        "duration_ms": 12,
+        "approval": "user_allow",
+        "presentation": {"summary": "npm run build"},
+    }
+    manager = _run_observer_with_tool_end(event)
+    tc = _tool_call_payload(manager)
+    assert tc["approval"] == "user_allow"
+
+
+def test_tool_end_without_approval_is_none() -> None:
+    # 自动放行/普通工具无 approval → relay 透传 None，前端闸门区不显。
+    event = {
+        "event": "tool_end",
+        "run_id": "run-1",
+        "call_id": "call-1",
+        "name": "read",
+        "arguments": {"path": "a.py"},
+        "duration_ms": 3,
+        "presentation": {"summary": "42 lines"},
+    }
+    manager = _run_observer_with_tool_end(event)
+    tc = _tool_call_payload(manager)
+    assert tc.get("approval") is None
