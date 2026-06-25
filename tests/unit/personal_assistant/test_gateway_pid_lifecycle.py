@@ -133,6 +133,10 @@ def test_stop_gateway_only_reports_stopped_after_health_url_goes_down(
         "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
     )
     monkeypatch.setattr("personal_assistant.main.os.kill", lambda _pid, _sig: None)
+    # 漏 mock 会让 stop_gateway 对虚构 PID 2468 真实 killpg,CI 上若该 pid 存活则误杀 runner 进程组。
+    monkeypatch.setattr(
+        "personal_assistant.main._kill_process_tree", lambda _pid, _sig: None
+    )
     monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _seconds: None)
     monkeypatch.setattr(
         "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
@@ -304,6 +308,10 @@ def test_stop_gateway_removes_pid_file_on_successful_stop(
         "personal_assistant.main._pid_is_running", lambda _pid: next(pid_checks)
     )
     monkeypatch.setattr("personal_assistant.main.os.kill", lambda _pid, _sig: None)
+    # 漏 mock 会让 stop_gateway 对虚构 PID 2468 真实 killpg,CI 上若该 pid 存活则误杀 runner 进程组。
+    monkeypatch.setattr(
+        "personal_assistant.main._kill_process_tree", lambda _pid, _sig: None
+    )
     monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _s: None)
     monkeypatch.setattr(
         "personal_assistant.main.time.monotonic", iter([0.0, 0.01]).__next__
@@ -338,6 +346,10 @@ def test_stop_gateway_stops_foreground_pid_without_runtime_state(
     )
     monkeypatch.setattr(
         "personal_assistant.main.os.kill", lambda pid, sig: kills.append((pid, sig))
+    )
+    # 漏 mock 会让 stop_gateway 对虚构 PID 2468 真实 killpg,CI 上若该 pid 存活则误杀 runner 进程组。
+    monkeypatch.setattr(
+        "personal_assistant.main._kill_process_tree", lambda _pid, _sig: None
     )
     monkeypatch.setattr("personal_assistant.main.time.sleep", lambda _s: None)
     monkeypatch.setattr(
