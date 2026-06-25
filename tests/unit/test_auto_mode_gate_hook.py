@@ -432,8 +432,14 @@ class TestHandleAskApprovalSignal:
 
         ctx = self._make_park_ctx(self._resp("allow_once"))
         result = await _handle_ask(
-            ctx, "bash", {"command": "ls"}, "risky", "run-1", "sess-ask",
-            AutoModeConfig(), None,
+            ctx,
+            "bash",
+            {"command": "ls"},
+            "risky",
+            "run-1",
+            "sess-ask",
+            AutoModeConfig(),
+            None,
         )
         assert result.get("block") is False
         assert result.get("approval") == "user_allow"
@@ -444,8 +450,14 @@ class TestHandleAskApprovalSignal:
 
         ctx = self._make_park_ctx(self._resp("allow_session"))
         result = await _handle_ask(
-            ctx, "bash", {"command": "ls"}, "risky", "run-1", "sess-ask",
-            AutoModeConfig(), None,
+            ctx,
+            "bash",
+            {"command": "ls"},
+            "risky",
+            "run-1",
+            "sess-ask",
+            AutoModeConfig(),
+            None,
         )
         assert result.get("block") is False
         assert result.get("approval") == "user_allow"
@@ -456,8 +468,14 @@ class TestHandleAskApprovalSignal:
 
         ctx = self._make_park_ctx(self._resp("allow_always"))
         result = await _handle_ask(
-            ctx, "bash", {"command": "ls"}, "risky", "run-1", "sess-ask",
-            AutoModeConfig(), None,
+            ctx,
+            "bash",
+            {"command": "ls"},
+            "risky",
+            "run-1",
+            "sess-ask",
+            AutoModeConfig(),
+            None,
         )
         assert result.get("block") is False
         assert result.get("approval") == "user_allow"
@@ -468,8 +486,14 @@ class TestHandleAskApprovalSignal:
 
         ctx = self._make_park_ctx(self._resp("deny", reason="no"))
         result = await _handle_ask(
-            ctx, "bash", {"command": "ls"}, "risky", "run-1", "sess-ask",
-            AutoModeConfig(), None,
+            ctx,
+            "bash",
+            {"command": "ls"},
+            "risky",
+            "run-1",
+            "sess-ask",
+            AutoModeConfig(),
+            None,
         )
         assert result.get("block") is True
         assert result.get("approval") == "user_deny"

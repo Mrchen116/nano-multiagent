@@ -95,7 +95,7 @@ class _FakeToolRegistryConcurrent:
     def get_tool(self, name: str):  # noqa: ANN201
         return None
 
-    async def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN201
+    async def execute(self, name, args, *, hook_context=None, session_file_state=None, out_meta=None):  # noqa: ANN201
         self.calls.append((name, dict(args)))
         return {"result": args["text"]}
 
@@ -251,7 +251,7 @@ class _BudgetToolRegistry:
             return self.unlimited
         return None
 
-    async def execute(self, name, args, *, hook_context=None, session_file_state=None):  # noqa: ANN201
+    async def execute(self, name, args, *, hook_context=None, session_file_state=None, out_meta=None):  # noqa: ANN201
         tool = self.get_tool(name)
         if tool is None:
             raise RuntimeError(f"unknown tool: {name}")

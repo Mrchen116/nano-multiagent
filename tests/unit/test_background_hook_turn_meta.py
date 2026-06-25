@@ -361,7 +361,7 @@ async def test_fork_loop_executes_tools_after_bind_tool_registry(tmp_path):
             return None
 
         async def execute(
-            self, name, args, *, hook_context=None, session_file_state=None
+            self, name, args, *, hook_context=None, session_file_state=None, out_meta=None
         ):
             executed_tools.append(name)
             return {"result": "ok"}

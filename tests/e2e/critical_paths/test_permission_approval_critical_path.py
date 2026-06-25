@@ -23,6 +23,7 @@ from __future__ import annotations
 import glob
 import os
 import secrets
+import time
 
 import pytest
 
@@ -58,6 +59,22 @@ def _trigger_write_permission(im_user: IMClient, conv_id: str, sentinel: str) ->
         f"请用 write 工具，在你的当前工作目录下创建一个名为 {_DANGEROUS_BASENAME} 的文件，"
         f"文件内容就是这一行：{sentinel}",
     )
+
+
+def _find_tool_call_with_approval(
+    im_user: IMClient, conversation_id: str, approval: str
+) -> dict | None:
+    """在会话历史里找一条 ``tool_call.approval == approval`` 的工具调用（REST 服务的视图）。
+
+    feat-434-M1: approval 标识必须从内核 gate 一路流到 IM REST 序列化，前端闸门区才能显
+    「已授权/已拒绝」。这是端到端贯通的确定性锚——比断前端 DOM 稳，且证明的是同一条数据路径
+    （内核→Gateway→IM 持久化→REST），前端只是读它。
+    """
+    for msg in im_user.list_messages(conversation_id):
+        for tc in msg.get("tool_calls") or []:
+            if tc.get("approval") == approval:
+                return tc
+    return None
 
 
 def _wait_permission_request(ws, *, timeout: float = 90.0):
@@ -104,6 +121,17 @@ def test_permission_approve_lets_tool_run(
         desc=f"approved-write .gitconfig containing sentinel {sentinel!r}",
     )
 
+    # feat-434-M1 端到端锚:allow 成功工具的 approval=user_allow 经 内核→Gateway→IM 流出,
+    # REST 历史(前端读的同一视图)真带上它 → 前端闸门区据此显「已授权」。allow 侧无现成
+    # reason_code 载体,这条断言守护「最易漏一环」不再悄悄丢。
+    poll_until(
+        lambda: _find_tool_call_with_approval(im_user, conversation_id, "user_allow"),
+        lambda hit: hit is not None,
+        timeout=20.0,
+        interval=1.0,
+        desc="approved tool_call carries approval=user_allow in REST history",
+    )
+
 
 @pytest.mark.e2e
 def test_permission_deny_blocks_tool(im_user: IMClient, e2e_stack: E2EStack) -> None:
@@ -133,3 +161,35 @@ def test_permission_deny_blocks_tool(im_user: IMClient, e2e_stack: E2EStack) -> 
         window=20.0,
         desc=f"denied-write .gitconfig with sentinel {sentinel!r} (deny should block it)",
     )
+
+    # feat-434-M1 端到端锚:deny 的 approval=user_deny 经 内核(ToolError.details)→Gateway→IM
+    # 流出,REST 历史带上它 → 前端闸门区显「已拒绝」。
+    #
+    # ⚠️ 弱断言(条件式):被拒工具是否**被持久化成一条 tool_call** 受 LLM run 走向影响——
+    # 拒绝后内核可能在 emit denied tool_end 之前就收口该 run(没有文件系统副作用做锚,见上方
+    # assert_absent_within)。当被拒 tool_call 确实出现时,它**必须**带 approval=user_deny;
+    # 但「它是否出现」不是本字段能保证的属性(与既有 reason=denied 同源,同样不保证)。因此:
+    #   - deny 阻断本身由 assert_absent_within(文件未写)确定性证明;
+    #   - approval=user_deny 的传播链由 R1/R2 单测确定性覆盖(gate→ToolError.details→ToolResult
+    #     →tool_end→IM encode/decode round-trip);
+    #   - 这里只在 tool_call 出现时附加校验它带对了 approval,不强求其出现(避免 LLM 非确定 flaky)。
+    def _denied_tool_call() -> dict | None:
+        return next(
+            (
+                tc
+                for msg in im_user.list_messages(conversation_id)
+                for tc in (msg.get("tool_calls") or [])
+                if tc.get("reason") == "denied" or tc.get("approval") is not None
+            ),
+            None,
+        )
+
+    deadline = time.monotonic() + 15.0
+    denied_tc = _denied_tool_call()
+    while denied_tc is None and time.monotonic() < deadline:
+        time.sleep(1.0)
+        denied_tc = _denied_tool_call()
+    if denied_tc is not None:
+        assert denied_tc.get("approval") == "user_deny", (
+            f"a persisted denied tool_call must carry approval=user_deny, got {denied_tc!r}"
+        )
