@@ -214,6 +214,27 @@ def test_corrupt_png_with_valid_magic_header_is_rejected(tmp_path: Path) -> None
     ]
 
 
+def test_png_shorter_than_minimum_complete_length_is_rejected() -> None:
+    """bugfix-433-fix3 #1: a PNG shorter than a complete one (45 bytes) is rejected even
+    if it carries the IHDR + IEND markers — the old 28-byte threshold under-validated
+    such short truncated payloads.
+
+    Minimum complete PNG = signature(8) + IHDR chunk(25) + IEND chunk(12) = 45 bytes.
+    """
+    from personal_assistant.gateway.inbound_pipeline import _detect_image_mime
+
+    # 44 bytes: valid signature, "IHDR" type at offset 12, contains "IEND" — but one
+    # byte short of a complete PNG, so it must be rejected.
+    short = b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" + b"x" * 24 + b"IEND"
+    assert len(short) == 44
+    assert _detect_image_mime(short) is None
+
+    # 45-byte structurally complete PNG must pass (boundary just above the limit).
+    valid = _make_valid_png(1, 1, (0, 0, 0))
+    assert len(valid) >= 45
+    assert _detect_image_mime(valid) == "image/png"
+
+
 def test_valid_png_with_full_structure_passes(tmp_path: Path) -> None:
     """A structurally valid PNG (real IHDR + IEND) must still pass the strengthened check."""
 

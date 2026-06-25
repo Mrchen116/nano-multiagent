@@ -856,16 +856,16 @@ class InboundPipeline:
             if detected_mime is None:
                 return [], "corrupt"
             # bugfix-433-fix1 #6: trust the magic-byte detected mime over the
-            # client-supplied content_type (which can be wrong or forged).
-            resolved_mime = detected_mime or mime
-            data_url = f"data:{resolved_mime};base64," + base64.b64encode(
+            # client-supplied content_type (which can be wrong or forged). detected_mime
+            # is non-None here (the guard above returned on None), so it is authoritative.
+            data_url = f"data:{detected_mime};base64," + base64.b64encode(
                 bytes(raw)
             ).decode("ascii")
             parts.append(
                 {
                     "type": "image",
                     "image_url": data_url,
-                    "mime_type": resolved_mime,
+                    "mime_type": detected_mime,
                 }
             )
         return parts, None
@@ -1361,6 +1361,14 @@ def _detect_image_mime(data: bytes) -> str | None:
 
     An unknown signature OR a structurally broken payload → None → the turn stops with
     the "无法识别" message.
+
+    Known limitation (intentional): this is a *lightweight* structural check (magic bytes
+    + header/terminator/length), NOT a full decode. A deliberately crafted fake (e.g. a
+    6-byte ``FFD8FF…FFD9`` JPEG, or a PNG whose IDAT compressed bytes happen to contain
+    the ``IEND`` substring) can slip through; real truncated/corrupt images are caught.
+    Full chunk parsing / an image library is intentionally NOT used (stdlib-only
+    constraint, no Pillow). The occasional provider-error that a slipped-through fake
+    would cause is covered by the broader fallback tracked in issue #147.
     """
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
         return "image/png" if _png_is_structurally_valid(data) else None
@@ -1387,7 +1395,10 @@ def _png_is_structurally_valid(data: bytes) -> bool:
     the 8-byte signature must be IHDR (type bytes at offset 12:16) and the stream must
     contain the IEND end-chunk. A truncated / garbage body fails either check.
     """
-    if len(data) < 16 + 12:  # signature + IHDR header/type + minimal IEND
+    # Minimum complete PNG = signature(8) + IHDR chunk(4 len + 4 type + 13 data + 4 CRC
+    # = 25) + IEND chunk(4 len + 4 type + 0 data + 4 CRC = 12) = 45 bytes. Anything
+    # shorter is necessarily truncated.
+    if len(data) < 45:
         return False
     # First chunk type (bytes 12:16) must be IHDR.
     if data[12:16] != b"IHDR":
