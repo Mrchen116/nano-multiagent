@@ -135,6 +135,11 @@ class StreamingToolExecutor:
     async def _execute_one(self, item: _QueuedTool) -> None:
         """Run a single tool call and record its result."""
         item._started_at_ns = time.perf_counter_ns()
+        # feat-434-M1 (C2): hoist the approval sink ABOVE the try so the
+        # ``except asyncio.CancelledError`` branch can read it — a gate-approved tool
+        # interrupted mid-run must keep approval=user_allow, same invariant as the
+        # sibling-abort branch. Empty dict when cancelled before execute() ran → None.
+        exec_meta: dict[str, Any] = {}
         try:
             if self._should_cancel(item):
                 item.result = self._synthetic_error(
@@ -167,7 +172,7 @@ class StreamingToolExecutor:
             # feat-434-M1: per-call sink for execution metadata that must not leak
             # into the model-facing output. The gate writes approval=user_allow here
             # on the success path (the deny path rides ToolError.details instead).
-            exec_meta: dict[str, Any] = {}
+            # (exec_meta is declared above the try for the CancelledError branch.)
             output = await self._registry.execute(
                 item.tool_call.name,
                 item.tool_call.arguments,
@@ -192,7 +197,18 @@ class StreamingToolExecutor:
                 )
             item.status = "completed"
         except asyncio.CancelledError:
-            item.result = self._synthetic_error(item, "tool execution discarded")
+            # feat-434-M1 (C2): a gate-approved tool interrupted mid-run must keep its
+            # approval — mirror the sibling-abort branch. exec_meta is empty (→ None)
+            # when cancelled before execute() stamped it.
+            cancelled_approval = exec_meta.get("approval")
+            cancelled_approval = (
+                cancelled_approval
+                if isinstance(cancelled_approval, str) and cancelled_approval
+                else None
+            )
+            item.result = self._synthetic_error(
+                item, "tool execution discarded", approval=cancelled_approval
+            )
             item.status = "completed"
             raise
         except Exception as exc:
