@@ -405,7 +405,11 @@
       "hint": "Needs review",
       "ariaCard": "Permission request: {{toolName}}",
       "ariaOptions": "Permission options",
-      "submitError": "Failed to submit decision"
+      "submitError": "Failed to submit decision",
+      "optionAllowOnce": "Allow once",
+      "optionAllowSession": "Allow for session",
+      "optionAllowAlways": "Always allow",
+      "optionDeny": "Deny"
     }
   },
   "feature": {
