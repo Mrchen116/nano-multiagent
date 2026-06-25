@@ -22,6 +22,7 @@ class _FakeTool(Tool):
         is_concurrency_safe: bool = False,
         delay: float = 0.0,
         raise_error: bool = False,
+        approval: str | None = None,
     ) -> None:
         self.name = name
         self.description = "Fake"
@@ -30,6 +31,9 @@ class _FakeTool(Tool):
         self.max_result_size_chars: int | None = None
         self._delay = delay
         self._raise = raise_error
+        # feat-434-M1: emulate the gate stamping approval into out_meta (written by
+        # registry.execute on the success path) BEFORE the tool's body runs/blocks.
+        self._approval = approval
 
     def run(self, args: Mapping[str, Any], ctx: ToolContext) -> Mapping[str, Any]:
         raise NotImplementedError("use async registry mock")
@@ -65,6 +69,11 @@ class _FakeRegistry(ToolRegistry):
             raise RuntimeError(f"unknown tool: {name}")
         self._executed.append((name, args))
         self._start_times[name] = asyncio.get_event_loop().time()
+        # feat-434-M1: gate stamps approval into out_meta up-front (before the tool
+        # body), so it is already present when a sibling abort cancels this call
+        # mid-flight — the synthetic_error path must still carry it.
+        if out_meta is not None and tool._approval is not None:
+            out_meta["approval"] = tool._approval
         if tool._delay:
             await asyncio.sleep(tool._delay)
         if tool._raise:
@@ -330,6 +339,70 @@ async def test_bash_error_cancels_sibling_bash(registry: _FakeRegistry) -> None:
     errors = [r.error for r in items if r.error is not None]
     assert len(errors) == 2
     assert any("cancelled by sibling bash error" in e for e in errors)
+
+
+class _CmdKeyedRegistry(_FakeRegistry):
+    """Resolve the behaviour by ``args['cmd']`` instead of tool name, so two
+    distinct bash behaviours (a slow gate-approved one + a fast failing one) can
+    coexist under the same tool name ``bash`` — needed because sibling-abort only
+    cancels tools named ``bash`` (tool_executor._should_cancel)."""
+
+    def __init__(self, by_cmd: dict[str, _FakeTool]) -> None:
+        super().__init__()
+        self._by_cmd = by_cmd
+        for t in by_cmd.values():
+            self._tools[t.name] = t
+
+    async def execute(
+        self, name, args, *, hook_context=None, session_file_state=None, out_meta=None
+    ):
+        tool = self._by_cmd[args["cmd"]]
+        if out_meta is not None and tool._approval is not None:
+            out_meta["approval"] = tool._approval
+        if tool._delay:
+            await asyncio.sleep(tool._delay)
+        if tool._raise:
+            raise RuntimeError(f"{name} failed")
+        return {"name": name, "args": dict(args)}
+
+
+@pytest.mark.asyncio
+async def test_sibling_abort_preserves_user_allow_approval() -> None:
+    """feat-434-M1 (F2): a user-allowed tool cancelled by a sibling bash error must
+    NOT lose its approval=user_allow.
+
+    Race: two concurrency-safe bash tools start in parallel. The slow one had already
+    been gate-approved (approval written into out_meta by registry.execute) and is
+    mid-flight when the fast one raises → sibling abort cancels the slow one. The
+    synthetic error result must still carry approval=user_allow, else the front-end
+    gate region silently drops 「已授权」 for a genuinely user-approved tool.
+    """
+    registry = _CmdKeyedRegistry(
+        {
+            "slow": _FakeTool(
+                name="bash", is_concurrency_safe=True, delay=0.2, approval="user_allow"
+            ),
+            "boom": _FakeTool(
+                name="bash", is_concurrency_safe=True, delay=0.0, raise_error=True
+            ),
+        }
+    )
+    executor = StreamingToolExecutor(registry)
+    executor.add_tool(
+        ToolCall(call_id="call_allow", name="bash", arguments={"cmd": "slow"})
+    )
+    executor.add_tool(
+        ToolCall(call_id="call_fail", name="bash", arguments={"cmd": "boom"})
+    )
+    await asyncio.sleep(0.05)
+
+    results = {r.call_id: r async for r in executor.get_remaining_results()}
+    cancelled = results["call_allow"]
+    assert cancelled.error is not None  # cancelled → synthetic error
+    assert "cancelled by sibling bash error" in cancelled.error
+    assert cancelled.approval == "user_allow", (
+        "a sibling-cancelled but user-approved tool must keep approval=user_allow"
+    )
 
 
 @pytest.mark.asyncio
