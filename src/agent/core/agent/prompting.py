@@ -117,6 +117,7 @@ def build_prompt_messages(
     *,
     history_messages: tuple[Message, ...],
     user_text: str,
+    user_parts: list[dict[str, Any]] | None = None,
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     available_skills: Sequence[SkillMetadata] = (),
     available_tools: Sequence[ToolSpec] | None = None,
@@ -128,6 +129,9 @@ def build_prompt_messages(
     Args:
         history_messages: Persisted conversation history before current user input.
         user_text: Current user text input after preprocessing.
+        user_parts: bugfix-433-fix1 #5 — structured content blocks for the current user
+            turn when it carries an image; forwarded to build_chat_messages so this public
+            API does not silently drop images (None keeps the content:str path).
         system_prompt: System prompt template.
         available_skills: Skills shown in the rendered system prompt.
         available_tools: Optional explicit tool list; falls back to builtins when omitted.
@@ -146,7 +150,11 @@ def build_prompt_messages(
         current_working_directory=current_working_directory,
     )
     chat_messages = list(
-        build_chat_messages(history_messages=history_messages, user_text=user_text)
+        build_chat_messages(
+            history_messages=history_messages,
+            user_text=user_text,
+            user_parts=user_parts,
+        )
     )
     return tuple(
         [LLMMessage(role="system", content=active_system_prompt), *chat_messages]

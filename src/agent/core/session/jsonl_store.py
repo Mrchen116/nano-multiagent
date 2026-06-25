@@ -9,6 +9,7 @@ from typing import Any, Mapping
 from agent.core.types import Message
 from agent.core.utils.time import utc_now_iso as _utc_now_iso
 
+from .entries import parse_parts
 from .jsonl_writer import JsonlWriter
 
 # Per-path threading.Lock registry so that concurrent prepare_transcript_for_run
@@ -752,15 +753,9 @@ def _to_session_config(session_id: str, config: dict[str, Any]) -> SessionConfig
 
 
 def _to_message(entry: dict[str, Any]) -> Message:
-    # bugfix-433 决策4: restore structured parts so a persisted image reappears on
-    # later turns (build_chat_messages replays Message.parts). Absent/empty → None,
-    # keeping pure-text messages on the content:str path (消除写而不读的悬空双轨).
-    raw_parts = entry.get("parts")
-    parts = (
-        tuple(dict(p) for p in raw_parts)
-        if isinstance(raw_parts, list) and raw_parts
-        else None
-    )
+    # bugfix-433 决策4 / fix1 #8: restore structured parts via the shared parse_parts so a
+    # persisted image reappears on later turns (build_chat_messages replays Message.parts).
+    # Absent/empty → None, keeping pure-text on content:str (消除写而不读的悬空双轨).
     return Message(
         message_id=str(entry["uuid"]),
         role=str(entry["role"]),
@@ -771,7 +766,7 @@ def _to_message(entry: dict[str, Any]) -> Message:
         metadata=_extract_message_metadata(entry),
         reasoning_content=entry.get("reasoning_content") or None,
         reasoning_signature=entry.get("reasoning_signature") or None,
-        parts=parts,
+        parts=parse_parts(entry.get("parts")),
     )
 
 

@@ -231,7 +231,9 @@ def test_corrupt_image_does_not_poison_following_text_turn(tmp_path: Path) -> No
     )
     asyncio.run(pipeline.handle_inbound(text_inbound))
 
-    assert len(kernel.send_calls) == 1, "following text turn must submit (session usable)"
+    assert len(kernel.send_calls) == 1, (
+        "following text turn must submit (session usable)"
+    )
     assert kernel.send_calls[0]["texts"] == ["never mind, just text: what is 1+1?"]
     assert "image_urls" not in kernel.send_calls[0]
 

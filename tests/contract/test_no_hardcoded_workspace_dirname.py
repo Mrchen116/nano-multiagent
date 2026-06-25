@@ -68,7 +68,8 @@ _WHITELIST: frozenset[str] = frozenset(
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
         # bugfix-402-M1: prepare_transcript_for_run + append_tool_call_recovery added, line shifted to 81
         # bugfix-417-M5: USER_INTERRUPT_RECOVERY_CONTENT constant block added; shifted to 89
-        "src/agent/core/session/jsonl_store.py:89",
+        # bugfix-433-fix1 #8: `from .entries import parse_parts` import added; shifted 89→90
+        "src/agent/core/session/jsonl_store.py:90",
         # tools/loader.py: .nano/tools platform dir
         # feat-388 ruff format: line shifted to 95;
         # refactor-406-M2: +_ToolRootResolver Protocol shifted 95→104

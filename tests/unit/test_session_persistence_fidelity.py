@@ -450,7 +450,11 @@ class TestImagePartsRoundTrip:
         from agent.core.session.entries import new_turn_appended_entry
 
         entry = new_turn_appended_entry(
-            session_id="s1", turn_id="t1", role="user", content="just text", message_id="m1"
+            session_id="s1",
+            turn_id="t1",
+            role="user",
+            content="just text",
+            message_id="m1",
         )
         assert "parts" not in entry.data
 

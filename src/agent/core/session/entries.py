@@ -108,9 +108,13 @@ def new_turn_appended_entry(
         "message_id": message_id,
         "role": role,
         "content": content,
-        "parts": [dict(part) for part in parts or ()],
         "metadata": dict(metadata or {}),
     }
+    # bugfix-433-fix1 #4: only write `parts` when non-empty, matching _message_to_entry.
+    # A text-only turn must not carry `parts: []` — that asymmetry made the two write
+    # paths produce structurally different entries for the same turn (golden drift).
+    if parts:
+        payload["parts"] = [dict(part) for part in parts]
     return SessionEntry(
         entry_id=entry_id or make_event_id(),
         session_id=session_id,
@@ -118,6 +122,19 @@ def new_turn_appended_entry(
         kind=SessionEntryKind.TURN_APPENDED,
         data=payload,
     )
+
+
+def parse_parts(raw_parts: Any) -> tuple[Mapping[str, Any], ...] | None:
+    """Normalize a persisted ``parts`` value back into a Message.parts tuple, or None.
+
+    bugfix-433-fix1 #8: single source of truth for restoring structured parts, shared by
+    both restore paths (jsonl_store._to_message and message_from_turn_entry) so they stay
+    byte-for-byte consistent. Absent / empty / non-list → None (pure-text turns keep the
+    content:str path).
+    """
+    if isinstance(raw_parts, list) and raw_parts:
+        return tuple(dict(p) for p in raw_parts)
+    return None
 
 
 def message_from_turn_entry(entry: SessionEntry) -> Message:
@@ -131,14 +148,8 @@ def message_from_turn_entry(entry: SessionEntry) -> Message:
     # entry.data["metadata"] already; nothing extra needed here.
     # Old JSONL files that lack this field default to False via dict.get().
     # bugfix-433 决策4: surface structured parts so this restore path stays aligned
-    # with jsonl_store._to_message (image-bearing turns must not depend on which
-    # restore path runs). Absent/empty → None (pure-text turns keep content:str).
-    raw_parts = entry.data.get("parts")
-    parts = (
-        tuple(dict(p) for p in raw_parts)
-        if isinstance(raw_parts, list) and raw_parts
-        else None
-    )
+    # with jsonl_store._to_message (shared parse_parts, fix1 #8).
+    parts = parse_parts(entry.data.get("parts"))
     return Message(
         message_id=str(entry.data.get("message_id", "")),
         role=str(entry.data.get("role", "")),

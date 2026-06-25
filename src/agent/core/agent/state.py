@@ -122,10 +122,15 @@ def render_user_content_parts(
         parts: Parsed input parts for one user turn.
 
     Returns:
-        A list of text/image blocks when at least one image is present; otherwise None.
+        A list of text/image blocks when at least one image with a usable URL is present;
+        otherwise None.
     """
 
-    if not any(part.type == "image" for part in parts):
+    # bugfix-433-fix1 #3: the trigger condition must match block construction — an image
+    # part with no usable image_url contributes no block, so it must NOT force the list
+    # path (which would otherwise return a text-only/empty list, violating the
+    # "no usable image → None" contract and silently dropping the image).
+    if not any(part.type == "image" and part.image_url is not None for part in parts):
         return None
     blocks: list[dict[str, Any]] = []
     for part in parts:

@@ -855,14 +855,17 @@ class InboundPipeline:
             detected_mime = _detect_image_mime(bytes(raw))
             if detected_mime is None:
                 return [], "corrupt"
-            data_url = f"data:{mime or detected_mime};base64," + base64.b64encode(
+            # bugfix-433-fix1 #6: trust the magic-byte detected mime over the
+            # client-supplied content_type (which can be wrong or forged).
+            resolved_mime = detected_mime or mime
+            data_url = f"data:{resolved_mime};base64," + base64.b64encode(
                 bytes(raw)
             ).decode("ascii")
             parts.append(
                 {
                     "type": "image",
                     "image_url": data_url,
-                    "mime_type": mime or detected_mime,
+                    "mime_type": resolved_mime,
                 }
             )
         return parts, None
@@ -1346,22 +1349,51 @@ class InboundPipeline:
 
 
 def _detect_image_mime(data: bytes) -> str | None:
-    """Detect a supported image MIME type from magic bytes, else None.
+    """Detect a supported image MIME type with structural validation, else None.
 
-    bugfix-433 决策5: used to reject unrecognizable / corrupt image bytes at the inbound
-    boundary (the model is never asked to interpret garbage). Covers the formats IM
-    accepts for upload; an unknown signature → None → the turn stops with the
-    "无法识别" message.
+    bugfix-433 决策5 / fix1 #1: used to reject unrecognizable OR corrupt image bytes at
+    the inbound boundary (the model is never asked to interpret garbage). Magic bytes
+    alone are insufficient — a 41-byte payload with a valid PNG signature but a corrupt
+    body passed and reached the provider, surfacing a raw stream error instead of the
+    fixed "无法识别" message (regression Issue #1). So each format is validated for
+    structural integrity (header + terminator/size), not just the leading signature.
+    Stdlib-only (no Pillow, which is not a declared dependency).
+
+    An unknown signature OR a structurally broken payload → None → the turn stops with
+    the "无法识别" message.
     """
     if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
+        return "image/png" if _png_is_structurally_valid(data) else None
     if data.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
+        # JPEG: SOI start + EOI (FFD9) terminator must both be present.
+        return "image/jpeg" if data.rstrip(b"\x00").endswith(b"\xff\xd9") else None
     if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
-        return "image/gif"
+        # GIF: trailer byte 0x3B (';') marks a complete stream.
+        return "image/gif" if data.endswith(b"\x3b") else None
     if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
-        return "image/webp"
+        # WEBP: RIFF chunk size (LE @ offset 4) + 8 must not exceed the actual length.
+        if len(data) >= 12:
+            riff_size = int.from_bytes(data[4:8], "little")
+            if riff_size + 8 <= len(data):
+                return "image/webp"
+        return None
     return None
+
+
+def _png_is_structurally_valid(data: bytes) -> bool:
+    """Return True if a PNG has a valid IHDR first chunk and an IEND trailer.
+
+    bugfix-433-fix1 #1: catches "valid signature + corrupt body" — the first chunk after
+    the 8-byte signature must be IHDR (type bytes at offset 12:16) and the stream must
+    contain the IEND end-chunk. A truncated / garbage body fails either check.
+    """
+    if len(data) < 16 + 12:  # signature + IHDR header/type + minimal IEND
+        return False
+    # First chunk type (bytes 12:16) must be IHDR.
+    if data[12:16] != b"IHDR":
+        return False
+    # IEND chunk must be present (end-of-image marker).
+    return b"IEND" in data
 
 
 def _format_sender_text(sender: str, text: str) -> str:

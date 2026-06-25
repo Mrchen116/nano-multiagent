@@ -556,12 +556,14 @@ class AgentRuntime:
             # build_chat_messages (history side) restores it as an image block. Rendering
             # it via render_user_text alone would emit "[image:placeholder]" and drop the
             # image — the reason multi-image turns lost all but the last image.
+            # bugfix-433-fix1 #7: anchor extra parts to user_msg (the turn they belong to),
+            # not to loop_history[-1] (the message BEFORE this turn) — otherwise the
+            # parent chain is misordered. In-memory only (not persisted), low impact, but
+            # keeps the logical tree correct.
             extra_messages = tuple(
                 Message(
                     message_id=make_message_id(),
-                    parent_message_id=loop_history[-1].message_id
-                    if loop_history
-                    else None,
+                    parent_message_id=user_msg.message_id,
                     role="user",
                     content=render_user_text([part]),
                     parts=tuple(blocks)
