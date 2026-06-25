@@ -84,7 +84,9 @@ class FakeToolRegistry:
     def get_tool(self, name: str):  # noqa: ANN201
         return None
 
-    async def execute(self, name, args, *, hook_context=None, session_file_state=None, out_meta=None):  # noqa: ANN201
+    async def execute(
+        self, name, args, *, hook_context=None, session_file_state=None, out_meta=None
+    ):  # noqa: ANN201
         tool_call_id = None
         if hook_context is not None:
             tool_call_id = hook_context.metadata.get("tool_call_id")
