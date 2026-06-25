@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -64,9 +65,17 @@ class _SessionManagerStub:
 
 
 class _RuntimeStub:
-    def __init__(self, tmp_path: Path, delay: float = 0.0) -> None:
+    def __init__(
+        self,
+        tmp_path: Path,
+        delay: float = 0.0,
+        gate: threading.Event | None = None,
+    ) -> None:
         self._tmp_path = tmp_path
         self._delay = delay
+        # gate: 当测试需要确定性观察到 RUNNING 状态时,run() 在返回前阻塞等待它 set,
+        # 避免用 sleep 在高负载 CI 上仍可能让后台任务先跑完导致竞态。
+        self._gate = gate
         self._counter = 0
         store = _FakeStore(tmp_path)
         self._session_manager = _SessionManagerStub(store)
@@ -111,6 +120,9 @@ class _RuntimeStub:
         )
         if self._delay > 0:
             time.sleep(self._delay)
+        if self._gate is not None:
+            # 阻塞直到测试断言完 RUNNING 后放行;超时兜底防测试 bug 时整 job 挂死。
+            self._gate.wait(timeout=10)
         return TurnResult(
             session_id=session_id,
             turn_id="turn_1",
@@ -211,28 +223,33 @@ def test_background_agent_launches_and_returns_async_receipt(tmp_path: Path) -> 
 
 
 def test_background_agent_registry_record_created(tmp_path: Path) -> None:
-    runtime = _RuntimeStub(tmp_path)
+    # gate 让后台 run() 阻塞在完成前,确保断言能确定性观察到 RUNNING 而非偶发的 completed。
+    gate = threading.Event()
+    runtime = _RuntimeStub(tmp_path, gate=gate)
     wiring = wire_background_tasks(workspace_root=tmp_path, runtime=runtime)
     tool = AgentTool(runtime=runtime, wiring=wiring)
     ctx = _make_ctx(tmp_path, session_id="sess_parent")
 
-    result = tool.run(
-        {
-            "description": "test agent",
-            "prompt": "Do something.",
-            "subagent_type": "oracle",
-            "load_skills": [],
-            "run_in_background": True,
-        },
-        ctx,
-    )
+    try:
+        result = tool.run(
+            {
+                "description": "test agent",
+                "prompt": "Do something.",
+                "subagent_type": "oracle",
+                "load_skills": [],
+                "run_in_background": True,
+            },
+            ctx,
+        )
 
-    agent_id = result["agent_id"]
-    record = wiring.registry.get(agent_id)
-    assert record is not None
-    assert record.status == BackgroundTaskStatus.RUNNING
-    assert record.task_type.value == "subagent"
-    assert record.parent_session_id == "sess_parent"
+        agent_id = result["agent_id"]
+        record = wiring.registry.get(agent_id)
+        assert record is not None
+        assert record.status == BackgroundTaskStatus.RUNNING
+        assert record.task_type.value == "subagent"
+        assert record.parent_session_id == "sess_parent"
+    finally:
+        gate.set()
 
 
 def test_background_agent_completes_and_delivers_notification(tmp_path: Path) -> None:
