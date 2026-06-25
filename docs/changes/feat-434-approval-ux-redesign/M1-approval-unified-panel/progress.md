@@ -93,3 +93,13 @@
   - 局限（如实披露）: deny 的 live tool_call 持久化受 LLM run 走向影响（与既有 reason=denied 同源，原 e2e 也因此用文件锚），故 deny 的 approval 用条件式断言 + R1/R2 确定性单测覆盖全链；授权后失败两区并存、denied 闸门「已拒绝」+「未执行」由组件测试针对精确 ToolCall shape 覆盖，未在 live 单独复现（LLM 难稳定造一个授权后失败的工具）。allow 主路径（退出标准核心）已真栈+真浏览器双证。
 - Rollback: 回退到 R5 test commit
 - Next: 本 milestone 完成，进入集成（rebase + merge 到 unit/feat-434）
+
+### R5 补充 — 浏览器验收三态（approve / deny / 待决卡 live + 授权后失败注明）
+
+team-lead 要求 deny 用户旅程也 best-effort 在浏览器走一次、授权后失败能构造就截。补充结果（真栈 + node playwright 1440×900，all zero console error）：
+
+- **approve → 已授权（live，硬证据）**: `ACCEPTANCE/feat-434-M1/r5-chat-allow-1440-zh.png`。DOM 实测 `GATE=[{已授权, chat-tool-call-gate--allow}]`、收起态 `1 次工具调用 · 1 次授权 · ● 1 允许`（绿点）。合一气泡：文本→工具面板（行内「已授权」+ 结果区 21ms）→token chip，气泡外无审批卡。逐项对照 prototype.html 一致。
+- **deny → 已拒绝 + 未执行（live，best-effort 成功）**: `r5-chat-deny-1440-zh.png`。DOM 实测 `GATE=[{已拒绝, chat-tool-call-gate--deny}]`、`未执行`、收起态 `1 次工具调用 · 1 次授权 · ● 1 拒绝`（红点）。denied 行只印一次「已拒绝」（闸门区），行尾无重复 reason 徽标——决策4 去重在真栈生效。
+- **待决卡形态（live，bonus）**: `r5-pending-card-1440.png`。深色待决卡在气泡**内**最下方、`write` + 脉冲「需要确认」**无锁图标**、tool_input JSON、三选项（允许/拒绝/本会话内允许）——对照原型待决卡形态一致。
+- **授权后失败两区并存（本地未稳定复现，如实注明）**: 多次尝试让 bash `exit N` 走「授权→失败」，permission.request 触发且我已 approve，但**被拒/授权后失败的 bash tool_call 未稳定持久化成一行**（根因 = LLM run 收口时序 + bash approval 路径非确定，同 deny 的 nondeterminism）。此态由组件测试 `authorized-but-failed shows BOTH gate and the fail tag (key boundary, zh)` 针对精确 ToolCall shape 确定性覆盖（闸门「已授权」+ 行尾「退出码 N」各占一侧）。留 reviewer 多跑几次确认 live 视觉。
+- **环境坑（记给后人）**: ① IM 服务前端用 `dist`，worktree 内必须先 `npm install && npm run build` 再起 IM（或 `IM_FRONTEND_DIST_DIR` 指向新 dist），否则 fallback 到旧 bundle 看不到新类。② approve 在**累积了多次失败/blocked 的脏 agent 会话**上会卡（write 不执行/不持久化）；**干净 DB + 干净会话**第一次就通——验收 live approve 用全新栈最稳。③ `im_lang` localStorage 存**裸字符串** `zh`（非 JSON `"zh"`），且须 `addInitScript` 在 boot 前注入才生效。
