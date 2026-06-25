@@ -37,3 +37,23 @@
   - E2E/Regression: IM 单测 + persist round-trip 落库；端到端 live 在 R5
 - Rollback: 回退到 R2 C1 commit
 - Next: R3 — 前端数据 + 行内呈现（闸门/结果分区 + denied 去重 + failTag i18n + 分项计数）
+
+### R3 — 前端行内闸门区 + 结果分区 + denied 去重 + failTag i18n + 分项计数
+
+- Context: approval 已到前端 type（R1+R2）。本 R 实现读 approval 的呈现：闸门区/结果区分区、denied 去重、失败文案 i18n、收起态分项计数。决策4 把 denied 从「行尾 reason 徽标」迁到「闸门区 verdict」。
+- Decision:
+  - `chat-types.ToolCall.approval` + `ToolApproval` 类型。
+  - `tool-presentation`: 新 `gateVerdict(call)`（读 approval；历史 denied 行 reason==="denied" 回退 deny）/ `isNotExecuted`（deny → 结果区「未执行」）；`failTag(call, t)` 改 i18n（`toolFailExit`={{code}} / `toolFailGeneric`），denied/非denied-reason 时 suppress；`REASON_BADGE_NAMES` 去掉 "denied"（避免与闸门区双印）。
+  - `ToolCallRow`: 名称右侧渲闸门区（`chat-tool-call-gate--allow/deny` → 已授权/已拒绝）；结果区行尾 = 未执行（denied）/ failTag / 非denied reason 徽标 / 耗时；reasonKey 显式排除 "denied"。
+  - `ToolCallsPanel`: 收起态后缀 `K 次授权 · X 允许 · Y 拒绝`（绿/红点 `chat-tool-calls-dot--allow/deny`，仅非零分项；空态无后缀），承载 bugfix-367 审计计数。
+  - i18n: zh/en 各加 toolGateAllowed/Denied、toolNotExecuted、toolFailExit、toolFailGeneric、toolApprovalCount/Allow/Deny。
+- Rationale: gateVerdict 历史行回退保证旧 denied 行不破（无 approval 字段也显已拒绝）；failTag 接 t() 修掉 spec Q6 漏接 i18n 缺口；分项计数代替旧「已决卡墙」保住审计可见性（决策3 风险）。
+- Evidence:
+  - Tests: tool-calls-panel.test.tsx 新增 13 例（闸门 allow/deny、授权后失败两区并存、denied 去重 + 未执行、历史 denied 回退、非denied reason 留结果区、auto-allow 无闸门、failTag zh/en 退出码与 generic、分项计数 only 非零/空态）+ 改 2 旧 denied 用例为决策4 后行为。前端全套 461 passed（+11）；tsc clean。
+  - Entry: N/A（呈现层组件测试；真实浏览器入口在 R5）
+  - Frontend State Matrix: default（无闸门）/error（授权后失败两区）/permission denied（闸门已拒绝+未执行）/empty（无后缀）/missing data（历史行回退）已覆盖；loading/mobile 在 R5 浏览器验收
+  - Browser QA: R5
+  - E2E/Regression: 组件 regression 落库
+  - Visual/Interaction: CSS 在 R4，浏览器对照原型在 R5
+- Rollback: 回退到 R3 C1 commit
+- Next: R4 — 合一气泡（message-pane pending 入气泡、删气泡外卡、permission-card 删 resolved）+ global.css 样式对齐原型
