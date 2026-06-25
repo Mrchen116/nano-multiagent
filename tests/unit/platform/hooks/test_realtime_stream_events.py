@@ -167,6 +167,36 @@ async def test_tool_result_failed_emits_tool_end_failed() -> None:
     assert evt["data"]["error"] == "Command exited with code 1"
 
 
+async def test_tool_result_emits_tool_end_with_approval() -> None:
+    # feat-434-M1: approval 随 tool_end 一并带出（与 reason_code 同款透传），让前端闸门
+    # 区能读 tool_call.approval 显示「已授权 / 已拒绝」。
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    ctx = _make_ctx(publisher=pub)
+
+    await runner.dispatch_observe(
+        "tool_result",
+        {
+            "session_id": "sess_1",
+            "turn_id": "turn_1",
+            "call_id": "call_1",
+            "name": "bash",
+            "arguments": {"command": "npm run build"},
+            "output": {"ok": True},
+            "duration_ms": 12,
+            "approval": "user_allow",
+            "run_id": "run_1",
+        },
+        ctx,
+    )
+    assert len(pub.events) == 1
+    evt = pub.events[0]
+    assert evt["data"]["event"] == "tool_end"
+    assert evt["data"]["approval"] == "user_allow"
+
+
 def test_presentation_dict_serializes_emoji() -> None:
     # feat-425 决策 1: _presentation_dict 把 event 的 emoji 序列化进 SSE,让自带
     # emoji 的工具(如 web_fetch=🌐)的图标随事件全程透传,而非靠前端名表。

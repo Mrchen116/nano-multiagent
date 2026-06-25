@@ -396,3 +396,80 @@ class TestM6BashViaCheckPermissions:
         assert "allow_unlisted" not in source, (
             "auto_mode_gate.py still references allow_unlisted — M6 migration incomplete"
         )
+
+
+# ---------------------------------------------------------------------------
+# feat-434-M1: _handle_ask 返回 approval 信号（allow 链起点）
+# ---------------------------------------------------------------------------
+
+
+class TestHandleAskApprovalSignal:
+    """gate 的 ask 流在用户决策后须返回 approval 信号，供下游标「已授权/已拒绝」。
+
+    现状 allow_* 分支返回裸 {block:False}，与自动放行无从区分；deny 分支只带 reason。
+    feat-434 让用户卡决策的放行/拒绝都带 approval，自动放行路径不返回 approval（保持 None）。
+    """
+
+    def _make_park_ctx(self, response):
+        ctx = MagicMock()
+        ctx.session_id = "sess-ask"
+
+        async def _requester(req):
+            return response
+
+        ctx.request_permission = _requester
+        return ctx
+
+    def _resp(self, decision, reason=""):
+        r = MagicMock()
+        r.decision = decision
+        r.reason = reason
+        return r
+
+    @pytest.mark.asyncio
+    async def test_allow_once_returns_user_allow(self):
+        from agent.platform.hooks.builtins.auto_mode_gate import _handle_ask
+
+        ctx = self._make_park_ctx(self._resp("allow_once"))
+        result = await _handle_ask(
+            ctx, "bash", {"command": "ls"}, "risky", "run-1", "sess-ask",
+            AutoModeConfig(), None,
+        )
+        assert result.get("block") is False
+        assert result.get("approval") == "user_allow"
+
+    @pytest.mark.asyncio
+    async def test_allow_session_returns_user_allow(self):
+        from agent.platform.hooks.builtins.auto_mode_gate import _handle_ask
+
+        ctx = self._make_park_ctx(self._resp("allow_session"))
+        result = await _handle_ask(
+            ctx, "bash", {"command": "ls"}, "risky", "run-1", "sess-ask",
+            AutoModeConfig(), None,
+        )
+        assert result.get("block") is False
+        assert result.get("approval") == "user_allow"
+
+    @pytest.mark.asyncio
+    async def test_allow_always_returns_user_allow(self):
+        from agent.platform.hooks.builtins.auto_mode_gate import _handle_ask
+
+        ctx = self._make_park_ctx(self._resp("allow_always"))
+        result = await _handle_ask(
+            ctx, "bash", {"command": "ls"}, "risky", "run-1", "sess-ask",
+            AutoModeConfig(), None,
+        )
+        assert result.get("block") is False
+        assert result.get("approval") == "user_allow"
+
+    @pytest.mark.asyncio
+    async def test_deny_returns_user_deny(self):
+        from agent.platform.hooks.builtins.auto_mode_gate import _handle_ask
+
+        ctx = self._make_park_ctx(self._resp("deny", reason="no"))
+        result = await _handle_ask(
+            ctx, "bash", {"command": "ls"}, "risky", "run-1", "sess-ask",
+            AutoModeConfig(), None,
+        )
+        assert result.get("block") is True
+        assert result.get("approval") == "user_deny"
