@@ -220,6 +220,9 @@ data/dev-tasks.json
 data/dev-tasks.json.tmp
 data/locks
 data/locks/
+# IM attachment uploads — written by the IM service at runtime (e2e/live tests
+# upload here). Never commit; not source.
+data/uploads/
 
 # Playwright
 .playwright-cli/

@@ -25,6 +25,31 @@ _PNG_BYTES = base64.b64decode(
 )
 
 
+def _make_valid_png(width: int, height: int, rgb: tuple[int, int, int]) -> bytes:
+    """Build a structurally complete PNG (IHDR + IDAT + IEND) with stdlib only.
+
+    Used to guard against the structural check false-rejecting a real solid-color
+    image (a valid image being killed is worse than a corrupt one slipping through).
+    """
+    import struct
+    import zlib
+
+    def _chunk(typ: bytes, data: bytes) -> bytes:
+        body = typ + data
+        return (
+            struct.pack(">I", len(data))
+            + body
+            + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+        )
+
+    sig = b"\x89PNG\r\n\x1a\n"
+    ihdr = _chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+    raw = b"".join(b"\x00" + bytes(rgb) * width for _ in range(height))
+    idat = _chunk(b"IDAT", zlib.compress(raw, 9))
+    iend = _chunk(b"IEND", b"")
+    return sig + ihdr + idat + iend
+
+
 def _make_pipeline(tmp_path: Path, *, fetcher=None):
     agents = _agents(tmp_path)
     channel = _FakeChannel("web")
@@ -200,6 +225,28 @@ def test_valid_png_with_full_structure_passes(tmp_path: Path) -> None:
 
     assert len(kernel.send_calls) == 1
     assert kernel.send_calls[0].get("image_urls"), "valid PNG must reach submit"
+
+
+def test_real_multichunk_solid_color_png_not_false_rejected(tmp_path: Path) -> None:
+    """bugfix-433-fix1: a real 100x100 solid-color PNG (IHDR+IDAT+IEND) must NOT be
+    false-rejected by the structural check — false-killing a valid image is worse than
+    missing a corrupt one (it silently breaks the core vision feature).
+    """
+    for idx, rgb in enumerate([(255, 0, 0), (0, 0, 255)]):  # red, blue
+        png = _make_valid_png(100, 100, rgb)
+        sub = tmp_path / f"case-{idx}"
+        sub.mkdir()
+
+        async def _fetcher(url: str, _png: bytes = png) -> bytes:
+            return _png
+
+        pipeline, kernel, delivered = _make_pipeline(sub, fetcher=_fetcher)
+        asyncio.run(pipeline.handle_inbound(_image_inbound()))
+
+        assert delivered == [], f"valid {rgb} PNG must not trigger a failure message"
+        assert len(kernel.send_calls) == 1, f"valid {rgb} PNG must reach submit"
+        url = kernel.send_calls[0]["image_urls"][0]["url"]
+        assert url.startswith("data:image/png;base64,")
 
 
 def test_corrupt_image_does_not_poison_following_text_turn(tmp_path: Path) -> None:
