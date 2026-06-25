@@ -51,12 +51,17 @@ class RunInfo:
             Consumers anchor ``stream(after_sequence=…)`` to it so each turn
             receives exactly this run's events without replaying stale session
             history (the Gateway SSE relay path depends on this).
+        injected: True when a ``submit(steer=True)`` was injected into an already
+            active run's next round (``run_id`` is that active run; no new run was
+            created); False for a freshly created run. Consumers use this to decide
+            whether to start their own per-run event loop (bugfix-426 决策1).
     """
 
     run_id: str
     session_id: str
     status: str
     start_sequence: int = 0
+    injected: bool = False
 
 
 # ---------------------------------------------------------------------------

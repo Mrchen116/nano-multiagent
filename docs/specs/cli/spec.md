@@ -1,6 +1,6 @@
 # cli (coding_cli) Specification
 
-> 对齐: feat-392
+> 对齐: bugfix-426-midrun-message-steering
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 **终端用户在 CLI 上可观察的对外
 > 行为**;CLI 内部如何编排内核、渲染、消费事件不在此层(那在代码 + 归档 design)。每条 Scenario 的主语 =
@@ -87,6 +87,21 @@ token 用量与上下文预算(已用/上限/占比)。预算接近上限时给�
 - **GIVEN** 上下文预算指标暂不可得
 - **WHEN** 一轮对话结束
 - **THEN** 对话主流程照常完成(fail-open),不因预算显示失败而中断或报错退出
+
+### Requirement: REPL 在 run 执行中可继续输入，输入 steer 进当前 run
+
+run 执行期间 REPL 输入不被阻塞；用户在 run 运行中提交的输入注入当前 run 的下一轮，而非排队等其结束。
+
+#### Scenario: run 执行中输入被注入当前 run 下一轮
+- **GIVEN** REPL 的某个 run 正在执行（流式输出进行中）
+- **WHEN** 用户在 run 未结束时输入并提交一条消息
+- **THEN** 输入在当前 run 的下一次模型调用前被带入上下文，不阻塞、不等当前 run 整体结束
+- **AND** 该注入消息触发的助手回复在终端呈现，后续对话可引用其内容（注入轮进入会话历史）
+
+#### Scenario: 空闲时输入仍开新 run
+- **GIVEN** REPL 当前无执行中的 run
+- **WHEN** 用户输入并提交
+- **THEN** 照常作为新 run 处理
 
 ### Requirement: 错误对终端用户分层呈现,携带可执行修复建议
 

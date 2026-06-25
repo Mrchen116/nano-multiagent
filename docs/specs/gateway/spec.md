@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: bugfix-433-image-multi-turn-persistence
+> 对齐: bugfix-426-midrun-message-steering / bugfix-433-image-multi-turn-persistence
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -108,6 +108,44 @@ import 内核内部(由 `tests/contract/` 把守)。
 #### Scenario: 无运行时 /stop 返回友好提示
 - **WHEN** 某会话当前无活动运行而用户发 `/stop`
 - **THEN** 用户收到「当前没有正在执行的操作。」,不抛错
+
+### Requirement: Agent 正在回复时，用户仍能继续发消息并被及时采纳
+
+用户不必等 Agent 把当前这条回复彻底做完，就能再发消息；Agent 会尽快把新消息纳入考虑，而不是把它晾到当前回复结束之后才理。
+
+#### Scenario: Agent 忙着做事时插一句，很快被采纳
+- **GIVEN** Agent 正在回复用户的上一条消息（在一步步做一件要花点时间的事）
+- **WHEN** 用户在它还没回复完时又发一条消息
+- **THEN** Agent 很快把这条新消息纳入考虑并据此调整方向，而不是等当前这件事整个做完才理它
+
+#### Scenario: 插话不打断 Agent 手头正在做的事
+- **GIVEN** Agent 手头有一件事正在做（哪怕这件事很慢、在重试）
+- **WHEN** 用户在此期间插一句
+- **THEN** Agent 手头这件事照常做完，这条插话在它做完手头这步之后才被采纳（不被硬生生打断）
+
+#### Scenario: 连发多条，按发送顺序全部被听到
+- **GIVEN** Agent 正在回复用户
+- **WHEN** 用户在它回复完之前一连发了好几条消息
+- **THEN** 这些消息按发送先后全部被 Agent 纳入考虑，不丢、不乱序
+
+#### Scenario: Agent 空着时发消息，照常回复
+- **GIVEN** Agent 当前没有在回复任何东西
+- **WHEN** 用户发一条消息
+- **THEN** Agent 照常开始回复，和一直以来一样
+
+#### Scenario: 群里插话，发言人身份和上下文不丢
+- **GIVEN** 一个群聊里 Agent 正在回复
+- **WHEN** 某个成员在它回复期间插一句
+- **THEN** Agent 看到的这条插话仍带着「谁说的」以及群里该有的上下文，和平时在群里收到消息一样（群聊体验不变）
+- **AND** 即使几个成员几乎同时插话，每条插话各自的「谁说的」和上下文都完整保留，不会互相串掉或丢失
+
+### Requirement: 对插话的回复出现在插话下方，并随 Agent 做事逐步显示
+
+#### Scenario: 对插话的回复排在插话下方，并随做事逐步显示
+- **GIVEN** Agent 正在回复用户，会话里已经有它这条回复
+- **WHEN** 用户在它回复期间又发一条消息
+- **THEN** Agent 针对这条新消息的回复出现在这条新消息**下方**（按发送先后排），并随 Agent 一步步做事在那里逐步显示出来，直到给出最终回复
+- **AND** 用户发这条新消息**之前** Agent 已经在说/在做的那部分，仍留在上一条回复里，那条回复正常结束
 
 ### Requirement: 会话映射持久化,进程重启后续接不丢历史
 

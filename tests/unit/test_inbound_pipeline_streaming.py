@@ -111,6 +111,62 @@ class TestAcceptedPhaseSeedsRunContext:
             "accepted phase must not store user message_id as agent message_id"
         )
 
+    @pytest.mark.asyncio
+    async def test_accepted_phase_preserves_existing_run_context_for_injected_steer(
+        self,
+    ):
+        """bugfix-426-M4 (#140): a steer injects into an ACTIVE run and emits an
+        accepted lifecycle with that run's EXISTING run_id. The run already has a live
+        bubble context (bubble A's message_id, its streaming kernel_message_id). The
+        accepted phase must NOT re-seed/wipe it — otherwise message_id is reset to ""
+        and bubble A is orphaned (observer can't finalize it → 120s relay-idle → A
+        stuck running/failed, the #140 black-screen symptom)."""
+        from personal_assistant.main import _build_relay_lifecycle_callback
+        from personal_assistant.gateway.inbound_pipeline import RelayLifecycleUpdate
+        from personal_assistant.channels.base import InboundMessage
+
+        # The run already has a live bubble (A) streaming when the steer is accepted.
+        run_context_store: dict[str, dict[str, str]] = {
+            "run-active": {
+                "conversation_id": "conv-abc",
+                "message_id": "bubble-A",
+                "agent_id": "Alpha",
+                "kernel_message_id": "kmsg-A",
+            }
+        }
+
+        manager = MagicMock()
+        manager.connected = True
+        manager.send_json = AsyncMock()
+        reporter = MagicMock()
+        reporter.send_delivery_receipt.return_value = {"type": "delivery_receipt"}
+
+        callback = _build_relay_lifecycle_callback(
+            reporter=reporter,
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        message = MagicMock(spec=InboundMessage)
+        message.external_chat_id = "conv-abc"
+        message.metadata = {"relay_task_id": "task-steer", "agent_id": "Alpha"}
+
+        update = MagicMock(spec=RelayLifecycleUpdate)
+        update.phase = "accepted"
+        update.run_id = "run-active"  # SAME run_id — the steer reuses the active run
+        update.agent_id = "Alpha"
+
+        await callback(message, update)
+
+        ctx = run_context_store["run-active"]
+        # Bubble A's context survives — not wiped to "".
+        assert ctx["message_id"] == "bubble-A", (
+            "injected-steer accepted phase must preserve the active run's bubble context"
+        )
+        assert ctx["kernel_message_id"] == "kmsg-A"
+        # The steer's delivery receipt is still sent (the steer message is acknowledged).
+        reporter.send_delivery_receipt.assert_called_once()
+
 
 # ─── R2b tests: kernel skips run_status=running (direct assistant_message) ───
 

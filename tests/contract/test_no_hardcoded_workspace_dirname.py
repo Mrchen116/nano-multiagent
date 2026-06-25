@@ -54,15 +54,17 @@ _WHITELIST: frozenset[str] = frozenset(
         # kernel.py: M3fix #2 workspace .nano/hooks dir for the _SearchRootsResolver
         # (决策2-style workspace discovery; literal .nano, not workspace_config_dirname);
         # M3fix-r2 dead-code removal shifted 369→370.
-        "src/agent/sdk/kernel.py:370",
+        # bugfix-426-M1: RunInfo.injected docstring lines in _to_run_info shifted 370→375.
+        "src/agent/sdk/kernel.py:375",
         # kernel.py: M3fix-r2 R2-1 workspace .nano/tools dir loaded via
         # _load_tools_from_single_dir(replace=True) (决策2 workspace discovery; literal .nano).
         # bugfix-417-M7: foreground_stopper injection comment expanded (decision 12); shifted 480→483.
         # bugfix-429: build_kernel per-provider llm_clients construction block; shifted 483→501,
         # then empty-provider skip (if p.models) + comment added 3 lines → 504.
         # bugfix-431-M1 rebase onto bugfix-429: _WorkspaceDirnameSkillResolver deleted from kernel
-        # (−35 lines) but build_kernel body net grew; .nano/tools literal now at 510.
-        "src/agent/sdk/kernel.py:510",
+        # (−35 lines) but build_kernel body net grew; bugfix-426 merge keeps RunInfo.injected
+        # docstring and foreground stopper shifts; .nano/tools literal now at 515.
+        "src/agent/sdk/kernel.py:515",
         # skills/discovery.py: .nano skill search root — platform default, pre-185
         "src/agent/core/skills/discovery.py:45",
         # jsonl_store.py: .nano default parameter — used as fallback, not per-workspace hardcode
@@ -99,10 +101,13 @@ _WHITELIST: frozenset[str] = frozenset(
         # LLMConfig.from_json/from_catalog), net +2 lines shifted to 1146/1147
         # bugfix-417-M5: Ctrl-C→kernel.interrupt block in _send_message_async, shifted to 1187/1188
         # bugfix-417-M5: asyncio SIGINT handler block added to repl loop, shifted to 1232/1233
-        # bugfix-429 R6: llm-config set body + argparse removed (reconfigure_llm退役),
-        # net -30 lines shifted to 1202/1203
-        "src/coding_cli/commands.py:1202",
-        "src/coding_cli/commands.py:1203",
+        # bugfix-426-M2: non-blocking REPL input loop (run task + executor input
+        # future + steer routing) added to _run_repl, shifted to 1378/1379;
+        # _drain_forever robustness comment + log block → 1394/1395.
+        # bugfix-429 R6: llm-config set body + argparse removed (reconfigure_llm退役), net -30.
+        # integrate(bugfix-426+429): both shifts compose → 1366/1367.
+        "src/coding_cli/commands.py:1366",
+        "src/coding_cli/commands.py:1367",
     }
 )
 

@@ -79,6 +79,19 @@ before                                  after（合一）
 [待决审批卡]     ← 飘在气泡外
 ```
 
+### 🔒 视觉与交互基准：强制对齐原型（worker 必读）
+
+**`docs/changes/feat-434-approval-ux-redesign/prototype.html` 是本 unit 的 UI 单一基准（canonical）。** 实现的视觉与交互必须与原型逐项一致，不得自由发挥。原型已用真实 `global.css` 的 oklch 配色还原，并演示了完整生命周期与全部行变体。逐项对齐清单：
+
+- **合一气泡**：一个气泡内自上而下＝文本 → 工具/审批面板 → 待决卡；气泡外无任何审批呈现。
+- **收起态后缀**：`N 次工具调用 · K 次授权 · X 允许 · Y 拒绝`（绿/红小圆点，仅非零分项）。
+- **行内分区**：闸门区（贴名称右侧，`已授权`绿 / `已拒绝`红）+ 结果区（行尾，`退出码 N`/`失败`/`执行超时`/`已中断`/`未执行`/耗时）。授权后失败＝两区同时在场（原型行变体表行 3）。
+- **待决卡**：深色、气泡最下方、`工具名 + 脉冲「需要确认」`、无锁图标，选项 `允许 / 本会话内允许 / 拒绝`。
+- **文案目标态**：中文界面全中文（原型 `real-variants` 截图即目标），英文界面对应英文（决策5 pin 的串）。
+- **生命周期**：没有审批→冒待决→按完折叠并入工具行→已决与新待决共存→收起态计数（原型「▶ 开始演示」可走通）。
+
+> 缘由：过往多次出现实现不参考原型、与期望不一致。本 unit 把原型钉为基准，reviewer/verifier 以原型逐项核对（见 Milestone `[reviewer]` 退出标准）。原型若需变更，须先改原型并经审核，design 同步，禁止实现期各自发挥。
+
 ## 关键决策
 
 ### 决策 1: approval 用新字段，不复用 reason
@@ -125,7 +138,8 @@ allow 侧新链（缺一不可，按数据流向）：
 
 **`tool-presentation.ts` 的 `exit ${code}`/`failed` 改走 `t()`（新增 `toolFailExit`={{code}} / `toolFailGeneric`），随界面语言渲染。**
 
-- **理由**：现状 reason 标签走了 i18n、failTag 漏接（spec 澄清 Q6）。修掉这个既有缺口，新文案一律 i18n。
+- **pin 的文案**（原型即基准）：`toolFailExit` → zh「退出码 {{code}}」/ en「exit {{code}}」；`toolFailGeneric` → zh「失败」/ en「failed」。闸门区 `approval` → zh「已授权」「已拒绝」/ en「Authorized」「Denied」。既有 reason 标签（执行超时/已中断/已拒绝）已在 i18n，不动。
+- **理由**：现状 reason 标签走了 i18n、failTag 漏接（spec 澄清 Q6）。修掉这个既有缺口，新文案一律 i18n——中文界面全中文（原型 `prototype.html` 行变体表即目标态）。
 - **风险**：`failTag` 现为纯函数返回字符串、无 `t()` 入参 —— 调用处（`ToolCallRow`）已有 `t`，把成品文案的拼装移到组件内或给 failTag 传 `t`。属实现细节，worker 定。
 
 ## 接口与数据流
@@ -191,6 +205,6 @@ sequenceDiagram
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-434-M1 | approval-unified-panel | — | A | 内核 `platform/hooks/builtins/auto_mode_gate.py`（allow 分支返回 approval 信号）、`core/hooks/runner.py`（block=False 保留 approval）、`core/tools/registry.py`、`core/agent/tool_executor.py`、`core/types.py`（ToolResult 加 approval）、`platform/hooks/builtins/realtime_stream.py`；Gateway `personal_assistant/main.py`（tool_end 透传）；IM `domain/models.py`、`api/routes/messages.py`、`infra/repositories.py`；前端 `message-pane.tsx`、`tool-calls-panel.tsx`、`permission-card.tsx`、`tool-presentation.ts`、`chat-types.ts`、`styles/global.css`、`i18n/zh|en.json` | `[reviewer]` 工具调用与审批呈现在同一气泡内、气泡外无独立审批卡（覆盖 Req-技术动作收同一气泡）；`[reviewer]` 待决卡醒目可操作、已有已决时新待决与已决同时可见（Req-待决醒目 / Scenario-又来新待决）；`[reviewer]` 允许后行内显「已授权」、拒绝后显「已拒绝」+ 未执行（Req-折叠并入）；`[reviewer]` 收起态显「N 次授权·X 允许·Y 拒绝」、空态无授权后缀（Req-工具行形态）；`[reviewer]` 授权后失败时「已授权」与失败报错各占一侧（Req-行内分区 / 关键边界）；`[reviewer]` 中/英界面失败文案随语言（Req-失败文案随语言）；`[worker]` **allow 成功**工具的 `approval=user_allow` 端到端到达前端（不止 deny；覆盖决策2 五步链，含 `runner.py` block=False 保留 + 成功路径 lift，单测覆盖内核产出）；`[worker]` `approval` 字段贯穿 内核→Gateway→IM→前端，IM REST 历史与 WS 均携带（单测：IM encode/decode round-trip、Gateway 透传）；`[worker]` 前端单测覆盖 ToolCallRow 闸门/结果分区 + denied 去重 + 已决并入；`[worker]` `failTag` 经 i18n，zh/en 各出对应文案；`[worker]` `npm run test` + `pytest -m "not e2e"` 全绿 |
+| feat-434-M1 | approval-unified-panel | — | A | 内核 `platform/hooks/builtins/auto_mode_gate.py`（allow 分支返回 approval 信号）、`core/hooks/runner.py`（block=False 保留 approval）、`core/tools/registry.py`、`core/agent/tool_executor.py`、`core/types.py`（ToolResult 加 approval）、`platform/hooks/builtins/realtime_stream.py`；Gateway `personal_assistant/main.py`（tool_end 透传）；IM `domain/models.py`、`api/routes/messages.py`、`infra/repositories.py`；前端 `message-pane.tsx`、`tool-calls-panel.tsx`、`permission-card.tsx`、`tool-presentation.ts`、`chat-types.ts`、`styles/global.css`、`i18n/zh|en.json` | `[reviewer]` 工具调用与审批呈现在同一气泡内、气泡外无独立审批卡（覆盖 Req-技术动作收同一气泡）；`[reviewer]` 待决卡醒目可操作、已有已决时新待决与已决同时可见（Req-待决醒目 / Scenario-又来新待决）；`[reviewer]` 允许后行内显「已授权」、拒绝后显「已拒绝」+ 未执行（Req-折叠并入）；`[reviewer]` 收起态显「N 次授权·X 允许·Y 拒绝」、空态无授权后缀（Req-工具行形态）；`[reviewer]` 授权后失败时「已授权」与失败报错各占一侧（Req-行内分区 / 关键边界）；`[reviewer]` 中/英界面失败文案随语言（Req-失败文案随语言）；`[reviewer]` **UI 逐项对齐 `prototype.html`**（合一气泡 / 收起态分项计数 / 行内闸门-结果分区 / 待决卡形态 / 目标态全中文文案 / 生命周期，见「视觉与交互基准」段）；`[worker]` **allow 成功**工具的 `approval=user_allow` 端到端到达前端（不止 deny；覆盖决策2 五步链，含 `runner.py` block=False 保留 + 成功路径 lift，单测覆盖内核产出）；`[worker]` `approval` 字段贯穿 内核→Gateway→IM→前端，IM REST 历史与 WS 均携带（单测：IM encode/decode round-trip、Gateway 透传）；`[worker]` 前端单测覆盖 ToolCallRow 闸门/结果分区 + denied 去重 + 已决并入；`[worker]` `failTag` 经 i18n，zh/en 各出对应文案；`[worker]` `npm run test` + `pytest -m "not e2e"` 全绿 |
 
 > 单 M1 举证：本 unit 是一条端到端垂直切片——`approval` 标识必须从内核 gate 一路流到前端才能显示「已授权」，无法在不破坏该链路的前提下并行；按 §4.3「后端/前端」横切被禁止。文件数偏多但属同一不可分割链路，单 worker 串行完成。

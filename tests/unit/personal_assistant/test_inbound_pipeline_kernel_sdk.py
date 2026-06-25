@@ -48,6 +48,10 @@ class _FakeKernel:
         self._session_index = 0
         self._run_index = 0
         self._sessions: dict[str, _FakeSession] = {}
+        # Test-controlled active run per kernel session. When set, a steer=True
+        # submit injects into it (returns injected=True, reusing this run_id);
+        # mirrors the real Kernel.submit(steer=True) atomic inject-or-new branch.
+        self.active_run_by_session: dict[str, str] = {}
 
     async def create_session(
         self,
@@ -83,8 +87,27 @@ class _FakeKernel:
         origin: Any = None,
         workspace_root: Path | None = None,
         trace_id: str | None = None,
+        steer: bool = False,
+        flush_held: bool = True,
         model: str | None = None,
     ) -> MagicMock:
+        active = self.active_run_by_session.get(session_id)
+        if steer and active is not None:
+            # Inject into the active run: no new run created, injected=True.
+            self.submit_calls.append(
+                {
+                    "session_id": session_id,
+                    "parts": parts,
+                    "origin": origin,
+                    "workspace_root": workspace_root,
+                    "steer": True,
+                    "injected": True,
+                }
+            )
+            record = MagicMock()
+            record.run_id = active
+            record.injected = True
+            return record
         self._run_index += 1
         run_id = f"run-{self._run_index}"
         self.submit_calls.append(
@@ -93,11 +116,14 @@ class _FakeKernel:
                 "parts": parts,
                 "origin": origin,
                 "workspace_root": workspace_root,
+                "steer": steer,
+                "injected": False,
                 "model": model,
             }
         )
         record = MagicMock()
         record.run_id = run_id
+        record.injected = False
         return record
 
     def append_message(
@@ -385,3 +411,282 @@ def test_inbound_pipeline_kernel_sdk_stream_delivers_events(tmp_path: Path) -> N
     # reply_text comes from the assistant_message event yielded by kernel.stream
     assert result.reply_text == "reply from sdk kernel"
     assert channel.sent[0].text == "reply from sdk kernel"
+
+
+# ---------------------------------------------------------------------------
+# bugfix-426-M1 R3: mid-run steering — inbound message during an active run is
+# injected into it (steer=True), not queued behind it.
+# ---------------------------------------------------------------------------
+
+
+def _group_agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
+    agent_a = tmp_path / "agent-a"
+    agent_a.mkdir()
+    return (
+        AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=agent_a,
+            title="Agent A",
+            group_reply_policy="ALWAYS",
+        ),
+    )
+
+
+def _make_pipeline(kernel, agents, tmp_path):  # noqa: ANN001, ANN201
+    from personal_assistant.gateway.group_context_store import GroupContextStore
+    from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+
+    channel = _FakeChannel("web")
+    registry = ChannelRegistry((channel,))
+    pipeline = InboundPipeline(
+        kernel=kernel,
+        agents=agents,
+        outbound_router=OutboundRouter(registry),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        group_context_store=GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3"),
+    )
+    return pipeline, channel
+
+
+def test_steer_injects_into_active_run_not_new_run(tmp_path: Path) -> None:
+    """A direct-chat message arriving while a run is active is steered into it:
+    submit(steer=True) returns injected=True, no new run is queued."""
+    kernel = _FakeKernel()
+    pipeline, _channel = _make_pipeline(kernel, _agents(tmp_path), tmp_path)
+
+    # First message creates the session + binding (and finishes via the fast stub).
+    first = InboundMessage(
+        channel_name="web",
+        text="run a long task",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+    asyncio.run(pipeline.handle_inbound(first))
+    session_key = "web:chat-1:agent-a"
+    binding = pipeline._session_store.get(session_key)  # noqa: SLF001
+    assert binding is not None
+    kernel_session_id = binding.kernel_session_id
+
+    # Simulate an active run for that session (both the gateway gate and the
+    # kernel's own active-run map the steer submit consults).
+    pipeline._active_runs[session_key] = "run-active"  # noqa: SLF001
+    kernel.active_run_by_session[kernel_session_id] = "run-active"
+
+    submits_before = len(kernel.submit_calls)
+    steer_msg = InboundMessage(
+        channel_name="web",
+        text="actually use web_search",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+    result = asyncio.run(pipeline.handle_inbound(steer_msg))
+
+    # Exactly one new submit, and it was a steer injection (not a new run).
+    assert len(kernel.submit_calls) == submits_before + 1
+    steer_call = kernel.submit_calls[-1]
+    assert steer_call["steer"] is True
+    assert steer_call["injected"] is True
+    assert steer_call["session_id"] == kernel_session_id
+    # The injected message text is carried in parts.
+    assert any(
+        p.get("type") == "text" and "actually use web_search" in p.get("text", "")
+        for p in steer_call["parts"]
+    )
+    assert result is not None
+    assert result.run_id == "run-active"
+
+
+def test_idle_message_opens_new_run_not_steer(tmp_path: Path) -> None:
+    """With no active run, a message is a normal new run (steer degrades): the
+    submit is not an injection."""
+    kernel = _FakeKernel()
+    pipeline, _channel = _make_pipeline(kernel, _agents(tmp_path), tmp_path)
+
+    inbound = InboundMessage(
+        channel_name="web",
+        text="hello",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+    asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert len(kernel.submit_calls) == 1
+    assert kernel.submit_calls[0]["injected"] is False
+
+
+def test_group_steer_preserves_sender_prefix_and_buffered_context(
+    tmp_path: Path,
+) -> None:
+    """A group-chat steer reuses the same parts builder as the normal path:
+    the steered message carries the sender prefix and any buffered context from
+    other speakers — not a bare message.text."""
+    kernel = _FakeKernel()
+    pipeline, _channel = _make_pipeline(kernel, _group_agents(tmp_path), tmp_path)
+
+    # First group message creates the session binding.
+    first = InboundMessage(
+        channel_name="web",
+        text="@agent-a kick off",
+        external_user_id="user-1",
+        external_chat_id="grp-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"sender_display_name": "Alice"},
+    )
+    asyncio.run(pipeline.handle_inbound(first))
+    session_key = "web:grp-1:agent-a"
+    binding = pipeline._session_store.get(session_key)  # noqa: SLF001
+    assert binding is not None
+    kernel_session_id = binding.kernel_session_id
+
+    # Buffer a message from another speaker (not addressed to agent-a) so the
+    # next turn must drain it into context.
+    buf_key = pipeline._group_buf_key_for_agent(first, "agent-a")  # noqa: SLF001
+    pipeline._group_context_store.append(buf_key, "context from bob", sender="Bob")  # noqa: SLF001
+
+    # Active run → the new group message must steer into it.
+    pipeline._active_runs[session_key] = "run-active"  # noqa: SLF001
+    kernel.active_run_by_session[kernel_session_id] = "run-active"
+
+    steer_msg = InboundMessage(
+        channel_name="web",
+        text="@agent-a change direction",
+        external_user_id="user-2",
+        external_chat_id="grp-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"sender_display_name": "Carol"},
+    )
+    asyncio.run(pipeline.handle_inbound(steer_msg))
+
+    steer_call = kernel.submit_calls[-1]
+    assert steer_call["steer"] is True and steer_call["injected"] is True
+    texts = [p.get("text", "") for p in steer_call["parts"] if p.get("type") == "text"]
+    joined = "\n".join(texts)
+    # Buffered other-speaker context is drained in with its sender prefix.
+    assert "[Bob] context from bob" in joined
+    # The current speaker's message keeps the sender prefix (not bare text).
+    assert "[Carol] @agent-a change direction" in joined
+
+
+# ---------------------------------------------------------------------------
+# bugfix-426-M3: concurrent steer must not race the group-buffer drain.
+# Two inbound messages for the same session both pass the has_active_run gate
+# and enter the steer fast-path. The "has_active_run check → drain" span must
+# stay serial per session so a second steer cannot drain (destructive) while a
+# first steer is mid-decision — otherwise the buffered group context is split
+# between the two (one drains everything, the other drains nothing), violating
+# the gateway invariant "群聊运行中 steer 保留发言人与缓冲上下文".
+# ---------------------------------------------------------------------------
+
+
+def test_concurrent_group_steer_drain_is_serial_not_interleaved(
+    tmp_path: Path,
+) -> None:
+    """Two concurrent group steers must not interleave their buffer drains.
+
+    Each steer's ``[has_active_run gate] → _build_message_parts(drain)`` span is
+    serialized per session. We instrument the drain entry and inject a yield
+    point right after binding (mirroring the real ``await _ensure_binding`` yield
+    that lets a second coroutine cut in). With serialization the recorded order
+    is ``[A bind, A drain, B bind, B drain]`` — each coroutine's bind and drain
+    are adjacent. Without it the order interleaves (``[A bind, B bind, ...]``),
+    proving a second coroutine drained while the first was still mid-decision.
+    """
+    kernel = _FakeKernel()
+    pipeline, _channel = _make_pipeline(kernel, _group_agents(tmp_path), tmp_path)
+
+    # First group message creates the session binding and an active run.
+    first = InboundMessage(
+        channel_name="web",
+        text="@agent-a kick off",
+        external_user_id="user-1",
+        external_chat_id="grp-1",
+        is_group=True,
+        agent_id="agent-a",
+        metadata={"sender_display_name": "Alice"},
+    )
+    asyncio.run(pipeline.handle_inbound(first))
+    session_key = "web:grp-1:agent-a"
+    binding = pipeline._session_store.get(session_key)  # noqa: SLF001
+    assert binding is not None
+    kernel_session_id = binding.kernel_session_id
+
+    # Buffer other-speaker context so both steers contend for the same drain.
+    buf_key = pipeline._group_buf_key_for_agent(first, "agent-a")  # noqa: SLF001
+    pipeline._group_context_store.append(buf_key, "ctx from bob", sender="Bob")  # noqa: SLF001
+
+    # Active run → both new group messages steer into it.
+    pipeline._active_runs[session_key] = "run-active"  # noqa: SLF001
+    kernel.active_run_by_session[kernel_session_id] = "run-active"
+
+    events: list[str] = []
+
+    # Derive the acting coroutine's label from the message text itself (the "A"
+    # / "B" tag is embedded), NOT a shared variable — a shared label races across
+    # the await points and misattributes events.
+    def _label_of(message: InboundMessage) -> str:
+        return "A" if "first steer" in message.text else "B"
+
+    # Record drain entry per coroutine by wrapping _build_message_parts (the
+    # destructive drain call site), keyed by the message being built.
+    real_build = pipeline._build_message_parts  # noqa: SLF001
+
+    def _instrumented_build(message, *, agent_id, sender_label):  # noqa: ANN001, ANN202
+        events.append(f"drain:{_label_of(message)}")
+        return real_build(message, agent_id=agent_id, sender_label=sender_label)
+
+    pipeline._build_message_parts = _instrumented_build  # type: ignore[method-assign]  # noqa: SLF001
+
+    # Wrap _ensure_binding to record the bind step and yield control afterwards,
+    # opening the exact interleaving window the real await creates.
+    real_ensure = pipeline._ensure_binding  # noqa: SLF001
+
+    async def _instrumented_ensure(message, *, agent_id, session_key):  # noqa: ANN001, ANN202
+        binding_ = await real_ensure(
+            message, agent_id=agent_id, session_key=session_key
+        )
+        events.append(f"bind:{_label_of(message)}")
+        await asyncio.sleep(0)
+        return binding_
+
+    pipeline._ensure_binding = _instrumented_ensure  # type: ignore[method-assign]  # noqa: SLF001
+
+    async def _drive() -> None:
+        async def _one(sender: str, text: str) -> None:
+            await pipeline.handle_inbound(
+                InboundMessage(
+                    channel_name="web",
+                    text=text,
+                    external_user_id=f"user-{sender}",
+                    external_chat_id="grp-1",
+                    is_group=True,
+                    agent_id="agent-a",
+                    metadata={"sender_display_name": sender},
+                )
+            )
+
+        await asyncio.gather(
+            _one("Carol", "@agent-a first steer"),
+            _one("Dave", "@agent-a second steer"),
+        )
+
+    asyncio.run(_drive())
+
+    # Each coroutine's bind and drain must be adjacent (serial), never split by
+    # the other coroutine's drain. Find each drain's index and assert the bind
+    # of the SAME label immediately precedes it with no foreign drain between.
+    # Concretely: a serial schedule never produces two consecutive bind events.
+    bind_positions = [i for i, e in enumerate(events) if e.startswith("bind:")]
+    # Serial: binds are separated by that coroutine's own drain, so no two bind
+    # events are adjacent. Interleaved race: "bind:A","bind:B" appear adjacent.
+    for i, j in zip(bind_positions, bind_positions[1:]):
+        between = events[i + 1 : j]
+        assert any(e.startswith("drain:") for e in between), (
+            f"two binds with no drain between them — drain raced: {events}"
+        )
