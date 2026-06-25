@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: bugfix-429-per-agent-model-selection
+> 对齐: bugfix-429-per-agent-model-selection / feat-434-approval-ux-redesign
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 **IM 的消费者真正依赖的对外行为**：
 > 浏览器前端（内置 Web IM）、Node Gateway（`personal_assistant`）、终端用户，以及 `tests/im_service/`
@@ -417,6 +417,22 @@ run 异常终止、工具自身超时或工具被拒绝时,IM 工具徽标必须
 - **WHEN** 该工具因看门狗超时(或其他异常终止)被收口为失败态
 - **THEN** 该工具行仍显示原命令与 description(连同失败标识),用户能看出是哪条命令被中断,
   而非只剩工具名 + 失败标识
+
+### Requirement: 工具调用的授权决策随消息持久化与下发
+
+IM 持久化并下发的工具调用数据，在原有字段（status / reason / detail / emoji / duration）之外，携带
+「该工具调用是否经用户显式授权/拒绝」的标识。该标识在实时下发（WebSocket）与历史加载（REST）两条路径
+上一致，页面刷新后不丢失；无标识的历史工具调用保持兼容（不携带该字段）。
+
+#### Scenario: 经用户授权的工具调用在历史加载中保留标识
+- **GIVEN** 一条已落库的 agent 消息，其中某工具调用经用户授权允许
+- **WHEN** 客户端重新加载该会话历史
+- **THEN** 该工具调用数据携带「经用户授权允许」标识
+
+#### Scenario: 旧工具调用无标识仍可加载
+- **GIVEN** 一条历史消息的工具调用是在本能力上线前落库的、无授权标识
+- **WHEN** 客户端加载该会话
+- **THEN** 该工具调用正常加载，不携带授权标识、不报错
 
 ### Requirement: 工具调用折叠态摘要有信息量且用真实工具名
 

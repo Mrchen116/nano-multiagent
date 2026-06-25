@@ -106,6 +106,9 @@ def test_tool_call_block_error_contract() -> None:
         # bugfix-410-M2 (#97): dedicated badge classification alongside the free-text
         # reason; every hook block (auto block / user Deny) collapses to "denied".
         "reason_code": "denied",
+        # feat-434-M1: user-decision verdict; None for an AUTO block (this gate
+        # returns no approval), so the gate region stays hidden for非用户拒绝.
+        "approval": None,
         "tool_name": "echo",
     }
 

@@ -365,6 +365,14 @@
       "toolReasonDenied": "已拒绝",
       "toolReasonTimedOut": "执行超时",
       "toolReasonInterrupted": "已中断",
+      "toolGateAllowed": "已授权",
+      "toolGateDenied": "已拒绝",
+      "toolNotExecuted": "未执行",
+      "toolFailExit": "退出码 {{code}}",
+      "toolFailGeneric": "失败",
+      "toolApprovalCount": "{{count}} 次授权",
+      "toolApprovalAllow": "{{count}} 允许",
+      "toolApprovalDeny": "{{count}} 拒绝",
       "toolDetail": {
         "searchNoResults": "无结果",
         "agentPromptLabel": "派发指令（prompt）",
@@ -394,7 +402,11 @@
       "hint": "需要确认",
       "ariaCard": "权限请求：{{toolName}}",
       "ariaOptions": "权限选项",
-      "submitError": "提交失败，请重试"
+      "submitError": "提交失败，请重试",
+      "optionAllowOnce": "允许",
+      "optionAllowSession": "本会话内允许",
+      "optionAllowAlways": "总是允许",
+      "optionDeny": "拒绝"
     }
   },
   "feature": {

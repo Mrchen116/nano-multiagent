@@ -19,6 +19,7 @@ vi.mock("../../../../features/auth/auth-fetch", () => ({
 }));
 
 import "../../../../i18n";
+import { setLanguage } from "../../../../i18n";
 import * as authFetchModule from "../../../../features/auth/auth-fetch";
 import type { PermissionOption, PermissionRequest } from "../chat-types";
 import { PermissionCard } from "./permission-card";
@@ -76,6 +77,84 @@ describe("PermissionCard — pending state", () => {
     expect(screen.getByRole("button", { name: /allow once/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /deny/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /allow for session/i })).toBeInTheDocument();
+  });
+
+  // feat-434-M1 (F1, reviewer major): option labels must follow the interface
+  // language by mapping the stable option id → i18n key, NOT render the backend's
+  // English opt.label verbatim. 原型 prototype.html 202-204: 允许 / 本会话内允许 / 拒绝.
+  it("renders option labels in Chinese when locale is zh (mapped by option id)", () => {
+    setLanguage("zh");
+    try {
+      const { container } = render(
+        <PermissionCard
+          request={SAMPLE_REQUEST}
+          conversationId="conv-1"
+          messageId="msg-1"
+          onResolved={() => {}}
+        />
+      );
+      const labels = Array.from(
+        container.querySelectorAll(".chat-permission-btn")
+      ).map((b) => b.textContent);
+      expect(labels).toContain("允许");
+      expect(labels).toContain("本会话内允许");
+      expect(labels).toContain("拒绝");
+      // the backend's English label must NOT leak through when zh is active
+      expect(labels).not.toContain("Allow once");
+    } finally {
+      setLanguage("en");
+    }
+  });
+
+  it("maps allow_always option id to its localized label (zh)", () => {
+    setLanguage("zh");
+    try {
+      const req: PermissionRequest = {
+        ...SAMPLE_REQUEST,
+        options: [
+          ...SAMPLE_OPTIONS,
+          { id: "allow_always", label: "Always allow", description: "Remember" },
+        ],
+      };
+      const { container } = render(
+        <PermissionCard
+          request={req}
+          conversationId="conv-1"
+          messageId="msg-1"
+          onResolved={() => {}}
+        />
+      );
+      const labels = Array.from(
+        container.querySelectorAll(".chat-permission-btn")
+      ).map((b) => b.textContent);
+      expect(labels).toContain("总是允许");
+    } finally {
+      setLanguage("en");
+    }
+  });
+
+  it("falls back to backend opt.label for an unknown option id", () => {
+    setLanguage("zh");
+    try {
+      const req: PermissionRequest = {
+        ...SAMPLE_REQUEST,
+        options: [{ id: "some_custom_id", label: "Custom Action", description: "x" }],
+      };
+      const { container } = render(
+        <PermissionCard
+          request={req}
+          conversationId="conv-1"
+          messageId="msg-1"
+          onResolved={() => {}}
+        />
+      );
+      const labels = Array.from(
+        container.querySelectorAll(".chat-permission-btn")
+      ).map((b) => b.textContent);
+      expect(labels).toContain("Custom Action");
+    } finally {
+      setLanguage("en");
+    }
   });
 
   // bugfix-367 §A: tool_input 必须直接渲染到卡内 —— 用户不再需要去点开
@@ -194,9 +273,11 @@ describe("PermissionCard — POST success → onResolved callback", () => {
   });
 });
 
-describe("PermissionCard — prop-derived resolved state", () => {
-  it("renders resolved-allow label when status='resolved' decision='allow_once'", () => {
-    render(
+// feat-434 决策 3: PermissionCard 不再渲染 resolved 形态 —— 已决审批并入工具行的
+// 闸门区（已授权/已拒绝），独立的「已决卡」彻底取消。resolved 时组件渲染空。
+describe("PermissionCard — resolved renders nothing (feat-434 决策 3)", () => {
+  it("renders nothing when status='resolved' decision='allow_once'", () => {
+    const { container } = render(
       <PermissionCard
         request={{ ...SAMPLE_REQUEST, status: "resolved", decision: "allow_once" }}
         conversationId="conv-1"
@@ -204,13 +285,12 @@ describe("PermissionCard — prop-derived resolved state", () => {
         onResolved={() => {}}
       />
     );
-    const resolved = screen.getByTestId("permission-resolved");
-    expect(resolved.textContent).toMatch(/allow/i);
-    expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
+    expect(container.querySelector(".chat-permission-card")).toBeNull();
   });
 
-  it("renders resolved-deny label when status='resolved' decision='deny'", () => {
-    render(
+  it("renders nothing when status='resolved' decision='deny'", () => {
+    const { container } = render(
       <PermissionCard
         request={{ ...SAMPLE_REQUEST, status: "resolved", decision: "deny" }}
         conversationId="conv-1"
@@ -218,8 +298,8 @@ describe("PermissionCard — prop-derived resolved state", () => {
         onResolved={() => {}}
       />
     );
-    const resolved = screen.getByTestId("permission-resolved");
-    expect(resolved.textContent).toMatch(/den/i);
+    expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
+    expect(container.querySelector(".chat-permission-card")).toBeNull();
   });
 });
 
@@ -297,7 +377,9 @@ describe("PermissionCard — prop change reactivity", () => {
         onResolved={() => {}}
       />
     );
-    expect(screen.getByTestId("permission-resolved")).toBeInTheDocument();
+    // feat-434 决策 3: resolved 渲染空（无独立已决卡）。
+    expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
 
     // 注意: 实际生产链路下,新 ask 会被 message-pane 用 key={request_id} 强制
     // remount —— 但即便没有 key 切换,这里也必须能正确反映 prop。

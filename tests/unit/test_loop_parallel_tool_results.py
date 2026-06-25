@@ -119,6 +119,7 @@ class _FakeRegistry(ToolRegistry):
         *,
         hook_context: Any = None,
         session_file_state: Any = None,
+        out_meta: Any = None,
     ) -> Mapping[str, Any]:
         tool = self._tools.get(name)
         if tool is None:

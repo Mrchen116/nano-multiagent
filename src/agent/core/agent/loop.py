@@ -691,6 +691,9 @@ class AgentLoop:
                     # bugfix-410-M2 (#97): forward the badge classification so the
                     # realtime_stream hook can carry it onto the tool_end SSE event.
                     "reason_code": result.reason_code,
+                    # feat-434-M1: forward the user-decision verdict the same way, so
+                    # realtime_stream carries approval onto tool_end.
+                    "approval": result.approval,
                 },
                 run_id=run_id,
             ),

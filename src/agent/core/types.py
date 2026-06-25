@@ -76,6 +76,12 @@ class ToolResult:
     # state, kept SEPARATE from the model-facing free-text ``error``. Threaded to
     # the IM tool_call badge (denied / timed_out / interrupted). None on success.
     reason_code: str | None = None
+    # feat-434-M1: whether this call passed through a USER permission decision,
+    # kept ORTHOGONAL to reason_code (which classifies non-success terminals). The
+    # front-end gate region reads it to show 已授权 / 已拒绝. "user_allow" rides the
+    # success path (no reason_code), "user_deny" coexists with reason_code="denied".
+    # None for auto-allowed / auto-blocked / no-permission tools (gate not shown).
+    approval: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

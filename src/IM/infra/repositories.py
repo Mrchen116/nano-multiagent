@@ -2810,6 +2810,9 @@ def _tool_call_to_dict(tool_call: ToolCall) -> dict[str, object]:
     # feat-425: persist tool-carried emoji alongside detail (omit when unset).
     if tool_call.emoji is not None:
         payload["emoji"] = tool_call.emoji
+    # feat-434-M1: persist the user-decision verdict (omit when unset).
+    if tool_call.approval is not None:
+        payload["approval"] = tool_call.approval
     return payload
 
 
@@ -2881,6 +2884,9 @@ def _decode_tool_calls(value: object) -> list[ToolCall] | None:
                     else None,
                     emoji=item.get("emoji")
                     if isinstance(item.get("emoji"), str)
+                    else None,
+                    approval=item.get("approval")
+                    if isinstance(item.get("approval"), str)
                     else None,
                 )
             )

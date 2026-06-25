@@ -3710,6 +3710,15 @@ def _build_kernel_event_observer(
             # for a hook-blocked tool) so the IM badge can render the right label.
             reason_code = event.get("reason_code")
             reason = str(reason_code).strip() if isinstance(reason_code, str) else None
+            # feat-434-M1: forward the user-decision verdict (user_allow/user_deny)
+            # the same way as reason — top-level kernel field, pure passthrough. None
+            # for auto-allowed /普通工具 (gate region stays hidden downstream).
+            approval_raw = event.get("approval")
+            approval = (
+                str(approval_raw).strip()
+                if isinstance(approval_raw, str) and approval_raw
+                else None
+            )
             # feat-409 failalign: output(折叠行文案)只放 presenter 的干净 summary。
             # 不再前缀原始 event.error——presenter 失败态 summary 已是干净主参数,error
             # 只透传在 detail 里供展开卡渲染一次。早先把 error 也 append 进 output_parts
@@ -3746,6 +3755,12 @@ def _build_kernel_event_observer(
                 tool_call_payload["detail"] = detail
             if emoji is not None:
                 tool_call_payload["emoji"] = emoji
+            # feat-434-M1 (F3): conditional write mirroring the emoji template —
+            # only user-decided calls carry approval, so普通工具的 WS delta 不再带
+            # `"approval": null`. Keeps both ends (Gateway forward / IM serialize)
+            # consistent on the `if approval is not None` convention.
+            if approval is not None:
+                tool_call_payload["approval"] = approval
             if message_id:
                 loop.create_task(
                     _send(

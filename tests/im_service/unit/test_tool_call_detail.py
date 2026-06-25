@@ -254,3 +254,94 @@ def test_persist_round_trip_with_emoji(tmp_path: Path) -> None:
     listed = messages.list_messages(conversation_id=conversation.id)
     assert listed[-1].tool_calls is not None
     assert listed[-1].tool_calls[0].emoji == "🌐"
+
+
+# --- feat-434-M1: approval vertical (parse / serialize / persist) -------------
+# approval 走与 emoji/detail 同一条逐字透传路径：gateway_handler 解析 → event_types
+# 序列化 → SQLite 落库往返。历史行/无 approval 行解码缺省 None（前端闸门区不显）。
+
+
+def test_parse_tool_call_reads_approval() -> None:
+    tc = _parse_tool_call(
+        {
+            "id": "tc1",
+            "name": "bash",
+            "status": "completed",
+            "input": {"command": "npm run build"},
+            "output": "npm run build",
+            "approval": "user_allow",
+        }
+    )
+    assert tc.approval == "user_allow"
+
+
+def test_parse_tool_call_without_approval_is_none() -> None:
+    tc = _parse_tool_call(
+        {"id": "tc1", "name": "read", "status": "completed", "output": "42 lines"}
+    )
+    assert tc.approval is None
+
+
+def test_tool_call_to_dict_includes_approval() -> None:
+    tc = ToolCall(
+        id="tc1", name="bash", status="completed", output="x", approval="user_deny"
+    )
+    payload = tool_call_to_dict(tc)
+    assert payload["approval"] == "user_deny"
+
+
+def test_tool_call_to_dict_omits_approval_when_absent() -> None:
+    tc = ToolCall(id="tc1", name="read", status="completed", output="42 lines")
+    payload = tool_call_to_dict(tc)
+    assert "approval" not in payload
+
+
+def test_completed_payload_carries_approval() -> None:
+    tc = ToolCall(
+        id="tc1", name="bash", status="completed", output="x", approval="user_allow"
+    )
+    payload = build_tool_call_completed_payload(
+        conversation_id="c1", message_id="m1", tool_call=tc
+    )
+    assert payload["tool_call"]["approval"] == "user_allow"
+
+
+def test_encode_decode_round_trip_with_approval() -> None:
+    tc = ToolCall(
+        id="tc1", name="bash", status="completed", output="x", approval="user_allow"
+    )
+    decoded = _decode_tool_calls(_encode_tool_calls([tc]))
+    assert decoded is not None
+    assert decoded[0].approval == "user_allow"
+
+
+def test_decode_legacy_row_without_approval() -> None:
+    legacy = '[{"id":"tc1","name":"read","status":"completed","output":"x","input":{}}]'
+    decoded = _decode_tool_calls(legacy)
+    assert decoded is not None
+    assert decoded[0].approval is None
+
+
+def test_persist_round_trip_with_approval(tmp_path: Path) -> None:
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+    tc = ToolCall(
+        id="call_1",
+        name="bash",
+        status="completed",
+        input={"command": "npm run build"},
+        output="npm run build",
+        approval="user_allow",
+    )
+    messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="hello",
+        tool_calls=[tc],
+    )
+    listed = messages.list_messages(conversation_id=conversation.id)
+    assert listed[-1].tool_calls is not None
+    assert listed[-1].tool_calls[0].approval == "user_allow"

@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: bugfix-426-midrun-message-steering / bugfix-433-image-multi-turn-persistence
+> 对齐: bugfix-426-midrun-message-steering / bugfix-433-image-multi-turn-persistence / feat-434-approval-ux-redesign
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -531,3 +531,16 @@ deadline(如命令 `timeout`)到点被掐 → 标「执行超时」(耗时过长
 - **GIVEN** 用户发送的图片导致了一次模型调用出错
 - **WHEN** 用户在同一会话后续发送文字消息
 - **THEN** agent 正常回复该文字，会话未因那张图持续失败（不会每轮都因这张图卡住）
+
+### Requirement: Gateway 向 IM 中继的工具调用携带授权决策
+
+Gateway 把内核工具执行事件中继到 IM 时，除既有的 reason 徽标 / emoji / presentation detail 外，
+一并透传「该工具调用是否经用户显式授权/拒绝」的标识；自动放行的调用不携带。
+
+#### Scenario: 经用户授权的工具调用被中继
+- **WHEN** 内核报出一次经用户允许的工具调用执行
+- **THEN** Gateway 中继给 IM 的该工具调用数据携带「经用户授权允许」标识
+
+#### Scenario: 经用户拒绝的工具调用被中继
+- **WHEN** 内核报出一次经用户拒绝的工具调用
+- **THEN** Gateway 中继的该工具调用数据携带「经用户拒绝」标识

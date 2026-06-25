@@ -34,6 +34,16 @@ type TransientState =
   | { kind: "submitting"; chosenId: string }
   | { kind: "error"; chosenId: string; message: string };
 
+// feat-434-M1 (F1): map the stable backend option id → i18n key so the待决卡 buttons
+// follow the interface language (原型: 允许 / 本会话内允许 / 拒绝 / 总是允许). Unknown ids
+// fall back to the backend-supplied opt.label. The ids come from broker.PermissionOption.
+const OPTION_LABEL_KEYS: Record<string, string> = {
+  allow_once: "chat.permission.optionAllowOnce",
+  allow_session: "chat.permission.optionAllowSession",
+  allow_always: "chat.permission.optionAllowAlways",
+  deny: "chat.permission.optionDeny",
+};
+
 function readDescription(input: Record<string, unknown> | null | undefined): string | null {
   // bugfix-367: bash / task / agent 工具的 input_schema 给 LLM 留了 `description`
   // 字段(参见 src/agent/platform/tools/builtins/{bash,task,agent}.py)。LLM 会
@@ -99,21 +109,11 @@ export function PermissionCard({
     }
   }
 
-  // bugfix-367: resolved 分支直接由 prop 派生, 不再用 useState 派生 prop。
+  // feat-434 决策 3: 已决审批不再渲染独立卡 —— 它已并入工具调用行的闸门区
+  // （读 tool_call.approval → 已授权/已拒绝）。resolved 时本组件渲染空，由工具面板承载呈现。
+  // PermissionCard 自此只负责「待决」职责（pending）。
   if (request.status === "resolved") {
-    const isDeny = request.decision === "deny";
-    return (
-      <div className="chat-permission-card chat-permission-card--resolved">
-        <span
-          data-testid="permission-resolved"
-          className={`chat-permission-resolved-label${isDeny ? " chat-permission-resolved-label--deny" : ""}`}
-        >
-          {isDeny
-            ? `${t("chat.permission.denied")} · ${request.tool_name}`
-            : `${t("chat.permission.allowed")} · ${request.tool_name}`}
-        </span>
-      </div>
-    );
+    return null;
   }
 
   const isSubmitting = transient.kind === "submitting";
@@ -128,10 +128,13 @@ export function PermissionCard({
       role="region"
       aria-label={t("chat.permission.ariaCard", { toolName: request.tool_name })}
     >
+      {/* feat-434 决策 Q3 / 原型: 待决卡无锁图标；醒目提示用脉冲圆点 + 「需要确认」。 */}
       <div className="chat-permission-header">
-        <span aria-hidden="true">🔒</span>
         <span className="chat-permission-tool-name">{request.tool_name}</span>
-        <span className="chat-permission-hint">{t("chat.permission.hint")}</span>
+        <span className="chat-permission-hint">
+          <span className="chat-permission-pulse" aria-hidden="true" />
+          {t("chat.permission.hint")}
+        </span>
       </div>
       {/* bugfix-367 §A: tool_input.description (bash/task/agent 工具有此字段) */}
       {description && (
@@ -166,7 +169,7 @@ export function PermissionCard({
               aria-busy={isChosen}
               title={opt.description}
             >
-              {opt.label}
+              {OPTION_LABEL_KEYS[opt.id] ? t(OPTION_LABEL_KEYS[opt.id]) : opt.label}
             </button>
           );
         })}

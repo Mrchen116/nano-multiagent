@@ -92,6 +92,9 @@ class ToolCallPayload(BaseModel):
     # feat-425: tool-carried emoji on history load, so a custom tool's icon survives
     # a page reload (name table only knows built-ins). None → front-end name fallback.
     emoji: str | None = None
+    # feat-434-M1: user-decision verdict on history load, so the gate region's
+    # 已授权/已拒绝 survives a page reload (not only live WS). None → gate hidden.
+    approval: str | None = None
 
 
 class TokenUsagePayload(BaseModel):
@@ -177,6 +180,7 @@ def to_message_response(message: Message) -> MessageResponse:
                 reason=tc.reason,
                 detail=tc.detail,
                 emoji=tc.emoji,
+                approval=tc.approval,
             )
             for tc in (message.tool_calls or [])
         ],

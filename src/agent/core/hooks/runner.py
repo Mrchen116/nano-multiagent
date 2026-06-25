@@ -142,6 +142,13 @@ class HookRunner:
                     mutable_payload["args"] = dict(result["args"])
                 if "allow_unlisted" in result:
                     mutable_payload["allow_unlisted"] = bool(result["allow_unlisted"])
+                # feat-434-M1: preserve the gate's USER-decision approval signal on
+                # BOTH paths. The block=False branch is the allow link's most easily
+                # dropped step — without it the gate's approval=user_allow never reaches
+                # the registry and the "已授权" verdict never surfaces. The block=True
+                # branch carries approval=user_deny alongside the reason.
+                if "approval" in result:
+                    mutable_payload["approval"] = result["approval"]
                 if bool(result.get("block")):
                     mutable_payload["block"] = True
                     mutable_payload["reason"] = result.get("reason")

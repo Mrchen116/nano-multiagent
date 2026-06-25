@@ -43,6 +43,9 @@ def test_tool_contract_fields_are_stable() -> None:
         "arguments",
         # bugfix-410-M2 (#82/#97): sidecar badge classification, separate from error.
         "reason_code",
+        # feat-434-M1: user-decision verdict (user_allow/user_deny), orthogonal to
+        # reason_code; front-end gate region reads it for 已授权/已拒绝.
+        "approval",
     ]
 
 

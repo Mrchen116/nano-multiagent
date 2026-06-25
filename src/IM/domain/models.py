@@ -207,6 +207,10 @@ class ToolCall:
     # historical rows / tools that declare none — the front-end then falls back to
     # its name→emoji table (built-ins keep their icon; DIY/MCP get the generic 🔧).
     emoji: str | None = None
+    # feat-434-M1: user-decision verdict forwarded from the Gateway. "user_allow" /
+    # "user_deny" only for calls that passed through a user permission card; None for
+    # auto-allowed / historical rows — the front-end gate region then stays hidden.
+    approval: str | None = None
 
     def __post_init__(self) -> None:
         if self.status not in _TOOL_CALL_STATUSES:

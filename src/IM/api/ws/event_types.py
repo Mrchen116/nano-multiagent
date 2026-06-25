@@ -64,6 +64,9 @@ def tool_call_to_dict(tool_call: ToolCall) -> dict[str, Any]:
     # feat-425: tool-carried emoji, present only when the tool declared one.
     if tool_call.emoji is not None:
         payload["emoji"] = tool_call.emoji
+    # feat-434-M1: user-decision verdict, present only for cards the user decided.
+    if tool_call.approval is not None:
+        payload["approval"] = tool_call.approval
     return payload
 
 

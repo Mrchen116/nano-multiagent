@@ -71,9 +71,13 @@ export function isCallFailed(call: ToolCall): boolean {
  * REASON_LABEL_KEYS in tool-calls-panel). When one of these is present the badge
  * already conveys the failure, so failTag is suppressed to avoid a confusing
  * double identifier (cr4-frontend: "已拒绝" + "failed").
+ *
+ * feat-434-M1 决策 4: "denied" left this set — denied now renders in the inline
+ * GATE region (gateVerdict), not as a row-tail reason badge. Keeping it here too
+ * would print 已拒绝 twice. The remaining reasons (timeout/interrupted) are真正的
+ * 执行结果 and stay in the row-tail result region.
  */
 export const REASON_BADGE_NAMES: ReadonlySet<string> = new Set([
-  "denied",
   // bugfix-417-M3 R4: tool_timeout (执行超时) / stalled (已中断) join the legacy
   // timed_out / interrupted reasons (kept for rows persisted before the change).
   "timed_out",
@@ -83,15 +87,40 @@ export const REASON_BADGE_NAMES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Short fail tag shown inline on a failed collapsed row. bash failures often
- * carry an exit code in detail; otherwise fall back to a generic "failed" label
- * (the red row styling already conveys failure). Suppressed when a reason badge
- * is already shown for this call (cr4-frontend: no double "已拒绝" + "failed").
+ * feat-434-M1 决策 1/4: the inline GATE verdict — whether a USER decided this call.
+ * Reads ``approval`` (kernel-stamped). Historical denied rows carry ``reason==="denied"``
+ * but no approval; fall back to "deny" so the gate region still shows 已拒绝 for them.
+ * None → no gate region (auto-allowed / plain tools). Orthogonal to the result region.
  */
-export function failTag(call: ToolCall): string | null {
+export function gateVerdict(call: ToolCall): "allow" | "deny" | null {
+  if (call.approval === "user_allow") return "allow";
+  if (call.approval === "user_deny") return "deny";
+  // Historical denied rows (reason badge era) had no approval field.
+  if (call.reason === "denied") return "deny";
+  return null;
+}
+
+/**
+ * feat-434-M1: a denied call was never executed — its result region标 "未执行"
+ * instead of a duration/error. True only for the gate-deny verdict.
+ */
+export function isNotExecuted(call: ToolCall): boolean {
+  return gateVerdict(call) === "deny";
+}
+
+/**
+ * Short fail tag shown inline on a failed collapsed row, now i18n-driven (feat-434
+ * 决策 5): bash failures carry an exit code → "退出码 N" / "exit N"; otherwise a
+ * generic "失败" / "failed" (the red row styling already conveys failure). Suppressed
+ * when a reason badge or the gate-deny verdict already conveys the terminal — no
+ * double identifier (cr4-frontend / 决策 4: a denied row's gate region owns 已拒绝,
+ * and its result region is 未执行, so no fail tag).
+ */
+export function failTag(call: ToolCall, t: (key: string, opts?: Record<string, unknown>) => string): string | null {
   if (!isCallFailed(call)) return null;
   if (call.reason && REASON_BADGE_NAMES.has(call.reason)) return null;
+  if (gateVerdict(call) === "deny") return null;
   const exit = call.detail?.exit_code;
-  if (typeof exit === "number" && exit !== 0) return `exit ${exit}`;
-  return "failed";
+  if (typeof exit === "number" && exit !== 0) return t("chat.messagePane.toolFailExit", { code: exit });
+  return t("chat.messagePane.toolFailGeneric");
 }
