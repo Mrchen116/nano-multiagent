@@ -405,6 +405,54 @@ async def test_sibling_abort_preserves_user_allow_approval() -> None:
     )
 
 
+class _ApprovedThenBlockRegistry(_FakeRegistry):
+    """execute() stamps approval into out_meta (gate already decided), then blocks
+    forever — so an external task.cancel() interrupts it mid-await and drives the
+    ``except asyncio.CancelledError`` branch of _execute_one (the other cancel path,
+    distinct from sibling-abort)."""
+
+    def __init__(self, approval: str | None) -> None:
+        super().__init__()
+        self._approval = approval
+        self._tools["bash"] = _FakeTool(name="bash", is_concurrency_safe=True)
+        self.started = asyncio.Event()
+
+    async def execute(
+        self, name, args, *, hook_context=None, session_file_state=None, out_meta=None
+    ):
+        if out_meta is not None and self._approval is not None:
+            out_meta["approval"] = self._approval
+        self.started.set()
+        await asyncio.Event().wait()  # block until cancelled
+
+
+@pytest.mark.asyncio
+async def test_cancelled_error_preserves_user_allow_approval() -> None:
+    """feat-434-M1 (C2): a user-approved tool whose run is interrupted by
+    CancelledError (after the gate stamped approval into out_meta) must keep
+    approval=user_allow on its synthetic 'tool execution discarded' result — same
+    invariant as the sibling-abort path, just the other cancel branch (line ~194).
+    """
+    registry = _ApprovedThenBlockRegistry(approval="user_allow")
+    executor = StreamingToolExecutor(registry)
+    item = ToolCall(call_id="call_cx", name="bash", arguments={"cmd": "x"})
+    executor.add_tool(item)
+    await asyncio.wait_for(registry.started.wait(), timeout=1.0)
+
+    queued = executor._queue[0]
+    assert queued.task is not None
+    queued.task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await queued.task
+
+    assert queued.result is not None
+    assert queued.result.error is not None
+    assert "discarded" in queued.result.error
+    assert queued.result.approval == "user_allow", (
+        "a CancelledError-interrupted but user-approved tool must keep approval"
+    )
+
+
 @pytest.mark.asyncio
 async def test_non_bash_error_does_not_cancel_siblings(registry: _FakeRegistry) -> None:
     """Non-bash tool error does not trigger sibling abort."""
