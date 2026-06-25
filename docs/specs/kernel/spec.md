@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: bugfix-426-midrun-message-steering / bugfix-431-runtime-skill-resolution / bugfix-433-image-multi-turn-persistence
+> 对齐: bugfix-426-midrun-message-steering / bugfix-431-runtime-skill-resolution / bugfix-433-image-multi-turn-persistence / feat-434-approval-ux-redesign
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -780,3 +780,23 @@ result 边界内，不破坏内核的 run、不影响同一内核上的其它 ru
 - **THEN** 历史中那张图不再发往模型，后续消息不会因它重复触发同一错误（该消息的文本保留；纯文本消息的既有错误处理不受影响）
 
 > 失败契约（图片无法获取 / 超大 / 损坏）属 gateway 入站职责（见 gateway 契约「用户经 IM 发送的图片被 Agent 看到」下的异常图片 Scenario），不在内核重复——图片校验在 gateway 入站完成，到达内核的 image part 已是校验过的 data URL，内核不产出图片失败信号。
+
+### Requirement: 工具执行事件携带用户授权决策标识
+
+内核经 `agent.sdk` 向消费者发出的工具执行事件，在原有「非成功终态分类」（denied / 超时 / 中断）之外，
+新增一个**授权决策标识**：当某次工具调用是经用户在权限确认中显式决策放行或拒绝时，事件携带该决策；
+自动放行的调用不携带。该标识独立于既有的终态原因维度。
+
+#### Scenario: 用户显式允许的工具调用
+- **GIVEN** 一次工具调用进入权限确认（用户需显式决策）
+- **WHEN** 用户显式允许后该工具执行
+- **THEN** 消费者从该工具调用的执行事件可观察到「经用户授权允许」的标识
+
+#### Scenario: 用户显式拒绝的工具调用
+- **GIVEN** 一次工具调用进入权限确认
+- **WHEN** 用户显式拒绝该工具调用
+- **THEN** 消费者可观察到「经用户拒绝」的标识
+
+#### Scenario: 自动放行的工具调用
+- **WHEN** 一次工具调用未触发用户确认、被自动放行
+- **THEN** 该工具调用的执行事件不携带授权决策标识
