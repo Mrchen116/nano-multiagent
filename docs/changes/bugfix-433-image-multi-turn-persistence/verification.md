@@ -101,3 +101,75 @@ design.md `契约层增量` 节明确要求：
 ---
 
 No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvements).
+
+---
+
+# Round 2 — 2026-06-25
+
+> 复核范围：fix1（bf2cd70 前 diff 10f30ad1..bf2cd70 src/），8 项改动。
+
+## Round 2 Summary
+
+| 维度 | 结果 |
+|---|---|
+| Correctness | fix1 全部改动正确，与 design 决策不冲突 |
+| No regression | round 1 已验主路径（决策4 两路 parts、CRITICAL-1/2）均未破坏 |
+| Test suite | 2546 passed（+9 新测试） |
+
+All fix1 changes correct. Round 1 WARNING（delta-spec 归并）仍待收尾。
+
+## fix1 改动逐项核对
+
+| 改动 | 文件:行 | 正确性 |
+|---|---|---|
+| #1/#2 PNG/JPEG/GIF/WEBP 结构校验（stdlib-only，无 Pillow） | `inbound_pipeline.py:1351-1396` | 正确；pyproject + import 均 0 matches |
+| #3 render 条件对齐 `image_url is not None` | `state.py:128` | 正确；修复 url=None 时误走 list 分支 |
+| #4 entries 空 parts 不写（对齐 _message_to_entry） | `entries.py:111-114` | 正确；消除两写路径结构差异 |
+| #5 `build_prompt_messages` 透传 `user_parts` | `prompting.py:150-154` | 正确；补上 public API 缺失的图片通道 |
+| #6 mime 优先 detected over client content_type | `inbound_pipeline.py:858` | 正确；`detected_mime or mime` 回退逻辑 |
+| #7 M246 extra parent 锚 `user_msg.message_id` | `runtime.py:556-563` | 正确；修正 parent 链错序，blocks 构造不变 |
+| #8 抽 `parse_parts` 共用两回放路径 | `entries.py:124-135`；`jsonl_store.py:766` | 正确；行为等价，round 1 测试仍通过 |
+
+---
+
+# Round 3 — 2026-06-25
+
+> 复核范围：fix2 scope B（1532c74d..72813954）+ fix3 trivial（72813954..a3a48e3f），HEAD a3a48e3f。
+
+## Round 3 Summary
+
+| 维度 | 结果 |
+|---|---|
+| Correctness | fix2/fix3 全部改动正确，与 design 决策不冲突 |
+| No regression | round 1/2 已验主路径均未破坏 |
+| Test suite | 2550 passed（+4 新测试覆盖 fix2/fix3） |
+
+All fix2+fix3 changes correct. Round 1 WARNING（delta-spec 归并）仍待收尾。
+
+## fix2 scope B 逐项核对（prompting.py）
+
+**strip 逻辑正确性：**
+
+`_image_turns_to_strip_after_error`（`prompting.py:126-149`）：对每条 `is_provider_error` 消息向前走，找最近含 image parts 的 user turn 加入 strip set；跳过堆叠 error marker；遇到 assistant 或无 image 的 user turn 即停。`image_strip_ids` 在过滤 `is_provider_error` 前计算（`prompting.py:74`），信号不被提前丢弃。逻辑正确。
+
+**scope 真限 image：**
+
+`_history_content` 第一行 guard（`prompting.py:161`）：`if not _message_has_image_parts(message): return message.content`——纯文本 user turn（`parts=None`）直接走此分支，`strip_image` 参数无效。`test_pure_text_turn_with_provider_error_unchanged` 验证通过。
+
+**不过度 strip：**
+
+`strip_image` 仅当 `message.message_id in image_strip_ids` 时为 True（`prompting.py:101`）。正常成功的图片 turn 后跟 assistant 正常回复，不被 error 信号覆盖。`test_image_turn_without_error_keeps_image` 验证通过。
+
+**strip 后 text 保留、fallback 正确：**
+
+`strip_image=True` 时收集 `type==text` blocks；有则返回 list；全无 text 时 fallback 到 `message.content`（str 投影）。保证 content 非空。
+
+**JSONL 不动：** strip 仅在重放层（`build_chat_messages`），`_message_to_entry` / `_to_message` / `parse_parts` 均未修改，JSONL `parts` 字段不变。
+
+## fix3 trivial 逐项核对（inbound_pipeline.py）
+
+**PNG 最小长度 28→45 修正：** 正确算法：signature(8) + IHDR chunk(4+4+13+4=25) + IEND chunk(4+4+0+4=12) = 45 字节。`test_png_shorter_than_minimum_complete_length_is_rejected` 验证 44 字节被拒、真实 PNG 通过。
+
+**`detected_mime or mime` 死代码简化：** `_detect_image_mime` 非 None 才到此行（None 已早返回 `"corrupt"`），`or mime` 永不执行，直接使用 `detected_mime` 正确，无行为变化。
+
+**已知限制注释：** 仅信息补充，不改逻辑，损坏图拦截路径不变。
