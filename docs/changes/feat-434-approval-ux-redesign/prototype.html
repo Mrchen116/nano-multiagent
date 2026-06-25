@@ -125,11 +125,11 @@
   <div class="tc-list" style="max-width:560px;box-shadow:none;">
     <div class="tc-row"><span class="tc-ic ok">●</span><span class="tc-name">read</span><span class="tc-sum">AGENTS.md</span><span class="tc-meta"><span class="tc-dur">0.2s</span></span></div>
     <div class="tc-row"><span class="tc-ic ok">●</span><span class="tc-name">bash</span><span class="tc-gate ok">已授权</span><span class="tc-sum">npm run build</span><span class="tc-meta"><span class="tc-dur">1.2s</span></span></div>
-    <div class="tc-row"><span class="tc-ic no">✕</span><span class="tc-name">bash</span><span class="tc-gate ok">已授权</span><span class="tc-sum">npm test</span><span class="tc-meta"><span class="tc-err">exit 1</span><span class="tc-dur">3.1s</span></span></div>
+    <div class="tc-row"><span class="tc-ic no">✕</span><span class="tc-name">bash</span><span class="tc-gate ok">已授权</span><span class="tc-sum">npm test</span><span class="tc-meta"><span class="tc-err">退出码 1</span><span class="tc-dur">3.1s</span></span></div>
     <div class="tc-row"><span class="tc-ic no">✕</span><span class="tc-name">bash</span><span class="tc-gate no">已拒绝</span><span class="tc-sum">rm -rf node_modules/.cache</span><span class="tc-meta"><span class="tc-dur" style="color:oklch(0.5 0.01 240)">未执行*</span></span></div>
     <div class="tc-row"><span class="tc-ic no">✕</span><span class="tc-name">bash</span><span class="tc-sum">curl https://flaky.api/x</span><span class="tc-meta"><span class="tc-err">执行超时</span></span></div>
   </div>
-  <p class="sub" style="margin:9px 2px 0;font-size:0.76rem;">真实文案：失败带退出码=<b>exit 1</b>，无退出码=<b>failed</b>，超时=<b>执行超时</b>，中断=<b>已中断</b>，拒绝 reason=<b>已拒绝</b>。<br>行 3 关键边界：<b>授权了但执行失败</b> → 名称旁「已授权」(闸门) 与行尾「exit 1」(结果) 各占一侧。行 4 拒绝 → 闸门「已拒绝」、行尾「未执行*」(<b>*新提的标签，现状没有</b>)、且抑制行尾原有的「已拒绝」reason 徽标避免双印。行 5 自动工具超时 → 仅结果区「执行超时」，无闸门标。</p>
+  <p class="sub" style="margin:9px 2px 0;font-size:0.76rem;">目标态文案（中文界面，全部走 i18n）：失败带退出码=<b>退出码 1</b>，无退出码=<b>失败</b>，超时=<b>执行超时</b>，中断=<b>已中断</b>，拒绝=<b>已拒绝</b>。<b>英文界面同位渲染 exit 1 / failed / Timed out / Interrupted / Denied</b>（跟随语言，不锁死）。<br>行 3 关键边界：<b>授权了但执行失败</b> → 名称旁「已授权」(闸门) 与行尾「退出码 1」(结果) 各占一侧。行 4 拒绝 → 闸门「已拒绝」、行尾「未执行*」(<b>*新提的标签，现状没有</b>)、且抑制行尾原有的「已拒绝」reason 徽标避免双印。行 5 自动工具超时 → 仅结果区「执行超时」，无闸门标。</p>
 
   <div class="legend">
     一个气泡内：<b>▸ N 次工具调用 · K 次授权 · X 允许 · Y 拒绝</b>（收起态分项计数，小圆点区分）；展开后，授权过的行尾标 <b>已授权</b>（绿）/ 拒绝的标 <b>已拒绝</b>（红），文字标注，和普通工具行同列。<br>
@@ -229,8 +229,8 @@ function decide(decision) {
       pushRow(p.tool, p.cmd, false, 'deny');
       narrate('你拒绝了 —— 行尾「已拒绝」在闸门区、「未执行」在结果区，agent 继续。');
     } else if (p.failAfterAllow) {
-      pushRow(p.tool, p.cmd, false, 'allow', '2.3s', 'exit 1');
-      narrate('你允许了，但它跑挂了 —— 名称旁「已授权」(闸门) + 行尾「exit 1」(结果)，两件事各占一侧。');
+      pushRow(p.tool, p.cmd, false, 'allow', '2.3s', '退出码 1');
+      narrate('你允许了，但它跑挂了 —— 名称旁「已授权」(闸门) + 行尾「退出码 1」(结果)，两件事各占一侧。');
     } else {
       pushRow(p.tool, p.cmd, true, 'allow', '1.2s');
       narrate('你允许了 —— 名称旁标「已授权」，行尾是耗时，agent 继续。');
