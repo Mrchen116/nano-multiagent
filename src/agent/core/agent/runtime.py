@@ -552,6 +552,10 @@ class AgentRuntime:
         if len(input_parts) > 1:
             extra_parts = input_parts[:-1]
             last_part = input_parts[-1:]
+            # bugfix-433 CRITICAL-1: an extra image part must carry structured parts so
+            # build_chat_messages (history side) restores it as an image block. Rendering
+            # it via render_user_text alone would emit "[image:placeholder]" and drop the
+            # image — the reason multi-image turns lost all but the last image.
             extra_messages = tuple(
                 Message(
                     message_id=make_message_id(),
@@ -560,9 +564,12 @@ class AgentRuntime:
                     else None,
                     role="user",
                     content=render_user_text([part]),
+                    parts=tuple(blocks)
+                    if (blocks := render_user_content_parts([part]))
+                    else None,
                 )
                 for part in extra_parts
-                if render_user_text([part])
+                if render_user_text([part]) or render_user_content_parts([part])
             )
             loop_history = loop_history + extra_messages
             effective_user_text = render_user_text(last_part)

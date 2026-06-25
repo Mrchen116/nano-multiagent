@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
@@ -87,6 +88,21 @@ _DEFAULT_GATEWAY_INTERNAL_PORT = 8089
 # Keep the Gateway's run owner aligned with IM's relay watchdog. The timeout is
 # idle-based: every kernel event resets it, so active long-running tool loops continue.
 _DEFAULT_RUN_IDLE_TIMEOUT_SECONDS = 120.0
+# bugfix-433 决策5: conservative image size cap (5MB) aligned with the strictest
+# provider limit (Anthropic). An image over this is rejected at inbound rather than
+# sent, independent of which provider this turn's model resolves to.
+_DEFAULT_MAX_IMAGE_BYTES = 5 * 1024 * 1024
+
+# bugfix-433 决策5: fixed user-facing messages for image failure types. Worker MUST
+# NOT paraphrase — these are part of the contract (incident Q6 / design 决策5 表).
+_IMAGE_FAILURE_MESSAGES: dict[str, str] = {
+    "download": "这张图片没能加载，我没有收到它，无法据此回复。请重新发送图片试试。",
+    "oversize": (
+        "这张图片太大了，超出可接收的大小，我没能收到它，"
+        "无法据此回复。请压缩或换一张更小的图片后重新发送。"
+    ),
+    "corrupt": "这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。",
+}
 
 
 def resolve_effective_tool_allowlist(
@@ -165,6 +181,8 @@ class InboundPipeline:
         session_event_callback: Callable[[str, Mapping[str, Any]], Awaitable[None]]
         | None = None,
         product_default_model: str | None = None,
+        attachment_fetcher: Callable[[str], Awaitable[bytes]] | None = None,
+        max_image_bytes: int = _DEFAULT_MAX_IMAGE_BYTES,
     ) -> None:
         if run_idle_timeout_seconds <= 0:
             raise ValueError("run_idle_timeout_seconds must be > 0")
@@ -176,6 +194,13 @@ class InboundPipeline:
         # product default when the agent has not selected one. The kernel holds no
         # conversational default.
         self._product_default_model = product_default_model
+        # bugfix-433 决策1: async fetcher (url → raw bytes) used to download IM image
+        # attachments at the inbound boundary so core only ever sees a self-contained
+        # base64 data URL. None keeps the pipeline product-agnostic (unit/test wiring):
+        # attachments pass through unchanged. max_image_bytes is the conservative size
+        # cap (决策5) above which an image is rejected rather than sent.
+        self._attachment_fetcher = attachment_fetcher
+        self._max_image_bytes = max_image_bytes
         self._outbound_router = outbound_router
         self._run_queue = run_queue
         self._session_store = session_store
@@ -278,17 +303,20 @@ class InboundPipeline:
                 parts: list[dict[str, Any]] = [
                     {"type": "text", "text": t} for t in texts
                 ]
-                if isinstance(attachments, list) and attachments:
-                    for item in attachments:
-                        if isinstance(item, dict) and isinstance(item.get("url"), str):
-                            img_part: dict[str, Any] = {
-                                "type": "image",
-                                "image_url": item["url"],
-                            }
-                            mime = item.get("content_type")
-                            if isinstance(mime, str) and mime.strip():
-                                img_part["mime_type"] = mime.strip()
-                            parts.append(img_part)
+                # bugfix-433 决策1/5: resolve image attachments to self-contained base64
+                # data URLs here at the inbound boundary. On any failure (download / size
+                # / parse) the turn STOPS — the model is never called and a fixed message
+                # is delivered to the user instead (决策5, outbound-only, not persisted).
+                image_parts, failure_kind = await self._resolve_image_parts(attachments)
+                if failure_kind is not None:
+                    return await self._reply_image_failure(
+                        failure_kind,
+                        message=message,
+                        agent_id=agent_id,
+                        session_key=session_key,
+                        binding=binding,
+                    )
+                parts.extend(image_parts)
                 agent_workspace_root_path = self._agents[agent_id].workspace_root
                 # submit() is sync, non-blocking — schedules the turn on RunsRegistry's
                 # background loop and returns immediately with a RunRecord.
@@ -784,6 +812,103 @@ class InboundPipeline:
             text=text, reply_context=binding.reply_context
         )
 
+    async def _resolve_image_parts(
+        self, attachments: Any
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Resolve image attachments to base64 data-URL parts (bugfix-433 决策1/5).
+
+        Returns ``(parts, None)`` on success. On the first failure returns
+        ``([], failure_kind)`` where ``failure_kind`` is one of ``download`` /
+        ``oversize`` / ``corrupt`` — the caller then stops the turn and replies. Mirrors
+        CC's integral stop: a single bad image fails the whole turn (no partial send).
+
+        With no fetcher wired (product-agnostic default) attachments pass through with
+        their original URL — used by unit/test wiring that does not download.
+        """
+        if not isinstance(attachments, list) or not attachments:
+            return [], None
+        parts: list[dict[str, Any]] = []
+        for item in attachments:
+            if not isinstance(item, dict) or not isinstance(item.get("url"), str):
+                continue
+            url = item["url"]
+            mime = item.get("content_type")
+            mime = mime.strip() if isinstance(mime, str) and mime.strip() else None
+            if self._attachment_fetcher is None:
+                # No download seam: keep the raw URL (test/agnostic wiring).
+                img_part: dict[str, Any] = {"type": "image", "image_url": url}
+                if mime:
+                    img_part["mime_type"] = mime
+                parts.append(img_part)
+                continue
+            try:
+                raw = await self._attachment_fetcher(url)
+            except Exception as exc:  # noqa: BLE001 — any download error stops the turn
+                logging.getLogger(__name__).info(
+                    "image attachment download failed (%s): %s", url, exc
+                )
+                return [], "download"
+            if not isinstance(raw, (bytes, bytearray)) or not raw:
+                return [], "download"
+            if len(raw) > self._max_image_bytes:
+                return [], "oversize"
+            detected_mime = _detect_image_mime(bytes(raw))
+            if detected_mime is None:
+                return [], "corrupt"
+            data_url = f"data:{mime or detected_mime};base64," + base64.b64encode(
+                bytes(raw)
+            ).decode("ascii")
+            parts.append(
+                {
+                    "type": "image",
+                    "image_url": data_url,
+                    "mime_type": mime or detected_mime,
+                }
+            )
+        return parts, None
+
+    async def _reply_image_failure(
+        self,
+        failure_kind: str,
+        *,
+        message: InboundMessage,
+        agent_id: str,
+        session_key: str,
+        binding: SessionBinding,
+    ) -> PipelineResult:
+        """Stop the turn and deliver the fixed image-failure message (决策5).
+
+        The message is delivered via the same outbound sender as the /stop ack and is
+        NOT written to kernel history — the turn was never submitted, so the next turn's
+        context stays clean (no failure image, no failure text) with no replay filtering.
+        """
+        reply_text = _IMAGE_FAILURE_MESSAGES[failure_kind]
+        outbound = await self._deliver_stop_ack(
+            text=reply_text,
+            binding=binding,
+            agent_id=agent_id,
+            ack_tag=f"image-error-{failure_kind}",
+        )
+        await self._emit_relay_lifecycle(
+            message,
+            RelayLifecycleUpdate(
+                phase="completed",
+                agent_id=agent_id,
+                session_key=session_key,
+                run_id=None,
+                reply_text=reply_text,
+                detail={"image_failure": failure_kind},
+            ),
+        )
+        return PipelineResult(
+            agent_id=agent_id,
+            session_key=session_key,
+            kernel_session_id=binding.kernel_session_id,
+            run_id="",
+            reply_text=reply_text,
+            outbound=outbound,
+        )
+
     def register_agent(self, agent: AgentWorkspaceConfig) -> None:
         """Add or replace one live agent workspace binding for future sessions."""
         self._agents[agent.agent_id] = agent
@@ -1218,6 +1343,25 @@ class InboundPipeline:
             "completion_tokens": max(completion_tokens, 0),
             "total_tokens": max(total_tokens, 0),
         }
+
+
+def _detect_image_mime(data: bytes) -> str | None:
+    """Detect a supported image MIME type from magic bytes, else None.
+
+    bugfix-433 决策5: used to reject unrecognizable / corrupt image bytes at the inbound
+    boundary (the model is never asked to interpret garbage). Covers the formats IM
+    accepts for upload; an unknown signature → None → the turn stops with the
+    "无法识别" message.
+    """
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith(b"GIF87a") or data.startswith(b"GIF89a"):
+        return "image/gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
 
 
 def _format_sender_text(sender: str, text: str) -> str:
