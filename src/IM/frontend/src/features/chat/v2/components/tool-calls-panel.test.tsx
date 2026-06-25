@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import "../../../../i18n";
 import type { ToolCall } from "../chat-types";
@@ -842,5 +842,169 @@ describe("feat-414-M1 · collapsed toggle has no total duration (W3)", () => {
     const btn = screen.getByRole("button", { name: /tool call/i });
     // Must not contain a pattern like "· 1.2s" or "· 800ms"
     expect(btn.textContent).not.toMatch(/·\s*\d/);
+  });
+});
+
+// feat-434-M1: inline gate region (是否授权) vs result region (执行结果), denied dedup,
+// failTag i18n, collapsed-state approval count suffix. Default test locale is "en";
+// the gate/result/count assertions run in zh and en where the文案随语言.
+import { setLanguage } from "../../../../i18n";
+
+describe("ToolCallsPanel · approval gate region (feat-434-M1)", () => {
+  async function expandPanel() {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /tool call/i }));
+  }
+
+  afterEach(() => setLanguage("en"));
+
+  it("shows the authorized gate near the name for a user-allowed success (zh)", async () => {
+    setLanguage("zh");
+    const calls: ToolCall[] = [
+      { id: "a1", name: "bash", status: "completed", input: {}, output: "npm run build", duration_ms: 1200, approval: "user_allow" }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    const gate = container.querySelector(".chat-tool-call-gate");
+    expect(gate).not.toBeNull();
+    expect(gate?.textContent).toBe("已授权");
+    expect(gate?.className).toContain("chat-tool-call-gate--allow");
+    expect(container.querySelector(".chat-tool-call-duration")?.textContent).toContain("1.2s");
+  });
+
+  it("renders the authorized gate label in English when locale is en", async () => {
+    const calls: ToolCall[] = [
+      { id: "a1", name: "bash", status: "completed", input: {}, output: "x", approval: "user_allow" }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    expect(container.querySelector(".chat-tool-call-gate")?.textContent).toBe("Authorized");
+  });
+
+  it("authorized-but-failed shows BOTH gate and the fail tag (key boundary, zh)", async () => {
+    setLanguage("zh");
+    const calls: ToolCall[] = [
+      {
+        id: "f1", name: "bash", status: "failed", input: {}, output: "npm test",
+        duration_ms: 3100, approval: "user_allow",
+        detail: { command: "npm test", exit_code: 1 }
+      }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    expect(container.querySelector(".chat-tool-call-gate")?.textContent).toBe("已授权");
+    expect(container.querySelector(".chat-tool-call-fail-tag")?.textContent).toBe("退出码 1");
+  });
+
+  it("failTag follows the interface language: exit code zh vs en", async () => {
+    const calls: ToolCall[] = [
+      { id: "f1", name: "bash", status: "failed", input: {}, output: "t", detail: { command: "x", exit_code: 1 } }
+    ];
+    // en
+    const en = render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    expect(en.container.querySelector(".chat-tool-call-fail-tag")?.textContent).toBe("exit 1");
+    en.unmount();
+    // zh
+    setLanguage("zh");
+    const zh = render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    expect(zh.container.querySelector(".chat-tool-call-fail-tag")?.textContent).toBe("退出码 1");
+  });
+
+  it("failTag generic 失败/failed follows language (no exit code)", async () => {
+    const calls: ToolCall[] = [
+      { id: "g1", name: "memory", status: "completed", input: {}, output: "m", detail: { success: false } }
+    ];
+    const en = render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    expect(en.container.querySelector(".chat-tool-call-fail-tag")?.textContent).toBe("failed");
+    en.unmount();
+    setLanguage("zh");
+    const zh = render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    expect(zh.container.querySelector(".chat-tool-call-fail-tag")?.textContent).toBe("失败");
+  });
+
+  it("denied row shows deny gate + not-run result, and NO duplicate reason badge (zh)", async () => {
+    setLanguage("zh");
+    const calls: ToolCall[] = [
+      { id: "d1", name: "bash", status: "failed", input: {}, output: "rm -rf x", reason: "denied", approval: "user_deny" }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    const gate = container.querySelector(".chat-tool-call-gate");
+    expect(gate?.textContent).toBe("已拒绝");
+    expect(gate?.className).toContain("chat-tool-call-gate--deny");
+    expect(container.textContent).toContain("未执行");
+    expect(container.querySelector(".chat-tool-call-reason")).toBeNull();
+    expect(container.querySelector(".chat-tool-call-fail-tag")).toBeNull();
+  });
+
+  it("historical denied row (reason only, no approval) still shows the deny gate", async () => {
+    setLanguage("zh");
+    const calls: ToolCall[] = [
+      { id: "h1", name: "bash", status: "failed", input: {}, output: "rm x", reason: "denied" }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    expect(container.querySelector(".chat-tool-call-gate")?.textContent).toBe("已拒绝");
+    expect(container.querySelector(".chat-tool-call-reason")).toBeNull();
+  });
+
+  it("non-denied reason (timed_out) stays in the result region, not the gate", async () => {
+    const calls: ToolCall[] = [
+      { id: "t1", name: "bash", status: "failed", input: {}, reason: "timed_out" }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    expect(container.querySelector(".chat-tool-call-gate")).toBeNull();
+    expect(container.querySelector(".chat-tool-call-reason")).not.toBeNull();
+  });
+
+  it("auto-allowed / plain tool shows no gate region", async () => {
+    const calls: ToolCall[] = [
+      { id: "p1", name: "read", status: "completed", input: {}, output: "ok", duration_ms: 200 }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    await expandPanel();
+    expect(container.querySelector(".chat-tool-call-gate")).toBeNull();
+  });
+
+  it("collapsed-state suffix shows approval count + allow/deny segments (only non-zero, zh)", () => {
+    setLanguage("zh");
+    const calls: ToolCall[] = [
+      { id: "1", name: "bash", status: "completed", input: {}, output: "a", approval: "user_allow" },
+      { id: "2", name: "bash", status: "completed", input: {}, output: "b", approval: "user_allow" },
+      { id: "3", name: "bash", status: "failed", input: {}, output: "c", approval: "user_deny", reason: "denied" },
+      { id: "4", name: "read", status: "completed", input: {}, output: "d" }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    const btn = container.querySelector(".chat-tool-calls-toggle") as HTMLElement;
+    expect(btn.textContent).toContain("3 次授权");
+    expect(btn.textContent).toContain("2 允许");
+    expect(btn.textContent).toContain("1 拒绝");
+  });
+
+  it("collapsed-state suffix omits the deny segment when there are no denials (zh)", () => {
+    setLanguage("zh");
+    const calls: ToolCall[] = [
+      { id: "1", name: "bash", status: "completed", input: {}, output: "a", approval: "user_allow" },
+      { id: "2", name: "read", status: "completed", input: {}, output: "b" }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    const btn = container.querySelector(".chat-tool-calls-toggle") as HTMLElement;
+    expect(btn.textContent).toContain("1 允许");
+    expect(btn.textContent).not.toContain("拒绝");
+  });
+
+  it("no approval count suffix when no call was user-decided (empty state, zh)", () => {
+    setLanguage("zh");
+    const calls: ToolCall[] = [
+      { id: "1", name: "read", status: "completed", input: {}, output: "a" }
+    ];
+    const { container } = render(<ToolCallsPanel toolCalls={calls} />);
+    const btn = container.querySelector(".chat-tool-calls-toggle") as HTMLElement;
+    expect(btn.textContent).not.toContain("授权");
   });
 });

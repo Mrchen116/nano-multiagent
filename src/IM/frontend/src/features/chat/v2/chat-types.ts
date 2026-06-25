@@ -40,6 +40,13 @@ export type ToolCallReason =
   | "stalled";
 
 /**
+ * feat-434-M1: whether this call passed through a USER permission decision. Drives
+ * the inline gate region (已授权 / 已拒绝), orthogonal to `reason` (which classifies
+ * a non-success terminal). Absent for auto-allowed / historical rows → gate hidden.
+ */
+export type ToolApproval = "user_allow" | "user_deny";
+
+/**
  * Structured tool-call detail produced by the kernel presenter and forwarded
  * verbatim through the Gateway → IM relay (feat-409 决策 1/2). Each built-in tool
  * carries its own schema (bash → command/stdout/…, edit → diff, agent → prompt,
@@ -81,6 +88,13 @@ export interface ToolCall {
    * their icon, DIY/MCP get the generic 🔧).
    */
   emoji?: string;
+  /**
+   * feat-434-M1: user-decision verdict forwarded from the kernel gate. Present only
+   * for calls the user decided on a permission card; absent for auto-allowed /
+   * historical rows → the gate region stays hidden. Historical denied rows (which
+   * carry `reason==="denied"` but no approval) fall back via the renderer.
+   */
+  approval?: ToolApproval | string;
 }
 
 export interface TokenUsage {
