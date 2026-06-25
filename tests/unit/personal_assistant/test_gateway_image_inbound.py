@@ -84,6 +84,40 @@ def test_inbound_downloads_attachment_to_base64_data_url(tmp_path: Path) -> None
     assert base64.b64encode(_PNG_BYTES).decode() in url
 
 
+def test_detected_mime_wins_over_client_content_type(tmp_path: Path) -> None:
+    """bugfix-433-fix1 #6: magic-byte detected mime is trusted over client content_type.
+
+    The attachment claims image/jpeg but the bytes are PNG; the data URL must carry the
+    detected image/png (client-supplied content_type can be wrong / forged).
+    """
+
+    async def _png_fetcher(url: str) -> bytes:
+        return _PNG_BYTES
+
+    pipeline, kernel, _ = _make_pipeline(tmp_path, fetcher=_png_fetcher)
+    inbound = InboundMessage(
+        channel_name="web",
+        text="what is this",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+        metadata={
+            "attachments": [
+                {
+                    "url": "http://im.local/im/uploads/a.png",
+                    "content_type": "image/jpeg",  # lying content type
+                }
+            ]
+        },
+    )
+    asyncio.run(pipeline.handle_inbound(inbound))
+
+    url = kernel.send_calls[0]["image_urls"][0]["url"]
+    assert url.startswith("data:image/png;base64,"), (
+        f"detected png must win over claimed jpeg; got {url[:30]}"
+    )
+
+
 def test_download_failure_stops_turn_with_fixed_message(tmp_path: Path) -> None:
     """Download failure → no submit, fixed '没能加载' reply via outbound."""
 
@@ -130,6 +164,76 @@ def test_corrupt_image_stops_turn_with_fixed_message(tmp_path: Path) -> None:
     assert delivered == [
         "这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。"
     ]
+
+
+def test_corrupt_png_with_valid_magic_header_is_rejected(tmp_path: Path) -> None:
+    """bugfix-433-fix1 Issue #1: a 41-byte PNG with a valid magic header but a corrupt
+    body (no IHDR/IEND structure) must be rejected at inbound — NOT sent to the provider.
+
+    Magic-byte detection alone passed this and let it reach Anthropic, which returned a
+    stream error surfaced as '⚠️ 模型调用失败' instead of the fixed '无法识别' message.
+    """
+    # 8-byte PNG signature + 33 random ASCII bytes (not a valid IHDR chunk), 41 bytes total.
+    corrupt_png = b"\x89PNG\r\n\x1a\n" + b"not a valid png body random ascii"
+    assert len(corrupt_png) == 41
+
+    async def _corrupt_fetcher(url: str) -> bytes:
+        return corrupt_png
+
+    pipeline, kernel, delivered = _make_pipeline(tmp_path, fetcher=_corrupt_fetcher)
+    asyncio.run(pipeline.handle_inbound(_image_inbound()))
+
+    assert kernel.send_calls == [], "corrupt PNG must not be submitted to the model"
+    assert delivered == [
+        "这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。"
+    ]
+
+
+def test_valid_png_with_full_structure_passes(tmp_path: Path) -> None:
+    """A structurally valid PNG (real IHDR + IEND) must still pass the strengthened check."""
+
+    async def _ok_fetcher(url: str) -> bytes:
+        return _PNG_BYTES
+
+    pipeline, kernel, _ = _make_pipeline(tmp_path, fetcher=_ok_fetcher)
+    asyncio.run(pipeline.handle_inbound(_image_inbound()))
+
+    assert len(kernel.send_calls) == 1
+    assert kernel.send_calls[0].get("image_urls"), "valid PNG must reach submit"
+
+
+def test_corrupt_image_does_not_poison_following_text_turn(tmp_path: Path) -> None:
+    """bugfix-433-fix1 Issue #2: after a corrupt image stops a turn, a following text
+    message in the SAME session must submit normally (no poisoned history).
+
+    Root cause: a submitted corrupt image persisted in history and was re-sent every
+    later turn → repeated provider errors → empty replies. Rejecting the corrupt image
+    at inbound (Issue #1) means it never enters history, so the session stays usable.
+    """
+    corrupt_png = b"\x89PNG\r\n\x1a\n" + b"not a valid png body random ascii"
+
+    async def _corrupt_fetcher(url: str) -> bytes:
+        return corrupt_png
+
+    pipeline, kernel, delivered = _make_pipeline(tmp_path, fetcher=_corrupt_fetcher)
+
+    # Turn 1: corrupt image → stopped, no submit.
+    asyncio.run(pipeline.handle_inbound(_image_inbound()))
+    assert kernel.send_calls == []
+
+    # Turn 2: plain text in the same conversation → must submit normally.
+    text_inbound = InboundMessage(
+        channel_name="web",
+        text="never mind, just text: what is 1+1?",
+        external_user_id="user-1",
+        external_chat_id="chat-1",
+        is_group=False,
+    )
+    asyncio.run(pipeline.handle_inbound(text_inbound))
+
+    assert len(kernel.send_calls) == 1, "following text turn must submit (session usable)"
+    assert kernel.send_calls[0]["texts"] == ["never mind, just text: what is 1+1?"]
+    assert "image_urls" not in kernel.send_calls[0]
 
 
 def test_no_fetcher_configured_keeps_http_url(tmp_path: Path) -> None:

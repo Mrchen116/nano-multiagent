@@ -440,6 +440,45 @@ class TestImagePartsRoundTrip:
             dict(p) for p in msg.parts
         ]
 
+    def test_new_turn_appended_entry_omits_empty_parts_key(self) -> None:
+        """bugfix-433-fix1 #4: text-only turn must NOT write `parts: []`.
+
+        ``_message_to_entry`` only writes ``parts`` when non-empty; ``new_turn_appended_entry``
+        previously always wrote ``"parts": []`` — an asymmetry that makes the two write paths
+        produce structurally different entries for the same text-only turn (golden drift).
+        """
+        from agent.core.session.entries import new_turn_appended_entry
+
+        entry = new_turn_appended_entry(
+            session_id="s1", turn_id="t1", role="user", content="just text", message_id="m1"
+        )
+        assert "parts" not in entry.data
+
+    def test_non_empty_parts_round_trip_through_to_message(self) -> None:
+        """bugfix-433-fix1 #8: guard the non-empty parts round-trip explicitly.
+
+        The field-conservation guard only exercised parts=None→None; a regression that
+        dropped non-empty parts on round-trip would slip through. Assert image parts
+        survive _message_to_entry → _to_message intact.
+        """
+        from agent.core.session.jsonl_store import _to_message
+
+        msg = Message(
+            message_id="m-parts",
+            role="user",
+            content="look\n[image:placeholder]",
+            parts=(
+                {"type": "text", "text": "look"},
+                {"type": "image", "image_url": _IMAGE_DATA_URL},
+            ),
+        )
+        restored = _to_message(_message_to_entry(msg, "sess-parts"))
+        assert restored.parts is not None
+        assert [dict(p) for p in restored.parts] == [
+            {"type": "text", "text": "look"},
+            {"type": "image", "image_url": _IMAGE_DATA_URL},
+        ]
+
 
 # ---------------------------------------------------------------------------
 # bugfix-402-M1/R3: orphaned tool_call -> prepare -> build_chat_messages 合法

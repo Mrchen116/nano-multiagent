@@ -6,7 +6,7 @@ image part, build_chat_messages emits an LLMMessage whose content is a list of b
 """
 
 from agent.core.types import Message
-from agent.core.agent.prompting import build_chat_messages
+from agent.core.agent.prompting import build_chat_messages, build_prompt_messages
 from agent.core.agent.state import render_user_content_parts, InputPart
 
 
@@ -30,6 +30,21 @@ def test_render_user_content_parts_emits_blocks_when_image_present() -> None:
         {"type": "text", "text": "what is this"},
         {"type": "image", "image_url": _DATA_URL},
     ]
+
+
+def test_render_user_content_parts_image_without_url_does_not_enter_list_path() -> None:
+    """bugfix-433-fix1 #3: an image part with image_url=None must NOT force the list path.
+
+    Before the fix the guard keyed on ``type=="image"`` while block construction required
+    ``image_url is not None`` — so a url-less image returned ``[]`` (or a text-only list),
+    contradicting the "no usable image → None" contract and silently dropping content.
+    """
+    parts = (
+        InputPart(type="text", text="hi"),
+        InputPart(type="image", image_url=None),
+    )
+    # No usable image → return None so the caller keeps the content:str path.
+    assert render_user_content_parts(parts) is None
 
 
 def test_current_user_with_image_yields_list_content() -> None:
@@ -91,3 +106,25 @@ def test_history_message_without_parts_keeps_str_content() -> None:
     msgs = build_chat_messages(history_messages=history, user_text="next")
     history_user = [m for m in msgs if m.role == "user"][0]
     assert history_user.content == "plain text turn"
+
+
+def test_build_prompt_messages_threads_user_parts() -> None:
+    """bugfix-433-fix1 #5: the public build_prompt_messages must forward user_parts.
+
+    The loop calls build_chat_messages directly, but build_prompt_messages is the public
+    API; without threading user_parts, any caller sending an image through it would
+    silently drop the image (content falls back to user_text).
+    """
+    user_parts = [
+        {"type": "text", "text": "describe"},
+        {"type": "image", "image_url": _DATA_URL},
+    ]
+    msgs = build_prompt_messages(
+        history_messages=(),
+        user_text="describe\n[image:placeholder]",
+        user_parts=user_parts,
+    )
+    last = msgs[-1]
+    assert last.role == "user"
+    assert isinstance(last.content, list)
+    assert {"type": "image", "image_url": _DATA_URL} in last.content
