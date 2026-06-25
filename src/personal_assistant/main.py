@@ -3710,6 +3710,15 @@ def _build_kernel_event_observer(
             # for a hook-blocked tool) so the IM badge can render the right label.
             reason_code = event.get("reason_code")
             reason = str(reason_code).strip() if isinstance(reason_code, str) else None
+            # feat-434-M1: forward the user-decision verdict (user_allow/user_deny)
+            # the same way as reason — top-level kernel field, pure passthrough. None
+            # for auto-allowed /普通工具 (gate region stays hidden downstream).
+            approval_raw = event.get("approval")
+            approval = (
+                str(approval_raw).strip()
+                if isinstance(approval_raw, str) and approval_raw
+                else None
+            )
             # feat-409 failalign: output(折叠行文案)只放 presenter 的干净 summary。
             # 不再前缀原始 event.error——presenter 失败态 summary 已是干净主参数,error
             # 只透传在 detail 里供展开卡渲染一次。早先把 error 也 append 进 output_parts
@@ -3736,6 +3745,8 @@ def _build_kernel_event_observer(
                 # bugfix-410-M2 R4 (#97): forward the badge classification alongside
                 # feat-409's structured detail — both ride the same tool_call payload.
                 "reason": reason,
+                # feat-434-M1: user-decision verdict rides the same tool_call payload.
+                "approval": approval,
                 "input": arguments if isinstance(arguments, dict) else {},
                 "output": output,
                 "duration_ms": int(duration_ms)
