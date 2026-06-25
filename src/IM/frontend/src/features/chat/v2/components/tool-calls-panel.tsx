@@ -3,7 +3,14 @@ import { useState } from "react";
 import { useTranslation } from "../../../../i18n";
 import type { ToolCall } from "../chat-types";
 import { ToolDetailBody } from "./tool-detail-renderers";
-import { collapsedSummary, failTag, isCallFailed, toolEmojiFor } from "./tool-presentation";
+import {
+  collapsedSummary,
+  failTag,
+  gateVerdict,
+  isCallFailed,
+  isNotExecuted,
+  toolEmojiFor
+} from "./tool-presentation";
 
 interface ToolCallsPanelProps {
   toolCalls: ToolCall[];
@@ -36,6 +43,14 @@ export function ToolCallsPanel({ toolCalls }: ToolCallsPanelProps) {
   if (toolCalls.length === 0) return null;
   const anyRunning = toolCalls.some((c) => c.status === "running");
 
+  // feat-434-M1: collapsed-state approval count suffix「K 次授权 · X 允许 · Y 拒绝」.
+  // Audits "how many times the user approved" (bugfix-367 risk保住) without the old
+  // resolved-card wall. Only non-zero segments render (prototype). Empty when no call
+  // was user-decided.
+  const allowCount = toolCalls.filter((c) => gateVerdict(c) === "allow").length;
+  const denyCount = toolCalls.filter((c) => gateVerdict(c) === "deny").length;
+  const approvalCount = allowCount + denyCount;
+
   return (
     <div className="chat-tool-calls">
       <button
@@ -60,6 +75,38 @@ export function ToolCallsPanel({ toolCalls }: ToolCallsPanelProps) {
             `${toolCalls.length} ${toolCalls.length === 1 ? t("chat.messagePane.toolCall") : t("chat.messagePane.toolCalls")}`
           )}
         </span>
+        {approvalCount > 0 && (
+          <span className="chat-tool-calls-approvals">
+            <span className="chat-tool-calls-sep">·</span>
+            <span className="chat-tool-calls-approval-seg">
+              {t("chat.messagePane.toolApprovalCount", { count: approvalCount })}
+            </span>
+            {allowCount > 0 && (
+              <>
+                <span className="chat-tool-calls-sep">·</span>
+                <span
+                  className="chat-tool-calls-dot chat-tool-calls-dot--allow"
+                  aria-hidden="true"
+                />
+                <span className="chat-tool-calls-approval-seg">
+                  {t("chat.messagePane.toolApprovalAllow", { count: allowCount })}
+                </span>
+              </>
+            )}
+            {denyCount > 0 && (
+              <>
+                <span className="chat-tool-calls-sep">·</span>
+                <span
+                  className="chat-tool-calls-dot chat-tool-calls-dot--deny"
+                  aria-hidden="true"
+                />
+                <span className="chat-tool-calls-approval-seg">
+                  {t("chat.messagePane.toolApprovalDeny", { count: denyCount })}
+                </span>
+              </>
+            )}
+          </span>
+        )}
       </button>
 
       {expanded && (
@@ -101,11 +148,19 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
       : "oklch(0.55 0.18 145)";
   const statusIcon = failed ? "✕" : call.status === "running" ? "◌" : "●";
   const rowStatus = failed ? "failed" : call.status;
-  const reasonKey = call.reason ? REASON_LABEL_KEYS[call.reason] : undefined;
+  // feat-434-M1 决策 4: two orthogonal regions.
+  // GATE region (贴名称右侧): 是否经用户授权. Reads gateVerdict (approval, 历史 denied
+  // 回退). denied here suppresses the row-tail reason badge —「已拒绝」只印一次.
+  const verdict = gateVerdict(call);
+  // RESULT region (行尾): 执行结果. Non-denied reason badges (timeout/interrupted)
+  // stay here; "denied" is excluded (REASON_BADGE_NAMES dropped it → key undefined).
+  const reasonKey =
+    call.reason && call.reason !== "denied" ? REASON_LABEL_KEYS[call.reason] : undefined;
   // 决策 4: emoji is name-keyed (visual only, generic fallback); summary text is
   // the presenter-produced `output`, not derived by name.
   const summary = collapsedSummary(call);
-  const tag = failTag(call);
+  const tag = failTag(call, t);
+  const notExecuted = isNotExecuted(call);
 
   return (
     <li className="chat-tool-call-item">
@@ -124,6 +179,13 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
           </span>{" "}
           {call.name}
         </span>
+        {verdict && (
+          <span className={`chat-tool-call-gate chat-tool-call-gate--${verdict}`}>
+            {verdict === "allow"
+              ? t("chat.messagePane.toolGateAllowed")
+              : t("chat.messagePane.toolGateDenied")}
+          </span>
+        )}
         {summary && <span className="chat-tool-call-summary">{summary}</span>}
         {reasonKey && (
           <span className="chat-tool-call-reason" style={{ color: "oklch(0.55 0.15 25)" }}>
@@ -131,8 +193,14 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
           </span>
         )}
         {tag && <span className="chat-tool-call-fail-tag">{tag}</span>}
-        {typeof call.duration_ms === "number" && (
-          <span className="chat-tool-call-duration">{formatDuration(call.duration_ms)}</span>
+        {notExecuted ? (
+          <span className="chat-tool-call-not-executed">
+            {t("chat.messagePane.toolNotExecuted")}
+          </span>
+        ) : (
+          typeof call.duration_ms === "number" && (
+            <span className="chat-tool-call-duration">{formatDuration(call.duration_ms)}</span>
+          )
         )}
         <span className="chat-tool-call-arrow">{open ? "▾" : "▸"}</span>
       </button>

@@ -148,11 +148,13 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
     expect(row?.querySelector(".chat-tool-call-summary")?.textContent).toBe("跑测试");
   });
 
-  it("suppresses the fail tag when a reason badge is shown (no double label)", async () => {
-    // cr4-frontend: a denied call already shows the "已拒绝" reason badge; the
-    // generic "failed" fail-tag alongside it is a confusing double identifier.
+  it("suppresses the fail tag for a non-denied reason badge (no double label)", async () => {
+    // cr4-frontend: a timed_out call already shows the reason badge; the generic
+    // "failed" fail-tag alongside it is a confusing double identifier.
+    // feat-434-M1 决策 4: denied moved to the gate region, so this dedup case now
+    // uses a non-denied reason (denied is covered by the gate-region tests).
     const calls: ToolCall[] = [
-      { id: "d1", name: "bash", status: "failed", input: {}, output: "reboot", reason: "denied" }
+      { id: "d1", name: "bash", status: "failed", input: {}, output: "reboot", reason: "timed_out" }
     ];
     render(<ToolCallsPanel toolCalls={calls} />);
     await expandPanel();
@@ -162,8 +164,9 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
   });
 
   // bugfix-410-M2 R4 (#97): tool_call badge must render the reason label per cause.
+  // feat-434-M1 决策 4: denied left the row-tail reason badge (now the gate region);
+  // the remaining reasons stay as result-region badges.
   it.each([
-    ["denied", /denied/i],
     ["timed_out", /timed out/i],
     ["interrupted", /interrupted/i],
   ] as const)("renders the %s reason badge", async (reason, label) => {
@@ -851,9 +854,12 @@ describe("feat-414-M1 · collapsed toggle has no total duration (W3)", () => {
 import { setLanguage } from "../../../../i18n";
 
 describe("ToolCallsPanel · approval gate region (feat-434-M1)", () => {
+  // locale-robust: the toggle button text is localized, so query it by class
+  // (these tests switch to zh, where /tool call/i would not match).
   async function expandPanel() {
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    const toggle = document.querySelector(".chat-tool-calls-toggle") as HTMLElement;
+    await user.click(toggle);
   }
 
   afterEach(() => setLanguage("en"));
