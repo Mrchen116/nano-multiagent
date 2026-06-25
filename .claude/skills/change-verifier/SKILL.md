@@ -157,10 +157,13 @@ repo_root=$(git rev-parse --show-toplevel)
 cd "$verify_worktree_dir"
 git add docs/changes/<unit_dir>/verification.md
 git commit -m "docs(<unit_id>): round <N> verification — verdict <pass|fail>"
-git push origin "unit/<unit_id>"
+# §1 是 detached 签出,报告 commit 在 detached HEAD:推 HEAD,别用 `push origin unit/<id>`
+# (后者推本地同名分支、不含本 commit,会静默 "up-to-date" 致报告丢失)
+git fetch origin "unit/<unit_id>" && git rebase "origin/unit/<unit_id>"   # 避并发非快进
+git push origin "HEAD:unit/<unit_id>"
+git fetch origin "unit/<unit_id>"
+git merge-base --is-ancestor HEAD "origin/unit/<unit_id>" || echo "✗ 报告未上 origin,排查重推"
 ```
-
-> 注:unit 分支上可能有其它并发的报告 commit。push 被抢先则 `git pull --rebase` 后重 push(只 rebase 报告 commit,不碰代码)。
 
 报告 push 成功后,**自删 worktree**(谁建谁删):
 ```bash
