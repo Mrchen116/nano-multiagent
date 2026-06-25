@@ -213,3 +213,101 @@
 唯一 fail 项：**待决卡按钮文案在中文界面显示英文**（"Allow once" / "Deny" / "Allow for session"），违反 design.md 明确要求的"目标态全中文文案"和原型对照基准。
 
 需 fix-implementation 修复此项后，可走 fast-lane 复验。
+
+---
+
+# Round 2 — 2026-06-25
+
+**Reviewer**: feat-434-reviewer（Fast-lane，复用 Round 1 上下文）
+**Branch**: unit/feat-434（commit `3f5b14f3`）
+**Verdict**: pass
+**Highest Required Action**: pass
+**Issues Count**: blocking: 0, major: 0, minor: 0
+
+---
+
+## 服务接管记录（Round 2）
+
+- 前端重建：`npm run build`（worktree 已有 node_modules），产物 `dist/assets/index-Dk1hInxK.js`
+- 指纹核验：grep `toolGateAllowed` / `user_allow` 命中新产物 ✓
+- IM：端口 50388，JWT secret 本轮专属
+- Gateway：foreground 模式，auto-bind，node_id=wt-feat-434-r2
+- 整栈重启后走旅程，无 stale-binary
+
+---
+
+## Fast-lane 复验范围
+
+1. 重点复验：待决卡按钮在中文界面是否显中文「允许 / 拒绝 / 本会话内允许」
+2. 英文界面按钮是否显英文
+3. 主路径不回归抽查（allow→已授权、deny→已拒绝+未执行、收起态）
+4. 上轮两个 inconclusive（又来新待决、授权后失败两区）维持 inconclusive
+
+---
+
+## 验收标准覆盖表（Round 2 更新行）
+
+### Requirement: 待决审批醒目且可操作
+
+#### Scenario: agent 请求授权（Round 1 fail → Round 2 pass）
+- **期望来源**: spec.md + prototype.html（「允许 / 本会话内允许 / 拒绝」中文；英文界面显英文）
+- **验证方式**: J1 中文界面 Playwright 截图（`r2-pending-zh.png`）+ DOM 检查；J2 英文界面截图（`r2-en-pending-card.png`）
+- **证据（中文）**: 
+  - `r2-pending-zh.png`：按钮文案「允许」「拒绝」「本会话内允许」（中文），深色卡「需要确认」脉冲 ✓
+  - DOM: `Permission buttons: 3 / '允许' / '拒绝' / '本会话内允许'`，`Has zh '允许': True`，`Has en 'Allow once': False` ✓
+- **证据（英文）**:
+  - `r2-en-pending-card.png`：按钮文案「Allow once」「Deny」「Allow for session」（英文）✓
+  - DOM: `EN: Allow once: True / Allow for session: True / Deny: True / 允许: False` ✓
+- **结果**: **pass**
+
+#### Scenario: 已有已决审批时又来新的待决审批
+- **结果**: **inconclusive**（维持，理由同 Round 1）
+
+---
+
+### Requirement: 用户决定后待决卡即时折叠并并入工具列表
+
+#### Scenario: 用户点允许（抽查不回归）
+- **验证方式**: J1 浏览器点「允许」 → 观察收起态
+- **证据**: 收起态 `3 次工具调用 · 1 次授权 · ● 1 允许`（绿点）✓；展开后 `write 已授权 .gitconfig 34.2s` ✓
+- **结果**: **pass**
+
+#### Scenario: 用户点拒绝（抽查不回归）
+- **验证方式**: J2 REST API deny → 观察展开态
+- **证据**: `r2-deny-expanded.png`：`write 已拒绝 .gitconfig 未执行` ✓；收起态 `1 次工具调用 · 1 次授权 · ● 1 拒绝`（红点）✓；agent 有后续 LLM 回复 ✓
+- **结果**: **pass**
+
+---
+
+### Requirement: 行内「是否授权」与「执行结果」分区，互不遮挡
+
+#### Scenario: 授权后执行失败（关键边界）
+- **结果**: **inconclusive**（维持，理由同 Round 1）
+
+#### Scenario: 拒绝不重复呈现（抽查不回归）
+- **证据**: `r2-deny-expanded.png` 行内一处「已拒绝」（橙/红），行尾「未执行」，无 reason 徽标重复 ✓
+- **结果**: **pass**
+
+---
+
+## 原型对照（Round 2 更新）
+
+| 对照项 | 预期 | 实测 | 结论 |
+|---|---|---|---|
+| 目标态全中文文案 | 待决卡按钮：允许/本会话内允许/拒绝 | `r2-pending-zh.png` 确认三按钮全中文 | ✓（Round 1 fail → Round 2 pass） |
+| 英文界面按钮英文 | Allow once / Deny / Allow for session | `r2-en-pending-card.png` 确认 | ✓ |
+| allow 主路径不回归 | 已授权 + 收起态计数 | 截图+DOM 确认 | ✓ |
+| deny 主路径不回归 | 已拒绝 + 未执行 + 收起态计数 | 截图+DOM 确认 | ✓ |
+
+---
+
+## 验收结论（Round 2）
+
+**Verdict: pass**
+
+Round 1 唯一 fail 项（待决卡按钮中文界面显英文）已修复：
+- 中文界面待决卡按钮正确显示「允许 / 拒绝 / 本会话内允许」（真栈 Playwright 截图确认）
+- 英文界面按钮正确显示「Allow once / Deny / Allow for session」（真栈截图确认）
+- allow / deny 主路径、收起态分项计数、行内分区均不回归
+
+两个维持 inconclusive 项（又来新待决、授权后失败两区）不阻塞 pass，属 live 难复现的边界场景，组件测试层已有覆盖。
