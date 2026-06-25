@@ -107,14 +107,24 @@ graph TB
 - **拒绝**：content 直接变 blocks 数组——侵入面与回归风险不可控；维持双轨写而不读——正是 bug 本身。
 - **风险**：`Message` 是 frozen dataclass，加字段须全构造点默认 `parts=None`；回放重建顺序/parent 链不得受影响（不变量3）。
 
-### 决策 5: 异常图片（下载失败/超大/损坏）对用户明确报错，不静默占位
+### 决策 5: 异常图片 → 本轮停下、回发明确提示、等用户重发（对齐 CC，不调模型、不静默、不喂假占位）
 
-**选了「显式告知用户图片未送达 + 原因 + 建议，不把假占位喂给模型」**（对齐 CC：`imageResizer.ts:438,586` 抛 `ImageResizeError` 带用户文案，绝不静默）。
+**选了「图片处理失败则本轮不调用模型，回发固化错误提示让用户重发」**（对齐 CC 实测行为：`query.ts:1216` 捕获 `ImageResizeError` 后 `yield createAssistantAPIErrorMessage(...)` 并 `return {reason:'image_error'}`，模型**未被调用**）。
 
-- **理由**：静默塞占位符隐藏了「图片是否进了 LLM」，且会诱导 agent 对着不存在的图编造内容——这是产品级坏设计（用户 review 指出）。失败必须对用户透明：图片处理失败时，gateway 向用户回发明确提示（这张图未送达模型 + 原因 + 可操作建议），且**不把伪造的图片占位送进模型**。
-- **拒绝**：① 静默降级为 `[图片无法加载]` 文本块喂模型——隐藏错误、诱发编造；② 直接抛异常中断整轮——用户只看到崩溃，同样不知情。两者都不诚实。
-- **实现指引（沿用既有「用户可见、模型不可见」通道）**：本仓已有该模式——`is_provider_error=True` 的合成 assistant 消息会持久化供 IM/CLI 显示，但 `build_chat_messages`（`prompting.py:62-66` `_is_provider_error` 过滤）在发模型前剔除它，**不进 LLM context**。注释自证「mirrors CC isSyntheticApiErrorMessage / normalizeMessagesForAPI」。这正是 CC 对图片失败文案的处理：`ImageResizeError` → `createAssistantAPIErrorMessage`（`isApiErrorMessage:true`）→ `normalizeMessagesForAPI` 过滤不发 API、仅 UI 显示。决策5 的失败提示**复用这条 `is_provider_error` 通道**：用户在 IM 看到「这张图未送达模型 + 原因 + 建议」，模型上下文里既无该图也无该错误文案（不喂假占位、不污染上下文）。
-- **风险**：超大图阈值取值留 worker（参照 provider 限制，不在 spec 锁定）。失败发生在入站 base64 转换（决策1）或 mapper 送达前的校验处，须把失败信号经 `is_provider_error` 合成消息传回用户，而非在 core 静默吞掉。
+- **理由（核实 CC 后确定语义）**：CC 对图片失败是**硬停**——图片 resize/压缩仍超限即 `throw`，本轮直接以错误消息收尾、不调模型。这比「剔除图继续答」更诚实：不存在「模型基于残缺输入答了」的中间态，用户明确知道图没进去、需重发。
+- **先压缩、压不下才停**（对齐 CC `maybeResizeAndDownsampleImageBuffer`）：超大图优先自动 resize/压缩到 provider 限制内正常送达；只有压缩也救不回来才停下报错。自动压缩为 worker 增强项，核心契约是「无法送达 → 停下报错，不静默」。
+- **拒绝**：① 静默降为 `[图片无法加载]` 文本喂模型——隐藏错误、诱发编造；② 剔除失败图、带其余内容继续调模型——CC 不这么做，「部分送达」语义模糊；③ 抛异常中断整轮——用户只见崩溃，同样不知情。
+- **实现指引（复用既有「用户可见、模型不可见」通道，且不 submit 模型）**：失败提示作为 `is_provider_error=True` 合成 assistant 消息回发——本仓 `build_chat_messages`（`prompting.py:62-66` `_is_provider_error` 过滤）在发模型前剔除它，仅 IM/CLI 显示、不进 LLM context（注释自证 mirrors CC `isSyntheticApiErrorMessage`/`normalizeMessagesForAPI`；CC 对应 `createAssistantAPIErrorMessage` `isApiErrorMessage:true`）。gateway 入站若下载/校验失败，**本轮直接回发该提示、不 submit 模型**（对齐 CC 的 `return {reason:'image_error'}`）。
+- **固化文案（worker 照抄，禁止自由发挥）**：按失败类型取下表**精确字符串**。与 CC 不同点：CC 英文 + CLI「esc esc」提示 + 无「下载失败」场景（CC 是本地 base64，本仓是 IM HTTP URL 需下载）——本仓化为中文、去 CLI 交互、补「无法获取」一类；语义为「停下、没收到、请重发」（**不暗示已回答**）：
+
+  | 失败类型 | 触发处 | 固化文案（一字不差） |
+  |---|---|---|
+  | 无法获取 / 下载失败 | 入站 base64 转换（决策1）下载 IM attachment 失败（不可达 / token 失效 / 404） | `这张图片没能加载，我没有收到它，无法据此回复。请重新发送图片试试。` |
+  | 图片过大 | 入站/送达前校验，自动压缩后仍超出 provider 大小限制 | `这张图片太大了，超出可接收的大小，我没能收到它，无法据此回复。请压缩或换一张更小的图片后重新发送。` |
+  | 无法识别 / 损坏 | 图片解析失败（格式不支持 / 数据损坏） | `这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。` |
+
+  一条消息里多张图、任一张失败：本轮停下、不调模型，回发对应失败文案（指明哪一类失败）；用户重发后再处理。**不做**「成功的先送、失败的略过」的部分送达（对齐 CC 的整轮停）。阈值（「过大」字节数）取值留 worker 参照 provider 限制，**不进文案**（保持可固化、稳定）。
+- **风险**：失败发生在入站 base64 转换（决策1）或 mapper 送达前的校验处，须把失败信号经 `is_provider_error` 合成消息传回用户，而非在 core 静默吞掉。
 
 ## 接口与数据流
 
