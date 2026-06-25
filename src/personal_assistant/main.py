@@ -2442,6 +2442,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         pipeline._bg_reply_sender = _build_bg_reply_sender(
             im_connection_manager_factory=lambda: im_connection_manager,
         )
+        # bugfix-433 决策1: wire the live attachment downloader so inbound image URLs
+        # are fetched (with the live IM token) and converted to base64 data URLs before
+        # reaching the kernel. Only wired when im_service is configured.
+        pipeline._attachment_fetcher = _build_attachment_fetcher(
+            token_getter=_token_getter,
+        )
 
     # bugfix-402-M4 R4 / bugfix-402-M6: build per-agent CronExecutionService and
     # register with dispatcher.  execute_fn is a closure that captures kernel_shim,
@@ -4055,6 +4061,30 @@ def _build_bg_reply_sender(
             )
 
     return _sender
+
+
+def _build_attachment_fetcher(
+    *,
+    token_getter: "Callable[[], Awaitable[str | None]]",
+) -> "Callable[[str], Awaitable[bytes]]":
+    """Build an async callable that downloads an IM attachment URL to raw bytes.
+
+    bugfix-433 决策1: the inbound pipeline uses this to turn an IM-hosted HTTP image
+    URL (unreachable to a remote provider) into a self-contained base64 data URL. The
+    URL is the full attachment URL carried on the relay message; auth uses the live IM
+    access token. Any HTTP / network error raises so the pipeline stops the turn and
+    replies with the fixed "没能加载" message (决策5).
+    """
+    import httpx  # noqa: PLC0415
+
+    async def _fetch(url: str) -> bytes:
+        token = await token_getter()
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, headers=_im_http_headers(token))
+            response.raise_for_status()
+            return response.content
+
+    return _fetch
 
 
 def _metadata_text(metadata: Mapping[str, object], *, key: str) -> str | None:

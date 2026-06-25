@@ -49,16 +49,30 @@ def build_chat_messages(
     *,
     history_messages: tuple[Message, ...],
     user_text: str,
+    user_parts: list[dict[str, Any]] | None = None,
 ) -> tuple[LLMMessage, ...]:
     """Build chat messages (history + current user) without system prompt.
 
     Args:
         history_messages: Persisted conversation history before current user input.
         user_text: Current user text input after preprocessing.
+        user_parts: bugfix-433 决策2 — structured content blocks for the current
+            user turn when it carries an image (``[{type:text},{type:image,...}]``).
+            None keeps the current user on the ``content:str`` path so pure-text
+            turns stay byte-identical (不变量1).
 
     Returns:
         Ordered message tuple: history, then current user. No system message.
     """
+    # bugfix-433-fix2: an image-bearing user turn that triggered a provider error must
+    # not re-send its image block on later turns (else it errors again every turn →
+    # poisoned session). Mirrors CC normalizeMessagesForAPI errorToBlockTypes: for each
+    # synthetic provider-error message, walk back to the nearest user turn carrying an
+    # image and strip ONLY its image block — text is kept. Computed BEFORE filtering out
+    # the error markers (they're the signal). Scope is image-only: a pure-text user turn
+    # has no image block, so pure-text provider-error replay is unchanged.
+    image_strip_ids = _image_turns_to_strip_after_error(history_messages)
+
     # bugfix-380: filter out provider error messages before sending to LLM.
     # These are synthetic assistant messages (is_provider_error=True) that were
     # persisted for IM/CLI display but must not pollute the LLM's context window
@@ -78,7 +92,14 @@ def build_chat_messages(
         messages.append(
             LLMMessage(
                 role=message.role,
-                content=message.content,
+                # bugfix-433 决策4: a history Message that persisted image parts must
+                # be replayed as a block list so the model still sees the image on
+                # later turns; pure-text messages (parts=None) keep content:str.
+                # fix2: when this turn previously triggered a provider error, its image
+                # block is stripped here (text kept) so it is not re-sent.
+                content=_history_content(
+                    message, strip_image=message.message_id in image_strip_ids
+                ),
                 name=message.name,
                 tool_call_id=message.tool_call_id or _extract_tool_call_id(metadata),
                 tool_calls=_extract_tool_calls(metadata),
@@ -87,14 +108,76 @@ def build_chat_messages(
             )
         )
     messages = _merge_adjacent_assistant(messages)
-    messages.append(LLMMessage(role="user", content=user_text))
+    # bugfix-433 决策2: send the current user turn as a block list when it carries an
+    # image; otherwise keep the plain-text content (no drift for text-only turns).
+    current_content: str | list[dict[str, Any]] = (
+        user_parts if user_parts else user_text
+    )
+    messages.append(LLMMessage(role="user", content=current_content))
     return tuple(messages)
+
+
+def _message_has_image_parts(message: Message) -> bool:
+    return bool(message.parts) and any(
+        isinstance(p, Mapping) and p.get("type") == "image" for p in message.parts
+    )
+
+
+def _image_turns_to_strip_after_error(
+    history_messages: tuple[Message, ...],
+) -> frozenset[str]:
+    """Return message_ids of image-bearing user turns that preceded a provider error.
+
+    bugfix-433-fix2 (CC normalizeMessagesForAPI errorToBlockTypes): for each synthetic
+    provider-error message, walk backward to the nearest user turn carrying an image and
+    mark it — its image block must be stripped on replay so the poison image is not
+    re-sent every subsequent turn. Walk stops at the first non-error message that is not
+    an image user turn (mirrors CC stopping at the preceding assistant / plain user turn).
+    """
+    strip: set[str] = set()
+    for i, msg in enumerate(history_messages):
+        if not _is_provider_error(msg):
+            continue
+        for j in range(i - 1, -1, -1):
+            candidate = history_messages[j]
+            if candidate.role == "user" and _message_has_image_parts(candidate):
+                strip.add(candidate.message_id)
+                break
+            if _is_provider_error(candidate):
+                continue  # skip stacked error markers
+            break  # hit an assistant / non-image user turn → stop
+    return frozenset(strip)
+
+
+def _history_content(
+    message: Message, *, strip_image: bool = False
+) -> str | list[dict[str, Any]]:
+    """Return a history message's LLM content, restoring image blocks from parts.
+
+    When ``strip_image`` is set (fix2: this turn triggered a provider error), image
+    blocks are dropped and only text is kept, so the poison image is not re-sent. If no
+    text block survives, fall back to the message's str content projection.
+    """
+    if not _message_has_image_parts(message):
+        return message.content
+    if not strip_image:
+        return [dict(p) for p in message.parts]
+    text_blocks = [
+        dict(p)
+        for p in message.parts
+        if isinstance(p, Mapping) and p.get("type") == "text"
+    ]
+    if text_blocks:
+        return text_blocks
+    # No text survived the strip → fall back to the plain-text projection.
+    return message.content
 
 
 def build_prompt_messages(
     *,
     history_messages: tuple[Message, ...],
     user_text: str,
+    user_parts: list[dict[str, Any]] | None = None,
     system_prompt: str = DEFAULT_SYSTEM_PROMPT,
     available_skills: Sequence[SkillMetadata] = (),
     available_tools: Sequence[ToolSpec] | None = None,
@@ -106,6 +189,9 @@ def build_prompt_messages(
     Args:
         history_messages: Persisted conversation history before current user input.
         user_text: Current user text input after preprocessing.
+        user_parts: bugfix-433-fix1 #5 — structured content blocks for the current user
+            turn when it carries an image; forwarded to build_chat_messages so this public
+            API does not silently drop images (None keeps the content:str path).
         system_prompt: System prompt template.
         available_skills: Skills shown in the rendered system prompt.
         available_tools: Optional explicit tool list; falls back to builtins when omitted.
@@ -124,7 +210,11 @@ def build_prompt_messages(
         current_working_directory=current_working_directory,
     )
     chat_messages = list(
-        build_chat_messages(history_messages=history_messages, user_text=user_text)
+        build_chat_messages(
+            history_messages=history_messages,
+            user_text=user_text,
+            user_parts=user_parts,
+        )
     )
     return tuple(
         [LLMMessage(role="system", content=active_system_prompt), *chat_messages]

@@ -51,7 +51,13 @@ from .policies import AgentPolicies
 from .run_control import RunController
 from .prompting import build_system_prompt
 from .skill_commands import rewrite_skill_command
-from .state import AgentState, InputPart, parse_input_parts, render_user_text
+from .state import (
+    AgentState,
+    InputPart,
+    parse_input_parts,
+    render_user_content_parts,
+    render_user_text,
+)
 from agent.core.session.entries import message_from_turn_entry
 from agent.core.agent.prompt_sections.base import (
     PromptSection,
@@ -520,11 +526,16 @@ class AgentRuntime:
         turn_count = sum(1 for message in history if message.role == "user")
         user_message_id = make_message_id()
 
+        # bugfix-433 决策2/4: carry structured image blocks on the user turn so they
+        # both reach the provider this turn and persist for cross-turn replay. None
+        # for text-only turns keeps content:str and writes no `parts` (text golden).
+        user_content_parts = render_user_content_parts(input_parts)
         user_msg = Message(
             message_id=user_message_id,
             parent_message_id=history[-1].message_id if history else None,
             role="user",
             content=user_text,
+            parts=tuple(user_content_parts) if user_content_parts else None,
         )
         history.append(user_msg)
         self._session_manager.writer.enqueue(
@@ -541,17 +552,26 @@ class AgentRuntime:
         if len(input_parts) > 1:
             extra_parts = input_parts[:-1]
             last_part = input_parts[-1:]
+            # bugfix-433 CRITICAL-1: an extra image part must carry structured parts so
+            # build_chat_messages (history side) restores it as an image block. Rendering
+            # it via render_user_text alone would emit "[image:placeholder]" and drop the
+            # image — the reason multi-image turns lost all but the last image.
+            # bugfix-433-fix1 #7: anchor extra parts to user_msg (the turn they belong to),
+            # not to loop_history[-1] (the message BEFORE this turn) — otherwise the
+            # parent chain is misordered. In-memory only (not persisted), low impact, but
+            # keeps the logical tree correct.
             extra_messages = tuple(
                 Message(
                     message_id=make_message_id(),
-                    parent_message_id=loop_history[-1].message_id
-                    if loop_history
-                    else None,
+                    parent_message_id=user_msg.message_id,
                     role="user",
                     content=render_user_text([part]),
+                    parts=tuple(blocks)
+                    if (blocks := render_user_content_parts([part]))
+                    else None,
                 )
                 for part in extra_parts
-                if render_user_text([part])
+                if render_user_text([part]) or render_user_content_parts([part])
             )
             loop_history = loop_history + extra_messages
             effective_user_text = render_user_text(last_part)
@@ -2169,6 +2189,10 @@ def _message_to_entry(msg: Message, session_id: str) -> dict[str, Any]:
         entry["tool_call_id"] = msg.tool_call_id
     if msg.group_id is not None:
         entry["group_id"] = msg.group_id
+    # bugfix-433 决策4: persist structured parts only when present so pure-text
+    # entries stay byte-identical (no `parts` key) — guards the text golden.
+    if msg.parts:
+        entry["parts"] = [dict(p) for p in msg.parts]
     meta = dict(msg.metadata)
     if meta.get("is_meta"):
         entry["is_meta"] = True

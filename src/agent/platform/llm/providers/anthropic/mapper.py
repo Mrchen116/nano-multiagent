@@ -145,6 +145,11 @@ class AnthropicMapper:
                 ],
             }
         role = message.role if message.role in {"user", "assistant"} else "user"
+        # bugfix-433 决策3: a user turn carrying an image arrives as a list of canonical
+        # blocks ([{type:text},{type:image,image_url:data-url}]); map each via the same
+        # image conversion used for tool-result images. Plain str content is unchanged.
+        if isinstance(message.content, list):
+            return {"role": role, "content": _map_user_content_blocks(message.content)}
         return {
             "role": role,
             "content": [{"type": "text", "text": message.content}],
@@ -185,6 +190,36 @@ def _parse_tool_payload(content: str) -> Mapping[str, Any] | None:
     if not isinstance(decoded, Mapping):
         return None
     return decoded
+
+
+def _map_user_content_blocks(blocks: list[Any]) -> list[dict[str, Any]]:
+    """Map canonical user content blocks (text/image) to Anthropic blocks.
+
+    bugfix-433 决策3: the image block is ``{"type":"image","image_url":"data:..."}``
+    (data URL produced at gateway inbound, 决策1), so ``_to_anthropic_image_part``
+    converts it directly. Unknown/empty blocks are dropped; an all-dropped result
+    falls back to a single empty text block so the turn stays valid.
+    """
+    mapped: list[dict[str, Any]] = []
+    for item in blocks:
+        if not isinstance(item, Mapping):
+            continue
+        if item.get("type") == "text":
+            text = item.get("text")
+            if isinstance(text, str):
+                mapped.append({"type": "text", "text": text})
+            continue
+        if item.get("type") == "image":
+            image_part = _to_anthropic_image_part(
+                image_url=item.get("image_url"),
+                image_data=item.get("data"),
+                mime_type=item.get("mimeType", item.get("mime_type")),
+            )
+            if image_part is not None:
+                mapped.append(image_part)
+    if not mapped:
+        return [{"type": "text", "text": ""}]
+    return mapped
 
 
 def _normalize_tool_result_parts(parts: list[Any]) -> list[dict[str, Any]]:

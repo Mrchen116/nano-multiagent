@@ -313,6 +313,8 @@ def test_message_jsonl_roundtrip_field_conservation_guard():
         "tool_call_id",
         "reasoning_content",
         "reasoning_signature",
+        # bugfix-433 决策4: structured multimodal parts round-trip through JSONL.
+        "parts",
     }
     # Fields intentionally NOT round-tripped at top level:
     #  - name: unused by the persistence path (tool identity travels via
@@ -343,6 +345,143 @@ def test_message_jsonl_roundtrip_field_conservation_guard():
         assert getattr(restored, fname) == getattr(msg, fname), (
             f"field '{fname}' dropped in Message↔JSONL round-trip"
         )
+
+
+# ---------------------------------------------------------------------------
+# bugfix-433 决策4: image parts survive persist → reload → replay (cross-turn)
+# ---------------------------------------------------------------------------
+
+_IMAGE_DATA_URL = "data:image/png;base64,aGVsbG8="
+
+
+class TestImagePartsRoundTrip:
+    """A user turn's image survives JSONL store load and reappears in the next turn."""
+
+    def test_user_image_parts_persist_and_replay_through_store(
+        self, tmp_path: Path
+    ) -> None:
+        """Persist a user Message with image parts via the real store, reload it, and
+        confirm build_chat_messages restores the image block for the next turn.
+
+        This is the cross-turn contract: after the image-bearing turn is written to
+        JSONL and the session is reloaded (simulating a later turn / process restart),
+        the model must still see the image.
+        """
+        store = JsonlSessionStore(data_dir=tmp_path)
+        manager = SessionManager(store=store)
+        session = manager.create_session(workspace_root=tmp_path)
+        sid = session.session_id
+
+        # Persist a user turn carrying an image (mirrors runtime submit path).
+        user_msg = Message(
+            message_id=make_message_id(),
+            role="user",
+            content="what is this\n[image:placeholder]",
+            parts=(
+                {"type": "text", "text": "what is this"},
+                {"type": "image", "image_url": _IMAGE_DATA_URL},
+            ),
+        )
+        path = store.resolve_path(sid)
+        with path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(_message_to_entry(user_msg, sid)) + "\n")
+
+        # Reload through the real load path (used to rebuild runtime history).
+        reloaded = JsonlSessionStore(data_dir=tmp_path)
+        result = reloaded.load(sid)
+        restored = [m for m in result.messages if m.role == "user"][-1]
+        assert restored.parts is not None
+        assert {"type": "image", "image_url": _IMAGE_DATA_URL} in [
+            dict(p) for p in restored.parts
+        ]
+
+        # Next turn: build_chat_messages must replay the image as a block.
+        llm_messages = build_chat_messages(
+            history_messages=tuple(result.messages),
+            user_text="what was in that image?",
+        )
+        history_user = [m for m in llm_messages if m.role == "user"][0]
+        assert isinstance(history_user.content, list)
+        assert {"type": "image", "image_url": _IMAGE_DATA_URL} in history_user.content
+
+    def test_pure_text_user_turn_has_no_parts_key_in_jsonl(self) -> None:
+        """A text-only user turn must not write a `parts` key (text golden 不漂移)."""
+        msg = Message(message_id="m1", role="user", content="just text")
+        entry = _message_to_entry(msg, session_id="s1")
+        assert "parts" not in entry
+
+    def test_message_from_turn_entry_restores_parts(self) -> None:
+        """The SessionEntry restore path must also read parts (keep both paths aligned).
+
+        ``new_turn_appended_entry`` already persists parts; ``message_from_turn_entry``
+        is the second restore path (append return value / entry-based reload) and must
+        surface parts the same way ``_to_message`` does, so image-bearing turns are not
+        silently dropped depending on which restore path runs.
+        """
+        from agent.core.session.entries import (
+            new_turn_appended_entry,
+            message_from_turn_entry,
+        )
+
+        entry = new_turn_appended_entry(
+            session_id="s1",
+            turn_id="t1",
+            role="user",
+            content="look\n[image:placeholder]",
+            message_id="m1",
+            parts=[
+                {"type": "text", "text": "look"},
+                {"type": "image", "image_url": _IMAGE_DATA_URL},
+            ],
+        )
+        msg = message_from_turn_entry(entry)
+        assert msg.parts is not None
+        assert {"type": "image", "image_url": _IMAGE_DATA_URL} in [
+            dict(p) for p in msg.parts
+        ]
+
+    def test_new_turn_appended_entry_omits_empty_parts_key(self) -> None:
+        """bugfix-433-fix1 #4: text-only turn must NOT write `parts: []`.
+
+        ``_message_to_entry`` only writes ``parts`` when non-empty; ``new_turn_appended_entry``
+        previously always wrote ``"parts": []`` — an asymmetry that makes the two write paths
+        produce structurally different entries for the same text-only turn (golden drift).
+        """
+        from agent.core.session.entries import new_turn_appended_entry
+
+        entry = new_turn_appended_entry(
+            session_id="s1",
+            turn_id="t1",
+            role="user",
+            content="just text",
+            message_id="m1",
+        )
+        assert "parts" not in entry.data
+
+    def test_non_empty_parts_round_trip_through_to_message(self) -> None:
+        """bugfix-433-fix1 #8: guard the non-empty parts round-trip explicitly.
+
+        The field-conservation guard only exercised parts=None→None; a regression that
+        dropped non-empty parts on round-trip would slip through. Assert image parts
+        survive _message_to_entry → _to_message intact.
+        """
+        from agent.core.session.jsonl_store import _to_message
+
+        msg = Message(
+            message_id="m-parts",
+            role="user",
+            content="look\n[image:placeholder]",
+            parts=(
+                {"type": "text", "text": "look"},
+                {"type": "image", "image_url": _IMAGE_DATA_URL},
+            ),
+        )
+        restored = _to_message(_message_to_entry(msg, "sess-parts"))
+        assert restored.parts is not None
+        assert [dict(p) for p in restored.parts] == [
+            {"type": "text", "text": "look"},
+            {"type": "image", "image_url": _IMAGE_DATA_URL},
+        ]
 
 
 # ---------------------------------------------------------------------------
