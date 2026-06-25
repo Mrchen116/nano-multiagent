@@ -64,3 +64,41 @@
 - Rollback: 回退到 R3 C2 commit（多图修好、gateway 下载在，但少端到端跨轮回归）；整 unit 可 revert 回现状（图片不可见，纯文本零回归）。
 - Commits: C1=test red（M246+gateway）, C2=feat（M246+gateway+main 注入）, C2'=test（端到端跨轮）, C3=本次 docs。
 - Next: 本 milestone 全 roadpoint DONE，进入 §6 集成。
+
+---
+
+## Round 1 reviewer 反馈循环 — fix1（损坏图 robustness + code review correctness）
+
+> §FL 小修快车道（复用原 worker 上下文）；8 项跨 5 文件 + 根因调查，超单 commit，按主流程 TDD 走，不新建 milestone 目录，fix 列表记此续段。worktree: `.worktrees/bugfix-433-fix1`，从 `unit/bugfix-433` 切，改完 merge 回 unit。
+
+### 根因调查（systematic-debugging，Issue #2）
+
+- 现象：发损坏图（41 字节，合法 PNG magic header + 损坏体）→ provider stream error → 同会话后续纯文字得空回复。
+- 数据流追踪（runtime.py）：user_msg（含损坏 image parts）在进 loop **前**就 enqueue+flush 落盘（:540-544）；provider ModelError 分支只合成 is_provider_error 消息后 re-raise，**不移除触发错误的 user turn**；下轮重建历史→`_to_message` 还原 parts→`build_chat_messages` 再发损坏 image block→再 error→空回复。**损坏图确定性毒化会话历史**。
+- 结论：#1（损坏图入站只验 magic bytes，41 字节损坏 PNG 有合法 header 过检测）与 #2 **同根**。修 #1（入站结构校验拦截→不 submit→不进历史）即根除 #2 报告症状。
+
+### Fixes（C1 红测 → C2 实现）
+
+| # | 文件 | 修复 |
+|---|---|---|
+| 1/2 | inbound_pipeline `_detect_image_mime` | 增结构校验：PNG 验 IHDR 紧跟签名 + IEND；JPEG 验 EOI；GIF 验 trailer 0x3B；WEBP 验 RIFF size。stdlib-only（**不引 Pillow**——本仓未声明该依赖，仅传递带入，clean CI 缺失即红，feat-388 注释警告过）。损坏图拦截→不 submit→不毒化 |
+| 3 | state `render_user_content_parts` | 触发条件 `any(image)` → `any(image and image_url is not None)`，与块构建条件对齐（无 url image 不进 list 路径，守「无可用图→None」契约） |
+| 4 | entries `new_turn_appended_entry` | 仅非空才写 parts（对齐 `_message_to_entry`，消除「text-only 写 `parts:[]`」的两写路径结构不对称 → golden 漂移） |
+| 5 | prompting `build_prompt_messages` | 加 `user_parts` 形参并透传给 build_chat_messages（公共 API 不静默丢图） |
+| 6 | inbound_pipeline | data URL mime 取 `detected_mime or mime`（magic-byte 探测值优先于客户端 content_type，防伪造） |
+| 7 | runtime M246 | extra_messages `parent_message_id` 锚 `user_msg`（原锚 `loop_history[-1]`=本轮前一条，逻辑树错位；内存only低影响） |
+| 8 | entries `parse_parts` 新增 | 抽公共 parse_parts 供 `_to_message` + `message_from_turn_entry` 共用（两回放路径一致）；guard 加非空 parts 往返 case |
+
+#7 未写专门测试：extra_messages 仅内存不落盘，parent_message_id 非可观察行为，按 TESTING_GUIDE「MUST NOT 测实现细节」省红测（typo/内部写法类豁免），fix 本身随 M246 既有测试守住「多图全送达」不回归。
+
+### Evidence
+
+- Tests: 新增/扩展 red→green：`test_gateway_image_inbound.py`（损坏图拦截/mime优先/会话不毒化）、`test_build_chat_messages_images.py`（render条件/build_prompt透传）、`test_session_persistence_fidelity.py`（entries空parts/非空往返guard）。全测试树 `pytest tests/{unit,contract,integration,im_service} -m "not e2e"` = 2877 passed/1 skipped；ruff check+format clean。重锚 contract 白名单 jsonl_store .nano 行 89→90。
+- **LIVE（§3.3 live-critical 签收）**：真 IM(:65523)+真 Gateway 进程，IM HTTP API 驱动三条边界旅程（leader 要求两头都验，防误杀合法图）：
+  - ① 损坏图（合法 sig 截断、无 IEND）→ agent「这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。」；后续文字「3+4等于几？」→「3 + 4 = 7」（#1 固化文案 + #2 不毒化）✓
+  - ② 合法 100×100 红 PNG → agent「这是**红色**…」；合法蓝 PNG → agent「这是**蓝色**…」——结构校验**未误杀**合法图，agent 真看到并答对颜色（核心视觉功能完好）✓
+  - ③ 6MB 超大 PNG → agent「这张图片太大了，超出可接收的大小，我没能收到它，无法据此回复。请压缩或换一张更小的图片后重新发送。」✓
+  - 驱动脚本：scratchpad/live_image_boundaries.py（一次性验收，不入库）。
+  - 排除假阴性：首版 live 脚本读 REST messages 时 agent 回复 streaming 未定稿→空 content race，误判会话毒化；改「轮询非空 content」后全 PASS。
+  - 单测同步加「合法多块 PNG 不被误杀」guard（红/蓝 100×100，IHDR+IDAT+IEND）。
+- **Scope（leader 定 A）**：报告的损坏图 #1/#2 已 live 完全闭合。「任意 provider-error 后那条触发错误的 user turn 留史毒化后续轮」是**非本 unit 引入的**更广既有 robustness 面（合法图遇 provider 瞬时错误亦可触发），leader gh create out-of-unit issue 记录、PR body Refs；本 unit 不顺手扩（§0.8）。
