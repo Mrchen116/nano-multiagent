@@ -41,3 +41,26 @@
 - Rollback: 回退到 R2 C1 commit（图片当前轮可见但跨轮丢——半程态）。
 - Commits: C1=test red, C2=feat, C3=本次 docs。
 - Next: R3——gateway 入站 IM HTTP URL 下载转 base64（决策1）、决策5 异常图失败 outbound-only 回发、M246 多图展开携带 parts（CRITICAL-1）、main.py 注入真 fetcher、进程内往返。
+
+## R3 — gateway base64 边界 + 决策5 失败路径 + 多图 + 端到端
+
+- Context: 断点1 的入站侧（IM HTTP URL 对远端 provider 不可达）、决策5（异常图不静默不喂假占位）、CRITICAL-1（M246 多图除末图外被渲成占位丢失）。
+- Decision:
+  - **决策1（入站转 base64）**：`InboundPipeline` 加 `attachment_fetcher`（`async url→bytes`，默认 None 透传保持 product-agnostic）+ `max_image_bytes`（默认 5MB，对齐最严格 provider）。`_resolve_image_parts` 下载→大小校验→magic bytes 识别→`data:<mime>;base64,<...>`。`main.py._build_attachment_fetcher`（复用 `_token_getter` + `_im_http_headers` 鉴权）在 im_service 配置时注入真下载。
+  - **决策5（失败 outbound-only）**：下载/超大/损坏任一失败 → `_resolve_image_parts` 返回 `(_, failure_kind)`，`_reply_image_failure` 走 `_deliver_stop_ack` 同款 `_bg_reply_sender` 回发**固化文案**（三条一字不差，模块常量 `_IMAGE_FAILURE_MESSAGES`），**不 submit kernel、不写历史**。本轮未 submit → 下轮上下文天然干净，无需回放过滤（对齐 CC `return {reason:'image_error'}`）。多图任一失败整轮停（不做部分送达）。
+  - **CRITICAL-1（M246 多图）**：runtime M246 extra_message 的 image part 携带 `render_user_content_parts([part])` 产的 `Message.parts`，经 history 侧 `build_chat_messages` 还原为 image 块——与决策4 同一通道，多图全送达。
+  - `_detect_image_mime`：PNG/JPEG/GIF/WEBP magic bytes，未知→corrupt（用户收到「无法识别」）。
+- Rationale: IO（下载）归 gateway 入站边界，core/mapper 保持纯净（满足 core 不 IO + 产品只 import sdk）；base64 自包含、落盘不依赖 IM URL 存活。失败彻底归 gateway 入站，内核不背中途回退。
+- Evidence:
+  - Tests:
+    - `tests/unit/personal_assistant/test_gateway_image_inbound.py`（5）：成功下载→data URL 进 submit；download/oversize/corrupt 三类→不 submit + 固化文案 outbound；无 fetcher 透传。全绿。
+    - `tests/unit/test_agent_runtime.py::test_multiple_image_parts_all_reach_provider`：多图经真 runtime + M246 全送达 provider（CRITICAL-1 守护）。
+    - `tests/unit/test_agent_runtime.py::test_image_survives_persist_reload_and_replays_to_provider`：**端到端跨轮**——图片经真 runtime 落盘 → 新 runtime 重载（disk）→ `build_chat_messages` 回放 → provider 请求含 image 块。
+  - Entry: 真实入口（进程内真 runtime + 真 store 跨轮）已覆盖「发图→送达 mapper→落盘 entry.parts→重建 Message.parts→下轮含 image」整条；reviewer 真栈（IM→Gateway 进程）补端到端浏览器旅程。
+  - 全量：`pytest tests/unit tests/contract tests/integration -m "not e2e"` = 2536 passed；`tests/im_service -m "not e2e"` = 332 passed/1 skipped；ruff check + format clean（全树）。
+  - Frontend State Matrix / Browser QA / Visual: N/A（无前端改动）
+  - E2E/Regression: 上述三个进程内真栈测试均落库回归。
+- env_caveats: worker 侧未起真 IM/Gateway 进程做 live 浏览器旅程（决策5 文案 + 真下载鉴权那段经 `main.py` 注入，单测用 fetcher double 覆盖逻辑、真 httpx 下载未跑活栈）——这部分 live 端到端由 reviewer 真栈旅程验（design Runbook 已列）。worker 范围内逻辑全部经真 runtime/真 store/真 pipeline（非全 mock）覆盖。
+- Rollback: 回退到 R3 C2 commit（多图修好、gateway 下载在，但少端到端跨轮回归）；整 unit 可 revert 回现状（图片不可见，纯文本零回归）。
+- Commits: C1=test red（M246+gateway）, C2=feat（M246+gateway+main 注入）, C2'=test（端到端跨轮）, C3=本次 docs。
+- Next: 本 milestone 全 roadpoint DONE，进入 §6 集成。

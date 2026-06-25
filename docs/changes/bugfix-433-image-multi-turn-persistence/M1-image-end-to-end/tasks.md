@@ -8,15 +8,15 @@
 
 ## 退出标准
 
-- [ ] 用户发图当轮 agent 即可作答（单轮发图即问、单轮发多张图）
-- [ ] 上轮发图、下轮只发文字仍可追问（跨轮保留）
-- [ ] 纯文本多轮与修复前无可观察差异（无回归）
-- [ ] 异常图片：用户收到「未送达模型 + 原因 + 建议」明确提示、不调模型、对话不崩
-- [ ] 端到端往返单测：发图→送达 provider mapper→落盘 entry.parts→重建 Message.parts→下一轮含 image 块
-- [ ] 多图单测：单条消息多 image part 经 M246 展开后**全部**送达（守 CRITICAL-1）
-- [ ] Anthropic / OpenAI-compat mapper user 分支 image 块映射各有单测
-- [ ] 纯文本 session 持久化/回放既有测试 + golden 不回归
-- [ ] `pytest -m "not e2e"` 全绿、ruff check + format clean
+- [x] 用户发图当轮 agent 即可作答（单轮发图即问、单轮发多张图）
+- [x] 上轮发图、下轮只发文字仍可追问（跨轮保留）
+- [x] 纯文本多轮与修复前无可观察差异（无回归）
+- [x] 异常图片：用户收到「未送达模型 + 原因 + 建议」明确提示、不调模型、对话不崩
+- [x] 端到端往返单测：发图→送达 provider mapper→落盘 entry.parts→重建 Message.parts→下一轮含 image 块
+- [x] 多图单测：单条消息多 image part 经 M246 展开后**全部**送达（守 CRITICAL-1）
+- [x] Anthropic / OpenAI-compat mapper user 分支 image 块映射各有单测
+- [x] 纯文本 session 持久化/回放既有测试 + golden 不回归
+- [x] `pytest -m "not e2e"` 全绿、ruff check + format clean
 
 ## 测试策略
 
@@ -44,7 +44,9 @@
 
 ## Roadpoints
 
-### R1 — 当前轮图片送达 provider
+> 状态：R1 DONE / R2 DONE / R3 DONE（全部 roadpoint 完成，进入集成）。
+
+### R1 — 当前轮图片送达 provider  [DONE]
 
 - 步骤:
   - state.py：新增结构化 parts 提取（render_user_text 文本投影保持 placeholder 不变，给 content:str fallback）
@@ -54,7 +56,7 @@
   - openai_compat mapper user 分支：content 为 list → 逐块（复用 image-block 归一）
 - 验证: build_chat_messages 多模态单测 + 两 mapper user 分支 image 单测 + 已有 prompting/state 测试不回归
 
-### R2 — 持久化回放（跨轮可见 + 消除双轨）
+### R2 — 持久化回放（跨轮可见 + 消除双轨）  [DONE]
 
 - 步骤:
   - types.Message 增 `parts: tuple[Mapping[str,Any],...] | None = None`
@@ -65,7 +67,7 @@
   - 更新守护：core_types_contract 字段清单 + field-conservation guard 把 parts 分类为 PERSISTED
 - 验证: parts 往返单测 + 端到端往返单测（发图→落盘→重建→下轮含 image）+ 纯文本 fidelity/golden 不回归
 
-### R3 — gateway base64 边界 + 决策5 失败路径 + 多图 + e2e
+### R3 — gateway base64 边界 + 决策5 失败路径 + 多图 + e2e  [DONE]
 
 - 步骤:
   - inbound_pipeline：注入 attachment_fetcher（默认 None，product-agnostic）；入站把 attachment IM HTTP URL 下载转 base64 data URL（决策1）
