@@ -8,7 +8,7 @@
 
 用户在一次 `/stop` 修复的 PR review 中顺手发现「下一轮图片没了」，确认是 bug，授权 **0 交互自主**走完 spec→design→orchestrator 把它修掉并提 PR。实际：unit **确实完成**（PR #148、CI 全绿、04:53 orchestrator 退出），但中途吃了 **3 轮 review/fix 级联**，其中**两轮是同一个 design 盲区**——而这个盲区的解法（CC 的 `normalizeMessagesForAPI` error-replay-strip）**早在立项第 1 小时(10:52)就被亲读 CC 源码后准确写出来了，却没进 incident.md、没进 design**。外加收尾时 **15 个后台 agent 没被回收**，用户 74 分钟后手动停掉。
 
-一句话：这不是灾难，是一次「本可一轮过、实际三轮过」的 unit——多出的两轮全因一个**第 1 小时就掌握、却在 spec→design 边界丢失的关键机制**（P0）。围绕它还暴露了几个可机械根治的流程/机制硬伤：scope 决策靠 live 采样而非查证模型能力（P4）、verifier 报告三轮卡 detached worktree 没上 origin（P5）、入站校验欠规约 + design Changelog 空白（P1/P3）。（**P2「收尾留 15 个滞留 agent」已撤回**——见下文，那是 skill #14 有意保留 teammate 供 PR 反馈复用，非缺陷。）
+一句话：这不是灾难，是一次「本可一轮过、实际三轮过」的 unit——多出的两轮全因一个**第 1 小时就掌握、却在 spec→design 边界丢失的关键机制**（P0）。围绕它还暴露了几个可机械根治的流程/机制硬伤：scope 决策靠 live 采样而非查证模型能力（P4）、verifier 报告三轮卡 detached worktree 没上 origin（P5）、design Runbook 没钉死 review 模态致 reviewer 即兴（P6）、入站校验欠规约 + design Changelog 空白（P1/P3）。（**P2「收尾留 15 个滞留 agent」已撤回**——见下文，那是 skill #14 有意保留 teammate 供 PR 反馈复用，非缺陷。）
 
 ---
 
@@ -55,6 +55,7 @@ jsonl 根：`~/.claude/projects/-Users-czj-Repos-nano-multiagent/`。主 session
 | P3 | 审计挖出（无对应反馈） | design.md `## Changelog` 空白，多轮修订无耐久追溯 | design 修订记在 design-review.md 闭环记录，design.md 自身 Changelog 未维护 | design 文档卫生 |
 | P4 | scope B 04:01–04:23 拍B→撤B→保留B 三次翻转 | 一个决策事实（模型支不支持图片）靠 worker 单次 live 观察反复拍板，40 分钟拉锯 + 最终 inconclusive | orchestrator 把「查文档就能定死的外部能力事实」当「在真栈跑跑看的行为」，从不 WebSearch 核 | orchestrator 决策依据 |
 | P5 | 审计挖出（lead 事后提出） | verifier 三轮报告全卡在 detached worktree 没上 origin，lead 手动捡回三次 | change-verifier §1 detached 签出 + §5.2 按本地分支名 push，commit 落点≠push 目标，且无落地校验 | change-verifier skill 机制 |
+| P6 | 审计挖出（用户提出归因） | reviewer 即兴建前端 + 指纹核验，却全程 API 驱动、浏览器零开——较真错配 | design 的「Runbook for Reviewer」只列旅程步骤、**未钉死 review 模态（API 层 vs 浏览器）**，留给 reviewer 临场即兴 | design 欠规约（review runbook） |
 
 ---
 
@@ -250,6 +251,33 @@ git merge-base --is-ancestor HEAD origin/unit/<id> \
 
 ---
 
+## P6 — design 的 Runbook for Reviewer 没钉死 review 模态（API 层 vs 浏览器），reviewer 临场即兴
+
+### 症状（审计挖出，用户提出归因）
+
+bugfix-433 是后端 unit（design 标「无前端改动」）。reviewer 走真栈时**自己即兴决定**了 review 模态：先在 worktree 重建前端（`02:56` `npm install + tsc -b + vite build`，因 dist 不入库）、还做指纹核验（`02:58:15`「服务提供的 `index-uegp7GRH.js` 与 worktree 构建产物完全一致」），**结果整条旅程 100% 走 IM HTTP API（curl 上传 attachment + 发消息 + 轮询回复）、浏览器零开**（94 行 `im/v1/` API 命中 / 0 行 browser）。即：花力气建 + 验了一个自己从不浏览的前端，较真错配。
+
+### 一手证据
+
+- design.md `## Runbook for Reviewer` 只写旅程**步骤**：「登录 IM → 给 agent 发一张图 + 问题 → 同会话下一轮只发文字追问 → 另发纯文本多轮 → 发一张异常图」——「登录 IM」接口无关，**浏览器点还是 curl 打，design 未指定**。
+- reviewer `02:56` 命令内联注释 `# Build frontend first (non-entry-tracked product)`：它的确意识到「dist 不入库、得自建保证真栈=分支代码」，逻辑没错；但 design 没告诉它「本 unit 走 API 层即可、无需浏览器」，于是它默认按「完整真栈」把前端也备齐，再在执行时降到 API。
+
+### 根因落点
+
+**review 模态是决策性的，该在 design 钉死，不该留给 reviewer 即兴。** 走 API 层还是浏览器，直接决定**哪类回归能被照到**（API 层照不到前端可观察行为：图片气泡渲染、附件预览等）。这与决策5「固化文案不让实现自由发挥」同理——design 已经拥有「Runbook for Reviewer」这个产物，就该把模态作为其一部分定死。本 unit 缺这一句，导致 reviewer 既花了冗余功夫（建+指纹核验一个不浏览的前端），又留了口子（若本 unit 真有前端可观察副作用，API 驱动会漏）。
+
+> 注：本 unit **后端 bug、HTTP API 走的是与前端同一条后端路径，API 层 review 结论可信**——这里不是 review 失效，是「模态没被 design 固定、reviewer 即兴且自相错配」。
+
+### 这一步本该怎样
+
+`change-design-author` 写 `Runbook for Reviewer` 时，**显式声明 review 模态**，作为一条决策：
+- 后端 / 无前端改动 unit → 写明「**API 层真栈即可**（IM 起服务仅为后端链路，无需浏览器走查；前端 dist 仅需够 IM 启动，不必指纹核验）」——省 reviewer 冗余功夫。
+- diff 触及前端 / 有前端可观察行为的 unit → 写明「**必须浏览器走查**关键交互（列出哪几屏）」——堵 API 驱动漏前端的口子。
+
+判据：Runbook 里每条旅程步骤旁标接口层（browser / API），reviewer 照做不即兴。
+
+---
+
 ## 综述：对齐 design 后能托管给 agent 吗？——能，前提是 design 没漏机制
 
 ### A. 唯一的实质失效是一个「第 1 小时掌握、spec→design 边界蒸发」的机制缺失（P0，牵出 P1）
@@ -286,9 +314,10 @@ scope B 40 分钟拉锯 + inconclusive，根子是 orchestrator 把「模型支�
 1. RCA 写「对照参考实现」时，**happy-path 与 error-path/replay-path 都要抄**。固化 grounding checklist 一条：「参考实现的正常路径抄了；它的**异常 / 失败重放路径**抄了吗？」——本例 10:52 已写出 CC strip-on-error，却没进 incident.md。
 2. 把「解析/校验」类要求**具体到可验收判据**（如「magic-bytes 不够，须结构完整性校验；stdlib-only 禁引未声明依赖」），别留「解析失败→corrupt」这种深度未定的措辞给 worker 自由发挥（省 fix1+fix3）。
 
-### change-design-author（来源 P0、P3）
-1. 任何「新增持久化字段 / 让某内容首次进历史并重放」的决策，**必须配一条重放不变量**：「这条内容若某轮 provider 报错，下一轮重放会怎样？参考实现如何防？」——决策4 当时只审「纯文本 golden 不漂移」，漏了「失败 image turn 重放毒化」。
-2. 收尾把每轮 review 实质修订**回写 design.md `## Changelog`**（本例空白）。
+### change-design-author（来源 P0、P3、P6）
+1. （P0）任何「新增持久化字段 / 让某内容首次进历史并重放」的决策，**必须配一条重放不变量**：「这条内容若某轮 provider 报错，下一轮重放会怎样？参考实现如何防？」——决策4 当时只审「纯文本 golden 不漂移」，漏了「失败 image turn 重放毒化」。
+2. （P3）收尾把每轮 review 实质修订**回写 design.md `## Changelog`**（本例空白）。
+3. （P6）`Runbook for Reviewer` 必须**显式钉死 review 模态**：每条旅程步骤旁标接口层（browser / API）。后端/无前端改动 → 写明「API 层真栈即可、无需浏览器」（省 reviewer 冗余建前端）；触及前端/前端可观察行为 → 写明「必须浏览器走查哪几屏」（堵 API 驱动漏前端）。别留给 reviewer 即兴。
 
 ### change-design-reviewer（来源 P0）
 1. 进攻清单加**「缺失机制」反向角度**：「本 design 让什么内容首次持久化 / 重放？这些内容的**失败态重放**有没有被任一决策覆盖？仓库有无同类已知账（如 #82 毒化类）可连？」——三轮 review 全缺这一问。
