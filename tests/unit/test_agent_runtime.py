@@ -586,6 +586,59 @@ async def test_multiple_image_parts_all_reach_provider(tmp_path: Path) -> None:
     )
 
 
+async def test_image_survives_persist_reload_and_replays_to_provider(
+    tmp_path: Path,
+) -> None:
+    """bugfix-433 端到端跨轮: turn 1 sends an image; a FRESH runtime (reloads history
+    from disk) on turn 2 still sends that image to the provider.
+
+    Exercises the whole chain: submit → user_msg.parts persisted (entry.parts) →
+    JsonlSessionStore.load restores Message.parts → build_chat_messages replays the
+    image block → provider request on the next turn contains it.
+    """
+    data_dir = tmp_path / "sessions"
+    store = JsonlSessionStore(data_dir=data_dir)
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    sid = session.session_id
+    img = "data:image/png;base64,aW1nQQ=="
+
+    # Turn 1: send an image on runtime A.
+    runtime_a = AgentRuntime(
+        session_manager=manager, llm_client=FakeLLMClient(), model="mock-model"
+    )
+    await runtime_a.run(
+        sid,
+        [
+            {"type": "text", "text": "what is this"},
+            {"type": "image", "image_url": img},
+        ],
+        stream=False,
+    )
+    manager.writer.flush()
+
+    # Turn 2: a fresh runtime + manager over the SAME store reloads history from disk.
+    manager_b = SessionManager(store=JsonlSessionStore(data_dir=data_dir))
+    llm_b = FakeLLMClient()
+    runtime_b = AgentRuntime(
+        session_manager=manager_b, llm_client=llm_b, model="mock-model"
+    )
+    await runtime_b.run(
+        sid, [{"type": "text", "text": "what was in that image?"}], stream=False
+    )
+
+    assert len(llm_b.requests) == 1
+    user_messages = [m for m in llm_b.requests[0].messages if m.role == "user"]
+    replayed_images = {
+        block.get("image_url")
+        for m in user_messages
+        if isinstance(m.content, list)
+        for block in m.content
+        if isinstance(block, dict) and block.get("type") == "image"
+    }
+    assert img in replayed_images, "persisted image must replay to provider next turn"
+
+
 # ---------------------------------------------------------------------------
 # bugfix-380: provider error → 合成 is_provider_error assistant 消息
 # ---------------------------------------------------------------------------
