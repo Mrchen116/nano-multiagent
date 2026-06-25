@@ -128,3 +128,84 @@ def test_build_prompt_messages_threads_user_parts() -> None:
     assert last.role == "user"
     assert isinstance(last.content, list)
     assert {"type": "image", "image_url": _DATA_URL} in last.content
+
+
+# ---------------------------------------------------------------------------
+# bugfix-433-fix2: an image turn that triggered a provider error must not re-send
+# its image block on later turns (CC normalizeMessagesForAPI errorToBlockTypes).
+# Pure-text turns and pure-text provider errors are untouched.
+# ---------------------------------------------------------------------------
+
+
+def _provider_error(parent_id: str) -> Message:
+    return Message(
+        message_id="err-1",
+        parent_message_id=parent_id,
+        role="assistant",
+        content="⚠️ 模型调用失败:anthropic: stream ended without terminal event",
+        metadata={"is_provider_error": True},
+    )
+
+
+def test_image_turn_after_provider_error_strips_image_keeps_text() -> None:
+    """An image user turn followed by a provider-error → next build strips the image
+    block but keeps the text (model sees text-only, not the poison image)."""
+    history = (
+        Message(
+            message_id="u-img",
+            role="user",
+            content="这是什么图？\n[image:placeholder]",
+            parts=(
+                {"type": "text", "text": "这是什么图？"},
+                {"type": "image", "image_url": _DATA_URL},
+            ),
+        ),
+        _provider_error("u-img"),
+    )
+    msgs = build_chat_messages(history_messages=history, user_text="只问文字：1+1?")
+    user_msgs = [m for m in msgs if m.role == "user"]
+    history_user = user_msgs[0]
+    # Image block must be gone; text must survive.
+    if isinstance(history_user.content, list):
+        assert all(
+            b.get("type") != "image"
+            for b in history_user.content
+            if isinstance(b, dict)
+        ), "poison image block must be stripped after provider error"
+        texts = [b.get("text") for b in history_user.content if isinstance(b, dict)]
+        assert "这是什么图？" in texts
+    else:
+        # str content path is acceptable as long as no data URL leaks
+        assert _DATA_URL not in (history_user.content or "")
+        assert "这是什么图？" in history_user.content
+
+
+def test_image_turn_without_error_keeps_image() -> None:
+    """No provider error → the image is still replayed (no over-stripping)."""
+    history = (
+        Message(
+            message_id="u-img",
+            role="user",
+            content="这是什么图？\n[image:placeholder]",
+            parts=(
+                {"type": "text", "text": "这是什么图？"},
+                {"type": "image", "image_url": _DATA_URL},
+            ),
+        ),
+        Message(message_id="a-1", role="assistant", content="这是红色。"),
+    )
+    msgs = build_chat_messages(history_messages=history, user_text="还有呢？")
+    history_user = [m for m in msgs if m.role == "user"][0]
+    assert isinstance(history_user.content, list)
+    assert {"type": "image", "image_url": _DATA_URL} in history_user.content
+
+
+def test_pure_text_turn_with_provider_error_unchanged() -> None:
+    """A pure-text user turn that errored keeps its text (no image to strip, no change)."""
+    history = (
+        Message(message_id="u-txt", role="user", content="算个大数"),
+        _provider_error("u-txt"),
+    )
+    msgs = build_chat_messages(history_messages=history, user_text="继续")
+    history_user = [m for m in msgs if m.role == "user"][0]
+    assert history_user.content == "算个大数"
