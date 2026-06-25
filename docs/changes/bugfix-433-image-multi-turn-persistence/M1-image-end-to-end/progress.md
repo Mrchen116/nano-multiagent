@@ -24,3 +24,20 @@
 - Rollback: 回退到 C3=plan commit（图片不可见，纯文本路径不动）。
 - Commits: C1=test red, C2=feat, C3=本次 docs。
 - Next: R2 持久化回放——runtime user_msg 携带结构化 parts、entries.message_from_turn_entry 同步读 parts、端到端往返单测（发图→落盘→重建→下轮含 image）。
+
+## R2 — 持久化回放（跨轮可见 + 消除双轨）
+
+- Context: 断点2——user turn 落盘只存渲染后文本（占位符），回放 `_to_message` 不读 parts，图片单轮可见也跨轮丢失；parts 写而不读的悬空双轨。R1 已把 `_message_to_entry`/`_to_message` 的 store 主路径写好（因 guard 连带），R2 补齐 user_msg 实际携带 parts + 第二回放路径。
+- Decision:
+  - `runtime` user_msg 构造：`render_user_content_parts(input_parts)` → `Message.parts`（有图才落，无图 None 不写 parts 键）。这是图片真正进入持久化的源头。
+  - `entries.message_from_turn_entry`：读 `entry.data["parts"]` → `Message.parts`，与 `jsonl_store._to_message` 对齐（两条回放路径都还原图片，不依赖走哪条）。
+- Rationale: 决策4——parts 升为权威多模态表示，content:str 降为纯文本投影，回放消费 parts，双轨从「写而不读」变「写且读、一致」。两条回放路径必须同步，否则 append 返回值/entry-based reload 走到时图片仍丢。
+- Evidence:
+  - Tests: `TestImagePartsRoundTrip`（3）——经真 `JsonlSessionStore.load` 往返 + `build_chat_messages` 回放含 image 块；entries 第二路径读 parts；纯文本无 parts 键。全绿。
+  - Entry: 端到端「发图→落盘→重建→下轮含 image」经真 store 往返已验（非全 mock）；真 runtime submit→真栈在 R3 进程内 + reviewer。
+  - 全量：`pytest -m "not e2e"` = 2530 passed；ruff clean。重锚 contract 白名单（runtime.py .nano 行 202→208，纯行移位，非新硬编码）。
+  - Frontend State Matrix / Browser QA / Visual: N/A
+  - E2E/Regression: R2 往返单测落库；进程级真 submit 往返见 R3。
+- Rollback: 回退到 R2 C1 commit（图片当前轮可见但跨轮丢——半程态）。
+- Commits: C1=test red, C2=feat, C3=本次 docs。
+- Next: R3——gateway 入站 IM HTTP URL 下载转 base64（决策1）、决策5 异常图失败 outbound-only 回发、M246 多图展开携带 parts（CRITICAL-1）、main.py 注入真 fetcher、进程内往返。
