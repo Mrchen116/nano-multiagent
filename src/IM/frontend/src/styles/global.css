@@ -2237,6 +2237,42 @@ body {
   font-size: 0.65rem;
 }
 
+/* feat-434-M1: 收起态分项计数后缀「N 次授权 · X 允许 · Y 拒绝」。绿/红圆点区分，
+   仅非零分项渲染（JSX 控制）。对齐原型 .tc-toggle .seg/.sep/.dot。 */
+.chat-tool-calls-approvals {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.chat-tool-calls-sep {
+  color: oklch(0.78 0.01 240);
+}
+
+.chat-tool-calls-toggle--open .chat-tool-calls-sep {
+  color: oklch(0.45 0.02 240);
+}
+
+.chat-tool-calls-approval-seg {
+  font-weight: 600;
+}
+
+.chat-tool-calls-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.chat-tool-calls-dot--allow {
+  background: oklch(0.62 0.15 150);
+}
+
+.chat-tool-calls-dot--deny {
+  background: oklch(0.6 0.18 25);
+}
+
 .chat-tool-calls-running-wrap {
   display: inline-flex;
   align-items: center;
@@ -2368,6 +2404,30 @@ body {
   font-size: 0.7rem;
   color: oklch(0.65 0.18 25);
   font-family: var(--im-font-mono);
+}
+
+/* feat-434-M1 决策 4: GATE region — 贴名称右侧，讲「谁批准」。与结果区（行尾
+   fail-tag/duration）正交，两者可同时在场（授权后失败）。对齐原型 .tc-gate。 */
+.chat-tool-call-gate {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  padding: 0 0.1rem;
+}
+
+.chat-tool-call-gate--allow {
+  color: oklch(0.7 0.09 150);
+}
+
+.chat-tool-call-gate--deny {
+  color: oklch(0.72 0.12 25);
+}
+
+/* feat-434-M1: 拒绝的工具没有执行结果，结果区标「未执行」（中性灰，非报错红）。 */
+.chat-tool-call-not-executed {
+  font-size: 0.7rem;
+  color: oklch(0.55 0.01 240);
+  font-family: var(--im-font-mono);
+  flex-shrink: 0;
 }
 
 .chat-tool-call-duration {
@@ -2858,12 +2918,8 @@ body {
   gap: 9px;
 }
 
-/* Resolved state: slightly faded */
-.chat-permission-card--resolved {
-  opacity: 0.9;
-}
-
-/* Header row: lock icon + tool name (mono, accent) + hint (warning uppercase) */
+/* Header row: tool name (mono, accent) + hint (warning uppercase + pulse).
+   feat-434 决策 Q3: 待决卡无锁图标，提示用脉冲圆点强调「需要确认」（对齐原型 .pend-hint）。 */
 .chat-permission-header {
   display: flex;
   align-items: center;
@@ -2878,14 +2934,36 @@ body {
   color: oklch(0.85 0.09 180);
 }
 
-/* "需要确认" uppercase hint in warning color */
+/* "需要确认" uppercase hint in warning color, with a pulsing dot (原型 .pend-hint) */
 .chat-permission-hint {
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  color: oklch(0.7 0.13 80);
+  color: oklch(0.74 0.13 80);
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chat-permission-pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: oklch(0.74 0.16 80);
+  flex-shrink: 0;
+  animation: chat-permission-pulse 1.3s infinite;
+}
+
+@keyframes chat-permission-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 /* Question text */
@@ -2970,22 +3048,8 @@ body {
   background: oklch(0.18 0.02 25);
 }
 
-/* Resolved label row */
-.chat-permission-resolved-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  /* success green for allow */
-  color: oklch(0.75 0.13 150);
-  font-family: var(--im-font-mono);
-}
-
-/* Deny variant of resolved label */
-.chat-permission-resolved-label--deny {
-  color: oklch(0.72 0.14 25);
-}
+/* feat-434 决策 3: resolved 形态已取消（已决并入工具行闸门区），原
+   .chat-permission-resolved-label / .chat-permission-card--resolved 样式随之删除。 */
 
 /* Error strip */
 .chat-permission-error {

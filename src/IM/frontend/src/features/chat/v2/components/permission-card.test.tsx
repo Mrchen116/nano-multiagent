@@ -298,7 +298,9 @@ describe("PermissionCard — prop change reactivity", () => {
         onResolved={() => {}}
       />
     );
-    expect(screen.getByTestId("permission-resolved")).toBeInTheDocument();
+    // feat-434 决策 3: resolved 渲染空（无独立已决卡）。
+    expect(screen.queryByTestId("permission-resolved")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /allow once/i })).not.toBeInTheDocument();
 
     // 注意: 实际生产链路下,新 ask 会被 message-pane 用 key={request_id} 强制
     // remount —— 但即便没有 key 切换,这里也必须能正确反映 prop。
