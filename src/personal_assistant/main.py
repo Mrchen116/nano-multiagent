@@ -3745,8 +3745,6 @@ def _build_kernel_event_observer(
                 # bugfix-410-M2 R4 (#97): forward the badge classification alongside
                 # feat-409's structured detail — both ride the same tool_call payload.
                 "reason": reason,
-                # feat-434-M1: user-decision verdict rides the same tool_call payload.
-                "approval": approval,
                 "input": arguments if isinstance(arguments, dict) else {},
                 "output": output,
                 "duration_ms": int(duration_ms)
@@ -3757,6 +3755,12 @@ def _build_kernel_event_observer(
                 tool_call_payload["detail"] = detail
             if emoji is not None:
                 tool_call_payload["emoji"] = emoji
+            # feat-434-M1 (F3): conditional write mirroring the emoji template —
+            # only user-decided calls carry approval, so普通工具的 WS delta 不再带
+            # `"approval": null`. Keeps both ends (Gateway forward / IM serialize)
+            # consistent on the `if approval is not None` convention.
+            if approval is not None:
+                tool_call_payload["approval"] = approval
             if message_id:
                 loop.create_task(
                     _send(

@@ -118,12 +118,18 @@ class StreamingToolExecutor:
             return False
         return True
 
-    def _synthetic_error(self, item: _QueuedTool, reason: str) -> ToolResult:
+    def _synthetic_error(
+        self, item: _QueuedTool, reason: str, *, approval: str | None = None
+    ) -> ToolResult:
+        # feat-434-M1 (F2): a tool cancelled AFTER registry.execute already stamped a
+        # user approval (sibling-abort race) must keep it — otherwise the front-end
+        # gate region silently drops 「已授权」 for a genuinely user-approved tool.
         return ToolResult(
             call_id=item.tool_call.call_id,
             name=item.tool_call.name,
             output=None,
             error=f"aborted: {reason}",
+            approval=approval,
         )
 
     async def _execute_one(self, item: _QueuedTool) -> None:
@@ -169,21 +175,20 @@ class StreamingToolExecutor:
                 session_file_state=self._session_file_state,
                 out_meta=exec_meta,
             )
+            approval = exec_meta.get("approval")
+            approval = approval if isinstance(approval, str) and approval else None
             if self._should_cancel(item):
                 item.result = self._synthetic_error(
-                    item, "cancelled by sibling bash error"
+                    item, "cancelled by sibling bash error", approval=approval
                 )
             else:
-                approval = exec_meta.get("approval")
                 item.result = ToolResult(
                     call_id=item.tool_call.call_id,
                     name=item.tool_call.name,
                     output=output,
                     duration_ms=item.duration_ms,
                     arguments=dict(item.tool_call.arguments),
-                    approval=approval
-                    if isinstance(approval, str) and approval
-                    else None,
+                    approval=approval,
                 )
             item.status = "completed"
         except asyncio.CancelledError:

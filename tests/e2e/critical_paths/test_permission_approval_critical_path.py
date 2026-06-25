@@ -174,12 +174,15 @@ def test_permission_deny_blocks_tool(im_user: IMClient, e2e_stack: E2EStack) -> 
     #     →tool_end→IM encode/decode round-trip);
     #   - 这里只在 tool_call 出现时附加校验它带对了 approval,不强求其出现(避免 LLM 非确定 flaky)。
     def _denied_tool_call() -> dict | None:
+        # F4: match precisely on the field under test (approval == "user_deny"). The
+        # earlier `reason=='denied' OR approval is not None` was too broad — it could
+        # latch onto an unrelated tool_call and mask a missing/wrong approval value.
         return next(
             (
                 tc
                 for msg in im_user.list_messages(conversation_id)
                 for tc in (msg.get("tool_calls") or [])
-                if tc.get("reason") == "denied" or tc.get("approval") is not None
+                if tc.get("approval") == "user_deny"
             ),
             None,
         )

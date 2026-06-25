@@ -127,8 +127,10 @@ export function ToolCallsPanel({ toolCalls }: ToolCallsPanelProps) {
 // bugfix-417-M3 R4 (decision 5): tool_timeout (工具自身 deadline) → "执行超时";
 // stalled (watchdog liveness 收尸) → "已中断". The legacy timed_out/interrupted keys are
 // kept for rows persisted before this change.
+// feat-434-M1 (F5): "denied" left this map — denied now renders in the inline GATE
+// region (gateVerdict, 决策 4), and ToolCallRow already excludes reason==="denied"
+// from reasonKey. Keeping it here was a dead branch that could mislead future edits.
 const REASON_LABEL_KEYS: Record<string, string> = {
-  denied: "chat.messagePane.toolReasonDenied",
   timed_out: "chat.messagePane.toolReasonTimedOut",
   tool_timeout: "chat.messagePane.toolReasonTimedOut",
   interrupted: "chat.messagePane.toolReasonInterrupted",

@@ -34,6 +34,16 @@ type TransientState =
   | { kind: "submitting"; chosenId: string }
   | { kind: "error"; chosenId: string; message: string };
 
+// feat-434-M1 (F1): map the stable backend option id → i18n key so the待决卡 buttons
+// follow the interface language (原型: 允许 / 本会话内允许 / 拒绝 / 总是允许). Unknown ids
+// fall back to the backend-supplied opt.label. The ids come from broker.PermissionOption.
+const OPTION_LABEL_KEYS: Record<string, string> = {
+  allow_once: "chat.permission.optionAllowOnce",
+  allow_session: "chat.permission.optionAllowSession",
+  allow_always: "chat.permission.optionAllowAlways",
+  deny: "chat.permission.optionDeny",
+};
+
 function readDescription(input: Record<string, unknown> | null | undefined): string | null {
   // bugfix-367: bash / task / agent 工具的 input_schema 给 LLM 留了 `description`
   // 字段(参见 src/agent/platform/tools/builtins/{bash,task,agent}.py)。LLM 会
@@ -159,7 +169,7 @@ export function PermissionCard({
               aria-busy={isChosen}
               title={opt.description}
             >
-              {opt.label}
+              {OPTION_LABEL_KEYS[opt.id] ? t(OPTION_LABEL_KEYS[opt.id]) : opt.label}
             </button>
           );
         })}
