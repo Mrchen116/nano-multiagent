@@ -30,12 +30,18 @@ jsonl 根：`~/.claude/projects/-Users-czj-Repos-nano-multiagent/`。主 session
 | P0 bug 发现 + 立项 RCA | 06-24 10:30–10:53 | `Explore`(71)，亲读 CC，10:52 写出 strip-on-error，10:53 建 issue #146 |
 | spec（自主） | 06-24 16:42 → | `/change-spec-author`，用户挂 Stop hook 离开，写 incident.md |
 | design + 3 轮 design-review | 06-24 17 → 06-25 01:36 | 用户 01:20–02:10 回来挑战失败 UX(Q6) + 看 design-review + 整体自检×2 |
-| orchestrator 实施 | 06-25 02:13–04:53 | `bugfix-433-M1`(**793**, 02:15–04:38, 全程复用) |
-| ├ verify + review round1 | 02:54– | `verifier`(126)、`reviewer`(221) → round1 **fail**(Issue#1,#2) |
-| ├ fix1（复用 worker） | ~03:12– | 损坏图结构校验 + 根因调查（#1/#2 同根） |
-| ├ fix2 / scope B | ~04:17– | port CC `normalizeMessagesForAPI`（strip-on-error） |
+| orchestrator 实施 | 06-25 02:13–04:53 | （父阶段）`/change-orchestrator go` 02:13，建 unit 分支、派发、调度三闸 |
+| ├ **派发 worker → M1 初次实施（R1/R2/R3）** | **02:15 派发 → 02:20 开工信 → 02:49 DONE+集成** | `bugfix-433-M1` 起（02:15:06），原始三 roadpoint 实施，02:49:13 报 DONE 并 merge 进 unit |
+| ├ orchestrator 验退出标准 → 派三闸 | 02:54 | M1 DONE 后核对退出标准，派 `verifier`(126) + `reviewer`(221) + 主会话内 code review |
+| ├ verify + review round1 | 02:54–~03:10 | round1 **fail**：reviewer 报 Issue#1（损坏图未拦）/#2（会话毒化） |
+| ├ fix1（SendMessage 复用同一 worker） | 03:26 根因 → 04:01 DONE | 损坏图结构校验 + 根因调查（#1/#2 同根，集成 00312f75） |
+| ├ fix2 / scope B（复用 worker） | 04:17 DONE | port CC `normalizeMessagesForAPI`（strip-on-error，集成 72813954） |
+| ├ trivial + B 防御测试（复用 worker） | 04:24 / 04:38 DONE | a3a48e3f / 33626312 |
 | └ code review 3 轮 | 02:55–04:30 | `cr-A..G`+`cr-verify`、`cr2-A/B`、`cr3-A/B` |
-| 收尾 / 孤儿 agent | 04:53–06:08 | orchestrator 宣告退出；15 后台 agent 滞留→用户 06:08 手停 |
+| 收尾 + PR | 04:51–04:53 | CI 全绿确认、sweep 服务 PID、worktree 清理、提 PR #148、orchestrator 宣告退出 |
+| （teammate idle，见 P2 撤回） | 04:38–06:08 | 15 个 teammate idle 滞留（按 #14 留供 PR 反馈复用）→ 用户 06:08 手停 |
+
+> **worker 派发与初次实施很关键，之前表里被压没了**：orchestrator 02:13 启动 → **02:15 立刻派 worker** → worker 02:20 报开工信、02:49 报 M1 初次 DONE（原始 R1/R2/R3，~34 分钟）→ orchestrator 核退出标准后 **02:54 才派 verify+review**。所以不是「派出去就 verify」，中间有一段完整的初次实施；verify/review 之后的三轮 fix 都是 **SendMessage 复用同一个 worker**（02:15 那个），这才是它一直活到 04:38、累计 793 轮的原因。
 
 > worker `bugfix-433-M1` 793 轮看着像失控，实为 **02:15→04:38 连续复用**（原 M1 + fix1 + fix2 + scope B + code-review 修复，dialogue 显示 11 次→lead / 13 次←lead），约 5.5 轮/分钟密集真实工作，**非空转**，符合「复用 worker 保上下文」良性模式。不计为问题。
 
