@@ -130,6 +130,15 @@ def message_from_turn_entry(entry: SessionEntry) -> Message:
     # bugfix-380: is_provider_error comes through _build_turn_metadata into
     # entry.data["metadata"] already; nothing extra needed here.
     # Old JSONL files that lack this field default to False via dict.get().
+    # bugfix-433 决策4: surface structured parts so this restore path stays aligned
+    # with jsonl_store._to_message (image-bearing turns must not depend on which
+    # restore path runs). Absent/empty → None (pure-text turns keep content:str).
+    raw_parts = entry.data.get("parts")
+    parts = (
+        tuple(dict(p) for p in raw_parts)
+        if isinstance(raw_parts, list) and raw_parts
+        else None
+    )
     return Message(
         message_id=str(entry.data.get("message_id", "")),
         role=str(entry.data.get("role", "")),
@@ -139,6 +148,7 @@ def message_from_turn_entry(entry: SessionEntry) -> Message:
         metadata=metadata,
         reasoning_content=metadata.get("reasoning_content") or None,
         reasoning_signature=metadata.get("reasoning_signature") or None,
+        parts=parts,
     )
 
 

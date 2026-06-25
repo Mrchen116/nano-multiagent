@@ -51,7 +51,13 @@ from .policies import AgentPolicies
 from .run_control import RunController
 from .prompting import build_system_prompt
 from .skill_commands import rewrite_skill_command
-from .state import AgentState, InputPart, parse_input_parts, render_user_text
+from .state import (
+    AgentState,
+    InputPart,
+    parse_input_parts,
+    render_user_content_parts,
+    render_user_text,
+)
 from agent.core.session.entries import message_from_turn_entry
 from agent.core.agent.prompt_sections.base import (
     PromptSection,
@@ -520,11 +526,16 @@ class AgentRuntime:
         turn_count = sum(1 for message in history if message.role == "user")
         user_message_id = make_message_id()
 
+        # bugfix-433 决策2/4: carry structured image blocks on the user turn so they
+        # both reach the provider this turn and persist for cross-turn replay. None
+        # for text-only turns keeps content:str and writes no `parts` (text golden).
+        user_content_parts = render_user_content_parts(input_parts)
         user_msg = Message(
             message_id=user_message_id,
             parent_message_id=history[-1].message_id if history else None,
             role="user",
             content=user_text,
+            parts=tuple(user_content_parts) if user_content_parts else None,
         )
         history.append(user_msg)
         self._session_manager.writer.enqueue(
