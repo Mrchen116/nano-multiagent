@@ -79,6 +79,11 @@ _CLI_HELP_EPILOG = (
 # Test-injectable factory type: callable that returns a Kernel-compatible object.
 KernelFactory = Callable[..., Any]
 
+# Sentinel returned by the executor-bound line reader on EOF, so the async input
+# branch can distinguish end-of-input from an empty line without raising across
+# the executor boundary (bugfix-426-M2 非阻塞输入循环).
+_EOF_SENTINEL = "\x00__EOF__"
+
 
 def _is_tty_output(out: TextIO) -> bool:
     """Return whether the output stream is an interactive TTY."""
@@ -551,6 +556,15 @@ async def _run_repl(
                 pass
 
         async def _drain_forever(sid: str) -> None:
+            # Background drain: stage session-stream events for the next prompt.
+            # bugfix-426-M2 made this a concurrent task (alongside the per-run
+            # drive), so it now also pulls the stream while a run is live. A
+            # background drain must never bring the REPL/process down: if the
+            # stream iterator terminates abnormally (an error, or a
+            # KeyboardInterrupt surfaced through the stream — the real user Ctrl-C
+            # is handled by the REPL's _on_sigint / _send_message_async interrupt
+            # path, NOT here), the drain just stops cleanly. SystemExit is not
+            # caught here, so process-exit semantics are preserved.
             try:
                 async for ev in kernel.stream(sid):
                     try:
@@ -558,7 +572,14 @@ async def _run_repl(
                     except asyncio.QueueFull:
                         pass
             except asyncio.CancelledError:
+                # Cooperative cancellation from _ensure_stream_for_session /
+                # cleanup (swallowed, matching the pre-existing drain teardown).
                 pass
+            except (Exception, KeyboardInterrupt) as exc:
+                # Background drain failed — stop this subscription quietly instead
+                # of letting the exception escape and crash the REPL. Logged so a
+                # silently-dead background event stream stays diagnosable.
+                _log.debug("background stream drain for %s stopped: %r", sid, exc)
 
         _stream_task = asyncio.create_task(_drain_forever(session_id))
 
@@ -616,6 +637,59 @@ async def _run_repl(
         # a test harness — fall back to the in-loop KeyboardInterrupt catch.
         _sigint_registered = False
 
+    # bugfix-426-M2 (决策4): non-blocking input. The active run is driven on a
+    # task while the input line-reader runs concurrently in an executor future,
+    # so a message typed while a run is still executing is routed through
+    # ``submit(steer=True)`` (injected into the active run's next round) instead
+    # of blocking the prompt until the run ends. When idle the same input opens a
+    # new run, exactly as before. ``_active_run`` holds the in-flight run task and
+    # its session so the input branch knows whether to steer or start a new run.
+    loop = asyncio.get_event_loop()
+    _active_run: dict[str, Any] | None = None
+    _input_future: asyncio.Future | None = None
+
+    def _read_line_blocking() -> str:
+        """Run the (blocking) line reader; returns "" on EOF as a sentinel."""
+        try:
+            return read_line(
+                _prompt(active_session_id),
+                input_history_by_session.get(active_session_id or "", ()),
+            )
+        except EOFError:
+            return _EOF_SENTINEL
+
+    def _finalize_run_payload(
+        *,
+        session_id: str,
+        payload: dict[str, object] | None,
+        error: BaseException | None,
+    ) -> None:
+        """Render a completed/failed run's outcome (mirrors the legacy tail)."""
+        if error is not None:
+            layer = _error_layer_for_exception(error)
+            suggestion = _suggestion_for_exception(
+                error, default="run /new to start a session, then retry."
+            )
+            _print_repl_turn_error_block(
+                error=RuntimeError(f"send failed: {error}"),
+                layer=layer,
+                suggestion=suggestion,
+            )
+            return
+        if payload is None:
+            return
+        response_content = _extract_message_content(payload)
+        if response_content is not None:
+            _append_history_entry(
+                history_by_session,
+                session_id,
+                role="assistant",
+                content=response_content,
+            )
+        buffer = io.StringIO()
+        _print_repl_turn_summary(out=buffer, payload=payload)
+        _emit_repl_block(buffer.getvalue())
+
     try:
         while True:
             # Flush background events that arrived while idle.
@@ -623,12 +697,37 @@ async def _run_repl(
             if bg_lines:
                 _emit_repl_block("\n".join(bg_lines))
 
-            try:
-                raw = read_line(
-                    _prompt(active_session_id),
-                    input_history_by_session.get(active_session_id or "", ()),
+            if _input_future is None or _input_future.done():
+                _input_future = loop.run_in_executor(None, _read_line_blocking)
+
+            wait_set: set[asyncio.Future] = {_input_future}
+            if _active_run is not None:
+                wait_set.add(_active_run["task"])
+
+            done, _ = await asyncio.wait(wait_set, return_when=asyncio.FIRST_COMPLETED)
+
+            # Settle a finished run first so its output lands before the next prompt.
+            if _active_run is not None and _active_run["task"] in done:
+                run_task = _active_run["task"]
+                run_session = _active_run["session_id"]
+                _active_run = None
+                _active_turn["session_id"] = None
+                payload: dict[str, object] | None = None
+                run_error: BaseException | None = None
+                try:
+                    payload = run_task.result()
+                except Exception as exc:  # noqa: BLE001 — surfaced as a turn error block
+                    run_error = exc
+                _finalize_run_payload(
+                    session_id=run_session, payload=payload, error=run_error
                 )
-            except EOFError:
+
+            if _input_future not in done:
+                continue
+
+            raw = _input_future.result()
+            _input_future = None
+            if raw == _EOF_SENTINEL:
                 _emit_repl_block("bye")
                 return 0
 
@@ -637,6 +736,26 @@ async def _run_repl(
                 continue
 
             if repl_commands.is_repl_command_candidate(line):
+                # Session-control commands (/exit, /new, /compact, …) must not run
+                # while a run is mid-flight — wait for it to settle and render
+                # first, then handle the command. Only plain messages steer into an
+                # active run; commands are sequenced after it (决策4: steer 是注入，
+                # 命令是会话控制，二者语义不同).
+                if _active_run is not None:
+                    run_task = _active_run["task"]
+                    run_session = _active_run["session_id"]
+                    _active_run = None
+                    _active_turn["session_id"] = None
+                    payload = None
+                    run_error = None
+                    try:
+                        payload = await run_task
+                    except Exception as exc:  # noqa: BLE001 — surfaced as a turn error block
+                        run_error = exc
+                    _finalize_run_payload(
+                        session_id=run_session, payload=payload, error=run_error
+                    )
+
                 if active_session_id:
                     _append_input_history_entry(
                         input_history_by_session, active_session_id, line
@@ -681,34 +800,63 @@ async def _run_repl(
                     history_by_session, active_session_id, role="user", content=line
                 )
 
-                _active_turn["session_id"] = active_session_id
-                try:
-                    payload = await _send_message_async(
-                        out=out,
-                        kernel=kernel,
+                if (
+                    _active_run is not None
+                    and _active_run["session_id"] == active_session_id
+                ):
+                    # A run is still executing for this session: steer the message
+                    # into its next LLM round instead of starting a new run or
+                    # blocking the prompt (决策4). When the steer race loses (run
+                    # ended between the wait and here) the SDK degrades to a new
+                    # run; we then drive it as a fresh turn below.
+                    run_record = kernel.submit(
                         session_id=active_session_id,
-                        text=line,
+                        parts=[{"type": "text", "text": line}],
                         workspace_root=workspace_root,
-                        background_processor=background_processor,
-                        bg_event_queue=_bg_event_queue,
+                        steer=True,
                         model=model,
                     )
-                finally:
-                    _active_turn["session_id"] = None
+                    if getattr(run_record, "injected", False):
+                        continue
+                    # Steer degraded to a new run — drive it.
+                    _active_turn["session_id"] = active_session_id
+                    _active_run = {
+                        "session_id": active_session_id,
+                        "task": asyncio.create_task(
+                            _send_message_async(
+                                out=out,
+                                kernel=kernel,
+                                session_id=active_session_id,
+                                text=line,
+                                workspace_root=workspace_root,
+                                background_processor=background_processor,
+                                bg_event_queue=_bg_event_queue,
+                                run_id=run_record.run_id,
+                                model=model,
+                            )
+                        ),
+                    }
+                    continue
 
-                response_content = _extract_message_content(payload)
-                if response_content is not None:
-                    _append_history_entry(
-                        history_by_session,
-                        active_session_id,
-                        role="assistant",
-                        content=response_content,
-                    )
-
-                buffer = io.StringIO()
-                _print_repl_turn_summary(out=buffer, payload=payload)
-                _emit_repl_block(buffer.getvalue())
+                # Idle: start a new run task and keep reading input concurrently.
+                _active_turn["session_id"] = active_session_id
+                _active_run = {
+                    "session_id": active_session_id,
+                    "task": asyncio.create_task(
+                        _send_message_async(
+                            out=out,
+                            kernel=kernel,
+                            session_id=active_session_id,
+                            text=line,
+                            workspace_root=workspace_root,
+                            background_processor=background_processor,
+                            bg_event_queue=_bg_event_queue,
+                            model=model,
+                        )
+                    ),
+                }
             except Exception as exc:
+                _active_turn["session_id"] = None
                 layer = _error_layer_for_exception(exc)
                 suggestion = _suggestion_for_exception(
                     exc,
@@ -720,6 +868,14 @@ async def _run_repl(
                     suggestion=suggestion,
                 )
     finally:
+        if _active_run is not None and not _active_run["task"].done():
+            _active_run["task"].cancel()
+            try:
+                await asyncio.wait_for(asyncio.shield(_active_run["task"]), timeout=0.3)
+            except (asyncio.CancelledError, asyncio.TimeoutError):
+                pass
+        if _input_future is not None and not _input_future.done():
+            _input_future.cancel()
         if _sigint_registered:
             try:
                 import signal as _signal
@@ -744,20 +900,28 @@ async def _send_message_async(
     workspace_root: Path,
     background_processor: BackgroundRunEventProcessor,
     bg_event_queue: asyncio.Queue,
+    run_id: str | None = None,
     model: str | None = None,
 ) -> dict[str, object]:
-    """Submit message, stream kernel events for this run, return turn payload.
+    """Drive a run's event stream to terminal status and return the turn payload.
+
+    When ``run_id`` is None this submits ``text`` as a fresh run and drives it
+    (the legacy single-shot path used by tests and --text-style callers). When
+    ``run_id`` is provided the message was already submitted by the caller (the
+    non-blocking REPL loop submits up front so it can keep reading input while
+    the run streams — bugfix-426-M2 决策4); we only drive the existing run.
 
     Events from other runs go to background_processor / bg_event_queue so they
     appear before the next prompt (design: background task completion notifications).
     """
-    run_record = kernel.submit(
-        session_id=session_id,
-        parts=[{"type": "text", "text": text}],
-        workspace_root=workspace_root,
-        model=model,
-    )
-    run_id = run_record.run_id
+    if run_id is None:
+        run_record = kernel.submit(
+            session_id=session_id,
+            parts=[{"type": "text", "text": text}],
+            workspace_root=workspace_root,
+            model=model,
+        )
+        run_id = run_record.run_id
 
     events: list[dict[str, Any]] = []
     assistant_text = ""

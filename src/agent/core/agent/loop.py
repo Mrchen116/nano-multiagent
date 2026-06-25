@@ -255,6 +255,12 @@ class AgentLoop:
                 while True:
                     api_round_count += 1
                     if max_turns is not None and api_round_count > max_turns:
+                        # bugfix-426-M4 V1: hard stop — commit the terminal so a steer
+                        # racing this exit is rejected by inject and routed to a fresh
+                        # run (not stranded into a continuation). max_turns cannot do
+                        # another LLM round, so re-looping to consume would drop it.
+                        if controller is not None:
+                            controller.commit_terminal()
                         stop_reason = "max_turns_reached"
                         yield Message(
                             message_id=make_message_id(),
@@ -288,9 +294,24 @@ class AgentLoop:
                         yield compacted_msg
 
                     if controller is not None:
-                        for pending_msg in controller.drain_pending():
-                            llm_messages.append(pending_msg)
+                        round_pending = controller.drain_pending()
+                        for pending in round_pending:
+                            llm_messages.append(pending.message)
+                        if round_pending:
+                            # bugfix-426-M4 决策6: signal the consume point so the gateway
+                            # can roll the IM bubble. Applies to EVERY steer (mid-loop
+                            # here, plus the terminal re-drain below) — the steer entered
+                            # context now, so the reply to it belongs in a NEW bubble that
+                            # sorts after the steer message, not appended to the prior one.
+                            await self._dispatch_pending_consumed(
+                                active_hook_ctx, run_id, round_pending
+                            )
                         if controller.is_aborted:
+                            # bugfix-426-M4 V1: hard stop — commit the terminal. A steer
+                            # racing the abort is rejected by inject (also guarded by
+                            # is_aborted) and routed to a fresh run; an already-enqueued
+                            # one is settled by the registry (user /stop → held-pending).
+                            controller.commit_terminal()
                             stop_reason = "aborted"
                             yield Message(
                                 message_id=make_message_id(),
@@ -475,6 +496,25 @@ class AgentLoop:
                         )
 
                     if not iteration_tool_calls:
+                        # bugfix-426-M4 决策5: before finishing, atomically re-check for a
+                        # steer that landed in the terminal window (after this round's
+                        # round-boundary drain but before the break). try_commit_terminal
+                        # holds the controller's terminal lock so this re-drain cannot
+                        # race a concurrent inject: a non-empty result means a steer
+                        # arrived — consume it into context and run ANOTHER round on the
+                        # SAME run (no run_id split, the #140 carrier of dropped events),
+                        # signalling the consume point so the gateway can roll the IM
+                        # bubble (决策6). An empty result commits the terminal: subsequent
+                        # injects are rejected and fall back to a new run.
+                        if controller is not None:
+                            late_pending = controller.try_commit_terminal()
+                            if late_pending:
+                                for pending in late_pending:
+                                    llm_messages.append(pending.message)
+                                await self._dispatch_pending_consumed(
+                                    active_hook_ctx, run_id, late_pending
+                                )
+                                continue
                         stop_reason = finish_reason or "completed"
                         yield Message(
                             message_id=make_message_id(),
@@ -495,6 +535,12 @@ class AgentLoop:
                         break
 
                     if self._tool_registry is None:
+                        # bugfix-426-M4 V1: hard stop — commit the terminal. Without a
+                        # tool registry the loop cannot run another round, so a steer
+                        # racing this exit must go to a fresh run (inject rejected after
+                        # commit), not be stranded into a continuation.
+                        if controller is not None:
+                            controller.commit_terminal()
                         stop_reason = "tool_registry_unavailable"
                         yield Message(
                             message_id=make_message_id(),
@@ -582,6 +628,33 @@ class AgentLoop:
                     "message_id": msg.message_id,
                     "content": msg.content,
                     "role": msg.role,
+                },
+                run_id=run_id,
+            ),
+            hook_ctx,
+        )
+
+    async def _dispatch_pending_consumed(
+        self,
+        hook_ctx: HookContext,
+        run_id: str | None,
+        consumed: list[Any],
+    ) -> None:
+        """Signal that injected (steered) messages just entered the model context.
+
+        bugfix-426-M4 决策6: this fires at the round boundary where ``drain_pending``
+        actually feeds a steer into ``llm_messages`` — the only point that knows the
+        A→B bubble切点. The gateway observer turns this into "finalize the current IM
+        bubble, open a new one after the steer message". Carries ``run_id`` so the
+        relay can scope it to the live run (which stays the SAME run under 决策5).
+        """
+        await self._dispatch_observe_async(
+            "pending_injection_consumed",
+            _with_optional_run_id(
+                {
+                    "session_id": hook_ctx.session_id,
+                    "turn_id": hook_ctx.turn_id,
+                    "message_count": len(consumed),
                 },
                 run_id=run_id,
             ),

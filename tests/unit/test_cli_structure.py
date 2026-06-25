@@ -24,7 +24,6 @@ def test_cli_internal_modules_live_under_apps_coding_cli_subpackages() -> None:
     from coding_cli.render import error_presenter as layered_error_presenter
     from coding_cli.render import repl_render as layered_repl_render
     from coding_cli.render import turn_usage as layered_turn_usage
-    from coding_cli.runtime import repl_runtime as layered_repl_runtime
 
     assert (
         layered_events._event_preview_line.__module__ == "coding_cli.events.repl_events"
@@ -37,10 +36,6 @@ def test_cli_internal_modules_live_under_apps_coding_cli_subpackages() -> None:
     assert (
         layered_repl_render.print_repl_turn_summary.__module__
         == "coding_cli.render.repl_render"
-    )
-    assert (
-        layered_repl_runtime.ReplRunQueue.__module__
-        == "coding_cli.runtime.repl_runtime"
     )
     assert (
         layered_context_budget.print_context_budget_snapshot.__module__

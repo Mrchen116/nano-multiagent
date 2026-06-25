@@ -144,8 +144,16 @@ class _RunsRegistryStub:
         # bugfix-404 F3: stub satisfies the public property added to RunsRegistry.
         return None
 
-    def inject_pending_message(self, session_id: str, message: LLMMessage) -> bool:
-        self.injections.append({"session_id": session_id, "message": message})
+    def inject_pending_message(
+        self,
+        session_id: str,
+        message: LLMMessage,
+        origin: RunOrigin = RunOrigin.USER,
+    ) -> bool:
+        # bugfix-426: inject_pending_message gained an origin param.
+        self.injections.append(
+            {"session_id": session_id, "message": message, "origin": origin}
+        )
         return True
 
     def submit(

@@ -565,3 +565,274 @@ async def test_loop_on_compaction_callback_not_called_without_compaction() -> No
     )
     await _run_loop(loop, _base_state())
     assert called == [], "on_compaction must not fire when no compaction occurred"
+
+
+# ---------------------------------------------------------------------------
+# bugfix-426-M4 决策5/6: terminal re-drain continues the SAME run; consume-point
+# signal lets the gateway roll the bubble. #140 closes the stranded-continuation
+# window at the loop's terminal decision.
+# ---------------------------------------------------------------------------
+
+
+class _SteerOnTerminalLLMClient:
+    """LLM client that injects a steer into the controller as it produces its
+    terminal (no-tool-call) reply — i.e. exactly in the #140 window between the
+    round-boundary drain and the loop's decision to break.
+
+    The first generate() yields a final assistant message AND (as a side effect)
+    enqueues a steer into the controller. A pre-decision-5 loop would break and
+    strand the steer; the decision-5 loop must re-drain at terminal and continue
+    the same run, consuming the steer on the next round.
+    """
+
+    def __init__(self, controller, steer_text: str) -> None:
+        from agent.core.llm.interfaces import LLMMessage as _LM
+
+        self._controller = controller
+        self._steer_text = steer_text
+        self._LM = _LM
+        self.requests = []
+        self._round = 0
+
+    async def generate(self, request):  # noqa: ANN001
+        self.requests.append(request)
+        self._round += 1
+        if self._round == 1:
+            # Produce the terminal reply for the original message, and in the same
+            # breath the user steers (lands after this round's drain already ran).
+            from agent.core.runs.origin import RunOrigin
+
+            self._controller.enqueue_message(
+                self._LM(role="user", content=self._steer_text),
+                origin=RunOrigin.USER,
+            )
+            yield self._LM(role="assistant", content="answer-to-first")
+            yield self._LM(role="assistant", content="", finish_reason="stop")
+        else:
+            # Second round: the steer must have been drained into context.
+            yield self._LM(role="assistant", content="answer-to-steer")
+            yield self._LM(role="assistant", content="", finish_reason="stop")
+
+
+async def test_loop_redrains_at_terminal_and_continues_same_run() -> None:
+    """决策5: a steer that lands in the terminal window is consumed by the SAME run.
+
+    The loop must re-drain at its terminal decision; finding the steer, it appends
+    it to context and runs another round instead of breaking (which would strand it
+    into a continuation run with a new run_id — the #140 carrier of dropped events).
+    """
+    from agent.core.agent.run_control import RunController
+
+    controller = RunController()
+    client = _SteerOnTerminalLLMClient(controller, steer_text="actually do X")
+    loop = AgentLoop(
+        llm_client=client, model="model-x", policies=AgentPolicies(max_turns=5)
+    )
+
+    result = await _run_loop(loop, _base_state(), controller=controller)
+
+    # Two LLM rounds: the original terminal reply, then the steer-driven round.
+    assert len(client.requests) == 2
+    # The steer reached the model's context on the second round.
+    second_round_user_texts = [
+        m.content for m in client.requests[1].messages if m.role == "user"
+    ]
+    assert "actually do X" in second_round_user_texts
+    # The final reply is the answer to the steer (same run continued, not stranded).
+    assert result.messages[-1].content == "answer-to-steer"
+    # Terminal committed only once the queue was truly empty.
+    assert controller.is_terminal_committed is True
+    assert controller.drain_pending() == []
+
+
+async def test_loop_emits_injection_consumed_signal_at_consume_point() -> None:
+    """bugfix-426-M4 决策6: the loop emits pending_injection_consumed when it actually
+    consumes injected messages into context.
+
+    The gateway needs the consume-point (not the enqueue moment) to roll the IM
+    bubble: only the loop knows the round boundary where the steer enters context.
+    """
+    from agent.core.agent.run_control import RunController
+
+    controller = RunController()
+    client = _SteerOnTerminalLLMClient(controller, steer_text="steer-text")
+
+    consumed_events: list[dict] = []
+    hooks = HookRegistry()
+
+    async def on_injection_consumed(event, ctx):  # noqa: ANN001
+        consumed_events.append(dict(event))
+
+    hooks.on("pending_injection_consumed", on_injection_consumed)
+    hook_runner = HookRunner(registry=hooks)
+
+    loop = AgentLoop(
+        llm_client=client,
+        model="model-x",
+        policies=AgentPolicies(max_turns=5),
+        hook_runner=hook_runner,
+    )
+
+    await _run_loop(
+        loop,
+        _base_state(),
+        controller=controller,
+        hook_ctx=HookContext(
+            session_id="sess_agent",
+            turn_id="turn_1",
+            metadata={"run_id": "run_abc"},
+        ),
+    )
+
+    # Exactly one consume event, carrying the run_id, fired when the steer entered
+    # context (the terminal re-drain round).
+    assert len(consumed_events) == 1
+    assert consumed_events[0].get("run_id") == "run_abc"
+
+
+class _SteerThenToolCallClient:
+    """Round 1: enqueue a steer, then return a tool_call so the loop wants another
+    round. The next round's terminal exit (max_turns / tool_unavailable) then fires
+    with the steer still pending — the bugfix-426-M4 V1 window."""
+
+    def __init__(self, controller, steer_text: str) -> None:
+        from agent.core.llm.interfaces import LLMMessage as _LM, LLMToolCall as _TC
+
+        self._controller = controller
+        self._steer_text = steer_text
+        self._LM = _LM
+        self._TC = _TC
+        self.requests = []
+
+    async def generate(self, request):  # noqa: ANN001
+        self.requests.append(request)
+        from agent.core.runs.origin import RunOrigin
+
+        self._controller.enqueue_message(
+            self._LM(role="user", content=self._steer_text), origin=RunOrigin.USER
+        )
+        yield self._LM(
+            role="assistant",
+            content="",
+            tool_calls=(self._TC(call_id="", name="echo", arguments={"text": "x"}),),
+        )
+        yield self._LM(role="assistant", content="", finish_reason="tool_calls")
+
+
+async def test_loop_commits_terminal_at_max_turns_exit_with_pending_steer() -> None:
+    """bugfix-426-M4 V1: a steer landing as the loop hits its max_turns hard stop must
+    leave the terminal COMMITTED, so a later inject is rejected and routed to a fresh
+    run (not stranded into a continuation whose events the relay would drop)."""
+    from agent.core.agent.run_control import RunController
+    from agent.core.runs.origin import RunOrigin
+
+    controller = RunController()
+    client = _SteerThenToolCallClient(controller, steer_text="steer at max_turns")
+    loop = AgentLoop(
+        llm_client=client,
+        model="model-x",
+        policies=AgentPolicies(max_turns=99),
+        tool_registry=FakeToolRegistry(),
+    )
+
+    # max_turns=1 (loop round cap): round 1 runs, round 2's top check exits.
+    result = await _run_loop(loop, _base_state(), controller=controller, max_turns=1)
+
+    assert result.stop_reason == "max_turns_reached"
+    # Hard stop committed the terminal → a later inject would be rejected.
+    assert controller.is_terminal_committed is True
+    assert (
+        controller.enqueue_message(
+            LLMMessage(role="user", content="after"), origin=RunOrigin.USER
+        )
+        is False
+    )
+
+
+async def test_loop_commits_terminal_at_tool_unavailable_exit_with_pending_steer() -> (
+    None
+):
+    """bugfix-426-M4 V1: same guarantee at the tool_registry_unavailable hard stop —
+    the loop cannot run another round, so the terminal is committed and a racing steer
+    goes to a fresh run, not a stranded continuation."""
+    from agent.core.agent.run_control import RunController
+    from agent.core.runs.origin import RunOrigin
+
+    controller = RunController()
+    # No tool registry → a tool_call forces the tool_unavailable exit.
+    client = _SteerThenToolCallClient(controller, steer_text="steer at tool-unavail")
+    loop = AgentLoop(
+        llm_client=client, model="model-x", policies=AgentPolicies(max_turns=99)
+    )
+
+    result = await _run_loop(loop, _base_state(), controller=controller)
+
+    assert result.stop_reason == "tool_registry_unavailable"
+    assert controller.is_terminal_committed is True
+    assert (
+        controller.enqueue_message(
+            LLMMessage(role="user", content="after"), origin=RunOrigin.USER
+        )
+        is False
+    )
+
+
+class _SteerThenAbortClient:
+    """Round 1: enqueue a steer, signal abort, then return a tool_call so the loop
+    wants another round. Round 2's round-start abort check then fires with the steer
+    having been drained — the bugfix-426-M4 V1 abort hard-stop window."""
+
+    def __init__(self, controller, steer_text: str) -> None:
+        from agent.core.llm.interfaces import LLMMessage as _LM, LLMToolCall as _TC
+
+        self._controller = controller
+        self._steer_text = steer_text
+        self._LM = _LM
+        self._TC = _TC
+        self.requests = []
+
+    async def generate(self, request):  # noqa: ANN001
+        self.requests.append(request)
+        from agent.core.runs.origin import RunOrigin
+
+        self._controller.enqueue_message(
+            self._LM(role="user", content=self._steer_text), origin=RunOrigin.USER
+        )
+        self._controller.abort(user_initiated=True)
+        yield self._LM(
+            role="assistant",
+            content="",
+            tool_calls=(self._TC(call_id="", name="echo", arguments={"text": "x"}),),
+        )
+        yield self._LM(role="assistant", content="", finish_reason="tool_calls")
+
+
+async def test_loop_commits_terminal_at_abort_exit_with_pending_steer() -> None:
+    """bugfix-426-M4 V1 (W4): symmetric to the max_turns / tool_unavailable hard stops —
+    the abort exit must also commit the terminal, so a later inject is rejected and
+    routed to a fresh run rather than left to strand. The abort exit does NOT rely on
+    is_aborted alone for the inject guard; it explicitly commits the terminal."""
+    from agent.core.agent.run_control import RunController
+    from agent.core.runs.origin import RunOrigin
+
+    controller = RunController()
+    client = _SteerThenAbortClient(controller, steer_text="steer at abort")
+    loop = AgentLoop(
+        llm_client=client,
+        model="model-x",
+        policies=AgentPolicies(max_turns=99),
+        tool_registry=FakeToolRegistry(),
+    )
+
+    result = await _run_loop(loop, _base_state(), controller=controller)
+
+    assert result.stop_reason == "aborted"
+    # The abort hard stop committed the terminal.
+    assert controller.is_terminal_committed is True
+    # A later inject is rejected by the committed terminal (not merely by is_aborted).
+    assert (
+        controller.enqueue_message(
+            LLMMessage(role="user", content="after"), origin=RunOrigin.USER
+        )
+        is False
+    )

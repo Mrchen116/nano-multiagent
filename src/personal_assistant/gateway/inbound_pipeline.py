@@ -189,6 +189,17 @@ class InboundPipeline:
         self._run_idle_timeout_seconds = run_idle_timeout_seconds
         self._active_runs: dict[str, str] = {}
         self._active_runs_lock = asyncio.Lock()
+        # bugfix-426-M3: serialize the group-buffer drain per session. The steer
+        # fast-path's "has_active_run gate → _build_message_parts(drain)" span and
+        # the normal path's drain (inside _run_turn, itself serialized by the
+        # run_queue) both consume the SAME destructive group buffer. Without a
+        # shared per-session lock two concurrent steers (or a steer racing the
+        # normal path) interleave at the `await _ensure_binding` yield point and
+        # split the buffered context — one drains everything, the other drains
+        # nothing. This lock makes every drain for a session mutually exclusive;
+        # it does NOT serialize the whole turn (the active run still receives the
+        # injected steer), only the cheap gate+drain decision.
+        self._session_drain_locks: dict[str, asyncio.Lock] = {}
         # bugfix-417-M5 (#114): run_ids stopped by an explicit user /stop, so the
         # terminal reconcile can attribute the in-flight tool card's content to the
         # user ("[Request interrupted by user for tool use]") instead of the generic
@@ -249,194 +260,359 @@ class InboundPipeline:
                 message, agent_id=agent_id, session_key=session_key
             )
 
-        async def _run() -> PipelineResult:
-            run_id: str | None = None
-            try:
-                binding = await self._ensure_binding(
-                    message, agent_id=agent_id, session_key=session_key
-                )
-                buf_key = self._group_buf_key_for_agent(message, agent_id)
-                # drain() returns (sender, text) tuples since M246; format each as "[sender] text"
-                # so the kernel receives sender-prefixed, independently-structured context messages.
-                buffered_pairs: list[tuple[str, str]] = (
-                    self._group_context_store.drain(buf_key)
-                    if message.is_group and self._group_context_store
-                    else []
-                )
-                buffered_texts = [
-                    _format_sender_text(sender, text) for sender, text in buffered_pairs
-                ]
-                # Group messages get a sender prefix so the kernel can identify who spoke.
-                # Direct messages remain unchanged — no sender prefix needed.
-                if message.is_group:
-                    current_text = _format_sender_text(sender_label, message.text)
-                else:
-                    current_text = message.text
-                texts = buffered_texts + [current_text]
-                attachments = message.metadata.get("attachments")
-                # Build parts list from texts and optional image attachments.
-                parts: list[dict[str, Any]] = [
-                    {"type": "text", "text": t} for t in texts
-                ]
-                if isinstance(attachments, list) and attachments:
-                    for item in attachments:
-                        if isinstance(item, dict) and isinstance(item.get("url"), str):
-                            img_part: dict[str, Any] = {
-                                "type": "image",
-                                "image_url": item["url"],
-                            }
-                            mime = item.get("content_type")
-                            if isinstance(mime, str) and mime.strip():
-                                img_part["mime_type"] = mime.strip()
-                            parts.append(img_part)
-                agent_workspace_root_path = self._agents[agent_id].workspace_root
-                # submit() is sync, non-blocking — schedules the turn on RunsRegistry's
-                # background loop and returns immediately with a RunRecord.
-                run_record = self._kernel.submit(
-                    session_id=binding.kernel_session_id,
-                    parts=parts,
-                    workspace_root=agent_workspace_root_path,
-                    model=self._resolve_model(agent_id),
-                )
-                run_id = run_record.run_id
-                # Anchor the per-turn event stream to this run's own start position.
-                # Using 0 here would replay the ENTIRE in-memory session history every
-                # turn, re-surfacing stale session-level events (e.g. self_evolution_review)
-                # as if they were fresh — the source of the repeated "updated" notifications.
-                anchor_sequence = run_record.start_sequence
-                if run_id:
-                    async with self._active_runs_lock:
-                        self._active_runs[session_key] = run_id
-                await self._emit_relay_lifecycle(
+        # Mid-run steer (bugfix-426 决策1): if a run is already active for this
+        # session, inject this message into its next round instead of queueing a
+        # new run behind it. The gateway-local _active_runs gate mirrors /stop's
+        # cheap check; the parts are built once (drains the group buffer) and the
+        # kernel atomically decides inject-vs-new. On injected=True we are done
+        # (the active run's SSE stream surfaces the reply). On injected=False the
+        # active run ended in the race window — hand the already-built parts to the
+        # queued _run so the drained context is not lost (no re-drain).
+        # bugfix-426-M3: hold the per-session drain lock across the WHOLE steer
+        # decision — the has_active_run gate, _ensure_binding (a yield point), the
+        # destructive _build_message_parts drain inside _try_steer_active_run, and
+        # the atomic kernel steer submit. This is the span that previously let a
+        # second concurrent steer cut in at the _ensure_binding await and split the
+        # group buffer. The lock is shared with the normal-path drain (_run_turn),
+        # so steer-vs-steer AND steer-vs-normal are both serialized; normal-vs-normal
+        # is already serial via the run_queue. The fallback submit below runs OUTSIDE
+        # the lock: it carries prebuilt_parts (no re-drain) and _run_turn would
+        # otherwise re-acquire this same lock and self-deadlock.
+        async with self._drain_lock_for(session_key):
+            async with self._active_runs_lock:
+                has_active_run = self._active_runs.get(session_key) is not None
+            steered = (
+                await self._try_steer_active_run(
                     message,
-                    RelayLifecycleUpdate(
-                        phase="accepted",
-                        agent_id=agent_id,
-                        session_key=session_key,
-                        run_id=run_id or None,
-                        kernel_session_id=binding.kernel_session_id,
-                    ),
-                )
-
-                async def _on_other_event(event: Mapping[str, object]) -> None:
-                    event_name = event.get("event")
-                    # Session-level events (e.g. self_evolution_review) are owned solely
-                    # by the persistent background subscriber started below, so they are
-                    # forwarded exactly once regardless of fork timing.  The main loop
-                    # deliberately ignores them here.
-                    origin = event.get("origin")
-                    if origin == "user" or not origin:
-                        return
-                    if event_name == "assistant_message":
-                        content = event.get("content")
-                        if isinstance(content, str) and content.strip():
-                            text = content.strip()
-                            # bugfix-416 #107: fan-out (agent-to-agent) replies imply a
-                            # group context; route through the shared guard so a NO_REPLY
-                            # sentinel is suppressed here exactly like the main path.
-                            if not self._should_suppress_no_reply(text, in_group=True):
-                                self._outbound_router.send_text(
-                                    text=text,
-                                    reply_context=binding.reply_context,
-                                )
-
-                run_state, reply_text = await self._await_terminal_run_async(
-                    kernel_session_id=binding.kernel_session_id,
-                    run_id=run_id,
-                    anchor_sequence=anchor_sequence,
-                    on_other=_on_other_event,
-                )
-                # Start a persistent background subscriber for this session so that
-                # self_evolution_review events and BACKGROUND_TASK run output published
-                # after the main turn's SSE loop terminates still reach the PA gateway.
-                # reply_context + session_key are passed so the subscriber can relay
-                # BACKGROUND_TASK assistant_message events back to the originating IM
-                # conversation via _bg_reply_sender (bugfix-404-M3).
-                await self._ensure_background_subscriber(
-                    kernel_session_id=binding.kernel_session_id,
-                    last_sequence=anchor_sequence or 0,
-                    reply_context=binding.reply_context,
-                    session_key=session_key,
-                )
-                await self._emit_relay_lifecycle(
-                    message,
-                    RelayLifecycleUpdate(
-                        phase="running",
-                        agent_id=agent_id,
-                        session_key=session_key,
-                        run_id=run_id or None,
-                        reply_text=reply_text,
-                    ),
-                )
-                outbound: OutboundMessage | None = None
-                lifecycle_detail: Mapping[str, Any] | None = None
-                # bugfix-417-fix2 (#114, Issue 1): a user-/stop-cancelled run is finalized
-                # cleanly (above) but must NOT emit a final agent reply — the /stop handler
-                # already replied "已停止当前操作。", and any partial streamed text is not a
-                # complete answer. Suppress the reply send for cancelled; the bubble is
-                # closed by the observer's terminal run_status handling.
-                run_cancelled = run_state.get("status") == "cancelled"
-                if run_cancelled:
-                    lifecycle_detail = {"suppressed_by": "cancelled"}
-                elif not self._should_suppress_no_reply(
-                    reply_text, in_group=message.is_group
-                ):
-                    outbound = self._outbound_router.send_text(
-                        text=reply_text, reply_context=binding.reply_context
-                    )
-                else:
-                    lifecycle_detail = {"suppressed_by": "no_reply_token"}
-                result = PipelineResult(
                     agent_id=agent_id,
                     session_key=session_key,
-                    kernel_session_id=binding.kernel_session_id,
-                    run_id=run_id,
-                    reply_text=reply_text,
-                    outbound=outbound,
+                    sender_label=sender_label,
                 )
-                await self._emit_relay_lifecycle(
+                if has_active_run
+                else None
+            )
+        if has_active_run and steered is not None:
+            injected_result, fallback_parts = steered
+            if injected_result is not None:
+                return injected_result
+            return await self._run_queue.submit(
+                session_key,
+                lambda: self._run_turn(
                     message,
-                    RelayLifecycleUpdate(
-                        phase="completed",
-                        agent_id=agent_id,
-                        session_key=session_key,
-                        run_id=run_id or None,
-                        reply_text=reply_text,
-                        detail=lifecycle_detail,
-                        usage=self._extract_usage(run_state),
-                    ),
-                )
-                return result
-            except Exception as exc:
-                await self._emit_relay_lifecycle(
-                    message,
-                    RelayLifecycleUpdate(
-                        phase="failed",
-                        agent_id=agent_id,
-                        session_key=session_key,
-                        run_id=run_id,
-                        error=str(exc),
-                    ),
-                )
-                raise
-            finally:
-                if run_id:
-                    async with self._active_runs_lock:
-                        if self._active_runs.get(session_key) == run_id:
-                            self._active_runs.pop(session_key, None)
-                    # bugfix-417-fix1 (B): clear the user-interrupt marker on EVERY
-                    # run terminal path. _emit_terminal_reconcile discards it when it
-                    # fires, but a run that ends without a reconcile (watchdog reap /
-                    # crash / normal completion of a non-/stop run) would otherwise
-                    # leak the entry forever. This finally is the single per-run
-                    # terminal chokepoint, so discarding here bounds the set.
-                    self._user_interrupted_runs.discard(run_id)
+                    agent_id=agent_id,
+                    session_key=session_key,
+                    sender_label=sender_label,
+                    prebuilt_parts=fallback_parts,
+                ),
+            )
 
-        return await self._run_queue.submit(session_key, _run)
+        return await self._run_queue.submit(
+            session_key,
+            lambda: self._run_turn(
+                message,
+                agent_id=agent_id,
+                session_key=session_key,
+                sender_label=sender_label,
+            ),
+        )
+
+    async def _try_steer_active_run(
+        self,
+        message: InboundMessage,
+        *,
+        agent_id: str,
+        session_key: str,
+        sender_label: str,
+    ) -> tuple[PipelineResult | None, list[dict[str, Any]]] | None:
+        """Attempt to inject this message into the session's active run.
+
+        Returns:
+            None when there is no bound/active run to steer (caller falls through
+            to a normal queued run). Otherwise a ``(injected_result, parts)`` pair:
+            ``injected_result`` is the PipelineResult when the kernel injected into
+            the active run (caller returns it directly, no queued run); it is None
+            when the active run ended in the race window, in which case ``parts``
+            (already built, buffer drained) must be submitted by the caller's
+            queued run instead of re-draining.
+        """
+        binding = await self._ensure_binding(
+            message, agent_id=agent_id, session_key=session_key
+        )
+        parts = self._build_message_parts(
+            message, agent_id=agent_id, sender_label=sender_label
+        )
+        agent_workspace_root_path = self._agents[agent_id].workspace_root
+        run_record = self._kernel.submit(
+            session_id=binding.kernel_session_id,
+            parts=parts,
+            workspace_root=agent_workspace_root_path,
+            steer=True,
+            model=self._resolve_model(agent_id),
+        )
+        if not getattr(run_record, "injected", False):
+            # Race: run ended before the enqueue. Caller re-runs with these parts.
+            return None, parts
+        await self._emit_relay_lifecycle(
+            message,
+            RelayLifecycleUpdate(
+                phase="accepted",
+                agent_id=agent_id,
+                session_key=session_key,
+                run_id=run_record.run_id,
+                kernel_session_id=binding.kernel_session_id,
+            ),
+        )
+        # The injected message rides the active run's existing SSE stream — no new
+        # _run_turn, no second event loop. Its reply surfaces through the run that
+        # is already being consumed by the original turn's _run_turn.
+        return (
+            PipelineResult(
+                agent_id=agent_id,
+                session_key=session_key,
+                kernel_session_id=binding.kernel_session_id,
+                run_id=run_record.run_id,
+                reply_text="",
+                outbound=None,
+            ),
+            parts,
+        )
+
+    async def _run_turn(
+        self,
+        message: InboundMessage,
+        *,
+        agent_id: str,
+        session_key: str,
+        sender_label: str,
+        prebuilt_parts: list[dict[str, Any]] | None = None,
+    ) -> PipelineResult:
+        run_id: str | None = None
+        try:
+            binding = await self._ensure_binding(
+                message, agent_id=agent_id, session_key=session_key
+            )
+            # Build parts once (drains the group buffer). The steer race path
+            # passes already-built parts so the buffer is not drained twice.
+            # bugfix-426-M3: hold the per-session drain lock around the drain so a
+            # concurrent steer fast-path cannot interleave its own drain with this
+            # one (the run_queue only serializes normal-vs-normal, not steer-vs-
+            # normal). prebuilt_parts means the steer path already drained under the
+            # lock, so we skip both the drain and the lock.
+            if prebuilt_parts is not None:
+                parts = prebuilt_parts
+            else:
+                async with self._drain_lock_for(session_key):
+                    parts = self._build_message_parts(
+                        message, agent_id=agent_id, sender_label=sender_label
+                    )
+            agent_workspace_root_path = self._agents[agent_id].workspace_root
+            # submit() is sync, non-blocking — schedules the turn on RunsRegistry's
+            # background loop and returns immediately with a RunRecord.
+            run_record = self._kernel.submit(
+                session_id=binding.kernel_session_id,
+                parts=parts,
+                workspace_root=agent_workspace_root_path,
+                model=self._resolve_model(agent_id),
+            )
+            run_id = run_record.run_id
+            # Anchor the per-turn event stream to this run's own start position.
+            # Using 0 here would replay the ENTIRE in-memory session history every
+            # turn, re-surfacing stale session-level events (e.g. self_evolution_review)
+            # as if they were fresh — the source of the repeated "updated" notifications.
+            anchor_sequence = run_record.start_sequence
+            if run_id:
+                async with self._active_runs_lock:
+                    self._active_runs[session_key] = run_id
+            await self._emit_relay_lifecycle(
+                message,
+                RelayLifecycleUpdate(
+                    phase="accepted",
+                    agent_id=agent_id,
+                    session_key=session_key,
+                    run_id=run_id or None,
+                    kernel_session_id=binding.kernel_session_id,
+                ),
+            )
+
+            async def _on_other_event(event: Mapping[str, object]) -> None:
+                event_name = event.get("event")
+                # Session-level events (e.g. self_evolution_review) are owned solely
+                # by the persistent background subscriber started below, so they are
+                # forwarded exactly once regardless of fork timing.  The main loop
+                # deliberately ignores them here.
+                origin = event.get("origin")
+                if origin == "user" or not origin:
+                    return
+                if event_name == "assistant_message":
+                    content = event.get("content")
+                    if isinstance(content, str) and content.strip():
+                        text = content.strip()
+                        # bugfix-416 #107: fan-out (agent-to-agent) replies imply a
+                        # group context; route through the shared guard so a NO_REPLY
+                        # sentinel is suppressed here exactly like the main path.
+                        if not self._should_suppress_no_reply(text, in_group=True):
+                            self._outbound_router.send_text(
+                                text=text,
+                                reply_context=binding.reply_context,
+                            )
+
+            run_state, reply_text = await self._await_terminal_run_async(
+                kernel_session_id=binding.kernel_session_id,
+                run_id=run_id,
+                anchor_sequence=anchor_sequence,
+                on_other=_on_other_event,
+            )
+            # Start a persistent background subscriber for this session so that
+            # self_evolution_review events and BACKGROUND_TASK run output published
+            # after the main turn's SSE loop terminates still reach the PA gateway.
+            # reply_context + session_key are passed so the subscriber can relay
+            # BACKGROUND_TASK assistant_message events back to the originating IM
+            # conversation via _bg_reply_sender (bugfix-404-M3).
+            await self._ensure_background_subscriber(
+                kernel_session_id=binding.kernel_session_id,
+                last_sequence=anchor_sequence or 0,
+                reply_context=binding.reply_context,
+                session_key=session_key,
+            )
+            await self._emit_relay_lifecycle(
+                message,
+                RelayLifecycleUpdate(
+                    phase="running",
+                    agent_id=agent_id,
+                    session_key=session_key,
+                    run_id=run_id or None,
+                    reply_text=reply_text,
+                ),
+            )
+            outbound: OutboundMessage | None = None
+            lifecycle_detail: Mapping[str, Any] | None = None
+            # bugfix-417-fix2 (#114, Issue 1): a user-/stop-cancelled run is finalized
+            # cleanly (above) but must NOT emit a final agent reply — the /stop handler
+            # already replied "已停止当前操作。", and any partial streamed text is not a
+            # complete answer. Suppress the reply send for cancelled; the bubble is
+            # closed by the observer's terminal run_status handling.
+            run_cancelled = run_state.get("status") == "cancelled"
+            if run_cancelled:
+                lifecycle_detail = {"suppressed_by": "cancelled"}
+            elif not self._should_suppress_no_reply(
+                reply_text, in_group=message.is_group
+            ):
+                outbound = self._outbound_router.send_text(
+                    text=reply_text, reply_context=binding.reply_context
+                )
+            else:
+                lifecycle_detail = {"suppressed_by": "no_reply_token"}
+            result = PipelineResult(
+                agent_id=agent_id,
+                session_key=session_key,
+                kernel_session_id=binding.kernel_session_id,
+                run_id=run_id,
+                reply_text=reply_text,
+                outbound=outbound,
+            )
+            await self._emit_relay_lifecycle(
+                message,
+                RelayLifecycleUpdate(
+                    phase="completed",
+                    agent_id=agent_id,
+                    session_key=session_key,
+                    run_id=run_id or None,
+                    reply_text=reply_text,
+                    detail=lifecycle_detail,
+                    usage=self._extract_usage(run_state),
+                ),
+            )
+            return result
+        except Exception as exc:
+            await self._emit_relay_lifecycle(
+                message,
+                RelayLifecycleUpdate(
+                    phase="failed",
+                    agent_id=agent_id,
+                    session_key=session_key,
+                    run_id=run_id,
+                    error=str(exc),
+                ),
+            )
+            raise
+        finally:
+            if run_id:
+                async with self._active_runs_lock:
+                    if self._active_runs.get(session_key) == run_id:
+                        self._active_runs.pop(session_key, None)
+                # bugfix-417-fix1 (B): clear the user-interrupt marker on EVERY
+                # run terminal path. _emit_terminal_reconcile discards it when it
+                # fires, but a run that ends without a reconcile (watchdog reap /
+                # crash / normal completion of a non-/stop run) would otherwise
+                # leak the entry forever. This finally is the single per-run
+                # terminal chokepoint, so discarding here bounds the set.
+                self._user_interrupted_runs.discard(run_id)
 
     @staticmethod
     def _group_buf_key_for_agent(message: InboundMessage, agent_id: str) -> str:
         return f"{agent_id}:{message.channel_name}:{message.external_chat_id}"
+
+    def _drain_lock_for(self, session_key: str) -> asyncio.Lock:
+        """Return the per-session lock guarding this session's group-buffer drain.
+
+        bugfix-426-M3: lazily created so unbounded sessions do not preallocate
+        locks. The same lock object is shared by the steer fast-path and the
+        normal-path drain so the two are mutually exclusive (see __init__).
+        """
+        lock = self._session_drain_locks.get(session_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._session_drain_locks[session_key] = lock
+        return lock
+
+    def _build_message_parts(
+        self, message: InboundMessage, *, agent_id: str, sender_label: str
+    ) -> list[dict[str, Any]]:
+        """Build the kernel input parts for one inbound message.
+
+        Single source of truth for both the normal new-run path and the mid-run
+        steer path so a steered message carries the SAME context as a queued one:
+        drained group buffer (other speakers' messages, each ``[sender] text``),
+        the current message with its own sender prefix in group chats, and image
+        attachments. Steering must not collapse to a bare ``message.text`` —
+        otherwise group runs would lose sender identity and buffered context
+        (bugfix-426 决策1; non-goal: group behavior must not change).
+
+        Side effect: drains this agent's group buffer (destructive). Call exactly
+        once per delivered message; the caller passes the result to whichever path
+        actually submits it.
+        """
+        buffered_pairs: list[tuple[str, str]] = (
+            self._group_context_store.drain(
+                self._group_buf_key_for_agent(message, agent_id)
+            )
+            if message.is_group and self._group_context_store
+            else []
+        )
+        buffered_texts = [
+            _format_sender_text(sender, text) for sender, text in buffered_pairs
+        ]
+        # Group messages get a sender prefix so the kernel can identify who spoke.
+        # Direct messages remain unchanged — no sender prefix needed.
+        if message.is_group:
+            current_text = _format_sender_text(sender_label, message.text)
+        else:
+            current_text = message.text
+        texts = buffered_texts + [current_text]
+        parts: list[dict[str, Any]] = [{"type": "text", "text": t} for t in texts]
+        attachments = message.metadata.get("attachments")
+        if isinstance(attachments, list) and attachments:
+            for item in attachments:
+                if isinstance(item, dict) and isinstance(item.get("url"), str):
+                    img_part: dict[str, Any] = {
+                        "type": "image",
+                        "image_url": item["url"],
+                    }
+                    mime = item.get("content_type")
+                    if isinstance(mime, str) and mime.strip():
+                        img_part["mime_type"] = mime.strip()
+                    parts.append(img_part)
+        return parts
 
     async def _emit_relay_lifecycle(
         self, message: InboundMessage, update: RelayLifecycleUpdate
@@ -714,7 +890,14 @@ class InboundPipeline:
         # Log /stop command in session history without triggering a model run.
         # Use append_message (not submit) so the injected turn is persisted for the
         # next LLM call but does not itself spawn a new run (mirrors CC's
-        # [Request interrupted by user for tool use] synthetic message).
+        # [Request interrupted by user for tool use] synthetic message; feat-332-M2).
+        # bugfix-426 决策3 held-buffer: interrupt() above synchronously parks any
+        # messages the user steered into the interrupted run into the session-level
+        # held buffer; they ride the user's NEXT real submit (_run_turn /
+        # _try_steer_active_run). Switching this /stop bookkeeping from submit to
+        # append_message removes the synthetic run that bugfix-426 used flush_held=False
+        # to shield — append_message never flushes held, so held still waits for the
+        # next real message, exactly as 决策3 requires. No model/flush_held needed here.
         self._kernel.append_message(
             session_id=binding.kernel_session_id,
             role="user",

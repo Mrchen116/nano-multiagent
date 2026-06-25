@@ -160,6 +160,7 @@ def _deliver_notification(
         injected = runs_registry.inject_pending_message(
             parent,
             LLMMessage(role="user", content=notification_xml),
+            origin=RunOrigin.BACKGROUND_TASK,
         )
         if injected:
             return
