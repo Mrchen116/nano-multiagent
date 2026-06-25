@@ -155,3 +155,68 @@
 - [x] `docs/specs/cli/spec.md`：无需更新（CLI 无图片输入路径）
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新
 - [x] `docs/SPEC_GUIDE.md`：无需更新（本 unit 未改文档体系本身）
+
+---
+
+# Round 2 — 2026-06-25
+
+> Fix: bugfix-433/fix1（HEAD 00312f75）— 损坏图入站结构校验拦截
+> Reviewer: bugfix-433-reviewer (Fast-lane 复验，复用 round 1 上下文 + 新 IM 实例)
+> Verdict: **pass**
+> Highest Required Action: **pass**
+
+## 澄清问答
+
+无新疑问，直接复验。
+
+## 覆盖表（继承 Round 1，更新关闭项）
+
+### Requirement: 用户发的图片当前轮即可被 agent 看到
+
+#### Scenario: 单轮发图即问
+- 结果：**pass**（继承 round 1；抽查：发合法红色 100×100 PNG，agent 回「这张图是**红色**的，是一个纯色的鲜红色块。」，结构校验未误杀合法图）
+
+#### Scenario: 单轮发多张图
+- 结果：**pass**（继承 round 1，本轮未重测，合法图抽查已覆盖结构校验不误杀）
+
+### Requirement: 图片在多轮对话中跨轮保留
+
+#### Scenario: 上一轮发图，下一轮仍可被追问
+- 结果：**pass**（继承 round 1）
+
+### Requirement: 纯文本会话行为不受影响
+
+#### Scenario: 不含图片的多轮对话
+- 结果：**pass**（继承 round 1 + round 2 Issue #2 验证：损坏图后同会话发文字「3+4等于几？」得到正常回复「3 + 4 等于 **7**。」）
+
+### Requirement: 异常图片明确告知用户，不静默隐藏
+
+#### Scenario: 发送异常或超大图片
+
+| 子场景 | Round 1 | Round 2 | 证据 |
+|---|---|---|---|
+| 损坏图（PNG 头正确 + 体损坏） | fail | **pass（Issue #1 关闭）** | `这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。` |
+| 超大图（5.73MB > 5MB 限制） | pass | **pass（抽查不回归）** | `这张图片太大了，超出可接收的大小，我没能收到它，无法据此回复。请压缩或换一张更小的图片后重新发送。` |
+
+## Issues 状态
+
+### Issue #1 — 损坏图未被 gateway 入站拦截（触发 provider 错误展示）
+
+- **状态**: CLOSED
+- **验证**: 发 41 字节损坏 PNG（有效 PNG 头 + 损坏体）→ agent 即时回固化文案「这张图片我无法识别，没能收到它，无法据此回复。请确认图片有效后重新发送。」，与 design.md §决策5 一字不差。无 provider error 信息出现。
+- **额外验证**: 合法红色 100×100 PNG 仍正确识别为「红色」，结构校验无误杀合法图（CRITICAL 回归点通过）。
+
+### Issue #2 — 损坏图 provider 错误后同会话文字消息空回复
+
+- **状态**: CLOSED
+- **验证**: 损坏图固化文案出现后，同会话接着发「3+4等于几？」→ agent 正常回复「3 + 4 等于 **7**。」，session 未中毒，会话正常继续。
+
+## 上层文档同步
+
+- [x] `SPEC.md`：无需更新
+- [ ] `docs/specs/kernel/spec.md`：需要更新（图片送达/跨轮持久化行为增量，等 orchestrator 收尾归并）
+- [ ] `docs/specs/gateway/spec.md`：需要更新（用户图片当轮可见 + 跨轮 + 异常明确告知，等 orchestrator 收尾归并）
+- [x] `docs/specs/im/spec.md`：无需更新
+- [x] `docs/specs/cli/spec.md`：无需更新
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新
+- [x] `docs/SPEC_GUIDE.md`：无需更新
