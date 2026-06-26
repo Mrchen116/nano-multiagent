@@ -2,11 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useAuthStore } from "../../auth/auth-store";
 import {
+  addParticipants,
   createConversation,
   createMessage,
+  deleteConversation,
   listConversations,
   listMentionCandidates,
-  listMessages
+  listMessages,
+  removeParticipant,
+  updateConversation
 } from "./chat-api";
 
 function seedAuth() {
@@ -107,6 +111,74 @@ describe("chat-api v2", () => {
       { type: "agent", id: "agent-a" },
       { type: "agent", id: "agent-b" }
     ]);
+  });
+
+  function groupBody() {
+    return {
+      id: "g1", title: "Renamed", participants: [
+        { type: "user", id: "user-1", user_id: "user-1" },
+        { type: "agent", id: "agent-a", user_id: "uuid-a" }
+      ], participant_ids: ["user:user-1", "agent:agent-a"], type: "group", direct_kind: null,
+      owner_id: "user-1", creator_id: "user-1", is_pinned: false, is_muted: false, unread_count: 0,
+      last_message_preview: null, last_message_at: null, created_at: "2026-01-01T00:00:03Z"
+    };
+  }
+
+  it("updateConversation PATCHes title and returns the conversation", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(jsonResponse(groupBody()));
+
+    const conv = await updateConversation("g1", { title: "Renamed" });
+    expect(conv.title).toBe("Renamed");
+    const call = f.mock.calls[0]!;
+    expect(call[0]).toMatch(/\/im\/v1\/conversations\/g1$/);
+    const init = call[1] as RequestInit;
+    expect(init.method).toBe("PATCH");
+    expect(JSON.parse(init.body as string)).toEqual({ title: "Renamed" });
+  });
+
+  it("addParticipants POSTs agent actors to the participants endpoint", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(jsonResponse(groupBody()));
+
+    const conv = await addParticipants("g1", ["agent-a", "agent-b"]);
+    expect(conv.id).toBe("g1");
+    const call = f.mock.calls[0]!;
+    expect(call[0]).toMatch(/\/im\/v1\/conversations\/g1\/participants$/);
+    const init = call[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      participants: [
+        { type: "agent", id: "agent-a" },
+        { type: "agent", id: "agent-b" }
+      ]
+    });
+  });
+
+  it("removeParticipant DELETEs by user_id (not agent id)", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await removeParticipant("g1", "uuid-a");
+    const call = f.mock.calls[0]!;
+    expect(call[0]).toMatch(/\/im\/v1\/conversations\/g1\/participants\/uuid-a$/);
+    expect((call[1] as RequestInit).method).toBe("DELETE");
+  });
+
+  it("deleteConversation DELETEs the conversation", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await deleteConversation("g1");
+    const call = f.mock.calls[0]!;
+    expect(call[0]).toMatch(/\/im\/v1\/conversations\/g1$/);
+    expect((call[1] as RequestInit).method).toBe("DELETE");
+  });
+
+  it("removeParticipant throws on a non-ok response", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(new Response("nope", { status: 404 }));
+    await expect(removeParticipant("g1", "uuid-a")).rejects.toThrow();
   });
 
   it("listMentionCandidates filters agent list to the conversation's agent participants", async () => {
