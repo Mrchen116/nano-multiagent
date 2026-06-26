@@ -8,12 +8,12 @@ LLM 收到的工具拒绝结果从恒为通用字面量 `tool blocked by hook` �
 
 ## 退出标准
 
-- [ ] `build_reject_message` 四类映射单测全绿（含非白名单 synthetic→SUBAGENT）
-- [ ] CC 文本主体逐字一致 + `newText` 本地化 + 自动拒无规则尾句（单测断言）
-- [ ] reject_messages.py docstring 显式标注「不实现 SUBAGENT 带理由变体为有意省略」
-- [ ] tool_executor 四类拒绝均经 build_reject_message 构造 ToolResult.error（含提取 details["reason"]）
-- [ ] IM reason 透传单测（messages 端点 + gateway_handler push）绿
-- [ ] 前端 permission-card 常驻选填理由框、deny 带 reason、允许类忽略，组件测试 + 真实浏览器验收绿
+- [x] `build_reject_message` 四类映射单测全绿（含非白名单 synthetic→SUBAGENT）— R1/R2
+- [x] CC 文本主体逐字一致 + `newText` 本地化 + 自动拒无规则尾句（单测断言）— R1
+- [x] reject_messages.py docstring 显式标注「不实现 SUBAGENT 带理由变体为有意省略」— R1
+- [x] tool_executor 四类拒绝均经 build_reject_message 构造 ToolResult.error（含提取 details["reason"]）— R2
+- [x] IM reason 透传单测（messages 端点 + gateway_handler push）绿 — R3
+- [x] 前端 permission-card 常驻选填理由框、deny 带 reason、允许类忽略，组件测试 + 真实浏览器验收绿 — R4
 
 ## 测试策略
 
@@ -63,22 +63,22 @@ UI 状态矩阵：
 
 ## Roadpoints
 
-### R1 — reject_messages.py（常量 + build_reject_message 选择器）
+### R1 — [DONE] reject_messages.py（常量 + build_reject_message 选择器）
 
 - 步骤: 新建 `src/agent/core/agent/reject_messages.py`，照搬 CC 四常量（new_string→newText 本地化）+ auto_reject_message(reason) + build_reject_message 四类选择器 + docstring 标注死路径省略。
 - 验证: `tests/unit/test_reject_messages.py` 穷举四类映射 + CC 逐字 + newText + 无规则尾句。
 
-### R2 — tool_executor.py 接线
+### R2 — [DONE] tool_executor.py 接线
 
 - 步骤: catch ToolError 分支提 details["reason"]；非白名单 synthetic + catch 两分支均调 build_reject_message(is_subagent=self._tool_execution_allowlist is not None) 得 error 文本。
 - 验证: 扩展 `tests/unit/test_streaming_tool_executor.py`：非白名单→SUBAGENT、user_deny+reason→WITH_REASON、自动拒→auto_reject。
 
-### R3 — IM reason 两端透传
+### R3 — [DONE] IM reason 两端透传
 
 - 步骤: messages.py SubmitPermissionDecisionRequest 加选填 reason 透传 push_permission_response；gateway_handler.push_permission_response 加 reason 参数写进 frame payload。
 - 验证: 扩展 test_permission_streaming.py（endpoint 透传 reason）+ test_gateway_handler.py（push 写入 frame）。
 
-### R4 — 前端权限卡理由输入框
+### R4 — [DONE] 前端权限卡理由输入框
 
 - 步骤: permission-card.tsx 加常驻受控理由 input；handleChoice POST body 带 reason（trim 后非空才带）；允许类决策不影响放行。
 - 验证: 组件测试（deny 带 reason / allow 无 reason / 留空可决策）+ 真实浏览器验收（1440/375 截图，console/network 检查）。

@@ -49,4 +49,15 @@
 
 ## R4 — 前端权限卡理由输入框
 
-（待补）
+- Context: spec Q4 形态 A：权限卡按钮区上方常驻一个选填理由 input，拒绝时透传理由，允许类忽略。
+- Decision: permission-card.tsx 加受控 `reason` state + `<textarea data-testid="permission-reason-input">`（常驻于 question 与 options 之间）；handleChoice POST body `...(trimmedReason ? { reason: trimmedReason } : {})`（空则不带 key）。新增 i18n 键 reasonPlaceholder/reasonLabel（en+zh）；global.css 加 `.chat-permission-reason` 样式（沿用 chat-permission-cmd 的 dark mono 体系）。
+- Rationale: 受控 textarea 是项目既有受控输入模式；trim 后空则省略 key，后端见不到 reason 走默认 REJECT_MESSAGE。允许类决策也会带 reason（design 162：reason 对所有决策透传），但后端 gate 仅 deny 路径用它，allow 忽略 → 无可观察影响。i18n 走既有 OPTION_LABEL_KEYS 同款 t() 机制，i18n.test.ts key parity 绿。
+- Evidence:
+  - Tests: `npx vitest run permission-card.test.tsx` → 20 passed（新增 4：理由框渲染 / deny 带 reason / 空理由省略 key / allow 带理由仍 resolve）；`i18n.test.ts` 6 passed（en/zh key parity）。`npm run build`（tsc + vite）通过无类型错误。
+  - Entry: 真实浏览器（gstack browse，真实 vite dev 挂载真实 PermissionCard 组件）。
+  - Frontend State Matrix: default（含空理由框）✓ / disabled（submitting 时 textarea + 按钮禁用，disabled={isSubmitting}）✓ / empty（留空可决策，body 省略 reason）✓ / long content（textarea rows=2 + resize vertical）✓ / mobile 375 ✓ / desktop 1440 ✓ / dark mode（项目即 dark）✓ / error（既有 alert 不破坏）✓。loading / permission denied = N/A。
+  - Browser QA: vite dev 真实页面挂载 PermissionCard 待决态。验证：理由框可见（is visible true）、placeholder 正确、键入中文「先别动这个文件」回显正常（js value 校验）、console --errors 无错误、network 无失败（仅外部字体 + vite deps 200）。截图 /tmp/feat440-shots/card-1440-empty.png、card-1440-typed.png、card-375-typed.png（理由框常驻于按钮区上方、dark mono 风格一致、375 按钮自然换行）。
+  - E2E/Regression: 组件测试落库为回归保护；端到端真栈待决卡走查（空理由拒/带理由拒/允许忽略 + 经真 agent 看 LLM 后续）归 design Runbook 的 reviewer 轨。
+  - Visual/Interaction: 见上 Browser QA 截图，对照 prototype.html（理由框常驻、选填）一致。
+- Rollback: revert R4 C2；理由框移除、reason 字段全链路选填，旧前端不发 reason 链路照常。
+- Commits: C1=test 红测, C2=feat 实现, C3=本提交。临时 harness（src/_feat440_harness.tsx / _feat440_harness.html）验收后已删除，未入库。
