@@ -33,7 +33,7 @@
 | ID | 标题 | 状态 |
 |---|---|---|
 | R1 | 内核事件带 reasoning_content（loop.py + realtime_stream.py） | DONE |
-| R2 | gateway observer 转发 thinking 过程项（不丢空正文+reasoning、不 roll 空气泡） | TODO |
+| R2 | gateway observer 转发 thinking 过程项（不丢空正文+reasoning、不 roll 空气泡） | DONE |
 | R3 | IM 持久化 + 序列化链（db/domain/repositories/event_bridge/event_types/gateway_handler/REST） | TODO |
 | R4 | 前端过程时间线（types/reducer/过程盘/message-pane/css） | TODO |
 | R5 | 真栈浏览器验收 + CLI 回归 | TODO |
