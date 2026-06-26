@@ -1201,6 +1201,15 @@ class GatewayHandler:
             source = _optional_text(payload.get("source")) or ""
             self._event_bridge.on_run_heartbeat(message_id=message_id, source=source)
 
+        elif kind == "thinking_segment":
+            # feat-439-M2: 一段思考过程项。EventBridge 持久化进 thinking_json 并广播
+            # thinking.segment。seq 在 repo 持久化边界赋予(= 当前 tool_calls 数)。
+            message_id = _require_text(
+                payload.get("message_id"), field_name="message_id"
+            )
+            text = _optional_text(payload.get("text")) or ""
+            self._event_bridge.on_thinking_segment(message_id=message_id, text=text)
+
         elif kind == "tool_call_upserted":
             message_id = _require_text(
                 payload.get("message_id"), field_name="message_id"

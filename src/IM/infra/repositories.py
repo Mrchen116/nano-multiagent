@@ -17,6 +17,7 @@ from IM.domain.models import (
     Message,
     NodeStatus,
     SettingsPolicy,
+    ThinkingSegment,
     TokenUsage,
     ToolCall,
     UsageMetric,
@@ -1210,6 +1211,56 @@ class MessageRepository:
                 messages.delivery_status,
                 messages.created_at,
                 messages.tool_calls_json,
+                messages.thinking_json,
+                messages.token_usage_json,
+                messages.elapsed_ms,
+                messages.permission_request_json,
+                users.username AS sender_username,
+                users.display_name AS sender_display_name
+            FROM messages
+            LEFT JOIN users ON users.id = messages.sender_user_id
+            WHERE messages.id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+        return self._message_from_row(refreshed)
+
+    def append_thinking_segment(self, *, message_id: str, text: str) -> Message:
+        """feat-439-M2: 追加一段思考到 ``messages.thinking_json``，返回刷新后的消息。
+
+        ``seq`` 在此（持久化边界）统一赋予：= 该消息**当前已有的 tool_calls 数**，即这段
+        思考在工具序列中的插入索引。内核事件保证一回合的思考早于该回合的工具事件到达，
+        故此处读到的工具数恰为「本段思考之前的工具」，渲染端据此把思考插到正确位置。
+        live（WS）与历史回放（REST）都读同一持久化值，口径一致。
+        """
+        row = self._connection.execute(
+            "SELECT tool_calls_json, thinking_json FROM messages WHERE id = ?",
+            (message_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"message_id not found: {message_id}")
+        existing_tools = _decode_tool_calls(row["tool_calls_json"]) or []
+        seq = len(existing_tools)
+        existing = _decode_thinking(row["thinking_json"]) or []
+        existing.append(ThinkingSegment(seq=seq, text=text))
+        with self._connection:
+            self._connection.execute(
+                "UPDATE messages SET thinking_json = ? WHERE id = ?",
+                (_encode_thinking(existing), message_id),
+            )
+        refreshed = self._connection.execute(
+            """
+            SELECT
+                messages.id,
+                messages.conversation_id,
+                messages.sender_user_id,
+                messages.sender_type,
+                messages.content,
+                messages.attachments_json,
+                messages.delivery_status,
+                messages.created_at,
+                messages.tool_calls_json,
+                messages.thinking_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
@@ -1294,6 +1345,7 @@ class MessageRepository:
                 messages.delivery_status,
                 messages.created_at,
                 messages.tool_calls_json,
+                messages.thinking_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
@@ -1495,6 +1547,9 @@ class MessageRepository:
         tool_calls_value = (
             row["tool_calls_json"] if "tool_calls_json" in row.keys() else None
         )
+        thinking_value = (
+            row["thinking_json"] if "thinking_json" in row.keys() else None
+        )
         token_usage_value = (
             row["token_usage_json"] if "token_usage_json" in row.keys() else None
         )
@@ -1530,6 +1585,7 @@ class MessageRepository:
             delivery_status=row["delivery_status"],
             created_at=row["created_at"],
             tool_calls=_decode_tool_calls(tool_calls_value),
+            thinking=_decode_thinking(thinking_value),
             token_usage=_decode_token_usage(token_usage_value),
             elapsed_ms=elapsed_ms_value,
             permission_requests=permission_requests,
@@ -2949,6 +3005,38 @@ def _decode_tool_calls(value: object) -> list[ToolCall] | None:
             # Malformed historical row — surface loudly: better than silently dropping a row's tool history.
             raise
     return out
+
+
+def _encode_thinking(segments: list[ThinkingSegment]) -> str:
+    return json.dumps(
+        [{"seq": int(s.seq), "text": s.text} for s in segments],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+
+
+def _decode_thinking(value: object) -> list[ThinkingSegment] | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, list):
+        return None
+    out: list[ThinkingSegment] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        out.append(
+            ThinkingSegment(
+                seq=int(item["seq"]) if isinstance(item.get("seq"), int) else 0,
+                text=str(item.get("text", "")),
+            )
+        )
+    return out or None
 
 
 def _encode_token_usage(usage: TokenUsage | None) -> str | None:

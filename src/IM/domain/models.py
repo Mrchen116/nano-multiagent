@@ -181,6 +181,20 @@ _TOOL_CALL_STATUSES = frozenset({"running", "completed", "failed"})
 
 
 @dataclass(frozen=True, slots=True)
+class ThinkingSegment:
+    """feat-439-M2: 助手回复一轮里的一段思考（过程时间线的「过程项」之一）。
+
+    一个气泡 = 一个 turn = 多次模型调用，每次各自可能产出一段思考；思考与工具调用按
+    真实时序混排成一条「过程」时间线。``seq`` 是该段到达时所属气泡**已有的 tool_calls
+    数**（= 它在工具序列中的插入索引）：渲染端据此把思考段插到正确的工具之间。与
+    ``ToolCall`` 一样，作为 JSON 存在 ``messages.thinking_json``，强从属于一条消息。
+    """
+
+    seq: int
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class ToolCall:
     """Represent one tool invocation embedded inside an agent message.
 
@@ -258,6 +272,9 @@ class Message:
     delivery_status: str = "completed"
     created_at: str = ""
     tool_calls: list[ToolCall] | None = None
+    # feat-439-M2: 整轮多段思考（过程时间线）。None = 本轮无思考 / 旧持久化行（不留
+    # 空壳）。每段带 seq（插入索引）+ text，与 tool_calls 并存、由渲染端按 seq merge。
+    thinking: list[ThinkingSegment] | None = None
     token_usage: TokenUsage | None = None
     # feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 None，
     # on_message_completed 写入（见 event_bridge.py）。用户消息始终为 None。

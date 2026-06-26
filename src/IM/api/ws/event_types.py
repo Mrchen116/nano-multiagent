@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from IM.domain.models import Message, TokenUsage, ToolCall
+from IM.domain.models import Message, ThinkingSegment, TokenUsage, ToolCall
 
 
 # Event type identifiers — keep as module-level constants; the EVENT_* names are stable
@@ -28,6 +28,8 @@ EVENT_MESSAGE_DELTA = "message.delta"
 EVENT_MESSAGE_COMPLETED = "message.completed"
 EVENT_TOOL_CALL_UPSERTED = "tool_call.upserted"
 EVENT_TOOL_CALL_COMPLETED = "tool_call.completed"
+# feat-439-M2: one thinking process item arrived for an in-flight agent message.
+EVENT_THINKING_SEGMENT = "thinking.segment"
 EVENT_NODE_STATUS_CHANGED = "node.status_changed"
 EVENT_AGENT_STATUS_CHANGED = "agent.status_changed"
 # feat-333-M2: permission ask flow — sent when agent awaits user decision and when resolved.
@@ -70,6 +72,15 @@ def tool_call_to_dict(tool_call: ToolCall) -> dict[str, Any]:
     return payload
 
 
+def thinking_segment_to_dict(segment: ThinkingSegment) -> dict[str, Any]:
+    """feat-439-M2: serialize one thinking process item for WS / history payloads.
+
+    Mirrors ``IM.infra.repositories._encode_thinking`` so live events and persisted
+    rows decode to the same {seq, text} shape on the frontend.
+    """
+    return {"seq": int(segment.seq), "text": segment.text}
+
+
 def token_usage_to_dict(usage: TokenUsage | None) -> dict[str, int] | None:
     if usage is None:
         return None
@@ -102,6 +113,10 @@ def build_message_created_payload(*, message: Message) -> dict[str, Any]:
         "sender_type": message.sender_type,
         "content": message.content,
         "tool_calls": [tool_call_to_dict(tc) for tc in (message.tool_calls or [])],
+        # feat-439-M2: 整轮多段思考随气泡创建一并下发，历史回放还原过程盘。
+        "thinking": [
+            thinking_segment_to_dict(s) for s in (message.thinking or [])
+        ],
         "token_usage": token_usage_to_dict(message.token_usage),
         "delivery_status": message.delivery_status,
         "created_at": message.created_at,
@@ -146,6 +161,17 @@ def build_message_completed_payload(
         "content": content,
         "token_usage": token_usage_to_dict(token_usage),
         "elapsed_ms": elapsed_ms,
+    }
+
+
+def build_thinking_segment_payload(
+    *, conversation_id: str, message_id: str, segment: ThinkingSegment
+) -> dict[str, Any]:
+    """Build payload for the ``thinking.segment`` event (one process item arrived)."""
+    return {
+        "conversation_id": conversation_id,
+        "message_id": message_id,
+        "thinking_segment": thinking_segment_to_dict(segment),
     }
 
 
