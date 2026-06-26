@@ -8,12 +8,12 @@ token 气泡详情面板在「已用上下文」行下方新增一行「缓存�
 
 ## 退出标准
 
-- [ ] `_parse_anthropic_usage` / `_parse_openai_usage`（client + mapper 两份）解析缓存字段、跨家归一（逐请求 `cache_total_input_tokens == prompt_tokens`），且 `prompt_tokens` 不变
-- [ ] `_accumulate_usage` 缓存两字段累加、prompt 仍取快照
-- [ ] gateway `main.py` token_usage_payload 显式补读/补带 cache 两字段
-- [ ] IM 透传链（`_parse_token_usage` → domain TokenUsage → repo encode/decode → event_types + REST）带 cache 字段并持久化往返
-- [ ] 前端 token-chip 渲染「缓存命中 X (Y%)」行（含 0% 空态）
-- [ ] 长对话「已用上下文」数值与改动前一致（回归核对）
+- [x] `_parse_anthropic_usage` / `_parse_openai_usage`（client + mapper 两份）解析缓存字段、跨家归一（逐请求 `cache_total_input_tokens == prompt_tokens`），且 `prompt_tokens` 不变
+- [x] `_accumulate_usage` 缓存两字段累加、prompt 仍取快照
+- [x] gateway `main.py` token_usage_payload 显式补读/补带 cache 两字段
+- [x] IM 透传链（`_parse_token_usage` → domain TokenUsage → repo encode/decode → event_types + REST）带 cache 字段并持久化往返
+- [x] 前端 token-chip 渲染「缓存命中 X (Y%)」行（含 0% 空态）
+- [x] 长对话「已用上下文」数值与改动前一致（回归核对）
 
 ## 测试策略
 
@@ -66,7 +66,7 @@ UI 状态矩阵：
 - 步骤: gateway `main.py` token_usage_payload 补读/补带 cache；IM `_parse_token_usage` 读 cache → domain TokenUsage 加字段 → repo encode/decode → event_types.token_usage_to_dict + REST routes/messages.py 带字段。
 - 验证: gateway_handler 单测、repo 往返单测、event_types 单测；`pytest tests/im_service`
 
-### R3 — 前端渲染 + 浏览器验收
+### R3 — 前端渲染 + 浏览器验收 — DONE
 
 - 步骤: chat-types.TokenUsage 加可选 `cache_read_tokens`/`cache_total_input_tokens`；token-chip.tsx「已用上下文」下加命中行；i18n zh/en 加 key。
 - 验证: token-chip.test.tsx 组件测试（命中/0%/旧数据）；真实浏览器打开 token 气泡详情看命中行截图。

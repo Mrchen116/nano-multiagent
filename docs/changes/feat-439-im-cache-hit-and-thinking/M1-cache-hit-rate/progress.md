@@ -38,6 +38,31 @@
 - Commits: C1=test red, C2=feat impl（见 git log feat-439/M1/R2）
 - Next: R3 — 前端渲染 + 浏览器验收
 
+## R3 — 前端渲染 + 浏览器验收
+
+- Context: 缓存两字段已贯穿后端到 WS/REST 出口，前端 token 气泡详情面板需新增「缓存命中 X (Y%)」行（spec 场景 A）。
+- Decision: `chat-types.TokenUsage` 加可选 `cache_read_tokens`/`cache_total_input_tokens`；`token-chip.tsx` 在「已用上下文」行下方新增缓存命中行，命中率 = `cache_read/cache_total_input`（分母 0 → 0%，`??0` 兜底旧数据）；i18n zh `缓存命中` / en `cache hit`。行恒显示（空态 0 (0%) 不隐藏）。
+- Rationale: 决策 1/4 渲染端。复用既有 detail-row 结构、不改 chip 折叠交互；可选字段 + `??0` 兜底确保旧消息（无 cache 字段）渲染 0 (0%) 而非崩。
+- Evidence:
+  - Tests: `token-chip.test.tsx` 8 passed（命中 87%、0% 空态、旧数据无字段兜底 0%）；全量前端 `vitest run` 467 passed；`npm run build`（tsc + vite）clean。
+  - Entry: 真实 REST 出口验证——seed DB（可登录 nano + 两条带缓存 token_usage 的 agent 消息）→ 启动真 IM（serve 构建产物）→ `GET /im/v1/conversations/<id>/messages` 返回含 `cache_read_tokens:168402, cache_total_input_tokens:193600` 与 `0/400`（经真 `to_message_response`）。
+  - Frontend State Matrix: default（命中 87%）✓ / empty（0%）✓ / missing-data（旧数据无字段→0%）✓ / long-content（168,402 千分位）✓；loading/error/disabled/submitting/permission N/A（chip 仅完成态）。
+  - Browser QA: 真实 Chromium（playwright，1440x900）打开构建产物 IM → 登录 nano → 开「缓存命中演示」会话 → 点开两个 token 气泡详情。命中气泡详情「context used 190,784 / 200k」下方显示「cache hit 168,402 (87%)」；无命中气泡显示「cache hit 0 (0%)」。**console error = []，无 network failure**。
+  - E2E/Regression: 组件测试 `token-chip.test.tsx`（落库回归）；浏览器截图为一次性证据（路径见下）。
+  - Visual/Interaction: 截图 `scratchpad/m1-chips-expanded.png`（命中行紧贴已用上下文行下方，符合 spec 场景 A 措辞与 prototype.html）。
+- Rollback: revert C2；可选字段，旧前端忽略、旧数据 `??0` 渲染 0%。
+- Commits: C1=test red, C2=feat impl（见 git log feat-439/M1/R3）
+- Next: milestone 完成，进入 §6 集成
+
+## Milestone 退出标准核对
+
+- [x] 两 provider client+mapper 解析缓存字段、跨家归一、prompt_tokens 不变（R1 单测）
+- [x] `_accumulate_usage` 缓存累加、prompt 快照（R1 单测）
+- [x] gateway `main.py`（+ loop.py:587）token_usage_payload 补带 cache（R2 单测）
+- [x] IM 透传链带 cache 字段并持久化往返（R2 单测，含 REST/WS 两出口）
+- [x] 前端渲染「缓存命中 X (Y%)」+ 0% 空态（R3 组件测试 + 浏览器）
+- [x] 长对话「已用上下文」数值与改动前一致——prompt_tokens 计算一字未改，R1 含「prompt_tokens 不变」断言，浏览器实测 context used 190,784 正常显示
+
 ### [实现细节记录] R2: loop.py:587 也是白名单跳（design 未点）
 
 - 现状方案: design §1.9/§3 把 cache 透传的拦截点定位在 `main.py:3596-3622`，并称 realtime_stream `dict(usage)` 为「透明透传」。
