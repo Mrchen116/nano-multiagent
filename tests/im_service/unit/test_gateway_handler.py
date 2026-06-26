@@ -656,6 +656,34 @@ def test_parse_token_usage_derives_total_when_missing() -> None:
     assert parsed.total == 42
 
 
+def test_parse_token_usage_reads_cache_hit_fields() -> None:
+    """feat-439-M1: gateway streaming_delta 带缓存命中两字段时落入 domain TokenUsage。"""
+    from IM.ws.gateway_handler import _parse_token_usage
+
+    parsed = _parse_token_usage(
+        {
+            "prompt": 400,
+            "completion": 15,
+            "total": 415,
+            "cache_read": 270,
+            "cache_total_input": 400,
+        }
+    )
+    assert parsed is not None
+    assert parsed.cache_read_tokens == 270
+    assert parsed.cache_total_input_tokens == 400
+
+
+def test_parse_token_usage_cache_defaults_zero_when_absent() -> None:
+    """无 cache 字段(旧 gateway)时默认 0，不丢其它字段。"""
+    from IM.ws.gateway_handler import _parse_token_usage
+
+    parsed = _parse_token_usage({"prompt": 12, "completion": 30})
+    assert parsed is not None
+    assert parsed.cache_read_tokens == 0
+    assert parsed.cache_total_input_tokens == 0
+
+
 # ---------------------------------------------------------------------------
 # feat-393: turn_start to_user_id 模式 — heartbeat canonical 直聊解析
 # ---------------------------------------------------------------------------

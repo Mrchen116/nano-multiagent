@@ -61,6 +61,36 @@ def test_create_message_persists_tool_calls_and_token_usage(tmp_path: Path) -> N
     assert listed[-1].token_usage == usage
 
 
+def test_token_usage_cache_fields_round_trip(tmp_path: Path) -> None:
+    """feat-439-M1: 缓存命中两字段经 encode/decode 持久化往返不丢。"""
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+
+    usage = TokenUsage(
+        output=15,
+        context_used=400,
+        context_window=200000,
+        total=415,
+        cache_read_tokens=270,
+        cache_total_input_tokens=400,
+    )
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="hi",
+        token_usage=usage,
+    )
+    assert created.token_usage == usage
+
+    listed = messages.list_messages(conversation_id=conversation.id)
+    assert listed[-1].token_usage is not None
+    assert listed[-1].token_usage.cache_read_tokens == 270
+    assert listed[-1].token_usage.cache_total_input_tokens == 400
+
+
 def test_create_message_default_tool_calls_and_token_usage_are_none(
     tmp_path: Path,
 ) -> None:

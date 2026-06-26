@@ -122,12 +122,32 @@ def test_build_message_completed_payload_with_token_usage() -> None:
     )
     assert payload["content"] == "full text"
     # M17/R8-3: total field added; falls back to context_used + output when not stored.
+    # feat-439-M1: 缓存命中两字段恒带出(无命中=0)，前端据此渲染「缓存命中 X (Y%)」行。
     assert payload["token_usage"] == {
         "output": 42,
         "context_used": 1000,
         "context_window": 200000,
         "total": 1042,
+        "cache_read_tokens": 0,
+        "cache_total_input_tokens": 0,
     }
+
+
+def test_token_usage_to_dict_surfaces_cache_hit_fields() -> None:
+    """feat-439-M1: token_usage_to_dict 带出整轮缓存命中量与总输入量。"""
+    usage = TokenUsage(
+        output=42,
+        context_used=1000,
+        context_window=200000,
+        total=1042,
+        cache_read_tokens=270,
+        cache_total_input_tokens=400,
+    )
+    payload = build_message_completed_payload(
+        conversation_id="c1", message_id="m1", content="x", token_usage=usage
+    )
+    assert payload["token_usage"]["cache_read_tokens"] == 270
+    assert payload["token_usage"]["cache_total_input_tokens"] == 400
 
 
 def test_build_message_completed_payload_without_token_usage() -> None:
