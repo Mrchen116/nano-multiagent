@@ -203,6 +203,24 @@ export function ChatWorkspacePageV2() {
     refetchOnWindowFocus: false
   });
 
+  // bugfix-442: 实时消息流驱动侧边栏会话列表刷新时去抖，避免群聊多 agent 同回合
+  // 连续重拉。timer 跨渲染稳定，组件卸载时清理。
+  const conversationsRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    return () => {
+      if (conversationsRefreshTimer.current) clearTimeout(conversationsRefreshTimer.current);
+    };
+  }, []);
+
+  // bugfix-442: 读消息走 markAsRead=true 让后端把该会话 unread_count 清零，但侧边栏
+  // 角标来自独立的 conversations query，不会自动反映。react-query v5 的 useQuery 无
+  // onSuccess，用 effect 监听每次成功取数(dataUpdatedAt 变化)后刷新会话列表。
+  useEffect(() => {
+    if (messagesQuery.isSuccess) {
+      void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+    }
+  }, [messagesQuery.isSuccess, messagesQuery.dataUpdatedAt, queryClient]);
+
   const agentsQuery = useQuery({
     queryKey: ["chat-v2", "agents"],
     queryFn: fetchAgents
@@ -438,6 +456,19 @@ export function ChatWorkspacePageV2() {
             });
             return changed ? next : prev;
           });
+        } else if (
+          event.eventType === "message.sent" ||
+          event.eventType === "message_created" ||
+          event.eventType === "relay.completed"
+        ) {
+          // bugfix-442: 新消息/回复到达——该会话的未读、preview、时间、排序都可能变。
+          // 后端在收消息时已维护好这些字段，去抖后重新拉会话列表一次性反映。这条
+          // 用户维流覆盖所有会话，是驱动侧边栏的正确通道；与会话内 openChatStream
+          // (只更新当前打开会话的气泡)正交。
+          if (conversationsRefreshTimer.current) clearTimeout(conversationsRefreshTimer.current);
+          conversationsRefreshTimer.current = setTimeout(() => {
+            void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+          }, 250);
         }
       }
     });
