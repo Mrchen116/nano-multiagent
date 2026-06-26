@@ -120,6 +120,55 @@ def test_relay_lifecycle_callback_sends_receipts_and_reports_with_real_usage_to_
     assert manager.sent_frames[3][1]["detail"] == "hello from agent"
 
 
+def test_relay_lifecycle_callback_failed_sends_message_level_report_with_real_cause() -> (
+    None
+):
+    # bugfix-437 decision 3: a failed run must surface a message-level node.report
+    # (status=failed, message_id, summary=真因) so the IM placeholder bubble flips
+    # to failed within seconds with a readable cause — mirroring the completed
+    # branch — instead of only a relay-task delivery_receipt that leaves the bubble
+    # spinning until the 120s idle watchdog.
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-local"), agents=(), send_frame=lambda _t, _p: None
+    )
+    manager = _FakeIMManager([])
+    callback = _build_relay_lifecycle_callback(
+        reporter=reporter,
+        im_connection_manager_factory=lambda: manager,
+    )
+    message = type("_Message", (), {})()
+    message.external_chat_id = "conv-1"
+    message.metadata = {"relay_task_id": "relay-1", "message_id": "msg-1"}
+
+    async def _exercise() -> None:
+        await callback(
+            message,
+            RelayLifecycleUpdate(
+                phase="failed",
+                agent_id="agent-a",
+                session_key="web:user:agent-a",
+                run_id="run-1",
+                error="context overflow: compaction failed",
+            ),
+        )
+
+    asyncio.run(_exercise())
+
+    assert [item[0] for item in manager.sent_frames] == [
+        "node.report",
+        "node.delivery_receipt",
+    ]
+    report = manager.sent_frames[0][1]
+    assert report["status"] == "failed"
+    assert report["message_id"] == "msg-1"
+    assert report["agent_id"] == "agent-a"
+    assert report["conversation_id"] == "conv-1"
+    assert report["summary"] == "context overflow: compaction failed"
+    receipt = manager.sent_frames[1][1]
+    assert receipt["delivery_status"] == "failed"
+    assert receipt["detail"] == "context overflow: compaction failed"
+
+
 def test_build_relay_lifecycle_callback_marks_no_reply_suppression_in_completed_receipt() -> (
     None
 ):

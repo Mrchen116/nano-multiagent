@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-436-per-model-context-window
+> 对齐: bugfix-437-compaction-workspace-root-crash
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -566,3 +566,20 @@ Gateway 把内核工具执行事件中继到 IM 时，除既有的 reason 徽标
 - **GIVEN** config 某模型条目把 `context_window` 写成非正整数
 - **WHEN** 运维者用该模型经 Gateway 跑对话
 - **THEN** Gateway 不崩溃,按未声明处理回退内核默认上限
+
+### Requirement: agent 回复失败时即时反馈真实原因
+
+当一轮 agent 回复因故无法完成时,Gateway 即时把该条回复在消息级翻为失败态并附带可读的真实失败原因,
+归属到对应 agent。该即时反馈不依赖 IM 的 idle 看门狗;看门狗仅在「整个节点失联、无法发出任何反馈」时
+作为最后兜底。
+
+#### Scenario: run 失败即时翻为失败态
+- **GIVEN** 用户向某 agent 发了一条消息,该 agent 开始回复
+- **WHEN** 这一轮回复在中途失败(例如超长会话腾挪后仍无法继续)
+- **THEN** 该条回复在数秒内翻为失败态,携带可读的真实失败原因,并归属到该 agent
+- **AND** 用户无需等待约两分钟才看到一句笼统的「relay idle」超时提示
+
+#### Scenario: 节点失联时看门狗仍兜底
+- **GIVEN** 一条 agent 回复处于进行中
+- **WHEN** 整个节点失联、无法发出任何终态反馈
+- **THEN** IM 的 idle 看门狗在静默窗口后仍把该回复兜底翻为失败,避免其永久停在进行中

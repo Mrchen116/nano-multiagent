@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: feat-436-per-model-context-window
+> 对齐: bugfix-437-compaction-workspace-root-crash
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -314,6 +314,11 @@ SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报�
 - **GIVEN** 某模型未声明上下文窗口(或声明值非正整数)
 - **WHEN** 用该模型推进会话
 - **THEN** 内核按默认上限判定压缩,运行不因缺少该声明而报错
+
+#### Scenario: 工作区绑定的会话压缩落盘后运行透明继续
+- **GIVEN** 一个绑定了 `workspace_root` 的会话(消费者经 `create_session(workspace_root=…)` 创建),其上下文已增长到触发压缩(自动阈值或 overflow 恢复)
+- **WHEN** 消费者继续推进该会话一轮
+- **THEN** 内核完成压缩并落盘,该轮以成功终态正常完成,**不因无法定位会话存储位置而失败**;压缩后会话仍可由事件重放重建,且先前轮次内容不被清空
 
 ### Requirement: 内核内置基础工具集,执行受工作区安全约束
 

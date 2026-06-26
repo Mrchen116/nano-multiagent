@@ -3165,6 +3165,29 @@ def _build_relay_lifecycle_callback(
         if update.phase == "failed":
             if run_context_store is not None and update.run_id:
                 run_context_store.pop(update.run_id, None)
+            # bugfix-437 decision 3: mirror the completed branch with a message-level
+            # node.report(status=failed) so the placeholder bubble flips to failed
+            # within seconds carrying the real cause. send_report has no `error`
+            # param — the cause rides on `summary` (IM's failed-bubble text reads it).
+            # The relay-task delivery_receipt below is kept; the 120s idle watchdog
+            # is left as the last-resort "node truly dead" net only.
+            message_id = _metadata_text(message.metadata, key="message_id")
+            send_report = getattr(reporter, "send_report", None)
+            if (
+                callable(send_report)
+                and message_id is not None
+                and update.run_id is not None
+            ):
+                payload = send_report(
+                    run_id=update.run_id,
+                    status="failed",
+                    agent_id=update.agent_id,
+                    session_key=update.session_key,
+                    conversation_id=message.external_chat_id,
+                    message_id=message_id,
+                    summary=update.error,
+                )
+                await manager.send_json("node.report", payload)
             payload = reporter.send_delivery_receipt(
                 relay_task_id=relay_task_id,
                 delivery_status="failed",

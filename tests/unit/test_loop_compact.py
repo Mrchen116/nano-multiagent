@@ -9,6 +9,7 @@ Exit criteria from design.md:
 """
 
 from collections.abc import AsyncIterator
+from pathlib import Path
 
 import pytest
 
@@ -55,7 +56,7 @@ class _FakeSessionManager:
     def __init__(self, history_messages: tuple[Message, ...]) -> None:
         self._history = history_messages
 
-    def list_entries(self, session_id: str):
+    def list_entries(self, session_id: str, *, workspace_root: Path | None = None):
         from agent.core.session.entries import (
             SessionEntry,
             SessionEntryKind,
