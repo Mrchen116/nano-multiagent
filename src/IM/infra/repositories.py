@@ -1547,9 +1547,7 @@ class MessageRepository:
         tool_calls_value = (
             row["tool_calls_json"] if "tool_calls_json" in row.keys() else None
         )
-        thinking_value = (
-            row["thinking_json"] if "thinking_json" in row.keys() else None
-        )
+        thinking_value = row["thinking_json"] if "thinking_json" in row.keys() else None
         token_usage_value = (
             row["token_usage_json"] if "token_usage_json" in row.keys() else None
         )

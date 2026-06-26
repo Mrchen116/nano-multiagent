@@ -114,9 +114,7 @@ def build_message_created_payload(*, message: Message) -> dict[str, Any]:
         "content": message.content,
         "tool_calls": [tool_call_to_dict(tc) for tc in (message.tool_calls or [])],
         # feat-439-M2: 整轮多段思考随气泡创建一并下发，历史回放还原过程盘。
-        "thinking": [
-            thinking_segment_to_dict(s) for s in (message.thinking or [])
-        ],
+        "thinking": [thinking_segment_to_dict(s) for s in (message.thinking or [])],
         "token_usage": token_usage_to_dict(message.token_usage),
         "delivery_status": message.delivery_status,
         "created_at": message.created_at,
