@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>feat-439 原型 · 缓存命中率 + thinking 过程时间线</title>
+<!--
+  重做说明（对齐真实现状）：
+  - 真实 IM 是「浅色」主题（global.css: --im-bg oklch(0.98...), 白卡, 青色 accent, IBM Plex 字体），
+    旧原型整个做成深色自创主题，全错。本稿直接复刻 global.css 的设计 token 与组件结构。
+  - thinking 不是「一条消息一段」：一个气泡 = 一个 turn = N 次 LLM 请求，每次各自带 thinking
+    （loop.py:390-404 共享 group_id）。所以渲染成「过程时间线」：thinking 段与工具调用按真实
+    时序混排进同一个可展开盘（沿用 chat-tool-calls 折叠盘形态，升级为 thinking+tool 混合）。
+  - 无逐字流式：内核事件是消息级（realtime_stream 词表无 token delta），思考整段到达。
+-->
+<style>
+  :root {
+    /* ↓ 直接取自 src/IM/frontend/src/styles/global.css */
+    --im-bg: oklch(0.98 0.005 240);
+    --im-surface: oklch(1 0 0);
+    --im-surface-2: oklch(0.965 0.006 240);
+    --im-topbar: oklch(0.19 0.012 240);
+    --im-topbar-fg: oklch(0.96 0.004 240);
+    --im-accent: oklch(0.52 0.14 180);
+    --im-accent-fg: oklch(0.99 0 0);
+    --im-text: oklch(0.21 0.012 240);
+    --im-text-muted: oklch(0.5 0.012 240);
+    --im-border: oklch(0.9 0.008 240);
+    --im-border-strong: oklch(0.82 0.01 240);
+    --card: oklch(0.91 0.007 240);
+    --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    /* thinking 配色：在深色过程盘里用柔和靛紫，和工具的青色区分但同调 */
+    --think: oklch(0.74 0.1 290);
+    --think-body: oklch(0.66 0.04 290);
+    --cache: oklch(0.72 0.14 165);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px 24px 64px;
+    background: var(--im-bg); color: var(--im-text);
+    font: 14px/1.55 var(--font-sans);
+  }
+  h1 { font-size: 19px; font-weight: 700; margin: 0 0 4px; }
+  .sub { color: var(--im-text-muted); font-size: 13px; margin: 0 0 8px; }
+  .legend { color: var(--im-text-muted); font-size: 12px; margin: 0 0 28px; }
+  .legend b { color: var(--cache); }
+  .legend i { color: var(--think); font-style: normal; }
+  .section-label { font-size: 12px; font-weight: 700; color: var(--im-text-muted); text-transform: none; margin: 30px 0 12px; letter-spacing: .02em; }
+
+  /* ── 聊天面板（复刻 chat-pane 浅色） ── */
+  .pane {
+    background: var(--im-surface); border: 1px solid var(--im-border);
+    border-radius: 14px; padding: 18px 20px; max-width: 720px;
+    box-shadow: 0 12px 32px -22px oklch(0.2 0.012 240 / 0.45);
+  }
+  .pane.narrow { max-width: 420px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; max-width: 720px; }
+  @media (max-width: 760px){ .grid2 { grid-template-columns: 1fr; } }
+
+  /* ── 消息气泡（复刻 chat-bubble--agent） ── */
+  .msg { display: flex; flex-direction: row; gap: 10px; align-items: flex-start; margin-bottom: 6px; }
+  .avatar { width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0; display:flex; align-items:center; justify-content:center; color:#fff; font-size:12px; font-weight:600; background: oklch(0.52 0.14 270); }
+  .msg-col { display:flex; flex-direction:column; min-width:0; }
+  .sender { font-size: .72rem; font-weight: 600; color: var(--im-text-muted); margin-bottom: 4px; }
+  .card {
+    background: var(--card); border-radius: 1rem 1rem 1rem 0.25rem;
+    padding: 9px 13px; font-size: .875rem; line-height: 1.5;
+  }
+  .status { margin-top: 2px; font-size: 11px; color: oklch(0.55 0.01 240); display:flex; gap:8px; }
+
+  /* ── 过程时间线折叠盘（沿用 chat-tool-calls 形态） ── */
+  .proc { margin-top: .55rem; }
+  .proc-toggle {
+    display: inline-flex; align-items: center; gap: .35rem;
+    padding: .25rem .6rem; border-radius: 999px;
+    background: oklch(0.92 0.008 240); border: 1px solid oklch(0.86 0.01 240);
+    cursor: pointer; font: inherit; font-size: .75rem; font-weight: 600;
+    color: oklch(0.45 0.01 240); transition: all .15s;
+  }
+  .proc-toggle:hover { background: oklch(0.88 0.008 240); }
+  .proc-toggle.open { background: oklch(0.18 0.02 240); border-color: oklch(0.3 0.04 180); color: oklch(0.75 0.1 180); }
+  .proc-toggle .arrow { font-size: .65rem; }
+  .proc-toggle .seg-think { color: var(--think); }
+  .proc-toggle .sep { opacity:.5; }
+
+  /* 展开体：深色面板（复刻 chat-tool-calls-list 深色） */
+  .proc-list {
+    list-style:none; margin:.5rem 0 0; padding:0; border-radius:.6rem; overflow:hidden;
+    background: oklch(0.13 0.015 240); border: 1px solid oklch(0.22 0.02 240);
+    box-shadow: 0 4px 16px oklch(0.05 0.01 240 / 0.5);
+  }
+  .proc-item { border-bottom: 1px solid oklch(0.25 0.01 240); }
+  .proc-item:last-child { border-bottom: 0; }
+
+  /* 工具行（复刻 chat-tool-call-row） */
+  .row { display:flex; align-items:center; gap:.5rem; width:100%; padding:.45rem .85rem; background:none; border:0; cursor:pointer; text-align:left; color: oklch(0.85 0.01 240); font: inherit; font-size:.78rem; }
+  .row:hover { background: oklch(0.16 0.015 240); }
+  .row .ico { font-size:.6rem; flex-shrink:0; }
+  .row .name { font-family: var(--font-mono); font-size:.72rem; color: oklch(0.9 0.05 180); font-weight:500; white-space:nowrap; flex-shrink:0; }
+  .row .summary { flex:1; min-width:0; font-size:.72rem; color: oklch(0.6 0.01 240); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .row .dur { font-size:.7rem; color: oklch(0.55 0.01 240); font-family: var(--font-mono); flex-shrink:0; }
+  .row .chev { font-size:.6rem; color: oklch(0.5 0.01 240); flex-shrink:0; margin-left:.2rem; }
+
+  /* 思考行（新；与工具行同构，靛紫调） */
+  .row.think .name { color: var(--think); font-family: var(--font-sans); }
+  .row.think .ico { color: var(--think); }
+  .row.think .summary { color: var(--think-body); font-style: italic; }
+  .think-body { padding: 0 .85rem .6rem 2.1rem; color: var(--think-body); font-size:.74rem; line-height:1.65; font-style: italic; white-space: pre-wrap; }
+
+  /* ── token 气泡（复刻 chat-token-chip） ── */
+  .chipwrap { position:relative; margin-top:.45rem; }
+  .chip { display:inline-flex; align-items:center; gap:.3rem; padding:.15rem .55rem; border-radius:999px; background: oklch(0.84 0.01 240); border:1px solid oklch(0.76 0.012 240); cursor:pointer; font-size:.72rem; font-weight:600; color: oklch(0.38 0.01 240); font-family: var(--font-mono); }
+  .chip.crit { color: oklch(0.55 0.15 25); border-color: oklch(0.55 0.15 25); }
+  .chip .arrow { opacity:.7; font-size:.6rem; }
+  .chip .dot { opacity:.4; font-size:.6rem; margin:0 1px; }
+  .chip .ctx-crit { color: oklch(0.55 0.15 25); }
+  .detail {
+    margin-top:.25rem; padding:.6rem .75rem; border-radius:.55rem;
+    background: oklch(0.14 0.014 240); border:1px solid oklch(0.22 0.015 240);
+    font-family: var(--font-mono); font-size:.72rem; display:grid; gap:.5rem; width:248px;
+  }
+  .d-row { display:flex; justify-content:space-between; }
+  .d-row .lbl { color: oklch(0.5 0.01 240); }
+  .d-row .val { color: oklch(0.85 0.02 240); }
+  /* 新增缓存命中行：绿调高亮 */
+  .d-row.cache .lbl { color: var(--cache); }
+  .d-row.cache .val { color: var(--cache); font-weight:700; }
+  .bar-wrap { display:flex; align-items:center; gap:.4rem; }
+  .bar-track { flex:1; height:5px; border-radius:999px; background: oklch(0.22 0.01 240); overflow:hidden; }
+  .bar-fill { height:100%; border-radius:999px; background: oklch(0.55 0.15 25); }
+  .bar-pct { font-size:.65rem; font-weight:700; color: oklch(0.7 0.15 25); }
+  .warn { margin:0; font-size:.65rem; color: oklch(0.7 0.15 25); font-family: var(--font-sans); }
+
+  .ext { font-size:12px; color: var(--im-text-muted); margin-top:12px; padding-top:12px; border-top:1px dashed var(--im-border-strong); }
+  .ext b { color: var(--im-text); }
+  .pill-tag { display:inline-block; font-size:10px; padding:1px 7px; border-radius:5px; background: oklch(0.93 0.03 290); color: oklch(0.45 0.12 290); margin-left:6px; vertical-align:1px; font-weight:600; }
+</style>
+</head>
+<body>
+  <h1>feat-439 原型 · 缓存命中率 + thinking 过程时间线</h1>
+  <p class="sub">忠实复刻真实内部 Web IM（浅色主题 / IBM Plex / chat-bubble 结构）。展示改造后的实际效果。</p>
+  <p class="legend">图例：<b>绿色</b> = token 详情新增的「缓存命中」行；<i>💭 靛紫</i> = thinking 段（仅内部 IM）。点折叠盘 / 思考行 / token 气泡可交互。</p>
+
+  <p class="section-label">① 一个气泡 = 多轮 LLM 请求：思考段与工具调用按真实时序混排进「过程」盘</p>
+  <div class="pane">
+    <div class="msg">
+      <div class="avatar">DA</div>
+      <div class="msg-col">
+        <div class="sender">default-agent</div>
+        <div class="card">
+          <div>这一轮累计缓存命中率约 <b>87%</b>——16.8 万 token 的 context 大部分靠 provider 前缀缓存命中，没真的重算。修复点已落在 <code>loop.py</code> 的 <code>_accumulate_usage</code>。</div>
+
+          <!-- 过程时间线：thinking + tool 混排（本轮 2 段思考 + 3 工具） -->
+          <div class="proc">
+            <button class="proc-toggle open" data-toggle="proc1">
+              <span class="arrow">▾</span>
+              <span>过程</span><span class="sep">·</span><span>3 工具</span>
+              <span class="sep">·</span><span class="seg-think">2 段思考</span>
+            </button>
+            <ul class="proc-list" id="proc1">
+              <li class="proc-item">
+                <div class="row think" data-think="t1">
+                  <span class="ico">💭</span><span class="name">思考</span>
+                  <span class="summary">用户要整轮累计命中率，不是最后一次快照…</span>
+                  <span class="chev">▾</span>
+                </div>
+                <div class="think-body" data-body="t1">用户要的是整轮累计命中率，不是最后一次快照。prompt_tokens 取的是最后一次请求的快照，绝不能动（否则「已用上下文」就错）。命中率的分子分母得另带两个字段，且跨请求累加。先去看 TokenUsage 现在长什么样。</div>
+              </li>
+              <li class="proc-item">
+                <div class="row">
+                  <span class="ico" style="color:oklch(0.55 0.18 145)">●</span>
+                  <span class="name">🔧 read</span>
+                  <span class="summary">core/types.py · TokenUsage 定义</span>
+                  <span class="dur">12ms</span><span class="chev">▸</span>
+                </div>
+              </li>
+              <li class="proc-item">
+                <div class="row">
+                  <span class="ico" style="color:oklch(0.55 0.18 145)">●</span>
+                  <span class="name">🔧 grep</span>
+                  <span class="summary">cache_read / prompt_tokens_details 上游字段</span>
+                  <span class="dur">34ms</span><span class="chev">▸</span>
+                </div>
+              </li>
+              <li class="proc-item">
+                <div class="row think" data-think="t2">
+                  <span class="ico">💭</span><span class="name">思考</span>
+                  <span class="summary">两家 provider 的 input 口径不同，要在 provider 层归一…</span>
+                  <span class="chev">▾</span>
+                </div>
+                <div class="think-body" data-body="t2">Anthropic 的 input_tokens 不含缓存、OpenAI 的 prompt_tokens 已含 cached——直接套同一公式会重复计。归一动作收敛在各自 _parse_*_usage 里，下游只做累加 + 相除。改 loop.py 的 _accumulate_usage 把两个缓存字段也累加。</div>
+              </li>
+              <li class="proc-item">
+                <div class="row">
+                  <span class="ico" style="color:oklch(0.55 0.18 145)">●</span>
+                  <span class="name">🔧 edit</span>
+                  <span class="summary">loop.py · _accumulate_usage 累加缓存字段</span>
+                  <span class="dur">8ms</span><span class="chev">▸</span>
+                </div>
+              </li>
+            </ul>
+          </div>
+
+          <!-- token 气泡：详情含新增「缓存命中」行 -->
+          <div class="chipwrap">
+            <div class="chip crit" data-toggle="det1"><span class="arrow">▾</span>193.2k tok<span class="dot">·</span><span class="ctx-crit">95%</span></div>
+            <div class="detail" id="det1">
+              <div class="d-row"><span class="lbl">输出 token</span><span class="val">2,439</span></div>
+              <div class="d-row"><span class="lbl">总计 token</span><span class="val">193,223</span></div>
+              <div class="d-row"><span class="lbl">已用上下文</span><span class="val">190,784 / 200k</span></div>
+              <div class="d-row cache"><span class="lbl">缓存命中</span><span class="val">168,402 (87%)</span></div>
+              <div class="bar-wrap"><div class="bar-track"><div class="bar-fill" style="width:95%"></div></div><span class="bar-pct">95%</span></div>
+              <p class="warn">⚠ 上下文即将满 — 考虑 /compact</p>
+            </div>
+          </div>
+        </div>
+        <div class="status"><span>14:32</span><span>⏱ 8.4s</span></div>
+      </div>
+    </div>
+  </div>
+
+  <p class="section-label">② 空态 / 无思考 / 外部对照</p>
+  <div class="grid2">
+    <!-- 2a: 缓存 0% 空态 -->
+    <div class="pane narrow">
+      <p class="sub" style="margin-bottom:12px">本轮无缓存命中——「缓存命中」行仍显示，值 0 (0%)</p>
+      <div class="chipwrap" style="margin-top:0">
+        <div class="chip" data-toggle="det2"><span class="arrow">▾</span>3.1k tok<span class="dot">·</span>4%</div>
+        <div class="detail" id="det2" style="display:none">
+          <div class="d-row"><span class="lbl">输出 token</span><span class="val">512</span></div>
+          <div class="d-row"><span class="lbl">总计 token</span><span class="val">3,096</span></div>
+          <div class="d-row"><span class="lbl">已用上下文</span><span class="val">2,584 / 200k</span></div>
+          <div class="d-row cache"><span class="lbl">缓存命中</span><span class="val">0 (0%)</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 2b: 无思考的回合 -->
+    <div class="pane narrow">
+      <p class="sub" style="margin-bottom:12px">模型本轮没产出思考——过程盘只有工具、无 💭，无思考不留空壳</p>
+      <div class="msg">
+        <div class="avatar" style="background:oklch(0.55 0.14 30)">QA</div>
+        <div class="msg-col">
+          <div class="sender">qa-agent</div>
+          <div class="card">
+            <div>已经跑完，全绿。</div>
+            <div class="proc">
+              <button class="proc-toggle" data-toggle="proc2"><span class="arrow">▸</span><span>过程</span><span class="sep">·</span><span>1 工具</span></button>
+              <ul class="proc-list" id="proc2" style="display:none">
+                <li class="proc-item"><div class="row"><span class="ico" style="color:oklch(0.55 0.18 145)">●</span><span class="name">🔧 bash</span><span class="summary">pytest -q · 142 passed</span><span class="dur">6.1s</span><span class="chev">▸</span></div></li>
+              </ul>
+            </div>
+          </div>
+          <div class="status"><span>14:35</span><span>⏱ 6.4s</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="section-label">③ 外部 IM 对照（经 channel 接入的第三方）</p>
+  <div class="pane narrow">
+    <div class="msg">
+      <div class="avatar">DA</div>
+      <div class="msg-col">
+        <div class="sender">default-agent</div>
+        <div class="card"><div>这一轮累计缓存命中率约 87%——16.8 万 token 的 context 大部分靠前缀缓存命中。</div></div>
+      </div>
+    </div>
+    <p class="ext">🌐 同一条回复送达外部 IM 时<b>只有正文</b>——不渲染「过程」盘、<b>不含任何 💭 思考</b>（缓存命中详情属内部排障信息，外部触点也不带）。</p>
+  </div>
+
+  <script>
+    const displayFor = (t) => t.classList.contains('detail') ? 'grid' : 'block';
+    // 折叠盘 / 详情：点 data-toggle 切显隐
+    document.querySelectorAll('[data-toggle]').forEach(el => {
+      el.addEventListener('click', () => {
+        const target = document.getElementById(el.dataset.toggle);
+        if (!target) return;
+        const shown = target.style.display !== 'none';
+        target.style.display = shown ? 'none' : displayFor(target);
+        el.classList.toggle('open', !shown);
+        const a = el.querySelector('.arrow'); if (a) a.textContent = shown ? '▸' : '▾';
+      });
+    });
+    // 思考行展开/收起完整思考
+    document.querySelectorAll('[data-think]').forEach(row => {
+      row.addEventListener('click', () => {
+        const body = document.querySelector(`[data-body="${row.dataset.think}"]`);
+        if (!body) return;
+        const shown = body.style.display !== 'none';
+        body.style.display = shown ? 'none' : 'block';
+        const c = row.querySelector('.chev'); if (c) c.textContent = shown ? '▸' : '▾';
+      });
+    });
+  </script>
+</body>
+</html>
