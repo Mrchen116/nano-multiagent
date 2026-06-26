@@ -61,7 +61,7 @@ UI 状态矩阵：
 - 步骤: types.TokenUsage 加 `cache_read_tokens`/`cache_total_input_tokens`（默认 0）；anthropic/openai 各 client+mapper 的 `_parse_*_usage` 追加两字段（prompt_tokens 不动，OpenAI 补读 cached）；`_accumulate_usage` 两字段累加。
 - 验证: provider 解析单测（含 prompt_tokens 不变 + 归一断言）、accumulate 单测；`pytest tests/unit/test_llm_anthropic_mapper.py 等`
 
-### R2 — Gateway + IM 透传与持久化
+### R2 — Gateway + IM 透传与持久化 — DONE
 
 - 步骤: gateway `main.py` token_usage_payload 补读/补带 cache；IM `_parse_token_usage` 读 cache → domain TokenUsage 加字段 → repo encode/decode → event_types.token_usage_to_dict + REST routes/messages.py 带字段。
 - 验证: gateway_handler 单测、repo 往返单测、event_types 单测；`pytest tests/im_service`
