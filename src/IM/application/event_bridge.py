@@ -278,8 +278,9 @@ class EventBridge:
     def on_thinking_segment(self, *, message_id: str, text: str) -> None:
         """feat-439-M2: 持久化一段思考过程项并发 ``thinking.segment`` 事件。
 
-        seq 由 repo 在持久化边界按当前 tool_calls 数赋予（= 插入索引）；这里取刚追加的
-        那一段（最后一段）回传到 WS，live 与历史回放口径一致。
+        seq 由 repo 在持久化边界赋予：思考与工具共享一个 per-message 单调递增、按真实
+        到达序的唯一序号。这里取刚追加的那一段（最后一段、已带 seq）回传到 WS，live 与
+        历史回放口径一致（同一持久化 seq，重放可按 seq 幂等去重）。
         """
         updated = self.message_repository.append_thinking_segment(
             message_id=message_id, text=text

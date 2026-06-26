@@ -3406,8 +3406,8 @@ def _build_kernel_event_observer(
             # feat-439-M2: 整轮每回合各带一段思考(决策 4 / §1 事实 A)。空正文「且无
             # 思考」的回合仍整段丢弃(避免空气泡)；空正文「但有思考」的回合不再丢，作为
             # 「过程项」转发到当前气泡(不 roll 新气泡、不发空 delta)。思考段的时序序号
-            # 由 IM 持久化边界按到达时气泡已有的 tool_calls 数赋予(= 插入索引)，gateway
-            # 只负责把 reasoning 转发到正确的目标气泡。
+            # 由 IM 持久化边界赋予(思考与工具共享一个 per-message 单调递增、按到达序的
+            # 唯一序号)，gateway 不算 seq、只负责把 reasoning 转发到正确的目标气泡。
             reasoning = str(event.get("reasoning_content") or "").strip()
             if not content and not reasoning:
                 return None

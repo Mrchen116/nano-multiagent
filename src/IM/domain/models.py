@@ -185,9 +185,11 @@ class ThinkingSegment:
     """feat-439-M2: 助手回复一轮里的一段思考（过程时间线的「过程项」之一）。
 
     一个气泡 = 一个 turn = 多次模型调用，每次各自可能产出一段思考；思考与工具调用按
-    真实时序混排成一条「过程」时间线。``seq`` 是该段到达时所属气泡**已有的 tool_calls
-    数**（= 它在工具序列中的插入索引）：渲染端据此把思考段插到正确的工具之间。与
-    ``ToolCall`` 一样，作为 JSON 存在 ``messages.thinking_json``，强从属于一条消息。
+    真实时序混排成一条「过程」时间线。``seq`` 是与 ``ToolCall.seq`` **共享的同一个
+    per-message 单调递增序号**——由 IM 在持久化边界按真实到达序赋值、全局唯一（跨思考
+    与工具一个计数器）：渲染端按 seq 升序把思考与工具 merge 成时间线，唯一性也让 live
+    WS 事件可按 seq 幂等去重。与 ``ToolCall`` 一样作为 JSON 存在 ``messages.thinking_json``，
+    强从属于一条消息。
     """
 
     seq: int
@@ -277,7 +279,8 @@ class Message:
     created_at: str = ""
     tool_calls: list[ToolCall] | None = None
     # feat-439-M2: 整轮多段思考（过程时间线）。None = 本轮无思考 / 旧持久化行（不留
-    # 空壳）。每段带 seq（插入索引）+ text，与 tool_calls 并存、由渲染端按 seq merge。
+    # 空壳）。每段带 seq（与 tool_calls 共享的 per-message 单调递增唯一序号）+ text，
+    # 与 tool_calls 并存、由渲染端按 seq 升序 merge 成时间线。
     thinking: list[ThinkingSegment] | None = None
     token_usage: TokenUsage | None = None
     # feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 None，
