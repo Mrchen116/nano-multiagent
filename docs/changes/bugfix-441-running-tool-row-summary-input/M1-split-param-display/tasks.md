@@ -73,6 +73,6 @@ UI 状态矩阵：
 
 ### R3 — full gates and live IM Web evidence
 
-- 状态: TODO
+- 状态: BLOCKED
 - 步骤: 跑全量 pytest/vitest/build；启动 worktree 真栈 IM+Gateway+Vite，驱动长 bash、agent、web_search，记录 running/完成态可见证据。
-- 验证: progress 逐条覆盖 M1 退出标准，真栈截图/日志可复查。
+- 验证: pytest/vitest/build 已绿；真栈截图/日志因当前 Codex escalated usage limit + 沙箱端口探测限制未完成，不能 DONE。

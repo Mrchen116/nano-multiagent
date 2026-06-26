@@ -45,16 +45,16 @@
 
 ## R3 — full gates and live IM Web evidence
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: R1/R2 implementation is complete. Full pytest initially exposed one missed contract update in `test_presentation_golden.py`: the golden start tuples still expected `detail=None` for builtin tools. Updating that golden is required because M1 intentionally changes the start-event contract to include parameter detail.
+- Decision: Updated the presentation golden start cases to expect parameter-side detail for read/write/edit/bash/web_fetch/agent, while keeping unknown fallback detail as `None`. Attempted true-stack IM Web UI validation after full gates by starting worktree IM/Gateway/Vite and driving Chromium.
+- Rationale: The golden update keeps the broad regression suite aligned with the new M1 contract. The true-stack UI path must remain a hard gate; component/vitest evidence is not a substitute for visible running/completed IM Web evidence.
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
-  - Frontend State Matrix: TODO
-  - Browser QA: TODO
-  - E2E/Regression: TODO
-  - Visual/Interaction: TODO
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
-- Next: milestone integration.
+  - Tests: `pytest tests/unit/platform/tools/test_presentation_golden.py` → 14 passed. `pytest -m "not e2e"` first R3 run → 6 failed in `tests/unit/platform/tools/test_presentation_golden.py` only; after golden update → 2989 passed, 1 skipped, 20 deselected, 13 warnings. Frontend `npm run test` → 60 files / 491 tests passed. Frontend `npm run build` → passed with existing dynamic-import/chunk-size warnings.
+  - Entry: R3 broad gates exercise the full presenter/gateway/frontend test surface added in R1/R2 plus the existing golden contract suite.
+  - Frontend State Matrix: Unit/vitest coverage is green for loading/running, empty, default/completed, error, long content, and missing/nullable detail. True browser coverage is still blocked.
+  - Browser QA: BLOCKED. `PATH=/Users/czj/miniforge3/bin:$PATH ./scripts/e2e-up.sh` started IM/Gateway once, but because the command returned immediately in this tool environment, the background IM/Gateway children were reaped before Chromium could connect (`ECONNREFUSED 127.0.0.1:58806`). Retrying as a persistent non-sandbox session was rejected by Codex escalated usage limit. Retrying as a sandboxed persistent session failed in `scripts/free-ports.sh` with `PermissionError: [Errno 1] Operation not permitted`. Therefore no true IM Web UI screenshot evidence was produced, and this milestone cannot be marked DONE in the current environment.
+  - E2E/Regression: No live e2e evidence yet. Local LLM proxy precheck succeeded earlier (`GET http://127.0.0.1:4000/health` → 200), so the remaining blocker is process/port permission, not design ambiguity or LLM availability.
+  - Visual/Interaction: Pending true IM Web UI proof for long bash / agent / web_search running and completed states.
+- Rollback: Revert `4b55404b` to restore the old golden expectations; revert R2/R1 commits listed above for implementation rollback.
+- Commits: C1=4b55404b, C2=N/A, C3=this blocked progress update
+- Next: Orchestrator/environment help is required to run the live IM Web UI evidence gate; do not merge or mark DONE until that evidence exists.
