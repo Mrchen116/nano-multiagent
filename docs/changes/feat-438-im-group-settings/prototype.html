@@ -1,0 +1,741 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>feat-438 · 群聊设置 原型</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet" />
+<style>
+  /* ── 真实 IM 设计 token（取自 src/IM/frontend/src/styles/global.css）────────── */
+  :root{
+    --bg: oklch(0.98 0.005 240);
+    --surface: #fff;
+    --surface-2: oklch(0.965 0.006 240);
+    --topbar: oklch(0.19 0.012 240);
+    --topbar-fg: oklch(0.96 0.004 240);
+    --accent: oklch(0.52 0.14 180);
+    --accent-2: oklch(0.42 0.13 180);
+    --accent-soft: oklch(0.94 0.05 180);
+    --accent-border: oklch(0.78 0.11 180);
+    --text: oklch(0.21 0.012 240);
+    --muted: oklch(0.5 0.012 240);
+    --faint: oklch(0.62 0.01 240);
+    --border: oklch(0.9 0.008 240);
+    --border-strong: oklch(0.82 0.01 240);
+    --danger: oklch(0.55 0.2 25);
+    --danger-soft: oklch(0.96 0.03 25);
+    --success: oklch(0.65 0.15 150);
+    --shadow: 0 12px 32px -22px oklch(0.2 0.012 240 / .5);
+    --shadow-lg: 0 24px 60px -24px oklch(0.2 0.012 240 / .55);
+
+    /* agent 头像色（呼应 colorForAgent 的多色相方案）*/
+    --c-purple: oklch(0.55 0.15 295);
+    --c-teal:   oklch(0.55 0.13 200);
+    --c-amber:  oklch(0.62 0.14 70);
+    --c-pink:   oklch(0.6 0.16 0);
+    --c-blue:   oklch(0.55 0.14 255);
+    --c-green:  oklch(0.56 0.13 150);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    font-family:"IBM Plex Sans",ui-sans-serif,system-ui,-apple-system,sans-serif;
+    background:
+      radial-gradient(120% 80% at 12% 0%, oklch(0.96 0.02 180 / .5), transparent 60%),
+      radial-gradient(110% 70% at 100% 0%, oklch(0.95 0.02 295 / .45), transparent 55%),
+      var(--bg);
+    color:var(--text);
+    -webkit-font-smoothing:antialiased;
+    padding:48px clamp(20px,5vw,72px) 96px;
+  }
+
+  /* ── 文档级版式 ─────────────────────────────────────────────── */
+  .doc-head{max-width:1160px;margin:0 auto 8px}
+  .doc-eyebrow{
+    font:600 12px/1 "IBM Plex Mono",monospace;letter-spacing:.18em;text-transform:uppercase;
+    color:var(--accent-2);display:inline-flex;gap:10px;align-items:center;margin:0 0 18px;
+  }
+  .doc-eyebrow::before{content:"";width:26px;height:1px;background:var(--accent-border)}
+  .doc-title{font-size:clamp(30px,4vw,46px);font-weight:700;letter-spacing:-.025em;margin:0 0 14px;line-height:1.04}
+  .doc-title em{font-style:normal;color:var(--accent-2)}
+  .doc-sub{font-size:15.5px;line-height:1.6;color:var(--muted);max-width:680px;margin:0}
+
+  .legend{max-width:1160px;margin:26px auto 0;display:flex;flex-wrap:wrap;gap:10px}
+  .legend span{
+    font:500 12px/1 "IBM Plex Mono",monospace;color:var(--muted);
+    background:var(--surface);border:1px solid var(--border);border-radius:99px;padding:7px 12px;
+    display:inline-flex;gap:7px;align-items:center;
+  }
+  .legend b{color:var(--text);font-weight:600}
+  .dot{width:8px;height:8px;border-radius:99px;display:inline-block}
+
+  .platform-band{
+    max-width:1160px;margin:64px auto 0;display:flex;align-items:baseline;gap:16px;
+    padding-bottom:14px;border-bottom:1px solid var(--border);
+  }
+  .platform-band h2{font-size:23px;font-weight:700;letter-spacing:-.02em;margin:0}
+  .platform-band .tag{font:600 11px/1 "IBM Plex Mono",monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-2);background:var(--accent-soft);border-radius:99px;padding:6px 11px}
+  .platform-band p{margin:0;color:var(--muted);font-size:13.5px}
+
+  .gallery{max-width:1160px;margin:0 auto;display:flex;flex-wrap:wrap;gap:30px 34px;padding-top:32px}
+  .state{display:flex;flex-direction:column;gap:14px}
+  .state-cap{display:flex;align-items:center;gap:9px;font-size:13px;color:var(--muted)}
+  .state-cap .n{font:600 11px/1 "IBM Plex Mono",monospace;color:#fff;background:var(--accent-2);border-radius:6px;padding:5px 7px;letter-spacing:.04em}
+  .state-cap b{color:var(--text);font-weight:600;font-size:13.5px}
+
+  /* ════════════════ PC：聊天面板 + 右侧信息抽屉 ════════════════ */
+  .pc-frame{
+    width:720px;height:498px;border-radius:16px;overflow:hidden;position:relative;
+    background:var(--surface);border:1px solid var(--border-strong);box-shadow:var(--shadow-lg);
+    display:flex;
+  }
+  /* 左：聊天区（弱化为背景上下文）*/
+  .pc-chat{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg)}
+  .pc-chat-top{height:56px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:11px;padding:0 16px;background:var(--surface)}
+  .pc-chat-body{flex:1;padding:18px 18px;display:flex;flex-direction:column;gap:14px;opacity:.62;filter:saturate(.85)}
+  .pc-bubble{max-width:74%;font-size:12.5px;line-height:1.5;padding:9px 12px;border-radius:13px}
+  .pc-bubble.them{align-self:flex-start;background:var(--surface);border:1px solid var(--border);border-bottom-left-radius:5px;color:var(--text)}
+  .pc-bubble.me{align-self:flex-end;background:var(--accent);color:#fff;border-bottom-right-radius:5px}
+  .pc-chat-compose{height:52px;border-top:1px solid var(--border);margin:0 14px;display:flex;align-items:center}
+  .pc-chat-compose .fakeinput{flex:1;height:34px;border-radius:10px;background:var(--surface);border:1px solid var(--border);}
+  .pc-chat-body.full{opacity:1;filter:none}
+
+  /* 入口：群聊头部设置按钮 + 高亮圈 */
+  .pc-chat-top .ct-body{flex:1;min-width:0}
+  .pc-chat-top .ct-title{font-size:13.5px;font-weight:600;line-height:1.2}
+  .pc-chat-top .ct-parts{font-size:11px;color:var(--faint);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .kindbadge{font:600 10px/1 "IBM Plex Mono",monospace;letter-spacing:.06em;color:var(--accent-2);background:var(--accent-soft);border-radius:99px;padding:5px 9px;flex-shrink:0}
+  .pc-cfg-btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:9px;border:1px solid var(--border-strong);background:var(--surface);color:var(--muted);font:600 12.5px/1 "IBM Plex Sans";cursor:pointer;flex-shrink:0}
+  .entry-hi{position:relative}
+  .entry-hi::after{content:"";position:absolute;inset:-5px;border:2px solid var(--accent);border-radius:13px;box-shadow:0 0 0 4px oklch(0.52 0.14 180 / .15);pointer-events:none}
+  .entry-tag{position:absolute;top:-13px;right:-6px;transform:translateY(-100%);font:600 10.5px/1 "IBM Plex Mono",monospace;color:#fff;background:var(--accent-2);border-radius:6px;padding:5px 8px;white-space:nowrap}
+  .m-cfg-icon{width:34px;height:34px;border-radius:9px;border:1px solid var(--border-strong);background:var(--surface);display:grid;place-items:center;font-size:15px;color:var(--muted);cursor:pointer}
+  .m-chatbody{padding:16px 14px;display:flex;flex-direction:column;gap:11px;flex:1}
+
+  /* 右：抽屉 */
+  .drawer{width:320px;flex-shrink:0;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;position:relative}
+  .drawer-head{padding:18px 18px 16px;border-bottom:1px solid var(--border);text-align:center;position:relative}
+  .drawer-close{position:absolute;top:13px;right:13px;width:28px;height:28px;border-radius:8px;border:1px solid var(--border);background:var(--surface);color:var(--faint);font-size:14px;cursor:pointer;display:grid;place-items:center}
+  .drawer-close:hover{background:var(--surface-2);color:var(--text)}
+
+  /* 成员叠簇头像（签名元素）*/
+  .cluster{display:flex;justify-content:center;margin:2px 0 12px}
+  .cluster .av{margin-left:-12px;border:2.5px solid var(--surface);box-shadow:0 1px 2px oklch(0.2 0 0 / .12)}
+  .cluster .av:first-child{margin-left:0}
+  .cluster .more{width:44px;height:44px;margin-left:-12px;border-radius:50%;border:2.5px solid var(--surface);background:var(--surface-2);color:var(--muted);font:600 13px/1 "IBM Plex Sans";display:grid;place-items:center}
+
+  .gname-row{display:inline-flex;align-items:center;gap:8px;max-width:100%}
+  .gname{font-size:18px;font-weight:700;letter-spacing:-.01em;color:var(--text)}
+  .gname-edit{width:26px;height:26px;border-radius:7px;border:1px solid transparent;background:transparent;color:var(--faint);cursor:pointer;font-size:13px;display:grid;place-items:center}
+  .gname-edit:hover{background:var(--accent-soft);color:var(--accent-2)}
+  .gmeta{margin-top:5px;font-size:12px;color:var(--faint)}
+
+  /* 改名内联态 */
+  .rename{display:flex;flex-direction:column;gap:9px;align-items:stretch;text-align:left;padding:2px 2px 0}
+  .rename label{font-size:11px;font-weight:600;letter-spacing:.04em;color:var(--muted);text-transform:uppercase}
+  .rename input{height:38px;border-radius:10px;border:1.5px solid var(--accent-border);background:var(--surface);padding:0 12px;font:600 15px/1 "IBM Plex Sans";color:var(--text);outline:none}
+  .rename input.err{border-color:var(--danger)}
+  .rename .hint{font-size:11.5px;color:var(--danger);margin-top:-3px}
+  .rename .acts{display:flex;gap:8px;margin-top:2px}
+
+  .sect-label{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 7px}
+  .sect-label .t{font:600 11px/1 "IBM Plex Mono",monospace;letter-spacing:.13em;text-transform:uppercase;color:var(--faint)}
+  .add-link{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;color:var(--accent-2);background:none;border:none;cursor:pointer;padding:4px 6px;border-radius:7px}
+  .add-link:hover{background:var(--accent-soft)}
+
+  .mlist{list-style:none;margin:0;padding:0 8px;overflow:auto;flex:1}
+  .mrow{display:flex;align-items:center;gap:11px;padding:9px 10px;border-radius:11px;cursor:pointer;position:relative}
+  .mrow:hover{background:var(--surface-2)}
+  .mrow .body{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px}
+  .mname{font-size:13.5px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:7px}
+  .msub{font-size:11.5px;color:var(--faint)}
+  .role-tag{font:600 10px/1 "IBM Plex Mono",monospace;letter-spacing:.04em;color:var(--accent-2);background:var(--accent-soft);border-radius:5px;padding:3px 6px}
+  .chev{color:var(--border-strong);font-size:16px;flex-shrink:0}
+  .mrow .remove{flex-shrink:0;width:26px;height:26px;border-radius:7px;border:1px solid transparent;background:transparent;color:var(--faint);cursor:pointer;font-size:12px;display:none;place-items:center}
+  .mrow:hover .remove{display:grid}
+  .mrow .remove:hover{background:var(--danger-soft);color:var(--danger);border-color:oklch(0.85 0.08 25)}
+  .mrow.is-self{cursor:default}
+  .mrow.is-self:hover{background:transparent}
+
+  .status-dot{width:7px;height:7px;border-radius:99px;flex-shrink:0}
+  .on{background:var(--success)} .off{background:var(--border-strong)}
+
+  /* 抽屉内：添加成员就地展开 */
+  .addbox{margin:2px 12px 4px;border:1px solid var(--accent-border);border-radius:13px;background:oklch(0.98 0.012 180);overflow:hidden}
+  .addbox-h{display:flex;align-items:center;justify-content:space-between;padding:11px 13px;border-bottom:1px solid var(--accent-soft)}
+  .addbox-h .t{font-size:12.5px;font-weight:700;color:var(--accent-2)}
+  .addbox-h .x{border:none;background:none;color:var(--faint);cursor:pointer;font-size:13px}
+  .checkrow{display:flex;align-items:center;gap:10px;padding:9px 13px;cursor:pointer}
+  .checkrow:hover{background:oklch(0.96 0.02 180)}
+  .checkrow input{width:16px;height:16px;accent-color:var(--accent);flex-shrink:0}
+  .checkrow .nm{font-size:13px;font-weight:500;color:var(--text)}
+  .addbox-f{display:flex;gap:8px;padding:11px 13px;border-top:1px solid var(--accent-soft)}
+
+  .danger-zone{padding:12px 14px 16px;border-top:1px solid var(--border);margin-top:auto}
+  .btn{height:36px;border-radius:9px;font:600 13px/1 "IBM Plex Sans";cursor:pointer;border:1px solid transparent;display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:0 14px}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-2)}
+  .btn-primary[disabled]{background:var(--border-strong);color:#fff;opacity:.6;cursor:not-allowed}
+  .btn-ghost{background:var(--surface);border-color:var(--border-strong);color:var(--muted)}
+  .btn-ghost:hover{background:var(--surface-2);color:var(--text)}
+  .btn-danger{background:var(--surface);border-color:oklch(0.84 0.1 25);color:var(--danger);width:100%}
+  .btn-danger:hover{background:var(--danger-soft)}
+  .btn-danger-solid{background:var(--danger);color:#fff;width:100%}
+  .btn-danger-solid:hover{filter:brightness(.95)}
+
+  .confirm{border:1px solid oklch(0.86 0.09 25);background:var(--danger-soft);border-radius:13px;padding:13px 14px}
+  .confirm p{margin:0 0 11px;font-size:12.5px;line-height:1.5;color:oklch(0.4 0.12 25)}
+  .confirm .row{display:flex;gap:9px}
+
+  /* ════════════════ 移动端：整屏「群聊信息」页 ════════════════ */
+  .phone{width:300px;height:620px;border-radius:38px;background:#0c0d10;padding:11px;box-shadow:var(--shadow-lg);flex-shrink:0}
+  .phone-screen{width:100%;height:100%;border-radius:28px;overflow:hidden;background:var(--bg);position:relative;display:flex;flex-direction:column}
+  .notch{position:absolute;top:0;left:50%;transform:translateX(-50%);width:86px;height:22px;background:#0c0d10;border-radius:0 0 14px 14px;z-index:8}
+
+  .m-nav{height:58px;flex-shrink:0;display:flex;align-items:flex-end;justify-content:space-between;padding:0 8px 9px 6px;background:var(--surface);border-bottom:1px solid var(--border)}
+  .m-back{display:inline-flex;align-items:center;gap:1px;border:none;background:none;color:var(--accent-2);font-size:14px;font-weight:600;cursor:pointer;padding:8px}
+  .m-nav-title{font-size:14px;font-weight:600;color:var(--text)}
+  .m-nav-act{border:none;background:none;color:var(--accent-2);font-size:13.5px;font-weight:600;cursor:pointer;padding:8px}
+  .m-nav-spacer{width:52px}
+
+  .m-scroll{flex:1;overflow:auto;padding-bottom:20px}
+  .m-hero{background:var(--surface);padding:22px 16px 20px;text-align:center;border-bottom:1px solid var(--border)}
+  .m-hero .cluster{margin-bottom:13px}
+  .m-hero .cluster .av{margin-left:-14px;border:3px solid var(--surface)}
+  .m-hero .cluster .more{margin-left:-14px;border:3px solid var(--surface);width:52px;height:52px}
+  .m-hero .gname{font-size:21px}
+  .m-hero .gmeta{margin-top:6px;font-size:12.5px}
+  /* 群名整体可点进入改名；末尾极淡 ✎ 作唯一暗示，不另起按钮 */
+  .m-hero .gname-row{cursor:pointer;border-radius:10px;padding:3px 10px;transition:background .12s}
+  .m-hero .gname-row:active{background:var(--surface-2)}
+  .m-hero .gname-edit{width:22px;height:22px;font-size:12px;opacity:.5;pointer-events:none}
+  /* hero 内联改名态 */
+  .m-rename{width:100%;max-width:240px;margin:4px auto 0;display:flex;flex-direction:column;gap:9px;text-align:left}
+  .m-rename input{height:42px;border-radius:11px;border:1.5px solid var(--accent-border);background:var(--surface);padding:0 13px;font:600 16px/1 "IBM Plex Sans";color:var(--text);outline:none;text-align:center}
+  .m-rename input.err{border-color:var(--danger)}
+  .m-rename .hint{font-size:11.5px;color:var(--danger);text-align:center;margin-top:-3px}
+  .m-rename .acts{display:flex;gap:9px}
+
+  /* 管理（编辑）模式：行首红 ⊖ + 行尾滑出「移出」 */
+  .m-item .minus{width:23px;height:23px;border-radius:50%;background:var(--danger);color:#fff;display:grid;place-items:center;font-size:15px;font-weight:600;flex-shrink:0;line-height:1}
+  .m-item.swiped{transform:none}
+  .swipe-remove{flex-shrink:0;background:var(--danger);color:#fff;border:none;font-size:13.5px;font-weight:600;padding:0 16px;align-self:stretch;margin:-13px -14px -13px 6px;cursor:pointer;border-radius:0}
+
+  .m-group{margin:18px 14px 0}
+  .m-group-label{font:600 11px/1 "IBM Plex Mono",monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);padding:0 6px 8px}
+  .m-card{background:var(--surface);border:1px solid var(--border);border-radius:15px;overflow:hidden}
+  .m-item{display:flex;align-items:center;gap:12px;padding:13px 14px;position:relative}
+  .m-item + .m-item::before{content:"";position:absolute;top:0;left:50px;right:0;height:1px;background:var(--border)}
+  .m-item .body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+  .m-item .mname{font-size:14.5px}
+  .m-item .msub{font-size:12px}
+  .m-add-icon{width:40px;height:40px;border-radius:50%;background:var(--accent-soft);color:var(--accent-2);display:grid;place-items:center;font-size:20px;font-weight:500;flex-shrink:0}
+  .m-add-txt{font-size:14.5px;font-weight:600;color:var(--accent-2)}
+  .m-chev{color:var(--border-strong);font-size:18px}
+  .m-danger-item{justify-content:center}
+  .m-danger-item .txt{font-size:14.5px;font-weight:600;color:var(--danger)}
+
+  /* 移动头像尺寸由内联 style 控制 */
+  .av{border-radius:50%;color:#fff;font:600 14px/1 "IBM Plex Sans";display:grid;place-items:center;flex-shrink:0}
+
+  /* 移动 action sheet */
+  .sheet-scrim{position:absolute;inset:0;background:oklch(0.15 0.01 240 / .42);z-index:10;display:flex;flex-direction:column;justify-content:flex-end}
+  .sheet{background:transparent;padding:8px;animation:none}
+  .sheet-card{background:oklch(0.97 0.005 240 / .96);backdrop-filter:blur(12px);border-radius:16px;overflow:hidden;margin-bottom:8px}
+  .sheet-title{padding:13px 16px 11px;text-align:center;font-size:12px;line-height:1.5;color:var(--muted);border-bottom:1px solid var(--border)}
+  .sheet-title b{color:var(--text);font-weight:600;display:block;font-size:13.5px;margin-bottom:3px}
+  .sheet-btn{width:100%;border:none;background:transparent;padding:15px;font-size:16px;font-weight:500;color:var(--accent-2);cursor:pointer}
+  .sheet-btn + .sheet-btn{border-top:1px solid var(--border)}
+  .sheet-btn.danger{color:var(--danger);font-weight:600}
+  .sheet-cancel{width:100%;border:none;background:var(--surface);border-radius:16px;padding:16px;font-size:16px;font-weight:700;color:var(--text);cursor:pointer}
+
+  /* 移动 添加成员 二级整屏 */
+  .m-pick-list{padding:12px 14px}
+  .m-pick-row{display:flex;align-items:center;gap:12px;padding:12px 12px;background:var(--surface);border:1px solid var(--border);border-radius:14px;margin-bottom:9px}
+  .m-pick-row.sel{border-color:var(--accent-border);background:oklch(0.98 0.012 180)}
+  .m-pick-check{width:23px;height:23px;border-radius:50%;border:2px solid var(--border-strong);flex-shrink:0;display:grid;place-items:center}
+  .m-pick-row.sel .m-pick-check{background:var(--accent);border-color:var(--accent);color:#fff;font-size:12px}
+  .m-pick-foot{position:absolute;left:0;right:0;bottom:0;padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px));background:var(--surface);border-top:1px solid var(--border)}
+  .m-empty{padding:60px 30px;text-align:center;color:var(--faint)}
+  .m-empty .ic{font-size:30px;margin-bottom:12px;opacity:.5}
+  .m-empty p{margin:0;font-size:13.5px;line-height:1.55}
+
+  .note{font-size:11.5px;color:var(--faint);line-height:1.5;max-width:320px}
+  .note code{font:500 11px "IBM Plex Mono",monospace;background:var(--surface-2);padding:1px 5px;border-radius:4px;color:var(--accent-2)}
+</style>
+</head>
+<body>
+
+  <header class="doc-head">
+    <p class="doc-eyebrow">feat-438 · prototype</p>
+    <h1 class="doc-title">群聊设置 — <em>两端各自的形态</em></h1>
+    <p class="doc-sub">同一份能力（改名 · 成员 · 添加 · 移除 · 解散），PC 走「贴边信息抽屉」让聊天不被遮断，移动端走「整屏信息页 + 底部 action sheet」给足触控空间。签名元素：群没有单一头像，用成员头像叠错成簇作为群的身份图记。</p>
+  </header>
+  <div class="legend">
+    <span><span class="dot" style="background:var(--accent)"></span><b>teal</b> 主操作 / 可点</span>
+    <span><span class="dot" style="background:var(--danger)"></span><b>red</b> 破坏性（移除 · 解散）</span>
+    <span><span class="dot on"></span>在线</span>
+    <span><span class="dot off"></span>离线</span>
+    <span><b>字体</b> IBM Plex Sans</span>
+  </div>
+
+  <!-- ════════════════════ 入口 ════════════════════ -->
+  <div class="platform-band">
+    <span class="tag">入口 · bug 修复点</span>
+    <h2>从群聊头部进入</h2>
+    <p>群聊头部的设置入口：现状错跳「第一个 agent 的配置页」，本 unit 改为打开群设置</p>
+  </div>
+
+  <div class="gallery">
+
+    <!-- 入口 PC -->
+    <div class="state">
+      <div class="state-cap"><span class="n">→</span><b>PC 群聊头部</b>· 点「群设置」滑出右侧抽屉</div>
+      <div class="pc-frame" style="height:300px">
+        <div class="pc-chat">
+          <div class="pc-chat-top">
+            <span class="av" style="width:32px;height:32px;background:var(--c-purple)">研</span>
+            <span class="ct-body">
+              <span class="ct-title">研发小组</span>
+              <span class="ct-parts">我 · 架构师 · 测试工程师 · 运维助手</span>
+            </span>
+            <span class="kindbadge">群聊</span>
+            <span class="entry-hi">
+              <span class="entry-tag">▼ 群设置</span>
+              <button class="pc-cfg-btn">⚙ 群设置</button>
+            </span>
+          </div>
+          <div class="pc-chat-body full">
+            <div class="pc-bubble them">帮我把登录接口的报错梳理一下</div>
+            <div class="pc-bubble me">好的，我来排查 @架构师</div>
+            <div class="pc-bubble them">日志已经贴在上面了</div>
+          </div>
+          <div class="pc-chat-compose"><div class="fakeinput"></div></div>
+        </div>
+      </div>
+      <p class="note"><strong>同一个按钮，按会话类型分流</strong>：群聊 → 打开群设置抽屉（A1）；direct chat（你+单个 agent）→ 维持现状，进该 agent 配置页。现状 bug = 群聊也走了后者并错取第一个 agent。</p>
+    </div>
+
+    <!-- 入口 Mobile -->
+    <div class="state">
+      <div class="state-cap"><span class="n">→</span><b>移动 群聊</b>· 点右上 ⚙ 推入「群聊信息」</div>
+      <div class="phone"><div class="phone-screen"><div class="notch"></div>
+        <div class="m-nav">
+          <button class="m-back">‹ 会话</button>
+          <span class="m-nav-title">研发小组</span>
+          <span class="entry-hi"><span class="entry-tag">⚙</span><button class="m-cfg-icon">⚙</button></span>
+        </div>
+        <div class="m-chatbody">
+          <div class="pc-bubble them">帮我把登录接口的报错梳理一下</div>
+          <div class="pc-bubble me" style="background:var(--accent);color:#fff">好的，我来排查 @架构师</div>
+          <div class="pc-bubble them">日志已经贴在上面了</div>
+          <div class="pc-bubble me" style="background:var(--accent);color:#fff">收到，稍等</div>
+        </div>
+        <div style="height:50px;border-top:1px solid var(--border);margin:0 12px;display:flex;align-items:center"><div style="flex:1;height:34px;border-radius:10px;background:var(--surface);border:1px solid var(--border)"></div></div>
+      </div></div>
+      <p class="note">移动端群聊头部右上 ⚙ → 整屏推入「群聊信息」(B1)。direct chat 的 ⚙ 仍进该 agent 配置页。</p>
+    </div>
+
+  </div>
+
+  <!-- ════════════════════ PC ════════════════════ -->
+  <div class="platform-band">
+    <span class="tag">PC · ≥768px</span>
+    <h2>右侧信息抽屉</h2>
+    <p>从聊天面板右缘滑入 · 320px · 聊天上下文仍可见</p>
+  </div>
+
+  <div class="gallery">
+
+    <!-- PC 状态 1：默认 -->
+    <div class="state">
+      <div class="state-cap"><span class="n">A1</span><b>默认</b>· 成员列表 · hover 行尾露移除</div>
+      <div class="pc-frame">
+        <div class="pc-chat">
+          <div class="pc-chat-top">
+            <span class="av" style="width:30px;height:30px;background:var(--c-purple)">研</span>
+            <div style="font-size:13.5px;font-weight:600">研发小组</div>
+          </div>
+          <div class="pc-chat-body">
+            <div class="pc-bubble them">帮我把登录接口的报错梳理一下</div>
+            <div class="pc-bubble me">好的，我来排查 @架构师</div>
+            <div class="pc-bubble them">日志已经贴在上面了</div>
+          </div>
+          <div class="pc-chat-compose"><div class="fakeinput"></div></div>
+        </div>
+        <aside class="drawer">
+          <div class="drawer-head">
+            <button class="drawer-close">✕</button>
+            <div class="cluster">
+              <span class="av" style="width:44px;height:44px;background:var(--c-purple)">架</span>
+              <span class="av" style="width:44px;height:44px;background:var(--c-teal)">测</span>
+              <span class="av" style="width:44px;height:44px;background:var(--c-amber)">运</span>
+              <span class="more">+1</span>
+            </div>
+            <div class="gname-row">
+              <span class="gname">研发小组</span>
+              <button class="gname-edit" title="改名">✎</button>
+            </div>
+            <div class="gmeta">你创建 · 4 名成员</div>
+          </div>
+          <div class="sect-label">
+            <span class="t">成员 · 4</span>
+            <button class="add-link">＋ 添加成员</button>
+          </div>
+          <ul class="mlist">
+            <li class="mrow is-self">
+              <span class="av" style="width:34px;height:34px;background:var(--c-blue)">我</span>
+              <span class="body"><span class="mname">我 <span class="role-tag">创建者</span></span><span class="msub">本人</span></span>
+            </li>
+            <li class="mrow">
+              <span class="av" style="width:34px;height:34px;background:var(--c-purple)">架</span>
+              <span class="body"><span class="mname">架构师</span><span class="msub"><span class="status-dot on"></span> 在线 · Agent</span></span>
+              <button class="remove" title="移出群聊">✕</button>
+              <span class="chev">›</span>
+            </li>
+            <li class="mrow">
+              <span class="av" style="width:34px;height:34px;background:var(--c-teal)">测</span>
+              <span class="body"><span class="mname">测试工程师</span><span class="msub"><span class="status-dot on"></span> 在线 · Agent</span></span>
+              <button class="remove" title="移出群聊">✕</button>
+              <span class="chev">›</span>
+            </li>
+            <li class="mrow">
+              <span class="av" style="width:34px;height:34px;background:var(--c-amber)">运</span>
+              <span class="body"><span class="mname">运维助手</span><span class="msub"><span class="status-dot off"></span> 离线 · Agent</span></span>
+              <button class="remove" title="移出群聊">✕</button>
+              <span class="chev">›</span>
+            </li>
+          </ul>
+          <div class="danger-zone">
+            <button class="btn btn-danger">解散群聊</button>
+          </div>
+        </aside>
+      </div>
+      <p class="note">行尾 <code>›</code> = 进入该 Agent 配置页（承接原本错放在「配置」按钮上的跳转）。hover 才露 <code>✕</code> 移除，避免误触。</p>
+    </div>
+
+    <!-- PC 状态 2：改名中 -->
+    <div class="state">
+      <div class="state-cap"><span class="n">A2</span><b>改名中</b>· 内联输入 · 空名拦截</div>
+      <div class="pc-frame">
+        <div class="pc-chat">
+          <div class="pc-chat-top">
+            <span class="av" style="width:30px;height:30px;background:var(--c-purple)">研</span>
+            <div style="font-size:13.5px;font-weight:600">研发小组</div>
+          </div>
+          <div class="pc-chat-body">
+            <div class="pc-bubble them">帮我把登录接口的报错梳理一下</div>
+            <div class="pc-bubble me">好的，我来排查 @架构师</div>
+          </div>
+          <div class="pc-chat-compose"><div class="fakeinput"></div></div>
+        </div>
+        <aside class="drawer">
+          <div class="drawer-head">
+            <button class="drawer-close">✕</button>
+            <div class="cluster">
+              <span class="av" style="width:44px;height:44px;background:var(--c-purple)">架</span>
+              <span class="av" style="width:44px;height:44px;background:var(--c-teal)">测</span>
+              <span class="av" style="width:44px;height:44px;background:var(--c-amber)">运</span>
+              <span class="more">+1</span>
+            </div>
+            <div class="rename">
+              <label>群名称</label>
+              <input class="err" value="" placeholder="输入群名称" />
+              <span class="hint">群名不能为空</span>
+              <div class="acts">
+                <button class="btn btn-primary" disabled style="flex:1">保存</button>
+                <button class="btn btn-ghost" style="flex:1">取消</button>
+              </div>
+            </div>
+          </div>
+          <div class="sect-label"><span class="t">成员 · 4</span><button class="add-link">＋ 添加成员</button></div>
+          <ul class="mlist">
+            <li class="mrow is-self"><span class="av" style="width:34px;height:34px;background:var(--c-blue)">我</span><span class="body"><span class="mname">我 <span class="role-tag">创建者</span></span><span class="msub">本人</span></span></li>
+            <li class="mrow"><span class="av" style="width:34px;height:34px;background:var(--c-purple)">架</span><span class="body"><span class="mname">架构师</span><span class="msub"><span class="status-dot on"></span> 在线 · Agent</span></span><span class="chev">›</span></li>
+            <li class="mrow"><span class="av" style="width:34px;height:34px;background:var(--c-teal)">测</span><span class="body"><span class="mname">测试工程师</span><span class="msub"><span class="status-dot on"></span> 在线 · Agent</span></span><span class="chev">›</span></li>
+          </ul>
+          <div class="danger-zone"><button class="btn btn-danger">解散群聊</button></div>
+        </aside>
+      </div>
+      <p class="note">点群名旁 <code>✎</code> 就地切到输入态。清空 → 红框 + 「保存」灰禁，原名不丢；保存成功后标题栏 / 会话列表同步更新。</p>
+    </div>
+
+    <!-- PC 状态 3：添加成员 -->
+    <div class="state">
+      <div class="state-cap"><span class="n">A3</span><b>添加成员</b>· 抽屉内就地展开 · 仅列未入群</div>
+      <div class="pc-frame">
+        <div class="pc-chat">
+          <div class="pc-chat-top">
+            <span class="av" style="width:30px;height:30px;background:var(--c-purple)">研</span>
+            <div style="font-size:13.5px;font-weight:600">研发小组</div>
+          </div>
+          <div class="pc-chat-body"><div class="pc-bubble them">帮我把登录接口的报错梳理一下</div><div class="pc-bubble me">好的，我来排查</div></div>
+          <div class="pc-chat-compose"><div class="fakeinput"></div></div>
+        </div>
+        <aside class="drawer">
+          <div class="drawer-head">
+            <button class="drawer-close">✕</button>
+            <div class="cluster">
+              <span class="av" style="width:44px;height:44px;background:var(--c-purple)">架</span>
+              <span class="av" style="width:44px;height:44px;background:var(--c-teal)">测</span>
+              <span class="av" style="width:44px;height:44px;background:var(--c-amber)">运</span>
+              <span class="more">+1</span>
+            </div>
+            <div class="gname-row"><span class="gname">研发小组</span><button class="gname-edit">✎</button></div>
+            <div class="gmeta">你创建 · 4 名成员</div>
+          </div>
+          <div class="sect-label"><span class="t">添加成员</span></div>
+          <div class="addbox">
+            <div class="addbox-h"><span class="t">选择要加入的 Agent</span><button class="x">✕</button></div>
+            <label class="checkrow"><input type="checkbox" checked /><span class="av" style="width:28px;height:28px;font-size:11px;background:var(--c-pink)">数</span><span class="nm">数据分析师</span></label>
+            <label class="checkrow"><input type="checkbox" /><span class="av" style="width:28px;height:28px;font-size:11px;background:var(--c-green)">文</span><span class="nm">文档撰写</span></label>
+            <label class="checkrow"><input type="checkbox" /><span class="av" style="width:28px;height:28px;font-size:11px;background:var(--c-blue)">客</span><span class="nm">客服助手</span></label>
+            <div class="addbox-f">
+              <button class="btn btn-primary" style="flex:1">添加 (1)</button>
+              <button class="btn btn-ghost" style="flex:1">取消</button>
+            </div>
+          </div>
+          <div class="sect-label"><span class="t">当前成员 · 4</span></div>
+          <ul class="mlist" style="flex:0 0 auto">
+            <li class="mrow is-self"><span class="av" style="width:34px;height:34px;background:var(--c-blue)">我</span><span class="body"><span class="mname">我 <span class="role-tag">创建者</span></span></span></li>
+            <li class="mrow"><span class="av" style="width:34px;height:34px;background:var(--c-purple)">架</span><span class="body"><span class="mname">架构师</span></span><span class="chev">›</span></li>
+          </ul>
+        </aside>
+      </div>
+      <p class="note">选择器只列<strong>当前账号下、还没在本群</strong>的 Agent（已入群的不出现）。后端 <code>POST /conversations/{id}/participants</code>，加完成员列表即时刷新。</p>
+    </div>
+
+    <!-- PC 状态 4：解散确认 -->
+    <div class="state">
+      <div class="state-cap"><span class="n">A4</span><b>解散确认</b>· 底部内联二次确认</div>
+      <div class="pc-frame">
+        <div class="pc-chat">
+          <div class="pc-chat-top"><span class="av" style="width:30px;height:30px;background:var(--c-purple)">研</span><div style="font-size:13.5px;font-weight:600">研发小组</div></div>
+          <div class="pc-chat-body"><div class="pc-bubble them">帮我把登录接口的报错梳理一下</div><div class="pc-bubble me">好的，我来排查</div></div>
+          <div class="pc-chat-compose"><div class="fakeinput"></div></div>
+        </div>
+        <aside class="drawer">
+          <div class="drawer-head">
+            <button class="drawer-close">✕</button>
+            <div class="cluster"><span class="av" style="width:44px;height:44px;background:var(--c-purple)">架</span><span class="av" style="width:44px;height:44px;background:var(--c-teal)">测</span><span class="av" style="width:44px;height:44px;background:var(--c-amber)">运</span><span class="more">+1</span></div>
+            <div class="gname-row"><span class="gname">研发小组</span><button class="gname-edit">✎</button></div>
+            <div class="gmeta">你创建 · 4 名成员</div>
+          </div>
+          <div class="sect-label"><span class="t">成员 · 4</span><button class="add-link">＋ 添加成员</button></div>
+          <ul class="mlist">
+            <li class="mrow is-self"><span class="av" style="width:34px;height:34px;background:var(--c-blue)">我</span><span class="body"><span class="mname">我 <span class="role-tag">创建者</span></span></span></li>
+            <li class="mrow"><span class="av" style="width:34px;height:34px;background:var(--c-purple)">架</span><span class="body"><span class="mname">架构师</span></span><span class="chev">›</span></li>
+          </ul>
+          <div class="danger-zone">
+            <div class="confirm">
+              <p>解散后群聊和聊天记录将被永久删除，无法恢复。</p>
+              <div class="row">
+                <button class="btn btn-danger-solid">解散群聊</button>
+                <button class="btn btn-ghost" style="flex:0 0 88px">取消</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+      <p class="note">破坏性操作就地确认，不弹原生 <code>window.confirm</code>。确认后会话与记录删除，界面回到会话列表（不停留在死会话）。</p>
+    </div>
+
+  </div>
+
+  <!-- ════════════════════ 移动端 ════════════════════ -->
+  <div class="platform-band">
+    <span class="tag">Mobile · &lt;768px</span>
+    <h2>整屏「群聊信息」页</h2>
+    <p>从聊天页推入 · inset 分组列表 · 点名即改 · 管理模式行内移除</p>
+  </div>
+
+  <div class="gallery">
+
+    <!-- 移动 1：信息页默认 -->
+    <div class="state">
+      <div class="state-cap"><span class="n">B1</span><b>群聊信息</b>· 主页</div>
+      <div class="phone"><div class="phone-screen"><div class="notch"></div>
+        <div class="m-nav">
+          <button class="m-back">‹ 返回</button>
+          <span class="m-nav-title">群聊信息</span>
+          <button class="m-nav-act">管理</button>
+        </div>
+        <div class="m-scroll">
+          <div class="m-hero">
+            <div class="cluster">
+              <span class="av" style="width:52px;height:52px;font-size:17px;background:var(--c-purple)">架</span>
+              <span class="av" style="width:52px;height:52px;font-size:17px;background:var(--c-teal)">测</span>
+              <span class="av" style="width:52px;height:52px;font-size:17px;background:var(--c-amber)">运</span>
+              <span class="more">+1</span>
+            </div>
+            <div class="gname-row"><span class="gname">研发小组</span><span class="gname-edit">✎</span></div>
+            <div class="gmeta">你创建 · 4 名成员</div>
+          </div>
+
+          <div class="m-group">
+            <div class="m-group-label">成员 · 4</div>
+            <div class="m-card">
+              <div class="m-item">
+                <span class="m-add-icon">＋</span>
+                <span class="body"><span class="m-add-txt">添加成员</span></span>
+              </div>
+              <div class="m-item">
+                <span class="av" style="width:38px;height:38px;background:var(--c-blue)">我</span>
+                <span class="body"><span class="mname">我 <span class="role-tag">创建者</span></span><span class="msub">本人</span></span>
+              </div>
+              <div class="m-item">
+                <span class="av" style="width:38px;height:38px;background:var(--c-purple)">架</span>
+                <span class="body"><span class="mname">架构师</span><span class="msub"><span class="status-dot on"></span> 在线 · Agent</span></span>
+                <span class="m-chev">›</span>
+              </div>
+              <div class="m-item">
+                <span class="av" style="width:38px;height:38px;background:var(--c-teal)">测</span>
+                <span class="body"><span class="mname">测试工程师</span><span class="msub"><span class="status-dot on"></span> 在线 · Agent</span></span>
+                <span class="m-chev">›</span>
+              </div>
+              <div class="m-item">
+                <span class="av" style="width:38px;height:38px;background:var(--c-amber)">运</span>
+                <span class="body"><span class="mname">运维助手</span><span class="msub"><span class="status-dot off"></span> 离线 · Agent</span></span>
+                <span class="m-chev">›</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="m-group">
+            <div class="m-card">
+              <div class="m-item m-danger-item"><span class="txt">解散群聊</span></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="note">点成员行 → 直接进该 Agent 配置页（行尾 <code>›</code>）。移除走右上「管理」模式。改名直接点群名。</p>
+    </div>
+
+    <!-- 移动 2：点群名 → 内联改名 -->
+    <div class="state">
+      <div class="state-cap"><span class="n">B2</span><b>点群名改名</b>· hero 内联，无独立按钮</div>
+      <div class="phone"><div class="phone-screen"><div class="notch"></div>
+        <div class="m-nav"><button class="m-back">‹ 返回</button><span class="m-nav-title">群聊信息</span><button class="m-nav-act">管理</button></div>
+        <div class="m-scroll">
+          <div class="m-hero">
+            <div class="cluster">
+              <span class="av" style="width:52px;height:52px;font-size:17px;background:var(--c-purple)">架</span>
+              <span class="av" style="width:52px;height:52px;font-size:17px;background:var(--c-teal)">测</span>
+              <span class="av" style="width:52px;height:52px;font-size:17px;background:var(--c-amber)">运</span>
+              <span class="more">+1</span>
+            </div>
+            <div class="m-rename">
+              <input value="研发小组" />
+              <div class="acts">
+                <button class="btn btn-primary" style="flex:1;height:42px">保存</button>
+                <button class="btn btn-ghost" style="flex:1;height:42px">取消</button>
+              </div>
+            </div>
+          </div>
+          <div class="m-group">
+            <div class="m-group-label">成员 · 4</div>
+            <div class="m-card">
+              <div class="m-item"><span class="m-add-icon">＋</span><span class="body"><span class="m-add-txt">添加成员</span></span></div>
+              <div class="m-item"><span class="av" style="width:38px;height:38px;background:var(--c-blue)">我</span><span class="body"><span class="mname">我 <span class="role-tag">创建者</span></span><span class="msub">本人</span></span></div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="note">点群名 → 名字原地变输入框，光标聚焦、全选。清空则「保存」禁用 + 红框，原名不丢。无任何额外触发按钮。</p>
+    </div>
+
+    <!-- 移动 3：管理模式 行内移除 -->
+    <div class="state">
+      <div class="state-cap"><span class="n">B3</span><b>管理模式</b>· 行内 ⊖ → 滑出「移出」</div>
+      <div class="phone"><div class="phone-screen"><div class="notch"></div>
+        <div class="m-nav"><span class="m-nav-spacer"></span><span class="m-nav-title">管理成员</span><button class="m-nav-act" style="font-weight:700">完成</button></div>
+        <div class="m-scroll">
+          <div class="m-hero" style="padding-top:16px;padding-bottom:16px">
+            <div class="cluster" style="margin-bottom:0">
+              <span class="av" style="width:44px;height:44px;font-size:15px;background:var(--c-purple)">架</span>
+              <span class="av" style="width:44px;height:44px;font-size:15px;background:var(--c-teal)">测</span>
+              <span class="av" style="width:44px;height:44px;font-size:15px;background:var(--c-amber)">运</span>
+              <span class="more" style="width:44px;height:44px">+1</span>
+            </div>
+          </div>
+          <div class="m-group">
+            <div class="m-group-label">成员 · 4</div>
+            <div class="m-card">
+              <div class="m-item">
+                <span class="av" style="width:38px;height:38px;background:var(--c-blue)">我</span>
+                <span class="body"><span class="mname">我 <span class="role-tag">创建者</span></span><span class="msub">本人 · 不可移除</span></span>
+              </div>
+              <div class="m-item">
+                <span class="minus">−</span>
+                <span class="av" style="width:38px;height:38px;background:var(--c-purple)">架</span>
+                <span class="body"><span class="mname">架构师</span><span class="msub">在线 · Agent</span></span>
+              </div>
+              <div class="m-item swiped">
+                <span class="minus">−</span>
+                <span class="av" style="width:38px;height:38px;background:var(--c-teal)">测</span>
+                <span class="body"><span class="mname">测试工程师</span><span class="msub">在线 · Agent</span></span>
+                <button class="swipe-remove">移出</button>
+              </div>
+              <div class="m-item">
+                <span class="minus">−</span>
+                <span class="av" style="width:38px;height:38px;background:var(--c-amber)">运</span>
+                <span class="body"><span class="mname">运维助手</span><span class="msub">离线 · Agent</span></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <p class="note">右上「管理」进编辑态：每个 Agent 行首出现红 <code>−</code>；点它行尾滑出「移出」二次确认 —— 两步即完成，<strong>不弹任何模态</strong>。创建者本人无 <code>−</code>。</p>
+    </div>
+
+    <!-- 移动 4：添加成员 二级整屏 -->
+    <div class="state">
+      <div class="state-cap"><span class="n">B4</span><b>添加成员</b>· 二级整屏选择</div>
+      <div class="phone"><div class="phone-screen"><div class="notch"></div>
+        <div class="m-nav"><button class="m-back">‹</button><span class="m-nav-title">添加成员</span><button class="m-nav-act">取消</button></div>
+        <div class="m-scroll" style="position:relative;padding-bottom:80px">
+          <div class="m-pick-list">
+            <div class="m-pick-row sel"><span class="m-pick-check">✓</span><span class="av" style="width:38px;height:38px;background:var(--c-pink)">数</span><span class="body"><span class="mname">数据分析师</span><span class="msub"><span class="status-dot on"></span> 在线</span></span></div>
+            <div class="m-pick-row"><span class="m-pick-check"></span><span class="av" style="width:38px;height:38px;background:var(--c-green)">文</span><span class="body"><span class="mname">文档撰写</span><span class="msub"><span class="status-dot off"></span> 离线</span></span></div>
+            <div class="m-pick-row"><span class="m-pick-check"></span><span class="av" style="width:38px;height:38px;background:var(--c-blue)">客</span><span class="body"><span class="mname">客服助手</span><span class="msub"><span class="status-dot on"></span> 在线</span></span></div>
+          </div>
+        </div>
+        <div class="m-pick-foot"><button class="btn btn-primary" style="width:100%;height:46px;font-size:15px">添加 1 名成员</button></div>
+      </div></div>
+      <p class="note">从主页「添加成员」推入。只列未入群 Agent；多选后一次性加入。空态（都已入群）：「没有可添加的 Agent」+ 去新建引导。</p>
+    </div>
+
+    <!-- 移动 5：解散确认 -->
+    <div class="state">
+      <div class="state-cap"><span class="n">B5</span><b>解散确认</b>· 破坏性 sheet</div>
+      <div class="phone"><div class="phone-screen"><div class="notch"></div>
+        <div class="m-nav"><button class="m-back">‹ 返回</button><span class="m-nav-title">群聊信息</span><button class="m-nav-act">管理</button></div>
+        <div class="m-scroll">
+          <div class="m-hero">
+            <div class="cluster">
+              <span class="av" style="width:52px;height:52px;font-size:17px;background:var(--c-purple)">架</span>
+              <span class="av" style="width:52px;height:52px;font-size:17px;background:var(--c-teal)">测</span>
+              <span class="more">+2</span>
+            </div>
+            <div class="gname-row"><span class="gname">研发小组</span><span class="gname-edit">✎</span></div>
+            <div class="gmeta">你创建 · 4 名成员</div>
+          </div>
+          <div class="m-group"><div class="m-card"><div class="m-item m-danger-item"><span class="txt">解散群聊</span></div></div></div>
+        </div>
+        <div class="sheet-scrim"><div class="sheet">
+          <div class="sheet-card">
+            <div class="sheet-title"><b>解散「研发小组」？</b>群聊和聊天记录将被永久删除，无法恢复。</div>
+            <button class="sheet-btn danger">解散群聊</button>
+          </div>
+          <button class="sheet-cancel">取消</button>
+        </div></div>
+      </div></div>
+      <p class="note">解散是不可逆销毁，保留一道底部确认 sheet（破坏性确认用 sheet 是恰当的，区别于点成员的常规操作）。确认后回会话列表。</p>
+    </div>
+
+  </div>
+
+</body>
+</html>
