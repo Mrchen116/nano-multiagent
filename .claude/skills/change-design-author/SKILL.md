@@ -239,6 +239,19 @@ design.md 读起来像文字墙,根源是该画的地方在用散文描述。人
 
 **别写实现伪代码**——只写"长什么样、谁调谁",代码留给 worker。
 
+### §3.3.1 前端原型 HTML(前端相关必做)
+
+如果本 unit 涉及用户可见的前端 UI / 富 GUI / 交互状态,在设计阶段必须产出本地可打开的原型文件。它的作用是在门禁 2 前把"前端最终长什么样、用户怎么操作、关键状态如何呈现"变成可评审的视觉交互方案,让用户、design-author、worker、reviewer 对 UI 目标有同一个参照物。
+
+- 对用户 / 审核者:提前看 UI 方向是否对,避免 design.md 文字写完了但实际界面理解偏了。
+- 对 worker:提供视觉和交互目标,减少"按文字自由发挥"导致的 UI 偏差。
+- 对 reviewer:作为验收时理解设计意图的参照,但最终仍验真实前端实现。
+- 路径固定:`docs/changes/<unit_dir>/prototype.html`。
+- 可用少量演示 JS 表达关键交互 / 状态切换,但不接真实后端、不复用项目源码,不作为产品实现或验收替代品。
+- 覆盖首文档验收标准里的关键界面、关键状态、关键交互即可;design.md 的 `## 前端原型` 段链接原型文件并简述覆盖范围。
+
+如果本 unit 不涉及前端 UI,不要创建 `prototype.html`,也不要在 design.md 里写 `## 前端原型` 段。
+
 ### §3.4 风险与回退
 
 每个非平凡 unit 都有这一段:
@@ -519,6 +532,7 @@ mkdir -p docs/changes/<unit_dir>/specs/<包>/   # 仅为有对外行为变化的
   - Unit branch 声明(意图,orchestrator 据此创建分支)
   - Milestone 表(orchestrator 据此派发 worker;每行 → 一个派发包)
   - 空 Changelog(orchestrator 在实施期偏差时由 worker 维护)
+- `docs/changes/<unit_dir>/prototype.html`(仅前端相关 unit 必须产出;非前端 unit 不产)
 - `docs/changes/<unit_dir>/M*/` 空目录(orchestrator 据此校验 milestone 数量一致)
 - `docs/changes/<unit_dir>/specs/<包>/spec.md` delta-spec(§4.8,仅有对外行为变化的包;orchestrator §7.0 据此校正 + 软对账 + 合并进 canonical。纯内部 unit 无此文件,design.md 注 "no spec delta")
 

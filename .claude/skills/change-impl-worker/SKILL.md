@@ -118,7 +118,7 @@ repo_root=$(git rev-parse --show-toplevel)
 按顺序读,缺哪个就停下来报告:
 
 1. **`docs/changes/<unit_dir>/<首文档>.md`** —— 用户视角和验收标准(lite 模式下首文档是 fix.md,前两段已写)
-2. **`docs/changes/<unit_dir>/design.md`** —— 架构意图、关键决策、接口、Milestone 表对应行(本 milestone 的"范围 / 退出标准")。**lite 模式跳过这步**(没有 design.md)
+2. **`docs/changes/<unit_dir>/design.md`** —— 架构意图、关键决策、接口、Milestone 表对应行(本 milestone 的"范围 / 退出标准")。如果 design.md 链接了前端原型 `prototype.html`,必须在规划前打开参考,把它作为本 milestone UI 目标的视觉 / 交互参照。**lite 模式跳过这步**(没有 design.md)
 3. **`CLAUDE.md` / `AGENTS.md`** —— 项目级约定(测试命令、注释规范、模块边界)
 4. **`LOGBOOK.md`(若有)** —— 跨任务经验,提取与本 milestone 相关的注意事项
 5. **现有代码结构** —— 模块划分、命名约定、已有 fixture / helper(避免重复造轮子)
