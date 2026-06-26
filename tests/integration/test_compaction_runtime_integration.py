@@ -364,16 +364,12 @@ async def test_threshold_compaction_workspace_aware_does_not_crash(
     assert result.messages[0].content == "ack"
     compactions = [
         event
-        for event in manager.list_entries(
-            session.session_id, workspace_root=tmp_path
-        )
+        for event in manager.list_entries(session.session_id, workspace_root=tmp_path)
         if isinstance(event, CompactionEntry)
     ]
     assert compactions
     assert compactions[-1].data["reason"] == CompactionReason.THRESHOLD.value
-    replayed = manager.list_turn_messages(
-        session.session_id, workspace_root=tmp_path
-    )
+    replayed = manager.list_turn_messages(session.session_id, workspace_root=tmp_path)
     assert replayed
     assert any("summary" in (m.content or "").lower() for m in replayed)
 
@@ -458,16 +454,12 @@ async def test_overflow_compaction_workspace_aware_does_not_crash(
     assert result.messages[0].content == "retry-ok"
     compactions = [
         event
-        for event in manager.list_entries(
-            session.session_id, workspace_root=tmp_path
-        )
+        for event in manager.list_entries(session.session_id, workspace_root=tmp_path)
         if isinstance(event, CompactionEntry)
     ]
     assert compactions
     assert compactions[-1].data["reason"] == CompactionReason.OVERFLOW.value
-    replayed = manager.list_turn_messages(
-        session.session_id, workspace_root=tmp_path
-    )
+    replayed = manager.list_turn_messages(session.session_id, workspace_root=tmp_path)
     assert replayed  # not silently wiped (失忆) by the list_turn_messages reload
 
 

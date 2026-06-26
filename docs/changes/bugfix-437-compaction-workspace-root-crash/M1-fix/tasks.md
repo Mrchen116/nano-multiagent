@@ -10,12 +10,12 @@
 
 ## 退出标准
 
-- [ ] 新增 `data_dir=None`(workspace-aware)下触发 threshold 压缩的回归用例,断言落盘成功且会话可由事件重放重建
-- [ ] 新增 `data_dir=None` 下触发 overflow 压缩的回归用例,断言落盘 + retry 成功 + 不失忆
-- [ ] 压缩后内存 `_session_histories` 不含已摘要轮次(磁盘重放断言照不到的内存回归)单独断言
-- [ ] 压缩落盘单一路径(无双写,`apply()` 不持久化),`compact_boundary` 仍先于 summary turn
-- [ ] B 面:run 失败 → 发出 message 级 `node.report(status=failed, message_id, summary=真因)`,既有 delivery_receipt 保留
-- [ ] 全测试树 `pytest -m "not e2e"`(含 im_service)不回归;`ruff check` + `ruff format` 绿
+- [x] 新增 `data_dir=None`(workspace-aware)下触发 threshold 压缩的回归用例,断言落盘成功且会话可由事件重放重建(R1)
+- [x] 新增 `data_dir=None` 下触发 overflow 压缩的回归用例,断言落盘 + retry 成功 + 不失忆(R2)
+- [x] 压缩后内存 `_session_histories` 不含已摘要轮次(磁盘重放断言照不到的内存回归)单独断言(R2)
+- [x] 压缩落盘单一路径(无双写,`apply()` 不持久化),`compact_boundary` 仍先于 summary turn(R2)
+- [x] B 面:run 失败 → 发出 message 级 `node.report(status=failed, message_id, summary=真因)`,既有 delivery_receipt 保留(R3)
+- [x] 全测试树 `pytest -m "not e2e"`(含 im_service)不回归;`ruff check` + `ruff format` 绿(收尾门禁)
 
 ## 测试策略
 

@@ -27,3 +27,16 @@
   - E2E/Regression: 上述两条集成回归用例;内存断言直读 `runtime._session_histories`(决策2 退出标准明确要求的内部不变量守护,磁盘重放照不到)。
 - Rollback: revert C2(决策2)回到双写 + data_dir=None 落盘崩溃态。
 - Commits: C1=test 红测, C2=fix 消双写, C3=本段
+
+## R3 — B 面决策3:失败 message 级即时反馈
+
+- Context: `main.py` `_build_relay_lifecycle_callback` 的 `failed` 分支只发 relay-task 级 `delivery_receipt`,不像 `completed` 分支同时发 message 级 `node.report`。占位气泡靠 message 级 report 翻态,缺它 → 气泡卡 running 直到 IM 120s idle watchdog 兜底,且兜底文案掩盖真因。
+- Decision: failed 分支镜像 completed,从 `message.metadata` 取 `message_id`,补发 `send_report(status="failed", agent_id, session_key, conversation_id, message_id, summary=update.error)` → `node.report`,保留既有 `delivery_receipt(failed, detail=update.error)`。真因经 `summary` 承载(send_report 无 error 形参;IM failed 气泡文案读 summary)。watchdog 退为「节点真死」最后兜底。
+- Rationale: 决策3——`_run_turn` 已 emit phase=failed 带真因,缺的就是这条 message 级 report;镜像 completed 不另造路径,IM 已支持 failed 翻消息,IM 不改。
+- Evidence:
+  - Tests: 新增 `test_relay_lifecycle_callback_failed_sends_message_level_report_with_real_cause` 修前红(只发 delivery_receipt)、修后绿;relay lifecycle 区 12 passed。
+  - Entry: callback 单元经真 `UpstreamReporter` + `_FakeIMManager` 驱动,断言 failed → 先 node.report(status=failed, message_id=msg-1, summary=真因) 再 node.delivery_receipt(failed)。
+  - Frontend State Matrix / Browser QA / Visual: N/A(gateway callback,无 UI 改动;气泡翻态是 IM 既有 failed report 路径,本 unit 不改 IM/前端)
+  - E2E/Regression: 上述单元回归用例;端到端真栈气泡验收留给 reviewer(design Runbook)。
+- Rollback: revert C2(B 面)回到 failed 只发 delivery_receipt。
+- Commits: C1=test 红测, C2=fix failed report, C3=本段
