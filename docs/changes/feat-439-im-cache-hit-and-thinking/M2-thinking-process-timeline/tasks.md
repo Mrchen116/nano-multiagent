@@ -36,7 +36,7 @@
 | R2 | gateway observer 转发 thinking 过程项（不丢空正文+reasoning、不 roll 空气泡） | DONE |
 | R3 | IM 持久化 + 序列化链（db/domain/repositories/event_bridge/event_types/gateway_handler/REST） | DONE |
 | R4 | 前端过程时间线（types/reducer/过程盘/message-pane/css） | DONE |
-| R5 | 真栈浏览器验收 + CLI 回归 | TODO |
+| R5 | 真栈浏览器验收 + CLI 回归 | DONE |
 
 ## 前端 UI（R4）
 

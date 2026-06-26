@@ -67,4 +67,30 @@
 - Commits: C1=红测, C2=feat
 - Next: R5 真栈浏览器验收 + CLI 回归。
 
+## [Design 修订] R5: 思考段 seq 由「插入索引」改为「思考+工具共享的全局单调 seq」
+
+- 现状方案: design 决策 4 文中我先按「seq = 到达时已有 tool_calls 数（插入索引）」实现（R3/R4）。
+- 新方案: IM 持久化边界给思考段与工具调用**共享一个 per-message 单调递增 seq**（真实到达序、全局唯一）；前端按 seq merge、并按 seq 幂等去重。ToolCall 新增可选 `seq` 字段。
+- 原因: 插入索引非唯一键（两段紧邻的纯思考回合会同 seq），无法支撑 reducer 契约要求的「事件重放/双投递幂等」——live 真栈实测 thinking 段被重复渲染（持久化 4、live 显示 8）。design 决策 4 原文即写「每个过程项带一个**时序序号**…单调递增」，全局单调 seq 才是其字面意图；插入索引是我引入的近似偏差。
+- 影响范围: 仅本 milestone（M2）。ToolCall 多一个可选 seq 字段（additive，沿 emoji/approval 模式），reviewer 需知。
+- design.md 是否同步改: 是（决策 4 的「时序序号」语义以本段为准；未改 design 正文措辞，因其原文已是「单调递增序号」，本段记录实现纠偏）。
+
+## R5 — 真栈浏览器验收 + CLI 回归（含上面 seq 修订的实现）
+
+- Context: R4 完成后真栈 live 验收，暴露两个我引入的 live-only bug（见上 Design 修订）：① thinking WS 事件无幂等去重被重复渲染；② event_bridge 发的是入参 tool_call（无 seq）而非持久化后的（有 seq），导致 live 工具排到所有思考之后。
+- Decision: ① domain ToolCall +seq；repositories `_next_process_seq`（思考+工具共享计数器）+ append_thinking_segment/update_runtime_state 赋 seq + encode/decode；event_types/REST 带 seq；② event_bridge tool_call.* 改发持久化后的 tool_call（`_persisted_tool_call`）；③ 前端 ToolCall.seq + buildTimeline 按 seq 升序 merge + reducer thinking.segment 按 seq 幂等去重。gateway 不变（IM 赋值）。
+- Rationale: 单一计数器 = 单调唯一序，既给正确混排序又给幂等键；live/历史回放同读持久化 seq，口径一致。
+- Evidence:
+  - Tests: IM seq 往返/共享计数/工具 seq 保留、event_bridge 发带 seq tool_call、reducer 幂等、过程盘按 seq merge —— 红→绿；Python 全树 2994 passed；前端 vitest 475 passed；ruff check+format 全通过。
+  - Entry / Browser QA: 真栈 K2.6 default-agent，真 Gateway 进程。发「bash 列目录→读 README→bash 数行→总结」一轮多工具对话：
+    - live 过程盘「Process · 3 tools · 4 thinking」，时序混排 **think→bash→think→read→think→bash→think**（截图 /tmp/feat439-evidence/r5-final-live-interleaved.png）；逐段 💭 可展开看全文。
+    - **修复验证**：修前 live 显示 8 thinking（持久化 4）= 重复；修后 live thinking 数==持久化数(4)，all_seqs=[0,1,2,3,4,5,6] 连续唯一；工具不再排到思考之后。
+    - 刷新页面（REST 历史回放）过程盘与思考段仍在、顺序一致、仍可展开。
+    - 无思考回合：过程盘只有工具、无 💭（vitest 覆盖 + 第二气泡「1 thinking / 0 tools」纯思考态正常渲染）。
+  - E2E/Regression: CLI 侧 contract/单测无回归（reasoning/seq 为忽略的可选字段）；Python 全树 + 前端全测全绿。
+  - Visual/Interaction: 截图 /tmp/feat439-evidence/r5-final-live-interleaved.png、r5-thinking-expanded.png（对照 prototype「过程时间线」一致：💭 靛紫思考行 + 工具行按时序混排、逐段展开）。
+- Rollback: revert R5 三个 fix commit（字段均可选带默认，回滚后旧前端忽略 seq）。
+- Commits: C1=红测(seq+幂等), C2=fix(共享 seq), C2'=fix(event_bridge 发持久化 tool_call)
+- Next: 本 milestone 完成，集成到 unit/feat-439。
+
 <!-- 每个 roadpoint 完成后追加一段。 -->
