@@ -548,7 +548,7 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
   });
 
   it("running web_search renders the query without the empty-results state", async () => {
-    renderSingle({
+    const { container } = renderSingle({
       id: "ws-running",
       name: "web_search",
       status: "running",
@@ -557,7 +557,8 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
       detail: { query: "nano 架构" }
     });
     await open();
-    expect(screen.getByText("nano 架构")).toBeInTheDocument();
+    const detail = container.querySelector(".chat-tool-detail-search");
+    expect(detail?.textContent).toContain("nano 架构");
     expect(screen.queryByText(/无结果|没有结果|no results/i)).not.toBeInTheDocument();
   });
 
