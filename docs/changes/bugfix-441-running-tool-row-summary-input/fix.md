@@ -54,7 +54,7 @@ Agent 解读:症状是一个——**工具执行中(running 态)那一行是空�
 
 - feat-409 建 summary→output 链时,只在 tool_end 接线;其"执行中状态不退化"Requirement 当年仅指"保住 running 脉冲、跑完转完成态"(verification.md:38「沿用现有 running + pulse，代码未改动」),**summary 在 running 态显示从不是 feat-409 的目标**——当时 running 折叠行设计上就是 emoji+名+脉冲。
 - feat-425 的 design.md:29 明确记录"tool_start relay 当前**不带** presentation",该 unit **新增**了 tool_start 转发 presentation,但其范围**严格限定 emoji**(整单做 emoji);序列化进事件的 `summary` 被留在地上没接(design.md:104 风险项「运行中行 tool_start relay 不带 presentation → 名表兜底」即此残留的侧写)。
-- bugfix-427 随后把 bash `format_start` 改成产 description summary(消除"开始态显命令、完成态才切 description"的断层),**投资了内容,却因 feat-425 的转发缺口死在管道上、从未到达用户**——两个 unit 的取舍没被串起来看。
+- bugfix-427(PR #138,已合入 main)把 bash `format_start` 改成产 description summary,意在让开始态也显人话。但它**只改 presenter(`presentation.py` 一个文件)、只做 presenter 层单测(`test_presentation.py::TestBashPresenter` 断言 `format_start(...).summary == "跑单元测试"`),从未端到端验证 UI**。其【现象】段写的"开始态显示原始 command"是**从 presenter 代码推断、非 UI 实测**——真实的 running 态 UI 因本面 1 的 gateway 转发缺口(427 未碰 gateway,其 Relations 亦记"feat-425 未触及本缺口")根本不显示任何主参数,正是用户给 427 的原话"description 开始调用时没出现"。故 **427 是 false-fix**:presenter 内容改对了、单测绿、unit 判"已修复",但用户可观察症状从未解决,现作为本单元面 1 重新浮出。427 的价值在于已让 presenter 在 tool_start 备好正确 summary;本面 1 是把它从 gateway 真正转发出去,让 427 的投资第一次到达用户。教训:presenter 层单测绿 ≠ 端到端显示生效,展示链 bug 必须经真栈 e2e 看 UI 才算闭合。
 - 展开卡只读 detail(feat-409-M2)是原始设计:detail 只在 format_end 产,running 态展开为空是从未被覆盖的**原始缺口**,非某次提交引入的回归。
 
 故无单一 `git blame` 回归点:面 1 是 feat-425 起的转发不完整 + bugfix-427 内容到位但管道断;面 2 是 feat-409-M2 起展开卡只认 detail 的原始缺口。
