@@ -92,9 +92,7 @@ class TestBuildRejectMessageMapping:
             == SUBAGENT_REJECT_MESSAGE
         )
         assert (
-            build_reject_message(
-                approval="user_deny", reason="x", is_subagent=True
-            )
+            build_reject_message(approval="user_deny", reason="x", is_subagent=True)
             == SUBAGENT_REJECT_MESSAGE
         )
 
@@ -106,15 +104,11 @@ class TestBuildRejectMessageMapping:
 
     def test_user_deny_without_reason(self):
         assert (
-            build_reject_message(
-                approval="user_deny", reason="", is_subagent=False
-            )
+            build_reject_message(approval="user_deny", reason="", is_subagent=False)
             == REJECT_MESSAGE
         )
         assert (
-            build_reject_message(
-                approval="user_deny", reason=None, is_subagent=False
-            )
+            build_reject_message(approval="user_deny", reason=None, is_subagent=False)
             == REJECT_MESSAGE
         )
 
