@@ -349,6 +349,9 @@ def _parse_anthropic_usage(payload: Any) -> TokenUsage | None:
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
+        # feat-439-M1: 与 client.py:_parse_anthropic_usage 同口径，避免两份漂移。
+        cache_read_tokens=cache_read_tokens,
+        cache_total_input_tokens=prompt_tokens,
     )
 
 
