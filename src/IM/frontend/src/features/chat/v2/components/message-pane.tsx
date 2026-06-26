@@ -219,8 +219,10 @@ export function MessagePane({
           <button type="button" className="chat-pane-back" onClick={onBack} aria-label="Back">‹</button>
         )}
         <Avatar
-          initials={agentInitials ?? conversation.title.slice(0, 2)}
-          color={agentColor ?? "oklch(0.52 0.14 270)"}
+          // 只有 direct-agent 用该 agent 的头像；群 / agent-network 用群名 initials +
+          // 群色(紫)，与左侧会话列表的群头像一致，不再误用第一个 agent 的头像。
+          initials={kind === "direct-agent" ? (agentInitials ?? conversation.title.slice(0, 2)) : conversation.title.slice(0, 2)}
+          color={kind === "direct-agent" ? (agentColor ?? "oklch(0.52 0.14 270)") : "oklch(0.52 0.14 270)"}
           size={34}
           status={kind === "direct-agent" ? nodeStatus : null}
         />

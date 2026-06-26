@@ -232,20 +232,25 @@ export function GroupSettings(props: GroupSettingsProps) {
     // userId must be present to remove (the endpoint keys on it). Guard against a
     // null user_id so the ✕ never becomes a silent no-op.
     const removable = m.type === "agent" && !m.isSelf && m.userId != null;
-    const showRemoveAffordance = removable && (!isMobile || manageMode);
+    // 留出删除控件列的语境：桌面(hover 显 ✕)或移动 manage 态。该列内每行都占等宽前导槽位
+    // ——可删的放 ✕，不可删的(本人)放等宽空 spacer——让所有成员头像左缘对齐。
+    const showRemoveColumn = !isMobile || manageMode;
     return (
       <li key={m.id} className="group-settings-member">
         <div className="group-settings-member-main">
-          {showRemoveAffordance && !confirming && (
-            <button
-              type="button"
-              className="group-settings-member-remove"
-              aria-label={t("chat.groupSettings.removeMember", { name: m.displayName })}
-              onClick={() => setConfirmingRemoveId(m.userId)}
-            >
-              ✕
-            </button>
-          )}
+          {showRemoveColumn &&
+            (removable && !confirming ? (
+              <button
+                type="button"
+                className="group-settings-member-remove"
+                aria-label={t("chat.groupSettings.removeMember", { name: m.displayName })}
+                onClick={() => setConfirmingRemoveId(m.userId)}
+              >
+                ✕
+              </button>
+            ) : (
+              <span className="group-settings-member-remove-slot" aria-hidden="true" />
+            ))}
           {m.type === "agent" && !manageMode ? (
             <button
               type="button"

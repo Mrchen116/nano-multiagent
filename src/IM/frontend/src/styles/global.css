@@ -3136,14 +3136,15 @@ body {
 
 .group-settings-scrim {
   position: fixed;
-  inset: 0;
+  /* 顶栏(.im-shell-topbar)高 48px：scrim/抽屉从其下方起，不盖住全局黑色顶栏。 */
+  inset: 48px 0 0;
   z-index: 90;
   background: transparent;
 }
 
 .group-settings-drawer {
   position: fixed;
-  top: 0;
+  top: 48px;
   right: 0;
   bottom: 0;
   width: 340px;
@@ -3393,6 +3394,10 @@ body {
   color: var(--im-border-strong);
   font-size: 16px;
   flex-shrink: 0;
+}
+.group-settings-member-remove-slot {
+  flex-shrink: 0;
+  width: 26px;
 }
 .group-settings-member-remove {
   flex-shrink: 0;
