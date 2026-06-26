@@ -26,7 +26,7 @@ describe("ToolCallsPanel", () => {
     const user = userEvent.setup();
     render(<ToolCallsPanel toolCalls={SAMPLE} />);
     expect(screen.queryByText("list_files")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
     expect(screen.getByText("list_files")).toBeInTheDocument();
     expect(screen.getByText("str_replace_edit")).toBeInTheDocument();
   });
@@ -62,13 +62,16 @@ describe("ToolCallsPanel · process timeline (feat-439-M2)", () => {
   it("expands a thinking row to reveal the full segment text", async () => {
     const user = userEvent.setup();
     const long: ThinkingSegment[] = [
-      { seq: 0, text: "这是一段很长的思考内容，应当在展开后完整呈现，收起时只显示摘要。" }
+      { seq: 0, text: "第一行摘要\n第二行应当在展开后才完整呈现" }
     ];
     render(<ToolCallsPanel toolCalls={[]} thinking={long} />);
     await user.click(screen.getByRole("button", { name: /过程|process/i }));
-    const thinkRow = screen.getByTestId("process-thinking-toggle");
-    await user.click(thinkRow);
-    expect(screen.getByText(/应当在展开后完整呈现/)).toBeInTheDocument();
+    // 收起态只显示首行摘要，展开后才出现完整正文。
+    expect(screen.queryByText(/第二行应当在展开后才完整呈现/)).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("process-thinking-toggle"));
+    expect(screen.getByTestId("process-thinking-body").textContent).toContain(
+      "第二行应当在展开后才完整呈现"
+    );
   });
 
   it("renders no 💭 thinking rows when the turn produced no thinking", async () => {
@@ -96,7 +99,7 @@ describe("ToolCallsPanel · process timeline (feat-439-M2)", () => {
 describe("ToolCallsPanel · collapsed row (R1)", () => {
   async function expandPanel() {
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
   }
 
   it("renders the presenter output as the collapsed-row summary text", async () => {
@@ -232,7 +235,7 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
       { id: "x1", name: "bash", status: "failed", input: {}, reason },
     ];
     render(<ToolCallsPanel toolCalls={calls} />);
-    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
     expect(screen.getByText(label)).toBeInTheDocument();
   });
 
@@ -242,7 +245,7 @@ describe("ToolCallsPanel · collapsed row (R1)", () => {
       { id: "ok1", name: "read", status: "completed", input: {}, output: "ok" },
     ];
     render(<ToolCallsPanel toolCalls={calls} />);
-    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
     expect(screen.queryByText(/denied|timed out|interrupted/i)).not.toBeInTheDocument();
   });
 });
@@ -258,7 +261,7 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
   }
   async function open() {
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
   }
 
   it("renders bash as a terminal block with command + stdout", async () => {
@@ -548,7 +551,7 @@ describe("ToolCallsPanel · long output (R3)", () => {
   }
   async function open() {
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
   }
 
   const LONG_STDOUT = Array.from({ length: 200 }, (_, i) => `line ${i + 1}`).join("\n");
@@ -713,7 +716,7 @@ describe("ToolCallsPanel · bespoke failure routing (Round-1 fix)", () => {
   }
   async function open() {
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
   }
 
   it("renders an agent in-band failure via AgentCard with prompt + error text (not an empty ErrorCard)", async () => {
@@ -791,7 +794,7 @@ describe("ToolCallsPanel · success-false failure (Round-3 fix)", () => {
   }
   async function open() {
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
   }
 
   it("renders a memory success=false detail as a failure (✕ + error text, not ✓)", async () => {
@@ -899,9 +902,11 @@ describe("feat-414-M1 · collapsed toggle has no total duration (W3)", () => {
 
   it("does not show total duration in the collapsed toggle button text", () => {
     render(<ToolCallsPanel toolCalls={COMPLETED_CALLS} />);
-    const btn = screen.getByRole("button", { name: /tool call/i });
-    // Must not contain a pattern like "· 1.2s" or "· 800ms"
-    expect(btn.textContent).not.toMatch(/·\s*\d/);
+    const btn = screen.getByRole("button", { name: /过程|process/i });
+    // Must not contain a summed duration like "· 1.2s" / "· 800ms" / "· 2m 0s".
+    // feat-439-M2: the toggle now carries item counts ("· 2 tools"), so the guard
+    // targets duration suffixes specifically, not any digit after a separator.
+    expect(btn.textContent).not.toMatch(/\d+(\.\d+)?\s*(ms|s|m)\b/);
   });
 });
 

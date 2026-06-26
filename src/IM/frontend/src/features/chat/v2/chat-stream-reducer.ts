@@ -122,6 +122,8 @@ export function applyWsEvent(
         delivery_status: ev.delivery_status,
         created_at: ev.created_at,
         tool_calls: ev.tool_calls,
+        // feat-439-M2: 历史回放 / 建泡时还原已持久化的思考过程项。
+        thinking: ev.thinking,
         token_usage: ev.token_usage,
         permission_requests: []
       };
@@ -146,6 +148,14 @@ export function applyWsEvent(
     case "tool_call.upserted":
     case "tool_call.completed": {
       return patchMessage(state, ev.message_id, (m) => upsertToolCall(m, ev.tool_call));
+    }
+    // feat-439-M2: 追加一段思考过程项（按到达顺序）。seq 由后端持久化边界赋予，
+    // 渲染端按 seq 把思考与工具 merge 成一条过程时间线。
+    case "thinking.segment": {
+      return patchMessage(state, ev.message_id, (m) => ({
+        ...m,
+        thinking: [...(m.thinking ?? []), ev.thinking_segment]
+      }));
     }
     // bugfix-367: 同一 message 上多次 ask 现按 list 累积。同 request_id 二次
     // 写入视为 idempotent 替换;新 request_id 追加。resolved 按 request_id 在

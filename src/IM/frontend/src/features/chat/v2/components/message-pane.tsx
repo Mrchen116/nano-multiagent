@@ -434,9 +434,15 @@ function MessageBubble({
               ))}
             </div>
           )}
-          {isAgent && message.tool_calls && message.tool_calls.length > 0 && (
-            <ToolCallsPanel toolCalls={message.tool_calls} />
-          )}
+          {/* feat-439-M2: 过程盘在有工具调用 OR 有思考段时渲染（无思考不留空壳）。 */}
+          {isAgent &&
+            ((message.tool_calls && message.tool_calls.length > 0) ||
+              (message.thinking && message.thinking.length > 0)) && (
+              <ToolCallsPanel
+                toolCalls={message.tool_calls ?? []}
+                thinking={message.thinking}
+              />
+            )}
           {isAgent && deliveryStatus === "completed" && message.token_usage && (
             <TokenChip usage={message.token_usage} dataTestId={`message-token-chip-${message.id}`} />
           )}

@@ -104,6 +104,15 @@ export interface ToolCall {
   approval?: ToolApproval | string;
 }
 
+/**
+ * feat-439-M2: 一段思考（过程时间线的「过程项」之一）。`seq` = 该段到达时所属气泡
+ * 已有的 tool_calls 数（= 插入索引），渲染端据此把思考插到正确的工具之间。
+ */
+export interface ThinkingSegment {
+  seq: number;
+  text: string;
+}
+
 export interface TokenUsage {
   output: number;
   context_used: number;
@@ -127,6 +136,8 @@ export interface Message {
   delivery_status: DeliveryStatus;
   created_at: string;
   tool_calls?: ToolCall[];
+  /** feat-439-M2: 整轮多段思考（过程时间线）。undefined = 无思考 / 旧行（不留空壳）。 */
+  thinking?: ThinkingSegment[];
   token_usage?: TokenUsage | null;
   /** feat-414: 本轮 agent 处理墙钟（毫秒）。用户消息及旧行为 undefined / null。 */
   elapsed_ms?: number | null;
@@ -182,11 +193,13 @@ export function classifyConversationKind(c: Pick<Conversation, "type" | "direct_
 // it as optional here — useful when reducing but never required to parse.
 
 export type WsEvent =
-  | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; content: string; tool_calls: ToolCall[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string }
+  | { type: "message.created"; seq?: number; conversation_id: string; message_id: string; sender_user_id: string; sender_type: string; content: string; tool_calls: ToolCall[]; thinking?: ThinkingSegment[]; token_usage: TokenUsage | null; delivery_status: DeliveryStatus; created_at: string }
   | { type: "message.delta"; seq?: number; conversation_id: string; message_id: string; delta_text: string }
   | { type: "message.completed"; seq?: number; conversation_id: string; message_id: string; content: string; token_usage: TokenUsage | null; elapsed_ms?: number | null }
   | { type: "tool_call.upserted"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
   | { type: "tool_call.completed"; seq?: number; conversation_id: string; message_id: string; tool_call: ToolCall }
+  // feat-439-M2: 一段思考过程项到达当前气泡（过程时间线）。
+  | { type: "thinking.segment"; seq?: number; conversation_id: string; message_id: string; thinking_segment: ThinkingSegment }
   // bugfix-367 (updated from feat-333-M3/R1): permission ask flow. Backend emits
   // these when auto_mode_gate triggers an `ask` decision; the frontend reducer
   // appends `permission_request` to `message.permission_requests`(按 request_id

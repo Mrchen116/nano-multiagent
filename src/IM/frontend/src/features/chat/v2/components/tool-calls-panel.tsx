@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import { useTranslation } from "../../../../i18n";
-import type { ToolCall } from "../chat-types";
+import type { ThinkingSegment, ToolCall } from "../chat-types";
 import { ToolDetailBody } from "./tool-detail-renderers";
 import {
   collapsedSummary,
@@ -14,6 +14,8 @@ import {
 
 interface ToolCallsPanelProps {
   toolCalls: ToolCall[];
+  // feat-439-M2: 整轮多段思考。与 toolCalls 按 seq merge 成一条「过程」时间线。
+  thinking?: ThinkingSegment[];
 }
 
 // feat-414: 抽共享工具，供单工具行与气泡耗时复用（message-pane.tsx import 它）。
@@ -28,20 +30,55 @@ export function formatDuration(ms: number): string {
 // feat-414 决策 4: totalDuration 求和已移除 —— 该聚合值等于各工具并发重叠之和，
 // 并不等于 wall-clock 墙钟；气泡现在展示后端计算的真实墙钟（elapsed_ms）。
 
+type ProcessItem =
+  | { kind: "thinking"; segment: ThinkingSegment; key: string }
+  | { kind: "tool"; call: ToolCall; key: string };
+
 /**
- * Collapsible tool-call sidecar attached to an agent message. Top button shows
- * the total count + a "running" hint if any call is still in flight; expanding
- * reveals one row per call with its own input/output toggle. Matches the
- * prototype's running pulse semantics — the agent will keep streaming
- * tool_call.* events so the panel re-renders on its own.
+ * feat-439-M2: 把整轮的思考段与工具调用按真实时序 merge 成一条流。
+ *
+ * `ThinkingSegment.seq` 是该段到达时气泡已有的 tool_calls 数（= 插入索引）：seq=k 的
+ * 思考排在 tool[k] 之前（即 tool[0..k-1] 之后）。内核保证一回合的思考早于该回合的工具
+ * 到达，故 seq 恰好是「本段思考之前的工具数」。溢出（seq ≥ 工具数）的思考排到末尾。
+ */
+function buildTimeline(
+  toolCalls: ToolCall[],
+  thinking: ThinkingSegment[]
+): ProcessItem[] {
+  const thinks = [...thinking].sort((a, b) => a.seq - b.seq);
+  const out: ProcessItem[] = [];
+  let p = 0;
+  for (let i = 0; i < toolCalls.length; i++) {
+    while (p < thinks.length && thinks[p]!.seq === i) {
+      out.push({ kind: "thinking", segment: thinks[p]!, key: `think-${p}` });
+      p++;
+    }
+    out.push({ kind: "tool", call: toolCalls[i]!, key: `tool-${toolCalls[i]!.id}` });
+  }
+  // 末尾未消费的思考段（最终回合的思考 / seq 溢出）排在所有工具之后。
+  while (p < thinks.length) {
+    out.push({ kind: "thinking", segment: thinks[p]!, key: `think-${p}` });
+    p++;
+  }
+  return out;
+}
+
+/**
+ * Collapsible "process" timeline attached to an agent message (feat-439-M2, 升级自
+ * feat-340 的工具折叠盘). The top button shows the tool count, the thinking-segment
+ * count, and a "running" hint while any call is in flight; expanding reveals one row
+ * per process item — thinking segments (💭) and tool calls interleaved by real
+ * chronology. Each row has its own expand/collapse. 无思考的轮里只出现工具行，无 💭。
  *
  * Dark-theme styling with expand/collapse animation (im-components.jsx).
  */
-export function ToolCallsPanel({ toolCalls }: ToolCallsPanelProps) {
+export function ToolCallsPanel({ toolCalls, thinking }: ToolCallsPanelProps) {
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
-  if (toolCalls.length === 0) return null;
+  const segments = thinking ?? [];
+  if (toolCalls.length === 0 && segments.length === 0) return null;
   const anyRunning = toolCalls.some((c) => c.status === "running");
+  const timeline = buildTimeline(toolCalls, segments);
 
   // feat-434-M1: collapsed-state approval count suffix「K 次授权 · X 允许 · Y 拒绝」.
   // Audits "how many times the user approved" (bugfix-367 risk保住) without the old
@@ -60,21 +97,31 @@ export function ToolCallsPanel({ toolCalls }: ToolCallsPanelProps) {
         aria-expanded={expanded}
       >
         <span className="chat-tool-calls-arrow">{expanded ? "▾" : "▸"}</span>
-        <span>
-          {anyRunning ? (
-            <span className="chat-tool-calls-running-wrap">
-              <span className="chat-tool-calls-pulse" />
-              {toolCalls.length}{" "}
-              {toolCalls.length === 1
-                ? t("chat.messagePane.toolCall")
-                : t("chat.messagePane.toolCalls")}{" "}
-              · {t("chat.messagePane.running")}
+        <span className="chat-process-label">{t("chat.messagePane.process")}</span>
+        {toolCalls.length > 0 && (
+          <>
+            <span className="chat-tool-calls-sep">·</span>
+            <span>
+              {anyRunning ? (
+                <span className="chat-tool-calls-running-wrap">
+                  <span className="chat-tool-calls-pulse" />
+                  {t("chat.messagePane.toolCount", { count: toolCalls.length })} ·{" "}
+                  {t("chat.messagePane.running")}
+                </span>
+              ) : (
+                t("chat.messagePane.toolCount", { count: toolCalls.length })
+              )}
             </span>
-          ) : (
-            // feat-414 决策 4: 折叠态只显示次数，去掉求和时长（用气泡 elapsed_ms 替代）。
-            `${toolCalls.length} ${toolCalls.length === 1 ? t("chat.messagePane.toolCall") : t("chat.messagePane.toolCalls")}`
-          )}
-        </span>
+          </>
+        )}
+        {segments.length > 0 && (
+          <>
+            <span className="chat-tool-calls-sep">·</span>
+            <span className="chat-process-think-count">
+              {t("chat.messagePane.thinkingCount", { count: segments.length })}
+            </span>
+          </>
+        )}
         {approvalCount > 0 && (
           <span className="chat-tool-calls-approvals">
             <span className="chat-tool-calls-sep">·</span>
@@ -112,13 +159,59 @@ export function ToolCallsPanel({ toolCalls }: ToolCallsPanelProps) {
       {expanded && (
         <div className="chat-tool-calls-panel chat-tool-calls-panel--open">
           <ul className="chat-tool-calls-list">
-            {toolCalls.map((c, i) => (
-              <ToolCallRow key={c.id} call={c} defaultOpen={i === 0} />
-            ))}
+            {timeline.map((item, i) =>
+              item.kind === "thinking" ? (
+                <ThinkingRow key={item.key} segment={item.segment} />
+              ) : (
+                <ToolCallRow key={item.key} call={item.call} defaultOpen={i === 0} />
+              )
+            )}
           </ul>
         </div>
       )}
     </div>
+  );
+}
+
+// feat-439-M2: 一段思考行。默认收起为一行 💭 + 首行摘要；点开展示完整思考内容
+// （整段呈现、不逐字滚动——内核事件管线无 token 流式）。靛紫调与工具行（青色）区分。
+function ThinkingRow({ segment }: { segment: ThinkingSegment }) {
+  const { t } = useTranslation();
+  const [open, setOpen] = useState(false);
+  const firstLine = segment.text.split("\n", 1)[0] ?? "";
+  const summary = firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
+  return (
+    <li className="chat-tool-call-item chat-process-item" data-testid="process-item">
+      <button
+        type="button"
+        className={`chat-tool-call-row chat-process-think-row ${open ? "chat-process-think-row--open" : ""}`}
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        data-testid="process-thinking-toggle"
+      >
+        <span
+          className="chat-tool-call-status-icon chat-process-think-icon"
+          aria-hidden="true"
+        >
+          💭
+        </span>
+        <span className="chat-tool-call-name chat-process-think-name">
+          {t("chat.messagePane.thinking")}
+        </span>
+        <span className="chat-tool-call-summary chat-process-think-summary">{summary}</span>
+        <span className="chat-tool-call-arrow">{open ? "▾" : "▸"}</span>
+      </button>
+      {open && (
+        <div className="chat-tool-call-body chat-tool-call-body--open">
+          <div
+            className="chat-tool-call-body-inner chat-process-think-body"
+            data-testid="process-thinking-body"
+          >
+            {segment.text}
+          </div>
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -165,7 +258,7 @@ function ToolCallRow({ call, defaultOpen = false }: { call: ToolCall; defaultOpe
   const notExecuted = isNotExecuted(call);
 
   return (
-    <li className="chat-tool-call-item">
+    <li className="chat-tool-call-item chat-process-item" data-testid="process-item">
       <button
         type="button"
         className={`chat-tool-call-row chat-tool-call-row--${rowStatus}`}
