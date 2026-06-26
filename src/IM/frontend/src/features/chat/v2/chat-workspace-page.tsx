@@ -485,22 +485,22 @@ export function ChatWorkspacePageV2() {
   const invalidateConversations = () =>
     void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
 
+  // These four feed GroupSettings via mutateAsync so a rejection propagates to the
+  // panel, which renders the error inline (the global sendError toast sits below
+  // the panel's z-index and would be hidden by the scrim / mobile full-screen).
   const renameMutation = useMutation({
     mutationFn: (title: string) => updateConversation(conversationId!, { title }),
-    onSuccess: invalidateConversations,
-    onError: (err) => setSendError(err instanceof Error ? err.message : t("chat.messagePane.sendError"))
+    onSuccess: invalidateConversations
   });
 
   const addParticipantsMutation = useMutation({
     mutationFn: (agentIds: string[]) => addParticipants(conversationId!, agentIds),
-    onSuccess: invalidateConversations,
-    onError: (err) => setSendError(err instanceof Error ? err.message : t("chat.messagePane.sendError"))
+    onSuccess: invalidateConversations
   });
 
   const removeParticipantMutation = useMutation({
     mutationFn: (userId: string) => removeParticipant(conversationId!, userId),
-    onSuccess: invalidateConversations,
-    onError: (err) => setSendError(err instanceof Error ? err.message : t("chat.messagePane.sendError"))
+    onSuccess: invalidateConversations
   });
 
   const dissolveMutation = useMutation({
@@ -509,8 +509,7 @@ export function ChatWorkspacePageV2() {
       setShowGroupSettings(false);
       invalidateConversations();
       navigate("/chat");
-    },
-    onError: (err) => setSendError(err instanceof Error ? err.message : t("chat.messagePane.sendError"))
+    }
   });
 
   const groupSettingsBusy =
@@ -612,10 +611,10 @@ export function ChatWorkspacePageV2() {
           isMobile={isMobile}
           isBusy={groupSettingsBusy}
           onClose={() => setShowGroupSettings(false)}
-          onRename={(title) => renameMutation.mutate(title)}
-          onAddParticipants={(agentIds) => addParticipantsMutation.mutate(agentIds)}
-          onRemoveParticipant={(userId) => removeParticipantMutation.mutate(userId)}
-          onDissolve={() => dissolveMutation.mutate()}
+          onRename={(title) => renameMutation.mutateAsync(title)}
+          onAddParticipants={(agentIds) => addParticipantsMutation.mutateAsync(agentIds)}
+          onRemoveParticipant={(userId) => removeParticipantMutation.mutateAsync(userId)}
+          onDissolve={() => dissolveMutation.mutateAsync()}
           onOpenAgentConfig={(agentId) => navigate(`/settings/agents/${agentId}`)}
         />
       )}

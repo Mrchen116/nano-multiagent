@@ -425,7 +425,8 @@
       "removeConfirm": "Remove this member from the group?",
       "dissolve": "Dissolve group",
       "dissolveConfirmTitle": "Dissolve “{{name}}”?",
-      "dissolveConfirm": "The group and its chat history will be permanently deleted and can't be recovered."
+      "dissolveConfirm": "The group and its chat history will be permanently deleted and can't be recovered.",
+      "actionError": "Something went wrong. Please try again."
     },
     "mention": {
       "header": "Mention agent",

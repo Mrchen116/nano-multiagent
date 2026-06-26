@@ -3189,23 +3189,31 @@ body {
   justify-content: center;
   margin: 2px 0 12px;
 }
-.group-settings-cluster-av {
+/* Cluster overlap is applied to the shared <Avatar> wrapper. */
+.group-settings-cluster .chat-avatar {
   margin-left: -12px;
-  border-radius: 50%;
-  color: #fff;
-  font-weight: 600;
-  font-size: 13px;
-  display: grid;
-  place-items: center;
+}
+.group-settings-cluster .chat-avatar:first-child {
+  margin-left: 0;
+}
+.group-settings-cluster .chat-avatar-face {
   border: 2.5px solid var(--im-surface);
   box-shadow: 0 1px 2px oklch(0.2 0 0 / 0.12);
-  flex-shrink: 0;
-}
-.group-settings-cluster-av:first-child {
-  margin-left: 0;
 }
 .group-settings-av--stale {
   opacity: 0.45;
+}
+/* Inline error banner — surfaces write-operation failures inside the panel,
+   above the scrim / mobile full-screen page where the global toast can't show. */
+.group-settings-error {
+  margin: 10px 16px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: oklch(0.96 0.03 25);
+  border: 1px solid oklch(0.86 0.09 25);
+  color: oklch(0.4 0.12 25);
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 .group-settings-cluster-more {
   margin-left: -12px;
@@ -3401,6 +3409,11 @@ body {
   opacity: 0;
 }
 .group-settings-member-main:hover .group-settings-member-remove {
+  opacity: 1;
+}
+/* On mobile the remove ✕ is only rendered in manage mode (there is no hover),
+   so it must be visible whenever present. */
+.group-settings-mobile .group-settings-member-remove {
   opacity: 1;
 }
 .group-settings-member-remove:hover {

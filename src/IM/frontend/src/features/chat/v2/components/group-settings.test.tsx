@@ -105,6 +105,44 @@ describe("GroupSettings (desktop drawer)", () => {
     await user.click(screen.getByRole("button", { name: /Close/i }));
     expect(props.onClose).toHaveBeenCalled();
   });
+
+  // round-1 fix #1: a failed write must be visible inside the panel (the global
+  // toast is hidden behind the scrim), and the user's pending action is preserved.
+  it("surfaces an inline error when a remove fails and keeps the confirm open", async () => {
+    const user = userEvent.setup();
+    const onRemoveParticipant = vi.fn().mockRejectedValue(new Error("network boom"));
+    renderSettings({ onRemoveParticipant });
+    await user.click(screen.getByRole("button", { name: "Remove Planner" }));
+    await user.click(screen.getByRole("button", { name: /^Remove$/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/network boom/i);
+    // The confirm stays so the user can retry.
+    expect(screen.getByText(/Remove this member/i)).toBeInTheDocument();
+  });
+
+  // round-1 fix #4: a failed add keeps the selection (it is only cleared on success).
+  it("keeps the selection and shows an error when add fails", async () => {
+    const user = userEvent.setup();
+    const onAddParticipants = vi.fn().mockRejectedValue(new Error("add failed"));
+    renderSettings({ onAddParticipants });
+    await user.click(screen.getByRole("button", { name: /Add members/i }));
+    await user.click(screen.getByLabelText("Reviewer"));
+    await user.click(screen.getByRole("button", { name: /^Add/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/add failed/i);
+    expect(screen.getByLabelText("Reviewer")).toBeChecked();
+  });
+
+  // round-1 fix #3: an agent member with a null user_id must not render a clickable
+  // remove (it would key the delete on nothing → silent no-op).
+  it("does not render a remove affordance for an agent member with null user_id", () => {
+    renderSettings({
+      members: [
+        { id: "user-1", userId: "user-1", type: "user", displayName: "Alex", isSelf: true, isCreator: true },
+        { id: "ghost", userId: null, type: "agent", displayName: "Ghost", isSelf: false, isCreator: false, status: "offline" }
+      ]
+    });
+    expect(screen.getByText("Ghost")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Remove Ghost" })).not.toBeInTheDocument();
+  });
 });
 
 describe("GroupSettings (mobile fullscreen)", () => {

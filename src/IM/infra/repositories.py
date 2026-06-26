@@ -654,7 +654,7 @@ class ConversationRepository:
         for reference in normalized_references:
             resolved_user = self._resolve_participant_user_row(reference=reference)
             if resolved_user is None:
-                raise ValueError("participant_ids contains unknown users")
+                raise ValueError("participants contains unknown users")
             resolved_user_id = str(resolved_user["id"])
             if resolved_user_id in existing_user_ids:
                 continue

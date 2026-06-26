@@ -1,7 +1,11 @@
 import { useState, type FormEvent } from "react";
 
 import { useTranslation } from "../../../../i18n";
-import { colorForAgentSeed } from "./avatar";
+import { Avatar, colorForAgent } from "./avatar";
+
+// Fixed (non-agent) avatar colour for the human "you" member — agents derive
+// their colour from colorForAgent (display_name seed).
+const SELF_AVATAR_COLOR = "oklch(0.55 0.14 255)";
 
 /** One row in the group member list, pre-resolved by the workspace. */
 export interface GroupSettingsMember {
@@ -32,16 +36,15 @@ export interface GroupSettingsProps {
   /** True while a write mutation is in flight; disables destructive/primary actions. */
   isBusy?: boolean;
   onClose(): void;
-  onRename(title: string): void;
-  onAddParticipants(agentIds: string[]): void;
+  // Write handlers may be async — when they reject, the failure is surfaced
+  // inline inside the panel (the global toast sits below the panel's z-index and
+  // would be hidden by the scrim / mobile full-screen page).
+  onRename(title: string): void | Promise<unknown>;
+  onAddParticipants(agentIds: string[]): void | Promise<unknown>;
   /** Remove by the member's user_id (UUID), never its agent_id (决策 5 / CRITICAL-1). */
-  onRemoveParticipant(userId: string): void;
-  onDissolve(): void;
+  onRemoveParticipant(userId: string): void | Promise<unknown>;
+  onDissolve(): void | Promise<unknown>;
   onOpenAgentConfig(agentId: string): void;
-}
-
-function initialsOf(name: string): string {
-  return name.slice(0, 2).toUpperCase();
 }
 
 /**
@@ -74,21 +77,36 @@ export function GroupSettings(props: GroupSettingsProps) {
   const [confirmingRemoveId, setConfirmingRemoveId] = useState<string | null>(null);
   const [confirmingDissolve, setConfirmingDissolve] = useState(false);
   const [manageMode, setManageMode] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const agentMembers = members.filter((m) => m.type === "agent");
   const nameInvalid = nameDraft.trim().length === 0;
 
+  // Run one write handler, surfacing any rejection inline. On failure we keep the
+  // current UI (rename input / add selection / remove confirm) intact so the user
+  // can retry — the caller only resets state when this resolves true.
+  async function runAction(fn: () => void | Promise<unknown>): Promise<boolean> {
+    setActionError(null);
+    try {
+      await fn();
+      return true;
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t("chat.groupSettings.actionError"));
+      return false;
+    }
+  }
+
   function startRename() {
     setNameDraft(title);
+    setActionError(null);
     setRenaming(true);
   }
 
-  function submitRename(e?: FormEvent) {
+  async function submitRename(e?: FormEvent) {
     e?.preventDefault();
     const trimmed = nameDraft.trim();
     if (!trimmed) return;
-    onRename(trimmed);
-    setRenaming(false);
+    if (await runAction(() => onRename(trimmed))) setRenaming(false);
   }
 
   function toggleAgent(agentId: string) {
@@ -100,18 +118,34 @@ export function GroupSettings(props: GroupSettingsProps) {
   function closeAdd() {
     setAdding(false);
     setSelectedAgentIds([]);
+    setActionError(null);
   }
 
-  function submitAdd() {
+  async function submitAdd() {
     if (selectedAgentIds.length === 0) return;
-    onAddParticipants(selectedAgentIds);
-    closeAdd();
+    // Keep the selection if the add fails — only clear on success.
+    if (await runAction(() => onAddParticipants(selectedAgentIds))) closeAdd();
   }
 
-  function confirmRemove(userId: string | null) {
-    if (userId) onRemoveParticipant(userId);
-    setConfirmingRemoveId(null);
+  async function confirmRemove(userId: string | null) {
+    if (!userId) {
+      setConfirmingRemoveId(null);
+      return;
+    }
+    if (await runAction(() => onRemoveParticipant(userId))) setConfirmingRemoveId(null);
   }
+
+  function handleDissolve() {
+    // On success the workspace navigates away (this component unmounts); on
+    // failure the error stays visible inline.
+    void runAction(() => onDissolve());
+  }
+
+  const errorBanner = actionError ? (
+    <div className="group-settings-error" role="alert">
+      {actionError}
+    </div>
+  ) : null;
 
   // ─── Avatar cluster (group identity) ──────────────────────────────────────
   const clusterMembers = agentMembers.length > 0 ? agentMembers : members;
@@ -121,13 +155,12 @@ export function GroupSettings(props: GroupSettingsProps) {
     return (
       <div className="group-settings-cluster">
         {shown.map((m) => (
-          <span
+          <Avatar
             key={m.id}
-            className="group-settings-cluster-av"
-            style={{ width: size, height: size, background: colorForAgentSeed(m.displayName) }}
-          >
-            {initialsOf(m.displayName)}
-          </span>
+            initials={m.displayName}
+            color={m.isSelf ? SELF_AVATAR_COLOR : colorForAgent({ display_name: m.displayName })}
+            size={size}
+          />
         ))}
         {extra > 0 && (
           <span className="group-settings-cluster-more" style={{ width: size, height: size }}>
@@ -186,12 +219,7 @@ export function GroupSettings(props: GroupSettingsProps) {
         return (
           <label key={a.agentId} className={`group-settings-pick${on ? " group-settings-pick--on" : ""}`}>
             <input type="checkbox" checked={on} aria-label={a.displayName} onChange={() => toggleAgent(a.agentId)} />
-            <span
-              className="group-settings-cluster-av"
-              style={{ width: 30, height: 30, background: colorForAgentSeed(a.displayName) }}
-            >
-              {initialsOf(a.displayName)}
-            </span>
+            <Avatar initials={a.displayName} color={colorForAgent({ display_name: a.displayName })} size={30} />
             <span className="group-settings-pick-name">{a.displayName}</span>
           </label>
         );
@@ -201,7 +229,9 @@ export function GroupSettings(props: GroupSettingsProps) {
   // ─── Member row (shared) ──────────────────────────────────────────────────
   function memberRow(m: GroupSettingsMember) {
     const confirming = confirmingRemoveId !== null && confirmingRemoveId === m.userId;
-    const removable = m.type === "agent" && !m.isSelf;
+    // userId must be present to remove (the endpoint keys on it). Guard against a
+    // null user_id so the ✕ never becomes a silent no-op.
+    const removable = m.type === "agent" && !m.isSelf && m.userId != null;
     const showRemoveAffordance = removable && (!isMobile || manageMode);
     return (
       <li key={m.id} className="group-settings-member">
@@ -263,11 +293,14 @@ export function GroupSettings(props: GroupSettingsProps) {
     return (
       <>
         <span
-          className={`group-settings-cluster-av${m.isStale ? " group-settings-av--stale" : ""}`}
-          style={{ width: 34, height: 34, background: m.isSelf ? "oklch(0.55 0.14 255)" : colorForAgentSeed(m.displayName) }}
+          className={m.isStale ? "group-settings-av--stale" : undefined}
           title={m.isStale ? t("chat.groupSettings.stale") : undefined}
         >
-          {initialsOf(m.displayName)}
+          <Avatar
+            initials={m.displayName}
+            color={m.isSelf ? SELF_AVATAR_COLOR : colorForAgent({ display_name: m.displayName })}
+            size={34}
+          />
         </span>
         <span className="group-settings-member-text">
           <span className="group-settings-member-name">
@@ -285,7 +318,7 @@ export function GroupSettings(props: GroupSettingsProps) {
     <div className="group-settings-dissolve-confirm" data-testid="group-settings-dissolve-confirm">
       <p>{t("chat.groupSettings.dissolveConfirm")}</p>
       <div className="group-settings-inline-confirm-acts">
-        <button type="button" className="group-settings-btn-danger-solid" disabled={isBusy} onClick={onDissolve}>
+        <button type="button" className="group-settings-btn-danger-solid" disabled={isBusy} onClick={handleDissolve}>
           {t("chat.groupSettings.dissolve")}
         </button>
         <button type="button" className="chat-modal-btn-ghost" onClick={() => setConfirmingDissolve(false)}>
@@ -310,6 +343,7 @@ export function GroupSettings(props: GroupSettingsProps) {
           <span className="group-settings-nav-title">{t("chat.groupSettings.addMembers")}</span>
           <span className="group-settings-nav-spacer" />
         </div>
+        {errorBanner}
         <div className="group-settings-mobile-scroll">
           <div className="group-settings-pick-list">{pickerRows}</div>
         </div>
@@ -347,6 +381,7 @@ export function GroupSettings(props: GroupSettingsProps) {
             {manageMode ? t("chat.groupSettings.done") : t("chat.groupSettings.manage")}
           </button>
         </div>
+        {errorBanner}
         <div className="group-settings-mobile-scroll">
           <div className="group-settings-hero">
             {clusterAvatars(52)}
@@ -395,6 +430,8 @@ export function GroupSettings(props: GroupSettingsProps) {
           {renameBlock}
           <div className="group-settings-meta">{t("chat.groupSettings.createdByYou", { count: members.length })}</div>
         </div>
+
+        {errorBanner}
 
         <div className="group-settings-section">
           <span className="group-settings-section-label">

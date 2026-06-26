@@ -422,7 +422,8 @@
       "removeConfirm": "把该成员移出群聊？",
       "dissolve": "解散群聊",
       "dissolveConfirmTitle": "解散「{{name}}」？",
-      "dissolveConfirm": "群聊和聊天记录将被永久删除，无法恢复。"
+      "dissolveConfirm": "群聊和聊天记录将被永久删除，无法恢复。",
+      "actionError": "操作失败，请重试。"
     },
     "mention": {
       "header": "选择 agent",
