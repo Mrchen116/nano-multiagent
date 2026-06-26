@@ -39,6 +39,33 @@ def test_enforce_cap_truncates_content() -> None:
     assert "[truncated]" in result["content"]
 
 
+def test_write_start_detail_reuses_content_cap() -> None:
+    from agent.platform.tools.builtins.write import WriteTool
+
+    huge = "w" * (PRESENTATION_DETAIL_HARD_CAP_BYTES + 500)
+    detail = WriteTool.presenter.format_start(
+        {"path": "big.txt", "content": huge}
+    ).detail
+    assert detail is not None
+    assert detail["path"] == "big.txt"
+    assert detail["truncated"] is True
+    assert "[truncated]" in detail["content"]
+
+
+def test_memory_start_detail_reuses_content_cap() -> None:
+    from agent.platform.tools.builtins.memory import MemoryTool
+
+    huge = "m" * (PRESENTATION_DETAIL_HARD_CAP_BYTES + 500)
+    detail = MemoryTool.presenter.format_start(
+        {"action": "add", "target": "memory", "content": huge}
+    ).detail
+    assert detail is not None
+    assert detail["action"] == "add"
+    assert detail["target"] == "memory"
+    assert detail["truncated"] is True
+    assert "[truncated]" in detail["content"]
+
+
 def test_enforce_cap_none_returns_none() -> None:
     assert _enforce_cap({}) == {}
     assert _enforce_cap(None) is None

@@ -61,6 +61,40 @@ def test_send_message_tool_has_no_bind_dispatcher() -> None:
     )
 
 
+def test_send_message_tool_has_presenter() -> None:
+    """SendMessageTool must carry a presenter for running/complete IM display."""
+    from personal_assistant.tools.send_message import SendMessageTool
+
+    assert getattr(SendMessageTool, "presenter", None) is not None
+
+
+class _FakeResult:
+    def __init__(self, output: Any = None, error: str | None = None) -> None:
+        self.output = output
+        self.error = error
+
+
+def test_send_message_presenter_splits_start_params_and_end_status() -> None:
+    from personal_assistant.tools.send_message import SendMessageTool
+
+    presenter = SendMessageTool.presenter
+    start = presenter.format_start({"to": "agent_b", "text": "hello"})
+    assert start.summary == "→ agent_b"
+    assert start.detail == {"target": "agent_b", "text": "hello"}
+
+    end = presenter.format_end(
+        {"to": "agent_b", "text": "hello"},
+        _FakeResult(output={"ok": True, "target": "agent_b", "text": "hello"}),
+        duration_ms=12,
+    )
+    assert end.summary == "→ agent_b"
+    assert end.detail == {
+        "target": "agent_b",
+        "text": "hello",
+        "status": "ok",
+    }
+
+
 # ---------------------------------------------------------------------------
 # Functional: run() dispatches HTTP POST from session_metadata URL
 # ---------------------------------------------------------------------------

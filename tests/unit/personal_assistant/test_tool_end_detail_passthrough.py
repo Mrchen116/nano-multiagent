@@ -190,6 +190,33 @@ def test_tool_start_forwards_emoji() -> None:
     assert tc["emoji"] == "🌐"
 
 
+def test_tool_start_forwards_summary_and_detail() -> None:
+    # bugfix-441: running rows must receive the presenter-produced parameter
+    # summary/detail, not only the emoji. IM stores `output` as the collapsed row
+    # summary and `detail` as the expanded parameter card.
+    detail = {"command": "sleep 5 && echo done"}
+    event = {
+        "event": "tool_start",
+        "run_id": "run-1",
+        "call_id": "call-1",
+        "name": "bash",
+        "arguments": {
+            "command": "sleep 5 && echo done",
+            "description": "run slow command",
+        },
+        "presentation": {
+            "summary": "run slow command",
+            "emoji": "💻",
+            "detail": detail,
+        },
+    }
+    manager = _run_observer_with_tool_end(event)
+    tc = _upserted_payload(manager)
+    assert tc["status"] == "running"
+    assert tc["output"] == "run slow command"
+    assert tc["detail"] == detail
+
+
 def test_tool_start_without_emoji_omits_key() -> None:
     event = {
         "event": "tool_start",

@@ -112,3 +112,60 @@ def test_run_declined_ack_surfaces_error(tmp_path: Path) -> None:
     result = tool.run({"action": "run", "jobId": job_id}, _Ctx(tmp_path, "agent-a"))
     assert result["ok"] is False
     assert "disabled" in result["error"]
+
+
+def test_cron_tool_has_presenter() -> None:
+    """CronTool must carry a presenter for running/complete IM display."""
+    tool = make_cron_tool({})
+    assert getattr(tool, "presenter", None) is not None
+
+
+class _FakeResult:
+    def __init__(self, output: Any = None, error: str | None = None) -> None:
+        self.output = output
+        self.error = error
+
+
+def test_cron_presenter_splits_start_params_and_end_results(tmp_path: Path) -> None:
+    tool = make_cron_tool({})
+    presenter = tool.presenter
+    args = {
+        "action": "add",
+        "job": {
+            "name": "daily check",
+            "schedule": {"kind": "cron", "expr": "0 9 * * *"},
+            "payload": {"kind": "agentTurn", "message": "ping"},
+        },
+    }
+
+    start = presenter.format_start(args)
+    assert start.summary == "add daily check"
+    assert start.detail == {
+        "action": "add",
+        "job_name": "daily check",
+        "schedule": {"kind": "cron", "expr": "0 9 * * *"},
+    }
+
+    end = presenter.format_end(
+        args,
+        _FakeResult(
+            output={
+                "ok": True,
+                "jobId": "job-1",
+                "job": {
+                    "id": "job-1",
+                    "name": "daily check",
+                    "schedule": {"kind": "cron", "expr": "0 9 * * *"},
+                },
+            }
+        ),
+        duration_ms=12,
+    )
+    assert end.summary == "add daily check"
+    assert end.detail == {
+        "action": "add",
+        "job_name": "daily check",
+        "schedule": {"kind": "cron", "expr": "0 9 * * *"},
+        "jobId": "job-1",
+        "status": "ok",
+    }

@@ -42,6 +42,7 @@ class TestReadPresenter:
         assert evt.visible is True
         assert evt.label == "Read"
         assert evt.summary == "src/app.py"
+        assert evt.detail == {"path": "src/app.py"}
 
     def test_end_text_file_lines(self) -> None:
         # feat-409 readfix: summary 与 detail 都必须带 path。
@@ -114,9 +115,17 @@ class TestReadPresenter:
 
 class TestWritePresenter:
     def test_start_shows_path(self) -> None:
-        evt = _presenter("write").format_start({"path": "src/app.py"})
+        evt = _presenter("write").format_start(
+            {"path": "src/app.py", "content": "hello"}
+        )
         assert evt.label == "Write"
         assert evt.summary == "src/app.py"
+        assert evt.detail == {
+            "path": "src/app.py",
+            "content": "hello",
+            "bytes": 5,
+            "truncated": False,
+        }
 
     def test_end_created(self) -> None:
         evt = _presenter("write").format_end(
@@ -158,6 +167,7 @@ class TestEditPresenter:
         evt = _presenter("edit").format_start({"path": "src/app.py"})
         assert evt.label == "Edit"
         assert evt.summary == "src/app.py"
+        assert evt.detail == {"path": "src/app.py"}
 
     def test_end_updated(self) -> None:
         evt = _presenter("edit").format_end(
@@ -210,6 +220,7 @@ class TestBashPresenter:
         evt = _presenter("bash").format_start({"command": "pytest tests/"})
         assert evt.label == "Bash"
         assert evt.summary == "pytest tests/"
+        assert evt.detail == {"command": "pytest tests/"}
 
     def test_start_shows_description_when_present(self) -> None:
         # bugfix-427: 有 description 时 format_start.summary = description（人话），
@@ -219,6 +230,7 @@ class TestBashPresenter:
         )
         assert evt.label == "Bash"
         assert evt.summary == "跑单元测试"
+        assert evt.detail == {"command": "pytest -xvs tests/unit/"}
 
     def test_end_summary_is_description(self) -> None:
         # 决策 4: 折叠态摘要为人话 description，不再是裸 exit/elapsed 状态串。
@@ -273,6 +285,7 @@ class TestWebFetchPresenter:
         assert evt.label == "Web"
         assert evt.summary == "https://example.com"
         assert evt.emoji == "🌐"
+        assert evt.detail == {"url": "https://example.com"}
 
     def test_end_success_summary_is_url_detail_has_content(self) -> None:
         # feat-425 决策 4: 折叠行显 url(不再 status=200 (title));detail 读
@@ -373,6 +386,11 @@ class TestAgentPresenter:
         )
         assert evt.label == "Agent"
         assert evt.summary == "Refactor auth module"
+        assert evt.detail == {
+            "description": "Refactor auth module",
+            "prompt": "do it",
+            "subagent_type": "",
+        }
 
     def test_end_completed_has_full_prompt_before_result(self) -> None:
         # 决策 3:完整未截断 prompt 进 detail,且语义上排在结果前。
@@ -458,6 +476,19 @@ class TestAgentPresenter:
 
 
 class TestMemoryPresenter:
+    def test_start_shows_action_target_and_content(self) -> None:
+        evt = _presenter("memory").format_start(
+            {"action": "add", "target": "memory", "content": "记住这件事"}
+        )
+        assert evt.label == "Memory"
+        assert evt.summary == "add memory"
+        assert evt.detail == {
+            "action": "add",
+            "target": "memory",
+            "content": "记住这件事",
+            "truncated": False,
+        }
+
     def test_end_success(self) -> None:
         evt = _presenter("memory").format_end(
             {"action": "add", "target": "memory", "content": "记住这件事"},
@@ -499,6 +530,14 @@ class TestMemoryPresenter:
 
 
 class TestSkillManagePresenter:
+    def test_start_shows_action_and_name(self) -> None:
+        evt = _presenter("skill_manage").format_start(
+            {"action": "create", "name": "my-skill", "content": "..."}
+        )
+        assert evt.label == "Skill"
+        assert evt.summary == "create my-skill"
+        assert evt.detail == {"action": "create", "name": "my-skill"}
+
     def test_end_create(self) -> None:
         evt = _presenter("skill_manage").format_end(
             {"action": "create", "name": "my-skill", "content": "..."},
@@ -541,6 +580,12 @@ class TestSkillManagePresenter:
 
 
 class TestTaskStopPresenter:
+    def test_start_shows_task_id(self) -> None:
+        evt = _presenter("task_stop").format_start({"task_id": "agt-9"})
+        assert evt.label == "TaskStop"
+        assert evt.summary == "agt-9"
+        assert evt.detail == {"task_id": "agt-9"}
+
     def test_end_killed(self) -> None:
         evt = _presenter("task_stop").format_end(
             {"task_id": "agt-9"},
