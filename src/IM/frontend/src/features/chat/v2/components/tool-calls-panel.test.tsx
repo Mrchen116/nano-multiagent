@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 
 import "../../../../i18n";
-import type { ToolCall } from "../chat-types";
+import type { ThinkingSegment, ToolCall } from "../chat-types";
 import { ToolCallsPanel } from "./tool-calls-panel";
 
 const SAMPLE: ToolCall[] = [
@@ -29,6 +29,63 @@ describe("ToolCallsPanel", () => {
     await user.click(screen.getByRole("button", { name: /tool call/i }));
     expect(screen.getByText("list_files")).toBeInTheDocument();
     expect(screen.getByText("str_replace_edit")).toBeInTheDocument();
+  });
+});
+
+// feat-439-M2: process timeline — thinking segments + tool calls merged by seq.
+describe("ToolCallsPanel · process timeline (feat-439-M2)", () => {
+  afterEach(() => undefined);
+
+  const TWO_TOOLS: ToolCall[] = [
+    { id: "t1", name: "read_file", status: "completed", input: {}, output: "ok", duration_ms: 10 },
+    { id: "t2", name: "str_replace_edit", status: "completed", input: {}, output: "ok", duration_ms: 8 }
+  ];
+  const THINKING: ThinkingSegment[] = [
+    { seq: 0, text: "先看 types.py 当前结构" },
+    { seq: 1, text: "两家 provider 口径要归一" }
+  ];
+
+  it("merges thinking + tools into one timeline ordered by seq (think0 → tool0 → think1 → tool1)", async () => {
+    const user = userEvent.setup();
+    render(<ToolCallsPanel toolCalls={TWO_TOOLS} thinking={THINKING} />);
+    await user.click(screen.getByRole("button", { name: /过程|process|tool call/i }));
+
+    const rows = screen.getAllByTestId("process-item");
+    expect(rows).toHaveLength(4);
+    // think0 before tool0, think1 between tools
+    expect(rows[0]!.textContent).toContain("先看 types.py");
+    expect(rows[1]!.textContent).toContain("read_file");
+    expect(rows[2]!.textContent).toContain("两家 provider 口径要归一");
+    expect(rows[3]!.textContent).toContain("str_replace_edit");
+  });
+
+  it("expands a thinking row to reveal the full segment text", async () => {
+    const user = userEvent.setup();
+    const long: ThinkingSegment[] = [
+      { seq: 0, text: "这是一段很长的思考内容，应当在展开后完整呈现，收起时只显示摘要。" }
+    ];
+    render(<ToolCallsPanel toolCalls={[]} thinking={long} />);
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
+    const thinkRow = screen.getByTestId("process-thinking-toggle");
+    await user.click(thinkRow);
+    expect(screen.getByText(/应当在展开后完整呈现/)).toBeInTheDocument();
+  });
+
+  it("renders no 💭 thinking rows when the turn produced no thinking", async () => {
+    const user = userEvent.setup();
+    render(<ToolCallsPanel toolCalls={TWO_TOOLS} thinking={[]} />);
+    await user.click(screen.getByRole("button", { name: /过程|process|tool call/i }));
+    expect(screen.queryByTestId("process-thinking-toggle")).not.toBeInTheDocument();
+  });
+
+  it("renders the process panel when there is thinking but no tools", () => {
+    render(<ToolCallsPanel toolCalls={[]} thinking={THINKING} />);
+    expect(screen.getByRole("button", { name: /过程|process/i })).toBeInTheDocument();
+  });
+
+  it("renders nothing when there is neither thinking nor tools", () => {
+    const { container } = render(<ToolCallsPanel toolCalls={[]} thinking={[]} />);
+    expect(container.firstChild).toBeNull();
   });
 });
 

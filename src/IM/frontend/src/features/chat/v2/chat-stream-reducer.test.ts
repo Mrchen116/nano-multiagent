@@ -136,6 +136,45 @@ describe("chat-stream-reducer", () => {
     expect(tc.output).toBe("scanning…");
   });
 
+  it("feat-439-M2: appends thinking segments on thinking.segment in arrival order", () => {
+    const seed: Message = { ...userMessage("m2", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
+    const state: ConversationState = { ...emptyConversationState, messages: [seed] };
+    let next = applyWsEvent(state, {
+      type: "thinking.segment",
+      conversation_id: "c1",
+      message_id: "m2",
+      thinking_segment: { seq: 0, text: "先看 types.py" }
+    });
+    next = applyWsEvent(next, {
+      type: "thinking.segment",
+      conversation_id: "c1",
+      message_id: "m2",
+      thinking_segment: { seq: 1, text: "两家口径要归一" }
+    });
+    expect(next.messages[0]!.thinking).toEqual([
+      { seq: 0, text: "先看 types.py" },
+      { seq: 1, text: "两家口径要归一" }
+    ]);
+  });
+
+  it("feat-439-M2: message.created restores persisted thinking segments", () => {
+    const state: ConversationState = { ...emptyConversationState, messages: [] };
+    const next = applyWsEvent(state, {
+      type: "message.created",
+      conversation_id: "c1",
+      message_id: "m3",
+      sender_user_id: "agent:agent-a",
+      sender_type: "agent",
+      content: "答案",
+      tool_calls: [],
+      thinking: [{ seq: 0, text: "想一下" }],
+      token_usage: null,
+      delivery_status: "completed",
+      created_at: "2026-01-01T00:00:02Z"
+    });
+    expect(next.messages[0]!.thinking).toEqual([{ seq: 0, text: "想一下" }]);
+  });
+
   it("ignores events for other conversations", () => {
     const seed: Message = { ...userMessage("m2", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
     const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [seed] };
