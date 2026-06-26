@@ -409,6 +409,7 @@
       "close": "关闭",
       "back": "返回",
       "manage": "管理",
+      "manageTitle": "管理成员",
       "done": "完成",
       "addMembers": "添加成员",
       "addMembersTitle": "选择要加入的 Agent",

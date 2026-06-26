@@ -336,7 +336,9 @@ export function GroupSettings(props: GroupSettingsProps) {
           <button type="button" className="group-settings-nav-btn" onClick={onClose}>
             ‹ {t("chat.groupSettings.back")}
           </button>
-          <span className="group-settings-nav-title">{t("chat.groupSettings.title")}</span>
+          <span className="group-settings-nav-title">
+            {manageMode ? t("chat.groupSettings.manageTitle") : t("chat.groupSettings.title")}
+          </span>
           <button
             type="button"
             className="group-settings-nav-btn group-settings-nav-btn--act"

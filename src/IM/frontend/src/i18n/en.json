@@ -412,6 +412,7 @@
       "close": "Close",
       "back": "Back",
       "manage": "Manage",
+      "manageTitle": "Manage members",
       "done": "Done",
       "addMembers": "Add members",
       "addMembersTitle": "Select agents to add",
