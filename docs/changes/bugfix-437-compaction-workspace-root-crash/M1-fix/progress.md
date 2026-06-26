@@ -40,3 +40,10 @@
   - E2E/Regression: 上述单元回归用例;端到端真栈气泡验收留给 reviewer(design Runbook)。
 - Rollback: revert C2(B 面)回到 failed 只发 delivery_receipt。
 - Commits: C1=test 红测, C2=fix failed report, C3=本段
+
+## 收尾小修(reviewer 反馈循环,behavior-preserving,单 commit;省略 §0.4 三提交——fix 自包含、零行为变化)
+
+- verifier S1 + code-review:删 `CompactionApplier.apply()` 的死参 `restored_files`(及函数体 `del restored_files`、未用的 `Sequence` import),并删 runtime `_compact_session` 调 apply() 时的 `restored_files=restored_files` kwarg。restored_files 仍由直写路径写进 compact_boundary 的 data(不动),apply() 本就没用它,零行为变化。
+- verifier S2:`test_overflow_compaction_workspace_aware_does_not_crash` 把偏弱的 `assert replayed` 补强为「重放出的 turn 含摘要文案」,印证不失忆而非仅非空。
+- 未碰(leader 已核 REFUTED,非 bug):`_compact_session` 的 `if path is not None` 静默分支(热会话 path 必在、冷会话先在 list_entries 崩,不可达);failed 双 conversation.notice(前端按 message_id 归并,只渲一个失败气泡,非用户可见回归)。
+- 验证:压缩+relay+contract+manager 区 49 passed;全树 `pytest -m "not e2e"` 2965 passed/2 skipped/0 failed;ruff check + ruff format 绿。

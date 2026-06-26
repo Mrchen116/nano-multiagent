@@ -460,7 +460,9 @@ async def test_overflow_compaction_workspace_aware_does_not_crash(
     assert compactions
     assert compactions[-1].data["reason"] == CompactionReason.OVERFLOW.value
     replayed = manager.list_turn_messages(session.session_id, workspace_root=tmp_path)
-    assert replayed  # not silently wiped (失忆) by the list_turn_messages reload
+    # Not silently wiped (失忆): the reload must surface the compaction summary turn,
+    # not an empty history. OverflowOnceLLMClient summarizes to "summary: overflow rescue".
+    assert any("summary" in (m.content or "").lower() for m in replayed)
 
 
 def _read_raw_jsonl(store: JsonlSessionStore, session_id: str, ws: Path) -> list[dict]:

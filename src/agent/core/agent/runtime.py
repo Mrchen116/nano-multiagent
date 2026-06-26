@@ -2021,7 +2021,6 @@ class AgentRuntime:
             plan=plan,
             summary=summary,
             summary_uuid=summary_msg.message_id,
-            restored_files=restored_files,
         )
         await self._dispatch_observe(
             "session_compact",

@@ -9,8 +9,6 @@ here was the source of the workspace-aware crash (the redundant
 drift.
 """
 
-from collections.abc import Sequence
-
 from .types import CompactionPlan, CompactionResult
 
 
@@ -23,7 +21,6 @@ class CompactionApplier:
         plan: CompactionPlan,
         summary: str,
         summary_uuid: str,
-        restored_files: Sequence[str] = (),
     ) -> CompactionResult:
         """Construct the normalized compaction result.
 
@@ -33,13 +30,11 @@ class CompactionApplier:
             summary_uuid: Message id of the summary turn written by the runtime
                 direct-write path; used as ``entry_id`` so observers and the
                 on-disk ``compact_boundary`` reference the same id.
-            restored_files: Post-compact restored file contents (max 5).
 
         Returns:
             Normalized compaction result. No side effects.
         """
 
-        del restored_files  # carried on the on-disk compact_boundary, not the result
         return CompactionResult(
             reason=plan.reason,
             entry_id=summary_uuid,
