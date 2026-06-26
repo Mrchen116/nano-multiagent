@@ -35,3 +35,19 @@
 - Rollback: 回退 R2 C1。
 - Commits: C1=test(R2 红测), C2=feat(R2 实现), C3=docs(本段)
 - Next: R3 GroupSettings 组件（PC 抽屉 / 移动整屏）。
+
+### R3 — GroupSettings 组件（PC 抽屉 / 移动整屏）
+
+- Context: 决策 1 要求单组件两形态承载群名/成员/添加/移除/解散。
+- Decision: `components/group-settings.tsx` 纯展示组件，props 接 workspace 预解析好的 `members`（含 userId/status/isSelf/isCreator/isStale）+ `addableAgents`（已排除已入群），handler 全外注。本地 state：renaming/nameDraft、adding/selectedAgentIds、confirmingRemoveId、confirmingDissolve、manageMode。按 `isMobile` 分两 return 分支，rename/picker/member-row/dissolve 子块共享。移动「添加成员」走二级整屏（`isMobile && adding` 接管整屏，对齐 prototype B4），PC 走就地展开 addbox（A3）。i18n 新增 `chat.groupSettings` 块（en+zh 同键）。样式 append global.css，token 复用 --im-*。
+- Rationale: 业务逻辑（数据解析/刷新/导航）留在 workspace（R4），组件只管交互 → 可单测、不裸接 API shape。复用 NewGroupModal 的 modal/sheet 心智但不复用其居中 modal 形态（决策 1 拒绝项）。
+- Evidence:
+  - Tests: `group-settings.test.tsx` 9 passed（成员列表+创建者 tag、点 agent→onOpenAgentConfig(agent_id)、改名空名禁用 save / 改名 trimmed、添加候选渲染+选中确认→onAddParticipants、添加空态、**移除确认传 userId 非 id**、解散二次确认、close、移动 back）。
+  - Entry: 真实组件交互（@testing-library/user-event 真点击），非 mock。浏览器形态验收在 R5。
+  - Frontend State Matrix: default/disabled(空名)/empty(无可加 agent)/submitting(isBusy 禁用)/long-content(CSS 省略/换行，R5 截图验)/mobile+desktop 两形态均覆盖；error(写失败 toast) 在 R4 workspace + R5 验。
+  - Browser QA: R5
+  - E2E/Regression: 组件测试落库（critical-path 成员增删改 + 解散闭环 + CRITICAL-1 userId）。
+  - Visual/Interaction: R5 截图对照 prototype。
+- Rollback: 回退 R3 C1。
+- Commits: C1=test(R3), C2=feat(R3), C3=docs(本段)
+- Next: R4 接线（入口分流 + 数据装配 + 刷新）。
