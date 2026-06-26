@@ -51,4 +51,20 @@
 - Commits: C1=红测, C2=feat
 - Next: R4 前端过程时间线。
 
+## R4 — 前端过程时间线
+
+- Context: 前端无承载思考的结构，工具折叠盘需升级为「过程」时间线，思考段+工具按 seq merge。
+- Decision: ① chat-types 加 `ThinkingSegment` + `Message.thinking` + WsEvent `thinking.segment`/message.created thinking；② chat-stream KNOWN_TYPES 加 thinking.segment；③ reducer thinking.segment 追加 + message.created 还原；④ tool-calls-panel 升级为过程盘：`buildTimeline` 按 seq 插入索引 merge（seq=k 思考排 tool[k] 前，溢出排末尾），`ThinkingRow` 💭+首行摘要+展开全文（靛紫调），toggle 显「过程 · N 工具 · M 段思考」；⑤ message-pane 在有工具 OR 有思考时渲染过程盘；⑥ global.css 加思考行样式；⑦ i18n process/thinking/count keys。
+- Rationale: seq 来自后端持久化值，前端纯按 seq 排，不重算；空态自然（无思考无 💭、无工具无思考不渲染盘）；复用既有折叠盘形态，不另造交互。
+- Evidence:
+  - Tests: reducer 2 例（追加/还原）+ 过程盘 5 例（merge 顺序/展开全文/无思考无💭/仅思考/全空）红→绿；全前端 vitest 474 passed；tsc+vite build 通过。
+  - Entry: 组件层；真实浏览器验收在 R5（带 thinking 模型真栈）。
+  - Frontend State Matrix: default(混排)/loading(running 脉冲)/empty(无思考无💭、全空不渲染)/long-content(多行思考首行摘要+展开全文)/missing(旧消息无 thinking 字段不渲染) 已 vitest 覆盖；mobile/desktop/视觉 在 R5 截图。
+  - Browser QA: 见 R5（真栈）。
+  - E2E/Regression: 前端 474 passed（含既有 tool 面板 65 例，toggle 标签变更同步更新 feat-414 W3 时长守卫正则）。
+  - Visual/Interaction: 见 R5 截图对照 prototype。
+- Rollback: revert R4 C2。
+- Commits: C1=红测, C2=feat
+- Next: R5 真栈浏览器验收 + CLI 回归。
+
 <!-- 每个 roadpoint 完成后追加一段。 -->
