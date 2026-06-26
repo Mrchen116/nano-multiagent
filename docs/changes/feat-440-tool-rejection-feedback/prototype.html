@@ -11,61 +11,86 @@
   body { margin:0; background:var(--bg); color:var(--txt);
          font:14px/1.5 -apple-system,Segoe UI,Roboto,"Helvetica Neue",sans-serif; padding:32px; }
   h1 { font-size:16px; font-weight:600; margin:0 0 4px; }
-  p.note { color:var(--muted); margin:0 0 24px; font-size:13px; }
-  .card { background:var(--card); border:1px solid var(--border); border-radius:12px;
-          padding:14px 16px; max-width:520px; margin-bottom:20px; }
-  .toolhead { font-weight:600; margin-bottom:6px; }
-  .desc { color:var(--muted); font-size:13px; margin-bottom:8px; }
-  pre { background:#11141b; border:1px solid var(--border); border-radius:8px; padding:8px 10px;
-        margin:0 0 12px; font-size:12px; color:#cdd3df; overflow:auto; }
-  /* 决策 3 / spec Q4 形态 A：理由框常驻在按钮区上方 */
-  .reason-row { margin:10px 0; }
+  p.note { color:var(--muted); margin:0 0 8px; font-size:13px; max-width:640px; }
+  .warn { color:#e3b341; font-size:12px; margin:0 0 24px; max-width:640px; }
+  .stage { color:var(--muted); font-size:12px; margin:24px 0 8px; text-transform:uppercase; letter-spacing:.05em; }
+
+  /* ---- 真实待决权限卡（结构对齐 permission-card.tsx） ---- */
+  .perm-card { background:var(--card); border:1px solid var(--border); border-radius:12px;
+               padding:14px 16px; max-width:520px; }
+  .perm-head { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .perm-tool { font-weight:600; }
+  .perm-hint { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:12px; }
+  .pulse { width:8px; height:8px; border-radius:50%; background:var(--accent);
+           box-shadow:0 0 0 0 rgba(79,140,255,.6); animation:pulse 1.6s infinite; }
+  @keyframes pulse { 0%{box-shadow:0 0 0 0 rgba(79,140,255,.5)} 70%{box-shadow:0 0 0 7px rgba(79,140,255,0)} 100%{box-shadow:0 0 0 0 rgba(79,140,255,0)} }
+  .perm-desc { color:var(--muted); font-size:13px; margin:0 0 8px; }
+  .perm-cmd { background:#11141b; border:1px solid var(--border); border-radius:8px; padding:8px 10px;
+              margin:0 0 10px; font-size:12px; color:#cdd3df; overflow:auto; }
+  .perm-q { font-size:13px; margin:0 0 12px; }
+
+  /* ---- 新增：常驻选填理由框（本 unit 唯一 UI 变更，spec Q4 形态 A） ---- */
+  .reason-row { margin:0 0 12px; }
   .reason-row label { display:block; color:var(--muted); font-size:12px; margin-bottom:4px; }
   .reason-row input { width:100%; background:#11141b; border:1px solid var(--border);
         border-radius:8px; padding:8px 10px; color:var(--txt); font-size:13px; }
   .reason-row input::placeholder { color:#5b6473; }
-  .btns { display:flex; gap:8px; flex-wrap:wrap; }
+  .new-badge { display:inline-block; font-size:10px; color:#0f1115; background:var(--accent);
+        border-radius:4px; padding:0 5px; margin-left:6px; vertical-align:middle; }
+
+  .perm-btns { display:flex; gap:8px; flex-wrap:wrap; }
   button { border:1px solid var(--border); background:#222630; color:var(--txt);
         border-radius:8px; padding:7px 14px; cursor:pointer; font-size:13px; }
   button:hover { border-color:var(--accent); }
+  button.primary { border-color:#2f4a7a; }
   button.deny { border-color:#5a2e2c; }
   button.deny:hover { border-color:var(--danger); background:#2a1b1a; }
-  .resolved { font-size:13px; }
-  .resolved .verdict { font-weight:600; }
-  .resolved .verdict.deny { color:var(--danger); }
-  .resolved .verdict.allow { color:var(--ok); }
-  .resolved .reason { color:var(--muted); margin-top:4px; }
-  .llm { margin-top:6px; padding:8px 10px; border-left:2px solid var(--accent);
-         background:#10141d; color:#cdd3df; font-size:12px; white-space:pre-wrap; }
-  .tag { font-size:11px; color:var(--muted); }
+
+  /* ---- 决策后：卡片消失，已拒绝徽标并入工具调用行（现状行为，本 unit 不改） ---- */
+  .tool-row { background:var(--card); border:1px solid var(--border); border-radius:10px;
+              padding:10px 14px; max-width:520px; display:flex; align-items:center; gap:10px; }
+  .tool-row .name { font-weight:600; }
+  .gate { font-size:12px; padding:2px 8px; border-radius:6px; }
+  .gate.deny { color:var(--danger); border:1px solid #5a2e2c; }
+  .gate.allow { color:var(--ok); border:1px solid #2e5a39; }
+
+  /* ---- 旁注：非界面，后端回传给 LLM（用户不可见） ---- */
+  .aside { max-width:520px; margin-top:10px; border-left:2px dashed var(--muted);
+           padding:6px 0 6px 12px; }
+  .aside .label { color:#e3b341; font-size:11px; margin-bottom:4px; }
+  .aside .llm { color:#9aa3b2; font-size:12px; white-space:pre-wrap; font-style:italic; }
 </style>
 </head>
 <body>
   <h1>feat-440 — 权限卡拒绝理由输入框（原型）</h1>
-  <p class="note">演示 spec Q4 形态 A：理由框常驻在按钮区上方、选填。下方三张卡演示三种状态；点按钮看 LLM 实际收到的语义化文本。仅前端演示，不接后端。</p>
+  <p class="note">本 unit 在 IM 上**唯一用户可见的 UI 变更** = 给待决权限卡按钮区上方加一个常驻、选填的拒绝理由输入框（spec Q4 形态 A）。</p>
+  <p class="warn">⚠️ 拒绝后回传给 LLM 的语义化文本是<strong>纯后端行为，用户在界面上看不到</strong>，本原型用虚线旁注标注它仅为让设计评审对照，<strong>不是界面的一部分</strong>。决策后卡片整个消失、「已拒绝」徽标并入工具调用行（feat-434 现状行为，本 unit 不改）。</p>
 
-  <div class="card" id="card">
-    <div class="toolhead">edit <span class="tag">— 工具授权请求</span></div>
-    <div class="desc">把 config.yaml 的 port 从 8011 改为 9000</div>
-    <pre>{ "path": "config.yaml", "oldText": "port: 8011", "newText": "port: 9000" }</pre>
+  <div class="stage">① 待决态（含新增理由框）— 试着填/不填理由再点拒绝</div>
+  <div class="perm-card" id="card">
+    <div class="perm-head">
+      <span class="perm-tool">edit</span>
+      <span class="perm-hint"><span class="pulse"></span>需要确认</span>
+    </div>
+    <div class="perm-desc">把 config.yaml 的 port 从 8011 改为 9000</div>
+    <pre class="perm-cmd">{ "path": "config.yaml", "oldText": "port: 8011", "newText": "port: 9000" }</pre>
+    <p class="perm-q">Allow edit? safety check required</p>
 
+    <!-- 新增：常驻选填理由框 -->
     <div class="reason-row">
-      <label for="reason">拒绝理由（选填，仅拒绝时生效）</label>
+      <label for="reason">拒绝理由<span class="new-badge">本 unit 新增</span>（选填，仅拒绝时生效）</label>
       <input id="reason" type="text" placeholder="例如：先别动这个文件，我手动改" />
     </div>
 
-    <div class="btns">
-      <button onclick="decide('allow_once')">允许</button>
-      <button onclick="decide('allow_session')">本会话内允许</button>
+    <div class="perm-btns">
+      <button class="primary" onclick="decide('allow')">允许</button>
+      <button onclick="decide('allow')">本会话内允许</button>
       <button class="deny" onclick="decide('deny')">拒绝</button>
-      <button onclick="decide('allow_always')">总是允许</button>
+      <button onclick="decide('allow')">总是允许</button>
     </div>
   </div>
 
-  <div class="card">
-    <div class="tag">参考：subagent 内被拒（无理由框，无人值守）→ LLM 收到</div>
-    <div class="llm">Permission for this tool use was denied. The tool use was rejected (eg. if it was a file edit, the newText was NOT written to the file). Try a different approach or report the limitation to complete your task.</div>
-  </div>
+  <div id="after"></div>
 
 <script>
   const REJECT = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the newText was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
@@ -73,20 +98,26 @@
 
   function decide(opt) {
     const reason = document.getElementById('reason').value.trim();
-    const card = document.getElementById('card');
+    document.getElementById('card').style.display = 'none';   // 现状：卡片整个消失
+    const verdict = opt === 'deny' ? 'deny' : 'allow';
+    const verdictTxt = opt === 'deny' ? '已拒绝' : '已授权';
+
+    let html =
+      '<div class="stage">② 决策后（现状行为，本 unit 不改）— 卡片消失，徽标并入工具调用行</div>' +
+      '<div class="tool-row"><span class="name">edit</span>' +
+      '<span class="gate ' + verdict + '">' + verdictTxt + '</span>' +
+      '<span style="color:#9aa3b2;font-size:12px">（界面到此为止，用户看不到回传给 LLM 的文本）</span></div>';
+
     if (opt === 'deny') {
       const llm = reason ? (REJECT_REASON_PREFIX + reason) : REJECT;
-      card.innerHTML =
-        '<div class="resolved"><span class="verdict deny">已拒绝</span>' +
-        (reason ? '<div class="reason">理由：' + escapeHtml(reason) + '</div>' : '') +
-        '<div class="tag" style="margin-top:8px">LLM 实际收到：</div>' +
+      html +=
+        '<div class="aside"><div class="label">旁注：后端回传给 LLM（用户不可见，非界面）</div>' +
         '<div class="llm">' + escapeHtml(llm) + '</div></div>';
     } else {
-      // 允许类：忽略理由框内容
-      card.innerHTML =
-        '<div class="resolved"><span class="verdict allow">已授权</span>' +
-        '<div class="reason">（允许类决策忽略理由框）</div></div>';
+      html +=
+        '<div class="aside"><div class="label">旁注：允许类决策忽略理由框；工具照常执行</div></div>';
     }
+    document.getElementById('after').innerHTML = html;
   }
   function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
 </script>
