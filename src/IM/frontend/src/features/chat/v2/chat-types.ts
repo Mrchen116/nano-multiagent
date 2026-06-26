@@ -110,6 +110,10 @@ export interface TokenUsage {
   context_window: number;
   /** Per-turn prompt+completion sum (M17/R8-3); optional for back-compat with rows persisted before M17. */
   total?: number;
+  /** feat-439-M1: 整轮命中缓存读取的 input 累计(分子)；旧行缺省。 */
+  cache_read_tokens?: number;
+  /** feat-439-M1: 整轮总 input 累计(分母)；命中率 = cache_read_tokens / cache_total_input_tokens。 */
+  cache_total_input_tokens?: number;
 }
 
 export interface Message {

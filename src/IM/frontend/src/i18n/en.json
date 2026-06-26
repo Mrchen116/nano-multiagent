@@ -357,6 +357,7 @@
       "tokenOutput": "output tokens",
       "tokenTotal": "total tokens",
       "tokenContextUsed": "context used",
+      "tokenCacheHit": "cache hit",
       "tokenWarn": "↑ Context above 70% — watch for degradation",
       "tokenWarnCritical": "⚠ Context nearly full — consider /compact",
       "sendErrorTitle": "Send failed",

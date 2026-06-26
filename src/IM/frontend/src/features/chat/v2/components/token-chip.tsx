@@ -33,6 +33,12 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
   const displayed = usage.total!
   const pctInt = Math.round(pct * 100);
 
+  // feat-439-M1: 整轮缓存命中率(spec Q1=B) = 命中读取 input / 总 input。
+  // 旧行 / 不带缓存的 provider 字段缺省 → 0，行仍显示「缓存命中 0 (0%)」(空态不隐藏)。
+  const cacheRead = usage.cache_read_tokens ?? 0;
+  const cacheTotalInput = usage.cache_total_input_tokens ?? 0;
+  const cachePct = cacheTotalInput > 0 ? Math.round((cacheRead / cacheTotalInput) * 100) : 0;
+
   const barColor =
     pct >= 0.9
       ? "oklch(0.55 0.15 25)"
@@ -87,6 +93,12 @@ export function TokenChip({ usage, dataTestId }: TokenChipProps) {
               {hasWindow
                 ? `${usage.context_used.toLocaleString()} / ${(usage.context_window / 1000).toFixed(0)}k`
                 : usage.context_used.toLocaleString()}
+            </span>
+          </div>
+          <div className="chat-token-chip-detail-row">
+            <span className="chat-token-chip-detail-label">{t("chat.messagePane.tokenCacheHit")}</span>
+            <span className="chat-token-chip-detail-value">
+              {`${cacheRead.toLocaleString()} (${cachePct}%)`}
             </span>
           </div>
           {hasWindow && (
