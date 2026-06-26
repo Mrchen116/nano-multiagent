@@ -158,6 +158,7 @@ class AgentLoop:
         llm_session_id: str | None = None,
         session_created_at: str | None = None,
         current_working_directory_override: Path | None = None,
+        workspace_root: Path | None = None,
         session_file_state: SessionFileState | None = None,
         max_turns: int | None = None,
         tool_execution_allowlist: tuple[str, ...] | None = None,
@@ -166,6 +167,12 @@ class AgentLoop:
         """Stream one user turn until completion or terminal stop reason.
 
         Args:
+            workspace_root: Session's workspace root, used to locate the session
+                JSONL when threshold pre-compaction reads history. Distinct from
+                ``current_working_directory_override`` (prompt/tool cwd, which
+                falls back to the kernel-global cwd): the store must be located by
+                the session root, not a cwd that can default elsewhere (bugfix-437
+                decision 1).
             tool_execution_allowlist: When set (fork side-chain only), the
                 StreamingToolExecutor denies tool calls whose name is not in
                 this allowlist. ``None`` means no restriction — the main agent
@@ -293,6 +300,7 @@ class AgentLoop:
                         session_file_state=session_file_state,
                         real_prompt_tokens=real_prompt_tokens,
                         active_model=active_model,
+                        workspace_root=workspace_root,
                     )
                     if compacted_msg is not None:
                         yield compacted_msg
@@ -856,6 +864,7 @@ class AgentLoop:
         session_file_state: SessionFileState | None,
         real_prompt_tokens: int | None = None,
         active_model: str | None = None,
+        workspace_root: Path | None = None,
     ) -> Message | None:
         if not self._should_compact(
             llm_messages, rendered_system_prompt, real_prompt_tokens, active_model
@@ -868,7 +877,9 @@ class AgentLoop:
         ):
             return None
 
-        entries = self._session_manager.list_entries(session_id)
+        entries = self._session_manager.list_entries(
+            session_id, workspace_root=workspace_root
+        )
         plan = self._compaction_planner.plan(
             events=entries, reason=CompactionReason.THRESHOLD
         )

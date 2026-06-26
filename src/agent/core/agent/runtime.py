@@ -599,6 +599,7 @@ class AgentRuntime:
                 llm_session_id=llm_session_id,
                 session_created_at=session_created_at,
                 current_working_directory_override=session_workspace_root,
+                workspace_root=session_workspace_root,
                 available_skills_override=()
                 if use_frozen_system_prompt
                 else session_available_skills,
@@ -665,7 +666,9 @@ class AgentRuntime:
                 )
                 if compact_result is not None:
                     # Rebuild history from session store after compaction.
-                    reloaded = self._session_manager.list_turn_messages(session_id)
+                    reloaded = self._session_manager.list_turn_messages(
+                        session_id, workspace_root=session_workspace_root
+                    )
                     history.clear()
                     history.extend(reloaded)
                     # user_msg was written before the overflow; it's in the reloaded history.
@@ -688,6 +691,7 @@ class AgentRuntime:
                         llm_session_id=llm_session_id,
                         session_created_at=session_created_at,
                         current_working_directory_override=session_workspace_root,
+                        workspace_root=session_workspace_root,
                         available_skills_override=()
                         if use_frozen_system_prompt
                         else session_available_skills,
@@ -1761,6 +1765,7 @@ class AgentRuntime:
         llm_session_id: str | None,
         session_created_at: str,
         current_working_directory_override: Path | None,
+        workspace_root: Path | None = None,
         controller: RunController | None = None,
         model_override: str | None = None,
     ):
@@ -1786,6 +1791,7 @@ class AgentRuntime:
             llm_session_id=llm_session_id,
             session_created_at=session_created_at,
             current_working_directory_override=current_working_directory_override,
+            workspace_root=workspace_root,
             session_file_state=session_file_state,
             model_override=model_override,
         ):
