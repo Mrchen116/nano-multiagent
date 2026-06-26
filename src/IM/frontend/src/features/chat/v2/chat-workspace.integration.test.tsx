@@ -252,6 +252,48 @@ describe("ChatWorkspacePage v2 — integration", () => {
     expect(screen.getByRole("heading", { name: "Planner" })).toBeInTheDocument();
   });
 
+  // bugfix-442: 侧边栏会话列表必须随实时消息流 + 读消息刷新，否则未读角标 /
+  // preview / 时间 / 排序停在加载时的快照。两条 regression 分别锁住两个触发点。
+  function conversationGetCount(spy: ReturnType<typeof mockFetch>): number {
+    const sent = (spy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent;
+    return sent.filter(
+      (s) =>
+        s.url.endsWith("/im/v1/conversations") &&
+        (!s.init || s.init.method === undefined || s.init.method === "GET")
+    ).length;
+  }
+
+  it("re-fetches conversations when a message event arrives (unread/preview/order update)", async () => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    // 用户维流由 page 订阅，mock 把它的 onEvent 捕到 capturedStatusHandler。
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+    const before = conversationGetCount(fetchSpy);
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c2",
+          message_id: "m-incoming",
+          sender_user_id: "agent:a-planner",
+          sender_type: "agent",
+          content: "新消息到达",
+          created_at: "2026-05-01T00:01:00Z"
+        },
+        eventId: 42
+      });
+    });
+    await waitFor(() => expect(conversationGetCount(fetchSpy)).toBeGreaterThan(before));
+  });
+
+  it("re-fetches conversations after reading so the unread badge can clear", async () => {
+    // 读消息走 mark_as_read=true 清零后端 unread；前端须重新拉会话列表角标才落地。
+    // 没有这次刷新，/conversations 只会被 GET 一次（初次列表）。
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(conversationGetCount(fetchSpy)).toBeGreaterThanOrEqual(2));
+  });
+
   it("renders an incoming agent message + delta + completion via the WS stream", async () => {
     renderAtRoute("/chat/c1");
     await screen.findByText("Hi Planner");
