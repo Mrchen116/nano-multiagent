@@ -24,23 +24,23 @@
   - E2E/Regression: Permanent regression tests added in existing unit files; true browser IM evidence is scheduled for R3 because R1 does not yet include frontend running gate.
   - Visual/Interaction: N/A
 - Rollback: Revert `6102c325` to remove R1 implementation; revert `2d6b846e` to remove the red-test coverage.
-- Commits: C1=2d6b846e, C2=6102c325, C3=TODO
+- Commits: C1=2d6b846e, C2=6102c325, C3=61d34415
 - Next: R2 frontend running gate.
 
 ## R2 — frontend running gate and reducer overwrite
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: R1 makes running rows carry presenter `output` + parameter-side `detail`, but `ToolDetailBody` rendered every known card as if detail were final result detail. That made running `web_search` show the completed empty-results state, `agent` show `✓ completed`, and memory/skill/task_stop show success markers before completion.
+- Decision: Threaded `call.status === "running"` into the bespoke detail cards and gated only the result/status subregions for `web_search`, `agent`, `memory`, `skill_manage`, and `task_stop`. Completed and failed cards keep their existing render branches. Added a reducer regression that a completion event replaces the running `output/detail` with final `output/detail`.
+- Rationale: The gate belongs at the renderer boundary because the protocol correctly distinguishes running vs completed through `ToolCall.status`. This keeps persisted/historical completed messages stable and avoids inventing front-end fallbacks for presenter-owned fields.
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
-  - Frontend State Matrix: TODO
-  - Browser QA: TODO
-  - E2E/Regression: TODO
-  - Visual/Interaction: TODO
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
+  - Tests: C1 red: `npm run test -- src/features/chat/v2/components/tool-calls-panel.test.tsx src/features/chat/v2/chat-stream-reducer.test.ts` → reducer file 18 passed; panel file 5 new failures / 60 existing passed. Failures matched the intended missing gate: running `web_search` showed "No results"; running `agent` rendered `.chat-tool-detail-agent-result` with `✓ sub-agent completed`; running memory/skill/task_stop showed `✓` completed heads. C2 green: same command → 2 files passed, 83 tests passed.
+  - Entry: `ToolDetailBody` now passes `isRunning` to bespoke cards; `chat-stream-reducer.test.ts` covers `tool_call.completed` replacing the running summary/detail, not merging stale parameter detail into the result.
+  - Frontend State Matrix: loading/running covered for `web_search`, `agent`, `memory`, `skill_manage`, `task_stop`; empty covered by completed `web_search` empty-state test plus running `web_search` no-empty-state test; default/completed and error states remain covered by existing card tests; long content remains covered by existing long-output tests; missing/nullable result fields covered by running cards that carry only parameter fields.
+  - Browser QA: deferred to R3 true IM Web UI run, because R2 is the component-level gate and R3 owns live running/completed screenshots.
+  - E2E/Regression: Permanent vitest coverage added for running gate and reducer overwrite. True stack browser evidence still pending R3 before DONE.
+  - Visual/Interaction: Running cards now display only parameter text in the expanded body: query, prompt, action/target/content, action/name, or task id. No completed marker or empty-result placeholder renders until status changes.
+- Rollback: Revert `fbb0d818` to remove R2 implementation; revert `a73d6bad` to remove R2 red-test coverage.
+- Commits: C1=a73d6bad, C2=fbb0d818, C3=this docs commit
 - Next: R3 full gates and live IM Web evidence.
 
 ## R3 — full gates and live IM Web evidence

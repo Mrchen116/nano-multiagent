@@ -67,7 +67,7 @@ UI 状态矩阵：
 
 ### R2 — frontend running gate and reducer overwrite
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: ToolDetailBody 将 running 态传入 bespoke 卡；agent/memory/skill/task_stop/web_search 结果区 gate；reducer 补 output/detail 覆盖断言。
 - 验证: 相关 vitest 红转绿，completed/failed 不被 gate 改变。
 
