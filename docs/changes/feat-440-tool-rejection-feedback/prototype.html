@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>feat-440 权限卡拒绝理由输入框 — 原型</title>
+<style>
+  :root { --bg:#0f1115; --card:#1b1e26; --border:#2b2f3a; --txt:#e7e9ee; --muted:#9aa3b2;
+          --accent:#4f8cff; --danger:#e5534b; --ok:#3fb950; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--txt);
+         font:14px/1.5 -apple-system,Segoe UI,Roboto,"Helvetica Neue",sans-serif; padding:32px; }
+  h1 { font-size:16px; font-weight:600; margin:0 0 4px; }
+  p.note { color:var(--muted); margin:0 0 24px; font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:12px;
+          padding:14px 16px; max-width:520px; margin-bottom:20px; }
+  .toolhead { font-weight:600; margin-bottom:6px; }
+  .desc { color:var(--muted); font-size:13px; margin-bottom:8px; }
+  pre { background:#11141b; border:1px solid var(--border); border-radius:8px; padding:8px 10px;
+        margin:0 0 12px; font-size:12px; color:#cdd3df; overflow:auto; }
+  /* 决策 3 / spec Q4 形态 A：理由框常驻在按钮区上方 */
+  .reason-row { margin:10px 0; }
+  .reason-row label { display:block; color:var(--muted); font-size:12px; margin-bottom:4px; }
+  .reason-row input { width:100%; background:#11141b; border:1px solid var(--border);
+        border-radius:8px; padding:8px 10px; color:var(--txt); font-size:13px; }
+  .reason-row input::placeholder { color:#5b6473; }
+  .btns { display:flex; gap:8px; flex-wrap:wrap; }
+  button { border:1px solid var(--border); background:#222630; color:var(--txt);
+        border-radius:8px; padding:7px 14px; cursor:pointer; font-size:13px; }
+  button:hover { border-color:var(--accent); }
+  button.deny { border-color:#5a2e2c; }
+  button.deny:hover { border-color:var(--danger); background:#2a1b1a; }
+  .resolved { font-size:13px; }
+  .resolved .verdict { font-weight:600; }
+  .resolved .verdict.deny { color:var(--danger); }
+  .resolved .verdict.allow { color:var(--ok); }
+  .resolved .reason { color:var(--muted); margin-top:4px; }
+  .llm { margin-top:6px; padding:8px 10px; border-left:2px solid var(--accent);
+         background:#10141d; color:#cdd3df; font-size:12px; white-space:pre-wrap; }
+  .tag { font-size:11px; color:var(--muted); }
+</style>
+</head>
+<body>
+  <h1>feat-440 — 权限卡拒绝理由输入框（原型）</h1>
+  <p class="note">演示 spec Q4 形态 A：理由框常驻在按钮区上方、选填。下方三张卡演示三种状态；点按钮看 LLM 实际收到的语义化文本。仅前端演示，不接后端。</p>
+
+  <div class="card" id="card">
+    <div class="toolhead">edit <span class="tag">— 工具授权请求</span></div>
+    <div class="desc">把 config.yaml 的 port 从 8011 改为 9000</div>
+    <pre>{ "path": "config.yaml", "oldText": "port: 8011", "newText": "port: 9000" }</pre>
+
+    <div class="reason-row">
+      <label for="reason">拒绝理由（选填，仅拒绝时生效）</label>
+      <input id="reason" type="text" placeholder="例如：先别动这个文件，我手动改" />
+    </div>
+
+    <div class="btns">
+      <button onclick="decide('allow_once')">允许</button>
+      <button onclick="decide('allow_session')">本会话内允许</button>
+      <button class="deny" onclick="decide('deny')">拒绝</button>
+      <button onclick="decide('allow_always')">总是允许</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="tag">参考：subagent 内被拒（无理由框，无人值守）→ LLM 收到</div>
+    <div class="llm">Permission for this tool use was denied. The tool use was rejected (eg. if it was a file edit, the newText was NOT written to the file). Try a different approach or report the limitation to complete your task.</div>
+  </div>
+
+<script>
+  const REJECT = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the newText was NOT written to the file). STOP what you are doing and wait for the user to tell you how to proceed.";
+  const REJECT_REASON_PREFIX = "The user doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the newText was NOT written to the file). To tell you how to proceed, the user said:\n";
+
+  function decide(opt) {
+    const reason = document.getElementById('reason').value.trim();
+    const card = document.getElementById('card');
+    if (opt === 'deny') {
+      const llm = reason ? (REJECT_REASON_PREFIX + reason) : REJECT;
+      card.innerHTML =
+        '<div class="resolved"><span class="verdict deny">已拒绝</span>' +
+        (reason ? '<div class="reason">理由：' + escapeHtml(reason) + '</div>' : '') +
+        '<div class="tag" style="margin-top:8px">LLM 实际收到：</div>' +
+        '<div class="llm">' + escapeHtml(llm) + '</div></div>';
+    } else {
+      // 允许类：忽略理由框内容
+      card.innerHTML =
+        '<div class="resolved"><span class="verdict allow">已授权</span>' +
+        '<div class="reason">（允许类决策忽略理由框）</div></div>';
+    }
+  }
+  function escapeHtml(s){return s.replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+</script>
+</body>
+</html>
