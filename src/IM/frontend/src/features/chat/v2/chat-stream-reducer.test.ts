@@ -200,6 +200,41 @@ describe("chat-stream-reducer", () => {
     expect(next.messages[0]!.thinking).toEqual([{ seq: 0, text: "想一下" }]);
   });
 
+  it("tool completion replaces the running summary and parameter detail with result detail", () => {
+    const seed: Message = { ...userMessage("m2", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
+    const state: ConversationState = { ...emptyConversationState, messages: [seed] };
+    let next = applyWsEvent(state, {
+      type: "tool_call.upserted",
+      conversation_id: "c1",
+      message_id: "m2",
+      tool_call: {
+        id: "t1",
+        name: "bash",
+        status: "running",
+        input: { command: "sleep 5 && echo done" },
+        output: "run slow command",
+        detail: { command: "sleep 5 && echo done" }
+      }
+    });
+    next = applyWsEvent(next, {
+      type: "tool_call.completed",
+      conversation_id: "c1",
+      message_id: "m2",
+      tool_call: {
+        id: "t1",
+        name: "bash",
+        status: "completed",
+        input: { command: "sleep 5 && echo done" },
+        output: "run completed",
+        detail: { command: "sleep 5 && echo done", stdout: "done", exit_code: 0 }
+      }
+    });
+    const tc = next.messages[0]!.tool_calls![0]!;
+    expect(tc.status).toBe("completed");
+    expect(tc.output).toBe("run completed");
+    expect(tc.detail).toEqual({ command: "sleep 5 && echo done", stdout: "done", exit_code: 0 });
+  });
+
   it("ignores events for other conversations", () => {
     const seed: Message = { ...userMessage("m2", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
     const state: ConversationState = { ...emptyConversationState, conversation_id: "c1", messages: [seed] };
