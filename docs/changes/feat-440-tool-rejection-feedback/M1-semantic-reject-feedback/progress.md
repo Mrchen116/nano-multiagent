@@ -19,7 +19,18 @@
 
 ## R2 — tool_executor.py 接线
 
-（待补）
+- Context: 拒绝文本构造收口在 tool_executor（design 决策 1：唯一同时握有 ToolError.details / 非白名单 synthetic 产生处 / allowlist subagent 信号 三组信号的点）。
+- Decision: ① 非白名单 synthetic error 分支 error 改为 build_reject_message(approval=None, reason=None, is_subagent=True)；② catch 分支额外提 details["reason"] 与 details["blocked_by_hook"]，仅当 blocked_by_hook 为真时用 build_reject_message(approval, reason, is_subagent=allowlist is not None) 构造 error，否则保留 str(exc)。
+- Rationale: 只对 hook block（用户 Deny / 策略自动拒）替换为语义化文本；真实工具失败（RuntimeError 等无 block 信号）保留原始报错，不污染。is_subagent 用既有 `self._tool_execution_allowlist is not None` 信号，无需新增 RunOrigin。subagent 两路径（非白名单 synthetic + fork 内 gate 拒）经 row 1 统一为 SUBAGENT_REJECT。reason_code/approval 既有提取逻辑（bugfix-410/feat-434）保持，徽标信号不变。
+- Evidence:
+  - Tests: `pytest tests/unit/test_streaming_tool_executor.py` → 20 passed（新增 4：非白名单→SUBAGENT、user_deny+reason→WITH_REASON、user_deny 空→REJECT、auto block→auto_reject；并断言 reason_code/approval 仍透传）。回归 45 passed（含 permission_decision_loop）。
+  - Entry: 真实入口验证留 R4 经 IM 端到端（reviewer 轨经真 agent 看 LLM 后续行为）；本 R 单测覆盖 executor 层四类映射。
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 四类 executor 测试即回归保护。
+  - Visual/Interaction: N/A
+- Rollback: revert R2 C2；executor 恢复旧 `tool blocked by hook` / 非白名单原文。
+- Commits: C1=test 红测, C2=feat 实现, C3=本提交。ruff 通过。
 
 ## R3 — IM reason 两端透传
 
