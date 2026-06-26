@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -70,6 +70,44 @@ const FIXTURES = {
       last_message_preview: null,
       last_message_at: null,
       created_at: "2026-05-01T00:00:00Z"
+    },
+    {
+      id: "c2",
+      title: "Research Squad",
+      participants: [
+        { type: "user", id: "u-self", display_name: "You", user_id: "u-self" },
+        { type: "agent", id: "a-planner", display_name: "Planner", user_id: "user-uuid-planner" },
+        { type: "agent", id: "a-writer", display_name: "Writer", user_id: "user-uuid-writer" }
+      ],
+      participant_ids: ["u-self", "a-planner", "a-writer"],
+      type: "group",
+      direct_kind: null,
+      owner_id: "u-self",
+      creator_id: "u-self",
+      is_pinned: false,
+      is_muted: false,
+      unread_count: 0,
+      last_message_preview: null,
+      last_message_at: null,
+      created_at: "2026-05-01T00:00:00Z"
+    },
+    {
+      id: "c3",
+      title: "Empty Group",
+      participants: [
+        { type: "user", id: "u-self", display_name: "You", user_id: "u-self" }
+      ],
+      participant_ids: ["u-self"],
+      type: "group",
+      direct_kind: null,
+      owner_id: "u-self",
+      creator_id: "u-self",
+      is_pinned: false,
+      is_muted: false,
+      unread_count: 0,
+      last_message_preview: null,
+      last_message_at: null,
+      created_at: "2026-05-01T00:00:00Z"
     }
   ],
   messagesC1: [
@@ -102,14 +140,14 @@ function mockFetch(): ReturnType<typeof vi.fn> {
     if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
       return jsonResponse({ items: FIXTURES.messagesC1, next_before_message_id: null });
     }
+    if (/\/im\/v1\/conversations\/[^/]+\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+      return jsonResponse({ items: [], next_before_message_id: null });
+    }
     if (url.endsWith("/im/v1/agents")) {
       return jsonResponse([
-        {
-          agent_id: "a-planner",
-          display_name: "Planner",
-          node_id: "node-prod",
-          user_id: "user-uuid-planner"
-        }
+        { agent_id: "a-planner", display_name: "Planner", node_id: "node-prod", user_id: "user-uuid-planner" },
+        { agent_id: "a-writer", display_name: "Writer", node_id: "node-prod", user_id: "user-uuid-writer" },
+        { agent_id: "a-reviewer", display_name: "Reviewer", node_id: "node-prod", user_id: "user-uuid-reviewer" }
       ]);
     }
     if (url.endsWith("/im/v1/nodes")) {
@@ -590,5 +628,59 @@ describe("ChatWorkspacePage v2 — integration", () => {
     expect(agentIdx).toBeGreaterThanOrEqual(0);
     expect(userIdx).toBeGreaterThanOrEqual(0);
     expect(agentIdx).toBeLessThan(userIdx);
+  });
+
+  // ─── feat-438-M1 R4: ⚙ entry dispatch by conversation kind ────────────────
+
+  it("feat-438: group ⚙ opens Group settings (does not navigate to an agent config)", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c2");
+    expect(await screen.findByRole("heading", { name: "Research Squad" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /Config/i }));
+
+    // The group settings drawer opens in place; the chat is NOT replaced by a
+    // navigation to /settings/agents/<first-agent> (the old bug).
+    const drawer = await screen.findByRole("dialog", { name: /Group settings/i });
+    expect(within(drawer).getByText("Planner")).toBeInTheDocument();
+    expect(within(drawer).getByText("Writer")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Research Squad" })).toBeInTheDocument();
+  });
+
+  it("feat-438: add-members candidates exclude agents already in the group", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c2");
+    await screen.findByRole("heading", { name: "Research Squad" });
+    await user.click(screen.getByRole("button", { name: /Config/i }));
+    const drawer = await screen.findByRole("dialog", { name: /Group settings/i });
+
+    await user.click(within(drawer).getByRole("button", { name: /Add members/i }));
+    // Only Reviewer (not yet a member) is offered; Planner/Writer are excluded.
+    expect(within(drawer).getByLabelText("Reviewer")).toBeInTheDocument();
+    expect(within(drawer).queryByLabelText("Planner")).not.toBeInTheDocument();
+    expect(within(drawer).queryByLabelText("Writer")).not.toBeInTheDocument();
+  });
+
+  it("feat-438: zero-agent group still exposes ⚙ and opens Group settings", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c3");
+    expect(await screen.findByRole("heading", { name: "Empty Group" })).toBeInTheDocument();
+
+    // ⚙ must stay available even with no agents, otherwise the group is locked.
+    const config = screen.getByRole("button", { name: /Config/i });
+    await user.click(config);
+    expect(await screen.findByRole("dialog", { name: /Group settings/i })).toBeInTheDocument();
+  });
+
+  it("feat-438: direct-agent ⚙ navigates to the agent config (no group settings drawer)", async () => {
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+
+    await user.click(screen.getByRole("button", { name: /Config/i }));
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "Planner" })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole("dialog", { name: /Group settings/i })).not.toBeInTheDocument();
   });
 });

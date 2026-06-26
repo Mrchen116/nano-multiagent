@@ -3129,3 +3129,549 @@ body {
     max-width: 88%;
   }
 }
+
+/* ════════════════ feat-438: Group settings (drawer + mobile) ════════════════ */
+/* Provenance: docs/changes/feat-438-im-group-settings/prototype.html — PC right
+   drawer + mobile full-screen forms. Tokens reuse --im-* from :root above. */
+
+.group-settings-scrim {
+  position: fixed;
+  /* 顶栏(.im-shell-topbar)高 48px：scrim/抽屉从其下方起，不盖住全局黑色顶栏。 */
+  inset: 48px 0 0;
+  z-index: 90;
+  background: transparent;
+}
+
+.group-settings-drawer {
+  position: fixed;
+  top: 48px;
+  right: 0;
+  bottom: 0;
+  width: 340px;
+  max-width: 100vw;
+  z-index: 91;
+  background: var(--im-surface);
+  border-left: 1px solid var(--im-border);
+  box-shadow: var(--im-shadow-strong);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.group-settings-drawer-head {
+  padding: 18px 18px 16px;
+  border-bottom: 1px solid var(--im-border);
+  text-align: center;
+  position: relative;
+}
+
+.group-settings-close {
+  position: absolute;
+  top: 13px;
+  right: 13px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid var(--im-border);
+  background: var(--im-surface);
+  color: var(--im-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+}
+.group-settings-close:hover {
+  background: var(--im-surface-2);
+  color: var(--im-text);
+}
+
+.group-settings-cluster {
+  display: flex;
+  justify-content: center;
+  margin: 2px 0 12px;
+}
+/* Cluster overlap is applied to the shared <Avatar> wrapper. */
+.group-settings-cluster .chat-avatar {
+  margin-left: -12px;
+}
+.group-settings-cluster .chat-avatar:first-child {
+  margin-left: 0;
+}
+.group-settings-cluster .chat-avatar-face {
+  border: 2.5px solid var(--im-surface);
+  box-shadow: 0 1px 2px oklch(0.2 0 0 / 0.12);
+}
+.group-settings-av--stale {
+  opacity: 0.45;
+}
+/* Inline error banner — surfaces write-operation failures inside the panel,
+   above the scrim / mobile full-screen page where the global toast can't show. */
+.group-settings-error {
+  margin: 10px 16px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: oklch(0.96 0.03 25);
+  border: 1px solid oklch(0.86 0.09 25);
+  color: oklch(0.4 0.12 25);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.group-settings-cluster-more {
+  margin-left: -12px;
+  border-radius: 50%;
+  border: 2.5px solid var(--im-surface);
+  background: var(--im-surface-2);
+  color: var(--im-text-muted);
+  font-weight: 600;
+  font-size: 13px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.group-settings-name-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  border: none;
+  background: none;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: 9px;
+}
+.group-settings-name-row:hover {
+  background: var(--im-surface-2);
+}
+.group-settings-name {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--im-text);
+}
+.group-settings-name-edit {
+  color: var(--im-text-muted);
+  font-size: 13px;
+  opacity: 0.6;
+}
+.group-settings-meta {
+  margin-top: 5px;
+  font-size: 12px;
+  color: var(--im-text-muted);
+}
+
+.group-settings-rename {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  align-items: stretch;
+  text-align: left;
+  padding: 2px 2px 0;
+}
+.group-settings-rename-input {
+  height: 38px;
+  border-radius: 10px;
+  border: 1.5px solid var(--im-accent);
+  background: var(--im-surface);
+  padding: 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--im-text);
+  outline: none;
+}
+.group-settings-rename-input--err {
+  border-color: var(--im-danger);
+}
+.group-settings-rename-hint {
+  font-size: 11.5px;
+  color: var(--im-danger);
+  margin-top: -3px;
+}
+.group-settings-rename-acts {
+  display: flex;
+  gap: 8px;
+}
+.group-settings-rename-acts > * {
+  flex: 1;
+}
+
+.group-settings-section {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px 7px;
+}
+.group-settings-section-label,
+.group-settings-group-label {
+  font-family: var(--im-font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--im-text-muted);
+}
+.group-settings-add-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--im-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 7px;
+}
+.group-settings-add-link:hover {
+  background: var(--im-surface-2);
+}
+
+.group-settings-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px;
+  overflow: auto;
+  flex: 1;
+}
+.group-settings-member {
+  border-radius: 11px;
+}
+.group-settings-member-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 11px;
+}
+.group-settings-member-main:hover {
+  background: var(--im-surface-2);
+}
+.group-settings-member-body {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-width: 0;
+  flex: 1;
+  border: none;
+  background: none;
+  text-align: left;
+  padding: 0;
+  cursor: default;
+  color: inherit;
+}
+.group-settings-member-body--link {
+  cursor: pointer;
+}
+.group-settings-member-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.group-settings-member-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--im-text);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.group-settings-member-sub {
+  font-size: 11.5px;
+  color: var(--im-text-muted);
+}
+.group-settings-role-tag {
+  font-family: var(--im-font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--im-accent);
+  background: oklch(0.94 0.05 180);
+  border-radius: 5px;
+  padding: 3px 6px;
+}
+.group-settings-chev {
+  color: var(--im-border-strong);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+.group-settings-member-remove-slot {
+  flex-shrink: 0;
+  width: 26px;
+}
+.group-settings-member-remove {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--im-text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+}
+.group-settings-member-main:hover .group-settings-member-remove {
+  opacity: 1;
+}
+/* On mobile the remove ✕ is only rendered in manage mode (there is no hover),
+   so it must be visible whenever present. */
+.group-settings-mobile .group-settings-member-remove {
+  opacity: 1;
+}
+.group-settings-member-remove:hover {
+  background: oklch(0.96 0.03 25);
+  color: var(--im-danger);
+  border-color: oklch(0.85 0.08 25);
+}
+
+.group-settings-inline-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 10px 8px;
+  padding: 10px 12px;
+  border: 1px solid oklch(0.86 0.09 25);
+  background: oklch(0.96 0.03 25);
+  border-radius: 11px;
+  font-size: 12.5px;
+  color: oklch(0.4 0.12 25);
+}
+.group-settings-inline-confirm-acts {
+  display: flex;
+  gap: 9px;
+}
+
+.group-settings-btn-danger {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid oklch(0.84 0.1 25);
+  background: var(--im-surface);
+  color: var(--im-danger);
+  font-weight: 600;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.group-settings-btn-danger:hover {
+  background: oklch(0.96 0.03 25);
+}
+.group-settings-btn-danger-solid {
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 9px;
+  border: none;
+  background: var(--im-danger);
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  flex: 1;
+}
+.group-settings-btn-danger-wide {
+  width: 100%;
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid oklch(0.84 0.1 25);
+  background: var(--im-surface);
+  color: var(--im-danger);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.group-settings-btn-danger-wide:hover {
+  background: oklch(0.96 0.03 25);
+}
+
+.group-settings-danger-zone {
+  padding: 12px 14px 16px;
+  border-top: 1px solid var(--im-border);
+  margin-top: auto;
+}
+.group-settings-dissolve-confirm {
+  border: 1px solid oklch(0.86 0.09 25);
+  background: oklch(0.96 0.03 25);
+  border-radius: 12px;
+  padding: 12px 13px;
+}
+.group-settings-dissolve-confirm p {
+  margin: 0 0 11px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: oklch(0.4 0.12 25);
+}
+
+.group-settings-addbox {
+  margin: 2px 12px 4px;
+  border: 1px solid var(--im-accent);
+  border-radius: 12px;
+  background: oklch(0.98 0.012 180);
+  overflow: hidden;
+}
+.group-settings-addbox-head {
+  padding: 11px 13px;
+  border-bottom: 1px solid oklch(0.94 0.05 180);
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--im-accent);
+}
+.group-settings-addbox-foot {
+  display: flex;
+  gap: 8px;
+  padding: 11px 13px;
+  border-top: 1px solid oklch(0.94 0.05 180);
+}
+.group-settings-addbox-foot > * {
+  flex: 1;
+}
+.group-settings-pick-list {
+  display: flex;
+  flex-direction: column;
+}
+.group-settings-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 13px;
+  cursor: pointer;
+}
+.group-settings-pick:hover {
+  background: oklch(0.96 0.02 180);
+}
+.group-settings-pick--on {
+  background: oklch(0.95 0.03 180);
+}
+.group-settings-pick input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--im-accent);
+  flex-shrink: 0;
+}
+.group-settings-pick-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--im-text);
+}
+.group-settings-empty {
+  padding: 28px 20px;
+  text-align: center;
+  color: var(--im-text-muted);
+}
+.group-settings-empty-icon {
+  font-size: 26px;
+  opacity: 0.5;
+  display: block;
+  margin-bottom: 8px;
+}
+.group-settings-empty p {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* ── Mobile full-screen form ── */
+.group-settings-mobile {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  background: var(--im-bg);
+  display: flex;
+  flex-direction: column;
+}
+.group-settings-mobile-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(8px + env(safe-area-inset-top, 0px)) 8px 9px;
+  background: var(--im-surface);
+  border-bottom: 1px solid var(--im-border);
+}
+.group-settings-nav-btn {
+  border: none;
+  background: none;
+  color: var(--im-accent);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px;
+}
+.group-settings-nav-btn--act {
+  font-weight: 700;
+}
+.group-settings-nav-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--im-text);
+}
+.group-settings-nav-spacer {
+  width: 52px;
+}
+.group-settings-mobile-scroll {
+  flex: 1;
+  overflow: auto;
+  padding-bottom: 24px;
+}
+.group-settings-hero {
+  background: var(--im-surface);
+  padding: 22px 16px 20px;
+  text-align: center;
+  border-bottom: 1px solid var(--im-border);
+}
+.group-settings-group {
+  margin: 18px 14px 0;
+}
+.group-settings-group-label {
+  padding: 0 6px 8px;
+}
+.group-settings-card {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--im-surface);
+  border: 1px solid var(--im-border);
+  border-radius: 15px;
+  overflow: hidden;
+}
+.group-settings-card .group-settings-member-main {
+  border-radius: 0;
+  padding: 13px 14px;
+}
+.group-settings-card .group-settings-member + .group-settings-member,
+.group-settings-card .group-settings-member:not(:first-child) {
+  border-top: 1px solid var(--im-border);
+}
+.group-settings-add-row {
+  border-bottom: 1px solid var(--im-border);
+}
+.group-settings-add-row .group-settings-add-link {
+  width: 100%;
+  padding: 14px;
+  font-size: 14.5px;
+}
+.group-settings-add-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: oklch(0.94 0.05 180);
+  color: var(--im-accent);
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+}
+.group-settings-card--danger {
+  padding: 4px;
+}
+.group-settings-card--danger .group-settings-btn-danger-wide {
+  border: none;
+  background: transparent;
+}
+.group-settings-mobile-foot {
+  padding: 12px 14px calc(12px + env(safe-area-inset-bottom, 0px));
+  background: var(--im-surface);
+  border-top: 1px solid var(--im-border);
+}
+.group-settings-mobile-foot > button {
+  width: 100%;
+  height: 46px;
+}

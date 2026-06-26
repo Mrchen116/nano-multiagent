@@ -17,6 +17,10 @@ class ActorPayload(BaseModel):
     type: str = Field(min_length=1)
     id: str = Field(min_length=1)
     display_name: str | None = None
+    # decision 5: agent participants carry a stable user_id (UUID) distinct from
+    # ``id`` (the logical agent_id); the frontend reads it to drive the remove
+    # endpoint, which keys on conversation_participants.user_id.
+    user_id: str | None = None
     is_stale: bool | None = None
 
 
@@ -44,6 +48,16 @@ class UpdateConversationRequest(BaseModel):
     title: str | None = None
     is_pinned: bool | None = None
     is_muted: bool | None = None
+
+
+class AddParticipantsRequest(BaseModel):
+    """Request payload for adding participants to an existing conversation.
+
+    Emptiness and resolve failures are validated downstream (repo) so they surface
+    as 400 (decision 3), not 422 — the route maps the raised ValueError to 400.
+    """
+
+    participants: list["ActorPayload"]
 
 
 class ConversationResponse(BaseModel):
@@ -89,6 +103,7 @@ def to_conversation_response(conversation: Conversation) -> ConversationResponse
                 type=item.type,
                 id=item.id,
                 display_name=item.display_name,
+                user_id=item.user_id,
                 is_stale=item.is_stale
                 if item.type == "agent" and item.is_stale
                 else None,
@@ -289,21 +304,63 @@ def leave_conversation(
         ) from exc
 
 
+@router.post(
+    "/im/v1/conversations/{conversation_id}/participants",
+    response_model=ConversationResponse,
+)
+def add_participants(
+    conversation_id: str,
+    payload: AddParticipantsRequest,
+    user: User = Depends(current_user),
+    service: WebIMService = Depends(get_web_im_service),
+) -> ConversationResponse:
+    """Add agent participants to an existing conversation (idempotent).
+
+    Reuses the create path's actor→user resolution + membership INSERT and does
+    not touch relay tasks (those are created per-participant when a message is
+    sent). Returns 404 when the conversation is outside the caller's tenant, and
+    400 when the participant list is empty or an agent id cannot be resolved.
+    """
+    _load_owner_scoped_conversation(
+        service=service, conversation_id=conversation_id, owner_id=user.owner_id
+    )
+    try:
+        references = _actor_payloads_to_references(payload.participants)
+        updated = service.add_participants(
+            conversation_id=conversation_id,
+            references=references,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    return to_conversation_response(updated)
+
+
+def _actor_payloads_to_references(actors: list[ActorPayload]) -> list[str]:
+    """Normalize actor-first payloads to repository-compatible references.
+
+    Shared by conversation creation and participant addition so both paths
+    resolve ``agent`` / ``user`` actors the same way.
+    """
+    references: list[str] = []
+    for actor in actors:
+        normalized_actor_type = actor.type.strip().lower()
+        if normalized_actor_type == "agent":
+            references.append(f"agent:{actor.id.strip()}")
+            continue
+        if normalized_actor_type == "user":
+            references.append(f"user:{actor.id.strip()}")
+            continue
+        raise ValueError("participants.type must be one of: user, agent")
+    return references
+
+
 def _resolve_create_conversation_participants(
     payload: CreateConversationRequest,
 ) -> list[str]:
     """Normalize actor-first participants to repository-compatible references."""
     if payload.participants is not None:
-        references: list[str] = []
-        for actor in payload.participants:
-            normalized_actor_type = actor.type.strip().lower()
-            if normalized_actor_type == "agent":
-                references.append(f"agent:{actor.id.strip()}")
-                continue
-            if normalized_actor_type == "user":
-                references.append(f"user:{actor.id.strip()}")
-                continue
-            raise ValueError("participants.type must be one of: user, agent")
-        return references
+        return _actor_payloads_to_references(payload.participants)
     assert payload.participant_ids is not None
     return [item.strip() for item in payload.participant_ids if item.strip()]

@@ -8,10 +8,14 @@ import { useIsMobile } from "../../../hooks/use-is-mobile";
 import { useTranslation } from "../../../i18n";
 import { colorForAgent } from "./components/avatar";
 import {
+  addParticipants,
   createConversation,
   createMessage,
+  deleteConversation,
   listConversations,
   listMessages,
+  removeParticipant,
+  updateConversation,
   type AgentRow
 } from "./chat-api";
 import { openChatStream } from "./chat-stream";
@@ -24,8 +28,20 @@ import {
 import { authFetch } from "../../auth/auth-fetch";
 import { attachUserConversationStream } from "../../chat/im-chat-api";
 import { useAuthStore } from "../../auth/auth-store";
-import type { Attachment, Conversation, Message, PermissionRequest, WsEvent } from "./chat-types";
+import {
+  classifyConversationKind,
+  type Attachment,
+  type Conversation,
+  type Message,
+  type PermissionRequest,
+  type WsEvent
+} from "./chat-types";
 import { ConversationSidebar } from "./components/conversation-sidebar";
+import {
+  GroupSettings,
+  type GroupSettingsAgentOption,
+  type GroupSettingsMember
+} from "./components/group-settings";
 import { MessagePane } from "./components/message-pane";
 import { NewGroupModal } from "./components/new-group-modal";
 
@@ -165,6 +181,7 @@ export function ChatWorkspacePageV2() {
   const queryClient = useQueryClient();
   const { t } = useTranslation();
   const [showNewGroup, setShowNewGroup] = useState(false);
+  const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
   const accessToken = useAuthStore((s) => s.accessToken ?? "");
@@ -256,6 +273,66 @@ export function ChatWorkspacePageV2() {
       agentInitials: initials
     };
   }, [activeConversation, agentsQuery.data, nodesQuery.data]);
+
+  // feat-438 决策 2: the ⚙ entry dispatches by conversation kind. Group /
+  // agent-network open the in-place GroupSettings surface; direct-agent keeps
+  // navigating to the single agent's config page.
+  const conversationKind = activeConversation
+    ? classifyConversationKind(activeConversation)
+    : null;
+  const isGroupKind = conversationKind === "group" || conversationKind === "agent-network";
+
+  // Pre-resolve members + addable agents for GroupSettings so the component stays
+  // presentational. Status comes from the nodes cache (same derivation the header
+  // and sidebar use); `userId` carries the UUID the remove endpoint keys on.
+  const groupMembers = useMemo<GroupSettingsMember[]>(() => {
+    if (!activeConversation) return [];
+    return activeConversation.participants.map((p) => {
+      const userId = p.user_id ?? (p.type === "user" ? p.id : null);
+      let status: "online" | "offline" | null = null;
+      if (p.type === "agent") {
+        const agentRow = (agentsQuery.data ?? []).find((a) => a.agent_id === p.id);
+        const nodeRow = agentRow
+          ? (nodesQuery.data ?? []).find((n) => n.node_id === agentRow.node_id)
+          : undefined;
+        status = nodeRow?.status === "online" ? "online" : "offline";
+      }
+      return {
+        id: p.id,
+        userId,
+        type: p.type,
+        displayName: p.display_name ?? p.id,
+        isSelf: p.type === "user" && userId === selfUserId,
+        isCreator: userId != null && userId === activeConversation.creator_id,
+        status,
+        isStale: p.is_stale ?? null
+      };
+    });
+  }, [activeConversation, agentsQuery.data, nodesQuery.data, selfUserId]);
+
+  const addableAgents = useMemo<GroupSettingsAgentOption[]>(() => {
+    if (!activeConversation) return [];
+    const inGroup = new Set(
+      activeConversation.participants
+        .filter((p) => p.type === "agent")
+        .map((p) => p.id.replace(/^agent:/, ""))
+    );
+    return (agentsQuery.data ?? [])
+      .filter((a) => !inGroup.has(a.agent_id.replace(/^agent:/, "")))
+      .map((a) => {
+        const nodeRow = (nodesQuery.data ?? []).find((n) => n.node_id === a.node_id);
+        return {
+          agentId: a.agent_id,
+          displayName: a.display_name,
+          status: (nodeRow?.status === "online" ? "online" : "offline") as "online" | "offline"
+        };
+      });
+  }, [activeConversation, agentsQuery.data, nodesQuery.data]);
+
+  // Switching conversations closes any open settings surface.
+  useEffect(() => {
+    setShowGroupSettings(false);
+  }, [conversationId]);
 
   const [streamState, dispatch] = useReducer(streamReducer, emptyConversationState);
 
@@ -402,6 +479,45 @@ export function ChatWorkspacePageV2() {
     }
   });
 
+  // feat-438 决策 4: write operations refresh via react-query invalidation
+  // (the backend emits no conversation-metadata WS events). Dissolve additionally
+  // leaves the now-deleted conversation for the list empty state.
+  const invalidateConversations = () =>
+    void queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+
+  // These four feed GroupSettings via mutateAsync so a rejection propagates to the
+  // panel, which renders the error inline (the global sendError toast sits below
+  // the panel's z-index and would be hidden by the scrim / mobile full-screen).
+  const renameMutation = useMutation({
+    mutationFn: (title: string) => updateConversation(conversationId!, { title }),
+    onSuccess: invalidateConversations
+  });
+
+  const addParticipantsMutation = useMutation({
+    mutationFn: (agentIds: string[]) => addParticipants(conversationId!, agentIds),
+    onSuccess: invalidateConversations
+  });
+
+  const removeParticipantMutation = useMutation({
+    mutationFn: (userId: string) => removeParticipant(conversationId!, userId),
+    onSuccess: invalidateConversations
+  });
+
+  const dissolveMutation = useMutation({
+    mutationFn: () => deleteConversation(conversationId!),
+    onSuccess: () => {
+      setShowGroupSettings(false);
+      invalidateConversations();
+      navigate("/chat");
+    }
+  });
+
+  const groupSettingsBusy =
+    renameMutation.isPending
+    || addParticipantsMutation.isPending
+    || removeParticipantMutation.isPending
+    || dissolveMutation.isPending;
+
   const showList = !isMobile || !conversationId;
   const showDetail = !isMobile || Boolean(conversationId);
 
@@ -455,9 +571,11 @@ export function ChatWorkspacePageV2() {
             onBack={isMobile ? () => navigate("/chat") : undefined}
             isMobile={isMobile}
             onOpenConfig={
-              headerAgentContext.agentId
-                ? () => navigate(`/settings/agents/${headerAgentContext.agentId}`)
-                : undefined
+              isGroupKind
+                ? () => setShowGroupSettings(true)
+                : headerAgentContext.agentId
+                  ? () => navigate(`/settings/agents/${headerAgentContext.agentId}`)
+                  : undefined
             }
           />
         ) : (
@@ -483,6 +601,21 @@ export function ChatWorkspacePageV2() {
           })}
           onClose={() => setShowNewGroup(false)}
           onCreate={(payload) => createGroupMutation.mutate(payload)}
+        />
+      )}
+      {showGroupSettings && activeConversation && isGroupKind && (
+        <GroupSettings
+          title={activeConversation.title}
+          members={groupMembers}
+          addableAgents={addableAgents}
+          isMobile={isMobile}
+          isBusy={groupSettingsBusy}
+          onClose={() => setShowGroupSettings(false)}
+          onRename={(title) => renameMutation.mutateAsync(title)}
+          onAddParticipants={(agentIds) => addParticipantsMutation.mutateAsync(agentIds)}
+          onRemoveParticipant={(userId) => removeParticipantMutation.mutateAsync(userId)}
+          onDissolve={() => dissolveMutation.mutateAsync()}
+          onOpenAgentConfig={(agentId) => navigate(`/settings/agents/${agentId}`)}
         />
       )}
     </div>

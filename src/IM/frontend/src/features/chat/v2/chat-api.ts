@@ -102,6 +102,63 @@ export async function createConversation(req: CreateConversationRequest): Promis
   return jsonOrThrow<Conversation>(res, "createConversation");
 }
 
+// ─── Group settings (feat-438): rename / add / remove / dissolve ─────────────
+
+/** Update mutable conversation metadata (currently just the group title). */
+export async function updateConversation(
+  conversationId: string,
+  patch: { title: string }
+): Promise<Conversation> {
+  const res = await authFetch(`/im/v1/conversations/${encodeURIComponent(conversationId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch)
+  });
+  return jsonOrThrow<Conversation>(res, "updateConversation");
+}
+
+/** Add agent participants to an existing group; returns the refreshed snapshot. */
+export async function addParticipants(
+  conversationId: string,
+  agentIds: string[]
+): Promise<Conversation> {
+  const participants: Actor[] = agentIds.map((id): Actor => ({ type: "agent", id }));
+  const res = await authFetch(
+    `/im/v1/conversations/${encodeURIComponent(conversationId)}/participants`,
+    { method: "POST", body: JSON.stringify({ participants }) }
+  );
+  return jsonOrThrow<Conversation>(res, "addParticipants");
+}
+
+/**
+ * Remove one participant from a group. ``userId`` MUST be the participant's
+ * ``user_id`` (UUID) — for agents that is distinct from ``id`` (agent_id); the
+ * backend keys the delete on conversation_participants.user_id (决策 5).
+ */
+export async function removeParticipant(
+  conversationId: string,
+  userId: string
+): Promise<void> {
+  const res = await authFetch(
+    `/im/v1/conversations/${encodeURIComponent(conversationId)}/participants/${encodeURIComponent(userId)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`removeParticipant failed: ${res.status} ${body}`);
+  }
+}
+
+/** Dissolve a group conversation (creator only; backend enforces 403 otherwise). */
+export async function deleteConversation(conversationId: string): Promise<void> {
+  const res = await authFetch(`/im/v1/conversations/${encodeURIComponent(conversationId)}`, {
+    method: "DELETE"
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(`deleteConversation failed: ${res.status} ${body}`);
+  }
+}
+
 /**
  * Mention candidates = the agents that participate in this conversation (per
  * spec Q8: candidates only come from the current user's own agents and the
