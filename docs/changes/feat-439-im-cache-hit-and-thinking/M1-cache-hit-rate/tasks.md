@@ -56,7 +56,7 @@ UI 状态矩阵：
 
 ## Roadpoints
 
-### R1 — 内核侧缓存字段贯穿（types + 两 provider + accumulate）
+### R1 — 内核侧缓存字段贯穿（types + 两 provider + accumulate） — DONE
 
 - 步骤: types.TokenUsage 加 `cache_read_tokens`/`cache_total_input_tokens`（默认 0）；anthropic/openai 各 client+mapper 的 `_parse_*_usage` 追加两字段（prompt_tokens 不动，OpenAI 补读 cached）；`_accumulate_usage` 两字段累加。
 - 验证: provider 解析单测（含 prompt_tokens 不变 + 归一断言）、accumulate 单测；`pytest tests/unit/test_llm_anthropic_mapper.py 等`
