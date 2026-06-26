@@ -17,6 +17,9 @@ feat-425: presenter 类下沉到各 builtins/* 后,resolution 路径不变(仍 r
 final_url、emoji=🌐)外保持。``_evt_tuple`` 新增 ``emoji`` 维度,内置工具默认空串
 (emoji 随工具走,内置工具沿用前端名表兜底,故 presenter 不强制声明)——web_fetch
 是唯一在 presenter 层声明 emoji 的内置工具。
+
+bugfix-441-M1: start events for known tools now carry parameter-side ``detail``
+so running IM rows can expand before result fields exist.
 """
 
 from __future__ import annotations
@@ -74,19 +77,47 @@ class _Result:
 
 # (tool_name, args, expected_start_tuple) — tuple = (visible, label, summary, emoji, detail)
 _START_CASES = [
-    ("read", {"path": "src/app.py"}, (True, "Read", "src/app.py", "", None)),
-    ("write", {"path": "src/app.py"}, (True, "Write", "src/app.py", "", None)),
-    ("edit", {"path": "src/app.py"}, (True, "Edit", "src/app.py", "", None)),
-    ("bash", {"command": "pytest tests/"}, (True, "Bash", "pytest tests/", "", None)),
+    (
+        "read",
+        {"path": "src/app.py"},
+        (True, "Read", "src/app.py", "", {"path": "src/app.py"}),
+    ),
+    (
+        "write",
+        {"path": "src/app.py"},
+        (
+            True,
+            "Write",
+            "src/app.py",
+            "",
+            {"path": "src/app.py", "content": "", "bytes": 0, "truncated": False},
+        ),
+    ),
+    (
+        "edit",
+        {"path": "src/app.py"},
+        (True, "Edit", "src/app.py", "", {"path": "src/app.py"}),
+    ),
+    (
+        "bash",
+        {"command": "pytest tests/"},
+        (True, "Bash", "pytest tests/", "", {"command": "pytest tests/"}),
+    ),
     (
         "web_fetch",
         {"url": "https://example.com"},
-        (True, "Web", "https://example.com", "🌐", None),
+        (True, "Web", "https://example.com", "🌐", {"url": "https://example.com"}),
     ),
     (
         "agent",
         {"description": "Refactor auth module"},
-        (True, "Agent", "Refactor auth module", "", None),
+        (
+            True,
+            "Agent",
+            "Refactor auth module",
+            "",
+            {"description": "Refactor auth module", "prompt": "", "subagent_type": ""},
+        ),
     ),
     (
         "unknown_xyz",
