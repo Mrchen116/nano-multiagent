@@ -438,6 +438,10 @@ class SubmitPermissionDecisionRequest(BaseModel):
 
     message_id: str = Field(min_length=1)
     decision: str = Field(min_length=1)
+    # feat-440-M1: optional free-text reason a user types when denying. Threaded
+    # through to PermissionResponse.reason so the gate weaves it into the rejection
+    # text sent back to the LLM. Allow decisions ignore it.
+    reason: str | None = None
 
 
 @router.post(
@@ -481,6 +485,7 @@ async def submit_permission_decision(
         message_id=payload.message_id,
         request_id=request_id,
         decision=payload.decision,
+        reason=payload.reason,
     )
     return {"status": "forwarded" if delivered else "queued"}
 

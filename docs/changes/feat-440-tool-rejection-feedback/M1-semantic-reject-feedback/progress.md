@@ -34,7 +34,18 @@
 
 ## R3 — IM reason 两端透传
 
-（待补）
+- Context: design 决策 3：reason 全链路（broker.PermissionResponse.reason / kernel.submit_permission_decision(reason=) / PA main.py:3033 body.get("reason") / gate response.reason）已铺好，仅 IM 两端不发恒空。只补 IM backend 入口 + frame。
+- Decision: ① messages.py SubmitPermissionDecisionRequest 加 `reason: str | None = None`，submit_permission_decision 透传 `reason=payload.reason`（省略为 None，不在端点归一化）；② gateway_handler.push_permission_response 加 `reason: str | None = None` 参数，frame payload 写 `"reason": reason or ""`（单一归一化点）。
+- Rationale: 归一化收口在 gateway_handler 一处，端点直传 payload.reason；旧客户端 / allow 决策不发 reason → frame 恒 ""，PermissionResponse.reason 恒空，向后兼容。已核实 PA `_build_permission_response_handler`（main.py:3033）从 frame body 读 `reason` 喂 kernel.submit_permission_decision，链路闭合，中下游零改动。
+- Evidence:
+  - Tests: `pytest tests/im_service/unit/test_gateway_handler.py tests/unit/IM/test_permission_streaming.py` → 55 passed（新增 4：endpoint deny 透传 reason / endpoint 省略→None / frame 写入 reason / frame 默认 ""）。
+  - Entry: HTTP TestClient 真发 POST 到 `/im/v1/conversations/{cid}/permissions/{rid}`，断言 push_permission_response 收到 reason；gateway_handler 真注册节点 + StubWebSocket 收到 frame 验 payload.reason。端到端经真 agent 看 LLM 据理由调整留 reviewer 轨。
+  - Frontend State Matrix: N/A
+  - Browser QA: N/A
+  - E2E/Regression: 端点 + frame 测试即回归保护。
+  - Visual/Interaction: N/A
+- Rollback: revert R3 C2；reason 字段全链路选填，移除即恢复旧行为。
+- Commits: C1=test 红测, C2=feat 实现, C3=本提交。ruff 通过。
 
 ## R4 — 前端权限卡理由输入框
 
