@@ -52,7 +52,7 @@ graph LR
   B --> R
   R --> TE[tool_executor: catch ToolError]
   ALW[非白名单 synthetic error<br/>subagent only] --> TE
-  TE --> H{{reject_text helper<br/>按 is_subagent/approval/reason 选模板}}
+  TE --> H{{build_reject_message<br/>按 is_subagent/approval/reason 选模板}}
   H --> TR[ToolResult.error = 语义化文本]
   TR --> S[loop._serialize → LLM 看到的 error]
   style H fill:#ffe7b3
@@ -87,13 +87,14 @@ graph LR
 
 ### 决策 2: 拒绝文本模块落 core，CC 文本逐字照搬 + 私有名词本地化裁剪
 
-**选了「新建 `src/agent/core/agent/reject_messages.py`，集中常量 + `build_reject_message(*, approval, reason_code, reason, is_subagent) -> str` 选择器；CC 文本主体逐字照搬，三处本地化」。**
+**选了「新建 `src/agent/core/agent/reject_messages.py`，集中常量 + `build_reject_message(*, approval, reason, is_subagent) -> str` 选择器；CC 文本主体逐字照搬，三处本地化」。**
 
 - **理由**：core 落点满足分层（`tool_executor`/`loop` 在 core，文本常量不能依赖 platform）；仿 CC `messages.ts` 集中常量模式，单一选择器便于单测穷举四类。
 - **本地化裁剪**（spec Q1.1 实现约束，已核实代码）：
   - 主体 `REJECT_MESSAGE` / `REJECT_MESSAGE_WITH_REASON_PREFIX` / `SUBAGENT_REJECT_MESSAGE` / `AUTO_REJECT_MESSAGE` / `DENIAL_WORKAROUND_GUIDANCE` 逐字照搬。
   - 括号举例 `new_string` → **`newText`**（本项目 Edit 真实参数名，`edit.py:116`；CC 的 `old_string/new_string` 是其私有命名）。
-  - 自动拒尾部「在 settings 加 `Bash(...)` 规则」提示句 → **删除**（本项目权限规则是 YAML `config.allow/soft_deny`，无该 settings UX）。分类器原因文本 = `Permission for this action has been denied. Reason: <reason>. ` + `DENIAL_WORKAROUND_GUIDANCE`，不带规则尾句。
+  - 自动拒尾部「在 settings 加 `Bash(...)` 规则」提示句 → **删除**（本项目权限规则是 YAML `config.allow/soft_deny`，无该 settings UX）。
+  - **自动拒合并为单一带 reason 模板**（review R1 修订）：CC 分 `AUTO_REJECT_MESSAGE(tool)`（无 reason）+ `buildYoloRejectionMessage(reason)`（带 reason）两个函数，按调用点区分；本项目所有 auto block 都带 `reason` 串，无「无 reason 的自动拒」，故合并为 `auto_reject_message(reason)` = `Permission for this action has been denied. Reason: <reason>. ` + `DENIAL_WORKAROUND_GUIDANCE`。不需在 gate 加 `reason_type` 标注，也不需启发式探测系统错误前缀。
   - **不实现** `DONT_ASK_REJECT_MESSAGE`（本项目无 don't-ask 模式）。
 - **拒绝**：把常量散落在 `tool_executor` 内联 —— 无法独立单测、复用难。
 - **风险**：分类器 `reason` 是 gate 内部 LLM 生成文本（非用户/agent 外部可注入输入），直接拼进回传文本，CC 本身如此，无新增注入面。
@@ -120,26 +121,29 @@ REJECT_MESSAGE: str
 REJECT_MESSAGE_WITH_REASON_PREFIX: str   # 其后拼 user reason
 SUBAGENT_REJECT_MESSAGE: str
 DENIAL_WORKAROUND_GUIDANCE: str
-def auto_reject_message(tool_name: str) -> str            # AUTO_REJECT + guidance
-def classifier_reject_message(reason: str) -> str         # "...Reason: <r>. " + guidance（无规则尾句）
+def auto_reject_message(reason: str) -> str               # "...Reason: <r>. " + guidance（无规则尾句）
+# 注：CC 把自动拒分 AUTO_REJECT_MESSAGE(tool)（无 reason）+ buildYoloRejectionMessage(reason)（带 reason）
+# 两个函数；本项目每条自动拒都带 reason 串，故合并为单一带 reason 模板，无 reason_type 标注/启发式。
+# 不实现 SUBAGENT_REJECT_MESSAGE_WITH_REASON_PREFIX（subagent unattended、永不 user_deny，死路径）——
+# reject_messages.py docstring 须显式标注此为有意省略，防误补。
 
 def build_reject_message(
-    *, tool_name: str, approval: str | None, reason_code: str | None,
-    reason: str | None, is_subagent: bool,
+    *, approval: str | None, reason: str | None, is_subagent: bool,
 ) -> str:
     """按信号选模板。返回喂给 ToolResult.error 的最终 LLM 可见文本。"""
 ```
 
-**选择逻辑（核心难点，专门表）** — `build_reject_message` 的判定：
+**选择逻辑（核心难点，专门表）** — `build_reject_message` 的判定（**自上而下首个命中**）：
 
-| is_subagent | approval | 其它 | 返回 |
-|---|---|---|---|
-| True | — | （含非白名单 synthetic / gate 被拒） | `SUBAGENT_REJECT_MESSAGE` |
-| False | `"user_deny"` | `reason` 非空 | `REJECT_MESSAGE_WITH_REASON_PREFIX + reason` |
-| False | `"user_deny"` | `reason` 空 | `REJECT_MESSAGE` |
-| False | None（自动拒） | reason 含分类器原因 | `classifier_reject_message(reason)` 或 `auto_reject_message(tool_name)` |
+| 序 | is_subagent | approval | reason | 返回 |
+|---|---|---|---|---|
+| 1 | True | — | — | `SUBAGENT_REJECT_MESSAGE` |
+| 2 | False | `"user_deny"` | 非空 | `REJECT_MESSAGE_WITH_REASON_PREFIX + reason` |
+| 3 | False | `"user_deny"` | 空 | `REJECT_MESSAGE` |
+| 4 | False | None（自动拒） | 任意（本项目恒非空） | `auto_reject_message(reason)` |
 
-> 非白名单 synthetic error 路径（tool_executor:154）原本不带 approval/reason_code，但因 `is_subagent=True` 优先命中第一行，统一为 SUBAGENT_REJECT。
+> **自动拒统一走 row 4**（决策 2 修订）：本项目所有 auto block（分类器 `<reason>` / `no permission channel (fail-closed)` / `gate error: ...` / `deny-limit exceeded...`）都携带 `reason` 串，原样转述给 LLM 均有信息量，无「无 reason 的自动拒」分支，故不需区分分类器解释 vs 系统错误串。
+> 非白名单 synthetic error 路径（tool_executor:154）原本不带 approval/reason，但因 `is_subagent=True` 优先命中 row 1，统一为 SUBAGENT_REJECT。`tool_name` 不再入参——four 类模板均不需要它。
 
 **kernel — `tool_executor.py` 改动**：catch `ToolError` 分支额外提 `details["reason"]`；对非白名单 synthetic error 与 catch 分支，均调 `build_reject_message(..., is_subagent=self._tool_execution_allowlist is not None)` 得到 `error` 文本。`loop._serialize_tool_result_content` 不变（原样透传 `result.error`）。
 
@@ -192,7 +196,7 @@ sequenceDiagram
 
 ## 风险与回退
 
-- **风险：分类器 reason 直拼进 LLM 文本**。来源是 gate 内部 LLM，非外部注入面（决策 2）；回退＝若发现不当内容，`classifier_reject_message` 可改为只用 `auto_reject_message(tool_name)` 不含 reason。
+- **风险：自动拒 reason 直拼进 LLM 文本**。来源是 gate 内部（分类器 LLM / 系统错误串），非外部注入面（决策 2）；回退＝若发现不当内容，`auto_reject_message` 可改为丢弃 reason、只返回固定 `Permission denied. ` + guidance。
 - **风险：subagent 带理由死路径**。本项目 subagent unattended 永不 user_deny，不实现带理由 subagent 变体；若将来 subagent 接授权通道，需补 `SUBAGENT_REJECT_MESSAGE_WITH_REASON_PREFIX`。
 - **回退**：整 unit 可回滚——`build_reject_message` 退化为返回 `"tool blocked by hook"` 即恢复旧行为；前端理由框移除、后端 `reason` 字段选填，向后兼容（旧前端不发 reason，链路照常）。
 - **兼容**：`reason` 全链路选填，旧客户端 / 旧帧无 reason 时一律走默认 REJECT_MESSAGE，无破坏。
