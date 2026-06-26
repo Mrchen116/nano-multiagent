@@ -34,9 +34,13 @@
 - **THEN** 200 返回更新后的会话，会话列表与详情显示新群名
 - **AND** 提交空 `title` 时不接受为新名（会话名保持原值）
 
+#### Scenario: 会话参与者带 user_id 供成员管理
+- **WHEN** 前端读取会话（`GET /conversations` 或写操作返回的快照）
+- **THEN** 每个 participant 带 `user_id`（agent participant 的 `id` 是 agent_id，`user_id` 是其稳定 IM 用户标识），前端据 `user_id` 调移除端点
+
 #### Scenario: 移除参与者后该成员从群消失
 - **GIVEN** 群里有多个 agent 成员
-- **WHEN** 前端 `DELETE /im/v1/conversations/{id}/participants/{user_id}` 指定某 agent 的 user_id
+- **WHEN** 前端 `DELETE /im/v1/conversations/{id}/participants/{user_id}` 指定某 agent 的 `user_id`
 - **THEN** 204；该会话快照参与者集合不再含该成员；可一直移除到群里只剩用户本人，群仍存在
 
 #### Scenario: 仅创建者可解散群，非创建者被拒

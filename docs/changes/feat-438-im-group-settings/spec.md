@@ -153,7 +153,7 @@
   - 群设置面板：改群名（空名拒绝）、成员列表（可点 agent 成员进其配置页）、添加 agent 成员（候选排除已在群的）、移除 agent 成员（带确认）、解散群（带不可恢复确认 + 解散后回会话列表）。
   - 桌面端与移动端（375px）均支持。
   - 复用已有后端端点：`PATCH /conversations/{id}`（title）、`DELETE /conversations/{id}/participants/{uid}`（移除）、`DELETE /conversations/{id}`（解散，创建者）。
-  - 新增后端端点：`POST /conversations/{id}/participants`（添加成员；复用已有 membership 写入 + 为新增 agent 创建 relay task）。
+  - 新增后端端点：`POST /conversations/{id}/participants`（添加成员；复用已有 membership 写入。relay 在发消息时按成员动态建，加成员无需碰 relay——见 design 现状分析）。
 
 - 非目标：
   - 群头像、群描述（数据模型无相应字段）。

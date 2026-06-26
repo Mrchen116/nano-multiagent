@@ -22,7 +22,7 @@
 ### 既有约束
 
 - IM 不 import agent；前端只经 `/im/v1/*` HTTP（`authFetch`，401 自动刷新重试）。
-- 成员标识 = IM `user_id`（UUID）。前端 `conversation.participants[].id` 即该 user_id，移除直接用它，无需额外查询。
+- **参与者两种 id（关键，design-review CRITICAL-1）**：`_actor_from_user_row`（repositories.py:735-751）对 **agent** participant 构建 `Actor.id = agent_id`（username 去 `agent:` 前缀）、`Actor.user_id = UUID`；对 **user** 本人 `id = user_id`。但 `ActorPayload` 序列化（web_im.py:88-94）**只带 `id` 不带 `user_id`** → 前端拿到的 agent `participants[].id` = **agent_id，不是 UUID**。而移除端点 `DELETE /participants/{user_id}` 按 `conversation_participants.user_id`(UUID) 删（repositories.py:642）。⟹ 移除不能用 `participant.id`，须用 user_id（见决策 5）。「点 agent 进配置」用 `participant.id`(=agent_id) 喂 `/settings/agents/{id}` 反而正确。
 - 解散权限在 **service 层**硬校验 `creator_id == requester`（repo），非创建者 403——不是仅 UI 挡。
 - 后端 add/remove/rename/dissolve **均不发 WS 会话事件**；前端靠 `listConversations` 的 react-query 刷新感知变化。
 
@@ -78,6 +78,8 @@ graph TD
 
 **`chat-workspace-page` 的 `onOpenConfig` 改为按 `classifyConversationKind(activeConversation)` 分流：`direct-agent` → 维持 `navigate(/settings/agents/{agentId})`；`group` / `agent-network` → 打开 `GroupSettings`。`headerAgentContext` 抓第一个 agent 的逻辑仅服务 direct-agent 头像/NodeChip，群聊不再据它跳转。**
 
+**门控必须改由 kind 决定，不再由 `agentId` 真值门控（design-review WARNING-1）**：现状 `onOpenConfig` 仅在 `headerAgentContext.agentId` 真值时提供（457-461），且 message-pane 的 ⚙ 仅在 `onOpenConfig` 真值时渲染（248）。对 `group`/`agent-network` 会话，`onOpenConfig` **恒提供**（与群里是否有 agent 无关）——否则 0-agent 群（spec 允许移到 0 agent）`agentId=null` → ⚙ 消失 → 群被锁死，加不回 agent、也解散不了。`direct-agent` 仍按 `agentId` 提供。
+
 - **理由**：bug 根因是群聊复用了 direct「会话即单 agent」假设。按类型分流是最小且语义正确的修法；成员行点击进 agent 配置承接「配某个 agent」的需求（prototype A1/B1）。
 - **拒绝**：在 ⚙ 上加「先选 agent」中间层——把配成员当主语义，与群治理诉求错位。
 - **风险**：`agent-network`（全 agent、无 user 的群）也归群设置，其成员列表无 user 行、解散权限仍是 creator（owner 用户）——已在 prototype 成员区覆盖。
@@ -87,6 +89,7 @@ graph TD
 **后端加一个端点接收 agent 列表，复用 `create_conversation` 路径里的 agent→user_id 归一 + `INSERT conversation_participants`；幂等跳过已在群成员；不预建 relay task（发消息时动态建）。owner 租户校验同其它端点（404 跨租户）。**
 
 - **理由**：membership 写入与 resolve 已存在于 create 路径，抽成可复用方法即可；relay 既然发消息时按 participants 动态建，加成员零 relay 改动（现状分析已证）。
+- **只抽 resolve + INSERT，不重冻 `config_profile_version`（design-review Rec）**：create 路径还含 `_resolve_config_profile_version`（repo:752+）冻结配置版本与 `conversation_type` 计算；add 是给**既有**会话加人，必须沿用其已冻结版本，**不得**触发重算覆盖。`add_participants` 只做 agent→user_id resolve + membership INSERT。
 - **拒绝**：建会话时预建 relay、加成员同步建——与现状 relay 生命周期不符，徒增耦合。
 - **风险**：并发重复添加 → 幂等（先查存在再插，或 INSERT OR IGNORE）兜底；resolve 不到的 agent_id → 400。
 
@@ -98,6 +101,14 @@ graph TD
 - **拒绝**：为成员变更新增 WS 会话事件——超出本 unit 范围，且单人自操作无需服务端推送。
 - **风险**：刷新有一跳网络延迟 → 可加乐观更新（移除/改名先本地改 cache，失败回滚），列入 worker roadpoint，不强制。
 
+### 决策 5: 移除成员传 user_id，后端 participant 响应补 `user_id` 字段
+
+**`ActorPayload` 序列化增加 `user_id`（域 `Actor.user_id` 本就有，透传即可），前端 `Actor` 类型同步加 `user_id`；`removeParticipant` 传 `participant.user_id`（UUID），不传 `participant.id`（agent 的是 agent_id）。**
+
+- **理由**：直接修 CRITICAL-1 根因——参与者对象自带其成员管理所需的 user_id，移除路径不再误用 agent_id。比「前端拿 agent_id 去 `agentsQuery` 里反查 user_id」更稳（不依赖 agentsQuery 已加载），且 participant 自洽。
+- **拒绝**：前端 agent_id→user_id 反查——多一处隐式依赖、agentsQuery 未就绪时移除按钮失效。
+- **风险**：响应增字段为**附加**变更、后向兼容；`participant.id` 语义不变（agent 仍是 agent_id，「点 agent 进配置」继续用它）。两个 id 并存，各司其职。
+
 ## 接口与数据流
 
 ### 前端 chat-api 新增（签名）
@@ -106,8 +117,11 @@ graph TD
 updateConversation(id, { title }) -> Conversation        // PATCH  /im/v1/conversations/{id}
 addParticipants(id, agentIds: string[]) -> Conversation  // POST   /im/v1/conversations/{id}/participants
 removeParticipant(id, userId) -> void                    // DELETE /im/v1/conversations/{id}/participants/{userId}
+                                                         //   userId = participant.user_id（UUID），不是 participant.id（决策 5）
 deleteConversation(id) -> void                           // DELETE /im/v1/conversations/{id}
 ```
+
+前端 `Actor` 类型 + 后端 `ActorPayload` 均新增 `user_id: string | null`（决策 5）；`to_conversation_response` 透传域 `Actor.user_id`。
 
 ### 后端新增端点
 
@@ -181,6 +195,6 @@ flowchart TD
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-438-M1 | group-settings | — | A | `src/IM/api/routes/web_im.py`（+POST participants）、`src/IM/application/web_im_service.py` / `src/IM/infra/repositories.py`（+add_participants 复用 resolve/INSERT）、`src/IM/frontend/src/features/chat/v2/`（新 GroupSettings 组件 + chat-api 4 调用 + chat-workspace-page 入口分流 + message-pane 接线）、对应单测 | `[reviewer]` 覆盖 spec 全部 Requirement/Scenario：群聊 ⚙ 开群设置不跳 agent（Req-配置入口）、direct chat ⚙ 不变、改名成功/空名拒绝、成员列表点 agent 进配置、添加成员（候选排除已入群/空态）、移除（含移到 0 agent 不提示）、解散（确认+回列表）、移动端各项<br>`[worker]` 新端点 `POST /participants` 单测（成功/幂等/空/resolve 失败/跨租户 404）；前端 chat-api 4 调用单测；`pytest -q tests/ -m "not e2e"` 与前端 `npm run test` 绿；实现对照 prototype.html 视觉一致 |
+| feat-438-M1 | group-settings | — | A | `src/IM/api/routes/web_im.py`（+POST participants；`ActorPayload` 补 `user_id` 透传——决策 5）、`src/IM/application/web_im_service.py` / `src/IM/infra/repositories.py`（+add_participants 复用 resolve/INSERT，不重冻 config_profile_version——决策 3）、`src/IM/frontend/src/features/chat/v2/`（新 GroupSettings 组件 + chat-api 4 调用 + chat-workspace-page 入口分流按 kind 门控 + message-pane 接线 + chat-types `Actor` 加 user_id）、对应单测 | `[reviewer]` 覆盖 spec 全部 Requirement/Scenario：群聊 ⚙ 开群设置不跳 agent（Req-配置入口）、direct chat ⚙ 不变、改名成功/空名拒绝、成员列表点 agent 进配置、添加成员（候选排除已入群/空态）、移除（含移到 0 agent 不提示，**且 0-agent 后仍能开群设置**）、解散（确认+回列表）、移动端各项<br>`[worker]` 新端点 `POST /participants` 单测（成功/幂等/空/resolve 失败/跨租户 404）；**移除成员单测验证传 user_id 真能删（防 CRITICAL-1 回归）**；前端 chat-api 4 调用单测；`pytest -q tests/ -m "not e2e"` 与前端 `npm run test` 绿；实现对照 prototype.html 视觉一致 |
 
 `mkdir docs/changes/feat-438-im-group-settings/M1-group-settings/`
