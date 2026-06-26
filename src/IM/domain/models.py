@@ -237,6 +237,11 @@ class TokenUsage:
     context_used: int
     context_window: int
     total: int = 0
+    # feat-439-M1: 整轮缓存命中率(spec Q1=B)。cache_read_tokens=命中缓存读取的 input 累计
+    # (分子)，cache_total_input_tokens=本轮总 input 累计(分母)。命中率 = 前/后。默认 0 →
+    # 旧持久化行 / 不带缓存的 provider 天然兼容，渲染端按「缓存命中 0 (0%)」空态显示。
+    cache_read_tokens: int = 0
+    cache_total_input_tokens: int = 0
 
 
 @dataclass(frozen=True, slots=True)

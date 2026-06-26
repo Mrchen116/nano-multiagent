@@ -82,6 +82,9 @@ def token_usage_to_dict(usage: TokenUsage | None) -> dict[str, int] | None:
         "total": int(usage.total)
         if usage.total
         else int(usage.context_used) + int(usage.output),
+        # feat-439-M1: 缓存命中两字段恒带出(无命中=0)，前端据此渲染命中行 + 百分比。
+        "cache_read_tokens": int(usage.cache_read_tokens),
+        "cache_total_input_tokens": int(usage.cache_total_input_tokens),
     }
 
 

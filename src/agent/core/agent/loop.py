@@ -588,6 +588,10 @@ class AgentLoop:
                         "prompt_tokens": turn_usage.prompt_tokens,
                         "completion_tokens": turn_usage.completion_tokens,
                         "total_tokens": turn_usage.total_tokens,
+                        # feat-439-M1: 此 usage dict 也是白名单——缓存命中两字段须显式带出，
+                        # 否则下游 realtime_stream 的 dict(usage) 复制不到，命中率链路断在源头。
+                        "cache_read_tokens": turn_usage.cache_read_tokens,
+                        "cache_total_input_tokens": turn_usage.cache_total_input_tokens,
                     }
                 if active_hook_ctx is not None:
                     cw = active_hook_ctx.metadata.get("context_window")

@@ -3633,6 +3633,16 @@ def _build_kernel_event_observer(
                     cw = event.get("context_window")
                     if isinstance(cw, int) and cw > 0:
                         token_usage_payload["context_window"] = cw
+                    # feat-439-M1: token_usage_payload 是白名单(只挑 prompt/completion)，
+                    # 缓存命中两字段必须在此显式补带，否则永远到不了 IM、命中率恒 0%。
+                    cache_read = usage_raw.get("cache_read_tokens")
+                    cache_total_input = usage_raw.get("cache_total_input_tokens")
+                    token_usage_payload["cache_read"] = (
+                        cache_read if isinstance(cache_read, int) else 0
+                    )
+                    token_usage_payload["cache_total_input"] = (
+                        cache_total_input if isinstance(cache_total_input, int) else 0
+                    )
             if message_id:
                 loop.create_task(
                     _send(

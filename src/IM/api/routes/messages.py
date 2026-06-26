@@ -102,6 +102,9 @@ class TokenUsagePayload(BaseModel):
     context_used: int
     context_window: int
     total: int | None = None
+    # feat-439-M1: 缓存命中两字段(整轮口径)。旧行默认 0，前端渲染「缓存命中 X (Y%)」。
+    cache_read_tokens: int = 0
+    cache_total_input_tokens: int = 0
 
 
 class MessageResponse(BaseModel):
@@ -196,6 +199,8 @@ def to_message_response(message: Message) -> MessageResponse:
                 if message.token_usage.total is not None
                 else message.token_usage.context_used + message.token_usage.output
             ),
+            cache_read_tokens=message.token_usage.cache_read_tokens,
+            cache_total_input_tokens=message.token_usage.cache_total_input_tokens,
         )
         if message.token_usage is not None
         else None,

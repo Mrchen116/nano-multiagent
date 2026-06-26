@@ -2508,11 +2508,21 @@ def _parse_token_usage(value: object) -> TokenUsage | None:
     # 0 means unknown (kernel didn't send it); the frontend treats 0 as "not available".
     cw_raw = value.get("context_window")
     context_window = max(int(cw_raw), 0) if isinstance(cw_raw, int) else 0
+    # feat-439-M1: 缓存命中两字段(短键 cache_read / cache_total_input，由 gateway 白名单带出)。
+    # 缺省(旧 gateway / 无缓存信息)→ 0，前端按「缓存命中 0 (0%)」空态渲染。
+    cache_read_raw = value.get("cache_read")
+    cache_read = max(int(cache_read_raw), 0) if isinstance(cache_read_raw, int) else 0
+    cache_total_raw = value.get("cache_total_input")
+    cache_total_input = (
+        max(int(cache_total_raw), 0) if isinstance(cache_total_raw, int) else 0
+    )
     return TokenUsage(
         output=max(completion, 0),
         context_used=max(prompt, 0),
         context_window=context_window,
         total=max(total, 0),
+        cache_read_tokens=cache_read,
+        cache_total_input_tokens=cache_total_input,
     )
 
 

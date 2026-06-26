@@ -2960,6 +2960,9 @@ def _encode_token_usage(usage: TokenUsage | None) -> str | None:
             "context_used": int(usage.context_used),
             "context_window": int(usage.context_window),
             "total": int(usage.total),
+            # feat-439-M1: 缓存命中两字段持久化。
+            "cache_read_tokens": int(usage.cache_read_tokens),
+            "cache_total_input_tokens": int(usage.cache_total_input_tokens),
         },
         ensure_ascii=True,
         separators=(",", ":"),
@@ -2988,11 +2991,18 @@ def _decode_token_usage(value: object) -> TokenUsage | None:
         # Derive total here — this is the single authoritative decode entry point.
         _raw_total = parsed.get("total")
         total = int(_raw_total) if _raw_total is not None else context_used + output
+        # feat-439-M1: 旧行无缓存字段 → 默认 0(同 total 兜底思路，缺键不致整体解码失败)。
+        _raw_cache_read = parsed.get("cache_read_tokens")
+        cache_read = int(_raw_cache_read) if _raw_cache_read is not None else 0
+        _raw_cache_total = parsed.get("cache_total_input_tokens")
+        cache_total_input = int(_raw_cache_total) if _raw_cache_total is not None else 0
         return TokenUsage(
             output=output,
             context_used=context_used,
             context_window=context_window,
             total=total,
+            cache_read_tokens=cache_read,
+            cache_total_input_tokens=cache_total_input,
         )
     except (KeyError, TypeError, ValueError):
         return None
