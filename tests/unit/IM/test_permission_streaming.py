@@ -452,6 +452,56 @@ class TestPermissionRestEndpoint:
         assert call_kwargs["decision"] == "allow_once"
         assert call_kwargs["message_id"] == ctx["msg_id"]
 
+    def test_submit_deny_forwards_reason_to_gateway(self, tmp_path) -> None:
+        """feat-440-M1: a deny with a user-supplied reason must pass it through to
+        push_permission_response so it reaches PermissionResponse.reason."""
+        from fastapi.testclient import TestClient
+
+        app, ctx = self._make_app(tmp_path)
+
+        with TestClient(app) as client:
+            with patch.object(
+                client.app.state.gateway_handler,
+                "push_permission_response",
+                new=AsyncMock(return_value=True),
+            ) as mock_push:
+                resp = client.post(
+                    f"/im/v1/conversations/{ctx['conv_id']}/permissions/req-1",
+                    json={
+                        "message_id": ctx["msg_id"],
+                        "decision": "deny",
+                        "reason": "先别动这个文件",
+                    },
+                    headers={"Authorization": f"Bearer {ctx['token']}"},
+                )
+
+        assert resp.status_code == 200
+        call_kwargs = mock_push.call_args.kwargs
+        assert call_kwargs["decision"] == "deny"
+        assert call_kwargs["reason"] == "先别动这个文件"
+
+    def test_submit_decision_without_reason_passes_none(self, tmp_path) -> None:
+        """reason is optional — omitting it forwards None; gateway_handler normalizes
+        to "" in the frame (single normalization point)."""
+        from fastapi.testclient import TestClient
+
+        app, ctx = self._make_app(tmp_path)
+
+        with TestClient(app) as client:
+            with patch.object(
+                client.app.state.gateway_handler,
+                "push_permission_response",
+                new=AsyncMock(return_value=True),
+            ) as mock_push:
+                resp = client.post(
+                    f"/im/v1/conversations/{ctx['conv_id']}/permissions/req-1",
+                    json={"message_id": ctx["msg_id"], "decision": "allow_once"},
+                    headers={"Authorization": f"Bearer {ctx['token']}"},
+                )
+
+        assert resp.status_code == 200
+        assert mock_push.call_args.kwargs["reason"] is None
+
     def test_submit_decision_not_found_conversation(self, tmp_path) -> None:
         from fastapi.testclient import TestClient
 

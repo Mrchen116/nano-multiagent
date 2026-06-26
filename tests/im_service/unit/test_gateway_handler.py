@@ -1577,3 +1577,64 @@ def test_agent_message_user_target_dedup_does_not_double_emit(
         f"Second agent.message replay emitted {len(emitted) - first_event_count} extra events; "
         f"expected 0 (idempotent)"
     )
+
+
+def test_push_permission_response_writes_reason_into_frame(tmp_path: Path) -> None:
+    """feat-440-M1: a deny reason supplied at the endpoint must ride the
+    permission_response frame so the PA/kernel can fill PermissionResponse.reason."""
+    handler = _build_handler(tmp_path)
+    websocket = StubWebSocket()
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": [], "capabilities": {}},
+        )
+    )
+
+    delivered = asyncio.run(
+        handler.push_permission_response(
+            target_node_id="node-1",
+            message_id="msg-1",
+            request_id="req-1",
+            decision="deny",
+            reason="先别动这个文件",
+        )
+    )
+
+    assert delivered is True
+    frame = next(
+        f
+        for f in websocket.sent_json
+        if f.get("payload", {}).get("kind") == "permission_response"
+    )
+    assert frame["payload"]["reason"] == "先别动这个文件"
+
+
+def test_push_permission_response_defaults_reason_to_empty(tmp_path: Path) -> None:
+    """No reason supplied → frame carries reason="" (back-compat: old callers)."""
+    handler = _build_handler(tmp_path)
+    websocket = StubWebSocket()
+    asyncio.run(
+        handler.handle_message(
+            websocket=websocket,
+            message_type="node.register",
+            payload={"node_id": "node-1", "agents": [], "capabilities": {}},
+        )
+    )
+
+    asyncio.run(
+        handler.push_permission_response(
+            target_node_id="node-1",
+            message_id="msg-1",
+            request_id="req-1",
+            decision="allow_once",
+        )
+    )
+
+    frame = next(
+        f
+        for f in websocket.sent_json
+        if f.get("payload", {}).get("kind") == "permission_response"
+    )
+    assert frame["payload"]["reason"] == ""
