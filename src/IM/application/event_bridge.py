@@ -45,6 +45,19 @@ from IM.infra.repositories import EventRepository, MessageRepository
 NotifyCallable = Callable[[ConversationEvent], None]
 
 
+def _persisted_tool_call(updated: Message, incoming: ToolCall) -> ToolCall:
+    """feat-439-M2: return the persisted ToolCall (with the IM-assigned process seq).
+
+    ``update_runtime_state`` assigns/preserves ``seq`` on the stored row; the incoming
+    tool_call from the Gateway never carries seq. Emitting the persisted row keeps the
+    live WS payload's ordering key consistent with a later history reload.
+    """
+    for tc in updated.tool_calls or ():
+        if tc.id == incoming.id:
+            return tc
+    return incoming
+
+
 @dataclass(slots=True)
 class EventBridge:
     """Translate kernel run events into persisted IM state and live WS events.
@@ -237,7 +250,10 @@ class EventBridge:
             payload=build_tool_call_upserted_payload(
                 conversation_id=updated.conversation_id,
                 message_id=message_id,
-                tool_call=tool_call,
+                # feat-439-M2: emit the PERSISTED tool_call (carries the IM-assigned
+                # process seq), not the incoming one — else live WS lacks seq and the
+                # frontend orders tools after thinking until a reload fixes it.
+                tool_call=_persisted_tool_call(updated, tool_call),
             ),
         )
 
@@ -255,7 +271,7 @@ class EventBridge:
             payload=build_tool_call_completed_payload(
                 conversation_id=updated.conversation_id,
                 message_id=message_id,
-                tool_call=tool_call,
+                tool_call=_persisted_tool_call(updated, tool_call),
             ),
         )
 

@@ -159,6 +159,11 @@ def test_on_tool_call_lifecycle_persists_and_emits(tmp_path: Path) -> None:
     p1 = json.loads(tc_events[1].payload_json)
     assert p1["tool_call"]["status"] == "completed"
     assert p1["tool_call"]["duration_ms"] == 22
+    # feat-439-M2: emitted tool_call must carry the IM-assigned process seq (from the
+    # persisted row), so live WS ordering matches reload. Incoming tool_call has no seq.
+    p0 = json.loads(tc_events[0].payload_json)
+    assert p0["tool_call"]["seq"] == 0
+    assert p1["tool_call"]["seq"] == 0
 
 
 def test_on_thinking_segment_persists_and_emits(tmp_path: Path) -> None:
