@@ -11,7 +11,7 @@ from agent.core.agent.tool_executor import StreamingToolExecutor
 from agent.core.tools.base import Tool
 from agent.core.tools.registry import ToolRegistry
 from agent.core.tools.base import ToolContext
-from agent.core.types import ToolCall
+from agent.core.types import ToolCall, ToolResult
 
 
 class _FakeTool(Tool):
@@ -581,3 +581,112 @@ async def test_parallel_safe_tool_results_in_enqueue_order(
     assert [r.name for r in all_results] == ["r1", "r2"], (
         f"expected [r1, r2] in enqueue order, got {[r.name for r in all_results]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# feat-440-M1: semantic rejection text on ToolResult.error
+# ---------------------------------------------------------------------------
+
+
+class _BlockingRegistry(ToolRegistry):
+    """Registry whose execute() raises a ToolError carrying gate block details."""
+
+    def __init__(self, details: Mapping[str, Any]) -> None:
+        self._tools: dict[str, Tool] = {}
+        self._details = details
+
+    def register(self, tool: Tool, *, replace: bool = False) -> None:
+        self._tools[tool.name] = tool
+
+    async def execute(
+        self,
+        name: str,
+        args: Mapping[str, Any],
+        *,
+        hook_context=None,
+        session_file_state=None,
+        out_meta=None,
+    ) -> Mapping[str, Any]:
+        from agent.core.errors import ToolError
+
+        raise ToolError(
+            "tool blocked by hook", tool_name=name, details=dict(self._details)
+        )
+
+
+async def _drain(executor: StreamingToolExecutor) -> list[ToolResult]:
+    items: list[ToolResult] = []
+    async for r in executor.get_remaining_results():
+        items.append(r)
+    return items
+
+
+@pytest.mark.asyncio
+async def test_non_allowlisted_tool_yields_subagent_reject_message() -> None:
+    """A non-allowlisted tool in a fork side-chain → SUBAGENT_REJECT_MESSAGE,
+    not the raw 'is not allowed in this background review context' string."""
+    from agent.core.agent.reject_messages import SUBAGENT_REJECT_MESSAGE
+
+    registry = _FakeRegistry()
+    registry.register(_FakeTool(name="read"))
+    executor = StreamingToolExecutor(registry, tool_execution_allowlist=("read",))
+
+    executor.add_tool(_call("bash"))
+    results = await _drain(executor)
+
+    assert len(results) == 1
+    assert results[0].error == SUBAGENT_REJECT_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_user_deny_with_reason_yields_with_reason_prefix() -> None:
+    """Main-session user deny + reason → REJECT_MESSAGE_WITH_REASON_PREFIX + reason."""
+    from agent.core.agent.reject_messages import REJECT_MESSAGE_WITH_REASON_PREFIX
+
+    registry = _BlockingRegistry(
+        {"reason": "先别动这个文件", "reason_code": "denied", "approval": "user_deny"}
+    )
+    registry.register(_FakeTool(name="edit"))
+    executor = StreamingToolExecutor(registry)
+
+    executor.add_tool(_call("edit"))
+    results = await _drain(executor)
+
+    assert results[0].error == REJECT_MESSAGE_WITH_REASON_PREFIX + "先别动这个文件"
+    # Existing badge signals must still survive onto the result.
+    assert results[0].reason_code == "denied"
+    assert results[0].approval == "user_deny"
+
+
+@pytest.mark.asyncio
+async def test_user_deny_without_reason_yields_reject_message() -> None:
+    from agent.core.agent.reject_messages import REJECT_MESSAGE
+
+    registry = _BlockingRegistry(
+        {"reason": "", "reason_code": "denied", "approval": "user_deny"}
+    )
+    registry.register(_FakeTool(name="edit"))
+    executor = StreamingToolExecutor(registry)
+
+    executor.add_tool(_call("edit"))
+    results = await _drain(executor)
+
+    assert results[0].error == REJECT_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_auto_block_yields_auto_reject_message() -> None:
+    """Automatic block (no approval) → auto_reject_message(reason)."""
+    from agent.core.agent.reject_messages import auto_reject_message
+
+    registry = _BlockingRegistry(
+        {"reason": "deny-limit exceeded", "reason_code": "denied", "approval": None}
+    )
+    registry.register(_FakeTool(name="bash"))
+    executor = StreamingToolExecutor(registry)
+
+    executor.add_tool(_call("bash"))
+    results = await _drain(executor)
+
+    assert results[0].error == auto_reject_message("deny-limit exceeded")
+    assert results[0].reason_code == "denied"
