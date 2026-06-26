@@ -1044,3 +1044,129 @@ class TestTurnEndCachePassthrough:
         assert tu is not None
         assert tu["cache_read"] == 0
         assert tu["cache_total_input"] == 0
+
+
+# ─── feat-439-M2: observer forwards thinking process items ───────────────────
+
+
+class TestObserverForwardsThinkingSegment:
+    """空正文但有 reasoning 的回合不再丢弃，作为「过程项」转发到当前气泡。"""
+
+    def _manager_with_sink(self, send_calls: list[tuple]):
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+        manager.send_json_await_ack = AsyncMock()
+        return manager
+
+    @pytest.mark.asyncio
+    async def test_empty_content_with_reasoning_forwards_thinking_segment(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = self._manager_with_sink(send_calls)
+        run_context_store = {
+            "run-1": {
+                "conversation_id": "conv-a",
+                "message_id": "agent-msg-1",
+                "agent_id": "Alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        coro = observer(
+            {
+                "event": "assistant_message",
+                "content": "",
+                "reasoning_content": "先看 types.py 再动手",
+                "message_id": "kernel-1",
+                "run_id": "run-1",
+            }
+        )
+        if coro is not None:
+            await coro
+        await asyncio.sleep(0.05)
+
+        thinking = [p for _, p in send_calls if p.get("kind") == "thinking_segment"]
+        assert len(thinking) == 1, f"应转发 1 个 thinking_segment, got {send_calls}"
+        assert thinking[0]["message_id"] == "agent-msg-1"
+        assert thinking[0]["text"] == "先看 types.py 再动手"
+        # 空正文回合不发 delta、不 roll 新气泡
+        assert [p for _, p in send_calls if p.get("kind") == "message_delta"] == []
+        assert [p for _, p in send_calls if p.get("kind") == "turn_start"] == []
+
+    @pytest.mark.asyncio
+    async def test_empty_content_no_reasoning_is_dropped(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = self._manager_with_sink(send_calls)
+        run_context_store = {
+            "run-1": {
+                "conversation_id": "conv-a",
+                "message_id": "agent-msg-1",
+                "agent_id": "Alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        coro = observer(
+            {
+                "event": "assistant_message",
+                "content": "",
+                "reasoning_content": "",
+                "message_id": "kernel-1",
+                "run_id": "run-1",
+            }
+        )
+        assert coro is None, "空正文+无 reasoning 的回合必须丢弃(return None)"
+        await asyncio.sleep(0.05)
+        assert send_calls == []
+
+    @pytest.mark.asyncio
+    async def test_content_with_reasoning_forwards_both(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = self._manager_with_sink(send_calls)
+        run_context_store = {
+            "run-1": {
+                "conversation_id": "conv-a",
+                "message_id": "agent-msg-1",
+                "agent_id": "Alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        coro = observer(
+            {
+                "event": "assistant_message",
+                "content": "答案是 4",
+                "reasoning_content": "最后再想一下",
+                "message_id": "kernel-1",
+                "run_id": "run-1",
+            }
+        )
+        if coro is not None:
+            await coro
+        await asyncio.sleep(0.05)
+
+        thinking = [p for _, p in send_calls if p.get("kind") == "thinking_segment"]
+        delta = [p for _, p in send_calls if p.get("kind") == "message_delta"]
+        assert len(thinking) == 1 and thinking[0]["text"] == "最后再想一下"
+        assert len(delta) == 1 and delta[0]["delta_text"] == "答案是 4"
+        assert thinking[0]["message_id"] == "agent-msg-1"
+        assert delta[0]["message_id"] == "agent-msg-1"
