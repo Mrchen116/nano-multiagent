@@ -415,3 +415,129 @@ async def test_threshold_compaction_falls_back_when_summary_model_fails(
     assert compactions[-1].data["reason"] == CompactionReason.THRESHOLD.value
     # Summary model fails in this test → CompactionSummarizer falls back to _fallback_summary().
     assert "Session continuity maintained" in compactions[-1].summary
+
+
+async def test_overflow_compaction_workspace_aware_does_not_crash(
+    tmp_path: Path,
+) -> None:
+    # bugfix-437 regression (decision 1 + 2): the overflow rescue path persists
+    # the compaction. In data_dir=None mode the original apply()->append_compaction
+    # second write passed workspace_root=None and raised SessionNotFoundError,
+    # killing the run AFTER it had streamed partial output (plato's symptom).
+    service = _workspace_aware_service(tmp_path)
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
+    llm_client = OverflowOnceLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="main-model",
+        compaction_settings=CompactionSettings(
+            enabled=True,
+            context_window=200,
+            reserve_tokens=40,
+            min_kept_messages=2,
+            summary_model="summary-model",
+        ),
+    )
+
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "first turn"}],
+        stream=False,
+        workspace_root=tmp_path,
+    )
+    result = await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "second turn"}],
+        stream=False,
+        workspace_root=tmp_path,
+    )
+
+    # Overflow rescued: retry produced output, compaction landed, history not wiped.
+    assert result.messages[0].content == "retry-ok"
+    compactions = [
+        event
+        for event in manager.list_entries(
+            session.session_id, workspace_root=tmp_path
+        )
+        if isinstance(event, CompactionEntry)
+    ]
+    assert compactions
+    assert compactions[-1].data["reason"] == CompactionReason.OVERFLOW.value
+    replayed = manager.list_turn_messages(
+        session.session_id, workspace_root=tmp_path
+    )
+    assert replayed  # not silently wiped (失忆) by the list_turn_messages reload
+
+
+def _read_raw_jsonl(store: JsonlSessionStore, session_id: str, ws: Path) -> list[dict]:
+    import json
+
+    path = store.resolve_path(session_id, workspace_root=ws)
+    lines: list[dict] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                lines.append(json.loads(line))
+    return lines
+
+
+async def test_compaction_single_write_and_memory_reset(tmp_path: Path) -> None:
+    # bugfix-437 regression (decision 2): the persist path must be single (no
+    # double-write) AND must reset the in-memory history cache to just the summary.
+    # The disk-replay assertion alone cannot see the memory regression; if a future
+    # change drops the direct write and keeps only append_compaction, the disk would
+    # still look right but _session_histories would keep the stale full transcript,
+    # making compaction a no-op in memory (overflow recurs). So we assert both.
+    service = _workspace_aware_service(tmp_path)
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
+    llm_client = ThresholdAwareLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="main-model",
+        compaction_settings=CompactionSettings(
+            enabled=True,
+            context_window=200,
+            reserve_tokens=40,
+            min_kept_messages=2,
+            summary_model="summary-model",
+        ),
+    )
+
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "first user"}],
+        stream=False,
+        workspace_root=tmp_path,
+    )
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "second user"}],
+        stream=False,
+        workspace_root=tmp_path,
+    )
+
+    result = await runtime.compact(session.session_id, workspace_root=tmp_path)
+    assert result is not None
+    await manager.store.writer.flush()
+
+    raw = _read_raw_jsonl(manager.store, session.session_id, tmp_path)
+    boundaries = [r for r in raw if r.get("type") == "compact_boundary"]
+    summaries = [r for r in raw if r.get("is_compact_summary")]
+    # Single-write: exactly one compact_boundary and one summary turn (no double-write).
+    assert len(boundaries) == 1
+    assert len(summaries) == 1
+    # compact_boundary must precede the summary turn so JsonlSessionStore.load()
+    # keeps the summary inside the retained window.
+    assert raw.index(boundaries[0]) < raw.index(summaries[0])
+    # entry_id of the observed result aligns with the on-disk summary_uuid.
+    assert result.entry_id == boundaries[0]["summary_uuid"]
+
+    # Memory reset: in-process history holds only the summary turn (no dropped turns).
+    in_memory = runtime._session_histories[session.session_id]
+    assert len(in_memory) == 1
+    assert in_memory[0].metadata.get("is_compact_summary") is True
