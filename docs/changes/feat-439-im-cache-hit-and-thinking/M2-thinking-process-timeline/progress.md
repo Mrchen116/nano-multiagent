@@ -35,4 +35,20 @@
 - Commits: C1=红测, C2=feat
 - Next: R3 IM 持久化 + 序列化链。
 
+## R3 — IM 持久化 + 序列化链
+
+- Context: IM 无承载思考的结构。需 messages 加列 + domain/repo/event_bridge/event_types/gateway_handler/REST 全链路带思考段，且 seq 统一在持久化边界赋予。
+- Decision: ① domain 加 `ThinkingSegment{seq,text}` + `Message.thinking`；② db.py messages 加 `thinking_json` 列 + 迁移；③ repositories `_encode/_decode_thinking` + `append_thinking_segment`（seq=当前 tool_calls 数=插入索引）+ `_message_from_row`/两处 SELECT 带 thinking_json；④ event_bridge `on_thinking_segment` 持久化+发 `thinking.segment`；⑤ event_types `EVENT_THINKING_SEGMENT` + `thinking_segment_to_dict` + `build_thinking_segment_payload` + message_created 带 thinking；⑥ gateway_handler `kind=thinking_segment` 分发；⑦ REST `ThinkingSegmentPayload` + MessageResponse.thinking。
+- Rationale: seq 在 IM（持有 tool_calls 列表、思考事件早于本回合工具事件到达）算一次，live/历史回放同读持久化值，口径一致；列加法变更，旧行 NULL→thinking=None 天然兼容（不留空壳）。
+- Evidence:
+  - Tests: repo 往返/默认 None、event_bridge 持久化+发事件、gateway_handler 分发、event_types 两 builder、REST 序列化 共 7 例红→绿；tests/im_service 354 passed。
+  - Entry: WS thinking.segment + REST thinking 字段（真栈在 R5）。
+  - Frontend State Matrix: N/A（R4）
+  - Browser QA: N/A（R4/R5）
+  - E2E/Regression: tests/im_service 全绿（含 schema/db_init/golden 序列化）；ruff 通过。
+  - Visual/Interaction: N/A
+- Rollback: revert R3 C2（列为加法，回滚保留空列无数据迁移风险）。
+- Commits: C1=红测, C2=feat
+- Next: R4 前端过程时间线。
+
 <!-- 每个 roadpoint 完成后追加一段。 -->
