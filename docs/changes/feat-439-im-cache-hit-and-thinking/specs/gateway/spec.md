@@ -5,6 +5,12 @@
 
 ## ADDED Requirements
 
+### Requirement: 缓存使用量随 token 用量中继到 IM
+
+#### Scenario: 一轮回复带缓存命中
+- **WHEN** 一轮带缓存命中的助手回复经 Gateway 中继
+- **THEN** IM 收到的该轮 token 用量里包含命中缓存的输入量与总输入量（不被 Gateway 丢弃）
+
 ### Requirement: 整轮多段思考按时序中继到 IM
 
 #### Scenario: 含多段思考的一轮回复

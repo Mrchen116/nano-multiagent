@@ -51,17 +51,18 @@ if not content:
 ## 1.9 现状分析（决策的事实基础）
 
 **涉及范围（沿调用链）**：
-- 缓存命中率链路：`agent/core/types.py:TokenUsage` → `anthropic/client.py:_parse_anthropic_usage` / `openai_compat/client.py:_parse_openai_usage`（现状只取 input/output，缓存字段被丢）→ `agent/core/agent/loop.py:_accumulate_usage`（1044-1050，prompt 取快照、completion 累加）→ `personal_assistant/config/local_store.py:_build_token_usage/_encode/_decode`（透传）→ `IM/domain/models.py:TokenUsage`、`IM/api/ws/event_types.py:token_usage_to_dict` → 前端 `chat-types.ts:TokenUsage`、`token-chip.tsx`（详情面板渲染输出/总计/已用上下文）。
+- 缓存命中率链路（**design-review C1/C2 已纠正**）：`agent/core/types.py:TokenUsage` → `anthropic/client.py:_parse_anthropic_usage`（现状 `prompt_tokens` **已含**缓存 `=input+cache_creation+cache_read`，但没单独存 cache_read，`client.py:327`）/ `openai_compat/client.py:_parse_openai_usage`（现状**没读** `prompt_tokens_details.cached_tokens`，缓存全丢，`client.py:297-313`）→ `agent/core/agent/loop.py:_accumulate_usage`（1020-1050，prompt 取快照、completion 累加）→ `realtime_stream.py:172-174` on_turn_end `payload["usage"]=dict(usage)`（整 dict 复制，**此跳透明**，缓存字段会自动流过）→ **`personal_assistant/main.py:3596-3622`**（turn_end 分支构建 `token_usage_payload`，**现状只读 prompt/completion，无条件丢 cache**——真正的拦截点，原 design 误写成不存在的 `local_store._build_token_usage`）→ IM 落库（node.streaming_delta `message_completed` → repo）→ `IM/domain/models.py:TokenUsage`、`IM/api/ws/event_types.py:token_usage_to_dict` → 前端 `chat-types.ts:TokenUsage`、`token-chip.tsx`。
 - thinking 链路：`anthropic/client.py:177-184`（thinking 累积进 turn_reasoning，最终落到 `loop.py:402` 的 `Message.reasoning_content`）→ `loop.py:626-639` message_end hook（**不带 reasoning**）→ `realtime_stream.py` assistant_message → `personal_assistant/main.py` observer（**`3382-3384` 丢空正文回合**）→ IM messages 表 / repositories / event_types → 前端 `tool-calls-panel.tsx`（现有折叠盘）、`message-pane.tsx`。
 
 **关键约束（既有架构）**：
 - 产品包（CLI / Gateway）只能 import `agent.sdk`，不碰 core/platform 内部；本 unit 内核改动经 `agent.sdk` 暴露的事件透传，CLI 侧需确认忽略新增可选字段、无回归。
 - IM 不调用 agent，只经 Gateway 中继；thinking/cache 数据均走既有 `node.streaming_delta` 透传范式（对齐 tool_call/usage 既有做法）。
-- `prompt_tokens` 语义是「最后一次请求快照」，驱动「已用上下文」气泡，**不可改/不可累加**（决策 1/3 的硬约束）。
+- `prompt_tokens`（整轮取「最后一次请求快照」，已含缓存）驱动「已用上下文」气泡，**不可改/不可累加**（决策 1/3 的硬约束）。
+- ⚠️ Gateway `main.py` 的 turn_end → `token_usage_payload` 是个**显式白名单**（只挑 prompt/completion），不是透明透传——cache 字段必须在这里**显式补读补带**，否则永远到不了 IM（C2 教训）。
 
 **可复用的既有能力**：
 - 折叠盘形态 `chat-tool-calls`（`tool-calls-panel.tsx` + global.css）—— 决策 4 直接**扩展**它为「过程」时间线，不另造一套折叠交互。
-- usage 透传链（`_build_token_usage`/`token_usage_to_dict`/前端 `TokenUsage`）已成型，M1 只在每一跳加两个可选字段即可。
+- usage 透传链（IM `TokenUsage`/`token_usage_to_dict`/前端 `TokenUsage`）已成型，M1 在每一跳加两个可选字段即可——但 gateway `main.py` 那跳是白名单、需显式补字段（非「加可选字段即可」）。
 
 **契约层 grounding 结论**：`docs/specs/{kernel,gateway,im}/spec.md` 与代码一致，无 drift；本 unit 为纯增量（ADDED）。
 
@@ -71,9 +72,9 @@ if not content:
 
 ### 决策 1：`cache_read_tokens` + `cache_total_input_tokens` 两个字段贯穿 TokenUsage
 
-**问题**：上游 usage 真实带缓存字段（Anthropic `cache_read_input_tokens`/`cache_creation_input_tokens`、OpenAI `prompt_tokens_details.cached_tokens`），但 provider 解析层只取 input/output 就丢了。要算命中率，必须把缓存信息一路带到前端。
+**问题**：上游 usage 真实带缓存字段（Anthropic `cache_read_input_tokens`/`cache_creation_input_tokens`、OpenAI `prompt_tokens_details.cached_tokens`）。Anthropic 解析层已把缓存折进 `prompt_tokens`（`anthropic/client.py:327`），但**没单独留出 `cache_read`**（无法拆出分子）；OpenAI 解析层则连 `cached_tokens` 都没读（`openai_compat/client.py:297-313`，丢了）。要算命中率，必须把「命中量」与「总 input」两个量一路带到前端。
 
-**为什么是这两个字段、而不是只加一个 `cache_read`**：命中率 = 命中 ÷ 总 input，分子分母都得带。但**现有 `prompt_tokens`（→IM `context_used`「已用上下文」）的语义是「最后一次请求的快照」，绝不能改**（改了「已用上下文」气泡就错）。所以分母不能复用 `prompt_tokens`，要单独带一个「本次总 input」字段，且在 provider 层把两家 provider 的口径**归一**，这样累计才一致。
+**为什么要新增字段、而不是复用 `prompt_tokens` 当分母**：命中率 = 命中 ÷ 总 input。**逐请求看，`prompt_tokens` 本身就等于「总 input（含缓存）」**（Anthropic = input+cache_creation+cache_read；OpenAI 的 prompt_tokens 本就含 cached）——所以分母的「值」并不缺。真正的问题是**聚合口径**：`prompt_tokens` 被 `_accumulate_usage` 取「最后一次请求快照」（决策 3 必须保留，驱动 context_used），而命中率分母要「整轮所有请求的 input 求和」，快照无法重建求和。因此必须用一个**与 prompt_tokens 平行、按整轮累加**的字段 `cache_total_input_tokens` 承载分母，分子同理用 `cache_read_tokens`。两字段在 provider 层把两家口径**归一**（逐请求都满足 `cache_total_input_tokens == prompt_tokens`），累加后两家一致。
 
 **Before** (`agent/core/types.py:10-16`):
 ```python
@@ -93,61 +94,63 @@ class TokenUsage:
     total_tokens: int
     # 缓存命中率用：cache_read = 命中缓存读取的 input（分子）；
     # cache_total_input = 本次总 input 含命中部分（分母），已在 provider 层跨家归一。
-    # 与 prompt_tokens 分开：prompt_tokens 是「最后快照」驱动 context_used，不可累加。
+    # 逐请求 cache_total_input == prompt_tokens；但 prompt_tokens 被 _accumulate_usage
+    # 取最后快照（驱动 context_used），无法重建整轮求和，故需平行的可累加字段。
     cache_read_tokens: int = 0
     cache_total_input_tokens: int = 0
 ```
 
-**理由**：默认值 0 → 不带缓存的 provider/旧持久化数据天然兼容；两字段语义自解释，避免 qwen 版「分母用 prompt_tokens」的口径错。
+**理由**：默认值 0 → 不带缓存的 provider/旧持久化数据天然兼容；两字段语义自解释。关键是和 `prompt_tokens` **平行而非替代**：prompt_tokens 保持快照口径不变（决策 3），新字段走累加口径（命中率），互不污染。
 
 ---
 
-### 决策 2：provider 层归一缓存口径（修正 qwen 公式的两处 bug）
+### 决策 2：provider 层**只追加**两个缓存字段，绝不改动 `prompt_tokens`
 
-**问题**：qwen 版公式 `cache_read /(cache_read + prompt_tokens)` 对两家 provider 都错——Anthropic 漏了 `cache_creation`；OpenAI 的 `prompt_tokens` **已含** cached，再加一遍 = 重复计、命中率虚低。根因是没意识到两家 provider 的 `input` 口径不同（Anthropic 的 `input_tokens` **不含**缓存，OpenAI 的 `prompt_tokens` **含**缓存）。
+**问题**：两家 provider 的 `prompt_tokens` 现状**都已含缓存**（是真实的「总 input」），只是没单独留出命中量：
+- Anthropic（`anthropic/client.py:309-330`）：现状 `prompt_tokens = input_tokens + cache_creation_input_tokens + cache_read_input_tokens`——已读缓存、已折进 prompt，但没把 `cache_read` 单独存出来。
+- OpenAI（`openai_compat/client.py:297-313`）：现状只读 `prompt_tokens/completion_tokens/total_tokens`，**没读** `prompt_tokens_details.cached_tokens`——缓存信息整段丢。
 
-**方案**：在各自 `_parse_*_usage` 里算出归一后的 `cache_read_tokens` 与 `cache_total_input_tokens`，让下游只做无脑累加 + 相除。
+**方案**：在各自 `_parse_*_usage` 里**保持 `prompt_tokens` 原样不动**（它驱动 context_used，决策 1/3 硬约束），只**追加** `cache_read_tokens` 与 `cache_total_input_tokens`，让下游累加 + 相除。
 
-**Before** (`anthropic/client.py` `_parse_anthropic_usage`，现状把缓存并丢):
+> ⚠️ 纠错（design-review C1）：本决策早先版本误把 Anthropic 现状写成「prompt_tokens 纯 input、缓存被丢」，After 把 `prompt_tokens` 改成纯 `input_tokens`——那会让长对话 context_used 从真实上下文（如 190k）塌缩到非缓存增量，**回归 bugfix-390/feat-414 的「已用上下文」气泡**，且与决策 1/3 自相矛盾。现已改为「prompt_tokens 一字不改、只追加」。
+
+**Anthropic Before**（`_parse_anthropic_usage`，现状已含缓存、缺独立 cache_read）:
 ```python
-def _parse_anthropic_usage(usage):
-    input_tokens = usage.get("input_tokens", 0)
-    output_tokens = usage.get("output_tokens", 0)
-    return TokenUsage(input_tokens, output_tokens, input_tokens + output_tokens)
+    prompt_tokens = (input_tokens or 0) + cache_creation_tokens + cache_read_tokens
+    completion_tokens = output_tokens or 0
+    return TokenUsage(prompt_tokens, completion_tokens, prompt_tokens + completion_tokens)
 ```
 
-**After**:
+**Anthropic After**（prompt_tokens 计算不动，只在 TokenUsage 追加两字段）:
 ```python
-def _parse_anthropic_usage(usage):
-    input_tokens = usage.get("input_tokens", 0)              # 不含缓存
-    output_tokens = usage.get("output_tokens", 0)
-    cache_read = usage.get("cache_read_input_tokens", 0)
-    cache_creation = usage.get("cache_creation_input_tokens", 0)
+    prompt_tokens = (input_tokens or 0) + cache_creation_tokens + cache_read_tokens  # 不变
+    completion_tokens = output_tokens or 0
     return TokenUsage(
-        prompt_tokens=input_tokens,                          # 语义不变，仍是快照来源
-        completion_tokens=output_tokens,
-        total_tokens=input_tokens + output_tokens,
-        cache_read_tokens=cache_read,
-        cache_total_input_tokens=input_tokens + cache_read + cache_creation,  # 归一：总 input
-    )
-```
-
-**After** (`openai_compat/client.py` `_parse_openai_usage`):
-```python
-def _parse_openai_usage(usage):
-    prompt_tokens = usage.get("prompt_tokens", 0)            # 已含 cached
-    completion_tokens = usage.get("completion_tokens", 0)
-    cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0)
-    return TokenUsage(
-        prompt_tokens=prompt_tokens,
+        prompt_tokens=prompt_tokens,                         # 一字不改
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
-        cache_read_tokens=cached,
-        cache_total_input_tokens=prompt_tokens,              # 归一：prompt_tokens 本身即总 input
+        cache_read_tokens=cache_read_tokens,                 # 已读，原先没存出来
+        cache_total_input_tokens=prompt_tokens,              # 逐请求即 == prompt_tokens
     )
 ```
 
-**理由**：归一动作收敛在 provider 层（本就是「贴上游差异」的地方），下游 loop/IM/前端对两家 provider 写一份逻辑。命中率 = `cache_read_tokens / cache_total_input_tokens`，两家口径一致。
+**OpenAI After**（`_parse_openai_usage`，新增读 cached）:
+```python
+    resolved_prompt = prompt_tokens or 0                     # 已含 cached，不变
+    resolved_completion = completion_tokens or 0
+    cached = (usage.get("prompt_tokens_details") or {}).get("cached_tokens", 0) or 0
+    return TokenUsage(
+        prompt_tokens=resolved_prompt,
+        completion_tokens=resolved_completion,
+        total_tokens=resolved_total,                         # 现有逻辑不变
+        cache_read_tokens=cached,
+        cache_total_input_tokens=resolved_prompt,            # prompt_tokens 本就是总 input
+    )
+```
+
+**理由**：两家逐请求都满足 `cache_total_input_tokens == prompt_tokens`，分子 `cache_read_tokens` 独立存出；`prompt_tokens` 零改动，context_used 不受影响。命中率 = `Σcache_read_tokens / Σcache_total_input_tokens`，两家口径一致。
+
+> Rec2（design-review）：两家 provider 另有 `mapper.py` 的 `_parse_*_usage`（服务非流式 `map_generate_response`/`from_provider_response`）。生产 `generate()` 仅走流式 `client.py:_stream_response`，mapper 版无生产调用方，故本决策只改 client.py 即对生产正确。但 mapper 版逻辑相同、可能被单测/golden 覆盖——worker 实施时确认：若有测试覆盖 mapper 路径，同步加两字段以免两份口径漂移；否则在 PR 注明「mapper 非生产路径、不改」。
 
 ---
 
@@ -179,7 +182,7 @@ return TokenUsage(
 
 **理由**：完全沿用现有 docstring 立的规矩（completion 累加、prompt 快照），缓存归入「累加」一类，语义自洽。前端命中率 = `Σcache_read / Σcache_total_input`，即整轮口径。
 
-> 透传链路（无逻辑、纯加字段）：`local_store.py:_build_token_usage`(728) 把这两个字段映射进 IM `TokenUsage` → `_encode/_decode_token_usage`(718) JSON 编解码 → IM `domain/models.TokenUsage`(233) 加字段 → `event_types.token_usage_to_dict`(57) 带出 → 前端 `chat-types.TokenUsage`(100) 加可选字段。详见 §3 M1 范围。
+> 透传链路（C1/C2 已纠正）：`realtime_stream.py` on_turn_end 整 dict 复制 usage（透明）→ **`personal_assistant/main.py:3596-3622` `token_usage_payload`（白名单，须显式补读 cache 两字段）** → IM 落库（node delta `message_completed`→repo）→ IM `domain/models.TokenUsage`(227) 加字段 → `event_types.token_usage_to_dict`(73) 带出 → 前端 `chat-types.TokenUsage`(100) 加可选字段。详见 §1.9 链路与 §3 M1 范围。
 
 ---
 
@@ -222,12 +225,12 @@ return TokenUsage(
 
 | ID | 标题 | 依赖 | 并行组 | 范围（文件） | 退出标准（[reviewer] 旅程 / [worker] 实现层） |
 |---|---|---|---|---|---|
-| feat-439-M1 | cache-hit-rate | — | A | 后端：`agent/core/types.py`、`anthropic/client.py:_parse_anthropic_usage`、`openai_compat/client.py:_parse_openai_usage`、`agent/core/agent/loop.py:_accumulate_usage`、`personal_assistant/config/local_store.py:_build_token_usage/_decode_token_usage(+_encode)`、`IM/domain/models.py:TokenUsage`、`IM/api/ws/event_types.py:token_usage_to_dict`（+REST 侧 `messages.py` 若有第二序列化路径）；前端：`chat-types.ts:TokenUsage`、`token-chip.tsx` | `[reviewer]` 长对话点开 token 气泡详情看到「缓存命中 X (Y%)」行、值在 0–100%（覆盖 im Scenario「有命中」）；短新对话显示 `0 (0%)`（覆盖「无命中」）。<br>`[worker]` `_parse_anthropic_usage`/`_parse_openai_usage` 两家缓存字段解析 + 跨家归一单测；`_accumulate_usage` 缓存两字段累加、prompt 仍取快照单测；`token_usage_to_dict` 带字段单测；前端 token-chip 渲染命中行 + 0% 空态单测；golden 若覆盖 TokenUsage 序列化则同步更新；CLI 侧 contract/单测无回归 |
+| feat-439-M1 | cache-hit-rate | — | A | 后端：`agent/core/types.py:TokenUsage`、`anthropic/client.py:_parse_anthropic_usage`（追加两字段，**prompt_tokens 不动**）、`openai_compat/client.py:_parse_openai_usage`（补读 cached + 追加两字段）、`agent/core/agent/loop.py:_accumulate_usage`（缓存两字段累加）、**`personal_assistant/main.py:3596-3622`**（turn_end `token_usage_payload` 白名单**补读/补带** cache 字段——C2 真正拦截点，替换原误写的 `local_store`）、IM 落库 node-delta→repo 这跳确认带 cache、`IM/domain/models.py:TokenUsage`、`IM/api/ws/event_types.py:token_usage_to_dict`（+REST 侧 `messages.py` 若有第二序列化路径）；前端：`chat-types.ts:TokenUsage`、`token-chip.tsx`。（mapper.py 见决策 2 Rec2 注） | `[reviewer]` 长对话点开 token 气泡详情看到「缓存命中 X (Y%)」行、值在 0–100%（覆盖 im Scenario「有命中」）；短新对话显示 `0 (0%)`（覆盖「无命中」）；**回归核对：长对话「已用上下文」数值与改动前一致（prompt_tokens 未被动）**。<br>`[worker]` `_parse_anthropic_usage`/`_parse_openai_usage` 两家缓存字段解析 + 跨家归一单测（含 prompt_tokens 不变断言）；`_accumulate_usage` 缓存两字段累加、prompt 仍取快照单测；`main.py` token_usage_payload 带 cache 字段单测；`token_usage_to_dict` 带字段单测；前端 token-chip 渲染命中行 + 0% 空态单测；golden 若覆盖 TokenUsage 序列化则同步更新；CLI 侧 contract/单测无回归 |
 | feat-439-M2 | thinking-process-timeline | — | A | 内核：`agent/core/agent/loop.py`（message_end payload 补 reasoning_content）、`agent/platform/hooks/builtins/realtime_stream.py`（assistant_message 带 reasoning）；gateway：`personal_assistant/main.py` observer `assistant_message` 分支（**空正文有 reasoning 的回合不再丢弃**，作为带序号过程项转发）；IM：`IM/infra/db.py`（messages 表加思考段存储）、`IM/domain/models.py:Message`、`IM/infra/repositories.py`、`IM/application/event_bridge.py`、`IM/api/ws/event_types.py`；前端：`chat-types.ts:Message`（thinking 段 + 序号）、`tool-calls-panel.tsx`（升级为过程时间线，thinking+tool 按序 merge）、`message-pane.tsx`（接线） | `[reviewer]` 带 thinking 模型跑一轮多工具对话，气泡内「过程」盘按真实时序出现「思考①→工具…→思考②→…」、逐段可展开/收起、刷新历史仍可展开（覆盖 im Scenario「一轮含多段思考与工具调用」「思考整段可展开回看」）；无思考回合不出现 💭 行（覆盖「无思考」空态）；外部 channel 同条只见正文（覆盖「外部 channel」）。<br>`[worker]` message_end/assistant_message 带 reasoning 单测；observer 对「空正文+有 reasoning」回合转发为过程项且赋单调序号、对「空正文+无 reasoning」仍丢弃单测；repo 思考段持久化往返单测；event payload 带字段单测；前端过程盘按序号 merge 渲染单测（多段思考+工具交错 / 无思考 / 展开收起）；CLI 侧忽略 reasoning 字段无回归 |
 
 > 拆分理由（呼应「milestone 间不要耦合」）：两特性逻辑独立、垂直切片各自后端→前端闭环，做成两条而非「后端 M / 前端 M」（后者会让前端 milestone 依赖后端类型先落地，引入串行依赖）。前端零交集（M1 只碰 `token-chip.tsx`，M2 只碰 `tool-calls-panel.tsx`/`message-pane.tsx`）。
 >
-> **⚠️ 自检修正（原 design 误称「零公共改动文件」）**：M1、M2 **共享两个 IM 文件**——`IM/domain/models.py`（M1 改 `TokenUsage`、M2 改 `Message`，两个不同类）与 `IM/api/ws/event_types.py`（M1 改 `token_usage_to_dict`、M2 改 message payload builders，两个不同函数）。符号不重叠、均为 additive，worktree 并行后是 trivial additive merge。两条仍归并行组 A 并行；**若 orchestrator 要零冲突，让 M1 先合 unit 分支、M2 起 worktree 时 rebase 即可**（无逻辑依赖，仅文件级 additive 撞行）。
+> **⚠️ 自检修正（原 design 误称「零公共改动文件」；含 design-review C2 后新增的 main.py）**：M1、M2 **共享三个文件**——`IM/domain/models.py`（M1 改 `TokenUsage`、M2 改 `Message`）、`IM/api/ws/event_types.py`（M1 改 `token_usage_to_dict`、M2 改 message payload builders）、`personal_assistant/main.py`（M1 改 turn_end `token_usage_payload`@3596-3622、M2 改 observer `assistant_message` 分支@3382——同文件不同分支）。三处均 additive、符号/代码块不重叠。两条仍归并行组 A，但**「无交集」字面承诺不成立**；**建议 orchestrator 按依赖串行化：M1 先合 unit 分支、M2 起 worktree 时 rebase**（无逻辑依赖，纯文件级 additive 撞行，串行最省心）。
 
 ---
 
@@ -251,6 +254,11 @@ return TokenUsage(
   - **THEN** 对外不为该次调用产出思考段
 
 ### gateway（`docs/specs/gateway/spec.md`）
+
+**Requirement: 缓存使用量随 token 用量中继到 IM**（C2：gateway `token_usage_payload` 是白名单，须显式带 cache）
+- **Scenario：一轮回复带缓存命中**
+  - **WHEN** 一轮带缓存命中的助手回复经 Gateway 中继
+  - **THEN** IM 收到的该轮 token 用量里包含命中缓存的输入量与总输入量
 
 **Requirement: 整轮多段思考按时序中继到 IM**
 - **Scenario：含多段思考的一轮回复**
@@ -308,7 +316,7 @@ CLI 经 `agent.sdk` 消费同一批事件，但本 unit 新增的 reasoning / ca
 
 ## 5. 风险与回滚
 
-- **R1（spec 场景 B 需同步，需用户知情）**：调研后 thinking 的真实形态与 spec 场景 B 三处不符，已据 §1 调整为「过程时间线」：①「正文上方一个思考块」→ 收进气泡内「过程」盘、与工具混排；②「逐字实时滚动」→ 整段到达（事件管线无 token 流式）；③隐含「一段思考」→ 整轮多段（一个气泡=多回合）。delta-spec（§4）已按调整后行为写。**`spec.md` 场景 B 文字仍是旧描述，需回 `change-spec-author` 同步**（门禁硬规则：design 不擅改用户场景）。若坚持逐字滚动，需另立 unit 给整个 hub 建 token 级流式。
+- **R1（spec 场景 B 已同步，记录在案）**：调研后 thinking 真实形态与 spec 场景 B 原文不符，已据 §1 调整为「过程时间线」：①「正文上方一个思考块」→ 气泡内「过程」盘与工具混排；②「逐字实时滚动」→ 整段到达（事件管线无 token 流式）；③隐含「一段思考」→ 整轮多段（一个气泡=多回合）。**经用户批准已同步 `spec.md`**（场景 B Requirement/Scenario 重写 + Q2 澄清 + 范围段措辞，2026-06-26）；delta-spec（§4）与之一致。design-review 提示的「范围段『流式实时显示』残留」已一并清除。若将来要逐字滚动，需另立 unit 给整个 hub 建 token 级流式。
 - **R2（口径正确性）**：命中率口径正确性靠 `_accumulate_usage` + `_parse_*_usage` 单测固化（两家 provider 各一组），避免再次出现 qwen 式分母错。golden/快照若覆盖 TokenUsage 序列化，新增字段可能触发 golden 漂移——M1 需同步更新 golden。
 - **R3（内核改动面）**：M2 触及内核 `loop.py` / `realtime_stream.py`（两个产品共享）。改动是「在事件 payload 增加可选 reasoning 字段」，CLI 消费者忽略未知字段即可，不破坏 CLI；但需跑 CLI 侧 contract/单测确认无回归。
 - **R4（gateway 不再丢空正文回合）**：决策 4 改了 `main.py:3382-3384` 的丢弃逻辑——空正文**且无 reasoning** 的回合仍要丢（避免空气泡），只放行「空正文但有 reasoning」的回合作为过程项。必须用真栈核对：不冒出空正文气泡、过程项序号与工具时序一致。这条只有 live 真栈能暴露（参考工具展示链 false-fix 教训）。
