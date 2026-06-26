@@ -30,7 +30,7 @@ import uuid
 from pathlib import Path
 from typing import Any, Mapping, NamedTuple
 
-from agent.sdk import ToolContext
+from agent.sdk import ToolContext, ToolPresentationEvent
 
 # Same-package import is allowed (no agent→personal_assistant boundary here): the
 # tool now lives in the consumer package and may use the Gateway's own types.
@@ -275,6 +275,42 @@ _INPUT_SCHEMA: dict[str, Any] = {
 }
 
 
+class _CronPresenter:
+    """Presenter for the product-owned `cron` tool."""
+
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        detail = _cron_param_detail(args)
+        return ToolPresentationEvent(
+            visible=True,
+            label="Cron",
+            summary=_cron_summary(detail),
+            detail=detail,
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        detail = _cron_param_detail(args)
+        output = getattr(result, "output", None) or {}
+        error = getattr(result, "error", None)
+        if error:
+            detail["status"] = str(error)
+        elif isinstance(output, Mapping):
+            detail.update(_cron_result_detail(output))
+        return ToolPresentationEvent(
+            visible=True,
+            label="Cron",
+            summary=_cron_summary(detail),
+            detail=detail,
+        )
+
+
+_CRON_PRESENTER = _CronPresenter()
+
+
 class CronTool:
     """Manage cron jobs for the personal assistant agent (closure-direct form).
 
@@ -285,6 +321,7 @@ class CronTool:
     """
 
     name = "cron"
+    presenter = _CRON_PRESENTER
     description = _DESCRIPTION
     input_schema = _INPUT_SCHEMA
 
@@ -574,3 +611,58 @@ def _job_to_api_dict(job: _CronJob) -> dict[str, Any]:
         "enabled": job.enabled,
         "deleteAfterRun": job.delete_after_run,
     }
+
+
+def _cron_param_detail(args: Mapping[str, Any]) -> dict[str, Any]:
+    action = str(args.get("action", ""))
+    detail: dict[str, Any] = {"action": action}
+    job = args.get("job")
+    if isinstance(job, Mapping):
+        if job.get("name") is not None:
+            detail["job_name"] = str(job.get("name", ""))
+        if isinstance(job.get("schedule"), Mapping):
+            detail["schedule"] = dict(job["schedule"])
+    job_id = args.get("jobId") or args.get("id")
+    if isinstance(job_id, str) and job_id.strip():
+        detail["jobId"] = job_id.strip()
+    return detail
+
+
+def _cron_result_detail(output: Mapping[str, Any]) -> dict[str, Any]:
+    detail: dict[str, Any] = {}
+    if output.get("ok") is not None:
+        detail["status"] = "ok" if output.get("ok") is True else "failed"
+    if output.get("jobId") is not None:
+        detail["jobId"] = str(output.get("jobId", ""))
+    if output.get("count") is not None:
+        detail["count"] = output.get("count")
+    if output.get("jobs") is not None:
+        detail["jobs"] = output.get("jobs")
+    if output.get("removed") is not None:
+        detail["removed"] = output.get("removed")
+    if output.get("accepted") is not None:
+        detail["accepted"] = output.get("accepted")
+    if output.get("requestId") is not None:
+        detail["requestId"] = str(output.get("requestId", ""))
+    if output.get("runs") is not None:
+        detail["runs"] = output.get("runs")
+    if output.get("error") is not None:
+        detail["status"] = str(output.get("error", ""))
+    job = output.get("job")
+    if isinstance(job, Mapping):
+        if job.get("name") is not None:
+            detail["job_name"] = str(job.get("name", ""))
+        if isinstance(job.get("schedule"), Mapping):
+            detail["schedule"] = dict(job["schedule"])
+    return detail
+
+
+def _cron_summary(detail: Mapping[str, Any]) -> str:
+    action = str(detail.get("action", ""))
+    job_name = str(detail.get("job_name", ""))
+    job_id = str(detail.get("jobId", ""))
+    if job_name:
+        return f"{action} {job_name}".strip()
+    if job_id:
+        return f"{action} {job_id}".strip()
+    return action

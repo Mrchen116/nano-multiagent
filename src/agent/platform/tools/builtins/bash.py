@@ -101,6 +101,7 @@ class _BashPresenter:
             visible=True,
             label="Bash",
             summary=_summarize_bash(args, command),
+            detail={"command": command},
         )
 
     def format_end(

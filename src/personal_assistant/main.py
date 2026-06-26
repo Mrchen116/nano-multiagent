@@ -3754,8 +3754,14 @@ def _build_kernel_event_observer(
             # 不再回退 🔧、等完成才跳变。空串则省略(沿用 detail 的省略未设约定)。
             start_pres = event.get("presentation")
             start_emoji: str | None = None
+            start_output: str | None = None
+            start_detail: Any = None
             if isinstance(start_pres, Mapping) and start_pres.get("emoji"):
                 start_emoji = str(start_pres["emoji"])
+            if isinstance(start_pres, Mapping):
+                if start_pres.get("summary"):
+                    start_output = str(start_pres["summary"])
+                start_detail = start_pres.get("detail")
             if message_id:
                 start_tool_call: dict[str, Any] = {
                     "id": call_id,
@@ -3763,6 +3769,10 @@ def _build_kernel_event_observer(
                     "status": "running",
                     "input": arguments if isinstance(arguments, dict) else {},
                 }
+                if start_output is not None:
+                    start_tool_call["output"] = start_output
+                if start_detail is not None:
+                    start_tool_call["detail"] = start_detail
                 if start_emoji is not None:
                     start_tool_call["emoji"] = start_emoji
                 loop.create_task(

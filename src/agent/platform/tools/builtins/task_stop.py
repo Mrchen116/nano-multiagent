@@ -23,6 +23,7 @@ class _TaskStopPresenter:
             visible=True,
             label="TaskStop",
             summary=str(args.get("task_id", "")),
+            detail={"task_id": str(args.get("task_id", ""))},
         )
 
     def format_end(

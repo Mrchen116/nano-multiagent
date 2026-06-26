@@ -26,6 +26,7 @@ class _EditPresenter:
             visible=True,
             label="Edit",
             summary=str(args.get("path", "")),
+            detail={"path": str(args.get("path", ""))},
         )
 
     def format_end(

@@ -50,6 +50,7 @@ class _SkillManagePresenter:
             visible=True,
             label="Skill",
             summary=f"{action} {name}".strip(),
+            detail={"action": action, "name": name},
         )
 
     def format_end(

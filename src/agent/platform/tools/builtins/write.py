@@ -23,10 +23,19 @@ from agent.platform.tools.presentation import (
 
 class _WritePresenter:
     def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        content = str(args.get("content", ""))
         return ToolPresentationEvent(
             visible=True,
             label="Write",
             summary=str(args.get("path", "")),
+            detail=_enforce_cap(
+                {
+                    "path": str(args.get("path", "")),
+                    "content": content,
+                    "bytes": len(content.encode("utf-8")),
+                    "truncated": False,
+                }
+            ),
         )
 
     def format_end(

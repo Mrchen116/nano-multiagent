@@ -51,6 +51,13 @@ class _AgentPresenter:
             visible=True,
             label="Agent",
             summary=_truncate(description, 80),
+            detail={
+                "description": description,
+                "prompt": str(args.get("prompt", "")),
+                "subagent_type": str(
+                    args.get("subagent_type") or args.get("category") or ""
+                ),
+            },
         )
 
     def format_end(
