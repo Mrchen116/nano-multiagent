@@ -3403,7 +3403,13 @@ def _build_kernel_event_observer(
 
         elif event_name == "assistant_message":
             content = str(event.get("content") or "").strip()
-            if not content:
+            # feat-439-M2: 整轮每回合各带一段思考(决策 4 / §1 事实 A)。空正文「且无
+            # 思考」的回合仍整段丢弃(避免空气泡)；空正文「但有思考」的回合不再丢，作为
+            # 「过程项」转发到当前气泡(不 roll 新气泡、不发空 delta)。思考段的时序序号
+            # 由 IM 持久化边界按到达时气泡已有的 tool_calls 数赋予(= 插入索引)，gateway
+            # 只负责把 reasoning 转发到正确的目标气泡。
+            reasoning = str(event.get("reasoning_content") or "").strip()
+            if not content and not reasoning:
                 return None
             kernel_msg_id = str(event.get("message_id") or "").strip()
             prev_kernel_msg_id = ctx.get("kernel_message_id") or ""
@@ -3414,6 +3420,10 @@ def _build_kernel_event_observer(
             # Otherwise fire turn_start{to_user_id}, get back the resolved conversation_id
             # and message_id, store them, then emit the delta so streaming starts.
             if to_user_id and not message_id:
+                # feat-439-M2: heartbeat 仅由正文驱动建泡；纯思考回合对 heartbeat 无
+                # 可投递内容(也无气泡可挂)，直接跳过。
+                if not content:
+                    return None
                 from personal_assistant.gateway.inbound_pipeline import (
                     InboundPipeline as _IP,
                 )
@@ -3500,8 +3510,12 @@ def _build_kernel_event_observer(
             # The kernel's while-loop generates a fresh assistant_msg_id per iteration; when it
             # differs from the previous one we must close the old IM message and start a new one
             # so the frontend renders textA and textB as separate bubbles.
+            # feat-439-M2: 多气泡 roll 只由「正文」触发——纯思考回合(content="")绝不 roll
+            # 新气泡(否则会冒出空正文气泡)；它的思考随当前气泡走(见下方 if message_id)。
+            # 本回合的 reasoning 随 roll 后的新气泡一起转发(它属于产出 textB 的那一回合)。
             if (
-                kernel_msg_id
+                content
+                and kernel_msg_id
                 and prev_kernel_msg_id
                 and kernel_msg_id != prev_kernel_msg_id
             ):
@@ -3513,6 +3527,7 @@ def _build_kernel_event_observer(
                     aid: str = agent_id,
                     old_msg_id: str = message_id,
                     text: str = content,
+                    reasoning_text: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
@@ -3526,6 +3541,16 @@ def _build_kernel_event_observer(
                             new_kernel_message_id=new_kernel_id,
                         )
                         if new_msg_id:
+                            if reasoning_text:
+                                await mgr.send_json(
+                                    "node.streaming_delta",
+                                    {
+                                        "kind": "thinking_segment",
+                                        "message_id": new_msg_id,
+                                        "text": reasoning_text,
+                                        "run_id": rid,
+                                    },
+                                )
                             await mgr.send_json(
                                 "node.streaming_delta",
                                 {
@@ -3543,22 +3568,39 @@ def _build_kernel_event_observer(
                 return _close_old_and_restart()
 
             if message_id:
-                # turn_start already ack'd — send delta directly.
-                if kernel_msg_id:
-                    ctx["kernel_message_id"] = kernel_msg_id
-                loop.create_task(
-                    _send(
-                        manager,
-                        "node.streaming_delta",
-                        {
-                            "kind": "message_delta",
-                            "message_id": message_id,
-                            "delta_text": content,
-                            "run_id": run_id,
-                        },
+                # feat-439-M2: 思考过程项先于正文 delta 转发到当前气泡。纯思考回合
+                # (content="") 只发 thinking_segment，不发 delta、不动 kernel_message_id
+                # (保留下一含正文回合的 roll 判定基准)。
+                if reasoning:
+                    loop.create_task(
+                        _send(
+                            manager,
+                            "node.streaming_delta",
+                            {
+                                "kind": "thinking_segment",
+                                "message_id": message_id,
+                                "text": reasoning,
+                                "run_id": run_id,
+                            },
+                        )
                     )
-                )
-            elif conversation_id and agent_id:
+                if content:
+                    # turn_start already ack'd — send delta directly.
+                    if kernel_msg_id:
+                        ctx["kernel_message_id"] = kernel_msg_id
+                    loop.create_task(
+                        _send(
+                            manager,
+                            "node.streaming_delta",
+                            {
+                                "kind": "message_delta",
+                                "message_id": message_id,
+                                "delta_text": content,
+                                "run_id": run_id,
+                            },
+                        )
+                    )
+            elif content and conversation_id and agent_id:
                 # Kernel skipped run_status=running; send turn_start inline and await ack
                 # so we have message_id before the delta frame is dispatched.
                 async def _turn_start_then_delta(
@@ -3567,6 +3609,7 @@ def _build_kernel_event_observer(
                     cid: str = conversation_id,
                     aid: str = agent_id,
                     text: str = content,
+                    reasoning_text: str = reasoning,
                     new_kernel_id: str = kernel_msg_id,
                 ) -> None:
                     try:
@@ -3585,6 +3628,17 @@ def _build_kernel_event_observer(
                             if new_kernel_id:
                                 run_context_store[rid]["kernel_message_id"] = (
                                     new_kernel_id
+                                )
+                            # feat-439-M2: 思考过程项先于正文 delta 转发到新建气泡。
+                            if reasoning_text:
+                                await mgr.send_json(
+                                    "node.streaming_delta",
+                                    {
+                                        "kind": "thinking_segment",
+                                        "message_id": returned_msg_id,
+                                        "text": reasoning_text,
+                                        "run_id": rid,
+                                    },
                                 )
                             await mgr.send_json(
                                 "node.streaming_delta",
