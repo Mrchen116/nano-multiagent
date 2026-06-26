@@ -19,6 +19,13 @@ export interface Actor {
   type: "user" | "agent" | "system";
   id: string;
   display_name?: string | null;
+  /**
+   * feat-438 决策 5: stable IM user UUID. For agent participants `id` is the
+   * logical agent_id (used to navigate to the agent config page) while `user_id`
+   * is the UUID the remove endpoint (`DELETE /participants/{user_id}`) keys on.
+   * Absent for messages persisted before feat-438 / non-participant actors.
+   */
+  user_id?: string | null;
   is_stale?: boolean | null;
 }
 
