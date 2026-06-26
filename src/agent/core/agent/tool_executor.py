@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping, Protocol
 
+from agent.core.agent.reject_messages import build_reject_message
 from agent.core.types import ToolCall, ToolResult
 
 
@@ -154,13 +155,16 @@ class StreamingToolExecutor:
             # Deny non-allowlisted tools with a synthetic error result — the call
             # never reaches registry.execute(), so the tool has no side effects.
             if self._is_execution_denied(item.tool_call.name):
+                # feat-440-M1: a subagent (allowlist active) block — its model-facing
+                # text is the SUBAGENT_REJECT variant ("换做法/上报"), identical to a
+                # gate-denied tool inside the fork, so the LLM gets one consistent
+                # signal regardless of which path denied it.
                 item.result = ToolResult(
                     call_id=item.tool_call.call_id,
                     name=item.tool_call.name,
                     output=None,
-                    error=(
-                        f"tool '{item.tool_call.name}' is not allowed in this "
-                        "background review context"
+                    error=build_reject_message(
+                        approval=None, reason=None, is_subagent=True
                     ),
                     arguments=dict(item.tool_call.arguments),
                 )
@@ -217,6 +221,8 @@ class StreamingToolExecutor:
             # registry only kept str(exc) before, dropping the classification.
             reason_code = None
             approval = None
+            blocked_by_hook = False
+            block_reason = None
             details = getattr(exc, "details", None)
             if isinstance(details, Mapping):
                 rc = details.get("reason_code")
@@ -227,11 +233,30 @@ class StreamingToolExecutor:
                 ap = details.get("approval")
                 if isinstance(ap, str) and ap:
                     approval = ap
+                blocked_by_hook = bool(details.get("blocked_by_hook"))
+                # feat-440-M1: the gate's free-text reason was dropped before — lift
+                # it so it can be woven into the semantic rejection text below.
+                br = details.get("reason")
+                if isinstance(br, str) and br:
+                    block_reason = br
+            # feat-440-M1: a hook block (user Deny / policy auto-block) gets a
+            # semantic, scenario-specific message instead of the generic
+            # "tool blocked by hook" — so the LLM can tell a user's deliberate Deny
+            # (停下等指示) from an automatic policy block (换做法/上报). Genuine tool
+            # failures (no block) keep their raw error string.
+            if blocked_by_hook:
+                error_text = build_reject_message(
+                    approval=approval,
+                    reason=block_reason,
+                    is_subagent=self._tool_execution_allowlist is not None,
+                )
+            else:
+                error_text = str(exc)
             item.result = ToolResult(
                 call_id=item.tool_call.call_id,
                 name=item.tool_call.name,
                 output=None,
-                error=str(exc),
+                error=error_text,
                 duration_ms=item.duration_ms,
                 arguments=dict(item.tool_call.arguments),
                 reason_code=reason_code,

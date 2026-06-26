@@ -644,7 +644,12 @@ async def test_user_deny_with_reason_yields_with_reason_prefix() -> None:
     from agent.core.agent.reject_messages import REJECT_MESSAGE_WITH_REASON_PREFIX
 
     registry = _BlockingRegistry(
-        {"reason": "先别动这个文件", "reason_code": "denied", "approval": "user_deny"}
+        {
+            "blocked_by_hook": True,
+            "reason": "先别动这个文件",
+            "reason_code": "denied",
+            "approval": "user_deny",
+        }
     )
     registry.register(_FakeTool(name="edit"))
     executor = StreamingToolExecutor(registry)
@@ -663,7 +668,12 @@ async def test_user_deny_without_reason_yields_reject_message() -> None:
     from agent.core.agent.reject_messages import REJECT_MESSAGE
 
     registry = _BlockingRegistry(
-        {"reason": "", "reason_code": "denied", "approval": "user_deny"}
+        {
+            "blocked_by_hook": True,
+            "reason": "",
+            "reason_code": "denied",
+            "approval": "user_deny",
+        }
     )
     registry.register(_FakeTool(name="edit"))
     executor = StreamingToolExecutor(registry)
@@ -680,7 +690,12 @@ async def test_auto_block_yields_auto_reject_message() -> None:
     from agent.core.agent.reject_messages import auto_reject_message
 
     registry = _BlockingRegistry(
-        {"reason": "deny-limit exceeded", "reason_code": "denied", "approval": None}
+        {
+            "blocked_by_hook": True,
+            "reason": "deny-limit exceeded",
+            "reason_code": "denied",
+            "approval": None,
+        }
     )
     registry.register(_FakeTool(name="bash"))
     executor = StreamingToolExecutor(registry)
