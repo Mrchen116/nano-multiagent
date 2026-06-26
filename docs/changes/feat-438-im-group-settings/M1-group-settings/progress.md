@@ -51,3 +51,23 @@
 - Rollback: 回退 R3 C1。
 - Commits: C1=test(R3), C2=feat(R3), C3=docs(本段)
 - Next: R4 接线（入口分流 + 数据装配 + 刷新）。
+
+### R4 — 接线：入口分流 + 数据装配 + 刷新
+
+- Context: bug 根因在 chat-workspace-page 的 onOpenConfig——群聊复用 direct「会话即单 agent」假设，错跳第一个 agent；且 ⚙ 仅在 headerAgentContext.agentId 真值时门控，0-agent 群会丢 ⚙ 锁死。
+- Decision:
+  - `conversationKind = classifyConversationKind(activeConversation)`；`isGroupKind = group|agent-network`。`onOpenConfig` 改三分支：isGroupKind→`setShowGroupSettings(true)`；否则 agentId→navigate；否则 undefined。**门控由 kind 决定**——0-agent 群也是 group → ⚙ 恒提供（决策 2 / WARNING-1）。
+  - workspace 预解析 `groupMembers`（userId = p.user_id ?? user 的 id；status 查 nodes cache；isSelf/isCreator 用 userId 对 selfUserId/creator_id）+ `addableAgents`（agents 排除已入群 agent_id，去 `agent:` 前缀比对）。
+  - 四个 mutation（rename/add/remove/dissolve）：onSuccess `invalidateQueries(["chat-v2","conversations"])`；dissolve 额外 `navigate("/chat")` + 关面板（决策 4）。onError 复用 sendError toast。
+  - 切 conversationId 关面板。
+- Rationale: 业务逻辑集中在持 query/queryClient 的 workspace（决策 2/4 落点），GroupSettings 保持纯展示。member 的 userId 直接来自后端透传的 participant.user_id（R1 决策 5），不再前端反查——堵死 CRITICAL-1。
+- Evidence:
+  - Tests: `chat-workspace.integration.test.tsx` 17 passed（新增 4：群聊 ⚙ 开 GroupSettings 不 navigate 且成员含 Planner/Writer、添加候选排除已入群只剩 Reviewer、0-agent 群仍有 ⚙ 且能开面板、direct ⚙ 仍 navigate 不开面板）。tsc --noEmit 0。前端全量 482 passed。
+  - Entry: 集成测试经真实 ChatWorkspacePageV2 + MemoryRouter + mock fetch，真点击 ⚙ 验证分流；真实浏览器在 R5。
+  - Frontend State Matrix: missing/nullable(0-agent 群)已覆盖；其余 R5。
+  - Browser QA: R5
+  - E2E/Regression: 入口分流 4 case 落库（bug-regression 锚定错跳）。
+  - Visual/Interaction: R5
+- Rollback: 回退 R4 C1（onOpenConfig 还原为旧 agentId 门控即回现状 bug）。
+- Commits: C1=test(R4), C2=feat(R4), C3=docs(本段)
+- Next: R5 真实浏览器走查（live 验收）。
