@@ -61,7 +61,7 @@ UI 状态矩阵：
 
 ### R1 — presenters and gateway relay
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 给 builtin/web_search/send_message/cron presenter 补 start detail；gateway tool_start 透传 output/detail；补后端单测。
 - 验证: 相关 pytest 文件红转绿，字段/大字段 cap/gateway payload 均有断言。
 

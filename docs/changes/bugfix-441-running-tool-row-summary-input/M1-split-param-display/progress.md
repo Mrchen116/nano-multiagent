@@ -13,18 +13,18 @@
 
 ## R1 — presenters and gateway relay
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: Running tool rows already received presenter `emoji`, but `summary` and `detail` were dropped at two points: existing `format_start` methods usually emitted no parameter detail, and Gateway `tool_start` only forwarded `emoji`. M1 requires parameter-side presentation to reach IM before result-side fields exist.
+- Decision: Added `format_start.detail` for all scoped builtin presenters plus product `web_search`; added product-owned presenters for `send_message` and `cron`; forwarded Gateway `tool_start` `presentation.summary` to `tool_call.output` and `presentation.detail` to `tool_call.detail`. Large input content in write/memory start detail reuses `_enforce_cap`.
+- Rationale: The implementation keeps presenter ownership of display data and leaves `format_end` / `tool_end` behavior unchanged. Gateway stays a pure passthrough pipe, mirroring the existing tool_end mapping for running deltas.
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: C1 red: `pytest tests/unit/platform/tools/test_presentation.py tests/unit/platform/tools/test_presentation_cap.py tests/unit/personal_assistant/test_web_search_presenter.py tests/unit/personal_assistant/test_send_message_tool.py tests/unit/personal_assistant/test_cron_tool_closure.py tests/unit/personal_assistant/test_tool_end_detail_passthrough.py` → 18 failed / 64 passed, all failures at missing start detail, missing PA presenters, or missing Gateway start output/detail. C2 green: same command → 82 passed.
+  - Entry: Gateway observer unit drives the real `_build_kernel_event_observer` with a `tool_start` event and verifies the IM `tool_call_upserted` payload includes `output` and `detail`. Product presenter tests verify send_message/cron structured display through their actual tool classes.
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: TODO
+  - E2E/Regression: Permanent regression tests added in existing unit files; true browser IM evidence is scheduled for R3 because R1 does not yet include frontend running gate.
   - Visual/Interaction: N/A
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
+- Rollback: Revert `6102c325` to remove R1 implementation; revert `2d6b846e` to remove the red-test coverage.
+- Commits: C1=2d6b846e, C2=6102c325, C3=TODO
 - Next: R2 frontend running gate.
 
 ## R2 — frontend running gate and reducer overwrite
