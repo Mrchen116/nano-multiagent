@@ -158,3 +158,74 @@
 | B — direct chat Config 回归 | 2 | 浏览器 1280px（用"Open chat ↗"建 direct-agent 会话） |
 | C — 解散群（主 + 取消） | 12, 13 | 浏览器 1280px |
 | D — 移动端完整群管理 | 14 | 浏览器 375px |
+
+---
+
+# Round 2 — 2026-06-26
+
+> Fix commit: `7c819e9c` (round-1 reviewer 反馈批 — 群设置错误可见性 + 防御 + 清理)
+> Fast-lane 复验：只聚焦 fix 触及路径 + 回归快验，继承 Round 1 所有结论。
+
+## Verdict
+
+**pass**
+
+- Highest Required Action: `pass`
+- Issues: blocking 0 / major 0 / minor 0
+- Round 1 的唯一 Side Finding（SF-1 移动端 ✕ 按钮视觉不可见）已修复。
+
+---
+
+## Fix 验证结果
+
+### Fix 1 — 群设置写操作失败对用户可见
+
+验证路径：IM 运行中打开群设置，关闭 IM，触发写操作失败，截图确认 banner 就地出现且输入保留。
+
+| 路径 | 错误 banner | 输入保留 | 结论 |
+|---|---|---|---|
+| PC 抽屉改名 | `updateConversation failed: 500`（红色 banner，drawer 内顶部）| "R2测试群改名" textbox 保留，Save/Cancel 可继续操作 | **pass** |
+| PC 抽屉移除成员 | `removeParticipant failed: 500`（drawer 内顶部）| 内联确认 "Remove this member from the group?" + Remove/Cancel 保留 | **pass** |
+| PC 抽屉添加成员 | `addParticipants failed: 500`（drawer 内顶部）| 撰写者 checked 状态保留，Add(1)/Cancel 可继续 | **pass** |
+| 移动端全屏改名 | `updateConversation failed: 500`（全屏页顶部）| "R2移动改名" textbox 保留，Save/Cancel 可继续 | **pass** |
+| 移动端「添加成员」二级屏 | `addParticipants failed: 500`（Add members 页顶部）| 撰写者 checked 保留，"Add 1 member(s)" 可重试 | **pass** |
+
+截图证据：
+- `scratchpad/screenshots/r2/01-pc-rename-error.png` — PC 改名失败 banner
+- `scratchpad/screenshots/r2/04-pc-remove-error.png` — PC 移除失败 banner + 确认保留
+- `scratchpad/screenshots/r2/05-pc-add-error.png` — PC 添加失败 banner + 选择保留
+- `scratchpad/screenshots/r2/07-mobile-rename-error.png` — 移动全屏改名失败 banner
+- `scratchpad/screenshots/r2/08-mobile-add-error.png` — 移动添加二级屏失败 banner
+
+### Fix 2 — 移动端 manage 模式 ✕ 移除按钮视觉可见
+
+验证：375px 进入"Manage members"模式，截图确认 ✕ 按钮在 策划师/评审员 行左侧清晰可见。
+
+截图证据：`scratchpad/screenshots/r2/06-mobile-manage-mode.png` — ✕ 按钮（×）对每个 agent 行直接渲染，无需 hover。
+
+结论：**pass**（Round 1 SF-1 已修复）
+
+---
+
+## 回归快验
+
+IM 重启后验证正常路径未受影响：
+
+| 操作 | 结果 |
+|---|---|
+| 改群名 "R2测试群" → "R2回归测试" | 标题栏 + 侧边栏 + 面板同步更新 ✓ |
+| 移除「评审员」| Members · 2，停留群内，无错误 ✓ |
+| 添加「评审员」回来 | Members · 3，成员列表更新 ✓ |
+| 解散群 | URL 跳 /chat，群从侧边栏消失 ✓ |
+
+---
+
+## Round 2 验收标准覆盖（Fast-lane 差量）
+
+继承 Round 1 所有 Scenario 结论（全部 pass）。本轮差量：
+
+| Scenario | Round 1 结论 | Round 2 变化 |
+|---|---|---|
+| 所有 13 PC 端 Scenarios | pass | 回归无退化，结论保持 pass |
+| Scenario 14（移动端） | pass | 回归无退化，结论保持 pass |
+| SF-1（✕ 按钮视觉，非 Scenario）| 记 Side Finding | Fix 2 修复，已消除 |
