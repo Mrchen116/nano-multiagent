@@ -84,16 +84,25 @@ export function PermissionCard({
 }: PermissionCardProps) {
   const { t } = useTranslation();
   const [transient, setTransient] = useState<TransientState>({ kind: "idle" });
+  // feat-440-M1: 常驻选填理由框。拒绝时若有内容则随 POST 透传给 LLM 的回传文本;
+  // 留空走默认 REJECT_MESSAGE。允许类决策后端忽略该值(见 spec Q4 形态 A)。
+  const [reason, setReason] = useState("");
 
   async function handleChoice(option: PermissionOption) {
     setTransient({ kind: "submitting", chosenId: option.id });
+    const trimmedReason = reason.trim();
     try {
       const resp = await fetchFn(
         `/im/v1/conversations/${conversationId}/permissions/${request.request_id}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message_id: messageId, decision: option.id }),
+          body: JSON.stringify({
+            message_id: messageId,
+            decision: option.id,
+            // Omit the key entirely when empty so the backend sees no reason.
+            ...(trimmedReason ? { reason: trimmedReason } : {}),
+          }),
         }
       );
       if (!resp.ok) {
@@ -152,6 +161,17 @@ export function PermissionCard({
           {errorMessage}
         </div>
       )}
+      {/* feat-440-M1: 常驻选填拒绝理由框,在按钮区上方(spec Q4 形态 A)。 */}
+      <textarea
+        data-testid="permission-reason-input"
+        className="chat-permission-reason"
+        rows={2}
+        value={reason}
+        onChange={(e) => setReason(e.target.value)}
+        disabled={isSubmitting}
+        placeholder={t("chat.permission.reasonPlaceholder")}
+        aria-label={t("chat.permission.reasonLabel")}
+      />
       <div className="chat-permission-options" role="group" aria-label={t("chat.permission.ariaOptions")}>
         {request.options.map((opt) => {
           const isChosen = isSubmitting && (transient as { chosenId: string }).chosenId === opt.id;

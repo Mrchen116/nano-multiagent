@@ -450,7 +450,9 @@
       "optionAllowOnce": "Allow once",
       "optionAllowSession": "Allow for session",
       "optionAllowAlways": "Always allow",
-      "optionDeny": "Deny"
+      "optionDeny": "Deny",
+      "reasonPlaceholder": "Reason for denying (optional)",
+      "reasonLabel": "Denial reason (optional)"
     }
   },
   "feature": {

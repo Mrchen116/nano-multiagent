@@ -446,7 +446,9 @@
       "optionAllowOnce": "允许",
       "optionAllowSession": "本会话内允许",
       "optionAllowAlways": "总是允许",
-      "optionDeny": "拒绝"
+      "optionDeny": "拒绝",
+      "reasonPlaceholder": "拒绝理由（选填）",
+      "reasonLabel": "拒绝理由（选填）"
     }
   },
   "feature": {
