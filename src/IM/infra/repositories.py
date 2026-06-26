@@ -1,7 +1,7 @@
 """SQLite repositories for IM users, conversations, and messages."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 import sqlite3
@@ -1141,7 +1141,7 @@ class MessageRepository:
                 "content_append and content_replace are mutually exclusive"
             )
         row = self._connection.execute(
-            "SELECT content, tool_calls_json, token_usage_json, conversation_id FROM messages WHERE id = ?",
+            "SELECT content, tool_calls_json, thinking_json, token_usage_json, conversation_id FROM messages WHERE id = ?",
             (message_id,),
         ).fetchone()
         if row is None:
@@ -1158,12 +1158,31 @@ class MessageRepository:
         next_tool_calls_json: str | None | object = _UNSET
         if tool_calls_upsert is not None:
             existing = _decode_tool_calls(row["tool_calls_json"]) or []
+            existing_thinking = (
+                _decode_thinking(row["thinking_json"])
+                if "thinking_json" in row.keys()
+                else None
+            ) or []
             existing_by_id = {tc.id: tc for tc in existing}
             order: list[str] = [tc.id for tc in existing]
             for upsert in _normalize_tool_calls(tool_calls_upsert) or []:
                 if upsert.id not in existing_by_id:
+                    # feat-439-M2: new tool id → assign the shared process-timeline seq
+                    # (max over current thinking + tools, +1) so thinking/tools share one
+                    # monotonic arrival order. A later same-id upsert (completed) keeps it.
                     order.append(upsert.id)
-                existing_by_id[upsert.id] = upsert
+                    seq = _next_process_seq(
+                        existing_thinking, list(existing_by_id.values())
+                    )
+                    existing_by_id[upsert.id] = replace(upsert, seq=seq)
+                else:
+                    # Preserve the seq assigned at first upsert; the gateway never sends
+                    # seq (IM owns assignment), so a None on the incoming completed frame
+                    # must not wipe it.
+                    prior_seq = existing_by_id[upsert.id].seq
+                    existing_by_id[upsert.id] = replace(
+                        upsert, seq=upsert.seq if upsert.seq is not None else prior_seq
+                    )
             merged = [existing_by_id[tcid] for tcid in order]
             next_tool_calls_json = _encode_tool_calls(merged)
 
@@ -1228,10 +1247,10 @@ class MessageRepository:
     def append_thinking_segment(self, *, message_id: str, text: str) -> Message:
         """feat-439-M2: 追加一段思考到 ``messages.thinking_json``，返回刷新后的消息。
 
-        ``seq`` 在此（持久化边界）统一赋予：= 该消息**当前已有的 tool_calls 数**，即这段
-        思考在工具序列中的插入索引。内核事件保证一回合的思考早于该回合的工具事件到达，
-        故此处读到的工具数恰为「本段思考之前的工具」，渲染端据此把思考插到正确位置。
-        live（WS）与历史回放（REST）都读同一持久化值，口径一致。
+        ``seq`` 在此（持久化边界）统一赋予：思考与工具**共享一个 per-message 单调递增
+        计数器**（= 当前所有过程项 seq 的 max + 1），按真实到达序赋值且全局唯一。这样
+        渲染端按 seq 把思考与工具 merge 成一条时间线，且唯一 seq 让 live WS 事件可幂等
+        去重（重放/双投递不重复）。live 与历史回放都读同一持久化值，口径一致。
         """
         row = self._connection.execute(
             "SELECT tool_calls_json, thinking_json FROM messages WHERE id = ?",
@@ -1240,8 +1259,8 @@ class MessageRepository:
         if row is None:
             raise ValueError(f"message_id not found: {message_id}")
         existing_tools = _decode_tool_calls(row["tool_calls_json"]) or []
-        seq = len(existing_tools)
         existing = _decode_thinking(row["thinking_json"]) or []
+        seq = _next_process_seq(existing, existing_tools)
         existing.append(ThinkingSegment(seq=seq, text=text))
         with self._connection:
             self._connection.execute(
@@ -2922,6 +2941,9 @@ def _tool_call_to_dict(tool_call: ToolCall) -> dict[str, object]:
     # feat-434-M1: persist the user-decision verdict (omit when unset).
     if tool_call.approval is not None:
         payload["approval"] = tool_call.approval
+    # feat-439-M2: persist the shared process-timeline seq (omit when unset/legacy).
+    if tool_call.seq is not None:
+        payload["seq"] = tool_call.seq
     return payload
 
 
@@ -2997,12 +3019,24 @@ def _decode_tool_calls(value: object) -> list[ToolCall] | None:
                     approval=item.get("approval")
                     if isinstance(item.get("approval"), str)
                     else None,
+                    seq=item.get("seq") if isinstance(item.get("seq"), int) else None,
                 )
             )
         except ValueError:
             # Malformed historical row — surface loudly: better than silently dropping a row's tool history.
             raise
     return out
+
+
+def _next_process_seq(thinking: list[ThinkingSegment], tools: list[ToolCall]) -> int:
+    """feat-439-M2: 下一个「过程项」seq = 思考与工具现有 seq 的 max + 1（从 0 起）。
+
+    思考与工具共享这一个 per-message 计数器，按真实到达序单调递增、全局唯一 —— 渲染端
+    据此 merge 成时间线，唯一性让 live 事件可幂等去重。旧工具行 seq 为 None，忽略。
+    """
+    seqs = [s.seq for s in thinking]
+    seqs += [t.seq for t in tools if t.seq is not None]
+    return (max(seqs) + 1) if seqs else 0
 
 
 def _encode_thinking(segments: list[ThinkingSegment]) -> str:

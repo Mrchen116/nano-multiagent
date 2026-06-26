@@ -95,6 +95,9 @@ class ToolCallPayload(BaseModel):
     # feat-434-M1: user-decision verdict on history load, so the gate region's
     # 已授权/已拒绝 survives a page reload (not only live WS). None → gate hidden.
     approval: str | None = None
+    # feat-439-M2: shared process-timeline seq on history load, so the process panel
+    # interleaves thinking + tools in true order after a reload. None → legacy row.
+    seq: int | None = None
 
 
 class ThinkingSegmentPayload(BaseModel):
@@ -193,6 +196,7 @@ def to_message_response(message: Message) -> MessageResponse:
                 detail=tc.detail,
                 emoji=tc.emoji,
                 approval=tc.approval,
+                seq=tc.seq,
             )
             for tc in (message.tool_calls or [])
         ],

@@ -69,6 +69,9 @@ def tool_call_to_dict(tool_call: ToolCall) -> dict[str, Any]:
     # feat-434-M1: user-decision verdict, present only for cards the user decided.
     if tool_call.approval is not None:
         payload["approval"] = tool_call.approval
+    # feat-439-M2: shared process-timeline seq (omit when unset/legacy).
+    if tool_call.seq is not None:
+        payload["seq"] = tool_call.seq
     return payload
 
 

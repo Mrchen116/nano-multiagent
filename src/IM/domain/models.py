@@ -225,6 +225,10 @@ class ToolCall:
     # "user_deny" only for calls that passed through a user permission card; None for
     # auto-allowed / historical rows — the front-end gate region then stays hidden.
     approval: str | None = None
+    # feat-439-M2: per-message 单调递增「过程项」序号，与 ThinkingSegment.seq 同一计数器，
+    # 由 IM 在持久化边界按真实到达序赋予（首次 upsert 分配、后续完成保留）。渲染端按 seq
+    # 把工具与思考 merge 成一条过程时间线。None = 旧持久化行（无思考时按列表序渲染）。
+    seq: int | None = None
 
     def __post_init__(self) -> None:
         if self.status not in _TOOL_CALL_STATUSES:

@@ -102,11 +102,18 @@ export interface ToolCall {
    * carry `reason==="denied"` but no approval) fall back via the renderer.
    */
   approval?: ToolApproval | string;
+  /**
+   * feat-439-M2: 与 ThinkingSegment.seq 同一 per-message 单调递增「过程项」序号，由 IM
+   * 按真实到达序赋予。渲染端按 seq 把工具与思考 merge 成一条过程时间线。旧持久化行
+   * 缺省（无思考时按列表序渲染）。
+   */
+  seq?: number;
 }
 
 /**
- * feat-439-M2: 一段思考（过程时间线的「过程项」之一）。`seq` = 该段到达时所属气泡
- * 已有的 tool_calls 数（= 插入索引），渲染端据此把思考插到正确的工具之间。
+ * feat-439-M2: 一段思考（过程时间线的「过程项」之一）。`seq` 是与 ToolCall.seq 共享的
+ * per-message 单调递增序号（真实到达序、全局唯一）：渲染端按 seq 把思考与工具 merge
+ * 成时间线，唯一性也让 live WS 事件可按 seq 幂等去重。
  */
 export interface ThinkingSegment {
   seq: number;

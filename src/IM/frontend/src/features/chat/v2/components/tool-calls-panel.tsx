@@ -37,30 +37,28 @@ type ProcessItem =
 /**
  * feat-439-M2: 把整轮的思考段与工具调用按真实时序 merge 成一条流。
  *
- * `ThinkingSegment.seq` 是该段到达时气泡已有的 tool_calls 数（= 插入索引）：seq=k 的
- * 思考排在 tool[k] 之前（即 tool[0..k-1] 之后）。内核保证一回合的思考早于该回合的工具
- * 到达，故 seq 恰好是「本段思考之前的工具数」。溢出（seq ≥ 工具数）的思考排到末尾。
+ * 思考与工具共享一个 per-message 单调递增 `seq`（由 IM 按真实到达序赋予、全局唯一），
+ * 故直接按 seq 升序合并即得真实时序。旧持久化工具行无 seq（此时必无思考），回退到列表
+ * 序（用一个大偏移保证它们落在所有带 seq 项之后、彼此保持原顺序）。稳定排序保证同序
+ * 号项保留插入顺序。
  */
 function buildTimeline(
   toolCalls: ToolCall[],
   thinking: ThinkingSegment[]
 ): ProcessItem[] {
-  const thinks = [...thinking].sort((a, b) => a.seq - b.seq);
-  const out: ProcessItem[] = [];
-  let p = 0;
-  for (let i = 0; i < toolCalls.length; i++) {
-    while (p < thinks.length && thinks[p]!.seq === i) {
-      out.push({ kind: "thinking", segment: thinks[p]!, key: `think-${p}` });
-      p++;
-    }
-    out.push({ kind: "tool", call: toolCalls[i]!, key: `tool-${toolCalls[i]!.id}` });
+  const items: { sortKey: number; item: ProcessItem }[] = [];
+  for (const s of thinking) {
+    items.push({ sortKey: s.seq, item: { kind: "thinking", segment: s, key: `think-${s.seq}` } });
   }
-  // 末尾未消费的思考段（最终回合的思考 / seq 溢出）排在所有工具之后。
-  while (p < thinks.length) {
-    out.push({ kind: "thinking", segment: thinks[p]!, key: `think-${p}` });
-    p++;
-  }
-  return out;
+  const LEGACY_BASE = 1e9; // 无 seq 的旧工具行排到末尾，保持彼此原顺序
+  toolCalls.forEach((c, i) => {
+    const sortKey = typeof c.seq === "number" ? c.seq : LEGACY_BASE + i;
+    items.push({ sortKey, item: { kind: "tool", call: c, key: `tool-${c.id}` } });
+  });
+  return items
+    .map((entry, i) => ({ ...entry, i }))
+    .sort((a, b) => a.sortKey - b.sortKey || a.i - b.i)
+    .map((entry) => entry.item);
 }
 
 /**
