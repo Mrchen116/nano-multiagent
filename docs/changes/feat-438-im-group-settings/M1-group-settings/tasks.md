@@ -11,14 +11,14 @@
 
 ## 退出标准
 
-- [ ] 后端 `POST /participants` 端点：成功 / 幂等 / 空 / resolve 失败 400 / 跨租户 404
-- [ ] `ActorPayload` 序列化带 `user_id`（agent participant 的 `id`=agent_id ≠ `user_id`=UUID）
-- [ ] 移除成员 `DELETE /participants/{user_id}` 用 user_id 真能删（防 CRITICAL-1 回归）
-- [ ] 前端 chat-api 4 调用（update/add/remove/delete）单测
-- [ ] GroupSettings 组件 PC 抽屉 / 移动整屏两形态，对照 prototype.html 视觉一致
-- [ ] chat-workspace-page 入口按 kind 门控分流（group/agent-network → 群设置；direct-agent → agent 配置；0-agent 群仍提供 ⚙）
-- [ ] `pytest -q tests/ -m "not e2e"` 与前端 `npm run test` 绿
-- [ ] 真实浏览器走查全部 Runbook 关键界面 + 375px
+- [x] 后端 `POST /participants` 端点：成功 / 幂等 / 空 / resolve 失败 400 / 跨租户 404（R1）
+- [x] `ActorPayload` 序列化带 `user_id`（agent participant 的 `id`=agent_id ≠ `user_id`=UUID）（R1）
+- [x] 移除成员 `DELETE /participants/{user_id}` 用 user_id 真能删（防 CRITICAL-1 回归）（R1 单测 + R5 live `DELETE .../946ac506...`）
+- [x] 前端 chat-api 4 调用（update/add/remove/delete）单测（R2）
+- [x] GroupSettings 组件 PC 抽屉 / 移动整屏两形态，对照 prototype.html 视觉一致（R3 + R5 截图）
+- [x] chat-workspace-page 入口按 kind 门控分流（group/agent-network → 群设置；direct-agent → agent 配置；0-agent 群仍提供 ⚙）（R4 + R5 live）
+- [x] `pytest -q tests/ -m "not e2e"` 与前端 `npm run test` 绿（2974 passed / 482 passed）
+- [x] 真实浏览器走查全部 Runbook 关键界面 + 375px（R5，截图见 ACCEPTANCE/feat-438-M1/）
 
 ## 测试策略
 
@@ -72,27 +72,27 @@ UI 状态矩阵（GroupSettings）：
 
 ## Roadpoints
 
-### R1 — 后端：add_participants + POST /participants + ActorPayload.user_id
+### R1 — 后端：add_participants + POST /participants + ActorPayload.user_id  — DONE
 
 - 步骤: repo 抽 `add_participants(conversation_id, references)` 复用 resolve+INSERT（幂等、不碰 config_profile_version）；service passthrough；route `POST /conversations/{id}/participants`（404 跨租户 / 400 空·resolve 失败）；`ActorPayload` 加 `user_id`，`to_conversation_response` 透传 `Actor.user_id`。
 - 验证: 新建 `test_conversation_add_participants.py`（repo + route 全分支）；扩 rename/delete 测试或新增断言验 user_id 透传 + DELETE 用 user_id 删。
 
-### R2 — 前端 chat-api 4 调用 + Actor.user_id
+### R2 — 前端 chat-api 4 调用 + Actor.user_id  — DONE
 
 - 步骤: `chat-types.ts` Actor 加 `user_id?: string | null`；`chat-api.ts` 加 `updateConversation` / `addParticipants` / `removeParticipant` / `deleteConversation`。
 - 验证: 扩 `chat-api.test.ts` 验 4 调用的 URL/method/body（removeParticipant 用 user_id）。
 
-### R3 — GroupSettings 组件（PC 抽屉 / 移动整屏）
+### R3 — GroupSettings 组件（PC 抽屉 / 移动整屏）  — DONE
 
 - 步骤: 新建 `components/group-settings.tsx`，按 `useIsMobile` 切两形态，复用 chat-modal 设计 token；改名内联态、成员列表（点 agent → onOpenAgentConfig）、添加成员就地展开（PC）/ 二级整屏（移动）、移除确认、解散确认。状态逻辑共享、视图分叉。
 - 验证: 组件测试覆盖改名空名禁用、添加候选排除已入群 + 空态、移除确认、解散确认。浏览器对照 prototype。
 
-### R4 — 接线：入口分流 + 数据装配 + 刷新
+### R4 — 接线：入口分流 + 数据装配 + 刷新  — DONE
 
 - 步骤: `chat-workspace-page` 按 `classifyConversationKind` 分流（group/agent-network → 开 GroupSettings；direct-agent → navigate）；message-pane ⚙ 对 group 恒提供（不再仅 agentId 真值门控）；写操作成功 `invalidateQueries(conversations)`，解散后 `navigate("/chat")`；装配 agents/members 数据喂 GroupSettings。
 - 验证: integration test 验入口分流（group 开面板不 navigate / direct navigate / 0-agent 群仍提供 ⚙）。
 
-### R5 — 真实浏览器走查（live 验收）
+### R5 — 真实浏览器走查（live 验收）  — DONE
 
 - 步骤: 起 IM + Vite（ephemeral 端口），按 Runbook 走查全部关键界面 + 375px，截图存证，对照 prototype。
 - 验证: progress.md Evidence 记真实入口截图（含 viewport）+ 对照结论 + console/network 检查。

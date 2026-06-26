@@ -71,3 +71,27 @@
 - Rollback: 回退 R4 C1（onOpenConfig 还原为旧 agentId 门控即回现状 bug）。
 - Commits: C1=test(R4), C2=feat(R4), C3=docs(本段)
 - Next: R5 真实浏览器走查（live 验收）。
+
+### R5 — 真实浏览器走查（live 验收）
+
+- Context: live-critical 前端 UI，必须真起 IM + Vite 走查全部 Runbook 关键界面 + 375px，pytest/npm 绿不算 live 证据。
+- Decision: ephemeral 端口起 IM(uvicorn, 固定 JWT secret) + Vite(VITE_IM_PROXY_TARGET 指 IM)；注册 nano；直连 DB seed 1 node + 4 agent profiles + 4 agent users（agents 经 gateway 入库，无 gateway 时直 seed repositories）；用真实浏览器（gstack browse）登录走查；用完 kill 自己起的进程。
+- Rationale: 无 live gateway 时 `/im/v1/agents` 为空，无法建带 agent 的群——直 seed 是让 UI 真有 agent 可操作的最小手段；其余全走真实 UI 交互 + 真后端 HTTP。
+- Evidence:
+  - Tests: 后端 `pytest -q tests/ -m "not e2e"` = 2974 passed / 2 skip / 0 fail（126s 全树）；前端 `npm run test` = 482 passed；tsc --noEmit 0。
+  - Entry: 真起 IM(uvicorn ephemeral) + Vite(ephemeral, proxy→IM)，真实浏览器登录 nano 操作，用完 kill。
+  - Browser QA（真实浏览器，截图在 ACCEPTANCE/feat-438-M1/，viewport 标在文件名）：
+    1. **群聊 ⚙ → 开群设置不跳 agent**（Req-配置入口/bug 根因）：建群「研发小组」(3 agent) → 点 ⚙ → URL 不变、右侧抽屉打开（r5-pc-drawer-default-1280.png，对照 prototype A1 一致：成员叠簇头像/群名✎/Created by you·N/成员列表/Dissolve）。
+    2. **改名**：改成「研发小组 V2」标题栏+sidebar 同步；空白名 → 红框+「Group name can't be empty」+Save 禁用（r5-pc-rename-empty-1280.png，对照 A2 一致）。
+    3. **成员点 agent 进配置**：点架构师行 → 导航 /settings/agents/architect。
+    4. **添加成员**：候选只列未入群 agent（4 选 3 后只剩「文档撰写」，r5-pc-add-members-1280.png 对照 A3）；加入后 Members·5；全员入群后空态「No agents available to add」（r5-pc-add-empty-1280.png）。
+    5. **移除（CRITICAL-1 live 证据）**：点 ✕ → 内联轻确认（r5-pc-remove-confirm-1280.png）→ 确认触发 `DELETE /conversations/{id}/participants/946ac506...`（=tester 的 **user_id UUID**，非 agent_id「tester」）→ 204 → Members 递减；一路移到 0 agent（r5-pc-zero-agents-1280.png，Members·1 仅 Test User），**关闭后 ⚙ 仍在、可再开群设置**（WARNING-1 不锁死，已验）。
+    6. **解散**：内联二次确认（r5-pc-dissolve-confirm-1280.png）→ `DELETE /conversations/{id}` 204 → 回 /chat、sidebar 不再有该群。
+    7. **direct chat ⚙ 回归**：开「主 Agent·架构师」直聊 → ⚙ → /settings/agents/architect，无群设置抽屉。
+    8. **移动端 375px**：整屏「群聊信息」页（r5-mobile-info-375.png 对照 B1）；点群名内联改名生效；「添加成员」二级整屏、候选排除已入群（r5-mobile-add-375.png 对照 B4）；Manage 模式露移除 + 内联确认触发 DELETE（r5-mobile-manage-375.png）；解散回列表（r5-mobile-dissolve-375.png）。
+  - Console/network 检查：唯一 error = `GET /agents/architect/capabilities 503`（agent 详情页在无 live gateway 时的固有行为，**out-of-unit**，与群设置无关）；WS `/im/ws/user` 重连 warning 为无 gateway 的良性噪声。群设置功能链路零 error。
+  - E2E/Regression: 组件测试（group-settings 9）+ 入口分流集成（4）+ chat-api（5）+ 后端端点（13）落库。
+  - Visual/Interaction: 截图逐帧对照 prototype A1-A4 / B1-B5 一致；R5 期补 manage 态 nav 标题「管理成员」对齐 B3。
+- Rollback: R5 仅新增证据 + 1 处文案补强（manage 标题），回退该 commit 不影响功能。
+- Commits: C2=feat(R5 manage 标题), C3=docs(本段)。R5 无独立红测（走查为 live 验收，回归已在 R1-R4 落库）。
+- Next: 本 milestone 全部退出标准达成，进入集成。
