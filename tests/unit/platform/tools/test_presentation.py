@@ -169,6 +169,28 @@ class TestEditPresenter:
         assert evt.detail is not None
         assert "diff" in evt.detail
 
+    def test_end_diff_lines_never_concatenated(self) -> None:
+        # oldText 末行无尾换行、newText 在该行后追加多行时,diff 不能把相邻的
+        # -/+ 行黏到同一行(UI 按 \n 分行,黏行救不回来)。
+        evt = _presenter("edit").format_end(
+            {
+                "path": "src/app.py",
+                "oldText": 'base_url = "http://x/v1/"',
+                "newText": 'base_url = "http://x/v1/"\n\n[section]\nkey = true',
+            },
+            _FakeResult(output={}),
+            duration_ms=5,
+        )
+        assert evt.detail is not None
+        diff = evt.detail["diff"]
+        for line in diff.split("\n"):
+            # 一个 diff 标记行只能携带它自己那一行内容;出现第二个标记说明黏行。
+            if line[:1] in "+-@":
+                assert "+base_url" not in line[1:], diff
+            # 追加段落必须各自独立成行。
+        assert "+[section]" in diff.split("\n")
+        assert "+key = true" in diff.split("\n")
+
     def test_end_failed(self) -> None:
         # feat-409 failalign: 失败态 summary = 干净主参数(path),不含 error 文本。
         evt = _presenter("edit").format_end(

@@ -47,14 +47,13 @@ class _EditPresenter:
                 summary=path or "failed",
                 detail={"error": {"message": str(error)}},
             )
-        # compute a minimal unified diff
-        old_lines = old_text.splitlines(keepends=True)
-        new_lines = new_text.splitlines(keepends=True)
-        if not old_lines:
-            old_lines = [old_text]
-        if not new_lines:
-            new_lines = [new_text]
-        diff = "".join(
+        # compute a minimal unified diff.
+        # splitlines() 不带 keepends + lineterm="" + "\n".join: 每行都不带终止符,
+        # 拼接时统一补一个 \n。keepends=True + "".join 会在某行无尾换行时(如本行是
+        # oldText 末行)把相邻的 -/+ 行黏成一行,UI 按 \n 分行救不回来。
+        old_lines = old_text.splitlines() or [old_text]
+        new_lines = new_text.splitlines() or [new_text]
+        diff = "\n".join(
             difflib.unified_diff(
                 old_lines, new_lines, fromfile=path, tofile=path, lineterm=""
             )
