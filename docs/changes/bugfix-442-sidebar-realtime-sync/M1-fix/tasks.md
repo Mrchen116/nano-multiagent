@@ -48,7 +48,7 @@
 
 ## Roadpoints
 
-- R1（TODO）：v2 侧边栏消费消息流 + 读后刷新
+- R1（DONE）：v2 侧边栏消费消息流 + 读后刷新
   - C1：integration 红测（注入 message.sent → conversations 重拉；读会话 → 重拉）
   - C2：chat-workspace-page.tsx 加去抖刷新（流事件触发）+ 读后刷新 effect
   - C3：progress.md 证据 + 回填 fix.md 修复/验证段
