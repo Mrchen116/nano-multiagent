@@ -161,6 +161,36 @@ def test_on_tool_call_lifecycle_persists_and_emits(tmp_path: Path) -> None:
     assert p1["tool_call"]["duration_ms"] == 22
 
 
+def test_on_thinking_segment_persists_and_emits(tmp_path: Path) -> None:
+    """feat-439-M2 R3: 思考过程项持久化 + 发 thinking.segment 事件，seq=插入索引。"""
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
+    msg = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+    captured.clear()
+
+    bridge.on_thinking_segment(message_id=msg.id, text="先看 types.py")
+    bridge.on_tool_call_upserted(
+        message_id=msg.id,
+        tool_call=ToolCall(id="t1", name="read", status="completed"),
+    )
+    bridge.on_thinking_segment(message_id=msg.id, text="两家口径要归一")
+
+    final = messages.list_messages(conversation_id=conv_id)[-1]
+    assert final.thinking is not None
+    assert [(s.seq, s.text) for s in final.thinking] == [
+        (0, "先看 types.py"),
+        (1, "两家口径要归一"),
+    ]
+
+    think_events = [e for e in captured if e.event_type == "thinking.segment"]
+    assert len(think_events) == 2
+    p = json.loads(think_events[1].payload_json)
+    assert p["thinking_segment"]["seq"] == 1
+    assert p["thinking_segment"]["text"] == "两家口径要归一"
+    assert p["message_id"] == msg.id
+
+
 def test_on_message_completed_sets_token_usage_and_status(tmp_path: Path) -> None:
     bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
     msg = bridge.on_turn_start(

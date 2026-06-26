@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from IM.domain.models import ToolCall, TokenUsage
+from IM.domain.models import ThinkingSegment, ToolCall, TokenUsage
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories import (
     ConversationRepository,
@@ -168,6 +168,60 @@ def test_update_runtime_state_appends_content_and_upserts_tool_call(
     assert only.status == "completed"
     assert only.output == "ok"
     assert only.duration_ms == 22
+
+
+def test_append_thinking_segment_round_trip_with_insertion_seq(
+    tmp_path: Path,
+) -> None:
+    """feat-439-M2 R3: 思考段持久化往返，seq = 到达时气泡已有 tool_calls 数(插入索引)。"""
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="",
+        allow_empty=True,
+    )
+
+    # 第一段思考：此时无工具 → seq 0
+    messages.append_thinking_segment(message_id=created.id, text="先看 types.py")
+    # 一个工具调用
+    messages.update_runtime_state(
+        message_id=created.id,
+        tool_calls_upsert=[ToolCall(id="t1", name="read", status="completed")],
+    )
+    # 第二段思考：此时已有 1 个工具 → seq 1（插到工具之后）
+    messages.append_thinking_segment(message_id=created.id, text="两家口径要归一")
+
+    final = messages.list_messages(conversation_id=conversation.id)[-1]
+    assert final.thinking is not None
+    assert [(s.seq, s.text) for s in final.thinking] == [
+        (0, "先看 types.py"),
+        (1, "两家口径要归一"),
+    ]
+
+
+def test_thinking_default_none_and_legacy_rows(tmp_path: Path) -> None:
+    """无思考的消息 thinking 为 None（不留空壳）。"""
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="hi",
+    )
+    assert created.thinking is None
+    listed = messages.list_messages(conversation_id=conversation.id)[-1]
+    assert listed.thinking is None
+    # ThinkingSegment 是简单值对象
+    seg = ThinkingSegment(seq=2, text="x")
+    assert (seg.seq, seg.text) == (2, "x")
 
 
 def test_tool_call_validates_status() -> None:
