@@ -529,6 +529,59 @@ async def test_loop_preserves_reasoning_content_in_tool_call_roundtrip() -> None
     )
 
 
+@pytest.mark.asyncio
+async def test_message_end_observe_event_carries_reasoning_content() -> None:
+    """feat-439-M2 R1: message_end observe 事件必须带 reasoning_content。
+
+    gateway observer 要把「空正文但有思考」的回合作为过程项转发到气泡，前提是
+    内核在 message_end 事件里把 msg.reasoning_content 暴露出来（现状只带 content）。
+    """
+    thinking_text = "先想清楚再动手……"
+    client = FakeLLMClient(
+        responses=(
+            LLMGenerateResponse(
+                model="kimi-k2",
+                message=LLMMessage(
+                    role="assistant",
+                    content="",
+                    tool_calls=(
+                        LLMToolCall(call_id="c1", name="echo", arguments={"text": "x"}),
+                    ),
+                    reasoning_content=thinking_text,
+                ),
+                finish_reason="tool_calls",
+            ),
+            LLMGenerateResponse(
+                model="kimi-k2",
+                message=LLMMessage(role="assistant", content="done"),
+                finish_reason="stop",
+            ),
+        )
+    )
+    captured: list[dict] = []
+    hooks = HookRegistry()
+
+    async def on_message_end(event, ctx):  # noqa: ANN001
+        captured.append(dict(event))
+
+    hooks.on("message_end", on_message_end)
+    hook_runner = HookRunner(registry=hooks)
+    loop = AgentLoop(
+        llm_client=client,
+        model="kimi-k2",
+        policies=AgentPolicies(max_turns=3),
+        tool_registry=FakeToolRegistry(hook_runner=hook_runner),
+        hook_runner=hook_runner,
+    )
+
+    await _run_loop(loop, _base_state())
+
+    # 第一回合的 message_end 应带 reasoning_content（空正文 + 思考）。
+    with_reasoning = [e for e in captured if e.get("reasoning_content")]
+    assert with_reasoning, f"message_end 事件未带 reasoning_content: {captured!r}"
+    assert with_reasoning[0]["reasoning_content"] == thinking_text
+
+
 # ---------------------------------------------------------------------------
 # W1 (feat-385-M2): AgentLoop on_compaction callback
 # ---------------------------------------------------------------------------
