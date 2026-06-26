@@ -170,10 +170,13 @@ def test_update_runtime_state_appends_content_and_upserts_tool_call(
     assert only.duration_ms == 22
 
 
-def test_append_thinking_segment_round_trip_with_insertion_seq(
+def test_thinking_and_tools_share_monotonic_process_seq(
     tmp_path: Path,
 ) -> None:
-    """feat-439-M2 R3: 思考段持久化往返，seq = 到达时气泡已有 tool_calls 数(插入索引)。"""
+    """feat-439-M2: 思考段与工具调用共享一个 per-message 单调递增 seq（真实到达序、唯一）。
+
+    渲染端按 seq 把过程项 merge 成一条时间线；唯一 seq 让 live 事件可幂等去重。
+    """
     users, conversations, messages = _build(tmp_path)
     alice = users.create_user(username="alice", display_name="Alice")
     conversation = conversations.create_conversation(
@@ -186,22 +189,38 @@ def test_append_thinking_segment_round_trip_with_insertion_seq(
         allow_empty=True,
     )
 
-    # 第一段思考：此时无工具 → seq 0
-    messages.append_thinking_segment(message_id=created.id, text="先看 types.py")
-    # 一个工具调用
+    # 真实到达序：think → tool → think → tool → think
+    messages.append_thinking_segment(message_id=created.id, text="先看 types.py")  # seq 0
+    messages.update_runtime_state(
+        message_id=created.id,
+        tool_calls_upsert=[ToolCall(id="t1", name="read", status="running")],  # seq 1
+    )
+    messages.append_thinking_segment(message_id=created.id, text="再归一口径")  # seq 2
+    messages.update_runtime_state(
+        message_id=created.id,
+        tool_calls_upsert=[ToolCall(id="t2", name="edit", status="running")],  # seq 3
+    )
+    messages.append_thinking_segment(message_id=created.id, text="收尾总结")  # seq 4
+    # 工具完成（同 id 二次 upsert）必须保留首次分配的 seq，不再 ++
     messages.update_runtime_state(
         message_id=created.id,
         tool_calls_upsert=[ToolCall(id="t1", name="read", status="completed")],
     )
-    # 第二段思考：此时已有 1 个工具 → seq 1（插到工具之后）
-    messages.append_thinking_segment(message_id=created.id, text="两家口径要归一")
 
     final = messages.list_messages(conversation_id=conversation.id)[-1]
     assert final.thinking is not None
     assert [(s.seq, s.text) for s in final.thinking] == [
         (0, "先看 types.py"),
-        (1, "两家口径要归一"),
+        (2, "再归一口径"),
+        (4, "收尾总结"),
     ]
+    assert final.tool_calls is not None
+    by_id = {t.id: t for t in final.tool_calls}
+    assert by_id["t1"].seq == 1 and by_id["t1"].status == "completed"
+    assert by_id["t2"].seq == 3
+    # 全部过程项 seq 唯一
+    all_seqs = [s.seq for s in final.thinking] + [t.seq for t in final.tool_calls]
+    assert sorted(all_seqs) == [0, 1, 2, 3, 4]
 
 
 def test_thinking_default_none_and_legacy_rows(tmp_path: Path) -> None:

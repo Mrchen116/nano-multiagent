@@ -169,24 +169,26 @@ def test_on_thinking_segment_persists_and_emits(tmp_path: Path) -> None:
     )
     captured.clear()
 
-    bridge.on_thinking_segment(message_id=msg.id, text="先看 types.py")
+    bridge.on_thinking_segment(message_id=msg.id, text="先看 types.py")  # seq 0
     bridge.on_tool_call_upserted(
         message_id=msg.id,
-        tool_call=ToolCall(id="t1", name="read", status="completed"),
+        tool_call=ToolCall(id="t1", name="read", status="completed"),  # seq 1
     )
-    bridge.on_thinking_segment(message_id=msg.id, text="两家口径要归一")
+    bridge.on_thinking_segment(message_id=msg.id, text="两家口径要归一")  # seq 2
 
     final = messages.list_messages(conversation_id=conv_id)[-1]
     assert final.thinking is not None
+    # 思考与工具共享单调递增 seq → 思考拿 0 / 2，工具 t1 拿 1。
     assert [(s.seq, s.text) for s in final.thinking] == [
         (0, "先看 types.py"),
-        (1, "两家口径要归一"),
+        (2, "两家口径要归一"),
     ]
+    assert final.tool_calls[0].seq == 1
 
     think_events = [e for e in captured if e.event_type == "thinking.segment"]
     assert len(think_events) == 2
     p = json.loads(think_events[1].payload_json)
-    assert p["thinking_segment"]["seq"] == 1
+    assert p["thinking_segment"]["seq"] == 2
     assert p["thinking_segment"]["text"] == "两家口径要归一"
     assert p["message_id"] == msg.id
 

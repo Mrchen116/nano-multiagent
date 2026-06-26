@@ -36,13 +36,14 @@ describe("ToolCallsPanel", () => {
 describe("ToolCallsPanel · process timeline (feat-439-M2)", () => {
   afterEach(() => undefined);
 
+  // feat-439-M2: 思考与工具共享单调递增 seq（真实到达序）；前端按 seq merge。
   const TWO_TOOLS: ToolCall[] = [
-    { id: "t1", name: "read_file", status: "completed", input: {}, output: "ok", duration_ms: 10 },
-    { id: "t2", name: "str_replace_edit", status: "completed", input: {}, output: "ok", duration_ms: 8 }
+    { id: "t1", name: "read_file", status: "completed", input: {}, output: "ok", duration_ms: 10, seq: 1 },
+    { id: "t2", name: "str_replace_edit", status: "completed", input: {}, output: "ok", duration_ms: 8, seq: 3 }
   ];
   const THINKING: ThinkingSegment[] = [
     { seq: 0, text: "先看 types.py 当前结构" },
-    { seq: 1, text: "两家 provider 口径要归一" }
+    { seq: 2, text: "两家 provider 口径要归一" }
   ];
 
   it("merges thinking + tools into one timeline ordered by seq (think0 → tool0 → think1 → tool1)", async () => {
