@@ -1,55 +1,50 @@
-"""Persist compaction summary and translate it into API-level result."""
+"""Translate an applied compaction plan into an API-level result.
+
+bugfix-437 decision 2: persistence moved entirely to the runtime direct-write
+path (``_compact_session``), which writes ``compact_boundary`` + summary via the
+session writer AND resets the in-process history cache. This builder is now a
+pure result constructor with no storage side effects — keeping a second write
+here was the source of the workspace-aware crash (the redundant
+``append_compaction`` passed ``workspace_root=None``) and of a write/observe
+drift.
+"""
 
 from collections.abc import Sequence
-
-from agent.core.session.manager import SessionManager
 
 from .types import CompactionPlan, CompactionResult
 
 
 class CompactionApplier:
-    """Apply a compaction plan to session storage."""
-
-    def __init__(self, *, session_manager: SessionManager) -> None:
-        self._session_manager = session_manager
+    """Build a CompactionResult from an applied plan (no persistence)."""
 
     def apply(
         self,
         *,
-        session_id: str,
         plan: CompactionPlan,
         summary: str,
+        summary_uuid: str,
         restored_files: Sequence[str] = (),
     ) -> CompactionResult:
-        """Persist compaction record and return normalized result.
+        """Construct the normalized compaction result.
 
         Args:
-            session_id: Target session id.
             plan: Selected compaction plan.
             summary: Generated summary for dropped history.
+            summary_uuid: Message id of the summary turn written by the runtime
+                direct-write path; used as ``entry_id`` so observers and the
+                on-disk ``compact_boundary`` reference the same id.
             restored_files: Post-compact restored file contents (max 5).
 
         Returns:
-            Persisted compaction result.
-
-        Side Effects:
-            Appends one compaction entry to the session store.
+            Normalized compaction result. No side effects.
         """
 
-        entry = self._session_manager.append_compaction(
-            session_id,
-            first_kept_event_id=plan.first_kept_event_id,
-            summary=summary,
-            data={
-                "reason": plan.reason.value,
-                "restored_files": list(restored_files),
-            },
-        )
+        del restored_files  # carried on the on-disk compact_boundary, not the result
         return CompactionResult(
             reason=plan.reason,
-            entry_id=entry.entry_id,
-            first_kept_event_id=entry.first_kept_event_id,
-            summary=entry.summary,
+            entry_id=summary_uuid,
+            first_kept_event_id=plan.first_kept_event_id,
+            summary=summary,
             dropped_event_ids=tuple(event.entry_id for event in plan.dropped_events),
             kept_event_ids=(),
         )

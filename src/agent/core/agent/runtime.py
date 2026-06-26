@@ -240,7 +240,7 @@ class AgentRuntime:
         self._compaction_summarizer = CompactionSummarizer(
             fork=_summary_fork,
         )
-        self._compaction_applier = CompactionApplier(session_manager=session_manager)
+        self._compaction_applier = CompactionApplier()
         self._loop = AgentLoop(
             llm_client=active_llm_client,
             llm_clients=llm_clients,
@@ -1969,22 +1969,30 @@ class AgentRuntime:
                 if len(restored_files) >= 5:
                     break
 
-        # Write compact_boundary + summary directly via JSONL writer and update memory.
+        # Generate the summary message up front so its id is the single source of
+        # truth for both the on-disk compact_boundary and the observed result
+        # entry_id (bugfix-437 decision 2: no drift between write and observe).
+        last_preserved_id = None
+        history = self._session_histories.get(session_id, [])
+        if history:
+            last_preserved_id = history[-1].message_id
+
+        summary_msg = Message(
+            message_id=make_message_id(),
+            parent_message_id=last_preserved_id,
+            role="user",
+            content=summary,
+            metadata={"is_compact_summary": True, "is_meta": True},
+        )
+
+        # Write compact_boundary + summary directly via JSONL writer and reset the
+        # in-process history cache. This is the SINGLE persistence path for
+        # compaction (bugfix-437 decision 2): the redundant apply()->append_compaction
+        # second write is removed. The memory reset is load-bearing — the next run's
+        # cache-first path reads _session_histories, so without it the compacted
+        # session would keep replaying the full transcript in memory.
         path = self._session_paths.get(session_id)
         if path is not None:
-            # Generate summary message
-            last_preserved_id = None
-            history = self._session_histories.get(session_id, [])
-            if history:
-                last_preserved_id = history[-1].message_id
-
-            summary_msg = Message(
-                message_id=make_message_id(),
-                parent_message_id=last_preserved_id,
-                role="user",
-                content=summary,
-                metadata={"is_compact_summary": True, "is_meta": True},
-            )
             self._session_histories[session_id] = [summary_msg]
             # compact_boundary must be written before summary turn so that
             # JsonlSessionStore.load() (which keeps only turns after the latest
@@ -2007,11 +2015,12 @@ class AgentRuntime:
             )
             await self._session_manager.writer.flush_async()
 
-        # Use applier for backward-compatible result object.
+        # Build the result object from the already-persisted direct write (no
+        # second persistence): entry_id aligns with the on-disk summary_uuid.
         result = self._compaction_applier.apply(
-            session_id=session_id,
             plan=plan,
             summary=summary,
+            summary_uuid=summary_msg.message_id,
             restored_files=restored_files,
         )
         await self._dispatch_observe(

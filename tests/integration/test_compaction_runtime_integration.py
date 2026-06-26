@@ -523,7 +523,7 @@ async def test_compaction_single_write_and_memory_reset(tmp_path: Path) -> None:
 
     result = await runtime.compact(session.session_id, workspace_root=tmp_path)
     assert result is not None
-    await manager.store.writer.flush()
+    manager.store.writer.flush()
 
     raw = _read_raw_jsonl(manager.store, session.session_id, tmp_path)
     boundaries = [r for r in raw if r.get("type") == "compact_boundary"]
