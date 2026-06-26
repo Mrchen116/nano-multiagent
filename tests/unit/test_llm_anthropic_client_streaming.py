@@ -707,3 +707,47 @@ async def test_connect_error_raises_model_error() -> None:
         or "connect" in str(err).lower()
         or err.details.get("error")
     ), f"ModelError 应反映连接被拒，实际: {err!r}"
+
+
+async def test_stream_usage_surfaces_cache_hit_fields() -> None:
+    """feat-439-M1: 流式终态 message_stop 的 usage 暴露缓存读取量。"""
+    events = [
+        {"type": "message_start", "message": {"role": "assistant"}},
+        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
+        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hi"}},
+        {"type": "content_block_stop", "index": 0},
+        {
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn"},
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 8,
+                "cache_creation_input_tokens": 5,
+                "cache_read_input_tokens": 2,
+            },
+        },
+        {"type": "message_stop"},
+    ]
+    body = _make_anthropic_sse(events)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+
+    client = AnthropicClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimiCoding:K2.6",
+        transport=httpx.MockTransport(handler),
+    )
+    messages = await _collect(
+        client,
+        LLMGenerateRequest(
+            session_id="sess_cache_439",
+            model="kimiCoding:K2.6",
+            messages=(LLMMessage(role="user", content="hi"),),
+        ),
+    )
+    final = next((m for m in messages if m.usage is not None), None)
+    assert final is not None and final.usage is not None
+    assert final.usage.prompt_tokens == 107
+    assert final.usage.cache_read_tokens == 2
+    assert final.usage.cache_total_input_tokens == 107

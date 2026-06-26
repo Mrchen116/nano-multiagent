@@ -838,3 +838,44 @@ async def test_loop_commits_terminal_at_abort_exit_with_pending_steer() -> None:
         )
         is False
     )
+
+
+def test_accumulate_usage_sums_cache_fields_and_snapshots_prompt() -> None:
+    """feat-439-M1: 整轮口径(spec Q1=B)——缓存两字段累加，prompt 仍取最后快照。"""
+    from agent.core.agent.loop import _accumulate_usage
+
+    first = TokenUsage(
+        prompt_tokens=100,
+        completion_tokens=10,
+        total_tokens=110,
+        cache_read_tokens=20,
+        cache_total_input_tokens=100,
+    )
+    second = TokenUsage(
+        prompt_tokens=300,
+        completion_tokens=5,
+        total_tokens=305,
+        cache_read_tokens=250,
+        cache_total_input_tokens=300,
+    )
+
+    merged = _accumulate_usage(first, second)
+    assert merged is not None
+    # prompt 取最后快照(驱动 context_used)，不累加
+    assert merged.prompt_tokens == 300
+    assert merged.completion_tokens == 15
+    # 缓存两字段整轮累加 → 命中率 = 270/400
+    assert merged.cache_read_tokens == 270
+    assert merged.cache_total_input_tokens == 400
+
+
+def test_accumulate_usage_cache_defaults_zero_for_legacy() -> None:
+    """缺省缓存字段(旧 provider/旧数据)累加后仍为 0，不报错。"""
+    from agent.core.agent.loop import _accumulate_usage
+
+    a = TokenUsage(prompt_tokens=50, completion_tokens=5, total_tokens=55)
+    b = TokenUsage(prompt_tokens=60, completion_tokens=3, total_tokens=63)
+    merged = _accumulate_usage(a, b)
+    assert merged is not None
+    assert merged.cache_read_tokens == 0
+    assert merged.cache_total_input_tokens == 0
