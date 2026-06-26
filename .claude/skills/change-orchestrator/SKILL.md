@@ -13,6 +13,8 @@ description: 用于在某个 unit 的 design.md 定稿后接管整个实施阶�
 
 **流程不可能面面俱到。** 它没覆盖到的情况一定会出现——那时以"把这个需求高质量做成"这个目标为准绳自己判断,像一个对结果负责的技术负责人,而不是没写到就卡住、或机械套最近一条规则的执行器。**别退化成"按 §X 执行"的流程机器。**
 
+Codex 执行本 skill 时,工具映射差异见 `references/codex-execution-notes.md`。
+
 ## §0 不可越界的硬规则
 
 1. **门禁 2 没过不能启动**。检查 `docs/changes/<unit>/design.md`:无 `<!-- 模板说明 -->`、Milestone 表完整、空目录数量 = 表行数。任一不满足,**拒绝启动**,提示用户回 `change-design-author` 收口。
