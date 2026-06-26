@@ -58,7 +58,9 @@ def test_add_participants_idempotent_skips_existing(tmp_path: Path) -> None:
     convo = conversations.create_conversation(
         title="Solo", participant_ids=[alice.id], creator_id=alice.id
     )
-    conversations.add_participants(conversation_id=convo.id, references=["agent:planner"])
+    conversations.add_participants(
+        conversation_id=convo.id, references=["agent:planner"]
+    )
     updated = conversations.add_participants(
         conversation_id=convo.id, references=["agent:planner"]
     )
@@ -194,7 +196,9 @@ def test_post_participants_idempotent(tmp_path: Path) -> None:
         )
         convo_id = convo.json()["id"]
         body = {"participants": [{"type": "agent", "id": "planner"}]}
-        client.post(f"/im/v1/conversations/{convo_id}/participants", json=body, headers=auth)
+        client.post(
+            f"/im/v1/conversations/{convo_id}/participants", json=body, headers=auth
+        )
         resp = client.post(
             f"/im/v1/conversations/{convo_id}/participants", json=body, headers=auth
         )

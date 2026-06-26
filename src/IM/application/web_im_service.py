@@ -96,6 +96,24 @@ class WebIMService:
             requester_id=requester_id,
         )
 
+    def add_participants(
+        self, *, conversation_id: str, references: list[str]
+    ) -> Conversation:
+        """Add participants (by reference) to an existing conversation.
+
+        Args:
+            conversation_id: Target conversation identifier.
+            references: Participant references (e.g. ``agent:<agent_id>``).
+
+        Raises:
+            ValueError: When references are empty, the conversation is missing,
+                or a reference resolves to no known user.
+        """
+        return self._conversations.add_participants(
+            conversation_id=conversation_id,
+            references=references,
+        )
+
     def remove_participant(self, *, conversation_id: str, user_id: str) -> None:
         """Remove a participant from a conversation (leave-group).
 

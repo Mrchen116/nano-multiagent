@@ -615,6 +615,61 @@ class ConversationRepository:
                 (conversation_id,),
             )
 
+    def add_participants(
+        self, *, conversation_id: str, references: list[str]
+    ) -> Conversation:
+        """Add participants to an existing conversation; return the new snapshot.
+
+        Reuses the create path's reference resolution (``agent:<id>`` → user row)
+        and membership INSERT. Idempotent: references already in the conversation
+        are skipped. Per decision 3 this only writes membership rows — it does not
+        recompute or refreeze ``config_profile_version`` (the conversation keeps
+        the version frozen at create time).
+
+        Raises:
+            ValueError: When the reference list is empty, the conversation does
+                not exist, or a reference resolves to no known user.
+        """
+        normalized_references = list(
+            dict.fromkeys(
+                reference.strip() for reference in references if reference.strip()
+            )
+        )
+        if not normalized_references:
+            raise ValueError("participants must not be empty")
+        convo_row = self._connection.execute(
+            "SELECT id FROM conversations WHERE id = ?",
+            (conversation_id,),
+        ).fetchone()
+        if convo_row is None:
+            raise ValueError("conversation_id not found")
+        existing_user_ids = {
+            str(row["user_id"])
+            for row in self._connection.execute(
+                "SELECT user_id FROM conversation_participants WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchall()
+        }
+        to_insert: list[str] = []
+        for reference in normalized_references:
+            resolved_user = self._resolve_participant_user_row(reference=reference)
+            if resolved_user is None:
+                raise ValueError("participant_ids contains unknown users")
+            resolved_user_id = str(resolved_user["id"])
+            if resolved_user_id in existing_user_ids:
+                continue
+            existing_user_ids.add(resolved_user_id)
+            to_insert.append(resolved_user_id)
+        if to_insert:
+            with self._connection:
+                self._connection.executemany(
+                    "INSERT INTO conversation_participants(conversation_id, user_id) VALUES (?, ?)",
+                    [(conversation_id, user_id) for user_id in to_insert],
+                )
+        updated = self.get_conversation(conversation_id=conversation_id)
+        assert updated is not None
+        return updated
+
     def remove_participant(self, *, conversation_id: str, user_id: str) -> None:
         """Remove one participant from a conversation (leave-group operation).
 
