@@ -310,6 +310,74 @@ async def test_overflow_post_turn_check_compacts_then_retries(tmp_path: Path) ->
     assert len(main_calls) == 3
 
 
+def _workspace_aware_service(tmp_path: Path) -> SessionService:
+    """Build a SessionService in production workspace-aware mode (``data_dir=None``).
+
+    bugfix-437: the original crash only reproduces here — the ``data_dir``
+    scaffolding used by every other test in this file lets ``_resolve_base``
+    return the flat dir and ignore ``workspace_root``, so the compaction read /
+    persist paths that forget to pass ``workspace_root`` never fail under test.
+    """
+
+    store = JsonlSessionStore(data_dir=None, workspace_config_dirname=".nano")
+    return SessionService(store=store)
+
+
+async def test_threshold_compaction_workspace_aware_does_not_crash(
+    tmp_path: Path,
+) -> None:
+    # bugfix-437 regression (decision 1): threshold pre-compaction reads history
+    # via loop._maybe_compact -> list_entries. In data_dir=None mode that read
+    # must carry workspace_root or the store raises SessionNotFoundError and the
+    # run dies mid-reply.
+    service = _workspace_aware_service(tmp_path)
+    manager = service.manager
+    session = service.create_session(workspace_root=tmp_path)
+    llm_client = ThresholdAwareLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="main-model",
+        compaction_settings=CompactionSettings(
+            enabled=True,
+            context_window=60,
+            reserve_tokens=10,
+            min_kept_messages=2,
+            summary_model="summary-model",
+        ),
+    )
+
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "hello " * 20}],
+        stream=False,
+        workspace_root=tmp_path,
+    )
+    result = await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "follow-up " * 20}],
+        stream=False,
+        workspace_root=tmp_path,
+    )
+
+    # Run completed (no crash), and compaction landed on disk + replays.
+    assert result.messages[0].content == "ack"
+    compactions = [
+        event
+        for event in manager.list_entries(
+            session.session_id, workspace_root=tmp_path
+        )
+        if isinstance(event, CompactionEntry)
+    ]
+    assert compactions
+    assert compactions[-1].data["reason"] == CompactionReason.THRESHOLD.value
+    replayed = manager.list_turn_messages(
+        session.session_id, workspace_root=tmp_path
+    )
+    assert replayed
+    assert any("summary" in (m.content or "").lower() for m in replayed)
+
+
 async def test_threshold_compaction_falls_back_when_summary_model_fails(
     tmp_path: Path,
 ) -> None:
