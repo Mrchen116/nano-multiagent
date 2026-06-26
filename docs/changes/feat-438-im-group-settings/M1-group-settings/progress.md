@@ -22,3 +22,16 @@
 - Rollback: 回退到 R1 C1 commit（删端点 + add_participants + user_id 字段即回到现状）。
 - Commits: C1=test(R1 红测), C2=feat(R1 实现), C3=docs(本段)
 - Next: R2 前端 chat-api 4 调用 + Actor.user_id。
+
+### R2 — 前端 chat-api 4 调用 + Actor.user_id
+
+- Context: GroupSettings 组件需要四个写操作；其中移除必须用 participant.user_id（决策 5）。
+- Decision: chat-types `Actor` 加 `user_id?: string | null`；chat-api 加 `updateConversation`(PATCH)/`addParticipants`(POST participants，构 `{type:"agent",id}` actor)/`removeParticipant`(DELETE participants/{userId})/`deleteConversation`(DELETE)。remove/delete 是 204 no-content，仅校验 `res.ok`、不 `jsonOrThrow`（避免空 body 解析报错）。
+- Rationale: 沿用文件既有 `authFetch` + `jsonOrThrow` 范式；removeParticipant 签名第二参命名 `userId` 并在 doc 里钉死「传 user_id 不是 agent_id」，从 API 层堵 CRITICAL-1。
+- Evidence:
+  - Tests: `chat-api.test.ts` 10 passed（新增 5：update PATCH body、add POST participants body、remove DELETE 用 user_id 的 URL、delete DELETE URL、remove 非 ok 抛错）。
+  - Entry: vitest mock fetch 校验真实 URL/method/body 契约（与后端路由对账：PATCH /conversations/{id}、POST .../participants、DELETE .../participants/{user_id}、DELETE /conversations/{id}）。
+  - 其余维度: N/A（纯 API client，UI 在 R3/R5）
+- Rollback: 回退 R2 C1。
+- Commits: C1=test(R2 红测), C2=feat(R2 实现), C3=docs(本段)
+- Next: R3 GroupSettings 组件（PC 抽屉 / 移动整屏）。
