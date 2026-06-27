@@ -578,7 +578,12 @@ class AgentRuntime:
                 if render_user_text([part]) or render_user_content_parts([part])
             )
             loop_history = loop_history + extra_messages
-            effective_user_text = render_user_text(last_part)
+            # feat-430 (design-review #2): the `/skill:` command lives in the LAST part
+            # (the current message). The line-451 rewrite ran on the full joined text and
+            # is a no-op for multi-part turns (`^` anchor misses the non-first command
+            # line), so re-apply the rewrite to the command-bearing part here — otherwise
+            # any group turn with buffered context silently bypasses skill rewriting.
+            effective_user_text = rewrite_skill_command(render_user_text(last_part))
             effective_input_parts = last_part
 
         all_messages: list[Message] = [user_msg]
