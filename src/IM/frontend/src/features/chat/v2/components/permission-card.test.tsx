@@ -460,7 +460,7 @@ describe("PermissionCard — deny reason input (feat-440-M1)", () => {
     expect("reason" in body).toBe(false);
   });
 
-  it("still resolves an allow decision even with reason text present (backend ignores it)", async () => {
+  it("omits reason from an allow decision even with reason text present (feat-440-M2 F4)", async () => {
     const user = userEvent.setup();
     const mockFetch = vi
       .fn()
@@ -481,5 +481,42 @@ describe("PermissionCard — deny reason input (feat-440-M1)", () => {
     await user.click(screen.getByRole("button", { name: /allow once/i }));
 
     await waitFor(() => expect(onResolved).toHaveBeenCalledWith("allow_once"));
+    // spec Q4: 允许类决策忽略理由框 — the reason must not even be sent.
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.decision).toBe("allow_once");
+    expect("reason" in body).toBe(false);
+  });
+
+  it("does not carry a stale reason onto a later allow after a failed deny (feat-440-M2 F4)", async () => {
+    const user = userEvent.setup();
+    // First POST (deny) fails, second POST (allow) succeeds.
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("boom", { status: 500 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+    render(
+      <PermissionCard
+        request={SAMPLE_REQUEST}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={() => {}}
+        fetchFn={mockFetch as unknown as typeof fetch}
+      />
+    );
+
+    await user.type(screen.getByTestId("permission-reason-input"), "先别动");
+    await user.click(screen.getByRole("button", { name: /deny/i }));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+    // Deny failed; the reason text is still in the box. Now the user allows instead.
+    await user.click(screen.getByRole("button", { name: /allow once/i }));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+
+    const denyBody = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(denyBody.reason).toBe("先别动");
+    const allowBody = JSON.parse((mockFetch.mock.calls[1][1] as RequestInit).body as string);
+    expect(allowBody.decision).toBe("allow_once");
+    expect("reason" in allowBody).toBe(false);
   });
 });
