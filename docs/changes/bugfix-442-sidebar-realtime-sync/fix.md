@@ -86,4 +86,83 @@
 
 ## 修复
 
+在 v2 聊天工作区 `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx`
+补上两个会话列表刷新触发点（后端在收消息/读消息时已正确维护 unread / preview /
+last_message_at，前端只需重新拉会话列表拿真值，不维护乐观 unread）：
+
+1. 用户维流 `attachUserConversationStream.onEvent` 加分支：收到 `message.sent` /
+   `message_created` / `relay.completed` 事件时，250ms 去抖后
+   `invalidateQueries(["chat-v2","conversations"])`。这条流覆盖所有会话，是驱动侧边栏
+   的正确通道；事件判据沿用 toast 模块 `buildNotificationCandidate` 认的同一组事件。
+   去抖避免群聊多 agent 同回合下连续重拉。
+2. messagesQuery 成功后加 effect（react-query v5 的 useQuery 无 onSuccess）刷新会话
+   列表，读消息（markAsRead=true 已清零后端 unread）后侧边栏角标随之清零。
+
+未改后端、未改 toast、未碰会话内 `openChatStream` 气泡流（不变量全部保住）。
+
+Commits（milestone 分支 milestone/bugfix-442-M1）：
+- C1 red：`test(bugfix-442/M1/R1): 红测 — 消息事件 + 读消息须刷新会话列表`
+- C2 fix：`fix(bugfix-442/M1/R1): v2 侧边栏消费消息流(去抖刷新)+ 读后刷新会话列表`
+
 ## 验证
+
+真栈端到端（隔离栈：IM:54492 + Gateway 连真 LLM；playwright + chromium 走真实
+浏览器 UI，登录 nano，与 default-agent 真实 direct chat，agent 经 gateway+LLM 真回复）：
+
+按 fix.md【现象】的三个症状逐个走，修后全部不复现：
+
+- **收到新消息标未读 + preview/时间更新**：离开会话停在 /chat 列表时，agent 回复
+  "好的，请说。" 到达 → 侧边栏 default-agent 行未读角标实时出现并 1→2、preview 实时
+  更新为该回复、时间更新（截图 B-unread-badge.png，角标=2）。修前该行不标未读、
+  preview 停在旧值（用户报告截图证实）。
+- **会话内 preview 实时更新**：在会话内时 agent 回复 "你好，有什么可以帮你的吗？"
+  → 侧边栏 preview 从自己发的消息实时更新为 agent 回复（截图 A-in-conv-preview.png）。
+- **读后未读清零**：点进 default-agent 会话读消息 → 未读角标 2→消失（截图
+  C-after-read.png）。修前切入读完角标 "1" 仍不消失（用户报告截图证实）。
+
+regression（落库）：`chat-workspace.integration.test.tsx` 两条——注入 message 事件
+断言会话列表重拉、进入会话断言读后重拉；无修复时 `/conversations` 仅被 GET 一次，
+两条均红，修后转绿。全量前端 vitest 60 files / 487 tests 全绿。
+
+## Round-1 code-review fix（2026-06-27）
+
+reviewer code-review 确认了两条 CONFIRMED 问题，在 milestone 分支
+`milestone/bugfix-442-fix1` 修复：
+
+**Fix A — message.created 点号对齐（治本）**
+
+根因核查：后端 `event_bridge.py` 用 `EVENT_MESSAGE_CREATED = "message.created"`
+（`event_types.py`），`repositories.py` 用 `"message.sent"`，`gateway_handler.py` 用
+`"relay.completed"`；前端 `parseImStreamEvent` 不归一化 event_type，原样透传给
+`onEvent`。M1 修复中写的 `message_created`（下划线）是 `_helpers.py` 内用于读取
+老 DB 行的 legacy alias，后端当前不 emit，`onEvent` 分支里永不匹配——agent 回复的
+`message.created` 事件被遗漏。
+
+修复：将 `event.eventType === "message_created"` 改为
+`event.eventType === "message.created"`（点号 canonical），同时保留 `message.sent`
+和 `relay.completed`（均是后端真实 emit 的事件）。
+
+**Fix B — 补 onResyncRequired（断线重连刷新）**
+
+`attachUserConversationStream` 的 `onResyncRequired` 可选回调在断线重连后被共享用户流
+触发；M1 未传，断线期间到达的新消息不触发会话列表强制刷新。对齐 `use-global-message-toast`
+同路径，补传：
+```typescript
+onResyncRequired: async () => {
+  await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+},
+```
+
+**不修（冗余 invalidate）**：`sendMutation.onSuccess` + 流事件双重 invalidate 是预期
+副产品（发自己的消息不走用户维流触发），reviewer 判 minor，保留现状。
+
+Commits（milestone/bugfix-442-fix1）：
+- C1：`test(bugfix-442/fix1): 红测 Fix A(message.created 点号) + Fix B(onResyncRequired 注册)`
+- C2：`fix(bugfix-442/fix1): Fix A 事件名对齐 message.created 点号 + Fix B 补 onResyncRequired`
+
+全量前端 vitest 60 files / 489 tests 全绿；tsc 零错。
+
+真栈验收覆盖说明：本次 fix 属纯前端事件名更正 + 可选回调注册，核心路径（agent
+回复触发侧边栏 unread/preview 实时更新）已在 M1 真栈验收通过（同一 gateway+chromium
+路径）。Fix A 新增的 `message.created` 分支通过 integration 测试注入该事件断言
+会话重拉覆盖；Fix B 注册回调通过 integration 测试断言 `capturedResyncHandler` 非 null 覆盖。

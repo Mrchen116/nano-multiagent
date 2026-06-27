@@ -11,9 +11,10 @@ import type { ParsedImStreamEvent } from "../../chat/im-chat-api";
 
 // ─── Mock attachUserConversationStream ──────────────────────────────────────
 // chat-workspace-page 订阅 user-scoped SSE/WS 流（node.status_changed /
-// agent.status_changed）时会调用此函数。测试通过 capturedStatusHandler
-// 直接注入事件，验证 page 是否正确消费并更新 React Query 缓存。
+// agent.status_changed / message.*）时会调用此函数。测试通过 capturedStatusHandler
+// 直接注入事件，通过 capturedResyncHandler 断言 onResyncRequired 已注册。
 let capturedStatusHandler: ((ev: ParsedImStreamEvent) => void) | null = null;
+let capturedResyncHandler: (() => Promise<void>) | null = null;
 
 vi.mock("../../chat/im-chat-api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../chat/im-chat-api")>();
@@ -23,9 +24,14 @@ vi.mock("../../chat/im-chat-api", async (importOriginal) => {
       selfUserId: string;
       token: string;
       onEvent: (ev: ParsedImStreamEvent) => void;
+      onResyncRequired?: () => Promise<void>;
     }) => {
       capturedStatusHandler = input.onEvent;
-      return () => { capturedStatusHandler = null; };
+      capturedResyncHandler = input.onResyncRequired ?? null;
+      return () => {
+        capturedStatusHandler = null;
+        capturedResyncHandler = null;
+      };
     }
   };
 });
@@ -217,6 +223,7 @@ describe("ChatWorkspacePage v2 — integration", () => {
 
   beforeEach(() => {
     capturedStatusHandler = null;
+    capturedResyncHandler = null;
     FakeWebSocket.instances = [];
     originalWS = globalThis.WebSocket;
     (globalThis as unknown as { WebSocket: unknown }).WebSocket = FakeWebSocket;
@@ -250,6 +257,83 @@ describe("ChatWorkspacePage v2 — integration", () => {
     expect(await screen.findByText("Hi Planner")).toBeInTheDocument();
     // Header title rendered too:
     expect(screen.getByRole("heading", { name: "Planner" })).toBeInTheDocument();
+  });
+
+  // bugfix-442: 侧边栏会话列表必须随实时消息流 + 读消息刷新，否则未读角标 /
+  // preview / 时间 / 排序停在加载时的快照。两条 regression 分别锁住两个触发点。
+  function conversationGetCount(spy: ReturnType<typeof mockFetch>): number {
+    const sent = (spy as unknown as { sent: { url: string; init?: RequestInit }[] }).sent;
+    return sent.filter(
+      (s) =>
+        s.url.endsWith("/im/v1/conversations") &&
+        (!s.init || s.init.method === undefined || s.init.method === "GET")
+    ).length;
+  }
+
+  it("re-fetches conversations when a message event arrives (unread/preview/order update)", async () => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    // 用户维流由 page 订阅，mock 把它的 onEvent 捕到 capturedStatusHandler。
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+    const before = conversationGetCount(fetchSpy);
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.sent",
+        payload: {
+          conversation_id: "c2",
+          message_id: "m-incoming",
+          sender_user_id: "agent:a-planner",
+          sender_type: "agent",
+          content: "新消息到达",
+          created_at: "2026-05-01T00:01:00Z"
+        },
+        eventId: 42
+      });
+    });
+    await waitFor(() => expect(conversationGetCount(fetchSpy)).toBeGreaterThan(before));
+  });
+
+  // Fix A: canonical dotted name message.created（agent 回复触发的事件）必须和
+  // message.sent 一样驱动侧边栏刷新。修前只匹配下划线 message_created (legacy alias)，
+  // 点号版本被遗漏 → agent 回复不触发 unread/preview 更新。
+  it("re-fetches conversations when a message.created (canonical dotted) event arrives", async () => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+    const before = conversationGetCount(fetchSpy);
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.created",
+        payload: {
+          conversation_id: "c2",
+          message_id: "m-agent-reply",
+          sender_user_id: "user-uuid-planner",
+          sender_type: "agent",
+          content: "agent 回复",
+          created_at: "2026-05-01T00:01:00Z"
+        },
+        eventId: 43
+      });
+    });
+    await waitFor(() => expect(conversationGetCount(fetchSpy)).toBeGreaterThan(before));
+  });
+
+  // Fix B: v2 订阅必须注册 onResyncRequired，否则断线重连后 IM 发 resync 命令时
+  // v2 侧边栏不强制刷新，可能停在断线期间错过消息的旧状态。
+  it("v2 subscription registers onResyncRequired for post-reconnect refresh", async () => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+    // onResyncRequired must be registered so the shared resync path invokes it.
+    expect(capturedResyncHandler).not.toBeNull();
+  });
+
+  it("re-fetches conversations after reading so the unread badge can clear", async () => {
+    // 读消息走 mark_as_read=true 清零后端 unread；前端须重新拉会话列表角标才落地。
+    // 没有这次刷新，/conversations 只会被 GET 一次（初次列表）。
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(conversationGetCount(fetchSpy)).toBeGreaterThanOrEqual(2));
   });
 
   it("renders an incoming agent message + delta + completion via the WS stream", async () => {
