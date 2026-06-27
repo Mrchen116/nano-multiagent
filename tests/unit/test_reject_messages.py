@@ -82,6 +82,15 @@ class TestAutoRejectMessage:
         assert "settings" not in msg
         assert "permission rule" not in msg
 
+    def test_auto_reject_empty_reason_omits_reason_clause(self):
+        # feat-440-M2 (F2 / verifier S2): an empty reason must NOT yield the
+        # grammar-broken "Reason: . IMPORTANT..." — drop the "Reason: <r>. " clause
+        # entirely, keeping only the denial sentence + guidance.
+        msg = auto_reject_message("")
+        assert msg == "Permission for this action has been denied. " + DENIAL_WORKAROUND_GUIDANCE
+        assert "Reason:" not in msg
+        assert "Reason: ." not in msg
+
 
 class TestBuildRejectMessageMapping:
     def test_subagent_takes_precedence(self):
@@ -117,3 +126,9 @@ class TestBuildRejectMessageMapping:
             approval=None, reason="deny-limit exceeded", is_subagent=False
         )
         assert msg == auto_reject_message("deny-limit exceeded")
+
+    def test_auto_reject_when_no_approval_empty_reason(self):
+        # feat-440-M2 (F2): auto block 理论上恒带 reason，但若为空也不得产语法损坏文本。
+        msg = build_reject_message(approval=None, reason="", is_subagent=False)
+        assert "Reason:" not in msg
+        assert msg == auto_reject_message("")
