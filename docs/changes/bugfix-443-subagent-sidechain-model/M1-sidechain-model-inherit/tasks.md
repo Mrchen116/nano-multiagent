@@ -11,11 +11,11 @@ bugfix-429 per-run model 机制的两个收尾根因补全，外部可观察：
 
 ## 退出标准
 
-- [ ] `AgentRuntime.resolve_run_model(session_id)` 返回该 session 已登记的 run 模型（无则 None）。
-- [ ] 三派发点（后台 start / 前台 submit_foreground / resume）都用 `resolve_run_model(ctx.session_id)` 取父模型并透传到 `runtime.run(model=...)`，单测验证 runner/run 收到父模型。
-- [ ] `BackgroundSubagentRunner.start` Protocol + `RuntimeRunner.start` 加 `model: str | None = None`，透传 `runtime.run(model=model)`。
-- [ ] 根因 B：`loop.py:910` 补 `model_override=(None if summary_model else active_model)`，单测两态（无 summary_model 用 active_model、有 summary_model 传 None）。
-- [ ] 全测试树 `pytest -m "not e2e"` 不回归；contract line-pin 不移位（已核 runtime.py:208 在新增 accessor 之上）。
+- [x] `AgentRuntime.resolve_run_model(session_id)` 返回该 session 已登记的 run 模型（无则 None）。
+- [x] 三派发点（后台 start / 前台 submit_foreground / resume）都用 `resolve_run_model(父 session)` 取父模型并透传到 `runtime.run(model=...)`，单测验证 runner/run 收到父模型。
+- [x] `BackgroundSubagentRunner.start` Protocol + `RuntimeRunner.start` 加 `model: str | None = None`，透传 `runtime.run(model=model)`。
+- [x] 根因 B：`loop.py:910` 补 `model_override=(None if summary_model else active_model)`，单测两态（无 summary_model 用 active_model、有 summary_model 传 None）。
+- [x] 全测试树 `pytest -m "not e2e"` 不回归（3044 passed）；contract line-pin 不移位（129 passed，runtime.py:208 在新增 accessor 之上）。
 
 ## 测试策略
 

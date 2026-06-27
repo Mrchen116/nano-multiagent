@@ -99,6 +99,11 @@ class _RuntimeStub:
     def session_workspace_root(self, session_id: str) -> Any:
         return self._tmp_path
 
+    def resolve_run_model(self, session_id: str | None) -> str | None:
+        # bugfix-443: stub has no per-run model registry; the agent tool reads
+        # this to thread the parent run model into subagent dispatch.
+        return None
+
     async def run(
         self,
         session_id: str,
@@ -110,6 +115,7 @@ class _RuntimeStub:
         workspace_root: Any = None,
         run_id: str | None = None,
         llm_session_id: str | None = None,
+        model: str | None = None,
     ) -> TurnResult:
         self.run_calls.append(
             {

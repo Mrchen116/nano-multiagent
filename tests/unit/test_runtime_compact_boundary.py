@@ -68,7 +68,9 @@ class _FakeCompactionPlanner:
 class _FakeCompactionSummarizer:
     """Summarizer that returns a fixed summary."""
 
-    async def summarize(self, *, session_id, system_prompt, dropped_messages):
+    async def summarize(
+        self, *, session_id, system_prompt, dropped_messages, model_override=None
+    ):
         return "Compact summary: context was too long."
 
 
