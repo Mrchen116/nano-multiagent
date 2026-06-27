@@ -103,20 +103,24 @@ function setMode(group) {
 document.getElementById("btn-direct").onclick = () => setMode(false);
 document.getElementById("btn-group").onclick = () => setMode(true);
 
-// 仅当 / 在输入框开头（前面无非空字符）才触发，匹配 spec「中间出现 / 不触发」
-function slashQuery(text) {
-  const m = text.match(/^\/([^\s/]*)$/);
-  return m ? m[1] : null;
+// 仅当 / 在输入框开头才触发，匹配 spec「中间出现 / 不触发」。
+// 识别两种前缀形态：裸 /<prefix>（命令+skills）与 /skill:<prefix>（已在 skill 命名空间，只 skills）。
+// 后者支持删改已补入的 /skill:doc → /skill:d 时重新过滤纠错。
+function slashMatch(text) {
+  const m = text.match(/^\/(skill:)?([^\s/]*)$/);
+  if (!m) return null;
+  return { skillMode: !!m[1], prefix: m[2] };
 }
 
-function buildCandidates(q) {
-  const ql = q.toLowerCase();
-  const cmds = mode.command
-    .filter((c) => c.name.toLowerCase().startsWith(ql))
-    .map((c) => ({ ...c, kind: "cmd" }));
+function buildCandidates(prefix, skillMode) {
+  const ql = prefix.toLowerCase();
   const skills = mode.skills
     .filter((s) => s.name.toLowerCase().startsWith(ql))
     .map((s) => ({ ...s, kind: "skill" }));
+  if (skillMode) return skills; // /skill: 前缀只过滤 skills，不混命令
+  const cmds = mode.command
+    .filter((c) => c.name.toLowerCase().startsWith(ql))
+    .map((c) => ({ ...c, kind: "cmd" }));
   return [...cmds, ...skills];
 }
 
@@ -151,8 +155,8 @@ function renderPicker() {
   });
 }
 
-function openPicker(q) {
-  candidates = buildCandidates(q);
+function openPicker(prefix, skillMode) {
+  candidates = buildCandidates(prefix, skillMode);
   activeIdx = 0;
   picker.classList.add("open");
   renderPicker();
@@ -170,9 +174,9 @@ function choose(i) {
 }
 
 ta.addEventListener("input", () => {
-  const q = slashQuery(ta.value);
-  if (q === null) { closePicker(); return; }
-  openPicker(q);
+  const m = slashMatch(ta.value);
+  if (m === null) { closePicker(); return; }
+  openPicker(m.prefix, m.skillMode);
 });
 
 ta.addEventListener("keydown", (e) => {

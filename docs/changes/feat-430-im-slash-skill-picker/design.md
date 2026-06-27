@@ -130,6 +130,7 @@ graph TD
 
 - **理由**: 与既有 kernel `rewrite_skill_command` 的 `/skill:name` 格式对齐；前缀统一过滤符合主流 picker 直觉。
 - **拒绝**: 补 `/name`（与内核重写格式不一致）；命令始终显示（敲 `/pr` 还挂着 `/stop` 干扰）。
+- **触发与过滤（两种前缀形态）**: 触发正则识别 ① 裸 `/<prefix>`（过滤命令+skills）② `/skill:<prefix>`（已在 skill 命名空间，只过滤 skills）。关键：用户删改已补入的 `/skill:doc`→`/skill:d` 时，picker 须把 `d` 当 skill 前缀重新弹出过滤，支持纠错——若只认裸 `/<prefix>`，`/skill:d` 会被当查询串 `skill:d` 匹配落空（原型实测缺陷）。正则形如 `^/(skill:)?([^\s/]*)$`，捕获组 1 标识是否 skill 模式、组 2 为前缀。
 
 ## 接口与数据流
 

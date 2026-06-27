@@ -138,6 +138,11 @@
 - **WHEN** 用户在输入框输入 `/xyz`
 - **THEN** 面板显示空态提示，提示用户没有匹配的 slash 项
 
+#### Scenario: 编辑已补入的 `/skill:` 文本时重新过滤纠错
+- **GIVEN** 输入框里已是 `/skill:doc`（之前选中 skill 补入），picker 已关闭
+- **WHEN** 用户删除末尾字符改成 `/skill:d`
+- **THEN** picker 重新弹出，把 `d` 当作 skill 前缀过滤出匹配的 skills（如 `doc`），用户可重新选中纠正（不会因为 `/skill:` 前缀而匹配落空）
+
 ### Requirement: 发送后行为与普通消息一致
 
 #### Scenario: 选中 skill 后继续输入并发送
