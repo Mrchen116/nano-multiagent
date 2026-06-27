@@ -159,14 +159,16 @@ class StreamingToolExecutor:
                 await self._process_queue()
                 return
 
-            # Execution-layer allowlist enforcement (fork side-chain only).
-            # Deny non-allowlisted tools with a synthetic error result — the call
-            # never reaches registry.execute(), so the tool has no side effects.
+            # Execution-layer allowlist enforcement. Deny non-allowlisted tools
+            # with a synthetic error result — the call never reaches
+            # registry.execute(), so the tool has no side effects.
             if self._is_execution_denied(item.tool_call.name):
-                # feat-440-M1: a subagent (allowlist active) block — its model-facing
-                # text is the SUBAGENT_REJECT variant ("换做法/上报"), identical to a
-                # gate-denied tool inside the fork, so the LLM gets one consistent
-                # signal regardless of which path denied it.
+                # feat-440-M2 F6: the model-facing wording is chosen by the
+                # explicit is_fork_sidechain signal, not by allowlist presence.
+                # Inside a fork side-chain it is the SUBAGENT_REJECT variant
+                # ("换做法/上报"), identical to a gate-denied tool inside the fork,
+                # so the LLM gets one consistent signal regardless of which path
+                # denied it.
                 item.result = ToolResult(
                     call_id=item.tool_call.call_id,
                     name=item.tool_call.name,

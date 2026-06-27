@@ -714,8 +714,9 @@ async def _handle_ask(
     # feat-440-M2 (F1): keep the reason empty when the user gave none — do NOT
     # forge a "user denied" placeholder. A non-empty reason here makes build_reject_message
     # 选择表 Row 3 (bare user_deny → concise REJECT_MESSAGE) unreachable and feeds the
-    # LLM "...the user said:\nuser denied" instead. ``or ""`` keeps it a str (downstream
-    # details.get("reason") + isinstance(str) guard relies on str, not None).
+    # LLM "...the user said:\nuser denied" instead. ``or ""`` keeps it a str so the
+    # downstream ``isinstance(br, str) and br`` guard treats it as "no reason"
+    # (empty str and None behave the same there).
     return {
         "block": True,
         "reason": response.reason or "",

@@ -95,6 +95,8 @@ export function PermissionCard({
     // 理由框). Sending it on an allow is dead weight, and — because the reason state
     // survives a failed Deny — would let a stale reason ride a subsequent Allow.
     // Gate it on the decision so allow-class POSTs never carry reason.
+    // Assumes "deny" is the only deny-class option id; a second deny-class
+    // option would need adding here.
     const carriesReason = option.id === "deny" && trimmedReason.length > 0;
     try {
       const resp = await fetchFn(

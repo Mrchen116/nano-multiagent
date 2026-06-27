@@ -174,9 +174,10 @@ class AgentLoop:
                 falls back to the kernel-global cwd): the store must be located by
                 the session root, not a cwd that can default elsewhere (bugfix-437
                 decision 1).
-            tool_execution_allowlist: When set (fork side-chain only), the
-                StreamingToolExecutor denies tool calls whose name is not in
-                this allowlist. ``None`` means no restriction — the main agent
+            tool_execution_allowlist: When set, the StreamingToolExecutor denies
+                tool calls whose name is not in this allowlist. Pure execution
+                arbitration, independent of whether this run is a fork side-chain
+                (feat-440-M2 F6). ``None`` means no restriction — the main agent
                 path always passes ``None``. The full tool list is still sent
                 to the LLM (prefix-cache inheritance); only execution is
                 narrowed (feat-349 decision 6).

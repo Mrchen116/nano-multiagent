@@ -69,15 +69,16 @@ def auto_reject_message(reason: str) -> str:
     """Build the auto-reject text for a policy/classifier block.
 
     design 决策 2 (review R1): CC splits auto reject into ``AUTO_REJECT_MESSAGE``
-    (no reason) and ``buildYoloRejectionMessage`` (with reason). Every auto block
-    in this project carries a ``reason`` string (classifier ``<reason>`` /
+    (no reason) and ``buildYoloRejectionMessage`` (with reason). Auto blocks in
+    this project typically carry a ``reason`` string (classifier ``<reason>`` /
     "no permission channel (fail-closed)" / "gate error: ..." / "deny-limit
     exceeded..."), so the two collapse into this single with-reason template. The
     CC settings rule-hint tail sentence is dropped (no settings UX here).
 
-    feat-440-M2 (F2): when ``reason`` is empty, the ``Reason: <r>. `` clause is
-    omitted so the text stays grammatical — appending it blindly produced a broken
-    "Reason: . IMPORTANT..." string.
+    feat-440-M2 (F2): when ``reason`` is empty (e.g. a bare user Deny routed
+    through here), the ``Reason: <r>. `` clause is omitted so the text stays
+    grammatical — appending it blindly produced a broken "Reason: . IMPORTANT..."
+    string.
     """
     reason_clause = f"Reason: {reason}. " if reason else ""
     return f"{_AUTO_REJECT_DENIED}{reason_clause}{DENIAL_WORKAROUND_GUIDANCE}"
@@ -101,8 +102,11 @@ def build_reject_message(
             automatic block.
         reason: free-text reason (user's verbatim text for a Deny, classifier/系统
             string for an auto block). May be empty/None for a bare user Deny.
-        is_subagent: True when running inside a fork side-chain (the executor's
-            tool_execution_allowlist is active).
+        is_subagent: True when this run IS a fork side-chain, driven by the
+            explicit fork side-chain signal (``is_fork_sidechain``) rather than
+            inferred from the executor's allowlist — the two are decoupled
+            (feat-440-M2 F6), so an active ``tool_execution_allowlist`` no longer
+            implies subagent reject semantics.
     """
     if is_subagent:
         return SUBAGENT_REJECT_MESSAGE
