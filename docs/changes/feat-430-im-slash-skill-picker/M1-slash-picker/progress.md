@@ -45,4 +45,22 @@
 
 ## R4 — 前端 slash-picker 组件 + message-pane 接入 + 数据获取
 
+- Context: composer 现状只认 `@`（mention），`/` 无处理。需新建 slash picker（决策1 照搬 mention 交互、独立组件），数据 = config 白名单 ∩ capabilities（决策2），群聊按 location 去重并集（决策3/Q7）。
+- Decision:
+  - `slash-candidates.ts`（纯函数，可测）：`resolveEnabledSkills`（whitelist∩caps，空 whitelist=全量 runtime parity）、`buildSlashSkills`（按 location 去重合并 fromAgents，location 为 null 降级按 name）、`matchSlashTrigger`（`^/(skill:)?([^\s/]*)$`，仅行首触发、支持 `/skill:` 纠错）。
+  - `slash-picker.tsx`：内部建 `/stop` 命令 + 前缀过滤（skillMode 只过滤 skills）；键盘 ↑↓ 循环/Enter Tab 确认/Esc onClose，highlight `scrollIntoView({block:nearest})`（jsdom 缺该 API 故可选链）；鼠标 mousedown+preventDefault 选中、mouseenter 仅切高亮；空态文案；群聊 `来自 X` 来源标注；description 单行 ellipsis（CSS）。
+  - `message-pane.tsx`：`slashMatch` 仅 mentionQuery 为 null 且未 dismissed 时触发（与 @ 互斥）；选中补 `/skill:name `/`/stop `（尾随空格、rAF setSelectionRange 末尾、保焦）；Esc/点面板外 setSlashDismissed(保留 `/` 文本)、再输入重开（changeDraft reset）；单聊群聊都可用。
+  - `chat-workspace-page.tsx`：`conversationAgents` → react-query（keyed by agent ids、staleTime 60s）并发拉每 agent config+capabilities，组装 slashSkills 传 MessagePane。
+  - `im-agent-config-api.ts`：导出 `normalizeAllowlistOptions` 供 chat page 归一化 capabilities wire（含 location）。
+- Rationale: 数据组装抽成纯函数单测覆盖交集/空白名单/location 去重三类（防 design-review #1 空 picker / 全量误列）；picker 交互照 design checklist + 原型逐条落（hover 不重建 DOM 防点不中）。
+- Evidence:
+  - Tests: `npx vitest run` 全绿（62 files / 528→ 现 +20 新测：slash-candidates 11、slash-picker 9、message-pane slash 5；message-pane 共 54）。`npm run build`（tsc -b + vite）通过。
+  - Entry: 前端真实入口浏览器验收 → R5。
+  - Frontend State Matrix: default（弹面板）/empty(`/xyz` 空态)/loading(skills 拉取中面板可仅 /stop)/error(capabilities 失败 react-query 降级 slashSkills=[]，picker 仍出 /stop)/long-content(desc 单行截断 CSS)/missing(location null 降级 name 去重)/mobile+desktop（面板锚 composer 上方 max-height min(50vh,320px) 内滚）已覆盖；disabled/submitting/permission/dark = N/A。
+  - Browser QA: 留 R5。
+  - E2E/Regression: 组件+数据+集成测试落库（critical-path）。
+  - Visual/Interaction: 留 R5 截图（单聊/群聊/空态/截断/移动端）。
+- Rollback: revert C2（前端 8 文件）。
+- Commits: C1=test R4, C2=feat R4, C3=本次 docs
+
 ## R5 — live 真栈验收

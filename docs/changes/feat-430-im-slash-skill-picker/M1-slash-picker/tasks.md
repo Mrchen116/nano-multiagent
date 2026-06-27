@@ -85,7 +85,7 @@ UI 状态矩阵：
 - 步骤: `_should_process` 放行裸 `/stop`；`_handle_stop_command` 群聊无 active run 时抑制 no-op ack
 - 验证: 群聊 MENTION 策略下裸 /stop 触发 interrupt；未运行群成员无 ack
 
-### R4 — 前端 slash-picker 组件 + message-pane 接入 + 数据获取
+### R4 — 前端 slash-picker 组件 + message-pane 接入 + 数据获取  [DONE]
 
 - 步骤: 新建 `slash-picker.tsx`（照搬 mention-picker 交互 + 原型 checklist）；`message-pane.tsx` 加 `/` 触发分支；`chat-workspace-page.tsx` 拉每会话 agent(s) 的 config∩capabilities skills 组装候选
 - 验证: 组件测试（过滤/键盘/鼠标/空态/补文本/群聊分行）+ 数据组装单测 + `npm run test`/`build`
