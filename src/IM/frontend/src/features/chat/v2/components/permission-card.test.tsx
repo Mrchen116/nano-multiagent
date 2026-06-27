@@ -395,3 +395,128 @@ describe("PermissionCard — prop change reactivity", () => {
     expect(screen.getByRole("button", { name: /allow once/i })).toBeEnabled();
   });
 });
+
+// feat-440-M1: 常驻选填理由输入框。用户拒绝时填的理由透传进 POST body.reason,
+// 后端再拼进回传给 LLM 的拒绝文本;允许类决策后端忽略 reason。
+describe("PermissionCard — deny reason input (feat-440-M1)", () => {
+  it("renders a persistent optional reason input in the pending card", () => {
+    render(
+      <PermissionCard
+        request={SAMPLE_REQUEST}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={() => {}}
+      />
+    );
+    expect(screen.getByTestId("permission-reason-input")).toBeInTheDocument();
+  });
+
+  it("includes the typed reason in the POST body when denying", async () => {
+    const user = userEvent.setup();
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+    render(
+      <PermissionCard
+        request={SAMPLE_REQUEST}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={() => {}}
+        fetchFn={mockFetch as unknown as typeof fetch}
+      />
+    );
+
+    await user.type(screen.getByTestId("permission-reason-input"), "先别动这个文件");
+    await user.click(screen.getByRole("button", { name: /deny/i }));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.decision).toBe("deny");
+    expect(body.reason).toBe("先别动这个文件");
+  });
+
+  it("omits reason from the POST body when the input is left empty", async () => {
+    const user = userEvent.setup();
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+    render(
+      <PermissionCard
+        request={SAMPLE_REQUEST}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={() => {}}
+        fetchFn={mockFetch as unknown as typeof fetch}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /deny/i }));
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalled());
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.decision).toBe("deny");
+    expect("reason" in body).toBe(false);
+  });
+
+  it("omits reason from an allow decision even with reason text present (feat-440-M2 F4)", async () => {
+    const user = userEvent.setup();
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    const onResolved = vi.fn();
+
+    render(
+      <PermissionCard
+        request={SAMPLE_REQUEST}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={onResolved}
+        fetchFn={mockFetch as unknown as typeof fetch}
+      />
+    );
+
+    await user.type(screen.getByTestId("permission-reason-input"), "whatever");
+    await user.click(screen.getByRole("button", { name: /allow once/i }));
+
+    await waitFor(() => expect(onResolved).toHaveBeenCalledWith("allow_once"));
+    // spec Q4: 允许类决策忽略理由框 — the reason must not even be sent.
+    const body = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.decision).toBe("allow_once");
+    expect("reason" in body).toBe(false);
+  });
+
+  it("does not carry a stale reason onto a later allow after a failed deny (feat-440-M2 F4)", async () => {
+    const user = userEvent.setup();
+    // First POST (deny) fails, second POST (allow) succeeds.
+    const mockFetch = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("boom", { status: 500 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+
+    render(
+      <PermissionCard
+        request={SAMPLE_REQUEST}
+        conversationId="conv-1"
+        messageId="msg-1"
+        onResolved={() => {}}
+        fetchFn={mockFetch as unknown as typeof fetch}
+      />
+    );
+
+    await user.type(screen.getByTestId("permission-reason-input"), "先别动");
+    await user.click(screen.getByRole("button", { name: /deny/i }));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+
+    // Deny failed; the reason text is still in the box. Now the user allows instead.
+    await user.click(screen.getByRole("button", { name: /allow once/i }));
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+
+    const denyBody = JSON.parse((mockFetch.mock.calls[0][1] as RequestInit).body as string);
+    expect(denyBody.reason).toBe("先别动");
+    const allowBody = JSON.parse((mockFetch.mock.calls[1][1] as RequestInit).body as string);
+    expect(allowBody.decision).toBe("allow_once");
+    expect("reason" in allowBody).toBe(false);
+  });
+});

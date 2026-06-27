@@ -280,6 +280,7 @@ class GatewayHandler:
         message_id: str,
         request_id: str,
         decision: str,
+        reason: str | None = None,
     ) -> bool:
         """Push a permission_response frame to the gateway node hosting the parked run.
 
@@ -291,6 +292,9 @@ class GatewayHandler:
             message_id: Agent message that embeds the permission request.
             request_id: Stable permission request identifier.
             decision: User-chosen option (e.g. ``"allow_once"``, ``"deny"``).
+            reason: feat-440-M1 — optional free-text deny reason. Normalized to ""
+                here (single normalization point) so old callers / allow decisions
+                produce a stable frame and PermissionResponse.reason ends up empty.
 
         Returns:
             ``True`` when the node was connected and the frame was sent.
@@ -303,6 +307,7 @@ class GatewayHandler:
                 "message_id": message_id,
                 "request_id": request_id,
                 "decision": decision,
+                "reason": reason or "",
             },
         )
 

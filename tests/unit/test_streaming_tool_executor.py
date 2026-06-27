@@ -11,7 +11,7 @@ from agent.core.agent.tool_executor import StreamingToolExecutor
 from agent.core.tools.base import Tool
 from agent.core.tools.registry import ToolRegistry
 from agent.core.tools.base import ToolContext
-from agent.core.types import ToolCall
+from agent.core.types import ToolCall, ToolResult
 
 
 class _FakeTool(Tool):
@@ -581,3 +581,223 @@ async def test_parallel_safe_tool_results_in_enqueue_order(
     assert [r.name for r in all_results] == ["r1", "r2"], (
         f"expected [r1, r2] in enqueue order, got {[r.name for r in all_results]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# feat-440-M1: semantic rejection text on ToolResult.error
+# ---------------------------------------------------------------------------
+
+
+class _BlockingRegistry(ToolRegistry):
+    """Registry whose execute() raises a ToolError carrying gate block details."""
+
+    def __init__(self, details: Mapping[str, Any]) -> None:
+        self._tools: dict[str, Tool] = {}
+        self._details = details
+
+    def register(self, tool: Tool, *, replace: bool = False) -> None:
+        self._tools[tool.name] = tool
+
+    async def execute(
+        self,
+        name: str,
+        args: Mapping[str, Any],
+        *,
+        hook_context=None,
+        session_file_state=None,
+        out_meta=None,
+    ) -> Mapping[str, Any]:
+        from agent.core.errors import ToolError
+
+        raise ToolError(
+            "tool blocked by hook", tool_name=name, details=dict(self._details)
+        )
+
+
+async def _drain(executor: StreamingToolExecutor) -> list[ToolResult]:
+    items: list[ToolResult] = []
+    async for r in executor.get_remaining_results():
+        items.append(r)
+    return items
+
+
+@pytest.mark.asyncio
+async def test_non_allowlisted_tool_yields_subagent_reject_message() -> None:
+    """A non-allowlisted tool in a fork side-chain → SUBAGENT_REJECT_MESSAGE,
+    not the raw 'is not allowed in this background review context' string."""
+    from agent.core.agent.reject_messages import SUBAGENT_REJECT_MESSAGE
+
+    registry = _FakeRegistry()
+    registry.register(_FakeTool(name="read"))
+    # feat-440-M2 (F6): the fork construction point now sets is_fork_sidechain=True
+    # explicitly — the allowlist alone no longer implies subagent.
+    executor = StreamingToolExecutor(
+        registry, tool_execution_allowlist=("read",), is_fork_sidechain=True
+    )
+
+    executor.add_tool(_call("bash"))
+    results = await _drain(executor)
+
+    assert len(results) == 1
+    assert results[0].error == SUBAGENT_REJECT_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_subagent_allowlisted_tool_gate_blocked_yields_subagent_reject() -> None:
+    """F5 (row 1b): inside a fork side-chain, a tool that IS on the execution
+    allowlist (so it reaches registry.execute) but is then blocked by the gate must
+    still land on SUBAGENT_REJECT — the subagent wording wins over the gate's
+    user_deny/reason signals because there is no user to wait on in a fork.
+
+    This covers the path the M1 suite missed: M1 only tested the non-allowlisted
+    synthetic-error branch (never reaches the registry), not an allowlisted-but-
+    gate-denied tool flowing through the ToolError catch branch."""
+    from agent.core.agent.reject_messages import SUBAGENT_REJECT_MESSAGE
+
+    registry = _BlockingRegistry(
+        {
+            "blocked_by_hook": True,
+            "reason": "some gate reason",
+            "reason_code": "denied",
+            "approval": "user_deny",
+        }
+    )
+    registry.register(_FakeTool(name="edit"))
+    # edit IS allowlisted → passes execution-layer narrowing, reaches execute(),
+    # which raises the gate ToolError; is_fork_sidechain=True → SUBAGENT wording.
+    executor = StreamingToolExecutor(
+        registry, tool_execution_allowlist=("edit",), is_fork_sidechain=True
+    )
+
+    executor.add_tool(_call("edit"))
+    results = await _drain(executor)
+
+    assert results[0].error == SUBAGENT_REJECT_MESSAGE
+    # The gate badge signals still survive even though the text is SUBAGENT.
+    assert results[0].reason_code == "denied"
+
+
+@pytest.mark.asyncio
+async def test_user_deny_with_reason_yields_with_reason_prefix() -> None:
+    """Main-session user deny + reason → REJECT_MESSAGE_WITH_REASON_PREFIX + reason."""
+    from agent.core.agent.reject_messages import REJECT_MESSAGE_WITH_REASON_PREFIX
+
+    registry = _BlockingRegistry(
+        {
+            "blocked_by_hook": True,
+            "reason": "先别动这个文件",
+            "reason_code": "denied",
+            "approval": "user_deny",
+        }
+    )
+    registry.register(_FakeTool(name="edit"))
+    executor = StreamingToolExecutor(registry)
+
+    executor.add_tool(_call("edit"))
+    results = await _drain(executor)
+
+    assert results[0].error == REJECT_MESSAGE_WITH_REASON_PREFIX + "先别动这个文件"
+    # Existing badge signals must still survive onto the result.
+    assert results[0].reason_code == "denied"
+    assert results[0].approval == "user_deny"
+
+
+@pytest.mark.asyncio
+async def test_user_deny_without_reason_yields_reject_message() -> None:
+    from agent.core.agent.reject_messages import REJECT_MESSAGE
+
+    registry = _BlockingRegistry(
+        {
+            "blocked_by_hook": True,
+            "reason": "",
+            "reason_code": "denied",
+            "approval": "user_deny",
+        }
+    )
+    registry.register(_FakeTool(name="edit"))
+    executor = StreamingToolExecutor(registry)
+
+    executor.add_tool(_call("edit"))
+    results = await _drain(executor)
+
+    assert results[0].error == REJECT_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_auto_block_yields_auto_reject_message() -> None:
+    """Automatic block (no approval) → auto_reject_message(reason)."""
+    from agent.core.agent.reject_messages import auto_reject_message
+
+    registry = _BlockingRegistry(
+        {
+            "blocked_by_hook": True,
+            "reason": "deny-limit exceeded",
+            "reason_code": "denied",
+            "approval": None,
+        }
+    )
+    registry.register(_FakeTool(name="bash"))
+    executor = StreamingToolExecutor(registry)
+
+    executor.add_tool(_call("bash"))
+    results = await _drain(executor)
+
+    assert results[0].error == auto_reject_message("deny-limit exceeded")
+    assert results[0].reason_code == "denied"
+
+
+# ---------------------------------------------------------------------------
+# feat-440-M2 (F6): is_subagent decoupled from tool_execution_allowlist
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_main_session_with_allowlist_user_deny_stays_main_reject() -> None:
+    """F6: an execution allowlist must NOT imply 'subagent' for the reject-message
+    choice. A main session that one day gains a tool_execution_allowlist (e.g. a
+    sandbox mode) and whose user Denies a tool must still get the main-session
+    REJECT_MESSAGE — not the semantically inverted SUBAGENT_REJECT. The is_subagent
+    signal now rides an explicit fork flag, not the allowlist's presence."""
+    from agent.core.agent.reject_messages import REJECT_MESSAGE
+
+    registry = _BlockingRegistry(
+        {
+            "blocked_by_hook": True,
+            "reason": "",
+            "reason_code": "denied",
+            "approval": "user_deny",
+        }
+    )
+    registry.register(_FakeTool(name="edit"))
+    # allowlist active (edit permitted to execute) but NOT a fork side-chain.
+    executor = StreamingToolExecutor(
+        registry, tool_execution_allowlist=("edit",), is_fork_sidechain=False
+    )
+
+    executor.add_tool(_call("edit"))
+    results = await _drain(executor)
+
+    assert results[0].error == REJECT_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_fork_sidechain_flag_drives_subagent_reject_without_allowlist() -> None:
+    """F6: the explicit fork flag alone selects SUBAGENT_REJECT — independent of any
+    allowlist. A user_deny block inside a fork-flagged executor → SUBAGENT (row 1)."""
+    from agent.core.agent.reject_messages import SUBAGENT_REJECT_MESSAGE
+
+    registry = _BlockingRegistry(
+        {
+            "blocked_by_hook": True,
+            "reason": "ignored in subagent",
+            "reason_code": "denied",
+            "approval": "user_deny",
+        }
+    )
+    registry.register(_FakeTool(name="edit"))
+    executor = StreamingToolExecutor(registry, is_fork_sidechain=True)
+
+    executor.add_tool(_call("edit"))
+    results = await _drain(executor)
+
+    assert results[0].error == SUBAGENT_REJECT_MESSAGE

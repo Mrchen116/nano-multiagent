@@ -120,6 +120,9 @@ class AgentContextFork:
             available_skills_override=available_skills_override,
             available_tools_override=available_tools_override,
             tool_execution_allowlist=tool_execution_allowlist,
+            # feat-440-M2 (F6): this run IS a fork side-chain — blocked tools get
+            # the SUBAGENT_REJECT wording regardless of the allowlist contents.
+            is_fork_sidechain=True,
             model_override=model_override,
         ):
             messages.append(msg)

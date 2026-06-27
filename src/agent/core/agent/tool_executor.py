@@ -5,6 +5,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Mapping, Protocol
 
+from agent.core.agent.reject_messages import build_reject_message
 from agent.core.types import ToolCall, ToolResult
 
 
@@ -52,20 +53,28 @@ class StreamingToolExecutor:
         hook_context: Any | None = None,
         session_file_state: Any | None = None,
         tool_execution_allowlist: tuple[str, ...] | None = None,
+        is_fork_sidechain: bool = False,
     ) -> None:
         self._queue: list[_QueuedTool] = []
         self._registry = tool_registry
         self._hook_context = hook_context
         self._session_file_state = session_file_state
-        # Execution-layer allowlist. When set (fork side-chain only), tool calls
-        # whose name is not in this set are denied with a synthetic error result
-        # and never reach registry.execute(). None means "no restriction" — the
-        # main agent path always passes None so its tool execution is unaffected.
+        # Execution-layer allowlist. When set, tool calls whose name is not in this
+        # set are denied with a synthetic error result and never reach
+        # registry.execute(). None means "no restriction". This is purely an
+        # *execution* verdict — it no longer doubles as the "am I a subagent?" signal
+        # (feat-440-M2 F6): a future main session with a sandbox allowlist must not be
+        # mistaken for a fork side-chain.
         self._tool_execution_allowlist = (
             frozenset(tool_execution_allowlist)
             if tool_execution_allowlist is not None
             else None
         )
+        # feat-440-M2 (F6): explicit fork-side-chain signal, set True only at the fork
+        # construction point (context_fork → loop.run). It selects SUBAGENT_REJECT vs
+        # the main-session REJECT text. Decoupled from the allowlist so the two roles
+        # (execution narrowing vs reject-message wording) can vary independently.
+        self._is_fork_sidechain = is_fork_sidechain
         self._lock = asyncio.Lock()
         self._has_errored = False
         self._errored_tool_name = ""
@@ -150,17 +159,24 @@ class StreamingToolExecutor:
                 await self._process_queue()
                 return
 
-            # Execution-layer allowlist enforcement (fork side-chain only).
-            # Deny non-allowlisted tools with a synthetic error result — the call
-            # never reaches registry.execute(), so the tool has no side effects.
+            # Execution-layer allowlist enforcement. Deny non-allowlisted tools
+            # with a synthetic error result — the call never reaches
+            # registry.execute(), so the tool has no side effects.
             if self._is_execution_denied(item.tool_call.name):
+                # feat-440-M2 F6: the model-facing wording is chosen by the
+                # explicit is_fork_sidechain signal, not by allowlist presence.
+                # Inside a fork side-chain it is the SUBAGENT_REJECT variant
+                # ("换做法/上报"), identical to a gate-denied tool inside the fork,
+                # so the LLM gets one consistent signal regardless of which path
+                # denied it.
                 item.result = ToolResult(
                     call_id=item.tool_call.call_id,
                     name=item.tool_call.name,
                     output=None,
-                    error=(
-                        f"tool '{item.tool_call.name}' is not allowed in this "
-                        "background review context"
+                    error=build_reject_message(
+                        approval=None,
+                        reason=None,
+                        is_subagent=self._is_fork_sidechain,
                     ),
                     arguments=dict(item.tool_call.arguments),
                 )
@@ -217,6 +233,8 @@ class StreamingToolExecutor:
             # registry only kept str(exc) before, dropping the classification.
             reason_code = None
             approval = None
+            blocked_by_hook = False
+            block_reason = None
             details = getattr(exc, "details", None)
             if isinstance(details, Mapping):
                 rc = details.get("reason_code")
@@ -227,11 +245,30 @@ class StreamingToolExecutor:
                 ap = details.get("approval")
                 if isinstance(ap, str) and ap:
                     approval = ap
+                blocked_by_hook = bool(details.get("blocked_by_hook"))
+                # feat-440-M1: the gate's free-text reason was dropped before — lift
+                # it so it can be woven into the semantic rejection text below.
+                br = details.get("reason")
+                if isinstance(br, str) and br:
+                    block_reason = br
+            # feat-440-M1: a hook block (user Deny / policy auto-block) gets a
+            # semantic, scenario-specific message instead of the generic
+            # "tool blocked by hook" — so the LLM can tell a user's deliberate Deny
+            # (停下等指示) from an automatic policy block (换做法/上报). Genuine tool
+            # failures (no block) keep their raw error string.
+            if blocked_by_hook:
+                error_text = build_reject_message(
+                    approval=approval,
+                    reason=block_reason,
+                    is_subagent=self._is_fork_sidechain,
+                )
+            else:
+                error_text = str(exc)
             item.result = ToolResult(
                 call_id=item.tool_call.call_id,
                 name=item.tool_call.name,
                 output=None,
-                error=str(exc),
+                error=error_text,
                 duration_ms=item.duration_ms,
                 arguments=dict(item.tool_call.arguments),
                 reason_code=reason_code,

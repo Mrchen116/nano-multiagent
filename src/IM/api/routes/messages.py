@@ -438,6 +438,10 @@ class SubmitPermissionDecisionRequest(BaseModel):
 
     message_id: str = Field(min_length=1)
     decision: str = Field(min_length=1)
+    # feat-440-M1: optional free-text reason a user types when denying. Threaded
+    # through to PermissionResponse.reason so the gate weaves it into the rejection
+    # text sent back to the LLM. Allow decisions ignore it.
+    reason: str | None = None
 
 
 @router.post(
@@ -476,11 +480,18 @@ async def submit_permission_decision(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="no agent node found for this conversation",
         )
+    # feat-440-M2 (F3): trim the reason at the HTTP boundary. A non-frontend /
+    # direct-API caller can send leading/trailing or pure whitespace; a strip()-empty
+    # reason is treated as "not provided" (→ None) so it never reaches the LLM as a
+    # blank "the user said:\n   ". The frontend already trims, but the backend must
+    # not trust it.
+    normalized_reason = payload.reason.strip() if payload.reason is not None else None
     delivered = await gateway_handler.push_permission_response(
         target_node_id=target_node_id,
         message_id=payload.message_id,
         request_id=request_id,
         decision=payload.decision,
+        reason=normalized_reason or None,
     )
     return {"status": "forwarded" if delivered else "queued"}
 

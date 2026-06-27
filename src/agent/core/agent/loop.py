@@ -162,6 +162,7 @@ class AgentLoop:
         session_file_state: SessionFileState | None = None,
         max_turns: int | None = None,
         tool_execution_allowlist: tuple[str, ...] | None = None,
+        is_fork_sidechain: bool = False,
         model_override: str | None = None,
     ) -> AsyncIterator[Message]:
         """Stream one user turn until completion or terminal stop reason.
@@ -173,12 +174,19 @@ class AgentLoop:
                 falls back to the kernel-global cwd): the store must be located by
                 the session root, not a cwd that can default elsewhere (bugfix-437
                 decision 1).
-            tool_execution_allowlist: When set (fork side-chain only), the
-                StreamingToolExecutor denies tool calls whose name is not in
-                this allowlist. ``None`` means no restriction — the main agent
+            tool_execution_allowlist: When set, the StreamingToolExecutor denies
+                tool calls whose name is not in this allowlist. Pure execution
+                arbitration, independent of whether this run is a fork side-chain
+                (feat-440-M2 F6). ``None`` means no restriction — the main agent
                 path always passes ``None``. The full tool list is still sent
                 to the LLM (prefix-cache inheritance); only execution is
                 narrowed (feat-349 decision 6).
+            is_fork_sidechain: True only when this run IS a fork side-chain
+                (set at the context_fork construction point). Selects the
+                SUBAGENT_REJECT wording for blocked tools (feat-440-M2 F6).
+                Decoupled from ``tool_execution_allowlist`` so the main agent
+                never inherits subagent reject semantics by merely having an
+                execution allowlist.
 
         Yields:
             Message objects as they are produced:
@@ -344,6 +352,7 @@ class AgentLoop:
                             hook_context=active_hook_ctx,
                             session_file_state=session_file_state,
                             tool_execution_allowlist=tool_execution_allowlist,
+                            is_fork_sidechain=is_fork_sidechain,
                         )
                         if self._tool_registry is not None
                         else None

@@ -6,6 +6,8 @@
 
 ## Changelog
 
+2026-06-27 (M2): post-acceptance fix round 1 — 修 bare-deny 走 WITH_REASON+"user denied" 的 Row 3 不可达缺陷（gate 占位串）+ 一批防御/覆盖 fix — 详见 M2/progress.md
+
 ## 现状分析
 
 ### 涉及范围
@@ -218,4 +220,5 @@ sequenceDiagram
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
 | feat-440-M1 | semantic-reject-feedback | — | A | `src/agent/core/agent/reject_messages.py`(新)、`src/agent/core/agent/tool_executor.py`、`src/IM/api/routes/messages.py`、`src/IM/ws/gateway_handler.py`、`src/IM/frontend/src/features/chat/v2/components/permission-card.tsx` 及各自测试 | `[reviewer]` 主会话拒后 agent 停下征询不闷头重试（Req-主会话用户拒绝/Scenario-未填理由）；`[reviewer]` 填理由时 agent 据理由调整（Scenario-填写理由）；`[reviewer]` 策略自动拒后 agent 换路/上报（Req-策略自动拦截）；`[reviewer]` subagent 被拒走「换方法/上报」（Req-subagent 区分）；`[reviewer]` 权限卡常驻选填理由框、允许类忽略（Req-IM 权限卡理由框 2 Scenario）；`[worker]` `build_reject_message` 四类映射单测全绿（含非白名单 synthetic→SUBAGENT）；`[worker]` CC 文本主体逐字一致、`newText` 本地化、无规则尾句（单测断言）；`[worker]` IM reason 透传单测（messages/gateway_handler）+ 前端 permission-card 测试绿 |
+| feat-440-M2 | fix-round1 (post-acceptance fix, round 1) | M1 | A | `src/agent/platform/hooks/builtins/auto_mode_gate.py`、`src/agent/core/agent/reject_messages.py`、`src/agent/core/agent/tool_executor.py`、`src/agent/core/agent/context_fork.py`、`src/IM/api/routes/messages.py`、`src/IM/frontend/.../permission-card.tsx` 及各自测试 | `[reviewer]` 主会话空理由拒 → LLM 收到简洁 REJECT_MESSAGE（不含 "user denied"），Scenario-未填理由真实路径成立；`[worker]` F1 gate `response.reason or ""` 修复 + gate 层测试断言 bare-deny 经真 gate 产出 REJECT_MESSAGE（堵 reason="" 直注盲点）；`[worker]` F2 `auto_reject_message` 空 reason guard + 测试；`[worker]` F3 后端 reason 空白裁剪（纯空白→视为空）+ 测试；`[worker]` F4 前端仅 deny 决策带 reason、allow 不带 + POST body 断言；`[worker]` F5 补 subagent 内白名单工具被 gate 拒的 tool_executor 集成测试；`[worker]` F6 `is_subagent` 与 `tool_execution_allowlist` 解耦为显式 fork 信号 + 测试；`[worker]` 全测试树 `-m "not e2e"` + 前端 vitest 全绿 |
 
