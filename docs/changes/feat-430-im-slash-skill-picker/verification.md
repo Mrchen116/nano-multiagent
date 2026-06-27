@@ -118,3 +118,89 @@ design.md 的 slash picker 交互 checklist 明确要求 "给面板/项加 `role
 
 design.md checklist 说明 "Enter 与 Tab 都确认选中"，`slash-picker.tsx:85` 实现了 Tab，但 `slash-picker.test.tsx` 只测了 Enter（line 57-65），Tab 无对应用例。  
 **修法**：在 `slash-picker.test.tsx` 中补一条 `user.keyboard("{Tab}")` 验证 Tab 确认选中的测试用例。
+
+---
+
+# Round 2
+
+> date: 2026-06-27 | HEAD: be7b0137
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 6/6 exit criteria ticked |
+| Correctness | 16/16 spec scenarios covered（含 fix-r2 新增路径） |
+| Coherence | Followed（6 决策 + fix-r2 `_rewrite_skill_command_in_parts` 与决策 5 一致） |
+
+No critical issues. 1 warning to consider. Ready for PR (with noted improvement).
+
+---
+
+## Round 1 Issues 逐条确认
+
+| Issue | 状态 | 证据 |
+|---|---|---|
+| C1 tasks.md 6 条退出标准未勾选 | **FIXED** | `tasks.md:11-16` 全部 `[x]`（commit 245ac54d） |
+| W1 delta-spec 未并入长青契约层 | **STILL OPEN** | `docs/specs/{gateway,im,kernel}/spec.md` 仍无 feat-430 内容（git log 确认） |
+| W2 群聊裸 /stop 未登记 e2e-critical-paths.md | **FIXED** | `docs/e2e-critical-paths.md:58` 已补 backlog 行（commit 245ac54d） |
+| S1 缺 aria-activedescendant | **FIXED** | `slash-picker.tsx:124` 补 `aria-activedescendant={optionId(highlighted)}`；测试 `slash-picker.test.tsx:106-119` |
+| S2 缺 Tab 键测试 | **FIXED** | `slash-picker.test.tsx:87-95` 补 Tab 确认选中测试 |
+
+---
+
+## Fix Round 2 新改动核查
+
+### 后端
+
+**P1.1: `_rewrite_skill_command_in_parts` 替代旧"对末 part 重写"**
+
+- `runtime.py:63-86`：新函数遍历 parts，找到**第一个含 `/skill:` 命令的 text part** 原地重写，其余 part 不动。调用点 `runtime.py:486-490` 在多 part 分支用它，单 part 仍走既有 `user_text = rewrite_skill_command(user_text)`。
+- **与设计决策 5 的一致性**：设计说"对命令所在 part 重写"——新实现找到真正持有命令的 text part 进行重写，比原"末 part"启发式更精确，正确处理了"text part + trailing image"的情形。`[..]` 仍是内核命令解析的产品无关约定，kernel 不感知 sender——决策 5 完全遵守。
+- 新测试（`test_agent_runtime.py:578-661`）覆盖：① `/skill` text part + trailing image 仍被重写；② `[image:placeholder]` 行不被错误折叠进 `User input:`；③ 旧的 buffered group context 路径（sender prefix + multi-part）仍覆盖。
+
+**P1.5: 群聊 idle agent 的 /stop 短路在 `_ensure_binding` 之前**
+
+- `inbound_pipeline.py:915-923`：`active_run_id is None and message.is_group` → 直接返回空 result，不调 `_ensure_binding`，不建 kernel session。
+- 新测试 `test_gateway_stop_command.py:632`：`assert kernel_client.create_session_calls == []` 验证无 session 分配。
+
+### 前端
+
+**P0: `source="live"` 获取已启用 skills 白名单**
+
+- `chat-workspace-page.tsx:303`：`getAgentConfig(a.agent_id, { source: "live" })` 从 gateway 拉取真实白名单，解决 IM mirror 白名单为空导致 picker 显示全量 skills 的问题。
+- `im-agent-config-api.ts:391-403`：新 `source` 参数文档化。
+- `im-agent-config-api.test.ts` 新增测试覆盖 `source` 参数传递。
+
+**P1.2 / P1.3 / P1.4: picker 鲁棒性**
+
+- `isComposing` 守卫（`slash-picker.tsx:81`）：CJK IME 输入期间不误触 Enter/ArrowDown，有测试覆盖。
+- `allSettled`（`chat-workspace-page.tsx:298-303`）：单个 agent capabilities 拉取失败不拖垮整个 picker。
+- 高亮 reset 依赖内容签名（非仅长度）：候选列表内容变化时高亮正确归零。
+
+### 测试计数
+
+| | Round 1 | Round 2 | 新增 |
+|---|---|---|---|
+| pytest | 3049 passed | 3051 passed | +2 |
+| vitest | 533 passed | 540 passed | +7 |
+
+---
+
+## Correctness（16 spec scenarios 仍全覆盖）
+
+经 fix-r2 多 part rewrite 重构后，spec 中的多 part 路径场景仍由测试守护，无回归：
+
+- `test_multipart_last_part_skill_command_rewritten_with_sender_prefix`（group buffered context 路径）——仍绿
+- `test_skill_command_with_trailing_image_still_rewritten`（新：text+image 路径）——新增
+
+---
+
+## Issues（Round 2）
+
+### WARNING（应该修）
+
+**W1 — delta-spec 仍未并入长青契约层**
+
+`docs/specs/{gateway,im,kernel}/spec.md` 仍无 feat-430 增量。已有三份 delta-spec（`docs/changes/feat-430-im-slash-skill-picker/specs/`）。历史惯例（同 feat-439、feat-440 等）是提 PR 前补一次 `docs(feat-430): 收尾归并契约层` commit。  
+**修法**：将三份 delta-spec 内容并入各包 canonical spec.md 后提交 `docs(feat-430): 收尾归并契约层 docs/specs/{gateway,im,kernel}`。
