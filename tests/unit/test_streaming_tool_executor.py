@@ -705,3 +705,60 @@ async def test_auto_block_yields_auto_reject_message() -> None:
 
     assert results[0].error == auto_reject_message("deny-limit exceeded")
     assert results[0].reason_code == "denied"
+
+
+# ---------------------------------------------------------------------------
+# feat-440-M2 (F6): is_subagent decoupled from tool_execution_allowlist
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_main_session_with_allowlist_user_deny_stays_main_reject() -> None:
+    """F6: an execution allowlist must NOT imply 'subagent' for the reject-message
+    choice. A main session that one day gains a tool_execution_allowlist (e.g. a
+    sandbox mode) and whose user Denies a tool must still get the main-session
+    REJECT_MESSAGE — not the semantically inverted SUBAGENT_REJECT. The is_subagent
+    signal now rides an explicit fork flag, not the allowlist's presence."""
+    from agent.core.agent.reject_messages import REJECT_MESSAGE
+
+    registry = _BlockingRegistry(
+        {
+            "blocked_by_hook": True,
+            "reason": "",
+            "reason_code": "denied",
+            "approval": "user_deny",
+        }
+    )
+    registry.register(_FakeTool(name="edit"))
+    # allowlist active (edit permitted to execute) but NOT a fork side-chain.
+    executor = StreamingToolExecutor(
+        registry, tool_execution_allowlist=("edit",), is_fork_sidechain=False
+    )
+
+    executor.add_tool(_call("edit"))
+    results = await _drain(executor)
+
+    assert results[0].error == REJECT_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_fork_sidechain_flag_drives_subagent_reject_without_allowlist() -> None:
+    """F6: the explicit fork flag alone selects SUBAGENT_REJECT — independent of any
+    allowlist. A user_deny block inside a fork-flagged executor → SUBAGENT (row 1)."""
+    from agent.core.agent.reject_messages import SUBAGENT_REJECT_MESSAGE
+
+    registry = _BlockingRegistry(
+        {
+            "blocked_by_hook": True,
+            "reason": "ignored in subagent",
+            "reason_code": "denied",
+            "approval": "user_deny",
+        }
+    )
+    registry.register(_FakeTool(name="edit"))
+    executor = StreamingToolExecutor(registry, is_fork_sidechain=True)
+
+    executor.add_tool(_call("edit"))
+    results = await _drain(executor)
+
+    assert results[0].error == SUBAGENT_REJECT_MESSAGE
