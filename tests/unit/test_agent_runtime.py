@@ -1486,3 +1486,62 @@ def test_resolve_available_skills_returns_empty_without_dirname(tmp_path: Path) 
     assert result == (), (
         f"expected empty tuple when workspace_config_dirname is None; got {result}"
     )
+
+
+async def test_resolve_run_model_exposes_active_run_model_mid_run(
+    tmp_path: Path,
+) -> None:
+    """bugfix-443 decision 1: resolve_run_model lets the platform layer (the
+    agent tool) read the model of the currently-active run so a dispatched
+    subagent inherits it. Probed via an input hook because the run's model is
+    only registered for the duration of the run (popped in the finally)."""
+    captured: dict[str, str | None] = {}
+    registry = HookRegistry()
+
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=FakeLLMClient(),
+        model="build-time-default",
+        hook_runner=HookRunner(registry=registry),
+        repo_root=tmp_path,
+    )
+
+    async def on_input(event, ctx):
+        del event, ctx
+        captured["mid_run"] = runtime.resolve_run_model(session.session_id)
+        return {"action": "continue"}
+
+    registry.on("input", on_input)
+
+    await runtime.run(
+        session.session_id,
+        [{"type": "text", "text": "ping"}],
+        stream=False,
+        model="mimo-model",
+    )
+
+    # During the run the accessor reports the run's model, not the build-time default.
+    assert captured["mid_run"] == "mimo-model"
+    # After the run the registration is gone.
+    assert runtime.resolve_run_model(session.session_id) is None
+
+
+def test_resolve_run_model_returns_none_for_unknown_or_missing_session(
+    tmp_path: Path,
+) -> None:
+    """bugfix-443 decision 2: resolve_run_model returns a bare value (None when no
+    run is registered / session_id is None); runtime.run's own fallback handles
+    the degenerate case, the accessor does not double-fallback."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=FakeLLMClient(),
+        model="build-time-default",
+    )
+
+    assert runtime.resolve_run_model("never-ran") is None
+    assert runtime.resolve_run_model(None) is None

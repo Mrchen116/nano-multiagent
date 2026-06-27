@@ -58,12 +58,14 @@ class _FakeRunner:
         on_kill,
         workspace_root=None,
         llm_session_id=None,
+        model=None,
     ):
         self.start_calls.append(
             {
                 "agent_session_id": agent_session_id,
                 "parent_session_id": parent_session_id,
                 "llm_session_id": llm_session_id,
+                "model": model,
             }
         )
 
@@ -737,6 +739,104 @@ def test_foreground_passes_parent_as_llm_session_id() -> None:
         assert captured["llm_session_id"] == "parent_1"
         # the runtime.run target session is the subagent's own session
         assert captured["session_id"] != "parent_1"
+
+
+# ------------------------------------------------------------------
+# bugfix-443: subagent inherits the parent run's model (root cause A)
+# ------------------------------------------------------------------
+
+
+def test_background_launch_inherits_parent_run_model() -> None:
+    """bugfix-443: a background subagent dispatched from a run started with
+    model=M must thread that model into runner.start so its whole side-chain
+    follows the parent model instead of the global default."""
+    tool = _make_tool()
+    tool._runtime.resolve_run_model.return_value = "mimo-model"
+    runner = tool._wiring.subagent_runner
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)  # session_id="parent_1"
+        tool.run(
+            {
+                "description": "test task",
+                "prompt": "do something",
+                "subagent_type": "explore",
+                "load_skills": [],
+                "run_in_background": True,
+            },
+            ctx,
+        )
+        tool._runtime.resolve_run_model.assert_called_with("parent_1")
+        assert len(runner.start_calls) == 1
+        assert runner.start_calls[0]["model"] == "mimo-model"
+
+
+def test_resume_inherits_parent_run_model() -> None:
+    """bugfix-443: resuming a terminal subagent must also inherit the parent
+    run's model (the resume path is a separate dispatch point)."""
+    tool = _make_tool()
+    tool._runtime.resolve_run_model.return_value = "mimo-model"
+    registry = tool._wiring.registry
+    runner = tool._wiring.subagent_runner
+
+    agent_id = "a1234567890abcdef"
+    registry.register_subagent(
+        task_id=agent_id,
+        parent_session_id="parent_1",
+        agent_id=agent_id,
+        agent_session_id="sess_terminal",
+        description="existing",
+        prompt="original",
+        agent_type="explore",
+        output_file="/tmp/out.jsonl",
+    )
+    registry.mark_running(agent_id)
+    registry.complete(agent_id, result_text="done")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        result = tool.run(
+            {
+                "agent_id": agent_id,
+                "prompt": "follow up",
+                "load_skills": [],
+                "description": "existing",
+            },
+            ctx,
+        )
+        assert result["status"] == "async_launched"
+        assert len(runner.start_calls) == 1
+        assert runner.start_calls[0]["model"] == "mimo-model"
+
+
+def test_foreground_inherits_parent_run_model() -> None:
+    """bugfix-443: the foreground subagent goes through
+    submit_foreground(runtime.run(...)); the runtime.run call must carry
+    model=<parent run model>."""
+    tool = _make_tool(with_wiring=True)
+    tool._runtime.resolve_run_model.return_value = "mimo-model"
+
+    captured: dict = {}
+
+    async def _spy_run(session_id, parts, **kwargs):
+        captured["model"] = kwargs.get("model")
+        return _FakeTurnResult("sync result")
+
+    tool._runtime.run = _spy_run
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)  # session_id="parent_1"
+        result = tool.run(
+            {
+                "description": "test task",
+                "prompt": "do something",
+                "subagent_type": "explore",
+                "load_skills": [],
+                "run_in_background": False,
+            },
+            ctx,
+        )
+        assert result["status"] == "completed"
+        assert captured["model"] == "mimo-model"
 
 
 # ------------------------------------------------------------------

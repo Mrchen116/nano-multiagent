@@ -479,3 +479,76 @@ def test_should_compact_falls_back_to_default_window_when_registry_empty() -> No
 def test_compaction_reserve_tokens_default_is_20480() -> None:
     """feat-436: 全局 reserve 默认从 4096 提到 20480。"""
     assert CompactionSettings().reserve_tokens == 20_480
+
+
+# ---------------------------------------------------------------------------
+# bugfix-443 root cause B: loop's proactive-threshold compaction must pass
+# model_override so the summarizer side-chain follows the run's model, unless a
+# dedicated summary_model is configured (which keeps its own model).
+# ---------------------------------------------------------------------------
+
+
+class _RecordingCompactionSummarizer:
+    """Summarizer that records the model_override it receives."""
+
+    def __init__(self) -> None:
+        self.model_overrides: list[str | None] = []
+
+    async def summarize(
+        self, *, session_id, system_prompt, dropped_messages, model_override=None
+    ):
+        self.model_overrides.append(model_override)
+        return "Compact summary: context was too long."
+
+
+def _make_compacting_loop(summarizer, *, summary_model=None) -> tuple[AgentLoop, tuple]:
+    long_content = "x" * 800
+    history = tuple(
+        Message(
+            message_id=f"msg_{i}",
+            role="user" if i % 2 == 0 else "assistant",
+            content=long_content,
+        )
+        for i in range(10)
+    )
+    loop = AgentLoop(
+        llm_client=_FakeLLMClient(),
+        model="run-model",
+        compaction_settings=CompactionSettings(
+            enabled=True,
+            context_window=100,
+            reserve_tokens=10,
+            summary_model=summary_model,
+        ),
+        compaction_planner=_FakeCompactionPlanner(),
+        compaction_summarizer=summarizer,
+        session_manager=_FakeSessionManager(history),
+    )
+    return loop, history
+
+
+async def test_loop_proactive_compaction_uses_run_model_when_no_summary_model() -> None:
+    """Root cause B, state 1: no dedicated summary_model → the proactive
+    compaction summarizer runs on the active run's model."""
+    summarizer = _RecordingCompactionSummarizer()
+    loop, history = _make_compacting_loop(summarizer)
+    state = _make_state(history_messages=history, user_text="trigger")
+
+    async for _ in loop.run(state):
+        pass
+
+    assert summarizer.model_overrides == ["run-model"]
+
+
+async def test_loop_proactive_compaction_keeps_dedicated_summary_model() -> None:
+    """Root cause B, state 2: a dedicated summary_model is configured → the
+    proactive compaction passes model_override=None so the dedicated fork keeps
+    its own model (does not get overridden by the run model)."""
+    summarizer = _RecordingCompactionSummarizer()
+    loop, history = _make_compacting_loop(summarizer, summary_model="dedicated-sum")
+    state = _make_state(history_messages=history, user_text="trigger")
+
+    async for _ in loop.run(state):
+        pass
+
+    assert summarizer.model_overrides == [None]
