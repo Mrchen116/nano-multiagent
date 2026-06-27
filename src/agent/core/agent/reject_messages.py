@@ -60,9 +60,9 @@ DENIAL_WORKAROUND_GUIDANCE = (
     "you need this permission. Let the user decide how to proceed."
 )
 
-# Prefix for automatic (policy/classifier) denials. Provenance: messages.ts
-# AUTO_MODE_REJECTION_PREFIX.
-_AUTO_REJECT_PREFIX = "Permission for this action has been denied. Reason: "
+# Denial sentence shared by auto-reject (with or without a reason). Provenance:
+# messages.ts AUTO_MODE_REJECTION_PREFIX.
+_AUTO_REJECT_DENIED = "Permission for this action has been denied. "
 
 
 def auto_reject_message(reason: str) -> str:
@@ -74,8 +74,13 @@ def auto_reject_message(reason: str) -> str:
     "no permission channel (fail-closed)" / "gate error: ..." / "deny-limit
     exceeded..."), so the two collapse into this single with-reason template. The
     CC settings rule-hint tail sentence is dropped (no settings UX here).
+
+    feat-440-M2 (F2): when ``reason`` is empty, the ``Reason: <r>. `` clause is
+    omitted so the text stays grammatical — appending it blindly produced a broken
+    "Reason: . IMPORTANT..." string.
     """
-    return f"{_AUTO_REJECT_PREFIX}{reason}. {DENIAL_WORKAROUND_GUIDANCE}"
+    reason_clause = f"Reason: {reason}. " if reason else ""
+    return f"{_AUTO_REJECT_DENIED}{reason_clause}{DENIAL_WORKAROUND_GUIDANCE}"
 
 
 def build_reject_message(

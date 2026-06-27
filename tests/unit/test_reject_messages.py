@@ -87,7 +87,11 @@ class TestAutoRejectMessage:
         # grammar-broken "Reason: . IMPORTANT..." — drop the "Reason: <r>. " clause
         # entirely, keeping only the denial sentence + guidance.
         msg = auto_reject_message("")
-        assert msg == "Permission for this action has been denied. " + DENIAL_WORKAROUND_GUIDANCE
+        assert (
+            msg
+            == "Permission for this action has been denied. "
+            + DENIAL_WORKAROUND_GUIDANCE
+        )
         assert "Reason:" not in msg
         assert "Reason: ." not in msg
 
