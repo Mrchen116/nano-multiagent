@@ -1,7 +1,7 @@
 """HTTP client for OpenAI-compatible chat completion providers."""
 
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 import json
 from dataclasses import replace
@@ -312,7 +312,7 @@ def _parse_openai_usage(payload: dict[str, Any] | None) -> TokenUsage | None:
     details = payload.get("prompt_tokens_details")
     cached = (
         _extract_non_negative_int(details.get("cached_tokens"))
-        if isinstance(details, dict)
+        if isinstance(details, Mapping)
         else None
     ) or 0
     return TokenUsage(

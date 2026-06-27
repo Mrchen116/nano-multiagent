@@ -91,6 +91,41 @@ describe("ToolCallsPanel · process timeline (feat-439-M2)", () => {
     const { container } = render(<ToolCallsPanel toolCalls={[]} thinking={[]} />);
     expect(container.firstChild).toBeNull();
   });
+
+  // code-review CONFIRMED: defaultOpen 曾用合并时间线下标 i===0，当第一项是思考时
+  // 首个工具不再默认展开。首工具默认展开应与「前面有没有思考」无关。
+  it("default-opens the first tool row even when a thinking segment precedes it", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToolCallsPanel
+        toolCalls={[{ id: "t1", name: "read_file", status: "completed", input: {}, output: "ok", duration_ms: 5, seq: 1 }]}
+        thinking={[{ seq: 0, text: "先想一下" }]}
+      />
+    );
+    await user.click(screen.getByRole("button", { name: /过程|process/i }));
+    const toolBtn = screen.getByText("read_file").closest("button");
+    expect(toolBtn).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByTestId("process-thinking-toggle")).toHaveAttribute("aria-expanded", "false");
+  });
+
+  // code-review CONFIRMED: 单工具折叠态标题不能显示「1 tools」。
+  it("collapsed toggle uses the singular form for a single tool", () => {
+    render(
+      <ToolCallsPanel
+        toolCalls={[{ id: "t1", name: "read_file", status: "completed", input: {}, seq: 1 }]}
+        thinking={[]}
+      />
+    );
+    const btn = screen.getByRole("button", { name: /过程|process/i });
+    expect(btn.textContent).toContain("1 tool");
+    expect(btn.textContent).not.toContain("1 tools");
+  });
+
+  it("collapsed toggle uses the plural form for multiple tools", () => {
+    render(<ToolCallsPanel toolCalls={TWO_TOOLS} thinking={[]} />);
+    const btn = screen.getByRole("button", { name: /过程|process/i });
+    expect(btn.textContent).toContain("2 tools");
+  });
 });
 
 // feat-409-M2 R1: collapsed-row rendering — summary(=output), failure styling,

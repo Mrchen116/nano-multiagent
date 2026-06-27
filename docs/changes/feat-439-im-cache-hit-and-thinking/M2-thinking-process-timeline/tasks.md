@@ -8,13 +8,13 @@
 
 ## 退出标准
 
-- [ ] 内核 message_end / realtime_stream assistant_message 事件带 `reasoning_content`
-- [ ] gateway observer：空正文但有 reasoning 的回合不再丢弃，作为「过程项」转发到当前气泡（不 roll 新气泡、不产生空气泡）；空正文且无 reasoning 仍丢
-- [ ] thinking 段持久化（messages 表新增列），刷新历史可还原 + 可展开
-- [ ] event payload（WS thinking.segment + message.created）与 REST 带思考段
-- [ ] 前端过程盘按 seq merge 思考段+工具渲染（多段交错 / 无思考空态 / 展开收起）
-- [ ] CLI 侧忽略 reasoning 字段无回归
-- [ ] 真浏览器验收：带 thinking 模型真栈跑一轮多工具对话，过程盘时序混排 + 逐段展开 + 刷新可展开 + 无思考无 💭
+- [x] 内核 message_end / realtime_stream assistant_message 事件带 `reasoning_content`
+- [x] gateway observer：空正文但有 reasoning 的回合不再丢弃，作为「过程项」转发到当前气泡（不 roll 新气泡、不产生空气泡）；空正文且无 reasoning 仍丢
+- [x] thinking 段持久化（messages 表新增列），刷新历史可还原 + 可展开
+- [x] event payload（WS thinking.segment + message.created）与 REST 带思考段
+- [x] 前端过程盘按 seq merge 思考段+工具渲染（多段交错 / 无思考空态 / 展开收起）
+- [x] CLI 侧忽略 reasoning 字段无回归
+- [x] 真浏览器验收：带 thinking 模型真栈跑一轮多工具对话，过程盘时序混排 + 逐段展开 + 刷新可展开 + 无思考无 💭
 
 ## 测试策略
 

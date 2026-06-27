@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import type { ThinkingSegment, ToolCall } from "../chat-types";
@@ -39,8 +39,9 @@ type ProcessItem =
  *
  * 思考与工具共享一个 per-message 单调递增 `seq`（由 IM 按真实到达序赋予、全局唯一），
  * 故直接按 seq 升序合并即得真实时序。旧持久化工具行无 seq（此时必无思考），回退到列表
- * 序（用一个大偏移保证它们落在所有带 seq 项之后、彼此保持原顺序）。稳定排序保证同序
- * 号项保留插入顺序。
+ * 序（用一个大偏移保证它们落在所有带 seq 项之后、彼此保持原顺序）。所有 sortKey 互不
+ * 相同（seq 唯一 / 旧行 base+index 唯一），ES2019 Array.sort 又是稳定排序，无需额外
+ * 平手键。
  */
 function buildTimeline(
   toolCalls: ToolCall[],
@@ -55,10 +56,7 @@ function buildTimeline(
     const sortKey = typeof c.seq === "number" ? c.seq : LEGACY_BASE + i;
     items.push({ sortKey, item: { kind: "tool", call: c, key: `tool-${c.id}` } });
   });
-  return items
-    .map((entry, i) => ({ ...entry, i }))
-    .sort((a, b) => a.sortKey - b.sortKey || a.i - b.i)
-    .map((entry) => entry.item);
+  return items.sort((a, b) => a.sortKey - b.sortKey).map((entry) => entry.item);
 }
 
 /**
@@ -76,7 +74,8 @@ export function ToolCallsPanel({ toolCalls, thinking }: ToolCallsPanelProps) {
   const segments = thinking ?? [];
   if (toolCalls.length === 0 && segments.length === 0) return null;
   const anyRunning = toolCalls.some((c) => c.status === "running");
-  const timeline = buildTimeline(toolCalls, segments);
+  // feat-439-M2 fix: 长对话避免每次渲染重排过程项。
+  const timeline = useMemo(() => buildTimeline(toolCalls, segments), [toolCalls, segments]);
 
   // feat-434-M1: collapsed-state approval count suffix「K 次授权 · X 允许 · Y 拒绝」.
   // Audits "how many times the user approved" (bugfix-367 risk保住) without the old
@@ -157,13 +156,18 @@ export function ToolCallsPanel({ toolCalls, thinking }: ToolCallsPanelProps) {
       {expanded && (
         <div className="chat-tool-calls-panel chat-tool-calls-panel--open">
           <ul className="chat-tool-calls-list">
-            {timeline.map((item, i) =>
-              item.kind === "thinking" ? (
-                <ThinkingRow key={item.key} segment={item.segment} />
-              ) : (
-                <ToolCallRow key={item.key} call={item.call} defaultOpen={i === 0} />
-              )
-            )}
+            {(() => {
+              // code-review fix: 用「工具计数」而非合并时间线下标判定默认展开——首个
+              // 工具行始终默认展开，与它前面有没有思考段无关（恢复旧行为）。
+              let toolIndex = 0;
+              return timeline.map((item) =>
+                item.kind === "thinking" ? (
+                  <ThinkingRow key={item.key} segment={item.segment} />
+                ) : (
+                  <ToolCallRow key={item.key} call={item.call} defaultOpen={toolIndex++ === 0} />
+                )
+              );
+            })()}
           </ul>
         </div>
       )}

@@ -364,7 +364,7 @@
       "process": "过程",
       "thinking": "思考",
       "thinkingCount": "{{count}} 段思考",
-      "toolCount": "{{count}} 工具",
+      "toolCount_other": "{{count}} 工具",
       "running": "运行中",
       "failed": "失败",
       "toolReasonDenied": "已拒绝",

@@ -1252,17 +1252,19 @@ class MessageRepository:
         渲染端按 seq 把思考与工具 merge 成一条时间线，且唯一 seq 让 live WS 事件可幂等
         去重（重放/双投递不重复）。live 与历史回放都读同一持久化值，口径一致。
         """
-        row = self._connection.execute(
-            "SELECT tool_calls_json, thinking_json FROM messages WHERE id = ?",
-            (message_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError(f"message_id not found: {message_id}")
-        existing_tools = _decode_tool_calls(row["tool_calls_json"]) or []
-        existing = _decode_thinking(row["thinking_json"]) or []
-        seq = _next_process_seq(existing, existing_tools)
-        existing.append(ThinkingSegment(seq=seq, text=text))
+        # code-review fix: 计 seq 的 SELECT 与写入的 UPDATE 必须在同一事务内（对齐
+        # update_runtime_state 写法），避免并发/崩溃下读到旧 seq 后半写导致序号错乱。
         with self._connection:
+            row = self._connection.execute(
+                "SELECT tool_calls_json, thinking_json FROM messages WHERE id = ?",
+                (message_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"message_id not found: {message_id}")
+            existing_tools = _decode_tool_calls(row["tool_calls_json"]) or []
+            existing = _decode_thinking(row["thinking_json"]) or []
+            seq = _next_process_seq(existing, existing_tools)
+            existing.append(ThinkingSegment(seq=seq, text=text))
             self._connection.execute(
                 "UPDATE messages SET thinking_json = ? WHERE id = ?",
                 (_encode_thinking(existing), message_id),
