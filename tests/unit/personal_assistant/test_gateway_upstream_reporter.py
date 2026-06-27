@@ -9,6 +9,7 @@ import pytest
 from personal_assistant.config.local_store import NodeConfig
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
+    build_agent_capabilities_payload,
     build_node_capabilities_payload,
     build_runtime_capabilities,
 )
@@ -229,3 +230,28 @@ def test_node_capabilities_tools_contain_all_feature_required_tools(
             assert rt in names_set, (
                 f"feature 要求工具 '{rt}' 必须在 capabilities.tools 中 (feat-379-M9 决策13)"
             )
+
+
+# ---------------------------------------------------------------------------
+# feat-430: per-agent capabilities skills must carry SKILL.md location so the
+# IM slash picker can distinguish same-named skills at different paths (Q7).
+# ---------------------------------------------------------------------------
+
+
+def test_agent_capabilities_skills_carry_location(tmp_path: Path) -> None:
+    """build_agent_capabilities_payload skill entries must expose 'location'."""
+    workspace = tmp_path / "agent-ws"
+    skills_root = workspace / ".nanoassistant" / "skills"
+    _write_skill(skills_root, "doc")
+    kernel = _build_test_kernel(tmp_path / "kernel-root")
+
+    payload = build_agent_capabilities_payload(
+        kernel, workspace_root=str(workspace)
+    )
+    skills = payload["skills"]
+    assert isinstance(skills, list) and skills
+    doc = next(s for s in skills if s["name"] == "doc")
+    assert "location" in doc, "skill entry must carry a 'location' key (feat-430)"
+    assert isinstance(doc["location"], str) and doc["location"].endswith(
+        "doc/SKILL.md"
+    )

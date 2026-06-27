@@ -240,7 +240,21 @@ GOLDEN_DEFAULT_SYSTEM_PROMPT = ""
 
 
 def _sorted_skills(skills: list[dict[str, str]]) -> list[dict[str, str]]:
-    return sorted(skills, key=lambda s: s["name"])
+    # feat-430: drop the volatile ``location`` (absolute SKILL.md path varies by host)
+    # before the byte-identity golden compare; location presence is asserted separately.
+    return sorted(
+        ({"name": s["name"], "description": s["description"]} for s in skills),
+        key=lambda s: s["name"],
+    )
+
+
+def _assert_skills_carry_location(skills: list[dict[str, str]]) -> None:
+    # feat-430: every discovered skill exposes its SKILL.md path ending in SKILL.md.
+    for skill in skills:
+        location = skill.get("location")
+        assert isinstance(location, str) and location.endswith(
+            f"{skill['name']}/SKILL.md"
+        ), f"skill {skill['name']!r} missing a valid location: {location!r}"
 
 
 # ---------------------------------------------------------------------------
@@ -258,6 +272,7 @@ def test_node_capabilities_payload_matches_baseline(controlled_caps) -> None:
     assert list(payload["tools"]) == GOLDEN_TOOLS
     assert list(payload["features"]) == GOLDEN_NODE_FEATURES
     assert _sorted_skills(list(payload["skills"])) == GOLDEN_NODE_SKILLS
+    _assert_skills_carry_location(list(payload["skills"]))
     assert payload["relay"] == GOLDEN_FLAGS["relay"]
     assert payload["send_message"] == GOLDEN_FLAGS["send_message"]
     assert payload["config_sync"] == GOLDEN_FLAGS["config_sync"]
@@ -282,6 +297,7 @@ def test_agent_capabilities_payload_matches_baseline(controlled_caps) -> None:
     assert list(payload["tools"]) == GOLDEN_TOOLS
     assert list(payload["features"]) == GOLDEN_AGENT_FEATURES
     assert _sorted_skills(list(payload["skills"])) == GOLDEN_AGENT_SKILLS
+    _assert_skills_carry_location(list(payload["skills"]))
 
 
 def test_node_register_flags_payload_matches_baseline(controlled_caps) -> None:
