@@ -20,3 +20,7 @@
 #### Scenario: 带发送者前缀的群聊 /skill 命令被改写且保留发送者
 - **WHEN** 消费者提交一条带发送者前缀的群聊消息 `[Alice] /skill:doc fix spacing`
 - **THEN** 内核将其改写为保留发送者标注的自然语言指令（前导 `[Alice]` 保留 + `Use the "doc" skill for this request.` + `User input:` 段），接收 Agent 仍可从该轮看出发送者是 Alice
+
+#### Scenario: 群聊有其他成员先发言（多 part）时 /skill 仍被改写
+- **WHEN** 群聊里其他成员先发了消息成为本轮上下文，消费者随后提交 `[Alice] /skill:doc`（该轮因此含多个 part）
+- **THEN** 命令所在 part 仍被改写为保留发送者的自然语言指令，不因多 part 或非首行而漏改（接收 Agent 按 skill 执行）

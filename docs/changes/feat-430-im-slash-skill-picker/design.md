@@ -20,8 +20,9 @@
 | `src/agent/sdk/dto.py` | `SkillInfo(name, description)` | **加 `location` 字段** |
 | `src/personal_assistant/reporter/upstream_reporter.py` | `_skills_from_kernel()` 把 `SkillInfo` 映射成 `{name,description}`，丢 location | **透传 location** |
 | `src/IM/api/routes/agents.py` | capabilities API 的 `AllowlistOptionResponse` | **加 location 字段** |
-| `src/personal_assistant/gateway/inbound_pipeline.py` | `_is_stop_command`（只 strip `@{id}`）、`_should_process`（群聊 MENTION 投递策略）、`_build_message_parts`（群聊加 `[sender] ` 前缀） | **修群聊 `/stop` 2 处缺口**（`_is_stop_command` wire 识别 + `_should_process` 放行裸 `/stop`）；`_build_message_parts` 的 sender 前缀**保持不变** |
-| `src/agent/core/agent/skill_commands.py` | `rewrite_skill_command`，行首正则 `^\s*/skill:` | **改正则**：容忍并保留前导 `[sender] ` 前缀（群聊 `/skill` 缺口在此解决） |
+| `src/personal_assistant/gateway/inbound_pipeline.py` | `_should_process`（群聊 MENTION 投递策略）、`_build_message_parts`（群聊加 `[sender] ` 前缀） | **`_should_process` 放行裸 `/stop`**（不做 wire-mention strip）；`_build_message_parts` 的 sender 前缀**保持不变** |
+| `src/agent/core/agent/skill_commands.py` | `rewrite_skill_command`，行首正则 `^\s*/skill:` | **改正则**：认可选前导 `[..]` 段（不编码 sender 格式） |
+| `src/agent/core/agent/runtime.py` | `:451` 对 `user_text` 跑 rewrite；`:580` 多 part 分支把 `effective_user_text` 重取末 part（绕过 rewrite） | **对命令所在 part（`effective_user_text`/末 part）跑 rewrite**，使多 part 群聊路径不漏（design-review #2） |
 
 ### 既有约束
 
@@ -63,12 +64,12 @@ graph TD
     RELAY["消息 relay"]
   end
   subgraph GW["personal_assistant gateway"]
-    INB["inbound_pipeline.py<br/>修 3 处群聊命令缺口"]
+    INB["inbound_pipeline.py<br/>_should_process 放行裸 /stop"]
     RPT["upstream_reporter<br/>透传 location"]
   end
   subgraph K["agent 内核 (agent.sdk)"]
     DTO["SkillInfo +location"]
-    REW["rewrite_skill_command<br/>(不改)"]
+    REW["rewrite_skill_command 正则<br/>+ runtime 对命令 part 重写"]
     INT["kernel.interrupt (不改)"]
   end
   HOOK -.拉 skills+location.-> CAP
@@ -79,8 +80,8 @@ graph TD
   INB --> INT
 ```
 
-**before**：前端 composer 不认 `/`；skills 的 location 在 `SkillInfo` 处被丢；群聊 `/stop`、`/skill` 因 wire 前缀 / 投递策略 / sender 前缀三处缺口失效。
-**after**：前端敲 `/` 弹 picker（数据来自带 location 的 capabilities）；群聊命令经 gateway 特例通道正确生效。
+**before**：前端 composer 不认 `/`；skills 的 location 在 `SkillInfo` 处被丢；群聊裸 `/stop` 被 MENTION 投递策略丢弃、`/skill` 因多 part 选取 + sender 前缀不被重写。
+**after**：前端敲 `/` 弹 picker（数据 = config 白名单 ∩ 带 location 的 capabilities）；群聊裸 `/stop` 放行生效、`/skill` 对命令所在 part 重写后生效。
 
 ## 关键决策
 
@@ -93,13 +94,14 @@ graph TD
 - **风险**: 两组件有重复代码；可接受，交互稳定后再抽公共 hook。
 - **UI 约束**: picker 锚定 composer 上方、高度受限（max-height ≤ 视口一半）+ 内部滚动，候选多时不得穿出视口顶部（原型实测：composer 不贴底时长候选列表会穿屏顶，故依赖 composer 处于聊天窗底部的既有布局）。
 
-### 决策 2: skills 数据走 capabilities API（扩 location），不用 config 白名单
+### 决策 2: 已启用 skills = config 白名单 ∩ capabilities（取 description/location）
 
-**前端拉 `GET /im/v1/agents/{id}/capabilities`，并在该响应里加 `location` 字段**。
+**前端同时拉 `getAgentConfig`（拿已启用白名单 `skills: string[]`）+ `getAgentCapabilities`（拿 description/location），按 name 取交集**。capabilities 的 skill 项**没有 `default_on`**，不能用它判"已启用"。
 
-- **理由**: picker 要展示 skill 的 description（白名单 `string[]` 没有），且 Q7 要按 location 区分同名——capabilities 已带 description，扩一个 location 即够。`default_on` 用于判定"已启用"。
-- **拒绝**: `getAgentConfig` 白名单——只有名字，没 description / location。
-- **风险**: 群聊要对每个成员 agent 各调一次 capabilities；成员数量级小（个位到十几），可并发拉取 + 缓存，可接受。
+- **理由**: Q1 要的是"该 agent 已开启的 skills"，真实启用判据是 config 白名单 `agent.skills`（现状分析已核 `inbound_pipeline.py:777`）；capabilities 的 `list_skills(ws)` 返 workspace **全部**发现的 skill，必须与白名单取交集才等价于 Q1。capabilities 仅用于补 description（白名单只有名字）与 location。
+- **拒绝**: 只用 capabilities 过滤 `default_on`——skill 项无此字段（`_skills_from_kernel` 只投 `{name,description}`，`default_on` 是 tools 专属、skill 恒 False），照此实现 picker **永远空**（design-review #1）。也不要给 skill 补 default_on（越到工具语义之外）。
+- **空白名单语义**: `agent.skills` 为空时与运行时对齐——运行时 `session.skills` 未设即全部可用，故 picker 也显示该 agent 全部发现的 skill。
+- **风险**: 群聊要对每个成员 agent 各拉一次（config + capabilities）；成员数量级小，可并发拉取 + 缓存，可接受。
 
 ### 决策 3: location 全链路只读透传
 
@@ -109,21 +111,21 @@ graph TD
 - **拒绝**: 前端按 name 区分——会把不同路径的同名 skill 错误合并（违反 Q7）。
 - **风险**: 跨 sdk/kernel/gateway/im 四包改动；但都是加可空字段，无行为变更，低风险。
 
-### 决策 4: 群聊 `/stop` 缺口在 gateway 层修（识别 wire mention + 绕过 MENTION 投递）
+### 决策 4: 群聊裸 `/stop` 绕过 MENTION 投递策略（纯文本，不做 wire-mention 识别）
 
-**改 `inbound_pipeline.py` 两点**：① `_is_stop_command` 额外识别 picker 补入的 wire mention 形式（`@agent:{id}`）；② `/stop` 的投递判定优先于群聊 MENTION 策略——裸 `/stop` 不论 agent 是否设"仅 @ 才响应"都送达群内 agent。
+**群聊 /stop = 裸纯文本 `/stop `（与决策 6 命令补文本一致）；改 `inbound_pipeline.py` 的 `_should_process`，让裸 `/stop` 优先于群聊 MENTION 策略送达群内 agent**。
 
-- **理由**: 命令识别与投递策略都在 gateway inbound，单点修复；中断机制本身（`kernel.interrupt`）不动。
-- **拒绝**: 前端发送时把 `/stop` 转成裸 `@{id}` 旧格式绕开——前端要懂后端 strip 规则，耦合且脆。
-- **风险**: 绕过 MENTION 策略要确保只对 `/stop` 开口子，不影响普通消息投递；幂等由既有 `interrupt`（无 active run 即 no-op）保证。
+- **理由**: Q6 明确群聊 /stop 是"普通文本广播、各 agent 幂等响应"；picker 补的就是纯 `/stop `，不补 `@agent` 形式。裸 `/stop` 经放行后，既有 `_is_stop_command` 对裸 `/stop` 本就匹配，无需 wire-mention strip。中断机制（`kernel.interrupt`）不动。
+- **拒绝**: 让 `_is_stop_command` 识别 picker 补入的 `@agent:{id}` wire 形式（原决策 4①）——picker 根本不补这种形式，该识别**无消费者**（design-review #3）。
+- **风险**: 绕过 MENTION 策略要严格限定只对 `/stop` 开口子，不影响普通消息投递；幂等由既有 `interrupt`（无 active run 即 no-op）保证。
 
-### 决策 5: 群聊 `/skill:name` 缺口靠内核 rewrite 容忍并保留 sender 前缀
+### 决策 5: 群聊 `/skill:name` — 对命令所在 part 重写 + 正则认通用前缀（sender 前缀保留）
 
-**群聊 `[sender] ` 前缀保持不变（任何消息都要带发送者标注，agent 靠它判断谁在说话）；改内核 `rewrite_skill_command` 正则，容忍可选的前导 `[sender] ` 段并在重写后保留它**：群聊 `[Alice] /skill:pr-review args` → `[Alice] Use the "pr-review" skill for this request.\nUser input:\nargs`。
+**`[sender] ` 前缀保持不变；两步：① 让 rewrite 作用于命令所在的那个 part（多 part 分支后的 `effective_user_text`/末 part），而非整段 join 的行首；② 正则放宽为认"可选前导 `[..]` 段"、不编码 sender 具体格式**：`^\s*(?:\[[^\]]*\]\s*)?/skill:…`。群聊 `[Alice] /skill:doc args` → `[Alice] Use the "doc" skill...`。
 
-- **理由**: 发送者标注是群聊消息进入内核的规范格式，内核侧处理（含 skill 重写）本就该对它鲁棒；剥掉前缀会让接收 agent 丢失"谁发的"、无法做判断。
-- **拒绝**: gateway 对命令消息不加 sender 前缀——丢失发送者，违反"任何消息都要有发送者标注"（用户明确否决）。
-- **风险**: 内核 rewrite 正则要认识 `[sender] ` 前缀格式，与 gateway 的 `_format_sender_text` 形成格式耦合——本 unit 把该前缀格式提为内核/gateway 共享约定（常量或文档化），避免一端改格式另一端失配。
+- **理由**: design-review #2 已核实——群里有人先发言时消息是多 part，`runtime.py:580` 多 part 分支把 `effective_user_text` 重取末 part、**绕过** `runtime.py:451` 的 rewrite，且整段 join 后 `/skill:` 落非首行。只改正则不改 part 选取会 false-fix（单条消息测试过、群里有 buffered 上下文就静默失效）。命令总在末 part（当前消息），故对末 part rewrite 即可命中。正则认通用 `[..]` 前缀而非 `[{sender}] ` 精确格式，弱化对产品格式的依赖。
+- **拒绝**: 只放宽正则、不改 part 选取（多 part 路径仍 miss，design-review #2）；gateway 剥 sender 前缀（丢发送者，用户否决）。
+- **技术债（design-review #4，登记排期不在本 unit 解）**: 即便正则只认通用 `[..]` 前缀，core 仍假设"命令前可能有产品前缀"。根因是产品把 sender 元数据塞进文本、逼 core 解析；纯架构应让 sender 结构化、core 只见纯正文——但那要重构整条群聊 sender 传递管线（gateway `_format_sender_text` + core 渲染），远超本 unit。**立为独立 refactor unit**（见风险与回退段末），本 unit 不在 core 正则里假装解决。
 
 ### 决策 6: 选中 skill 补 `/skill:name `，命令与 skill 一视同仁前缀过滤
 
@@ -143,17 +145,18 @@ graph TD
 AllowlistOptionResponse {
   name: str
   description: str
-  default_on: bool
+  default_on: bool       # 既有：tools 专属；skill 项恒 False，不作启用判据（启用看 config 白名单）
   location: str | None   # 新增：SKILL.md 绝对路径，用于同名去重 + 来源标注
 }
 ```
 
 对应链路各层同步加 `location: str | None`：`SkillInfo`(sdk) → reporter payload → API response → 前端 `AgentAllowlistOption`。
+启用判据另走 `getAgentConfig` 的白名单 `skills: string[]`，前端按 name 与上面交集（决策 2）。
 
 ### 前端数据组装
 
-- **单聊**: 取当前会话 agent 的 capabilities，过滤 `default_on==true`（已启用）的 skills → picker 候选 + 固定 `/stop`。
-- **群聊**: 对每个成员 agent 拉 capabilities，已启用 skills 取并集；**按 `location` 去重合并**（同 location 合一行，记录 `fromAgents: string[]`；不同 location 同名分行）→ picker 每行标注来源 agent。
+- **单聊**: 取当前会话 agent 的 `config.skills`（已启用白名单）∩ `capabilities.skills`（取 description/location）→ picker 候选 + 固定 `/stop`。白名单为空时显示该 agent 全部发现的 skill（与运行时一致）。**不要用 `default_on` 判已启用**（skill 项无此字段，恒 False）。
+- **群聊**: 对每个成员 agent 各取 白名单 ∩ capabilities，跨成员取并集；**按 `location` 去重合并**（同 location 合一行，记录 `fromAgents: string[]`；不同 location 同名分行）→ picker 每行标注来源 agent。
 
 ### 核心操作时序（单聊敲 `/` 选 skill 发送）
 
@@ -198,9 +201,9 @@ sequenceDiagram
 
 ## 契约层增量 (delta-spec)
 
-- kernel: [specs/kernel/spec.md](specs/kernel/spec.md) — `SkillInfo` 经 `agent.sdk` 暴露 `location`；`/skill:name` 在带 `[sender] ` 前缀的群聊消息上仍被识别重写（发送者标注保留）
+- kernel: [specs/kernel/spec.md](specs/kernel/spec.md) — `SkillInfo` 经 `agent.sdk` 暴露 `location`；`/skill:name` 在带 `[sender] ` 前缀的**多 part 群聊消息**上仍被识别重写（发送者标注保留）
 - im: [specs/im/spec.md](specs/im/spec.md) — capabilities API 返回 skill `location`
-- gateway: [specs/gateway/spec.md](specs/gateway/spec.md) — 群聊 `/stop` 识别（wire mention）与投递（裸 `/stop` 不受 @ 策略限制）
+- gateway: [specs/gateway/spec.md](specs/gateway/spec.md) — 群聊裸 `/stop` 不受 @ 策略限制送达（纯文本，无 wire-mention 识别）
 - cli: no spec delta
 
 ## 风险与回退
@@ -209,6 +212,8 @@ sequenceDiagram
 - **location 字段跨四包**：worker 须按依赖顺序改（先 sdk dto，再 kernel/gateway/im，最后前端），否则中间层取不到字段。低风险（加可空字段）。
 - **群聊每成员各拉 capabilities**：成员多时请求数增加；用并发 + 会话内缓存兜底，不在每次敲 `/` 时重复拉。
 - **降级**：若 location 透传未就绪，前端 picker 仍可按 name 显示（同名暂合并），群聊来源标注降级——但这违反 Q7，不作为交付态，仅作 worker 分步落地的中间态。
+- **群聊 /skill 多 part 路径（design-review #2）**：命令在末 part，须对 `effective_user_text`/末 part 重写，否则群里有人先发言就静默失效。worker 单测必须覆盖「buffered 上下文 + 末 part `/skill`」路径，不能只测单条 `/skill`。
+- **登记的独立 refactor unit（design-review #4，不在本 unit 解）**：群聊 sender 元数据当前以 `[sender] ` 文本前缀塞进消息正文，逼 `agent.core` 解析产品格式。本 unit 用"正则只认通用 `[..]` 前缀"控制耦合面，但根因未除。应另立 refactor unit：让 sender 作结构化属性传入内核、core 只见纯正文、prompt 渲染层统一拼 sender 前缀。**Refs: 待开 issue（见对话）**。
 
 ## Runbook for Reviewer
 
@@ -226,17 +231,18 @@ sequenceDiagram
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-430-M1 | slash-picker | — | A | 前端 `message-pane.tsx` / 新建 `slash-picker.tsx` / `chat-workspace-page.tsx` / `im-agent-config-api.ts`；后端 location 透传 `sdk/dto.py` / kernel `list_skills` / `upstream_reporter.py` / `IM/api/routes/agents.py`；群聊命令缺口 `inbound_pipeline.py`（`/stop`）/ `skill_commands.py`（`/skill` rewrite 容忍 sender 前缀） | 见下两轨 |
+| feat-430-M1 | slash-picker | — | A | 前端 `message-pane.tsx` / 新建 `slash-picker.tsx` / `chat-workspace-page.tsx` / `im-agent-config-api.ts`；后端 location 透传 `sdk/dto.py` / kernel `list_skills` / `upstream_reporter.py` / `IM/api/routes/agents.py`；群聊命令缺口 `inbound_pipeline.py`（`_should_process` 放行裸 `/stop`）/ `skill_commands.py`（`/skill` 正则认通用前缀）/ `runtime.py`（对命令所在 part 重写） | 见下两轨 |
 
 退出标准（单 M1，两轨）：
 
-- `[reviewer]` 单聊敲 `/` 弹面板含 `/stop`+已启用 skills（覆盖 Scenario:单聊里敲 `/`）
-- `[reviewer]` 群聊敲 `/` 弹面板含 `/stop`+成员 skills 并集，同 location 合并、异 location 分行且标注来源（覆盖 Scenario:群聊里敲 `/` / 同路径合并 / 不同路径分开）
+- `[reviewer]` 单聊敲 `/` 弹面板含 `/stop`+该 agent **已启用**（config 白名单 ∩ capabilities）skills，**不含未启用的**（覆盖 Scenario:单聊里敲 `/`；防 design-review #1 的空/全量）
+- `[reviewer]` 群聊敲 `/` 弹面板含 `/stop`+成员已启用 skills 并集，同 location 合并、异 location 分行且标注来源（覆盖 Scenario:群聊里敲 `/` / 同路径合并 / 不同路径分开）
 - `[reviewer]` 键盘（↑↓/Enter/Tab/Esc）+鼠标（点击/hover/点面板外关闭）导航选中、高亮项滚动可见、选中后输入框保持焦点（覆盖 Scenario:方向键选择 / 高亮滚动可见 / 鼠标点击 / Esc 或点外关闭）
 - `[reviewer]` 选中 skill 补 `/skill:name `（覆盖 Scenario:选中 skill 后补）
 - `[reviewer]` 前缀过滤 + 空态（覆盖 Scenario:输入 `/pr` / 输入 `/xyz`）；输入框中间 `/` 不触发（覆盖 Scenario:中间出现 `/`）
 - `[reviewer]` 单聊发 `/skill:name ...` skill 真执行（覆盖 Scenario:选中 skill 后继续输入并发送）
+- `[reviewer]` **群聊里有其他成员先发言（buffered 上下文）后再发 `/skill:name`，该 skill 仍真执行**（覆盖 design-review #2 多 part 路径，防 false-fix）
 - `[reviewer]` 群聊发 `/stop`（含裸 `/stop` 不受"仅 @ 才响应"影响、对未运行 agent 幂等）正在运行的 agent 停止（覆盖 Scenario:群聊里发送 `/stop` / 裸 `/stop` 不受设置影响 / 幂等）
-- `[worker]` 前端 `npm run test`（slash-picker 相关）+ `npm run build` 全绿
-- `[worker]` 后端 `pytest -m "not e2e"` 相关单测全绿（location 透传四层、`_is_stop_command` wire 识别 + 裸 `/stop` 放行、`rewrite_skill_command` 容忍并保留群聊 `[sender]` 前缀，各有单测）
+- `[worker]` 前端 `npm run test`（slash-picker 相关）+ `npm run build` 全绿；含「白名单 ∩ capabilities」交集与空白名单语义的单测
+- `[worker]` 后端 `pytest -m "not e2e"` 相关单测全绿：location 透传四层；`_should_process` 放行裸 `/stop`；`rewrite_skill_command` 正则认通用前缀 + **`runtime.py` 对命令所在 part 重写**，且单测覆盖「buffered 多 part + 末 part `/skill`」路径
 - `[worker]` location 字段四层透传：sdk/kernel/gateway/im 单测验证字段端到端非空

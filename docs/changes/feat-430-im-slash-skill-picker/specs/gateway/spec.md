@@ -7,12 +7,7 @@
 
 ### Requirement: /stop 控制命令中断当前运行
 
-在 canonical 同名 Requirement 基础上，补齐群聊场景：picker 补入的提及形式 `/stop` 被识别；裸 `/stop` 不受群聊 @ 提及门控限制（消解 canonical `Requirement: 群聊只在被 @提及 / 回复 Agent / 控制命令时触发 Agent` 已声明"控制命令触发"但代码丢弃群聊裸 `/stop` 的 drift）。
-
-#### Scenario: 群聊里 picker 补入的提及形式 /stop 被识别
-- **GIVEN** 群聊里某 Agent 正在运行
-- **WHEN** 用户用 slash picker 发出指向该 Agent 的 `/stop`（picker 补入的提及形式）
-- **THEN** 该 `/stop` 被识别为控制命令，中断该 Agent 当前运行，用户收到「已停止当前操作。」
+在 canonical 同名 Requirement 基础上，补齐群聊场景：裸 `/stop`（纯文本，不带 @）不受群聊 @ 提及门控限制（消解 canonical `Requirement: 群聊只在被 @提及 / 回复 Agent / 控制命令时触发 Agent` 已声明"控制命令触发"但代码丢弃群聊裸 `/stop` 的 drift）。
 
 #### Scenario: 群聊裸 /stop 不受 @ 提及门控限制
 - **GIVEN** 群里某 Agent `group_reply_policy=MENTION` 且正在运行
