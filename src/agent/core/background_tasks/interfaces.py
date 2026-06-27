@@ -55,6 +55,7 @@ class BackgroundSubagentRunner(Protocol):
         on_kill: "TaskKillCallback",
         workspace_root: Path | None = None,
         llm_session_id: str | None = None,
+        model: str | None = None,
     ) -> BackgroundTaskStopper: ...
 
     def submit_foreground(self, coro: Coroutine[Any, Any, Any]) -> Future:

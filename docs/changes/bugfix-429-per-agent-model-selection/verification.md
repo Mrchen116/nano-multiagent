@@ -97,6 +97,7 @@ tasks.md 退出标准（隐式 task 列表）全部标记完成：
 ### SUGGESTION（可以修）
 
 - `loop.py:97,189`：`self._model` 作为"迁移兜底 fallback"注释为 legacy，但实际上内核在 `build_kernel` 时仍将 `llm.model` 注入（`kernel.py:210`）。注释已说明这是兼容路径，如后续要完全清除内核对话默认的语义残留，可在下一个 unit 显式将 `self._model` 参数改为 `None`（仅清语义，不影响行为——所有真实调用方现均传 `model_override`）。不阻 PR。
+  - **更正（bugfix-443）**：上句"所有真实调用方现均传 `model_override`"在 bugfix-429 收口时**不成立**——subagent 派发链（`agent.py` 后台/前台/resume 三派发点经 `subagent_runner`）与 `loop.py` 主动阈值压缩当时均未传 model，子 agent 及其侧链回退到内核构造期全局默认。已由 **bugfix-443** 补全（subagent 三派发点 + loop 主动压缩透传 per-run model）。
 
 ---
 

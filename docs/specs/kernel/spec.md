@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: feat-430-im-slash-skill-picker
+> 对齐: bugfix-443-subagent-sidechain-model
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -276,7 +276,8 @@ run 即使 parked 在工具执行、LLM 等待或权限决策上也能终止;终
 全局属性,改为消费者在发起每个 run 时随 `submit` 提供,内核不持有对话默认 model。`get_llm_config()` 返回
 SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报告 build-time 的 active 连接供
 选择器使用;`create_session` 不收 model。`reconfigure_llm`/`bind_llm_client` 失去调用方而退役,内核不再
-有"当前全局 active model"的概念。
+有"当前全局 active model"的概念。一个 run 内部派生的子运行(内核为该 run 派发的子 agent、该 run 的
+自动上下文压缩摘要)同样复用该 run 的 model,不回退到内核构造期的全局默认。
 
 #### Scenario: 读取当前 LLM 配置
 - **WHEN** 消费者 `kernel.get_llm_config()`
@@ -295,6 +296,17 @@ SDK-owned `LLMConfig` DTO(内核内部 `LLMFactoryConfig` 不出边界),仍报�
 - **GIVEN** model `M` 在 config 注册于 provider `P`
 - **WHEN** 以 `model=M` 提交 run
 - **THEN** 内核用 `P` 声明的 client / 请求格式发出(不跨 provider 借用其它格式)
+
+#### Scenario: run 派发的子 agent 复用本 run 的 model
+- **GIVEN** 一个以 `model=M` 提交的 run,其执行过程中派发了一个子 agent(前台、后台或续跑恢复)
+- **WHEN** 子 agent 发起 LLM 请求
+- **THEN** 该请求以 `model=M` 发出(子 agent 的 session JSONL turn 记录可见),不回退到内核构造期的全局默认
+
+#### Scenario: run 的自动上下文压缩摘要复用本 run 的 model
+- **GIVEN** 一个以 `model=M` 提交的 run,未配置独立摘要模型,其上下文增长触发自动压缩
+- **WHEN** 内核生成压缩摘要
+- **THEN** 摘要的 LLM 请求以 `model=M` 发出,不回退到内核构造期的全局默认
+- **AND** 当消费者显式配置了独立摘要模型时,摘要仍以该独立模型发出(独立摘要模型优先)
 
 ### Requirement: 上下文压缩在长会话中保持可恢复
 

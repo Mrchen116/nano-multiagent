@@ -416,6 +416,26 @@ async def test_compaction_summarizer_forwards_run_model_to_fork() -> None:
     assert fork.model_overrides == ["agent-selected-model"]
 
 
+async def test_compaction_summarizer_ignores_override_when_fork_is_dedicated() -> None:
+    """bugfix-443 fix1 (altitude #3): the summary_model mutual-exclusion lives in
+    CompactionSummarizer. A summarizer built for a dedicated summary_model fork
+    must ignore the per-run model_override (the fork keeps its own fixed model),
+    while a shared fork forwards it (covered above)."""
+    from agent.core.agent.compaction.summarizer import CompactionSummarizer
+
+    fork = _RecordingFork()
+    summarizer = CompactionSummarizer(fork=fork, has_dedicated_model=True)
+
+    await summarizer.summarize(
+        session_id="sess_x",
+        system_prompt="sys",
+        dropped_messages=[Message(message_id="d", role="user", content="old")],
+        model_override="run-model",
+    )
+
+    assert fork.model_overrides == [None]
+
+
 def _init_per_model_window_registry() -> None:
     """注册一个带 context_window 的模型目录（feat-436）。conftest autouse 在下个测试前复原。"""
     from agent.core.llm.config import (
@@ -479,3 +499,80 @@ def test_should_compact_falls_back_to_default_window_when_registry_empty() -> No
 def test_compaction_reserve_tokens_default_is_20480() -> None:
     """feat-436: 全局 reserve 默认从 4096 提到 20480。"""
     assert CompactionSettings().reserve_tokens == 20_480
+
+
+# ---------------------------------------------------------------------------
+# bugfix-443 root cause B: loop's proactive-threshold compaction must pass the
+# active run's model to the summarizer. The summary_model mutual-exclusion is
+# owned by CompactionSummarizer (fix1 altitude #3), so the loop always forwards
+# active_model regardless of summary_model — the dedicated-fork suppression is
+# asserted at the summarizer level above.
+# ---------------------------------------------------------------------------
+
+
+class _RecordingCompactionSummarizer:
+    """Summarizer that records the model_override it receives."""
+
+    def __init__(self) -> None:
+        self.model_overrides: list[str | None] = []
+
+    async def summarize(
+        self, *, session_id, system_prompt, dropped_messages, model_override=None
+    ):
+        self.model_overrides.append(model_override)
+        return "Compact summary: context was too long."
+
+
+def _make_compacting_loop(summarizer, *, summary_model=None) -> tuple[AgentLoop, tuple]:
+    long_content = "x" * 800
+    history = tuple(
+        Message(
+            message_id=f"msg_{i}",
+            role="user" if i % 2 == 0 else "assistant",
+            content=long_content,
+        )
+        for i in range(10)
+    )
+    loop = AgentLoop(
+        llm_client=_FakeLLMClient(),
+        model="run-model",
+        compaction_settings=CompactionSettings(
+            enabled=True,
+            context_window=100,
+            reserve_tokens=10,
+            summary_model=summary_model,
+        ),
+        compaction_planner=_FakeCompactionPlanner(),
+        compaction_summarizer=summarizer,
+        session_manager=_FakeSessionManager(history),
+    )
+    return loop, history
+
+
+async def test_loop_proactive_compaction_forwards_run_model() -> None:
+    """Root cause B: the proactive-threshold compaction forwards the active run's
+    model to the summarizer."""
+    summarizer = _RecordingCompactionSummarizer()
+    loop, history = _make_compacting_loop(summarizer)
+    state = _make_state(history_messages=history, user_text="trigger")
+
+    async for _ in loop.run(state):
+        pass
+
+    assert summarizer.model_overrides == ["run-model"]
+
+
+async def test_loop_proactive_compaction_forwards_run_model_even_with_summary_model() -> (
+    None
+):
+    """fix1 altitude #3: the loop forwards active_model regardless of summary_model;
+    suppressing the override for a dedicated fork is the summarizer's job, not the
+    loop's (asserted in test_compaction_summarizer_ignores_override_when_fork_is_dedicated)."""
+    summarizer = _RecordingCompactionSummarizer()
+    loop, history = _make_compacting_loop(summarizer, summary_model="dedicated-sum")
+    state = _make_state(history_messages=history, user_text="trigger")
+
+    async for _ in loop.run(state):
+        pass
+
+    assert summarizer.model_overrides == ["run-model"]

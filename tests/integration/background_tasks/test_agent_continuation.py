@@ -16,76 +16,16 @@ from agent.core.tools.base import (
 )
 from agent.core.types import Message, TurnResult
 from agent.platform.background_tasks.wiring import wire_background_tasks
-from agent.platform.tools.base import ToolContext
 from agent.platform.tools.builtins.agent import AgentTool
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
+
+from ._runtime_stub import _RuntimeStubBase, _make_ctx
 
 set_tool_safety_factory(ToolSafety)
 set_tool_safety_config_factory(ToolSafetyConfig)
 
 
-class _FakeStore:
-    def __init__(self, tmp_path: Path) -> None:
-        self._tmp_path = tmp_path
-        self._sessions: dict[str, dict[str, Any]] = {}
-
-    def resolve_path(
-        self, session_id: str, *, workspace_root=None, parent_session_id: str = ""
-    ) -> Path:
-        path = self._tmp_path / "sessions" / f"{session_id}.jsonl"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        return path
-
-    def find_session_by_metadata(
-        self, *, parent_session_id: str, match: dict[str, Any], workspace_root=None
-    ) -> str | None:
-        for sid, meta in self._sessions.items():
-            if all(meta.get(k) == v for k, v in match.items()):
-                return sid
-        return None
-
-
-class _SessionManagerStub:
-    def __init__(self, store: _FakeStore) -> None:
-        self.store = store
-
-    def load(
-        self, session_id: str, *, workspace_root=None, parent_session_id: str = ""
-    ) -> Any:
-        meta = self.store._sessions.get(session_id, {})
-        return type(
-            "LoadResult",
-            (),
-            {
-                "config": type("Config", (), {"metadata": meta})(),
-            },
-        )()
-
-
-class _RuntimeStub:
-    def __init__(self, tmp_path: Path, delay: float = 0.0) -> None:
-        self._tmp_path = tmp_path
-        self._delay = delay
-        self._counter = 0
-        store = _FakeStore(tmp_path)
-        self._session_manager = _SessionManagerStub(store)
-
-    async def create_session(
-        self,
-        *,
-        workspace_root: Any = None,
-        skills: Any = None,
-        metadata: Any = None,
-        parent_session_id: str | None = None,
-    ) -> Any:
-        self._counter += 1
-        sid = f"subagent_{self._counter}"
-        self._session_manager.store._sessions[sid] = dict(metadata or {})
-        return type("Session", (), {"session_id": sid})()
-
-    def session_workspace_root(self, session_id: str) -> Any:
-        return self._tmp_path
-
+class _RuntimeStub(_RuntimeStubBase):
     async def run(
         self,
         session_id: str,
@@ -97,6 +37,7 @@ class _RuntimeStub:
         workspace_root: Any = None,
         run_id: str | None = None,
         llm_session_id: str | None = None,
+        model: str | None = None,
     ) -> TurnResult:
         import time as _time
 
@@ -111,15 +52,6 @@ class _RuntimeStub:
             completed=True,
             stop_reason="completed",
         )
-
-    def resolve_available_skills(
-        self, workspace_root: Any, include_names: Any = None
-    ) -> tuple:
-        return ()
-
-
-def _make_ctx(tmp_path: Path, session_id: str = "sess_parent") -> ToolContext:
-    return ToolContext.create(repo_root=tmp_path).with_session(session_id=session_id)
 
 
 def test_message_queued_for_running_agent(tmp_path: Path) -> None:
