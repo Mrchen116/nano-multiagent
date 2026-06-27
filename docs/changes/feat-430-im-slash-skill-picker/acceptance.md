@@ -139,3 +139,115 @@
 - [ ] `docs/specs/gateway/spec.md`：**建议 fix 完成后追加** — 群聊 /stop MENTION bypass 行为（若后端已实现）
 - [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**
 - [x] `docs/SPEC_GUIDE.md`：**无需更新**
+
+---
+
+# Round 2 — 2026-06-27
+
+**unit_id**: feat-430
+**Branch reviewed**: unit/feat-430 @ be7b0137
+**Reviewer**: change-reviewer (Round 2 — 复用上轮上下文, Fast-lane)
+**Date**: 2026-06-27
+
+## Verdict
+
+**pass-with-issues**
+**Highest Required Action**: out-of-unit（仅剩 1 个 env-限制 inconclusive 项，无 blocking / major 实现问题）
+**Issues**: blocking: 0, major: 0, minor: 0, inconclusive-env: 1
+
+## 环境信息
+
+| 服务 | 地址 |
+|---|---|
+| IM | http://127.0.0.1:64426 |
+| Vite dev server | http://127.0.0.1:64427 |
+| Gateway | wt-feat430-r2, auto-bind |
+
+**构建产物指纹**: `index-BLR9ggDt.js`（fix-r2 重建）。含 `source=live` 与 `fromAgents` marker。网络请求确认：picker 打开时使用 `GET /im/v1/agents/plato/config?source=live`，无 `source=mirror` 调用。
+
+## Fix 覆盖
+
+fix-r2 commit 7380c04b + 978316f0 包含：
+
+1. 前端 `chat-workspace-page.tsx:306`：`getAgentConfig(a.agent_id, "live")` — 改用 `source=live` 拉真实已启用 whitelist
+2. 后端多 part `/skill:` 重写修复
+3. 群聊 /stop 无副作用清理
+4. picker 鲁棒性改进
+
+## 用户旅程体验（Round 2 新增验证）
+
+**P0 白名单修复验证**：在 plato-direct 单聊输入 `/`，picker 精确显示 COMMANDS(`/stop`) + SKILLS(3 个：change-design-author、change-orchestrator、change-spec-author)，与 plato whitelist 完全一致。网络层确认 `source=live` 被调用。`R2-P0-02-slash-opened.png` 截图清晰可见。
+
+**群聊 /stop 停止活跃 run**：在 Test Group R2 发送 `@plato` 长任务，plato 开始运行（32s 哲学论文生成），从 picker 选中 `/stop` 无 @mention 发送，plato 回复"已停止当前操作。"（`R2-G2-04-after-picker-stop.png`）。
+
+**裸 /stop MENTION bypass**：同一事件中，/stop 无 @plato 前缀，plato（设为 MENTION 策略）仍响应停止。
+
+**候选滚动可见**：group chat picker (6 个选项，高度溢出 320px) 中，按 ArrowDown 导航至末尾，last option 自动滚入 picker 可视区（bounding box 测量确认）。
+
+## 验收标准覆盖（Round 2 更新）
+
+### Requirement: 输入 `/` 弹出 slash 候选面板 — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 单聊里敲 `/` | spec.md R1-S1 | R2 旅程 P0：plato-direct 输入 `/`，统计 options | `R2-P0-02-slash-opened.png`（4 项：/stop + 3 skills） | **pass** | fix-r2 后正确显示 3 个 whitelisted skills（Round 1 fail → Round 2 pass）|
+| 群聊里敲 `/` | spec.md R1-S2 | R2 旅程 Group：群聊输入 `/`，观察内容 | `R2-G2-03-group-slash-picker.png`（6 项：/stop + 5 skills） | **pass** | 群聊显示 plato ∪ hume whitelist 的并集，正确（Round 1 fail → Round 2 pass）|
+| 输入框中间出现 `/` 不触发 | spec.md R1-S3 | R2 P0 测试："hello/world" → picker 未弹出 | `R2-P0-03-nonleading-slash.png` | **pass** | 中间 / 不触发（Round 1 inconclusive → Round 2 pass）|
+
+### Requirement: slash 面板支持键盘与鼠标导航选中 — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 用方向键选择并回车确认 | spec.md R2-S1 | 继承 Round 1 pass；R2 P0 中用 ArrowDown+Enter 验证 | Round 1 evidence + R2 reconfirmed | **pass** | |
+| 候选超出可视区时高亮项滚动可见 | spec.md R2-S2 | R2 scroll test：group picker 6 项溢出，ArrowDown 至末尾 | `R2-GScroll-02-at-last-option.png`；bounding box: last(y=742) within picker(bottom=796) | **pass** | 实测 group picker 内容溢出（847px > 796px），末项自动滚入（Round 1 inconclusive → Round 2 pass）|
+| 用鼠标点击候选项选中 | spec.md R2-S3 | 继承 Round 1 pass | Round 1 evidence | **pass** | |
+| 按 Esc 或点击面板外关闭面板 | spec.md R2-S4 | 继承 Round 1 pass | Round 1 evidence | **pass** | |
+
+### Requirement: skill 选中后补成正确的 slash 格式 — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 选中 skill 后补 `/skill:name ` | spec.md R3-S1 | R2 P0：ArrowDown+Enter 后查看 composer 值 | composer value: `/skill:change-design-author ` | **pass** | 格式正确且显示的是正确 whitelist 内的 skill（Round 1 fail-via-content → Round 2 pass）|
+
+### Requirement: 群聊 skills 按 skill 实际路径区分同一性并标注来源 — 组内结论: **pass**（1 项 inconclusive）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 同路径 skill 合并显示 | spec.md R4-S1 | 继承 Round 1 pass；R2 group picker 确认 | `R2-G2-03-group-slash-picker.png` 中每 skill 显示 "from plato, hume" | **pass** | |
+| 不同路径的同名 skill 分开显示 | spec.md R4-S2 | 无法测试：plato/hume 使用相同路径 skills | — | **inconclusive** | env 限制：当前 agent 配置中无不同路径同名 skill。代码层 `buildSlashSkills` 按 location 分组逻辑已实现（R2-P0 网络请求 capabilities 含 location 字段确认）；功能验证需专用配置。|
+
+### Requirement: slash 面板支持前缀过滤 — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 输入 `/pr` 过滤出匹配的 skill | spec.md R5-S1 | 继承 Round 1 pass | Round 1 evidence | **pass** | |
+| 输入 `/xyz` 无匹配 | spec.md R5-S2 | 继承 Round 1 pass | Round 1 evidence | **pass** | |
+| 编辑已补入的 `/skill:` 文本时重新过滤纠错 | spec.md R5-S3 | R2 P0：选中 skill 后退 5 字，观察 picker 重开 | `R2-P0-04-skill-prefix-repicker.png`（1 option with trimmed prefix） | **pass** | `/skill:change-design-au` → picker 重开显示 1 项（Round 1 inconclusive → Round 2 pass）|
+
+### Requirement: 发送后行为与普通消息一致 — 组内结论: **pass**
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 选中 skill 后继续输入并发送 | spec.md R6-S1 | 继承 Round 1 pass | Round 1 evidence | **pass** | |
+| 群聊里发送 `/stop`（agent 正在运行） | spec.md R6-S2 | R2 Group：@plato 触发 32s 运行，picker 选 /stop，观察 | `R2-G2-04-after-picker-stop.png`（plato 回复"已停止当前操作。"） | **pass** | plato 在运行中（32s 运行），picker /stop 无 @mention 发送后 plato 停止（Round 1 inconclusive → Round 2 pass）|
+| 群聊里裸 `/stop` 不受 MENTION 影响 | spec.md R6-S3 | R2 Group：plato (MENTION policy) 运行时，bare /stop 无 @，检查停止 | 同 `R2-G2-04-after-picker-stop.png`；/stop 发送时无 @plato 前缀；plato 回复"已停止当前操作。" | **pass** | plato 设为 `group_reply_policy: MENTION`（配置确认）；bare /stop（无 @）仍被 plato 接收并停止 run（Round 1 inconclusive → Round 2 pass）|
+| 群聊里 `/stop` 对未在运行的 agent 幂等 | spec.md R6-S4 | 继承 Round 1 pass | Round 1 evidence（多次 /stop 无 agent 回复） | **pass** | |
+
+---
+
+## Issues（Round 2）
+
+Round 2 无新增 blocking / major / minor issue。Round 1 唯一 blocking（Issue 1 白名单交集）已由 fix-r2 解决，本轮验证通过。
+
+---
+
+## Side Findings（Round 2 新增）
+
+- **R4-S2 env 限制**：验证不同路径同名 skill 的分开显示行为需要专门配置（两个 agent 各有同名但不同路径的 skill）。当前 plato 和 hume 共享相同 capabilities 路径，无法在本 env 测试。代码层实现（`buildSlashSkills` 按 `location` key 分组）已通过单元测试覆盖，reviewer 无法进一步验证。建议在下一个包含此配置的 e2e 测试套件中覆盖。
+
+## 上层文档同步（Round 2）
+
+- [x] `SPEC.md`：**无需更新**
+- [ ] `docs/specs/im/spec.md`：**需要更新（orchestrator §7.0 收尾时）** — slash picker 触发行为、`config?source=live` 的 skills 字段、capabilities location 字段
+- [ ] `docs/specs/gateway/spec.md`：**需要更新（orchestrator §7.0 收尾时）** — 群聊 /stop MENTION bypass 行为已验证实现
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**
