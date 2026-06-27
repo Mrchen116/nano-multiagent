@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>feat-430 slash picker 原型</title>
+<style>
+  :root { --bg:#1e1f22; --panel:#2b2d31; --hover:#3a3d44; --accent:#5865f2; --text:#dbdee1; --dim:#949ba4; --border:#3f4147; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--text); display:flex; justify-content:center; padding:32px 16px; }
+  .app { width:680px; max-width:100%; }
+  h1 { font-size:16px; color:var(--dim); font-weight:600; }
+  .note { font-size:12px; color:var(--dim); line-height:1.6; margin-bottom:16px; }
+  .toggle { display:flex; gap:8px; margin-bottom:12px; }
+  .toggle button { background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:6px 14px; cursor:pointer; font-size:13px; }
+  .toggle button.active { background:var(--accent); border-color:var(--accent); }
+  .chat { background:var(--panel); border:1px solid var(--border); border-radius:10px; padding:14px; }
+  .ctx { font-size:12px; color:var(--dim); margin-bottom:10px; }
+  .composer { position:relative; }
+  .picker { position:absolute; bottom:calc(100% + 6px); left:0; right:0; background:var(--panel); border:1px solid var(--border); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.4); overflow:hidden; display:none; max-height:280px; overflow-y:auto; }
+  .picker.open { display:block; }
+  .picker-head { font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--dim); padding:8px 12px 4px; }
+  .item { padding:8px 12px; cursor:pointer; display:flex; flex-direction:column; gap:2px; border-left:2px solid transparent; }
+  .item.active { background:var(--hover); border-left-color:var(--accent); }
+  .item .row1 { display:flex; align-items:baseline; gap:8px; }
+  .item .name { font-size:14px; font-weight:600; }
+  .item .name .cmd { color:#f0b232; }
+  .item .from { font-size:11px; color:var(--accent); margin-left:auto; }
+  .item .desc { font-size:12px; color:var(--dim); }
+  .item .path { font-size:10px; color:#6d7178; font-family:monospace; }
+  .empty { padding:14px 12px; font-size:13px; color:var(--dim); text-align:center; }
+  textarea { width:100%; min-height:52px; resize:vertical; background:#383a40; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:14px; font-family:inherit; }
+  textarea:focus { outline:none; border-color:var(--accent); }
+  .hint { font-size:11px; color:var(--dim); margin-top:6px; }
+  kbd { background:#1e1f22; border:1px solid var(--border); border-radius:4px; padding:1px 5px; font-size:11px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>feat-430 — IM slash skill picker（交互原型）</h1>
+  <p class="note">
+    在输入框开头敲 <kbd>/</kbd> 弹出候选面板。<kbd>↑</kbd><kbd>↓</kbd> 移动高亮、<kbd>Enter</kbd> 选中、<kbd>Esc</kbd> 关闭。
+    试试 <code>/pr</code>（前缀过滤）、<code>/xyz</code>（空态）。切换单聊/群聊看 skill 来源标注与同名按路径分行。
+    本原型为视觉/交互方案，不接真实后端。
+  </p>
+  <div class="toggle">
+    <button id="btn-direct" class="active">单聊（code-reviewer）</button>
+    <button id="btn-group">群聊（code-reviewer + test-writer）</button>
+  </div>
+  <div class="chat">
+    <div class="ctx" id="ctx"></div>
+    <div class="composer">
+      <div class="picker" id="picker"></div>
+      <textarea id="ta" placeholder="输入消息… 敲 / 试试"></textarea>
+      <div class="hint" id="hint"></div>
+    </div>
+  </div>
+</div>
+<script>
+// 模拟数据：单聊 = 当前 agent 已启用 skills；群聊 = 成员 skills 并集（按 location 去重 + 来源标注）
+const DIRECT = {
+  ctx: "单聊 · code-reviewer · 候选 = /stop + 该 agent 已启用 skills",
+  command: [{ name: "stop", desc: "中断当前正在执行的运行", isCmd: true }],
+  skills: [
+    { name: "pr-review", desc: "审 PR diff，给精确率导向的评审", location: "/cr/skills/pr-review/SKILL.md", from: ["code-reviewer"] },
+    { name: "tdd-execution-worker", desc: "执行单个 milestone 的 TDD 三提交循环", location: "/cr/skills/tdd/SKILL.md", from: ["code-reviewer"] },
+    { name: "log-cleanup", desc: "清理调试日志", location: "/cr/skills/log/SKILL.md", from: ["code-reviewer"] },
+  ],
+};
+const GROUP = {
+  ctx: "群聊 · code-reviewer + test-writer · 候选 = /stop + 成员已启用 skills 并集（同路径合并 / 异路径同名分行）",
+  command: [{ name: "stop", desc: "中断正在运行的 agent（裸 /stop 不受“仅 @ 才响应”限制）", isCmd: true }],
+  skills: [
+    // 同一路径的 pr-review 来自两个 agent → 合并成一行，标注两个来源
+    { name: "pr-review", desc: "审 PR diff", location: "/shared/skills/pr-review/SKILL.md", from: ["code-reviewer", "test-writer"] },
+    // 同名 doc 但路径不同 → 分成两行，各标来源
+    { name: "doc", desc: "code-reviewer 的文档技能", location: "/cr/skills/doc/SKILL.md", from: ["code-reviewer"] },
+    { name: "doc", desc: "test-writer 的文档技能", location: "/tw/skills/doc/SKILL.md", from: ["test-writer"] },
+    { name: "gen-tests", desc: "生成单元测试", location: "/tw/skills/gen/SKILL.md", from: ["test-writer"] },
+  ],
+};
+
+let mode = DIRECT;
+let isGroup = false;
+let activeIdx = 0;
+let candidates = [];
+
+const ta = document.getElementById("ta");
+const picker = document.getElementById("picker");
+const ctx = document.getElementById("ctx");
+const hint = document.getElementById("hint");
+
+function setMode(group) {
+  isGroup = group;
+  mode = group ? GROUP : DIRECT;
+  ctx.textContent = mode.ctx;
+  document.getElementById("btn-direct").classList.toggle("active", !group);
+  document.getElementById("btn-group").classList.toggle("active", group);
+  closePicker();
+  ta.value = "";
+  hint.textContent = "";
+}
+document.getElementById("btn-direct").onclick = () => setMode(false);
+document.getElementById("btn-group").onclick = () => setMode(true);
+
+// 仅当 / 在输入框开头（前面无非空字符）才触发，匹配 spec「中间出现 / 不触发」
+function slashQuery(text) {
+  const m = text.match(/^\/([^\s/]*)$/);
+  return m ? m[1] : null;
+}
+
+function buildCandidates(q) {
+  const ql = q.toLowerCase();
+  const cmds = mode.command
+    .filter((c) => c.name.toLowerCase().startsWith(ql))
+    .map((c) => ({ ...c, kind: "cmd" }));
+  const skills = mode.skills
+    .filter((s) => s.name.toLowerCase().startsWith(ql))
+    .map((s) => ({ ...s, kind: "skill" }));
+  return [...cmds, ...skills];
+}
+
+function renderPicker() {
+  if (candidates.length === 0) {
+    picker.innerHTML = '<div class="empty">没有匹配的 slash 项</div>';
+    return;
+  }
+  let html = "";
+  let lastKind = null;
+  candidates.forEach((c, i) => {
+    if (c.kind !== lastKind) {
+      html += `<div class="picker-head">${c.kind === "cmd" ? "命令" : "Skills"}</div>`;
+      lastKind = c.kind;
+    }
+    const nameHtml = c.kind === "cmd"
+      ? `<span class="name"><span class="cmd">/${c.name}</span></span>`
+      : `<span class="name">${c.name}</span>`;
+    const fromHtml = isGroup && c.kind === "skill"
+      ? `<span class="from">来自 ${c.from.join(", ")}</span>` : "";
+    const pathHtml = c.kind === "skill"
+      ? `<span class="path">${c.location}</span>` : "";
+    html += `<div class="item ${i === activeIdx ? "active" : ""}" data-i="${i}">
+      <div class="row1">${nameHtml}${fromHtml}</div>
+      <span class="desc">${c.desc}</span>${pathHtml}
+    </div>`;
+  });
+  picker.innerHTML = html;
+  picker.querySelectorAll(".item").forEach((el) => {
+    el.onmouseenter = () => { activeIdx = +el.dataset.i; renderPicker(); };
+    el.onclick = () => choose(+el.dataset.i);
+  });
+}
+
+function openPicker(q) {
+  candidates = buildCandidates(q);
+  activeIdx = 0;
+  picker.classList.add("open");
+  renderPicker();
+}
+function closePicker() { picker.classList.remove("open"); candidates = []; }
+
+function choose(i) {
+  const c = candidates[i];
+  if (!c) return;
+  // 命令补 /name + 空格；skill 补 /skill:name + 空格（与内核 rewrite_skill_command 对齐）
+  ta.value = c.kind === "cmd" ? `/${c.name} ` : `/skill:${c.name} `;
+  closePicker();
+  ta.focus();
+  hint.textContent = `已补入：${ta.value.trim()}　（继续输入内容后回车发送，后端按既有规则处理）`;
+}
+
+ta.addEventListener("input", () => {
+  const q = slashQuery(ta.value);
+  if (q === null) { closePicker(); return; }
+  openPicker(q);
+});
+
+ta.addEventListener("keydown", (e) => {
+  if (!picker.classList.contains("open")) return;
+  if (e.key === "ArrowDown") { e.preventDefault(); if (candidates.length){ activeIdx = (activeIdx + 1) % candidates.length; renderPicker(); } }
+  else if (e.key === "ArrowUp") { e.preventDefault(); if (candidates.length){ activeIdx = (activeIdx - 1 + candidates.length) % candidates.length; renderPicker(); } }
+  else if (e.key === "Enter") { if (candidates.length) { e.preventDefault(); choose(activeIdx); } }
+  else if (e.key === "Escape") { e.preventDefault(); closePicker(); } // / 保留在输入框
+});
+
+setMode(false);
+</script>
+</body>
+</html>
