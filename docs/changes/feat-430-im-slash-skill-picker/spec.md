@@ -60,6 +60,14 @@
   A(原话): A：你说的对
   Agent 解读: 采纳推荐 A——命令与 skill 一视同仁参与前缀过滤，输入 `/pr` 时不匹配前缀的 `/stop` 不显示，不再"命令始终显示"。
 
+- Q11(design grounding 暴露的范围矛盾，回填本段)：design 阶段调研后端发现，群聊里 `/stop`、`/skill:name` 现在后端处理不了三处缺口（① picker 补的 `@agent:xxx /stop` 因 wire 前缀 strip 不净匹配失败；② 群聊裸 `/stop` 被 MENTION 投递策略丢弃；③ 群聊消息加 `[用户名] ` 前缀致 `rewrite_skill_command` 行首正则不匹配）。这与"群聊命令生效"的验收标准冲突于原非目标"不改后端解析"。问用户范围方向。
+  A(原话): 用户在范围决策中选择"扩范围，修后端缺口"。
+  Agent 解读: 本 unit 范围扩大为前后端一起改——一并修复群聊 `/stop`、`/skill:name` 在既有解析链上的识别缺口，让群聊命令真生效；这些缺口本就是 bug。原非目标"不改后端解析"作废，范围/非目标段据此修订（见下）。
+
+- Q12: 群聊里 agent 可被设为"仅被 @ 才响应"（MENTION 投递策略），裸 `/stop`（不 @ 任何人）现在会被这个策略丢弃。`/stop` 要不要无视这个设置一律生效？
+  A(原话): 明确下，不管群里的agent设置了是不是@才生效，裸的"/stop"都得生效
+  Agent 解读: `/stop` 是控制命令，投递必须优先于 / 绕过群聊 MENTION 投递策略——无论群里各 agent 是否设为"仅 @ 才响应"，用户发裸 `/stop` 都要送达群内正在运行的 agent 并使其停止（幂等，不在运行的忽略）。这是对群聊 `/stop` Scenario 的强化，落成独立边界 Scenario。
+
 ## 用户场景
 
 小林在 IM 里打开了一个对 `code-reviewer` agent 的单聊会话，想让它用特定的 skill 审一段代码。他在输入框里敲下 `/`，输入框上方立刻弹出一个候选面板：最上方是 `/stop`，下面列出 `code-reviewer` 当前已启用的 skills，如 `pr-review`、`tdd-execution-worker`，每个 skill 带有一行简短描述。小林用方向键上下移动，选中 `pr-review`，回车后输入框变成 `/skill:pr-review `，他继续粘贴代码并发送。`code-reviewer` 识别到 `/skill:pr-review` 后按 skill 流程执行。
@@ -140,7 +148,17 @@
 #### Scenario: 群聊里发送 `/stop`
 - **GIVEN** 群聊里某个 agent 正在运行
 - **WHEN** 用户从 slash 面板选中 `/stop` 并发送
-- **THEN** 消息作为普通用户消息发到群里，当前正在运行的 agent 收到后停止其当前 run
+- **THEN** 当前正在运行的 agent 收到后停止其当前 run
+
+#### Scenario: 群聊里裸 `/stop` 不受 agent "仅 @ 才响应" 设置影响
+- **GIVEN** 群聊里某个 agent 被设为"仅被 @ 才响应"，且它正在运行
+- **WHEN** 用户发送裸 `/stop`（不 @ 任何 agent）
+- **THEN** 该 agent 仍然收到 `/stop` 并停止其当前 run（`/stop` 投递优先于群聊 @ 投递策略）
+
+#### Scenario: 群聊里 `/stop` 对未在运行的 agent 幂等
+- **GIVEN** 群聊里有 agent 当前没有正在运行的 run
+- **WHEN** 用户发送 `/stop`
+- **THEN** 这些 agent 不受影响（无报错、无副作用），只有正在运行的 agent 被停止
 
 ## 范围与非目标
 
@@ -151,9 +169,14 @@
   - 群聊 skills 来源为所有群成员 agent 已启用 skills 的并集；同路径 skill 合并，不同路径同名 skill 分开。
   - 键盘导航（上下、Enter、Esc）、前缀过滤、空态提示。
   - 选中 skill 后在输入框补 `/skill:name `。
+  - 修复群聊 `/stop`、`/skill:name` 在既有后端解析链上的识别缺口，使其在群聊真生效（详见 design）：
+    - gateway 能识别 picker 补入的 wire mention 形式的 `/stop`；
+    - 群聊裸 `/stop` 不论各 agent 是否设为"仅 @ 才响应"都投递并生效（送达群内 agent，正在运行的停止、未运行的幂等忽略）；
+    - 群聊消息的 sender 前缀不再阻断 `/skill:name` 重写。
+  - 后端补 skill `location` 只读字段全链路透传（SDK→kernel→gateway→IM capabilities API→前端），用于群聊按真实路径区分同名 skill 并标注来源。
 
 - 非目标：
   - 新增 `/stop` 以外的其他本地命令（如 `/new`、`/reset`、`/clear`）。
-  - 修改 Gateway 或 agent 内核对 `/stop` 或 `/skill:name` 的解析与执行逻辑。
-  - 引入新的 wire 格式、消息类型或协议字段。
+  - 改变 `/stop` 的中断机制本身、`/skill:name` 重写后的目标语义、以及单聊既有命令行为（本 unit 后端改动只补群聊识别缺口与 location 字段，不动这些既有行为）。
+  - 引入新的 wire 格式、消息类型或聊天消息协议字段（`location` 是 capabilities API 的只读响应字段，不属聊天 wire/消息协议）。
   - 在 picker 中执行命令（所有 slash 都只是补文本到输入框，发送后由后端按既有规则处理）。
