@@ -834,6 +834,13 @@ class InboundPipeline:
 
         if not message.is_group:
             return True
+        # feat-430 决策4: bare `/stop` is a control command — it must reach a running
+        # agent regardless of the group @-mention policy (canonical gateway spec lists
+        # 控制命令 as a group trigger). MENTION gating would otherwise drop a bare
+        # `/stop`; let it through here. Idempotency for non-running agents is handled
+        # downstream (kernel.interrupt is a no-op; the no-op ack is suppressed in group).
+        if message.text.strip() == "/stop":
+            return True
         metadata = dict(message.metadata)
         policy = (
             (agent_config.group_reply_policy or "MENTION").upper()
@@ -906,6 +913,19 @@ class InboundPipeline:
         )
 
         if active_run_id is None:
+            # feat-430 决策4: in a group every member agent receives the broadcast
+            # `/stop`; a non-running agent must stay silent (spec 幂等/无副作用) rather
+            # than each emitting a "当前没有正在执行的操作" bubble. Direct chats keep the
+            # friendly ack so the user gets feedback for an explicit /stop.
+            if message.is_group:
+                return PipelineResult(
+                    agent_id=agent_id,
+                    session_key=session_key,
+                    kernel_session_id=binding.kernel_session_id,
+                    run_id="",
+                    reply_text="",
+                    outbound=None,
+                )
             reply_text = "当前没有正在执行的操作。"
             outbound = await self._deliver_stop_ack(
                 text=reply_text,
