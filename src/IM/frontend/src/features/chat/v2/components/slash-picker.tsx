@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 
 import { useTranslation } from "../../../../i18n";
 import type {
@@ -54,21 +54,31 @@ export function SlashPicker({
   }, [skills, query, skillMode, t]);
 
   const [highlighted, setHighlighted] = useState(0);
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const baseId = useId();
+  const optionId = (idx: number) => `${baseId}-opt-${idx}`;
 
-  // Reset highlight whenever the candidate set changes.
+  // fix-r2 (P1.3): reset highlight when the candidate *content* changes, not only its
+  // length — a background skills refresh can swap items while keeping the count, which
+  // would otherwise leave the highlight pointing at a different entry than the user sees.
+  const candidatesKey = candidates.map((c) => `${c.kind}:${c.name}`).join("|");
   useEffect(() => {
     setHighlighted(0);
-  }, [query, skillMode, candidates.length]);
+  }, [candidatesKey]);
 
   // Keep the highlighted item scrolled into view (long lists overflow internally).
-  // scrollIntoView is absent in jsdom, so guard the call for the test environment.
+  // Resolve by element id (no render-body ref mutation — P2.7); scrollIntoView is absent
+  // in jsdom, so guard the call for the test environment.
   useEffect(() => {
-    itemRefs.current[highlighted]?.scrollIntoView?.({ block: "nearest" });
-  }, [highlighted]);
+    document.getElementById(optionId(highlighted))?.scrollIntoView?.({ block: "nearest" });
+    // optionId is derived from baseId (stable per mount); highlighted drives the effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [highlighted, baseId]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
+      // fix-r2 (P1.2): ignore keystrokes during IME composition so committing a CJK
+      // candidate with Enter is not hijacked as a picker selection (mirrors message-pane).
+      if (e.isComposing) return;
       if (candidates.length === 0) {
         if (e.key === "Escape") {
           e.preventDefault();
@@ -84,7 +94,10 @@ export function SlashPicker({
         setHighlighted((i) => (i - 1 + candidates.length) % candidates.length);
       } else if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault();
-        onSelect(candidates[highlighted]!);
+        // fix-r2 (P1.3): guard against a stale/out-of-range highlight (content just
+        // changed before the reset effect ran) so we never call onSelect(undefined).
+        const choice = candidates[highlighted];
+        if (choice) onSelect(choice);
       } else if (e.key === "Escape") {
         e.preventDefault();
         onClose();
@@ -103,9 +116,13 @@ export function SlashPicker({
   }
 
   let lastKind: SlashCandidate["kind"] | null = null;
-  itemRefs.current = [];
   return (
-    <div className="chat-slash-picker" role="listbox" aria-label={t("chat.slash.header")}>
+    <div
+      className="chat-slash-picker"
+      role="listbox"
+      aria-label={t("chat.slash.header")}
+      aria-activedescendant={optionId(highlighted)}
+    >
       {candidates.map((c, idx) => {
         const header =
           c.kind !== lastKind ? (
@@ -124,10 +141,8 @@ export function SlashPicker({
             <button
               type="button"
               role="option"
+              id={optionId(idx)}
               aria-selected={idx === highlighted}
-              ref={(el) => {
-                itemRefs.current[idx] = el;
-              }}
               className={`chat-slash-picker-row${idx === highlighted ? " is-active" : ""}`}
               // mousedown (not click) + preventDefault so the composer keeps focus and
               // the row is not rebuilt out from under the pointer before selection.

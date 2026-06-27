@@ -1237,5 +1237,27 @@ describe("MessagePane", () => {
       await user.type(screen.getByRole("textbox"), "/");
       expect(await screen.findByText("/stop")).toBeInTheDocument();
     });
+
+    // R5-S3: editing an already-inserted `/skill:doc` down to `/skill:d` re-opens the
+    // picker and re-filters skills by the `d` prefix (not the literal `skill:d` query).
+    it("re-filters skills when editing a /skill: prefix for correction", async () => {
+      const user = userEvent.setup();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          slashSkills={SLASH_SKILLS}
+          onSend={() => {}}
+        />
+      );
+      const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+      // Simulate the corrected state `/skill:d` (after deleting chars from `/skill:doc`).
+      await user.type(box, "/skill:d");
+      // `doc` matches the `d` prefix; `/stop` must NOT show (skill-only namespace).
+      expect(await screen.findByText("doc")).toBeInTheDocument();
+      expect(screen.queryByText("/stop")).not.toBeInTheDocument();
+      expect(screen.queryByText("pr-review")).not.toBeInTheDocument();
+    });
   });
 });

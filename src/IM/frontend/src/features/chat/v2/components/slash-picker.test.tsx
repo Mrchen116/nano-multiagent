@@ -83,4 +83,64 @@ describe("SlashPicker", () => {
     expect(screen.getByText(/code-reviewer/)).toBeInTheDocument();
     expect(screen.getByText(/test-writer/)).toBeInTheDocument();
   });
+
+  // fix-r2 (verifier S2): Tab confirms the highlighted candidate like Enter.
+  it("selects the highlighted candidate on Tab", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(<SlashPicker skills={SKILLS} query="" skillMode={false} isGroup={false} onSelect={onSelect} onClose={noop} />);
+    await user.keyboard("{Tab}");
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ kind: "command", name: "stop" }));
+  });
+
+  // fix-r2 (P1.2): a keydown during IME composition must NOT be hijacked as a selection.
+  it("ignores Enter while IME is composing", () => {
+    const onSelect = vi.fn();
+    render(<SlashPicker skills={SKILLS} query="" skillMode={false} isGroup={false} onSelect={onSelect} onClose={noop} />);
+    const ev = new KeyboardEvent("keydown", { key: "Enter", bubbles: true });
+    Object.defineProperty(ev, "isComposing", { get: () => true });
+    window.dispatchEvent(ev);
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  // fix-r2 (P2.11): the listbox advertises the active option via aria-activedescendant,
+  // and that id resolves to the selected option element.
+  it("exposes aria-activedescendant pointing at the active option", async () => {
+    const user = userEvent.setup();
+    render(<SlashPicker skills={SKILLS} query="" skillMode={false} isGroup={false} onSelect={noop} onClose={noop} />);
+    const listbox = screen.getByRole("listbox");
+    const activeId = listbox.getAttribute("aria-activedescendant");
+    expect(activeId).toBeTruthy();
+    const active = document.getElementById(activeId!);
+    expect(active).not.toBeNull();
+    expect(active!.getAttribute("aria-selected")).toBe("true");
+    // Moving the highlight updates aria-activedescendant to a different option.
+    await user.keyboard("{ArrowDown}");
+    expect(listbox.getAttribute("aria-activedescendant")).not.toBe(activeId);
+  });
+
+  // fix-r2 (P1.3): when the candidate *content* changes (same length, different items),
+  // the highlight resets so Enter selects the visible first row — not a stale index.
+  it("resets the highlight when candidate content changes at the same length", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    const setA: SlashSkillCandidate[] = [
+      { kind: "skill", name: "alpha", description: "", location: "/a", fromAgents: ["x"] },
+      { kind: "skill", name: "beta", description: "", location: "/b", fromAgents: ["x"] },
+    ];
+    const setB: SlashSkillCandidate[] = [
+      { kind: "skill", name: "gamma", description: "", location: "/g", fromAgents: ["x"] },
+      { kind: "skill", name: "delta", description: "", location: "/d", fromAgents: ["x"] },
+    ];
+    const { rerender } = render(
+      <SlashPicker skills={setA} query="" skillMode={true} isGroup={false} onSelect={onSelect} onClose={noop} />,
+    );
+    await user.keyboard("{ArrowDown}"); // highlight index 1 (beta)
+    rerender(
+      <SlashPicker skills={setB} query="" skillMode={true} isGroup={false} onSelect={onSelect} onClose={noop} />,
+    );
+    await user.keyboard("{Enter}");
+    // Reset → index 0 of the new set (gamma), never the stale "beta"/out-of-range.
+    expect(onSelect).toHaveBeenCalledWith(expect.objectContaining({ name: "gamma" }));
+  });
 });

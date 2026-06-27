@@ -385,8 +385,23 @@ export function normalizeAgentConfigResponse(raw: Record<string, unknown>): Agen
   return { ...config, heartbeat };
 }
 
-export async function getAgentConfig(agentId: string): Promise<AgentConfig> {
-  const raw = await requestJson<Record<string, unknown>>(`/im/v1/agents/${agentId}/config?source=mirror`);
+/**
+ * Fetch one agent's config.
+ *
+ * ``source`` selects the data origin (feat-430 fix-r2):
+ * - ``"mirror"`` (default) — the IM-stored profile row. Gateway-seeded agents register
+ *   only their id, so the mirror's ``skills`` whitelist is empty until edited via IM.
+ * - ``"live"`` — overlays the owning Gateway's live snapshot, which carries the agent's
+ *   actual runtime ``skills`` whitelist. The slash picker needs this so it shows the
+ *   agent's真实已启用 skills (config ∩ capabilities), not an empty-whitelist→all fallback.
+ */
+export async function getAgentConfig(
+  agentId: string,
+  source: "mirror" | "live" = "mirror",
+): Promise<AgentConfig> {
+  const raw = await requestJson<Record<string, unknown>>(
+    `/im/v1/agents/${agentId}/config?source=${source}`,
+  );
   return normalizeAgentConfigResponse(raw);
 }
 

@@ -295,10 +295,15 @@ export function ChatWorkspacePageV2() {
     ],
     staleTime: 60_000,
     queryFn: async () => {
-      const perAgent = await Promise.all(
+      // fix-r2 (P1.4): allSettled so one agent's failed config/capabilities fetch does
+      // not collapse the whole picker — only that agent's skills drop out.
+      // fix-r2 (P0): source="live" pulls the agent's真实已启用 skills whitelist from the
+      // owning Gateway (the IM mirror is empty for Gateway-seeded agents), so the
+      // config ∩ capabilities intersection reflects真实 enablement instead of全量.
+      const results = await Promise.allSettled(
         conversationAgents.map(async (a): Promise<AgentEnabledSkills> => {
           const [config, capabilities] = await Promise.all([
-            getAgentConfig(a.agent_id),
+            getAgentConfig(a.agent_id, "live"),
             getAgentCapabilities(a.agent_id),
           ]);
           const capSkills = normalizeAllowlistOptions(capabilities.skills);
@@ -308,6 +313,12 @@ export function ChatWorkspacePageV2() {
           };
         })
       );
+      const perAgent = results
+        .filter(
+          (r): r is PromiseFulfilledResult<AgentEnabledSkills> =>
+            r.status === "fulfilled",
+        )
+        .map((r) => r.value);
       return buildSlashSkills(perAgent);
     },
   });
