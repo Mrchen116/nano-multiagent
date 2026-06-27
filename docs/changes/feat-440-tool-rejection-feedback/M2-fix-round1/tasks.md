@@ -8,12 +8,12 @@ M1 合入后 code review + reviewer 现场发现一个 CONFIRMED correctness bug
 
 ## 退出标准
 
-- [ ] F1：gate `response.reason or ""`（去掉 "user denied" 占位），bare-deny 经真 gate 产出 REJECT_MESSAGE；补 gate 层测试
-- [ ] F2：`auto_reject_message` 空 reason guard，不产语法损坏 `Reason: . `；补单测
-- [ ] F3：IM 后端纯空白 reason 归一化为未提供；补单测
-- [ ] F4：前端仅 deny 决策带 reason，allow 类不带（含失败后残留不被 allow 误带）；POST body 断言
-- [ ] F5：subagent 内白名单工具被 gate 拒 → SUBAGENT_REJECT 集成测试
-- [ ] F6：`is_subagent` 与 `tool_execution_allowlist` 解耦为显式 fork 信号 + 测试
+- [x] F1：gate `response.reason or ""`（去掉 "user denied" 占位），bare-deny 经真 gate 产出 REJECT_MESSAGE；补 gate 层测试
+- [x] F2：`auto_reject_message` 空 reason guard，不产语法损坏 `Reason: . `；补单测
+- [x] F3：IM 后端纯空白 reason 归一化为未提供；补单测
+- [x] F4：前端仅 deny 决策带 reason，allow 类不带（含失败后残留不被 allow 误带）；POST body 断言
+- [x] F5：subagent 内白名单工具被 gate 拒 → SUBAGENT_REJECT 集成测试
+- [x] F6：`is_subagent` 与 `tool_execution_allowlist` 解耦为显式 fork 信号 + 测试
 - [ ] 全测试树 `-m "not e2e"` + 前端 vitest 全绿
 
 ## 测试策略
@@ -49,9 +49,9 @@ UI 状态矩阵：
 
 ## Roadpoints
 
-- R1（F1）: gate `response.reason or ""` + gate 层 bare-deny 测试 — TODO
-- R2（F2）: `auto_reject_message` 空 reason guard + 测试 — TODO
-- R3（F6）: 显式 fork 信号解耦 + 测试 — TODO
-- R4（F5）: subagent 白名单内工具被 gate 拒集成测试 — TODO
-- R5（F3）: IM 后端空白 reason 归一化 + 测试 — TODO
-- R6（F4）: 前端仅 deny 带 reason + POST body 断言 + 浏览器验收 — TODO
+- R1（F1）: gate `response.reason or ""` + gate 层 bare-deny 测试 — DONE
+- R2（F2）: `auto_reject_message` 空 reason guard + 测试 — DONE
+- R3（F6）: 显式 fork 信号解耦 + 测试 — DONE
+- R4（F5）: subagent 白名单内工具被 gate 拒集成测试 — DONE
+- R5（F3）: IM 后端空白 reason 归一化 + 测试 — DONE
+- R6（F4）: 前端仅 deny 带 reason + POST body 断言 + 浏览器验收 — DONE
