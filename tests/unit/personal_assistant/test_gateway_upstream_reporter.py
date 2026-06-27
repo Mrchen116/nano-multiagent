@@ -245,13 +245,9 @@ def test_agent_capabilities_skills_carry_location(tmp_path: Path) -> None:
     _write_skill(skills_root, "doc")
     kernel = _build_test_kernel(tmp_path / "kernel-root")
 
-    payload = build_agent_capabilities_payload(
-        kernel, workspace_root=str(workspace)
-    )
+    payload = build_agent_capabilities_payload(kernel, workspace_root=str(workspace))
     skills = payload["skills"]
     assert isinstance(skills, list) and skills
     doc = next(s for s in skills if s["name"] == "doc")
     assert "location" in doc, "skill entry must carry a 'location' key (feat-430)"
-    assert isinstance(doc["location"], str) and doc["location"].endswith(
-        "doc/SKILL.md"
-    )
+    assert isinstance(doc["location"], str) and doc["location"].endswith("doc/SKILL.md")

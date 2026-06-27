@@ -572,9 +572,7 @@ async def test_multipart_last_part_skill_command_rewritten_with_sender_prefix(
         '[alice] Use the "doc" skill for this request.\nUser input:\nfix spacing'
     )
     # The raw, un-rewritten command must NOT reach the provider.
-    assert not any(
-        m.content == "[alice] /skill:doc fix spacing" for m in user_messages
-    )
+    assert not any(m.content == "[alice] /skill:doc fix spacing" for m in user_messages)
 
 
 async def test_multiple_image_parts_all_reach_provider(tmp_path: Path) -> None:

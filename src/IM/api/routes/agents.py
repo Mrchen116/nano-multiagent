@@ -538,7 +538,9 @@ def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:
             default_on = bool(item.get("default_on", False))
             # feat-430: forward skill location when present (skills only; tools omit it).
             raw_location = item.get("location")
-            location = raw_location if isinstance(raw_location, str) and raw_location else None
+            location = (
+                raw_location if isinstance(raw_location, str) and raw_location else None
+            )
             result.append(
                 AllowlistOptionResponse(
                     name=raw_name.strip(),
