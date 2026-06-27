@@ -480,6 +480,63 @@ class TestPermissionRestEndpoint:
         assert call_kwargs["decision"] == "deny"
         assert call_kwargs["reason"] == "先别动这个文件"
 
+    def test_submit_deny_whitespace_only_reason_normalized_to_none(
+        self, tmp_path
+    ) -> None:
+        """feat-440-M2 (F3): a non-frontend / direct-API caller can send a reason of
+        pure whitespace ("   "). The backend must treat strip()-empty as "no reason"
+        so it never reaches the LLM as a blank "the user said:\n   " — the gateway's
+        ``reason or ""`` keeps a truthy whitespace string, so the strip must happen at
+        the HTTP boundary."""
+        from fastapi.testclient import TestClient
+
+        app, ctx = self._make_app(tmp_path)
+
+        with TestClient(app) as client:
+            with patch.object(
+                client.app.state.gateway_handler,
+                "push_permission_response",
+                new=AsyncMock(return_value=True),
+            ) as mock_push:
+                resp = client.post(
+                    f"/im/v1/conversations/{ctx['conv_id']}/permissions/req-1",
+                    json={
+                        "message_id": ctx["msg_id"],
+                        "decision": "deny",
+                        "reason": "   ",
+                    },
+                    headers={"Authorization": f"Bearer {ctx['token']}"},
+                )
+
+        assert resp.status_code == 200
+        assert mock_push.call_args.kwargs["reason"] is None
+
+    def test_submit_deny_reason_is_stripped(self, tmp_path) -> None:
+        """feat-440-M2 (F3): surrounding whitespace is trimmed before the reason is
+        forwarded, so the LLM-visible text has no leading/trailing blanks."""
+        from fastapi.testclient import TestClient
+
+        app, ctx = self._make_app(tmp_path)
+
+        with TestClient(app) as client:
+            with patch.object(
+                client.app.state.gateway_handler,
+                "push_permission_response",
+                new=AsyncMock(return_value=True),
+            ) as mock_push:
+                resp = client.post(
+                    f"/im/v1/conversations/{ctx['conv_id']}/permissions/req-1",
+                    json={
+                        "message_id": ctx["msg_id"],
+                        "decision": "deny",
+                        "reason": "  先别动  ",
+                    },
+                    headers={"Authorization": f"Bearer {ctx['token']}"},
+                )
+
+        assert resp.status_code == 200
+        assert mock_push.call_args.kwargs["reason"] == "先别动"
+
     def test_submit_decision_without_reason_passes_none(self, tmp_path) -> None:
         """reason is optional — omitting it forwards None; gateway_handler normalizes
         to "" in the frame (single normalization point)."""
