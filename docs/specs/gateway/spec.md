@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: bugfix-437-compaction-workspace-root-crash
+> 对齐: feat-439-im-cache-hit-and-thinking
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -583,3 +583,23 @@ Gateway 把内核工具执行事件中继到 IM 时，除既有的 reason 徽标
 - **GIVEN** 一条 agent 回复处于进行中
 - **WHEN** 整个节点失联、无法发出任何终态反馈
 - **THEN** IM 的 idle 看门狗在静默窗口后仍把该回复兜底翻为失败,避免其永久停在进行中
+
+### Requirement: 缓存使用量随 token 用量中继到 IM
+
+#### Scenario: 一轮回复带缓存命中
+- **WHEN** 一轮带缓存命中的助手回复经 Gateway 中继
+- **THEN** IM 收到的该轮 token 用量里包含命中缓存的输入量与总输入量（不被 Gateway 丢弃）
+
+### Requirement: 整轮多段思考按时序中继到 IM
+
+#### Scenario: 含多段思考的一轮回复
+- **WHEN** 一轮带多段思考的助手回复经 Gateway 中继（含只思考、不输出正文的回合）
+- **THEN** IM 收到的该轮消息包含全部思考段，且每段带可还原其与工具调用时序的次序信息
+
+#### Scenario: 只思考不输出正文的回合
+- **WHEN** 某回合只产生思考、没有正文
+- **THEN** 其思考作为该轮过程的一部分中继到 IM，且不因此产生一条空正文消息
+
+#### Scenario: 既无正文也无思考的回合
+- **WHEN** 某回合既无正文也无思考
+- **THEN** 不向 IM 中继该回合（不产生空消息）
