@@ -643,6 +643,41 @@ async def test_non_allowlisted_tool_yields_subagent_reject_message() -> None:
 
 
 @pytest.mark.asyncio
+async def test_subagent_allowlisted_tool_gate_blocked_yields_subagent_reject() -> None:
+    """F5 (row 1b): inside a fork side-chain, a tool that IS on the execution
+    allowlist (so it reaches registry.execute) but is then blocked by the gate must
+    still land on SUBAGENT_REJECT — the subagent wording wins over the gate's
+    user_deny/reason signals because there is no user to wait on in a fork.
+
+    This covers the path the M1 suite missed: M1 only tested the non-allowlisted
+    synthetic-error branch (never reaches the registry), not an allowlisted-but-
+    gate-denied tool flowing through the ToolError catch branch."""
+    from agent.core.agent.reject_messages import SUBAGENT_REJECT_MESSAGE
+
+    registry = _BlockingRegistry(
+        {
+            "blocked_by_hook": True,
+            "reason": "some gate reason",
+            "reason_code": "denied",
+            "approval": "user_deny",
+        }
+    )
+    registry.register(_FakeTool(name="edit"))
+    # edit IS allowlisted → passes execution-layer narrowing, reaches execute(),
+    # which raises the gate ToolError; is_fork_sidechain=True → SUBAGENT wording.
+    executor = StreamingToolExecutor(
+        registry, tool_execution_allowlist=("edit",), is_fork_sidechain=True
+    )
+
+    executor.add_tool(_call("edit"))
+    results = await _drain(executor)
+
+    assert results[0].error == SUBAGENT_REJECT_MESSAGE
+    # The gate badge signals still survive even though the text is SUBAGENT.
+    assert results[0].reason_code == "denied"
+
+
+@pytest.mark.asyncio
 async def test_user_deny_with_reason_yields_with_reason_prefix() -> None:
     """Main-session user deny + reason → REJECT_MESSAGE_WITH_REASON_PREFIX + reason."""
     from agent.core.agent.reject_messages import REJECT_MESSAGE_WITH_REASON_PREFIX
