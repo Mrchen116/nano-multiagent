@@ -26,7 +26,7 @@
   .item .name { font-size:14px; font-weight:600; }
   .item .name .cmd { color:#f0b232; }
   .item .from { font-size:11px; color:var(--accent); margin-left:auto; }
-  .item .desc { font-size:12px; color:var(--dim); }
+  .item .desc { font-size:12px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .item .path { font-size:10px; color:#6d7178; font-family:monospace; }
   .empty { padding:14px 12px; font-size:13px; color:var(--dim); text-align:center; }
   textarea { width:100%; min-height:52px; resize:vertical; background:#383a40; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:10px 12px; font-size:14px; font-family:inherit; }
@@ -62,7 +62,7 @@ const DIRECT = {
   ctx: "单聊 · code-reviewer · 候选 = /stop + 该 agent 已启用 skills",
   command: [{ name: "stop", desc: "中断当前正在执行的运行", isCmd: true }],
   skills: [
-    { name: "pr-review", desc: "审 PR diff，给精确率导向的评审", location: "/cr/skills/pr-review/SKILL.md", from: ["code-reviewer"] },
+    { name: "pr-review", desc: "提 PR 前对代码 diff 做精确率导向的多角度 code review；触发条件：被派发 review milestone，或要求“review 这个 diff”。不要用于：架构方案、产品验收（模拟真实的长 description，看单行截断效果）", location: "/cr/skills/pr-review/SKILL.md", from: ["code-reviewer"] },
     { name: "tdd-execution-worker", desc: "执行单个 milestone 的 TDD 三提交循环", location: "/cr/skills/tdd/SKILL.md", from: ["code-reviewer"] },
     { name: "log-cleanup", desc: "清理调试日志", location: "/cr/skills/log/SKILL.md", from: ["code-reviewer"] },
   ],

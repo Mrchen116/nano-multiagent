@@ -184,6 +184,7 @@ sequenceDiagram
 
 - **触发**: 仅当 `/` 在输入框开头（前面无非空字符）才触发；输入框中间出现 `/` 不触发。`/skill:<prefix>` 形态进入 skill-only 过滤（支持编辑已补入文本纠错）。
 - **候选与过滤**: 命令（`/stop`）+ skills，统一按前缀过滤；`/skill:` 前缀下只过滤 skills。无匹配显示空态文案，不阻塞继续输入。
+- **description 展示**: skill 描述来自 SKILL.md frontmatter `description`（缺省回退正文首段，见 `agent/core/skills/registry.py`），真实值常是写给模型的**整段长触发描述**；picker 里**单行截断**（`text-overflow: ellipsis`）展示，不撑高列表。
 - **键盘**: `↑`/`↓` 循环移动高亮，**高亮项始终滚动进视野**（`scrollIntoView({block:'nearest'})`）；`Enter` 与 `Tab` 都确认选中；`Esc` 关闭面板并保留已输入的 `/` 文本。
 - **鼠标**: hover 高亮**只切 class、不重建列表 DOM**（重建会打断点击——本次原型实测的"点不中"根因）；点击用 `mousedown` + `preventDefault`（防输入框失焦、不依赖 `click`）确认；**点击面板与输入框之外关闭面板**。
 - **选中落地**: 命令补 `/name `、skill 补 `/skill:name `（尾随空格），**光标置于末尾**，输入框保持焦点。
