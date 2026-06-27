@@ -1236,7 +1236,11 @@ class Kernel:
             config_resolver=per_call_resolver,
         )
         return [
-            SkillInfo(name=s.name, description=getattr(s, "description", "") or "")
+            SkillInfo(
+                name=s.name,
+                description=getattr(s, "description", "") or "",
+                location=str(loc) if (loc := getattr(s, "location", None)) else None,
+            )
             for s in skills
         ]
 

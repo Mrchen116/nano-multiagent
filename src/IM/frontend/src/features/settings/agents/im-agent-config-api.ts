@@ -59,6 +59,9 @@ export interface AgentAllowlistOption {
   description: string;
   // feat-394 M9 R5/R6: default_on=true → rendered as selected when tool_allowlist is empty.
   default_on?: boolean;
+  // feat-430: SKILL.md path (skills only) so the slash picker distinguishes
+  // same-named skills at different paths. Absent/null for tools and older Gateways.
+  location?: string | null;
 }
 
 // bugfix-429 R5: a selectable model with its registered provider/format, so the
@@ -205,7 +208,13 @@ function normalizeAllowlistOptions(values: Array<string | AgentAllowlistOption> 
     }
     if (value && typeof value.name === "string" && value.name.trim()) {
       // feat-394 M9 R5/R6: preserve default_on if the backend provides it.
-      return [{ name: value.name.trim(), description: value.description ?? "", default_on: value.default_on }];
+      // feat-430: preserve location (skill SKILL.md path) for the slash picker.
+      return [{
+        name: value.name.trim(),
+        description: value.description ?? "",
+        default_on: value.default_on,
+        location: value.location ?? null,
+      }];
     }
     return [];
   });
