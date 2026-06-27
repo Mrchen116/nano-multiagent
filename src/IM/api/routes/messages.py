@@ -480,12 +480,18 @@ async def submit_permission_decision(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="no agent node found for this conversation",
         )
+    # feat-440-M2 (F3): trim the reason at the HTTP boundary. A non-frontend /
+    # direct-API caller can send leading/trailing or pure whitespace; a strip()-empty
+    # reason is treated as "not provided" (→ None) so it never reaches the LLM as a
+    # blank "the user said:\n   ". The frontend already trims, but the backend must
+    # not trust it.
+    normalized_reason = payload.reason.strip() if payload.reason is not None else None
     delivered = await gateway_handler.push_permission_response(
         target_node_id=target_node_id,
         message_id=payload.message_id,
         request_id=request_id,
         decision=payload.decision,
-        reason=payload.reason,
+        reason=normalized_reason or None,
     )
     return {"status": "forwarded" if delivered else "queued"}
 
