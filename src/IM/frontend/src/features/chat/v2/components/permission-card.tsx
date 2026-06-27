@@ -91,6 +91,11 @@ export function PermissionCard({
   async function handleChoice(option: PermissionOption) {
     setTransient({ kind: "submitting", chosenId: option.id });
     const trimmedReason = reason.trim();
+    // feat-440-M2 (F4): the reason belongs to a Deny only (spec Q4: 允许类决策忽略
+    // 理由框). Sending it on an allow is dead weight, and — because the reason state
+    // survives a failed Deny — would let a stale reason ride a subsequent Allow.
+    // Gate it on the decision so allow-class POSTs never carry reason.
+    const carriesReason = option.id === "deny" && trimmedReason.length > 0;
     try {
       const resp = await fetchFn(
         `/im/v1/conversations/${conversationId}/permissions/${request.request_id}`,
@@ -100,8 +105,8 @@ export function PermissionCard({
           body: JSON.stringify({
             message_id: messageId,
             decision: option.id,
-            // Omit the key entirely when empty so the backend sees no reason.
-            ...(trimmedReason ? { reason: trimmedReason } : {}),
+            // Omit the key entirely unless this is a Deny with a non-empty reason.
+            ...(carriesReason ? { reason: trimmedReason } : {}),
           }),
         }
       );
