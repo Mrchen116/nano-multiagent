@@ -1,7 +1,7 @@
 """HTTP client for OpenAI-compatible chat completion providers."""
 
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from typing import Any
 import json
 from dataclasses import replace
@@ -307,10 +307,20 @@ def _parse_openai_usage(payload: dict[str, Any] | None) -> TokenUsage | None:
         if total_tokens is not None
         else resolved_prompt + resolved_completion
     )
+    # feat-439-M1: OpenAI prompt_tokens 本就含 cached，故 cache_total_input == prompt_tokens；
+    # cached_tokens 是其中命中部分（分子），现状未读、缓存信息整段丢，这里补读。
+    details = payload.get("prompt_tokens_details")
+    cached = (
+        _extract_non_negative_int(details.get("cached_tokens"))
+        if isinstance(details, Mapping)
+        else None
+    ) or 0
     return TokenUsage(
         prompt_tokens=resolved_prompt,
         completion_tokens=resolved_completion,
         total_tokens=resolved_total,
+        cache_read_tokens=cached,
+        cache_total_input_tokens=resolved_prompt,
     )
 
 

@@ -28,11 +28,13 @@ from IM.api.ws.event_types import (
     EVENT_PERMISSION_REQUEST,
     EVENT_PERMISSION_RESOLVED,
     EVENT_RUN_HEARTBEAT,
+    EVENT_THINKING_SEGMENT,
     EVENT_TOOL_CALL_COMPLETED,
     EVENT_TOOL_CALL_UPSERTED,
     build_message_completed_payload,
     build_message_created_payload,
     build_message_delta_payload,
+    build_thinking_segment_payload,
     build_tool_call_completed_payload,
     build_tool_call_upserted_payload,
 )
@@ -41,6 +43,19 @@ from IM.infra.repositories import EventRepository, MessageRepository
 
 
 NotifyCallable = Callable[[ConversationEvent], None]
+
+
+def _persisted_tool_call(updated: Message, incoming: ToolCall) -> ToolCall:
+    """feat-439-M2: return the persisted ToolCall (with the IM-assigned process seq).
+
+    ``update_runtime_state`` assigns/preserves ``seq`` on the stored row; the incoming
+    tool_call from the Gateway never carries seq. Emitting the persisted row keeps the
+    live WS payload's ordering key consistent with a later history reload.
+    """
+    for tc in updated.tool_calls or ():
+        if tc.id == incoming.id:
+            return tc
+    return incoming
 
 
 @dataclass(slots=True)
@@ -235,7 +250,10 @@ class EventBridge:
             payload=build_tool_call_upserted_payload(
                 conversation_id=updated.conversation_id,
                 message_id=message_id,
-                tool_call=tool_call,
+                # feat-439-M2: emit the PERSISTED tool_call (carries the IM-assigned
+                # process seq), not the incoming one — else live WS lacks seq and the
+                # frontend orders tools after thinking until a reload fixes it.
+                tool_call=_persisted_tool_call(updated, tool_call),
             ),
         )
 
@@ -253,7 +271,30 @@ class EventBridge:
             payload=build_tool_call_completed_payload(
                 conversation_id=updated.conversation_id,
                 message_id=message_id,
-                tool_call=tool_call,
+                tool_call=_persisted_tool_call(updated, tool_call),
+            ),
+        )
+
+    def on_thinking_segment(self, *, message_id: str, text: str) -> None:
+        """feat-439-M2: 持久化一段思考过程项并发 ``thinking.segment`` 事件。
+
+        seq 由 repo 在持久化边界赋予：思考与工具共享一个 per-message 单调递增、按真实
+        到达序的唯一序号。这里取刚追加的那一段（最后一段、已带 seq）回传到 WS，live 与
+        历史回放口径一致（同一持久化 seq，重放可按 seq 幂等去重）。
+        """
+        updated = self.message_repository.append_thinking_segment(
+            message_id=message_id, text=text
+        )
+        segment = (updated.thinking or [])[-1]
+        self._emit(
+            conversation_id=updated.conversation_id,
+            message_id=message_id,
+            event_type=EVENT_THINKING_SEGMENT,
+            delivery_status="running",
+            payload=build_thinking_segment_payload(
+                conversation_id=updated.conversation_id,
+                message_id=message_id,
+                segment=segment,
             ),
         )
 

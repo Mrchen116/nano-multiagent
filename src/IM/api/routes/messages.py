@@ -95,6 +95,16 @@ class ToolCallPayload(BaseModel):
     # feat-434-M1: user-decision verdict on history load, so the gate region's
     # 已授权/已拒绝 survives a page reload (not only live WS). None → gate hidden.
     approval: str | None = None
+    # feat-439-M2: shared process-timeline seq on history load, so the process panel
+    # interleaves thinking + tools in true order after a reload. None → legacy row.
+    seq: int | None = None
+
+
+class ThinkingSegmentPayload(BaseModel):
+    """feat-439-M2: one thinking process item on history load (process timeline)."""
+
+    seq: int
+    text: str
 
 
 class TokenUsagePayload(BaseModel):
@@ -102,6 +112,9 @@ class TokenUsagePayload(BaseModel):
     context_used: int
     context_window: int
     total: int | None = None
+    # feat-439-M1: 缓存命中两字段(整轮口径)。旧行默认 0，前端渲染「缓存命中 X (Y%)」。
+    cache_read_tokens: int = 0
+    cache_total_input_tokens: int = 0
 
 
 class MessageResponse(BaseModel):
@@ -117,6 +130,8 @@ class MessageResponse(BaseModel):
     delivery_status: str
     created_at: str
     tool_calls: list[ToolCallPayload] = []
+    # feat-439-M2: 整轮多段思考（过程时间线），历史回放还原过程盘。空列表 = 无思考。
+    thinking: list[ThinkingSegmentPayload] = []
     token_usage: TokenUsagePayload | None = None
     # feat-414: 本轮 agent 处理墙钟（毫秒）。用户消息及旧行均为 None。
     elapsed_ms: int | None = None
@@ -181,8 +196,13 @@ def to_message_response(message: Message) -> MessageResponse:
                 detail=tc.detail,
                 emoji=tc.emoji,
                 approval=tc.approval,
+                seq=tc.seq,
             )
             for tc in (message.tool_calls or [])
+        ],
+        thinking=[
+            ThinkingSegmentPayload(seq=s.seq, text=s.text)
+            for s in (message.thinking or [])
         ],
         token_usage=TokenUsagePayload(
             output=message.token_usage.output,
@@ -196,6 +216,8 @@ def to_message_response(message: Message) -> MessageResponse:
                 if message.token_usage.total is not None
                 else message.token_usage.context_used + message.token_usage.output
             ),
+            cache_read_tokens=message.token_usage.cache_read_tokens,
+            cache_total_input_tokens=message.token_usage.cache_total_input_tokens,
         )
         if message.token_usage is not None
         else None,

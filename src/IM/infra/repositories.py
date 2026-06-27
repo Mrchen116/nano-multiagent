@@ -1,7 +1,7 @@
 """SQLite repositories for IM users, conversations, and messages."""
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import json
 import sqlite3
@@ -17,6 +17,7 @@ from IM.domain.models import (
     Message,
     NodeStatus,
     SettingsPolicy,
+    ThinkingSegment,
     TokenUsage,
     ToolCall,
     UsageMetric,
@@ -1140,7 +1141,7 @@ class MessageRepository:
                 "content_append and content_replace are mutually exclusive"
             )
         row = self._connection.execute(
-            "SELECT content, tool_calls_json, token_usage_json, conversation_id FROM messages WHERE id = ?",
+            "SELECT content, tool_calls_json, thinking_json, token_usage_json, conversation_id FROM messages WHERE id = ?",
             (message_id,),
         ).fetchone()
         if row is None:
@@ -1157,12 +1158,31 @@ class MessageRepository:
         next_tool_calls_json: str | None | object = _UNSET
         if tool_calls_upsert is not None:
             existing = _decode_tool_calls(row["tool_calls_json"]) or []
+            existing_thinking = (
+                _decode_thinking(row["thinking_json"])
+                if "thinking_json" in row.keys()
+                else None
+            ) or []
             existing_by_id = {tc.id: tc for tc in existing}
             order: list[str] = [tc.id for tc in existing]
             for upsert in _normalize_tool_calls(tool_calls_upsert) or []:
                 if upsert.id not in existing_by_id:
+                    # feat-439-M2: new tool id → assign the shared process-timeline seq
+                    # (max over current thinking + tools, +1) so thinking/tools share one
+                    # monotonic arrival order. A later same-id upsert (completed) keeps it.
                     order.append(upsert.id)
-                existing_by_id[upsert.id] = upsert
+                    seq = _next_process_seq(
+                        existing_thinking, list(existing_by_id.values())
+                    )
+                    existing_by_id[upsert.id] = replace(upsert, seq=seq)
+                else:
+                    # Preserve the seq assigned at first upsert; the gateway never sends
+                    # seq (IM owns assignment), so a None on the incoming completed frame
+                    # must not wipe it.
+                    prior_seq = existing_by_id[upsert.id].seq
+                    existing_by_id[upsert.id] = replace(
+                        upsert, seq=upsert.seq if upsert.seq is not None else prior_seq
+                    )
             merged = [existing_by_id[tcid] for tcid in order]
             next_tool_calls_json = _encode_tool_calls(merged)
 
@@ -1210,6 +1230,58 @@ class MessageRepository:
                 messages.delivery_status,
                 messages.created_at,
                 messages.tool_calls_json,
+                messages.thinking_json,
+                messages.token_usage_json,
+                messages.elapsed_ms,
+                messages.permission_request_json,
+                users.username AS sender_username,
+                users.display_name AS sender_display_name
+            FROM messages
+            LEFT JOIN users ON users.id = messages.sender_user_id
+            WHERE messages.id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+        return self._message_from_row(refreshed)
+
+    def append_thinking_segment(self, *, message_id: str, text: str) -> Message:
+        """feat-439-M2: 追加一段思考到 ``messages.thinking_json``，返回刷新后的消息。
+
+        ``seq`` 在此（持久化边界）统一赋予：思考与工具**共享一个 per-message 单调递增
+        计数器**（= 当前所有过程项 seq 的 max + 1），按真实到达序赋值且全局唯一。这样
+        渲染端按 seq 把思考与工具 merge 成一条时间线，且唯一 seq 让 live WS 事件可幂等
+        去重（重放/双投递不重复）。live 与历史回放都读同一持久化值，口径一致。
+        """
+        # code-review fix: 计 seq 的 SELECT 与写入的 UPDATE 必须在同一事务内（对齐
+        # update_runtime_state 写法），避免并发/崩溃下读到旧 seq 后半写导致序号错乱。
+        with self._connection:
+            row = self._connection.execute(
+                "SELECT tool_calls_json, thinking_json FROM messages WHERE id = ?",
+                (message_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"message_id not found: {message_id}")
+            existing_tools = _decode_tool_calls(row["tool_calls_json"]) or []
+            existing = _decode_thinking(row["thinking_json"]) or []
+            seq = _next_process_seq(existing, existing_tools)
+            existing.append(ThinkingSegment(seq=seq, text=text))
+            self._connection.execute(
+                "UPDATE messages SET thinking_json = ? WHERE id = ?",
+                (_encode_thinking(existing), message_id),
+            )
+        refreshed = self._connection.execute(
+            """
+            SELECT
+                messages.id,
+                messages.conversation_id,
+                messages.sender_user_id,
+                messages.sender_type,
+                messages.content,
+                messages.attachments_json,
+                messages.delivery_status,
+                messages.created_at,
+                messages.tool_calls_json,
+                messages.thinking_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
@@ -1294,6 +1366,7 @@ class MessageRepository:
                 messages.delivery_status,
                 messages.created_at,
                 messages.tool_calls_json,
+                messages.thinking_json,
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
@@ -1495,6 +1568,7 @@ class MessageRepository:
         tool_calls_value = (
             row["tool_calls_json"] if "tool_calls_json" in row.keys() else None
         )
+        thinking_value = row["thinking_json"] if "thinking_json" in row.keys() else None
         token_usage_value = (
             row["token_usage_json"] if "token_usage_json" in row.keys() else None
         )
@@ -1530,6 +1604,7 @@ class MessageRepository:
             delivery_status=row["delivery_status"],
             created_at=row["created_at"],
             tool_calls=_decode_tool_calls(tool_calls_value),
+            thinking=_decode_thinking(thinking_value),
             token_usage=_decode_token_usage(token_usage_value),
             elapsed_ms=elapsed_ms_value,
             permission_requests=permission_requests,
@@ -2868,6 +2943,9 @@ def _tool_call_to_dict(tool_call: ToolCall) -> dict[str, object]:
     # feat-434-M1: persist the user-decision verdict (omit when unset).
     if tool_call.approval is not None:
         payload["approval"] = tool_call.approval
+    # feat-439-M2: persist the shared process-timeline seq (omit when unset/legacy).
+    if tool_call.seq is not None:
+        payload["seq"] = tool_call.seq
     return payload
 
 
@@ -2943,12 +3021,56 @@ def _decode_tool_calls(value: object) -> list[ToolCall] | None:
                     approval=item.get("approval")
                     if isinstance(item.get("approval"), str)
                     else None,
+                    seq=item.get("seq") if isinstance(item.get("seq"), int) else None,
                 )
             )
         except ValueError:
             # Malformed historical row — surface loudly: better than silently dropping a row's tool history.
             raise
     return out
+
+
+def _next_process_seq(thinking: list[ThinkingSegment], tools: list[ToolCall]) -> int:
+    """feat-439-M2: 下一个「过程项」seq = 思考与工具现有 seq 的 max + 1（从 0 起）。
+
+    思考与工具共享这一个 per-message 计数器，按真实到达序单调递增、全局唯一 —— 渲染端
+    据此 merge 成时间线，唯一性让 live 事件可幂等去重。旧工具行 seq 为 None，忽略。
+    """
+    seqs = [s.seq for s in thinking]
+    seqs += [t.seq for t in tools if t.seq is not None]
+    return (max(seqs) + 1) if seqs else 0
+
+
+def _encode_thinking(segments: list[ThinkingSegment]) -> str:
+    return json.dumps(
+        [{"seq": int(s.seq), "text": s.text} for s in segments],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+
+
+def _decode_thinking(value: object) -> list[ThinkingSegment] | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, list):
+        return None
+    out: list[ThinkingSegment] = []
+    for item in parsed:
+        if not isinstance(item, dict):
+            continue
+        out.append(
+            ThinkingSegment(
+                seq=int(item["seq"]) if isinstance(item.get("seq"), int) else 0,
+                text=str(item.get("text", "")),
+            )
+        )
+    return out or None
 
 
 def _encode_token_usage(usage: TokenUsage | None) -> str | None:
@@ -2960,6 +3082,9 @@ def _encode_token_usage(usage: TokenUsage | None) -> str | None:
             "context_used": int(usage.context_used),
             "context_window": int(usage.context_window),
             "total": int(usage.total),
+            # feat-439-M1: 缓存命中两字段持久化。
+            "cache_read_tokens": int(usage.cache_read_tokens),
+            "cache_total_input_tokens": int(usage.cache_total_input_tokens),
         },
         ensure_ascii=True,
         separators=(",", ":"),
@@ -2988,11 +3113,18 @@ def _decode_token_usage(value: object) -> TokenUsage | None:
         # Derive total here — this is the single authoritative decode entry point.
         _raw_total = parsed.get("total")
         total = int(_raw_total) if _raw_total is not None else context_used + output
+        # feat-439-M1: 旧行无缓存字段 → 默认 0(同 total 兜底思路，缺键不致整体解码失败)。
+        _raw_cache_read = parsed.get("cache_read_tokens")
+        cache_read = int(_raw_cache_read) if _raw_cache_read is not None else 0
+        _raw_cache_total = parsed.get("cache_total_input_tokens")
+        cache_total_input = int(_raw_cache_total) if _raw_cache_total is not None else 0
         return TokenUsage(
             output=output,
             context_used=context_used,
             context_window=context_window,
             total=total,
+            cache_read_tokens=cache_read,
+            cache_total_input_tokens=cache_total_input,
         )
     except (KeyError, TypeError, ValueError):
         return None

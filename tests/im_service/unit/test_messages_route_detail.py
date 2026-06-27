@@ -9,7 +9,7 @@ streaming path. Before the fix it dropped ``detail`` (front-end history load
 from __future__ import annotations
 
 from IM.api.routes.messages import to_message_response
-from IM.domain.models import Actor, Message, ToolCall
+from IM.domain.models import Actor, Message, ThinkingSegment, ToolCall
 
 
 def _message_with_tool_call(tc: ToolCall) -> Message:
@@ -23,6 +23,41 @@ def _message_with_tool_call(tc: ToolCall) -> Message:
         created_at="2026-01-01T00:00:00Z",
         tool_calls=[tc],
     )
+
+
+def test_to_message_response_carries_thinking() -> None:
+    """feat-439-M2 R3: REST 历史回放带思考段，刷新后过程盘仍可还原。"""
+    msg = Message(
+        id="m1",
+        conversation_id="c1",
+        sender=Actor(type="agent", id="a1", display_name="Agent"),
+        sender_user_id="a1",
+        sender_type="agent",
+        content="答案",
+        created_at="2026-01-01T00:00:00Z",
+        thinking=[
+            ThinkingSegment(seq=0, text="先看 types.py"),
+            ThinkingSegment(seq=1, text="再归一口径"),
+        ],
+    )
+    resp = to_message_response(msg)
+    assert [(s.seq, s.text) for s in resp.thinking] == [
+        (0, "先看 types.py"),
+        (1, "再归一口径"),
+    ]
+
+
+def test_to_message_response_thinking_absent_is_empty() -> None:
+    msg = Message(
+        id="m1",
+        conversation_id="c1",
+        sender=Actor(type="agent", id="a1", display_name="Agent"),
+        sender_user_id="a1",
+        sender_type="agent",
+        content="hi",
+        created_at="2026-01-01T00:00:00Z",
+    )
+    assert to_message_response(msg).thinking == []
 
 
 def test_to_message_response_carries_detail() -> None:

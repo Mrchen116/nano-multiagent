@@ -402,3 +402,54 @@ async def test_connect_error_raises_model_error() -> None:
         or "connect" in str(err).lower()
         or err.details.get("error")
     ), f"ModelError 应反映连接被拒，实际: {err!r}"
+
+
+async def test_stream_usage_surfaces_cached_tokens() -> None:
+    """feat-439-M1: 流式终态 usage 暴露 prompt_tokens_details.cached_tokens。"""
+    chunks = [
+        {
+            "id": "chatcmpl-cache",
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "hello"},
+                    "finish_reason": None,
+                }
+            ],
+        },
+        {
+            "id": "chatcmpl-cache",
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+            "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 1,
+                "total_tokens": 121,
+                "prompt_tokens_details": {"cached_tokens": 80},
+            },
+        },
+    ]
+    body = _make_sse_body(chunks)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
+
+    client = OpenAICompatClient(
+        base_url="http://127.0.0.1:9999",
+        model="kimi-k2",
+        transport=httpx.MockTransport(handler),
+    )
+    messages = await _collect_messages(
+        client,
+        LLMGenerateRequest(
+            session_id="sess_compat_cache_439",
+            model="kimi-k2",
+            messages=(LLMMessage(role="user", content="hi"),),
+        ),
+    )
+    final = next((m for m in messages if m.usage is not None), None)
+    assert final is not None and final.usage is not None
+    assert final.usage.prompt_tokens == 120
+    assert final.usage.cache_read_tokens == 80
+    assert final.usage.cache_total_input_tokens == 120

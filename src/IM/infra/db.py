@@ -122,6 +122,8 @@ CREATE TABLE IF NOT EXISTS messages (
     created_at TEXT NOT NULL,
     tool_calls_json TEXT,
     token_usage_json TEXT,
+    -- feat-439-M2: 整轮多段思考（过程时间线），nullable JSON。无思考的轮 / 旧行为 NULL。
+    thinking_json TEXT,
     -- feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 NULL，
     -- on_message_completed 写入 elapsed_ms = round((T1 − T0) * 1000)。
     elapsed_ms INTEGER,
@@ -363,6 +365,9 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE messages ADD COLUMN tool_calls_json TEXT")
     if "token_usage_json" not in column_names:
         connection.execute("ALTER TABLE messages ADD COLUMN token_usage_json TEXT")
+    # feat-439-M2: 整轮多段思考（过程时间线）。Nullable JSON：旧行 / 无思考的轮为 NULL。
+    if "thinking_json" not in column_names:
+        connection.execute("ALTER TABLE messages ADD COLUMN thinking_json TEXT")
     # feat-333-M2: embeds permission_request payload (pending/resolved) alongside tool_calls.
     if "permission_request_json" not in column_names:
         connection.execute(

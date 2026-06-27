@@ -329,6 +329,9 @@ def _parse_anthropic_usage(payload: dict[str, Any] | None) -> TokenUsage | None:
         prompt_tokens=prompt_tokens,
         completion_tokens=completion_tokens,
         total_tokens=prompt_tokens + completion_tokens,
+        # feat-439-M1: cache_read 已读、原先没存出来；逐请求总 input == prompt_tokens。
+        cache_read_tokens=cache_read_tokens,
+        cache_total_input_tokens=prompt_tokens,
     )
 
 

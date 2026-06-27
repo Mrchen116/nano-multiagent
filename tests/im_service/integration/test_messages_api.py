@@ -662,3 +662,29 @@ def test_list_messages_returns_elapsed_ms_for_completed_agent_message(
         assert len(items) == 1
         # elapsed_ms 字段必须出现在序列化结果里（user 消息为 None 也算字段存在）
         assert "elapsed_ms" in items[0]
+
+
+def test_to_message_response_serializes_cache_hit_fields() -> None:
+    """feat-439-M1: REST 序列化(to_message_response)第二条路径也带缓存命中两字段。"""
+    from IM.api.routes.messages import to_message_response
+    from IM.domain.models import Message, TokenUsage
+
+    msg = Message(
+        id="m1",
+        conversation_id="c1",
+        sender_user_id="agent:bot",
+        sender_type="agent",
+        content="done",
+        token_usage=TokenUsage(
+            output=15,
+            context_used=400,
+            context_window=200000,
+            total=415,
+            cache_read_tokens=270,
+            cache_total_input_tokens=400,
+        ),
+    )
+    resp = to_message_response(msg)
+    assert resp.token_usage is not None
+    assert resp.token_usage.cache_read_tokens == 270
+    assert resp.token_usage.cache_total_input_tokens == 400

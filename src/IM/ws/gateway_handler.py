@@ -1201,6 +1201,15 @@ class GatewayHandler:
             source = _optional_text(payload.get("source")) or ""
             self._event_bridge.on_run_heartbeat(message_id=message_id, source=source)
 
+        elif kind == "thinking_segment":
+            # feat-439-M2: 一段思考过程项。EventBridge 持久化进 thinking_json 并广播
+            # thinking.segment。seq 在 repo 持久化边界赋予(= 当前 tool_calls 数)。
+            message_id = _require_text(
+                payload.get("message_id"), field_name="message_id"
+            )
+            text = _optional_text(payload.get("text")) or ""
+            self._event_bridge.on_thinking_segment(message_id=message_id, text=text)
+
         elif kind == "tool_call_upserted":
             message_id = _require_text(
                 payload.get("message_id"), field_name="message_id"
@@ -2508,11 +2517,21 @@ def _parse_token_usage(value: object) -> TokenUsage | None:
     # 0 means unknown (kernel didn't send it); the frontend treats 0 as "not available".
     cw_raw = value.get("context_window")
     context_window = max(int(cw_raw), 0) if isinstance(cw_raw, int) else 0
+    # feat-439-M1: 缓存命中两字段(短键 cache_read / cache_total_input，由 gateway 白名单带出)。
+    # 缺省(旧 gateway / 无缓存信息)→ 0，前端按「缓存命中 0 (0%)」空态渲染。
+    cache_read_raw = value.get("cache_read")
+    cache_read = max(int(cache_read_raw), 0) if isinstance(cache_read_raw, int) else 0
+    cache_total_raw = value.get("cache_total_input")
+    cache_total_input = (
+        max(int(cache_total_raw), 0) if isinstance(cache_total_raw, int) else 0
+    )
     return TokenUsage(
         output=max(completion, 0),
         context_used=max(prompt, 0),
         context_window=context_window,
         total=max(total, 0),
+        cache_read_tokens=cache_read,
+        cache_total_input_tokens=cache_total_input,
     )
 
 

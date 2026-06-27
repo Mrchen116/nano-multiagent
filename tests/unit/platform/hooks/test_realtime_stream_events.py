@@ -51,6 +51,34 @@ async def test_message_end_emits_assistant_message() -> None:
     assert evt["data"]["run_id"] == "run_1"
 
 
+async def test_message_end_assistant_message_carries_reasoning_content() -> None:
+    """feat-439-M2 R1: assistant_message payload 必须透传 reasoning_content。
+
+    gateway observer 据此把整轮每回合的思考作为过程项转发到气泡。
+    """
+    hooks = HookRegistry()
+    setup_realtime_stream(hooks)
+    runner = HookRunner(registry=hooks)
+    pub = _FakePublisher()
+    ctx = _make_ctx(publisher=pub)
+
+    await runner.dispatch_observe(
+        "message_end",
+        {
+            "session_id": "sess_1",
+            "turn_id": "turn_1",
+            "message_id": "msg_1",
+            "role": "assistant",
+            "content": "",
+            "reasoning_content": "让我先看一下 types.py……",
+            "run_id": "run_1",
+        },
+        ctx,
+    )
+    assert len(pub.events) == 1
+    assert pub.events[0]["data"]["reasoning_content"] == "让我先看一下 types.py……"
+
+
 async def test_message_end_skips_non_assistant() -> None:
     hooks = HookRegistry()
     setup_realtime_stream(hooks)

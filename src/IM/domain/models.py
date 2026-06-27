@@ -181,6 +181,22 @@ _TOOL_CALL_STATUSES = frozenset({"running", "completed", "failed"})
 
 
 @dataclass(frozen=True, slots=True)
+class ThinkingSegment:
+    """feat-439-M2: 助手回复一轮里的一段思考（过程时间线的「过程项」之一）。
+
+    一个气泡 = 一个 turn = 多次模型调用，每次各自可能产出一段思考；思考与工具调用按
+    真实时序混排成一条「过程」时间线。``seq`` 是与 ``ToolCall.seq`` **共享的同一个
+    per-message 单调递增序号**——由 IM 在持久化边界按真实到达序赋值、全局唯一（跨思考
+    与工具一个计数器）：渲染端按 seq 升序把思考与工具 merge 成时间线，唯一性也让 live
+    WS 事件可按 seq 幂等去重。与 ``ToolCall`` 一样作为 JSON 存在 ``messages.thinking_json``，
+    强从属于一条消息。
+    """
+
+    seq: int
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
 class ToolCall:
     """Represent one tool invocation embedded inside an agent message.
 
@@ -211,6 +227,10 @@ class ToolCall:
     # "user_deny" only for calls that passed through a user permission card; None for
     # auto-allowed / historical rows — the front-end gate region then stays hidden.
     approval: str | None = None
+    # feat-439-M2: per-message 单调递增「过程项」序号，与 ThinkingSegment.seq 同一计数器，
+    # 由 IM 在持久化边界按真实到达序赋予（首次 upsert 分配、后续完成保留）。渲染端按 seq
+    # 把工具与思考 merge 成一条过程时间线。None = 旧持久化行（无思考时按列表序渲染）。
+    seq: int | None = None
 
     def __post_init__(self) -> None:
         if self.status not in _TOOL_CALL_STATUSES:
@@ -237,6 +257,11 @@ class TokenUsage:
     context_used: int
     context_window: int
     total: int = 0
+    # feat-439-M1: 整轮缓存命中率(spec Q1=B)。cache_read_tokens=命中缓存读取的 input 累计
+    # (分子)，cache_total_input_tokens=本轮总 input 累计(分母)。命中率 = 前/后。默认 0 →
+    # 旧持久化行 / 不带缓存的 provider 天然兼容，渲染端按「缓存命中 0 (0%)」空态显示。
+    cache_read_tokens: int = 0
+    cache_total_input_tokens: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,6 +278,10 @@ class Message:
     delivery_status: str = "completed"
     created_at: str = ""
     tool_calls: list[ToolCall] | None = None
+    # feat-439-M2: 整轮多段思考（过程时间线）。None = 本轮无思考 / 旧持久化行（不留
+    # 空壳）。每段带 seq（与 tool_calls 共享的 per-message 单调递增唯一序号）+ text，
+    # 与 tool_calls 并存、由渲染端按 seq 升序 merge 成时间线。
+    thinking: list[ThinkingSegment] | None = None
     token_usage: TokenUsage | None = None
     # feat-414: 本轮 agent 处理墙钟耗时（毫秒）。turn_start 建行时为 None，
     # on_message_completed 写入（见 event_bridge.py）。用户消息始终为 None。

@@ -92,3 +92,60 @@ def test_map_message_assistant_without_reasoning_content_omits_field() -> None:
     assistant_msg = messages[1]
     assert assistant_msg["role"] == "assistant"
     assert "reasoning_content" not in assistant_msg
+
+
+def test_map_generate_response_reads_cached_tokens() -> None:
+    """feat-439-M1: OpenAI prompt_tokens_details.cached_tokens 读出为
+    cache_read_tokens；OpenAI prompt_tokens 本就含 cached，故
+    cache_total_input_tokens == prompt_tokens，且 prompt_tokens 不变。"""
+    mapper = OpenAICompatMapper()
+
+    response = mapper.map_generate_response(
+        {
+            "id": "chatcmpl-1",
+            "model": "kimi-k2",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "hi"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 120,
+                "completion_tokens": 30,
+                "total_tokens": 150,
+                "prompt_tokens_details": {"cached_tokens": 80},
+            },
+        }
+    )
+
+    assert response.usage is not None
+    assert response.usage.prompt_tokens == 120
+    assert response.usage.cache_read_tokens == 80
+    assert response.usage.cache_total_input_tokens == 120
+
+
+def test_map_generate_response_cache_zero_without_details() -> None:
+    """无 prompt_tokens_details 时 cache_read_tokens=0，分母仍== prompt_tokens。"""
+    mapper = OpenAICompatMapper()
+
+    response = mapper.map_generate_response(
+        {
+            "id": "chatcmpl-2",
+            "model": "kimi-k2",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {"role": "assistant", "content": "hi"},
+                    "finish_reason": "stop",
+                }
+            ],
+            "usage": {"prompt_tokens": 40, "completion_tokens": 5, "total_tokens": 45},
+        }
+    )
+
+    assert response.usage is not None
+    assert response.usage.prompt_tokens == 40
+    assert response.usage.cache_read_tokens == 0
+    assert response.usage.cache_total_input_tokens == 40

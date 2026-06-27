@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from IM.domain.models import ToolCall, TokenUsage
+from IM.domain.models import ThinkingSegment, ToolCall, TokenUsage
 from IM.infra.db import connect, initialize_schema
 from IM.infra.repositories import (
     ConversationRepository,
@@ -59,6 +59,36 @@ def test_create_message_persists_tool_calls_and_token_usage(tmp_path: Path) -> N
     assert listed[-1].tool_calls[0].name == "list_files"
     assert listed[-1].tool_calls[0].input == {"path": "."}
     assert listed[-1].token_usage == usage
+
+
+def test_token_usage_cache_fields_round_trip(tmp_path: Path) -> None:
+    """feat-439-M1: 缓存命中两字段经 encode/decode 持久化往返不丢。"""
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+
+    usage = TokenUsage(
+        output=15,
+        context_used=400,
+        context_window=200000,
+        total=415,
+        cache_read_tokens=270,
+        cache_total_input_tokens=400,
+    )
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="hi",
+        token_usage=usage,
+    )
+    assert created.token_usage == usage
+
+    listed = messages.list_messages(conversation_id=conversation.id)
+    assert listed[-1].token_usage is not None
+    assert listed[-1].token_usage.cache_read_tokens == 270
+    assert listed[-1].token_usage.cache_total_input_tokens == 400
 
 
 def test_create_message_default_tool_calls_and_token_usage_are_none(
@@ -138,6 +168,81 @@ def test_update_runtime_state_appends_content_and_upserts_tool_call(
     assert only.status == "completed"
     assert only.output == "ok"
     assert only.duration_ms == 22
+
+
+def test_thinking_and_tools_share_monotonic_process_seq(
+    tmp_path: Path,
+) -> None:
+    """feat-439-M2: 思考段与工具调用共享一个 per-message 单调递增 seq（真实到达序、唯一）。
+
+    渲染端按 seq 把过程项 merge 成一条时间线；唯一 seq 让 live 事件可幂等去重。
+    """
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="",
+        allow_empty=True,
+    )
+
+    # 真实到达序：think → tool → think → tool → think
+    messages.append_thinking_segment(
+        message_id=created.id, text="先看 types.py"
+    )  # seq 0
+    messages.update_runtime_state(
+        message_id=created.id,
+        tool_calls_upsert=[ToolCall(id="t1", name="read", status="running")],  # seq 1
+    )
+    messages.append_thinking_segment(message_id=created.id, text="再归一口径")  # seq 2
+    messages.update_runtime_state(
+        message_id=created.id,
+        tool_calls_upsert=[ToolCall(id="t2", name="edit", status="running")],  # seq 3
+    )
+    messages.append_thinking_segment(message_id=created.id, text="收尾总结")  # seq 4
+    # 工具完成（同 id 二次 upsert）必须保留首次分配的 seq，不再 ++
+    messages.update_runtime_state(
+        message_id=created.id,
+        tool_calls_upsert=[ToolCall(id="t1", name="read", status="completed")],
+    )
+
+    final = messages.list_messages(conversation_id=conversation.id)[-1]
+    assert final.thinking is not None
+    assert [(s.seq, s.text) for s in final.thinking] == [
+        (0, "先看 types.py"),
+        (2, "再归一口径"),
+        (4, "收尾总结"),
+    ]
+    assert final.tool_calls is not None
+    by_id = {t.id: t for t in final.tool_calls}
+    assert by_id["t1"].seq == 1 and by_id["t1"].status == "completed"
+    assert by_id["t2"].seq == 3
+    # 全部过程项 seq 唯一
+    all_seqs = [s.seq for s in final.thinking] + [t.seq for t in final.tool_calls]
+    assert sorted(all_seqs) == [0, 1, 2, 3, 4]
+
+
+def test_thinking_default_none_and_legacy_rows(tmp_path: Path) -> None:
+    """无思考的消息 thinking 为 None（不留空壳）。"""
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="hi",
+    )
+    assert created.thinking is None
+    listed = messages.list_messages(conversation_id=conversation.id)[-1]
+    assert listed.thinking is None
+    # ThinkingSegment 是简单值对象
+    seg = ThinkingSegment(seq=2, text="x")
+    assert (seg.seq, seg.text) == (2, "x")
 
 
 def test_tool_call_validates_status() -> None:

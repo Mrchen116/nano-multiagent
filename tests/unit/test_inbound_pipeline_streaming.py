@@ -941,3 +941,232 @@ class TestTerminalToolCallReconcile:
         # Badge closed, but NO bubble finalization (no finalize_bubble flag).
         assert [p for _, p in send_calls if p.get("kind") == "tool_call_completed"]
         assert not [p for _, p in send_calls if p.get("kind") == "message_completed"]
+
+
+class TestTurnEndCachePassthrough:
+    """feat-439-M1 R2: gateway turn_end → message_completed 的 token_usage 白名单
+    必须显式带上缓存命中两字段(否则前端永远拿不到、命中率恒 0%)。"""
+
+    @pytest.mark.asyncio
+    async def test_turn_end_token_usage_carries_cache_fields(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+        ctx_store = {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "agent-msg-1",
+                "agent_id": "alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=ctx_store,
+        )
+
+        observer(
+            {
+                "event": "turn_end",
+                "run_id": "run-1",
+                "completed": True,
+                "usage": {
+                    "prompt_tokens": 400,
+                    "completion_tokens": 15,
+                    "total_tokens": 415,
+                    "cache_read_tokens": 270,
+                    "cache_total_input_tokens": 400,
+                },
+                "context_window": 200000,
+            }
+        )
+        await asyncio.sleep(0.05)
+
+        completed = [p for _, p in send_calls if p.get("kind") == "message_completed"]
+        assert completed, f"expected message_completed, got {send_calls}"
+        tu = completed[0]["token_usage"]
+        assert tu is not None
+        # prompt/completion 不变
+        assert tu["prompt"] == 400
+        assert tu["completion"] == 15
+        # 缓存两字段透传
+        assert tu["cache_read"] == 270
+        assert tu["cache_total_input"] == 400
+
+    @pytest.mark.asyncio
+    async def test_turn_end_without_cache_omits_or_zeroes(self):
+        """旧内核/无缓存信息：usage 不带 cache 字段时，payload cache 字段为 0(不崩)。"""
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+        ctx_store = {
+            "run-1": {
+                "conversation_id": "conv-1",
+                "message_id": "agent-msg-1",
+                "agent_id": "alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=ctx_store,
+        )
+
+        observer(
+            {
+                "event": "turn_end",
+                "run_id": "run-1",
+                "completed": True,
+                "usage": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 5,
+                    "total_tokens": 105,
+                },
+            }
+        )
+        await asyncio.sleep(0.05)
+
+        completed = [p for _, p in send_calls if p.get("kind") == "message_completed"]
+        assert completed
+        tu = completed[0]["token_usage"]
+        assert tu is not None
+        assert tu["cache_read"] == 0
+        assert tu["cache_total_input"] == 0
+
+
+# ─── feat-439-M2: observer forwards thinking process items ───────────────────
+
+
+class TestObserverForwardsThinkingSegment:
+    """空正文但有 reasoning 的回合不再丢弃，作为「过程项」转发到当前气泡。"""
+
+    def _manager_with_sink(self, send_calls: list[tuple]):
+        manager = MagicMock()
+        manager.connected = True
+
+        async def mock_send_json(message_type, payload):
+            send_calls.append((message_type, payload))
+
+        manager.send_json = mock_send_json
+        manager.send_json_await_ack = AsyncMock()
+        return manager
+
+    @pytest.mark.asyncio
+    async def test_empty_content_with_reasoning_forwards_thinking_segment(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = self._manager_with_sink(send_calls)
+        run_context_store = {
+            "run-1": {
+                "conversation_id": "conv-a",
+                "message_id": "agent-msg-1",
+                "agent_id": "Alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        coro = observer(
+            {
+                "event": "assistant_message",
+                "content": "",
+                "reasoning_content": "先看 types.py 再动手",
+                "message_id": "kernel-1",
+                "run_id": "run-1",
+            }
+        )
+        if coro is not None:
+            await coro
+        await asyncio.sleep(0.05)
+
+        thinking = [p for _, p in send_calls if p.get("kind") == "thinking_segment"]
+        assert len(thinking) == 1, f"应转发 1 个 thinking_segment, got {send_calls}"
+        assert thinking[0]["message_id"] == "agent-msg-1"
+        assert thinking[0]["text"] == "先看 types.py 再动手"
+        # 空正文回合不发 delta、不 roll 新气泡
+        assert [p for _, p in send_calls if p.get("kind") == "message_delta"] == []
+        assert [p for _, p in send_calls if p.get("kind") == "turn_start"] == []
+
+    @pytest.mark.asyncio
+    async def test_empty_content_no_reasoning_is_dropped(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = self._manager_with_sink(send_calls)
+        run_context_store = {
+            "run-1": {
+                "conversation_id": "conv-a",
+                "message_id": "agent-msg-1",
+                "agent_id": "Alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        coro = observer(
+            {
+                "event": "assistant_message",
+                "content": "",
+                "reasoning_content": "",
+                "message_id": "kernel-1",
+                "run_id": "run-1",
+            }
+        )
+        assert coro is None, "空正文+无 reasoning 的回合必须丢弃(return None)"
+        await asyncio.sleep(0.05)
+        assert send_calls == []
+
+    @pytest.mark.asyncio
+    async def test_content_with_reasoning_forwards_both(self):
+        from personal_assistant.main import _build_kernel_event_observer
+
+        send_calls: list[tuple] = []
+        manager = self._manager_with_sink(send_calls)
+        run_context_store = {
+            "run-1": {
+                "conversation_id": "conv-a",
+                "message_id": "agent-msg-1",
+                "agent_id": "Alpha",
+            }
+        }
+        observer = _build_kernel_event_observer(
+            im_connection_manager_factory=lambda: manager,
+            run_context_store=run_context_store,
+        )
+
+        coro = observer(
+            {
+                "event": "assistant_message",
+                "content": "答案是 4",
+                "reasoning_content": "最后再想一下",
+                "message_id": "kernel-1",
+                "run_id": "run-1",
+            }
+        )
+        if coro is not None:
+            await coro
+        await asyncio.sleep(0.05)
+
+        thinking = [p for _, p in send_calls if p.get("kind") == "thinking_segment"]
+        delta = [p for _, p in send_calls if p.get("kind") == "message_delta"]
+        assert len(thinking) == 1 and thinking[0]["text"] == "最后再想一下"
+        assert len(delta) == 1 and delta[0]["delta_text"] == "答案是 4"
+        assert thinking[0]["message_id"] == "agent-msg-1"
+        assert delta[0]["message_id"] == "agent-msg-1"

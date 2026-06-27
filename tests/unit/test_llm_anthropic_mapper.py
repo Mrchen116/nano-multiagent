@@ -213,3 +213,56 @@ def test_map_message_assistant_without_reasoning_omits_thinking_block() -> None:
 
     assistant_msg = payload["messages"][1]
     assert all(b.get("type") != "thinking" for b in assistant_msg["content"])
+
+
+def test_map_generate_response_surfaces_cache_hit_fields() -> None:
+    """feat-439-M1: Anthropic 缓存读取量单独暴露为 cache_read_tokens；
+    cache_total_input_tokens 跨家归一为本次总 input(== prompt_tokens)。
+    prompt_tokens 不得改动(驱动「已用上下文」)。"""
+    mapper = AnthropicMapper()
+
+    response = mapper.map_generate_response(
+        {
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "kimiCoding:K2.6",
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 100,
+                "output_tokens": 30,
+                "cache_creation_input_tokens": 5,
+                "cache_read_input_tokens": 2,
+            },
+            "content": [{"type": "text", "text": "ok"}],
+        }
+    )
+
+    assert response.usage is not None
+    # prompt_tokens 一字不改：input + cache_creation + cache_read = 107
+    assert response.usage.prompt_tokens == 107
+    assert response.usage.cache_read_tokens == 2
+    # 归一：逐请求 cache_total_input_tokens == prompt_tokens
+    assert response.usage.cache_total_input_tokens == 107
+
+
+def test_map_generate_response_cache_fields_default_zero_without_cache() -> None:
+    """无缓存命中时 cache_read_tokens=0，cache_total_input_tokens 仍== prompt_tokens。"""
+    mapper = AnthropicMapper()
+
+    response = mapper.map_generate_response(
+        {
+            "id": "msg_2",
+            "type": "message",
+            "role": "assistant",
+            "model": "kimiCoding:K2.6",
+            "stop_reason": "end_turn",
+            "usage": {"input_tokens": 50, "output_tokens": 10},
+            "content": [{"type": "text", "text": "ok"}],
+        }
+    )
+
+    assert response.usage is not None
+    assert response.usage.prompt_tokens == 50
+    assert response.usage.cache_read_tokens == 0
+    assert response.usage.cache_total_input_tokens == 50

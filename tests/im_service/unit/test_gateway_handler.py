@@ -656,6 +656,34 @@ def test_parse_token_usage_derives_total_when_missing() -> None:
     assert parsed.total == 42
 
 
+def test_parse_token_usage_reads_cache_hit_fields() -> None:
+    """feat-439-M1: gateway streaming_delta 带缓存命中两字段时落入 domain TokenUsage。"""
+    from IM.ws.gateway_handler import _parse_token_usage
+
+    parsed = _parse_token_usage(
+        {
+            "prompt": 400,
+            "completion": 15,
+            "total": 415,
+            "cache_read": 270,
+            "cache_total_input": 400,
+        }
+    )
+    assert parsed is not None
+    assert parsed.cache_read_tokens == 270
+    assert parsed.cache_total_input_tokens == 400
+
+
+def test_parse_token_usage_cache_defaults_zero_when_absent() -> None:
+    """无 cache 字段(旧 gateway)时默认 0，不丢其它字段。"""
+    from IM.ws.gateway_handler import _parse_token_usage
+
+    parsed = _parse_token_usage({"prompt": 12, "completion": 30})
+    assert parsed is not None
+    assert parsed.cache_read_tokens == 0
+    assert parsed.cache_total_input_tokens == 0
+
+
 # ---------------------------------------------------------------------------
 # feat-393: turn_start to_user_id 模式 — heartbeat canonical 直聊解析
 # ---------------------------------------------------------------------------
@@ -685,6 +713,43 @@ def _build_handler_with_event_bridge(tmp_path: Path) -> tuple["GatewayHandler", 
         event_bridge=bridge,
     )
     return handler, connection
+
+
+def test_streaming_delta_thinking_segment_persists_via_bridge(tmp_path: Path) -> None:
+    """feat-439-M2 R3: kind=thinking_segment 经 gateway_handler 落到 message.thinking。"""
+    handler, connection = _build_handler_with_event_bridge(tmp_path)
+    users = UserRepository(connection)
+    owner = users.create_user(username="nano", display_name="Nano")
+    agent_user = users.create_user(username="agent:alpha", display_name="Alpha")
+    connection.execute(
+        "UPDATE users SET owner_id = ? WHERE id = ?", (owner.owner_id, agent_user.id)
+    )
+    connection.commit()
+    conv = ConversationRepository(connection).create_conversation(
+        title="t", participant_ids=[owner.id]
+    )
+    msg = handler._event_bridge.on_turn_start(
+        conversation_id=conv.id, agent_user_id=agent_user.id, agent_id="alpha"
+    )
+
+    response = asyncio.run(
+        handler.handle_message(
+            websocket=StubWebSocket(),
+            message_type="node.streaming_delta",
+            payload={
+                "kind": "thinking_segment",
+                "message_id": msg.id,
+                "text": "先看 types.py",
+                "run_id": "run-1",
+            },
+        )
+    )
+    assert response["type"] == "ack"
+    assert response["payload"]["kind"] == "thinking_segment"
+
+    final = MessageRepository(connection).list_messages(conversation_id=conv.id)[-1]
+    assert final.thinking is not None
+    assert [(s.seq, s.text) for s in final.thinking] == [(0, "先看 types.py")]
 
 
 def test_turn_start_to_user_id_resolves_canonical_direct_conversation_and_creates_message(

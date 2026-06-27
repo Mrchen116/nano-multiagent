@@ -588,6 +588,10 @@ class AgentLoop:
                         "prompt_tokens": turn_usage.prompt_tokens,
                         "completion_tokens": turn_usage.completion_tokens,
                         "total_tokens": turn_usage.total_tokens,
+                        # feat-439-M1: 此 usage dict 也是白名单——缓存命中两字段须显式带出，
+                        # 否则下游 realtime_stream 的 dict(usage) 复制不到，命中率链路断在源头。
+                        "cache_read_tokens": turn_usage.cache_read_tokens,
+                        "cache_total_input_tokens": turn_usage.cache_total_input_tokens,
                     }
                 if active_hook_ctx is not None:
                     cw = active_hook_ctx.metadata.get("context_window")
@@ -639,6 +643,9 @@ class AgentLoop:
                     "turn_id": hook_ctx.turn_id,
                     "message_id": msg.message_id,
                     "content": msg.content,
+                    # feat-439-M2: 把本回合思考随 message_end 暴露，供 gateway observer
+                    # 作为「过程项」转发到气泡（整轮多回合各带一段思考）。
+                    "reasoning_content": msg.reasoning_content,
                     "role": msg.role,
                 },
                 run_id=run_id,
@@ -1047,6 +1054,10 @@ def _accumulate_usage(
 
     - ``total_tokens`` is recomputed as ``update.prompt_tokens + accumulated
       completion_tokens`` to stay in sync: total = context_used + output.
+
+    - ``cache_read_tokens`` / ``cache_total_input_tokens`` are **summed** (feat-439-M1).
+      Cache-hit rate is a whole-turn metric (spec Q1=B): numerator and denominator
+      each accumulate across roundtrips, so the rate = Σcache_read / Σcache_total_input.
     """
     if update is None:
         return current
@@ -1058,6 +1069,12 @@ def _accumulate_usage(
         prompt_tokens=update.prompt_tokens,
         completion_tokens=accumulated_completion,
         total_tokens=update.prompt_tokens + accumulated_completion,
+        # feat-439-M1: 缓存命中率走整轮口径(spec Q1=B)，与 completion 同属「累加」一类，
+        # 分子/分母各求和 → 命中率 = Σcache_read / Σcache_total_input。
+        cache_read_tokens=current.cache_read_tokens + update.cache_read_tokens,
+        cache_total_input_tokens=(
+            current.cache_total_input_tokens + update.cache_total_input_tokens
+        ),
     )
 
 

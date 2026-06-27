@@ -14,6 +14,13 @@ class TokenUsage:
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
+    # feat-439-M1 缓存命中率用：cache_read_tokens = 命中缓存读取的 input（分子）；
+    # cache_total_input_tokens = 本次总 input 含命中部分（分母），已在 provider 层跨家归一
+    # （逐请求 cache_total_input_tokens == prompt_tokens）。两字段与 prompt_tokens 平行：
+    # prompt_tokens 被 _accumulate_usage 取最后快照（驱动 context_used），无法重建整轮求和，
+    # 故命中率分子/分母需独立的可累加字段。默认 0 → 不带缓存的 provider / 旧持久化天然兼容。
+    cache_read_tokens: int = 0
+    cache_total_input_tokens: int = 0
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import "../../../../i18n";
@@ -47,5 +47,55 @@ describe("TokenChip", () => {
     expect(chip.textContent).toMatch(/2\.4k/);
     // Ensure the formatted total appears before "tok"
     expect(chip.textContent).toMatch(/2\.4k\s+tok/);
+  });
+
+  it("feat-439-M1: 展开详情显示缓存命中行(命中量 + 百分比)", () => {
+    render(
+      <TokenChip
+        usage={{
+          output: 2439,
+          context_used: 190_784,
+          context_window: 200_000,
+          total: 193_223,
+          cache_read_tokens: 168_402,
+          cache_total_input_tokens: 193_600,
+        }}
+      />
+    );
+    fireEvent.click(screen.getByRole("button"));
+    const detail = document.querySelector(".chat-token-chip-detail");
+    expect(detail).not.toBeNull();
+    // 168402 / 193600 = 86.98% → 87%
+    expect(detail!.textContent).toMatch(/168,402/);
+    expect(detail!.textContent).toMatch(/87%/);
+  });
+
+  it("feat-439-M1: 无命中显示 0 (0%)，不隐藏该行", () => {
+    render(
+      <TokenChip
+        usage={{
+          output: 10,
+          context_used: 400,
+          context_window: 200_000,
+          total: 410,
+          cache_read_tokens: 0,
+          cache_total_input_tokens: 400,
+        }}
+      />
+    );
+    fireEvent.click(screen.getByRole("button"));
+    const detail = document.querySelector(".chat-token-chip-detail");
+    expect(detail!.textContent).toMatch(/0 \(0%\)/);
+  });
+
+  it("feat-439-M1: 旧数据无缓存字段时仍显示缓存命中行为 0 (0%)", () => {
+    render(
+      <TokenChip
+        usage={{ output: 312, context_used: 14_800, context_window: 200_000, total: 15_112 }}
+      />
+    );
+    fireEvent.click(screen.getByRole("button"));
+    const detail = document.querySelector(".chat-token-chip-detail");
+    expect(detail!.textContent).toMatch(/0 \(0%\)/);
   });
 });
