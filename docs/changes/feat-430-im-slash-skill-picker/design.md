@@ -91,6 +91,7 @@ graph TD
 - **理由**: 触发/键盘导航/前缀过滤/选中插入逻辑可直接照搬；但 mention 选中产出 wire XML + 旁路 `draftMentions`，slash 选中只补纯文本，数据通路不同。
 - **拒绝**: 复用同一组件加 mode 分支——两套选中语义糅在一起，后续任一改动互相牵连。
 - **风险**: 两组件有重复代码；可接受，交互稳定后再抽公共 hook。
+- **UI 约束**: picker 锚定 composer 上方、高度受限（max-height ≤ 视口一半）+ 内部滚动，候选多时不得穿出视口顶部（原型实测：composer 不贴底时长候选列表会穿屏顶，故依赖 composer 处于聊天窗底部的既有布局）。
 
 ### 决策 2: skills 数据走 capabilities API（扩 location），不用 config 白名单
 
