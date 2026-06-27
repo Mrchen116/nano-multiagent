@@ -543,6 +543,11 @@ def test_bare_stop_in_group_multi_agent_stops_only_running_no_noise(
     assert [t[0] for t in delivered] == ["已停止当前操作。"]
     assert all("当前没有正在执行" not in t[0] for t in delivered)
     assert channel.sent == []
+    # fix-r2 (code-review P1.5): the idle member (agent-b) must NOT get a kernel session.
+    assert all(
+        "agent-b" not in str(c.get("workspace_root", ""))
+        for c in kernel_client.create_session_calls
+    )
 
 
 def test_bare_stop_in_group_mention_policy_interrupts_running_agent(
@@ -623,6 +628,8 @@ def test_bare_stop_in_group_no_active_run_has_no_side_effect(tmp_path: Path) -> 
     # No friendly no-op ack bubble for a non-running group agent (无副作用).
     assert delivered == []
     assert channel.sent == []
+    # fix-r2 (code-review P1.5): idle group member must NOT allocate a kernel session.
+    assert kernel_client.create_session_calls == []
     # /stop is a control command — it must not be buffered as group context.
     buf_key = pipeline._group_buf_key_for_agent(inbound, "agent-a")
     assert group_store.drain(buf_key) == []

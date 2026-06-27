@@ -58,6 +58,34 @@ from .state import (
     render_user_content_parts,
     render_user_text,
 )
+
+
+def _rewrite_skill_command_in_parts(
+    parts: Sequence[InputPart],
+) -> tuple[InputPart, ...]:
+    """Rewrite the `/skill:` shortcut on the single text part that carries it.
+
+    feat-430 fix-r2: in a multi-part turn the command lives in one specific text part
+    (the current message), which may be the last part (group buffered context) or a
+    non-last part accompanying a trailing image. Rewriting per-part keeps the
+    transformation on that part wherever the multi-part split later places it, instead
+    of rewriting the joined text (which misses non-first lines and mis-reads an
+    `[image:placeholder]` line as a `[sender]` prefix). At most one command exists, so
+    the first matching text part is rewritten and the rest pass through untouched.
+    """
+
+    out: list[InputPart] = []
+    rewritten = False
+    for part in parts:
+        if not rewritten and part.type == "text" and part.text is not None:
+            new_text = rewrite_skill_command(part.text)
+            if new_text != part.text:
+                part = replace(part, text=new_text)
+                rewritten = True
+        out.append(part)
+    return tuple(out)
+
+
 from agent.core.session.entries import message_from_turn_entry
 from agent.core.agent.prompt_sections.base import (
     PromptSection,
@@ -448,7 +476,17 @@ class AgentRuntime:
             user_text = transformed_text
         if not user_text:
             raise ValueError("empty input parts are not allowed")
-        user_text = rewrite_skill_command(user_text)
+        # feat-430 fix-r2: rewrite the `/skill:` shortcut on the command-bearing text part.
+        # Single-part turns rewrite the (possibly hook-transformed) user_text directly.
+        # Multi-part turns rewrite the specific text part holding the command and re-derive
+        # user_text from the rewritten parts, so the transformation survives the later
+        # last-part split (group buffered context OR text + trailing image) and never
+        # corrupts the joined/persisted text by mis-reading an image placeholder line.
+        if len(input_parts) > 1:
+            input_parts = _rewrite_skill_command_in_parts(input_parts)
+            user_text = render_user_text(input_parts)
+        else:
+            user_text = rewrite_skill_command(user_text)
 
         before_payload, _ = await self._dispatch_intercept(
             "before_agent_start",
@@ -578,12 +616,9 @@ class AgentRuntime:
                 if render_user_text([part]) or render_user_content_parts([part])
             )
             loop_history = loop_history + extra_messages
-            # feat-430 (design-review #2): the `/skill:` command lives in the LAST part
-            # (the current message). The line-451 rewrite ran on the full joined text and
-            # is a no-op for multi-part turns (`^` anchor misses the non-first command
-            # line), so re-apply the rewrite to the command-bearing part here — otherwise
-            # any group turn with buffered context silently bypasses skill rewriting.
-            effective_user_text = rewrite_skill_command(render_user_text(last_part))
+            # feat-430 fix-r2: input_parts were already skill-rewritten per-part above, so
+            # last_part / extra_parts carry the rewritten command wherever it sits.
+            effective_user_text = render_user_text(last_part)
             effective_input_parts = last_part
 
         all_messages: list[Message] = [user_msg]

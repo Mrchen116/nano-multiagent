@@ -121,7 +121,7 @@ def _skills_from_kernel(
         {
             "name": skill.name,
             "description": skill.description or "",
-            "location": getattr(skill, "location", None),
+            "location": skill.location,
         }
         for skill in kernel.list_skills(ws)
     ]

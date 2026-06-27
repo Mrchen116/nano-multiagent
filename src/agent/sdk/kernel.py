@@ -1239,7 +1239,8 @@ class Kernel:
             SkillInfo(
                 name=s.name,
                 description=getattr(s, "description", "") or "",
-                location=str(loc) if (loc := getattr(s, "location", None)) else None,
+                # SkillMetadata.location is a non-optional Path (registry always sets it).
+                location=str(s.location),
             )
             for s in skills
         ]

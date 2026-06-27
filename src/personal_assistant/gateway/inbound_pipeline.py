@@ -908,24 +908,26 @@ class InboundPipeline:
         async with self._active_runs_lock:
             active_run_id = self._active_runs.get(session_key)
 
+        # feat-430 决策4 + fix-r2 (code-review P1.5): in a group every member agent receives
+        # the broadcast `/stop`; a non-running member must produce ZERO side effects — no
+        # ack bubble AND no kernel session. Short-circuit BEFORE _ensure_binding, which would
+        # otherwise allocate an empty session for each idle group agent. Direct chats keep the
+        # friendly ack (and binding) so an explicit /stop still gives the user feedback.
+        if active_run_id is None and message.is_group:
+            return PipelineResult(
+                agent_id=agent_id,
+                session_key=session_key,
+                kernel_session_id="",
+                run_id="",
+                reply_text="",
+                outbound=None,
+            )
+
         binding = await self._ensure_binding(
             message, agent_id=agent_id, session_key=session_key
         )
 
         if active_run_id is None:
-            # feat-430 决策4: in a group every member agent receives the broadcast
-            # `/stop`; a non-running agent must stay silent (spec 幂等/无副作用) rather
-            # than each emitting a "当前没有正在执行的操作" bubble. Direct chats keep the
-            # friendly ack so the user gets feedback for an explicit /stop.
-            if message.is_group:
-                return PipelineResult(
-                    agent_id=agent_id,
-                    session_key=session_key,
-                    kernel_session_id=binding.kernel_session_id,
-                    run_id="",
-                    reply_text="",
-                    outbound=None,
-                )
             reply_text = "当前没有正在执行的操作。"
             outbound = await self._deliver_stop_ack(
                 text=reply_text,

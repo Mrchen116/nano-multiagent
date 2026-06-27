@@ -575,6 +575,89 @@ async def test_multipart_last_part_skill_command_rewritten_with_sender_prefix(
     assert not any(m.content == "[alice] /skill:doc fix spacing" for m in user_messages)
 
 
+async def test_skill_command_with_trailing_image_still_rewritten(
+    tmp_path: Path,
+) -> None:
+    """feat-430 fix-r2 (code-review P1.1①): a `/skill` text part + a trailing image part
+    is a multi-part turn whose LAST part is the image. The rewrite must land on the
+    command text part (not the last/image part), so the skill instruction still reaches
+    the model and the image survives."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    llm_client = FakeLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="mock-model",
+    )
+
+    img = "data:image/png;base64,aW1n"
+    await runtime.run(
+        session.session_id,
+        [
+            {"type": "text", "text": "/skill:doc polish this"},
+            {"type": "image", "image_url": img},
+        ],
+        stream=False,
+    )
+
+    user_messages = [m for m in llm_client.requests[0].messages if m.role == "user"]
+    flat = " ".join(m.content for m in user_messages if isinstance(m.content, str))
+    # Skill command rewritten (not silently dropped because the image was the last part).
+    assert 'Use the "doc" skill for this request.' in flat
+    assert "/skill:doc" not in flat
+    # The image still reaches the provider as a structured block.
+    seen_imgs: set[str] = set()
+    for m in user_messages:
+        if isinstance(m.content, list):
+            for block in m.content:
+                if isinstance(block, dict) and block.get("type") == "image":
+                    seen_imgs.add(block.get("image_url"))
+    assert img in seen_imgs
+
+
+async def test_multipart_skill_command_does_not_fold_image_into_user_input(
+    tmp_path: Path,
+) -> None:
+    """feat-430 fix-r2 (code-review P1.1②): the joined-text rewrite must not run for
+    multi-part turns. With `/skill:doc` (no args) + a trailing image, the old joined
+    rewrite greedily swallowed the `[image:placeholder]` line as the command's
+    `User input:` args, corrupting the persisted user message. Per-part rewrite leaves
+    the image as its own part."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    llm_client = FakeLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="mock-model",
+    )
+
+    img = "data:image/png;base64,aW1n"
+    await runtime.run(
+        session.session_id,
+        [
+            {"type": "text", "text": "/skill:doc"},
+            {"type": "image", "image_url": img},
+        ],
+        stream=False,
+    )
+    manager.writer.flush()
+
+    entries = manager.list_entries(session.session_id)
+    user_entry = next(
+        e for e in entries if e.data.get("role") == "user" and e.data.get("content")
+    )
+    content = user_entry.data["content"]
+    # /skill:doc had no args → the image placeholder must NOT be folded in as User input.
+    assert "User input:\n[image:placeholder]" not in content
+    assert "User input:" not in content
+    # The command is still rewritten.
+    assert 'Use the "doc" skill for this request.' in content
+
+
 async def test_multiple_image_parts_all_reach_provider(tmp_path: Path) -> None:
     """bugfix-433 CRITICAL-1: a single message with multiple images → ALL images reach
     the provider (M246 multi-part expansion must not render non-last images as text).
