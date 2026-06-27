@@ -155,8 +155,14 @@ def test_node_capabilities_contract_shape(
     # feat-379-M6 (ISSUE-1): features list added; other fields unchanged
     assert body["node_id"] == "node-1"
     # feat-394 M9 R5: AllowlistOptionResponse now carries default_on (False by default).
-    assert body["skills"] == [{"name": "plan", "description": "", "default_on": False}]
-    assert body["tools"] == [{"name": "read", "description": "", "default_on": False}]
+    # feat-430: AllowlistOptionResponse now also carries location (None for tools and
+    # for skills whose Gateway payload omitted it).
+    assert body["skills"] == [
+        {"name": "plan", "description": "", "default_on": False, "location": None}
+    ]
+    assert body["tools"] == [
+        {"name": "read", "description": "", "default_on": False, "location": None}
+    ]
     assert body["models"] == [
         {"name": "codex_oauth:gpt-5.5", "provider": "openai_compat"}
     ]

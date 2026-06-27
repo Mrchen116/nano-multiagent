@@ -36,6 +36,16 @@ import {
   type PermissionRequest,
   type WsEvent
 } from "./chat-types";
+import {
+  getAgentCapabilities,
+  getAgentConfig,
+  normalizeAllowlistOptions,
+} from "../../settings/agents/im-agent-config-api";
+import {
+  buildSlashSkills,
+  resolveEnabledSkills,
+  type AgentEnabledSkills,
+} from "./components/slash-candidates";
 import { ConversationSidebar } from "./components/conversation-sidebar";
 import {
   GroupSettings,
@@ -258,6 +268,61 @@ export function ChatWorkspacePageV2() {
         status: ((nodesQuery.data ?? []).find((n) => n.node_id === a.node_id)?.status === "online" ? "online" : "offline") as "online" | "offline"
       }));
   }, [activeConversation, agentsQuery.data, nodesQuery.data]);
+
+  // feat-430: agents in the active conversation (canonical agent_id + display_name)
+  // — drives the slash picker's per-agent skill fetch.
+  const conversationAgents = useMemo(() => {
+    if (!activeConversation) return [] as { agent_id: string; display_name: string }[];
+    const allowed = new Set(
+      activeConversation.participants
+        .filter((p) => p.type === "agent")
+        .map((p) => p.id.replace(/^agent:/, ""))
+    );
+    return (agentsQuery.data ?? [])
+      .filter((a) => allowed.has(a.agent_id.replace(/^agent:/, "")))
+      .map((a) => ({ agent_id: a.agent_id, display_name: a.display_name }));
+  }, [activeConversation, agentsQuery.data]);
+
+  // feat-430: enabled skills for the slash picker = each agent's config whitelist ∩
+  // capabilities (决策 2), then group-union deduped by SKILL.md location (决策 3 / Q7).
+  // Fetched per conversation (not per `/` keystroke) and cached by react-query.
+  const slashSkillsQuery = useQuery({
+    enabled: conversationAgents.length > 0,
+    queryKey: [
+      "chat-v2",
+      "slash-skills",
+      conversationAgents.map((a) => a.agent_id).sort(),
+    ],
+    staleTime: 60_000,
+    queryFn: async () => {
+      // fix-r2 (P1.4): allSettled so one agent's failed config/capabilities fetch does
+      // not collapse the whole picker — only that agent's skills drop out.
+      // fix-r2 (P0): source="live" pulls the agent's真实已启用 skills whitelist from the
+      // owning Gateway (the IM mirror is empty for Gateway-seeded agents), so the
+      // config ∩ capabilities intersection reflects真实 enablement instead of全量.
+      const results = await Promise.allSettled(
+        conversationAgents.map(async (a): Promise<AgentEnabledSkills> => {
+          const [config, capabilities] = await Promise.all([
+            getAgentConfig(a.agent_id, "live"),
+            getAgentCapabilities(a.agent_id),
+          ]);
+          const capSkills = normalizeAllowlistOptions(capabilities.skills);
+          return {
+            agentDisplayName: a.display_name,
+            skills: resolveEnabledSkills(config.skills ?? [], capSkills),
+          };
+        })
+      );
+      const perAgent = results
+        .filter(
+          (r): r is PromiseFulfilledResult<AgentEnabledSkills> =>
+            r.status === "fulfilled",
+        )
+        .map((r) => r.value);
+      return buildSlashSkills(perAgent);
+    },
+  });
+  const slashSkills = slashSkillsQuery.data ?? [];
 
   // For direct-agent conversations, surface the agent's owning node (name +
   // online status) and the agent_id used by the ⚙ Config navigation.
@@ -602,6 +667,7 @@ export function ChatWorkspacePageV2() {
             conversation={activeConversation}
             messages={streamState.messages}
             mentionCandidates={mentionCandidates}
+            slashSkills={slashSkills}
             nodeName={headerAgentContext.nodeName}
             nodeStatus={headerAgentContext.nodeStatus}
             agentColor={headerAgentContext.agentColor}

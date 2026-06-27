@@ -55,5 +55,6 @@ scripts/e2e-critical.sh -m "not slow"   # 跳过时间驱动（cron/heartbeat）
 | **附件透传** | 用户上传附件 → agent 读到 → 回复引用，端到端链路 | im + gateway + kernel | 后续 unit |
 | **provider 切换** | 同 agent 切换 LLM provider 后仍正常应答 | gateway + kernel | 后续 unit |
 | **节点上下线看板** | 节点 online/offline 状态变更在 IM 看板/事件流的端到端反映 | im（`docs/specs/im/spec.md`） | 后续 unit |
+| **群聊裸 `/stop` 绕 @ 门控中断**（feat-430） | 群里某 agent `group_reply_policy=MENTION` 且正在运行时，用户发裸 `/stop`（不 @）仍中断它；未运行群成员无副作用（不发 no-op ack、不建 session）。本 unit 经单测（`test_gateway_stop_command.py::test_bare_stop_in_group_mention_policy_interrupts_running_agent` / `::test_bare_stop_in_group_multi_agent_stops_only_running_no_noise`）+ 真栈手工 live 验收覆盖，未落经 Gateway 进程的自动化 e2e | gateway（`docs/specs/gateway/spec.md`） | 后续 unit（并入 /stop e2e #5 的群聊变体） |
 | **token 缓存命中率展示**（feat-439-M1） | token 气泡详情「缓存命中 X (Y%)」整轮口径渲染，属 Web UI 级；本 unit 经 API/真栈浏览器临时验收 + 单测/前端组件测覆盖，未落 Playwright UI smoke | im/frontend（`docs/specs/im/spec.md`） | 同「前端 UI smoke」独立 unit |
 | **thinking 过程时间线展示**（feat-439-M2） | 助手气泡内「过程」盘把整轮多段思考与工具按真实时序混排、逐段可展开、刷新可回看、外部 channel 不带思考；属 Web UI 级，本 unit 经真栈浏览器临时验收 + reducer/组件测 + gateway 出站回归覆盖，未落 Playwright UI smoke | im/frontend（`docs/specs/im/spec.md`） | 同「前端 UI smoke」独立 unit |

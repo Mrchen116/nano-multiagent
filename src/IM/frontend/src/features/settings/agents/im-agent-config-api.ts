@@ -59,6 +59,9 @@ export interface AgentAllowlistOption {
   description: string;
   // feat-394 M9 R5/R6: default_on=true → rendered as selected when tool_allowlist is empty.
   default_on?: boolean;
+  // feat-430: SKILL.md path (skills only) so the slash picker distinguishes
+  // same-named skills at different paths. Absent/null for tools and older Gateways.
+  location?: string | null;
 }
 
 // bugfix-429 R5: a selectable model with its registered provider/format, so the
@@ -197,7 +200,7 @@ interface NodeCapabilitiesWire {
   features?: AgentFeature[];
 }
 
-function normalizeAllowlistOptions(values: Array<string | AgentAllowlistOption> | undefined): AgentAllowlistOption[] {
+export function normalizeAllowlistOptions(values: Array<string | AgentAllowlistOption> | undefined): AgentAllowlistOption[] {
   return (values ?? []).flatMap((value) => {
     if (typeof value === "string") {
       const name = value.trim();
@@ -205,7 +208,13 @@ function normalizeAllowlistOptions(values: Array<string | AgentAllowlistOption> 
     }
     if (value && typeof value.name === "string" && value.name.trim()) {
       // feat-394 M9 R5/R6: preserve default_on if the backend provides it.
-      return [{ name: value.name.trim(), description: value.description ?? "", default_on: value.default_on }];
+      // feat-430: preserve location (skill SKILL.md path) for the slash picker.
+      return [{
+        name: value.name.trim(),
+        description: value.description ?? "",
+        default_on: value.default_on,
+        location: value.location ?? null,
+      }];
     }
     return [];
   });
@@ -376,8 +385,23 @@ export function normalizeAgentConfigResponse(raw: Record<string, unknown>): Agen
   return { ...config, heartbeat };
 }
 
-export async function getAgentConfig(agentId: string): Promise<AgentConfig> {
-  const raw = await requestJson<Record<string, unknown>>(`/im/v1/agents/${agentId}/config?source=mirror`);
+/**
+ * Fetch one agent's config.
+ *
+ * ``source`` selects the data origin (feat-430 fix-r2):
+ * - ``"mirror"`` (default) — the IM-stored profile row. Gateway-seeded agents register
+ *   only their id, so the mirror's ``skills`` whitelist is empty until edited via IM.
+ * - ``"live"`` — overlays the owning Gateway's live snapshot, which carries the agent's
+ *   actual runtime ``skills`` whitelist. The slash picker needs this so it shows the
+ *   agent's真实已启用 skills (config ∩ capabilities), not an empty-whitelist→all fallback.
+ */
+export async function getAgentConfig(
+  agentId: string,
+  source: "mirror" | "live" = "mirror",
+): Promise<AgentConfig> {
+  const raw = await requestJson<Record<string, unknown>>(
+    `/im/v1/agents/${agentId}/config?source=${source}`,
+  );
   return normalizeAgentConfigResponse(raw);
 }
 

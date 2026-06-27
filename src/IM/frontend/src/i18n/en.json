@@ -453,6 +453,14 @@
       "optionDeny": "Deny",
       "reasonPlaceholder": "Reason for denying (optional)",
       "reasonLabel": "Denial reason (optional)"
+    },
+    "slash": {
+      "header": "Select a slash command or skill",
+      "commands": "Commands",
+      "skills": "Skills",
+      "noMatch": "No matching slash items",
+      "stopDesc": "Interrupt the currently running task",
+      "from": "from {{agents}}"
     }
   },
   "feature": {

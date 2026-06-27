@@ -131,6 +131,9 @@ class AllowlistOptionResponse(BaseModel):
     description: str = ""
     # feat-394 M9 R5: default_on=True → selected by default when allowlist is empty.
     default_on: bool = False
+    # feat-430: SKILL.md path forwarded from the Gateway payload so the slash picker
+    # distinguishes same-named skills at different paths. None when the payload omits it.
+    location: str | None = None
 
 
 class ModelOptionResponse(BaseModel):
@@ -533,9 +536,17 @@ def coerce_allowlist_options(value: object) -> list[AllowlistOptionResponse]:
             desc = raw_desc.strip() if isinstance(raw_desc, str) else ""
             # feat-394 M9 R5: forward default_on from Gateway heartbeat payload.
             default_on = bool(item.get("default_on", False))
+            # feat-430: forward skill location when present (skills only; tools omit it).
+            raw_location = item.get("location")
+            location = (
+                raw_location if isinstance(raw_location, str) and raw_location else None
+            )
             result.append(
                 AllowlistOptionResponse(
-                    name=raw_name.strip(), description=desc, default_on=default_on
+                    name=raw_name.strip(),
+                    description=desc,
+                    default_on=default_on,
+                    location=location,
                 )
             )
     return result

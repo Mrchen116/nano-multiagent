@@ -126,3 +126,25 @@ def test_list_skills_resolves_per_workspace_no_mixing(tmp_path: Path) -> None:
         assert "alpha_skill" not in b_names, "cross-workspace skill leak (ws_b)"
     finally:
         kernel.close()
+
+
+def test_list_skills_carries_skill_md_location(tmp_path: Path) -> None:
+    """feat-430: each SkillInfo exposes its SKILL.md location so consumers can
+    distinguish same-named skills living at different paths (Q7)."""
+    ws = tmp_path / "ws"
+    skill_dir = ws / ".nanocode" / "skills" / "located_skill"
+    skill_dir.mkdir(parents=True)
+    skill_file = skill_dir / "SKILL.md"
+    skill_file.write_text(
+        "---\nname: located_skill\ndescription: located desc\n---\nbody\n",
+        encoding="utf-8",
+    )
+
+    kernel = _kernel(tmp_path)
+    try:
+        skills = kernel.list_skills(workspace_root=ws)
+        located = next(s for s in skills if s.name == "located_skill")
+        assert located.location is not None
+        assert located.location.endswith("located_skill/SKILL.md")
+    finally:
+        kernel.close()

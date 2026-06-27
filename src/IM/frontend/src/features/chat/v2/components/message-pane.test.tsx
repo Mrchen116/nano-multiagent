@@ -1148,4 +1148,116 @@ describe("MessagePane", () => {
       ).toBeNull();
     });
   });
+
+  // feat-430: slash picker integration in the composer (single + group chat).
+  describe("slash picker (feat-430)", () => {
+    const SLASH_SKILLS = [
+      { kind: "skill" as const, name: "pr-review", description: "review", location: "/a", fromAgents: ["Planner"] },
+      { kind: "skill" as const, name: "doc", description: "docs", location: "/b", fromAgents: ["Planner"] },
+    ];
+
+    it("opens the slash picker with /stop and skills when typing '/' at the start", async () => {
+      const user = userEvent.setup();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          slashSkills={SLASH_SKILLS}
+          onSend={() => {}}
+        />
+      );
+      await user.type(screen.getByRole("textbox"), "/");
+      expect(await screen.findByText("/stop")).toBeInTheDocument();
+      expect(screen.getByText("pr-review")).toBeInTheDocument();
+    });
+
+    it("does not open the picker when '/' is in the middle of the text", async () => {
+      const user = userEvent.setup();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          slashSkills={SLASH_SKILLS}
+          onSend={() => {}}
+        />
+      );
+      await user.type(screen.getByRole("textbox"), "hello /world");
+      expect(screen.queryByText("/stop")).not.toBeInTheDocument();
+    });
+
+    it("inserts /skill:name when a skill is selected", async () => {
+      const user = userEvent.setup();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          slashSkills={SLASH_SKILLS}
+          onSend={() => {}}
+        />
+      );
+      const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(box, "/pr");
+      await user.click(await screen.findByText("pr-review"));
+      expect(box.value).toBe("/skill:pr-review ");
+    });
+
+    it("Esc closes the picker but keeps the typed '/' text", async () => {
+      const user = userEvent.setup();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          slashSkills={SLASH_SKILLS}
+          onSend={() => {}}
+        />
+      );
+      const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+      await user.type(box, "/pr");
+      expect(await screen.findByText("pr-review")).toBeInTheDocument();
+      await user.keyboard("{Escape}");
+      expect(screen.queryByText("pr-review")).not.toBeInTheDocument();
+      expect(box.value).toBe("/pr");
+    });
+
+    it("opens the picker in a group conversation too", async () => {
+      const user = userEvent.setup();
+      render(
+        <MessagePane
+          conversation={GROUP_CONV}
+          messages={[]}
+          mentionCandidates={MENTION_CANDIDATES}
+          slashSkills={SLASH_SKILLS}
+          onSend={() => {}}
+        />
+      );
+      await user.type(screen.getByRole("textbox"), "/");
+      expect(await screen.findByText("/stop")).toBeInTheDocument();
+    });
+
+    // R5-S3: editing an already-inserted `/skill:doc` down to `/skill:d` re-opens the
+    // picker and re-filters skills by the `d` prefix (not the literal `skill:d` query).
+    it("re-filters skills when editing a /skill: prefix for correction", async () => {
+      const user = userEvent.setup();
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={[]}
+          mentionCandidates={[]}
+          slashSkills={SLASH_SKILLS}
+          onSend={() => {}}
+        />
+      );
+      const box = screen.getByRole("textbox") as HTMLTextAreaElement;
+      // Simulate the corrected state `/skill:d` (after deleting chars from `/skill:doc`).
+      await user.type(box, "/skill:d");
+      // `doc` matches the `d` prefix; `/stop` must NOT show (skill-only namespace).
+      expect(await screen.findByText("doc")).toBeInTheDocument();
+      expect(screen.queryByText("/stop")).not.toBeInTheDocument();
+      expect(screen.queryByText("pr-review")).not.toBeInTheDocument();
+    });
+  });
 });

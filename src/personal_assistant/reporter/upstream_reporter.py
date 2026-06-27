@@ -106,18 +106,23 @@ def _tools_from_kernel(kernel: "Kernel") -> tuple[dict[str, object], ...]:
 
 def _skills_from_kernel(
     kernel: "Kernel", workspace_root: str | None
-) -> list[dict[str, str]]:
+) -> list[dict[str, str | None]]:
     """Project ``kernel.list_skills(workspace_root)`` into IM skill entries.
 
     Per-workspace skill discovery is the kernel's job (决策 4); the reporter no
     longer rebuilds the on-disk layout. ``workspace_root=None`` resolves to the
-    kernel's repo_root (node level).
+    kernel's repo_root (node level). ``location`` is forwarded so the IM slash
+    picker can distinguish same-named skills at different paths (feat-430).
     """
     from pathlib import Path  # noqa: PLC0415
 
     ws = Path(workspace_root).expanduser().resolve() if workspace_root else None
     return [
-        {"name": skill.name, "description": skill.description or ""}
+        {
+            "name": skill.name,
+            "description": skill.description or "",
+            "location": skill.location,
+        }
         for skill in kernel.list_skills(ws)
     ]
 

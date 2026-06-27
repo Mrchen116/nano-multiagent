@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-440-tool-rejection-feedback
+> 对齐: feat-430-im-slash-skill-picker
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 **IM 的消费者真正依赖的对外行为**：
 > 浏览器前端（内置 Web IM）、Node Gateway（`personal_assistant`）、终端用户，以及 `tests/im_service/`
@@ -276,6 +276,10 @@ capabilities` 都把网关返回的 `features` 列表透传给前端。
 - **WHEN** 前端 `GET /im/v1/nodes/{id}/capabilities` 或 `GET /im/v1/agents/{id}/capabilities`
 - **THEN** 返回的 `models` 列表中每项带有它注册的 provider(例:`codex_oauth:gpt-5.5` → `openai_compat`,
   `kimiCoding:K2.6` → `anthropic`),供 agent 配置页模型下拉展示格式
+
+#### Scenario: agent 能力的 skills 项携带 location
+- **WHEN** 前端 `GET /im/v1/agents/{id}/capabilities`
+- **THEN** 返回的 `skills` 列表中每项携带 `location`(SKILL.md 路径,可空;网关 payload 无此字段时降级为空),前端据此对同名不同路径的 skill 分开展示
 
 ### Requirement: Gateway 经 /im/ws/gateway 持久双向连接,协议帧契约稳定
 

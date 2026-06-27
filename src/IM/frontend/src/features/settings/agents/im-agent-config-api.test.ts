@@ -7,8 +7,14 @@
  *
  * These tests call normalizeAgentConfigResponse directly (no HTTP mock needed).
  */
-import { describe, it, expect } from "vitest";
-import { normalizeAgentConfigResponse } from "./im-agent-config-api";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+import { authFetch } from "../../auth/auth-fetch";
+import { getAgentConfig, normalizeAgentConfigResponse } from "./im-agent-config-api";
+
+vi.mock("../../auth/auth-fetch", () => ({
+  authFetch: vi.fn(),
+}));
 
 const BASE_RAW = {
   agent_id: "a1",
@@ -76,3 +82,36 @@ describe("normalizeAgentConfigResponse — heartbeat_json cadence round-trip", (
 // feat-394 M9-E: cron_json round-trip tests removed — cron enable lives in
 // features["cron_scheduling"]; cron_json parsing path deleted from normalizeAgentConfigResponse.
 // feat-394 M9-E: heartbeat.enabled round-trip tests removed — enable lives in features["heartbeat"].
+
+// feat-430 fix-r2 (P0): getAgentConfig must let the caller pick the data source so the
+// slash picker can fetch the agent's真实已启用 skills (live Gateway) instead of the empty
+// mirror whitelist that triggers the "empty→all" fallback.
+describe("getAgentConfig — source selection", () => {
+  const mockedFetch = vi.mocked(authFetch);
+
+  beforeEach(() => {
+    mockedFetch.mockReset();
+    mockedFetch.mockResolvedValue(
+      new Response(JSON.stringify(BASE_RAW), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+  });
+
+  it("defaults to the mirror source", async () => {
+    await getAgentConfig("a1");
+    expect(mockedFetch).toHaveBeenCalledWith(
+      "/im/v1/agents/a1/config?source=mirror",
+      expect.anything(),
+    );
+  });
+
+  it("requests the live source when asked (slash picker path)", async () => {
+    await getAgentConfig("a1", "live");
+    expect(mockedFetch).toHaveBeenCalledWith(
+      "/im/v1/agents/a1/config?source=live",
+      expect.anything(),
+    );
+  });
+});

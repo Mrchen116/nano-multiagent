@@ -388,10 +388,13 @@ class SkillInfo:
     Args:
         name: Skill name.
         description: Skill description.
+        location: Absolute path to the skill's SKILL.md, or None when unknown.
+            Lets consumers distinguish same-named skills at different paths (feat-430).
     """
 
     name: str
     description: str = ""
+    location: str | None = None
 
 
 __all__ = [

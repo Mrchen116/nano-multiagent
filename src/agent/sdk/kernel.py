@@ -1236,7 +1236,12 @@ class Kernel:
             config_resolver=per_call_resolver,
         )
         return [
-            SkillInfo(name=s.name, description=getattr(s, "description", "") or "")
+            SkillInfo(
+                name=s.name,
+                description=getattr(s, "description", "") or "",
+                # SkillMetadata.location is a non-optional Path (registry always sets it).
+                location=str(s.location),
+            )
             for s in skills
         ]
 
