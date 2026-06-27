@@ -170,3 +170,100 @@ No critical issues. 1 warning, 2 suggestions. Ready for PR (with noted improveme
 ---
 
 No critical issues. 1 warning, 2 suggestions. Ready for PR (with noted improvements).
+
+---
+
+# Round 2 — feat-440-M2 fix 复验
+
+> M2 commits: 56744242..a37a7f3d（经合并 20a4c835 收入 unit/feat-440）
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 6/7 tasks checked（见下注）；全测试树实际通过 |
+| Correctness | Round 1 W1/S1/S2 全部关闭 |
+| Coherence | F6 解耦架构自洽 |
+
+**3006 passed, 1 skipped**（pytest -m "not e2e"）；前端 vitest **490 passed**（60 files）。
+
+> 注：tasks.md 末项 `- [ ] 全测试树 -m "not e2e" + 前端 vitest 全绿` 未勾选（记账疏漏），
+> 测试实际全绿。无功能缺陷，仅需后续 tasks.md 补勾。
+
+---
+
+## F1 — gate deny reason 改 `or ""`（design Row 3 可达性修复）
+
+**状态：CLOSED**
+
+- 实现：`auto_mode_gate.py`（F1 修后），deny 分支 `"reason": response.reason or ""`，去除 `"user denied"` 占位串。
+- 测试：`test_auto_mode_gate_hook.py::TestHandleAskApprovalSignal::test_deny_without_reason_yields_empty_reason` 经真 `_handle_ask`（mock permission channel 返回 deny + reason=""）断言 `result.get("reason") == ""`（显式堵 "user denied" 占位），并验 `approval == "user_deny"`。
+- design §选择表 Row 3（bare user_deny → REJECT_MESSAGE）现实路径成立。
+
+---
+
+## F2 — auto_reject_message 空 reason guard（关闭 Round 1 S2）
+
+**状态：CLOSED**
+
+- 实现：`reject_messages.py`，`_AUTO_REJECT_PREFIX` 拆分为 `_AUTO_REJECT_DENIED` + `reason_clause = f"Reason: {reason}. " if reason else ""`；`auto_reject_message` 返回 `f"{_AUTO_REJECT_DENIED}{reason_clause}{DENIAL_WORKAROUND_GUIDANCE}"`。
+- 测试：`test_reject_messages.py::TestAutoRejectMessage::test_auto_reject_empty_reason_omits_reason_clause` 断言 `"Reason:" not in msg`；`test_auto_reject_when_no_approval_empty_reason` 经 `build_reject_message(approval=None, reason="", is_subagent=False)` 同断言。
+
+---
+
+## F3 — IM 后端 strip reason、纯空白归一化为 None（关闭 Round 1 S1）
+
+**状态：CLOSED**
+
+- 实现：`messages.py:submit_permission_decision`，`normalized_reason = payload.reason.strip() if payload.reason is not None else None`，`reason=normalized_reason or None`。
+- 测试：
+  - `test_permission_streaming.py::test_submit_deny_whitespace_only_reason_normalized_to_none`：POST reason="   " → `push_permission_response` 收到 `reason is None`。
+  - `test_submit_deny_reason_is_stripped`：POST reason="  先别动  " → `reason == "先别动"`。
+- 两用例均通过 TestClient 真发请求，非 mock 输入断言。
+
+---
+
+## F4 — 前端仅 deny 决策带 reason（design Q4）
+
+**状态：CLOSED**
+
+- 实现：`permission-card.tsx`，`carriesReason = option.id === "deny" && trimmedReason.length > 0`；POST body spread 改为 `...(carriesReason ? { reason: trimmedReason } : {})`。Allow 类恒不带 reason，失败 deny 后 reason state 残留但被 decision 守卫拦截。
+- 测试（permission-card.test.tsx）：
+  - `"omits reason from an allow decision even with reason text present"` — 断言 allow POST body `"reason" in body === false`。
+  - `"does not carry a stale reason onto a later allow after a failed deny"` — deny 失败后 allow 的 POST body 无 reason 键。
+- Round 1 S1（仅断言 `onResolved` 未验 body）因测试改名 + 追加 body 断言而关闭。
+
+---
+
+## F5 — subagent 白名单内工具被 gate 拒集成测试（关闭 Round 1 W1）
+
+**状态：CLOSED**
+
+- 新增测试：`test_streaming_tool_executor.py::test_subagent_allowlisted_tool_gate_blocked_yields_subagent_reject`：`_BlockingRegistry(approval="user_deny")` + `tool_execution_allowlist=("edit",)` + `is_fork_sidechain=True`，edit 白名单内 → 进 `registry.execute` → gate ToolError → 断言 `results[0].error == SUBAGENT_REJECT_MESSAGE`，`reason_code == "denied"`。
+- 覆盖 design 选择表 row 1b（白名单内工具被 gate 拒也落 SUBAGENT），Round 1 W1 路径完整锁定回归。
+
+---
+
+## F6 — is_subagent 改用显式 is_fork_sidechain 信号，与 allowlist 解耦
+
+**状态：CLOSED**
+
+- 实现三点：
+  1. `context_fork.py`：fork 构造点显式传 `is_fork_sidechain=True` 进 `loop.run`。
+  2. `loop.py`：新增 `is_fork_sidechain: bool = False` 参数，透传给 `StreamingToolExecutor`。
+  3. `tool_executor.py`：`_is_fork_sidechain` 独立字段；两处 `build_reject_message(is_subagent=...)` 改用 `self._is_fork_sidechain`，与 `_tool_execution_allowlist` 解耦。
+- 主会话默认 `is_fork_sidechain=False`，fork 是唯一显式 True 的构造点，allowlist 回归纯执行裁决职责。
+- 测试：
+  - `test_main_session_with_allowlist_user_deny_stays_main_reject`：allowlist active 但 `is_fork_sidechain=False` → `REJECT_MESSAGE`（非 SUBAGENT），验证主会话不受 allowlist 污染。
+  - `test_fork_sidechain_flag_drives_subagent_reject_without_allowlist`：仅 `is_fork_sidechain=True`（无 allowlist）→ `SUBAGENT_REJECT_MESSAGE`，验证 fork flag 独立驱动。
+  - 两用例均通过，解耦正确，主会话默认 False，loop 透传无误。
+
+---
+
+## Round 2 Issues
+
+无新增问题。Round 1 全部遗留（W1/S1/S2）已关闭。
+
+---
+
+All Round 2 checks passed. Ready for PR.
