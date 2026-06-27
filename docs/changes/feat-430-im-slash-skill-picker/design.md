@@ -124,6 +124,7 @@ graph TD
 **`[sender] ` 前缀保持不变；两步：① 让 rewrite 作用于命令所在的那个 part（多 part 分支后的 `effective_user_text`/末 part），而非整段 join 的行首；② 正则放宽为认"可选前导 `[..]` 段"、不编码 sender 具体格式**：`^\s*(?:\[[^\]]*\]\s*)?/skill:…`。群聊 `[Alice] /skill:doc args` → `[Alice] Use the "doc" skill...`。
 
 - **理由**: design-review #2 已核实——群里有人先发言时消息是多 part，`runtime.py:580` 多 part 分支把 `effective_user_text` 重取末 part、**绕过** `runtime.py:451` 的 rewrite，且整段 join 后 `/skill:` 落非首行。只改正则不改 part 选取会 false-fix（单条消息测试过、群里有 buffered 上下文就静默失效）。命令总在末 part（当前消息），故对末 part rewrite 即可命中。正则认通用 `[..]` 前缀而非 `[{sender}] ` 精确格式，弱化对产品格式的依赖。
+- **不是群聊特殊对待**: `runtime.py:580` 多 part 是通用机制（原为多模态图片，`bugfix-433`），任何"多 part + `/skill`"都中招（含 coding_cli 多模态），群聊只是撞上它。修它属修内核**通用缺陷**——kernel 仍不感知群聊（群聊投递/`sender` 前缀全在 gateway）。唯一沾群聊产品格式的是上面正则的 `[..]` 假设，已登记为 refactor 债。
 - **拒绝**: 只放宽正则、不改 part 选取（多 part 路径仍 miss，design-review #2）；gateway 剥 sender 前缀（丢发送者，用户否决）。
 - **技术债（design-review #4，登记排期不在本 unit 解）**: 即便正则只认通用 `[..]` 前缀，core 仍假设"命令前可能有产品前缀"。根因是产品把 sender 元数据塞进文本、逼 core 解析；纯架构应让 sender 结构化、core 只见纯正文——但那要重构整条群聊 sender 传递管线（gateway `_format_sender_text` + core 渲染），远超本 unit。**立为独立 refactor unit**（见风险与回退段末），本 unit 不在 core 正则里假装解决。
 
