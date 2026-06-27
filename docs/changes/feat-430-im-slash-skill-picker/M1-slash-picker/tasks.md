@@ -8,12 +8,12 @@ IM 前端 composer 在单聊/群聊敲 `/` 弹出候选面板（`/stop` + 该会
 
 ## 退出标准
 
-- [ ] location 四层透传：sdk `SkillInfo` → kernel `list_skills` → upstream_reporter → IM capabilities API → 前端 type，字段端到端非空
-- [ ] kernel `/skill` 正则认前导 `[..]` 段并保留；runtime 对命令所在 part（多 part 末 part）重写，覆盖「buffered 多 part + 末 part /skill」
-- [ ] gateway 群聊裸 `/stop` 不受 MENTION 门控、对未运行 agent 无副作用（不发 no-op ack）
-- [ ] 前端 slash-picker：单聊/群聊敲 `/` 弹面板（含 `/stop`+已启用 skills 交集）、键盘+鼠标导航、前缀过滤、空态、群聊按 location 合并/分行+来源标注、选中补 `/skill:name `
-- [ ] 前端 `npm run test` + `npm run build` 全绿；后端 `pytest -m "not e2e"` 相关全绿
-- [ ] live：真栈群聊发 `/stop`、`/skill:name` 真生效（reviewer 轨我先自证）
+- [x] location 四层透传：sdk `SkillInfo` → kernel `list_skills` → upstream_reporter → IM capabilities API → 前端 type，字段端到端非空
+- [x] kernel `/skill` 正则认前导 `[..]` 段并保留；runtime 对命令所在 part（多 part 末 part）重写，覆盖「buffered 多 part + 末 part /skill」
+- [x] gateway 群聊裸 `/stop` 不受 MENTION 门控、对未运行 agent 无副作用（不发 no-op ack）
+- [x] 前端 slash-picker：单聊/群聊敲 `/` 弹面板（含 `/stop`+已启用 skills 交集）、键盘+鼠标导航、前缀过滤、空态、群聊按 location 合并/分行+来源标注、选中补 `/skill:name `
+- [x] 前端 `npm run test` + `npm run build` 全绿；后端 `pytest -m "not e2e"` 相关全绿
+- [x] live：真栈群聊发 `/stop`、`/skill:name` 真生效（reviewer 轨我先自证）
 
 ## 测试策略
 

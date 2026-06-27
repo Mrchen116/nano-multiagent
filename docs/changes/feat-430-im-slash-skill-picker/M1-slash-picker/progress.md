@@ -81,3 +81,36 @@
 - 服务清理: `scripts/e2e-down.sh` + kill vite，pid 全清。
 - Rollback: N/A（验收，无代码改动）。
 - Commits: 验收无新代码 commit（R1-R4 实现已提交）。
+
+## Fix Round 2 — 验收三闸反馈（reviewer/code-review/verifier）
+
+复用原 worker 上下文（同 milestone worktree）。改在 milestone 分支、集成交 orchestrator。所有代码改动配测试。
+
+### P0 BLOCKING（reviewer）：白名单交集失效——picker 显示全部 52 skill
+- 根因：前端 `getAgentConfig` 硬编码 `?source=mirror`；网关播种的 agent 经 node.register 只上报 agent_id，IM mirror 的 `profile.skills` 天然为空 → 触发「空白名单=全量」回退。R5 的 PATCH 自测绕过了前端实际调的 mirror endpoint 故未暴露。
+- 架构正确层：agent「已启用 skills」的真源是**网关 live 配置**（`request_agent_config` → `_merge_live_agent_profile` 已携带 skills），不是 register 播种的空 mirror。修 mirror 同步需改 node.register 协议（跨包、大改、出本 unit 范围）。故选**前端用 `source=live`**（决策按纯架构最优）。
+- 改动：`im-agent-config-api.ts` `getAgentConfig(agentId, source="mirror"|"live"="mirror")` 参数化；`chat-workspace-page` picker 拉取改 `getAgentConfig(a.agent_id, "live")`。
+- live 真栈验证（前端实际 endpoint，非 PATCH/非绕 endpoint）：plato 网关配置 skills=[change-spec-author/change-design-author/change-orchestrator]。`config?source=mirror`→`[]`，`config?source=live`→那 3 个；浏览器单聊敲 `/` → picker 只出 `/stop`+那 3 个（**非全 52、非空**），`/skill:auto`→空。console error=0。
+
+### P1 CRITICAL（code review）
+1. **多 part `/skill` rewrite 混乱**（runtime.py 451 全文 + 586 last_part 两处打架）：① `/skill+image` 时 last_part=image，586 落空→skill 静默失效；② 451 全文 rewrite 把 `[image:placeholder]` 当 `[..]` 前缀/args 折入→污染 user_msg.content。改：新增 `_rewrite_skill_command_in_parts`——只对**含命令的那个 text part**做 rewrite；单 part 走原 451（保 hook 语义），多 part 走 part 级 rewrite 后再 split，清掉 586 的 last_part rewrite。测试：`test_skill_command_with_trailing_image_still_rewritten`（命令非末 part 仍生效+image 保留）、`test_multipart_skill_command_does_not_fold_image_into_user_input`（image 不被折进 User input）。live：群聊暖场制造多 part 后 `/skill:change-orchestrator`，proxy req log 含 `Use the "change-orchestrator" skill for this request` + agent 按 skill 行为。
+2. **IME 误选**：slash-picker window keydown 加 `if (e.isComposing) return`。测试 `ignores Enter while IME is composing`。
+3. **高亮越界/选错**：reset effect 改依赖候选**内容签名**（`kind:name` join）非长度；`onSelect` 前 `const choice=candidates[highlighted]; if(choice)` 守卫。测试 `resets the highlight when candidate content changes at the same length`。
+4. **一个 agent 拖垮 picker**：`chat-workspace-page` slashSkillsQuery 外层 `Promise.all`→`Promise.allSettled`，过滤失败 agent。
+5. **create_session 副作用**：群聊裸 /stop 的 no-active-run 短路移到 `_ensure_binding` 之前（idle 群成员不建空 session）。测试断言 `create_session_calls` 不含 idle agent。
+
+### P2（cleanup）
+6. display name 含 `]`：接受+注释约束（不用 greedy，结构化已被 design-review #4 否决）。
+7. slash-picker `itemRefs.current=[]` 出 render 体：改 `useId`+元素 id（scrollIntoView 走 getElementById；同时落地 P2.11 `aria-activedescendant`）。
+8. `getattr(s,'location',None)`→`str(s.location)`(kernel) / `skill.location`(reporter)（非空 Path 去过度防御）。
+9. tasks.md 6 条退出标准勾 `[x]`。
+10. e2e-critical-paths.md 「已知缺口」表登记群聊裸 /stop 绕 MENTION 一行（单测+手工 live 覆盖，无自动化 Gateway e2e）。
+11. slash-picker listbox 补 `aria-activedescendant`（测试 `exposes aria-activedescendant pointing at the active option`）。
+12. Tab 确认选中测试 `selects the highlighted candidate on Tab`。
+
+### 补显式测试（reviewer inconclusive）
+- R1-S3 输入框中间 `/` 不触发：`message-pane.test` `does not open the picker when '/' is in the middle of the text`（已有）。
+- R5-S3 编辑 `/skill:doc`→`/skill:d` 重过滤纠错：`message-pane.test` `re-filters skills when editing a /skill: prefix for correction`。
+
+### 门禁
+后端 `pytest -m "not e2e"`（相关全跑）绿；前端 `vitest` 540 passed + `npm run build` 通过；`ruff check`+`ruff format --check` 全绿。env_caveats：none（P0/P1.1/stop 均真栈 live 复验通过）。
