@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-439-im-cache-hit-and-thinking
+> 对齐: feat-430-im-slash-skill-picker
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -108,6 +108,11 @@ import 内核内部(由 `tests/contract/` 把守)。
 #### Scenario: 无运行时 /stop 返回友好提示
 - **WHEN** 某会话当前无活动运行而用户发 `/stop`
 - **THEN** 用户收到「当前没有正在执行的操作。」,不抛错
+
+#### Scenario: 群聊裸 /stop 不受 @ 提及门控限制
+- **GIVEN** 群里某 Agent `group_reply_policy=MENTION` 且正在运行
+- **WHEN** 用户发裸 `/stop`(不 @ 任何 Agent)
+- **THEN** 该 `/stop` 仍送达群内 Agent 并中断正在运行的那个;当前无运行的 Agent 不受影响、不在群里发任何反馈(幂等无副作用)
 
 ### Requirement: Agent 正在回复时，用户仍能继续发消息并被及时采纳
 

@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: feat-440-tool-rejection-feedback
+> 对齐: feat-430-im-slash-skill-picker
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -356,12 +356,20 @@ observe 事件只观察;单个 hook 异常/超时不中断主流程(fail-open)�
 ### Requirement: Skill 自动发现走 prompt 列表,显式调用改写为自然语言
 
 存在可见 skill 时,内核在 system prompt 注入 `<available_skills>` 列表(名称 + 描述 + 路径),模型按需
-用 `read` 工具读取 SKILL.md,而非注入全文;消费者输入的 `/skill:<name>` 被改写为自然语言指令。
+用 `read` 工具读取 SKILL.md,而非注入全文;消费者输入的 `/skill:<name>` 被改写为自然语言指令;命令前可选的 `[..]` 标注段被原样保留(内核不解析其内容),多 part 输入中改写作用于命令所在的那个 part。
 
 #### Scenario: 显式 skill 命令被改写
 - **WHEN** 消费者输入 `/skill:doc`(或带参数 `/skill:doc fix heading spacing`)
 - **THEN** 内核将其改写为 `Use the "doc" skill for this request.`(带参数时追加 `User input:` 段),
   然后走常规推理,不展开 SKILL.md 原文
+
+#### Scenario: 命令前带标注段时改写保留该标注
+- **WHEN** 消费者提交 `[Alice] /skill:doc fix spacing`(命令前有一个 `[..]` 标注段,如 IM 群聊的发送者标注)
+- **THEN** 内核改写为 `[Alice] Use the "doc" skill for this request.`(带参数追加 `User input:` 段),原标注段原样保留、内核不解析其内容
+
+#### Scenario: 多 part 输入中命令所在 part 被改写
+- **WHEN** 消费者提交多 part 输入(如群聊缓冲上下文,或文本命令 + 末尾图片),其中一个 text part 是 `/skill:doc`
+- **THEN** 改写作用于该命令 part(不因命令不在首行或末位而漏改),其余 part 原样保留
 
 ### Requirement: 工具展示由工具自带的 presenter 决定
 
@@ -499,6 +507,10 @@ session turn 注入 system prompt `<available_skills>` 的技能,对同一 `(wor
 - **GIVEN** 经 `build_kernel()` 未传入 `workspace_config_dirname`
 - **WHEN** 取 preview / `list_skills` / 运行时注入的技能
 - **THEN** 三者均为空,不隐式回退到 `~/.codex/skills` 等 legacy 默认路径
+
+#### Scenario: list_skills 返回项携带 SKILL.md 路径
+- **WHEN** 消费者调用 `list_skills(workspace_root)`
+- **THEN** 返回的每个 `SkillInfo` 携带 `location`(该技能 SKILL.md 路径,可空),消费者据此区分同名但不同路径的技能
 
 ### Requirement: Kernel 出入参为 SDK-owned 类型
 
