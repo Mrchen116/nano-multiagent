@@ -456,3 +456,104 @@ def test_active_run_tracking_registers_and_unregisters(tmp_path: Path) -> None:
     session_key = "web:chat-1:agent-a"
     # After the run completes, active run tracking should be cleared.
     assert session_key not in pipeline._active_runs
+
+
+# ---------------------------------------------------------------------------
+# feat-430: 群聊裸 /stop（无 @）不受 MENTION 投递策略限制；对未运行 agent 无副作用。
+# ---------------------------------------------------------------------------
+
+
+def _mention_agents(tmp_path: Path) -> tuple[AgentWorkspaceConfig, ...]:
+    agent_a = tmp_path / "agent-a"
+    agent_a.mkdir()
+    return (
+        AgentWorkspaceConfig(
+            agent_id="agent-a",
+            workspace_root=agent_a,
+            title="Agent A",
+            group_reply_policy="MENTION",
+        ),
+    )
+
+
+def test_bare_stop_in_group_mention_policy_interrupts_running_agent(
+    tmp_path: Path,
+) -> None:
+    """裸 /stop（不 @ 任何 agent）在 group_reply_policy=MENTION 下仍送达并中断运行中的 agent。"""
+    agents = _mention_agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    kernel_client = _FakeKernel()
+    pipeline = InboundPipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+    )
+    session_key = "web_relay:grp-1:agent-a"
+    kernel_client._session_metadata_by_id["sess-1"] = {
+        "workspace_root": str(agents[0].workspace_root)
+    }
+    pipeline._active_runs[session_key] = "run-active"
+
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="/stop",
+        external_user_id="user-1",
+        external_chat_id="grp-1",
+        is_group=True,
+        metadata={"mentioned_agent_ids": []},
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert result.reply_text == "已停止当前操作。"
+    assert len(kernel_client.interrupt_calls) == 1
+
+
+def test_bare_stop_in_group_no_active_run_has_no_side_effect(tmp_path: Path) -> None:
+    """裸 /stop 对未运行的群成员 agent 幂等：不发 no-op ack、不被缓存为群上下文。"""
+    from personal_assistant.gateway.group_context_store import GroupContextStore
+
+    agents = _mention_agents(tmp_path)
+    channel = _FakeChannel("web_relay")
+    kernel_client = _FakeKernel()
+    group_store = GroupContextStore(db_path=tmp_path / "group_ctx.sqlite3")
+    pipeline = InboundPipeline(
+        kernel=kernel_client,
+        agents=agents,
+        outbound_router=OutboundRouter(ChannelRegistry((channel,))),
+        run_queue=SessionRunQueue(),
+        session_store=SessionBindingStore(),
+        default_agent_id="agent-a",
+        group_context_store=group_store,
+    )
+    delivered: list[tuple[str, str]] = []
+
+    async def _fake_bg_sender(text, reply_context, from_session_id):
+        delivered.append((text, from_session_id))
+
+    pipeline._bg_reply_sender = _fake_bg_sender
+    # No active run for this agent.
+
+    inbound = InboundMessage(
+        channel_name="web_relay",
+        text="/stop",
+        external_user_id="user-1",
+        external_chat_id="grp-1",
+        is_group=True,
+        metadata={"mentioned_agent_ids": []},
+    )
+
+    result = asyncio.run(pipeline.handle_inbound(inbound))
+
+    assert result is not None
+    assert kernel_client.interrupt_calls == []
+    # No friendly no-op ack bubble for a non-running group agent (无副作用).
+    assert delivered == []
+    assert channel.sent == []
+    # /stop is a control command — it must not be buffered as group context.
+    buf_key = pipeline._group_buf_key_for_agent(inbound, "agent-a")
+    assert group_store.drain(buf_key) == []
