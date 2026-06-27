@@ -123,3 +123,46 @@ Commits（milestone 分支 milestone/bugfix-442-M1）：
 regression（落库）：`chat-workspace.integration.test.tsx` 两条——注入 message 事件
 断言会话列表重拉、进入会话断言读后重拉；无修复时 `/conversations` 仅被 GET 一次，
 两条均红，修后转绿。全量前端 vitest 60 files / 487 tests 全绿。
+
+## Round-1 code-review fix（2026-06-27）
+
+reviewer code-review 确认了两条 CONFIRMED 问题，在 milestone 分支
+`milestone/bugfix-442-fix1` 修复：
+
+**Fix A — message.created 点号对齐（治本）**
+
+根因核查：后端 `event_bridge.py` 用 `EVENT_MESSAGE_CREATED = "message.created"`
+（`event_types.py`），`repositories.py` 用 `"message.sent"`，`gateway_handler.py` 用
+`"relay.completed"`；前端 `parseImStreamEvent` 不归一化 event_type，原样透传给
+`onEvent`。M1 修复中写的 `message_created`（下划线）是 `_helpers.py` 内用于读取
+老 DB 行的 legacy alias，后端当前不 emit，`onEvent` 分支里永不匹配——agent 回复的
+`message.created` 事件被遗漏。
+
+修复：将 `event.eventType === "message_created"` 改为
+`event.eventType === "message.created"`（点号 canonical），同时保留 `message.sent`
+和 `relay.completed`（均是后端真实 emit 的事件）。
+
+**Fix B — 补 onResyncRequired（断线重连刷新）**
+
+`attachUserConversationStream` 的 `onResyncRequired` 可选回调在断线重连后被共享用户流
+触发；M1 未传，断线期间到达的新消息不触发会话列表强制刷新。对齐 `use-global-message-toast`
+同路径，补传：
+```typescript
+onResyncRequired: async () => {
+  await queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] });
+},
+```
+
+**不修（冗余 invalidate）**：`sendMutation.onSuccess` + 流事件双重 invalidate 是预期
+副产品（发自己的消息不走用户维流触发），reviewer 判 minor，保留现状。
+
+Commits（milestone/bugfix-442-fix1）：
+- C1：`test(bugfix-442/fix1): 红测 Fix A(message.created 点号) + Fix B(onResyncRequired 注册)`
+- C2：`fix(bugfix-442/fix1): Fix A 事件名对齐 message.created 点号 + Fix B 补 onResyncRequired`
+
+全量前端 vitest 60 files / 489 tests 全绿；tsc 零错。
+
+真栈验收覆盖说明：本次 fix 属纯前端事件名更正 + 可选回调注册，核心路径（agent
+回复触发侧边栏 unread/preview 实时更新）已在 M1 真栈验收通过（同一 gateway+chromium
+路径）。Fix A 新增的 `message.created` 分支通过 integration 测试注入该事件断言
+会话重拉覆盖；Fix B 注册回调通过 integration 测试断言 `capturedResyncHandler` 非 null 覆盖。
