@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-06-27T02:33:56.999Z",
+  "im_url": "http://127.0.0.1:59470",
+  "vite_url": "http://127.0.0.1:50065",
+  "gateway_pid": 60173,
+  "node_id": "wt-unit-bugfix-441-60045",
+  "agent_id": "default-agent",
+  "agent_user_id": "21e6945f02d9466d81aa98ebab074073",
+  "run_id": "RERUN4",
+  "results": [
+    {
+      "name": "bash",
+      "toolName": "bash",
+      "conversationId": "e8f1c2c0e3094fbea034bd273da0f53a",
+      "userMessageId": "329fefac1b3a4ea39a66ef51bcf538c9",
+      "runningAgentMessageId": "b4beac2ef0514022b1c0093e9c612fde",
+      "completedAgentMessageId": "b4beac2ef0514022b1c0093e9c612fde",
+      "sentinel": "BUGFIX441_BASH_UNIT_EVIDENCE_RERUN4"
+    },
+    {
+      "name": "agent",
+      "toolName": "agent",
+      "conversationId": "216ddf448d15404ea90d4c512329d186",
+      "userMessageId": "b1434799ec734f96a50d5d01680ff3ce",
+      "runningAgentMessageId": "cf41823b4aed45a99aa0b330e35be3ad",
+      "completedAgentMessageId": "cf41823b4aed45a99aa0b330e35be3ad",
+      "sentinel": "BUGFIX441_AGENT_UNIT_EVIDENCE_RERUN5"
+    },
+    {
+      "name": "web-search",
+      "toolName": "web_search",
+      "conversationId": "4a6b9fa3f91940efaa7d4308fc0353a2",
+      "userMessageId": "e8fa6380844445bb9b793d54c679565e",
+      "runningAgentMessageId": "6bc1901e883d433095da8004513b9c74",
+      "completedAgentMessageId": "fcd250669fed468f8bf48ee0188ba3c9",
+      "sentinel": "BUGFIX441_WEB_SEARCH_UNIT_EVIDENCE_RERUN4"
+    }
+  ],
+  "screenshots": [
+    "bugfix-441-M1-bash-running.png",
+    "bugfix-441-M1-bash-completed.png",
+    "bugfix-441-M1-agent-running.png",
+    "bugfix-441-M1-agent-completed.png",
+    "bugfix-441-M1-web-search-running.png",
+    "bugfix-441-M1-web-search-completed.png"
+  ],
+  "agent_rerun": {
+    "run_id": "RERUN5",
+    "name": "agent",
+    "toolName": "agent",
+    "conversationId": "216ddf448d15404ea90d4c512329d186",
+    "userMessageId": "b1434799ec734f96a50d5d01680ff3ce",
+    "runningAgentMessageId": "cf41823b4aed45a99aa0b330e35be3ad",
+    "completedAgentMessageId": "cf41823b4aed45a99aa0b330e35be3ad",
+    "sentinel": "BUGFIX441_AGENT_UNIT_EVIDENCE_RERUN5"
+  }
+}
