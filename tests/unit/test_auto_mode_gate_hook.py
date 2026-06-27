@@ -497,3 +497,30 @@ class TestHandleAskApprovalSignal:
         )
         assert result.get("block") is True
         assert result.get("approval") == "user_deny"
+
+    @pytest.mark.asyncio
+    async def test_deny_without_reason_yields_empty_reason(self):
+        """feat-440-M2 F1: a bare user Deny (no reason) must surface reason="" so
+        build_reject_message hits design 选择表 Row 3 (REJECT_MESSAGE). The old
+        ``response.reason or "user denied"`` placeholder forged a non-empty reason,
+        making Row 3 unreachable — the LLM saw "...the user said:\nuser denied"
+        instead of the concise REJECT_MESSAGE. The M1 unit test injected reason=""
+        directly into the registry, bypassing this gate fallback (the blind spot)."""
+        from agent.platform.hooks.builtins.auto_mode_gate import _handle_ask
+
+        ctx = self._make_park_ctx(self._resp("deny", reason=""))
+        result = await _handle_ask(
+            ctx,
+            "bash",
+            {"command": "ls"},
+            "risky",
+            "run-1",
+            "sess-ask",
+            AutoModeConfig(),
+            None,
+        )
+        assert result.get("block") is True
+        assert result.get("approval") == "user_deny"
+        # Must be empty string (not None — downstream details.get("reason") +
+        # isinstance(str) guard relies on str), and NOT the "user denied" forgery.
+        assert result.get("reason") == ""
