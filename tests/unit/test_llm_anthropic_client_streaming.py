@@ -713,8 +713,16 @@ async def test_stream_usage_surfaces_cache_hit_fields() -> None:
     """feat-439-M1: 流式终态 message_stop 的 usage 暴露缓存读取量。"""
     events = [
         {"type": "message_start", "message": {"role": "assistant"}},
-        {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}},
-        {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "hi"}},
+        {
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""},
+        },
+        {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "hi"},
+        },
         {"type": "content_block_stop", "index": 0},
         {
             "type": "message_delta",
@@ -731,7 +739,9 @@ async def test_stream_usage_surfaces_cache_hit_fields() -> None:
     body = _make_anthropic_sse(events)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = AnthropicClient(
         base_url="http://127.0.0.1:9999",

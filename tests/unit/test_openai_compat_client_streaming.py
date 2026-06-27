@@ -410,7 +410,11 @@ async def test_stream_usage_surfaces_cached_tokens() -> None:
         {
             "id": "chatcmpl-cache",
             "choices": [
-                {"index": 0, "delta": {"role": "assistant", "content": "hello"}, "finish_reason": None}
+                {
+                    "index": 0,
+                    "delta": {"role": "assistant", "content": "hello"},
+                    "finish_reason": None,
+                }
             ],
         },
         {
@@ -427,7 +431,9 @@ async def test_stream_usage_surfaces_cached_tokens() -> None:
     body = _make_sse_body(chunks)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, content=body, headers={"content-type": "text/event-stream"})
+        return httpx.Response(
+            200, content=body, headers={"content-type": "text/event-stream"}
+        )
 
     client = OpenAICompatClient(
         base_url="http://127.0.0.1:9999",

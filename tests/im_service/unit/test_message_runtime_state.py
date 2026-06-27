@@ -190,7 +190,9 @@ def test_thinking_and_tools_share_monotonic_process_seq(
     )
 
     # 真实到达序：think → tool → think → tool → think
-    messages.append_thinking_segment(message_id=created.id, text="先看 types.py")  # seq 0
+    messages.append_thinking_segment(
+        message_id=created.id, text="先看 types.py"
+    )  # seq 0
     messages.update_runtime_state(
         message_id=created.id,
         tool_calls_upsert=[ToolCall(id="t1", name="read", status="running")],  # seq 1
