@@ -124,6 +124,8 @@ function buildCandidates(prefix, skillMode) {
   return [...cmds, ...skills];
 }
 
+// 重建列表 DOM（仅候选集变化时调用）。导航/hover 只切 class，不在这里重建，
+// 否则鼠标移动触发重建会打断点击（鼠标点不中的根因）。
 function renderPicker() {
   if (candidates.length === 0) {
     picker.innerHTML = '<div class="empty">没有匹配的 slash 项</div>';
@@ -143,16 +145,32 @@ function renderPicker() {
       ? `<span class="from">来自 ${c.from.join(", ")}</span>` : "";
     const pathHtml = c.kind === "skill"
       ? `<span class="path">${c.location}</span>` : "";
-    html += `<div class="item ${i === activeIdx ? "active" : ""}" data-i="${i}">
+    html += `<div class="item" data-i="${i}">
       <div class="row1">${nameHtml}${fromHtml}</div>
       <span class="desc">${c.desc}</span>${pathHtml}
     </div>`;
   });
   picker.innerHTML = html;
   picker.querySelectorAll(".item").forEach((el) => {
-    el.onmouseenter = () => { activeIdx = +el.dataset.i; renderPicker(); };
-    el.onclick = () => choose(+el.dataset.i);
+    const i = +el.dataset.i;
+    // mousedown + preventDefault：防止点击让 textarea 失焦，且不依赖 click（hover 重排会丢 click）
+    el.addEventListener("mousedown", (e) => { e.preventDefault(); choose(i); });
+    el.addEventListener("mouseenter", () => setActive(i));
   });
+  setActive(activeIdx);
+}
+
+// 仅切换高亮 + 让高亮项滚动进视野，不重建 DOM
+function setActive(i) {
+  if (candidates.length === 0) return;
+  activeIdx = (i + candidates.length) % candidates.length;
+  let act = null;
+  picker.querySelectorAll(".item").forEach((el) => {
+    const on = +el.dataset.i === activeIdx;
+    el.classList.toggle("active", on);
+    if (on) act = el;
+  });
+  if (act) act.scrollIntoView({ block: "nearest" });
 }
 
 function openPicker(prefix, skillMode) {
@@ -170,6 +188,7 @@ function choose(i) {
   ta.value = c.kind === "cmd" ? `/${c.name} ` : `/skill:${c.name} `;
   closePicker();
   ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length); // 光标置末尾
   hint.textContent = `已补入：${ta.value.trim()}　（继续输入内容后回车发送，后端按既有规则处理）`;
 }
 
@@ -180,11 +199,18 @@ ta.addEventListener("input", () => {
 });
 
 ta.addEventListener("keydown", (e) => {
-  if (!picker.classList.contains("open")) return;
-  if (e.key === "ArrowDown") { e.preventDefault(); if (candidates.length){ activeIdx = (activeIdx + 1) % candidates.length; renderPicker(); } }
-  else if (e.key === "ArrowUp") { e.preventDefault(); if (candidates.length){ activeIdx = (activeIdx - 1 + candidates.length) % candidates.length; renderPicker(); } }
-  else if (e.key === "Enter") { if (candidates.length) { e.preventDefault(); choose(activeIdx); } }
+  if (!picker.classList.contains("open") || candidates.length === 0) return;
+  if (e.key === "ArrowDown") { e.preventDefault(); setActive(activeIdx + 1); }
+  else if (e.key === "ArrowUp") { e.preventDefault(); setActive(activeIdx - 1); }
+  else if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); choose(activeIdx); }
   else if (e.key === "Escape") { e.preventDefault(); closePicker(); } // / 保留在输入框
+});
+
+// 点击面板与输入框之外 → 关闭
+document.addEventListener("mousedown", (e) => {
+  if (picker.classList.contains("open") && !picker.contains(e.target) && e.target !== ta) {
+    closePicker();
+  }
 });
 
 setMode(false);

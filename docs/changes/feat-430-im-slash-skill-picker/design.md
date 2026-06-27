@@ -178,6 +178,18 @@ sequenceDiagram
   K->>K: rewrite_skill_command 命中 → 执行 skill
 ```
 
+### slash picker 交互规范（worker 实现 checklist）
+
+一次梳理完整，worker 照此实现，避免逐点补漏：
+
+- **触发**: 仅当 `/` 在输入框开头（前面无非空字符）才触发；输入框中间出现 `/` 不触发。`/skill:<prefix>` 形态进入 skill-only 过滤（支持编辑已补入文本纠错）。
+- **候选与过滤**: 命令（`/stop`）+ skills，统一按前缀过滤；`/skill:` 前缀下只过滤 skills。无匹配显示空态文案，不阻塞继续输入。
+- **键盘**: `↑`/`↓` 循环移动高亮，**高亮项始终滚动进视野**（`scrollIntoView({block:'nearest'})`）；`Enter` 与 `Tab` 都确认选中；`Esc` 关闭面板并保留已输入的 `/` 文本。
+- **鼠标**: hover 高亮**只切 class、不重建列表 DOM**（重建会打断点击——本次原型实测的"点不中"根因）；点击用 `mousedown` + `preventDefault`（防输入框失焦、不依赖 `click`）确认；**点击面板与输入框之外关闭面板**。
+- **选中落地**: 命令补 `/name `、skill 补 `/skill:name `（尾随空格），**光标置于末尾**，输入框保持焦点。
+- **布局**: 面板锚定 composer 上方，`max-height ≤ 视口一半` + 内部滚动，候选多时不穿出视口顶部（依赖 composer 处于聊天窗底部）。
+- **焦点/可访问性**: 真实实现给面板/项加 `role=listbox`/`option` 与 `aria-activedescendant`，键盘操作时输入框不失焦。
+
 ## 前端原型
 
 - 原型文件: [prototype.html](prototype.html)
@@ -219,7 +231,7 @@ sequenceDiagram
 
 - `[reviewer]` 单聊敲 `/` 弹面板含 `/stop`+已启用 skills（覆盖 Scenario:单聊里敲 `/`）
 - `[reviewer]` 群聊敲 `/` 弹面板含 `/stop`+成员 skills 并集，同 location 合并、异 location 分行且标注来源（覆盖 Scenario:群聊里敲 `/` / 同路径合并 / 不同路径分开）
-- `[reviewer]` 键盘上下+Enter 选中补文本、Esc 关闭保留 `/`（覆盖 Scenario:方向键选择 / 按 Esc）
+- `[reviewer]` 键盘（↑↓/Enter/Tab/Esc）+鼠标（点击/hover/点面板外关闭）导航选中、高亮项滚动可见、选中后输入框保持焦点（覆盖 Scenario:方向键选择 / 高亮滚动可见 / 鼠标点击 / Esc 或点外关闭）
 - `[reviewer]` 选中 skill 补 `/skill:name `（覆盖 Scenario:选中 skill 后补）
 - `[reviewer]` 前缀过滤 + 空态（覆盖 Scenario:输入 `/pr` / 输入 `/xyz`）；输入框中间 `/` 不触发（覆盖 Scenario:中间出现 `/`）
 - `[reviewer]` 单聊发 `/skill:name ...` skill 真执行（覆盖 Scenario:选中 skill 后继续输入并发送）

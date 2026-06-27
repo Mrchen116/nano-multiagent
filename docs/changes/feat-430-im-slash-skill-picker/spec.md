@@ -95,17 +95,27 @@
 - **WHEN** 用户继续输入 `/world`
 - **THEN** slash 候选面板不弹出
 
-### Requirement: slash 面板支持键盘导航与选中
+### Requirement: slash 面板支持键盘与鼠标导航选中
 
 #### Scenario: 用方向键选择并回车确认
 - **GIVEN** slash 面板已打开且有多个候选
 - **WHEN** 用户按 `ArrowDown` 移动高亮，再按 `Enter`
 - **THEN** 输入框内容变为当前高亮项对应的 slash 文本，面板关闭，输入框保持焦点
 
-#### Scenario: 按 Esc 关闭面板
+#### Scenario: 候选超出可视区时高亮项滚动可见
+- **GIVEN** slash 面板已打开且候选项数量超过面板可视高度
+- **WHEN** 用户用方向键把高亮移到当前视区外的候选项
+- **THEN** 该高亮项自动滚动进可视区，用户始终看得到当前选中的是哪一项
+
+#### Scenario: 用鼠标点击候选项选中
 - **GIVEN** slash 面板已打开
-- **WHEN** 用户按 `Escape`
-- **THEN** 面板关闭，输入框里的 `/` 保留，用户可继续输入普通文字
+- **WHEN** 用户用鼠标点击某个候选项（含 hover 后点击）
+- **THEN** 输入框内容变为该项对应的 slash 文本，面板关闭，输入框保持焦点（点击过程不丢失、不需要点两次）
+
+#### Scenario: 按 Esc 或点击面板外关闭面板
+- **GIVEN** slash 面板已打开
+- **WHEN** 用户按 `Escape`，或用鼠标点击面板与输入框以外的区域
+- **THEN** 面板关闭，输入框里已输入的 `/` 文本保留，用户可继续输入普通文字
 
 ### Requirement: skill 选中后补成正确的 slash 格式
 
