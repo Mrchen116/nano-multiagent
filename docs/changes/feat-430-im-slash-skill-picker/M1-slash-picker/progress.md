@@ -35,13 +35,14 @@
 - Context: design-review 核实——群聊 MENTION 策略下 `_should_process`(:258) 先于 `_is_stop_command`(:283)，裸 /stop 不命中 mention → return None，永不到 stop 处理（drift：canonical gateway spec 已声明"控制命令触发"）。另：放行后每个群成员都进 stop 处理，未运行的会发 no-op ack 噪声（spec 幂等/无副作用）。
 - Decision: ① `_should_process` 开头加 `if message.text.strip()=="/stop": return True`（仅裸 /stop，置于 is_group 分支前，单聊本就 True 无影响）；② `_handle_stop_command` 无 active run 分支：`if message.is_group` 时返回 reply_text="" / outbound=None（不发 ack），单聊保留"当前没有正在执行的操作"友好 ack。
 - Rationale: 决策4——群聊 /stop 是纯文本广播、各 agent 幂等响应；裸 /stop 经放行后既有 `_is_stop_command`（strip @agent 后 =="/stop"）本就匹配，无需 wire-mention strip（design-review #3 已删 4①）。中断机制 `kernel.interrupt` 不动。群聊无副作用补全已 SendMessage 同步 orchestrator。
+- 幂等 ack 抑制（design 未明写、据 spec Scenario「群聊里 /stop 对未在运行的 agent 幂等(无报错、无副作用)」补的实现，**orchestrator 已批准**，非新 design 决策）：群聊 /stop 经 IM 广播到每个成员（各自 relay），未运行的成员若仍发「当前没有正在执行的操作。」会产生 N-1 条噪声气泡 = spec 所禁的副作用。故仅在「群聊 + 无 active run」分支静默。三点边界（lead 确认）：① 单聊无运行时仍返回友好 ack「当前没有正在执行的操作。」（canonical 契约 Scenario，不动）；② 群聊中真被停的运行 agent 仍发「已停止当前操作。」；③ 群聊全员都没跑 → 全静默（可接受的无副作用）。
 - Evidence:
-  - Tests: 群聊裸 /stop（MENTION、有 active run）触发 interrupt；群聊裸 /stop（无 active run）不发 ack、不进群上下文 buffer。`pytest tests/unit/personal_assistant/` 637 passed（无回归）。
-  - Entry: gateway 行为，真实入口（真栈群聊发 /stop）留 R5。
+  - Tests: 群聊裸 /stop（MENTION、有 active run）触发 interrupt；群聊裸 /stop（无 active run）不发 ack、不进群上下文 buffer；**群聊多 agent（部分在跑部分不在跑）→ 只有在跑的被停 + 无噪声 ack**（`test_bare_stop_in_group_multi_agent_stops_only_running_no_noise`）。`pytest tests/unit/personal_assistant/` 全 passed（无回归）。
+  - Entry: gateway 行为，真实入口（真栈群聊发 /stop）见 R5（plato MENTION 运行中裸 /stop 中断、未运行 hume 无 no-op ack）。
   - Frontend State Matrix / Browser QA / Visual: N/A
-  - E2E/Regression: 落 `test_gateway_stop_command.py` 两新测；既有群聊 @stop / sender prefix 测全绿。
+  - E2E/Regression: 落 `test_gateway_stop_command.py` 三新测；既有群聊 @stop / sender prefix 测全绿。
 - Rollback: revert C2（inbound_pipeline 两处改动）回到群聊裸 /stop 被 MENTION 丢弃。
-- Commits: C1=test R3, C2=fix R3, C3=本次 docs
+- Commits: C1=test R3, C2=fix R3, C3=docs；fix-followup：多 agent 幂等配对测试 + 记账（本次）
 
 ## R4 — 前端 slash-picker 组件 + message-pane 接入 + 数据获取
 
