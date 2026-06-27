@@ -226,7 +226,11 @@ class _NoOpSubagentRunner(BackgroundSubagentRunner):
         on_kill: TaskKillCallback,
         workspace_root: "Path | None" = None,
         llm_session_id: str | None = None,
+        model: str | None = None,
     ) -> BackgroundTaskStopper:
+        # bugfix-443: AgentTool threads model= to every subagent dispatch; accept
+        # and ignore it here so the fallback still fails gracefully via on_fail
+        # instead of raising TypeError that would strand the task in RUNNING.
         on_fail(task_id=agent_session_id, error="subagent runner is not configured")
         return _NoOpStopper()
 

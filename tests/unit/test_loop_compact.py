@@ -416,6 +416,26 @@ async def test_compaction_summarizer_forwards_run_model_to_fork() -> None:
     assert fork.model_overrides == ["agent-selected-model"]
 
 
+async def test_compaction_summarizer_ignores_override_when_fork_is_dedicated() -> None:
+    """bugfix-443 fix1 (altitude #3): the summary_model mutual-exclusion lives in
+    CompactionSummarizer. A summarizer built for a dedicated summary_model fork
+    must ignore the per-run model_override (the fork keeps its own fixed model),
+    while a shared fork forwards it (covered above)."""
+    from agent.core.agent.compaction.summarizer import CompactionSummarizer
+
+    fork = _RecordingFork()
+    summarizer = CompactionSummarizer(fork=fork, has_dedicated_model=True)
+
+    await summarizer.summarize(
+        session_id="sess_x",
+        system_prompt="sys",
+        dropped_messages=[Message(message_id="d", role="user", content="old")],
+        model_override="run-model",
+    )
+
+    assert fork.model_overrides == [None]
+
+
 def _init_per_model_window_registry() -> None:
     """注册一个带 context_window 的模型目录（feat-436）。conftest autouse 在下个测试前复原。"""
     from agent.core.llm.config import (
@@ -482,9 +502,11 @@ def test_compaction_reserve_tokens_default_is_20480() -> None:
 
 
 # ---------------------------------------------------------------------------
-# bugfix-443 root cause B: loop's proactive-threshold compaction must pass
-# model_override so the summarizer side-chain follows the run's model, unless a
-# dedicated summary_model is configured (which keeps its own model).
+# bugfix-443 root cause B: loop's proactive-threshold compaction must pass the
+# active run's model to the summarizer. The summary_model mutual-exclusion is
+# owned by CompactionSummarizer (fix1 altitude #3), so the loop always forwards
+# active_model regardless of summary_model — the dedicated-fork suppression is
+# asserted at the summarizer level above.
 # ---------------------------------------------------------------------------
 
 
@@ -527,9 +549,9 @@ def _make_compacting_loop(summarizer, *, summary_model=None) -> tuple[AgentLoop,
     return loop, history
 
 
-async def test_loop_proactive_compaction_uses_run_model_when_no_summary_model() -> None:
-    """Root cause B, state 1: no dedicated summary_model → the proactive
-    compaction summarizer runs on the active run's model."""
+async def test_loop_proactive_compaction_forwards_run_model() -> None:
+    """Root cause B: the proactive-threshold compaction forwards the active run's
+    model to the summarizer."""
     summarizer = _RecordingCompactionSummarizer()
     loop, history = _make_compacting_loop(summarizer)
     state = _make_state(history_messages=history, user_text="trigger")
@@ -540,10 +562,12 @@ async def test_loop_proactive_compaction_uses_run_model_when_no_summary_model() 
     assert summarizer.model_overrides == ["run-model"]
 
 
-async def test_loop_proactive_compaction_keeps_dedicated_summary_model() -> None:
-    """Root cause B, state 2: a dedicated summary_model is configured → the
-    proactive compaction passes model_override=None so the dedicated fork keeps
-    its own model (does not get overridden by the run model)."""
+async def test_loop_proactive_compaction_forwards_run_model_even_with_summary_model() -> (
+    None
+):
+    """fix1 altitude #3: the loop forwards active_model regardless of summary_model;
+    suppressing the override for a dedicated fork is the summarizer's job, not the
+    loop's (asserted in test_compaction_summarizer_ignores_override_when_fork_is_dedicated)."""
     summarizer = _RecordingCompactionSummarizer()
     loop, history = _make_compacting_loop(summarizer, summary_model="dedicated-sum")
     state = _make_state(history_messages=history, user_text="trigger")
@@ -551,4 +575,4 @@ async def test_loop_proactive_compaction_keeps_dedicated_summary_model() -> None
     async for _ in loop.run(state):
         pass
 
-    assert summarizer.model_overrides == [None]
+    assert summarizer.model_overrides == ["run-model"]

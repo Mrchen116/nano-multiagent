@@ -267,6 +267,7 @@ class AgentRuntime:
         self._summary_fork_has_dedicated_model = bool(summary_model)
         self._compaction_summarizer = CompactionSummarizer(
             fork=_summary_fork,
+            has_dedicated_model=self._summary_fork_has_dedicated_model,
         )
         self._compaction_applier = CompactionApplier()
         self._loop = AgentLoop(
@@ -1992,13 +1993,10 @@ class AgentRuntime:
             session_id=session_id,
             system_prompt=rendered_system_prompt,
             dropped_messages=dropped_messages,
-            # bugfix-429 fix-r1 #2: summarize with this run's model (unless a
-            # dedicated summary_model fork is configured, which keeps its own model).
-            model_override=(
-                None
-                if self._summary_fork_has_dedicated_model
-                else self._active_run_models.get(session_id)
-            ),
+            # bugfix-429 fix-r1 #2: summarize with this run's model. The
+            # summary_model mutual-exclusion is owned by CompactionSummarizer
+            # (bugfix-443 fix1 altitude #3).
+            model_override=self._active_run_models.get(session_id),
         )
 
         # Post-compact file restore: read up to 5 most recently accessed files.

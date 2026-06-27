@@ -18,8 +18,15 @@ _log = logging.getLogger("agent.core.agent.compaction")
 class CompactionSummarizer:
     """Summarize dropped history via LLM with deterministic fallback."""
 
-    def __init__(self, *, fork: "AgentContextFork") -> None:
+    def __init__(
+        self, *, fork: "AgentContextFork", has_dedicated_model: bool = False
+    ) -> None:
         self._fork = fork
+        # bugfix-443 fix1 (altitude #3): own the summary_model mutual-exclusion
+        # here instead of duplicating `None if dedicated else override` at every
+        # call site. A dedicated fork has a fixed model and must ignore the run's
+        # model_override; a shared fork follows it.
+        self._has_dedicated_model = has_dedicated_model
 
     async def summarize(
         self,
@@ -68,8 +75,9 @@ class CompactionSummarizer:
                 available_skills_override=(),
                 available_tools_override=(),
                 # bugfix-429 fix-r1 #2: summarize with the run's model, not the
-                # build-time default (unless a dedicated summary_model fork is used).
-                model_override=model_override,
+                # build-time default. bugfix-443 fix1: a dedicated summary_model
+                # fork keeps its own model — ignore the per-run override for it.
+                model_override=(None if self._has_dedicated_model else model_override),
             )
             summary = result.messages[-1].content.strip() if result.messages else ""
             return format_compact_summary(summary) if summary else _fallback_summary()

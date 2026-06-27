@@ -912,13 +912,10 @@ class AgentLoop:
             system_prompt=rendered_system_prompt,
             dropped_messages=dropped_messages,
             # bugfix-443 (root cause B): the proactive-threshold compaction must
-            # also run the summarizer on this run's model (the other two summarize
-            # call sites already do) — unless a dedicated summary_model fork is
-            # configured, which keeps its own model (pass None so it is not
-            # overridden).
-            model_override=(
-                None if self._compaction_settings.summary_model else active_model
-            ),
+            # also run the summarizer on this run's model (the other summarize
+            # call site already does). The summary_model mutual-exclusion is owned
+            # by CompactionSummarizer (bugfix-443 fix1 altitude #3).
+            model_override=active_model,
         )
 
         # Post-compact file restore: read up to 5 most recently accessed files.

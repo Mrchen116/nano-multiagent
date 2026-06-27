@@ -460,6 +460,7 @@ class AgentTool(WiringMixin):
                 agent_id=agent_id,
                 agent_session_id=record.agent_session_id,
                 parent_session_id=record.parent_session_id,
+                resuming_session_id=ctx.session_id,
                 prompt=prompt,
                 description=record.description,
                 output_file=record.output_file,
@@ -514,6 +515,7 @@ class AgentTool(WiringMixin):
             agent_id=agent_id,
             agent_session_id=found_session_id,
             parent_session_id=parent_session_id,
+            resuming_session_id=ctx.session_id,
             prompt=prompt,
             description=description,
             output_file=output_file,
@@ -527,6 +529,7 @@ class AgentTool(WiringMixin):
         agent_id: str,
         agent_session_id: str | None,
         parent_session_id: str,
+        resuming_session_id: str | None,
         prompt: str,
         description: str,
         output_file: str,
@@ -562,8 +565,12 @@ class AgentTool(WiringMixin):
         # can locate it.
         # bugfix-422 (#129): llm_session_id=parent so the resumed turn's LLM
         # requests group under the parent in the proxy session-inspector.
-        # bugfix-443: model=parent run's model (resolved from parent_session_id,
-        # the active invoking run) so the resumed subagent inherits it.
+        # bugfix-443 fix1 C4: resolve the model from the *current resuming run*
+        # (resuming_session_id=ctx.session_id), not the original launcher
+        # (parent_session_id) — the launcher run may already be terminal and
+        # popped from _active_run_models, which would yield None and wrongly fall
+        # back to the global default. Path / proxy grouping still key on
+        # parent_session_id.
         stopper = wiring.subagent_runner.start(
             agent_session_id=agent_session_id,
             parent_session_id=parent_session_id,
@@ -573,7 +580,7 @@ class AgentTool(WiringMixin):
             on_kill=_make_on_kill(registry, agent_id),
             workspace_root=workspace_root,
             llm_session_id=parent_session_id or None,
-            model=runtime.resolve_run_model(parent_session_id),
+            model=runtime.resolve_run_model(resuming_session_id),
         )
         registry.set_stop_handle(agent_id, stopper)
 
