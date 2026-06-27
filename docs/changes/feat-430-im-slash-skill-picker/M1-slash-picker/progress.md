@@ -32,6 +32,17 @@
 
 ## R3 — gateway 群聊裸 /stop 放行 + 幂等无副作用
 
+- Context: design-review 核实——群聊 MENTION 策略下 `_should_process`(:258) 先于 `_is_stop_command`(:283)，裸 /stop 不命中 mention → return None，永不到 stop 处理（drift：canonical gateway spec 已声明"控制命令触发"）。另：放行后每个群成员都进 stop 处理，未运行的会发 no-op ack 噪声（spec 幂等/无副作用）。
+- Decision: ① `_should_process` 开头加 `if message.text.strip()=="/stop": return True`（仅裸 /stop，置于 is_group 分支前，单聊本就 True 无影响）；② `_handle_stop_command` 无 active run 分支：`if message.is_group` 时返回 reply_text="" / outbound=None（不发 ack），单聊保留"当前没有正在执行的操作"友好 ack。
+- Rationale: 决策4——群聊 /stop 是纯文本广播、各 agent 幂等响应；裸 /stop 经放行后既有 `_is_stop_command`（strip @agent 后 =="/stop"）本就匹配，无需 wire-mention strip（design-review #3 已删 4①）。中断机制 `kernel.interrupt` 不动。群聊无副作用补全已 SendMessage 同步 orchestrator。
+- Evidence:
+  - Tests: 群聊裸 /stop（MENTION、有 active run）触发 interrupt；群聊裸 /stop（无 active run）不发 ack、不进群上下文 buffer。`pytest tests/unit/personal_assistant/` 637 passed（无回归）。
+  - Entry: gateway 行为，真实入口（真栈群聊发 /stop）留 R5。
+  - Frontend State Matrix / Browser QA / Visual: N/A
+  - E2E/Regression: 落 `test_gateway_stop_command.py` 两新测；既有群聊 @stop / sender prefix 测全绿。
+- Rollback: revert C2（inbound_pipeline 两处改动）回到群聊裸 /stop 被 MENTION 丢弃。
+- Commits: C1=test R3, C2=fix R3, C3=本次 docs
+
 ## R4 — 前端 slash-picker 组件 + message-pane 接入 + 数据获取
 
 ## R5 — live 真栈验收

@@ -80,7 +80,7 @@ UI 状态矩阵：
 - 步骤: `skill_commands.py` 正则加可选 `^\s*(\[..\]\s*)?` 前缀并保留；`runtime.py` 多 part 分支对 `effective_user_text`（末 part）跑 rewrite
 - 验证: contract 测 `[sender] /skill:doc` 保留前缀；runtime 多 part 末 part /skill 被重写（防 design-review #2 false-fix）
 
-### R3 — gateway 群聊裸 /stop 放行 + 幂等无副作用
+### R3 — gateway 群聊裸 /stop 放行 + 幂等无副作用  [DONE]
 
 - 步骤: `_should_process` 放行裸 `/stop`；`_handle_stop_command` 群聊无 active run 时抑制 no-op ack
 - 验证: 群聊 MENTION 策略下裸 /stop 触发 interrupt；未运行群成员无 ack
