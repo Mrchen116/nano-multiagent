@@ -1751,7 +1751,7 @@ class AgentRuntime:
         # provider client (not always the default-provider client).
         model = (
             call.model
-            or self._active_run_models.get(normalized_session)
+            or self.resolve_run_model(normalized_session)
             or self._llm_config.model
         ).strip()
         if not model:
@@ -1996,7 +1996,7 @@ class AgentRuntime:
             # bugfix-429 fix-r1 #2: summarize with this run's model. The
             # summary_model mutual-exclusion is owned by CompactionSummarizer
             # (bugfix-443 fix1 altitude #3).
-            model_override=self._active_run_models.get(session_id),
+            model_override=self.resolve_run_model(session_id),
         )
 
         # Post-compact file restore: read up to 5 most recently accessed files.
