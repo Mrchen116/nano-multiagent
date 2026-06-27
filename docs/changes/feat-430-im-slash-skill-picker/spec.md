@@ -2,9 +2,7 @@
 
 ## Relations
 
-- Depends on:
-- Blocks:
-- Related:
+无外部依赖。本 unit 为 IM 前端新增 slash picker，并需 SDK/kernel/gateway/IM 链路补 skill location 只读字段（详见 design 阶段交接）。
 
 ## 原始需求
 
@@ -57,6 +55,10 @@
   我的推荐：commands 首期只做 `/stop`；skill 选中后补 `/skill:name `。
   A(原话): 如果没有其他slash command，就只做 /stop和skill的。/skill:name 还是 /name ，/skill:name 吧
   Agent 解读: 本期 picker 只包含 `/stop` 命令和当前 agent(s) 已启用的 skills；选中 skill 后在输入框补 `/skill:name `，与现有内核 `rewrite_skill_command` 对齐。
+
+- Q10: 前缀过滤时，`/stop` 这类命令要不要也跟着被过滤掉，还是始终显示？
+  A(原话): A：你说的对
+  Agent 解读: 采纳推荐 A——命令与 skill 一视同仁参与前缀过滤，输入 `/pr` 时不匹配前缀的 `/stop` 不显示，不再"命令始终显示"。
 
 ## 用户场景
 
@@ -119,9 +121,9 @@
 ### Requirement: slash 面板支持前缀过滤
 
 #### Scenario: 输入 `/pr` 过滤出匹配的 skill
-- **GIVEN** 单聊里 agent 启用了 `pr-review`、`tdd-execution-worker`、`log-cleanup` 三个 skills
+- **GIVEN** 单聊里 agent 启用了 `pr-review`、`tdd-execution-worker`、`log-cleanup` 三个 skills，且命令 `/stop` 存在
 - **WHEN** 用户在输入框输入 `/pr`
-- **THEN** 面板只显示前缀匹配的 `pr-review` 和 `/stop`（命令始终显示）
+- **THEN** 面板只显示前缀匹配的 `pr-review`；不匹配前缀的 `/stop` 与其他 skill 都不显示（命令与 skill 一视同仁参与前缀过滤）
 
 #### Scenario: 输入 `/xyz` 无匹配
 - **GIVEN** 单聊里 agent 启用了 `pr-review` skill
