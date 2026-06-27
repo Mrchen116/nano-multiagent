@@ -8,16 +8,16 @@
 
 ## 退出标准
 
-- [ ] 真栈 IM Web UI: 长 bash / agent 子任务 / web_search 执行中，折叠出摘要且展开出命令 / prompt / query。
-- [ ] 真栈 IM Web UI: 上述工具执行中展开不显伪完成态，无 `✓ completed` / `无结果` 空态，折叠仍保持 running 脉冲。
-- [ ] 真栈 IM Web UI: 上述工具执行完折叠+展开为参数+结果；除 send_message/cron 外与旧完成态逐项一致。
-- [ ] send_message/cron 执行中显示参数，执行完显示参数+结果，落 GenericCard 且为结构化 key/value。
-- [ ] 内核 9 个 builtin + web_search 的 format_start 都产参数片 detail，字段名与 format_end 对齐。
-- [ ] send_message/cron 新 presenter 的 format_start=format_end 参数/结果切分有单测。
-- [ ] write/memory 等含 content 的 start detail 复用 cap，超限时 `truncated` 为 true。
-- [ ] gateway tool_start delta 带 `output=summary` + `detail=参数片`，对照 tool_end 有单测。
-- [ ] 前端 gate: running 只渲参数区，completed/failed 完成态不变；reducer 的 tool_end output/detail 覆盖 tool_start。
-- [ ] `pytest -m "not e2e"`、前端 `npm run test`、`npm run build` 全绿。
+- [x] 真栈 IM Web UI: 长 bash / agent 子任务 / web_search 执行中，折叠出摘要且展开出命令 / prompt / query。
+- [x] 真栈 IM Web UI: 上述工具执行中展开不显伪完成态，无 `✓ completed` / `无结果` 空态，折叠仍保持 running 脉冲。
+- [x] 真栈 IM Web UI: 上述工具执行完折叠+展开为参数+结果；除 send_message/cron 外与旧完成态逐项一致。
+- [x] send_message/cron 执行中显示参数，执行完显示参数+结果，落 GenericCard 且为结构化 key/value。
+- [x] 内核 9 个 builtin + web_search 的 format_start 都产参数片 detail，字段名与 format_end 对齐。
+- [x] send_message/cron 新 presenter 的 format_start=format_end 参数/结果切分有单测。
+- [x] write/memory 等含 content 的 start detail 复用 cap，超限时 `truncated` 为 true。
+- [x] gateway tool_start delta 带 `output=summary` + `detail=参数片`，对照 tool_end 有单测。
+- [x] 前端 gate: running 只渲参数区，completed/failed 完成态不变；reducer 的 tool_end output/detail 覆盖 tool_start。
+- [x] `pytest -m "not e2e"`、前端 `npm run test`、`npm run build` 全绿。
 
 ## 测试策略
 
@@ -73,6 +73,6 @@ UI 状态矩阵：
 
 ### R3 — full gates and live IM Web evidence
 
-- 状态: BLOCKED
+- 状态: DONE
 - 步骤: 跑全量 pytest/vitest/build；启动 worktree 真栈 IM+Gateway+Vite，驱动长 bash、agent、web_search，记录 running/完成态可见证据。
-- 验证: pytest/vitest/build 已绿；真栈截图/日志因当前 Codex escalated usage limit + 沙箱端口探测限制未完成，不能 DONE。
+- 验证: pytest/vitest/build 全绿；真栈 IM Web UI 证据见 progress.md R3（bash / agent / web_search running 与 completed 截图）。
