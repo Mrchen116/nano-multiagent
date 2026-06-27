@@ -538,6 +538,45 @@ async def test_multiple_parts_become_independent_user_messages_in_llm_history(
     )
 
 
+async def test_multipart_last_part_skill_command_rewritten_with_sender_prefix(
+    tmp_path: Path,
+) -> None:
+    """feat-430 (design-review #2): when the group buffer makes this turn multi-part,
+    the `/skill:` command lives in the LAST part with a `[sender] ` prefix. The
+    rewrite must fire on that command part — not be bypassed by the multi-part branch
+    re-deriving effective_user_text from the raw last part (the false-fix path)."""
+    store = JsonlSessionStore(data_dir=tmp_path / "sessions")
+    manager = SessionManager(store=store)
+    session = _make_workspace_session(manager, tmp_path)
+    llm_client = FakeLLMClient()
+    runtime = AgentRuntime(
+        session_manager=manager,
+        llm_client=llm_client,
+        model="mock-model",
+    )
+
+    await runtime.run(
+        session.session_id,
+        [
+            {"type": "text", "text": "[bob] some earlier chatter"},
+            {"type": "text", "text": "[alice] /skill:doc fix spacing"},
+        ],
+        stream=False,
+    )
+
+    assert len(llm_client.requests) == 1
+    user_messages = [m for m in llm_client.requests[0].messages if m.role == "user"]
+    # The buffered context part is untouched; the command part is rewritten.
+    assert user_messages[0].content == "[bob] some earlier chatter"
+    assert user_messages[-1].content == (
+        '[alice] Use the "doc" skill for this request.\nUser input:\nfix spacing'
+    )
+    # The raw, un-rewritten command must NOT reach the provider.
+    assert not any(
+        m.content == "[alice] /skill:doc fix spacing" for m in user_messages
+    )
+
+
 async def test_multiple_image_parts_all_reach_provider(tmp_path: Path) -> None:
     """bugfix-433 CRITICAL-1: a single message with multiple images → ALL images reach
     the provider (M246 multi-part expansion must not render non-last images as text).
