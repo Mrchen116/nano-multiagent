@@ -19,6 +19,17 @@
 
 ## R2 — kernel `/skill` 多 part 重写 + 正则认前缀
 
+- Context: design-review #2——群聊有人先发言时本轮是多 part，`runtime.py:556` 多 part 分支把 `effective_user_text` 重取末 part 原始渲染，绕过 :451 的 rewrite；且 `^\s*/skill:` 锚对带 `[sender] ` 前缀的命令不匹配。只改正则不改 part 选取 = false-fix（单条 /skill 测过、群里有 buffered 就静默失效）。
+- Decision: ① `_SKILL_COMMAND_PATTERN` 加可选 `(?P<prefix>\[[^\]]*\]\s*)?`，命中时把 prefix 原样拼回重写结果前；② `runtime.py` 多 part 分支 `effective_user_text = rewrite_skill_command(render_user_text(last_part))`，命令总在末 part（当前消息）故对末 part 重写即命中。
+- Rationale: 正则只认"可选前导 `[..]` 标注段"、不解析其内容（决策5：内核命令解析的产品无关约定，kernel 不知道里面是 sender）。文本-only 多 part 走 `user_text` 通路（`render_user_content_parts` 对纯文本返 None），故对 `effective_user_text` 重写即作用于喂给 LLM 的消息。修的是内核多 part 通用缺陷（非群聊特殊对待）。
+- Evidence:
+  - Tests: contract 4 新测（保留 `[Alice]` 前缀、无 args、非命令不动）+ runtime 多 part 末 part /skill 重写测（断言 buffered part 不动、命令 part 被重写、原始命令不达 provider）；`pytest` 33 passed。
+  - Entry: kernel 行为，真实入口（群聊真发 /skill）留 R5。
+  - Frontend State Matrix / Browser QA / Visual: N/A
+  - E2E/Regression: 多 part 测即 design-review #2 的防 false-fix 回归。
+- Rollback: revert C2（skill_commands + runtime 两文件改动）。
+- Commits: C1=test R2, C2=fix R2, C3=本次 docs
+
 ## R3 — gateway 群聊裸 /stop 放行 + 幂等无副作用
 
 ## R4 — 前端 slash-picker 组件 + message-pane 接入 + 数据获取

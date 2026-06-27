@@ -75,7 +75,7 @@ UI 状态矩阵：
 - 步骤: `SkillInfo.location`（sdk dto）→ kernel `list_skills` 填 location → `_skills_from_kernel` 透传 → `AllowlistOptionResponse.location` + `coerce_allowlist_options` 透传 → 前端 `AgentAllowlistOption.location` + `normalizeAllowlistOptions` 透传
 - 验证: 四层单测字段端到端非空 + 前端 normalize 单测
 
-### R2 — kernel `/skill` 多 part 重写 + 正则认前缀
+### R2 — kernel `/skill` 多 part 重写 + 正则认前缀  [DONE]
 
 - 步骤: `skill_commands.py` 正则加可选 `^\s*(\[..\]\s*)?` 前缀并保留；`runtime.py` 多 part 分支对 `effective_user_text`（末 part）跑 rewrite
 - 验证: contract 测 `[sender] /skill:doc` 保留前缀；runtime 多 part 末 part /skill 被重写（防 design-review #2 false-fix）
