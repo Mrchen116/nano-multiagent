@@ -64,3 +64,19 @@
 - Commits: C1=test R4, C2=feat R4, C3=本次 docs
 
 ## R5 — live 真栈验收
+
+- Context: 本 unit 改了客户端面 + 群聊命令真生效，必须真栈端到端（IM+Gateway+真 LLM proxy）自证，不能只靠 pytest/stub。
+- Setup: `scripts/e2e-up.sh` 起 ephemeral IM(57353)+Gateway(真 agents plato/hume/luban,带 skills) + Vite(57469) proxy 指向 ephemeral IM；真 LLM proxy :4000。playwright(chromium) 驱动浏览器，登录 nano/nano1234。
+- Evidence（全部真栈、跑到用户可见结果）:
+  - **Slash picker UI（单聊+群聊）**: 浏览器敲 `/` 弹面板，COMMANDS(`/stop`+描述)+SKILLS；`/skill:change` 前缀过滤只剩 change-* skills；选中 → composer 变 `/skill:autoplan `（尾随空格）；`/zzznope` → 空态「No matching slash items」；群聊每行「from plato, hume」来源标注；`console error = []`。截图 r5-direct-slash / r5-group-slash-* / r5-group-empty。
+  - **交集过滤（防 design-review #1 空/全量）live**: PATCH plato 白名单=[autoplan,deep-research]，单聊敲 `/` → 只出 `/stop`+`autoplan`（autoplan 既启用又被发现；deep-research 启用但未在 workspace 发现故不出；**非全 52、非空**）。证明 config∩capabilities 真生效。
+  - **location 透传 live**: `GET /im/v1/agents/plato/capabilities` 每个 skill 带真实 `location`，如 `/Users/czj/.gstack/repos/gstack/.agents/skills/gstack-autoplan/SKILL.md`，端到端非空。
+  - **群聊 /skill 真生效**: 群里发纯 `/skill:autoplan ...` → plato 回复「我会先读取 autoplan skill 文件…」并就 autoplan 语义作答；LLM proxy req log 含 `Use the 'autoplan' skill for this request`，证明 kernel rewrite 文本真到达模型。
+  - **群聊 buffered 多 part /skill 真生效（design-review #2 防 false-fix）**: plato+hume ALWAYS，先暖场制造群上下文，再发 `/skill:autoplan 简短说明`。proxy req log（sess c788bdd4）显示该轮**含多个 user part**（buffered hume 上下文 + 当前命令），命令 part 被重写为 `[Test User] Use the "autoplan" skill for this request.\nUser input:\n简短说明`——**多 part 下命令所在 part 仍重写、sender 前缀保留**。
+  - **群聊裸 /stop 真生效（绕 MENTION）**: plato 设 `group_reply_policy=MENTION`（仅@才响应），`@plato` 起长任务（status=running），发**裸 `/stop`**（不 @）→ plato run 中断，回复「已停止当前操作。」。证明 `_should_process` 放行裸 /stop 绕过 @ 门控 + interrupt 生效。
+  - **群聊 /stop 幂等无副作用**: 同次 /stop 后，未运行的 hume **未发**「当前没有正在执行的操作」ack（消息流中 no-op ack 计数=0）。
+  - E2E/Regression: 所有上述行为有单测/组件测试/集成测试落库（R1-R4）；live 证据为一次性验收（截图在 scratchpad、proxy log 在 LLM_PROXY/logs，不入回归套件）。
+  - 全测试树: `pytest -m "not e2e"` 3047 passed（含 im_service）；前端 `vitest` 全绿 + `npm run build` 通过；`ruff check`+`ruff format --check` 全绿。
+- 服务清理: `scripts/e2e-down.sh` + kill vite，pid 全清。
+- Rollback: N/A（验收，无代码改动）。
+- Commits: 验收无新代码 commit（R1-R4 实现已提交）。
