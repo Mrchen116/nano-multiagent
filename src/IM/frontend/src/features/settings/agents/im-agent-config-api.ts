@@ -200,7 +200,7 @@ interface NodeCapabilitiesWire {
   features?: AgentFeature[];
 }
 
-function normalizeAllowlistOptions(values: Array<string | AgentAllowlistOption> | undefined): AgentAllowlistOption[] {
+export function normalizeAllowlistOptions(values: Array<string | AgentAllowlistOption> | undefined): AgentAllowlistOption[] {
   return (values ?? []).flatMap((value) => {
     if (typeof value === "string") {
       const name = value.trim();

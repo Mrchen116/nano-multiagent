@@ -20,6 +20,12 @@ import { parseMentions } from "./mention-parser";
 import { MentionPicker } from "./mention-picker";
 import { NodeChip } from "./node-chip";
 import { PermissionCard } from "./permission-card";
+import { SlashPicker } from "./slash-picker";
+import {
+  matchSlashTrigger,
+  type SlashCandidate,
+  type SlashSkillCandidate,
+} from "./slash-candidates";
 import { TokenChip } from "./token-chip";
 import { formatDuration, ToolCallsPanel } from "./tool-calls-panel";
 import { remarkMention } from "./remark-mention";
@@ -28,6 +34,8 @@ export interface MessagePaneProps {
   conversation: Conversation;
   messages: Message[];
   mentionCandidates: MentionCandidate[];
+  /** feat-430: enabled skills for this conversation's agent(s), for the slash picker. */
+  slashSkills?: SlashSkillCandidate[];
   nodeName?: string | null;
   nodeStatus?: "online" | "offline";
   /** Agent color for header avatar (direct-agent conversations). */
@@ -119,6 +127,7 @@ export function MessagePane({
   conversation,
   messages,
   mentionCandidates,
+  slashSkills = [],
   nodeName,
   nodeStatus = "offline",
   agentColor,
@@ -135,14 +144,28 @@ export function MessagePane({
   const [draft, setDraft] = useState("");
   const [draftMentions, setDraftMentions] = useState<DraftMention[]>([]);
   const [pending, setPending] = useState<Attachment[]>([]);
+  // feat-430: Esc / click-outside hides the slash picker but keeps the `/` text;
+  // any further typing re-opens it (reset on draft change).
+  const [slashDismissed, setSlashDismissed] = useState(false);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const mirrorRef = useRef<HTMLDivElement | null>(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const slashWrapRef = useRef<HTMLDivElement | null>(null);
 
   const kind = classifyConversationKind(conversation);
   const isGroup = kind === "group" || kind === "agent-network";
   const mentionMatch = isGroup ? MENTION_RE.exec(draft) : null;
   const mentionQuery = mentionMatch?.[1] ?? null;
+
+  // feat-430: slash picker triggers only at the START of the composer (决策 6) and
+  // never simultaneously with the @ mention picker. Available in single and group chats.
+  const slashMatch =
+    mentionQuery === null && !slashDismissed ? matchSlashTrigger(draft) : null;
+
+  function changeDraft(next: string) {
+    setSlashDismissed(false);
+    setDraft(next);
+  }
 
   const placeholder = isGroup
     ? t("chat.messagePane.placeholderGroup")
@@ -170,10 +193,32 @@ export function MessagePane({
       setDraft((d) => d.replace(MENTION_RE, ""));
       return;
     }
+    // feat-430: while the slash picker is open it owns Arrow/Enter/Tab/Esc (its own
+    // window keydown handler). Here we only stop Enter from sending the raw `/...` text.
+    if (slashMatch !== null) {
+      if (!isMobile && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+        e.preventDefault();
+      }
+      return;
+    }
     if (!isMobile && e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       if (mentionQuery !== null) return;
       e.preventDefault();
       commit(draft);
+    }
+  }
+
+  function handleSlashSelect(c: SlashCandidate) {
+    // 命令补 `/name `、skill 补 `/skill:name `（尾随空格），光标置末尾、保持焦点（决策 6）。
+    const insert = c.kind === "command" ? `/${c.name} ` : `/skill:${c.name} `;
+    changeDraft(insert);
+    const el = composerRef.current;
+    if (el) {
+      el.focus();
+      // Defer cursor placement until the controlled value re-renders.
+      requestAnimationFrame(() => {
+        el.setSelectionRange(insert.length, insert.length);
+      });
     }
   }
 
@@ -211,6 +256,21 @@ export function MessagePane({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [messages]);
+
+  // feat-430: clicking outside the slash picker and composer dismisses it while
+  // preserving the typed `/` text (spec: Esc / 点面板外关闭).
+  const slashOpen = slashMatch !== null;
+  useEffect(() => {
+    if (!slashOpen) return;
+    function onDocMouseDown(e: MouseEvent) {
+      const target = e.target as Node;
+      if (slashWrapRef.current?.contains(target)) return;
+      if (composerRef.current?.contains(target)) return;
+      setSlashDismissed(true);
+    }
+    document.addEventListener("mousedown", onDocMouseDown);
+    return () => document.removeEventListener("mousedown", onDocMouseDown);
+  }, [slashOpen]);
 
   return (
     <section className="chat-pane" aria-label={conversation.title}>
@@ -306,6 +366,18 @@ export function MessagePane({
                 onClose={() => setDraft((d) => d.replace(MENTION_RE, ""))}
               />
             )}
+            {slashMatch !== null && (
+              <div ref={slashWrapRef}>
+                <SlashPicker
+                  skills={slashSkills}
+                  query={slashMatch.prefix}
+                  skillMode={slashMatch.skillMode}
+                  isGroup={isGroup}
+                  onSelect={handleSlashSelect}
+                  onClose={() => setSlashDismissed(true)}
+                />
+              </div>
+            )}
             <div className="chat-composer-highlight-wrapper">
               <div
                 ref={mirrorRef}
@@ -317,7 +389,7 @@ export function MessagePane({
               <textarea
                 ref={composerRef}
                 value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={(e) => changeDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onScroll={() => {
                   if (mirrorRef.current && composerRef.current) {

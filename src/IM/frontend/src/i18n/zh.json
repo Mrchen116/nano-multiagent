@@ -449,6 +449,14 @@
       "optionDeny": "拒绝",
       "reasonPlaceholder": "拒绝理由（选填）",
       "reasonLabel": "拒绝理由（选填）"
+    },
+    "slash": {
+      "header": "选择 slash 命令或 skill",
+      "commands": "命令",
+      "skills": "Skills",
+      "noMatch": "没有匹配的 slash 项",
+      "stopDesc": "中断当前正在执行的运行",
+      "from": "来自 {{agents}}"
     }
   },
   "feature": {
