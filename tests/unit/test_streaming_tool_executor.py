@@ -629,7 +629,11 @@ async def test_non_allowlisted_tool_yields_subagent_reject_message() -> None:
 
     registry = _FakeRegistry()
     registry.register(_FakeTool(name="read"))
-    executor = StreamingToolExecutor(registry, tool_execution_allowlist=("read",))
+    # feat-440-M2 (F6): the fork construction point now sets is_fork_sidechain=True
+    # explicitly — the allowlist alone no longer implies subagent.
+    executor = StreamingToolExecutor(
+        registry, tool_execution_allowlist=("read",), is_fork_sidechain=True
+    )
 
     executor.add_tool(_call("bash"))
     results = await _drain(executor)

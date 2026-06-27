@@ -53,20 +53,28 @@ class StreamingToolExecutor:
         hook_context: Any | None = None,
         session_file_state: Any | None = None,
         tool_execution_allowlist: tuple[str, ...] | None = None,
+        is_fork_sidechain: bool = False,
     ) -> None:
         self._queue: list[_QueuedTool] = []
         self._registry = tool_registry
         self._hook_context = hook_context
         self._session_file_state = session_file_state
-        # Execution-layer allowlist. When set (fork side-chain only), tool calls
-        # whose name is not in this set are denied with a synthetic error result
-        # and never reach registry.execute(). None means "no restriction" — the
-        # main agent path always passes None so its tool execution is unaffected.
+        # Execution-layer allowlist. When set, tool calls whose name is not in this
+        # set are denied with a synthetic error result and never reach
+        # registry.execute(). None means "no restriction". This is purely an
+        # *execution* verdict — it no longer doubles as the "am I a subagent?" signal
+        # (feat-440-M2 F6): a future main session with a sandbox allowlist must not be
+        # mistaken for a fork side-chain.
         self._tool_execution_allowlist = (
             frozenset(tool_execution_allowlist)
             if tool_execution_allowlist is not None
             else None
         )
+        # feat-440-M2 (F6): explicit fork-side-chain signal, set True only at the fork
+        # construction point (context_fork → loop.run). It selects SUBAGENT_REJECT vs
+        # the main-session REJECT text. Decoupled from the allowlist so the two roles
+        # (execution narrowing vs reject-message wording) can vary independently.
+        self._is_fork_sidechain = is_fork_sidechain
         self._lock = asyncio.Lock()
         self._has_errored = False
         self._errored_tool_name = ""
@@ -164,7 +172,9 @@ class StreamingToolExecutor:
                     name=item.tool_call.name,
                     output=None,
                     error=build_reject_message(
-                        approval=None, reason=None, is_subagent=True
+                        approval=None,
+                        reason=None,
+                        is_subagent=self._is_fork_sidechain,
                     ),
                     arguments=dict(item.tool_call.arguments),
                 )
@@ -248,7 +258,7 @@ class StreamingToolExecutor:
                 error_text = build_reject_message(
                     approval=approval,
                     reason=block_reason,
-                    is_subagent=self._tool_execution_allowlist is not None,
+                    is_subagent=self._is_fork_sidechain,
                 )
             else:
                 error_text = str(exc)
