@@ -124,9 +124,9 @@ graph TD
 **`[sender] ` 前缀保持不变；两步：① 让 rewrite 作用于命令所在的那个 part（多 part 分支后的 `effective_user_text`/末 part），而非整段 join 的行首；② 正则放宽为认"可选前导 `[..]` 段"、不编码 sender 具体格式**：`^\s*(?:\[[^\]]*\]\s*)?/skill:…`。群聊 `[Alice] /skill:doc args` → `[Alice] Use the "doc" skill...`。
 
 - **理由**: design-review #2 已核实——群里有人先发言时消息是多 part，`runtime.py:580` 多 part 分支把 `effective_user_text` 重取末 part、**绕过** `runtime.py:451` 的 rewrite，且整段 join 后 `/skill:` 落非首行。只改正则不改 part 选取会 false-fix（单条消息测试过、群里有 buffered 上下文就静默失效）。命令总在末 part（当前消息），故对末 part rewrite 即可命中。正则认通用 `[..]` 前缀而非 `[{sender}] ` 精确格式，弱化对产品格式的依赖。
-- **不是群聊特殊对待**: `runtime.py:580` 多 part 是通用机制（原为多模态图片，`bugfix-433`），任何"多 part + `/skill`"都中招（含 coding_cli 多模态），群聊只是撞上它。修它属修内核**通用缺陷**——kernel 仍不感知群聊（群聊投递/`sender` 前缀全在 gateway）。唯一沾群聊产品格式的是上面正则的 `[..]` 假设，已登记为 refactor 债。
-- **拒绝**: 只放宽正则、不改 part 选取（多 part 路径仍 miss，design-review #2）；gateway 剥 sender 前缀（丢发送者，用户否决）。
-- **技术债（design-review #4，登记排期不在本 unit 解）**: 即便正则只认通用 `[..]` 前缀，core 仍假设"命令前可能有产品前缀"。根因是产品把 sender 元数据塞进文本、逼 core 解析；纯架构应让 sender 结构化、core 只见纯正文——但那要重构整条群聊 sender 传递管线（gateway `_format_sender_text` + core 渲染），远超本 unit。**立为独立 refactor unit**（见风险与回退段末），本 unit 不在 core 正则里假装解决。
+- **不是群聊特殊对待**: `runtime.py:580` 多 part 是通用机制（原为多模态图片，`bugfix-433`），任何"多 part + `/skill`"都中招（含 coding_cli 多模态），群聊只是撞上它。修它属修内核**通用缺陷**——kernel 仍不感知群聊（群聊投递/`sender` 前缀全在 gateway）。
+- **拒绝**: 只放宽正则、不改 part 选取（多 part 路径仍 miss，design-review #2）；gateway 剥 sender 前缀（丢发送者，用户否决）；**把 sender 做成结构化字段传入 kernel**（design-review #4 提的"纯架构"方向）——这会让 kernel 的数据模型/渲染层**显式知道"消息有发送者、群聊有多人"**，反而把群聊产品概念真正塞进 kernel，比通用正则更耦合，用户明确否决。
+- **`[..]` 前缀容忍 = 内核命令解析的产品无关约定（非债，对 design-review #4 的处置）**: 正则只认"可选前导 `[..]` 标注段"、**不知道里面是 sender**（类似容忍前导空白），这是内核命令解析层一个稳定、产品无关的语法约定。把它**正式确立**：内核命令前允许一个可选 `[..]` 标注段；产品（gateway）的 sender 标注只要落在此语法内即可，kernel 永不为"sender"改动。故 #4 不构成技术债、不另立 refactor——结构化 sender 进 kernel 才是更糟的耦合。
 
 ### 决策 6: 选中 skill 补 `/skill:name `，命令与 skill 一视同仁前缀过滤
 
@@ -214,7 +214,7 @@ sequenceDiagram
 - **群聊每成员各拉 capabilities**：成员多时请求数增加；用并发 + 会话内缓存兜底，不在每次敲 `/` 时重复拉。
 - **降级**：若 location 透传未就绪，前端 picker 仍可按 name 显示（同名暂合并），群聊来源标注降级——但这违反 Q7，不作为交付态，仅作 worker 分步落地的中间态。
 - **群聊 /skill 多 part 路径（design-review #2）**：命令在末 part，须对 `effective_user_text`/末 part 重写，否则群里有人先发言就静默失效。worker 单测必须覆盖「buffered 上下文 + 末 part `/skill`」路径，不能只测单条 `/skill`。
-- **登记的独立 refactor unit（design-review #4，不在本 unit 解）**：群聊 sender 元数据当前以 `[sender] ` 文本前缀塞进消息正文，逼 `agent.core` 解析产品格式。本 unit 用"正则只认通用 `[..]` 前缀"控制耦合面，但根因未除。应另立 refactor unit：让 sender 作结构化属性传入内核、core 只见纯正文、prompt 渲染层统一拼 sender 前缀。**Refs: 待开 issue（见对话）**。
+- **design-review #4 的处置（不立 refactor）**：评审建议把 sender 做成结构化字段传入 kernel 以"彻底分层"。**否决**——那会让 kernel 数据模型/渲染层显式知道"消息有发送者、群聊有多人"，反而把群聊产品概念塞进 kernel，比现状更耦合。现状的通用 `[..]` 正则恰恰最不耦合（kernel 不知道 `[..]` 是 sender）。处置：把"内核命令前允许可选 `[..]` 标注段"**确立为内核命令解析的产品无关约定**（见决策 5），产品 sender 标注落在此语法内即可，kernel 永不为 sender 改动。不开 issue、不另立 unit。
 
 ## Runbook for Reviewer
 

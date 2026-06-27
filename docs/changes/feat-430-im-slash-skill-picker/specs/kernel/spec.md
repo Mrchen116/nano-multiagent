@@ -15,7 +15,7 @@
 
 ### Requirement: Skill 自动发现走 prompt 列表,显式调用改写为自然语言
 
-在 canonical 同名 Requirement 基础上，`/skill:<name>` 改写覆盖到带发送者前缀的群聊消息，且保留发送者标注。
+在 canonical 同名 Requirement 基础上，`/skill:<name>` 改写：① 命令前允许一个可选的 `[..]` 标注段（产品无关语法，内核不解析其内容、原样保留）；② 覆盖多 part 输入里命令所在的那个 part。下方 Scenario 以 IM 群聊的 `[sender]` 标注为例，但内核不感知"发送者/群聊"概念。
 
 #### Scenario: 带发送者前缀的群聊 /skill 命令被改写且保留发送者
 - **WHEN** 消费者提交一条带发送者前缀的群聊消息 `[Alice] /skill:doc fix spacing`
