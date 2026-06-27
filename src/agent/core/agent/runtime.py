@@ -1067,6 +1067,20 @@ class AgentRuntime:
         config = self._session_configs.get(session_id)
         return config.workspace_root if config is not None else None
 
+    def resolve_run_model(self, session_id: str | None) -> str | None:
+        """Return the model registered for an active run's session, or ``None``.
+
+        bugfix-443: the platform layer (the ``agent`` tool) reads this so a
+        subagent it dispatches mid-run inherits the parent run's model — the same
+        ``_active_run_models`` table the hook/compaction side-chains already read,
+        keeping a single source of truth. Returns a bare value: ``None`` means no
+        active run is registered for ``session_id`` (or it is ``None``); the
+        degenerate fallback to the build-time default is handled once, in
+        ``run`` (``model_override or self._model``), not duplicated here.
+        """
+
+        return self._active_run_models.get(session_id) if session_id else None
+
     async def create_session(
         self,
         *,
