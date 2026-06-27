@@ -70,7 +70,7 @@ UI 状态矩阵：
 
 ## Roadpoints
 
-### R1 — 后端 location 四层只读透传 + 前端 type
+### R1 — 后端 location 四层只读透传 + 前端 type  [DONE]
 
 - 步骤: `SkillInfo.location`（sdk dto）→ kernel `list_skills` 填 location → `_skills_from_kernel` 透传 → `AllowlistOptionResponse.location` + `coerce_allowlist_options` 透传 → 前端 `AgentAllowlistOption.location` + `normalizeAllowlistOptions` 透传
 - 验证: 四层单测字段端到端非空 + 前端 normalize 单测
