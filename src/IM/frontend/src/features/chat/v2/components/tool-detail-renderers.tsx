@@ -257,15 +257,15 @@ interface SearchResult {
 
 type ToolDetailCardProps = {
   detail: ToolDetail;
-  isRunning?: boolean;
+  isResultPending?: boolean;
 };
 
-function WebSearchCard({ detail, isRunning = false }: ToolDetailCardProps) {
+function WebSearchCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const { t } = useTranslation();
   const query = str(detail.query);
   const rawResults = Array.isArray(detail.results) ? (detail.results as SearchResult[]) : [];
   if (rawResults.length === 0) {
-    if (isRunning && query) {
+    if (isResultPending && query) {
       return (
         <div className="chat-tool-detail-search">
           <div className="chat-tool-detail-search-title">{query}</div>
@@ -302,7 +302,7 @@ function WebSearchCard({ detail, isRunning = false }: ToolDetailCardProps) {
 
 // ─── agent → full prompt BEFORE result (spec) ────────────────────────────────
 
-function AgentCard({ detail, isRunning = false }: ToolDetailCardProps) {
+function AgentCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const { t } = useTranslation();
   const prompt = str(detail.prompt);
   const subagent = str(detail.subagent_type);
@@ -317,7 +317,7 @@ function AgentCard({ detail, isRunning = false }: ToolDetailCardProps) {
           <div className="chat-tool-detail-agent-prompt">{prompt}</div>
         </Section>
       )}
-      {!isRunning && (
+      {!isResultPending && (
         <div className="chat-tool-detail-agent-result">
           <div className="chat-tool-detail-agent-status">
             {status === "failed" ? "✕" : "✓"}{" "}
@@ -387,7 +387,7 @@ function ReadCard({ detail }: { detail: ToolDetail }) {
 
 // ─── memory / skill_manage / task_stop → compact info cards ──────────────────
 
-function MemoryCard({ detail, isRunning = false }: ToolDetailCardProps) {
+function MemoryCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const { t } = useTranslation();
   const action = str(detail.action);
   const target = str(detail.target);
@@ -403,7 +403,7 @@ function MemoryCard({ detail, isRunning = false }: ToolDetailCardProps) {
       </div>
     );
   }
-  if (isRunning) {
+  if (isResultPending) {
     return (
       <div className="chat-tool-detail-info">
         <div className="chat-tool-detail-info-head">
@@ -428,7 +428,7 @@ function MemoryCard({ detail, isRunning = false }: ToolDetailCardProps) {
   );
 }
 
-function SkillCard({ detail, isRunning = false }: ToolDetailCardProps) {
+function SkillCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const action = str(detail.action);
   const name = str(detail.name);
   const message = str(detail.message);
@@ -444,7 +444,7 @@ function SkillCard({ detail, isRunning = false }: ToolDetailCardProps) {
       </div>
     );
   }
-  if (isRunning) {
+  if (isResultPending) {
     return (
       <div className="chat-tool-detail-info">
         <div className="chat-tool-detail-info-head">{[action, name].filter(Boolean).join(" ")}</div>
@@ -461,10 +461,10 @@ function SkillCard({ detail, isRunning = false }: ToolDetailCardProps) {
   );
 }
 
-function TaskStopCard({ detail, isRunning = false }: ToolDetailCardProps) {
+function TaskStopCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const taskId = str(detail.task_id);
   const status = str(detail.status);
-  if (isRunning) {
+  if (isResultPending) {
     return (
       <div className="chat-tool-detail-info">
         <div className="chat-tool-detail-info-head">{taskId}</div>
@@ -527,6 +527,37 @@ function isErrorOnly(detail: ToolDetail): boolean {
   );
 }
 
+function hasValue(detail: ToolDetail, key: string): boolean {
+  const value = detail[key];
+  return value != null && value !== "";
+}
+
+function hasAnyValue(detail: ToolDetail, keys: string[]): boolean {
+  return keys.some((key) => hasValue(detail, key));
+}
+
+function hasTerminalDetail(name: string, detail: ToolDetail): boolean {
+  switch (name) {
+    case "web_search":
+      return Object.prototype.hasOwnProperty.call(detail, "results") || hasAnyValue(detail, ["error", "message"]);
+    case "agent":
+      return hasAnyValue(detail, ["status", "content", "output_file", "error", "agent_id"]);
+    case "memory":
+      return detail.success != null || hasAnyValue(detail, ["message", "error"]);
+    case "skill_manage":
+      return detail.success != null || hasAnyValue(detail, ["message", "path", "error"]);
+    case "task_stop":
+      return hasAnyValue(detail, ["status", "error", "message"]);
+    default:
+      return true;
+  }
+}
+
+function isResultPending(call: ToolCall, detail: ToolDetail): boolean {
+  if (call.status === "running") return true;
+  return call.status === "failed" && !hasTerminalDetail(call.name, detail);
+}
+
 /**
  * Render the expanded body for a tool call. Error-only details (out-of-band
  * failures) show the generic error card. Known names get bespoke cards (which
@@ -541,7 +572,7 @@ export function ToolDetailBody({ call }: { call: ToolCall }) {
   }
   if (detail) {
     const Bespoke = BESPOKE[call.name];
-    if (Bespoke) return <Bespoke detail={detail} isRunning={call.status === "running"} />;
+    if (Bespoke) return <Bespoke detail={detail} isResultPending={isResultPending(call, detail)} />;
     return <GenericCard detail={detail} />;
   }
   // No detail (historical message / presenter-less tool with empty result):
