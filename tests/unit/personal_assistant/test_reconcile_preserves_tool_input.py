@@ -49,6 +49,17 @@ def _completed_payload(manager: _FakeManager) -> dict[str, Any]:
     raise AssertionError(f"no tool_call_completed sent; got {manager.sent}")
 
 
+def _completed_payloads(manager: _FakeManager) -> list[dict[str, Any]]:
+    return [
+        payload["tool_call"]
+        for message_type, payload in manager.sent
+        if (
+            message_type == "node.streaming_delta"
+            and payload.get("kind") == "tool_call_completed"
+        )
+    ]
+
+
 def test_reconcile_preserves_command_and_description() -> None:
     manager = _FakeManager()
     run_ctx = {
@@ -98,6 +109,139 @@ def test_reconcile_preserves_command_and_description() -> None:
     assert tc["input"] == arguments
     assert tc["input"]["command"] == "npm run test:all"
     assert tc["input"]["description"] == "Run full frontend test suite"
+
+
+def test_reconcile_preserves_running_presentation_for_history_replay() -> None:
+    manager = _FakeManager()
+    run_ctx = {
+        "run-1": {
+            "conversation_id": "conv-1",
+            "message_id": "msg-1",
+            "agent_id": "agent-1",
+        }
+    }
+    running_tool_calls: dict[str, dict[str, Any]] = {}
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=run_ctx,
+        running_tool_calls=running_tool_calls,
+    )
+
+    starts = [
+        (
+            "call-bash",
+            "bash",
+            {"command": "sleep 999 && echo done"},
+            {
+                "summary": "sleep 999 && echo done",
+                "detail": {"command": "sleep 999 && echo done"},
+                "emoji": "💻",
+            },
+        ),
+        (
+            "call-agent",
+            "agent",
+            {"prompt": "check the deployment status"},
+            {
+                "summary": "check deployment",
+                "detail": {"prompt": "check the deployment status"},
+                "emoji": "🤖",
+            },
+        ),
+        (
+            "call-search",
+            "web_search",
+            {"query": "nano multiagent bugfix 441"},
+            {
+                "summary": "nano multiagent bugfix 441",
+                "detail": {"query": "nano multiagent bugfix 441"},
+                "emoji": "🔎",
+            },
+        ),
+    ]
+    for call_id, name, arguments, presentation in starts:
+        _drive(
+            observer,
+            {
+                "event": "tool_start",
+                "run_id": "run-1",
+                "call_id": call_id,
+                "name": name,
+                "arguments": arguments,
+                "presentation": presentation,
+            },
+        )
+
+    _drive(
+        observer,
+        {
+            "event": "run_terminal_reconcile",
+            "run_id": "run-1",
+            "reason": "stalled",
+        },
+    )
+
+    completed_by_id = {tc["id"]: tc for tc in _completed_payloads(manager)}
+    assert set(completed_by_id) == {"call-bash", "call-agent", "call-search"}
+    for call_id, _name, _arguments, presentation in starts:
+        tc = completed_by_id[call_id]
+        assert tc["status"] == "failed"
+        assert tc["reason"] == "stalled"
+        assert tc["output"] == presentation["summary"]
+        assert tc["detail"] == presentation["detail"]
+        assert tc["emoji"] == presentation["emoji"]
+    assert completed_by_id["call-bash"]["detail"]["command"] == "sleep 999 && echo done"
+    assert completed_by_id["call-agent"]["detail"]["prompt"] == "check the deployment status"
+    assert completed_by_id["call-search"]["detail"]["query"] == "nano multiagent bugfix 441"
+
+
+def test_reconcile_stop_content_overrides_output_but_keeps_presentation_detail() -> None:
+    manager = _FakeManager()
+    run_ctx = {
+        "run-1": {
+            "conversation_id": "conv-1",
+            "message_id": "msg-1",
+            "agent_id": "agent-1",
+        }
+    }
+    running_tool_calls: dict[str, dict[str, Any]] = {}
+    observer = _build_kernel_event_observer(
+        im_connection_manager_factory=lambda: manager,
+        run_context_store=run_ctx,
+        running_tool_calls=running_tool_calls,
+    )
+
+    _drive(
+        observer,
+        {
+            "event": "tool_start",
+            "run_id": "run-1",
+            "call_id": "call-1",
+            "name": "bash",
+            "arguments": {"command": "sleep 999"},
+            "presentation": {
+                "summary": "sleep 999",
+                "detail": {"command": "sleep 999"},
+                "emoji": "💻",
+            },
+        },
+    )
+    _drive(
+        observer,
+        {
+            "event": "run_terminal_reconcile",
+            "run_id": "run-1",
+            "reason": "interrupted",
+            "content": "[Request interrupted by user for tool use]",
+        },
+    )
+
+    tc = _completed_payload(manager)
+    assert tc["status"] == "failed"
+    assert tc["reason"] == "interrupted"
+    assert tc["output"] == "[Request interrupted by user for tool use]"
+    assert tc["detail"] == {"command": "sleep 999"}
+    assert tc["emoji"] == "💻"
 
 
 def test_reconcile_still_closes_in_flight_call_as_failed() -> None:

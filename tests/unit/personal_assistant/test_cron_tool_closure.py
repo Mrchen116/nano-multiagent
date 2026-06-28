@@ -169,3 +169,56 @@ def test_cron_presenter_splits_start_params_and_end_results(tmp_path: Path) -> N
         "jobId": "job-1",
         "status": "ok",
     }
+
+
+def test_cron_presenter_marks_in_band_failure_as_failed_detail() -> None:
+    tool = make_cron_tool({})
+    presenter = tool.presenter
+    args = {"action": "run", "jobId": "job-1"}
+
+    end = presenter.format_end(
+        args,
+        _FakeResult(
+            output={
+                "ok": False,
+                "jobId": "job-1",
+                "error": "cron run: job is disabled",
+            }
+        ),
+        duration_ms=12,
+    )
+
+    assert end.summary == "run job-1"
+    assert end.detail["action"] == "run"
+    assert end.detail["jobId"] == "job-1"
+    assert end.detail["success"] is False
+    assert end.detail["error"] == "cron run: job is disabled"
+
+
+def test_cron_presenter_keeps_successful_run_structured() -> None:
+    tool = make_cron_tool({})
+    presenter = tool.presenter
+    args = {"action": "run", "jobId": "job-1"}
+
+    end = presenter.format_end(
+        args,
+        _FakeResult(
+            output={
+                "ok": True,
+                "jobId": "job-1",
+                "accepted": True,
+                "requestId": "req-1",
+            }
+        ),
+        duration_ms=12,
+    )
+
+    assert end.summary == "run job-1"
+    assert end.detail == {
+        "action": "run",
+        "jobId": "job-1",
+        "status": "ok",
+        "success": True,
+        "accepted": True,
+        "requestId": "req-1",
+    }
