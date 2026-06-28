@@ -66,3 +66,69 @@ Frontend verification note:
 ### SUGGESTION（可以修）
 
 - None.
+
+# Round 2
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | M1 10/10 tasks complete; M2 6/6 tasks complete; incident/design requirements covered |
+| Correctness | 10/10 scenarios covered, including round 1 blockers |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Completeness
+
+- Tasks: M1 remains 10/10 complete and M2 is 6/6 complete. `docs/changes/bugfix-441-running-tool-row-summary-input/M2-fix-review-findings/tasks.md` marks all exit criteria complete: abnormal reconcile preserves start-side `output`/`detail`/`emoji`, reconcile still forces failed terminal status/reason, stop attribution only overrides `output`, cron in-band failures produce frontend-recognizable failure detail, cron success detail stays structured, and narrow pytest is green.
+- Round 1 blocker coverage: covered.
+  - Abnormal `run_terminal_reconcile` now stores start-side presentation fields in `running_tool_calls` at `src/personal_assistant/main.py:3698` and re-emits them in synthetic failed `tool_call_completed` payloads at `src/personal_assistant/main.py:3965`. `/stop` attribution content overwrites only `output` at `src/personal_assistant/main.py:3971`; `detail` and `emoji` remain intact.
+  - Cron in-band `{ok:false,error}` / enqueue declined / missing-service style failures now map through `_cron_result_detail()` to `status="failed"`, `success=False`, and `error` at `src/personal_assistant/tools/cron.py:631`. The frontend already treats `detail.success === false` as failure at `src/IM/frontend/src/features/chat/v2/components/tool-presentation.ts:65`, so completed cron rows become red/failure-tagged instead of green successes.
+- M1 coverage remains intact: tool_start still forwards `output=summary`, `detail`, and `emoji` at `src/personal_assistant/main.py:3716`; tool_end still owns final complete detail at `src/personal_assistant/main.py:3767`; frontend running gates still route known cards through `isRunning` at `src/IM/frontend/src/features/chat/v2/components/tool-detail-renderers.tsx:537`.
+
+## Correctness
+
+| Requirement / Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| M2: interrupted/stalled/reconciled in-flight tool call preserves start-side `output`/`detail`/`emoji` | Cache stores `output/detail/emoji` at `src/personal_assistant/main.py:3702`; reconcile copies them into failed payloads at `src/personal_assistant/main.py:3965`. | `tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py:114` covers bash/agent/web_search and asserts summary/detail/emoji survive. | covered |
+| M2: reconcile still closes in-flight calls as failed with `reason` | Synthetic payload sets `status="failed"` and `reason` at `src/personal_assistant/main.py:3956`. | `tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py:247` asserts failed closure and map reaping. | covered |
+| M2: `/stop` attribution content overrides only output while preserving parameter detail/emoji | Reconcile content becomes `reconcile_output` at `src/personal_assistant/main.py:3931`, then only `stuck_tool_call["output"]` is overwritten at `src/personal_assistant/main.py:3971`. | `tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py:198` asserts output is stop content while detail/emoji stay from tool_start. | covered |
+| M2: refresh/history replay preserves command/prompt/query after abnormal reconcile | Reconcile emits completed tool_call with retained parameter-side `detail`, so persisted IM replay has command/prompt/query instead of empty rows. | `tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py:184` checks command, prompt, and query details. | covered |
+| M2: cron `{ok:false,error}` becomes frontend-recognizable failure | `_cron_result_detail()` maps `ok is False` and `error` to `status="failed"`, `success=False`, `error` at `src/personal_assistant/tools/cron.py:633` and `src/personal_assistant/tools/cron.py:651`. | `tests/unit/personal_assistant/test_cron_tool_closure.py:175` asserts `success is False` and error text. Frontend failure predicate is covered by success-false tests in `src/IM/frontend/src/features/chat/v2/components/tool-calls-panel.test.tsx:804`. | covered |
+| M2: cron missing service / enqueue declined use same in-band failure shape | `_run_job()` returns `{"ok": False, "error": ...}` for missing service, enqueue exception, and declined ack at `src/personal_assistant/tools/cron.py:485`, `src/personal_assistant/tools/cron.py:497`, and `src/personal_assistant/tools/cron.py:504`. | `tests/unit/personal_assistant/test_cron_tool_closure.py:100` and `tests/unit/personal_assistant/test_cron_tool_closure.py:108` cover the tool outputs; presenter failure test covers the shared `{ok:false,error}` shape. | covered |
+| M2: cron success detail stays structured | Success output maps to `status="ok"`, `success=True`, and accepted/requestId at `src/personal_assistant/tools/cron.py:633` and `src/personal_assistant/tools/cron.py:645`. | `tests/unit/personal_assistant/test_cron_tool_closure.py:199` asserts successful run detail. | covered |
+| M1: running summary/detail/emoji path still works | `tool_start` forwards summary/detail/emoji to IM at `src/personal_assistant/main.py:3716`; presenter start detail remains in builtin/product presenters. | Round 1 tests/evidence remain committed; `tests/unit/personal_assistant/test_tool_end_detail_passthrough.py:193` still covers start summary/detail. | covered |
+| M1: tool_end final detail still overwrites running parameter detail | `tool_end` drops the in-flight cache at `src/personal_assistant/main.py:3743` and emits final presenter detail at `src/personal_assistant/main.py:3795`; reducer replacement remains covered. | `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.test.ts:139` covers completed output/detail replacing running values. | covered |
+| Architecture/test discipline: no new boundary break or temporary test artifact | M2 changes stay in Gateway/product tool/tests; frontend reuses existing `detail.success === false` predicate. | `git diff --check` passed; M2 narrow pytest passed locally in this verify worktree. | covered |
+
+Verification commands run in this verifier worktree:
+
+- `PYTHONDONTWRITEBYTECODE=1 pytest -q -p no:cacheprovider tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py tests/unit/personal_assistant/test_cron_tool_closure.py tests/unit/personal_assistant/test_tool_end_detail_passthrough.py` -> 23 passed.
+- `git diff --check` -> passed.
+- `npm run test -- src/features/chat/v2/components/tool-calls-panel.test.tsx src/features/chat/v2/chat-stream-reducer.test.ts` could not run because this verify worktree has no installed `vitest` binary (`/bin/sh: vitest: command not found`). I did not install dependencies or modify dependency state. M2 does not change frontend code; the relevant frontend failure predicate and row styling tests are already committed, and M1 progress recorded frontend `npm run test` / `npm run build` success.
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 决策 1: `format_start` parameter presentation is forwarded at start, while completion remains authoritative | 是 | `tool_start` forwards `output/detail/emoji` at `src/personal_assistant/main.py:3716`; `tool_end` still emits final presenter detail at `src/personal_assistant/main.py:3795`. |
+| M2 review fix: abnormal reconcile must not erase start-side presentation | 是 | `running_tool_calls` stores start-side `output/detail/emoji` at `src/personal_assistant/main.py:3702`; reconcile re-emits them at `src/personal_assistant/main.py:3965`. |
+| M2 review fix: cron in-band failures must use existing frontend failure channel | 是 | Cron presenter emits `success=False` at `src/personal_assistant/tools/cron.py:653`; frontend `isCallFailed()` recognizes `detail.success === false` at `src/IM/frontend/src/features/chat/v2/components/tool-presentation.ts:65`. |
+| Gateway remains a pure passthrough/reconcile layer, not a tool-semantic renderer | 是 | Gateway stores and forwards presenter-produced fields without per-tool branching in `src/personal_assistant/main.py:3684` and `src/personal_assistant/main.py:3944`. |
+| Product/import boundaries remain aligned with SPEC.md | 是 | M2 code remains in `personal_assistant` and product tool modules; no IM-to-agent or product-to-internal-agent dependency was introduced by the M2 diff. |
+| Testing follows `docs/TESTING_GUIDE.md` | 是 | Tests extend existing unit files for the relevant behavior; no temporary acceptance scripts were committed for M2. |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- None.
+
+### WARNING（应该修）
+
+- None.
+
+### SUGGESTION（可以修）
+
+- None.
