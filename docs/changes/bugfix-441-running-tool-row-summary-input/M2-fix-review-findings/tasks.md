@@ -8,12 +8,12 @@
 
 ## 退出标准
 
-- [ ] interrupted/stalled/reconciled in-flight tool call 的 completed payload 保留 tool_start 参数侧 `output`/`detail`/`emoji`。
-- [ ] reconcile 仍覆盖 `status=failed`、`reason`，且有 stop attribution content 时用 reconcile content 覆盖 `output`。
-- [ ] 刷新/历史回放保留 command/prompt/query 等参数侧 detail。
-- [ ] cron `{ok:false,error}` / enqueue declined / missing service 产出前端可识别失败态，例如 `success:false` 和 `error` detail。
-- [ ] cron 成功态结构化展示保持不退化。
-- [ ] 相关窄口 pytest 全绿。
+- [x] interrupted/stalled/reconciled in-flight tool call 的 completed payload 保留 tool_start 参数侧 `output`/`detail`/`emoji`。
+- [x] reconcile 仍覆盖 `status=failed`、`reason`，且有 stop attribution content 时用 reconcile content 覆盖 `output`。
+- [x] 刷新/历史回放保留 command/prompt/query 等参数侧 detail。
+- [x] cron `{ok:false,error}` / enqueue declined / missing service 产出前端可识别失败态，例如 `success:false` 和 `error` detail。
+- [x] cron 成功态结构化展示保持不退化。
+- [x] 相关窄口 pytest 全绿。
 
 ## 测试策略
 
@@ -40,6 +40,6 @@ UI 状态矩阵：N/A，本 milestone 不改前端组件；cron 失败态复用�
 
 ### R1 — reviewer blocking fixes
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: 补红测；修复 Gateway reconcile 缓存 payload；修复 cron presenter success/failure detail；跑窄口 pytest。
 - 验证: `pytest -q tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py tests/unit/personal_assistant/test_cron_tool_closure.py tests/unit/personal_assistant/test_tool_end_detail_passthrough.py`
