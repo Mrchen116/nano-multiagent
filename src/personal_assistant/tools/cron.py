@@ -631,7 +631,9 @@ def _cron_param_detail(args: Mapping[str, Any]) -> dict[str, Any]:
 def _cron_result_detail(output: Mapping[str, Any]) -> dict[str, Any]:
     detail: dict[str, Any] = {}
     if output.get("ok") is not None:
-        detail["status"] = "ok" if output.get("ok") is True else "failed"
+        ok = output.get("ok") is True
+        detail["status"] = "ok" if ok else "failed"
+        detail["success"] = ok
     if output.get("jobId") is not None:
         detail["jobId"] = str(output.get("jobId", ""))
     if output.get("count") is not None:
@@ -647,7 +649,9 @@ def _cron_result_detail(output: Mapping[str, Any]) -> dict[str, Any]:
     if output.get("runs") is not None:
         detail["runs"] = output.get("runs")
     if output.get("error") is not None:
-        detail["status"] = str(output.get("error", ""))
+        detail["status"] = "failed"
+        detail["success"] = False
+        detail["error"] = str(output.get("error", ""))
     job = output.get("job")
     if isinstance(job, Mapping):
         if job.get("name") is not None:

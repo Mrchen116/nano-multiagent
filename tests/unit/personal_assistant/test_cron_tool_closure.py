@@ -168,6 +168,7 @@ def test_cron_presenter_splits_start_params_and_end_results(tmp_path: Path) -> N
         "schedule": {"kind": "cron", "expr": "0 9 * * *"},
         "jobId": "job-1",
         "status": "ok",
+        "success": True,
     }
 
 
