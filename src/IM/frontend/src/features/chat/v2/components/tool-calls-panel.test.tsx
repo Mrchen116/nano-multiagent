@@ -1002,6 +1002,78 @@ describe("ToolCallsPanel · success-false failure (Round-3 fix)", () => {
   });
 });
 
+describe("ToolCallsPanel · failed calls with start-side detail", () => {
+  function renderSingle(call: ToolCall) {
+    return render(<ToolCallsPanel toolCalls={[call]} />);
+  }
+
+  async function open() {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /tool call/i }));
+  }
+
+  it("keeps an interrupted agent prompt visible without rendering the completed result body", async () => {
+    const { container } = renderSingle({
+      id: "a-failed-start-detail",
+      name: "agent",
+      status: "failed",
+      output: "interrupted",
+      input: {},
+      detail: { description: "派子任务", prompt: "检查工具展示", subagent_type: "explore" }
+    });
+    await open();
+    expect(screen.getByText("检查工具展示")).toBeInTheDocument();
+    expect(container.querySelector(".chat-tool-detail-agent-result")).toBeNull();
+    expect(container.textContent).not.toMatch(/✓\s*completed/i);
+  });
+
+  it("keeps interrupted memory parameters visible without rendering a success marker", async () => {
+    const { container } = renderSingle({
+      id: "m-failed-start-detail",
+      name: "memory",
+      status: "failed",
+      output: "interrupted",
+      input: {},
+      detail: { action: "add", target: "project", content: "记住偏好" }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toContain("add · project");
+    expect(card?.textContent).toContain("记住偏好");
+    expect(card?.textContent).not.toContain("✓");
+  });
+
+  it("keeps interrupted skill_manage parameters visible without rendering a success marker", async () => {
+    const { container } = renderSingle({
+      id: "s-failed-start-detail",
+      name: "skill_manage",
+      status: "failed",
+      output: "interrupted",
+      input: {},
+      detail: { action: "create", name: "log-cleanup" }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toContain("create log-cleanup");
+    expect(card?.textContent).not.toContain("✓");
+  });
+
+  it("keeps an interrupted task_stop task_id visible without rendering a success marker", async () => {
+    const { container } = renderSingle({
+      id: "ts-failed-start-detail",
+      name: "task_stop",
+      status: "failed",
+      output: "interrupted",
+      input: {},
+      detail: { task_id: "agt-9" }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toBe("agt-9");
+    expect(card?.textContent).not.toContain("✓");
+  });
+});
+
 // feat-414-M1 W3: 折叠态工具徽标 toggle button 不含求和耗时（无 `· Xs` 后缀）
 describe("feat-414-M1 · collapsed toggle has no total duration (W3)", () => {
   const COMPLETED_CALLS: ToolCall[] = [
