@@ -42,4 +42,14 @@ CONFIRMED fork 边缘缺陷 + 防御 + W1/W2 + 群聊400。每条配回归红→
 - Commits: C1=test, C2=fix, C3=docs。
 - Next: R4 前端 fork 按钮 in-flight 禁用。
 
+### R4 — 前端 fork 按钮 in-flight 禁用（#7）
+
+- Decision: MessagePane/MessageBubble 加 `forkPending` prop；fork 按钮 `disabled={!agentOnline || forkPending}` + onClick `if (agentOnline && !forkPending)`；chat-workspace 传 `forkMutation.isPending`。前端守卫足够（后端去重可选，未做）。
+- Evidence:
+  - Tests: `message-pane-fork.test.tsx` 7 passed（新 `disables fork while a fork is in flight` — pending 时 disabled + 点击不触发 onFork）；全前端 vitest 550 passed；tsc 干净。
+  - Browser QA: 真栈双击复跑见 R6。
+- Rollback: revert C2；prop 默认 false 向后兼容。
+- Commits: C1=test, C2=fix, C3=docs。
+- Next: R5 补测试 W1 + W2 + 群聊源 400。
+
 <!-- 每个 roadpoint 完成后实时追加 -->
