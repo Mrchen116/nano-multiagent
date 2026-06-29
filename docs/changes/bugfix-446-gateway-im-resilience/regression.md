@@ -125,3 +125,108 @@ RESILIENCE E2E PASS
 - [x] `docs/specs/gateway/spec.md`（长青行为契约层）：**需要更新**（由 orchestrator §7.0 收尾归并写入）。delta-spec 在 `docs/changes/bugfix-446-gateway-im-resilience/specs/gateway/spec.md`，新增「宿主级瞬态故障同样自愈」扩充说明 + Scenario 三条（休眠唤醒/断网恢复/IM 重启）+ ADDED「启动顺序不敏感」+「连接维护故障永不致不可恢复」两 Requirement。worker 已知会 orchestrator，canonical 未写入属预期。
 - [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。启停范式与端口隔离约定未变。
 - [x] `docs/SPEC_GUIDE.md`：**无需更新**。本 unit 未改文档体系本身。
+
+---
+
+# Round 2 — 2026-06-29
+
+**Review Round**: 2  
+**Verdict**: pass  
+**Highest Required Action**: pass  
+**Issues**: { blocking: 0, major: 0, minor: 0 }  
+**GH Issues Filed**: none  
+
+## Verdict
+
+**pass**
+
+按 incident.md 的 Scenario 和 design.md `Runbook for Reviewer` 复验真实入口。复验只使用真 IM + 真 Gateway 和 `/im/v1/nodes` 用户可观察状态，不读实现代码、不以内部函数或日志作为真值。节点在 IM 重启和启动顺序颠倒两条关键旅程中均自动回到 `online`，Gateway 全程无需人工重启。
+
+## 验收标准覆盖
+
+### Requirement: 瞬态故障后节点自动恢复 online
+
+| Scenario | 验证方式 | 用户可观察证据 | 结果 |
+|---|---|---|---|
+| Gateway 所在机器休眠后唤醒 | `PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH bash scripts/e2e-resilience.sh`，Scenario A 用 IM 短暂不可达/连接断开作为宿主级瞬态故障替代 | 初始节点 `online`；kill IM 后不重启 Gateway；重启 IM 后脚本观察到 `✓ A2 node auto back online after IM restart (no gateway restart)` | **pass** |
+| 网络中断后恢复 | 同 Scenario A；网络中断后的用户可观察判据是 Gateway 不需人工重启且 IM 恢复后节点最终回 `online` | 同一真栈旅程中 Gateway 进程未人工重启；IM 恢复后 `/im/v1/nodes` 最终显示节点回 `online` | **pass** |
+| IM 服务重启 | Scenario A 直接 kill/restart 真 IM 进程，使用同一 Gateway 进程观察节点状态 | `✓ A1 initial node online` → kill IM → restart IM → `✓ A2 node auto back online after IM restart (no gateway restart)` | **pass** |
+
+**Requirement 结论**：3 条 Scenario 均 pass。
+
+### Requirement: 启动顺序不敏感
+
+| Scenario | 验证方式 | 用户可观察证据 | 结果 |
+|---|---|---|---|
+| Gateway 先于 IM 启动 / 启动时 IM 不可达 | 同脚本 Scenario B：先启动 Gateway，IM 尚未启动；随后启动 IM 并轮询节点状态 | `✓ B1 gateway survived startup with IM down`；IM 启动后 `✓ B2 node online after IM comes up` | **pass** |
+
+**Requirement 结论**：1 条 Scenario pass。
+
+### Requirement: 连接层故障永不致 Gateway 僵尸
+
+| Scenario | 验证方式 | 用户可观察证据 | 结果 |
+|---|---|---|---|
+| 出现超出已知范围的连接故障 | 以真实 IM 不可达/恢复路径复验用户关心的僵尸判据：进程不需人工重启，节点最终回 `online` | Scenario A 中 Gateway 未人工重启，IM 恢复后节点自动回 `online`；Scenario B 中 Gateway 先于 IM 启动仍存活，IM 启动后节点自动 `online` | **pass** |
+
+**Requirement 结论**：1 条 Scenario pass。未提出函数级或协议字段级验收标准。
+
+## User Journeys Exercised
+
+| Journey | Scenarios 覆盖 | 操作摘要 | 结论 |
+|---|---|---|---|
+| 旅程 1：IM 重启自愈 | 休眠后唤醒、网络中断后恢复、IM 服务重启、连接层故障永不致僵尸 | 起真 IM + 真 Gateway → 观察节点 `online` → kill IM → 重启 IM → 轮询 `/im/v1/nodes` | PASS：节点自动回 `online`，Gateway 无需人工重启 |
+| 旅程 2：Gateway 早于 IM 启动 | Gateway 先于 IM 启动 / 启动时 IM 不可达、连接层故障永不致僵尸 | 先起 Gateway（IM down）→ 确认 Gateway 未崩 → 起 IM → 轮询 `/im/v1/nodes` | PASS：Gateway 不崩，IM 就绪后节点自动 `online` |
+
+## 复现验证
+
+复验命令：
+
+```bash
+PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH bash scripts/e2e-resilience.sh
+```
+
+关键输出：
+
+```text
+Scenario A: IM restart
+  ✓ A1 initial node online
+  killing IM ...
+  restarting IM (same DB) ...
+  ✓ A2 node auto back online after IM restart (no gateway restart)
+Scenario B: Gateway before IM
+  ✓ B1 gateway survived startup with IM down
+  starting IM ...
+  ✓ B2 node online after IM comes up
+RESILIENCE E2E PASS
+```
+
+Round 2 未复现 incident.md 中“IM 恢复后节点仍 offline、必须手动重启 Gateway”的用户可见故障。
+
+## 回归测试
+
+本轮按 full 复验口径重跑真实用户旅程驱动 `scripts/e2e-resilience.sh`，使用真 IM + 真 Gateway 和 `/im/v1/nodes` 状态。脚本退出码为 0，输出 `RESILIENCE E2E PASS`。
+
+服务清理确认：
+
+- `lsof -nP -iTCP:55443 -sTCP:LISTEN` 无输出，脚本本轮 IM 端口已释放。
+- `ps` 按脚本临时目录 `tmp.jVY2OSkeZy` 和节点 `wt-resilience-99132` 过滤无残留进程。
+- 机器上仍存在主仓用户手起的 `8011` IM 与默认 Gateway 进程，未触碰。
+
+## 自动化测试增量
+
+Round 2 未新增测试或代码。本轮只复验已交付的真栈 e2e 驱动是否仍能通过。
+
+## Issues
+
+无。
+
+## Side Findings
+
+无。本轮旅程中未观察到本 unit 范围外的明显用户可见异常。
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：**无需更新**。本 unit 验收的是 Gateway-IM 连接韧性，不改变跨包结构。
+- [x] `docs/specs/gateway/spec.md`（长青行为契约层）：**需要更新 / 已由本 unit delta-spec 表达，等待 orchestrator 收尾归并**。Round 2 未发现新的契约增量。
+- [x] `AGENTS.md` / `CLAUDE.md`：**无需更新**。现有 runbook/端口隔离约定足以完成复验。
+- [x] `docs/SPEC_GUIDE.md`：**无需更新**。本 unit 未改变文档体系规则。
