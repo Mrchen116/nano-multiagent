@@ -34,6 +34,10 @@ class SessionInfo:
     title: str | None = None
     workspace_root: str | None = None
     metadata: dict = field(default_factory=dict)
+    # feat-445-M2 #5: present only on a fork result — maps each source message_id to its
+    # re-stamped branch message_id, so the caller can realign display-side anchors
+    # (e.g. IM's per-bubble kernel_message_id) to the branch session's JSONL uuids.
+    fork_id_map: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)

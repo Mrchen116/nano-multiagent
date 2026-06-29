@@ -63,7 +63,7 @@ async def test_fork_session_creates_independent_copy(tmp_path: Path) -> None:
     source_history = runtime._session_histories[source_id]
     assert len(source_history) >= 2  # user + assistant messages
 
-    forked = await runtime.fork_session(source_id)
+    forked, _ = await runtime.fork_session(source_id)
     fork_id = forked.session_id
 
     # Fork must be a different session
@@ -127,7 +127,7 @@ async def test_fork_session_from_jsonl_only_source(tmp_path: Path) -> None:
     # Ensure source is NOT in runtime memory
     assert source_id not in runtime._session_histories
 
-    forked = await runtime.fork_session(source_id)
+    forked, _ = await runtime.fork_session(source_id)
     fork_id = forked.session_id
 
     # Fork history should be loaded and copied
@@ -145,7 +145,7 @@ async def test_fork_empty_session(tmp_path: Path) -> None:
     source = runtime._session_manager.create_session(workspace_root=tmp_path)
     source_id = source.session_id
 
-    forked = await runtime.fork_session(source_id)
+    forked, _ = await runtime.fork_session(source_id)
     fork_id = forked.session_id
 
     assert fork_id != source_id
@@ -168,7 +168,7 @@ async def test_fork_session_persists_to_jsonl(tmp_path: Path) -> None:
     )
     manager.store.writer.flush()
 
-    forked = await runtime.fork_session(source_id)
+    forked, _ = await runtime.fork_session(source_id)
     fork_id = forked.session_id
 
     # Load fork from JSONL and verify
@@ -228,7 +228,7 @@ async def test_fork_up_to_uncompacted_keeps_all_turns_through_M(tmp_path: Path) 
     )
     manager.store.writer.flush()
 
-    forked = await runtime.fork_session(src, up_to="a1")
+    forked, _ = await runtime.fork_session(src, up_to="a1")
     hist = runtime._session_histories[forked.session_id]
 
     assert [m.content for m in hist] == ["u1", "a1"], (
@@ -283,7 +283,7 @@ async def test_fork_up_to_after_boundary_is_summary_plus_kept(tmp_path: Path) ->
     )
     manager.store.writer.flush()
 
-    forked = await runtime.fork_session(src, up_to="a3")
+    forked, _ = await runtime.fork_session(src, up_to="a3")
     hist = runtime._session_histories[forked.session_id]
 
     # M=a3 is after the boundary → view = summary + (boundary..a3); pre-boundary u1/a1/u2/a2 NOT restored.
@@ -329,7 +329,7 @@ async def test_fork_up_to_before_boundary_ignores_later_boundary(
 
     # Fork to a1, which lies BEFORE the boundary → the boundary (written after a1) is
     # truncated away → view = all turns up to a1, no summary.
-    forked = await runtime.fork_session(src, up_to="a1")
+    forked, _ = await runtime.fork_session(src, up_to="a1")
     hist = runtime._session_histories[forked.session_id]
 
     assert [m.content for m in hist] == ["u1", "a1"], (
@@ -367,7 +367,7 @@ async def test_fork_up_to_new_session_independent_and_restamped(tmp_path: Path) 
     )
     manager.store.writer.flush()
 
-    forked = await runtime.fork_session(src, up_to="a1")
+    forked, _ = await runtime.fork_session(src, up_to="a1")
     fork_id = forked.session_id
     assert fork_id != src
     assert forked.metadata.get("forked_from") == src
@@ -412,7 +412,7 @@ async def test_fork_preserves_reasoning_content_and_signature(tmp_path: Path) ->
     )
     hist.append(reasoning_msg)
 
-    forked = await runtime.fork_session(sid)
+    forked, _ = await runtime.fork_session(sid)
     fork_history = runtime._session_histories[forked.session_id]
 
     carried = [m for m in fork_history if m.reasoning_content is not None]
@@ -490,7 +490,7 @@ async def test_fork_up_to_does_not_block_on_busy_source_lock(tmp_path: Path) -> 
     # Simulate a busy source session: an active run holds its lock the whole time.
     runtime._session_locks[src] = asyncio.Lock()
     async with runtime._session_locks[src]:
-        forked = await asyncio.wait_for(
+        forked, _ = await asyncio.wait_for(
             runtime.fork_session(src, up_to="a1"), timeout=3.0
         )
     assert forked.session_id != src

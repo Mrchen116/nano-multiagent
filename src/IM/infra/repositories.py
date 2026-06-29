@@ -907,6 +907,7 @@ class MessageRepository:
         token_usage: TokenUsage | None = None,
         allow_empty: bool = False,
         kernel_message_id: str | None = None,
+        delivery_status: str | None = None,
     ) -> Message:
         """Create a message in a conversation.
 
@@ -978,7 +979,13 @@ class MessageRepository:
         message_id = uuid4().hex
         created_at = _utc_now()
         initial_status = "sent"
-        final_status = "completed" if auto_complete_delivery else initial_status
+        # feat-445-M2 #8: an explicit delivery_status (used by fork's history copy) wins
+        # so a copied bubble preserves the source's terminal state (e.g. "failed") instead
+        # of being force-rewritten to "completed".
+        if delivery_status is not None:
+            final_status = delivery_status
+        else:
+            final_status = "completed" if auto_complete_delivery else initial_status
         attachments_json = _encode_attachments(normalized_attachments)
         event_attachments = [
             _attachment_to_dict(item) for item in normalized_attachments

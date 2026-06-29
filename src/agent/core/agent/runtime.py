@@ -1274,8 +1274,11 @@ class AgentRuntime:
         *,
         workspace_root: Path | None = None,
         up_to: str | None = None,
-    ) -> Session:
+    ) -> tuple[Session, dict[str, str]]:
         """Fork a session: create a new session with an independent copy of source history.
+
+        Returns ``(new_session, old_to_new_uuid)`` — the re-stamp map lets the caller
+        rewrite display-side anchors (feat-445-M2 #5); see ``_fork_locked``.
 
         The fork copies the linear conversation chain from the source session,
         re-stamping all message UUIDs and recalculating parent_uuid links.
@@ -1358,8 +1361,16 @@ class AgentRuntime:
         source_session_id: str,
         source_config: SessionConfig,
         source_history: list[Message],
-    ) -> Session:
-        """Internal fork implementation (source lock held if applicable)."""
+    ) -> tuple[Session, dict[str, str]]:
+        """Internal fork implementation (source lock held if applicable).
+
+        Returns the new ``Session`` and the ``old_to_new_uuid`` re-stamp map (source
+        message_id → branch message_id). feat-445-M2 #5: a fork from M is copied into the
+        branch with re-stamped uuids, so the branch IM display rows must rewrite their
+        ``kernel_message_id`` via this map to match the branch JSONL uuids — otherwise a
+        recursive fork from a copied bubble searches the branch session for the *source*
+        uuid and fails (502). The map is empty for an empty source history.
+        """
 
         new_metadata = dict(source_config.metadata)
         new_metadata["forked_from"] = source_session_id
@@ -1377,8 +1388,8 @@ class AgentRuntime:
         )
 
         # Re-stamp messages: new UUIDs, recalculated parent chain
+        old_to_new_uuid: dict[str, str] = {}
         if source_history:
-            old_to_new_uuid: dict[str, str] = {}
             new_history: list[Message] = []
 
             for msg in source_history:
@@ -1426,7 +1437,7 @@ class AgentRuntime:
         self._session_paths[new_session_id] = new_path
         self._session_locks[new_session_id] = asyncio.Lock()
 
-        return new_session
+        return new_session, old_to_new_uuid
 
     def _resolve_session_available_skills(
         self, session: Session

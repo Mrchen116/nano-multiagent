@@ -14,14 +14,17 @@ from personal_assistant.gateway.session_keys import (
 
 
 class _FakeKernel:
-    def __init__(self) -> None:
+    def __init__(self, fork_id_map=None) -> None:
         self.fork_calls: list[dict] = []
+        self._fork_id_map = fork_id_map or {}
 
     async def fork_session(self, session_id, *, workspace_root=None, up_to=None):
         self.fork_calls.append(
             {"session_id": session_id, "workspace_root": workspace_root, "up_to": up_to}
         )
-        return SimpleNamespace(session_id=f"{session_id}-fork")
+        return SimpleNamespace(
+            session_id=f"{session_id}-fork", fork_id_map=dict(self._fork_id_map)
+        )
 
 
 def _store(tmp_path: Path) -> PersistentSessionBindingStore:
@@ -42,7 +45,7 @@ def _handler(tmp_path: Path, kernel: _FakeKernel, store: PersistentSessionBindin
 
 @pytest.mark.asyncio
 async def test_fork_handler_locates_source_forks_and_binds_new(tmp_path: Path) -> None:
-    kernel = _FakeKernel()
+    kernel = _FakeKernel(fork_id_map={"a3": "branch-a3"})
     store = _store(tmp_path)
     # Pre-bind the source conversation to a kernel session.
     bind_conversation_session(
@@ -65,6 +68,8 @@ async def test_fork_handler_locates_source_forks_and_binds_new(tmp_path: Path) -
 
     assert result["ok"] is True
     assert result["new_session_id"] == "ksess-src-fork"
+    # feat-445-M2 #5: the source→branch kernel-uuid map is propagated back to IM.
+    assert result["id_map"] == {"a3": "branch-a3"}
     # kernel.fork_session called against the source session, with up_to + agent workspace
     assert kernel.fork_calls == [
         {

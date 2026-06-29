@@ -1,11 +1,14 @@
 """Application service for IM conversations and messages."""
 
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayEnqueueResult, RelayService
 from IM.domain.models import Attachment, Conversation, Message
 from IM.infra.repositories import ConversationRepository, MessageRepository
+
+_log = logging.getLogger(__name__)
 
 
 class ForkError(Exception):
@@ -282,6 +285,12 @@ class WebIMService:
         if not await check_agent_online(agent_id):
             raise AgentOfflineError("agent offline, cannot fork")
 
+        # feat-445-M2 #4: create the branch conversation EMPTY and bind the kernel session
+        # (request_fork) BEFORE copying any display history. So message.created broadcasts
+        # — and the window in which a user could open the half-built conversation and send
+        # into it — only begin once a binding exists; an RPC failure then rolls back an
+        # *empty* conversation, never a user-authored message (the old order copied N rows
+        # first, broadcast them, then could roll the user's message away on RPC timeout).
         new_conversation = self._conversations.create_conversation(
             title=agent.display_name or agent_id,
             participant_ids=[f"user:{actor_user_id}", f"agent:{agent_id}"],
@@ -289,52 +298,78 @@ class WebIMService:
             caller_owner_id=owner_id,
         )
         try:
-            for message in history[: fork_index + 1]:
-                sender_user_id = (
-                    actor_user_id if message.sender_type == "user" else agent.user_id
-                )
-                copied = self._messages.create_message(
-                    conversation_id=new_conversation.id,
-                    sender_user_id=sender_user_id,
-                    content=message.content,
-                    sender_type=message.sender_type,
-                    attachments=message.attachments,
-                    tool_calls=message.tool_calls,
-                    token_usage=message.token_usage,
-                    kernel_message_id=message.kernel_message_id,
-                    auto_complete_delivery=True,
-                    allow_empty=True,
-                )
-                # Preserve the thinking segments so the branch回看 keeps the full bubble.
-                for segment in sorted(
-                    message.thinking or [],
-                    key=lambda s: s.seq if s.seq is not None else 0,
-                ):
-                    self._messages.append_thinking_segment(
-                        message_id=copied.id, text=segment.text
-                    )
-            # The gateway forks the kernel session by the *kernel* message id (= JSONL
-            # turn uuid), NOT the IM message row id. fork_message_id located the bubble
-            # in IM's display history above; here we hand the gateway the kernel anchor
-            # persisted on that row.
+            # The gateway forks by the *kernel* message id (= JSONL turn uuid), not the IM
+            # row id. fork_message_id located the bubble above; we hand over its kernel anchor.
             result = await request_fork(
                 agent_id=agent_id,
                 source_conversation_id=source_conversation_id,
                 new_conversation_id=new_conversation.id,
                 fork_message_id=fork_msg.kernel_message_id,
             )
-        except Exception:
-            self._conversations.delete_conversation(
-                conversation_id=new_conversation.id, requester_id=actor_user_id
-            )
+        except BaseException:
+            # #6: BaseException (incl. asyncio.CancelledError) so a cancelled RPC task can't
+            # leak a ghost conversation; rollback is protected and never masks this error.
+            self._rollback_fork(new_conversation.id, actor_user_id)
             raise
         if not result or not result.get("ok"):
-            self._conversations.delete_conversation(
-                conversation_id=new_conversation.id, requester_id=actor_user_id
-            )
+            self._rollback_fork(new_conversation.id, actor_user_id)
             error = (result or {}).get("error") if result else None
             raise ForkDelegationError(str(error) if error else "fork delegation failed")
+
+        # #5: rewrite each copied bubble's kernel_message_id to the branch JSONL uuid via
+        # the gateway's source→branch re-stamp map, so a recursive fork from a copied bubble
+        # resolves in the branch session (no 502). None when the source turn was compacted
+        # out of the as-of-M view → that bubble is simply not forkable in the branch.
+        id_map = result.get("id_map") or {}
+        for message in history[: fork_index + 1]:
+            sender_user_id = (
+                actor_user_id if message.sender_type == "user" else agent.user_id
+            )
+            branch_kernel_id = (
+                id_map.get(message.kernel_message_id)
+                if message.kernel_message_id
+                else None
+            )
+            copied = self._messages.create_message(
+                conversation_id=new_conversation.id,
+                sender_user_id=sender_user_id,
+                content=message.content,
+                sender_type=message.sender_type,
+                attachments=message.attachments,
+                tool_calls=message.tool_calls,
+                token_usage=message.token_usage,
+                kernel_message_id=branch_kernel_id,
+                delivery_status=message.delivery_status,  # #8: preserve source state
+                auto_complete_delivery=True,
+                allow_empty=True,
+            )
+            # Preserve the thinking segments so the branch回看 keeps the full bubble.
+            for segment in sorted(
+                message.thinking or [],
+                key=lambda s: s.seq if s.seq is not None else 0,
+            ):
+                self._messages.append_thinking_segment(
+                    message_id=copied.id, text=segment.text
+                )
         return new_conversation
+
+    def _rollback_fork(self, conversation_id: str, actor_user_id: str) -> None:
+        """Best-effort delete of a half-built fork conversation (feat-445-M2 #6).
+
+        Protected: a delete failure here is logged, never raised, so it cannot overwrite
+        the original fork error (which the route maps to 409/502). After the #4 reorder the
+        conversation is empty at rollback time, so CASCADE removes nothing user-authored.
+        """
+        try:
+            self._conversations.delete_conversation(
+                conversation_id=conversation_id, requester_id=actor_user_id
+            )
+        except Exception:
+            _log.warning(
+                "fork rollback: failed to delete branch conversation %s",
+                conversation_id,
+                exc_info=True,
+            )
 
     def enqueue_relay(
         self,

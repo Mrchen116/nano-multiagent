@@ -3047,7 +3047,14 @@ def _build_session_fork_handler(
             agent_id=agent_id,
             kernel_session_id=new_session.session_id,
         )
-        return {"ok": True, "new_session_id": new_session.session_id}
+        # feat-445-M2 #5: hand back the source→branch kernel-uuid re-stamp map so IM can
+        # realign each copied bubble's kernel_message_id to the branch session's JSONL
+        # uuids (else a recursive fork from a copied bubble 502s on the source uuid).
+        return {
+            "ok": True,
+            "new_session_id": new_session.session_id,
+            "id_map": dict(new_session.fork_id_map or {}),
+        }
 
     return _handle
 

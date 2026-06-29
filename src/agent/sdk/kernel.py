@@ -16,7 +16,7 @@ Design (refactor-387 M1):
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable, Sequence
 
@@ -813,12 +813,12 @@ class Kernel:
             SessionInfo for the new forked session.
         """
         effective_root = workspace_root or self._repo_root
-        session = await self._c.runtime.fork_session(
+        session, id_map = await self._c.runtime.fork_session(
             session_id,
             workspace_root=effective_root,
             up_to=up_to,
         )
-        return _to_session_info(session)
+        return replace(_to_session_info(session), fork_id_map=id_map)
 
     async def compact(
         self,
