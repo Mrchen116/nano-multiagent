@@ -29,7 +29,6 @@
       --im-sidebar-text-muted: oklch(0.50 0.008 240);
       --im-danger: oklch(0.58 0.18 25);
       --im-success: oklch(0.65 0.15 150);
-      --im-shadow: 0 12px 32px -22px oklch(0.2 0.012 240 / 0.45);
       --im-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
     }
     body {
@@ -86,7 +85,6 @@
       outline: 1px solid var(--im-sidebar-active-outline);
     }
 
-    /* Checkbox — hidden until select mode */
     .row-checkbox {
       width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0;
       border: 2px solid oklch(0.5 0.008 240); background: transparent;
@@ -114,9 +112,7 @@
     }
     .row-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
     .row-time { font-size: 0.7rem; color: var(--im-sidebar-text-muted); }
-    .row-status {
-      font-size: 0.6rem; padding: 1px 6px; border-radius: 999px; font-weight: 600;
-    }
+    .row-status { font-size: 0.6rem; padding: 1px 6px; border-radius: 999px; font-weight: 600; }
     .row-status.ended { background: oklch(0.35 0.01 240); color: oklch(0.65 0.008 240); }
     .row-status.active { background: oklch(0.35 0.06 150); color: var(--im-success); }
 
@@ -143,9 +139,8 @@
       padding: 10px 14px; background: oklch(0.20 0.015 180);
       border-top: 1px solid oklch(0.30 0.02 180);
       display: flex; align-items: center; justify-content: space-between;
-      transition: all 0.2s ease;
     }
-    .selection-bar.hidden { height: 0; padding: 0 14px; overflow: hidden; border: none; opacity: 0; }
+    .selection-bar.hidden { display: none; }
     .selection-bar .count { font-size: 0.78rem; color: var(--im-accent); font-weight: 600; }
     .selection-bar .btn-distill {
       background: var(--im-accent); color: var(--im-accent-fg);
@@ -197,24 +192,6 @@
       background: oklch(0.91 0.007 240); color: var(--im-text);
       border-radius: 1rem 1rem 1rem 0.25rem;
     }
-    .bubble-card .skill-cmd {
-      font-family: var(--im-font-mono); font-size: 0.78rem;
-      background: oklch(0.15 0.01 240); color: oklch(0.85 0.02 180);
-      padding: 8px 12px; border-radius: 6px; margin: 6px 0;
-      white-space: pre-wrap; line-height: 1.6;
-    }
-    .chat-bubble.user .bubble-card .skill-cmd {
-      background: oklch(0.40 0.12 180); color: oklch(0.95 0.01 180);
-    }
-    .bubble-card .session-tag {
-      display: inline-flex; align-items: center; gap: 4px;
-      font-family: var(--im-font-mono); font-size: 0.7rem;
-      background: oklch(0.88 0.006 240); color: var(--im-text-muted);
-      padding: 2px 8px; border-radius: 4px; margin: 2px 2px 2px 0;
-    }
-    .chat-bubble.user .bubble-card .session-tag {
-      background: oklch(0.45 0.12 180); color: oklch(0.95 0.01 180);
-    }
 
     .chat-pane-composer {
       padding: 12px 20px; border-top: 1px solid var(--im-border);
@@ -253,7 +230,6 @@
     .panel { display: none; }
     .panel.active { display: flex; }
 
-    /* Tooltip hint */
     .hint-toast {
       position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 300;
       background: var(--im-topbar); color: var(--im-topbar-fg);
@@ -262,6 +238,13 @@
       opacity: 0; transition: opacity 0.3s; pointer-events: none;
     }
     .hint-toast.visible { opacity: 1; }
+
+    .session-tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-family: var(--im-font-mono); font-size: 0.7rem;
+      background: var(--im-surface-2); color: var(--im-text-muted);
+      padding: 2px 8px; border-radius: 4px; margin: 2px 2px 2px 0;
+    }
 
     ::-webkit-scrollbar { width: 5px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -326,7 +309,7 @@
   </button>
 </div>
 
-<!-- Step 2: New conversation with pre-filled command -->
+<!-- Step 2: New conversation — composer pre-filled, NOT sent -->
 <div class="chat-workspace panel" id="step2">
   <aside class="chat-sidebar">
     <div class="chat-sidebar-header">
@@ -341,20 +324,15 @@
       <span class="title">新对话</span>
       <span class="subtitle">蒸馏 skill</span>
     </div>
-    <div class="chat-pane-messages">
-      <div class="chat-bubble user">
-        <div class="bubble-avatar" style="background:var(--im-accent);">U</div>
-        <div class="bubble-card">
-          <div class="skill-cmd" id="prefilled-cmd"></div>
-          <div id="session-tags" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;"></div>
-          <div style="margin-top:8px;font-size:0.82rem;opacity:0.85;">
-            请补充意图说明：你想让这个 skill 解决什么问题？覆盖哪类工作流？
-          </div>
-        </div>
+    <div class="chat-pane-messages" id="step2-messages">
+      <!-- Empty — nothing sent yet. Pre-filled text is in the composer below. -->
+      <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;color:var(--im-text-muted);">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span style="font-size:0.82rem;">已预填蒸馏命令，编辑后发送即可开始</span>
       </div>
     </div>
     <div class="chat-pane-composer">
-      <textarea class="composer-input" placeholder="补充意图说明..." rows="2">我想把这个项目的 spec → design → implement 流程沉淀成一个 skill，覆盖从需求对齐到代码提交的完整路径。</textarea>
+      <textarea class="composer-input" id="composer-prefilled" rows="3"></textarea>
       <button class="composer-send" onclick="goToStep3()">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
       </button>
@@ -362,7 +340,7 @@
   </div>
 </div>
 
-<!-- Step 3: Agent generating -->
+<!-- Step 3: After user sends — agent responds -->
 <div class="chat-workspace panel" id="step3">
   <aside class="chat-sidebar">
     <div class="chat-sidebar-header">
@@ -381,13 +359,15 @@
       <div class="chat-bubble user">
         <div class="bubble-avatar" style="background:var(--im-accent);">U</div>
         <div class="bubble-card">
-          <div class="skill-cmd">/distill-from-sessions 我选了以下 session 做蒸馏：</div>
-          <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;">
-            <span class="session-tag">abc-123</span>
-            <span class="session-tag">def-456</span>
-            <span class="session-tag">ghi-789</span>
+          <div style="font-family:var(--im-font-mono);font-size:0.78rem;line-height:1.6;">
+            /distill-from-sessions 我选了以下 session 做蒸馏：<br>
+            <span style="display:inline-flex;gap:4px;margin-top:4px;">
+              <span style="background:oklch(0.45 0.12 180);padding:1px 6px;border-radius:3px;font-size:0.7rem;">abc-123</span>
+              <span style="background:oklch(0.45 0.12 180);padding:1px 6px;border-radius:3px;font-size:0.7rem;">def-456</span>
+              <span style="background:oklch(0.45 0.12 180);padding:1px 6px;border-radius:3px;font-size:0.7rem;">ghi-789</span>
+            </span>
           </div>
-          <div style="margin-top:8px;font-size:0.82rem;opacity:0.85;">
+          <div style="margin-top:8px;font-size:0.82rem;">
             我想把这个项目的 spec → design → implement 流程沉淀成一个 skill，覆盖从需求对齐到代码提交的完整路径。
           </div>
         </div>
@@ -478,9 +458,7 @@ function renderSessions() {
   }
 }
 
-function selectSession(id) {
-  // Normal click — just highlight (not implemented fully, this is a prototype)
-}
+function selectSession(id) {}
 
 function toggleSelect(id) {
   const s = sessions.find(s => s.id === id);
@@ -499,7 +477,6 @@ function showContextMenu(e, id) {
   menu.style.left = e.clientX + 'px';
   menu.style.top = e.clientY + 'px';
   menu.classList.add('visible');
-  // Hide "生成 skill" for active sessions
   const distillBtn = menu.querySelector('.context-menu-item');
   distillBtn.style.opacity = s.status === 'active' ? '0.3' : '1';
   distillBtn.style.pointerEvents = s.status === 'active' ? 'none' : 'auto';
@@ -529,28 +506,32 @@ function showStep(n) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById('step' + n).classList.add('active');
   document.querySelectorAll('.step-dot').forEach((d, i) => d.classList.toggle('active', i === n - 1));
-  const labels = ['Step 1: 右键会话', 'Step 2: 补充意图', 'Step 3: 生成中'];
+  const labels = ['Step 1: 右键会话', 'Step 2: 编辑预填内容后发送', 'Step 3: agent 生成中'];
   document.getElementById('step-label').textContent = labels[n - 1];
 }
 
 function goToStep1() { showStep(1); }
 
 function goToStep2() {
-  const cmd = document.getElementById('prefilled-cmd');
-  cmd.textContent = '/distill-from-sessions 我选了以下 session 做蒸馏：';
-  const tags = document.getElementById('session-tags');
-  tags.innerHTML = [...selected].map(id => `<span class="session-tag">${id}</span>`).join('');
+  // Pre-fill the composer with the distill command — user edits, then sends manually
+  const composer = document.getElementById('composer-prefilled');
+  const ids = [...selected].map(id => `  ${id}`).join('\n');
+  composer.value = `/distill-from-sessions 我选了以下 session 做蒸馏：\n${ids}\n\n我想把这个项目的 spec → design → implement 流程沉淀成一个 skill，覆盖从需求对齐到代码提交的完整路径。`;
+  composer.focus();
+  // Move cursor to the intent line (after the session IDs)
+  const intentStart = composer.value.indexOf('我想把');
+  if (intentStart > 0) {
+    composer.setSelectionRange(intentStart, composer.value.length);
+  }
   showStep(2);
 }
 
 function goToStep3() { showStep(3); }
 
-// Close context menu on click outside
 document.addEventListener('click', hideContextMenu);
 
 renderSessions();
 
-// Show hint after 1s
 setTimeout(() => {
   const hint = document.getElementById('hint');
   hint.classList.add('visible');
