@@ -102,6 +102,22 @@ export async function createConversation(req: CreateConversationRequest): Promis
   return jsonOrThrow<Conversation>(res, "createConversation");
 }
 
+/**
+ * feat-445-M1: fork a direct agent chat at one completed agent reply. Returns the new
+ * branch conversation (same agent, history copied through the fork point). Throws on
+ * non-ok (e.g. 409 agent offline, 502 fork delegation failure) so callers surface it.
+ */
+export async function forkConversation(
+  conversationId: string,
+  forkMessageId: string
+): Promise<Conversation> {
+  const res = await authFetch(`/im/v1/conversations/${encodeURIComponent(conversationId)}/fork`, {
+    method: "POST",
+    body: JSON.stringify({ fork_message_id: forkMessageId })
+  });
+  return jsonOrThrow<Conversation>(res, "forkConversation");
+}
+
 // ─── Group settings (feat-438): rename / add / remove / dissolve ─────────────
 
 /** Update mutable conversation metadata (currently just the group title). */

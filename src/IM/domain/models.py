@@ -291,6 +291,10 @@ class Message:
     # 小条 + 当前 pending 卡。每个元素 shape:
     # {request_id, tool_name, tool_input, question, options, status, decision?}
     permission_requests: list[dict[str, Any]] = field(default_factory=list)
+    # feat-445-M1: 产出该气泡的 kernel assistant 消息的 id（= gateway session JSONL 的 turn
+    # uuid）。relay 收尾时落库，fork 据此把被点的气泡对齐回源 session 日志那条消息。None =
+    # 用户/系统消息或本特性上线前的旧 agent 气泡（fork 入口对其禁用）。
+    kernel_message_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.sender is None:

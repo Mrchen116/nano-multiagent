@@ -167,6 +167,7 @@ class JsonlSessionStore:
         *,
         workspace_root: Path | None = None,
         parent_session_id: str | None = None,
+        up_to: str | None = None,
     ) -> LoadResult:
         """Load session config and message chain from JSONL.
 
@@ -175,6 +176,17 @@ class JsonlSessionStore:
 
         ``workspace_root`` locates the session file; omit it only when the store
         was constructed with a ``data_dir`` default base (legacy/tests).
+
+        ``up_to`` (feat-445-M1 fork): when set, truncate the raw entry stream to the
+        ``turn`` whose ``uuid == up_to`` (inclusive) BEFORE running the boundary-skip
+        + chain reconstruction. This reproduces the session's historical file state at
+        that message — i.e. exactly the context view the agent had when it produced
+        ``up_to`` — so a fork from that point inherits the source's as-of-M view
+        (including the compaction state that was in effect then). Only boundaries that
+        precede ``up_to`` survive the truncation, so an older fork point naturally
+        ignores compactions that happened after it. Raises ``SessionNotFoundError`` if
+        no turn with ``uuid == up_to`` exists (loud — never silently returns a wrong
+        slice).
         """
 
         path = self._resolve_path(
@@ -194,6 +206,32 @@ class JsonlSessionStore:
                 if not line:
                     continue
                 raw_lines.append(json.loads(line))
+
+        if up_to is not None:
+            cut = next(
+                (
+                    i
+                    for i, e in enumerate(raw_lines)
+                    if e.get("type") == "turn" and e.get("uuid") == up_to
+                ),
+                None,
+            )
+            if cut is None:
+                raise SessionNotFoundError(
+                    f"fork point message_id {up_to!r} not found as a turn in session "
+                    f"{session_id}; refusing to fork from an unknown point"
+                )
+            # feat-445-M2 防御: a fork point is always an assistant message (only agent
+            # bubbles carry a kernel message_id upstream). Reject a non-assistant match
+            # loudly rather than silently slicing at the wrong turn — a store-level
+            # self-invariant guarding against any future caller that mis-derives the id.
+            if raw_lines[cut].get("role") != "assistant":
+                raise SessionNotFoundError(
+                    f"fork point {up_to!r} in session {session_id} is a "
+                    f"{raw_lines[cut].get('role')!r} turn, not an assistant message; "
+                    f"refusing to fork from a non-assistant point"
+                )
+            raw_lines = raw_lines[: cut + 1]
 
         # First pass: extract config and find latest compact_boundary index
         boundary_idx = -1

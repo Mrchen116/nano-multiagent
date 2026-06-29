@@ -688,3 +688,25 @@ def test_to_message_response_serializes_cache_hit_fields() -> None:
     assert resp.token_usage is not None
     assert resp.token_usage.cache_read_tokens == 270
     assert resp.token_usage.cache_total_input_tokens == 400
+
+
+def test_to_message_response_serializes_kernel_message_id() -> None:
+    """feat-445-M1: REST 序列化必须带出 kernel_message_id（fork 锚点）。
+
+    Regression guard: the field is persisted on the DB row and on the domain Message,
+    but the HTTP MessageResponse model dropped it — so the frontend never saw it and the
+    fork button never appeared (caught only by live e2e, not the repo-object unit tests).
+    """
+    from IM.api.routes.messages import to_message_response
+    from IM.domain.models import Message
+
+    msg = Message(
+        id="m1",
+        conversation_id="c1",
+        sender_user_id="agent:bot",
+        sender_type="agent",
+        content="done",
+        kernel_message_id="msg_abc123",
+    )
+    resp = to_message_response(msg)
+    assert resp.kernel_message_id == "msg_abc123"

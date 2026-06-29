@@ -1269,9 +1269,16 @@ class AgentRuntime:
         self._session_paths.pop(session_id, None)
 
     async def fork_session(
-        self, source_session_id: str, *, workspace_root: Path | None = None
-    ) -> Session:
+        self,
+        source_session_id: str,
+        *,
+        workspace_root: Path | None = None,
+        up_to: str | None = None,
+    ) -> tuple[Session, dict[str, str]]:
         """Fork a session: create a new session with an independent copy of source history.
+
+        Returns ``(new_session, old_to_new_uuid)`` — the re-stamp map lets the caller
+        rewrite display-side anchors (feat-445-M2 #5); see ``_fork_locked``.
 
         The fork copies the linear conversation chain from the source session,
         re-stamping all message UUIDs and recalculating parent_uuid links.
@@ -1280,7 +1287,51 @@ class AgentRuntime:
         ``workspace_root`` locates the source session JSONL when it is not
         already cached in this runtime; the fork inherits the source's
         workspace_root.
+
+        ``up_to`` (feat-445-M1): when set, the fork inherits the source's context view
+        **as of the message ``up_to``** rather than the whole conversation. The view is
+        re-materialized from the current JSONL (boundary-aware, truncated to ``up_to``)
+        — deliberately NOT from the in-memory ``_session_histories`` cache, which after
+        a compaction holds only the latest summarised tail and cannot reconstruct an
+        older fork point. The resulting as-of-M Message list is then copied by the
+        existing ``_fork_locked`` (same re-stamp path as a whole-session fork), so the
+        branch is byte-for-byte the source's view at M, including the compaction state
+        that was in effect then.
         """
+
+        if up_to is not None:
+            # Fork to a specific point: always read the truncated, boundary-aware view
+            # from JSONL (the cache can't serve a historical/older fork point). Flush
+            # any enqueued writes first so a just-completed turn at the fork point is on
+            # disk before we slice.
+            #
+            # feat-445-M2 #1: use flush_async, not the blocking sync flush() — the sync
+            # version waits on a threading.Event (up to 10s) and would stall the whole
+            # event loop; this is the only fork path that had drifted from the async flush
+            # the other 13 call sites use.
+            await self._session_manager.store.writer.flush_async()
+            result = self._session_manager.load(
+                source_session_id, workspace_root=workspace_root, up_to=up_to
+            )
+            # feat-445-M2 #2: do NOT acquire source_lock on this path. Everything it needs
+            # is already materialized from disk above (lock-free), and _fork_locked only
+            # writes the NEW session — it never reads the source's in-memory history. The
+            # non-up_to path keeps the lock because it copies the live in-memory cache and
+            # must serialize against a concurrent compaction; this path does not.
+            # Safety vs a concurrent run on the source (argument verified, see progress
+            # R1): source JSONL is append-only and any concurrent run only appends AFTER
+            # the current tail (i.e. after M); up_to truncates at M so those later entries
+            # are discarded regardless; line writes are atomic and we flushed first, so the
+            # as-of-M slice is consistent without the lock. feat-445-M3 清理-6: the same
+            # holds for a concurrent compaction — it too only appends (a compact_boundary +
+            # summary turn) AFTER M, and store.load applies up_to truncation BEFORE the
+            # boundary scan, so a boundary appended past M is sliced off and never affects
+            # the as-of-M view → no compact race either. Holding the lock here instead made
+            # fork block for minutes whenever the source agent had an active run → gateway
+            # 10s timeout → 502 (#2 root cause).
+            return await self._fork_locked(
+                source_session_id, result.config, list(result.messages)
+            )
 
         # Ensure source is loaded into memory
         if source_session_id not in self._session_histories:
@@ -1314,8 +1365,16 @@ class AgentRuntime:
         source_session_id: str,
         source_config: SessionConfig,
         source_history: list[Message],
-    ) -> Session:
-        """Internal fork implementation (source lock held if applicable)."""
+    ) -> tuple[Session, dict[str, str]]:
+        """Internal fork implementation (source lock held if applicable).
+
+        Returns the new ``Session`` and the ``old_to_new_uuid`` re-stamp map (source
+        message_id → branch message_id). feat-445-M2 #5: a fork from M is copied into the
+        branch with re-stamped uuids, so the branch IM display rows must rewrite their
+        ``kernel_message_id`` via this map to match the branch JSONL uuids — otherwise a
+        recursive fork from a copied bubble searches the branch session for the *source*
+        uuid and fails (502). The map is empty for an empty source history.
+        """
 
         new_metadata = dict(source_config.metadata)
         new_metadata["forked_from"] = source_session_id
@@ -1333,8 +1392,8 @@ class AgentRuntime:
         )
 
         # Re-stamp messages: new UUIDs, recalculated parent chain
+        old_to_new_uuid: dict[str, str] = {}
         if source_history:
-            old_to_new_uuid: dict[str, str] = {}
             new_history: list[Message] = []
 
             for msg in source_history:
@@ -1382,7 +1441,7 @@ class AgentRuntime:
         self._session_paths[new_session_id] = new_path
         self._session_locks[new_session_id] = asyncio.Lock()
 
-        return new_session
+        return new_session, old_to_new_uuid
 
     def _resolve_session_available_skills(
         self, session: Session

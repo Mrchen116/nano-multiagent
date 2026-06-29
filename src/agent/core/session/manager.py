@@ -91,16 +91,22 @@ class SessionManager:
         *,
         workspace_root: Path | None = None,
         parent_session_id: str | None = None,
+        up_to: str | None = None,
     ) -> LoadResult:
         """Load raw config + messages from JSONL.
 
         ``workspace_root`` locates the session file; the stateless store cannot
         guess it. Omit it only when the store has a ``data_dir`` default base.
+
+        ``up_to`` (feat-445-M1 fork): truncate to the turn with ``uuid == up_to``
+        (inclusive) before materializing — yields the session's as-of-M view. See
+        ``JsonlSessionStore.load``.
         """
         return self._store.load(
             session_id,
             workspace_root=workspace_root,
             parent_session_id=parent_session_id,
+            up_to=up_to,
         )
 
     def get_session(

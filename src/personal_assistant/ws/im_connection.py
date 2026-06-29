@@ -110,6 +110,14 @@ TokenGetter = Callable[[], Awaitable[str | None]]
 # Payload keys: request_id, decision, message_id.  PA should POST the decision
 # to the agent inbound endpoint to unpark the auto_mode_gate hook.
 PermissionResponseHandler = Callable[[Mapping[str, object]], None]
+# feat-445-M1: IM delegates session fork over WS. Given the fork request payload
+# (source_conversation_id / new_conversation_id / agent_id / fork_point.message_id),
+# the gateway-side handler locates the source kernel session, forks it at the point,
+# binds the new conversation, and returns {ok, new_session_id?, error?}.
+SessionForkHandler = Callable[
+    [Mapping[str, object]],
+    Awaitable[Mapping[str, object]] | Mapping[str, object],
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +192,7 @@ class IMConnectionManager:
         agent_capabilities_provider: AgentCapabilitiesProvider | None = None,
         node_capabilities_provider: NodeCapabilitiesProvider | None = None,
         prompt_preview_provider: PromptPreviewProvider | None = None,
+        session_fork_handler: SessionForkHandler | None = None,
         token_getter: TokenGetter | None = None,
         permission_response_handler: PermissionResponseHandler | None = None,
         on_connected: Callable[[], Awaitable[None]] | None = None,
@@ -201,6 +210,8 @@ class IMConnectionManager:
         self._node_capabilities_provider = node_capabilities_provider
         # feat-379-M2 R5: provider for prompt preview; calls agent HTTP /v1/prompt-preview.
         self._prompt_preview_provider = prompt_preview_provider
+        # feat-445-M1: handler for IM-delegated session fork (decision 2).
+        self._session_fork_handler = session_fork_handler
         # Called when IM pushes a permission_response so PA can POST it to the agent.
         self._permission_response_handler = permission_response_handler
         # token_getter is called on each connect attempt to supply a fresh access token.
@@ -393,6 +404,25 @@ class IMConnectionManager:
                     "agent": dict(created_payload)
                     if isinstance(created_payload, Mapping)
                     else {},
+                },
+            )
+            return
+        if message_type == "session.fork.request":
+            # feat-445-M1 (decision 2): IM delegates the session fork. The handler locates
+            # the source kernel session via its binding, forks it at fork_point, binds the
+            # new conversation, and reports back. A missing handler is a wiring bug — fail
+            # loud rather than silently never answering (IM would block on the waiter).
+            request_id = _require_text(body.get("request_id"), field_name="request_id")
+            if self._session_fork_handler is None:
+                raise RuntimeError("session.fork.request requires session_fork_handler")
+            result = await _maybe_await(self._session_fork_handler(body))
+            result_payload = dict(result) if isinstance(result, Mapping) else {}
+            await self.send_json(
+                "session.fork.result",
+                {
+                    "request_id": request_id,
+                    "node_id": self._reporter.node_id,
+                    **result_payload,
                 },
             )
             return

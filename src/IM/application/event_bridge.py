@@ -305,8 +305,15 @@ class EventBridge:
         final_content: str | None = None,
         token_usage: TokenUsage | None = None,
         delivery_status: str = "completed",
+        kernel_message_id: str | None = None,
     ) -> None:
-        """Close the agent message with terminal content + optional token usage."""
+        """Close the agent message with terminal content + optional token usage.
+
+        ``kernel_message_id`` (feat-445-M1) is the kernel assistant message id that
+        produced this bubble; persisted here so fork can map the bubble back to the
+        source session log. None when the relay frame omits it (no roll-time kernel id
+        known, e.g. a tool-only bubble) — fork stays disabled on such a bubble.
+        """
         # feat-414: 决策 1 — 收尾点取 UTC now，与 message.created_at（turn_start 建行时刻）
         # 作差得本轮墙钟。created_at 是 ISO 字符串；两者都是 IM 内部时钟，无跨进程漂移。
         now_utc = datetime.now(timezone.utc)
@@ -316,6 +323,7 @@ class EventBridge:
             content_replace=final_content,
             token_usage=token_usage,
             delivery_status=delivery_status,
+            kernel_message_id=kernel_message_id,
         )
         turn_start = datetime.fromisoformat(current.created_at)
         elapsed_ms = round((now_utc - turn_start).total_seconds() * 1000)
@@ -338,6 +346,7 @@ class EventBridge:
                 content=updated.content,
                 token_usage=token_usage,
                 elapsed_ms=elapsed_ms,
+                kernel_message_id=updated.kernel_message_id,
             ),
         )
 

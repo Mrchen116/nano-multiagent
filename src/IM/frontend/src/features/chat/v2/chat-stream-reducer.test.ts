@@ -79,6 +79,22 @@ describe("chat-stream-reducer", () => {
     expect(next.messages[0]!.elapsed_ms).toBe(4200);
   });
 
+  // feat-445-M1: message.completed carries kernel_message_id so a live-completed agent
+  // bubble becomes forkable without a refetch (regression for the WS serialization gap).
+  it("writes kernel_message_id from message.completed onto the message", () => {
+    const seed: Message = { ...userMessage("m4", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
+    const state: ConversationState = { ...emptyConversationState, messages: [seed] };
+    const next = applyWsEvent(state, {
+      type: "message.completed",
+      conversation_id: "c1",
+      message_id: "m4",
+      content: "done",
+      token_usage: null,
+      kernel_message_id: "msg_live_abc",
+    });
+    expect(next.messages[0]!.kernel_message_id).toBe("msg_live_abc");
+  });
+
   it("upserts a running tool_call onto the in-flight message and updates it on completion", () => {
     const seed: Message = { ...userMessage("m2", ""), sender: { type: "agent", id: "agent-a" }, sender_type: "agent", delivery_status: "running" };
     const state: ConversationState = { ...emptyConversationState, messages: [seed] };

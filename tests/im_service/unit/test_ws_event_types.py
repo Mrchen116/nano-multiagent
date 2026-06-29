@@ -187,6 +187,20 @@ def test_build_message_completed_payload_without_token_usage() -> None:
     assert payload["token_usage"] is None
 
 
+def test_build_message_completed_payload_includes_kernel_message_id() -> None:
+    """feat-445-M1: message.completed event carries kernel_message_id so a live-completed
+    bubble becomes forkable without a refetch (regression guard for the WS serialization
+    gap that unit tests on the repo Message object missed)."""
+    payload = build_message_completed_payload(
+        conversation_id="c1",
+        message_id="m1",
+        content="done",
+        token_usage=None,
+        kernel_message_id="msg_abc123",
+    )
+    assert payload["kernel_message_id"] == "msg_abc123"
+
+
 def test_build_message_completed_payload_includes_elapsed_ms() -> None:
     """feat-414-M1: build_message_completed_payload 带出 elapsed_ms 字段。"""
     usage = TokenUsage(output=10, context_used=500, context_window=200000)

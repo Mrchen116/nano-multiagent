@@ -6,6 +6,7 @@ import {
   createConversation,
   createMessage,
   deleteConversation,
+  forkConversation,
   listConversations,
   listMentionCandidates,
   listMessages,
@@ -200,5 +201,29 @@ describe("chat-api v2", () => {
     });
     expect(out.map((m) => m.agent_id)).toEqual(["agent-a", "agent-c"]);
     expect(out[0]!.initials).toBe("AS");
+  });
+
+  it("forkConversation POSTs fork_message_id and returns the new conversation", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(jsonResponse({
+      id: "c-new", title: "Assistant", participants: [], participant_ids: [],
+      type: "direct", direct_kind: "agent", owner_id: "user-1", creator_id: "user-1",
+      is_pinned: false, is_muted: false, unread_count: 0,
+      last_message_preview: null, last_message_at: null, created_at: "2026-01-02T00:00:00Z"
+    }, 201));
+
+    const out = await forkConversation("c-src", "msg-7");
+    expect(out.id).toBe("c-new");
+    const call = f.mock.calls[0]!;
+    expect(call[0]).toBe("/im/v1/conversations/c-src/fork");
+    const init = call[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ fork_message_id: "msg-7" });
+  });
+
+  it("forkConversation throws on a non-ok response (e.g. offline 409)", async () => {
+    const f = fetch as unknown as ReturnType<typeof vi.fn>;
+    f.mockResolvedValueOnce(new Response("agent offline", { status: 409 }));
+    await expect(forkConversation("c-src", "msg-7")).rejects.toThrow();
   });
 });

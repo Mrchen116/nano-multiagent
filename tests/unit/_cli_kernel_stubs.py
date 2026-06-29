@@ -31,6 +31,9 @@ class _TTYStringIO(io.StringIO):
 @dataclass
 class _StubSession:
     session_id: str
+    # feat-445-M3 清理-5: mirror the real SessionInfo fork-result field so the stub stays
+    # interface-compatible (fork_session can populate it without an AttributeError gap).
+    fork_id_map: dict[str, str] | None = None
 
 
 @dataclass
@@ -159,10 +162,10 @@ class _BaseKernelStub:
         return self._tools_result
 
     async def fork_session(
-        self, session_id: str, *, workspace_root: Any = None
+        self, session_id: str, *, workspace_root: Any = None, up_to: Any = None
     ) -> _StubSession:
-        self.calls.append(("fork_session", {"session_id": session_id}))
-        return _StubSession(session_id=f"{session_id}-fork")
+        self.calls.append(("fork_session", {"session_id": session_id, "up_to": up_to}))
+        return _StubSession(session_id=f"{session_id}-fork", fork_id_map={})
 
     def interrupt(self, session_id: str) -> str | None:
         self.calls.append(("interrupt", {"session_id": session_id}))

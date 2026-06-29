@@ -1,9 +1,34 @@
 """Application service for IM conversations and messages."""
 
+import logging
+from collections.abc import Awaitable, Callable, Mapping
+
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayEnqueueResult, RelayService
 from IM.domain.models import Attachment, Conversation, Message
 from IM.infra.repositories import ConversationRepository, MessageRepository
+
+_log = logging.getLogger(__name__)
+
+
+class ForkError(Exception):
+    """Base class for feat-445 fork failures (mapped to HTTP status by the route)."""
+
+
+class ForkNotFoundError(ForkError):
+    """Source conversation absent or outside the caller's tenant (→ 404)."""
+
+
+class ForkValidationError(ForkError):
+    """Fork target is not a forkable completed agent bubble (→ 400)."""
+
+
+class AgentOfflineError(ForkError):
+    """Agent's node is offline — fork would leave a memory-less shell (→ 409)."""
+
+
+class ForkDelegationError(ForkError):
+    """Gateway session-fork RPC failed or timed out after rollback (→ 502)."""
 
 
 class WebIMService:
@@ -202,6 +227,176 @@ class WebIMService:
             before_message_id=before_message_id,
             mark_as_read=mark_as_read,
         )
+
+    async def fork_conversation(
+        self,
+        *,
+        source_conversation_id: str,
+        fork_message_id: str,
+        owner_id: str,
+        actor_user_id: str,
+        check_agent_online: Callable[[str], Awaitable[bool]],
+        request_fork: Callable[..., Awaitable[Mapping[str, object] | None]],
+    ) -> Conversation:
+        """Fork a direct agent chat at one completed agent reply (feat-445-M1).
+
+        Synchronous orchestration (decision 2): validate → online-check → create the
+        branch conversation → copy display history start..fork_message_id (inclusive) →
+        delegate the kernel session fork to the gateway (``request_fork``). On any RPC
+        failure the just-created conversation is deleted so no memory-less shell remains
+        (decision 5). ``check_agent_online`` / ``request_fork`` are injected by the route
+        (they reach the gateway over WS); this keeps the service free of WS/node deps and
+        unit-testable.
+
+        Raises ForkNotFoundError / ForkValidationError / AgentOfflineError /
+        ForkDelegationError; the route maps each to 404 / 400 / 409 / 502.
+        """
+        source = self._conversations.get_conversation_for_owner(
+            conversation_id=source_conversation_id, owner_id=owner_id
+        )
+        if source is None:
+            raise ForkNotFoundError("conversation_id not found")
+        if source.direct_kind != "user-agent":
+            raise ForkValidationError("fork is only available in direct agent chats")
+        agent = next((p for p in source.participants if p.type == "agent"), None)
+        if agent is None or not agent.user_id:
+            raise ForkValidationError("conversation has no agent participant")
+        agent_id = agent.id
+
+        # Locate the fork point in the source conversation's display history.
+        # feat-445-M2 #3: full timeline (no 200-cap) so an early fork point is found and
+        # the whole start→M history is copied (not just the last page).
+        history = self._messages.list_all_messages(
+            conversation_id=source_conversation_id
+        )
+        fork_index = next(
+            (i for i, m in enumerate(history) if m.id == fork_message_id), None
+        )
+        if fork_index is None:
+            raise ForkValidationError("fork_message_id not found in conversation")
+        fork_msg = history[fork_index]
+        if fork_msg.sender_type != "agent" or fork_msg.delivery_status != "completed":
+            raise ForkValidationError("can only fork a completed agent message")
+        if not fork_msg.kernel_message_id:
+            # Pre-feature bubble with no kernel anchor — cannot align the gateway fork.
+            raise ForkValidationError("this message does not support fork")
+
+        # Online check BEFORE creating anything, so an offline agent leaves no trace.
+        if not await check_agent_online(agent_id):
+            raise AgentOfflineError("agent offline, cannot fork")
+
+        # feat-445-M2 #4: create the branch conversation EMPTY and bind the kernel session
+        # (request_fork) BEFORE copying any display history. So message.created broadcasts
+        # — and the window in which a user could open the half-built conversation and send
+        # into it — only begin once a binding exists; an RPC failure then rolls back an
+        # *empty* conversation, never a user-authored message (the old order copied N rows
+        # first, broadcast them, then could roll the user's message away on RPC timeout).
+        new_conversation = self._conversations.create_conversation(
+            title=agent.display_name or agent_id,
+            participant_ids=[f"user:{actor_user_id}", f"agent:{agent_id}"],
+            creator_id=f"user:{actor_user_id}",
+            caller_owner_id=owner_id,
+        )
+        try:
+            # The gateway forks by the *kernel* message id (= JSONL turn uuid), not the IM
+            # row id. fork_message_id located the bubble above; we hand over its kernel anchor.
+            result = await request_fork(
+                agent_id=agent_id,
+                source_conversation_id=source_conversation_id,
+                new_conversation_id=new_conversation.id,
+                fork_message_id=fork_msg.kernel_message_id,
+            )
+        except BaseException:
+            # #6: BaseException (incl. asyncio.CancelledError) so a cancelled RPC task can't
+            # leak a ghost conversation; rollback is protected and never masks this error.
+            self._rollback_fork(new_conversation.id, actor_user_id)
+            raise
+        if not result or not result.get("ok"):
+            self._rollback_fork(new_conversation.id, actor_user_id)
+            error = (result or {}).get("error") if result else None
+            raise ForkDelegationError(str(error) if error else "fork delegation failed")
+
+        # #5: rewrite each copied bubble's kernel_message_id to the branch JSONL uuid via
+        # the gateway's source→branch re-stamp map, so a recursive fork from a copied bubble
+        # resolves in the branch session (no 502). None when the source turn was compacted
+        # out of the as-of-M view → that bubble is simply not forkable in the branch.
+        # feat-445-M3 清理-4: a missing id_map key (gateway version drift) silently mapped
+        # every copied bubble to None → branch recursive-fork all dead, no signal. Accept the
+        # None semantics but make the degradation observable.
+        if "id_map" not in result:
+            _log.warning(
+                "fork: gateway result missing 'id_map' (version drift?); copied bubbles "
+                "will have no kernel anchor and the branch will not be recursively forkable "
+                "(new_session=%s)",
+                result.get("new_session_id"),
+            )
+        id_map = result.get("id_map") or {}
+        # feat-445-M3 清理-2: copy runs AFTER binding (#4 reorder); a mid-copy failure would
+        # otherwise leave the branch half-copied with the kernel session already bound (no
+        # unbind RPC). Roll the branch back and flag the now-orphaned kernel session.
+        try:
+            for message in history[: fork_index + 1]:
+                sender_user_id = (
+                    actor_user_id if message.sender_type == "user" else agent.user_id
+                )
+                branch_kernel_id = (
+                    id_map.get(message.kernel_message_id)
+                    if message.kernel_message_id
+                    else None
+                )
+                copied = self._messages.create_message(
+                    conversation_id=new_conversation.id,
+                    sender_user_id=sender_user_id,
+                    content=message.content,
+                    sender_type=message.sender_type,
+                    attachments=message.attachments,
+                    tool_calls=message.tool_calls,
+                    token_usage=message.token_usage,
+                    kernel_message_id=branch_kernel_id,
+                    delivery_status=message.delivery_status,  # #8: preserve source state
+                    auto_complete_delivery=True,
+                    allow_empty=True,
+                )
+                # Preserve the thinking segments so the branch回看 keeps the full bubble.
+                for segment in sorted(
+                    message.thinking or [],
+                    key=lambda s: s.seq if s.seq is not None else 0,
+                ):
+                    self._messages.append_thinking_segment(
+                        message_id=copied.id, text=segment.text
+                    )
+        except BaseException:
+            self._rollback_fork(new_conversation.id, actor_user_id)
+            _log.warning(
+                "fork: display-history copy failed after binding; rolled back branch "
+                "conversation %s; kernel session %s is now an unreferenced orphan",
+                new_conversation.id,
+                result.get("new_session_id"),
+            )
+            raise
+        return new_conversation
+
+    def _rollback_fork(self, conversation_id: str, actor_user_id: str) -> None:
+        """Best-effort delete of a half-built fork conversation (feat-445-M2 #6).
+
+        Protected: a delete failure here is logged, never raised, so it cannot overwrite
+        the original fork error (which the route maps to 409/502). After the #4 reorder the
+        conversation is empty at rollback time, so CASCADE removes nothing user-authored.
+        """
+        try:
+            self._conversations.delete_conversation(
+                conversation_id=conversation_id, requester_id=actor_user_id
+            )
+        except BaseException:
+            # feat-445-M3 清理-3: catch BaseException (symmetric with the caller's
+            # `except BaseException`), so even a CancelledError raised mid-delete is logged
+            # as a warning rather than propagating and masking the original fork error /
+            # silently leaving a ghost conversation with no signal.
+            _log.warning(
+                "fork rollback: failed to delete branch conversation %s",
+                conversation_id,
+                exc_info=True,
+            )
 
     def enqueue_relay(
         self,

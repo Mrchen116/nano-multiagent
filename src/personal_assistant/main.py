@@ -62,6 +62,8 @@ from personal_assistant.gateway.run_queue import SessionRunQueue
 from personal_assistant.gateway.session_keys import (
     PersistentSessionBindingStore,
     SessionBindingStore,
+    bind_conversation_session,
+    build_conversation_session_key,
 )
 from personal_assistant.reporter.upstream_reporter import (
     UpstreamReporter,
@@ -87,6 +89,7 @@ from personal_assistant.ws.im_connection import (
     IMConnectionConfig,
     IMConnectionManager,
     PromptPreviewProvider,
+    SessionForkHandler,
 )
 
 
@@ -2396,6 +2399,12 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
             # features, custom_prompt, tool_ids, scenario, skill_ids) → preview dict.
             prompt_preview_provider=_make_prompt_preview_provider(kernel),
             agent_create_handler=im_config_sync_client.handle_agent_create,
+            session_fork_handler=_build_session_fork_handler(
+                kernel=kernel,
+                session_store=session_store,
+                agents_getter=lambda: pipeline._agents,  # noqa: SLF001
+                channel_name=WebRelayAdapter.name,
+            ),
             token_getter=_token_getter,
             permission_response_handler=_build_permission_response_handler(
                 kernel=kernel
@@ -2977,6 +2986,79 @@ def _make_token_getter(
     return _getter
 
 
+def _build_session_fork_handler(
+    *,
+    kernel: Any,
+    session_store: SessionBindingStore,
+    agents_getter: Callable[[], Mapping[str, Any]],
+    channel_name: str,
+) -> SessionForkHandler:
+    """Build the gateway-side handler for IM-delegated session fork (feat-445-M1 决策 2).
+
+    Resolves the source kernel session from the source conversation's binding, forks it
+    at ``fork_point.message_id`` (kernel reproduces the source's as-of-M context view),
+    and binds the new conversation to the forked session so its first inbound relay
+    reuses it. Returns ``{ok, new_session_id}`` on success or ``{ok: False, error}`` —
+    IM does the new-conversation rollback (decision 5), the gateway only reports.
+    """
+
+    async def _handle(payload: Mapping[str, object]) -> Mapping[str, object]:
+        source_conversation_id = str(payload.get("source_conversation_id") or "")
+        new_conversation_id = str(payload.get("new_conversation_id") or "")
+        agent_id = str(payload.get("agent_id") or "")
+        fork_point = payload.get("fork_point")
+        message_id = (
+            str(fork_point.get("message_id") or "")
+            if isinstance(fork_point, Mapping)
+            else ""
+        )
+        if not (
+            source_conversation_id and new_conversation_id and agent_id and message_id
+        ):
+            return {"ok": False, "error": "fork request missing required fields"}
+
+        source_binding = session_store.get(
+            build_conversation_session_key(
+                channel_name=channel_name,
+                conversation_id=source_conversation_id,
+                agent_id=agent_id,
+            )
+        )
+        if source_binding is None:
+            return {"ok": False, "error": "source session binding not found"}
+
+        agent_cfg = agents_getter().get(agent_id)
+        if agent_cfg is None:
+            return {"ok": False, "error": f"unknown agent {agent_id}"}
+
+        try:
+            new_session = await kernel.fork_session(
+                source_binding.kernel_session_id,
+                workspace_root=agent_cfg.workspace_root,
+                up_to=message_id,
+            )
+        except Exception as exc:  # noqa: BLE001 — report to IM, which rolls back
+            return {"ok": False, "error": str(exc)}
+
+        bind_conversation_session(
+            store=session_store,
+            channel_name=channel_name,
+            conversation_id=new_conversation_id,
+            agent_id=agent_id,
+            kernel_session_id=new_session.session_id,
+        )
+        # feat-445-M2 #5: hand back the source→branch kernel-uuid re-stamp map so IM can
+        # realign each copied bubble's kernel_message_id to the branch session's JSONL
+        # uuids (else a recursive fork from a copied bubble 502s on the source uuid).
+        return {
+            "ok": True,
+            "new_session_id": new_session.session_id,
+            "id_map": dict(new_session.fork_id_map or {}),
+        }
+
+    return _handle
+
+
 def _build_im_connection_manager(
     *,
     config: LocalConfig,
@@ -2989,6 +3071,7 @@ def _build_im_connection_manager(
     node_capabilities_provider: Callable[[], dict[str, object]] | None = None,
     prompt_preview_provider: Callable[..., Any] | None = None,
     agent_create_handler: AgentCreateHandler | None = None,
+    session_fork_handler: SessionForkHandler | None = None,
     token_getter: Callable[[], Awaitable[str | None]] | None = None,
     permission_response_handler: Callable[[Mapping[str, object]], None] | None = None,
     on_connected: Callable[[], Awaitable[None]] | None = None,
@@ -3007,6 +3090,7 @@ def _build_im_connection_manager(
         node_capabilities_provider=node_capabilities_provider,
         prompt_preview_provider=prompt_preview_provider,
         agent_create_handler=agent_create_handler,
+        session_fork_handler=session_fork_handler,
         token_getter=token_getter,
         connect=_connect_websocket,
         permission_response_handler=permission_response_handler,
@@ -3247,6 +3331,10 @@ async def _roll_bubble(
         # streams into whatever bubble the in-flight roll lands on.
         return None
     ctx["rolling"] = "1"
+    # feat-445-M1: the bubble being closed was produced by the kernel message tracked in
+    # ctx["kernel_message_id"]; stamp it onto the closing frame so IM persists the
+    # per-bubble id BEFORE the new bubble's id overwrites ctx (decision 4 fork anchor).
+    old_kernel_message_id = ctx.get("kernel_message_id")
     try:
         if old_message_id:
             await manager.send_json(
@@ -3257,6 +3345,7 @@ async def _roll_bubble(
                     "final_content": None,
                     "token_usage": None,
                     "delivery_status": "completed",
+                    "kernel_message_id": old_kernel_message_id,
                     "run_id": run_id,
                 },
             )
@@ -3712,6 +3801,9 @@ def _build_kernel_event_observer(
                             "delivery_status": "completed"
                             if turn_completed
                             else "failed",
+                            # feat-445-M1: stamp the final bubble with the kernel message
+                            # id that produced it (decision 4 fork anchor).
+                            "kernel_message_id": ctx.get("kernel_message_id"),
                             "run_id": run_id,
                         },
                     )
