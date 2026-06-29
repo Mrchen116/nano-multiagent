@@ -18,4 +18,20 @@
 - Impact: 仅本 milestone 实现路径；design 决策1 的「等价轻法 (b)」分支被选中，不改 design 任何决策方向（design 已框定两法等价）。可复用能力段措辞按 review Recommendation 已如实（(b) 即「整体复用 _fork_locked + store.load，只加截断」，与 design:49-50 一致）。
 
 ---
-<!-- 每个 roadpoint 完成后实时追加 -->
+
+### R1 — relay 落逐气泡 kernel message_id 到 IM 消息行（决策 4 地基）
+
+- Context: fork 两侧对齐键必须逐气泡唯一。一个 run 可产出多条 assistant_message = 多个 IM 气泡（textA→工具→textB），每个气泡须标上「产出它的那条 assistant 消息」的 kernel message_id。现状 IM 消息行不存任何 kernel id（`domain/models.py` Message 无字段），gateway observer 虽在 `main.py:3414` 拿到 kernel message_id 但只用于多气泡 roll 边界判定、不发给 IM。
+- Decision: 用 `message_completed` 帧作 kernel message_id 的载体（每气泡恰一次的终结点，与 token_usage 同款「气泡终结元数据」precedent，沿用而非另造）。gateway 两处发 message_completed——turn_end（最终气泡，`main.py` ctx.kernel_message_id）+ `_roll_bubble`（被关闭的旧气泡，进入时捕获 ctx 旧 kernel id，在被新气泡覆盖前 stamp）。IM 加 `kernel_message_id` 列（迁移，nullable）+ Message 模型字段 + repo create/update 读写 + `_message_from_row` 读 + on_message_completed 透传 + gateway_handler 取出。
+- Rationale: message_delta 是流式高频载体，kernel id 是气泡常量元数据，挂 message_completed 一次写定最干净；roll 旧气泡 + turn_end 最终气泡两路覆盖所有气泡。**linchpin 已第一手核实**：relay 事件 message_id（realtime_stream:54）= loop assistant Message.message_id（loop:407→message_end:653）= JSONL turn uuid（runtime `_message_to_entry`:2251）三处同一 id，故落到 IM 行的就是「源 session 日志中那条 assistant 消息的 uuid」，fork up_to 据此精确截断。
+- Evidence:
+  - Tests: 新 `tests/unit/personal_assistant/test_relay_kernel_message_id.py`（多气泡 roll → 每 message_completed 帧带各自气泡 kernel id；单气泡 turn_end 带 kernel id）；扩 `test_message_runtime_state.py::test_kernel_message_id_round_trip`（create_message/update_runtime_state 往返 + 无关 patch 不清值）；扩 `test_event_bridge.py::test_on_message_completed_persists_kernel_message_id`。R1 相关 25 passed。
+  - Entry: 进程内 gateway observer 真实事件序列驱动（非 mock 内部函数），断言发往 IM 的真实 streaming_delta 帧。完整 live 端到端在 R6。
+  - Frontend State Matrix: N/A（R1 后端）
+  - Browser QA: N/A
+  - E2E/Regression: `pytest tests/im_service/ tests/unit/test_inbound_pipeline_streaming.py tests/unit/personal_assistant/` 1023 passed, 2 skipped（无回归）。
+  - Visual/Interaction: N/A
+- Rollback: revert C2 commit；schema 迁移幂等（列存在则跳过），回退安全。
+- Commits: C1=test 红测, C2=feat 实现, C3=docs 本段。
+- Next: R2 kernel fork_session(up_to) — store.load 截断 + 复用 _fork_locked + 三组守护测试。
+
