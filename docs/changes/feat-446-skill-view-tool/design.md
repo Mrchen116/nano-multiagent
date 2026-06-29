@@ -1,0 +1,376 @@
+# feat-446: skill_view 独立工具 + 自进化体系 — 技术方案
+
+> 对齐: spec.md v1
+
+> Unit branch: `unit/feat-446` (will be created by orchestrator)
+
+## Changelog
+
+<!-- design 阶段保持空 -->
+
+## 现状分析
+
+### 涉及范围
+
+| 文件 | 当前职责 | 本 unit 改动 |
+|---|---|---|
+| `platform/tools/builtins/skill_manage.py` | CRUD 工具，7 个 action 含 view | 移除 view action，保留 6 个 |
+| `core/skills/formatter.py` | 生成 `<available_skills>` 块 + SKILLS_GUIDANCE 引导用 read | 引导改为 skill_view |
+| `platform/hooks/builtins/self_improvement.py` | 后台 review hook，工具白名单硬编码 `skill_manage` | 白名单加 `skill_view`，review prompt 更新 |
+| `sdk/kernel.py` | `_register_self_evolution_builtins()` 注册 SkillManageTool | 注册 SkillViewTool |
+| `core/agent/prompt_sections/core_sections.py` | CORE_SKILLS_GUIDANCE 用 `has_tool("skill_manage")` 门控 | 改为 `has_tool("skill_manage") or has_tool("skill_view")` |
+| `core/agent/prompt_sections/feature_registry.py` | skill_creation 用 `requires_tool="skill_manage"` | 改为检查两个工具 |
+| `coding_cli/product.py` | DEFAULT_ENABLED_TOOLS 含 skill_manage | 加 skill_view |
+| `personal_assistant/product.py` | DEFAULT_TOOL_IDS 含 skill_manage | 加 skill_view |
+| `personal_assistant/reporter/capability_projection.py` | PA_DEFAULT_TOOL_IDS 含 skill_manage | 加 skill_view |
+| `core/agent/compaction/` | compaction 机制，无 skill 内容保留 | 新增 invoked skills 注入 |
+| `platform/tools/builtins/` | 无 skill_view 工具 | 新增 `skill_view.py` |
+| `core/skills/` | 无 usage 追踪 | 新增 `usage.py` |
+| `agent/` (新增) | 无 Curator | 新增 `curator.py` |
+| `IM/frontend/` | 无 skill 使用面板 | 新增面板组件 |
+
+### 既有约束
+
+- `coding_cli` / `personal_assistant` 只能 import `agent.sdk`，不能 import `agent.core` / `agent.platform` 内部
+- tool 注册通过 `kernel._register_self_evolution_builtins()` 统一入口
+- session metadata 携带 `workspace_root` + `workspace_config_dirname`，是 per-session skill root 解析的唯一依据
+- compaction 通过 `compact_boundary` JSONL entry + summary turn 实现，系统提示词每轮重建
+- `core` 层可用 `atomic_write` 做文件 IO（MemoryStore 已有先例），但不依赖环境特定 API
+
+### 可复用能力
+
+| 能力 | 位置 | 复用方式 |
+|---|---|---|
+| per-session skill_root 解析 | `skill_manage._resolve_writer_registry()` | skill_view 复用同一逻辑 |
+| SkillRegistry.list_skills() / find_skill() | `core/skills/registry.py` | skill_view 直接用 |
+| atomic_write + fcntl.flock | `core/utils/fileio.py` | usage / curator 持久化复用 |
+| compact_boundary + summary 机制 | `core/agent/compaction/` | invoked skills 注入 |
+| session_id 字段 | `core/session/models.py` | usage 追踪直接用 |
+| Presenter 模式 | `platform/tools/presentation.py` | skill_view presenter 复用 |
+
+### 相关历史
+
+- feat-392：kernel spec 契约层建立，skill_manage 作为 kernel built-in 注册
+- refactor-406：products 装配层解散，tool 注册下沉到 `_register_self_evolution_builtins()`
+
+## 架构总览
+
+### Before（现状）
+
+```
+系统提示词
+  └─ <available_skills>（formatter.py 生成）
+       └─ SKILLS_GUIDANCE: "Use the read tool to load a skill's file"
+       └─ <skill><name/><description/><location/></skill> × N
+
+agent 执行
+  ├─ 路径 A: 用户 /skill:<name> → 重写为 "Use the <name> skill" → agent 用 read 读 SKILL.md
+  ├─ 路径 B: agent 自己判断 → 用 read 读 <location> 路径
+  └─ 路径 C: self_improvement → skill_manage(action=view) 读 SKILL.md
+
+问题:
+  - read 无 skill 语义（不追踪使用、不注册 compaction 存活）
+  - skill_manage 的 view 和 CRUD 混在一起
+  - 无使用统计
+  - 无 Curator 生命周期管理
+```
+
+### After（目标）
+
+```
+系统提示词
+  └─ <available_skills>（formatter.py 生成）
+       └─ SKILLS_GUIDANCE: "Use skill_view to load a skill's content"  ← 改
+       └─ <skill><name/><description/><location/></skill> × N
+
+agent 执行
+  ├─ 路径 A: 用户 /skill:<name> → 重写为引导 skill_view → skill_view 读 SKILL.md
+  ├─ 路径 B: agent 自己判断 → skill_view 读 SKILL.md
+  └─ 路径 C: self_improvement → skill_view 读 SKILL.md（白名单更新）
+
+skill_view 调用时:
+  ├─ 返回 {success, name, content, location}
+  ├─ bump use_count + last_used_at
+  ├─ 记录 {session_id, timestamp} → session 引用列表
+  └─ 注册 invoked skill → compaction 后 re-inject
+
+skill_manage（写侧）:
+  └─ create / edit / patch / list / write_file / remove_file（无 view）
+
+新增:
+  ├─ usage.py: 使用统计持久化（.usage.json per workspace）
+  ├─ curator.py: per-workspace 生命周期管理（7 天门控，30d stale，90d archived）
+  ├─ 蒸馏 skill（F2）: SKILL.md 教 agent 读 session transcript → 生成 skill
+  └─ IM 前端: 使用统计面板（初版三个视图）
+```
+
+## 关键决策
+
+### 决策 1: skill_view 作为独立工具 vs 扩展 skill_manage
+
+**选了独立工具 skill_view**（读侧独立，skill_manage 只留写侧）。
+
+- **理由**: spec 明确要求拆分。hermes 就是三工具拆分（skills_list / skill_view / skill_manage）。读侧（skill_view）和写侧（skill_manage）职责正交，独立工具让模型调用语义更清晰——"我要看内容" vs "我要改内容"。
+- **拒绝**: 扩展 skill_manage(action=view) 加 side effects — 会让一个写侧工具承担读侧职责（usage bump、compaction 注册），违反单一职责。
+- **风险**: 需要迁移所有引用 `skill_manage(action=view)` 的地方（self_improvement prompt、formatter 等）。迁移面广但都是文案改动，不涉及逻辑重构。
+
+### 决策 2: 使用统计数据模型
+
+**选了 per-workspace `.usage.json` sidecar 文件，skill name 为 key**。
+
+```json
+{
+  "change-spec-author": {
+    "use_count": 15,
+    "last_used_at": "2026-06-29T10:00:00Z",
+    "session_refs": [
+      {"session_id": "abc-123", "timestamp": "2026-06-29T10:00:00Z"},
+      {"session_id": "def-456", "timestamp": "2026-06-28T14:00:00Z"}
+    ],
+    "uses_since_last_B": 8,
+    "created_by": "auto",
+    "state": "active",
+    "pinned": false,
+    "created_at": "2026-06-15T08:00:00Z",
+    "archived_at": null
+  }
+}
+```
+
+- **理由**: hermes 用同样模式（`.usage.json` sidecar）。per-workspace 隔离符合本项目架构。JSON 按 skill name 做 key 支持随机读写（Curator 扫描、单 skill 查询），比 append-only JSONL 更适合。
+- **拒绝**: hermes 的 8+ 字段方案（view_count / patch_count / last_viewed_at / last_patched_at）— 本项目 skill_view 是唯一读路径，view/use 无区分意义。
+- **session_refs 上限 50**: 防止无限增长，F4 只需近期 refs。
+- **uses_since_last_B**: F4 触发计数器，batch 完成后归零。
+- **持久化**: `atomic_write` + `fcntl.flock`（复用 MemoryStore 模式）。
+
+### 决策 3: Compaction 存活机制
+
+**选了 per-runtime 内存 map + compaction 后注入 synthetic user message**。
+
+- **理由**: CC 用 `addInvokedSkill` 注册到内存 map，compaction 时作为 attachment 注入。本项目的 compaction 写 `compact_boundary` + summary turn，skill 内容应在 summary 之后注入为 synthetic user message（`is_skill_reinjection=True` 标记），这样 resume 时可识别并重新填充内存 map。
+- **拒绝**: 存到 `.usage.json` — usage 文件是跨 session 聚合，compaction 存活是 session 级需求。混在一起会让两个关注点耦合。
+- **拒绝**: 存到 JSONL 的 `skills_invoked` entry — 本项目 JSONL 的 `compact_boundary` 后只保留 summary turn，额外 entry 需要改 load 逻辑。synthetic user message 更简单，不侵入 session store。
+- **token 上限**: 单个 skill ≤ 2000 tokens，总 ≤ 8000 tokens，按最近使用排序。
+
+### 决策 4: Curator 状态机与触发
+
+**选了 active/stale/archived 三态，30/90 天阈值，7 天扫描间隔，per-workspace**。
+
+```
+                activity within 30 days
+   STALE  ─────────────────────────────────>  ACTIVE
+         <─────────────────────────────────
+              no activity for 30 days
+
+   ACTIVE ─────────────────────────────────> ARCHIVED
+              no activity for 90 days
+```
+
+- **理由**: spec 明确确认了 30/90 天阈值和 7 天间隔。per-workspace 符合本项目多 agent 隔离架构。
+- **拒绝**: hermes 的 14/60 天阈值 — spec 已确认 30/90，不单方面改。
+- **拒绝**: hermes 的 tar.gz 快照 — per-workspace skill 目录小，`shutil.move` 到 `.archive/` 够用。
+- **拒绝**: LLM consolidation pass — per-workspace skill 数量少（几十个），确定性扫描够用。
+- **触发**: CLI 启动 + Gateway housekeeping loop，内部 7 天门控（`should_run_now()` 检查 `.curator_state.json` 的 `last_run_at`）。
+- **管辖**: 只管 `created_by=="auto"` 的 skill（F3/F4 输出），`created_by=="manual"` 的跳过。
+
+### 决策 5: Curator 存储
+
+**选了 `.curator_state.json` 单文件，与 `.usage.json` 分离**。
+
+```json
+{
+  "last_run_at": "2026-06-29T10:00:00Z",
+  "run_count": 3,
+  "last_run_summary": "archived 1 stale skill, no F4 triggers",
+  "reviewed_session_ids": ["abc-123", "def-456"]
+}
+```
+
+- **理由**: Curator 状态更新频率低（7 天一次），usage 更新频率高（每次 skill_view）。分离避免写冲突。`reviewed_session_ids` 上限 200，防止 F4 重复处理。
+- **拒绝**: 合并到 `.usage.json` — 读写频率不同，合并会增加锁竞争。
+
+### 决策 6: Feature gate 策略
+
+**选了 CORE_SKILLS_GUIDANCE 门控改为 `has_tool("skill_manage") or has_tool("skill_view")`**。
+
+- **理由**: skill_creation guidance 告诉模型"完成复杂任务后用 skill_manage 保存"。这个指引和 skill_view 无关（skill_view 是读），但需要 skill_manage 在场才有效。改为 or 逻辑：只要任一工具在场就启用 skills 相关 prompt 段。
+- **拒绝**: skill_view 独立 feature entry — skill_view 不需要独立的 prompt guidance，它只是读工具。不需要自己的 feature flag。
+
+### 决策 7: F4 Batch 触发与执行
+
+**选了 uses_since_last_B 达阈值后，Curator 内触发 batch job（非独立调度器）**。
+
+- **理由**: F4 和 Curator 都是 per-skill 维度的后台任务。F4 触发检查可以挂在 Curator 的定期扫描里（Curator 扫描时顺便检查 `uses_since_last_B >= threshold`），不需要独立的调度器。batch job 本身在 Curator 扫描后异步执行。
+- **阈值**: 默认 20，可配置。
+- **拒绝**: 独立调度器 — 增加复杂度，且 F4 的触发条件（usage 积累）和 Curator 的触发条件（时间间隔）可以合并检查。
+- **batch job 流程**: 读 session_refs → 过滤已 reviewed 的 → 读 JSONL transcript → LLM 分析 ≥2 证据 → skill_manage(patch) → 重置 uses_since_last_B。
+
+### 决策 8: skill_view 工具接口
+
+**选了 platform 层独立 SkillViewTool 类，与 SkillManageTool 同构**。
+
+```python
+class SkillViewTool:
+    name = "skill_view"
+    description = "Load a skill's full content by name. Returns SKILL.md content + metadata."
+    input_schema = {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "The skill name to view"}
+        },
+        "required": ["name"]
+    }
+    is_concurrency_safe = True  # 只读，可并发
+    max_result_size_chars = 50_000
+
+    def run(self, args, ctx) -> Mapping[str, Any]:
+        # 1. 解析 skill_root（复用 skill_manage 的逻辑）
+        # 2. 查找 skill（SkillRegistry）
+        # 3. 读取 SKILL.md content
+        # 4. bump usage（usage.py）
+        # 5. 注册 invoked skill（runtime.register_invoked_skill）
+        # 6. 返回 {success, name, content, location}
+```
+
+- **理由**: 和 SkillManageTool 同构（name / description / input_schema / run / presenter），worker 照着现有模式写。`is_concurrency_safe = True`（只读，不写文件），区别于 skill_manage 的 `False`。
+- **不带 file_path**: spec 明确排除。
+
+## 接口与数据流
+
+### skill_view 调用流
+
+```
+agent 调用 skill_view(name="change-spec-author")
+  │
+  ├─ 1. SkillViewTool.run(args, ctx)
+  │     ├─ _resolve_skill_root(ctx) → <workspace>/<config_dir>/skills/
+  │     ├─ SkillRegistry(search_roots).find_skill(name) → SkillMetadata
+  │     ├─ content = metadata.location.read_text()
+  │     └─ return {success: True, name, content, location}
+  │
+  ├─ 2. usage_tracker.bump_use(name, session_id)
+  │     ├─ load .usage.json
+  │     ├─ rec["use_count"] += 1
+  │     ├─ rec["last_used_at"] = now
+  │     ├─ rec["session_refs"].append({session_id, timestamp})  # cap 50
+  │     ├─ rec["uses_since_last_B"] += 1
+  │     └─ atomic_write .usage.json
+  │
+  └─ 3. runtime.register_invoked_skill(name, content)
+        └─ _invoked_skills[name] = {content, invoked_at}
+```
+
+### Curator 扫描流
+
+```
+maybe_run_curator(workspace_root, config_dirname)
+  │
+  ├─ 1. should_run_now()
+  │     ├─ load .curator_state.json
+  │     └─ now - last_run_at >= 7 days?
+  │
+  ├─ 2. apply_automatic_transitions()
+  │     ├─ load .usage.json
+  │     ├─ for each skill where created_by == "auto":
+  │     │     ├─ last_activity = max(last_used_at, created_at)
+  │     │     ├─ active + no activity 30d → set_state("stale")
+  │     │     ├─ stale + no activity 90d → archive_skill() → shutil.move to .archive/
+  │     │     ├─ stale + activity within 30d → set_state("active")  # 复活
+  │     │     └─ pinned → skip
+  │     └─ save .usage.json
+  │
+  ├─ 3. check_f4_triggers()
+  │     ├─ for each skill where uses_since_last_B >= 20:
+  │     │     ├─ read session_refs, filter already reviewed
+  │     │     ├─ spawn batch job (background)
+  │     │     └─ reset uses_since_last_B = 0
+  │     └─ save .usage.json
+  │
+  └─ 4. save_state()
+        └─ atomic_write .curator_state.json {last_run_at, run_count, summary}
+```
+
+### Compaction invoked skills 注入
+
+```
+_compact_session()
+  │
+  ├─ 1. 写 compact_boundary entry
+  ├─ 2. LLM 总结 → 写 summary turn
+  ├─ 3. 注入 invoked skills（新增）:
+  │     ├─ if runtime._invoked_skills:
+  │     │     ├─ 按 invoked_at 排序，截断到 token 预算（8000）
+  │     │     ├─ 构造 synthetic user message:
+  │     │     │     "The following skills were invoked in this session.
+  │     │     │      Continue to follow these guidelines:
+  │     │     │      ### Skill: <name>\n\n<content>\n---\n..."
+  │     │     │     is_skill_reinjection=True
+  │     │     └─ 写入 JSONL
+  │     └─ 清空 _invoked_skills
+  └─ 4. 重置 session history = [summary_msg]
+
+resume session:
+  ├─ load() 扫描 JSONL
+  ├─ 遇到 is_skill_reinjection message → 重新填充 _invoked_skills
+  └─ 后续 skill_view 调用可追加新 skill
+```
+
+## 前端原型
+
+前端相关 unit: IM 前端使用统计面板（初版三视图）。
+- 原型文件: [prototype.html](prototype.html)
+- 覆盖范围: Skill 列表视图 + Agent 维度视图 + 自进化健康度视图
+
+## 契约层增量 (delta-spec)
+
+- kernel: specs/kernel/spec.md — skill_view 作为新 kernel built-in 工具，skill_manage 移除 view action
+- im: no spec delta（面板是前端展示层，不改变 IM 对外行为契约）
+- gateway: no spec delta
+- cli: no spec delta
+
+## 风险与回退
+
+**风险 1: 迁移面广**
+skill_manage(action=view) 被 self_improvement review prompt 直接引用（4 处硬编码文案）。迁移需逐个改文案 + 测试。遗漏会导致后台 review 调用失败。
+- 应对: grep 全量 `skill_manage.*view` 确保无遗漏。self_improvement 的 tool_allowlist 也要加 skill_view。
+
+**风险 2: Compaction 注入时机**
+synthetic user message 注入到 compact_boundary 之后。如果 resume 逻辑不识别 `is_skill_reinjection` 标记，invoked skills 会丢失。
+- 应对: resume 时显式扫描该标记，重新填充内存 map。有单测覆盖。
+
+**风险 3: .usage.json 并发写入**
+多个 session 同时 bump_use 可能写冲突。fcntl.flock 保证原子性，但高频写入可能有性能问题。
+- 应对: usage 更新是 best-effort（失败不阻塞 skill_view）。单 workspace 内并发低（通常只有一个活跃 session）。
+
+**回退方案**:
+- skill_view 工具不可用 → 降级到 read 工具读 SKILL.md（formatter.py 的 location 仍在）
+- Curator 不可用 → skill 不会自动归档，不影响正常使用
+- .usage.json 损坏 → 重建空文件，use_count 从零开始
+
+## Runbook for Reviewer
+
+本 unit 涉及的常驻服务：无独立常驻服务。skill_view / Curator 是 agent 内核库的一部分，通过 Gateway 或 CLI 进程运行。
+
+| 服务 | 停止命令 | 启动命令 | 健康检查 |
+|---|---|---|---|
+| Gateway（含 skill_view + Curator） | `PYTHONPATH=src python -m personal_assistant.main stop` | `PYTHONPATH=src python -m personal_assistant.main` | `curl http://127.0.0.1:8011/im/v1/health` |
+| IM（前端面板） | `kill $(cat .im.pid)` | `PYTHONPATH=src python -m uvicorn IM.app:app --port 8011` | `curl http://127.0.0.1:8011/` |
+
+**Review 驱动方式**: 端到端真栈。本 unit 改了 IM 前端（使用统计面板），需真驱动客户端面验证面板渲染。
+
+## Milestones
+
+| ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
+|---|---|---|---|---|---|
+| feat-446-M1 | skill-view-core | — | A | `platform/tools/builtins/skill_view.py`(新)、`skill_manage.py`(删 view)、`core/skills/usage.py`(新)、`core/skills/formatter.py`、`sdk/kernel.py`、`core/agent/prompt_sections/core_sections.py`、`core/agent/prompt_sections/feature_registry.py`、`platform/hooks/builtins/self_improvement.py`、`coding_cli/product.py`、`personal_assistant/product.py`、`personal_assistant/reporter/capability_projection.py` | `[reviewer]` agent 调用 skill_view 返回 SKILL.md 内容; skill_manage 不含 view action; 使用统计记录到 .usage.json; compaction 后 invoked skill 内容仍可用; `[worker]` `pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/contract/ -x` 全绿 |
+| feat-446-M2 | curator | feat-446-M1 | B | `agent/curator.py`(新)、`core/skills/usage.py`(扩展 state 字段)、CLI 启动入口、Gateway housekeeping | `[reviewer]` 30 天未用的 auto skill 标记 stale; 90 天归档到 .archive/; stale skill 被重新读取后复活; pinned skill 不变; `[worker]` `pytest tests/unit/test_curator.py -x` 全绿 |
+| feat-446-M3 | f4-batch | feat-446-M1 | B | `agent/curator.py`(扩展 check_f4_triggers)、F4 batch job runner | `[reviewer]` uses_since_last_B 达阈值后触发 batch 分析; ≥2 session 证据才采纳; 只 patch 不创建; `[worker]` `pytest tests/unit/test_f4_batch.py -x` 全绿 |
+| feat-446-M4 | f2-distill | — | A | 蒸馏 skill（SKILL.md） | `[reviewer]` 蒸馏 skill 可用，agent 能从 session transcript + 意图生成新 skill; `[worker]` 蒸馏 skill 文件存在且格式正确 |
+| feat-446-M5 | dashboard | feat-446-M1 | C | `IM/frontend/src/` 面板组件 | `[reviewer]` Skill 列表视图显示 use_count + 状态 + 趋势; Agent 维度视图显示热力图; 健康度视图显示漏斗数字; `[worker]` `cd src/IM/frontend && npm run test` 全绿 |
+
+```mermaid
+graph LR
+  M1 --> M2
+  M1 --> M3
+  M1 --> M5
+```
