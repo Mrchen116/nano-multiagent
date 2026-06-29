@@ -92,9 +92,16 @@
     background: oklch(0.21 0.012 240); color:#fff; font-size:11px; padding:4px 8px; border-radius:6px; white-space:nowrap; display:none; }
   .chat-bubble--agent.is-offline:hover .fork-tip { display:block; }
 
-  /* fork 成功的轻量提示条（融入 messages 顶部） */
-  .fork-banner { align-self:stretch; margin:-6px 0 4px; padding:6px 12px; border-radius:0.5rem;
-    background: oklch(0.95 0.03 180); color: var(--im-accent-2); font-size:0.72rem; }
+  /* fork 成功的轻量提示：复用 IM 现有 in-app-toast 形态（top-left 卡片、白底圆角 + 边框 + 阴影、
+     4s 后自动淡出消失）——不是常驻在会话里的 banner（分支关系可视化是 spec 非目标）。 */
+  .fork-toast { position:fixed; left:16px; top:16px; z-index:60; max-width:20rem;
+    display:flex; align-items:flex-start; gap:10px; border-radius:1rem;
+    border:1px solid var(--im-border); background:#fff; padding:10px 14px;
+    box-shadow:0 14px 36px -18px rgba(0,0,0,.45); font-size:12px;
+    opacity:0; transform:translateY(-6px); transition:opacity .25s ease, transform .25s ease; pointer-events:none; }
+  .fork-toast.show { opacity:1; transform:none; }
+  .fork-toast .t-title { font-weight:600; color:var(--im-text); }
+  .fork-toast .t-sub { margin-top:2px; color:var(--im-text-muted); line-height:1.4; }
 
   /* 页面外壳（仅原型用，非 IM 一部分） */
   .page { max-width:1180px; margin:0 auto; padding:20px 16px 50px; }
@@ -263,13 +270,27 @@
     setTimeout(() => { ov.classList.remove('on'); buildBranch(forkId); }, 850);
   }
 
+  // 复用 IM in-app-toast 行为：淡入 → 4s 后淡出移除（非常驻 banner）
+  let forkToastTimer = null, forkToastEl = null;
+  function showForkToast(){
+    if (forkToastEl) forkToastEl.remove();
+    if (forkToastTimer) clearTimeout(forkToastTimer);
+    const el = document.createElement('div'); el.className = 'fork-toast'; el.setAttribute('role','status');
+    el.innerHTML = '<div><div class="t-title">已 fork 出分支单聊</div>'
+      + '<div class="t-sub">已带入起点 → fork 点的完整历史，agent 记得这段对话。</div></div>';
+    document.body.appendChild(el); forkToastEl = el;
+    requestAnimationFrame(() => el.classList.add('show'));
+    forkToastTimer = setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 280);
+    }, 4000);
+  }
+
   function buildBranch(forkId){
     const cut = SRC.findIndex(m => m.id === forkId);
     const carried = SRC.slice(0, cut + 1);
     const box = document.getElementById('brMsgs'); box.innerHTML = '';
-    const banner = document.createElement('div'); banner.className = 'fork-banner';
-    banner.textContent = '↳ 已 fork：带入起点 → fork 点的完整历史，agent 记得这段对话';
-    box.appendChild(banner);
+    showForkToast();
     // 分支里历史是只读展示（无 fork 按钮二次嵌套），用同样的气泡样式但去掉 forkable
     carried.forEach(m => {
       const m2 = Object.assign({}, m); // 复制，避免在分支里再挂 fork
