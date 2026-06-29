@@ -94,3 +94,30 @@
 - Rollback: 回退到 C1 commit（R3 红测）。
 - Commits: C1=(R3 红测), C2=cc931fbd, C3=(本提交)
 - Next: R4 — e2e 真栈脚本（kill/restart IM + 启动早于 IM）+ 登记 docs/e2e-critical-paths.md。
+
+## R4 — e2e 真栈脚本 + 登记 e2e-critical-paths.md
+
+- Context: issue 根因正是「集成层从未真栈 e2e 覆盖」（决策 5）。须补真 Gateway + 真 IM 两进程的
+  端到端，经 `/im/v1/nodes` 看节点回 online，覆盖 kill/restart IM + 启动早于 IM 两场景并登记 catalog。
+- Decision:
+  - 新增 `scripts/e2e-resilience.sh`：自取 ephemeral 端口、yq 派生隔离 config、起真 IM+真 Gateway
+    （`--foreground --auto-bind`）。A 场景=node online→kill IM→sleep→重启 IM（同 DB）→轮询节点回 online；
+    B 场景=先起 Gateway（IM 未起）→确认进程存活不崩→起 IM→轮询节点 online。节点状态经 nano 登录查
+    `/im/v1/nodes`。机器「休眠」用 kill IM 进程等价替代（决策 5 注释说明）。**不门控 LLM proxy**（连接韧性不调模型）。
+  - 新增 `tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py`（`@pytest.mark.e2e`）：
+    subprocess 驱动该脚本，门控 `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1` + 主 config 存在（缺则干净 skip）。
+  - `docs/e2e-critical-paths.md` 登记 v1 必保活 #13。
+- Rationale: 脚本是直接可跑的真栈交付物（live-critical 要求真跑到可见结果），pytest 包装把它接入套件做登记+门控。
+- Evidence:
+  - Tests: 单测子树 + contract 见 R1-R3（662 passed,1 skipped / contract 132 passed）。
+  - Entry / E2E（真栈，live evidence）:
+    - 直接跑脚本 `bash scripts/e2e-resilience.sh` →
+      `✓ A1 initial node online` / `✓ A2 node auto back online after IM restart (no gateway restart)` /
+      `✓ B1 gateway survived startup with IM down` / `✓ B2 node online after IM comes up` / `RESILIENCE E2E PASS`。
+    - 经 pytest 真跑：`NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1 pytest tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py` → `1 passed in 19.14s`。
+    - 门控验证：plain `pytest` → `1 skipped`；`-m "not e2e"` → `1 deselected`。
+  - Frontend / Browser QA / Visual: N/A（本 unit 不改客户端面）。
+  - Lint: `ruff check` + `ruff format` 通过；`bash -n` 脚本语法 ok。
+- Rollback: 回退到 C1 commit（R4 脚本+test 提交）。
+- Commits: C1=(R4 脚本+test), C2=N/A（无新增实现，行为由 R1-R3 落地）, C3=(本提交)
+- Next: 本 milestone 全部 roadpoint DONE，进入集成（rebase unit + merge）。
