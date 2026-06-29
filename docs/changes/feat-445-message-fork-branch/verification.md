@@ -1,5 +1,59 @@
 # Verification Report: feat-445
 
+---
+
+# Round 2
+
+> HEAD: a652e51c（M2-fix-fork-edges 合入后）
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Round-1 W1/W2/S1 闭合 | 全部闭合 |
+| M2 8 个边缘修复 | 全部实现 + 测试通过 |
+| 全树回归 | 3098 passed，1 skipped（较 R1 多 12 个新测试，零回归） |
+| Coherence | design 决策 2/4/5 均自洽，#4 重排是决策 5 的强化实现 |
+
+All checks passed. Ready for PR.
+
+## Round-1 Issue 闭合确认
+
+| Issue | 修复位置 | 测试 | 状态 |
+|---|---|---|---|
+| **W1** tool_calls/thinking 复制缺测 | `test_fork_conversation_edges.py:351` | `test_fork_copies_tool_calls_and_thinking` PASSED | CLOSED |
+| **W2** fork 未注册 e2e-critical-paths.md + 无永久 e2e | `docs/e2e-critical-paths.md:43`（第 12 行）；`tests/e2e/critical_paths/test_message_fork_critical_path.py` | @pytest.mark.e2e；R6 真栈 `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1` 1 passed | CLOSED |
+| **S1** 群聊源 → 400 无后端单测 | `test_fork_conversation.py:289` `test_fork_group_conversation_rejected` | PASSED | CLOSED |
+
+## M2 边缘修复核查
+
+| 缺陷 | 实现位置 | 测试 | live 证据 | 状态 |
+|---|---|---|---|---|
+| **#1 flush_async** | `runtime.py:1312`（`await flush_async()`，不阻塞事件循环） | `test_fork_up_to_uses_async_flush_not_blocking` PASSED | — | DONE |
+| **#2 drop source_lock** | `runtime.py:1316`（up_to 路径不持源锁；磁盘 materialize + 新 session 写、无竞态） | `test_fork_up_to_does_not_block_on_busy_source_lock` PASSED（源持锁 fork 3s 内完成） | R6：源 run 活跃 sleep 10 时 fork **0.0s** 返回 | DONE |
+| **#3 长对话 >200** | `repositories.py:1332`（`list_all_messages` 全量）；`web_im_service.py:269`（改用它） | `test_fork_point_outside_last_200_is_found`（260 条 fork 早期点）；`test_fork_at_end_of_long_conversation_copies_full_history` PASSED | — | DONE |
+| **#4 编排重排** | `web_im_service.py:288-313`（建空会话 → request_fork 绑定 → 复制展示历史） | `test_fork_copies_display_history_only_after_binding` PASSED（RPC 前无 message.created） | — | DONE |
+| **#5 递归 fork id_map** | 全链：`runtime._fork_locked:1391`（返回 `old_to_new_uuid`）→ `SessionInfo.fork_id_map`（`dto.py:40`）→ `kernel.fork_session:821`（`replace(..., fork_id_map=id_map)`）→ `main.py:3056`（`"id_map": dict(fork_id_map)`）→ gateway_handler 回包透传 → `web_im_service.py:323-341`（`id_map.get(源 km)` 回写） | `test_fork_unmapped_kernel_id_becomes_none` PASSED；`test_session_fork_handler.py:72`（`result["id_map"]=={"a3":"branch-a3"}`） | R6：branch1 复制气泡 kernel id 已重映射；recursive fork → **201（非 502）**；branch2 agent 带历史答出 `MANGO-5` | DONE |
+| **#6 回滚受保护** | `web_im_service.py:309`（`except BaseException`，含 CancelledError）；`_rollback_fork:356`（protected helper，delete 失败只 log 不覆盖原异常） | `test_fork_rollback_does_not_mask_original_error`；`test_fork_rolls_back_on_cancelled_error` PASSED | — | DONE |
+| **#7 双击禁用** | `message-pane.tsx:577`（`disabled={!agentOnline || forkPending}`）；`chat-workspace-page.tsx:719`（`forkMutation.isPending`） | `message-pane-fork.test.tsx`："disables fork while fork is in flight" PASSED（vitest 550 passed） | R6：playwright 双击 → delta=**1** 条分支（非两条）；截图 `ACCEPTANCE/feat-445-M2/r6-doubleclick-after.png` | DONE |
+| **#8 保留 delivery_status** | `web_im_service.py:342`（`delivery_status=message.delivery_status`）；`repositories.py:985`（显式值优先于 auto_complete） | `test_fork_preserves_failed_delivery_status` PASSED | — | DONE |
+| **防御 role 守卫** | `jsonl_store.py:228`（up_to 命中须 `role=="assistant"`，否则显式报错） | `test_fork_up_to_non_assistant_message_rejected` PASSED | — | DONE |
+
+## Coherence（M2 新改动）
+
+- **决策 2（WS RPC 委托）**：id_map 通过 `session.fork.result` payload 透传，IM 在回调里 `result.get("id_map")`——全程经 WS 帧，无直连 gateway 内部存储，边界合规。
+- **决策 4（重排与决策 5 的关系）**：#4 重排把「建空会话 → request_fork（绑定）→ 复制展示历史」的顺序固定，使 RPC 失败回滚的是空会话（无用户消息被撤）。这是决策 5"失败原子回滚"的强化实现，不是偏离——设计 decision 5 的不变量（失败无孤儿会话）得到加强保证。
+- **#2 无 source_lock 安全性**：JSONL append-only + M 处截断 + 行写入原子 + 先 flush_async 保证 as-of-M 切片一致，已在 progress R1 中第一手论证。`_fork_locked` 只写新 session，不读源内存缓存，故去掉源锁无数据竞争。
+- **架构边界**：contract tests 通过（132 passed on contract/ layer）；IM 仍只经 WS RPC 与 gateway 交互，无直读 gateway session 文件。
+
+## Issues
+
+无。Round-1 全部 issue 已闭合，M2 无新引入 CRITICAL/WARNING/SUGGESTION。
+
+---
+
+# Round 1
+
 ## Summary
 
 | 维度 | 结果 |
