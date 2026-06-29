@@ -101,6 +101,20 @@ F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要
 
 **与 hermes 的对齐**：hermes 本来就是三工具拆分（skills_list / skill_view / skill_manage）+ Curator。用户抄代码时把 view 和 list 合进了 skill_manage，Curator 没抄。现在补上，并从全局改为 per-workspace。
 
+**自进化体系总览**（三个正交机制）：
+
+| | F3 · Per-turn Review | F4 · Per-skill Batch | F5 · Curator |
+|---|---|---|---|
+| **触发** | 单 session 内 tool calls ≥ 10，Stop 时触发 | 单个 skill 的 uses_since_last_B ≥ 阈值（~20） | idle ≥ 2h + 距上次 ≥ 7 天 |
+| **分析范围** | 当前 session 的 transcript | 该 skill 被用过的 X 个已结束 session 的 JSONL | 整个 skill 库（不读 transcript） |
+| **分析深度** | 轻量：用户纠正、风格偏好、工作流改进 | 重量：跨 session 统计挖掘，≥2 证据阈值 | 维护级：时间戳扫描，不调 LLM |
+| **能做什么** | 创建 + patch skill | 只 patch，不创建 | 归档 stale + 复活 active |
+| **数据来源** | 当前 session 的 hook 事件 | 已结束 session 的 JSONL 文件 | use_count / last_used_at 时间戳 |
+| **写入方式** | skill_manage(create/patch) | skill_manage(patch) | 直接改状态 + 物理移动目录 |
+| **本 unit 现状** | 已有（self_improvement.py），补 skill_view 白名单 | 新增：阈值触发 + session 引用追踪 + 分析流程 | 新增：per-workspace periodic 扫描 |
+
+三者不冲突：F3 在 session 内实时响应，F4 在 skill 维度批量深挖，F5 在库级别定期维护。
+
 ## 验收标准
 
 ### Requirement: skill_view 作为独立只读工具可用
