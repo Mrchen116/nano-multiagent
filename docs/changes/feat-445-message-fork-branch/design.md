@@ -209,7 +209,8 @@ sequenceDiagram
 ## 前端原型
 
 - 原型文件: [prototype.html](prototype.html)
-- 覆盖范围：单聊消息流中 agent 已完成回复 hover 出现 fork 按钮、用户消息/生成中消息无按钮、点击 fork 的 loading→跳转新会话、agent 离线时 fork 按钮置灰 + 提示。
+- **建在现有 IM v2 之上**：DOM 照搬 `message-pane.tsx` 的 `MessagePane`/`MessageBubble`（`chat-pane*` / `chat-bubble*` 真实 class），样式内联自 `global.css`（含 `:root` 令牌、青绿 accent、IBM Plex、真实气泡圆角/头像/running 脉冲/composer）。**唯一新增** = agent 已完成气泡 hover 出现的消息级 fork 按钮（`.chat-bubble-fork`，按既有 `--im-accent`/`--im-border` 令牌设计，与 `.chat-pane-config` 同族）——现状气泡无任何消息级操作按钮。
+- 覆盖范围：agent 已完成回复 hover 出 fork、**一次提问多条气泡各自可 fork 且截断点不同**、用户/生成中(running ⏱)消息无按钮、点击 fork 的 loading→跳转新会话（历史精确到 fork 点）、agent 离线置灰 + 提示。
 
 ## 契约层增量 (delta-spec)
 

@@ -3,234 +3,289 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>feat-445 — 消息 fork / 分支单聊 原型</title>
+<title>feat-445 — 消息 fork / 分支单聊 原型（基于现有 IM v2）</title>
+<!--
+  本原型严格复用现有 IM v2 聊天 UI：
+  - DOM 结构照搬 src/IM/frontend/src/features/chat/v2/components/message-pane.tsx 的 MessagePane / MessageBubble
+  - 样式直接内联自 src/IM/frontend/src/styles/global.css 的 .chat-pane* / .chat-bubble* + :root 令牌
+  - 仅“新增”一个消息级操作：agent 已完成气泡 hover 出现的 fork 按钮（现状气泡无任何消息级操作按钮）
+  fork 按钮样式（.chat-bubble-fork）按 IM 既有令牌（--im-accent / --im-surface / --im-border）设计，与 .chat-pane-config 同族。
+-->
 <style>
+  /* ===== 自 global.css :root 令牌（原样） ===== */
   :root {
-    --bg: #f5f6f8; --panel: #fff; --ink: #1f2329; --sub: #8a9099;
-    --agent: #eef1f5; --user: #3b82f6; --line: #e6e8eb;
-    --accent: #3b82f6; --danger: #d14343; --ok: #16a34a;
+    --im-bg: oklch(0.98 0.005 240);
+    --im-surface: oklch(1 0 0);
+    --im-surface-2: oklch(0.965 0.006 240);
+    --im-topbar: oklch(0.19 0.012 240);
+    --im-topbar-fg: oklch(0.96 0.004 240);
+    --im-accent: oklch(0.52 0.14 180);
+    --im-accent-fg: oklch(0.99 0 0);
+    --im-accent-2: oklch(0.42 0.13 180);
+    --im-text: oklch(0.21 0.012 240);
+    --im-text-muted: oklch(0.5 0.012 240);
+    --im-border: oklch(0.9 0.008 240);
+    --im-border-strong: oklch(0.82 0.01 240);
+    --im-danger: oklch(0.58 0.18 25);
+    --im-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --im-font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
   }
   * { box-sizing: border-box; }
-  body { margin: 0; font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", sans-serif;
-         background: var(--bg); color: var(--ink); }
-  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
-  h1 { font-size: 18px; margin: 0 0 4px; }
-  .lede { color: var(--sub); margin: 0 0 20px; font-size: 13px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
-  @media (max-width: 880px){ .grid { grid-template-columns: 1fr; } }
-  .app { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-         overflow: hidden; display: flex; flex-direction: column; min-height: 520px; }
-  .topbar { display: flex; align-items: center; gap: 8px; padding: 10px 14px;
-            border-bottom: 1px solid var(--line); }
-  .avatar { width: 28px; height: 28px; border-radius: 50%; background: #cdd5df;
-            display: grid; place-items: center; font-size: 13px; color: #475; font-weight: 600; }
-  .title { font-weight: 600; }
-  .status { font-size: 12px; margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--sub); }
-  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
-  .dot.off { background: #c2c7cd; }
-  .stream { flex: 1; padding: 16px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
-  .row { display: flex; gap: 8px; align-items: flex-end; }
-  .row.me { flex-direction: row-reverse; }
-  .bubble-wrap { position: relative; max-width: 74%; }
-  .bubble { padding: 9px 12px; border-radius: 12px; background: var(--agent); white-space: pre-wrap; }
-  .row.me .bubble { background: var(--user); color: #fff; }
-  .meta { font-size: 11px; color: var(--sub); margin: 2px 4px 0; }
-  .row.me .meta { text-align: right; }
-  /* fork button: hidden until hover on an eligible agent bubble */
-  .fork-btn { position: absolute; top: -10px; right: -10px; display: none;
-              align-items: center; gap: 4px; padding: 3px 8px; font-size: 12px;
-              background: #fff; border: 1px solid var(--line); border-radius: 14px;
-              box-shadow: 0 1px 3px rgba(0,0,0,.12); cursor: pointer; color: var(--accent); }
-  .bubble-wrap.forkable:hover .fork-btn { display: inline-flex; }
-  .fork-btn:hover { background: #f0f6ff; }
-  .fork-btn[disabled] { color: var(--sub); cursor: not-allowed; border-style: dashed; }
-  .bubble-wrap.offline:hover .fork-btn { display: inline-flex; } /* show disabled state on hover */
-  .tip { position: absolute; top: -34px; right: -10px; background: #1f2329; color: #fff;
-         font-size: 11px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; display: none; }
-  .bubble-wrap.offline:hover .tip { display: block; }
-  .typing { display: inline-flex; gap: 3px; padding: 12px; }
-  .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--sub); animation: blink 1.2s infinite; }
-  .typing i:nth-child(2){ animation-delay: .2s; } .typing i:nth-child(3){ animation-delay: .4s; }
-  @keyframes blink { 0%,80%,100%{opacity:.3} 40%{opacity:1} }
-  .composer { border-top: 1px solid var(--line); padding: 10px 12px; display: flex; gap: 8px; }
-  .composer input { flex: 1; border: 1px solid var(--line); border-radius: 18px; padding: 8px 14px; outline: none; }
-  .composer button { border: none; background: var(--accent); color: #fff; border-radius: 18px; padding: 0 16px; cursor: pointer; }
-  .banner { padding: 8px 14px; font-size: 12px; background: #ecfdf3; color: #027a48;
-            border-bottom: 1px solid #abefc6; display: flex; align-items: center; gap: 6px; }
-  .legend { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-            padding: 14px 16px; margin-top: 20px; font-size: 13px; color: #444; }
-  .legend b { color: var(--ink); }
-  .legend li { margin: 4px 0; }
-  .cap { font-size: 12px; color: var(--sub); margin: 0 0 8px; font-weight: 600; }
-  /* loading overlay */
-  .overlay { position: absolute; inset: 0; background: rgba(255,255,255,.82); display: none;
-             place-items: center; flex-direction: column; gap: 10px; z-index: 5; }
-  .overlay.on { display: grid; }
-  .spinner { width: 26px; height: 26px; border: 3px solid #d8dde3; border-top-color: var(--accent);
-             border-radius: 50%; animation: spin .8s linear infinite; }
+  body { margin: 0; font-family: var(--im-font-sans); color: var(--im-text);
+         background: var(--im-bg); -webkit-font-smoothing: antialiased; }
+
+  /* ===== 自 global.css .chat-pane* / .chat-bubble*（原样内联） ===== */
+  .chat-pane { flex:1; min-width:0; display:flex; flex-direction:column; min-height:0; overflow:hidden; background: oklch(0.93 0.007 240); }
+  .chat-pane-header { display:flex; align-items:center; gap:10px; padding:11px 20px; border-bottom:1px solid var(--im-border); flex-shrink:0; background: oklch(0.96 0.005 240); }
+  .chat-pane-header-body { flex:1; min-width:0; }
+  .chat-pane-title { margin:0; font-size:14.5px; font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .chat-pane-header-meta { display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:1px; }
+  .chat-pane-participants { font-size:0.75rem; color:var(--im-text-muted); }
+  .chat-pane-config { background:transparent; border:1px solid var(--im-border); border-radius:0.4rem; padding:0.2rem 0.5rem; font:inherit; font-size:0.75rem; color:var(--im-text-muted); cursor:pointer; flex-shrink:0; }
+  .chat-pane-config:hover { background:var(--im-surface-2); color:var(--im-text); }
+  .chat-pane-messages { flex:1; min-height:0; overflow-y:auto; padding:20px 20px 8px; display:flex; flex-direction:column; gap:10px; }
+
+  .chat-pane-composer { display:flex; flex-direction:column; padding:10px 16px 14px; border-top:1px solid var(--im-border); background: oklch(0.96 0.005 240); flex-shrink:0; }
+  .chat-pane-composer-row { display:flex; gap:8px; align-items:flex-end; }
+  .chat-pane-composer-input { border:1px solid var(--im-border); border-radius:0.6rem; background:var(--im-surface-2); padding:0.5rem 0.75rem; font:inherit; font-size:0.9rem; color:var(--im-text); resize:none; width:100%; }
+  .chat-pane-composer-input::placeholder { color: var(--im-text-muted); }
+  .chat-pane-composer-send { background:var(--im-accent); color:var(--im-accent-fg); border:0; border-radius:0.6rem; width:38px; height:38px; display:flex; align-items:center; justify-content:center; font-size:1rem; cursor:pointer; flex-shrink:0; transition:all .15s; }
+  .chat-pane-composer-send:disabled { opacity:0.4; cursor:not-allowed; }
+  .chat-pane-composer-help { margin:6px 0 0; font-size:0.7rem; color:var(--im-text-muted); }
+
+  .chat-bubble { display:flex; flex-direction:row; gap:10px; max-width:72%; }
+  .chat-bubble--user { align-self:flex-end; align-items:flex-end; flex-direction:row-reverse; }
+  .chat-bubble--agent { align-self:flex-start; align-items:flex-start; }
+  .chat-bubble-meta { display:flex; align-items:center; gap:0.4rem; }
+  .chat-bubble-sender { font-size:0.72rem; font-weight:600; color:var(--im-text-muted); }
+  .chat-bubble-card { background: oklch(0.91 0.007 240); border:none; border-radius:1rem; padding:9px 13px; font-size:0.875rem; line-height:1.5; }
+  .chat-bubble--user .chat-bubble-card { background:var(--im-accent); color:var(--im-accent-fg); border-radius:1rem 1rem 0.25rem 1rem; }
+  .chat-bubble--agent .chat-bubble-card { border-radius:1rem 1rem 1rem 0.25rem; }
+  .chat-bubble-content { white-space:pre-wrap; word-break:break-word; }
+
+  /* MessageBubble 用到的 Tailwind 工具类（手译，等价） */
+  .u-col { display:flex; flex-direction:column; min-width:0; }
+  .u-avatar { display:inline-flex; flex-shrink:0; align-items:center; justify-content:center; width:30px; height:30px; border-radius:9999px; color:#fff; font-size:12px; font-weight:600; }
+  .chat-bubble-status { margin-top:2px; display:flex; align-items:center; gap:8px; font-size:11px; color: oklch(0.55 0.01 240); }
+  .chat-bubble--user .chat-bubble-status { justify-content:flex-end; }
+  .run-pulse { display:inline-flex; align-items:center; gap:4px; color: oklch(0.65 0.15 60); }
+  .run-pulse i { display:inline-block; width:6px; height:6px; border-radius:9999px; background: oklch(0.70 0.18 60); animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+  /* ===== 新增：消息级 fork 操作（现状气泡无任何消息级按钮，这是本 unit 唯一新增的气泡内交互） ===== */
+  .chat-bubble-card { position: relative; }
+  .chat-bubble-fork {
+    position:absolute; top:6px; right:-12px; transform: translateX(100%);
+    display:none; align-items:center; gap:4px;
+    background:var(--im-surface); border:1px solid var(--im-border); border-radius:0.45rem;
+    padding:3px 8px; font:inherit; font-size:0.72rem; color:var(--im-accent-2);
+    cursor:pointer; box-shadow: var(--im-shadow, 0 6px 18px -12px rgba(0,0,0,.4)); white-space:nowrap;
+  }
+  .chat-bubble--agent.is-forkable:hover .chat-bubble-fork { display:inline-flex; }
+  .chat-bubble-fork:hover { background:var(--im-surface-2); color:var(--im-text); }
+  .chat-bubble-fork[disabled] { color:var(--im-text-muted); cursor:not-allowed; border-style:dashed; }
+  .chat-bubble--agent.is-offline:hover .chat-bubble-fork { display:inline-flex; } /* 离线时仍现身，但置灰 */
+  .fork-tip { position:absolute; top:-30px; right:-12px; transform:translateX(100%);
+    background: oklch(0.21 0.012 240); color:#fff; font-size:11px; padding:4px 8px; border-radius:6px; white-space:nowrap; display:none; }
+  .chat-bubble--agent.is-offline:hover .fork-tip { display:block; }
+
+  /* fork 成功的轻量提示条（融入 messages 顶部） */
+  .fork-banner { align-self:stretch; margin:-6px 0 4px; padding:6px 12px; border-radius:0.5rem;
+    background: oklch(0.95 0.03 180); color: var(--im-accent-2); font-size:0.72rem; }
+
+  /* 页面外壳（仅原型用，非 IM 一部分） */
+  .page { max-width:1180px; margin:0 auto; padding:20px 16px 50px; }
+  .page h1 { font-size:17px; margin:0 0 2px; }
+  .page .lede { color:var(--im-text-muted); font-size:12.5px; margin:0 0 16px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+  @media (max-width:920px){ .grid { grid-template-columns:1fr; } }
+  .shell { height:560px; display:flex; border:1px solid var(--im-border); border-radius:12px; overflow:hidden; background:var(--im-surface); position:relative; box-shadow: var(--im-shadow, 0 12px 32px -22px rgba(0,0,0,.4)); }
+  .pane-label { font-size:11px; font-weight:600; color:var(--im-text-muted); margin:0 0 6px; text-transform:uppercase; letter-spacing:.04em; }
+  .node-dot { width:7px; height:7px; border-radius:50%; background:var(--im-accent); display:inline-block; }
+  .node-dot.off { background: oklch(0.75 0.01 240); }
+  .legend { border:1px solid var(--im-border); border-radius:12px; padding:14px 16px; margin-top:18px; font-size:13px; background:var(--im-surface); }
+  .legend b { color:var(--im-text); }
+  .legend li { margin:4px 0; color:#444; }
+  .overlay { position:absolute; inset:0; background: oklch(0.96 0.005 240 / .8); display:none; align-items:center; justify-content:center; flex-direction:column; gap:8px; z-index:5; }
+  .overlay.on { display:flex; }
+  .spin { width:24px; height:24px; border:3px solid var(--im-border-strong); border-top-color:var(--im-accent); border-radius:50%; animation:spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .app { position: relative; }
+  .switch { font-size:11px; color:var(--im-accent-2); cursor:pointer; text-decoration:underline; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>feat-445 — 从某条 agent 消息 fork 出分支单聊</h1>
-  <p class="lede">左：源单聊（hover 已完成 agent 回复出现 fork 按钮；用户消息 / 生成中消息无按钮；agent 离线时置灰 + 提示）。点左侧某条 agent 回复的 fork → loading → 右侧出现「分支单聊」，历史只保留到 fork 点。</p>
+<div class="page">
+  <h1>feat-445 — 消息 fork / 分支单聊（基于现有 IM v2 聊天界面）</h1>
+  <p class="lede">复用现有 <code>MessagePane / MessageBubble</code> 的真实 DOM 与 <code>global.css</code> 样式。唯一新增：agent 已完成气泡 hover 时出现的 <b>fork</b> 按钮。点左侧某条 agent 回复的 fork → 右侧生成分支单聊（历史精确到该条）。</p>
 
   <div class="grid">
-    <!-- SOURCE CHAT -->
-    <div class="app" id="srcApp">
-      <div class="topbar">
-        <div class="avatar">研</div>
-        <div class="title">研究助手</div>
-        <div class="status"><span class="dot" id="srcDot"></span><span id="srcStatus">在线</span>
-          &nbsp;·&nbsp;<a href="#" id="toggleOnline" style="font-size:11px">切到离线</a>
-        </div>
+    <div>
+      <p class="pane-label">源单聊（hover agent 回复 → fork）</p>
+      <div class="shell">
+        <section class="chat-pane" aria-label="研究助手">
+          <header class="chat-pane-header">
+            <span class="u-avatar" style="background: oklch(0.52 0.14 270)">研</span>
+            <div class="chat-pane-header-body">
+              <h2 class="chat-pane-title">研究助手</h2>
+              <div class="chat-pane-header-meta">
+                <span class="chat-pane-participants"><span class="node-dot" id="srcDot"></span> <span id="srcStat">在线</span></span>
+                <span class="switch" id="toggle">切到离线</span>
+              </div>
+            </div>
+            <button class="chat-pane-config" type="button">设置</button>
+          </header>
+          <div class="chat-pane-messages" id="srcMsgs"></div>
+          <form class="chat-pane-composer" onsubmit="return false">
+            <div class="chat-pane-composer-row">
+              <textarea class="chat-pane-composer-input" rows="2" placeholder="给 研究助手 发消息…"></textarea>
+              <button class="chat-pane-composer-send" type="submit">↑</button>
+            </div>
+          </form>
+        </section>
+        <div class="overlay" id="srcOverlay"><div class="spin"></div><div style="font-size:12.5px;color:var(--im-text-muted)">正在 fork 分支单聊…</div></div>
       </div>
-      <div class="stream" id="srcStream"></div>
-      <div class="composer"><input placeholder="发消息…" /><button>发送</button></div>
-      <div class="overlay" id="srcOverlay"><div class="spinner"></div><div style="font-size:13px;color:#444">正在 fork 分支单聊…</div></div>
     </div>
 
-    <!-- BRANCH CHAT -->
-    <div class="app" id="brApp">
-      <div class="topbar">
-        <div class="avatar">研</div>
-        <div class="title">研究助手</div>
-        <div class="status"><span class="dot"></span>在线</div>
+    <div>
+      <p class="pane-label">fork 出的分支单聊</p>
+      <div class="shell">
+        <section class="chat-pane" aria-label="研究助手（分支）">
+          <header class="chat-pane-header">
+            <span class="u-avatar" style="background: oklch(0.52 0.14 270)">研</span>
+            <div class="chat-pane-header-body">
+              <h2 class="chat-pane-title">研究助手</h2>
+              <div class="chat-pane-header-meta"><span class="chat-pane-participants"><span class="node-dot"></span> 在线</span></div>
+            </div>
+            <button class="chat-pane-config" type="button">设置</button>
+          </header>
+          <div class="chat-pane-messages" id="brMsgs">
+            <div class="chat-pane-empty" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:.5rem;color:var(--im-text-muted);text-align:center">
+              <div style="font-size:30px;opacity:.4">⑂</div>
+              <p style="margin:0;font-weight:600;color:var(--im-text)">还没有分支</p>
+              <p style="margin:0;font-size:.85rem">点左侧某条 agent 回复上的 fork 按钮</p>
+            </div>
+          </div>
+          <form class="chat-pane-composer" onsubmit="return false">
+            <div class="chat-pane-composer-row">
+              <textarea class="chat-pane-composer-input" id="brInput" rows="2" placeholder="给 研究助手 发消息…" disabled></textarea>
+              <button class="chat-pane-composer-send" id="brSend" type="submit" disabled>↑</button>
+            </div>
+          </form>
+        </section>
       </div>
-      <div class="banner" id="brBanner" style="display:none">↳ 已 fork：带入起点 → fork 点的全部历史，agent 记得这段对话</div>
-      <div class="stream" id="brStream">
-        <div style="margin:auto;color:#aab;text-align:center;font-size:13px;padding:24px">
-          点击左侧某条 agent 回复上的 <b>⑂ fork</b> 按钮<br/>这里会出现一个新的分支单聊
-        </div>
-      </div>
-      <div class="composer"><input placeholder="发消息…" id="brInput" disabled /><button id="brSend" disabled>发送</button></div>
     </div>
   </div>
 
   <div class="legend">
-    <p class="cap">原型覆盖的 spec 行为</p>
+    <p class="pane-label" style="margin-bottom:8px">原型覆盖的 spec 行为</p>
     <ul>
-      <li><b>已完成 agent 回复可 fork</b>：hover 出 ⑂ 按钮（仅 agent 且已完成的气泡）。</li>
-      <li><b>用户消息无 fork</b>：自己发的消息 hover 不出按钮。</li>
-      <li><b>生成中无 fork</b>：仍在「打字」的 agent 气泡无按钮，待完成才出现。</li>
-      <li><b>带入起点→fork 点</b>：fork 第一条 agent 回复 → 分支只含到该条；fork 后面的回复 → 分支含更多，fork 点之后的不带。</li>
-      <li><b>fork 后自动进入 + 原会话不变</b>：右侧自动填充并可输入；左侧源会话原封不动。</li>
-      <li><b>agent 离线禁用</b>：点「切到离线」后，fork 按钮置灰 + 「该 agent 当前不可用，暂时无法 fork」提示。</li>
+      <li><b>已完成 agent 回复可 fork</b>：hover agent 气泡卡片右侧出现 ⑂ fork（仅 <code>isAgent &amp;&amp; delivery_status==="completed"</code>）。</li>
+      <li><b>一次提问多条气泡各自可 fork</b>：同一 run 连续两条 agent 气泡（“分三点” + “补一句”）各带独立 fork，分别 fork 截断点不同。</li>
+      <li><b>用户消息 / 生成中消息无 fork</b>：用户气泡、running 态（⏱ 脉冲）气泡都不出按钮。</li>
+      <li><b>带入起点→fork 点</b>：fork 第一条 → 分支到该条；fork 后一条 → 多带一条，fork 点之后不带。</li>
+      <li><b>fork 后自动进入 + 原会话不变</b>：右侧自动填充并可输入；左侧原封不动。</li>
+      <li><b>agent 离线禁用</b>：切离线后 fork 置灰 + “该 agent 当前不可用，暂时无法 fork”。</li>
     </ul>
   </div>
 </div>
 
 <script>
-  // 源会话消息流：含 fork 点（每条 agent 已完成回复都可作为 fork 点）
+  // 与现有 Message 模型同形的最小子集：id / sender.type / content / delivery_status / run（演示同 run 多气泡）
   const SRC = [
-    { id:'m1', who:'me',    text:'帮我比较一下三种向量数据库选型。' },
-    // m2 与 m2b 来自同一次提问的同一个 run（agent 先答一段、再补一段）——
-    // 每条都是独立气泡、各自可 fork（对应各自的 kernel message_id）。
-    { id:'m2', who:'agent', done:true, run:'r1', text:'好的，分三点：\n1. Milvus — 自托管、生态成熟；\n2. pgvector — 复用现有 Postgres、运维省；\n3. Pinecone — 全托管、上手快但锁定。' },
-    { id:'m2b',who:'agent', done:true, run:'r1', text:'补一句：如果团队没有专职 DBA，优先考虑全托管或复用既有组件，别为向量单独养一套基础设施。' },
-    { id:'m3', who:'me',    text:'我们已经在用 Postgres 了。' },
-    { id:'m4', who:'agent', done:true, text:'那 pgvector 是性价比最高的起点：无需额外组件，索引用 HNSW，百万级向量延迟可接受；规模再上去再考虑迁 Milvus。' },
-    { id:'m5', who:'me',    text:'索引参数怎么调？' },
-    { id:'m6', who:'agent', done:false, text:'' }, // 生成中
+    { id:'m1',  type:'user',  content:'帮我比较一下三种向量数据库选型。', status:'completed', ts:'09:41' },
+    // m2 / m2b：同一次提问、同一个 run 产出的两条 agent 气泡（各自独立 message_id）
+    { id:'m2',  type:'agent', run:'r1', content:'好的，分三点：\n1. Milvus — 自托管、生态成熟\n2. pgvector — 复用现有 Postgres、运维省\n3. Pinecone — 全托管、上手快但锁定', status:'completed', ts:'09:41' },
+    { id:'m2b', type:'agent', run:'r1', content:'补一句：如果团队没有专职 DBA，优先全托管或复用既有组件，别为向量单独养一套基础设施。', status:'completed', ts:'09:41' },
+    { id:'m3',  type:'user',  content:'我们已经在用 Postgres 了。', status:'completed', ts:'09:43' },
+    { id:'m4',  type:'agent', run:'r2', content:'那 pgvector 是性价比最高的起点：无需额外组件，索引用 HNSW，百万级向量延迟可接受。', status:'completed', ts:'09:44' },
+    { id:'m5',  type:'user',  content:'索引参数怎么调？', status:'completed', ts:'09:45' },
+    { id:'m6',  type:'agent', run:'r3', content:'', status:'running', ts:'09:46' }, // 生成中：无 fork
   ];
 
   let online = true;
-  const srcStream = document.getElementById('srcStream');
+  const senderColor = 'oklch(0.52 0.14 270)';
 
-  function fmtMeta(who, done){
-    if (who === 'me') return '你';
-    return done ? '研究助手' : '研究助手 · 生成中';
+  function bubble(m){
+    const isUser = m.type === 'user';
+    const wrap = document.createElement('div');
+    wrap.className = 'chat-bubble chat-bubble--' + (isUser ? 'user' : 'agent');
+    const forkable = m.type === 'agent' && m.status === 'completed';
+    if (forkable) wrap.classList.add(online ? 'is-forkable' : 'is-offline');
+
+    if (!isUser){
+      const av = document.createElement('span');
+      av.className = 'u-avatar'; av.style.background = senderColor; av.textContent = '研';
+      wrap.appendChild(av);
+    }
+    const col = document.createElement('div'); col.className = 'u-col';
+    if (!isUser){
+      const meta = document.createElement('div'); meta.className = 'chat-bubble-meta';
+      const s = document.createElement('span'); s.className = 'chat-bubble-sender'; s.style.color = senderColor; s.textContent = '研究助手';
+      meta.appendChild(s); col.appendChild(meta);
+    }
+    const card = document.createElement('div'); card.className = 'chat-bubble-card';
+    if (m.status === 'running'){
+      card.innerHTML = '<span style="color:var(--im-text-muted)">…</span>';
+    } else {
+      const c = document.createElement('div'); c.className = 'chat-bubble-content'; c.textContent = m.content; card.appendChild(c);
+    }
+    if (forkable){
+      const btn = document.createElement('button');
+      btn.className = 'chat-bubble-fork'; btn.type = 'button'; btn.innerHTML = '⑂ fork';
+      if (!online) btn.disabled = true;
+      btn.onclick = () => online && doFork(m.id);
+      card.appendChild(btn);
+      const tip = document.createElement('div'); tip.className = 'fork-tip'; tip.textContent = '该 agent 当前不可用，暂时无法 fork';
+      card.appendChild(tip);
+    }
+    col.appendChild(card);
+
+    const st = document.createElement('div'); st.className = 'chat-bubble-status';
+    st.innerHTML = '<span>' + (m.ts || '') + '</span>';
+    if (m.status === 'running') st.innerHTML += '<span class="run-pulse"><i></i>⏱ 0:06</span>';
+    col.appendChild(st);
+
+    wrap.appendChild(col);
+    return wrap;
   }
 
   function renderSrc(){
-    srcStream.innerHTML = '';
-    SRC.forEach(m => {
-      const row = document.createElement('div');
-      row.className = 'row ' + (m.who === 'me' ? 'me' : 'agent');
-      const wrap = document.createElement('div');
-      wrap.className = 'bubble-wrap';
-
-      const forkable = m.who === 'agent' && m.done;
-      if (forkable) wrap.classList.add(online ? 'forkable' : 'offline');
-
-      const bubble = document.createElement('div');
-      bubble.className = 'bubble';
-      if (m.who === 'agent' && !m.done){
-        bubble.innerHTML = '<div class="typing"><i></i><i></i><i></i></div>';
-      } else {
-        bubble.textContent = m.text;
-      }
-      wrap.appendChild(bubble);
-
-      if (forkable){
-        const btn = document.createElement('button');
-        btn.className = 'fork-btn';
-        btn.innerHTML = '⑂ fork';
-        if (!online){ btn.disabled = true; }
-        btn.onclick = () => online && doFork(m.id);
-        wrap.appendChild(btn);
-
-        const tip = document.createElement('div');
-        tip.className = 'tip';
-        tip.textContent = '该 agent 当前不可用，暂时无法 fork';
-        wrap.appendChild(tip);
-      }
-
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      meta.textContent = fmtMeta(m.who, m.done);
-
-      const col = document.createElement('div');
-      col.style.display = 'flex'; col.style.flexDirection = 'column';
-      col.style.alignItems = m.who === 'me' ? 'flex-end' : 'flex-start';
-      col.appendChild(wrap); col.appendChild(meta);
-      row.appendChild(col);
-      srcStream.appendChild(row);
-    });
+    const box = document.getElementById('srcMsgs'); box.innerHTML = '';
+    SRC.forEach(m => box.appendChild(bubble(m)));
+    box.scrollTop = box.scrollHeight;
   }
 
   function doFork(forkId){
-    const overlay = document.getElementById('srcOverlay');
-    overlay.classList.add('on');
-    setTimeout(() => {
-      overlay.classList.remove('on');
-      buildBranch(forkId);
-    }, 900);
+    const ov = document.getElementById('srcOverlay'); ov.classList.add('on');
+    setTimeout(() => { ov.classList.remove('on'); buildBranch(forkId); }, 850);
   }
 
   function buildBranch(forkId){
-    // 带入：起点 → fork 点（含被点的 agent 回复），其后丢弃
     const cut = SRC.findIndex(m => m.id === forkId);
     const carried = SRC.slice(0, cut + 1);
-
-    const brStream = document.getElementById('brStream');
-    document.getElementById('brBanner').style.display = 'flex';
-    brStream.innerHTML = '';
+    const box = document.getElementById('brMsgs'); box.innerHTML = '';
+    const banner = document.createElement('div'); banner.className = 'fork-banner';
+    banner.textContent = '↳ 已 fork：带入起点 → fork 点的完整历史，agent 记得这段对话';
+    box.appendChild(banner);
+    // 分支里历史是只读展示（无 fork 按钮二次嵌套），用同样的气泡样式但去掉 forkable
     carried.forEach(m => {
-      const row = document.createElement('div');
-      row.className = 'row ' + (m.who === 'me' ? 'me' : 'agent');
-      const b = document.createElement('div'); b.className = 'bubble'; b.textContent = m.text;
-      const meta = document.createElement('div'); meta.className = 'meta'; meta.textContent = fmtMeta(m.who, true);
-      const col = document.createElement('div');
-      col.style.display='flex'; col.style.flexDirection='column';
-      col.style.alignItems = m.who === 'me' ? 'flex-end' : 'flex-start';
-      col.appendChild(b); col.appendChild(meta);
-      row.appendChild(col); brStream.appendChild(row);
+      const m2 = Object.assign({}, m); // 复制，避免在分支里再挂 fork
+      const el = bubble(m2);
+      el.classList.remove('is-forkable','is-offline');
+      const fb = el.querySelector('.chat-bubble-fork'); if (fb) fb.remove();
+      const tip = el.querySelector('.fork-tip'); if (tip) tip.remove();
+      box.appendChild(el);
     });
-    // 自动进入：解锁输入框
     document.getElementById('brInput').disabled = false;
-    document.getElementById('brSend').disabled = false;
     document.getElementById('brInput').placeholder = '接着聊…（agent 记得上面的历史）';
-    brStream.scrollTop = brStream.scrollHeight;
+    document.getElementById('brSend').disabled = false;
+    box.scrollTop = box.scrollHeight;
   }
 
-  document.getElementById('toggleOnline').onclick = (e) => {
-    e.preventDefault();
+  document.getElementById('toggle').onclick = (e) => {
     online = !online;
-    document.getElementById('srcDot').className = 'dot' + (online ? '' : ' off');
-    document.getElementById('srcStatus').textContent = online ? '在线' : '离线';
+    document.getElementById('srcDot').className = 'node-dot' + (online ? '' : ' off');
+    document.getElementById('srcStat').textContent = online ? '在线' : '离线';
     e.target.textContent = online ? '切到离线' : '切回在线';
     renderSrc();
   };
