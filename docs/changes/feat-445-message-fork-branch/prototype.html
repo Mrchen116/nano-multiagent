@@ -126,7 +126,10 @@
   // 源会话消息流：含 fork 点（每条 agent 已完成回复都可作为 fork 点）
   const SRC = [
     { id:'m1', who:'me',    text:'帮我比较一下三种向量数据库选型。' },
-    { id:'m2', who:'agent', done:true, text:'好的，分三点：\n1. Milvus — 自托管、生态成熟；\n2. pgvector — 复用现有 Postgres、运维省；\n3. Pinecone — 全托管、上手快但锁定。' },
+    // m2 与 m2b 来自同一次提问的同一个 run（agent 先答一段、再补一段）——
+    // 每条都是独立气泡、各自可 fork（对应各自的 kernel message_id）。
+    { id:'m2', who:'agent', done:true, run:'r1', text:'好的，分三点：\n1. Milvus — 自托管、生态成熟；\n2. pgvector — 复用现有 Postgres、运维省；\n3. Pinecone — 全托管、上手快但锁定。' },
+    { id:'m2b',who:'agent', done:true, run:'r1', text:'补一句：如果团队没有专职 DBA，优先考虑全托管或复用既有组件，别为向量单独养一套基础设施。' },
     { id:'m3', who:'me',    text:'我们已经在用 Postgres 了。' },
     { id:'m4', who:'agent', done:true, text:'那 pgvector 是性价比最高的起点：无需额外组件，索引用 HNSW，百万级向量延迟可接受；规模再上去再考虑迁 Milvus。' },
     { id:'m5', who:'me',    text:'索引参数怎么调？' },

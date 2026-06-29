@@ -6,7 +6,8 @@
 ## Changelog
 
 - v2: 推翻早期「IM 当历史权威 / append_message 灌入」方案，改为**gateway append-only 会话日志为唯一权威 + kernel raw 全量复制到 fork 点**。理由见决策 1。
-- v2.1: 核实后修正 fork 点对齐机制——现状无任何现成的「IM 气泡↔kernel turn」稳定标识（IM 消息行无 run_id、kernel run_id↔turn 在独立 run_status event、gateway 无 turn 粒度映射、序号对齐因丢空回合不稳）。改为 **relay 时把 turn 标识持久化到 IM 消息行**，fork 按 turn 边界精确截断（决策 4）。
+- v2.1: 核实后修正 fork 点对齐机制——现状无任何现成的「IM 气泡↔kernel」稳定标识落在消息行；改为 **relay 时把标识持久化到 IM 消息行**，fork 时精确截断（决策 4）。
+- v2.2: 对齐粒度从 `turn_id` 收紧到逐气泡 `message_id`——一个 run 可产出多条 `assistant_message`=多个气泡（用户反馈），每条都应可 fork，turn 粒度会让同 run 多气泡撞同一刀。所需 `message_id` 现成在 `assistant_message` 事件 payload 里（`realtime_stream.py:54`）。kernel `up_to` 改为按 message_id 在 raw 线性历史切片（决策 4）。
 
 ## 现状分析
 
@@ -27,9 +28,9 @@
   - `application/web_im_service.py` —— `create_conversation`（:33）、`create_message`（:132）；fork 的「建会话 + 复制展示消息 + 委托 gateway」编排落这里。
   - `api/routes/web_im.py` —— conversation/messages HTTP 路由，新增 fork 端点。
   - `ws/gateway_handler.py` —— IM→gateway 的 WS RPC 发起端（waiters + `asyncio.wait_for` 模式，:150 起）；新增「fork session」RPC 发起。
-  - `application/event_service.py` —— relay 消息**瞬时**携带 `run_id`（:80/:170），但**不落消息行**；本 unit 需在 relay 建 agent 消息时把 kernel turn 标识（`turn_id`/`run_id`）**持久化**到消息行（决策 4）。
-  - `domain/models.py` —— `Message`（:268）当前**无 run_id/turn_id 字段**；新增 turn 标识字段（贯穿模型 / 持久化 / 读出 / 复制路径）。
-  - `infra/repositories.py` —— message 持久化（新增 turn 标识列）；`record_heartbeat` / node `status` = agent 在线判定来源。
+  - `application/event_service.py` —— relay `assistant_message` 事件已带 `message_id`/`run_id`/`turn_id`（源 `platform/hooks/builtins/realtime_stream.py:54），但当前**不落消息行**；本 unit 需在 relay 建 agent 气泡时把 kernel `message_id`（连带 run_id/turn_id 备查）**持久化**到消息行（决策 4）。
+  - `domain/models.py` —— `Message`（:268）当前**无 kernel id 字段**；新增 `message_id`（逐气泡）字段（贯穿模型 / 持久化 / 读出 / 复制路径）。
+  - `infra/repositories.py` —— message 持久化（新增 kernel message_id 列）；`record_heartbeat` / node `status` = agent 在线判定来源。
 - **前端聊天**（`src/IM/frontend/src/features/chat/v2/`）
   - `components/message-pane.tsx` —— `MessageBubble`（:424），`isAgent`/`deliveryStatus`（:436/:444）已能区分 agent 消息与「已完成」态；**目前气泡上无任何消息级操作按钮**，fork 按钮新挂这里。
   - `chat-workspace-page.tsx` —— 会话工作区，持有 `streamState.messages`、agent 在线状态推导；fork 的前端编排（mutation + 跳转）落这里。
@@ -53,7 +54,7 @@
 ### 相关历史
 
 - 单聊 canonical / direct-agent 机制由 feat-340 系列建立；fork 沿用其会话模型与命名（title = agent 名），不新造单聊类型。
-- relay 事件自 feat-340-M2 起在 payload 里带 `run_id`（event_service.py:80/170 解析），但**未持久化到 IM 消息行**（`domain/models.py:268` 的 `Message` 无此字段）；本 unit 把 kernel turn 标识落到消息行，才使「被点的 IM agent 气泡 → gateway 日志中的 turn」对齐有稳定锚点（决策 4）。
+- relay `assistant_message` 事件 payload 一直带 `message_id`/`run_id`/`turn_id`（`realtime_stream.py:54`；一个 run 可发多条 = 多个气泡，每条各一 message_id），但**未持久化到 IM 消息行**（`domain/models.py:268` 的 `Message` 无 kernel id 字段）；本 unit 把逐气泡的 `message_id` 落到消息行，才使「被点的 IM agent 气泡 → gateway 日志中的那条消息」对齐有稳定且足够细的锚点（决策 4）。
 - spec.md Relations 段曾提「fresh session 同族」——该入口在 legacy 聊天界面，**v2 已无 fresh session 入口**（`chat-api.ts` 顶部注释明示）。本 design 以 v2 现状（canonical 复用）为准。
 - 早期 design 草案曾以「IM 可见消息为单一历史源、append_message 灌入空 session」实现上下文继承。**该方案已被推翻**（决策 1 拒绝项）：它把展示副本当权威、丢工具/思考保真、且 IM 消息序与 kernel turn 序无稳定 1:1 对齐。
 
@@ -120,20 +121,17 @@ graph TB
 - **拒绝**：只保一份（让 IM 展示去重建 agent 记忆，或让 agent 记忆去渲染 UICI）——跨机、保真、职责都不成立。
 - **风险**：两份在 fork 点的边界需对齐（IM 复制到 fork 点的展示消息 ↔ gateway 复制到 fork 点的 turn）；靠同一个 fork 点标识（run_id/turn）双向对齐。
 
-### 决策 4: fork 点对齐——relay 时把 kernel turn 标识持久化到 IM 消息行，fork 时按 turn 边界精确截断
+### 决策 4: fork 点对齐——relay 时把每条气泡对应的 kernel `message_id` 持久化到 IM 消息行，fork 按 message_id 精确截断
 
-**选了在 relay 出站建 IM agent 消息时，把该气泡对应的 kernel turn 标识（`turn_id`，连带 `run_id`）写进 IM 消息行；fork 时 IM 由 `fork_message_id` 读出该 turn 标识传给 gateway，gateway 按源 session 日志中的 turn 边界截断到此（含整轮）**。
+**选了在 relay 出站建 IM agent 消息时，把该气泡对应的 kernel `message_id`（连带 `run_id`/`turn_id` 备查）写进 IM 消息行；fork 时 IM 由 `fork_message_id` 读出该 `message_id` 传给 gateway，gateway 在源 session 日志的线性历史里截断到该 message（含）为止**。
 
-- **现状核查（第一手）**：当前**不存在**任何现成稳定的「IM 气泡 ↔ kernel turn」跨界标识——
-  - IM `Message` 领域模型无 `run_id` 字段（`domain/models.py:268`）；`run_id` 只在 relay 事件里瞬时流转、不落消息行。
-  - kernel 侧 `run_id`↔`turn` 的关联在独立的 `run_status` event entry（`core/session/entries.py:166`，payload 带 `run_id`+`turn_id`），不在消息 turn 本身上。
-  - gateway 不存 `im_message_id`↔turn/run 的任何映射（`gateway/session_keys.py` 的 binding 只到 `session_key→kernel_session_id`，无 turn 粒度）。
-  - 退而求其次的「按 agent 气泡序号对齐」也不稳：gateway 会丢弃空正文回合（feat-439）、且一个 IM 气泡=一个逻辑 turn=可能多条 kernel 消息条目，故「第 K 条 IM 气泡」≠「第 K 个 kernel turn」。
-- **理由**：唯一能保证「用户看到的历史 == agent 记得的历史」精确对齐的，是建立一条**持久、稳定**的跨界引用。relay 出站建消息时 `turn_id`/`run_id` 现成可得（runtime turn_end payload，`runtime.py:816`），此时落到 IM 消息行成本最低；fork 时即可 O(1) 读出、无需任何启发式推断。这把「映射不稳/带多带少一段」整类风险从设计层消灭，而非留给 worker 现场赌。
-- **拒绝**：① 「fork 时按 run_id 现查」——IM 行无 run_id，查不到；② 「按气泡序号对齐」——上面四点证其不稳；③ 「gateway 维护 im_message_id→turn 映射表」——又一份要维护的可变状态、且 IM/gateway 跨机时一致性更难，不如直接落在消息行随 IM 持久化走。
-- **截断语义**：turn 是闭区间整轮——带入到 fork 点那条 agent 回复所属 turn 的**全部**条目（该轮的 user 触发 + assistant + 工具往返），fork 点之后的 turn 一律不带。
-- **范围影响**：M1 须含「relay 写 turn 标识到 IM 消息行」这一步（小 schema 增列 + relay 写入 + 该字段进 `Message` 模型与复制路径）。对**历史旧消息**（无该字段）：fork 入口对缺标识的 agent 消息禁用（极少，仅本特性上线前的老气泡），不做回填。
-- **守护测试**：fork 到**中间**某条 agent 回复 → 断言 IM 展示截断点与 gateway 日志截断点指向同一 turn（展示气泡数与 agent 记忆轮数一致、fork 点后均不带）。
+- **粒度必须到 message，不能停在 turn**：**一个用户提问 → 一个 run → 可能产出多条 `assistant_message`**（agent 说一段 → 调工具 → 再说一段），每条都是一个独立 IM 气泡、用户都应能在其上 fork（`gateway/inbound_pipeline.py:1493` 每个 `assistant_message` 事件转一条 `agent.text.message`）。同一 run/turn 下的多个气泡共享同一个 `turn_id`——若按 turn 截断，fork 到这些气泡中任意一个都会截在同一刀、带错历史。故对齐键必须是**逐气泡唯一的 kernel `message_id`**。
+- **现状核查（第一手）**：当前 IM 消息行**不存**任何 kernel 侧 id（`domain/models.py:268` 的 `Message` 无 run_id/message_id 字段；run_id 只在 relay 事件瞬时流转）。但**所需的 `message_id` 现成就在事件里**——`assistant_message` 事件 payload 同时带 `run_id` / `turn_id` / **`message_id`**（`platform/hooks/builtins/realtime_stream.py:54`，每条 assistant 消息各一）。gateway relay 建 IM 气泡时把它落库即可，无需任何新计算。
+- **理由**：`message_id` 是逐气泡唯一、且天然存在于 kernel 日志（每条 assistant 消息条目的 id）与 relay 事件两侧的稳定标识。落到 IM 消息行后，fork 时 O(1) 读出、kernel 端按它在 raw 线性历史里切片，精确且不依赖任何序号/启发式推断——把「映射不稳/带多带少/多气泡撞刀」整类风险从设计层消灭。
+- **拒绝**：① 按 `turn_id` 对齐——多气泡同 turn 时粒度不够（本决策核心动因）；② 按气泡序号对齐——gateway 丢空正文回合（feat-439）使序号不稳；③ gateway 另维护 `im_message_id→message_id` 映射表——多一份跨机可变状态，不如随 IM 消息行持久化。
+- **截断语义**：`up_to=message_id` = 复制 raw 线性历史到「id==message_id 的那条 assistant 消息」为止（含），其后一律不带。导向该消息的前置条目（同 turn 内更早的 user 触发 / 工具往返）自然包含；该消息之后的（含同 turn 里更晚的气泡）不含。
+- **范围影响**：M1 须含「relay 写 `message_id` 到 IM 消息行」这一步（小 schema 增列 + relay 写入 + 该字段进 `Message` 模型与复制路径）。对**历史旧气泡**（无该字段，仅本特性上线前）：fork 入口禁用，不回填。
+- **守护测试**：① fork 到**中间**某条 agent 回复 → IM 展示截断点与 gateway 日志截断点指向同一条 message、fork 点后均不带；② **同一 run 产出多气泡**时，分别 fork 第 1、第 2 条气泡 → 两次截断点不同、各自精确到对应 message。
 
 ### 决策 5: agent 在线校验前置 + 失败原子回滚，绝不留无记忆空壳
 
@@ -162,7 +160,7 @@ POST /im/v1/conversations/{conversation_id}/fork
   前置校验:
     - conversation 存在且属于调用方、是 direct-agent 单聊（否则 404/400）
     - fork_message_id 是该会话内、sender_type=agent、delivery_status=completed 的消息（否则 400）
-    - fork_message_id 携带 kernel turn 标识（本特性上线前的旧气泡无此字段 → 400「该消息不支持 fork」，前端对其禁用入口）
+    - fork_message_id 行上存有 kernel `message_id`（本特性上线前的旧气泡无此字段 → 400「该消息不支持 fork」，前端对其禁用入口）
     - 该 agent 所属 node 在线（否则 409 {detail:"agent offline, cannot fork"}）
   成功: 201 { conversation_id: <new>, ... }（与 create_conversation 同形会话体）
   失败(gateway RPC 超时/失败): 502/409，且已建的新会话被回滚删除
@@ -179,13 +177,13 @@ sequenceDiagram
 
   U->>IM: POST /conversations/{id}/fork {fork_message_id}
   IM->>IM: 校验归属/类型/消息态/agent 在线
-  IM->>IM: 读 fork_message_id 行上持久化的 turn 标识(turn_id)
+  IM->>IM: 读 fork_message_id 行上持久化的 kernel message_id
   IM->>IM: 建新 conversation(同 agent, title=agent名)
   IM->>IM: 复制 0..fork点 展示消息(完整气泡)到新会话
-  IM->>GW: WS RPC session.fork.request<br/>{request_id, source_conversation_id, new_conversation_id, agent_id, fork_point:{turn_id}}
+  IM->>GW: WS RPC session.fork.request<br/>{request_id, source_conversation_id, new_conversation_id, agent_id, fork_point:{message_id}}
   GW->>GW: 由 source_conversation_id 的 binding 定位源 session_id
-  GW->>K: fork_session(source_session_id, up_to=turn_id)
-  K->>K: manager.load raw 全量 → 截断到该 turn 边界(含整轮) → 全保真复制成新 session
+  GW->>K: fork_session(source_session_id, up_to=message_id)
+  K->>K: manager.load raw 全量 → 线性历史截断到该 message(含) → 全保真复制成新 session
   K-->>GW: new_session_id
   GW->>GW: session_store.bind(key(new_conv,agent) → new_session_id)
   GW-->>IM: session.fork.result {request_id, ok:true}
@@ -196,17 +194,17 @@ sequenceDiagram
 
 ### 新增 WS RPC 帧
 
-- IM→GW `session.fork.request`: `{request_id, source_conversation_id, new_conversation_id, agent_id, fork_point:{turn_id}}`（`turn_id` 来自 fork_message_id 行上 relay 时持久化的 kernel turn 标识，见决策 4）
+- IM→GW `session.fork.request`: `{request_id, source_conversation_id, new_conversation_id, agent_id, fork_point:{message_id}}`（`message_id` 来自 fork_message_id 行上 relay 时持久化的 kernel `message_id`，见决策 4）
 - GW→IM `session.fork.result`: `{request_id, ok:boolean, new_session_id?:string, error?:string}`
-  （gateway 端：binding 定位源 session → `kernel.fork_session(source, up_to=turn_id)` → `session_store.bind`；IM 端 waiter `asyncio.wait_for` 等回包，超时即失败回滚。）
+  （gateway 端：binding 定位源 session → `kernel.fork_session(source, up_to=message_id)` → `session_store.bind`；IM 端 waiter `asyncio.wait_for` 等回包，超时即失败回滚。）
 
 ### 关键数据：fork 点的两侧对齐
 
-同一个 fork 点（被点的 agent 气泡）在两侧各截一刀，且必须对齐到同一位置——靠 fork_message_id 行上 relay 时持久化的 `turn_id` 作为两侧共同锚点（决策 4）：
+同一个 fork 点（被点的 agent 气泡）在两侧各截一刀，且必须对齐到同一位置——靠 fork_message_id 行上 relay 时持久化的 kernel `message_id` 作为两侧共同锚点（决策 4）：
 - **IM 展示副本**：复制源会话从首条到 `fork_message_id`（含）的全部展示消息到新会话。
-- **gateway 日志副本**：kernel raw load 源 session 全量历史，截断到 `turn_id` 所标 turn 的边界（含整轮）为止，全保真复制成新 session。
+- **gateway 日志副本**：kernel raw load 源 session 全量历史，线性截断到 `message_id` 所标 assistant 消息（含）为止，全保真复制成新 session。
 
-因两侧都锚定同一个 `turn_id`，「用户看到的历史」== 「agent 记得的历史」恒成立，不依赖序号推断。
+因两侧都锚定同一条 `message_id`（逐气泡唯一），「用户看到的历史」== 「agent 记得的历史」恒成立，多气泡同 run 也精确不撞刀。
 
 ## 前端原型
 
@@ -223,7 +221,7 @@ sequenceDiagram
 ## 风险与回退
 
 - **【头号守护点】compact 必须非破坏**：整个「无损权威」前提依赖 append-only 日志 + compact 只追加 boundary/摘要不删老 turn（现状满足：jsonl_store append-only、manager.py:236-247）。M1 须加守护测试：**compact 之后，raw 全量仍能取回 compact 之前的全部原始 turn**；一旦回归即权威被毁、fork 取到残缺历史。
-- **fork 点对齐错位**（决策 4）：靠 relay 时持久化到消息行的 `turn_id` 作两侧共同锚点根除「序号推断不稳」。残余风险=relay 写入与 turn 边界的对应正确性。对策：单测断言 relay 落的 `turn_id` 确指向产出该气泡的 turn；端到端配「fork 到中间某条 agent 回复」断言（IM 展示截断点与 gateway 日志截断点指向同一 turn、fork 点后均不带）。旧气泡无 `turn_id` → fork 入口禁用，不回填。
+- **fork 点对齐错位**（决策 4）：靠 relay 时持久化到消息行的逐气泡 `message_id` 作两侧共同锚点，根除「序号推断不稳 + 多气泡同 turn 撞刀」。残余风险=relay 落的 `message_id` 是否确指向产出该气泡的那条 assistant 消息。对策：单测断言映射正确；端到端配两条断言——「fork 到中间某条 agent 回复，fork 点后不带」+「**同一 run 多气泡时分别 fork，截断点各不相同且精确**」。旧气泡无 `message_id` → fork 入口禁用，不回填。
 - **fork 取到压缩视图而非无损 C**：`runtime.fork_session` 热路径优先读内存 `_session_histories`（可能是压缩后视图）。对策：fork 路径强制走 `manager.load`（raw）取源历史，不复用可能被压缩的内存缓存。
 - **复制展示消息后 gateway RPC 失败**：已建新会话 + 复制的 messages 成孤儿。对策：IM 端 try/except 包裹 RPC，失败删除新会话（决策 5）；新会话此刻无外部引用，删除安全。
 - **历史很长 / RPC 超时**：fork 点可能在很靠后。对策：RPC 只传 fork 点标识（不传整段历史，体量恒定小）；gateway 侧 fork 是本地文件复制，超时阈值参考 agent.create 适当放宽。降级：超时按失败回滚，前端提示「fork 失败，请重试」。
@@ -242,14 +240,14 @@ sequenceDiagram
 
 > 推荐直接用 `./scripts/e2e-up.sh` 一键起停（自动分配端口 / config 隔离 / auto-bind）。
 
-**Review 驱动方式**: 端到端真栈；本 unit **改了客户端面**（前端新增 fork 按钮 + 跳转），必须**真驱动前端**——走查：① 单聊中 agent 已完成回复 hover 出 fork 按钮并点击 → 跳进新单聊、历史完整、可继续对话且 agent 记得（基于历史的指代追问能答对）；② 用户消息 / 生成中消息无 fork 入口；③ agent 离线时 fork 不可用且有提示；④ 原会话保持不变、两线独立；⑤ fork 到**中间**某条 agent 回复时，fork 点之后的历史不带入（展示与记忆都不带）。
+**Review 驱动方式**: 端到端真栈；本 unit **改了客户端面**（前端新增 fork 按钮 + 跳转），必须**真驱动前端**——走查：① 单聊中 agent 已完成回复 hover 出 fork 按钮并点击 → 跳进新单聊、历史完整、可继续对话且 agent 记得（基于历史的指代追问能答对）；② 用户消息 / 生成中消息无 fork 入口；③ agent 离线时 fork 不可用且有提示；④ 原会话保持不变、两线独立；⑤ fork 到**中间**某条 agent 回复时，fork 点之后的历史不带入（展示与记忆都不带）；⑥ **构造一个 run 产出多条 agent 气泡的场景（如 agent 先答一段再调工具再答一段），每条气泡都能 fork，且分别 fork 不同气泡时带入历史精确到对应那条**。
 
 ## Milestones
 
-单 M1：fork 是一条端到端垂直切片（relay 持久化 turn 标识 → 前端按钮 → IM 接口 → WS RPC → gateway 定位源 session → kernel fork_session 按 turn 截断复制 → 预绑定），各层有接口依赖无法真并行，估算 ~560 行改动（kernel ~80 / gateway ~120 / IM ~210〔含 turn 标识落库 + 模型/复制路径 ~60〕/ 前端 ~150），未触发任何拆分硬条件。
+单 M1：fork 是一条端到端垂直切片（relay 持久化 message_id → 前端按钮 → IM 接口 → WS RPC → gateway 定位源 session → kernel fork_session 按 message_id 截断复制 → 预绑定），各层有接口依赖无法真并行，估算 ~560 行改动（kernel ~80 / gateway ~120 / IM ~210〔含 message_id 落库 + 模型/复制路径 ~60〕/ 前端 ~150），未触发任何拆分硬条件。
 
-> **实施建议（worker 起手序）**：先做「relay 把 turn_id 持久化到 IM 消息行 + `Message` 模型加字段」这条前置链路（决策 4 的地基，最易被低估），并以单测锁定「relay 落的 turn_id 确指向产出该气泡的 turn」，再往上游接 fork 编排。否则后面 fork 点对齐会悬空。
+> **实施建议（worker 起手序）**：先做「relay 把逐气泡 `message_id` 持久化到 IM 消息行 + `Message` 模型加字段」这条前置链路（决策 4 的地基，最易被低估），并以单测锁定「relay 落的 message_id 确指向产出该气泡的那条 assistant 消息」（含一 run 多气泡场景），再往上游接 fork 编排。否则后面 fork 点对齐会悬空。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-445-M1 | fork-branch | — | A | Kernel `src/agent/{sdk/kernel.py,core/agent/runtime.py}`（fork_session 真实化 + `up_to=turn_id` 截断 + 强制 raw）；Gateway `src/personal_assistant/{ws/im_connection.py,gateway/session_keys.py,gateway/inbound_pipeline.py 或新增 fork 逻辑}`；IM `src/IM/{application/web_im_service.py,api/routes/web_im.py,ws/gateway_handler.py,application/event_service.py,domain/models.py,infra/repositories.py}`（fork 编排 + **relay 落 turn 标识到消息行** + `Message` 加字段）；前端 `src/IM/frontend/src/features/chat/v2/{components/message-pane.tsx,chat-workspace-page.tsx,chat-api.ts,chat-types.ts}` | `[reviewer]` 覆盖 spec 全部 Requirement/Scenario：agent 已完成回复可 fork（用户消息/生成中/群聊无入口）、新会话含 0→fork点完整气泡且 fork 点后不带、分支单聊 agent 基于历史追问能正确理解、fork 后自动进入且原会话不变两线独立、分支单聊列表名为 agent 名、agent 离线 fork 不可用且明确提示。`[worker]` **relay turn 标识落库单测**（落的 turn_id 确指向产出该气泡的 turn）绿；kernel fork_session 单测（raw 全量 + `up_to=turn_id` 按 turn 边界截断 + 全保真保留 reasoning/工具 + 新旧会话独立）全绿；**compact 非破坏守护测试**（compact 后 raw 仍取回压缩前全部 turn）绿；gateway fork RPC handler 单测（binding 定位源 → fork_session → bind）全绿；IM service 单测（fork 建会话+复制展示历史+在线校验+失败回滚+旧气泡无 turn 标识拒 fork）全绿；前端 `npm run test` 相关用例全绿；`pytest -m "not e2e"` 不回归 |
+| feat-445-M1 | fork-branch | — | A | Kernel `src/agent/{sdk/kernel.py,core/agent/runtime.py}`（fork_session 真实化 + `up_to=message_id` 线性截断 + 强制 raw）；Gateway `src/personal_assistant/{ws/im_connection.py,gateway/session_keys.py,gateway/inbound_pipeline.py 或新增 fork 逻辑}`；IM `src/IM/{application/web_im_service.py,api/routes/web_im.py,ws/gateway_handler.py,application/event_service.py,domain/models.py,infra/repositories.py}`（fork 编排 + **relay 落逐气泡 message_id 到消息行** + `Message` 加字段）；前端 `src/IM/frontend/src/features/chat/v2/{components/message-pane.tsx,chat-workspace-page.tsx,chat-api.ts,chat-types.ts}` | `[reviewer]` 覆盖 spec 全部 Requirement/Scenario：agent 已完成回复可 fork（用户消息/生成中/群聊无入口）、新会话含 0→fork点完整气泡且 fork 点后不带、分支单聊 agent 基于历史追问能正确理解、fork 后自动进入且原会话不变两线独立、分支单聊列表名为 agent 名、agent 离线 fork 不可用且明确提示、**一 run 多气泡时每条可 fork 且分别精确**。`[worker]` **relay message_id 落库单测**（落的 message_id 确指向产出该气泡的 assistant 消息，含一 run 多气泡）绿；kernel fork_session 单测（raw 全量 + `up_to=message_id` 线性截断 + 全保真保留 reasoning/工具 + 新旧会话独立）全绿；**compact 非破坏守护测试**（compact 后 raw 仍取回压缩前全部 turn）绿；gateway fork RPC handler 单测（binding 定位源 → fork_session → bind）全绿；IM service 单测（fork 建会话+复制展示历史+在线校验+失败回滚+旧气泡无 message_id 拒 fork）全绿；前端 `npm run test` 相关用例全绿；`pytest -m "not e2e"` 不回归 |
