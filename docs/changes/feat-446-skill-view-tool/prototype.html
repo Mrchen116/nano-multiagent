@@ -462,35 +462,18 @@ document.querySelectorAll('.sparkline').forEach(el => {
   el.innerHTML = svg;
 });
 
-// Generate 30-cell heatmap for agent view
+// Generate 30-cell heatmap for agent view (single row = total daily skill usage)
 (function() {
   const heatmap = document.getElementById('heatmap-agent');
   if (!heatmap) return;
-  // Simulated: daily usage counts for 8 skills over 30 days
-  const skills = [
-    { name: 'change-spec-author', data: [2,1,3,2,1,2,3,2,1,2,3,2,1,0,2,3,2,1,2,3,2,1,2,1,2,3,2,1,2,1] },
-    { name: 'change-impl-worker', data: [1,2,1,2,3,2,1,2,1,0,1,2,3,2,1,2,1,2,3,2,1,0,1,2,1,2,1,0,1,0] },
-    { name: 'systematic-debugging', data: [0,1,0,1,2,1,0,1,2,1,0,0,1,2,1,0,0,1,0,1,0,1,0,1,0,0,1,0,0,0] },
-    { name: 'api-pattern-writer', data: [0,0,0,1,0,1,0,1,0,0,0,1,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,1,0,0] },
-    { name: 'change-verifier', data: [0,1,1,0,1,1,0,1,0,1,0,1,1,0,1,0,1,0,1,0,1,0,0,1,0,1,0,1,0,0] },
-    { name: 'change-design-author', data: [0,0,1,0,0,1,0,0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,1,0,0,0,0,0] },
-  ];
-  // For each skill, render 30 cells
-  skills.forEach(skill => {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:2px;margin-bottom:2px;';
-    const label = document.createElement('span');
-    label.style.cssText = 'font-size:0.6rem;color:var(--im-text-muted);width:100px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;';
-    label.textContent = skill.name;
-    row.appendChild(label);
-    skill.data.forEach((v, i) => {
-      const cell = document.createElement('div');
-      const level = v === 0 ? 'l0' : v <= 1 ? 'l1' : v <= 2 ? 'l2' : v <= 3 ? 'l3' : 'l4';
-      cell.className = `heatmap-cell ${level}`;
-      cell.title = `Day ${30 - i}: ${v} uses`;
-      row.appendChild(cell);
-    });
-    heatmap.appendChild(row);
+  // Simulated: this agent's total skill usage per day over 30 days
+  const dailyUsage = [4,5,6,5,7,8,5,6,7,4,3,5,7,6,4,3,5,6,7,5,4,3,5,4,5,6,4,3,4,3];
+  dailyUsage.forEach((v, i) => {
+    const cell = document.createElement('div');
+    const level = v === 0 ? 'l0' : v <= 2 ? 'l1' : v <= 4 ? 'l2' : v <= 6 ? 'l3' : 'l4';
+    cell.className = `heatmap-cell ${level}`;
+    cell.title = `第 ${i + 1} 天: ${v} 次`;
+    heatmap.appendChild(cell);
   });
 })();
 </script>

@@ -390,7 +390,7 @@ Gateway WS handler
 | last_used_at | ISO timestamp | — | .usage.json |
 | session_refs | [{session_id, timestamp}] | 最近 60 条（cap） | .usage.json |
 | trend_buckets | [int × 30] | 最近 30 天，按天分桶 | gateway 按 session_refs 聚合 |
-| heatmap_data | [int × 30] | 最近 30 天，每个 agent 的每日使用次数 | gateway 按 session_refs 聚合 |
+| heatmap_data | [int × 30] | 最近 30 天，该 agent 每天的 skill 使用总次数（所有 skill 合计） | gateway 按 session_refs 聚合 |
 | agent_id | string | — | session metadata |
 | node_id | string | — | gateway node config |
 
