@@ -135,3 +135,119 @@ Recommended rerun path:
 3. Through Web IM, trigger long bash, agent subtask, web_search, send_message, and cron.
 4. For each required tool, capture running expanded card and completed expanded card evidence.
 
+---
+
+# Round 3 — 2026-06-29
+
+## Verdict
+
+**Verdict: fail**
+
+**Highest Required Action: fix-implementation**
+
+本轮完成了真实 Web IM 产品旅程,并关闭了 Round 1 的核心证据缺口:长 bash / agent 子任务 / web_search 均在真实 UI 中观察到 running 展开参数,且没有伪完成态;完成后同一工具卡显示参数 + 结果。
+
+但 `send_message` / `cron` 结构化展示未通过。设置页中 `default-agent` 的 Tool Allowlist 显示二者存在,真实聊天里 agent 却明确回复当前环境没有 `send_message` / `cron` 工具,因此无法触发对应工具卡,也无法验证其结构化展示。该问题直接违反本 unit 对 `send_message` / `cron` 的 Q5 验收口径。
+
+## 复现验证
+
+### Environment takeover
+
+- Worktree: `/Users/czj/Repos/nano-multiagent/.worktrees/unit-bugfix-441`
+- Branch: `unit/bugfix-441`
+- Sync: `git fetch origin` + `git pull --ff-only origin unit/bugfix-441`, result already up to date.
+- Frontend artifact rebuild: `cd src/IM/frontend && npm run build` passed; IM served `assets/index-CJd60L8t.js`, matching `src/IM/frontend/dist/assets/index-CJd60L8t.js`.
+- Fingerprint check: built asset contains expected UI marker strings `Dispatch prompt`, `No results`, and `completed`.
+- LLM: local LLM proxy on `http://127.0.0.1:4000` was available during the run; Gateway config used `kimiCoding:K2.6` through the `anthropic` provider shape from `~/.nano-assistant/config.yaml`.
+- IM: isolated on `http://127.0.0.1:59738`, temp DB under `/private/tmp/bugfix441-review3-live-cU8S9v`.
+- Gateway: isolated temp config `/private/tmp/bugfix441-review3-live-cU8S9v/gateway-config.yaml`, started with `--foreground --auto-bind`; node `bugfix441-r3-live-bugfix441-review3-live-cU8S9v` observed online with `agent_count=4`.
+- Browser path: real Web IM UI via Playwright/Chromium, login form -> Agents -> `default-agent` settings -> `Open chat` -> composer. No HTTP-only substitute was used for the product journey.
+- Evidence screenshots: `/private/tmp/bugfix441-review3-live-cU8S9v/`
+
+### User Journeys Exercised
+
+1. **Long bash**: sent a Web IM message asking `default-agent` to run `sleep 20 && echo BUGFIX441_R3_BASH_DONE` with description `bugfix441 bash running evidence`; captured running expanded card and completed expanded card.
+2. **Agent subtask**: sent a Web IM message asking `default-agent` to call the `agent` tool with description `bugfix441 agent running evidence round 2`, category `general`, and prompt `sleep 45 && echo BUGFIX441_R3_AGENT_RUNNING_DONE`; captured running expanded card and completed expanded card.
+3. **web_search**: sent a Web IM message asking `default-agent` to call `web_search` with query `bugfix-441 running tool row summary input nano-multiagent`; captured running expanded card and completed expanded card.
+4. **send_message**: opened `default-agent` settings and confirmed Tool Allowlist includes `send_message`; sent a Web IM message asking the agent to call `send_message`; captured the final user-visible refusal that the tool is unavailable.
+5. **cron**: opened `default-agent` settings and confirmed Tool Allowlist includes `cron`; sent a Web IM message asking the agent to call `cron`; captured the final user-visible refusal that the tool is unavailable.
+
+## 验收标准覆盖
+
+### Requirement: 工具执行中展示参数侧信息
+
+| Scenario | Expected source | Verification method | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| Long bash running row shows collapsed summary and expanded command | `incident.md` 期望 + `design.md Runbook for Reviewer` | Real Web IM UI, long bash tool call, expand running tool row | `r3-bash-running-expanded.png`; UI text: `1 tool call · running`, `💻 bash`, `bugfix441 bash running evidence`, `sleep 20 && echo BUGFIX441_R3_BASH_DONE` | pass | Running row kept pulse/status and exposed the command before stdout existed. |
+| Agent subtask running row shows summary and expanded prompt | `design.md` M1 reviewer exit standard | Real Web IM UI, agent tool call with long subtask, expand running tool row | `r3-agent-running-expanded-2.png`; UI text: `1 tool call · running`, `🔀 agent`, `bugfix441 agent running evidence round 2`, `DISPATCH PROMPT`, `sleep 45 && echo BUGFIX441_R3_AGENT_RUNNING_DONE` | pass | Prompt was visible during the sub-agent run. |
+| web_search running row shows summary and expanded query | `design.md` M1 reviewer exit standard | Real Web IM UI, web_search tool call, expand running tool row | `r3-web-search-running-expanded.png`; UI text: `1 tool call · running`, `🔍 web_search`, query shown in both summary/detail | pass | Query was visible while search was running. |
+
+### Requirement: 执行中不出现伪完成态
+
+| Scenario | Expected source | Verification method | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| Agent running card does not show completed marker | `incident.md` 不变量 + `design.md` 决策 1 | Inspect expanded running agent card | `r3-agent-running-expanded-2.png` | pass | Running agent card showed `DISPATCH PROMPT` only; no `✓ sub-agent completed` or completed result body appeared until completion. |
+| web_search running card does not show `No results` empty state | `design.md` 决策 1 / Runbook | Inspect expanded running web_search card | `r3-web-search-running-expanded.png` | pass | Running web_search card showed the query only; no `No results` empty state appeared. |
+| Running rows still keep running pulse/status until completion | `incident.md` 不变量 | Inspect bash / agent / web_search running rows | `r3-bash-running-expanded.png`, `r3-agent-running-expanded-2.png`, `r3-web-search-running-expanded.png` | pass | Each running row showed `tool call · running` and the pulse marker before terminal result. |
+
+### Requirement: 执行完展示参数 + 结果
+
+| Scenario | Expected source | Verification method | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| bash completed row shows command plus stdout/result | `incident.md` 不变量 | Real Web IM UI after long bash completes | `r3-bash-completed-expanded.png`; UI text: command, `BUGFIX441_R3_BASH_DONE`, `exit 0` | pass | Completed row retained parameter and added stdout/exit code. |
+| agent completed row shows prompt plus result | `design.md` tool table / Runbook | Real Web IM UI after sub-agent completes | `r3-agent-completed-expanded-2.png`; UI text: `DISPATCH PROMPT`, `✓ sub-agent completed · general`, `BUGFIX441_R3_AGENT_RUNNING_DONE` | pass | Completed card moved from parameter-only running state to prompt + result. |
+| web_search completed row shows query plus final result/error state | `design.md` tool table / Runbook | Real Web IM UI after web_search completes | `r3-web-search-completed-expanded.png`; UI text: query plus 5 result entries | pass | Completed card retained query context and showed result list. |
+
+### Requirement: send_message / cron 结构化展示改善
+
+| Scenario | Expected source | Verification method | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| send_message running/completed display is structured, not raw JSON | `incident.md` Q5 + `design.md` 决策 2 | Real Web IM UI, settings allowlist check, then prompt agent to call `send_message` | `r3-03-default-agent-settings.png` shows Tool Allowlist includes `send_message`; `r3-send-message-completed-expanded.png` shows agent reply: `I don't have a send_message tool available in this environment` and lists accessible tools without `send_message` | fail | The tool was not available in the real chat toolset, so no structured tool card could be triggered. |
+| cron running/completed display is structured, not raw JSON | `incident.md` Q5 + `design.md` 决策 2 | Real Web IM UI, settings allowlist check, then prompt agent to call `cron` | `r3-03-default-agent-settings.png` shows Tool Allowlist includes `cron`; `r3-cron-completed-or-unavailable.png` shows agent reply: `I don't have a cron tool available in my toolset` and lists accessible tools without `cron` | fail | The tool was not available in the real chat toolset, so no structured tool card could be triggered. |
+
+## Issues
+
+### 1. send_message / cron appear in allowlist but are unavailable to the real chat agent
+
+- Severity: major
+- Regression Relation: direct
+- Recommended Action: fix-implementation
+- Action Rationale: The incident explicitly includes Q5 for `send_message` / `cron` structured display. In the real Web IM UI, `default-agent` settings show both tools in the Tool Allowlist, but the actual chat agent says its accessible tools are `read`, `write`, `edit`, `bash`, `agent`, `task_stop`, `web_fetch`, `skill_manage`, `memory`, and `web_search`, excluding `send_message` and `cron`. Users cannot observe the required structured display if the tools cannot be called.
+
+## 回归测试
+
+Pass evidence from the real UI:
+
+- Long bash running: expanded row showed `💻 bash`, summary `bugfix441 bash running evidence`, and command before output existed.
+- Long bash completed: expanded row showed command, stdout `BUGFIX441_R3_BASH_DONE`, and `exit 0`.
+- Agent subtask running: expanded row showed `🔀 agent`, summary, and `DISPATCH PROMPT`; no completed marker.
+- Agent subtask completed: expanded row showed prompt, `✓ sub-agent completed · general`, and `BUGFIX441_R3_AGENT_RUNNING_DONE`.
+- web_search running: expanded row showed query; no `No results`.
+- web_search completed: expanded row showed query and result list.
+
+Fail evidence from the real UI:
+
+- send_message: settings showed allowlist entry, but the chat agent refused because `send_message` was not in its available toolset.
+- cron: settings showed allowlist entry, but the chat agent refused because `cron` was not in its available toolset.
+
+## 自动化测试增量
+
+This reviewer did not run source-level automated tests in Round 3; per change-reviewer scope, the decision is based on the real Web IM product journey above. Worker-reported tests from milestone progress remain supporting context only.
+
+## Side Findings
+
+- The local LLM proxy was not listening at the start of this round. I started the standard local proxy path to make the configured `anthropic http://127.0.0.1:4000` provider usable. After the run, port `4000` was held by `python start_proxy.py --ui` with a PID not matching this round's pidfile, so I did not kill it to avoid stopping a user-owned proxy.
+- `default-agent` settings page and chat toolset disagree for `send_message` / `cron`. This is recorded as the in-unit issue above because it blocks the explicit Q5 scenario.
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新。
+- [x] `docs/specs/<包>/spec.md`（长青行为契约层，本 unit 触及的包；通常由 orchestrator §7.0 收尾归并写入）：需要更新；`design.md` 已列出 kernel / im / gateway delta-spec，且 Round 3 confirms the running parameter display behavior for bash / agent / web_search.
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/SPEC_GUIDE.md`（文档规范，仅当本 unit 改了文档体系本身时）：无需更新。
+
+## Reviewer Handoff
+
+Recommended next action: `fix-implementation`.
+
+The bash / agent / web_search display path is product-verified and should be preserved. The remaining work is to make `send_message` and `cron` actually available to the real Web IM chat agent when they are shown in the agent Tool Allowlist, then rerun only those two tool journeys plus a quick smoke of one already-passing running tool row.
