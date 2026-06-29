@@ -36,3 +36,43 @@
 - Rollback: 回退到 C1 commit abd55a02（红测在、实现未上）。
 - Commits: C1=abd55a02, C2=8a138850, C3=(本提交)
 - Next: R2 — main.py GatewayRuntime watchdog + 移除 eager connect + 心跳首连门 + finally 硬化。
+
+## [Roadpoint 重新分组] R2/R3
+
+- 原计划 R2=决策1+finally、R3=决策3(on_connected binding)+决策4(心跳 tick)。
+- 实际：决策 3 的「移除 eager post_im_connect」与「node-binding 并入 on_connected」是同一处不可拆的
+  改动（删 post_im_connect 必须同时给 binding 找新家），故把决策 3 整体并入 R2，R3 收窄为决策 4
+  （心跳 tick try/except + done callback）。非 design 偏差，仅 roadpoint 边界微调。
+
+## R2 — GatewayRuntime watchdog + 移除 eager connect + node-binding 并入 on_connected + 心跳首连门 + finally 硬化
+
+- Context: 主循环编排上 issue 路径 1/2/3/6——eager `connect_once()` 裸调用 + `_post_im_connect` 只
+  catch `GatewayStartupError`（启动期瞬态故障直接打死 Gateway）；`im_task` 无 watchdog（静默死亡即僵尸）；
+  finally 内 `_await_background_task` 会重抛任务异常炸穿清理。
+- Decision:
+  - 删除 eager `connect_once()` + eager `_post_im_connect` 块；`im_task` 改为 `_supervise_im_connection`
+    watchdog：`run_forever` 非 stop 退出（return 或 raise）即按退避重建（`im_watchdog_initial/max_seconds`
+    构造参数，默认 1s/60s 镜像 IM 退避策略），`CancelledError` 透传、其余 `BaseException` 吸收后重建。
+  - node-binding（`ensure_node_binding`）从 `post_im_connect` 移入 `_reconcile_on_connect`（on_connected），
+    幂等且非致命：`GatewayStartupError` 仅 `_emit_gateway_feedback` degraded，不 re-raise；连接层 on_connected
+    包装本就吞异常不断连，下次连上自愈重试。删 `post_im_connect` 参数 + `_publish_startup_failure` 方法。
+  - 心跳 `start()` 前 `await manager.wait_first_connect_attempt()`（有界）放行首 tick（feat-393 护栏）。
+  - finally：`_im_connection_manager.close()` 后 `_await_background_task(im_task)` 包 try/except 吞异常。
+- Rationale: 把「连接」全部入口（首连/重连/binding）收进可自愈循环，supervisor 成唯一裁决退出处（只
+  stop_requested 退出，其余重试/重建）。binding 移出启动关键路径 → 启动顺序不敏感。
+- Evidence:
+  - Tests: `pytest tests/unit/personal_assistant/ tests/contract/test_personal_assistant_main_contract.py` → 662 passed,1 skipped；
+    `tests/contract/` 全量 132 passed（白名单行号未失配）。
+    新增红测：watchdog 重建（2 crash+1 stable 共 3 次 run_forever、crash 不外泄、exit 0）、
+    启动不敏感（真 IMConnectionManager connect 恒失败 → Gateway 不崩、exit 0）、心跳首连门（im.connect.resolved 先于 heartbeat.start）、
+    on_connected 失败非致命（连接不断、记 on_connected_error）。
+    改写：`test_gateway_runtime_keeps_running_until_shutdown_requested`（去 im.connect/im.bootstrap）；
+    删 obsolete `test_gateway_heartbeat.py`（其唯一测试断言已删除的 fail-fast bootstrap 契约）+
+    `test_gateway_runtime_cleans_up_reverse_order_when_im_start_fails`（契约被决策 3 反转，新行为由 watchdog 文件覆盖）。
+  - Entry: N/A（真栈入口验证在 R4 e2e）。
+  - Frontend State Matrix / Browser QA / Visual: N/A
+  - E2E/Regression: 真栈 e2e 在 R4。
+  - Lint: `ruff check` + `ruff format` 全通过。
+- Rollback: 回退到 C1 commit（R2 C1 红测 hash 见下）。
+- Commits: C1=(R2 红测提交), C2=852851c3, C3=(本提交)
+- Next: R3 — 心跳 `_run_loop` tick try/except + `start()` done callback（决策 4）。

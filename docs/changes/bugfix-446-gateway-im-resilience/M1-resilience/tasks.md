@@ -60,10 +60,12 @@ Gateway 在断网/休眠/IM 重启/启动早于 IM 等瞬态故障下都能自�
 - 步骤: 删 eager connect_once/post_im_connect；im_task 上 watchdog supervisor；心跳 start 前 await 首连落定；finally 包 try/except 吞 im_task 异常
 - 验证: 改写 process_manager 启动顺序测试 + 新增 watchdog/不敏感/首连门红测全绿
 
-### R3 — 心跳 tick 兜底 + done callback（决策4）+ on_connected 并入 node-binding（决策3）
+### R3 — 心跳 tick 兜底 + done callback（决策4）
 
-- 步骤: `_run_loop` tick 包 try/except；`start()` task 挂 done callback；`_reconcile_on_connect` 前置幂等 node-binding，binding 失败非致命
-- 验证: 心跳兜底 + reconcile_on_connect binding 单测全绿
+> 注：决策 3 的 on_connected 并入 node-binding 已并入 R2（与移除 post_im_connect 不可拆），见 progress「重新分组」。
+
+- 步骤: `_run_loop` tick 包 try/except（记录后等下一 interval）；`start()` task 挂 done callback
+- 验证: 心跳兜底单测全绿
 
 ### R4 — e2e 真栈脚本 + 登记 e2e-critical-paths.md
 
