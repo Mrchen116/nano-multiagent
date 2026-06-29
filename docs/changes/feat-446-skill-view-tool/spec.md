@@ -114,7 +114,7 @@ pinned skill 跳过自动流转。归档前先打 tar.gz 快照（best-effort）
 所有 skill 不管来源（F1/F2 手工 + F3/F4 自动）都记录使用统计（use_count + session 引用列表）。统计对所有 skill 生效，Curator 只对自动创建的 skill 生效。
 
 **使用统计面板**：
-IM 前端增加 skill 使用统计面板，展示每个 skill 的使用情况（use_count、最近使用 session、趋势）以及每个 agent 使用每个 skill 的情况。数据从 usage 记录读取。
+IM 前端增加 skill 使用统计面板。数据层（use_count + session 引用）先做到位，面板具体展示内容待定（per-skill 使用情况、per-agent skill 使用分布等，后续迭代）。
 
 Curator 每 7 天跑一次确定性扫描（不调 LLM），CLI 启动时和 Gateway housekeeping loop 中触发。状态持久化到 workspace 内的 `.curator_state` JSON 文件。
 
@@ -244,13 +244,9 @@ F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要
 
 ### Requirement: 使用统计面板（IM 前端）
 
-#### Scenario: 查看单个 skill 的使用情况
-- **WHEN** 用户在 IM 面板中查看某个 skill
-- **THEN** 显示该 skill 的 use_count、最近使用的 session 列表、使用趋势
-
-#### Scenario: 查看某个 agent 的 skill 使用分布
-- **WHEN** 用户在 IM 面板中查看某个 agent
-- **THEN** 显示该 agent 使用了哪些 skill、每个 skill 的使用次数
+#### Scenario: 使用统计数据可访问
+- **WHEN** IM 前端查询 skill 使用统计
+- **THEN** 能读取到 use_count、last_used_at、session 引用列表等数据，具体面板展示内容待定
 
 ### Requirement: 所有引用点正确迁移
 
