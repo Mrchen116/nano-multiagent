@@ -162,6 +162,38 @@ def test_wait_first_connect_attempt_is_bounded_when_connect_hangs(
     asyncio.run(_exercise())
 
 
+def test_on_connected_failure_does_not_tear_down_connection(tmp_path: Path) -> None:
+    """decision 3: node binding now runs inside on_connected and is non-fatal. A binding
+    failure (modeled as the on_connected callback raising GatewayStartupError) must be
+    swallowed — the connection stays up and the error is recorded — so a transient
+    binding failure during an IM restart never kills the connection."""
+    from personal_assistant.main import GatewayStartupError
+
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(incoming=[])
+
+    async def _failing_on_connected() -> None:
+        raise GatewayStartupError(
+            summary="node not yet in IM bootstrap", next_step="retry on next connect"
+        )
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=_minimal_reporter(tmp_path),
+        relay_adapter=relay_adapter,
+        on_connected=_failing_on_connected,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    asyncio.run(manager.connect_once())
+
+    assert manager.connected is True, (
+        "on_connected failure must not tear down the socket"
+    )
+    assert any(e["event"] == "on_connected_error" for e in manager.event_log())
+
+
 def test_mark_disconnected_suppresses_invalid_state_error(tmp_path: Path) -> None:
     """decision 6 (pure defense): if an ack future is concurrently resolved between the
     done() check and set_exception, _mark_disconnected must not propagate

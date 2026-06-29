@@ -46,7 +46,9 @@ def _make_config(tmp_path: Path) -> LocalConfig:
     workspace_root.mkdir(exist_ok=True)
     return LocalConfig(
         node=NodeConfig(node_id="node-local"),
-        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),),
+        agents=(
+            AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
+        ),
         channels=(),
         kernel=KernelConfig(),
         heartbeat=HeartbeatConfig(),
@@ -132,7 +134,9 @@ def test_watchdog_rebuilds_im_loop_after_abnormal_exit(tmp_path: Path) -> None:
         runtime.request_shutdown()
         thread.join(timeout=5.0)
 
-    assert "error" not in outcome, f"crash leaked out of gateway: {outcome.get('error')}"
+    assert "error" not in outcome, (
+        f"crash leaked out of gateway: {outcome.get('error')}"
+    )
     assert outcome.get("exit_code") == 0
     assert events.count("run_forever:1") == 1
     assert events.count("run_forever:2") == 1

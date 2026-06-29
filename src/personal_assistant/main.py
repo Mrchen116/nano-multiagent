@@ -203,6 +203,13 @@ class IMConnectionManagerLike(Protocol):
     async def run_forever(self) -> None:
         """Keep the websocket alive until close is requested."""
 
+    async def wait_first_connect_attempt(self, *, timeout: float = ...) -> None:
+        """Block until the first connect attempt resolves (success or failure).
+
+        Bounded by ``timeout``; heartbeat startup gates on this (bugfix-446-M1
+        decision 3 guard).
+        """
+
     async def close(self) -> None:
         """Close the websocket and stop reconnect attempts."""
 
@@ -1475,7 +1482,9 @@ class GatewayRuntime:
         heartbeat_runner: Background heartbeat loop wrapper.
         im_connection_manager: Optional IM websocket connector.
         on_inbound: Shared synchronous inbound callback given to channel adapters.
-        post_im_connect: Optional synchronous hook invoked after IM connect/register succeeds.
+        im_watchdog_initial_seconds: Initial backoff before the watchdog rebuilds the IM
+            maintenance loop after an abnormal exit (mirrors the IM reconnect policy).
+        im_watchdog_max_seconds: Cap for the watchdog rebuild backoff.
         resource_closers: Additional cleanup callables invoked after runtime shutdown.
     """
 
@@ -1488,7 +1497,8 @@ class GatewayRuntime:
         heartbeat_runner: HeartbeatRunner | None = None,
         im_connection_manager: IMConnectionManagerLike | None = None,
         on_inbound: Callable[[InboundMessage], None] | None = None,
-        post_im_connect: Callable[[], None] | None = None,
+        im_watchdog_initial_seconds: float = 1.0,
+        im_watchdog_max_seconds: float = 60.0,
         resource_closers: tuple[Callable[[], None], ...] = (),
         feedback_sink: FeedbackSink = _emit_gateway_feedback,
         internal_dispatch_handler: InternalDispatchHandler | None = None,
@@ -1502,7 +1512,8 @@ class GatewayRuntime:
         self._heartbeat_runner = heartbeat_runner
         self._im_connection_manager = im_connection_manager
         self._on_inbound = on_inbound or (lambda _message: None)
-        self._post_im_connect = post_im_connect
+        self._im_watchdog_initial_seconds = im_watchdog_initial_seconds
+        self._im_watchdog_max_seconds = im_watchdog_max_seconds
         self._resource_closers = resource_closers
         self._feedback_sink = feedback_sink
         self._internal_dispatch_handler = internal_dispatch_handler
@@ -1550,7 +1561,6 @@ class GatewayRuntime:
 
         channels_started = False
         heartbeat_started = False
-        im_connected = False
         dispatch_runner: Any | None = None
         im_task: asyncio.Task[None] | None = None
         try:
@@ -1577,24 +1587,23 @@ class GatewayRuntime:
                     dispatch_runner = None
             self._ready_event.set()
             if self._im_connection_manager is not None:
-                await self._im_connection_manager.connect_once()
-                im_connected = True
-                if self._post_im_connect is not None:
-                    try:
-                        await asyncio.to_thread(self._post_im_connect)
-                    except GatewayStartupError as exc:
-                        await self._publish_startup_failure(exc)
-                        raise
+                # bugfix-446-M1 (decision 1): own the IM connection through a
+                # watchdog-supervised loop. The eager connect_once / post_im_connect that
+                # used to run here were issue paths 1/2 — a transient startup fault killed
+                # the gateway. Connection (first handshake + node binding via on_connected)
+                # is now driven entirely by the supervised run_forever; a transient failure
+                # just retries, and an abnormal loop exit is rebuilt by the watchdog.
                 im_task = asyncio.create_task(
-                    self._im_connection_manager.run_forever(),
+                    self._supervise_im_connection(self._im_connection_manager),
                     name="personal-assistant-im",
                 )
-            # feat-393 fix-r1: heartbeat must start AFTER im.connect_once so that
-            # manager.connected=True when the first tick's kernel_event_observer fires.
-            # Starting before connect_once was the root cause of 0 IM deliveries:
-            # fast local LLM responses completed before the WS was established, and
-            # observer saw connected=False, silently skipping every heartbeat delivery.
             if self._heartbeat_runner is not None:
+                # feat-393 guard (decision 3 companion): with the eager connect_once gone,
+                # gate the first heartbeat tick on the first connect attempt resolving so
+                # the delivery observer never drops a tick fired before the handshake. The
+                # wait is bounded internally, so an unreachable/hung IM cannot block startup.
+                if self._im_connection_manager is not None:
+                    await self._im_connection_manager.wait_first_connect_attempt()
                 await self._heartbeat_runner.start()
                 heartbeat_started = True
             await asyncio.to_thread(self._shutdown_requested.wait)
@@ -1631,39 +1640,49 @@ class GatewayRuntime:
                     _log.warning(
                         "cron dispatcher drain_all() raised during shutdown: %s", exc
                     )
-            if im_connected and self._im_connection_manager is not None:
+            if self._im_connection_manager is not None:
                 await self._im_connection_manager.close()
-                if im_task is not None:
+            if im_task is not None:
+                # issue path 3: cleanup must never be torn apart by a stored task
+                # exception. _await_background_task already absorbs cancellation; wrap the
+                # rest so any leaked fault is logged, not propagated out of finally.
+                try:
                     await _await_background_task(im_task)
-            elif im_task is not None:
-                im_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await im_task
+                except Exception as exc:  # noqa: BLE001
+                    _log.warning("IM task await raised during shutdown: %s", exc)
             if self._process_manager is not None:
                 self._process_manager.stop_kernel_process()
             for closer in self._resource_closers:
                 closer()
 
-    async def _publish_startup_failure(self, exc: GatewayStartupError) -> None:
-        self._feedback_sink("ERROR", exc.summary, exc.next_step)
-        manager = self._im_connection_manager
-        if manager is None or not manager.connected:
-            return
-        last_error = (
-            exc.summary
-            if exc.next_step is None
-            else f"{exc.summary} Next: {exc.next_step}"
-        )
-        payload = {
-            "node_id": self._config.node.node_id,
-            "status": "degraded",
-            "agent_count": len(self._config.agents),
-            "last_error": last_error,
-        }
-        try:
-            await manager.send_json("node.heartbeat", payload)
-        except Exception:  # noqa: BLE001
-            return
+    async def _supervise_im_connection(self, manager: IMConnectionManagerLike) -> None:
+        """Keep the IM maintenance loop alive (bugfix-446-M1 decision 1, watchdog).
+
+        ``run_forever`` is expected to absorb transient faults internally and only return
+        when ``close()`` is requested. If it instead returns or raises while shutdown has
+        NOT been requested — the "silent death" of issue path 6 — rebuild it after an
+        exponential backoff (mirroring the IM reconnect policy) so the node never gets
+        stuck in a "neither reconnecting nor exiting" zombie state. ``CancelledError`` is
+        propagated to honor task cancellation; any other ``BaseException`` is absorbed and
+        the loop rebuilt.
+        """
+
+        delay = self._im_watchdog_initial_seconds
+        while not self._shutdown_requested.is_set():
+            try:
+                await manager.run_forever()
+            except asyncio.CancelledError:
+                raise
+            except BaseException:  # noqa: BLE001 — watchdog must absorb anything that leaks
+                _log.exception("IM maintenance loop crashed; watchdog will rebuild it")
+            if self._shutdown_requested.is_set():
+                return
+            _log.warning(
+                "IM maintenance loop exited without shutdown; rebuilding in %.2fs",
+                delay,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, self._im_watchdog_max_seconds)
 
 
 def _load_runtime_config(
@@ -2262,7 +2281,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     im_connection_manager: IMConnectionManager | None = None
     im_bootstrap_client: _IMBootstrapClient | None = None
     im_config_sync_client: _IMConfigSyncClient | None = None
-    post_im_connect: Callable[[], None] | None = None
     _run_context_store: dict[str, dict[str, str]] = {}
     # feat-393: heartbeat_runner is built here (before im_connection_manager which references it),
     # but the kernel_event_observer is wired after im_service block via attribute set below.
@@ -2360,10 +2378,28 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
 
         im_config_sync_client.on_agent_created = _on_agent_created
 
+        im_bootstrap_client = _IMBootstrapClient(
+            base_url=_im_http_base_url(config.im_service.url),
+            token=config.im_service.token,
+            token_getter=_token_getter,
+        )
+
         # feat-394-M12 决策 F: reconcile 回调——WS bind 完成后（含重连）拉全量 profile
         # 对账，消除漏推送导致的内存状态滞留。reconcile_all_agents 是同步 HTTP 调用，
         # 用 asyncio.to_thread 包装使其在 WS 事件循环中安全运行。
+        # bugfix-446-M1 决策 3: node binding 并入 on_connected（移出启动关键路径）。
+        # ensure_node_binding 对已绑定节点幂等（return None），其所有失败分支都是
+        # IM 重启/断网期的瞬态条件——故非致命：GatewayStartupError 仅记 degraded feedback，
+        # 不 re-raise（连接层 on_connected 包装本就吞掉异常、不会因此断连）。下次成功连上时
+        # binding 会再自愈重试。
         async def _reconcile_on_connect() -> None:
+            try:
+                await asyncio.to_thread(
+                    im_bootstrap_client.ensure_node_binding,
+                    node_id=config.node.node_id,
+                )
+            except GatewayStartupError as exc:
+                _emit_gateway_feedback("ERROR", exc.summary, exc.next_step)
             memory_versions = {
                 agent_id: ver
                 for agent_id in (a.agent_id for a in config.agents)
@@ -2410,14 +2446,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 kernel=kernel
             ),
             on_connected=_reconcile_on_connect,
-        )
-        im_bootstrap_client = _IMBootstrapClient(
-            base_url=_im_http_base_url(config.im_service.url),
-            token=config.im_service.token,
-            token_getter=_token_getter,
-        )
-        post_im_connect = lambda: im_bootstrap_client.ensure_node_binding(
-            node_id=config.node.node_id
         )
     pipeline._relay_lifecycle_callback = _build_relay_lifecycle_callback(
         reporter=reporter,
@@ -2762,7 +2790,6 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         heartbeat_runner=heartbeat_runner,
         im_connection_manager=im_connection_manager,
         on_inbound=inbound_dispatcher,
-        post_im_connect=post_im_connect,
         resource_closers=tuple(closers),
         internal_dispatch_handler=internal_dispatch_handler,
         kernel=kernel,
