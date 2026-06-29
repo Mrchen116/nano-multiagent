@@ -131,13 +131,14 @@ async def test_fork_copies_history_through_M_and_delegates(tmp_path: Path) -> No
     assert [m.content for m in copied] == ["u1", "a1"]
     assert copied[-1].kernel_message_id == "kmsg-a1"
 
-    # gateway delegation carried the right anchor
+    # gateway delegation carries the KERNEL message id (= JSONL turn uuid), not the IM
+    # row id — the kernel forks its session by the kernel anchor (live e2e caught this).
     assert calls == [
         {
             "agent_id": "planner",
             "source_conversation_id": conv.id,
             "new_conversation_id": new_conv.id,
-            "fork_message_id": a1.id,
+            "fork_message_id": "kmsg-a1",
         }
     ]
 
