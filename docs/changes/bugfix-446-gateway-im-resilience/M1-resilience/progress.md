@@ -74,5 +74,23 @@
   - E2E/Regression: 真栈 e2e 在 R4。
   - Lint: `ruff check` + `ruff format` 全通过。
 - Rollback: 回退到 C1 commit（R2 C1 红测 hash 见下）。
-- Commits: C1=(R2 红测提交), C2=852851c3, C3=(本提交)
+- Commits: C1=abce4a3a, C2=852851c3, C3=(本提交)
 - Next: R3 — 心跳 `_run_loop` tick try/except + `start()` done callback（决策 4）。
+
+## R3 — 心跳 tick 兜底 + done callback（决策4）
+
+- Context: `_run_loop` 的 `await self._scheduler.tick()` 为裸 await（issue 路径 4）——tick 抛异常会让
+  整个心跳/cron 调度循环静默死亡且 Gateway 不自知；相邻 cron tick 已有 try/except，唯独 tick 本身没有。
+- Decision: `_scheduler.tick()` 包 try/except（记 `_log.exception`、`summary=None` 跳过本轮投递、靠循环尾
+  `wait_for` 自然进入下一 interval）；后续 heartbeat-run 消费块加 `summary is not None` 守卫（cron 块独立
+  不受影响）。`start()` 创建的 task 挂 `_consume_task_exception` done callback（沿用 `_InboundDispatcher` 模式）。
+- Rationale: tick 失败是瞬态，不该拖垮调度循环；done callback 让「循环真崩了」可观测而非静默吞掉。
+- Evidence:
+  - Tests: `pytest tests/unit/personal_assistant/` → 662 passed,1 skipped。
+    新增红测：tick 首次抛异常后循环存活并再 tick（fail_times=1 → tick_count≥2）；start 后 task 挂有 `_consume_task_exception`。
+  - Entry: N/A（真栈在 R4）。
+  - Frontend / Browser QA / E2E / Visual: N/A（R4 真栈）。
+  - Lint: `ruff check` + `ruff format` 通过。
+- Rollback: 回退到 C1 commit（R3 红测）。
+- Commits: C1=(R3 红测), C2=cc931fbd, C3=(本提交)
+- Next: R4 — e2e 真栈脚本（kill/restart IM + 启动早于 IM）+ 登记 docs/e2e-critical-paths.md。
