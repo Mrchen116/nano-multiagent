@@ -1541,6 +1541,8 @@ class GatewayRuntime:
         self._cron_dispatcher = cron_dispatcher
         self._ready_event = threading.Event()
         self._shutdown_requested = threading.Event()
+        self._shutdown_async_event: asyncio.Event | None = None
+        self._shutdown_loop: asyncio.AbstractEventLoop | None = None
 
     def wait_until_ready(self, timeout: float | None = None) -> bool:
         """Block until the runtime reaches ready state or timeout expires."""
@@ -1551,6 +1553,10 @@ class GatewayRuntime:
         """Request graceful shutdown from another thread or signal handler."""
 
         self._shutdown_requested.set()
+        loop = self._shutdown_loop
+        event = self._shutdown_async_event
+        if loop is not None and event is not None and loop.is_running():
+            loop.call_soon_threadsafe(event.set)
 
     def run_forever(self) -> int:
         """Run the gateway until shutdown is requested.
@@ -1565,6 +1571,8 @@ class GatewayRuntime:
 
     async def _run_until_shutdown(self) -> int:
         loop = asyncio.get_running_loop()
+        self._shutdown_loop = loop
+        self._shutdown_async_event = asyncio.Event()
         if isinstance(self._on_inbound, _InboundDispatcher):
             self._on_inbound.bind_loop(loop)
         # bugfix-402-M4: wire gateway loop into cron dispatcher so enqueue()
@@ -1620,7 +1628,7 @@ class GatewayRuntime:
                     await self._im_connection_manager.wait_first_connect_attempt()
                 await self._heartbeat_runner.start()
                 heartbeat_started = True
-            await asyncio.to_thread(self._shutdown_requested.wait)
+            await self._wait_for_shutdown_request()
             return 0
         finally:
             self._ready_event.clear()
@@ -1668,6 +1676,33 @@ class GatewayRuntime:
                 self._process_manager.stop_kernel_process()
             for closer in self._resource_closers:
                 closer()
+            self._shutdown_async_event = None
+            self._shutdown_loop = None
+
+    def _shutdown_event_for_loop(self) -> asyncio.Event:
+        loop = asyncio.get_running_loop()
+        event = self._shutdown_async_event
+        if event is None or self._shutdown_loop is not loop:
+            event = asyncio.Event()
+            self._shutdown_async_event = event
+            self._shutdown_loop = loop
+        if self._shutdown_requested.is_set():
+            event.set()
+        return event
+
+    async def _wait_for_shutdown_request(self, *, timeout: float | None = None) -> bool:
+        event = self._shutdown_event_for_loop()
+        if self._shutdown_requested.is_set():
+            event.set()
+            return True
+        if timeout is None:
+            await event.wait()
+            return True
+        try:
+            await asyncio.wait_for(event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            return self._shutdown_requested.is_set()
+        return True
 
     async def _supervise_im_connection(self, manager: IMConnectionManagerLike) -> None:
         """Keep the IM maintenance loop alive (bugfix-446-M1 decision 1, watchdog).
@@ -1677,8 +1712,7 @@ class GatewayRuntime:
         NOT been requested — the "silent death" of issue path 6 — rebuild it after an
         exponential backoff (mirroring the IM reconnect policy) so the node never gets
         stuck in a "neither reconnecting nor exiting" zombie state. ``CancelledError`` is
-        propagated to honor task cancellation; any other ``BaseException`` is absorbed and
-        the loop rebuilt.
+        propagated to honor task cancellation; process-control exceptions propagate too.
         """
 
         delay = self._im_watchdog_initial_seconds
@@ -1711,12 +1745,8 @@ class GatewayRuntime:
                 "IM maintenance loop rebuild scheduled in %.2fs",
                 delay,
             )
-            try:
-                await asyncio.wait_for(
-                    asyncio.to_thread(self._shutdown_requested.wait), timeout=delay
-                )
-            except asyncio.TimeoutError:
-                pass
+            if await self._wait_for_shutdown_request(timeout=delay):
+                return
             if self._shutdown_requested.is_set():
                 return
             delay = min(delay * 2, self._im_watchdog_max_seconds)

@@ -235,6 +235,7 @@ class IMConnectionManager:
         self._awaiting_ack_type: str | None = None
         self._flush_lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task[None] | None = None
+        self._stop_event: asyncio.Event | None = None
         # bugfix-446-M1 (decision 3 guard): set after the first connect attempt resolves
         # (success OR failure). Heartbeat startup waits on this so the first tick never
         # fires before the initial handshake has had a chance to complete — without it,
@@ -295,6 +296,9 @@ class IMConnectionManager:
         """Stop reconnect attempts and close the current websocket if present."""
 
         self._stop_requested = True
+        stop_event = self._stop_event
+        if stop_event is not None:
+            stop_event.set()
         self._stop_heartbeat_loop()
         websocket = self._websocket
         self._websocket = None
@@ -342,6 +346,13 @@ class IMConnectionManager:
             self._first_connect_resolved = asyncio.Event()
         return self._first_connect_resolved
 
+    def _stop_wait_event(self) -> asyncio.Event:
+        if self._stop_event is None:
+            self._stop_event = asyncio.Event()
+        if self._stop_requested:
+            self._stop_event.set()
+        return self._stop_event
+
     async def wait_first_connect_attempt(self, *, timeout: float = 10.0) -> None:
         """Block until the first connect attempt has resolved (success or failure).
 
@@ -384,18 +395,37 @@ class IMConnectionManager:
                     first_attempt.set()
                 await self._listen_once()
             except asyncio.CancelledError:
-                self._mark_disconnected()
+                first_attempt.set()
+                await self._disconnect_current_websocket()
                 raise
             except Exception as exc:  # noqa: BLE001
-                self._mark_disconnected(exc)
+                first_attempt.set()
+                await self._disconnect_current_websocket(exc)
                 if self._stop_requested:
                     break
-                await self._sleep(self._reconnect_delay)
+                if await self._sleep_until_stop(self._reconnect_delay):
+                    break
                 self._reconnect_delay = min(
                     self._reconnect_delay * 2, self._config.reconnect_max_seconds
                 )
             finally:
                 first_attempt.set()
+
+    async def _sleep_until_stop(self, delay: float) -> bool:
+        if self._stop_requested:
+            return True
+        sleep_task = asyncio.create_task(self._sleep(delay))
+        stop_task = asyncio.create_task(self._stop_wait_event().wait())
+        done, pending = await asyncio.wait(
+            {sleep_task, stop_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        if sleep_task in done:
+            await sleep_task
+        return self._stop_requested or stop_task in done
 
     async def _listen_once(self) -> None:
         websocket = self._require_websocket()

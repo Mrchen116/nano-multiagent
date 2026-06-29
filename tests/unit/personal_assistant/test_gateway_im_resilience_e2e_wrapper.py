@@ -25,9 +25,7 @@ def test_resilience_wrapper_kills_process_group_on_timeout(
     class _TimedOutProcess:
         pid = 43210
 
-        def communicate(
-            self, timeout: float | None = None
-        ) -> tuple[str, str]:  # noqa: ARG002
+        def communicate(self, timeout: float | None = None) -> tuple[str, str]:  # noqa: ARG002
             raise subprocess.TimeoutExpired(
                 cmd=("bash", "scripts/e2e-resilience.sh"),
                 timeout=timeout,
@@ -43,7 +41,9 @@ def test_resilience_wrapper_kills_process_group_on_timeout(
         return _TimedOutProcess()
 
     monkeypatch.setattr(wrapper.subprocess, "Popen", _fake_popen)
-    monkeypatch.setattr(wrapper.os, "killpg", lambda pgid, sig: killed.append((pgid, sig)))
+    monkeypatch.setattr(
+        wrapper.os, "killpg", lambda pgid, sig: killed.append((pgid, sig))
+    )
 
     with pytest.raises(AssertionError, match="timed out"):
         wrapper._run_resilience_script(  # noqa: SLF001

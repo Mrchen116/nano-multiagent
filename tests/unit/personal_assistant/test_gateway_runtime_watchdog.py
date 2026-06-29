@@ -320,7 +320,8 @@ def test_watchdog_backoff_does_not_consume_executor_threads(
 
         started_at = time.monotonic()
         await asyncio.wait_for(
-            runtime._supervise_im_connection(manager), timeout=0.25  # noqa: SLF001
+            runtime._supervise_im_connection(manager),
+            timeout=0.25,  # noqa: SLF001
         )
         assert time.monotonic() - started_at < 0.25
         assert manager.calls >= 2

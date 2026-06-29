@@ -25,8 +25,10 @@ set -euo pipefail
 
 WT_ROOT=""
 MAIN_CFG="${HOME}/.nano-assistant/config.yaml"
+PREPARE_ONLY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --prepare-only) PREPARE_ONLY=1; shift ;;
     --wt) WT_ROOT="$(cd "$2" && pwd)"; shift 2 ;;
     --main-config) MAIN_CFG="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^set -e/p' "$0"; exit 0 ;;
@@ -156,12 +158,32 @@ WT_CFG="$WT_ROOT/.gateway-config.yaml"
 WORKSPACE_DIR="$WT_ROOT/.gateway-workspace"
 NODE_ID="wt-resilience-$$"
 cp "$MAIN_CFG" "$WT_CFG"
-yq -i "
-  .node.node_id = \"$NODE_ID\" |
-  .node.workspace_base = \"$WORKSPACE_DIR\" |
-  .im_service.url = \"http://127.0.0.1:$IM_PORT\" |
-  .agents[].workspace_root = \"$WORKSPACE_DIR/\" + .agents[].agent_id
-" "$WT_CFG"
+if command -v yq >/dev/null 2>&1; then
+  yq -i "
+    .node.node_id = \"$NODE_ID\" |
+    .node.workspace_base = \"$WORKSPACE_DIR\" |
+    .im_service.url = \"http://127.0.0.1:$IM_PORT\" |
+    .agents[].workspace_root = \"$WORKSPACE_DIR/\" + .agents[].agent_id
+  " "$WT_CFG"
+else
+  WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" \
+    python3 - <<'PY'
+import os
+import yaml
+
+path = os.environ["WT_CFG_PY"]
+with open(path) as f:
+    cfg = yaml.safe_load(f)
+cfg.setdefault("node", {})["node_id"] = os.environ["NODE_ID"]
+workspace_dir = os.environ["WORKSPACE_DIR"]
+cfg["node"]["workspace_base"] = workspace_dir
+cfg.setdefault("im_service", {})["url"] = f"http://127.0.0.1:{os.environ['IM_PORT']}"
+for agent in cfg.get("agents", []):
+    agent["workspace_root"] = os.path.join(workspace_dir, agent["agent_id"])
+with open(path, "w") as f:
+    yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
+PY
+fi
 python3 - "$WT_CFG" "$WORKSPACE_DIR" <<'PY'
 import os, sys, yaml
 cfg_path, wsd = sys.argv[1], sys.argv[2]
@@ -172,6 +194,10 @@ for agent in cfg.get("agents", []):
 PY
 
 echo "  IM_PORT=$IM_PORT  NODE_ID=$NODE_ID"
+if [[ "$PREPARE_ONLY" == "1" ]]; then
+  echo "PREPARE_ONLY PASS"
+  exit 0
+fi
 
 # ─── Scenario A: IM restart → node auto-recovers ─────────────────────────────
 
