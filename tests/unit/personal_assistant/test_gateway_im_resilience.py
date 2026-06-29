@@ -9,6 +9,7 @@ InvalidStateError defense (decision 6).
 from __future__ import annotations
 
 import asyncio
+import logging
 from pathlib import Path
 
 import pytest
@@ -132,6 +133,31 @@ def test_run_forever_first_connect_attempt_resolves_on_failure(
     assert sleeps, "a failed first connect must still enter the backoff path"
 
 
+def test_run_forever_first_connect_attempt_resolves_on_base_exception(
+    tmp_path: Path,
+) -> None:
+    """Every run_forever exit path, including a BaseException escaping connect_once,
+    must release wait_first_connect_attempt so heartbeat startup cannot hang."""
+
+    class _FatalConnect(BaseException):
+        pass
+
+    async def _connect(url: str, headers: dict[str, str]):  # noqa: ARG001
+        raise _FatalConnect("process-level exit")
+
+    manager = _manager(tmp_path, _connect)
+
+    async def _exercise() -> None:
+        task = asyncio.create_task(manager.run_forever())
+        await asyncio.wait_for(
+            manager.wait_first_connect_attempt(timeout=1.0), timeout=0.1
+        )
+        with pytest.raises(_FatalConnect):
+            await task
+
+    asyncio.run(_exercise())
+
+
 def test_wait_first_connect_attempt_is_bounded_when_connect_hangs(
     tmp_path: Path,
 ) -> None:
@@ -160,6 +186,21 @@ def test_wait_first_connect_attempt_is_bounded_when_connect_hangs(
             await task
 
     asyncio.run(_exercise())
+
+
+def test_wait_first_connect_attempt_timeout_logs_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Timeout is a degraded startup condition and must be visible in logs."""
+
+    manager = _manager(
+        tmp_path, lambda url, headers: _connect_fake(_FakeWebSocket(), [], url, headers)
+    )
+
+    with caplog.at_level(logging.WARNING, logger="personal_assistant.ws.im_connection"):
+        asyncio.run(manager.wait_first_connect_attempt(timeout=0.01))
+
+    assert "first IM connect attempt did not resolve" in caplog.text
 
 
 def test_on_connected_failure_does_not_tear_down_connection(tmp_path: Path) -> None:

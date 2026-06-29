@@ -13,6 +13,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
@@ -107,7 +109,7 @@ class _CrashingIMManager:
 def test_watchdog_rebuilds_im_loop_after_abnormal_exit(tmp_path: Path) -> None:
     """When run_forever exits abnormally (crash or silent return) without shutdown, the
     watchdog must rebuild it — and the crash must never propagate out of the gateway
-    (issue path 3 / 'silent death'). Verified by run_forever being entered 3 times
+    (issue path 6 / 'silent death'). Verified by run_forever being entered 3 times
     (2 crashes + 1 stable) and a clean exit 0."""
     events: list[str] = []
     config = _make_config(tmp_path)
@@ -140,6 +142,131 @@ def test_watchdog_rebuilds_im_loop_after_abnormal_exit(tmp_path: Path) -> None:
     assert outcome.get("exit_code") == 0
     assert events.count("run_forever:1") == 1
     assert events.count("run_forever:2") == 1
+
+
+def test_watchdog_does_not_swallow_process_exit_signals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SystemExit/KeyboardInterrupt are process-control signals, not recoverable IM
+    faults. The watchdog must re-raise them instead of rebuilding the loop."""
+
+    class _SystemExitIMManager:
+        connected = False
+
+        async def run_forever(self) -> None:
+            raise SystemExit(2)
+
+    runtime = GatewayRuntime(_make_config(tmp_path), None)
+
+    async def _unexpected_rebuild_sleep(_delay: float) -> None:
+        raise AssertionError("SystemExit must not enter watchdog rebuild backoff")
+
+    monkeypatch.setattr("personal_assistant.main.asyncio.sleep", _unexpected_rebuild_sleep)
+
+    with pytest.raises(SystemExit):
+        asyncio.run(runtime._supervise_im_connection(_SystemExitIMManager()))  # noqa: SLF001
+
+
+def test_watchdog_resets_backoff_after_stable_runtime(tmp_path: Path) -> None:
+    """A crash after a long healthy run should restart at the initial watchdog delay,
+    not inherit the previous exponential backoff."""
+
+    class _StableThenCrashingIMManager:
+        connected = False
+
+        def __init__(self, runtime: GatewayRuntime) -> None:
+            self._runtime = runtime
+            self.started_at: list[float] = []
+            self.calls = 0
+
+        async def run_forever(self) -> None:
+            self.calls += 1
+            self.started_at.append(time.monotonic())
+            if self.calls == 1:
+                raise RuntimeError("first crash")
+            if self.calls == 2:
+                await asyncio.sleep(0.12)
+                raise RuntimeError("crash after stable period")
+            self._runtime.request_shutdown()
+
+    runtime = GatewayRuntime(
+        _make_config(tmp_path),
+        None,
+        im_watchdog_initial_seconds=0.04,
+        im_watchdog_max_seconds=0.10,
+    )
+    manager = _StableThenCrashingIMManager(runtime)
+
+    asyncio.run(runtime._supervise_im_connection(manager))  # noqa: SLF001
+
+    assert manager.calls == 3
+    first_backoff = manager.started_at[1] - manager.started_at[0]
+    second_backoff = manager.started_at[2] - manager.started_at[1] - 0.12
+    assert first_backoff < 0.08
+    assert second_backoff < 0.08, (
+        "watchdog backoff should reset to the initial delay after a stable run"
+    )
+
+
+def test_watchdog_treats_manager_stop_return_as_clean_exit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """If run_forever returns because the manager was already stopped/closed, the
+    watchdog should exit instead of rebuilding forever."""
+
+    class _CleanStoppedIMManager:
+        connected = False
+
+        def __init__(self) -> None:
+            self._stop_requested = False
+            self.calls = 0
+
+        async def run_forever(self) -> None:
+            self.calls += 1
+            self._stop_requested = True
+
+    runtime = GatewayRuntime(_make_config(tmp_path), None)
+    manager = _CleanStoppedIMManager()
+
+    async def _unexpected_rebuild_sleep(_delay: float) -> None:
+        raise AssertionError("clean manager stop must not enter watchdog rebuild backoff")
+
+    monkeypatch.setattr("personal_assistant.main.asyncio.sleep", _unexpected_rebuild_sleep)
+
+    asyncio.run(runtime._supervise_im_connection(manager))  # noqa: SLF001
+
+    assert manager.calls == 1
+
+
+def test_watchdog_backoff_sleep_is_interrupted_by_shutdown(tmp_path: Path) -> None:
+    """Shutdown should interrupt watchdog backoff instead of waiting for the full
+    sleep window."""
+
+    class _AlwaysCrashingIMManager:
+        connected = False
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def run_forever(self) -> None:
+            self.calls += 1
+            raise RuntimeError("offline")
+
+    async def _exercise() -> None:
+        runtime = GatewayRuntime(
+            _make_config(tmp_path),
+            None,
+            im_watchdog_initial_seconds=5.0,
+            im_watchdog_max_seconds=5.0,
+        )
+        manager = _AlwaysCrashingIMManager()
+        task = asyncio.create_task(runtime._supervise_im_connection(manager))  # noqa: SLF001
+        while manager.calls == 0:
+            await asyncio.sleep(0)
+        runtime.request_shutdown()
+        await asyncio.wait_for(task, timeout=0.2)
+
+    asyncio.run(_exercise())
 
 
 def test_gateway_survives_unreachable_im_at_startup(tmp_path: Path) -> None:
@@ -256,3 +383,48 @@ def test_heartbeat_start_waits_for_first_connect_attempt(tmp_path: Path) -> None
         thread.join(timeout=5.0)
 
     assert outcome.get("exit_code") == 0
+
+
+def test_shutdown_cleanup_continues_when_im_task_await_raises_base_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A CancelledError/BaseException from IM task cleanup must not skip later
+    shutdown steps such as stopping the kernel process and resource closers."""
+
+    from personal_assistant import main as gateway_main
+
+    events: list[str] = []
+
+    class _FakeProcessManager:
+        def start_kernel_process(self) -> None:
+            events.append("kernel.start")
+
+        def stop_kernel_process(self) -> None:
+            events.append("kernel.stop")
+
+    async def _raise_cancelled(_task: asyncio.Task[None]) -> None:
+        events.append("await.im_task")
+        raise asyncio.CancelledError()
+
+    monkeypatch.setattr(gateway_main, "_await_background_task", _raise_cancelled)
+
+    config = _make_config(tmp_path)
+    manager = _GateFakeIM(events)
+    runtime = GatewayRuntime(
+        config,
+        _FakeProcessManager(),
+        im_connection_manager=manager,
+        resource_closers=(lambda: events.append("resource.close"),),
+    )
+
+    thread, outcome = _run_in_thread(runtime)
+    try:
+        assert runtime.wait_until_ready(timeout=2.0) is True
+    finally:
+        runtime.request_shutdown()
+        thread.join(timeout=5.0)
+
+    assert outcome.get("exit_code") == 0
+    assert "error" not in outcome
+    assert "kernel.stop" in events
+    assert "resource.close" in events
