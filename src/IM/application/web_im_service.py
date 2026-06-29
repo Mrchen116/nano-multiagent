@@ -311,11 +311,15 @@ class WebIMService:
                     self._messages.append_thinking_segment(
                         message_id=copied.id, text=segment.text
                     )
+            # The gateway forks the kernel session by the *kernel* message id (= JSONL
+            # turn uuid), NOT the IM message row id. fork_message_id located the bubble
+            # in IM's display history above; here we hand the gateway the kernel anchor
+            # persisted on that row.
             result = await request_fork(
                 agent_id=agent_id,
                 source_conversation_id=source_conversation_id,
                 new_conversation_id=new_conversation.id,
-                fork_message_id=fork_message_id,
+                fork_message_id=fork_msg.kernel_message_id,
             )
         except Exception:
             self._conversations.delete_conversation(

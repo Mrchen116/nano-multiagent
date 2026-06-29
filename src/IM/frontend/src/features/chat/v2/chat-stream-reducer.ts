@@ -143,6 +143,9 @@ export function applyWsEvent(
         token_usage: ev.token_usage,
         // feat-414: 权威耗时来自后端，覆盖前端本地 tick。
         elapsed_ms: ev.elapsed_ms,
+        // feat-445-M1: a live-completed agent bubble becomes forkable immediately
+        // (no refetch) once its kernel message id arrives on the completed event.
+        kernel_message_id: ev.kernel_message_id ?? m.kernel_message_id,
       }));
     }
     case "tool_call.upserted":

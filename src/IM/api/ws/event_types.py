@@ -142,6 +142,7 @@ def build_message_completed_payload(
     content: str,
     token_usage: TokenUsage | None,
     elapsed_ms: int | None = None,
+    kernel_message_id: str | None = None,
 ) -> dict[str, Any]:
     """Build payload for the ``message.completed`` event.
 
@@ -162,6 +163,9 @@ def build_message_completed_payload(
         "content": content,
         "token_usage": token_usage_to_dict(token_usage),
         "elapsed_ms": elapsed_ms,
+        # feat-445-M1: carry the fork anchor so a just-completed live bubble becomes
+        # forkable without a refetch.
+        "kernel_message_id": kernel_message_id,
     }
 
 

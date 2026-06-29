@@ -346,6 +346,7 @@ class EventBridge:
                 content=updated.content,
                 token_usage=token_usage,
                 elapsed_ms=elapsed_ms,
+                kernel_message_id=updated.kernel_message_id,
             ),
         )
 
