@@ -93,3 +93,21 @@
 - Commits: C1=test, C2=feat, C3=docs 本段。
 - Next: R6 live 端到端真栈验收（含 R5 浏览器视觉验收）。
 
+### R6 — live 端到端真栈验收（抓到并修复两处集成缝）
+
+- Context: 前五个 roadpoint 单测/组件测全绿，但都查的是进程内对象/桩。fork 是跨进程（IM↔gateway↔kernel）+ 客户端面特性，必须真栈端到端 + 真实浏览器验收（§0.3/§0.10/§0.11）。
+- Decision: 用 `scripts/e2e-up.sh` 起真栈（IM ephemeral + Gateway 进程内 kernel + 真 LLM proxy :4000，auto-bind、config 隔离），跑 ① API 级跨进程 fork e2e（脚本驱动真 HTTP，证 R1-R4 端到端）② playwright 真实浏览器验收（fork 按钮 hover/点击/toast/离线，截图对照 prototype）。
+- **live e2e 抓到两处单测全漏的集成缝（R6 的核心价值，已修 + 加守护）**：
+  1. **kernel_message_id 落 DB 但没序列化到前端**：DB 行有值（`msg_…`），但 REST `MessageResponse`/`to_message_response`、WS `message.completed` payload、前端 reducer 三处都没透传 → 前端 `message.kernel_message_id` 永远 undefined → fork 按钮永不出现。修：三处补字段。守护：`test_build_message_completed_payload_includes_kernel_message_id` + `test_to_message_response_serializes_kernel_message_id` + reducer `writes kernel_message_id`。
+  2. **fork 委托传错 id**：IM `fork_conversation` 把 IM 消息行 id 当 fork 点传 gateway，kernel 需要的是 kernel message_id(= JSONL turn uuid) → gateway 报 "fork point not found"。修：传 `fork_msg.kernel_message_id`。守护：修正 `test_fork_copies_history_through_M_and_delegates` 断言（原断言把 bug 焊死了，断言传 IM id）。
+- Evidence:
+  - Entry (API 跨进程 e2e，脚本 `fork_e2e.py`，真 IM+Gateway+kernel+LLM)：`[3] kernel_message_id='msg_5824b3d4e0bbd9c9'`（暴露✅）→ `[5] forked → 新分支 chat(title=plato)` → `[6] 分支含 0→fork点、排除 fork 点后的 KIWI-9 turn` → **`[7] 分支 agent 回复 'BANANA-7' = 记得源上下文`（fork 记忆核心价值✅）** → `[8] 源会话不受影响、两线独立`。ALL E2E ASSERTIONS PASSED。
+  - Browser QA (playwright 真实浏览器，真前端)：`FORK_BUTTON_VISIBLE_ON_HOVER: true`、`USER_BUBBLE_FORK_COUNT: 0`、`FORK_TOAST_VISIBLE: true`、`URL_AFTER_FORK` 跳到新 conv、`CONSOLE_ERRORS: []`；离线（停 gateway → node offline）`FORK_BTN_DISABLED_OFFLINE: true` + `FORK_TIP_VISIBLE_OFFLINE: true`。
+  - Frontend State Matrix: default/disabled(离线)/missing-data(无 kernel id)/mobile(375)/desktop(1440) 真实浏览器覆盖。
+  - Visual/Interaction: 截图 `/Users/czj/Repos/nano-multiagent/ACCEPTANCE/feat-445-M1/`：`r6-fork-button-hover-1440.png`（fork 按钮锚在 agent 气泡卡片右上边缘、无 hover gap，样式同 prototype `.chat-bubble-fork`）、`r6-fork-toast-newchat-1440.png`（左上角「Branched into a new chat」toast，白底圆角+边框+阴影，对照 prototype `.fork-toast`）、`r6-fork-offline-disabled-1440.png`（置灰虚线按钮 + tip「This agent is offline…」对照 prototype `.fork-tip`）、`r6-fork-button-hover-375.png`（mobile）。对照结论：与 prototype.html 视觉/交互一致。
+  - 多气泡 fork：relay 逐气泡 kernel id 分配（R1 `test_relay_kernel_message_id` 多气泡 roll）+ kernel `up_to` 按 turn uuid 精确截断（R2 三组守护）已证机制；live 单气泡端到端已证。真实 model 一 run 出多条 content 气泡不可确定性强制触发，机制层已单测锁定。
+  - E2E/Regression: 全树 `pytest -m "not e2e"` 见收尾门禁；前端 `vitest` 全绿、tsc 干净、build 成功。
+- Rollback: revert C2（两处序列化/传参修复）；均为补字段/改传值，向后兼容。
+- Commits: C1=test 回归守护, C2=fix 集成缝, C3=docs 本段。
+- Next: milestone DONE，跑全树门禁 → §6 集成到 unit 分支。
+

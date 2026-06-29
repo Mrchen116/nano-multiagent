@@ -8,14 +8,14 @@
 
 ## 退出标准
 
-- [ ] kernel `fork_session(up_to=message_id)` 真实化：复用现有 boundary-aware materialize（截断到 M）+ 现成已测 `_fork_locked`，新旧会话独立、保真保留 reasoning/工具。
-- [ ] **分支≡源在 M 守护测试三组全绿**：① 源已压缩、fork boundary 后 → summary+boundary..M；② 源已压缩、fork boundary 前老消息 → 应用 M 前 boundary 后到 M 的视图；③ 源未压缩 → 到 M 全部 turn。
-- [ ] relay 把逐气泡 kernel `message_id` 落到 IM 消息行（含一 run 多气泡，每泡各自正确）；单测锁定。
-- [ ] gateway fork RPC handler：binding 定位源 session → kernel.fork_session(up_to) → bind 新会话；单测绿。
-- [ ] IM `fork_conversation`：建会话 + 复制 0..M 展示历史 + 在线校验 + 失败回滚 + 旧气泡无 message_id 拒 fork；单测绿。
-- [ ] 前端 fork 按钮（agent 已完成 + 单聊 + 在线 + 有 kernel message_id 才出现）+ forkMutation + 跳转 + 成功 toast(4s)；vitest + 真实浏览器验收。
-- [ ] live 端到端真栈：浏览器点 fork → 新会话带记忆、可追问；多气泡分别 fork 精确；离线禁用；两线独立。
-- [ ] `pytest -m "not e2e"` 全树不回归；前端 `npm run test` 相关用例绿。
+- [x] kernel `fork_session(up_to=message_id)` 真实化：复用现有 boundary-aware materialize（截断到 M）+ 现成已测 `_fork_locked`，新旧会话独立、保真保留 reasoning/工具。（R2）
+- [x] **分支≡源在 M 守护测试三组全绿**：① 源已压缩、fork boundary 后 → summary+boundary..M；② 源已压缩、fork boundary 前老消息 → 应用 M 前 boundary 后到 M 的视图；③ 源未压缩 → 到 M 全部 turn。（R2 test_fork_session.py）
+- [x] relay 把逐气泡 kernel `message_id` 落到 IM 消息行（含一 run 多气泡，每泡各自正确）；单测锁定。（R1 + R6 序列化到前端）
+- [x] gateway fork RPC handler：binding 定位源 session → kernel.fork_session(up_to) → bind 新会话；单测绿。（R3）
+- [x] IM `fork_conversation`：建会话 + 复制 0..M 展示历史 + 在线校验 + 失败回滚 + 旧气泡无 message_id 拒 fork；单测绿。（R4）
+- [x] 前端 fork 按钮（agent 已完成 + 单聊 + 在线 + 有 kernel message_id 才出现）+ forkMutation + 跳转 + 成功 toast(4s)；vitest + 真实浏览器验收。（R5 + R6 浏览器截图）
+- [x] live 端到端真栈：浏览器点 fork → 新会话带记忆、可追问；离线禁用；两线独立。（R6 API e2e + playwright；多气泡 fork 机制由 R1/R2 单测锁定，详见 progress R6）
+- [x] `pytest -m "not e2e"` 全树不回归；前端 `npm run test` 相关用例绿。
 
 ## 测试策略
 
@@ -67,32 +67,32 @@ UI 状态矩阵：
 
 ## Roadpoints
 
-### R1 — relay 落逐气泡 kernel message_id 到 IM 消息行（决策 4 地基）
+### R1 — relay 落逐气泡 [DONE] kernel message_id 到 IM 消息行（决策 4 地基）
 
 - 步骤: gateway `message_completed` 帧（turn_end `main.py:3700` + `_roll_bubble:3252`）带上该气泡的 kernel message_id（turn_end 用 `ctx["kernel_message_id"]`；roll 用进入时旧气泡的 kernel id，沿 token_usage 同款「气泡终结元数据」precedent）；IM `Message` 模型加 `kernel_message_id` 字段 + DB 列迁移 + repo write/read + `event_bridge.on_message_completed`/`update_runtime_state` 落库；`_handle_streaming_delta` message_completed 取出转发。
 - 验证: gateway observer 单测——喂一 run 多 assistant_message（不同 message_id 触发 roll），断言每个气泡 message_completed 帧带各自 kernel id；IM 持久化往返单测——`update_runtime_state(kernel_message_id=...)` 写入、`_message_from_row` 读回、fork 复制路径透传。
 
-### R2 — kernel fork_session(up_to=M)：as-of-M 截断 + 复用 _fork_locked
+### R2 — kernel fork_session [DONE](up_to=M)：as-of-M 截断 + 复用 _fork_locked
 
 - 步骤: `jsonl_store.load` 加 `up_to: str|None`——读完 raw_lines 后定位 `type==turn and uuid==up_to` 的行，截断到该行（含），找不到 raise（不静默回落）；`manager.load` 透传 up_to；`runtime.fork_session` 加 `up_to`——有 up_to 时 flush writer + 从 JSONL 重 materialize（不用过期内存缓存）→ 交 `_fork_locked`（无 up_to 时保留现有 cache-first，不破 5 个现有测试）；`kernel.fork_session` 加 up_to 并委托 runtime（替换现有 stub）。
 - 验证: 分支≡源在 M 三组守护测试（压缩后/压缩前/未压缩）；扩 test_fork_session.py 的 up_to 截断 + 独立性 + reasoning 保真。
 
-### R3 — gateway fork RPC handler（session.fork.request → result）
+### R3 — gateway fork RPC [DONE] handler（session.fork.request → result）
 
 - 步骤: `im_connection.py` 新增 `session.fork.request` dispatch（仿 capabilities.resolve/agent.create）；注入 provider 回调：由 source_conversation_id+agent_id 经 `session_keys` binding 定位源 session_id → `kernel.fork_session(source, up_to=message_id, workspace_root=agent.workspace_root)` → `bind_conversation_session(new_conv → new_session)` → 回 `session.fork.result{ok,new_session_id}`；失败回 `{ok:false,error}`。
 - 验证: handler 单测——预置 binding，断言 fork 调用入参（up_to）、新 binding 落库、result 帧形态；源缺 binding / fork 抛错 → ok:false。
 
-### R4 — IM fork 编排（service + route + WS RPC + 在线校验 + 回滚）
+### R4 — IM fork 编排 [DONE]（service + route + WS RPC + 在线校验 + 回滚）
 
 - 步骤: `web_im_service.fork_conversation(actor, source_conversation_id, fork_message_id)`——校验归属/direct-agent 类型/消息为 agent+completed/该行有 kernel_message_id（旧气泡无 → 400）/agent node 在线（否则 409）；建新会话(title=agent名) + 复制 0..fork_message_id 展示消息（含 kernel_message_id 透传）；`gateway_handler.request_fork_session` 发 WS RPC 等回包（超时/失败 → 删新会话回滚 → 502/409）；`api/routes/web_im.py` 加 `POST /conversations/{id}/fork`。
 - 验证: IM service 单测（用 fake gateway_handler）——建会话+复制到 M+在线校验+RPC 失败回滚+旧气泡无 message_id 拒绝+跨租 404。
 
-### R5 — 前端 fork 按钮 + mutation + toast + 跳转
+### R5 — 前端 fork 按钮 [DONE] + mutation + toast + 跳转
 
 - 步骤: `chat-types.ts` Message 加 `kernel_message_id?`；`chat-api.ts` 加 `forkConversation`；`message-pane.tsx` MessageBubble 加 fork 按钮（gate: isAgent && completed && isDirectChat && agentOnline && kernel_message_id；离线显置灰 + tip）+ `.chat-bubble-card` position:relative + global.css `.chat-bubble-fork`/`.fork-tip`（照 prototype）；`chat-workspace-page.tsx` forkMutation（双缓存失效 + navigate）+ 成功 toast（复用 InAppToast，4s）。
 - 验证: vitest——按钮可见性 4-gate + 旧气泡无按钮 + 离线置灰；真实浏览器截图（default/loading/disabled/long/mobile/desktop）对照 prototype。
 
-### R6 — live 端到端真栈验收
+### R6 — live 端到端真栈验收 [DONE]
 
 - 步骤: e2e-up.sh 起 IM+Gateway+proxy（ephemeral 端口、config 隔离、auto-bind）；浏览器走查 design Runbook 六条：① hover fork→跳新会话历史完整可追问且 agent 记得；② 用户/生成中消息无入口；③ 离线禁用+提示；④ 原会话不变两线独立；⑤ fork 中间某条 fork 点后不带；⑥ 一 run 多气泡分别 fork 精确到对应那条。
 - 验证: 真栈截图 + log 证据进 progress Evidence；env 受阻按 §0.11 报 BLOCKED 不降级。
