@@ -154,3 +154,109 @@ delta-spec `docs/changes/bugfix-446-gateway-im-resilience/specs/gateway/spec.md`
 ---
 
 No critical issues. 1 warning(s) to consider. Ready for PR (with noted improvements).
+
+---
+
+# Round 2
+
+> Round 2 · 2026-06-29 · review_round=2 · mode=full
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 10/10 tasks + round1 W1 closed |
+| Correctness | incident/design/delta-spec covered; fix-r1 edge matrix covered |
+| Coherence | Followed |
+
+No critical issues. No warnings. 1 suggestion remains. Ready for PR (with noted documentation follow-up).
+
+Verification run:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 pytest -p no:cacheprovider \
+  tests/unit/personal_assistant/test_gateway_runtime_watchdog.py \
+  tests/unit/personal_assistant/test_gateway_im_resilience.py \
+  tests/unit/personal_assistant/test_gateway_build_runtime.py::test_reconcile_on_connect_continues_after_binding_failure_and_reports_degraded \
+  tests/unit/personal_assistant/test_cron_polling_runner.py::test_polling_runner_survives_scheduler_tick_failure \
+  tests/unit/personal_assistant/test_cron_polling_runner.py::test_polling_runner_start_attaches_done_callback -q
+# 19 passed
+```
+
+## Completeness
+
+**Tasks: 10/10 complete.** `M1-resilience/tasks.md:13-22` remains fully checked off and every listed exit criterion maps to code and tests.
+
+**Round1 W1 closed.** The prior warning required a dedicated test for issue path 3: `finally` awaiting `im_task` must not let a stored/background task exception tear down shutdown. This is now covered by `tests/unit/personal_assistant/test_gateway_runtime_watchdog.py:394`, which monkeypatches `_await_background_task` to raise `asyncio.CancelledError`, then asserts `GatewayRuntime.run_forever()` still exits `0` and later cleanup (`kernel.stop`, resource closer) still runs (`test_gateway_runtime_watchdog.py:433-436`). The implementation catches `BaseException` around `_await_background_task(im_task)` at `src/personal_assistant/main.py:1659-1666`, so both `Exception` and `CancelledError` cleanup failures are contained.
+
+**Round1 fix package complete.** The follow-up commits after round1 cover all requested hardening edges:
+
+| Edge | Implementation evidence | Test evidence | Status |
+|---|---|---|---|
+| watchdog process-level exceptions re-raise | `src/personal_assistant/main.py:1689-1692` re-raises `CancelledError`, `SystemExit`, `KeyboardInterrupt` | `test_gateway_runtime_watchdog.py:147-169` | covered |
+| watchdog backoff resets after stable runtime | `src/personal_assistant/main.py:1694-1697` and `1704-1707` reset delay after runtime reaches max window | `test_gateway_runtime_watchdog.py:172-210` | covered |
+| clean stop return exits watchdog | `src/personal_assistant/main.py:1698-1703` returns when shutdown is requested or manager `_stop_requested` is true | `test_gateway_runtime_watchdog.py:213-245` | covered |
+| crash/clean-exit logs are mutually exclusive | crash path logs exception at `main.py:1697`; clean manager stop logs info and returns at `main.py:1701-1703` | branch-specific tests above exercise crash vs clean paths | covered |
+| shutdown interrupts watchdog backoff | `src/personal_assistant/main.py:1714-1720` waits on shutdown event with timeout instead of sleeping uninterruptibly | `test_gateway_runtime_watchdog.py:247-275` | covered |
+| binding failure continues reconcile + degraded heartbeat | `_reconcile_on_connect` catches binding failure, sends `status="degraded"`, then still calls reconcile at `main.py:2431-2467` | `test_gateway_build_runtime.py:283-386` | covered |
+| run_forever first-connect signal set on all exits | `src/personal_assistant/ws/im_connection.py:379-399` sets event in `finally` | `test_gateway_im_resilience.py:81-158` | covered |
+| first-connect timeout warning | `src/personal_assistant/ws/im_connection.py:356-364` logs warning on bounded timeout | `test_gateway_im_resilience.py:191-203` | covered |
+| cheap cleanup for ack future race | `src/personal_assistant/ws/im_connection.py:861-879` suppresses `InvalidStateError` | `test_gateway_im_resilience.py:238-265` | covered |
+
+## Correctness
+
+### Requirement: 瞬态故障后节点自动恢复 online
+
+The implementation still satisfies the incident scenarios:
+
+- Host sleep / network interruption / IM restart are handled by the same reconnect path: `IMConnectionManager.run_forever()` catches ordinary connection failures, marks disconnected, sleeps with exponential backoff, and retries (`src/personal_assistant/ws/im_connection.py:366-399`).
+- If the IM maintenance loop exits unexpectedly instead of retrying internally, `GatewayRuntime._supervise_im_connection()` rebuilds it while shutdown is not requested (`src/personal_assistant/main.py:1672-1722`).
+- The real-stack critical path remains registered in `docs/e2e-critical-paths.md:44` and is driven by `scripts/e2e-resilience.sh:176-208` for IM restart and Gateway-before-IM startup. Prior progress records a live pass in `M1-resilience/progress.md:137-144`.
+
+### Requirement: 启动顺序不敏感
+
+Startup no longer depends on eager IM connectivity. `_run_until_shutdown()` sets ready before the supervised IM loop (`src/personal_assistant/main.py:1602-1613`) and gates heartbeat startup only on a bounded first-attempt signal (`main.py:1614-1621`). `test_gateway_survives_unreachable_im_at_startup` uses a real `IMConnectionManager` with failing connect and asserts the Gateway stays alive and exits `0` on shutdown (`test_gateway_runtime_watchdog.py:278-316`).
+
+### Requirement: 连接层故障永不致 Gateway 僵尸
+
+The watchdog now has the expected split:
+
+- Recoverable `Exception` from `manager.run_forever()` is logged and rebuilt (`main.py:1693-1698`).
+- Clean return during shutdown or manager stop exits without rebuild (`main.py:1698-1703`).
+- Process-control exceptions are not swallowed (`main.py:1689-1692`).
+- Backoff is interruptible by shutdown (`main.py:1714-1720`).
+
+The unit tests verify crash rebuild, process-level re-raise, stable-runtime reset, clean-stop return, and interruptible backoff (`test_gateway_runtime_watchdog.py:109-275`).
+
+### Delta-spec
+
+`docs/changes/bugfix-446-gateway-im-resilience/specs/gateway/spec.md` covers the required contract delta:
+
+- MODIFIED `断线后自动重连...` adds host sleep, network interruption, and IM restart scenarios (`specs/gateway/spec.md:16-46`).
+- ADDED startup-order-insensitive Gateway behavior (`specs/gateway/spec.md:50-56`).
+- ADDED non-zombie connection maintenance behavior (`specs/gateway/spec.md:58-64`).
+
+Implementation and test evidence above match these delta-spec requirements.
+
+## Coherence
+
+Design decisions remain followed:
+
+- Decision 1 two-layer defense: inner reconnect loop in `im_connection.py:366-399`, outer watchdog in `main.py:1672-1722`.
+- Decision 2 exception boundary: `CancelledError` cleanup/re-raise and `Exception` retry in `im_connection.py:386-396`; process-control `BaseException` handled by the outer supervisor without being swallowed.
+- Decision 3 node-binding in `on_connected`: binding failure is degraded/non-fatal and does not skip reconcile (`main.py:2431-2467`).
+- Decision 4 heartbeat tick guard: scheduler tick exceptions are logged and the loop continues (`main.py:1246-1257`), with `_consume_task_exception` registered on the heartbeat task (`main.py:1223-1228`).
+- Decision 5 testing: deterministic unit tests cover path-level failures; real-stack e2e is registered for critical-path execution.
+- Decision 6 cheap `InvalidStateError` defense: implemented in `im_connection.py:873-879`.
+
+Architecture boundaries are preserved: production changes stay inside `personal_assistant`; Gateway continues to use `agent.sdk` rather than importing `agent.core` / `agent.platform` internals.
+
+## Issues
+
+### SUGGESTION
+
+**S1: canonical `docs/specs/gateway/spec.md` still needs the delta-spec merged before final release documentation is considered current.**
+
+This remains the same non-blocking documentation follow-up noted in round1. The delta-spec is complete at `docs/changes/bugfix-446-gateway-im-resilience/specs/gateway/spec.md:1-64`, but the canonical gateway contract does not yet include the new bugfix-446 scenarios. Merge the MODIFIED/ADDED sections into `docs/specs/gateway/spec.md` during orchestrator release-documentation cleanup so the long-lived contract matches the shipped behavior.
+
+No critical issues. No warnings. Ready for PR (with noted documentation follow-up).
