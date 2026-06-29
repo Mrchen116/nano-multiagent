@@ -352,9 +352,10 @@ resume session:
 
 ## 前端原型
 
-前端相关 unit: IM 前端使用统计面板（初版三视图）。
-- 原型文件: [prototype.html](prototype.html)
-- 覆盖范围: Skill 列表视图 + Agent 维度视图 + 自进化健康度视图
+前端相关 unit: IM 前端使用统计面板（初版三视图）+ F2 session 选择交互。
+- 原型文件 1: [prototype.html](prototype.html) — Skill 列表视图 + Agent 维度视图 + 自进化健康度视图
+- 原型文件 2: [prototype-f2.html](prototype-f2.html) — F2 session 多选 → 跳转新对话 → 预填蒸馏 skill 命令 → agent 生成 SKILL.md（三步交互流程）
+- 覆盖范围: 使用统计三视图 + F2 session 选择/跳转/蒸馏全流程
 
 ### Dashboard 数据通道
 

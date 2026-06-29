@@ -57,7 +57,7 @@
 
 - Q12: F2 的入口形态?
   A(原话): 我觉得这个可以做成一个skill，然后IM上可以在左边右键或者某种交互，选择某个session或者某几个session，然后跳转到一个新的对话中，写意图说明，然后用这个session总结生成skill的skill来给用户生成skill。这个skill用户可以选择生成成PA产品级的，还是agent级的
-  Agent 解读: F2 两层实现——IM 前端做 session 选择交互（右键 → 跳转新对话），蒸馏 skill 本身是一个标准 SKILL.md（教 agent 读 transcript + 意图 → 生成 skill）。用户选 PA 级或 agent 级决定写入哪个 skill_root。
+  Agent 解读: F2 两层实现——IM 前端做 session 选择交互（多选 → 跳转新对话），蒸馏 skill 本身是一个标准 SKILL.md（教 agent 读 transcript + 意图 → 生成 skill）。跳转新对话时预填 `/distill-from-sessions 我选了以下 session 做蒸馏：<session_ids>`，用户补充意图说明后发送。用户选 PA 级或 agent 级决定写入哪个 skill_root。
 
 - Q13: 面板归哪?
   A(原话): 本unit包含了IM的实现

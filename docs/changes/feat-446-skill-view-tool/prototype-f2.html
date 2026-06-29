@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>F2 从历史 session 蒸馏 skill — 交互原型</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --im-bg: oklch(0.98 0.005 240);
+      --im-surface: oklch(1 0 0);
+      --im-surface-2: oklch(0.965 0.006 240);
+      --im-topbar: oklch(0.19 0.012 240);
+      --im-topbar-fg: oklch(0.96 0.004 240);
+      --im-accent: oklch(0.52 0.14 180);
+      --im-accent-fg: oklch(0.99 0 0);
+      --im-accent-2: oklch(0.42 0.13 180);
+      --im-text: oklch(0.21 0.012 240);
+      --im-text-muted: oklch(0.5 0.012 240);
+      --im-border: oklch(0.9 0.008 240);
+      --im-border-strong: oklch(0.82 0.01 240);
+      --im-sidebar: oklch(0.24 0.012 240);
+      --im-sidebar-hover: oklch(0.28 0.012 240);
+      --im-sidebar-active: oklch(0.31 0.015 240);
+      --im-sidebar-active-outline: oklch(0.40 0.08 180);
+      --im-sidebar-text: oklch(0.88 0.006 240);
+      --im-sidebar-text-muted: oklch(0.50 0.008 240);
+      --im-danger: oklch(0.58 0.18 25);
+      --im-success: oklch(0.65 0.15 150);
+      --im-shadow: 0 12px 32px -22px oklch(0.2 0.012 240 / 0.45);
+      --im-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: 'IBM Plex Sans', -apple-system, 'Helvetica Neue', sans-serif;
+      background: var(--im-bg); color: var(--im-text);
+      height: 100vh; overflow: hidden;
+    }
+
+    /* --- Workspace shell --- */
+    .chat-workspace { display: flex; height: 100vh; }
+
+    /* --- Sidebar --- */
+    .chat-sidebar {
+      width: 262px; min-width: 262px; background: var(--im-sidebar);
+      display: flex; flex-direction: column; border-right: 1px solid oklch(0.3 0.01 240);
+    }
+    .chat-sidebar-header {
+      padding: 16px 14px 8px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .chat-sidebar-title {
+      font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--im-sidebar-text-muted);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .chat-sidebar-title .mode-badge {
+      font-size: 0.6rem; background: var(--im-accent); color: var(--im-accent-fg);
+      padding: 2px 8px; border-radius: 999px; font-weight: 600;
+      letter-spacing: 0; text-transform: none;
+    }
+    .chat-sidebar-search {
+      background: oklch(0.28 0.01 240); border: 1px solid oklch(0.35 0.01 240);
+      border-radius: 10px; padding: 7px 10px; color: var(--im-sidebar-text);
+      font-size: 0.8rem; width: 100%; outline: none;
+      font-family: inherit;
+    }
+    .chat-sidebar-search::placeholder { color: oklch(0.45 0.008 240); }
+    .chat-sidebar-search:focus { border-color: var(--im-accent); }
+
+    /* --- Session list --- */
+    .chat-sidebar-list {
+      list-style: none; flex: 1; overflow-y: auto; padding: 4px 8px;
+      display: flex; flex-direction: column; gap: 0.15rem;
+    }
+    .chat-sidebar-row {
+      display: flex; align-items: center; gap: 0.6rem;
+      min-height: 52px; padding: 6px 8px; border-radius: 0.6rem;
+      background: transparent; border: none; cursor: pointer;
+      transition: background 0.1s; width: 100%; text-align: left;
+      color: var(--im-sidebar-text); font-family: inherit;
+      position: relative;
+    }
+    .chat-sidebar-row:hover { background: var(--im-sidebar-hover); }
+    .chat-sidebar-row.selected {
+      background: var(--im-sidebar-active);
+      outline: 1px solid var(--im-sidebar-active-outline);
+    }
+
+    /* Checkbox */
+    .row-checkbox {
+      width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0;
+      border: 2px solid oklch(0.5 0.008 240); background: transparent;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.15s; cursor: pointer;
+    }
+    .chat-sidebar-row:hover .row-checkbox { border-color: oklch(0.65 0.008 240); }
+    .chat-sidebar-row.selected .row-checkbox {
+      background: var(--im-accent); border-color: var(--im-accent);
+    }
+    .row-checkbox svg { width: 12px; height: 12px; stroke: white; stroke-width: 3; fill: none; opacity: 0; transition: opacity 0.15s; }
+    .chat-sidebar-row.selected .row-checkbox svg { opacity: 1; }
+
+    /* Avatar */
+    .row-avatar {
+      width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.75rem; font-weight: 700; color: white;
+    }
+
+    /* Content */
+    .row-content { flex: 1; min-width: 0; }
+    .row-title {
+      font-size: 0.875rem; font-weight: 600; color: var(--im-sidebar-text);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .row-preview {
+      font-size: 0.75rem; color: var(--im-sidebar-text-muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      margin-top: 1px;
+    }
+    .row-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
+    .row-time { font-size: 0.7rem; color: var(--im-sidebar-text-muted); }
+    .row-status {
+      font-size: 0.6rem; padding: 1px 6px; border-radius: 999px;
+      font-weight: 600;
+    }
+    .row-status.ended { background: oklch(0.35 0.01 240); color: oklch(0.65 0.008 240); }
+    .row-status.active { background: oklch(0.35 0.06 150); color: var(--im-success); }
+
+    /* --- Selection action bar --- */
+    .selection-bar {
+      padding: 10px 14px; background: oklch(0.20 0.015 180);
+      border-top: 1px solid oklch(0.30 0.02 180);
+      display: flex; align-items: center; justify-content: space-between;
+      transition: all 0.2s ease;
+    }
+    .selection-bar.hidden { height: 0; padding: 0 14px; overflow: hidden; border: none; opacity: 0; }
+    .selection-bar .count { font-size: 0.78rem; color: var(--im-accent); font-weight: 600; }
+    .selection-bar .btn-distill {
+      background: var(--im-accent); color: var(--im-accent-fg);
+      border: none; border-radius: 8px; padding: 6px 14px;
+      font-size: 0.78rem; font-weight: 600; cursor: pointer;
+      font-family: inherit; transition: background 0.15s;
+      display: flex; align-items: center; gap: 5px;
+    }
+    .selection-bar .btn-distill:hover { background: var(--im-accent-2); }
+    .selection-bar .btn-distill:disabled { opacity: 0.4; cursor: not-allowed; }
+    .selection-bar .btn-clear {
+      background: transparent; border: 1px solid oklch(0.4 0.01 240);
+      color: oklch(0.65 0.008 240); border-radius: 8px; padding: 5px 10px;
+      font-size: 0.72rem; cursor: pointer; font-family: inherit;
+    }
+
+    /* --- Main pane (new conversation) --- */
+    .chat-pane { flex: 1; display: flex; flex-direction: column; background: var(--im-bg); }
+    .chat-pane-header {
+      padding: 12px 20px; border-bottom: 1px solid var(--im-border);
+      display: flex; align-items: center; gap: 10px; background: var(--im-surface);
+    }
+    .chat-pane-header .back-btn {
+      background: none; border: none; cursor: pointer; color: var(--im-text-muted);
+      font-size: 1.1rem; padding: 4px;
+    }
+    .chat-pane-header .title { font-size: 0.95rem; font-weight: 700; }
+    .chat-pane-header .subtitle { font-size: 0.75rem; color: var(--im-text-muted); }
+
+    .chat-pane-messages {
+      flex: 1; overflow-y: auto; padding: 20px 20px 8px;
+      display: flex; flex-direction: column; gap: 10px;
+    }
+
+    /* Message bubbles */
+    .chat-bubble {
+      max-width: 72%; display: flex; gap: 10px;
+    }
+    .chat-bubble.user { align-self: flex-end; flex-direction: row-reverse; }
+    .chat-bubble.agent { align-self: flex-start; }
+    .chat-bubble.system { align-self: center; }
+    .bubble-avatar {
+      width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.65rem; font-weight: 700; color: white;
+    }
+    .bubble-card {
+      padding: 10px 14px; font-size: 0.875rem; line-height: 1.5;
+    }
+    .chat-bubble.user .bubble-card {
+      background: var(--im-accent); color: var(--im-accent-fg);
+      border-radius: 1rem 1rem 0.25rem 1rem;
+    }
+    .chat-bubble.agent .bubble-card {
+      background: oklch(0.91 0.007 240); color: var(--im-text);
+      border-radius: 1rem 1rem 1rem 0.25rem;
+    }
+    .bubble-card .skill-cmd {
+      font-family: var(--im-font-mono); font-size: 0.78rem;
+      background: oklch(0.15 0.01 240); color: oklch(0.85 0.02 180);
+      padding: 8px 12px; border-radius: 6px; margin: 6px 0;
+      white-space: pre-wrap; line-height: 1.6;
+    }
+    .chat-bubble.user .bubble-card .skill-cmd {
+      background: oklch(0.40 0.12 180); color: oklch(0.95 0.01 180);
+    }
+    .bubble-card .session-tag {
+      display: inline-flex; align-items: center; gap: 4px;
+      font-family: var(--im-font-mono); font-size: 0.7rem;
+      background: oklch(0.88 0.006 240); color: var(--im-text-muted);
+      padding: 2px 8px; border-radius: 4px; margin: 2px 2px 2px 0;
+    }
+    .chat-bubble.user .bubble-card .session-tag {
+      background: oklch(0.45 0.12 180); color: oklch(0.95 0.01 180);
+    }
+
+    /* Composer */
+    .chat-pane-composer {
+      padding: 12px 20px; border-top: 1px solid var(--im-border);
+      display: flex; gap: 10px; align-items: flex-end; background: var(--im-surface);
+    }
+    .composer-input {
+      flex: 1; border: 1px solid var(--im-border-strong); border-radius: 10px;
+      padding: 10px 14px; font-size: 0.875rem; font-family: inherit;
+      resize: none; min-height: 40px; max-height: 120px; outline: none;
+      color: var(--im-text); background: var(--im-surface);
+    }
+    .composer-input:focus { border-color: var(--im-accent); }
+    .composer-send {
+      width: 38px; height: 38px; border-radius: 50%; border: none;
+      background: var(--im-accent); color: var(--im-accent-fg);
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background 0.15s; flex-shrink: 0;
+    }
+    .composer-send:hover { background: var(--im-accent-2); }
+
+    /* --- Label annotation --- */
+    .proto-label {
+      position: absolute; font-family: var(--im-font-mono); font-size: 0.6rem;
+      color: var(--im-accent); background: oklch(0.95 0.02 180);
+      padding: 2px 8px; border-radius: 4px; border: 1px solid oklch(0.85 0.04 180);
+      pointer-events: none; white-space: nowrap; z-index: 10;
+    }
+
+    /* --- Scrollbar --- */
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: oklch(0.4 0.008 240); border-radius: 3px; }
+
+    /* --- Responsive hint --- */
+    .step-indicator {
+      position: fixed; top: 12px; right: 20px; z-index: 100;
+      display: flex; gap: 6px; align-items: center;
+    }
+    .step-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: oklch(0.8 0.008 240); transition: all 0.2s;
+    }
+    .step-dot.active { background: var(--im-accent); width: 24px; border-radius: 4px; }
+    .step-label {
+      font-size: 0.7rem; color: var(--im-text-muted);
+      font-family: var(--im-font-mono); margin-left: 8px;
+    }
+
+    /* Panels */
+    .panel { display: none; }
+    .panel.active { display: flex; }
+  </style>
+</head>
+<body>
+
+<div class="step-indicator">
+  <div class="step-dot active" onclick="showStep(1)"></div>
+  <div class="step-dot" onclick="showStep(2)"></div>
+  <div class="step-dot" onclick="showStep(3)"></div>
+  <span class="step-label" id="step-label">Step 1: 选择 session</span>
+</div>
+
+<!-- Step 1: Session selection in sidebar -->
+<div class="chat-workspace panel active" id="step1">
+  <aside class="chat-sidebar">
+    <div class="chat-sidebar-header">
+      <div class="chat-sidebar-title">
+        会话
+        <span class="mode-badge">多选模式</span>
+      </div>
+      <input class="chat-sidebar-search" placeholder="搜索会话..." />
+    </div>
+    <ul class="chat-sidebar-list" id="session-list">
+      <!-- populated by JS -->
+    </ul>
+    <div class="selection-bar hidden" id="selection-bar">
+      <span class="count" id="selection-count">已选 0 个会话</span>
+      <div style="display:flex;gap:8px;">
+        <button class="btn-clear" onclick="clearSelection()">清除</button>
+        <button class="btn-distill" id="btn-distill" onclick="goToStep2()" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          生成 skill
+        </button>
+      </div>
+    </div>
+  </aside>
+  <div class="chat-pane">
+    <div class="chat-pane-header">
+      <span class="title" style="color:var(--im-text-muted);font-weight:400;font-size:0.85rem;">← 在左侧选择要蒸馏的会话</span>
+    </div>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--im-text-muted);">
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      <span style="font-size:0.85rem;">勾选左侧会话，点击「生成 skill」开始蒸馏</span>
+      <span style="font-size:0.72rem;">建议选择 3-5 个同类任务的会话</span>
+    </div>
+  </div>
+</div>
+
+<!-- Step 2: New conversation with pre-filled distill command -->
+<div class="chat-workspace panel" id="step2">
+  <aside class="chat-sidebar">
+    <div class="chat-sidebar-header">
+      <div class="chat-sidebar-title">会话</div>
+      <input class="chat-sidebar-search" placeholder="搜索会话..." />
+    </div>
+    <ul class="chat-sidebar-list" style="opacity:0.5;pointer-events:none;">
+      <!-- frozen sidebar -->
+    </ul>
+  </aside>
+  <div class="chat-pane">
+    <div class="chat-pane-header">
+      <button class="back-btn" onclick="goToStep1()">←</button>
+      <span class="title">新对话</span>
+      <span class="subtitle">蒸馏 skill</span>
+    </div>
+    <div class="chat-pane-messages" id="step2-messages">
+      <div class="chat-bubble user">
+        <div class="bubble-avatar" style="background:var(--im-accent);">U</div>
+        <div class="bubble-card">
+          <div class="skill-cmd" id="prefilled-cmd">/distill-from-sessions 我选了以下 session 做蒸馏：</div>
+          <div id="session-tags" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;"></div>
+          <div style="margin-top:8px;font-size:0.82rem;opacity:0.85;">
+            请补充意图说明：你想让这个 skill 解决什么问题？覆盖哪类工作流？
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-pane-composer">
+      <textarea class="composer-input" placeholder="补充意图说明..." rows="2">我想把这个项目的 spec → design → implement 流程沉淀成一个 skill，覆盖从需求对齐到代码提交的完整路径。</textarea>
+      <button class="composer-send" onclick="goToStep3()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Step 3: Agent generating skill -->
+<div class="chat-workspace panel" id="step3">
+  <aside class="chat-sidebar">
+    <div class="chat-sidebar-header">
+      <div class="chat-sidebar-title">会话</div>
+      <input class="chat-sidebar-search" placeholder="搜索会话..." />
+    </div>
+    <ul class="chat-sidebar-list" style="opacity:0.5;pointer-events:none;"></ul>
+  </aside>
+  <div class="chat-pane">
+    <div class="chat-pane-header">
+      <button class="back-btn" onclick="goToStep1()">←</button>
+      <span class="title">新对话</span>
+      <span class="subtitle">蒸馏 skill</span>
+    </div>
+    <div class="chat-pane-messages" id="step3-messages">
+      <div class="chat-bubble user">
+        <div class="bubble-avatar" style="background:var(--im-accent);">U</div>
+        <div class="bubble-card">
+          <div class="skill-cmd">/distill-from-sessions 我选了以下 session 做蒸馏：</div>
+          <div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:4px;">
+            <span class="session-tag">abc-123</span>
+            <span class="session-tag">def-456</span>
+            <span class="session-tag">ghi-789</span>
+          </div>
+          <div style="margin-top:8px;font-size:0.82rem;opacity:0.85;">
+            我想把这个项目的 spec → design → implement 流程沉淀成一个 skill，覆盖从需求对齐到代码提交的完整路径。
+          </div>
+        </div>
+      </div>
+      <div class="chat-bubble agent">
+        <div class="bubble-avatar" style="background:oklch(0.52 0.14 260);">A</div>
+        <div class="bubble-card">
+          <div style="font-size:0.82rem;line-height:1.65;">
+            我正在分析 3 个会话的 transcript，提取共性工作流模式...<br><br>
+            <strong style="font-size:0.78rem;color:var(--im-text-muted);">已发现的模式：</strong><br>
+            • 100% 的会话都走了 spec → design → implement 三阶段<br>
+            • 67% 的会话在 design 阶段需要多轮澄清<br>
+            • 所有会话都使用了 <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">change-spec-author</code> → <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">change-design-author</code> → <code style="font-family:var(--im-font-mono);font-size:0.75rem;background:oklch(0.92 0.006 240);padding:1px 5px;border-radius:3px;">change-orchestrator</code> 的 skill 链路<br><br>
+            正在生成 SKILL.md...<br>
+            <span style="font-size:0.72rem;color:var(--im-text-muted);">目标：写入 agent 级 skill root</span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="chat-pane-composer">
+      <textarea class="composer-input" placeholder="等待 agent 生成..." rows="2" disabled style="opacity:0.5;"></textarea>
+      <button class="composer-send" disabled style="opacity:0.3;">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+const sessions = [
+  { id: 'abc-123', title: 'feat-445 message-fork-branch', preview: 'spec → design → M1 实施完成', time: '2 小时前', status: 'ended', color: 'oklch(0.52 0.14 180)' },
+  { id: 'def-456', title: 'feat-444 session-wakeup', preview: 'M2 已完成，M3 进行中', time: '1 天前', status: 'ended', color: 'oklch(0.52 0.14 260)' },
+  { id: 'ghi-789', title: 'feat-440 tool-rejection-feedback', preview: '全 milestone 完成，已合并', time: '3 天前', status: 'ended', color: 'oklch(0.52 0.14 30)' },
+  { id: 'jkl-012', title: 'bugfix-437 compaction crash', preview: '定位到 workspace_root 为 None', time: '5 天前', status: 'ended', color: 'oklch(0.52 0.14 300)' },
+  { id: 'mno-345', title: 'feat-439 im-cache-hit-and-thinking', preview: 'thinking 展示优化', time: '1 周前', status: 'ended', color: 'oklch(0.52 0.14 120)' },
+  { id: 'pqr-678', title: '当前会话', preview: '正在进行中...', time: '现在', status: 'active', color: 'oklch(0.52 0.14 180)' },
+];
+
+const selected = new Set();
+
+function renderSessions() {
+  const list = document.getElementById('session-list');
+  list.innerHTML = sessions.map(s => `
+    <li>
+      <button class="chat-sidebar-row ${selected.has(s.id) ? 'selected' : ''}" onclick="toggleSelect('${s.id}')">
+        <div class="row-checkbox">
+          <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
+        </div>
+        <div class="row-avatar" style="background:${s.color};">${s.title.charAt(0).toUpperCase()}</div>
+        <div class="row-content">
+          <div class="row-title">${s.title}</div>
+          <div class="row-preview">${s.preview}</div>
+        </div>
+        <div class="row-meta">
+          <span class="row-time">${s.time}</span>
+          <span class="row-status ${s.status}">${s.status === 'active' ? '进行中' : '已结束'}</span>
+        </div>
+      </button>
+    </li>
+  `).join('');
+
+  const bar = document.getElementById('selection-bar');
+  const count = document.getElementById('selection-count');
+  const btn = document.getElementById('btn-distill');
+  if (selected.size > 0) {
+    bar.classList.remove('hidden');
+    count.textContent = `已选 ${selected.size} 个会话`;
+    btn.disabled = selected.size < 2;
+    if (selected.size < 2) btn.title = '至少选择 2 个会话';
+    else btn.title = '';
+  } else {
+    bar.classList.add('hidden');
+  }
+}
+
+function toggleSelect(id) {
+  const s = sessions.find(s => s.id === id);
+  if (s && s.status === 'active') return; // can't select active session
+  if (selected.has(id)) selected.delete(id);
+  else selected.add(id);
+  renderSessions();
+}
+
+function clearSelection() {
+  selected.clear();
+  renderSessions();
+}
+
+function showStep(n) {
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('step' + n).classList.add('active');
+  document.querySelectorAll('.step-dot').forEach((d, i) => d.classList.toggle('active', i === n - 1));
+  const labels = ['Step 1: 选择 session', 'Step 2: 补充意图', 'Step 3: 生成中'];
+  document.getElementById('step-label').textContent = labels[n - 1];
+}
+
+function goToStep1() { showStep(1); }
+
+function goToStep2() {
+  const tags = document.getElementById('session-tags');
+  tags.innerHTML = [...selected].map(id => `<span class="session-tag">${id}</span>`).join('');
+  showStep(2);
+}
+
+function goToStep3() { showStep(3); }
+
+renderSessions();
+</script>
+
+</body>
+</html>
