@@ -153,7 +153,8 @@ channels:
 - **理由**: Gateway 已有 `_build_kernel_event_observer`（main.py:3377），它把 kernel 的 SSE 事件（run_status / assistant_message / tool_start / tool_end / turn_end）翻译成 `node.streaming_delta` WebSocket 帧推给 IM 服务。这个 observer 对所有 channel 的 kernel run 都生效——飞书消息走的是同一条 InboundPipeline → kernel 路径，observer 自然会把事件推到 IM。IM 服务收到 `turn_start`（conversation_id 为空时）会懒创建一个会话，后续 delta 填充内容。**不需要新建 mirror 机制，现有 observer 已经是 mirror**。
 - **关键前提**: 飞书 adapter 的 `InboundMessage` 必须正确设置 `agent_id`（= account.agentId），这样 `run_context_store` 里的 `agent_id` 才正确，IM 侧才能把消息归到正确的 agent 会话。
 - **拒绝**: 新建独立 mirror 模块——重复造轮子，现有 observer 已经覆盖。
-- **风险**: IM 服务离线时 observer 的 send_json 静默失败，不影响飞书主路径。IM 侧懒创建的会话名称可能不含"飞书"标识——后续可优化。
+- **已知 gap**: kernel event observer 只同步 agent 输出（assistant_message / tool_start / tool_end / turn_end）到 IM，**不转发用户原始消息**。飞书路径绕过 IM 服务，IM 侧没有用户消息记录。结果：内部 IM 显示"只有 agent 回复、没有用户提问"的半边对话。WebRelayAdapter 的用户消息由 IM 服务自己存储（relay 时已入库），所以不走 observer 也完整。**作为 MVP 接受半边对话**；如需完整同步，需在 FeishuAdapter 入站时额外调用 IM 的消息创建 API，留后续 unit。
+- **风险**: IM 服务离线时 observer 的 send_json 静默失败，不影响飞书主路径。
 
 ## 接口与数据流
 
