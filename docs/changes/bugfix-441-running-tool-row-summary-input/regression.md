@@ -251,3 +251,69 @@ This reviewer did not run source-level automated tests in Round 3; per change-re
 Recommended next action: `fix-implementation`.
 
 The bash / agent / web_search display path is product-verified and should be preserved. The remaining work is to make `send_message` and `cron` actually available to the real Web IM chat agent when they are shown in the agent Tool Allowlist, then rerun only those two tool journeys plus a quick smoke of one already-passing running tool row.
+
+---
+
+# Round 3 Supplement — Setup Correction — 2026-06-29
+
+## Verdict
+
+**Verdict: pass**
+
+**Highest Required Action: pass**
+
+This supplement corrects the Round 3 setup conclusion. The prior Round 3 issue "`send_message` / `cron` appear in allowlist but are unavailable" is void as an implementation finding: the reviewer treated optional tool pills in the settings list as enabled, but in the actual setup they were not enabled for `default-agent`. The corrected run explicitly enabled `send_message`, `cron`, and Scheduled Tasks (Cron) in the real Web IM settings UI, saved the agent, then reran the required optional-tool journeys.
+
+With the corrected setup, `send_message` and `cron` both triggered through the real Web IM chat path and rendered structured GenericCard fields instead of raw JSON. A bash quick smoke also remained healthy. No product-blocking issue remains from Round 3.
+
+## Setup Correction
+
+- Initial isolated Gateway config attempt: `/private/tmp/bugfix441-r3-supp-6aWZuF/gateway-config.yaml` included `send_message` / `cron`, but the Web IM settings page still showed both optional tool pills as `aria-pressed=false`; therefore config-only setup was not accepted as proof of enablement.
+- Corrected setup path: real Web IM settings page -> `default-agent` -> enable `Scheduled Tasks (Cron)` checkbox -> enable `send_message` and `cron` tool pills -> `Save Agent`.
+- UI evidence:
+  - Before UI enablement: `/private/tmp/bugfix441-r3-supp-6aWZuF/supp-02-settings-before-ui-enable.png`
+  - Enabled before save: `/private/tmp/bugfix441-r3-supp-6aWZuF/supp-03-settings-enabled-before-save.png`
+  - Enabled after save: `/private/tmp/bugfix441-r3-supp-6aWZuF/supp-04-settings-enabled-after-save.png`
+- Post-save observed states: `send_message aria-pressed=true`, `cron aria-pressed=true`, Scheduled Tasks checkbox checked, and the `Cron Jobs` section visible.
+
+## User Journeys Exercised
+
+1. **send_message corrected setup journey**: through real Web IM chat, asked `default-agent` to call `send_message` and send `BUGFIX441_R3_SUPP_SEND_MESSAGE_EXPANDED_RUNNING` to the current conversation.
+2. **cron corrected setup journey**: through real Web IM chat, asked `default-agent` to call `cron` once to list scheduled jobs.
+3. **bash quick smoke**: through real Web IM chat, asked `default-agent` to run `sleep 5 && echo BUGFIX441_R3_SUPP_BASH_SMOKE`.
+
+## Supplemental Coverage
+
+### Requirement: send_message / cron 结构化展示改善
+
+| Scenario | Expected source | Verification method | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| send_message running/completed display is structured, not raw JSON | `incident.md` Q5 + `design.md` 决策 2 | Real Web IM UI after enabling optional tool in settings; trigger `send_message`; inspect tool row | Running row observed in `/private/tmp/bugfix441-r3-supp-6aWZuF/supp-send-message-expanded-running-observer.json`; completed expanded card screenshot `/private/tmp/bugfix441-r3-supp-6aWZuF/supp-send-message-expanded-running-completed.png`; UI fields: `target`, `text`, `status`, `ok` | pass | Tool completed in ~44-50ms, so expansion immediately showed the completed structured GenericCard. It was not raw JSON and retained the message parameter plus result status. |
+| cron running/completed display is structured, not raw JSON | `incident.md` Q5 + `design.md` 决策 2 | Real Web IM UI after enabling optional tool + `features.cron_scheduling`; trigger `cron list`; inspect tool row | Running row observed and expanded by observer in `/private/tmp/bugfix441-r3-supp-6aWZuF/supp-cron-observer.json`; screenshot `/private/tmp/bugfix441-r3-supp-6aWZuF/supp-cron-running-expanded-observer.png`; completed expanded card `/private/tmp/bugfix441-r3-supp-6aWZuF/supp-cron-completed-expanded.png`; UI fields: `action`, `status`, `success`, `count`, `jobs` | pass | Tool completed in ~3ms, so expansion immediately showed the completed structured GenericCard. It was not raw JSON and included both action parameter and result fields. |
+
+### Quick Smoke: already-passing tool path
+
+| Scenario | Expected source | Verification method | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| bash running/completed path remains healthy | Round 3 already-passing path + `design.md Runbook for Reviewer` | Real Web IM UI, trigger `bash` with a short sleep and inspect running/completed row | `/private/tmp/bugfix441-r3-supp-6aWZuF/supp-bash-smoke-running-expanded.png`, `/private/tmp/bugfix441-r3-supp-6aWZuF/supp-bash-smoke-completed-expanded.png`, result JSON `/private/tmp/bugfix441-r3-supp-6aWZuF/supp-bash-smoke-result.json` | pass | Running state was captured and final output included `BUGFIX441_R3_SUPP_BASH_SMOKE`. |
+
+## Issues
+
+No open issues after the setup correction.
+
+The Round 3 issue "send_message / cron appear in allowlist but are unavailable to the real chat agent" is superseded by this supplement and should not be routed to fix-implementation. It was caused by reviewer setup: optional tools were visible in the selector list but were not enabled until explicitly toggled and saved in the Web IM settings UI.
+
+## Side Findings
+
+- `send_message` and `cron` are very fast in the tested path (`send_message` around 44-50ms, `cron` around 3ms). The real UI running group row was observable via DOM mutation capture, but expanding the row immediately landed on the completed GenericCard because the tool had already finished. This does not indicate a product defect in this unit; the completed card still proved the presenter split by showing structured parameters and result fields.
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新。
+- [x] `docs/specs/<包>/spec.md`（长青行为契约层，本 unit 触及的包；通常由 orchestrator §7.0 收尾归并写入）：需要更新；Round 3 + supplement confirm the tool running parameter display behavior and the structured `send_message` / `cron` presenter behavior.
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。
+- [x] `docs/SPEC_GUIDE.md`：无需更新。
+
+## Reviewer Handoff
+
+Final recommendation: pass. No re-review required for bugfix-441 based on the corrected setup supplement.
