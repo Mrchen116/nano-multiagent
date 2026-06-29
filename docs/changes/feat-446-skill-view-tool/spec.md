@@ -104,9 +104,13 @@ pinned skill 跳过自动流转。Curator 每 7 天跑一次确定性扫描（�
 
 ### Requirement: 使用统计追踪
 
-#### Scenario: skill_view 调用记录使用统计
-- **WHEN** agent 成功调用 `skill_view(name="xxx")`
+#### Scenario: agent 主动调用 skill_view 记录使用统计
+- **WHEN** agent 调用 `skill_view(name="xxx")` 成功返回
 - **THEN** 该 skill 的 use_count +1，last_used_at 更新为当前时间
+
+#### Scenario: 用户通过 /skill:<name> 斜杠命令触发时也记录使用统计
+- **WHEN** 用户输入 `/skill:<name>`，系统重写后引导模型调用 skill_view，skill_view 成功返回
+- **THEN** 该 skill 的 use_count +1，last_used_at 更新为当前时间（和 agent 主动调用走同一条路径）
 
 ### Requirement: 压缩存活（compaction survival）
 
