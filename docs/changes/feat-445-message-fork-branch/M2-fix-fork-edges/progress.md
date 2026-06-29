@@ -52,4 +52,14 @@ CONFIRMED fork 边缘缺陷 + 防御 + W1/W2 + 群聊400。每条配回归红→
 - Commits: C1=test, C2=fix, C3=docs。
 - Next: R5 补测试 W1 + W2 + 群聊源 400。
 
+### R5 — 补测试 W1 + W2 + 群聊源 400
+
+- Decision: W1 `test_fork_conversation_edges.py::test_fork_copies_tool_calls_and_thinking`（源 agent 气泡带 tool_calls + thinking，fork 后分支复制都在）；W2 加 `IMClient.fork_conversation` + `tests/e2e/critical_paths/test_message_fork_critical_path.py`(@pytest.mark.e2e 真栈：分支带记忆追问答对 + 排除 fork 点后消息 + 原会话不变) + `docs/e2e-critical-paths.md` v1 表登记第 12 行（10→11 条）；群聊源 `test_fork_conversation.py::test_fork_group_conversation_rejected`(direct_kind!=user-agent → ForkValidationError 400)。
+- Evidence:
+  - Tests: 两 fork unit 文件 16 passed；e2e 测试 `--collect-only` 通过（真跑在 R6）。ruff check+format 干净；两测试文件均 <400 行。
+  - E2E/Regression: e2e 真跑见 R6（scripts/e2e-critical.sh 按目录 glob 自动纳入新测试）。
+- Rollback: revert C-test。
+- Commits: 单 commit（test + e2e + doc）。
+- Next: R6 live 真栈边缘路径复跑。
+
 <!-- 每个 roadpoint 完成后实时追加 -->
