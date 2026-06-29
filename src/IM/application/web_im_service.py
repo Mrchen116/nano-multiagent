@@ -261,8 +261,10 @@ class WebIMService:
         agent_id = agent.id
 
         # Locate the fork point in the source conversation's display history.
-        history = self._messages.list_messages(
-            conversation_id=source_conversation_id, limit=10_000
+        # feat-445-M2 #3: full timeline (no 200-cap) so an early fork point is found and
+        # the whole start→M history is copied (not just the last page).
+        history = self._messages.list_all_messages(
+            conversation_id=source_conversation_id
         )
         fork_index = next(
             (i for i, m in enumerate(history) if m.id == fork_message_id), None

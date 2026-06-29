@@ -15,4 +15,14 @@ CONFIRMED fork 边缘缺陷 + 防御 + W1/W2 + 群聊400。每条配回归红→
 - Commits: C1=test, C2=fix, C3=docs。
 - Next: R2 长对话 fork 全量历史读。
 
+### R2 — 长对话 fork 取全量历史（#3）
+
+- Decision: 加 `MessageRepository.list_all_messages(conversation_id)`（复用 `_list_message_timeline` 全量，无 `[-200:]`、无 cursor）；fork_conversation 的 fork_index 定位 + 复制改用它。根因：`list_messages` 是 UI 分页读（`min(limit,200)` + `[-200:]`），fork 误用它 → fork 点在末 200 外找不到(400)、或分支只复制末段(展示<记忆)。
+- Evidence:
+  - Tests: `test_fork_conversation.py` 9 passed——`test_fork_point_outside_last_200_is_found`(260 条、fork 早期点 → 分支精确 [0..M])、`test_fork_at_end_of_long_conversation_copies_full_history`(fork 末尾 → 分支 260 条全量、含最早 u0)。
+  - E2E/Regression: 真栈 >200 复跑见 R6。
+- Rollback: revert C2。
+- Commits: C1=test, C2=fix, C3=docs。
+- Next: R3 fork_conversation 编排重排 + 递归 fork 映射 + 回滚 + 保留状态。
+
 <!-- 每个 roadpoint 完成后实时追加 -->

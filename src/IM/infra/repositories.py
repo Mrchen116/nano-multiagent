@@ -1322,6 +1322,17 @@ class MessageRepository:
             return None
         return str(row["conversation_id"])
 
+    def list_all_messages(self, *, conversation_id: str) -> list[Message]:
+        """Return the FULL message timeline (oldest→newest), no pagination cap.
+
+        feat-445-M2 #3: ``list_messages`` is the UI pagination read — it clamps to
+        ``min(limit, 200)`` and returns only the last page (``[-200:]``). fork must copy
+        the *entire* start→fork-point history and locate the fork point anywhere in it,
+        so it reads here instead. Same timeline source as ``list_messages``, just without
+        the page window.
+        """
+        return self._list_message_timeline(conversation_id=conversation_id)
+
     def list_messages(
         self,
         *,
