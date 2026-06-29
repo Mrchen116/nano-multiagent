@@ -50,16 +50,16 @@
 
 ## R4 — main.py 注册 + 集成测试
 
-- Context:
-- Decision:
-- Rationale:
+- Context: _build_channel_registry 原只支持 web_relay，需扩展支持 feishu channels。feishu channels 由 config 解析产出的 ChannelConfig(name="feishu:<acct>") 驱动。
+- Decision: 在 _build_channel_registry 中检测 `channel.name.startswith("feishu:")` 时从 settings 构建 FeishuAdapter。import FeishuAdapter 在 main.py 顶部（跟 WebRelayAdapter 同级）。GroupContextStore 由 adapter 内部构造（复用 gateway 现有实例需要在 bootstrap 阶段传入，当前先用 adapter 自建；后续迭代可注入共享实例）。
+- Rationale: 最小侵入改动——只在 _build_channel_registry 的 match 分支加一个 feishu case，不改 bootstrap 流程。GroupContextStore 的注入可以在后续 milestone 统一。
 - Evidence:
-  - Tests:
-  - Entry:
+  - Tests: `pytest tests/unit/test_feishu_integration.py` — 4 passed（单 feishu adapter 注册 / 多 account 注册 / disabled 不注册 / 与 web_relay 共存）
+  - Entry: N/A（集成测试通过 mock 验证注册逻辑，无真实飞书连接）
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression:
+  - E2E/Regression: N/A — 由全量 pytest 覆盖
   - Visual/Interaction: N/A
-- Rollback:
-- Commits:
-- Next:
+- Rollback: `git revert 1949d1a3`
+- Commits: C1=af826d3a, C2=1949d1a3
+- Next: R4 完成 = M1 所有 roadpoint DONE，进入 §6 集成

@@ -58,7 +58,7 @@ Gateway 新增飞书 channel adapter（FeishuAdapter + FeishuClient），通过�
   3. C3: 更新 tasks.md + progress.md
 - 验证: FeishuAdapter 单测全绿；覆盖所有 spec 验收场景
 
-### R4 — main.py 注册 + 集成测试
+### R4 — main.py 注册 + 集成测试 `DONE`
 
 - 步骤:
   1. C1: 写集成测试（_build_channel_registry 对 feishu accounts 正确构建多个 FeishuAdapter / config 含 feishu 时 gateway bootstrap 不报错）
