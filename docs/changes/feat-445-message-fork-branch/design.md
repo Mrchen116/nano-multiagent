@@ -9,7 +9,8 @@
 - v2.1: 核实后修正 fork 点对齐机制——现状无任何现成的「IM 气泡↔kernel」稳定标识落在消息行；改为 **relay 时把标识持久化到 IM 消息行**，fork 时精确截断（决策 4）。
 - v2.2: 对齐粒度从 `turn_id` 收紧到逐气泡 `message_id`——一个 run 可产出多条 `assistant_message`=多个气泡（用户反馈），每条都应可 fork，turn 粒度会让同 run 多气泡撞同一刀。所需 `message_id` 现成在 `assistant_message` 事件 payload 里（`realtime_stream.py:54`）。kernel `up_to` 改为按 message_id 在 raw 线性历史切片（决策 4）。
 - v2.3: 据 design-review CRITICAL 修正——「无损读」此前错误地宣称复用 `manager.load`（实测它走 `store.load` 的 boundary-skip）。当时改为「新增无损 raw-materialize」。并清两条 WARNING：删决策1/3 的 run_id 残留、kernel delta MODIFIED→ADDED。
-- v2.4: **撤销 v2.3 的「无损」方向**——用户明确：分支与源**体验一模一样、零差异**。无损全量会让分支比已压缩的源记得更多 = 有差异。改为 **fork 复制「源在 fork 点 M 的上下文快照」（含源当时的压缩态）**：对源历史**复用现有 boundary-aware materialize**、仅加「截断到 M」入参（不新建无损读、不忽略 boundary、不丢 summary）。源压缩了分支同样压缩，源没压缩分支也没压缩。决策 1/3、架构总览、风险、M1、kernel delta 全部据此翻转；kernel 估算回落 ~160→~100；头号守护测试改为「分支 ≡ 源在 M 的视图」三组。
+- v2.4: **撤销 v2.3 的「无损」方向**——用户明确：分支与源**体验一模一样、零差异**。无损全量会让分支比已压缩的源记得更多 = 有差异。改为 **fork 复制「源在 fork 点 M 的上下文快照」（含源当时的压缩态）**。决策 1/3、架构总览、风险、M1、kernel delta 全部据此翻转；kernel 估算回落 ~160→~100；头号守护测试改为「分支 ≡ 源在 M 的视图」三组。
+- v2.5: 核对 CC（`claude-code`）的 fork/compaction 实现后取齐其做法——compact 只插 `compact_boundary` 标记不删历史、压缩视图读取时由 `getMessagesAfterCompactBoundary` 派生、`--fork-session` 复制完整 transcript 进新 session。决策 1 实现要点改为 **CC 式：复制源 JSONL 条目（含 boundary/summary 标记，re-stamp）到 M，新 session 的 boundary-aware load 派生与源一致的视图**（分支盘上为源的完整克隆，非仅压缩视图）。相关历史补 CC 一手坐标。
 
 ## 现状分析
 
@@ -58,6 +59,7 @@
 - relay `assistant_message` 事件 payload 一直带 `message_id`/`run_id`/`turn_id`（`realtime_stream.py:54`；一个 run 可发多条 = 多个气泡，每条各一 message_id），但**未持久化到 IM 消息行**（`domain/models.py:268` 的 `Message` 无 kernel id 字段）；本 unit 把逐气泡的 `message_id` 落到消息行，才使「被点的 IM agent 气泡 → gateway 日志中的那条消息」对齐有稳定且足够细的锚点（决策 4）。
 - spec.md Relations 段曾提「fresh session 同族」——该入口在 legacy 聊天界面，**v2 已无 fresh session 入口**（`chat-api.ts` 顶部注释明示）。本 design 以 v2 现状（canonical 复用）为准。
 - 早期 design 草案曾以「IM 可见消息为单一历史源、append_message 灌入空 session」实现上下文继承。**该方案已被推翻**（决策 1 拒绝项）：它把展示副本当权威、丢工具/思考保真、且 IM 消息序与 kernel turn 序无稳定 1:1 对齐。
+- **参考 CC（`~/Repos/opensource-hub/claude-code`）的 fork/compaction 做法（第一手核对）**：① compact 不删历史、只插 `system/compact_boundary` 标记，完整历史留作 UI scrollback（`isCompactBoundaryMessage` messages.ts:5022）；② 喂模型前由 `getMessagesAfterCompactBoundary`（messages.ts:5061，`slice(boundaryIndex)`）派生压缩视图；③ `--fork-session`（sessionRestore.ts:436）= 把源会话消息复制进新 session JSONL、用全新 id、源不动（"copy source messages into the new JSONL via recordTranscript"）；④ 截断到某点 = `mutableMessages.slice(0, idx+1)`（QueryEngine.ts:727，rewind）。本 unit 的 fork 即 ③+④ 的组合，与 CC 同构。
 
 ## 架构总览
 
@@ -99,13 +101,13 @@ graph TB
 - **第一原则：分支 ≡ 源在 M 的快照，零差异**。fork 的产品语义是「从这条消息分支」，分支里 agent 的行为必须与「在源会话里从 M 继续」**一字不差**——源那时是压缩态，分支就同样压缩；源那时没压缩，分支也没压缩。fork 不得让 agent 比源在 M 时记得更多或更少。复制源的 **as-of-M 视图**正好保证这点。
 - **理由**：
   1. **体验一致（核心）**：见上。这是用户明确要求（两者体验一模一样）。
-  2. **全保真复刻**：`runtime._fork_locked` 已用 `replace()` 整体复刻 Message、保留 `reasoning_content`/工具调用（runtime.py:1354）；喂给它「源 as-of-M 的视图」即得到与源一致的记忆。
-  3. **复用现有、改动小**：as-of-M 视图 = 对源历史**复用现有的 boundary-aware materialize**（`store.load` 的 boundary-skip 逻辑，jsonl_store.py:198-231），只多一步「截断到 M」。不需要任何新的「无损读」能力。
-- **as-of-M 的精确构造（实现要点）**：取源 JSONL 的 entries **截断到 M 那条 turn 为止**，对这段前缀套用现有 boundary-skip（保留前缀内**最后一个** `compact_boundary` 之后的 turn + 其 summary）。这正好重现「源产出 M 时的上下文」：
-  - M 在某 compact 之后 → 分支拿到 `该 boundary 的 summary + boundary..M 的 turn`（与源在 M 时一致）；
-  - M 在 M 之前出现过的多个 compact 之间 → 只应用 M 之前的 boundary（M 之后才发生的压缩当时还不存在）；
+  2. **全保真复刻**：`runtime._fork_locked` 已用 `replace()` 整体复刻 Message、保留 `reasoning_content`/工具调用（runtime.py:1354）；按 CC 式复制完整条目后，分支与源的盘上状态一致。
+  3. **复用现有、改动小**：压缩视图本就由现有 boundary-skip 在读取时派生（`store.load`，jsonl_store.py:198-231）；fork 只多一步「复制到 M 截断」，不需要任何新的「无损读」能力。
+- **实现要点（对齐 CC 的 `--fork-session`，见相关历史）**：CC 的做法是「保留完整 transcript + `compact_boundary` 标记，压缩视图在读取时由 `getMessagesAfterCompactBoundary` 派生；fork = 把源 transcript 复制进新 session、源不动」。nano 照此：**fork 复制源 JSONL 的条目（`turn` + `compact_boundary` + `is_compact_summary` summary turn 等，原样、re-stamp UUID 及其内部引用）到 M 那条 turn 为止**，新 session 用**现有 boundary-aware load** 自然派生出与源一致的模型视图。如此分支盘上是源的完整克隆（保留全量 + 标记），但模型视图 = 源在 M 的视图：
+  - M 在某 compact 之后 → 视图 = `该 boundary 的 summary + boundary..M 的 turn`（与源在 M 一致）；
+  - M 在多个 compact 之间 → 只生效 M 之前的 boundary（M 之后的压缩当时还不存在）；
   - M 在任何 compact 之前 → 到 M 为止的全部原始 turn。
-  实现 = 给现有 load 加「截断到 message_id」参数，boundary 逻辑原样复用；用决策 4 的逐气泡 `message_id` 定位 M。
+  用决策 4 的逐气泡 `message_id` 定位 M。〔更轻的等价做法：直接复制「boundary-skip 后的视图截断到 M」交给 `_fork_locked`，模型行为相同，但分支盘上只剩压缩视图、丢 scrollback——CC 选了保留完整克隆，nano 取齐。〕
 - **拒绝**：
   - **「IM 可见历史为源 + append_message 灌入空 session」**（早期草案）：把展示副本当历史权威；`append_message` role 仅 user/assistant，工具/思考无法进 agent 记忆（保真丢失）；IM 消息序与 kernel turn 序无稳定 1:1 对齐，截断点易错。
   - **「无损全量复制（忽略 boundary、还原 compact 前全部原始 turn）」**（v2.3 误入此方向）：会让分支比已压缩的源**记得更多**——直接违反「分支与源体验一模一样」。源已是压缩态，分支就该同样压缩。**已撤销**。
@@ -231,7 +233,7 @@ sequenceDiagram
 
 ## 风险与回退
 
-- **【头号验证点】截断到 M + boundary-aware materialize 的正确性（分支须与源在 M 逐字一致）**：fork 复制的是「源在 M 的视图」——对源 entries 截断到 M、套现有 boundary-skip（前缀内最后一个 boundary 之后的 turn + summary）。易错点是 M 在某 boundary **之前**时只能应用 M 之前的 boundary（M 之后才发生的压缩当时不存在）。M1 头号守护测试（三组，均断言「分支 = 源在 M 的视图」）：
+- **【头号验证点】复制源 transcript 到 M + boundary-aware load 的正确性（分支须与源在 M 逐字一致）**：CC 式——复制源 entries（含 boundary/summary 标记）到 M、新 session 的 boundary-aware load 派生视图。两个易错点：① re-stamp UUID 时 `compact_boundary.summary_uuid`、summary turn 的 `uuid`/`parent_uuid`（=first_kept_event_id）等内部引用要随 turn 一起一致重写；② M 在某 boundary **之前**时，复制的前缀里不含 M 之后的 boundary，load 自然只生效 M 之前的 boundary（无需特判，但要测）。M1 头号守护测试（三组，均断言「分支模型视图 = 源在 M 的视图」）：
   - **源已压缩、fork 较近消息（M 在 boundary 后）** → 分支 = `summary + boundary..M 的 turn`（与源在 M 的工作上下文逐字相同，**不还原 compact 前全量**）；
   - **源已压缩、fork 较老消息（M 在某 boundary 前）** → 分支 = 应用 M 之前 boundary 后、到 M 为止的视图；
   - **源未压缩** → 分支 = 到 M 为止的全部 turn。
@@ -258,10 +260,10 @@ sequenceDiagram
 
 ## Milestones
 
-单 M1：fork 是一条端到端垂直切片（relay 持久化 message_id → 前端按钮 → IM 接口 → WS RPC → gateway 定位源 session → kernel boundary-aware materialize + 按 message_id 截断复制 → 预绑定），各层有接口依赖无法真并行，估算 ~520 行改动（kernel ~100〔现有 boundary-aware materialize 加「截断到 message_id」入参 + fork_session 接线 + 已压缩源会话用例；复用现有 boundary 逻辑，不新建无损读〕/ gateway ~120 / IM ~210〔含 message_id 落库 + 模型/复制路径 ~60〕/ 前端 ~150），未触发任何拆分硬条件。
+单 M1：fork 是一条端到端垂直切片（relay 持久化 message_id → 前端按钮 → IM 接口 → WS RPC → gateway 定位源 session → kernel 复制源 transcript 到 M〔CC 式，含 boundary/summary 标记、re-stamp〕→ 预绑定），各层有接口依赖无法真并行，估算 ~520 行改动（kernel ~100〔复制源 JSONL 条目到 M + re-stamp UUID 及内部引用 + fork_session 接线；模型视图由现有 boundary-aware load 派生，不新建无损读〕/ gateway ~120 / IM ~210〔含 message_id 落库 + 模型/复制路径 ~60〕/ 前端 ~150），未触发任何拆分硬条件。
 
 > **实施建议（worker 起手序）**：先做「relay 把逐气泡 `message_id` 持久化到 IM 消息行 + `Message` 模型加字段」这条前置链路（决策 4 的地基，最易被低估），并以单测锁定「relay 落的 message_id 确指向产出该气泡的那条 assistant 消息」（含一 run 多气泡场景），再往上游接 fork 编排。否则后面 fork 点对齐会悬空。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-445-M1 | fork-branch | — | A | Kernel `src/agent/{sdk/kernel.py,core/agent/runtime.py,core/session/{manager.py,jsonl_store.py}}`（fork_session 真实化 + **现有 boundary-aware materialize 加「截断到 message_id」入参**〔复用 boundary-skip，不新建无损读〕 + 从当前 JSONL 重 materialize 不用过期内存缓存）；Gateway `src/personal_assistant/{ws/im_connection.py,gateway/session_keys.py,gateway/inbound_pipeline.py 或新增 fork 逻辑}`；IM `src/IM/{application/web_im_service.py,api/routes/web_im.py,ws/gateway_handler.py,application/event_service.py,domain/models.py,infra/repositories.py}`（fork 编排 + **relay 落逐气泡 message_id 到消息行** + `Message` 加字段）；前端 `src/IM/frontend/src/features/chat/v2/{components/message-pane.tsx,chat-workspace-page.tsx,chat-api.ts,chat-types.ts}` | `[reviewer]` 覆盖 spec 全部 Requirement/Scenario：agent 已完成回复可 fork（用户消息/生成中/群聊无入口）、新会话含 0→fork点完整气泡且 fork 点后不带、分支单聊 agent 基于历史追问能正确理解、fork 后自动进入且原会话不变两线独立、分支单聊列表名为 agent 名、agent 离线 fork 不可用且明确提示、**一 run 多气泡时每条可 fork 且分别精确**。`[worker]` **relay message_id 落库单测**（落的 message_id 确指向产出该气泡的 assistant 消息，含一 run 多气泡）绿；kernel fork_session 单测（boundary-aware materialize + `up_to=message_id` 截断 + 全保真保留 reasoning/工具 + 新旧会话独立）全绿；**分支≡源在 M 守护测试**（① 源已压缩、fork boundary 后消息 → 分支 = summary+boundary..M，不还原全量；② 源已压缩、fork boundary 前老消息 → 分支 = 应用 M 前 boundary 后到 M 的视图；③ 源未压缩 → 到 M 全部 turn）全绿；gateway fork RPC handler 单测（binding 定位源 → fork_session → bind）全绿；IM service 单测（fork 建会话+复制展示历史+在线校验+失败回滚+旧气泡无 message_id 拒 fork）全绿；前端 `npm run test` 相关用例全绿；`pytest -m "not e2e"` 不回归 |
+| feat-445-M1 | fork-branch | — | A | Kernel `src/agent/{sdk/kernel.py,core/agent/runtime.py,core/session/{manager.py,jsonl_store.py}}`（fork_session 真实化 + **CC 式复制源 transcript 到 M**〔含 `compact_boundary`/summary 标记、re-stamp UUID 及内部引用〕，模型视图由现有 boundary-aware load 派生、不新建无损读、不用过期内存缓存）；Gateway `src/personal_assistant/{ws/im_connection.py,gateway/session_keys.py,gateway/inbound_pipeline.py 或新增 fork 逻辑}`；IM `src/IM/{application/web_im_service.py,api/routes/web_im.py,ws/gateway_handler.py,application/event_service.py,domain/models.py,infra/repositories.py}`（fork 编排 + **relay 落逐气泡 message_id 到消息行** + `Message` 加字段）；前端 `src/IM/frontend/src/features/chat/v2/{components/message-pane.tsx,chat-workspace-page.tsx,chat-api.ts,chat-types.ts}` | `[reviewer]` 覆盖 spec 全部 Requirement/Scenario：agent 已完成回复可 fork（用户消息/生成中/群聊无入口）、新会话含 0→fork点完整气泡且 fork 点后不带、分支单聊 agent 基于历史追问能正确理解、fork 后自动进入且原会话不变两线独立、分支单聊列表名为 agent 名、agent 离线 fork 不可用且明确提示、**一 run 多气泡时每条可 fork 且分别精确**。`[worker]` **relay message_id 落库单测**（落的 message_id 确指向产出该气泡的 assistant 消息，含一 run 多气泡）绿；kernel fork_session 单测（boundary-aware materialize + `up_to=message_id` 截断 + 全保真保留 reasoning/工具 + 新旧会话独立）全绿；**分支≡源在 M 守护测试**（① 源已压缩、fork boundary 后消息 → 分支 = summary+boundary..M，不还原全量；② 源已压缩、fork boundary 前老消息 → 分支 = 应用 M 前 boundary 后到 M 的视图；③ 源未压缩 → 到 M 全部 turn）全绿；gateway fork RPC handler 单测（binding 定位源 → fork_session → bind）全绿；IM service 单测（fork 建会话+复制展示历史+在线校验+失败回滚+旧气泡无 message_id 拒 fork）全绿；前端 `npm run test` 相关用例全绿；`pytest -m "not e2e"` 不回归 |
