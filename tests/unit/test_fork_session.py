@@ -427,8 +427,13 @@ async def test_fork_preserves_reasoning_content_and_signature(tmp_path: Path) ->
 
 
 async def test_fork_up_to_uses_async_flush_not_blocking(tmp_path: Path) -> None:
-    """#1: up_to fork 的前置 flush 必须用 async 版（不阻塞事件循环），不调同步 flush()。"""
+    """#1: up_to fork 前置 flush 必须用 async 版——绝不在事件循环线程上跑阻塞 flush()。
+
+    flush_async 内部经 executor 工作线程调 flush（不阻塞 loop），那是允许的；本测专测
+    「loop 线程上是否出现阻塞 flush」——回退到直接 flush() 会命中 loop 线程 → 红。
+    """
     import asyncio
+    import threading
 
     runtime = _make_runtime(tmp_path)
     manager = runtime._session_manager
@@ -441,22 +446,29 @@ async def test_fork_up_to_uses_async_flush_not_blocking(tmp_path: Path) -> None:
     )
     manager.store.writer.flush()  # real, get a1 on disk before we spy
 
-    called = {"sync": 0, "async": 0}
+    loop_thread = threading.get_ident()
+    flush_async_calls = {"n": 0}
+    sync_on_loop = {"n": 0}
+    orig_flush = manager.store.writer.flush
     orig_async = manager.store.writer.flush_async
 
-    def spy_sync(*a, **k):
-        called["sync"] += 1
+    def spy_flush(*a, **k):
+        if threading.get_ident() == loop_thread:
+            sync_on_loop["n"] += 1  # a blocking flush on the event-loop thread = bad
+        return orig_flush(*a, **k)
 
     async def spy_async(*a, **k):
-        called["async"] += 1
+        flush_async_calls["n"] += 1
         return await orig_async(*a, **k)
 
-    manager.store.writer.flush = spy_sync  # type: ignore[method-assign]
+    manager.store.writer.flush = spy_flush  # type: ignore[method-assign]
     manager.store.writer.flush_async = spy_async  # type: ignore[method-assign]
 
     await asyncio.wait_for(runtime.fork_session(src, up_to="a1"), timeout=3.0)
-    assert called["sync"] == 0, "up_to fork must NOT call the blocking sync flush()"
-    assert called["async"] >= 1, "up_to fork must flush via the async flush_async()"
+    assert sync_on_loop["n"] == 0, (
+        "up_to fork must not block the event loop with sync flush()"
+    )
+    assert flush_async_calls["n"] >= 1, "up_to fork must flush via flush_async()"
 
 
 async def test_fork_up_to_does_not_block_on_busy_source_lock(tmp_path: Path) -> None:

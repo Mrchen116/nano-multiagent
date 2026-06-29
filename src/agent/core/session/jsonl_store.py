@@ -221,6 +221,16 @@ class JsonlSessionStore:
                     f"fork point message_id {up_to!r} not found as a turn in session "
                     f"{session_id}; refusing to fork from an unknown point"
                 )
+            # feat-445-M2 防御: a fork point is always an assistant message (only agent
+            # bubbles carry a kernel message_id upstream). Reject a non-assistant match
+            # loudly rather than silently slicing at the wrong turn — a store-level
+            # self-invariant guarding against any future caller that mis-derives the id.
+            if raw_lines[cut].get("role") != "assistant":
+                raise SessionNotFoundError(
+                    f"fork point {up_to!r} in session {session_id} is a "
+                    f"{raw_lines[cut].get('role')!r} turn, not an assistant message; "
+                    f"refusing to fork from a non-assistant point"
+                )
             raw_lines = raw_lines[: cut + 1]
 
         # First pass: extract config and find latest compact_boundary index

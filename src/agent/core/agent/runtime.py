@@ -1301,16 +1301,27 @@ class AgentRuntime:
             # from JSONL (the cache can't serve a historical/older fork point). Flush
             # any enqueued writes first so a just-completed turn at the fork point is on
             # disk before we slice.
-            self._session_manager.store.writer.flush()
+            #
+            # feat-445-M2 #1: use flush_async, not the blocking sync flush() — the sync
+            # version waits on a threading.Event (up to 10s) and would stall the whole
+            # event loop; this is the only fork path that had drifted from the async flush
+            # the other 13 call sites use.
+            await self._session_manager.store.writer.flush_async()
             result = self._session_manager.load(
                 source_session_id, workspace_root=workspace_root, up_to=up_to
             )
-            source_lock = self._session_locks.get(source_session_id)
-            if source_lock:
-                async with source_lock:
-                    return await self._fork_locked(
-                        source_session_id, result.config, list(result.messages)
-                    )
+            # feat-445-M2 #2: do NOT acquire source_lock on this path. Everything it needs
+            # is already materialized from disk above (lock-free), and _fork_locked only
+            # writes the NEW session — it never reads the source's in-memory history. The
+            # non-up_to path keeps the lock because it copies the live in-memory cache and
+            # must serialize against a concurrent compaction; this path does not.
+            # Safety vs a concurrent run on the source (argument verified, see progress
+            # R1): source JSONL is append-only and any concurrent run only appends AFTER
+            # the current tail (i.e. after M); up_to truncates at M so those later entries
+            # are discarded regardless; line writes are atomic and we flushed first, so the
+            # as-of-M slice is consistent without the lock. Holding the lock here instead
+            # made fork block for minutes whenever the source agent had an active run →
+            # gateway 10s timeout → 502 (#2 root cause).
             return await self._fork_locked(
                 source_session_id, result.config, list(result.messages)
             )
