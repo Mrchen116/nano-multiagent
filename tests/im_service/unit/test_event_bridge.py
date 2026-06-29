@@ -64,6 +64,23 @@ def test_on_turn_start_creates_empty_agent_message_and_emits_event(
     assert payload["conversation_id"] == conv_id
 
 
+def test_on_message_completed_persists_kernel_message_id(tmp_path: Path) -> None:
+    """feat-445-M1 R1: on_message_completed 把 gateway 转发的逐气泡 kernel message_id
+    落到该气泡的消息行（决策 4 地基），供 fork 两侧对齐。"""
+    bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
+    msg = bridge.on_turn_start(
+        conversation_id=conv_id, agent_user_id=agent_uid, agent_id="planner"
+    )
+    bridge.on_message_delta(message_id=msg.id, delta_text="answer")
+    bridge.on_message_completed(
+        message_id=msg.id,
+        final_content="answer",
+        kernel_message_id="kmsg-xyz",
+    )
+    reloaded = messages.list_messages(conversation_id=conv_id)
+    assert reloaded[-1].kernel_message_id == "kmsg-xyz"
+
+
 def test_on_message_delta_appends_content_and_emits_delta(tmp_path: Path) -> None:
     bridge, conv_id, agent_uid, messages, captured = _make_bridge(tmp_path)
     msg = bridge.on_turn_start(

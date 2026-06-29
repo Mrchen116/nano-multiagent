@@ -61,6 +61,46 @@ def test_create_message_persists_tool_calls_and_token_usage(tmp_path: Path) -> N
     assert listed[-1].token_usage == usage
 
 
+def test_kernel_message_id_round_trip(tmp_path: Path) -> None:
+    """feat-445-M1 R1: kernel message_id 经 create_message / update_runtime_state 持久化往返。
+
+    fork 用消息行上的 kernel message_id 把「被点的 IM 气泡」对齐回「源 session 日志中那条
+    assistant 消息」。该 id 必须能写入、读回、且不被无关 patch 清掉。
+    """
+    users, conversations, messages = _build(tmp_path)
+    alice = users.create_user(username="alice", display_name="Alice")
+    conversation = conversations.create_conversation(
+        title="t", participant_ids=[alice.id]
+    )
+
+    # create_message 直接带 kernel_message_id（fork 复制展示历史走这条）
+    created = messages.create_message(
+        conversation_id=conversation.id,
+        sender_user_id=alice.id,
+        content="hello",
+        kernel_message_id="kmsg-create",
+    )
+    assert created.kernel_message_id == "kmsg-create"
+    listed = messages.list_messages(conversation_id=conversation.id)
+    assert listed[-1].kernel_message_id == "kmsg-create"
+
+    # update_runtime_state 落 kernel_message_id（relay message_completed 走这条）
+    updated = messages.update_runtime_state(
+        message_id=created.id, kernel_message_id="kmsg-update"
+    )
+    assert updated.kernel_message_id == "kmsg-update"
+
+    # 不带 kernel_message_id 的无关 patch 不得清掉已写入的值
+    after = messages.update_runtime_state(
+        message_id=created.id, content_append=" world"
+    )
+    assert after.kernel_message_id == "kmsg-update"
+    assert (
+        messages.list_messages(conversation_id=conversation.id)[-1].kernel_message_id
+        == "kmsg-update"
+    )
+
+
 def test_token_usage_cache_fields_round_trip(tmp_path: Path) -> None:
     """feat-439-M1: 缓存命中两字段经 encode/decode 持久化往返不丢。"""
     users, conversations, messages = _build(tmp_path)
