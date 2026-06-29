@@ -77,3 +77,19 @@
 - Commits: C1=test, C2=feat, C3=docs 本段。
 - Next: R5 前端 fork 按钮 + mutation + toast + 跳转（vitest + 真实浏览器验收）。
 
+### R5 — 前端 fork 按钮 + mutation + toast + 跳转
+
+- Context: 用户可见入口——agent 已完成回复 hover 出 fork 按钮，点击 → 跳新分支单聊 + 成功 toast；离线置灰 + 提示；用户/生成中/群聊/旧气泡无入口。视觉照 prototype.html。
+- Decision: ① `chat-types.Message` 加 `kernel_message_id?`；② `chat-api.forkConversation(convId, msgId)` POST /fork；③ `MessageBubble` 加 `isDirectChat/agentOnline/onFork` props，`forkEligible = isAgent && completed && isDirectChat && Boolean(kernel_message_id)`，外层 `.chat-bubble--agent` 加 `is-forkable`/`is-offline` class，`.chat-bubble-card` 内挂 fork 按钮(`data-testid=message-fork-{id}`，离线 disabled + `.fork-tip`)；④ `chat-workspace` `forkMutation`(双缓存失效[chat + chat-v2] + navigate + `forkToast` 4s 自动淡出，onError→sendError)，MessagePane 传 `isDirectChat=conversationKind==="direct-agent"`/`agentOnline=nodeStatus==="online"`/`onFork`；⑤ `global.css` 照 prototype 加 `.chat-bubble-fork`/`.fork-tip`/`.fork-toast`(position:relative on card 防 hover gap)；⑥ i18n en/zh fork 文案。
+- Rationale: 复用现有 MessageBubble DOM/令牌、useMutation + 双缓存失效 + navigate 模式（agent-detail createDirectChat 同款，§0.1）。按钮是 card 子元素、与卡片重叠无 hover gap（prototype 关键）。可见性 gate 由 React 决定（DOM 中是否渲染 button），CSS :hover 仅控视觉显隐 → jsdom 可断言 gate。
+- Evidence:
+  - Tests: `chat-api.test.ts` forkConversation(POST body/url + 409 抛错)；`message-pane-fork.test.tsx` 6 gate（online 显示+点击 onFork、用户消息无、running 无、无 kernel id 旧气泡无、群聊无、离线 disabled 不触发）。R5 相关 18 passed。
+  - Entry: 真实 HTTP 客户端(authFetch + fetch stub) + 真实 MessageBubble 渲染(testing-library)。
+  - Frontend State Matrix: default(显示)/disabled(离线)/long-content(按钮锚定)/missing-data(无 kernel id 不显)/loading(mutation isPending) 覆盖；mobile/desktop viewport 与 dark mode(N/A 项目不支持) 见 R6 真实浏览器截图。
+  - Browser QA: 真实浏览器验收（hover 显隐、点击跳转、toast 淡出、离线置灰、viewport）并入 **R6 live 真栈**——同一 UI 在真实 fork 流程下走查，比孤立组件渲染更权威，避免重复搭栈。
+  - E2E/Regression: 全前端 `npx vitest run` 548 passed；`tsc --noEmit` 干净；`npm run build` 成功(chunk 警告为既有)。
+  - Visual/Interaction: prototype 对照在 R6 截图记录。
+- Rollback: revert C2；props 默认值(isDirectChat=false/agentOnline=false)使未传时不渲染按钮，向后兼容。
+- Commits: C1=test, C2=feat, C3=docs 本段。
+- Next: R6 live 端到端真栈验收（含 R5 浏览器视觉验收）。
+
