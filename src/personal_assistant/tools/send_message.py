@@ -12,7 +12,53 @@ from uuid import uuid4
 
 import httpx
 
-from agent.sdk import ToolContext
+from agent.sdk import ToolContext, ToolPresentationEvent
+
+
+class _SendMessagePresenter:
+    """Presenter for the product-owned `send_message` tool."""
+
+    def format_start(self, args: Mapping[str, Any]) -> ToolPresentationEvent:
+        target = str(args.get("to", ""))
+        text = str(args.get("text", ""))
+        return ToolPresentationEvent(
+            visible=True,
+            label="SendMessage",
+            summary=f"→ {target}".strip(),
+            detail={"target": target, "text": text},
+        )
+
+    def format_end(
+        self,
+        args: Mapping[str, Any],
+        result: Any,
+        duration_ms: int,
+    ) -> ToolPresentationEvent:
+        target = str(args.get("to", ""))
+        text = str(args.get("text", ""))
+        output = getattr(result, "output", None) or {}
+        error = getattr(result, "error", None)
+        if error:
+            return ToolPresentationEvent(
+                visible=True,
+                label="SendMessage",
+                summary=f"→ {target}".strip() or "failed",
+                detail={"target": target, "text": text, "status": str(error)},
+            )
+        ok = bool(output.get("ok", False)) if isinstance(output, Mapping) else False
+        return ToolPresentationEvent(
+            visible=True,
+            label="SendMessage",
+            summary=f"→ {target}".strip(),
+            detail={
+                "target": target,
+                "text": text,
+                "status": "ok" if ok else "failed",
+            },
+        )
+
+
+_SEND_MESSAGE_PRESENTER = _SendMessagePresenter()
 
 
 class SendMessageTool:
@@ -29,6 +75,7 @@ class SendMessageTool:
     """
 
     name = "send_message"
+    presenter = _SEND_MESSAGE_PRESENTER
     description = (
         "Send a message via the gateway IM routing layer. "
         "`to` accepts stable business ids: user_id, agent_id, or conversation_id."

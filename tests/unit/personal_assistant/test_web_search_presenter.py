@@ -40,6 +40,7 @@ def test_start_shows_query_with_search_emoji() -> None:
     assert evt.visible is True
     assert evt.summary == "nano multiagent 架构"
     assert evt.emoji == "🔍"
+    assert evt.detail == {"query": "nano multiagent 架构"}
 
 
 def test_end_success_detail_has_results() -> None:

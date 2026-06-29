@@ -3319,8 +3319,10 @@ def _build_kernel_event_observer(
     # tool_end, per run. On abnormal run termination the watchdog/terminal path emits
     # a synthetic ``run_terminal_reconcile`` event; we then close every still-running
     # tool_call with a reason so the IM badge stops spinning forever. Keyed by run_id
-    # → {call_id: {"name": ..., "input": ...}} (bugfix-416 #111: input retained so the
-    # reconcile re-emits the original command/description, not an empty {}).
+    # → {call_id: {"name": ..., "input": ..., "output": ..., "detail": ..., "emoji": ...}}.
+    # bugfix-416 #111 retained input; bugfix-441-M2 also retains the start-side
+    # presentation so abnormal reconcile does not erase the running row's parameter
+    # display from refreshed/historical IM payloads.
     # bugfix-410-fix-r1: the map is injectable purely so a test can observe that the
     # per-run entry is reaped on the normal-completion path (no production caller passes
     # it). Entries are dropped as calls close (tool_end) and as runs end (turn_end /
@@ -3740,22 +3742,34 @@ def _build_kernel_event_observer(
             call_id = str(event.get("call_id") or "").strip() or run_id
             tool_name = str(event.get("name") or "")
             arguments = event.get("arguments") or {}
-            # bugfix-410-M2 R3: remember this call as in-flight until tool_end.
-            # bugfix-416 #111: store the full call (name + input), not just the name,
-            # so an abnormal reconcile can re-emit the original command/description
-            # instead of wiping them to {} (the IM bubble otherwise loses the command
-            # and shows only a red × "bash Timed out").
-            running_tool_calls.setdefault(run_id, {})[call_id] = {
-                "name": tool_name,
-                "input": arguments if isinstance(arguments, dict) else {},
-            }
             # feat-425 C1: tool_start SSE 已带 presentation.emoji(realtime_stream
             # on_tool_call)。透传到 running 行,自定义工具在执行阶段折叠行就显自带 emoji,
             # 不再回退 🔧、等完成才跳变。空串则省略(沿用 detail 的省略未设约定)。
             start_pres = event.get("presentation")
             start_emoji: str | None = None
+            start_output: str | None = None
+            start_detail: Any = None
             if isinstance(start_pres, Mapping) and start_pres.get("emoji"):
                 start_emoji = str(start_pres["emoji"])
+            if isinstance(start_pres, Mapping):
+                if start_pres.get("summary"):
+                    start_output = str(start_pres["summary"])
+                start_detail = start_pres.get("detail")
+            # bugfix-410-M2 R3: remember this call as in-flight until tool_end.
+            # bugfix-416 #111 stores the original input; bugfix-441-M2 stores the
+            # parameter-side presentation too, so abnormal reconcile can re-emit the
+            # same refresh/historical payload the running row already showed.
+            running_call: dict[str, Any] = {
+                "name": tool_name,
+                "input": arguments if isinstance(arguments, dict) else {},
+            }
+            if start_output is not None:
+                running_call["output"] = start_output
+            if start_detail is not None:
+                running_call["detail"] = start_detail
+            if start_emoji is not None:
+                running_call["emoji"] = start_emoji
+            running_tool_calls.setdefault(run_id, {})[call_id] = running_call
             if message_id:
                 start_tool_call: dict[str, Any] = {
                     "id": call_id,
@@ -3763,6 +3777,10 @@ def _build_kernel_event_observer(
                     "status": "running",
                     "input": arguments if isinstance(arguments, dict) else {},
                 }
+                if start_output is not None:
+                    start_tool_call["output"] = start_output
+                if start_detail is not None:
+                    start_tool_call["detail"] = start_detail
                 if start_emoji is not None:
                     start_tool_call["emoji"] = start_emoji
                 loop.create_task(
@@ -3990,9 +4008,15 @@ def _build_kernel_event_observer(
                     if isinstance(stuck_call, Mapping):
                         stuck_name = str(stuck_call.get("name") or "")
                         stuck_input = stuck_call.get("input") or {}
+                        stuck_output = stuck_call.get("output")
+                        stuck_detail = stuck_call.get("detail")
+                        stuck_emoji = stuck_call.get("emoji")
                     else:
                         stuck_name = str(stuck_call)
                         stuck_input = {}
+                        stuck_output = None
+                        stuck_detail = None
+                        stuck_emoji = None
                     stuck_tool_call: dict[str, Any] = {
                         "id": stuck_call_id,
                         "name": stuck_name,
@@ -4002,6 +4026,12 @@ def _build_kernel_event_observer(
                         # uses `or {}`, and the bare-name branch sets {}.
                         "input": stuck_input,
                     }
+                    if stuck_output is not None:
+                        stuck_tool_call["output"] = stuck_output
+                    if stuck_detail is not None:
+                        stuck_tool_call["detail"] = stuck_detail
+                    if stuck_emoji is not None:
+                        stuck_tool_call["emoji"] = stuck_emoji
                     if reconcile_output is not None:
                         stuck_tool_call["output"] = reconcile_output
                     loop.create_task(

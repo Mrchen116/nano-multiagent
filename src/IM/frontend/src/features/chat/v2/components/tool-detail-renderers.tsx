@@ -255,10 +255,23 @@ interface SearchResult {
   snippet?: unknown;
 }
 
-function WebSearchCard({ detail }: { detail: ToolDetail }) {
+type ToolDetailCardProps = {
+  detail: ToolDetail;
+  isResultPending?: boolean;
+};
+
+function WebSearchCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const { t } = useTranslation();
+  const query = str(detail.query);
   const rawResults = Array.isArray(detail.results) ? (detail.results as SearchResult[]) : [];
   if (rawResults.length === 0) {
+    if (isResultPending && query) {
+      return (
+        <div className="chat-tool-detail-search">
+          <div className="chat-tool-detail-search-title">{query}</div>
+        </div>
+      );
+    }
     // 空态:明确"无结果"文案,而非空白或原始字符串。
     return (
       <div className="chat-tool-detail-search">
@@ -289,7 +302,7 @@ function WebSearchCard({ detail }: { detail: ToolDetail }) {
 
 // ─── agent → full prompt BEFORE result (spec) ────────────────────────────────
 
-function AgentCard({ detail }: { detail: ToolDetail }) {
+function AgentCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const { t } = useTranslation();
   const prompt = str(detail.prompt);
   const subagent = str(detail.subagent_type);
@@ -304,20 +317,22 @@ function AgentCard({ detail }: { detail: ToolDetail }) {
           <div className="chat-tool-detail-agent-prompt">{prompt}</div>
         </Section>
       )}
-      <div className="chat-tool-detail-agent-result">
-        <div className="chat-tool-detail-agent-status">
-          {status === "failed" ? "✕" : "✓"}{" "}
-          {t("chat.messagePane.toolDetail.agentDone", { status: status || "completed" })}
-          {subagent && ` · ${subagent}`}
-        </div>
-        {content && <div className="chat-tool-detail-agent-content">{content}</div>}
-        {outputFile && (
-          <div className="chat-tool-detail-agent-file">
-            {t("chat.messagePane.toolDetail.agentOutputFile", { file: outputFile })}
+      {!isResultPending && (
+        <div className="chat-tool-detail-agent-result">
+          <div className="chat-tool-detail-agent-status">
+            {status === "failed" ? "✕" : "✓"}{" "}
+            {t("chat.messagePane.toolDetail.agentDone", { status: status || "completed" })}
+            {subagent && ` · ${subagent}`}
           </div>
-        )}
-        {error && <pre className="chat-tool-call-pre">{error}</pre>}
-      </div>
+          {content && <div className="chat-tool-detail-agent-content">{content}</div>}
+          {outputFile && (
+            <div className="chat-tool-detail-agent-file">
+              {t("chat.messagePane.toolDetail.agentOutputFile", { file: outputFile })}
+            </div>
+          )}
+          {error && <pre className="chat-tool-call-pre">{error}</pre>}
+        </div>
+      )}
     </div>
   );
 }
@@ -372,7 +387,7 @@ function ReadCard({ detail }: { detail: ToolDetail }) {
 
 // ─── memory / skill_manage / task_stop → compact info cards ──────────────────
 
-function MemoryCard({ detail }: { detail: ToolDetail }) {
+function MemoryCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const { t } = useTranslation();
   const action = str(detail.action);
   const target = str(detail.target);
@@ -385,6 +400,16 @@ function MemoryCard({ detail }: { detail: ToolDetail }) {
     return (
       <div className="chat-tool-detail-info chat-tool-detail-info--failed">
         <div className="chat-tool-detail-info-head">✕ {message || str(detail.error)}</div>
+      </div>
+    );
+  }
+  if (isResultPending) {
+    return (
+      <div className="chat-tool-detail-info">
+        <div className="chat-tool-detail-info-head">
+          {[action, target].filter(Boolean).join(" · ")}
+        </div>
+        {content && <div className="chat-tool-detail-info-body">{content}</div>}
       </div>
     );
   }
@@ -403,7 +428,7 @@ function MemoryCard({ detail }: { detail: ToolDetail }) {
   );
 }
 
-function SkillCard({ detail }: { detail: ToolDetail }) {
+function SkillCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const action = str(detail.action);
   const name = str(detail.name);
   const message = str(detail.message);
@@ -419,6 +444,13 @@ function SkillCard({ detail }: { detail: ToolDetail }) {
       </div>
     );
   }
+  if (isResultPending) {
+    return (
+      <div className="chat-tool-detail-info">
+        <div className="chat-tool-detail-info-head">{[action, name].filter(Boolean).join(" ")}</div>
+      </div>
+    );
+  }
   return (
     <div className="chat-tool-detail-info">
       {/* minor: show the skill name + action explicitly, not just ✓. */}
@@ -429,9 +461,16 @@ function SkillCard({ detail }: { detail: ToolDetail }) {
   );
 }
 
-function TaskStopCard({ detail }: { detail: ToolDetail }) {
+function TaskStopCard({ detail, isResultPending = false }: ToolDetailCardProps) {
   const taskId = str(detail.task_id);
   const status = str(detail.status);
+  if (isResultPending) {
+    return (
+      <div className="chat-tool-detail-info">
+        <div className="chat-tool-detail-info-head">{taskId}</div>
+      </div>
+    );
+  }
   return (
     <div className="chat-tool-detail-info">
       <div className="chat-tool-detail-info-head">
@@ -461,7 +500,7 @@ function GenericCard({ detail }: { detail: ToolDetail }) {
 
 // ─── dispatch ────────────────────────────────────────────────────────────────
 
-const BESPOKE: Record<string, (p: { detail: ToolDetail }) => ReactNode> = {
+const BESPOKE: Record<string, (p: ToolDetailCardProps) => ReactNode> = {
   read: ReadCard,
   bash: BashCard,
   edit: DiffCard,
@@ -488,6 +527,37 @@ function isErrorOnly(detail: ToolDetail): boolean {
   );
 }
 
+function hasValue(detail: ToolDetail, key: string): boolean {
+  const value = detail[key];
+  return value != null && value !== "";
+}
+
+function hasAnyValue(detail: ToolDetail, keys: string[]): boolean {
+  return keys.some((key) => hasValue(detail, key));
+}
+
+function hasTerminalDetail(name: string, detail: ToolDetail): boolean {
+  switch (name) {
+    case "web_search":
+      return Object.prototype.hasOwnProperty.call(detail, "results") || hasAnyValue(detail, ["error", "message"]);
+    case "agent":
+      return hasAnyValue(detail, ["status", "content", "output_file", "error", "agent_id"]);
+    case "memory":
+      return detail.success != null || hasAnyValue(detail, ["message", "error"]);
+    case "skill_manage":
+      return detail.success != null || hasAnyValue(detail, ["message", "path", "error"]);
+    case "task_stop":
+      return hasAnyValue(detail, ["status", "error", "message"]);
+    default:
+      return true;
+  }
+}
+
+function isResultPending(call: ToolCall, detail: ToolDetail): boolean {
+  if (call.status === "running") return true;
+  return call.status === "failed" && !hasTerminalDetail(call.name, detail);
+}
+
 /**
  * Render the expanded body for a tool call. Error-only details (out-of-band
  * failures) show the generic error card. Known names get bespoke cards (which
@@ -502,7 +572,7 @@ export function ToolDetailBody({ call }: { call: ToolCall }) {
   }
   if (detail) {
     const Bespoke = BESPOKE[call.name];
-    if (Bespoke) return <Bespoke detail={detail} />;
+    if (Bespoke) return <Bespoke detail={detail} isResultPending={isResultPending(call, detail)} />;
     return <GenericCard detail={detail} />;
   }
   // No detail (historical message / presenter-less tool with empty result):

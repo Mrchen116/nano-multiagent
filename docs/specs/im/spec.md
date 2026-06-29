@@ -1,6 +1,6 @@
 # IM Specification
 
-> 对齐: feat-430-im-slash-skill-picker
+> 对齐: bugfix-441
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 **IM 的消费者真正依赖的对外行为**：
 > 浏览器前端（内置 Web IM）、Node Gateway（`personal_assistant`）、终端用户，以及 `tests/im_service/`
@@ -441,7 +441,8 @@ IM 持久化并下发的工具调用数据，在原有字段（status / reason /
 ### Requirement: 工具调用折叠态摘要有信息量且用真实工具名
 
 每条 agent 消息下方的工具调用面板,折叠态每行显示"工具在干什么"的一句人话而非仅工具名+耗时,失败行有
-可见失败标识,工具名一律为真实注册名。
+可见失败标识,工具名一律为真实注册名。工具调用展示分两类信息源:参数(从入参得出,如折叠摘要、命令、
+prompt、查询词)在工具执行中即可见;结果(如 stdout、退出码、搜索结果、正文)只在工具执行完后展示。
 
 #### Scenario: bash 带 description 显示人话
 - **WHEN** agent 调用 bash 且填了 description
@@ -451,6 +452,27 @@ IM 持久化并下发的工具调用数据，在原有字段（status / reason /
 - **GIVEN** 某次 bash 调用的 description 为空
 - **WHEN** 用户看该工具行折叠态
 - **THEN** 降级显示命令首段(截断),而不是空白
+
+#### Scenario: 工具执行中折叠行显示参数摘要
+- **GIVEN** agent 调用一个执行耗时较长的工具(如带 description 的 bash、子任务 agent、web_search)
+- **WHEN** 该工具正在执行、尚未结束
+- **THEN** 其工具行折叠态显示参数摘要,而非仅图标 + 名称 + 运行中脉冲
+
+#### Scenario: 工具执行中展开卡只显参数
+- **GIVEN** 同一工具调用正在执行
+- **WHEN** 用户展开该工具行
+- **THEN** 展开卡显示该次调用的参数(如命令、派发 prompt、查询词、待写内容)
+- **AND** 不显示执行结果或完成标记(如 stdout、退出码、搜索结果、`completed`、"无结果"空态)
+
+#### Scenario: 工具执行完展开卡显示参数与结果全貌
+- **GIVEN** 同一工具调用执行结束
+- **WHEN** 用户查看该工具行
+- **THEN** 折叠行显示完成态摘要,展开卡同时显示参数与结果;失败调用标红并显示失败标识
+
+#### Scenario: 无结构化展开 detail 的工具执行中折叠仍显参数摘要
+- **GIVEN** 一个执行完也无结构化展开 detail 的工具(走默认 presenter)
+- **WHEN** 该工具正在执行
+- **THEN** 其折叠行显示参数摘要,展开区不残留多余内容
 
 #### Scenario: 工具调用失败时折叠态标红
 - **GIVEN** 某个工具调用失败(bash 退出码非 0、edit 未命中、web 返回错误,或 memory/skill_manage

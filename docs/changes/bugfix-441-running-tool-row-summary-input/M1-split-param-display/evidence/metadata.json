@@ -1,0 +1,50 @@
+{
+  "generated_at": "2026-06-27T02:45:00Z",
+  "im_url": "http://127.0.0.1:63395",
+  "vite_url": "http://127.0.0.1:63132",
+  "gateway_pid": 12271,
+  "node_id": "wt-unit-bugfix-441-12179",
+  "agent_id": "default-agent",
+  "agent_user_id": "d9ce44b8fe124a059172244dc995ac91",
+  "results": [
+    {
+      "name": "bash",
+      "toolName": "bash",
+      "conversationId": "05bde5854e9049a2aa59f4978bacbc9d",
+      "userMessageId": "36b349f84a2341218872f21a36b1a6c6",
+      "completedAgentMessageId": "42c0f6c5b1a848eebe4193c16cb5ad20",
+      "sentinel": "BUGFIX441_BASH_DONE_LOCAL",
+      "toolStatus": "completed",
+      "runningExpectation": "expanded bash detail contains command: sleep 15 && echo BUGFIX441_BASH_DONE_LOCAL"
+    },
+    {
+      "name": "agent",
+      "toolName": "agent",
+      "conversationId": "4a0f6ded68ed4e918900197a4ca4a473",
+      "userMessageId": "7d9b49374708410c83cf74fc3a010a67",
+      "completedAgentMessageId": "51fc5642c5eb474188cfcde9f4dba866",
+      "sentinel": "BUGFIX441_AGENT_DONE_LOCAL",
+      "toolStatus": "completed",
+      "runningExpectation": "expanded agent detail contains dispatch prompt with: sleep 15 && echo BUGFIX441_AGENT_DONE_LOCAL"
+    },
+    {
+      "name": "web-search",
+      "toolName": "web_search",
+      "conversationId": "934f49c7f8d6476ea6184c6692cbb085",
+      "userMessageId": "c879d7de68e24f58b9dd9e5f15f00578",
+      "completedAgentMessageId": "1f8919515c3943ad9fe0dc4c70df1a86",
+      "sentinel": "BUGFIX441_WEB_SEARCH_DONE_LOCAL",
+      "toolStatus": "failed",
+      "runningExpectation": "expanded web_search detail contains query: bugfix-441 running tool row summary input nano-multiagent",
+      "completionNote": "provider dependency ddgs is absent in this local environment, so the completed tool row shows the final error card instead of results; the running-state parameter display and no-empty-state invariant were still observed."
+    }
+  ],
+  "screenshots": [
+    "bugfix-441-M1-bash-running.png",
+    "bugfix-441-M1-bash-completed.png",
+    "bugfix-441-M1-agent-running.png",
+    "bugfix-441-M1-agent-completed.png",
+    "bugfix-441-M1-web-search-running.png",
+    "bugfix-441-M1-web-search-completed.png"
+  ]
+}

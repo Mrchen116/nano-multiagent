@@ -1,6 +1,6 @@
 # gateway (personal_assistant) Specification
 
-> 对齐: feat-430-im-slash-skill-picker
+> 对齐: bugfix-441
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)。本契约层只收 Gateway **对外可观察的行为**——
 > 消费者 = 在外部 IM / 内置 Web IM 上收发消息的终端用户、与 Gateway 双向通信的 IM 服务、敲启停命令的
@@ -450,6 +450,23 @@ Agent 工具集**恰为**列出的这些（列表外的默认工具不提供，�
 #### Scenario: 缺必填字段时拒绝投递
 - **WHEN** 投递请求缺 `text` 或 `to`
 - **THEN** 投递返回 `ok=False` 与字段校验错误
+
+### Requirement: Gateway 中继工具调用时执行中即转发参数侧展示
+
+Gateway 把内核工具调用事件中继给 IM 时,工具开始执行的中继帧携带 presenter 在该阶段产出的参数侧展示:
+`summary` 经 `output` 字段转发,参数侧 `detail` 原样转发;工具执行结束的中继帧携带含结果的完整展示。
+Gateway 纯透传 presenter 字段,不按工具语义增删。
+
+#### Scenario: 工具执行中的中继帧携带参数侧展示
+- **GIVEN** 一个其 presenter 在执行开始即产出 presentation 的工具被调用
+- **WHEN** Gateway 中继该工具的 `tool_start` 事件给 IM
+- **THEN** `tool_call_upserted` 帧携带 presenter 的 `summary`(写入 `output`)与参数侧 `detail`
+- **AND** presenter 在执行开始未产出 `detail` 的工具,该帧不含 `detail`
+
+#### Scenario: 工具执行结束的中继帧携带完整展示
+- **GIVEN** 同一工具调用执行结束
+- **WHEN** Gateway 中继该工具的 `tool_end` 事件给 IM
+- **THEN** `tool_call_completed` 帧携带 presenter 的 `summary`(写入 `output`)与含结果的完整 `detail`
 
 ### Requirement: 通道中继去重并把多媒体附件透传给内核
 

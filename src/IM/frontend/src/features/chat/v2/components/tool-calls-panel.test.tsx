@@ -547,6 +547,79 @@ describe("ToolCallsPanel · expanded body (R2)", () => {
     expect(screen.getByText("instances")).toBeInTheDocument();
   });
 
+  it("running web_search renders the query without the empty-results state", async () => {
+    const { container } = renderSingle({
+      id: "ws-running",
+      name: "web_search",
+      status: "running",
+      input: {},
+      output: "nano 架构",
+      detail: { query: "nano 架构" }
+    });
+    await open();
+    const detail = container.querySelector(".chat-tool-detail-search");
+    expect(detail?.textContent).toContain("nano 架构");
+    expect(screen.queryByText(/无结果|没有结果|no results/i)).not.toBeInTheDocument();
+  });
+
+  it("running agent renders the prompt without a completed marker", async () => {
+    const { container } = renderSingle({
+      id: "a-running",
+      name: "agent",
+      status: "running",
+      input: {},
+      output: "派子任务",
+      detail: { description: "派子任务", prompt: "检查工具展示", subagent_type: "explore" }
+    });
+    await open();
+    expect(screen.getByText("检查工具展示")).toBeInTheDocument();
+    expect(container.querySelector(".chat-tool-detail-agent-result")).toBeNull();
+    expect(container.textContent).not.toMatch(/✓\s*completed/i);
+  });
+
+  it("running memory renders parameters without a done marker", async () => {
+    const { container } = renderSingle({
+      id: "m-running",
+      name: "memory",
+      status: "running",
+      input: {},
+      output: "add memory",
+      detail: { action: "add", target: "memory", content: "记住偏好" }
+    });
+    await open();
+    expect(screen.getByText(/记住偏好/)).toBeInTheDocument();
+    expect(container.querySelector(".chat-tool-detail-info-head")?.textContent).toBe("add · memory");
+    expect(container.textContent).not.toContain("✓");
+  });
+
+  it("running skill_manage renders parameters without a done marker", async () => {
+    const { container } = renderSingle({
+      id: "s-running",
+      name: "skill_manage",
+      status: "running",
+      input: {},
+      output: "create skill",
+      detail: { action: "create", name: "log-cleanup" }
+    });
+    await open();
+    expect(container.querySelector(".chat-tool-detail-info-head")?.textContent).toBe("create log-cleanup");
+    expect(container.textContent).not.toContain("✓");
+  });
+
+  it("running task_stop renders task_id without a done marker", async () => {
+    const { container } = renderSingle({
+      id: "ts-running",
+      name: "task_stop",
+      status: "running",
+      input: {},
+      output: "agt-9",
+      detail: { task_id: "agt-9" }
+    });
+    await open();
+    expect(container.querySelector(".chat-tool-detail-info-head")?.textContent).toBe("agt-9");
+    expect(container.textContent).not.toContain("✓");
+  });
+
   it("renders a failed call's error message in the expanded body", async () => {
     renderSingle({
       id: "b1",
@@ -926,6 +999,78 @@ describe("ToolCallsPanel · success-false failure (Round-3 fix)", () => {
     const card = container.querySelector(".chat-tool-detail-info");
     expect(card?.textContent).toContain("log-cleanup");
     expect(card?.textContent).toContain("create");
+  });
+});
+
+describe("ToolCallsPanel · failed calls with start-side detail", () => {
+  function renderSingle(call: ToolCall) {
+    return render(<ToolCallsPanel toolCalls={[call]} />);
+  }
+
+  async function open() {
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /过程|process|tool call/i }));
+  }
+
+  it("keeps an interrupted agent prompt visible without rendering the completed result body", async () => {
+    const { container } = renderSingle({
+      id: "a-failed-start-detail",
+      name: "agent",
+      status: "failed",
+      output: "interrupted",
+      input: {},
+      detail: { description: "派子任务", prompt: "检查工具展示", subagent_type: "explore" }
+    });
+    await open();
+    expect(screen.getByText("检查工具展示")).toBeInTheDocument();
+    expect(container.querySelector(".chat-tool-detail-agent-result")).toBeNull();
+    expect(container.textContent).not.toMatch(/✓\s*completed/i);
+  });
+
+  it("keeps interrupted memory parameters visible without rendering a success marker", async () => {
+    const { container } = renderSingle({
+      id: "m-failed-start-detail",
+      name: "memory",
+      status: "failed",
+      output: "interrupted",
+      input: {},
+      detail: { action: "add", target: "project", content: "记住偏好" }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toContain("add · project");
+    expect(card?.textContent).toContain("记住偏好");
+    expect(card?.textContent).not.toContain("✓");
+  });
+
+  it("keeps interrupted skill_manage parameters visible without rendering a success marker", async () => {
+    const { container } = renderSingle({
+      id: "s-failed-start-detail",
+      name: "skill_manage",
+      status: "failed",
+      output: "interrupted",
+      input: {},
+      detail: { action: "create", name: "log-cleanup" }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toContain("create log-cleanup");
+    expect(card?.textContent).not.toContain("✓");
+  });
+
+  it("keeps an interrupted task_stop task_id visible without rendering a success marker", async () => {
+    const { container } = renderSingle({
+      id: "ts-failed-start-detail",
+      name: "task_stop",
+      status: "failed",
+      output: "interrupted",
+      input: {},
+      detail: { task_id: "agt-9" }
+    });
+    await open();
+    const card = container.querySelector(".chat-tool-detail-info");
+    expect(card?.textContent).toBe("agt-9");
+    expect(card?.textContent).not.toContain("✓");
   });
 });
 

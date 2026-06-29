@@ -48,6 +48,14 @@ class _MemoryPresenter:
             visible=True,
             label="Memory",
             summary=f"{action} {target}".strip(),
+            detail=_enforce_cap(
+                {
+                    "action": action,
+                    "target": target,
+                    "content": str(args.get("content", "")),
+                    "truncated": False,
+                }
+            ),
         )
 
     def format_end(

@@ -50,6 +50,7 @@ class _WebSearchPresenter:
             label="Search",
             summary=_truncate(str(args.get("query", "")), 100),
             emoji=self.EMOJI,
+            detail={"query": str(args.get("query", ""))},
         )
 
     def format_end(

@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: bugfix-443-subagent-sidechain-model
+> 对齐: bugfix-441
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -392,13 +392,26 @@ observe 事件只观察;单个 hook 异常/超时不中断主流程(fail-open)�
 可在 `ToolPresentationEvent.emoji` 声明工具的折叠行图标,经事件透传给消费者;未声明则为空串,由消费者自行
 兜底。内置工具 `read` / `write` / `edit` / `bash` / `web_fetch` / `agent` / `memory` / `skill_manage` /
 `task_stop` 均自带 presenter,其 `tool_end` 事件携带结构化 `detail`(而非默认的截断参数);`detail` 中的大
-字段(stdout/stderr/diff/content)受硬上限尾截断,截断时 `detail.truncated` 为真。
+字段(stdout/stderr/diff/content)受硬上限尾截断,截断时 `detail.truncated` 为真。自带 presenter 的工具在
+`tool_start` 事件中也可携带从入参得出的参数侧 `summary` / `detail`(如命令、prompt、查询词),而
+`tool_end` 事件携带参数侧字段加执行结果字段的完整 `detail`;参数侧的大字段与结束态共享同一截断语义。
 
 #### Scenario: 自带 presenter 的工具产出自定义展示
 - **GIVEN** 应用经 `build_kernel(tools=…)` 传入一个带 `presenter` 的工具,消费者订阅会话事件流
 - **WHEN** 该工具被调用
 - **THEN** 对应 `tool_start`/`tool_end` 事件的 presentation 字段为该工具 presenter 产出的
   `visible`/`label`/`summary`/`detail`/`emoji`
+
+#### Scenario: 自带 presenter 的工具在执行中即产出参数侧展示
+- **GIVEN** 一个自带 presenter 且其展示含结构化 `detail` 的工具(如 `bash` / `agent`)
+- **WHEN** 该工具开始执行且尚未结束
+- **THEN** `tool_start` 事件的 presentation 携带 `summary` 与只含参数侧字段的 `detail`
+- **AND** 该 `detail` 不含执行结果字段
+
+#### Scenario: 工具结束时产出完整展示
+- **GIVEN** 同一工具调用已经开始
+- **WHEN** 该工具执行结束
+- **THEN** `tool_end` 事件的 presentation 携带完整 `detail`,既含参数侧字段,也含执行结果字段
 
 #### Scenario: presenter 声明的 emoji 随事件透传
 - **GIVEN** 一个 presenter 在 `ToolPresentationEvent.emoji` 声明了图标的工具(如 `web_fetch` 自带 🌐)
@@ -410,7 +423,7 @@ observe 事件只观察;单个 hook 异常/超时不中断主流程(fail-open)�
 - **GIVEN** 一个未带 presenter 的工具(如 MCP / 工作区运行时发现的工具)
 - **WHEN** 它被调用
 - **THEN** 其 `tool_start`/`tool_end` 事件携带默认 presentation(可见 + 名称 + 截断后的参数),
-  不因缺 presenter 而丢失事件或报错
+  不因缺 presenter 而丢失事件或报错;其 `tool_start` 不携带结构化 `detail`
 
 #### Scenario: 工作区 DIY 工具自带 presenter 被认
 - **GIVEN** 用户在 `<repo_root>/.nano/tools` 放置一个工具类,并在其对象上声明了 `presenter`

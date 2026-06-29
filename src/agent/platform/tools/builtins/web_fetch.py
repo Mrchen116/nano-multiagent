@@ -200,6 +200,7 @@ class _WebFetchPresenter:
             label="Web",
             summary=_truncate(str(args.get("url", "")), 100),
             emoji=self.EMOJI,
+            detail={"url": str(args.get("url", ""))},
         )
 
     def format_end(
