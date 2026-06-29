@@ -345,3 +345,57 @@ async def test_fork_preserves_failed_delivery_status(tmp_path: Path) -> None:
         "failed bubble must stay failed"
     )
     assert by_content["ok-reply"].delivery_status == "completed"
+
+
+# ---------------------------------------------------------------------------
+# feat-445-M2 W1: fork 复制保留完整气泡形态（tool_calls + thinking），非只纯文本
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fork_copies_tool_calls_and_thinking(tmp_path: Path) -> None:
+    from IM.domain.models import ToolCall
+
+    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=human.id,
+        content="q",
+        sender_type="user",
+    )
+    rich = messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=agent_user.id,
+        content="answer with a tool",
+        sender_type="agent",
+        kernel_message_id="kmsg-rich",
+        tool_calls=[
+            ToolCall(
+                id="call_1",
+                name="bash",
+                status="completed",
+                input={"cmd": "ls"},
+                output="a\nb",
+            )
+        ],
+        allow_empty=True,
+    )
+    messages.append_thinking_segment(
+        message_id=rich.id, text="let me think step by step"
+    )
+
+    new_conv = await service.fork_conversation(
+        source_conversation_id=conv.id,
+        fork_message_id=rich.id,
+        owner_id=human.owner_id,
+        actor_user_id=human.id,
+        check_agent_online=_online(None),
+        request_fork=_ok_fork([], id_map={"kmsg-rich": "branch-rich"}),
+    )
+    copied = messages.list_all_messages(conversation_id=new_conv.id)
+    branch_agent = next(m for m in copied if m.content == "answer with a tool")
+    assert branch_agent.tool_calls is not None
+    assert [tc.name for tc in branch_agent.tool_calls] == ["bash"]
+    assert branch_agent.tool_calls[0].output == "a\nb"
+    assert branch_agent.thinking is not None
+    assert [s.text for s in branch_agent.thinking] == ["let me think step by step"]

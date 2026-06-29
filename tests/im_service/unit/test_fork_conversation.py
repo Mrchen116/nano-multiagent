@@ -283,3 +283,40 @@ async def test_fork_cross_tenant_not_found(tmp_path: Path) -> None:
             check_agent_online=_online(None),
             request_fork=_ok_fork([]),
         )
+
+
+@pytest.mark.asyncio
+async def test_fork_group_conversation_rejected(tmp_path: Path) -> None:
+    """群聊源 → 400（fork 只在 user↔单 agent 直聊可用；后端独立校验，不依赖前端隐藏入口）。"""
+    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    # second agent → a 3-participant group (direct_kind != "user-agent")
+    from IM.infra.repositories import UserRepository
+
+    users = UserRepository(conversations._connection)  # type: ignore[attr-defined]
+    agent2 = users.create_user(username="agent:builder", display_name="Builder")
+    conversations._connection.execute(
+        "UPDATE users SET owner_id = ? WHERE id = ?", (human.owner_id, agent2.id)
+    )
+    conversations._connection.commit()
+    group = conversations.create_conversation(
+        title="Group",
+        participant_ids=[f"user:{human.id}", "agent:planner", "agent:builder"],
+        caller_owner_id=human.owner_id,
+    )
+    a1 = messages.create_message(
+        conversation_id=group.id,
+        sender_user_id=agent_user.id,
+        content="hi from group",
+        sender_type="agent",
+        kernel_message_id="kmsg-g",
+        allow_empty=True,
+    )
+    with pytest.raises(ForkValidationError):
+        await service.fork_conversation(
+            source_conversation_id=group.id,
+            fork_message_id=a1.id,
+            owner_id=human.owner_id,
+            actor_user_id=human.id,
+            check_agent_online=_online(None),
+            request_fork=_ok_fork([]),
+        )

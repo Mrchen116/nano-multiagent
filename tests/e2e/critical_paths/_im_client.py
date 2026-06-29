@@ -291,6 +291,16 @@ class IMClient:
         resp.raise_for_status()
         return resp.json()["items"]
 
+    def fork_conversation(self, conversation_id: str, fork_message_id: str) -> str:
+        """从一条已完成 agent 回复 fork 出分支单聊(feat-445)，返回新 conversation_id。"""
+        resp = self._http.post(
+            f"/im/v1/conversations/{conversation_id}/fork",
+            headers=self._auth_headers,
+            json={"fork_message_id": fork_message_id},
+        )
+        resp.raise_for_status()
+        return resp.json()["id"]
+
     def agent_messages(self, conversation_id: str, agent_id: str) -> list[dict]:
         """该会话里由 ``agent_id`` 发出的消息(按 REST 历史 sender.id 区分)。
 
