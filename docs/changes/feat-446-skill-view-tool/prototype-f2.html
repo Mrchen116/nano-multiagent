@@ -38,13 +38,13 @@
       height: 100vh; overflow: hidden;
     }
 
-    /* --- Workspace shell --- */
     .chat-workspace { display: flex; height: 100vh; }
 
     /* --- Sidebar --- */
     .chat-sidebar {
       width: 262px; min-width: 262px; background: var(--im-sidebar);
       display: flex; flex-direction: column; border-right: 1px solid oklch(0.3 0.01 240);
+      position: relative;
     }
     .chat-sidebar-header {
       padding: 16px 14px 8px; display: flex; flex-direction: column; gap: 10px;
@@ -57,13 +57,13 @@
     .chat-sidebar-title .mode-badge {
       font-size: 0.6rem; background: var(--im-accent); color: var(--im-accent-fg);
       padding: 2px 8px; border-radius: 999px; font-weight: 600;
-      letter-spacing: 0; text-transform: none;
+      letter-spacing: 0; text-transform: none; display: none;
     }
+    .chat-sidebar-title .mode-badge.visible { display: inline; }
     .chat-sidebar-search {
       background: oklch(0.28 0.01 240); border: 1px solid oklch(0.35 0.01 240);
       border-radius: 10px; padding: 7px 10px; color: var(--im-sidebar-text);
-      font-size: 0.8rem; width: 100%; outline: none;
-      font-family: inherit;
+      font-size: 0.8rem; width: 100%; outline: none; font-family: inherit;
     }
     .chat-sidebar-search::placeholder { color: oklch(0.45 0.008 240); }
     .chat-sidebar-search:focus { border-color: var(--im-accent); }
@@ -78,8 +78,7 @@
       min-height: 52px; padding: 6px 8px; border-radius: 0.6rem;
       background: transparent; border: none; cursor: pointer;
       transition: background 0.1s; width: 100%; text-align: left;
-      color: var(--im-sidebar-text); font-family: inherit;
-      position: relative;
+      color: var(--im-sidebar-text); font-family: inherit; position: relative;
     }
     .chat-sidebar-row:hover { background: var(--im-sidebar-hover); }
     .chat-sidebar-row.selected {
@@ -87,28 +86,23 @@
       outline: 1px solid var(--im-sidebar-active-outline);
     }
 
-    /* Checkbox */
+    /* Checkbox — hidden until select mode */
     .row-checkbox {
       width: 18px; height: 18px; border-radius: 4px; flex-shrink: 0;
       border: 2px solid oklch(0.5 0.008 240); background: transparent;
-      display: flex; align-items: center; justify-content: center;
-      transition: all 0.15s; cursor: pointer;
+      display: none; align-items: center; justify-content: center;
+      transition: all 0.15s;
     }
-    .chat-sidebar-row:hover .row-checkbox { border-color: oklch(0.65 0.008 240); }
-    .chat-sidebar-row.selected .row-checkbox {
-      background: var(--im-accent); border-color: var(--im-accent);
-    }
+    .select-mode .row-checkbox { display: flex; }
     .row-checkbox svg { width: 12px; height: 12px; stroke: white; stroke-width: 3; fill: none; opacity: 0; transition: opacity 0.15s; }
+    .chat-sidebar-row.selected .row-checkbox { background: var(--im-accent); border-color: var(--im-accent); }
     .chat-sidebar-row.selected .row-checkbox svg { opacity: 1; }
 
-    /* Avatar */
     .row-avatar {
       width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
       font-size: 0.75rem; font-weight: 700; color: white;
     }
-
-    /* Content */
     .row-content { flex: 1; min-width: 0; }
     .row-title {
       font-size: 0.875rem; font-weight: 600; color: var(--im-sidebar-text);
@@ -116,17 +110,33 @@
     }
     .row-preview {
       font-size: 0.75rem; color: var(--im-sidebar-text-muted);
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-      margin-top: 1px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
     }
     .row-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; flex-shrink: 0; }
     .row-time { font-size: 0.7rem; color: var(--im-sidebar-text-muted); }
     .row-status {
-      font-size: 0.6rem; padding: 1px 6px; border-radius: 999px;
-      font-weight: 600;
+      font-size: 0.6rem; padding: 1px 6px; border-radius: 999px; font-weight: 600;
     }
     .row-status.ended { background: oklch(0.35 0.01 240); color: oklch(0.65 0.008 240); }
     .row-status.active { background: oklch(0.35 0.06 150); color: var(--im-success); }
+
+    /* --- Context menu --- */
+    .context-menu {
+      position: fixed; z-index: 200;
+      background: var(--im-surface); border: 1px solid var(--im-border-strong);
+      border-radius: 0.75rem; box-shadow: 0 12px 40px oklch(0.1 0.01 240 / 0.22);
+      padding: 4px; min-width: 180px; display: none;
+    }
+    .context-menu.visible { display: block; }
+    .context-menu-item {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      padding: 8px 12px; border: none; background: transparent;
+      border-radius: 0.5rem; cursor: pointer; font-family: inherit;
+      font-size: 0.82rem; color: var(--im-text); transition: background 0.1s;
+    }
+    .context-menu-item:hover { background: var(--im-surface-2); }
+    .context-menu-item .icon { font-size: 1rem; width: 20px; text-align: center; }
+    .context-menu-sep { height: 1px; background: var(--im-border); margin: 4px 8px; }
 
     /* --- Selection action bar --- */
     .selection-bar {
@@ -152,7 +162,7 @@
       font-size: 0.72rem; cursor: pointer; font-family: inherit;
     }
 
-    /* --- Main pane (new conversation) --- */
+    /* --- Main pane --- */
     .chat-pane { flex: 1; display: flex; flex-direction: column; background: var(--im-bg); }
     .chat-pane-header {
       padding: 12px 20px; border-bottom: 1px solid var(--im-border);
@@ -170,21 +180,15 @@
       display: flex; flex-direction: column; gap: 10px;
     }
 
-    /* Message bubbles */
-    .chat-bubble {
-      max-width: 72%; display: flex; gap: 10px;
-    }
+    .chat-bubble { max-width: 72%; display: flex; gap: 10px; }
     .chat-bubble.user { align-self: flex-end; flex-direction: row-reverse; }
     .chat-bubble.agent { align-self: flex-start; }
-    .chat-bubble.system { align-self: center; }
     .bubble-avatar {
       width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
       display: flex; align-items: center; justify-content: center;
       font-size: 0.65rem; font-weight: 700; color: white;
     }
-    .bubble-card {
-      padding: 10px 14px; font-size: 0.875rem; line-height: 1.5;
-    }
+    .bubble-card { padding: 10px 14px; font-size: 0.875rem; line-height: 1.5; }
     .chat-bubble.user .bubble-card {
       background: var(--im-accent); color: var(--im-accent-fg);
       border-radius: 1rem 1rem 0.25rem 1rem;
@@ -212,7 +216,6 @@
       background: oklch(0.45 0.12 180); color: oklch(0.95 0.01 180);
     }
 
-    /* Composer */
     .chat-pane-composer {
       padding: 12px 20px; border-top: 1px solid var(--im-border);
       display: flex; gap: 10px; align-items: flex-end; background: var(--im-surface);
@@ -232,27 +235,14 @@
     }
     .composer-send:hover { background: var(--im-accent-2); }
 
-    /* --- Label annotation --- */
-    .proto-label {
-      position: absolute; font-family: var(--im-font-mono); font-size: 0.6rem;
-      color: var(--im-accent); background: oklch(0.95 0.02 180);
-      padding: 2px 8px; border-radius: 4px; border: 1px solid oklch(0.85 0.04 180);
-      pointer-events: none; white-space: nowrap; z-index: 10;
-    }
-
-    /* --- Scrollbar --- */
-    ::-webkit-scrollbar { width: 5px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: oklch(0.4 0.008 240); border-radius: 3px; }
-
-    /* --- Responsive hint --- */
+    /* --- Step indicator --- */
     .step-indicator {
       position: fixed; top: 12px; right: 20px; z-index: 100;
       display: flex; gap: 6px; align-items: center;
     }
     .step-dot {
       width: 8px; height: 8px; border-radius: 50%;
-      background: oklch(0.8 0.008 240); transition: all 0.2s;
+      background: oklch(0.8 0.008 240); transition: all 0.2s; cursor: pointer;
     }
     .step-dot.active { background: var(--im-accent); width: 24px; border-radius: 4px; }
     .step-label {
@@ -260,9 +250,22 @@
       font-family: var(--im-font-mono); margin-left: 8px;
     }
 
-    /* Panels */
     .panel { display: none; }
     .panel.active { display: flex; }
+
+    /* Tooltip hint */
+    .hint-toast {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 300;
+      background: var(--im-topbar); color: var(--im-topbar-fg);
+      padding: 10px 20px; border-radius: 10px; font-size: 0.82rem;
+      box-shadow: 0 8px 32px oklch(0.1 0.01 240 / 0.3);
+      opacity: 0; transition: opacity 0.3s; pointer-events: none;
+    }
+    .hint-toast.visible { opacity: 1; }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: oklch(0.4 0.008 240); border-radius: 3px; }
   </style>
 </head>
 <body>
@@ -271,26 +274,25 @@
   <div class="step-dot active" onclick="showStep(1)"></div>
   <div class="step-dot" onclick="showStep(2)"></div>
   <div class="step-dot" onclick="showStep(3)"></div>
-  <span class="step-label" id="step-label">Step 1: 选择 session</span>
+  <span class="step-label" id="step-label">Step 1: 右键会话</span>
 </div>
+<div class="hint-toast" id="hint">右键点击一个已结束的会话试试</div>
 
-<!-- Step 1: Session selection in sidebar -->
+<!-- Step 1: Normal sidebar → right-click → select mode -->
 <div class="chat-workspace panel active" id="step1">
-  <aside class="chat-sidebar">
+  <aside class="chat-sidebar" id="sidebar1">
     <div class="chat-sidebar-header">
       <div class="chat-sidebar-title">
         会话
-        <span class="mode-badge">多选模式</span>
+        <span class="mode-badge" id="mode-badge">多选模式</span>
       </div>
       <input class="chat-sidebar-search" placeholder="搜索会话..." />
     </div>
-    <ul class="chat-sidebar-list" id="session-list">
-      <!-- populated by JS -->
-    </ul>
+    <ul class="chat-sidebar-list" id="session-list"></ul>
     <div class="selection-bar hidden" id="selection-bar">
       <span class="count" id="selection-count">已选 0 个会话</span>
       <div style="display:flex;gap:8px;">
-        <button class="btn-clear" onclick="clearSelection()">清除</button>
+        <button class="btn-clear" onclick="exitSelectMode()">取消</button>
         <button class="btn-distill" id="btn-distill" onclick="goToStep2()" disabled>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
           生成 skill
@@ -300,26 +302,38 @@
   </aside>
   <div class="chat-pane">
     <div class="chat-pane-header">
-      <span class="title" style="color:var(--im-text-muted);font-weight:400;font-size:0.85rem;">← 在左侧选择要蒸馏的会话</span>
+      <span class="title" style="color:var(--im-text-muted);font-weight:400;font-size:0.85rem;">选择一个会话开始聊天，或右键会话进行蒸馏</span>
     </div>
     <div style="flex:1;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px;color:var(--im-text-muted);">
-      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-      <span style="font-size:0.85rem;">勾选左侧会话，点击「生成 skill」开始蒸馏</span>
-      <span style="font-size:0.72rem;">建议选择 3-5 个同类任务的会话</span>
+      <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" opacity="0.3"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      <span style="font-size:0.85rem;">选择左侧会话开始对话</span>
+      <span style="font-size:0.72rem;">右键会话可触发「生成 skill」</span>
     </div>
   </div>
 </div>
 
-<!-- Step 2: New conversation with pre-filled distill command -->
+<!-- Context menu -->
+<div class="context-menu" id="context-menu">
+  <button class="context-menu-item" onclick="enterSelectMode()">
+    <span class="icon">✨</span> 生成 skill
+  </button>
+  <div class="context-menu-sep"></div>
+  <button class="context-menu-item" onclick="hideContextMenu()">
+    <span class="icon">📋</span> 复制会话 ID
+  </button>
+  <button class="context-menu-item" onclick="hideContextMenu()" style="color:var(--im-danger);">
+    <span class="icon">🗑</span> 删除会话
+  </button>
+</div>
+
+<!-- Step 2: New conversation with pre-filled command -->
 <div class="chat-workspace panel" id="step2">
   <aside class="chat-sidebar">
     <div class="chat-sidebar-header">
       <div class="chat-sidebar-title">会话</div>
       <input class="chat-sidebar-search" placeholder="搜索会话..." />
     </div>
-    <ul class="chat-sidebar-list" style="opacity:0.5;pointer-events:none;">
-      <!-- frozen sidebar -->
-    </ul>
+    <ul class="chat-sidebar-list" style="opacity:0.5;pointer-events:none;"></ul>
   </aside>
   <div class="chat-pane">
     <div class="chat-pane-header">
@@ -327,11 +341,11 @@
       <span class="title">新对话</span>
       <span class="subtitle">蒸馏 skill</span>
     </div>
-    <div class="chat-pane-messages" id="step2-messages">
+    <div class="chat-pane-messages">
       <div class="chat-bubble user">
         <div class="bubble-avatar" style="background:var(--im-accent);">U</div>
         <div class="bubble-card">
-          <div class="skill-cmd" id="prefilled-cmd">/distill-from-sessions 我选了以下 session 做蒸馏：</div>
+          <div class="skill-cmd" id="prefilled-cmd"></div>
           <div id="session-tags" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;"></div>
           <div style="margin-top:8px;font-size:0.82rem;opacity:0.85;">
             请补充意图说明：你想让这个 skill 解决什么问题？覆盖哪类工作流？
@@ -348,7 +362,7 @@
   </div>
 </div>
 
-<!-- Step 3: Agent generating skill -->
+<!-- Step 3: Agent generating -->
 <div class="chat-workspace panel" id="step3">
   <aside class="chat-sidebar">
     <div class="chat-sidebar-header">
@@ -363,7 +377,7 @@
       <span class="title">新对话</span>
       <span class="subtitle">蒸馏 skill</span>
     </div>
-    <div class="chat-pane-messages" id="step3-messages">
+    <div class="chat-pane-messages">
       <div class="chat-bubble user">
         <div class="bubble-avatar" style="background:var(--im-accent);">U</div>
         <div class="bubble-card">
@@ -413,12 +427,16 @@ const sessions = [
 ];
 
 const selected = new Set();
+let selectMode = false;
+let contextTarget = null;
 
 function renderSessions() {
   const list = document.getElementById('session-list');
   list.innerHTML = sessions.map(s => `
     <li>
-      <button class="chat-sidebar-row ${selected.has(s.id) ? 'selected' : ''}" onclick="toggleSelect('${s.id}')">
+      <button class="chat-sidebar-row ${selected.has(s.id) ? 'selected' : ''}"
+              onclick="${selectMode ? `toggleSelect('${s.id}')` : `selectSession('${s.id}')`}"
+              oncontextmenu="showContextMenu(event, '${s.id}')">
         <div class="row-checkbox">
           <svg viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>
         </div>
@@ -438,26 +456,71 @@ function renderSessions() {
   const bar = document.getElementById('selection-bar');
   const count = document.getElementById('selection-count');
   const btn = document.getElementById('btn-distill');
-  if (selected.size > 0) {
-    bar.classList.remove('hidden');
-    count.textContent = `已选 ${selected.size} 个会话`;
-    btn.disabled = selected.size < 2;
-    if (selected.size < 2) btn.title = '至少选择 2 个会话';
-    else btn.title = '';
+  const badge = document.getElementById('mode-badge');
+  const sidebar = document.getElementById('sidebar1');
+
+  if (selectMode) {
+    sidebar.classList.add('select-mode');
+    badge.classList.add('visible');
+    if (selected.size > 0) {
+      bar.classList.remove('hidden');
+      count.textContent = `已选 ${selected.size} 个会话`;
+      btn.disabled = selected.size < 2;
+    } else {
+      bar.classList.remove('hidden');
+      count.textContent = '点击会话进行选择';
+      btn.disabled = true;
+    }
   } else {
+    sidebar.classList.remove('select-mode');
+    badge.classList.remove('visible');
     bar.classList.add('hidden');
   }
 }
 
+function selectSession(id) {
+  // Normal click — just highlight (not implemented fully, this is a prototype)
+}
+
 function toggleSelect(id) {
   const s = sessions.find(s => s.id === id);
-  if (s && s.status === 'active') return; // can't select active session
+  if (s && s.status === 'active') return;
   if (selected.has(id)) selected.delete(id);
   else selected.add(id);
   renderSessions();
 }
 
-function clearSelection() {
+function showContextMenu(e, id) {
+  e.preventDefault();
+  const s = sessions.find(s => s.id === id);
+  if (!s) return;
+  contextTarget = id;
+  const menu = document.getElementById('context-menu');
+  menu.style.left = e.clientX + 'px';
+  menu.style.top = e.clientY + 'px';
+  menu.classList.add('visible');
+  // Hide "生成 skill" for active sessions
+  const distillBtn = menu.querySelector('.context-menu-item');
+  distillBtn.style.opacity = s.status === 'active' ? '0.3' : '1';
+  distillBtn.style.pointerEvents = s.status === 'active' ? 'none' : 'auto';
+}
+
+function hideContextMenu() {
+  document.getElementById('context-menu').classList.remove('visible');
+}
+
+function enterSelectMode() {
+  hideContextMenu();
+  selectMode = true;
+  if (contextTarget) {
+    const s = sessions.find(s => s.id === contextTarget);
+    if (s && s.status === 'ended') selected.add(contextTarget);
+  }
+  renderSessions();
+}
+
+function exitSelectMode() {
+  selectMode = false;
   selected.clear();
   renderSessions();
 }
@@ -466,13 +529,15 @@ function showStep(n) {
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   document.getElementById('step' + n).classList.add('active');
   document.querySelectorAll('.step-dot').forEach((d, i) => d.classList.toggle('active', i === n - 1));
-  const labels = ['Step 1: 选择 session', 'Step 2: 补充意图', 'Step 3: 生成中'];
+  const labels = ['Step 1: 右键会话', 'Step 2: 补充意图', 'Step 3: 生成中'];
   document.getElementById('step-label').textContent = labels[n - 1];
 }
 
 function goToStep1() { showStep(1); }
 
 function goToStep2() {
+  const cmd = document.getElementById('prefilled-cmd');
+  cmd.textContent = '/distill-from-sessions 我选了以下 session 做蒸馏：';
   const tags = document.getElementById('session-tags');
   tags.innerHTML = [...selected].map(id => `<span class="session-tag">${id}</span>`).join('');
   showStep(2);
@@ -480,7 +545,17 @@ function goToStep2() {
 
 function goToStep3() { showStep(3); }
 
+// Close context menu on click outside
+document.addEventListener('click', hideContextMenu);
+
 renderSessions();
+
+// Show hint after 1s
+setTimeout(() => {
+  const hint = document.getElementById('hint');
+  hint.classList.add('visible');
+  setTimeout(() => hint.classList.remove('visible'), 4000);
+}, 1000);
 </script>
 
 </body>
