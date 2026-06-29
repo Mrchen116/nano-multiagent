@@ -1188,11 +1188,15 @@ class GatewayHandler:
                 raise ValueError(
                     f"delivery_status must be 'completed' or 'failed' when provided, got {raw_ds!r}"
                 )
+            # feat-445-M1: per-bubble kernel message_id forwarded by the gateway relay so
+            # this bubble row is stamped with the assistant message that produced it.
+            kernel_message_id = _optional_text(payload.get("kernel_message_id"))
             self._event_bridge.on_message_completed(
                 message_id=message_id,
                 final_content=final_content,
                 token_usage=token_usage,
                 delivery_status=ds,
+                kernel_message_id=kernel_message_id,
             )
 
         elif kind == "run_heartbeat":

@@ -384,6 +384,14 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE messages ADD COLUMN awaiting_permission_at TEXT"
         )
+    # feat-445-M1: per-bubble kernel message_id (= JSONL turn uuid) persisted by relay so
+    # fork can map a clicked IM agent bubble back to the exact assistant message in the
+    # gateway session log. Nullable: user/system messages and pre-feature agent bubbles
+    # have none — fork is disabled on bubbles without it.
+    if "kernel_message_id" not in column_names:
+        connection.execute(
+            "ALTER TABLE messages ADD COLUMN kernel_message_id TEXT"
+        )
 
 
 def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:

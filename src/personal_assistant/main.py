@@ -3247,6 +3247,10 @@ async def _roll_bubble(
         # streams into whatever bubble the in-flight roll lands on.
         return None
     ctx["rolling"] = "1"
+    # feat-445-M1: the bubble being closed was produced by the kernel message tracked in
+    # ctx["kernel_message_id"]; stamp it onto the closing frame so IM persists the
+    # per-bubble id BEFORE the new bubble's id overwrites ctx (decision 4 fork anchor).
+    old_kernel_message_id = ctx.get("kernel_message_id")
     try:
         if old_message_id:
             await manager.send_json(
@@ -3257,6 +3261,7 @@ async def _roll_bubble(
                     "final_content": None,
                     "token_usage": None,
                     "delivery_status": "completed",
+                    "kernel_message_id": old_kernel_message_id,
                     "run_id": run_id,
                 },
             )
@@ -3712,6 +3717,9 @@ def _build_kernel_event_observer(
                             "delivery_status": "completed"
                             if turn_completed
                             else "failed",
+                            # feat-445-M1: stamp the final bubble with the kernel message
+                            # id that produced it (decision 4 fork anchor).
+                            "kernel_message_id": ctx.get("kernel_message_id"),
                             "run_id": run_id,
                         },
                     )

@@ -906,6 +906,7 @@ class MessageRepository:
         tool_calls: list[ToolCall] | None = None,
         token_usage: TokenUsage | None = None,
         allow_empty: bool = False,
+        kernel_message_id: str | None = None,
     ) -> Message:
         """Create a message in a conversation.
 
@@ -1013,8 +1014,9 @@ class MessageRepository:
                     delivery_status,
                     created_at,
                     tool_calls_json,
-                    token_usage_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    token_usage_json,
+                    kernel_message_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     message_id,
@@ -1027,6 +1029,7 @@ class MessageRepository:
                     created_at,
                     tool_calls_json,
                     token_usage_json,
+                    kernel_message_id,
                 ),
             )
             pending_live_events.append(
@@ -1098,6 +1101,7 @@ class MessageRepository:
             token_usage=token_usage,
             # feat-414: 建行时始终为 None，由 on_message_completed 写入。
             elapsed_ms=None,
+            kernel_message_id=kernel_message_id,
         )
 
     def update_runtime_state(
@@ -1110,6 +1114,7 @@ class MessageRepository:
         token_usage: TokenUsage | None = None,
         delivery_status: str | None = None,
         elapsed_ms: int | None = None,
+        kernel_message_id: str | None = None,
     ) -> Message:
         """Apply one runtime-stream patch to an agent message.
 
@@ -1208,6 +1213,11 @@ class MessageRepository:
         if delivery_status is not None:
             sets.append("delivery_status = ?")
             values.append(delivery_status)
+        # feat-445-M1: relay 收尾把该气泡的 kernel message_id 落库。None（默认）= 不改，
+        # 不清掉已写入值（同 token_usage/elapsed_ms 的 sentinel 语义）。
+        if kernel_message_id is not None:
+            sets.append("kernel_message_id = ?")
+            values.append(kernel_message_id)
         if not sets:
             raise ValueError(
                 "update_runtime_state requires at least one field to change"
@@ -1234,6 +1244,7 @@ class MessageRepository:
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
+                messages.kernel_message_id,
                 users.username AS sender_username,
                 users.display_name AS sender_display_name
             FROM messages
@@ -1285,6 +1296,7 @@ class MessageRepository:
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
+                messages.kernel_message_id,
                 users.username AS sender_username,
                 users.display_name AS sender_display_name
             FROM messages
@@ -1370,6 +1382,7 @@ class MessageRepository:
                 messages.token_usage_json,
                 messages.elapsed_ms,
                 messages.permission_request_json,
+                messages.kernel_message_id,
                 users.username AS sender_username,
                 users.display_name AS sender_display_name
             FROM messages
@@ -1581,6 +1594,10 @@ class MessageRepository:
         elapsed_ms_value: int | None = (
             row["elapsed_ms"] if "elapsed_ms" in row.keys() else None
         )
+        # feat-445-M1: 旧行 / 非来自含该列 SELECT 的 row 回落 None，不报 KeyError。
+        kernel_message_id_value: str | None = (
+            row["kernel_message_id"] if "kernel_message_id" in row.keys() else None
+        )
         permission_requests = _load_permission_requests(permission_request_value)
         return Message(
             id=row["id"],
@@ -1608,6 +1625,7 @@ class MessageRepository:
             token_usage=_decode_token_usage(token_usage_value),
             elapsed_ms=elapsed_ms_value,
             permission_requests=permission_requests,
+            kernel_message_id=kernel_message_id_value,
         )
 
     def _message_from_visible_event_row(self, row: sqlite3.Row) -> Message | None:
