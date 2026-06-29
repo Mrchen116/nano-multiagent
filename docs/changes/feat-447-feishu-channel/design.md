@@ -86,7 +86,7 @@ graph TD
     FA -.->|未@消息存入| GCTX
     FA -.->|@时取出| GCTX
     WRA -->|relay| IM
-    FA -->|mirror 入站+出站| IM
+    PIPE -->|kernel event observer<br/>自动同步| IM
     PIPE -->|agent shell 调用| FCLI
     FCLI -->|OAuth| BROWSER
     FCLI -->|API 调用| FDOC
@@ -148,11 +148,12 @@ channels:
 
 ### 决策 6: 飞书对话同步到内部 IM
 
-**选了 mirror 模式：飞书消息/回复处理完后，回推到 IM 服务，内部 IM web UI 自然可见**。
+**选了复用现有 kernel event observer 的 `node.streaming_delta` 机制，不新建 mirror 通道**。
 
-- **理由**: 参考 Hermes 的 `mirror.py`——不搞跨渠道实时同步，而是让所有 channel 共享同一个 session store。我们的 IM 服务已有 WebSocket relay 机制，飞书 adapter 处理完消息后，通过同一套 relay 推一条到 IM 服务即可。内部 IM web UI 从 IM 服务读数据，自然能看到飞书对话。
-- **拒绝**: 改 web UI 直接读 agent kernel session store——改动太大，且破坏现有 IM 服务的数据主权。
-- **风险**: IM 服务离线时 mirror 失败，但不影响飞书主路径（mirror 错误全部吞掉，不阻塞回复）。
+- **理由**: Gateway 已有 `_build_kernel_event_observer`（main.py:3377），它把 kernel 的 SSE 事件（run_status / assistant_message / tool_start / tool_end / turn_end）翻译成 `node.streaming_delta` WebSocket 帧推给 IM 服务。这个 observer 对所有 channel 的 kernel run 都生效——飞书消息走的是同一条 InboundPipeline → kernel 路径，observer 自然会把事件推到 IM。IM 服务收到 `turn_start`（conversation_id 为空时）会懒创建一个会话，后续 delta 填充内容。**不需要新建 mirror 机制，现有 observer 已经是 mirror**。
+- **关键前提**: 飞书 adapter 的 `InboundMessage` 必须正确设置 `agent_id`（= account.agentId），这样 `run_context_store` 里的 `agent_id` 才正确，IM 侧才能把消息归到正确的 agent 会话。
+- **拒绝**: 新建独立 mirror 模块——重复造轮子，现有 observer 已经覆盖。
+- **风险**: IM 服务离线时 observer 的 send_json 静默失败，不影响飞书主路径。IM 侧懒创建的会话名称可能不含"飞书"标识——后续可优化。
 
 ## 接口与数据流
 
@@ -179,17 +180,17 @@ sequenceDiagram
         FA->>FA: push 到 GroupContextStore
     else 1:1 或群聊 @Bot
         FA->>FA: flush GroupContextStore（群聊）
-        FA->>IMS: mirror 入站消息到 IM 服务
         FA->>REG: on_inbound(InboundMessage)
         REG->>PIPE: 路由到 agent
         PIPE->>K: 执行
+        K-->>PIPE: SSE 事件流
+        PIPE-->>IMS: kernel event observer<br/>node.streaming_delta（自动同步）
         K->>PIPE: 回复
         PIPE->>OUT: send_text(reply_context)
         OUT->>FA: send(OutboundMessage)
         FA->>FC: 调飞书 API 发消息
         FC->>FS: 发送
         FS->>U: 显示回复
-        FA->>IMS: mirror 出站回复到 IM 服务
     end
 ```
 
@@ -236,21 +237,48 @@ class FeishuAdapter:
         """关闭 WebSocket 连接"""
 ```
 
+**关键**: `on_inbound(InboundMessage)` 中必须设置 `agent_id=self.agent_id`（来自 config accounts 绑定）。否则三个 Bot 的消息全路由到 default agent，多 Agent 路由失效。
+
+### Session key 生成
+
+FeishuAdapter 产出的 InboundMessage 的 `external_chat_id` 与 `agent_id` 组合，由现有 `build_conversation_session_key` 生成 session key：
+
+| 场景 | external_chat_id | agent_id | 最终 key（由 build_session_key 生成） |
+|---|---|---|---|
+| 1:1 私聊 | `feishu:<app_id>:dm:<user_open_id>` | `plato` | `feishu:<app_id>:dm:<user_open_id>:plato` |
+| 群聊 | `feishu:<app_id>:group:<chat_id>` | `plato` | `feishu:<app_id>:group:<chat_id>:plato` |
+
+`external_chat_id` 用 `feishu:<app_id>:...` 格式编码飞书会话标识（含 app_id 保证多 Bot 不碰撞），`agent_id` 由 `build_session_key` 自动拼接。不自定义 key 格式，完全复用现有 `session_keys.py` 的 `f"{channel}:{chat_id}:{agent_id}"` 模式。
+
 ### 关键数据结构
 
-**InboundMessage 扩展**（通过 metadata 传递飞书特有字段）:
+**InboundMessage 字段**:
+- `channel_name` = `"feishu:<agent_id>"`（用于 OutboundRouter 路由回正确 adapter）
+- `external_user_id` = 飞书 sender open_id
+- `external_chat_id` = `feishu:<app_id>:dm:<user_open_id>` 或 `feishu:<app_id>:group:<chat_id>`
+- `agent_id` = account.agentId（**必须设置**，驱动多 Agent 路由）
+- `is_group` = chat_type != "p2p"
 - `metadata["feishu_message_id"]` — 飞书消息 ID
 - `metadata["feishu_chat_type"]` — p2p / group
 - `metadata["feishu_mentions"]` — @ 列表
 
-**ReplyContext 扩展**:
+**ReplyContext 字段**:
+- `channel_name` = `"feishu:<agent_id>"`
+- `target_chat_id` = InboundMessage.external_chat_id
 - `metadata["feishu_message_id"]` — 回复目标消息 ID（飞书回复语义）
+
+### 环境依赖
+
+- **lark-oapi**（飞书官方 Python SDK）— 需在 `pyproject.toml` / `requirements.txt` 中声明依赖。FeishuClient 内部 import。
 
 ## 契约层增量 (delta-spec)
 
 - kernel: no spec delta
 - im: no spec delta
-- gateway: specs/gateway/spec.md — 新增飞书 channel 消息收发相关 Requirement（从 spec.md 验收标准投影）
+- gateway: `specs/gateway/spec.md` — ADDED:
+  - **Requirement: 飞书 channel 消息收发** — Gateway 通过飞书 SDK WebSocket 长连接收发消息，1:1 私聊直接响应，群聊 @Bot 触发，未 @ 消息暂存为上下文
+  - **Requirement: 飞书多 Bot 路由** — 每个飞书 Bot 通过 config accounts 绑定 agentId，消息路由到对应 Agent
+  - **Requirement: 飞书对话同步到内部 IM** — 飞书消息和回复通过现有 kernel event observer 自动同步到 IM 服务
 - cli: no spec delta
 
 ## 风险与回退
