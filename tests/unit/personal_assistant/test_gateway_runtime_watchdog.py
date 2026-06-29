@@ -275,6 +275,60 @@ def test_watchdog_backoff_sleep_is_interrupted_by_shutdown(tmp_path: Path) -> No
     asyncio.run(_exercise())
 
 
+def test_watchdog_backoff_does_not_consume_executor_threads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Repeated watchdog backoff timeouts must stay async-native.
+
+    The previous implementation wrapped ``threading.Event.wait`` in
+    ``asyncio.to_thread`` for every backoff. Each timeout left one default-executor
+    worker blocked until process shutdown, so a flapping IM loop could consume the
+    executor.
+    """
+
+    from personal_assistant import main as gateway_main
+
+    class _AlwaysCrashingIMManager:
+        connected = False
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def run_forever(self) -> None:
+            self.calls += 1
+            raise RuntimeError("offline")
+
+    to_thread_calls = 0
+
+    def _forbidden_to_thread(*_args, **_kwargs):
+        nonlocal to_thread_calls
+        to_thread_calls += 1
+        raise AssertionError("watchdog backoff must not use asyncio.to_thread")
+
+    monkeypatch.setattr(gateway_main.asyncio, "to_thread", _forbidden_to_thread)
+
+    async def _exercise() -> None:
+        runtime = GatewayRuntime(
+            _make_config(tmp_path),
+            None,
+            im_watchdog_initial_seconds=0.01,
+            im_watchdog_max_seconds=0.01,
+        )
+        manager = _AlwaysCrashingIMManager()
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.04, runtime.request_shutdown)
+
+        started_at = time.monotonic()
+        await asyncio.wait_for(
+            runtime._supervise_im_connection(manager), timeout=0.25  # noqa: SLF001
+        )
+        assert time.monotonic() - started_at < 0.25
+        assert manager.calls >= 2
+
+    asyncio.run(_exercise())
+    assert to_thread_calls == 0
+
+
 def test_gateway_survives_unreachable_im_at_startup(tmp_path: Path) -> None:
     """Startup-order-insensitive (decision 3): with the eager connect_once gone, a real
     IMConnectionManager whose connect always fails must NOT crash the gateway. The

@@ -9,6 +9,7 @@ InvalidStateError defense (decision 6).
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from pathlib import Path
 
@@ -76,6 +77,34 @@ def test_run_forever_cancelled_cleans_up_then_reraises(tmp_path: Path) -> None:
     assert any(e["event"] == "disconnected" for e in manager.event_log()), (
         "cancel must still run disconnect cleanup before re-raising"
     )
+
+
+def test_run_forever_cancellation_closes_connected_websocket(tmp_path: Path) -> None:
+    """Cancellation while connected must close the live websocket before propagating.
+
+    Clearing ``_websocket`` is not enough: without an actual close, cancellation during
+    shutdown can leave the underlying socket open until the process exits.
+    """
+
+    socket = _BlockingRecvWebSocket()
+    manager = _manager(
+        tmp_path, lambda url, headers: _connect_fake(socket, [], url, headers)
+    )
+
+    async def _exercise() -> None:
+        task = asyncio.create_task(manager.run_forever())
+        await asyncio.wait_for(
+            manager.wait_first_connect_attempt(timeout=1.0), timeout=1.0
+        )
+        assert manager.connected is True
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(_exercise())
+
+    assert manager.connected is False
+    assert socket.closed == 1
 
 
 def test_run_forever_first_connect_attempt_resolves_on_success(
@@ -201,6 +230,39 @@ def test_wait_first_connect_attempt_timeout_logs_warning(
         asyncio.run(manager.wait_first_connect_attempt(timeout=0.01))
 
     assert "first IM connect attempt did not resolve" in caplog.text
+
+
+def test_close_interrupts_reconnect_backoff_sleep(tmp_path: Path) -> None:
+    """close() must wake run_forever while it is waiting in a long reconnect backoff."""
+
+    async def _connect(url: str, headers: dict[str, str]):  # noqa: ARG001
+        raise RuntimeError("offline")
+
+    manager = _manager(tmp_path, _connect)
+    manager._config = IMConnectionConfig(  # noqa: SLF001
+        url="http://im.local:9000",
+        reconnect_initial_seconds=30.0,
+        reconnect_max_seconds=30.0,
+    )
+    manager._reconnect_delay = 30.0  # noqa: SLF001
+
+    async def _exercise() -> None:
+        task = asyncio.create_task(manager.run_forever())
+        try:
+            await asyncio.wait_for(
+                manager.wait_first_connect_attempt(timeout=1.0), timeout=1.0
+            )
+            started_at = asyncio.get_running_loop().time()
+            await manager.close()
+            await asyncio.wait_for(task, timeout=0.25)
+            assert asyncio.get_running_loop().time() - started_at < 0.25
+        finally:
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+
+    asyncio.run(_exercise())
 
 
 def test_on_connected_failure_does_not_tear_down_connection(tmp_path: Path) -> None:
