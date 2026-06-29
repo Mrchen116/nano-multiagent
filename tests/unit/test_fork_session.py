@@ -211,11 +211,21 @@ async def test_fork_up_to_uncompacted_keeps_all_turns_through_M(tmp_path: Path) 
     manager = runtime._session_manager
     src = manager.create_session(workspace_root=tmp_path).session_id
 
-    p = _append_chain_turn(manager, src, role="user", content="u1", message_id="u1", parent_uuid=None)
-    p = _append_chain_turn(manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p)
-    p = _append_chain_turn(manager, src, role="user", content="u2", message_id="u2", parent_uuid=p)
-    p = _append_chain_turn(manager, src, role="assistant", content="a2", message_id="a2", parent_uuid=p)
-    _append_chain_turn(manager, src, role="user", content="u3", message_id="u3", parent_uuid=p)
+    p = _append_chain_turn(
+        manager, src, role="user", content="u1", message_id="u1", parent_uuid=None
+    )
+    p = _append_chain_turn(
+        manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p
+    )
+    p = _append_chain_turn(
+        manager, src, role="user", content="u2", message_id="u2", parent_uuid=p
+    )
+    p = _append_chain_turn(
+        manager, src, role="assistant", content="a2", message_id="a2", parent_uuid=p
+    )
+    _append_chain_turn(
+        manager, src, role="user", content="u3", message_id="u3", parent_uuid=p
+    )
     manager.store.writer.flush()
 
     forked = await runtime.fork_session(src, up_to="a1")
@@ -233,10 +243,18 @@ async def test_fork_up_to_after_boundary_is_summary_plus_kept(tmp_path: Path) ->
     src = manager.create_session(workspace_root=tmp_path).session_id
 
     # Pre-compaction turns
-    p = _append_chain_turn(manager, src, role="user", content="u1", message_id="u1", parent_uuid=None)
-    p = _append_chain_turn(manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p)
-    p = _append_chain_turn(manager, src, role="user", content="u2", message_id="u2", parent_uuid=p)
-    p = _append_chain_turn(manager, src, role="assistant", content="a2", message_id="a2", parent_uuid=p)
+    p = _append_chain_turn(
+        manager, src, role="user", content="u1", message_id="u1", parent_uuid=None
+    )
+    p = _append_chain_turn(
+        manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p
+    )
+    p = _append_chain_turn(
+        manager, src, role="user", content="u2", message_id="u2", parent_uuid=p
+    )
+    p = _append_chain_turn(
+        manager, src, role="assistant", content="a2", message_id="a2", parent_uuid=p
+    )
     # Compact: boundary + summary turn (parent = first_kept_event_id = a2)
     manager.append_compaction(src, first_kept_event_id="a2", summary="SUMMARY")
     manager.store.writer.flush()
@@ -246,10 +264,23 @@ async def test_fork_up_to_after_boundary_is_summary_plus_kept(tmp_path: Path) ->
         m.message_id for m in result_full.messages if m.content == "SUMMARY"
     )
     # Post-compaction turns chain off the summary
-    p = _append_chain_turn(manager, src, role="user", content="u3", message_id="u3", parent_uuid=summary_uuid)
-    p = _append_chain_turn(manager, src, role="assistant", content="a3", message_id="a3", parent_uuid=p)
-    p = _append_chain_turn(manager, src, role="user", content="u4", message_id="u4", parent_uuid=p)
-    _append_chain_turn(manager, src, role="assistant", content="a4", message_id="a4", parent_uuid=p)
+    p = _append_chain_turn(
+        manager,
+        src,
+        role="user",
+        content="u3",
+        message_id="u3",
+        parent_uuid=summary_uuid,
+    )
+    p = _append_chain_turn(
+        manager, src, role="assistant", content="a3", message_id="a3", parent_uuid=p
+    )
+    p = _append_chain_turn(
+        manager, src, role="user", content="u4", message_id="u4", parent_uuid=p
+    )
+    _append_chain_turn(
+        manager, src, role="assistant", content="a4", message_id="a4", parent_uuid=p
+    )
     manager.store.writer.flush()
 
     forked = await runtime.fork_session(src, up_to="a3")
@@ -261,22 +292,39 @@ async def test_fork_up_to_after_boundary_is_summary_plus_kept(tmp_path: Path) ->
     )
 
 
-async def test_fork_up_to_before_boundary_ignores_later_boundary(tmp_path: Path) -> None:
+async def test_fork_up_to_before_boundary_ignores_later_boundary(
+    tmp_path: Path,
+) -> None:
     """② 源已压缩、fork boundary 前老消息 → 只应用 M 之前的 boundary（此处无）→ 到 M 全部 turn。"""
     runtime = _make_runtime(tmp_path)
     manager = runtime._session_manager
     src = manager.create_session(workspace_root=tmp_path).session_id
 
-    p = _append_chain_turn(manager, src, role="user", content="u1", message_id="u1", parent_uuid=None)
-    p = _append_chain_turn(manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p)
-    p = _append_chain_turn(manager, src, role="user", content="u2", message_id="u2", parent_uuid=p)
-    p = _append_chain_turn(manager, src, role="assistant", content="a2", message_id="a2", parent_uuid=p)
+    p = _append_chain_turn(
+        manager, src, role="user", content="u1", message_id="u1", parent_uuid=None
+    )
+    p = _append_chain_turn(
+        manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p
+    )
+    p = _append_chain_turn(
+        manager, src, role="user", content="u2", message_id="u2", parent_uuid=p
+    )
+    p = _append_chain_turn(
+        manager, src, role="assistant", content="a2", message_id="a2", parent_uuid=p
+    )
     manager.append_compaction(src, first_kept_event_id="a2", summary="SUMMARY")
     manager.store.writer.flush()
     summary_uuid = next(
         m.message_id for m in manager.load(src).messages if m.content == "SUMMARY"
     )
-    _append_chain_turn(manager, src, role="user", content="u3", message_id="u3", parent_uuid=summary_uuid)
+    _append_chain_turn(
+        manager,
+        src,
+        role="user",
+        content="u3",
+        message_id="u3",
+        parent_uuid=summary_uuid,
+    )
     manager.store.writer.flush()
 
     # Fork to a1, which lies BEFORE the boundary → the boundary (written after a1) is
@@ -287,7 +335,9 @@ async def test_fork_up_to_before_boundary_ignores_later_boundary(tmp_path: Path)
     assert [m.content for m in hist] == ["u1", "a1"], (
         f"fork to a1 (before boundary) must ignore the later boundary, got {[m.content for m in hist]}"
     )
-    assert all(m.content != "SUMMARY" for m in hist), "must not pull in a boundary after M"
+    assert all(m.content != "SUMMARY" for m in hist), (
+        "must not pull in a boundary after M"
+    )
 
 
 async def test_fork_up_to_unknown_message_id_raises(tmp_path: Path) -> None:
@@ -295,7 +345,9 @@ async def test_fork_up_to_unknown_message_id_raises(tmp_path: Path) -> None:
     runtime = _make_runtime(tmp_path)
     manager = runtime._session_manager
     src = manager.create_session(workspace_root=tmp_path).session_id
-    _append_chain_turn(manager, src, role="user", content="u1", message_id="u1", parent_uuid=None)
+    _append_chain_turn(
+        manager, src, role="user", content="u1", message_id="u1", parent_uuid=None
+    )
     manager.store.writer.flush()
 
     with pytest.raises(Exception):
@@ -307,8 +359,12 @@ async def test_fork_up_to_new_session_independent_and_restamped(tmp_path: Path) 
     runtime = _make_runtime(tmp_path)
     manager = runtime._session_manager
     src = manager.create_session(workspace_root=tmp_path).session_id
-    p = _append_chain_turn(manager, src, role="user", content="u1", message_id="u1", parent_uuid=None)
-    _append_chain_turn(manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p)
+    p = _append_chain_turn(
+        manager, src, role="user", content="u1", message_id="u1", parent_uuid=None
+    )
+    _append_chain_turn(
+        manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p
+    )
     manager.store.writer.flush()
 
     forked = await runtime.fork_session(src, up_to="a1")
@@ -319,7 +375,9 @@ async def test_fork_up_to_new_session_independent_and_restamped(tmp_path: Path) 
     # Persisted to its own JSONL, re-stamped (not source uuids)
     reloaded = manager.load(fork_id)
     assert [m.content for m in reloaded.messages] == ["u1", "a1"]
-    assert all(m.message_id not in {"u1", "a1"} for m in reloaded.messages), "must re-stamp"
+    assert all(m.message_id not in {"u1", "a1"} for m in reloaded.messages), (
+        "must re-stamp"
+    )
 
 
 async def test_fork_preserves_reasoning_content_and_signature(tmp_path: Path) -> None:

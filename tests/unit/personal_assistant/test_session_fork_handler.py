@@ -84,7 +84,9 @@ async def test_fork_handler_locates_source_forks_and_binds_new(tmp_path: Path) -
 
 
 @pytest.mark.asyncio
-async def test_fork_handler_missing_source_binding_returns_not_ok(tmp_path: Path) -> None:
+async def test_fork_handler_missing_source_binding_returns_not_ok(
+    tmp_path: Path,
+) -> None:
     kernel = _FakeKernel()
     store = _store(tmp_path)
     handler = _handler(tmp_path, kernel, store)

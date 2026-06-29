@@ -45,7 +45,10 @@ def _setup(tmp_path: Path):
 def _seed_history(messages: MessageRepository, conv_id, human, agent_user):
     """u1 → a1(completed, kernel id) → u2 → a2(completed, kernel id) → trailing later msg."""
     messages.create_message(
-        conversation_id=conv_id, sender_user_id=human.id, content="u1", sender_type="user"
+        conversation_id=conv_id,
+        sender_user_id=human.id,
+        content="u1",
+        sender_type="user",
     )
     a1 = messages.create_message(
         conversation_id=conv_id,
@@ -56,7 +59,10 @@ def _seed_history(messages: MessageRepository, conv_id, human, agent_user):
         allow_empty=True,
     )
     messages.create_message(
-        conversation_id=conv_id, sender_user_id=human.id, content="u2", sender_type="user"
+        conversation_id=conv_id,
+        sender_user_id=human.id,
+        content="u2",
+        sender_type="user",
     )
     a2 = messages.create_message(
         conversation_id=conv_id,
@@ -84,7 +90,9 @@ def _offline():
 
 
 def _ok_fork(calls):
-    async def _req(*, agent_id, source_conversation_id, new_conversation_id, fork_message_id):
+    async def _req(
+        *, agent_id, source_conversation_id, new_conversation_id, fork_message_id
+    ):
         calls.append(
             {
                 "agent_id": agent_id,
@@ -134,7 +142,9 @@ async def test_fork_copies_history_through_M_and_delegates(tmp_path: Path) -> No
     ]
 
     # source conversation unchanged
-    assert [m.content for m in messages.list_messages(conversation_id=conv.id, limit=100)] == [
+    assert [
+        m.content for m in messages.list_messages(conversation_id=conv.id, limit=100)
+    ] == [
         "u1",
         "a1",
         "u2",
@@ -143,7 +153,9 @@ async def test_fork_copies_history_through_M_and_delegates(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
-async def test_fork_offline_agent_rejected_no_conversation_created(tmp_path: Path) -> None:
+async def test_fork_offline_agent_rejected_no_conversation_created(
+    tmp_path: Path,
+) -> None:
     service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
     a1, _ = _seed_history(messages, conv.id, human, agent_user)
     before = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
@@ -206,7 +218,9 @@ async def test_fork_timeout_none_result_rolls_back(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_fork_old_bubble_without_kernel_message_id_rejected(tmp_path: Path) -> None:
+async def test_fork_old_bubble_without_kernel_message_id_rejected(
+    tmp_path: Path,
+) -> None:
     service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
     # An agent message WITHOUT kernel_message_id (pre-feature bubble)
     old = messages.create_message(
@@ -231,7 +245,10 @@ async def test_fork_old_bubble_without_kernel_message_id_rejected(tmp_path: Path
 async def test_fork_user_message_rejected(tmp_path: Path) -> None:
     service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
     u = messages.create_message(
-        conversation_id=conv.id, sender_user_id=human.id, content="u1", sender_type="user"
+        conversation_id=conv.id,
+        sender_user_id=human.id,
+        content="u1",
+        sender_type="user",
     )
     with pytest.raises(ForkValidationError):
         await service.fork_conversation(

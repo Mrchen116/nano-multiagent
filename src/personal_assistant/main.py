@@ -3012,7 +3012,9 @@ def _build_session_fork_handler(
             if isinstance(fork_point, Mapping)
             else ""
         )
-        if not (source_conversation_id and new_conversation_id and agent_id and message_id):
+        if not (
+            source_conversation_id and new_conversation_id and agent_id and message_id
+        ):
             return {"ok": False, "error": "fork request missing required fields"}
 
         source_binding = session_store.get(

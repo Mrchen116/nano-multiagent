@@ -161,9 +161,7 @@ class _BaseKernelStub:
     async def fork_session(
         self, session_id: str, *, workspace_root: Any = None, up_to: Any = None
     ) -> _StubSession:
-        self.calls.append(
-            ("fork_session", {"session_id": session_id, "up_to": up_to})
-        )
+        self.calls.append(("fork_session", {"session_id": session_id, "up_to": up_to}))
         return _StubSession(session_id=f"{session_id}-fork")
 
     def interrupt(self, session_id: str) -> str | None:

@@ -305,7 +305,8 @@ class WebIMService:
                 )
                 # Preserve the thinking segments so the branch回看 keeps the full bubble.
                 for segment in sorted(
-                    message.thinking or [], key=lambda s: s.seq if s.seq is not None else 0
+                    message.thinking or [],
+                    key=lambda s: s.seq if s.seq is not None else 0,
                 ):
                     self._messages.append_thinking_segment(
                         message_id=copied.id, text=segment.text

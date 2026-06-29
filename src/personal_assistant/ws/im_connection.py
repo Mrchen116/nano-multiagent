@@ -414,9 +414,7 @@ class IMConnectionManager:
             # loud rather than silently never answering (IM would block on the waiter).
             request_id = _require_text(body.get("request_id"), field_name="request_id")
             if self._session_fork_handler is None:
-                raise RuntimeError(
-                    "session.fork.request requires session_fork_handler"
-                )
+                raise RuntimeError("session.fork.request requires session_fork_handler")
             result = await _maybe_await(self._session_fork_handler(body))
             result_payload = dict(result) if isinstance(result, Mapping) else {}
             await self.send_json(

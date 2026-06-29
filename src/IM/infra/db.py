@@ -389,9 +389,7 @@ def _migrate_messages_metadata(connection: sqlite3.Connection) -> None:
     # gateway session log. Nullable: user/system messages and pre-feature agent bubbles
     # have none — fork is disabled on bubbles without it.
     if "kernel_message_id" not in column_names:
-        connection.execute(
-            "ALTER TABLE messages ADD COLUMN kernel_message_id TEXT"
-        )
+        connection.execute("ALTER TABLE messages ADD COLUMN kernel_message_id TEXT")
 
 
 def _migrate_agent_profile_tables(connection: sqlite3.Connection) -> None:
