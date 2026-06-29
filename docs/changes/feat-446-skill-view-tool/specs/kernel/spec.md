@@ -30,6 +30,12 @@ agent 通过 `skill_view` 工具按名字加载 skill 的完整内容。
 - **WHEN** 查看 skill_manage 的 input_schema
 - **THEN** action 枚举为 create / edit / patch / list / write_file / remove_file，不含 view
 
+### Requirement: 内置工具列表包含 skill_view
+
+#### Scenario: kernel 内置工具注册列表
+- **WHEN** 查看 kernel 内置工具注册（`_register_self_evolution_builtins`）
+- **THEN** 注册列表包含 skill_view（与 skill_manage、memory 并列）
+
 ## REMOVED Requirements
 
 （无）

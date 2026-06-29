@@ -106,7 +106,7 @@ Curator 只管自动创建的 skill（F3 Per-turn Review 输出 + F4 Per-skill B
 - `stale` → `archived`（90 天未用，物理移到 `<skill_root>/.archive/` 目录）
 - `stale` → `active`（被重新读取，复活）
 
-pinned skill 跳过自动流转。归档前先打 tar.gz 快照（best-effort）。restore 纯手动。
+pinned skill 跳过自动流转。归档为 `shutil.move` 到 `<skill_root>/.archive/`。restore 纯手动。
 
 **Curator 是 per-workspace 的**：hermes 是单 agent 全局架构（`~/.hermes/skills/`），所有 agent 共享一个 skill 目录，Curator 统一扫描。本项目是多 agent 架构，每个 agent 有自己的 workspace，skill 天然按 agent 隔离（`<workspace_root>/<config_dirname>/skills/`）。因此 Curator 改为 per-workspace 扫描——每个 agent 只管自己的 skill 目录，不碰别的 agent。
 
