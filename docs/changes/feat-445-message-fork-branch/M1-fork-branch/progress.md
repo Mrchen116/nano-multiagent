@@ -63,3 +63,17 @@
 - Commits: C1=test, C2=feat, C3=docs 本段。
 - Next: R4 IM fork 编排（service fork_conversation + route + request_fork_session WS RPC + 在线校验 + 回滚）。
 
+### R4 — IM fork 编排（service + 路由 + WS RPC + 在线校验 + 回滚）
+
+- Context: 决策2/5——IM 同步编排 fork：建会话 + 复制展示历史在 IM 本地，session fork 经一次 WS RPC 委托 gateway；在线校验前置 + 失败原子回滚（绝不留无记忆空壳）。
+- Decision: ① `WebIMService.fork_conversation`（async）做编排，gateway 触达用注入的两个 async 委托 `check_agent_online(agent_id)` / `request_fork(...)`——使 service 不依赖 WS/node、可纯单测。流程：get_conversation_for_owner（None→ForkNotFoundError 404）→ direct_kind=="user-agent"（否则 ForkValidationError 400）→ 定位 fork_message_id（须 sender_type=agent + completed + 有 kernel_message_id，否则 400）→ check_agent_online（否则 AgentOfflineError 409，**建会话前**）→ create_conversation(title=agent名, [user,agent]) → 复制 history[0..M]（content+attachments+tool_calls+token_usage+kernel_message_id 经 repo create_message，thinking 经 append_thinking_segment 逐段）→ request_fork 委托 → 失败/None→delete_conversation 回滚 + ForkDelegationError 502。定义 4 个 ForkError 子类映射 404/400/409/502。② `gateway_handler.request_fork_session`（仿 request_agent_capabilities：waiter + push session.fork.request + wait_for）+ `_handle_session_fork_result`（resolve waiter）+ dispatch + waiter dict。③ 路由 `POST /conversations/{id}/fork`（async，注入 online-check=is_connected(profile.node_id) + request_fork=request_fork_session(profile.node_id)，异常映射状态码）。
+- Rationale: 复用 create_conversation/delete_conversation(级联删消息)/list_messages/append_thinking_segment/WS RPC 模式（§0.1）。online 校验前置 + RPC 失败回滚满足决策5「绝不空壳」。委托回调注入让 service 与 WS 解耦、可单测全部分支（含回滚）。service 的 except→rollback→raise 不是吞错，是清理后大声重抛。
+- Evidence:
+  - Tests: `tests/im_service/unit/test_fork_conversation.py` 7 passed（复制到 M+委托入参；离线不建会话；RPC ok:False 回滚；超时 None 回滚；旧气泡无 kernel id 拒；用户消息拒；跨租 404）；`tests/im_service/integration/test_fork_api.py`（路由 404 + auth）；`test_gateway_handler.py` 不回归。R4 相关 52 passed。
+  - Entry: HTTP route（真 TestClient，404/auth）+ service 真 sqlite repos。完整 live（在线 fork→真栈带记忆 + 离线 409）在 R6。
+  - Frontend / Browser / Visual: N/A（R4 后端）
+  - E2E/Regression: `pytest tests/im_service/ tests/contract/` 499 passed, 1 skipped。
+- Rollback: revert C2；新增端点/方法/RPC 均新增，向后兼容。
+- Commits: C1=test, C2=feat, C3=docs 本段。
+- Next: R5 前端 fork 按钮 + mutation + toast + 跳转（vitest + 真实浏览器验收）。
+
