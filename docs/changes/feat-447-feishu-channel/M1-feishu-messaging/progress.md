@@ -18,19 +18,19 @@
 
 ## R2 — FeishuClient 封装 lark-oapi WSClient
 
-- Context:
-- Decision:
-- Rationale:
+- Context: 飞书 SDK (lark-oapi) 的 WSClient 是阻塞式的，REST Client 用于发送消息。需要封装为 FeishuClient，提供 start(on_message)/stop()/send_message() 接口。
+- Decision: FeishuClient.start() 在 daemon 线程中运行 WSClient.start()（阻塞），避免卡住 gateway bootstrap。消息事件通过 EventDispatcherHandler.register_p2_im_message_receive_v1 注册回调。发送消息通过 lark.Client REST API (im.v1.message.create)。事件解析提取 text/sender/chat_id/mentions，@mention 占位符从文本中剥离。
+- Rationale: WSClient.start() 是 SDK 设计的阻塞入口，daemon 线程是最小侵入的包装方式。REST 和 WS 共用同一个 app_id/app_secret，但分属不同 client 实例（SDK 不支持复用）。
 - Evidence:
-  - Tests:
-  - Entry:
+  - Tests: `pytest tests/unit/test_feishu_client.py` — 10 passed（lifecycle start/stop / p2p/group 解析 / text JSON 提取 / mention 剥离 / 空内容 / 非 JSON fallback / mentions 提取 / send_message API 调用）
+  - Entry: N/A（mock lark-oapi，无真实连接）
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression:
+  - E2E/Regression: N/A — mock 测试，真实连接在 reviewer 验收
   - Visual/Interaction: N/A
-- Rollback:
-- Commits:
-- Next:
+- Rollback: `git revert 6b2b178d` 回退 FeishuClient 实现 + 测试
+- Commits: C1=5820dc40, C2=6b2b178d
+- Next: R3 — FeishuAdapter 消息收发 + 群聊 mention 门控
 
 ## R3 — FeishuAdapter 消息收发 + 群聊 mention 门控
 

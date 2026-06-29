@@ -42,7 +42,7 @@ Gateway 新增飞书 channel adapter（FeishuAdapter + FeishuClient），通过�
   3. C3: 更新 tasks.md + progress.md
 - 验证: config 解析测试全绿；`_build_channel_registry` 对 `feishu` channel 不再 raise
 
-### R2 — FeishuClient 封装 lark-oapi WSClient
+### R2 — FeishuClient 封装 lark-oapi WSClient `DONE`
 
 - 步骤:
   1. C1: 写 FeishuClient 生命周期测试（start 建立 WSClient / stop 关闭 / 消息回调触发）— mock lark-oapi
