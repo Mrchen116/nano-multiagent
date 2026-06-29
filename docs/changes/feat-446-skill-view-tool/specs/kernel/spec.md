@@ -32,9 +32,9 @@ agent 通过 `skill_view` 工具按名字加载 skill 的完整内容。
 
 ### Requirement: 内置工具列表包含 skill_view
 
-#### Scenario: kernel 内置工具注册列表
-- **WHEN** 查看 kernel 内置工具注册（`_register_self_evolution_builtins`）
-- **THEN** 注册列表包含 skill_view（与 skill_manage、memory 并列）
+#### Scenario: 创建会话后 skill_view 可见
+- **WHEN** 通过 `Kernel.create_session()` 创建会话
+- **THEN** 会话的 enabled_tools 中包含 skill_view（与 skill_manage、memory 并列）
 
 ## REMOVED Requirements
 

@@ -2,149 +2,102 @@
 
 **结论**: Issues Found
 
----
-
-## 核实台账（逐条核过的承重原子）
+## 核实台账（逐条核过的承重原子；结论附证据）
 
 ### 现状断言
 
-| 断言 | 核实动作 | 结论 + 证据 |
+| 原子 | 核实动作 | 结论 + 证据 |
 |---|---|---|
-| skill_manage 当前有 7 个 action 含 view | 读 skill_manage.py | ✓ `_SUPPORTED_ACTIONS` 含 7 个：create/edit/patch/view/list/write_file/remove_file（skill_manage.py:27-29） |
-| formatter.py 引导用 read 读 SKILL.md | 读 formatter.py | ✓ `SKILLS_GUIDANCE` 明确写 "Use the read tool to load a skill's file"（formatter.py:8-13） |
-| self_improvement tool_allowlist 硬编码 skill_manage | 读 self_improvement.py | ✓ `tool_allowlist = ("skill_manage",)` 直接硬编码（self_improvement.py:209-217） |
-| kernel.py 注册 SkillManageTool | 读 kernel.py | ✓ `_register_self_evolution_builtins()` import + register SkillManageTool（kernel.py:564-597），经 `build_kernel() → _build_kernel_base()` 生产路径 |
-| CORE_SKILLS_GUIDANCE 用 has_tool("skill_manage") 门控 | 读 core_sections.py | ✓ `_skills_guidance_enabled` 检查 `ctx.has_tool("skill_manage")`（core_sections.py:247-251） |
-| feature_registry skill_creation requires_tool="skill_manage" | 读 feature_registry.py | ✓ `requires_tool="skill_manage"`（feature_registry.py:62-69），字段类型 `str | None` |
-| coding_cli DEFAULT_ENABLED_TOOLS 含 skill_manage | 读 product.py | ✓ 列表含 `"skill_manage"`（coding_cli/product.py:56-65），经 `create_session(enabled_tools=...)` 生产路径 |
-| PA DEFAULT_TOOL_IDS 含 skill_manage | 读 personal_assistant/product.py | ✓ 列表含 `"skill_manage"`（personal_assistant/product.py:67-78），经 `resolve_enabled_tools()` 生产路径 |
-| PA reporter PA_DEFAULT_TOOL_IDS 含 skill_manage | 读 capability_projection.py | ✓ tuple 含 `"skill_manage"`（capability_projection.py:39-50） |
-| session metadata 有 workspace_root + workspace_config_dirname | 读 session/models.py | △ 部分成立：`workspace_root` 是 Session 一等字段（models.py:21），`workspace_config_dirname` 存在 `metadata` dict 中非一等字段 |
-| SkillRegistry 有 list_skills / find_skill | 读 registry.py | ✗ `list_skills` 存在（registry.py:26），**`find_skill` 不存在**。查找需手动 `next((s for s in skills if s.name == name), None)`（skill_manage.py:433） |
-| atomic_write + fcntl.flock 在 core/utils/fileio.py | 读 fileio.py | ✗ `atomic_write` 存在（fileio.py:16，tempfile+fsync+os.replace），**`fcntl.flock` 完全不存在**。无文件锁机制 |
-| compaction 用 compact_boundary JSONL entry + summary turn | 读 runtime.py + jsonl_store.py | ✓ runtime 写 `compact_boundary` + summary turn（runtime.py:2099-2127），jsonl_store 只保留 boundary 后的 turns（jsonl_store.py:236-269） |
+| 现状: `skill_manage` 是当前 skill 读写混合工具，action 含 `view` | 从注册入口追到工具实现 | ✓ 生产经 `build_kernel()` 调 `_register_self_evolution_builtins()` 注册 `SkillManageTool`（`src/agent/sdk/kernel.py:492`, `src/agent/sdk/kernel.py:590`）；工具 action enum 含 `view`（`src/agent/platform/tools/builtins/skill_manage.py:27`, `src/agent/platform/tools/builtins/skill_manage.py:171`） |
+| 现状: `skill_manage(action=view)` 返回 SKILL.md 内容 | 读工具分发与 view handler | ✓ `_dispatch()` 将 `view` 路由到 `_view()`（`src/agent/platform/tools/builtins/skill_manage.py:339`），读取 `skill.location.read_text()` 后返回 `success/name/content/location`（`src/agent/platform/tools/builtins/skill_manage.py:425`） |
+| 现状: prompt 仍引导模型用 `read` 加载 skill | 读 formatter | ✓ `SKILLS_GUIDANCE` 写明 "Use the read tool to load a skill's file"（`src/agent/core/skills/formatter.py:8`） |
+| 现状: `/skill:<name>` 目前只重写为自然语言，不保证走专用工具 | 读 slash rewrite | ✓ `rewrite_skill_command()` 输出 `Use the "<name>" skill for this request.`（`src/agent/core/agent/skill_commands.py:39`），未指定 `skill_view` |
+| 现状: feature gate 只能表达单工具依赖 | 读 feature registry | ✓ `FeatureEntry.requires_tool: str | None`（`src/agent/core/agent/prompt_sections/feature_registry.py:26`），`skill_creation` 当前只依赖 `skill_manage`（`src/agent/core/agent/prompt_sections/feature_registry.py:63`） |
+| 现状: compaction 当前只写 compact_boundary + summary turn | 读 runtime compaction | ✓ `_compact_session()` 写 `compact_boundary` 后写 summary turn（`src/agent/core/agent/runtime.py:2099`, `src/agent/core/agent/runtime.py:2124`），当前没有 invoked skill 注入步骤 |
+| 现状: JSONL resume 只恢复白名单 metadata | 读 JSONL load helper | ✓ `_extract_message_metadata()` 只保留 `is_meta/is_compact_summary/is_provider_error/entrypoint` 与 tool_calls（`src/agent/core/session/jsonl_store.py:811`），新增 `is_skill_reinjection` 必须显式加 |
+| 现状: `.usage.json` 会在 agent workspace/gateway 侧，而不是 IM DB | 追 skill root 与 IM 架构 | ✓ skill root 由 session metadata 的 `workspace_root + workspace_config_dirname` 推导（`src/agent/platform/tools/builtins/skill_manage.py:283`, `src/agent/platform/tools/builtins/skill_manage.py:296`）；IM 契约禁止直接调 agent/读 gateway workspace，runtime 能力经 gateway WS 解析（`docs/specs/im/spec.md:22`, `docs/specs/im/spec.md:125`, `docs/specs/im/spec.md:256`） |
+| 现状: IM 前端数据来自 `/im/v1/*` API | 读前端 API 与路由 | ✓ agent 能力页通过 `authFetch` 调 IM API（`src/IM/frontend/src/features/settings/agents/im-agent-config-api.ts:1`）；现有路由没有 skill dashboard 入口（`src/IM/frontend/src/app/router.tsx:35`） |
 
 ### 决策
 
-| 决策 | 核实动作 | 结论 + 证据 |
+| 原子 | 核实动作 | 结论 + 证据 |
 |---|---|---|
-| 决策 1: skill_view 独立工具 | 四问 | ✓ 拍死、无歧义、无矛盾、有 spec 驱动（Q1） |
-| 决策 2: 使用统计数据模型 | 四问 | ✓ 拍死、无歧义、无矛盾、有 spec 驱动（Q4/Q10） |
-| 决策 3: Compaction 存活机制 | 四问 | ✗ 拍死但有歧义：`_message_to_entry` 白名单未提及需加 `is_skill_reinjection`（runtime.py:2306-2339 只白名单特定 metadata key），worker 可能遗漏导致 re-injection 失效 |
-| 决策 4: Curator 状态机 | 四问 | ✗ 两处问题：(1) activity 定义正文只说"30 天未用"，伪代码写 `max(last_used_at, created_at)`，worker 可能只读正文；(2) spec 说"归档前先打 tar.gz 快照"，design 决策 4 直接拒绝改为 `shutil.move`，spec/design 矛盾未标注 |
-| 决策 5: Curator 存储 | 四问 | ✓ 拍死、无歧义、无矛盾、有 spec 驱动 |
-| 决策 6: Feature gate 策略 | 四问 | ✗ 拍死但有遗漏：`feature_registry.py` 的 `requires_tool` 类型是 `str | None`（feature_registry.py:26-35），不支持 OR 逻辑。design 说"改为检查两个工具"但没说怎么改。渲染文案也需条件处理（只有 skill_view 在场时不应引导调 skill_manage） |
-| 决策 7: F4 Batch 触发 | 四问 | ✗ 拍死但有歧义："异步执行"机制未定义（asyncio task / threading / 顺序执行？），uses_since_last_B 重置与 batch 启动的顺序关系未文档化 |
-| 决策 8: skill_view 工具接口 | 四问 | ✗ 自相矛盾：`is_concurrency_safe = True` 声称"只读，不写文件"，但 run 方法第 4 步 `bump_use()` 写 .usage.json |
+| 决策 1: 独立 `skill_view`，`skill_manage` 只留写侧 | 四问 | ✓ 拍死且由 spec Q1 驱动（`docs/changes/feat-446-skill-view-tool/spec.md:37`）；落在当前 built-in 注册路径内（`src/agent/sdk/kernel.py:564`） |
+| 决策 2: `.usage.json` per-workspace 统计模型 | 四问 | ✗ 数据模型不完整：dashboard 要显示来源 F1/F2/F3/F4（`spec.md:253`），但 design 只存 `created_by: "auto"` 这类粗粒度字段（`design.md:135`），无法区分 F1 vs F2、F3 vs F4；同时没有说明 `skill_manage(create/patch)` 如何写入 provenance |
+| 决策 3: invoked skill compaction 存活 | 四问 | ✓ 方向成立，且 design 已点名需要加 `is_skill_reinjection` 白名单（`design.md:152`, `design.md:158`）；实现时需对齐 JSONL metadata 白名单（`src/agent/core/session/jsonl_store.py:811`） |
+| 决策 4: Curator 三态 + per-workspace | 四问 | ✓ 状态机、阈值、管辖范围拍死（`design.md:160`, `design.md:179`），符合 spec 的 30/90/7 天与 per-workspace 要求（`spec.md:187`, `spec.md:125`） |
+| 决策 5: `.curator_state.json` 独立存储 | 四问 | ✓ 拍死且有损坏回退（`design.md:183`, `design.md:196`） |
+| 决策 6: `requires_any_tool` feature gate | 四问 | ✓ 拍死了 OR 依赖模型，并覆盖仅有 skill_view 时的文案条件化（`design.md:200`, `design.md:204`） |
+| 决策 7: F4 由 Curator 扫描触发 | 四问 | ✗ 分层数据流不闭合：design 把 `maybe_run_curator()` 定位为 `core/skills/curator.py`（`design.md:277`），又在该流程里 `Thread(target=f4_runner.run)` 调 platform runner（`design.md:298`, `design.md:304`）。按字面实现会让 core 依赖 platform，撞 `core` 不依赖 `platform` 的硬规则（`SPEC.md:145`） |
+| 决策 8: `skill_view` 工具接口 | 四问 | ✗ 并发语义自相矛盾：接口示例写 `is_concurrency_safe = False` 且注明会写 `.usage.json`（`design.md:234`），理由段又说 `is_concurrency_safe = True` 因为只读（`design.md:246`）。worker 会被迫猜 |
 
 ### spec 约束
 
-| Requirement | 核实动作 | 结论 + 证据 |
+| 原子 | 核实动作 | 结论 + 证据 |
 |---|---|---|
-| skill_view 独立只读工具 | design 有落点 | ✓ 决策 1+8 覆盖 |
-| skill_manage 不含 view action | design 有落点 | ✓ 决策 1 + 现状分析表覆盖 |
-| 使用统计追踪 | design 有落点 | ✓ 决策 2 覆盖，/skill 路径通过 formatter 引导统一指向 skill_view |
-| 压缩存活 | design 有落点 | ✓ 决策 3 覆盖 |
-| Curator 生命周期管理 | design 有落点 | ✓ 决策 4 覆盖 |
-| session 引用记录 | design 有落点 | ✓ 决策 2 覆盖 |
-| F2 蒸馏 skill | design 有落点 | △ M4 覆盖但退出标准偏薄，未描述 PA/agent 级 skill_root 选择行为 |
-| F4 Batch 优化 | design 有落点 | ✓ 决策 7 覆盖 |
-| 系统提示词引导 skill_view | design 有落点 | ✓ 决策 6 + formatter 改动覆盖 |
-| 使用统计面板 | design 有落点 | ✓ M5 + 前端原型覆盖 |
-| 所有引用点迁移 | design 有落点 | ✓ 现状分析表逐文件列出 |
+| Req: `skill_view` 独立只读工具可用 | 覆盖检查 | ✓ 决策 1 + 决策 8 覆盖（`design.md:113`, `design.md:219`） |
+| Req: `skill_manage` 不再包含 view action | 覆盖检查 | ✓ 决策 1 和 M1 覆盖（`design.md:115`, `design.md:384`） |
+| Req: 使用统计追踪 use_count / last_used_at / session refs | 覆盖检查 | ✓ 决策 2 覆盖（`design.md:121`） |
+| Req: `/skill:<name>` 也记录统计 | 覆盖检查 | ✓ After 图和 formatter/slash 迁移覆盖（`design.md:88`, `design.md:384`） |
+| Req: compaction survival | 覆盖检查 | ✓ 决策 3 覆盖（`design.md:150`） |
+| Req: Curator 自动生命周期 | 覆盖检查 | ✓ 决策 4 + M2 覆盖（`design.md:160`, `design.md:385`） |
+| Req: F4 Per-skill Batch | 覆盖检查 | △ 有决策和 M2 覆盖（`design.md:208`, `design.md:385`），但触发/执行跨 core-platform 的接口未闭合 |
+| Req: F2 从历史 session 蒸馏 skill | 覆盖检查 | ✗ spec 场景包含“用户在 IM 左边栏选择若干已结束 session，跳转到新对话并写意图”（`spec.md:217`），design 的 M3 只交付一个 SKILL.md（`design.md:386`），没有 IM 会话选择/跳转入口、数据传递方式或退出标准 |
+| Req: 使用统计面板（IM 前端） | 覆盖检查 | ✗ spec 要真实 Skill 列表、Agent 维度、健康度三视图（`spec.md:251`），design 只有 prototype 链接（`design.md:337`）和 `IM/frontend/src/` 组件范围（`design.md:387`），没有数据 API / WS RPC / gateway provider |
+| Req: 所有引用点迁移 | 覆盖检查 | ✓ 现状表列出了 product/kernel/self_improvement/formatter/capability projection（`design.md:17`） |
+| 非目标: 不加 file_path 参数 | 越界检查 | ✓ 决策 8 明确不带 `file_path`（`design.md:246`） |
 
 ### delta-spec 条目
 
-| 条目 | 核实动作 | 结论 + 证据 |
+| 原子 | 核实动作 | 结论 + 证据 |
 |---|---|---|
-| kernel: ADDED skill_view | 读 delta-spec + kernel spec | ✗ 遗漏：kernel spec 第 393 行内置工具列表需加入 skill_view，第 440 行结构化 detail 列表需加入 skill_view。delta-spec 只覆盖了工具可用 + skill_manage 移除 view，漏了两处列表更新 |
-| kernel: MODIFIED skill_manage action | 读 delta-spec | ✓ MODIFIED 用法正确，Scenario THEN 无内部实现泄露 |
-| im/gateway/cli: no spec delta | design 声明 | ✓ 合理：面板是前端展示层，不改对外行为契约 |
+| kernel ADDED: `skill_view` 工具可用 | 用法/THEN 检查 | ✓ 工具返回和统计/compaction 场景覆盖（`docs/changes/feat-446-skill-view-tool/specs/kernel/spec.md:5`） |
+| kernel MODIFIED: `skill_manage` action 枚举 | 锚 canonical 检查 | ✓ 是对既有内置工具行为的修改，用 MODIFIED 合理（`docs/changes/feat-446-skill-view-tool/specs/kernel/spec.md:25`） |
+| kernel MODIFIED: 内置工具注册列表 | THEN 可观察检查 | ✗ Scenario 直接要求查看内部 `_register_self_evolution_builtins`（`specs/kernel/spec.md:35`），违反 delta-spec “THEN 只能写消费者可观察结果”的红线；应改为 `Kernel.list_tools` / 会话 enabled_tools 可见 |
+| im: no spec delta | 覆盖检查 | ✗ 不成立。IM 契约把浏览器前端和终端用户列为消费者（`docs/specs/im/spec.md:5`），且 runtime/workspace 数据必须经 gateway WS RPC 代理（`docs/specs/im/spec.md:125`）。本 unit 新增 dashboard 和 F2 IM 选择交互，缺 IM delta 会让收尾归并无锚 |
+| gateway: no spec delta | 覆盖检查 | ✗ 若 dashboard/F2 需要读取 `.usage.json` 或 session transcript 路径，gateway 需要新增 WS RPC/provider；design 未说明 no-delta 的依据 |
+| cli: no spec delta | 覆盖检查 | ✓ CLI 只是默认工具列表增加 `skill_view`，对 CLI 外部命令面无新增契约（`design.md:348`） |
 
 ### milestone
 
-| milestone | 核实动作 | 结论 + 证据 |
+| 原子 | 核实动作 | 结论 + 证据 |
 |---|---|---|
-| M1 skill-view-core | 垂直 vs 横切 | ✓ 端到端：新工具 + 统计 + compaction + 迁移，可独立验收 |
-| M2 curator | 依赖 M1，垂直 | ✓ 端到端：状态机 + 扫描 + 归档 + 复活，可独立验收 |
-| M3 f4-batch | 依赖 M1，垂直 | △ 端到端但 F4 分析流程选型未完成（spec 说"留 design 阶段"），M3 退出标准不够具体 |
-| M4 f2-distill | 无依赖，垂直 | △ 独立但退出标准偏薄（只一句"蒸馏 skill 可用"），未覆盖写入行为 |
-| M5 dashboard | 依赖 M1，垂直 | ✓ 端到端：三视图 + npm test 全绿 |
-| 并行组 A(M1+M4) 范围无交集 | 检查文件范围 | ✓ M1 改 agent 核心，M4 只产出 SKILL.md 文件 |
-| 并行组 B(M2+M3) 范围无交集 | 检查文件范围 | ✗ M2 和 M3 都改 `agent/curator.py`（M2 新建，M3 扩展 check_f4_triggers），worktree 并行会撞 |
-
----
+| M1 `skill-view-core` | 垂直性/退出标准 | ✓ 可独立验收：工具可用、移除 view、usage、compaction、引用迁移均在一条内核路径上（`design.md:384`） |
+| M2 `curator-f4` | 垂直性/范围 | ✗ F4 runner 与 core curator 的分层接口未定义，M2 范围同时写 `core/skills/curator.py` 与 `platform/tools/builtins/f4_runner.py`（`design.md:385`），worker 会猜 core 如何合法触发 platform job |
+| M3 `f2-distill` | spec 覆盖 | ✗ 只交付蒸馏 SKILL.md（`design.md:386`），漏掉 spec 的 IM 会话选择 + 跳转新对话场景（`spec.md:217`） |
+| M4 `dashboard` | 垂直性/数据流 | ✗ 横切成纯前端组件（`design.md:387`），但真实数据在 gateway/workspace 侧（`skill_manage.py:283`），没有 API/provider 的 milestone 范围 |
+| 并行组 | 范围交集 | ✓ 当前表未声明同组并行互撞；M2/M4 均依赖 M1（`design.md:389`） |
 
 ## 架构进攻（四角度逐个走）
 
 | 角度 | 攻的对象 | 发现 + 长远代价 |
 |---|---|---|
-| 归属 | Curator 放 `agent/` 根目录 | ✗ 根目录不属于 core/platform/sdk 任何一层，违反分层硬规则。Curator 读 .usage.json（core）+ shutil.move（文件系统）+ F4 batch 调 LLM（platform）。应放 `core/skills/curator.py`（确定性扫描）或 platform（含 LLM 调用）。长远代价：维护者无法从目录判断 import 规则，F4 LLM 调用可能拉 platform 依赖进根目录 |
-| 归属 | usage.py 引入 flock | △ `core/utils/fileio.py` 无 flock，design 说"复用 MemoryStore 模式"但 MemoryStore 也无 flock。usage.py 需自行实现或下沉 platform。长远代价：core 层引入 OS 特定机制 |
-| 归属 | F4 batch job LLM 注入 | ✗ 决策 7 未明确 F4 batch job 的 LLM client 注入路径。hermes 走 fork 机制。本项目若在 Curator 里直接调 LLM，拉 platform 依赖进根目录 |
-| 该不该存在 | .curator_state.json 独立文件 | △ "避免锁竞争"理由不成立（Curator 7 天一次 vs usage 每次调用，概率极低）。多一个文件增加管理成本。应补充损坏回退方案 |
-| 该不该存在 | is_skill_reinjection 标记 | △ JSONL 存完整 skill content（单 skill ≤ 2000 tokens）会膨胀。可接受 tradeoff 但应明确增长上限 |
-| 深还是浅 | _resolve_writer_registry 复用 | ✗ skill_manage._resolve_writer_registry() 是私有方法（30 行），design 说"复用"但没说怎么复用。不提取共享函数 → worker 复制 → 维护漂移 |
-| 深还是浅 | Compaction 注入机制 | ✓ 合理 first step。通用化（register_compaction_survival_provider）可留后续 |
-| 治本还是补丁 | requires_tool or 链 | ✗ `FeatureEntry.requires_tool` 类型 `str | None`，or 链是临时补丁。应改为 `requires_any_tool: tuple[str, ...] \| None`。长远代价：再加 skill 工具又要改 or 链 |
-| 治本还是补丁 | session_refs cap 50 | ✗ cap 和 F4 阈值 20 无数学关系。F4 阈值改为 100 时 cap 不够。应 `cap = threshold * K` 或改 append-only JSONL |
-
----
+| 归属 | Dashboard 数据通道 | ✗ `.usage.json` 属 gateway/agent workspace，IM 前端不能直接读；自然归属应是 IM HTTP route -> gateway WS RPC -> gateway provider 读 workspace sidecar。design 放成纯 `IM/frontend/src/` 会迫使前端 mock、复用错误 API，或把 IM 变成跨机直读 workspace，长期破坏 IM/gateway 边界 |
+| 归属 | Core Curator 触发 platform F4 runner | ✗ core curator 直接启动 platform runner 会形成 core -> platform 反向依赖。长期代价是 `tests/contract/test_core_no_platform_imports.py` 失效或被绕过；应改成 core 只产出 `F4Trigger`，由 sdk/platform/gateway 调度层消费 |
+| 归属 | F2 会话选择入口 | ✗ 用户场景天然属于 IM 前端/IM HTTP 会话域，蒸馏 SKILL.md 属 agent skill 域。design 只写 skill 文件，把交互入口留空，长期会出现“skill 存在但用户无从把 session IDs 传进去”的半成品 |
+| 该不该存在 | `.usage.json` 中 `created_by` | ✗ 字段存在但粒度不足。删除测试后会发现 dashboard 的 F1/F2/F3/F4 来源列、Curator 的 auto/manual 边界都依赖它；应提升为 `source: F1|F2|F3|F4` 或等价枚举，并规定写入点。否则后续只能靠目录名/调用者猜测来源 |
+| 深还是浅 | 前端 prototype | ✗ prototype 只展示静态 UI，没有把“数据从哪来、loading/offline/error 怎么显示、agent 选择如何映射到 node/workspace”封装掉。长期代价是 M4 worker 只能做浅 UI，验收时真实环境空表或假数据 |
+| 治本还是补丁 | `im: no spec delta` | ✗ 这是用“展示层”标签绕过契约更新，但本项目 IM spec 明确包含浏览器前端可依赖行为。长期代价是收尾无法归并 dashboard/F2 API，下一次改前端或 gateway RPC 没有 current contract 可对账 |
 
 ## Issues
 
-- **[CRITICAL] [Milestone 表] M2+M3 并行组范围交集**：M2（curator 新建）和 M3（curator 扩展 check_f4_triggers）都改 `agent/curator.py`，worktree 并行会撞文件。退回合并为单 M 或重新划分范围使文件不重叠。
+- **[CRITICAL] [前端 / 契约层增量 / M4] Dashboard 只有前端组件，没有真实数据通道。** spec 要 IM 前端显示所有 skill 的来源、状态、use_count、趋势、agent 热力图和健康度（`spec.md:251`），design 只给 prototype 和 `IM/frontend/src/` 范围（`design.md:337`, `design.md:387`），同时声明 `im/gateway: no spec delta`（`design.md:346`）。但 `.usage.json` 在 agent workspace/gateway 侧，IM 契约要求跨机 workspace 内容经 gateway WS RPC 代理（`docs/specs/im/spec.md:125`）。不改的话，M4 worker 要么做假数据面板，要么越界让 IM/前端直接读本地文件，验收无法走真实用户旅程。退回补 IM HTTP API + gateway WS RPC/provider + 前端查询/空态/离线态设计，或把 dashboard 从本 unit scope 移出。
 
-- **[CRITICAL] [现状分析] Curator 归属违反分层硬规则**：design 说放 `agent/curator.py`（根目录），但项目三层架构 core→platform→sdk，根目录不属于任何一层。Curator 涉及 core（读 .usage.json）+ platform（F4 LLM 调用），放在根目录会导致 import 方向无法约束。退回明确归属层：`core/skills/curator.py`（确定性扫描）+ platform 层 F4 runner（LLM 调用）。
+- **[CRITICAL] [F2 / 前端] F2 的 IM 会话选择与跳转场景漏设计。** spec 场景要求“用户在 IM 左边栏选择若干已结束 session，跳转到新对话并写意图”（`spec.md:217`），但 M3 只写“蒸馏 skill（SKILL.md）”（`design.md:386`），没有右键/多选入口、session IDs 如何进入新对话、transcript 权限与读取路径、PA/agent 级选择 UI。worker 按 design 实施会得到一个孤立 skill，用户无法从 IM 发起这条流程。退回补前端交互与 IM/gateway 数据流，或明确修改 spec 把 IM 交互移出本期。
 
-- **[CRITICAL] [现状分析] fcntl.flock 不存在**：design 说 usage/curator 持久化"复用 atomic_write + fcntl.flock（MemoryStore 模式）"，但 `core/utils/fileio.py` 只有 atomic_write，无 flock，MemoryStore 也无 flock。worker 按 design 实现会找不到 flock 基础设施。退回：要么在 fileio.py 补 flock helper，要么明确 usage.py 自行实现（需在 design 中说明），要么取消 flock 依赖（risk 3 说"并发低"可能不需要）。
+- **[CRITICAL] [决策 7 / M2] Core Curator 到 platform F4 runner 的分层接口未闭合。** design 把 `maybe_run_curator()` 放 `core/skills/curator.py`（`design.md:277`），又在同一流程中启动 `platform/tools/builtins/f4_runner.py`（`design.md:298`, `design.md:304`）。按字面实现会让 core import platform，违反 `core` 不依赖 `platform` 的硬规则（`SPEC.md:145`）。退回把 core Curator 改为只返回确定性 transition + F4 trigger 列表，由 sdk/platform/gateway 调度层注入 runner 并启动 batch。
 
-- **[CRITICAL] [现状分析] find_skill 方法不存在**：design 说复用 `SkillRegistry.find_skill()`，但实际只有 `list_skills()`。worker 按 design 调 `find_skill()` 会 AttributeError。退回修正为 `list_skills()` + 手动过滤，或在 design 中说明需新增该方法。
+- **[CRITICAL] [决策 2 / Dashboard / Curator] Skill 来源模型不足，无法支持 F1/F2/F3/F4 面板和 Curator 管辖边界。** spec 要面板显示来源 F1/F2/F3/F4（`spec.md:119`），且 Curator 只管 F3/F4 自动创建 skill（`spec.md:66`）。design 的 `.usage.json` 只有 `created_by: "auto"`（`design.md:135`），也没有说明现有 `skill_manage(create)` 如何写 provenance（现有 schema 无该字段，`src/agent/platform/tools/builtins/skill_manage.py:166`）。不改的话，F1/F2 与 F3/F4 会被混淆，Curator 可能归档用户手工 skill，dashboard 来源列也只能猜。退回定义 `source: F1|F2|F3|F4`（或等价枚举）和每个写入路径的赋值规则。
 
-- **[CRITICAL] [delta-spec] 遗漏 kernel spec 内置工具列表更新**：kernel spec 第 393 行内置工具列表和第 440 行结构化 detail 列表需加入 skill_view。delta-spec 只覆盖了工具可用 + skill_manage 移除 view，漏了两处列表。退回补 MODIFIED 条目。
+- **[CRITICAL] [delta-spec] `im/gateway: no spec delta` 与本 unit 的前端范围冲突。** IM spec 的消费者包括浏览器前端/终端用户（`docs/specs/im/spec.md:5`），本 unit 新增 dashboard 和 F2 IM 交互是用户可观察行为；如果还声明 no delta（`design.md:346`），收尾归并时没有 canonical 锚，reviewer 也没有 API/WS contract 可验。退回新增 IM/Gateway delta-spec，至少覆盖 dashboard 数据读取、节点离线降级、F2 session 选择/跳转的可观察行为。
 
-- **[WARNING] [决策 3] _message_to_entry 白名单未覆盖 is_skill_reinjection**：runtime.py:2306-2339 的 `_message_to_entry()` 只白名单特定 metadata key。worker 不检查此函数则 `is_skill_reinjection` 不会被写入 JSONL，resume 时无法识别 re-injection 消息，invoked skills 丢失。退回在 design 中明确需修改 `_message_to_entry` 白名单。
+- **[WARNING] [决策 8] `skill_view.is_concurrency_safe` 自相矛盾。** 示例写 `False` 且说明 `bump_use` 写 `.usage.json`（`design.md:234`），理由段又说 `True` 因为“只读，不写文件”（`design.md:246`）。worker 可能实现成并发安全工具，导致并发 bump 覆盖统计。退回拍死为 `False`，或同时设计锁机制并解释为何可为 `True`。
 
-- **[WARNING] [决策 4] tar.gz 快照 spec/design 矛盾**：spec 用户场景说"归档前先打 tar.gz 快照（best-effort）"，design 决策 4 直接拒绝改为 `shutil.move`。两个文档矛盾，worker 不知按哪个。退回对齐：要么改 spec 删 tar.gz，要么 design 恢复快照。
+- **[WARNING] [kernel delta-spec] Scenario 直接锚内部函数。** `kernel` delta-spec 的“内置工具注册列表”要求查看 `_register_self_evolution_builtins`（`specs/kernel/spec.md:35`），这是实现细节，不是消费者可观察 THEN。退回改成 `Kernel.list_tools` 或创建会话后的 tool catalog 可见。
 
-- **[WARNING] [决策 4] activity 定义正文与伪代码不一致**：决策 4 正文说"30 天未用"，Curator 扫描流伪代码写 `last_activity = max(last_used_at, created_at)`。worker 只读正文可能漏掉 created_at 兜底。退回在正文显式写明 `last_activity = max(last_used_at, created_at)`。
+## Recommendations（不阻断门禁，作者自行取舍）
 
-- **[WARNING] [决策 6] feature_registry requires_tool 不支持 OR 逻辑**：`FeatureEntry.requires_tool` 类型是 `str | None`，design 说"改为检查两个工具"但没说怎么改。or 链是临时补丁。退回明确机制：扩展类型为 `requires_any_tool: tuple[str, ...] | None`，或在 `_skills_guidance_enabled` 里显式 hardcode 并注释原因。
+- Dashboard 原型建议补一段“真实数据字段表”：`skill_id/name/source/state/use_count/last_used_at/session_refs/trend_buckets/agent_id/node_id`，避免 M4 worker 从静态 DOM 反推 schema。
+- F4 batch 的失败语义建议补清：如果 batch 启动后失败，`uses_since_last_B` 已归零是否接受；若不接受，需要 pending/running/completed 状态。
+- Runbook 里 IM 停止命令使用 `.im.pid`，但本 unit reviewer 可能用 `scripts/e2e-up.sh`，建议引用项目现行 e2e 脚本以减少端口污染风险。
 
-- **[WARNING] [决策 6] 渲染文案未条件化**：`_render_skills_guidance` 仍然引导调 skill_manage（"save with skill_manage"）。当只有 skill_view 在场而 skill_manage 不在时，模型会尝试调不存在的工具。退回说明是否需要条件渲染不同文案。
-
-- **[WARNING] [决策 7] "异步执行"机制未定义**：batch job 是 asyncio task / threading.Thread / 顺序执行？未说明。影响 Curator 是否等 batch 完成再 save_state，以及 batch 失败时 uses_since_last_B 已重置的数据丢失风险。退回明确机制。
-
-- **[WARNING] [决策 8] is_concurrency_safe 声明自相矛盾**：`is_concurrency_safe = True` 声称"只读，不写文件"，但 run 方法第 4 步 bump_use() 写 .usage.json。worker 可能误判并发行为。退回改为 False（与 skill_manage 一致）或保留 True 但显式说明 flock 保证并发安全。
-
-- **[WARNING] [Milestone M3/M4] 退出标准不够具体**：F4 分析流程选型（spec 说"留 design 阶段"）未完成；M4 退出标准只一句"蒸馏 skill 可用"，未覆盖 PA/agent 级 skill_root 选择。退回补全。
-
-- **[WARNING] [归属] _resolve_writer_registry 复用方式未明确**：skill_manage._resolve_writer_registry() 是私有方法，design 说"复用"但没说怎么复用。退回明确提取为共享函数或说明复用路径。
-
-- **[WARNING] [归属] F4 batch job LLM 注入路径未明确**：batch job 需要 LLM client，Curator 在根目录无法合法 import platform 层。退回明确走 runtime.fork_conversation 还是参数注入。
-
-- **[WARNING] [治本] session_refs cap 50 与 F4 阈值无数学关系**：cap 应绑定阈值（如 `threshold * 3`），否则 F4 阈值改大后 cap 不够。退回修正 cap 计算方式。
-
----
-
-## Recommendations（不阻断门禁）
-
-- Curator 状态机图（决策 4 的 ASCII 图）缺少 `archived → active` 的 restore 路径（纯手动），可在图上标注 "manual restore only"。
-- `.curator_state.json` 损坏的回退方案未提及（risk 3 只提 .usage.json），建议补充。
-- compaction 注入的 token 上限（8000）应该可配置，避免不同部署环境的 token 预算差异。
-- `FeatureEntry.requires_tool` 扩展为 `requires_any_tool` 是 feature_registry 层的通用改进，不仅服务于本 unit，建议作为 M1 的一部分一并处理。
-
----
-
-## 复核建议
-
-回到 `change-design-author` 修以下 4 处 CRITICAL + 重点 WARNING：
-1. **M2+M3 并行组范围交集** — 合并或重新划分
-2. **Curator 归属层** — 从根目录移到 core/skills/ 或拆分
-3. **fcntl.flock 不存在** — 补基础设施或取消依赖
-4. **find_skill 不存在** — 修正复用声明
-5. **delta-spec 遗漏** — 补 kernel spec 内置工具列表 MODIFIED
-6. **_message_to_entry 白名单** — 补说明
-7. **tar.gz spec 偏差** — 对齐 spec 和 design
-
-修完后可进 `change-orchestrator`。

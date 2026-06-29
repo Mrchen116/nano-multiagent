@@ -29,7 +29,9 @@
 | `core/skills/curator.py` (新增) | 无 Curator | 新增确定性扫描逻辑（core 层，无 LLM 依赖） |
 | `core/skills/root_resolver.py` (新增) | 无共享解析 | 提取 skill_root 解析为共享函数 |
 | `platform/tools/builtins/f4_runner.py` (新增) | 无 F4 batch runner | 新增 F4 LLM 分析（platform 层，通过 fork_conversation 获取 LLM） |
-| `IM/frontend/` | 无 skill 使用面板 | 新增面板组件 |
+| `IM/frontend/` | 无 skill 使用面板 | 新增面板组件 + 调用新增 API |
+| `IM/app/` (routes) | 无 skills usage API | 新增 HTTP route |
+| Gateway | 无 skills usage WS RPC | 新增 WS handler 读 .usage.json |
 
 ### 既有约束
 
@@ -132,7 +134,7 @@ skill_manage（写侧）:
       {"session_id": "def-456", "timestamp": "2026-06-28T14:00:00Z"}
     ],
     "uses_since_last_B": 8,
-    "created_by": "auto",
+    "source": "F1",
     "state": "active",
     "pinned": false,
     "created_at": "2026-06-15T08:00:00Z",
@@ -145,6 +147,12 @@ skill_manage（写侧）:
 - **拒绝**: hermes 的 8+ 字段方案（view_count / patch_count / last_viewed_at / last_patched_at）— 本项目 skill_view 是唯一读路径，view/use 无区分意义。
 - **session_refs 上限 60**（threshold × 3）: 保证 F4 有足够 refs 可分析，同时防止无限增长。
 - **uses_since_last_B**: F4 触发计数器，batch 完成后归零。
+- **source 字段**: `"F1"|"F2"|"F3"|"F4"`，替代 hermes 的 `created_by: "auto"|"manual"`。赋值规则：
+  - `skill_manage(action=create)` 且调用者是 self_improvement hook → `"F3"`
+  - `skill_manage(action=create)` 且调用者是 F4 batch runner → `"F4"`（F4 只 patch 不创建，此路径暂不触发）
+  - `skill_manage(action=create)` 且调用者是 F2 蒸馏 skill → `"F2"`
+  - `skill_manage(action=create)` 且调用者是用户手动 → `"F1"`
+  - Curator 只管 `source ∈ {"F3", "F4"}` 的 skill
 - **持久化**: `atomic_write` + `fcntl.flock`（复用 MemoryStore 模式）。
 
 ### 决策 3: Compaction 存活机制
@@ -177,7 +185,7 @@ skill_manage（写侧）:
 - **拒绝**: hermes 的 tar.gz 快照 — spec 原文说"归档前先打 tar.gz 快照"，但 per-workspace skill 目录小，`shutil.move` 到 `.archive/` 足够。已同步更新 spec 删 tar.gz 描述。
 - **拒绝**: LLM consolidation pass — per-workspace skill 数量少（几十个），确定性扫描够用。
 - **触发**: CLI 启动 + Gateway housekeeping loop，内部 7 天门控（`should_run_now()` 检查 `.curator_state.json` 的 `last_run_at`）。
-- **管辖**: 只管 `created_by=="auto"` 的 skill（F3/F4 输出），`created_by=="manual"` 的跳过。
+- **管辖**: 只管 `source ∈ {"F3", "F4"}` 的 skill（F3/F4 输出），`created_by=="manual"` 的跳过。
 - **Curator 归属**: 确定性扫描逻辑放 `core/skills/curator.py`（纯时间戳比较 + shutil.move，无 LLM 依赖）。F4 batch runner 放 `platform/tools/builtins/f4_runner.py`（需要 LLM client，属 platform 层）。
 
 ### 决策 5: Curator 存储
@@ -243,7 +251,7 @@ class SkillViewTool:
         # 6. 返回 {success, name, content, location}
 ```
 
-- **理由**: 和 SkillManageTool 同构（name / description / input_schema / run / presenter），worker 照着现有模式写。`is_concurrency_safe = True`（只读，不写文件），区别于 skill_manage 的 `False`。
+- **理由**: 和 SkillManageTool 同构（name / description / input_schema / run / presenter），worker 照着现有模式写。`is_concurrency_safe = False`（bump_use 写 .usage.json，与 skill_manage 一致）。
 - **不带 file_path**: spec 明确排除。
 
 ## 接口与数据流
@@ -274,32 +282,34 @@ agent 调用 skill_view(name="change-spec-author")
 ### Curator 扫描流
 
 ```
-maybe_run_curator(workspace_root, config_dirname)    # core/skills/curator.py
+run_curator(workspace_root, config_dirname)    # core/skills/curator.py（纯确定性，无 LLM）
   │
   ├─ 1. should_run_now()
   │     ├─ load .curator_state.json
   │     └─ now - last_run_at >= 7 days?
   │
-  ├─ 2. apply_automatic_transitions()
+  ├─ 2. compute_transitions() → List[Transition]
   │     ├─ load .usage.json
-  │     ├─ for each skill where created_by == "auto":
+  │     ├─ for each skill where source ∈ {"F3", "F4"}:
   │     │     ├─ last_activity = max(last_used_at, created_at)
-  │     │     ├─ active + no activity 30d → set_state("stale")
-  │     │     ├─ stale + no activity 90d → archive_skill() → shutil.move to .archive/
-  │     │     ├─ stale + activity within 30d → set_state("active")  # 复活
+  │     │     ├─ active + no activity 30d → Transition(name, "stale")
+  │     │     ├─ stale + no activity 90d → Transition(name, "archive")
+  │     │     ├─ stale + activity within 30d → Transition(name, "active")
   │     │     └─ pinned → skip
-  │     └─ save .usage.json
+  │     └─ return transitions（纯数据，不执行）
   │
-  ├─ 3. check_f4_triggers()
+  ├─ 3. compute_f4_triggers() → List[F4Trigger]
   │     ├─ for each skill where uses_since_last_B >= threshold:
   │     │     ├─ read session_refs, filter already reviewed
-  │     │     ├─ reset uses_since_last_B = 0  ← 先重置
-  │     │     ├─ save .usage.json
-  │     │     └─ Thread(target=f4_runner.run, args=(...)).start()  ← 再启动
-  │     └─ （无触发则跳过）
+  │     │     └─ F4Trigger(skill_name, session_refs)
+  │     └─ return triggers（纯数据，不执行）
   │
-  └─ 4. save_state()
-        └─ atomic_write .curator_state.json {last_run_at, run_count, summary}
+  └─ 4. 返回 CuratorResult(transitions, f4_triggers, summary)
+        └─ 调用方负责执行
+
+apply_transitions(transitions, workspace_root)    # core/skills/curator.py
+  ├─ for each transition: set_state / archive_skill / reactivate
+  └─ save .usage.json + .curator_state.json
 
 f4_runner.run(skill_name, session_refs, ...)    # platform/tools/builtins/f4_runner.py
   ├─ 读 session JSONL transcripts
@@ -307,6 +317,12 @@ f4_runner.run(skill_name, session_refs, ...)    # platform/tools/builtins/f4_run
   ├─ LLM 分析 ≥2 证据
   ├─ skill_manage(patch) 写入修补
   └─ 更新 curator_state.reviewed_session_ids
+
+调度层（SDK/Gateway housekeeping）:
+  result = run_curator(workspace_root, config_dirname)
+  apply_transitions(result.transitions, workspace_root)
+  for trigger in result.f4_triggers:
+      Thread(target=f4_runner.run, args=(...)).start()
 ```
 
 ### Compaction invoked skills 注入
@@ -340,12 +356,52 @@ resume session:
 - 原型文件: [prototype.html](prototype.html)
 - 覆盖范围: Skill 列表视图 + Agent 维度视图 + 自进化健康度视图
 
+### Dashboard 数据通道
+
+`.usage.json` 在 gateway/agent workspace 侧，IM 前端不能直接读。数据流：
+
+```
+IM 前端
+  │ authFetch
+  ├─ GET /im/v1/agents/:agentId/skills/usage    ← 新增 IM HTTP API
+  │
+IM HTTP handler
+  │ gateway WS RPC
+  ├─ ws.send({type: "skills_usage_request", agentId})
+  │
+Gateway WS handler
+  │ 读 workspace
+  ├─ read {workspace_root}/{config_dirname}/skills/.usage.json
+  ├─ 聚合：per-skill + per-agent 统计
+  │
+  └─ ws.send({type: "skills_usage_response", data})
+```
+
+**数据字段表**（dashboard 使用）:
+
+| 字段 | 类型 | 来源 |
+|---|---|---|
+| skill_id | string | .usage.json key |
+| name | string | skill frontmatter |
+| source | "F1"\|"F2"\|"F3"\|"F4" | .usage.json |
+| state | "active"\|"stale"\|"archived" | .usage.json |
+| use_count | int | .usage.json |
+| last_used_at | ISO timestamp | .usage.json |
+| session_refs | [{session_id, timestamp}] | .usage.json |
+| trend_buckets | [int] | gateway 聚合（按天/周） |
+| agent_id | string | session metadata |
+| node_id | string | gateway node config |
+
+**空态 / 离线态**:
+- 无 skill 数据 → 显示空态插图 + "暂无 skill 使用数据"
+- gateway 离线 → 显示离线提示 + 最后缓存数据（如有）
+
 ## 契约层增量 (delta-spec)
 
-- kernel: specs/kernel/spec.md — skill_view 作为新 kernel built-in 工具，skill_manage 移除 view action
-- im: no spec delta（面板是前端展示层，不改变 IM 对外行为契约）
-- gateway: no spec delta
-- cli: no spec delta
+- kernel: specs/kernel/spec.md — skill_view 作为新 kernel built-in 工具，skill_manage 移除 view action，内置工具列表新增 skill_view
+- im: specs/im/spec.md — 新增 dashboard 数据 API（GET /im/v1/agents/:agentId/skills/usage），F2 session 选择入口（左侧面板右键菜单）
+- gateway: specs/gateway/spec.md — 新增 skills_usage WS RPC provider（读 .usage.json 聚合返回）
+- cli: no spec delta（CLI 只是默认工具列表增加 skill_view，无新增外部命令面契约）
 
 ## 风险与回退
 
@@ -373,18 +429,18 @@ synthetic user message 注入到 compact_boundary 之后。如果 resume 逻辑�
 | 服务 | 停止命令 | 启动命令 | 健康检查 |
 |---|---|---|---|
 | Gateway（含 skill_view + Curator） | `PYTHONPATH=src python -m personal_assistant.main stop` | `PYTHONPATH=src python -m personal_assistant.main` | `curl http://127.0.0.1:8011/im/v1/health` |
-| IM（前端面板） | `kill $(cat .im.pid)` | `PYTHONPATH=src python -m uvicorn IM.app:app --port 8011` | `curl http://127.0.0.1:8011/` |
+| IM（含 dashboard API + 前端面板） | `./scripts/e2e-down.sh` 或 `kill $(cat .im.pid)` | `./scripts/e2e-up.sh` 或 `PYTHONPATH=src python -m uvicorn IM.app:app --port 8011` | `curl http://127.0.0.1:8011/` |
 
-**Review 驱动方式**: 端到端真栈。本 unit 改了 IM 前端（使用统计面板），需真驱动客户端面验证面板渲染。
+**Review 驱动方式**: 端到端真栈。本 unit 改了 IM 前端（使用统计面板）+ IM API（dashboard 数据）+ gateway（WS RPC），需真驱动客户端面验证面板渲染和数据流。
 
 ## Milestones
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-446-M1 | skill-view-core | — | A | `platform/tools/builtins/skill_view.py`(新)、`skill_manage.py`(删 view)、`core/skills/usage.py`(新)、`core/skills/root_resolver.py`(新：提取共享 skill_root 解析)、`core/skills/formatter.py`、`sdk/kernel.py`、`core/agent/prompt_sections/core_sections.py`、`core/agent/prompt_sections/feature_registry.py`(requires_any_tool 扩展)、`platform/hooks/builtins/self_improvement.py`、`coding_cli/product.py`、`personal_assistant/product.py`、`personal_assistant/reporter/capability_projection.py` | `[reviewer]` agent 调用 skill_view 返回 SKILL.md 内容; skill_manage 不含 view action; 使用统计记录到 .usage.json; compaction 后 invoked skill 内容仍可用; `[worker]` `pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/contract/ -x` 全绿 |
-| feat-446-M2 | curator-f4 | feat-446-M1 | B | `core/skills/curator.py`(新：确定性扫描)、`platform/tools/builtins/f4_runner.py`(新：F4 LLM 分析)、`core/skills/usage.py`(扩展 state 字段)、CLI 启动入口、Gateway housekeeping | `[reviewer]` 30 天未用的 auto skill 标记 stale; 90 天归档到 .archive/; stale skill 被重新读取后复活; pinned skill 不变; uses_since_last_B 达阈值后触发 F4 batch 分析; ≥2 session 证据才采纳; 只 patch 不创建; `[worker]` `pytest tests/unit/test_curator.py tests/unit/test_f4_batch.py -x` 全绿 |
-| feat-446-M3 | f2-distill | — | A | 蒸馏 skill（SKILL.md），支持 PA/agent 级 skill_root 选择 | `[reviewer]` 蒸馏 skill 可用，agent 能从 session transcript + 意图生成新 skill; 用户可选择写入 PA 级或 agent 级 skill root; `[worker]` 蒸馏 skill 文件存在且格式正确 |
-| feat-446-M4 | dashboard | feat-446-M1 | C | `IM/frontend/src/` 面板组件 | `[reviewer]` Skill 列表视图显示 use_count + 状态 + 趋势; Agent 维度视图显示热力图; 健康度视图显示漏斗数字; `[worker]` `cd src/IM/frontend && npm run test` 全绿 |
+| feat-446-M1 | skill-view-core | — | A | `platform/tools/builtins/skill_view.py`(新)、`skill_manage.py`(删 view)、`core/skills/usage.py`(新)、`core/skills/root_resolver.py`(新：提取共享 skill_root 解析)、`core/skills/formatter.py`、`sdk/kernel.py`、`core/agent/prompt_sections/core_sections.py`、`core/agent/prompt_sections/feature_registry.py`(requires_any_tool 扩展)、`platform/hooks/builtins/self_improvement.py`、`coding_cli/product.py`、`personal_assistant/product.py`、`personal_assistant/reporter/capability_projection.py` | `[reviewer]` agent 调用 skill_view 返回 SKILL.md 内容; skill_manage 不含 view action; 使用统计记录到 .usage.json（含 source=F1/F2/F3/F4）; compaction 后 invoked skill 内容仍可用; `[worker]` `pytest tests/unit/test_skill_view.py tests/unit/test_usage.py tests/contract/ -x` 全绿 |
+| feat-446-M2 | curator-f4 | feat-446-M1 | B | `core/skills/curator.py`(新：确定性扫描，返回 CuratorResult 数据)、`platform/tools/builtins/f4_runner.py`(新：F4 LLM 分析)、`core/skills/usage.py`(扩展 state 字段)、CLI 启动入口、Gateway housekeeping | `[reviewer]` 30 天未用的 F3/F4 skill 标记 stale; 90 天归档到 .archive/; stale skill 被重新读取后复活; pinned skill 不变; F1/F2 skill 不被自动流转; uses_since_last_B 达阈值后触发 F4 batch 分析; ≥2 session 证据才采纳; 只 patch 不创建; `[worker]` `pytest tests/unit/test_curator.py tests/unit/test_f4_batch.py -x` 全绿; `tests/contract/test_core_no_platform_imports.py` 全绿（core 不 import platform） |
+| feat-446-M3 | f2-distill | — | A | 蒸馏 skill（SKILL.md） | `[reviewer]` 蒸馏 skill 可用; agent 能列出已结束 session（通过 session list 能力）; 用户指定 session IDs + 意图后 agent 读 JSONL transcript 并生成新 SKILL.md; 用户可选择写入 PA 级或 agent 级 skill root; `[worker]` 蒸馏 skill 文件存在且格式正确; skill_manage(create) 正确写入指定 skill_root |
+| feat-446-M4 | dashboard | feat-446-M1 | C | IM HTTP API（`/im/v1/agents/:agentId/skills/usage`）+ gateway WS RPC provider + `IM/frontend/src/` 面板组件 | `[reviewer]` Skill 列表视图显示 use_count + 状态 + 趋势（真实数据）; Agent 维度视图显示热力图; 健康度视图显示漏斗数字; 空态/离线态正确显示; `[worker]` `cd src/IM/frontend && npm run test` 全绿; IM API 返回真实 .usage.json 数据 |
 
 ```mermaid
 graph LR
