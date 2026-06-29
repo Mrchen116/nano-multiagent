@@ -88,7 +88,7 @@ agent 执行
        └─ <skill><name/><description/><location/></skill> × N
 
 agent 执行
-  ├─ 路径 A: 用户 /skill:<name> → 重写为引导 skill_view → skill_view 读 SKILL.md
+  ├─ 路径 A: 用户 /skill:<name> → 重写为 "Use the <name> skill" → agent 按 SKILLS_GUIDANCE 调 skill_view
   ├─ 路径 B: agent 自己判断 → skill_view 读 SKILL.md
   └─ 路径 C: self_improvement → skill_view 读 SKILL.md（白名单更新）
 
