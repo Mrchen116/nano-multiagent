@@ -33,6 +33,7 @@ from personal_assistant.channels.web_relay_adapter import (
     RelayDeduplicationStore,
     WebRelayAdapter,
 )
+from personal_assistant.channels.feishu_adapter import FeishuAdapter
 
 from personal_assistant.config.local_store import (
     AgentWorkspaceConfig,
@@ -2896,6 +2897,17 @@ def _build_channel_registry(
             if dedup_db_path is not None:
                 dedup_store = RelayDeduplicationStore(db_path=dedup_db_path)
             registry.register(WebRelayAdapter(dedup_store=dedup_store))
+            continue
+        # feat-447: feishu channels are named "feishu:<account_name>"
+        if channel.name.startswith("feishu:"):
+            settings = channel.settings
+            registry.register(
+                FeishuAdapter(
+                    app_id=settings["appId"],
+                    app_secret=settings["appSecret"],
+                    agent_id=settings["agentId"],
+                )
+            )
             continue
         raise ValueError(f"unsupported channel adapter: {channel.name}")
     return registry

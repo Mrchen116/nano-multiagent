@@ -41,6 +41,13 @@ class TestBuildChannelRegistryFeishu:
     def test_multiple_feishu_accounts_registered(
         self, mock_fa_cls: MagicMock
     ) -> None:
+        # Return distinct mock instances with unique names
+        mock_plato = MagicMock()
+        mock_plato.name = "feishu:plato"
+        mock_luban = MagicMock()
+        mock_luban.name = "feishu:luban"
+        mock_fa_cls.side_effect = [mock_plato, mock_luban]
+
         channels = (
             ChannelConfig(
                 name="feishu:plato-bot",
@@ -65,7 +72,6 @@ class TestBuildChannelRegistryFeishu:
         )
         registry = _build_channel_registry(channels)
         assert mock_fa_cls.call_count == 2
-        # Verify each adapter has correct agent_id
         agent_ids = [c[1]["agent_id"] for c in mock_fa_cls.call_args_list]
         assert "plato" in agent_ids
         assert "luban" in agent_ids
@@ -92,6 +98,10 @@ class TestBuildChannelRegistryFeishu:
     def test_feishu_coexists_with_web_relay(
         self, mock_wra_cls: MagicMock, mock_fa_cls: MagicMock
     ) -> None:
+        mock_adapter = MagicMock()
+        mock_adapter.name = "feishu:plato"
+        mock_fa_cls.return_value = mock_adapter
+
         channels = (
             ChannelConfig(name="web_relay", enabled=True, settings={}),
             ChannelConfig(
