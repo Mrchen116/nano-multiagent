@@ -113,8 +113,8 @@ pinned skill 跳过自动流转。归档前先打 tar.gz 快照（best-effort）
 **使用统计**：
 所有 skill 不管来源（F1/F2 手工 + F3/F4 自动）都记录使用统计（use_count + session 引用列表）。统计对所有 skill 生效，Curator 只对自动创建的 skill 生效。
 
-**使用统计面板**：
-IM 前端增加 skill 使用统计面板，三个视图：
+**使用统计面板（初版）**：
+IM 前端增加 skill 使用统计面板，初版三个视图，后续根据使用体验迭代：
 
 1. **Skill 列表视图**（主视图）：每行一个 skill，列：名字、来源（F1/F2/F3/F4）、状态（active/stale/archived）、use_count、最近使用时间、趋势 sparkline。默认按最近使用时间降序。一眼能回答"哪些 skill 在用，哪些是死重"。
 
@@ -248,7 +248,7 @@ F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要
 - **WHEN** 系统提示词生成 `<available_skills>` 块
 - **THEN** 引导文案指示模型用 skill_view（而非 read 工具）加载 skill 内容
 
-### Requirement: 使用统计面板（IM 前端）
+### Requirement: 使用统计面板（IM 前端，初版）
 
 #### Scenario: Skill 列表视图
 - **WHEN** 用户打开 skill 使用统计面板
