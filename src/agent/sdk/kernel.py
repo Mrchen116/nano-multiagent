@@ -792,19 +792,31 @@ class Kernel:
         session_id: str,
         *,
         workspace_root: Path | None = None,
+        up_to: str | None = None,
     ) -> SessionInfo:
-        """Fork an existing session for parallel execution.
+        """Fork an existing session into an independent new session.
+
+        Copies the source session's conversation context into a fresh session with
+        re-stamped message ids and its own JSONL file; the source is untouched and the
+        two evolve independently thereafter.
 
         Args:
             session_id: Source session to fork from.
-            workspace_root: Workspace root for the forked session.
+            workspace_root: Workspace root locating the source session JSONL; the fork
+                inherits the source's workspace_root.
+            up_to: feat-445-M1 — when set, the fork inherits the source's context view
+                **as of the message ``up_to``** (a kernel message id = JSONL turn uuid),
+                including whatever compaction state was in effect at that point, instead
+                of the whole conversation. Messages after ``up_to`` are not carried.
 
         Returns:
             SessionInfo for the new forked session.
         """
         effective_root = workspace_root or self._repo_root
-        session = self._c.session_service.create_session(
+        session = await self._c.runtime.fork_session(
+            session_id,
             workspace_root=effective_root,
+            up_to=up_to,
         )
         return _to_session_info(session)
 

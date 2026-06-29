@@ -1269,7 +1269,11 @@ class AgentRuntime:
         self._session_paths.pop(session_id, None)
 
     async def fork_session(
-        self, source_session_id: str, *, workspace_root: Path | None = None
+        self,
+        source_session_id: str,
+        *,
+        workspace_root: Path | None = None,
+        up_to: str | None = None,
     ) -> Session:
         """Fork a session: create a new session with an independent copy of source history.
 
@@ -1280,7 +1284,36 @@ class AgentRuntime:
         ``workspace_root`` locates the source session JSONL when it is not
         already cached in this runtime; the fork inherits the source's
         workspace_root.
+
+        ``up_to`` (feat-445-M1): when set, the fork inherits the source's context view
+        **as of the message ``up_to``** rather than the whole conversation. The view is
+        re-materialized from the current JSONL (boundary-aware, truncated to ``up_to``)
+        — deliberately NOT from the in-memory ``_session_histories`` cache, which after
+        a compaction holds only the latest summarised tail and cannot reconstruct an
+        older fork point. The resulting as-of-M Message list is then copied by the
+        existing ``_fork_locked`` (same re-stamp path as a whole-session fork), so the
+        branch is byte-for-byte the source's view at M, including the compaction state
+        that was in effect then.
         """
+
+        if up_to is not None:
+            # Fork to a specific point: always read the truncated, boundary-aware view
+            # from JSONL (the cache can't serve a historical/older fork point). Flush
+            # any enqueued writes first so a just-completed turn at the fork point is on
+            # disk before we slice.
+            self._session_manager.store.writer.flush()
+            result = self._session_manager.load(
+                source_session_id, workspace_root=workspace_root, up_to=up_to
+            )
+            source_lock = self._session_locks.get(source_session_id)
+            if source_lock:
+                async with source_lock:
+                    return await self._fork_locked(
+                        source_session_id, result.config, list(result.messages)
+                    )
+            return await self._fork_locked(
+                source_session_id, result.config, list(result.messages)
+            )
 
         # Ensure source is loaded into memory
         if source_session_id not in self._session_histories:
