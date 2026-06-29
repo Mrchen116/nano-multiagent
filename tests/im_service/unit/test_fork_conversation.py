@@ -89,7 +89,7 @@ def _offline():
     return _check
 
 
-def _ok_fork(calls):
+def _ok_fork(calls, id_map=None):
     async def _req(
         *, agent_id, source_conversation_id, new_conversation_id, fork_message_id
     ):
@@ -101,7 +101,11 @@ def _ok_fork(calls):
                 "fork_message_id": fork_message_id,
             }
         )
-        return {"ok": True, "new_session_id": "ksess-new"}
+        return {
+            "ok": True,
+            "new_session_id": "ksess-new",
+            "id_map": id_map or {},
+        }
 
     return _req
 
@@ -118,7 +122,9 @@ async def test_fork_copies_history_through_M_and_delegates(tmp_path: Path) -> No
         owner_id=human.owner_id,
         actor_user_id=human.id,
         check_agent_online=_online(None),
-        request_fork=_ok_fork(calls),
+        # #5: gateway returns the source→branch kernel-uuid map; the copied bubble's
+        # kernel_message_id must be REWRITTEN to the branch uuid (not kept as the source).
+        request_fork=_ok_fork(calls, id_map={"kmsg-a1": "branch-kmsg-a1"}),
     )
 
     # new conversation is a direct user-agent chat titled with the agent name
@@ -129,7 +135,9 @@ async def test_fork_copies_history_through_M_and_delegates(tmp_path: Path) -> No
     # copied display history = start..a1 (inclusive); a1 之后 (u2/a2) NOT copied
     copied = messages.list_messages(conversation_id=new_conv.id, limit=100)
     assert [m.content for m in copied] == ["u1", "a1"]
-    assert copied[-1].kernel_message_id == "kmsg-a1"
+    # #5: branch row carries the MAPPED branch kernel id (== branch JSONL uuid), so a
+    # recursive fork from this copied bubble resolves in the branch session (no 502).
+    assert copied[-1].kernel_message_id == "branch-kmsg-a1"
 
     # gateway delegation carries the KERNEL message id (= JSONL turn uuid), not the IM
     # row id — the kernel forks its session by the kernel anchor (live e2e caught this).
@@ -344,3 +352,154 @@ async def test_fork_at_end_of_long_conversation_copies_full_history(tmp_path: Pa
     assert len(copied) == 260
     assert copied[0].content == "u0"  # earliest message present
     assert copied[-1].content == "a129"
+
+
+# ---------------------------------------------------------------------------
+# feat-445-M2 R3 (#4/#5/#6/#8): 编排重排 + 递归映射 + 回滚健壮 + 保留状态
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_fork_copies_display_history_only_after_binding(tmp_path: Path) -> None:
+    """#4: 展示历史复制必须发生在 request_fork（绑定 kernel session）之后——绑定前新会话
+    须为空，否则 RPC 窗口内用户点进半建会话发消息会被回滚 CASCADE 吞掉。"""
+    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    a1, _ = _seed_history(messages, conv.id, human, agent_user)
+    observed = {}
+
+    async def _req(*, agent_id, source_conversation_id, new_conversation_id, fork_message_id):
+        # At binding time the branch conversation must still be empty (copy comes later).
+        observed["count_at_bind"] = len(
+            messages.list_all_messages(conversation_id=new_conversation_id)
+        )
+        return {"ok": True, "new_session_id": "ksess-new", "id_map": {"kmsg-a1": "b1"}}
+
+    new_conv = await service.fork_conversation(
+        source_conversation_id=conv.id,
+        fork_message_id=a1.id,
+        owner_id=human.owner_id,
+        actor_user_id=human.id,
+        check_agent_online=_online(None),
+        request_fork=_req,
+    )
+    assert observed["count_at_bind"] == 0, "branch must be empty until binding succeeds"
+    # after success the history is copied
+    assert [m.content for m in messages.list_all_messages(conversation_id=new_conv.id)] == [
+        "u1",
+        "a1",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_fork_unmapped_kernel_id_becomes_none(tmp_path: Path) -> None:
+    """#5: 复制行的源 kernel id 不在 map（如被 compact 掉的前界气泡）→ 分支行 kernel_message_id
+    置 None（分支不可再 fork 它，诚实），而非保留指向源 JSONL 的失效 id。"""
+    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    a1, a2 = _seed_history(messages, conv.id, human, agent_user)
+    # fork at a2; map only covers a2 (a1 simulated as compacted-out of the as-of-M view)
+    new_conv = await service.fork_conversation(
+        source_conversation_id=conv.id,
+        fork_message_id=a2.id,
+        owner_id=human.owner_id,
+        actor_user_id=human.id,
+        check_agent_online=_online(None),
+        request_fork=_ok_fork([], id_map={"kmsg-a2": "branch-a2"}),
+    )
+    copied = messages.list_all_messages(conversation_id=new_conv.id)
+    by_content = {m.content: m for m in copied}
+    assert by_content["a2"].kernel_message_id == "branch-a2"  # mapped
+    assert by_content["a1"].kernel_message_id is None  # not in map → None
+
+
+@pytest.mark.asyncio
+async def test_fork_rollback_does_not_mask_original_error(tmp_path: Path) -> None:
+    """#6: 回滚里 delete 自身抛错不得覆盖原 ForkDelegationError（否则路由 except 不命中 → 500）。"""
+    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    a1, _ = _seed_history(messages, conv.id, human, agent_user)
+
+    async def _fail(**_kw):
+        return {"ok": False, "error": "kernel boom"}
+
+    # Make rollback's delete raise — original ForkDelegationError must still surface.
+    orig_delete = conversations.delete_conversation
+
+    def _boom_delete(**kw):
+        raise RuntimeError("delete failed")
+
+    conversations.delete_conversation = _boom_delete  # type: ignore[method-assign]
+    try:
+        with pytest.raises(ForkDelegationError):
+            await service.fork_conversation(
+                source_conversation_id=conv.id,
+                fork_message_id=a1.id,
+                owner_id=human.owner_id,
+                actor_user_id=human.id,
+                check_agent_online=_online(None),
+                request_fork=_fail,
+            )
+    finally:
+        conversations.delete_conversation = orig_delete  # type: ignore[method-assign]
+
+
+@pytest.mark.asyncio
+async def test_fork_rolls_back_on_cancelled_error(tmp_path: Path) -> None:
+    """#6: request_fork 被取消(CancelledError，BaseException)也要回滚，不留幽灵会话。"""
+    import asyncio
+
+    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    a1, _ = _seed_history(messages, conv.id, human, agent_user)
+    before = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+
+    async def _cancel(**_kw):
+        raise asyncio.CancelledError()
+
+    with pytest.raises(asyncio.CancelledError):
+        await service.fork_conversation(
+            source_conversation_id=conv.id,
+            fork_message_id=a1.id,
+            owner_id=human.owner_id,
+            actor_user_id=human.id,
+            check_agent_online=_online(None),
+            request_fork=_cancel,
+        )
+    after = len(conversations.list_conversations_for_owner(owner_id=human.owner_id))
+    assert after == before, "cancelled fork must roll back the empty conversation"
+
+
+@pytest.mark.asyncio
+async def test_fork_preserves_failed_delivery_status(tmp_path: Path) -> None:
+    """#8: 复制的气泡保留源 delivery_status（failed 不被改写成 completed）。"""
+    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    messages.create_message(
+        conversation_id=conv.id, sender_user_id=human.id, content="u1", sender_type="user"
+    )
+    failed = messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=agent_user.id,
+        content="boom",
+        sender_type="agent",
+        kernel_message_id="kmsg-failed",
+        allow_empty=True,
+    )
+    messages.update_runtime_state(message_id=failed.id, delivery_status="failed")
+    fork_at = messages.create_message(
+        conversation_id=conv.id,
+        sender_user_id=agent_user.id,
+        content="ok-reply",
+        sender_type="agent",
+        kernel_message_id="kmsg-ok",
+        allow_empty=True,
+    )
+
+    new_conv = await service.fork_conversation(
+        source_conversation_id=conv.id,
+        fork_message_id=fork_at.id,
+        owner_id=human.owner_id,
+        actor_user_id=human.id,
+        check_agent_online=_online(None),
+        request_fork=_ok_fork([], id_map={"kmsg-failed": "b-failed", "kmsg-ok": "b-ok"}),
+    )
+    copied = messages.list_all_messages(conversation_id=new_conv.id)
+    by_content = {m.content: m for m in copied}
+    assert by_content["boom"].delivery_status == "failed", "failed bubble must stay failed"
+    assert by_content["ok-reply"].delivery_status == "completed"
