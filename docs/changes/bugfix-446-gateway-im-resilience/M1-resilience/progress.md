@@ -148,3 +148,49 @@
 - Rollback: revert commits `47725567` + `79ea8e50` + this docs commit.
 - Commits: C1=47725567, C2=79ea8e50, C3=(this docs commit)
 - Next: rebase on origin/unit, merge into unit worktree, push `unit/bugfix-446`, then clean fix worktree.
+
+## Round 2 fix — code-review feedback fast lane
+
+- Context: round2 code review found five focused resilience risks: watchdog backoff used
+  `asyncio.to_thread(self._shutdown_requested.wait)` and could strand default-executor
+  threads; `IMConnectionManager.run_forever` reconnect backoff was not woken by
+  `close()`; cancellation while connected cleared `_websocket` without closing the live
+  socket; `scripts/e2e-resilience.sh` hard-required `yq`; the e2e pytest wrapper used
+  `subprocess.run(timeout=...)`, which can kill only bash and leave child services.
+  Fast-lane scope: single C1/C2/C3 group, no canonical spec/doc edits.
+- Decision:
+  - `GatewayRuntime` now mirrors the thread-level shutdown flag into a loop-local
+    `asyncio.Event`; both `_run_until_shutdown` and watchdog rebuild backoff await that
+    event directly, with no `asyncio.to_thread`.
+  - `IMConnectionManager` now has a stop event. Reconnect backoff races the injected
+    sleep against that stop event, preserving existing sleep injection while letting
+    `close()` wake a long backoff promptly.
+  - `run_forever` cancellation now calls `_disconnect_current_websocket()` before
+    re-raising, so a connected websocket is actually closed.
+  - `scripts/e2e-resilience.sh` now uses `yq` when available and a PyYAML fallback
+    otherwise; `--prepare-only` covers the config-isolation mutation path without
+    starting services.
+  - The pytest wrapper now launches the shell script with `Popen(..., start_new_session=True)`
+    and kills the process group on timeout.
+- Rationale: all fixes keep the existing architecture ownership: GatewayRuntime owns
+  process shutdown/watchdog behavior, IMConnectionManager owns reconnect/transport
+  cleanup, and the e2e wrapper owns test-process cleanup. No polling, no extra worker
+  threads, and no broad test helper refactor.
+- Evidence:
+  - Red tests: C1 introduced failing regression coverage for the five review findings:
+    watchdog no-`to_thread`, close-interruptible reconnect backoff, cancellation closes
+    websocket, e2e wrapper process-group timeout cleanup, and script PyYAML fallback
+    prepare path.
+  - Tests: `pytest tests/unit/personal_assistant/test_gateway_runtime_watchdog.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/unit/personal_assistant/test_gateway_im_resilience_e2e_wrapper.py tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py -q` →
+    `39 passed, 1 skipped`.
+  - Lint/format: `ruff check src/personal_assistant/main.py src/personal_assistant/ws/im_connection.py tests/unit/personal_assistant/test_gateway_runtime_watchdog.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_gateway_im_resilience_e2e_wrapper.py tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py` →
+    pass; `ruff format --check ...` on the same Python files → pass; `bash -n scripts/e2e-resilience.sh` → pass.
+  - Entry / E2E: `PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH bash scripts/e2e-resilience.sh` →
+    `✓ A1 initial node online` / `✓ A2 node auto back online after IM restart (no gateway restart)` /
+    `✓ B1 gateway survived startup with IM down` / `✓ B2 node online after IM comes up` /
+    `RESILIENCE E2E PASS`.
+  - Frontend State Matrix / Browser QA / Visual: N/A（本轮不改前端）。
+- Rollback: revert commits `e413aeed` + `2d03780f` + this docs commit.
+- Commits: C1=e413aeed, C2=2d03780f, C3=(this docs commit)
+- Next: rebase on `origin/unit/bugfix-446`, merge into unit worktree, push
+  `unit/bugfix-446`, then clean fix worktree/branch.
