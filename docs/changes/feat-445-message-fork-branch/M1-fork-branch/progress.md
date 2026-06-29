@@ -49,3 +49,17 @@
 - Commits: C1=test 三组守护红测, C2=feat 实现, C3=docs 本段。
 - Next: R3 gateway fork RPC handler（binding 定位源 session → kernel.fork_session(up_to) → bind 新会话）。
 
+### R3 — gateway fork RPC handler（session.fork.request → result）
+
+- Context: 决策2——session fork 只能由 gateway 执行（conversation↔session binding 只在 gateway 侧），IM 经一次 WS RPC 委托。需新增 gateway 侧 fork RPC handler。
+- Decision: ① `im_connection.py` 加 `SessionForkHandler` 类型 + `session_fork_handler` 注入 + `session.fork.request` dispatch（仿 agent.create / capabilities.resolve；handler 缺失时 raise，避免 IM waiter 永久阻塞）→ 回 `session.fork.result{request_id, node_id, ok, new_session_id?/error?}`。② `main.py` `_build_session_fork_handler(kernel, session_store, agents_getter, channel_name)`：用 `build_conversation_session_key(web_relay, source_conv, agent)` 经 `session_store.get` 定位源 kernel session → `kernel.fork_session(source, up_to=message_id, workspace_root=agent.workspace_root)` → `bind_conversation_session(new_conv → new_session)`。失败回 `{ok:False, error}` 交 IM 回滚（决策5）。channel_name 用 `WebRelayAdapter.name`，agents_getter 指向 live `pipeline._agents`。
+- Rationale: 复用既有 WS RPC request-response 模式 + session_keys binding helper（§0.1）。handler 与 binding 定位都在 gateway 层（IM 不直读 gateway 日志，决策约束）。fork handler 的 try/except 不是兜底吞错——是把 fork 失败显式转成 `{ok:False,error}` 经 RPC 上报 IM（决策5 要求 IM 回滚），错误对用户大声可见，非静默。
+- Evidence:
+  - Tests: 新 `tests/unit/personal_assistant/test_session_fork_handler.py`（定位源→fork(up_to)→bind 新会话 + 入参断言；源缺 binding → ok:False；kernel 抛错 → ok:False 且不建新 binding）；扩 `test_gateway_im_connection_behavior.py::test_im_connection_dispatches_session_fork_request`（真 frame 进 dispatch → session.fork.result 回包带 request_id/ok/new_session_id）。R3 相关 21 passed。
+  - Entry: 真 PersistentSessionBindingStore（tmp sqlite）+ 真 WS dispatch（_listen_once 消真 frame）。完整跨进程 live 在 R6。
+  - Frontend / Browser / Visual: N/A
+  - E2E/Regression: `pytest tests/unit/personal_assistant/ tests/contract/` 776 passed, 1 skipped。
+- Rollback: revert C2；新增 dispatch 分支 + 注入参数均向后兼容（handler 为 None 时旧行为不变）。
+- Commits: C1=test, C2=feat, C3=docs 本段。
+- Next: R4 IM fork 编排（service fork_conversation + route + request_fork_session WS RPC + 在线校验 + 回滚）。
+
