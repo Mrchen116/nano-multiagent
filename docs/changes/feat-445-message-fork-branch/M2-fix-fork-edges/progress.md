@@ -25,4 +25,21 @@ CONFIRMED fork 边缘缺陷 + 防御 + W1/W2 + 群聊400。每条配回归红→
 - Commits: C1=test, C2=fix, C3=docs。
 - Next: R3 fork_conversation 编排重排 + 递归 fork 映射 + 回滚 + 保留状态。
 
+### R3 — fork_conversation 重排 + 递归映射 + 回滚健壮 + 保留状态（#4/#5/#6/#8 + map 接线）
+
+- Decision:
+  - #5 map 接线: `_fork_locked`/`runtime.fork_session` 返回 `(Session, old→new uuid map)`（runtime 调用点 + test 解包）；`SessionInfo` 加 `fork_id_map`；`kernel.fork_session` 经 `replace()` 填入；gateway `_build_session_fork_handler` result 带 `id_map`；`request_fork_session`/`_handle_session_fork_result` 回包本就透传全部 key，id_map 自动流到 IM。
+  - #4 重排: 建**空**会话 → request_fork（先绑 kernel session）→ 成功后才复制展示历史。binding 前无 message.created 广播，RPC 失败回滚的是空会话。
+  - #5 回写: 复制行 kernel_message_id = `id_map.get(源 km)`；不在 map（compact 掉的前界气泡）→ None（分支不可再 fork 它，诚实）。
+  - #6 回滚: `_rollback_fork` 受保护 helper（try 包 delete、失败只 log 不覆盖原异常）；request_fork 异常捕获 `except BaseException`（含 CancelledError）。
+  - #8: repo `create_message` 加 `delivery_status` 入参；复制时传源 delivery_status（failed 不被改写成 completed）。
+- Rationale: 复用 `_fork_locked` 已有的 `old_to_new_uuid`（无需新算）；id_map 经 SessionInfo（SDK 边界 DTO）类型化承载，不污染 metadata。重排让「binding 早于广播」，从根上消除 RPC 窗口内用户消息被回滚吞掉。受保护回滚 + BaseException 覆盖根治幽灵会话 + 500 误码。
+- Evidence:
+  - Tests: `test_fork_conversation.py`(7) + `test_fork_conversation_edges.py`(R2+R3，含 #4 binding 前空会话、#5 映射回写 + 不在 map→None、#6 回滚不吞原异常 + 捕 CancelledError、#8 failed 保留)、`test_session_fork_handler.py`(id_map 透传)、`test_fork_session.py`(返回 tuple 解包) 全绿。拆 edges 文件守 400 行上限（contract 绿）。
+  - E2E/Regression: `pytest tests/im_service/ tests/unit/ tests/contract/` 2999 passed/2 skipped；ruff check+format 干净。
+  - 残余: request_fork 成功后复制循环若失败（本地 sqlite 写，极端）不回滚（避免 gateway binding 悬挂，无 unbind RPC）——属既有「回滚本身失败」极端边缘。
+- Rollback: revert C2。
+- Commits: C1=test, C2=fix, C3=docs。
+- Next: R4 前端 fork 按钮 in-flight 禁用。
+
 <!-- 每个 roadpoint 完成后实时追加 -->
