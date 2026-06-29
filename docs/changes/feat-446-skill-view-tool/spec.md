@@ -26,6 +26,8 @@
 
 > 那这次把curator机制也补上
 
+> 我的意思就是纳入Per-skill Batch到本需求中。所以你统计use_count的同时，还要统计在哪个session用的，才能拿jsonl分析。
+
 > 这要学习hermes的设计
 
 > 对（指 hermes curator 触发方式：periodic + 7天门控 + 确定性扫描）
@@ -46,7 +48,8 @@
 
 - Q4: 使用统计——追踪哪些字段?
   A(原话): 好（指 use_count + last_used_at only）
-  Agent 解读: 只追踪 use_count 和 last_used_at。不区分 view/use（hermes 自己也不区分），patch_count 由 skill_manage 写侧追踪。
+  Agent 解读: 追踪 use_count 和 last_used_at。不区分 view/use（hermes 自己也不区分），patch_count 由 skill_manage 写侧追踪。
+  后续补充（Q10）：F4 纳入后，skill_view 调用时记录 {session_id, timestamp}。timestamp 同步更新 last_used_at（给 Curator 用），session_id 存入 session 引用列表（给 F4 batch 分析找 JSONL 用）。一次记录两个用途。
 
 - Q5: /skill:<name> 斜杠命令现在重写为 `Use the "<name>" skill for this request.`，模型随后用 `read` 读 SKILL.md。改完后这条路径也走 `skill_view` 吗？
   我的推荐：是。斜杠命令重写后的文案改为引导模型调 `skill_view` 而非 `read`。这样无论用户手动 `/skill-name` 还是模型自动调用，都走同一条路径，统计和 compaction 注册都能覆盖到。
@@ -90,6 +93,11 @@ pinned skill 跳过自动流转。归档前先打 tar.gz 快照（best-effort）
 **Curator 是 per-workspace 的**：hermes 是单 agent 全局架构（`~/.hermes/skills/`），所有 agent 共享一个 skill 目录，Curator 统一扫描。本项目是多 agent 架构，每个 agent 有自己的 workspace，skill 天然按 agent 隔离（`<workspace_root>/<config_dirname>/skills/`）。因此 Curator 改为 per-workspace 扫描——每个 agent 只管自己的 skill 目录，不碰别的 agent。
 
 Curator 每 7 天跑一次确定性扫描（不调 LLM），CLI 启动时和 Gateway housekeeping loop 中触发。状态持久化到 workspace 内的 `.curator_state` JSON 文件。
+
+**Per-skill Batch 优化（F4）**：
+skill_view 调用时记录 `{session_id, timestamp}`。当某个 skill 的 `uses_since_last_B` 达到阈值（默认 ~20），触发该 skill 的 batch 优化：收集这些已结束 session 的 JSONL transcript，用 LLM 分析跨 session 的系统性缺陷（用户纠正、工具报错、任务放弃等信号），找到 ≥2 个 session 反复出现的问题后，通过 `skill_manage(action="patch")` 修补 skill。
+
+F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要不要建新 skill"。具体分析流程（W: map-reduce 多 agent 并行 vs A: 单 agent 单轮）留 design 阶段选型。
 
 **与 hermes 的对齐**：hermes 本来就是三工具拆分（skills_list / skill_view / skill_manage）+ Curator。用户抄代码时把 view 和 list 合进了 skill_manage，Curator 没抄。现在补上，并从全局改为 per-workspace。
 
@@ -150,6 +158,27 @@ Curator 每 7 天跑一次确定性扫描（不调 LLM），CLI 启动时和 Gat
 - **WHEN** Curator 执行定期扫描
 - **THEN** skill A 的状态不变
 
+### Requirement: skill_view 记录 session 引用
+
+#### Scenario: skill_view 调用记录 session_id 和 timestamp
+- **WHEN** agent 在 session S 中调用 `skill_view(name="xxx")` 成功
+- **THEN** 记录 `{session_id: S, timestamp: now}`，其中 timestamp 同步更新 last_used_at，session_id 存入该 skill 的 session 引用列表
+
+### Requirement: Per-skill Batch 优化触发
+
+#### Scenario: 达到阈值后触发 batch 分析
+- **GIVEN** skill A 的 uses_since_last_B 达到阈值 X
+- **WHEN** skill_view 调用完成且计数器越线
+- **THEN** 触发 skill A 的 batch 优化任务：收集对应的已结束 session JSONL，分析跨 session 系统性缺陷
+
+#### Scenario: batch 分析只 patch 不创建
+- **WHEN** batch 分析发现 skill A 的缺陷
+- **THEN** 通过 `skill_manage(action="patch")` 修补 skill A，不创建新 skill
+
+#### Scenario: batch 分析要求 ≥2 session 的证据
+- **WHEN** batch 分析某个问题模式
+- **THEN** 只有在 ≥2 个不同 session 中出现的问题才被采纳，单 session 的问题被忽略
+
 ### Requirement: 系统提示词引导模型使用 skill_view 而非 read
 
 #### Scenario: formatter 引导用 skill_view 加载 skill
@@ -172,9 +201,10 @@ Curator 每 7 天跑一次确定性扫描（不调 LLM），CLI 启动时和 Gat
   - 新建独立 `skill_view` 工具（platform 层）
   - `skill_manage` 移除 view action
   - formatter.py 引导文案从 read 改为 skill_view
-  - 使用统计追踪（use_count + last_used_at）
+  - 使用统计追踪（use_count + last_used_at + session 引用列表 {session_id, timestamp}）
   - 压缩存活机制（addInvokedSkill + compaction 时 re-inject）
-  - Curator 生命周期管理（active/stale/archived，periodic 触发，7 天门控）
+  - Curator 生命周期管理（active/stale/archived，per-workspace，periodic 触发，7 天门控）
+  - Per-skill Batch 优化（F4）：uses_since_last_B 阈值触发，收集已结束 session JSONL，LLM 分析跨 session 系统性缺陷，≥2 证据阈值，只 patch 不创建
   - 所有引用点迁移（product.py、kernel.py、self_improvement.py、feature_registry、reporter 等）
 - 非目标：
   - skill_view 的 file_path 参数（用户明确排除）
@@ -183,4 +213,6 @@ Curator 每 7 天跑一次确定性扫描（不调 LLM），CLI 启动时和 Gat
   - 条件激活 paths 字段
   - skills_list 独立工具（list 留在 skill_manage 里）
   - Curator 的 LLM 合并 pass（hermes 的 consolidate 功能，本期不做）
+  - F4 的具体分析流程选型（W: map-reduce vs A: 单 agent，留 design 阶段）
+  - Skills Hub 社区分发
   - Skills Hub 社区分发
