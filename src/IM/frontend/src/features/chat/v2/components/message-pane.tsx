@@ -51,6 +51,12 @@ export interface MessagePaneProps {
   sendError?: string | null;
   /** Whether a message is currently being sent. */
   isSending?: boolean;
+  /** feat-445-M1: this is a direct user↔agent chat (fork is only offered here). */
+  isDirectChat?: boolean;
+  /** feat-445-M1: the agent's node is online (fork requires a live agent). */
+  agentOnline?: boolean;
+  /** feat-445-M1: fork from one completed agent reply (by message id). */
+  onFork?(messageId: string): void;
   /** Test seam: overrides the real upload helper so vitest can stub uploads. */
   uploadAttachment?(file: File): Promise<Attachment>;
 }
@@ -138,6 +144,9 @@ export function MessagePane({
   onOpenConfig,
   sendError,
   isSending,
+  isDirectChat = false,
+  agentOnline = false,
+  onFork,
   uploadAttachment = uploadOneAttachment
 }: MessagePaneProps) {
   const { t } = useTranslation();
@@ -339,6 +348,9 @@ export function MessagePane({
               message={m}
               isMobile={isMobile}
               participants={conversation.participants}
+              isDirectChat={isDirectChat}
+              agentOnline={agentOnline}
+              onFork={onFork}
             />
           ))
         )}
@@ -425,10 +437,16 @@ function MessageBubble({
   message,
   isMobile,
   participants,
+  isDirectChat = false,
+  agentOnline = false,
+  onFork,
 }: {
   message: Message;
   isMobile?: boolean;
   participants?: Actor[];
+  isDirectChat?: boolean;
+  agentOnline?: boolean;
+  onFork?(messageId: string): void;
 }) {
   const { t } = useTranslation();
   const isSystem = message.sender.type === "system";
@@ -442,6 +460,16 @@ function MessageBubble({
   const rowFlex = isUser ? "flex-row-reverse" : "flex-row";
   const statusAlign = isUser ? "justify-end" : "justify-start";
   const deliveryStatus = message.delivery_status;
+
+  // feat-445-M1: fork is offered only on a *completed agent reply* in a *direct chat*
+  // that carries a kernel message id (the fork anchor — legacy bubbles have none). When
+  // the agent is offline the button still renders but disabled, with an explanatory tip.
+  const forkEligible =
+    isAgent &&
+    deliveryStatus === "completed" &&
+    isDirectChat &&
+    Boolean(message.kernel_message_id);
+  const forkClass = forkEligible ? (agentOnline ? " is-forkable" : " is-offline") : "";
 
   // feat-414 决策 2: running 时前端本地 tick（锚 message.created_at），
   // completed 后用后端权威 elapsed_ms 定格，不再 tick。
@@ -474,7 +502,7 @@ function MessageBubble({
   }
 
   return (
-    <div className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"} flex ${rowFlex} gap-2 items-end`}>
+    <div className={`chat-bubble chat-bubble--${isUser ? "user" : "agent"}${forkClass} flex ${rowFlex} gap-2 items-end`}>
       {!isUser && (
         <span
           data-testid={`message-avatar-${message.id}`}
@@ -532,6 +560,27 @@ function MessageBubble({
                 onResolved={() => {/* WS event will update the message status */}}
               />
             ))}
+          {/* feat-445-M1: fork from this completed agent reply. Child of the bubble
+              card (zero hover gap), revealed on hover via CSS .is-forkable/.is-offline. */}
+          {forkEligible && (
+            <>
+              <button
+                type="button"
+                data-testid={`message-fork-${message.id}`}
+                className="chat-bubble-fork"
+                disabled={!agentOnline}
+                onClick={() => {
+                  if (agentOnline) onFork?.(message.id);
+                }}
+                aria-label={t("chat.messagePane.fork")}
+              >
+                ⑂ {t("chat.messagePane.fork")}
+              </button>
+              {!agentOnline && (
+                <div className="fork-tip">{t("chat.messagePane.forkOffline")}</div>
+              )}
+            </>
+          )}
         </div>
         <div className={`chat-bubble-status mt-[2px] flex items-center gap-2 text-[11px] text-[oklch(0.55 0.01 240)] ${statusAlign}`}>
           <span data-testid={`message-timestamp-${message.id}`}>{ts}</span>

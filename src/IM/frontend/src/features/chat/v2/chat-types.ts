@@ -149,6 +149,11 @@ export interface Message {
   /** feat-414: 本轮 agent 处理墙钟（毫秒）。用户消息及旧行为 undefined / null。 */
   elapsed_ms?: number | null;
   /**
+   * feat-445-M1: 产出该气泡的 kernel assistant 消息 id（fork 锚点）。仅 relay 落库的 agent
+   * 气泡有值；用户/系统消息及本特性上线前的旧气泡为 undefined/null → fork 入口对其禁用。
+   */
+  kernel_message_id?: string | null;
+  /**
    * bugfix-367: 同一 message 上所有 ask 按时间顺序保留 (允许 / 拒绝 / 当前 pending)。
    * 渲染时按 `request_id` 做 React key,新请求自然 mount 成新卡,旧 resolved 卡
    * 保留在原位 —— 用户能回看"按了多少次同意"。

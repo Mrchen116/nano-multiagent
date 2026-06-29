@@ -1520,6 +1520,7 @@ body {
 }
 
 .chat-bubble-card {
+  position: relative;
   background: oklch(0.91 0.007 240);
   border: none;
   border-radius: 1rem;
@@ -1527,6 +1528,92 @@ body {
   font-size: 0.875rem;
   line-height: 1.5;
   box-shadow: none;
+}
+
+/* feat-445-M1: message-level fork action. Child of .chat-bubble-card and overlapping
+   its top edge (no hover gap), so the cursor never leaves .chat-bubble--agent's hover
+   region. Revealed on hover via .is-forkable / .is-offline (mirrors prototype.html). */
+.chat-bubble-fork {
+  position: absolute;
+  top: -10px;
+  right: 6px;
+  display: none;
+  align-items: center;
+  gap: 4px;
+  background: var(--im-surface);
+  border: 1px solid var(--im-border);
+  border-radius: 0.5rem;
+  padding: 2px 7px;
+  font: inherit;
+  font-size: 0.7rem;
+  color: var(--im-accent-2);
+  cursor: pointer;
+  box-shadow: 0 6px 18px -12px rgba(0, 0, 0, 0.4);
+  white-space: nowrap;
+}
+.chat-bubble--agent.is-forkable:hover .chat-bubble-fork,
+.chat-bubble--agent.is-offline:hover .chat-bubble-fork {
+  display: inline-flex;
+}
+.chat-bubble-fork:hover {
+  background: var(--im-surface-2);
+  color: var(--im-text);
+}
+.chat-bubble-fork[disabled] {
+  color: var(--im-text-muted);
+  cursor: not-allowed;
+  border-style: dashed;
+}
+.fork-tip {
+  position: absolute;
+  top: -34px;
+  right: 6px;
+  background: oklch(0.21 0.012 240);
+  color: #fff;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  display: none;
+}
+.chat-bubble--agent.is-offline:hover .fork-tip {
+  display: block;
+}
+
+/* fork success toast — IM in-app-toast form (top-left card, white rounded + border +
+   shadow), 4s auto fade. Not a persistent in-conversation banner (branch-relation
+   visualisation is a spec non-goal). */
+.fork-toast {
+  position: fixed;
+  left: 16px;
+  top: 16px;
+  z-index: 60;
+  max-width: 20rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border-radius: 1rem;
+  border: 1px solid var(--im-border);
+  background: #fff;
+  padding: 10px 14px;
+  box-shadow: 0 14px 36px -18px rgba(0, 0, 0, 0.45);
+  font-size: 12px;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+.fork-toast.show {
+  opacity: 1;
+  transform: none;
+}
+.fork-toast .t-title {
+  font-weight: 600;
+  color: var(--im-text);
+}
+.fork-toast .t-sub {
+  margin-top: 2px;
+  color: var(--im-text-muted);
+  line-height: 1.4;
 }
 
 .chat-bubble--user .chat-bubble-card {

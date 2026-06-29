@@ -12,6 +12,7 @@ import {
   createConversation,
   createMessage,
   deleteConversation,
+  forkConversation,
   listConversations,
   listMessages,
   removeParticipant,
@@ -193,6 +194,8 @@ export function ChatWorkspacePageV2() {
   const [showNewGroup, setShowNewGroup] = useState(false);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  // feat-445-M1: fork success toast (top-left, auto-fade); null = hidden.
+  const [forkToast, setForkToast] = useState<boolean>(false);
   const selfUserId = useAuthStore((s) => s.user?.id ?? null);
   const accessToken = useAuthStore((s) => s.accessToken ?? "");
 
@@ -585,6 +588,33 @@ export function ChatWorkspacePageV2() {
     }
   });
 
+  // feat-445-M1: fork from one completed agent reply → new branch chat with history
+  // copied to that point. Mirror the create-direct pattern: invalidate both legacy and
+  // v2 conversation caches, jump into the branch, and surface a brief success toast.
+  const forkMutation = useMutation({
+    mutationFn: (messageId: string) =>
+      forkConversation(conversationId!, messageId),
+    onSuccess: async (conv) => {
+      setSendError(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["chat", "conversations"] }),
+        queryClient.invalidateQueries({ queryKey: ["chat-v2", "conversations"] })
+      ]);
+      navigate(`/chat/${conv.id}`);
+      setForkToast(true);
+    },
+    onError: (err) => {
+      setSendError(err instanceof Error ? err.message : t("chat.messagePane.forkError"));
+    }
+  });
+
+  // Auto-dismiss the fork toast 4s after it appears (matches in-app-toast cadence).
+  useEffect(() => {
+    if (!forkToast) return;
+    const id = setTimeout(() => setForkToast(false), 4000);
+    return () => clearTimeout(id);
+  }, [forkToast]);
+
   // feat-438 决策 4: write operations refresh via react-query invalidation
   // (the backend emits no conversation-metadata WS events). Dissolve additionally
   // leaves the now-deleted conversation for the list empty state.
@@ -629,6 +659,14 @@ export function ChatWorkspacePageV2() {
 
   return (
     <div className="chat-workspace">
+      {forkToast && (
+        <div className="fork-toast show" role="status" aria-live="polite">
+          <div className="min-w-0 flex-1">
+            <p className="t-title">{t("chat.messagePane.forkToastTitle")}</p>
+            <p className="t-sub">{t("chat.messagePane.forkToastSub")}</p>
+          </div>
+        </div>
+      )}
       {sendError && (
         <div className="fixed left-4 top-4 z-50 flex max-w-xs items-start gap-3 rounded-2xl border border-[var(--im-danger)] bg-[oklch(0.98_0.02_25)] px-4 py-3 shadow-lg">
           <div className="min-w-0 flex-1">
@@ -675,6 +713,9 @@ export function ChatWorkspacePageV2() {
             onSend={(text, attachments) => sendMutation.mutate({ text, attachments })}
             sendError={sendError}
             isSending={sendMutation.isPending}
+            isDirectChat={conversationKind === "direct-agent"}
+            agentOnline={headerAgentContext.nodeStatus === "online"}
+            onFork={(messageId) => forkMutation.mutate(messageId)}
             onBack={isMobile ? () => navigate("/chat") : undefined}
             isMobile={isMobile}
             onOpenConfig={
