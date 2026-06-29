@@ -347,13 +347,9 @@ async def test_fork_preserves_failed_delivery_status(tmp_path: Path) -> None:
     assert by_content["ok-reply"].delivery_status == "completed"
 
 
-# ---------------------------------------------------------------------------
-# feat-445-M2 W1: fork 复制保留完整气泡形态（tool_calls + thinking），非只纯文本
-# ---------------------------------------------------------------------------
-
-
 @pytest.mark.asyncio
 async def test_fork_copies_tool_calls_and_thinking(tmp_path: Path) -> None:
+    # feat-445-M2 W1: fork 复制保留完整气泡形态（tool_calls + thinking），非只纯文本。
     from IM.domain.models import ToolCall
 
     service, conversations, messages, human, agent_user, conv = _setup(tmp_path)

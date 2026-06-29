@@ -9,17 +9,17 @@
 
 ## 退出标准（= 8 缺陷各修 + 守护）
 
-- [ ] #1 fork up_to 用 `flush_async` 不阻塞事件循环
-- [ ] #2 up_to 路径不长持 source_lock（agent 忙时 fork 不超时），附安全性论证
-- [ ] #3 长对话(>200)fork 取全量历史：早期 fork 点不报 400、分支展示=记忆
-- [ ] #4 新分支会话在 binding 成功前不暴露/不会因回滚吞用户消息（编排重排）
-- [ ] #5 递归 fork 复制气泡不再 502（分支 IM 行 kernel_message_id == 分支 JSONL uuid）
-- [ ] #6 回滚受保护（不吞原异常、捕 BaseException/CancelledError、不留幽灵会话）
-- [ ] #7 fork 按钮 in-flight 禁用、双击不产生两条分支
-- [ ] #8 复制气泡保留源 delivery_status（failed 不被改写为 completed）
-- [ ] 防御: jsonl_store up_to 命中加 role=='assistant' 守卫
-- [ ] W1 tool_calls+thinking 复制单测；W2 fork 登记 e2e-critical-paths.md + 永久 e2e；群聊源→400 后端单测
-- [ ] `pytest -m "not e2e"` 全树 + 前端 vitest 不回归；真栈复跑边缘路径通
+- [x] #1 fork up_to 用 `flush_async` 不阻塞事件循环
+- [x] #2 up_to 路径不长持 source_lock（agent 忙时 fork 不超时），附安全性论证
+- [x] #3 长对话(>200)fork 取全量历史：早期 fork 点不报 400、分支展示=记忆
+- [x] #4 新分支会话在 binding 成功前不暴露/不会因回滚吞用户消息（编排重排）
+- [x] #5 递归 fork 复制气泡不再 502（分支 IM 行 kernel_message_id == 分支 JSONL uuid）
+- [x] #6 回滚受保护（不吞原异常、捕 BaseException/CancelledError、不留幽灵会话）
+- [x] #7 fork 按钮 in-flight 禁用、双击不产生两条分支
+- [x] #8 复制气泡保留源 delivery_status（failed 不被改写为 completed）
+- [x] 防御: jsonl_store up_to 命中加 role=='assistant' 守卫
+- [x] W1 tool_calls+thinking 复制单测；W2 fork 登记 e2e-critical-paths.md + 永久 e2e；群聊源→400 后端单测
+- [x] `pytest -m "not e2e"` 全树 + 前端 vitest 不回归；真栈复跑边缘路径通
 
 ## 测试策略
 

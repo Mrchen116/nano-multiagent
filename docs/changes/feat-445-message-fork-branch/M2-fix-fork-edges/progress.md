@@ -62,4 +62,20 @@ CONFIRMED fork 边缘缺陷 + 防御 + W1/W2 + 群聊400。每条配回归红→
 - Commits: 单 commit（test + e2e + doc）。
 - Next: R6 live 真栈边缘路径复跑。
 
-<!-- 每个 roadpoint 完成后实时追加 -->
+### R6 — live 真栈边缘路径复跑
+
+- 起栈: `scripts/e2e-up.sh`（真 IM + Gateway 进程内 kernel + 真 LLM proxy:4000，auto-bind），4 agent online。
+- live 验证（真栈，非 stub）:
+  - **#5 递归 fork（round-1 头号 major bug）**: fork→branch1，branch1 复制气泡 kernel id 已**重映射**（`msg_e535…` ≠ 源 `msg_d6dd…`）；从该复制气泡递归 fork → **201（不再 502）**→ branch2 agent 答出 `MANGO-5`（记忆经映射后的分支 session 续上）。
+  - **#2 agent 忙时 fork**: 源 agent 有活跃 run（bash sleep 10）时 fork 较早回复 → **201，0.0s**（不阻塞在 source_lock）。
+  - **#7 双击**: 浏览器（playwright）双击 fork 按钮 → 会话数 delta = **1**（只建一条分支，非两条）；零 console error；截图 `ACCEPTANCE/feat-445-M2/r6-doubleclick-after.png`。
+  - **永久 e2e 守护**: `tests/e2e/critical_paths/test_message_fork_critical_path.py` 真栈 `NANO_MULTIAGENT_RUN_LIVE_PROXY_E2E=1` → **1 passed**（断言分支 agent 真答出 codeword + 排除 fork 点后消息 + 原会话不变；该断言 stub 无法伪造 → 真 live 往返证据）。
+- 单测确定性已证、live 复跑不现实（如实说明，非 env 受阻）:
+  - **#3 长对话 >200**: `test_fork_at_end_of_long_conversation_copies_full_history`（260 条全量复制）+ `test_fork_point_outside_last_200_is_found`。live 跑 200+ 真 LLM 轮成本不现实；修复在纯读路径（`list_all_messages`），单测确定性覆盖。
+  - **#6 RPC 失败回滚**: 离线 409 路径 M1 已 live 验证；RPC 超时回滚 + CancelledError + 受保护 delete 由单测确定性覆盖（live 触发 RPC-fail-after-online-pass 是 race，不可确定性构造）。
+- Evidence:
+  - Entry: 真栈 API（recursive/busy 经真 gateway+kernel+LLM）+ 真浏览器（双击）+ 永久 e2e。
+  - Visual: `ACCEPTANCE/feat-445-M2/r6-doubleclick-after.png`（分支带 MANGO 历史 + toast + 复制气泡可递归 fork）。
+  - E2E/Regression: 见收尾门禁（全树 + ruff）。
+- Commits: live 验证无代码改动（前 5 roadpoint 已交付），证据入本段。
+- Next: milestone DONE → 报 lead 集成。
