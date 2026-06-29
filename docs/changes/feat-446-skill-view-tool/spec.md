@@ -48,12 +48,21 @@
   A(原话): 好（指 use_count + last_used_at only）
   Agent 解读: 只追踪 use_count 和 last_used_at。不区分 view/use（hermes 自己也不区分），patch_count 由 skill_manage 写侧追踪。
 
-- Q5: /skill:<name> 斜杠命令是否也走 skill_view?
-  (未单独问，逻辑推导) 斜杠命令重写后的文案从引导 read 改为引导 skill_view，统一路径。
+- Q5: /skill:<name> 斜杠命令现在重写为 `Use the "<name>" skill for this request.`，模型随后用 `read` 读 SKILL.md。改完后这条路径也走 `skill_view` 吗？
+  我的推荐：是。斜杠命令重写后的文案改为引导模型调 `skill_view` 而非 `read`。这样无论用户手动 `/skill-name` 还是模型自动调用，都走同一条路径，统计和 compaction 注册都能覆盖到。
+  反方：斜杠命令是用户显式触发，语义上和模型主动 view 不同。但追踪的目的是知道"skill 被用了"，不管谁触发的都该算。
+  A(原话): （用户未单独回答此问题，但从上下文确认了 skill_view 替代 read 的方向，此问题作为逻辑推导写入 spec）
+  Agent 解读: 统一路径。formatter.py 的引导文案和斜杠命令重写都指向 skill_view。
 
-- Q6: Curator 触发方式?
+- Q6: 你项目有 self_improvement.py（后台 review），但没有 hermes 的 Curator（定期扫描 skill 生命周期）。现在 use_count / last_used_at 写了之后没有消费者。是先追踪后补 Curator，还是这次一起补?
+  A(原话): 那这次把curator机制也补上
+  Agent 解读: scope 扩大，Curator 纳入本 unit。
+
+- Q7: Curator 的触发方式——hermes 是"agent 空闲 + 距上次超过 7 天"时触发。Curator 是独立定时触发（hermes 的方式），还是挂在 self_improvement 里一起跑?
+  我的推荐：独立。理由：Curator 是确定性扫描（检查时间戳，不需要 LLM），和 background review（LLM 审视）职责不同。混在一起会让 self_improvement 更复杂。
+  反方：独立意味着要加新的调度机制（cron 或 heartbeat 触发）。挂在 self_improvement 里可以复用现有触发链路。
   A(原话): 这要学习hermes的设计
-  Agent 解读: 按 hermes 架构——periodic 触发（CLI 启动时 + Gateway housekeeping loop），内部 7 天门控，确定性扫描（不调 LLM）。30 天未用 → stale，90 天 → archived（物理移到 .archive/）。pinned skill 跳过。
+  Agent 解读: 读了 hermes 源码确认触发方式——CLI 启动时 daemon 线程调 `maybe_run_curator(idle_for_seconds=inf)`，Gateway 挂在 housekeeping loop 每 N tick 调一次。两者都传 `idle_for_seconds=inf`（始终 eligible），真正门控在 Curator 内部的 `config.interval_hours`（默认 7 天）。Curator 本身是确定性扫描：遍历所有 skill 的 last_used_at，30 天 → stale，90 天 → archived（物理移到 .archive/）。pinned skill 跳过。和 per-turn 的 self_improvement（LLM review）完全独立。
 
 ## 用户场景
 
