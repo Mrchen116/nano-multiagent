@@ -320,37 +320,60 @@ class WebIMService:
         # the gateway's source→branch re-stamp map, so a recursive fork from a copied bubble
         # resolves in the branch session (no 502). None when the source turn was compacted
         # out of the as-of-M view → that bubble is simply not forkable in the branch.
+        # feat-445-M3 清理-4: a missing id_map key (gateway version drift) silently mapped
+        # every copied bubble to None → branch recursive-fork all dead, no signal. Accept the
+        # None semantics but make the degradation observable.
+        if "id_map" not in result:
+            _log.warning(
+                "fork: gateway result missing 'id_map' (version drift?); copied bubbles "
+                "will have no kernel anchor and the branch will not be recursively forkable "
+                "(new_session=%s)",
+                result.get("new_session_id"),
+            )
         id_map = result.get("id_map") or {}
-        for message in history[: fork_index + 1]:
-            sender_user_id = (
-                actor_user_id if message.sender_type == "user" else agent.user_id
-            )
-            branch_kernel_id = (
-                id_map.get(message.kernel_message_id)
-                if message.kernel_message_id
-                else None
-            )
-            copied = self._messages.create_message(
-                conversation_id=new_conversation.id,
-                sender_user_id=sender_user_id,
-                content=message.content,
-                sender_type=message.sender_type,
-                attachments=message.attachments,
-                tool_calls=message.tool_calls,
-                token_usage=message.token_usage,
-                kernel_message_id=branch_kernel_id,
-                delivery_status=message.delivery_status,  # #8: preserve source state
-                auto_complete_delivery=True,
-                allow_empty=True,
-            )
-            # Preserve the thinking segments so the branch回看 keeps the full bubble.
-            for segment in sorted(
-                message.thinking or [],
-                key=lambda s: s.seq if s.seq is not None else 0,
-            ):
-                self._messages.append_thinking_segment(
-                    message_id=copied.id, text=segment.text
+        # feat-445-M3 清理-2: copy runs AFTER binding (#4 reorder); a mid-copy failure would
+        # otherwise leave the branch half-copied with the kernel session already bound (no
+        # unbind RPC). Roll the branch back and flag the now-orphaned kernel session.
+        try:
+            for message in history[: fork_index + 1]:
+                sender_user_id = (
+                    actor_user_id if message.sender_type == "user" else agent.user_id
                 )
+                branch_kernel_id = (
+                    id_map.get(message.kernel_message_id)
+                    if message.kernel_message_id
+                    else None
+                )
+                copied = self._messages.create_message(
+                    conversation_id=new_conversation.id,
+                    sender_user_id=sender_user_id,
+                    content=message.content,
+                    sender_type=message.sender_type,
+                    attachments=message.attachments,
+                    tool_calls=message.tool_calls,
+                    token_usage=message.token_usage,
+                    kernel_message_id=branch_kernel_id,
+                    delivery_status=message.delivery_status,  # #8: preserve source state
+                    auto_complete_delivery=True,
+                    allow_empty=True,
+                )
+                # Preserve the thinking segments so the branch回看 keeps the full bubble.
+                for segment in sorted(
+                    message.thinking or [],
+                    key=lambda s: s.seq if s.seq is not None else 0,
+                ):
+                    self._messages.append_thinking_segment(
+                        message_id=copied.id, text=segment.text
+                    )
+        except BaseException:
+            self._rollback_fork(new_conversation.id, actor_user_id)
+            _log.warning(
+                "fork: display-history copy failed after binding; rolled back branch "
+                "conversation %s; kernel session %s is now an unreferenced orphan",
+                new_conversation.id,
+                result.get("new_session_id"),
+            )
+            raise
         return new_conversation
 
     def _rollback_fork(self, conversation_id: str, actor_user_id: str) -> None:
@@ -364,7 +387,11 @@ class WebIMService:
             self._conversations.delete_conversation(
                 conversation_id=conversation_id, requester_id=actor_user_id
             )
-        except Exception:
+        except BaseException:
+            # feat-445-M3 清理-3: catch BaseException (symmetric with the caller's
+            # `except BaseException`), so even a CancelledError raised mid-delete is logged
+            # as a warning rather than propagating and masking the original fork error /
+            # silently leaving a ghost conversation with no signal.
             _log.warning(
                 "fork rollback: failed to delete branch conversation %s",
                 conversation_id,

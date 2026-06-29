@@ -51,7 +51,9 @@ def _online():
 
 
 def _ok_fork(id_map=None, *, with_id_map: bool = True):
-    async def _req(*, agent_id, source_conversation_id, new_conversation_id, fork_message_id):
+    async def _req(
+        *, agent_id, source_conversation_id, new_conversation_id, fork_message_id
+    ):
         result = {"ok": True, "new_session_id": "ksess-new"}
         if with_id_map:
             result["id_map"] = id_map or {}
@@ -90,7 +92,10 @@ def test_create_message_delivered_event_reflects_failed_status(tmp_path: Path) -
 async def test_copy_failure_after_binding_rolls_back(tmp_path: Path) -> None:
     service, conversations, messages, human, agent_user, conv, _ = _setup(tmp_path)
     messages.create_message(
-        conversation_id=conv.id, sender_user_id=human.id, content="u1", sender_type="user"
+        conversation_id=conv.id,
+        sender_user_id=human.id,
+        content="u1",
+        sender_type="user",
     )
     a1 = messages.create_message(
         conversation_id=conv.id,

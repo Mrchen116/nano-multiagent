@@ -1322,9 +1322,13 @@ class AgentRuntime:
             # R1): source JSONL is append-only and any concurrent run only appends AFTER
             # the current tail (i.e. after M); up_to truncates at M so those later entries
             # are discarded regardless; line writes are atomic and we flushed first, so the
-            # as-of-M slice is consistent without the lock. Holding the lock here instead
-            # made fork block for minutes whenever the source agent had an active run →
-            # gateway 10s timeout → 502 (#2 root cause).
+            # as-of-M slice is consistent without the lock. feat-445-M3 清理-6: the same
+            # holds for a concurrent compaction — it too only appends (a compact_boundary +
+            # summary turn) AFTER M, and store.load applies up_to truncation BEFORE the
+            # boundary scan, so a boundary appended past M is sliced off and never affects
+            # the as-of-M view → no compact race either. Holding the lock here instead made
+            # fork block for minutes whenever the source agent had an active run → gateway
+            # 10s timeout → 502 (#2 root cause).
             return await self._fork_locked(
                 source_session_id, result.config, list(result.messages)
             )

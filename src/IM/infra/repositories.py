@@ -1049,12 +1049,18 @@ class MessageRepository:
                 )
             )
             if auto_complete_delivery:
+                # feat-445-M3 清理-1: the delivered event must carry the message's actual
+                # terminal status (final_status), not a hardcoded "completed". fork copies a
+                # source "failed" bubble with delivery_status="failed" + auto_complete=True;
+                # hardcoding "completed" here made a subscriber see the bubble flash completed
+                # then flip back to failed on refresh (the DB UPDATE below already uses
+                # final_status — this kept the SSE event out of sync).
                 pending_live_events.append(
                     self._insert_event(
                         conversation_id=conversation_id,
                         message_id=message_id,
                         event_type="message.delivered",
-                        delivery_status="completed",
+                        delivery_status=final_status,
                         payload={
                             **sent_payload,
                             "progress_state": "completed",
