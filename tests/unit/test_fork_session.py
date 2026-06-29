@@ -419,3 +419,87 @@ async def test_fork_preserves_reasoning_content_and_signature(tmp_path: Path) ->
     assert len(carried) == 1, "forked history must retain the reasoning-bearing message"
     assert carried[0].reasoning_content == "step-by-step chain of thought"
     assert carried[0].reasoning_signature == "sig-deadbeef-4340"
+
+
+# ---------------------------------------------------------------------------
+# feat-445-M2 R1: fork up_to 不阻塞事件循环 + 不长持 source_lock + role 守卫
+# ---------------------------------------------------------------------------
+
+
+async def test_fork_up_to_uses_async_flush_not_blocking(tmp_path: Path) -> None:
+    """#1: up_to fork 的前置 flush 必须用 async 版（不阻塞事件循环），不调同步 flush()。"""
+    import asyncio
+
+    runtime = _make_runtime(tmp_path)
+    manager = runtime._session_manager
+    src = manager.create_session(workspace_root=tmp_path).session_id
+    p = _append_chain_turn(
+        manager, src, role="user", content="u1", message_id="u1", parent_uuid=None
+    )
+    _append_chain_turn(
+        manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p
+    )
+    manager.store.writer.flush()  # real, get a1 on disk before we spy
+
+    called = {"sync": 0, "async": 0}
+    orig_async = manager.store.writer.flush_async
+
+    def spy_sync(*a, **k):
+        called["sync"] += 1
+
+    async def spy_async(*a, **k):
+        called["async"] += 1
+        return await orig_async(*a, **k)
+
+    manager.store.writer.flush = spy_sync  # type: ignore[method-assign]
+    manager.store.writer.flush_async = spy_async  # type: ignore[method-assign]
+
+    await asyncio.wait_for(runtime.fork_session(src, up_to="a1"), timeout=3.0)
+    assert called["sync"] == 0, "up_to fork must NOT call the blocking sync flush()"
+    assert called["async"] >= 1, "up_to fork must flush via the async flush_async()"
+
+
+async def test_fork_up_to_does_not_block_on_busy_source_lock(tmp_path: Path) -> None:
+    """#2: 源 session 锁被活跃 run 持有时，up_to fork 仍须及时完成（该路径数据全来自磁盘，
+    不依赖源内存、不写源 → 锁对它无正确性意义，绝不能阻塞在锁上 → 否则 agent 忙时 fork 必超时）。"""
+    import asyncio
+
+    runtime = _make_runtime(tmp_path)
+    manager = runtime._session_manager
+    src = manager.create_session(workspace_root=tmp_path).session_id
+    p = _append_chain_turn(
+        manager, src, role="user", content="u1", message_id="u1", parent_uuid=None
+    )
+    _append_chain_turn(
+        manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p
+    )
+    manager.store.writer.flush()
+
+    # Simulate a busy source session: an active run holds its lock the whole time.
+    runtime._session_locks[src] = asyncio.Lock()
+    async with runtime._session_locks[src]:
+        forked = await asyncio.wait_for(
+            runtime.fork_session(src, up_to="a1"), timeout=3.0
+        )
+    assert forked.session_id != src
+    assert [m.content for m in runtime._session_histories[forked.session_id]] == [
+        "u1",
+        "a1",
+    ]
+
+
+async def test_fork_up_to_non_assistant_message_rejected(tmp_path: Path) -> None:
+    """防御: up_to 命中非 assistant turn（如 user 消息）须显式报错，不静默 fork 错位。"""
+    runtime = _make_runtime(tmp_path)
+    manager = runtime._session_manager
+    src = manager.create_session(workspace_root=tmp_path).session_id
+    p = _append_chain_turn(
+        manager, src, role="user", content="u1", message_id="u1", parent_uuid=None
+    )
+    _append_chain_turn(
+        manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p
+    )
+    manager.store.writer.flush()
+
+    with pytest.raises(Exception):
+        await runtime.fork_session(src, up_to="u1")
