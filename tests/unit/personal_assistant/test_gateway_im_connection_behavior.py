@@ -166,6 +166,63 @@ def test_im_connection_replies_with_live_agent_config_snapshot(tmp_path: Path) -
     }
 
 
+def test_im_connection_dispatches_session_fork_request(tmp_path: Path) -> None:
+    """feat-445-M1 R3: a session.fork.request frame is routed to the injected handler,
+    and its result is echoed back as session.fork.result with the request_id."""
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    socket = _FakeWebSocket(
+        incoming=[
+            json.dumps({"type": "ack", "payload": {"message_type": "node.register"}}),
+            json.dumps(
+                {
+                    "type": "session.fork.request",
+                    "payload": {
+                        "request_id": "fork-req-1",
+                        "source_conversation_id": "conv-src",
+                        "new_conversation_id": "conv-new",
+                        "agent_id": "agent-a",
+                        "fork_point": {"message_id": "a3"},
+                    },
+                }
+            ),
+        ]
+    )
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    seen: list[dict] = []
+
+    async def fork_handler(payload):
+        seen.append(dict(payload))
+        return {"ok": True, "new_session_id": "ksess-new"}
+
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        session_fork_handler=fork_handler,
+        connect=lambda url, headers: _connect_fake(socket, [], url, headers),
+    )
+
+    async def _exercise() -> None:
+        await manager.connect_once()
+        await manager._listen_once()  # noqa: SLF001 - ack node.register
+        await manager._listen_once()  # noqa: SLF001 - session.fork.request
+        await manager.close()
+
+    asyncio.run(_exercise())
+
+    assert seen and seen[0]["fork_point"]["message_id"] == "a3"
+    response_frame = json.loads(socket.sent[-1])
+    assert response_frame["type"] == "session.fork.result"
+    assert response_frame["payload"]["request_id"] == "fork-req-1"
+    assert response_frame["payload"]["ok"] is True
+    assert response_frame["payload"]["new_session_id"] == "ksess-new"
+
+
 def test_im_connection_sends_periodic_node_heartbeats_while_connected(
     tmp_path: Path,
 ) -> None:
