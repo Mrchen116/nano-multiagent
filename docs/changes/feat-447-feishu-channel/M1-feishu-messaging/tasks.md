@@ -34,7 +34,7 @@ Gateway 新增飞书 channel adapter（FeishuAdapter + FeishuClient），通过�
 
 ## Roadpoints
 
-### R1 — 飞书 config 解析 + lark-oapi 依赖
+### R1 — 飞书 config 解析 + lark-oapi 依赖 `DONE`
 
 - 步骤:
   1. C1: 写 config 飞书 accounts 解析测试（正常解析 + 缺字段报错 + 禁用 accounts 不注册）
