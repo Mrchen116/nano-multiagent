@@ -1009,7 +1009,7 @@ describe("ToolCallsPanel · failed calls with start-side detail", () => {
 
   async function open() {
     const user = userEvent.setup();
-    await user.click(screen.getByRole("button", { name: /tool call/i }));
+    await user.click(screen.getByRole("button", { name: /过程|process|tool call/i }));
   }
 
   it("keeps an interrupted agent prompt visible without rendering the completed result body", async () => {

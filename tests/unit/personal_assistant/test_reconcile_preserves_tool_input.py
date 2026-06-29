@@ -191,11 +191,19 @@ def test_reconcile_preserves_running_presentation_for_history_replay() -> None:
         assert tc["detail"] == presentation["detail"]
         assert tc["emoji"] == presentation["emoji"]
     assert completed_by_id["call-bash"]["detail"]["command"] == "sleep 999 && echo done"
-    assert completed_by_id["call-agent"]["detail"]["prompt"] == "check the deployment status"
-    assert completed_by_id["call-search"]["detail"]["query"] == "nano multiagent bugfix 441"
+    assert (
+        completed_by_id["call-agent"]["detail"]["prompt"]
+        == "check the deployment status"
+    )
+    assert (
+        completed_by_id["call-search"]["detail"]["query"]
+        == "nano multiagent bugfix 441"
+    )
 
 
-def test_reconcile_stop_content_overrides_output_but_keeps_presentation_detail() -> None:
+def test_reconcile_stop_content_overrides_output_but_keeps_presentation_detail() -> (
+    None
+):
     manager = _FakeManager()
     run_ctx = {
         "run-1": {
