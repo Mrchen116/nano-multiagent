@@ -275,3 +275,72 @@ async def test_fork_cross_tenant_not_found(tmp_path: Path) -> None:
             check_agent_online=_online(None),
             request_fork=_ok_fork([]),
         )
+
+
+# ---------------------------------------------------------------------------
+# feat-445-M2 R2 (#3): 长对话(>200)fork 取全量历史，不被 list_messages 的 200 上限截断
+# ---------------------------------------------------------------------------
+
+
+def _seed_long(messages: MessageRepository, conv_id, human, agent_user, n_pairs: int):
+    """Seed n_pairs (user, agent-with-kernel-id) message pairs. Returns the agent msgs."""
+    agents = []
+    for i in range(n_pairs):
+        messages.create_message(
+            conversation_id=conv_id,
+            sender_user_id=human.id,
+            content=f"u{i}",
+            sender_type="user",
+        )
+        a = messages.create_message(
+            conversation_id=conv_id,
+            sender_user_id=agent_user.id,
+            content=f"a{i}",
+            sender_type="agent",
+            kernel_message_id=f"kmsg-{i}",
+            allow_empty=True,
+        )
+        agents.append(a)
+    return agents
+
+
+@pytest.mark.asyncio
+async def test_fork_point_outside_last_200_is_found(tmp_path: Path) -> None:
+    """fork 点在末 200 之外（早期 agent 回复）→ 不再报 400「消息不存在」，分支精确到该点。"""
+    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    agents = _seed_long(messages, conv.id, human, agent_user, n_pairs=130)  # 260 msgs
+    early = agents[1]  # index ~3 in timeline — far outside the last 200
+
+    new_conv = await service.fork_conversation(
+        source_conversation_id=conv.id,
+        fork_message_id=early.id,
+        owner_id=human.owner_id,
+        actor_user_id=human.id,
+        check_agent_online=_online(None),
+        request_fork=_ok_fork([]),
+    )
+    copied = messages.list_all_messages(conversation_id=new_conv.id)
+    # branch = u0,a0,u1,a1 (start..early inclusive)
+    assert [m.content for m in copied] == ["u0", "a0", "u1", "a1"]
+
+
+@pytest.mark.asyncio
+async def test_fork_at_end_of_long_conversation_copies_full_history(tmp_path: Path) -> None:
+    """对话 >200 条、fork 末尾 → 分支复制起点→fork 点**全部**消息（展示=记忆，非只末 200）。"""
+    service, conversations, messages, human, agent_user, conv = _setup(tmp_path)
+    agents = _seed_long(messages, conv.id, human, agent_user, n_pairs=130)  # 260 msgs
+    last = agents[-1]
+
+    new_conv = await service.fork_conversation(
+        source_conversation_id=conv.id,
+        fork_message_id=last.id,
+        owner_id=human.owner_id,
+        actor_user_id=human.id,
+        check_agent_online=_online(None),
+        request_fork=_ok_fork([]),
+    )
+    copied = messages.list_all_messages(conversation_id=new_conv.id)
+    # all 260 messages carried (not truncated to the last 200)
+    assert len(copied) == 260
+    assert copied[0].content == "u0"  # earliest message present
+    assert copied[-1].content == "a129"
