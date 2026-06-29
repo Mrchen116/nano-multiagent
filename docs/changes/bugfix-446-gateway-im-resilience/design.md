@@ -98,7 +98,7 @@ sequenceDiagram
 
 - **理由**: 内层（`run_forever`）消化 99% 的瞬态故障，保留退避节奏与连接状态；外层（main 协程 watchdog）只在内层因未预料到的原因退出时重建它，正好补 issue 漏掉的"维护循环静默死亡"缺口。
 - **拒绝**: ① 只内层——将来某条新路径漏出 `BaseException` 仍成僵尸；② 只外层反复重建——丢退避节奏、每次从头 register、连接抖动放大。
-- **风险**: watchdog 若遇"连上即崩"会 busy-loop → 见决策 1 实现，watchdog 重建套独立退避 + 计数。
+- **风险**: watchdog 若遇"连上即崩"会 busy-loop → watchdog 重建**复用 `IMConnectionConfig` 退避参数（initial=1s/max=60s）** + 连续失败计数，不另造一套（详见风险段）。
 
 ### 决策 2: `run_forever` 异常边界 — 显式分流 CancelledError / Exception
 
@@ -115,6 +115,8 @@ sequenceDiagram
 - **理由**: `run_forever` 首迭代本就 connect（现状分析），eager 调用冗余且是 issue 路径 1/2 的致命源。`ensure_node_binding` 对已绑定节点 `return None` 幂等，且其所有失败分支（节点未就绪、bind 端点不可达）都是 IM 重启/断网期的**瞬态**条件——继续当 `GatewayStartupError` 致命会直接打死 Gateway。并入 `on_connected`（已是非致命：错误记事件并吞掉）后，binding 在每次成功连上时自愈重试，首连失败也只是等下次重连。`_ready_event` 现状已在 connect 前 set，就绪与 IM 解耦，无需改动。
 - **拒绝**: ① 保留 eager 调用但仅扩 catch 范围——仍把 binding 钉在启动关键路径，断网期启动就卡；② 完全删 binding——丢失首次 owner 绑定能力。
 - **风险**: 真正不可绑定（owner 冲突）的节点不再阻断启动，改为持续 degraded + feedback 提示；本地自治仍可用。少量断言旧启动顺序的单测/e2e 需随之更新（见风险段）。
+
+> **必须配套（保 feat-393 不变量）**：移除 eager `connect_once()` 后，心跳投递 observer（`main.py:3434`，`not manager.connected` 时静默丢弃投递）会在"心跳首 tick 早于首次握手完成"的启动窗口丢掉投递——这正是 feat-393（`main.py:1592-1596`）修过的 bug。eager connect 当年正是它的隐式护栏。**配套修法**：心跳 `start()` 不再裸跑，改为先等"首次连接尝试已落定（成功或失败均可，带上限超时）"再放行首 tick。IM 可达时首尝试很快成功 → 心跳 connected 起步，feat-393 不变量保住；IM 不可达时首尝试失败即放行 → 决策 3 的启动顺序不敏感保住（此时本就无法投递，行为正确）。这把"等待握手"与"启动依赖 IM 可用"解耦——只等"尝试落定"，不等"必须连上"。
 
 ### 决策 4: 心跳调度 tick 兜底 + 可观测
 
@@ -147,7 +149,7 @@ sequenceDiagram
 - **`IMConnectionManager.run_forever`**（`im_connection.py`）：循环体异常处理由单一 `except Exception` 改为 `except CancelledError`(先 `_mark_disconnected` 清理再 `raise`) + `except Exception`(`_mark_disconnected` → 退避 sleep → 退避翻倍封顶)。首连仍由循环内 `if not connected: connect_once()` 承担（不变）。
 - **`Gateway._run_until_shutdown`**（`main.py`）：删除 eager `connect_once()` 与 eager `_post_im_connect` 调用块；`im_task` 创建后改为由一个 watchdog 监督——主协程不再裸 `await shutdown_requested.wait`，而是等待 "shutdown 信号" 与 "im_task 完成" 二者竞速；当 im_task 在未请求 shutdown 时结束/异常，记录并按独立退避重建 im_task。finally 内 `_await_background_task(im_task)` 包 try/except 吞异常。
 - **`on_connected` 回调组合**（`main.py` 装配处）：现有 reconcile 之外，前置幂等的 node-binding（`ensure_node_binding`）；整体仍走连接层 `on_connected` 的非致命包装（错误记 `on_connected_error` 事件并吞）。`GatewayStartupError` 经 `_publish_startup_failure` 发 degraded feedback，但不再 re-raise。
-- **`PollingHeartbeatRunner._run_loop`**（`main.py`）：`await self._scheduler.tick()` 包 try/except（记录后靠循环尾部的 interval 等待自然进入下一轮）；`start()` 创建的 task 挂 done callback。
+- **`PollingHeartbeatRunner._run_loop` / `start`**（`main.py`）：`await self._scheduler.tick()` 包 try/except（记录后靠循环尾部的 interval 等待自然进入下一轮）；`start()` 创建的 task 挂 done callback。**并配套决策 3 的 feat-393 护栏**：首 tick 前等"首次连接尝试落定"信号——连接层（`IMConnectionManager`）暴露一个 `asyncio.Event`，在第一次 connect 尝试 resolve（成功或异常）后 set；心跳启动以该 Event 为前置（带上限超时兜底，防 connect 挂死）。该信号仅 gating 首 tick，不改变 local-autonomy（IM 不可达时该 Event 仍会因首尝试失败而 set，心跳照常起步）。
 
 跨模块调用顺序无新增；时序见 §架构总览。无数据结构 / schema 变更。
 
@@ -161,6 +163,7 @@ sequenceDiagram
 ## 风险与回退
 
 - **旧启动顺序断言**：移除 eager connect/binding 后，断言"启动即已连 IM / 启动期 binding 抛错即失败"的单测或 e2e 会失效。应对：worker 在 M1 内同步更新这些测试到新语义（就绪 = 本地起，连接 = 后台自愈）；这是预期的契约修正，非回归。
+- **feat-393 心跳投递护栏回退**（design-review 复核新增）：移除 eager connect 抽走了 feat-393 的隐式护栏——心跳投递 observer（`main.py:3434`）在 `not connected` 时静默丢投递，启动时心跳首 tick 可能早于首次握手完成而丢投递。应对：决策 3 配套修法——心跳 `start()` 等"首次连接尝试落定"信号再放行首 tick（IM 不可达时首尝试失败即放行，不破坏启动顺序不敏感）。M1 退出标准含该护栏的回归单测。
 - **watchdog busy-loop**：内层崩溃即被外层重建，若遇"连上即崩"会快速空转。应对：watchdog 重建套独立退避（复用 `IMConnectionConfig` 退避上限）+ 连续失败计数，避免 CPU 空转刷日志。
 - **degraded 而非 fail-fast 的 binding**：owner 冲突等真错误不再阻断启动，可能被用户忽略。应对：保留 `_publish_startup_failure` 的 feedback 输出（醒目 degraded），并在节点状态上可见。
 - **CI 无法真休眠**：用连接重置等价替代（决策 5），e2e 注释说明等价性与局限。
@@ -185,4 +188,4 @@ sequenceDiagram
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| bugfix-446-M1 | resilience | — | A | `src/personal_assistant/ws/im_connection.py`、`src/personal_assistant/main.py`、`tests/unit/personal_assistant/`（连接层 + 主循环测试）、e2e 脚本 + `docs/e2e-critical-paths.md`、`docs/specs/gateway/spec.md`（收尾归并 delta） | `[reviewer]` 休眠/断网/IM 重启后节点自动回 online、无需手动重启（覆盖 delta-spec MODIFIED「断线重连」三新增 Scenario）；`[reviewer]` Gateway 先于 IM 启动不崩、IM 起后自动连上（覆盖 ADDED「启动顺序不敏感」）；`[worker]` 每条逃逸路径（首连/`_post_im_connect`/finally/tick/`CancelledError`/`set_exception`）有单测覆盖，注入 connect/send 异常断言重连与清理；`[worker]` watchdog 重建在 im_task 非 stop 退出时触发的单测；`[worker]` e2e 真栈脚本覆盖 kill/restart IM + 启动早于 IM 两场景并登记 `docs/e2e-critical-paths.md`；`[worker]` `pytest -m "not e2e"` 相关子树 + `ruff check`/`ruff format` 全绿 |
+| bugfix-446-M1 | resilience | — | A | `src/personal_assistant/ws/im_connection.py`、`src/personal_assistant/main.py`、`tests/unit/personal_assistant/`（连接层 + 主循环测试）、e2e 脚本 + `docs/e2e-critical-paths.md`、`docs/specs/gateway/spec.md`（收尾归并 delta） | `[reviewer]` 休眠/断网/IM 重启后节点自动回 online、无需手动重启（覆盖 delta-spec MODIFIED「断线重连」三新增 Scenario）；`[reviewer]` Gateway 先于 IM 启动不崩、IM 起后自动连上（覆盖 ADDED「启动顺序不敏感」）；`[worker]` 每条逃逸路径（首连/`_post_im_connect`/finally/tick/`CancelledError`/`set_exception`）有单测覆盖，注入 connect/send 异常断言重连与清理；`[worker]` watchdog 重建在 im_task 非 stop 退出时触发的单测；`[worker]` feat-393 护栏回归：IM 可达时启动，心跳首 tick 的投递不因"早于握手"被丢（断言心跳 start 等到首次连接尝试落定）；`[worker]` e2e 真栈脚本覆盖 kill/restart IM + 启动早于 IM 两场景并登记 `docs/e2e-critical-paths.md`；`[worker]` `pytest -m "not e2e"` 相关子树 + `ruff check`/`ruff format` 全绿 |
