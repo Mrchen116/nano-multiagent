@@ -51,7 +51,7 @@ function msg(over: Partial<Message>): Message {
   };
 }
 
-function renderPane(messages: Message[], opts: { isDirectChat?: boolean; agentOnline?: boolean; onFork?: (id: string) => void } = {}) {
+function renderPane(messages: Message[], opts: { isDirectChat?: boolean; agentOnline?: boolean; onFork?: (id: string) => void; forkPending?: boolean } = {}) {
   return render(
     <MessagePane
       conversation={conv()}
@@ -61,6 +61,7 @@ function renderPane(messages: Message[], opts: { isDirectChat?: boolean; agentOn
       isDirectChat={opts.isDirectChat ?? true}
       agentOnline={opts.agentOnline ?? true}
       onFork={opts.onFork}
+      forkPending={opts.forkPending ?? false}
     />
   );
 }
@@ -112,6 +113,17 @@ describe("MessageBubble fork button gating", () => {
     const onFork = vi.fn();
     renderPane([msg({ id: "off1", kernel_message_id: "kmsg-off1" })], { agentOnline: false, onFork });
     const btn = screen.getByTestId("message-fork-off1") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(onFork).not.toHaveBeenCalled();
+  });
+
+  // feat-445-M2 #7: while a fork is in flight the button is disabled, so a double-click
+  // cannot fire a second POST (which produced two orphan branch chats).
+  it("disables fork while a fork is in flight (no double submit)", () => {
+    const onFork = vi.fn();
+    renderPane([msg({ id: "p1", kernel_message_id: "kmsg-p1" })], { forkPending: true, onFork });
+    const btn = screen.getByTestId("message-fork-p1") as HTMLButtonElement;
     expect(btn.disabled).toBe(true);
     fireEvent.click(btn);
     expect(onFork).not.toHaveBeenCalled();
