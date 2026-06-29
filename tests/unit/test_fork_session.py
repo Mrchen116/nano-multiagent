@@ -179,6 +179,149 @@ async def test_fork_session_persists_to_jsonl(tmp_path: Path) -> None:
     assert result.messages[0].message_id != "msg_user_persist"  # re-stamped
 
 
+def _append_chain_turn(
+    manager: SessionManager,
+    session_id: str,
+    *,
+    role: str,
+    content: str,
+    message_id: str,
+    parent_uuid: str | None,
+) -> str:
+    """Append one linear turn (parent → this) and return its uuid."""
+    manager.append_turn_message(
+        session_id,
+        turn_id="t",
+        role=role,
+        content=content,
+        message_id=message_id,
+        parent_uuid=parent_uuid,
+    )
+    return message_id
+
+
+# ---------------------------------------------------------------------------
+# feat-445-M1 R2: fork_session(up_to=M) — 分支 ≡ 源在 M 的视图（含源当时压缩态）
+# ---------------------------------------------------------------------------
+
+
+async def test_fork_up_to_uncompacted_keeps_all_turns_through_M(tmp_path: Path) -> None:
+    """③ 源未压缩 → 分支 = 到 M 为止的全部 turn（M 之后不带）。"""
+    runtime = _make_runtime(tmp_path)
+    manager = runtime._session_manager
+    src = manager.create_session(workspace_root=tmp_path).session_id
+
+    p = _append_chain_turn(manager, src, role="user", content="u1", message_id="u1", parent_uuid=None)
+    p = _append_chain_turn(manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p)
+    p = _append_chain_turn(manager, src, role="user", content="u2", message_id="u2", parent_uuid=p)
+    p = _append_chain_turn(manager, src, role="assistant", content="a2", message_id="a2", parent_uuid=p)
+    _append_chain_turn(manager, src, role="user", content="u3", message_id="u3", parent_uuid=p)
+    manager.store.writer.flush()
+
+    forked = await runtime.fork_session(src, up_to="a1")
+    hist = runtime._session_histories[forked.session_id]
+
+    assert [m.content for m in hist] == ["u1", "a1"], (
+        f"fork to a1 must keep exactly [u1, a1] (M 之后不带), got {[m.content for m in hist]}"
+    )
+
+
+async def test_fork_up_to_after_boundary_is_summary_plus_kept(tmp_path: Path) -> None:
+    """① 源已压缩、fork boundary 后消息 → 分支 = summary + boundary..M（不还原 compact 前全量）。"""
+    runtime = _make_runtime(tmp_path)
+    manager = runtime._session_manager
+    src = manager.create_session(workspace_root=tmp_path).session_id
+
+    # Pre-compaction turns
+    p = _append_chain_turn(manager, src, role="user", content="u1", message_id="u1", parent_uuid=None)
+    p = _append_chain_turn(manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p)
+    p = _append_chain_turn(manager, src, role="user", content="u2", message_id="u2", parent_uuid=p)
+    p = _append_chain_turn(manager, src, role="assistant", content="a2", message_id="a2", parent_uuid=p)
+    # Compact: boundary + summary turn (parent = first_kept_event_id = a2)
+    manager.append_compaction(src, first_kept_event_id="a2", summary="SUMMARY")
+    manager.store.writer.flush()
+    # The summary turn's uuid is generated internally; recover it from the file to chain onward.
+    result_full = manager.load(src)
+    summary_uuid = next(
+        m.message_id for m in result_full.messages if m.content == "SUMMARY"
+    )
+    # Post-compaction turns chain off the summary
+    p = _append_chain_turn(manager, src, role="user", content="u3", message_id="u3", parent_uuid=summary_uuid)
+    p = _append_chain_turn(manager, src, role="assistant", content="a3", message_id="a3", parent_uuid=p)
+    p = _append_chain_turn(manager, src, role="user", content="u4", message_id="u4", parent_uuid=p)
+    _append_chain_turn(manager, src, role="assistant", content="a4", message_id="a4", parent_uuid=p)
+    manager.store.writer.flush()
+
+    forked = await runtime.fork_session(src, up_to="a3")
+    hist = runtime._session_histories[forked.session_id]
+
+    # M=a3 is after the boundary → view = summary + (boundary..a3); pre-boundary u1/a1/u2/a2 NOT restored.
+    assert [m.content for m in hist] == ["SUMMARY", "u3", "a3"], (
+        f"fork to a3 (after boundary) must be summary+boundary..M, got {[m.content for m in hist]}"
+    )
+
+
+async def test_fork_up_to_before_boundary_ignores_later_boundary(tmp_path: Path) -> None:
+    """② 源已压缩、fork boundary 前老消息 → 只应用 M 之前的 boundary（此处无）→ 到 M 全部 turn。"""
+    runtime = _make_runtime(tmp_path)
+    manager = runtime._session_manager
+    src = manager.create_session(workspace_root=tmp_path).session_id
+
+    p = _append_chain_turn(manager, src, role="user", content="u1", message_id="u1", parent_uuid=None)
+    p = _append_chain_turn(manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p)
+    p = _append_chain_turn(manager, src, role="user", content="u2", message_id="u2", parent_uuid=p)
+    p = _append_chain_turn(manager, src, role="assistant", content="a2", message_id="a2", parent_uuid=p)
+    manager.append_compaction(src, first_kept_event_id="a2", summary="SUMMARY")
+    manager.store.writer.flush()
+    summary_uuid = next(
+        m.message_id for m in manager.load(src).messages if m.content == "SUMMARY"
+    )
+    _append_chain_turn(manager, src, role="user", content="u3", message_id="u3", parent_uuid=summary_uuid)
+    manager.store.writer.flush()
+
+    # Fork to a1, which lies BEFORE the boundary → the boundary (written after a1) is
+    # truncated away → view = all turns up to a1, no summary.
+    forked = await runtime.fork_session(src, up_to="a1")
+    hist = runtime._session_histories[forked.session_id]
+
+    assert [m.content for m in hist] == ["u1", "a1"], (
+        f"fork to a1 (before boundary) must ignore the later boundary, got {[m.content for m in hist]}"
+    )
+    assert all(m.content != "SUMMARY" for m in hist), "must not pull in a boundary after M"
+
+
+async def test_fork_up_to_unknown_message_id_raises(tmp_path: Path) -> None:
+    """up_to 指向不存在的消息 → 大声失败，绝不静默回落（§0.2）。"""
+    runtime = _make_runtime(tmp_path)
+    manager = runtime._session_manager
+    src = manager.create_session(workspace_root=tmp_path).session_id
+    _append_chain_turn(manager, src, role="user", content="u1", message_id="u1", parent_uuid=None)
+    manager.store.writer.flush()
+
+    with pytest.raises(Exception):
+        await runtime.fork_session(src, up_to="nonexistent-msg-id")
+
+
+async def test_fork_up_to_new_session_independent_and_restamped(tmp_path: Path) -> None:
+    """up_to fork 出的会话与源独立、UUID re-stamp、内容保真。"""
+    runtime = _make_runtime(tmp_path)
+    manager = runtime._session_manager
+    src = manager.create_session(workspace_root=tmp_path).session_id
+    p = _append_chain_turn(manager, src, role="user", content="u1", message_id="u1", parent_uuid=None)
+    _append_chain_turn(manager, src, role="assistant", content="a1", message_id="a1", parent_uuid=p)
+    manager.store.writer.flush()
+
+    forked = await runtime.fork_session(src, up_to="a1")
+    fork_id = forked.session_id
+    assert fork_id != src
+    assert forked.metadata.get("forked_from") == src
+
+    # Persisted to its own JSONL, re-stamped (not source uuids)
+    reloaded = manager.load(fork_id)
+    assert [m.content for m in reloaded.messages] == ["u1", "a1"]
+    assert all(m.message_id not in {"u1", "a1"} for m in reloaded.messages), "must re-stamp"
+
+
 async def test_fork_preserves_reasoning_content_and_signature(tmp_path: Path) -> None:
     """Forking must carry reasoning_content / reasoning_signature on assistant messages.
 
