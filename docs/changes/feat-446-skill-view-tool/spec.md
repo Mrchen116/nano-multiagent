@@ -58,6 +58,11 @@
   A(原话): 那这次把curator机制也补上
   Agent 解读: scope 扩大，Curator 纳入本 unit。
 
+- Q8: hermes Curator 是全局扫描（所有 agent 共享 `~/.hermes/skills/`），本项目多 agent per-workspace 隔离，Curator 怎么处理?
+  我的推荐：改为 per-workspace 扫描。理由：本项目 skill 天然按 agent workspace 隔离，`skill_manage` 写入路径是 per-session 的，self_improvement 创建的 skill 也在当前 agent 的 workspace 里。全局扫描会打破隔离。
+  A(原话): 对，我改成per-workspace的。
+  Agent 解读: Curator 只扫描当前 agent 的 `<workspace_root>/<config_dirname>/skills/`，不碰别的 agent。状态文件 `.curator_state` 也存在 workspace 内。
+
 - Q7: Curator 的触发方式——hermes 是"agent 空闲 + 距上次超过 7 天"时触发。Curator 是独立定时触发（hermes 的方式），还是挂在 self_improvement 里一起跑?
   我的推荐：独立。理由：Curator 是确定性扫描（检查时间戳，不需要 LLM），和 background review（LLM 审视）职责不同。混在一起会让 self_improvement 更复杂。
   反方：独立意味着要加新的调度机制（cron 或 heartbeat 触发）。挂在 self_improvement 里可以复用现有触发链路。
@@ -77,12 +82,16 @@
 **Curator 生命周期管理**：
 skill 创建后，随着使用或闲置，自动在三个状态间流转：
 - `active` → `stale`（30 天未被 skill_view 读取）
-- `stale` → `archived`（90 天未用，物理移到 `.archive/` 目录）
+- `stale` → `archived`（90 天未用，物理移到 `<skill_root>/.archive/` 目录）
 - `stale` → `active`（被重新读取，复活）
 
-pinned skill 跳过自动流转。Curator 每 7 天跑一次确定性扫描（不调 LLM），CLI 启动时和 Gateway housekeeping loop 中触发。
+pinned skill 跳过自动流转。归档前先打 tar.gz 快照（best-effort）。restore 纯手动。
 
-**与 hermes 的对齐**：hermes 本来就是三工具拆分（skills_list / skill_view / skill_manage）+ Curator。用户抄代码时把 view 和 list 合进了 skill_manage，Curator 没抄。现在补上。
+**Curator 是 per-workspace 的**：hermes 是单 agent 全局架构（`~/.hermes/skills/`），所有 agent 共享一个 skill 目录，Curator 统一扫描。本项目是多 agent 架构，每个 agent 有自己的 workspace，skill 天然按 agent 隔离（`<workspace_root>/<config_dirname>/skills/`）。因此 Curator 改为 per-workspace 扫描——每个 agent 只管自己的 skill 目录，不碰别的 agent。
+
+Curator 每 7 天跑一次确定性扫描（不调 LLM），CLI 启动时和 Gateway housekeeping loop 中触发。状态持久化到 workspace 内的 `.curator_state` JSON 文件。
+
+**与 hermes 的对齐**：hermes 本来就是三工具拆分（skills_list / skill_view / skill_manage）+ Curator。用户抄代码时把 view 和 list 合进了 skill_manage，Curator 没抄。现在补上，并从全局改为 per-workspace。
 
 ## 验收标准
 
