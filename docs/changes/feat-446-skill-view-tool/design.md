@@ -153,7 +153,7 @@ skill_manage（写侧）:
   - `skill_manage(action=create)` 且调用者是 F2 蒸馏 skill → `"F2"`
   - `skill_manage(action=create)` 且调用者是用户手动 → `"F1"`
   - Curator 只管 `source ∈ {"F3", "F4"}` 的 skill
-- **持久化**: `atomic_write` + `fcntl.flock`（复用 MemoryStore 模式）。
+- **持久化**: `atomic_write`（tempfile + fsync + os.replace）。并发低，无需 flock。
 
 ### 决策 3: Compaction 存活机制
 
@@ -185,7 +185,7 @@ skill_manage（写侧）:
 - **拒绝**: hermes 的 tar.gz 快照 — spec 原文说"归档前先打 tar.gz 快照"，但 per-workspace skill 目录小，`shutil.move` 到 `.archive/` 足够。已同步更新 spec 删 tar.gz 描述。
 - **拒绝**: LLM consolidation pass — per-workspace skill 数量少（几十个），确定性扫描够用。
 - **触发**: CLI 启动 + Gateway housekeeping loop，内部 7 天门控（`should_run_now()` 检查 `.curator_state.json` 的 `last_run_at`）。
-- **管辖**: 只管 `source ∈ {"F3", "F4"}` 的 skill（F3/F4 输出），`created_by=="manual"` 的跳过。
+- **管辖**: 只管 `source ∈ {"F3", "F4"}` 的 skill（F3/F4 输出），`source ∈ {"F1", "F2"}` 的跳过。
 - **Curator 归属**: 确定性扫描逻辑放 `core/skills/curator.py`（纯时间戳比较 + shutil.move，无 LLM 依赖）。F4 batch runner 放 `platform/tools/builtins/f4_runner.py`（需要 LLM client，属 platform 层）。
 
 ### 决策 5: Curator 存储
@@ -262,8 +262,8 @@ class SkillViewTool:
 agent 调用 skill_view(name="change-spec-author")
   │
   ├─ 1. SkillViewTool.run(args, ctx)
-  │     ├─ _resolve_skill_root(ctx) → <workspace>/<config_dir>/skills/
-  │     ├─ SkillRegistry(search_roots).find_skill(name) → SkillMetadata
+  │     ├─ resolve_skill_root(ctx) → <workspace>/<config_dir>/skills/（共享函数）
+  │     ├─ SkillRegistry(search_roots).list_skills() + 手动过滤 name → SkillMetadata
   │     ├─ content = metadata.location.read_text()
   │     └─ return {success: True, name, content, location}
   │
@@ -271,7 +271,7 @@ agent 调用 skill_view(name="change-spec-author")
   │     ├─ load .usage.json
   │     ├─ rec["use_count"] += 1
   │     ├─ rec["last_used_at"] = now
-  │     ├─ rec["session_refs"].append({session_id, timestamp})  # cap 50
+  │     ├─ rec["session_refs"].append({session_id, timestamp})  # cap 60
   │     ├─ rec["uses_since_last_B"] += 1
   │     └─ atomic_write .usage.json
   │
@@ -414,8 +414,8 @@ synthetic user message 注入到 compact_boundary 之后。如果 resume 逻辑�
 - 应对: resume 时显式扫描该标记，重新填充内存 map。有单测覆盖。
 
 **风险 3: .usage.json 并发写入**
-多个 session 同时 bump_use 可能写冲突。fcntl.flock 保证原子性，但高频写入可能有性能问题。
-- 应对: usage 更新是 best-effort（失败不阻塞 skill_view）。单 workspace 内并发低（通常只有一个活跃 session）。
+多个 session 同时 bump_use 可能写冲突。单 workspace 内并发低（通常只有一个活跃 session），atomic_write 足够。
+- 应对: usage 更新是 best-effort（失败不阻塞 skill_view）。如未来并发增高，可加 fcntl.flock。
 
 **回退方案**:
 - skill_view 工具不可用 → 降级到 read 工具读 SKILL.md（formatter.py 的 location 仍在）
