@@ -72,20 +72,23 @@
   .run-pulse i { display:inline-block; width:6px; height:6px; border-radius:9999px; background: oklch(0.70 0.18 60); animation: pulse 1.4s ease-in-out infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
 
-  /* ===== 新增：消息级 fork 操作（现状气泡无任何消息级按钮，这是本 unit 唯一新增的气泡内交互） ===== */
+  /* ===== 新增：消息级 fork 操作（现状气泡无任何消息级按钮，这是本 unit 唯一新增的气泡内交互） =====
+     放在气泡右上角“边缘、与卡片重叠”——而不是飘在气泡外。关键：按钮是 .chat-bubble-card 的
+     子元素且与卡片相接无空隙，光标从卡片移到按钮全程不离开 .chat-bubble--agent 的 hover 区，
+     故不会“移过去就消失”（避免 hover gap）。 */
   .chat-bubble-card { position: relative; }
   .chat-bubble-fork {
-    position:absolute; top:6px; right:-12px; transform: translateX(100%);
+    position:absolute; top:-10px; right:6px;
     display:none; align-items:center; gap:4px;
-    background:var(--im-surface); border:1px solid var(--im-border); border-radius:0.45rem;
-    padding:3px 8px; font:inherit; font-size:0.72rem; color:var(--im-accent-2);
+    background:var(--im-surface); border:1px solid var(--im-border); border-radius:0.5rem;
+    padding:2px 7px; font:inherit; font-size:0.7rem; color:var(--im-accent-2);
     cursor:pointer; box-shadow: var(--im-shadow, 0 6px 18px -12px rgba(0,0,0,.4)); white-space:nowrap;
   }
-  .chat-bubble--agent.is-forkable:hover .chat-bubble-fork { display:inline-flex; }
+  .chat-bubble--agent.is-forkable:hover .chat-bubble-fork,
+  .chat-bubble--agent.is-offline:hover .chat-bubble-fork { display:inline-flex; }
   .chat-bubble-fork:hover { background:var(--im-surface-2); color:var(--im-text); }
   .chat-bubble-fork[disabled] { color:var(--im-text-muted); cursor:not-allowed; border-style:dashed; }
-  .chat-bubble--agent.is-offline:hover .chat-bubble-fork { display:inline-flex; } /* 离线时仍现身，但置灰 */
-  .fork-tip { position:absolute; top:-30px; right:-12px; transform:translateX(100%);
+  .fork-tip { position:absolute; top:-34px; right:6px;
     background: oklch(0.21 0.012 240); color:#fff; font-size:11px; padding:4px 8px; border-radius:6px; white-space:nowrap; display:none; }
   .chat-bubble--agent.is-offline:hover .fork-tip { display:block; }
 
