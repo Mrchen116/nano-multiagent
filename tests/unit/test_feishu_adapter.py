@@ -71,7 +71,8 @@ class TestFeishuAdapterDM:
         assert msg.external_user_id == "ou_user1"
         assert msg.is_group is False
         assert msg.channel_name == "feishu:plato"
-        assert "oc_dm1" in msg.external_chat_id
+        # DM external_chat_id uses sender_open_id per design
+        assert msg.external_chat_id == "feishu:cli_a:dm:ou_user1"
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
     def test_dm_always_responds_no_mention_needed(
