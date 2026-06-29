@@ -3,208 +3,447 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Skill 使用统计面板 — 原型</title>
+  <title>Skill 使用统计 — 嵌入 Agent 详情页原型</title>
   <style>
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap');
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, "Helvetica Neue", "PingFang SC", sans-serif;
-      background: #f5f5f5; color: #1a1a1a; padding: 24px; }
-    .header { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; }
-    .header h1 { font-size: 20px; font-weight: 600; }
-    .tabs { display: flex; gap: 0; border: 1px solid #e0e0e0; border-radius: 6px; overflow: hidden; }
-    .tabs button { border: none; background: #fff; padding: 8px 16px; font-size: 13px;
-      cursor: pointer; border-right: 1px solid #e0e0e0; }
-    .tabs button:last-child { border-right: none; }
-    .tabs button.active { background: #1a1a1a; color: #fff; }
-    .card { background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    th { text-align: left; padding: 8px 12px; background: #fafafa; border-bottom: 2px solid #e0e0e0;
-      font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-    td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
-    tr:hover td { background: #fafafa; }
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
-    .badge.active { background: #e8f5e9; color: #2e7d32; }
-    .badge.stale { background: #fff3e0; color: #e65100; }
-    .badge.archived { background: #f5f5f5; color: #9e9e9e; }
-    .badge.auto { background: #e3f2fd; color: #1565c0; }
-    .badge.manual { background: #f3e5f5; color: #7b1fa2; }
-    .sparkline { display: inline-block; width: 60px; height: 20px; vertical-align: middle; }
-    .sparkline rect { fill: #e0e0e0; }
-    .sparkline rect.filled { fill: #4caf50; }
-    .stats-row { display: flex; gap: 16px; margin-bottom: 16px; }
-    .stat-card { flex: 1; background: #fff; border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; text-align: center; }
-    .stat-card .number { font-size: 32px; font-weight: 700; color: #1a1a1a; }
-    .stat-card .label { font-size: 12px; color: #9e9e9e; margin-top: 4px; }
-    .stat-card .arrow { font-size: 20px; color: #bdbdbd; margin: 0 8px; }
-    .funnel { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 16px 0; }
-    .funnel .stage { text-align: center; }
-    .funnel .stage .num { font-size: 28px; font-weight: 700; }
-    .funnel .stage .lbl { font-size: 11px; color: #9e9e9e; }
-    .funnel .arrow { font-size: 24px; color: #bdbdbd; }
-    .heatmap { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin: 12px 0; }
-    .heatmap .cell { width: 100%; aspect-ratio: 1; border-radius: 3px; }
-    .heatmap .cell.l0 { background: #f5f5f5; }
-    .heatmap .cell.l1 { background: #c8e6c9; }
-    .heatmap .cell.l2 { background: #81c784; }
-    .heatmap .cell.l3 { background: #43a047; }
-    .heatmap .cell.l4 { background: #2e7d32; }
-    .timeline { display: flex; gap: 2px; align-items: flex-end; height: 60px; margin: 12px 0; }
-    .timeline .bar { flex: 1; background: #e0e0e0; border-radius: 2px 2px 0 0; min-width: 8px; }
-    .timeline .bar.auto { background: #42a5f5; }
-    .timeline .bar.manual { background: #ab47bc; }
-    .view { display: none; }
-    .view.active { display: block; }
-    .agent-select { padding: 6px 12px; border: 1px solid #e0e0e0; border-radius: 4px; font-size: 13px; margin-bottom: 12px; }
+    :root {
+      --im-bg: oklch(0.98 0.005 240);
+      --im-surface: oklch(1 0 0);
+      --im-surface-2: oklch(0.965 0.006 240);
+      --im-topbar: oklch(0.19 0.012 240);
+      --im-topbar-fg: oklch(0.96 0.004 240);
+      --im-accent: oklch(0.52 0.14 180);
+      --im-accent-fg: oklch(0.99 0 0);
+      --im-accent-2: oklch(0.42 0.13 180);
+      --im-text: oklch(0.21 0.012 240);
+      --im-text-muted: oklch(0.5 0.012 240);
+      --im-border: oklch(0.9 0.008 240);
+      --im-border-strong: oklch(0.82 0.01 240);
+      --im-sidebar: oklch(0.24 0.012 240);
+      --im-sidebar-hover: oklch(0.28 0.012 240);
+      --im-sidebar-active: oklch(0.31 0.015 240);
+      --im-sidebar-active-outline: oklch(0.40 0.08 180);
+      --im-sidebar-text: oklch(0.88 0.006 240);
+      --im-sidebar-text-muted: oklch(0.50 0.008 240);
+      --im-danger: oklch(0.58 0.18 25);
+      --im-warning: oklch(0.78 0.16 80);
+      --im-success: oklch(0.65 0.15 150);
+      --im-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: 'IBM Plex Sans', -apple-system, 'Helvetica Neue', sans-serif;
+      background: var(--im-bg); color: var(--im-text);
+      height: 100vh; overflow: hidden;
+    }
+
+    /* --- Shell layout (matches agent detail page) --- */
+    .settings-shell { display: flex; height: 100vh; }
+
+    /* Agents rail (left sidebar) */
+    .agents-rail {
+      width: 240px; min-width: 240px; background: var(--im-sidebar);
+      display: flex; flex-direction: column; padding: 16px 0;
+    }
+    .rail-title {
+      font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--im-sidebar-text-muted);
+      padding: 0 16px 12px;
+    }
+    .rail-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 16px; cursor: pointer; border: none; background: transparent;
+      width: 100%; text-align: left; font-family: inherit; color: var(--im-sidebar-text);
+      transition: background 0.1s;
+    }
+    .rail-item:hover { background: var(--im-sidebar-hover); }
+    .rail-item.active { background: var(--im-sidebar-active); outline: 1px solid var(--im-sidebar-active-outline); }
+    .rail-avatar {
+      width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 700; color: white;
+    }
+    .rail-name { font-size: 0.82rem; font-weight: 600; }
+    .rail-sub { font-size: 0.68rem; color: var(--im-sidebar-text-muted); }
+
+    /* Detail panel */
+    .detail-panel {
+      flex: 1; overflow-y: auto; padding: 0;
+      background: oklch(0.93 0.007 240);
+    }
+
+    /* Agent header */
+    .agent-header {
+      display: flex; align-items: center; gap: 14px;
+      padding: 20px 24px 16px; background: var(--im-surface);
+      border-bottom: 1px solid var(--im-border);
+    }
+    .agent-header-avatar {
+      width: 42px; height: 42px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1rem; font-weight: 700; color: white;
+    }
+    .agent-header-info { flex: 1; }
+    .agent-header-name { font-size: 18px; font-weight: 800; }
+    .agent-header-id { font-size: 0.72rem; color: var(--im-text-muted); font-family: var(--im-font-mono); }
+    .agent-header-actions { display: flex; gap: 8px; }
+    .btn-sm {
+      padding: 5px 12px; border-radius: 8px; border: 1px solid var(--im-border);
+      background: var(--im-surface); font-size: 0.75rem; font-weight: 600;
+      cursor: pointer; font-family: inherit; color: var(--im-text);
+      transition: background 0.1s;
+    }
+    .btn-sm:hover { background: var(--im-surface-2); }
+    .btn-sm.active { background: var(--im-accent); color: var(--im-accent-fg); border-color: var(--im-accent); }
+
+    /* Tabs */
+    .agent-tabs {
+      display: flex; gap: 0; padding: 0 24px; background: var(--im-surface);
+      border-bottom: 1px solid var(--im-border);
+    }
+    .agent-tab {
+      padding: 10px 16px; border: none; background: transparent;
+      font-size: 0.82rem; font-weight: 600; color: var(--im-text-muted);
+      cursor: pointer; font-family: inherit; border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .agent-tab:hover { color: var(--im-text); }
+    .agent-tab.active { color: var(--im-accent); border-bottom-color: var(--im-accent); }
+
+    /* Card grid */
+    .card-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
+      padding: 16px 24px;
+    }
+    @media (max-width: 720px) { .card-grid { grid-template-columns: 1fr; } }
+
+    /* Cards (im-agent-card pattern) */
+    .im-agent-card {
+      background: var(--im-surface); border: 1px solid var(--im-border);
+      border-radius: 12px; padding: 14px 16px;
+    }
+    .im-agent-card.full-width { grid-column: 1 / -1; }
+    .im-agent-card-title {
+      font-size: 0.95rem; font-weight: 700; margin-bottom: 4px;
+    }
+    .im-agent-card-sub {
+      font-size: 0.78rem; color: var(--im-text-muted); margin-bottom: 12px;
+    }
+
+    /* Stat number */
+    .stat-row { display: flex; gap: 16px; margin-bottom: 12px; }
+    .stat-item { flex: 1; text-align: center; }
+    .stat-num { font-size: 28px; font-weight: 800; color: var(--im-text); line-height: 1; }
+    .stat-label { font-size: 0.68rem; color: var(--im-text-muted); margin-top: 4px; }
+    .stat-arrow { font-size: 20px; color: var(--im-border-strong); align-self: center; }
+
+    /* Badge */
+    .badge {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      font-size: 0.65rem; font-weight: 600;
+    }
+    .badge-f1 { background: oklch(0.92 0.03 300); color: oklch(0.45 0.12 300); }
+    .badge-f2 { background: oklch(0.92 0.03 260); color: oklch(0.45 0.12 260); }
+    .badge-f3 { background: oklch(0.92 0.03 180); color: oklch(0.40 0.10 180); }
+    .badge-f4 { background: oklch(0.92 0.03 80); color: oklch(0.50 0.14 80); }
+    .badge-active { background: oklch(0.92 0.04 150); color: oklch(0.40 0.12 150); }
+    .badge-stale { background: oklch(0.93 0.04 80); color: oklch(0.50 0.14 80); }
+    .badge-archived { background: oklch(0.93 0.005 240); color: var(--im-text-muted); }
+
+    /* Mini table */
+    .mini-table { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+    .mini-table th {
+      text-align: left; padding: 6px 8px; font-weight: 600; font-size: 0.68rem;
+      text-transform: uppercase; letter-spacing: 0.04em; color: var(--im-text-muted);
+      border-bottom: 1px solid var(--im-border);
+    }
+    .mini-table td { padding: 8px; border-bottom: 1px solid oklch(0.95 0.004 240); vertical-align: middle; }
+    .mini-table tr:last-child td { border-bottom: none; }
+    .mini-table .mono { font-family: var(--im-font-mono); font-size: 0.72rem; color: var(--im-text-muted); }
+
+    /* Sparkline */
+    .sparkline { display: inline-block; vertical-align: middle; }
+    .sparkline rect { fill: oklch(0.90 0.006 240); }
+    .sparkline rect.filled { fill: var(--im-accent); }
+
+    /* Heatmap */
+    .heatmap { display: flex; gap: 3px; flex-wrap: wrap; margin: 8px 0; }
+    .heatmap-cell {
+      width: 28px; height: 28px; border-radius: 4px; position: relative;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.55rem; font-weight: 600; color: transparent;
+      transition: color 0.15s;
+    }
+    .heatmap-cell:hover { color: var(--im-text); }
+    .heatmap-cell.l0 { background: oklch(0.95 0.004 240); }
+    .heatmap-cell.l1 { background: oklch(0.88 0.04 180); }
+    .heatmap-cell.l2 { background: oklch(0.78 0.08 180); }
+    .heatmap-cell.l3 { background: oklch(0.65 0.12 180); color: white; }
+    .heatmap-cell.l4 { background: oklch(0.52 0.14 180); color: white; }
+
+    /* Funnel */
+    .funnel { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 8px 0; }
+    .funnel-stage { text-align: center; }
+    .funnel-num { font-size: 26px; font-weight: 800; }
+    .funnel-label { font-size: 0.65rem; color: var(--im-text-muted); margin-top: 2px; }
+    .funnel-arrow { font-size: 18px; color: var(--im-border-strong); }
+
+    /* Tabs inside card */
+    .card-tabs { display: flex; gap: 0; margin-bottom: 12px; }
+    .card-tab {
+      padding: 5px 10px; border: 1px solid var(--im-border); background: transparent;
+      font-size: 0.72rem; font-weight: 600; cursor: pointer; font-family: inherit;
+      color: var(--im-text-muted); transition: all 0.1s;
+    }
+    .card-tab:first-child { border-radius: 6px 0 0 6px; }
+    .card-tab:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+    .card-tab.active { background: var(--im-text); color: var(--im-surface); border-color: var(--im-text); }
+    .card-tab:hover:not(.active) { background: var(--im-surface-2); }
+
+    /* Section label */
+    .section-label {
+      font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.08em; color: var(--im-text-muted); padding: 16px 24px 8px;
+    }
+
+    /* Content panels */
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: oklch(0.4 0.008 240); border-radius: 3px; }
   </style>
 </head>
 <body>
 
-<div class="header">
-  <h1>Skill 使用统计</h1>
-  <div class="tabs">
-    <button class="active" onclick="switchView('list')">Skill 列表</button>
-    <button onclick="switchView('agent')">Agent 维度</button>
-    <button onclick="switchView('health')">自进化健康度</button>
-  </div>
-</div>
+<div class="settings-shell">
+  <!-- Agents rail -->
+  <nav class="agents-rail">
+    <div class="rail-title">Agents</div>
+    <button class="rail-item active">
+      <div class="rail-avatar" style="background:oklch(0.52 0.14 180);">D</div>
+      <div><div class="rail-name">default-agent</div><div class="rail-sub">online · demo-node</div></div>
+    </button>
+    <button class="rail-item">
+      <div class="rail-avatar" style="background:oklch(0.52 0.14 260);">C</div>
+      <div><div class="rail-name">coding-agent</div><div class="rail-sub">online · demo-node</div></div>
+    </button>
+    <button class="rail-item">
+      <div class="rail-avatar" style="background:oklch(0.52 0.14 30);">R</div>
+      <div><div class="rail-name">review-agent</div><div class="rail-sub">offline</div></div>
+    </button>
+  </nav>
 
-<!-- View 1: Skill 列表 -->
-<div id="view-list" class="view active">
-  <div class="card">
-    <table>
-      <thead>
-        <tr><th>名字</th><th>来源</th><th>状态</th><th>use_count</th><th>最近使用</th><th>趋势</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>change-spec-author</td>
-          <td><span class="badge manual">F1</span></td>
-          <td><span class="badge active">active</span></td>
-          <td>47</td>
-          <td>2 小时前</td>
-          <td><svg class="sparkline" viewBox="0 0 60 20"><rect class="filled" x="0" y="12" width="7" height="8"/><rect class="filled" x="9" y="8" width="7" height="12"/><rect class="filled" x="18" y="10" width="7" height="10"/><rect class="filled" x="27" y="4" width="7" height="16"/><rect class="filled" x="36" y="6" width="7" height="14"/><rect class="filled" x="45" y="2" width="7" height="18"/><rect class="filled" x="54" y="0" width="7" height="20"/></svg></td>
-        </tr>
-        <tr>
-          <td>systematic-debugging</td>
-          <td><span class="badge manual">F1</span></td>
-          <td><span class="badge active">active</span></td>
-          <td>23</td>
-          <td>1 天前</td>
-          <td><svg class="sparkline" viewBox="0 0 60 20"><rect x="0" y="10" width="7" height="10"/><rect class="filled" x="9" y="6" width="7" height="14"/><rect class="filled" x="18" y="8" width="7" height="12"/><rect class="filled" x="27" y="12" width="7" height="8"/><rect x="36" y="14" width="7" height="6"/><rect class="filled" x="45" y="4" width="7" height="16"/><rect x="54" y="16" width="7" height="4"/></svg></td>
-        </tr>
-        <tr>
-          <td>api-pattern-writer</td>
-          <td><span class="badge auto">F3</span></td>
-          <td><span class="badge active">active</span></td>
-          <td>8</td>
-          <td>3 天前</td>
-          <td><svg class="sparkline" viewBox="0 0 60 20"><rect x="0" y="16" width="7" height="4"/><rect x="9" y="14" width="7" height="6"/><rect class="filled" x="18" y="10" width="7" height="10"/><rect class="filled" x="27" y="6" width="7" height="14"/><rect x="36" y="12" width="7" height="8"/><rect class="filled" x="45" y="8" width="7" height="12"/><rect x="54" y="16" width="7" height="4"/></svg></td>
-        </tr>
-        <tr>
-          <td>old-test-helper</td>
-          <td><span class="badge auto">F3</span></td>
-          <td><span class="badge stale">stale</span></td>
-          <td>2</td>
-          <td>35 天前</td>
-          <td><svg class="sparkline" viewBox="0 0 60 20"><rect class="filled" x="0" y="14" width="7" height="6"/><rect x="9" y="16" width="7" height="4"/><rect x="18" y="16" width="7" height="4"/><rect x="27" y="16" width="7" height="4"/><rect x="36" y="16" width="7" height="4"/><rect x="45" y="16" width="7" height="4"/><rect x="54" y="16" width="7" height="4"/></svg></td>
-        </tr>
-        <tr>
-          <td>legacy-deploy-script</td>
-          <td><span class="badge auto">F4</span></td>
-          <td><span class="badge archived">archived</span></td>
-          <td>0</td>
-          <td>—</td>
-          <td><svg class="sparkline" viewBox="0 0 60 20"><rect x="0" y="16" width="7" height="4"/><rect x="9" y="16" width="7" height="4"/><rect x="18" y="16" width="7" height="4"/><rect x="27" y="16" width="7" height="4"/><rect x="36" y="16" width="7" height="4"/><rect x="45" y="16" width="7" height="4"/><rect x="54" y="16" width="7" height="4"/></svg></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-</div>
-
-<!-- View 2: Agent 维度 -->
-<div id="view-agent" class="view">
-  <select class="agent-select" onchange="selectAgent(this.value)">
-    <option>default-agent</option>
-    <option>coding-agent</option>
-    <option>review-agent</option>
-  </select>
-  <div class="card">
-    <h3 style="font-size:14px;margin-bottom:12px;">default-agent · Skill 使用热力图</h3>
-    <div class="heatmap">
-      <div class="cell l4" title="change-spec-author: 47"></div>
-      <div class="cell l2" title="systematic-debugging: 23"></div>
-      <div class="cell l1" title="api-pattern-writer: 8"></div>
-      <div class="cell l0" title="old-test-helper: 2"></div>
-      <div class="cell l0" title="legacy-deploy-script: 0"></div>
-      <div class="cell l3" title="change-impl-worker: 31"></div>
-      <div class="cell l1" title="change-verifier: 5"></div>
+  <!-- Detail panel -->
+  <main class="detail-panel">
+    <!-- Agent header -->
+    <div class="agent-header">
+      <div class="agent-header-avatar" style="background:oklch(0.52 0.14 180);">D</div>
+      <div class="agent-header-info">
+        <div class="agent-header-name">default-agent</div>
+        <div class="agent-header-id">agent_id: default-agent · node: demo-node</div>
+      </div>
+      <div class="agent-header-actions">
+        <button class="btn-sm">编辑</button>
+        <button class="btn-sm" style="color:var(--im-danger);">删除</button>
+      </div>
     </div>
-    <p style="font-size:11px;color:#9e9e9e;margin-top:8px;">颜色越深 = 使用越多</p>
-  </div>
-  <div class="card">
-    <h3 style="font-size:14px;margin-bottom:12px;">该 agent 自动创建的 skill（F3/F4 输出）</h3>
-    <table>
-      <thead><tr><th>名字</th><th>来源</th><th>use_count</th><th>状态</th></tr></thead>
-      <tbody>
-        <tr><td>api-pattern-writer</td><td><span class="badge auto">F3</span></td><td>8</td><td><span class="badge active">active</span></td></tr>
-        <tr><td>old-test-helper</td><td><span class="badge auto">F3</span></td><td>2</td><td><span class="badge stale">stale</span></td></tr>
-        <tr><td>legacy-deploy-script</td><td><span class="badge auto">F4</span></td><td>0</td><td><span class="badge archived">archived</span></td></tr>
-      </tbody>
-    </table>
-  </div>
-</div>
 
-<!-- View 3: 自进化健康度 -->
-<div id="view-health" class="view">
-  <div class="funnel">
-    <div class="stage"><div class="num">12</div><div class="lbl">F3/F4 创建总数</div></div>
-    <div class="arrow">→</div>
-    <div class="stage"><div class="num">8</div><div class="lbl">still active</div></div>
-    <div class="arrow">→</div>
-    <div class="stage"><div class="num">5</div><div class="lbl">use_count > 0</div></div>
-  </div>
-  <p style="text-align:center;font-size:12px;color:#9e9e9e;margin-bottom:16px;">自进化存活率: 5/12 = 42%</p>
+    <!-- Tabs -->
+    <div class="agent-tabs">
+      <button class="agent-tab">概览</button>
+      <button class="agent-tab">配置</button>
+      <button class="agent-tab">通道</button>
+      <button class="agent-tab active">Skills</button>
+      <button class="agent-tab">会话</button>
+    </div>
 
-  <div class="card">
-    <h3 style="font-size:14px;margin-bottom:12px;">Skill 生命周期时间线</h3>
-    <table>
-      <thead><tr><th>名字</th><th>来源</th><th>创建时间</th><th>首次使用</th><th>最后使用</th><th>状态</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>api-pattern-writer</td>
-          <td><span class="badge auto">F3</span></td>
-          <td>2026-06-01</td>
-          <td>2026-06-03</td>
-          <td>2026-06-26</td>
-          <td><span class="badge active">active</span></td>
-        </tr>
-        <tr>
-          <td>old-test-helper</td>
-          <td><span class="badge auto">F3</span></td>
-          <td>2026-05-15</td>
-          <td>2026-05-20</td>
-          <td>2026-05-25</td>
-          <td><span class="badge stale">stale</span></td>
-        </tr>
-        <tr>
-          <td>legacy-deploy-script</td>
-          <td><span class="badge auto">F4</span></td>
-          <td>2026-04-10</td>
-          <td>—</td>
-          <td>—</td>
-          <td><span class="badge archived">archived</span></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
+    <!-- Skills section -->
+    <div class="section-label">Skill 使用统计</div>
+
+    <!-- View switcher -->
+    <div style="padding: 0 24px 12px;">
+      <div class="card-tabs" id="view-tabs">
+        <button class="card-tab active" onclick="switchView('list')">Skill 列表</button>
+        <button class="card-tab" onclick="switchView('agent')">Agent 维度</button>
+        <button class="card-tab" onclick="switchView('health')">自进化健康度</button>
+      </div>
+    </div>
+
+    <!-- View: Skill list -->
+    <div class="tab-panel active" id="view-list">
+      <div class="card-grid">
+        <div class="im-agent-card full-width">
+          <div class="im-agent-card-title">全部 Skill</div>
+          <div class="im-agent-card-sub">按最近使用时间排序</div>
+          <table class="mini-table">
+            <thead>
+              <tr><th>名字</th><th>来源</th><th>状态</th><th>使用次数</th><th>最近使用</th><th>趋势</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td style="font-weight:600;">change-spec-author</td>
+                <td><span class="badge badge-f1">F1</span></td>
+                <td><span class="badge badge-active">active</span></td>
+                <td>47</td>
+                <td class="mono">2 小时前</td>
+                <td><svg class="sparkline" viewBox="0 0 60 16" width="60" height="16"><rect class="filled" x="0" y="10" width="7" height="6"/><rect class="filled" x="9" y="6" width="7" height="10"/><rect class="filled" x="18" y="8" width="7" height="8"/><rect class="filled" x="27" y="2" width="7" height="14"/><rect class="filled" x="36" y="4" width="7" height="12"/><rect class="filled" x="45" y="1" width="7" height="15"/><rect class="filled" x="54" y="0" width="7" height="16"/></svg></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600;">change-impl-worker</td>
+                <td><span class="badge badge-f1">F1</span></td>
+                <td><span class="badge badge-active">active</span></td>
+                <td>31</td>
+                <td class="mono">5 小时前</td>
+                <td><svg class="sparkline" viewBox="0 0 60 16" width="60" height="16"><rect class="filled" x="0" y="8" width="7" height="8"/><rect class="filled" x="9" y="4" width="7" height="12"/><rect class="filled" x="18" y="6" width="7" height="10"/><rect class="filled" x="27" y="10" width="7" height="6"/><rect x="36" y="12" width="7" height="4"/><rect class="filled" x="45" y="3" width="7" height="13"/><rect x="54" y="14" width="7" height="2"/></svg></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600;">systematic-debugging</td>
+                <td><span class="badge badge-f2">F2</span></td>
+                <td><span class="badge badge-active">active</span></td>
+                <td>23</td>
+                <td class="mono">1 天前</td>
+                <td><svg class="sparkline" viewBox="0 0 60 16" width="60" height="16"><rect x="0" y="10" width="7" height="6"/><rect class="filled" x="9" y="6" width="7" height="10"/><rect class="filled" x="18" y="8" width="7" height="8"/><rect class="filled" x="27" y="12" width="7" height="4"/><rect x="36" y="14" width="7" height="2"/><rect class="filled" x="45" y="4" width="7" height="12"/><rect x="54" y="14" width="7" height="2"/></svg></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600;">api-pattern-writer</td>
+                <td><span class="badge badge-f3">F3</span></td>
+                <td><span class="badge badge-active">active</span></td>
+                <td>8</td>
+                <td class="mono">3 天前</td>
+                <td><svg class="sparkline" viewBox="0 0 60 16" width="60" height="16"><rect x="0" y="14" width="7" height="2"/><rect x="9" y="12" width="7" height="4"/><rect class="filled" x="18" y="8" width="7" height="8"/><rect class="filled" x="27" y="4" width="7" height="12"/><rect x="36" y="10" width="7" height="6"/><rect class="filled" x="45" y="6" width="7" height="10"/><rect x="54" y="14" width="7" height="2"/></svg></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600;">old-test-helper</td>
+                <td><span class="badge badge-f3">F3</span></td>
+                <td><span class="badge badge-stale">stale</span></td>
+                <td>2</td>
+                <td class="mono">35 天前</td>
+                <td><svg class="sparkline" viewBox="0 0 60 16" width="60" height="16"><rect class="filled" x="0" y="12" width="7" height="4"/><rect x="9" y="14" width="7" height="2"/><rect x="18" y="14" width="7" height="2"/><rect x="27" y="14" width="7" height="2"/><rect x="36" y="14" width="7" height="2"/><rect x="45" y="14" width="7" height="2"/><rect x="54" y="14" width="7" height="2"/></svg></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600;">legacy-deploy-script</td>
+                <td><span class="badge badge-f4">F4</span></td>
+                <td><span class="badge badge-archived">archived</span></td>
+                <td>0</td>
+                <td class="mono">—</td>
+                <td><svg class="sparkline" viewBox="0 0 60 16" width="60" height="16"><rect x="0" y="14" width="7" height="2"/><rect x="9" y="14" width="7" height="2"/><rect x="18" y="14" width="7" height="2"/><rect x="27" y="14" width="7" height="2"/><rect x="36" y="14" width="7" height="2"/><rect x="45" y="14" width="7" height="2"/><rect x="54" y="14" width="7" height="2"/></svg></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- View: Agent dimension -->
+    <div class="tab-panel" id="view-agent">
+      <div class="card-grid">
+        <div class="im-agent-card">
+          <div class="im-agent-card-title">使用热力图</div>
+          <div class="im-agent-card-sub">该 agent 的 skill 使用密度</div>
+          <div class="heatmap">
+            <div class="heatmap-cell l4" title="change-spec-author: 47">47</div>
+            <div class="heatmap-cell l3" title="change-impl-worker: 31">31</div>
+            <div class="heatmap-cell l2" title="systematic-debugging: 23">23</div>
+            <div class="heatmap-cell l1" title="api-pattern-writer: 8">8</div>
+            <div class="heatmap-cell l0" title="old-test-helper: 2">2</div>
+            <div class="heatmap-cell l0" title="legacy-deploy-script: 0">0</div>
+            <div class="heatmap-cell l2" title="change-verifier: 15">15</div>
+            <div class="heatmap-cell l1" title="change-design-author: 6">6</div>
+          </div>
+          <div style="font-size:0.65rem;color:var(--im-text-muted);margin-top:4px;">
+            <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:oklch(0.95 0.004 240);vertical-align:middle;"></span> 少
+            <span style="display:inline-block;width:12px;height:12px;border-radius:2px;background:oklch(0.52 0.14 180);vertical-align:middle;margin-left:8px;"></span> 多
+          </div>
+        </div>
+
+        <div class="im-agent-card">
+          <div class="im-agent-card-title">自动创建的 Skill</div>
+          <div class="im-agent-card-sub">F3/F4 自进化输出</div>
+          <table class="mini-table">
+            <thead><tr><th>名字</th><th>来源</th><th>使用次数</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr><td style="font-weight:600;">api-pattern-writer</td><td><span class="badge badge-f3">F3</span></td><td>8</td><td><span class="badge badge-active">active</span></td></tr>
+              <tr><td style="font-weight:600;">old-test-helper</td><td><span class="badge badge-f3">F3</span></td><td>2</td><td><span class="badge badge-stale">stale</span></td></tr>
+              <tr><td style="font-weight:600;">legacy-deploy-script</td><td><span class="badge badge-f4">F4</span></td><td>0</td><td><span class="badge badge-archived">archived</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- View: Health -->
+    <div class="tab-panel" id="view-health">
+      <div class="card-grid">
+        <div class="im-agent-card full-width">
+          <div class="im-agent-card-title">自进化存活率</div>
+          <div class="im-agent-card-sub">F3/F4 自动创建的 skill 有多少活了下来</div>
+          <div class="funnel">
+            <div class="funnel-stage"><div class="funnel-num">12</div><div class="funnel-label">F3/F4 创建总数</div></div>
+            <div class="funnel-arrow">→</div>
+            <div class="funnel-stage"><div class="funnel-num">8</div><div class="funnel-label">still active</div></div>
+            <div class="funnel-arrow">→</div>
+            <div class="funnel-stage"><div class="funnel-num">5</div><div class="funnel-label">use_count &gt; 0</div></div>
+          </div>
+          <div style="text-align:center;font-size:0.75rem;color:var(--im-text-muted);margin-top:8px;">
+            存活率 <strong>5 / 12 = 42%</strong>
+          </div>
+        </div>
+
+        <div class="im-agent-card full-width">
+          <div class="im-agent-card-title">生命周期时间线</div>
+          <div class="im-agent-card-sub">每个自动 skill 的创建 → 首次使用 → 最后使用</div>
+          <table class="mini-table">
+            <thead><tr><th>名字</th><th>来源</th><th>创建时间</th><th>首次使用</th><th>最后使用</th><th>状态</th></tr></thead>
+            <tbody>
+              <tr>
+                <td style="font-weight:600;">api-pattern-writer</td>
+                <td><span class="badge badge-f3">F3</span></td>
+                <td class="mono">06-01</td>
+                <td class="mono">06-03</td>
+                <td class="mono">06-26</td>
+                <td><span class="badge badge-active">active</span></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600;">old-test-helper</td>
+                <td><span class="badge badge-f3">F3</span></td>
+                <td class="mono">05-15</td>
+                <td class="mono">05-20</td>
+                <td class="mono">05-25</td>
+                <td><span class="badge badge-stale">stale</span></td>
+              </tr>
+              <tr>
+                <td style="font-weight:600;">legacy-deploy-script</td>
+                <td><span class="badge badge-f4">F4</span></td>
+                <td class="mono">04-10</td>
+                <td class="mono">—</td>
+                <td class="mono">—</td>
+                <td><span class="badge badge-archived">archived</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
 </div>
 
 <script>
-function switchView(id) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
-  document.getElementById('view-' + id).classList.add('active');
-  document.querySelectorAll('.tabs button').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
-}
+document.querySelectorAll('#view-tabs .card-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('#view-tabs .card-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('view-' + tab.dataset.view).classList.add('active');
+  });
+});
+// Set data-view attributes
+document.querySelectorAll('#view-tabs .card-tab').forEach((tab, i) => {
+  tab.dataset.view = ['list', 'agent', 'health'][i];
+});
 </script>
 
 </body>
