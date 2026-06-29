@@ -22,6 +22,10 @@
   A(原话): 暂时只考虑上述文档相关的内容。
   Agent 解读: MVP 只做基础文档操作——创建文档、读取内容、编辑/追加、创建文件夹、移动文件。不做 wiki（知识库）、bitable（多维表格）、drive（云盘高级操作）。
 
+- Q5: 文档评论操作要不要纳入本期?
+  A(原话): 可以，文档评论暂时先不增加这个功能。
+  Agent 解读: 文档评论（list_comments / add_comment / reply_comment）不纳入本期。
+
 ## 用户场景
 
 用户在飞书上通过三个飞书 Bot（plato / luban / hume）分别与对应的 Agent 交互，体验与内部 IM 页面一致。
@@ -127,7 +131,8 @@
 - 非目标：
   - 飞书 wiki（知识库）操作
   - 飞书 bitable（多维表格）操作
-  - 飞书 drive 高级操作（评论、权限管理等）
+  - 飞书文档评论操作（list_comments / add_comment / reply_comment）
+  - 飞书 drive 高级操作（权限管理等）
   - 流式卡片（streaming cards）富交互
   - 多飞书应用账号
   - 飞书群维度的精细权限配置（allowFrom / 黑名单等）
