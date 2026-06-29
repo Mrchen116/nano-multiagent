@@ -380,18 +380,25 @@ Gateway WS handler
 
 **数据字段表**（dashboard 使用）:
 
-| 字段 | 类型 | 来源 |
-|---|---|---|
-| skill_id | string | .usage.json key |
-| name | string | skill frontmatter |
-| source | "F1"\|"F2"\|"F3"\|"F4" | .usage.json |
-| state | "active"\|"stale"\|"archived" | .usage.json |
-| use_count | int | .usage.json |
-| last_used_at | ISO timestamp | .usage.json |
-| session_refs | [{session_id, timestamp}] | .usage.json |
-| trend_buckets | [int] | gateway 聚合（按天/周） |
-| agent_id | string | session metadata |
-| node_id | string | gateway node config |
+| 字段 | 类型 | 时间窗口 | 来源 |
+|---|---|---|---|
+| skill_id | string | — | .usage.json key |
+| name | string | — | skill frontmatter |
+| source | "F1"\|"F2"\|"F3"\|"F4" | — | .usage.json |
+| state | "active"\|"stale"\|"archived" | — | .usage.json |
+| use_count | int | 全量累计 | .usage.json |
+| last_used_at | ISO timestamp | — | .usage.json |
+| session_refs | [{session_id, timestamp}] | 最近 60 条（cap） | .usage.json |
+| trend_buckets | [int × 30] | 最近 30 天，按天分桶 | gateway 按 session_refs 聚合 |
+| heatmap_data | [int × 30] | 最近 30 天，每个 agent 的每日使用次数 | gateway 按 session_refs 聚合 |
+| agent_id | string | — | session metadata |
+| node_id | string | — | gateway node config |
+
+**时间窗口约定**:
+- **use_count**: 全量累计，和 Curator 判断 stale 用的 last_used_at 对齐
+- **趋势 sparkline / 热力图**: 最近 30 天（30 天 = stale 阈值），按天分桶，gateway 从 session_refs 聚合
+- **自进化漏斗**: 全量累计（F3/F4 创建总数 → still active → use_count > 0）
+- **生命周期时间线**: 全量（从 skill 创建到现在的完整生命）
 
 **空态 / 离线态**:
 - 无 skill 数据 → 显示空态插图 + "暂无 skill 使用数据"
