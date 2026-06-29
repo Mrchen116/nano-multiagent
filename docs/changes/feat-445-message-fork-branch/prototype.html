@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>feat-445 — 消息 fork / 分支单聊 原型</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #fff; --ink: #1f2329; --sub: #8a9099;
+    --agent: #eef1f5; --user: #3b82f6; --line: #e6e8eb;
+    --accent: #3b82f6; --danger: #d14343; --ok: #16a34a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.6 -apple-system, "Segoe UI", "PingFang SC", sans-serif;
+         background: var(--bg); color: var(--ink); }
+  .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 60px; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .lede { color: var(--sub); margin: 0 0 20px; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 880px){ .grid { grid-template-columns: 1fr; } }
+  .app { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+         overflow: hidden; display: flex; flex-direction: column; min-height: 520px; }
+  .topbar { display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+            border-bottom: 1px solid var(--line); }
+  .avatar { width: 28px; height: 28px; border-radius: 50%; background: #cdd5df;
+            display: grid; place-items: center; font-size: 13px; color: #475; font-weight: 600; }
+  .title { font-weight: 600; }
+  .status { font-size: 12px; margin-left: auto; display: flex; align-items: center; gap: 5px; color: var(--sub); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+  .dot.off { background: #c2c7cd; }
+  .stream { flex: 1; padding: 16px 14px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+  .row { display: flex; gap: 8px; align-items: flex-end; }
+  .row.me { flex-direction: row-reverse; }
+  .bubble-wrap { position: relative; max-width: 74%; }
+  .bubble { padding: 9px 12px; border-radius: 12px; background: var(--agent); white-space: pre-wrap; }
+  .row.me .bubble { background: var(--user); color: #fff; }
+  .meta { font-size: 11px; color: var(--sub); margin: 2px 4px 0; }
+  .row.me .meta { text-align: right; }
+  /* fork button: hidden until hover on an eligible agent bubble */
+  .fork-btn { position: absolute; top: -10px; right: -10px; display: none;
+              align-items: center; gap: 4px; padding: 3px 8px; font-size: 12px;
+              background: #fff; border: 1px solid var(--line); border-radius: 14px;
+              box-shadow: 0 1px 3px rgba(0,0,0,.12); cursor: pointer; color: var(--accent); }
+  .bubble-wrap.forkable:hover .fork-btn { display: inline-flex; }
+  .fork-btn:hover { background: #f0f6ff; }
+  .fork-btn[disabled] { color: var(--sub); cursor: not-allowed; border-style: dashed; }
+  .bubble-wrap.offline:hover .fork-btn { display: inline-flex; } /* show disabled state on hover */
+  .tip { position: absolute; top: -34px; right: -10px; background: #1f2329; color: #fff;
+         font-size: 11px; padding: 4px 8px; border-radius: 6px; white-space: nowrap; display: none; }
+  .bubble-wrap.offline:hover .tip { display: block; }
+  .typing { display: inline-flex; gap: 3px; padding: 12px; }
+  .typing i { width: 6px; height: 6px; border-radius: 50%; background: var(--sub); animation: blink 1.2s infinite; }
+  .typing i:nth-child(2){ animation-delay: .2s; } .typing i:nth-child(3){ animation-delay: .4s; }
+  @keyframes blink { 0%,80%,100%{opacity:.3} 40%{opacity:1} }
+  .composer { border-top: 1px solid var(--line); padding: 10px 12px; display: flex; gap: 8px; }
+  .composer input { flex: 1; border: 1px solid var(--line); border-radius: 18px; padding: 8px 14px; outline: none; }
+  .composer button { border: none; background: var(--accent); color: #fff; border-radius: 18px; padding: 0 16px; cursor: pointer; }
+  .banner { padding: 8px 14px; font-size: 12px; background: #ecfdf3; color: #027a48;
+            border-bottom: 1px solid #abefc6; display: flex; align-items: center; gap: 6px; }
+  .legend { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+            padding: 14px 16px; margin-top: 20px; font-size: 13px; color: #444; }
+  .legend b { color: var(--ink); }
+  .legend li { margin: 4px 0; }
+  .cap { font-size: 12px; color: var(--sub); margin: 0 0 8px; font-weight: 600; }
+  /* loading overlay */
+  .overlay { position: absolute; inset: 0; background: rgba(255,255,255,.82); display: none;
+             place-items: center; flex-direction: column; gap: 10px; z-index: 5; }
+  .overlay.on { display: grid; }
+  .spinner { width: 26px; height: 26px; border: 3px solid #d8dde3; border-top-color: var(--accent);
+             border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .app { position: relative; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>feat-445 — 从某条 agent 消息 fork 出分支单聊</h1>
+  <p class="lede">左：源单聊（hover 已完成 agent 回复出现 fork 按钮；用户消息 / 生成中消息无按钮；agent 离线时置灰 + 提示）。点左侧某条 agent 回复的 fork → loading → 右侧出现「分支单聊」，历史只保留到 fork 点。</p>
+
+  <div class="grid">
+    <!-- SOURCE CHAT -->
+    <div class="app" id="srcApp">
+      <div class="topbar">
+        <div class="avatar">研</div>
+        <div class="title">研究助手</div>
+        <div class="status"><span class="dot" id="srcDot"></span><span id="srcStatus">在线</span>
+          &nbsp;·&nbsp;<a href="#" id="toggleOnline" style="font-size:11px">切到离线</a>
+        </div>
+      </div>
+      <div class="stream" id="srcStream"></div>
+      <div class="composer"><input placeholder="发消息…" /><button>发送</button></div>
+      <div class="overlay" id="srcOverlay"><div class="spinner"></div><div style="font-size:13px;color:#444">正在 fork 分支单聊…</div></div>
+    </div>
+
+    <!-- BRANCH CHAT -->
+    <div class="app" id="brApp">
+      <div class="topbar">
+        <div class="avatar">研</div>
+        <div class="title">研究助手</div>
+        <div class="status"><span class="dot"></span>在线</div>
+      </div>
+      <div class="banner" id="brBanner" style="display:none">↳ 已 fork：带入起点 → fork 点的全部历史，agent 记得这段对话</div>
+      <div class="stream" id="brStream">
+        <div style="margin:auto;color:#aab;text-align:center;font-size:13px;padding:24px">
+          点击左侧某条 agent 回复上的 <b>⑂ fork</b> 按钮<br/>这里会出现一个新的分支单聊
+        </div>
+      </div>
+      <div class="composer"><input placeholder="发消息…" id="brInput" disabled /><button id="brSend" disabled>发送</button></div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <p class="cap">原型覆盖的 spec 行为</p>
+    <ul>
+      <li><b>已完成 agent 回复可 fork</b>：hover 出 ⑂ 按钮（仅 agent 且已完成的气泡）。</li>
+      <li><b>用户消息无 fork</b>：自己发的消息 hover 不出按钮。</li>
+      <li><b>生成中无 fork</b>：仍在「打字」的 agent 气泡无按钮，待完成才出现。</li>
+      <li><b>带入起点→fork 点</b>：fork 第一条 agent 回复 → 分支只含到该条；fork 后面的回复 → 分支含更多，fork 点之后的不带。</li>
+      <li><b>fork 后自动进入 + 原会话不变</b>：右侧自动填充并可输入；左侧源会话原封不动。</li>
+      <li><b>agent 离线禁用</b>：点「切到离线」后，fork 按钮置灰 + 「该 agent 当前不可用，暂时无法 fork」提示。</li>
+    </ul>
+  </div>
+</div>
+
+<script>
+  // 源会话消息流：含 fork 点（每条 agent 已完成回复都可作为 fork 点）
+  const SRC = [
+    { id:'m1', who:'me',    text:'帮我比较一下三种向量数据库选型。' },
+    { id:'m2', who:'agent', done:true, text:'好的，分三点：\n1. Milvus — 自托管、生态成熟；\n2. pgvector — 复用现有 Postgres、运维省；\n3. Pinecone — 全托管、上手快但锁定。' },
+    { id:'m3', who:'me',    text:'我们已经在用 Postgres 了。' },
+    { id:'m4', who:'agent', done:true, text:'那 pgvector 是性价比最高的起点：无需额外组件，索引用 HNSW，百万级向量延迟可接受；规模再上去再考虑迁 Milvus。' },
+    { id:'m5', who:'me',    text:'索引参数怎么调？' },
+    { id:'m6', who:'agent', done:false, text:'' }, // 生成中
+  ];
+
+  let online = true;
+  const srcStream = document.getElementById('srcStream');
+
+  function fmtMeta(who, done){
+    if (who === 'me') return '你';
+    return done ? '研究助手' : '研究助手 · 生成中';
+  }
+
+  function renderSrc(){
+    srcStream.innerHTML = '';
+    SRC.forEach(m => {
+      const row = document.createElement('div');
+      row.className = 'row ' + (m.who === 'me' ? 'me' : 'agent');
+      const wrap = document.createElement('div');
+      wrap.className = 'bubble-wrap';
+
+      const forkable = m.who === 'agent' && m.done;
+      if (forkable) wrap.classList.add(online ? 'forkable' : 'offline');
+
+      const bubble = document.createElement('div');
+      bubble.className = 'bubble';
+      if (m.who === 'agent' && !m.done){
+        bubble.innerHTML = '<div class="typing"><i></i><i></i><i></i></div>';
+      } else {
+        bubble.textContent = m.text;
+      }
+      wrap.appendChild(bubble);
+
+      if (forkable){
+        const btn = document.createElement('button');
+        btn.className = 'fork-btn';
+        btn.innerHTML = '⑂ fork';
+        if (!online){ btn.disabled = true; }
+        btn.onclick = () => online && doFork(m.id);
+        wrap.appendChild(btn);
+
+        const tip = document.createElement('div');
+        tip.className = 'tip';
+        tip.textContent = '该 agent 当前不可用，暂时无法 fork';
+        wrap.appendChild(tip);
+      }
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = fmtMeta(m.who, m.done);
+
+      const col = document.createElement('div');
+      col.style.display = 'flex'; col.style.flexDirection = 'column';
+      col.style.alignItems = m.who === 'me' ? 'flex-end' : 'flex-start';
+      col.appendChild(wrap); col.appendChild(meta);
+      row.appendChild(col);
+      srcStream.appendChild(row);
+    });
+  }
+
+  function doFork(forkId){
+    const overlay = document.getElementById('srcOverlay');
+    overlay.classList.add('on');
+    setTimeout(() => {
+      overlay.classList.remove('on');
+      buildBranch(forkId);
+    }, 900);
+  }
+
+  function buildBranch(forkId){
+    // 带入：起点 → fork 点（含被点的 agent 回复），其后丢弃
+    const cut = SRC.findIndex(m => m.id === forkId);
+    const carried = SRC.slice(0, cut + 1);
+
+    const brStream = document.getElementById('brStream');
+    document.getElementById('brBanner').style.display = 'flex';
+    brStream.innerHTML = '';
+    carried.forEach(m => {
+      const row = document.createElement('div');
+      row.className = 'row ' + (m.who === 'me' ? 'me' : 'agent');
+      const b = document.createElement('div'); b.className = 'bubble'; b.textContent = m.text;
+      const meta = document.createElement('div'); meta.className = 'meta'; meta.textContent = fmtMeta(m.who, true);
+      const col = document.createElement('div');
+      col.style.display='flex'; col.style.flexDirection='column';
+      col.style.alignItems = m.who === 'me' ? 'flex-end' : 'flex-start';
+      col.appendChild(b); col.appendChild(meta);
+      row.appendChild(col); brStream.appendChild(row);
+    });
+    // 自动进入：解锁输入框
+    document.getElementById('brInput').disabled = false;
+    document.getElementById('brSend').disabled = false;
+    document.getElementById('brInput').placeholder = '接着聊…（agent 记得上面的历史）';
+    brStream.scrollTop = brStream.scrollHeight;
+  }
+
+  document.getElementById('toggleOnline').onclick = (e) => {
+    e.preventDefault();
+    online = !online;
+    document.getElementById('srcDot').className = 'dot' + (online ? '' : ' off');
+    document.getElementById('srcStatus').textContent = online ? '在线' : '离线';
+    e.target.textContent = online ? '切到离线' : '切回在线';
+    renderSrc();
+  };
+
+  renderSrc();
+</script>
+</body>
+</html>
