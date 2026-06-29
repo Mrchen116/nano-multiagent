@@ -716,6 +716,7 @@ export function ChatWorkspacePageV2() {
             isDirectChat={conversationKind === "direct-agent"}
             agentOnline={headerAgentContext.nodeStatus === "online"}
             onFork={(messageId) => forkMutation.mutate(messageId)}
+            forkPending={forkMutation.isPending}
             onBack={isMobile ? () => navigate("/chat") : undefined}
             isMobile={isMobile}
             onOpenConfig={

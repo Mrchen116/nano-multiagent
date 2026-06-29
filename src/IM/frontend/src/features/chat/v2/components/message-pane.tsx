@@ -57,6 +57,8 @@ export interface MessagePaneProps {
   agentOnline?: boolean;
   /** feat-445-M1: fork from one completed agent reply (by message id). */
   onFork?(messageId: string): void;
+  /** feat-445-M2 #7: a fork is in flight — disable fork buttons to block double-submit. */
+  forkPending?: boolean;
   /** Test seam: overrides the real upload helper so vitest can stub uploads. */
   uploadAttachment?(file: File): Promise<Attachment>;
 }
@@ -147,6 +149,7 @@ export function MessagePane({
   isDirectChat = false,
   agentOnline = false,
   onFork,
+  forkPending = false,
   uploadAttachment = uploadOneAttachment
 }: MessagePaneProps) {
   const { t } = useTranslation();
@@ -351,6 +354,7 @@ export function MessagePane({
               isDirectChat={isDirectChat}
               agentOnline={agentOnline}
               onFork={onFork}
+              forkPending={forkPending}
             />
           ))
         )}
@@ -440,6 +444,7 @@ function MessageBubble({
   isDirectChat = false,
   agentOnline = false,
   onFork,
+  forkPending = false,
 }: {
   message: Message;
   isMobile?: boolean;
@@ -447,6 +452,7 @@ function MessageBubble({
   isDirectChat?: boolean;
   agentOnline?: boolean;
   onFork?(messageId: string): void;
+  forkPending?: boolean;
 }) {
   const { t } = useTranslation();
   const isSystem = message.sender.type === "system";
@@ -568,9 +574,10 @@ function MessageBubble({
                 type="button"
                 data-testid={`message-fork-${message.id}`}
                 className="chat-bubble-fork"
-                disabled={!agentOnline}
+                disabled={!agentOnline || forkPending}
                 onClick={() => {
-                  if (agentOnline) onFork?.(message.id);
+                  // #7: ignore clicks while a fork is in flight (button is also disabled).
+                  if (agentOnline && !forkPending) onFork?.(message.id);
                 }}
                 aria-label={t("chat.messagePane.fork")}
               >
