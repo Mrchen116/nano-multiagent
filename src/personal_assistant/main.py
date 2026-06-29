@@ -1222,6 +1222,9 @@ class PollingHeartbeatRunner:
         self._task = asyncio.create_task(
             self._run_loop(), name="personal-assistant-heartbeat"
         )
+        # bugfix-446-M1 decision 4: observe a truly unexpected loop crash instead of
+        # letting it die silently (issue path 4). Mirrors the inbound dispatcher pattern.
+        self._task.add_done_callback(_consume_task_exception)
 
     async def close(self) -> None:
         """Stop the background loop and wait for the worker task to finish."""
@@ -1241,11 +1244,21 @@ class PollingHeartbeatRunner:
 
     async def _run_loop(self) -> None:
         while not self._stop_requested:
-            summary = await self._scheduler.tick()
+            # bugfix-446-M1 decision 4: a failing scheduler tick must not kill the loop —
+            # log and fall through to the interval wait so the next tick can recover (the
+            # cron tick below already follows this pattern; issue path 4 was the bare await).
+            try:
+                summary = await self._scheduler.tick()
+            except Exception:  # noqa: BLE001
+                _log.exception(
+                    "heartbeat scheduler tick failed; retrying next interval"
+                )
+                summary = None
             # feat-393: consume each triggered heartbeat run through the shared observer so
             # results are delivered to the owner's canonical IM direct conversation.
             if (
-                self._kernel is not None
+                summary is not None
+                and self._kernel is not None
                 and self._run_context_store is not None
                 and self._owner_user_id
             ):
