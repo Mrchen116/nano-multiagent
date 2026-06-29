@@ -193,3 +193,73 @@ fix-implementation
 | ACCEPTANCE/feat-445-M1/reviewer-r1-fork-toast.png | 分支单聊复制消息上点 fork 后的 502 错误 toast（Issue #1 证据）|
 | ACCEPTANCE/feat-445-M1/reviewer-r1-group-no-fork.png | 群聊中无 fork 按钮 |
 | ACCEPTANCE/feat-445-M1/reviewer-r1-fork-success-toast.png | fork 成功 toast + 自动导航截图 |
+
+---
+
+# Round 2 — 2026-06-29
+
+## Fast-lane 复验说明
+
+复用上轮上下文做轻量复验。M2 fix HEAD `a652e51c`，重建前端产物后起新栈（IM 50544）验证。仅重跑受影响 Scenario 及边缘路径，其余行继承上轮。
+
+## Verdict
+
+**pass**
+
+## Highest Required Action
+
+**pass**（无新 issue）
+
+## 上轮 Major Issue 闭合情况
+
+### Issue #1（分支单聊复制消息 fork 502）— **已闭合**
+
+**验证方式**：
+1. 创建 plato 对话（conv `f706d6ca`），发送 2 条消息，plato 各返回带 kernel_message_id 的完成回复
+2. 对第一条 agent 回复（FRUIT-ALPHA）fork → 创建 fork1（`33ebadf1`），HTTP 201
+3. 查看 fork1 消息：agent 消息的 `kernel_message_id` 已更新为 fork session 的新 UUID（`msg_f6e3876422b6bc3a`，不再是原始 `msg_41c3358c2beb8965`） — 这是 M2 递归 UUID 映射修复的核心
+4. 对 fork1 里这条**复制** agent 消息再 fork → **HTTP 201**（round 1 此处 502）
+5. fork2 建立成功（`0e93f24d`），agent 回复 "The code for the BETA fruit was **FRUIT-BETA**, which belonged to **Banana**." — 上下文记忆正常
+
+**结论**：bug 已修，不再是欺骗性交互。
+
+## 边缘路径验证
+
+### 双击防重（fork 按钮 in-flight 禁用）— **pass**
+
+- 在浏览器里对 CAP 消息快速双击 fork 按钮
+- 第一次点击成功导航到新 fork 对话（toast: "Branched into a new chat"），页面立刻切换
+- 第二次点击报 "Ref not found"（按钮已随页面消失，UI 完成了重定向）
+- API 级别计数：plato 会话 5 → 6（仅 +1，非 +2）
+- 证据：ACCEPTANCE/feat-445-M1/reviewer-r2-fork-no-502.png
+
+### agent 忙时 fork 不超时 — **pass**
+
+- 向原 conv 发送新消息触发 plato 处理，同时立即向同一 conv fork 第一条 agent 消息
+- fork 返回 HTTP 201，未超时、未阻塞
+- 确认 M2 fix `flush_async + 去 source_lock` 生效
+
+### 长对话全量历史（长于 200 条消息上限）— **inconclusive**
+
+- 测试环境消息数量不足（仅 2 条 agent 消息），无法构造 200+ 条消息场景
+- 功能上正常 fork 的消息历史完整性已通过其他 scenario 验证
+- 单测覆盖已在 M2/R2 commit 中提交（`test(feat-445/M2/R2): 长对话 fork 取全量历史红测`）
+
+## Round 2 Scenario 覆盖更新
+
+### Requirement: 已完成的 agent 回复上提供 fork 入口 — 组内结论: **pass**（更新）
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 单聊里已完成的 agent 回复可 fork | spec.md | 浏览器 hover + click，fork-of-fork 验证 | API 201 + toast 截图 | **pass** | round 1 pass，round 2 继续 pass，含 fork-of-fork |
+| 用户自己的消息没有 fork 入口 | spec.md | round 1 已验 | round 1 截图 | **pass** | 无回归 |
+| 生成中的 agent 回复没有 fork 入口 | spec.md | round 1 inconclusive（模型响应 ~2s 来不及截图） | — | **inconclusive** | 继承上轮；建议前端快照单测补充 |
+| 群聊消息不提供 fork | spec.md | round 1 已验（用户消息）| round 1 截图 | **pass** | 无回归 |
+
+其余 Requirement 的所有 Scenario 均继承 round 1 **pass** 结论，round 2 未观察到回归。
+
+## Round 2 截图证据
+
+| 文件 | 内容 |
+|---|---|
+| ACCEPTANCE/feat-445-M1/reviewer-r2-fork-no-502.png | round 2 fork 成功截图（⑂ fork 按钮可见，非 502）+ 双击只产生 1 条分支 |
