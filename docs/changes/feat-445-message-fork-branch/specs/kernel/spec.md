@@ -4,7 +4,9 @@
 
 本 unit 对 `docs/specs/kernel/spec.md` 的增量。声明本 unit 预计给 canonical 增加/修改的对外行为；收尾由 orchestrator 据实际 diff 校正后并入。
 
-## MODIFIED Requirements
+> **归并提示**：canonical kernel spec 当前仅在生命周期方法清单（:98）与返回类型说明（:529）**提到 `fork_session` 这个方法存在**，并无任何描述其**行为契约**的既有 Requirement。故本条为 **ADDED**（首次为该方法建立行为契约），不是 MODIFIED——收尾归并时不要去找可顶替的同名条目。
+
+## ADDED Requirements
 
 ### Requirement: fork_session 复制源会话的无损历史到指定 fork 点，生成独立新会话
 

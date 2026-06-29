@@ -8,18 +8,19 @@
 - v2: 推翻早期「IM 当历史权威 / append_message 灌入」方案，改为**gateway append-only 会话日志为唯一权威 + kernel raw 全量复制到 fork 点**。理由见决策 1。
 - v2.1: 核实后修正 fork 点对齐机制——现状无任何现成的「IM 气泡↔kernel」稳定标识落在消息行；改为 **relay 时把标识持久化到 IM 消息行**，fork 时精确截断（决策 4）。
 - v2.2: 对齐粒度从 `turn_id` 收紧到逐气泡 `message_id`——一个 run 可产出多条 `assistant_message`=多个气泡（用户反馈），每条都应可 fork，turn 粒度会让同 run 多气泡撞同一刀。所需 `message_id` 现成在 `assistant_message` 事件 payload 里（`realtime_stream.py:54`）。kernel `up_to` 改为按 message_id 在 raw 线性历史切片（决策 4）。
+- v2.3: 据 design-review CRITICAL 修正——「无损读」此前错误地宣称复用 `manager.load`，实测 `manager.load`/`list_turn_messages` 同走 `store.load`、在有 compact_boundary 时只返回 boundary 后 turn（jsonl_store.py:224-229），无任何 raw 读路径。改为**新增 raw-materialize 读能力**（读全部 turn、忽略 boundary、丢 `is_compact_summary` summary turn、按 message_id 截断），现状分析区分「写无损/读跳过」，kernel 估算上修 ~80→~160，头号守护测试改为「已压缩源会话 fork 到 compact 点前」。并清两条 WARNING：删决策1/3 的 run_id 残留措辞、kernel delta 由 MODIFIED 改 ADDED。
 
 ## 现状分析
 
-> 调研结论建立在第一手代码核对之上（kernel fork/compact 机制、session 存储无损性、IM 前端聊天 UI、IM↔gateway WS RPC 模式、IM 消息携带 run_id）。
+> 调研结论建立在第一手代码核对之上（kernel fork/compact 机制、session 存储「写无损/读跳过 boundary」的区别、IM 前端聊天 UI、IM↔gateway WS RPC 模式、relay 事件携带逐气泡 message_id）。
 
 ### 涉及范围
 
 - **Kernel**（`src/agent/`，经 sdk 入口）
   - `sdk/kernel.py` —— `fork_session`（:790）当前是 **stub**（忽略 source、只建空 session）；本 unit 改为真实 fork，并新增 `up_to`（fork 点）参数。
-  - `core/agent/runtime.py` —— `fork_session`（:1271）/ `_fork_locked`（:1312）已实现**全保真**线性历史复制（re-stamp UUID、保留 `reasoning_content`/工具调用，见 :1354 `replace()`），但**无 fork 点截断**、且热路径优先用内存 `_session_histories`（可能是压缩视图）。本 unit 加 `up_to` 截断 + 强制 raw。
-  - `core/session/manager.py` —— `load`（:95）「Load raw config + messages」= **无损全量**；`list_turn_messages`（:215）「applying compact_boundary skip」= 压缩视图。fork 必须走前者。
-  - `core/session/jsonl_store.py` —— append-only store（:55），`compact` 只追加 `compact_boundary`+summary、**不删老 turn**（manager.py:236-247）→ raw load 永远能取回压缩前全部原始 turn。**这是「无损权威」的存储基石。**
+  - `core/agent/runtime.py` —— `fork_session`（:1271）/ `_fork_locked`（:1312）已实现**全保真**线性历史复制（re-stamp UUID、保留 `reasoning_content`/工具调用，见 :1354 `replace()`），但**无 fork 点截断**、且热路径优先用内存 `_session_histories`（可能是压缩视图）。本 unit 加 `up_to` 截断 + 改走新增的 raw-materialize 读路径（见下）。
+  - `core/session/manager.py` —— **`load`（:95）注释虽写「Load raw config + messages」，但它与 `list_turn_messages`（:215）调的是同一个 `self._store.load`（:100 / :218），二者返回结果一致——`load` 的「raw」指「未经 typed Session 包装的原始条目」，不等于「压缩前全量」。** 现状**没有**任何能取回 compact 前 turn 的读路径。本 unit 须**新增** raw-materialize 能力（见下）。
+  - `core/session/jsonl_store.py` —— append-only **写**层（:55），`compact` 只追加 `compact_boundary`+summary turn、不改/删老 turn（manager.py:236-270，summary turn 带 `is_compact_summary:True`）。**但 `store.load`（:224-229）在有 boundary 时只保留「最后一个 compact_boundary 之后的 turn」**——compact 前的原始 turn 在 :196 读进内存后于 :224 被丢弃。即「字节在盘上(写无损)」≠「load 返回它们(读无损)」。本 unit 的 raw-materialize 即补这条读路径。
 - **Gateway**（`src/personal_assistant/`）
   - `ws/im_connection.py` —— gateway 处理 IM 下行 RPC 的 dispatch（:399 `node.capabilities.resolve` 模式）；新增 fork session RPC handler。
   - `gateway/session_keys.py` —— `PersistentSessionBindingStore`（:104），`build_session_key`（:407）= `{channel}:{conversation_id}:{agent_id}`；fork 后把新 conversation 预绑定到 fork 出的新 session。
@@ -40,12 +41,12 @@
 
 - 产品包（`personal_assistant` / `IM` 前端）与内核交互**只经 `agent.sdk`**；gateway 进程内持有 `Kernel`，调用 `fork_session`，不碰 core/platform 内部。
 - **IM 不直接持有 kernel session 映射**：`conversation_id ↔ kernel_session_id` 绑定只存在于 **gateway 侧** `session_bindings.sqlite3`，且 IM 与 gateway 可跨机——IM 进程**绝不**直读 gateway 侧 workspace / kernel JSONL（沿用 im/spec.md「经 WS RPC 代理到 gateway」既有纪律）。因此「让新会话的 agent 记得历史」**只能由 gateway 执行**，IM 必须经 WS RPC 委托。
-- session 存储 append-only：`compact` 非破坏，raw load 取回全量；这是「fork 取无损历史而非压缩视图」可实现的前提（实施期头号守护点，见风险段）。
+- session 存储**写**层 append-only：`compact` 只追加 `compact_boundary`+summary turn、不改/删老 turn → 原始 turn 始终在盘上。但当前**读**层（`store.load`）在有 boundary 时会跳过 compact 前 turn，故「无损读」需本 unit 新增 raw-materialize 能力（实施期头号验证点，见风险段）。「写无损」与「读会跳过」是两件事，不能混为一谈。
 
 ### 可复用能力
 
-- **`runtime.fork_session` / `_fork_locked`（runtime.py:1271/1312）—— 用、扩**。已实现全保真线性历史复制（新 UUID、parent 链重算、保留 reasoning/工具），只差「截断到 fork 点」与「强制 raw」。是定稿架构的核心承重件。
-- **`manager.load`（manager.py:95）—— 用**。无损全量加载源会话历史，绕开 `list_turn_messages` 的 compact skip。
+- **`runtime.fork_session` / `_fork_locked`（runtime.py:1271/1312）—— 用、扩**。已实现全保真线性历史复制（新 UUID、parent 链重算、保留 reasoning/工具），只差「截断到 fork 点」与「喂给它无损历史」。是定稿架构的核心承重件。
+- **`store.load` 的逐行读入（jsonl_store.py:191-196）—— 用其前半、绕其后半**。:191-196 已把全部 raw_lines（含 compact 前 turn）读进内存，本 unit 新增的 raw-materialize 复用这步，但**不走** :224-229 的 boundary 跳过，改为「取全部 `turn`、丢弃 `is_compact_summary` 的 summary turn、按 fork 点 message_id 截断」。⚠ **`manager.load` 不可直接用**（它走 :224 跳过），需新增读模式/参数——见决策 1 与风险段。
 - **WS RPC request-response 模式（im_connection.py:399 + gateway_handler.py waiters）—— 照搬**。新增一对 fork RPC 帧（IM→gateway 请求 / gateway→IM 回包），与 `capabilities.resolve` / `agent.create` 同构。
 - **`_ensure_binding`（inbound_pipeline.py:696）—— 复用其复用分支**。fork 预先把新会话 binding 指向「已 fork 好的 session」，首条 relay 命中复用、不另建空 session。
 - **`createDirectChatByAgentUserId` + `navigate('/chat/{id}')`（agent-detail-page.tsx:884/900）—— 跳转 + 双缓存失效模式照搬**到 fork 成功回调。
@@ -60,7 +61,7 @@
 
 ## 架构总览
 
-定稿原则：**对话记录的权威 = gateway 的 append-only 会话日志（无损 C）**。compact 只追加 `compact_boundary`+摘要、永不硬删老 turn，所以同一份日志既能 raw 全量读（无损记录 C）、也能 boundary-skip 读（压缩上下文 B）。它是**唯一 channel 无关、覆盖该 agent 全部对话**的存储；各 channel（内部 IM / 飞书 / 钉钉…）的消息库只是该 channel 的**展示副本**。
+定稿原则：**对话记录的权威 = gateway 的 append-only 会话日志（无损 C）**。compact 只追加 `compact_boundary`+摘要 turn、永不硬删老 turn（写无损），所以盘上同一份日志既保留全部原始 turn、又有压缩视图所需的 boundary——但**取回无损全量需本 unit 新增的 raw-materialize 读路径**（现状 `store.load` 默认按 boundary 跳过，见现状分析/决策 1）。它是**channel 无关、覆盖该会话全部轮次的无损记录**（每个 conversation 对应一份 per-session JSONL，session_key=`channel:conversation_id:agent_id`；fork 复制的是源 conversation 那一份）；各 channel（内部 IM / 飞书 / 钉钉…）的消息库只是该 channel 的**展示副本**。
 
 因此 **fork 的本质 = gateway 把源 session 日志按 raw 全量复制到 fork 点 → 新 session**。IM 只负责三件事：**提供入口**、**复制自己的展示消息**给新会话回看、**一次 WS RPC 委托** gateway 做真正的 session fork。
 
@@ -80,7 +81,7 @@ graph TB
     FORK["定位源 session(原 conv 的 binding)<br/>→ kernel.fork_session(source, up_to=fork点)<br/>→ session_store.bind(new_conv → new_session)"]
   end
   subgraph K["Kernel (gateway 进程内)"]
-    KAPI["fork_session(up_to): manager.load raw 全量<br/>→ 截断到 fork 点 → 全保真复制成新 session"]
+    KAPI["fork_session(up_to): raw-materialize(读全部 turn,<br/>忽略 boundary, 丢 summary turn) → 截断到 fork 点 → 全保真复制成新 session"]
   end
   BUBBLE --> WS --> ROUTE --> SVC --> GH -->|WS| CONN --> FORK --> KAPI
   FORK -.bind.-> BIND[("session_bindings.sqlite3<br/>new_conv_id → new_session_id")]
@@ -97,13 +98,14 @@ graph TB
 
 - **理由**：
   1. **权威单一**：对话记录的权威是 gateway 的无损会话日志，不是任何 channel 的展示副本。fork 应从权威复制，才能保证 agent 记忆与「真发生过的对话」字字一致，也才对未来多 channel（飞书/钉钉）一视同仁。
-  2. **全保真**：`runtime._fork_locked` 已保留 `reasoning_content`/工具调用（runtime.py:1354 用 `replace()` 整体复刻 Message）；raw 复制天然带上历史思考与工具轮，agent 记忆与原会话完全等价。
-  3. **复用承重件**：`runtime.fork_session` 已实现全保真线性复制，只差「截断到 fork 点」+「强制 raw」两点小扩展，改动面小、风险可控。
+  2. **全保真**：`runtime._fork_locked` 已保留 `reasoning_content`/工具调用（runtime.py:1354 用 `replace()` 整体复刻 Message）；只要喂给它无损历史，agent 记忆与原会话完全等价。
+- **承重前提（实现关键，勿当 flag 翻转）**：定稿架构的「无损」依赖一条**当前不存在**的读路径。现状 `manager.load` / `store.load` 在有 compact_boundary 时只返回 boundary 之后的 turn（jsonl_store.py:224-229），即压缩视图 B 而非无损 C。本 unit 须**新增 raw-materialize 读能力**：读全部 `turn`、忽略 `compact_boundary`、**丢弃带 `is_compact_summary:True` 的 summary turn**、按 fork 点 message_id 截断。因原始 turn 从不被 compact 改写（append-only 写层），fork 点之前的前缀天然是一段**完整原始链**，无需跨 boundary 缝合 parent 链。这是新增能力、非翻 flag，kernel 改动量见 M1（已上修）。
 - **拒绝**：
   - **「IM 可见历史为源 + append_message 灌入空 session」**（早期草案）：把展示副本当历史权威；`append_message` role 仅 user/assistant，工具/思考无法进 agent 记忆（保真丢失）；IM 消息序与 kernel turn 序无稳定 1:1 对齐，截断点易错。
-  - **`runtime.fork_session` 原样直用**：无 fork 点截断（全量复制整段），且热路径优先读内存 `_session_histories`（可能是压缩视图 B 而非无损 C）。
+  - **「直接复用 `manager.load` 当无损读」**：它走 `store.load` 的 boundary 跳过（:224），对已 compact 的源会话只拿到摘要+boundary 后 turn——**这正是本 unit 评审揪出的错前提**，故必须新增 raw-materialize。
+  - **`runtime.fork_session` 原样直用**：无 fork 点截断（全量复制整段），且热路径优先读内存 `_session_histories`（可能是压缩视图）。
   - **「create_session 传 seed_messages」**：无此参数，要新造内核 API，过度。
-- **风险**：fork 点对齐——把「被点的 IM agent 气泡」映射回「gateway 日志中的 turn 索引」。依据是 IM 消息携带的 `run_id`（feat-340-M2）。详见风险段与决策 4。
+- **风险**：① fork 点对齐——把「被点的 IM agent 气泡」映射回「源日志中的那条 assistant 消息」，靠决策 4 的逐气泡 `message_id`（不是 run_id）。② 无损 raw-materialize 的正确性（见风险段，本 unit 头号验证点）。
 
 ### 决策 2: fork 由 IM 同步编排，经一次 WS RPC 委托 gateway 完成 session fork
 
@@ -119,7 +121,7 @@ graph TB
 
 - **理由**：spec 要「完整气泡形态」给用户看（IM 展示副本承担）；agent 的「记得」要与真实对话等价（gateway 日志副本承担，含工具/思考）。两份表示各司其职，但都忠实于同一段真实对话，不存在「显示与记忆不一致」。
 - **拒绝**：只保一份（让 IM 展示去重建 agent 记忆，或让 agent 记忆去渲染 UICI）——跨机、保真、职责都不成立。
-- **风险**：两份在 fork 点的边界需对齐（IM 复制到 fork 点的展示消息 ↔ gateway 复制到 fork 点的 turn）；靠同一个 fork 点标识（run_id/turn）双向对齐。
+- **风险**：两份在 fork 点的边界需对齐（IM 复制到 fork 点的展示消息 ↔ gateway 复制到 fork 点的那条 assistant 消息）；靠同一个 fork 点标识（决策 4 的逐气泡 `message_id`）双向对齐。
 
 ### 决策 4: fork 点对齐——relay 时把每条气泡对应的 kernel `message_id` 持久化到 IM 消息行，fork 按 message_id 精确截断
 
@@ -183,7 +185,7 @@ sequenceDiagram
   IM->>GW: WS RPC session.fork.request<br/>{request_id, source_conversation_id, new_conversation_id, agent_id, fork_point:{message_id}}
   GW->>GW: 由 source_conversation_id 的 binding 定位源 session_id
   GW->>K: fork_session(source_session_id, up_to=message_id)
-  K->>K: manager.load raw 全量 → 线性历史截断到该 message(含) → 全保真复制成新 session
+  K->>K: raw-materialize(读全部 turn,忽略 boundary,丢 summary) → 截断到该 message(含) → 全保真复制成新 session
   K-->>GW: new_session_id
   GW->>GW: session_store.bind(key(new_conv,agent) → new_session_id)
   GW-->>IM: session.fork.result {request_id, ok:true}
@@ -222,9 +224,10 @@ sequenceDiagram
 
 ## 风险与回退
 
-- **【头号守护点】compact 必须非破坏**：整个「无损权威」前提依赖 append-only 日志 + compact 只追加 boundary/摘要不删老 turn（现状满足：jsonl_store append-only、manager.py:236-247）。M1 须加守护测试：**compact 之后，raw 全量仍能取回 compact 之前的全部原始 turn**；一旦回归即权威被毁、fork 取到残缺历史。
+- **【头号验证点】无损 raw-materialize 读路径（本 unit 新建）**：整个「fork 从无损权威复制」依赖一条**当前不存在**的读路径。现状 `store.load`（jsonl_store.py:224-229）有 boundary 时只返回 boundary 后 turn——`manager.load` 也走它，故**不能直接用**。本 unit 须新增：读全部 `turn`、忽略 `compact_boundary`、**丢弃 `is_compact_summary:True` 的 summary turn**、按 fork 点 message_id 截断。M1 头号守护测试：**对已 compact 的源会话，fork 到 compact 点之前的某条消息，新会话历史 = 该 fork 点之前的全部原始 turn（不含 summary、不含 fork 点之后）**。
+  - 存储**写**层确为 append-only（compact 只追加、不删老 turn，manager.py:236-270）——这是新读路径可行的前提，但「写无损」本身不等于「fork 能读到无损」，二者不可混。
 - **fork 点对齐错位**（决策 4）：靠 relay 时持久化到消息行的逐气泡 `message_id` 作两侧共同锚点，根除「序号推断不稳 + 多气泡同 turn 撞刀」。残余风险=relay 落的 `message_id` 是否确指向产出该气泡的那条 assistant 消息。对策：单测断言映射正确；端到端配两条断言——「fork 到中间某条 agent 回复，fork 点后不带」+「**同一 run 多气泡时分别 fork，截断点各不相同且精确**」。旧气泡无 `message_id` → fork 入口禁用，不回填。
-- **fork 取到压缩视图而非无损 C**：`runtime.fork_session` 热路径优先读内存 `_session_histories`（可能是压缩后视图）。对策：fork 路径强制走 `manager.load`（raw）取源历史，不复用可能被压缩的内存缓存。
+- **fork 复用了被压缩的内存缓存**：`runtime.fork_session` 热路径优先读内存 `_session_histories`（compact 后被重置为摘要视图）。对策：fork 路径不复用该缓存，改走上面新增的 raw-materialize 从 JSONL 重读。
 - **复制展示消息后 gateway RPC 失败**：已建新会话 + 复制的 messages 成孤儿。对策：IM 端 try/except 包裹 RPC，失败删除新会话（决策 5）；新会话此刻无外部引用，删除安全。
 - **历史很长 / RPC 超时**：fork 点可能在很靠后。对策：RPC 只传 fork 点标识（不传整段历史，体量恒定小）；gateway 侧 fork 是本地文件复制，超时阈值参考 agent.create 适当放宽。降级：超时按失败回滚，前端提示「fork 失败，请重试」。
 - **回滚本身失败**（删会话失败）：留下无 binding 空会话；用户发消息触发 `_ensure_binding` 建全新空 session（不记得历史）。属极端边缘，记录日志告警，不在本期加补偿任务。
@@ -246,10 +249,10 @@ sequenceDiagram
 
 ## Milestones
 
-单 M1：fork 是一条端到端垂直切片（relay 持久化 message_id → 前端按钮 → IM 接口 → WS RPC → gateway 定位源 session → kernel fork_session 按 message_id 截断复制 → 预绑定），各层有接口依赖无法真并行，估算 ~560 行改动（kernel ~80 / gateway ~120 / IM ~210〔含 message_id 落库 + 模型/复制路径 ~60〕/ 前端 ~150），未触发任何拆分硬条件。
+单 M1：fork 是一条端到端垂直切片（relay 持久化 message_id → 前端按钮 → IM 接口 → WS RPC → gateway 定位源 session → kernel raw-materialize + 按 message_id 截断复制 → 预绑定），各层有接口依赖无法真并行，估算 ~640 行改动（kernel ~160〔新增 raw-materialize 读路径 + `up_to` 截断 + fork_session 接线，含已 compact 源会话用例，评审后上修自 ~80〕/ gateway ~120 / IM ~210〔含 message_id 落库 + 模型/复制路径 ~60〕/ 前端 ~150），未触发任何拆分硬条件。
 
 > **实施建议（worker 起手序）**：先做「relay 把逐气泡 `message_id` 持久化到 IM 消息行 + `Message` 模型加字段」这条前置链路（决策 4 的地基，最易被低估），并以单测锁定「relay 落的 message_id 确指向产出该气泡的那条 assistant 消息」（含一 run 多气泡场景），再往上游接 fork 编排。否则后面 fork 点对齐会悬空。
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-445-M1 | fork-branch | — | A | Kernel `src/agent/{sdk/kernel.py,core/agent/runtime.py}`（fork_session 真实化 + `up_to=message_id` 线性截断 + 强制 raw）；Gateway `src/personal_assistant/{ws/im_connection.py,gateway/session_keys.py,gateway/inbound_pipeline.py 或新增 fork 逻辑}`；IM `src/IM/{application/web_im_service.py,api/routes/web_im.py,ws/gateway_handler.py,application/event_service.py,domain/models.py,infra/repositories.py}`（fork 编排 + **relay 落逐气泡 message_id 到消息行** + `Message` 加字段）；前端 `src/IM/frontend/src/features/chat/v2/{components/message-pane.tsx,chat-workspace-page.tsx,chat-api.ts,chat-types.ts}` | `[reviewer]` 覆盖 spec 全部 Requirement/Scenario：agent 已完成回复可 fork（用户消息/生成中/群聊无入口）、新会话含 0→fork点完整气泡且 fork 点后不带、分支单聊 agent 基于历史追问能正确理解、fork 后自动进入且原会话不变两线独立、分支单聊列表名为 agent 名、agent 离线 fork 不可用且明确提示、**一 run 多气泡时每条可 fork 且分别精确**。`[worker]` **relay message_id 落库单测**（落的 message_id 确指向产出该气泡的 assistant 消息，含一 run 多气泡）绿；kernel fork_session 单测（raw 全量 + `up_to=message_id` 线性截断 + 全保真保留 reasoning/工具 + 新旧会话独立）全绿；**compact 非破坏守护测试**（compact 后 raw 仍取回压缩前全部 turn）绿；gateway fork RPC handler 单测（binding 定位源 → fork_session → bind）全绿；IM service 单测（fork 建会话+复制展示历史+在线校验+失败回滚+旧气泡无 message_id 拒 fork）全绿；前端 `npm run test` 相关用例全绿；`pytest -m "not e2e"` 不回归 |
+| feat-445-M1 | fork-branch | — | A | Kernel `src/agent/{sdk/kernel.py,core/agent/runtime.py,core/session/{manager.py,jsonl_store.py}}`（fork_session 真实化 + **新增 raw-materialize 读路径**〔读全部 turn、忽略 compact_boundary、丢 `is_compact_summary` summary turn〕 + `up_to=message_id` 线性截断）；Gateway `src/personal_assistant/{ws/im_connection.py,gateway/session_keys.py,gateway/inbound_pipeline.py 或新增 fork 逻辑}`；IM `src/IM/{application/web_im_service.py,api/routes/web_im.py,ws/gateway_handler.py,application/event_service.py,domain/models.py,infra/repositories.py}`（fork 编排 + **relay 落逐气泡 message_id 到消息行** + `Message` 加字段）；前端 `src/IM/frontend/src/features/chat/v2/{components/message-pane.tsx,chat-workspace-page.tsx,chat-api.ts,chat-types.ts}` | `[reviewer]` 覆盖 spec 全部 Requirement/Scenario：agent 已完成回复可 fork（用户消息/生成中/群聊无入口）、新会话含 0→fork点完整气泡且 fork 点后不带、分支单聊 agent 基于历史追问能正确理解、fork 后自动进入且原会话不变两线独立、分支单聊列表名为 agent 名、agent 离线 fork 不可用且明确提示、**一 run 多气泡时每条可 fork 且分别精确**。`[worker]` **relay message_id 落库单测**（落的 message_id 确指向产出该气泡的 assistant 消息，含一 run 多气泡）绿；kernel fork_session 单测（raw-materialize 全量 + `up_to=message_id` 线性截断 + 全保真保留 reasoning/工具 + 新旧会话独立）全绿；**已压缩源会话守护测试**（对已 compact 的源会话、fork 到 compact 点之前某条消息 → 新会话 = 该点前全部原始 turn，不含 summary、不含 fork 点后）绿；gateway fork RPC handler 单测（binding 定位源 → fork_session → bind）全绿；IM service 单测（fork 建会话+复制展示历史+在线校验+失败回滚+旧气泡无 message_id 拒 fork）全绿；前端 `npm run test` 相关用例全绿；`pytest -m "not e2e"` 不回归 |
