@@ -26,6 +26,10 @@
   A(原话): 可以，文档评论暂时先不增加这个功能。
   Agent 解读: 文档评论（list_comments / add_comment / reply_comment）不纳入本期。
 
+- Q6: 飞书对话是否同步到内部 IM?
+  A(原话): 加到spec。
+  Agent 解读: 飞书消息和回复 mirror 到 IM 服务，内部 IM web UI 可见。参考 OpenClaw/Hermes 的共享 session store 模式，方案 A：飞书消息处理完后回推到 IM 服务。
+
 ## 用户场景
 
 用户在飞书上通过三个飞书 Bot（plato / luban / hume）分别与对应的 Agent 交互，体验与内部 IM 页面一致。
@@ -87,6 +91,16 @@
 - **WHEN** 用户与 plato-bot 对话
 - **THEN** 回复来自 plato Agent，而非 luban 或 hume
 
+### Requirement: 飞书对话同步到内部 IM
+
+#### Scenario: 飞书消息出现在内部 IM
+- **WHEN** 用户在飞书跟 Bot 对话，Bot 回复
+- **THEN** 该对话（用户消息 + Bot 回复）同步出现在内部 IM 的对应 Agent 会话中
+
+#### Scenario: 飞书群聊消息出现在内部 IM
+- **WHEN** 用户在飞书群 @Bot 对话，Bot 回复
+- **THEN** 该对话同步出现在内部 IM 的对应 Agent 会话中
+
 ### Requirement: 飞书云文档操作（用户身份）
 
 #### Scenario: 以用户身份创建文档
@@ -126,8 +140,8 @@
   - 飞书 Bot 消息收发（1:1 私聊 + 群聊 @Bot 触发）
   - 多 Agent 路由（一个飞书 Bot 对应一个 Agent）
   - 群聊未 @ 消息的 history buffer 上下文
-  - 以用户身份操作飞书云文档（创建文档、读取、编辑/追加、创建文件夹、移动文件）
-  - 用户 OAuth 授权流程
+  - 飞书对话同步到内部 IM（消息和回复 mirror 到 IM 服务，内部 IM web 可见）
+  - 以用户身份操作飞书云文档（通过 feishu-cli，创建文档、读取、编辑/追加、创建文件夹、移动文件）
 - 非目标：
   - 飞书 wiki（知识库）操作
   - 飞书 bitable（多维表格）操作
