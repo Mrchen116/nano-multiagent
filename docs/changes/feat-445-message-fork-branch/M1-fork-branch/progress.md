@@ -35,3 +35,17 @@
 - Commits: C1=test 红测, C2=feat 实现, C3=docs 本段。
 - Next: R2 kernel fork_session(up_to) — store.load 截断 + 复用 _fork_locked + 三组守护测试。
 
+### R2 — kernel fork_session(up_to=M)：as-of-M 截断 + 复用 _fork_locked（轻法 b）
+
+- Context: 决策1 取轻法 (b)（见顶部 Decision）。需让 fork 出的会话带「源在 fork 点 M 的上下文视图」（含源当时压缩态），与源逐字一致，且复用现有架构、避开 boundary/summary 内部引用 re-stamp。
+- Decision: ① `jsonl_store.load` 加 `up_to: str|None`——读完 raw_lines 后定位 `type==turn and uuid==up_to` 的行，截断 `raw_lines[:cut+1]`，找不到 raise `SessionNotFoundError`（§0.2 不静默回落），再跑**原样**的 boundary-skip + chain 逻辑。② `manager.load` 透传。③ `runtime.fork_session` 加 `up_to`：有值时 `store.writer.flush()` + `manager.load(up_to=)` 从当前 JSONL 重 materialize（**不读** `_session_histories` 缓存——compact 后它只剩摘要尾、给不出历史 M）→ 交现成已测 `_fork_locked` 复制。无 up_to 时保留 cache-first（5 个现有测试不破）。④ `kernel.fork_session` 替换 stub，委托 `runtime.fork_session(up_to=)`。
+- Rationale: 关键正确性——agent 产出 M 时源 JSONL 文件状态 = [0..M]，故对 [0..M] 前缀跑**同一段** store.load = 复现源在 M 的历史文件状态 → as-of-M 视图逐字等于源在 M 的视图。三种压缩态由「截断后 boundary_idx = M 之前最后一个 boundary」自然导出，无需特判：M 在 boundary 后→summary+boundary..M；M 在 boundary 前→该 boundary 被截掉、只应用更早 boundary；未压缩→到 M 全部 turn。
+- Evidence:
+  - Tests: `tests/unit/test_fork_session.py` 10 passed——三组守护（uncompacted / after-boundary=summary+kept / before-boundary 忽略后续 boundary）+ up_to 未知 message_id raise + up_to fork 独立性/re-stamp/保真 + 原有 5 个 up_to=None 用例不破。
+  - Entry: 内核进程内真实 JSONL（manager append + compaction 真写盘 → flush → fork 真读盘截断）。kernel→gateway→IM 完整链在 R3/R6。
+  - Frontend State Matrix / Browser QA / Visual: N/A（R2 内核）
+  - E2E/Regression: `pytest tests/unit/ tests/contract/` 2616 passed, 1 skipped（store.load/runtime/kernel 改动无回归）。
+- Rollback: revert C2；up_to=None 路径完全不变，回退零影响。
+- Commits: C1=test 三组守护红测, C2=feat 实现, C3=docs 本段。
+- Next: R3 gateway fork RPC handler（binding 定位源 session → kernel.fork_session(up_to) → bind 新会话）。
+
