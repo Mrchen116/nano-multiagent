@@ -105,6 +105,8 @@ graph TB
   - **「直接复用 `manager.load` 当无损读」**：它走 `store.load` 的 boundary 跳过（:224），对已 compact 的源会话只拿到摘要+boundary 后 turn——**这正是本 unit 评审揪出的错前提**，故必须新增 raw-materialize。
   - **`runtime.fork_session` 原样直用**：无 fork 点截断（全量复制整段），且热路径优先读内存 `_session_histories`（可能是压缩视图）。
   - **「create_session 传 seed_messages」**：无此参数，要新造内核 API，过度。
+  - **「fork 镜像源会话当前的压缩态（摘要+boundary 后 turn）」**：更省 token，但**对 fork 一条 boundary 之前的老消息直接失败**——源的工作上下文里已无那条老 turn（被摘要顶替），无法精确截断到它。spec 允许 fork 任意一条历史 agent 回复，故此方案不可取。
+- **fork 与源的语义差（无损的必然结果，非 bug）**：fork 总是从无损权威复制，而源可能运行在压缩态上，于是——① **源未压缩**（短对话，常见）：fork 历史 = 源工作上下文，逐字相同，行为一致；② **源已压缩、fork 较近消息**：fork 拿全量原文、源只有摘要，fork 记忆更全/更准（代价：fork 首轮 prompt 更大，超窗则其自身下次 compact 再压回）；③ **源已压缩、fork 老消息**：只有无损能精确续到那条老消息，源自己已做不到。三种情况下 fork 后两 session 均独立（决策 2 + spec 两线独立）。
 - **风险**：① fork 点对齐——把「被点的 IM agent 气泡」映射回「源日志中的那条 assistant 消息」，靠决策 4 的逐气泡 `message_id`（不是 run_id）。② 无损 raw-materialize 的正确性（见风险段，本 unit 头号验证点）。
 
 ### 决策 2: fork 由 IM 同步编排，经一次 WS RPC 委托 gateway 完成 session fork
