@@ -114,7 +114,13 @@ pinned skill 跳过自动流转。归档前先打 tar.gz 快照（best-effort）
 所有 skill 不管来源（F1/F2 手工 + F3/F4 自动）都记录使用统计（use_count + session 引用列表）。统计对所有 skill 生效，Curator 只对自动创建的 skill 生效。
 
 **使用统计面板**：
-IM 前端增加 skill 使用统计面板。数据层（use_count + session 引用）先做到位，面板具体展示内容待定（per-skill 使用情况、per-agent skill 使用分布等，后续迭代）。
+IM 前端增加 skill 使用统计面板，三个视图：
+
+1. **Skill 列表视图**（主视图）：每行一个 skill，列：名字、来源（F1/F2/F3/F4）、状态（active/stale/archived）、use_count、最近使用时间、趋势 sparkline。默认按最近使用时间降序。一眼能回答"哪些 skill 在用，哪些是死重"。
+
+2. **Agent 维度视图**：选一个 agent，看它的 skill 使用热力图——哪些 skill 用得多、哪些少。下面列该 agent 自动创建的 skill 列表（F3/F4 输出），每个标注 use_count。能回答"这个 agent 的自进化有没有产出价值"。
+
+3. **自进化健康度视图**：三个数字卡片——F3/F4 创建的 skill 总数 → 其中 still active 的数量 → 其中 use_count > 0 的数量（漏斗比 = 自进化存活率）。下面是一个时间线：每个 skill 的创建时间 → 首次使用时间 → 最后使用时间，用色块区分来源。
 
 Curator 每 7 天跑一次确定性扫描（不调 LLM），CLI 启动时和 Gateway housekeeping loop 中触发。状态持久化到 workspace 内的 `.curator_state` JSON 文件。
 
@@ -244,9 +250,17 @@ F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要
 
 ### Requirement: 使用统计面板（IM 前端）
 
-#### Scenario: 使用统计数据可访问
-- **WHEN** IM 前端查询 skill 使用统计
-- **THEN** 能读取到 use_count、last_used_at、session 引用列表等数据，具体面板展示内容待定
+#### Scenario: Skill 列表视图
+- **WHEN** 用户打开 skill 使用统计面板
+- **THEN** 显示所有 skill 的列表，每行包含名字、来源（F1/F2/F3/F4）、状态（active/stale/archived）、use_count、最近使用时间、趋势 sparkline，默认按最近使用时间降序
+
+#### Scenario: Agent 维度视图
+- **WHEN** 用户选择某个 agent
+- **THEN** 显示该 agent 的 skill 使用热力图 + 自动创建的 skill 列表（F3/F4 输出）及各自 use_count
+
+#### Scenario: 自进化健康度视图
+- **WHEN** 用户切换到健康度视图
+- **THEN** 显示三个数字卡片（F3/F4 创建总数 → still active 数 → use_count > 0 数）+ 每个 skill 的创建→首次使用→最后使用时间线
 
 ### Requirement: 所有引用点正确迁移
 
