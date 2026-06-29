@@ -51,6 +51,22 @@
   Agent 解读: 追踪 use_count 和 last_used_at。不区分 view/use（hermes 自己也不区分），patch_count 由 skill_manage 写侧追踪。
   后续补充（Q10）：F4 纳入后，skill_view 调用时记录 {session_id, timestamp}。timestamp 同步更新 last_used_at（给 Curator 用），session_id 存入 session 引用列表（给 F4 batch 分析找 JSONL 用）。一次记录两个用途。
 
+- Q11: F2 蒸馏 skill 的触发方式?
+  A(原话): 用户主动发起。看skill-evolution中讲的。agent自己判断这是现在就支持的，主agent用skill_manage搞，或者Per-turn Review。
+  Agent 解读: F2 是用户主动入口（选 session + 写意图），和 F3/F4 的自动触发正交。agent 自动判断并创建 skill 已有 F3 覆盖。
+
+- Q12: F2 的入口形态?
+  A(原话): 我觉得这个可以做成一个skill，然后IM上可以在左边右键或者某种交互，选择某个session或者某几个session，然后跳转到一个新的对话中，写意图说明，然后用这个session总结生成skill的skill来给用户生成skill。这个skill用户可以选择生成成PA产品级的，还是agent级的
+  Agent 解读: F2 两层实现——IM 前端做 session 选择交互（右键 → 跳转新对话），蒸馏 skill 本身是一个标准 SKILL.md（教 agent 读 transcript + 意图 → 生成 skill）。用户选 PA 级或 agent 级决定写入哪个 skill_root。
+
+- Q13: 面板归哪?
+  A(原话): 本unit包含了IM的实现
+  Agent 解读: skill 使用统计面板（IM 前端）在本 unit 内实现，不只是数据层。
+
+- Q14: Curator 管辖范围——所有 skill 还是只管自动创建的?
+  A(原话): F2生成的skill属于手工生成，也不进行curator。然后所有skill虽然不都进行curator，但是都要记录使用次数，使用的session。
+  Agent 解读: 使用统计对所有 skill 生效（不管来源）。Curator 只管自动创建的 skill（F3 Per-turn Review 输出 + F4 Per-skill Batch 输出），不管手工创建的（F1 从零 + F2 蒸馏）。F1/F2 的 skill 是用户显式创建的，生命周期由用户自己管理。
+
 - Q5: /skill:<name> 斜杠命令现在重写为 `Use the "<name>" skill for this request.`，模型随后用 `read` 读 SKILL.md。改完后这条路径也走 `skill_view` 吗？
   我的推荐：是。斜杠命令重写后的文案改为引导模型调 `skill_view` 而非 `read`。这样无论用户手动 `/skill-name` 还是模型自动调用，都走同一条路径，统计和 compaction 注册都能覆盖到。
   反方：斜杠命令是用户显式触发，语义上和模型主动 view 不同。但追踪的目的是知道"skill 被用了"，不管谁触发的都该算。
@@ -83,7 +99,9 @@
 - **`skill_manage`**（写侧）：只管 create / edit / patch / list / write_file / remove_file。去掉 view action。
 
 **Curator 生命周期管理**：
-skill 创建后，随着使用或闲置，自动在三个状态间流转：
+Curator 只管自动创建的 skill（F3 Per-turn Review 输出 + F4 Per-skill Batch 输出），不管手工创建的（F1 从零 + F2 蒸馏）。手工 skill 的生命周期由用户自己管理。
+
+自动创建的 skill 随着使用或闲置，在三个状态间流转：
 - `active` → `stale`（30 天未被 skill_view 读取）
 - `stale` → `archived`（90 天未用，物理移到 `<skill_root>/.archive/` 目录）
 - `stale` → `active`（被重新读取，复活）
@@ -91,6 +109,12 @@ skill 创建后，随着使用或闲置，自动在三个状态间流转：
 pinned skill 跳过自动流转。归档前先打 tar.gz 快照（best-effort）。restore 纯手动。
 
 **Curator 是 per-workspace 的**：hermes 是单 agent 全局架构（`~/.hermes/skills/`），所有 agent 共享一个 skill 目录，Curator 统一扫描。本项目是多 agent 架构，每个 agent 有自己的 workspace，skill 天然按 agent 隔离（`<workspace_root>/<config_dirname>/skills/`）。因此 Curator 改为 per-workspace 扫描——每个 agent 只管自己的 skill 目录，不碰别的 agent。
+
+**使用统计**：
+所有 skill 不管来源（F1/F2 手工 + F3/F4 自动）都记录使用统计（use_count + session 引用列表）。统计对所有 skill 生效，Curator 只对自动创建的 skill 生效。
+
+**使用统计面板**：
+IM 前端增加 skill 使用统计面板，展示每个 skill 的使用情况（use_count、最近使用 session、趋势）以及每个 agent 使用每个 skill 的情况。数据从 usage 记录读取。
 
 Curator 每 7 天跑一次确定性扫描（不调 LLM），CLI 启动时和 Gateway housekeeping loop 中触发。状态持久化到 workspace 内的 `.curator_state` JSON 文件。
 
@@ -218,6 +242,16 @@ F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要
 - **WHEN** 系统提示词生成 `<available_skills>` 块
 - **THEN** 引导文案指示模型用 skill_view（而非 read 工具）加载 skill 内容
 
+### Requirement: 使用统计面板（IM 前端）
+
+#### Scenario: 查看单个 skill 的使用情况
+- **WHEN** 用户在 IM 面板中查看某个 skill
+- **THEN** 显示该 skill 的 use_count、最近使用的 session 列表、使用趋势
+
+#### Scenario: 查看某个 agent 的 skill 使用分布
+- **WHEN** 用户在 IM 面板中查看某个 agent
+- **THEN** 显示该 agent 使用了哪些 skill、每个 skill 的使用次数
+
 ### Requirement: 所有引用点正确迁移
 
 #### Scenario: background review 白名单包含 skill_view
@@ -234,11 +268,12 @@ F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要
   - 新建独立 `skill_view` 工具（platform 层）
   - `skill_manage` 移除 view action
   - formatter.py 引导文案从 read 改为 skill_view
-  - 使用统计追踪（use_count + last_used_at + session 引用列表 {session_id, timestamp}）
+  - 使用统计追踪（use_count + last_used_at + session 引用列表 {session_id, timestamp}），对所有 skill 不管来源生效
   - 压缩存活机制（addInvokedSkill + compaction 时 re-inject）
-  - Curator 生命周期管理（active/stale/archived，per-workspace，periodic 触发，7 天门控）
+  - Curator 生命周期管理（active/stale/archived，per-workspace，periodic 触发，7 天门控，只管 F3/F4 自动创建的 skill）
   - Per-skill Batch 优化（F4）：uses_since_last_B 阈值触发，收集已结束 session JSONL，LLM 分析跨 session 系统性缺陷，≥2 证据阈值，只 patch 不创建
-  - 手动蒸馏 skill（F2）：蒸馏 skill 本身（SKILL.md），教 agent 读 session transcript + 意图 → 生成 skill，支持 PA/agent 级别选择。IM 前端 session 选择交互归 IM unit
+  - 手动蒸馏 skill（F2）：蒸馏 skill 本身（SKILL.md），教 agent 读 session transcript + 意图 → 生成 skill，支持 PA/agent 级别选择
+  - IM 前端 skill 使用统计面板（per-skill 使用情况 + per-agent skill 使用分布）
   - 所有引用点迁移（product.py、kernel.py、self_improvement.py、feature_registry、reporter 等）
 - 非目标：
   - skill_view 的 file_path 参数（用户明确排除）
