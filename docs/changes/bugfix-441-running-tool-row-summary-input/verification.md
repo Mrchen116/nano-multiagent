@@ -132,3 +132,79 @@ Verification commands run in this verifier worktree:
 ### SUGGESTION（可以修）
 
 - None.
+
+# Round 3
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | M1 10/10 tasks complete; M2 6/6 tasks complete; M3 5/5 tasks complete |
+| Correctness | 13/13 scenarios covered, including failed start-side detail rendering and M2 reconcile/cron regressions |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Completeness
+
+- Tasks: M1 remains 10/10 complete, M2 remains 6/6 complete, and M3 is 5/5 complete. `docs/changes/bugfix-441-running-tool-row-summary-input/M3-fix-failed-detail-rendering/tasks.md` marks all exit criteria complete: failed bespoke cards receive top-level failed state, failed start-side detail hides success markers, interrupted parameters remain visible, running/completed adjacent states do not regress, and failed-with-start-detail vitest coverage is committed.
+- M3 requirement coverage: covered.
+  - `ToolDetailBody` now passes an `isResultPending` semantic gate into bespoke cards at `src/IM/frontend/src/features/chat/v2/components/tool-detail-renderers.tsx:575`.
+  - Failed calls with start-side-only detail are treated as pending when `call.status === "failed"` and the detail lacks terminal/result fields at `src/IM/frontend/src/features/chat/v2/components/tool-detail-renderers.tsx:539` and `src/IM/frontend/src/features/chat/v2/components/tool-detail-renderers.tsx:556`.
+  - `agent`, `memory`, `skill_manage`, and `task_stop` cards keep parameter regions visible while hiding success/completion bodies when `isResultPending` is true: `src/IM/frontend/src/features/chat/v2/components/tool-detail-renderers.tsx:305`, `src/IM/frontend/src/features/chat/v2/components/tool-detail-renderers.tsx:390`, `src/IM/frontend/src/features/chat/v2/components/tool-detail-renderers.tsx:431`, `src/IM/frontend/src/features/chat/v2/components/tool-detail-renderers.tsx:464`.
+  - M2 reconcile still preserves start-side `output`/`detail`/`emoji` for synthetic failed completions: `src/personal_assistant/main.py:3702`, `src/personal_assistant/main.py:3919`, `src/personal_assistant/main.py:3965`.
+  - M2 cron in-band failure shape still produces frontend-recognizable failure detail: `src/personal_assistant/tools/cron.py:485`, `src/personal_assistant/tools/cron.py:504`, `src/personal_assistant/tools/cron.py:631`.
+
+## Correctness
+
+| Requirement / Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| M3: failed `agent` call with start-side detail keeps prompt visible and does not render `✓ completed` / result body | `hasTerminalDetail("agent")` requires terminal keys such as `status`, `content`, `output_file`, `error`, or `agent_id`; absent those keys, `isResultPending()` hides `AgentCard` result region at `tool-detail-renderers.tsx:543`, `:556`, and `:320`. | `src/IM/frontend/src/features/chat/v2/components/tool-calls-panel.test.tsx:919` asserts the prompt remains visible and `.chat-tool-detail-agent-result` is absent. | covered |
+| M3: failed `memory` call with parameter-only detail keeps action/target/content visible and hides success marker | `MemoryCard` renders the parameter-only branch under `isResultPending` at `tool-detail-renderers.tsx:406`; terminal memory failure still uses `success === false` at `:398`. | `src/IM/frontend/src/features/chat/v2/components/tool-calls-panel.test.tsx:934`; success-false terminal failure remains covered at `:813`. | covered |
+| M3: failed `skill_manage` call with parameter-only detail keeps action/name visible and hides success marker | `SkillCard` renders action/name without the `✓` branch under `isResultPending` at `tool-detail-renderers.tsx:447`; terminal failure still uses `success === false` at `:436`. | `src/IM/frontend/src/features/chat/v2/components/tool-calls-panel.test.tsx:950`; success-false terminal failure remains covered at `:837`. | covered |
+| M3: failed `task_stop` call with start-side `task_id` keeps task id visible and hides `✓ status · task_id` | `TaskStopCard` renders only `taskId` under `isResultPending` at `tool-detail-renderers.tsx:467`; completed branch is still gated at `:474`. | `src/IM/frontend/src/features/chat/v2/components/tool-calls-panel.test.tsx:965`. | covered |
+| M3: terminal failed details are not incorrectly hidden | `hasTerminalDetail()` returns true for known result/error fields across web_search/agent/memory/skill_manage/task_stop at `tool-detail-renderers.tsx:539`, so failed result cards keep their existing failure body. | Existing failure-routing and success-false tests remain: `tool-calls-panel.test.tsx:735`, `:767`, `:813`, `:837`. | covered |
+| M1: running gate remains intact after M3 refactor | `call.status === "running"` still always returns pending at `tool-detail-renderers.tsx:557`; web_search/agent/memory/skill/task_stop running parameter branches remain gated. | Existing running tests remain green at `tool-calls-panel.test.tsx:454`, `:469`, `:484`, `:499`, `:513`. | covered |
+| M1: completed success display does not regress | Pending is false for completed calls; completed branches still render result/completion UI in Agent/Memory/Skill/TaskStop cards. | Existing completed success tests remain green, including memory and skill success assertions at `tool-calls-panel.test.tsx:869` and `:893`; reducer final-detail replacement remains covered by `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.test.ts`. | covered |
+| M2: abnormal reconcile preserves start-side parameter detail in synthetic failed completions | `running_tool_calls` caches `output`/`detail`/`emoji` at `src/personal_assistant/main.py:3702`; `run_terminal_reconcile` re-emits them at `src/personal_assistant/main.py:3965`. | `tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py` passed in this round; cases cover command/prompt/query retention and stop attribution. | covered |
+| M2: `/stop` attribution still overwrites only `output`, not parameter detail/emoji | Reconcile output is applied after retained fields and only writes `output` at `src/personal_assistant/main.py:3971`; retained `detail`/`emoji` are not cleared. | `tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py` passed in this round. | covered |
+| M2: cron missing service / enqueue declined / `{ok:false,error}` are rendered as failures | Runtime returns `{ok:false,error}` at `src/personal_assistant/tools/cron.py:485` and `:504`; presenter maps error to `status="failed"`, `success=False`, and `error` at `src/personal_assistant/tools/cron.py:651`. | `tests/unit/personal_assistant/test_cron_tool_closure.py:100`, `:108`, `:195` passed in this round. | covered |
+| M2: cron successful run remains structured | `_cron_result_detail()` keeps success fields such as `success`, `accepted`, and `requestId` at `src/personal_assistant/tools/cron.py:631`. | `tests/unit/personal_assistant/test_cron_tool_closure.py:199` passed in this round. | covered |
+| Frontend build/type safety for M3 renderer change | Type flow stays inside existing `ToolDetailCardProps` and `ToolDetailBody`; no API/schema change. | `npm run build` passed in this round. | covered |
+| Code hygiene / patch integrity | M3 diff is limited to docs plus frontend renderer/tests; no source/test/config edits were made by verifier. | `git diff --check 12131e86..HEAD` passed; verifier `git status --short` was clean before writing this report. | covered |
+
+Verification commands run in this verifier worktree:
+
+- `PYTHONDONTWRITEBYTECODE=1 pytest -q -p no:cacheprovider tests/unit/personal_assistant/test_reconcile_preserves_tool_input.py tests/unit/personal_assistant/test_cron_tool_closure.py tests/unit/personal_assistant/test_tool_end_detail_passthrough.py` -> 23 passed.
+- `npm run test -- src/features/chat/v2/components/tool-calls-panel.test.tsx src/features/chat/v2/chat-stream-reducer.test.ts` -> 2 files passed, 87 tests passed. The output includes pre-existing React `act(...)` warnings in the approval-gate tests and a `--localstorage-file` warning, but no failures.
+- `npm run build` -> passed. Vite emitted existing dynamic-import/chunk-size warnings.
+- `git diff --check 12131e86..HEAD` -> passed.
+
+Environment note:
+
+- This fresh verify worktree initially had no frontend `node_modules`, so `npm run test` failed with `vitest: command not found`. Reusing the main worktree binary also failed on Vite config package resolution. I then ran `npm ci --ignore-scripts --no-audit --no-fund` in `src/IM/frontend` to install lockfile dependencies for verification; tracked git status remained clean before the report edit.
+
+## Coherence
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| M3: failed top-level status must participate in expanded-body rendering | 是 | `isResultPending()` combines `call.status` with terminal-detail detection at `src/IM/frontend/src/features/chat/v2/components/tool-detail-renderers.tsx:556`, and `ToolDetailBody` passes the result to bespoke cards at `:575`. |
+| M3: failed reconcile keeps parameter area visible while hiding success/completion bodies | 是 | Parameter branches remain in Agent/Memory/Skill/TaskStop cards at `tool-detail-renderers.tsx:315`, `:406`, `:447`, and `:467`; success bodies are behind `!isResultPending` or the completed branch. |
+| M3: terminal failed result cards should still render real failure bodies | 是 | `hasTerminalDetail()` recognizes failure/result fields at `tool-detail-renderers.tsx:539`; existing terminal failure tests remain green. |
+| M1/M2 design still holds: Gateway remains passthrough/reconcile, frontend owns rendering state only | 是 | Gateway retains presenter fields without per-tool UI semantics at `src/personal_assistant/main.py:3702` and `:3965`; M3 changes are confined to frontend display logic. |
+| Architecture boundaries remain aligned with `SPEC.md` | 是 | No new import path crosses package boundaries; IM frontend still consumes `ToolCall.detail` only, and Gateway still sits in `personal_assistant`. |
+| Testing follows `docs/TESTING_GUIDE.md` | 是 | M3 extends the existing lowest-layer frontend component test file instead of adding temporary committed scripts; browser screenshot evidence is recorded in progress as ignored/local artifact. |
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+- None.
+
+### WARNING（应该修）
+
+- None.
+
+### SUGGESTION（可以修）
+
+- None.
