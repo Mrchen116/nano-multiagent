@@ -861,7 +861,8 @@ class _IMBootstrapClient:
             The opened bind URL for unbound nodes, or `None` when the node is already owned.
 
         Raises:
-            RuntimeError: When IM bootstrap APIs do not expose the registered node.
+            GatewayStartupError: When IM bootstrap APIs do not expose the registered
+                node or binding cannot be started/confirmed.
         """
 
         self._refresh_token()
@@ -1661,7 +1662,7 @@ class GatewayRuntime:
                 # rest so any leaked fault is logged, not propagated out of finally.
                 try:
                     await _await_background_task(im_task)
-                except Exception as exc:  # noqa: BLE001
+                except BaseException as exc:  # noqa: BLE001
                     _log.warning("IM task await raised during shutdown: %s", exc)
             if self._process_manager is not None:
                 self._process_manager.stop_kernel_process()
@@ -1682,19 +1683,42 @@ class GatewayRuntime:
 
         delay = self._im_watchdog_initial_seconds
         while not self._shutdown_requested.is_set():
+            started_at = time.monotonic()
             try:
                 await manager.run_forever()
             except asyncio.CancelledError:
                 raise
-            except BaseException:  # noqa: BLE001 — watchdog must absorb anything that leaks
+            except (SystemExit, KeyboardInterrupt):
+                raise
+            except Exception:  # noqa: BLE001
+                runtime = time.monotonic() - started_at
+                if runtime >= self._im_watchdog_max_seconds:
+                    delay = self._im_watchdog_initial_seconds
                 _log.exception("IM maintenance loop crashed; watchdog will rebuild it")
+            else:
+                if self._shutdown_requested.is_set():
+                    return
+                if bool(getattr(manager, "_stop_requested", False)):
+                    _log.info("IM maintenance loop stopped cleanly; watchdog exiting")
+                    return
+                runtime = time.monotonic() - started_at
+                if runtime >= self._im_watchdog_max_seconds:
+                    delay = self._im_watchdog_initial_seconds
+                _log.warning("IM maintenance loop returned; watchdog will rebuild it")
             if self._shutdown_requested.is_set():
                 return
             _log.warning(
-                "IM maintenance loop exited without shutdown; rebuilding in %.2fs",
+                "IM maintenance loop rebuild scheduled in %.2fs",
                 delay,
             )
-            await asyncio.sleep(delay)
+            try:
+                await asyncio.wait_for(
+                    asyncio.to_thread(self._shutdown_requested.wait), timeout=delay
+                )
+            except asyncio.TimeoutError:
+                pass
+            if self._shutdown_requested.is_set():
+                return
             delay = min(delay * 2, self._im_watchdog_max_seconds)
 
 
@@ -2401,18 +2425,37 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         # 对账，消除漏推送导致的内存状态滞留。reconcile_all_agents 是同步 HTTP 调用，
         # 用 asyncio.to_thread 包装使其在 WS 事件循环中安全运行。
         # bugfix-446-M1 决策 3: node binding 并入 on_connected（移出启动关键路径）。
-        # ensure_node_binding 对已绑定节点幂等（return None），其所有失败分支都是
-        # IM 重启/断网期的瞬态条件——故非致命：GatewayStartupError 仅记 degraded feedback，
-        # 不 re-raise（连接层 on_connected 包装本就吞掉异常、不会因此断连）。下次成功连上时
-        # binding 会再自愈重试。
+        # ensure_node_binding 对已绑定节点幂等（return None），其失败都是连接恢复期
+        # 的瞬态条件或需人工处理的绑定问题。两者都不能阻断 agent reconcile；失败先
+        # 以 degraded heartbeat 暴露给 IM，再让配置对账继续收敛。
         async def _reconcile_on_connect() -> None:
             try:
                 await asyncio.to_thread(
                     im_bootstrap_client.ensure_node_binding,
                     node_id=config.node.node_id,
                 )
-            except GatewayStartupError as exc:
-                _emit_gateway_feedback("ERROR", exc.summary, exc.next_step)
+            except Exception as exc:  # noqa: BLE001
+                if isinstance(exc, GatewayStartupError):
+                    summary = exc.summary
+                    next_step = exc.next_step
+                else:
+                    summary = f"node {config.node.node_id} binding failed: {exc}"
+                    next_step = None
+                _log.warning("IM node binding failed during reconnect: %s", summary)
+                _emit_gateway_feedback("ERROR", summary, next_step)
+                if im_connection_manager is not None:
+                    try:
+                        await im_connection_manager.send_json(
+                            "node.heartbeat",
+                            reporter.send_heartbeat(
+                                status="degraded", last_error=summary
+                            ),
+                        )
+                    except Exception as heartbeat_exc:  # noqa: BLE001
+                        _log.warning(
+                            "failed to send degraded IM heartbeat after binding failure: %s",
+                            heartbeat_exc,
+                        )
             memory_versions = {
                 agent_id: ver
                 for agent_id in (a.agent_id for a in config.agents)

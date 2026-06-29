@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -18,6 +19,8 @@ from personal_assistant.defaults import (
     WORKSPACE_CONFIG_DIRNAME as _PA_WORKSPACE_CFG_DIR,
 )
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
+
+_log = logging.getLogger("personal_assistant.ws.im_connection")
 
 
 @dataclass(slots=True)
@@ -354,6 +357,10 @@ class IMConnectionManager:
         try:
             await asyncio.wait_for(event.wait(), timeout=timeout)
         except asyncio.TimeoutError:
+            _log.warning(
+                "first IM connect attempt did not resolve within %.2fs; continuing startup",
+                timeout,
+            )
             return
 
     async def run_forever(self) -> None:
@@ -374,21 +381,21 @@ class IMConnectionManager:
             try:
                 if not self._connected:
                     await self.connect_once()
-                first_attempt.set()
+                    first_attempt.set()
                 await self._listen_once()
             except asyncio.CancelledError:
                 self._mark_disconnected()
-                first_attempt.set()
                 raise
             except Exception as exc:  # noqa: BLE001
                 self._mark_disconnected(exc)
-                first_attempt.set()
                 if self._stop_requested:
                     break
                 await self._sleep(self._reconnect_delay)
                 self._reconnect_delay = min(
                     self._reconnect_delay * 2, self._config.reconnect_max_seconds
                 )
+            finally:
+                first_attempt.set()
 
     async def _listen_once(self) -> None:
         websocket = self._require_websocket()

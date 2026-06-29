@@ -161,7 +161,9 @@ def test_watchdog_does_not_swallow_process_exit_signals(
     async def _unexpected_rebuild_sleep(_delay: float) -> None:
         raise AssertionError("SystemExit must not enter watchdog rebuild backoff")
 
-    monkeypatch.setattr("personal_assistant.main.asyncio.sleep", _unexpected_rebuild_sleep)
+    monkeypatch.setattr(
+        "personal_assistant.main.asyncio.sleep", _unexpected_rebuild_sleep
+    )
 
     with pytest.raises(SystemExit):
         asyncio.run(runtime._supervise_im_connection(_SystemExitIMManager()))  # noqa: SLF001
@@ -229,9 +231,13 @@ def test_watchdog_treats_manager_stop_return_as_clean_exit(
     manager = _CleanStoppedIMManager()
 
     async def _unexpected_rebuild_sleep(_delay: float) -> None:
-        raise AssertionError("clean manager stop must not enter watchdog rebuild backoff")
+        raise AssertionError(
+            "clean manager stop must not enter watchdog rebuild backoff"
+        )
 
-    monkeypatch.setattr("personal_assistant.main.asyncio.sleep", _unexpected_rebuild_sleep)
+    monkeypatch.setattr(
+        "personal_assistant.main.asyncio.sleep", _unexpected_rebuild_sleep
+    )
 
     asyncio.run(runtime._supervise_im_connection(manager))  # noqa: SLF001
 
