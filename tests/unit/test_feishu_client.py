@@ -98,8 +98,16 @@ class TestFeishuClientEventParsing:
         """Feishu text content is JSON: {"text": "@_user_1 actual text"}."""
         from personal_assistant.channels.feishu_client import _parse_feishu_event
 
-        ev = self._make_event(content='{"text":"@_user_1 help me"}')
+        mention = MagicMock()
+        mention.id.open_id = "ou_bot1"
+        mention.name = "plato-bot"
+        mention.key = "@_user_1"
+        ev = self._make_event(
+            content='{"text":"@_user_1 help me"}',
+            mentions=[mention],
+        )
         result = _parse_feishu_event(ev)
+        # Placeholder is stripped and mention removed from text
         assert result.text == "help me"
 
     def test_parse_empty_content(self) -> None:
@@ -139,12 +147,17 @@ class TestFeishuClientSendMessage:
     """Verify FeishuClient.send_message calls lark-oapi REST API."""
 
     @patch("personal_assistant.channels.feishu_client.WSClient")
-    @patch("personal_assistant.channels.feishu_client.lark.Client")
+    @patch("personal_assistant.channels.feishu_client.lark")
     def test_send_message_calls_api(
-        self, mock_lark_client_cls: MagicMock, mock_ws_cls: MagicMock
+        self, mock_lark: MagicMock, mock_ws_cls: MagicMock
     ) -> None:
         mock_rest = MagicMock()
-        mock_lark_client_cls.return_value = mock_rest
+        mock_builder = MagicMock()
+        mock_builder.app_id.return_value = mock_builder
+        mock_builder.app_secret.return_value = mock_builder
+        mock_builder.domain.return_value = mock_builder
+        mock_builder.build.return_value = mock_rest
+        mock_lark.Client.builder.return_value = mock_builder
 
         # Mock the response
         mock_resp = MagicMock()
