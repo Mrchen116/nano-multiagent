@@ -260,3 +260,92 @@ Architecture boundaries are preserved: production changes stay inside `personal_
 This remains the same non-blocking documentation follow-up noted in round1. The delta-spec is complete at `docs/changes/bugfix-446-gateway-im-resilience/specs/gateway/spec.md:1-64`, but the canonical gateway contract does not yet include the new bugfix-446 scenarios. Merge the MODIFIED/ADDED sections into `docs/specs/gateway/spec.md` during orchestrator release-documentation cleanup so the long-lived contract matches the shipped behavior.
 
 No critical issues. No warnings. Ready for PR (with noted documentation follow-up).
+
+---
+
+# Round 3
+
+> Round 3 · 2026-06-30 · review_round=3 · mode=full/light recheck
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 10/10 tasks + round2 code-review blockers closed |
+| Correctness | incident/design scenarios still covered; W1 remains closed |
+| Coherence | Followed |
+
+No critical issues. No warnings. 1 suggestion remains. Ready for PR (with noted documentation follow-up).
+
+Verification run:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 pytest -p no:cacheprovider \
+  tests/unit/personal_assistant/test_gateway_runtime_watchdog.py \
+  tests/unit/personal_assistant/test_gateway_im_resilience.py \
+  tests/unit/personal_assistant/test_gateway_im_resilience_e2e_wrapper.py \
+  tests/unit/personal_assistant/test_cron_polling_runner.py::test_polling_runner_survives_scheduler_tick_failure \
+  tests/unit/personal_assistant/test_cron_polling_runner.py::test_polling_runner_start_attaches_done_callback \
+  tests/unit/personal_assistant/test_gateway_build_runtime.py::test_reconcile_on_connect_continues_after_binding_failure_and_reports_degraded \
+  -q
+# 24 passed
+```
+
+## Completeness
+
+**Tasks: 10/10 complete.** `M1-resilience/tasks.md:13-22` remains fully checked off. The latest merge `69d28e92` adds the requested round2 code-review fixes without reopening any task.
+
+**Round2 code-review blockers closed.**
+
+| Blocker | Implementation evidence | Test evidence | Status |
+|---|---|---|---|
+| Watchdog backoff no longer uses `asyncio.to_thread` / blocked executor threads | `_supervise_im_connection()` uses async `_wait_for_shutdown_request(timeout=delay)` at `src/personal_assistant/main.py:1748`, not thread-backed waits | `tests/unit/personal_assistant/test_gateway_runtime_watchdog.py:278` monkeypatches `asyncio.to_thread` to fail and verifies repeated rebuild backoff completes | closed |
+| IM reconnect backoff close is interruptible | `IMConnectionManager.run_forever()` waits through `_sleep_until_stop()` at `src/personal_assistant/ws/im_connection.py:406`, which races sleep with `_stop_wait_event()` at `im_connection.py:414-428` | `tests/unit/personal_assistant/test_gateway_im_resilience.py:235` verifies `close()` wakes a 30s reconnect backoff within 0.25s | closed |
+| `CancelledError` closes the live websocket | Cancel path calls `_disconnect_current_websocket()` before re-raise at `src/personal_assistant/ws/im_connection.py:397-400`; disconnect closes the socket at `im_connection.py:832-843` | `tests/unit/personal_assistant/test_gateway_im_resilience.py:82` verifies a connected blocking websocket gets `close()` exactly once after cancellation | closed |
+| e2e script has no hard `yq` dependency | `scripts/e2e-resilience.sh:161-186` uses `yq` when present and a Python/YAML fallback when absent | `tests/unit/personal_assistant/test_gateway_im_resilience_e2e_wrapper.py:59` verifies `--prepare-only` mutates isolated config with `yq` absent | closed |
+| pytest wrapper timeout kills the process group | e2e wrapper starts a new session at `tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py:49-56` and sends SIGTERM/SIGKILL via `os.killpg` at `test_gateway_im_resilience_critical_path.py:59-65` | `tests/unit/personal_assistant/test_gateway_im_resilience_e2e_wrapper.py:17` verifies `start_new_session=True` and process-group SIGTERM on timeout | closed |
+
+**Round1 W1 still closed.** The dedicated cleanup-path test remains at `tests/unit/personal_assistant/test_gateway_runtime_watchdog.py:449-491`; implementation catches `BaseException` from `_await_background_task(im_task)` at `src/personal_assistant/main.py:1667-1674`, so IM task cleanup cannot skip later shutdown steps.
+
+## Correctness
+
+### Requirement: 瞬态故障后节点自动恢复 online
+
+Still covered. Ordinary socket/HTTP failures stay inside the reconnect loop (`src/personal_assistant/ws/im_connection.py:377-412`), mark the connection disconnected, and retry with capped backoff. If the maintenance loop exits instead of retrying internally, the outer watchdog rebuilds it (`src/personal_assistant/main.py:1707-1752`). The real-stack critical path remains registered at `docs/e2e-critical-paths.md:44` and exercised by `scripts/e2e-resilience.sh:202-217` for IM restart recovery.
+
+### Requirement: 启动顺序不敏感
+
+Still covered. Gateway readiness no longer depends on eager IM connectivity (`src/personal_assistant/main.py:1610-1629`), and heartbeat startup waits only for a bounded first connect attempt. The startup-before-IM scenario remains in `scripts/e2e-resilience.sh:221-232` and the unit regression `tests/unit/personal_assistant/test_gateway_runtime_watchdog.py:333-371`.
+
+### Requirement: 连接层故障永不致 Gateway 僵尸
+
+Still covered. `_supervise_im_connection()` rebuilds recoverable crashes/returns while shutdown is not requested, propagates cancellation and process-control exceptions, and uses interruptible async backoff (`src/personal_assistant/main.py:1718-1752`). The crash rebuild, process-signal re-raise, stable-runtime reset, clean stop, interruptible shutdown, and no-`to_thread` executor-regression tests all pass (`tests/unit/personal_assistant/test_gateway_runtime_watchdog.py:109-330`).
+
+### feat-393 Guard
+
+Still covered. Heartbeat does not start until first connect attempt resolution (`src/personal_assistant/main.py:1622-1629`), the wait is bounded/logged (`src/personal_assistant/ws/im_connection.py:356-375`), and success/failure/BaseException/hung-connect cases remain covered by `tests/unit/personal_assistant/test_gateway_im_resilience.py:110-232`.
+
+## Coherence
+
+Design decisions remain followed:
+
+| Decision | Round 3 verification |
+|---|---|
+| Decision 1 two-layer defense | Inner reconnect loop (`im_connection.py:377-412`) + outer watchdog (`main.py:1707-1752`) remain intact. |
+| Decision 2 exception boundary | `CancelledError` cleans up and re-raises; ordinary `Exception` retries; process-control exceptions are not swallowed. |
+| Decision 3 node-binding in `on_connected` | Binding failure remains degraded/non-fatal and reconcile continues (`src/personal_assistant/main.py:2457-2475` plus round2-tested continuation). |
+| Decision 4 heartbeat tick guard | Scheduler tick failure is caught and logged (`src/personal_assistant/main.py:1246-1257`); done callback remains attached (`main.py:1223-1228`). |
+| Decision 5 unit + e2e coverage | Deterministic unit tests cover the edge matrix; real-stack e2e script and critical-path registration remain present. |
+| Decision 6 `InvalidStateError` defense | `_mark_disconnected()` still suppresses future race errors (`src/personal_assistant/ws/im_connection.py:891-909`). |
+
+Architecture boundaries remain intact for this unit: production changes stay in `personal_assistant`, the Gateway continues to use `agent.sdk` as the product/kernel boundary, and IM remains a separate service observed through HTTP/WS rather than direct agent access.
+
+## Issues
+
+### SUGGESTION
+
+**S1: canonical `docs/specs/gateway/spec.md` still needs the delta-spec merged before final release documentation is considered current.**
+
+Unchanged from round2. The unit-local delta-spec is complete at `docs/changes/bugfix-446-gateway-im-resilience/specs/gateway/spec.md:11-65`, but the canonical gateway contract still only has the pre-bugfix `断线后自动重连` scenarios at `docs/specs/gateway/spec.md:277-290` and does not yet include the host sleep/network interruption/IM restart/start-order/non-zombie scenarios. Merge those sections during release-documentation cleanup.
+
+No critical issues. No warnings. Ready for PR (with noted documentation follow-up).
