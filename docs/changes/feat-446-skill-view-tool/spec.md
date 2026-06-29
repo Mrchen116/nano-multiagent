@@ -99,21 +99,25 @@ skill_view 调用时记录 `{session_id, timestamp}`。当某个 skill 的 `uses
 
 F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要不要建新 skill"。具体分析流程（W: map-reduce 多 agent 并行 vs A: 单 agent 单轮）留 design 阶段选型。
 
+**F2 手动蒸馏 skill**：
+用户在 IM 左边栏右键选择若干已结束 session → 跳转到新对话 → 写意图说明 → 系统读这些 session 的 JSONL transcript，提取模式，生成一个新的 SKILL.md。用户可选择生成到 PA 产品级还是 agent 级（决定写到哪个 skill_root）。
+
+实现方式是一个蒸馏 skill（SKILL.md），教 agent 如何读 session transcript + 意图 → 生成 skill。IM 前端的 session 选择交互是 IM 层的事，本 unit 只做蒸馏 skill 本身。
+
 **与 hermes 的对齐**：hermes 本来就是三工具拆分（skills_list / skill_view / skill_manage）+ Curator。用户抄代码时把 view 和 list 合进了 skill_manage，Curator 没抄。现在补上，并从全局改为 per-workspace。
 
-**自进化体系总览**（三个正交机制）：
+**自进化体系总览**（五个正交机制）：
 
-| | F3 · Per-turn Review | F4 · Per-skill Batch | F5 · Curator |
-|---|---|---|---|
-| **触发** | 单 session 内 tool calls ≥ 10，Stop 时触发 | 单个 skill 的 uses_since_last_B ≥ 阈值（~20） | idle ≥ 2h + 距上次 ≥ 7 天 |
-| **分析范围** | 当前 session 的 transcript | 该 skill 被用过的 X 个已结束 session 的 JSONL | 整个 skill 库（不读 transcript） |
-| **分析深度** | 轻量：用户纠正、风格偏好、工作流改进 | 重量：跨 session 统计挖掘，≥2 证据阈值 | 维护级：时间戳扫描，不调 LLM |
-| **能做什么** | 创建 + patch skill | 只 patch，不创建 | 归档 stale + 复活 active |
-| **数据来源** | 当前 session 的 hook 事件 | 已结束 session 的 JSONL 文件 | use_count / last_used_at 时间戳 |
-| **写入方式** | skill_manage(create/patch) | skill_manage(patch) | 直接改状态 + 物理移动目录 |
-| **本 unit 现状** | 已有（self_improvement.py），补 skill_view 白名单 | 新增：阈值触发 + session 引用追踪 + 分析流程 | 新增：per-workspace periodic 扫描 |
+| | F1 · 从零创建 | F2 · 从历史蒸馏 | F3 · Per-turn Review | F4 · Per-skill Batch | F5 · Curator |
+|---|---|---|---|---|---|
+| **触发** | 用户手动 | 用户手动（选 session + 写意图） | 自动：单 session 内 tool calls ≥ 10 | 自动：单 skill uses_since_last_B ≥ 阈值（~20） | 自动：idle ≥ 2h + 距上次 ≥ 7 天 |
+| **输入** | 用户口述 | 用户选的 session IDs + 意图文本 | 当前 session 的 hook 事件 | 该 skill 被用过的 X 个已结束 session 的 JSONL | 整个 skill 库（不读 transcript） |
+| **分析深度** | 无（用户描述，agent 直接写） | 中：从 transcript 提取模式，生成 skill | 轻量：用户纠正、风格偏好、工作流改进 | 重量：跨 session 统计挖掘，≥2 证据阈值 | 维护级：时间戳扫描，不调 LLM |
+| **能做什么** | 创建 skill | 创建 skill | 创建 + patch skill | 只 patch，不创建 | 归档 stale + 复活 active |
+| **写入方式** | skill_manage(create) | skill_manage(create) | skill_manage(create/patch) | skill_manage(patch) | 直接改状态 + 物理移动目录 |
+| **本 unit 现状** | 已有（skill-creator） | 新增：蒸馏 skill + IM session 选择交互 | 已有（self_improvement.py），补 skill_view 白名单 | 新增：阈值触发 + session 引用追踪 + 分析流程 | 新增：per-workspace periodic 扫描 |
 
-三者不冲突：F3 在 session 内实时响应，F4 在 skill 维度批量深挖，F5 在库级别定期维护。
+五个机制正交不冲突：F1/F2 是用户主动创建入口，F3 在 session 内实时响应，F4 在 skill 维度批量深挖，F5 在库级别定期维护。
 
 ## 验收标准
 
@@ -178,6 +182,21 @@ F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要
 - **WHEN** agent 在 session S 中调用 `skill_view(name="xxx")` 成功
 - **THEN** 记录 `{session_id: S, timestamp: now}`，其中 timestamp 同步更新 last_used_at，session_id 存入该 skill 的 session 引用列表
 
+### Requirement: 从历史 session 蒸馏 skill（F2）
+
+#### Scenario: 用户选 session + 意图生成 skill
+- **GIVEN** 用户在 IM 左边栏选择若干已结束 session，跳转到新对话并写了一段意图说明
+- **WHEN** 蒸馏 skill 被触发，读取这些 session 的 JSONL transcript
+- **THEN** 系统从 transcript 中提取工作模式，生成一个新的 SKILL.md，内容覆盖用户意图描述的工作流
+
+#### Scenario: 用户选择 skill 生成级别
+- **WHEN** 蒸馏完成后
+- **THEN** 用户可选择将 skill 写入 PA 产品级 skill root 或 agent 级 skill root
+
+#### Scenario: 蒸馏 skill 是一个普通 SKILL.md
+- **WHEN** 查看蒸馏 skill 的实现
+- **THEN** 它是一个标准 SKILL.md 文件，教 agent 如何读 session transcript + 意图 → 生成 skill，使用 skill_manage(create) 写入
+
 ### Requirement: Per-skill Batch 优化触发
 
 #### Scenario: 达到阈值后触发 batch 分析
@@ -219,6 +238,7 @@ F4 只 patch 不创建。分析的是"这个 skill 哪里有问题"，不是"要
   - 压缩存活机制（addInvokedSkill + compaction 时 re-inject）
   - Curator 生命周期管理（active/stale/archived，per-workspace，periodic 触发，7 天门控）
   - Per-skill Batch 优化（F4）：uses_since_last_B 阈值触发，收集已结束 session JSONL，LLM 分析跨 session 系统性缺陷，≥2 证据阈值，只 patch 不创建
+  - 手动蒸馏 skill（F2）：蒸馏 skill 本身（SKILL.md），教 agent 读 session transcript + 意图 → 生成 skill，支持 PA/agent 级别选择。IM 前端 session 选择交互归 IM unit
   - 所有引用点迁移（product.py、kernel.py、self_improvement.py、feature_registry、reporter 等）
 - 非目标：
   - skill_view 的 file_path 参数（用户明确排除）
