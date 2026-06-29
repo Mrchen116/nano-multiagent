@@ -137,8 +137,14 @@
   - Tests: `pytest tests/unit/personal_assistant/test_gateway_runtime_watchdog.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_gateway_build_runtime.py::test_reconcile_on_connect_continues_after_binding_failure_and_reports_degraded` → 17 passed。
   - Tests: `pytest tests/unit/personal_assistant/test_gateway_runtime_watchdog.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_gateway_build_runtime.py tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py tests/unit/personal_assistant/test_gateway_shutdown_order.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/unit/personal_assistant/test_gateway_connect_once.py` → 53 passed。
   - Lint/format: `ruff check ...` → pass；`ruff format --check ...` → pass。
-  - Entry/E2E: pending rerun of `scripts/e2e-resilience.sh` before merge.
+  - Entry/E2E: initial `bash scripts/e2e-resilience.sh` failed before service startup because
+    system `/Library/Developer/CommandLineTools/usr/bin/python3` lacks `yaml`; rerun with project
+    venv on PATH:
+    `PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH bash scripts/e2e-resilience.sh` →
+    `✓ A1 initial node online` / `✓ A2 node auto back online after IM restart (no gateway restart)` /
+    `✓ B1 gateway survived startup with IM down` / `✓ B2 node online after IM comes up` /
+    `RESILIENCE E2E PASS`.
   - Frontend State Matrix / Browser QA / Visual: N/A（本轮不改前端）。
 - Rollback: revert commits `47725567` + `79ea8e50` + this docs commit.
 - Commits: C1=47725567, C2=79ea8e50, C3=(this docs commit)
-- Next: rerun `scripts/e2e-resilience.sh`, rebase on origin/unit, merge into unit worktree, push `unit/bugfix-446`, then clean fix worktree.
+- Next: rebase on origin/unit, merge into unit worktree, push `unit/bugfix-446`, then clean fix worktree.
