@@ -121,3 +121,24 @@
 - Rollback: 回退到 C1 commit（R4 脚本+test 提交）。
 - Commits: C1=(R4 脚本+test), C2=N/A（无新增实现，行为由 R1-R3 落地）, C3=(本提交)
 - Next: 本 milestone 全部 roadpoint DONE，进入集成（rebase unit + merge）。
+
+## Round 1 fix — reviewer/code-review resilience hardening fast lane
+
+- Context: round1 verifier/code-review 指出 watchdog、binding reconcile、shutdown cleanup、首连信号与若干描述存在边界问题。按 reviewer/code-review feedback fast lane 处理；省略完整 roadpoint 重新拆分，原因是修复集中在既有 M1 行为契约内、可由单组红测 + 实现提交覆盖。
+- Decision:
+  - `_supervise_im_connection` 只对普通 `Exception` 做 crash rebuild；`CancelledError`、`SystemExit`、`KeyboardInterrupt` 重新抛出。`run_forever` 正常 return 时用 `else` 路径区分 clean stop 与 unexpected return，避免同一 attempt 同时记录 crashed 和 exited-without-shutdown。
+  - watchdog 在一次 `run_forever` 稳定运行达到 `im_watchdog_max_seconds` 后把下一次退避重置到 initial；退避等待改为可被 `_shutdown_requested` 打断。
+  - `_reconcile_on_connect` 捕获 binding 的任意 `Exception`，记录清晰 warning，尽力发送 `node.heartbeat` status=`degraded`，然后继续 `reconcile_all_agents`。
+  - shutdown finally 对 `_await_background_task(im_task)` 捕获 `BaseException`，确保 `stop_kernel_process` 和 resource closers 继续执行。
+  - `IMConnectionManager.run_forever` 用 `finally` 释放首连等待者，覆盖 `BaseException` 退出路径；`wait_first_connect_attempt` timeout 记录 warning。
+  - cheap cleanup：`ensure_node_binding` docstring 改为 `GatewayStartupError`；watchdog 测试描述从 issue path 3 修正为 issue path 6；测试 doubles 补齐 `wait_first_connect_attempt` 协议。
+- Rationale: 这些点都属于 bugfix-446 的同一对外保证：连接维护故障不能造成僵尸，也不能阻断后续 reconcile/clean shutdown。保留 fail-fast 的进程级异常语义，避免把用户/系统要求退出误判为可恢复连接故障。
+- Evidence:
+  - Tests: `pytest tests/unit/personal_assistant/test_gateway_runtime_watchdog.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_gateway_build_runtime.py::test_reconcile_on_connect_continues_after_binding_failure_and_reports_degraded` → 17 passed。
+  - Tests: `pytest tests/unit/personal_assistant/test_gateway_runtime_watchdog.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_gateway_build_runtime.py tests/unit/personal_assistant/test_gateway_reconcile_on_connect.py tests/unit/personal_assistant/test_gateway_shutdown_order.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/unit/personal_assistant/test_gateway_connect_once.py` → 53 passed。
+  - Lint/format: `ruff check ...` → pass；`ruff format --check ...` → pass。
+  - Entry/E2E: pending rerun of `scripts/e2e-resilience.sh` before merge.
+  - Frontend State Matrix / Browser QA / Visual: N/A（本轮不改前端）。
+- Rollback: revert commits `47725567` + `79ea8e50` + this docs commit.
+- Commits: C1=47725567, C2=79ea8e50, C3=(this docs commit)
+- Next: rerun `scripts/e2e-resilience.sh`, rebase on origin/unit, merge into unit worktree, push `unit/bugfix-446`, then clean fix worktree.
