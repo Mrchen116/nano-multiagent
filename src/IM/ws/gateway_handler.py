@@ -150,6 +150,10 @@ class GatewayHandler:
         self._heartbeat_md_waiters: dict[str, asyncio.Future[str | None]] = {}
         self._cron_jobs_waiters: dict[str, asyncio.Future[list | None]] = {}
         self._cron_delete_waiters: dict[str, asyncio.Future[bool | None]] = {}
+        # feat-445-M1: session.fork.request → session.fork.result futures.
+        self._session_fork_waiters: dict[
+            str, asyncio.Future[dict[str, object] | None]
+        ] = {}
         self._ensure_agent_message_dispatch_table()
 
     async def serve(self, websocket: WebSocket) -> None:
@@ -214,6 +218,8 @@ class GatewayHandler:
             return await self._handle_cron_jobs(payload=payload)
         if message_type == "node.cron.delete":
             return await self._handle_cron_delete(payload=payload)
+        if message_type == "session.fork.result":
+            return await self._handle_session_fork_result(payload=payload)
         if message_type == "agent.message":
             return await self._handle_agent_message(payload=payload)
         if message_type == "node.streaming_delta":
@@ -399,6 +405,69 @@ class GatewayHandler:
         finally:
             async with self._lock:
                 self._agent_capabilities_waiters.pop(request_id, None)
+
+    async def request_fork_session(
+        self,
+        *,
+        target_node_id: str,
+        source_conversation_id: str,
+        new_conversation_id: str,
+        agent_id: str,
+        fork_message_id: str,
+        timeout_seconds: float = 10.0,
+    ) -> dict[str, object] | None:
+        """Delegate a session fork to one gateway node and await its result.
+
+        feat-445-M1 (decision 2): the gateway holds the conversation↔session binding, so
+        IM can only fork by asking it. Returns the result dict ({ok, new_session_id?,
+        error?}) or ``None`` when the node is not connected / times out (the caller then
+        rolls back the half-built conversation).
+        """
+        request_id = f"session-fork-{uuid4().hex}"
+        loop = asyncio.get_running_loop()
+        waiter: asyncio.Future[dict[str, object] | None] = loop.create_future()
+        async with self._lock:
+            self._session_fork_waiters[request_id] = waiter
+        try:
+            pushed = await self._push_downstream(
+                target_node_id=target_node_id,
+                message_type="session.fork.request",
+                payload={
+                    "request_id": request_id,
+                    "source_conversation_id": source_conversation_id,
+                    "new_conversation_id": new_conversation_id,
+                    "agent_id": agent_id,
+                    "fork_point": {"message_id": fork_message_id},
+                },
+            )
+            if not pushed:
+                return None
+            return await asyncio.wait_for(waiter, timeout=timeout_seconds)
+        except asyncio.TimeoutError:
+            return None
+        finally:
+            async with self._lock:
+                self._session_fork_waiters.pop(request_id, None)
+
+    async def _handle_session_fork_result(
+        self, *, payload: dict[str, object]
+    ) -> dict[str, object]:
+        request_id = _require_text(payload.get("request_id"), field_name="request_id")
+        node_id = _require_text(payload.get("node_id"), field_name="node_id")
+        # Echo through the gateway's reported result (ok / new_session_id / error).
+        result = {k: v for k, v in payload.items() if k not in {"node_id"}}
+        async with self._lock:
+            waiter = self._session_fork_waiters.get(request_id)
+        if waiter is not None and not waiter.done():
+            waiter.set_result(result)
+        return {
+            "type": "ack",
+            "payload": {
+                "message_type": "session.fork.result",
+                "request_id": request_id,
+                "node_id": node_id,
+            },
+        }
 
     async def request_node_capabilities(
         self,

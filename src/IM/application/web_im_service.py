@@ -1,9 +1,31 @@
 """Application service for IM conversations and messages."""
 
+from collections.abc import Awaitable, Callable, Mapping
+
 from IM.application.metrics_service import MetricsService
 from IM.application.relay_service import RelayEnqueueResult, RelayService
 from IM.domain.models import Attachment, Conversation, Message
 from IM.infra.repositories import ConversationRepository, MessageRepository
+
+
+class ForkError(Exception):
+    """Base class for feat-445 fork failures (mapped to HTTP status by the route)."""
+
+
+class ForkNotFoundError(ForkError):
+    """Source conversation absent or outside the caller's tenant (→ 404)."""
+
+
+class ForkValidationError(ForkError):
+    """Fork target is not a forkable completed agent bubble (→ 400)."""
+
+
+class AgentOfflineError(ForkError):
+    """Agent's node is offline — fork would leave a memory-less shell (→ 409)."""
+
+
+class ForkDelegationError(ForkError):
+    """Gateway session-fork RPC failed or timed out after rollback (→ 502)."""
 
 
 class WebIMService:
@@ -202,6 +224,110 @@ class WebIMService:
             before_message_id=before_message_id,
             mark_as_read=mark_as_read,
         )
+
+    async def fork_conversation(
+        self,
+        *,
+        source_conversation_id: str,
+        fork_message_id: str,
+        owner_id: str,
+        actor_user_id: str,
+        check_agent_online: Callable[[str], Awaitable[bool]],
+        request_fork: Callable[..., Awaitable[Mapping[str, object] | None]],
+    ) -> Conversation:
+        """Fork a direct agent chat at one completed agent reply (feat-445-M1).
+
+        Synchronous orchestration (decision 2): validate → online-check → create the
+        branch conversation → copy display history start..fork_message_id (inclusive) →
+        delegate the kernel session fork to the gateway (``request_fork``). On any RPC
+        failure the just-created conversation is deleted so no memory-less shell remains
+        (decision 5). ``check_agent_online`` / ``request_fork`` are injected by the route
+        (they reach the gateway over WS); this keeps the service free of WS/node deps and
+        unit-testable.
+
+        Raises ForkNotFoundError / ForkValidationError / AgentOfflineError /
+        ForkDelegationError; the route maps each to 404 / 400 / 409 / 502.
+        """
+        source = self._conversations.get_conversation_for_owner(
+            conversation_id=source_conversation_id, owner_id=owner_id
+        )
+        if source is None:
+            raise ForkNotFoundError("conversation_id not found")
+        if source.direct_kind != "user-agent":
+            raise ForkValidationError("fork is only available in direct agent chats")
+        agent = next((p for p in source.participants if p.type == "agent"), None)
+        if agent is None or not agent.user_id:
+            raise ForkValidationError("conversation has no agent participant")
+        agent_id = agent.id
+
+        # Locate the fork point in the source conversation's display history.
+        history = self._messages.list_messages(
+            conversation_id=source_conversation_id, limit=10_000
+        )
+        fork_index = next(
+            (i for i, m in enumerate(history) if m.id == fork_message_id), None
+        )
+        if fork_index is None:
+            raise ForkValidationError("fork_message_id not found in conversation")
+        fork_msg = history[fork_index]
+        if fork_msg.sender_type != "agent" or fork_msg.delivery_status != "completed":
+            raise ForkValidationError("can only fork a completed agent message")
+        if not fork_msg.kernel_message_id:
+            # Pre-feature bubble with no kernel anchor — cannot align the gateway fork.
+            raise ForkValidationError("this message does not support fork")
+
+        # Online check BEFORE creating anything, so an offline agent leaves no trace.
+        if not await check_agent_online(agent_id):
+            raise AgentOfflineError("agent offline, cannot fork")
+
+        new_conversation = self._conversations.create_conversation(
+            title=agent.display_name or agent_id,
+            participant_ids=[f"user:{actor_user_id}", f"agent:{agent_id}"],
+            creator_id=f"user:{actor_user_id}",
+            caller_owner_id=owner_id,
+        )
+        try:
+            for message in history[: fork_index + 1]:
+                sender_user_id = (
+                    actor_user_id if message.sender_type == "user" else agent.user_id
+                )
+                copied = self._messages.create_message(
+                    conversation_id=new_conversation.id,
+                    sender_user_id=sender_user_id,
+                    content=message.content,
+                    sender_type=message.sender_type,
+                    attachments=message.attachments,
+                    tool_calls=message.tool_calls,
+                    token_usage=message.token_usage,
+                    kernel_message_id=message.kernel_message_id,
+                    auto_complete_delivery=True,
+                    allow_empty=True,
+                )
+                # Preserve the thinking segments so the branch回看 keeps the full bubble.
+                for segment in sorted(
+                    message.thinking or [], key=lambda s: s.seq if s.seq is not None else 0
+                ):
+                    self._messages.append_thinking_segment(
+                        message_id=copied.id, text=segment.text
+                    )
+            result = await request_fork(
+                agent_id=agent_id,
+                source_conversation_id=source_conversation_id,
+                new_conversation_id=new_conversation.id,
+                fork_message_id=fork_message_id,
+            )
+        except Exception:
+            self._conversations.delete_conversation(
+                conversation_id=new_conversation.id, requester_id=actor_user_id
+            )
+            raise
+        if not result or not result.get("ok"):
+            self._conversations.delete_conversation(
+                conversation_id=new_conversation.id, requester_id=actor_user_id
+            )
+            error = (result or {}).get("error") if result else None
+            raise ForkDelegationError(str(error) if error else "fork delegation failed")
+        return new_conversation
 
     def enqueue_relay(
         self,

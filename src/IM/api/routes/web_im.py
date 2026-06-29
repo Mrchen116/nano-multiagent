@@ -3,9 +3,17 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, model_validator
 
-from IM.api.deps import current_user, get_web_im_service
-from IM.application.web_im_service import WebIMService
+from IM.api.deps import current_user, get_gateway_handler, get_web_im_service
+from IM.application.web_im_service import (
+    AgentOfflineError,
+    ForkDelegationError,
+    ForkNotFoundError,
+    ForkValidationError,
+    WebIMService,
+)
 from IM.domain.models import Conversation, User
+from IM.infra.repositories import AgentProfileRepository
+from IM.ws.gateway_handler import GatewayHandler
 from IM.ws.user_stream import global_max_event_id
 
 router = APIRouter(tags=["web-im"])
@@ -40,6 +48,12 @@ class CreateConversationRequest(BaseModel):
         if self.participant_ids is not None and len(self.participant_ids) == 0:
             raise ValueError("participant_ids must contain at least one id")
         return self
+
+
+class ForkConversationRequest(BaseModel):
+    """Request payload for forking a conversation at one agent reply (feat-445-M1)."""
+
+    fork_message_id: str = Field(min_length=1)
 
 
 class UpdateConversationRequest(BaseModel):
@@ -165,6 +179,74 @@ def create_conversation(
             status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
         ) from exc
     return to_conversation_response(created)
+
+
+@router.post(
+    "/im/v1/conversations/{conversation_id}/fork",
+    response_model=ConversationResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def fork_conversation(
+    conversation_id: str,
+    payload: ForkConversationRequest,
+    request: Request,
+    user: User = Depends(current_user),
+    service: WebIMService = Depends(get_web_im_service),
+    gateway_handler: GatewayHandler = Depends(get_gateway_handler),
+) -> ConversationResponse:
+    """Fork a direct agent chat at one completed agent reply into a new branch chat.
+
+    The online check and the kernel session fork both reach the agent's owning node over
+    the gateway WS — wired here as delegates so WebIMService stays WS-agnostic.
+    """
+    profiles = AgentProfileRepository(request.app.state.connection)
+
+    async def _check_agent_online(agent_id: str) -> bool:
+        profile = profiles.get_profile(agent_id=agent_id)
+        if profile is None or not profile.node_id:
+            return False
+        return await gateway_handler.is_connected(node_id=profile.node_id)
+
+    async def _request_fork(
+        *, agent_id, source_conversation_id, new_conversation_id, fork_message_id
+    ):
+        profile = profiles.get_profile(agent_id=agent_id)
+        if profile is None or not profile.node_id:
+            return None
+        return await gateway_handler.request_fork_session(
+            target_node_id=profile.node_id,
+            source_conversation_id=source_conversation_id,
+            new_conversation_id=new_conversation_id,
+            agent_id=agent_id,
+            fork_message_id=fork_message_id,
+        )
+
+    try:
+        forked = await service.fork_conversation(
+            source_conversation_id=conversation_id,
+            fork_message_id=payload.fork_message_id,
+            owner_id=user.owner_id,
+            actor_user_id=user.id,
+            check_agent_online=_check_agent_online,
+            request_fork=_request_fork,
+        )
+    except ForkNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)
+        ) from exc
+    except ForkValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+        ) from exc
+    except AgentOfflineError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=str(exc)
+        ) from exc
+    except ForkDelegationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+    return to_conversation_response(forked)
 
 
 @router.get("/im/v1/conversations", response_model=ListConversationsResponse)
