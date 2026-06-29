@@ -25,6 +25,8 @@ dependencies = [
   "websockets>=13,<17.0",
   "aiohttp>=3.10,<4.0",
   "ddgs>=9,<11",
+  # feat-447: 飞书 SDK —— FeishuClient WebSocket 长连接 + REST API
+  "lark-oapi>=1.4,<2.0",
 ]
 
 [project.optional-dependencies]
