@@ -50,7 +50,7 @@ Gateway 新增飞书 channel adapter（FeishuAdapter + FeishuClient），通过�
   3. C3: 更新 tasks.md + progress.md
 - 验证: FeishuClient 测试全绿
 
-### R3 — FeishuAdapter 消息收发 + 群聊 mention 门控
+### R3 — FeishuAdapter 消息收发 + 群聊 mention 门控 `DONE`
 
 - 步骤:
   1. C1: 写 FeishuAdapter 测试（1:1 → InboundMessage / 群聊 @Bot → InboundMessage / 群聊未 @ → GroupContextStore / @所有人 不触发 / 多 Bot agent_id / send 回飞书）— mock FeishuClient

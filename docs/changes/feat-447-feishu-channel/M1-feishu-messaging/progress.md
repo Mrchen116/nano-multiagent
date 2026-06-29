@@ -34,19 +34,19 @@
 
 ## R3 — FeishuAdapter 消息收发 + 群聊 mention 门控
 
-- Context:
-- Decision:
-- Rationale:
+- Context: FeishuAdapter 是 ChannelAdapter Protocol 的飞书实现，核心职责：(1) DM 直接响应；(2) 群聊 @Bot 才触发 + 未@ 消息暂存 GroupContextStore；(3) @所有人 不算 @Bot；(4) 多 Bot 各自 agent_id 路由。
+- Decision: _handle_message 决策树：DM → deliver；Group + @Bot → drain context + deliver；Group + no @Bot → buffer。bot_open_id 用于 @mention 检测，open_id="all" 视为 @所有人。external_chat_id 按 design 格式 `feishu:<app_id>:dm/group:<id>` 构造，session key 由现有 build_session_key 自动拼接 agent_id。
+- Rationale: 复用现有 GroupContextStore（设计决策 5），不新建 buffer。mention 检测逻辑直接比对 open_id，简单可靠。
 - Evidence:
-  - Tests:
-  - Entry:
+  - Tests: `pytest tests/unit/test_feishu_adapter.py` — 11 passed（DM 无需 @ / DM InboundMessage 字段正确 / 群聊 @Bot 触发 / 群聊未@ buffer / @Bot flush context / @所有人 不触发 / 多 Bot 不同 channel_name / agent_id 路由 / send 调 FeishuClient / stop 调 stop）
+  - Entry: N/A（mock FeishuClient，无真实飞书连接）
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression:
+  - E2E/Regression: N/A — mock 测试覆盖所有 spec 场景，真实连接由 reviewer 验收
   - Visual/Interaction: N/A
-- Rollback:
-- Commits:
-- Next:
+- Rollback: `git revert 4dd516e1`
+- Commits: C1=109b6b30, C2=4dd516e1
+- Next: R4 — main.py 注册 + 集成测试
 
 ## R4 — main.py 注册 + 集成测试
 
