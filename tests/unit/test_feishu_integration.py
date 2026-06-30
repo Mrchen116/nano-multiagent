@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -118,3 +119,93 @@ class TestBuildChannelRegistryFeishu:
         registry = _build_channel_registry(channels)
         mock_wra_cls.assert_called_once()
         mock_fa_cls.assert_called_once()
+
+
+class TestBuildChannelRegistryFeishuRealAdapter:
+    """Verify _build_channel_registry passes all required args to real FeishuAdapter.
+
+    These tests do NOT mock FeishuAdapter — they verify the actual constructor
+    receives all required keyword-only arguments (group_context_store, etc.).
+    This catches parameter-mismatch bugs that mock-based tests cannot detect.
+    """
+
+    def test_real_feishu_adapter_construction(self) -> None:
+        """Real FeishuAdapter must construct without TypeError."""
+        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.gateway.group_context_store import GroupContextStore
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "group_context.sqlite3"
+            group_ctx = GroupContextStore(db_path=db_path)
+
+            # This must not raise TypeError for missing keyword-only args
+            adapter = FeishuAdapter(
+                app_id="cli_a",
+                app_secret="s_a",
+                agent_id="plato",
+                bot_open_id="ou_123",
+                group_context_store=group_ctx,
+            )
+            assert adapter.name == "feishu:plato"
+
+    def test_build_channel_registry_passes_group_context_store(self) -> None:
+        """_build_channel_registry must pass group_context_store to FeishuAdapter."""
+        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.gateway.group_context_store import GroupContextStore
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "group_context.sqlite3"
+            group_ctx = GroupContextStore(db_path=db_path)
+
+            channels = (
+                ChannelConfig(
+                    name="feishu:plato-bot",
+                    enabled=True,
+                    settings={
+                        "name": "plato-bot",
+                        "appId": "cli_a",
+                        "appSecret": "s_a",
+                        "agentId": "plato",
+                    },
+                ),
+            )
+            # This must not raise TypeError for missing group_context_store
+            registry = _build_channel_registry(
+                channels, group_context_store=group_ctx
+            )
+            # Verify the adapter was actually registered
+            assert len(registry.list()) == 1
+            adapter = registry.list()[0]
+            assert isinstance(adapter, FeishuAdapter)
+            assert adapter.name == "feishu:plato"
+
+    def test_build_channel_registry_passes_bot_open_id(self) -> None:
+        """_build_channel_registry passes bot_open_id from settings when present."""
+        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.gateway.group_context_store import GroupContextStore
+
+        with TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "group_context.sqlite3"
+            group_ctx = GroupContextStore(db_path=db_path)
+
+            channels = (
+                ChannelConfig(
+                    name="feishu:plato-bot",
+                    enabled=True,
+                    settings={
+                        "name": "plato-bot",
+                        "appId": "cli_a",
+                        "appSecret": "s_a",
+                        "agentId": "plato",
+                        "botOpenId": "ou_bot_123",
+                    },
+                ),
+            )
+            registry = _build_channel_registry(
+                channels, group_context_store=group_ctx
+            )
+            adapter = registry.list()[0]
+            assert isinstance(adapter, FeishuAdapter)
+            assert adapter.name == "feishu:plato"
+            # Verify bot_open_id was passed (internal attribute check)
+            assert adapter._bot_open_id == "ou_bot_123"
