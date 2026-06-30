@@ -211,3 +211,81 @@ class TestParseFeishuAccounts:
         assert settings["appId"] == "cli_x"
         assert settings["appSecret"] == "sec"
         assert settings["agentId"] == "plato"
+
+    def test_feishu_account_with_bot_open_id_preserved(self) -> None:
+        """botOpenId in account settings is preserved for adapter mention detection."""
+        payload = [
+            {
+                "name": "feishu",
+                "accounts": [
+                    {
+                        "name": "plato-bot",
+                        "appId": "cli_abc",
+                        "appSecret": "sec",
+                        "agentId": "plato",
+                        "botOpenId": "ou_bot_123",
+                    }
+                ],
+            }
+        ]
+        channels = _parse_channels(payload)
+        assert len(channels) == 1
+        settings = channels[0].settings
+        assert settings["botOpenId"] == "ou_bot_123"
+
+    def test_feishu_account_without_bot_open_id_omits_key(self) -> None:
+        """When botOpenId is absent, settings does not contain the key."""
+        payload = [
+            {
+                "name": "feishu",
+                "accounts": [
+                    {
+                        "name": "plato-bot",
+                        "appId": "cli_abc",
+                        "appSecret": "sec",
+                        "agentId": "plato",
+                    }
+                ],
+            }
+        ]
+        channels = _parse_channels(payload)
+        assert "botOpenId" not in channels[0].settings
+
+    def test_feishu_top_level_enabled_false_skips_accounts(self) -> None:
+        """feishu channel with enabled: false should not parse any accounts."""
+        payload = [
+            {
+                "name": "feishu",
+                "enabled": False,
+                "accounts": [
+                    {
+                        "name": "plato-bot",
+                        "appId": "cli_abc",
+                        "appSecret": "sec",
+                        "agentId": "plato",
+                    }
+                ],
+            }
+        ]
+        channels = _parse_channels(payload)
+        assert channels == ()
+
+    def test_feishu_top_level_enabled_true_parses_accounts(self) -> None:
+        """feishu channel with enabled: true (explicit) should parse accounts normally."""
+        payload = [
+            {
+                "name": "feishu",
+                "enabled": True,
+                "accounts": [
+                    {
+                        "name": "plato-bot",
+                        "appId": "cli_abc",
+                        "appSecret": "sec",
+                        "agentId": "plato",
+                    }
+                ],
+            }
+        ]
+        channels = _parse_channels(payload)
+        assert len(channels) == 1
+        assert channels[0].name == "feishu:plato-bot"
