@@ -33,8 +33,9 @@ class RunController:
     Writers: RunsRegistry (via abort / enqueue_message)
     Readers: AgentLoop (via is_aborted / drain_pending, read-only)
 
-    Thread safety: both threading.Event and queue.SimpleQueue are safe to write
-    from HTTP-handler threads and read from worker-thread event loops.
+    Thread safety: Event reads remain lock-free for the agent loop. State changes
+    that decide whether a follow-up can still be accepted share ``_terminal_lock``
+    with enqueue so stop/cancel and message acceptance are linearizable.
     """
 
     cancel_event: threading.Event = field(default_factory=threading.Event)
@@ -59,7 +60,8 @@ class RunController:
 
     def cancel(self) -> None:
         """Signal pre-turn cancellation (run not yet started). Idempotent."""
-        self.cancel_event.set()
+        with self._terminal_lock:
+            self.cancel_event.set()
 
     def abort(self, *, user_initiated: bool = False) -> None:
         """Signal force interrupt (run is executing). Idempotent.
@@ -69,9 +71,10 @@ class RunController:
                 CLI Ctrl-C, so the recovery content attributes the interrupt to
                 the user (bugfix-417-M5, #114).
         """
-        if user_initiated:
-            self.user_interrupt_event.set()
-        self.abort_event.set()
+        with self._terminal_lock:
+            if user_initiated:
+                self.user_interrupt_event.set()
+            self.abort_event.set()
 
     def enqueue_message(self, message: "LLMMessage", origin: "RunOrigin") -> bool:
         """Enqueue a message for round-boundary injection. Thread-safe.
@@ -84,12 +87,15 @@ class RunController:
 
         Returns:
             True if the message was enqueued; False if the run has already committed
-            its terminal (the loop decided to finish and will not drain again), in
-            which case the caller must route this message to a new run instead of
-            losing it (bugfix-426-M4 决策5).
+            terminal, aborted, or cancelled, in which case the caller must not report
+            the message as queued.
         """
         with self._terminal_lock:
-            if self._terminal_committed.is_set():
+            if (
+                self._terminal_committed.is_set()
+                or self.abort_event.is_set()
+                or self.cancel_event.is_set()
+            ):
                 return False
             self._pending.put_nowait(PendingMessage(message=message, origin=origin))
             return True

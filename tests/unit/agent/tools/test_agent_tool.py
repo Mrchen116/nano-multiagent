@@ -534,6 +534,23 @@ def test_auto_background_stopped_agent_rejects_follow_up_without_false_queued() 
     assert exc_info.value.details["code"] == "agent_message_not_deliverable"
 
 
+def test_auto_background_handle_rejects_message_when_stop_linearizes_during_enqueue() -> (
+    None
+):
+    from agent.core.llm.interfaces import LLMMessage
+    from agent.core.runs.origin import RunOrigin
+    from agent.platform.tools.builtins.agent import _ControllerHandle
+
+    class _AbortBeforeEnqueueController(RunController):
+        def enqueue_message(self, message: LLMMessage, origin: RunOrigin) -> bool:
+            self.abort()
+            return super().enqueue_message(message, origin)
+
+    handle = _ControllerHandle(_AbortBeforeEnqueueController())
+
+    assert handle.send_message("racing follow-up") is False
+
+
 # ------------------------------------------------------------------
 # Continuation: running agent
 # ------------------------------------------------------------------
@@ -575,6 +592,23 @@ def test_explicit_background_stopped_agent_rejects_follow_up_without_false_queue
             )
 
     assert exc_info.value.details["code"] == "agent_message_not_deliverable"
+
+
+def test_explicit_background_handle_rejects_message_when_stop_linearizes_during_enqueue() -> (
+    None
+):
+    from agent.core.llm.interfaces import LLMMessage
+    from agent.core.runs.origin import RunOrigin
+    from agent.platform.background_tasks.runtime_runner import _ControllerHandle
+
+    class _AbortBeforeEnqueueController(RunController):
+        def enqueue_message(self, message: LLMMessage, origin: RunOrigin) -> bool:
+            self.abort()
+            return super().enqueue_message(message, origin)
+
+    handle = _ControllerHandle(_AbortBeforeEnqueueController())
+
+    assert handle.send_message("racing follow-up") is False
 
 
 def test_continuation_to_running_agent_without_live_delivery_fails() -> None:

@@ -64,6 +64,43 @@ def test_enqueue_after_commit_is_rejected() -> None:
     assert controller.drain_pending() == []
 
 
+def test_enqueue_after_abort_is_rejected() -> None:
+    controller = RunController()
+    controller.abort()
+
+    accepted = controller.enqueue_message(
+        LLMMessage(role="user", content="late"), origin=RunOrigin.USER
+    )
+
+    assert accepted is False
+    assert controller.drain_pending() == []
+
+
+def test_enqueue_after_cancel_is_rejected() -> None:
+    controller = RunController()
+    controller.cancel()
+
+    accepted = controller.enqueue_message(
+        LLMMessage(role="user", content="late"), origin=RunOrigin.USER
+    )
+
+    assert accepted is False
+    assert controller.drain_pending() == []
+
+
+def test_message_accepted_before_abort_remains_pending() -> None:
+    controller = RunController()
+
+    accepted = controller.enqueue_message(
+        LLMMessage(role="user", content="already accepted"), origin=RunOrigin.USER
+    )
+    controller.abort()
+
+    assert accepted is True
+    drained = controller.drain_pending()
+    assert [p.message.content for p in drained] == ["already accepted"]
+
+
 def test_commit_terminal_is_hard_and_rejects_later_inject() -> None:
     """bugfix-426-M4 V1: the hard-stop commit (max_turns / tool_unavailable / abort
     exits) sets terminal unconditionally — no re-drain — so an inject racing AFTER it

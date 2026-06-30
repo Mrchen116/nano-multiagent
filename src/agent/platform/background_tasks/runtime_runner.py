@@ -168,12 +168,6 @@ class _ControllerHandle(BackgroundTaskStopper, BackgroundSubagentMessageHandle):
         self._controller.abort()
 
     def send_message(self, prompt: str) -> bool:
-        if (
-            self._controller.is_aborted
-            or self._controller.is_cancelled
-            or self._controller.is_terminal_committed
-        ):
-            return False
         return self._controller.enqueue_message(
             LLMMessage(role="user", content=prompt),
             origin=RunOrigin.USER,
