@@ -161,24 +161,50 @@
     }
     .context-menu {
       position: absolute;
-      background: var(--im-surface);
+      background: rgba(255, 255, 255, 0.98);
       border: 1px solid var(--im-border);
-      border-radius: 0.5rem;
-      box-shadow: 0 12px 40px oklch(0.1 0.01 240 / 0.22);
-      min-width: 140px;
+      border-radius: 12px;
+      box-shadow:
+        0 12px 40px oklch(0.1 0.01 240 / 0.16),
+        0 2px 6px oklch(0.1 0.01 240 / 0.06);
+      min-width: 128px;
+      padding: 4px;
       z-index: 100;
       display: none;
       overflow: hidden;
+      backdrop-filter: blur(8px);
     }
     .context-menu.visible { display: block; }
     .context-menu button {
-      display: block; width: 100%;
-      padding: 0.6rem 0.9rem; border: 0;
-      background: transparent; text-align: left;
-      cursor: pointer; font: inherit;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 8px;
+      background: transparent;
+      text-align: left;
+      cursor: pointer;
+      font: inherit;
+      font-size: 14px;
       color: var(--im-text);
+      transition: background 0.12s ease;
     }
     .context-menu button:hover { background: var(--im-surface-2); }
+    .context-menu button .icon {
+      width: 16px;
+      text-align: center;
+      color: var(--im-text-muted);
+      font-size: 13px;
+    }
+    .context-menu button + button {
+      margin-top: 1px;
+    }
+    .context-menu button.fork {
+      border-top: 1px solid var(--im-border);
+      border-radius: 0 0 8px 8px;
+    }
     .toast {
       position: fixed;
       left: 16px; top: 16px;
@@ -248,8 +274,8 @@
   </main>
 
   <div class="context-menu" id="menu">
-    <button id="copyBtn">复制</button>
-    <button id="forkBtn">fork</button>
+    <button id="copyBtn"><span class="icon">📋</span>复制</button>
+    <button id="forkBtn" class="fork"><span class="icon">⑂</span>fork</button>
   </div>
 
   <div class="toast" id="toast">已复制</div>
