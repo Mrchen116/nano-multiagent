@@ -16,7 +16,7 @@ from personal_assistant.config.local_store import (
     NodeConfig,
 )
 from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
-from personal_assistant.main import build_runtime
+from personal_assistant.main import GatewayStartupError, build_runtime
 
 from ._main_helpers import make_minimal_config
 
@@ -312,7 +312,10 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
             return None
 
         def ensure_node_binding(self, *, node_id: str) -> str | None:
-            raise RuntimeError(f"binding failed for {node_id}")
+            raise GatewayStartupError(
+                summary=f"binding failed for {node_id}",
+                next_step="Open the bind URL and confirm this node.",
+            )
 
     class _RecordingSyncClient:
         on_agent_created = None
@@ -380,7 +383,10 @@ async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_
                 "node_id": "node-local",
                 "status": "degraded",
                 "agent_count": 1,
-                "last_error": "node node-local binding failed: binding failed for node-local",
+                "last_error": (
+                    "binding failed for node-local; next step: Open the bind URL and "
+                    "confirm this node."
+                ),
             },
         )
     ]

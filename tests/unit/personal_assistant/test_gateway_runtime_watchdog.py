@@ -489,3 +489,44 @@ def test_shutdown_cleanup_continues_when_im_task_await_raises_base_exception(
     assert "error" not in outcome
     assert "kernel.stop" in events
     assert "resource.close" in events
+
+
+def test_shutdown_cleanup_continues_when_im_close_raises(tmp_path: Path) -> None:
+    """An IM close failure must not skip process stop, resource closers, or exit 0."""
+
+    events: list[str] = []
+
+    class _CloseRaisesIM(_GateFakeIM):
+        async def close(self) -> None:
+            events.append("im.close")
+            self._closed.set()
+            raise RuntimeError("close failed")
+
+    class _FakeProcessManager:
+        def start_kernel_process(self) -> None:
+            events.append("kernel.start")
+
+        def stop_kernel_process(self) -> None:
+            events.append("kernel.stop")
+
+    config = _make_config(tmp_path)
+    manager = _CloseRaisesIM(events)
+    runtime = GatewayRuntime(
+        config,
+        _FakeProcessManager(),
+        im_connection_manager=manager,
+        resource_closers=(lambda: events.append("resource.close"),),
+    )
+
+    thread, outcome = _run_in_thread(runtime)
+    try:
+        assert runtime.wait_until_ready(timeout=2.0) is True
+    finally:
+        runtime.request_shutdown()
+        thread.join(timeout=5.0)
+
+    assert outcome.get("exit_code") == 0
+    assert "error" not in outcome
+    assert "im.close" in events
+    assert "kernel.stop" in events
+    assert "resource.close" in events

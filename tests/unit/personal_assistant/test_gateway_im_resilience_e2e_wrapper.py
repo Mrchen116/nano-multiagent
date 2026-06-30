@@ -7,6 +7,7 @@ import signal
 import subprocess
 import sys
 from pathlib import Path
+from shutil import which
 
 import pytest
 import yaml
@@ -41,9 +42,11 @@ def test_resilience_wrapper_kills_process_group_on_timeout(
         return _TimedOutProcess()
 
     monkeypatch.setattr(wrapper.subprocess, "Popen", _fake_popen)
-    monkeypatch.setattr(
-        wrapper.os, "killpg", lambda pgid, sig: killed.append((pgid, sig))
-    )
+
+    def _fake_killpg(pgid: int, sig: signal.Signals | int) -> None:
+        killed.append((pgid, signal.Signals(sig)))
+
+    monkeypatch.setattr(wrapper.os, "killpg", _fake_killpg)
 
     with pytest.raises(AssertionError, match="timed out"):
         wrapper._run_resilience_script(  # noqa: SLF001
@@ -53,7 +56,10 @@ def test_resilience_wrapper_kills_process_group_on_timeout(
         )
 
     assert popen_kwargs["start_new_session"] is True
-    assert killed == [(43210, signal.SIGTERM)]
+    assert killed == [
+        (43210, signal.SIGTERM),
+        (43210, signal.SIGKILL),
+    ]
 
 
 def test_resilience_script_prepare_only_works_without_yq(
@@ -122,3 +128,81 @@ def test_resilience_script_prepare_only_works_without_yq(
         Path(workspace_dir) / "default-agent"
     )
     assert (Path(workspace_dir) / "default-agent").is_dir()
+
+
+def test_resilience_script_yq_path_sets_each_agent_workspace_independently(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The yq config path must derive workspace_root from each agent's own id."""
+
+    repo_root = Path(__file__).resolve().parents[3]
+    script = repo_root / "scripts" / "e2e-resilience.sh"
+    yq_path = which("yq")
+    if yq_path is None:
+        script_text = script.read_text()
+        assert (
+            '.agents[].workspace_root = "$WORKSPACE_DIR/" + .agents[].agent_id'
+            not in script_text
+        )
+        assert ".agents |= map(" in script_text
+        return
+
+    main_config = tmp_path / "config.yaml"
+    main_config.write_text(
+        "\n".join(
+            [
+                "node:",
+                "  node_id: main-node",
+                "agents:",
+                "  - agent_id: alpha",
+                "    workspace_root: /old/alpha",
+                "  - agent_id: beta",
+                "    workspace_root: /old/beta",
+                "channels: []",
+                "im_service:",
+                "  url: http://old-im",
+                "  username: nano",
+                "  password: nano1234",
+                "llm:",
+                "  default_model: kimiCoding:K2.6",
+                "  providers:",
+                "    - name: anthropic",
+                "      base_url: http://127.0.0.1:4000",
+                "      models:",
+                "        - name: kimiCoding:K2.6",
+                "",
+            ]
+        )
+    )
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "python3").symlink_to(sys.executable)
+    (bin_dir / "yq").symlink_to(yq_path)
+    monkeypatch.setenv("PATH", f"{bin_dir}:/usr/bin:/bin")
+
+    result = subprocess.run(
+        [
+            "/bin/bash",
+            str(script),
+            "--prepare-only",
+            "--wt",
+            str(tmp_path),
+            "--main-config",
+            str(main_config),
+        ],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=20,
+    )
+
+    assert result.returncode == 0, result.stderr
+    mutated = yaml.safe_load((tmp_path / ".gateway-config.yaml").read_text())
+    workspace_dir = Path(tmp_path / ".gateway-workspace")
+    assert [agent["workspace_root"] for agent in mutated["agents"]] == [
+        str(workspace_dir / "alpha"),
+        str(workspace_dir / "beta"),
+    ]
+    assert (workspace_dir / "alpha").is_dir()
+    assert (workspace_dir / "beta").is_dir()
