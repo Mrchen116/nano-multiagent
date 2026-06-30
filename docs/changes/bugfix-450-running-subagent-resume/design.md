@@ -28,7 +28,7 @@
 
 - 复用 `RunController.enqueue_message()` / `AgentLoop.drain_pending()` 作为 live subagent follow-up 的唯一消费通道。
 - 复用 `bugfix-426-midrun-message-steering` 已打磨过的 FIFO、安全点、terminal race 语义，不另造一套 subagent-only pending queue。
-- 复用 `BackgroundTaskRegistry.set_stop_handle()` 的 live handle 注册模式，但把“停止能力”和“follow-up 注入能力”区分为两个协议能力，避免把 stop handle 强行扩成不相关职责。
+- 复用 `BackgroundTaskRegistry.set_stop_handle()` 的 live handle 注册模式，但把“停止能力”和“follow-up 注入能力”区分为两个协议能力，避免把 stop handle 强行扩成不相关职责。实现期应顺手把 `set_stop_handle` 的参数注解从 concrete `_StopHandle` 改为 `BackgroundTaskStopper` Protocol，避免新增 `set_message_handle` 复制旧类型债。
 
 ### 相关历史
 
@@ -94,9 +94,15 @@ def send_agent_message(agent_id: str, prompt: str) -> bool: ...
 
 `send_agent_message()` 是 running continuation 的唯一入口。现有 `enqueue_agent_message()` / `drain_agent_messages()` 不再作为生产路径；测试应迁移到 live delivery 行为。
 
+registry 并发与生命周期规则：
+
+- `_message_handles` 与 `_records`、`_stop_handles` 一样受同一把 `_lock` 保护；`set_message_handle()` 写锁，`send_agent_message()` 在锁内读取 handle 和当前 record 快照，释放锁后调用 handle，避免在外部回调期间持 registry 锁。
+- `complete()` / `fail()` / `kill()` 将 task 置为 terminal 时，同步清理 `_message_handles[task_id]`，并建议同时清理 `_stop_handles[task_id]`。这样新增 live handle 不扩大长生命周期进程的内存泄漏面。
+- `send_agent_message()` 只负责“当前是否有 live handle 接受消息”；如果返回 False，`AgentTool` 负责重读 record 决定 terminal resume 或 ToolError。
+
 ### Runner handle
 
-`RuntimeRunner.start()` 创建的 `RunController` 继续作为真实控制面。返回 handle 除 `stop()` 外还应支持 `send_message(prompt)`：
+`RuntimeRunner.start()` 创建的 `RunController` 继续作为真实控制面。把当前 `_ControllerStopper` 改造为 `_ControllerHandle`，同一个对象同时实现 `BackgroundTaskStopper.stop()` 与 `BackgroundSubagentMessageHandle.send_message(prompt)`；不要把裸 `RunController` 暴露给 registry。
 
 ```text
 send_message(prompt)
@@ -196,4 +202,4 @@ flowchart TD
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| bugfix-450-M1 | impl | — | A | `src/agent/core/background_tasks/interfaces.py`; `src/agent/core/background_tasks/registry.py`; `src/agent/platform/background_tasks/runtime_runner.py`; `src/agent/platform/tools/builtins/agent.py`; `tests/unit/agent/tools/test_agent_tool.py`; `tests/integration/background_tasks/test_agent_continuation.py`; related background task regression tests if signatures change | `[reviewer]` running subagent follow-up 不再假成功：主 agent 发送 follow-up 后，原 subagent 后续能实际响应或在可读输出中体现收到 follow-up（覆盖 incident Requirement: running subagent follow-up 真实投递）。<br>`[reviewer]` live delivery 不可用时，主 agent 不看到“已成功排队”，也不会静默开第二个 subagent（覆盖 Requirement: 不再返回假 queued 状态）。<br>`[reviewer]` terminal subagent resume 与 `output_file` 读取体验不退化（覆盖 Requirement: 既有后台任务体验不退化）。<br>`[worker]` explicit background 和 foreground auto-background 两条 running subagent 路径都注册 live message handle。<br>`[worker]` running follow-up 测试验证 `RunController` / runtime 消费链路，而不是直接 `drain_agent_messages()`。<br>`[worker]` 最窄测试通过：`pytest -xvs tests/unit/agent/tools/test_agent_tool.py tests/integration/background_tasks/test_agent_continuation.py`。<br>`[worker]` 相关后台任务回归通过：`pytest -xvs tests/integration/background_tasks/test_agent_background.py tests/integration/background_tasks/test_auto_background.py tests/unit/agent/tools/test_task_stop_tool.py`。 |
+| bugfix-450-M1 | impl | — | A | `src/agent/core/background_tasks/interfaces.py`; `src/agent/core/background_tasks/registry.py`; `src/agent/platform/background_tasks/runtime_runner.py`; `src/agent/platform/tools/builtins/agent.py`; `tests/unit/agent/tools/test_agent_tool.py`; `tests/integration/background_tasks/test_agent_continuation.py`; related background task regression tests if signatures change | `[reviewer]` running subagent follow-up 不再假成功：主 agent 发送 follow-up 后，原 subagent 后续能实际响应或在可读输出中体现收到 follow-up（覆盖 incident Requirement: running subagent follow-up 真实投递）。<br>`[reviewer]` live delivery 不可用时，主 agent 不看到“已成功排队”，也不会静默开第二个 subagent（覆盖 Requirement: 不再返回假 queued 状态）。<br>`[reviewer]` terminal subagent resume 与 `output_file` 读取体验不退化（覆盖 Requirement: 既有后台任务体验不退化）。<br>`[worker]` explicit background 和 foreground auto-background 两条 running subagent 路径都注册 live message handle。<br>`[worker]` `_ControllerStopper` 改造/重命名为 `_ControllerHandle`，同一对象实现 stop 与 send_message，registry 不暴露裸 `RunController`。<br>`[worker]` `_message_handles` 受 registry `_lock` 保护，terminal transitions 清理 message handle，并顺手清理 stop handle。<br>`[worker]` `set_stop_handle` 参数注解改为 `BackgroundTaskStopper` Protocol，不继续依赖 concrete `_StopHandle`。<br>`[worker]` running follow-up 测试验证 `RunController` / runtime 消费链路，而不是直接 `drain_agent_messages()`。<br>`[worker]` 最窄测试通过：`pytest -xvs tests/unit/agent/tools/test_agent_tool.py tests/integration/background_tasks/test_agent_continuation.py`。<br>`[worker]` 相关后台任务回归通过：`pytest -xvs tests/integration/background_tasks/test_agent_background.py tests/integration/background_tasks/test_auto_background.py tests/unit/agent/tools/test_task_stop_tool.py`。 |

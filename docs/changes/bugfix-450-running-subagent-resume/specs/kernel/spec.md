@@ -18,11 +18,6 @@ When a consumer uses the built-in `agent` tool to send a follow-up prompt to an 
 - **THEN** the tool call does not report the follow-up as successfully queued
 - **AND** the kernel does not silently create a second concurrent subagent run to handle the prompt
 
-#### Scenario: completed subagent follow-up still resumes from transcript
-- **GIVEN** a subagent has reached a terminal state and its transcript remains available
-- **WHEN** the consumer invokes the built-in `agent` tool with that `agent_id` and a follow-up prompt
-- **THEN** the kernel continues the existing subagent conversation from its transcript rather than creating an unrelated subagent identity
-
 ## MODIFIED Requirements
 
 ## REMOVED Requirements
