@@ -42,6 +42,15 @@ class _FakeStopper:
         pass
 
 
+class _FakeMessageHandle:
+    def __init__(self) -> None:
+        self.messages: list[str] = []
+
+    def send_message(self, prompt: str) -> bool:
+        self.messages.append(prompt)
+        return True
+
+
 class _FakeRunner:
     def __init__(self) -> None:
         self.submit_foreground_calls = 0
@@ -144,6 +153,31 @@ def _make_ctx(tmpdir: str) -> ToolContext:
 # ------------------------------------------------------------------
 # Background launch
 # ------------------------------------------------------------------
+
+
+def test_registry_terminal_transition_disables_live_message_delivery() -> None:
+    registry = BackgroundTaskRegistry()
+    agent_id = "a1234567890abcdef"
+    handle = _FakeMessageHandle()
+    registry.register_subagent(
+        task_id=agent_id,
+        parent_session_id="parent_1",
+        agent_id=agent_id,
+        agent_session_id="sess_running",
+        description="existing",
+        prompt="original",
+        agent_type="explore",
+        output_file="/tmp/out.jsonl",
+    )
+    registry.mark_running(agent_id)
+    registry.set_message_handle(agent_id, handle)
+
+    assert registry.send_agent_message(agent_id, "before terminal") is True
+
+    registry.complete(agent_id, result_text="done")
+
+    assert registry.send_agent_message(agent_id, "after terminal") is False
+    assert handle.messages == ["before terminal"]
 
 
 def test_background_launch_returns_async_launched() -> None:
@@ -384,6 +418,69 @@ def test_foreground_auto_background_watcher_completes_registry() -> None:
         assert record.result_text == "late subagent result"
 
 
+def test_foreground_auto_background_running_follow_up_uses_live_controller() -> None:
+    tool = _make_tool()
+    registry = tool._wiring.registry
+    consumed: list[str] = []
+
+    async def _pending_run(*args, **kwargs):
+        import asyncio
+
+        controller = kwargs["controller"]
+        follow_up = None
+        for _ in range(100):
+            pending = controller.drain_pending()
+            if pending:
+                follow_up = pending[0].message.content
+                break
+            await asyncio.sleep(0.01)
+        if follow_up is None:
+            follow_up = "missing follow-up"
+        consumed.append(follow_up)
+        return _FakeTurnResult(f"auto consumed {follow_up}")
+
+    tool._runtime.run = _pending_run
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        result = tool.run(
+            {
+                "description": "slow task",
+                "prompt": "do something slow",
+                "subagent_type": "explore",
+                "load_skills": [],
+                "run_in_background": False,
+                "timeout_seconds": 0.01,
+            },
+            ctx,
+        )
+        assert result["status"] == "async_launched"
+        agent_id = result["agent_id"]
+
+        follow_up = tool.run(
+            {
+                "agent_id": agent_id,
+                "prompt": "auto follow up",
+                "load_skills": [],
+                "description": "slow task",
+            },
+            ctx,
+        )
+        assert follow_up["status"] == "message_queued"
+
+        for _ in range(50):
+            record = registry.get(agent_id)
+            if record is not None and record.status == BackgroundTaskStatus.COMPLETED:
+                break
+            time.sleep(0.05)
+
+        record = registry.get(agent_id)
+        assert record is not None
+        assert record.status == BackgroundTaskStatus.COMPLETED
+        assert record.result_text == "auto consumed auto follow up"
+        assert consumed == ["auto follow up"]
+
+
 # ------------------------------------------------------------------
 # Continuation: running agent
 # ------------------------------------------------------------------
@@ -419,7 +516,7 @@ def test_continuation_to_running_agent_without_live_delivery_fails() -> None:
                 },
                 ctx,
             )
-        assert exc_info.value.details == {"code": "agent_message_not_deliverable"}
+        assert exc_info.value.details["code"] == "agent_message_not_deliverable"
 
 
 # ------------------------------------------------------------------

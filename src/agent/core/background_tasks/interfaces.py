@@ -41,6 +41,12 @@ class BackgroundTaskStopper(Protocol):
     def stop(self) -> None: ...
 
 
+class BackgroundSubagentMessageHandle(Protocol):
+    """Handle for delivering follow-up messages to a live running subagent."""
+
+    def send_message(self, prompt: str) -> bool: ...
+
+
 class BackgroundSubagentRunner(Protocol):
     """Execute a subagent turn and report completion via callback."""
 

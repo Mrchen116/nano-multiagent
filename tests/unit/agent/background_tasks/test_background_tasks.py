@@ -259,19 +259,6 @@ def test_terminal_state_is_idempotent() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Pending messages
-# ---------------------------------------------------------------------------
-
-
-def test_enqueue_and_drain_agent_messages() -> None:
-    reg = BackgroundTaskRegistry()
-    reg.enqueue_agent_message("a1", "hello")
-    reg.enqueue_agent_message("a1", "world")
-    assert reg.drain_agent_messages("a1") == ("hello", "world")
-    assert reg.drain_agent_messages("a1") == ()
-
-
-# ---------------------------------------------------------------------------
 # Stop handles
 # ---------------------------------------------------------------------------
 

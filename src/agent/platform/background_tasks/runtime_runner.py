@@ -12,12 +12,15 @@ from typing import Any, Coroutine, Mapping
 from agent.core.agent.run_control import RunController
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.background_tasks.interfaces import (
+    BackgroundSubagentMessageHandle,
     BackgroundSubagentRunner,
     BackgroundTaskStopper,
     TaskCompletionCallback,
     TaskFailureCallback,
     TaskKillCallback,
 )
+from agent.core.llm.interfaces import LLMMessage
+from agent.core.runs.origin import RunOrigin
 
 
 class RuntimeRunner(BackgroundSubagentRunner):
@@ -112,7 +115,7 @@ class RuntimeRunner(BackgroundSubagentRunner):
 
             threading.Thread(target=_thread_worker, daemon=True).start()
 
-        return _ControllerStopper(controller)
+        return _ControllerHandle(controller)
 
     def submit_foreground(self, coro: Coroutine[Any, Any, Any]) -> Future:
         """Submit a foreground subagent coroutine onto the dedicated loop.
@@ -156,12 +159,18 @@ class RuntimeRunner(BackgroundSubagentRunner):
         return future
 
 
-class _ControllerStopper:
+class _ControllerHandle(BackgroundTaskStopper, BackgroundSubagentMessageHandle):
     def __init__(self, controller: RunController) -> None:
         self._controller = controller
 
     def stop(self) -> None:
         self._controller.abort()
+
+    def send_message(self, prompt: str) -> bool:
+        return self._controller.enqueue_message(
+            LLMMessage(role="user", content=prompt),
+            origin=RunOrigin.USER,
+        )
 
 
 def _extract_assistant_text(turn_result: Any) -> str | None:

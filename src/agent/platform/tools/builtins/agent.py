@@ -10,9 +10,15 @@ from typing import Any
 
 from agent.core.agent.run_control import RunController
 from agent.core.background_tasks.ids import generate_agent_id
+from agent.core.background_tasks.interfaces import (
+    BackgroundSubagentMessageHandle,
+    BackgroundTaskStopper,
+)
 from agent.core.background_tasks.models import BackgroundTaskStatus
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 from agent.core.errors import ToolError
+from agent.core.llm.interfaces import LLMMessage
+from agent.core.runs.origin import RunOrigin
 from agent.core.tools.base import ToolContext
 from agent.core.tools.serialization import json_serialize
 from agent.core.types import TurnResult
@@ -308,6 +314,7 @@ class AgentTool(WiringMixin):
             model=runtime.resolve_run_model(ctx.session_id),
         )
         registry.set_stop_handle(agent_id, stopper)
+        registry.set_message_handle(agent_id, stopper)
 
         return {
             "status": "async_launched",
@@ -403,7 +410,9 @@ class AgentTool(WiringMixin):
             # controller so task_stop's request_stop actually triggers the
             # cooperative abort (request_stop returns True even with no handle, so
             # without this the stop was a silent no-op).
-            registry.set_stop_handle(agent_id, _ControllerStopHandle(controller))
+            handle = _ControllerHandle(controller)
+            registry.set_stop_handle(agent_id, handle)
+            registry.set_message_handle(agent_id, handle)
 
             # Watcher thread updates registry when future completes; on abort it
             # routes to registry.kill(result_text=...) instead of complete().
@@ -455,13 +464,38 @@ class AgentTool(WiringMixin):
         record = registry.get(agent_id)
         if record is not None and record.task_type.value == "subagent":
             if record.status == BackgroundTaskStatus.RUNNING:
-                registry.enqueue_agent_message(agent_id, prompt)
-                return {
-                    "status": "message_queued",
-                    "agent_id": agent_id,
-                    "description": record.description,
-                    "output_file": record.output_file,
-                }
+                accepted = registry.send_agent_message(agent_id, prompt)
+                if accepted:
+                    return {
+                        "status": "message_queued",
+                        "agent_id": agent_id,
+                        "description": record.description,
+                        "output_file": record.output_file,
+                    }
+                current = registry.get(agent_id)
+                if (
+                    current is not None
+                    and current.status != BackgroundTaskStatus.RUNNING
+                ):
+                    return self._resume_subagent(
+                        agent_id=agent_id,
+                        agent_session_id=current.agent_session_id,
+                        parent_session_id=current.parent_session_id,
+                        resuming_session_id=ctx.session_id,
+                        prompt=prompt,
+                        description=current.description,
+                        output_file=current.output_file,
+                        agent_type=current.agent_type,
+                        workspace_root=parent_workspace_root,
+                    )
+                raise ToolError(
+                    (
+                        "Running subagent did not confirm live delivery; "
+                        "the follow-up was not queued."
+                    ),
+                    tool_name=self.name,
+                    details={"code": "agent_message_not_deliverable"},
+                )
             # Terminal but in memory: resume with new turn
             return self._resume_subagent(
                 agent_id=agent_id,
@@ -590,6 +624,7 @@ class AgentTool(WiringMixin):
             model=runtime.resolve_run_model(resuming_session_id),
         )
         registry.set_stop_handle(agent_id, stopper)
+        registry.set_message_handle(agent_id, stopper)
 
         return {
             "status": "async_launched",
@@ -812,10 +847,10 @@ def _start_registry_watcher(
     threading.Thread(target=_watch, daemon=True).start()
 
 
-class _ControllerStopHandle:
-    """Stop handle that aborts a RunController (auto-background subagent).
+class _ControllerHandle(BackgroundTaskStopper, BackgroundSubagentMessageHandle):
+    """Control handle for an auto-backgrounded foreground subagent.
 
-    bugfix-420 (round-1 C1): mirrors runtime_runner._ControllerStopper so the
+    bugfix-420 (round-1 C1): mirrors runtime_runner._ControllerHandle so the
     registry's request_stop → handle.stop() path triggers a cooperative abort on
     the auto-backgrounded foreground run.
     """
@@ -825,6 +860,12 @@ class _ControllerStopHandle:
 
     def stop(self) -> None:
         self._controller.abort()
+
+    def send_message(self, prompt: str) -> bool:
+        return self._controller.enqueue_message(
+            LLMMessage(role="user", content=prompt),
+            origin=RunOrigin.USER,
+        )
 
 
 def _make_on_complete(registry: BackgroundTaskRegistry, agent_id: str) -> Any:
