@@ -9,7 +9,6 @@ non-mention group messages as conversation context.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from personal_assistant.channels.base import (
     InboundHandler,
