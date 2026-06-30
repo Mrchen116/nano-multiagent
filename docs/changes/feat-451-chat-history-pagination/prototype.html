@@ -513,7 +513,9 @@
     }
 
     messagesEl.addEventListener('scroll', () => {
-      if (messagesEl.scrollTop < 100 && hasMore && loadingEl.style.display !== 'flex') {
+      // 触发阈值：距顶部不到容器视口高度的 30%（约飞书/微信的手感）
+      const threshold = messagesEl.clientHeight * 0.3;
+      if (messagesEl.scrollTop < threshold && hasMore && loadingEl.style.display !== 'flex') {
         loadingEl.style.display = 'flex';
         setTimeout(() => {
           loadingEl.style.display = 'none';
