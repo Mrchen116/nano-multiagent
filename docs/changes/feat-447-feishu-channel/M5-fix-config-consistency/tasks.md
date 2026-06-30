@@ -30,4 +30,4 @@
 
 | ID | 标题 | 状态 |
 |---|---|---|
-| R1 | 配置解析修复 + buffer key 统一 | TODO |
+| R1 | 配置解析修复 + buffer key 统一 | DONE |
