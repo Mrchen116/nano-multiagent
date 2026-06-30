@@ -47,6 +47,14 @@ class BackgroundSubagentMessageHandle(Protocol):
     def send_message(self, prompt: str) -> bool: ...
 
 
+class BackgroundSubagentHandle(
+    BackgroundTaskStopper,
+    BackgroundSubagentMessageHandle,
+    Protocol,
+):
+    """Live subagent control handle: stop plus follow-up delivery."""
+
+
 class BackgroundSubagentRunner(Protocol):
     """Execute a subagent turn and report completion via callback."""
 
@@ -62,7 +70,7 @@ class BackgroundSubagentRunner(Protocol):
         workspace_root: Path | None = None,
         llm_session_id: str | None = None,
         model: str | None = None,
-    ) -> BackgroundTaskStopper: ...
+    ) -> BackgroundSubagentHandle: ...
 
     def submit_foreground(self, coro: Coroutine[Any, Any, Any]) -> Future:
         """Run a foreground subagent coroutine and return a Future for its result.

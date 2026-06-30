@@ -7,11 +7,16 @@ import time
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, get_type_hints
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from agent.core.agent.run_control import RunController
+from agent.core.background_tasks.interfaces import (
+    BackgroundSubagentHandle,
+    BackgroundSubagentRunner,
+)
 from agent.core.background_tasks.models import BackgroundTaskStatus
 from agent.core.background_tasks.registry import BackgroundTaskRegistry
 from agent.core.errors import ToolError
@@ -37,9 +42,13 @@ class _FakeMessage:
         self.content = content
 
 
-class _FakeStopper:
+class _FakeSubagentHandle:
     def stop(self) -> None:
         pass
+
+    def send_message(self, prompt: str) -> bool:
+        del prompt
+        return True
 
 
 class _FakeMessageHandle:
@@ -91,7 +100,7 @@ class _FakeRunner:
         import threading
 
         threading.Thread(target=_worker, daemon=True).start()
-        return _FakeStopper()
+        return _FakeSubagentHandle()
 
     def submit_foreground(self, coro):
         """Run the bare runtime.run(...) coroutine and return a Future.
@@ -178,6 +187,12 @@ def test_registry_terminal_transition_disables_live_message_delivery() -> None:
 
     assert registry.send_agent_message(agent_id, "after terminal") is False
     assert handle.messages == ["before terminal"]
+
+
+def test_subagent_runner_start_returns_stop_and_message_handle_contract() -> None:
+    hints = get_type_hints(BackgroundSubagentRunner.start)
+
+    assert hints["return"] is BackgroundSubagentHandle
 
 
 def test_background_launch_returns_async_launched() -> None:
@@ -481,9 +496,85 @@ def test_foreground_auto_background_running_follow_up_uses_live_controller() -> 
         assert consumed == ["auto follow up"]
 
 
+def test_auto_background_stopped_agent_rejects_follow_up_without_false_queued() -> None:
+    from agent.platform.tools.builtins.agent import _ControllerHandle
+
+    tool = _make_tool()
+    registry = tool._wiring.registry
+    agent_id = "a1234567890abcdef"
+    controller = RunController()
+    handle = _ControllerHandle(controller)
+    registry.register_subagent(
+        task_id=agent_id,
+        parent_session_id="parent_1",
+        agent_id=agent_id,
+        agent_session_id="sess_running",
+        description="existing",
+        prompt="original",
+        agent_type="explore",
+        output_file="/tmp/out.jsonl",
+    )
+    registry.mark_running(agent_id)
+    assert registry.set_message_handle(agent_id, handle) is True
+    handle.stop()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        with pytest.raises(ToolError) as exc_info:
+            tool.run(
+                {
+                    "agent_id": agent_id,
+                    "prompt": "follow up after stop",
+                    "load_skills": [],
+                    "description": "existing",
+                },
+                ctx,
+            )
+
+    assert exc_info.value.details["code"] == "agent_message_not_deliverable"
+
+
 # ------------------------------------------------------------------
 # Continuation: running agent
 # ------------------------------------------------------------------
+
+
+def test_explicit_background_stopped_agent_rejects_follow_up_without_false_queued() -> None:
+    from agent.platform.background_tasks.runtime_runner import _ControllerHandle
+
+    tool = _make_tool()
+    registry = tool._wiring.registry
+    agent_id = "a1234567890abcdef"
+    controller = RunController()
+    handle = _ControllerHandle(controller)
+    registry.register_subagent(
+        task_id=agent_id,
+        parent_session_id="parent_1",
+        agent_id=agent_id,
+        agent_session_id="sess_running",
+        description="existing",
+        prompt="original",
+        agent_type="explore",
+        output_file="/tmp/out.jsonl",
+    )
+    registry.mark_running(agent_id)
+    assert registry.set_message_handle(agent_id, handle) is True
+    handle.stop()
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        ctx = _make_ctx(tmpdir)
+        with pytest.raises(ToolError) as exc_info:
+            tool.run(
+                {
+                    "agent_id": agent_id,
+                    "prompt": "follow up after stop",
+                    "load_skills": [],
+                    "description": "existing",
+                },
+                ctx,
+            )
+
+    assert exc_info.value.details["code"] == "agent_message_not_deliverable"
 
 
 def test_continuation_to_running_agent_without_live_delivery_fails() -> None:

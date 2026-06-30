@@ -3,19 +3,25 @@
 from __future__ import annotations
 
 import time
+import threading
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from agent.core.agent.runtime import AgentRuntime
 from agent.core.background_tasks.models import BackgroundTaskStatus
 from agent.core.errors import ToolError
+from agent.core.llm.interfaces import LLMGenerateRequest, LLMMessage
 from agent.core.tools.base import (
     set_tool_safety_factory,
     set_tool_safety_config_factory,
 )
 from agent.core.types import Message, TurnResult
+from agent.core.session.jsonl_store import JsonlSessionStore
 from agent.platform.background_tasks.wiring import wire_background_tasks
+from agent.platform.persistence.session.service import SessionService
 from agent.platform.tools.builtins.agent import AgentTool
 from agent.platform.tools.safety import ToolSafety, ToolSafetyConfig
 
@@ -54,62 +60,66 @@ class _RuntimeStub(_RuntimeStubBase):
         )
 
 
-class _RuntimeConsumesPendingStub(_RuntimeStubBase):
-    def __init__(self, tmp_path: Path) -> None:
-        super().__init__(tmp_path)
-        self.run_parts: list[Any] = []
-        self.consumed_follow_ups: list[str] = []
+class _GatedFollowUpLLM:
+    """Controlled LLM that proves AgentLoop sends a second request with follow-up."""
 
-    async def run(
-        self,
-        session_id: str,
-        parts: Any,
-        *,
-        stream: bool = False,
-        controller: Any = None,
-        parent_session_id: str | None = None,
-        workspace_root: Any = None,
-        run_id: str | None = None,
-        llm_session_id: str | None = None,
-        model: str | None = None,
-    ) -> TurnResult:
+    def __init__(self) -> None:
+        self.requests: list[LLMGenerateRequest] = []
+        self.first_request_started = threading.Event()
+        self.release_first_request = threading.Event()
+
+    def generate(
+        self, request: LLMGenerateRequest
+    ) -> AsyncIterator[LLMMessage]:
+        return self._generate(request)
+
+    async def _generate(
+        self, request: LLMGenerateRequest
+    ) -> AsyncIterator[LLMMessage]:
         import asyncio
 
-        self.run_parts.append(parts)
-        follow_up = None
-        for _ in range(100):
-            if controller is not None:
-                pending = controller.drain_pending()
-                if pending:
-                    follow_up = pending[0].message.content
-                    break
-            await asyncio.sleep(0.01)
-        if follow_up is None:
-            follow_up = "missing follow-up"
-        self.consumed_follow_ups.append(follow_up)
-        return TurnResult(
-            session_id=session_id,
-            turn_id="turn_1",
-            messages=(
-                Message(
-                    message_id="msg_1",
-                    role="assistant",
-                    content=f"subagent consumed: {follow_up}",
-                ),
-            ),
-            completed=True,
-            stop_reason="completed",
+        self.requests.append(request)
+        if len(self.requests) == 1:
+            self.first_request_started.set()
+            while not self.release_first_request.is_set():
+                await asyncio.sleep(0.01)
+            yield LLMMessage(role="assistant", content="round one complete")
+            yield LLMMessage(role="assistant", content="", finish_reason="stop")
+            return
+
+        user_messages = [
+            message.content
+            for message in request.messages
+            if message.role == "user"
+        ]
+        marker = "Also check the tests."
+        if marker not in user_messages:
+            raise AssertionError(
+                f"follow-up missing from second LLM request: {user_messages!r}"
+            )
+        yield LLMMessage(
+            role="assistant",
+            content="VISIBLE FOLLOWUP RECEIVED: Also check the tests.",
         )
+        yield LLMMessage(role="assistant", content="", finish_reason="stop")
 
 
 def test_running_agent_follow_up_enters_live_runtime_controller(
     tmp_path: Path,
 ) -> None:
-    """Running follow-up is consumed by the original subagent runtime, not registry-only."""
-    runtime = _RuntimeConsumesPendingStub(tmp_path)
+    """Running follow-up reaches the original subagent's next real LLM request."""
+    service = SessionService(store=JsonlSessionStore(data_dir=tmp_path / "sessions"))
+    parent_session = service.create_session(workspace_root=tmp_path)
+    llm = _GatedFollowUpLLM()
+    runtime = AgentRuntime(
+        session_manager=service.manager,
+        llm_client=llm,
+        model="mock-model",
+        repo_root=tmp_path,
+    )
     wiring = wire_background_tasks(workspace_root=tmp_path, runtime=runtime)
     tool = AgentTool(runtime=runtime, wiring=wiring)
-    ctx = _make_ctx(tmp_path, session_id="sess_parent")
+    ctx = _make_ctx(tmp_path, session_id=parent_session.session_id)
 
     # Launch background agent.
     result = tool.run(
@@ -123,6 +133,7 @@ def test_running_agent_follow_up_enters_live_runtime_controller(
         ctx,
     )
     agent_id = result["agent_id"]
+    assert llm.first_request_started.wait(timeout=2), "subagent LLM did not start"
 
     # Send follow-up while still running.
     follow_up = tool.run(
@@ -135,6 +146,7 @@ def test_running_agent_follow_up_enters_live_runtime_controller(
 
     assert follow_up["status"] == "message_queued"
     assert follow_up["agent_id"] == agent_id
+    llm.release_first_request.set()
 
     for _ in range(50):
         record = wiring.registry.get(agent_id)
@@ -145,9 +157,14 @@ def test_running_agent_follow_up_enters_live_runtime_controller(
     record = wiring.registry.get(agent_id)
     assert record is not None
     assert record.status == BackgroundTaskStatus.COMPLETED
-    assert record.result_text == "subagent consumed: Also check the tests."
-    assert runtime.consumed_follow_ups == ["Also check the tests."]
-    assert len(runtime.run_parts) == 1, "follow-up must not launch a second run"
+    assert record.result_text == "VISIBLE FOLLOWUP RECEIVED: Also check the tests."
+    assert len(llm.requests) == 2, "follow-up must continue the same run, not a new run"
+    second_user_messages = [
+        message.content
+        for message in llm.requests[1].messages
+        if message.role == "user"
+    ]
+    assert second_user_messages == ["Take your time.", "Also check the tests."]
 
 
 def test_jsonl_rehydrate_continues_agent_after_registry_loss(tmp_path: Path) -> None:

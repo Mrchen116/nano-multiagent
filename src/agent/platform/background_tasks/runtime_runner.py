@@ -12,6 +12,7 @@ from typing import Any, Coroutine, Mapping
 from agent.core.agent.run_control import RunController
 from agent.core.agent.runtime import AgentRuntime
 from agent.core.background_tasks.interfaces import (
+    BackgroundSubagentHandle,
     BackgroundSubagentMessageHandle,
     BackgroundSubagentRunner,
     BackgroundTaskStopper,
@@ -54,7 +55,7 @@ class RuntimeRunner(BackgroundSubagentRunner):
         workspace_root: Path | None = None,
         llm_session_id: str | None = None,
         model: str | None = None,
-    ) -> BackgroundTaskStopper:
+    ) -> BackgroundSubagentHandle:
         controller = RunController()
 
         async def _worker() -> None:
@@ -167,6 +168,12 @@ class _ControllerHandle(BackgroundTaskStopper, BackgroundSubagentMessageHandle):
         self._controller.abort()
 
     def send_message(self, prompt: str) -> bool:
+        if (
+            self._controller.is_aborted
+            or self._controller.is_cancelled
+            or self._controller.is_terminal_committed
+        ):
+            return False
         return self._controller.enqueue_message(
             LLMMessage(role="user", content=prompt),
             origin=RunOrigin.USER,

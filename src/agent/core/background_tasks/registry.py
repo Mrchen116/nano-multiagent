@@ -216,7 +216,7 @@ class BackgroundTaskRegistry:
     # ------------------------------------------------------------------
     # Stop handles
     # ------------------------------------------------------------------
-    def set_stop_handle(self, task_id: str, handle: BackgroundTaskStopper) -> None:
+    def set_stop_handle(self, task_id: str, handle: BackgroundTaskStopper) -> bool:
         """Register a background task's stop handle (killpg via the runner stopper).
 
         bugfix-417-M7 (decision 12): foreground bash no longer registers here — its
@@ -226,7 +226,11 @@ class BackgroundTaskRegistry:
         ``_foreground_task_ids`` set are gone.
         """
         with self._lock:
+            record = self._records.get(task_id)
+            if record is None or self._guard_terminal(record):
+                return False
             self._stop_handles[task_id] = handle
+            return True
 
     def request_stop(self, task_id: str) -> bool:
         with self._lock:
@@ -250,10 +254,14 @@ class BackgroundTaskRegistry:
         self,
         task_id: str,
         handle: BackgroundSubagentMessageHandle,
-    ) -> None:
+    ) -> bool:
         """Register the live delivery handle for a running subagent."""
         with self._lock:
+            record = self._records.get(task_id)
+            if record is None or self._guard_terminal(record):
+                return False
             self._message_handles[task_id] = handle
+            return True
 
     def send_agent_message(self, agent_id: str, prompt: str) -> bool:
         """Deliver a follow-up prompt to a running subagent's live controller.
