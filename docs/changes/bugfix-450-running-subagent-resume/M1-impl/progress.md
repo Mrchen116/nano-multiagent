@@ -43,3 +43,27 @@
 - Rollback: 回退 code commit `7f9dadaf` 可恢复到 verifier pass 后状态。
 - Commits: fix=`7f9dadaf`, docs=`3a94059e`, merge=`8ce9e54f`
 - Next: 已合入并 push 到 `unit/bugfix-450`。
+
+### Fast-lane fix r2 — RunController enqueue/stop linearization
+
+- Context: r1 的 `_ControllerHandle.send_message()` 在 handle 层先检查 `is_aborted/is_cancelled/is_terminal_committed`，再调用 `RunController.enqueue_message()`；该检查与 `stop()->controller.abort()` 不在同一临界区，并发下 stop 已线性化后仍可能 enqueue 成功，导致 AgentTool 返回 false `message_queued`。
+- Decision: 在 `RunController` 控制面收敛线性化语义：`abort()` / `cancel()` 与 `enqueue_message()` 共用 `_terminal_lock`；`enqueue_message()` 在同一锁内检查 terminal/aborted/cancelled 后再决定是否入队。两个 `_ControllerHandle.send_message()` 删除重复非原子 guard，只调用 controller 的原子语义。
+- Rationale: live follow-up acceptance 的单一真源应在 `RunController`，因为它已经负责 terminal commit 与 enqueue 的互斥。继续在 handle 层贴 guard 会保留 TOCTOU window，并让 explicit background 与 auto-background 两处重复控制面逻辑。
+- Evidence:
+  - Tests:
+    - Red: `pytest -xvs tests/unit/agent/runs/test_run_control_terminal_commit.py tests/unit/agent/tools/test_agent_tool.py::test_auto_background_handle_rejects_message_when_stop_linearizes_during_enqueue tests/unit/agent/tools/test_agent_tool.py::test_explicit_background_handle_rejects_message_when_stop_linearizes_during_enqueue` 在修复前失败于 `test_enqueue_after_abort_is_rejected`：abort 后 enqueue 仍返回 True。
+    - Green narrow: `pytest -xvs tests/unit/agent/runs/test_run_control_terminal_commit.py tests/unit/agent/tools/test_agent_tool.py` -> 43 passed。
+    - M1 required: `pytest -xvs tests/unit/agent/tools/test_agent_tool.py tests/integration/background_tasks/test_agent_continuation.py` -> 37 passed。
+    - M1 required: `pytest -xvs tests/integration/background_tasks/test_agent_background.py tests/integration/background_tasks/test_auto_background.py tests/unit/agent/tools/test_task_stop_tool.py` -> 12 passed。
+    - `git diff --check` -> clean。
+  - Entry: backend/runtime control-plane only；用户可见入口仍由 `AgentTool` running continuation 返回值体现。`RunController.enqueue_message()` 现在在 stop/cancel 已线性化后返回 False，AgentTool 经 registry 得到 `agent_message_not_deliverable`，不再报告 queued。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression:
+    - `test_enqueue_after_abort_is_rejected` / `test_enqueue_after_cancel_is_rejected` 固定 controller 层 active 判断。
+    - `test_message_accepted_before_abort_remains_pending` 固定允许的相反线性化方向：enqueue 先发生则保留 True。
+    - `test_auto_background_handle_rejects_message_when_stop_linearizes_during_enqueue` 与 `test_explicit_background_handle_rejects_message_when_stop_linearizes_during_enqueue` 覆盖两个 handle 不再因非原子 guard 误 accepted。
+  - Visual/Interaction: N/A。
+- Rollback: 回退 code commit `0b3e56c2` 会恢复 r1 的非原子 handle guard。
+- Commits: fix=`0b3e56c2`
+- Next: 已准备 rebase/merge 到 `unit/bugfix-450`。
