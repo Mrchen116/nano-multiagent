@@ -267,3 +267,151 @@ All spec requirements have implementation evidence (unchanged from Round 1):
 ---
 
 All checks passed. Ready for PR.
+
+---
+
+## Round 3
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 5/5 milestones complete, 31/31 tasks complete |
+| Correctness | 13/13 covered, 3/3 M6 bugs verified fixed |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## M6 Bug Fixes Verification (Round 3 Focus)
+
+Round 3 重点验证 reviewer 反馈循环中修复的 3 个 correctness bug。
+
+### Bug 1: DM receive_id_type — FIXED
+
+**问题**: FeishuAdapter.send() 对所有消息使用 `receive_id_type="chat_id"`，导致 DM 消息发送失败。
+
+**验证**:
+- `feishu_adapter.py:100-102` 根据 `":dm:" in outbound.target_chat_id` 选择 `"open_id"` 或 `"chat_id"`
+- `feishu_adapter.py:95` `_extract_chat_id` 正确提取 DM 的 `user_open_id` 作为 `receive_id`
+- 测试覆盖: `test_feishu_adapter.py:280-300` `test_send_dm_uses_open_id` — 断言 `receive_id_type="open_id"` 且 `receive_id="ou_user1"` ✅
+- 测试覆盖: `test_feishu_adapter.py:303-323` `test_send_group_uses_chat_id` — 断言 `receive_id_type="chat_id"` 且 `receive_id="oc_grp1"` ✅
+
+**结论**: 修复正确。DM 使用 `open_id`、群聊使用 `chat_id`，符合飞书 API 要求。
+
+### Bug 2: 429/5xx 重试计数器独立 — FIXED
+
+**问题**: 429 重试耗尽后，5xx 错误无法获得自己的重试机会（共享计数器）。
+
+**验证**:
+- `feishu_client.py:212-215` 两个独立计数器: `rate_limit_attempt` / `server_error_attempt`，各配 `rate_limit_exhausted` / `server_error_exhausted` 标志
+- `feishu_client.py:231-248` 429 逻辑只操作 `rate_limit_attempt`，不影响 `server_error_attempt`
+- `feishu_client.py:251-265` 5xx 逻辑只操作 `server_error_attempt`，不影响 `rate_limit_attempt`
+- 测试覆盖: `test_feishu_client.py:274-297` `test_rate_limit_then_server_error_retries_independently`:
+  - 序列: 429→429→429(耗尽)→500→200(成功)
+  - 断言: 5 次 API 调用（3 次 rate-limit + 2 次 server-error），3 次 sleep ✅
+- 测试覆盖: `test_feishu_client.py:257-271` `test_server_error_retries_once` — 5xx 独立重试一次 ✅
+- 测试覆盖: `test_feishu_client.py:201-220` `test_rate_limit_retries_with_exponential_backoff` — 429 独立重试 3 次 ✅
+
+**结论**: 修复正确。两个重试预算完全独立，一个耗尽不影响另一个。
+
+### Bug 3: _build_channel_registry 对 feishu + group_context_store=None 报错 — FIXED
+
+**问题**: `_build_channel_registry` 允许 `group_context_store=None`，导致 FeishuAdapter 构造时传入 None 引发后续 NPE。
+
+**验证**:
+- `main.py:2896-2902` 当 feishu channel 启用且 `group_context_store is None` 时立即 raise ValueError:
+  ```python
+  has_feishu = any(
+      ch.enabled and ch.name.startswith("feishu:") for ch in channels
+  )
+  if has_feishu and group_context_store is None:
+      raise ValueError(
+          "group_context_store is required when feishu channels are enabled"
+      )
+  ```
+- 测试覆盖: `test_feishu_integration.py:201-217` `test_build_channel_registry_without_group_context_store_raises` — 断言 `pytest.raises(ValueError, match="group_context_store")` ✅
+- 测试覆盖: `test_feishu_integration.py:219-250` `test_bootstrap_path_creates_and_passes_group_context_store` — 验证 bootstrap 路径正确传递非 None store ✅
+- 测试覆盖: `test_feishu_integration.py:91-107` `test_feishu_disabled_not_registered` — disabled feishu 不需要 group_context_store，不报错 ✅
+
+**结论**: 修复正确。运行时校验在 adapter 构造前拦截，fail-fast 而非延迟 NPE。
+
+## Regression Test Results
+
+- `pytest tests/unit/test_feishu_*.py`: 44 passed ✅
+- `pytest -m "not e2e"` (full suite): 3175 passed, 1 skipped, 0 failed ✅
+
+## Completeness
+
+### Tasks: 31/31 complete
+
+- **M1** (feishu-messaging): 5/5 exit criteria all checked (`[x]`)
+- **M2** (feishu-cli-integration): 4/4 exit criteria all checked (`[x]`)
+- **M3** (增强错误处理): 8/8 exit criteria all checked (`[x]`)
+- **M4** (fix-critical-param-and-skill): 6/6 exit criteria all checked (`[x]`)
+- **M5** (fix-config-consistency): 3/3 exit criteria all checked (`[x]`)
+- **M6** (fast-lane-fixes): 3/3 bugs fixed and verified (R1)
+
+### Spec Coverage
+
+All spec requirements have implementation evidence (unchanged from Round 1/2):
+
+| Requirement | 实现位置 | 状态 |
+|---|---|---|
+| 飞书 1:1 私聊对话 | `feishu_adapter.py:145-146` `_deliver_dm` | covered |
+| 飞书群聊 @Bot 触发 | `feishu_adapter.py:149-150` `_deliver_group_with_context` | covered |
+| 多 Agent 路由 | `feishu_adapter.py:64-65` `name` property + `local_store.py:893-966` config parsing | covered |
+| 飞书对话同步到内部 IM | `main.py:2231-2236` kernel event observer (自动) | covered |
+| 飞书云文档操作（用户身份） | `skills/feishu-doc.md` | covered |
+
+## Correctness
+
+### Requirement → Implementation Mapping
+
+| Requirement / Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| 用户在 1:1 私聊中发消息 → Bot 回复 | `feishu_adapter.py:154-173` `_deliver_dm` | `test_feishu_adapter.py:54-75` | covered |
+| 私聊无需 @ 触发 | `feishu_adapter.py:145-146` (DM always deliver) | `test_feishu_adapter.py:77-93` | covered |
+| 私聊 session 隔离 | `feishu_adapter.py:160` `external_chat_id` 含 sender_open_id | `test_feishu_adapter.py:54-75` (implicit) | covered |
+| 群聊中 @Bot 触发回复 | `feishu_adapter.py:149-150` `_is_bot_mentioned` | `test_feishu_adapter.py:100-128` | covered |
+| 群聊中未 @Bot 不触发 | `feishu_adapter.py:151-152` `_buffer_group_message` | `test_feishu_adapter.py:130-156` | covered |
+| 未 @ 消息作为上下文 | `feishu_adapter.py:175-207` `_deliver_group_with_context` flush + prepend | `test_feishu_adapter.py:158-189` | covered |
+| @所有人 不算 @Bot | `feishu_adapter.py:231-238` `_is_bot_mentioned` open_id="all" filter | `test_feishu_adapter.py:191-217` | covered |
+| 不同 Bot 对应不同 Agent | `feishu_adapter.py:64-65` `name = f"feishu:{agent_id}"` | `test_feishu_adapter.py:222-235` | covered |
+| 飞书消息出现在内部 IM | `main.py:2231-2236` kernel event observer 自动推送 | `test_feishu_integration.py` (implicit via pipeline) | covered |
+| 飞书群聊消息出现在内部 IM | 同上 | 同上 | covered |
+| 以用户身份创建文档 | `skills/feishu-doc.md:25-27` `feishu-cli doc create` | 纯文档 milestone，无代码测试 | covered |
+| 以用户身份编辑文档 | `skills/feishu-doc.md:29-34` `feishu-cli doc read` + import | 纯文档 milestone | covered |
+| 未授权时提示授权 | `skills/feishu-doc.md:12-18` `feishu-cli auth login` | 纯文档 milestone | covered |
+
+## Coherence
+
+### Design 决策遵守
+
+| design 决策 | 遵守? | 代码证据 |
+|---|---|---|
+| 决策 1: WebSocket 长连接模式 | 是 | `feishu_client.py:138-144` WSClient with `auto_reconnect=True` |
+| 决策 2: config.yaml `channels.feishu.accounts` 列表 | 是 | `local_store.py:893-966` `_parse_feishu_accounts` |
+| 决策 3: feishu-cli 作为云文档操作唯一路径 | 是 | `skills/feishu-doc.md` 全部命令基于 feishu-cli |
+| 决策 4: Session key `feishu:<agent_id>:dm/group:<id>` | 是 | `feishu_adapter.py:160,194` `external_chat_id` 格式 |
+| 决策 5: 复用 `GroupContextStore` | 是 | `feishu_adapter.py:58,178,211` 使用 `_group_ctx.append/drain` |
+| 决策 6: 复用 kernel event observer 同步到 IM | 是 | `main.py:2231-2236` 统一创建 observer，不新建 mirror |
+
+### 架构自洽性
+
+- **依赖方向**: `personal_assistant` 只 import `agent.sdk`（无违反），feishu adapter 在 `personal_assistant.channels` 内，符合模块边界。
+- **跨机/进程边界**: FeishuAdapter 通过 WebSocket 连飞书服务器（外部），不假设与 IM 同机。IM 同步通过现有 observer 机制，无直接进程间访问。
+- **复用 vs 平行**: 复用 `ChannelAdapter` Protocol、`GroupContextStore`、`ChannelRegistry`、`OutboundRouter`、`InboundPipeline` 等既有机制，未另造平行物。
+
+## Issues
+
+### CRITICAL（提 PR 前必须修）
+
+无。
+
+### WARNING（应该修）
+
+无。
+
+### SUGGESTION（可以修）
+
+无。
