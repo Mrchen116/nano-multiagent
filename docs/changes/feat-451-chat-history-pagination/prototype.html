@@ -6,46 +6,163 @@
   <title>feat-451 原型：聊天页分页与微体验</title>
   <style>
     :root {
-      --im-bg: oklch(0.98 0.005 240);
-      --im-surface: oklch(1 0 0);
-      --im-surface-2: oklch(0.965 0.006 240);
       --im-accent: oklch(0.52 0.14 180);
       --im-accent-fg: oklch(0.99 0 0);
       --im-text: oklch(0.21 0.012 240);
       --im-text-muted: oklch(0.5 0.012 240);
       --im-border: oklch(0.9 0.008 240);
-      --im-danger: oklch(0.58 0.18 25);
       --im-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: var(--im-font-sans);
-      background: var(--im-bg);
+      background: oklch(0.98 0.005 240);
       color: var(--im-text);
       height: 100vh;
       display: flex;
       overflow: hidden;
     }
+
+    /* ── Sidebar (dark, matching real app) ─────────────────────── */
     .sidebar {
-      width: 260px;
-      border-right: 1px solid var(--im-border);
-      background: var(--im-surface);
+      width: 262px;
+      flex-shrink: 0;
       display: flex;
       flex-direction: column;
-      padding: 1rem;
+      border-right: 1px solid oklch(0.29 0.010 240);
+      background: oklch(0.24 0.012 240);
+    }
+    .sidebar-header {
+      padding: 14px 12px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 0;
       flex-shrink: 0;
     }
-    .sidebar h3 { margin: 0 0 0.75rem; font-size: 1rem; }
-    .conv-item {
-      padding: 0.6rem 0.75rem;
-      border-radius: 0.5rem;
-      background: var(--im-surface-2);
-      margin-bottom: 0.5rem;
-      cursor: pointer;
-      font-size: 0.9rem;
+    .sidebar-header-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 10px;
     }
-    .conv-item.active { outline: 2px solid var(--im-accent); }
+    .sidebar-title {
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: oklch(0.55 0.01 240);
+    }
+    .sidebar-new-group {
+      background: oklch(0.30 0.012 240);
+      border: none;
+      border-radius: 8px;
+      height: 36px;
+      padding: 0 12px;
+      font: inherit;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #fff;
+      cursor: pointer;
+    }
+    .sidebar-search {
+      width: 100%;
+      border: 1px solid oklch(0.33 0.010 240);
+      border-radius: 10px;
+      background: oklch(0.29 0.010 240);
+      padding: 8px 12px;
+      font: inherit;
+      font-size: 0.8rem;
+      color: oklch(0.85 0.01 240);
+    }
+    .sidebar-search::placeholder { color: oklch(0.50 0.01 240); }
+    .sidebar-filters {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+      overflow-x: auto;
+    }
+    .sidebar-filter {
+      background: oklch(0.30 0.010 240);
+      border: 0;
+      border-radius: 99px;
+      padding: 5px 12px;
+      font: inherit;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: oklch(0.55 0.01 240);
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    .sidebar-filter.active {
+      background: var(--im-accent);
+      color: #fff;
+    }
+    .sidebar-list {
+      list-style: none;
+      padding: 4px 8px 12px;
+      margin: 0;
+      flex: 1;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+    .sidebar-row {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      width: 100%;
+      padding: 0.5rem 0.5rem;
+      border: 0;
+      border-radius: 0.6rem;
+      background: transparent;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      min-height: 52px;
+    }
+    .sidebar-row:hover { background: oklch(0.28 0.012 240); }
+    .sidebar-row.active {
+      background: oklch(0.31 0.015 240);
+      outline: 1px solid oklch(0.40 0.08 180);
+    }
+    .sidebar-row-avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 11px; font-weight: 600;
+      flex-shrink: 0;
+    }
+    .sidebar-row-body { flex: 1; min-width: 0; }
+    .sidebar-row-title-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+    }
+    .sidebar-row-title {
+      font-size: 0.875rem;
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: oklch(0.88 0.01 240);
+    }
+    .sidebar-row-time {
+      font-size: 0.7rem;
+      color: oklch(0.50 0.01 240);
+      flex-shrink: 0;
+    }
+    .sidebar-row-preview {
+      font-size: 0.78rem;
+      color: oklch(0.55 0.01 240);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      margin-top: 1px;
+    }
+
+    /* ── Chat pane ─────────────────────────────────────────────── */
     .pane {
       flex: 1;
       display: flex;
@@ -62,9 +179,15 @@
       gap: 10px;
       flex-shrink: 0;
     }
-    .header h2 { margin: 0; font-size: 14.5px; }
+    .header h2 { margin: 0; font-size: 14.5px; font-weight: 700; }
     .header button {
-      background: transparent; border: 0; font-size: 1.2rem; color: var(--im-text-muted); cursor: pointer;
+      background: transparent; border: 0; font-size: 1.2rem;
+      color: var(--im-text-muted); cursor: pointer;
+    }
+    .header-meta {
+      font-size: 0.7rem;
+      color: var(--im-text-muted);
+      margin-top: 1px;
     }
     .messages {
       flex: 1;
@@ -84,13 +207,15 @@
       font-size: 0.8rem;
     }
     .spinner {
-      width: 16px; height: 16px;
+      width: 14px; height: 14px;
       border: 2px solid var(--im-border);
       border-top-color: var(--im-accent);
       border-radius: 50%;
       animation: spin 0.8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Bubbles ───────────────────────────────────────────────── */
     .bubble-wrap {
       display: flex;
       flex-direction: row;
@@ -112,7 +237,6 @@
       line-height: 1.5;
       position: relative;
       user-select: text;
-      cursor: context-menu;
     }
     .bubble.user {
       background: var(--im-accent);
@@ -129,6 +253,8 @@
       font-size: 11px;
       color: var(--im-text-muted);
     }
+
+    /* ── Composer ──────────────────────────────────────────────── */
     .composer {
       padding: 0.6rem 0.75rem;
       background: oklch(0.96 0.005 240);
@@ -142,7 +268,7 @@
       flex: 1;
       border: 1px solid var(--im-border);
       border-radius: 0.6rem;
-      background: var(--im-surface-2);
+      background: oklch(0.965 0.006 240);
       padding: 0.5rem 0.75rem;
       font: inherit;
       font-size: 0.9rem;
@@ -159,99 +285,148 @@
       background: var(--im-accent); color: var(--im-accent-fg);
       cursor: pointer; flex-shrink: 0;
     }
+
+    /* ── Context menu (compact, OS-like) ───────────────────────── */
     .context-menu {
       position: absolute;
       background: rgba(255, 255, 255, 0.98);
-      border: 1px solid var(--im-border);
-      border-radius: 12px;
-      box-shadow:
-        0 12px 40px oklch(0.1 0.01 240 / 0.16),
-        0 2px 6px oklch(0.1 0.01 240 / 0.06);
-      min-width: 128px;
-      padding: 4px;
+      border: 0.5px solid oklch(0.82 0.01 240);
+      border-radius: 6px;
+      box-shadow: 0 3px 16px oklch(0.15 0.01 240 / 0.2), 0 1px 2px oklch(0.15 0.01 240 / 0.08);
+      padding: 2px;
       z-index: 100;
       display: none;
-      overflow: hidden;
-      backdrop-filter: blur(8px);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
     }
     .context-menu.visible { display: block; }
+    .context-menu-group {
+      padding: 2px;
+    }
+    .context-menu-group + .context-menu-group {
+      border-top: 0.5px solid oklch(0.88 0.01 240);
+      margin: 0 2px;
+      padding: 2px;
+    }
     .context-menu button {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+      display: block;
       width: 100%;
-      padding: 8px 12px;
+      padding: 2px 8px;
       border: 0;
-      border-radius: 8px;
+      border-radius: 4px;
       background: transparent;
       text-align: left;
       cursor: pointer;
       font: inherit;
-      font-size: 14px;
+      font-size: 12px;
+      line-height: 17px;
       color: var(--im-text);
-      transition: background 0.12s ease;
+      transition: background 0.08s ease;
     }
-    .context-menu button:hover { background: var(--im-surface-2); }
-    .context-menu button .icon {
-      width: 16px;
-      text-align: center;
-      color: var(--im-text-muted);
-      font-size: 13px;
+    .context-menu button:hover {
+      background: var(--im-accent);
+      color: #fff;
     }
-    .context-menu button + button {
-      margin-top: 1px;
-    }
-    .context-menu button.fork {
-      border-top: 1px solid var(--im-border);
-      border-radius: 0 0 8px 8px;
-    }
+
+    /* ── Toast ─────────────────────────────────────────────────── */
     .toast {
       position: fixed;
       left: 16px; top: 16px;
       background: oklch(0.21 0.012 240); color: #fff;
-      padding: 10px 14px;
-      border-radius: 1rem;
+      padding: 8px 12px;
+      border-radius: 10px;
       font-size: 12px;
+      font-weight: 500;
       opacity: 0;
-      transform: translateY(-6px);
-      transition: opacity 0.25s ease, transform 0.25s ease;
+      transform: translateY(-4px);
+      transition: opacity 0.2s ease, transform 0.2s ease;
       z-index: 200;
     }
     .toast.show { opacity: 1; transform: none; }
+
+    /* ── Demo controls ─────────────────────────────────────────── */
     .demo-controls {
       position: fixed;
-      right: 16px;
-      bottom: 100px;
+      right: 12px;
+      bottom: 12px;
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 4px;
       z-index: 50;
     }
     .demo-controls button {
-      padding: 0.4rem 0.8rem;
+      padding: 5px 10px;
       border: 1px solid var(--im-border);
-      border-radius: 0.5rem;
-      background: var(--im-surface);
+      border-radius: 8px;
+      background: #fff;
       cursor: pointer;
-      font-size: 0.8rem;
+      font-size: 11px;
+      color: var(--im-text-muted);
+      white-space: nowrap;
     }
+    .demo-controls button:hover { background: var(--im-accent); color: #fff; border-color: var(--im-accent); }
+
     @media (max-width: 767px) {
       .sidebar { display: none; }
-      .demo-controls { bottom: 90px; right: 8px; }
+      .demo-controls { right: 8px; bottom: 8px; }
     }
   </style>
 </head>
 <body>
   <aside class="sidebar">
-    <h3>消息</h3>
-    <div class="conv-item active">Planner</div>
-    <div class="conv-item">Sprint Crew</div>
+    <div class="sidebar-header">
+      <div class="sidebar-header-row">
+        <span class="sidebar-title">消息</span>
+        <button class="sidebar-new-group">+ 群聊</button>
+      </div>
+      <input class="sidebar-search" type="text" placeholder="搜索…" />
+      <div class="sidebar-filters">
+        <button class="sidebar-filter active">全部</button>
+        <button class="sidebar-filter">Agent</button>
+        <button class="sidebar-filter">群聊</button>
+      </div>
+    </div>
+    <div class="sidebar-list">
+      <div class="sidebar-row active">
+        <span class="sidebar-row-avatar" style="background:#4f46e5">Pl</span>
+        <div class="sidebar-row-body">
+          <div class="sidebar-row-title-line">
+            <span class="sidebar-row-title">Planner</span>
+            <span class="sidebar-row-time">09:14</span>
+          </div>
+          <div class="sidebar-row-preview">收到，正在处理。</div>
+        </div>
+      </div>
+      <div class="sidebar-row">
+        <span class="sidebar-row-avatar" style="background:#059669">SC</span>
+        <div class="sidebar-row-body">
+          <div class="sidebar-row-title-line">
+            <span class="sidebar-row-title">Sprint Crew</span>
+            <span class="sidebar-row-time">昨天</span>
+          </div>
+          <div class="sidebar-row-preview">@Planner 怎么看？</div>
+        </div>
+      </div>
+      <div class="sidebar-row">
+        <span class="sidebar-row-avatar" style="background:#d97706">Cd</span>
+        <div class="sidebar-row-body">
+          <div class="sidebar-row-title-line">
+            <span class="sidebar-row-title">Coder</span>
+            <span class="sidebar-row-time">周三</span>
+          </div>
+          <div class="sidebar-row-preview">测试跑通了。</div>
+        </div>
+      </div>
+    </div>
   </aside>
 
   <main class="pane">
     <header class="header">
       <button>‹</button>
-      <h2>Planner</h2>
+      <div>
+        <h2>Planner</h2>
+        <div class="header-meta">Planner</div>
+      </div>
     </header>
 
     <section class="messages" id="messages">
@@ -262,8 +437,6 @@
       <div class="history-status" id="no-more" style="display:none">
         <span>没有更多消息了</span>
       </div>
-
-      <!-- 种子消息由 JS 生成，确保列表可滚动 -->
       <div id="seed"></div>
     </section>
 
@@ -274,15 +447,19 @@
   </main>
 
   <div class="context-menu" id="menu">
-    <button id="copyBtn"><span class="icon">📋</span>复制</button>
-    <button id="forkBtn" class="fork"><span class="icon">⑂</span>fork</button>
+    <div class="context-menu-group">
+      <button id="copyBtn">复制</button>
+    </div>
+    <div class="context-menu-group">
+      <button id="forkBtn">fork</button>
+    </div>
   </div>
 
   <div class="toast" id="toast">已复制</div>
 
   <div class="demo-controls">
-    <button id="loadOlder">模拟：加载更早消息</button>
-    <button id="newMsg">模拟：新消息到达</button>
+    <button id="loadOlder">↑ 加载更早</button>
+    <button id="newMsg">+ 新消息</button>
     <button id="reset">重置</button>
   </div>
 
@@ -297,14 +474,13 @@
     let loadedCount = 0;
     let hasMore = true;
 
-    // 生成足够消息让列表可滚动
     function seedMessages() {
       const seed = document.getElementById('seed');
       const texts = [
         "第 1 轮讨论：先确定分页接口。",
         "好，我已经在看后端返回的 next_before_message_id。",
         "那前端用 useInfiniteQuery 还是手动 cursor？",
-        "手动维护更轻， reducer 里加 prepend_history。",
+        "手动维护更轻，reducer 里加 prepend_history。",
         "自动滚底策略要改，不能每次 messages 变化都滚。",
         "对，只在最后一条 id 变化或已在底部时滚。",
         "移动端 Enter 发送也要修。",
@@ -329,7 +505,6 @@
       scrollToBottom();
     }
 
-    // 自动滚底辅助
     function isNearBottom() {
       return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
     }
@@ -337,7 +512,6 @@
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    // 滚动到顶部触发加载
     messagesEl.addEventListener('scroll', () => {
       if (messagesEl.scrollTop < 100 && hasMore && loadingEl.style.display !== 'flex') {
         loadingEl.style.display = 'flex';
@@ -356,7 +530,6 @@
             <span class="avatar" style="background:#4f46e5">Pl</span>
             <div class="bubble agent" data-id="older-${loadedCount}">更早的历史消息 #${loadedCount}（模拟）<small>09:${10 - loadedCount}</small></div>`;
           messagesEl.insertBefore(wrap, loadingEl.nextSibling);
-          // 保持阅读位置：把刚才的 anchor 重新滚到视口顶部
           if (anchor) {
             messagesEl.scrollTop = anchor.offsetTop - 20;
           }
@@ -364,7 +537,6 @@
       }
     });
 
-    // 长按 / 右键菜单
     let longPressTimer = null;
     let activeBubble = null;
     let touchStartX = 0, touchStartY = 0;
@@ -372,9 +544,9 @@
     function showMenu(x, y, bubble) {
       activeBubble = bubble;
       const isAgent = bubble.classList.contains('agent');
-      document.getElementById('forkBtn').style.display = isAgent ? 'block' : 'none';
-      menu.style.left = Math.min(x, window.innerWidth - 160) + 'px';
-      menu.style.top = Math.min(y, window.innerHeight - 100) + 'px';
+      document.getElementById('forkBtn').parentElement.style.display = isAgent ? 'block' : 'none';
+      menu.style.left = Math.min(x, window.innerWidth - 120) + 'px';
+      menu.style.top = Math.min(y, window.innerHeight - 80) + 'px';
       menu.classList.add('visible');
     }
 
@@ -415,7 +587,7 @@
         navigator.clipboard.writeText(text).then(() => {
           toast.textContent = '已复制';
           toast.classList.add('show');
-          setTimeout(() => toast.classList.remove('show'), 1500);
+          setTimeout(() => toast.classList.remove('show'), 1200);
         });
       }
       menu.classList.remove('visible');
@@ -424,17 +596,15 @@
     document.getElementById('forkBtn').addEventListener('click', () => {
       toast.textContent = '已 fork 出分支单聊';
       toast.classList.add('show');
-      setTimeout(() => toast.classList.remove('show'), 1500);
+      setTimeout(() => toast.classList.remove('show'), 1200);
       menu.classList.remove('visible');
     });
 
-    // composer 自动增高
     input.addEventListener('input', () => {
       input.style.height = 'auto';
       input.style.height = Math.min(input.scrollHeight, 136) + 'px';
     });
 
-    // Enter 发送（移动/桌面统一）
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
@@ -455,7 +625,6 @@
       scrollToBottom();
     });
 
-    // Demo controls
     document.getElementById('loadOlder').addEventListener('click', () => {
       messagesEl.scrollTop = 0;
       messagesEl.dispatchEvent(new Event('scroll'));
