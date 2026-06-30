@@ -8,11 +8,11 @@ Gateway 新增飞书 channel adapter（FeishuAdapter + FeishuClient），通过�
 
 ## 退出标准
 
-- [ ] feishu_adapter 单测全绿（1:1 私聊收发、群聊 @Bot 触发、未 @ 不触发、未 @ 消息作为上下文、多 Bot 路由）
-- [ ] 飞书 SDK WebSocket 连接建立成功（FeishuClient 封装 lark-oapi WSClient）
-- [ ] config.yaml 解析正确（channels.feishu.accounts 结构解析、agentId 绑定验证）
-- [ ] mirror 到 IM 服务单测覆盖（InboundMessage 正确设置 agent_id，kernel event observer 自然推送）
-- [ ] main.py 注册飞书 adapter、config 解析飞书 accounts 正确构建 FeishuAdapter
+- [x] feishu_adapter 单测全绿（1:1 私聊收发、群聊 @Bot 触发、未 @ 不触发、未 @ 消息作为上下文、多 Bot 路由）
+- [x] 飞书 SDK WebSocket 连接建立成功（FeishuClient 封装 lark-oapi WSClient）
+- [x] config.yaml 解析正确（channels.feishu.accounts 结构解析、agentId 绑定验证）
+- [x] mirror 到 IM 服务单测覆盖（InboundMessage 正确设置 agent_id，kernel event observer 自然推送）
+- [x] main.py 注册飞书 adapter、config 解析飞书 accounts 正确构建 FeishuAdapter
 
 ## 测试策略
 

@@ -2887,6 +2887,7 @@ def _build_channel_registry(
     channels: tuple[ChannelConfig, ...],
     *,
     dedup_db_path: Path | None = None,
+    group_context_store: GroupContextStore | None = None,
 ) -> ChannelRegistry:
     registry = ChannelRegistry()
     for channel in channels:
@@ -2906,6 +2907,8 @@ def _build_channel_registry(
                     app_id=settings["appId"],
                     app_secret=settings["appSecret"],
                     agent_id=settings["agentId"],
+                    bot_open_id=settings.get("botOpenId"),
+                    group_context_store=group_context_store,
                 )
             )
             continue
