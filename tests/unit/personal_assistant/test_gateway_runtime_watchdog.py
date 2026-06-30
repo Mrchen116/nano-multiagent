@@ -9,69 +9,14 @@ the feat-393 delivery invariant after the eager connect is removed.
 from __future__ import annotations
 
 import asyncio
-import threading
 import time
 from pathlib import Path
 
 import pytest
 
-from personal_assistant.channels.web_relay_adapter import WebRelayAdapter
-from personal_assistant.config.local_store import (
-    AgentWorkspaceConfig,
-    HeartbeatConfig,
-    IMServiceConfig,
-    KernelConfig,
-    LocalConfig,
-    NodeConfig,
-)
 from personal_assistant.main import GatewayRuntime
-from personal_assistant.ws.im_connection import IMConnectionConfig, IMConnectionManager
 
-from agent.core.llm.config import LLMConfigPayload, LLMModelPayload, LLMProviderPayload
-
-from ._im_connection_helpers import _connect_fake, _minimal_reporter
-
-_DEFAULT_TEST_LLM = LLMConfigPayload(
-    default_model="kimiCoding:K2.6",
-    providers=(
-        LLMProviderPayload(
-            name="anthropic",
-            base_url="http://127.0.0.1:4000",
-            models=(LLMModelPayload(name="kimiCoding:K2.6"),),
-        ),
-    ),
-)
-
-
-def _make_config(tmp_path: Path) -> LocalConfig:
-    workspace_root = tmp_path / "agent-a"
-    workspace_root.mkdir(exist_ok=True)
-    return LocalConfig(
-        node=NodeConfig(node_id="node-local"),
-        agents=(
-            AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace_root),
-        ),
-        channels=(),
-        kernel=KernelConfig(),
-        heartbeat=HeartbeatConfig(),
-        im_service=IMServiceConfig(url="http://im.local"),
-        llm=_DEFAULT_TEST_LLM,
-        source_path=tmp_path / "node-config.yaml",
-    )
-
-
-def _run_in_thread(runtime: GatewayRuntime) -> tuple[threading.Thread, dict]:
-    outcome: dict = {}
-
-    def _target() -> None:
-        try:
-            outcome["exit_code"] = runtime.run_forever()
-        except BaseException as exc:  # noqa: BLE001 — capture for assertion
-            outcome["error"] = exc
-
-    thread = threading.Thread(target=_target, daemon=True)
-    thread.start()
-    return thread, outcome
+from ._gateway_runtime_test_utils import make_config, run_in_thread
 
 
 class _CrashingIMManager:
@@ -112,7 +57,7 @@ def test_watchdog_rebuilds_im_loop_after_abnormal_exit(tmp_path: Path) -> None:
     (issue path 6 / 'silent death'). Verified by run_forever being entered 3 times
     (2 crashes + 1 stable) and a clean exit 0."""
     events: list[str] = []
-    config = _make_config(tmp_path)
+    config = make_config(tmp_path)
     manager = _CrashingIMManager(events, crash_times=2)
     runtime = GatewayRuntime(
         config,
@@ -122,7 +67,7 @@ def test_watchdog_rebuilds_im_loop_after_abnormal_exit(tmp_path: Path) -> None:
         im_watchdog_max_seconds=0.02,
     )
 
-    thread, outcome = _run_in_thread(runtime)
+    thread, outcome = run_in_thread(runtime)
     try:
         assert runtime.wait_until_ready(timeout=2.0) is True
         # Wait for the stable (3rd) entry: 2 crashes rebuilt + 1 that blocks.
@@ -156,7 +101,7 @@ def test_watchdog_does_not_swallow_process_exit_signals(
         async def run_forever(self) -> None:
             raise SystemExit(2)
 
-    runtime = GatewayRuntime(_make_config(tmp_path), None)
+    runtime = GatewayRuntime(make_config(tmp_path), None)
 
     async def _unexpected_rebuild_sleep(_delay: float) -> None:
         raise AssertionError("SystemExit must not enter watchdog rebuild backoff")
@@ -192,7 +137,7 @@ def test_watchdog_resets_backoff_after_stable_runtime(tmp_path: Path) -> None:
             self._runtime.request_shutdown()
 
     runtime = GatewayRuntime(
-        _make_config(tmp_path),
+        make_config(tmp_path),
         None,
         im_watchdog_initial_seconds=0.04,
         im_watchdog_max_seconds=0.10,
@@ -227,7 +172,7 @@ def test_watchdog_treats_manager_stop_return_as_clean_exit(
             self.calls += 1
             self._stop_requested = True
 
-    runtime = GatewayRuntime(_make_config(tmp_path), None)
+    runtime = GatewayRuntime(make_config(tmp_path), None)
     manager = _CleanStoppedIMManager()
 
     async def _unexpected_rebuild_sleep(_delay: float) -> None:
@@ -260,7 +205,7 @@ def test_watchdog_backoff_sleep_is_interrupted_by_shutdown(tmp_path: Path) -> No
 
     async def _exercise() -> None:
         runtime = GatewayRuntime(
-            _make_config(tmp_path),
+            make_config(tmp_path),
             None,
             im_watchdog_initial_seconds=5.0,
             im_watchdog_max_seconds=5.0,
@@ -309,7 +254,7 @@ def test_watchdog_backoff_does_not_consume_executor_threads(
 
     async def _exercise() -> None:
         runtime = GatewayRuntime(
-            _make_config(tmp_path),
+            make_config(tmp_path),
             None,
             im_watchdog_initial_seconds=0.01,
             im_watchdog_max_seconds=0.01,
@@ -320,213 +265,11 @@ def test_watchdog_backoff_does_not_consume_executor_threads(
 
         started_at = time.monotonic()
         await asyncio.wait_for(
-            runtime._supervise_im_connection(manager),
-            timeout=0.25,  # noqa: SLF001
+            runtime._supervise_im_connection(manager),  # noqa: SLF001
+            timeout=0.25,
         )
         assert time.monotonic() - started_at < 0.25
         assert manager.calls >= 2
 
     asyncio.run(_exercise())
     assert to_thread_calls == 0
-
-
-def test_gateway_survives_unreachable_im_at_startup(tmp_path: Path) -> None:
-    """Startup-order-insensitive (decision 3): with the eager connect_once gone, a real
-    IMConnectionManager whose connect always fails must NOT crash the gateway. The
-    gateway reaches ready and shuts down cleanly with exit 0 (it keeps retrying in the
-    background). This inverts the old fail-fast contract."""
-    events: list[str] = []
-    config = _make_config(tmp_path)
-    relay_adapter = WebRelayAdapter()
-    relay_adapter.start(lambda _message: None)
-
-    async def _connect(url: str, headers: dict[str, str]):  # noqa: ARG001
-        raise RuntimeError("offline")
-
-    manager = IMConnectionManager(
-        config=IMConnectionConfig(
-            url="http://im.local:9000",
-            reconnect_initial_seconds=0.01,
-            reconnect_max_seconds=0.02,
-        ),
-        reporter=_minimal_reporter(tmp_path),
-        relay_adapter=relay_adapter,
-        connect=_connect,
-    )
-    runtime = GatewayRuntime(config, None, im_connection_manager=manager)
-
-    thread, outcome = _run_in_thread(runtime)
-    try:
-        assert runtime.wait_until_ready(timeout=2.0) is True
-        # Give the background loop time to fail several connects without crashing.
-        time.sleep(0.2)
-        assert thread.is_alive() is True
-        assert "error" not in outcome
-    finally:
-        runtime.request_shutdown()
-        thread.join(timeout=5.0)
-
-    assert outcome.get("exit_code") == 0, (
-        f"gateway must survive unreachable IM at startup; outcome={outcome}, events={events}"
-    )
-
-
-class _GateFakeIM:
-    """run_forever resolves the first-connect signal only after a delay; the heartbeat
-    startup must wait for that resolution before its first tick (feat-393 guard)."""
-
-    def __init__(self, events: list[str]) -> None:
-        self._events = events
-        self._closed = asyncio.Event()
-        self._resolved = asyncio.Event()
-        self.connected = False
-
-    async def connect_once(self) -> None:  # old-code compat (eager connect path)
-        self._events.append("im.connect.eager")
-
-    async def run_forever(self) -> None:
-        await asyncio.sleep(0.05)
-        self.connected = True
-        self._events.append("im.connect.resolved")
-        self._resolved.set()
-        await self._closed.wait()
-
-    async def wait_first_connect_attempt(self, *, timeout: float = 10.0) -> None:
-        try:
-            await asyncio.wait_for(self._resolved.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
-            return
-
-    async def close(self) -> None:
-        self._events.append("im.close")
-        self._closed.set()
-
-
-class _RecordingHeartbeatRunner:
-    def __init__(self, events: list[str]) -> None:
-        self._events = events
-
-    async def start(self) -> None:
-        self._events.append("heartbeat.start")
-
-    async def close(self) -> None:
-        self._events.append("heartbeat.close")
-
-
-def test_heartbeat_start_waits_for_first_connect_attempt(tmp_path: Path) -> None:
-    """feat-393 guard: heartbeat startup must wait until the first connect attempt has
-    resolved, so the first tick never fires before the handshake. Verified by ordering:
-    im.connect.resolved precedes heartbeat.start."""
-    events: list[str] = []
-    config = _make_config(tmp_path)
-    manager = _GateFakeIM(events)
-    heartbeat = _RecordingHeartbeatRunner(events)
-    runtime = GatewayRuntime(
-        config,
-        None,
-        im_connection_manager=manager,
-        heartbeat_runner=heartbeat,
-    )
-
-    thread, outcome = _run_in_thread(runtime)
-    try:
-        deadline = time.time() + 3.0
-        while "heartbeat.start" not in events and time.time() < deadline:
-            time.sleep(0.01)
-        assert "heartbeat.start" in events, f"heartbeat never started; events={events}"
-        assert "im.connect.resolved" in events
-        assert events.index("im.connect.resolved") < events.index("heartbeat.start"), (
-            f"heartbeat must start only after the first connect attempt resolved; "
-            f"events={events}"
-        )
-    finally:
-        runtime.request_shutdown()
-        thread.join(timeout=5.0)
-
-    assert outcome.get("exit_code") == 0
-
-
-def test_shutdown_cleanup_continues_when_im_task_await_raises_base_exception(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A CancelledError/BaseException from IM task cleanup must not skip later
-    shutdown steps such as stopping the kernel process and resource closers."""
-
-    from personal_assistant import main as gateway_main
-
-    events: list[str] = []
-
-    class _FakeProcessManager:
-        def start_kernel_process(self) -> None:
-            events.append("kernel.start")
-
-        def stop_kernel_process(self) -> None:
-            events.append("kernel.stop")
-
-    async def _raise_cancelled(_task: asyncio.Task[None]) -> None:
-        events.append("await.im_task")
-        raise asyncio.CancelledError()
-
-    monkeypatch.setattr(gateway_main, "_await_background_task", _raise_cancelled)
-
-    config = _make_config(tmp_path)
-    manager = _GateFakeIM(events)
-    runtime = GatewayRuntime(
-        config,
-        _FakeProcessManager(),
-        im_connection_manager=manager,
-        resource_closers=(lambda: events.append("resource.close"),),
-    )
-
-    thread, outcome = _run_in_thread(runtime)
-    try:
-        assert runtime.wait_until_ready(timeout=2.0) is True
-    finally:
-        runtime.request_shutdown()
-        thread.join(timeout=5.0)
-
-    assert outcome.get("exit_code") == 0
-    assert "error" not in outcome
-    assert "kernel.stop" in events
-    assert "resource.close" in events
-
-
-def test_shutdown_cleanup_continues_when_im_close_raises(tmp_path: Path) -> None:
-    """An IM close failure must not skip process stop, resource closers, or exit 0."""
-
-    events: list[str] = []
-
-    class _CloseRaisesIM(_GateFakeIM):
-        async def close(self) -> None:
-            events.append("im.close")
-            self._closed.set()
-            raise RuntimeError("close failed")
-
-    class _FakeProcessManager:
-        def start_kernel_process(self) -> None:
-            events.append("kernel.start")
-
-        def stop_kernel_process(self) -> None:
-            events.append("kernel.stop")
-
-    config = _make_config(tmp_path)
-    manager = _CloseRaisesIM(events)
-    runtime = GatewayRuntime(
-        config,
-        _FakeProcessManager(),
-        im_connection_manager=manager,
-        resource_closers=(lambda: events.append("resource.close"),),
-    )
-
-    thread, outcome = _run_in_thread(runtime)
-    try:
-        assert runtime.wait_until_ready(timeout=2.0) is True
-    finally:
-        runtime.request_shutdown()
-        thread.join(timeout=5.0)
-
-    assert outcome.get("exit_code") == 0
-    assert "error" not in outcome
-    assert "im.close" in events
-    assert "kernel.stop" in events
-    assert "resource.close" in events
