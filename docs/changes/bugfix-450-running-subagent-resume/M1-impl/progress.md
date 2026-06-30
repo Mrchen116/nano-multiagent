@@ -65,5 +65,5 @@
     - `test_auto_background_handle_rejects_message_when_stop_linearizes_during_enqueue` 与 `test_explicit_background_handle_rejects_message_when_stop_linearizes_during_enqueue` 覆盖两个 handle 不再因非原子 guard 误 accepted。
   - Visual/Interaction: N/A。
 - Rollback: 回退 code commit `0b3e56c2` 会恢复 r1 的非原子 handle guard。
-- Commits: fix=`0b3e56c2`
-- Next: 已准备 rebase/merge 到 `unit/bugfix-450`。
+- Commits: fix=`0b3e56c2`, docs=`13b98e6b`, merge=`e10a477d`
+- Next: 已合入并 push 到 `unit/bugfix-450`。
