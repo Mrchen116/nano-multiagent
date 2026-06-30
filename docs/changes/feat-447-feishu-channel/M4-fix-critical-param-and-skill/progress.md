@@ -19,16 +19,16 @@ verifier 报告 CRITICAL issue: `main.py:2904-2910` 构造 `FeishuAdapter` 时�
 - _build_channel_registry 签名改了但调用点没改 = 函数级修复了但启动路径仍断，必须两边都修
 
 ### Evidence
-- Tests: 48 passed (test_feishu_integration.py 7 + test_feishu_adapter.py 13 + test_feishu_client.py 17 + test_feishu_config.py 11)
-- Entry: PYTHONPATH=src python -c 验证 `_build_channel_registry` 不再抛 TypeError
+- Tests: 22 passed (test_feishu_integration.py 9 + test_feishu_adapter.py 13); full suite 3166 passed, 1 skipped
+- Entry: bootstrap 路径验证——GroupContextStore 统一创建一次，_build_channel_registry 和 InboundPipeline 复用同一实例，文件名统一为 group_context_buffer.sqlite3
 - Frontend State Matrix: N/A
 - Browser QA: N/A
 - E2E/Regression: N/A
 - Visual/Interaction: N/A
 
-### Rollback: git revert 908dbc02
+### Rollback: git revert cfd43d47
 
-### Commits: C1=29dd732b, C2=29dd732b(同一commit, test+fix 因改动小合并), 追加fix=908dbc02
+### Commits: C1=29dd732b, C2=29dd732b(同一commit, test+fix 因改动小合并), 追加fix1=908dbc02, 追加fix2=cfd43d47
 
 ### Next: R2 — 修复 WARNING: skill 缺 mkdir/move 命令
 
