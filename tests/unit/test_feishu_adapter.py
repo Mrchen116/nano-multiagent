@@ -287,3 +287,63 @@ class TestFeishuAdapterSend:
         adapter.start(MagicMock())
         adapter.stop()
         mock_fc.stop.assert_called_once()
+
+
+class TestFeishuAdapterErrorNotification:
+    """Verify adapter.send catches feishu errors and logs structured context."""
+
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_send_auth_error_logs_and_reraises(
+        self, mock_fc_cls: MagicMock
+    ) -> None:
+        """FeishuAuthError should be logged with structured context and re-raised."""
+        from personal_assistant.channels.feishu_client import FeishuAuthError
+
+        mock_fc = MagicMock()
+        mock_fc.send_message.side_effect = FeishuAuthError(
+            "auth expired", code=401
+        )
+        mock_fc_cls.return_value = mock_fc
+
+        adapter = FeishuAdapter(
+            app_id="cli_a", app_secret="s", agent_id="plato",
+            group_context_store=MagicMock(spec=GroupContextStore),
+        )
+        adapter.start(MagicMock())
+
+        outbound = OutboundMessage(
+            channel_name="feishu:plato",
+            text="reply",
+            target_chat_id="feishu:cli_a:group:oc_chat123",
+            metadata={},
+        )
+        with pytest.raises(FeishuAuthError):
+            adapter.send(outbound)
+
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_send_api_error_logs_and_reraises(
+        self, mock_fc_cls: MagicMock
+    ) -> None:
+        """FeishuAPIError should be logged with structured context and re-raised."""
+        from personal_assistant.channels.feishu_client import FeishuAPIError
+
+        mock_fc = MagicMock()
+        mock_fc.send_message.side_effect = FeishuAPIError(
+            "server error", code=500
+        )
+        mock_fc_cls.return_value = mock_fc
+
+        adapter = FeishuAdapter(
+            app_id="cli_a", app_secret="s", agent_id="plato",
+            group_context_store=MagicMock(spec=GroupContextStore),
+        )
+        adapter.start(MagicMock())
+
+        outbound = OutboundMessage(
+            channel_name="feishu:plato",
+            text="reply",
+            target_chat_id="feishu:cli_a:group:oc_chat123",
+            metadata={},
+        )
+        with pytest.raises(FeishuAPIError):
+            adapter.send(outbound)

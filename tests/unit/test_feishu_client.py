@@ -173,3 +173,140 @@ class TestFeishuClientSendMessage:
             receive_id_type="chat_id",
         )
         mock_rest.im.v1.message.create.assert_called_once()
+
+
+class TestFeishuClientErrorClassification:
+    """Verify send_message classifies feishu API errors correctly."""
+
+    def _make_started_client(
+        self, mock_rest: MagicMock
+    ) -> FeishuClient:
+        """Create a FeishuClient with mocked REST client (bypasses WSClient)."""
+        client = FeishuClient(app_id="cli_abc", app_secret="secret")
+        # Inject mocked REST client directly — no WSClient needed for send tests
+        client._rest_client = mock_rest
+        return client
+
+    def _mock_response(
+        self, *, success: bool, code: int, msg: str = ""
+    ) -> MagicMock:
+        """Build a mock lark-oapi API response."""
+        resp = MagicMock()
+        resp.success.return_value = success
+        resp.code = code
+        resp.msg = msg
+        return resp
+
+    @patch("time.sleep")
+    def test_rate_limit_retries_with_exponential_backoff(
+        self, mock_sleep: MagicMock
+    ) -> None:
+        """429 (rate limit) should retry up to 3 times with exponential backoff."""
+        from personal_assistant.channels.feishu_client import FeishuAPIError
+
+        mock_rest = MagicMock()
+        # First 2 calls return 429, 3rd succeeds
+        rate_limit_resp = self._mock_response(success=False, code=429, msg="rate limit")
+        ok_resp = self._mock_response(success=True, code=0)
+        mock_rest.im.v1.message.create.side_effect = [
+            rate_limit_resp, rate_limit_resp, ok_resp
+        ]
+
+        client = self._make_started_client(mock_rest)
+        # Should succeed after retries — no exception
+        client.send_message(receive_id="oc_chat123", text="hello")
+
+        assert mock_rest.im.v1.message.create.call_count == 3
+        assert mock_sleep.call_count == 2  # 2 sleeps between 3 attempts
+
+    @patch("time.sleep")
+    def test_rate_limit_exhausted_raises_feishu_api_error(
+        self, mock_sleep: MagicMock
+    ) -> None:
+        """429 after max retries should raise FeishuAPIError."""
+        from personal_assistant.channels.feishu_client import FeishuAPIError
+
+        mock_rest = MagicMock()
+        rate_limit_resp = self._mock_response(success=False, code=429, msg="rate limit")
+        mock_rest.im.v1.message.create.return_value = rate_limit_resp
+
+        client = self._make_started_client(mock_rest)
+        with pytest.raises(FeishuAPIError) as exc_info:
+            client.send_message(receive_id="oc_chat123", text="hello")
+
+        assert mock_rest.im.v1.message.create.call_count == 3  # max retries
+        assert "429" in str(exc_info.value)
+
+    def test_auth_error_raises_feishu_auth_error(self) -> None:
+        """401/403 should raise FeishuAuthError (no retry)."""
+        from personal_assistant.channels.feishu_client import FeishuAuthError
+
+        for code in (401, 403):
+            mock_rest = MagicMock()
+            auth_resp = self._mock_response(success=False, code=code, msg="auth error")
+            mock_rest.im.v1.message.create.return_value = auth_resp
+
+            client = self._make_started_client(mock_rest)
+            with pytest.raises(FeishuAuthError) as exc_info:
+                client.send_message(receive_id="oc_chat123", text="hello")
+
+            assert mock_rest.im.v1.message.create.call_count == 1  # no retry
+            assert str(code) in str(exc_info.value)
+
+    @patch("time.sleep")
+    def test_server_error_retries_once(
+        self, mock_sleep: MagicMock
+    ) -> None:
+        """5xx should retry exactly once, then raise FeishuAPIError if still failing."""
+        from personal_assistant.channels.feishu_client import FeishuAPIError
+
+        mock_rest = MagicMock()
+        server_resp = self._mock_response(success=False, code=500, msg="internal error")
+        mock_rest.im.v1.message.create.return_value = server_resp
+
+        client = self._make_started_client(mock_rest)
+        with pytest.raises(FeishuAPIError):
+            client.send_message(receive_id="oc_chat123", text="hello")
+
+        assert mock_rest.im.v1.message.create.call_count == 2  # 1 attempt + 1 retry
+
+    @patch("time.sleep")
+    def test_server_error_retry_succeeds(
+        self, mock_sleep: MagicMock
+    ) -> None:
+        """5xx first call fails, retry succeeds → no exception."""
+        mock_rest = MagicMock()
+        server_resp = self._mock_response(success=False, code=502, msg="bad gateway")
+        ok_resp = self._mock_response(success=True, code=0)
+        mock_rest.im.v1.message.create.side_effect = [server_resp, ok_resp]
+
+        client = self._make_started_client(mock_rest)
+        client.send_message(receive_id="oc_chat123", text="hello")
+
+        assert mock_rest.im.v1.message.create.call_count == 2
+
+    def test_unknown_error_raises_feishu_api_error(self) -> None:
+        """Non-retryable unknown errors should raise FeishuAPIError immediately."""
+        from personal_assistant.channels.feishu_client import FeishuAPIError
+
+        mock_rest = MagicMock()
+        err_resp = self._mock_response(success=False, code=99999, msg="unknown")
+        mock_rest.im.v1.message.create.return_value = err_resp
+
+        client = self._make_started_client(mock_rest)
+        with pytest.raises(FeishuAPIError) as exc_info:
+            client.send_message(receive_id="oc_chat123", text="hello")
+
+        assert mock_rest.im.v1.message.create.call_count == 1  # no retry
+        assert "99999" in str(exc_info.value)
+
+    def test_success_returns_without_error(self) -> None:
+        """200/success response should not raise."""
+        mock_rest = MagicMock()
+        ok_resp = self._mock_response(success=True, code=0)
+        mock_rest.im.v1.message.create.return_value = ok_resp
+
+        client = self._make_started_client(mock_rest)
+        client.send_message(receive_id="oc_chat123", text="hello")
+
+        mock_rest.im.v1.message.create.assert_called_once()
