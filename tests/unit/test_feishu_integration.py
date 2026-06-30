@@ -180,10 +180,9 @@ class TestBuildChannelRegistryFeishuRealAdapter:
             assert isinstance(adapter, FeishuAdapter)
             assert adapter.name == "feishu:plato"
 
-    def test_build_channel_registry_without_group_context_store_fails(self) -> None:
+    def test_build_channel_registry_without_group_context_store_raises(self) -> None:
         """_build_channel_registry with feishu channel but no group_context_store
-        creates FeishuAdapter with _group_ctx=None, which would crash at runtime
-        when processing group messages (append/drain). This is the CRITICAL bug."""
+        must raise ValueError immediately rather than creating a broken adapter."""
         channels = (
             ChannelConfig(
                 name="feishu:plato-bot",
@@ -196,10 +195,8 @@ class TestBuildChannelRegistryFeishuRealAdapter:
                 },
             ),
         )
-        registry = _build_channel_registry(channels)
-        adapter = registry.list()[0]
-        # This is the bug: _group_ctx is None, causing AttributeError at runtime
-        assert adapter._group_ctx is None
+        with pytest.raises(ValueError, match="group_context_store"):
+            _build_channel_registry(channels)
 
     def test_bootstrap_path_creates_and_passes_group_context_store(self) -> None:
         """Simulate bootstrap path: create GroupContextStore, pass to _build_channel_registry."""

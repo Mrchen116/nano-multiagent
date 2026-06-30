@@ -271,6 +271,34 @@ class TestFeishuClientErrorClassification:
         assert mock_rest.im.v1.message.create.call_count == 2  # 1 attempt + 1 retry
 
     @patch("time.sleep")
+    def test_rate_limit_then_server_error_retries_independently(
+        self, mock_sleep: MagicMock
+    ) -> None:
+        """429 retries and 5xx retries must use independent counters.
+
+        A 429 that exhausts its retry budget must NOT consume the 5xx retry budget.
+        """
+        from personal_assistant.channels.feishu_client import FeishuAPIError
+
+        mock_rest = MagicMock()
+        # 429 → 429 → 429 (exhausted) → 500 (should still get 1 retry)
+        rate_limit_resp = self._mock_response(success=False, code=429, msg="rate limit")
+        server_err_resp = self._mock_response(success=False, code=500, msg="server error")
+        ok_resp = self._mock_response(success=True, code=0)
+        mock_rest.im.v1.message.create.side_effect = [
+            rate_limit_resp, rate_limit_resp, rate_limit_resp,
+            server_err_resp, ok_resp,
+        ]
+
+        client = self._make_started_client(mock_rest)
+        # Should succeed after 429 exhausts + 5xx retries once
+        client.send_message(receive_id="oc_chat123", text="hello")
+
+        # 3 rate-limit attempts + 2 server-error attempts (1 fail + 1 retry succeed)
+        assert mock_rest.im.v1.message.create.call_count == 5
+        assert mock_sleep.call_count == 4  # 2 sleeps for 429 + 1 for 5xx
+
+    @patch("time.sleep")
     def test_server_error_retry_succeeds(
         self, mock_sleep: MagicMock
     ) -> None:

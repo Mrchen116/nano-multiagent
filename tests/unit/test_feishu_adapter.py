@@ -277,6 +277,52 @@ class TestFeishuAdapterSend:
         assert call_kwargs["text"] == "reply from bot"
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_send_dm_uses_open_id(self, mock_fc_cls: MagicMock) -> None:
+        """DM replies must use receive_id_type='open_id' (user open_id)."""
+        mock_fc = MagicMock()
+        mock_fc_cls.return_value = mock_fc
+        adapter = FeishuAdapter(
+            app_id="cli_a", app_secret="s", agent_id="plato",
+            group_context_store=MagicMock(spec=GroupContextStore),
+        )
+        adapter.start(MagicMock())
+
+        outbound = OutboundMessage(
+            channel_name="feishu:plato",
+            text="dm reply",
+            target_chat_id="feishu:cli_a:dm:ou_user1",
+            metadata={},
+        )
+        adapter.send(outbound)
+
+        call_kwargs = mock_fc.send_message.call_args[1]
+        assert call_kwargs["receive_id"] == "ou_user1"
+        assert call_kwargs["receive_id_type"] == "open_id"
+
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_send_group_uses_chat_id(self, mock_fc_cls: MagicMock) -> None:
+        """Group replies must use receive_id_type='chat_id'."""
+        mock_fc = MagicMock()
+        mock_fc_cls.return_value = mock_fc
+        adapter = FeishuAdapter(
+            app_id="cli_a", app_secret="s", agent_id="plato",
+            group_context_store=MagicMock(spec=GroupContextStore),
+        )
+        adapter.start(MagicMock())
+
+        outbound = OutboundMessage(
+            channel_name="feishu:plato",
+            text="group reply",
+            target_chat_id="feishu:cli_a:group:oc_grp1",
+            metadata={},
+        )
+        adapter.send(outbound)
+
+        call_kwargs = mock_fc.send_message.call_args[1]
+        assert call_kwargs["receive_id"] == "oc_grp1"
+        assert call_kwargs["receive_id_type"] == "chat_id"
+
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
     def test_stop_stops_client(self, mock_fc_cls: MagicMock) -> None:
         mock_fc = MagicMock()
         mock_fc_cls.return_value = mock_fc
