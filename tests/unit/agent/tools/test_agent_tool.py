@@ -556,7 +556,9 @@ def test_auto_background_handle_rejects_message_when_stop_linearizes_during_enqu
 # ------------------------------------------------------------------
 
 
-def test_explicit_background_stopped_agent_rejects_follow_up_without_false_queued() -> None:
+def test_explicit_background_stopped_agent_rejects_follow_up_without_false_queued() -> (
+    None
+):
     from agent.platform.background_tasks.runtime_runner import _ControllerHandle
 
     tool = _make_tool()

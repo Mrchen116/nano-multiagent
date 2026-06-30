@@ -68,14 +68,10 @@ class _GatedFollowUpLLM:
         self.first_request_started = threading.Event()
         self.release_first_request = threading.Event()
 
-    def generate(
-        self, request: LLMGenerateRequest
-    ) -> AsyncIterator[LLMMessage]:
+    def generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         return self._generate(request)
 
-    async def _generate(
-        self, request: LLMGenerateRequest
-    ) -> AsyncIterator[LLMMessage]:
+    async def _generate(self, request: LLMGenerateRequest) -> AsyncIterator[LLMMessage]:
         import asyncio
 
         self.requests.append(request)
@@ -88,9 +84,7 @@ class _GatedFollowUpLLM:
             return
 
         user_messages = [
-            message.content
-            for message in request.messages
-            if message.role == "user"
+            message.content for message in request.messages if message.role == "user"
         ]
         marker = "Also check the tests."
         if marker not in user_messages:
