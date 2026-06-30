@@ -2893,6 +2893,13 @@ def _build_channel_registry(
     dedup_db_path: Path | None = None,
     group_context_store: GroupContextStore | None = None,
 ) -> ChannelRegistry:
+    has_feishu = any(
+        ch.enabled and ch.name.startswith("feishu:") for ch in channels
+    )
+    if has_feishu and group_context_store is None:
+        raise ValueError(
+            "group_context_store is required when feishu channels are enabled"
+        )
     registry = ChannelRegistry()
     for channel in channels:
         if not channel.enabled:

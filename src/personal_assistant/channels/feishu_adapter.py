@@ -94,11 +94,18 @@ class FeishuAdapter:
         # Format: "feishu:<app_id>:dm:<user_open_id>" or "feishu:<app_id>:group:<chat_id>"
         receive_id = _extract_chat_id(outbound.target_chat_id)
 
+        # Determine receive_id_type based on chat type encoded in external_chat_id
+        # Format: "feishu:<app_id>:dm:<user_open_id>" → "open_id" (DM)
+        # Format: "feishu:<app_id>:group:<chat_id>" → "chat_id" (group)
+        receive_id_type = (
+            "open_id" if ":dm:" in outbound.target_chat_id else "chat_id"
+        )
+
         try:
             self._client.send_message(
                 receive_id=receive_id,
                 text=outbound.text,
-                receive_id_type="chat_id",
+                receive_id_type=receive_id_type,
             )
         except FeishuAuthError:
             logger.error(
