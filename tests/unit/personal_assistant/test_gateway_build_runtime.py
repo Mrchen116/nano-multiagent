@@ -6,9 +6,17 @@ from pathlib import Path
 
 import pytest
 
-from personal_assistant.config.local_store import AgentWorkspaceConfig
+from personal_assistant.config.local_store import (
+    AgentWorkspaceConfig,
+    ChannelConfig,
+    HeartbeatConfig,
+    IMServiceConfig,
+    KernelConfig,
+    LocalConfig,
+    NodeConfig,
+)
 from personal_assistant.gateway.session_keys import PersistentSessionBindingStore
-from personal_assistant.main import build_runtime
+from personal_assistant.main import GatewayStartupError, build_runtime
 
 from ._main_helpers import make_minimal_config
 
@@ -270,3 +278,115 @@ async def test_make_token_getter_returns_static_token_when_no_refresh_or_credent
     result = await token_getter()
 
     assert result == "static-token"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_on_connect_continues_after_binding_failure_and_reports_degraded(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Binding failure during on_connected must not skip agent reconcile, and IM should
+    receive a degraded heartbeat when the connected websocket can still send."""
+
+    from personal_assistant import main as gateway_main
+
+    workspace = tmp_path / "agent-a"
+    workspace.mkdir()
+    config = LocalConfig(
+        node=NodeConfig(node_id="node-local"),
+        agents=(AgentWorkspaceConfig(agent_id="agent-a", workspace_root=workspace),),
+        channels=(ChannelConfig(name="web_relay", enabled=True),),
+        kernel=KernelConfig(),
+        heartbeat=HeartbeatConfig(),
+        im_service=IMServiceConfig(url="http://im.local:9000", token="tok"),
+        llm=_DEFAULT_TEST_LLM,
+        source_path=tmp_path / "config.yaml",
+    )
+
+    reconcile_calls: list[dict[str, int]] = []
+
+    class _FailingBootstrap:
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def close(self) -> None:
+            return None
+
+        def ensure_node_binding(self, *, node_id: str) -> str | None:
+            raise GatewayStartupError(
+                summary=f"binding failed for {node_id}",
+                next_step="Open the bind URL and confirm this node.",
+            )
+
+    class _RecordingSyncClient:
+        on_agent_created = None
+
+        def __init__(self, **_kwargs: object) -> None:
+            pass
+
+        def close(self) -> None:
+            return None
+
+        def sync_agent(self, agent_id: str) -> None:  # noqa: ARG002
+            return None
+
+        def update_token(self, token: str) -> None:  # noqa: ARG002
+            return None
+
+        def current_agent_payload(self, *, agent_id: str) -> None:  # noqa: ARG002
+            return None
+
+        def handle_agent_create(self, payload: object) -> object:
+            return payload
+
+        def reconcile_all_agents(
+            self, *, memory_versions: dict[str, int] | None = None
+        ) -> None:
+            reconcile_calls.append(dict(memory_versions or {}))
+
+    class _RecordingManager:
+        connected = True
+
+        def __init__(self) -> None:
+            self.sent: list[tuple[str, dict[str, object]]] = []
+
+        async def send_json(
+            self, message_type: str, payload: dict[str, object]
+        ) -> None:
+            self.sent.append((message_type, dict(payload)))
+
+        async def close(self) -> None:
+            return None
+
+    captured: dict[str, object] = {}
+    manager = _RecordingManager()
+
+    def _fake_build_im_connection_manager(**kwargs: object) -> object:
+        captured.update(kwargs)
+        return manager
+
+    monkeypatch.setattr(gateway_main, "_IMBootstrapClient", _FailingBootstrap)
+    monkeypatch.setattr(gateway_main, "_IMConfigSyncClient", _RecordingSyncClient)
+    monkeypatch.setattr(
+        gateway_main, "_build_im_connection_manager", _fake_build_im_connection_manager
+    )
+
+    build_runtime(config)
+    on_connected = captured["on_connected"]
+
+    await on_connected()
+
+    assert reconcile_calls == [{}]
+    assert manager.sent == [
+        (
+            "node.heartbeat",
+            {
+                "node_id": "node-local",
+                "status": "degraded",
+                "agent_count": 1,
+                "last_error": (
+                    "binding failed for node-local; next step: Open the bind URL and "
+                    "confirm this node."
+                ),
+            },
+        )
+    ]

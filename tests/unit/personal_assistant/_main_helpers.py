@@ -140,6 +140,9 @@ class _FakeIMManager:
     async def run_forever(self) -> None:
         await self._closed.wait()
 
+    async def wait_first_connect_attempt(self, *, timeout: float = 10.0) -> None:
+        return
+
     async def close(self) -> None:
         self._events.append("im.close")
         self.connected = False

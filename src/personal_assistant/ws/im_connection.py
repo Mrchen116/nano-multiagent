@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -18,6 +19,8 @@ from personal_assistant.defaults import (
     WORKSPACE_CONFIG_DIRNAME as _PA_WORKSPACE_CFG_DIR,
 )
 from personal_assistant.reporter.upstream_reporter import UpstreamReporter
+
+_log = logging.getLogger("personal_assistant.ws.im_connection")
 
 
 @dataclass(slots=True)
@@ -232,6 +235,14 @@ class IMConnectionManager:
         self._awaiting_ack_type: str | None = None
         self._flush_lock = asyncio.Lock()
         self._heartbeat_task: asyncio.Task[None] | None = None
+        self._stop_event: asyncio.Event | None = None
+        # bugfix-446-M1 (decision 3 guard): set after the first connect attempt resolves
+        # (success OR failure). Heartbeat startup waits on this so the first tick never
+        # fires before the initial handshake has had a chance to complete — without it,
+        # removing the eager connect_once would regress feat-393 (the delivery observer
+        # silently drops while not connected).  Lazily created so it binds to the loop
+        # that actually runs run_forever.
+        self._first_connect_resolved: asyncio.Event | None = None
 
     @property
     def connected(self) -> bool:
@@ -285,13 +296,16 @@ class IMConnectionManager:
         """Stop reconnect attempts and close the current websocket if present."""
 
         self._stop_requested = True
+        stop_event = self._stop_event
+        if stop_event is not None:
+            stop_event.set()
+        heartbeat_task = self._heartbeat_task
         self._stop_heartbeat_loop()
         websocket = self._websocket
         self._websocket = None
         self._connected = False
         if websocket is not None:
             await websocket.close()
-        heartbeat_task = self._heartbeat_task
         if heartbeat_task is not None and heartbeat_task is not asyncio.current_task():
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
@@ -326,22 +340,92 @@ class IMConnectionManager:
         ack_payload = await self.send_json_await_ack("agent.message", payload)
         return IMDispatchAck.from_payload(ack_payload)
 
-    async def run_forever(self) -> None:
-        """Maintain the IM websocket until ``close`` is requested."""
+    def _first_attempt_event(self) -> asyncio.Event:
+        # Lazily created so it binds to whichever loop runs run_forever / the waiter.
+        if self._first_connect_resolved is None:
+            self._first_connect_resolved = asyncio.Event()
+        return self._first_connect_resolved
 
+    def _stop_wait_event(self) -> asyncio.Event:
+        if self._stop_event is None:
+            self._stop_event = asyncio.Event()
+        if self._stop_requested:
+            self._stop_event.set()
+        return self._stop_event
+
+    async def wait_first_connect_attempt(self, *, timeout: float = 10.0) -> None:
+        """Block until the first connect attempt has resolved (success or failure).
+
+        Heartbeat startup waits on this so the first tick never fires before the
+        initial handshake has had a chance to complete (bugfix-446-M1 decision 3
+        guard). Bounded by ``timeout`` so a hung connect never blocks startup
+        forever; on timeout it returns rather than raising — the caller then
+        proceeds and heartbeat delivery simply observes the not-connected state,
+        which is correct when IM is genuinely unreachable.
+        """
+
+        event = self._first_attempt_event()
+        try:
+            await asyncio.wait_for(event.wait(), timeout=timeout)
+        except asyncio.TimeoutError:
+            _log.warning(
+                "first IM connect attempt did not resolve within %.2fs; continuing startup",
+                timeout,
+            )
+            return
+
+    async def run_forever(self) -> None:
+        """Maintain the IM websocket until ``close`` is requested.
+
+        Exception boundary (bugfix-446-M1 decision 2):
+        - ``CancelledError`` runs disconnect cleanup then re-raises, honoring task
+          cancellation (issue path 5: the old ``except Exception`` skipped cleanup).
+        - ``Exception`` is a transient fault: clean up and retry with exponential
+          backoff.
+        - Any other ``BaseException`` propagates to the outer watchdog (main.py
+          supervisor), which rebuilds this loop — strong-swallowing
+          KeyboardInterrupt/SystemExit here would break process shutdown.
+        """
+
+        first_attempt = self._first_attempt_event()
         while not self._stop_requested:
             try:
                 if not self._connected:
                     await self.connect_once()
+                    first_attempt.set()
                 await self._listen_once()
+            except asyncio.CancelledError:
+                first_attempt.set()
+                await self._disconnect_current_websocket()
+                raise
             except Exception as exc:  # noqa: BLE001
-                self._mark_disconnected(exc)
+                first_attempt.set()
+                await self._disconnect_current_websocket(exc)
                 if self._stop_requested:
                     break
-                await self._sleep(self._reconnect_delay)
+                if await self._sleep_until_stop(self._reconnect_delay):
+                    break
                 self._reconnect_delay = min(
                     self._reconnect_delay * 2, self._config.reconnect_max_seconds
                 )
+            finally:
+                first_attempt.set()
+
+    async def _sleep_until_stop(self, delay: float) -> bool:
+        if self._stop_requested:
+            return True
+        sleep_task = asyncio.create_task(self._sleep(delay))
+        stop_task = asyncio.create_task(self._stop_wait_event().wait())
+        done, pending = await asyncio.wait(
+            {sleep_task, stop_task}, return_when=asyncio.FIRST_COMPLETED
+        )
+        for task in pending:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
+        if sleep_task in done:
+            await sleep_task
+        return self._stop_requested or stop_task in done
 
     async def _listen_once(self) -> None:
         websocket = self._require_websocket()
@@ -752,8 +836,10 @@ class IMConnectionManager:
         if websocket is not None:
             try:
                 await websocket.close()
-            except Exception:  # noqa: BLE001
-                return
+            except Exception as close_exc:  # noqa: BLE001
+                _log.warning(
+                    "failed to close IM websocket during disconnect: %s", close_exc
+                )
         if heartbeat_task is not None and heartbeat_task is not asyncio.current_task():
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
@@ -816,9 +902,13 @@ class IMConnectionManager:
             and pending_frame.ack_future is not None
             and not pending_frame.ack_future.done()
         ):
-            pending_frame.ack_future.set_exception(
-                RuntimeError("IM websocket disconnected before ack")
-            )
+            # bugfix-446-M1 decision 6 (pure defense): guard the TOCTOU where the future
+            # is resolved between the done() check and set_exception. The single event
+            # loop makes this practically unreachable, but the suppress is zero-cost.
+            with contextlib.suppress(asyncio.InvalidStateError):
+                pending_frame.ack_future.set_exception(
+                    RuntimeError("IM websocket disconnected before ack")
+                )
         if had_connection:
             event: dict[str, object] = {"event": "disconnected"}
             if exc is not None:

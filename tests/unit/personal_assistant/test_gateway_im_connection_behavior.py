@@ -263,6 +263,46 @@ def test_im_connection_sends_periodic_node_heartbeats_while_connected(
     assert heartbeat_payload["agent_count"] == 1
 
 
+def test_im_connection_close_awaits_active_heartbeat_task(tmp_path: Path) -> None:
+    """close() must wait for the heartbeat task cancellation cleanup before returning."""
+
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(  # noqa: ARG005
+            _FakeWebSocket(), [], url, headers
+        ),
+    )
+
+    async def _exercise() -> None:
+        heartbeat_cancelled = asyncio.Event()
+
+        async def _heartbeat() -> None:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0)
+                heartbeat_cancelled.set()
+
+        manager._heartbeat_task = asyncio.create_task(_heartbeat())  # noqa: SLF001
+        await asyncio.sleep(0)
+
+        await manager.close()
+
+        assert heartbeat_cancelled.is_set()
+        assert manager._heartbeat_task is None  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+
 def test_im_connection_retries_buffered_frame_after_reconnect(tmp_path: Path) -> None:
     reporter = UpstreamReporter(
         node=NodeConfig(node_id="node-1"),
@@ -541,6 +581,56 @@ def test_im_connection_send_agent_message_fails_when_socket_drops_before_ack(
             await task
         assert len(manager._pending_frames) == 1  # noqa: SLF001
         assert manager._pending_frames[0].message_type == "agent.message"  # noqa: SLF001
+
+    asyncio.run(_exercise())
+
+
+def test_disconnect_current_websocket_awaits_heartbeat_when_socket_close_raises(
+    tmp_path: Path,
+) -> None:
+    """A websocket close failure must not skip heartbeat task cancellation cleanup."""
+
+    class _CloseRaisesWebSocket:
+        async def close(self) -> None:
+            raise RuntimeError("close failed")
+
+    reporter = UpstreamReporter(
+        node=NodeConfig(node_id="node-1"),
+        agents=_agents(tmp_path),
+        send_frame=lambda _message_type, _payload: None,
+    )
+    relay_adapter = WebRelayAdapter()
+    relay_adapter.start(lambda _message: None)
+    manager = IMConnectionManager(
+        config=IMConnectionConfig(url="http://im.local:9000"),
+        reporter=reporter,
+        relay_adapter=relay_adapter,
+        connect=lambda url, headers: _connect_fake(  # noqa: ARG005
+            _FakeWebSocket(), [], url, headers
+        ),
+    )
+
+    async def _exercise() -> None:
+        heartbeat_cancelled = asyncio.Event()
+
+        async def _heartbeat() -> None:
+            try:
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0)
+                heartbeat_cancelled.set()
+
+        manager._websocket = _CloseRaisesWebSocket()  # noqa: SLF001
+        manager._connected = True  # noqa: SLF001
+        manager._heartbeat_task = asyncio.create_task(_heartbeat())  # noqa: SLF001
+        await asyncio.sleep(0)
+
+        await manager._disconnect_current_websocket(  # noqa: SLF001
+            RuntimeError("socket dropped")
+        )
+
+        assert heartbeat_cancelled.is_set()
+        assert manager.connected is False
 
     asyncio.run(_exercise())
 
