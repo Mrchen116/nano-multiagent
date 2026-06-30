@@ -891,6 +891,11 @@ def _parse_channels(payload: Any) -> tuple[ChannelConfig, ...]:
         # feat-447: feishu channel uses accounts sub-list, each account becomes
         # a separate ChannelConfig named "feishu:<account_name>".
         if name == "feishu" and "accounts" in item:
+            enabled = item.get("enabled", True)
+            if not isinstance(enabled, bool):
+                raise ValueError(f"channels[{index}].enabled must be a bool")
+            if not enabled:
+                continue
             channels.extend(
                 _parse_feishu_accounts(item["accounts"], prefix=f"channels[{index}]")
             )
@@ -956,6 +961,9 @@ def _parse_feishu_accounts(
             "appSecret": app_secret,
             "agentId": agent_id,
         }
+        bot_open_id = account.get("botOpenId")
+        if bot_open_id is not None:
+            settings["botOpenId"] = bot_open_id
         result.append(
             ChannelConfig(
                 name=f"feishu:{acct_name}",

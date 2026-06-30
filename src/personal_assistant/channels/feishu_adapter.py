@@ -174,7 +174,8 @@ class FeishuAdapter:
 
     def _deliver_group_with_context(self, event: FeishuMessageEvent) -> None:
         """Flush buffered context and deliver a group @Bot message."""
-        buf_key = _group_buf_key(self._app_id, self._agent_id, event.chat_id)
+        external_chat_id = f"feishu:{self._app_id}:group:{event.chat_id}"
+        buf_key = _group_buf_key(self._agent_id, self.name, external_chat_id)
         buffered = self._group_ctx.drain(buf_key)
 
         # Prepend buffered context as "[sender] text" lines
@@ -208,7 +209,8 @@ class FeishuAdapter:
 
     def _buffer_group_message(self, event: FeishuMessageEvent) -> None:
         """Push a non-@Bot group message into the context buffer."""
-        buf_key = _group_buf_key(self._app_id, self._agent_id, event.chat_id)
+        external_chat_id = f"feishu:{self._app_id}:group:{event.chat_id}"
+        buf_key = _group_buf_key(self._agent_id, self.name, external_chat_id)
         self._group_ctx.append(buf_key, event.text, sender=event.sender_open_id)
         logger.debug(
             "buffered group message for %s: %s", buf_key, event.text[:50]
@@ -238,9 +240,13 @@ def _is_bot_mentioned(
     return any(m.open_id == bot_open_id for m in mentions)
 
 
-def _group_buf_key(app_id: str, agent_id: str, chat_id: str) -> str:
-    """Build the GroupContextStore buffer key for a feishu group chat."""
-    return f"feishu:{app_id}:{chat_id}:{agent_id}"
+def _group_buf_key(agent_id: str, channel_name: str, external_chat_id: str) -> str:
+    """Build the GroupContextStore buffer key for a feishu group chat.
+
+    Format aligns with InboundPipeline._group_buf_key_for_agent:
+    ``{agent_id}:{channel_name}:{external_chat_id}``
+    """
+    return f"{agent_id}:{channel_name}:{external_chat_id}"
 
 
 def _extract_chat_id(external_chat_id: str) -> str:
