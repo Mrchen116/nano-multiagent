@@ -54,9 +54,59 @@ class _RuntimeStub(_RuntimeStubBase):
         )
 
 
-def test_message_queued_for_running_agent(tmp_path: Path) -> None:
-    """Sending a prompt to a running agent queues it instead of launching a second run."""
-    runtime = _RuntimeStub(tmp_path, delay=2.0)
+class _RuntimeConsumesPendingStub(_RuntimeStubBase):
+    def __init__(self, tmp_path: Path) -> None:
+        super().__init__(tmp_path)
+        self.run_parts: list[Any] = []
+        self.consumed_follow_ups: list[str] = []
+
+    async def run(
+        self,
+        session_id: str,
+        parts: Any,
+        *,
+        stream: bool = False,
+        controller: Any = None,
+        parent_session_id: str | None = None,
+        workspace_root: Any = None,
+        run_id: str | None = None,
+        llm_session_id: str | None = None,
+        model: str | None = None,
+    ) -> TurnResult:
+        import asyncio
+
+        self.run_parts.append(parts)
+        follow_up = None
+        for _ in range(100):
+            if controller is not None:
+                pending = controller.drain_pending()
+                if pending:
+                    follow_up = pending[0].message.content
+                    break
+            await asyncio.sleep(0.01)
+        if follow_up is None:
+            follow_up = "missing follow-up"
+        self.consumed_follow_ups.append(follow_up)
+        return TurnResult(
+            session_id=session_id,
+            turn_id="turn_1",
+            messages=(
+                Message(
+                    message_id="msg_1",
+                    role="assistant",
+                    content=f"subagent consumed: {follow_up}",
+                ),
+            ),
+            completed=True,
+            stop_reason="completed",
+        )
+
+
+def test_running_agent_follow_up_enters_live_runtime_controller(
+    tmp_path: Path,
+) -> None:
+    """Running follow-up is consumed by the original subagent runtime, not registry-only."""
+    runtime = _RuntimeConsumesPendingStub(tmp_path)
     wiring = wire_background_tasks(workspace_root=tmp_path, runtime=runtime)
     tool = AgentTool(runtime=runtime, wiring=wiring)
     ctx = _make_ctx(tmp_path, session_id="sess_parent")
@@ -86,9 +136,18 @@ def test_message_queued_for_running_agent(tmp_path: Path) -> None:
     assert follow_up["status"] == "message_queued"
     assert follow_up["agent_id"] == agent_id
 
-    # Pending messages should be in registry.
-    pending = wiring.registry.drain_agent_messages(agent_id)
-    assert pending == ("Also check the tests.",)
+    for _ in range(50):
+        record = wiring.registry.get(agent_id)
+        if record is not None and record.status == BackgroundTaskStatus.COMPLETED:
+            break
+        time.sleep(0.05)
+
+    record = wiring.registry.get(agent_id)
+    assert record is not None
+    assert record.status == BackgroundTaskStatus.COMPLETED
+    assert record.result_text == "subagent consumed: Also check the tests."
+    assert runtime.consumed_follow_ups == ["Also check the tests."]
+    assert len(runtime.run_parts) == 1, "follow-up must not launch a second run"
 
 
 def test_jsonl_rehydrate_continues_agent_after_registry_loss(tmp_path: Path) -> None:

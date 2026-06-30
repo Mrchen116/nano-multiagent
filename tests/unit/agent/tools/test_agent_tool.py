@@ -389,7 +389,7 @@ def test_foreground_auto_background_watcher_completes_registry() -> None:
 # ------------------------------------------------------------------
 
 
-def test_continuation_to_running_agent_queues_message() -> None:
+def test_continuation_to_running_agent_without_live_delivery_fails() -> None:
     tool = _make_tool()
     registry = tool._wiring.registry
 
@@ -409,19 +409,17 @@ def test_continuation_to_running_agent_queues_message() -> None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         ctx = _make_ctx(tmpdir)
-        result = tool.run(
-            {
-                "agent_id": agent_id,
-                "prompt": "follow up",
-                "load_skills": [],
-                "description": "existing",
-            },
-            ctx,
-        )
-        assert result["status"] == "message_queued"
-        assert result["agent_id"] == agent_id
-        messages = registry.drain_agent_messages(agent_id)
-        assert messages == ("follow up",)
+        with pytest.raises(ToolError) as exc_info:
+            tool.run(
+                {
+                    "agent_id": agent_id,
+                    "prompt": "follow up",
+                    "load_skills": [],
+                    "description": "existing",
+                },
+                ctx,
+            )
+        assert exc_info.value.details == {"code": "agent_message_not_deliverable"}
 
 
 # ------------------------------------------------------------------
