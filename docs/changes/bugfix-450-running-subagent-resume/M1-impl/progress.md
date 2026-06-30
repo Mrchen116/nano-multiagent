@@ -17,5 +17,5 @@
   - Visual/Interaction: N/A。
 - Debugging notes: 临时 live-critical 验收第一次失败于 `model registry not initialized`，根因为脚本直接构造 `AgentRuntime` 而没有 pytest `conftest.py` / `build_kernel` 初始化全局 model registry；补充同测试配置等价的最小 `init_model_registry()` 后同一路径通过。
 - Rollback: 回退 C2 `94cb83fa` 会恢复旧假 queued 行为；C1 `df52bc01` 保留复现红测。
-- Commits: C1=`df52bc01`, C2=`94cb83fa`, C3=`<pending>`
-- Next: 本 milestone 已完成，进入 C3 文档提交、push、rebase + unit branch merge。
+- Commits: C1=`df52bc01`, C2=`94cb83fa`, C3=`0e820df9`
+- Next: 本 milestone 已完成，已合入并 push 到 `unit/bugfix-450`。
