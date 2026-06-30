@@ -179,6 +179,60 @@ class TestBuildChannelRegistryFeishuRealAdapter:
             assert isinstance(adapter, FeishuAdapter)
             assert adapter.name == "feishu:plato"
 
+    def test_build_channel_registry_without_group_context_store_fails(self) -> None:
+        """_build_channel_registry with feishu channel but no group_context_store
+        creates FeishuAdapter with _group_ctx=None, which would crash at runtime
+        when processing group messages (append/drain). This is the CRITICAL bug."""
+        channels = (
+            ChannelConfig(
+                name="feishu:plato-bot",
+                enabled=True,
+                settings={
+                    "name": "plato-bot",
+                    "appId": "cli_a",
+                    "appSecret": "s_a",
+                    "agentId": "plato",
+                },
+            ),
+        )
+        registry = _build_channel_registry(channels)
+        adapter = registry.list()[0]
+        # This is the bug: _group_ctx is None, causing AttributeError at runtime
+        assert adapter._group_ctx is None
+
+    def test_bootstrap_path_creates_and_passes_group_context_store(self) -> None:
+        """Simulate bootstrap path: create GroupContextStore, pass to _build_channel_registry."""
+        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.gateway.group_context_store import GroupContextStore
+
+        with TemporaryDirectory() as tmpdir:
+            runtime_dir = Path(tmpdir)
+            db_path = runtime_dir / "group_context_buffer.sqlite3"
+            group_ctx = GroupContextStore(db_path=db_path)
+
+            channels = (
+                ChannelConfig(
+                    name="feishu:plato-bot",
+                    enabled=True,
+                    settings={
+                        "name": "plato-bot",
+                        "appId": "cli_a",
+                        "appSecret": "s_a",
+                        "agentId": "plato",
+                    },
+                ),
+            )
+            # This is the bootstrap path: create GroupContextStore then pass it
+            registry = _build_channel_registry(
+                channels, group_context_store=group_ctx
+            )
+            adapter = registry.list()[0]
+            assert isinstance(adapter, FeishuAdapter)
+            assert adapter.name == "feishu:plato"
+            # Verify _group_ctx is not None (would be if not passed)
+            assert adapter._group_ctx is not None
+            assert adapter._group_ctx is group_ctx
+
     def test_build_channel_registry_passes_bot_open_id(self) -> None:
         """_build_channel_registry passes bot_open_id from settings when present."""
         from personal_assistant.channels.feishu_adapter import FeishuAdapter
