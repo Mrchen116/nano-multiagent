@@ -1663,7 +1663,10 @@ class GatewayRuntime:
                         "cron dispatcher drain_all() raised during shutdown: %s", exc
                     )
             if self._im_connection_manager is not None:
-                await self._im_connection_manager.close()
+                try:
+                    await self._im_connection_manager.close()
+                except Exception as exc:  # noqa: BLE001
+                    _log.warning("IM connection close raised during shutdown: %s", exc)
             if im_task is not None:
                 # issue path 3: cleanup must never be torn apart by a stored task
                 # exception. _await_background_task already absorbs cancellation; wrap the
@@ -2471,6 +2474,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                 else:
                     summary = f"node {config.node.node_id} binding failed: {exc}"
                     next_step = None
+                heartbeat_last_error = (
+                    f"{summary}; next step: {next_step}" if next_step else summary
+                )
                 _log.warning("IM node binding failed during reconnect: %s", summary)
                 _emit_gateway_feedback("ERROR", summary, next_step)
                 if im_connection_manager is not None:
@@ -2478,7 +2484,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
                         await im_connection_manager.send_json(
                             "node.heartbeat",
                             reporter.send_heartbeat(
-                                status="degraded", last_error=summary
+                                status="degraded", last_error=heartbeat_last_error
                             ),
                         )
                     except Exception as heartbeat_exc:  # noqa: BLE001

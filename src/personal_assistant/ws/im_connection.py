@@ -299,13 +299,13 @@ class IMConnectionManager:
         stop_event = self._stop_event
         if stop_event is not None:
             stop_event.set()
+        heartbeat_task = self._heartbeat_task
         self._stop_heartbeat_loop()
         websocket = self._websocket
         self._websocket = None
         self._connected = False
         if websocket is not None:
             await websocket.close()
-        heartbeat_task = self._heartbeat_task
         if heartbeat_task is not None and heartbeat_task is not asyncio.current_task():
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task
@@ -836,8 +836,10 @@ class IMConnectionManager:
         if websocket is not None:
             try:
                 await websocket.close()
-            except Exception:  # noqa: BLE001
-                return
+            except Exception as close_exc:  # noqa: BLE001
+                _log.warning(
+                    "failed to close IM websocket during disconnect: %s", close_exc
+                )
         if heartbeat_task is not None and heartbeat_task is not asyncio.current_task():
             with contextlib.suppress(asyncio.CancelledError):
                 await heartbeat_task

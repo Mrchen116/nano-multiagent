@@ -163,7 +163,7 @@ if command -v yq >/dev/null 2>&1; then
     .node.node_id = \"$NODE_ID\" |
     .node.workspace_base = \"$WORKSPACE_DIR\" |
     .im_service.url = \"http://127.0.0.1:$IM_PORT\" |
-    .agents[].workspace_root = \"$WORKSPACE_DIR/\" + .agents[].agent_id
+    .agents |= map(.workspace_root = \"$WORKSPACE_DIR/\" + .agent_id)
   " "$WT_CFG"
 else
   WT_CFG_PY="$WT_CFG" NODE_ID="$NODE_ID" IM_PORT="$IM_PORT" WORKSPACE_DIR="$WORKSPACE_DIR" \

@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
@@ -57,11 +58,15 @@ def _run_resilience_script(
     try:
         stdout, stderr = process.communicate(timeout=timeout)
     except subprocess.TimeoutExpired as exc:
-        os.killpg(process.pid, signal.SIGTERM)
+        with suppress(ProcessLookupError):
+            os.killpg(process.pid, signal.SIGTERM)
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
+            pass
+        with suppress(ProcessLookupError):
             os.killpg(process.pid, signal.SIGKILL)
+        with suppress(subprocess.TimeoutExpired):
             process.wait()
         stdout = exc.output or ""
         stderr = exc.stderr or ""
