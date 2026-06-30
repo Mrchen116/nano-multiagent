@@ -194,3 +194,45 @@
 - Commits: C1=e413aeed, C2=2d03780f, C3=(this docs commit)
 - Next: rebase on `origin/unit/bugfix-446`, merge into unit worktree, push
   `unit/bugfix-446`, then clean fix worktree/branch.
+
+## Round 3 fix — final code-review cleanup fast lane
+
+- Context: final code review found six focused cleanup issues in the resilience
+  hardening: yq config mutation cross-paired agent workspace roots; heartbeat
+  cancellation handles were cleared before await; shutdown cleanup could be
+  skipped if IM close raised; websocket close failure skipped heartbeat await;
+  e2e timeout cleanup only killed bash when bash exited quickly; degraded
+  heartbeat `last_error` dropped `GatewayStartupError.next_step`.
+- Decision:
+  - yq path now mutates `.agents` with `map(...)`, matching the Python fallback
+    per-agent behavior.
+  - `IMConnectionManager.close()` captures the active heartbeat task before
+    cancelling/clearing it; `_disconnect_current_websocket()` logs websocket
+    close failure but still awaits the captured heartbeat task.
+  - `GatewayRuntime._run_until_shutdown()` wraps IM connection close failure so
+    process manager stop, resource closers, and shutdown state reset still run.
+  - The e2e pytest wrapper sends SIGTERM, waits briefly, then always attempts
+    process-group SIGKILL as a cleanup backstop.
+  - Degraded binding heartbeat `last_error` includes the actionable next step
+    when the failure is a `GatewayStartupError`.
+- Rationale: all changes are same-scope cleanup for bugfix-446's user-visible
+  guarantee: transient IM failures and shutdown cleanup failures must not leave
+  the Gateway half-dead or make operator feedback less actionable.
+- Evidence:
+  - Red tests: C1 added focused regression coverage for all six review findings
+    in existing nearest test files.
+  - Tests: `pytest tests/unit/personal_assistant/test_gateway_im_resilience_e2e_wrapper.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py::test_im_connection_close_awaits_active_heartbeat_task tests/unit/personal_assistant/test_gateway_im_connection_behavior.py::test_disconnect_current_websocket_awaits_heartbeat_when_socket_close_raises tests/unit/personal_assistant/test_gateway_runtime_watchdog.py::test_shutdown_cleanup_continues_when_im_close_raises tests/unit/personal_assistant/test_gateway_build_runtime.py::test_reconcile_on_connect_continues_after_binding_failure_and_reports_degraded tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py -q`
+    → `7 passed, 1 skipped`.
+  - Tests: `pytest tests/unit/personal_assistant/test_gateway_runtime_watchdog.py tests/unit/personal_assistant/test_gateway_im_resilience.py tests/unit/personal_assistant/test_gateway_im_connection_behavior.py tests/unit/personal_assistant/test_gateway_im_resilience_e2e_wrapper.py tests/unit/personal_assistant/test_gateway_build_runtime.py tests/e2e/critical_paths/test_gateway_im_resilience_critical_path.py -q`
+    → `51 passed, 1 skipped`.
+  - Lint/format: `ruff check ...` → pass; `ruff format --check ...` →
+    `7 files already formatted`; `bash -n scripts/e2e-resilience.sh` → pass.
+  - Entry / E2E: `PATH=/Users/czj/Repos/nano-multiagent/.venv/bin:$PATH bash scripts/e2e-resilience.sh`
+    → `✓ A1 initial node online` / `✓ A2 node auto back online after IM restart (no gateway restart)` /
+    `✓ B1 gateway survived startup with IM down` / `✓ B2 node online after IM comes up` /
+    `RESILIENCE E2E PASS`.
+  - Frontend State Matrix / Browser QA / Visual: N/A（本轮不改前端）。
+- Rollback: revert commits `6d2c5ea7` + `b1a26214` + this docs commit.
+- Commits: C1=6d2c5ea7, C2=b1a26214, C3=(this docs commit)
+- Next: rebase on `origin/unit/bugfix-446`, merge into unit worktree, push
+  `unit/bugfix-446`, then clean fix worktree/branch.
