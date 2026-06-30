@@ -8,16 +8,16 @@
 
 ## 退出标准
 
-- [ ] running subagent follow-up 不再假成功：主 agent 发送 follow-up 后，原 subagent 后续能实际响应或在可读输出中体现收到 follow-up。
-- [ ] live delivery 不可用时，主 agent 不看到“已成功排队”，也不会静默开第二个 subagent。
-- [ ] terminal subagent resume 与 `output_file` 读取体验不退化。
-- [ ] explicit background 和 foreground auto-background 两条 running subagent 路径都注册 live message handle。
-- [ ] `_ControllerStopper` 改造/重命名为 `_ControllerHandle`，同一对象实现 stop 与 send_message，registry 不暴露裸 `RunController`。
-- [ ] `_message_handles` 受 registry `_lock` 保护，terminal transitions 清理 message handle，并顺手清理 stop handle。
-- [ ] `set_stop_handle` 参数注解改为 `BackgroundTaskStopper` Protocol，不继续依赖 concrete `_StopHandle`。
-- [ ] running follow-up 测试验证 `RunController` / runtime 消费链路，而不是直接 `drain_agent_messages()`。
-- [ ] 最窄测试通过：`pytest -xvs tests/unit/agent/tools/test_agent_tool.py tests/integration/background_tasks/test_agent_continuation.py`。
-- [ ] 相关后台任务回归通过：`pytest -xvs tests/integration/background_tasks/test_agent_background.py tests/integration/background_tasks/test_auto_background.py tests/unit/agent/tools/test_task_stop_tool.py`。
+- [x] running subagent follow-up 不再假成功：主 agent 发送 follow-up 后，原 subagent 后续能实际响应或在可读输出中体现收到 follow-up。
+- [x] live delivery 不可用时，主 agent 不看到“已成功排队”，也不会静默开第二个 subagent。
+- [x] terminal subagent resume 与 `output_file` 读取体验不退化。
+- [x] explicit background 和 foreground auto-background 两条 running subagent 路径都注册 live message handle。
+- [x] `_ControllerStopper` 改造/重命名为 `_ControllerHandle`，同一对象实现 stop 与 send_message，registry 不暴露裸 `RunController`。
+- [x] `_message_handles` 受 registry `_lock` 保护，terminal transitions 清理 message handle，并顺手清理 stop handle。
+- [x] `set_stop_handle` 参数注解改为 `BackgroundTaskStopper` Protocol，不继续依赖 concrete `_StopHandle`。
+- [x] running follow-up 测试验证 `RunController` / runtime 消费链路，而不是直接 `drain_agent_messages()`。
+- [x] 最窄测试通过：`pytest -xvs tests/unit/agent/tools/test_agent_tool.py tests/integration/background_tasks/test_agent_continuation.py`。
+- [x] 相关后台任务回归通过：`pytest -xvs tests/integration/background_tasks/test_agent_background.py tests/integration/background_tasks/test_auto_background.py tests/unit/agent/tools/test_task_stop_tool.py`。
 
 ## 测试策略
 
@@ -35,7 +35,7 @@ N/A，本 milestone 不改前端 UI。
 
 ### R1 — live subagent follow-up delivery
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - C1: 更新任务计划；把旧 registry pending-list 测试改为 live controller/runtime 消费链路红测，并补 live delivery 不可用的显式失败红测。
   - C2: 增加 `BackgroundSubagentMessageHandle` 协议、registry live message handle、runner `_ControllerHandle`、AgentTool continuation 投递语义，并覆盖 explicit background 与 foreground auto-background 注册。
