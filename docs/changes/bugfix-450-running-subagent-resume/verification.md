@@ -122,3 +122,70 @@ All checks passed. Ready for PR.
 - `pytest -xvs tests/integration/background_tasks/test_agent_background.py tests/integration/background_tasks/test_auto_background.py tests/unit/agent/tools/test_task_stop_tool.py` -> 12 passed.
 - `pytest -xvs tests/integration/background_tasks` -> 19 passed.
 - `git diff --check d92218e7..HEAD` -> clean.
+
+# Round 3
+
+## Summary
+
+| 维度 | 结果 |
+|---|---|
+| Completeness | 10/10 tasks complete; round 3 r2 linearization fix verified |
+| Correctness | 5/5 scenarios covered; 0 warnings |
+| Coherence | Followed |
+
+All checks passed. Ready for PR.
+
+## Scope
+
+本轮复验 fast-lane r2 的 `RunController` enqueue/stop linearization 修复，重点核对：
+
+- `stop()` / abort / cancel / terminal 与 running follow-up enqueue 是否在同一控制面语义中线性化。
+- `task_stop` 或 stop 已线性化后，`Agent(agent_id, prompt=...)` 不再返回 false `message_queued`。
+- r1/r2 修复未破坏 running follow-up、terminal resume、`output_file`、`task_stop`、后台完成通知和架构边界。
+
+## Completeness
+
+- Tasks: 10/10 complete in `docs/changes/bugfix-450-running-subagent-resume/M1-impl/tasks.md`.
+- Round 3 focus covered. `RunController.abort()` and `cancel()` now acquire the same `_terminal_lock` used by `enqueue_message()` (`src/agent/core/agent/run_control.py:61`, `src/agent/core/agent/run_control.py:66`, `src/agent/core/agent/run_control.py:79`), so message acceptance is decided after checking terminal/aborted/cancelled state inside the same critical section.
+- The two subagent delivery handles no longer carry stale non-atomic prechecks; both delegate acceptance to `RunController.enqueue_message()` (`src/agent/platform/background_tasks/runtime_runner.py:170`, `src/agent/platform/tools/builtins/agent.py:864`).
+
+## Correctness
+
+| Requirement / Scenario | 实现位置 | 测试覆盖 | 状态 |
+|---|---|---|---|
+| running subagent follow-up 真实投递 | `AgentTool` returns `message_queued` only after `registry.send_agent_message()` accepts (`src/agent/platform/tools/builtins/agent.py:467`); `registry.send_agent_message()` requires a running subagent record and live handle (`src/agent/core/background_tasks/registry.py:266`) | `tests/integration/background_tasks/test_agent_continuation.py:107` asserts the follow-up appears in the second real LLM request for the same subagent run | covered |
+| follow-up 在安全点处理 | `RunController.enqueue_message()` queues accepted messages for round-boundary injection (`src/agent/core/agent/run_control.py:79`); terminal-window handling remains guarded by `_terminal_lock` in `try_commit_terminal()` (`src/agent/core/agent/run_control.py:103`) | `tests/integration/background_tasks/test_agent_continuation.py:161` asserts no second concurrent subagent run and the second request user messages are original prompt + follow-up | covered |
+| stop/abort/cancel already linearized rejects follow-up, no false queued | `RunController.enqueue_message()` rejects when `_terminal_committed`, `abort_event`, or `cancel_event` is set under `_terminal_lock` (`src/agent/core/agent/run_control.py:93`); `AgentTool` raises `agent_message_not_deliverable` when accepted is false and record remains running (`src/agent/platform/tools/builtins/agent.py:491`) | `tests/unit/agent/runs/test_run_control_terminal_commit.py:67`, `tests/unit/agent/runs/test_run_control_terminal_commit.py:79`, `tests/unit/agent/tools/test_agent_tool.py:537`, `tests/unit/agent/tools/test_agent_tool.py:597` | covered |
+| allowed opposite ordering remains explicit | If enqueue linearizes before abort, the message remains pending; this is intentionally fixed as the opposite ordering, not a false queued-after-stop case | `tests/unit/agent/runs/test_run_control_terminal_commit.py:91` | covered |
+| terminal resume / output_file / task_stop not regressed | Terminal in-memory and JSONL resume paths still call `_resume_subagent()` with the same `agent_id` and `output_file` (`src/agent/platform/tools/builtins/agent.py:499`, `src/agent/platform/tools/builtins/agent.py:512`); `task_stop` still routes subagent stop through `registry.request_stop()` and lets worker unwind own terminal (`src/agent/platform/tools/builtins/task_stop.py:134`) | `tests/unit/agent/tools/test_agent_tool.py:614`; `tests/integration/background_tasks/test_agent_continuation.py:170`; `tests/integration/background_tasks/test_task_stop.py:105`; `tests/integration/background_tasks/test_task_stop.py:179` | covered |
+
+## Coherence
+
+| design / architecture decision | 遵守? | 代码证据 |
+|---|---|---|
+| live follow-up acceptance has one source of truth in `RunController` | 是 | r2 removes duplicated handle guards and delegates to controller enqueue (`src/agent/platform/background_tasks/runtime_runner.py:170`, `src/agent/platform/tools/builtins/agent.py:864`) |
+| stop/cancel/terminal and enqueue are linearizable in one control plane | 是 | abort/cancel/enqueue/terminal commit share `_terminal_lock` (`src/agent/core/agent/run_control.py:61`, `src/agent/core/agent/run_control.py:66`, `src/agent/core/agent/run_control.py:93`, `src/agent/core/agent/run_control.py:117`) |
+| live delivery unavailable fails explicitly, no second concurrent subagent | 是 | running continuation raises `agent_message_not_deliverable` rather than calling `_resume_subagent()` while record is still running (`src/agent/platform/tools/builtins/agent.py:475`, `src/agent/platform/tools/builtins/agent.py:491`) |
+| terminal transitions clean and reject stale handles | 是 | setters reject missing/terminal records (`src/agent/core/background_tasks/registry.py:219`, `src/agent/core/background_tasks/registry.py:253`), terminal transitions clear handles (`src/agent/core/background_tasks/registry.py:145`, `src/agent/core/background_tasks/registry.py:161`, `src/agent/core/background_tasks/registry.py:191`) |
+| 不破坏架构边界 | 是 | 变更保持在 `agent.core` / `agent.platform` / tests；contract tests for product/core import boundaries pass |
+
+## Issues
+
+### CRITICAL
+
+- None.
+
+### WARNING
+
+- None.
+
+### SUGGESTION
+
+- None.
+
+## Verification Commands
+
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -xvs tests/unit/agent/runs/test_run_control_terminal_commit.py tests/unit/agent/tools/test_agent_tool.py` -> 43 passed.
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -xvs tests/integration/background_tasks/test_agent_continuation.py tests/integration/background_tasks/test_agent_background.py tests/integration/background_tasks/test_auto_background.py tests/unit/agent/tools/test_task_stop_tool.py tests/integration/background_tasks/test_task_stop.py` -> 20 passed.
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -q tests/contract/test_cli_http_only_contract.py tests/contract/test_core_no_platform_imports.py` -> 9 passed.
+- `git diff --check 1f489de2..HEAD` -> clean.
