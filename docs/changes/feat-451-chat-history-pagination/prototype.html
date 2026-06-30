@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>feat-451 原型：聊天页分页与微体验</title>
+  <style>
+    :root {
+      --im-bg: oklch(0.98 0.005 240);
+      --im-surface: oklch(1 0 0);
+      --im-surface-2: oklch(0.965 0.006 240);
+      --im-accent: oklch(0.52 0.14 180);
+      --im-accent-fg: oklch(0.99 0 0);
+      --im-text: oklch(0.21 0.012 240);
+      --im-text-muted: oklch(0.5 0.012 240);
+      --im-border: oklch(0.9 0.008 240);
+      --im-danger: oklch(0.58 0.18 25);
+      --im-font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: var(--im-font-sans);
+      background: var(--im-bg);
+      color: var(--im-text);
+      height: 100vh;
+      display: flex;
+      overflow: hidden;
+    }
+    .sidebar {
+      width: 260px;
+      border-right: 1px solid var(--im-border);
+      background: var(--im-surface);
+      display: flex;
+      flex-direction: column;
+      padding: 1rem;
+      flex-shrink: 0;
+    }
+    .sidebar h3 { margin: 0 0 0.75rem; font-size: 1rem; }
+    .conv-item {
+      padding: 0.6rem 0.75rem;
+      border-radius: 0.5rem;
+      background: var(--im-surface-2);
+      margin-bottom: 0.5rem;
+      cursor: pointer;
+      font-size: 0.9rem;
+    }
+    .conv-item.active { outline: 2px solid var(--im-accent); }
+    .pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      background: oklch(0.93 0.007 240);
+    }
+    .header {
+      padding: 11px 20px;
+      background: oklch(0.96 0.005 240);
+      border-bottom: 1px solid var(--im-border);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .header h2 { margin: 0; font-size: 14.5px; }
+    .header button {
+      background: transparent; border: 0; font-size: 1.2rem; color: var(--im-text-muted); cursor: pointer;
+    }
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 20px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .history-status {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 0.75rem 0;
+      color: var(--im-text-muted);
+      font-size: 0.8rem;
+    }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid var(--im-border);
+      border-top-color: var(--im-accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .bubble-wrap {
+      display: flex;
+      flex-direction: row;
+      gap: 10px;
+      max-width: 72%;
+      align-self: flex-start;
+    }
+    .bubble-wrap.user { align-self: flex-end; flex-direction: row-reverse; }
+    .avatar {
+      width: 30px; height: 30px; border-radius: 50%;
+      display: inline-flex; align-items: center; justify-content: center;
+      color: #fff; font-size: 12px; font-weight: 600;
+      flex-shrink: 0;
+    }
+    .bubble {
+      padding: 9px 13px;
+      border-radius: 1rem;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      position: relative;
+      user-select: text;
+      cursor: context-menu;
+    }
+    .bubble.user {
+      background: var(--im-accent);
+      color: var(--im-accent-fg);
+      border-radius: 1rem 1rem 0.25rem 1rem;
+    }
+    .bubble.agent {
+      background: oklch(0.91 0.007 240);
+      border-radius: 1rem 1rem 1rem 0.25rem;
+    }
+    .bubble small {
+      display: block;
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--im-text-muted);
+    }
+    .composer {
+      padding: 0.6rem 0.75rem;
+      background: oklch(0.96 0.005 240);
+      border-top: 1px solid var(--im-border);
+      display: flex;
+      align-items: flex-end;
+      gap: 0.4rem;
+      flex-shrink: 0;
+    }
+    .composer textarea {
+      flex: 1;
+      border: 1px solid var(--im-border);
+      border-radius: 0.6rem;
+      background: var(--im-surface-2);
+      padding: 0.5rem 0.75rem;
+      font: inherit;
+      font-size: 0.9rem;
+      color: var(--im-text);
+      resize: none;
+      min-height: 2.5rem;
+      max-height: 8.5rem;
+      overflow-y: auto;
+      line-height: 1.4;
+    }
+    .composer button {
+      width: 38px; height: 38px;
+      border: 0; border-radius: 0.6rem;
+      background: var(--im-accent); color: var(--im-accent-fg);
+      cursor: pointer; flex-shrink: 0;
+    }
+    .context-menu {
+      position: absolute;
+      background: var(--im-surface);
+      border: 1px solid var(--im-border);
+      border-radius: 0.5rem;
+      box-shadow: 0 12px 40px oklch(0.1 0.01 240 / 0.22);
+      min-width: 140px;
+      z-index: 100;
+      display: none;
+      overflow: hidden;
+    }
+    .context-menu.visible { display: block; }
+    .context-menu button {
+      display: block; width: 100%;
+      padding: 0.6rem 0.9rem; border: 0;
+      background: transparent; text-align: left;
+      cursor: pointer; font: inherit;
+      color: var(--im-text);
+    }
+    .context-menu button:hover { background: var(--im-surface-2); }
+    .toast {
+      position: fixed;
+      left: 16px; top: 16px;
+      background: oklch(0.21 0.012 240); color: #fff;
+      padding: 10px 14px;
+      border-radius: 1rem;
+      font-size: 12px;
+      opacity: 0;
+      transform: translateY(-6px);
+      transition: opacity 0.25s ease, transform 0.25s ease;
+      z-index: 200;
+    }
+    .toast.show { opacity: 1; transform: none; }
+    .demo-controls {
+      position: fixed;
+      right: 16px;
+      bottom: 100px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      z-index: 50;
+    }
+    .demo-controls button {
+      padding: 0.4rem 0.8rem;
+      border: 1px solid var(--im-border);
+      border-radius: 0.5rem;
+      background: var(--im-surface);
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+    @media (max-width: 767px) {
+      .sidebar { display: none; }
+      .demo-controls { bottom: 90px; right: 8px; }
+    }
+  </style>
+</head>
+<body>
+  <aside class="sidebar">
+    <h3>消息</h3>
+    <div class="conv-item active">Planner</div>
+    <div class="conv-item">Sprint Crew</div>
+  </aside>
+
+  <main class="pane">
+    <header class="header">
+      <button>‹</button>
+      <h2>Planner</h2>
+    </header>
+
+    <section class="messages" id="messages">
+      <div class="history-status" id="loading">
+        <span class="spinner"></span>
+        <span>正在加载更早的消息…</span>
+      </div>
+      <div class="history-status" id="no-more" style="display:none">
+        <span>没有更多消息了</span>
+      </div>
+
+      <!-- 种子消息由 JS 生成，确保列表可滚动 -->
+      <div id="seed"></div>
+    </section>
+
+    <form class="composer" id="composerForm">
+      <textarea id="input" rows="1" placeholder="给 Planner 发消息…"></textarea>
+      <button type="submit" aria-label="Send">↑</button>
+    </form>
+  </main>
+
+  <div class="context-menu" id="menu">
+    <button id="copyBtn">复制</button>
+    <button id="forkBtn">fork</button>
+  </div>
+
+  <div class="toast" id="toast">已复制</div>
+
+  <div class="demo-controls">
+    <button id="loadOlder">模拟：加载更早消息</button>
+    <button id="newMsg">模拟：新消息到达</button>
+    <button id="reset">重置</button>
+  </div>
+
+  <script>
+    const messagesEl = document.getElementById('messages');
+    const loadingEl = document.getElementById('loading');
+    const noMoreEl = document.getElementById('no-more');
+    const menu = document.getElementById('menu');
+    const toast = document.getElementById('toast');
+    const input = document.getElementById('input');
+    const form = document.getElementById('composerForm');
+    let loadedCount = 0;
+    let hasMore = true;
+
+    // 生成足够消息让列表可滚动
+    function seedMessages() {
+      const seed = document.getElementById('seed');
+      const texts = [
+        "第 1 轮讨论：先确定分页接口。",
+        "好，我已经在看后端返回的 next_before_message_id。",
+        "那前端用 useInfiniteQuery 还是手动 cursor？",
+        "手动维护更轻， reducer 里加 prepend_history。",
+        "自动滚底策略要改，不能每次 messages 变化都滚。",
+        "对，只在最后一条 id 变化或已在底部时滚。",
+        "移动端 Enter 发送也要修。",
+        "还有 composer 自动增高。",
+        "复制/fork 统一进长按菜单。",
+        "我先把 prototype 跑通。"
+      ];
+      for (let i = 0; i < 25; i++) {
+        const isUser = i % 3 === 1;
+        const wrap = document.createElement('div');
+        wrap.className = `bubble-wrap ${isUser ? 'user' : 'agent'}`;
+        const mm = 8 + Math.floor(i / 6);
+        const ss = (i * 13) % 60;
+        const time = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
+        if (isUser) {
+          wrap.innerHTML = `<div class="bubble user" data-id="seed-${i}">${texts[i % texts.length]}<small>${time}</small></div>`;
+        } else {
+          wrap.innerHTML = `<span class="avatar" style="background:#4f46e5">Pl</span><div class="bubble agent" data-id="seed-${i}">${texts[i % texts.length]}<small>${time}</small></div>`;
+        }
+        seed.appendChild(wrap);
+      }
+      scrollToBottom();
+    }
+
+    // 自动滚底辅助
+    function isNearBottom() {
+      return messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 80;
+    }
+    function scrollToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    // 滚动到顶部触发加载
+    messagesEl.addEventListener('scroll', () => {
+      if (messagesEl.scrollTop < 100 && hasMore && loadingEl.style.display !== 'flex') {
+        loadingEl.style.display = 'flex';
+        setTimeout(() => {
+          loadingEl.style.display = 'none';
+          loadedCount++;
+          if (loadedCount >= 2) {
+            hasMore = false;
+            noMoreEl.style.display = 'flex';
+            return;
+          }
+          const anchor = messagesEl.querySelector('.bubble-wrap');
+          const wrap = document.createElement('div');
+          wrap.className = 'bubble-wrap agent';
+          wrap.innerHTML = `
+            <span class="avatar" style="background:#4f46e5">Pl</span>
+            <div class="bubble agent" data-id="older-${loadedCount}">更早的历史消息 #${loadedCount}（模拟）<small>09:${10 - loadedCount}</small></div>`;
+          messagesEl.insertBefore(wrap, loadingEl.nextSibling);
+          // 保持阅读位置：把刚才的 anchor 重新滚到视口顶部
+          if (anchor) {
+            messagesEl.scrollTop = anchor.offsetTop - 20;
+          }
+        }, 800);
+      }
+    });
+
+    // 长按 / 右键菜单
+    let longPressTimer = null;
+    let activeBubble = null;
+    let touchStartX = 0, touchStartY = 0;
+
+    function showMenu(x, y, bubble) {
+      activeBubble = bubble;
+      const isAgent = bubble.classList.contains('agent');
+      document.getElementById('forkBtn').style.display = isAgent ? 'block' : 'none';
+      menu.style.left = Math.min(x, window.innerWidth - 160) + 'px';
+      menu.style.top = Math.min(y, window.innerHeight - 100) + 'px';
+      menu.classList.add('visible');
+    }
+
+    messagesEl.addEventListener('contextmenu', (e) => {
+      const bubble = e.target.closest('.bubble');
+      if (!bubble) return;
+      e.preventDefault();
+      showMenu(e.clientX, e.clientY, bubble);
+    });
+
+    messagesEl.addEventListener('touchstart', (e) => {
+      const bubble = e.target.closest('.bubble');
+      if (!bubble) return;
+      const t = e.touches[0];
+      touchStartX = t.clientX;
+      touchStartY = t.clientY;
+      longPressTimer = setTimeout(() => {
+        showMenu(touchStartX, touchStartY, bubble);
+      }, 600);
+    }, { passive: true });
+
+    messagesEl.addEventListener('touchmove', (e) => {
+      const t = e.touches[0];
+      if (Math.abs(t.clientX - touchStartX) > 10 || Math.abs(t.clientY - touchStartY) > 10) {
+        clearTimeout(longPressTimer);
+      }
+    }, { passive: true });
+
+    messagesEl.addEventListener('touchend', () => clearTimeout(longPressTimer));
+
+    document.addEventListener('click', (e) => {
+      if (!menu.contains(e.target)) menu.classList.remove('visible');
+    });
+
+    document.getElementById('copyBtn').addEventListener('click', () => {
+      if (activeBubble) {
+        const text = activeBubble.childNodes[0].textContent.trim();
+        navigator.clipboard.writeText(text).then(() => {
+          toast.textContent = '已复制';
+          toast.classList.add('show');
+          setTimeout(() => toast.classList.remove('show'), 1500);
+        });
+      }
+      menu.classList.remove('visible');
+    });
+
+    document.getElementById('forkBtn').addEventListener('click', () => {
+      toast.textContent = '已 fork 出分支单聊';
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 1500);
+      menu.classList.remove('visible');
+    });
+
+    // composer 自动增高
+    input.addEventListener('input', () => {
+      input.style.height = 'auto';
+      input.style.height = Math.min(input.scrollHeight, 136) + 'px';
+    });
+
+    // Enter 发送（移动/桌面统一）
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+        e.preventDefault();
+        form.dispatchEvent(new Event('submit'));
+      }
+    });
+
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      const wrap = document.createElement('div');
+      wrap.className = 'bubble-wrap user';
+      wrap.innerHTML = `<div class="bubble user">${text.replace(/\n/g, '<br>')}<small>刚刚</small></div>`;
+      messagesEl.appendChild(wrap);
+      input.value = '';
+      input.style.height = 'auto';
+      scrollToBottom();
+    });
+
+    // Demo controls
+    document.getElementById('loadOlder').addEventListener('click', () => {
+      messagesEl.scrollTop = 0;
+      messagesEl.dispatchEvent(new Event('scroll'));
+    });
+
+    document.getElementById('newMsg').addEventListener('click', () => {
+      const wrap = document.createElement('div');
+      wrap.className = 'bubble-wrap agent';
+      wrap.innerHTML = `
+        <span class="avatar" style="background:#4f46e5">Pl</span>
+        <div class="bubble agent">新消息 #${Date.now()} 到达<small>刚刚</small></div>`;
+      messagesEl.appendChild(wrap);
+      if (isNearBottom()) scrollToBottom();
+    });
+
+    document.getElementById('reset').addEventListener('click', () => location.reload());
+
+    seedMessages();
+  </script>
+</body>
+</html>
