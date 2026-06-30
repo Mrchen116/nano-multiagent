@@ -2236,6 +2236,9 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     channel_registry = _build_channel_registry(
         config.channels,
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
+        group_context_store=GroupContextStore(
+            db_path=runtime_dir / "group_context.sqlite3"
+        ),
     )
     outbound_router = OutboundRouter(channel_registry)
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
