@@ -11,6 +11,7 @@ import pytest
 lark_oapi = pytest.importorskip("lark_oapi")
 
 from personal_assistant.config.local_store import ChannelConfig
+from personal_assistant.gateway.group_context_store import GroupContextStore
 from personal_assistant.main import _build_channel_registry
 
 
@@ -263,3 +264,112 @@ class TestBuildChannelRegistryFeishuRealAdapter:
             assert adapter.name == "feishu:plato"
             # Verify bot_open_id was passed (internal attribute check)
             assert adapter._bot_open_id == "ou_bot_123"
+
+
+class TestFeishuBufferKeyConsistency:
+    """Group buffer key alignment between FeishuAdapter and InboundPipeline."""
+
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_group_buf_key_matches_inbound_pipeline(
+        self, mock_fc_cls: MagicMock
+    ) -> None:
+        """FeishuAdapter and InboundPipeline must generate the same buffer key for
+        the same group chat so that buffered context is correctly drained.
+        """
+        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.gateway.inbound_pipeline import InboundPipeline
+        from personal_assistant.channels.base import InboundMessage
+
+        store = MagicMock(spec=GroupContextStore)
+        adapter = FeishuAdapter(
+            app_id="cli_a",
+            app_secret="s",
+            agent_id="plato",
+            bot_open_id="ou_bot1",
+            group_context_store=store,
+        )
+
+        # Simulate what InboundPipeline._group_buf_key_for_agent produces
+        # for a feishu group message
+        msg = InboundMessage(
+            channel_name="feishu:plato",
+            text="hello",
+            external_user_id="ou_user1",
+            external_chat_id="feishu:cli_a:group:oc_grp1",
+            is_group=True,
+            agent_id="plato",
+        )
+        pipeline_key = InboundPipeline._group_buf_key_for_agent(msg, "plato")
+
+        # Trigger a buffer operation to capture the key FeishuAdapter uses
+        on_inbound = MagicMock()
+        adapter.start(on_inbound)
+        from personal_assistant.channels.feishu_client import FeishuMessageEvent
+
+        event = FeishuMessageEvent(
+            text="just chatting",
+            sender_open_id="ou_user1",
+            chat_id="oc_grp1",
+            chat_type="group",
+            message_id="msg_001",
+            is_group=True,
+            mentions=[],
+        )
+        adapter._handle_message(event)
+
+        adapter_key = store.append.call_args[0][0]
+        assert adapter_key == pipeline_key, (
+            f"buffer key mismatch: adapter={adapter_key!r} vs pipeline={pipeline_key!r}"
+        )
+
+    @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
+    def test_drain_key_matches_append_key(self, mock_fc_cls: MagicMock) -> None:
+        """The key used to drain must match the key used to append."""
+        from personal_assistant.channels.feishu_adapter import FeishuAdapter
+        from personal_assistant.channels.feishu_client import FeishuMessageEvent
+
+        store = MagicMock(spec=GroupContextStore)
+        store.drain.return_value = []
+        adapter = FeishuAdapter(
+            app_id="cli_a",
+            app_secret="s",
+            agent_id="plato",
+            bot_open_id="ou_bot1",
+            group_context_store=store,
+        )
+
+        on_inbound = MagicMock()
+        adapter.start(on_inbound)
+
+        # First buffer a message
+        buffer_event = FeishuMessageEvent(
+            text="just chatting",
+            sender_open_id="ou_user1",
+            chat_id="oc_grp1",
+            chat_type="group",
+            message_id="msg_002",
+            is_group=True,
+            mentions=[],
+        )
+        adapter._handle_message(buffer_event)
+        append_key = store.append.call_args[0][0]
+
+        # Then @Bot to trigger drain
+        from personal_assistant.channels.feishu_client import FeishuMention
+
+        mention = FeishuMention(open_id="ou_bot1", name="plato", key="@_user_1")
+        deliver_event = FeishuMessageEvent(
+            text="@_user_1 summarize",
+            sender_open_id="ou_user2",
+            chat_id="oc_grp1",
+            chat_type="group",
+            message_id="msg_003",
+            is_group=True,
+            mentions=[mention],
+        )
+        adapter._handle_message(deliver_event)
+        drain_key = store.drain.call_args[0][0]
+
+        assert append_key == drain_key, (
+            f"append/drain key mismatch: append={append_key!r} vs drain={drain_key!r}"
+        )

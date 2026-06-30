@@ -151,8 +151,8 @@ class TestFeishuAdapterGroupMention:
         on_inbound.assert_not_called()
         store.append.assert_called_once()
         buf_key = store.append.call_args[0][0]
-        assert "plato" in buf_key
-        assert "oc_grp1" in buf_key
+        # Key format: {agent_id}:{channel_name}:{external_chat_id}
+        assert buf_key == "plato:feishu:plato:feishu:cli_a:group:oc_grp1"
 
     @patch("personal_assistant.channels.feishu_adapter.FeishuClient")
     def test_group_at_bot_flushes_context_buffer(self, mock_fc_cls: MagicMock) -> None:
