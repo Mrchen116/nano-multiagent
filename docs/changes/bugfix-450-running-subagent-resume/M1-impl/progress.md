@@ -19,3 +19,27 @@
 - Rollback: 回退 C2 `94cb83fa` 会恢复旧假 queued 行为；C1 `df52bc01` 保留复现红测。
 - Commits: C1=`df52bc01`, C2=`94cb83fa`, C3=`0e820df9`
 - Next: 本 milestone 已完成，已合入并 push 到 `unit/bugfix-450`。
+
+### Fast-lane fix r1 — reviewer/code-review feedback loop
+
+- Context: reviewer/verifier 已 pass，但 code review 确认 4 个需要修复的控制面问题：task_stop/abort 后仍可能 false queued、runner `start()` 契约仍是 stop-only、terminal 后 setter 可重插 stale handle、integration 永久回归仍靠 stub 直接 `controller.drain_pending()`。
+- Decision: 走 fast-lane 小修，不新建 milestone 目录，不改 design/incident/delta spec；直接在 M1 原范围内补架构正确位置的契约、生命周期 guard 和永久回归。
+- Rationale: 这四项都属于 M1 live follow-up delivery 的同一控制面闭环，修复点落在既有 `RunController` handle、`BackgroundTaskRegistry` 和现有回归测试，不需要扩大设计。
+- Evidence:
+  - Tests:
+    - `pytest -xvs tests/unit/agent/background_tasks/test_background_tasks.py tests/unit/agent/tools/test_agent_tool.py tests/integration/background_tasks/test_agent_continuation.py` -> 65 passed。
+    - `pytest -xvs tests/unit/agent/tools/test_agent_tool.py tests/integration/background_tasks/test_agent_continuation.py` -> 35 passed。
+    - `pytest -xvs tests/integration/background_tasks/test_agent_background.py tests/integration/background_tasks/test_auto_background.py tests/unit/agent/tools/test_task_stop_tool.py` -> 12 passed。
+    - `git diff --check` -> clean。
+  - Entry: backend/runtime control-plane only；真实入口等价永久回归已固化到 `tests/integration/background_tasks/test_agent_continuation.py::test_running_agent_follow_up_enters_live_runtime_controller`，使用真实 `AgentRuntime` + `AgentLoop` + `RuntimeRunner` + controlled LLM，断言 follow-up 出现在第二次真实 LLM request 的 user messages：`["Take your time.", "Also check the tests."]`，并且原 subagent result 为 `VISIBLE FOLLOWUP RECEIVED: Also check the tests.`。
+  - Frontend State Matrix: N/A。
+  - Browser QA: N/A。
+  - E2E/Regression:
+    - 问题 1: `test_explicit_background_stopped_agent_rejects_follow_up_without_false_queued` 与 `test_auto_background_stopped_agent_rejects_follow_up_without_false_queued` 覆盖 explicit background/resumed 与 auto-background controller handle 在 `stop()/abort()` 后拒绝 follow-up，AgentTool 抛 `agent_message_not_deliverable`，不返回 `message_queued`。
+    - 问题 2: 新增 `BackgroundSubagentHandle` 组合 Protocol，`BackgroundSubagentRunner.start()` 返回 stop+send_message handle；`test_subagent_runner_start_returns_stop_and_message_handle_contract` 固定契约，fake/no-op runner 同步实现 `send_message()`。
+    - 问题 3: registry `set_stop_handle()` / `set_message_handle()` 在 missing/terminal record 上返回 False 且 no-op；`test_terminal_record_rejects_late_handle_reinsertion` 证明 terminal 后不能重插 stale stop/message handle。
+    - 问题 4: integration 测试删除直接 drain stub，改用真实 runtime loop 观察第二次 LLM request，永久证明 pending follow-up 会被下一轮真实 LLM request 消费。
+  - Visual/Interaction: N/A。
+- Rollback: 回退 code commit `7f9dadaf` 可恢复到 verifier pass 后状态。
+- Commits: fix=`7f9dadaf`
+- Next: 已准备 rebase/merge 到 `unit/bugfix-450`。
