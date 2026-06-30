@@ -38,19 +38,28 @@ verifier 报告 CRITICAL issue: `main.py:2904-2910` 构造 `FeishuAdapter` 时�
 verifier 报告 WARNING: `skills/feishu-doc.md` 缺少 spec 要求的「以用户身份创建文件夹」和「以用户身份移动文件」命令。
 
 ### Decision
-<待补充>
+- 在 skill 中补充文件夹创建和文件移动的替代方案（feishu-cli 原生不支持，使用飞书 OpenAPI curl 调用）
+- 使用 `feishu-cli auth token --raw` 获取 user_access_token 用于 API 调用
+- 在 wiki/sheet/chat 章节顶部加注 "超出当前 MVP 范围，仅供参考"
 
 ### Rationale
-<待补充>
+- feishu-cli 官方 CLI 目前不直接支持 mkdir/move 操作，但飞书 OpenAPI 支持
+- 通过 curl 调用 OpenAPI 是等效方案，且 user_access_token 由 feishu-cli 的 OAuth 流程管理
+- 标注超范围部分避免 agent 误用非目标能力
 
 ### Evidence
-<待补充>
+- Tests: N/A（纯文档改动）
+- Entry: skill 文件现在覆盖 spec 全部 7 个云文档 Scenario
+- Frontend State Matrix: N/A
+- Browser QA: N/A
+- E2E/Regression: N/A
+- Visual/Interaction: N/A
 
-### Rollback: <待补充>
+### Rollback: git revert 34aa595c
 
-### Commits: <待补充>
+### Commits: C2=34aa595c
 
-### Next: <待补充>
+### Next: R3 — 修复 SUGGESTION: 文档和代码清理
 
 ---
 
@@ -60,16 +69,25 @@ verifier 报告 WARNING: `skills/feishu-doc.md` 缺少 spec 要求的「以用�
 verifier 报告 3 个 SUGGESTION: M1 tasks.md 退出标准未勾选、feishu_adapter.py 未使用 `typing.Any` 导入、skill 超范围部分未标注。
 
 ### Decision
-<待补充>
+- M1 tasks.md: 5 个退出标准全部 `- [ ]` → `- [x]`
+- feishu_adapter.py: 移除 `from typing import Any` 未使用导入
+- skill 超范围部分: 在 wiki/sheet/chat 章节顶部加注说明
 
 ### Rationale
-<待补充>
+- 文档标记与 checkpoint DONE 状态对齐，避免后续 review 困惑
+- 未使用导入是代码异味，清理保持整洁
+- 超范围标注防止 agent 在 MVP 阶段调用非目标命令
 
 ### Evidence
-<待补充>
+- Tests: 48 passed (feishu 全量测试)
+- Entry: ruff check 无新警告
+- Frontend State Matrix: N/A
+- Browser QA: N/A
+- E2E/Regression: N/A
+- Visual/Interaction: N/A
 
-### Rollback: <待补充>
+### Rollback: git revert 34aa595c
 
-### Commits: <待补充>
+### Commits: C2=34aa595c（与 R2 同一 commit，改动小合并）
 
-### Next: <待补充>
+### Next: 集成到 unit/feat-447 分支
