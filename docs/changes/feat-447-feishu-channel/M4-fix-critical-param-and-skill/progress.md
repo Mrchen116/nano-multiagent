@@ -11,10 +11,12 @@ verifier 报告 CRITICAL issue: `main.py:2904-2910` 构造 `FeishuAdapter` 时�
 - `_build_channel_registry` 接收 `group_context_store` 参数（keyword-only），在构造 FeishuAdapter 时传入
 - 同时传入 `bot_open_id`（从 settings 读取，可选，用于精确 @mention 检测）
 - 补充不 mock FeishuAdapter 的集成测试，验证真实构造通过
+- **追加修复**: `build_runtime()` 调用点（main.py:2236）也必须创建 GroupContextStore 并传入 _build_channel_registry，否则 Gateway 真启动仍抛 TypeError
 
 ### Rationale
 - 让 `_build_channel_registry` 的调用者（main.py 的 bootstrap 路径）负责创建/传入 GroupContextStore，符合现有架构（WebRelayAdapter 的 dedup_store 也是由调用者传入）
 - 不 mock 的测试能捕获构造参数缺失这类 mock 无法发现的 bug
+- _build_channel_registry 签名改了但调用点没改 = 函数级修复了但启动路径仍断，必须两边都修
 
 ### Evidence
 - Tests: 48 passed (test_feishu_integration.py 7 + test_feishu_adapter.py 13 + test_feishu_client.py 17 + test_feishu_config.py 11)
@@ -24,9 +26,9 @@ verifier 报告 CRITICAL issue: `main.py:2904-2910` 构造 `FeishuAdapter` 时�
 - E2E/Regression: N/A
 - Visual/Interaction: N/A
 
-### Rollback: git revert 29dd732b
+### Rollback: git revert 908dbc02
 
-### Commits: C1=29dd732b, C2=29dd732b(同一commit, test+fix 因改动小合并)
+### Commits: C1=29dd732b, C2=29dd732b(同一commit, test+fix 因改动小合并), 追加fix=908dbc02
 
 ### Next: R2 — 修复 WARNING: skill 缺 mkdir/move 命令
 
