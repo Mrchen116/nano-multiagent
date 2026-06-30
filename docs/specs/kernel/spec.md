@@ -1,6 +1,6 @@
 # kernel (agent) Specification
 
-> 对齐: feat-445
+> 对齐: bugfix-450
 >
 > 写法纪律见 [`../../SPEC_GUIDE.md`](../../SPEC_GUIDE.md)「给库/内核写契约的额外纪律」。本契约层只收
 > **消费者经 `agent.sdk` 真正依赖的对外行为**(CDC 裁剪);内部如何装配/实现不在此层(那在代码 +
@@ -699,6 +699,24 @@ event loop 与 Context 中进入终态,再停止并关闭 loop。关闭开始后
 - **GIVEN** 某 session 派发的前台子 agent 运行时长超出前台预算被 auto-background（其 tool result 返回 `async_launched` + agent_id）
 - **WHEN** 该子 agent 稍后完成
 - **THEN** 该 session 下一轮输入含一条带结果的 `<task-notification>`（转后台后按后台任务发一次通知，不重复、不遗漏）
+
+### Requirement: 运行中的后台 subagent follow-up 必须先被 live session 接收再确认 queued
+
+消费者经 `agent` 工具向一个仍在运行的后台 subagent 发送 follow-up prompt 时，内核只有在确认该 prompt
+已被同一个 live subagent session 接收、可在安全轮次边界消费后，才向消费者报告 follow-up 已 queued。
+内核不得静默丢弃 prompt，也不得为该 prompt 偷偷启动另一个无关的并发 subagent。
+
+#### Scenario: running follow-up 被同一个 subagent 消费
+- **GIVEN** 消费者已启动一个后台 subagent，并拿到其 `agent_id`
+- **WHEN** 消费者在该 subagent 仍运行时，经 `agent` 工具带该 `agent_id` 发送 follow-up prompt
+- **THEN** 成功的 queued 结果表示该 prompt 已被同一个运行中的 subagent session 接收
+- **AND** 该 follow-up 在安全轮次边界被消费，且后续可观察输出或 transcript 体现它进入的是同一个 subagent session
+
+#### Scenario: live delivery 不可确认时不得确认 queued
+- **GIVEN** 消费者持有一个看似仍在运行的 subagent `agent_id`
+- **WHEN** 消费者发送 follow-up prompt，但内核无法确认 live subagent 能接收它（包括该运行已被停止或取消）
+- **THEN** 该工具调用不报告 follow-up 已成功 queued
+- **AND** 内核不得为该 prompt 静默创建第二个并发 subagent run
 
 ### Requirement: 经 task_stop 停止后台任务，model-facing 通知不与 tool_result 重复
 
