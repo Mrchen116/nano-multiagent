@@ -152,3 +152,73 @@ None.
 - [x] `docs/specs/kernel/spec.md`（长青行为契约层）：仍需要由 orchestrator 收尾归并本 unit 的 kernel 行为 delta；本轮未发现新的契约增量。
 - [x] `AGENTS.md` / `CLAUDE.md`：无需更新。本修复不改变开发/运行约定。
 - [x] `docs/SPEC_GUIDE.md`：无需更新。本修复不改变文档体系规范。
+
+---
+
+# Round 3 — 2026-07-01
+
+## Verdict
+
+- Verdict: pass
+- Highest Required Action: pass
+- Reviewer mode: Fast-lane 轻量复验
+
+本轮继承 Round 2 覆盖表，重点复验 fast-lane r2 后用户可观察语义是否仍成立：stop/abort 与 follow-up 的并发线性化后，不应再出现 stopped/aborted running subagent follow-up 返回假 `message_queued`；正常 running follow-up 仍应进入同一 subagent 的后续 runtime/output；terminal resume、`output_file`、`task_stop` 等相邻后台任务体验不退化。
+
+design.md 的 reviewer runbook 标明本 unit 无常驻服务，验收入口是端到端真栈测试与真实 `agent` tool 路径代驱动，因此本轮未启动或重启 IM/Gateway。测试在 unit worktree 下执行，显式设置 `PYTHONPATH=src`，并使用 `-p no:cacheprovider` 避免写入 pytest cache。
+
+## User Journeys Exercised
+
+1. R2 线性化失败路径：stop/abort 已线性化后再向 running subagent follow-up，主 agent 不看到 `message_queued` 假成功。
+2. Running follow-up 主路径：主 agent 向仍 running 的同一 subagent 发送 follow-up，后续真实 runtime/LLM request 能消费该消息。
+3. 相邻后台任务回归路径：terminal/JSONL resume、background notification、auto-background、`output_file`、bash/agent `task_stop` 继续可用。
+
+## 验收标准覆盖
+
+### Requirement: running subagent follow-up 真实投递
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 用户要求正在运行的 subagent 汇报进度 | `incident.md` 验收标准；Round 2 覆盖表；fast-lane r2 进展记录 | 复跑真实 runtime controller 消费链路，确认 follow-up 进入同一 subagent 后续处理 | `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -p no:cacheprovider -xvs tests/unit/agent/runs/test_run_control_terminal_commit.py tests/unit/agent/tools/test_agent_tool.py tests/integration/background_tasks/test_agent_continuation.py` -> 46 passed；其中 `test_running_agent_follow_up_enters_live_runtime_controller` passed | pass | running follow-up 主路径仍真实投递到同一 subagent |
+| follow-up 在安全点处理 | `incident.md` 验收标准；Round 2 覆盖表；fast-lane r2 进展记录 | 复跑 controller terminal/enqueue 互斥、auto-background follow-up 与 task_stop/background 回归，确认当前执行不被中途破坏 | 同上 46 passed；另 `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -p no:cacheprovider -xvs tests/integration/background_tasks/test_agent_background.py tests/integration/background_tasks/test_auto_background.py tests/unit/agent/tools/test_task_stop_tool.py` -> 12 passed | pass | 未观察到另起无关 worker 或破坏当前执行的用户面异常 |
+
+### Requirement: 不再返回假 queued 状态
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 目标 subagent 无法接收 running follow-up | `incident.md` 验收标准；`design.md` 决策 2；fast-lane r2 进展记录 | 复跑 abort/cancel 后 enqueue 拒绝、explicit/auto-background stopped follow-up 拒绝、stop 与 enqueue 并发线性化路径 | 46 passed；其中 `test_enqueue_after_abort_is_rejected`、`test_enqueue_after_cancel_is_rejected`、`test_auto_background_stopped_agent_rejects_follow_up_without_false_queued`、`test_explicit_background_stopped_agent_rejects_follow_up_without_false_queued`、`test_auto_background_handle_rejects_message_when_stop_linearizes_during_enqueue`、`test_explicit_background_handle_rejects_message_when_stop_linearizes_during_enqueue` passed | pass | stopped/aborted running subagent follow-up 不再以假 `message_queued` 呈现 |
+
+### Requirement: 既有后台任务体验不退化
+
+| Scenario | 期望来源 | 验证方式 | 证据 | 结果 | 备注 |
+|---|---|---|---|---|---|
+| 已完成 subagent 继续会话 | `incident.md` 验收标准；Round 2 覆盖表 | 复跑 terminal continuation 与 JSONL rehydrate continuation | 46 passed；其中 `test_continuation_to_terminal_agent_resumes`、`test_jsonl_rehydrate_continues_agent_after_registry_loss` passed | pass | 用户仍能以同一个 subagent 后续工作继续 |
+| 用户读取后台输出 | `incident.md` 验收标准；Round 2 覆盖表 | 复跑完整 background_tasks 集成回归，覆盖 output file、completion notification、auto-background、agent/bash task_stop | `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -p no:cacheprovider -xvs tests/integration/background_tasks` -> 19 passed；其中 `test_background_bash_output_file_is_created_and_written`、`test_task_stop_kills_running_agent_task` passed | pass | `output_file`、completion notification 与 `task_stop` 体验未退化 |
+
+## 复现验证
+
+- stopped/aborted running subagent follow-up 不返回假 queued：explicit 与 auto-background stopped follow-up、abort/cancel 后 enqueue 拒绝、stop/enqueue 线性化用例均 passed。
+- running follow-up 仍真实进入同一 subagent 后续输出：`test_running_agent_follow_up_enters_live_runtime_controller` passed。
+- terminal resume / JSONL rehydrate 不退化：`test_continuation_to_terminal_agent_resumes`、`test_jsonl_rehydrate_continues_agent_after_registry_loss` passed。
+- `output_file` / completion notification / `task_stop` 不退化：完整 `tests/integration/background_tasks` 19 passed，`test_task_stop_tool.py` 6 passed。
+
+## 回归测试
+
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -p no:cacheprovider -xvs tests/unit/agent/runs/test_run_control_terminal_commit.py tests/unit/agent/tools/test_agent_tool.py tests/integration/background_tasks/test_agent_continuation.py` -> 46 passed。
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -p no:cacheprovider -xvs tests/integration/background_tasks/test_agent_background.py tests/integration/background_tasks/test_auto_background.py tests/unit/agent/tools/test_task_stop_tool.py` -> 12 passed。
+- `PYTHONPATH=src /Users/czj/Repos/nano-multiagent/.venv/bin/python -m pytest -p no:cacheprovider -xvs tests/integration/background_tasks` -> 19 passed。
+
+## Issues
+
+No blocking, major, or minor in-unit issues found.
+
+## Side Findings
+
+None.
+
+## 上层文档同步
+
+- [x] `SPEC.md`（跨包顶点架构）：无需更新。本修复不改变四包职责或顶层依赖方向。
+- [x] `docs/specs/kernel/spec.md`（长青行为契约层）：仍需要由 orchestrator 收尾归并本 unit 的 kernel 行为 delta；本轮未发现新的契约增量。
+- [x] `AGENTS.md` / `CLAUDE.md`：无需更新。本修复不改变开发/运行约定。
+- [x] `docs/SPEC_GUIDE.md`：无需更新。本修复不改变文档体系规范。
