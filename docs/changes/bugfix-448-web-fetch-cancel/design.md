@@ -7,6 +7,8 @@
 
 - 2026-06-30: 初稿定稿。决定升级用户主动中断的 run 层语义，引入 sync-compatible async tool 执行分支，并将
   `web_fetch` 迁到 async HTTP + async LLM prompt 链路；补 kernel/gateway/cli delta-spec。
+- 2026-06-30: 吸收 design-review WARNING，补齐取消传播官方路径、async liveness、discard/recovery 边界、
+  未迁移 sync 工具的剩余语义，以及旧中断单测需要同步改写的验证要求。
 
 ## 现状分析
 
@@ -21,6 +23,8 @@
 - `src/agent/core/tools/registry.py` 负责工具执行与 hook lifecycle。当前同步工具统一通过
   `await asyncio.to_thread(tool.run, normalized_args, execution_context)` 执行，并在外层包通用 liveness
   ticker；它能防止长工具沉默被 watchdog 误收尸，但不能停止 worker thread 中的同步阻塞 I/O。
+- `src/agent/core/agent/loop.py` 当前创建并驱动 `StreamingToolExecutor`，但取消路径没有调用
+  `executor.discard()`。因此 run carrier 被取消时，executor 内已启动的工具 task 不会自动随 run 收口。
 - `src/agent/core/tools/base.py` 的真实 `ToolContext` 已携带 `llm_client` 与 execution callback，但没有
   暴露给工具的取消信号。`src/agent/sdk/contracts.py` 的公开 `ToolContext` Protocol 也尚未承诺取消字段。
 - `src/agent/platform/tools/builtins/web_fetch.py` 负责 URL 校验、权限决策、HTTP 抓取、HTML 转文本、
@@ -39,8 +43,7 @@
 - `agent.core` 不能依赖 `agent.platform`。取消信号、工具执行协议、run 生命周期必须留在 core 抽象层；
   `web_fetch` 作为 platform built-in 只能消费 core 提供的上下文字段或协议。
 - SDK 公开 `ToolContext` Protocol 目前只承诺 `repo_root` / `cwd` / `session_id` /
-  `session_metadata`。若本 unit 给真实 `ToolContext` 增加取消字段，必须明确它是内核内置工具使用的内部
-  能力，还是扩展工具作者也可依赖的公开契约。
+  `session_metadata`。本 unit 不给真实 `ToolContext` 或公开 Protocol 增加取消字段，避免形成第二条取消通道。
 - `bugfix-417` 已把用户主动中断的 tool result content 定为 CC 原串
   `[Request interrupted by user for tool use]`；本 unit 不能为 `web_fetch` 发明另一套用户中断文案。
 - `feat-425` 已把 `web_fetch` 展示字段定为 `content` / `final_url` / `status`；本 unit 不能让 IM
@@ -125,21 +128,29 @@ graph TD
   `CancelledError` 顺着 task 取消传播到 HTTP 和 LLM prompt。
 - **兼容**: 现有工具协议、hook、generic liveness、presentation 入口不拆。`run_async` 是增量能力，不要求本
   unit 迁移所有工具。
-- **边界**: 不把取消字段加入 `agent.sdk.contracts.ToolContext` 的公开承诺。内核内置工具可使用真实
-  `ToolContext` 上的内部能力；第三方工具作者本 unit 仍只依赖既有公开 Protocol。
+- **取消传播官方路径**: 不把 `RunController`、`cancel_event` 或任何取消字段塞进 `ToolContext`，也不允许工具经
+  `metadata["run_id"]` 反向查 run registry。用户中断先由 `RunsRegistry` 取消 run carrier；carrier 取消会取消
+  `AgentLoop`；`AgentLoop` 再 discard 它持有的 `StreamingToolExecutor`；async-native 工具通过
+  `asyncio.Task.cancel()` / `CancelledError` 在 `await httpx.AsyncClient.get(...)`、LLM stream 等 await 点自然停止。
+- **边界**: 不把取消字段加入 `agent.sdk.contracts.ToolContext` 的公开承诺。第三方工具作者本 unit 仍只依赖既有
+  公开 Protocol。
+- **liveness**: async 分支仍必须被现有 generic liveness ticker 包裹，和 sync `to_thread` 分支一样在长 HTTP /
+  长 prompt 阶段持续发 execution update，防止 Gateway idle watchdog 误判。不能因为 `run_async` 就绕开 ticker。
 - **后续**: `web_search` / `send_message` / `cron` 等同步 HTTP 工具可在后续 unit 逐步迁移。bash 不能简单照搬
   `web_fetch`：它的核心资源是外部进程组，仍需要 `ForegroundExecutionRegistry` 的 killpg stopper。
 
 ### 决策 3: AgentLoop 取消时必须 discard 未完成工具任务
 
-**选了让 run carrier 被取消或用户 abort 收口时，`AgentLoop` 对当前 `StreamingToolExecutor` 执行 discard，取消已启动工具 task 并为未完成 tool call 生成中断/取消结果。**
+**选了让 run carrier 被取消或用户 abort 收口时，`AgentLoop` 对当前 `StreamingToolExecutor` 执行 discard，取消已启动工具 task 并标记未完成 tool call 的内部清理状态。**
 
 - **理由**: 当前 `StreamingToolExecutor` 会为每个工具创建独立 `asyncio.Task`。如果只取消 carrier，而不
   cancel executor 内部 task，async-native `web_fetch` 仍可能成为孤儿任务。
 - **归因**: 用户 `/stop` / Ctrl-C 产生的闭合内容继续使用
   `[Request interrupted by user for tool use]`；系统取消或其他异常不冒充用户中断。
-- **约束**: transcript recovery 仍由 runtime 的 finally 路径兜底。executor discard 是尽早关闭工具 task 和
-  避免后台污染；JSONL append-only recovery 是持久化安全网，两者不互相替代。
+- **约束**: transcript recovery 仍由 runtime 的 finally 路径兜底。executor discard 只负责取消 task、清队列和
+  阻止 late result；用户中断路径不能再把 discard 生成的内部 result yield 给模型或 transcript。持久化闭合统一
+  由 runtime recovery 写入 CC 原串，避免同时出现 `"aborted: tool execution discarded"` 和
+  `[Request interrupted by user for tool use]` 两套文案。
 
 ### 决策 4: `web_fetch(prompt)` 不再静默 fallback
 
@@ -170,6 +181,17 @@ graph TD
   `web_fetch` async 但不 discard executor 会留下孤儿 task；只修 prompt API 不能解决 `/stop`。单个垂直切片
   更容易用一组端到端验收锁住用户体验。
 
+### 决策 7: 未迁移 sync 工具只承诺 run 层收口
+
+**选了本 unit 只保证所有工具在用户中断后释放 session 锁并闭合 transcript；只有 async-native 工具或已有 foreground stopper 的工具保证底层 I/O/进程也被停止。**
+
+- **理由**: `asyncio.to_thread()` 不能强杀 Python worker thread。把 `web_search` / `send_message` / `cron` 等
+  sync HTTP 工具一起迁移会扩大 blast radius，偏离本 bugfix 的主线。
+- **用户侧语义**: 用户按 `/stop` / Ctrl-C 后，同会话必须能继续，旧 run 的 late result 不能污染新 run；但未迁移的
+  sync 工具底层请求可能在后台跑到自身 timeout。这个残余只影响资源占用，不应影响 transcript 或 session lock。
+- **后续策略**: 后续按工具重要性逐个迁移到 async-native 或专属 stopper，不在本 unit 里承诺“一次性停止所有底层
+  阻塞资源”。
+
 ## 接口与数据流
 
 ### 中断路径
@@ -195,6 +217,7 @@ sequenceDiagram
     R--xL: CancelledError
     L->>E: discard(user_interrupted=True)
     E--xT: task.cancel()
+    L->>L: do not yield discarded result
     L-->>R: cancellation propagates
     R->>S: runtime finally recovers open tool calls
     S-->>P: tool_result content = "[Request interrupted by user for tool use]"
@@ -213,8 +236,10 @@ sequenceDiagram
 - 执行时按以下顺序选择实现：
   1. 工具有 `run_async(args, ctx)`：在当前 event loop 中 `await`，让 task cancellation 能穿透到底层 async I/O。
   2. 否则：保留 `await asyncio.to_thread(tool.run, args, ctx)`，保证所有既有 sync 工具行为不变。
+- 两个分支都必须在同一个 `execution_update_ticker` 作用域内执行；异步工具不能自建第二套 hook/liveness 管线。
 - `StreamingToolExecutor.discard()` 从被动能力变成 run 收口路径的一部分。它必须 cancel 已启动 task、清理队列，
-  并把未完成 tool call 标记为 interrupted/cancelled，使 runtime recovery 有一致输入。
+  并把未完成 tool call 标记为 interrupted/cancelled，使 runtime recovery 有一致输入。用户中断时，discard 结果
+  是 executor 内部清理状态，不作为正常 tool result 继续 yield；runtime recovery 是唯一落 transcript 的闭合点。
 
 ### `web_fetch` 数据流
 
@@ -239,6 +264,8 @@ flowchart TD
 - prompt LLM 读取 async stream，收集 text delta；若 LLM client 返回模型错误、上游错误或取消，错误必须显式进入
   tool result。
 - `serialize_result` 继续承担过长内容截断，避免把超长正文直接灌入模型。
+- 未迁移的 sync 工具仍可能在 `to_thread` worker 中跑到自己的 timeout；run/executor 收口后这些 late return 必须被
+  丢弃，不能触发 after-hook 的用户可见 completion，也不能追加 transcript。
 
 ## 契约层增量 (delta-spec)
 
@@ -256,10 +283,16 @@ IM 没有 delta-spec：既有 `web_fetch` 工具卡显示 URL、状态和正文�
   “无 foreground stopper 的 parked run 被中断后 session 可继续”和“空闲 session 调 interrupt 仍 no-op”。
 - **孤儿工具 task**: async-native 工具引入后，如果 AgentLoop 没有在 finally/discard 中 cancel executor task，
   late result 会污染日志或占资源。测试必须显式断言 cancel 传播到工具 coroutine。
+- **liveness 回退**: async 分支若没有复用 generic ticker，慢 HTTP 或慢 prompt 会重新触发 Gateway idle watchdog
+  风险。测试需要覆盖 async 工具长时间 await 期间仍产生 execution update。
+- **discard/recovery 双写**: executor discard 的内部错误文案不能进入用户可见 transcript；用户中断闭合只允许
+  runtime recovery 写 CC 原串。
 - **错误归因混淆**: 用户取消、HTTP 失败、prompt LLM 失败三类结果必须分开。用户取消用 CC 原串；HTTP 失败保留
   WebFetch 展示失败；prompt LLM 失败是 error tool_result。
 - **SDK 表面膨胀**: 不把 `run_async` 或 cancellation field 写进公开 SDK contract，避免一次 bugfix 变成工具
   插件 API 扩容。若未来要公开 async tool authoring，另开 feature/refactor。
+- **未迁移 sync 工具残留线程**: 本 unit 改变后，所有工具都应释放 run/session 和 transcript，但只有 async-native
+  工具或前台 stopper 工具保证底层资源立即停止。后续迁移其他 sync HTTP 工具时要以这个设计为基线。
 - **回退方式**: 若 async `web_fetch` 迁移导致不可控回归，可先保留 run hard-cancel 与 prompt API 修复，把
   async HTTP 迁移回滚为 sync fetch；但必须保留测试暴露“底层请求可能等 HTTP timeout 才结束”的残余风险，并在
   后续 unit 处理。
@@ -284,6 +317,9 @@ PYTHONPATH=src pytest -q \
   tests/unit/agent/platform/tools/builtins/test_web_fetch_run.py \
   tests/unit/agent/platform/tools/builtins/test_web_fetch_permissions.py
 ```
+
+`tests/unit/test_run_cancel.py` 必须随实现同步改写旧期望：无 foreground stopper 的用户 interrupt 不再只是
+cooperative abort，而要 force-cancel carrier 并释放 session。
 
 ```bash
 PYTHONPATH=src pytest -q \
