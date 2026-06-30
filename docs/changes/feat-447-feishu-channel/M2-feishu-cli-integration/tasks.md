@@ -22,7 +22,7 @@
 ## Roadpoints
 
 ### R1: skill 文件创建
-- 状态: TODO
+- 状态: DONE
 - 范围: `skills/feishu-doc.md`
 - 内容:
   1. 创建 `skills/feishu-doc.md`
