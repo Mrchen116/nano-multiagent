@@ -17,6 +17,8 @@ from personal_assistant.channels.base import (
     OutboundMessage,
 )
 from personal_assistant.channels.feishu_client import (
+    FeishuAPIError,
+    FeishuAuthError,
     FeishuClient,
     FeishuMessageEvent,
     FeishuMention,
@@ -75,7 +77,17 @@ class FeishuAdapter:
         logger.info("feishu adapter %s started", self.name)
 
     def send(self, outbound: OutboundMessage) -> None:
-        """Send a reply message back to the feishu chat."""
+        """Send a reply message back to the feishu chat.
+
+        Catches feishu-specific errors and logs structured context before
+        re-raising, so callers get typed exceptions while ops get actionable
+        logs.
+
+        Raises:
+            FeishuAuthError: When feishu returns 401/403 (credentials expired).
+            FeishuAPIError: When feishu returns any other API error.
+            RuntimeError: When the adapter has not been started.
+        """
         if self._client is None:
             raise RuntimeError("feishu adapter is not started")
 
@@ -83,11 +95,34 @@ class FeishuAdapter:
         # Format: "feishu:<app_id>:dm:<user_open_id>" or "feishu:<app_id>:group:<chat_id>"
         receive_id = _extract_chat_id(outbound.target_chat_id)
 
-        self._client.send_message(
-            receive_id=receive_id,
-            text=outbound.text,
-            receive_id_type="chat_id",
-        )
+        try:
+            self._client.send_message(
+                receive_id=receive_id,
+                text=outbound.text,
+                receive_id_type="chat_id",
+            )
+        except FeishuAuthError:
+            logger.error(
+                "feishu auth error — app credentials may be expired",
+                extra={
+                    "error_code": "feishu_auth_error",
+                    "chat_id": outbound.target_chat_id,
+                    "agent_id": self._agent_id,
+                    "adapter": self.name,
+                },
+            )
+            raise
+        except FeishuAPIError:
+            logger.error(
+                "feishu API error — message send failed",
+                extra={
+                    "error_code": "feishu_api_error",
+                    "chat_id": outbound.target_chat_id,
+                    "agent_id": self._agent_id,
+                    "adapter": self.name,
+                },
+            )
+            raise
 
     def stop(self) -> None:
         """Stop the feishu WebSocket listener."""

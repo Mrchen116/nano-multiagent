@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable
 
@@ -25,6 +26,36 @@ logger = logging.getLogger(__name__)
 # Regex-free mention placeholder prefix used by feishu JSON text content.
 # Feishu encodes @mentions as @_user_N placeholders inside {"text": "..."}.
 _MENTION_PLACEHOLDER_PREFIX = "@_user_"
+
+# Retry policy constants for send_message error handling.
+_MAX_RATE_LIMIT_RETRIES = 3  # Total attempts for 429 (original + 2 retries)
+_SERVER_ERROR_RETRIES = 2  # Total attempts for 5xx (original + 1 retry)
+_BACKOFF_BASE_SECONDS = 0.5  # Initial backoff delay for rate-limit retries
+
+# Error code classification for feishu API responses.
+_RATE_LIMIT_CODES = {429}
+_AUTH_ERROR_CODES = {401, 403}
+_SERVER_ERROR_CODES = set(range(500, 600))
+
+
+class FeishuAPIError(Exception):
+    """Feishu API returned an unrecoverable error.
+
+    Args:
+        message: Human-readable error description.
+        code: Feishu API error code or HTTP status code.
+    """
+
+    def __init__(self, message: str, *, code: int) -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class FeishuAuthError(FeishuAPIError):
+    """Feishu API returned an authentication/authorization error (401/403).
+
+    Indicates the app credentials are invalid or the token has expired.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,7 +175,13 @@ class FeishuClient:
         text: str,
         receive_id_type: str = "chat_id",
     ) -> None:
-        """Send a text message via feishu REST API.
+        """Send a text message via feishu REST API with error classification.
+
+        Error handling strategy:
+        - 429 (rate limit): exponential backoff retry, max 3 attempts
+        - 401/403 (auth): raise FeishuAuthError immediately, no retry
+        - 5xx (server): retry once
+        - Other errors: raise FeishuAPIError immediately
 
         Args:
             receive_id: Target chat or user identifier.
@@ -153,7 +190,8 @@ class FeishuClient:
 
         Raises:
             RuntimeError: When the client has not been started.
-            ValueError: When the feishu API returns an error.
+            FeishuAuthError: When the feishu API returns 401/403.
+            FeishuAPIError: When the feishu API returns any other error.
         """
         if self._rest_client is None:
             raise RuntimeError("feishu client is not started")
@@ -169,11 +207,58 @@ class FeishuClient:
             .request_body(body) \
             .build()
 
-        response = self._rest_client.im.v1.message.create(request)
-        if not response.success():
-            raise ValueError(
-                f"feishu send_message failed: code={response.code}, "
-                f"msg={response.msg}"
+        max_attempts = _MAX_RATE_LIMIT_RETRIES
+        attempt = 0
+
+        while attempt < max_attempts:
+            response = self._rest_client.im.v1.message.create(request)
+            if response.success():
+                return
+
+            code: int = response.code
+            msg: str = response.msg
+
+            if code in _AUTH_ERROR_CODES:
+                raise FeishuAuthError(
+                    f"feishu auth error: code={code}, msg={msg}",
+                    code=code,
+                )
+
+            if code in _RATE_LIMIT_CODES:
+                attempt += 1
+                if attempt < max_attempts:
+                    backoff = _BACKOFF_BASE_SECONDS * (2 ** (attempt - 1))
+                    logger.warning(
+                        "feishu rate limited (code=%d), retrying in %.1fs "
+                        "(attempt %d/%d)",
+                        code, backoff, attempt, max_attempts,
+                    )
+                    time.sleep(backoff)
+                    continue
+                raise FeishuAPIError(
+                    f"feishu rate limit exceeded after {max_attempts} "
+                    f"attempts: code={code}, msg={msg}",
+                    code=code,
+                )
+
+            if code in _SERVER_ERROR_CODES:
+                attempt += 1
+                if attempt < _SERVER_ERROR_RETRIES:
+                    logger.warning(
+                        "feishu server error (code=%d), retrying once",
+                        code,
+                    )
+                    time.sleep(_BACKOFF_BASE_SECONDS)
+                    continue
+                raise FeishuAPIError(
+                    f"feishu server error: code={code}, msg={msg}",
+                    code=code,
+                )
+
+            # Non-retryable error
+            raise FeishuAPIError(
+                f"feishu API error: code={code}, msg={msg}",
+                code=code,
             )
 
     def _handle_message_event(self, event: Any) -> None:
