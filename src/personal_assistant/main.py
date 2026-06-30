@@ -2229,6 +2229,11 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     )
 
     runtime_dir = config.source_path.parent
+    # Shared GroupContextStore for FeishuAdapter (non-mention group message buffer)
+    # and InboundPipeline (context retrieval). Must be a single instance.
+    group_context_store = GroupContextStore(
+        db_path=runtime_dir / "group_context_buffer.sqlite3"
+    )
     # The shim builds per-session PromptSlots/enabled_tools/features from agent config
     # (决策 8).  Point it at the live pipeline._agents dict (set after the pipeline is
     # built below) so config-sync register_agent updates — e.g. enabling heartbeat/cron —
@@ -2236,9 +2241,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
     channel_registry = _build_channel_registry(
         config.channels,
         dedup_db_path=runtime_dir / "relay_dedup.sqlite3",
-        group_context_store=GroupContextStore(
-            db_path=runtime_dir / "group_context.sqlite3"
-        ),
+        group_context_store=group_context_store,
     )
     outbound_router = OutboundRouter(channel_registry)
     # Use SQLite-backed store so kernel session mappings survive gateway restarts
@@ -2289,9 +2292,7 @@ def build_runtime(config: LocalConfig) -> GatewayRuntime:
         outbound_router=outbound_router,
         run_queue=SessionRunQueue(),
         session_store=session_store,
-        group_context_store=GroupContextStore(
-            db_path=runtime_dir / "group_context_buffer.sqlite3"
-        ),
+        group_context_store=group_context_store,
         gateway_internal_port=_gateway_internal_port,
         # bugfix-429 决策2: product owns the default model; each turn falls back to
         # this when the agent has not selected one (config.llm.default_model).
