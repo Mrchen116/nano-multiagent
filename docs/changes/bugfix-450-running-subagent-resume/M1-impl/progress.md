@@ -41,5 +41,5 @@
     - 问题 4: integration 测试删除直接 drain stub，改用真实 runtime loop 观察第二次 LLM request，永久证明 pending follow-up 会被下一轮真实 LLM request 消费。
   - Visual/Interaction: N/A。
 - Rollback: 回退 code commit `7f9dadaf` 可恢复到 verifier pass 后状态。
-- Commits: fix=`7f9dadaf`
-- Next: 已准备 rebase/merge 到 `unit/bugfix-450`。
+- Commits: fix=`7f9dadaf`, docs=`3a94059e`, merge=`8ce9e54f`
+- Next: 已合入并 push 到 `unit/bugfix-450`。
