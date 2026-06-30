@@ -17,18 +17,18 @@ verifier 报告 CRITICAL issue: `main.py:2904-2910` 构造 `FeishuAdapter` 时�
 - 不 mock 的测试能捕获构造参数缺失这类 mock 无法发现的 bug
 
 ### Evidence
-- Tests: <待补充>
-- Entry: <待补充>
+- Tests: 48 passed (test_feishu_integration.py 7 + test_feishu_adapter.py 13 + test_feishu_client.py 17 + test_feishu_config.py 11)
+- Entry: PYTHONPATH=src python -c 验证 `_build_channel_registry` 不再抛 TypeError
 - Frontend State Matrix: N/A
 - Browser QA: N/A
 - E2E/Regression: N/A
 - Visual/Interaction: N/A
 
-### Rollback: <待补充>
+### Rollback: git revert 29dd732b
 
-### Commits: C1=<待补充>, C2=<待补充>, C3=<待补充>
+### Commits: C1=29dd732b, C2=29dd732b(同一commit, test+fix 因改动小合并)
 
-### Next: <待补充>
+### Next: R2 — 修复 WARNING: skill 缺 mkdir/move 命令
 
 ---
 
