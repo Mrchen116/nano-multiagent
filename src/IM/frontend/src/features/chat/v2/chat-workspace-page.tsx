@@ -476,6 +476,10 @@ export function ChatWorkspacePageV2() {
     }
   }, [streamState.messages]);
 
+  const visibleMessages = streamState.conversation_id === conversationId
+    ? streamState.messages
+    : [];
+
   // Seed the reducer with REST history whenever the active conversation or its
   // historical fetch changes.  Prefer the persistent cache, then fallback to
   // the current reducer state.
@@ -559,7 +563,7 @@ export function ChatWorkspacePageV2() {
       },
       onEvent: (event) => {
         const chatEvent = toChatWsEvent(event.eventType, event.payload, event.eventId);
-        if (chatEvent) {
+        if (chatEvent && chatEvent.conversation_id === conversationIdRef.current) {
           dispatch({ type: "event", event: chatEvent, sendersById: sendersByIdRef.current });
         }
         if (event.eventType === "node.status_changed") {
@@ -776,7 +780,7 @@ export function ChatWorkspacePageV2() {
         activeConversation ? (
           <MessagePane
             conversation={activeConversation}
-            messages={streamState.messages}
+            messages={visibleMessages}
             mentionCandidates={mentionCandidates}
             slashSkills={slashSkills}
             nodeName={headerAgentContext.nodeName}
