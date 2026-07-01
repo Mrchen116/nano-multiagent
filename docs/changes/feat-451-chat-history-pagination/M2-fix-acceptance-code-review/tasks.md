@@ -8,15 +8,15 @@
 
 ## 退出标准
 
-- [ ] `[reviewer]` 开着聊天页时，同会话新消息可实时出现在 UI；用户看历史时不打扰，用户在底部时自动跟底。
-- [ ] `[reviewer]` 移动端长按菜单在松手后仍可选择 Copy/fork，不被浏览器原生长按菜单或选择层破坏。
+- [x] `[reviewer]` 开着聊天页时，同会话新消息可实时出现在 UI；用户看历史时不打扰，用户在底部时自动跟底。
+- [x] `[reviewer]` 移动端长按菜单在松手后仍可选择 Copy/fork，不被浏览器原生长按菜单或选择层破坏。
 - [x] `[worker]` 历史加载进行中切换会话不复用旧 anchor。
 - [x] `[worker]` 重复 `onLoadOlder` / 同 cursor 请求被同步 guard 阻止。
 - [x] `[worker]` 会话切换 / 初始 metadata 未知时不错误显示 `No earlier messages`。
-- [ ] `[worker]` Copy 失败有可观察处理或安全兜底，en/zh 文案同步。
-- [ ] `[worker]` 补桌面端 Enter 发送独立测试。
-- [ ] `[worker]` 最窄 Vitest、`npm run test`、`npx tsc -b` 通过。
-- [ ] `[worker]` 真服务 + 真浏览器验证 blocking/major 路径，并记录 URL / viewport / 关键观察 / console 和 network 结果。
+- [x] `[worker]` Copy 失败有可观察处理或安全兜底，en/zh 文案同步。
+- [x] `[worker]` 补桌面端 Enter 发送独立测试。
+- [x] `[worker]` 最窄 Vitest、`npm run test`、`npx tsc -b` 通过。
+- [x] `[worker]` 真服务 + 真浏览器验证 blocking/major 路径，并记录 URL / viewport / 关键观察 / console 和 network 结果。
 
 ## 测试策略
 
@@ -77,7 +77,7 @@
 
 ### R2 — 移动菜单、Copy 失败反馈、桌面 Enter 与浏览器验收
 
-- 状态: DOING
+- 状态: DONE
 - 步骤:
   - C1: 为 touch release 后菜单保持可点、Copy/fork 可选、copy failure、desktop Enter send 补红测。
   - C2: 修复移动端 pointer/touch 菜单生命周期与原生 contextmenu/selection 抑制；新增 copy failure 可见反馈；简化冗余滚底条件。
