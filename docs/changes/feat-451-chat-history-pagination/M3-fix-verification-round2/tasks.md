@@ -62,7 +62,7 @@
 
 ### R1 — 会话切换与共享流隔离
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - C1: 为 delayed c2 history / old c1 message leak 与 out-of-conversation shared stream event 补红测。
   - C2: 让 MessagePane 只接收与 active conversation 匹配的 `streamState.messages`；共享 user stream 只 dispatch active conversation chat event。
