@@ -66,7 +66,7 @@
 
 ### R1 — 实时消息与历史分页状态正确性
 
-- 状态: TODO
+- 状态: DOING
 - 步骤:
   - C1: 为当前会话用户流事件追加、重复 `loadOlder` 同 cursor guard、会话切换 anchor reset、unknown metadata 空态补红测。
   - C2: 当前会话气泡更新改用共享用户流事件；增加同步 loading cursor guard；reset history refs / unknown metadata 状态。

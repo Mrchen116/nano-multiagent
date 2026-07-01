@@ -255,6 +255,68 @@ describe("MessagePane", () => {
       expect(scroller.scrollTop).toBe(afterAnchorOffset);
     });
 
+    it("clears an in-flight history anchor when switching conversations", () => {
+      const beforeAnchorOffset = 240;
+      const afterAnchorOffset = 640;
+      let anchorOffset = beforeAnchorOffset;
+      const { container, rerender } = render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+      const scroller = container.querySelector(".chat-pane-messages") as HTMLElement;
+      setScrollMetrics(scroller, {
+        scrollTop: beforeAnchorOffset,
+        scrollHeight: 900,
+        clientHeight: 300
+      });
+      const anchor = screen.getByTestId("message-bubble-hist-4").closest(".chat-bubble") as HTMLElement;
+      Object.defineProperty(anchor, "offsetTop", {
+        configurable: true,
+        get: () => anchorOffset,
+      });
+
+      rerender(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory
+          isLoadingHistory
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      anchorOffset = afterAnchorOffset;
+      rerender(
+        <MessagePane
+          conversation={{ ...DIRECT_CONV, id: "c-next", title: "Writer" }}
+          messages={[
+            {
+              ...MANY_MESSAGES[3]!,
+              conversation_id: "c-next",
+              content: "next conversation message",
+              created_at: "2026-01-02T00:00:00Z"
+            }
+          ]}
+          mentionCandidates={[]}
+          hasMoreHistory={false}
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      expect(scroller.scrollTop).not.toBe(afterAnchorOffset);
+    });
+
     it("renders loading and no-more history status at the top of the message list", () => {
       const { rerender } = render(
         <MessagePane
@@ -281,6 +343,22 @@ describe("MessagePane", () => {
         />
       );
       expect(screen.getByText(/No earlier messages/i)).toBeInTheDocument();
+    });
+
+    it("does not render no-more history status while history metadata is unknown", () => {
+      render(
+        <MessagePane
+          conversation={DIRECT_CONV}
+          messages={MANY_MESSAGES}
+          mentionCandidates={[]}
+          hasMoreHistory={undefined}
+          isLoadingHistory={false}
+          onLoadOlder={() => {}}
+          onSend={() => {}}
+        />
+      );
+
+      expect(screen.queryByText(/No earlier messages/i)).not.toBeInTheDocument();
     });
   });
 

@@ -335,6 +335,32 @@ describe("ChatWorkspacePage v2 — integration", () => {
     await waitFor(() => expect(conversationGetCount(fetchSpy)).toBeGreaterThan(before));
   });
 
+  it("renders a same-conversation message.created event from the shared user stream in the open chat", async () => {
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await waitFor(() => expect(capturedStatusHandler).toBeTruthy());
+
+    act(() => {
+      capturedStatusHandler!({
+        eventType: "message.created",
+        payload: {
+          conversation_id: "c1",
+          message_id: "m-shared-live",
+          sender_user_id: "user-uuid-planner",
+          sender_type: "agent",
+          content: "shared stream live reply",
+          tool_calls: [],
+          token_usage: null,
+          delivery_status: "completed",
+          created_at: "2026-05-01T00:01:30Z"
+        },
+        eventId: 44
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText("shared stream live reply")).toBeInTheDocument());
+  });
+
   // Fix B: v2 订阅必须注册 onResyncRequired，否则断线重连后 IM 发 resync 命令时
   // v2 侧边栏不强制刷新，可能停在断线期间错过消息的旧状态。
   it("v2 subscription registers onResyncRequired for post-reconnect refresh", async () => {
@@ -787,6 +813,86 @@ describe("ChatWorkspacePage v2 — integration", () => {
     expect(messageGets[1]!.url).toContain("limit=50");
     expect(messageGets[1]!.url).toContain("before_message_id=new-1");
     expect(messageGets[1]!.url).not.toContain("mark_as_read=true");
+  });
+
+  it("does not issue duplicate older-history requests for the same cursor before loading state commits", async () => {
+    const newestPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`guard-new-${idx + 1}`, idx + 50));
+    const olderPage = Array.from({ length: 50 }, (_, idx) => historyMessage(`guard-old-${idx + 1}`, idx, `guard older ${idx + 1}`));
+    let resolveOlder!: () => void;
+    const olderResponse = new Promise<Response>((resolve) => {
+      resolveOlder = () => resolve(jsonResponse({ items: olderPage, next_before_message_id: null }));
+    });
+    const sent: { url: string; init?: RequestInit }[] = [];
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      sent.push({ url, init });
+      if (/\/im\/v1\/conversations\/c1\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        if (url.includes("before_message_id=guard-new-1")) {
+          return olderResponse;
+        }
+        return jsonResponse({ items: newestPage, next_before_message_id: "guard-new-1" });
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    (fetchSpy as unknown as { sent: typeof sent }).sent = sent;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    renderAtRoute("/chat/c1");
+    expect(await screen.findByText("history guard-new-1")).toBeInTheDocument();
+    const scroller = document.querySelector(".chat-pane-messages") as HTMLElement;
+    const metrics = { scrollTop: 100, scrollHeight: 1200, clientHeight: 300 };
+    Object.defineProperty(scroller, "scrollTop", {
+      configurable: true,
+      get: () => metrics.scrollTop,
+      set: (value) => {
+        metrics.scrollTop = Number(value);
+      }
+    });
+    Object.defineProperty(scroller, "scrollHeight", {
+      configurable: true,
+      get: () => metrics.scrollHeight
+    });
+    Object.defineProperty(scroller, "clientHeight", {
+      configurable: true,
+      get: () => metrics.clientHeight
+    });
+
+    act(() => {
+      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+      scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+
+    await waitFor(() => {
+      const olderGets = sent.filter((entry) => entry.url.includes("before_message_id=guard-new-1"));
+      expect(olderGets).toHaveLength(1);
+    });
+    act(() => resolveOlder());
+    await screen.findByText("guard older 1");
+  });
+
+  it("does not show no-more history while a newly selected conversation's history metadata is still unknown", async () => {
+    let resolveC2!: () => void;
+    const c2Messages = new Promise<Response>((resolve) => {
+      resolveC2 = () => resolve(jsonResponse({ items: [], next_before_message_id: null }));
+    });
+    fetchSpy = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (/\/im\/v1\/conversations\/c2\/messages/.test(url) && (!init || init.method === undefined || init.method === "GET")) {
+        return c2Messages;
+      }
+      return mockFetch()(input, init);
+    }) as ReturnType<typeof mockFetch>;
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const user = userEvent.setup();
+    renderAtRoute("/chat/c1");
+    await screen.findByText("Hi Planner");
+    await user.click(screen.getByRole("button", { name: /Research Squad/ }));
+
+    expect(screen.getByRole("heading", { name: "Research Squad" })).toBeInTheDocument();
+    expect(screen.queryByText(/No earlier messages/i)).not.toBeInTheDocument();
+    act(() => resolveC2());
+    await screen.findByText(/No messages yet/i);
   });
 
   it("feat-438: group ⚙ opens Group settings (does not navigate to an agent config)", async () => {
