@@ -50,18 +50,18 @@
 
 ### R3 — Gateway 外部 session identity、sync_only 与 group buffer
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: R1/R2 已让 IM shadow 会话和 relay metadata 可用；R3 需要让 Gateway 不再把 `web_relay` 的 IM conversation id 当 kernel/session/buffer 身份，并让飞书群聊未 @ 消息进入统一的 sync+buffer 短路路径。用户巡检要求确认 `feishu_client.py` 的改动仅为真实 Feishu SDK event 提供 `sender_display_name` 输入。
+- Decision: `build_session_key` 与 Pipeline group buffer key 优先使用 `metadata.external_source + metadata.external_chat_id + agent_id`，普通 channel 保持旧 key；FeishuAdapter 对未 @ 群消息发出 `metadata.sync_only=true` 的 `InboundMessage`，不再本地 append/drain `GroupContextStore`；Pipeline 对 `sync_only` 只写 group buffer 后返回 `None`，不创建 kernel session/run；Feishu config 必填 `ownerOpenId` 并传入 adapter，owner 消息显示名映射为「你」；`FeishuClient` 只新增从真实 SDK sender 上提取 display name 的字段，供 IM shadow sender display 使用。
+- Rationale: session/buffer identity 和 delivery identity 必须分离，才能让飞书入口和 IM shadow 入口复用同一 kernel session 且共享未 @ 背景；adapter 若继续本地 buffer 会和 Pipeline sync_only 重复写入/重复 drain。`sender_display_name` 必须从真实飞书 event 进入 adapter metadata，否则外部群成员消息无法在 IM 历史中显示原发送者名，owner 也无法稳定渲染为「你」。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
+  - Tests: Baseline before R3: `pytest -m "not e2e"` -> 3212 passed, 1 skipped, 22 deselected. R3 red: `pytest -q tests/unit/personal_assistant/test_gateway_channel_and_session.py::test_build_session_key_prefers_external_identity_metadata tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py::test_sync_only_group_message_buffers_without_creating_run tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py::test_external_group_buffer_key_is_shared_across_feishu_and_shadow_im tests/unit/test_feishu_adapter.py::TestFeishuAdapterGroupMention::test_group_no_mention_delivers_sync_only_inbound tests/unit/test_feishu_adapter.py::TestFeishuAdapterGroupMention::test_owner_open_id_maps_sender_display_name_to_you tests/unit/test_feishu_config.py::TestParseFeishuChannels::test_missing_owner_open_id_raises` -> 6 failed for expected missing external identity/sync_only/ownerOpenId behavior. R3 green: same command -> 6 passed. R3 related suite: `pytest -q tests/unit/personal_assistant/test_gateway_channel_and_session.py tests/unit/personal_assistant/test_gateway_pipeline_channel.py tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py tests/unit/personal_assistant/test_gateway_pipeline_no_fanout.py tests/unit/test_feishu_adapter.py tests/unit/test_feishu_adapter_send.py tests/unit/test_feishu_client.py tests/unit/test_feishu_config.py tests/unit/test_feishu_integration.py` -> 90 passed.
+  - Entry: Unit-level Gateway entry tests prove IM shadow relay and Feishu native inbound now produce the same external session key; Feishu non-mention group messages enter Pipeline as `sync_only`, adapter `GroupContextStore.append/drain` is not called, and Pipeline stores the message under `feishu:<external_chat_id>:<agent_id>` before short-circuiting.
   - Frontend State Matrix: N/A
   - Browser QA: N/A
-  - E2E/Regression: TODO
+  - E2E/Regression: Regression coverage in `tests/unit/personal_assistant/test_gateway_channel_and_session.py`, `tests/unit/personal_assistant/test_gateway_pipeline_sender_prefix.py`, `tests/unit/test_feishu_adapter.py`, `tests/unit/test_feishu_config.py`, and `tests/unit/test_feishu_integration.py`.
   - Visual/Interaction: N/A
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
+- Rollback: revert `f5aacf0f` then `905e14ca`.
+- Commits: C1=905e14ca, C2=f5aacf0f, C3=TODO
 - Next: R4
 
 ### R4 — Shadow conversation 同步、run context 与出站路由

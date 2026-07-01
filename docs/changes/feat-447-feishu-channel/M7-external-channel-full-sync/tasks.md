@@ -43,7 +43,7 @@
 
 ### R3 — Gateway 外部 session identity、sync_only 与 group buffer
 
-- 状态: TODO
+- 状态: DONE
 - 步骤: session key / group buffer key 外部身份优先；FeishuAdapter 去掉本地未 @ buffer，改走 sync_only；Pipeline sync_only 只同步+buffer+短路；ownerOpenId / sender_display_name / chat title metadata 接入。
 - 验证: session key、Feishu adapter、Pipeline sync_only/group buffer/config 单测红转绿。
 
