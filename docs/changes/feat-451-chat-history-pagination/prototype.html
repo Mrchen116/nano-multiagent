@@ -471,8 +471,22 @@
     const toast = document.getElementById('toast');
     const input = document.getElementById('input');
     const form = document.getElementById('composerForm');
-    let loadedCount = 0;
+    const INITIAL_MESSAGE_COUNT = 50;
+    const PAGE_SIZE = 50;
+    const TOTAL_OLDER_PAGES = 3;
+    let loadedPages = 0;
     let hasMore = true;
+
+    function createMessageWrap({ id, isUser, text, time }) {
+      const wrap = document.createElement('div');
+      wrap.className = `bubble-wrap ${isUser ? 'user' : 'agent'}`;
+      if (isUser) {
+        wrap.innerHTML = `<div class="bubble user" data-id="${id}">${text}<small>${time}</small></div>`;
+      } else {
+        wrap.innerHTML = `<span class="avatar" style="background:#4f46e5">Pl</span><div class="bubble agent" data-id="${id}">${text}<small>${time}</small></div>`;
+      }
+      return wrap;
+    }
 
     function seedMessages() {
       const seed = document.getElementById('seed');
@@ -488,21 +502,41 @@
         "复制/fork 统一进长按菜单。",
         "我先把 prototype 跑通。"
       ];
-      for (let i = 0; i < 25; i++) {
+      for (let i = 0; i < INITIAL_MESSAGE_COUNT; i++) {
         const isUser = i % 3 === 1;
-        const wrap = document.createElement('div');
-        wrap.className = `bubble-wrap ${isUser ? 'user' : 'agent'}`;
         const mm = 8 + Math.floor(i / 6);
         const ss = (i * 13) % 60;
         const time = `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
-        if (isUser) {
-          wrap.innerHTML = `<div class="bubble user" data-id="seed-${i}">${texts[i % texts.length]}<small>${time}</small></div>`;
-        } else {
-          wrap.innerHTML = `<span class="avatar" style="background:#4f46e5">Pl</span><div class="bubble agent" data-id="seed-${i}">${texts[i % texts.length]}<small>${time}</small></div>`;
-        }
-        seed.appendChild(wrap);
+        seed.appendChild(createMessageWrap({
+          id: `seed-${i}`,
+          isUser,
+          text: texts[i % texts.length],
+          time
+        }));
       }
       scrollToBottom();
+    }
+
+    function prependOlderPage() {
+      const seed = document.getElementById('seed');
+      const fragment = document.createDocumentFragment();
+      const page = loadedPages + 1;
+      for (let i = 0; i < PAGE_SIZE; i++) {
+        const isUser = i % 4 === 2;
+        const minute = 7 - loadedPages;
+        const second = (i * 7) % 60;
+        fragment.appendChild(createMessageWrap({
+          id: `older-p${page}-${i}`,
+          isUser,
+          text: `更早的历史消息 p${page}-${String(i + 1).padStart(2, '0')}（每页 50 条模拟）`,
+          time: `${String(minute).padStart(2, '0')}:${String(second).padStart(2, '0')}`
+        }));
+      }
+      seed.insertBefore(fragment, seed.firstChild);
+      loadedPages++;
+      if (loadedPages >= TOTAL_OLDER_PAGES) {
+        hasMore = false;
+      }
     }
 
     function isNearBottom() {
@@ -513,25 +547,16 @@
     }
 
     messagesEl.addEventListener('scroll', () => {
-      // 触发阈值：距顶部不到容器视口高度的 30%（约飞书/微信的手感）
-      const threshold = messagesEl.clientHeight * 0.3;
-      if (messagesEl.scrollTop < threshold && hasMore && loadingEl.style.display !== 'flex') {
+      // 触发阈值：滚动进入已加载内容的上方三分之一，避免用户贴顶后才看到加载。
+      const scrollableHeight = messagesEl.scrollHeight - messagesEl.clientHeight;
+      const threshold = scrollableHeight / 3;
+      if (messagesEl.scrollTop <= threshold && hasMore && loadingEl.style.display !== 'flex') {
         loadingEl.style.display = 'flex';
         setTimeout(() => {
           loadingEl.style.display = 'none';
-          loadedCount++;
-          if (loadedCount >= 2) {
-            hasMore = false;
-            noMoreEl.style.display = 'flex';
-            return;
-          }
           const anchor = messagesEl.querySelector('.bubble-wrap');
-          const wrap = document.createElement('div');
-          wrap.className = 'bubble-wrap agent';
-          wrap.innerHTML = `
-            <span class="avatar" style="background:#4f46e5">Pl</span>
-            <div class="bubble agent" data-id="older-${loadedCount}">更早的历史消息 #${loadedCount}（模拟）<small>09:${10 - loadedCount}</small></div>`;
-          messagesEl.insertBefore(wrap, loadingEl.nextSibling);
+          prependOlderPage();
+          if (!hasMore) noMoreEl.style.display = 'flex';
           if (anchor) {
             messagesEl.scrollTop = anchor.offsetTop - 20;
           }

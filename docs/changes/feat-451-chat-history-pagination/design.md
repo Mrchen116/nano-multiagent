@@ -21,7 +21,7 @@
 - `src/IM/frontend/src/features/chat/v2/chat-api.ts`
   - `listMessages` 已经支持 `limit` / `beforeMessageId` / `markAsRead`（`chat-api.ts:35-58`），后端返回 `{items, next_before_message_id}`。
 - `src/IM/frontend/src/features/chat/v2/chat-stream-reducer.ts`
-  - 纯 WS 事件 reducer；`applyWsEvent` 处理 WS 事件并 dedupe/排序。**本单元不改此文件。**
+  - 纯 WS 事件 reducer；`applyWsEvent` 处理 WS 事件并 dedupe/排序，`compareMessages` 提供统一排序。**本单元不改此文件，只复用它导出的排序/WS 合并能力。**
 - `src/IM/frontend/src/styles/global.css` / i18n JSON
   - 需补充 loading indicator 样式与文案；需给 textarea 增加 auto-grow 样式支持。
 
@@ -54,16 +54,18 @@
 graph TD
     subgraph "IM 前端 chat/v2"
         CW[chat-workspace-page.tsx]
+        ISR[内联 streamReducer]
         MP[message-pane.tsx]
         CA[chat-api.ts]
-        SR[chat-stream-reducer.ts]
+        CSR[chat-stream-reducer.ts compareMessages/applyWsEvent]
         MB[MessageBubble + 新增长按菜单]
     end
     CW -->|listMessages limit/beforeMessageId| CA
-    CW -->|dispatch prepend_history| SR
+    CW -->|dispatch prepend_history| ISR
+    ISR -->|复用排序/WS event 合并| CSR
     CW -->|messages + 分页状态| MP
     MP -->|滚动/加载/滚底/自动增高| MB
-    SR -->|compareMessages 排序| CW
+    ISR -->|排序后的 messages| CW
 ```
 
 本方案的核心思路：保留现有 `streamReducer` 作为「历史 + 实时」单一数据源，在其上叠加手动游标分页；分页状态、加载守卫、滚动位置保持集中在 workspace，MessagePane 只负责感知滚动并触发回调。
@@ -78,11 +80,11 @@ graph TD
 - **拒绝**：`useInfiniteQuery` —— 与现有 reducer 合并模型冲突，且更早的页不需要长期缓存。
 - **风险**：没有缓存更早的页；用户重新打开会话或反复上下滚动会重复请求。该成本可接受，且未来如需缓存可再引入独立 query key。
 
-### 决策 2: 滚动到距顶部约 30% 视口高度时自动触发加载
+### 决策 2: 滚动进入已加载内容的上方三分之一时自动触发加载
 
-**选了在 `chat-pane-messages` 的 `scroll` 事件里判断 `scrollTop < clientHeight * 0.3` 触发 `onLoadOlder()`。**
+**选了在 `chat-pane-messages` 的 `scroll` 事件里判断 `scrollTop <= (scrollHeight - clientHeight) / 3` 触发 `onLoadOlder()`。**
 
-- **理由**：飞书/微信类体验的提前触发阈值大致在一屏的 20%-30% 左右。用相对值而非固定 px 是因为容器高度随设备变化——写死 100 px 在高屏上几乎要滚到顶才能触发，体验差。30% 在 ~600 px 视口中约 180 px，在 ~900 px 视口中约 270 px，都是合理的一条消息的预触发距离。
+- **理由**：实测 `clientHeight * 0.3` 仍然太贴近顶部，用户体感接近“拉到顶才加载”。用可滚动高度的上方三分之一作为阈值，能在滚动条进入上段时提前发起请求，给 50 条分页留出网络和渲染缓冲。
 - **拒绝**：`scrollTop < 100`（固定 px）—— 高屏上阈值太小，用户感知为「滚到顶才加载」；`scrollTop === 0` —— 会出现「到顶后停一下才加载」的顿挫感；IntersectionObserver —— 对单一固定容器属于过度设计，scroll 事件足够且更易测试。
 - **风险**：快速小幅度抖动可能多次进入阈值；用 `isLoadingHistory` guard 规避。
 - **实现注意**：若消息总数较少、列表内容未撑出滚动条，scroll 事件不会触发。组件 mount 或 resize 时，如容器未填满且 `hasMoreHistory` 为 true，应自动触发一次 `onLoadOlder()`，避免有更早消息却无法加载的死锁。
@@ -148,7 +150,7 @@ const [hasMoreHistory, setHasMoreHistory] = useState<boolean>(true);
 const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(false);
 ```
 
-`streamReducer` 新增 action：
+`chat-workspace-page.tsx` 内联 `streamReducer` 新增 action：
 
 ```ts
 | { type: "prepend_history"; messages: Message[] }
@@ -164,7 +166,7 @@ sequenceDiagram
     participant API as chat-api (listMessages)
     participant SR as streamReducer
 
-    User->>MP: 向上滚动到距顶部 100px
+    User->>MP: 向上滚动进入已加载内容上方 1/3
     MP->>CW: onLoadOlder()
     CW->>API: listMessages(conv, {limit:50, beforeMessageId: oldest, markAsRead:false})
     API-->>CW: {items, next_before_message_id}
@@ -203,7 +205,7 @@ flowchart TD
   - 消息列表顶部 loading indicator 与「没有更多消息」空态。
   - 长按/右键消息气泡弹出的操作菜单（复制 / fork）。
   - composer 多行自动增高与 Enter 发送效果。
-  - 演示控件：手动触发「加载更早」与「新消息到达」，验证阅读位置保持 / 自动滚底策略。
+  - 演示控件：手动触发「加载更早」与「新消息到达」，验证阅读位置保持 / 自动滚底策略；原型初始化 50 条当前消息，并模拟 3 页历史，每页 50 条。
 
 ## 契约层增量 (delta-spec)
 
@@ -235,10 +237,10 @@ flowchart TD
 | IM 服务 | `pkill -f "uvicorn IM.app:app"` | `PYTHONPATH=src python -m uvicorn IM.app:app --host 0.0.0.0 --port 8011` | `curl http://127.0.0.1:8011/im/v1/health` |
 | 前端 dev server | `pkill -f "vite"` | `cd src/IM/frontend && npm run dev` | 打开 `http://127.0.0.1:5173` |
 
-**Review 驱动方式**: 端到端真栈。reviewer 在浏览器打开聊天页，进入消息数 > 50 的会话，手动向上滚动触发加载，验证阅读位置保持、新消息滚底、移动端回车发送、长按菜单复制/fork 等行为。
+**Review 驱动方式**: 端到端真栈。reviewer 在浏览器打开聊天页，进入消息数 > 50 的会话，手动向上滚动触发加载，验证阅读位置保持、新消息滚底、移动端回车发送、桌面端 Enter/Shift+Enter、长按菜单复制/fork 等行为。
 
 ## Milestones
 
 | ID | 标题 | 依赖 | 并行组 | 范围 | 退出标准 |
 |---|---|---|---|---|---|
-| feat-451-M1 | impl | — | A | `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx`<br>`src/IM/frontend/src/features/chat/v2/components/message-pane.tsx`<br>`src/IM/frontend/src/features/chat/v2/chat-stream-reducer.ts`<br>`src/IM/frontend/src/features/chat/v2/chat-api.test.ts`<br>`src/IM/frontend/src/features/chat/v2/chat-stream-reducer.test.ts`<br>`src/IM/frontend/src/features/chat/v2/components/message-pane.test.tsx`<br>`src/IM/frontend/src/styles/global.css`<br>`src/IM/frontend/src/i18n/en.json` / `zh.json` | `[reviewer]` 在消息数 > 50 的会话中向上滚动到接近顶部，更早消息自动加载并插入顶部，阅读位置保持稳定。<br>`[reviewer]` 新消息到达时，若用户已在底部则自动滚底，若正在看历史则不打扰。<br>`[reviewer]` 移动端在 composer 按 Enter 发送消息，输入框自动增高。<br>`[reviewer]` 长按/右键消息气泡出现「复制」菜单；移动端单聊里长按 agent 完成回复出现「fork」；桌面端保留 hover fork 按钮不变。<br>`[worker]` `npm run test`（vitest）在 `src/IM/frontend` 通过。<br>`[worker]` `npx tsc -b` 无类型错误。 |
+| feat-451-M1 | impl | — | A | `src/IM/frontend/src/features/chat/v2/chat-workspace-page.tsx`<br>`src/IM/frontend/src/features/chat/v2/components/message-pane.tsx`<br>`src/IM/frontend/src/features/chat/v2/chat-api.test.ts`<br>`src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx`<br>`src/IM/frontend/src/features/chat/v2/components/message-pane.test.tsx`<br>`src/IM/frontend/src/styles/global.css`<br>`src/IM/frontend/src/i18n/en.json` / `zh.json` | `[reviewer]` 在消息数 > 50 的会话中向上滚动进入已加载内容上方 1/3，更早消息自动加载并插入顶部，阅读位置保持稳定。<br>`[reviewer]` 新消息到达时，若用户已在底部则自动滚底，若正在看历史则不打扰。<br>`[reviewer]` 移动端在 composer 按 Enter 发送消息，输入框自动增高；桌面端 Enter 发送、Shift+Enter 换行保持可用。<br>`[reviewer]` 长按/右键消息气泡出现「复制」菜单；移动端单聊里长按 agent 完成回复出现「fork」；桌面端保留 hover fork 按钮不变。<br>`[worker]` `npm run test`（vitest）在 `src/IM/frontend` 通过。<br>`[worker]` `npx tsc -b` 无类型错误。 |
