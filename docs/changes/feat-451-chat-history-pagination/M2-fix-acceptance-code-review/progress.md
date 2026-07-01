@@ -13,18 +13,18 @@
 
 ## R1 — 实时消息与历史分页状态正确性
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: 修复 reviewer blocking 的同会话新消息不可见问题，以及 code review confirmed 的 history anchor 泄漏、同 cursor 重复请求、metadata unknown 误显 no-more 三项 correctness bug。
+- Decision: 当前聊天气泡不再开启独立 `openChatStream`；改为复用 `attachUserConversationStream` 的 owner-scoped 用户流，把 `message.*` / tool / thinking / permission 事件转换为 `WsEvent` 后交给同一个 reducer。历史分页改为三态 `hasMoreHistory`（unknown / true / false），并用同步 `historyRequestRef` guard 同一会话同 cursor 的并发请求；会话切换时同步 reset loading / cursor / request / MessagePane anchor refs。
+- Rationale: 共享用户流已经承载侧边栏刷新、resync、node/agent status，且具备真实浏览器需要的 owner token 生命周期；会话内气泡沿用该通道可消除双 socket 分叉。历史分页的 bug 都源于仅靠 async React state 表达“正在请求”和把 unknown 折叠为 false，必须用同步 ref 和明确 unknown 状态建模。
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
-  - Frontend State Matrix: TODO
-  - Browser QA: TODO
-  - E2E/Regression: TODO
-  - Visual/Interaction: TODO
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
+  - Tests: `cd src/IM/frontend && npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` passed: 2 files / 95 tests. New red→green coverage includes shared user stream same-conversation append, duplicate older-history guard, conversation-switch unknown metadata, MessagePane anchor reset, and MessagePane unknown metadata no-more suppression.
+  - Entry: `ChatWorkspacePageV2` now consumes live message events through shared user stream; `MessagePane` receives `hasMoreHistory` as boolean/null.
+  - Frontend State Matrix: loading/empty/missing nullable data covered by targeted component/integration tests; desktop/mobile scroll-follow still covered by existing MessagePane tests.
+  - Browser QA: pending R2 C3 combined true-browser run for reviewer blocking/major scenarios.
+  - E2E/Regression: `cd src/IM/frontend && npx tsc -b` passed.
+  - Visual/Interaction: no visual asset changes; scroll behavior regressions covered by MessagePane tests for off-bottom no disturb and bottom follow.
+- Rollback: Revert `0e831b65` and C1 test commit `2d32b995` if the shared stream conversion causes live event regressions; this restores the previous independent `openChatStream` path and previous history state semantics.
+- Commits: C1=`2d32b995`, C2=`0e831b65`, C3=`70e281f5`
 - Next: R2
 
 ## R2 — 移动菜单、Copy 失败反馈、桌面 Enter 与浏览器验收
