@@ -236,3 +236,106 @@ No in-unit acceptance issues found in Round 2.
 ## Recommended Next Step
 
 Proceed toward landing after the normal orchestrator document-sync gate. No Round 3 product re-review is required for feat-451 acceptance.
+
+---
+
+# Round 3 — 2026-07-02
+
+## Verdict
+
+- Verdict: `fail`
+- Highest Required Action: `fix-implementation`
+- Reviewer mode: full, focused Round 3 recheck after M3.
+- Prior result inherited: Round 2 was `pass`; this round focused on M3-visible paths around conversation switching and scroll/realtime correctness.
+- Tested entry: Web IM via Vite dev server `http://127.0.0.1:54550/chat/...` against isolated IM `127.0.0.1:54549` in the unit worktree.
+- Test data: independent user `feat451r3d_1782925907`; Conversation A with 75 seeded historical messages, Conversation B with 17 messages, and a fresh delayed Conversation C with 5 messages. A second user was added to Conversation A for external live-message arrival.
+
+## Runbook Notes
+
+- Services were restarted for this round on isolated ports: IM `127.0.0.1:54549`, Vite `127.0.0.1:54550`.
+- Vite was started in real IM mode with `VITE_CHAT_API_MODE=im` and `VITE_IM_API_BASE_URL=http://127.0.0.1:54549`.
+- Browser loaded the Vite dev entry `/src/main.tsx` from this worktree.
+- Playwright used the local system Chrome executable because Playwright's bundled Chromium cache was not installed in this environment.
+
+## User Journeys Exercised
+
+1. Conversation switch isolation: opened Conversation A, switched to B, then created a fresh C conversation and delayed C's history response in the browser to verify that C's pane did not show A messages while C history was pending.
+2. Realtime and scroll policy: while reading older content in Conversation A, created a same-conversation message through the public IM API, then repeated with a second user participant to simulate another user/external sender.
+3. Basic regression spot checks: scrolled A upward to load earlier history and reach `No earlier messages`; right-clicked a desktop bubble for Copy; opened mobile viewport and long-pressed a bubble to confirm Copy remained visible after release.
+
+## Issues
+
+### Issue 1 — Open chat pane does not render same-conversation live messages
+
+- Severity: `blocking`
+- Regression Relation: `direct`
+- Recommended Action: `fix-implementation`
+- Action Rationale: The unit and M3 both require same-conversation live arrivals to update the already-open chat while preserving scroll position. In Round 3, the conversation list preview updated, but the active message pane did not render the new message, so neither "do not jump while reading history" nor "follow bottom when already at bottom" can be accepted from the user perspective.
+
+Reproduction:
+
+1. Open `http://127.0.0.1:54550/chat/a829fba9a89b46deb47ae992c0be1b1c`.
+2. Scroll the message list away from the bottom into older loaded history.
+3. Create `R3 external retry live` in the same conversation through `POST /im/v1/conversations/{id}/messages`.
+4. Wait 3 seconds.
+5. Add a second user participant and create `R3 other-user live` from that second user in the same conversation.
+6. Wait another 3.5 seconds.
+
+Expected:
+
+- The new same-conversation message appears in the open message pane.
+- If the user is reading history, the pane stays at the current reading position.
+- If the user is at the bottom, the pane follows to the new bottom.
+
+Actual:
+
+- The sidebar preview updated to `R3 external retry live` / `R3 other-user live`.
+- The active message pane stayed on historical messages (`R3 A history ...`) and did not contain either live message.
+- The browser console repeatedly logged user-stream WebSocket handshake failures against both the Vite origin and IM origin.
+- Because the message never appeared in the pane, the scroll policy itself cannot be accepted for live arrivals.
+
+## Round 3 Focus Coverage
+
+### Requirement: 新消息到达不打扰正在翻看历史的用户 — group result: `fail`
+
+| Scenario | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 用户正在看历史时收到新消息 | `spec.md`; M3 tasks around scroll state correctness | Desktop browser stayed off-bottom in Conversation A; same-conversation messages were created via the public IM API, first as the current user and then as a second user participant. | Sidebar preview updated, but `.chat-pane-messages` did not include `R3 external retry live` or `R3 other-user live` after waiting. Console showed user-stream WebSocket handshake failures. | `fail` | The viewport was not disturbed, but only because the live message never rendered in the active pane. |
+| 用户在底部时收到新消息 | `spec.md`; M3 tasks around scroll state correctness | Not accepted after the off-bottom same-conversation live path failed. | The prerequisite user-visible live append did not work in the open pane. | `fail` | Bottom-follow cannot be accepted when the live message does not arrive in the pane. |
+
+### M3 Focus: 会话切换期间不显示旧会话消息 — result: `pass`
+
+| Path | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 从会话 A 切到新会话 C，C 历史未返回前不显示 A 旧消息 | M3 milestone exit criteria | Opened A, then navigated to fresh C while delaying C messages response by 2.5s. | C pane showed `R3 Conversation C Pending` with `No messages yet`; message area had no `R3 A history`. After response, it showed `R3 C history 001` through `005`. | `pass` | This directly covers the M3 conversation-switch leak from a user-visible angle. |
+| 从 A 切到 B 后继续使用 | User prompt focus | Switched from A to B and waited for B history. | B pane contained `R3 B history 001` through `017` and no A messages. | `pass` | B had loaded too quickly to observe pending state, so the delayed C check above covers pending. |
+
+### M3 Focus: 发送失败 / 无新增消息后的 stale force-scroll — result: `inconclusive`
+
+| Path | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 发送失败/无新增消息后，下一条外部消息不因 stale force-scroll 拉到底 | User prompt focus; M3 milestone exit criteria | Intended browser journey: fail a send/no-op append, stay off-bottom, then inject external same-conversation message. | Could not produce valid user-visible evidence because external same-conversation messages did not render in the active pane at all. | `inconclusive` | This remains blocked by Issue 1; once live append works, this path needs re-review. |
+
+### Round 2 Regression Spot Checks — result: `pass-with-limits`
+
+| Path | Expected Source | Verification | Evidence | Result | Notes |
+|---|---|---|---|---|---|
+| 历史分页没有明显回归 | Round 2 pass inheritance + user prompt | In Conversation A, initial pane had 50 bubbles. Scrolling to the top loaded older history. | Bubble count increased to 78; pane showed `R3 A history 001` and `No earlier messages`; it did not jump to bottom. | `pass` | Basic pagination still works. |
+| 移动长按 Copy 菜单没有明显回归 | Round 2 pass inheritance + user prompt | Mobile `390x844` viewport long-pressed a bubble, held, then released. | Copy was visible while holding and remained visible after release. | `pass` | Clipboard read returned `CLIPBOARD_ERR` in headless Chrome permission context, so this round only confirms menu persistence. |
+| 移动 fork 入口 | Round 2 pass inheritance + user prompt | Not expanded after Issue 1 blocked the M3 live-message path. | Round 2 had passed real mobile fork. Round 3 did not create a fresh direct-agent/Gateway fork journey. | `not-applicable` | No new fork-specific regression was observed, but this path was not fully re-run in Round 3. |
+
+## Side Findings
+
+- The active page's conversation list reflected externally created messages even when the message pane did not, which made the failure visible as an inconsistent UI state: sidebar says a new message arrived, but the open thread does not show it.
+- Headless Chrome did not allow reading clipboard contents after Copy in this run; I treated this as an environment permission limit, not a product issue, because the menu behavior was the focus of the Round 3 spot check.
+
+## Upper-Level Document Sync
+
+- [x] `SPEC.md` (cross-package top architecture): no update needed; this unit changes IM frontend user behavior only.
+- [x] `docs/specs/im/spec.md` (canonical IM behavior contract): still needs final orchestrator sync before landing; Round 3 does not change the expected contract.
+- [x] `AGENTS.md` / `CLAUDE.md`: no update needed.
+- [x] `docs/SPEC_GUIDE.md`: no update needed.
+
+## Recommended Next Step
+
+Route back to implementation. Re-review is required after the open chat pane renders same-conversation live arrivals again; the stale force-scroll path should be rechecked only after that prerequisite passes.
