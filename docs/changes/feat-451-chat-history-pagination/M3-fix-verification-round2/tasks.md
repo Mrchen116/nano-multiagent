@@ -8,14 +8,14 @@
 
 ## 退出标准
 
-- [ ] `[verifier]` 切换会话时，新会话历史请求未返回前不显示旧会话消息。
-- [ ] `[worker]` 共享 user stream 事件不会在 reducer 尚未绑定当前会话时污染消息列表。
-- [ ] `[worker]` 发送失败或没有消息追加时不残留强制滚底 flag；成功发送 / 本地消息 append 仍滚底。
-- [ ] `[worker]` 恢复历史 anchor 后重新计算 near-bottom；后续 live arrival 不错误拉到底部。
-- [ ] `[worker]` 对以上行为补充回归测试。
-- [ ] `[worker]` `npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` 通过。
-- [ ] `[worker]` `npm run test` 与 `npx tsc -b` 在 `src/IM/frontend` 通过。
-- [ ] `[worker]` 真浏览器 spot check 覆盖切换会话 / 滚动行为，记录 URL / viewport / console / network 观察。
+- [x] `[verifier]` 切换会话时，新会话历史请求未返回前不显示旧会话消息。
+- [x] `[worker]` 共享 user stream 事件不会在 reducer 尚未绑定当前会话时污染消息列表。
+- [x] `[worker]` 发送失败或没有消息追加时不残留强制滚底 flag；成功发送 / 本地消息 append 仍滚底。
+- [x] `[worker]` 恢复历史 anchor 后重新计算 near-bottom；后续 live arrival 不错误拉到底部。
+- [x] `[worker]` 对以上行为补充回归测试。
+- [x] `[worker]` `npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` 通过。
+- [x] `[worker]` `npm run test` 与 `npx tsc -b` 在 `src/IM/frontend` 通过。
+- [x] `[worker]` 真浏览器 spot check 覆盖切换会话 / 滚动行为，记录 URL / viewport / console / network 观察。
 
 ## 测试策略
 
@@ -73,7 +73,7 @@
 
 ### R2 — 滚动状态 correctness 与门禁验收
 
-- 状态: TODO
+- 状态: DONE
 - 步骤:
   - C1: 为 send failure/no append stale force-scroll、anchor restore 后 live arrival 不拉底补红测。
   - C2: 调整 MessagePane force-scroll 生命周期与 restore anchor 后 near-bottom 计算；必要时稳定 `onLoadOlder` callback。

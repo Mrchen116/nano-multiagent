@@ -30,21 +30,41 @@
   - E2E/Regression: `src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx` now covers delayed conversation switch old-message leak and out-of-conversation shared stream pollution before reducer seed.
   - Visual/Interaction: no CSS/layout changes; user-visible difference is that a newly selected conversation shows its empty/loading state instead of previous conversation bubbles.
 - Rollback: Revert C2 `371eca4b` and C1 `5315fd38` to restore previous direct `streamState.messages` render and unfiltered shared stream dispatch.
-- Commits: C1=`5315fd38`, C2=`371eca4b`, C3=TODO
+- Commits: C1=`5315fd38`, C2=`371eca4b`, C3=`0e9f5ea3`
 - Next: R2
 
 ## R2 — 滚动状态 correctness 与门禁验收
 
-- Context: TODO
-- Decision: TODO
-- Rationale: TODO
+- Context: Code review confirmed two remaining scroll-state correctness risks: a local send request could leave `forceScrollToBottomRef` set when `onSend` fails or no local message is appended, and `restoreHistoryAnchor()` changed `scrollTop` without recomputing `nearBottomRef`, so the next live arrival could use stale bottom-follow state.
+- Decision: `MessagePane` now accepts `selfUserId` from `ChatWorkspacePageV2` and only honors a force-scroll request when the last message changed and that last message is authored by the logged-in user. Synchronous `onSend` exceptions and `sendError` clear the flag, and every message-change pass clears the flag after evaluating it. `restoreHistoryAnchor()` now calls `updateNearBottom()` after moving the scroll position.
+- Rationale: The send-scroll override is only valid for the optimistic/local user append caused by the send action; external arrivals after a failed/no-op send must fall back to the normal near-bottom policy. Recomputing near-bottom immediately after anchor restore keeps the live-arrival policy aligned with the actual DOM scroll position instead of a pre-prepend value.
 - Evidence:
-  - Tests: TODO
-  - Entry: TODO
-  - Frontend State Matrix: TODO
-  - Browser QA: TODO
-  - E2E/Regression: TODO
-  - Visual/Interaction: TODO
-- Rollback: TODO
-- Commits: C1=TODO, C2=TODO, C3=TODO
-- Next: TODO
+  - Tests:
+    - `cd src/IM/frontend && npm run test -- src/features/chat/v2/components/message-pane.test.tsx` passed before the R2 fix commit: 1 file / 77 tests, with existing React `act(...)` and `--localstorage-file` warnings.
+    - `cd src/IM/frontend && npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx` passed at final verification: 2 files / 104 tests, with existing React `act(...)`, route, and `--localstorage-file` warnings.
+    - `cd src/IM/frontend && npm run test` passed at final verification: 63 files / 589 tests, with existing React `act(...)`, localstorage, route, and query warning noise.
+    - `cd src/IM/frontend && npx tsc -b` passed.
+  - Entry: Chat workspace now passes `selfUserId` into `MessagePane`; local send append still forces bottom follow, while send failure/no append and external arrivals use the normal near-bottom gate.
+  - Frontend State Matrix: error/submitting covered by send no-append and sendError/exception cleanup paths; default/loading/empty/missing nullable data covered by R1 delayed switch and shared-stream guard; desktop/mobile viewport covered by browser spot check.
+  - Browser QA:
+    - Predecessor artifacts existed in the worktree: `.feat451-m3-c1-snapshot.txt` and `.feat451-m3-c1-snapshot-2.txt` showed a real browser at `http://127.0.0.1:49522/chat/c609b21c647540b2917e897c240e910a` with seeded `M3 Planner`, `M3 Research Squad`, and `M3 Delayed Clean` conversations. Those artifacts also recorded unexpanded console warning/error counts, so they were treated as supporting evidence only.
+    - Fresh spot check used isolated IM + Vite (`IM_PORT=53024`, `VITE_PORT=53025`) with a temporary SQLite DB and Playwright. Desktop viewport `1280x900`: opened `M3 Planner Spot`, switched to `M3 Research Spot`, verified `M3 c1 history 12` was absent from `.chat-pane-messages`, then switched back and injected a live message while reading history. Scroll position stayed `before=50`, `after=50`. Mobile viewport `390x844`: same chat route opened successfully.
+    - Console/network observations from the fresh spot check: no product JS errors and no IM API request failures. Console contained Vite connect logs, React DevTools info, and WebSocket warnings caused by route reload/teardown during the spot check. Failed requests were Google font `woff2` aborts only.
+    - The spot check cleaned its IM/Vite processes and temporary files before exit.
+  - E2E/Regression: `src/IM/frontend/src/features/chat/v2/chat-workspace.integration.test.tsx` covers conversation switch old-message isolation and out-of-conversation shared stream filtering; `src/IM/frontend/src/features/chat/v2/components/message-pane.test.tsx` covers send no-append stale force-scroll, local user append force-scroll, and anchor restore near-bottom recomputation.
+  - Visual/Interaction: no CSS/layout changes; user-visible behavior is scoped to preventing cross-conversation messages and preserving the user's scroll position while reading history.
+- Rollback: Revert C2 `cf137ead` and C1 `e8d31722` to restore previous force-scroll and anchor restore behavior; R1 rollback remains C2 `371eca4b` and C1 `5315fd38`.
+- Commits: C1=`e8d31722`, C2=`cf137ead`, C3=this docs commit
+- Next: Final docs commit, push milestone, merge into `unit/feat-451`, push unit branch, clean worktree/branch.
+
+## Final Gate
+
+- Scope check: code/test changes stayed within the M3 design row (`chat-workspace-page.tsx`, `message-pane.tsx`, `chat-workspace.integration.test.tsx`, `message-pane.test.tsx`) plus milestone `tasks.md` / `progress.md`.
+- Final evidence:
+  - `npm run test -- src/features/chat/v2/chat-workspace.integration.test.tsx src/features/chat/v2/components/message-pane.test.tsx`: passed, 2 files / 104 tests.
+  - `npm run test`: passed, 63 files / 589 tests.
+  - `npx tsc -b`: passed.
+  - Fresh isolated browser spot check: passed; no lingering PID/listening services from the spot check.
+- Cleanup:
+  - Removed untracked predecessor artifacts after extracting evidence: `.feat451-m3-browser.env`, `.feat451-m3-c1-snapshot.txt`, `.feat451-m3-c1-snapshot-2.txt`.
+  - Removed stale dead PID files `.im-feat451-m3.pid` and `.vite-feat451-m3.pid`.
